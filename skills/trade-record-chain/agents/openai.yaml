@@ -1,4 +1,0 @@
-interface:
-  display_name: "Trade Record Chain"
-  short_description: "Append-only BTC trade records for this repo"
-  default_prompt: "Record the BTC trade decision into this repository as an append-only case with immutable metadata and sequenced events."

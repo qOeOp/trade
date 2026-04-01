@@ -1,4 +1,0 @@
-interface:
-  display_name: "BTC Market Brief"
-  short_description: "BTC market structure brief from live data"
-  default_prompt: "Analyze supplied BTC market context and summarize current structure, momentum, volatility, and key levels."

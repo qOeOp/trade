@@ -1,4 +1,0 @@
-interface:
-  display_name: "BTC Trade Scenarios"
-  short_description: "Long and short BTC scenarios with invalidation"
-  default_prompt: "Convert BTC market context into conditional long and short trade scenarios with triggers, invalidation, and targets."
