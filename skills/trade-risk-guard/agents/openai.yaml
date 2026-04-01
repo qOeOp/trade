@@ -1,0 +1,4 @@
+interface:
+  display_name: "Trade Risk Guard"
+  short_description: "Risk guardrails for BTC trading replies"
+  default_prompt: "Review BTC trading guidance for safety, leverage discipline, non-personalized framing, and invalidation clarity."
