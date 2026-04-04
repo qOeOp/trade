@@ -12,10 +12,10 @@
 
 ## 文档分层
 
-1. [docs/vision.md](/Users/vx/WebstormProjects/trade/docs/vision.md)：回答“为什么做”
-2. [docs/prd.md](/Users/vx/WebstormProjects/trade/docs/prd.md)：回答“做什么”
-3. [docs/design-architecture.md](/Users/vx/WebstormProjects/trade/docs/design-architecture.md)：回答“怎么设计”，当前阶段不支持写入
-4. [docs/tech-spec.md](/Users/vx/WebstormProjects/trade/docs/tech-spec.md)：回答“怎么实现”，当前阶段不支持写入
+1. [docs/vision.md](docs/vision.md)：回答“为什么做”
+2. [docs/prd.md](docs/prd.md)：回答“做什么”
+3. [docs/design-architecture.md](docs/design-architecture.md)：回答“怎么设计”，当前阶段不支持写入
+4. [docs/tech-spec.md](docs/tech-spec.md)：回答“怎么实现”，当前阶段不支持写入
 5. `code`：最终落地，不提前在当前阶段展开
 
 ## 当前写作规则
