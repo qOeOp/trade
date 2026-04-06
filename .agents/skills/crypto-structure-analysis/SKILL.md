@@ -37,18 +37,21 @@ python3 -m pip install -r requirements.txt
 
 ## 用法
 
-运行时应由 agent 根据用户上下文显式传入 `--symbol`。
+运行时应由 agent 根据用户上下文显式传入 `--symbol` 和 `--output-dir`。
+
+`--output-dir` 不由脚本内部管理。
+应由大模型先在项目根目录下创建本次记录目录，再把目录路径传给脚本。
 
 示例：
 
 ```bash
 cd .agents/skills/crypto-structure-analysis
-python3 analyze.py --symbol ETH/USDT --exchange binance --timeframes 1w,1d,4h,1h
+python3 analyze.py --symbol ETH/USDT --exchange binance --timeframes 1w,1d,4h,1h --output-dir /Users/vx/WebstormProjects/trade/data/runs/20260406-eth-structure
 ```
 
 ## 输出目录
 
-脚本默认会在 `output/<timestamp>/` 下写出：
+脚本会写入传入的 `--output-dir`：
 
 - `analysis.json`
 - `summary.md`
@@ -57,5 +60,6 @@ python3 analyze.py --symbol ETH/USDT --exchange binance --timeframes 1w,1d,4h,1h
 
 - 默认使用 `Binance` 的公开市场数据，不需要 API key
 - `symbol` 应由大模型根据用户当前分析对象传入，而不是固定写成 BTC
+- `output-dir` 应由大模型在项目根目录下统一管理后传入
 - 这是结构分析工具，不会下单
 - 支撑压力位和趋势线都来自脚本计算，不是模型臆测

@@ -9,7 +9,12 @@ from pathlib import Path
 from typing import Any
 from zoneinfo import ZoneInfo
 
-import pandas as pd
+try:
+    import pandas as pd
+except ImportError as pandas_import_error:  # pragma: no cover - runtime guidance
+    raise SystemExit(
+        "pandas 未安装，请先执行: python3 -m pip install -r requirements.txt"
+    ) from pandas_import_error
 
 
 DEFAULT_LIMITS = {
@@ -70,22 +75,38 @@ class Trendline:
     score: float
 
 
+def pivot_price_key(pivot_point: Pivot) -> float:
+    return pivot_point.price
+
+
+def pivot_index_key(pivot_point: Pivot) -> int:
+    return pivot_point.index
+
+
+def level_sort_key(price_level: PriceLevel) -> tuple[int, int]:
+    return -price_level.touches, -price_level.last_touch_index
+
+
+def trendline_score_key(trendline_entry: Trendline) -> float:
+    return trendline_entry.score
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Crypto multi-timeframe structure analysis")
     parser.add_argument("--symbol", required=True)
     parser.add_argument("--exchange", default="binance")
     parser.add_argument("--timeframes", default="1w,1d,4h,1h")
-    parser.add_argument("--output-dir", default=None)
+    parser.add_argument("--output-dir", required=True)
     return parser.parse_args()
 
 
 def get_exchange(exchange_id: str) -> Any:
     try:
         import ccxt
-    except ImportError as exc:  # pragma: no cover - runtime guidance
+    except ImportError as ccxt_import_error:  # pragma: no cover - runtime guidance
         raise SystemExit(
             "ccxt 未安装，请先执行: python3 -m pip install -r requirements.txt"
-        ) from exc
+        ) from ccxt_import_error
 
     exchange_cls = getattr(ccxt, exchange_id, None)
     if exchange_cls is None:
@@ -157,11 +178,14 @@ def cluster_levels(
     if not pivots:
         return []
 
-    pivots_sorted = sorted(pivots, key=lambda p: p.price)
+    pivots_sorted = sorted(pivots, key=pivot_price_key)
     clusters: list[list[Pivot]] = [[pivots_sorted[0]]]
     for pivot in pivots_sorted[1:]:
         current_cluster = clusters[-1]
-        cluster_avg = sum(item.price for item in current_cluster) / len(current_cluster)
+        cluster_total = 0.0
+        for cluster_pivot in current_cluster:
+            cluster_total += cluster_pivot.price
+        cluster_avg = cluster_total / len(current_cluster)
         tolerance = max(cluster_avg * cluster_pct, atr_value * atr_multiplier)
         if abs(pivot.price - cluster_avg) <= tolerance:
             current_cluster.append(pivot)
@@ -170,11 +194,18 @@ def cluster_levels(
 
     levels: list[PriceLevel] = []
     for cluster in clusters:
-        avg_price = float(sum(item.price for item in cluster) / len(cluster))
+        cluster_total = 0.0
+        for cluster_pivot in cluster:
+            cluster_total += cluster_pivot.price
+        avg_price = float(cluster_total / len(cluster))
         tolerance = max(avg_price * cluster_pct, atr_value * atr_multiplier)
         touch_indices = count_horizontal_touches(df, kind, avg_price, tolerance)
-        touches = max(len(cluster), len(touch_indices))
-        last_touch_index = touch_indices[-1] if touch_indices else max(cluster, key=lambda p: p.index).index
+        cluster_size = len(cluster)
+        touches = max(cluster_size, len(touch_indices))
+        if touch_indices:
+            last_touch_index = touch_indices[-1]
+        else:
+            last_touch_index = max(cluster, key=pivot_index_key).index
         last_touch_time = df.index[last_touch_index].isoformat()
         if touches >= 5:
             strength = "strong"
@@ -182,6 +213,9 @@ def cluster_levels(
             strength = "moderate"
         else:
             strength = "weak"
+        source_prices: list[float] = []
+        for cluster_pivot in cluster:
+            source_prices.append(round(cluster_pivot.price, 2))
         levels.append(
             PriceLevel(
                 price=round(avg_price, 2),
@@ -189,14 +223,20 @@ def cluster_levels(
                 strength=strength,
                 last_touch_index=last_touch_index,
                 last_touch_time=last_touch_time,
-                source_prices=[round(item.price, 2) for item in cluster],
+                source_prices=source_prices,
             )
         )
 
-    levels.sort(key=lambda item: (-item.touches, -item.last_touch_index))
+    levels.sort(key=level_sort_key)
     deduped: list[PriceLevel] = []
     for level in levels:
-        if any(abs(level.price - existing.price) <= max(existing.price * cluster_pct, atr_value * atr_multiplier) for existing in deduped):
+        is_duplicate = False
+        for existing_level in deduped:
+            tolerance = max(existing_level.price * cluster_pct, atr_value * atr_multiplier)
+            if abs(level.price - existing_level.price) <= tolerance:
+                is_duplicate = True
+                break
+        if is_duplicate:
             continue
         deduped.append(level)
     return deduped[:max_levels]
@@ -227,28 +267,47 @@ def select_levels(
 ) -> tuple[list[PriceLevel], list[PriceLevel]]:
     max_distance_ratio = LEVEL_DISTANCE_LIMITS.get(timeframe, 0.10)
 
-    def within_range(level: PriceLevel) -> bool:
-        return abs(level.price - current_price) / current_price <= max_distance_ratio
+    def within_range(price_level: PriceLevel) -> bool:
+        return abs(price_level.price - current_price) / current_price <= max_distance_ratio
 
-    supports = sorted(
-        [level for level in support_levels if level.price < current_price and within_range(level)],
-        key=lambda level: (current_price - level.price, -level.last_touch_index, -level.touches),
-    )
-    resistances = sorted(
-        [level for level in resistance_levels if level.price > current_price and within_range(level)],
-        key=lambda level: (level.price - current_price, -level.last_touch_index, -level.touches),
-    )
+    def support_rank(price_level: PriceLevel) -> tuple[float, int, int]:
+        return (
+            current_price - price_level.price,
+            -price_level.last_touch_index,
+            -price_level.touches,
+        )
+
+    def resistance_rank(price_level: PriceLevel) -> tuple[float, int, int]:
+        return (
+            price_level.price - current_price,
+            -price_level.last_touch_index,
+            -price_level.touches,
+        )
+
+    support_candidates_in_range: list[PriceLevel] = []
+    for support_level in support_levels:
+        if support_level.price < current_price and within_range(support_level):
+            support_candidates_in_range.append(support_level)
+    supports = sorted(support_candidates_in_range, key=support_rank)
+
+    resistance_candidates_in_range: list[PriceLevel] = []
+    for resistance_level in resistance_levels:
+        if resistance_level.price > current_price and within_range(resistance_level):
+            resistance_candidates_in_range.append(resistance_level)
+    resistances = sorted(resistance_candidates_in_range, key=resistance_rank)
 
     if not supports:
-        supports = sorted(
-            [level for level in support_levels if level.price < current_price],
-            key=lambda level: (current_price - level.price, -level.last_touch_index, -level.touches),
-        )[:1]
+        fallback_supports: list[PriceLevel] = []
+        for support_level in support_levels:
+            if support_level.price < current_price:
+                fallback_supports.append(support_level)
+        supports = sorted(fallback_supports, key=support_rank)[:1]
     if not resistances:
-        resistances = sorted(
-            [level for level in resistance_levels if level.price > current_price],
-            key=lambda level: (level.price - current_price, -level.last_touch_index, -level.touches),
-        )[:1]
+        fallback_resistances: list[PriceLevel] = []
+        for resistance_level in resistance_levels:
+            if resistance_level.price > current_price:
+                fallback_resistances.append(resistance_level)
+        resistances = sorted(fallback_resistances, key=resistance_rank)[:1]
 
     return supports[:max_levels], resistances[:max_levels]
 
@@ -361,18 +420,18 @@ def detect_trendlines(
                 )
             )
 
-    candidates.sort(key=lambda line: line.score, reverse=True)
+    candidates.sort(key=trendline_score_key, reverse=True)
     selected: list[Trendline] = []
-    for line in candidates:
+    for candidate_item in candidates:
         duplicate = False
         for existing in selected:
-            projected_gap = abs(line.projected_price - existing.projected_price)
-            slope_gap = abs(line.slope - existing.slope)
+            projected_gap = abs(candidate_item.projected_price - existing.projected_price)
+            slope_gap = abs(candidate_item.slope - existing.slope)
             if projected_gap <= max(atr_value * 0.5, current_price * 0.0025) and slope_gap <= 0.02:
                 duplicate = True
                 break
         if not duplicate:
-            selected.append(line)
+            selected.append(candidate_item)
         if len(selected) >= max_lines:
             break
     return selected
@@ -530,9 +589,9 @@ def build_markdown_report(
 
         lines.extend(["", "### 趋势线", ""])
         if result["trendlines"]:
-            for line in result["trendlines"]:
+            for report_line in result["trendlines"]:
                 lines.append(
-                    f"- `{line['kind']}` line @ `{line['projected_price']}` | touches={line['touches']} | invalidation={line['invalidation']}"
+                    f"- `{report_line['kind']}` line @ `{report_line['projected_price']}` | touches={report_line['touches']} | invalidation={report_line['invalidation']}"
                 )
         else:
             lines.append("- 无有效活跃趋势线")
@@ -576,7 +635,7 @@ def timeframe_analysis(timeframe: str, df: pd.DataFrame) -> dict[str, Any]:
     support_lines = detect_trendlines(df, lows, "support", timeframe, atr_value, current_price)
     resistance_lines = detect_trendlines(df, highs, "resistance", timeframe, atr_value, current_price)
     trendlines = support_lines + resistance_lines
-    trendlines.sort(key=lambda item: item.score, reverse=True)
+    trendlines.sort(key=trendline_score_key, reverse=True)
     trendlines = trendlines[:4]
 
     trend = detect_trend(df, highs, lows)
@@ -588,14 +647,26 @@ def timeframe_analysis(timeframe: str, df: pd.DataFrame) -> dict[str, Any]:
         f"{timeframe} close above {resistances[0].price:.2f}" if resistances else "暂无明确近端压力失效位"
     )
 
+    serialized_supports: list[dict[str, Any]] = []
+    for support_level in supports:
+        serialized_supports.append(asdict(support_level))
+
+    serialized_resistances: list[dict[str, Any]] = []
+    for resistance_level in resistances:
+        serialized_resistances.append(asdict(resistance_level))
+
+    serialized_trendlines: list[dict[str, Any]] = []
+    for trendline_entry in trendlines:
+        serialized_trendlines.append(asdict(trendline_entry))
+
     return {
         "dataframe": df,
         "high_pivots": highs,
         "low_pivots": lows,
         "trend": trend,
-        "supports": [asdict(level) for level in supports],
-        "resistances": [asdict(level) for level in resistances],
-        "trendlines": [asdict(line) for line in trendlines],
+        "supports": serialized_supports,
+        "resistances": serialized_resistances,
+        "trendlines": serialized_trendlines,
         "position_in_range": position_in_range,
         "bullish_invalidation": bullish_invalidation,
         "bearish_invalidation": bearish_invalidation,
@@ -607,23 +678,32 @@ def timeframe_analysis(timeframe: str, df: pd.DataFrame) -> dict[str, Any]:
 def serialize_results(raw_results: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
     serialized: dict[str, dict[str, Any]] = {}
     for timeframe, result in raw_results.items():
-        serialized[timeframe] = {
-            key: value
-            for key, value in result.items()
-            if key not in {"dataframe", "high_pivots", "low_pivots"}
-        }
+        serialized_result: dict[str, Any] = {}
+        for field_name, field_value in result.items():
+            if field_name in {"dataframe", "high_pivots", "low_pivots"}:
+                continue
+            serialized_result[field_name] = field_value
+        serialized[timeframe] = serialized_result
     return serialized
 
 
 def main() -> None:
     args = parse_args()
-    timeframes = [item.strip() for item in args.timeframes.split(",") if item.strip()]
-    ordered_timeframes = [tf for tf in TIMEFRAME_ORDER if tf in timeframes] + [
-        tf for tf in timeframes if tf not in TIMEFRAME_ORDER
-    ]
+    timeframes: list[str] = []
+    for raw_timeframe in args.timeframes.split(","):
+        timeframe = raw_timeframe.strip()
+        if timeframe:
+            timeframes.append(timeframe)
 
-    timestamp = datetime.now(LOCAL_TZ).strftime("%Y%m%d-%H%M%S")
-    base_output = Path(args.output_dir) if args.output_dir else Path(__file__).resolve().parent / "output" / timestamp
+    ordered_timeframes: list[str] = []
+    for canonical_timeframe in TIMEFRAME_ORDER:
+        if canonical_timeframe in timeframes:
+            ordered_timeframes.append(canonical_timeframe)
+    for timeframe in timeframes:
+        if timeframe not in TIMEFRAME_ORDER:
+            ordered_timeframes.append(timeframe)
+
+    base_output = Path(args.output_dir)
     base_output.mkdir(parents=True, exist_ok=True)
 
     exchange = get_exchange(args.exchange)
