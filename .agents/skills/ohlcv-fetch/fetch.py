@@ -26,12 +26,18 @@ DEFAULT_LIMITS = {
 
 TIMEFRAME_ORDER = ["1w", "1d", "4h", "1h"]
 LOCAL_TZ = ZoneInfo("Asia/Shanghai")
+MARKET_TYPE_TO_EXCHANGE = {
+    "spot": "binance",
+    "usdm": "binanceusdm",
+    "coinm": "binancecoinm",
+}
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Fetch OHLCV and write local CSV files")
     parser.add_argument("--symbol", required=True)
     parser.add_argument("--exchange", default="binance")
+    parser.add_argument("--market-type", choices=["spot", "usdm", "coinm"], default="spot")
     parser.add_argument("--timeframes", default="1w,1d,4h,1h")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--limit", type=int, default=None)
@@ -44,6 +50,24 @@ def resolve_cli_path(raw_path: str) -> Path:
     if path.is_absolute():
         return path
     return (Path.cwd() / path).resolve()
+
+
+def resolve_exchange_id(exchange_id: str, market_type: str) -> str:
+    if exchange_id == "binance":
+        return MARKET_TYPE_TO_EXCHANGE[market_type]
+    return exchange_id
+
+
+def resolve_symbol(symbol: str, market_type: str) -> str:
+    if ":" in symbol or "/" not in symbol:
+        return symbol
+
+    base, quote = symbol.split("/", 1)
+    if market_type == "usdm":
+        return f"{base}/{quote}:{quote}"
+    if market_type == "coinm":
+        return f"{base}/{quote}:{base}"
+    return symbol
 
 
 def get_exchange(exchange_id: str) -> Any:
@@ -60,6 +84,11 @@ def get_exchange(exchange_id: str) -> Any:
     exchange = exchange_cls({"enableRateLimit": True})
     exchange.load_markets()
     return exchange
+
+
+def ensure_symbol_supported(exchange: Any, symbol: str) -> None:
+    if symbol not in exchange.markets:
+        raise SystemExit(f"{exchange.id} 不支持该交易对: {symbol}")
 
 
 def fetch_ohlcv(exchange: Any, symbol: str, timeframe: str, limit: int) -> pd.DataFrame:
@@ -94,7 +123,10 @@ def main() -> None:
     base_output = resolve_cli_path(args.output_dir)
     base_output.mkdir(parents=True, exist_ok=True)
 
-    exchange = get_exchange(args.exchange)
+    resolved_exchange_id = resolve_exchange_id(args.exchange, args.market_type)
+    resolved_symbol = resolve_symbol(args.symbol, args.market_type)
+    exchange = get_exchange(resolved_exchange_id)
+    ensure_symbol_supported(exchange, resolved_symbol)
     timeframes = ordered_timeframes(args.timeframes)
     if not timeframes:
         raise SystemExit("没有可抓取的 timeframe")
@@ -102,7 +134,7 @@ def main() -> None:
     manifest_timeframes: dict[str, dict[str, Any]] = {}
     for timeframe in timeframes:
         limit = args.limit if args.limit is not None else DEFAULT_LIMITS.get(timeframe, 300)
-        df = fetch_ohlcv(exchange, args.symbol, timeframe, limit)
+        df = fetch_ohlcv(exchange, resolved_symbol, timeframe, limit)
         csv_path = base_output / f"{timeframe}.csv"
         df_to_write = df.copy()
         df_to_write["date"] = df_to_write["date"].dt.strftime("%Y-%m-%dT%H:%M:%SZ")
@@ -114,8 +146,11 @@ def main() -> None:
         }
 
     payload = {
-        "symbol": args.symbol,
-        "exchange": args.exchange,
+        "symbol": resolved_symbol,
+        "requested_symbol": args.symbol,
+        "exchange": resolved_exchange_id,
+        "requested_exchange": args.exchange,
+        "market_type": args.market_type,
         "generated_at": datetime.now(LOCAL_TZ).isoformat(),
         "output_dir": ".",
         "timeframes": manifest_timeframes,
