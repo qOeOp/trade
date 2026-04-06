@@ -1,0 +1,649 @@
+{
+  "symbol": "BTC/USDT",
+  "exchange": "binance",
+  "generated_at": "2026-04-06T05:47:25.239089+00:00",
+  "timeframes": {
+    "1w": {
+      "trend": "neutral",
+      "supports": [
+        {
+          "price": 60000.0,
+          "touches": 17,
+          "strength": "strong",
+          "last_touch_index": 297,
+          "last_touch_time": "2026-03-23T00:00:00+00:00",
+          "source_prices": [
+            60000.0
+          ]
+        },
+        {
+          "price": 53012.92,
+          "touches": 15,
+          "strength": "strong",
+          "last_touch_index": 221,
+          "last_touch_time": "2024-10-07T00:00:00+00:00",
+          "source_prices": [
+            49000.0,
+            53485.93,
+            56552.82
+          ]
+        }
+      ],
+      "resistances": [
+        {
+          "price": 97924.49,
+          "touches": 10,
+          "strength": "strong",
+          "last_touch_index": 288,
+          "last_touch_time": "2026-01-19T00:00:00+00:00",
+          "source_prices": [
+            97924.49
+          ]
+        }
+      ],
+      "trendlines": [
+        {
+          "kind": "resistance",
+          "anchor_indices": [
+            120,
+            287
+          ],
+          "anchor_prices": [
+            21480.65,
+            97924.49
+          ],
+          "touches": 14,
+          "slope": 457.747545,
+          "intercept": -33449.06,
+          "projected_price": 103417.46,
+          "last_touch_index": 286,
+          "last_touch_time": "2026-01-05T00:00:00+00:00",
+          "invalidation": "1w close above trendline (103417.46)",
+          "score": 261.02
+        },
+        {
+          "kind": "support",
+          "anchor_indices": [
+            123,
+            138
+          ],
+          "anchor_prices": [
+            15476.0,
+            19549.09
+          ],
+          "touches": 14,
+          "slope": 271.539333,
+          "intercept": -17923.34,
+          "projected_price": 63266.92,
+          "last_touch_index": 298,
+          "last_touch_time": "2026-03-30T00:00:00+00:00",
+          "invalidation": "1w close below trendline (63266.92)",
+          "score": 252.45
+        },
+        {
+          "kind": "support",
+          "anchor_indices": [
+            123,
+            290
+          ],
+          "anchor_prices": [
+            15476.0,
+            60000.0
+          ],
+          "touches": 13,
+          "slope": 266.610778,
+          "intercept": -17317.13,
+          "projected_price": 62399.5,
+          "last_touch_index": 297,
+          "last_touch_time": "2026-03-23T00:00:00+00:00",
+          "invalidation": "1w close below trendline (62399.50)",
+          "score": 246.5
+        },
+        {
+          "kind": "resistance",
+          "anchor_indices": [
+            156,
+            287
+          ],
+          "anchor_prices": [
+            31804.2,
+            97924.49
+          ],
+          "touches": 11,
+          "slope": 504.735038,
+          "intercept": -46934.47,
+          "projected_price": 103981.31,
+          "last_touch_index": 286,
+          "last_touch_time": "2026-01-05T00:00:00+00:00",
+          "invalidation": "1w close above trendline (103981.31)",
+          "score": 204.07
+        }
+      ],
+      "position_in_range": "lower-quarter",
+      "bullish_invalidation": "1w close below 60000.00",
+      "bearish_invalidation": "1w close above 97924.49",
+      "current_price": 69199.99,
+      "atr_14": 7885.62
+    },
+    "1d": {
+      "trend": "bearish",
+      "supports": [
+        {
+          "price": 65245.5,
+          "touches": 9,
+          "strength": "strong",
+          "last_touch_index": 317,
+          "last_touch_time": "2026-04-04T00:00:00+00:00",
+          "source_prices": [
+            65000.0,
+            65118.0,
+            65618.49
+          ]
+        }
+      ],
+      "resistances": [
+        {
+          "price": 71504.54,
+          "touches": 10,
+          "strength": "strong",
+          "last_touch_index": 305,
+          "last_touch_time": "2026-03-23T00:00:00+00:00",
+          "source_prices": [
+            70983.0,
+            72026.09
+          ]
+        },
+        {
+          "price": 74050.0,
+          "touches": 4,
+          "strength": "moderate",
+          "last_touch_index": 300,
+          "last_touch_time": "2026-03-18T00:00:00+00:00",
+          "source_prices": [
+            74050.0
+          ]
+        }
+      ],
+      "trendlines": [
+        {
+          "kind": "resistance",
+          "anchor_indices": [
+            84,
+            307
+          ],
+          "anchor_prices": [
+            124474.0,
+            72026.09
+          ],
+          "touches": 13,
+          "slope": -235.192422,
+          "intercept": 144230.16,
+          "projected_price": 69203.78,
+          "last_touch_index": 318,
+          "last_touch_time": "2026-04-05T00:00:00+00:00",
+          "invalidation": "1d close above trendline (69203.78)",
+          "score": 251.84
+        },
+        {
+          "kind": "resistance",
+          "anchor_indices": [
+            119,
+            307
+          ],
+          "anchor_prices": [
+            117900.0,
+            72026.09
+          ],
+          "touches": 13,
+          "slope": -244.01016,
+          "intercept": 146937.21,
+          "projected_price": 69097.97,
+          "last_touch_index": 318,
+          "last_touch_time": "2026-04-05T00:00:00+00:00",
+          "invalidation": "1d close above trendline (69097.97)",
+          "score": 248.99
+        },
+        {
+          "kind": "support",
+          "anchor_indices": [
+            127,
+            311
+          ],
+          "anchor_prices": [
+            108620.07,
+            65000.0
+          ],
+          "touches": 12,
+          "slope": -237.065598,
+          "intercept": 138727.4,
+          "projected_price": 63103.48,
+          "last_touch_index": 309,
+          "last_touch_time": "2026-03-27T00:00:00+00:00",
+          "invalidation": "1d close below trendline (63103.48)",
+          "score": 227.81
+        },
+        {
+          "kind": "resistance",
+          "anchor_indices": [
+            84,
+            299
+          ],
+          "anchor_prices": [
+            124474.0,
+            76000.0
+          ],
+          "touches": 11,
+          "slope": -225.460465,
+          "intercept": 143412.68,
+          "projected_price": 71490.79,
+          "last_touch_index": 299,
+          "last_touch_time": "2026-03-17T00:00:00+00:00",
+          "invalidation": "1d close above trendline (71490.79)",
+          "score": 214.11
+        }
+      ],
+      "position_in_range": "mid-range",
+      "bullish_invalidation": "1d close below 65245.50",
+      "bearish_invalidation": "1d close above 71504.54",
+      "current_price": 69199.99,
+      "atr_14": 2095.81
+    },
+    "4h": {
+      "trend": "bullish-leaning",
+      "supports": [
+        {
+          "price": 68898.11,
+          "touches": 16,
+          "strength": "strong",
+          "last_touch_index": 418,
+          "last_touch_time": "2026-04-06T00:00:00+00:00",
+          "source_prices": [
+            68793.35,
+            68923.07,
+            68977.91
+          ]
+        },
+        {
+          "price": 67360.66,
+          "touches": 21,
+          "strength": "strong",
+          "last_touch_index": 416,
+          "last_touch_time": "2026-04-05T16:00:00+00:00",
+          "source_prices": [
+            67360.66
+          ]
+        },
+        {
+          "price": 66616.36,
+          "touches": 23,
+          "strength": "strong",
+          "last_touch_index": 414,
+          "last_touch_time": "2026-04-05T08:00:00+00:00",
+          "source_prices": [
+            66611.66,
+            66621.06
+          ]
+        },
+        {
+          "price": 65710.79,
+          "touches": 16,
+          "strength": "strong",
+          "last_touch_index": 397,
+          "last_touch_time": "2026-04-02T12:00:00+00:00",
+          "source_prices": [
+            65548.25,
+            65618.49,
+            65631.83,
+            65712.12,
+            65756.0,
+            65998.05
+          ]
+        },
+        {
+          "price": 65058.0,
+          "touches": 8,
+          "strength": "strong",
+          "last_touch_index": 375,
+          "last_touch_time": "2026-03-29T20:00:00+00:00",
+          "source_prices": [
+            65000.0,
+            65056.0,
+            65118.0
+          ]
+        }
+      ],
+      "resistances": [
+        {
+          "price": 69310.0,
+          "touches": 15,
+          "strength": "strong",
+          "last_touch_index": 417,
+          "last_touch_time": "2026-04-05T20:00:00+00:00",
+          "source_prices": [
+            69310.0
+          ]
+        },
+        {
+          "price": 70042.42,
+          "touches": 16,
+          "strength": "strong",
+          "last_touch_index": 354,
+          "last_touch_time": "2026-03-26T08:00:00+00:00",
+          "source_prices": [
+            69988.83,
+            70096.0
+          ]
+        },
+        {
+          "price": 71150.31,
+          "touches": 18,
+          "strength": "strong",
+          "last_touch_index": 352,
+          "last_touch_time": "2026-03-26T00:00:00+00:00",
+          "source_prices": [
+            70983.0,
+            71100.94,
+            71367.0
+          ]
+        },
+        {
+          "price": 71928.58,
+          "touches": 11,
+          "strength": "strong",
+          "last_touch_index": 348,
+          "last_touch_time": "2026-03-25T08:00:00+00:00",
+          "source_prices": [
+            71751.33,
+            71777.0,
+            71817.09,
+            72026.09,
+            72271.41
+          ]
+        },
+        {
+          "price": 73981.87,
+          "touches": 5,
+          "strength": "strong",
+          "last_touch_index": 306,
+          "last_touch_time": "2026-03-18T08:00:00+00:00",
+          "source_prices": [
+            73913.74,
+            74050.0
+          ]
+        }
+      ],
+      "trendlines": [
+        {
+          "kind": "support",
+          "anchor_indices": [
+            207,
+            413
+          ],
+          "anchor_prices": [
+            65056.0,
+            66611.66
+          ],
+          "touches": 13,
+          "slope": 7.551748,
+          "intercept": 63492.79,
+          "projected_price": 66656.97,
+          "last_touch_index": 413,
+          "last_touch_time": "2026-04-05T04:00:00+00:00",
+          "invalidation": "4h close below trendline (66656.97)",
+          "score": 245.78
+        },
+        {
+          "kind": "resistance",
+          "anchor_indices": [
+            183,
+            318
+          ],
+          "anchor_prices": [
+            69988.83,
+            71367.0
+          ],
+          "touches": 13,
+          "slope": 10.208667,
+          "intercept": 68120.64,
+          "projected_price": 72398.08,
+          "last_touch_index": 350,
+          "last_touch_time": "2026-03-25T16:00:00+00:00",
+          "invalidation": "4h close above trendline (72398.08)",
+          "score": 238.89
+        },
+        {
+          "kind": "resistance",
+          "anchor_indices": [
+            202,
+            325
+          ],
+          "anchor_prices": [
+            68199.99,
+            71100.94
+          ],
+          "touches": 13,
+          "slope": 23.584959,
+          "intercept": 63435.83,
+          "projected_price": 73317.93,
+          "last_touch_index": 350,
+          "last_touch_time": "2026-03-25T16:00:00+00:00",
+          "invalidation": "4h close above trendline (73317.93)",
+          "score": 236.23
+        },
+        {
+          "kind": "support",
+          "anchor_indices": [
+            249,
+            413
+          ],
+          "anchor_prices": [
+            65618.49,
+            66611.66
+          ],
+          "touches": 12,
+          "slope": 6.055915,
+          "intercept": 64110.57,
+          "projected_price": 66648.0,
+          "last_touch_index": 413,
+          "last_touch_time": "2026-04-05T04:00:00+00:00",
+          "invalidation": "4h close below trendline (66648.00)",
+          "score": 224.41
+        }
+      ],
+      "position_in_range": "upper-middle",
+      "bullish_invalidation": "4h close below 68898.11",
+      "bearish_invalidation": "4h close above 69310.00",
+      "current_price": 69199.99,
+      "atr_14": 541.4
+    },
+    "1h": {
+      "trend": "neutral",
+      "supports": [
+        {
+          "price": 68858.21,
+          "touches": 13,
+          "strength": "strong",
+          "last_touch_index": 514,
+          "last_touch_time": "2026-04-06T00:00:00+00:00",
+          "source_prices": [
+            68793.35,
+            68923.07
+          ]
+        },
+        {
+          "price": 68102.72,
+          "touches": 14,
+          "strength": "strong",
+          "last_touch_index": 513,
+          "last_touch_time": "2026-04-05T23:00:00+00:00",
+          "source_prices": [
+            67918.83,
+            68110.55,
+            68153.0,
+            68228.5
+          ]
+        },
+        {
+          "price": 67360.66,
+          "touches": 16,
+          "strength": "strong",
+          "last_touch_index": 512,
+          "last_touch_time": "2026-04-05T22:00:00+00:00",
+          "source_prices": [
+            67360.66
+          ]
+        },
+        {
+          "price": 66693.79,
+          "touches": 25,
+          "strength": "strong",
+          "last_touch_index": 504,
+          "last_touch_time": "2026-04-05T14:00:00+00:00",
+          "source_prices": [
+            66611.66,
+            66775.91
+          ]
+        },
+        {
+          "price": 66198.65,
+          "touches": 14,
+          "strength": "strong",
+          "last_touch_index": 455,
+          "last_touch_time": "2026-04-03T13:00:00+00:00",
+          "source_prices": [
+            65998.05,
+            66233.13,
+            66281.4,
+            66282.0
+          ]
+        }
+      ],
+      "resistances": [
+        {
+          "price": 69240.89,
+          "touches": 12,
+          "strength": "strong",
+          "last_touch_index": 519,
+          "last_touch_time": "2026-04-06T05:00:00+00:00",
+          "source_prices": [
+            69171.77,
+            69310.0
+          ]
+        },
+        {
+          "price": 71197.92,
+          "touches": 17,
+          "strength": "strong",
+          "last_touch_index": 253,
+          "last_touch_time": "2026-03-26T03:00:00+00:00",
+          "source_prices": [
+            70923.75,
+            71100.94,
+            71367.0,
+            71400.0
+          ]
+        },
+        {
+          "price": 71818.99,
+          "touches": 8,
+          "strength": "strong",
+          "last_touch_index": 248,
+          "last_touch_time": "2026-03-25T22:00:00+00:00",
+          "source_prices": [
+            71613.79,
+            71817.09,
+            72026.09
+          ]
+        }
+      ],
+      "trendlines": [
+        {
+          "kind": "support",
+          "anchor_indices": [
+            322,
+            470
+          ],
+          "anchor_prices": [
+            66281.4,
+            66775.91
+          ],
+          "touches": 24,
+          "slope": 3.341284,
+          "intercept": 65205.51,
+          "projected_price": 66939.63,
+          "last_touch_index": 502,
+          "last_touch_time": "2026-04-05T12:00:00+00:00",
+          "invalidation": "1h close below trendline (66939.63)",
+          "score": 438.16
+        },
+        {
+          "kind": "support",
+          "anchor_indices": [
+            175,
+            470
+          ],
+          "anchor_prices": [
+            67360.66,
+            66775.91
+          ],
+          "touches": 20,
+          "slope": -1.982203,
+          "intercept": 67707.55,
+          "projected_price": 66678.78,
+          "last_touch_index": 502,
+          "last_touch_time": "2026-04-05T12:00:00+00:00",
+          "invalidation": "1h close below trendline (66678.78)",
+          "score": 372.87
+        },
+        {
+          "kind": "support",
+          "anchor_indices": [
+            175,
+            496
+          ],
+          "anchor_prices": [
+            67360.66,
+            66611.66
+          ],
+          "touches": 20,
+          "slope": -2.333333,
+          "intercept": 67768.99,
+          "projected_price": 66557.99,
+          "last_touch_index": 502,
+          "last_touch_time": "2026-04-05T12:00:00+00:00",
+          "invalidation": "1h close below trendline (66557.99)",
+          "score": 372.57
+        },
+        {
+          "kind": "resistance",
+          "anchor_indices": [
+            325,
+            411
+          ],
+          "anchor_prices": [
+            67130.5,
+            69171.77
+          ],
+          "touches": 8,
+          "slope": 23.735698,
+          "intercept": 59416.4,
+          "projected_price": 71735.23,
+          "last_touch_index": 409,
+          "last_touch_time": "2026-04-01T15:00:00+00:00",
+          "invalidation": "1h close above trendline (71735.23)",
+          "score": 144.54
+        }
+      ],
+      "position_in_range": "upper-quarter",
+      "bullish_invalidation": "1h close below 68858.21",
+      "bearish_invalidation": "1h close above 69240.89",
+      "current_price": 69205.21,
+      "atr_14": 399.19
+    }
+  },
+  "summary": {
+    "bias": "轻度偏空",
+    "suggestion": "更适合等反弹或低周期失守"
+  },
+  "output_dir": "/Users/vx/WebstormProjects/trade/.cache/test-output/btc-structure-4"
+}

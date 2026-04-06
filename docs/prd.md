@@ -75,25 +75,24 @@
       +--> apply to replay
 ```
 
-这里表达的不是“章节顺序”，而是固定流程骨架。
+这里表达的不是“章节顺序”，而是固定流程骨架。读法也不要按章节往下读，而是先看阶段，再看阶段内怎么流转。
 
-其中最关键的是：
+#### 先看阶段
 
-- 图里节点改成英文，只是为了保证 ASCII 可读；具体含义以下面规则为准
-- 先按 `开仓前 / 持仓中 / 平仓后` 三段理解，不按线性章节理解
-- 图里的主操作对象是 `交易链` 下的当前交易计划，不是单订单；订单只是执行层结果
-- `PLAN` / `PLAN-POS` 对应后文章节里的 `决策`，其输出是当前交易计划；正常应由当前观察语境和当前适用策略分支版本共同推导
-- `RECOVERY` 是正式阶段，用来对齐真实状态，再决定回到 `OBSERVE / PLAN`、`WAIT-CONDITION`、`WAIT-UNTIL-FILL` 或 `MANAGE`
-- 开仓前主回路不是线性推进，而是 `OBSERVE <-> PLAN <-> ALIGN`
-- `ALIGN` / `ALIGN-POS` 是正式分歧处理点，必须承接 `接受建议`、`软分歧后改计划继续`、`硬性阻断`、`状态不清需恢复`，并同时保留 `系统建议`、`用户确认`、`最终执行计划`
-- `WAIT-CONDITION` 表达“计划仍有效，但条件还没成熟，暂时还没有挂单”；它是计划级等待，不等于订单等待
-- `WAIT-UNTIL-FILL` 表达“已知有挂单在等待成交”；它承接执行中的订单或订单组状态，必须显式覆盖 `cancel / amend / expire / partial fill / full fill`
-- `MKT` 直接进入 `IN-POS`；只有 `PLACE` 才进入 `WAIT-UNTIL-FILL`
-- `MANAGE` 不是单点，而是持仓语境下重跑一轮 `OBS-POS <-> PLAN-POS <-> ALIGN-POS`；继续持仓动作成交后回到 `MANAGE`，平仓全部成交或阶段性闭合后进入 `REVIEW-QUEUE`
-- `REVIEW-QUEUE` 承接已闭链但暂未复盘的交易链；`REVIEW` 既能把结论直接回接下一轮 `OBSERVE / PLAN`，也能产出候选策略
-- `STRATEGY-POOL` 不是主线阶段，而是长期对象；`REVIEW` 和 `RESEARCH` 产出的候选策略都先进入这里，再统一进入 `BACKTEST`
-- `RESEARCH` 是横向输入源，可服务 `OBSERVE / PLAN`、`MANAGE` 和 `STRATEGY-POOL`；`REPLAY` 是锁住未来信息后的历史语境重跑，不等于 `BACKTEST`
-- `BACKTEST` 是统一验证口，既可作用于用户历史交易，也可作用于回放语境；`ITERATE` 负责把结果回写 `STRATEGY-POOL`，并明确下一轮回到 `OBSERVE / PLAN` 还是 `RECOVERY`
+- 图里节点改成英文，只是为了保证 ASCII 可读；具体业务含义以下面规则为准。
+- `ENTRY / RESUME -> RECOVERY` 是统一入口。每次重新进入系统，都先对齐真实状态，再决定当前交易链落回 `OBSERVE / PLAN`、`WAIT-CONDITION`、`WAIT-UNTIL-FILL` 或 `MANAGE`。
+- `PRE-TRADE` 对应开仓前阶段。核心不是线性往前走，而是在 `OBSERVE <-> PLAN <-> ALIGN` 之间反复收敛；计划成立但条件未到时进入 `WAIT-CONDITION`，放弃则回到 `OBSERVE / PLAN`，`MKT` 直接进入 `IN-POS`，只有 `PLACE` 才进入 `WAIT-UNTIL-FILL`。
+- `IN-POSITION` 对应持仓中阶段。`MANAGE` 不是单点，而是持仓语境下重跑一轮 `OBS-POS <-> PLAN-POS <-> ALIGN-POS`；加仓、减仓、调杠杆、止损、止盈等动作执行后回到 `MANAGE`，完整平仓或阶段性闭合后进入 `REVIEW-QUEUE`。
+- `POST-TRADE` 对应平仓后与离线演化阶段。`REVIEW-QUEUE -> REVIEW -> STRATEGY-POOL -> BACKTEST -> ITERATE` 负责把已闭链样本变成候选策略、验证结果和下一轮可用版本；其中 `STRATEGY-POOL` 是长期对象，不是主线阶段。
+- `RESEARCH` 和 `REPLAY` 是两条可独立运行、也能回接主线的支线。`RESEARCH` 是横向输入源，`REPLAY` 是锁住未来信息后的历史语境重跑；两者都不等于 `BACKTEST`。
+
+#### 再看阶段内流转
+
+- 图里的主操作对象是 `交易链` 下的当前交易计划，不是单订单；订单只是执行层结果。`PLAN` / `PLAN-POS` 对应后文章节里的 `决策`，其输出应是当前观察语境和当前适用策略分支版本共同推导出的当前交易计划。
+- `ALIGN` / `ALIGN-POS` 是正式分歧处理点，不是备注位。它必须承接 `接受建议`、`软分歧后改计划继续`、`硬性阻断`、`状态不清需恢复`，并同时保留 `系统建议`、`用户确认`、`最终执行计划`。
+- `WAIT-CONDITION` 和 `WAIT-UNTIL-FILL` 是两种不同等待。前者表示“计划仍有效，但条件还没成熟，暂时还没有挂单”；后者表示“已知有挂单在等待成交”，并且必须显式覆盖 `cancel / amend / expire / partial fill / full fill`。
+- `REVIEW-QUEUE` 承接已闭链但暂未复盘的交易链；`REVIEW` 既能把结论直接回接下一轮 `OBSERVE / PLAN`，也能产出候选策略。`REVIEW` 和 `RESEARCH` 产出的候选策略都先进入 `STRATEGY-POOL`，再统一进入 `BACKTEST`。
+- `BACKTEST` 是统一验证口，既可作用于用户历史交易，也可作用于回放语境；`ITERATE` 负责把结果回写 `STRATEGY-POOL`，并明确下一轮应该直接回到 `OBSERVE / PLAN`，还是先经 `RECOVERY` 再进入主线。
 
 先把这张图定下来，后面 2-11 章再分别定义自己在这张图里负责什么、接什么输入、给谁输出。
 
