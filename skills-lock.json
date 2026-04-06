@@ -1,0 +1,30 @@
+{
+  "version": 1,
+  "skills": {
+    "ccxt-csharp": {
+      "source": "ccxt/ccxt",
+      "sourceType": "github",
+      "computedHash": "93fe82287f58e573e7c384c8c43ef4e54ba2a1f25ff26a73ca1d81933a05aa5f"
+    },
+    "ccxt-go": {
+      "source": "ccxt/ccxt",
+      "sourceType": "github",
+      "computedHash": "240a7b36c829dd6bd0da30ee400ed1b34f6b4abcd1a2db97afc11f4ee316562c"
+    },
+    "ccxt-php": {
+      "source": "ccxt/ccxt",
+      "sourceType": "github",
+      "computedHash": "59a1003bbc5dffda1976ca254c5d2a94b8fc3c94656859f743fbc3ce3a51a68d"
+    },
+    "ccxt-python": {
+      "source": "ccxt/ccxt",
+      "sourceType": "github",
+      "computedHash": "a1781c81c8bc00f2333e48dd40e3ea00a7896c9b652bcb04862f1299467e7b67"
+    },
+    "ccxt-typescript": {
+      "source": "ccxt/ccxt",
+      "sourceType": "github",
+      "computedHash": "85b06f3a0dad224d2fb99f0293f463a89abbe4a2e2019e72e2439ee111847b47"
+    }
+  }
+}
