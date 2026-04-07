@@ -1,0 +1,4 @@
+interface:
+  display_name: "OHLCV Fetch"
+  short_description: "从交易所抓取多周期 OHLCV 并写入本地分析目录"
+  default_prompt: "使用 $ohlcv-fetch 抓取指定交易对的 OHLCV，并把结果写到本地目录。"

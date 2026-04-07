@@ -13,7 +13,7 @@ try:
     import pandas as pd
 except ImportError as pandas_import_error:  # pragma: no cover - runtime guidance
     raise SystemExit(
-        "pandas 未安装，请先执行: python3 -m pip install -r requirements.txt"
+        f"pandas 未安装，请先执行: python3 -m pip install -r {Path(__file__).with_name('requirements.txt')}"
     ) from pandas_import_error
 
 
@@ -26,6 +26,7 @@ DEFAULT_LIMITS = {
 
 TIMEFRAME_ORDER = ["1w", "1d", "4h", "1h"]
 LOCAL_TZ = ZoneInfo("Asia/Shanghai")
+REQUIREMENTS_FILE = Path(__file__).with_name("requirements.txt")
 MARKET_TYPE_TO_EXCHANGE = {
     "spot": "binance",
     "usdm": "binanceusdm",
@@ -75,7 +76,7 @@ def get_exchange(exchange_id: str) -> Any:
         import ccxt
     except ImportError as ccxt_import_error:  # pragma: no cover - runtime guidance
         raise SystemExit(
-            "ccxt 未安装，请先执行: python3 -m pip install -r requirements.txt"
+            f"ccxt 未安装，请先执行: python3 -m pip install -r {REQUIREMENTS_FILE}"
         ) from ccxt_import_error
 
     exchange_cls = getattr(ccxt, exchange_id, None)

@@ -3,7 +3,8 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-VENV_DIR="$SCRIPT_DIR/.venv"
+SKILL_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+VENV_DIR="$SKILL_DIR/.venv"
 REQ_FILE="$SCRIPT_DIR/requirements.txt"
 STAMP_FILE="$VENV_DIR/.requirements.sha256"
 CURRENT_HASH="$(shasum -a 256 "$REQ_FILE" | awk '{print $1}')"

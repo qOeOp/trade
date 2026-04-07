@@ -15,7 +15,7 @@ try:
     import pandas as pd
 except ImportError as pandas_import_error:  # pragma: no cover - runtime guidance
     raise SystemExit(
-        "pandas 未安装，请先执行: python3 -m pip install -r requirements.txt"
+        f"pandas 未安装，请先执行: python3 -m pip install -r {Path(__file__).with_name('requirements.txt')}"
     ) from pandas_import_error
 
 

@@ -1,80 +1,44 @@
 ---
 name: ohlcv-fetch
 description: >-
-  Use when the user needs exchange OHLCV data fetched into local files for
-  later analysis. This skill uses CCXT to fetch crypto candle data and writes
-  per-timeframe CSV files plus a manifest.json.
+  Fetch exchange OHLCV data into local files for later analysis. Use when
+  Codex needs to pull crypto candle data from an exchange, normalize Binance
+  spot/usdm/coinm symbols, and write per-timeframe CSV files plus manifest.json
+  for downstream analysis.
 ---
 
 # OHLCV Fetch
 
-这个 skill 只负责从交易所抓取 OHLCV，并写到本地文件。
+从交易所抓取 OHLCV 并写入本地目录。
 
-不做：
+## 使用流程
 
-- 技术指标计算
-- 支撑压力判断
-- 趋势线判断
+1. 明确 `--symbol`、`--market-type`、`--output-dir`。
+2. 缺依赖时，执行 `python3 -m pip install -r scripts/requirements.txt`。
+3. 运行 `python3 scripts/fetch.py ...`。
+4. 把输出目录里的 `manifest.json` 交给下游分析 skill。
 
-## 默认周期
+## 运行约束
 
-- `1w`
-- `1d`
-- `4h`
-- `1h`
+- 只抓 OHLCV，不做技术分析。
+- 默认周期是 `1w,1d,4h,1h`；需要变更时显式传 `--timeframes`。
+- 对 Binance 显式区分 `spot`、`usdm`、`coinm`，不要省略市场类型。
+- 由当前工作区或显式参数决定 `--output-dir`，不要写死仓库外路径。
 
-## 安装
+## 关键输入
 
-```bash
-cd .agents/skills/ohlcv-fetch
-python3 -m pip install -r requirements.txt
-```
-
-## 用法
-
-运行时应由 agent 显式传入：
-
-- `--symbol`
-- `--market-type`
-- `--output-dir`
-
-`--output-dir` 可以由 agent 基于当前工作区路径、环境变量或运行上下文先拼好。
-
-对于 Binance，`--market-type` 应明确指定：
-
-- `spot`：现货，默认值
-- `usdm`：U 本位合约
-- `coinm`：币本位合约
-
-当使用 Binance 合约时，skill 会自动把常见输入转换成 CCXT 标准 symbol：
-
-- `BTC/USDT` + `usdm` -> `BTC/USDT:USDT`
-- `BTC/USD` + `coinm` -> `BTC/USD:BTC`
-
-示例：
-
-```bash
-cd .agents/skills/ohlcv-fetch
-export RUN_ROOT=../../data/runs
-python3 fetch.py --symbol ETH/USDT --exchange binance --market-type spot --timeframes 1w,1d,4h,1h --output-dir "$RUN_ROOT/20260406-eth-ohlcv"
-python3 fetch.py --symbol BTC/USDT --exchange binance --market-type usdm --timeframes 1w,1d,4h,1h --output-dir "$RUN_ROOT/20260406-btc-perp-ohlcv"
-```
+- `--symbol`: 如 `ETH/USDT`
+- `--market-type`: `spot`、`usdm`、`coinm`
+- `--output-dir`: 目标目录
+- `--exchange`: 默认 `binance`
+- `--timeframes`: 逗号分隔周期列表
+- `--limit`: 可选；未传时按内置默认值抓取
 
 ## 输出
 
-脚本会写入传入的 `--output-dir`：
+脚本会写入：
 
 - `manifest.json`
-- `1w.csv`
-- `1d.csv`
-- `4h.csv`
-- `1h.csv`
+- `<timeframe>.csv`
 
-## 说明
-
-- 默认使用公开市场数据，不需要 API key
-- `symbol`、`market-type` 和 `output-dir` 都应由大模型显式决定并传入
-- 路径可以使用环境变量或 agent 拼好的相对路径
-- `manifest.json` 中保存的是相对文件路径，便于迁移和复用
-- `manifest.json` 会同时记录请求值和实际解析后的 `exchange` / `symbol`
-- 下游的 `tech-indicators` 应读取这里产出的 `manifest.json`
+`manifest.json` 会记录请求值、解析后的 `exchange`/`symbol`、生成时间和各周期文件信息。

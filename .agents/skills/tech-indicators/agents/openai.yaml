@@ -1,0 +1,4 @@
+interface:
+  display_name: "Tech Indicators"
+  short_description: "基于本地 OHLCV manifest 生成指标结构与摘要结果"
+  default_prompt: "使用 $tech-indicators 基于本地 OHLCV manifest 生成技术分析结果。"
