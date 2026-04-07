@@ -22,6 +22,7 @@ except ImportError as pandas_import_error:  # pragma: no cover - runtime guidanc
 CATALOG_FILE = "indicator_catalog.json"
 TIMEFRAME_ORDER = ["1w", "1d", "4h", "1h"]
 LOCAL_TZ = ZoneInfo("Asia/Shanghai")
+DEFAULT_EXCLUDED_INDICATORS = {"supertrend", "pivots_points"}
 
 PIVOT_WINDOWS = {
     "1w": 4,
@@ -118,7 +119,11 @@ def load_indicator_config(config_path: str | None) -> dict[str, dict[str, Any]]:
 
 def selected_indicator_names(raw_value: str, catalog: dict[str, dict[str, Any]]) -> list[str]:
     if raw_value.strip().lower() == "all":
-        return list(catalog.keys())
+        return [
+            indicator_name
+            for indicator_name in catalog.keys()
+            if indicator_name not in DEFAULT_EXCLUDED_INDICATORS
+        ]
 
     selected: list[str] = []
     for raw_name in raw_value.split(","):
@@ -261,12 +266,7 @@ def serialize_value(value: Any, base_columns: set[str]) -> Any:
 
 
 def import_indicator_callable(module_name: str, function_name: str) -> Any:
-    try:
-        module = importlib.import_module(module_name)
-    except ImportError as import_error:  # pragma: no cover - runtime guidance
-        raise SystemExit(
-            "technical 或其依赖未安装，请先执行: python3 -m pip install -r requirements.txt"
-        ) from import_error
+    module = importlib.import_module(module_name)
     return getattr(module, function_name)
 
 
@@ -278,10 +278,10 @@ def execute_indicator(
 ) -> dict[str, Any]:
     params = dict(spec.get("defaults", {}))
     params.update(config)
-    func = import_indicator_callable(spec["module"], spec["function"])
     base_columns = set(dataframe.columns)
 
     try:
+        func = import_indicator_callable(spec["module"], spec["function"])
         raw_result = func(dataframe.copy(), **params)
         serialized_output = serialize_value(raw_result, base_columns)
 
@@ -303,6 +303,20 @@ def execute_indicator(
             "category": spec["category"],
             "params": params,
             "output": serialized_output,
+        }
+    except ImportError as indicator_error:
+        return {
+            "status": "error",
+            "category": spec["category"],
+            "params": params,
+            "error": f"缺少依赖: {indicator_error}",
+        }
+    except AttributeError as indicator_error:
+        return {
+            "status": "error",
+            "category": spec["category"],
+            "params": params,
+            "error": f"已安装库中不存在该指标实现: {indicator_error}",
         }
     except Exception as indicator_error:
         return {

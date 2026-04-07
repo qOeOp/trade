@@ -44,6 +44,18 @@ description: >-
 - `summary.md` 是面向阅读的摘要
 - `selected-indicators.json` 是本次实际执行的指标目录与参数
 
+## 运行方式
+
+推荐直接通过当前目录下的 `run.sh` 执行：
+
+```bash
+cd .agents/skills/tech-indicators
+./run.sh --help
+```
+
+它会在当前 skill 目录下创建并复用 `.venv`。
+只有首次运行或 `requirements.txt` 变化时才会安装依赖，不需要每次触发都重装。
+
 ## 用法
 
 默认执行全部已接入指标：
@@ -51,7 +63,7 @@ description: >-
 ```bash
 cd .agents/skills/tech-indicators
 export RUN_ROOT=../../data/runs
-python3 analyze.py --manifest "$RUN_ROOT/20260406-eth-ohlcv/manifest.json" --output-dir "$RUN_ROOT/20260406-eth-tech"
+./run.sh --manifest "$RUN_ROOT/20260406-eth-ohlcv/manifest.json" --output-dir "$RUN_ROOT/20260406-eth-tech"
 ```
 
 只执行一部分指标：
@@ -59,7 +71,7 @@ python3 analyze.py --manifest "$RUN_ROOT/20260406-eth-ohlcv/manifest.json" --out
 ```bash
 cd .agents/skills/tech-indicators
 export RUN_ROOT=../../data/runs
-python3 analyze.py --manifest "$RUN_ROOT/20260406-eth-ohlcv/manifest.json" --output-dir "$RUN_ROOT/20260406-eth-tech" --indicators ema,sma,supertrend,ichimoku
+./run.sh --manifest "$RUN_ROOT/20260406-eth-ohlcv/manifest.json" --output-dir "$RUN_ROOT/20260406-eth-tech" --indicators ema,sma,vwma,ichimoku
 ```
 
 使用自定义参数：
@@ -67,7 +79,7 @@ python3 analyze.py --manifest "$RUN_ROOT/20260406-eth-ohlcv/manifest.json" --out
 ```bash
 cd .agents/skills/tech-indicators
 export RUN_ROOT=../../data/runs
-python3 analyze.py --manifest "$RUN_ROOT/20260406-eth-ohlcv/manifest.json" --output-dir "$RUN_ROOT/20260406-eth-tech" --indicator-config "$RUN_ROOT/20260406-eth-tech-config.json"
+./run.sh --manifest "$RUN_ROOT/20260406-eth-ohlcv/manifest.json" --output-dir "$RUN_ROOT/20260406-eth-tech" --indicator-config "$RUN_ROOT/20260406-eth-tech-config.json"
 ```
 
 `indicator-config` 是一个 JSON 对象，key 是指标名，value 是参数覆盖。例如：
@@ -76,7 +88,7 @@ python3 analyze.py --manifest "$RUN_ROOT/20260406-eth-ohlcv/manifest.json" --out
 {
   "ema": { "period": 50 },
   "bollinger_bands": { "period": 20, "stdv": 2 },
-  "supertrend": { "period": 10, "multiplier": 3 }
+  "ichimoku": { "conversion_line_period": 12, "base_line_periods": 30 }
 }
 ```
 
@@ -90,7 +102,9 @@ python3 analyze.py --manifest "$RUN_ROOT/20260406-eth-ohlcv/manifest.json" --out
 ## 说明
 
 - 默认会执行 catalog 中全部已接入指标
+- 默认 `all` 会跳过当前已知依赖未闭合的指标：`supertrend`、`pivots_points`
 - 每个指标独立执行并独立容错
+- 某个指标缺少额外依赖或当前安装版本没有该实现时，只会记录该指标错误，不会中断整次分析
 - 某个指标失败不会中断整次分析，错误会写进 `analysis.json`
 - `--manifest`、`--output-dir`、`--indicator-config` 都可以使用环境变量或 agent 拼好的相对路径
 - `manifest` 中的 OHLCV 文件路径可以是相对路径，脚本会相对 `manifest.json` 所在目录解析
