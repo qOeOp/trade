@@ -1,0 +1,21 @@
+{
+  "symbol": "BTC/USDT:USDT",
+  "requested_symbol": "BTC/USDT",
+  "exchange": "binanceusdm",
+  "requested_exchange": "binance",
+  "market_type": "usdm",
+  "generated_at": "2026-04-07T22:05:57.674557+08:00",
+  "output_dir": ".",
+  "timeframes": {
+    "1m": {
+      "file": "1m.csv",
+      "rows": 120,
+      "limit": 120
+    },
+    "5m": {
+      "file": "5m.csv",
+      "rows": 120,
+      "limit": 120
+    }
+  }
+}

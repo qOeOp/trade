@@ -1,0 +1,31 @@
+{
+  "symbol": "ETH/USDT:USDT",
+  "requested_symbol": "ETH/USDT",
+  "exchange": "binanceusdm",
+  "requested_exchange": "binance",
+  "market_type": "usdm",
+  "generated_at": "2026-04-07T22:05:08.676675+08:00",
+  "output_dir": ".",
+  "timeframes": {
+    "1h": {
+      "file": "1h.csv",
+      "rows": 240,
+      "limit": 240
+    },
+    "1m": {
+      "file": "1m.csv",
+      "rows": 240,
+      "limit": 240
+    },
+    "5m": {
+      "file": "5m.csv",
+      "rows": 240,
+      "limit": 240
+    },
+    "15m": {
+      "file": "15m.csv",
+      "rows": 240,
+      "limit": 240
+    }
+  }
+}
