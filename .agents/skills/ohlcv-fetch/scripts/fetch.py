@@ -38,7 +38,7 @@ def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Fetch OHLCV and write local CSV files")
     parser.add_argument("--symbol", required=True)
     parser.add_argument("--exchange", default="binance")
-    parser.add_argument("--market-type", choices=["spot", "usdm", "coinm"], default="spot")
+    parser.add_argument("--market-type", choices=["spot", "usdm", "coinm"], default="usdm")
     parser.add_argument("--timeframes", default="1w,1d,4h,1h")
     parser.add_argument("--output-dir", required=True)
     parser.add_argument("--limit", type=int, default=None)

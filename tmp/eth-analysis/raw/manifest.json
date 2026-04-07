@@ -1,0 +1,31 @@
+{
+  "symbol": "ETH/USDT",
+  "requested_symbol": "ETH/USDT",
+  "exchange": "okx",
+  "requested_exchange": "okx",
+  "market_type": "spot",
+  "generated_at": "2026-04-07T21:16:28.416891+08:00",
+  "output_dir": ".",
+  "timeframes": {
+    "1w": {
+      "file": "1w.csv",
+      "rows": 300,
+      "limit": 300
+    },
+    "1d": {
+      "file": "1d.csv",
+      "rows": 300,
+      "limit": 320
+    },
+    "4h": {
+      "file": "4h.csv",
+      "rows": 300,
+      "limit": 420
+    },
+    "1h": {
+      "file": "1h.csv",
+      "rows": 300,
+      "limit": 520
+    }
+  }
+}

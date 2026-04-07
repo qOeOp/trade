@@ -1,0 +1,442 @@
+{
+  "ichimoku": {
+    "module": "technical.indicators.indicators",
+    "function": "ichimoku",
+    "category": "trend",
+    "defaults": {
+      "conversion_line_period": 9,
+      "base_line_periods": 26,
+      "laggin_span": 52,
+      "displacement": 26
+    },
+    "meaning": "云图趋势、支撑阻力与时序位移。",
+    "observe": "看价格与云层位置、转换线和基准线关系、云层未来方向。"
+  },
+  "laguerre": {
+    "module": "technical.indicators.indicators",
+    "function": "laguerre",
+    "category": "momentum",
+    "defaults": {
+      "gamma": 0.5,
+      "smooth": 1,
+      "debug": false
+    },
+    "meaning": "降低噪音的 RSI 类动量指标。",
+    "observe": "看超买超卖区、拐头、与价格背离。"
+  },
+  "mmar": {
+    "module": "technical.indicators.indicators",
+    "function": "mmar",
+    "category": "moving-average",
+    "defaults": {
+      "matype": "ema",
+      "src": "close",
+      "debug": false
+    },
+    "output_names": [
+      "leadMA",
+      "ma10_c",
+      "ma20_c",
+      "ma30_c",
+      "ma40_c",
+      "ma50_c",
+      "ma60_c",
+      "ma70_c",
+      "ma80_c",
+      "ma90_c"
+    ],
+    "meaning": "一组均线带，用于看趋势展开与压缩。",
+    "observe": "看均线带发散/收敛、价格与 leadMA 的关系。"
+  },
+  "madrid_sqz": {
+    "module": "technical.indicators.indicators",
+    "function": "madrid_sqz",
+    "category": "momentum",
+    "defaults": {
+      "length": 14,
+      "src": "close",
+      "ref": 13,
+      "sqzLen": 5
+    },
+    "output_names": [
+      "sqz_cma_c",
+      "sqz_rma_c",
+      "sqz_sma_c"
+    ],
+    "meaning": "挤压强弱与均值回归信号。",
+    "observe": "看挤压状态解除、颜色切换、方向变化。"
+  },
+  "osc": {
+    "module": "technical.indicators.indicators",
+    "function": "osc",
+    "category": "momentum",
+    "defaults": {
+      "periods": 14
+    },
+    "meaning": "方向动量振荡器。",
+    "observe": "看上行动量与下行动量占比。"
+  },
+  "vfi": {
+    "module": "technical.indicators.indicators",
+    "function": "vfi",
+    "category": "volume",
+    "defaults": {
+      "length": 130,
+      "coef": 0.2,
+      "vcoef": 2.5,
+      "signalLength": 5,
+      "smoothVFI": false
+    },
+    "output_names": [
+      "vfi",
+      "vfima",
+      "vfi_hist"
+    ],
+    "meaning": "量价资金流方向。",
+    "observe": "看资金流是否与价格趋势共振。"
+  },
+  "stc": {
+    "module": "technical.indicators.indicators",
+    "function": "stc",
+    "category": "momentum",
+    "defaults": {
+      "fast": 23,
+      "slow": 50,
+      "length": 10
+    },
+    "meaning": "结合 MACD 与周期节奏的趋势振荡器。",
+    "observe": "看 25/75 区域穿越和方向切换。"
+  },
+  "vpcii": {
+    "module": "technical.indicators.indicators",
+    "function": "vpcii",
+    "category": "volume",
+    "defaults": {
+      "period_short": 5,
+      "period_long": 20,
+      "hist": 14
+    },
+    "meaning": "量价确认强度指数。",
+    "observe": "看量能是否支持当前价格趋势。"
+  },
+  "vpci": {
+    "module": "technical.indicators.indicators",
+    "function": "vpci",
+    "category": "volume",
+    "defaults": {
+      "period_short": 5,
+      "period_long": 20
+    },
+    "meaning": "Volume Price Confirmation Indicator。",
+    "observe": "看量价方向一致还是背离。"
+  },
+  "fibonacci_retracements": {
+    "module": "technical.indicators.indicators",
+    "function": "fibonacci_retracements",
+    "category": "level",
+    "defaults": {
+      "field": "close"
+    },
+    "meaning": "把当前价格映射到斐波那契回撤区间。",
+    "observe": "看价格所处回撤层级与潜在反应区。"
+  },
+  "return_on_investment": {
+    "module": "technical.indicators.indicators",
+    "function": "return_on_investment",
+    "category": "performance",
+    "defaults": {
+      "decimals": 4
+    },
+    "meaning": "累计收益表现。",
+    "observe": "看持有表现与阶段性回撤。"
+  },
+  "td_sequential": {
+    "module": "technical.indicators.indicators",
+    "function": "td_sequential",
+    "category": "timing",
+    "defaults": {},
+    "meaning": "TD Sequential 计数。",
+    "observe": "看 9/13 计数是否接近衰竭。"
+  },
+  "TKE": {
+    "module": "technical.indicators.indicators",
+    "function": "TKE",
+    "category": "momentum",
+    "defaults": {},
+    "output_names": [
+      "TKE",
+      "TKEema"
+    ],
+    "meaning": "多振荡器均值，用于综合动量强弱。",
+    "observe": "看主值与平滑值的交叉和方向。"
+  },
+  "vwmacd": {
+    "module": "technical.indicators.indicators",
+    "function": "vwmacd",
+    "category": "volume",
+    "defaults": {},
+    "meaning": "带成交量权重的 MACD。",
+    "observe": "看量能加权后趋势是否更强。"
+  },
+  "RMI": {
+    "module": "technical.indicators.indicators",
+    "function": "RMI",
+    "category": "momentum",
+    "defaults": {},
+    "meaning": "Relative Momentum Index。",
+    "observe": "看趋势中的动量持续性而不只是一根一根涨跌。"
+  },
+  "VIDYA": {
+    "module": "technical.indicators.indicators",
+    "function": "VIDYA",
+    "category": "moving-average",
+    "defaults": {
+      "length": 14,
+      "select": 20
+    },
+    "meaning": "自适应均线。",
+    "observe": "看在波动变化时均线跟随快慢。"
+  },
+  "MADR": {
+    "module": "technical.indicators.indicators",
+    "function": "MADR",
+    "category": "moving-average",
+    "defaults": {
+      "length": 20,
+      "stds_dist": 2,
+      "matype": "sma"
+    },
+    "meaning": "均线偏离率。",
+    "observe": "看价格距离均值是否过远。"
+  },
+  "SSLChannels": {
+    "module": "technical.indicators.indicators",
+    "function": "SSLChannels",
+    "category": "trend",
+    "defaults": {
+      "length": 10,
+      "mode": "sma"
+    },
+    "output_names": [
+      "sslDown",
+      "sslUp"
+    ],
+    "meaning": "趋势通道上下轨。",
+    "observe": "看上下轨翻转和价格站位。"
+  },
+  "PMAX": {
+    "module": "technical.indicators.indicators",
+    "function": "PMAX",
+    "category": "trend",
+    "defaults": {
+      "period": 10,
+      "multiplier": 3,
+      "length": 10,
+      "MAtype": 9,
+      "src": 3
+    },
+    "meaning": "结合均线与 ATR 的趋势跟随指标。",
+    "observe": "看方向状态和止损线位置。"
+  },
+  "tv_wma": {
+    "module": "technical.indicators.indicators",
+    "function": "tv_wma",
+    "category": "moving-average",
+    "defaults": {
+      "length": 9,
+      "field": "close"
+    },
+    "meaning": "TradingView 风格加权均线。",
+    "observe": "看短期加权趋势。"
+  },
+  "tv_hma": {
+    "module": "technical.indicators.indicators",
+    "function": "tv_hma",
+    "category": "moving-average",
+    "defaults": {
+      "length": 16,
+      "field": "close"
+    },
+    "meaning": "TradingView 风格 Hull MA。",
+    "observe": "看平滑但更快的趋势线。"
+  },
+  "tv_alma": {
+    "module": "technical.indicators.indicators",
+    "function": "tv_alma",
+    "category": "moving-average",
+    "defaults": {
+      "length": 9,
+      "offset": 0.85,
+      "sigma": 6,
+      "field": "close"
+    },
+    "meaning": "ALMA 自适应平滑均线。",
+    "observe": "看趋势平滑与拐点。"
+  },
+  "tv_trama": {
+    "module": "technical.indicators.indicators",
+    "function": "tv_trama",
+    "category": "moving-average",
+    "defaults": {
+      "length": 99,
+      "field": "close"
+    },
+    "meaning": "TRAMA 趋势自适应均线。",
+    "observe": "看长周期趋势过滤。"
+  },
+  "williams_percent": {
+    "module": "technical.indicators.momentum",
+    "function": "williams_percent",
+    "category": "momentum",
+    "defaults": {
+      "period": 14
+    },
+    "meaning": "Williams %R 超买超卖振荡器。",
+    "observe": "看高低位区间、背离和反转。"
+  },
+  "bollinger_bands": {
+    "module": "technical.indicators.overlap_studies",
+    "function": "bollinger_bands",
+    "category": "volatility",
+    "defaults": {
+      "period": 20,
+      "stdv": 2,
+      "field": "close",
+      "colum_prefix": "bb",
+      "ma_type": "sma"
+    },
+    "meaning": "波动带与均值回归区间。",
+    "observe": "看带宽收缩/扩张、价格贴上轨下轨。"
+  },
+  "dema": {
+    "module": "technical.indicators.overlap_studies",
+    "function": "dema",
+    "category": "moving-average",
+    "defaults": {
+      "period": 20,
+      "field": "close"
+    },
+    "meaning": "双指数均线。",
+    "observe": "看比 EMA 更灵敏的趋势变化。"
+  },
+  "zema": {
+    "module": "technical.indicators.overlap_studies",
+    "function": "zema",
+    "category": "moving-average",
+    "defaults": {
+      "period": 20,
+      "field": "close"
+    },
+    "meaning": "兼容别名，底层等同 dema。",
+    "observe": "看快速趋势变化。"
+  },
+  "ema": {
+    "module": "technical.indicators.overlap_studies",
+    "function": "ema",
+    "category": "moving-average",
+    "defaults": {
+      "period": 20,
+      "field": "close"
+    },
+    "meaning": "指数移动平均线。",
+    "observe": "看趋势方向、价格站位、均线斜率。"
+  },
+  "sma": {
+    "module": "technical.indicators.overlap_studies",
+    "function": "sma",
+    "category": "moving-average",
+    "defaults": {
+      "period": 20,
+      "field": "close"
+    },
+    "meaning": "简单移动平均线。",
+    "observe": "看均值方向和偏离程度。"
+  },
+  "tema": {
+    "module": "technical.indicators.overlap_studies",
+    "function": "tema",
+    "category": "moving-average",
+    "defaults": {
+      "period": 20,
+      "field": "close"
+    },
+    "meaning": "三重指数均线。",
+    "observe": "看更快响应的趋势线。"
+  },
+  "hull_moving_average": {
+    "module": "technical.indicators.overlap_studies",
+    "function": "hull_moving_average",
+    "category": "moving-average",
+    "defaults": {
+      "period": 20,
+      "field": "close"
+    },
+    "meaning": "Hull Moving Average。",
+    "observe": "看平滑且滞后更低的趋势变化。"
+  },
+  "vwma": {
+    "module": "technical.indicators.overlap_studies",
+    "function": "vwma",
+    "category": "volume",
+    "defaults": {
+      "window": 20,
+      "price": "close"
+    },
+    "meaning": "成交量加权均线。",
+    "observe": "看放量区域对均值的影响。"
+  },
+  "atr_percent": {
+    "module": "technical.indicators.volatility",
+    "function": "atr_percent",
+    "category": "volatility",
+    "defaults": {
+      "period": 14
+    },
+    "meaning": "ATR 相对现价百分比。",
+    "observe": "看波动放大还是收缩。"
+  },
+  "chopiness": {
+    "module": "technical.indicators.volatility",
+    "function": "chopiness",
+    "category": "volatility",
+    "defaults": {
+      "period": 14
+    },
+    "meaning": "衡量趋势市还是震荡市。",
+    "observe": "数值高偏震荡，数值低偏趋势。"
+  },
+  "chaikin_money_flow": {
+    "module": "technical.indicators.volume_indicators",
+    "function": "chaikin_money_flow",
+    "category": "volume",
+    "defaults": {
+      "period": 21
+    },
+    "meaning": "资金流入流出强弱。",
+    "observe": "看量价配合和资金净流入方向。"
+  },
+  "gentrends": {
+    "module": "technical.trendline",
+    "function": "gentrends",
+    "category": "trendline",
+    "defaults": {
+      "field": "close",
+      "window": 0.3333333333,
+      "charts": false
+    },
+    "meaning": "基于高低极值连线生成趋势线。",
+    "observe": "看 Max Line / Min Line 与价格关系。"
+  },
+  "segtrends": {
+    "module": "technical.trendline",
+    "function": "segtrends",
+    "category": "trendline",
+    "defaults": {
+      "field": "close",
+      "segments": 2,
+      "charts": false
+    },
+    "meaning": "分段极值趋势线。",
+    "observe": "看分段趋势切换和线段方向。"
+  }
+}
