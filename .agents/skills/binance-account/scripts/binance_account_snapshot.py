@@ -276,12 +276,24 @@ def split_orders(orders: list[dict[str, Any]], protective_predicate) -> dict[str
     return {"regular": regular, "protective": protective}
 
 
-def fetch_section(fetcher, errors: dict[str, str], key: str) -> Any:
-    try:
-        return fetcher()
-    except BinanceHttpError as exc:
-        errors[key] = str(exc)
-        return None
+def fetch_section(fetcher, errors: dict[str, str], key: str, attempts: int = 2) -> Any:
+    last_error: BinanceHttpError | None = None
+    for attempt in range(attempts):
+        try:
+            result = fetcher()
+            errors.pop(key, None)
+            return result
+        except BinanceHttpError as exc:
+            last_error = exc
+            if attempt < attempts - 1:
+                time.sleep(0.5 * (attempt + 1))
+                continue
+            errors[key] = str(exc)
+            return None
+
+    if last_error is not None:
+        errors[key] = str(last_error)
+    return None
 
 
 def build_snapshot(args: argparse.Namespace) -> dict[str, Any]:
