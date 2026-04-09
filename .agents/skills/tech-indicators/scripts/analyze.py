@@ -4,7 +4,10 @@ from __future__ import annotations
 import argparse
 import importlib
 import json
+import math
 import os
+import subprocess
+import warnings
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
@@ -75,10 +78,28 @@ class Trendline:
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Technical indicators from local OHLCV files")
     parser.add_argument("--manifest", required=True)
-    parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--output-dir", default=None)
     parser.add_argument("--indicators", default="all")
     parser.add_argument("--indicator-config", default=None)
     return parser.parse_args()
+
+
+def workspace_root() -> Path:
+    raw_root = os.environ.get("CODEX_WORKSPACE_ROOT")
+    if raw_root:
+        return Path(os.path.expandvars(raw_root)).expanduser().resolve()
+
+    try:
+        output = subprocess.check_output(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=Path.cwd(),
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+    except Exception:
+        return Path.cwd().resolve()
+
+    return Path(output).resolve()
 
 
 def resolve_cli_path(raw_path: str) -> Path:
@@ -86,7 +107,15 @@ def resolve_cli_path(raw_path: str) -> Path:
     path = Path(expanded).expanduser()
     if path.is_absolute():
         return path
-    return (Path.cwd() / path).resolve()
+    return (workspace_root() / path).resolve()
+
+
+def default_output_dir(manifest_path: Path) -> Path:
+    source_dir = manifest_path.parent.resolve()
+    source_name = source_dir.name or "analysis"
+    if source_name.endswith("-analysis"):
+        return source_dir
+    return source_dir.with_name(f"{source_name}-analysis")
 
 
 def catalog_path() -> Path:
@@ -194,6 +223,8 @@ def normalize_scalar(value: Any) -> Any:
         pass
 
     if isinstance(value, float):
+        if not math.isfinite(value):
+            return None
         return round(value, 6)
 
     return value
@@ -282,7 +313,9 @@ def execute_indicator(
 
     try:
         func = import_indicator_callable(spec["module"], spec["function"])
-        raw_result = func(dataframe.copy(), **params)
+        with warnings.catch_warnings(record=True) as caught_warnings:
+            warnings.simplefilter("always")
+            raw_result = func(dataframe.copy(), **params)
         serialized_output = serialize_value(raw_result, base_columns)
 
         if isinstance(raw_result, tuple) or isinstance(raw_result, list):
@@ -298,12 +331,21 @@ def execute_indicator(
                 spec.get("output_names"),
             )
 
-        return {
+        result = {
             "status": "ok",
             "category": spec["category"],
             "params": params,
             "output": serialized_output,
         }
+        warning_messages = []
+        for caught_warning in caught_warnings:
+            message = str(caught_warning.message).strip()
+            if not message or message in warning_messages:
+                continue
+            warning_messages.append(message)
+        if warning_messages:
+            result["warnings"] = warning_messages
+        return result
     except ImportError as indicator_error:
         return {
             "status": "error",
@@ -979,7 +1021,7 @@ def build_selected_indicator_catalog(
 def main() -> None:
     args = parse_args()
     manifest_path = resolve_cli_path(args.manifest)
-    base_output = resolve_cli_path(args.output_dir)
+    base_output = resolve_cli_path(args.output_dir) if args.output_dir else default_output_dir(manifest_path)
     base_output.mkdir(parents=True, exist_ok=True)
 
     manifest = load_manifest(manifest_path)

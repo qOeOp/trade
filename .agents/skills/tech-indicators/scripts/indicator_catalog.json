@@ -121,16 +121,6 @@
     "meaning": "把当前价格映射到斐波那契回撤区间。",
     "observe": "看价格所处回撤层级与潜在反应区。"
   },
-  "return_on_investment": {
-    "module": "technical.indicators.indicators",
-    "function": "return_on_investment",
-    "category": "performance",
-    "defaults": {
-      "decimals": 4
-    },
-    "meaning": "累计收益表现。",
-    "observe": "看持有表现与阶段性回撤。"
-  },
   "td_sequential": {
     "module": "technical.indicators.indicators",
     "function": "td_sequential",
@@ -296,14 +286,14 @@
   },
   "zema": {
     "module": "technical.indicators.overlap_studies",
-    "function": "zema",
+    "function": "dema",
     "category": "moving-average",
     "defaults": {
       "period": 20,
       "field": "close"
     },
-    "meaning": "兼容别名，底层等同 dema。",
-    "observe": "看快速趋势变化。"
+    "meaning": "兼容旧别名，内部直接复用 dema 实现。",
+    "observe": "看快速趋势变化，不再触发旧实现的弃用 warning。"
   },
   "ema": {
     "module": "technical.indicators.overlap_studies",

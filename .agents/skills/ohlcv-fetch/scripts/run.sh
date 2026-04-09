@@ -81,7 +81,7 @@ select_python() {
 
 PYTHON_BIN="$(select_python || true)"
 if [ -z "$PYTHON_BIN" ]; then
-  echo "tech-indicators 需要 Python 3.9+；当前未找到受支持的 python3 解释器。" >&2
+  echo "ohlcv-fetch 需要 Python 3.9+；当前未找到受支持的 python3 解释器。" >&2
   exit 1
 fi
 
@@ -112,4 +112,4 @@ if [ ! -f "$STAMP_FILE" ] || [ "$(cat "$STAMP_FILE")" != "$CURRENT_HASH" ]; then
   printf '%s' "$CURRENT_HASH" > "$STAMP_FILE"
 fi
 
-exec "$VENV_DIR/bin/python" "$SCRIPT_DIR/analyze.py" "$@"
+exec "$VENV_DIR/bin/python" "$SCRIPT_DIR/fetch.py" "$@"

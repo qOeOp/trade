@@ -1,6 +1,12 @@
 .DS_Store
 .idea/
+.venv/
+.cache/
+.claude/
+tmp/
 .env
 node_modules
 dist
 npm-debug.log*
+__pycache__/
+*.pyc

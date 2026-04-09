@@ -4,6 +4,8 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import re
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from typing import Any
@@ -13,7 +15,7 @@ try:
     import pandas as pd
 except ImportError as pandas_import_error:  # pragma: no cover - runtime guidance
     raise SystemExit(
-        f"pandas 未安装，请先执行: python3 -m pip install -r {Path(__file__).with_name('requirements.txt')}"
+        f"pandas 未安装，请先通过 {Path(__file__).with_name('run.sh')} 运行当前 skill"
     ) from pandas_import_error
 
 
@@ -40,9 +42,27 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--exchange", default="binance")
     parser.add_argument("--market-type", choices=["spot", "usdm", "coinm"], default="usdm")
     parser.add_argument("--timeframes", default="1w,1d,4h,1h")
-    parser.add_argument("--output-dir", required=True)
+    parser.add_argument("--output-dir", default=None)
     parser.add_argument("--limit", type=int, default=None)
     return parser.parse_args()
+
+
+def workspace_root() -> Path:
+    raw_root = os.environ.get("CODEX_WORKSPACE_ROOT")
+    if raw_root:
+        return Path(os.path.expandvars(raw_root)).expanduser().resolve()
+
+    try:
+        output = subprocess.check_output(
+            ["git", "rev-parse", "--show-toplevel"],
+            cwd=Path.cwd(),
+            stderr=subprocess.DEVNULL,
+            text=True,
+        ).strip()
+    except Exception:
+        return Path.cwd().resolve()
+
+    return Path(output).resolve()
 
 
 def resolve_cli_path(raw_path: str) -> Path:
@@ -50,7 +70,15 @@ def resolve_cli_path(raw_path: str) -> Path:
     path = Path(expanded).expanduser()
     if path.is_absolute():
         return path
-    return (Path.cwd() / path).resolve()
+    return (workspace_root() / path).resolve()
+
+
+def slugify_symbol(symbol: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "-", symbol.lower()).strip("-")
+
+
+def default_output_dir(symbol: str, market_type: str) -> Path:
+    return workspace_root() / "tmp" / "market" / f"{slugify_symbol(symbol)}-{market_type}"
 
 
 def resolve_exchange_id(exchange_id: str, market_type: str) -> str:
@@ -76,7 +104,7 @@ def get_exchange(exchange_id: str) -> Any:
         import ccxt
     except ImportError as ccxt_import_error:  # pragma: no cover - runtime guidance
         raise SystemExit(
-            f"ccxt 未安装，请先执行: python3 -m pip install -r {REQUIREMENTS_FILE}"
+            f"ccxt 未安装，请先通过 {REQUIREMENTS_FILE.with_name('run.sh')} 运行当前 skill"
         ) from ccxt_import_error
 
     exchange_cls = getattr(ccxt, exchange_id, None)
@@ -121,7 +149,7 @@ def ordered_timeframes(raw_timeframes: str) -> list[str]:
 
 def main() -> None:
     args = parse_args()
-    base_output = resolve_cli_path(args.output_dir)
+    base_output = resolve_cli_path(args.output_dir) if args.output_dir else default_output_dir(args.symbol, args.market_type)
     base_output.mkdir(parents=True, exist_ok=True)
 
     resolved_exchange_id = resolve_exchange_id(args.exchange, args.market_type)
