@@ -6,8 +6,10 @@ import argparse
 import datetime as dt
 import hashlib
 import hmac
+import http.client
 import json
 import os
+import ssl
 import sys
 import time
 import urllib.error
@@ -81,6 +83,38 @@ class BinanceClient:
         self.timeout = timeout
         self.recv_window = recv_window
         self.server_time_offsets: dict[str, int] = {}
+        self.max_retries = 3
+
+    def _open_json(self, request: urllib.request.Request, path: str) -> Any:
+        last_error: Exception | None = None
+        for attempt in range(self.max_retries):
+            try:
+                with urllib.request.urlopen(request, timeout=self.timeout) as response:
+                    return json.loads(response.read().decode("utf-8"))
+            except urllib.error.HTTPError as exc:
+                body = exc.read().decode("utf-8", errors="replace")
+                if exc.code in {500, 502, 503, 504} and attempt < self.max_retries - 1:
+                    time.sleep(0.5 * (attempt + 1))
+                    continue
+                raise BinanceHttpError(f"{path} failed with HTTP {exc.code}: {body}") from exc
+            except (
+                urllib.error.URLError,
+                http.client.IncompleteRead,
+                http.client.RemoteDisconnected,
+                ConnectionResetError,
+                TimeoutError,
+                ssl.SSLError,
+            ) as exc:
+                last_error = exc
+                if attempt < self.max_retries - 1:
+                    time.sleep(0.5 * (attempt + 1))
+                    continue
+                reason = exc.reason if isinstance(exc, urllib.error.URLError) else str(exc)
+                raise BinanceHttpError(f"{path} failed: {reason}") from exc
+
+        if last_error is not None:
+            raise BinanceHttpError(f"{path} failed: {last_error}") from last_error
+        raise BinanceHttpError(f"{path} failed: unknown error")
 
     def get_server_time_offset(self, base_url: str) -> int:
         cached = self.server_time_offsets.get(base_url)
@@ -90,14 +124,7 @@ class BinanceClient:
         time_path = "/api/v3/time" if base_url == SPOT_BASE_URL else "/fapi/v1/time"
         url = f"{base_url}{time_path}"
         request = urllib.request.Request(url)
-        try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                payload = json.loads(response.read().decode("utf-8"))
-        except urllib.error.HTTPError as exc:
-            body = exc.read().decode("utf-8", errors="replace")
-            raise BinanceHttpError(f"{time_path} failed with HTTP {exc.code}: {body}") from exc
-        except urllib.error.URLError as exc:
-            raise BinanceHttpError(f"{time_path} failed: {exc.reason}") from exc
+        payload = self._open_json(request, time_path)
 
         server_time = int(payload["serverTime"])
         local_time = int(time.time() * 1000)
@@ -125,8 +152,7 @@ class BinanceClient:
         request = urllib.request.Request(url, headers={"X-MBX-APIKEY": self.api_key})
 
         try:
-            with urllib.request.urlopen(request, timeout=self.timeout) as response:
-                return json.loads(response.read().decode("utf-8"))
+            return self._open_json(request, path)
         except urllib.error.HTTPError as exc:
             body = exc.read().decode("utf-8", errors="replace")
             if retry_on_timestamp_error and '"code":-1021' in body.replace(" ", ""):
@@ -142,8 +168,8 @@ class BinanceClient:
             except json.JSONDecodeError:
                 pass
             raise BinanceHttpError(f"{path} failed with HTTP {exc.code}: {message}") from exc
-        except urllib.error.URLError as exc:
-            raise BinanceHttpError(f"{path} failed: {exc.reason}") from exc
+        except BinanceHttpError:
+            raise
 
 
 def check_env() -> tuple[bool, list[str]]:

@@ -1,2 +1,3 @@
 ccxt>=4.4.80
 pandas>=2.2.0
+urllib3<2.0.0
