@@ -7,34 +7,35 @@ description: 使用系统环境变量 `BINANCE_API_KEY` 和 `BINANCE_API_SECRET`
 
 ## Overview
 
-用这个 skill 生成 Binance 账户的只读快照，并把结果整理成便于继续分析的摘要。它不会下单、撤单或修改订单，只负责读取账户、持仓和订单信息。
+用这个 skill 生成 Binance 账户的只读 JSON 快照。它不会下单、撤单或修改订单，只负责读取账户、持仓和订单信息。
 
 ## 快速开始
 
 1. 先确认环境变量已经存在：
 
 ```bash
-python3 scripts/binance_account_snapshot.py --check-env
+./scripts/build-skills.sh
+./.agents/skills/binance-account/scripts/binance-account --check-env
 ```
 
 2. 拉取完整快照：
 
 ```bash
-python3 scripts/binance_account_snapshot.py
+./.agents/skills/binance-account/scripts/binance-account
 ```
 
-3. 只看某个交易对，或者输出 JSON：
+3. 只看某个交易对：
 
 ```bash
-python3 scripts/binance_account_snapshot.py --symbol BTCUSDT
-python3 scripts/binance_account_snapshot.py --json
+./.agents/skills/binance-account/scripts/binance-account --symbol BTCUSDT
+./.agents/skills/binance-account/scripts/binance-account
 ```
 
 4. 只看现货或只看合约：
 
 ```bash
-python3 scripts/binance_account_snapshot.py --spot-only
-python3 scripts/binance_account_snapshot.py --futures-only
+./.agents/skills/binance-account/scripts/binance-account --spot-only
+./.agents/skills/binance-account/scripts/binance-account --futures-only
 ```
 
 ## 工作流
@@ -45,9 +46,12 @@ python3 scripts/binance_account_snapshot.py --futures-only
 - 不要在这个 skill 里下单、撤单、改止盈止损。
 - 如果用户下一步要执行交易操作，先单独确认，再切到别的工作流。
 
-### 2. 运行快照脚本
+### 2. 运行 CLI
 
-- 主脚本是 [scripts/binance_account_snapshot.py](scripts/binance_account_snapshot.py)。
+- 先运行项目根目录的 [scripts/build-skills.sh](/Users/vx/WebstormProjects/trade/scripts/build-skills.sh) 构建二进制。
+- skill 入口是 [binance-account](/Users/vx/WebstormProjects/trade/.agents/skills/binance-account/scripts/binance-account)。
+- Go 实现在 [cmd/binance-account/main.go](/Users/vx/WebstormProjects/trade/cmd/binance-account/main.go)。
+- CLI 始终只返回 JSON；`--check-env` 也返回 JSON。
 - 默认会读取：
   - 现货账户余额
   - 现货未成交挂单
@@ -56,7 +60,7 @@ python3 scripts/binance_account_snapshot.py --futures-only
   - U 本位合约未成交挂单
 - 默认会隐藏零余额，并把“普通挂单”和“保护性挂单”分开整理。
 
-### 3. 解读输出
+### 3. 解读 JSON 输出
 
 - 先看余额：
   - 现货余额只保留 `free + locked` 非零的币种。
@@ -98,7 +102,7 @@ python3 scripts/binance_account_snapshot.py --futures-only
   - 所有未成交普通挂单
   - 所有止盈止损/追踪止损单
   - 明显风险点：裸仓无保护、保护单方向不对、持仓有但没有对应 TP/SL
-- 如果用户还要继续分析，优先改用 `--json` 输出再做后续处理。
+- CLI 默认返回 JSON，优先直接基于 JSON 继续分析。
 
 ## 参考
 

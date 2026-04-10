@@ -10,3 +10,6 @@ dist
 npm-debug.log*
 __pycache__/
 *.pyc
+/.agents/skills/binance-account/scripts/binance-account
+/.agents/skills/ohlcv-fetch/scripts/ohlcv-fetch
+/.agents/skills/tech-indicators/scripts/tech-indicators

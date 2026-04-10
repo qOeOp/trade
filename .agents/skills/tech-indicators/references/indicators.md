@@ -280,11 +280,124 @@
 - `trendlines`
 - `bullish_invalidation`
 - `bearish_invalidation`
+- `structure_validation`
 
 这些是我们自己的价格结构口径，不来自 `freqtrade/technical`。
 
-重点看：
+### 字段说明
 
-- 价格现在离哪一个支撑/压力最近
-- 趋势线是否还有效
-- 哪个收盘条件会破坏当前看法
+#### `supports[]` / `resistances[]`
+
+每个水平位对象至少包含这些字段：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `price` | `number` | 当前水平位中心价 |
+| `zone_low` | `number` | 当前水平位区间下边界 |
+| `zone_high` | `number` | 当前水平位区间上边界 |
+| `touches` | `number` | 当前口径下触碰次数 |
+| `strength` | `string` | 强度标签，当前可能值为 `weak / moderate / strong` |
+| `last_touch_index` | `number` | 最近一次触碰对应的 K 线索引 |
+| `last_touch_time` | `string` | 最近一次触碰时间，`RFC3339` |
+| `source_prices` | `number[]` | 参与聚类的原始 pivot 价位 |
+| `cluster_size` | `number` | 参与当前水平位聚类的 pivot 数量 |
+| `cluster_tolerance` | `number` | 当前聚类和触碰判定使用的容差 |
+| `distance_from_price_pct` | `number` | 当前水平位中心价相对最新价格的距离比例 |
+| `validation` | `object` | 当前水平位自身历史触碰统计 |
+
+#### `trendlines[]`
+
+每个趋势线对象至少包含这些字段：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `kind` | `string` | 当前可能值为 `support` 或 `resistance` |
+| `line_family` | `string` | 当前可能值为 `base` 或 `acceleration` |
+| `structure_role` | `string` | 当前可能值为 `boundary` 或 `internal` |
+| `break_meaning` | `string` | 当前可能值为 `structure_risk` 或 `loss_of_acceleration` |
+| `basis` | `string` | 当前趋势线使用的取价口径，当前可能值为 `wick` 或 `close` |
+| `scale` | `string` | 当前趋势线使用的坐标口径，当前可能值为 `linear` 或 `log` |
+| `anchor_method` | `string` | 当前锚点生成方式；目前为 `two-pivot` |
+| `confirmation` | `string` | 当前可能值为 `early / developing / confirmed` |
+| `anchor_indices` | `number[]` | 两个锚点的 K 线索引 |
+| `anchor_prices` | `number[]` | 两个锚点价格 |
+| `touches` | `number` | 当前口径下趋势线触碰次数 |
+| `pivot_touches` | `number` | 当前趋势线穿过的 pivot 数量 |
+| `span_bars` | `number` | 两个锚点之间跨越的 bar 数 |
+| `touch_tolerance` | `number` | 当前趋势线触碰判定使用的容差 |
+| `slope` | `number` | 当前趋势线斜率 |
+| `intercept` | `number` | 当前趋势线截距 |
+| `projected_price` | `number` | 当前最后一根 K 线位置对应的趋势线中心价 |
+| `projected_low` | `number` | 当前最后一根 K 线位置对应的趋势线带下边界 |
+| `projected_high` | `number` | 当前最后一根 K 线位置对应的趋势线带上边界 |
+| `distance_from_price_pct` | `number` | 当前趋势线中心价相对最新价格的距离比例 |
+| `last_touch_index` | `number` | 最近一次触碰对应的 K 线索引 |
+| `last_touch_time` | `string` | 最近一次触碰时间，`RFC3339` |
+| `invalidation` | `string` | 当前趋势线对应的失效描述文本 |
+| `score` | `number` | 当前内部排序分数 |
+| `validation` | `object` | 当前趋势线自身历史触碰统计 |
+
+#### `validation`
+
+`supports[]`、`resistances[]`、`trendlines[]` 内部的 `validation` 字段结构一致：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `window_bars` | `number` | 当前验证窗口 bar 数 |
+| `sample_count` | `number` | 已纳入统计的样本数 |
+| `respected` | `number` | 被判定为 `respected` 的样本数 |
+| `broken` | `number` | 被判定为 `broken` 的样本数 |
+| `unresolved` | `number` | 被判定为 `unresolved` 的样本数 |
+| `respect_rate` | `number` | `respected / sample_count` |
+| `break_rate` | `number` | `broken / sample_count` |
+| `breakout_samples` | `number` | 水平位或趋势线在验证窗口内发生有效突破的样本数 |
+| `rejected_breakouts` | `number` | 突破后重新回到原区间或带内的样本数 |
+| `accepted_breakouts` | `number` | 突破后直到窗口结束仍未回到原区间或带内的样本数 |
+| `avg_bars_outside_zone` | `number` | 突破样本中位于区间或带外的平均 bar 数 |
+| `avg_outside_close_count` | `number` | 突破样本中收盘位于区间或带外的平均 bar 数 |
+| `avg_max_excursion_pct` | `number` | 突破样本中价格离开区间或带边界后的平均最大延伸比例 |
+| `avg_return_to_zone_bars` | `number` | 在 `rejected_breakouts` 样本中，平均多少根 bar 返回区间或带内 |
+| `last_sample_time` | `string` | 最近一个纳入统计样本的时间，`RFC3339` |
+| `note` | `string` | 可选说明字段；仅在样本不足或没有可用样本时出现 |
+
+#### `structure_validation`
+
+`structure_validation` 是按 timeframe 输出的聚合统计对象。常见键包括：
+
+- `support`
+- `resistance`
+- `support_trendline_overall`
+- `resistance_trendline_overall`
+- `support_trendline_wick_linear`
+- `support_trendline_wick_log`
+- `support_trendline_close_linear`
+- `support_trendline_close_log`
+- `resistance_trendline_wick_linear`
+- `resistance_trendline_wick_log`
+- `resistance_trendline_close_linear`
+- `resistance_trendline_close_log`
+
+每个聚合对象至少包含这些字段：
+
+| 字段 | 类型 | 说明 |
+| --- | --- | --- |
+| `window_bars` | `number` | 当前聚合统计使用的验证窗口 bar 数 |
+| `sample_step_bars` | `number` | walk-forward 滑窗取样间隔 |
+| `sample_count` | `number` | 已纳入聚合统计的样本数 |
+| `respected` | `number` | 被判定为 `respected` 的样本数 |
+| `broken` | `number` | 被判定为 `broken` 的样本数 |
+| `unresolved` | `number` | 被判定为 `unresolved` 的样本数 |
+| `respect_rate` | `number` | `respected / sample_count` |
+| `break_rate` | `number` | `broken / sample_count` |
+| `breakout_samples` | `number` | 聚合口径下发生有效突破的样本数 |
+| `rejected_breakouts` | `number` | 聚合口径下突破后回到原区间或带内的样本数 |
+| `accepted_breakouts` | `number` | 聚合口径下突破后直到窗口结束仍未回到原区间或带内的样本数 |
+| `avg_bars_outside_zone` | `number` | 聚合口径下突破样本位于区间或带外的平均 bar 数 |
+| `avg_outside_close_count` | `number` | 聚合口径下突破样本收盘位于区间或带外的平均 bar 数 |
+| `avg_max_excursion_pct` | `number` | 聚合口径下突破样本离开区间或带边界后的平均最大延伸比例 |
+| `avg_return_to_zone_bars` | `number` | 在 `rejected_breakouts` 样本中，平均多少根 bar 返回区间或带内 |
+| `avg_distance_from_price_pct` | `number` | 当前聚合对象中心价相对最新价格的平均距离比例 |
+| `last_sample_time` | `string` | 最近一个纳入统计样本的时间，`RFC3339` |
+| `note` | `string` | 可选说明字段；仅在样本不足或没有可用样本时出现 |
+
+这里的 `validation` 是基于本地 OHLCV 的历史触碰后窗口统计；`structure_validation` 是基于历史 walk-forward 重算的聚合统计。两者都属于当前仓库内部口径。
