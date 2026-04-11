@@ -40,3 +40,38 @@
 - 不在此阶段提前写缓存键设计
 - 不在此阶段提前写回测任务编排
 - 等 replay / backtest 成为明确需求后，再把这部分下沉到更具体的技术文档
+
+### VCP 指标接入方向
+
+- 这条记录是用户显式要求先放开的临时技术方向，不代表完整架构定稿
+- `VCP` 不单独新开 skill，优先作为现有 `tech-indicators` 内的一个新增指标实现
+- 当前主链路保持不变：`ohlcv-fetch -> tech-indicators`
+- `VCP` 继续复用本地 `CSV + manifest.json` 输入，不引入新的数据源或独立存储
+
+当前判断：
+
+- `VCP` 更像结构型指标，不是独立工作流
+- 它需要和现有的 `support / resistance / trendline / volume` 一起解释，拆成第三个 skill 会让工作流分叉
+- 开源社区已有 `VCP` 相关 skill，但大多偏股票筛选、Minervini / Finviz 语境，不直接适配当前仓库的 `Binance + crypto + 本地 OHLCV + 多 timeframe` 链路
+
+优先做的最小实现：
+
+- 在 `tech-indicators` 增加 `vcp_candidate` 或 `vcp_structure`
+- 输入仍为标准 OHLCV
+- 输出优先包含：
+  - `is_vcp_candidate`
+  - `score`
+  - `contraction_count`
+  - `pullback_depths`
+  - `range_widths`
+  - `volume_dry_up`
+  - `pivot_high`
+  - `breakout_level`
+  - `failure_level`
+
+当前不提前固定的内容：
+
+- 不先固定最终评分公式
+- 不先固定股票版 Minervini 规则是否原样迁移到 crypto
+- 不先固定回测口径、报警机制和前端展示形态
+- 先做最小可解释版本，等实际使用后再决定是否扩成完整 screener

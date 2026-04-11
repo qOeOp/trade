@@ -13,8 +13,8 @@ description: >-
 
 ## 使用流程
 
-1. 接收 `ohlcv-fetch` 产出的 `manifest.json`。
-2. 先运行 `./scripts/build-skills.sh`，再直接执行 `./.agents/skills/tech-indicators/scripts/tech-indicators --manifest ... --catalog ...`。
+1. 接收 `ohlcv-fetch` 落盘后的 `manifest.json`。
+2. 先运行 `./scripts/build-skills.sh`，再直接执行 `./.agents/skills/tech-indicators/scripts/tech-indicators --manifest ...`。
 3. CLI 只返回 JSON，不再自动写 `analysis.json`、`summary.md` 或其它副本。
 4. 需要缩小范围时，显式传 `--indicators` 或 `--indicator-config`。
 5. 需要解释指标含义时，读取 `references/indicators.md`。
@@ -22,13 +22,13 @@ description: >-
 ## 输入要求
 
 - 输入来源是 `ohlcv-fetch` 产出的 `manifest.json`。
-- 必须显式传 `--catalog`，不要依赖仓库根目录或 git 自动推断。
 - 每个 CSV 至少包含 `date`、`open`、`high`、`low`、`close`、`volume`。
 - `manifest.json` 中的相对路径按 manifest 所在目录解析。
+- `--catalog` 可选；未传时默认读取二进制同目录下的 `indicator_catalog.json`。
 
 ## 输出
 
-CLI 会返回：
+CLI 会返回 `{ ok, data }`，其中 `data` 包含：
 
 - `summary`
 - `summary_markdown`

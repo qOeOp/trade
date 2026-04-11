@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strconv"
 	"strings"
@@ -266,9 +267,28 @@ func parseFlags() (config, error) {
 		return cfg, errors.New("--manifest is required")
 	}
 	if strings.TrimSpace(cfg.catalogPath) == "" {
-		return cfg, errors.New("--catalog is required")
+		cfg.catalogPath = defaultCatalogPath()
 	}
 	return cfg, nil
+}
+
+func defaultCatalogPath() string {
+	execPath, err := os.Executable()
+	if err == nil {
+		candidate := filepath.Join(filepath.Dir(execPath), "indicator_catalog.json")
+		if _, statErr := os.Stat(candidate); statErr == nil {
+			return candidate
+		}
+	}
+
+	_, sourceFile, _, ok := runtime.Caller(0)
+	if ok {
+		candidate := filepath.Join(filepath.Dir(sourceFile), "..", "..", ".agents", "skills", "tech-indicators", "scripts", "indicator_catalog.json")
+		if _, statErr := os.Stat(candidate); statErr == nil {
+			return candidate
+		}
+	}
+	return filepath.Join(".agents", "skills", "tech-indicators", "scripts", "indicator_catalog.json")
 }
 
 func resolveCLIPath(raw string) (string, error) {
@@ -326,6 +346,20 @@ func loadManifest(path string) (manifestFile, error) {
 	var payload manifestFile
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return manifestFile{}, err
+	}
+	if strings.TrimSpace(payload.Symbol) == "" {
+		return manifestFile{}, errors.New("manifest must include symbol")
+	}
+	if strings.TrimSpace(payload.Exchange) == "" {
+		return manifestFile{}, errors.New("manifest must include exchange")
+	}
+	if len(payload.Timeframes) == 0 {
+		return manifestFile{}, errors.New("manifest must include timeframes.<timeframe>.file entries")
+	}
+	for timeframe, entry := range payload.Timeframes {
+		if strings.TrimSpace(entry.File) == "" {
+			return manifestFile{}, fmt.Errorf("manifest timeframe %s is missing file", timeframe)
+		}
 	}
 	return payload, nil
 }
