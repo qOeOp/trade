@@ -40,12 +40,14 @@ var (
 )
 
 type config struct {
-	symbol      string
-	spotOnly    bool
-	futuresOnly bool
-	checkEnv    bool
-	timeout     time.Duration
-	recvWindow  int64
+	symbol         string
+	spotOnly       bool
+	futuresOnly    bool
+	checkEnv       bool
+	includeHistory bool
+	historyLimit   int
+	timeout        time.Duration
+	recvWindow     int64
 }
 
 type snapshot struct {
@@ -57,16 +59,18 @@ type snapshot struct {
 }
 
 type spotSnapshot struct {
-	Permissions []string         `json:"permissions"`
-	Balances    []map[string]any `json:"balances"`
-	OpenOrders  *orderBuckets    `json:"openOrders"`
+	Permissions  []string         `json:"permissions"`
+	Balances     []map[string]any `json:"balances"`
+	OpenOrders   *orderBuckets    `json:"openOrders"`
+	OrderHistory *orderBuckets    `json:"orderHistory,omitempty"`
 }
 
 type futuresSnapshot struct {
-	Account    map[string]any   `json:"account"`
-	Balances   []map[string]any `json:"balances"`
-	Positions  []map[string]any `json:"positions"`
-	OpenOrders *orderBuckets    `json:"openOrders"`
+	Account      map[string]any   `json:"account"`
+	Balances     []map[string]any `json:"balances"`
+	Positions    []map[string]any `json:"positions"`
+	OpenOrders   *orderBuckets    `json:"openOrders"`
+	OrderHistory *orderBuckets    `json:"orderHistory,omitempty"`
 }
 
 type orderBuckets struct {
@@ -154,12 +158,20 @@ func parseFlags() (config, error) {
 	flag.BoolVar(&cfg.spotOnly, "spot-only", false, "Only query spot account data")
 	flag.BoolVar(&cfg.futuresOnly, "futures-only", false, "Only query USD-M futures data")
 	flag.BoolVar(&cfg.checkEnv, "check-env", false, "Only verify required env vars")
+	flag.BoolVar(&cfg.includeHistory, "include-history", false, "Include historical orders for the selected symbol")
+	flag.IntVar(&cfg.historyLimit, "history-limit", 20, "Historical order limit per endpoint when --include-history is used")
 	flag.Float64Var(&timeout, "timeout", 10.0, "HTTP timeout in seconds")
 	flag.Int64Var(&cfg.recvWindow, "recv-window", 60000, "Binance recvWindow in ms")
 	flag.Parse()
 
 	if cfg.spotOnly && cfg.futuresOnly {
 		return cfg, errors.New("--spot-only and --futures-only cannot be used together")
+	}
+	if cfg.includeHistory && cfg.symbol == "" {
+		return cfg, errors.New("--include-history requires --symbol because Binance historical order endpoints are symbol-scoped")
+	}
+	if cfg.historyLimit <= 0 {
+		return cfg, errors.New("--history-limit must be greater than 0")
 	}
 	if cfg.symbol != "" {
 		cfg.symbol = strings.ToUpper(cfg.symbol)
@@ -207,19 +219,23 @@ func buildSnapshot(cfg config, client *binanceClient) snapshot {
 	}
 
 	if !cfg.futuresOnly {
-		spot := buildSpotSnapshot(client, params, result.Errors)
+		spot := buildSpotSnapshot(cfg, client, params, result.Errors)
 		result.Spot = &spot
 	}
 	if !cfg.spotOnly {
-		futures := buildFuturesSnapshot(client, params, result.Errors)
+		futures := buildFuturesSnapshot(cfg, client, params, result.Errors)
 		result.Futures = &futures
 	}
 
 	return result
 }
 
-func buildSpotSnapshot(client *binanceClient, params map[string]string, errorsMap map[string]string) spotSnapshot {
-	outcomes := make(chan fetchOutcome, 2)
+func buildSpotSnapshot(cfg config, client *binanceClient, params map[string]string, errorsMap map[string]string) spotSnapshot {
+	outcomeCount := 2
+	if cfg.includeHistory {
+		outcomeCount++
+	}
+	outcomes := make(chan fetchOutcome, outcomeCount)
 
 	go func() {
 		value, err := client.signedGetWithRetry(spotBaseURL, "/api/v3/account", nil, true)
@@ -231,9 +247,18 @@ func buildSpotSnapshot(client *binanceClient, params map[string]string, errorsMa
 		outcomes <- fetchOutcome{key: "spot.openOrders", value: value, err: err}
 	}()
 
+	if cfg.includeHistory {
+		go func() {
+			historyParams := copyParamsWithLimit(params, cfg.historyLimit)
+			value, err := client.signedGetWithRetry(spotBaseURL, "/api/v3/allOrders", historyParams, true)
+			outcomes <- fetchOutcome{key: "spot.allOrders", value: value, err: err}
+		}()
+	}
+
 	var accountValue any
 	var ordersValue any
-	for range 2 {
+	var historyValue any
+	for range outcomeCount {
 		outcome := <-outcomes
 		if outcome.err != nil {
 			errorsMap[outcome.key] = outcome.err.Error()
@@ -245,6 +270,8 @@ func buildSpotSnapshot(client *binanceClient, params map[string]string, errorsMa
 			accountValue = outcome.value
 		case "spot.openOrders":
 			ordersValue = outcome.value
+		case "spot.allOrders":
+			historyValue = outcome.value
 		}
 	}
 
@@ -266,19 +293,30 @@ func buildSpotSnapshot(client *binanceClient, params map[string]string, errorsMa
 
 	var buckets *orderBuckets
 	if orders, ok := asMapSlice(ordersValue); ok {
-		split := splitOrders(orders, isSpotProtective)
+		split := splitOrders(orders, isSpotProtective, normalizeStandardOrder("openOrders", "standard"))
 		buckets = &split
 	}
 
+	var historyBuckets *orderBuckets
+	if historyOrders, ok := asMapSlice(historyValue); ok {
+		split := splitOrders(historyOrders, isSpotProtective, normalizeStandardOrder("allOrders", "standard"))
+		historyBuckets = &split
+	}
+
 	return spotSnapshot{
-		Permissions: permissions,
-		Balances:    balances,
-		OpenOrders:  buckets,
+		Permissions:  permissions,
+		Balances:     balances,
+		OpenOrders:   buckets,
+		OrderHistory: historyBuckets,
 	}
 }
 
-func buildFuturesSnapshot(client *binanceClient, params map[string]string, errorsMap map[string]string) futuresSnapshot {
-	outcomes := make(chan fetchOutcome, 3)
+func buildFuturesSnapshot(cfg config, client *binanceClient, params map[string]string, errorsMap map[string]string) futuresSnapshot {
+	outcomeCount := 4
+	if cfg.includeHistory {
+		outcomeCount += 2
+	}
+	outcomes := make(chan fetchOutcome, outcomeCount)
 
 	go func() {
 		value, err := client.signedGetWithRetry(futuresBaseURL, "/fapi/v3/account", params, true)
@@ -295,10 +333,32 @@ func buildFuturesSnapshot(client *binanceClient, params map[string]string, error
 		outcomes <- fetchOutcome{key: "futures.openOrders", value: value, err: err}
 	}()
 
+	go func() {
+		value, err := client.signedGetWithRetry(futuresBaseURL, "/fapi/v1/openAlgoOrders", params, true)
+		outcomes <- fetchOutcome{key: "futures.openAlgoOrders", value: value, err: err}
+	}()
+
+	if cfg.includeHistory {
+		go func() {
+			historyParams := copyParamsWithLimit(params, cfg.historyLimit)
+			value, err := client.signedGetWithRetry(futuresBaseURL, "/fapi/v1/allOrders", historyParams, true)
+			outcomes <- fetchOutcome{key: "futures.allOrders", value: value, err: err}
+		}()
+
+		go func() {
+			historyParams := copyParamsWithLimit(params, cfg.historyLimit)
+			value, err := client.signedGetWithRetry(futuresBaseURL, "/fapi/v1/allAlgoOrders", historyParams, true)
+			outcomes <- fetchOutcome{key: "futures.allAlgoOrders", value: value, err: err}
+		}()
+	}
+
 	var accountValue any
 	var positionsValue any
 	var ordersValue any
-	for range 3 {
+	var algoOrdersValue any
+	var historyOrdersValue any
+	var historyAlgoOrdersValue any
+	for range outcomeCount {
 		outcome := <-outcomes
 		if outcome.err != nil {
 			errorsMap[outcome.key] = outcome.err.Error()
@@ -312,6 +372,12 @@ func buildFuturesSnapshot(client *binanceClient, params map[string]string, error
 			positionsValue = outcome.value
 		case "futures.openOrders":
 			ordersValue = outcome.value
+		case "futures.openAlgoOrders":
+			algoOrdersValue = outcome.value
+		case "futures.allOrders":
+			historyOrdersValue = outcome.value
+		case "futures.allAlgoOrders":
+			historyAlgoOrdersValue = outcome.value
 		}
 	}
 
@@ -350,15 +416,28 @@ func buildFuturesSnapshot(client *binanceClient, params map[string]string, error
 
 	var buckets *orderBuckets
 	if orders, ok := asMapSlice(ordersValue); ok {
-		split := splitOrders(orders, isFuturesProtective)
+		split := splitOrders(orders, isFuturesProtective, normalizeStandardOrder("openOrders", "standard"))
 		buckets = &split
+	}
+	if algoOrders, ok := asMapSlice(algoOrdersValue); ok {
+		buckets = appendProtectiveOrders(buckets, algoOrders, normalizeFuturesAlgoOrder("openAlgoOrders", "algo"))
+	}
+
+	var historyBuckets *orderBuckets
+	if historyOrders, ok := asMapSlice(historyOrdersValue); ok {
+		split := splitOrders(historyOrders, isFuturesProtective, normalizeStandardOrder("allOrders", "standard"))
+		historyBuckets = &split
+	}
+	if historyAlgoOrders, ok := asMapSlice(historyAlgoOrdersValue); ok {
+		historyBuckets = appendProtectiveOrders(historyBuckets, historyAlgoOrders, normalizeFuturesAlgoOrder("allAlgoOrders", "algo"))
 	}
 
 	return futuresSnapshot{
-		Account:    accountFlags,
-		Balances:   balances,
-		Positions:  positions,
-		OpenOrders: buckets,
+		Account:      accountFlags,
+		Balances:     balances,
+		Positions:    positions,
+		OpenOrders:   buckets,
+		OrderHistory: historyBuckets,
 	}
 }
 
@@ -556,38 +635,85 @@ func isFuturesProtective(order map[string]any) bool {
 	return closePosition == "true"
 }
 
-func normalizeOrder(order map[string]any) map[string]any {
-	normalized := map[string]any{
-		"symbol":      order["symbol"],
-		"side":        order["side"],
-		"type":        order["type"],
-		"status":      order["status"],
-		"origQty":     order["origQty"],
-		"price":       order["price"],
-		"stopPrice":   order["stopPrice"],
-		"timeInForce": order["timeInForce"],
-		"orderId":     order["orderId"],
+func normalizeStandardOrder(source, sourceType string) func(map[string]any) map[string]any {
+	return func(order map[string]any) map[string]any {
+		normalized := map[string]any{
+			"symbol":      order["symbol"],
+			"side":        order["side"],
+			"type":        order["type"],
+			"status":      order["status"],
+			"origQty":     order["origQty"],
+			"price":       order["price"],
+			"stopPrice":   order["stopPrice"],
+			"timeInForce": order["timeInForce"],
+			"orderId":     order["orderId"],
+			"source":      source,
+			"sourceType":  sourceType,
+		}
+		if _, ok := order["positionSide"]; ok {
+			normalized["positionSide"] = order["positionSide"]
+		}
+		if _, ok := order["closePosition"]; ok {
+			normalized["closePosition"] = order["closePosition"]
+		}
+		if _, ok := order["activatePrice"]; ok {
+			normalized["activatePrice"] = order["activatePrice"]
+		}
+		if _, ok := order["priceRate"]; ok {
+			normalized["priceRate"] = order["priceRate"]
+		}
+		return normalized
 	}
-	if _, ok := order["positionSide"]; ok {
-		normalized["positionSide"] = order["positionSide"]
-	}
-	if _, ok := order["closePosition"]; ok {
-		normalized["closePosition"] = order["closePosition"]
-	}
-	if _, ok := order["activatePrice"]; ok {
-		normalized["activatePrice"] = order["activatePrice"]
-	}
-	if _, ok := order["priceRate"]; ok {
-		normalized["priceRate"] = order["priceRate"]
-	}
-	return normalized
 }
 
-func splitOrders(orders []map[string]any, protective func(map[string]any) bool) orderBuckets {
+func normalizeFuturesAlgoOrder(source, sourceType string) func(map[string]any) map[string]any {
+	return func(order map[string]any) map[string]any {
+		normalized := map[string]any{
+			"symbol":      order["symbol"],
+			"side":        order["side"],
+			"type":        order["orderType"],
+			"status":      order["algoStatus"],
+			"origQty":     firstNonNil(order["quantity"], order["origQty"]),
+			"price":       order["price"],
+			"stopPrice":   firstNonNil(order["triggerPrice"], order["stopPrice"]),
+			"timeInForce": order["timeInForce"],
+			"algoId":      order["algoId"],
+			"source":      source,
+			"sourceType":  sourceType,
+		}
+		if _, ok := order["clientAlgoId"]; ok {
+			normalized["clientAlgoId"] = order["clientAlgoId"]
+		}
+		if _, ok := order["positionSide"]; ok {
+			normalized["positionSide"] = order["positionSide"]
+		}
+		if _, ok := order["closePosition"]; ok {
+			normalized["closePosition"] = order["closePosition"]
+		}
+		if _, ok := order["reduceOnly"]; ok {
+			normalized["reduceOnly"] = order["reduceOnly"]
+		}
+		if _, ok := order["workingType"]; ok {
+			normalized["workingType"] = order["workingType"]
+		}
+		if _, ok := order["priceProtect"]; ok {
+			normalized["priceProtect"] = order["priceProtect"]
+		}
+		if _, ok := order["triggerTime"]; ok {
+			normalized["triggerTime"] = order["triggerTime"]
+		}
+		if _, ok := order["actualOrderId"]; ok && fmt.Sprint(order["actualOrderId"]) != "" {
+			normalized["actualOrderId"] = order["actualOrderId"]
+		}
+		return normalized
+	}
+}
+
+func splitOrders(orders []map[string]any, protective func(map[string]any) bool, normalize func(map[string]any) map[string]any) orderBuckets {
 	regular := []map[string]any{}
 	protectiveOrders := []map[string]any{}
 	for _, order := range orders {
-		normalized := normalizeOrder(order)
+		normalized := normalize(order)
 		if protective(order) {
 			protectiveOrders = append(protectiveOrders, normalized)
 			continue
@@ -655,4 +781,35 @@ func toFloat(value any) float64 {
 		}
 		return 0
 	}
+}
+
+func firstNonNil(values ...any) any {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return nil
+}
+
+func copyParamsWithLimit(params map[string]string, limit int) map[string]string {
+	cloned := map[string]string{}
+	for key, value := range params {
+		cloned[key] = value
+	}
+	cloned["limit"] = fmt.Sprintf("%d", limit)
+	return cloned
+}
+
+func appendProtectiveOrders(buckets *orderBuckets, orders []map[string]any, normalize func(map[string]any) map[string]any) *orderBuckets {
+	if buckets == nil {
+		buckets = &orderBuckets{
+			Regular:    []map[string]any{},
+			Protective: []map[string]any{},
+		}
+	}
+	for _, order := range orders {
+		buckets.Protective = append(buckets.Protective, normalize(order))
+	}
+	return buckets
 }

@@ -1,4 +1,4 @@
 interface:
   display_name: "Binance Account"
   short_description: "Inspect Binance balances, positions, and orders"
-  default_prompt: "Use $binance-account to inspect the live Binance account from BINANCE_API_KEY and BINANCE_API_SECRET, then summarize balances, positions, open orders, and TP/SL orders."
+  default_prompt: "Use $binance-account to inspect the live Binance account from BINANCE_API_KEY and BINANCE_API_SECRET, then summarize balances, positions, current open orders, Algo TP/SL orders, and when useful symbol-scoped order history with source/sourceType."

@@ -10,6 +10,9 @@
 - `GET /api/v3/openOrders`
   - 读取现货未成交订单。
   - 允许通过 `symbol` 缩小范围。
+- `GET /api/v3/allOrders`
+  - 读取现货历史订单。
+  - 需要 `symbol`。
 
 ## U 本位合约
 
@@ -22,6 +25,16 @@
 - `GET /fapi/v1/openOrders`
   - 读取合约未成交订单。
   - 允许通过 `symbol` 缩小范围。
+- `GET /fapi/v1/openAlgoOrders`
+  - 读取合约未触发的条件单。
+  - 允许通过 `symbol` 缩小范围。
+  - 自 2025-12-09 起，`STOP_MARKET` / `TAKE_PROFIT_MARKET` / `STOP` / `TAKE_PROFIT` / `TRAILING_STOP_MARKET` 已迁移到这组 Algo 接口。
+- `GET /fapi/v1/allOrders`
+  - 读取合约历史普通订单。
+  - 需要 `symbol`。
+- `GET /fapi/v1/allAlgoOrders`
+  - 读取合约历史条件单。
+  - 需要 `symbol`。
 
 ## 保护性订单分类
 
@@ -43,6 +56,7 @@
 
 - `type` 属于 `STOP` / `STOP_MARKET` / `TAKE_PROFIT` / `TAKE_PROFIT_MARKET` / `TRAILING_STOP_MARKET`
 - 或者 `closePosition=true`
+- 或者来自 `GET /fapi/v1/openAlgoOrders` 的条件单
 
 ## 失败处理
 
@@ -51,3 +65,13 @@
   - 只有现货权限，没有合约权限
   - API key 可读余额，但不能读某些账户分区
   - 账户本身未开通某类业务
+
+## Best Practice
+
+- 当前未完成订单快照：
+  - 现货：`openOrders`
+  - U 本位合约：`openOrders + openAlgoOrders`
+- 历史订单查询：
+  - 现货：`allOrders`
+  - U 本位合约：`allOrders + allAlgoOrders`
+- 如果输出需要排障友好，建议保留订单来源字段，例如 `source=openAlgoOrders`、`sourceType=algo`。

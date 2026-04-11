@@ -38,6 +38,13 @@ description: 使用系统环境变量 `BINANCE_API_KEY` 和 `BINANCE_API_SECRET`
 ./.agents/skills/binance-account/scripts/binance-account --futures-only
 ```
 
+5. 看某个交易对的历史订单：
+
+```bash
+./.agents/skills/binance-account/scripts/binance-account --symbol NEARUSDT --include-history
+./.agents/skills/binance-account/scripts/binance-account --symbol BTCUSDT --include-history --history-limit 50
+```
+
 ## 工作流
 
 ### 1. 保持只读
@@ -52,13 +59,21 @@ description: 使用系统环境变量 `BINANCE_API_KEY` 和 `BINANCE_API_SECRET`
 - skill 入口是 [binance-account](/Users/vx/WebstormProjects/trade/.agents/skills/binance-account/scripts/binance-account)。
 - Go 实现在 [cmd/binance-account/main.go](/Users/vx/WebstormProjects/trade/cmd/binance-account/main.go)。
 - CLI 始终只返回 JSON；`--check-env` 也返回 JSON。
+- `--include-history` 需要和 `--symbol` 一起使用，因为 Binance 的历史订单接口是 symbol 维度。
 - 默认会读取：
   - 现货账户余额
   - 现货未成交挂单
   - U 本位合约账户资产
   - U 本位合约持仓风险信息
   - U 本位合约未成交挂单
+  - U 本位合约条件单（Algo 保护单）
+- 开启 `--include-history` 后，还会读取：
+  - 现货历史订单（`allOrders`）
+  - U 本位合约历史普通订单（`allOrders`）
+  - U 本位合约历史条件单（`allAlgoOrders`）
 - 默认会隐藏零余额，并把“普通挂单”和“保护性挂单”分开整理。
+- 自 2025-12 起，Binance 把 USD-M 的条件单迁移到 Algo API；因此合约侧保护单需要同时读取普通挂单接口和 Algo 条件单接口。
+- 每张订单会带 `source` 和 `sourceType`，用于标识它来自 `openOrders` / `openAlgoOrders` / `allOrders` / `allAlgoOrders`，以及属于 `standard` 还是 `algo` 口径。
 
 ### 3. 解读 JSON 输出
 
@@ -71,6 +86,7 @@ description: 使用系统环境变量 `BINANCE_API_KEY` 和 `BINANCE_API_SECRET`
 - 最后看挂单：
   - 把普通限价/市价相关挂单和保护性订单分开。
   - 保护性订单单独强调，避免漏看止盈止损覆盖情况。
+  - 如果要排查“为什么这张单没出现在当前挂单里”，优先看 `source` 与 `sourceType`，确认它是普通单还是 Algo 条件单。
 
 ### 4. 处理权限或接口失败
 
