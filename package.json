@@ -1,0 +1,38 @@
+{
+  "name": "trade",
+  "version": "1.0.0",
+  "description": "这是一个给开发者自己长期使用、可被 Claude、Gemini、Codex 等 agent 直接调用的加密交易工作仓库。",
+  "main": "index.js",
+  "bin": {
+    "binance-account": "dist/binance-account/cli.js"
+  },
+  "directories": {
+    "doc": "docs"
+  },
+  "scripts": {
+    "build": "npm run build:binance-account",
+    "build:binance-account": "mkdir -p dist/binance-account && ncc build cmd/binance-account/main.ts -o dist/binance-account && mv dist/binance-account/index.js dist/binance-account/cli.js && chmod +x dist/binance-account/cli.js",
+    "test": "node --import tsx --test cmd/binance-account/main.test.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/qOeOp/trade.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "bugs": {
+    "url": "https://github.com/qOeOp/trade/issues"
+  },
+  "homepage": "https://github.com/qOeOp/trade#readme",
+  "dependencies": {
+    "binance-api-node": "^0.13.9"
+  },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "@vercel/ncc": "^0.38.4",
+    "tsx": "^4.20.6",
+    "typescript": "^5.9.2"
+  }
+}

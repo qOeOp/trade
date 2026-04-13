@@ -14,6 +14,7 @@ description: 使用系统环境变量 `BINANCE_API_KEY` 和 `BINANCE_API_SECRET`
 1. 先确认环境变量已经存在：
 
 ```bash
+npm install
 ./scripts/build-skills.sh
 ./.agents/skills/binance-account/scripts/binance-account --check-env
 ```
@@ -56,8 +57,10 @@ description: 使用系统环境变量 `BINANCE_API_KEY` 和 `BINANCE_API_SECRET`
 ### 2. 运行 CLI
 
 - 先运行项目根目录的 [scripts/build-skills.sh](/Users/vx/WebstormProjects/trade/scripts/build-skills.sh) 构建二进制。
+- 当前实现基于 `binance-api-node`，首次使用前需要在仓库根目录执行一次 `npm install`。
 - skill 入口是 [binance-account](/Users/vx/WebstormProjects/trade/.agents/skills/binance-account/scripts/binance-account)。
-- Go 实现在 [cmd/binance-account/main.go](/Users/vx/WebstormProjects/trade/cmd/binance-account/main.go)。
+- TypeScript 实现在 [cmd/binance-account/main.ts](/Users/vx/WebstormProjects/trade/cmd/binance-account/main.ts)。
+- 构建时会先用 `ncc` 把 TypeScript CLI 打成单文件，再复制到 skill 入口；包级命令入口定义在 [package.json](/Users/vx/WebstormProjects/trade/package.json) 的 `bin.binance-account`。
 - CLI 始终只返回 JSON；`--check-env` 也返回 JSON。
 - `--include-history` 需要和 `--symbol` 一起使用，因为 Binance 的历史订单接口是 symbol 维度。
 - 默认会读取：
@@ -74,6 +77,9 @@ description: 使用系统环境变量 `BINANCE_API_KEY` 和 `BINANCE_API_SECRET`
 - 默认会隐藏零余额，并把“普通挂单”和“保护性挂单”分开整理。
 - 自 2025-12 起，Binance 把 USD-M 的条件单迁移到 Algo API；因此合约侧保护单需要同时读取普通挂单接口和 Algo 条件单接口。
 - 每张订单会带 `source` 和 `sourceType`，用于标识它来自 `openOrders` / `openAlgoOrders` / `allOrders` / `allAlgoOrders`，以及属于 `standard` 还是 `algo` 口径。
+- 对于 Binance App 里“挂单附带 TP/SL”的期货母单，普通订单返回里可能会出现 `strategyType=OTO` 或 `OTOCO`。这类单子在未触发前不一定会出现在 `openAlgoOrders`，所以解读时不要把它们误判成“裸挂单”。
+- 当前仓库的只读能力基于公开 API Key 可访问的 REST 端点；如果 Binance 只在网页登录态的内部 `bapi` 里暴露未触发 OTO/OTOCO 子单细节，那么 skill 只能确认“母单带附加策略”，未必能直接读到子单的具体 TP/SL 价格。
+- 当输出里出现 `manualTpSlRequired=true` 时，表示这是一张 `OTO` / `OTOCO` 母单，公开 API 当前读不到附带 TP/SL 明细。此时要明确告诉用户“当前读不到你在 App 里设置的止盈止损”，并请用户手动提供对应的 TP/SL 价格。
 
 ### 3. 解读 JSON 输出
 

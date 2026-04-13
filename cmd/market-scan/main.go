@@ -31,7 +31,7 @@ const (
 
 type config struct {
 	exchange       string
-	marketType     string
+	market         string
 	direction      string
 	minQuoteVolume float64
 	limit          int
@@ -76,7 +76,7 @@ type candidate struct {
 type responseData struct {
 	Exchange          string        `json:"exchange"`
 	RequestedExchange string        `json:"requested_exchange"`
-	MarketType        string        `json:"market_type"`
+	Market            string        `json:"market"`
 	GeneratedAt       string        `json:"generated_at"`
 	Filters           responseRules `json:"filters"`
 	Summary           summary       `json:"summary"`
@@ -118,13 +118,13 @@ func run() error {
 		return err
 	}
 
-	market, err := resolveMarket(cfg.exchange, cfg.marketType)
+	market, err := resolveMarket(cfg.exchange, cfg.market)
 	if err != nil {
 		return err
 	}
 
 	client := httpClient{
-		client: &http.Client{Timeout: defaultTimeout},
+		client:  &http.Client{Timeout: defaultTimeout},
 		retries: defaultRetries,
 	}
 
@@ -148,7 +148,7 @@ func run() error {
 	payload := responseData{
 		Exchange:          market.exchangeID,
 		RequestedExchange: cfg.exchange,
-		MarketType:        cfg.marketType,
+		Market:            cfg.market,
 		GeneratedAt:       time.Now().In(loc).Format(time.RFC3339Nano),
 		Filters: responseRules{
 			Direction:      cfg.direction,
@@ -173,23 +173,23 @@ func run() error {
 func parseFlags() (config, error) {
 	cfg := config{}
 	flag.StringVar(&cfg.exchange, "exchange", "binance", "Exchange, only Binance is supported")
-	flag.StringVar(&cfg.marketType, "market-type", "usdm", "Market type: spot or usdm")
+	flag.StringVar(&cfg.market, "market", "usdm", "Market: spot or usdm")
 	flag.StringVar(&cfg.direction, "direction", "both", "Scan direction: both, long, or short")
 	flag.Float64Var(&cfg.minQuoteVolume, "min-quote-volume", defaultMinQuoteVolume, "Minimum 24h quote volume")
 	flag.IntVar(&cfg.limit, "limit", defaultCandidateLimit, "Number of candidates to return per side")
 	flag.Parse()
 
 	cfg.exchange = strings.ToLower(strings.TrimSpace(cfg.exchange))
-	cfg.marketType = strings.ToLower(strings.TrimSpace(cfg.marketType))
+	cfg.market = strings.ToLower(strings.TrimSpace(cfg.market))
 	cfg.direction = strings.ToLower(strings.TrimSpace(cfg.direction))
 
 	if cfg.exchange != "binance" && cfg.exchange != "binanceusdm" {
 		return cfg, fmt.Errorf("unsupported exchange: %s", cfg.exchange)
 	}
-	switch cfg.marketType {
+	switch cfg.market {
 	case "spot", "usdm":
 	default:
-		return cfg, fmt.Errorf("unsupported market-type: %s", cfg.marketType)
+		return cfg, fmt.Errorf("unsupported market: %s", cfg.market)
 	}
 	switch cfg.direction {
 	case "both", "long", "short":
@@ -205,8 +205,8 @@ func parseFlags() (config, error) {
 	return cfg, nil
 }
 
-func resolveMarket(exchange, marketType string) (marketSpec, error) {
-	switch marketType {
+func resolveMarket(exchange, market string) (marketSpec, error) {
+	switch market {
 	case "spot":
 		if exchange != "binance" {
 			return marketSpec{}, fmt.Errorf("spot only supports exchange=binance, got %s", exchange)
@@ -228,7 +228,7 @@ func resolveMarket(exchange, marketType string) (marketSpec, error) {
 			ticker24hrPath:   "/fapi/v1/ticker/24hr",
 		}, nil
 	default:
-		return marketSpec{}, fmt.Errorf("unsupported market-type: %s", marketType)
+		return marketSpec{}, fmt.Errorf("unsupported market: %s", market)
 	}
 }
 

@@ -49,12 +49,13 @@ description: >-
 4. 调整流动性门槛或候选数量：
 
 ```bash
-./.agents/skills/market-scan/scripts/market-scan --min-quote-volume 50000000 --limit 8
+./.agents/skills/market-scan/scripts/market-scan --market usdm --min-quote-volume 50000000 --limit 8
 ```
 
 ## 默认约定
 
 - 默认市场：`usdm`
+- 当前市场参数：`--market`
 - 默认方向：`both`
 - 默认最小 24h quote volume：`20000000`
 - 默认每侧返回候选数：`10`
@@ -66,6 +67,7 @@ description: >-
 
 CLI 返回 `{ ok, data }` JSON，`data` 至少包含：
 
+- `market`
 - `filters`
 - `summary`
 - `candidates.long`

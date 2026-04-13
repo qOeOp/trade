@@ -1,0 +1,4 @@
+interface:
+  display_name: "Position Monitor"
+  short_description: "围绕持仓与挂单编排快照、K 线与技术分析，判断是否需要调整"
+  default_prompt: "使用 $position-monitor 按能力顺序恢复账户暴露、补单标的快照、必要时拉 K 线并运行技术分析，最后给出是否需要调整仓位或挂单的结论。"
