@@ -32,3 +32,28 @@ test("resolveExecution routes futures protective orders to position protect", ()
     authRequired: true,
   })
 })
+
+test("resolveExecution keeps standard futures stop entry on order place", () => {
+  const config = parseArgs([
+    "--symbol",
+    "BTCUSDT",
+    "--market",
+    "usdm",
+    "--side",
+    "BUY",
+    "--type",
+    "STOP",
+    "--quantity",
+    "0.01",
+    "--stop-price",
+    "65000",
+    "--price",
+    "65010",
+  ])
+
+  assert.deepEqual(resolveExecution(config), {
+    method: "futuresOrder",
+    cli: "binance-order-place",
+    authRequired: true,
+  })
+})

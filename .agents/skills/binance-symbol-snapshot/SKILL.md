@@ -1,6 +1,5 @@
----
 name: binance-symbol-snapshot
-description: 快速读取 Binance 单标的市场快照。适合在不拉全量 OHLCV 的前提下查看 24h 变化、盘口价格、合约 mark price 与 open interest。
+description: 快速读取 Binance 单标的市场快照。适合在不拉全量 OHLCV 的前提下查看 24h 变化、盘口价格、合约 premiumIndex 与 openInterest。
 ---
 
 # Binance Symbol Snapshot
@@ -19,7 +18,7 @@ description: 快速读取 Binance 单标的市场快照。适合在不拉全量 
 
 - 负责单标的 `24h ticker`。
 - 现货额外返回 `bookTicker`。
-- 合约额外返回 `markPrice` 与 `openInterest`。
+- 合约额外返回 `premiumIndex` 与 `openInterest`。
 - 不负责账户、挂单、历史订单。
 - 不负责 OHLCV、技术指标、支撑阻力。
 

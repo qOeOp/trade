@@ -17744,7 +17744,7 @@ exports.parseArgs = parseArgs;
 exports.run = run;
 const shared_1 = __nccwpck_require__(7973);
 const SPOT_TYPES = new Set(["LIMIT", "MARKET", "LIMIT_MAKER"]);
-const USDM_TYPES = new Set(["LIMIT", "MARKET"]);
+const USDM_TYPES = new Set(["LIMIT", "MARKET", "STOP", "STOP_MARKET"]);
 async function main() {
     const response = await run(process.argv.slice(2));
     (0, shared_1.printJSON)(response);
@@ -17778,9 +17778,12 @@ function parseArgs(argv) {
         quantity: "",
         quoteOrderQty: "",
         price: "",
+        stopPrice: "",
         timeInForce: "GTC",
         positionSide: "BOTH",
         reduceOnly: false,
+        workingType: "CONTRACT_PRICE",
+        priceProtect: true,
         newClientOrderId: "",
         timeout: 10_000,
         yes: false,
@@ -17816,6 +17819,10 @@ function parseArgs(argv) {
             case "--price":
                 config.price = (0, shared_1.readFlagValue)(argv, ++index, arg);
                 break;
+            case "--stop-price":
+            case "--trigger-price":
+                config.stopPrice = (0, shared_1.readFlagValue)(argv, ++index, arg);
+                break;
             case "--time-in-force":
                 config.timeInForce = (0, shared_1.readFlagValue)(argv, ++index, arg).trim().toUpperCase();
                 break;
@@ -17824,6 +17831,12 @@ function parseArgs(argv) {
                 break;
             case "--reduce-only":
                 config.reduceOnly = (0, shared_1.parseBoolean)((0, shared_1.readFlagValue)(argv, ++index, arg), "--reduce-only");
+                break;
+            case "--working-type":
+                config.workingType = readWorkingType((0, shared_1.readFlagValue)(argv, ++index, arg));
+                break;
+            case "--price-protect":
+                config.priceProtect = (0, shared_1.parseBoolean)((0, shared_1.readFlagValue)(argv, ++index, arg), "--price-protect");
                 break;
             case "--new-client-order-id":
                 config.newClientOrderId = (0, shared_1.readFlagValue)(argv, ++index, arg);
@@ -17870,16 +17883,19 @@ async function executeOrder(config, client) {
             result,
         };
     }
+    const reduceOnly = resolveReduceOnly(config);
     const request = {
         symbol: config.symbol,
         side: config.side,
         type: config.type,
         quantity: config.quantity || undefined,
         price: config.price || undefined,
+        stopPrice: config.stopPrice || undefined,
         newClientOrderId: config.newClientOrderId || undefined,
         timeInForce: config.price ? config.timeInForce : undefined,
         positionSide: config.positionSide,
-        reduceOnly: config.reduceOnly ? "true" : undefined,
+        ...(reduceOnly !== undefined ? { reduceOnly } : {}),
+        ...(config.stopPrice ? { workingType: config.workingType, priceProtect: String(config.priceProtect) } : {}),
     };
     const result = await client.futuresOrder(request);
     return {
@@ -17906,8 +17922,11 @@ function validateConfig(config) {
     if (config.market === "usdm" && config.quoteOrderQty) {
         throw new Error("--quote-order-qty is only supported for spot");
     }
-    if (config.type === "LIMIT" && !config.price) {
-        throw new Error("--price is required for LIMIT");
+    if (requiresPrice(config.type) && !config.price) {
+        throw new Error(`--price is required for ${config.type}`);
+    }
+    if (requiresStopPrice(config.type) && !config.stopPrice) {
+        throw new Error(`--stop-price is required for ${config.type}`);
     }
     if (!Number.isFinite(config.timeout) || config.timeout <= 0) {
         throw new Error("--timeout must be greater than 0");
@@ -17926,6 +17945,25 @@ function readPositionSide(value) {
         throw new Error(`unsupported position side: ${value}`);
     }
     return positionSide;
+}
+function readWorkingType(value) {
+    const workingType = value.trim().toUpperCase();
+    if (workingType !== "MARK_PRICE" && workingType !== "CONTRACT_PRICE") {
+        throw new Error(`unsupported working type: ${value}`);
+    }
+    return workingType;
+}
+function requiresPrice(type) {
+    return type === "LIMIT" || type === "LIMIT_MAKER" || type === "STOP";
+}
+function requiresStopPrice(type) {
+    return type === "STOP" || type === "STOP_MARKET";
+}
+function resolveReduceOnly(config) {
+    if (config.positionSide !== "BOTH") {
+        return undefined;
+    }
+    return config.reduceOnly ? "true" : "false";
 }
 if (__nccwpck_require__.c[__nccwpck_require__.s] === module) {
     void main();

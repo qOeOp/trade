@@ -21,8 +21,19 @@ for cmd_dir in "$ROOT_DIR"/cmd/*; do
     chmod +x "$target_path"
     continue
   fi
+  if [ -f "$cmd_dir/main.py" ]; then
+    dist_dir="$ROOT_DIR/dist/$name"
+    rm -rf "$dist_dir"
+    mkdir -p "$dist_dir"
+    cp "$cmd_dir/main.py" "$dist_dir/cli"
+    chmod +x "$dist_dir/cli"
+    cp "$cmd_dir/main.py" "$target_path"
+    chmod +x "$target_path"
+    continue
+  fi
   (
     cd "$ROOT_DIR"
-    go build -o "$target_path" "./cmd/$name"
+    CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 \
+      go build -trimpath -buildvcs=false -ldflags="-buildid=" -o "$target_path" "./cmd/$name"
   )
 done

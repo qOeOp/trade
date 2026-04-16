@@ -12,9 +12,12 @@ interface Config {
   quantity: string
   quoteOrderQty: string
   price: string
+  stopPrice: string
   timeInForce: string
   positionSide: "BOTH" | "LONG" | "SHORT"
   reduceOnly: boolean
+  workingType: "MARK_PRICE" | "CONTRACT_PRICE"
+  priceProtect: boolean
   newClientOrderId: string
   timeout: number
   yes: boolean
@@ -23,7 +26,7 @@ interface Config {
 }
 
 const SPOT_TYPES = new Set(["LIMIT", "MARKET", "LIMIT_MAKER"])
-const USDM_TYPES = new Set(["LIMIT", "MARKET"])
+const USDM_TYPES = new Set(["LIMIT", "MARKET", "STOP", "STOP_MARKET"])
 
 type SpotOrderRequest = Parameters<BinanceRest["order"]>[0]
 type SpotOrderTestRequest = Parameters<BinanceRest["orderTest"]>[0]
@@ -66,9 +69,12 @@ function parseArgs(argv: string[]): Config {
     quantity: "",
     quoteOrderQty: "",
     price: "",
+    stopPrice: "",
     timeInForce: "GTC",
     positionSide: "BOTH",
     reduceOnly: false,
+    workingType: "CONTRACT_PRICE",
+    priceProtect: true,
     newClientOrderId: "",
     timeout: 10_000,
     yes: false,
@@ -105,6 +111,10 @@ function parseArgs(argv: string[]): Config {
       case "--price":
         config.price = readFlagValue(argv, ++index, arg)
         break
+      case "--stop-price":
+      case "--trigger-price":
+        config.stopPrice = readFlagValue(argv, ++index, arg)
+        break
       case "--time-in-force":
         config.timeInForce = readFlagValue(argv, ++index, arg).trim().toUpperCase()
         break
@@ -113,6 +123,12 @@ function parseArgs(argv: string[]): Config {
         break
       case "--reduce-only":
         config.reduceOnly = parseBoolean(readFlagValue(argv, ++index, arg), "--reduce-only")
+        break
+      case "--working-type":
+        config.workingType = readWorkingType(readFlagValue(argv, ++index, arg))
+        break
+      case "--price-protect":
+        config.priceProtect = parseBoolean(readFlagValue(argv, ++index, arg), "--price-protect")
         break
       case "--new-client-order-id":
         config.newClientOrderId = readFlagValue(argv, ++index, arg)
@@ -164,16 +180,20 @@ async function executeOrder(config: Config, client: ReturnType<typeof createClie
     }
   }
 
+  const reduceOnly = resolveReduceOnly(config)
+
   const request: FuturesOrderRequest = {
     symbol: config.symbol,
     side: config.side as FuturesOrderRequest["side"],
     type: config.type as FuturesOrderRequest["type"],
     quantity: config.quantity || undefined,
     price: config.price || undefined,
+    stopPrice: config.stopPrice || undefined,
     newClientOrderId: config.newClientOrderId || undefined,
     timeInForce: config.price ? (config.timeInForce as FuturesOrderRequest["timeInForce"]) : undefined,
     positionSide: config.positionSide,
-    reduceOnly: config.reduceOnly ? "true" : undefined,
+    ...(reduceOnly !== undefined ? { reduceOnly } : {}),
+    ...(config.stopPrice ? { workingType: config.workingType, priceProtect: String(config.priceProtect) } : {}),
   }
 
   const result = await client.futuresOrder(request)
@@ -202,8 +222,11 @@ function validateConfig(config: Config): void {
   if (config.market === "usdm" && config.quoteOrderQty) {
     throw new Error("--quote-order-qty is only supported for spot")
   }
-  if (config.type === "LIMIT" && !config.price) {
-    throw new Error("--price is required for LIMIT")
+  if (requiresPrice(config.type) && !config.price) {
+    throw new Error(`--price is required for ${config.type}`)
+  }
+  if (requiresStopPrice(config.type) && !config.stopPrice) {
+    throw new Error(`--stop-price is required for ${config.type}`)
   }
   if (!Number.isFinite(config.timeout) || config.timeout <= 0) {
     throw new Error("--timeout must be greater than 0")
@@ -224,6 +247,29 @@ function readPositionSide(value: string): "BOTH" | "LONG" | "SHORT" {
     throw new Error(`unsupported position side: ${value}`)
   }
   return positionSide
+}
+
+function readWorkingType(value: string): "MARK_PRICE" | "CONTRACT_PRICE" {
+  const workingType = value.trim().toUpperCase()
+  if (workingType !== "MARK_PRICE" && workingType !== "CONTRACT_PRICE") {
+    throw new Error(`unsupported working type: ${value}`)
+  }
+  return workingType
+}
+
+function requiresPrice(type: string): boolean {
+  return type === "LIMIT" || type === "LIMIT_MAKER" || type === "STOP"
+}
+
+function requiresStopPrice(type: string): boolean {
+  return type === "STOP" || type === "STOP_MARKET"
+}
+
+function resolveReduceOnly(config: Config): string | undefined {
+  if (config.positionSide !== "BOTH") {
+    return undefined
+  }
+  return config.reduceOnly ? "true" : "false"
 }
 
 export {

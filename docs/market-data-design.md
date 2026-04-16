@@ -10,6 +10,7 @@
 
 - 现有公共市场数据链路正在向 `Node + binance-api-node` 收口：
   - `ohlcv-fetch`
+  - `binance-aggtrades-fetch`
   - `binance-symbol-snapshot`
   - `binance-market-scan`
   - `tech-indicators`
@@ -30,7 +31,8 @@
 - `bid / ask`
 - `trade_count`
 - `premium_index` 语境
-  - 当前 Node 版通过 `futuresMarkPrice` 提供 `mark / funding` 语境
+  - 当前对外命名按 Binance API 口径记为 `premiumIndex`
+  - SDK 调用层实际使用 `futuresMarkPrice`
 - `open_interest`
   - 当前 Node 版对缺失高层方法的端点保留少量 raw fallback
 - 账户语境里的：
@@ -59,8 +61,9 @@
 
 ## 关于 `binance-api-node`
 
-- `premiumIndex` 不是缺失，只是换名为 `futuresMarkPrice`
-- 当前库里的 `futuresMarkPrice` 实际请求的就是 Binance `/fapi/v1/premiumIndex`
+- Binance API 口径仍记作 `premiumIndex`
+- 当前库里对应的 SDK 方法名是 `futuresMarkPrice`
+- 当前 `futuresMarkPrice` 实际请求的就是 Binance `/fapi/v1/premiumIndex`
 - `openInterest` 当前没有现成高层方法
 - 但库提供了 `publicRequest(method, url, payload)`，可以继续通过同一 client 直调公开端点
 - 因此后续若收口到 Node，原则上可以统一为：
@@ -136,6 +139,15 @@
 
 当前建议：
 
+- `binance-aggtrades-fetch`
+  - 负责原子级成交材料拉取
+  - 优先供 liquidation-zone 或其他快照/特征层组合调用
+- `binance-liquidation-zones`
+  - 当前只做实验型公开数据推断
+  - 当前实现优先直接接 Python 包 `liquidator-indicator`
+  - 当前接入优先消费上游 skill 输出的 `aggTrades + premiumIndex + openInterest`
+  - 缺输入时才退回直连 Binance 补数
+  - 当前仍基于 `aggTrades + premiumIndex + openInterest` 输出 liquidation-like zones
 - `ohlcv-fetch`
   - 继续只负责 K 线
 - `binance-market-scan`

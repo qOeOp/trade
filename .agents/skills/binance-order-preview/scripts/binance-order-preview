@@ -17740,6 +17740,7 @@ function socketOnError() {
 
 Object.defineProperty(exports, "__esModule", ({ value: true }));
 exports.buildPreview = buildPreview;
+exports.isProtectiveFuturesAlgoOrder = isProtectiveFuturesAlgoOrder;
 exports.parseArgs = parseArgs;
 exports.resolveExecution = resolveExecution;
 exports.run = run;
@@ -17867,7 +17868,7 @@ async function buildPreview(config, client) {
     };
 }
 function resolveExecution(config) {
-    if (config.market === "usdm" && FUTURES_PROTECTIVE_TYPES.has(config.type)) {
+    if (isProtectiveFuturesAlgoOrder(config)) {
         return {
             method: "futuresCreateAlgoOrder",
             cli: "binance-position-protect",
@@ -17934,6 +17935,9 @@ function buildWarnings(config, method) {
         warnings.push("spot orders normally use either --quantity or --quote-order-qty, not both");
     }
     return warnings;
+}
+function isProtectiveFuturesAlgoOrder(config) {
+    return config.market === "usdm" && FUTURES_PROTECTIVE_TYPES.has(config.type) && (config.reduceOnly || config.closePosition);
 }
 function validateConfig(config) {
     if (!config.symbol) {

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { createClient, fetchJSON, normalizeSymbol, nowInShanghai, parsePositiveNumber, printJSON, readFlagValue, runCLI } from "../../src/binance/shared"
+import { createClient, normalizeSymbol, nowInShanghai, parsePositiveNumber, printJSON, readFlagValue, runCLI } from "../../src/binance/shared"
 
 interface Config {
   symbol: string
@@ -12,16 +12,26 @@ interface SpotTicker {
   symbol: string
   priceChange: string
   priceChangePercent: string
-  weightedAvg: string
+  weightedAvgPrice?: string
+  weightedAvg?: string
+  openPrice?: string
   open: string
+  highPrice?: string
   high: string
+  lowPrice?: string
   low: string
   volume: string
-  volumeQuote: string
-  bestBid: string
-  bestBidQnt: string
-  bestAsk: string
-  bestAskQnt: string
+  quoteVolume?: string
+  volumeQuote?: string
+  bidPrice?: string
+  bestBid?: string
+  bidQty?: string
+  bestBidQnt?: string
+  askPrice?: string
+  bestAsk?: string
+  askQty?: string
+  bestAskQnt?: string
+  count?: number
   totalTrades: number
   openTime: number
   closeTime: number
@@ -44,6 +54,15 @@ interface FuturesTicker {
   count: number
   openTime: number
   closeTime: number
+}
+
+interface FuturesPremiumIndex {
+  symbol: string
+  markPrice: string
+  indexPrice?: string
+  lastFundingRate: string
+  nextFundingTime: number
+  time: number
 }
 
 async function main(): Promise<void> {
@@ -101,8 +120,14 @@ function parseArgs(argv: string[]): Config {
 async function buildSnapshot(config: Config, client: ReturnType<typeof createClient>) {
   if (config.market === "spot") {
     const [ticker24h, bookTicker] = await Promise.all([
-      client.ticker24hr({ symbol: config.symbol }) as Promise<SpotTicker>,
-      client.bookTicker({ symbol: config.symbol }),
+      client.dailyStats({ symbol: config.symbol }) as Promise<SpotTicker>,
+      client.publicRequest("GET", "/api/v3/ticker/bookTicker", { symbol: config.symbol }) as Promise<{
+        symbol: string
+        bidPrice: string
+        bidQty: string
+        askPrice: string
+        askQty: string
+      }>,
     ])
 
     return {
@@ -115,13 +140,13 @@ async function buildSnapshot(config: Config, client: ReturnType<typeof createCli
     }
   }
 
-  const [tickerRows, markPrice, openInterest] = await Promise.all([
-    client.futuresDailyStats({ symbol: config.symbol }) as Promise<FuturesTicker[]>,
-    client.futuresMarkPrice({ symbol: config.symbol }),
-    fetchJSON(`https://fapi.binance.com/fapi/v1/openInterest?symbol=${config.symbol}`),
+  const [tickerRows, premiumIndex, openInterest] = await Promise.all([
+    client.futuresDailyStats({ symbol: config.symbol }) as Promise<FuturesTicker | FuturesTicker[]>,
+    client.futuresMarkPrice({ symbol: config.symbol }) as Promise<FuturesPremiumIndex>,
+    client.publicRequest("GET", "/fapi/v1/openInterest", { symbol: config.symbol }),
   ])
 
-  const ticker = Array.isArray(tickerRows) ? tickerRows.find((item) => item.symbol === config.symbol) : null
+  const ticker = Array.isArray(tickerRows) ? tickerRows.find((item) => item.symbol === config.symbol) : tickerRows
   if (!ticker) {
     throw new Error(`symbol not found in futuresDailyStats: ${config.symbol}`)
   }
@@ -134,12 +159,13 @@ async function buildSnapshot(config: Config, client: ReturnType<typeof createCli
     symbol: config.symbol,
     generatedAt: nowInShanghai(),
     ticker24h: normalizeFuturesTicker(ticker),
-    markPrice: {
-      symbol: markPrice.symbol,
-      markPrice: markPrice.markPrice,
-      lastFundingRate: markPrice.lastFundingRate,
-      nextFundingTime: markPrice.nextFundingTime,
-      time: markPrice.time,
+    premiumIndex: {
+      symbol: premiumIndex.symbol,
+      markPrice: premiumIndex.markPrice,
+      indexPrice: premiumIndex.indexPrice,
+      lastFundingRate: premiumIndex.lastFundingRate,
+      nextFundingTime: premiumIndex.nextFundingTime,
+      time: premiumIndex.time,
     },
     openInterest: {
       symbol: String(openInterestMap.symbol || config.symbol),
@@ -152,20 +178,20 @@ async function buildSnapshot(config: Config, client: ReturnType<typeof createCli
 function normalizeSpotTicker(ticker: SpotTicker) {
   return {
     symbol: ticker.symbol,
-    lastPrice: ticker.bestAsk || ticker.bestBid || ticker.open,
+    lastPrice: ticker.askPrice || ticker.bestAsk || ticker.bidPrice || ticker.bestBid || ticker.openPrice || ticker.open,
     priceChange: ticker.priceChange,
     priceChangePercent: ticker.priceChangePercent,
-    weightedAvgPrice: ticker.weightedAvg,
-    openPrice: ticker.open,
-    highPrice: ticker.high,
-    lowPrice: ticker.low,
+    weightedAvgPrice: ticker.weightedAvgPrice || ticker.weightedAvg || "",
+    openPrice: ticker.openPrice || ticker.open,
+    highPrice: ticker.highPrice || ticker.high,
+    lowPrice: ticker.lowPrice || ticker.low,
     volume: ticker.volume,
-    quoteVolume: ticker.volumeQuote,
-    bidPrice: ticker.bestBid,
-    bidQty: ticker.bestBidQnt,
-    askPrice: ticker.bestAsk,
-    askQty: ticker.bestAskQnt,
-    tradeCount: ticker.totalTrades,
+    quoteVolume: ticker.quoteVolume || ticker.volumeQuote || "",
+    bidPrice: ticker.bidPrice || ticker.bestBid || "",
+    bidQty: ticker.bidQty || ticker.bestBidQnt || "",
+    askPrice: ticker.askPrice || ticker.bestAsk || "",
+    askQty: ticker.askQty || ticker.bestAskQnt || "",
+    tradeCount: ticker.count || ticker.totalTrades,
     openTime: ticker.openTime,
     closeTime: ticker.closeTime,
   }

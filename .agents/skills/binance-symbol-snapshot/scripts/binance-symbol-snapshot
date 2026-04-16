@@ -17792,8 +17792,8 @@ function parseArgs(argv) {
 async function buildSnapshot(config, client) {
     if (config.market === "spot") {
         const [ticker24h, bookTicker] = await Promise.all([
-            client.ticker24hr({ symbol: config.symbol }),
-            client.bookTicker({ symbol: config.symbol }),
+            client.dailyStats({ symbol: config.symbol }),
+            client.publicRequest("GET", "/api/v3/ticker/bookTicker", { symbol: config.symbol }),
         ]);
         return {
             exchange: "binance",
@@ -17804,12 +17804,12 @@ async function buildSnapshot(config, client) {
             bookTicker: normalizeBookTicker(bookTicker),
         };
     }
-    const [tickerRows, markPrice, openInterest] = await Promise.all([
+    const [tickerRows, premiumIndex, openInterest] = await Promise.all([
         client.futuresDailyStats({ symbol: config.symbol }),
         client.futuresMarkPrice({ symbol: config.symbol }),
-        (0, shared_1.fetchJSON)(`https://fapi.binance.com/fapi/v1/openInterest?symbol=${config.symbol}`),
+        client.publicRequest("GET", "/fapi/v1/openInterest", { symbol: config.symbol }),
     ]);
-    const ticker = Array.isArray(tickerRows) ? tickerRows.find((item) => item.symbol === config.symbol) : null;
+    const ticker = Array.isArray(tickerRows) ? tickerRows.find((item) => item.symbol === config.symbol) : tickerRows;
     if (!ticker) {
         throw new Error(`symbol not found in futuresDailyStats: ${config.symbol}`);
     }
@@ -17820,12 +17820,13 @@ async function buildSnapshot(config, client) {
         symbol: config.symbol,
         generatedAt: (0, shared_1.nowInShanghai)(),
         ticker24h: normalizeFuturesTicker(ticker),
-        markPrice: {
-            symbol: markPrice.symbol,
-            markPrice: markPrice.markPrice,
-            lastFundingRate: markPrice.lastFundingRate,
-            nextFundingTime: markPrice.nextFundingTime,
-            time: markPrice.time,
+        premiumIndex: {
+            symbol: premiumIndex.symbol,
+            markPrice: premiumIndex.markPrice,
+            indexPrice: premiumIndex.indexPrice,
+            lastFundingRate: premiumIndex.lastFundingRate,
+            nextFundingTime: premiumIndex.nextFundingTime,
+            time: premiumIndex.time,
         },
         openInterest: {
             symbol: String(openInterestMap.symbol || config.symbol),
@@ -17837,20 +17838,20 @@ async function buildSnapshot(config, client) {
 function normalizeSpotTicker(ticker) {
     return {
         symbol: ticker.symbol,
-        lastPrice: ticker.bestAsk || ticker.bestBid || ticker.open,
+        lastPrice: ticker.askPrice || ticker.bestAsk || ticker.bidPrice || ticker.bestBid || ticker.openPrice || ticker.open,
         priceChange: ticker.priceChange,
         priceChangePercent: ticker.priceChangePercent,
-        weightedAvgPrice: ticker.weightedAvg,
-        openPrice: ticker.open,
-        highPrice: ticker.high,
-        lowPrice: ticker.low,
+        weightedAvgPrice: ticker.weightedAvgPrice || ticker.weightedAvg || "",
+        openPrice: ticker.openPrice || ticker.open,
+        highPrice: ticker.highPrice || ticker.high,
+        lowPrice: ticker.lowPrice || ticker.low,
         volume: ticker.volume,
-        quoteVolume: ticker.volumeQuote,
-        bidPrice: ticker.bestBid,
-        bidQty: ticker.bestBidQnt,
-        askPrice: ticker.bestAsk,
-        askQty: ticker.bestAskQnt,
-        tradeCount: ticker.totalTrades,
+        quoteVolume: ticker.quoteVolume || ticker.volumeQuote || "",
+        bidPrice: ticker.bidPrice || ticker.bestBid || "",
+        bidQty: ticker.bidQty || ticker.bestBidQnt || "",
+        askPrice: ticker.askPrice || ticker.bestAsk || "",
+        askQty: ticker.askQty || ticker.bestAskQnt || "",
+        tradeCount: ticker.count || ticker.totalTrades,
         openTime: ticker.openTime,
         closeTime: ticker.closeTime,
     };

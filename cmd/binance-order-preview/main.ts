@@ -153,7 +153,7 @@ async function buildPreview(config: Config, client: ReturnType<typeof createClie
 }
 
 function resolveExecution(config: Config) {
-  if (config.market === "usdm" && FUTURES_PROTECTIVE_TYPES.has(config.type)) {
+  if (isProtectiveFuturesAlgoOrder(config)) {
     return {
       method: "futuresCreateAlgoOrder",
       cli: "binance-position-protect",
@@ -229,6 +229,10 @@ function buildWarnings(config: Config, method: string): string[] {
   return warnings
 }
 
+function isProtectiveFuturesAlgoOrder(config: Config): boolean {
+  return config.market === "usdm" && FUTURES_PROTECTIVE_TYPES.has(config.type) && (config.reduceOnly || config.closePosition)
+}
+
 function validateConfig(config: Config): void {
   if (!config.symbol) {
     throw new Error("--symbol is required")
@@ -290,6 +294,7 @@ function requiresStopPrice(type: string): boolean {
 
 export {
   buildPreview,
+  isProtectiveFuturesAlgoOrder,
   parseArgs,
   resolveExecution,
   run,
