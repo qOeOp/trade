@@ -1,4 +1,0 @@
-interface:
-  display_name: "Symbol Snapshot"
-  short_description: "快速获取单标的 24h、资金费率与持仓量快照"
-  default_prompt: "使用 $symbol-snapshot 获取指定交易对的即时市场快照；若是合约，优先补充 funding 与 open interest，再决定是否需要继续拉 OHLCV。"

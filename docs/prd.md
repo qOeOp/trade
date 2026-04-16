@@ -4,12 +4,12 @@
 
 ### 本章范围
 
-这一章只固定主流程骨架、核心对象边界、常见回返和最小约束。
+这一章只固定主流程骨架、阶段约束与流转、最小固定约束。
 
 - `OBSERVE / PLAN / EXECUTE / REVIEW / BACKTEST / ITERATE` 的详细设计，放到各自章节展开
 - `plan` 的内部字段、策略版本粒度、等待状态记录粒度、执行层记录粒度等结构化细节，不在本章提前展开
 
-### 流程总图
+### 核心术语
 
 先固定四类概念：
 
@@ -26,17 +26,11 @@
 - `开仓` 只表达“开始进入一笔仓位”这一事实；具体执行方式可再区分为 `挂单成交 / 市价进入 / 条件触发进入`
 - `对冲` 作为独立仓位动作保留；它表达的是风险转移或保护意图，底层仍可能由一笔或多笔 `开仓 / 挂单` 组成
 
-`WAIT-CONDITION` 和 `WAIT-UNTIL-FILL` 只是状态
+### 流程总图
 
-### 上半部分：在线主流程
+#### 在线主流程
 
 ```text
-这一部分只描述在线交易推进，所有在线交互都从 USER MESSAGE -> INTENT ROUTER 进入，
-先决定本轮优先进入 OBSERVE、EXECUTE 或 REVIEW；若进入 OBSERVE，再按入口类型决定是直接深判、市场扫描后收敛，还是沿当前链做监控 / 重判。
-OBSERVE 内部带 checklist；只要当前轮语境未齐，就继续留在本阶段补上下文。
-PLAN 只消费已经补齐的观察上下文，负责生成下一版 plan 和其状态标签。
-EXECUTE 只负责把已确认动作变成真实执行事实，并在必要时核实订单 / 成交 / 持仓变化。
-
 [USER MESSAGE] --> [INTENT ROUTER]
   |
   +--> 观察类入口 --> [OBSERVE]
@@ -44,7 +38,7 @@ EXECUTE 只负责把已确认动作变成真实执行事实，并在必要时核
   |    |
   |    +--> 先识别 observe 运行形态
   |    |    `single-symbol`
-  |    |    `market-scan`
+  |    |    `binance-market-scan`
   |    |    `monitor-existing-chain`
   |    |    `thesis-to-symbols`
   |    |
@@ -53,14 +47,14 @@ EXECUTE 只负责把已确认动作变成真实执行事实，并在必要时核
   |    |    获取持仓 / 挂单 / 成交 / 余额
   |    |    必要时 web search
   |    |
-  |    +--> 若为 `market-scan` / `thesis-to-symbols`
+  |    +--> 若为 `binance-market-scan` / `thesis-to-symbols`
   |    |    候选生成 -> 粗筛 -> 排序 -> shortlist
   |    |
   |    +--> checklist 全完成 --> [PLAN]
   |         |
   |         +--> 在当前活跃 PLAN-CHAIN 上追加新的 plan 快照
   |         |    写入策略信息、判断结果和状态标签
-  |         |    `noop / continue-scan / draft-closed`
+  |         |    `valid / noop / continue-scan / draft-closed`
   |         |    `wait-condition / ready-execute / abandon`
   |         +--> 回复用户
   |
@@ -79,13 +73,9 @@ EXECUTE 只负责把已确认动作变成真实执行事实，并在必要时核
        +--> 回复用户
 ```
 
-### 下半部分：研究与沉淀侧
+#### 研究与沉淀侧
 
 ```text
-这一部分描述从 REVIEW 或外部研究输入进入的研究与沉淀侧。
-上下两部分的交界点是 REVIEW；只有在 REVIEW 产出 candidate hypothesis / rule 时，
-才继续进入这里。
-
 [REVIEW / 外部研究输入]
   |
   +--> 产出：candidate hypothesis / rule --> [主 agent 研究调度]
@@ -105,34 +95,17 @@ EXECUTE 只负责把已确认动作变成真实执行事实，并在必要时核
             +--> 继续研究 --> [主 agent 研究调度]
 ```
 
-### 核心边界
+### 阶段约束与流转
 
-| 项 | 只负责什么 | 不负责什么 |
+非阶段对象（`PLAN-POOL / PLAN-CHAIN / STRATEGY-POOL / WAIT-CONDITION / WAIT-UNTIL-FILL`）的定义见前页概念表。
+
+| 阶段 | 职责 | 典型流转 |
 | --- | --- | --- |
-| `INTENT ROUTER` | 根据用户消息和当前生效 plan 状态决定本轮先去哪里，并给 `OBSERVE` 标出入口类型 | 不负责补市场上下文，也不直接承担候选池过滤与排序 |
-| `OBSERVE` | 补齐当前轮判断所需语境，产出可供 `PLAN` 消费的观察结果 | 不直接把未补齐语境硬送进 `PLAN` |
-| `PLAN` | 回答“做不做、怎么做、为什么这么做”，并生成下一版 plan 快照 | 不负责补上下文，也不负责确认真实订单状态 |
-| `EXECUTE` | 回答“是否真的下出去了、成交了多少、还剩多少真实风险” | 不重新做策略判断 |
-| `REVIEW` | 对已结束或阶段性闭合的一段 plan 变化序列做解释、归因和提炼 | 不默认推进长期策略 |
-| `PLAN-POOL` | 作为决策池，挂住多条 `PLAN-CHAIN`，并在恢复时定位当前活跃链 | 不是流程阶段 |
-| `PLAN-CHAIN` | 对应一笔或一组绑定暴露从观测、挂单、成交、管理到全部平仓或失效闭合的完整交易生命周期，由 plan 快照序列构成 | 不是流程阶段 |
-| `STRATEGY-POOL` | 保存长期策略分支、版本和证明材料，供主流程读取 | 不负责驱动研究循环 |
-| `WAIT-CONDITION / WAIT-UNTIL-FILL` | 表示等待条件或等待成交的位置 | 不是独立阶段 |
-
-### 常见回返
-
-| 场景组 | 触发 → 落点 | 例 |
-| --- | --- | --- |
-| 刚收到用户消息、状态不清、执行未决 | 任意点 → `OBSERVE / EXECUTE / REVIEW` | 用户发来"现在怎么样"，不清楚是要看盘还是确认订单 |
-| 开仓前反复判断 | 新消息 / 反馈 / 市场更新 → `OBSERVE` checklist 循环 → `PLAN` 生成新版本 | 用户说"再等等"，补了新阻力位，重出一版 plan |
-| 当前判断已形成但条件未到 | `PLAN` 写入 `wait-condition`；用户消息触发 → `OBSERVE` 重查条件 | 做多方向定了，但等价格回踩 82000 再进 |
-| 挂单后未最终成交 | `EXECUTE` 写入 `WAIT-UNTIL-FILL`；用户消息触发 → `EXECUTE / OBSERVE` | 限价单已挂出，价格还未到，等待成交 |
-| API 事实与记录冲突 | → `OBSERVE / EXECUTE` 重新 API 校验 | 对话里记着有仓，API 返回持仓为 0 |
-| 持仓后继续推进 | 持仓语境下仍走 → `OBSERVE / PLAN / EXECUTE` | 已持多仓，用户说"再看看加仓点" |
-| 一条链结束或阶段性闭合 | 用户要求解释 / 总结 → `REVIEW` | 止盈平仓后，用户说"总结一下这笔" |
-| `REVIEW` 发现值得沉淀的方法、假设或模板 | `REVIEW` → 主 agent 研究调度 → `BACKTEST` → `ITERATE` | 复盘发现某均线规律在这笔里效果好，值得系统回测 |
-| 外部研究已足够像候选规则 | 外部研究输入 → 主 agent 研究调度 / `BACKTEST` | 用户粘贴一段研究报告说"这个规律试试" |
-| 当前轮研究得到可保留结果 | `ITERATE` → `STRATEGY-POOL`；主流程读取当前适用版本 | 回测确认策略有效，升格写入策略池 |
+| `INTENT ROUTER` | 根据用户消息和当前生效 plan 状态决定本轮先去哪里，标出 `OBSERVE` 入口类型 | 意图不明或状态不清 → 优先路由至 `OBSERVE` |
+| `OBSERVE` | 补齐当前轮判断所需语境 | 上下文未齐 → 本阶段自循环补全；补齐后 → `PLAN`；新消息 / 条件变化 / 持仓语境下可再次触发 |
+| `PLAN` | 回答”做不做、怎么做、为什么这么做”，生成下一版 plan 快照和状态标签 | `wait-condition` → 用户消息触发 `OBSERVE` 重查条件；`ready-execute` → `EXECUTE`；API 事实与记录冲突 → `OBSERVE / EXECUTE` 重新校验 |
+| `EXECUTE` | 回答”是否真的下出去了、成交了多少、还剩多少真实风险” | `WAIT-UNTIL-FILL` → 用户消息触发 `EXECUTE / OBSERVE` 跟进；用户要求重新判断 → 路由回 `PLAN`；执行确认 → 回复用户 |
+| `REVIEW` | 对已结束或阶段性闭合的 plan 变化序列做解释、归因和提炼 | 产出 candidate hypothesis → 主 agent 研究调度 → `BACKTEST` → `ITERATE`；无 hypothesis → 回复用户 |
 
 ### 固定约束
 
@@ -144,7 +117,6 @@ EXECUTE 只负责把已确认动作变成真实执行事实，并在必要时核
 | 当前读取视角 | 默认读取当前活跃 `PLAN-CHAIN` 的最新 plan 快照 |
 | 判断与执行 | 系统建议、用户确认、真实已生效状态是三层不同东西，未对齐前不能当成已经执行完毕 |
 | plan 快照定义 | 一个 plan 默认就是用户本轮提问后，agent 给出的这一版交易策略；至少应覆盖市场分析、做单点位、仓位、止盈止损、杠杆、量单量等关键信息 |
-| plan 状态标签 | `valid / noop / continue-scan / draft-closed / wait-condition / ready-execute / abandon` 默认挂在当前 plan 快照上，作为 plan 属性或状态标签保存 |
 | plan 快照追加 | 同一条 `PLAN-CHAIN` 上的每轮新判断默认 append 为新的 plan 快照，保留系统原建议、用户反馈、改判原因和历史版本序列 |
 | 链边界 | 只要还在管理同一笔或同一组绑定暴露的交易生命周期，从观测、挂单、成交、改止盈止损、加减仓到全部平仓前，默认都算同一条 `PLAN-CHAIN`；旧仓位已全部结束后再次围绕新机会开仓，或当前新增仓位本身就是独立新机会时，才切新链 |
 | 跨链关系 | 若新开的仓位本质上是为旧链做对冲、补救或风险转移，应视为新链，但保留与旧链的关联；若只是旧链内部的保护、减灾或管理动作，则仍留在原链 |

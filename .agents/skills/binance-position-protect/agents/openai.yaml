@@ -1,0 +1,4 @@
+interface:
+  display_name: "Binance Position Protect"
+  short_description: "为 Binance USDM 持仓补止盈、止损或追踪止损"
+  default_prompt: "先确认现有仓位与保护缺口，再使用 $binance-position-protect 给 Binance USDM 持仓补上止损、止盈或追踪止损。"

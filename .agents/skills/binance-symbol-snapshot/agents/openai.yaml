@@ -1,0 +1,4 @@
+interface:
+  display_name: "Binance Symbol Snapshot"
+  short_description: "快速获取单标的 24h、盘口、资金费率与持仓量快照"
+  default_prompt: "使用 $binance-symbol-snapshot 获取指定交易对的即时市场快照；若是合约，优先查看 mark price、funding 与 open interest，再决定是否继续拉 OHLCV。"

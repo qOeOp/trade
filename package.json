@@ -4,15 +4,20 @@
   "description": "这是一个给开发者自己长期使用、可被 Claude、Gemini、Codex 等 agent 直接调用的加密交易工作仓库。",
   "main": "index.js",
   "bin": {
-    "binance-account": "dist/binance-account/cli.js"
+    "binance-account-snapshot": "dist/binance-account-snapshot/cli.js",
+    "binance-symbol-snapshot": "dist/binance-symbol-snapshot/cli.js",
+    "binance-market-scan": "dist/binance-market-scan/cli.js",
+    "binance-order-preview": "dist/binance-order-preview/cli.js",
+    "binance-order-place": "dist/binance-order-place/cli.js",
+    "binance-order-cancel": "dist/binance-order-cancel/cli.js",
+    "binance-position-protect": "dist/binance-position-protect/cli.js"
   },
   "directories": {
     "doc": "docs"
   },
   "scripts": {
-    "build": "npm run build:binance-account",
-    "build:binance-account": "mkdir -p dist/binance-account && ncc build cmd/binance-account/main.ts -o dist/binance-account && mv dist/binance-account/index.js dist/binance-account/cli.js && chmod +x dist/binance-account/cli.js",
-    "test": "node --import tsx --test cmd/binance-account/main.test.ts"
+    "build": "./scripts/build-skills.sh",
+    "test": "node --import tsx --test cmd/**/*.test.ts"
   },
   "repository": {
     "type": "git",

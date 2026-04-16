@@ -1,0 +1,4 @@
+interface:
+  display_name: "Binance Order Place"
+  short_description: "执行 Binance 真实下单"
+  default_prompt: "先确认已经做过 $binance-order-preview，再使用 $binance-order-place 执行真实标准订单；没有明确确认时不要直接下单。"

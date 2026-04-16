@@ -1,0 +1,4 @@
+interface:
+  display_name: "Binance Market Scan"
+  short_description: "从 Binance 全市场生成 long / short 候选"
+  default_prompt: "使用 $binance-market-scan 从 Binance 公共市场数据里先筛候选；如果用户没有明确给 symbol，先输出 long / short shortlist，再决定是否继续拉 OHLCV。"

@@ -1,0 +1,4 @@
+interface:
+  display_name: "Binance Order Cancel"
+  short_description: "撤销 Binance 普通单或期货 Algo 条件单"
+  default_prompt: "使用 $binance-order-cancel 撤销指定 Binance 挂单；真实撤单前先确认目标单号、symbol 和是否需要一次性取消全部。"
