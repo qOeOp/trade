@@ -1,0 +1,5 @@
+# Exclude generated skill executables from GitHub language stats and default diffs.
+.agents/skills/*/scripts/* linguist-generated=true
+
+# Keep hand-maintained catalog/config files visible.
+.agents/skills/tech-indicators/scripts/indicator_catalog.json -linguist-generated
