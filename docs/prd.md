@@ -15,13 +15,13 @@
 
 | 类别 | 内容 | 作用 |
 | --- | --- | --- |
-| `路由` | `ROUTER` | 根据用户消息和当前生效 plan 状态，决定本轮先进入哪个阶段 |
+| `路由` | `ROUTER` | 根据用户消息决定本轮先进入哪个阶段 |
 | `交易` | `OBSERVE / PLAN / EXECUTE` | 表达在线主流程本轮工作重点在哪一侧 |
 | `投研` | `REVIEW / BACKTEST / ITERATE` | 表达策略演化链路本轮工作重点在哪一侧 |
-| `状态` | `WAIT-CONDITION / WAIT-UNTIL-FILL` | 表达当前计划或订单处于什么等待位置；前者订单尚未挂出、等待市场条件达到；后者订单已挂出至交易所、等待成交 |
+| `状态` | `WAIT-CONDITION / WAIT-UNTIL-FILL` | 表达当前计划或订单处于什么等待位置 |
 | `订单` | `挂单 / 撤单 / 改单` | 表达订单层发生了什么真实操作 |
 | `仓位` | `开仓 / 加仓 / 减仓 / 止损 / 止盈 / 平仓 / 对冲` | 表达仓位层发生了什么真实操作 |
-| `容器` | `PLAN-POOL → PLAN-CHAIN` / `STRATEGY-POOL → STRATEGY-CHAIN` | POOL 承载对应 CHAIN；交易侧以 PLAN-CHAIN 为基本单元，投研侧以 STRATEGY-CHAIN 为基本单元 |
+| `容器` | `PLAN-POOL → PLAN-CHAIN` / `STRATEGY-POOL → STRATEGY-CHAIN` | POOL 承载对应 CHAIN |
 
 其中，`PLAN-CHAIN` 是一笔或一组绑定暴露从观测到全部平仓或失效闭合的完整生命周期记录；`PLAN-POOL` 承载所有活跃 `PLAN-CHAIN`；`STRATEGY-CHAIN` 是一个策略假设从候选、影子、验证到生效或归档的完整演化记录，包含分支版本历史、回测结果和迭代决议；`STRATEGY-POOL` 承载所有 `STRATEGY-CHAIN`。
 
