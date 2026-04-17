@@ -16,14 +16,14 @@
 | 类别 | 内容 | 作用 |
 | --- | --- | --- |
 | `路由` | `ROUTER` | 根据用户消息和当前生效 plan 状态，决定本轮先进入哪个阶段 |
-| `交易` | `OBSERVE / PLAN / EXECUTE / REVIEW` | 表达在线主流程本轮工作重点在哪一侧 |
-| `投研` | `BACKTEST / ITERATE` | 表达策略演化链路本轮工作重点在哪一侧 |
+| `交易` | `OBSERVE / PLAN / EXECUTE` | 表达在线主流程本轮工作重点在哪一侧 |
+| `投研` | `REVIEW / BACKTEST / ITERATE` | 表达策略演化链路本轮工作重点在哪一侧 |
 | `状态` | `WAIT-CONDITION / WAIT-UNTIL-FILL` | 表达当前计划或订单处于什么等待位置；前者订单尚未挂出、等待市场条件达到；后者订单已挂出至交易所、等待成交 |
 | `订单` | `挂单 / 撤单 / 改单` | 表达订单层发生了什么真实操作 |
 | `仓位` | `开仓 / 加仓 / 减仓 / 止损 / 止盈 / 平仓 / 对冲` | 表达仓位层发生了什么真实操作 |
-| `容器` | `PLAN-POOL / PLAN-CHAIN / STRATEGY-POOL` | 表达长期沉淀的对象 |
+| `容器` | `PLAN-POOL → PLAN-CHAIN` / `STRATEGY-POOL → STRATEGY-CHAIN` | POOL 承载对应 CHAIN；交易侧以 PLAN-CHAIN 为基本单元，投研侧以 STRATEGY-CHAIN 为基本单元 |
 
-其中，`PLAN-CHAIN` 是一笔或一组绑定暴露从观测到全部平仓或失效闭合的完整生命周期记录；`PLAN-POOL` 承载所有活跃 `PLAN-CHAIN`；`STRATEGY-POOL` 承载长期策略分支、版本和理论支持。
+其中，`PLAN-CHAIN` 是一笔或一组绑定暴露从观测到全部平仓或失效闭合的完整生命周期记录；`PLAN-POOL` 承载所有活跃 `PLAN-CHAIN`；`STRATEGY-CHAIN` 是一个策略假设从候选、影子、验证到生效或归档的完整演化记录，包含分支版本历史、回测结果和迭代决议；`STRATEGY-POOL` 承载所有 `STRATEGY-CHAIN`。
 
 - `开仓` 只表达“开始进入一笔仓位”这一事实；具体执行方式可再区分为 `挂单成交 / 市价进入 / 条件触发进入`
 - `对冲` 作为独立仓位动作保留；它表达的是风险转移或保护意图，底层仍可能由一笔或多笔 `开仓 / 挂单` 组成
@@ -116,6 +116,80 @@
 | `REVIEW` | 对已结束或阶段性闭合的 plan 变化序列做解释、归因和提炼 | 产出 candidate hypothesis → 主 agent 研究调度 → `BACKTEST` → `ITERATE`；无 hypothesis → 回复用户 |
 | `BACKTEST` | 对候选策略分支版本或策略轮廓进行历史样本验证，产出统计结论和下一轮研究方向 | 来自 `STRATEGY-POOL` 中的候选版本 → 验证完成 → `ITERATE` |
 | `ITERATE` | 基于回测结论决定候选版本的下一状态，并回写 `STRATEGY-POOL` | 来自 `BACKTEST` → 回写 `STRATEGY-POOL` → 可回接 `OBSERVE / PLAN` |
+
+### plan 状态
+
+`plan.status` 是 plan 对象的核心字段；它的值决定当前 plan 处于哪个阶段、下次用户消息如何路由，以及关联哪些系统行为。
+
+#### 状态树
+
+```text
+plan.status
+│
+├── [扫描]
+│   ├── continue-scan      全市场扫描中，shortlist 尚未收敛
+│   └── noop               本轮无操作建议，机会不成立或暂不参与
+│
+├── [等待进场]
+│   ├── wait-condition     setup 已识别，等市场条件达到，订单尚未挂出
+│   └── ready-execute      条件满足，等用户确认后执行
+│
+├── [订单层等待]
+│   └── wait-until-fill    订单已挂出至交易所，等成交
+│                          （含部分成交、条件触发单、TP / SL 挂单）
+│
+├── [持仓管理]
+│   └── in-position        仓位存活，持续运行 OBSERVE → PLAN 管理循环
+│
+└── [终止]
+    ├── abandon            条件过期 / 机会消失 / 主动放弃
+    ├── draft-closed       计划成形但从未进入执行即关闭
+    └── closed             仓位完全结束，生命周期闭合 → 进入 REVIEW
+```
+
+#### 状态行为绑定
+
+| status | 含义 | 关联行为 | 下次消息路由 |
+| --- | --- | --- | --- |
+| `continue-scan` | 扫描中，尚无具体 setup | `OBSERVE` 继续扫描，产出 shortlist | `ROUTER` → `OBSERVE` |
+| `noop` | 无操作，机会不成立 | 静默，不触发执行 | `ROUTER` → `OBSERVE` 重新判断 |
+| `wait-condition` | 等市场条件，未挂单 | `OBSERVE` 重查条件；条件过期 → `PLAN` 产出 `abandon` | `ROUTER` → `OBSERVE` |
+| `ready-execute` | 条件满足，待执行 | 等用户确认 → `EXECUTE` | `ROUTER` → `EXECUTE` |
+| `wait-until-fill` | 订单已挂，等成交 | API 跟踪订单状态；部分成交后保留此状态直到全部完成 | `ROUTER` → `EXECUTE` / `OBSERVE` |
+| `in-position` | 仓位存活，主动管理 | 每次用户消息触发 `OBSERVE` → `PLAN` 管理循环；TP / SL 调整、加减仓均在此状态内发生 | `ROUTER` → `OBSERVE` |
+| `abandon` | 放弃 | 标记 `PLAN-CHAIN` 关闭；视情况进入 `REVIEW` | — |
+| `draft-closed` | 成形未执行即关闭 | 可选进入 `REVIEW` | — |
+| `closed` | 仓位完全结束 | 触发 `REVIEW` 管道 | → `REVIEW` |
+
+#### 状态流转
+
+```text
+初始
+  └→ [PLAN 首次运行]
+       ├→ continue-scan / wait-condition / ready-execute / noop
+
+continue-scan  ──→ wait-condition    （找到 setup）
+               ──→ noop              （扫描完，无机会）
+               ──→ abandon           （扫描条件失效）
+
+wait-condition ──→ ready-execute     （条件达到）
+               ──→ wait-condition    （重查后更新条件）
+               ──→ abandon           （条件过期 / 价位已穿越）
+
+ready-execute  ──→ wait-until-fill   （订单挂出）
+               ──→ abandon / draft-closed  （放弃执行）
+
+wait-until-fill ──→ wait-until-fill  （部分成交，剩余继续等）
+                ──→ in-position      （全部成交，仓位开启）
+                ──→ wait-condition   （撤单后重新等条件）
+
+in-position    ──→ in-position       （加减仓 / 调整 TP·SL，状态内更新）
+               ──→ closed            （全部平仓 / 止损触发）
+
+closed
+draft-closed   ──→ REVIEW
+abandon
+```
 
 ### 固定约束
 
