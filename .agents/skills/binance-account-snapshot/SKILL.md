@@ -59,7 +59,7 @@ cd .agents/skills/binance-account-snapshot
 ## 脚本约定
 
 - 入口源码是 [main.ts](/Users/vx/WebstormProjects/trade/.agents/skills/binance-account-snapshot/scripts/main.ts)。
-- 当前本 skill 的共享 helper 在 [shared.ts](/Users/vx/WebstormProjects/trade/.agents/skills/binance-account-snapshot/scripts/shared.ts)。
+- 当前本 skill 的脚本 helper 已内联在 [main.ts](/Users/vx/WebstormProjects/trade/.agents/skills/binance-account-snapshot/scripts/main.ts)。
 - 依赖定义在 [package.json](/Users/vx/WebstormProjects/trade/.agents/skills/binance-account-snapshot/package.json)。
 - 依赖 `binance-api-node`。
 - 优先直接执行 `./scripts/main.ts`；只有本机首次运行或提示依赖缺失时再执行 `bun install`，不要每次都先装一遍。

@@ -116,7 +116,7 @@
 
 | 阶段 | 职责 | 典型流转 |
 | --- | --- | --- |
-| `ROUTER` | 根据用户消息和当前生效 plan 状态决定本轮先去哪里，标出 `OBSERVE` 入口类型 | 意图不明或状态不清 → 优先路由至 `OBSERVE` |
+| `ROUTER` | 根据用户消息决定本轮先去哪里，标出 `OBSERVE` 入口类型 | 意图不明或状态不清 → 优先路由至 `OBSERVE` |
 | `OBSERVE` | 先按运行形态整理 checklist，再按 checklist 调对应 skill 补齐当前轮判断所需语境，并整理成 `PLAN` 可消费的观测结果 | checklist 未清空 → 本阶段自循环补全；整理完成后 → `PLAN`；新消息 / 条件变化 / 持仓语境下可再次触发 |
 | `PLAN` | 回答”做不做、怎么做、为什么这么做”，生成下一版 plan 快照和状态标签 | `wait-condition` → 用户消息触发 `OBSERVE` 重查条件；重查发现入场条件已失效 → 本阶段产出 `abandon`；`ready-execute` → `EXECUTE` |
 | `EXECUTE` | 回答”是否真的下出去了、成交了多少、还剩多少真实风险” | `WAIT-UNTIL-FILL` → 用户消息触发 `EXECUTE / OBSERVE` 跟进；用户要求重新判断 → 路由回 `PLAN`；执行确认 → 回复用户 |

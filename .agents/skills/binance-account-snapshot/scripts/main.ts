@@ -2,8 +2,6 @@
 
 import Binance, { type BinanceRest } from "binance-api-node"
 
-import { nowInShanghai } from "./shared"
-
 type JSONMap = Record<string, unknown>
 
 interface Config {
@@ -201,6 +199,10 @@ function checkEnv(): EnvStatus {
     ok: missing.length === 0,
     missing,
   }
+}
+
+function nowInShanghai(): string {
+  return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().replace("Z", "+08:00")
 }
 
 async function buildSnapshot(config: Config, client: BinanceRest): Promise<Snapshot> {
@@ -592,6 +594,6 @@ export {
   withRecvWindow,
 }
 
-if (require.main === module) {
+if (process.argv[1] && import.meta.url === new URL(process.argv[1], "file:").href) {
   void main()
 }

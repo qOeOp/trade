@@ -1,8 +1,6 @@
 #!/usr/bin/env bun
 
-import type { BinanceRest } from "binance-api-node"
-
-import { checkEnv, createClient, normalizeSymbol, parseBoolean, printJSON, readFlagValue, requireConfirmation, runScript } from "./shared"
+import Binance, { type BinanceRest } from "binance-api-node"
 
 interface Config {
   symbol: string
@@ -23,7 +21,31 @@ interface Config {
   checkEnv: boolean
 }
 
-type FuturesAlgoOrderRequest = Parameters<BinanceRest["futuresCreateAlgoOrder"]>[0]
+interface EnvStatus {
+  ok: boolean
+  missing: string[]
+}
+
+type ScriptResponse =
+  | { ok: true; data: unknown }
+  | { ok: false; error: string; data?: unknown }
+
+interface FuturesAlgoOrderRequest {
+  symbol: string
+  side: "BUY" | "SELL"
+  positionSide: Config["positionSide"]
+  quantity?: string
+  closePosition?: boolean
+  reduceOnly?: string
+  workingType: Config["workingType"]
+  priceProtect: string
+  type: string
+  triggerPrice?: string
+  price?: string
+  timeInForce?: string
+  activationPrice?: string
+  callbackRate?: string
+}
 
 const HELP_TEXT = `Usage:
   ./scripts/main.ts --symbol BTCUSDT --position-side LONG --quantity 0.01 --stop-loss-trigger 64000 --take-profit-trigger 68000 --yes
@@ -62,21 +84,23 @@ async function main(): Promise<void> {
   }
 }
 
-async function run(argv: string[]) {
-  return runScript(async () => {
+async function run(argv: string[]): Promise<ScriptResponse> {
+  try {
     const config = parseArgs(argv)
     const envStatus = checkEnv()
     if (config.checkEnv) {
-      return envStatus
+      return { ok: true, data: envStatus }
     }
     if (!envStatus.ok) {
       throw new Error(`missing environment variables: ${envStatus.missing.join(", ")}`)
     }
 
     requireConfirmation(config.yes)
-    const client = createClient({ requiresAuth: true, timeout: config.timeout })
-    return executeProtection(config, client)
-  })
+    const client = createClient(config.timeout)
+    return { ok: true, data: await executeProtection(config, client) }
+  } catch (error) {
+    return { ok: false, error: formatError(error) }
+  }
 }
 
 function parseArgs(argv: string[]): Config {
@@ -162,7 +186,7 @@ function parseArgs(argv: string[]): Config {
   return config
 }
 
-async function executeProtection(config: Config, client: ReturnType<typeof createClient>) {
+async function executeProtection(config: Config, client: BinanceRest) {
   const side = config.side || inferProtectiveSide(config.positionSide)
   if (!side) {
     throw new Error("--side is required when --position-side BOTH")
@@ -170,7 +194,7 @@ async function executeProtection(config: Config, client: ReturnType<typeof creat
 
   const created = []
   for (const leg of buildLegs(config, side)) {
-    const result = await client.futuresCreateAlgoOrder(leg.request)
+    const result = await client.futuresCreateAlgoOrder(leg.request as never)
     created.push({
       leg: leg.name,
       request: leg.request,
@@ -241,6 +265,74 @@ function buildLegs(config: Config, side: "BUY" | "SELL") {
   return legs
 }
 
+function checkEnv(): EnvStatus {
+  const missing = ["BINANCE_API_KEY", "BINANCE_API_SECRET"].filter((name) => !process.env[name])
+  return {
+    ok: missing.length === 0,
+    missing,
+  }
+}
+
+function createClient(timeout: number): BinanceRest {
+  return Binance({
+    apiKey: process.env.BINANCE_API_KEY,
+    apiSecret: process.env.BINANCE_API_SECRET,
+    timeout,
+  })
+}
+
+function normalizeSymbol(symbol: string): string {
+  return symbol.trim().toUpperCase().replace(/[\/:_\-\s]/g, "")
+}
+
+function parseBoolean(value: string, name: string): boolean {
+  const normalized = value.trim().toLowerCase()
+  switch (normalized) {
+    case "1":
+    case "true":
+    case "yes":
+    case "y":
+    case "on":
+      return true
+    case "0":
+    case "false":
+    case "no":
+    case "n":
+    case "off":
+      return false
+    default:
+      throw new Error(`${name} must be true or false`)
+  }
+}
+
+function printJSON(value: unknown): void {
+  process.stdout.write(`${JSON.stringify(value, null, 2)}\n`)
+}
+
+function readFlagValue(argv: string[], index: number, name: string): string {
+  const value = argv[index]
+  if (!value || value.startsWith("--")) {
+    throw new Error(`${name} requires a value`)
+  }
+  return value
+}
+
+function requireConfirmation(confirmed: boolean, flag: string = "--yes"): void {
+  if (!confirmed) {
+    throw new Error(`this command changes live Binance state; re-run with ${flag} after reviewing binance-order-preview`)
+  }
+}
+
+function formatError(error: unknown): string {
+  if (error && typeof error === "object") {
+    const candidate = error as { code?: unknown; message?: string; responseText?: string }
+    const code = candidate.code != null ? `code=${candidate.code} ` : ""
+    const message = candidate.message || candidate.responseText || JSON.stringify(error)
+    return `${code}${message}`.trim()
+  }
+  return String(error)
+}
+
 function validateConfig(config: Config): void {
   if (!config.symbol) {
     throw new Error("--symbol is required")
@@ -300,6 +392,6 @@ export {
   run,
 }
 
-if (require.main === module) {
+if (process.argv[1] && import.meta.url === new URL(process.argv[1], "file:").href) {
   void main()
 }

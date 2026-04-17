@@ -1,8 +1,6 @@
 #!/usr/bin/env bun
 
-import type { BinanceRest } from "binance-api-node"
-
-import { createClient, normalizeSymbol, nowInShanghai, parseInteger, parsePositiveNumber, printJSON, readFlagValue, runScript, toFloat } from "./shared"
+import Binance, { type BinanceRest } from "binance-api-node"
 
 type JSONTrade = {
   aggId: number
@@ -26,8 +24,17 @@ interface Config {
   timeout: number
 }
 
-type SpotAggTradesRequest = Parameters<BinanceRest["aggTrades"]>[0]
-type FuturesAggTradesRequest = Parameters<BinanceRest["futuresAggTrades"]>[0]
+type ScriptResponse =
+  | { ok: true; data: unknown }
+  | { ok: false; error: string; data?: unknown }
+
+interface AggTradesRequest {
+  symbol: string
+  limit: number
+  fromId?: number
+  startTime?: number
+  endTime?: number
+}
 
 const HELP_TEXT = `Usage:
   ./scripts/main.ts --symbol BTCUSDT --market usdm --limit 500
@@ -57,12 +64,14 @@ async function main(): Promise<void> {
   }
 }
 
-async function run(argv: string[]) {
-  return runScript(async () => {
+async function run(argv: string[]): Promise<ScriptResponse> {
+  try {
     const config = parseArgs(argv)
-    const client = createClient({ timeout: config.timeout })
-    return fetchAggTrades(config, client)
-  })
+    const client = createClient(config.timeout)
+    return { ok: true, data: await fetchAggTrades(config, client) }
+  } catch (error) {
+    return { ok: false, error: formatError(error) }
+  }
 }
 
 function parseArgs(argv: string[]): Config {
@@ -111,12 +120,12 @@ function parseArgs(argv: string[]): Config {
   return config
 }
 
-async function fetchAggTrades(config: Config, client: ReturnType<typeof createClient>) {
+async function fetchAggTrades(config: Config, client: BinanceRest) {
   const request = buildRequest(config)
   const trades =
     config.market === "spot"
-      ? await client.aggTrades(request as SpotAggTradesRequest)
-      : await client.futuresAggTrades(request as FuturesAggTradesRequest)
+      ? await client.aggTrades(request as never)
+      : await client.futuresAggTrades(request as never)
 
   const normalizedTrades = trades.map(normalizeAggTrade)
 
@@ -131,7 +140,7 @@ async function fetchAggTrades(config: Config, client: ReturnType<typeof createCl
   }
 }
 
-function buildRequest(config: Config) {
+function buildRequest(config: Config): AggTradesRequest {
   return {
     symbol: config.symbol,
     limit: config.limit,
@@ -201,6 +210,65 @@ function validateConfig(config: Config): void {
   }
 }
 
+function createClient(timeout: number): BinanceRest {
+  return Binance({
+    apiKey: process.env.BINANCE_API_KEY,
+    apiSecret: process.env.BINANCE_API_SECRET,
+    timeout,
+  })
+}
+
+function normalizeSymbol(symbol: string): string {
+  return symbol.trim().toUpperCase().replace(/[\/:_\-\s]/g, "")
+}
+
+function nowInShanghai(): string {
+  return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().replace("Z", "+08:00")
+}
+
+function parseInteger(value: string, name: string): number {
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed)) {
+    throw new Error(`${name} must be an integer`)
+  }
+  return parsed
+}
+
+function parsePositiveNumber(value: string, name: string): number {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be greater than 0`)
+  }
+  return parsed
+}
+
+function printJSON(value: unknown): void {
+  process.stdout.write(`${JSON.stringify(value, null, 2)}\n`)
+}
+
+function readFlagValue(argv: string[], index: number, name: string): string {
+  const value = argv[index]
+  if (!value || value.startsWith("--")) {
+    throw new Error(`${name} requires a value`)
+  }
+  return value
+}
+
+function toFloat(value: unknown): number {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function formatError(error: unknown): string {
+  if (error && typeof error === "object") {
+    const candidate = error as { code?: unknown; message?: string; responseText?: string }
+    const code = candidate.code != null ? `code=${candidate.code} ` : ""
+    const message = candidate.message || candidate.responseText || JSON.stringify(error)
+    return `${code}${message}`.trim()
+  }
+  return String(error)
+}
+
 export {
   buildRequest,
   buildSummary,
@@ -210,6 +278,6 @@ export {
   run,
 }
 
-if (require.main === module) {
+if (process.argv[1] && import.meta.url === new URL(process.argv[1], "file:").href) {
   void main()
 }

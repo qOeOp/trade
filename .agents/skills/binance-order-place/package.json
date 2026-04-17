@@ -5,7 +5,14 @@
   "dependencies": {
     "binance-api-node": "^0.13.9"
   },
+  "devDependencies": {
+    "@types/node": "^24.5.2",
+    "typescript": "^5.9.2"
+  },
   "scripts": {
-    "test": "bun test ./scripts/*.test.ts"
+    "typecheck": "tsc --noEmit",
+    "lint": "bun run typecheck",
+    "test": "bun test ./scripts/*.test.ts",
+    "check": "bun run lint && bun run test"
   }
 }

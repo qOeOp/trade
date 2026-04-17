@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { createClient, normalizeSymbol, nowInShanghai, parseBoolean, printJSON, readFlagValue, runScript } from "./shared"
+import Binance, { type BinanceRest } from "binance-api-node"
 
 interface Config {
   symbol: string
@@ -21,6 +21,10 @@ interface Config {
   callbackRate: string
   timeout: number
 }
+
+type ScriptResponse =
+  | { ok: true; data: unknown }
+  | { ok: false; error: string; data?: unknown }
 
 const FUTURES_PROTECTIVE_TYPES = new Set([
   "STOP",
@@ -65,12 +69,14 @@ async function main(): Promise<void> {
   }
 }
 
-async function run(argv: string[]) {
-  return runScript(async () => {
+async function run(argv: string[]): Promise<ScriptResponse> {
+  try {
     const config = parseArgs(argv)
-    const client = createClient({ timeout: config.timeout })
-    return buildPreview(config, client)
-  })
+    const client = createClient(config.timeout)
+    return { ok: true, data: await buildPreview(config, client) }
+  } catch (error) {
+    return { ok: false, error: formatError(error) }
+  }
 }
 
 function parseArgs(argv: string[]): Config {
@@ -163,7 +169,7 @@ function parseArgs(argv: string[]): Config {
   return config
 }
 
-async function buildPreview(config: Config, client: ReturnType<typeof createClient>) {
+async function buildPreview(config: Config, client: BinanceRest) {
   const execution = resolveExecution(config)
   const marketContext = await fetchMarketContext(config, client)
 
@@ -195,7 +201,7 @@ function resolveExecution(config: Config) {
   }
 }
 
-async function fetchMarketContext(config: Config, client: ReturnType<typeof createClient>) {
+async function fetchMarketContext(config: Config, client: BinanceRest) {
   if (config.market === "spot") {
     const [tickerPrice, bookTicker] = await Promise.all([
       client.tickerPrice({ symbol: config.symbol }),
@@ -254,6 +260,64 @@ function buildWarnings(config: Config, method: string): string[] {
     warnings.push("spot orders normally use either --quantity or --quote-order-qty, not both")
   }
   return warnings
+}
+
+function createClient(timeout: number): BinanceRest {
+  return Binance({
+    apiKey: process.env.BINANCE_API_KEY,
+    apiSecret: process.env.BINANCE_API_SECRET,
+    timeout,
+  })
+}
+
+function normalizeSymbol(symbol: string): string {
+  return symbol.trim().toUpperCase().replace(/[\/:_\-\s]/g, "")
+}
+
+function nowInShanghai(): string {
+  return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().replace("Z", "+08:00")
+}
+
+function parseBoolean(value: string, name: string): boolean {
+  const normalized = value.trim().toLowerCase()
+  switch (normalized) {
+    case "1":
+    case "true":
+    case "yes":
+    case "y":
+    case "on":
+      return true
+    case "0":
+    case "false":
+    case "no":
+    case "n":
+    case "off":
+      return false
+    default:
+      throw new Error(`${name} must be true or false`)
+  }
+}
+
+function printJSON(value: unknown): void {
+  process.stdout.write(`${JSON.stringify(value, null, 2)}\n`)
+}
+
+function readFlagValue(argv: string[], index: number, name: string): string {
+  const value = argv[index]
+  if (!value || value.startsWith("--")) {
+    throw new Error(`${name} requires a value`)
+  }
+  return value
+}
+
+function formatError(error: unknown): string {
+  if (error && typeof error === "object") {
+    const candidate = error as { code?: unknown; message?: string; responseText?: string }
+    const code = candidate.code != null ? `code=${candidate.code} ` : ""
+    const message = candidate.message || candidate.responseText || JSON.stringify(error)
+    return `${code}${message}`.trim()
+  }
+  return String(error)
 }
 
 function isProtectiveFuturesAlgoOrder(config: Config): boolean {
@@ -327,6 +391,6 @@ export {
   run,
 }
 
-if (require.main === module) {
+if (process.argv[1] && import.meta.url === new URL(process.argv[1], "file:").href) {
   void main()
 }

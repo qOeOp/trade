@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { createClient, normalizeSymbol, nowInShanghai, parsePositiveNumber, printJSON, readFlagValue, runScript } from "./shared"
+import Binance, { type BinanceRest } from "binance-api-node"
 
 interface Config {
   symbol: string
@@ -65,6 +65,10 @@ interface FuturesPremiumIndex {
   time: number
 }
 
+type ScriptResponse =
+  | { ok: true; data: unknown }
+  | { ok: false; error: string; data?: unknown }
+
 const HELP_TEXT = `Usage:
   ./scripts/main.ts --symbol BTCUSDT --market usdm
 
@@ -89,12 +93,14 @@ async function main(): Promise<void> {
   }
 }
 
-async function run(argv: string[]) {
-  return runScript(async () => {
+async function run(argv: string[]): Promise<ScriptResponse> {
+  try {
     const config = parseArgs(argv)
-    const client = createClient({ timeout: config.timeout })
-    return buildSnapshot(config, client)
-  })
+    const client = createClient(config.timeout)
+    return { ok: true, data: await buildSnapshot(config, client) }
+  } catch (error) {
+    return { ok: false, error: formatError(error) }
+  }
 }
 
 function parseArgs(argv: string[]): Config {
@@ -133,7 +139,7 @@ function parseArgs(argv: string[]): Config {
   return config
 }
 
-async function buildSnapshot(config: Config, client: ReturnType<typeof createClient>) {
+async function buildSnapshot(config: Config, client: BinanceRest) {
   if (config.market === "spot") {
     const [ticker24h, bookTicker] = await Promise.all([
       client.dailyStats({ symbol: config.symbol }) as Promise<SpotTicker>,
@@ -235,6 +241,52 @@ function normalizeFuturesTicker(ticker: FuturesTicker) {
   }
 }
 
+function createClient(timeout: number): BinanceRest {
+  return Binance({
+    apiKey: process.env.BINANCE_API_KEY,
+    apiSecret: process.env.BINANCE_API_SECRET,
+    timeout,
+  })
+}
+
+function normalizeSymbol(symbol: string): string {
+  return symbol.trim().toUpperCase().replace(/[\/:_\-\s]/g, "")
+}
+
+function nowInShanghai(): string {
+  return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().replace("Z", "+08:00")
+}
+
+function parsePositiveNumber(value: string, name: string): number {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be greater than 0`)
+  }
+  return parsed
+}
+
+function printJSON(value: unknown): void {
+  process.stdout.write(`${JSON.stringify(value, null, 2)}\n`)
+}
+
+function readFlagValue(argv: string[], index: number, name: string): string {
+  const value = argv[index]
+  if (!value || value.startsWith("--")) {
+    throw new Error(`${name} requires a value`)
+  }
+  return value
+}
+
+function formatError(error: unknown): string {
+  if (error && typeof error === "object") {
+    const candidate = error as { code?: unknown; message?: string; responseText?: string }
+    const code = candidate.code != null ? `code=${candidate.code} ` : ""
+    const message = candidate.message || candidate.responseText || JSON.stringify(error)
+    return `${code}${message}`.trim()
+  }
+  return String(error)
+}
+
 function normalizeBookTicker(ticker: { symbol: string; bidPrice: string; bidQty: string; askPrice: string; askQty: string }) {
   return {
     symbol: ticker.symbol,
@@ -251,6 +303,6 @@ export {
   run,
 }
 
-if (require.main === module) {
+if (process.argv[1] && import.meta.url === new URL(process.argv[1], "file:").href) {
   void main()
 }

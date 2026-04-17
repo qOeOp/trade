@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { asMap, createClient, fetchJSON, isBinanceSymbolInfo, nowInShanghai, parsePositiveNumber, printJSON, readFlagValue, runScript, toFloat } from "./shared"
+import Binance, { type BinanceRest } from "binance-api-node"
 
 interface Config {
   market: "spot" | "usdm"
@@ -19,6 +19,12 @@ interface Candidate {
   score: number
   tags: string[]
 }
+
+type JSONMap = Record<string, unknown>
+
+type ScriptResponse =
+  | { ok: true; data: unknown }
+  | { ok: false; error: string; data?: unknown }
 
 const DEFAULT_MIN_QUOTE_VOLUME = 20_000_000
 const DEFAULT_LIMIT = 10
@@ -50,12 +56,14 @@ async function main(): Promise<void> {
   }
 }
 
-async function run(argv: string[]) {
-  return runScript(async () => {
+async function run(argv: string[]): Promise<ScriptResponse> {
+  try {
     const config = parseArgs(argv)
-    const client = createClient({ timeout: config.timeout })
-    return buildScan(config, client)
-  })
+    const client = createClient(config.timeout)
+    return { ok: true, data: await buildScan(config, client) }
+  } catch (error) {
+    return { ok: false, error: formatError(error) }
+  }
 }
 
 function parseArgs(argv: string[]): Config {
@@ -103,7 +111,7 @@ function parseArgs(argv: string[]): Config {
   return config
 }
 
-async function buildScan(config: Config, client: ReturnType<typeof createClient>) {
+async function buildScan(config: Config, client: BinanceRest) {
   const [tradableSymbols, tickerRows] =
     config.market === "spot"
       ? await Promise.all([fetchSpotTradableSymbols(client), fetchSpotTickerRows()])
@@ -132,12 +140,12 @@ async function buildScan(config: Config, client: ReturnType<typeof createClient>
   }
 }
 
-async function fetchSpotTradableSymbols(client: ReturnType<typeof createClient>): Promise<Set<string>> {
+async function fetchSpotTradableSymbols(client: BinanceRest): Promise<Set<string>> {
   const payload = await client.exchangeInfo()
   return extractTradableSymbols(asMap(payload).symbols, "spot")
 }
 
-async function fetchUsdmTradableSymbols(client: ReturnType<typeof createClient>): Promise<Set<string>> {
+async function fetchUsdmTradableSymbols(client: BinanceRest): Promise<Set<string>> {
   const payload = await client.futuresExchangeInfo()
   return extractTradableSymbols(asMap(payload).symbols, "usdm")
 }
@@ -147,7 +155,7 @@ async function fetchSpotTickerRows(): Promise<Record<string, unknown>[]> {
   return Array.isArray(payload) ? payload.filter((item) => item && typeof item === "object") as Record<string, unknown>[] : []
 }
 
-async function fetchUsdmTickerRows(client: ReturnType<typeof createClient>): Promise<Record<string, unknown>[]> {
+async function fetchUsdmTickerRows(client: BinanceRest): Promise<Record<string, unknown>[]> {
   const payload = await client.futuresDailyStats()
   return Array.isArray(payload) ? payload.filter((item) => item && typeof item === "object") as Record<string, unknown>[] : []
 }
@@ -254,6 +262,69 @@ function buildTags(changePercent: number, quoteVolume: number): string[] {
   return tags
 }
 
+function asMap(value: unknown): JSONMap {
+  return value && typeof value === "object" ? (value as JSONMap) : {}
+}
+
+function createClient(timeout: number): BinanceRest {
+  return Binance({
+    apiKey: process.env.BINANCE_API_KEY,
+    apiSecret: process.env.BINANCE_API_SECRET,
+    timeout,
+  })
+}
+
+async function fetchJSON(url: string): Promise<unknown> {
+  const response = await fetch(url)
+  if (!response.ok) {
+    throw new Error(`request failed: ${response.status} ${response.statusText}`)
+  }
+  return response.json()
+}
+
+function isBinanceSymbolInfo(value: unknown): value is { symbol: string; status?: string; quoteAsset?: string; contractType?: string } {
+  return Boolean(value && typeof value === "object" && "symbol" in (value as JSONMap))
+}
+
+function nowInShanghai(): string {
+  return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().replace("Z", "+08:00")
+}
+
+function parsePositiveNumber(value: string, name: string): number {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    throw new Error(`${name} must be greater than 0`)
+  }
+  return parsed
+}
+
+function printJSON(value: unknown): void {
+  process.stdout.write(`${JSON.stringify(value, null, 2)}\n`)
+}
+
+function readFlagValue(argv: string[], index: number, name: string): string {
+  const value = argv[index]
+  if (!value || value.startsWith("--")) {
+    throw new Error(`${name} requires a value`)
+  }
+  return value
+}
+
+function toFloat(value: unknown): number {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : 0
+}
+
+function formatError(error: unknown): string {
+  if (error && typeof error === "object") {
+    const candidate = error as { code?: unknown; message?: string; responseText?: string }
+    const code = candidate.code != null ? `code=${candidate.code} ` : ""
+    const message = candidate.message || candidate.responseText || JSON.stringify(error)
+    return `${code}${message}`.trim()
+  }
+  return String(error)
+}
+
 function firstDefined<T>(...values: Array<T | null | undefined>): T | undefined {
   return values.find((value): value is T => value !== null && value !== undefined)
 }
@@ -265,6 +336,6 @@ export {
   run,
 }
 
-if (require.main === module) {
+if (process.argv[1] && import.meta.url === new URL(process.argv[1], "file:").href) {
   void main()
 }

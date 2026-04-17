@@ -1,8 +1,6 @@
 #!/usr/bin/env bun
 
-import type { BinanceRest } from "binance-api-node"
-
-import { checkEnv, createClient, normalizeSymbol, parseBoolean, printJSON, readFlagValue, requireConfirmation, runScript } from "./shared"
+import Binance, { type BinanceRest } from "binance-api-node"
 
 interface Config {
   symbol: string
@@ -23,6 +21,41 @@ interface Config {
   yes: boolean
   test: boolean
   checkEnv: boolean
+}
+
+interface EnvStatus {
+  ok: boolean
+  missing: string[]
+}
+
+type ScriptResponse =
+  | { ok: true; data: unknown }
+  | { ok: false; error: string; data?: unknown }
+
+interface SpotOrderRequest {
+  symbol: string
+  side: Config["side"]
+  type: string
+  quantity?: string
+  quoteOrderQty?: string
+  price?: string
+  newClientOrderId?: string
+  timeInForce?: string
+}
+
+interface FuturesOrderRequest {
+  symbol: string
+  side: Config["side"]
+  type: string
+  quantity?: string
+  price?: string
+  stopPrice?: string
+  newClientOrderId?: string
+  timeInForce?: string
+  positionSide: Config["positionSide"]
+  reduceOnly?: string
+  workingType?: Config["workingType"]
+  priceProtect?: string
 }
 
 const SPOT_TYPES = new Set(["LIMIT", "MARKET", "LIMIT_MAKER"])
@@ -52,10 +85,6 @@ Key flags:
   --help                             Show this help
 `
 
-type SpotOrderRequest = Parameters<BinanceRest["order"]>[0]
-type SpotOrderTestRequest = Parameters<BinanceRest["orderTest"]>[0]
-type FuturesOrderRequest = Parameters<BinanceRest["futuresOrder"]>[0]
-
 async function main(): Promise<void> {
   const argv = process.argv.slice(2)
   if (argv.includes("--help") || argv.includes("-h")) {
@@ -70,12 +99,12 @@ async function main(): Promise<void> {
   }
 }
 
-async function run(argv: string[]) {
-  return runScript(async () => {
+async function run(argv: string[]): Promise<ScriptResponse> {
+  try {
     const config = parseArgs(argv)
     const envStatus = checkEnv()
     if (config.checkEnv) {
-      return envStatus
+      return { ok: true, data: envStatus }
     }
     if (!envStatus.ok) {
       throw new Error(`missing environment variables: ${envStatus.missing.join(", ")}`)
@@ -85,9 +114,11 @@ async function run(argv: string[]) {
       requireConfirmation(config.yes)
     }
 
-    const client = createClient({ requiresAuth: true, timeout: config.timeout })
-    return executeOrder(config, client)
-  })
+    const client = createClient(config.timeout)
+    return { ok: true, data: await executeOrder(config, client) }
+  } catch (error) {
+    return { ok: false, error: formatError(error) }
+  }
 }
 
 function parseArgs(argv: string[]): Config {
@@ -187,20 +218,20 @@ function parseArgs(argv: string[]): Config {
   return config
 }
 
-async function executeOrder(config: Config, client: ReturnType<typeof createClient>) {
+async function executeOrder(config: Config, client: BinanceRest) {
   if (config.market === "spot") {
-    const request: SpotOrderRequest & SpotOrderTestRequest = {
+    const request: SpotOrderRequest = {
       symbol: config.symbol,
-      side: config.side as SpotOrderRequest["side"],
-      type: config.type as SpotOrderRequest["type"],
+      side: config.side,
+      type: config.type,
       quantity: config.quantity || undefined,
       quoteOrderQty: config.quoteOrderQty || undefined,
       price: config.price || undefined,
       newClientOrderId: config.newClientOrderId || undefined,
-      timeInForce: config.price ? (config.timeInForce as SpotOrderRequest["timeInForce"]) : undefined,
+      timeInForce: config.price ? config.timeInForce : undefined,
     }
 
-    const result = config.test ? await client.orderTest(request) : await client.order(request)
+    const result = config.test ? await client.orderTest(request as never) : await client.order(request as never)
     return {
       market: config.market,
       mode: config.test ? "test" : "live",
@@ -214,19 +245,19 @@ async function executeOrder(config: Config, client: ReturnType<typeof createClie
 
   const request: FuturesOrderRequest = {
     symbol: config.symbol,
-    side: config.side as FuturesOrderRequest["side"],
-    type: config.type as FuturesOrderRequest["type"],
+    side: config.side,
+    type: config.type,
     quantity: config.quantity || undefined,
     price: config.price || undefined,
     stopPrice: config.stopPrice || undefined,
     newClientOrderId: config.newClientOrderId || undefined,
-    timeInForce: config.price ? (config.timeInForce as FuturesOrderRequest["timeInForce"]) : undefined,
+    timeInForce: config.price ? config.timeInForce : undefined,
     positionSide: config.positionSide,
     ...(reduceOnly !== undefined ? { reduceOnly } : {}),
     ...(config.stopPrice ? { workingType: config.workingType, priceProtect: String(config.priceProtect) } : {}),
   }
 
-  const result = await client.futuresOrder(request)
+  const result = await client.futuresOrder(request as never)
   return {
     market: config.market,
     mode: "live",
@@ -302,12 +333,80 @@ function resolveReduceOnly(config: Config): string | undefined {
   return config.reduceOnly ? "true" : "false"
 }
 
+function checkEnv(): EnvStatus {
+  const missing = ["BINANCE_API_KEY", "BINANCE_API_SECRET"].filter((name) => !process.env[name])
+  return {
+    ok: missing.length === 0,
+    missing,
+  }
+}
+
+function createClient(timeout: number): BinanceRest {
+  return Binance({
+    apiKey: process.env.BINANCE_API_KEY,
+    apiSecret: process.env.BINANCE_API_SECRET,
+    timeout,
+  })
+}
+
+function normalizeSymbol(symbol: string): string {
+  return symbol.trim().toUpperCase().replace(/[\/:_\-\s]/g, "")
+}
+
+function parseBoolean(value: string, name: string): boolean {
+  const normalized = value.trim().toLowerCase()
+  switch (normalized) {
+    case "1":
+    case "true":
+    case "yes":
+    case "y":
+    case "on":
+      return true
+    case "0":
+    case "false":
+    case "no":
+    case "n":
+    case "off":
+      return false
+    default:
+      throw new Error(`${name} must be true or false`)
+  }
+}
+
+function printJSON(value: unknown): void {
+  process.stdout.write(`${JSON.stringify(value, null, 2)}\n`)
+}
+
+function readFlagValue(argv: string[], index: number, name: string): string {
+  const value = argv[index]
+  if (!value || value.startsWith("--")) {
+    throw new Error(`${name} requires a value`)
+  }
+  return value
+}
+
+function requireConfirmation(confirmed: boolean, flag: string = "--yes"): void {
+  if (!confirmed) {
+    throw new Error(`this command changes live Binance state; re-run with ${flag} after reviewing binance-order-preview`)
+  }
+}
+
+function formatError(error: unknown): string {
+  if (error && typeof error === "object") {
+    const candidate = error as { code?: unknown; message?: string; responseText?: string }
+    const code = candidate.code != null ? `code=${candidate.code} ` : ""
+    const message = candidate.message || candidate.responseText || JSON.stringify(error)
+    return `${code}${message}`.trim()
+  }
+  return String(error)
+}
+
 export {
   executeOrder,
   parseArgs,
   run,
 }
 
-if (require.main === module) {
+if (process.argv[1] && import.meta.url === new URL(process.argv[1], "file:").href) {
   void main()
 }
