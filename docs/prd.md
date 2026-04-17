@@ -31,7 +31,7 @@
 #### 在线主流程
 
 ```text
-[USER MESSAGE] --> [INTENT ROUTER]
+[USER MESSAGE] --> [ROUTER]
   |
   +--> 观察类入口 --> [OBSERVE]
   |    适用：单标的观察 / 当前判断追问 / 监控条件 / 全市场扫描 / 外部观点映射
@@ -101,7 +101,7 @@
 
 | 阶段 | 职责 | 典型流转 |
 | --- | --- | --- |
-| `INTENT ROUTER` | 根据用户消息和当前生效 plan 状态决定本轮先去哪里，标出 `OBSERVE` 入口类型 | 意图不明或状态不清 → 优先路由至 `OBSERVE` |
+| `ROUTER` | 根据用户消息和当前生效 plan 状态决定本轮先去哪里，标出 `OBSERVE` 入口类型 | 意图不明或状态不清 → 优先路由至 `OBSERVE` |
 | `OBSERVE` | 补齐当前轮判断所需语境 | 上下文未齐 → 本阶段自循环补全；补齐后 → `PLAN`；新消息 / 条件变化 / 持仓语境下可再次触发 |
 | `PLAN` | 回答”做不做、怎么做、为什么这么做”，生成下一版 plan 快照和状态标签 | `wait-condition` → 用户消息触发 `OBSERVE` 重查条件；`ready-execute` → `EXECUTE`；API 事实与记录冲突 → `OBSERVE / EXECUTE` 重新校验 |
 | `EXECUTE` | 回答”是否真的下出去了、成交了多少、还剩多少真实风险” | `WAIT-UNTIL-FILL` → 用户消息触发 `EXECUTE / OBSERVE` 跟进；用户要求重新判断 → 路由回 `PLAN`；执行确认 → 回复用户 |
@@ -337,8 +337,8 @@
 - 来自 `OBSERVE`
 - 消费的外部研究结论默认应已在 `OBSERVE` 中被收敛进当前轮上下文
 - 在 `PLAN` 内完成必要确认、分歧处理和风险重算后，生成下一版 plan 并写入其状态属性，等待后续用户消息决定下一轮路由
-- `PLAN` 本身不负责账户事实拉取；若下一轮需要账户事实，应回到 `USER MESSAGE -> INTENT ROUTER -> OBSERVE / EXECUTE`，由对应 checklist 决定是否调用币安 API
-- 不负责补上下文；若收到新的用户追问、用户反馈或发现原证据已过期，应带着当前 plan 重新进入下一轮 `USER MESSAGE -> INTENT ROUTER -> OBSERVE`
+- `PLAN` 本身不负责账户事实拉取；若下一轮需要账户事实，应回到 `USER MESSAGE -> ROUTER -> OBSERVE / EXECUTE`，由对应 checklist 决定是否调用币安 API
+- 不负责补上下文；若收到新的用户追问、用户反馈或发现原证据已过期，应带着当前 plan 重新进入下一轮 `USER MESSAGE -> ROUTER -> OBSERVE`
 - 可在持仓语境下再次发生
 
 ### 当前先固定的 plan 最小结构
