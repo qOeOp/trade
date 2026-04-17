@@ -1,0 +1,615 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://local.trade/docs/plan-v1-schema.json",
+  "title": "plan.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "identity",
+    "lineage",
+    "scope",
+    "intent",
+    "basis",
+    "judgement",
+    "actions",
+    "state"
+  ],
+  "properties": {
+    "identity": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "plan_key",
+        "schema_version",
+        "hash_algo",
+        "created_at",
+        "created_by",
+        "plan_kind"
+      ],
+      "properties": {
+        "plan_key": {
+          "type": "string",
+          "pattern": "^sha256:[a-f0-9]{64}$"
+        },
+        "schema_version": {
+          "type": "string",
+          "const": "plan.v1"
+        },
+        "hash_algo": {
+          "type": "string",
+          "const": "sha256"
+        },
+        "created_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "created_by": {
+          "$ref": "#/$defs/createdBy"
+        },
+        "plan_kind": {
+          "$ref": "#/$defs/planKind"
+        }
+      }
+    },
+    "lineage": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "root_plan_key",
+        "parent_plan_keys",
+        "lineage_type",
+        "supersedes_plan_keys"
+      ],
+      "properties": {
+        "root_plan_key": {
+          "$ref": "#/$defs/planKey"
+        },
+        "prev_plan_key": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/planKey"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "parent_plan_keys": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/planKey"
+          }
+        },
+        "lineage_type": {
+          "$ref": "#/$defs/lineageType"
+        },
+        "supersedes_plan_keys": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/planKey"
+          }
+        },
+        "fork_group_key": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "branch_label": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "scope": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "venue",
+        "market_type",
+        "symbols",
+        "account_scope",
+        "mode",
+        "timeframe_scope"
+      ],
+      "properties": {
+        "venue": {
+          "type": "string",
+          "minLength": 1
+        },
+        "market_type": {
+          "$ref": "#/$defs/marketType"
+        },
+        "symbols": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "account_scope": {
+          "$ref": "#/$defs/accountScope"
+        },
+        "position_scope": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "mode": {
+          "$ref": "#/$defs/mode"
+        },
+        "timeframe_scope": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "intent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "user_goal",
+        "system_goal",
+        "constraints",
+        "acceptance_mode"
+      ],
+      "properties": {
+        "user_goal": {
+          "type": "string",
+          "minLength": 1
+        },
+        "system_goal": {
+          "type": "string",
+          "minLength": 1
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "risk_budget": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "execution_preference": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "acceptance_mode": {
+          "$ref": "#/$defs/acceptanceMode"
+        }
+      }
+    },
+    "basis": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "as_of",
+        "observation_refs",
+        "account_snapshot_refs",
+        "execution_refs",
+        "chat_history_refs",
+        "data_quality",
+        "market_context"
+      ],
+      "properties": {
+        "as_of": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "observation_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "account_snapshot_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "execution_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "chat_history_refs": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "data_quality": {
+          "type": "object"
+        },
+        "market_context": {
+          "type": "object"
+        }
+      }
+    },
+    "judgement": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "direction_bias",
+        "opportunity_status",
+        "participation_status",
+        "current_action",
+        "thesis",
+        "supporting_reasons",
+        "counter_reasons",
+        "key_risks",
+        "invalidations"
+      ],
+      "properties": {
+        "direction_bias": {
+          "$ref": "#/$defs/directionBias"
+        },
+        "opportunity_status": {
+          "$ref": "#/$defs/opportunityStatus"
+        },
+        "participation_status": {
+          "$ref": "#/$defs/participationStatus"
+        },
+        "current_action": {
+          "$ref": "#/$defs/currentAction"
+        },
+        "thesis": {
+          "type": "string",
+          "minLength": 1
+        },
+        "supporting_reasons": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "counter_reasons": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "key_risks": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "invalidations": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "validity_window": {
+          "type": [
+            "object",
+            "null"
+          ]
+        }
+      }
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/actionBlock"
+      }
+    },
+    "state": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "state_reason",
+        "next_checkpoints",
+        "pending_questions",
+        "requires_recovery"
+      ],
+      "properties": {
+        "status": {
+          "$ref": "#/$defs/status"
+        },
+        "state_reason": {
+          "type": "string",
+          "minLength": 1
+        },
+        "next_checkpoints": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "pending_questions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "requires_recovery": {
+          "type": "boolean"
+        }
+      }
+    }
+  },
+  "$defs": {
+    "planKey": {
+      "type": "string",
+      "pattern": "^sha256:[a-f0-9]{64}$"
+    },
+    "createdBy": {
+      "type": "string",
+      "enum": [
+        "agent",
+        "user",
+        "system"
+      ]
+    },
+    "planKind": {
+      "type": "string",
+      "enum": [
+        "analysis-plan",
+        "execution-plan",
+        "management-plan",
+        "review-plan",
+        "recovery-plan"
+      ]
+    },
+    "lineageType": {
+      "type": "string",
+      "enum": [
+        "genesis",
+        "revise",
+        "fork",
+        "merge",
+        "replace",
+        "recover",
+        "close"
+      ]
+    },
+    "marketType": {
+      "type": "string",
+      "enum": [
+        "spot",
+        "usdm",
+        "coinm",
+        "mixed"
+      ]
+    },
+    "accountScope": {
+      "type": "string",
+      "enum": [
+        "global",
+        "sub-account",
+        "symbol-only",
+        "position-only"
+      ]
+    },
+    "mode": {
+      "type": "string",
+      "enum": [
+        "flat",
+        "pending-entry",
+        "in-position",
+        "hedged",
+        "monitor-only"
+      ]
+    },
+    "acceptanceMode": {
+      "type": "string",
+      "enum": [
+        "full",
+        "partial",
+        "override",
+        "unknown"
+      ]
+    },
+    "directionBias": {
+      "type": "string",
+      "enum": [
+        "long",
+        "short",
+        "neutral",
+        "mixed",
+        "unknown"
+      ]
+    },
+    "opportunityStatus": {
+      "type": "string",
+      "enum": [
+        "valid",
+        "weak-valid",
+        "invalid",
+        "unclear"
+      ]
+    },
+    "participationStatus": {
+      "type": "string",
+      "enum": [
+        "fit",
+        "wait",
+        "avoid",
+        "reduce",
+        "exit",
+        "hedge"
+      ]
+    },
+    "currentAction": {
+      "type": "string",
+      "enum": [
+        "enter",
+        "wait",
+        "manage",
+        "reduce",
+        "exit",
+        "hedge",
+        "observe",
+        "abandon"
+      ]
+    },
+    "blockType": {
+      "type": "string",
+      "enum": [
+        "entry",
+        "exit",
+        "stop",
+        "protect",
+        "hedge",
+        "wait",
+        "watch",
+        "noop"
+      ]
+    },
+    "side": {
+      "type": "string",
+      "enum": [
+        "buy",
+        "sell",
+        "long",
+        "short",
+        "reduce-long",
+        "reduce-short"
+      ]
+    },
+    "triggerKind": {
+      "type": "string",
+      "enum": [
+        "immediate",
+        "limit",
+        "stop",
+        "conditional",
+        "manual-confirm",
+        "state-change"
+      ]
+    },
+    "strength": {
+      "type": "string",
+      "enum": [
+        "core",
+        "strong",
+        "normal",
+        "weak",
+        "optional"
+      ]
+    },
+    "mergePolicy": {
+      "type": "string",
+      "enum": [
+        "must-keep",
+        "mergeable",
+        "skippable"
+      ]
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "continue-scan",
+        "noop",
+        "wait-condition",
+        "ready-execute",
+        "wait-until-fill",
+        "in-position",
+        "abandon",
+        "draft-closed",
+        "closed"
+      ]
+    },
+    "actionBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "block_key",
+        "block_type",
+        "variant_key",
+        "symbol",
+        "trigger_kind",
+        "trigger",
+        "price",
+        "quantity",
+        "strength",
+        "merge_policy"
+      ],
+      "properties": {
+        "block_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "block_type": {
+          "$ref": "#/$defs/blockType"
+        },
+        "variant_key": {
+          "type": "string",
+          "minLength": 1
+        },
+        "symbol": {
+          "type": "string",
+          "minLength": 1
+        },
+        "side": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/side"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "trigger_kind": {
+          "$ref": "#/$defs/triggerKind"
+        },
+        "trigger": {
+          "type": "object"
+        },
+        "price": {
+          "type": "object"
+        },
+        "quantity": {
+          "type": "object"
+        },
+        "protection": {
+          "type": [
+            "object",
+            "null"
+          ]
+        },
+        "strength": {
+          "$ref": "#/$defs/strength"
+        },
+        "merge_policy": {
+          "$ref": "#/$defs/mergePolicy"
+        },
+        "notes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    }
+  }
+}
