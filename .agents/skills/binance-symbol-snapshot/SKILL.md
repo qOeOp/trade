@@ -9,9 +9,9 @@ description: 快速读取 Binance 单标的市场快照。适合在不拉全量 
 ## 快速开始
 
 ```bash
-./scripts/build-skills.sh
-./.agents/skills/binance-symbol-snapshot/scripts/binance-symbol-snapshot --symbol BTCUSDT --market usdm
-./.agents/skills/binance-symbol-snapshot/scripts/binance-symbol-snapshot --symbol ETHUSDT --market spot
+cd .agents/skills/binance-symbol-snapshot
+./scripts/main.ts --symbol BTCUSDT --market usdm
+./scripts/main.ts --symbol ETHUSDT --market spot
 ```
 
 ## 使用边界
@@ -22,10 +22,12 @@ description: 快速读取 Binance 单标的市场快照。适合在不拉全量 
 - 不负责账户、挂单、历史订单。
 - 不负责 OHLCV、技术指标、支撑阻力。
 
-## CLI 约定
+## 脚本约定
 
-- 入口是 [binance-symbol-snapshot](/Users/vx/WebstormProjects/trade/.agents/skills/binance-symbol-snapshot/scripts/binance-symbol-snapshot)。
-- 实现在 [main.ts](/Users/vx/WebstormProjects/trade/cmd/binance-symbol-snapshot/main.ts)。
+- 入口源码是 [main.ts](/Users/vx/WebstormProjects/trade/.agents/skills/binance-symbol-snapshot/scripts/main.ts)。
+- 当前本 skill 的共享 helper 在 [shared.ts](/Users/vx/WebstormProjects/trade/.agents/skills/binance-symbol-snapshot/scripts/shared.ts)。
+- 依赖定义在 [package.json](/Users/vx/WebstormProjects/trade/.agents/skills/binance-symbol-snapshot/package.json)。
+- 优先直接执行 `./scripts/main.ts`；只有本机首次运行或提示依赖缺失时再执行 `bun install`，不要每次都先装一遍。
 - 默认市场是 `usdm`。
 - 支持 `--market spot` 与 `--market usdm`。
 - 返回 JSON，便于 agent 继续串联 `ohlcv-fetch` 或 `tech-indicators`。

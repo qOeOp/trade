@@ -1,12 +1,20 @@
 .DS_Store
 .idea/
-.venv/
 .cache/
 .claude/
 tmp/
 .env
-node_modules
-dist
-npm-debug.log*
+
+# Skill-local dependency and cache directories
+node_modules/
+.venv/
 __pycache__/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+coverage/
+
+npm-debug.log*
 *.pyc
+*.pyo
+*.tsbuildinfo

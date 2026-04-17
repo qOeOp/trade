@@ -11,35 +11,38 @@ description: 使用系统环境变量 `BINANCE_API_KEY` 和 `BINANCE_API_SECRET`
 1. 先确认环境变量：
 
 ```bash
-npm install
-./scripts/build-skills.sh
-./.agents/skills/binance-account-snapshot/scripts/binance-account-snapshot --check-env
+cd .agents/skills/binance-account-snapshot
+./scripts/main.ts --check-env
 ```
 
 2. 拉完整账户快照：
 
 ```bash
-./.agents/skills/binance-account-snapshot/scripts/binance-account-snapshot
+cd .agents/skills/binance-account-snapshot
+./scripts/main.ts
 ```
 
 3. 只看某个 symbol：
 
 ```bash
-./.agents/skills/binance-account-snapshot/scripts/binance-account-snapshot --symbol BTCUSDT
+cd .agents/skills/binance-account-snapshot
+./scripts/main.ts --symbol BTCUSDT
 ```
 
 4. 只看现货或只看合约：
 
 ```bash
-./.agents/skills/binance-account-snapshot/scripts/binance-account-snapshot --spot-only
-./.agents/skills/binance-account-snapshot/scripts/binance-account-snapshot --futures-only
+cd .agents/skills/binance-account-snapshot
+./scripts/main.ts --spot-only
+./scripts/main.ts --futures-only
 ```
 
 5. 需要时补历史订单：
 
 ```bash
-./.agents/skills/binance-account-snapshot/scripts/binance-account-snapshot --symbol BTCUSDT --include-history
-./.agents/skills/binance-account-snapshot/scripts/binance-account-snapshot --symbol BTCUSDT --include-history --history-limit 50
+cd .agents/skills/binance-account-snapshot
+./scripts/main.ts --symbol BTCUSDT --include-history
+./scripts/main.ts --symbol BTCUSDT --include-history --history-limit 50
 ```
 
 ## 使用边界
@@ -53,12 +56,14 @@ npm install
   - `binance-order-cancel`
   - `binance-position-protect`
 
-## CLI 约定
+## 脚本约定
 
-- 入口是 [binance-account-snapshot](/Users/vx/WebstormProjects/trade/.agents/skills/binance-account-snapshot/scripts/binance-account-snapshot)。
-- 实现在 [main.ts](/Users/vx/WebstormProjects/trade/cmd/binance-account-snapshot/main.ts)。
-- 依赖 `binance-api-node`，构建脚本是 [build-skills.sh](/Users/vx/WebstormProjects/trade/scripts/build-skills.sh)。
-- CLI 只返回 JSON。
+- 入口源码是 [main.ts](/Users/vx/WebstormProjects/trade/.agents/skills/binance-account-snapshot/scripts/main.ts)。
+- 当前本 skill 的共享 helper 在 [shared.ts](/Users/vx/WebstormProjects/trade/.agents/skills/binance-account-snapshot/scripts/shared.ts)。
+- 依赖定义在 [package.json](/Users/vx/WebstormProjects/trade/.agents/skills/binance-account-snapshot/package.json)。
+- 依赖 `binance-api-node`。
+- 优先直接执行 `./scripts/main.ts`；只有本机首次运行或提示依赖缺失时再执行 `bun install`，不要每次都先装一遍。
+- 脚本只返回 JSON。
 - `--include-history` 必须配合 `--symbol` 使用。
 - 默认会隐藏零余额，并把普通挂单与保护单分开整理。
 - 合约保护单会同时读取普通挂单接口和 Algo 条件单接口。

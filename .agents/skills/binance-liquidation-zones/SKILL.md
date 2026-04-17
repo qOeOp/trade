@@ -13,14 +13,13 @@ description: 基于 Python 包 liquidator-indicator 和 Binance USDM 公开数�
 
 ```bash
 python3 -m pip install -r .agents/skills/binance-liquidation-zones/requirements.txt
-./scripts/build-skills.sh
-./.agents/skills/binance-aggtrades-fetch/scripts/binance-aggtrades-fetch --symbol BTCUSDT --market usdm --limit 500 > /tmp/btc-agg.json
-./.agents/skills/binance-symbol-snapshot/scripts/binance-symbol-snapshot --symbol BTCUSDT --market usdm > /tmp/btc-snapshot.json
-./.agents/skills/binance-liquidation-zones/scripts/binance-liquidation-zones --aggtrades-file /tmp/btc-agg.json --snapshot-file /tmp/btc-snapshot.json
+./.agents/skills/binance-aggtrades-fetch/scripts/main.ts --symbol BTCUSDT --market usdm --limit 500 > /tmp/btc-agg.json
+./.agents/skills/binance-symbol-snapshot/scripts/main.ts --symbol BTCUSDT --market usdm > /tmp/btc-snapshot.json
+./.agents/skills/binance-liquidation-zones/scripts/main.py --aggtrades-file /tmp/btc-agg.json --snapshot-file /tmp/btc-snapshot.json
 
 # 手动直跑 fallback 仍然保留
-./.agents/skills/binance-liquidation-zones/scripts/binance-liquidation-zones --symbol BTCUSDT
-./.agents/skills/binance-liquidation-zones/scripts/binance-liquidation-zones --symbol ETHUSDT --lookback-minutes 60 --limit 1000 --zone-pct 0.0025
+./.agents/skills/binance-liquidation-zones/scripts/main.py --symbol BTCUSDT
+./.agents/skills/binance-liquidation-zones/scripts/main.py --symbol ETHUSDT --lookback-minutes 60 --limit 1000 --zone-pct 0.0025
 ```
 
 ## 使用边界

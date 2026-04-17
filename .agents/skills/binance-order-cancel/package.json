@@ -1,0 +1,11 @@
+{
+  "name": "binance-order-cancel-skill",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "binance-api-node": "^0.13.9"
+  },
+  "scripts": {
+    "test": "bun test ./scripts/*.test.ts"
+  }
+}

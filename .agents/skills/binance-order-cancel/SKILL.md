@@ -10,9 +10,9 @@ description: 撤销 Binance 现货或 USDM 挂单。支持普通订单和期货 
 ## 快速开始
 
 ```bash
-./scripts/build-skills.sh
-./.agents/skills/binance-order-cancel/scripts/binance-order-cancel --symbol BTCUSDT --market usdm --order-id 123456 --yes
-./.agents/skills/binance-order-cancel/scripts/binance-order-cancel --symbol BTCUSDT --market usdm --algo --all --yes
+cd .agents/skills/binance-order-cancel
+./scripts/main.ts --symbol BTCUSDT --market usdm --order-id 123456 --yes
+./scripts/main.ts --symbol BTCUSDT --market usdm --algo --all --yes
 ```
 
 ## 使用边界
@@ -21,9 +21,11 @@ description: 撤销 Binance 现货或 USDM 挂单。支持普通订单和期货 
 - 支持普通单取消、全部普通单取消、期货 Algo 单取消、全部 Algo 单取消。
 - 不负责重建订单结构；如果取消后要补保护或重新开单，切到对应 skill。
 
-## CLI 约定
+## 脚本约定
 
-- 入口是 [binance-order-cancel](/Users/vx/WebstormProjects/trade/.agents/skills/binance-order-cancel/scripts/binance-order-cancel)。
-- 实现在 [main.ts](/Users/vx/WebstormProjects/trade/cmd/binance-order-cancel/main.ts)。
+- 入口源码是 [main.ts](/Users/vx/WebstormProjects/trade/.agents/skills/binance-order-cancel/scripts/main.ts)。
+- 当前本 skill 的共享 helper 在 [shared.ts](/Users/vx/WebstormProjects/trade/.agents/skills/binance-order-cancel/scripts/shared.ts)。
+- 依赖定义在 [package.json](/Users/vx/WebstormProjects/trade/.agents/skills/binance-order-cancel/package.json)。
+- 优先直接执行 `./scripts/main.ts`；只有本机首次运行或提示依赖缺失时再执行 `bun install`，不要每次都先装一遍。
 - 必须显式带 `--yes`。
 - 需要 `--all` 或具体标识符，例如 `--order-id`、`--orig-client-order-id`、`--algo-id`、`--client-algo-id`。

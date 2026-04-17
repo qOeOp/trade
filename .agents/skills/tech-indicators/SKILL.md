@@ -14,8 +14,8 @@ description: >-
 ## 使用流程
 
 1. 接收 `ohlcv-fetch` 落盘后的 `manifest.json`。
-2. 先运行 `./scripts/build-skills.sh`，再直接执行 `./.agents/skills/tech-indicators/scripts/tech-indicators --manifest ...`。
-3. CLI 只返回 JSON，不再自动写 `analysis.json`、`summary.md` 或其它副本。
+2. 进入 skill 目录后直接执行 `go run ./scripts --manifest ...`。
+3. 脚本只返回 JSON，不再自动写 `analysis.json`、`summary.md` 或其它副本。
 4. 需要缩小范围时，显式传 `--indicators` 或 `--indicator-config`。
 5. 需要解释指标含义时，读取 `references/indicators.md`。
 
@@ -24,11 +24,11 @@ description: >-
 - 输入来源是 `ohlcv-fetch` 产出的 `manifest.json`。
 - 每个 CSV 至少包含 `date`、`open`、`high`、`low`、`close`、`volume`。
 - `manifest.json` 中的相对路径按 manifest 所在目录解析。
-- `--catalog` 可选；未传时默认读取二进制同目录下的 `indicator_catalog.json`。
+- `--catalog` 可选；未传时默认读取源码目录下的 `indicator_catalog.json`。
 
 ## 输出
 
-CLI 会返回 `{ ok, data }`，其中 `data` 包含：
+脚本会返回 `{ ok, data }`，其中 `data` 包含：
 
 - `summary`
 - `summary_markdown`
@@ -41,7 +41,7 @@ CLI 会返回 `{ ok, data }`，其中 `data` 包含：
 ## 运行约束
 
 - 只做本地分析，不连接交易所。
-- 需要本机可用的 `go` 命令来先构建二进制。
+- 需要本机可用的 `go` 命令直接运行源码。
 - 默认会执行 catalog 中全部已接入指标
 - 默认 `all` 会跳过当前已知依赖未闭合的指标：`supertrend`、`pivots_points`
 - 每个指标独立执行并独立容错
