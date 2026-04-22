@@ -194,6 +194,14 @@ function resolveExecution(config: Config) {
     }
   }
 
+  if (isUsdmAlgoOrder(config)) {
+    return {
+      method: "futuresCreateAlgoOrder",
+      skill: "binance-order-place",
+      authRequired: true,
+    }
+  }
+
   return {
     method: config.market === "spot" ? "order" : "futuresOrder",
     skill: "binance-order-place",
@@ -203,15 +211,17 @@ function resolveExecution(config: Config) {
 
 async function fetchMarketContext(config: Config, client: BinanceRest) {
   if (config.market === "spot") {
-    const [tickerPrice, bookTicker] = await Promise.all([
-      client.tickerPrice({ symbol: config.symbol }),
-      client.bookTicker({ symbol: config.symbol }),
+    const [prices, book] = await Promise.all([
+      (client.prices as unknown as (payload: { symbol: string }) => Promise<Record<string, string>>)({ symbol: config.symbol }),
+      client.book({ symbol: config.symbol, limit: 5 } as never),
     ])
+    const bestBid = readBookPrice(Array.isArray(book.bids) ? book.bids[0] : undefined)
+    const bestAsk = readBookPrice(Array.isArray(book.asks) ? book.asks[0] : undefined)
 
     return {
-      lastPrice: tickerPrice.price,
-      bidPrice: bookTicker.bidPrice,
-      askPrice: bookTicker.askPrice,
+      lastPrice: prices[config.symbol] || "",
+      bidPrice: bestBid,
+      askPrice: bestAsk,
     }
   }
 
@@ -229,6 +239,26 @@ async function fetchMarketContext(config: Config, client: BinanceRest) {
 }
 
 function buildRequest(config: Config) {
+  if (isUsdmAlgoOrder(config)) {
+    return {
+      algoType: "CONDITIONAL",
+      symbol: config.symbol,
+      side: config.side,
+      type: config.type,
+      quantity: config.quantity || undefined,
+      price: config.price || undefined,
+      triggerPrice: config.stopPrice || undefined,
+      timeInForce: requiresTimeInForce(config.type) ? config.timeInForce : undefined,
+      positionSide: config.positionSide,
+      reduceOnly: config.reduceOnly,
+      closePosition: config.closePosition,
+      workingType: config.workingType,
+      priceProtect: String(config.priceProtect),
+      activationPrice: config.activationPrice || undefined,
+      callbackRate: config.callbackRate || undefined,
+    }
+  }
+
   return {
     symbol: config.symbol,
     side: config.side,
@@ -237,7 +267,7 @@ function buildRequest(config: Config) {
     quoteOrderQty: config.quoteOrderQty || undefined,
     price: config.price || undefined,
     stopPrice: config.stopPrice || undefined,
-    timeInForce: config.price ? config.timeInForce : undefined,
+    timeInForce: requiresTimeInForce(config.type) ? config.timeInForce : undefined,
     positionSide: config.market === "usdm" ? config.positionSide : undefined,
     reduceOnly: config.market === "usdm" ? config.reduceOnly : undefined,
     closePosition: config.market === "usdm" ? config.closePosition : undefined,
@@ -298,6 +328,17 @@ function parseBoolean(value: string, name: string): boolean {
   }
 }
 
+function readBookPrice(level: unknown): string {
+  if (Array.isArray(level)) {
+    return typeof level[0] === "string" ? level[0] : ""
+  }
+  if (!level || typeof level !== "object") {
+    return ""
+  }
+  const candidate = level as { price?: unknown }
+  return typeof candidate.price === "string" ? candidate.price : ""
+}
+
 function printJSON(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`)
 }
@@ -322,6 +363,10 @@ function formatError(error: unknown): string {
 
 function isProtectiveFuturesAlgoOrder(config: Config): boolean {
   return config.market === "usdm" && FUTURES_PROTECTIVE_TYPES.has(config.type) && (config.reduceOnly || config.closePosition)
+}
+
+function isUsdmAlgoOrder(config: Config): boolean {
+  return config.market === "usdm" && FUTURES_PROTECTIVE_TYPES.has(config.type)
 }
 
 function validateConfig(config: Config): void {
@@ -381,6 +426,10 @@ function requiresPrice(type: string): boolean {
 
 function requiresStopPrice(type: string): boolean {
   return FUTURES_PROTECTIVE_TYPES.has(type)
+}
+
+function requiresTimeInForce(type: string): boolean {
+  return new Set(["LIMIT", "STOP", "TAKE_PROFIT"]).has(type)
 }
 
 export {

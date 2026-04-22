@@ -4,6 +4,8 @@ import test from "node:test"
 import {
   appendProtectiveOrders,
   checkEnv,
+  isFuturesProtective,
+  mergeOrderBuckets,
   normalizeFuturesAlgoOrder,
   normalizeStandardOrder,
   parseArgs,
@@ -124,6 +126,79 @@ test("appendProtectiveOrders initializes empty buckets", () => {
   assert.deepEqual(buckets.regular, [])
   assert.equal(buckets.protective.length, 1)
   assert.equal(buckets.protective[0].source, "allAlgoOrders")
+})
+
+test("isFuturesProtective keeps hedge-mode breakout entry out of protective bucket", () => {
+  assert.equal(
+    isFuturesProtective({
+      symbol: "BTCUSDT",
+      positionSide: "LONG",
+      side: "BUY",
+      type: "STOP_MARKET",
+      reduceOnly: false,
+      closePosition: false,
+    }),
+    false,
+  )
+})
+
+test("isFuturesProtective marks hedge-mode closing trigger as protective", () => {
+  assert.equal(
+    isFuturesProtective({
+      symbol: "BTCUSDT",
+      positionSide: "LONG",
+      side: "SELL",
+      type: "TAKE_PROFIT_MARKET",
+      reduceOnly: false,
+      closePosition: false,
+    }),
+    true,
+  )
+})
+
+test("mergeOrderBuckets keeps algo breakout entry in regular bucket", () => {
+  const base = splitOrders(
+    [
+      {
+        symbol: "BTCUSDT",
+        side: "BUY",
+        type: "LIMIT",
+        status: "NEW",
+        origQty: "0.01",
+        price: "74000",
+        orderId: "1",
+      },
+    ],
+    isFuturesProtective,
+    normalizeStandardOrder("openOrders", "standard"),
+  )
+
+  const merged = mergeOrderBuckets(
+    base,
+    splitOrders(
+      [
+        {
+          algoId: "2",
+          symbol: "BTCUSDT",
+          side: "BUY",
+          positionSide: "LONG",
+          orderType: "STOP_MARKET",
+          algoStatus: "NEW",
+          quantity: "0.01",
+          triggerPrice: "75080",
+          reduceOnly: false,
+          closePosition: false,
+        },
+      ],
+      isFuturesProtective,
+      normalizeFuturesAlgoOrder("openAlgoOrders", "algo"),
+    ),
+  )
+
+  assert.equal(merged.regular.length, 2)
+  assert.equal(merged.protective.length, 0)
+  assert.equal(merged.regular[1].source, "openAlgoOrders")
+  assert.equal(merged.regular[1].type, "STOP_MARKET")
 })
 
 test("checkEnv reports missing variables as structured data", () => {

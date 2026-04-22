@@ -10,6 +10,7 @@ interface Config {
 
 interface SpotTicker {
   symbol: string
+  lastPrice?: string
   priceChange: string
   priceChangePercent: string
   weightedAvgPrice?: string
@@ -39,6 +40,7 @@ interface SpotTicker {
 
 interface FuturesTicker {
   symbol: string
+  lastPrice?: string
   priceChange: string
   priceChangePercent: string
   weightedAvgPrice: string
@@ -158,14 +160,22 @@ async function buildSnapshot(config: Config, client: BinanceRest) {
       symbol: config.symbol,
       generatedAt: nowInShanghai(),
       ticker24h: normalizeSpotTicker(ticker24h),
+      priceSnapshot: buildSpotPriceSnapshot(ticker24h, bookTicker),
       bookTicker: normalizeBookTicker(bookTicker),
     }
   }
 
-  const [tickerRows, premiumIndex, openInterest] = await Promise.all([
+  const [tickerRows, premiumIndex, openInterest, bookTicker] = await Promise.all([
     client.futuresDailyStats({ symbol: config.symbol }) as Promise<FuturesTicker | FuturesTicker[]>,
     client.futuresMarkPrice({ symbol: config.symbol }) as Promise<FuturesPremiumIndex>,
     client.publicRequest("GET", "/fapi/v1/openInterest", { symbol: config.symbol }),
+    client.publicRequest("GET", "/fapi/v1/ticker/bookTicker", { symbol: config.symbol }) as Promise<{
+      symbol: string
+      bidPrice: string
+      bidQty: string
+      askPrice: string
+      askQty: string
+    }>,
   ])
 
   const ticker = Array.isArray(tickerRows) ? tickerRows.find((item) => item.symbol === config.symbol) : tickerRows
@@ -180,7 +190,8 @@ async function buildSnapshot(config: Config, client: BinanceRest) {
     market: config.market,
     symbol: config.symbol,
     generatedAt: nowInShanghai(),
-    ticker24h: normalizeFuturesTicker(ticker),
+    ticker24h: normalizeFuturesTicker(ticker, premiumIndex.markPrice),
+    priceSnapshot: buildFuturesPriceSnapshot(ticker, premiumIndex, bookTicker),
     premiumIndex: {
       symbol: premiumIndex.symbol,
       markPrice: premiumIndex.markPrice,
@@ -198,9 +209,19 @@ async function buildSnapshot(config: Config, client: BinanceRest) {
 }
 
 function normalizeSpotTicker(ticker: SpotTicker) {
+  const bestBid = ticker.bidPrice || ticker.bestBid || ""
+  const bestAsk = ticker.askPrice || ticker.bestAsk || ""
+
   return {
     symbol: ticker.symbol,
-    lastPrice: ticker.askPrice || ticker.bestAsk || ticker.bidPrice || ticker.bestBid || ticker.openPrice || ticker.open,
+    lastPrice:
+      ticker.lastPrice ||
+      bestAsk ||
+      bestBid ||
+      ticker.weightedAvgPrice ||
+      ticker.weightedAvg ||
+      ticker.openPrice ||
+      ticker.open,
     priceChange: ticker.priceChange,
     priceChangePercent: ticker.priceChangePercent,
     weightedAvgPrice: ticker.weightedAvgPrice || ticker.weightedAvg || "",
@@ -209,9 +230,9 @@ function normalizeSpotTicker(ticker: SpotTicker) {
     lowPrice: ticker.lowPrice || ticker.low,
     volume: ticker.volume,
     quoteVolume: ticker.quoteVolume || ticker.volumeQuote || "",
-    bidPrice: ticker.bidPrice || ticker.bestBid || "",
+    bidPrice: bestBid,
     bidQty: ticker.bidQty || ticker.bestBidQnt || "",
-    askPrice: ticker.askPrice || ticker.bestAsk || "",
+    askPrice: bestAsk,
     askQty: ticker.askQty || ticker.bestAskQnt || "",
     tradeCount: ticker.count || ticker.totalTrades,
     openTime: ticker.openTime,
@@ -219,10 +240,10 @@ function normalizeSpotTicker(ticker: SpotTicker) {
   }
 }
 
-function normalizeFuturesTicker(ticker: FuturesTicker) {
+function normalizeFuturesTicker(ticker: FuturesTicker, fallbackLastPrice: string = "") {
   return {
     symbol: ticker.symbol,
-    lastPrice: ticker.askPrice || ticker.bidPrice || ticker.openPrice,
+    lastPrice: ticker.lastPrice || fallbackLastPrice || ticker.askPrice || ticker.bidPrice || ticker.weightedAvgPrice,
     priceChange: ticker.priceChange,
     priceChangePercent: ticker.priceChangePercent,
     weightedAvgPrice: ticker.weightedAvgPrice,
@@ -239,6 +260,59 @@ function normalizeFuturesTicker(ticker: FuturesTicker) {
     openTime: ticker.openTime,
     closeTime: ticker.closeTime,
   }
+}
+
+function buildSpotPriceSnapshot(
+  ticker: SpotTicker,
+  bookTicker: { symbol: string; bidPrice: string; bidQty: string; askPrice: string; askQty: string },
+) {
+  const bestBid = bookTicker.bidPrice || ticker.bidPrice || ticker.bestBid || ""
+  const bestAsk = bookTicker.askPrice || ticker.askPrice || ticker.bestAsk || ""
+  const tradePrice =
+    ticker.lastPrice ||
+    bestAsk ||
+    bestBid ||
+    ticker.weightedAvgPrice ||
+    ticker.weightedAvg ||
+    ticker.openPrice ||
+    ticker.open
+
+  return {
+    symbol: ticker.symbol,
+    tradePrice,
+    bestBid,
+    bestAsk,
+    midPrice: midpoint(bestBid, bestAsk),
+  }
+}
+
+function buildFuturesPriceSnapshot(
+  ticker: FuturesTicker,
+  premiumIndex: FuturesPremiumIndex,
+  bookTicker: { symbol: string; bidPrice: string; bidQty: string; askPrice: string; askQty: string },
+) {
+  const bestBid = bookTicker.bidPrice || ticker.bidPrice || ""
+  const bestAsk = bookTicker.askPrice || ticker.askPrice || ""
+  const tradePrice = ticker.lastPrice || premiumIndex.markPrice || bestAsk || bestBid || ticker.weightedAvgPrice
+
+  return {
+    symbol: ticker.symbol,
+    tradePrice,
+    markPrice: premiumIndex.markPrice,
+    indexPrice: premiumIndex.indexPrice || "",
+    bestBid,
+    bestAsk,
+    midPrice: midpoint(bestBid, bestAsk),
+  }
+}
+
+function midpoint(bidPrice: string, askPrice: string): string {
+  const bid = Number(bidPrice)
+  const ask = Number(askPrice)
+  if (!Number.isFinite(bid) || !Number.isFinite(ask) || bid <= 0 || ask <= 0) {
+    return ""
+  }
+  return ((bid + ask) / 2).toFixed(8).replace(/\.?0+$/, "")
 }
 
 function createClient(timeout: number): BinanceRest {

@@ -18,6 +18,7 @@ interface Config {
   priceProtect: boolean
   timeout: number
   yes: boolean
+  dryJson: boolean
   checkEnv: boolean
 }
 
@@ -43,12 +44,13 @@ interface FuturesAlgoOrderRequest {
   triggerPrice?: string
   price?: string
   timeInForce?: string
-  activationPrice?: string
+  activatePrice?: string
   callbackRate?: string
 }
 
 const HELP_TEXT = `Usage:
   ./scripts/main.ts --symbol BTCUSDT --position-side LONG --quantity 0.01 --stop-loss-trigger 64000 --take-profit-trigger 68000 --yes
+  ./scripts/main.ts --symbol ETHUSDT --position-side LONG --quantity 1.25 --stop-loss-trigger 2368 --yes
 
 Key flags:
   --symbol <symbol>                      Required. Example: BTCUSDT
@@ -65,6 +67,7 @@ Key flags:
   --working-type <MARK_PRICE|CONTRACT_PRICE>
   --price-protect <true|false>
   --timeout <ms>                         Default: 10000
+  --dry-json                            Print the final Binance algo requests without sending
   --check-env                            Only validate BINANCE_API_KEY / BINANCE_API_SECRET
   --yes                                  Required for live protection orders
   --help                                 Show this help
@@ -87,6 +90,9 @@ async function main(): Promise<void> {
 async function run(argv: string[]): Promise<ScriptResponse> {
   try {
     const config = parseArgs(argv)
+    if (config.dryJson) {
+      return { ok: true, data: buildDryRun(config) }
+    }
     const envStatus = checkEnv()
     if (config.checkEnv) {
       return { ok: true, data: envStatus }
@@ -120,6 +126,7 @@ function parseArgs(argv: string[]): Config {
     priceProtect: true,
     timeout: 10_000,
     yes: false,
+    dryJson: false,
     checkEnv: false,
   }
 
@@ -171,6 +178,9 @@ function parseArgs(argv: string[]): Config {
       case "--yes":
         config.yes = true
         break
+      case "--dry-json":
+        config.dryJson = true
+        break
       case "--check-env":
         config.checkEnv = true
         break
@@ -187,14 +197,12 @@ function parseArgs(argv: string[]): Config {
 }
 
 async function executeProtection(config: Config, client: BinanceRest) {
-  const side = config.side || inferProtectiveSide(config.positionSide)
-  if (!side) {
-    throw new Error("--side is required when --position-side BOTH")
-  }
+  const side = resolveProtectiveSide(config)
+  await assertProtectionMatchesPosition(config, side, client)
 
   const created = []
   for (const leg of buildLegs(config, side)) {
-    const result = await client.futuresCreateAlgoOrder(leg.request as never)
+    const result = await client.futuresCreateAlgoOrder(cleanRequest(leg.request) as never)
     created.push({
       leg: leg.name,
       request: leg.request,
@@ -210,14 +218,28 @@ async function executeProtection(config: Config, client: BinanceRest) {
   }
 }
 
+function buildDryRun(config: Config) {
+  const side = resolveProtectiveSide(config)
+  return {
+    market: "usdm",
+    symbol: config.symbol,
+    positionSide: config.positionSide,
+    legs: buildLegs(config, side).map((leg) => ({
+      leg: leg.name,
+      request: leg.request,
+    })),
+  }
+}
+
 function buildLegs(config: Config, side: "BUY" | "SELL") {
+  const reduceOnly = resolveProtectiveReduceOnly(config)
   const common: Omit<FuturesAlgoOrderRequest, "type"> = {
     symbol: config.symbol,
     side: side as FuturesAlgoOrderRequest["side"],
     positionSide: config.positionSide,
-    quantity: config.closePosition ? undefined : config.quantity,
-    closePosition: config.closePosition || undefined,
-    reduceOnly: config.closePosition ? undefined : "true",
+    closePosition: config.closePosition,
+    ...(config.closePosition ? {} : { quantity: config.quantity }),
+    ...(reduceOnly ? { reduceOnly } : {}),
     workingType: config.workingType,
     priceProtect: String(config.priceProtect),
   }
@@ -256,13 +278,106 @@ function buildLegs(config: Config, side: "BUY" | "SELL") {
       request: {
         ...common,
         type: "TRAILING_STOP_MARKET",
-        activationPrice: config.trailingActivationPrice || undefined,
+        activatePrice: config.trailingActivationPrice || undefined,
         callbackRate: config.callbackRate || undefined,
       },
     })
   }
 
   return legs
+}
+
+function resolveProtectiveSide(config: Config): "BUY" | "SELL" {
+  const side = config.side || inferProtectiveSide(config.positionSide)
+  if (!side) {
+    throw new Error("--side is required when --position-side BOTH")
+  }
+  return side
+}
+
+async function assertProtectionMatchesPosition(
+  config: Config,
+  side: "BUY" | "SELL",
+  client: BinanceRest,
+): Promise<void> {
+  const positions = await client.futuresPositionRisk({ symbol: config.symbol } as never)
+  const currentAmt = readRelevantPositionAmt(positions, config.positionSide)
+
+  if (config.positionSide === "LONG" && side !== "SELL") {
+    throw new Error("LONG protection must use SELL-side legs")
+  }
+  if (config.positionSide === "SHORT" && side !== "BUY") {
+    throw new Error("SHORT protection must use BUY-side legs")
+  }
+  if (config.positionSide === "BOTH") {
+    if (currentAmt > 0 && side !== "SELL") {
+      throw new Error("net long BOTH protection must use SELL-side legs")
+    }
+    if (currentAmt < 0 && side !== "BUY") {
+      throw new Error("net short BOTH protection must use BUY-side legs")
+    }
+  }
+
+  if (currentAmt === 0) {
+    if (config.closePosition) {
+      throw new Error(`no live ${config.positionSide} position found for ${config.symbol}; closePosition protection requires an existing position`)
+    }
+    return
+  }
+
+  if (!config.closePosition && Number(config.quantity) > Math.abs(currentAmt)) {
+    throw new Error(
+      `protective quantity ${config.quantity} exceeds live ${config.positionSide} position ${Math.abs(currentAmt)}`,
+    )
+  }
+}
+
+function cleanRequest(request: FuturesAlgoOrderRequest): Record<string, string | boolean> {
+  const cleaned: Record<string, string | boolean> = {}
+  for (const [key, value] of Object.entries(request)) {
+    if (value == null || value === "") {
+      continue
+    }
+    cleaned[key] = value
+  }
+  return cleaned
+}
+
+function readRelevantPositionAmt(
+  positions: unknown,
+  positionSide: Config["positionSide"],
+): number {
+  if (!Array.isArray(positions)) {
+    return 0
+  }
+
+  if (positionSide === "BOTH") {
+    const net = positions.find((item) => asPositionSide(item) === "BOTH")
+    return net ? asPositionAmt(net) : 0
+  }
+
+  const hedgeLeg = positions.find((item) => asPositionSide(item) === positionSide)
+  return hedgeLeg ? asPositionAmt(hedgeLeg) : 0
+}
+
+function asPositionSide(value: unknown): string {
+  if (!value || typeof value !== "object") {
+    return ""
+  }
+  const candidate = value as { positionSide?: unknown }
+  return typeof candidate.positionSide === "string" ? candidate.positionSide.toUpperCase() : ""
+}
+
+function asPositionAmt(value: unknown): number {
+  if (!value || typeof value !== "object") {
+    return 0
+  }
+  const candidate = value as { positionAmt?: unknown }
+  const raw =
+    typeof candidate.positionAmt === "string" || typeof candidate.positionAmt === "number"
+      ? Number(candidate.positionAmt)
+      : NaN
+  return Number.isFinite(raw) ? raw : 0
 }
 
 function checkEnv(): EnvStatus {
@@ -361,6 +476,13 @@ function inferProtectiveSide(positionSide: "BOTH" | "LONG" | "SHORT"): "BUY" | "
   return ""
 }
 
+function resolveProtectiveReduceOnly(config: Config): string | undefined {
+  if (config.closePosition || config.positionSide !== "BOTH") {
+    return undefined
+  }
+  return "true"
+}
+
 function readPositionSide(value: string): "BOTH" | "LONG" | "SHORT" {
   const positionSide = value.trim().toUpperCase()
   if (positionSide !== "BOTH" && positionSide !== "LONG" && positionSide !== "SHORT") {
@@ -386,9 +508,14 @@ function readWorkingType(value: string): "MARK_PRICE" | "CONTRACT_PRICE" {
 }
 
 export {
+  assertProtectionMatchesPosition,
   buildLegs,
+  buildDryRun,
+  cleanRequest,
   executeProtection,
   parseArgs,
+  readRelevantPositionAmt,
+  resolveProtectiveSide,
   run,
 }
 

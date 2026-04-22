@@ -13,6 +13,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "bun run typecheck",
     "test": "bun test ./scripts/*.test.ts",
+    "test:binance": "BINANCE_ENABLE_USDM_TEST_ORDER=1 bun test ./scripts/*.test.ts",
     "check": "bun run lint && bun run test"
   }
 }

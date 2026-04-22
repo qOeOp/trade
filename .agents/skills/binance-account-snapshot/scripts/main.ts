@@ -293,10 +293,13 @@ async function buildFuturesSnapshot(
     ? splitOrders(openOrders as JSONMap[], isFuturesProtective, normalizeStandardOrder("openOrders", "standard"))
     : null
   if (Array.isArray(openAlgoOrders)) {
-    buckets = appendProtectiveOrders(
+    buckets = mergeOrderBuckets(
       buckets,
-      openAlgoOrders as JSONMap[],
-      normalizeFuturesAlgoOrder("openAlgoOrders", "algo"),
+      splitOrders(
+        openAlgoOrders as JSONMap[],
+        isFuturesProtective,
+        normalizeFuturesAlgoOrder("openAlgoOrders", "algo"),
+      ),
     )
   }
 
@@ -305,10 +308,13 @@ async function buildFuturesSnapshot(
       ? splitOrders(orderHistory as JSONMap[], isFuturesProtective, normalizeStandardOrder("allOrders", "standard"))
       : undefined
   if (config.includeHistory && Array.isArray(algoHistory)) {
-    historyBuckets = appendProtectiveOrders(
+    historyBuckets = mergeOrderBuckets(
       historyBuckets ?? null,
-      algoHistory as JSONMap[],
-      normalizeFuturesAlgoOrder("allAlgoOrders", "algo"),
+      splitOrders(
+        algoHistory as JSONMap[],
+        isFuturesProtective,
+        normalizeFuturesAlgoOrder("allAlgoOrders", "algo"),
+      ),
     )
   }
 
@@ -436,10 +442,24 @@ function isSpotProtective(order: JSONMap): boolean {
 
 function isFuturesProtective(order: JSONMap): boolean {
   const type = String(firstDefined(order.type, order.orderType) || "").toUpperCase()
-  if (futuresProtectiveTypes.has(type)) {
+  if (!futuresProtectiveTypes.has(type)) {
+    return String(order.closePosition || "").toLowerCase() === "true"
+  }
+
+  if (isTrueLike(order.closePosition) || isTrueLike(order.reduceOnly)) {
     return true
   }
-  return String(order.closePosition || "").toLowerCase() === "true"
+
+  const positionSide = String(order.positionSide || "").toUpperCase()
+  const side = String(order.side || "").toUpperCase()
+  if (positionSide === "LONG") {
+    return side === "SELL"
+  }
+  if (positionSide === "SHORT") {
+    return side === "BUY"
+  }
+
+  return false
 }
 
 function normalizeStandardOrder(source: string, sourceType: string): (order: JSONMap) => JSONMap {
@@ -554,6 +574,16 @@ function appendProtectiveOrders(
   return nextBuckets
 }
 
+function mergeOrderBuckets(
+  buckets: OrderBuckets | null,
+  next: OrderBuckets,
+): OrderBuckets {
+  const merged = buckets || { regular: [], protective: [] }
+  merged.regular.push(...next.regular)
+  merged.protective.push(...next.protective)
+  return merged
+}
+
 function copyField(source: JSONMap, target: JSONMap, key: string): void {
   if (Object.prototype.hasOwnProperty.call(source, key) && source[key] !== undefined) {
     target[key] = source[key]
@@ -567,6 +597,10 @@ function firstDefined<T>(...values: Array<T | null | undefined>): T | undefined 
 function toFloat(value: unknown): number {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : 0
+}
+
+function isTrueLike(value: unknown): boolean {
+  return String(value || "").trim().toLowerCase() === "true"
 }
 
 function asMap(value: unknown): JSONMap {
@@ -583,6 +617,7 @@ export {
   formatError,
   isFuturesProtective,
   isSpotProtective,
+  mergeOrderBuckets,
   normalizeFuturesAlgoOrder,
   normalizeFuturesAsset,
   normalizePosition,

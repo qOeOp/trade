@@ -54,9 +54,12 @@
 
 视为保护性订单的条件：
 
-- `type` 属于 `STOP` / `STOP_MARKET` / `TAKE_PROFIT` / `TAKE_PROFIT_MARKET` / `TRAILING_STOP_MARKET`
-- 或者 `closePosition=true`
-- 或者来自 `GET /fapi/v1/openAlgoOrders` 的条件单
+- `closePosition=true`
+- 或者 `reduceOnly=true`
+- 或者在 Hedge Mode 下：
+  - `positionSide=LONG` 且 `side=SELL`
+  - `positionSide=SHORT` 且 `side=BUY`
+- 仅 `type` 命中条件单家族还不够；`BUY STOP_MARKET + positionSide=LONG + reduceOnly=false` 这类突破开仓单应继续归在普通挂单侧
 
 ## 失败处理
 
