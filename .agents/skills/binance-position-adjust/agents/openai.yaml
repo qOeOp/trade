@@ -1,0 +1,4 @@
+interface:
+  display_name: "Binance Position Adjust"
+  short_description: "在 EXECUTE 阶段调整 Binance USDM 持仓数量"
+  default_prompt: "当前若已存在 USDM live position，且动作只是部分减仓或全平，就先用 --check-env 和 --plan 核对 live 仓位，再使用 $binance-position-adjust 执行纯数量变化；它不处理主单或保护腿。"
