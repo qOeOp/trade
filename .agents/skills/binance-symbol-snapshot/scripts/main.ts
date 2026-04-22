@@ -6,6 +6,9 @@ interface Config {
   symbol: string
   market: "spot" | "usdm"
   timeout: number
+  fundingLimit: number
+  recentKlines: string[]
+  recentKlineLimit: number
 }
 
 interface SpotTicker {
@@ -67,6 +70,13 @@ interface FuturesPremiumIndex {
   time: number
 }
 
+interface FundingRateRow {
+  symbol: string
+  fundingRate: string
+  fundingTime: number
+  markPrice?: string
+}
+
 type ScriptResponse =
   | { ok: true; data: unknown }
   | { ok: false; error: string; data?: unknown }
@@ -77,6 +87,10 @@ const HELP_TEXT = `Usage:
 Key flags:
   --symbol <symbol>         Required. Example: BTCUSDT
   --market <spot|usdm>      Default: usdm
+  --funding-limit <count>   Futures funding history rows. Default: 5
+  --recent-klines <csv>     Optional. Example: 15m,1h,4h
+  --recent-kline-limit <n>  Default: 16
+  --pulse                   Shortcut for quick market pulse
   --timeout <ms>            Default: 10000
   --help                    Show this help
 `
@@ -110,6 +124,9 @@ function parseArgs(argv: string[]): Config {
     symbol: "",
     market: "usdm",
     timeout: 10_000,
+    fundingLimit: 5,
+    recentKlines: [],
+    recentKlineLimit: 16,
   }
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -129,6 +146,23 @@ function parseArgs(argv: string[]): Config {
       case "--timeout":
         config.timeout = parsePositiveNumber(readFlagValue(argv, ++index, arg), "--timeout")
         break
+      case "--funding-limit":
+        config.fundingLimit = parseNonNegativeInteger(readFlagValue(argv, ++index, arg), "--funding-limit")
+        break
+      case "--recent-klines":
+        config.recentKlines = parseRecentKlines(readFlagValue(argv, ++index, arg))
+        break
+      case "--recent-kline-limit":
+        config.recentKlineLimit = parsePositiveNumber(readFlagValue(argv, ++index, arg), "--recent-kline-limit")
+        break
+      case "--pulse":
+        if (config.recentKlines.length === 0) {
+          config.recentKlines = ["15m", "1h", "4h"]
+        }
+        if (config.fundingLimit === 0) {
+          config.fundingLimit = 5
+        }
+        break
       default:
         throw new Error(`unknown flag: ${arg}`)
     }
@@ -143,7 +177,7 @@ function parseArgs(argv: string[]): Config {
 
 async function buildSnapshot(config: Config, client: BinanceRest) {
   if (config.market === "spot") {
-    const [ticker24h, bookTicker] = await Promise.all([
+    const [ticker24h, bookTicker, recentKlines] = await Promise.all([
       client.dailyStats({ symbol: config.symbol }) as Promise<SpotTicker>,
       client.publicRequest("GET", "/api/v3/ticker/bookTicker", { symbol: config.symbol }) as Promise<{
         symbol: string
@@ -152,6 +186,7 @@ async function buildSnapshot(config: Config, client: BinanceRest) {
         askPrice: string
         askQty: string
       }>,
+      fetchRecentKlines(client, "/api/v3/klines", config),
     ])
 
     return {
@@ -162,10 +197,11 @@ async function buildSnapshot(config: Config, client: BinanceRest) {
       ticker24h: normalizeSpotTicker(ticker24h),
       priceSnapshot: buildSpotPriceSnapshot(ticker24h, bookTicker),
       bookTicker: normalizeBookTicker(bookTicker),
+      ...(Object.keys(recentKlines).length > 0 ? { recentKlines } : {}),
     }
   }
 
-  const [tickerRows, premiumIndex, openInterest, bookTicker] = await Promise.all([
+  const [tickerRows, premiumIndex, openInterest, bookTicker, fundingRates, recentKlines] = await Promise.all([
     client.futuresDailyStats({ symbol: config.symbol }) as Promise<FuturesTicker | FuturesTicker[]>,
     client.futuresMarkPrice({ symbol: config.symbol }) as Promise<FuturesPremiumIndex>,
     client.publicRequest("GET", "/fapi/v1/openInterest", { symbol: config.symbol }),
@@ -176,6 +212,8 @@ async function buildSnapshot(config: Config, client: BinanceRest) {
       askPrice: string
       askQty: string
     }>,
+    fetchFundingRates(client, config),
+    fetchRecentKlines(client, "/fapi/v1/klines", config),
   ])
 
   const ticker = Array.isArray(tickerRows) ? tickerRows.find((item) => item.symbol === config.symbol) : tickerRows
@@ -205,7 +243,51 @@ async function buildSnapshot(config: Config, client: BinanceRest) {
       openInterest: String(openInterestMap.openInterest || ""),
       time: Number(openInterestMap.time || 0),
     },
+    fundingRates,
+    ...(Object.keys(recentKlines).length > 0 ? { recentKlines } : {}),
   }
+}
+
+async function fetchFundingRates(client: BinanceRest, config: Config): Promise<FundingRateRow[]> {
+  if (config.market !== "usdm" || config.fundingLimit <= 0) {
+    return []
+  }
+
+  const rows = await client.publicRequest("GET", "/fapi/v1/fundingRate", {
+    symbol: config.symbol,
+    limit: config.fundingLimit,
+  })
+
+  if (!Array.isArray(rows)) {
+    return []
+  }
+
+  return rows
+    .map((row) => normalizeFundingRateRow(row, config.symbol))
+    .sort((left, right) => right.fundingTime - left.fundingTime)
+}
+
+async function fetchRecentKlines(
+  client: BinanceRest,
+  path: "/api/v3/klines" | "/fapi/v1/klines",
+  config: Config,
+): Promise<Record<string, ReturnType<typeof normalizeKlineRows>>> {
+  if (config.recentKlines.length === 0) {
+    return {}
+  }
+
+  const entries = await Promise.all(
+    config.recentKlines.map(async (interval) => {
+      const rows = await client.publicRequest("GET", path, {
+        symbol: config.symbol,
+        interval,
+        limit: config.recentKlineLimit,
+      })
+      return [interval, normalizeKlineRows(rows, interval)] as const
+    }),
+  )
+
+  return Object.fromEntries(entries)
 }
 
 function normalizeSpotTicker(ticker: SpotTicker) {
@@ -303,6 +385,7 @@ function buildFuturesPriceSnapshot(
     bestBid,
     bestAsk,
     midPrice: midpoint(bestBid, bestAsk),
+    spreadBps: spreadBps(bestBid, bestAsk),
   }
 }
 
@@ -313,6 +396,16 @@ function midpoint(bidPrice: string, askPrice: string): string {
     return ""
   }
   return ((bid + ask) / 2).toFixed(8).replace(/\.?0+$/, "")
+}
+
+function spreadBps(bidPrice: string, askPrice: string): string {
+  const bid = Number(bidPrice)
+  const ask = Number(askPrice)
+  if (!Number.isFinite(bid) || !Number.isFinite(ask) || bid <= 0 || ask <= 0) {
+    return ""
+  }
+  const mid = (bid + ask) / 2
+  return (((ask - bid) / mid) * 10_000).toFixed(4).replace(/\.?0+$/, "")
 }
 
 function createClient(timeout: number): BinanceRest {
@@ -333,10 +426,74 @@ function nowInShanghai(): string {
 
 function parsePositiveNumber(value: string, name: string): number {
   const parsed = Number(value)
-  if (!Number.isFinite(parsed) || parsed <= 0) {
-    throw new Error(`${name} must be greater than 0`)
+  if (!Number.isFinite(parsed) || parsed <= 0 || !Number.isInteger(parsed)) {
+    throw new Error(`${name} must be a positive integer`)
   }
   return parsed
+}
+
+function parseNonNegativeInteger(value: string, name: string): number {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed < 0 || !Number.isInteger(parsed)) {
+    throw new Error(`${name} must be a non-negative integer`)
+  }
+  return parsed
+}
+
+function parseRecentKlines(value: string): string[] {
+  return Array.from(
+    new Set(
+      value
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean)
+        .map((item) => validateKlineInterval(item)),
+    ),
+  )
+}
+
+function validateKlineInterval(value: string): string {
+  if (!/^\d+[mhdwM]$/.test(value)) {
+    throw new Error(`unsupported kline interval: ${value}`)
+  }
+  return value
+}
+
+function normalizeFundingRateRow(row: unknown, fallbackSymbol: string): FundingRateRow {
+  const map = typeof row === "object" && row ? (row as Record<string, unknown>) : {}
+  return {
+    symbol: String(map.symbol || fallbackSymbol),
+    fundingRate: String(map.fundingRate || ""),
+    fundingTime: Number(map.fundingTime || 0),
+    markPrice: map.markPrice == null ? "" : String(map.markPrice),
+  }
+}
+
+function normalizeKlineRows(rows: unknown, interval: string) {
+  if (!Array.isArray(rows)) {
+    throw new Error(`unexpected kline response for interval: ${interval}`)
+  }
+
+  return rows.map((row) => {
+    if (!Array.isArray(row) || row.length < 11) {
+      throw new Error(`unexpected kline row for interval: ${interval}`)
+    }
+
+    return {
+      interval,
+      openTime: Number(row[0]),
+      open: String(row[1]),
+      high: String(row[2]),
+      low: String(row[3]),
+      close: String(row[4]),
+      volume: String(row[5]),
+      closeTime: Number(row[6]),
+      quoteVolume: String(row[7]),
+      tradeCount: Number(row[8]),
+      takerBuyBaseVolume: String(row[9]),
+      takerBuyQuoteVolume: String(row[10]),
+    }
+  })
 }
 
 function printJSON(value: unknown): void {

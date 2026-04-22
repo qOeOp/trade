@@ -1,4 +1,4 @@
 interface:
   display_name: "Binance Symbol Snapshot"
   short_description: "在 OBSERVE 阶段获取 Binance 单标的即时快照"
-  default_prompt: "当前若已确定 symbol，但还不需要全量 OHLCV，就使用 $binance-symbol-snapshot 获取即时市场快照；若是合约，优先查看 premiumIndex、funding 与 openInterest，再决定是否继续拉更重的数据。"
+  default_prompt: "当前若已确定 symbol，但还不需要全量 OHLCV，就使用 $binance-symbol-snapshot 获取即时市场快照；若是合约，优先查看 premiumIndex、funding、openInterest，必要时直接用 --pulse 补 15m/1h/4h 最近 K 线，再决定是否继续拉更重的数据。"
