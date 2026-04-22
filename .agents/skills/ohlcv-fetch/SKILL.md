@@ -13,7 +13,7 @@ description: >-
 ## 使用流程
 
 1. 明确 `--symbol`、`--market-type`；未指定 `--market-type` 时默认抓合约（`usdm`）。
-2. 进入 skill 目录后直接执行 `go run ./scripts --...`。
+2. 进入 skill 目录后直接执行 `./scripts/main.ts --...`。
 3. 如需固定目录，显式传 `--output-dir`；未传时脚本会自动创建临时目录。
 4. 脚本会把 `manifest.json` 和 `<timeframe>.csv` 落到输出目录，并在 stdout 返回 `{ ok, data }` 包装后的元信息。
 5. 需要增量抓取时，传 `--since-ts <毫秒时间戳>`。
@@ -23,7 +23,8 @@ description: >-
 
 - 只抓 OHLCV，不做技术分析。
 - 仅支持 Binance；不再通过 `ccxt` 代理其它交易所。
-- 需要本机可用的 `go` 命令直接运行源码。
+- 需要本机可用的 `bun`；首次进入 skill 目录请先 `bun install`。
+- 公共 K 线接口不需要 API key，无需配置 `BINANCE_API_KEY`。
 - 默认周期是 `1w,1d,4h,1h`；需要变更时显式传 `--timeframes`。
 - 未指定 `--market-type` 时，默认抓合约（`usdm`），不是现货。
 - 对 Binance 显式区分 `spot`、`usdm`、`coinm`；如果口径有要求，仍应显式传市场类型。
@@ -84,8 +85,8 @@ stdout 会返回 `{ ok, data }`，其中包含：
 
 ```bash
 cd .agents/skills/ohlcv-fetch
-go run ./scripts --symbol ETHUSDT --market-type usdm
-go run ./scripts --symbol ETH/USDT --market-type usdm
-go run ./scripts --symbol SOL/USDT --market-type spot
-go run ./scripts --symbol BTC/USD --market-type coinm
+./scripts/main.ts --symbol ETHUSDT --market-type usdm
+./scripts/main.ts --symbol ETH/USDT --market-type usdm
+./scripts/main.ts --symbol SOL/USDT --market-type spot
+./scripts/main.ts --symbol BTC/USD --market-type coinm
 ```
