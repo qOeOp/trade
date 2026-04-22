@@ -1,4 +1,4 @@
 interface:
   display_name: "Binance Account Snapshot"
-  short_description: "读取 Binance 账户余额、持仓、挂单与保护单快照"
-  default_prompt: "使用 $binance-account-snapshot 读取 Binance 实时账户快照，并总结非零余额、持仓、普通挂单、Algo 保护单，以及必要时的 symbol 维度历史订单。"
+  short_description: "在 OBSERVE / RECOVERY 阶段读取 Binance 账户快照"
+  default_prompt: "当前场景若需要恢复账户事实而不是直接交易，就使用 $binance-account-snapshot 读取余额、持仓、普通挂单、保护单，以及必要时的 symbol 历史订单；重点服务链状态核对与风险恢复。"

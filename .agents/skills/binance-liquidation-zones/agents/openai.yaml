@@ -1,4 +1,4 @@
 interface:
   display_name: "Binance Liquidation Zones"
-  short_description: "优先消费上游 skill 输出，再用 liquidator-indicator 推断 USDM liquidation-like zones"
-  default_prompt: "先协调上游只读 skill 准备 Binance USDM 的 aggTrades 与 symbol snapshot，再使用 $binance-liquidation-zones 消费这些 JSON 输入，用 liquidator-indicator 推断最近可能存在的 liquidation cluster，并明确这只是公开数据推断。"
+  short_description: "在 OBSERVE 阶段推断 Binance USDM liquidation-like zones"
+  default_prompt: "当前若需要补 liquidation-like 观察证据，就先协调上游只读 skill 准备 Binance USDM 的 aggTrades 与 symbol snapshot，再使用 $binance-liquidation-zones 推断最近可能存在的 liquidation cluster，并明确这只是公开数据推断。"

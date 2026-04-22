@@ -1,35 +1,31 @@
 ---
 name: binance-market-scan
-description: 扫描 Binance 公共市场数据，生成全市场 long / short 候选列表。适合回答“全市场还有什么能做”“帮我先筛几个标的”。
+description: OBSERVE 阶段的 Binance 全市场初筛 skill。用于生成 long / short 候选列表，回答“先看谁”；不负责单标的深判、账户或执行。
 ---
 
 # Binance Market Scan
 
-回答“先看谁”，不负责深判，不负责账户。
+只读 skill。回答“先看谁”，不负责深判、账户或执行。
 
-## 快速开始
+## 何时使用
 
-```bash
-cd .agents/skills/binance-market-scan
-./scripts/main.ts
-./scripts/main.ts --direction long
-./scripts/main.ts --market spot --limit 8
-```
+- 当前轮处于 `OBSERVE`
+- 还没确定 symbol
+- 需要先从 Binance 全市场生成候选
 
-## 使用边界
+## 不该使用
 
-- 负责全市场候选生成、流动性筛选、24h 涨跌与成交额排序。
-- 默认输出 `long` / `short` 两边候选。
-- 不负责账户、持仓、挂单。
-- 不负责单标的结构判断。
-- 常见串联是：`binance-market-scan -> ohlcv-fetch -> tech-indicators`。
+- 账户恢复
+- 单标的结构判断
+- 真实执行
 
-## 脚本约定
+常见串联：`binance-market-scan -> ohlcv-fetch -> tech-indicators`
 
-- 入口源码是 [main.ts](/Users/vx/WebstormProjects/trade/.agents/skills/binance-market-scan/scripts/main.ts)。
-- 当前本 skill 的脚本 helper 已内联在 [main.ts](/Users/vx/WebstormProjects/trade/.agents/skills/binance-market-scan/scripts/main.ts)。
-- 依赖定义在 [package.json](/Users/vx/WebstormProjects/trade/.agents/skills/binance-market-scan/package.json)。
-- 优先直接执行 `./scripts/main.ts`；只有本机首次运行或提示依赖缺失时再执行 `bun install`，不要每次都先装一遍。
-- 默认市场是 `usdm`，默认方向是 `both`。
-- 默认最小 24h `quoteVolume` 是 `20000000`。
-- 默认每侧返回 `10` 个候选。
+## 脚本边界
+
+- 入口脚本是 [main.ts](./scripts/main.ts)
+- 优先直接执行 `./scripts/main.ts`
+- 负责全市场候选生成、流动性筛选、24h 涨跌与成交额排序
+- 默认市场是 `usdm`，默认方向是 `both`
+- 默认最小 24h `quoteVolume` 是 `20000000`
+- 默认每侧返回 `10` 个候选

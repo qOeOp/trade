@@ -1,4 +1,4 @@
 interface:
   display_name: "Binance Order Place"
-  short_description: "执行 Binance 真实下单"
-  default_prompt: "先确认已经做过 $binance-order-preview，再使用 $binance-order-place 执行真实标准订单；没有明确确认时不要直接下单。"
+  short_description: "在 EXECUTE 阶段执行 Binance 主单开仓/加仓"
+  default_prompt: "当前场景若已进入 EXECUTE，且 plan 已明确要做主单开仓或加仓，就先跑 --check-env；若方法归属或参数仍有歧义，先走 binance-order-preview；确认后按场景选择主单类型并真实执行。此 skill 不处理减仓、平仓或保护腿。"

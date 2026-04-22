@@ -1,4 +1,4 @@
 interface:
   display_name: "Binance AggTrades Fetch"
-  short_description: "读取 Binance aggTrades 原始成交材料"
-  default_prompt: "使用 $binance-aggtrades-fetch 读取指定 Binance symbol 的 aggTrades，供 liquidation-zone 或其他微观结构分析能力继续消费。"
+  short_description: "在 OBSERVE 阶段读取 Binance aggTrades 原始成交"
+  default_prompt: "当前若需要补微观结构证据或给上游分析准备原始成交材料，就使用 $binance-aggtrades-fetch 读取指定 symbol 的 aggTrades；它只提供原始数据，不负责策略解释。"

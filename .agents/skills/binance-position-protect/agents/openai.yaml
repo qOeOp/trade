@@ -1,4 +1,4 @@
 interface:
   display_name: "Binance Position Protect"
-  short_description: "为 Binance USDM 持仓补止盈、止损或追踪止损"
-  default_prompt: "先确认现有仓位与保护缺口，再使用 $binance-position-protect 给 Binance USDM 持仓补上止损、止盈或追踪止损。"
+  short_description: "在 EXECUTE 阶段为 Binance USDM 仓位补保护腿"
+  default_prompt: "当前若动作是给 USDM 已有仓位或计划仓位补止损、止盈或 trailing，就先确认这是保护腿而不是主单或减仓，再使用 $binance-position-protect 执行；它只新增保护腿，不做撤旧或去重。"

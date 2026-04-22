@@ -1,36 +1,66 @@
 ---
 name: binance-position-protect
-description: 为 Binance USDM 持仓补止损、止盈或追踪止损。适合已有仓位但保护结构不完整、方向错位或需要重建 TP/SL 的场景。
+description: EXECUTE 阶段的 Binance USDM 保护腿 skill。用于为已有仓位或计划仓位补止损、止盈或 trailing；不处理主单开仓、减仓或撤单。
 ---
 
 # Binance Position Protect
 
-这是写操作 skill，专门处理期货保护单。
+写操作 skill。专门处理 USDM 保护腿。
 
-## 快速开始
+## 何时使用
 
-```bash
-cd .agents/skills/binance-position-protect
-./scripts/main.ts --symbol BTCUSDT --position-side LONG --quantity 0.01 --stop-loss-trigger 64000 --take-profit-trigger 68000 --yes
-./scripts/main.ts --symbol BTCUSDT --position-side SHORT --close-position true --stop-loss-trigger 69000 --yes
-```
+- 当前轮重点已进入 `EXECUTE`
+- 目标动作是补 `保护腿`，不是主单或减仓
+- 标的是 `USDM`
+- 保护目标属于止损、止盈或 trailing
+- 已能确认 `symbol`、`position-side`
+- 已能确认 `quantity` 或 `close-position true`
 
-## 使用边界
+## 不该使用
 
-- 会修改真实 Binance 状态。
-- 当前只做 USDM 保护单，不负责标准开仓。
-- 支持补：
-  - `STOP` / `STOP_MARKET`
-  - `TAKE_PROFIT` / `TAKE_PROFIT_MARKET`
-  - `TRAILING_STOP_MARKET`
-- 没有保护单之前，优先先用 `binance-account-snapshot` 确认现有仓位与挂单。
+- 主单开仓 / 加仓
+- 已有仓位的部分减仓 / 全平
+- 撤单
+- 自动判断并清理旧保护单
 
-## 脚本约定
+## 最小输入
 
-- 入口源码是 [main.ts](/Users/vx/WebstormProjects/trade/.agents/skills/binance-position-protect/scripts/main.ts)。
-- 当前本 skill 的脚本 helper 已内联在 [main.ts](/Users/vx/WebstormProjects/trade/.agents/skills/binance-position-protect/scripts/main.ts)。
-- 依赖定义在 [package.json](/Users/vx/WebstormProjects/trade/.agents/skills/binance-position-protect/package.json)。
-- 优先直接执行 `./scripts/main.ts`；只有本机首次运行或提示依赖缺失时再执行 `bun install`，不要每次都先装一遍。
-- 必须显式带 `--yes`。
-- `--close-position true` 时可以不传 `--quantity`；否则需要显式数量。
-- `--position-side LONG` 会默认推断保护方向为 `SELL`，`SHORT` 会推断为 `BUY`。
+- 必填：`symbol` `position-side`
+- 二选一：`quantity` 或 `close-position true`
+- `BOTH` 模式下额外需要 `side`
+- 止损：`stop-loss-trigger`
+- 止盈：`take-profit-trigger`
+- trailing：`trailing-activation-price` + `callback-rate`
+
+## 保护模型
+
+- 当前 live 仓位保护：可用 `close-position true` 或显式 `quantity`
+- 未来计划仓位保护：必须显式 `quantity`，不要用 `close-position true`
+- `LONG` 保护腿默认是 `SELL`
+- `SHORT` 保护腿默认是 `BUY`
+- `BOTH` 模式下必须手动传 `side`
+- 本 skill 只新增保护腿，不会自动撤旧保护或去重
+
+## 订单选择
+
+- 只关心触发后尽快退出：`STOP_MARKET` / `TAKE_PROFIT_MARKET`
+- 想控制触发后成交价格：`STOP` / `TAKE_PROFIT`，并显式带 limit price
+- 想让止损跟着利润移动：`TRAILING_STOP_MARKET`
+
+## 执行顺序
+
+1. 先跑 `./scripts/main.ts --check-env`
+2. 确认这次动作是补保护腿，不是主单或减仓
+3. 确认 `close-position true` 与 `quantity` 的选择符合当前保护模型
+4. 若是 trailing，必须同时带 `--trailing-activation-price` 和 `--callback-rate`
+5. 真实执行必须显式带 `--yes`
+
+## 脚本边界
+
+- 入口脚本是 [main.ts](./scripts/main.ts)
+- 优先直接执行 `./scripts/main.ts`
+- `--close-position true` 时可以不传 `--quantity`
+- live 路径会先核对保护方向和数量是否与现有仓位匹配
+- 支持 `--dry-json` 打印最终保护腿请求体，不触网
+
+低频示例见 [reference.md](./reference.md)。

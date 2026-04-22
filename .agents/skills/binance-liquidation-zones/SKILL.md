@@ -1,44 +1,34 @@
 ---
 name: binance-liquidation-zones
-description: 基于 Python 包 liquidator-indicator 和 Binance USDM 公开数据推断 liquidation-like price zones。当前接入只喂 aggTrades、premiumIndex 和 openInterest 快照，不依赖真实 liquidation feed。
+description: OBSERVE 阶段的 Binance USDM liquidation-like zone 推断 skill。优先消费 aggTrades 与 symbol snapshot，再用 liquidator-indicator 从公开数据估计最近的 liquidation cluster。
 ---
 
 # Binance Liquidation Zones
 
-这是一个实验型只读 skill，回答“最近这段公开成交里，有没有明显像 liquidation cluster 的价格区”。
+实验型只读 skill。回答“最近这段公开成交里，有没有明显像 liquidation cluster 的价格区”。
 
-当前推荐由 agent 先协调上游只读 skill 拉数，再把 JSON 结果喂给这里的 Python 分析器。
+## 何时使用
 
-## 快速开始
+- 当前轮处于 `OBSERVE`
+- 需要补 liquidation-like 证据，而不是直接执行
+- 已有或准备好 `aggTrades` 与 `snapshot`
 
-```bash
-python3 -m pip install -r .agents/skills/binance-liquidation-zones/requirements.txt
-./.agents/skills/binance-aggtrades-fetch/scripts/main.ts --symbol BTCUSDT --market usdm --limit 500 > /tmp/btc-agg.json
-./.agents/skills/binance-symbol-snapshot/scripts/main.ts --symbol BTCUSDT --market usdm > /tmp/btc-snapshot.json
-./.agents/skills/binance-liquidation-zones/scripts/main.py --aggtrades-file /tmp/btc-agg.json --snapshot-file /tmp/btc-snapshot.json
+## 不该使用
 
-# 手动直跑 fallback 仍然保留
-./.agents/skills/binance-liquidation-zones/scripts/main.py --symbol BTCUSDT
-./.agents/skills/binance-liquidation-zones/scripts/main.py --symbol ETHUSDT --lookback-minutes 60 --limit 1000 --zone-pct 0.0025
-```
+- 真实 liquidation 校验
+- 单独作为下单依据
+- 真实执行
 
-## 使用边界
+## 输入口径
 
-- 当前只支持 `usdm`。
-- 当前版本底层直接使用 Python 包 `liquidator-indicator`。
-- 当前版本是公开数据推断，不是真实 liquidation feed。
-- 输入主要来自：
-  - 上游 `binance-aggtrades-fetch` 提供的 `aggTrades`
-  - 上游 `binance-symbol-snapshot` 提供的 `premiumIndex`
-  - 上游 `binance-symbol-snapshot` 提供的 `openInterest` 快照
-- 当前优先消费 `--aggtrades-file` 与 `--snapshot-file`。
-- 缺少输入时，才会退回 `--symbol` 直连 Binance 补数。
-- 当前接入不会测量 OI 的连续变化，也不会做真实 liquidation 校验。
-- 更适合当作观察层证据，不适合单独当下单依据。
+- 当前只支持 `usdm`
+- 优先消费 `--aggtrades-file` 与 `--snapshot-file`
+- 缺输入时才退回 `--symbol` 直连 Binance 补数
+- 当前接入只用 `aggTrades`、`premiumIndex`、`openInterest` 快照
 
-## 输出约定
+## 输出口径
 
-- 返回 `engine`、`marketContext`、`sample`、`zones`、`warnings`。
-- `request.sources` 会标出 `aggTrades` / `snapshot` 是来自 `file` 还是 `network`。
-- `dominantLiquidationSide=LONG` / `SHORT` 表示更可能是哪一边被清算。
-- `qualityLabel`、`qualityScore`、`strength` 来自 `liquidator-indicator` 内部评分，只适合做相对排序。
+- 返回 `engine`、`marketContext`、`sample`、`zones`、`warnings`
+- `request.sources` 会标出输入来自 `file` 还是 `network`
+- `dominantLiquidationSide` 表示更可能是哪一边被清算
+- `qualityLabel`、`qualityScore`、`strength` 只适合做相对排序

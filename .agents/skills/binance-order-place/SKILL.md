@@ -1,34 +1,74 @@
 ---
 name: binance-order-place
-description: 执行 Binance 真实下单。当前只负责较窄的现货/USDM 标准开仓入口，适合 `LIMIT` / `MARKET` 类进场单。
+description: EXECUTE 阶段的 Binance 主单执行 skill。用于已收敛 entry plan 后的开仓或加仓，覆盖现货下单、USDM 立即进场、突破进场、回撤进场；不处理减仓、平仓或保护腿。
 ---
 
 # Binance Order Place
 
-这是写操作 skill。默认先预览，再执行。
+写操作 skill。服务 `EXECUTE` 场景，不按聊天话术触发。
 
-## 快速开始
+## 何时使用
 
-```bash
-cd .agents/skills/binance-order-place
-./scripts/main.ts --check-env
-./scripts/main.ts --symbol BTCUSDT --market usdm --side BUY --type LIMIT --quantity 0.01 --price 65000 --yes
-```
+- 当前轮重点已进入 `EXECUTE`，不是继续 `OBSERVE` 或 `PLAN`
+- 当前 plan 已明确要做 `开仓` 或 `加仓`
+- 目标订单是 `主单`，不是 `保护腿`
+- 标的是 `spot` 或 `usdm`
+- 已能确认 `symbol`、`market`、`side`、`quantity`
+- 现货 `MARKET` 可用 `quote-order-qty` 替代 `quantity`
 
-## 使用边界
+## 不该使用
 
-- 会修改真实 Binance 状态。
-- 执行前优先先跑 `binance-order-preview`。
-- 当前只收窄到标准开仓入口：
-  - 现货：`LIMIT` / `MARKET` / `LIMIT_MAKER`
-  - USDM：`LIMIT` / `MARKET` / `STOP` / `STOP_MARKET`
-- TP/SL、追踪止损等保护单不要走这里，切到 `binance-position-protect`。
+- 减仓 / 平仓 / 翻仓
+- 止损 / 止盈 / trailing 保护腿
+- 当前 plan 还没收敛到可执行，仍需继续补观察或重算风险
+- 只是想判断该走哪条 Binance 方法，还没准备真实执行
 
-## 脚本约定
+以下情况先走 `binance-order-preview`：
 
-- 入口源码是 [main.ts](/Users/vx/WebstormProjects/trade/.agents/skills/binance-order-place/scripts/main.ts)。
-- 当前本 skill 的脚本 helper 已内联在 [main.ts](/Users/vx/WebstormProjects/trade/.agents/skills/binance-order-place/scripts/main.ts)。
-- 依赖定义在 [package.json](/Users/vx/WebstormProjects/trade/.agents/skills/binance-order-place/package.json)。
-- 优先直接执行 `./scripts/main.ts`；只有本机首次运行或提示依赖缺失时再执行 `bun install`，不要每次都先装一遍。
-- 真实下单必须显式带 `--yes`。
-- 现货支持 `--test` 走 `orderTest`。
+- 不确定这是主单还是保护腿
+- 不确定该用 `LIMIT / MARKET / STOP* / TAKE_PROFIT*` 哪一类
+- 想先确认 payload、method、参考价或 warnings
+
+## 最小输入
+
+- 现货：
+  - `symbol` `market=spot` `side` `type`
+  - `quantity` 或 `quote-order-qty`
+- USDM：
+  - `symbol` `market=usdm` `side` `type` `quantity`
+  - 若用户明确指定方向模式，再带 `position-side`
+  - 若用户明确指定杠杆，再带 `leverage`
+
+- `LIMIT` / `STOP` / `TAKE_PROFIT` 需要 `price`
+- `STOP*` / `TAKE_PROFIT*` 需要 `stop-price`
+- 真实下单必须显式带 `--yes`
+
+## 场景到订单类型
+
+- 立即进场: `MARKET` / `LIMIT`
+- 突破追入: `STOP` / `STOP_MARKET`
+- 回撤做多、反弹做空: `TAKE_PROFIT` / `TAKE_PROFIT_MARKET`
+- 只关心尽快成交: `MARKET` / `STOP_MARKET` / `TAKE_PROFIT_MARKET`
+- 还要控制挂单价或触发后成交价: `LIMIT` / `STOP` / `TAKE_PROFIT`
+- `STOP*` / `TAKE_PROFIT*` 在这里可以是主单 entry，不天然等于保护腿
+- 只有明显处于保护语境，或需要 `reduceOnly / closePosition` 时，才不该使用本 skill
+
+## 执行顺序
+
+1. 先跑 `./scripts/main.ts --check-env`
+2. 若方法归属或参数有歧义，先做 preview
+3. 组装最终执行参数
+4. 真实下单时显式带 `--yes`
+5. 读取脚本返回的 `request / result / confirmedResult`
+
+## 脚本边界
+
+- 入口脚本是 [main.ts](./scripts/main.ts)
+- 优先直接执行 `./scripts/main.ts`
+- 现货支持 `LIMIT` / `MARKET` / `LIMIT_MAKER`
+- USDM 主单支持 `LIMIT` / `MARKET` / `STOP` / `STOP_MARKET` / `TAKE_PROFIT` / `TAKE_PROFIT_MARKET`
+- 脚本会拒绝 reduce-only、减仓、平仓、翻仓这类越界用法
+- `--dry-json` 只打印请求体，不触网
+- `--test` 可用于现货与 USDM 普通单测试；USDM algo entry 没有官方 test endpoint，只会返回本地校验后的 payload
+
+低频参数、完整命令示例见 [reference.md](./reference.md)。

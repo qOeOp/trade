@@ -1,81 +1,69 @@
+---
 name: binance-account-snapshot
-description: 使用系统环境变量 `BINANCE_API_KEY` 和 `BINANCE_API_SECRET` 只读读取 Binance 账户状态。适合查看余额、持仓、普通挂单、保护单，以及必要时按 symbol 补历史订单。
+description: OBSERVE / RECOVERY 阶段的 Binance 账户快照 skill。用于读取余额、持仓、普通挂单、保护单与必要的 symbol 历史订单；不执行交易动作。
 ---
 
 # Binance Account Snapshot
 
-读取账户全景快照，不下单、不撤单、不改保护。
+只读 skill。服务账户事实恢复，不按聊天话术触发。
 
-## 快速开始
+## 何时使用
 
-1. 先确认环境变量：
+- 需要恢复当前账户事实，而不是直接交易
+- 需要查看余额、持仓、普通挂单、保护单
+- 需要在 `OBSERVE` 或 `RECOVERY` 阶段核对链状态
+- 需要按 `symbol` 补历史订单
 
-```bash
-cd .agents/skills/binance-account-snapshot
-./scripts/main.ts --check-env
-```
+## 不该使用
 
-2. 拉完整账户快照：
+- 开仓 / 加仓 / 减仓 / 平仓
+- 补保护、撤单、改保护
+- 单纯做单标的市场观察，不看账户
 
-```bash
-cd .agents/skills/binance-account-snapshot
-./scripts/main.ts
-```
+执行动作请切到：
 
-3. 只看某个 symbol：
+- `binance-order-preview`
+- `binance-order-place`
+- `binance-order-cancel`
+- `binance-position-adjust`
+- `binance-position-protect`
 
-```bash
-cd .agents/skills/binance-account-snapshot
-./scripts/main.ts --symbol BTCUSDT
-```
+## 最小输入
 
-4. 只看现货或只看合约：
+- 全账户快照：无额外参数
+- 单标的核对：`symbol`
+- 只看分区：`--spot-only` 或 `--futures-only`
+- 补历史订单：`symbol` + `--include-history`
 
-```bash
-cd .agents/skills/binance-account-snapshot
-./scripts/main.ts --spot-only
-./scripts/main.ts --futures-only
-```
+## 输出重点
 
-5. 需要时补历史订单：
+- 非零余额
+- live 持仓
+- 普通挂单
+- 保护单
+- 分区级错误或缺口
 
-```bash
-cd .agents/skills/binance-account-snapshot
-./scripts/main.ts --symbol BTCUSDT --include-history
-./scripts/main.ts --symbol BTCUSDT --include-history --history-limit 50
-```
+判读口径：
 
-## 使用边界
+- 普通挂单与保护单会分开整理
+- 合约保护单会同时读取普通挂单接口与 Algo 条件单接口
+- `BUY STOP_MARKET` 这类 entry 条件单不会只按 `type` 被误归到保护桶
+- 若空仓但保护单数量与计划入场总量对齐，应优先视为未来计划仓位保护
 
-- 这是只读 skill。
-- 它负责账户体检，不负责执行交易动作。
-- 输出重点是余额、持仓、普通挂单、保护单、分区级错误。
-- 若要执行动作，切到：
-  - `binance-order-preview`
-  - `binance-order-place`
-  - `binance-order-cancel`
-  - `binance-position-protect`
+## 执行顺序
 
-## 脚本约定
+1. 先跑 `./scripts/main.ts --check-env`
+2. 按需要决定全账户、单标的或分区读取
+3. 若要补历史订单，显式带 `--symbol --include-history`
+4. 优先消费余额、持仓、普通挂单、保护单四块结果
+5. 若某分区失败，明确保留缺口，不把整次恢复伪装成完整快照
 
-- 入口源码是 [main.ts](/Users/vx/WebstormProjects/trade/.agents/skills/binance-account-snapshot/scripts/main.ts)。
-- 当前本 skill 的脚本 helper 已内联在 [main.ts](/Users/vx/WebstormProjects/trade/.agents/skills/binance-account-snapshot/scripts/main.ts)。
-- 依赖定义在 [package.json](/Users/vx/WebstormProjects/trade/.agents/skills/binance-account-snapshot/package.json)。
-- 依赖 `binance-api-node`。
-- 优先直接执行 `./scripts/main.ts`；只有本机首次运行或提示依赖缺失时再执行 `bun install`，不要每次都先装一遍。
-- 脚本只返回 JSON。
-- `--include-history` 必须配合 `--symbol` 使用。
-- 默认会隐藏零余额，并把普通挂单与保护单分开整理。
-- 合约保护单会同时读取普通挂单接口和 Algo 条件单接口。
-- 当期货母单出现 `strategyType=OTO` 或 `OTOCO` 时，公共 API 可能读不到附带 TP/SL 明细；出现 `manualTpSlRequired=true` 时，要明确告诉用户需要手动提供价格。
+## 脚本边界
 
-## 输出建议
+- 入口脚本是 [main.ts](./scripts/main.ts)
+- 优先直接执行 `./scripts/main.ts`
+- 脚本只返回 JSON
+- `--include-history` 必须配合 `--symbol`
+- 输出默认隐藏零余额
 
-- 先看非零余额，再看持仓，再看普通挂单与保护单。
-- 优先指出裸仓无保护、保护方向错误、持仓和 TP/SL 数量不匹配。
-- 若某个分区失败，不要让整次分析报废，要明确缺了哪一块。
-
-## 参考
-
-- 端点和分类说明见 [references/endpoints.md](references/endpoints.md)。
-- 本 skill 只收敛到账户快照，不承担“所有 Binance API 的总入口”。
+低频示例和分类细节见 [reference.md](./reference.md)。

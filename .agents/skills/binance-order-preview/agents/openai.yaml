@@ -1,4 +1,4 @@
 interface:
   display_name: "Binance Order Preview"
-  short_description: "预演 Binance 下单参数，不执行真实订单"
-  default_prompt: "执行前先用 $binance-order-preview 检查订单归属、关键参数、风险点和参考价格；确认后再决定是否切到下单或补保护 skill。"
+  short_description: "在 PLAN / EXECUTE 之间预演 Binance 订单"
+  default_prompt: "当前若订单已接近可执行，但方法归属、参数完整性或主单/保护腿分类仍不稳，就先用 $binance-order-preview 做预演；它只返回 request、execution、marketContext 和 warnings，不执行真实订单。"
