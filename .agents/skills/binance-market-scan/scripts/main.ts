@@ -6,7 +6,7 @@ interface Config {
   market: "spot" | "usdm"
   direction: "both" | "long" | "short"
   minQuoteVolume: number
-  limit: number
+  limitPerSide: number
   timeout: number
 }
 
@@ -27,17 +27,17 @@ type ScriptResponse =
   | { ok: false; error: string; data?: unknown }
 
 const DEFAULT_MIN_QUOTE_VOLUME = 20_000_000
-const DEFAULT_LIMIT = 10
+const DEFAULT_LIMIT_PER_SIDE = 10
 
 const HELP_TEXT = `Usage:
   ./scripts/main.ts
-  ./scripts/main.ts --direction long --limit 8
+  ./scripts/main.ts --direction long --limit-per-side 8
 
 Key flags:
   --market <spot|usdm>            Default: usdm
   --direction <both|long|short>   Default: both
   --min-quote-volume <amount>     Default: 20000000
-  --limit <count>                 Default: 10
+  --limit-per-side <count>        Default: 10
   --timeout <ms>                  Default: 20000
   --help                          Show this help
 `
@@ -71,7 +71,7 @@ function parseArgs(argv: string[]): Config {
     market: "usdm",
     direction: "both",
     minQuoteVolume: DEFAULT_MIN_QUOTE_VOLUME,
-    limit: DEFAULT_LIMIT,
+    limitPerSide: DEFAULT_LIMIT_PER_SIDE,
     timeout: 20_000,
   }
 
@@ -97,8 +97,8 @@ function parseArgs(argv: string[]): Config {
       case "--min-quote-volume":
         config.minQuoteVolume = parsePositiveNumber(readFlagValue(argv, ++index, arg), "--min-quote-volume")
         break
-      case "--limit":
-        config.limit = parsePositiveNumber(readFlagValue(argv, ++index, arg), "--limit")
+      case "--limit-per-side":
+        config.limitPerSide = parsePositiveNumber(readFlagValue(argv, ++index, arg), "--limit-per-side")
         break
       case "--timeout":
         config.timeout = parsePositiveNumber(readFlagValue(argv, ++index, arg), "--timeout")
@@ -126,7 +126,7 @@ async function buildScan(config: Config, client: BinanceRest) {
     filters: {
       direction: config.direction,
       minQuoteVolume: config.minQuoteVolume,
-      limit: config.limit,
+      limitPerSide: config.limitPerSide,
     },
     summary: {
       tradableSymbols: tradableSymbols.size,
@@ -227,8 +227,8 @@ function buildCandidates(tradableSymbols: Set<string>, tickerRows: Record<string
   short.sort((left, right) => right.score - left.score)
 
   return {
-    long: long.slice(0, config.limit),
-    short: short.slice(0, config.limit),
+    long: long.slice(0, config.limitPerSide),
+    short: short.slice(0, config.limitPerSide),
     eligible,
   }
 }

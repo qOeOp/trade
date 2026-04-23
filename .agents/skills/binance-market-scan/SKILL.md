@@ -29,3 +29,4 @@ description: OBSERVE 阶段的 Binance 全市场初筛 skill。用于生成 long
 - 默认市场是 `usdm`，默认方向是 `both`
 - 默认最小 24h `quoteVolume` 是 `20000000`
 - 默认每侧返回 `10` 个候选
+- 候选上限统一用 `--limit-per-side` 传；当 `--direction=both` 时表示 long/short 各自的返回上限，不再接受旧的 `--limit`

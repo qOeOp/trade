@@ -11,6 +11,20 @@ test("parseArgs validates min quote volume", () => {
   assert.throws(() => parseArgs(["--min-quote-volume", "0"]), /greater than 0/)
 })
 
+test("parseArgs accepts limit-per-side", () => {
+  assert.deepEqual(parseArgs(["--limit-per-side", "7"]), {
+    market: "usdm",
+    direction: "both",
+    minQuoteVolume: 20_000_000,
+    limitPerSide: 7,
+    timeout: 20_000,
+  })
+})
+
+test("parseArgs rejects old limit flag", () => {
+  assert.throws(() => parseArgs(["--limit", "7"]), /unknown flag/)
+})
+
 test("buildCandidates filters and ranks tradable rows", () => {
   const result = buildCandidates(
     new Set(["BTCUSDT", "ETHUSDT"]),
@@ -19,7 +33,7 @@ test("buildCandidates filters and ranks tradable rows", () => {
       { symbol: "ETHUSDT", quoteVolume: "180000000", priceChangePercent: "-4", askPrice: "3200", count: 900 },
       { symbol: "SOLUSDT", quoteVolume: "500000000", priceChangePercent: "5", askPrice: "150", count: 800 },
     ],
-    { market: "usdm", direction: "both", minQuoteVolume: 10_000_000, limit: 5, timeout: 10_000 },
+    { market: "usdm", direction: "both", minQuoteVolume: 10_000_000, limitPerSide: 5, timeout: 10_000 },
   )
 
   assert.equal(result.eligible, 2)

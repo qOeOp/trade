@@ -4,6 +4,7 @@
 .claude/
 tmp/
 .env
+data/outline_audit/
 
 # Skill-local dependency and cache directories
 node_modules/
