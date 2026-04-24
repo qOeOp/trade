@@ -102,7 +102,7 @@
 
 ### 4.5 当前 gaps
 
-- 没有消费正式 `ExecutionPlan`。
+- 没有消费正式 `ExecutionPlan`。重构方向见 [design-architecture.md](design-architecture.md) 的 `Plan 设计`：执行层应消费由 `DecisionPlan` 编译出的 sidecar `ExecutionPlan`，而不是继续直接吃零散参数。
 - 没有统一输出“这版 plan 需要几张主单、几张保护单”。
 - 还没有把 `保证金额 / 杠杆 / 笔数` 编译进来。
 
