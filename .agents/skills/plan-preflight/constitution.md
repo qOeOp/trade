@@ -16,31 +16,33 @@
 - `target_gate`：preflight 调用方声明即将升级到的 gate（drafting / armed / fired）
 - `account`：`./data/account_config.json`
 
+> **平台范围**：本工程只做 Binance USDM 永续。所有 plan 默认 USDM；原 scope 谓词里"按品类筛选"的部分已删除。
+
 ---
 
 ## MUST（违反直接拒写，无法 ack 放行）
 
 ### C-EXEC-STOP-MARK（合约止损必须按标记价触发）
 
-**scope**：`plan.market.type in ('usdm','coinm')` 且 plan 含 stop
+**scope**：plan 含 stop
 **check**：stop 触发价语义必须是 mark price。plan 文本需明确声明（`thesis` 或 `stop_anchor` 写 mark 字样），否则执行层默认 mark；若 plan 声明 last price，拒
 **why**：last price 触发在插针行情会误杀
 
 ### C-EXEC-ARMED-PRECHECK（合约升 armed 必须过预检）
 
-**scope**：`plan.market.type in ('usdm','coinm')` 且 `target_gate=armed`
+**scope**：`target_gate=armed`
 **check**：上一条 `order` 事件的 body 里 `precheck.passed = true` 且覆盖 `positionSide / stepSize / minQty / minNotional / openOrders / availableBalance`。或 preflight 调用方必须显式声明本轮将在 EXECUTE 内即时预检
 **why**：不过预检的合约单会被交易所拒或成交错量
 
 ### C-EXEC-LIQ-BUFFER（合约方向仓必须留爆仓缓冲）
 
-**scope**：`plan.market.type in ('usdm','coinm')` 且 `plan.side in ('long','short')` 且 `target_gate=armed`
+**scope**：`plan.side in ('long','short')` 且 `target_gate=armed`
 **check**：最近 observe 的 liquidation 估算里距爆仓价的 buffer_pct > 0 且 ≥ risk_budget_usdt 对应 stop 距离 × 2
 **why**：止损到爆仓之间没空间 = 一次滑点归零
 
 ### C-EXEC-MARGIN-POSITION-MODE（合约 armed 必须显式声明仓位模式）
 
-**scope**：`plan.market.type in ('usdm','coinm')` 且 `target_gate=armed`
+**scope**：`target_gate=armed`
 **check**：上一条 `order` 事件的 body 或 plan 的关联 strategy.policy 必须明确声明 `margin_mode (isolated|crossed)` 和 `position_mode (one-way|hedge / BOTH|LONG|SHORT)`，不能让脚本走默认值
 **why**：用户 / agent 默认 margin_mode 与账户实际不一致时，杠杆计算出错；hedge 账户走 one-way 模式会把多空腿冲掉
 
@@ -52,9 +54,21 @@
 
 ### C-EXEC-MICROSTRUCTURE-FRESH（合约升 armed 时微结构不许过期）
 
-**scope**：`plan.market.type in ('usdm','coinm')` 且 `target_gate=armed`
+**scope**：`target_gate=armed`
 **check**：最近 observe 的 `microstructure.snapshot_at` 距 now ≤ 30 秒
 **why**：funding / OI / orderbook 过期会让 context 判断失真，严重时止损点不对
+
+### C-PLAN-TRIGGER-STRUCTURED（plan 必须明确 trigger）
+
+**scope**：`target_gate in ('armed','fired')`
+**check**：`plan.trigger.type` 非空；若 `type != 'immediate'`，则 `plan.trigger.price` 与 `plan.trigger.timeframe` 必填
+**why**：plan 首先服务 agent 执行；没有 trigger 就是在让执行器猜何时送单
+
+### C-PLAN-VALID-WINDOW-NOT-EXPIRED（plan 若声明有效期则不得过期）
+
+**scope**：`target_gate in ('armed','fired')` 且 `plan.valid_until_at != null`
+**check**：`now <= plan.valid_until_at`
+**why**：过期 setup 继续沿旧观察执行，最容易把"当时能做"错当成"现在还能做"
 
 ### C-RISK-OPEN-RISK-CAP（成交后账户累计风险不超上限）
 
@@ -98,7 +112,7 @@
 
 ### C-EXEC-FUNDING-IN-EXPECTED-RR（永续持仓 ≥ 4h 必须把 funding 算进 expected RR）
 
-**scope**：`plan.market.type in ('usdm','coinm')` 且 strategy.policy 或 thesis 暗示持仓 ≥ 4h
+**scope**：strategy.policy 或 thesis 暗示持仓 ≥ 4h
 **check**：thesis / exit_note / risk 相关字段里出现 "funding" 相关字符串且量化（百分比或绝对值）
 **典型 ack reason**："scalp 持仓 < 1h，funding 影响可忽略"
 
@@ -110,9 +124,9 @@
 
 ### C-EXEC-TRAIL-STRUCTURED（trail-activate 应结构化）
 
-**scope**：plan.exit_note 或 tranches 含 trailing 意图
-**check**：trailing 激活条件是具体可判断的（"触 +1R 后 stop 移至成本"），不是自由文本
-**典型 ack reason**："手工 trail，盘中主观操作"
+**scope**：`plan.management.trail != null` 或 `plan.management.break_even_after_rr != null`
+**check**：`plan.management.break_even_after_rr` 或 `plan.management.trail.activate_after_rr` 至少有一项；若有 trail，则 `plan.management.trail.mode` 非空
+**典型 ack reason**："本 setup 由 operator 临盘接管 trail，agent 只守硬 stop"
 
 ### C-EXEC-ADD-POSITION-PRESET（加仓档必须事前定义）
 
@@ -120,9 +134,21 @@
 **check**：新 intent 的 `tranches[]` 里匹配该档的条目存在且来自上一版 intent 就已规划
 **典型 ack reason**："原 plan 做单入场，盘中突破大阳线加仓属于 setup 升级；注明原因"
 
+### C-PLAN-VALIDITY-WINDOW-DECLARED（等待型 plan 应声明有效窗口）
+
+**scope**：`target_gate=armed` 且 `plan.trigger.type != 'immediate'`
+**check**：`plan.valid_until_at != null`
+**典型 ack reason**："结构级 swing wait，不设 clock stop；只要关键结构未坏就继续等"
+
+### C-EXEC-HOLDING-TIMEBOX-DECLARED（短持仓 plan 应声明 timebox）
+
+**scope**：`strategy.tags` 或 `plan.strategy_ref` 暗示 `probe / scalp / event-driven`
+**check**：`plan.max_holding_minutes != null`
+**典型 ack reason**："本 plan 虽是快节奏，但退出完全由结构失效驱动，不设时钟止损"
+
 ### C-MARKET-MICROSTRUCTURE-SNAPSHOT（合约 plan 应带微结构快照）
 
-**scope**：`plan.market.type in ('usdm','coinm')` 且 `target_gate >= armed-prep`（即将进 armed）
+**scope**：`target_gate >= armed-prep`（即将进 armed）
 **check**：最近 observe body 含 `microstructure.{funding.current_rate, open_interest.oi_usdt, long_short_ratio, taker_buy_sell_ratio}`
 **典型 ack reason**："hedge 腿不基于微结构判断，父仓已覆盖"
 
@@ -162,8 +188,8 @@
 
 ### C-CTX-HOLDING-OVER-POLICY（实际持仓已超 policy 建议）
 
-**显示条件**：`plan.phase=live, gate=filled`，reduce `intent + fill` 事件得到的实际持仓时长超过 strategy.policy 建议节奏
-**展示文本**：`"held 6h, S-GENERIC-MEANREVERT 建议 < 4h"`
+**显示条件**：`plan.phase=live, gate=filled`，reduce `intent + fill` 事件得到的实际持仓时长超过 `plan.max_holding_minutes` 或 strategy.policy 建议节奏
+**展示文本**：`"held 6h, plan cap < 240m"` 或 `"held 6h, S-GENERIC-MEANREVERT 建议 < 4h"`
 **说明**：提醒复看，不拦
 
 ---

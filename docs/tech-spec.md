@@ -102,7 +102,7 @@
 
 ### 4.5 当前 gaps
 
-- 没有消费正式 plan 结构。重构方向见 [design-architecture.md](design-architecture.md) 的 `Plan 设计`：执行层应消费当前 `intent` 事件（含 market / entry / stop / risk_budget_usdt / tranches）+ 最近 observe 事件（含微结构 / 账户事实），产出写成 `order` 事件；不再直接吃零散参数。
+- 没有消费正式 plan 结构。重构方向见 [design-architecture.md](design-architecture.md) 的 `Plan 设计`：执行层应消费当前 `intent` 事件（含 `symbol / side / trigger / entry / stop / risk_budget_usdt / tranches / management`）+ 最近 observe 事件（含微结构 / 账户事实），产出写成 `order` 事件；不再直接吃零散参数。
 - 没有统一输出“这版 plan 需要几张主单、几张保护单”。
 - 还没有把 `保证金额 / 杠杆 / 笔数` 编译进来。
 
@@ -130,7 +130,6 @@
   - 若当前 symbol 杠杆与目标不同，先调用 `futuresLeverage`
   - 然后再提交主单
 - 支持 `--test`
-  - spot 走 `orderTest`
   - USDM 走 Binance 官方 `POST /fapi/v1/order/test`
   - 只校验请求，不进入真实撮合
 
@@ -434,3 +433,83 @@ EntryPlan
   - `quantity[]` 编译
   - 多张主单 orchestration
   - 提交后核验协议
+
+## 12. 持久化与数据模型
+
+### 12.1 边界
+
+- `design-architecture.md` 回答“为什么是 event-sourcing、为什么是 agent 执行合同、时间流怎么走”
+- 本节回答 `trade.db` 里到底落什么、怎么读、哪些东西不落库
+- 在线主线默认只写 `./data/trade.db`
+- OHLCV / replay / backtest 的行情库后续单独走 `./data/ohlcv.db`
+
+### 12.2 `trade.db` 核心表
+
+```sql
+plan_chain (
+  plan_chain_id   uuid PK,
+  opened_at       timestamp,
+  closed_at       timestamp NULL,
+  title           text
+)
+
+plan_event (
+  event_key       uuid PK,
+  plan_chain_id   uuid FK,
+  at              timestamp,
+  kind            text,
+  body_json       json
+)
+
+plan_relation (
+  relation_key    uuid PK,
+  child_chain_id  uuid FK,
+  parent_chain_id uuid FK,
+  kind            text,
+  note            text
+)
+```
+
+另有两张业务表：
+
+| 表 | 最小列 |
+| --- | --- |
+| `strategy_pool` | `strategy_id PK / name / status / tags_json / policy_md` |
+| `review` | `review_key / plan_chain_id / reviewed_at / body_json` |
+
+### 12.3 存储约束
+
+- `plan_event` 是 append-only；不维护 current 表 / history 表双写
+- `body_json` 不做数据库层 schema 强约束；shape 由 `kind` 决定
+- 建议保留唯一索引 `(plan_chain_id, at)`，保证同链时间序稳定
+- `Rule 池` 不作为表存在；规则总集只放 `.agents/skills/plan-preflight/constitution.md`
+- 投影视图不落库；`trade-flow / preflight / reducer` 读时计算
+
+### 12.4 常用投影
+
+| 投影 | 语义 |
+| --- | --- |
+| `current_intent` | 当前决策本体 |
+| `intent_history` | 决策演化序列 |
+| `latest_observe` | 最新证据快照 |
+| `current_orders` | 当前活跃挂单 |
+| `current_position` | 当前净头寸 |
+| `last_check` | 最近一次 preflight |
+| `status` | 当前 `(phase, gate)` |
+
+### 12.5 常用读取路径
+
+- 读当前决策：`plan_event WHERE kind='intent' ORDER BY at DESC LIMIT 1`
+- 读决策演化：`plan_event WHERE kind='intent' ORDER BY at ASC`
+- 读最新证据：`plan_event WHERE kind='observe' ORDER BY at DESC LIMIT 1`
+- 读订单 / 成交历史：`plan_event WHERE kind IN ('order','fill') ORDER BY at ASC`
+- 读最近 preflight：`plan_event WHERE kind='check' ORDER BY at DESC LIMIT 1`
+- 读跨链关系：`plan_relation WHERE child_chain_id=? OR parent_chain_id=?`
+- 读某次 preflight 定格：`check.body_json` 内携带当次引用的 `observe / intent event_key`
+
+### 12.6 为什么这样落
+
+- `5` 张表承载在线主线需要的最小长期事实
+- `plan_event` 统一承载 observe / intent / check / order / fill / note / review，避免 stale 标记与多表同步
+- `strategy_pool` 与 `review` 保持独立，便于离线演化与查询
+- 数据库规格放在本文件，`design-architecture` 可以只保留设计图、状态流和模型边界
