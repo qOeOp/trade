@@ -33,14 +33,13 @@
 │  └─ iterate/                     ← 离线，MVP 不展开
 ├─ scripts/
 │  └─ db/                          ← 套件共享：数据库操作
-│     ├─ schema.sql                ← 见 design-architecture.md 数据库存储
+│     ├─ schema.sql                ← 见 design-architecture.md 数据库存储（5 张表）
 │     ├─ migrate.ts
-│     ├─ plan-repo.ts
-│     ├─ plan-history-repo.ts
-│     └─ plan-check-repo.ts
+│     ├─ chain-repo.ts             ← plan_chain CRUD
+│     ├─ event-repo.ts             ← plan_event append + 投影 reducer
+│     └─ projection.ts             ← current_intent / latest_observe / current_orders / ...
 └─ references/
-   ├─ plan-schema.md               ← 软链或引用 design-architecture.md Plan 章节
-   └─ plan-checklist.md            ← R-001 ~ R-007 校验逻辑
+   └─ plan-schema.md               ← 软链或引用 design-architecture.md Plan 章节
 ```
 
 ### SKILL.md 必须保持轻量
@@ -54,32 +53,32 @@
 
 详细流程藏在 `stages/X/STAGE.md`，agent 路由后再 Read。这样单次对话只加载用得到的部分，避免套件膨胀负担。
 
-### 阶段衔接：通过数据库 plan 状态机解耦
+### 阶段衔接：通过事件流解耦
 
-阶段 skill 之间不直接互调，全部通过 `plan.status` 状态变化触发：
+阶段 skill 之间不直接互调，全部通过 append `plan_event` + 读投影视图触发：
 
 ```
-observe 写 plan_check + 触发 replan 信号
-   ↓ (status 变化)
-plan    生成新 version
-   ↓ (status = ready-execute)
-execute 下单 + 更新 plan.status
-   ↓ (status = closed)
-review  复盘
+observe 写 observe event
+   ↓ (plan 读 latest_observe)
+plan    写 intent event（含 phase / gate）
+   ↓ (preflight 读 current_intent + latest_observe 判 verdict)
+execute 写 order + fill event
+   ↓ (chain 闭合：append intent with phase=closed)
+review  写 review 记录
    ↓
 iterate 沉淀进 STRATEGY-POOL
 ```
 
-好处：用户中断重启后，任意阶段都能"看 plan.status 接续"，匹配 vision.md "链条不中断"。
+好处：用户中断重启后，任意阶段都能"读事件流接续"，匹配 vision.md "链条不中断"。投影视图即时计算，不维护 stale 标记。
 
 ### Stage 简介
 
 | Stage | 干什么 | 调用的功能 skill |
 | --- | --- | --- |
-| **observe** | 拉数据 / 补 checklist / 识别 regime / 算跨链 exposure / 检测账户事实失真（原 recovery 概念已合并入此） | `binance-account-snapshot`, `binance-symbol-snapshot`, `ohlcv-fetch`, `tech-indicators`, `binance-market-scan` |
-| **plan** | 生成或更新 plan，跑 R-001~R-007 校验，匹配 STRATEGY-POOL 微策略 | `binance-account-snapshot`（兜底）+ 读 STRATEGY-POOL |
-| **execute** | 预检 → 下单 → 回填 → 更新 `plan.status` | `binance-order-preview`, `binance-order-place`, `binance-position-protect`, `binance-position-adjust` |
-| **review** | plan 闭合后写 review 记录 | — |
+| **observe** | 拉数据 / 补 checklist / 识别 regime / 算跨链 exposure / 检测账户事实失真（原 recovery 概念已合并入此）。产出写成 observe event | `binance-account-snapshot`, `binance-symbol-snapshot`, `ohlcv-fetch`, `tech-indicators`, `binance-market-scan` |
+| **plan** | 生成或更新 intent event，调 `plan-preflight` 跑硬 invariant + constitution 判定，匹配 STRATEGY-POOL 策略 | `plan-preflight`, `binance-account-snapshot`（兜底）+ 读 STRATEGY-POOL |
+| **execute** | 预检 → 下单 → 回填，产出写成 order + fill event | `binance-order-preview`, `binance-order-place`, `binance-position-protect`, `binance-position-adjust` |
+| **review** | chain 闭合后写 review 记录 | — |
 | **backtest** | 跑历史样本验证假设（远期） | `ohlcv-fetch` |
 | **iterate** | REVIEW 产出沉淀进 STRATEGY-POOL（远期） | — |
 
@@ -135,18 +134,18 @@ iterate 沉淀进 STRATEGY-POOL
 第一阶段只做：
 
 - ✅ trade-flow 套件骨架（`SKILL.md` + `stages/observe/STAGE.md` + `stages/plan/STAGE.md`）
-- ✅ `scripts/db/` 下数据库 schema + 基本 repo
-- ✅ `references/plan-checklist.md` 落 R-001~R-007 校验逻辑
+- ✅ `scripts/db/` 下 5 张表 schema + chain-repo / event-repo / projection
+- ✅ `plan-preflight` skill：硬 invariant 代码 + constitution.md 条款 + DECISION_CARD 渲染
 - ✅ 现有功能 skill 全部保持现状，**不动不迁**
 
 先不做：
 
 - ❌ stages/execute/STAGE.md 详细流程（先靠主 agent 编排现有 binance-* 功能 skill）
-- ❌ stages/review/STAGE.md 详细流程（积累 5-10 个闭合 plan 后再设计）
+- ❌ stages/review/STAGE.md 详细流程（积累 5-10 个闭合 chain 后再设计）
 - ❌ stages/backtest / iterate（远期）
 - ❌ A 类功能 skill 迁入套件 tools/（套件骨架稳定后再做）
-- ❌ STRATEGY-POOL namespace + 微策略两层结构（积累 50+ plan 后再展开）
-- ❌ Plan 写入 override 机制 + global_rule 表（规则膨胀到 20+ 再考虑）
+- ❌ STRATEGY-POOL namespace + 微策略两层结构（积累 50+ closed chain 后再展开）
+- ❌ constitution 条款分类字段（条款 ≥ 30 条再考虑）
 
 ---
 

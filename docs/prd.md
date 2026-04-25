@@ -348,7 +348,7 @@
 ### 需要详细设计
 
 - 一版 plan 如何结构化保存
-- 当前重构方向见 [design-architecture.md](design-architecture.md) 的 `Plan 设计`：`plan` 主体应收窄为 `DecisionPlan`，把证据包、执行编译包、运行时事实、读模型和规则结果拆到 sidecar，而不是继续扩张单个 plan body
+- 当前重构方向见 [design-architecture.md](design-architecture.md) 的 `Plan 设计`：采用事件流持久化——plan 主体收窄为 `intent` 事件 body（最小 shape 9 个硬字段），证据 / 订单 / 成交 / 心跳 / 复盘分别作为独立 event kind append 到同一条 chain，视图均为读时投影
 - 多轮 plan 如何 append，并同时保留原建议、用户反馈和改判原因
 - 默认判定层与个性策略层冲突时，如何稳定输出 `support / weak-support / neutral / warning / deny / match / weak-match / reject / missing-info`
 - 如何把“机会是否成立”和“当前是否适合参与”稳定拆成两层判断
