@@ -4,41 +4,10 @@ import Binance, { type BinanceRest } from "binance-api-node"
 
 interface Config {
   symbol: string
-  market: "spot" | "usdm"
   timeout: number
   fundingLimit: number
   recentKlines: string[]
   recentKlineLimit: number
-}
-
-interface SpotTicker {
-  symbol: string
-  lastPrice?: string
-  priceChange: string
-  priceChangePercent: string
-  weightedAvgPrice?: string
-  weightedAvg?: string
-  openPrice?: string
-  open: string
-  highPrice?: string
-  high: string
-  lowPrice?: string
-  low: string
-  volume: string
-  quoteVolume?: string
-  volumeQuote?: string
-  bidPrice?: string
-  bestBid?: string
-  bidQty?: string
-  bestBidQnt?: string
-  askPrice?: string
-  bestAsk?: string
-  askQty?: string
-  bestAskQnt?: string
-  count?: number
-  totalTrades: number
-  openTime: number
-  closeTime: number
 }
 
 interface FuturesTicker {
@@ -82,12 +51,11 @@ type ScriptResponse =
   | { ok: false; error: string; data?: unknown }
 
 const HELP_TEXT = `Usage:
-  ./scripts/main.ts --symbol BTCUSDT --market usdm
+  ./scripts/main.ts --symbol BTCUSDT
 
 Key flags:
   --symbol <symbol>         Required. Example: BTCUSDT
-  --market <spot|usdm>      Default: usdm
-  --funding-limit <count>   Futures funding history rows. Default: 5
+  --funding-limit <count>   Funding history rows. Default: 5
   --recent-klines <csv>     Optional. Example: 15m,1h,4h
   --recent-kline-limit <n>  Default: 16
   --pulse                   Shortcut for quick market pulse
@@ -122,7 +90,6 @@ async function run(argv: string[]): Promise<ScriptResponse> {
 function parseArgs(argv: string[]): Config {
   const config: Config = {
     symbol: "",
-    market: "usdm",
     timeout: 10_000,
     fundingLimit: 5,
     recentKlines: [],
@@ -135,14 +102,6 @@ function parseArgs(argv: string[]): Config {
       case "--symbol":
         config.symbol = normalizeSymbol(readFlagValue(argv, ++index, arg))
         break
-      case "--market": {
-        const market = readFlagValue(argv, ++index, arg).trim().toLowerCase()
-        if (market !== "spot" && market !== "usdm") {
-          throw new Error(`unsupported market: ${market}`)
-        }
-        config.market = market
-        break
-      }
       case "--timeout":
         config.timeout = parsePositiveNumber(readFlagValue(argv, ++index, arg), "--timeout")
         break
@@ -176,31 +135,6 @@ function parseArgs(argv: string[]): Config {
 }
 
 async function buildSnapshot(config: Config, client: BinanceRest) {
-  if (config.market === "spot") {
-    const [ticker24h, bookTicker, recentKlines] = await Promise.all([
-      client.dailyStats({ symbol: config.symbol }) as Promise<SpotTicker>,
-      client.publicRequest("GET", "/api/v3/ticker/bookTicker", { symbol: config.symbol }) as Promise<{
-        symbol: string
-        bidPrice: string
-        bidQty: string
-        askPrice: string
-        askQty: string
-      }>,
-      fetchRecentKlines(client, "/api/v3/klines", config),
-    ])
-
-    return {
-      exchange: "binance",
-      market: config.market,
-      symbol: config.symbol,
-      generatedAt: nowInShanghai(),
-      ticker24h: normalizeSpotTicker(ticker24h),
-      priceSnapshot: buildSpotPriceSnapshot(ticker24h, bookTicker),
-      bookTicker: normalizeBookTicker(bookTicker),
-      ...(Object.keys(recentKlines).length > 0 ? { recentKlines } : {}),
-    }
-  }
-
   const [tickerRows, premiumIndex, openInterest, bookTicker, fundingRates, recentKlines] = await Promise.all([
     client.futuresDailyStats({ symbol: config.symbol }) as Promise<FuturesTicker | FuturesTicker[]>,
     client.futuresMarkPrice({ symbol: config.symbol }) as Promise<FuturesPremiumIndex>,
@@ -213,7 +147,7 @@ async function buildSnapshot(config: Config, client: BinanceRest) {
       askQty: string
     }>,
     fetchFundingRates(client, config),
-    fetchRecentKlines(client, "/fapi/v1/klines", config),
+    fetchRecentKlines(client, config),
   ])
 
   const ticker = Array.isArray(tickerRows) ? tickerRows.find((item) => item.symbol === config.symbol) : tickerRows
@@ -225,7 +159,7 @@ async function buildSnapshot(config: Config, client: BinanceRest) {
 
   return {
     exchange: "binance",
-    market: config.market,
+    market: "usdm",
     symbol: config.symbol,
     generatedAt: nowInShanghai(),
     ticker24h: normalizeFuturesTicker(ticker, premiumIndex.markPrice),
@@ -249,7 +183,7 @@ async function buildSnapshot(config: Config, client: BinanceRest) {
 }
 
 async function fetchFundingRates(client: BinanceRest, config: Config): Promise<FundingRateRow[]> {
-  if (config.market !== "usdm" || config.fundingLimit <= 0) {
+  if (config.fundingLimit <= 0) {
     return []
   }
 
@@ -269,7 +203,6 @@ async function fetchFundingRates(client: BinanceRest, config: Config): Promise<F
 
 async function fetchRecentKlines(
   client: BinanceRest,
-  path: "/api/v3/klines" | "/fapi/v1/klines",
   config: Config,
 ): Promise<Record<string, ReturnType<typeof normalizeKlineRows>>> {
   if (config.recentKlines.length === 0) {
@@ -278,7 +211,7 @@ async function fetchRecentKlines(
 
   const entries = await Promise.all(
     config.recentKlines.map(async (interval) => {
-      const rows = await client.publicRequest("GET", path, {
+      const rows = await client.publicRequest("GET", "/fapi/v1/klines", {
         symbol: config.symbol,
         interval,
         limit: config.recentKlineLimit,
@@ -288,38 +221,6 @@ async function fetchRecentKlines(
   )
 
   return Object.fromEntries(entries)
-}
-
-function normalizeSpotTicker(ticker: SpotTicker) {
-  const bestBid = ticker.bidPrice || ticker.bestBid || ""
-  const bestAsk = ticker.askPrice || ticker.bestAsk || ""
-
-  return {
-    symbol: ticker.symbol,
-    lastPrice:
-      ticker.lastPrice ||
-      bestAsk ||
-      bestBid ||
-      ticker.weightedAvgPrice ||
-      ticker.weightedAvg ||
-      ticker.openPrice ||
-      ticker.open,
-    priceChange: ticker.priceChange,
-    priceChangePercent: ticker.priceChangePercent,
-    weightedAvgPrice: ticker.weightedAvgPrice || ticker.weightedAvg || "",
-    openPrice: ticker.openPrice || ticker.open,
-    highPrice: ticker.highPrice || ticker.high,
-    lowPrice: ticker.lowPrice || ticker.low,
-    volume: ticker.volume,
-    quoteVolume: ticker.quoteVolume || ticker.volumeQuote || "",
-    bidPrice: bestBid,
-    bidQty: ticker.bidQty || ticker.bestBidQnt || "",
-    askPrice: bestAsk,
-    askQty: ticker.askQty || ticker.bestAskQnt || "",
-    tradeCount: ticker.count || ticker.totalTrades,
-    openTime: ticker.openTime,
-    closeTime: ticker.closeTime,
-  }
 }
 
 function normalizeFuturesTicker(ticker: FuturesTicker, fallbackLastPrice: string = "") {
@@ -341,30 +242,6 @@ function normalizeFuturesTicker(ticker: FuturesTicker, fallbackLastPrice: string
     tradeCount: ticker.count,
     openTime: ticker.openTime,
     closeTime: ticker.closeTime,
-  }
-}
-
-function buildSpotPriceSnapshot(
-  ticker: SpotTicker,
-  bookTicker: { symbol: string; bidPrice: string; bidQty: string; askPrice: string; askQty: string },
-) {
-  const bestBid = bookTicker.bidPrice || ticker.bidPrice || ticker.bestBid || ""
-  const bestAsk = bookTicker.askPrice || ticker.askPrice || ticker.bestAsk || ""
-  const tradePrice =
-    ticker.lastPrice ||
-    bestAsk ||
-    bestBid ||
-    ticker.weightedAvgPrice ||
-    ticker.weightedAvg ||
-    ticker.openPrice ||
-    ticker.open
-
-  return {
-    symbol: ticker.symbol,
-    tradePrice,
-    bestBid,
-    bestAsk,
-    midPrice: midpoint(bestBid, bestAsk),
   }
 }
 
@@ -516,16 +393,6 @@ function formatError(error: unknown): string {
     return `${code}${message}`.trim()
   }
   return String(error)
-}
-
-function normalizeBookTicker(ticker: { symbol: string; bidPrice: string; bidQty: string; askPrice: string; askQty: string }) {
-  return {
-    symbol: ticker.symbol,
-    bidPrice: ticker.bidPrice,
-    bidQty: ticker.bidQty,
-    askPrice: ticker.askPrice,
-    askQty: ticker.askQty,
-  }
 }
 
 export {

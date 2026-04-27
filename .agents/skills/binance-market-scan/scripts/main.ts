@@ -3,7 +3,6 @@
 import Binance, { type BinanceRest } from "binance-api-node"
 
 interface Config {
-  market: "spot" | "usdm"
   direction: "both" | "long" | "short"
   minQuoteVolume: number
   limitPerSide: number
@@ -34,7 +33,6 @@ const HELP_TEXT = `Usage:
   ./scripts/main.ts --direction long --limit-per-side 8
 
 Key flags:
-  --market <spot|usdm>            Default: usdm
   --direction <both|long|short>   Default: both
   --min-quote-volume <amount>     Default: 20000000
   --limit-per-side <count>        Default: 10
@@ -68,7 +66,6 @@ async function run(argv: string[]): Promise<ScriptResponse> {
 
 function parseArgs(argv: string[]): Config {
   const config: Config = {
-    market: "usdm",
     direction: "both",
     minQuoteVolume: DEFAULT_MIN_QUOTE_VOLUME,
     limitPerSide: DEFAULT_LIMIT_PER_SIDE,
@@ -78,14 +75,6 @@ function parseArgs(argv: string[]): Config {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     switch (arg) {
-      case "--market": {
-        const market = readFlagValue(argv, ++index, arg).trim().toLowerCase()
-        if (market !== "spot" && market !== "usdm") {
-          throw new Error(`unsupported market: ${market}`)
-        }
-        config.market = market
-        break
-      }
       case "--direction": {
         const direction = readFlagValue(argv, ++index, arg).trim().toLowerCase()
         if (direction !== "both" && direction !== "long" && direction !== "short") {
@@ -112,16 +101,16 @@ function parseArgs(argv: string[]): Config {
 }
 
 async function buildScan(config: Config, client: BinanceRest) {
-  const [tradableSymbols, tickerRows] =
-    config.market === "spot"
-      ? await Promise.all([fetchSpotTradableSymbols(client), fetchSpotTickerRows()])
-      : await Promise.all([fetchUsdmTradableSymbols(client), fetchUsdmTickerRows(client)])
+  const [tradableSymbols, tickerRows] = await Promise.all([
+    fetchUsdmTradableSymbols(client),
+    fetchUsdmTickerRows(client),
+  ])
 
   const { long, short, eligible } = buildCandidates(tradableSymbols, tickerRows, config)
 
   return {
     exchange: "binance",
-    market: config.market,
+    market: "usdm",
     generatedAt: nowInShanghai(),
     filters: {
       direction: config.direction,
@@ -140,19 +129,9 @@ async function buildScan(config: Config, client: BinanceRest) {
   }
 }
 
-async function fetchSpotTradableSymbols(client: BinanceRest): Promise<Set<string>> {
-  const payload = await client.exchangeInfo()
-  return extractTradableSymbols(asMap(payload).symbols, "spot")
-}
-
 async function fetchUsdmTradableSymbols(client: BinanceRest): Promise<Set<string>> {
   const payload = await client.futuresExchangeInfo()
-  return extractTradableSymbols(asMap(payload).symbols, "usdm")
-}
-
-async function fetchSpotTickerRows(): Promise<Record<string, unknown>[]> {
-  const payload = await fetchJSON("https://api.binance.com/api/v3/ticker/24hr")
-  return Array.isArray(payload) ? payload.filter((item) => item && typeof item === "object") as Record<string, unknown>[] : []
+  return extractTradableSymbols(asMap(payload).symbols)
 }
 
 async function fetchUsdmTickerRows(client: BinanceRest): Promise<Record<string, unknown>[]> {
@@ -160,7 +139,7 @@ async function fetchUsdmTickerRows(client: BinanceRest): Promise<Record<string, 
   return Array.isArray(payload) ? payload.filter((item) => item && typeof item === "object") as Record<string, unknown>[] : []
 }
 
-function extractTradableSymbols(symbols: unknown, market: "spot" | "usdm"): Set<string> {
+function extractTradableSymbols(symbols: unknown): Set<string> {
   const result = new Set<string>()
   if (!Array.isArray(symbols)) {
     return result
@@ -173,10 +152,7 @@ function extractTradableSymbols(symbols: unknown, market: "spot" | "usdm"): Set<
     if (item.status !== "TRADING") {
       continue
     }
-    if (market === "spot" && item.quoteAsset !== "USDT") {
-      continue
-    }
-    if (market === "usdm" && (item.quoteAsset !== "USDT" || item.contractType !== "PERPETUAL")) {
+    if (item.quoteAsset !== "USDT" || item.contractType !== "PERPETUAL") {
       continue
     }
     result.add(item.symbol)
@@ -272,14 +248,6 @@ function createClient(timeout: number): BinanceRest {
     apiSecret: process.env.BINANCE_API_SECRET,
     timeout,
   })
-}
-
-async function fetchJSON(url: string): Promise<unknown> {
-  const response = await fetch(url)
-  if (!response.ok) {
-    throw new Error(`request failed: ${response.status} ${response.statusText}`)
-  }
-  return response.json()
 }
 
 function isBinanceSymbolInfo(value: unknown): value is { symbol: string; status?: string; quoteAsset?: string; contractType?: string } {

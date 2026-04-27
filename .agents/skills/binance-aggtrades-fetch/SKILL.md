@@ -22,9 +22,9 @@ description: OBSERVE 阶段的 Binance aggTrades 原始数据 skill。用于给 
 ## 脚本边界
 
 - 只读，不需要鉴权
-- 当前只支持 `spot` 和 `usdm`
+- 只支持 USDM 永续（`futuresAggTrades`），不暴露 market 参数
 - 输出是原始成交材料的轻度标准化版本
 - `takerSide` 只是从 `isBuyerMaker` 推导出的主动方向提示，不等于最终交易结论
-- 默认市场是 `usdm`，默认 `limit=500`
+- 默认 `limit=500`
 - 支持 `--from-id`、`--start-time`、`--end-time`
 - 返回 JSON，包含 `request`、`summary`、`trades`

@@ -16,8 +16,6 @@ test("parseArgs accepts standard usdm stop order", () => {
   const config = parseArgs([
     "--symbol",
     "BTCUSDT",
-    "--market",
-    "usdm",
     "--side",
     "BUY",
     "--type",
@@ -39,8 +37,6 @@ test("parseArgs accepts usdm take-profit entry order", () => {
   const config = parseArgs([
     "--symbol",
     "BTCUSDT",
-    "--market",
-    "usdm",
     "--side",
     "BUY",
     "--type",
@@ -62,8 +58,6 @@ test("parseArgs accepts leverage for usdm orders", () => {
   const config = parseArgs([
     "--symbol",
     "BTCUSDT",
-    "--market",
-    "usdm",
     "--side",
     "BUY",
     "--type",
@@ -85,8 +79,6 @@ test("parseArgs rejects stop order without stop price", () => {
       parseArgs([
         "--symbol",
         "BTCUSDT",
-        "--market",
-        "usdm",
         "--side",
         "BUY",
         "--type",
@@ -104,8 +96,6 @@ test("parseArgs rejects take-profit order without stop price", () => {
       parseArgs([
         "--symbol",
         "BTCUSDT",
-        "--market",
-        "usdm",
         "--side",
         "BUY",
         "--type",
@@ -127,8 +117,6 @@ test("run returns final request for --dry-json without env access", async () => 
   const result = await run([
     "--symbol",
     "BTCUSDT",
-    "--market",
-    "usdm",
     "--side",
     "BUY",
     "--type",
@@ -146,8 +134,6 @@ test("run returns final request for --dry-json without env access", async () => 
   assert.deepEqual("data" in result ? result.data : null, buildDryRun(parseArgs([
     "--symbol",
     "BTCUSDT",
-    "--market",
-    "usdm",
     "--side",
     "BUY",
     "--type",
@@ -166,8 +152,6 @@ test("buildDryRun uses futuresOrderTest for usdm test mode", () => {
   const config = parseArgs([
     "--symbol",
     "BTCUSDT",
-    "--market",
-    "usdm",
     "--side",
     "BUY",
     "--type",
@@ -180,7 +164,6 @@ test("buildDryRun uses futuresOrderTest for usdm test mode", () => {
   ])
 
   assert.deepEqual(buildDryRun(config), {
-    market: "usdm",
     method: "futuresOrderTest",
     request: {
       symbol: "BTCUSDT",
@@ -199,8 +182,6 @@ test("buildDryRun keeps take-profit entry on place-order path", () => {
   const config = parseArgs([
     "--symbol",
     "BTCUSDT",
-    "--market",
-    "usdm",
     "--side",
     "SELL",
     "--type",
@@ -213,7 +194,6 @@ test("buildDryRun keeps take-profit entry on place-order path", () => {
   ])
 
   assert.deepEqual(buildDryRun(config), {
-    market: "usdm",
     method: "futuresCreateAlgoOrder",
     warning: "Binance does not expose a test endpoint for futures algo entry orders; this payload was only validated locally",
     request: {
@@ -230,106 +210,10 @@ test("buildDryRun keeps take-profit entry on place-order path", () => {
   })
 })
 
-test("buildDryRun omits timeInForce for spot limit maker orders", () => {
-  const config = parseArgs([
-    "--symbol",
-    "BOMEUSDT",
-    "--market",
-    "spot",
-    "--side",
-    "BUY",
-    "--type",
-    "LIMIT_MAKER",
-    "--quantity",
-    "1819",
-    "--price",
-    "0.000550",
-  ])
-
-  assert.deepEqual(buildDryRun(config), {
-    market: "spot",
-    method: "order",
-    request: {
-      symbol: "BOMEUSDT",
-      side: "BUY",
-      type: "LIMIT_MAKER",
-      quantity: "1819",
-      price: "0.000550",
-    },
-  })
-})
-
-test("parseArgs rejects leverage for spot", () => {
-  assert.throws(
-    () =>
-      parseArgs([
-        "--symbol",
-        "BTCUSDT",
-        "--market",
-        "spot",
-        "--side",
-        "BUY",
-        "--type",
-        "LIMIT",
-        "--quantity",
-        "0.01",
-        "--price",
-        "65000",
-        "--leverage",
-        "20",
-      ]),
-    /--leverage is only supported for usdm/,
-  )
-})
-
-test("parseArgs rejects spot orders that provide both quantity and quote order qty", () => {
-  assert.throws(
-    () =>
-      parseArgs([
-        "--symbol",
-        "BOMEUSDT",
-        "--market",
-        "spot",
-        "--side",
-        "BUY",
-        "--type",
-        "MARKET",
-        "--quantity",
-        "1000",
-        "--quote-order-qty",
-        "1",
-      ]),
-    /either --quantity or --quote-order-qty, not both/,
-  )
-})
-
-test("parseArgs rejects quote-order-qty on spot limit orders", () => {
-  assert.throws(
-    () =>
-      parseArgs([
-        "--symbol",
-        "BOMEUSDT",
-        "--market",
-        "spot",
-        "--side",
-        "BUY",
-        "--type",
-        "LIMIT",
-        "--quote-order-qty",
-        "1",
-        "--price",
-        "0.001",
-      ]),
-    /only supported for spot MARKET orders/,
-  )
-})
-
 test("executeOrder omits timeInForce and reduceOnly for hedge-mode market reduce", async () => {
   const config = parseArgs([
     "--symbol",
     "CLUSDT",
-    "--market",
-    "usdm",
     "--side",
     "SELL",
     "--type",
@@ -362,8 +246,6 @@ test("ensureUsdmLeverage changes leverage when current value differs", async () 
   const config = parseArgs([
     "--symbol",
     "BTCUSDT",
-    "--market",
-    "usdm",
     "--side",
     "BUY",
     "--type",
@@ -402,8 +284,6 @@ test("executeOrder returns leverage adjustment details for usdm", async () => {
   const config = parseArgs([
     "--symbol",
     "BTCUSDT",
-    "--market",
-    "usdm",
     "--side",
     "BUY",
     "--type",
@@ -434,7 +314,6 @@ test("executeOrder returns leverage adjustment details for usdm", async () => {
 
   assert.equal(futuresLeverageCalls, 0)
   assert.deepEqual(result, {
-    market: "usdm",
     mode: "live",
     method: "futuresOrder",
     leverageAdjustment: {
@@ -509,8 +388,6 @@ test("assertOrderWouldPassBasicSymbolRules rejects low-notional usdm orders befo
   const config = parseArgs([
     "--symbol",
     "ATOMUSDT",
-    "--market",
-    "usdm",
     "--side",
     "BUY",
     "--type",
@@ -558,8 +435,6 @@ test("run can hit Binance USDM test order endpoint when explicitly enabled", asy
   const result = await run([
     "--symbol",
     "BTCUSDT",
-    "--market",
-    "usdm",
     "--side",
     "BUY",
     "--type",
@@ -577,7 +452,6 @@ test("run can hit Binance USDM test order endpoint when explicitly enabled", asy
 test("parseArgs accepts GTX time-in-force for usdm limit orders", () => {
   const config = parseArgs([
     "--symbol", "BTCUSDT",
-    "--market", "usdm",
     "--side", "BUY",
     "--type", "LIMIT",
     "--quantity", "0.01",
@@ -590,7 +464,6 @@ test("parseArgs accepts GTX time-in-force for usdm limit orders", () => {
 test("parseArgs accepts IOC time-in-force for usdm limit orders", () => {
   const config = parseArgs([
     "--symbol", "BTCUSDT",
-    "--market", "usdm",
     "--side", "BUY",
     "--type", "LIMIT",
     "--quantity", "0.01",
@@ -605,50 +478,19 @@ test("parseArgs rejects FOK time-in-force for usdm limit orders", () => {
     () =>
       parseArgs([
         "--symbol", "BTCUSDT",
-        "--market", "usdm",
         "--side", "BUY",
         "--type", "LIMIT",
         "--quantity", "0.01",
         "--price", "65000",
         "--time-in-force", "FOK",
       ]),
-    /--time-in-force FOK is not valid for usdm LIMIT/,
+    /--time-in-force FOK is not valid for LIMIT/,
   )
-})
-
-test("parseArgs rejects GTX time-in-force for spot limit orders", () => {
-  assert.throws(
-    () =>
-      parseArgs([
-        "--symbol", "BTCUSDT",
-        "--market", "spot",
-        "--side", "BUY",
-        "--type", "LIMIT",
-        "--quantity", "0.01",
-        "--price", "65000",
-        "--time-in-force", "GTX",
-      ]),
-    /--time-in-force GTX is not valid for spot LIMIT/,
-  )
-})
-
-test("parseArgs accepts FOK time-in-force for spot limit orders", () => {
-  const config = parseArgs([
-    "--symbol", "BTCUSDT",
-    "--market", "spot",
-    "--side", "BUY",
-    "--type", "LIMIT",
-    "--quantity", "0.01",
-    "--price", "65000",
-    "--time-in-force", "FOK",
-  ])
-  assert.equal(config.timeInForce, "FOK")
 })
 
 test("parseArgs does not validate time-in-force for market orders", () => {
   const config = parseArgs([
     "--symbol", "BTCUSDT",
-    "--market", "usdm",
     "--side", "BUY",
     "--type", "MARKET",
     "--quantity", "0.01",
@@ -661,8 +503,6 @@ test("assertUsdmEntryIntent rejects hedge-mode long reduction through open-only 
   const config = parseArgs([
     "--symbol",
     "CLUSDT",
-    "--market",
-    "usdm",
     "--side",
     "SELL",
     "--type",

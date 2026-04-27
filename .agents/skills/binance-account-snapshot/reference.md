@@ -25,14 +25,6 @@ cd .agents/skills/binance-account-snapshot
 ./scripts/main.ts --symbol BTCUSDT
 ```
 
-### 分区读取
-
-```bash
-cd .agents/skills/binance-account-snapshot
-./scripts/main.ts --spot-only
-./scripts/main.ts --futures-only
-```
-
 ### 补历史订单
 
 ```bash
@@ -43,6 +35,6 @@ cd .agents/skills/binance-account-snapshot
 
 ## 低频但重要的判读细节
 
-- 当期货母单出现 `strategyType=OTO` 或 `OTOCO` 时，公共 API 可能读不到附带 TP/SL 明细；若出现 `manualTpSlRequired=true`，要明确提示用户手动提供价格
-- 若某分区失败，不要让整次分析报废，要明确缺了哪一块
+- 当母单出现 `strategyType=OTO` 或 `OTOCO` 时，公共 API 可能读不到附带 TP/SL 明细；若出现 `manualTpSlRequired=true`，要明确提示用户手动提供价格
+- 若某接口失败，不要让整次分析报废，要明确缺了哪一块
 - 端点和分类补充见 [references/endpoints.md](./references/endpoints.md)

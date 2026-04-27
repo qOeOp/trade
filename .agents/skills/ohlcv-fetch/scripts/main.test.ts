@@ -13,13 +13,6 @@ test("parseArgs requires --symbol", () => {
   assert.throws(() => parseArgs([]), /--symbol is required/)
 })
 
-test("parseArgs rejects unsupported market-type", () => {
-  assert.throws(
-    () => parseArgs(["--symbol", "ETHUSDT", "--market-type", "weird"]),
-    /unsupported market-type/,
-  )
-})
-
 test("parseArgs rejects negative limit", () => {
   assert.throws(
     () => parseArgs(["--symbol", "ETHUSDT", "--limit", "-1"]),
@@ -27,9 +20,8 @@ test("parseArgs rejects negative limit", () => {
   )
 })
 
-test("parseArgs defaults market-type to usdm and timeframes to 1w,1d,4h,1h", () => {
+test("parseArgs defaults timeframes to 1w,1d,4h,1h", () => {
   const cfg = parseArgs(["--symbol", "ETHUSDT"])
-  assert.equal(cfg.marketType, "usdm")
   assert.deepEqual(cfg.timeframes, ["1w", "1d", "4h", "1h"])
 })
 
@@ -38,49 +30,34 @@ test("orderedTimeframes preserves canonical order and dedupes", () => {
   assert.deepEqual(orderedTimeframes("15m,1h"), ["1h", "15m"])
 })
 
-test("resolveFetchConfig usdm slash symbol → manifest with quote suffix, api strips slash", () => {
-  const cfg = resolveFetchConfig("binance", "usdm", "ETH/USDT")
+test("resolveFetchConfig slash symbol → manifest with quote suffix, api strips slash", () => {
+  const cfg = resolveFetchConfig("binance", "ETH/USDT")
   assert.equal(cfg.exchangeID, "binanceusdm")
   assert.equal(cfg.symbol.manifest, "ETH/USDT:USDT")
   assert.equal(cfg.symbol.api, "ETHUSDT")
 })
 
-test("resolveFetchConfig usdm direct symbol passes through", () => {
-  const cfg = resolveFetchConfig("binance", "usdm", "ETHUSDT")
+test("resolveFetchConfig direct symbol passes through", () => {
+  const cfg = resolveFetchConfig("binance", "ETHUSDT")
   assert.equal(cfg.symbol.manifest, "ETHUSDT")
   assert.equal(cfg.symbol.api, "ETHUSDT")
 })
 
-test("resolveFetchConfig usdm colon symbol keeps manifest, strips for api", () => {
-  const cfg = resolveFetchConfig("binance", "usdm", "ETH/USDT:USDT")
+test("resolveFetchConfig colon symbol keeps manifest, strips for api", () => {
+  const cfg = resolveFetchConfig("binance", "ETH/USDT:USDT")
   assert.equal(cfg.symbol.manifest, "ETH/USDT:USDT")
   assert.equal(cfg.symbol.api, "ETHUSDT")
 })
 
-test("resolveFetchConfig spot slash symbol keeps manifest as-is", () => {
-  const cfg = resolveFetchConfig("binance", "spot", "SOL/USDT")
-  assert.equal(cfg.exchangeID, "binance")
-  assert.equal(cfg.symbol.manifest, "SOL/USDT")
-  assert.equal(cfg.symbol.api, "SOLUSDT")
-})
-
-test("resolveFetchConfig coinm slash symbol → settlement-asset manifest, _PERP api", () => {
-  const cfg = resolveFetchConfig("binance", "coinm", "BTC/USD")
-  assert.equal(cfg.exchangeID, "binancecoinm")
-  assert.equal(cfg.symbol.manifest, "BTC/USD:BTC")
-  assert.equal(cfg.symbol.api, "BTCUSD_PERP")
-})
-
-test("resolveFetchConfig coinm direct _PERP symbol passes through", () => {
-  const cfg = resolveFetchConfig("binance", "coinm", "BTCUSD_PERP")
-  assert.equal(cfg.symbol.manifest, "BTCUSD_PERP")
-  assert.equal(cfg.symbol.api, "BTCUSD_PERP")
+test("resolveFetchConfig accepts binanceusdm exchange id", () => {
+  const cfg = resolveFetchConfig("binanceusdm", "ETHUSDT")
+  assert.equal(cfg.exchangeID, "binanceusdm")
 })
 
 test("resolveFetchConfig rejects non-Binance exchange", () => {
   assert.throws(
-    () => resolveFetchConfig("okx", "spot", "ETHUSDT"),
-    /only Binance is supported/,
+    () => resolveFetchConfig("okx", "ETHUSDT"),
+    /only Binance USD-M is supported/,
   )
 })
 

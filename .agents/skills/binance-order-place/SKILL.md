@@ -1,20 +1,18 @@
 ---
 name: binance-order-place
-description: EXECUTE 阶段的 Binance 主单执行 skill。用于已收敛 entry plan 后的开仓或加仓，覆盖现货下单、USDM 立即进场、突破进场、回撤进场；不处理减仓、平仓或保护腿。
+description: EXECUTE 阶段的 Binance 主单执行 skill。用于已收敛 entry plan 后的 USDM 永续开仓或加仓，覆盖立即进场、突破进场、回撤进场;不处理减仓、平仓或保护腿。
 ---
 
 # Binance Order Place
 
-写操作 skill。服务 `EXECUTE` 场景，不按聊天话术触发。
+写操作 skill。服务 `EXECUTE` 场景，不按聊天话术触发。只做 Binance USDM 永续。
 
 ## 何时使用
 
 - 当前轮重点已进入 `EXECUTE`，不是继续 `OBSERVE` 或 `PLAN`
 - 当前 plan 已明确要做 `开仓` 或 `加仓`
 - 目标订单是 `主单`，不是 `保护腿`
-- 标的是 `spot` 或 `usdm`
-- 已能确认 `symbol`、`market`、`side`、`quantity`
-- 现货 `MARKET` 可用 `quote-order-qty` 替代 `quantity`
+- 已能确认 `symbol`、`side`、`quantity`
 
 ## 不该使用
 
@@ -31,13 +29,9 @@ description: EXECUTE 阶段的 Binance 主单执行 skill。用于已收敛 entr
 
 ## 最小输入
 
-- 现货：
-  - `symbol` `market=spot` `side` `type`
-  - `quantity` 或 `quote-order-qty`
-- USDM：
-  - `symbol` `market=usdm` `side` `type` `quantity`
-  - 若用户明确指定方向模式，再带 `position-side`
-  - 若用户明确指定杠杆，再带 `leverage`
+- `symbol` `side` `type` `quantity`
+- 若用户明确指定方向模式，再带 `position-side`
+- 若用户明确指定杠杆，再带 `leverage`
 
 - `LIMIT` / `STOP` / `TAKE_PROFIT` 需要 `price`
 - `STOP*` / `TAKE_PROFIT*` 需要 `stop-price`
@@ -65,10 +59,9 @@ description: EXECUTE 阶段的 Binance 主单执行 skill。用于已收敛 entr
 
 - 入口脚本是 [main.ts](./scripts/main.ts)
 - 优先直接执行 `./scripts/main.ts`
-- 现货支持 `LIMIT` / `MARKET` / `LIMIT_MAKER`
 - USDM 主单支持 `LIMIT` / `MARKET` / `STOP` / `STOP_MARKET` / `TAKE_PROFIT` / `TAKE_PROFIT_MARKET`
 - 脚本会拒绝 reduce-only、减仓、平仓、翻仓这类越界用法
 - `--dry-json` 只打印请求体，不触网
-- `--test` 可用于现货与 USDM 普通单测试；USDM algo entry 没有官方 test endpoint，只会返回本地校验后的 payload
+- `--test` 可用于 USDM 普通单测试；USDM algo entry 没有官方 test endpoint，只会返回本地校验后的 payload
 
 低频参数、完整命令示例见 [reference.md](./reference.md)。

@@ -11,10 +11,6 @@ test("parseArgs requires symbol", () => {
   assert.throws(() => parseArgs([]), /--symbol is required/)
 })
 
-test("parseArgs validates market", () => {
-  assert.throws(() => parseArgs(["--symbol", "BTCUSDT", "--market", "margin"]), /unsupported market/)
-})
-
 test("parseArgs supports pulse preset and custom flags", () => {
   const parsed = parseArgs(["--symbol", "BTCUSDT", "--pulse", "--funding-limit", "7", "--recent-kline-limit", "20"])
   assert.equal(parsed.symbol, "BTCUSDT")
@@ -39,7 +35,6 @@ test("buildSnapshot accepts single-object futuresDailyStats response", async () 
   const snapshot = await buildSnapshot(
     {
       symbol: "BTCUSDT",
-      market: "usdm",
       timeout: 10_000,
       fundingLimit: 5,
       recentKlines: [],
@@ -121,7 +116,6 @@ test("buildSnapshot uses markPrice as futures lastPrice fallback instead of open
   const snapshot = await buildSnapshot(
     {
       symbol: "BTCUSDT",
-      market: "usdm",
       timeout: 10_000,
       fundingLimit: 5,
       recentKlines: [],
@@ -189,64 +183,10 @@ test("buildSnapshot uses markPrice as futures lastPrice fallback instead of open
   assert.notEqual(snapshot.ticker24h.lastPrice, "99")
 })
 
-test("buildSnapshot prefers spot lastPrice over bid ask fallback", async () => {
-  const snapshot = await buildSnapshot(
-    {
-      symbol: "BTCUSDT",
-      market: "spot",
-      timeout: 10_000,
-      fundingLimit: 0,
-      recentKlines: [],
-      recentKlineLimit: 16,
-    },
-    {
-      dailyStats: async () => ({
-        symbol: "BTCUSDT",
-        lastPrice: "105.4",
-        priceChange: "1",
-        priceChangePercent: "2",
-        weightedAvgPrice: "100",
-        openPrice: "99",
-        open: "99",
-        highPrice: "110",
-        high: "110",
-        lowPrice: "90",
-        low: "90",
-        volume: "1000",
-        quoteVolume: "100000",
-        askPrice: "106.0",
-        askQty: "2",
-        bidPrice: "104.0",
-        bidQty: "3",
-        count: 10,
-        totalTrades: 10,
-        openTime: 1,
-        closeTime: 2,
-      }),
-      publicRequest: async () => ({
-        symbol: "BTCUSDT",
-        bidPrice: "104.0",
-        bidQty: "3",
-        askPrice: "106.0",
-        askQty: "2",
-      }),
-    } as never,
-  )
-
-  assert.equal(snapshot.market, "spot")
-  assert.equal(snapshot.ticker24h.lastPrice, "105.4")
-  const priceSnapshot = asRecord(snapshot.priceSnapshot)
-  assert.equal(priceSnapshot.tradePrice, "105.4")
-  assert.equal(priceSnapshot.bestBid, "104.0")
-  assert.equal(priceSnapshot.bestAsk, "106.0")
-  assert.equal(priceSnapshot.midPrice, "105")
-})
-
 test("buildSnapshot can include recent klines", async () => {
   const snapshot = await buildSnapshot(
     {
       symbol: "BTCUSDT",
-      market: "usdm",
       timeout: 10_000,
       fundingLimit: 1,
       recentKlines: ["15m", "1h"],

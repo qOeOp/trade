@@ -5,12 +5,9 @@ import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
 
-export type MarketType = "spot" | "usdm" | "coinm"
-
 export interface Config {
   symbol: string
   exchange: string
-  marketType: MarketType
   timeframes: string[]
   outputDir: string
   limit: number
@@ -24,7 +21,6 @@ export interface SymbolSpec {
 
 export interface FetchConfig {
   exchangeID: string
-  marketType: MarketType
   symbol: SymbolSpec
 }
 
@@ -53,7 +49,6 @@ interface FetchResponse {
   requested_symbol: string
   exchange: string
   requested_exchange: string
-  market_type: MarketType
   generated_at: string
   output_dir: string
   manifest_path: string
@@ -88,14 +83,12 @@ const DEFAULT_LIMITS: Record<string, number> = {
 const TIMEFRAME_ORDER = ["1w", "1d", "4h", "1h"]
 
 const HELP_TEXT = `Usage:
-  ./scripts/main.ts --symbol ETHUSDT --market-type usdm
-  ./scripts/main.ts --symbol SOL/USDT --market-type spot --timeframes 1d,4h,1h
+  ./scripts/main.ts --symbol ETHUSDT
+  ./scripts/main.ts --symbol ETH/USDT --timeframes 1d,4h,1h
 
 Key flags:
   --symbol <symbol>             Required. Example: ETHUSDT
   --exchange <name>             Default: binance
-  --market-type <spot|usdm|coinm>
-                                Default: usdm
   --timeframes <list>           Default: 1w,1d,4h,1h
   --output-dir <path>           Optional output directory
   --limit <count>               Optional fixed limit for all timeframes
@@ -124,9 +117,9 @@ export async function run(
 ): Promise<ScriptResponse> {
   try {
     const config = parseArgs(argv)
-    const fetchCfg = resolveFetchConfig(config.exchange, config.marketType, config.symbol)
+    const fetchCfg = resolveFetchConfig(config.exchange, config.symbol)
 
-    const exchangeInfo = await loadExchangeInfo(client, fetchCfg.marketType)
+    const exchangeInfo = (await client.futuresExchangeInfo()) as ExchangeInfoPayload
     ensureSymbolSupported(exchangeInfo, fetchCfg)
 
     if (config.timeframes.length === 0) {
@@ -141,7 +134,6 @@ export async function run(
       requested_symbol: config.symbol,
       exchange: fetchCfg.exchangeID,
       requested_exchange: config.exchange,
-      market_type: fetchCfg.marketType,
       generated_at: nowInShanghai(),
       output_dir: outputDir,
       manifest_path: join(outputDir, "manifest.json"),
@@ -183,7 +175,6 @@ export function parseArgs(argv: string[]): Config {
   const config: Config = {
     symbol: "",
     exchange: "binance",
-    marketType: "usdm",
     timeframes: orderedTimeframes("1w,1d,4h,1h"),
     outputDir: "",
     limit: 0,
@@ -199,14 +190,6 @@ export function parseArgs(argv: string[]): Config {
       case "--exchange":
         config.exchange = readFlagValue(argv, ++i, arg).toLowerCase()
         break
-      case "--market-type": {
-        const raw = readFlagValue(argv, ++i, arg).toLowerCase()
-        if (raw !== "spot" && raw !== "usdm" && raw !== "coinm") {
-          throw new Error(`unsupported market-type: ${raw}`)
-        }
-        config.marketType = raw
-        break
-      }
       case "--timeframes":
         config.timeframes = orderedTimeframes(readFlagValue(argv, ++i, arg))
         break
@@ -267,97 +250,35 @@ export function orderedTimeframes(raw: string): string[] {
   return ordered
 }
 
-export function resolveFetchConfig(
-  exchangeID: string,
-  marketType: MarketType,
-  rawSymbol: string,
-): FetchConfig {
-  const resolvedExchange = resolveExchangeID(exchangeID, marketType)
-  const symbol = resolveSymbolSpec(rawSymbol, marketType)
-  return { exchangeID: resolvedExchange, marketType, symbol }
-}
-
-function resolveExchangeID(exchangeID: string, marketType: MarketType): string {
-  switch (marketType) {
-    case "spot":
-      if (exchangeID !== "binance") {
-        throw new Error(`only Binance is supported; unsupported exchange: ${exchangeID}`)
-      }
-      return "binance"
-    case "usdm":
-      if (exchangeID !== "binance" && exchangeID !== "binanceusdm") {
-        throw new Error(`only Binance USD-M is supported; unsupported exchange: ${exchangeID}`)
-      }
-      return "binanceusdm"
-    case "coinm":
-      if (exchangeID !== "binance" && exchangeID !== "binancecoinm") {
-        throw new Error(`only Binance COIN-M is supported; unsupported exchange: ${exchangeID}`)
-      }
-      return "binancecoinm"
+export function resolveFetchConfig(exchangeID: string, rawSymbol: string): FetchConfig {
+  if (exchangeID !== "binance" && exchangeID !== "binanceusdm") {
+    throw new Error(`only Binance USD-M is supported; unsupported exchange: ${exchangeID}`)
   }
+  return { exchangeID: "binanceusdm", symbol: resolveSymbolSpec(rawSymbol) }
 }
 
-function resolveSymbolSpec(rawSymbol: string, marketType: MarketType): SymbolSpec {
+function resolveSymbolSpec(rawSymbol: string): SymbolSpec {
   const trimmed = rawSymbol.trim().toUpperCase()
   if (!trimmed) {
     throw new Error("symbol cannot be empty")
   }
-  if (marketType === "coinm") {
-    return resolveCoinMSymbolSpec(trimmed)
-  }
-  return resolveLinearSymbolSpec(trimmed, marketType)
-}
-
-function resolveLinearSymbolSpec(trimmed: string, marketType: MarketType): SymbolSpec {
   if (trimmed.includes(":") || !trimmed.includes("/")) {
-    return { manifest: trimmed, api: resolveAPISymbol(trimmed, marketType) }
+    return { manifest: trimmed, api: resolveAPISymbol(trimmed) }
   }
   const [base, quote] = trimmed.split("/", 2)
-  if (marketType === "usdm") {
-    return { manifest: `${base}/${quote}:${quote}`, api: `${base}${quote}` }
-  }
-  return { manifest: trimmed, api: `${base}${quote}` }
+  return { manifest: `${base}/${quote}:${quote}`, api: `${base}${quote}` }
 }
 
-function resolveCoinMSymbolSpec(trimmed: string): SymbolSpec {
-  if (trimmed.includes(":") || !trimmed.includes("/")) {
-    return { manifest: trimmed, api: resolveAPISymbol(trimmed, "coinm") }
-  }
-  const [base, quote] = trimmed.split("/", 2)
-  return { manifest: `${base}/${quote}:${base}`, api: `${base}${quote}_PERP` }
-}
-
-function resolveAPISymbol(rawSymbol: string, marketType: MarketType): string {
-  const trimmed = rawSymbol.trim().toUpperCase()
-  if (marketType === "coinm" && trimmed.endsWith("_PERP")) {
-    return trimmed
-  }
-  let baseQuote = trimmed
+function resolveAPISymbol(rawSymbol: string): string {
+  let baseQuote = rawSymbol.trim().toUpperCase()
   if (baseQuote.includes(":")) {
     baseQuote = baseQuote.split(":", 2)[0]
   }
   if (baseQuote.includes("/")) {
     const [base, quote] = baseQuote.split("/", 2)
-    return marketType === "coinm" ? `${base}${quote}_PERP` : `${base}${quote}`
-  }
-  if (marketType === "coinm" && !baseQuote.endsWith("_PERP")) {
-    return `${baseQuote}_PERP`
+    return `${base}${quote}`
   }
   return baseQuote
-}
-
-async function loadExchangeInfo(
-  client: BinanceRest,
-  marketType: MarketType,
-): Promise<ExchangeInfoPayload> {
-  switch (marketType) {
-    case "spot":
-      return (await client.exchangeInfo()) as ExchangeInfoPayload
-    case "usdm":
-      return (await client.futuresExchangeInfo()) as ExchangeInfoPayload
-    case "coinm":
-      return (await client.deliveryExchangeInfo()) as ExchangeInfoPayload
-  }
 }
 
 export function ensureSymbolSupported(
@@ -415,7 +336,7 @@ async function fetchKlines(
   }
   if (sinceTS > 0) payload.startTime = sinceTS
 
-  const raw = await invokeCandles(client, cfg.marketType, payload)
+  const raw = (await client.futuresCandles(payload)) as unknown as RawCandle[]
   if (raw.length === 0) {
     throw new Error(`${cfg.symbol.manifest} ${interval} returned no OHLCV data`)
   }
@@ -437,21 +358,6 @@ interface RawCandle {
   low: string
   close: string
   volume: string
-}
-
-async function invokeCandles(
-  client: BinanceRest,
-  marketType: MarketType,
-  payload: { symbol: string; interval: string; limit: number; startTime?: number },
-): Promise<RawCandle[]> {
-  switch (marketType) {
-    case "spot":
-      return (await client.candles(payload)) as unknown as RawCandle[]
-    case "usdm":
-      return (await client.futuresCandles(payload)) as unknown as RawCandle[]
-    case "coinm":
-      return (await client.deliveryCandles(payload)) as unknown as RawCandle[]
-  }
 }
 
 function resolveOutputDir(raw: string): string {

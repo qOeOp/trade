@@ -4,11 +4,9 @@ import Binance, { type BinanceRest } from "binance-api-node"
 
 interface Config {
   symbol: string
-  market: "spot" | "usdm"
   side: "BUY" | "SELL"
   type: string
   quantity: string
-  quoteOrderQty: string
   price: string
   stopPrice: string
   timeInForce: string
@@ -35,20 +33,18 @@ const FUTURES_PROTECTIVE_TYPES = new Set([
 ])
 
 const HELP_TEXT = `Usage:
-  ./scripts/main.ts --symbol BTCUSDT --market usdm --side BUY --type LIMIT --quantity 0.01 --price 65000
+  ./scripts/main.ts --symbol BTCUSDT --side BUY --type LIMIT --quantity 0.01 --price 65000
 
 Key flags:
   --symbol <symbol>                  Required. Example: BTCUSDT
-  --market <spot|usdm>               Default: usdm
   --side <BUY|SELL>                  Default: BUY
   --type <order-type>                Default: LIMIT
   --quantity <qty>                   Base quantity
-  --quote-order-qty <qty>            Spot quote quantity alternative
   --price <price>                    Required for limit-style orders
   --stop-price <price>               Trigger price for stop / take-profit orders
-  --position-side <BOTH|LONG|SHORT>  Futures only. Default: BOTH
-  --reduce-only <true|false>         Futures only
-  --close-position <true|false>      Futures protective orders only
+  --position-side <BOTH|LONG|SHORT>  Default: BOTH
+  --reduce-only <true|false>
+  --close-position <true|false>      Protective orders only
   --working-type <MARK_PRICE|CONTRACT_PRICE>
   --price-protect <true|false>
   --timeout <ms>                     Default: 10000
@@ -82,11 +78,9 @@ async function run(argv: string[]): Promise<ScriptResponse> {
 function parseArgs(argv: string[]): Config {
   const config: Config = {
     symbol: "",
-    market: "usdm",
     side: "BUY",
     type: "LIMIT",
     quantity: "",
-    quoteOrderQty: "",
     price: "",
     stopPrice: "",
     timeInForce: "GTC",
@@ -106,14 +100,6 @@ function parseArgs(argv: string[]): Config {
       case "--symbol":
         config.symbol = normalizeSymbol(readFlagValue(argv, ++index, arg))
         break
-      case "--market": {
-        const market = readFlagValue(argv, ++index, arg).trim().toLowerCase()
-        if (market !== "spot" && market !== "usdm") {
-          throw new Error(`unsupported market: ${market}`)
-        }
-        config.market = market
-        break
-      }
       case "--side":
         config.side = readSide(readFlagValue(argv, ++index, arg))
         break
@@ -122,9 +108,6 @@ function parseArgs(argv: string[]): Config {
         break
       case "--quantity":
         config.quantity = readFlagValue(argv, ++index, arg)
-        break
-      case "--quote-order-qty":
-        config.quoteOrderQty = readFlagValue(argv, ++index, arg)
         break
       case "--price":
         config.price = readFlagValue(argv, ++index, arg)
@@ -175,7 +158,7 @@ async function buildPreview(config: Config, client: BinanceRest) {
 
   return {
     exchange: "binance",
-    market: config.market,
+    market: "usdm",
     symbol: config.symbol,
     generatedAt: nowInShanghai(),
     request: buildRequest(config),
@@ -203,28 +186,13 @@ function resolveExecution(config: Config) {
   }
 
   return {
-    method: config.market === "spot" ? "order" : "futuresOrder",
+    method: "futuresOrder",
     skill: "binance-order-place",
     authRequired: true,
   }
 }
 
 async function fetchMarketContext(config: Config, client: BinanceRest) {
-  if (config.market === "spot") {
-    const [prices, book] = await Promise.all([
-      (client.prices as unknown as (payload: { symbol: string }) => Promise<Record<string, string>>)({ symbol: config.symbol }),
-      client.book({ symbol: config.symbol, limit: 5 } as never),
-    ])
-    const bestBid = readBookPrice(Array.isArray(book.bids) ? book.bids[0] : undefined)
-    const bestAsk = readBookPrice(Array.isArray(book.asks) ? book.asks[0] : undefined)
-
-    return {
-      lastPrice: prices[config.symbol] || "",
-      bidPrice: bestBid,
-      askPrice: bestAsk,
-    }
-  }
-
   const [prices, markPrice] = await Promise.all([
     client.futuresPrices({ symbol: config.symbol }),
     client.futuresMarkPrice({ symbol: config.symbol }),
@@ -264,15 +232,14 @@ function buildRequest(config: Config) {
     side: config.side,
     type: config.type,
     quantity: config.quantity || undefined,
-    quoteOrderQty: config.quoteOrderQty || undefined,
     price: config.price || undefined,
     stopPrice: config.stopPrice || undefined,
     timeInForce: requiresTimeInForce(config.type) ? config.timeInForce : undefined,
-    positionSide: config.market === "usdm" ? config.positionSide : undefined,
-    reduceOnly: config.market === "usdm" ? config.reduceOnly : undefined,
-    closePosition: config.market === "usdm" ? config.closePosition : undefined,
-    workingType: config.market === "usdm" ? config.workingType : undefined,
-    priceProtect: config.market === "usdm" ? String(config.priceProtect) : undefined,
+    positionSide: config.positionSide,
+    reduceOnly: config.reduceOnly,
+    closePosition: config.closePosition,
+    workingType: config.workingType,
+    priceProtect: String(config.priceProtect),
     activationPrice: config.activationPrice || undefined,
     callbackRate: config.callbackRate || undefined,
   }
@@ -283,11 +250,8 @@ function buildWarnings(config: Config, method: string): string[] {
   if (method === "futuresCreateAlgoOrder" && !config.closePosition && !config.quantity) {
     warnings.push("protective futures algo orders usually need --quantity or --close-position true")
   }
-  if (config.market === "usdm" && config.positionSide === "BOTH" && config.reduceOnly) {
+  if (config.positionSide === "BOTH" && config.reduceOnly) {
     warnings.push("reduceOnly on BOTH mode is valid, but verify the existing net position direction before executing")
-  }
-  if (config.market === "spot" && config.quoteOrderQty && config.quantity) {
-    warnings.push("spot orders normally use either --quantity or --quote-order-qty, not both")
   }
   return warnings
 }
@@ -328,17 +292,6 @@ function parseBoolean(value: string, name: string): boolean {
   }
 }
 
-function readBookPrice(level: unknown): string {
-  if (Array.isArray(level)) {
-    return typeof level[0] === "string" ? level[0] : ""
-  }
-  if (!level || typeof level !== "object") {
-    return ""
-  }
-  const candidate = level as { price?: unknown }
-  return typeof candidate.price === "string" ? candidate.price : ""
-}
-
 function printJSON(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`)
 }
@@ -362,11 +315,11 @@ function formatError(error: unknown): string {
 }
 
 function isProtectiveFuturesAlgoOrder(config: Config): boolean {
-  return config.market === "usdm" && FUTURES_PROTECTIVE_TYPES.has(config.type) && (config.reduceOnly || config.closePosition)
+  return FUTURES_PROTECTIVE_TYPES.has(config.type) && (config.reduceOnly || config.closePosition)
 }
 
 function isUsdmAlgoOrder(config: Config): boolean {
-  return config.market === "usdm" && FUTURES_PROTECTIVE_TYPES.has(config.type)
+  return FUTURES_PROTECTIVE_TYPES.has(config.type)
 }
 
 function validateConfig(config: Config): void {
@@ -379,17 +332,14 @@ function validateConfig(config: Config): void {
   if (!config.type) {
     throw new Error("--type is required")
   }
-  if (!config.quantity && !config.quoteOrderQty && !config.closePosition) {
-    throw new Error("one of --quantity, --quote-order-qty, or --close-position true is required")
+  if (!config.quantity && !config.closePosition) {
+    throw new Error("one of --quantity or --close-position true is required")
   }
   if (requiresPrice(config.type) && !config.price) {
     throw new Error(`--price is required for ${config.type}`)
   }
   if (requiresStopPrice(config.type) && !config.stopPrice && !config.activationPrice) {
     throw new Error(`--stop-price is required for ${config.type}`)
-  }
-  if (config.market === "spot" && FUTURES_PROTECTIVE_TYPES.has(config.type)) {
-    throw new Error(`spot preview does not support ${config.type}; use spot order types`)
   }
   if (!Number.isFinite(config.timeout) || config.timeout <= 0) {
     throw new Error("--timeout must be greater than 0")

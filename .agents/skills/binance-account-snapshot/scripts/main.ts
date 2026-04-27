@@ -6,8 +6,6 @@ type JSONMap = Record<string, unknown>
 
 interface Config {
   symbol: string
-  spotOnly: boolean
-  futuresOnly: boolean
   checkEnv: boolean
   includeHistory: boolean
   historyLimit: number
@@ -34,21 +32,17 @@ const MANUAL_TP_SL_PROMPT =
 interface Snapshot {
   generatedAt: string
   symbolFilter: string | null
-  spot: JSONMap | null
-  futures: JSONMap | null
+  account: JSONMap
+  balances: JSONMap[]
+  positions: JSONMap[] | null
+  openOrders: OrderBuckets | null
+  orderHistory: OrderBuckets | undefined
   errors: Record<string, string>
 }
 
 type ScriptResponse =
   | { ok: true; data: unknown }
   | { ok: false; error: string; data?: unknown }
-
-const spotProtectiveTypes = new Set([
-  "STOP_LOSS",
-  "STOP_LOSS_LIMIT",
-  "TAKE_PROFIT",
-  "TAKE_PROFIT_LIMIT",
-])
 
 const futuresProtectiveTypes = new Set([
   "STOP",
@@ -64,8 +58,6 @@ const HELP_TEXT = `Usage:
 
 Key flags:
   --symbol <symbol>          Focus on one symbol
-  --spot-only                Only fetch spot account data
-  --futures-only             Only fetch futures account data
   --include-history          Include historical orders for --symbol
   --history-limit <count>    Default: 20
   --timeout <seconds>        Default: 10
@@ -127,8 +119,6 @@ async function run(argv: string[]): Promise<ScriptResponse> {
 function parseArgs(argv: string[]): Config {
   const config: Config = {
     symbol: "",
-    spotOnly: false,
-    futuresOnly: false,
     checkEnv: false,
     includeHistory: false,
     historyLimit: 20,
@@ -141,12 +131,6 @@ function parseArgs(argv: string[]): Config {
     switch (arg) {
       case "--symbol":
         config.symbol = readFlagValue(argv, ++index, arg)
-        break
-      case "--spot-only":
-        config.spotOnly = true
-        break
-      case "--futures-only":
-        config.futuresOnly = true
         break
       case "--check-env":
         config.checkEnv = true
@@ -168,9 +152,6 @@ function parseArgs(argv: string[]): Config {
     }
   }
 
-  if (config.spotOnly && config.futuresOnly) {
-    throw new Error("--spot-only and --futures-only cannot be used together")
-  }
   if (config.includeHistory && !config.symbol) {
     throw new Error("--include-history requires --symbol because Binance historical order endpoints are symbol-scoped")
   }
@@ -210,56 +191,13 @@ async function buildSnapshot(config: Config, client: BinanceRest): Promise<Snaps
   const params: { symbol?: string } = config.symbol ? { symbol: config.symbol } : {}
   const generatedAt = nowInShanghai()
 
-  const [spot, futures] = await Promise.all([
-    config.futuresOnly ? Promise.resolve(null) : buildSpotSnapshot(config, client, params, errors),
-    config.spotOnly ? Promise.resolve(null) : buildFuturesSnapshot(config, client, params, errors),
-  ])
+  const futures = await buildFuturesSnapshot(config, client, params, errors)
 
   return {
     generatedAt,
     symbolFilter: config.symbol || null,
-    spot,
-    futures,
+    ...futures,
     errors,
-  }
-}
-
-async function buildSpotSnapshot(
-  config: Config,
-  client: BinanceRest,
-  params: { symbol?: string },
-  errors: Record<string, string>,
-): Promise<JSONMap> {
-  const historyParams =
-    config.includeHistory && config.symbol
-      ? withRecvWindow(copyParamsWithLimit({ symbol: config.symbol }, config.historyLimit), config.recvWindow)
-      : null
-
-  const [account, openOrders, orderHistory] = await Promise.all([
-    capture(errors, "spot.account", () => client.accountInfo()),
-    capture(errors, "spot.openOrders", () => client.openOrders(withRecvWindow(params, config.recvWindow))),
-    historyParams
-      ? capture(errors, "spot.allOrders", () => client.allOrders(historyParams))
-      : Promise.resolve<unknown>(null),
-  ])
-
-  const accountMap = asMap(account)
-  const permissions = Array.isArray(accountMap.permissions)
-    ? [...(accountMap.permissions as string[])]
-    : []
-  const rawBalances = Array.isArray(accountMap.balances) ? (accountMap.balances as JSONMap[]) : []
-  const balances = rawBalances.filter(keepSpotBalance).map(normalizeSpotBalance)
-
-  return {
-    permissions,
-    balances,
-    openOrders: Array.isArray(openOrders)
-      ? splitOrders(openOrders as JSONMap[], isSpotProtective, normalizeStandardOrder("openOrders", "standard"))
-      : null,
-    orderHistory:
-      config.includeHistory && Array.isArray(orderHistory)
-        ? splitOrders(orderHistory as JSONMap[], isSpotProtective, normalizeStandardOrder("allOrders", "standard"))
-        : undefined,
   }
 }
 
@@ -268,7 +206,7 @@ async function buildFuturesSnapshot(
   client: BinanceRest,
   params: { symbol?: string },
   errors: Record<string, string>,
-): Promise<JSONMap> {
+): Promise<Omit<Snapshot, "generatedAt" | "symbolFilter" | "errors">> {
   const historyParams =
     config.includeHistory && config.symbol
       ? withRecvWindow(copyParamsWithLimit({ symbol: config.symbol }, config.historyLimit), config.recvWindow)
@@ -381,21 +319,6 @@ function copyParamsWithLimit<T extends object>(params: T, limit: number): T & { 
   }
 }
 
-function keepSpotBalance(balance: JSONMap): boolean {
-  return toFloat(balance.free) + toFloat(balance.locked) !== 0
-}
-
-function normalizeSpotBalance(balance: JSONMap): JSONMap {
-  const free = toFloat(balance.free)
-  const locked = toFloat(balance.locked)
-  return {
-    asset: balance.asset,
-    free: balance.free,
-    locked: balance.locked,
-    total: (free + locked).toFixed(8),
-  }
-}
-
 function keepFuturesAsset(asset: JSONMap): boolean {
   return ["walletBalance", "availableBalance", "unrealizedProfit", "marginBalance"].some(
     (field) => toFloat(asset[field]) !== 0,
@@ -430,14 +353,6 @@ function normalizePosition(position: JSONMap): JSONMap {
     marginType: position.marginType,
     notional: position.notional,
   }
-}
-
-function isSpotProtective(order: JSONMap): boolean {
-  const type = String(order.type || "").toUpperCase()
-  if (spotProtectiveTypes.has(type)) {
-    return true
-  }
-  return order.orderListId != null && String(order.orderListId) !== "-1"
 }
 
 function isFuturesProtective(order: JSONMap): boolean {
@@ -616,12 +531,10 @@ export {
   firstDefined,
   formatError,
   isFuturesProtective,
-  isSpotProtective,
   mergeOrderBuckets,
   normalizeFuturesAlgoOrder,
   normalizeFuturesAsset,
   normalizePosition,
-  normalizeSpotBalance,
   normalizeStandardOrder,
   parseArgs,
   run,

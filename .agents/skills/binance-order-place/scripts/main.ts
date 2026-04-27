@@ -5,12 +5,10 @@ import Binance, { type BinanceRest } from "binance-api-node"
 
 interface Config {
   symbol: string
-  market: "spot" | "usdm"
   side: "BUY" | "SELL"
   type: string
   leverage: number | null
   quantity: string
-  quoteOrderQty: string
   price: string
   stopPrice: string
   timeInForce: string
@@ -44,17 +42,6 @@ interface FuturesLeverageAdjustment {
     maxNotionalValue: string
     symbol: string
   }
-}
-
-interface SpotOrderRequest {
-  symbol: string
-  side: Config["side"]
-  type: string
-  quantity?: string
-  quoteOrderQty?: string
-  price?: string
-  newClientOrderId?: string
-  timeInForce?: string
 }
 
 interface FuturesOrderRequest {
@@ -107,32 +94,28 @@ interface ConfirmationOutcome {
   confirmationWarning?: string
 }
 
-const SPOT_TYPES = new Set(["LIMIT", "MARKET", "LIMIT_MAKER"])
 const USDM_TYPES = new Set(["LIMIT", "MARKET", "STOP", "STOP_MARKET", "TAKE_PROFIT", "TAKE_PROFIT_MARKET"])
-const SPOT_TIF = new Set(["GTC", "IOC", "FOK"])
 const USDM_TIF = new Set(["GTC", "IOC", "GTX"])
 
 const HELP_TEXT = `Usage:
-  ./scripts/main.ts --symbol BTCUSDT --market usdm --side BUY --type LIMIT --quantity 0.01 --price 65000 --yes
+  ./scripts/main.ts --symbol BTCUSDT --side BUY --type LIMIT --quantity 0.01 --price 65000 --yes
 
 Key flags:
   --symbol <symbol>                  Required. Example: BTCUSDT
-  --market <spot|usdm>               Default: usdm
   --side <BUY|SELL>                  Default: BUY
-  --type <order-type>                Spot: LIMIT/MARKET/LIMIT_MAKER; USDM: LIMIT/MARKET/STOP/STOP_MARKET/TAKE_PROFIT/TAKE_PROFIT_MARKET
-  --leverage <1-125>                 Futures only. If set, align symbol leverage before placing the order
-  --quantity <qty>                   Required unless using --quote-order-qty
-  --quote-order-qty <qty>            Spot only alternative
+  --type <order-type>                LIMIT/MARKET/STOP/STOP_MARKET/TAKE_PROFIT/TAKE_PROFIT_MARKET
+  --leverage <1-125>                 If set, align symbol leverage before placing the order
+  --quantity <qty>                   Required
   --price <price>                    Required for limit-style entry orders
   --stop-price <price>               Required for STOP / STOP_MARKET / TAKE_PROFIT / TAKE_PROFIT_MARKET
-  --position-side <BOTH|LONG|SHORT>  Futures only. Default: BOTH
-  --reduce-only <true|false>         Futures only
-  --time-in-force <GTC|IOC|FOK|GTX>         Default: GTC. FOK = spot LIMIT only; GTX = post-only, USDM only
+  --position-side <BOTH|LONG|SHORT>  Default: BOTH
+  --reduce-only <true|false>
+  --time-in-force <GTC|IOC|GTX>      Default: GTC. GTX = post-only
   --working-type <MARK_PRICE|CONTRACT_PRICE>
   --price-protect <true|false>
   --new-client-order-id <id>
   --timeout <ms>                     Default: 10000
-  --test                             Spot: orderTest; USDM: POST /fapi/v1/order/test
+  --test                             POST /fapi/v1/order/test
   --dry-json                         Print the final Binance request payload without sending
   --check-env                        Only validate BINANCE_API_KEY / BINANCE_API_SECRET
   --yes                              Required for live orders
@@ -172,9 +155,7 @@ async function run(argv: string[]): Promise<ScriptResponse> {
     }
 
     const client = createClient(config.timeout)
-    if (config.market === "usdm") {
-      await assertUsdmEntryIntent(config, client)
-    }
+    await assertUsdmEntryIntent(config, client)
     await assertOrderWouldPassBasicSymbolRules(config, client)
     return { ok: true, data: await executeOrder(config, client) }
   } catch (error) {
@@ -185,12 +166,10 @@ async function run(argv: string[]): Promise<ScriptResponse> {
 function parseArgs(argv: string[]): Config {
   const config: Config = {
     symbol: "",
-    market: "usdm",
     side: "BUY",
     type: "LIMIT",
     leverage: null,
     quantity: "",
-    quoteOrderQty: "",
     price: "",
     stopPrice: "",
     timeInForce: "GTC",
@@ -212,14 +191,6 @@ function parseArgs(argv: string[]): Config {
       case "--symbol":
         config.symbol = normalizeSymbol(readFlagValue(argv, ++index, arg))
         break
-      case "--market": {
-        const market = readFlagValue(argv, ++index, arg).trim().toLowerCase()
-        if (market !== "spot" && market !== "usdm") {
-          throw new Error(`unsupported market: ${market}`)
-        }
-        config.market = market
-        break
-      }
       case "--side":
         config.side = readSide(readFlagValue(argv, ++index, arg))
         break
@@ -231,9 +202,6 @@ function parseArgs(argv: string[]): Config {
         break
       case "--quantity":
         config.quantity = readFlagValue(argv, ++index, arg)
-        break
-      case "--quote-order-qty":
-        config.quoteOrderQty = readFlagValue(argv, ++index, arg)
         break
       case "--price":
         config.price = readFlagValue(argv, ++index, arg)
@@ -288,25 +256,9 @@ function parseArgs(argv: string[]): Config {
 }
 
 async function executeOrder(config: Config, client: BinanceRest) {
-  if (config.market === "spot") {
-    const request = buildSpotOrderRequest(config)
-
-    const result = config.test ? await client.orderTest(request as never) : await client.order(request as never)
-    const confirmation = config.test ? {} : await confirmSpotOrderState(config, client, result)
-    return {
-      market: config.market,
-      mode: config.test ? "test" : "live",
-      method: config.test ? "orderTest" : "order",
-      request,
-      result,
-      ...confirmation,
-    }
-  }
-
   if (config.test) {
     if (isUsdmAlgoEntryOrder(config)) {
       return {
-        market: config.market,
         mode: "preview-only",
         method: "futuresCreateAlgoOrder",
         request: buildFuturesAlgoOrderRequest(config),
@@ -320,7 +272,6 @@ async function executeOrder(config: Config, client: BinanceRest) {
       timeout: config.timeout,
     })
     return {
-      market: config.market,
       mode: "test",
       method: "futuresOrderTest",
       request,
@@ -339,7 +290,6 @@ async function executeOrder(config: Config, client: BinanceRest) {
     ? await confirmUsdmAlgoOrderState(config, client, result)
     : await confirmUsdmOrderState(config, client, result)
   return {
-    market: config.market,
     mode: "live",
     method: isUsdmAlgoEntryOrder(config) ? "futuresCreateAlgoOrder" : "futuresOrder",
     ...(leverageAdjustment ? { leverageAdjustment } : {}),
@@ -350,16 +300,7 @@ async function executeOrder(config: Config, client: BinanceRest) {
 }
 
 function buildDryRun(config: Config) {
-  if (config.market === "spot") {
-    return {
-      market: config.market,
-      method: config.test ? "orderTest" : "order",
-      request: buildSpotOrderRequest(config),
-    }
-  }
-
   return {
-    market: config.market,
     method: isUsdmAlgoEntryOrder(config)
       ? "futuresCreateAlgoOrder"
       : (config.test ? "futuresOrderTest" : "futuresOrder"),
@@ -426,19 +367,6 @@ async function submitUsdmTestOrder(
   }
 }
 
-function buildSpotOrderRequest(config: Config): SpotOrderRequest {
-  return {
-    symbol: config.symbol,
-    side: config.side,
-    type: config.type,
-    ...(config.quantity ? { quantity: config.quantity } : {}),
-    ...(config.quoteOrderQty ? { quoteOrderQty: config.quoteOrderQty } : {}),
-    ...(config.price ? { price: config.price } : {}),
-    ...(config.newClientOrderId ? { newClientOrderId: config.newClientOrderId } : {}),
-    ...(requiresTimeInForce(config.type) ? { timeInForce: config.timeInForce } : {}),
-  }
-}
-
 function buildFuturesOrderRequest(config: Config): FuturesOrderRequest {
   const reduceOnly = resolveReduceOnly(config)
   return {
@@ -490,7 +418,7 @@ async function ensureUsdmLeverage(
   config: Config,
   client: BinanceRest,
 ): Promise<FuturesLeverageAdjustment | undefined> {
-  if (config.market !== "usdm" || config.leverage == null) {
+  if (config.leverage == null) {
     return undefined
   }
 
@@ -516,35 +444,6 @@ async function ensureUsdmLeverage(
     changed: true,
     result,
   }
-}
-
-async function confirmSpotOrderState(
-  config: Config,
-  client: BinanceRest,
-  placed: unknown,
-): Promise<ConfirmationOutcome> {
-  const getOrder = (client as BinanceRest & {
-    getOrder?: (payload: { symbol: string; orderId?: number; origClientOrderId?: string }) => Promise<unknown>
-  }).getOrder
-  if (!getOrder) {
-    return {}
-  }
-
-  const orderId = readNumberField(placed, "orderId")
-  const clientOrderId = readStringField(placed, "clientOrderId")
-  if (orderId == null && !clientOrderId) {
-    return {}
-  }
-
-  return safeConfirmation("spot order status readback", () =>
-    waitForFinalState(() =>
-      getOrder({
-        symbol: config.symbol,
-        ...(orderId != null ? { orderId } : {}),
-        ...(clientOrderId ? { origClientOrderId: clientOrderId } : {}),
-      }),
-    ),
-  )
 }
 
 async function confirmUsdmOrderState(
@@ -660,9 +559,7 @@ function needsFollowupConfirmation(snapshot: unknown): boolean {
 }
 
 async function assertOrderWouldPassBasicSymbolRules(config: Config, client: BinanceRest): Promise<void> {
-  const rules = config.market === "spot"
-    ? await readSpotSymbolRules(config, client)
-    : await readUsdmSymbolRules(config, client)
+  const rules = await readUsdmSymbolRules(config, client)
 
   if (config.quantity) {
     if (rules.minQty && compareDecimal(config.quantity, rules.minQty) < 0) {
@@ -687,28 +584,6 @@ async function assertOrderWouldPassBasicSymbolRules(config: Config, client: Bina
     throw new Error(
       `${config.symbol} order notional ${stripTrailingZeros(notional.toFixed(12))} is below min notional ${rules.minNotional}; increase size or choose a lower-priced symbol`,
     )
-  }
-}
-
-async function readSpotSymbolRules(config: Config, client: BinanceRest): Promise<BasicSymbolRules> {
-  const [exchangeInfo, prices] = await Promise.all([
-    (client.exchangeInfo as unknown as (payload: { symbol: string }) => Promise<unknown>)({ symbol: config.symbol }),
-    config.quoteOrderQty
-      ? Promise.resolve(null)
-      : (client.prices as unknown as (payload: { symbol: string }) => Promise<Record<string, string>>)({ symbol: config.symbol }),
-  ])
-
-  const symbol = findExchangeSymbol(exchangeInfo, config.symbol)
-  const priceFilter = findFilter(symbol, "PRICE_FILTER")
-  const marketLotFilter = findFilter(symbol, "MARKET_LOT_SIZE")
-  const lotFilter = findFilter(symbol, "LOT_SIZE")
-
-  return {
-    priceTickSize: readStringField(priceFilter, "tickSize"),
-    quantityStepSize: readStringField(config.type === "MARKET" ? marketLotFilter ?? lotFilter : lotFilter, "stepSize"),
-    minQty: readStringField(config.type === "MARKET" ? marketLotFilter ?? lotFilter : lotFilter, "minQty"),
-    minNotional: readSpotMinNotional(symbol, config.type),
-    referencePrice: prices?.[config.symbol] ?? config.price ?? "",
   }
 }
 
@@ -757,31 +632,7 @@ function findFilter(symbolInfo: unknown, filterType: string): unknown {
   return candidate.filters.find((item) => readStringField(item, "filterType") === filterType) ?? null
 }
 
-function readSpotMinNotional(symbolInfo: unknown, orderType: string): string {
-  const notionalFilter = findFilter(symbolInfo, "NOTIONAL")
-  if (notionalFilter) {
-    const appliesToMarket = readBooleanField(notionalFilter, "applyMinToMarket")
-    if (orderType === "MARKET" && appliesToMarket === false) {
-      return ""
-    }
-    return readStringField(notionalFilter, "minNotional")
-  }
-
-  const minNotionalFilter = findFilter(symbolInfo, "MIN_NOTIONAL")
-  if (!minNotionalFilter) {
-    return ""
-  }
-  const appliesToMarket = readBooleanField(minNotionalFilter, "applyToMarket")
-  if (orderType === "MARKET" && appliesToMarket === false) {
-    return ""
-  }
-  return readStringField(minNotionalFilter, "minNotional")
-}
-
 function estimateOrderNotional(config: Config, referencePrice: string): number | null {
-  if (config.market === "spot" && config.quoteOrderQty) {
-    return parsePositiveNumber(config.quoteOrderQty)
-  }
   if (!config.quantity) {
     return null
   }
@@ -875,32 +726,14 @@ function validateConfig(config: Config): void {
   if (!config.symbol) {
     throw new Error("--symbol is required")
   }
-  if (config.market === "spot" && config.quantity && config.quoteOrderQty) {
-    throw new Error("spot order-place expects either --quantity or --quote-order-qty, not both")
+  if (!USDM_TYPES.has(config.type)) {
+    throw new Error(`order-place only supports ${Array.from(USDM_TYPES).join(", ")}; use binance-position-protect for TP/SL`)
   }
-  if (config.market === "spot" && !SPOT_TYPES.has(config.type)) {
-    throw new Error(`spot order-place only supports ${Array.from(SPOT_TYPES).join(", ")}`)
-  }
-  if (config.market === "usdm" && !USDM_TYPES.has(config.type)) {
-    throw new Error(`usdm order-place only supports ${Array.from(USDM_TYPES).join(", ")}; use binance-position-protect for TP/SL`)
-  }
-  if (config.market === "spot" && !config.quantity && !config.quoteOrderQty) {
-    throw new Error("spot order-place requires --quantity or --quote-order-qty")
-  }
-  if (config.market === "usdm" && !config.quantity) {
-    throw new Error("usdm order-place requires --quantity")
-  }
-  if (config.market === "spot" && config.leverage != null) {
-    throw new Error("--leverage is only supported for usdm")
+  if (!config.quantity) {
+    throw new Error("order-place requires --quantity")
   }
   if (config.leverage != null && (config.leverage < 1 || config.leverage > 125)) {
     throw new Error("--leverage must be an integer between 1 and 125")
-  }
-  if (config.market === "usdm" && config.quoteOrderQty) {
-    throw new Error("--quote-order-qty is only supported for spot")
-  }
-  if (config.market === "spot" && config.quoteOrderQty && config.type !== "MARKET") {
-    throw new Error("--quote-order-qty is only supported for spot MARKET orders")
   }
   if (requiresPrice(config.type) && !config.price) {
     throw new Error(`--price is required for ${config.type}`)
@@ -909,10 +742,9 @@ function validateConfig(config: Config): void {
     throw new Error(`--stop-price is required for ${config.type}`)
   }
   if (requiresTimeInForce(config.type)) {
-    const validTif = config.market === "spot" ? SPOT_TIF : USDM_TIF
-    if (!validTif.has(config.timeInForce)) {
+    if (!USDM_TIF.has(config.timeInForce)) {
       throw new Error(
-        `--time-in-force ${config.timeInForce} is not valid for ${config.market} ${config.type}; supported: ${Array.from(validTif).join(", ")}`,
+        `--time-in-force ${config.timeInForce} is not valid for ${config.type}; supported: ${Array.from(USDM_TIF).join(", ")}`,
       )
     }
   }
@@ -946,7 +778,7 @@ function readWorkingType(value: string): "MARK_PRICE" | "CONTRACT_PRICE" {
 }
 
 function requiresPrice(type: string): boolean {
-  return type === "LIMIT" || type === "LIMIT_MAKER" || type === "STOP" || type === "TAKE_PROFIT"
+  return type === "LIMIT" || type === "STOP" || type === "TAKE_PROFIT"
 }
 
 function requiresStopPrice(type: string): boolean {
@@ -1049,7 +881,7 @@ function parseJSON(value: string): unknown {
 }
 
 function isUsdmAlgoEntryOrder(config: Config): boolean {
-  return config.market === "usdm" && ["STOP", "STOP_MARKET", "TAKE_PROFIT", "TAKE_PROFIT_MARKET"].includes(config.type)
+  return ["STOP", "STOP_MARKET", "TAKE_PROFIT", "TAKE_PROFIT_MARKET"].includes(config.type)
 }
 
 function cleanRequest(request: object): Record<string, string | boolean> {
@@ -1086,14 +918,6 @@ function readStringField(value: unknown, field: string): string {
   }
   const candidate = value as Record<string, unknown>
   return typeof candidate[field] === "string" ? candidate[field] : ""
-}
-
-function readBooleanField(value: unknown, field: string): boolean | null {
-  if (!value || typeof value !== "object") {
-    return null
-  }
-  const candidate = value as Record<string, unknown>
-  return typeof candidate[field] === "boolean" ? candidate[field] : null
 }
 
 function parsePositiveNumber(value: string): number | null {
@@ -1179,7 +1003,6 @@ export {
   buildDryRun,
   buildFuturesAlgoOrderRequest,
   buildFuturesOrderRequest,
-  buildSpotOrderRequest,
   ensureUsdmLeverage,
   executeOrder,
   submitUsdmTestOrder,

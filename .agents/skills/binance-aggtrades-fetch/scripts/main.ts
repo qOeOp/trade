@@ -16,7 +16,6 @@ type JSONTrade = {
 
 interface Config {
   symbol: string
-  market: "spot" | "usdm"
   limit: number
   fromId?: number
   startTime?: number
@@ -37,11 +36,10 @@ interface AggTradesRequest {
 }
 
 const HELP_TEXT = `Usage:
-  ./scripts/main.ts --symbol BTCUSDT --market usdm --limit 500
+  ./scripts/main.ts --symbol BTCUSDT --limit 500
 
 Key flags:
   --symbol <symbol>         Required. Example: BTCUSDT
-  --market <spot|usdm>      Default: usdm
   --limit <count>           Default: 500, max: 1000
   --from-id <id>            Resume from a specific aggTrade id
   --start-time <ms>         Inclusive start timestamp in ms
@@ -77,7 +75,6 @@ async function run(argv: string[]): Promise<ScriptResponse> {
 function parseArgs(argv: string[]): Config {
   const config: Config = {
     symbol: "",
-    market: "usdm",
     limit: 500,
     timeout: 10_000,
   }
@@ -88,14 +85,6 @@ function parseArgs(argv: string[]): Config {
       case "--symbol":
         config.symbol = normalizeSymbol(readFlagValue(argv, ++index, arg))
         break
-      case "--market": {
-        const market = readFlagValue(argv, ++index, arg).trim().toLowerCase()
-        if (market !== "spot" && market !== "usdm") {
-          throw new Error(`unsupported market: ${market}`)
-        }
-        config.market = market
-        break
-      }
       case "--limit":
         config.limit = parsePositiveNumber(readFlagValue(argv, ++index, arg), "--limit")
         break
@@ -122,16 +111,13 @@ function parseArgs(argv: string[]): Config {
 
 async function fetchAggTrades(config: Config, client: BinanceRest) {
   const request = buildRequest(config)
-  const trades =
-    config.market === "spot"
-      ? await client.aggTrades(request as never)
-      : await client.futuresAggTrades(request as never)
+  const trades = await client.futuresAggTrades(request as never)
 
   const normalizedTrades = trades.map(normalizeAggTrade)
 
   return {
     exchange: "binance",
-    market: config.market,
+    market: "usdm",
     symbol: config.symbol,
     generatedAt: nowInShanghai(),
     request,

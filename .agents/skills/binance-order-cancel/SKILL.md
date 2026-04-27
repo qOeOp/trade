@@ -1,6 +1,6 @@
 ---
 name: binance-order-cancel
-description: EXECUTE 阶段的 Binance 撤单 skill。用于撤销现货或 USDM 的普通单与期货 Algo 条件单，支持单笔或整组取消。
+description: EXECUTE 阶段的 Binance 撤单 skill。用于撤销 USDM 的普通单与 Algo 条件单，支持单笔或整组取消。
 ---
 
 # Binance Order Cancel
@@ -30,4 +30,5 @@ description: EXECUTE 阶段的 Binance 撤单 skill。用于撤销现货或 USDM
 
 - 入口脚本是 [main.ts](./scripts/main.ts)
 - 优先直接执行 `./scripts/main.ts`
-- 支持普通单取消、全部普通单取消、期货 Algo 单取消、全部 Algo 单取消
+- 只支持 USDM
+- 支持普通单取消、全部普通单取消、Algo 单取消、全部 Algo 单取消

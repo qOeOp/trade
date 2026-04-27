@@ -5,8 +5,8 @@ import { buildPreview, parseArgs, resolveExecution } from "./main"
 
 test("parseArgs requires executable size or close position", () => {
   assert.throws(
-    () => parseArgs(["--symbol", "BTCUSDT", "--market", "usdm", "--side", "BUY", "--type", "LIMIT", "--price", "65000"]),
-    /one of --quantity, --quote-order-qty, or --close-position true is required/,
+    () => parseArgs(["--symbol", "BTCUSDT", "--side", "BUY", "--type", "LIMIT", "--price", "65000"]),
+    /one of --quantity or --close-position true is required/,
   )
 })
 
@@ -14,8 +14,6 @@ test("resolveExecution routes futures protective orders to position protect", ()
   const config = parseArgs([
     "--symbol",
     "BTCUSDT",
-    "--market",
-    "usdm",
     "--side",
     "SELL",
     "--type",
@@ -37,8 +35,6 @@ test("resolveExecution keeps standard futures stop entry on order place", () => 
   const config = parseArgs([
     "--symbol",
     "BTCUSDT",
-    "--market",
-    "usdm",
     "--side",
     "BUY",
     "--type",
@@ -62,8 +58,6 @@ test("resolveExecution keeps take-profit entry on order place", () => {
   const config = parseArgs([
     "--symbol",
     "BTCUSDT",
-    "--market",
-    "usdm",
     "--side",
     "BUY",
     "--type",
@@ -85,8 +79,6 @@ test("resolveExecution routes reduce-only take-profit to position protect", () =
   const config = parseArgs([
     "--symbol",
     "BTCUSDT",
-    "--market",
-    "usdm",
     "--side",
     "SELL",
     "--type",
@@ -106,37 +98,40 @@ test("resolveExecution routes reduce-only take-profit to position protect", () =
   })
 })
 
-test("buildPreview returns spot market context using runtime-supported market methods", async () => {
+test("buildPreview returns usdm market context", async () => {
   const config = parseArgs([
     "--symbol",
-    "BOMEUSDT",
-    "--market",
-    "spot",
+    "BTCUSDT",
     "--side",
     "BUY",
     "--type",
-    "MARKET",
-    "--quote-order-qty",
-    "1",
+    "LIMIT",
+    "--quantity",
+    "0.01",
+    "--price",
+    "65000",
   ])
 
   const client = {
-    prices() {
-      return Promise.resolve({ BOMEUSDT: "0.0011" })
+    futuresPrices() {
+      return Promise.resolve({ BTCUSDT: "65010" })
     },
-    book() {
+    futuresMarkPrice() {
       return Promise.resolve({
-        bids: [{ price: "0.00109", quantity: "1000" }],
-        asks: [{ price: "0.00111", quantity: "1000" }],
+        markPrice: "65005",
+        lastFundingRate: "0.0001",
+        nextFundingTime: 1700000000000,
       })
     },
   }
 
   const preview = await buildPreview(config, client as never)
 
+  assert.equal(preview.market, "usdm")
   assert.deepEqual(preview.marketContext, {
-    lastPrice: "0.0011",
-    bidPrice: "0.00109",
-    askPrice: "0.00111",
+    lastPrice: "65010",
+    markPrice: "65005",
+    lastFundingRate: "0.0001",
+    nextFundingTime: 1700000000000,
   })
 })

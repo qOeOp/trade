@@ -2,10 +2,11 @@
 
 ## 1. 范围
 
-- 本文件只讨论 `Binance USDM` 执行层。
+- 本文件只讨论 `Binance USDM` 执行层 + `trade.db` 持久化。
+- 项目层固定：只做 USDM 永续 4H+ swing；外部 cron（Claude routines / Codex schedule）按 1H / 4H 触发。
 - 当前重点是 `合约开仓`，但为避免后续接口命名漂移，仍把相关 skill 一并列清。
-- 主流程不变：`OBSERVE -> PLAN -> EXECUTE`
-- 即使用户已经明确给出 `标的 / 方向 / 笔数 / 杠杆 / 保证金额`，也仍先落 `PLAN`，再执行。
+- 每次 cron 触发的链路：`OBSERVE → 对每条 open chain 决策 → EXECUTE → 关闭 chain 时即时 REVIEW`
+- 即使用户已经明确给出 `标的 / 方向 / 笔数 / 杠杆 / 保证金额`，也仍先 append `observe`（含意图段），再执行。
 
 ## 2. 共享口径
 
@@ -21,6 +22,14 @@
   只表示订单形状，不单独决定它属于主单还是保护单。
 - `开仓函数`
   当前只指 `USDM 主单落地`，不包含保护、减仓、撤单。
+- `live equity`
+  定义：最近一条 `observe` 事件里 `account.equity_usdt` 的值；硬 invariant 的实时计算基准，不落 `account_config`
+- `current_plan`
+  定义：当前 chain 最近一条 `observe.body` 的"意图段"（symbol / side / stop_price / risk_budget_usdt / strategy_ref / thesis / entry_intent / exit_intent / invalidation / expected_rr_net / valid_until_at / acknowledgements）
+- `execution_contract`
+  定义：提交前由 `current_plan + latest_observe.account + 交易所规格` 编译出的执行快照；是交易所 payload 的唯一真相
+- `observe snapshot`
+  定义：可被 `EXECUTE / preflight` 直接消费的最小完整快照，不是 patch；同条 observe 同时承载意图段 + 证据段
 
 ## 3. `binance-account-snapshot`
 
@@ -41,6 +50,10 @@
 
 ### 3.3 当前输出分层
 
+- `account`
+  - `equity_usdt`
+  - `available_balance_usdt`
+  - `snapshot_at`
 - `balances`
 - `positions`
 - `openOrders.regular`
@@ -102,8 +115,9 @@
 
 ### 4.5 当前 gaps
 
-- 没有消费正式 plan 结构。重构方向见 [design-architecture.md](design-architecture.md) 的 `Plan 设计`：执行层应消费当前 `intent` 事件（含 `symbol / side / trigger / entry / stop / risk_budget_usdt / tranches / management`）+ 最近 observe 事件（含微结构 / 账户事实），产出写成 `order` 事件；不再直接吃零散参数。
-- 没有统一输出“这版 plan 需要几张主单、几张保护单”。
+- 没有消费正式 plan 结构。重构方向见 [design-architecture.md](design-architecture.md) 的 `Plan 设计`：执行层应消费 `current_plan`（含 `symbol / side / stop_price / risk_budget_usdt / strategy_ref / entry_intent / exit_intent`）+ 同一条 observe 的证据段（含微结构 / 账户事实），产出写成 `order_fill` 事件；不再直接吃零散参数。
+- 还没有正式 `execution_contract` 把 `strategy.policy`、`current_plan`、live 账户事实与交易所规格收口成一份提交快照。
+- 没有统一输出”这版 plan 需要几张主单、几张保护单”。
 - 还没有把 `保证金额 / 杠杆 / 笔数` 编译进来。
 
 ## 5. `binance-order-place`
@@ -359,12 +373,19 @@
 ### 9.2 最小输入
 
 ```md
-EntryPlan
+EntryPlan（编译后的 `execution_contract`）
+- source
+  - observe_event_key   # 当前 plan 意图段所在 observe 事件
 - market: `usdm`
 - symbol
+- side: `long | short`
 - position_side: `BOTH | LONG | SHORT`
 - target_leverage?: number
 - margin_mode?: `isolated | crossed`
+- account_snapshot
+  - equity_usdt
+  - available_balance_usdt
+  - snapshot_at
 - entries[]
   - role: `entry | add`
   - type: `LIMIT | MARKET | STOP | STOP_MARKET | TAKE_PROFIT | TAKE_PROFIT_MARKET`
@@ -376,22 +397,26 @@ EntryPlan
 
 ### 9.3 最小执行步骤
 
-1. 读取当前生效 plan
-2. 拉账户事实：
+1. 读取 `current_plan`（最近 observe.body 的意图段）+ 同条 observe 的证据段
+2. 从 `latest_observe.account` 取 live 账户事实：
+   - equity
+   - available balance
    - position
    - open regular orders
    - open algo orders
-3. 校验：
+3. 编译 `execution_contract`
+   - 把 `position_side / margin_mode / target_leverage / entries[] / account_snapshot` 收口到同一份对象
+4. 校验：
    - `symbol`
    - `positionSide`
    - 当前仓位不会被误减
-4. 若指定 `target_leverage`
+5. 若指定 `target_leverage`
    - 读取当前杠杆
    - 不一致则先调杠杆
-5. 将 `entries[]` 逐张编译为主单 request
-6. 调用 `binance-order-place`
-7. 回读 `openOrders.regular`
-8. 输出：
+6. 将 `entries[]` 逐张编译为主单 request
+7. 调用 `binance-order-place`
+8. 回读 `openOrders.regular`
+9. 输出：
    - 想提交什么
    - 实际提交了什么
    - 哪些已进入交易所
@@ -399,7 +424,7 @@ EntryPlan
 
 ### 9.4 当前最关键缺口
 
-- 没有正式 `EntryPlan`
+- 没有正式 `EntryPlan / execution_contract`
 - 没有 `保证金额 / 杠杆 / 笔数 -> quantity[]` 编译器
 - 没有多张主单统一 orchestration
 - 没有标准化核验返回
@@ -412,6 +437,7 @@ EntryPlan
 2. 实现 `保证金额 / 杠杆 / 笔数 -> quantity[]`
 3. 实现多张 entry 编译器
 4. 实现主单后的独立核验协议
+5. 把 `source_observe_event_key + execution_contract_snapshot` 一起写进 `order_fill` 事件
 
 ### 10.2 第二批
 
@@ -425,11 +451,26 @@ EntryPlan
 2. 接入 `binance-position-adjust`
 3. 收敛为统一执行层协议
 
+### 10.4 cron 运维（与 §10 三批并行推进）
+
+cron 自动化模式必须保证：
+
+1. **幂等**：每次 EXECUTE 动作前先 reduce `order_fill` + 拉 Binance 实时挂单核对，重复请求不下重单。`clientOrderId` 用 `<chain_id>-<seq>-<action>` 前缀，Binance 侧自动去重，cron 重跑安全。
+2. **abort 偏保守**：cron agent 任意阶段失败 → 只 append 已写入的 observe，不补做后续。下次 cron 重跑读最新事件流决定动作；不确定就 `no_action`。
+3. **run_log**：每次 cron 跑写一条 `run_log` 记录（独立小表，见 §12.2），承载 `run_id / triggered_at / duration_ms / chains_processed / actions_taken[] / errors[] / next_cron_at`。
+4. **异常通知**：以下场景主动推送（通道由 `./data/notify_config.json` 配置）：
+   - 硬 invariant 拒绝任何新动作
+   - 对账连续 3 轮 stuck（同一 chain）
+   - 单日亏损 ≥ 80% × `max_day_loss_pct`
+   - cron 失败 / Binance API 错误连续 3 次
+   - 连续亏损达到 `max_consecutive_losses`
+   - chain 关闭（不论 outcome）
+
 ## 11. 当前结论
 
 - 当前仓库不是“不能做 USDM 开仓”，而是“主单落地拼图已有，但 plan compiler 还缺”
 - 现在最该稳定下来的不是更多零散接口，而是：
-  - `EntryPlan`
+  - `EntryPlan / execution_contract`
   - `quantity[]` 编译
   - 多张主单 orchestration
   - 提交后核验协议
@@ -438,7 +479,7 @@ EntryPlan
 
 ### 12.1 边界
 
-- `design-architecture.md` 回答“为什么是 event-sourcing、为什么是 agent 执行合同、时间流怎么走”
+- [design-architecture.md](design-architecture.md) 回答"为什么是 event-sourcing、Plan 怎么设计、cron 周期怎么走"
 - 本节回答 `trade.db` 里到底落什么、怎么读、哪些东西不落库
 - 在线主线默认只写 `./data/trade.db`
 - OHLCV / replay / backtest 的行情库后续单独走 `./data/ohlcv.db`
@@ -448,6 +489,7 @@ EntryPlan
 ```sql
 plan_chain (
   plan_chain_id   uuid PK,
+  state           text NOT NULL,    -- 'open' | 'closed'
   opened_at       timestamp,
   closed_at       timestamp NULL,
   title           text
@@ -457,7 +499,7 @@ plan_event (
   event_key       uuid PK,
   plan_chain_id   uuid FK,
   at              timestamp,
-  kind            text,
+  kind            text NOT NULL,    -- 'observe' | 'order_fill' | 'review'
   body_json       json
 )
 
@@ -465,8 +507,18 @@ plan_relation (
   relation_key    uuid PK,
   child_chain_id  uuid FK,
   parent_chain_id uuid FK,
-  kind            text,
+  kind            text,             -- 'hedge' 等
   note            text
+)
+
+run_log (
+  run_id          uuid PK,
+  triggered_at    timestamp NOT NULL,
+  duration_ms     integer,
+  chains_processed integer,
+  actions_taken_json json,          -- ['placed_order_X', 'cancelled_Y', 'no_action_Z', ...]
+  errors_json     json,             -- [{stage, error}, ...]
+  next_cron_at    timestamp NULL
 )
 ```
 
@@ -480,36 +532,45 @@ plan_relation (
 ### 12.3 存储约束
 
 - `plan_event` 是 append-only；不维护 current 表 / history 表双写
+- `kind` 仅三种：`observe / order_fill / review`，preflight 写入时遇到未知 kind 立刻 warn（防 typo 静默落库）
 - `body_json` 不做数据库层 schema 强约束；shape 由 `kind` 决定
+- `observe.body_json` 必须是"最小完整快照"（含意图段 + 证据段 + preflight_result + decision_summary），不是 patch
+- `order_fill.body_json` 应保存 `execution_contract_snapshot + source_observe_event_key + precheck_result`
+- `review.body_json` 由 chain 关闭时一次写入；推荐 shape 见 design-architecture 的 REVIEW 段
 - 建议保留唯一索引 `(plan_chain_id, at)`，保证同链时间序稳定
+- `plan_chain.state` 由 trade-flow 在关闭 chain 时更新（同事务 append review + flip state → 'closed'）
+- `run_log` 与 `plan_event` 独立，cron 运维与业务事件解耦
 - `Rule 池` 不作为表存在；规则总集只放 `.agents/skills/plan-preflight/constitution.md`
 - 投影视图不落库；`trade-flow / preflight / reducer` 读时计算
 
 ### 12.4 常用投影
 
-| 投影 | 语义 |
-| --- | --- |
-| `current_intent` | 当前决策本体 |
-| `intent_history` | 决策演化序列 |
-| `latest_observe` | 最新证据快照 |
-| `current_orders` | 当前活跃挂单 |
-| `current_position` | 当前净头寸 |
-| `last_check` | 最近一次 preflight |
-| `status` | 当前 `(phase, gate)` |
+| 投影 | 语义 | 实现 |
+| --- | --- | --- |
+| `current_plan` | 当前 chain 的意图段 | 取最近一条 observe.body 的意图段字段 |
+| `latest_observe` | 最新完整快照（含证据段） | 取最近一条 observe |
+| `current_orders` | 当前活跃挂单 | reduce order_fill 事件到 open-orders 集合 |
+| `current_position` | 当前净头寸 | reduce order_fill 事件到净头寸 |
+| `last_preflight` | 最近一次 preflight 输出 | 取最近一条 observe.body.preflight_result |
+| `intent_history` | 意图演化序列 | 按时间顺序读全部 observe.body 的意图段 |
 
 ### 12.5 常用读取路径
 
-- 读当前决策：`plan_event WHERE kind='intent' ORDER BY at DESC LIMIT 1`
-- 读决策演化：`plan_event WHERE kind='intent' ORDER BY at ASC`
-- 读最新证据：`plan_event WHERE kind='observe' ORDER BY at DESC LIMIT 1`
-- 读订单 / 成交历史：`plan_event WHERE kind IN ('order','fill') ORDER BY at ASC`
-- 读最近 preflight：`plan_event WHERE kind='check' ORDER BY at DESC LIMIT 1`
+- 读当前 plan / 最新证据：`plan_event WHERE plan_chain_id=? AND kind='observe' ORDER BY at DESC LIMIT 1`
+- 读意图演化：`plan_event WHERE plan_chain_id=? AND kind='observe' ORDER BY at ASC`（取每条 body 的意图段）
+- 读订单 / 成交历史：`plan_event WHERE plan_chain_id=? AND kind='order_fill' ORDER BY at ASC`
+- 读最近 preflight：取上面"读当前 plan"结果的 `body_json.preflight_result`
 - 读跨链关系：`plan_relation WHERE child_chain_id=? OR parent_chain_id=?`
-- 读某次 preflight 定格：`check.body_json` 内携带当次引用的 `observe / intent event_key`
+- 读 open chains（cron 入口）：`plan_chain WHERE state='open'`
+- 读最近 cron 状态：`run_log ORDER BY triggered_at DESC LIMIT N`
+
+这里 `latest_observe` 可以安全直接读，前提正是上面那条约束：每条 `observe` 都是完整快照。
 
 ### 12.6 为什么这样落
 
-- `5` 张表承载在线主线需要的最小长期事实
-- `plan_event` 统一承载 observe / intent / check / order / fill / note / review，避免 stale 标记与多表同步
-- `strategy_pool` 与 `review` 保持独立，便于离线演化与查询
+- `5` 张表（plan_chain / plan_event / plan_relation / strategy_pool / review）承载在线主线需要的最小长期事实
+- `run_log` 第 6 张表承载 cron 自动化的运维元数据，与业务事件解耦
+- `plan_event` 仅 3 种 kind（observe / order_fill / review），从早期设计的 7 种砍下来——意图变化由 observe 序列承载，不再有 intent / note / check 三种事件
+- `plan_chain.state` 二态（open / closed）替代了早期的 (phase, gate) 二维 5 档；细分状态由 `current_orders + current_position` 视图自然体现
+- `strategy_pool` 与 `review` 保持独立，便于查询与未来离线演化扩展
 - 数据库规格放在本文件，`design-architecture` 可以只保留设计图、状态流和模型边界

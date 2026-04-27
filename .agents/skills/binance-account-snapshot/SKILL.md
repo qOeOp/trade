@@ -32,7 +32,6 @@ description: OBSERVE / RECOVERY 阶段的 Binance 账户快照 skill。用于读
 
 - 全账户快照：无额外参数
 - 单标的核对：`symbol`
-- 只看分区：`--spot-only` 或 `--futures-only`
 - 补历史订单：`symbol` + `--include-history`
 
 ## 输出重点
@@ -41,22 +40,22 @@ description: OBSERVE / RECOVERY 阶段的 Binance 账户快照 skill。用于读
 - live 持仓
 - 普通挂单
 - 保护单
-- 分区级错误或缺口
+- 接口级错误或缺口
 
 判读口径：
 
 - 普通挂单与保护单会分开整理
-- 合约保护单会同时读取普通挂单接口与 Algo 条件单接口
+- 保护单会同时读取普通挂单接口与 Algo 条件单接口
 - `BUY STOP_MARKET` 这类 entry 条件单不会只按 `type` 被误归到保护桶
 - 若空仓但保护单数量与计划入场总量对齐，应优先视为未来计划仓位保护
 
 ## 执行顺序
 
 1. 先跑 `./scripts/main.ts --check-env`
-2. 按需要决定全账户、单标的或分区读取
+2. 按需要决定全账户读取或单标的核对
 3. 若要补历史订单，显式带 `--symbol --include-history`
 4. 优先消费余额、持仓、普通挂单、保护单四块结果
-5. 若某分区失败，明确保留缺口，不把整次恢复伪装成完整快照
+5. 若某接口失败，明确保留缺口，不把整次恢复伪装成完整快照
 
 ## 脚本边界
 
