@@ -23,7 +23,7 @@
 │  ├─ plan/
 │  │  ├─ STAGE.md
 │  │  └─ scripts/
-│  │     ├─ plan-write.ts          ← 写入 + 7 条 hardcode 校验
+│  │     ├─ plan-write.ts          ← 写 observe（含意图段）+ 调 plan-preflight
 │  │     └─ plan-read.ts
 │  ├─ execute/
 │  │  └─ STAGE.md                  ← MVP 仅文档，调用现有 binance-* 功能 skill
@@ -33,11 +33,12 @@
 │  └─ iterate/                     ← 离线，MVP 不展开
 ├─ scripts/
 │  └─ db/                          ← 套件共享：数据库操作
-│     ├─ schema.sql                ← 见 design-architecture.md 数据库存储（5 张表）
+│     ├─ schema.sql                ← 见 tech-spec.md §12（plan_chain / plan_event / plan_relation / strategy_pool / review / run_log）
 │     ├─ migrate.ts
-│     ├─ chain-repo.ts             ← plan_chain CRUD
+│     ├─ chain-repo.ts             ← plan_chain CRUD（state: open/closed）
 │     ├─ event-repo.ts             ← plan_event append + 投影 reducer
-│     └─ projection.ts             ← current_intent / latest_observe / current_orders / ...
+│     ├─ run-log-repo.ts           ← cron 运维元数据
+│     └─ projection.ts             ← current_plan / latest_observe / current_orders / current_position / ...
 └─ references/
    └─ plan-schema.md               ← 软链或引用 design-architecture.md Plan 章节
 ```
@@ -55,34 +56,39 @@
 
 ### 阶段衔接：通过事件流解耦
 
-阶段 skill 之间不直接互调，全部通过 append `plan_event` + 读投影视图触发：
+阶段之间不直接互调，全部通过 append `plan_event` + 读投影视图触发。每次 cron 周期一次性跑通：
 
 ```
-observe 写 observe event
-   ↓ (plan 读 latest_observe)
-plan    写 intent event（含 phase / gate）
-   ↓ (preflight 读 current_intent + latest_observe 判 verdict)
-execute 写 order + fill event
-   ↓ (chain 闭合：append intent with phase=closed)
-review  写 review 记录
+observe 拉账户快照 + 对账 + 拉市场数据
    ↓
-iterate 沉淀进 STRATEGY-POOL
+对每条 open chain：
+  agent LLM 读 current_plan + latest_observe + constitution + strategy.policy_md 判动作
+   ↓
+preflight（硬 invariant + 机械 / LLM constitution）
+   ↓ (verdict=armable)
+execute 提交动作 → append order_fill
+   ↓
+本轮收尾 append observe（含意图段 + 证据段 + preflight_result + decision_summary）
+   ↓ (chain 关闭时)
+review  append review 事件 + plan_chain.state='closed'
+   ↓
+run_log 写本轮元数据
 ```
 
-好处：用户中断重启后，任意阶段都能"读事件流接续"，匹配 vision.md "链条不中断"。投影视图即时计算，不维护 stale 标记。
+好处：cron 任意阶段失败就 abort，下次 cron 重跑读最新事件流接续。投影视图即时计算，不维护 stale 标记。
 
 ### Stage 简介
 
 | Stage | 干什么 | 调用的功能 skill |
 | --- | --- | --- |
-| **observe** | 拉数据 / 补 checklist / 识别 regime / 算跨链 exposure / 检测账户事实失真（原 recovery 概念已合并入此）。产出写成 observe event | `binance-account-snapshot`, `binance-symbol-snapshot`, `ohlcv-fetch`, `tech-indicators`, `binance-market-scan` |
-| **plan** | 生成或更新 intent event，调 `plan-preflight` 跑硬 invariant + constitution 判定，匹配 STRATEGY-POOL 策略 | `plan-preflight`, `binance-account-snapshot`（兜底）+ 读 STRATEGY-POOL |
-| **execute** | 预检 → 下单 → 回填，产出写成 order + fill event | `binance-order-preview`, `binance-order-place`, `binance-position-protect`, `binance-position-adjust` |
-| **review** | chain 闭合后写 review 记录 | — |
-| **backtest** | 跑历史样本验证假设（远期） | `ohlcv-fetch` |
-| **iterate** | REVIEW 产出沉淀进 STRATEGY-POOL（远期） | — |
+| **observe** | 拉账户快照 + 对账 + 拉市场数据 + 识别 regime / 算跨链 exposure。本轮收尾时 append 完整 observe（含意图段 + 证据段 + preflight_result + decision_summary） | `binance-account-snapshot`, `binance-symbol-snapshot`, `ohlcv-fetch`, `tech-indicators`, `binance-market-scan` |
+| **plan** | 对每条 open chain：LLM 读 current_plan + latest_observe + constitution 决定本轮动作；调 `plan-preflight` 跑硬 invariant + constitution 判定 | `plan-preflight`, `binance-account-snapshot`（兜底）+ 读 strategy_pool |
+| **execute** | 预检 → 下单 → 回填，append order_fill 事件 | `binance-order-preview`, `binance-order-place`, `binance-position-protect`, `binance-position-adjust` |
+| **review** | chain 关闭后写 review 事件（5 个必填字段 + notes 自由 markdown） | — |
+| **backtest** | 跑历史样本验证假设（远期，30+ closed chain 后） | `ohlcv-fetch` |
+| **iterate** | REVIEW 产出沉淀进 strategy_pool（远期） | — |
 
-注：旧版文档中的 RECOVERY 概念已不作为独立阶段，本质就是 observe 内的账户对齐。`vision.md` / `user-story.md` 已对齐到这一表述。
+注：cron 模式下"分阶段"是逻辑划分，每次 cron 周期一次性跑完 observe → plan → execute → (review)。不是用户主动一次次切阶段。
 
 ---
 
@@ -121,7 +127,7 @@ iterate 沉淀进 STRATEGY-POOL
 
 **类型**：SQLite
 
-**schema 来源**：[design-architecture.md](design-architecture.md) 数据库存储章节
+**schema 来源**：[tech-spec.md](tech-spec.md) §12（6 张表：plan_chain / plan_event / plan_relation / strategy_pool / review / run_log）
 
 **操作入口**：`trade-flow/scripts/db/` 下的 repo 模块
 
@@ -133,19 +139,20 @@ iterate 沉淀进 STRATEGY-POOL
 
 第一阶段只做：
 
-- ✅ trade-flow 套件骨架（`SKILL.md` + `stages/observe/STAGE.md` + `stages/plan/STAGE.md`）
-- ✅ `scripts/db/` 下 5 张表 schema + chain-repo / event-repo / projection
-- ✅ `plan-preflight` skill：硬 invariant 代码 + constitution.md 条款 + DECISION_CARD 渲染
+- ✅ trade-flow 套件骨架（`SKILL.md` + `stages/observe/STAGE.md` + `stages/plan/STAGE.md` + `stages/execute/STAGE.md`）
+- ✅ `scripts/db/` 下 6 张表 schema + chain-repo / event-repo / run-log-repo / projection
+- ✅ `plan-preflight` skill：硬 invariant 代码 + constitution.md 条款 + 6 行 DECISION_CARD 渲染
 - ✅ 现有功能 skill 全部保持现状，**不动不迁**
+- ✅ cron 运维必备：clientOrderId 前缀幂等 + abort 偏保守 + run_log + 异常通知
 
 先不做：
 
-- ❌ stages/execute/STAGE.md 详细流程（先靠主 agent 编排现有 binance-* 功能 skill）
-- ❌ stages/review/STAGE.md 详细流程（积累 5-10 个闭合 chain 后再设计）
-- ❌ stages/backtest / iterate（远期）
+- ❌ stages/review/STAGE.md 详细流程（积累 5-10 个 closed chain 后再细化；MVP 阶段 chain 关闭即写 review，shape 见 design-architecture）
+- ❌ stages/backtest / iterate（30+ closed chain 后再展开）
 - ❌ A 类功能 skill 迁入套件 tools/（套件骨架稳定后再做）
-- ❌ STRATEGY-POOL namespace + 微策略两层结构（积累 50+ closed chain 后再展开）
+- ❌ strategy_pool namespace + 微策略两层结构（30+ closed chain 后再展开）
 - ❌ constitution 条款分类字段（条款 ≥ 30 条再考虑）
+- ❌ hedge 多腿（plan_relation + S-HEDGE-GENERIC 推迟到真有对冲需求）
 
 ---
 

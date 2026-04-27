@@ -151,7 +151,32 @@ RAVE skill 降级链路：build-skills.sh 打包失败 → 复用已编好的 bi
 
 ---
 
-## 七、对话素材沉淀机制
+## 七、产品边界从全能交易平台收敛到 4H+ swing cron 自动化执行器
+
+**核心发现**
+
+- 一开始的 design-architecture 把 plan 设计得像"全能交易平台的 plan 对象"：6 种 trigger 枚举、tranches/targets/management 三层结构化字段、(phase, gate) 5 状态机、7 种 event kind、probe 通道、hedge 子链。从交易员视角打分 8/10，从用户实际产品定义视角打分跌到 6.5/10。
+- 用户最终澄清的产品定义只有一句："只做 4H+ swing、不做 probe、不打算日内化。挂在 Claude routines 或 Codex schedule 上每 1H 或 4H 自动跑的自动化赚钱机器，用简单有效的策略。" 这一行把"为什么需要硬 trigger / 多状态 / 多 event kind"的论据从根上掐掉一半——4H 收盘是离散事件，跑得慢、token 成本可接受、无需亚秒级一致性。
+- 简化后的硬底线只剩两条：成交后账户累计 open risk ≤ equity × `max_open_risk_pct`、单日累计亏损 ≥ -(equity × `max_day_loss_pct`)。其余规则全收进 constitution.md 自然语言，新增规则 = markdown 加一句话。
+- plan 字段二分法：硬字段只承载"会让账户爆仓的"（symbol/side/stop_price/risk_budget_usdt/strategy_ref），软字段全自然语言（thesis/entry_intent/exit_intent/invalidation），agent 每次 cron 跑都重新读判断。trigger / tranches / targets / management / max_holding_minutes 全部收进自然语言字段。
+- 状态机从 (phase, gate) 5 档简化为 open/closed 两态。"挂单中 vs 持仓中"由 `current_orders + current_position` 视图自然体现，不需要预标记。
+- event kind 从 7 种砍到 3 种：observe（含意图段 + 证据段 + preflight_result + decision_summary 一切）/ order_fill / review。intent / note / check 三种事件全合进 observe。
+- DECISION_CARD 从 8 行压到 6 行；REVIEW 必填字段从 12 个砍到 5 个 + notes 自由 markdown。
+- 自动化运维成为一等公民：clientOrderId 前缀幂等、abort 偏保守、run_log 元数据表、异常通知（硬 invariant 拒动作 / 对账连续 stuck / 日内亏损接近底线 / API 连续失败 / 连续亏损 / chain 关闭）。
+
+**典型设计转折（Apr 27）**
+
+设计版本 → 用户澄清"我只做 4H+ swing 不做 probe"→ 我重算硬 trigger 必要性（4H 收盘离散、token 成本~$0.5/plan 可接受、用户单兵作战审计价值低）→ 把 trigger 6 种枚举降级到 entry_intent 自然语言 → 顺势把 tranches / targets / management 也降级 → 顺势把 (phase, gate) 简化为 open/closed → 顺势把 event kind 砍到 3 种 → 同时新增 cron 运维章节（幂等 / abort / run_log / 通知）。这一连串简化都来自同一条产品边界：cron 跑而不是用户逐笔下单。
+
+**PRD 候选主题**
+
+- 产品边界优先于架构：先明确"用户挂在 cron 上还是逐笔交互"，再决定 plan 结构 / 状态机 / event kind 的复杂度。同一份"plan 设计"在两种使用场景下应该完全不同
+- 用户单兵自动化执行器的反向裁剪信号：硬字段只服务"会爆仓"、其余全自然语言、每次 cron 跑重读、新增规则 = 加一句 markdown
+- cron 自动化的运维一等公民：幂等（clientOrderId 前缀）/ 偏保守 abort / run_log / 异常通知。这些不能在 MVP 后期补，必须和功能逻辑一起出生
+
+---
+
+## 八、对话素材沉淀机制
 
 **核心发现**
 
