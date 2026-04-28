@@ -161,15 +161,13 @@ LLM 读 `plan.exposure`（同簇标签）+ 跨链聚合视图（按 cluster redu
 
 ---
 
-## R-RECON-CHAIN-NOT-STUCK — 对账 stuck 的 chain 不得继续动作
+## R-RECON-CHAIN-NOT-STUCK — 对账差异不为零的 chain 不得继续动作
 
 scope: `target_action != no_action`
 
-代码读本 chain 最近 N 条 observe 的 `reconcile_diffs`：连续 ≥ 3 轮非空即视为 stuck，拒所有新动作直至人工介入。
+最近 observe 的 `reconcile_diffs` 非空即拒（事件流与交易所失同步时再下单等于盲打）。连续 ≥ 3 轮非空 → escalation：触发 stuck 通知强制人工介入。
 
-违反直接拒。代码兜底（reduce 历史 observe）。
-
-why: 事件流与交易所失同步时再下单等于盲打。
+违反直接拒。代码兜底（读 latest observe + reduce 历史）。
 
 如要绕：append 一条 observe 时显式记录人工核对结论（自然语言 `decision_summary`），LLM 在下轮 preflight 中据此判定 stuck 已解除。
 
