@@ -93,7 +93,7 @@
 ```text
 [REVIEW / 外部研究输入]
   |
-  +--> 产出：candidate hypothesis / rule --> [主 agent 研究调度]
+  +--> 产出：candidate hypothesis / policy change --> [主 agent 研究调度]
        |
        +--> 派发 subagent
        |    适用：抽假设 / 收敛规则 / 局部自测

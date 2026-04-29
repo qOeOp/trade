@@ -60,9 +60,9 @@
 observe 拉账户快照 + 对账 + 拉市场数据
    ↓
 对每条 active flow：
-  agent LLM 读 current_plan + latest_observe + rules.md + strategy.policy 判动作
+  agent LLM 读 current_plan + latest_observe + strategy.policy + flow semantics 判动作
    ↓
-preflight（rules：代码爆仓护栏 + 代码数据卫生 + LLM 判）
+preflight（hard guards + card validation）
    ↓ (verdict=armable)
 execute 提交动作 → append order_fill
    ↓
@@ -80,7 +80,7 @@ cron.log 追加本轮元数据
 | Stage | 干什么 | 调用的功能 skill |
 | --- | --- | --- |
 | **observe** | 拉账户快照 + 对账 + 拉市场数据 + 识别 regime / 算跨链 exposure。本轮收尾时 append 完整 observe（含意图段 + 证据段 + preflight_result + decision_summary） | `binance-account-snapshot`, `binance-symbol-snapshot`, `ohlcv-fetch`, `tech-indicators`, `binance-market-scan` |
-| **plan** | 对每条 active flow：LLM 读 current_plan + latest_observe + rules.md 决定本轮动作；调 `plan-preflight` 跑三段（爆仓护栏 + 数据卫生 + LLM 判） | `plan-preflight`, `binance-account-snapshot`（兜底）+ 读 `strategies/*.md` |
+| **plan** | 对每条 active flow：LLM 读 current_plan + latest_observe + strategy.policy + flow semantics 决定本轮动作；调 `plan-preflight` 跑 hard guards 与卡片校验 | `plan-preflight`, `binance-account-snapshot`（兜底）+ 读 `strategies/*.md` |
 | **execute** | 预检 → 下单 → 回填，append order_fill 事件 | `binance-order-preview`, `binance-order-place`, `binance-position-protect`, `binance-position-adjust` |
 | **review** | 某次仓位 / plan 阶段性闭合后写 review 事件（5 个必填字段 + notes 自由 markdown） | — |
 | **backtest** | 跑历史样本验证假设（远期，30+ review 样本后） | `ohlcv-fetch` |
@@ -125,7 +125,7 @@ cron.log 追加本轮元数据
 
 **类型**：SQLite
 
-**schema 来源**：[tech-spec.md](tech-spec.md) §12（1 张事件表 `plan_event`，含 JSON body；rules / strategies / configs / OHLCV 走文件）
+**schema 来源**：[tech-spec.md](tech-spec.md) §12（1 张事件表 `plan_event`，含 JSON body；strategies / configs / OHLCV 走文件）
 
 **操作入口**：`trade-flow/scripts/db/` 下的 repo 模块
 
@@ -139,7 +139,7 @@ cron.log 追加本轮元数据
 
 - ✅ trade-flow 套件骨架（`SKILL.md` + `stages/observe/STAGE.md` + `stages/plan/STAGE.md` + `stages/execute/STAGE.md`）
 - ✅ `scripts/db/` 下 plan_event 单表 schema + event-repo + projection
-- ✅ `plan-preflight` skill：代码爆仓护栏 + 代码数据卫生 + LLM 读 rules.md + 6 行 DECISION_CARD 渲染
+- ✅ `plan-preflight` skill：flow semantics + hard guard 脚本 + 6 行 DECISION_CARD 渲染
 - ✅ 现有功能 skill 全部保持现状，**不动不迁**
 - ✅ cron 运维必备：clientOrderId 前缀幂等 + abort 偏保守 + cron.log + 异常通知
 
@@ -149,8 +149,8 @@ cron.log 追加本轮元数据
 - ❌ stages/backtest / iterate（30+ review 样本后再展开）
 - ❌ A 类功能 skill 迁入套件 tools/（套件骨架稳定后再做）
 - ❌ `strategies/` 目录二层结构（namespace + 微策略，30+ review 样本后再展开）
-- ❌ rules 分组（H2/H3 主题分块，rule 数 ≥ 20 条再考虑）
-- ❌ hedge 多腿（推迟到真有对冲需求；届时增设 plan_relation 表 + S-HEDGE-GENERIC + 升级 R-RISK-OPEN-CAP 公式）
+- ❌ hard guard registry 单独抽象（guard 数明显增多后再考虑）
+- ❌ hedge 多腿（推迟到真有对冲需求；届时增设 plan_relation 表 + S-HEDGE-GENERIC + 升级 G-RISK-OPEN-CAP 公式）
 
 ---
 

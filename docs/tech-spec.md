@@ -23,7 +23,7 @@
 - `开仓函数`
   当前只指 `USDM 主单落地`，不包含保护、减仓、撤单。
 - `live equity`
-  定义：最近一条 `observe` 事件里 `account.equity_usdt` 的值；爆仓护栏（`R-RISK-OPEN-CAP` / `R-RISK-DAY-FLOOR`）的实时计算基准，不落 `account_config`
+  定义：最近一条 `observe` 事件里 `account.equity_usdt` 的值；爆仓护栏（`G-RISK-OPEN-CAP` / `G-RISK-DAY-FLOOR`）的实时计算基准，不落 `account_config`
 - `current_plan`
   定义：当前策略流最近一条 `observe.body` 的"意图段"
   - 必填：symbol / side / stop_price / risk_budget_usdt / strategy_ref / thesis / entry_intent / exit_intent / invalidation / expected_rr_net
@@ -464,8 +464,8 @@ cron 自动化模式必须保证：
 2. **abort 偏保守**：cron agent 任意阶段失败 → 只 append 已写入的 observe，不补做后续。下次 cron 重跑读最新事件流决定动作；不确定就 `no_action`。
 3. **本地运维日志**：每次 cron 跑追加一行到 `./data/cron.log`，承载 `run_id / triggered_at / duration_ms / chains_processed / actions_taken / errors / next_cron_at`。文本日志，不入 DB；分析需求出现时再升 SQLite。
 4. **异常通知**（通道由 `./data/notify_config.json` 配置；缺则只写本地日志）：
-   - 爆仓护栏（`R-RISK-*`）拒新动作
-   - cron / preflight / Binance API 持续失败（含 `R-RECON-CHAIN-NOT-STUCK` 触发的对账 stuck escalation）
+   - 爆仓护栏（`G-RISK-*`）拒新动作
+   - cron / preflight / Binance API 持续失败（含 `G-RECON-NOT-STUCK` 触发的对账 stuck escalation）
    - 重大 PnL 事件（接近 `max_day_loss_pct` / 连续亏损达 `max_consecutive_losses`）
 
 ## 11. 当前结论
@@ -524,7 +524,6 @@ CREATE INDEX idx_obs_symbol ON plan_event(
 
 | 内容 | 介质 | 位置 |
 | --- | --- | --- |
-| Rules | Markdown | `.agents/skills/plan-preflight/rules.md` |
 | Strategy policy | Markdown 文件（一文件一 strategy，含 frontmatter） | `.agents/skills/trade-flow/strategies/*.md` |
 | Account config | JSON | `./data/account_config.json` |
 | Notify config | JSON | `./data/notify_config.json` |
@@ -555,8 +554,8 @@ trade-flow 启动时遍历 `strategies/*.md`，按 frontmatter 索引到内存 m
 - `body_json` 不做数据库层 schema 强约束（除 `json_valid`）；shape 由 `kind` 决定，应用层校验
 - `observe.body_json` 必须是"最小完整快照"（含意图段 + `action_intent` + 证据段 + `preflight_result` + `decision_summary`），不是 patch
 - `observe.body_json` 意图段的 `stop_ladder` / `takeprofit_ladder` / `risk_budget_change` 字段可选；写入时遵循：
-  - `stop_ladder` 单调（long: trigger_price 与 new_stop 同向递增；short 反向）—— `R-STOP-LADDER-MONOTONIC`
-  - `takeprofit_ladder.qty_ratio` 之和 ≤ 1.0 —— `R-TP-LADDER-RATIO-CAP`
+  - `stop_ladder` 单调（long: trigger_price 与 new_stop 同向递增；short 反向）—— `G-STOP-LADDER-MONOTONIC`
+  - `takeprofit_ladder.qty_ratio` 之和 ≤ 1.0 —— `G-TP-LADDER-RATIO-CAP`
   - ladder 是软触发：agent 每轮读 ladder + 当前 mark + order_fill 历史自行决定是否发 `sync_protection`；preflight 不做"已触发档位"的机械 reduce
   - `risk_budget_change` 在 `risk_budget_usdt` 与上一条 observe 不同时建议填，由 LLM 在自然语言层面判完整性
 - `order_fill.body_json` shape 见 [design-architecture.md §order_fill.body shape](design-architecture.md)；`source: trade_flow | reconcile` 标识来源（主动 vs 对账推断）；可选 `source_observe_event_key` 引用本笔 fill 对应的决策 observe
@@ -564,7 +563,7 @@ trade-flow 启动时遍历 `strategies/*.md`，按 frontmatter 索引到内存 m
 - `chain_id` 由 trade-flow 在某策略首次上线时生成 UUID，写进 first observe 的 `plan_event.chain_id`；后续该策略流沿用同一 `chain_id`
 - 微结构 / 市场数据直接内嵌 `observe.body.microstructure`；不建独立 market_snapshot 表（单 flow 单 symbol 阶段不需去重；多 flow 同 symbol 并行出现时再抽）
 - 投影视图不落库；`trade-flow / preflight / reducer` 读时计算
-- Rules 池不作为表存在；规则总集只放 `.agents/skills/plan-preflight/rules.md`
+- 不再维护 `rules.md` 总表；flow semantics 直接写在主流程文档里，hard guards 直接走代码或脚本
 - Strategy 池不作为表存在；strategy 走 markdown 文件，frontmatter 即元数据
 
 ### 12.5 投影视图
@@ -587,8 +586,7 @@ trade-flow 启动时遍历 `strategies/*.md`，按 frontmatter 索引到内存 m
 ```sql
 -- 读全部已 bootstrap 的 flows（cron 入口上游还需按 strategy status 过滤）
 SELECT chain_id FROM plan_event
-GROUP BY chain_id
-HAVING SUM(CASE WHEN kind='review' THEN 1 ELSE 0 END) = 0;
+GROUP BY chain_id;
 
 -- 读当前 plan / 最新证据
 SELECT body_json FROM plan_event
@@ -632,8 +630,9 @@ ORDER BY created_at DESC LIMIT 1;
 - **一张表搞定**：`plan_event` 承载所有事件流。chain 是 GROUP BY 的语义概念，没有独立表；state / symbol / strategy_ref 全是从 events 投影
 - **关系列 + JSON body 混合**：关系列（`chain_id / kind / created_at`）让 SQL 高效索引和聚合；JSON body 让每种 kind 自带 shape，新增 kind 不需要 schema migration
 - **不引入 MongoDB / 文档库**：单进程 cron + MVP 体量（< 10k events/月）下 SQLite JSON1 扩展完全够用，多一套服务的运维成本不值
-- **rules / strategy 不入 DB**：人编辑 + LLM 直读的资产走 markdown 文件最自然（`rules.md` / `strategies/*.md`），git history 即版本记录
+- **strategy 不入 DB**：strategy 走 markdown 文件最自然（`strategies/*.md`），git history 即版本记录
+- **flow semantics / hard guards 不入 DB**：前者直接写在主流程文档里，后者直接走代码或脚本
 - **微结构不抽独立表**：单 flow 单 symbol 阶段直接内嵌 `observe.body.microstructure`；同 symbol 多 flow 并行场景出现后再抽 `market_snapshot`
 - **无 action_contract 票据**：本轮已收敛的可执行动作直接写在 `observe.body.action_intent.request`，EXECUTE 读 `latest_observe` 消费；同进程顺序调用不需要跨进程票据机制（PLAN/EXECUTE 真的拆跨进程时再加）
-- **chain 状态不存表**：`open` / `closed` 由"是否存在 review event"投影；不需要 `plan_chain.state` 列
+- **flow 状态不存表**：是否活跃由 strategy 是否启用、flow 是否已 bootstrap 决定；`review` 只记样本，不作为 closed 标记
 - **数据库规格放本文件**，[design-architecture.md](design-architecture.md) 只保留设计图、状态流和模型边界
