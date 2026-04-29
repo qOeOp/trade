@@ -563,7 +563,7 @@ trade-flow 启动时遍历 `strategies/*.md`，按 frontmatter 索引到内存 m
 - `chain_id` 由 trade-flow 在某策略首次上线时生成 UUID，写进 first observe 的 `plan_event.chain_id`；后续该策略流沿用同一 `chain_id`
 - 微结构 / 市场数据直接内嵌 `observe.body.microstructure`；不建独立 market_snapshot 表（单 flow 单 symbol 阶段不需去重；多 flow 同 symbol 并行出现时再抽）
 - 投影视图不落库；`trade-flow / preflight / reducer` 读时计算
-- 不再维护 `rules.md` 总表；flow semantics 直接写在主流程文档里，hard guards 直接走代码或脚本
+- flow semantics 直接写在主流程文档里，hard guards 直接走代码或脚本
 - Strategy 池不作为表存在；strategy 走 markdown 文件，frontmatter 即元数据
 
 ### 12.5 投影视图

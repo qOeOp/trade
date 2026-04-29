@@ -167,7 +167,7 @@ CREATE INDEX idx_kind_chain ON plan_event(kind, chain_id);
 
 ## Flow Semantics
 
-这里不再设一份大的 `rules.md` 让 LLM 逐条阅读。流程语义直接内嵌在主流程、stage 文档和 strategy policy 的解释口径里。
+流程语义直接内嵌在主流程、stage 文档和 strategy policy 的解释口径里。
 
 ### MVP 固定语义
 
@@ -199,7 +199,7 @@ MVP 先固定以下几项：
 | `G-TP-LADDER-RATIO-CAP` | takeprofit_ladder.qty_ratio 之和 ≤ 1.0 | 防止止盈超配 |
 | `G-RECON-NOT-STUCK` | 对账差异 ≠ 0 即拒；连续 ≥ 3 轮通知人工 | 防止脏状态继续推进 |
 
-hard guard 用脚本或代码实现，语言和路径在实现时再定；当前只固定口径，不提前固定成某个 `rules.md` 或特定 shell 目录。
+hard guard 用脚本或代码实现，语言和路径在实现时再定；当前只固定口径，不提前固定具体实现目录。
 
 ### 爆仓护栏（G-RISK-OPEN-CAP / G-RISK-DAY-FLOOR）
 
