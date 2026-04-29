@@ -5,7 +5,7 @@
 - 本文件只讨论 `Binance USDM` 执行层 + `trade.db` 持久化。
 - 项目层固定：只做 USDM 永续 4H+ swing；外部 cron（Claude routines / Codex schedule）按 1H / 4H 触发。
 - 当前重点是 `合约开仓`，但为避免后续接口命名漂移，仍把相关 skill 一并列清。
-- 每次 cron 触发的链路：`OBSERVE → 对每条启用策略流决策 → EXECUTE → 某次阶段性闭合时即时 REVIEW`
+- 每次 cron 触发的链路：`OBSERVE → 按启用 lane 决策 → EXECUTE → 某条 flow 闭合时即时 REVIEW`
 - 即使用户已经明确给出 `标的 / 方向 / 笔数 / 杠杆 / 保证金额`，也仍先 append `observe`（含意图段），再执行。
 
 ## 2. 共享口径
@@ -25,7 +25,7 @@
 - `live equity`
   定义：最近一条 `observe` 事件里 `account.equity_usdt` 的值；爆仓护栏（`G-RISK-OPEN-CAP` / `G-RISK-DAY-FLOOR`）的实时计算基准，不落 `account_config`
 - `current_plan`
-  定义：当前策略流最近一条 `observe.body` 的"意图段"
+  定义：当前 flow 最近一条 `observe.body` 的"意图段"
   - 必填：symbol / side / stop_price / risk_budget_usdt / strategy_ref / thesis / entry_intent / exit_intent / invalidation / expected_rr_net
   - 可选：valid_until_at / stop_ladder / takeprofit_ladder / risk_budget_change
   - `stop_ladder`：止损推进梯度数组，`[{trigger_price, new_stop, reason}]`；agent 每轮读 ladder + 当前 mark + order_fill 历史自行决定是否发 `sync_protection`（软触发，preflight 不做机械 reduce）
@@ -42,6 +42,7 @@
 
 - 只读账户快照。
 - 负责给 `PLAN` 与 `EXECUTE` 提供账户事实源。
+- 也负责给 cron 对账阶段提供“补 event”所需的事实输入。
 - 不负责执行动作。
 
 ### 3.2 当前读取范围
@@ -70,6 +71,7 @@
 
 - 它能把普通挂单和保护单分开，但分类仍是启发式。
 - 当前历史读取仍是 `symbol-scoped`，不能一次直接拉全账户所有 symbol 的完整历史订单。
+- 对账阶段若仅靠快照无法解释状态变化，应按 `symbol` 补读历史订单 / 成交，再决定是否补 `source=reconcile` 事件。
 - 对 `OTO / OTOCO` 母单，公共 API 可能读不到附带 TP/SL 细节，只能标记“需要人工确认”。
 
 ### 3.5 对开仓函数的意义
@@ -558,9 +560,9 @@ trade-flow 启动时遍历 `strategies/*.md`，按 frontmatter 索引到内存 m
   - `takeprofit_ladder.qty_ratio` 之和 ≤ 1.0 —— `G-TP-LADDER-RATIO-CAP`
   - ladder 是软触发：agent 每轮读 ladder + 当前 mark + order_fill 历史自行决定是否发 `sync_protection`；preflight 不做"已触发档位"的机械 reduce
   - `risk_budget_change` 在 `risk_budget_usdt` 与上一条 observe 不同时建议填，由 LLM 在自然语言层面判完整性
-- `order_fill.body_json` shape 见 [design-architecture.md §order_fill.body shape](design-architecture.md)；`source: trade_flow | reconcile` 标识来源（主动 vs 对账推断）；可选 `source_observe_event_key` 引用本笔 fill 对应的决策 observe
-- `review.body_json` 由某次仓位 / plan 阶段性闭合时写入；同一条策略流可累计多条 `review`，不通过 `review` 关闭整条流；shape 见 [design-architecture.md §REVIEW → review.body shape](design-architecture.md)
-- `chain_id` 由 trade-flow 在某策略首次上线时生成 UUID，写进 first observe 的 `plan_event.chain_id`；后续该策略流沿用同一 `chain_id`
+- `order_fill.body_json` shape 见 [design-architecture.md §order_fill.body shape](design-architecture.md)；`source: trade_flow | reconcile` 标识来源（主动执行 vs 对账补录）；可选 `source_observe_event_key` 引用本笔 fill 对应的决策 observe
+- `review.body_json` 由某次仓位 / plan 阶段性闭合时写入；单条 flow 默认只写 1 条 terminal `review`；同一 lane 会跨多条历史 flow 累积多条 `review`；shape 见 [design-architecture.md §REVIEW → review.body shape](design-architecture.md)
+- `chain_id` 由 trade-flow 在某 lane 当前无 active flow 且本轮识别到新 setup 时生成 UUID，写进 first observe 的 `plan_event.chain_id`；同一笔机会后续沿用该 `chain_id`，同一 lane 后续新机会再开新 `chain_id`
 - 微结构 / 市场数据直接内嵌 `observe.body.microstructure`；不建独立 market_snapshot 表（单 flow 单 symbol 阶段不需去重；多 flow 同 symbol 并行出现时再抽）
 - 投影视图不落库；`trade-flow / preflight / reducer` 读时计算
 - flow semantics 直接写在主流程文档里，hard guards 直接走代码或脚本
@@ -570,9 +572,10 @@ trade-flow 启动时遍历 `strategies/*.md`，按 frontmatter 索引到内存 m
 
 | 投影 | 语义 | 实现 |
 | --- | --- | --- |
-| `strategy_flows` | 全部策略流 | `SELECT chain_id, MIN(created_at) AS bootstrapped_at, MAX(created_at) AS last_event_at FROM plan_event GROUP BY chain_id` |
-| `active_flows` | 当前启用策略的流 | 由 strategy 配置 / bootstrap 结果决定；不再通过 `review` 反推 closed |
-| `flow_meta(flow_id)` | flow 的 symbol / strategy_ref / bootstrapped_at | latest `observe.body` 的 `symbol / strategy_ref`；`bootstrapped_at` 来自 `strategy_flows` |
+| `flows` | 全部历史 / 活跃 flow | `SELECT chain_id, MIN(created_at) AS bootstrapped_at, MAX(created_at) AS last_event_at FROM plan_event GROUP BY chain_id` |
+| `lane_index` | `strategy_ref + symbol + side` 的运行槽位索引 | latest `observe.body` 投影；MVP 每 lane 同时最多 1 条 active flow |
+| `active_flows` | 当前启用 lane 上未闭合的 flow | 由 strategy 配置 + lane 扫描结果决定；terminal `review` 写入后退出 active 集合 |
+| `flow_meta(flow_id)` | flow 的 lane 定位 / bootstrapped_at | latest `observe.body` 的 `strategy_ref / symbol / side`；`bootstrapped_at` 来自 `flows` |
 | `current_plan` | 当前 flow 的意图段 | 取最近一条 `observe.body` 的意图段字段 |
 | `current_action_intent` | 当前 flow 本轮动作声明 | 取最近一条 `observe.body.action_intent`（含 `request`） |
 | `latest_observe` | 最新完整快照（含证据段） | 取最近一条 observe |
@@ -584,7 +587,7 @@ trade-flow 启动时遍历 `strategies/*.md`，按 frontmatter 索引到内存 m
 ### 12.6 常用读取路径
 
 ```sql
--- 读全部已 bootstrap 的 flows（cron 入口上游还需按 strategy status 过滤）
+-- 读全部历史 flows（cron 入口上游还需按 strategy status / lane 状态过滤）
 SELECT chain_id FROM plan_event
 GROUP BY chain_id;
 
@@ -613,11 +616,12 @@ SELECT body_json FROM plan_event
 WHERE chain_id=? AND kind='order_fill'
 ORDER BY created_at ASC;
 
--- chain_meta 投影 (symbol / strategy_ref)
+-- flow_meta 投影 (strategy_ref / symbol / side)
 SELECT
     chain_id,
+    json_extract(body_json, '$.strategy_ref')  AS strategy_ref,
     json_extract(body_json, '$.symbol')        AS symbol,
-    json_extract(body_json, '$.strategy_ref')  AS strategy_ref
+    json_extract(body_json, '$.side')          AS side
 FROM plan_event
 WHERE kind='observe' AND chain_id=?
 ORDER BY created_at DESC LIMIT 1;
@@ -627,12 +631,12 @@ ORDER BY created_at DESC LIMIT 1;
 
 ### 12.7 为什么这样落
 
-- **一张表搞定**：`plan_event` 承载所有事件流。chain 是 GROUP BY 的语义概念，没有独立表；state / symbol / strategy_ref 全是从 events 投影
+- **一张表搞定**：`plan_event` 承载所有事件流。chain 是具体 flow 的语义概念，没有独立表；lane / state / symbol / strategy_ref 全是从 events 投影
 - **关系列 + JSON body 混合**：关系列（`chain_id / kind / created_at`）让 SQL 高效索引和聚合；JSON body 让每种 kind 自带 shape，新增 kind 不需要 schema migration
 - **不引入 MongoDB / 文档库**：单进程 cron + MVP 体量（< 10k events/月）下 SQLite JSON1 扩展完全够用，多一套服务的运维成本不值
 - **strategy 不入 DB**：strategy 走 markdown 文件最自然（`strategies/*.md`），git history 即版本记录
 - **flow semantics / hard guards 不入 DB**：前者直接写在主流程文档里，后者直接走代码或脚本
-- **微结构不抽独立表**：单 flow 单 symbol 阶段直接内嵌 `observe.body.microstructure`；同 symbol 多 flow 并行场景出现后再抽 `market_snapshot`
+- **微结构不抽独立表**：单 flow 单 symbol 阶段直接内嵌 `observe.body.microstructure`；同 symbol 多 lane / flow 并行场景出现后再抽 `market_snapshot`
 - **无 action_contract 票据**：本轮已收敛的可执行动作直接写在 `observe.body.action_intent.request`，EXECUTE 读 `latest_observe` 消费；同进程顺序调用不需要跨进程票据机制（PLAN/EXECUTE 真的拆跨进程时再加）
-- **flow 状态不存表**：是否活跃由 strategy 是否启用、flow 是否已 bootstrap 决定；`review` 只记样本，不作为 closed 标记
+- **flow 状态不存表**：是否活跃由 strategy 是否启用、lane 是否命中，以及该 flow 是否已写 terminal `review` 共同决定
 - **数据库规格放本文件**，[design-architecture.md](design-architecture.md) 只保留设计图、状态流和模型边界
