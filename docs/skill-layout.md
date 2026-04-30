@@ -79,7 +79,7 @@ cron.log 追加本轮元数据
 
 | Stage | 干什么 | 调用的功能 skill |
 | --- | --- | --- |
-| **observe** | 拉账户快照 + 对账（先补 `source=reconcile` 事件，再留下 residual `reconcile_diffs`）+ 拉市场数据 + 识别 regime / 算跨链 exposure。本轮收尾时 append 完整 observe（含意图段 + 证据段 + preflight_result + decision_summary） | `binance-account-snapshot`, `binance-symbol-snapshot`, `ohlcv-fetch`, `tech-indicators`, `binance-market-scan` |
+| **observe** | 拉账户快照 + 对账（先补 `source=reconcile` 事件；若仍无法可靠归属则 abort 当前周期）+ 拉市场数据 + 识别 regime / 算跨链 exposure。本轮收尾时 append 完整 observe（含意图段 + 证据段 + preflight_result + decision_summary） | `binance-account-snapshot`, `binance-symbol-snapshot`, `ohlcv-fetch`, `tech-indicators`, `binance-market-scan` |
 | **plan** | 对每条 active flow：LLM 读 current_plan + latest_observe + strategy.policy + flow semantics 决定本轮动作；调 `plan-preflight` 跑 hard guards 与卡片校验 | `plan-preflight`, `binance-account-snapshot`（兜底）+ 读 `strategies/*.md` |
 | **execute** | 预检 → 下单 → 回填，append order_fill 事件 | `binance-order-preview`, `binance-order-place`, `binance-position-protect`, `binance-position-adjust` |
 | **review** | 某次仓位 / plan 阶段性闭合后写 review 事件（5 个必填字段 + notes 自由 markdown） | — |

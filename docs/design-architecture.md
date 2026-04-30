@@ -78,7 +78,6 @@ microstructure:                   # 当轮采集结果直接内嵌；shape 见 m
   notes: text?                    # agent 本轮一句话提炼
 catalyst: text                    # 持仓窗口内 high-impact 事件（无则 "none in window"）
 exposure: text                    # 同簇敞口判断（btc-beta / eth-eco / ...）
-reconcile_diffs: [...]            # 对账后仍未解决的残余差异（详见 §对账）
 preflight_result:
   verdict: armable | blocked | abstain
   blocked_by: [{check_id, reason}]   # 任一非空 → blocked
@@ -197,7 +196,6 @@ MVP 先固定以下几项：
 | `G-PLAN-INTENT-COMPLETE` | thesis / entry_intent / exit_intent / invalidation 必填非空 | 防止半成品 plan 落执行 |
 | `G-STOP-LADDER-MONOTONIC` | stop_ladder 单调 | 结构化止损推进卫生 |
 | `G-TP-LADDER-RATIO-CAP` | takeprofit_ladder.qty_ratio 之和 ≤ 1.0 | 防止止盈超配 |
-| `G-RECON-NOT-STUCK` | 只要存在残余对账差异，就拒加风险动作；连续 ≥ 3 轮通知人工 | 防止脏状态继续放大风险 |
 
 hard guard 用脚本或代码实现，语言和路径在实现时再定；当前只固定口径，不提前固定具体实现目录。
 
@@ -230,25 +228,6 @@ preflight 收成两步：
 2. 运行 hard guard 脚本，产出结构化 `blocked_by / warnings`
 
 任一 hard guard 失败，或 DECISION_CARD 渲染发现关键字段缺失 → preflight verdict = blocked，本轮拒新动作。
-
-### 对账护栏（G-RECON-NOT-STUCK）
-
-`reconcile` 不是先产出一个“diff 非空就全拦”的总开关，而是先把交易所已经发生、但本地事件流缺失的事实补回 `plan_event`。
-
-执行口径：
-
-1. 先用账户快照 + 历史订单 / 成交，尝试把可确定归属的变化补写为 `order_fill(source=reconcile)`
-2. 再 reduce 一次 flow 状态
-3. 只有仍解释不掉的残余差异，才写进 `observe.body.reconcile_diffs`
-
-guard 口径：
-
-- `reconcile_diffs` 非空时，拒 `place_entry`
-- `reconcile_diffs` 非空时，拒会增加暴露的 `adjust_position`
-- `reconcile_diffs` 非空时，允许明确的 `sync_protection`
-- `reconcile_diffs` 非空时，允许 reduce-only 的 `adjust_position`
-- `reconcile_diffs` 非空时，允许目标明确的 `cancel_order`
-- 若动作目标无法从交易所事实里确定归属，仍拒本轮动作并通知人工
 
 ### 复盘聚合
 
@@ -312,7 +291,7 @@ sequenceDiagram
     TF->>BN: 拉账户快照（持仓 / 挂单 / 余额）
     TF->>TF: 确认当前启用 strategy / lane；无 active flow 的 lane 可 bootstrap 新 flow
     TF->>DB: reduce 当前 active_flows
-    TF->>TF: 对账（先补 reconcile 事件；残余差异 → reconcile_diffs）
+    TF->>TF: 对账（能补 reconcile 事件就补；补不明白则 abort 当前周期）
     TF->>BN: 拉市场数据（内嵌进本轮 observe.body.microstructure）
 
     loop 每条 active flow
@@ -363,9 +342,9 @@ sequenceDiagram
 2. reduce 当前 active flows 的 `order_fill` 得 `current_orders` / `current_position`
 3. 必要时补读 symbol-scoped 历史订单 / 成交，尝试把缺失事实补写成 `order_fill(source=reconcile)`
 4. 再 reduce 一次 flow 状态
-5. 仍解释不掉的残余差异 → 写本轮 `observe.body.reconcile_diffs`
+5. 若仍无法可靠归属到当前 flow，就 abort 当前周期并通知人工；不额外持久化专门差异字段
 
-`reconcile_diffs` 只代表“对账后仍未解决的残余异常”，不是所有状态变化的总和。其处置由 `G-RECON-NOT-STUCK` 承载：本轮拒加风险动作，但允许明确的降风险 / 补保护动作；连续 ≥ 3 轮仍 unresolved 才 escalation 通知。
+MVP 不把“对账失败”设计成单独的持久状态字段，也不为它再加一层专门 hard guard。对账只是 cron 入口的恢复步骤：能恢复成 event 就继续，恢复不了就把本轮当作一次恢复失败处理。
 
 ---
 
@@ -397,7 +376,7 @@ notes: markdown?                # 自由 markdown：cost vs expected / signal ac
 **异常通知**（配置在 `./data/notify_config.json`，缺则只写本地日志）：
 
 - 关键 hard guard 拒新动作
-- cron / preflight / Binance API 持续失败（含对账 stuck）
+- cron / preflight / Binance API 持续失败（含对账恢复失败）
 - 重大 PnL 事件（接近 daily loss floor / 连续亏损达上限）
 
 具体阈值见 [tech-spec.md](tech-spec.md)。

@@ -12,7 +12,7 @@
 
 ### 固定要求
 
-- 每次 cron 跑都先 `OBSERVE`：拉账户快照 → reduce 当前已有 active flow 的 lane → 对账（先补 `source=reconcile` 事件，再留下 residual `reconcile_diffs`）→ 拉市场数据 → 对本轮命中的 lane 写一条完整 observe（含意图段 + 证据段 + preflight_result + decision_summary）。
+- 每次 cron 跑都先 `OBSERVE`：拉账户快照 → reduce 当前已有 active flow 的 lane → 对账（先补 `source=reconcile` 事件；若仍无法可靠归属则 abort 当前周期）→ 拉市场数据 → 对本轮命中的 lane 写一条完整 observe（含意图段 + 证据段 + preflight_result + decision_summary）。
 - `decision_summary` 必须明确写出本轮做了什么（`placed_order_X` / `cancelled_Y` / `moved_stop_Z` / `no_action`）。
 - `EXECUTE` 之前必须先过 `plan-preflight`：先按流程语义收敛动作，再跑 hard guard 脚本，并确保 DECISION_CARD 可渲染，三者同时通过才放行。
 - 任何执行动作的 `clientOrderId` 用 `<chain_id>-<seq>-<action>` 前缀，cron 重跑幂等。
@@ -23,7 +23,7 @@
 - 触发：外部 cron（Claude routines / Codex schedule）按 1H / 4H 频率触发 `trade-flow`。
 - 系统行为：
   - 拉账户快照（持仓 / 挂单 / 成交 / 余额）作为事实源
-  - 对已有 active flow 的 lane reduce 事件流；若交易所事实已发生但本地缺事件，先补写 `order_fill(source=reconcile)`；只把残余未解决差异写进 `observe.body.reconcile_diffs`
+  - 对已有 active flow 的 lane reduce 事件流；若交易所事实已发生但本地缺事件，先补写 `order_fill(source=reconcile)`；若仍无法可靠归属，本轮直接 abort 并通知
   - 拉 4H / 1H / 日 K + funding / OI / 关键墙位 / 最近爆仓
   - 每条启用 lane：若已有 active flow，LLM 读 `current_plan + observe + strategy.policy + flow semantics` 决定继续管理；若当前无 active flow，则判断是否要开新 flow
   - 跑 preflight，verdict=blocked 跳过 EXECUTE，仅 append observe；verdict=armable 提交动作后 append `order_fill` + observe
@@ -110,17 +110,16 @@
   - 平掉某条活跃 flow 中的持仓释放 open risk → 下次 cron 自动识别
   - 改 `account_config.json` 的 `max_open_risk_pct` / `max_day_loss_pct`（最不推荐，等于改风险底线）
 
-### US-07 对账连续 3 轮 stuck
+### US-07 对账阶段无法可靠补 event
 
-- 触发：同一条 flow 的 `observe.body.reconcile_diffs` 连续 ≥ 3 轮非空。
+- 触发：本轮对账发现交易所事实和本地事件流不一致，且补读历史订单 / 成交后仍无法可靠归属到当前 flow。
 - 系统行为：
-  - `G-RECON-NOT-STUCK` 先拒该 flow 的加风险新动作（`place_entry` / 加仓类 `adjust_position`）
-  - `sync_protection`、reduce-only `adjust_position`、以及目标明确的 `cancel_order` 仍可放行
-  - 推送通知，列出差异明细（事件流 vs 交易所）
+  - 当前 cron 周期直接 abort，不进入新的 `PLAN / EXECUTE`
+  - 推送通知，列出无法恢复的 symbol / flow / 原因
 - 用户介入路径：
-  - 在 Binance UI 手工对齐（撤孤儿单 / 平孤儿仓 / 补缺失保护单）
-  - 下一轮 cron 跑会发现差异消除，自动放行
-  - 若用户判断事件流错了，可手工往该 flow append 一条 observe，body 写明"reconcile manually accepted: <reason>"，下次 cron 视为已确认
+  - 在 Binance UI 或历史订单里确认实际发生了什么
+  - 若能确认，就把缺失事实补成对应 event，或等待下一轮 cron 自动恢复
+  - 若本轮只是 API / 网络偶发失败，下一轮 cron 重跑即可
 
 ### US-08 单日亏损接近底线
 

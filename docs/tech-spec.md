@@ -71,7 +71,7 @@
 
 - 它能把普通挂单和保护单分开，但分类仍是启发式。
 - 当前历史读取仍是 `symbol-scoped`，不能一次直接拉全账户所有 symbol 的完整历史订单。
-- 对账阶段若仅靠快照无法解释状态变化，应按 `symbol` 补读历史订单 / 成交，再决定是否补 `source=reconcile` 事件。
+- 对账阶段若仅靠快照无法解释状态变化，应按 `symbol` 补读历史订单 / 成交；能补 `source=reconcile` 事件就继续，不能可靠归属就直接把本轮当作恢复失败处理。
 - 对 `OTO / OTOCO` 母单，公共 API 可能读不到附带 TP/SL 细节，只能标记“需要人工确认”。
 
 ### 3.5 对开仓函数的意义
@@ -467,7 +467,7 @@ cron 自动化模式必须保证：
 3. **本地运维日志**：每次 cron 跑追加一行到 `./data/cron.log`，承载 `run_id / triggered_at / duration_ms / chains_processed / actions_taken / errors / next_cron_at`。文本日志，不入 DB；分析需求出现时再升 SQLite。
 4. **异常通知**（通道由 `./data/notify_config.json` 配置；缺则只写本地日志）：
    - 爆仓护栏（`G-RISK-*`）拒新动作
-   - cron / preflight / Binance API 持续失败（含 `G-RECON-NOT-STUCK` 触发的对账 stuck escalation）
+   - cron / preflight / Binance API 持续失败（含对账恢复失败）
    - 重大 PnL 事件（接近 `max_day_loss_pct` / 连续亏损达 `max_consecutive_losses`）
 
 ## 11. 当前结论
