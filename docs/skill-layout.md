@@ -45,33 +45,65 @@
 
 `< 300 行`。只放：
 
-- Router 规则（用户消息 → 哪个 stage）
+- Router 规则（用户消息 / cron 触发 → 哪个 stage；触发源含 `track=slow|fast` 标识）
 - 各 stage 一句话简介
 - 数据库位置 + 关键表名
-- 共享约定（如 client_order_prefix 命名规则）
+- 共享约定（如 client_order_prefix 命名规则、双轨写权限边界一句话）
 
 详细流程藏在 `stages/X/STAGE.md`，agent 路由后再 Read。这样单次对话只加载用得到的部分，避免套件膨胀负担。
 
+### 双轨调度入口
+
+`trade-flow` 接受两种触发模式（由调度方传 `--track slow|fast`）：
+
+| Track | 走的 stage 链 | LLM prompt 范围 |
+|---|---|---|
+| `slow` | observe（全量对账 + 拉市场数据）→ plan（完整 LLM 分析）→ execute → review？ | 完整：plan + market + strategy.policy + flow semantics |
+| `fast` | observe-light（per-flow 轻量对账）→ executor-only（trigger 检查 → 窄域 context 验证 → 快轨 preflight 子集 → 下单） | 窄域：只回答"latest action_intent 现在执行是否安全" |
+
+快轨不走 plan stage——它不重写 thesis、不发起加仓方向的新意图（除非是慢轨预设 trigger_condition 的执行）。详细职责矩阵见 [design-architecture.md §双轨](design-architecture.md)。
+
 ### 阶段衔接：通过事件流解耦
 
-阶段之间不直接互调，全部通过 append `plan_event` + 读投影视图触发。每次 cron 周期一次性跑通：
+阶段之间不直接互调，全部通过 append `plan_event` + 读投影视图触发。
+
+**慢轨周期**：
 
 ```
-observe 拉账户快照 + 对账补 event + 拉市场数据
+observe 拉账户快照 + 全量对账补 event + 拉市场数据
    ↓
 对每条 active flow：
-  agent LLM 读 current_plan + latest_observe + strategy.policy + flow semantics 判动作
+  agent LLM 读 current_plan + latest_observe + strategy.policy + flow semantics 判动作 + 写 trigger_condition
    ↓
-preflight（hard guards + card validation）
+preflight（hard guard 全集 + card validation）
    ↓ (verdict=armable)
-execute 提交动作 → append order_fill
+executor: trigger_condition 检查 → 落在 range 内则 execute，append order_fill
    ↓
-本轮收尾 append observe（含意图段 + 证据段 + preflight_result + decision_summary）
+本轮收尾 append observe(source=slow_track, 含意图段 + 证据段 + preflight_result + decision_summary)
    ↓ (某次阶段性闭合时)
 review  append review event（记录闭合样本并封口当前 flow）
    ↓
 cron.log 追加本轮元数据
 ```
+
+**快轨周期**：
+
+```
+对每条有效 action_intent 的 active flow：
+  per-flow 轻量对账（fresh account + symbol-scoped open orders）
+   ↓ (一致)
+  trigger_condition 检查（mark 在 range 内 + 未过期）
+   ↓ (命中)
+  G-SPREAD-CAP（仅加暴露立即执行）
+   ↓ (通过)
+  窄域 LLM context 验证（funding / 微观红旗扫描）
+   ↓ (无红旗)
+  快轨 preflight 子集（G-RISK-OPEN-CAP / G-RISK-DAY-FLOOR / G-SINGLE-POSITION-LEVERAGE-CAP / G-OBS-FRESH）
+   ↓ (verdict=armable)
+  executor: append order_fill + light observe(source=fast_track)
+```
+
+防御触发（invalidation 价位被穿）走快轨自主分支：组装 `cancel_order` / `sync_protection` 直接执行。
 
 好处：cron 任意阶段失败就 abort，下次 cron 重跑读最新事件流接续。投影视图即时计算，不维护 stale 标记。
 
@@ -79,14 +111,14 @@ cron.log 追加本轮元数据
 
 | Stage | 干什么 | 调用的功能 skill |
 | --- | --- | --- |
-| **observe** | 拉账户快照 + 对账（先补 `source=reconcile` 事件；若仍无法可靠归属则 abort 当前周期）+ 拉市场数据 + 识别 regime / 算跨链 exposure。本轮收尾时 append 完整 observe（含意图段 + 证据段 + preflight_result + decision_summary） | `binance-account-snapshot`, `binance-symbol-snapshot`, `ohlcv-fetch`, `tech-indicators`, `binance-market-scan` |
-| **plan** | 对每条 active flow：LLM 读 current_plan + latest_observe + strategy.policy + flow semantics 决定本轮动作；调 `plan-preflight` 跑 hard guards 与卡片校验 | `plan-preflight`, `binance-account-snapshot`（兜底）+ 读 `strategies/*.md` |
-| **execute** | 预检 → 下单 → 回填，append order_fill 事件 | `binance-order-preview`, `binance-order-place`, `binance-position-protect`, `binance-position-adjust` |
-| **review** | 某次仓位 / plan 阶段性闭合后写 review 事件（5 个必填字段 + notes 自由 markdown） | — |
+| **observe** | 慢轨：拉账户快照 + 全量对账（先补 `source=reconcile` 事件；若仍无法可靠归属则 abort 当前周期）+ 拉市场数据 + 识别 regime / 算跨链 exposure，本轮收尾 append 完整 observe(source=slow_track)。快轨：per-flow 轻量对账（fresh account + symbol-scoped open orders），mismatch 直接写 light observe 跳过 | `binance-account-snapshot`, `binance-symbol-snapshot`, `ohlcv-fetch`, `tech-indicators`, `binance-market-scan` |
+| **plan** | **仅慢轨走**。对每条 active flow：LLM 读 current_plan + latest_observe + strategy.policy + flow semantics 决定本轮动作 + 写 `action_intent.trigger_condition`；调 `plan-preflight` 跑 hard guard 全集与卡片校验。快轨不进 plan stage | `plan-preflight`, `binance-account-snapshot`（兜底）+ 读 `strategies/*.md` |
+| **execute** | 慢轨/快轨共用。读 latest action_intent 的 trigger_condition → mark 在 range 内则刷新执行事实 → 跑当前 track 的 preflight 子集 → preview → 下单 → 回填 order_fill。快轨额外做窄域 LLM context 验证 | `binance-order-preview`, `binance-order-place`, `binance-position-protect`, `binance-position-adjust` |
+| **review** | 仅慢轨写。某次仓位 / plan 阶段性闭合后写 review 事件（5 个必填字段 + notes 自由 markdown） | — |
 | **backtest** | 跑历史样本验证假设（远期，30+ review 样本后） | `ohlcv-fetch` |
 | **iterate** | REVIEW 产出沉淀进 `strategies/`（远期） | — |
 
-注：cron 模式下"分阶段"是逻辑划分，每次 cron 周期一次性跑完 observe → plan → execute → (review)。不是用户主动一次次切阶段。
+注：cron 模式下"分阶段"是逻辑划分。慢轨周期一次性跑完 observe → plan → execute → (review)；快轨周期跑 observe(轻) → execute（不进 plan / review）。不是用户主动一次次切阶段。
 
 ---
 
@@ -137,11 +169,12 @@ cron.log 追加本轮元数据
 
 第一阶段只做：
 
-- ✅ trade-flow 套件骨架（`SKILL.md` + `stages/observe/STAGE.md` + `stages/plan/STAGE.md` + `stages/execute/STAGE.md`）
-- ✅ `scripts/db/` 下 plan_event 单表 schema + event-repo + projection
-- ✅ `plan-preflight` skill：flow semantics + hard guard 脚本 + 6 行 DECISION_CARD 渲染
+- ✅ trade-flow 套件骨架（`SKILL.md` + `stages/observe/STAGE.md` + `stages/plan/STAGE.md` + `stages/execute/STAGE.md`）；SKILL.md 接受 `--track slow|fast` 路由两条链
+- ✅ `scripts/db/` 下 plan_event 单表 schema + event-repo + projection（含 `latest_slow_observe` / `current_action_intent`）
+- ✅ `plan-preflight` skill：flow semantics + hard guard 脚本（全集 + 快轨子集两个入口）+ 6 行 DECISION_CARD 渲染
+- ✅ executor 模块：trigger_condition 检查 + 慢/快轨共用执行路径
 - ✅ 现有功能 skill 全部保持现状，**不动不迁**
-- ✅ cron 运维必备：clientOrderId 前缀幂等 + abort 偏保守 + cron.log + 异常通知
+- ✅ cron 运维必备：双轨独立调度（慢轨整点 / 快轨偏移点）+ clientOrderId 前缀幂等 + abort 偏保守 + cron.log（含 track 字段）+ 异常通知
 
 先不做：
 
