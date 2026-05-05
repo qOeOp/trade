@@ -59,7 +59,7 @@
 | Track | 走的 stage 链 | LLM prompt 范围 |
 |---|---|---|
 | `slow` | observe（全量对账 + 拉市场数据）→ plan（完整 LLM 分析）→ execute → review？ | 完整：plan + market + strategy.policy + flow semantics |
-| `fast` | observe-light（per-flow 轻量对账）→ executor-only（trigger 检查 → 窄域 context 验证 → 快轨 preflight 子集 → 下单） | 窄域：只回答"latest action_intent 现在执行是否安全" |
+| `fast` | observe-light（per-flow 轻量对账）→ executor-only（trigger 检查 → 确定性 gate → 快轨 preflight 子集 → 下单） | orchestrator only：按 prompt 模板顺序调 tool，不做质性判断 |
 
 快轨不走 plan stage——它不重写 thesis、不发起加仓方向的新意图（除非是慢轨预设 trigger_condition 的执行）。详细职责矩阵见 [design-architecture.md §双轨](design-architecture.md)。
 
@@ -94,11 +94,9 @@ cron.log 追加本轮元数据
    ↓ (一致)
   trigger_condition 检查（mark 在 range 内 + 未过期）
    ↓ (命中)
-  G-SPREAD-CAP（仅加暴露立即执行）
+  G-SPREAD-CAP / G-MARKETABLE-DEPTH-CAP / G-FUNDING-RATE-SPIKE（仅加暴露立即执行）
    ↓ (通过)
-  窄域 LLM context 验证（funding / 微观红旗扫描）
-   ↓ (无红旗)
-  快轨 preflight 子集（G-RISK-OPEN-CAP / G-RISK-DAY-FLOOR / G-SINGLE-POSITION-LEVERAGE-CAP / G-OBS-FRESH）
+  快轨 preflight 子集（G-RISK-OPEN-CAP / G-RISK-DAY-FLOOR / G-BTC-BETA-DIRECTION-CAP / G-SINGLE-POSITION-LEVERAGE-CAP / G-GROSS-EXPOSURE-CAP / G-OBS-FRESH / G-FUNDING-EROSION）
    ↓ (verdict=armable)
   executor: append order_fill + light observe(source=fast_track)
 ```
@@ -113,7 +111,7 @@ cron.log 追加本轮元数据
 | --- | --- | --- |
 | **observe** | 慢轨：拉账户快照 + 全量对账（先补 `source=reconcile` 事件；若仍无法可靠归属则 abort 当前周期）+ 拉市场数据 + 识别 regime / 算跨链 exposure，本轮收尾 append 完整 observe(source=slow_track)。快轨：per-flow 轻量对账（fresh account + symbol-scoped open orders），mismatch 直接写 light observe 跳过 | `binance-account-snapshot`, `binance-symbol-snapshot`, `ohlcv-fetch`, `tech-indicators`, `binance-market-scan` |
 | **plan** | **仅慢轨走**。对每条 active flow：LLM 读 current_plan + latest_observe + strategy.policy + flow semantics 决定本轮动作 + 写 `action_intent.trigger_condition`；调 `plan-preflight` 跑 hard guard 全集与卡片校验。快轨不进 plan stage | `plan-preflight`, `binance-account-snapshot`（兜底）+ 读 `strategies/*.md` |
-| **execute** | 慢轨/快轨共用。读 latest action_intent 的 trigger_condition → mark 在 range 内则刷新执行事实 → 跑当前 track 的 preflight 子集 → preview → 下单 → 回填 order_fill。快轨额外做窄域 LLM context 验证 | `binance-order-preview`, `binance-order-place`, `binance-position-protect`, `binance-position-adjust` |
+| **execute** | 慢轨/快轨共用。读 latest action_intent 的 trigger_condition → mark 在 range 内则刷新执行事实 → 跑当前 track 的 preflight 子集 → preview → 下单 → 回填 order_fill。快轨 LLM 仅 orchestrator，不做质性判断 | `binance-order-preview`, `binance-order-place`, `binance-position-protect`, `binance-position-adjust` |
 | **review** | 仅慢轨写。某次仓位 / plan 阶段性闭合后写 review 事件（5 个必填字段 + notes 自由 markdown） | — |
 | **backtest** | 跑历史样本验证假设（远期，30+ review 样本后） | `ohlcv-fetch` |
 | **iterate** | REVIEW 产出沉淀进 `strategies/`（远期） | — |

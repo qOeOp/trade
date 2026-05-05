@@ -6,7 +6,7 @@
 - 项目层固定：只做 USDM 永续 4H+ swing；外部 cron（Claude routines / Codex schedule）双轨触发：**慢轨** 1H / 4H 整点跑战略层全流程；**快轨** 5m / 15m 偏移点（如 :05/:20/:35/:50）守护执行层。设计细节见 [design-architecture.md §双轨](design-architecture.md)。
 - 当前重点是 `合约开仓`，但为避免后续接口命名漂移，仍把相关 skill 一并列清。
 - 慢轨链路：`OBSERVE → 按启用 lane 决策 → 写 action_intent（含 trigger_condition）→ 当 mark 在 range 内时 EXECUTE → 某条 flow 闭合时即时 REVIEW`
-- 快轨链路：`reduce flow → 轻量对账 → 检查 trigger_condition → 窄域 LLM context 验证 → 快轨 preflight 子集 → EXECUTE`
+- 快轨链路：`reduce flow → 轻量对账 → 检查 trigger_condition → 确定性 gate（G-SPREAD-CAP / G-MARKETABLE-DEPTH-CAP / G-FUNDING-RATE-SPIKE，仅加暴露立即执行）→ 快轨 preflight 子集 → EXECUTE`。快轨 LLM 仅作为 orchestrator 按 prompt 模板顺序调 tool，不做质性判断（不评估"诱多诱空"、不重读 thesis、不重设 invalidation）
 - 即使用户已经明确给出 `标的 / 方向 / 笔数 / 杠杆 / 保证金额`，也仍先 append `observe`（含意图段），再执行。
 
 ## 2. 共享口径
@@ -24,20 +24,21 @@
 - `开仓函数`
   当前只指 `USDM 主单落地`，不包含保护、减仓、撤单。
 - `live equity`
-  定义：最近一条 `observe` 事件里 `account.equity_usdt` 的值；风险护栏（`G-RISK-OPEN-CAP` / `G-RISK-DAY-FLOOR` / `G-SINGLE-POSITION-LEVERAGE-CAP`）的实时计算基准，不落 `account_config`
+  定义：最近一条 `observe` 事件里 `account.equity_usdt` 的值；风险护栏（`G-RISK-OPEN-CAP` / `G-RISK-DAY-FLOOR` / `G-BTC-BETA-DIRECTION-CAP` / `G-SINGLE-POSITION-LEVERAGE-CAP` / `G-GROSS-EXPOSURE-CAP`）的实时计算基准，不落 `account_config`
 - `current_plan`
   定义：当前 flow 最近一条 `observe.body` 的"意图段"
-  - 必填：source / symbol / side / stop_price / risk_budget_usdt / strategy_ref / thesis / entry_intent / exit_intent / invalidation / expected_rr_net
-  - 可选：valid_until_at / stop_ladder / takeprofit_ladder / risk_budget_change
+  - 必填：source / symbol / side / stop_price / risk_budget_usdt / strategy_ref / thesis / entry_intent / exit_intent / invalidation / expected_rr_net / expected_holding_hours
+  - 可选：setup_valid_until_at / stop_ladder / takeprofit_ladder / risk_budget_change / aging_decision（仅 aging_state==overdue 时必填）
+  - `setup_valid_until_at`：当前 setup 的新鲜度窗口；只约束这段 setup 是否还值得继续沿用，不直接驱动持仓退出
   - `stop_price`：先由 `invalidation` / 结构失效位决定；数量编译器与 leverage guard 只能消费它，不能反向生成或重写它
   - `stop_ladder`：止损推进梯度数组，`[{trigger_price, new_stop, reason}]`；agent 每轮读 ladder + 当前 mark + order_fill 历史自行决定是否发 `sync_protection`（软触发，preflight 不做机械 reduce）
   - `takeprofit_ladder`：分档止盈数组，`[{price, qty_ratio, reason}]`，`sum(qty_ratio) ≤ 1.0`；同样软触发
   - `risk_budget_change`：本轮 `risk_budget_usdt` 相对上一条 observe 的变化，`{delta_usdt, reason}`
 - `source`
-  定义：observe 由哪条轨道写入。值域 `slow_track | fast_track`。慢轨写完整 observe；快轨写 light observe（thesis / entry_intent / exit_intent / invalidation / valid_until_at / risk_budget_usdt / stop_price / ladder / strategy_ref / symbol / side 段从 `latest_slow_observe` 原样继承，account / microstructure / preflight_result / decision_summary 自采）
+  定义：observe 由哪条轨道写入。值域 `slow_track | fast_track`。慢轨写完整 observe；快轨写 light observe（thesis / entry_intent / exit_intent / invalidation / setup_valid_until_at / risk_budget_usdt / stop_price / ladder / strategy_ref / symbol / side 段从 `latest_slow_observe` 原样继承，account / microstructure / preflight_result / decision_summary 自采）
 - `action_intent`
   定义：本轮收敛的可执行动作。`target_action != no_action` 时必须同时给出 `trigger_condition` 和 `request`
-  - `trigger_condition`：硬字段，含 `price_in_range: [low, high]`（当前 mark 必须落在此区间，executor 才会执行）+ `valid_until_at`（action_intent 自身的过期时间，与 thesis 的 valid_until_at 不同）
+  - `trigger_condition`：硬字段，含 `price_in_range: [low, high]`（当前 mark 必须落在此区间，executor 才会执行）+ `valid_until_at`（action_intent 自身的过期时间，与 observe 顶层的 `setup_valid_until_at` 不同）
   - `request`：结构化执行参数，shape 由 `target_action` 决定，preview 解析后路由到执行 skill
 - `execution_contract`
   定义：提交前由 `current_plan + execute 前刚刷新的账户 / 挂单 / 当前 mark + 交易所规格` 编译出的执行快照；是交易所 payload 的唯一真相
@@ -474,9 +475,9 @@ cron 自动化模式必须保证：
 
 1. **双轨调度**：慢轨在整点跑（`0 */1 * * *` / `0 */4 * * *`）；快轨在偏移点跑（如 `5,20,35,50 * * * *`），避开慢轨 LLM 推理窗口。两轨独立 routine / scheduled-task，共用 `./data/trade.db`。
 2. **幂等**：每次 EXECUTE 动作前先 reduce `order_fill` + 拉 Binance 实时挂单核对，重复请求不下重单。`clientOrderId` 用 `<chain_id>-<seq>-<action>` 前缀，Binance 侧自动去重，cron 重跑安全。慢轨/快轨用同一套 clientOrderId 规则；快轨 `seq` 自增基于本 flow 已有 order_fill 计数。
-3. **abort 偏保守**：cron agent 任意阶段失败 → 只 append 已写入的 observe，不补做后续。下次 cron 重跑读最新事件流决定动作；不确定就 `no_action`。快轨遇到 reconcile mismatch 一律 skip 该 flow，等下次慢轨入口的全量对账。
+3. **abort 偏保守**：cron agent 任意阶段失败 → 只 append 已写入的 observe，不补做后续。下次 cron 重跑读最新事件流决定动作；不确定就 `no_action`。快轨遇到 `reconcile mismatch` 时不补账；若只是保护腿漂移，或 live position 能明确归属且需要先补保护，可先 `sync_protection`，其余缺失事件等下次慢轨入口的全量对账。
 4. **本地运维日志**：每次 cron 跑追加一行到 `./data/cron.log`，承载 `run_id / track (slow|fast) / triggered_at / duration_ms / chains_processed / actions_taken / errors / next_cron_at`。文本日志，不入 DB；分析需求出现时再升 SQLite。
-5. **异常通知**（通道由 `./data/notify_config.json` 配置；缺则只写本地日志）：
+5. **异常通知**（通道由 `./profile/notify_config.json` 配置；缺则只写本地日志）：
    - 爆仓护栏（`G-RISK-*`）拒新动作
    - cron / preflight / Binance API 持续失败（含慢轨对账恢复失败、快轨连续 N 轮 reconcile mismatch）
    - 重大 PnL 事件（接近 `max_day_loss_pct`）
@@ -501,7 +502,7 @@ cron 自动化模式必须保证：
 
 ### 12.2 `trade.db` 表结构
 
-只有一张事件表：
+事件表 + β 缓存表：
 
 ```sql
 CREATE TABLE plan_event (
@@ -519,7 +520,24 @@ CREATE INDEX idx_kind_chain ON plan_event(kind, chain_id);
 CREATE INDEX idx_obs_symbol ON plan_event(
     json_extract(body_json, '$.symbol')
 ) WHERE kind = 'observe';
+
+CREATE TABLE beta_cache (
+    symbol           TEXT NOT NULL,
+    computed_date    TEXT NOT NULL,                            -- YYYY-MM-DD (UTC)
+    lookback_days    INTEGER NOT NULL,                         -- MVP 固定 30
+    beta_full        REAL,                                     -- 全样本 OLS 斜率（vs BTCUSDT）
+    beta_downside    REAL,                                     -- BTC return < 0 子集 OLS 斜率
+    sample_count     INTEGER NOT NULL,
+    downside_count   INTEGER NOT NULL,
+    fallback_reason  TEXT,                                     -- null=正常；否则记 fallback 类型
+    computed_at      TEXT NOT NULL,                            -- ISO 8601
+    PRIMARY KEY (symbol, computed_date)
+);
+
+CREATE INDEX idx_beta_symbol_date ON beta_cache(symbol, computed_date DESC);
 ```
+
+`beta_cache` 是 `G-BTC-BETA-DIRECTION-CAP` 的数据源，按 `(symbol, computed_date)` 主键去重，同一 UTC 日同一 symbol 只算一次；lazy compute 流程与读路径见 [design-architecture.md §β 缓存与 lazy compute](design-architecture.md)。`beta_full` / `beta_downside` 为 null 的可能取值含义记录在 `fallback_reason` 字段（`insufficient_samples` / `no_cache_fallback` / 其它）。
 
 `body_json` 用 SQLite TEXT + `json_valid` CHECK 约束。SQLite JSON1 扩展默认开启，支持 `json_extract` / expression index，可以为投影路径加索引。
 
@@ -538,8 +556,8 @@ CREATE INDEX idx_obs_symbol ON plan_event(
 | 内容 | 介质 | 位置 |
 | --- | --- | --- |
 | Strategy policy | Markdown 文件（一文件一 strategy，含 frontmatter） | `.agents/skills/trade-flow/strategies/*.md` |
-| Account config | JSON | `./data/account_config.json` |
-| Notify config | JSON | `./data/notify_config.json` |
+| Account config | JSON | `./profile/account_config.json` |
+| Notify config | JSON | `./profile/notify_config.json` |
 | Cron 运维日志 | 文本日志 | `./data/cron.log` |
 | OHLCV / 市场数据 | CSV + manifest（后期切 SQLite） | `./data/ohlcv/` |
 
@@ -566,7 +584,7 @@ trade-flow 启动时遍历 `strategies/*.md`，按 frontmatter 索引到内存 m
 - `kind` 仅三种：`observe / order_fill / review`，trade-flow 写入时遇到未知 kind 立刻 warn（防 typo 静默落库）
 - `body_json` 不做数据库层 schema 强约束（除 `json_valid`）；shape 由 `kind` 决定，应用层校验
 - `observe.body_json` 必须是"最小完整快照"（含 `source` + 意图段 + `action_intent` + 证据段 + `preflight_result` + `decision_summary`），不是 patch
-- `observe.body_json.source` 必填，值域 `slow_track | fast_track`；快轨 light observe 写入时，战略层字段（thesis / entry_intent / exit_intent / invalidation / valid_until_at / risk_budget_usdt / stop_price / ladder / strategy_ref / symbol / side）从 `latest_slow_observe` 原样继承
+- `observe.body_json.source` 必填，值域 `slow_track | fast_track`；快轨 light observe 写入时，战略层字段（thesis / entry_intent / exit_intent / invalidation / setup_valid_until_at / risk_budget_usdt / stop_price / ladder / strategy_ref / symbol / side）从 `latest_slow_observe` 原样继承
 - `observe.body_json.action_intent` 在 `target_action != no_action` 时必填 `trigger_condition`（含 `price_in_range: [low, high]` + `valid_until_at`）和 `request`；executor（慢轨/快轨共用）只在 mark 落在 range 内且未过期时执行
 - `observe.body_json` 意图段的 `stop_ladder` / `takeprofit_ladder` / `risk_budget_change` 字段可选；写入时遵循：
   - `stop_ladder` 单调（long: trigger_price 与 new_stop 同向递增；short 反向）—— `G-STOP-LADDER-MONOTONIC`
@@ -578,8 +596,12 @@ trade-flow 启动时遍历 `strategies/*.md`，按 frontmatter 索引到内存 m
   - 防御方向（`cancel_order` / `sync_protection` / `adjust_position` 减仓段）快轨可自主发起
   - 战略层字段（thesis 等）必须继承 `latest_slow_observe`，不修改
 - `order_fill.body_json` shape 见 [design-architecture.md §order_fill.body shape](design-architecture.md)；`source: trade_flow | reconcile` 标识来源（主动执行 vs 对账补录）；可选 `source_observe_event_key` 引用本笔 fill 对应的决策 observe（慢轨或快轨写的 observe 都可被引用）
-- `review.body_json` 由某次仓位 / plan 阶段性闭合时写入；单条 flow 默认只写 1 条 terminal `review`；同一 lane 会跨多条历史 flow 累积多条 `review`；shape 见 [design-architecture.md §REVIEW → review.body shape](design-architecture.md)
-- `chain_id` 由**慢轨**在某 lane 当前无 active flow 且本轮识别到新 setup 时生成 UUID，写进 first observe 的 `plan_event.chain_id`；快轨不创建 flow（bootstrap 是战略层判断）。同一笔机会后续慢轨/快轨都沿用该 `chain_id` append 事件；同一 lane 后续新机会由慢轨再开新 `chain_id`
+- `review.body_json` 由某次仓位 / plan 阶段性闭合时写入；单条 flow 默认只写 1 条 terminal `review`；同一 lane 会跨多条历史 flow 累积多条 `review`
+  - review 是 **flow 级终局复盘**，不是 fill / tranche 级；分批成交、加仓、减仓、部分止盈都归同一条 review
+  - 数字字段（`net_pnl_usdt / fee_usdt / funding_usdt / slippage_usdt_total / initial_risk_usdt / max_live_risk_usdt / r_multiple / mfe_r / mae_r / holding_hours`）全部由 reducer / executor 确定性生成；LLM 不改数字
+  - `r_multiple` 的 canonical 基数固定为 `max_live_risk_usdt`，不使用 first observe 的 `risk_budget_usdt`
+  - 完整 shape 与口径见 [design-architecture.md §REVIEW → review.body shape](design-architecture.md)
+- `chain_id` 由**慢轨**在某 lane 当前无 active flow 且本轮识别到新 setup 时生成 UUID，写进 first observe 的 `plan_event.chain_id`；快轨不创建 flow（bootstrap 是战略层判断）。同一笔机会后续慢轨/快轨都沿用该 `chain_id` append 事件；只要同一 lane 仍有 active flow，就不再为同 lane 新理由另开 `chain_id`，而是并回原 flow 管理；同一 lane 只有在当前 flow 闭合后，后续新机会才由慢轨再开新 `chain_id`
 - 微结构 / 市场数据直接内嵌 `observe.body.microstructure`；不建独立 market_snapshot 表（单 flow 单 symbol 阶段不需去重；多 flow 同 symbol 并行出现时再抽）
 - 投影视图不落库；`trade-flow / preflight / reducer` 读时计算
 - flow semantics 直接写在主流程文档里，hard guards 直接走代码或脚本
