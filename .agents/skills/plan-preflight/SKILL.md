@@ -26,7 +26,7 @@ description: cron 周期里 EXECUTE 之前的最后一道闸。先按 flow seman
 - `plan`：当前 flow 最近一条 `observe.body` 的意图段
 - `observe`：最近一条 observe event 的 body_json，含证据段
 - `strategy`：`plan.strategy_ref` 指向的 strategy 条目（policy markdown + tags）
-- `account_config`：`./data/account_config.json`
+- `account_config`：`./profile/account_config.json`
 - `target_action`：`no_action / place_entry / cancel_order / sync_protection / adjust_position`
 - `request`：本轮 `action_intent.request` 结构化参数（`target_action != no_action` 时必填）
 
@@ -75,7 +75,7 @@ LLM 需要按主流程固定语义判断：
 
 ### 2. hard guards + card validation
 
-hard guards 只保留确定性、必须严格遵守、可脚本化的检查。MVP 先固定：
+hard guards 只保留确定性、必须严格遵守、可脚本化的检查。完整清单与口径以 [design-architecture.md §Hard Guards](../../../docs/design-architecture.md) 为准。MVP 当前固定如下（任一新增/退役都在 design-architecture.md 同步）：
 
 - `G-RISK-OPEN-CAP`
 - `G-RISK-DAY-FLOOR`
@@ -83,9 +83,20 @@ hard guards 只保留确定性、必须严格遵守、可脚本化的检查。MV
 - `G-PLAN-INTENT-COMPLETE`
 - `G-STOP-LADDER-MONOTONIC`
 - `G-TP-LADDER-RATIO-CAP`
-- `G-RECON-NOT-STUCK`
+- `G-STOP-ADVANCE`
+- `G-STOP-SYNC`
+- `G-ENTRY-RATIO-CAP`
+- `G-SINGLE-POSITION-LEVERAGE-CAP`
+- `G-GROSS-EXPOSURE-CAP`
+- `G-SPREAD-CAP`
+- `G-MARKETABLE-DEPTH-CAP`
+- `G-FUNDING-RATE-SPIKE`
+- `G-BTC-BETA-DIRECTION-CAP`
+- `G-FUNDING-EROSION`
+- `G-EXPECTED-HOLDING-FROZEN`
+- `G-AGING-OVERDUE-NO-ADD`
 
-只在 `target_action ∈ {place_entry, adjust_position}` 时跑风险相关 guard；`cancel_order / sync_protection` 不增加 open risk。
+只在 `target_action ∈ {place_entry, adjust_position(add)}` 时跑加暴露相关 guard；`cancel_order / sync_protection / adjust_position(reduce)` 不增加 open risk。
 
 示意：
 
@@ -132,7 +143,7 @@ function checkDailyLossFloor(plan, aggregate, account, equityLive) {
 ## 脚本边界
 
 - 入口：`./scripts/main.ts`（待实现）
-- 只读：`./data/account_config.json` + 调用方传入的 `plan / observe / strategy / target_action / request / flow_history / aggregate_view`
+- 只读：`./profile/account_config.json` + 调用方传入的 `plan / observe / strategy / target_action / request / flow_history / aggregate_view`
 - 不发任何交易所请求
 - 不写事件：preflight 返回结果，trade-flow 在 cron 周期收尾把 `preflight_result` 作为 observe.body 一部分 append
 
