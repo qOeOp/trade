@@ -7,6 +7,58 @@ trade-flow 是套件 skill 的总入口（功能 skill 拓扑见 [skill-layout.m
 - 事件流为真相、自然语言为主
 - 流程语义直接内嵌在 flow / stage 定义里；只有少量 hard guards 走确定性代码或脚本
 - decision_card 渲染 = 校验
+- cron 自动巡航是主轨，user-message 是接管轨；两轨共用同一组 `plan_event` / preflight / hard guards / decision_card
+
+---
+
+## 运行入口（cron / user-message 双轨）
+
+trade-flow 有两条入口，共用同一套事件流和校验栈：
+
+| 维度 | cron 主轨 | user-message 接管 |
+| --- | --- | --- |
+| 触发 | 调度器（快轨 5/15min、慢轨 1H/4H；快慢轨细化推迟到 cron 稳定后） | 用户消息 → ROUTER |
+| 起点 | 必跑对账 → observe | 默认信任 `latest_observe`；若已过 `G-OBS-FRESH` 阈值则回灌对账 |
+| 终点 | append observe（含意图段 + action_intent + 证据段 + preflight_result） + 可能 order_fill + 可能 review | 同左 |
+| 共用契约 | `action_intent.request` / preflight / hard guards / DECISION_CARD | 同左 |
+| 差异 | 默认遍历 active flows + lane scan | 默认只动 ROUTER 选中的那条 flow |
+
+不写两套主流程：user-message 经 ROUTER 进入某个 stage 后，stage 内逻辑、事件 shape、preflight 与 cron 完全一致。下面 `## 一轮 cron` 描述的是主轨；user-message 入口只是跳过对账和遍历，直落对应 stage。
+
+---
+
+## ROUTER
+
+只在 user-message 入口存在；cron 主轨默认进 `observe`，不经过 ROUTER。
+
+- **不入 DB**，是 `trade-flow/SKILL.md` 里的路由分支
+- **输入**：user message + `latest_observe.action_intent` + `last_preflight` + `active_flows` 概览（symbol / side / direction_state / execution_verdict）
+- **输出**：本轮先进入哪个 stage；若进入 `observe`，再标出三种运行形态之一（`single-symbol` / `binance-market-scan` / `monitor-existing-chain`，详见后续 OBSERVE 章节，落地推迟到第二批）
+
+路由优先级（自上而下，首条命中即定）：
+
+| 触发特征 | 路由 |
+| --- | --- |
+| `latest_observe` 已过 `G-OBS-FRESH` 阈值，或意图不明 | `observe` |
+| 明确执行确认（"挂"/"撤"/"改"/"现在下"） | `execute` |
+| 持仓追问（"继续拿"/"减一点"/"还看多吗"/"现在怎么办") | `plan` |
+| 阶段性闭合追述（"刚平了"/"为什么这单亏"/"复盘下"） | `review` |
+
+ROUTER 选定 stage 后即移交，不再回流；stage 内若发现上下文不足，按 flow semantics 自行决定是否回到 `observe`。
+
+---
+
+## 并发与写入约定
+
+`plan_event` append-only；不实现 per-lane / per-flow 锁。安全性来自三层 invariant：
+
+1. **append-only**：不存在覆盖写，最差是事件链多一两条 observe，后续 tick 复盘可见
+2. **idempotent execute**：`clientOrderId` 派生自 action，Binance 自动去重；同一动作被 cron / user-message 并发派发只成单一次
+3. **每个入口先 reduce latest**：cron tick 与 user-message 进入时都先重读 latest event，不共享内存状态
+
+最差并发场景：cron 派 cancel、user-message 同时派 sync_protection。两单都合法 → 都进 Binance → 下一 tick reduce 真实订单状态自动恢复。不绕过 hard guard，最多多一次往返。
+
+写入 `plan_event` 加一道 **process-level mutex**（SQLite `BEGIN IMMEDIATE` 或单文件锁），保证 daemon 和 user-message CLI 不会写出半截事件。仅此。
 
 ---
 
@@ -48,6 +100,11 @@ side: long | short
 stop_price: number
 risk_budget_usdt: number          # 全档成交假设下最大允许亏损（驱动 G-RISK-OPEN-CAP / G-RISK-DAY-FLOOR）
 strategy_ref: S-xxx
+
+# 硬字段（PLAN 双层契约：方向 + 执行分离，防止被 thesis 文本吞掉）
+direction_state: 偏多已确认 | 偏空已确认 | 中性 | 冲突
+execution_verdict: 追 | 不追 | 等条件 | 等回踩 | 放弃
+                 | 持有不动 | 减仓 | 退出
 
 # 硬字段（可选，结构化承载关键执行价位）
 stop_ladder:?                     # [{trigger_price, new_stop, reason}]
@@ -175,6 +232,7 @@ CREATE INDEX idx_kind_chain ON plan_event(kind, chain_id);
 - `current_position != 0`：当前流的工作重点从 entry 转向 `exit_intent + thesis` 管理，不把持仓语境和空仓语境混在一起
 - `review` 记录某条 flow 的闭合样本；关闭的是 flow，不是 lane，更不是 strategy
 - 上轮 `target_action != no_action` 但无对应 `order_fill`：下一轮必须重读最新语境再决定续做或放弃，不机械重放旧动作
+- `direction_state` 与 `execution_verdict` 是两层判断，不互相吞：`偏多已确认 + 不追` / `中性 + 持有不动` 等组合都是合法输出；不允许因为"不追"就把方向写成"中性"，也不允许因为"方向成立"就反推必须有执行动作
 
 与 funding、跨策略相关性、场景过滤有关的判断，当前不升格为全局阻断项。若确有 edge，优先写回各自的 `strategy.policy`，或只做提示，不做全局 blocking。
 
@@ -194,6 +252,7 @@ MVP 先固定以下几项：
 | `G-RISK-DAY-FLOOR` | 今日累计亏损不穿底 | 账户级硬下限 |
 | `G-OBS-FRESH` | observe 距 now ≤ 30s | 防止拿过期快照执行 |
 | `G-PLAN-INTENT-COMPLETE` | thesis / entry_intent / exit_intent / invalidation 必填非空 | 防止半成品 plan 落执行 |
+| `G-PLAN-VERDICT-COMPLETE` | direction_state / execution_verdict 必填且取值合法 | 防止 PLAN 双层契约被文本吞掉 |
 | `G-STOP-LADDER-MONOTONIC` | stop_ladder 单调 | 结构化止损推进卫生 |
 | `G-TP-LADDER-RATIO-CAP` | takeprofit_ladder.qty_ratio 之和 ≤ 1.0 | 防止止盈超配 |
 
@@ -254,6 +313,8 @@ review 阶段按 `blocked_by[].check_id` group by，自然得到"哪项 hard gua
 ## Strategy 池
 
 Strategy 是 `observe.body.strategy_ref` 指向的对象。strategy 是规则模板，不是 flow 身份。一个 strategy 可以在不同 symbol / side 上展开多个 lane；MVP lane 先用 `strategy_ref + symbol + side` 读时定位。每个 lane 同时最多 1 条 active flow；同一 lane 的旧 flow 闭合后，后续再出现新机会时新开 flow。更复杂的同 lane 多重重入不作为当前默认管理模型；是否支持同 symbol 双向同时并行，等真实需求出现再单独设计。MVP 2 条种子（`S-GENERIC-TREND` / `S-GENERIC-MEANREVERT`），完整 policy 落 [.agents/skills/trade-flow/strategies/](../.agents/skills/trade-flow/strategies/)。schema 见 [tech-spec.md](tech-spec.md)。
+
+策略演化链路边界：当前阶段 strategy 池只承载 `active / draft / retired` 三态，不引入版本分支管理。BACKTEST / ITERATE / 影子 / 分叉 / 归档推迟到累积 30+ review 样本后再展开；vision/prd 里描述的 `STRATEGY-CHAIN` 候选→影子→验证→生效→归档全链，是远期形态，不在 MVP 范围。
 
 ---
 
@@ -324,13 +385,16 @@ sequenceDiagram
 
 每轮 cron 输出 6 行扫读视图，从 `current_plan + latest_observe + strategy` 实时渲染，不存库。ASCII 模板见 [.agents/skills/trade-flow/SKILL.md](../.agents/skills/trade-flow/SKILL.md)。
 
+第 1 行（Verdict 行）独立承载 PLAN 双层契约：`direction_state` 与 `execution_verdict` 并列显示，不再揉进 thesis；其余 5 行承载 symbol/side/价位、保护、风控、checks、snapshot age。
+
 渲染约定：
 
 - `valid_until_at < now` → Plan 行标红，按 flow semantics 直接视为当前 setup 失效
 - snapshot age > 20s 黄、> 30s 红（红色触发 `G-OBS-FRESH` 拒）
 - Checks 行 `blocked_by` 非空 → 卡片拒绝渲染为"可执行"，本轮跳过 EXECUTE
+- Verdict 行任一字段缺或取值非法 → 触发 `G-PLAN-VERDICT-COMPLETE`，卡片拒绝渲染为"可执行"
 
-**渲染 = 校验**：硬字段缺导致卡片渲染不出来，preflight 直接拒。
+**渲染 = 校验**：硬字段缺导致卡片渲染不出来，preflight 直接拒；双层契约缺位等同此条。
 
 ---
 
