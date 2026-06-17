@@ -126,8 +126,8 @@
 
 - 触发：当日已实现亏损 ≥ 80% × `max_day_loss_pct × equity_live`。
 - 系统行为：
-  - 推送预警通知（不拦动作，只警告）
-  - 若再亏一笔会越底线，下一轮 preflight 的 `daily_loss_floor` 自动 fail
+  - 推送预警通知
+  - 禁止新增风险动作，只允许减仓 / 平仓 / 撤风险单
 - 用户介入路径：
   - 主动平掉浮亏最深的活跃 flow 持仓
   - 等次日重置自动恢复
@@ -138,11 +138,11 @@
 - 触发：cron 运行失败或 Binance API 错误连续 3 次。
 - 系统行为：
   - `cron.log` 中 `errors` 累计；连续 3 次推送通知
+  - 禁止新增风险动作；环境恢复前只允许减风险动作
   - 偏保守 abort：写不下去就只写已成功的 observe，下次 cron 重跑
 - 用户介入路径：
   - 检查 cron 调度本身是否被外部托管（Claude routines / Codex schedule）暂停
   - 检查 API key 权限 / IP 限制 / 网络
-  - 暂停 cron 直到环境恢复
 
 ### US-10 连续亏损达到上限
 
@@ -209,45 +209,22 @@
   - 只因 agent 解释得通就升级
   - 未记录失败样本就只保留成功样本
 
-## 5. 偶尔回看：多策略阶段总结
-
-### 固定要求
-
-- 跨策略 / 跨阶段性样本总结不在 cron 周期里跑——cron 只管单 flow 内的即时 review。
-- 用户每周或每月主动跑一次回看脚本（待建）：聚合最近 N 条 `review` 事件，看共性。
-- MVP 阶段累积 30+ review 样本前不建完整 backtest / iterate 自动链路；只保留 replay / shadow gate。
-
-### US-16 一段时间后回看哪些 strategy / 条款值得改
-
-- 触发：用户主动决定回看（每周 / 每月一次）。
-- 用户行为：
-  - 读最近 N 条 `review` event（`SELECT body_json FROM plan_event WHERE kind='review' ORDER BY created_at DESC LIMIT N`）
-  - 按 `strategy_ref` 聚合：胜率 / 平均 pnl_pct / thesis_held 比例 / `promote_to_strategy=true` 比例
-  - 按 `blocked_by[].check_id` 聚合：哪项 hard guard 最常挡住动作 / 哪项可能过严 / 哪些问题其实更该回到 strategy.policy
-  - `notes` 字段累积 20+ 样本后看是否需要拆出新结构化字段
-- 正式输出：
-  - 候选改动：retire 某 strategy / 调整某项 hard guard 阈值或逻辑 / 抽 review.notes 新字段
-  - 若问题不是确定性约束，优先写回 strategy.policy，而不是升格成新的全局 guard
-
-### US-17 自动化误判事后回看
+## 5. 事后回看
 
 - 触发：某条 review 样本结果不理想，用户怀疑是 cron 当时漏判 / strategy 不适配 / 流程语义缺口 / hard guard 过严。
 - 用户行为：
   - 读对应 flow 中该次阶段性闭合附近的 `plan_event` 序列（observe + order_fill + review）
   - 沿 observe 时间轴看：每轮 LLM 看到了什么、判了什么、preflight 拒了什么
-  - 区分几类原因：strategy.policy 没覆盖这种场景 / flow semantics 少了关键分支 / observe 证据段不够（如缺微结构字段）/ hard guard 过严或缺少必要护栏 / LLM 判错（同样输入下一轮跑也错）
+  - 只区分四类原因：setup 不成立 / 事实不够或不新鲜 / 执行出错 / hard guard 缺失或过严
 - 正式输出：
-  - 改 strategy.policy 加场景说明
-  - 补 flow semantics 说明，或在确有必要时补一项 hard guard
-  - 补 observe 证据段字段（如新 microstructure 维度，需改 trade-flow 代码）
-  - LLM 判错：暂时只在 review.notes 里记录，累积 5+ 同类样本再考虑改 strategy.policy 或 flow semantics
+  - 若问题不是确定性约束，优先改 strategy.policy 或暂停 setup
+  - 只有确定性、全局重要、可脚本化的问题才补 hard guard
 
 ## 6. 不在本文件覆盖的场景
 
 以下场景在 MVP 不展开，等真实需求出现再加：
 
 - **probe / 日内策略**：项目层固定不做
-- **hedge 多腿净敞口管理**：推迟，等真有对冲需求再启用（届时增设 `plan_relation` 表 + `S-HEDGE-GENERIC` strategy + 升级 `G-RISK-OPEN-CAP` 公式为 hedge-aware 版本）
-- **完整离线 backtest / iterate / strategy-pool 升级链路**：累积 30+ review 样本后再展开；MVP 只保留 setup 级 replay / shadow gate
+- **hedge 多腿净敞口管理**：当前固定不做
 - **跨账户 / 跨平台**：项目层固定 Binance USDM 永续单账户
 - **手工逐笔下单的交互式协作**：本系统不为此设计——用户偶尔想手工干预 → 直接在 Binance UI 做，下次 cron 跑会通过对账自动衔接

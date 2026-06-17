@@ -1,245 +1,69 @@
 # Market Data Design
 
-## 目的
+## 目标
 
-- 记录当前阶段围绕 `Binance` 市场数据接入的设计方向
-- 为后续继续讨论 `skill` 拆分、脚本命名、职责边界提供共同底稿
-- 当前只记录已经较明确的方向，不提前固定接口、schema、长期流程
+市场数据只服务四个交易后果：
 
-## 当前事实
+- `entry`
+- `stop`
+- `size`
+- `no_action`
 
-- 现有公共市场数据链路正在向 `Node + binance-api-node` 收口：
-  - `ohlcv-fetch`
-  - `binance-aggtrades-fetch`
-  - `binance-symbol-snapshot`
-  - `binance-market-scan`
-  - `tech-indicators`
-- 账户与交易执行入口同样在 `TypeScript + binance-api-node`
-  - `binance-account-snapshot`
-  - `binance-order-preview`
-  - `binance-order-place`
-  - `binance-order-cancel`
-  - `binance-position-protect`
-- 本仓库当前尚未使用统一多交易所 `ccxt` 库
-- 当前 Node 侧真实依赖是 `binance-api-node`
-- `binance-api-node` 现已归属 `ccxt` 组织，但它仍是单独的 Binance 专用库，不等于统一交易所库 `ccxt`
+不能改变这四项的数据，只能作为 notes / refs，不进入 `action_intent`。
 
-## 当前已拥有的数据
+## 当前范围
 
-- `OHLCV`
-- `24h ticker`
-- `bid / ask`
-- `trade_count`
-- `premium_index` 语境
-  - 当前对外命名按 Binance API 口径记为 `premiumIndex`
-  - SDK 调用层实际使用 `futuresMarkPrice`
-- `open_interest`
-  - 当前 Node 版对缺失高层方法的端点保留少量 raw fallback
-- 账户语境里的：
-  - `markPrice`
-  - `liquidationPrice`
-  - 持仓
-  - 挂单
-  - 保护单
+只接 Binance USDM。接入优先使用 `Node + binance-api-node`；缺高层方法时才用少量 raw request。
 
-## 可轻松获取的数据
+当前可用数据：
 
-- `aggTrades`
-  - 可用于推 `主动买卖量`、`delta`、`CVD-lite`
-- `trades`
-  - 可作为更细原始成交材料
-- `bookTicker`
-  - 可用于点差、买一卖一强弱
-- `depth`
-  - 可用于前几档盘口不平衡
-- `markPrice`
-- `fundingRate`
-- `liquidation`
-  - REST 历史或 WebSocket 流
-- `markPriceKlines`
-- `indexPriceKlines`
+- OHLCV
+- bid / ask / bookTicker
+- 24h ticker
+- premium / funding / mark price
+- open interest
+- aggTrades
+- depth
+- liquidation-like zones
+- 账户侧 markPrice / liquidationPrice / 持仓 / 挂单 / 保护单
 
-## 关于 `binance-api-node`
+## 最小证据包
 
-- Binance API 口径仍记作 `premiumIndex`
-- 当前库里对应的 SDK 方法名是 `futuresMarkPrice`
-- 当前 `futuresMarkPrice` 实际请求的就是 Binance `/fapi/v1/premiumIndex`
-- `openInterest` 当前没有现成高层方法
-- 但库提供了 `publicRequest(method, url, payload)`，可以继续通过同一 client 直调公开端点
-- 因此后续若收口到 Node，原则上可以统一为：
-  - `binance-api-node` 高层方法优先
-  - 少量缺失端点走 `publicRequest` fallback
+单标的进入 PLAN 前，market evidence 最少回答：
 
-## 当前方向
+| 问题 | 数据来源 |
+| --- | --- |
+| 现在能不能进 | OHLCV / bid-ask / spread / funding |
+| stop 放哪里 | OHLCV structure / liquidation-like zones |
+| 仓位能不能给 | liquidity / spread / account risk |
+| 是否应该 no_action | invalidation / stale data / event risk / poor liquidity |
 
-- 不把“市场数据来源”继续分散在多套风格里
-- 后续公共市场数据接入层优先逐步收口到 `Node + binance-api-node`
-- 不因为接入层迁移，就强制把纯本地分析层一起迁走
-- 也就是说：
-  - `交易所数据接入层` 可以迁 Node
-  - `本地计算 / 指标 / 结构分析层` 是否保留 Go，单独判断
+不要求每轮都拉全量数据。缺什么补什么。
 
-## 分层原则
+## Skill 边界
 
-### 1. 接入层
+| Skill | 职责 |
+| --- | --- |
+| `ohlcv-fetch` | 多周期 K 线 |
+| `binance-symbol-snapshot` | 单标的当前市场状态 |
+| `binance-aggtrades-fetch` | 成交流原材料 |
+| `binance-liquidation-zones` | liquidation-like zones |
+| `binance-market-scan` | 候选粗筛；不得直接触发 live action |
+| `tech-indicators` | 本地 OHLCV 结构与指标 |
 
-- 负责向 Binance 拉原始或近原始数据
-- 只做轻度标准化
-- 输出 JSON
-- 不在这一层做交易解释
+`binance-market-scan` 只能回答“先看谁”。候选必须回到 `single-symbol`，并通过 setup 资格证。
 
-当前适合收进接入层的能力：
+## 存储
 
-- `candles`
-- `aggTrades`
-- `trades`
-- `bookTicker`
-- `depth`
-- `markPrice`
-- `fundingRate`
-- `liquidation`
-- `openInterest`
+- OHLCV 继续使用 CSV + manifest。
+- 微结构、aggTrades、depth、liquidation-like 输出默认只作为 refs。
+- 不新增 market snapshot 表。
+- replay / shadow 需要的数据由对应 skill 输出引用，不进入 `trade.db`。
 
-### 2. 快照 / 特征层
+## 禁止项
 
-- 负责把原始材料压成更适合日内判断的轻量摘要
-- 仍然保持“按需抓取、即时返回”，不默认长期落盘
-
-当前最有价值的候选特征：
-
-- `trade_flow`
-  - 最近窗口主动买卖量
-  - `delta`
-  - `CVD-lite`
-- `book_micro`
-  - spread
-  - 顶部几档不平衡
-  - 买一卖一相对强弱
-- `liquidation_flow`
-  - 最近窗口强平方向
-  - 爆仓脉冲强度
-- `funding_context`
-  - funding
-  - mark / index 偏离
-- `oi_context`
-  - OI 当前值
-  - 可选短窗口变化
-
-### 3. 分析层
-
-- 负责结构、指标、支撑阻力、趋势线和交易解释
-- 当前仍以本地 `OHLCV` 为主输入
-- 不把微观结构和交易解释直接耦合进同一个接入脚本
-
-## Skill 方向
-
-- 当前先不急着新增很多 skill
-- 优先保持 skill 数量克制
-- 先按能力密度而不是“每类数据一个 skill”来拆
-
-当前建议：
-
-- `binance-aggtrades-fetch`
-  - 负责原子级成交材料拉取
-  - 优先供 liquidation-zone 或其他快照/特征层组合调用
-- `binance-liquidation-zones`
-  - 当前只做实验型公开数据推断
-  - 当前实现优先直接接 Python 包 `liquidator-indicator`
-  - 当前接入优先消费上游 skill 输出的 `aggTrades + premiumIndex + openInterest`
-  - 缺输入时才退回直连 Binance 补数
-  - 当前仍基于 `aggTrades + premiumIndex + openInterest` 输出 liquidation-like zones
-- `ohlcv-fetch`
-  - 继续只负责 K 线
-- `binance-market-scan`
-  - 继续只负责候选粗筛
-- `tech-indicators`
-  - 继续只负责本地 OHLCV 分析
-- `binance-symbol-snapshot`
-  - 继续做“单标的即时市场快照”
-  - 后续优先承接：
-    - `24h ticker`
-    - `mark / funding / premium`
-    - `open interest`
-    - `trade_flow`
-    - `book_micro`
-    - `liquidation_flow`
-
-当前不提前固定：
-
-- 是否最终拆出独立 `flow-snapshot`
-- 是否把 `binance-symbol-snapshot` 再分成 `snapshot` 与 `microstructure`
-- 是否把某些快照能力沉到共享模块而不是 skill 级别
-
-## 脚本设计原则
-
-- 一个脚本只回答一类问题
-- 不把“拉数据”和“解释市场”揉成一个命令
-- 命名优先贴近职责，不优先贴近底层端点名
-- 脚本对外语义应稳定，底层可替换实现
-
-当前暂定职责：
-
-- `ohlcv-fetch`
-  - 回答“把这个标的的多周期 K 线拉下来”
-- `binance-symbol-snapshot`
-  - 回答“这个标的现在大概什么状态”
-- `binance-market-scan`
-  - 回答“全市场先看谁”
-- `tech-indicators`
-  - 回答“结构和指标怎么看”
-
-## 存储原则
-
-- `OHLCV` 继续沿用当前 `CSV + manifest.json`
-- 轻量流数据当前默认不落盘
-- 只有在明确进入以下场景后，再讨论持久化：
-  - replay
-  - backtest
-  - 跨时段对比微观结构
-  - 反复回看 liquidation / delta / order book 事件
-- 在真实需要出现前，不提前设计新的数据库 schema
-
-## 迁移原则
-
-### 先迁的
-
-- `ohlcv-fetch`
-- `binance-market-scan`
-- `binance-symbol-snapshot` 的公共市场数据接入部分
-
-### 暂不因接入迁移而联动重写的
-
-- `tech-indicators`
-- 纯本地指标计算
-- 纯本地结构分析
-
-### fallback 原则
-
-- `binance-api-node` 有高层方法时，优先用高层方法
-- 缺少高层方法但 Binance 公开端点稳定时，走 `publicRequest`
-- 只有当 `binance-api-node` 明显无法覆盖时，才考虑额外保留独立 raw 实现
-
-## 当前待决问题
-
-- `binance-symbol-snapshot` 扩容后是否会变得过重
-- `trade_flow / book_micro / liquidation_flow` 是否应该在第一阶段就全部进入 `binance-symbol-snapshot`
-- `openInterest` 是否只保留即时值，还是第一阶段就补短窗口变化
-- `binance-market-scan` 是否需要引入少量 flow 特征，还是坚持只看 24h 级快照
-- 接入层迁到 Node 后，Go 侧是否保留兼容期，还是按 skill 逐个替换
-
-## 当前结论
-
-- 后续重点不是“再找新的数据源”，而是把已经可得的数据接入方式统一起来
-- 对当前仓库最有性价比的方向，是在不增加过多 skill 的前提下，把：
-  - `OHLCV`
-  - `OI`
-  - `funding / premium`
-  - `aggTrades`
-  - `bookTicker / depth`
-  - `liquidation`
-  组织成一套清晰的接入层与快照层
-- 这份文档后续用于继续讨论：
-  - skill 拆分
-  - 脚本命名
-  - 职责边界
-  - Node 迁移顺序
+- 不为每类数据新增一个 skill。
+- 不把市场解释写进接入脚本。
+- 不把全市场扫描结果直接交给 LLM 做 live action。
+- 不为了“可能有用”长期落盘微结构数据。
+- 不把不能改变 `entry / stop / size / no_action` 的数据接入主决策。

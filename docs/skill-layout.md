@@ -29,8 +29,6 @@
 │  │  └─ STAGE.md                  ← MVP 仅文档，调用现有 binance-* 功能 skill
 │  ├─ review/
 │  │  └─ STAGE.md                  ← MVP 占位
-│  ├─ backtest/                    ← 离线，MVP 不展开
-│  └─ iterate/                     ← 离线，MVP 不展开
 ├─ scripts/
 │  └─ db/                          ← 套件共享：数据库操作
 │     ├─ schema.sql                ← 见 tech-spec.md §12（plan_event 单表 + JSON body）
@@ -79,12 +77,10 @@ cron.log 追加本轮元数据
 
 | Stage | 干什么 | 调用的功能 skill |
 | --- | --- | --- |
-| **observe** | 按运行形态（`single-symbol` / `binance-market-scan` / `monitor-existing-chain`，详见 [design-architecture.md](design-architecture.md) §OBSERVE 运行形态）整理 checklist：cron 主轨必跑对账（先补 `source=reconcile`；不能可靠归属则 abort 当前周期）+ 拉市场数据 + 识别 regime / 算跨链 exposure。PLAN/preflight 后 append 完整 observe（含意图段 + action_intent + 证据段 + preflight_result + decision_summary） | `binance-account-snapshot`, `binance-symbol-snapshot`, `ohlcv-fetch`, `tech-indicators`, `binance-market-scan` |
+| **observe** | 按运行形态（`single-symbol` / `monitor-existing-chain`）整理 checklist：cron 主轨必跑对账（先补 `source=reconcile`；不能可靠归属则 abort 当前周期）+ 拉市场数据 + 补 setup 证据。PLAN/preflight 后 append 完整 observe（含意图段 + action_intent + 证据段 + preflight_result + decision_summary） | `binance-account-snapshot`, `binance-symbol-snapshot`, `ohlcv-fetch`, `tech-indicators`, `binance-market-scan` |
 | **plan** | 对每条 active flow：LLM 读 current_plan + latest_observe + strategy.policy + flow semantics 决定本轮 `direction_state` / `execution_verdict` + `action_intent`；调 `plan-preflight` 跑 hard guards 与卡片校验（含 `G-PLAN-VERDICT-COMPLETE`） | `plan-preflight`, `binance-account-snapshot`（兜底）+ 读 `strategies/*.md` |
 | **execute** | 读取 latest observe 的 `action_intent.request` → preview → 下单 / 撤单 / 调仓 → append order_fill 事件 | `binance-order-preview`, `binance-order-place`, `binance-position-protect`, `binance-position-adjust` |
 | **review** | 某次仓位 / plan 阶段性闭合后写 review 事件（5 个必填字段 + notes 自由 markdown） | — |
-| **backtest** | 跑历史样本验证假设（远期，30+ review 样本后） | `ohlcv-fetch` |
-| **iterate** | REVIEW 产出沉淀进 `strategies/`（远期） | — |
 
 注：cron 模式下"分阶段"是逻辑划分，每次 cron 周期一次性跑完 observe → plan → execute → (review)。不是用户主动一次次切阶段。
 
@@ -92,11 +88,7 @@ cron.log 追加本轮元数据
 
 ## 功能 skill：保持平铺
 
-按"通用程度"分两类：
-
-### A 类：trade-flow 专属（远期可考虑迁入套件 tools/）
-
-这些只服务交易动作，没有第二个使用场景：
+交易动作 skill 保持平铺，不迁入套件，不提前做 tools 层：
 
 - `binance-account-snapshot`
 - `binance-order-place`
@@ -104,18 +96,14 @@ cron.log 追加本轮元数据
 - `binance-position-protect`
 - `binance-position-adjust`
 
-**远期迁移路径**：`trade-flow/tools/binance/{name}/`。MVP 不动，等套件骨架跑通 + 完成 Claude Code skill 嵌套的技术验证后再迁。
-
-### B 类：通用市场数据 / 分析工具（永久平铺）
-
-这些跨场景复用——研究、回测、可视化、监控、独立分析都可能用：
+市场数据 / 分析 skill 也保持平铺：
 
 - `ohlcv-fetch`：纯数据获取
 - `tech-indicators`：纯计算
 - `binance-symbol-snapshot`：标的快照查询
 - `binance-market-scan`：扫描器，独立有价值
 
-绑死在套件内会失去复用价值。永久保持平铺。
+所有 skill 的实盘动作仍必须经 `trade-flow → preflight → preview / execute`，不能裸下单。
 
 ---
 
@@ -129,7 +117,7 @@ cron.log 追加本轮元数据
 
 **操作入口**：`trade-flow/scripts/db/` 下的 repo 模块
 
-**未来演进**：需要并发 / 服务器侧统一存储 / 看板 / 多终端共用 → 迁 PostgreSQL。OHLCV 进入 backtest 阶段切独立 SQLite 文件（`./data/ohlcv.db`），不与 trade.db 混用。
+当前不设计数据库迁移；SQLite 单库自用。
 
 ---
 
@@ -147,22 +135,11 @@ cron.log 追加本轮元数据
 
 先不做：
 
-- ❌ stages/review/STAGE.md 详细流程（积累 5-10 个 review 样本后再细化；MVP 阶段某次阶段性闭合即写 review，shape 见 design-architecture）
-- ❌ 完整 stages/backtest / iterate 自动链路（30+ review 样本后再展开；MVP 只保留 replay / shadow gate）
-- ❌ A 类功能 skill 迁入套件 tools/（套件骨架稳定后再做）
-- ❌ `strategies/` 目录二层结构（namespace + 微策略，30+ review 样本后再展开）
+- ❌ stages/review/STAGE.md 详细流程（MVP 阶段某次阶段性闭合即写 review，shape 见 design-architecture）
+- ❌ 策略演化自动链路（MVP 只保留 setup 级 replay / shadow gate）
+- ❌ 功能 skill 迁入套件 tools/
+- ❌ `strategies/` 目录二层结构（namespace + 微策略）
 - ❌ hard guard registry 单独抽象（guard 数明显增多后再考虑）
-- ❌ hedge 多腿（推迟到真有对冲需求；届时增设 plan_relation 表 + S-HEDGE-GENERIC + 升级 G-RISK-OPEN-CAP 公式）
+- ❌ hedge 多腿
 
 ---
-
-## Claude Code skill 嵌套验证
-
-A 类功能 skill 迁入 `trade-flow/tools/binance/` 之前，需要做一个 5 分钟技术验证：在 trade-flow 套件下放一个测试 SKILL.md，看 Claude Code 是否扫描识别。两种可能：
-
-| 情况 | 后果 |
-| --- | --- |
-| **递归扫描所有 SKILL.md** | tools/ 下每个仍是 agent-visible 独立 skill，命名空间需谨慎 |
-| **只扫描顶层** | tools/ 下就是套件内部代码模块，必须通过套件脚本 import 调用——其实更好（强制走 trade-flow 流程，不能裸下单） |
-
-验证结果决定 A 类的最终归属形式。MVP 阶段不需要这个结论。
