@@ -34,6 +34,7 @@ description: cron 周期里 EXECUTE 之前的最后一道闸。先按 flow seman
 
 - `flow_history`：本 flow 历史 events（按时间序），用于对账 stuck 计数与最近动作恢复
 - `aggregate_view`：账户级聚合视图（active plans 的 `risk_sum` / 当前账户 open risk / realized pnl today）
+- `runtime_health`：cron / Binance API / 对账 / 事件窗口状态，用于 kill switch
 
 ## 输出
 
@@ -60,7 +61,7 @@ description: cron 周期里 EXECUTE 之前的最后一道闸。先按 flow seman
 LLM 输入：
 
 - 当前 `plan`
-- `latest observe`（含 `account / microstructure / catalyst / exposure / reconcile_diffs`）
+- `latest observe`（含 `account / microstructure.notes / microstructure.refs / catalyst / exposure` 等紧凑证据段）
 - `strategy.policy`
 - `target_action + request`
 
@@ -70,6 +71,8 @@ LLM 需要按主流程固定语义判断：
 - `invalidation` 已触发：当前 thesis 不得继续推进
 - `current_position != 0`：工作重点转为 `exit_intent + thesis` 管理
 - 上轮 `target_action != no_action` 但无对应 `order_fill`：必须重读最新语境再决定续做或放弃
+- `strategy.status` 或 setup `live_permission` 不是 `live-small`：不得放行真钱动作；`shadow` 只记录影子动作
+- 本轮分析若不能改变 `entry / stop / size / no_action` 之一，只能进入 notes / refs，不得支撑动作
 
 这一步的作用不是生成一堆“规则命中”，而是把本轮动作收敛成可执行、可解释的一版计划。
 
@@ -81,9 +84,11 @@ hard guards 只保留确定性、必须严格遵守、可脚本化的检查。MV
 - `G-RISK-DAY-FLOOR`
 - `G-OBS-FRESH`
 - `G-PLAN-INTENT-COMPLETE`
+- `G-PLAN-VERDICT-COMPLETE`
+- `G-SETUP-LIVE-PERMISSION`
+- `G-KILL-SWITCH`
 - `G-STOP-LADDER-MONOTONIC`
 - `G-TP-LADDER-RATIO-CAP`
-- `G-RECON-NOT-STUCK`
 
 只在 `target_action ∈ {place_entry, adjust_position}` 时跑风险相关 guard；`cancel_order / sync_protection` 不增加 open risk。
 
@@ -111,13 +116,17 @@ function checkDailyLossFloor(plan, aggregate, account, equityLive) {
 
 机械检查包括：
 
-- `observe.captured_at` 距 now > 30s → `G-OBS-FRESH` fail
-- 必填字段非空 → `G-PLAN-INTENT-COMPLETE` fail/pass
+- `observe.created_at` / `observe.captured_at` 距 now > 30s → `G-OBS-FRESH` fail
+- `thesis / entry_intent / exit_intent / invalidation` 非空 → `G-PLAN-INTENT-COMPLETE`
+- `direction_state / execution_verdict` 必填且取值合法 → `G-PLAN-VERDICT-COMPLETE`
+- `target_action != no_action` 且新增风险时，`setup_id` 缺失或 setup 未获 `live-small` → `G-SETUP-LIVE-PERMISSION`
+- `runtime_health` 显示对账失败、API/cron 连续失败、日亏损接近底线、lane 已 paused、重大事件窗口禁新仓 → `G-KILL-SWITCH`
 - `stop_ladder` 单调 → `G-STOP-LADDER-MONOTONIC`
 - `takeprofit_ladder.qty_ratio` 之和 ≤ 1.0 → `G-TP-LADDER-RATIO-CAP`
-- `reconcile_diffs` 非空 → `G-RECON-NOT-STUCK` fail；连续 ≥ 3 轮非空需额外通知人工
 
 任一失败都写进 `blocked_by[{check_id, reason}]`。
+
+对账失败不作为 preflight hard guard。cron 入口若无法把交易所事实可靠归属到当前 flow，应直接 abort 本周期并通知；能可靠归属的事实先补写 `order_fill(source=reconcile)`，再进入 preflight。
 
 ## DECISION_CARD 渲染
 
@@ -125,6 +134,7 @@ function checkDailyLossFloor(plan, aggregate, account, equityLive) {
 
 - 字段从 `plan + latest observe + strategy` 派生，agent 不手写
 - thesis / entry_intent / exit_intent / invalidation / stop_price / risk_budget_usdt 必须出现
+- Verdict 行必须并列展示 `direction_state / execution_verdict`
 - `valid_until_at < now` → Plan 行标红，按流程语义视为当前 setup 失效
 - snapshot age > 20s 黄、> 30s 红（红色通常伴随 `G-OBS-FRESH` fail）
 - Checks 行展示 `blocked_by / warnings`

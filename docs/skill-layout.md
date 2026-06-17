@@ -45,7 +45,7 @@
 
 `< 300 行`。只放：
 
-- Router 规则（用户消息 → 哪个 stage）
+- Router 规则（详见 [design-architecture.md](design-architecture.md) §ROUTER）：仅 user-message 入口走 ROUTER；cron 主轨默认进 observe
 - 各 stage 一句话简介
 - 数据库位置 + 关键表名
 - 共享约定（如 client_order_prefix 命名规则）
@@ -63,10 +63,10 @@ observe 拉账户快照 + 对账补 event + 拉市场数据
   agent LLM 读 current_plan + latest_observe + strategy.policy + flow semantics 判动作
    ↓
 preflight（hard guards + card validation）
-   ↓ (verdict=armable)
-execute 提交动作 → append order_fill
    ↓
-本轮收尾 append observe（含意图段 + 证据段 + preflight_result + decision_summary）
+append observe（含意图段 + action_intent + 证据段 + preflight_result + decision_summary）
+   ↓ (verdict=armable && target_action != no_action)
+execute 读取 latest_observe.action_intent.request → append order_fill
    ↓ (某次阶段性闭合时)
 review  append review event（记录闭合样本并封口当前 flow）
    ↓
@@ -79,9 +79,9 @@ cron.log 追加本轮元数据
 
 | Stage | 干什么 | 调用的功能 skill |
 | --- | --- | --- |
-| **observe** | 拉账户快照 + 对账（先补 `source=reconcile` 事件；若仍无法可靠归属则 abort 当前周期）+ 拉市场数据 + 识别 regime / 算跨链 exposure。本轮收尾时 append 完整 observe（含意图段 + 证据段 + preflight_result + decision_summary） | `binance-account-snapshot`, `binance-symbol-snapshot`, `ohlcv-fetch`, `tech-indicators`, `binance-market-scan` |
-| **plan** | 对每条 active flow：LLM 读 current_plan + latest_observe + strategy.policy + flow semantics 决定本轮动作；调 `plan-preflight` 跑 hard guards 与卡片校验 | `plan-preflight`, `binance-account-snapshot`（兜底）+ 读 `strategies/*.md` |
-| **execute** | 预检 → 下单 → 回填，append order_fill 事件 | `binance-order-preview`, `binance-order-place`, `binance-position-protect`, `binance-position-adjust` |
+| **observe** | 按运行形态（`single-symbol` / `binance-market-scan` / `monitor-existing-chain`，详见 [design-architecture.md](design-architecture.md) §OBSERVE 运行形态）整理 checklist：cron 主轨必跑对账（先补 `source=reconcile`；不能可靠归属则 abort 当前周期）+ 拉市场数据 + 识别 regime / 算跨链 exposure。PLAN/preflight 后 append 完整 observe（含意图段 + action_intent + 证据段 + preflight_result + decision_summary） | `binance-account-snapshot`, `binance-symbol-snapshot`, `ohlcv-fetch`, `tech-indicators`, `binance-market-scan` |
+| **plan** | 对每条 active flow：LLM 读 current_plan + latest_observe + strategy.policy + flow semantics 决定本轮 `direction_state` / `execution_verdict` + `action_intent`；调 `plan-preflight` 跑 hard guards 与卡片校验（含 `G-PLAN-VERDICT-COMPLETE`） | `plan-preflight`, `binance-account-snapshot`（兜底）+ 读 `strategies/*.md` |
+| **execute** | 读取 latest observe 的 `action_intent.request` → preview → 下单 / 撤单 / 调仓 → append order_fill 事件 | `binance-order-preview`, `binance-order-place`, `binance-position-protect`, `binance-position-adjust` |
 | **review** | 某次仓位 / plan 阶段性闭合后写 review 事件（5 个必填字段 + notes 自由 markdown） | — |
 | **backtest** | 跑历史样本验证假设（远期，30+ review 样本后） | `ohlcv-fetch` |
 | **iterate** | REVIEW 产出沉淀进 `strategies/`（远期） | — |
@@ -142,11 +142,13 @@ cron.log 追加本轮元数据
 - ✅ `plan-preflight` skill：flow semantics + hard guard 脚本 + 6 行 DECISION_CARD 渲染
 - ✅ 现有功能 skill 全部保持现状，**不动不迁**
 - ✅ cron 运维必备：clientOrderId 前缀幂等 + abort 偏保守 + cron.log + 异常通知
+- ✅ replay / shadow gate：未通过 setup 资格证的 strategy 只能观察或 shadow，不得 live execute
+- ✅ execution contract：真钱动作必须经 preview 生成 `execution_contract_snapshot`，再 append `order_fill`
 
 先不做：
 
 - ❌ stages/review/STAGE.md 详细流程（积累 5-10 个 review 样本后再细化；MVP 阶段某次阶段性闭合即写 review，shape 见 design-architecture）
-- ❌ stages/backtest / iterate（30+ review 样本后再展开）
+- ❌ 完整 stages/backtest / iterate 自动链路（30+ review 样本后再展开；MVP 只保留 replay / shadow gate）
 - ❌ A 类功能 skill 迁入套件 tools/（套件骨架稳定后再做）
 - ❌ `strategies/` 目录二层结构（namespace + 微策略，30+ review 样本后再展开）
 - ❌ hard guard registry 单独抽象（guard 数明显增多后再考虑）

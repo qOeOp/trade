@@ -7,6 +7,7 @@
 - 当前重点是 `合约开仓`，但为避免后续接口命名漂移，仍把相关 skill 一并列清。
 - 每次 cron 触发的链路：`OBSERVE → 按启用 lane 决策 → EXECUTE → 某条 flow 闭合时即时 REVIEW`
 - 即使用户已经明确给出 `标的 / 方向 / 笔数 / 杠杆 / 保证金额`，也仍先 append `observe`（含意图段），再执行。
+- 未通过 `setup` 资格证的 strategy 只能 dry-run / shadow；不得发真钱动作。
 
 ## 2. 共享口径
 
@@ -26,15 +27,19 @@
   定义：最近一条 `observe` 事件里 `account.equity_usdt` 的值；爆仓护栏（`G-RISK-OPEN-CAP` / `G-RISK-DAY-FLOOR`）的实时计算基准，不落 `account_config`
 - `current_plan`
   定义：当前 flow 最近一条 `observe.body` 的"意图段"
-  - 必填：symbol / side / stop_price / risk_budget_usdt / strategy_ref / thesis / entry_intent / exit_intent / invalidation / expected_rr_net
+  - 必填：symbol / side / stop_price / risk_budget_usdt / strategy_ref / direction_state / execution_verdict / thesis / entry_intent / exit_intent / invalidation / expected_rr_net
   - 可选：valid_until_at / stop_ladder / takeprofit_ladder / risk_budget_change
+  - `direction_state`：枚举 `偏多已确认 | 偏空已确认 | 中性 | 冲突`，承载 PLAN 双层契约的"方向"层；由 `G-PLAN-VERDICT-COMPLETE` 守
+  - `execution_verdict`：枚举 `追 | 不追 | 等条件 | 等回踩 | 放弃 | 持有不动 | 减仓 | 退出`，承载"执行"层；与 `direction_state` 互不吞，合法组合见 [design-architecture.md](design-architecture.md) §Flow Semantics
   - `stop_ladder`：止损推进梯度数组，`[{trigger_price, new_stop, reason}]`；agent 每轮读 ladder + 当前 mark + order_fill 历史自行决定是否发 `sync_protection`（软触发，preflight 不做机械 reduce）
   - `takeprofit_ladder`：分档止盈数组，`[{price, qty_ratio, reason}]`，`sum(qty_ratio) ≤ 1.0`；同样软触发
   - `risk_budget_change`：本轮 `risk_budget_usdt` 相对上一条 observe 的变化，`{delta_usdt, reason}`
 - `execution_contract`
-  定义：提交前由 `current_plan + latest_observe.account + 交易所规格` 编译出的执行快照；是交易所 payload 的唯一真相
+  定义：提交前由 `latest_observe.action_intent.request + current_plan + latest_observe.account` 投影 / 必要账户快照 + 交易所规格编译出的执行快照；是交易所 payload 的唯一真相。`order_fill(source=trade_flow)` 必须引用该快照。
 - `observe snapshot`
-  定义：可被 `EXECUTE / preflight` 直接消费的最小完整快照，不是 patch；同条 observe 同时承载意图段 + 证据段
+  定义：可被 `EXECUTE / preflight` 直接消费的最小完整快照，不是 patch；同条 observe 同时承载意图段 + 紧凑证据段。证据段只放当前 flow 相关投影、LLM 提炼和 refs，不复制账户全量或市场原始 dump。
+- `setup`
+  定义：strategy 内一类可被验证的交易机会。live 动作必须引用 `setup_id`，且 setup 有 `hypothesis / regime / entry_rule / stop_rule / no_trade_conditions / size_policy / evidence_ref / live_permission`。
 
 ## 3. `binance-account-snapshot`
 
@@ -122,7 +127,7 @@
 
 ### 4.5 当前 gaps
 
-- 没有消费正式 plan 结构。重构方向见 [design-architecture.md](design-architecture.md) 的 `Plan 设计`：执行层应消费 `current_plan`（含 `symbol / side / stop_price / risk_budget_usdt / strategy_ref / entry_intent / exit_intent`）+ 同一条 observe 的证据段（含微结构 / 账户事实），产出写成 `order_fill` 事件；不再直接吃零散参数。
+- 没有消费正式 plan 结构。重构方向见 [design-architecture.md](design-architecture.md) 的 `PLAN 与 EXECUTE 的边界`：PLAN/preflight 先 append 决策 observe；执行层只消费 `latest_observe.action_intent.request`，必要校验读取同一条 observe 的意图段与证据段（微结构 / 账户事实），真实提交 / 撤销 / 成交结果写成后续 `order_fill` 事件；不再直接吃零散参数。
 - 还没有正式 `execution_contract` 把 `strategy.policy`、`current_plan`、live 账户事实与交易所规格收口成一份提交快照。
 - 没有统一输出”这版 plan 需要几张主单、几张保护单”。
 - 还没有把 `保证金额 / 杠杆 / 笔数` 编译进来。
@@ -404,19 +409,21 @@ EntryPlan（编译后的 `execution_contract`）
 
 ### 9.3 最小执行步骤
 
-1. 读取 `current_plan`（最近 observe.body 的意图段）+ 同条 observe 的证据段
-2. 从 `latest_observe.account` 取 live 账户事实：
+1. 读取 `latest_observe.action_intent.request` + `current_plan`（最近 observe.body 的意图段）+ 同条 observe 的证据段
+2. 从 `latest_observe.account` 取当前 flow 相关账户投影：
    - equity
-   - available balance
-   - position
-   - open regular orders
-   - open algo orders
+   - position_state
+   - order_state
+   - snapshot_ref
+   若编译交易所请求需要完整余额、挂单或保护单明细，优先读取 `snapshot_ref` 对应输出；仍不足则即时重拉 `binance-account-snapshot`。observe 不承担账户全量缓存职责。
 3. 编译 `execution_contract`
-   - 把 `position_side / margin_mode / target_leverage / entries[] / account_snapshot` 收口到同一份对象
+   - 把 `source_observe_event_key / setup_id / position_side / margin_mode / target_leverage / entries[] / account_snapshot / fee_slippage_policy` 收口到同一份对象
 4. 校验：
    - `symbol`
    - `positionSide`
    - 当前仓位不会被误减
+   - `live_permission` 允许真钱动作
+   - 新增风险动作具备 stop / invalidation / risk_budget
 5. 若指定 `target_leverage`
    - 读取当前杠杆
    - 不一致则先调杠杆
@@ -428,6 +435,7 @@ EntryPlan（编译后的 `execution_contract`）
    - 实际提交了什么
    - 哪些已进入交易所
    - 哪些仍未对齐
+10. append `order_fill(source=trade_flow)`，写入 `source_observe_event_key + execution_contract_snapshot`
 
 ### 9.4 当前最关键缺口
 
@@ -538,13 +546,13 @@ Strategy 文件 frontmatter shape：
 ---
 strategy_id: S-GENERIC-TREND
 name: 通用趋势跟随
-status: active | draft | retired
+status: draft | shadow | live-small | paused
 tags: [directional, technical]
 ---
 
 # S-GENERIC-TREND
 
-policy markdown（setup / 失效 / EV / regime / catalyst / 持仓 / size policy）...
+policy markdown（setup / hypothesis / regime / entry_rule / stop_rule / no_trade_conditions / size_policy / evidence_ref / live_permission）...
 ```
 
 trade-flow 启动时遍历 `strategies/*.md`，按 frontmatter 索引到内存 map；不入 DB。
@@ -554,16 +562,18 @@ trade-flow 启动时遍历 `strategies/*.md`，按 frontmatter 索引到内存 m
 - `plan_event` 是 append-only；不维护 current 表 / history 表双写
 - `kind` 仅三种：`observe / order_fill / review`，trade-flow 写入时遇到未知 kind 立刻 warn（防 typo 静默落库）
 - `body_json` 不做数据库层 schema 强约束（除 `json_valid`）；shape 由 `kind` 决定，应用层校验
-- `observe.body_json` 必须是"最小完整快照"（含意图段 + `action_intent` + 证据段 + `preflight_result` + `decision_summary`），不是 patch
+- `observe.body_json` 必须是"最小完整快照"（含意图段 + `action_intent` + 紧凑证据段 + `preflight_result` + `decision_summary`），不是 patch；紧凑证据段只保留当前 flow 相关账户 / 订单 / 市场投影、LLM 提炼和 refs
+- `observe.body_json` live 动作建议写 `setup_id`；当 `target_action != no_action` 且会新增风险时，`setup_id` 必填
+- `observe.body_json` 意图段必填 `direction_state` / `execution_verdict`（PLAN 双层契约，取值见 §2 `current_plan` 定义）；缺或非法 → `G-PLAN-VERDICT-COMPLETE` 拒
 - `observe.body_json` 意图段的 `stop_ladder` / `takeprofit_ladder` / `risk_budget_change` 字段可选；写入时遵循：
   - `stop_ladder` 单调（long: trigger_price 与 new_stop 同向递增；short 反向）—— `G-STOP-LADDER-MONOTONIC`
   - `takeprofit_ladder.qty_ratio` 之和 ≤ 1.0 —— `G-TP-LADDER-RATIO-CAP`
   - ladder 是软触发：agent 每轮读 ladder + 当前 mark + order_fill 历史自行决定是否发 `sync_protection`；preflight 不做"已触发档位"的机械 reduce
   - `risk_budget_change` 在 `risk_budget_usdt` 与上一条 observe 不同时建议填，由 LLM 在自然语言层面判完整性
-- `order_fill.body_json` shape 见 [design-architecture.md §order_fill.body shape](design-architecture.md)；`source: trade_flow | reconcile` 标识来源（主动执行 vs 对账补录）；可选 `source_observe_event_key` 引用本笔 fill 对应的决策 observe
+- `order_fill.body_json` shape 见 [design-architecture.md §order_fill.body shape](design-architecture.md)；`source: trade_flow | reconcile` 标识来源（主动执行 vs 对账补录）；`source=trade_flow` 时必须写 `source_observe_event_key + execution_contract_snapshot`
 - `review.body_json` 由某次仓位 / plan 阶段性闭合时写入；单条 flow 默认只写 1 条 terminal `review`；同一 lane 会跨多条历史 flow 累积多条 `review`；shape 见 [design-architecture.md §REVIEW → review.body shape](design-architecture.md)
 - `chain_id` 由 trade-flow 在某 lane 当前无 active flow 且本轮识别到新 setup 时生成 UUID，写进 first observe 的 `plan_event.chain_id`；同一笔机会后续沿用该 `chain_id`，同一 lane 后续新机会再开新 `chain_id`
-- 微结构 / 市场数据直接内嵌 `observe.body.microstructure`；不建独立 market_snapshot 表（单 flow 单 symbol 阶段不需去重；多 flow 同 symbol 并行出现时再抽）
+- 微结构 / 市场数据只把 `notes + refs` 内嵌到 `observe.body.microstructure`；原始 OHLCV / aggTrades / 指标明细留在各 skill 输出文件或 run_id，不建独立 market_snapshot 表（多 flow 同 symbol 并行且复用压力真实出现后再抽）
 - 投影视图不落库；`trade-flow / preflight / reducer` 读时计算
 - flow semantics 直接写在主流程文档里，hard guards 直接走代码或脚本
 - Strategy 池不作为表存在；strategy 走 markdown 文件，frontmatter 即元数据
@@ -636,7 +646,7 @@ ORDER BY created_at DESC LIMIT 1;
 - **不引入 MongoDB / 文档库**：单进程 cron + MVP 体量（< 10k events/月）下 SQLite JSON1 扩展完全够用，多一套服务的运维成本不值
 - **strategy 不入 DB**：strategy 走 markdown 文件最自然（`strategies/*.md`），git history 即版本记录
 - **flow semantics / hard guards 不入 DB**：前者直接写在主流程文档里，后者直接走代码或脚本
-- **微结构不抽独立表**：单 flow 单 symbol 阶段直接内嵌 `observe.body.microstructure`；同 symbol 多 lane / flow 并行场景出现后再抽 `market_snapshot`
-- **无 action_contract 票据**：本轮已收敛的可执行动作直接写在 `observe.body.action_intent.request`，EXECUTE 读 `latest_observe` 消费；同进程顺序调用不需要跨进程票据机制（PLAN/EXECUTE 真的拆跨进程时再加）
+- **微结构不抽独立表**：单 flow 单 symbol 阶段只在 `observe.body.microstructure` 内嵌 notes + refs；同 symbol 多 lane / flow 并行场景出现后再抽 `market_snapshot`
+- **无跨进程 action ticket**：本轮已收敛的可执行动作直接写在 `observe.body.action_intent.request`，EXECUTE 读 `latest_observe` 消费；提交前仍必须生成 `execution_contract_snapshot` 并写入 `order_fill`。PLAN/EXECUTE 真的拆跨进程时再加独立票据机制
 - **flow 状态不存表**：是否活跃由 strategy 是否启用、lane 是否命中，以及该 flow 是否已写 terminal `review` 共同决定
 - **数据库规格放本文件**，[design-architecture.md](design-architecture.md) 只保留设计图、状态流和模型边界

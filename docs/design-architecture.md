@@ -9,6 +9,18 @@ trade-flow 是套件 skill 的总入口（功能 skill 拓扑见 [skill-layout.m
 - decision_card 渲染 = 校验
 - cron 自动巡航是主轨，user-message 是接管轨；两轨共用同一组 `plan_event` / preflight / hard guards / decision_card
 
+## 实盘收敛原则
+
+当前阶段不扩策略宇宙，只收紧可实盘动作的资格。任何 `target_action != no_action` 都必须同时满足：
+
+- No tested edge, no trade：`strategy.policy` 必须有可回放 / shadow / 小资金验证记录；未验证策略只能 observe 或 shadow
+- No fresh facts, no trade：账户、挂单、持仓、价格快照必须新鲜，且可追溯到 skill 输出
+- No executable contract, no trade：真钱动作必须先生成 `execution_contract_snapshot`
+- No stop, no trade：新增或增加风险的动作必须有明确 stop / invalidation / risk_budget
+- No reconciliation, no trade：对账无法恢复时全局只允许 `no_action` 或减风险动作
+
+agent 负责判断，skill 负责事实，脚本负责硬约束，交易所事实最终覆盖本地事件流。
+
 ---
 
 ## 运行入口（cron / user-message 双轨）
@@ -81,6 +93,8 @@ plan_event
 - **延续 flow**：同一笔机会 / 持仓仍在管理时，后续 cron 都沿用同一 `chain_id` append 新事件
 - **新开 flow**：某条 flow 已阶段性闭合后，同一 lane 后续又出现新 setup，或本轮机会本质上应作为独立暴露管理时，新开 flow
 
+PLAN-POOL（prd 概念）不建独立表 —— 由 `flows` 投影（`SELECT chain_id ... GROUP BY chain_id`）承载，"活跃 / 历史 / 闭合"通过 lane 状态 + 是否写入 terminal `review` 共同判定。所有 chain 默认都在 pool 里，活跃链只是其中一种默认读取视图。
+
 完整 schema / 索引 / 落库约定见 [tech-spec.md](tech-spec.md)。
 
 ### Event kind
@@ -100,6 +114,7 @@ side: long | short
 stop_price: number
 risk_budget_usdt: number          # 全档成交假设下最大允许亏损（驱动 G-RISK-OPEN-CAP / G-RISK-DAY-FLOOR）
 strategy_ref: S-xxx
+setup_id: text?                   # 指向 strategy policy 内的可交易 setup；live 动作必须可追溯
 
 # 硬字段（PLAN 双层契约：方向 + 执行分离，防止被 thesis 文本吞掉）
 direction_state: 偏多已确认 | 偏空已确认 | 中性 | 冲突
@@ -125,24 +140,26 @@ action_intent:
   request:                        # target_action != no_action 时必填
     # 结构化参数；shape 由 target_action 决定，preview 解析后路由到执行 skill
 
-# 证据段
+# 证据段（紧凑投影，不塞原始 dump）
 account:
-  equity_usdt: number
-  positions: [...]
-  open_orders: [...]
+  equity_usdt: number                  # hard guard 的 live equity
+  position_state: text                 # 仅当前 flow / symbol 相关仓位摘要；无则 "flat"
+  order_state: text                    # 仅当前 flow / symbol 相关挂单摘要；无则 "none"
   funding_paid_since_entry_usdt: number?
-microstructure:                   # 当轮采集结果直接内嵌；shape 见 market-data-design.md
-  notes: text?                    # agent 本轮一句话提炼
-catalyst: text                    # 持仓窗口内 high-impact 事件（无则 "none in window"）
-exposure: text                    # 同簇敞口判断（btc-beta / eth-eco / ...）
+  snapshot_ref:? string                # 可选：account-snapshot 输出文件 / run_id
+microstructure:
+  notes: text                          # 本轮一句话到一小段提炼；原始 OHLCV / aggTrades / 指标不入 observe
+  refs:? [string]                      # 可选：market-data / indicator 输出文件或 run_id
+catalyst: text?                        # 持仓窗口内 high-impact 事件；无则省略或写 "none in window"
+exposure: text?                        # 同簇敞口判断（btc-beta / eth-eco / ...）
 preflight_result:
   verdict: armable | blocked | abstain
   blocked_by: [{check_id, reason}]   # 任一非空 → blocked
   warnings:   [{source, reason}]     # 不阻拦但记录
-decision_summary: text            # 本轮 cron 做了什么
+decision_summary: text            # 本轮判断 / preflight / 动作意图摘要；真实执行结果见后续 order_fill
 ```
 
-每条 observe 是**最小完整快照**，不是 patch。若只刷局部槽位，上游先合并上一版完整 observe 再 append。
+每条 observe 是**最小完整快照**，不是 patch；语义上分三段：`fact_snapshot`（账户 / 市场 / 订单投影与 refs）、`decision_snapshot`（thesis / entry / exit / action_intent）、`preflight_snapshot`（hard guard 与 card 校验结果）。这里的完整指“足以让 PLAN / preflight / EXECUTE 复读本轮判断”，不是把账户全量、OHLCV、aggTrades、指标明细都复制进 DB。原始输出留在各 skill 的文件 / run_id，observe 只存当前 flow 相关投影、LLM 提炼和可追溯 refs。若只刷局部槽位，上游先合并上一版完整 observe 再 append。
 
 同一条 flow 可以在空仓观察、等待条件、已挂单、持仓管理之间切换；一旦这次机会已阶段性闭合，同一 lane 后续再出现新 setup 时新开 flow，不复用旧 `chain_id`。
 
@@ -166,6 +183,8 @@ avg_fill_price: number?             # fill / partial_fill
 fee_usdt: number?                   # fill 类
 funding_paid_delta_usdt: number?    # 持仓段累计 funding 增量（仅 fill 且关联仓位时）
 source: trade_flow | reconcile      # 主动执行 vs 对账补录
+source_observe_event_key:? string   # source=trade_flow 必填
+execution_contract_snapshot:? object # source=trade_flow 必填；本次提交前的执行快照
 ```
 
 `current_orders` / `current_position` reduce 时只读 `sub_kind / client_order_id / side / position_side / qty / filled_qty / avg_fill_price`；其余字段是审计 / 复盘用。`source=reconcile` 只用于“交易所事实已经发生，且本轮对账能可靠归属到当前 flow”的补录事件。Binance API 字段全集见 [tech-spec.md](tech-spec.md)。
@@ -174,7 +193,9 @@ source: trade_flow | reconcile      # 主动执行 vs 对账补录
 
 - `plan` 是持续演化的判断，不是执行票据
 - EXECUTE 只读 `latest_observe.action_intent.request`，不再回头读自然语言 plan
-- `preview` 是唯一执行路由器：解析 request → 选 execute skill → 生成最终交易所请求
+- `preview` 是唯一执行路由器：解析 request → 生成 `execution_contract_snapshot` → 选 execute skill → 生成最终交易所请求
+- 顺序固定为：PLAN/preflight 先 append 决策 observe；EXECUTE 再消费这条 latest_observe 的 `action_intent.request`；真实提交 / 撤销 / 成交结果随后 append `order_fill`
+- `order_fill(source=trade_flow)` 必须引用 `source_observe_event_key` 与 `execution_contract_snapshot`，否则不算可审计执行事实
 
 崩溃恢复：下一轮 cron 读 `latest_observe.action_intent`，若 `target_action != no_action` 但事件流无对应 `order_fill`，preflight 重跑由 LLM 决定续做或放弃。
 
@@ -218,6 +239,22 @@ CREATE INDEX idx_kind_chain ON plan_event(kind, chain_id);
 - **CSV / log**：OHLCV / cron 运维 —— 追加型时间序列
 
 不引入 MongoDB / 文档库：单进程 cron + MVP 体量（< 10k events/月）下 SQLite JSON1 扩展完全够用，多一套服务的运维成本不值。具体 schema / 索引 / JSON 查询模式见 [tech-spec.md](tech-spec.md)。
+
+---
+
+## OBSERVE 运行形态
+
+OBSERVE 不是一种动作 —— 按"本轮 checklist 模板"和"是否新开 flow"分成三种形态。三种形态产物都是同一种 `observe` event（body shape 完全相同），区别只在 checklist 构成、写入 chain 数、是否触发 lane bootstrap。
+
+| 形态 | 触发来源 | checklist 重点 | 写入策略 |
+| --- | --- | --- | --- |
+| `single-symbol` | user 指定标的 / cron 在已有 active flow 上刷新 | 该 lane 的市场快照 + 账户事实 + 微结构 + 策略匹配证据 | 命中 lane 已有 active flow → 沿用 `chain_id` append；无则 bootstrap 新 flow |
+| `binance-market-scan` | user 主动扫 / cron 慢轨周期 | 全市场粗筛 → shortlist → 派发 sub-agent 走 `single-symbol` 细筛 | 命中 shortlist 的标的若所在 lane 未开 flow → bootstrap；否则只 refresh |
+| `monitor-existing-chain` | cron 默认 | 遍历当前 `active_flows`，逐条刷新 latest_observe + 重判 `direction_state` / `execution_verdict` | 每条 active flow 各 append 一条 observe；不 bootstrap |
+
+cron 主轨默认形态是 `monitor-existing-chain` + 周期性 `binance-market-scan`；user-message 经 ROUTER 进入 OBSERVE 时由 ROUTER 标出形态。三种形态共用同一组 hard guards 和 preflight，不为形态写两套校验。
+
+OBSERVE 不要求所有 lane 同频更新；本轮未命中的 lane 这一轮不写 observe，不视为 stale。
 
 ---
 
@@ -314,7 +351,40 @@ review 阶段按 `blocked_by[].check_id` group by，自然得到"哪项 hard gua
 
 Strategy 是 `observe.body.strategy_ref` 指向的对象。strategy 是规则模板，不是 flow 身份。一个 strategy 可以在不同 symbol / side 上展开多个 lane；MVP lane 先用 `strategy_ref + symbol + side` 读时定位。每个 lane 同时最多 1 条 active flow；同一 lane 的旧 flow 闭合后，后续再出现新机会时新开 flow。更复杂的同 lane 多重重入不作为当前默认管理模型；是否支持同 symbol 双向同时并行，等真实需求出现再单独设计。MVP 2 条种子（`S-GENERIC-TREND` / `S-GENERIC-MEANREVERT`），完整 policy 落 [.agents/skills/trade-flow/strategies/](../.agents/skills/trade-flow/strategies/)。schema 见 [tech-spec.md](tech-spec.md)。
 
-策略演化链路边界：当前阶段 strategy 池只承载 `active / draft / retired` 三态，不引入版本分支管理。BACKTEST / ITERATE / 影子 / 分叉 / 归档推迟到累积 30+ review 样本后再展开；vision/prd 里描述的 `STRATEGY-CHAIN` 候选→影子→验证→生效→归档全链，是远期形态，不在 MVP 范围。
+策略演化链路边界：当前阶段 strategy 池只承载 `draft / shadow / live-small / paused` 四态，不引入版本分支管理。`draft` 只能分析；`shadow` 可生成 action_intent 但不得真实执行；`live-small` 才允许小资金实盘；`paused` 只允许观察和减风险。BACKTEST / ITERATE / 分叉 / 归档推迟到累积 30+ review 样本后再展开；vision/prd 里描述的 `STRATEGY-CHAIN` 候选→影子→验证→生效→归档全链，是远期形态，不在 MVP 范围。
+
+### Setup 入场资格
+
+可交易对象不是整份 strategy，而是 strategy 内的 `setup_id`。任何 live action 必须能追溯到一个 setup，且 setup 至少声明：
+
+- `hypothesis`：为什么这类机会有 edge
+- `regime`：适用市场环境；不适用环境默认 no_action
+- `entry_rule / stop_rule / no_trade_conditions`
+- `size_policy`：如何把风险预算落到数量
+- `evidence_ref`：回放、shadow 或小资金样本引用
+- `live_permission`：`draft | shadow | live-small | paused`
+
+没有 setup 资格证，agent 可以写 thesis，但不得把 `execution_verdict` 收敛为真钱动作。
+
+### 策略读取三层
+
+OBSERVE → PLAN 收敛过程默认按三层职责递进，不让 LLM 直接面对全市场零散指标裸判策略：
+
+```
+原始数据 → 基础分析层 → 默认判定层 → 个性策略层 → plan 候选收敛
+```
+
+| 层级 | 默认执行 | 职责 | 产物去向 |
+| --- | --- | --- | --- |
+| 基础分析层 | 是 | 把原始市场数据整理成公共语境槽位（market_regime / directional_bias / structure_state / momentum_volatility_state / execution_constraints / risk_context / feature_conflicts / missing_context） | 写入 `observe.body.microstructure.notes` 与软字段 thesis 的语境段 |
+| 默认判定层 | 是 | 把公共语境转成标准化信号 `support / weak-support / neutral / warning / deny`，并标 `downgrade_path` | 喂给 LLM 决定本轮 `direction_state` |
+| 个性策略层 | 否，需召回 | 当个性 strategy 命中召回前置时才进入，做私有深判和 hard_rejects / soft_signals 评分 | 喂给 LLM 决定本轮 `execution_verdict` + 写入 `strategy_ref` |
+
+固定的是三层职责和收敛顺序，**不固定指标全集 / 总分公式 / 规则 DSL**。三层都可以把缺口回写到 checklist；checklist 清空的含义是"本轮进入 PLAN 所需的最小语境已齐"，不等于"世界上已无更多信息"。
+
+信号准入规则：任何分析只有能改变 `entry / stop / size / no_action` 四者之一，才允许进入 `action_intent`。不能改变这四项的内容，只能进入 notes / refs，不参与真钱动作。
+
+MVP 阶段三层产物以软字段（thesis / 证据段自然语言）承载，不在 observe.body 强制结构化子字段；等 30+ review 样本后再决定是否抽 `base_layer / default_judgement / strategy_match` 硬字段。具体三层接口与字段名沿用 [prd.md](prd.md) §2 的描述。
 
 ---
 
@@ -353,7 +423,7 @@ sequenceDiagram
     TF->>TF: 确认当前启用 strategy / lane；无 active flow 的 lane 可 bootstrap 新 flow
     TF->>DB: reduce 当前 active_flows
     TF->>TF: 对账（能补 reconcile 事件就补；补不明白则 abort 当前周期）
-    TF->>BN: 拉市场数据（内嵌进本轮 observe.body.microstructure）
+    TF->>BN: 拉市场数据（提炼为 observe.body.microstructure.notes + refs）
 
     loop 每条 active flow
         TF->>TF: agent LLM 读 latest_observe + observe + strategy.policy + flow semantics
@@ -412,6 +482,22 @@ MVP 不把“对账失败”设计成单独的持久状态字段，也不为它�
 
 ---
 
+## Kill Switch / Cool-down
+
+Kill switch 是执行资格，不是策略观点。触发后不改写 strategy，只限制本轮可执行动作：
+
+| 触发 | 行为 |
+| --- | --- |
+| 对账无法恢复 | 全局 `no_action`，通知人工 |
+| Binance API / cron 连续失败 ≥ 3 次 | 暂停新增风险，只允许减风险动作 |
+| 日亏损接近 `max_day_loss_pct` | 只允许减仓 / 平仓 / 撤风险单 |
+| 某 lane 连续 N 次 `loss` 或 setup 失效 | lane 进入 `paused`，等待人工 review |
+| 重大事件窗口且 strategy 未明确允许 | 禁新仓，只观察或减风险 |
+
+这些规则应优先落在 preflight / cron 入口脚本；LLM 可以解释原因，但不能放行。
+
+---
+
 ## REVIEW（阶段性复盘）
 
 输入是同一条 flow 在闭合前后的完整 `plan_event` 切片。`review` 用来总结一段已完成的持仓 / plan，并作为该 flow 的 terminal event。
@@ -428,6 +514,30 @@ notes: markdown?                # 自由 markdown：cost vs expected / signal ac
 ```
 
 单条 flow 默认写 1 条 terminal `review`。同一 lane 可以随着多条历史 flow 累积多条 `review`。REVIEW 是 MVP 终点。BACKTEST / ITERATE / STRATEGY-POOL 链路推迟到累积 30+ review 样本后再展开。
+
+---
+
+## Chat-History 边界
+
+`chat-history` 是独立于 `plan_event` 的对话素材层，承接 user-message 入口长出来的高价值判断变化。**不入 DB，不参与 ROUTER 分发**。
+
+| 维度 | plan_event | chat-history |
+| --- | --- | --- |
+| 介质 | SQLite `./data/trade.db` | Markdown `./data/chat-history.md`（append-only） |
+| 写入者 | trade-flow 主流程 | agent 在高价值对话后增量 append |
+| 关注 | 本笔机会从 observe 到闭合的事实链 | 用户目标如何变化、AI 为什么改判、哪些上下文 / 阻塞影响了决策 |
+| 与 flow 关系 | 强绑 `chain_id` | 可引用 `chain_id`，但不强绑；一段对话可跨多条 flow |
+| 升格路径 | terminal `review` → 远期 BACKTEST 样本 | 远期作为 PRD / user-story / 复盘的上游素材 |
+
+MVP 边界：
+
+- 默认只 capture 高价值片段，不全量自动记忆
+- 主体格式 `USER-> / AI<-`；前补一层结构化摘要（Session Goal Evolution / Decision Log / Why Recommendations Changed / Friction And Failure Points / Product Insight）
+- 默认 append，不覆盖旧内容
+- **不**做自动升格为 PRD / user-story / 复盘样本；何时升格由用户主动触发
+- 不作为实盘证据源；真钱动作只能引用交易所事实、市场数据 refs、strategy policy、replay / shadow 记录和当前事件流
+
+具体 `history item` 字段、追加规则、升格机制：本文不固定，待对话样本积累后再回到 prd 第 8.2 节细化。
 
 ---
 
