@@ -18,6 +18,7 @@ interface StrategyEvidenceRecord {
   policy_hash: string
   source_ref: string
   stats: EvidenceStats
+  anti_overfit?: AntiOverfitProof
   gate?: JSONRecord
   notes?: string
 }
@@ -29,6 +30,15 @@ interface EvidenceStats {
   total_r: number
   max_drawdown_r?: number
   profit_factor?: number
+}
+
+interface AntiOverfitProof {
+  method: "out_of_sample" | "walk_forward"
+  oos_stats: EvidenceStats
+  train_stats?: EvidenceStats
+  trial_count?: number
+  parameter_count?: number
+  notes?: string
 }
 
 interface StrategyReviewReport {
@@ -73,6 +83,7 @@ function appendStrategyEvidence(input: {
   kind: EvidenceKind
   setupId?: string
   stats: EvidenceStats
+  antiOverfit?: AntiOverfitProof
   sourceRef?: string
   gate?: JSONRecord
   notes?: string
@@ -88,6 +99,7 @@ function appendStrategyEvidence(input: {
     policy_hash: policyHashForFile(input.strategyPath),
     source_ref: input.sourceRef || "",
     stats: normalizeEvidenceStats(input.stats),
+    ...(input.antiOverfit ? { anti_overfit: normalizeAntiOverfitProof(input.antiOverfit) } : {}),
     ...(input.gate ? { gate: input.gate } : {}),
     ...(input.notes ? { notes: input.notes } : {}),
   }
@@ -118,6 +130,7 @@ function appendReplayEvidence(input: {
       max_drawdown_r: input.replayResult.max_drawdown_r,
       profit_factor: input.replayResult.profit_factor,
     },
+    antiOverfit: readAntiOverfitProof(input.replayResult.assumptions),
     gate: input.replayResult.gate,
     notes: input.replayResult.notes.join(" "),
   })
@@ -201,6 +214,8 @@ function evaluateStrategyGate(latest: StrategyReviewReport["latest"]): StrategyP
     blockedBy.push({ check_id: "S-REPLAY-MISSING", reason: "fresh replay evidence is required" })
   } else if (!isPositiveEvidence(replay.stats)) {
     blockedBy.push({ check_id: "S-REPLAY-WEAK", reason: "fresh replay evidence is not positive after costs" })
+  } else {
+    blockedBy.push(...evaluateAntiOverfit(replay))
   }
 
   const shadow = latest.shadow
@@ -215,7 +230,7 @@ function evaluateStrategyGate(latest: StrategyReviewReport["latest"]): StrategyP
     }
   }
 
-  const replayOk = Boolean(replay && isPositiveEvidence(replay.stats))
+  const replayOk = Boolean(replay && isPositiveEvidence(replay.stats) && evaluateAntiOverfit(replay).length === 0)
   const shadowOk = Boolean(shadow && shadow.stats.sample_count >= 20 && isPositiveEvidence(shadow.stats))
   return {
     shadow_candidate: replayOk,
@@ -345,6 +360,46 @@ function isPositiveEvidence(stats: EvidenceStats): boolean {
     && (stats.max_drawdown_r === undefined || stats.max_drawdown_r <= 10)
 }
 
+function evaluateAntiOverfit(record: StrategyEvidenceRecord): Array<{ check_id: string; reason: string }> {
+  const blockedBy: Array<{ check_id: string; reason: string }> = []
+  const proof = record.anti_overfit
+  if (!proof) {
+    return [{ check_id: "S-OOS-MISSING", reason: "fresh replay evidence must include out_of_sample or walk_forward proof" }]
+  }
+  if (proof.method !== "out_of_sample" && proof.method !== "walk_forward") {
+    blockedBy.push({ check_id: "S-OOS-METHOD", reason: "anti_overfit.method must be out_of_sample or walk_forward" })
+  }
+  if (proof.oos_stats.sample_count < 10) {
+    blockedBy.push({ check_id: "S-OOS-SAMPLE", reason: `oos sample_count ${proof.oos_stats.sample_count} is below 10` })
+  }
+  if (!isPositiveEvidence(proof.oos_stats)) {
+    blockedBy.push({ check_id: "S-OOS-WEAK", reason: "out-of-sample evidence is not positive after costs" })
+  }
+  if (proof.trial_count !== undefined && proof.trial_count > 10) {
+    blockedBy.push({ check_id: "S-SEARCH-BUDGET", reason: `trial_count ${proof.trial_count} exceeds 10` })
+  }
+  if (proof.parameter_count !== undefined && proof.parameter_count > 8) {
+    blockedBy.push({ check_id: "S-PARAM-COUNT", reason: `parameter_count ${proof.parameter_count} exceeds 8` })
+  }
+  return blockedBy
+}
+
+function readAntiOverfitProof(assumptions: JSONRecord): AntiOverfitProof | undefined {
+  const proof = assumptions.anti_overfit
+  return proof && typeof proof === "object" ? proof as AntiOverfitProof : undefined
+}
+
+function normalizeAntiOverfitProof(proof: AntiOverfitProof): AntiOverfitProof {
+  return {
+    method: proof.method,
+    oos_stats: normalizeEvidenceStats(proof.oos_stats),
+    ...(proof.train_stats ? { train_stats: normalizeEvidenceStats(proof.train_stats) } : {}),
+    ...(optionalNumber(proof.trial_count) !== undefined ? { trial_count: optionalNumber(proof.trial_count) } : {}),
+    ...(optionalNumber(proof.parameter_count) !== undefined ? { parameter_count: optionalNumber(proof.parameter_count) } : {}),
+    ...(proof.notes ? { notes: proof.notes } : {}),
+  }
+}
+
 function formatSimpleYaml(value: JSONRecord): string {
   return Object.entries(value)
     .map(([key, item]) => `${key}: ${formatYamlValue(item)}`)
@@ -392,6 +447,7 @@ export {
   updateStrategyStatus,
   type EvidenceKind,
   type EvidenceStats,
+  type AntiOverfitProof,
   type StrategyEvidenceRecord,
   type StrategyPromotionGate,
   type StrategyReviewReport,
