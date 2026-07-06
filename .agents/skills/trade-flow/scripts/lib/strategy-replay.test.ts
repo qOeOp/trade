@@ -95,6 +95,47 @@ test("replayStrategy runs a custom strategy definition through generic engine", 
   }
 })
 
+test("replayStrategy can attach chronological OOS anti-overfit proof", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-replay-oos-"))
+  try {
+    writeMultiReplayFixture(dir)
+    const customStrategy: ReplayStrategy = {
+      strategy_id: "S-CUSTOM-MULTI",
+      default_timeframe: "4h",
+      warmup_bars: 1,
+      generateSignal({ candles, index }) {
+        if (index !== 1 && index !== 3) {
+          return null
+        }
+        return {
+          side: "long",
+          signal_index: index,
+          entry_index: index + 1,
+          entry: candles[index + 1].open,
+          stop: candles[index + 1].open - 1,
+          target: candles[index + 1].open + 2,
+          reason: "test multi",
+        }
+      },
+    }
+
+    const result = replayStrategy(customStrategy, {
+      manifestPath: join(dir, "manifest.json"),
+      maxHoldBars: 3,
+      oosSplitRatio: 0.5,
+      trialCount: 2,
+      parameterCount: 3,
+    })
+    const proof = result.assumptions.anti_overfit as { oos_stats: { sample_count: number }; trial_count: number; parameter_count: number }
+
+    assert.equal(proof.oos_stats.sample_count, 1)
+    assert.equal(proof.trial_count, 2)
+    assert.equal(proof.parameter_count, 3)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("evaluateReplayGate blocks weak replay evidence", () => {
   const weak = evaluateReplayGate({
     sample_count: 12,
@@ -152,6 +193,27 @@ function writeReplayFixture(dir: string): void {
     "2026-01-01T04:00:00Z,1767240000000,100,101,99,100,10",
     "2026-01-01T08:00:00Z,1767254400000,100,103,99.5,102,10",
     "2026-01-01T12:00:00Z,1767268800000,102,104,101,103,10",
+  ].join("\n"))
+  writeFileSync(join(dir, "manifest.json"), JSON.stringify({
+    symbol: "BTCUSDT",
+    timeframes: {
+      "4h": {
+        file: "4h.csv",
+      },
+    },
+  }))
+}
+
+function writeMultiReplayFixture(dir: string): void {
+  writeFileSync(join(dir, "4h.csv"), [
+    "date,timestamp,open,high,low,close,volume",
+    "2026-01-01T00:00:00Z,1767225600000,100,101,99,100,10",
+    "2026-01-01T04:00:00Z,1767240000000,100,101,99,100,10",
+    "2026-01-01T08:00:00Z,1767254400000,100,103,99.5,102,10",
+    "2026-01-01T12:00:00Z,1767268800000,102,104,101,103,10",
+    "2026-01-01T16:00:00Z,1767283200000,103,104,102,103,10",
+    "2026-01-01T20:00:00Z,1767297600000,103,106,102.5,105,10",
+    "2026-01-02T00:00:00Z,1767312000000,105,107,104,106,10",
   ].join("\n"))
   writeFileSync(join(dir, "manifest.json"), JSON.stringify({
     symbol: "BTCUSDT",

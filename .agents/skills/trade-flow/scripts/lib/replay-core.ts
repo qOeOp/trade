@@ -68,6 +68,9 @@ interface ReplayOptions {
   rewardRisk?: number
   feeBps?: number
   slippageBps?: number
+  oosSplitRatio?: number
+  trialCount?: number
+  parameterCount?: number
 }
 
 interface ReplayResult {
@@ -117,19 +120,25 @@ function replayStrategy(strategy: ReplayStrategy, options: ReplayOptions): Repla
     index = Math.max(signal.entry_index + 1, exitIndex + 1)
   }
 
+  const assumptions: JSONRecord = {
+    max_hold_bars: maxHoldBars,
+    reward_risk: options.rewardRisk ?? 2,
+    fee_bps: options.feeBps ?? 0,
+    slippage_bps: options.slippageBps ?? 0,
+    same_candle_policy: "stop_first",
+    overlapping_positions: false,
+  }
+  const antiOverfit = buildAntiOverfitProof(trades, options)
+  if (antiOverfit) {
+    assumptions.anti_overfit = antiOverfit
+  }
+
   return summarizeReplay({
     strategy_id: strategy.strategy_id,
     symbol: stringField(manifest.symbol) || stringField(manifest.requested_symbol) || "UNKNOWN",
     timeframe,
     trades,
-    assumptions: {
-      max_hold_bars: maxHoldBars,
-      reward_risk: options.rewardRisk ?? 2,
-      fee_bps: options.feeBps ?? 0,
-      slippage_bps: options.slippageBps ?? 0,
-      same_candle_policy: "stop_first",
-      overlapping_positions: false,
-    },
+    assumptions,
   })
 }
 
@@ -253,18 +262,7 @@ function summarizeReplay(input: {
   trades: ReplayTrade[]
   assumptions: JSONRecord
 }): ReplayResult {
-  const wins = input.trades.filter((trade) => trade.r > 0)
-  const gains = input.trades.filter((trade) => trade.r > 0).reduce((sum, trade) => sum + trade.r, 0)
-  const losses = Math.abs(input.trades.filter((trade) => trade.r < 0).reduce((sum, trade) => sum + trade.r, 0))
-  const total = input.trades.reduce((sum, trade) => sum + trade.r, 0)
-  const stats = {
-    sample_count: input.trades.length,
-    win_rate: input.trades.length > 0 ? round(wins.length / input.trades.length) : 0,
-    avg_r: input.trades.length > 0 ? round(total / input.trades.length) : 0,
-    total_r: round(total),
-    max_drawdown_r: round(maxDrawdown(input.trades.map((trade) => trade.r))),
-    profit_factor: losses > 0 ? round(gains / losses) : gains > 0 ? Number.POSITIVE_INFINITY : 0,
-  }
+  const stats = summarizeTrades(input.trades)
   return {
     strategy_id: input.strategy_id,
     symbol: input.symbol,
@@ -279,6 +277,44 @@ function summarizeReplay(input: {
       "Replay enforces one active position per strategy lane.",
       "This is evidence for draft/shadow gating, not permission for live-small by itself.",
     ],
+  }
+}
+
+function buildAntiOverfitProof(trades: ReplayTrade[], options: ReplayOptions): JSONRecord | null {
+  const ratio = options.oosSplitRatio ?? 0
+  if (!Number.isFinite(ratio) || ratio <= 0 || ratio >= 1 || trades.length === 0) {
+    return null
+  }
+  const splitIndex = Math.max(1, Math.min(trades.length - 1, Math.floor(trades.length * (1 - ratio))))
+  return {
+    method: "out_of_sample",
+    train_stats: summarizeTrades(trades.slice(0, splitIndex)),
+    oos_stats: summarizeTrades(trades.slice(splitIndex)),
+    trial_count: options.trialCount ?? 1,
+    parameter_count: options.parameterCount ?? 0,
+    notes: `OOS uses the last ${round(ratio * 100)}% of chronological replay trades.`,
+  }
+}
+
+function summarizeTrades(trades: ReplayTrade[]): {
+  sample_count: number
+  win_rate: number
+  avg_r: number
+  total_r: number
+  max_drawdown_r: number
+  profit_factor: number
+} {
+  const wins = trades.filter((trade) => trade.r > 0)
+  const gains = wins.reduce((sum, trade) => sum + trade.r, 0)
+  const losses = Math.abs(trades.filter((trade) => trade.r < 0).reduce((sum, trade) => sum + trade.r, 0))
+  const total = trades.reduce((sum, trade) => sum + trade.r, 0)
+  return {
+    sample_count: trades.length,
+    win_rate: trades.length > 0 ? round(wins.length / trades.length) : 0,
+    avg_r: trades.length > 0 ? round(total / trades.length) : 0,
+    total_r: round(total),
+    max_drawdown_r: round(maxDrawdown(trades.map((trade) => trade.r))),
+    profit_factor: losses > 0 ? round(gains / losses) : gains > 0 ? Number.POSITIVE_INFINITY : 0,
   }
 }
 
@@ -370,6 +406,7 @@ export {
   parseCsvCandles,
   replayStrategy,
   summarizeReplay,
+  summarizeTrades,
   evaluateReplayGate,
   type Candle,
   type IndicatorSet,

@@ -356,12 +356,19 @@ test("run replays strategy from manifest without creating DB", async () => {
       manifestPath,
       "--strategy-id",
       "S-BTC-4H-TREND-PULLBACK",
+      "--oos-split",
+      "0.3",
+      "--trial-count",
+      "1",
+      "--parameter-count",
+      "4",
     ])
 
     assert.equal(result.ok, true)
-    const data = (result as { ok: true; data: { strategy_id: string; sample_count: number } }).data
+    const data = (result as { ok: true; data: { strategy_id: string; sample_count: number; assumptions: { anti_overfit?: unknown } } }).data
     assert.equal(data.strategy_id, "S-BTC-4H-TREND-PULLBACK")
     assert.ok(data.sample_count > 0)
+    assert.ok(data.assumptions.anti_overfit)
     assert.equal(existsSync(dbPath), false)
   } finally {
     rmSync(dir, { recursive: true, force: true })

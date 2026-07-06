@@ -104,6 +104,9 @@ Key flags:
   --reward-risk <n>        Target R multiple in replay
   --fee-bps <n>            Round-trip side fee estimate in bps per side for replay
   --slippage-bps <n>       Slippage estimate in bps per side for replay
+  --oos-split <ratio>      Replay anti-overfit OOS split ratio. Example: 0.3
+  --trial-count <n>        Number of predeclared strategy trials represented by this replay
+  --parameter-count <n>    Number of active strategy parameters represented by this replay
   --input <path>           JSON event input
   --json <json>            Inline JSON event input
   --help                   Show this help
@@ -153,6 +156,9 @@ async function run(argv: string[]): Promise<ScriptResponse> {
           rewardRisk: config.rewardRisk,
           feeBps: config.feeBps,
           slippageBps: config.slippageBps,
+          oosSplitRatio: config.oosSplitRatio,
+          trialCount: config.trialCount,
+          parameterCount: config.parameterCount,
         }),
       }
     }
@@ -450,6 +456,9 @@ function parseArgs(argv: string[]): {
   rewardRisk?: number
   feeBps?: number
   slippageBps?: number
+  oosSplitRatio?: number
+  trialCount?: number
+  parameterCount?: number
   artifactRoot: string
   retentionHours?: number
   strategyPath: string
@@ -489,6 +498,9 @@ function parseArgs(argv: string[]): {
   let rewardRisk: number | undefined
   let feeBps: number | undefined
   let slippageBps: number | undefined
+  let oosSplitRatio: number | undefined
+  let trialCount: number | undefined
+  let parameterCount: number | undefined
   let artifactRoot = ""
   let retentionHours: number | undefined
   let strategyPath = ""
@@ -595,6 +607,15 @@ function parseArgs(argv: string[]): {
       case "--slippage-bps":
         slippageBps = Number(readFlagValue(argv, ++index, arg))
         break
+      case "--oos-split":
+        oosSplitRatio = Number(readFlagValue(argv, ++index, arg))
+        break
+      case "--trial-count":
+        trialCount = Number(readFlagValue(argv, ++index, arg))
+        break
+      case "--parameter-count":
+        parameterCount = Number(readFlagValue(argv, ++index, arg))
+        break
       case "--artifact-root":
         artifactRoot = readFlagValue(argv, ++index, arg)
         break
@@ -654,6 +675,9 @@ function parseArgs(argv: string[]): {
     rewardRisk,
     feeBps,
     slippageBps,
+    oosSplitRatio,
+    trialCount,
+    parameterCount,
     artifactRoot,
     retentionHours,
     strategyPath,
