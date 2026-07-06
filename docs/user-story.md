@@ -187,6 +187,7 @@
   - 若要允许真钱动作，先补 setup 资格证：`setup_id / hypothesis / regime / entry_rule / stop_rule / no_trade_conditions / size_policy / evidence_ref / live_permission`
   - 跑 replay 后把结果写入 `strategy-evidence.jsonl`
   - 用 `strategy-review` 看 fresh / stale evidence、DB review stats 和 promotion gate
+  - replay evidence 必须带 OOS / walk-forward anti-overfit proof；否则不能从 `draft` 升 `shadow`
   - 若改了 strategy 正文 / 名称 / tags，旧 evidence 自动 stale，必须重新 replay / shadow
   - 调整 hard guard：只在“确定性、全局重要、可脚本化”的前提下修改对应 guard 代码或脚本
 - 验证：下一轮 cron 跑会自动加载，无需 schema 迁移、无需改代码。

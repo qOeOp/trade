@@ -223,6 +223,9 @@ Strategy evidence ledger 规则：
 - `policy_hash` 由 strategy frontmatter 中的 `strategy_id/name/tags` 加正文计算；`status` 改动不影响 hash
 - strategy 正文、名称或 tags 改动后，旧 evidence 变 stale，不能用于 promote
 - `draft -> shadow`：需要 fresh replay 且 `avg_r > 0 / total_r > 0 / profit_factor >= 1.05 / max_drawdown_r <= 10`
+- replay evidence 必须包含 `anti_overfit.method=out_of_sample|walk_forward`
+- `anti_overfit.oos_stats` 必须 `sample_count >= 10` 且 OOS 为正
+- `anti_overfit.trial_count > 10` 或 `parameter_count > 8` 直接拒绝升格
 - `shadow -> live-small`：需要 fresh replay + fresh shadow，shadow `sample_count >= 20` 且表现为正
 - `paused / draft` 可随时降级；升格必须走 gate
 

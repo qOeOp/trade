@@ -108,6 +108,7 @@ tags: []
 - replay 只能给 `shadow_candidate`；`live-small` 必须另有 shadow 样本与人工确认
 - `strategy-evidence.jsonl`：保存 replay / shadow / live-small / review_batch 证据，不进入 `trade.db`
 - `policy_hash`：策略规则一改，旧证据自动变 stale，必须重新 replay / shadow
+- `anti_overfit`：replay evidence 必须带 OOS 或 walk-forward 证明
 - `--strategy-review`：汇总 fresh / stale evidence、DB review stats 和 promotion gate
 - `--strategy-promote`：默认 dry-run，满足 gate 且 `--yes` 后才改 strategy status
 
@@ -121,7 +122,9 @@ replay evidence -> shadow samples -> live-small samples -> review -> strategy po
 
 升格门槛：
 
-- `draft -> shadow`：fresh replay 正收益且 drawdown 不超阈值
+- `draft -> shadow`：fresh replay 正收益、drawdown 不超阈值，并通过 OOS / walk-forward proof
+- OOS 样本至少 10，且 OOS 表现为正
+- trial search budget 不能超过 10；参数数量不能超过 8
 - `shadow -> live-small`：fresh replay + fresh shadow；shadow 样本至少 20，表现为正
 - 任意状态可降级到 `paused / draft`
 - 只改 `status` 不改变 `policy_hash`；改规则正文 / 名称 / tags 会使旧证据失效

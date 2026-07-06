@@ -83,7 +83,9 @@ latest_observe.action_intent.request
 - `gate.live_small_candidate` 在 replay 阶段永远是 false；live-small 还必须经过 shadow 与人工确认
 - strategy iteration 使用 `./data/strategy-evidence.jsonl` 这类 JSONL ledger；不新增 DB 表，不扩大 `plan_event.kind`
 - 每条 evidence 绑定当前 `policy_hash`；strategy policy 改动后旧 evidence 自动变 stale，不可用于 promote
-- `draft -> shadow` 需要 fresh replay 正收益；`shadow -> live-small` 需要 fresh replay + fresh shadow，且 shadow 样本数至少 20
+- `draft -> shadow` 需要 fresh replay 正收益，且 replay evidence 必须带 `anti_overfit.method=out_of_sample|walk_forward`
+- anti-overfit proof 的 `oos_stats.sample_count` 至少 10，且 OOS 表现必须为正；`trial_count > 10` 或 `parameter_count > 8` 会被拒绝
+- `shadow -> live-small` 需要 fresh replay + fresh shadow，且 shadow 样本数至少 20
 - `--strategy-promote` 默认 dry-run；更新 strategy 文件必须显式 `--yes`
 - `--artifact-gc` 不打开 DB、不触发 Binance；只扫描显式 `--artifact-root`，保留 `.pin` / referenced / durable store，默认不删除
 - `--run-shadow-from-skills` 会写 shadow `order_fill`，但不触发 Binance 写接口

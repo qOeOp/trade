@@ -208,6 +208,7 @@ RAVE skill 降级链路：build-skills.sh 打包失败 → 复用已编好的 bi
 - `trade.db` 必须只存事件、摘要和 refs；原始 OHLCV / aggTrades / replay 输出是 artifact，不是长期事实源。
 - 未被 strategy evidence / review / active observe / `.pin` 引用的 artifact 必须可 dry-run 扫描和显式清理。
 - 本轮实现落点：`strategy-evidence.jsonl`、`policy_hash`、`strategy-review`、`strategy-promote`。策略规则一改，旧证据 stale；升格默认 dry-run，实改必须 `--yes`。
+- 防过拟合落点：replay evidence 必须带 `anti_overfit.method=out_of_sample|walk_forward`；OOS 不为正、样本太少、搜索次数过多或参数过多，不能升 `shadow`。
 
 ---
 

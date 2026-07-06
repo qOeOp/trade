@@ -255,6 +255,8 @@ Strategy iteration：
 - replay / shadow / live-small / review_batch 证据写入 JSONL ledger，不新增 `plan_event.kind`
 - 每条 evidence 绑定 strategy `policy_hash`
 - `policy_hash` 不包含 status；只改状态不让证据失效，改规则正文 / 名称 / tags 会让旧证据 stale
+- replay evidence 必须包含 OOS / walk-forward anti-overfit proof；没有样本外证据不得升 `shadow`
+- search budget 和参数数量是硬约束，防止“调到刚好过关”
 - `strategy-review` 汇总 fresh / stale evidence、DB review stats 和 promotion gate
 - `strategy-promote` 只改 frontmatter `status`；默认 dry-run，实改必须 `--yes`
 - 自动挖矿、自动参数搜索、自动升格仍不进入当前系统
