@@ -184,6 +184,19 @@ test("strategy promote to live-small requires shadow evidence", () => {
   assert.match(readFileSync(strategyPath, "utf8"), /status: live-small/)
 })
 
+test("strategy policy hash ignores pre-certificate research and replay notes", () => {
+  const dir = makeDir()
+  const policy = "## Setup Certificate\n\nentry_rule: same\n\n## Signal Stack\n\nUse rule A."
+  const strategyPath = writeStrategy(dir, "draft", `Research refs v1\n\n${policy}`)
+  const firstHash = policyHashForFile(strategyPath)
+
+  writeStrategy(dir, "draft", `Research refs v2\nReplay refs changed.\n\n${policy}`)
+  assert.equal(policyHashForFile(strategyPath), firstHash)
+
+  writeStrategy(dir, "draft", `Research refs v2\n\n## Setup Certificate\n\nentry_rule: changed\n\n## Signal Stack\n\nUse rule A.`)
+  assert.notEqual(policyHashForFile(strategyPath), firstHash)
+})
+
 test("strategy review can include DB review stats without changing the ledger", () => {
   const dir = makeDir()
   const strategyPath = writeStrategy(dir, "shadow", "Rule v1")

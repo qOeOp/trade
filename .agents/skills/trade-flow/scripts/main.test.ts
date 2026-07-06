@@ -375,6 +375,67 @@ test("run replays strategy from manifest without creating DB", async () => {
   }
 })
 
+test("run strategy R&D batch without creating DB", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "trade-flow-rnd-cli-"))
+  const dbPath = join(dir, "should-not-exist", "trade.db")
+  try {
+    writeFileSync(join(dir, "4h.csv"), [
+      "date,timestamp,open,high,low,close,volume",
+      ...buildReplayCandles().map((item, index) => [
+        new Date(1_700_000_000_000 + index * 4 * 60 * 60 * 1000).toISOString(),
+        1_700_000_000_000 + index * 4 * 60 * 60 * 1000,
+        item.open,
+        item.high,
+        item.low,
+        item.close,
+        item.volume,
+      ].join(",")),
+    ].join("\n"))
+    const manifestPath = join(dir, "manifest.json")
+    writeFileSync(manifestPath, JSON.stringify({
+      symbol: "BTCUSDT",
+      timeframes: {
+        "4h": {
+          file: "4h.csv",
+        },
+      },
+    }))
+
+    const result = await run([
+      "--db",
+      dbPath,
+      "--strategy-rnd-batch",
+      "--json",
+      JSON.stringify({
+        batch_id: "rnd-cli-test",
+        manifest_path: manifestPath,
+        candidates: [{
+          candidate_id: "C-LONG-EMA50",
+          parameter_count: 6,
+          params: {
+            side: "long",
+            fast_ema: 50,
+            slow_ema: 200,
+            pullback_atr: 0.25,
+            stop_atr: 0.5,
+            max_risk_atr: 1.25,
+            reward_risk: 1.5,
+          },
+        }],
+      }),
+    ])
+
+    assert.equal(result.ok, true)
+    const data = (result as { ok: true; data: { batch_id: string; trial_count: number; guardrails: { no_auto_promote: boolean } } }).data
+    assert.equal(data.batch_id, "rnd-cli-test")
+    assert.equal(data.trial_count, 1)
+    assert.equal(data.guardrails.no_auto_promote, true)
+    assert.equal(existsSync(dbPath), false)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("run artifact gc reports candidates without creating DB", async () => {
   const dir = mkdtempSync(join(tmpdir(), "trade-flow-artifact-gc-"))
   const dbPath = join(dir, "trade.db")

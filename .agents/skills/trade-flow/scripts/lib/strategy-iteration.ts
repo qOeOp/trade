@@ -270,8 +270,19 @@ function policyHashForFile(path: string): string {
   return createHash("sha256")
     .update(JSON.stringify(normalizedFrontmatter))
     .update("\n")
-    .update(body.trim())
+    .update(policyBodyForHash(body))
     .digest("hex")
+}
+
+function policyBodyForHash(body: string): string {
+  const setupStart = body.indexOf("\n## Setup Certificate")
+  if (setupStart >= 0) {
+    return body.slice(setupStart + 1).trim()
+  }
+  if (body.startsWith("## Setup Certificate")) {
+    return body.trim()
+  }
+  return body.trim()
 }
 
 function updateStrategyStatus(path: string, status: StrategyStatus): void {

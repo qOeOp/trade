@@ -36,7 +36,10 @@ Replay refs:
 
 - 2026-07-06 mechanical replay, BTCUSDT 4H, 1000 candles, `S-BTC-4H-TREND-PULLBACK`: `sample_count=53`, `win_rate=0.339623`, `avg_r=-0.00677`, `total_r=-0.358799`, `max_drawdown_r=14.916841`, `profit_factor=0.989506`.
 - 2026-07-06 generic replay framework v2, BTCUSDT 4H, 1000 candles, non-overlap lane, stop-first same-candle policy, fee `2 bps`, slippage `1 bps`: `sample_count=23`, `win_rate=0.304348`, `avg_r=-0.200878`, `total_r=-4.620187`, `max_drawdown_r=7.466049`, `profit_factor=0.712825`, replay gate blocked by `R-SAMPLE-SIZE / R-EXPECTANCY / R-PROFIT-FACTOR`.
-- Result: not promotable. Keep `status=draft`; next work must improve filters or run shadow only.
+- 2026-07-06 OOS replay, BTCUSDT 4H, 1500 candles, fee `2 bps`, slippage `1 bps`, `oos_split=0.3`, `trial_count=10`, `parameter_count=6`: full `sample_count=43`, `avg_r=-0.316596`, `total_r=-13.613611`, `profit_factor=0.586015`; OOS `sample_count=13`, `avg_r=-0.306364`, `total_r=-3.982735`, `profit_factor=0.58484`.
+- 2026-07-06 predeclared variant batch: 10 variants tested; no variant passed OOS + sample gates. Best in-sample variants were not promoted because OOS failed or sample count was too small.
+- 2026-07-06 indicator-assisted R&D batch consumed `tech-indicators` report (`laguerre`, `stc`, `vpci` plus structure validation). It produced indicator candidate uses but still found `accepted_count=0`; indicator ideas remain next-batch hypotheses, not strategy evidence.
+- Result: not promotable. Keep `status=draft`; do not loosen gates or promote filter-mined variants.
 
 ## Setup Certificate
 

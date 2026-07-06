@@ -105,6 +105,7 @@ tags: []
 - `replay-core`：OHLCV manifest loader / 指标缓存 / 单 lane 撮合 / R 统计 / fee + slippage / replay gate
 - `replay-strategies`：`strategy_id -> ReplayStrategy` registry；新增策略只补 strategy definition，不改 core
 - `--replay-strategy`：只读文件，不写 DB，不触发 Binance
+- `--strategy-rnd-batch`：最多 10 个预声明候选；可消费 `tech-indicators` report 挖掘 indicator / structure candidate uses，但不自动升格
 - replay 只能给 `shadow_candidate`；`live-small` 必须另有 shadow 样本与人工确认
 - `strategy-evidence.jsonl`：保存 replay / shadow / live-small / review_batch 证据，不进入 `trade.db`
 - `policy_hash`：策略规则一改，旧证据自动变 stale，必须重新 replay / shadow
@@ -119,6 +120,7 @@ replay evidence -> shadow samples -> live-small samples -> review -> strategy po
 ```
 
 禁止把单次 review、单段漂亮回测或自动参数搜索直接变成实盘资格。
+禁止在 trade-flow 内固定全量 indicator 体系；indicator 发现、解释和计算归 `tech-indicators`，R&D 只消费其 report 并把结果变成待 replay 的候选假设。
 
 升格门槛：
 
