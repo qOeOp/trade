@@ -244,12 +244,19 @@ function blockedForTransition(report: StrategyReviewReport, toStatus: StrategySt
     return []
   }
   if (toStatus === "shadow" && !report.gate.shadow_candidate) {
-    return report.gate.blocked_by.filter((item) => item.check_id.startsWith("S-REPLAY"))
+    return report.gate.blocked_by.filter((item) => isReplayQualificationBlock(item.check_id))
   }
   if (toStatus === "live-small" && !report.gate.live_small_candidate) {
     return report.gate.blocked_by
   }
   return []
+}
+
+function isReplayQualificationBlock(checkId: string): boolean {
+  return checkId.startsWith("S-REPLAY")
+    || checkId.startsWith("S-OOS")
+    || checkId === "S-SEARCH-BUDGET"
+    || checkId === "S-PARAM-COUNT"
 }
 
 function policyHashForFile(path: string): string {

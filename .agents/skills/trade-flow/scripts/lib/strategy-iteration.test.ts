@@ -59,6 +59,96 @@ test("strategy promote to shadow requires positive fresh replay evidence", () =>
   assert.match(readFileSync(strategyPath, "utf8"), /status: shadow/)
 })
 
+test("strategy promote blocks replay evidence without anti-overfit proof", () => {
+  const dir = makeDir()
+  const strategyPath = writeStrategy(dir, "draft", "Rule v1")
+  const ledgerPath = join(dir, "strategy-evidence.jsonl")
+  appendReplayEvidence({
+    strategyPath,
+    ledgerPath,
+    replayResult: {
+      ...positiveReplay(),
+      assumptions: {},
+    },
+    now: "2026-01-01T00:00:00.000Z",
+  })
+
+  const report = reviewStrategy({ strategyPath, ledgerPath })
+
+  assert.equal(report.gate.shadow_candidate, false)
+  assert.equal(report.gate.blocked_by.some((item) => item.check_id === "S-OOS-MISSING"), true)
+  assert.throws(
+    () => promoteStrategy({ strategyPath, ledgerPath, toStatus: "shadow" }),
+    /S-OOS-MISSING/,
+  )
+})
+
+test("strategy promote blocks weak out-of-sample replay evidence", () => {
+  const dir = makeDir()
+  const strategyPath = writeStrategy(dir, "draft", "Rule v1")
+  const ledgerPath = join(dir, "strategy-evidence.jsonl")
+  appendReplayEvidence({
+    strategyPath,
+    ledgerPath,
+    replayResult: {
+      ...positiveReplay(),
+      assumptions: {
+        anti_overfit: {
+          method: "out_of_sample",
+          oos_stats: {
+            sample_count: 12,
+            win_rate: 0.25,
+            avg_r: -0.1,
+            total_r: -1.2,
+            profit_factor: 0.8,
+          },
+          trial_count: 3,
+          parameter_count: 4,
+        },
+      },
+    },
+    now: "2026-01-01T00:00:00.000Z",
+  })
+
+  const report = reviewStrategy({ strategyPath, ledgerPath })
+
+  assert.equal(report.gate.shadow_candidate, false)
+  assert.equal(report.gate.blocked_by.some((item) => item.check_id === "S-OOS-WEAK"), true)
+})
+
+test("strategy promote blocks excessive search budget", () => {
+  const dir = makeDir()
+  const strategyPath = writeStrategy(dir, "draft", "Rule v1")
+  const ledgerPath = join(dir, "strategy-evidence.jsonl")
+  appendReplayEvidence({
+    strategyPath,
+    ledgerPath,
+    replayResult: {
+      ...positiveReplay(),
+      assumptions: {
+        anti_overfit: {
+          method: "walk_forward",
+          oos_stats: {
+            sample_count: 12,
+            win_rate: 0.5,
+            avg_r: 0.08,
+            total_r: 0.96,
+            profit_factor: 1.2,
+          },
+          trial_count: 11,
+          parameter_count: 4,
+        },
+      },
+    },
+    now: "2026-01-01T00:00:00.000Z",
+  })
+
+  const report = reviewStrategy({ strategyPath, ledgerPath })
+
+  assert.equal(report.gate.shadow_candidate, false)
+  assert.equal(report.gate.blocked_by.some((item) => item.check_id === "S-SEARCH-BUDGET"), true)
+})
+
 test("strategy promote to live-small requires shadow evidence", () => {
   const dir = makeDir()
   const strategyPath = writeStrategy(dir, "shadow", "Rule v1")
@@ -172,7 +262,29 @@ function positiveReplay(): ReplayResult {
       blocked_by: [],
     },
     trades: [],
-    assumptions: {},
+    assumptions: {
+      anti_overfit: {
+        method: "out_of_sample",
+        oos_stats: {
+          sample_count: 12,
+          win_rate: 0.5,
+          avg_r: 0.09,
+          total_r: 1.08,
+          max_drawdown_r: 3,
+          profit_factor: 1.2,
+        },
+        train_stats: {
+          sample_count: 20,
+          win_rate: 0.5,
+          avg_r: 0.14,
+          total_r: 2.8,
+          max_drawdown_r: 4,
+          profit_factor: 1.35,
+        },
+        trial_count: 3,
+        parameter_count: 4,
+      },
+    },
     notes: ["positive mechanical replay"],
   }
 }

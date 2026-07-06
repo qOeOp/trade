@@ -427,6 +427,21 @@ test("run strategy iteration commands do not create DB unless DB exists", async 
           max_drawdown_r: 4,
           profit_factor: 1.25,
           gate: { shadow_candidate: true, live_small_candidate: false, blocked_by: [] },
+          assumptions: {
+            anti_overfit: {
+              method: "out_of_sample",
+              oos_stats: {
+                sample_count: 12,
+                win_rate: 0.5,
+                avg_r: 0.08,
+                total_r: 0.96,
+                max_drawdown_r: 3,
+                profit_factor: 1.15,
+              },
+              trial_count: 3,
+              parameter_count: 4,
+            },
+          },
           notes: ["ok"],
         },
       }),
