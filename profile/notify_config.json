@@ -1,0 +1,24 @@
+{
+  "channels": {
+    "telegram": {
+      "enabled": true,
+      "token_env": "TELEGRAM_BOT_TOKEN",
+      "chat_id_env": "TELEGRAM_CHAT_ID",
+      "min_level": "warn",
+      "parse_mode": null,
+      "timeout_seconds": 5
+    }
+  },
+  "events": {
+    "guard_blocked":             "warn",
+    "risk_floor_approach":       "critical",
+    "system_suspended":          "critical",
+    "aging_overdue":             "warn",
+    "aging_chronic":             "warn",
+    "reconcile_abort":           "critical",
+    "fast_track_streak_skip":    "warn",
+    "binance_api_failure":       "warn",
+    "strategy_audit_generated":  "warn"
+  },
+  "level_order": ["info", "warn", "critical"]
+}

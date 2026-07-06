@@ -2,41 +2,73 @@
 
 ## 1. 使用方式
 
-- 本工程是一台 **4H+ swing cron 自动化执行器**：用户的主要交互不是逐笔下单，而是把它挂在 Claude routines / Codex schedule 上每 1H 或 4H 自动跑。
-- 用户的角色：上线前配置（`account_config.json` / watchlist / strategy 文件 / `notify_config.json`）→ 上线后只在异常通知或复盘窗口介入 → 累积一段周期后回看是否要改 strategy 或少数 hard guard。
+- 本工程是一台 **4H+ swing 双轨 cron 自动化执行器**：
+  - **慢轨**（1H / 4H 整点）：完整战略层 cron——拉数据、LLM 分析、写意图、跑 preflight、执行、阶段性 review
+  - **快轨**（5m / 15m 偏移点，如 :05/:20/:35/:50）：执行层守卫——读慢轨写的 action_intent，在 trigger_condition 命中时执行；处理慢轨窗口内出现的瞬时机会和防御触发
+  - 两轨挂在同一个 Claude routines / Codex schedule 上，用 `--track slow|fast` 区分；共用同一个 `./data/trade.db`
+- 用户的角色：上线前配置（`account_config.json` / watchlist / strategy 文件 / `notify_config.json` / 双轨 cron 调度）→ 上线后只在异常通知或复盘窗口介入 → 累积一段周期后回看是否要改 strategy 或少数 hard guard。
 - 故事只覆盖真实会发生的高频与高风险路径，不追求列尽。
-- 文中的 `lane` 指 `strategy_ref + symbol + side` 这个运行槽位；同一 lane 同时最多只有 1 条 active flow。跨 symbol / 跨 side 并行属于不同 lane。
-- 文中的 cron 周期阶段：`OBSERVE 采集事实 → PLAN/preflight append 决策 observe → EXECUTE 消费 latest_observe.action_intent.request → REVIEW（某条 flow 闭合时）`。数据库里同时维护多条 flow，不是假设系统只围绕一条最新机会流转；"挂单中 / 持仓中" 由 `current_orders + current_position` 视图自然体现。
+- 文中的 `lane` 指 `strategy_ref + symbol + side` 这个运行槽位；同一 lane 同时最多只有 1 条 active flow。**这是产品层硬约束**：同 lane 不允许并行多条 thesis / 多个风险拥有者。事件驱动加一段、结构重建后二次进攻、临时新增理由，只要旧 flow 未闭合，都必须并回当前 active flow 管理。跨 symbol / 跨 side 并行属于不同 lane。
+- 文中的 cron 周期阶段：
+  - 慢轨：`OBSERVE → 按启用 lane 决策（含写 trigger_condition）→ preflight → EXECUTE（trigger 命中即下单）→ REVIEW（某条 flow 闭合时）`
+  - 快轨：`reduce flow → 轻量对账 → 检 trigger_condition → 确定性 gate（spread / depth / funding spike）→ 快轨 preflight 子集 → EXECUTE / 跳过`。快轨 LLM 仅作为 orchestrator 按 prompt 模板顺序调 tool，不做质性判断
+- 数据库里同时维护多条 flow，不是假设系统只围绕一条最新机会流转；"挂单中 / 持仓中" 由 `current_orders + current_position` 视图自然体现。
 
 ## 2. cron 周期里的正常路径
 
 ### 固定要求
 
-- 每次 cron 跑都先 `OBSERVE`：拉账户快照 → reduce 当前已有 active flow 的 lane → 对账（先补 `source=reconcile` 事件；若仍无法可靠归属则 abort 当前周期）→ 拉市场数据。随后对本轮命中的 lane 做 PLAN/preflight，并先写一条完整 observe（含意图段 + `action_intent` + 证据段 + `preflight_result` + `decision_summary`）。
-- `decision_summary` 必须明确写出本轮判断、preflight 结果与动作意图（`arm_place_entry` / `arm_cancel_order` / `arm_sync_protection` / `blocked` / `no_action`）；真实提交、撤销、成交结果以随后 append 的 `order_fill` 为准。
-- `EXECUTE` 之前必须先过 `plan-preflight`：先按流程语义收敛动作，再跑 hard guard 脚本，并确保 DECISION_CARD 可渲染，三者同时通过才放行。
-- 未通过 setup 资格证的 strategy 只能 `observe / shadow`，不得产生真钱动作。
-- 任何执行动作的 `clientOrderId` 用 `<chain_id>-<seq>-<action>` 前缀，cron 重跑幂等。
+- 慢轨每次跑都先 `OBSERVE`：拉账户快照 → reduce 当前已有 active flow 的 lane → 全量对账（先补 `source=reconcile` 事件；若仍无法可靠归属则 abort 当前周期）→ 拉市场数据 → 对本轮命中的 lane 写一条完整 observe(source=slow_track，含意图段 + 证据段 + preflight_result + decision_summary)。
+- 快轨每次跑只对当前有 active action_intent 的 flow 做 per-flow 轻量对账（fresh account + symbol-scoped open orders）；若只是保护腿漂移，则直接 `sync_protection`；若是需要补 event 才能解释的账本 mismatch，则记 `reconcile mismatch`，不补 reconcile，等慢轨兜底。
+- `decision_summary` 必须明确写出本轮做了什么（慢轨：`placed_order_X` / `cancelled_Y` / `moved_stop_Z` / `no_action` / `slow_blocked: <guard_reason>`；快轨：`fast_executed_X` / `fast_blocked: <guard_reason>`（spread / depth / funding / risk 等）/ `fast_skipped: reconcile mismatch` / `defensive_sync_Z` / `defensive_cancel_Z`）。
+- `EXECUTE` 之前必须先过 `plan-preflight`：慢轨跑 hard guard 全集 + 卡片校验；快轨先跑 `G-SPREAD-CAP / G-MARKETABLE-DEPTH-CAP / G-FUNDING-RATE-SPIKE`（仅加暴露的立即执行场景），再跑子集（`G-RISK-OPEN-CAP / G-RISK-DAY-FLOOR / G-BTC-BETA-DIRECTION-CAP / G-SINGLE-POSITION-LEVERAGE-CAP / G-GROSS-EXPOSURE-CAP / G-OBS-FRESH / G-FUNDING-EROSION`）。
+- 快轨 LLM 只做执行语境验证：可以因微观结构 / 成交 / 盘口红旗而 veto 当前执行；不能改写慢轨 thesis / invalidation / risk_budget_usdt，也不能主动发起未获授权的加暴露动作。
+- 慢轨/快轨共用同一个 executor：执行前必检 `trigger_condition`（mark 在 `price_in_range` 内 + 未过 `trigger_condition.valid_until_at`），失配则 skip。
+- 任何执行动作的 `clientOrderId` 用 `<chain_id>-<seq>-<action>` 前缀，慢/快轨共用规则，cron 重跑幂等。
 - 偏保守原则：任何阶段失败就 abort 当前周期，下次 cron 重跑读最新事件流决定动作；不确定就 `no_action`。
+- 快轨写权限边界：加暴露方向（`place_entry` / 加仓段）必须有慢轨预设的 trigger_condition 授权；防御方向（`cancel_order` / `sync_protection` / 减仓段）快轨可自主发起；战略层字段（thesis / invalidation 等）从 `latest_slow_observe` 原样继承不修改。快轨可修保护腿，但不补 `source=reconcile` 账本事件。
 
-### US-01 cron 触发，对当前所有启用 lane 推进一轮
+### US-01 慢轨触发，对当前所有启用 lane 推进一轮
 
-- 触发：外部 cron（Claude routines / Codex schedule）按 1H / 4H 频率触发 `trade-flow`。
+- 触发：外部 cron（Claude routines / Codex schedule）按 1H / 4H 整点触发 `trade-flow --track slow`。
 - 系统行为：
   - 拉账户快照（持仓 / 挂单 / 成交 / 余额）作为事实源
   - 对已有 active flow 的 lane reduce 事件流；若交易所事实已发生但本地缺事件，先补写 `order_fill(source=reconcile)`；若仍无法可靠归属，本轮直接 abort 并通知
-  - 拉 4H / 1H / 日 K + funding / OI / 关键墙位 / 最近爆仓；按需补 own + BTC / ETH Roll / VPIN
-  - 每条启用 lane：若已有 active flow，LLM 读 `current_plan + observe + strategy.policy + flow semantics` 决定继续管理；若当前无 active flow，则判断是否要开新 flow
-  - 跑 preflight，verdict=blocked 跳过 EXECUTE，仅 append observe；verdict=armable 先 append observe，若 `target_action != no_action` 再提交动作并 append `order_fill`
-  - 周期收尾追加 `cron.log`，输出 DECISION_CARD
+  - 拉 4H / 1H / 日 K + funding / OI / 关键墙位 / 最近爆仓
+  - 每条启用 lane：若已有 active flow，LLM 读 `current_plan + observe + strategy.policy + flow semantics` 决定继续管理 + 写 `action_intent.trigger_condition`；若当前无 active flow，则判断是否要开新 flow
+  - 跑 preflight 全集，verdict=blocked 跳过 EXECUTE，仅 append observe；verdict=armable 调 executor：mark 在 trigger range 内则下单 + append `order_fill`，否则只写 observe 等快轨追
+  - 周期收尾追加 `cron.log`（含 `track=slow`），输出 DECISION_CARD
 - 不宜跳过的步骤：
   - 跳过对账直接执行（事件流可能和交易所失同步）
   - 跳过 preflight 直接下单（会绕过爆仓护栏）
   - 不写 `cron.log`（cron 运维丢可观测性）
 - 正式输出：
-  - 每条命中的 lane 一段 observe + 可选后续 order_fill
+  - 每条命中的 lane 一段 observe(source=slow_track) + 可选 order_fill
   - 一行 `cron.log` 记录本轮元数据
   - DECISION_CARD（每条 active flow 或本轮新开 flow 一份，给人扫读）
+
+### US-01F 快轨触发，监控 trigger_condition 与防御性补救
+
+- 触发：外部 cron 按 5m / 15m 偏移点（如 :05/:20/:35/:50）触发 `trade-flow --track fast`。
+- 系统行为：
+  - 读所有 active flow 的 `current_action_intent`；筛掉 `target_action=no_action` 或 `trigger_condition.valid_until_at < now`
+  - 每条仍有效的 flow：拉 fresh account + symbol-scoped open orders 做 per-flow 轻量对账
+    - 仅保护腿漂移（持仓事实清楚，但保护单缺失/错位）→ 直接 `sync_protection`
+    - 账本 mismatch（本地 `current_orders / current_position` 与 Binance 事实不一致，且需要补 event 才能恢复）→ 不补 reconcile；写 light observe `decision_summary='skipped: reconcile mismatch'`，等慢轨兜底；若 live position 能明确归属当前 flow，可先做防御性 `sync_protection`
+    - 一致 → 检 `trigger_condition.price_in_range` 是否包含当前 mark
+  - trigger 未命中 → 静默跳过（不写事件）
+  - trigger 命中 → 先拉 top-of-book（`best_bid / best_ask`）+ L2 depth + `current_funding_rate`，若属于加暴露的立即执行场景则先跑 `G-SPREAD-CAP / G-MARKETABLE-DEPTH-CAP / G-FUNDING-RATE-SPIKE`
+    - 任一超限 → 写 light observe `decision_summary='fast_blocked: <guard_reason>'`（如 `spread cap` / `depth_thin` / `slippage_eats_stop` / `funding rate spike`）
+    - 三条 gate 通过 → 跑快轨 preflight 子集（`G-RISK-OPEN-CAP / G-RISK-DAY-FLOOR / G-BTC-BETA-DIRECTION-CAP / G-SINGLE-POSITION-LEVERAGE-CAP / G-GROSS-EXPOSURE-CAP / G-OBS-FRESH / G-FUNDING-EROSION`）→ 调 executor 下单 → append `order_fill` + light observe(source=fast_track)
+  - 持仓中 flow：另外检 invalidation 价位是否被穿；穿了即由快轨自主组装 `cancel_order` / `sync_protection`，不需慢轨预授权。保护腿缺失/错位也走同一路径，不算 `reconcile mismatch`
+- 不宜跳过的步骤：
+  - 跳过快轨幂等检查（reduce `current_orders / current_position`）直接下单（重复执行风险）
+  - 修改慢轨写的 thesis / entry_intent / invalidation 段（违反写权限边界）
+  - 在 mismatch 状态下尝试自行补 `source=reconcile`（应交给慢轨入口的全量对账）
+- 正式输出：
+  - 触发执行 / 防御补救 / 跳过有原因，各写一条 light observe(source=fast_track)；trigger 未命中则不写
+  - 一行 `cron.log` 记录本轮元数据（含 `track=fast`）
+  - 触发执行或防御动作时输出精简 fast-track summary（不渲染完整 DECISION_CARD）
 
 ### US-02 cron 触发后，某 lane 识别到新的 setup 并新开 flow
 
@@ -45,12 +77,12 @@
   - `lane_key = strategy_ref + symbol + side`，读时计算，不单独建表
   - 若该 lane 当前无 active flow，生成 `chain_id`（UUID）并 append first observe
   - 若同一 strategy 在其他 symbol 或另一 side 上也命中，则各自作为独立 lane 并行，不共用 `chain_id`
-  - 同一 lane 若已有 active flow，本轮只在原 flow 上 append 新 observe 管理同一笔机会；不把独立新机会硬塞回旧 flow
+  - 同一 lane 若已有 active flow，本轮一律在原 flow 上 append 新 observe 管理；事件驱动加一段、结构重建后二次进攻、临时新增理由都必须并回原 flow，不开并行 flow。若判断这已经是独立新机会，先让旧 flow 阶段性闭合，再由后续慢轨新开 flow
   - 意图段必须完整：`thesis / entry_intent / exit_intent / invalidation / stop_price / risk_budget_usdt / strategy_ref / expected_rr_net`
-  - 跑 preflight；爆仓护栏失败（成交后 open risk 超 cap / 单日亏损穿底）→ 拒本轮新动作
+  - 跑 preflight；按 Binance 最新快照实时重算各 active lane 风险，若账户总 open risk 在动作后会超 cap / 单日亏损会穿底 → 拒本轮新动作
   - preflight 通过即按 `entry_intent` 决定本轮是直接挂单还是仅声明意图等下一轮触发
 - 正式输出：
-  - 新 flow 上新增 observe；可选后续 `order_fill`（若本轮就挂单）
+  - 新 flow 上新增 observe；可选 `order_fill`（若本轮就挂单）
   - 若 preflight blocked：仅 observe，标 `decision_summary='blocked: <reason>'`，推送通知
 
 ### US-03 已挂单的 active flow 等成交
@@ -58,13 +90,14 @@
 - 触发：本轮 OBSERVE 发现某条 active flow 仍有活跃挂单未成交。
 - 系统行为：
   - 对账 + reduce `order_fill` 得到 `current_orders / current_position`
-  - LLM 读 `entry_intent + invalidation + valid_until_at` 判：继续等 / 撤单重挂 / 撤单放弃
-  - `valid_until_at < now` → 当前 setup 视为失效，强制 `cancel_order` 或 `sync_protection`（平仓）
+  - LLM 读 `entry_intent + invalidation + setup_valid_until_at` 判：继续等 / 撤单重挂 / 撤单放弃
+  - `setup_valid_until_at < now` 且 `current_position == 0` → 当前 setup 失效，撤掉剩余 entry 挂单；若后续重新出现 setup，由后续慢轨写新 observe
+  - `setup_valid_until_at < now` 且 `current_position != 0` → 只撤掉剩余 entry 挂单；已有仓位继续按 `exit_intent + invalidation + thesis` 管理，不自动 `sync_protection` / 平仓
   - `invalidation` 条件已触发 → 当前 thesis 不得继续推进，强制 `sync_protection`（平仓）/ `cancel_order`
 - 正式输出：
   - 继续等：仅 append observe，`decision_summary='no_action: waiting for fill'`
-  - 撤单：先 append observe（`target_action=cancel_order`），EXECUTE 后 append `order_fill(sub_kind=cancel)`
-  - 撤单 + 重挂：先 append observe（声明撤单 / 重挂意图），EXECUTE 后 append 两条 `order_fill`
+  - 撤单：append `order_fill (kind=cancel)` + observe
+  - 撤单 + 重挂：两条 `order_fill` + observe
   - 放弃：撤单 + append review event（记录本次 flow 闭合；lane 保持可继续）
 
 ### US-04 持仓中的 active flow 推进管理
@@ -74,20 +107,24 @@
   - 重算未实现盈亏 + 累计 funding cost + RR
   - LLM 读 `exit_intent + invalidation + thesis` 判：继续持有 / 减仓 / 平仓 / 移止损 / 加仓
   - 加仓时新一轮 observe 必须重写 `risk_budget_usdt`，preflight 重跑爆仓护栏
-  - 移止损：先在 observe 声明 `sync_protection`，EXECUTE 后 append `order_fill` 取消旧 stop 并下新 stop；preflight 跳过爆仓护栏（不增加 open risk）但仍跑数据卫生 + LLM 判
+  - `setup_valid_until_at` 过期本身不强迫保本或退出；若持仓后出现新的加仓 setup，慢轨在新的 observe 里重写 `entry_intent / setup_valid_until_at / action_intent`
+  - 移止损：append `order_fill` 取消旧 stop 并下新 stop；preflight 跳过爆仓护栏（不增加 open risk）但仍跑数据卫生 + LLM 判
   - 若该策略 `strategy.policy` 明确要求，持仓 ≥ 24H 时把累计 funding 折进 break_even
 - 正式输出：
   - 继续持有：仅 observe
-  - 减仓 / 平仓 / 移止损 / 加仓：先 append observe 声明动作意图，EXECUTE 后 append 对应 `order_fill`
+  - 减仓 / 平仓 / 移止损 / 加仓：对应 `order_fill` + observe
   - 平仓后 append review；同一 lane 后续继续观察下一轮 setup，若再命中新机会则新开 flow
 
 ### US-05 某次阶段性闭合后即时 REVIEW
 
-- 触发：本轮某条 active flow 某次平仓 / 止损 / 过期 / 主动放弃。
+- 触发：本轮某条 active flow 某次平仓 / 止损 / setup 过期后放弃 / 主动放弃。
 - 系统行为：
-  - append 一条 `review` 事件，必填：`outcome / pnl_pct / thesis_held / key_lesson / promote_to_strategy`
-  - `notes` 自由 markdown：cost vs expected / signal accuracy / 其他
-  - REVIEW 输入是这条 flow 中本次阶段性闭合附近的 `plan_event` 序列，由 LLM 一次性生成
+  - append 一条 `review` 事件，字段块固定：
+    - `closure facts`：`outcome / opened_at? / closed_at / close_reason`
+    - `quant`：`net_pnl_usdt / fee_usdt / funding_usdt / slippage_usdt_total / initial_risk_usdt? / max_live_risk_usdt? / r_multiple? / r_multiple_initial? / risk_inflation_ratio? / mfe_r? / mae_r? / holding_hours? / expected_holding_hours? / chronic_flag`
+    - `qual`：`thesis_held / execution_quality / plan_adherence / primary_mistake / mistake_note? / key_lesson / promote_to_strategy`
+  - REVIEW 的数字部分由 reducer 确定性生成；定性字段中 `primary_mistake` 由规则函数推断（不让 LLM 主观写以保 group by 一致性），LLM 只负责其余定性字段（`thesis_held / execution_quality / plan_adherence`）+ `mistake_note / key_lesson / notes`
+  - `r_multiple` 主口径基数是 `max_live_risk_usdt`（诚实，所有自动化决策走它）；`r_multiple_initial` 副口径基数是 `initial_risk_usdt`（业界标准，对外可比）
 - 正式输出：
   - 一条 `review` event 写入并封口当前 flow；同一 lane 后续若再出现新 setup，会新开 flow
 
@@ -95,21 +132,21 @@
 
 ### 固定要求
 
-- 异常通知通道由 `./data/notify_config.json` 配置；缺文件只写本地日志。
+- 异常通知通道由 `./profile/notify_config.json` 配置；缺文件只写本地日志。
 - 通知触发时人工介入也走 cron 重跑路径——人工不直接改数据库；先在交易所端处理或修改 config / strategy，下次 cron 重跑读最新状态自然衔接。
 - 通知内容必须够用户在不打开数据库的情况下决定下一步：包含 `chain_id`（flow ID）/ symbol / 触发条款 / 当前 plan 关键字段 / DECISION_CARD 摘要。
 
-### US-06 爆仓护栏拒绝任何新动作
+### US-06 风险护栏拒绝任何新动作
 
-- 触发：preflight 跑爆仓护栏时 `G-RISK-OPEN-CAP` 或 `G-RISK-DAY-FLOOR` 失败。
+- 触发：preflight 跑风险护栏时 `G-RISK-OPEN-CAP` / `G-RISK-DAY-FLOOR` / `G-BTC-BETA-DIRECTION-CAP` / `G-SINGLE-POSITION-LEVERAGE-CAP` / `G-GROSS-EXPOSURE-CAP` 任一失败。
 - 系统行为：
   - verdict=blocked，跳过 EXECUTE，仅 append observe（含 `preflight_result.blocked_by`）
-  - 推送通知，含 `equity_live / candidate.risk_budget / active_plans_risk_sum / cap` 数字让用户判断
+  - 推送通知，含 `equity_live / lane_risk_before / lane_risk_after / account_open_risk_after_action / long_open_risk_after_action / short_open_risk_after_action / lane_notional_after_action / gross_exposure_after_action / cap` 数字让用户判断
 - 用户介入路径：
   - 接受现状：什么都不做，下次 cron 仍 blocked，循环 abort
   - 缩 candidate `risk_budget_usdt`：下次 cron 跑前手动修改该 flow 最近一条 observe.body 意图段（或写新 observe append）后重跑
-  - 平掉某条活跃 flow 中的持仓释放 open risk → 下次 cron 自动识别
-  - 改 `account_config.json` 的 `max_open_risk_pct` / `max_day_loss_pct`（最不推荐，等于改风险底线）
+  - 平掉某条活跃 flow 中的持仓释放 open risk，或平掉**同方向**的活跃 flow 释放 direction risk → 下次 cron 自动识别
+  - 改 `account_config.json` 的 `max_open_risk_pct` / `max_day_loss_pct` / `max_btc_equiv_net_risk_pct` / `max_btc_equiv_gross_risk_pct` / `max_single_position_leverage` / `max_gross_exposure`（最不推荐，等于改风险底线）
 
 ### US-07 对账阶段无法可靠补 event
 
@@ -126,8 +163,8 @@
 
 - 触发：当日已实现亏损 ≥ 80% × `max_day_loss_pct × equity_live`。
 - 系统行为：
-  - 推送预警通知
-  - 禁止新增风险动作，只允许减仓 / 平仓 / 撤风险单
+  - 推送预警通知（不拦动作，只警告）
+  - 若再亏一笔会越底线，下一轮 preflight 的 `daily_loss_floor` 自动 fail
 - 用户介入路径：
   - 主动平掉浮亏最深的活跃 flow 持仓
   - 等次日重置自动恢复
@@ -138,22 +175,11 @@
 - 触发：cron 运行失败或 Binance API 错误连续 3 次。
 - 系统行为：
   - `cron.log` 中 `errors` 累计；连续 3 次推送通知
-  - 禁止新增风险动作；环境恢复前只允许减风险动作
   - 偏保守 abort：写不下去就只写已成功的 observe，下次 cron 重跑
 - 用户介入路径：
   - 检查 cron 调度本身是否被外部托管（Claude routines / Codex schedule）暂停
   - 检查 API key 权限 / IP 限制 / 网络
-
-### US-10 连续亏损达到上限
-
-- 触发：连续 N 条 `review` 样本 `outcome='loss'`，N ≥ `max_consecutive_losses`。
-- 系统行为：
-  - 推送通知，含最近 N 条 review 摘要（symbol / strategy_ref / pnl_pct / key_lesson）
-  - 相关 lane / setup 进入 `paused`；全局 cron 继续，但该 lane 只允许观察或减风险动作
-- 用户介入路径：
-  - 看 review notes 找共性 → 优先改 strategy.policy；只有确定性且全局必须遵守时才调整 hard guard
-  - 缩 `max_open_risk_pct` 降单笔风险
-  - 人工 review 后把 strategy 恢复为 `shadow` 或 `live-small`
+  - 暂停 cron 直到环境恢复
 
 ## 4. 上线前配置
 
@@ -165,11 +191,13 @@
 ### US-11 首次上线配置
 
 - 用户行为：
-  - 创建 `./data/account_config.json`：必填 `max_open_risk_pct / max_day_loss_pct`；可选 `max_consecutive_losses`
-  - 创建 `./data/notify_config.json`：通知通道（Telegram / 邮件 / Push 任选）
-  - 在 `.agents/skills/trade-flow/strategies/` 放 MVP 种子文件（`S-GENERIC-TREND.md` / `S-GENERIC-MEANREVERT.md`，frontmatter + policy markdown）；自有策略默认 `status=draft`
-  - 配置外部 cron 调度（Claude routines / Codex schedule）按 1H 或 4H 频率调起 `trade-flow`
-- 验证：手动跑一次 `trade-flow` `--dry-run`：读账户快照 → 写 observe → preflight → 不真发单。检查 DECISION_CARD 渲染是否完整。
+  - 创建 `./profile/account_config.json`：必填 `max_open_risk_pct / max_day_loss_pct / max_single_position_leverage`
+  - 创建 `./profile/notify_config.json`：通知通道（Telegram / 邮件 / Push 任选）
+  - 在 `.agents/skills/trade-flow/strategies/` 放 MVP 种子文件（`S-GENERIC-TREND.md` / `S-GENERIC-MEANREVERT.md`，frontmatter + policy markdown）；可加自有策略
+  - 配置**两条**外部 cron 调度（Claude routines / Codex schedule）：
+    - 慢轨：1H 或 4H 整点调起 `trade-flow --track slow`
+    - 快轨：5m 或 15m 偏移点（如 :05/:20/:35/:50）调起 `trade-flow --track fast`
+- 验证：手动跑一次 `trade-flow --track slow --dry-run`：读账户快照 → 写 observe → preflight → 不真发单。检查 DECISION_CARD 渲染是否完整。再手动跑一次 `--track fast --dry-run` 验证快轨链路。
 
 ### US-12 调整风险底线
 
@@ -183,57 +211,51 @@
 
 - 触发：累积一批 review 后发现共性，或外部信源提示新模式。
 - 用户行为：
-  - 新 strategy：在 `.agents/skills/trade-flow/strategies/` 加一个 markdown 文件（frontmatter `strategy_id / name / status / tags` + policy 正文），初始 `status=draft`
-  - 若要允许真钱动作，先补 setup 资格证：`setup_id / hypothesis / regime / entry_rule / stop_rule / no_trade_conditions / size_policy / evidence_ref / live_permission`
-  - 跑 replay 后把结果写入 `strategy-evidence.jsonl`
-  - 用 `strategy-review` 看 fresh / stale evidence、DB review stats 和 promotion gate
-  - replay evidence 必须带 OOS / walk-forward anti-overfit proof；否则不能从 `draft` 升 `shadow`
-  - 若改了 strategy 正文 / 名称 / tags，旧 evidence 自动 stale，必须重新 replay / shadow
+  - 新 strategy：在 `.agents/skills/trade-flow/strategies/` 加一个 markdown 文件（frontmatter `strategy_id / name / status / tags` + policy 正文）
+  - 若要从 `draft` 升 `shadow`，先写入 fresh replay evidence；evidence 必须带 OOS / walk-forward anti-overfit proof
   - 调整 hard guard：只在“确定性、全局重要、可脚本化”的前提下修改对应 guard 代码或脚本
 - 验证：下一轮 cron 跑会自动加载，无需 schema 迁移、无需改代码。
 
-### US-14 未验证 strategy 试图实盘动作
+## 5. 偶尔回看：多策略阶段总结
 
-- 触发：某 lane 的 strategy 仍是 `draft / shadow`，但本轮 LLM 收敛出 `target_action != no_action`。
-- 系统行为：
-  - preflight 拒绝真钱 EXECUTE，append observe，`decision_summary='blocked: untested_setup'`
-  - 若 `status=shadow`，允许记录影子动作结果，不提交 Binance
-  - `draft -> shadow` 必须通过 fresh replay gate
-  - `shadow -> live-small` 必须通过 fresh replay + fresh shadow gate
-- 正式输出：
-  - 无 `order_fill(source=trade_flow)`
-  - DECISION_CARD 显示 setup 未获得 live permission
+### 固定要求
 
-### US-15 shadow 升级为 live-small
+- 跨策略 / 跨阶段性样本总结不在 cron 周期里跑——cron 只管单 flow 内的即时 review。
+- 用户每周或每月主动跑一次回看脚本（待建）：聚合最近 N 条 `review` 事件，看共性。
+- MVP 阶段累积 30+ review 样本前不建 backtest / iterate 自动链路。
 
-- 触发：某 setup 完成历史回放或 shadow 运行，且用户认为扣除 fee / slippage / funding 后仍值得小资金验证。
+### US-14 一段时间后回看哪些 strategy / 条款值得改
+
+- 触发：用户主动决定回看（每周 / 每月一次）。
 - 用户行为：
-  - 在 strategy policy 里补 `evidence_ref` 与简短结果摘要
-  - 用 `strategy-review` 确认 fresh replay + fresh shadow 均达标
-  - 用 `strategy-promote --to live-small --yes` 更新 strategy status
-  - 必要时再将 setup `live_permission` 改为 `live-small`
-  - 保持 `risk_budget_usdt` 在小资金阈值内；不因升级放大仓位
-- 不该做：
-  - 只因 agent 解释得通就升级
-  - 未记录失败样本就只保留成功样本
+  - 读最近 N 条 `review` event（`SELECT body_json FROM plan_event WHERE kind='review' ORDER BY created_at DESC LIMIT N`）
+  - 按 `strategy_ref` 聚合：胜率 / 平均 `r_multiple` / 累计与平均 `net_pnl_usdt` / `thesis_held` 比例 / `promote_to_strategy=true` 比例
+  - 按 `blocked_by[].check_id` 聚合：哪项 hard guard 最常挡住动作 / 哪项可能过严 / 哪些问题其实更该回到 strategy.policy
+  - 看 `max_live_risk_usdt - initial_risk_usdt`、`slippage_usdt_total / max_live_risk_usdt`、`funding_usdt / max_live_risk_usdt` 是否持续偏高，区分是策略 edge 不够，还是执行 / 成本在吞利润
+  - `notes` 字段累积 20+ 样本后看是否需要拆出新结构化字段
+- 正式输出：
+  - 候选改动：retire 某 strategy / 调整某项 hard guard 阈值或逻辑 / 抽 review.notes 新字段
+  - 若问题不是确定性约束，优先写回 strategy.policy，而不是升格成新的全局 guard
 
-## 5. 事后回看
+### US-15 自动化误判事后回看
 
 - 触发：某条 review 样本结果不理想，用户怀疑是 cron 当时漏判 / strategy 不适配 / 流程语义缺口 / hard guard 过严。
 - 用户行为：
   - 读对应 flow 中该次阶段性闭合附近的 `plan_event` 序列（observe + order_fill + review）
   - 沿 observe 时间轴看：每轮 LLM 看到了什么、判了什么、preflight 拒了什么
-  - 只区分四类原因：setup 不成立 / 事实不够或不新鲜 / 执行出错 / hard guard 缺失或过严
+  - 区分几类原因：strategy.policy 没覆盖这种场景 / flow semantics 少了关键分支 / observe 证据段不够（如缺微结构字段）/ hard guard 过严或缺少必要护栏 / LLM 判错（同样输入下一轮跑也错）
 - 正式输出：
-  - 若问题不是确定性约束，优先改 strategy.policy 或暂停 setup
-  - 改完 strategy.policy 后，旧 evidence 变 stale；下一步必须重新 replay / shadow
-  - 只有确定性、全局重要、可脚本化的问题才补 hard guard
+  - 改 strategy.policy 加场景说明
+  - 补 flow semantics 说明，或在确有必要时补一项 hard guard
+  - 补 observe 证据段字段（如新 microstructure 维度，需改 trade-flow 代码）
+  - LLM 判错：暂时只在 review.notes 里记录，累积 5+ 同类样本再考虑改 strategy.policy 或 flow semantics
 
 ## 6. 不在本文件覆盖的场景
 
 以下场景在 MVP 不展开，等真实需求出现再加：
 
 - **probe / 日内策略**：项目层固定不做
-- **hedge 多腿净敞口管理**：当前固定不做
+- **hedge 多腿净敞口管理**：推迟，等真有对冲需求再启用（届时增设 `plan_relation` 表 + `S-HEDGE-GENERIC` strategy + 升级 `G-RISK-OPEN-CAP` 公式为 hedge-aware 版本）
+- **离线 backtest / iterate / strategy-pool 升级链路**：累积 30+ review 样本后再展开
 - **跨账户 / 跨平台**：项目层固定 Binance USDM 永续单账户
 - **手工逐笔下单的交互式协作**：本系统不为此设计——用户偶尔想手工干预 → 直接在 Binance UI 做，下次 cron 跑会通过对账自动衔接
