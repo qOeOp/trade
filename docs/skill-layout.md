@@ -132,11 +132,12 @@ cron.log 追加本轮元数据
 - ✅ cron 运维必备：clientOrderId 前缀幂等 + abort 偏保守 + cron.log + 异常通知
 - ✅ replay / shadow gate：未通过 setup 资格证的 strategy 只能观察或 shadow，不得 live execute
 - ✅ execution contract：真钱动作必须经 preview 生成 `execution_contract_snapshot`，再 append `order_fill`
+- ✅ strategy iteration：evidence ledger + policy_hash + strategy-review + strategy-promote gate
 
 先不做：
 
 - ❌ stages/review/STAGE.md 详细流程（MVP 阶段某次阶段性闭合即写 review，shape 见 design-architecture）
-- ❌ 策略演化自动链路（MVP 只保留 setup 级 replay / shadow gate）
+- ❌ 自动策略挖矿 / 自动参数搜索 / 自动升格
 - ❌ 功能 skill 迁入套件 tools/
 - ❌ `strategies/` 目录二层结构（namespace + 微策略）
 - ❌ hard guard registry 单独抽象（guard 数明显增多后再考虑）

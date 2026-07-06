@@ -65,6 +65,7 @@ interface FuturesAlgoOrderRequest {
   side: Config["side"]
   type: string
   positionSide: Config["positionSide"]
+  clientAlgoId?: string
   quantity?: string
   price?: string
   triggerPrice?: string
@@ -155,7 +156,6 @@ async function run(argv: string[]): Promise<ScriptResponse> {
     }
 
     const client = createClient(config.timeout)
-    await assertUsdmEntryIntent(config, client)
     await assertOrderWouldPassBasicSymbolRules(config, client)
     return { ok: true, data: await executeOrder(config, client) }
   } catch (error) {
@@ -256,6 +256,8 @@ function parseArgs(argv: string[]): Config {
 }
 
 async function executeOrder(config: Config, client: BinanceRest) {
+  await assertUsdmEntryIntent(config, client)
+
   if (config.test) {
     if (isUsdmAlgoEntryOrder(config)) {
       return {
@@ -391,6 +393,7 @@ function buildFuturesAlgoOrderRequest(config: Config): FuturesAlgoOrderRequest {
     side: config.side,
     type: config.type,
     positionSide: config.positionSide,
+    ...(config.newClientOrderId ? { clientAlgoId: config.newClientOrderId } : {}),
     ...(config.quantity ? { quantity: config.quantity } : {}),
     ...(config.price ? { price: config.price } : {}),
     ...(config.stopPrice ? { triggerPrice: config.stopPrice } : {}),

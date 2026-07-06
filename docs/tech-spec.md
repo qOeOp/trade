@@ -117,16 +117,48 @@ execution_contract:
 
 任何 skill 都不能自行决定“这笔交易值得做”。价值判断只能来自 `observe -> preflight -> execution_contract`。
 
-## 8. 当前必须补齐的实现缺口
+## 8. 当前实现状态
 
-1. `execution_contract` 正式 schema 与校验器。
-2. `保证金额 / 杠杆 / 笔数 -> quantity[]` 编译器。
-3. 条件单的 Algo endpoint 路由更新。
-4. 提交后回读核验协议。
-5. `order_fill` 写入 `source_observe_event_key + execution_contract_snapshot`。
-6. cron 幂等恢复：重复运行不重下单，状态不明只写事实不补风险。
+已补齐：
 
-这 6 项没补齐前，产品可以做 shadow / live-small 手工确认，不应自动实盘。
+- `execution_contract` schema / 校验器：`.agents/skills/binance-order-preview/scripts/execution-contract.ts`
+- `保证金额 / 杠杆 / 价格 / stepSize -> quantity` 编译器：同上
+- `execution_contract` CLI：`.agents/skills/binance-order-preview/scripts/contract.ts`
+- 条件 entry 的 Algo endpoint 路由：`binance-order-preview` / `binance-order-place`
+- 主单提交后普通单 / algo 单回读核验：`binance-order-place`
+- preflight hard guards 与 DECISION_CARD：`.agents/skills/plan-preflight/scripts/main.ts`
+- open-only 边界：`binance-order-place` 直接执行入口也拒绝 reduce-only / 减仓 / 翻仓
+- `plan_event` schema 初始化、`order_fill` 审计落库、`preflight -> contract -> execution_result -> order_fill` record glue：`.agents/skills/trade-flow/scripts/main.ts`
+- `--run --mode dry-run` 端到端链路：`preflight -> contract -> mock execution -> order_fill -> reducer readback`
+- `--run --mode shadow` 影子执行链路：同 dry-run，但记录 `execution_result.mode=shadow`
+- `--load-runtime`：加载 account config 与 strategy markdown frontmatter
+- `--build-observe`：从 account / market skill 输出构建最小完整 observe event
+- `runJsonCommand`：统一调用其他 skill CLI，并强制 JSON 输出 / 失败显式化
+- `--observe-from-skills`：调用只读 account / symbol snapshot skill 后构建 observe event
+- `--run-shadow-from-skills`：真实只读观察 + shadow 执行记录，不触发 Binance 写接口
+- `--run-live-small --yes`：真实调用 `binance-order-place` 主单执行，并落 audited `order_fill`
+- `--recover-flow --chain-id <id>`：从本地 `plan_event` reduce 出 `latest_observe / latest_order_fill / current_orders / current_position / open_action_gap`
+- `--reconcile-flow --chain-id <id>`：用传入账户快照生成 `order_fill(source=reconcile)` 草案；无法可靠归属则进入 `unmatched`
+- `--reconcile-from-skills --chain-id <id>`：调用只读 `binance-account-snapshot --include-history` 后生成同样的补录草案
+- `--apply-reconcile --yes`：仅当 `can_reconcile=true` 时，把 `order_fill(source=reconcile)` 草案 append 到本地 DB；不调用 Binance
+- `--cron-recover-from-skills --chain-id <id>`：cron 入口恢复编排；本地 reduce + 只读对账，有 `unmatched` 则 abort，无缺口则返回草案或显式 apply
+- 第一条策略资产：`.agents/skills/trade-flow/strategies/s-btc-4h-trend-pullback.md`，当前 `status=draft`
+- replay framework：`.agents/skills/trade-flow/scripts/lib/replay-core.ts` 提供通用 OHLCV manifest loader、indicator cache、单 lane 不重叠撮合、R 统计、fee/slippage、replay gate
+- replay registry：`.agents/skills/trade-flow/scripts/lib/replay-strategies.ts` 负责 `strategy_id -> ReplayStrategy` 分发；当前注册 `S-BTC-4H-TREND-PULLBACK`
+- `--replay-strategy --manifest <path> --strategy-id <id>`：通过 registry 做机械 OHLCV replay，不写 DB、不触发 Binance
+- strategy iteration：`.agents/skills/trade-flow/scripts/lib/strategy-iteration.ts` 提供 evidence ledger、policy hash、review report、promotion gate 与 status 更新
+- `--append-strategy-evidence --strategy <path> --ledger <path>`：追加 replay / shadow / live-small / review_batch 证据；每条证据绑定当前 strategy `policy_hash`
+- `--strategy-review --strategy <path> --ledger <path> [--db <path>]`：汇总 fresh / stale evidence、DB review stats 和 promotion gate；若 DB 不存在，不会创建 DB
+- `--strategy-promote --strategy <path> --ledger <path> --to <status> [--yes]`：默认 dry-run；只有满足 gate 且显式 `--yes` 才更新 strategy frontmatter status
+- artifact hygiene：`.agents/skills/trade-flow/scripts/lib/artifact-hygiene.ts` 提供显式目录扫描、pin/ref 保护、过期候选报告和 `--yes` 删除
+- `--artifact-gc --artifact-root <path> --retention-hours <n>`：默认 dry-run，不打开 DB，不触发 Binance；只处理显式 artifact root 下的过期未引用文件
+
+仍需接入主流程：
+
+- `S-BTC-4H-TREND-PULLBACK` 的过滤规则改进与 shadow 样本；1000 根 4H replay 在成本与不重叠口径下不达标，不能改为 `live-small`
+- Binance 小额 live-small 实测，确认条件单 / 回读 / 保护腿在真实账户模式下表现一致
+
+这意味着系统已具备进入 `shadow` 的技术地基；`live-small with manual confirmation` 还需要策略完成 replay / shadow 资格，并做一次 Binance 小额实测。
 
 ## 9. `trade.db`
 
@@ -172,6 +204,27 @@ CREATE INDEX idx_obs_symbol ON plan_event(
 | Notify config | `./data/notify_config.json` |
 | Cron log | `./data/cron.log` |
 | OHLCV / aggTrades / indicator outputs | `./data/ohlcv/` 或各 skill 输出目录 |
+| Strategy evidence ledger | `./data/strategy-evidence.jsonl` |
+
+文件型 artifact 规则：
+
+- `trade.db` 是唯一长期事实源；artifact 只是证据材料或缓存
+- 被 strategy evidence / review / active observe 引用的 artifact 保留
+- 需要永久保留的文件加同名 `.pin`
+- 未引用、未 pin、超过 retention 的 artifact 由 `--artifact-gc` 清理
+- `.db / .sqlite / .sqlite3` 永不由 artifact GC 删除
+- 清理默认只报告候选；删除必须显式 `--yes`
+
+Strategy evidence ledger 规则：
+
+- JSONL，一行一条 evidence；不进 `trade.db`
+- `kind` 当前允许 `replay / shadow / live_small / review_batch`
+- 必填 `strategy_id / setup_id / policy_hash / stats / source_ref`
+- `policy_hash` 由 strategy frontmatter 中的 `strategy_id/name/tags` 加正文计算；`status` 改动不影响 hash
+- strategy 正文、名称或 tags 改动后，旧 evidence 变 stale，不能用于 promote
+- `draft -> shadow`：需要 fresh replay 且 `avg_r > 0 / total_r > 0 / profit_factor >= 1.05 / max_drawdown_r <= 10`
+- `shadow -> live-small`：需要 fresh replay + fresh shadow，shadow `sample_count >= 20` 且表现为正
+- `paused / draft` 可随时降级；升格必须走 gate
 
 ## 11. 常用读取路径
 

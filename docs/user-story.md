@@ -25,7 +25,7 @@
 - 系统行为：
   - 拉账户快照（持仓 / 挂单 / 成交 / 余额）作为事实源
   - 对已有 active flow 的 lane reduce 事件流；若交易所事实已发生但本地缺事件，先补写 `order_fill(source=reconcile)`；若仍无法可靠归属，本轮直接 abort 并通知
-  - 拉 4H / 1H / 日 K + funding / OI / 关键墙位 / 最近爆仓
+  - 拉 4H / 1H / 日 K + funding / OI / 关键墙位 / 最近爆仓；按需补 own + BTC / ETH Roll / VPIN
   - 每条启用 lane：若已有 active flow，LLM 读 `current_plan + observe + strategy.policy + flow semantics` 决定继续管理；若当前无 active flow，则判断是否要开新 flow
   - 跑 preflight，verdict=blocked 跳过 EXECUTE，仅 append observe；verdict=armable 先 append observe，若 `target_action != no_action` 再提交动作并 append `order_fill`
   - 周期收尾追加 `cron.log`，输出 DECISION_CARD
@@ -185,6 +185,9 @@
 - 用户行为：
   - 新 strategy：在 `.agents/skills/trade-flow/strategies/` 加一个 markdown 文件（frontmatter `strategy_id / name / status / tags` + policy 正文），初始 `status=draft`
   - 若要允许真钱动作，先补 setup 资格证：`setup_id / hypothesis / regime / entry_rule / stop_rule / no_trade_conditions / size_policy / evidence_ref / live_permission`
+  - 跑 replay 后把结果写入 `strategy-evidence.jsonl`
+  - 用 `strategy-review` 看 fresh / stale evidence、DB review stats 和 promotion gate
+  - 若改了 strategy 正文 / 名称 / tags，旧 evidence 自动 stale，必须重新 replay / shadow
   - 调整 hard guard：只在“确定性、全局重要、可脚本化”的前提下修改对应 guard 代码或脚本
 - 验证：下一轮 cron 跑会自动加载，无需 schema 迁移、无需改代码。
 
@@ -194,6 +197,8 @@
 - 系统行为：
   - preflight 拒绝真钱 EXECUTE，append observe，`decision_summary='blocked: untested_setup'`
   - 若 `status=shadow`，允许记录影子动作结果，不提交 Binance
+  - `draft -> shadow` 必须通过 fresh replay gate
+  - `shadow -> live-small` 必须通过 fresh replay + fresh shadow gate
 - 正式输出：
   - 无 `order_fill(source=trade_flow)`
   - DECISION_CARD 显示 setup 未获得 live permission
@@ -203,7 +208,9 @@
 - 触发：某 setup 完成历史回放或 shadow 运行，且用户认为扣除 fee / slippage / funding 后仍值得小资金验证。
 - 用户行为：
   - 在 strategy policy 里补 `evidence_ref` 与简短结果摘要
-  - 将 `live_permission` 改为 `live-small`
+  - 用 `strategy-review` 确认 fresh replay + fresh shadow 均达标
+  - 用 `strategy-promote --to live-small --yes` 更新 strategy status
+  - 必要时再将 setup `live_permission` 改为 `live-small`
   - 保持 `risk_budget_usdt` 在小资金阈值内；不因升级放大仓位
 - 不该做：
   - 只因 agent 解释得通就升级
@@ -218,6 +225,7 @@
   - 只区分四类原因：setup 不成立 / 事实不够或不新鲜 / 执行出错 / hard guard 缺失或过严
 - 正式输出：
   - 若问题不是确定性约束，优先改 strategy.policy 或暂停 setup
+  - 改完 strategy.policy 后，旧 evidence 变 stale；下一步必须重新 replay / shadow
   - 只有确定性、全局重要、可脚本化的问题才补 hard guard
 
 ## 6. 不在本文件覆盖的场景

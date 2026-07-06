@@ -146,7 +146,7 @@ account:
   funding_paid_since_entry_usdt: number?
   snapshot_ref:? string                # 可选：account-snapshot 输出文件 / run_id
 microstructure:
-  notes: text                          # 本轮一句话到一小段提炼；原始 OHLCV / aggTrades / 指标不入 observe
+  notes: text                          # 本轮一句话到一小段提炼；原始 OHLCV / aggTrades / Roll / VPIN / 指标不入 observe
   refs:? [string]                      # 可选：market-data / indicator 输出文件或 run_id
 catalyst: text?                        # 持仓窗口内 high-impact 事件；无则省略或写 "none in window"
 exposure: text?                        # 同簇敞口判断（btc-beta / eth-eco / ...）
@@ -157,7 +157,9 @@ preflight_result:
 decision_summary: text            # 本轮判断 / preflight / 动作意图摘要；真实执行结果见后续 order_fill
 ```
 
-每条 observe 是**最小完整快照**，不是 patch；语义上分三段：`fact_snapshot`（账户 / 市场 / 订单投影与 refs）、`decision_snapshot`（thesis / entry / exit / action_intent）、`preflight_snapshot`（hard guard 与 card 校验结果）。这里的完整指“足以让 PLAN / preflight / EXECUTE 复读本轮判断”，不是把账户全量、OHLCV、aggTrades、指标明细都复制进 DB。原始输出留在各 skill 的文件 / run_id，observe 只存当前 flow 相关投影、LLM 提炼和可追溯 refs。若只刷局部槽位，上游先合并上一版完整 observe 再 append。
+每条 observe 是**最小完整快照**，不是 patch；语义上分三段：`fact_snapshot`（账户 / 市场 / 订单投影与 refs）、`decision_snapshot`（thesis / entry / exit / action_intent）、`preflight_snapshot`（hard guard 与 card 校验结果）。这里的完整指“足以让 PLAN / preflight / EXECUTE 复读本轮判断”，不是把账户全量、OHLCV、aggTrades、Roll、VPIN、指标明细都复制进 DB。原始输出留在各 skill 的文件 / run_id，observe 只存当前 flow 相关投影、LLM 提炼和可追溯 refs。若只刷局部槽位，上游先合并上一版完整 observe 再 append。
+
+`microstructure.notes` 默认只承载 market quality / execution risk：own Roll / VPIN 优先，其次 BTC / ETH Roll / VPIN 作为跨市场压力。它只能改变 `entry / stop / size / no_action`，不能单独构成方向判断或 setup 资格。
 
 同一条 flow 可以在空仓观察、等待条件、已挂单、持仓管理之间切换；一旦这次机会已阶段性闭合，同一 lane 后续再出现新 setup 时新开 flow，不复用旧 `chain_id`。
 
@@ -227,6 +229,8 @@ CREATE INDEX idx_kind_chain ON plan_event(kind, chain_id);
 | Notify config | JSON 文件 | `./data/notify_config.json` |
 | Cron log | 文本日志 | `./data/cron.log` |
 | OHLCV / 市场数据 | CSV + manifest（后期切 SQLite） | `./data/ohlcv/` |
+| Replay / shadow / market artifact | 文件 + refs | `./data/artifacts/` 或各 skill 输出目录 |
+| Strategy evidence ledger | JSONL | `./data/strategy-evidence.jsonl` |
 
 选型原则：
 
@@ -237,6 +241,23 @@ CREATE INDEX idx_kind_chain ON plan_event(kind, chain_id);
 - **CSV / log**：OHLCV / cron 运维 —— 追加型时间序列
 
 不引入 MongoDB / 文档库：单进程 cron + MVP 体量（< 10k events/月）下 SQLite JSON1 扩展完全够用，多一套服务的运维成本不值。具体 schema / 索引 / JSON 查询模式见 [tech-spec.md](tech-spec.md)。
+
+Artifact hygiene：
+
+- `trade.db` 是唯一长期事实源；artifact 只是证据、缓存或人工复盘材料
+- replay / shadow / market artifact 默认通过 refs 被 strategy evidence、review 或 active observe 引用
+- 未引用、未 `.pin`、超过 retention 的 artifact 可由 `trade-flow --artifact-gc` 清理
+- 清理默认 dry-run；删除必须显式 `--yes`
+- `.db / .sqlite / .sqlite3` 不进入 artifact GC 删除范围
+
+Strategy iteration：
+
+- replay / shadow / live-small / review_batch 证据写入 JSONL ledger，不新增 `plan_event.kind`
+- 每条 evidence 绑定 strategy `policy_hash`
+- `policy_hash` 不包含 status；只改状态不让证据失效，改规则正文 / 名称 / tags 会让旧证据 stale
+- `strategy-review` 汇总 fresh / stale evidence、DB review stats 和 promotion gate
+- `strategy-promote` 只改 frontmatter `status`；默认 dry-run，实改必须 `--yes`
+- 自动挖矿、自动参数搜索、自动升格仍不进入当前系统
 
 ---
 
@@ -267,6 +288,7 @@ OBSERVE 不要求所有 lane 同频更新；本轮未命中的 lane 这一轮不
 - `review` 记录某条 flow 的闭合样本；关闭的是 flow，不是 lane，更不是 strategy
 - 上轮 `target_action != no_action` 但无对应 `order_fill`：下一轮必须重读最新语境再决定续做或放弃，不机械重放旧动作
 - `direction_state` 与 `execution_verdict` 是两层判断，不互相吞：`偏多已确认 + 不追` / `中性 + 持有不动` 等组合都是合法输出；不允许因为"不追"就把方向写成"中性"，也不允许因为"方向成立"就反推必须有执行动作
+- 微观结构压力只优先影响执行层：例如 `偏多已确认 + 不追`、`偏多已确认 + 等回踩`、`偏多已确认 + 缩小 size` 都合法；除非 strategy.policy 明确把它写成 regime / no_trade 条件，否则不改写方向层
 
 与 funding、跨策略相关性、场景过滤有关的判断，当前不升格为全局阻断项。若确有 edge，优先写回各自的 `strategy.policy`，或只做提示，不做全局 blocking。
 
@@ -500,6 +522,19 @@ notes: markdown?                # 自由 markdown：cost vs expected / signal ac
 
 单条 flow 默认写 1 条 terminal `review`。同一 lane 可以随着多条历史 flow 累积多条 `review`。REVIEW 是闭合样本，不自动升级策略。
 
+REVIEW 进入策略迭代的路径：
+
+```text
+plan_event.review
+  -> strategy-review 聚合为 review_batch stats
+  -> strategy policy 人工修改
+  -> policy_hash 变化
+  -> replay / shadow 重新验证
+  -> strategy-promote dry-run / --yes
+```
+
+任何 review 只能生成待验证假设；不能绕过 replay / shadow gate。
+
 ---
 
 ## 失败兜底
@@ -533,5 +568,6 @@ notes: markdown?                # 自由 markdown：cost vs expected / signal ac
 | `ohlcv-fetch` | 多周期 K 线 |
 | `binance-symbol-snapshot` | 当前状态 |
 | `binance-market-scan` | 全市场粗筛 |
-| `tech-indicators` | 结构和指标 |
+| `binance-aggtrades-fetch` | 成交流原材料 |
+| `tech-indicators` | 结构、指标、轻量 Roll / VPIN 统计 |
 | `binance-account-snapshot` | 账户持仓 / 挂单 / 余额（只读） |

@@ -61,6 +61,8 @@ description: EXECUTE 阶段的 Binance 主单执行 skill。用于已收敛 entr
 - 优先直接执行 `./scripts/main.ts`
 - USDM 主单支持 `LIMIT` / `MARKET` / `STOP` / `STOP_MARKET` / `TAKE_PROFIT` / `TAKE_PROFIT_MARKET`
 - 脚本会拒绝 reduce-only、减仓、平仓、翻仓这类越界用法
+- 条件 entry 走 Binance futures algo order；`--new-client-order-id` 会映射为 `clientAlgoId`
+- live 提交后会尽量回读普通单 / algo 单状态，返回 `confirmedResult` 或 `confirmationWarning`
 - `--dry-json` 只打印请求体，不触网
 - `--test` 可用于 USDM 普通单测试；USDM algo entry 没有官方 test endpoint，只会返回本地校验后的 payload
 

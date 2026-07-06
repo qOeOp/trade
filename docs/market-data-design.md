@@ -27,16 +27,41 @@
 - liquidation-like zones
 - 账户侧 markPrice / liquidationPrice / 持仓 / 挂单 / 保护单
 
+## 微观结构证据
+
+微观结构只回答 market quality / execution risk，不直接回答方向。
+
+优先级：
+
+1. own Roll / VPIN
+2. BTC Roll / VPIN
+3. ETH Roll / VPIN
+4. Roll impact / Amihud / Kyle 仅在策略明确需要时补
+
+解释口径：
+
+- Roll 高：短期价格变化序列相关增强；可支持等待突破确认、避免追价、调整挂单速度。
+- VPIN 高：订单流 toxicity / adverse selection 上升；可支持缩小 size、放宽或重算 stop、进入 no_action。
+- BTC / ETH Roll 或 VPIN 上升：作为 alt lane 的市场天气；不能替代单标的 setup 判断。
+- skewness 暂不作为 MVP 证据；若后续使用，必须先有 setup 级验证。
+
+微观结构 evidence 的合法落点只有：
+
+- `entry`：追 / 不追 / 等回踩 / 等突破
+- `stop`：止损是否太近、是否需要结构位重算
+- `size`：是否缩仓、是否拒绝加仓
+- `no_action`：市场质量差、毒性高、跨市场压力过大
+
 ## 最小证据包
 
 单标的进入 PLAN 前，market evidence 最少回答：
 
 | 问题 | 数据来源 |
 | --- | --- |
-| 现在能不能进 | OHLCV / bid-ask / spread / funding |
-| stop 放哪里 | OHLCV structure / liquidation-like zones |
-| 仓位能不能给 | liquidity / spread / account risk |
-| 是否应该 no_action | invalidation / stale data / event risk / poor liquidity |
+| 现在能不能进 | OHLCV / bid-ask / spread / funding / own Roll / own VPIN |
+| stop 放哪里 | OHLCV structure / liquidation-like zones / volatility-tail regime |
+| 仓位能不能给 | liquidity / spread / account risk / own VPIN |
+| 是否应该 no_action | invalidation / stale data / event risk / poor liquidity / BTC-ETH microstructure stress |
 
 不要求每轮都拉全量数据。缺什么补什么。
 
@@ -49,7 +74,7 @@
 | `binance-aggtrades-fetch` | 成交流原材料 |
 | `binance-liquidation-zones` | liquidation-like zones |
 | `binance-market-scan` | 候选粗筛；不得直接触发 live action |
-| `tech-indicators` | 本地 OHLCV 结构与指标 |
+| `tech-indicators` | 本地 OHLCV 结构、指标与轻量微观结构统计 |
 
 `binance-market-scan` 只能回答“先看谁”。候选必须回到 `single-symbol`，并通过 setup 资格证。
 
@@ -59,6 +84,7 @@
 - 微结构、aggTrades、depth、liquidation-like 输出默认只作为 refs。
 - 不新增 market snapshot 表。
 - replay / shadow 需要的数据由对应 skill 输出引用，不进入 `trade.db`。
+- 未被 refs / evidence / review / `.pin` 引用的市场 artifact 不长期保留；默认通过 `trade-flow --artifact-gc` dry-run 后显式清理。
 
 ## 禁止项
 
@@ -66,4 +92,7 @@
 - 不把市场解释写进接入脚本。
 - 不把全市场扫描结果直接交给 LLM 做 live action。
 - 不为了“可能有用”长期落盘微结构数据。
+- 不把临时 replay / scan / microstructure 输出当长期资产堆在项目里。
+- 不把 Roll / VPIN 变成裸交易信号。
+- 不为 skewness、Kyle、Amihud 提前扩 MVP。
 - 不把不能改变 `entry / stop / size / no_action` 的数据接入主决策。

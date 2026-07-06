@@ -1,0 +1,6 @@
+{
+  "repoRoot": ".",
+  "symbol": "BTCUSDT",
+  "historyLimit": 50,
+  "apply_reconcile": false
+}

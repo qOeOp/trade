@@ -187,6 +187,30 @@ RAVE skill 降级链路：build-skills.sh 打包失败 → 复用已编好的 bi
 
 ---
 
+## 九、微观结构证据进入执行风险层
+
+**核心发现（2026-07-06，Easley/O'Hara/Yang/Zhang 论文）**
+
+- Roll / VPIN 对 crypto 的未来波动、序列相关、厚尾有预测内容，但不等于方向信号。
+- 设计落点不是新增策略宇宙，而是强化 `microstructure.notes + refs`：own Roll / VPIN 优先，BTC / ETH Roll / VPIN 作为 alt lane 市场天气。
+- PLAN 只能把微观结构压力翻译成 `entry / stop / size / no_action`：不追、等回踩、缩小 size、重算 stop、或 no_action。
+- replay / shadow 可以做最小微观结构分桶；没有 setup 级验证前，不把 Roll / VPIN 写成真钱开仓条件。
+
+---
+
+## 十、完整策略迭代与运行产物保洁
+
+**核心发现（2026-07-06）**
+
+- 最终产品必须是完整策略迭代系统：`replay evidence -> shadow samples -> live-small samples -> review -> strategy policy change -> replay again`。
+- 当前不能为远期目标提前膨胀成策略平台；只保留 setup 准入、replay/shadow 证据和人工确认的小闭环。
+- 用户明确担心项目长期运行后无用数据像垃圾一样累计；这属于产品生命线，不是运维细节。
+- `trade.db` 必须只存事件、摘要和 refs；原始 OHLCV / aggTrades / replay 输出是 artifact，不是长期事实源。
+- 未被 strategy evidence / review / active observe / `.pin` 引用的 artifact 必须可 dry-run 扫描和显式清理。
+- 本轮实现落点：`strategy-evidence.jsonl`、`policy_hash`、`strategy-review`、`strategy-promote`。策略规则一改，旧证据 stale；升格默认 dry-run，实改必须 `--yes`。
+
+---
+
 ## 附录：关键交互事件索引
 
 | 日期 | 标的 | 关键事件 | 主要洞察标签 |

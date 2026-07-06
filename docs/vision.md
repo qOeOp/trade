@@ -11,7 +11,8 @@
 - 在线交易链：`OBSERVE -> PLAN -> EXECUTE -> REVIEW`
 - 离线验证链：`research / review -> replay / backtest -> shadow -> live-small / paused`
 
-当前优先实现在线链和 setup 级 replay / shadow gate；离线验证链保留接口，不提前做平台化。
+当前优先实现在线链和 setup 级 replay / shadow gate；离线验证链已实现最小可运行闭环，不提前做平台化。
+最终产品必须形成完整策略迭代闭环：`replay evidence -> shadow samples -> live-small samples -> review -> strategy policy change -> replay again`。当前已固定 evidence ledger、policy_hash、strategy-review、strategy-promote，不做自动挖矿和自动升格。
 
 ## 核心原则
 
@@ -99,3 +100,10 @@ latest_observe.action_intent.request
 - 当前实盘动作是否仍满足事实、风险、执行和对账约束
 
 为回答这三件事，离线验证链是完整系统的一部分；但它只服务 setup 准入，不扩成独立研究平台。
+
+必须避免：
+
+- 因单个漂亮案例直接升 live-small
+- 把回测系统扩成泛研究平台
+- 把 Roll / VPIN 直接写成开仓信号
+- 无引用的 replay / shadow / market artifact 长期堆积

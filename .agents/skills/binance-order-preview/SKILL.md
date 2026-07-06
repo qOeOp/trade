@@ -44,6 +44,18 @@ description: PLAN / EXECUTE 之间的 Binance 下单预演 skill。用于确认�
 - 不确定是 entry 还是保护：重点看 `execution.skill`
 - 想评估触发条件离当前价格是否太近：看 `marketContext` 和 `warnings`
 - 做后续 agent 编排：直接消费输出，不要自己重写分类规则
+- 想把保证金 / 杠杆 / 交易所步长编译成可审计执行快照：运行 `./scripts/contract.ts`
+
+## execution_contract 编译
+
+`./scripts/contract.ts` 是 PLAN 与 EXECUTE 之间的只读编译器：
+
+- 输入：`source_observe_event_key / chain_id / setup_id / account_snapshot / risk / entries / exchange_rules`
+- 输出：正式 `execution_contract`
+- 会校验必填字段、entry 类型、stop/price、`verify_policy`
+- 会把 `margin_usdt / notional_usdt + leverage + reference_price + stepSize` 编译成 `quantity`
+- 会生成稳定 `client_order_id`，默认形如 `<chain_id>-<seq>-entry`
+- 不访问 Binance，不下单
 
 ## 执行顺序
 
@@ -58,5 +70,6 @@ description: PLAN / EXECUTE 之间的 Binance 下单预演 skill。用于确认�
 - 入口脚本是 [main.ts](./scripts/main.ts)
 - 优先直接执行 `./scripts/main.ts`
 - 输出包含 `request`、`execution`、`marketContext`、`warnings`
+- `execution_contract` 编译入口是 [contract.ts](./scripts/contract.ts)
 
 低频示例见 [reference.md](./reference.md)。

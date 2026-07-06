@@ -210,7 +210,40 @@ test("buildDryRun keeps take-profit entry on place-order path", () => {
   })
 })
 
-test("executeOrder omits timeInForce and reduceOnly for hedge-mode market reduce", async () => {
+test("buildDryRun maps new client order id to clientAlgoId for algo entries", () => {
+  const config = parseArgs([
+    "--symbol",
+    "BTCUSDT",
+    "--side",
+    "BUY",
+    "--type",
+    "STOP_MARKET",
+    "--quantity",
+    "0.01",
+    "--stop-price",
+    "66000",
+    "--new-client-order-id",
+    "flow-1-1-entry",
+  ])
+
+  assert.deepEqual(buildDryRun(config), {
+    method: "futuresCreateAlgoOrder",
+    request: {
+      algoType: "CONDITIONAL",
+      symbol: "BTCUSDT",
+      side: "BUY",
+      type: "STOP_MARKET",
+      positionSide: "BOTH",
+      clientAlgoId: "flow-1-1-entry",
+      quantity: "0.01",
+      triggerPrice: "66000",
+      workingType: "CONTRACT_PRICE",
+      priceProtect: "true",
+    },
+  })
+})
+
+test("executeOrder rejects hedge-mode market reduction through open-only skill", async () => {
   const config = parseArgs([
     "--symbol",
     "CLUSDT",
@@ -226,20 +259,13 @@ test("executeOrder omits timeInForce and reduceOnly for hedge-mode market reduce
     "true",
   ])
 
-  let capturedRequest: Record<string, unknown> | undefined
   const client = {
-    futuresOrder(request: Record<string, unknown>) {
-      capturedRequest = request
-      return Promise.resolve({ orderId: 1 })
+    futuresPositionRisk() {
+      return Promise.resolve([{ symbol: "CLUSDT", positionSide: "LONG", positionAmt: "14.84" }])
     },
   }
 
-  await executeOrder(config, client as never)
-
-  assert.ok(capturedRequest)
-  assert.equal(capturedRequest?.type, "MARKET")
-  assert.equal("timeInForce" in capturedRequest!, false)
-  assert.equal("reduceOnly" in capturedRequest!, false)
+  await assert.rejects(() => executeOrder(config, client as never), /open-only/)
 })
 
 test("ensureUsdmLeverage changes leverage when current value differs", async () => {

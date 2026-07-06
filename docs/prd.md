@@ -100,12 +100,45 @@ tags: []
 - 失败类型
 - 是否允许进入 `shadow` 或 `live-small`
 
+当前实现映射：
+
+- `replay-core`：OHLCV manifest loader / 指标缓存 / 单 lane 撮合 / R 统计 / fee + slippage / replay gate
+- `replay-strategies`：`strategy_id -> ReplayStrategy` registry；新增策略只补 strategy definition，不改 core
+- `--replay-strategy`：只读文件，不写 DB，不触发 Binance
+- replay 只能给 `shadow_candidate`；`live-small` 必须另有 shadow 样本与人工确认
+- `strategy-evidence.jsonl`：保存 replay / shadow / live-small / review_batch 证据，不进入 `trade.db`
+- `policy_hash`：策略规则一改，旧证据自动变 stale，必须重新 replay / shadow
+- `--strategy-review`：汇总 fresh / stale evidence、DB review stats 和 promotion gate
+- `--strategy-promote`：默认 dry-run，满足 gate 且 `--yes` 后才改 strategy status
+
+最终策略迭代系统必须闭环，但当前只固定最小路径：
+
+```text
+replay evidence -> shadow samples -> live-small samples -> review -> strategy policy change -> replay again
+```
+
+禁止把单次 review、单段漂亮回测或自动参数搜索直接变成实盘资格。
+
+升格门槛：
+
+- `draft -> shadow`：fresh replay 正收益且 drawdown 不超阈值
+- `shadow -> live-small`：fresh replay + fresh shadow；shadow 样本至少 20，表现为正
+- 任意状态可降级到 `paused / draft`
+- 只改 `status` 不改变 `policy_hash`；改规则正文 / 名称 / tags 会使旧证据失效
+
+若 setup 明确依赖微观结构，允许补最小分桶结果：
+
+- own Roll / VPIN 高低分桶下表现
+- BTC / ETH Roll / VPIN 压力下表现
+- 对 `entry / stop / size / no_action` 的具体影响
+
 禁止项：
 
 - 没有规则口径就报胜率
 - 只保留成功样本
 - 因单个漂亮案例直接升 live-small
 - 把回测系统扩成泛研究平台
+- 把 Roll / VPIN 直接写成开仓信号
 
 ## 6. OBSERVE
 
@@ -118,6 +151,8 @@ tags: []
 - append 完整 observe
 
 OBSERVE 不负责拍板交易，不负责穷举所有信息。全市场扫描只能产出候选；候选必须回到单标的 setup 判断。
+
+微观结构证据优先看 own Roll / VPIN，其次 BTC / ETH Roll / VPIN。它只说明 market quality / execution risk，默认进入 `microstructure.notes + refs`。
 
 ## 7. PLAN
 
@@ -134,6 +169,8 @@ PLAN 不能把“方向成立”偷换成“必须执行”。合法组合包括
 信号准入：
 
 只有能改变 `entry / stop / size / no_action` 的分析，才允许进入 `action_intent`。其他内容只能进入 notes / refs。
+
+Roll / VPIN 的默认作用是让 PLAN 更保守地处理追价、止损距离、仓位和等待条件；不得绕过 setup 资格证。
 
 ## 8. PREFLIGHT
 
@@ -222,12 +259,21 @@ plan_event(event_key, chain_id, kind, body_json, created_at)
 
 strategy policy 走 markdown；account / notify config 走 JSON；市场原始数据留在各 skill 输出或 refs，不塞进 `observe`。
 
+产物生命周期：
+
+- `trade.db` 只存事件、摘要和 refs，不存原始 OHLCV / aggTrades / replay 大对象
+- 未被 strategy evidence、review、active observe 或 `.pin` 引用的文件型 artifact 必须可清理
+- strategy evidence ledger 独立为 JSONL；它是策略准入证据，不是交易事实源
+- ad-hoc 分析优先写临时目录；只有会影响策略准入或复盘的结果进入 `./data/artifacts` 类目录
+- 清理必须默认 dry-run；只有显式确认才删除
+
 ## 13. 非目标
 
 以下内容不进入当前 PRD：
 
 - 平台化策略分支版本系统
 - 自动策略挖矿 / 自动升格
+- 无界 artifact 留存
 - UI / 看板
 - chat-history 实盘证据化
 - 多账户 / 多交易所

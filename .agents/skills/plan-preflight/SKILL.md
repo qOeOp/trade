@@ -141,7 +141,7 @@ function checkDailyLossFloor(plan, aggregate, account, equityLive) {
 
 ## 脚本边界
 
-- 入口：`./scripts/main.ts`（待实现）
+- 入口：`./scripts/main.ts`
 - 只读：`./data/account_config.json` + 调用方传入的 `plan / observe / strategy / target_action / request / flow_history / aggregate_view`
 - 不发任何交易所请求
 - 不写事件：preflight 返回结果，trade-flow 在 cron 周期收尾把 `preflight_result` 作为 observe.body 一部分 append
