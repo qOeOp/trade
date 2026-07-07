@@ -31,6 +31,7 @@ interface StrategyRndBatchInput {
   maxHoldBars?: number
   feeBps?: number
   slippageBps?: number
+  fundingBpsPer8h?: number
   oosSplitRatio?: number
   indicatorReportPath?: string
   factorCompose?: boolean
@@ -100,7 +101,17 @@ interface StrategyRndBatchReport {
     no_auto_promote: true
   }
   factor_research: FactorResearchReport | null
+  selection_audit: SelectionAudit
   next_action: string
+}
+
+interface SelectionAudit {
+  method: "four_block_rank_reversal"
+  declared_trials: number
+  candidate_count: number
+  evaluated_folds: number
+  rank_reversal_rate: number | null
+  blocked: boolean
 }
 
 interface StrategyRndLoopReport {
@@ -216,7 +227,8 @@ function runStrategyRndBatch(input: StrategyRndBatchInput): StrategyRndBatchRepo
   const batch = { ...input, candidates }
   const reports = candidates.map((candidate) => runCandidate(batch, candidate, featureStore))
   const accepted = reports.filter((report) => report.gate.accepted)
-  const winner = accepted.sort(compareCandidates)[0] ?? null
+  const selectionAudit = buildSelectionAudit(reports, input.searchTrialCount ?? candidates.length)
+  const winner = selectionAudit.blocked ? null : accepted.sort(compareCandidates)[0] ?? null
 
   return {
     batch_id: input.batchId || "strategy-rnd-batch",
@@ -234,10 +246,55 @@ function runStrategyRndBatch(input: StrategyRndBatchInput): StrategyRndBatchRepo
       no_auto_promote: true,
     },
     factor_research: factorResearch,
+    selection_audit: selectionAudit,
     next_action: winner
       ? "Draft a strategy policy for the winning candidate, then append replay evidence and run strategy-review before any shadow promotion."
       : "Stop this hypothesis batch; predeclare a new edge hypothesis before running more trials.",
   }
+}
+
+function buildSelectionAudit(candidates: StrategyRndCandidateReport[], declaredTrials: number): SelectionAudit {
+  let reversals = 0
+  let evaluated = 0
+  const timestamps = candidates.flatMap((candidate) => candidate.replay.trades.map((trade) => Date.parse(trade.signal_time))).filter(Number.isFinite)
+  const first = Math.min(...timestamps)
+  const last = Math.max(...timestamps)
+  const folds = candidates.map((candidate) => calendarFolds(candidate.replay.trades, first, last, 4))
+  if (candidates.length > 1 && last > first && folds.every((candidateFolds) => candidateFolds.every((fold) => fold.length >= 5))) {
+    for (let holdout = 0; holdout < 4; holdout += 1) {
+      const scores = candidates.map((candidate, candidateIndex) => {
+        const candidateFolds = folds[candidateIndex]
+        const train = candidateFolds.flatMap((fold, index) => index === holdout ? [] : fold)
+        return { id: candidate.candidate_id, train: meanR(train), test: meanR(candidateFolds[holdout]) }
+      })
+      const selected = [...scores].sort((a, b) => b.train - a.train)[0]
+      const rank = [...scores].sort((a, b) => b.test - a.test).findIndex((item) => item.id === selected.id) + 1
+      if (rank > Math.ceil(scores.length / 2)) reversals += 1
+      evaluated += 1
+    }
+  }
+  const rate = evaluated > 0 ? Number((reversals / evaluated).toFixed(6)) : null
+  return {
+    method: "four_block_rank_reversal",
+    declared_trials: declaredTrials,
+    candidate_count: candidates.length,
+    evaluated_folds: evaluated,
+    rank_reversal_rate: rate,
+    blocked: rate !== null && rate > 0.5,
+  }
+}
+
+function calendarFolds(trades: ReplayResult["trades"], first: number, last: number, count: number): Array<ReplayResult["trades"]> {
+  const folds = Array.from({ length: count }, () => [] as ReplayResult["trades"])
+  for (const trade of trades) {
+    const index = Math.min(count - 1, Math.floor((Date.parse(trade.signal_time) - first) / (last - first + 1) * count))
+    if (index >= 0) folds[index].push(trade)
+  }
+  return folds
+}
+
+function meanR(trades: ReplayResult["trades"]): number {
+  return trades.length > 0 ? trades.reduce((sum, trade) => sum + trade.r, 0) / trades.length : Number.NEGATIVE_INFINITY
 }
 
 function assertUniqueCandidateIds(candidates: StrategyRndCandidateInput[]): void {
@@ -450,7 +507,21 @@ function buildFactorResearch(input: StrategyRndBatchInput, featureStore: FactorF
   if (!input.factorDiscover || !input.indicatorReportPath) {
     return null
   }
+  if (input.candidates.length !== 1) {
+    throw new Error("setup-conditioned factor discovery requires exactly one base candidate")
+  }
   const timeframe = input.timeframe || "4h"
+  const base = input.candidates[0]
+  const configured = getRndFamily(base.family || "trend_pullback_v1").configure(base.candidateId, base.params || {}, featureStore)
+  const setupReplay = replayStrategy(configured.strategy, {
+    manifestPath: input.manifestPath,
+    timeframe,
+    maxHoldBars: input.maxHoldBars,
+    rewardRisk: configured.rewardRisk,
+    feeBps: input.feeBps,
+    slippageBps: input.slippageBps,
+    fundingBpsPer8h: input.fundingBpsPer8h,
+  })
   return researchFactorSeeds(
     featureStore,
     loadCandlesFromManifest(
@@ -459,7 +530,10 @@ function buildFactorResearch(input: StrategyRndBatchInput, featureStore: FactorF
       timeframe,
     ),
     timeframe,
-    input.factorResearchOptions,
+    {
+      ...input.factorResearchOptions,
+      targets: setupReplay.trades.map((trade) => ({ timestamp: trade.signal_time, value: trade.r, regime: trade.regime })),
+    },
   )
 }
 
@@ -550,6 +624,7 @@ function redactLoopInputForArtifact(input: StrategyRndLoopInput): JSONRecord {
     maxHoldBars: input.maxHoldBars,
     feeBps: input.feeBps,
     slippageBps: input.slippageBps,
+    fundingBpsPer8h: input.fundingBpsPer8h,
     oosSplitRatio: input.oosSplitRatio,
     searchTrialCount: input.searchTrialCount,
     indicatorReportPath: input.indicatorReportPath,
@@ -574,6 +649,7 @@ function runCandidate(input: StrategyRndBatchInput, candidate: StrategyRndCandid
     rewardRisk: configured.rewardRisk,
     feeBps: input.feeBps,
     slippageBps: input.slippageBps,
+    fundingBpsPer8h: input.fundingBpsPer8h,
     oosSplitRatio: input.oosSplitRatio ?? 0.3,
     trialCount: input.searchTrialCount ?? input.candidates.length,
     parameterCount,
@@ -622,6 +698,7 @@ function evaluateParameterStability(
         rewardRisk: configured.rewardRisk,
         feeBps: input.feeBps,
         slippageBps: input.slippageBps,
+        fundingBpsPer8h: input.fundingBpsPer8h,
         supplementalDataRefs: input.indicatorReportPath ? [input.indicatorReportPath] : [],
       })
       results.push({ parameter: key, multiplier, avg_r: replay.avg_r, total_r: replay.total_r })
@@ -747,6 +824,7 @@ function strategyRndBatchInputFromJson(input: JSONRecord): StrategyRndBatchInput
     maxHoldBars: optionalNumber(input.max_hold_bars ?? input.maxHoldBars),
     feeBps: optionalNumber(input.fee_bps ?? input.feeBps),
     slippageBps: optionalNumber(input.slippage_bps ?? input.slippageBps),
+    fundingBpsPer8h: optionalNumber(input.funding_bps_per_8h ?? input.fundingBpsPer8h),
     oosSplitRatio: optionalNumber(input.oos_split ?? input.oosSplitRatio),
     antiOverfitStage: readAntiOverfitStage(input.anti_overfit_stage ?? input.antiOverfitStage),
     searchTrialCount: optionalNumber(input.search_trial_count ?? input.searchTrialCount),
@@ -906,6 +984,7 @@ export {
   strategyRndSignalInputFromJson,
   type StrategyRndBatchInput,
   type StrategyRndBatchReport,
+  type StrategyRndCandidateInput,
   type StrategyRndCampaignInput,
   type StrategyRndCampaignReport,
   type StrategyRndLoopInput,

@@ -73,6 +73,7 @@ interface ReplayOptions {
   rewardRisk?: number
   feeBps?: number
   slippageBps?: number
+  fundingBpsPer8h?: number
   oosSplitRatio?: number
   trialCount?: number
   parameterCount?: number
@@ -126,6 +127,7 @@ interface LatestSignalResult {
 
 function replayStrategy(strategy: ReplayStrategy, options: ReplayOptions): ReplayResult {
   const timeframe = options.timeframe || strategy.default_timeframe
+  const effectiveOptions = { ...options, timeframe }
   const maxHoldBars = options.maxHoldBars ?? 18
   const manifest = loadManifest(options.manifestPath)
   const candles = loadCandlesFromManifest(options.manifestPath, manifest, timeframe)
@@ -146,7 +148,7 @@ function replayStrategy(strategy: ReplayStrategy, options: ReplayOptions): Repla
       index += 1
       continue
     }
-    const trade = resolveTrade(candles, signal, maxHoldBars, options)
+    const trade = resolveTrade(candles, signal, maxHoldBars, effectiveOptions)
     trade.regime = classifyMarketRegime(candles, indicators, signal.signal_index)
     trades.push(trade)
     const exitIndex = candles.findIndex((candle) => candle.timestamp === Date.parse(trade.exit_time))
@@ -158,10 +160,12 @@ function replayStrategy(strategy: ReplayStrategy, options: ReplayOptions): Repla
     reward_risk: options.rewardRisk ?? 2,
     fee_bps: options.feeBps ?? 0,
     slippage_bps: options.slippageBps ?? 0,
+    adverse_funding_bps_per_8h: options.fundingBpsPer8h ?? 0,
+    stop_gap_policy: "next_open_if_worse",
     same_candle_policy: "stop_first",
     overlapping_positions: false,
   }
-  const antiOverfit = buildAntiOverfitProof(trades, options)
+  const antiOverfit = buildAntiOverfitProof(trades, effectiveOptions)
   if (antiOverfit) {
     assumptions.anti_overfit = antiOverfit
   }
@@ -308,12 +312,12 @@ function buildTrade(
   const exit = outcome === "target"
     ? signal.target
     : outcome === "stop"
-      ? signal.stop
+      ? signal.side === "long" ? Math.min(signal.stop, exitCandle.open) : Math.max(signal.stop, exitCandle.open)
       : exitCandle.close
   const grossR = signal.side === "long"
     ? (exit - signal.entry) / risk
     : (signal.entry - exit) / risk
-  const costR = estimateCostR(signal.entry, exit, risk, options)
+  const costR = estimateCostR(signal.entry, exit, risk, barsHeld, options)
   return {
     side: signal.side,
     signal_time: signalCandle.date,
@@ -332,13 +336,17 @@ function buildTrade(
   }
 }
 
-function estimateCostR(entry: number, exit: number, risk: number, options: ReplayOptions): number {
+function estimateCostR(entry: number, exit: number, risk: number, barsHeld: number, options: ReplayOptions): number {
   const feeBps = options.feeBps ?? 0
   const slippageBps = options.slippageBps ?? 0
-  if (risk <= 0 || (feeBps <= 0 && slippageBps <= 0)) {
+  const fundingBps = options.fundingBpsPer8h ?? 0
+  if (risk <= 0 || (feeBps <= 0 && slippageBps <= 0 && fundingBps <= 0)) {
     return 0
   }
-  const cost = ((Math.abs(entry) + Math.abs(exit)) * (feeBps + slippageBps)) / 10000
+  const tradingCost = (Math.abs(entry) + Math.abs(exit)) * (feeBps + slippageBps) / 10000
+  const heldHours = (barsHeld + 1) * timeframeMilliseconds(options.timeframe || "4h") / 3_600_000
+  const fundingCost = Math.abs(entry) * fundingBps * heldHours / 8 / 10000
+  const cost = tradingCost + fundingCost
   return cost / risk
 }
 
@@ -398,15 +406,31 @@ function buildAntiOverfitProof(trades: ReplayTrade[], options: ReplayOptions): J
   if (!Number.isFinite(ratio) || ratio <= 0 || ratio >= 1) {
     return null
   }
+  if (trades.length < 2) {
+    return {
+      method: "out_of_sample",
+      stage: "selection_validation",
+      train_stats: summarizeTrades([]),
+      oos_stats: summarizeTrades(trades),
+      purged_overlap_count: 0,
+      trial_count: options.trialCount ?? 1,
+      parameter_count: options.parameterCount ?? 0,
+      notes: "Selection validation has fewer than two trades and cannot form independent train/OOS samples.",
+    }
+  }
   const splitIndex = Math.max(1, Math.min(trades.length - 1, Math.floor(trades.length * (1 - ratio))))
+  const oosStart = Date.parse(trades[splitIndex].signal_time)
+  const train = trades.slice(0, splitIndex).filter((trade) => Date.parse(trade.exit_time) < oosStart)
+  const purgedCount = splitIndex - train.length
   return {
     method: "out_of_sample",
     stage: "selection_validation",
-    train_stats: summarizeTrades(trades.slice(0, splitIndex)),
+    train_stats: summarizeTrades(train),
     oos_stats: summarizeTrades(trades.slice(splitIndex)),
+    purged_overlap_count: purgedCount,
     trial_count: options.trialCount ?? 1,
     parameter_count: options.parameterCount ?? 0,
-    notes: `Selection validation uses the last ${round(ratio * 100)}% of chronological replay trades; it is not a locked final holdout.`,
+    notes: `Selection validation uses the last ${round(ratio * 100)}% of chronological replay trades and purges training labels crossing the OOS boundary; it is not a locked final holdout.`,
   }
 }
 

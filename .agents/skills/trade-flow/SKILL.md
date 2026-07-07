@@ -63,6 +63,7 @@ latest_observe.action_intent.request
   - `--strategy-rnd-batch --json <payload>`：运行最多 10 个候选；`factor_discover=true + factor_compose=true` 时先做因子统计筛选，再按角色与参数预算组合到预声明 base family；统一 replay/OOS，不自动升格
   - `--strategy-rnd-loop --json <payload>`：运行一轮 R&D loop，写 artifact JSON 和 `strategy-rnd-ledger.jsonl`；不写 `trade.db`，不自动升格
   - `--strategy-rnd-campaign --json <payload>`：依次运行 hypothesis queue；未产生 discovery winner 才继续下一假设；首个 winner 冻结后只查看一次不重叠 locked holdout，通过即返回，失败即结束 campaign
+  - `--strategy-panel-rnd --json <payload>`：同一候选在至少三个资产上复用统一 replay，保留逐资产证据并执行样本、广度、OOS、成本与灾难损失门槛
   - `--strategy-signal --json <payload>`：用最新闭合 K 线与传入 `entry_price` 评估 candidate，并返回稳定 candidate hash；只返回 `entry / no_action`，不写 DB、不执行
   - `--append-strategy-evidence --strategy <path> --ledger <path> --json <payload>`：把 replay / shadow / live-small / review_batch 证据追加进 JSONL ledger
   - `--strategy-review --strategy <path> --ledger <path> [--db <path>]`：读取 strategy、evidence ledger 和可选 DB review，生成迭代报告
@@ -96,12 +97,14 @@ latest_observe.action_intent.request
 - factor 发现、目录、解释和计算由 `tech-indicators` descriptor 提供；trade-flow 只消费稳定 `factor_id` 与 feature series，不硬编码 indicator 名称
 - factor condition 通用支持 `level / delta / slope / zscore / percentile` 与 `gt / lt / between`；旧 `indicator_filters` 自动映射为 `level`，仅用于兼容
 - bounded composer 最多组合 3 个不同角色 factor、最多输出 10 个 candidate，并把 threshold 与 transform lookback 计入 8 参数上限；不做无界笛卡尔积
-- `factor_discover=true` 只在 discovery 数据上计算 causal rank IC；有效样本按 horizon 折减并通过 5% FDR、三段时间至少两段同向、至少两个 market regime 同向，再按 `|corr|>=0.85` 去重后才能成为 seed
+- `factor_discover=true` 先用 base family 的实际 setup/trade R 作为目标，再做 causal rank IC；全部扫描 factor 通过 5% FDR、时间折、regime 与 `|corr|>=0.85` 去重后才能成为 seed
+- 多候选且样本足够时执行四时间块 rank-reversal 审计；反转率超过 50% 时 batch 不选 winner。它是轻量选择偏差诊断，不冒充完整 CSCV/PBO
 - family 是少量市场机制的可执行实验模板，不追求穷举形态；未经 replay/OOS/成本/稳定性验证的 candidate 不进入长期 asset
 - family 从 `scripts/lib/rnd-families/*.family.ts` 自动发现；新增 family 只新增模块，不修改 `strategy-rnd.ts`、union 或中央注册表
 - 冻结 candidate 在不重叠外部样本上失败后必须停止；任何参数、过滤器或规则修改都作为新 hypothesis / trial，不能用调参覆盖失败结论
 - `structure_breakout_retest_v1` 的结构位只从突破前历史窗口滚动计算，固定要求收盘突破、随后回踩守住，不消费事后生成的支撑阻力
-- replay core 固定保守口径：同一 lane 不重叠持仓、同 K 同时触发 stop/target 时先算 stop、支持 fee/slippage bps、输出 replay gate
+- 当前 family 覆盖 trend pullback、structure breakout/retest、time-series momentum 与 volatility compression breakout 四类机制；不是形态百科
+- replay core 固定保守口径：同一 lane 不重叠持仓、同 K 同时触发 stop/target 时先算 stop、止损跳空按更差开盘、支持 fee/slippage 与 adverse funding、训练标签跨 OOS 边界时 purge
 - `gate.live_small_candidate` 在 replay 阶段永远是 false；live-small 还必须经过 shadow 与人工确认
 - strategy iteration 使用 `./data/strategy-evidence.jsonl` 这类 JSONL ledger；不新增 DB 表，不扩大 `plan_event.kind`
 - replay evidence 绑定 `policy_hash + harness_hash + data_hash + assumptions_hash`；OHLCV 与实际消费的 factor report 同属 data hash，任一变化、数据不可用或 checksum 不符即 stale

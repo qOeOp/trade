@@ -80,3 +80,15 @@ cd .agents/skills/ohlcv-fetch
 ./scripts/main.ts --symbol ETH/USDT
 ./scripts/main.ts --symbol BTCUSDT --timeframes 1d,4h,1h
 ```
+
+## 加密原生特征
+
+`market-features.ts` 以 `tech-indicators --feature-series` 报告的时间网格为基准，因果对齐 Binance funding、premium index、open interest value 与 taker buy/sell ratio；输出仍是可直接交给 R&D 的 factor report。
+
+```bash
+./scripts/market-features.ts --symbol BTCUSDT --timeframe 4h --since-ts 1609459200000 --base-report /tmp/factors.json
+```
+
+- funding / premium 可分页覆盖长历史。
+- Binance public data 的 open interest / taker ratio 仅保留近 30 天；报告写入 coverage，不能冒充长周期证据。
+- public aggTrades REST 只支持近 24 小时，不在本脚本伪造历史。

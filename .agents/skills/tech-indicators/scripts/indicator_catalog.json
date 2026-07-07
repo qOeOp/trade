@@ -1,4 +1,20 @@
 {
+  "price_action": {
+    "module": "native.price_action",
+    "function": "price_action",
+    "category": "price-action",
+    "defaults": {},
+    "output_names": ["close_location", "body_pct", "upper_wick_pct", "lower_wick_pct", "range_pct"],
+    "meaning": "尺度无关的裸 K 结构原语，不编码主观形态名称。",
+    "observe": "看收盘位置、实体方向、上下影线与区间扩张。",
+    "factors": [
+      {"id":"price_action.close_location","output":"close_location","formula":"close_location","roles":["location","confirmation"]},
+      {"id":"price_action.body_pct","output":"body_pct","formula":"body_pct","roles":["trigger","confirmation"]},
+      {"id":"price_action.upper_wick_pct","output":"upper_wick_pct","formula":"upper_wick_pct","roles":["trigger","location"]},
+      {"id":"price_action.lower_wick_pct","output":"lower_wick_pct","formula":"lower_wick_pct","roles":["trigger","location"]},
+      {"id":"price_action.range_pct","output":"range_pct","formula":"range_pct","roles":["regime","risk"]}
+    ]
+  },
   "ichimoku": {
     "module": "technical.indicators.indicators",
     "function": "ichimoku",

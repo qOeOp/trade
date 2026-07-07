@@ -43,6 +43,18 @@ func TestFactorRegistryReportsUnregisteredIndicator(t *testing.T) {
 	}
 }
 
+func TestPriceActionFactorsAreScaleFree(t *testing.T) {
+	input := testFactorInput(20)
+	closeLocation := priceActionSeries(input, "close_location")
+	body := priceActionSeries(input, "body_pct")
+	if closeLocation[19] < 0 || closeLocation[19] > 1 {
+		t.Fatalf("close location out of range: %f", closeLocation[19])
+	}
+	if body[19] <= 0 || body[19] > 1 {
+		t.Fatalf("unexpected body ratio: %f", body[19])
+	}
+}
+
 func assertFactorOK(t *testing.T, results map[string]any, id string, indicator string, output string) {
 	t.Helper()
 	factor, ok := results[id].(map[string]any)

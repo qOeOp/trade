@@ -95,6 +95,34 @@ test("replayStrategy runs a custom strategy definition through generic engine", 
   }
 })
 
+test("replayStrategy charges adverse funding and fills a stop gap at the worse open", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-replay-gap-"))
+  try {
+    writeFileSync(join(dir, "4h.csv"), [
+      "date,timestamp,open,high,low,close,volume",
+      "2026-01-01T00:00:00Z,1767225600000,100,101,99,100,10",
+      "2026-01-01T04:00:00Z,1767240000000,100,101,99,100,10",
+      "2026-01-01T08:00:00Z,1767254400000,100,101,99,100,10",
+      "2026-01-01T12:00:00Z,1767268800000,95,96,94,95,10",
+    ].join("\n"))
+    writeFileSync(join(dir, "manifest.json"), JSON.stringify({ symbol: "BTCUSDT", timeframes: { "4h": { file: "4h.csv" } } }))
+    const strategy: ReplayStrategy = {
+      strategy_id: "S-GAP",
+      default_timeframe: "4h",
+      warmup_bars: 1,
+      generateSignal({ index }) {
+        return index === 1 ? { side: "long", signal_index: 1, entry_index: 2, entry: 100, stop: 98, target: 110, reason: "gap test" } : null
+      },
+    }
+    const result = replayStrategy(strategy, { manifestPath: join(dir, "manifest.json"), maxHoldBars: 2, fundingBpsPer8h: 2 })
+    assert.equal(result.trades[0].exit, 95)
+    assert.ok(result.trades[0].r < -2.5)
+    assert.equal(result.assumptions.stop_gap_policy, "next_open_if_worse")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("replayStrategy can attach chronological OOS anti-overfit proof", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-replay-oos-"))
   try {

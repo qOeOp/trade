@@ -1,0 +1,65 @@
+import { factorConditionsToJson, passesFactorConditions, readFactorConditions, type FactorCondition, type FactorFeatureStore } from "../factor-engine"
+import type { Candle, ReplaySignal, ReplayStrategy } from "../replay-core"
+import type { RndFamilyModule } from "../rnd-family"
+import { readPositiveInteger, readPositiveNumber, readSide, type JSONRecord, type SideFilter } from "../rnd-family-helpers"
+
+interface Params {
+  side: SideFilter
+  lookbackBars: number
+  thresholdAtr: number
+  stopAtr: number
+  maxRiskAtr: number
+  rewardRisk: number
+  factorConditions: FactorCondition[]
+}
+
+const family: RndFamilyModule = {
+  id: "time_series_momentum_v1",
+  configure(strategyId, raw, store) {
+    const params = normalize(raw)
+    return { strategy: strategy(strategyId, params, store), rewardRisk: params.rewardRisk, params: json(params) }
+  },
+}
+
+function normalize(raw: JSONRecord): Params {
+  return {
+    side: readSide(raw.side),
+    lookbackBars: readPositiveInteger(raw.lookback_bars ?? raw.lookbackBars, 126),
+    thresholdAtr: readPositiveNumber(raw.threshold_atr ?? raw.thresholdAtr, 2),
+    stopAtr: readPositiveNumber(raw.stop_atr ?? raw.stopAtr, 1),
+    maxRiskAtr: readPositiveNumber(raw.max_risk_atr ?? raw.maxRiskAtr, 2.5),
+    rewardRisk: readPositiveNumber(raw.reward_risk ?? raw.rewardRisk, 2),
+    factorConditions: readFactorConditions(raw.factor_conditions ?? raw.factorConditions),
+  }
+}
+
+function json(params: Params): JSONRecord {
+  return { side: params.side, lookbackBars: params.lookbackBars, thresholdAtr: params.thresholdAtr, stopAtr: params.stopAtr, maxRiskAtr: params.maxRiskAtr, rewardRisk: params.rewardRisk, factorConditions: factorConditionsToJson(params.factorConditions) }
+}
+
+function strategy(id: string, params: Params, store: FactorFeatureStore): ReplayStrategy {
+  return {
+    strategy_id: id,
+    default_timeframe: "4h",
+    warmup_bars: Math.max(200, params.lookbackBars + 1),
+    generateSignal({ candles, indicators, index, entryIndex, entryPrice, options }) {
+      const candle = candles[index]
+      const prior = candles[index - params.lookbackBars]
+      const atr = indicators.atr14[index]
+      if (!prior || !Number.isFinite(atr) || atr <= 0 || !passesFactorConditions(params.factorConditions, store, options.timeframe || "4h", candle.date)) return null
+      const momentum = (candle.close - prior.close) / atr
+      if ((params.side === "long" || params.side === "both") && momentum >= params.thresholdAtr) return signal("long", candle, index, entryIndex, entryPrice, atr, params)
+      if ((params.side === "short" || params.side === "both") && momentum <= -params.thresholdAtr) return signal("short", candle, index, entryIndex, entryPrice, atr, params)
+      return null
+    },
+  }
+}
+
+function signal(side: "long" | "short", candle: Candle, index: number, entryIndex: number, entry: number, atr: number, params: Params): ReplaySignal | null {
+  const stop = side === "long" ? candle.low - params.stopAtr * atr : candle.high + params.stopAtr * atr
+  const risk = Math.abs(entry - stop)
+  if (risk <= 0 || risk > params.maxRiskAtr * atr) return null
+  return { side, signal_index: index, entry_index: entryIndex, entry, stop, target: side === "long" ? entry + risk * params.rewardRisk : entry - risk * params.rewardRisk, reason: `rnd time-series momentum ${side}`, meta: json(params) }
+}
+
+export default family

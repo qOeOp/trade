@@ -785,9 +785,15 @@ Strategy 是 `observe.body.strategy_ref` 指向的对象。strategy 是规则模
 
 Strategy evidence 写 JSONL ledger，不入 `plan_event`。`draft -> shadow` 必须有 fresh replay 正收益，并带 `anti_overfit.method=out_of_sample|walk_forward`；OOS 样本至少 10 且表现为正，`trial_count > 10` 或 `parameter_count > 8` 直接拒绝升格。
 
-R&D 扩展边界：indicator 在自身 catalog descriptor 声明稳定 factor；factor engine 只维护有限数学原语，R&D 通用计算 transform / condition；strategy family 以独立模块放入 `rnd-families/` 并由目录自动发现。新增普通 indicator 或 family 不修改 R&D core。bounded composer 只组合不同角色 factor，并受 candidate、factor 数和参数预算约束；模板定义入场/退出骨架，factor 定义可检验条件，二者不互相硬编码。
+R&D 扩展边界：indicator 在自身 catalog descriptor 声明稳定 factor；factor engine 只维护有限数学原语，R&D 通用计算 transform / condition；strategy family 以独立模块放入 `rnd-families/` 并由目录自动发现。新增普通 indicator 或 family 不修改 R&D core。bounded composer 只组合不同角色 factor，并受 candidate、factor 数和参数预算约束；模板定义入场/退出骨架，factor 定义可检验条件，二者不互相硬编码。当前机制只保留 trend pullback、structure breakout/retest、time-series momentum、volatility compression breakout。
 
-Factor discovery 只在 discovery 数据上做 causal rank IC、按 horizon 折减有效样本的 5% FDR、三段时间稳定性、跨 regime 稳定性与相关性去重；通过者仅成为 bounded composer seed。locked holdout 使用完整冻结集且每个 data hash 只能评估一次；OHLCV、factor report、harness、策略与假设共同决定证据是否 fresh。
+Factor discovery 先在 discovery 数据上运行 base family，以实际 setup 的 realized R 为目标，再做 causal rank IC、5% FDR、时间稳定性、跨 regime 稳定性与相关性去重；通过者仅成为 bounded composer seed。多候选用四时间块 rank-reversal 检查选择反转；跨 selection/OOS 边界的训练持仓标签 purge。locked holdout 使用完整冻结集且每个 data hash 只能评估一次；OHLCV、factor report、harness、策略与假设共同决定证据是否 fresh。
+
+研究先跑多资产 panel：同一机制至少跨 3 个资产，保留逐资产结果，统一检查 pooled sample、正收益广度、OOS、额外成本与单资产灾难损失。单资产 BTC 结果只能提出假设，不能证明普适 edge。
+
+Replay 成交口径包含双边 fee/slippage、按持仓时长计 adverse funding、同 K stop-first、止损 gap 按更差开盘。OHLCV 无法识别盘口队列与被动单真实成交概率，相关能力在获得历史 L2/订单回报前保持未实现，不用常数命中率伪造。
+
+加密原生 factor 可消费 funding、premium index、open interest value 与 taker buy/sell ratio。Binance funding/premium 可取长历史；public OI/taker ratio 仅近 30 天、aggTrades 仅近 24 小时，必须随 report 暴露 coverage，短覆盖 factor 不参与长周期结论。
 
 Replay / online parity：strategy family 不读取下一根 K 线；replay 注入 next-open 作为成交参考，在线 signal 注入当前报价。两条路径共享信号条件、止损与目标计算，在线 signal 本身不执行。
 

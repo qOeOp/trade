@@ -45,6 +45,19 @@ test("factor research keeps stable predictive factors and prunes correlated copi
     assert.ok(report.profiles.find((item) => item.accepted)?.fold_ics.filter((ic) => ic > 0).length! >= 2)
     assert.ok(report.profiles.find((item) => item.accepted)?.regime_ics.filter((item) => item.ic > 0).length! >= 2)
     assert.ok(report.profiles.find((item) => item.accepted)!.fdr_q_value <= 0.05)
+
+    const setupReport = researchFactorSeeds(loadFactorFeatureStore(reportPath), candles, "4h", {
+      lookback: 60,
+      minSamples: 300,
+      minAbsIc: 0.05,
+      targets: points.slice(60, -6).map((point, index) => ({
+        timestamp: point.timestamp,
+        value: point.value,
+        regime: index % 4 < 2 ? "bull_low_vol" : "bear_high_vol",
+      })),
+    })
+    assert.equal(setupReport.method, "setup_conditioned_rank_ic")
+    assert.equal(setupReport.seeds.length, 1)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

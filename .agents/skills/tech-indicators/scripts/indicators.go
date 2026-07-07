@@ -10,6 +10,7 @@ import (
 var indicatorImplementations = map[string]indicatorFunc{}
 
 func registerIndicators() {
+	indicatorImplementations["price_action"] = indicatorPriceAction
 	indicatorImplementations["ema"] = indicatorEMA
 	indicatorImplementations["sma"] = indicatorSMA
 	indicatorImplementations["bollinger_bands"] = indicatorBollinger
@@ -47,6 +48,16 @@ func registerIndicators() {
 	indicatorImplementations["tv_trama"] = indicatorTRAMA
 	indicatorImplementations["gentrends"] = indicatorGentrends
 	indicatorImplementations["segtrends"] = indicatorSegtrends
+}
+
+func indicatorPriceAction(input *indicatorInput, _ map[string]any, _ catalogSpec) (any, error) {
+	return dictResult(map[string]any{
+		"close_location": latestValid(priceActionSeries(input, "close_location")),
+		"body_pct":       latestValid(priceActionSeries(input, "body_pct")),
+		"upper_wick_pct": latestValid(priceActionSeries(input, "upper_wick_pct")),
+		"lower_wick_pct": latestValid(priceActionSeries(input, "lower_wick_pct")),
+		"range_pct":      latestValid(priceActionSeries(input, "range_pct")),
+	}), nil
 }
 
 func computeIndicators(

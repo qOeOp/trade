@@ -35,6 +35,8 @@ func buildIndicatorFeatureSeries(input *indicatorInput, selected []string, catal
 
 func computeFactorFormula(input *indicatorInput, params map[string]any, formula string) ([]float64, error) {
 	switch formula {
+	case "close_location", "body_pct", "upper_wick_pct", "lower_wick_pct", "range_pct":
+		return priceActionSeries(input, formula), nil
 	case "ema":
 		return emaSeries(fieldValues(input.Series, paramString(params, "field", "close")), paramInt(params, "period", 20)), nil
 	case "sma":
@@ -92,6 +94,32 @@ func computeFactorFormula(input *indicatorInput, params map[string]any, formula 
 	default:
 		return nil, fmt.Errorf("unknown factor formula primitive: %s", formula)
 	}
+}
+
+func priceActionSeries(input *indicatorInput, metric string) []float64 {
+	out := make([]float64, len(input.Series.Close))
+	for index := range out {
+		high, low := input.Series.High[index], input.Series.Low[index]
+		open, close := input.Series.Open[index], input.Series.Close[index]
+		rangeValue := high - low
+		if rangeValue <= 0 || close == 0 {
+			out[index] = math.NaN()
+			continue
+		}
+		switch metric {
+		case "close_location":
+			out[index] = (close - low) / rangeValue
+		case "body_pct":
+			out[index] = (close - open) / rangeValue
+		case "upper_wick_pct":
+			out[index] = (high - math.Max(open, close)) / rangeValue
+		case "lower_wick_pct":
+			out[index] = (math.Min(open, close) - low) / rangeValue
+		case "range_pct":
+			out[index] = rangeValue / close * 100
+		}
+	}
+	return out
 }
 
 func factorResult(definition catalogFactorSpec, indicator string, category string, params map[string]any, status string, values []map[string]any, errorMessage string) map[string]any {

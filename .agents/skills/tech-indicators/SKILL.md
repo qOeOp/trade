@@ -102,5 +102,6 @@ description: >-
 - factor 自动发现由 `indicator_catalog.json` 中各 indicator 自己的 `factors` descriptor 驱动，不维护中央 indicator/factor 注册表
 - descriptor 使用稳定公式原语；新增或调整基于现有原语的 indicator 只改自身 catalog 条目，只有全新数学计算才扩 `factor_engine.go`
 - 当前 transform 由 R&D 消费层统一提供：`level / delta / slope / zscore / percentile`，不在每个 indicator 重复实现
+- `price_action` 只输出 close location、signed body、上下影线与 range 的无量纲原语；不硬编码主观 K 线名称
 - 未声明 factor descriptor 的指标返回 `status=unsupported`，不能直接用于 replay
 - 如果你要持久化分析结果，由 LLM 自己决定是否落盘

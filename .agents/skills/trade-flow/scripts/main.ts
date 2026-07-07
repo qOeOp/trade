@@ -15,6 +15,7 @@ import { buildObserveEvent, type ObserveEvent, type ObserveInput } from "./lib/o
 import { runArtifactGc } from "./lib/artifact-hygiene"
 import { buildReconcileDrafts } from "./lib/reconcile"
 import { runJsonCommand } from "./lib/skill-runner"
+import { runStrategyPanelRnd, strategyPanelRndInputFromJson } from "./lib/strategy-panel-rnd"
 import { replayRegisteredStrategy } from "./lib/strategy-replay"
 import type { ReplayResult } from "./lib/replay-core"
 import {
@@ -67,6 +68,7 @@ const HELP_TEXT = `Usage:
   ./scripts/main.ts --strategy-rnd-batch --json '{"manifest_path":"./data/ohlcv/BTCUSDT/manifest.json","candidates":[...]}'
   ./scripts/main.ts --strategy-rnd-loop --json '{"manifest_path":"./data/ohlcv/BTCUSDT/manifest.json","indicator_report_path":"...","factor_discover":true,"factor_compose":true,"candidates":[...]}'
   ./scripts/main.ts --strategy-rnd-campaign --json '{"campaign_id":"...","max_total_trials":10,"hypotheses":[...]}'
+  ./scripts/main.ts --strategy-panel-rnd --json '{"datasets":[...],"candidates":[...]}'
   ./scripts/main.ts --strategy-signal --json '{"manifest_path":"...","entry_price":60000,"candidate":{...}}'
   ./scripts/main.ts --run-shadow-from-skills --json '{"repoRoot":"/repo","chain_id":"...","symbol":"BTCUSDT",...}'
   ./scripts/main.ts --run-live-small --yes --json '{"repoRoot":"/repo","plan":{...},"observe":{...},"execution_contract_input":{...}}'
@@ -94,6 +96,7 @@ Key flags:
   --strategy-rnd-batch     Run a predeclared bounded R&D candidate batch; never auto-promotes
   --strategy-rnd-loop      Run one R&D loop iteration, writing artifact + JSONL ledger; never auto-promotes
   --strategy-rnd-campaign  Run bounded hypotheses through discovery and non-overlapping external validation
+  --strategy-panel-rnd     Evaluate fixed candidates across at least three assets
   --strategy-signal        Evaluate one R&D candidate on the latest closed candle; never executes
   --run-shadow-from-skills Call read-only snapshot skills, build observe, then record shadow execution
   --run-live-small         Execute one live-small main entry through binance-order-place
@@ -122,6 +125,7 @@ Key flags:
   --reward-risk <n>        Target R multiple in replay
   --fee-bps <n>            Round-trip side fee estimate in bps per side for replay
   --slippage-bps <n>       Slippage estimate in bps per side for replay
+  --funding-bps-per-8h <n> Adverse funding stress in bps per 8h held
   --oos-split <ratio>      Replay anti-overfit OOS split ratio. Example: 0.3
   --trial-count <n>        Number of predeclared strategy trials represented by this replay
   --parameter-count <n>    Number of active strategy parameters represented by this replay
@@ -174,6 +178,7 @@ async function run(argv: string[]): Promise<ScriptResponse> {
           rewardRisk: config.rewardRisk,
           feeBps: config.feeBps,
           slippageBps: config.slippageBps,
+          fundingBpsPer8h: config.fundingBpsPer8h,
           oosSplitRatio: config.oosSplitRatio,
           trialCount: config.trialCount,
           parameterCount: config.parameterCount,
@@ -197,6 +202,9 @@ async function run(argv: string[]): Promise<ScriptResponse> {
         ok: true,
         data: runStrategyRndCampaign(strategyRndCampaignInputFromJson(config.input)),
       }
+    }
+    if (config.strategyPanelRnd) {
+      return { ok: true, data: runStrategyPanelRnd(strategyPanelRndInputFromJson(config.input)) }
     }
     if (config.strategySignal) {
       return { ok: true, data: evaluateRndSignal(strategyRndSignalInputFromJson(config.input)) }
@@ -292,7 +300,7 @@ async function run(argv: string[]): Promise<ScriptResponse> {
       if (config.cronRecoverFromSkills) {
         return { ok: true, data: await cronRecoverFromSkills(db, config.chainId, config.input, config.yes) }
       }
-      throw new Error("provide --init, --append-order-fill, --record-execution, --run, --load-runtime, --build-observe, --observe-from-skills, --replay-strategy, --strategy-rnd-batch, --strategy-rnd-loop, --strategy-rnd-campaign, --strategy-signal, --artifact-gc, --append-strategy-evidence, --strategy-review, --strategy-promote, --run-shadow-from-skills, --run-live-small, --recover-flow, --reconcile-flow, --reconcile-from-skills, --apply-reconcile, or --cron-recover-from-skills")
+      throw new Error("provide --init, --append-order-fill, --record-execution, --run, --load-runtime, --build-observe, --observe-from-skills, --replay-strategy, --strategy-rnd-batch, --strategy-rnd-loop, --strategy-rnd-campaign, --strategy-panel-rnd, --strategy-signal, --artifact-gc, --append-strategy-evidence, --strategy-review, --strategy-promote, --run-shadow-from-skills, --run-live-small, --recover-flow, --reconcile-flow, --reconcile-from-skills, --apply-reconcile, or --cron-recover-from-skills")
     } finally {
       db.close()
     }
@@ -476,6 +484,7 @@ function parseArgs(argv: string[]): {
   strategyRndBatch: boolean
   strategyRndLoop: boolean
   strategyRndCampaign: boolean
+  strategyPanelRnd: boolean
   strategySignal: boolean
   artifactGc: boolean
   appendStrategyEvidence: boolean
@@ -499,6 +508,7 @@ function parseArgs(argv: string[]): {
   rewardRisk?: number
   feeBps?: number
   slippageBps?: number
+  fundingBpsPer8h?: number
   oosSplitRatio?: number
   trialCount?: number
   parameterCount?: number
@@ -522,6 +532,7 @@ function parseArgs(argv: string[]): {
   let strategyRndBatch = false
   let strategyRndLoop = false
   let strategyRndCampaign = false
+  let strategyPanelRnd = false
   let strategySignal = false
   let artifactGc = false
   let appendStrategyEvidenceEnabled = false
@@ -545,6 +556,7 @@ function parseArgs(argv: string[]): {
   let rewardRisk: number | undefined
   let feeBps: number | undefined
   let slippageBps: number | undefined
+  let fundingBpsPer8h: number | undefined
   let oosSplitRatio: number | undefined
   let trialCount: number | undefined
   let parameterCount: number | undefined
@@ -596,6 +608,9 @@ function parseArgs(argv: string[]): {
         break
       case "--strategy-rnd-campaign":
         strategyRndCampaign = true
+        break
+      case "--strategy-panel-rnd":
+        strategyPanelRnd = true
         break
       case "--strategy-signal":
         strategySignal = true
@@ -666,6 +681,9 @@ function parseArgs(argv: string[]): {
       case "--slippage-bps":
         slippageBps = Number(readFlagValue(argv, ++index, arg))
         break
+      case "--funding-bps-per-8h":
+        fundingBpsPer8h = Number(readFlagValue(argv, ++index, arg))
+        break
       case "--oos-split":
         oosSplitRatio = Number(readFlagValue(argv, ++index, arg))
         break
@@ -715,6 +733,7 @@ function parseArgs(argv: string[]): {
     strategyRndBatch,
     strategyRndLoop,
     strategyRndCampaign,
+    strategyPanelRnd,
     strategySignal,
     artifactGc,
     appendStrategyEvidence: appendStrategyEvidenceEnabled,
@@ -738,6 +757,7 @@ function parseArgs(argv: string[]): {
     rewardRisk,
     feeBps,
     slippageBps,
+    fundingBpsPer8h,
     oosSplitRatio,
     trialCount,
     parameterCount,

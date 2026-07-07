@@ -134,6 +134,8 @@ test("strategy R&D batch runs bounded predeclared candidates", () => {
     assert.equal(report.batch_id, "rnd-test")
     assert.equal(report.trial_count, 1)
     assert.equal(report.guardrails.no_auto_promote, true)
+    assert.equal(report.selection_audit.method, "four_block_rank_reversal")
+    assert.equal(report.selection_audit.declared_trials, 7)
     assert.equal(report.candidates.length, 1)
     assert.equal(report.candidates[0].replay.strategy_id, "C-LONG-EMA50")
     assert.equal((report.candidates[0].replay.assumptions.anti_overfit as { trial_count: number }).trial_count, 7)
@@ -293,6 +295,9 @@ test("strategy R&D batch discovers statistically screened factor seeds", () => {
     writeFileSync(join(dir, "4h.csv"), ["date,timestamp,open,high,low,close,volume", ...rows].join("\n"))
     const manifestPath = join(dir, "manifest.json")
     writeFileSync(manifestPath, JSON.stringify({ symbol: "BTCUSDT", timeframes: { "4h": { file: "4h.csv" } } }))
+    const baseCandidate = { candidateId: "BASE-BOTH", family: "trend_pullback_v1", parameterCount: 6, params: { side: "both" } }
+    const baseline = runStrategyRndBatch({ manifestPath, candidates: [baseCandidate] })
+    const outcomes = new Map(baseline.candidates[0].replay.trades.map((trade) => [trade.signal_time, trade.r]))
     const reportPath = join(dir, "factor-report.json")
     writeFileSync(reportPath, JSON.stringify({ data: { timeframes: { "4h": { features: {
       "forward.proxy": {
@@ -302,10 +307,10 @@ test("strategy R&D batch discovers statistically screened factor seeds", () => {
         output: "value",
         category: "momentum",
         roles: ["confirmation"],
-        allowed_transforms: ["percentile"],
-        values: closes.map((close, index) => ({
+        allowed_transforms: ["level"],
+        values: closes.map((_, index) => ({
           timestamp: new Date(1_700_000_000_000 + index * 4 * 60 * 60 * 1000).toISOString(),
-          value: index + 6 < closes.length ? closes[index + 6] / close - 1 : 0,
+          value: outcomes.get(new Date(1_700_000_000_000 + index * 4 * 60 * 60 * 1000).toISOString()) ?? 0,
         })),
       },
     } } } } }))
@@ -315,13 +320,13 @@ test("strategy R&D batch discovers statistically screened factor seeds", () => {
       indicatorReportPath: reportPath,
       factorDiscover: true,
       factorCompose: true,
-      factorResearchOptions: { lookback: 60, minSamples: 300, minAbsIc: 0.05 },
-      candidates: [{ candidateId: "BASE-LONG", family: "trend_pullback_v1", parameterCount: 6, params: { side: "long" } }],
+      factorResearchOptions: { lookback: 1, minSamples: 10, minAbsIc: 0.05 },
+      candidates: [baseCandidate],
     })
 
     assert.equal(report.candidate_source, "scientific_factor_discovery")
-    assert.deepEqual(report.factor_research?.selected_factor_ids, ["forward.proxy"])
-    assert.ok(report.trial_count > 0)
+    assert.equal(report.factor_research?.method, "setup_conditioned_rank_ic")
+    assert.equal(report.factor_research?.profiles[0].sample_count, outcomes.size)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
