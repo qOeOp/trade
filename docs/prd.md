@@ -109,6 +109,7 @@ tags: []
 - `--strategy-rnd-loop`：包装一轮 R&D batch，写 artifact JSON 与 `strategy-rnd-ledger.jsonl`；ledger 只做研究审计，不作为 promote evidence
 - `--strategy-rnd-campaign`：在全局最多 10 次 discovery trial 内运行 hypothesis queue；没有 winner 才继续，首个 winner 冻结后只查看一次不重叠 locked holdout，失败即结束 campaign
 - `--strategy-panel-rnd`：同一候选跨至少 3 个资产评估，保留逐资产证据，并检查 pooled sample、广度、OOS、成本与灾难损失
+- `--strategy-benchmark`：用固定多资产趋势规则、15% 目标波动、成本/资金费压力和组合权重循环移位负对照标定 R&D 管线；不写 DB、不产生准入证据
 - `--strategy-signal`：candidate 在最新闭合 K 线上复用 replay family并返回稳定 hash；entry reference 由在线报价注入，只返回信号，不执行、不落交易事实
 - replay 只能给 `shadow_candidate`；`live-small` 必须另有 shadow 样本与人工确认
 - candidate family 只承载少量可检验市场机制，不做形态百科；只有通过样本外、成本和稳定性门槛的版本才可沉淀为策略 asset
@@ -137,6 +138,7 @@ R&D loop 的失败结果必须进入 R&D ledger；重复失败不是交易数据
 R&D artifact、strategy evidence / R&D ledger 是本地运行态，不进入 Git；保留与清理由引用、pin 和 retention policy 决定。
 冻结候选在不重叠 locked holdout 上失败后必须终止整个 campaign；不得看完 holdout 后换假设继续试。修改参数、过滤器或规则均视为新 hypothesis / trial，只能进入下一轮使用新 holdout 的 campaign。
 持续 R&D 的目标是找到可复现 edge，不是循环到出现漂亮回测；单个 campaign 在 locked holdout 通过、失败或 discovery budget 耗尽时结束。后续研究必须新开 hypothesis campaign 并换未查看的 holdout，不能沿用失败样本继续调到盈利。
+已知机制基准不能显著优于负对照时，先诊断数据范围、组合构造和回放实现，不以放宽策略 gate 或增加搜索次数掩盖；基准通过也只证明研究管线具备识别能力，不证明任意假设都存在可交易版本。
 含 indicator filter 的候选必须使用与 validation OHLCV 对齐的独立 feature report；discovery feature series 不得复用到外部验证。
 
 升格门槛：
