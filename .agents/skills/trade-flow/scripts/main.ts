@@ -17,7 +17,7 @@ import { buildReconcileDrafts } from "./lib/reconcile"
 import { runJsonCommand } from "./lib/skill-runner"
 import { replayRegisteredStrategy } from "./lib/strategy-replay"
 import type { ReplayResult } from "./lib/replay-core"
-import { runStrategyRndBatch, strategyRndBatchInputFromJson } from "./lib/strategy-rnd"
+import { runStrategyRndBatch, runStrategyRndLoop, strategyRndBatchInputFromJson, strategyRndLoopInputFromJson } from "./lib/strategy-rnd"
 import {
   appendReplayEvidence,
   appendStrategyEvidence,
@@ -56,6 +56,7 @@ const HELP_TEXT = `Usage:
   ./scripts/main.ts --observe-from-skills --json '{"repoRoot":"/repo","chain_id":"...","symbol":"BTCUSDT",...}'
   ./scripts/main.ts --replay-strategy --manifest ./data/ohlcv/BTCUSDT/manifest.json --strategy-id S-BTC-4H-TREND-PULLBACK
   ./scripts/main.ts --strategy-rnd-batch --json '{"manifest_path":"./data/ohlcv/BTCUSDT/manifest.json","candidates":[...]}'
+  ./scripts/main.ts --strategy-rnd-loop --json '{"manifest_path":"./data/ohlcv/BTCUSDT/manifest.json","auto_candidates":true,"indicator_report_path":"..."}'
   ./scripts/main.ts --run-shadow-from-skills --json '{"repoRoot":"/repo","chain_id":"...","symbol":"BTCUSDT",...}'
   ./scripts/main.ts --run-live-small --yes --json '{"repoRoot":"/repo","plan":{...},"observe":{...},"execution_contract_input":{...}}'
   ./scripts/main.ts --db ./data/trade.db --recover-flow --chain-id <chain_id>
@@ -80,6 +81,7 @@ Key flags:
   --observe-from-skills    Call read-only snapshot skills and build an observe event
   --replay-strategy        Replay a draft strategy against manifest OHLCV
   --strategy-rnd-batch     Run a predeclared bounded R&D candidate batch; never auto-promotes
+  --strategy-rnd-loop      Run one R&D loop iteration, writing artifact + JSONL ledger; never auto-promotes
   --run-shadow-from-skills Call read-only snapshot skills, build observe, then record shadow execution
   --run-live-small         Execute one live-small main entry through binance-order-place
   --recover-flow           Reduce local plan_event history for one flow
@@ -169,6 +171,12 @@ async function run(argv: string[]): Promise<ScriptResponse> {
       return {
         ok: true,
         data: runStrategyRndBatch(strategyRndBatchInputFromJson(config.input)),
+      }
+    }
+    if (config.strategyRndLoop) {
+      return {
+        ok: true,
+        data: runStrategyRndLoop(strategyRndLoopInputFromJson(config.input)),
       }
     }
     if (config.artifactGc) {
@@ -262,7 +270,7 @@ async function run(argv: string[]): Promise<ScriptResponse> {
       if (config.cronRecoverFromSkills) {
         return { ok: true, data: await cronRecoverFromSkills(db, config.chainId, config.input, config.yes) }
       }
-      throw new Error("provide --init, --append-order-fill, --record-execution, --run, --load-runtime, --build-observe, --observe-from-skills, --replay-strategy, --strategy-rnd-batch, --artifact-gc, --append-strategy-evidence, --strategy-review, --strategy-promote, --run-shadow-from-skills, --run-live-small, --recover-flow, --reconcile-flow, --reconcile-from-skills, --apply-reconcile, or --cron-recover-from-skills")
+      throw new Error("provide --init, --append-order-fill, --record-execution, --run, --load-runtime, --build-observe, --observe-from-skills, --replay-strategy, --strategy-rnd-batch, --strategy-rnd-loop, --artifact-gc, --append-strategy-evidence, --strategy-review, --strategy-promote, --run-shadow-from-skills, --run-live-small, --recover-flow, --reconcile-flow, --reconcile-from-skills, --apply-reconcile, or --cron-recover-from-skills")
     } finally {
       db.close()
     }
@@ -444,6 +452,7 @@ function parseArgs(argv: string[]): {
   observeFromSkills: boolean
   replayStrategy: boolean
   strategyRndBatch: boolean
+  strategyRndLoop: boolean
   artifactGc: boolean
   appendStrategyEvidence: boolean
   strategyReview: boolean
@@ -487,6 +496,7 @@ function parseArgs(argv: string[]): {
   let observeFromSkillsEnabled = false
   let replayStrategy = false
   let strategyRndBatch = false
+  let strategyRndLoop = false
   let artifactGc = false
   let appendStrategyEvidenceEnabled = false
   let strategyReview = false
@@ -554,6 +564,9 @@ function parseArgs(argv: string[]): {
         break
       case "--strategy-rnd-batch":
         strategyRndBatch = true
+        break
+      case "--strategy-rnd-loop":
+        strategyRndLoop = true
         break
       case "--artifact-gc":
         artifactGc = true
@@ -668,6 +681,7 @@ function parseArgs(argv: string[]): {
     observeFromSkills: observeFromSkillsEnabled,
     replayStrategy,
     strategyRndBatch,
+    strategyRndLoop,
     artifactGc,
     appendStrategyEvidence: appendStrategyEvidenceEnabled,
     strategyReview,

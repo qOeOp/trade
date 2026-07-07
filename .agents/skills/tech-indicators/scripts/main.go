@@ -34,6 +34,7 @@ Key flags:
   --catalog <path>           Optional indicator catalog JSON
   --indicators <list|all>    Default: all
   --indicator-config <path>  Optional indicator config JSON
+  --feature-series           Include per-bar feature series for supported indicators
   --help                     Show this help
 `
 
@@ -62,6 +63,7 @@ type config struct {
 	catalogPath     string
 	indicators      string
 	indicatorConfig string
+	featureSeries   bool
 }
 
 type series struct {
@@ -167,6 +169,7 @@ type timeframeResult struct {
 	Trend               string                                  `json:"trend"`
 	CoreContext         map[string]any                          `json:"core_context"`
 	Indicators          map[string]any                          `json:"indicators"`
+	Features            map[string]any                          `json:"features,omitempty"`
 	Supports            []priceLevel                            `json:"supports"`
 	Resistances         []priceLevel                            `json:"resistances"`
 	Trendlines          []trendline                             `json:"trendlines"`
@@ -250,6 +253,7 @@ func run() error {
 		selectedNames,
 		catalog,
 		indicatorConfig,
+		cfg.featureSeries,
 	)
 	if err != nil {
 		return err
@@ -287,6 +291,7 @@ func parseFlags() (config, error) {
 	flag.StringVar(&cfg.catalogPath, "catalog", "", "Path to indicator_catalog.json")
 	flag.StringVar(&cfg.indicators, "indicators", "all", "Indicator list or all")
 	flag.StringVar(&cfg.indicatorConfig, "indicator-config", "", "Optional indicator config JSON")
+	flag.BoolVar(&cfg.featureSeries, "feature-series", false, "Include per-bar feature series for supported indicators")
 	flag.Parse()
 
 	if strings.TrimSpace(cfg.manifestPath) == "" {
@@ -471,6 +476,7 @@ func analyzeTimeframes(
 	selected []string,
 	catalog map[string]catalogSpec,
 	overrides map[string]map[string]any,
+	includeFeatureSeries bool,
 ) (map[string]timeframeResult, error) {
 	type outcome struct {
 		timeframe string
@@ -491,7 +497,7 @@ func analyzeTimeframes(
 			}
 			outcomes <- outcome{
 				timeframe: timeframe,
-				result:    timeframeAnalysis(timeframe, data, selected, catalog, overrides),
+				result:    timeframeAnalysis(timeframe, data, selected, catalog, overrides, includeFeatureSeries),
 			}
 		}(timeframe, csvPath)
 	}
@@ -590,6 +596,7 @@ func timeframeAnalysis(
 	selected []string,
 	catalog map[string]catalogSpec,
 	overrides map[string]map[string]any,
+	includeFeatureSeries bool,
 ) timeframeResult {
 	ema50 := emaSeries(data.Close, 50)
 	ema200 := emaSeries(data.Close, 200)
@@ -629,7 +636,7 @@ func timeframeAnalysis(
 		MACDHist:   macdHist,
 	}
 
-	return timeframeResult{
+	result := timeframeResult{
 		Trend: trend,
 		CoreContext: map[string]any{
 			"current_price":  roundTo(currentPrice, 2),
@@ -649,4 +656,8 @@ func timeframeAnalysis(
 		BullishInvalidation: bullishInvalidation,
 		BearishInvalidation: bearishInvalidation,
 	}
+	if includeFeatureSeries {
+		result.Features = buildIndicatorFeatureSeries(input, selected, catalog, overrides)
+	}
+	return result
 }

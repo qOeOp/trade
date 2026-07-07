@@ -1,0 +1,3168 @@
+{
+  "run_id": "btc-4h-auto-indicator-rnd-2026-07-07-a",
+  "created_at": "2026-07-07T00:00:00+08:00",
+  "input": {
+    "batchId": "btc-4h-auto-indicator-rnd-2026-07-07-a",
+    "hypothesis": "Auto-synthesized indicator filters from tech-indicators feature series may improve BTC 4H trend pullback only if replay and OOS gates pass.",
+    "manifestPath": "tmp/btcusdt-ohlcv-iteration/manifest.json",
+    "timeframe": "4h",
+    "maxHoldBars": 18,
+    "feeBps": 2,
+    "slippageBps": 1,
+    "oosSplitRatio": 0.3,
+    "indicatorReportPath": "tmp/btcusdt-iteration-2026-07-06/tech-indicators-vpci-stc-laguerre-features.json",
+    "autoCandidates": true,
+    "candidates": []
+  },
+  "batch": {
+    "batch_id": "btc-4h-auto-indicator-rnd-2026-07-07-a",
+    "hypothesis": "Auto-synthesized indicator filters from tech-indicators feature series may improve BTC 4H trend pullback only if replay and OOS gates pass.",
+    "trial_count": 6,
+    "accepted_count": 0,
+    "candidate_source": "auto_indicator_synthesis",
+    "outcome": "no_promote",
+    "winner": null,
+    "candidates": [
+      {
+        "candidate_id": "AUTO-LONG-LAGUERRE-MID",
+        "description": "long trend pullback with Laguerre not overextended",
+        "family": "trend_pullback_v1",
+        "parameter_count": 8,
+        "params": {
+          "side": "long",
+          "fastEma": 50,
+          "slowEma": 200,
+          "pullbackAtr": 0.25,
+          "stopAtr": 0.5,
+          "maxRiskAtr": 1.25,
+          "rewardRisk": 2,
+          "slopeLookback": 0,
+          "requireEmaStack": true,
+          "indicatorFilters": [
+            {
+              "indicatorId": "laguerre",
+              "op": "between",
+              "min": 0.2,
+              "max": 0.85
+            }
+          ]
+        },
+        "replay": {
+          "strategy_id": "AUTO-LONG-LAGUERRE-MID",
+          "symbol": "BTCUSDT",
+          "timeframe": "4h",
+          "sample_count": 7,
+          "win_rate": 0.285714,
+          "avg_r": -0.215287,
+          "total_r": -1.507008,
+          "max_drawdown_r": 2.374211,
+          "profit_factor": 0.719989,
+          "expectancy_r": -0.215287,
+          "gate": {
+            "shadow_candidate": false,
+            "live_small_candidate": false,
+            "blocked_by": [
+              {
+                "check_id": "R-SAMPLE-SIZE",
+                "reason": "sample_count 7 is below 30"
+              },
+              {
+                "check_id": "R-EXPECTANCY",
+                "reason": "avg_r -0.215287 / total_r -1.507008 is not positive"
+              },
+              {
+                "check_id": "R-PROFIT-FACTOR",
+                "reason": "profit_factor 0.719989 is below 1.1"
+              }
+            ]
+          },
+          "trades": [
+            {
+              "side": "long",
+              "signal_time": "2026-01-09T00:00:00Z",
+              "entry_time": "2026-01-09T04:00:00Z",
+              "exit_time": "2026-01-09T08:00:00Z",
+              "entry": 91190.1,
+              "stop": 90240.815282,
+              "target": 93088.669436,
+              "r": -1.057337,
+              "outcome": "stop",
+              "reason": "rnd trend pullback long",
+              "bars_held": 1,
+              "meta": {
+                "side": "long",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "laguerre",
+                    "op": "between",
+                    "min": 0.2,
+                    "max": 0.85
+                  }
+                ]
+              }
+            },
+            {
+              "side": "long",
+              "signal_time": "2026-01-11T12:00:00Z",
+              "entry_time": "2026-01-11T16:00:00Z",
+              "exit_time": "2026-01-11T20:00:00Z",
+              "entry": 90834,
+              "stop": 90393.346162,
+              "target": 91715.307675,
+              "r": -1.123381,
+              "outcome": "stop",
+              "reason": "rnd trend pullback long",
+              "bars_held": 1,
+              "meta": {
+                "side": "long",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "laguerre",
+                    "op": "between",
+                    "min": 0.2,
+                    "max": 0.85
+                  }
+                ]
+              }
+            },
+            {
+              "side": "long",
+              "signal_time": "2026-04-21T16:00:00Z",
+              "entry_time": "2026-04-21T20:00:00Z",
+              "exit_time": "2026-04-22T00:00:00Z",
+              "entry": 74988.7,
+              "stop": 74256.500491,
+              "target": 76453.099018,
+              "r": 1.937951,
+              "outcome": "target",
+              "reason": "rnd trend pullback long",
+              "bars_held": 1,
+              "meta": {
+                "side": "long",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "laguerre",
+                    "op": "between",
+                    "min": 0.2,
+                    "max": 0.85
+                  }
+                ]
+              }
+            },
+            {
+              "side": "long",
+              "signal_time": "2026-04-27T20:00:00Z",
+              "entry_time": "2026-04-28T00:00:00Z",
+              "exit_time": "2026-04-28T08:00:00Z",
+              "entry": 77331.2,
+              "stop": 76295.52227,
+              "target": 79402.555461,
+              "r": -1.0445,
+              "outcome": "stop",
+              "reason": "rnd trend pullback long",
+              "bars_held": 2,
+              "meta": {
+                "side": "long",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "laguerre",
+                    "op": "between",
+                    "min": 0.2,
+                    "max": 0.85
+                  }
+                ]
+              }
+            },
+            {
+              "side": "long",
+              "signal_time": "2026-04-29T04:00:00Z",
+              "entry_time": "2026-04-29T08:00:00Z",
+              "exit_time": "2026-04-29T12:00:00Z",
+              "entry": 77003.8,
+              "stop": 76474.227175,
+              "target": 78062.945649,
+              "r": -1.086944,
+              "outcome": "stop",
+              "reason": "rnd trend pullback long",
+              "bars_held": 1,
+              "meta": {
+                "side": "long",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "laguerre",
+                    "op": "between",
+                    "min": 0.2,
+                    "max": 0.85
+                  }
+                ]
+              }
+            },
+            {
+              "side": "long",
+              "signal_time": "2026-05-01T04:00:00Z",
+              "entry_time": "2026-05-01T08:00:00Z",
+              "exit_time": "2026-05-01T12:00:00Z",
+              "entry": 77099.9,
+              "stop": 76358.519026,
+              "target": 78582.661949,
+              "r": 1.937003,
+              "outcome": "target",
+              "reason": "rnd trend pullback long",
+              "bars_held": 1,
+              "meta": {
+                "side": "long",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "laguerre",
+                    "op": "between",
+                    "min": 0.2,
+                    "max": 0.85
+                  }
+                ]
+              }
+            },
+            {
+              "side": "long",
+              "signal_time": "2026-05-12T08:00:00Z",
+              "entry_time": "2026-05-12T12:00:00Z",
+              "exit_time": "2026-05-12T16:00:00Z",
+              "entry": 80742.7,
+              "stop": 80051.610474,
+              "target": 82124.879051,
+              "r": -1.0698,
+              "outcome": "stop",
+              "reason": "rnd trend pullback long",
+              "bars_held": 1,
+              "meta": {
+                "side": "long",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "laguerre",
+                    "op": "between",
+                    "min": 0.2,
+                    "max": 0.85
+                  }
+                ]
+              }
+            }
+          ],
+          "assumptions": {
+            "max_hold_bars": 18,
+            "reward_risk": 2,
+            "fee_bps": 2,
+            "slippage_bps": 1,
+            "same_candle_policy": "stop_first",
+            "overlapping_positions": false,
+            "anti_overfit": {
+              "method": "out_of_sample",
+              "train_stats": {
+                "sample_count": 4,
+                "win_rate": 0.25,
+                "avg_r": -0.321817,
+                "total_r": -1.287267,
+                "max_drawdown_r": 2.180718,
+                "profit_factor": 0.600874
+              },
+              "oos_stats": {
+                "sample_count": 3,
+                "win_rate": 0.333333,
+                "avg_r": -0.073247,
+                "total_r": -0.219741,
+                "max_drawdown_r": 1.086944,
+                "profit_factor": 0.898114
+              },
+              "trial_count": 6,
+              "parameter_count": 8,
+              "notes": "OOS uses the last 30% of chronological replay trades."
+            }
+          },
+          "notes": [
+            "Replay is mechanical and conservative: if stop and target hit in the same candle, stop wins.",
+            "Replay enforces one active position per strategy lane.",
+            "This is evidence for draft/shadow gating, not permission for live-small by itself."
+          ]
+        },
+        "gate": {
+          "accepted": false,
+          "blocked_by": [
+            {
+              "check_id": "R-SAMPLE-SIZE",
+              "reason": "sample_count 7 is below 30"
+            },
+            {
+              "check_id": "R-EXPECTANCY",
+              "reason": "avg_r -0.215287 / total_r -1.507008 is not positive"
+            },
+            {
+              "check_id": "R-PROFIT-FACTOR",
+              "reason": "profit_factor 0.719989 is below 1.1"
+            },
+            {
+              "check_id": "RND-OOS-SAMPLE",
+              "reason": "oos sample_count 3 is below 10"
+            },
+            {
+              "check_id": "RND-OOS-EXPECTANCY",
+              "reason": "OOS expectancy is not positive after costs"
+            },
+            {
+              "check_id": "RND-OOS-PROFIT-FACTOR",
+              "reason": "OOS profit_factor 0.898114 is below 1.05"
+            }
+          ]
+        }
+      },
+      {
+        "candidate_id": "AUTO-SHORT-LAGUERRE-MID",
+        "description": "short trend pullback with Laguerre not washed out",
+        "family": "trend_pullback_v1",
+        "parameter_count": 8,
+        "params": {
+          "side": "short",
+          "fastEma": 50,
+          "slowEma": 200,
+          "pullbackAtr": 0.25,
+          "stopAtr": 0.5,
+          "maxRiskAtr": 1.25,
+          "rewardRisk": 2,
+          "slopeLookback": 0,
+          "requireEmaStack": true,
+          "indicatorFilters": [
+            {
+              "indicatorId": "laguerre",
+              "op": "between",
+              "min": 0.15,
+              "max": 0.8
+            }
+          ]
+        },
+        "replay": {
+          "strategy_id": "AUTO-SHORT-LAGUERRE-MID",
+          "symbol": "BTCUSDT",
+          "timeframe": "4h",
+          "sample_count": 21,
+          "win_rate": 0.095238,
+          "avg_r": -0.763242,
+          "total_r": -16.028072,
+          "max_drawdown_r": 16.920682,
+          "profit_factor": 0.195769,
+          "expectancy_r": -0.763242,
+          "gate": {
+            "shadow_candidate": false,
+            "live_small_candidate": false,
+            "blocked_by": [
+              {
+                "check_id": "R-SAMPLE-SIZE",
+                "reason": "sample_count 21 is below 30"
+              },
+              {
+                "check_id": "R-EXPECTANCY",
+                "reason": "avg_r -0.763242 / total_r -16.028072 is not positive"
+              },
+              {
+                "check_id": "R-PROFIT-FACTOR",
+                "reason": "profit_factor 0.195769 is below 1.1"
+              },
+              {
+                "check_id": "R-DRAWDOWN",
+                "reason": "max_drawdown_r 16.920682 exceeds 10R"
+              }
+            ]
+          },
+          "trades": [
+            {
+              "side": "short",
+              "signal_time": "2025-12-08T16:00:00Z",
+              "entry_time": "2025-12-08T20:00:00Z",
+              "exit_time": "2025-12-08T20:00:00Z",
+              "entry": 90073.7,
+              "stop": 91164.382878,
+              "target": 87892.334244,
+              "r": -1.049851,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 0,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "laguerre",
+                    "op": "between",
+                    "min": 0.15,
+                    "max": 0.8
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2025-12-09T00:00:00Z",
+              "entry_time": "2025-12-09T04:00:00Z",
+              "exit_time": "2025-12-09T12:00:00Z",
+              "entry": 90364.1,
+              "stop": 91473.336028,
+              "target": 88145.627943,
+              "r": -1.049179,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 2,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "laguerre",
+                    "op": "between",
+                    "min": 0.15,
+                    "max": 0.8
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2025-12-18T12:00:00Z",
+              "entry_time": "2025-12-18T16:00:00Z",
+              "exit_time": "2025-12-18T16:00:00Z",
+              "entry": 88480.7,
+              "stop": 90146.864627,
+              "target": 85148.370746,
+              "r": 1.968737,
+              "outcome": "target",
+              "reason": "rnd trend pullback short",
+              "bars_held": 0,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "laguerre",
+                    "op": "between",
+                    "min": 0.15,
+                    "max": 0.8
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2025-12-19T04:00:00Z",
+              "entry_time": "2025-12-19T08:00:00Z",
+              "exit_time": "2025-12-19T12:00:00Z",
+              "entry": 87909.7,
+              "stop": 89264.622764,
+              "target": 85199.854472,
+              "r": -1.039229,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 1,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "laguerre",
+                    "op": "between",
+                    "min": 0.15,
+                    "max": 0.8
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2025-12-23T00:00:00Z",
+              "entry_time": "2025-12-23T04:00:00Z",
+              "exit_time": "2025-12-26T04:00:00Z",
+              "entry": 88128.2,
+              "stop": 89468.565838,
+              "target": 85447.468325,
+              "r": -1.03975,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 18,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "laguerre",
+                    "op": "between",
+                    "min": 0.15,
+                    "max": 0.8
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2025-12-26T20:00:00Z",
+              "entry_time": "2025-12-27T00:00:00Z",
+              "exit_time": "2025-12-29T00:00:00Z",
+              "entry": 87318.3,
+              "stop": 88487.541194,
+              "target": 84979.817612,
+              "r": -1.045108,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 12,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "laguerre",
+                    "op": "between",
+                    "min": 0.15,
+                    "max": 0.8
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2025-12-29T12:00:00Z",
+              "entry_time": "2025-12-29T16:00:00Z",
+              "exit_time": "2025-12-30T12:00:00Z",
+              "entry": 87636.4,
+              "stop": 88663.082508,
+              "target": 85583.034985,
+              "r": -1.051515,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 5,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "laguerre",
+                    "op": "between",
+                    "min": 0.15,
+                    "max": 0.8
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2025-12-31T16:00:00Z",
+              "entry_time": "2025-12-31T20:00:00Z",
+              "exit_time": "2026-01-01T16:00:00Z",
+              "entry": 87515,
+              "stop": 88450.753287,
+              "target": 85643.493425,
+              "r": -1.056414,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 5,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "laguerre",
+                    "op": "between",
+                    "min": 0.15,
+                    "max": 0.8
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-01-27T20:00:00Z",
+              "entry_time": "2026-01-28T00:00:00Z",
+              "exit_time": "2026-01-28T08:00:00Z",
+              "entry": 89197.8,
+              "stop": 90020.502935,
+              "target": 87552.39413,
+              "r": -1.065352,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 2,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "laguerre",
+                    "op": "between",
+                    "min": 0.15,
+                    "max": 0.8
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-02-13T12:00:00Z",
+              "entry_time": "2026-02-13T16:00:00Z",
+              "exit_time": "2026-02-14T08:00:00Z",
+              "entry": 68652.1,
+              "stop": 70350.036358,
+              "target": 65256.227285,
+              "r": -1.02456,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 4,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "laguerre",
+                    "op": "between",
+                    "min": 0.15,
+                    "max": 0.8
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-02-20T04:00:00Z",
+              "entry_time": "2026-02-20T08:00:00Z",
+              "exit_time": "2026-02-21T12:00:00Z",
+              "entry": 67794.8,
+              "stop": 68633.598951,
+              "target": 66117.202098,
+              "r": -1.048794,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 7,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "laguerre",
+                    "op": "between",
+                    "min": 0.15,
+                    "max": 0.8
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-02-28T16:00:00Z",
+              "entry_time": "2026-02-28T20:00:00Z",
+              "exit_time": "2026-02-28T20:00:00Z",
+              "entry": 66318.1,
+              "stop": 67335.781294,
+              "target": 64282.737413,
+              "r": -1.0394,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 0,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "laguerre",
+                    "op": "between",
+                    "min": 0.15,
+                    "max": 0.8
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-03-02T08:00:00Z",
+              "entry_time": "2026-03-02T12:00:00Z",
+              "exit_time": "2026-03-02T12:00:00Z",
+              "entry": 66329.8,
+              "stop": 67403.938087,
+              "target": 64181.523825,
+              "r": -1.037351,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 0,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "laguerre",
+                    "op": "between",
+                    "min": 0.15,
+                    "max": 0.8
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-03-09T04:00:00Z",
+              "entry_time": "2026-03-09T08:00:00Z",
+              "exit_time": "2026-03-09T12:00:00Z",
+              "entry": 67504.9,
+              "stop": 68785.221696,
+              "target": 64944.256608,
+              "r": -1.031935,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 1,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "laguerre",
+                    "op": "between",
+                    "min": 0.15,
+                    "max": 0.8
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-03-30T12:00:00Z",
+              "entry_time": "2026-03-30T16:00:00Z",
+              "exit_time": "2026-04-01T04:00:00Z",
+              "entry": 67590.2,
+              "stop": 68724.562956,
+              "target": 65321.474089,
+              "r": -1.036051,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 9,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "laguerre",
+                    "op": "between",
+                    "min": 0.15,
+                    "max": 0.8
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-04-04T16:00:00Z",
+              "entry_time": "2026-04-04T20:00:00Z",
+              "exit_time": "2026-04-05T12:00:00Z",
+              "entry": 67262.8,
+              "stop": 67789.557466,
+              "target": 66209.285067,
+              "r": -1.076915,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 4,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "laguerre",
+                    "op": "between",
+                    "min": 0.15,
+                    "max": 0.8
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-04-05T16:00:00Z",
+              "entry_time": "2026-04-05T20:00:00Z",
+              "exit_time": "2026-04-05T20:00:00Z",
+              "entry": 67329.1,
+              "stop": 67814.935382,
+              "target": 66357.429235,
+              "r": -1.083451,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 0,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "laguerre",
+                    "op": "between",
+                    "min": 0.15,
+                    "max": 0.8
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-05-26T08:00:00Z",
+              "entry_time": "2026-05-26T12:00:00Z",
+              "exit_time": "2026-05-26T12:00:00Z",
+              "entry": 77153.8,
+              "stop": 77959.439453,
+              "target": 75542.521095,
+              "r": -1.05776,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 0,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "laguerre",
+                    "op": "between",
+                    "min": 0.15,
+                    "max": 0.8
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-06-14T16:00:00Z",
+              "entry_time": "2026-06-14T20:00:00Z",
+              "exit_time": "2026-06-14T20:00:00Z",
+              "entry": 63777.4,
+              "stop": 64454.629637,
+              "target": 62422.940725,
+              "r": -1.056804,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 0,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "laguerre",
+                    "op": "between",
+                    "min": 0.15,
+                    "max": 0.8
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-06-23T00:00:00Z",
+              "entry_time": "2026-06-23T04:00:00Z",
+              "exit_time": "2026-06-23T04:00:00Z",
+              "entry": 64037.2,
+              "stop": 64604.4773,
+              "target": 62902.645401,
+              "r": 1.932869,
+              "outcome": "target",
+              "reason": "rnd trend pullback short",
+              "bars_held": 0,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "laguerre",
+                    "op": "between",
+                    "min": 0.15,
+                    "max": 0.8
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-07-01T12:00:00Z",
+              "entry_time": "2026-07-01T16:00:00Z",
+              "exit_time": "2026-07-01T20:00:00Z",
+              "entry": 60118.6,
+              "stop": 61021.297646,
+              "target": 58313.204708,
+              "r": -1.040259,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 1,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "laguerre",
+                    "op": "between",
+                    "min": 0.15,
+                    "max": 0.8
+                  }
+                ]
+              }
+            }
+          ],
+          "assumptions": {
+            "max_hold_bars": 18,
+            "reward_risk": 2,
+            "fee_bps": 2,
+            "slippage_bps": 1,
+            "same_candle_policy": "stop_first",
+            "overlapping_positions": false,
+            "anti_overfit": {
+              "method": "out_of_sample",
+              "train_stats": {
+                "sample_count": 14,
+                "win_rate": 0.071429,
+                "avg_r": -0.829264,
+                "total_r": -11.609701,
+                "max_drawdown_r": 11.609701,
+                "profit_factor": 0.14499
+              },
+              "oos_stats": {
+                "sample_count": 7,
+                "win_rate": 0.142857,
+                "avg_r": -0.631196,
+                "total_r": -4.418371,
+                "max_drawdown_r": 5.310981,
+                "profit_factor": 0.304329
+              },
+              "trial_count": 6,
+              "parameter_count": 8,
+              "notes": "OOS uses the last 30% of chronological replay trades."
+            }
+          },
+          "notes": [
+            "Replay is mechanical and conservative: if stop and target hit in the same candle, stop wins.",
+            "Replay enforces one active position per strategy lane.",
+            "This is evidence for draft/shadow gating, not permission for live-small by itself."
+          ]
+        },
+        "gate": {
+          "accepted": false,
+          "blocked_by": [
+            {
+              "check_id": "R-SAMPLE-SIZE",
+              "reason": "sample_count 21 is below 30"
+            },
+            {
+              "check_id": "R-EXPECTANCY",
+              "reason": "avg_r -0.763242 / total_r -16.028072 is not positive"
+            },
+            {
+              "check_id": "R-PROFIT-FACTOR",
+              "reason": "profit_factor 0.195769 is below 1.1"
+            },
+            {
+              "check_id": "R-DRAWDOWN",
+              "reason": "max_drawdown_r 16.920682 exceeds 10R"
+            },
+            {
+              "check_id": "RND-OOS-SAMPLE",
+              "reason": "oos sample_count 7 is below 10"
+            },
+            {
+              "check_id": "RND-OOS-EXPECTANCY",
+              "reason": "OOS expectancy is not positive after costs"
+            },
+            {
+              "check_id": "RND-OOS-PROFIT-FACTOR",
+              "reason": "OOS profit_factor 0.304329 is below 1.05"
+            }
+          ]
+        }
+      },
+      {
+        "candidate_id": "AUTO-LONG-STC-GT50",
+        "description": "long trend pullback with STC above 50",
+        "family": "trend_pullback_v1",
+        "parameter_count": 8,
+        "params": {
+          "side": "long",
+          "fastEma": 50,
+          "slowEma": 200,
+          "pullbackAtr": 0.25,
+          "stopAtr": 0.5,
+          "maxRiskAtr": 1.25,
+          "rewardRisk": 2,
+          "slopeLookback": 0,
+          "requireEmaStack": true,
+          "indicatorFilters": [
+            {
+              "indicatorId": "stc",
+              "op": "gt",
+              "value": 50
+            }
+          ]
+        },
+        "replay": {
+          "strategy_id": "AUTO-LONG-STC-GT50",
+          "symbol": "BTCUSDT",
+          "timeframe": "4h",
+          "sample_count": 2,
+          "win_rate": 0.5,
+          "avg_r": 0.444105,
+          "total_r": 0.88821,
+          "max_drawdown_r": 1.049292,
+          "profit_factor": 1.846485,
+          "expectancy_r": 0.444105,
+          "gate": {
+            "shadow_candidate": false,
+            "live_small_candidate": false,
+            "blocked_by": [
+              {
+                "check_id": "R-SAMPLE-SIZE",
+                "reason": "sample_count 2 is below 30"
+              }
+            ]
+          },
+          "trades": [
+            {
+              "side": "long",
+              "signal_time": "2026-01-12T20:00:00Z",
+              "entry_time": "2026-01-13T00:00:00Z",
+              "exit_time": "2026-01-13T12:00:00Z",
+              "entry": 91252.5,
+              "stop": 90367.950562,
+              "target": 93021.598876,
+              "r": 1.937502,
+              "outcome": "target",
+              "reason": "rnd trend pullback long",
+              "bars_held": 3,
+              "meta": {
+                "side": "long",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "stc",
+                    "op": "gt",
+                    "value": 50
+                  }
+                ]
+              }
+            },
+            {
+              "side": "long",
+              "signal_time": "2026-05-15T04:00:00Z",
+              "entry_time": "2026-05-15T08:00:00Z",
+              "exit_time": "2026-05-15T12:00:00Z",
+              "entry": 80782.9,
+              "stop": 79805.535967,
+              "target": 82737.628066,
+              "r": -1.049292,
+              "outcome": "stop",
+              "reason": "rnd trend pullback long",
+              "bars_held": 1,
+              "meta": {
+                "side": "long",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "stc",
+                    "op": "gt",
+                    "value": 50
+                  }
+                ]
+              }
+            }
+          ],
+          "assumptions": {
+            "max_hold_bars": 18,
+            "reward_risk": 2,
+            "fee_bps": 2,
+            "slippage_bps": 1,
+            "same_candle_policy": "stop_first",
+            "overlapping_positions": false,
+            "anti_overfit": {
+              "method": "out_of_sample",
+              "train_stats": {
+                "sample_count": 1,
+                "win_rate": 1,
+                "avg_r": 1.937502,
+                "total_r": 1.937502,
+                "max_drawdown_r": 0,
+                "profit_factor": null
+              },
+              "oos_stats": {
+                "sample_count": 1,
+                "win_rate": 0,
+                "avg_r": -1.049292,
+                "total_r": -1.049292,
+                "max_drawdown_r": 1.049292,
+                "profit_factor": 0
+              },
+              "trial_count": 6,
+              "parameter_count": 8,
+              "notes": "OOS uses the last 30% of chronological replay trades."
+            }
+          },
+          "notes": [
+            "Replay is mechanical and conservative: if stop and target hit in the same candle, stop wins.",
+            "Replay enforces one active position per strategy lane.",
+            "This is evidence for draft/shadow gating, not permission for live-small by itself."
+          ]
+        },
+        "gate": {
+          "accepted": false,
+          "blocked_by": [
+            {
+              "check_id": "R-SAMPLE-SIZE",
+              "reason": "sample_count 2 is below 30"
+            },
+            {
+              "check_id": "RND-OOS-SAMPLE",
+              "reason": "oos sample_count 1 is below 10"
+            },
+            {
+              "check_id": "RND-OOS-EXPECTANCY",
+              "reason": "OOS expectancy is not positive after costs"
+            },
+            {
+              "check_id": "RND-OOS-PROFIT-FACTOR",
+              "reason": "OOS profit_factor 0 is below 1.05"
+            }
+          ]
+        }
+      },
+      {
+        "candidate_id": "AUTO-SHORT-STC-LT50",
+        "description": "short trend pullback with STC below 50",
+        "family": "trend_pullback_v1",
+        "parameter_count": 8,
+        "params": {
+          "side": "short",
+          "fastEma": 50,
+          "slowEma": 200,
+          "pullbackAtr": 0.25,
+          "stopAtr": 0.5,
+          "maxRiskAtr": 1.25,
+          "rewardRisk": 2,
+          "slopeLookback": 0,
+          "requireEmaStack": true,
+          "indicatorFilters": [
+            {
+              "indicatorId": "stc",
+              "op": "lt",
+              "value": 50
+            }
+          ]
+        },
+        "replay": {
+          "strategy_id": "AUTO-SHORT-STC-LT50",
+          "symbol": "BTCUSDT",
+          "timeframe": "4h",
+          "sample_count": 10,
+          "win_rate": 0.1,
+          "avg_r": -0.860063,
+          "total_r": -8.600629,
+          "max_drawdown_r": 8.600629,
+          "profit_factor": 0.005253,
+          "expectancy_r": -0.860063,
+          "gate": {
+            "shadow_candidate": false,
+            "live_small_candidate": false,
+            "blocked_by": [
+              {
+                "check_id": "R-SAMPLE-SIZE",
+                "reason": "sample_count 10 is below 30"
+              },
+              {
+                "check_id": "R-EXPECTANCY",
+                "reason": "avg_r -0.860063 / total_r -8.600629 is not positive"
+              },
+              {
+                "check_id": "R-PROFIT-FACTOR",
+                "reason": "profit_factor 0.005253 is below 1.1"
+              }
+            ]
+          },
+          "trades": [
+            {
+              "side": "short",
+              "signal_time": "2025-12-05T16:00:00Z",
+              "entry_time": "2025-12-05T20:00:00Z",
+              "exit_time": "2025-12-07T16:00:00Z",
+              "entry": 89590.5,
+              "stop": 91415.548177,
+              "target": 85940.403647,
+              "r": -1.029754,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 11,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "stc",
+                    "op": "lt",
+                    "value": 50
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2025-12-11T16:00:00Z",
+              "entry_time": "2025-12-11T20:00:00Z",
+              "exit_time": "2025-12-11T20:00:00Z",
+              "entry": 90793.5,
+              "stop": 92253.390448,
+              "target": 87873.719104,
+              "r": -1.037615,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 0,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "stc",
+                    "op": "lt",
+                    "value": 50
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2025-12-19T04:00:00Z",
+              "entry_time": "2025-12-19T08:00:00Z",
+              "exit_time": "2025-12-19T12:00:00Z",
+              "entry": 87909.7,
+              "stop": 89264.622764,
+              "target": 85199.854472,
+              "r": -1.039229,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 1,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "stc",
+                    "op": "lt",
+                    "value": 50
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2025-12-23T16:00:00Z",
+              "entry_time": "2025-12-23T20:00:00Z",
+              "exit_time": "2025-12-26T00:00:00Z",
+              "entry": 87724.2,
+              "stop": 88822.529921,
+              "target": 85527.540159,
+              "r": -1.048222,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 13,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "stc",
+                    "op": "lt",
+                    "value": 50
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2025-12-27T20:00:00Z",
+              "entry_time": "2025-12-28T00:00:00Z",
+              "exit_time": "2025-12-29T00:00:00Z",
+              "entry": 87829.5,
+              "stop": 88272.86804,
+              "target": 86942.763921,
+              "r": -1.119158,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 6,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "stc",
+                    "op": "lt",
+                    "value": 50
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-01-01T04:00:00Z",
+              "entry_time": "2026-01-01T08:00:00Z",
+              "exit_time": "2026-01-01T16:00:00Z",
+              "entry": 87603.7,
+              "stop": 88323.962091,
+              "target": 86163.175818,
+              "r": -1.073277,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 2,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "stc",
+                    "op": "lt",
+                    "value": 50
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-02-28T16:00:00Z",
+              "entry_time": "2026-02-28T20:00:00Z",
+              "exit_time": "2026-02-28T20:00:00Z",
+              "entry": 66318.1,
+              "stop": 67335.781294,
+              "target": 64282.737413,
+              "r": -1.0394,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 0,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "stc",
+                    "op": "lt",
+                    "value": 50
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-03-06T16:00:00Z",
+              "entry_time": "2026-03-06T20:00:00Z",
+              "exit_time": "2026-03-09T20:00:00Z",
+              "entry": 68100.9,
+              "stop": 69625.741264,
+              "target": 65051.217473,
+              "r": -0.219137,
+              "outcome": "time_exit",
+              "reason": "rnd trend pullback short",
+              "bars_held": 18,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "stc",
+                    "op": "lt",
+                    "value": 50
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-06-18T00:00:00Z",
+              "entry_time": "2026-06-18T04:00:00Z",
+              "exit_time": "2026-06-21T04:00:00Z",
+              "entry": 64255,
+              "stop": 65275.936266,
+              "target": 62213.127467,
+              "r": 0.045422,
+              "outcome": "time_exit",
+              "reason": "rnd trend pullback short",
+              "bars_held": 18,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "stc",
+                    "op": "lt",
+                    "value": 50
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-07-01T12:00:00Z",
+              "entry_time": "2026-07-01T16:00:00Z",
+              "exit_time": "2026-07-01T20:00:00Z",
+              "entry": 60118.6,
+              "stop": 61021.297646,
+              "target": 58313.204708,
+              "r": -1.040259,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 1,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "stc",
+                    "op": "lt",
+                    "value": 50
+                  }
+                ]
+              }
+            }
+          ],
+          "assumptions": {
+            "max_hold_bars": 18,
+            "reward_risk": 2,
+            "fee_bps": 2,
+            "slippage_bps": 1,
+            "same_candle_policy": "stop_first",
+            "overlapping_positions": false,
+            "anti_overfit": {
+              "method": "out_of_sample",
+              "train_stats": {
+                "sample_count": 7,
+                "win_rate": 0,
+                "avg_r": -1.055236,
+                "total_r": -7.386655,
+                "max_drawdown_r": 7.386655,
+                "profit_factor": 0
+              },
+              "oos_stats": {
+                "sample_count": 3,
+                "win_rate": 0.333333,
+                "avg_r": -0.404658,
+                "total_r": -1.213974,
+                "max_drawdown_r": 1.213974,
+                "profit_factor": 0.036066
+              },
+              "trial_count": 6,
+              "parameter_count": 8,
+              "notes": "OOS uses the last 30% of chronological replay trades."
+            }
+          },
+          "notes": [
+            "Replay is mechanical and conservative: if stop and target hit in the same candle, stop wins.",
+            "Replay enforces one active position per strategy lane.",
+            "This is evidence for draft/shadow gating, not permission for live-small by itself."
+          ]
+        },
+        "gate": {
+          "accepted": false,
+          "blocked_by": [
+            {
+              "check_id": "R-SAMPLE-SIZE",
+              "reason": "sample_count 10 is below 30"
+            },
+            {
+              "check_id": "R-EXPECTANCY",
+              "reason": "avg_r -0.860063 / total_r -8.600629 is not positive"
+            },
+            {
+              "check_id": "R-PROFIT-FACTOR",
+              "reason": "profit_factor 0.005253 is below 1.1"
+            },
+            {
+              "check_id": "RND-OOS-SAMPLE",
+              "reason": "oos sample_count 3 is below 10"
+            },
+            {
+              "check_id": "RND-OOS-EXPECTANCY",
+              "reason": "OOS expectancy is not positive after costs"
+            },
+            {
+              "check_id": "RND-OOS-PROFIT-FACTOR",
+              "reason": "OOS profit_factor 0.036066 is below 1.05"
+            }
+          ]
+        }
+      },
+      {
+        "candidate_id": "AUTO-LONG-VPCI-POS",
+        "description": "long trend pullback with positive VPCI",
+        "family": "trend_pullback_v1",
+        "parameter_count": 8,
+        "params": {
+          "side": "long",
+          "fastEma": 50,
+          "slowEma": 200,
+          "pullbackAtr": 0.25,
+          "stopAtr": 0.5,
+          "maxRiskAtr": 1.25,
+          "rewardRisk": 2,
+          "slopeLookback": 0,
+          "requireEmaStack": true,
+          "indicatorFilters": [
+            {
+              "indicatorId": "vpci",
+              "op": "gt",
+              "value": 0
+            }
+          ]
+        },
+        "replay": {
+          "strategy_id": "AUTO-LONG-VPCI-POS",
+          "symbol": "BTCUSDT",
+          "timeframe": "4h",
+          "sample_count": 9,
+          "win_rate": 0.333333,
+          "avg_r": -0.067645,
+          "total_r": -0.608804,
+          "max_drawdown_r": 3.22834,
+          "profit_factor": 0.905712,
+          "expectancy_r": -0.067645,
+          "gate": {
+            "shadow_candidate": false,
+            "live_small_candidate": false,
+            "blocked_by": [
+              {
+                "check_id": "R-SAMPLE-SIZE",
+                "reason": "sample_count 9 is below 30"
+              },
+              {
+                "check_id": "R-EXPECTANCY",
+                "reason": "avg_r -0.067645 / total_r -0.608804 is not positive"
+              },
+              {
+                "check_id": "R-PROFIT-FACTOR",
+                "reason": "profit_factor 0.905712 is below 1.1"
+              }
+            ]
+          },
+          "trades": [
+            {
+              "side": "long",
+              "signal_time": "2026-01-07T12:00:00Z",
+              "entry_time": "2026-01-07T16:00:00Z",
+              "exit_time": "2026-01-08T04:00:00Z",
+              "entry": 91303.2,
+              "stop": 90389.983364,
+              "target": 93129.633272,
+              "r": -1.059688,
+              "outcome": "stop",
+              "reason": "rnd trend pullback long",
+              "bars_held": 3,
+              "meta": {
+                "side": "long",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "vpci",
+                    "op": "gt",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            {
+              "side": "long",
+              "signal_time": "2026-01-11T12:00:00Z",
+              "entry_time": "2026-01-11T16:00:00Z",
+              "exit_time": "2026-01-11T20:00:00Z",
+              "entry": 90834,
+              "stop": 90393.346162,
+              "target": 91715.307675,
+              "r": -1.123381,
+              "outcome": "stop",
+              "reason": "rnd trend pullback long",
+              "bars_held": 1,
+              "meta": {
+                "side": "long",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "vpci",
+                    "op": "gt",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            {
+              "side": "long",
+              "signal_time": "2026-01-12T20:00:00Z",
+              "entry_time": "2026-01-13T00:00:00Z",
+              "exit_time": "2026-01-13T12:00:00Z",
+              "entry": 91252.5,
+              "stop": 90367.950562,
+              "target": 93021.598876,
+              "r": 1.937502,
+              "outcome": "target",
+              "reason": "rnd trend pullback long",
+              "bars_held": 3,
+              "meta": {
+                "side": "long",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "vpci",
+                    "op": "gt",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            {
+              "side": "long",
+              "signal_time": "2026-04-19T16:00:00Z",
+              "entry_time": "2026-04-19T20:00:00Z",
+              "exit_time": "2026-04-19T20:00:00Z",
+              "entry": 74918,
+              "stop": 73935.737988,
+              "target": 76882.524024,
+              "r": -1.045463,
+              "outcome": "stop",
+              "reason": "rnd trend pullback long",
+              "bars_held": 0,
+              "meta": {
+                "side": "long",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "vpci",
+                    "op": "gt",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            {
+              "side": "long",
+              "signal_time": "2026-04-20T04:00:00Z",
+              "entry_time": "2026-04-20T08:00:00Z",
+              "exit_time": "2026-04-22T00:00:00Z",
+              "entry": 74795.5,
+              "stop": 73557.747103,
+              "target": 77271.005795,
+              "r": 1.963143,
+              "outcome": "target",
+              "reason": "rnd trend pullback long",
+              "bars_held": 10,
+              "meta": {
+                "side": "long",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "vpci",
+                    "op": "gt",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            {
+              "side": "long",
+              "signal_time": "2026-05-07T20:00:00Z",
+              "entry_time": "2026-05-08T00:00:00Z",
+              "exit_time": "2026-05-10T20:00:00Z",
+              "entry": 79969.5,
+              "stop": 79046.369622,
+              "target": 81815.760757,
+              "r": 1.947423,
+              "outcome": "target",
+              "reason": "rnd trend pullback long",
+              "bars_held": 17,
+              "meta": {
+                "side": "long",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "vpci",
+                    "op": "gt",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            {
+              "side": "long",
+              "signal_time": "2026-05-12T08:00:00Z",
+              "entry_time": "2026-05-12T12:00:00Z",
+              "exit_time": "2026-05-12T16:00:00Z",
+              "entry": 80742.7,
+              "stop": 80051.610474,
+              "target": 82124.879051,
+              "r": -1.0698,
+              "outcome": "stop",
+              "reason": "rnd trend pullback long",
+              "bars_held": 1,
+              "meta": {
+                "side": "long",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "vpci",
+                    "op": "gt",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            {
+              "side": "long",
+              "signal_time": "2026-05-12T20:00:00Z",
+              "entry_time": "2026-05-13T00:00:00Z",
+              "exit_time": "2026-05-13T12:00:00Z",
+              "entry": 80461,
+              "stop": 80020.309814,
+              "target": 81342.380372,
+              "r": -1.109248,
+              "outcome": "stop",
+              "reason": "rnd trend pullback long",
+              "bars_held": 3,
+              "meta": {
+                "side": "long",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "vpci",
+                    "op": "gt",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            {
+              "side": "long",
+              "signal_time": "2026-05-15T04:00:00Z",
+              "entry_time": "2026-05-15T08:00:00Z",
+              "exit_time": "2026-05-15T12:00:00Z",
+              "entry": 80782.9,
+              "stop": 79805.535967,
+              "target": 82737.628066,
+              "r": -1.049292,
+              "outcome": "stop",
+              "reason": "rnd trend pullback long",
+              "bars_held": 1,
+              "meta": {
+                "side": "long",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "vpci",
+                    "op": "gt",
+                    "value": 0
+                  }
+                ]
+              }
+            }
+          ],
+          "assumptions": {
+            "max_hold_bars": 18,
+            "reward_risk": 2,
+            "fee_bps": 2,
+            "slippage_bps": 1,
+            "same_candle_policy": "stop_first",
+            "overlapping_positions": false,
+            "anti_overfit": {
+              "method": "out_of_sample",
+              "train_stats": {
+                "sample_count": 6,
+                "win_rate": 0.5,
+                "avg_r": 0.436589,
+                "total_r": 2.619536,
+                "max_drawdown_r": 2.183069,
+                "profit_factor": 1.811371
+              },
+              "oos_stats": {
+                "sample_count": 3,
+                "win_rate": 0,
+                "avg_r": -1.076113,
+                "total_r": -3.22834,
+                "max_drawdown_r": 3.22834,
+                "profit_factor": 0
+              },
+              "trial_count": 6,
+              "parameter_count": 8,
+              "notes": "OOS uses the last 30% of chronological replay trades."
+            }
+          },
+          "notes": [
+            "Replay is mechanical and conservative: if stop and target hit in the same candle, stop wins.",
+            "Replay enforces one active position per strategy lane.",
+            "This is evidence for draft/shadow gating, not permission for live-small by itself."
+          ]
+        },
+        "gate": {
+          "accepted": false,
+          "blocked_by": [
+            {
+              "check_id": "R-SAMPLE-SIZE",
+              "reason": "sample_count 9 is below 30"
+            },
+            {
+              "check_id": "R-EXPECTANCY",
+              "reason": "avg_r -0.067645 / total_r -0.608804 is not positive"
+            },
+            {
+              "check_id": "R-PROFIT-FACTOR",
+              "reason": "profit_factor 0.905712 is below 1.1"
+            },
+            {
+              "check_id": "RND-OOS-SAMPLE",
+              "reason": "oos sample_count 3 is below 10"
+            },
+            {
+              "check_id": "RND-OOS-EXPECTANCY",
+              "reason": "OOS expectancy is not positive after costs"
+            },
+            {
+              "check_id": "RND-OOS-PROFIT-FACTOR",
+              "reason": "OOS profit_factor 0 is below 1.05"
+            }
+          ]
+        }
+      },
+      {
+        "candidate_id": "AUTO-SHORT-VPCI-NEG",
+        "description": "short trend pullback with negative VPCI",
+        "family": "trend_pullback_v1",
+        "parameter_count": 8,
+        "params": {
+          "side": "short",
+          "fastEma": 50,
+          "slowEma": 200,
+          "pullbackAtr": 0.25,
+          "stopAtr": 0.5,
+          "maxRiskAtr": 1.25,
+          "rewardRisk": 2,
+          "slopeLookback": 0,
+          "requireEmaStack": true,
+          "indicatorFilters": [
+            {
+              "indicatorId": "vpci",
+              "op": "lt",
+              "value": 0
+            }
+          ]
+        },
+        "replay": {
+          "strategy_id": "AUTO-SHORT-VPCI-NEG",
+          "symbol": "BTCUSDT",
+          "timeframe": "4h",
+          "sample_count": 20,
+          "win_rate": 0.2,
+          "avg_r": -0.545396,
+          "total_r": -10.90791,
+          "max_drawdown_r": 10.90791,
+          "profit_factor": 0.350949,
+          "expectancy_r": -0.545396,
+          "gate": {
+            "shadow_candidate": false,
+            "live_small_candidate": false,
+            "blocked_by": [
+              {
+                "check_id": "R-SAMPLE-SIZE",
+                "reason": "sample_count 20 is below 30"
+              },
+              {
+                "check_id": "R-EXPECTANCY",
+                "reason": "avg_r -0.545396 / total_r -10.90791 is not positive"
+              },
+              {
+                "check_id": "R-PROFIT-FACTOR",
+                "reason": "profit_factor 0.350949 is below 1.1"
+              },
+              {
+                "check_id": "R-DRAWDOWN",
+                "reason": "max_drawdown_r 10.90791 exceeds 10R"
+              }
+            ]
+          },
+          "trades": [
+            {
+              "side": "short",
+              "signal_time": "2025-12-05T16:00:00Z",
+              "entry_time": "2025-12-05T20:00:00Z",
+              "exit_time": "2025-12-07T16:00:00Z",
+              "entry": 89590.5,
+              "stop": 91415.548177,
+              "target": 85940.403647,
+              "r": -1.029754,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 11,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "vpci",
+                    "op": "lt",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2025-12-19T04:00:00Z",
+              "entry_time": "2025-12-19T08:00:00Z",
+              "exit_time": "2025-12-19T12:00:00Z",
+              "entry": 87909.7,
+              "stop": 89264.622764,
+              "target": 85199.854472,
+              "r": -1.039229,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 1,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "vpci",
+                    "op": "lt",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2025-12-19T16:00:00Z",
+              "entry_time": "2025-12-19T20:00:00Z",
+              "exit_time": "2025-12-22T08:00:00Z",
+              "entry": 87812.9,
+              "stop": 89753.776478,
+              "target": 83931.147045,
+              "r": -1.027446,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 15,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "vpci",
+                    "op": "lt",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-01-27T20:00:00Z",
+              "entry_time": "2026-01-28T00:00:00Z",
+              "exit_time": "2026-01-28T08:00:00Z",
+              "entry": 89197.8,
+              "stop": 90020.502935,
+              "target": 87552.39413,
+              "r": -1.065352,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 2,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "vpci",
+                    "op": "lt",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-01-28T20:00:00Z",
+              "entry_time": "2026-01-29T00:00:00Z",
+              "exit_time": "2026-01-29T12:00:00Z",
+              "entry": 89261.7,
+              "stop": 90439.231432,
+              "target": 86906.637136,
+              "r": 1.955118,
+              "outcome": "target",
+              "reason": "rnd trend pullback short",
+              "bars_held": 3,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "vpci",
+                    "op": "lt",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-02-13T12:00:00Z",
+              "entry_time": "2026-02-13T16:00:00Z",
+              "exit_time": "2026-02-14T08:00:00Z",
+              "entry": 68652.1,
+              "stop": 70350.036358,
+              "target": 65256.227285,
+              "r": -1.02456,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 4,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "vpci",
+                    "op": "lt",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-02-17T00:00:00Z",
+              "entry_time": "2026-02-17T04:00:00Z",
+              "exit_time": "2026-02-19T12:00:00Z",
+              "entry": 68443.6,
+              "stop": 69820.548357,
+              "target": 65689.703286,
+              "r": 1.970776,
+              "outcome": "target",
+              "reason": "rnd trend pullback short",
+              "bars_held": 14,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "vpci",
+                    "op": "lt",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-02-20T04:00:00Z",
+              "entry_time": "2026-02-20T08:00:00Z",
+              "exit_time": "2026-02-21T12:00:00Z",
+              "entry": 67794.8,
+              "stop": 68633.598951,
+              "target": 66117.202098,
+              "r": -1.048794,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 7,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "vpci",
+                    "op": "lt",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-02-22T00:00:00Z",
+              "entry_time": "2026-02-22T04:00:00Z",
+              "exit_time": "2026-02-23T00:00:00Z",
+              "entry": 68010.5,
+              "stop": 68562.695417,
+              "target": 66906.109166,
+              "r": 1.926702,
+              "outcome": "target",
+              "reason": "rnd trend pullback short",
+              "bars_held": 5,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "vpci",
+                    "op": "lt",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-02-28T16:00:00Z",
+              "entry_time": "2026-02-28T20:00:00Z",
+              "exit_time": "2026-02-28T20:00:00Z",
+              "entry": 66318.1,
+              "stop": 67335.781294,
+              "target": 64282.737413,
+              "r": -1.0394,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 0,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "vpci",
+                    "op": "lt",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-03-01T08:00:00Z",
+              "entry_time": "2026-03-01T12:00:00Z",
+              "exit_time": "2026-03-02T12:00:00Z",
+              "entry": 66439,
+              "stop": 67976.275629,
+              "target": 63364.448742,
+              "r": -1.026231,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 6,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "vpci",
+                    "op": "lt",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-04-04T20:00:00Z",
+              "entry_time": "2026-04-05T00:00:00Z",
+              "exit_time": "2026-04-05T12:00:00Z",
+              "entry": 67271.1,
+              "stop": 67745.517197,
+              "target": 66322.265607,
+              "r": -1.085378,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 3,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "vpci",
+                    "op": "lt",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-04-05T16:00:00Z",
+              "entry_time": "2026-04-05T20:00:00Z",
+              "exit_time": "2026-04-05T20:00:00Z",
+              "entry": 67329.1,
+              "stop": 67814.935382,
+              "target": 66357.429235,
+              "r": -1.083451,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 0,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "vpci",
+                    "op": "lt",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-05-24T20:00:00Z",
+              "entry_time": "2026-05-25T00:00:00Z",
+              "exit_time": "2026-05-25T04:00:00Z",
+              "entry": 77030.3,
+              "stop": 77618.643798,
+              "target": 75853.612403,
+              "r": -1.078856,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 1,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "vpci",
+                    "op": "lt",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-05-26T08:00:00Z",
+              "entry_time": "2026-05-26T12:00:00Z",
+              "exit_time": "2026-05-26T12:00:00Z",
+              "entry": 77153.8,
+              "stop": 77959.439453,
+              "target": 75542.521095,
+              "r": -1.05776,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 0,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "vpci",
+                    "op": "lt",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-06-11T20:00:00Z",
+              "entry_time": "2026-06-12T00:00:00Z",
+              "exit_time": "2026-06-12T12:00:00Z",
+              "entry": 63598,
+              "stop": 64198.767874,
+              "target": 62396.464252,
+              "r": -1.063817,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 3,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "vpci",
+                    "op": "lt",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-06-12T16:00:00Z",
+              "entry_time": "2026-06-12T20:00:00Z",
+              "exit_time": "2026-06-13T20:00:00Z",
+              "entry": 63555,
+              "stop": 64544.520144,
+              "target": 61575.959713,
+              "r": -1.038837,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 6,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "vpci",
+                    "op": "lt",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-06-14T16:00:00Z",
+              "entry_time": "2026-06-14T20:00:00Z",
+              "exit_time": "2026-06-14T20:00:00Z",
+              "entry": 63777.4,
+              "stop": 64454.629637,
+              "target": 62422.940725,
+              "r": -1.056804,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 0,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "vpci",
+                    "op": "lt",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-06-18T00:00:00Z",
+              "entry_time": "2026-06-18T04:00:00Z",
+              "exit_time": "2026-06-21T04:00:00Z",
+              "entry": 64255,
+              "stop": 65275.936266,
+              "target": 62213.127467,
+              "r": 0.045422,
+              "outcome": "time_exit",
+              "reason": "rnd trend pullback short",
+              "bars_held": 18,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "vpci",
+                    "op": "lt",
+                    "value": 0
+                  }
+                ]
+              }
+            },
+            {
+              "side": "short",
+              "signal_time": "2026-07-01T12:00:00Z",
+              "entry_time": "2026-07-01T16:00:00Z",
+              "exit_time": "2026-07-01T20:00:00Z",
+              "entry": 60118.6,
+              "stop": 61021.297646,
+              "target": 58313.204708,
+              "r": -1.040259,
+              "outcome": "stop",
+              "reason": "rnd trend pullback short",
+              "bars_held": 1,
+              "meta": {
+                "side": "short",
+                "fastEma": 50,
+                "slowEma": 200,
+                "pullbackAtr": 0.25,
+                "stopAtr": 0.5,
+                "maxRiskAtr": 1.25,
+                "rewardRisk": 2,
+                "slopeLookback": 0,
+                "requireEmaStack": true,
+                "indicatorFilters": [
+                  {
+                    "indicatorId": "vpci",
+                    "op": "lt",
+                    "value": 0
+                  }
+                ]
+              }
+            }
+          ],
+          "assumptions": {
+            "max_hold_bars": 18,
+            "reward_risk": 2,
+            "fee_bps": 2,
+            "slippage_bps": 1,
+            "same_candle_policy": "stop_first",
+            "overlapping_positions": false,
+            "anti_overfit": {
+              "method": "out_of_sample",
+              "train_stats": {
+                "sample_count": 14,
+                "win_rate": 0.214286,
+                "avg_r": -0.406847,
+                "total_r": -5.695855,
+                "max_drawdown_r": 5.695855,
+                "profit_factor": 0.506786
+              },
+              "oos_stats": {
+                "sample_count": 6,
+                "win_rate": 0.166667,
+                "avg_r": -0.868676,
+                "total_r": -5.212055,
+                "max_drawdown_r": 5.212055,
+                "profit_factor": 0.00864
+              },
+              "trial_count": 6,
+              "parameter_count": 8,
+              "notes": "OOS uses the last 30% of chronological replay trades."
+            }
+          },
+          "notes": [
+            "Replay is mechanical and conservative: if stop and target hit in the same candle, stop wins.",
+            "Replay enforces one active position per strategy lane.",
+            "This is evidence for draft/shadow gating, not permission for live-small by itself."
+          ]
+        },
+        "gate": {
+          "accepted": false,
+          "blocked_by": [
+            {
+              "check_id": "R-SAMPLE-SIZE",
+              "reason": "sample_count 20 is below 30"
+            },
+            {
+              "check_id": "R-EXPECTANCY",
+              "reason": "avg_r -0.545396 / total_r -10.90791 is not positive"
+            },
+            {
+              "check_id": "R-PROFIT-FACTOR",
+              "reason": "profit_factor 0.350949 is below 1.1"
+            },
+            {
+              "check_id": "R-DRAWDOWN",
+              "reason": "max_drawdown_r 10.90791 exceeds 10R"
+            },
+            {
+              "check_id": "RND-OOS-SAMPLE",
+              "reason": "oos sample_count 6 is below 10"
+            },
+            {
+              "check_id": "RND-OOS-EXPECTANCY",
+              "reason": "OOS expectancy is not positive after costs"
+            },
+            {
+              "check_id": "RND-OOS-PROFIT-FACTOR",
+              "reason": "OOS profit_factor 0.00864 is below 1.05"
+            }
+          ]
+        }
+      }
+    ],
+    "guardrails": {
+      "max_trials": 10,
+      "max_parameter_count": 8,
+      "oos_required": true,
+      "no_auto_promote": true
+    },
+    "indicator_research": {
+      "source_ref": "tmp/btcusdt-iteration-2026-07-06/tech-indicators-vpci-stc-laguerre-features.json",
+      "selected_indicators": [
+        {
+          "indicator_id": "laguerre",
+          "category": "momentum",
+          "defaults": {
+            "debug": false,
+            "gamma": 0.5,
+            "smooth": 1
+          },
+          "observe": "看超买超卖区、拐头、与价格背离。",
+          "proposed_use": "candidate confirmation/timing filter: 看超买超卖区、拐头、与价格背离。"
+        },
+        {
+          "indicator_id": "stc",
+          "category": "momentum",
+          "defaults": {
+            "fast": 23,
+            "length": 10,
+            "slow": 50
+          },
+          "observe": "看 25/75 区域穿越和方向切换。",
+          "proposed_use": "candidate confirmation/timing filter: 看 25/75 区域穿越和方向切换。"
+        },
+        {
+          "indicator_id": "vpci",
+          "category": "volume",
+          "defaults": {
+            "period_long": 20,
+            "period_short": 5
+          },
+          "observe": "看量价方向一致还是背离。",
+          "proposed_use": "candidate participation/liquidity confirmation: 看量价方向一致还是背离。"
+        }
+      ],
+      "structure_edges": [
+        {
+          "timeframe": "1d",
+          "feature_id": "support",
+          "respect_rate": 0.9825,
+          "break_rate": 0.0175,
+          "sample_count": 342,
+          "proposed_use": "use as structure-respect filter or invalidation reference; must replay before promotion"
+        },
+        {
+          "timeframe": "4h",
+          "feature_id": "resistance",
+          "respect_rate": 0.9927,
+          "break_rate": 0.0073,
+          "sample_count": 274,
+          "proposed_use": "use as structure-respect filter or invalidation reference; must replay before promotion"
+        },
+        {
+          "timeframe": "1d",
+          "feature_id": "support_trendline_overall",
+          "respect_rate": 0.9007,
+          "break_rate": 0.0993,
+          "sample_count": 272,
+          "proposed_use": "use as structure-respect filter or invalidation reference; must replay before promotion"
+        },
+        {
+          "timeframe": "1d",
+          "feature_id": "resistance_trendline_overall",
+          "respect_rate": 0.9269,
+          "break_rate": 0.0731,
+          "sample_count": 260,
+          "proposed_use": "use as structure-respect filter or invalidation reference; must replay before promotion"
+        },
+        {
+          "timeframe": "1d",
+          "feature_id": "resistance",
+          "respect_rate": 0.9592,
+          "break_rate": 0.0408,
+          "sample_count": 245,
+          "proposed_use": "use as structure-respect filter or invalidation reference; must replay before promotion"
+        },
+        {
+          "timeframe": "1d",
+          "feature_id": "support_trendline_wick_linear",
+          "respect_rate": 0.9327,
+          "break_rate": 0.0673,
+          "sample_count": 223,
+          "proposed_use": "use as structure-respect filter or invalidation reference; must replay before promotion"
+        },
+        {
+          "timeframe": "1h",
+          "feature_id": "resistance",
+          "respect_rate": 0.991,
+          "break_rate": 0.009,
+          "sample_count": 222,
+          "proposed_use": "use as structure-respect filter or invalidation reference; must replay before promotion"
+        },
+        {
+          "timeframe": "1d",
+          "feature_id": "support_trendline_close_linear",
+          "respect_rate": 0.9186,
+          "break_rate": 0.0814,
+          "sample_count": 221,
+          "proposed_use": "use as structure-respect filter or invalidation reference; must replay before promotion"
+        },
+        {
+          "timeframe": "1d",
+          "feature_id": "support_trendline_close_log",
+          "respect_rate": 0.912,
+          "break_rate": 0.088,
+          "sample_count": 216,
+          "proposed_use": "use as structure-respect filter or invalidation reference; must replay before promotion"
+        },
+        {
+          "timeframe": "4h",
+          "feature_id": "support",
+          "respect_rate": 0.9624,
+          "break_rate": 0.0376,
+          "sample_count": 213,
+          "proposed_use": "use as structure-respect filter or invalidation reference; must replay before promotion"
+        },
+        {
+          "timeframe": "1d",
+          "feature_id": "resistance_trendline_close_log",
+          "respect_rate": 0.9343,
+          "break_rate": 0.0657,
+          "sample_count": 213,
+          "proposed_use": "use as structure-respect filter or invalidation reference; must replay before promotion"
+        },
+        {
+          "timeframe": "1d",
+          "feature_id": "support_trendline_wick_log",
+          "respect_rate": 0.9087,
+          "break_rate": 0.0913,
+          "sample_count": 208,
+          "proposed_use": "use as structure-respect filter or invalidation reference; must replay before promotion"
+        },
+        {
+          "timeframe": "4h",
+          "feature_id": "resistance_trendline_overall",
+          "respect_rate": 0.9091,
+          "break_rate": 0.0909,
+          "sample_count": 198,
+          "proposed_use": "use as structure-respect filter or invalidation reference; must replay before promotion"
+        },
+        {
+          "timeframe": "4h",
+          "feature_id": "support_trendline_overall",
+          "respect_rate": 0.9645,
+          "break_rate": 0.0355,
+          "sample_count": 197,
+          "proposed_use": "use as structure-respect filter or invalidation reference; must replay before promotion"
+        },
+        {
+          "timeframe": "1d",
+          "feature_id": "resistance_trendline_wick_log",
+          "respect_rate": 0.949,
+          "break_rate": 0.051,
+          "sample_count": 196,
+          "proposed_use": "use as structure-respect filter or invalidation reference; must replay before promotion"
+        },
+        {
+          "timeframe": "1d",
+          "feature_id": "resistance_trendline_close_linear",
+          "respect_rate": 0.9385,
+          "break_rate": 0.0615,
+          "sample_count": 195,
+          "proposed_use": "use as structure-respect filter or invalidation reference; must replay before promotion"
+        },
+        {
+          "timeframe": "1d",
+          "feature_id": "resistance_trendline_wick_linear",
+          "respect_rate": 0.9734,
+          "break_rate": 0.0266,
+          "sample_count": 188,
+          "proposed_use": "use as structure-respect filter or invalidation reference; must replay before promotion"
+        },
+        {
+          "timeframe": "1h",
+          "feature_id": "resistance_trendline_overall",
+          "respect_rate": 0.9185,
+          "break_rate": 0.0815,
+          "sample_count": 184,
+          "proposed_use": "use as structure-respect filter or invalidation reference; must replay before promotion"
+        },
+        {
+          "timeframe": "4h",
+          "feature_id": "support_trendline_wick_linear",
+          "respect_rate": 0.977,
+          "break_rate": 0.023,
+          "sample_count": 174,
+          "proposed_use": "use as structure-respect filter or invalidation reference; must replay before promotion"
+        },
+        {
+          "timeframe": "4h",
+          "feature_id": "support_trendline_wick_log",
+          "respect_rate": 0.9825,
+          "break_rate": 0.0175,
+          "sample_count": 171,
+          "proposed_use": "use as structure-respect filter or invalidation reference; must replay before promotion"
+        }
+      ]
+    },
+    "next_action": "Stop this hypothesis batch; predeclare a new edge hypothesis before running more trials."
+  },
+  "ledger_record": {
+    "run_id": "btc-4h-auto-indicator-rnd-2026-07-07-a",
+    "created_at": "2026-07-07T00:00:00+08:00",
+    "batch_id": "btc-4h-auto-indicator-rnd-2026-07-07-a",
+    "hypothesis": "Auto-synthesized indicator filters from tech-indicators feature series may improve BTC 4H trend pullback only if replay and OOS gates pass.",
+    "manifest_ref": "tmp/btcusdt-ohlcv-iteration/manifest.json",
+    "indicator_report_ref": "tmp/btcusdt-iteration-2026-07-06/tech-indicators-vpci-stc-laguerre-features.json",
+    "artifact_ref": "data/artifacts/strategy-rnd/btc-4h-auto-indicator-rnd-2026-07-07-a.json",
+    "candidate_source": "auto_indicator_synthesis",
+    "outcome": "no_promote",
+    "trial_count": 6,
+    "accepted_count": 0,
+    "winner_candidate_id": null,
+    "rejected_reasons": [
+      {
+        "check_id": "R-SAMPLE-SIZE",
+        "count": 6
+      },
+      {
+        "check_id": "RND-OOS-EXPECTANCY",
+        "count": 6
+      },
+      {
+        "check_id": "RND-OOS-PROFIT-FACTOR",
+        "count": 6
+      },
+      {
+        "check_id": "RND-OOS-SAMPLE",
+        "count": 6
+      },
+      {
+        "check_id": "R-EXPECTANCY",
+        "count": 5
+      },
+      {
+        "check_id": "R-PROFIT-FACTOR",
+        "count": 5
+      },
+      {
+        "check_id": "R-DRAWDOWN",
+        "count": 2
+      }
+    ]
+  },
+  "stop_reason": "no_promote"
+}

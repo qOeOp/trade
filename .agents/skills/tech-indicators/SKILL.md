@@ -19,7 +19,8 @@ description: >-
 2. 进入 skill 目录后直接执行 `go run ./scripts --manifest ...`。
 3. 脚本只返回 JSON，不再自动写 `analysis.json`、`summary.md` 或其它副本。
 4. 需要缩小范围时，显式传 `--indicators` 或 `--indicator-config`。
-5. 需要解释指标含义时，读取 `references/indicators.md`。
+5. R&D 需要逐 bar 特征时，显式传 `--feature-series`；默认不输出大体积序列。
+6. 需要解释指标含义时，读取 `references/indicators.md`。
 
 ## 输入要求
 
@@ -36,6 +37,7 @@ description: >-
 - `summary_markdown`
 - `selected_indicators`
 - 各 timeframe 的完整 `indicators` / `supports` / `resistances` / `trendlines`
+- 可选 `features`：由 `--feature-series` 打开，输出支持指标的逐 bar `{timestamp,value}` 序列，供 strategy R&D 回测消费
 - 结构输出会附带当前仓库口径下的证据字段与历史触碰自校验统计
 - 各 timeframe 的 `structure_validation`，用于输出 walk-forward 的第二层历史验证汇总
 - 结构字段定义见 `references/indicators.md`
@@ -97,4 +99,5 @@ description: >-
 - 某个指标失败不会中断整次分析，错误会直接写进返回 JSON 的对应指标节点
 - 支撑位、压力位、趋势线和失效位沿用当前仓库自己的计算口径
 - 默认参数和指标释义见 `scripts/indicator_catalog.json` 与 `references/indicators.md`
+- `--feature-series` 当前只对已接入 feature exporter 的指标输出历史序列；未支持的指标返回 `status=unsupported`，不能直接用于 replay
 - 如果你要持久化分析结果，由 LLM 自己决定是否落盘

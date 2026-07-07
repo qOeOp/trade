@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"math"
 	"strings"
+	"time"
 )
 
 var indicatorImplementations = map[string]indicatorFunc{}
@@ -97,6 +98,71 @@ func computeIndicators(
 		results[o.name] = o.result
 	}
 	return results
+}
+
+func buildIndicatorFeatureSeries(
+	input *indicatorInput,
+	selected []string,
+	catalog map[string]catalogSpec,
+	overrides map[string]map[string]any,
+) map[string]any {
+	results := map[string]any{}
+	for _, name := range selected {
+		spec := catalog[name]
+		params := copyAnyMap(spec.Defaults)
+		for key, value := range overrides[name] {
+			params[key] = value
+		}
+		result := map[string]any{
+			"category": spec.Category,
+			"params":   params,
+		}
+		values, err := indicatorFeatureValues(input, name, params)
+		if err != nil {
+			result["status"] = "unsupported"
+			result["error"] = err.Error()
+		} else {
+			result["status"] = "ok"
+			result["values"] = featurePoints(input.Series.Dates, values)
+		}
+		results[name] = result
+	}
+	return results
+}
+
+func indicatorFeatureValues(input *indicatorInput, name string, params map[string]any) ([]float64, error) {
+	switch name {
+	case "laguerre":
+		return laguerreRSI(input.Series.Close, paramFloat(params, "gamma", 0.5)), nil
+	case "stc":
+		return stcSeries(input.Series.Close, paramInt(params, "fast", 23), paramInt(params, "slow", 50), paramInt(params, "length", 10)), nil
+	case "vpci":
+		return vpciSeries(input.Series.Close, input.Series.Volume, paramInt(params, "period_short", 5), paramInt(params, "period_long", 20)), nil
+	case "vpcii":
+		vpci := vpciSeries(input.Series.Close, input.Series.Volume, paramInt(params, "period_short", 5), paramInt(params, "period_long", 20))
+		signal := smaSeries(vpci, paramInt(params, "hist", 14))
+		return combineSeries(vpci, signal, func(a, b float64) float64 { return a - b }), nil
+	case "vfi":
+		vfi := vfiSeries(input.Series.High, input.Series.Low, input.Series.Close, input.Series.Volume, paramInt(params, "length", 130))
+		signal := emaSeries(vfi, paramInt(params, "signalLength", 5))
+		return combineSeries(vfi, signal, func(a, b float64) float64 { return a - b }), nil
+	default:
+		return nil, fmt.Errorf("feature series not available for indicator: %s", name)
+	}
+}
+
+func featurePoints(dates []time.Time, values []float64) []map[string]any {
+	points := []map[string]any{}
+	for index, value := range values {
+		if index >= len(dates) || !isFinite(value) {
+			continue
+		}
+		points = append(points, map[string]any{
+			"timestamp": dates[index].Format(time.RFC3339),
+			"value":     roundTo(value, 6),
+		})
+	}
+	return points
 }
 
 func indicatorEMA(input *indicatorInput, params map[string]any, _ catalogSpec) (any, error) {

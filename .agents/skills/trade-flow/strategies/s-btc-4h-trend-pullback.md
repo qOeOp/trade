@@ -39,6 +39,8 @@ Replay refs:
 - 2026-07-06 OOS replay, BTCUSDT 4H, 1500 candles, fee `2 bps`, slippage `1 bps`, `oos_split=0.3`, `trial_count=10`, `parameter_count=6`: full `sample_count=43`, `avg_r=-0.316596`, `total_r=-13.613611`, `profit_factor=0.586015`; OOS `sample_count=13`, `avg_r=-0.306364`, `total_r=-3.982735`, `profit_factor=0.58484`.
 - 2026-07-06 predeclared variant batch: 10 variants tested; no variant passed OOS + sample gates. Best in-sample variants were not promoted because OOS failed or sample count was too small.
 - 2026-07-06 indicator-assisted R&D batch consumed `tech-indicators` report (`laguerre`, `stc`, `vpci` plus structure validation). It produced indicator candidate uses but still found `accepted_count=0`; indicator ideas remain next-batch hypotheses, not strategy evidence.
+- 2026-07-06 executable indicator-filter R&D consumed `tech-indicators --feature-series` and replayed `laguerre / stc / vpci` filters. Manual batch: 10 candidates, `accepted_count=0`; auto-synthesized batch: 6 candidates, `accepted_count=0`.
+- 2026-07-07 R&D loop wrote `data/artifacts/strategy-rnd/btc-4h-auto-indicator-rnd-2026-07-07-a.json` and `data/strategy-rnd-ledger.jsonl`; auto-synthesized indicator batch stayed `no_promote` with `accepted_count=0`.
 - Result: not promotable. Keep `status=draft`; do not loosen gates or promote filter-mined variants.
 
 ## Setup Certificate

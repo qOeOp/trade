@@ -1,4 +1,6 @@
-import { readFileSync } from "node:fs"
+import { randomUUID } from "node:crypto"
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { dirname, join } from "node:path"
 import {
   replayStrategy,
   type Candle,
@@ -10,6 +12,7 @@ import {
 
 type JSONRecord = Record<string, unknown>
 type SideFilter = "long" | "short" | "both"
+type IndicatorFilterOp = "gt" | "lt" | "between"
 
 interface StrategyRndBatchInput {
   batchId?: string
@@ -21,7 +24,15 @@ interface StrategyRndBatchInput {
   slippageBps?: number
   oosSplitRatio?: number
   indicatorReportPath?: string
+  autoCandidates?: boolean
   candidates: StrategyRndCandidateInput[]
+}
+
+interface StrategyRndLoopInput extends StrategyRndBatchInput {
+  runId?: string
+  artifactRoot?: string
+  ledgerPath?: string
+  now?: string
 }
 
 interface StrategyRndCandidateInput {
@@ -37,6 +48,7 @@ interface StrategyRndBatchReport {
   hypothesis: string
   trial_count: number
   accepted_count: number
+  candidate_source: "provided" | "auto_indicator_synthesis"
   outcome: "candidate_found" | "no_promote"
   winner: StrategyRndCandidateReport | null
   candidates: StrategyRndCandidateReport[]
@@ -48,6 +60,35 @@ interface StrategyRndBatchReport {
   }
   indicator_research: StrategyIndicatorResearch | null
   next_action: string
+}
+
+interface StrategyRndLoopReport {
+  run_id: string
+  created_at: string
+  artifact_ref: string
+  ledger_ref: string
+  batch: StrategyRndBatchReport
+  ledger_record: StrategyRndLedgerRecord
+  stop_reason: "candidate_found" | "no_promote"
+}
+
+interface StrategyRndLedgerRecord {
+  run_id: string
+  created_at: string
+  batch_id: string
+  hypothesis: string
+  manifest_ref: string
+  indicator_report_ref: string
+  artifact_ref: string
+  candidate_source: "provided" | "auto_indicator_synthesis"
+  outcome: "candidate_found" | "no_promote"
+  trial_count: number
+  accepted_count: number
+  winner_candidate_id: string | null
+  rejected_reasons: Array<{
+    check_id: string
+    count: number
+  }>
 }
 
 interface StrategyIndicatorResearch {
@@ -92,29 +133,51 @@ interface TrendPullbackParams {
   rewardRisk: number
   slopeLookback: number
   requireEmaStack: boolean
+  indicatorFilters: IndicatorFilter[]
+}
+
+interface IndicatorFilter {
+  indicatorId: string
+  timeframe?: string
+  op: IndicatorFilterOp
+  value?: number
+  min?: number
+  max?: number
+}
+
+interface IndicatorFeatureStore {
+  read(timeframe: string, indicatorId: string, timestamp: string): number | undefined
 }
 
 function runStrategyRndBatch(input: StrategyRndBatchInput): StrategyRndBatchReport {
   if (!input.manifestPath) {
     throw new Error("strategy R&D batch requires manifestPath")
   }
-  if (!Array.isArray(input.candidates) || input.candidates.length === 0) {
+  const indicatorResearch = input.indicatorReportPath ? loadIndicatorResearch(input.indicatorReportPath) : null
+  const candidates = input.candidates.length > 0
+    ? input.candidates
+    : input.autoCandidates && indicatorResearch
+      ? synthesizeIndicatorCandidates(indicatorResearch)
+      : []
+  if (!Array.isArray(candidates) || candidates.length === 0) {
     throw new Error("strategy R&D batch requires at least one candidate")
   }
-  if (input.candidates.length > 10) {
-    throw new Error(`strategy R&D batch trial_count ${input.candidates.length} exceeds 10`)
+  if (candidates.length > 10) {
+    throw new Error(`strategy R&D batch trial_count ${candidates.length} exceeds 10`)
   }
 
-  const indicatorResearch = input.indicatorReportPath ? loadIndicatorResearch(input.indicatorReportPath) : null
-  const reports = input.candidates.map((candidate) => runCandidate(input, candidate))
+  const featureStore = input.indicatorReportPath ? loadIndicatorFeatureStore(input.indicatorReportPath) : emptyFeatureStore()
+  const batch = { ...input, candidates }
+  const reports = candidates.map((candidate) => runCandidate(batch, candidate, featureStore))
   const accepted = reports.filter((report) => report.gate.accepted)
   const winner = accepted.sort(compareCandidates)[0] ?? null
 
   return {
     batch_id: input.batchId || "strategy-rnd-batch",
     hypothesis: input.hypothesis || "",
-    trial_count: input.candidates.length,
+    trial_count: candidates.length,
     accepted_count: accepted.length,
+    candidate_source: input.candidates.length > 0 ? "provided" : "auto_indicator_synthesis",
     outcome: winner ? "candidate_found" : "no_promote",
     winner,
     candidates: reports,
@@ -128,6 +191,97 @@ function runStrategyRndBatch(input: StrategyRndBatchInput): StrategyRndBatchRepo
     next_action: winner
       ? "Draft a strategy policy for the winning candidate, then append replay evidence and run strategy-review before any shadow promotion."
       : "Stop this hypothesis batch; predeclare a new edge hypothesis before running more trials.",
+  }
+}
+
+function runStrategyRndLoop(input: StrategyRndLoopInput): StrategyRndLoopReport {
+  const createdAt = input.now || new Date().toISOString()
+  const runId = input.runId || `rnd-${createdAt.replace(/[^0-9]/g, "").slice(0, 14)}-${randomUUID().slice(0, 8)}`
+  const artifactRoot = input.artifactRoot || "./data/artifacts/strategy-rnd"
+  const ledgerPath = input.ledgerPath || "./data/strategy-rnd-ledger.jsonl"
+  const artifactRef = join(artifactRoot, `${safeFileName(runId)}.json`)
+  const batch = runStrategyRndBatch(input)
+  const ledgerRecord = buildRndLedgerRecord({
+    input,
+    runId,
+    createdAt,
+    artifactRef,
+    batch,
+  })
+
+  writeJsonFile(artifactRef, {
+    run_id: runId,
+    created_at: createdAt,
+    input: redactLoopInputForArtifact(input),
+    batch,
+    ledger_record: ledgerRecord,
+    stop_reason: batch.outcome,
+  })
+  appendJsonLine(ledgerPath, ledgerRecord)
+
+  return {
+    run_id: runId,
+    created_at: createdAt,
+    artifact_ref: artifactRef,
+    ledger_ref: ledgerPath,
+    batch,
+    ledger_record: ledgerRecord,
+    stop_reason: batch.outcome,
+  }
+}
+
+function buildRndLedgerRecord(input: {
+  input: StrategyRndLoopInput
+  runId: string
+  createdAt: string
+  artifactRef: string
+  batch: StrategyRndBatchReport
+}): StrategyRndLedgerRecord {
+  return {
+    run_id: input.runId,
+    created_at: input.createdAt,
+    batch_id: input.batch.batch_id,
+    hypothesis: input.batch.hypothesis,
+    manifest_ref: input.input.manifestPath,
+    indicator_report_ref: input.input.indicatorReportPath || "",
+    artifact_ref: input.artifactRef,
+    candidate_source: input.batch.candidate_source,
+    outcome: input.batch.outcome,
+    trial_count: input.batch.trial_count,
+    accepted_count: input.batch.accepted_count,
+    winner_candidate_id: input.batch.winner?.candidate_id ?? null,
+    rejected_reasons: summarizeRejectedReasons(input.batch),
+  }
+}
+
+function summarizeRejectedReasons(batch: StrategyRndBatchReport): StrategyRndLedgerRecord["rejected_reasons"] {
+  const counts = new Map<string, number>()
+  for (const candidate of batch.candidates) {
+    if (candidate.gate.accepted) {
+      continue
+    }
+    for (const block of candidate.gate.blocked_by) {
+      counts.set(block.check_id, (counts.get(block.check_id) || 0) + 1)
+    }
+  }
+  return Array.from(counts.entries())
+    .map(([check_id, count]) => ({ check_id, count }))
+    .sort((a, b) => b.count - a.count || a.check_id.localeCompare(b.check_id))
+}
+
+function redactLoopInputForArtifact(input: StrategyRndLoopInput): JSONRecord {
+  return {
+    batchId: input.batchId,
+    hypothesis: input.hypothesis,
+    manifestPath: input.manifestPath,
+    timeframe: input.timeframe,
+    maxHoldBars: input.maxHoldBars,
+    feeBps: input.feeBps,
+    slippageBps: input.slippageBps,
+    oosSplitRatio: input.oosSplitRatio,
+    indicatorReportPath: input.indicatorReportPath,
+    autoCandidates: input.autoCandidates,
+    candidates: input.candidates,
   }
 }
 
@@ -199,14 +353,14 @@ function proposedIndicatorUse(category: string, observe: string): string {
   return `candidate feature; must define exact rule and replay: ${observe}`
 }
 
-function runCandidate(input: StrategyRndBatchInput, candidate: StrategyRndCandidateInput): StrategyRndCandidateReport {
+function runCandidate(input: StrategyRndBatchInput, candidate: StrategyRndCandidateInput, featureStore: IndicatorFeatureStore): StrategyRndCandidateReport {
   const family = candidate.family || "trend_pullback_v1"
   if (family !== "trend_pullback_v1") {
     throw new Error(`unsupported strategy R&D family: ${family}`)
   }
   const params = normalizeTrendPullbackParams(candidate.params || {})
   const parameterCount = candidate.parameterCount ?? countActiveParameters(candidate.params || {})
-  const strategy = buildTrendPullbackCandidate(candidate.candidateId, params)
+  const strategy = buildTrendPullbackCandidate(candidate.candidateId, params, featureStore)
   const replay = replayStrategy(strategy, {
     manifestPath: input.manifestPath,
     timeframe: input.timeframe,
@@ -229,18 +383,90 @@ function runCandidate(input: StrategyRndBatchInput, candidate: StrategyRndCandid
   }
 }
 
-function buildTrendPullbackCandidate(strategyId: string, params: TrendPullbackParams): ReplayStrategy {
+function synthesizeIndicatorCandidates(research: StrategyIndicatorResearch): StrategyRndCandidateInput[] {
+  const candidates: StrategyRndCandidateInput[] = []
+  for (const item of research.selected_indicators) {
+    if (candidates.length >= 10) {
+      break
+    }
+    if (item.category === "volume" && item.indicator_id === "vpci") {
+      candidates.push(buildAutoCandidate("AUTO-LONG-VPCI-POS", "long trend pullback with positive VPCI", "long", [{
+        indicator_id: item.indicator_id,
+        op: "gt",
+        value: 0,
+      }]))
+      candidates.push(buildAutoCandidate("AUTO-SHORT-VPCI-NEG", "short trend pullback with negative VPCI", "short", [{
+        indicator_id: item.indicator_id,
+        op: "lt",
+        value: 0,
+      }]))
+      continue
+    }
+    if (item.category === "momentum" && item.indicator_id === "stc") {
+      candidates.push(buildAutoCandidate("AUTO-LONG-STC-GT50", "long trend pullback with STC above 50", "long", [{
+        indicator_id: item.indicator_id,
+        op: "gt",
+        value: 50,
+      }]))
+      candidates.push(buildAutoCandidate("AUTO-SHORT-STC-LT50", "short trend pullback with STC below 50", "short", [{
+        indicator_id: item.indicator_id,
+        op: "lt",
+        value: 50,
+      }]))
+      continue
+    }
+    if (item.category === "momentum" && item.indicator_id === "laguerre") {
+      candidates.push(buildAutoCandidate("AUTO-LONG-LAGUERRE-MID", "long trend pullback with Laguerre not overextended", "long", [{
+        indicator_id: item.indicator_id,
+        op: "between",
+        min: 0.2,
+        max: 0.85,
+      }]))
+      candidates.push(buildAutoCandidate("AUTO-SHORT-LAGUERRE-MID", "short trend pullback with Laguerre not washed out", "short", [{
+        indicator_id: item.indicator_id,
+        op: "between",
+        min: 0.15,
+        max: 0.8,
+      }]))
+    }
+  }
+  return candidates.slice(0, 10)
+}
+
+function buildAutoCandidate(id: string, description: string, side: "long" | "short", filters: JSONRecord[]): StrategyRndCandidateInput {
+  return {
+    candidateId: id,
+    description,
+    parameterCount: 8,
+    params: {
+      side,
+      fast_ema: 50,
+      slow_ema: 200,
+      pullback_atr: 0.25,
+      stop_atr: 0.5,
+      max_risk_atr: 1.25,
+      reward_risk: 2,
+      require_ema_stack: true,
+      indicator_filters: filters,
+    },
+  }
+}
+
+function buildTrendPullbackCandidate(strategyId: string, params: TrendPullbackParams, featureStore: IndicatorFeatureStore): ReplayStrategy {
   return {
     strategy_id: strategyId,
     default_timeframe: "4h",
     warmup_bars: Math.max(200, params.slopeLookback + 1),
-    generateSignal({ candles, indicators, index }) {
+    generateSignal({ candles, indicators, index, options }) {
       const candle = candles[index]
       const next = candles[index + 1]
       const fast = readEma(indicators, params.fastEma, index)
       const slow = readEma(indicators, params.slowEma, index)
       const currentAtr = indicators.atr14[index]
       if (!candle || !next || !Number.isFinite(fast) || !Number.isFinite(slow) || !Number.isFinite(currentAtr) || currentAtr <= 0) {
+        return null
+      }
+      if (!passesIndicatorFilters(params.indicatorFilters, featureStore, options.timeframe || "4h", candle.date)) {
         return null
       }
       const side = readCandidateSide(candles, indicators, index, params)
@@ -259,6 +485,25 @@ function buildTrendPullbackCandidate(strategyId: string, params: TrendPullbackPa
       })
     },
   }
+}
+
+function passesIndicatorFilters(filters: IndicatorFilter[], store: IndicatorFeatureStore, defaultTimeframe: string, timestamp: string): boolean {
+  for (const filter of filters) {
+    const value = store.read(filter.timeframe || defaultTimeframe, filter.indicatorId, timestamp)
+    if (!Number.isFinite(value)) {
+      return false
+    }
+    if (filter.op === "gt" && !(Number(value) > Number(filter.value))) {
+      return false
+    }
+    if (filter.op === "lt" && !(Number(value) < Number(filter.value))) {
+      return false
+    }
+    if (filter.op === "between" && !(Number(value) >= Number(filter.min) && Number(value) <= Number(filter.max))) {
+      return false
+    }
+  }
+  return true
 }
 
 function readCandidateSide(candles: Candle[], indicators: IndicatorSet, index: number, params: TrendPullbackParams): "long" | "short" | null {
@@ -381,6 +626,7 @@ function normalizeTrendPullbackParams(raw: JSONRecord): TrendPullbackParams {
     rewardRisk: readPositiveNumber(raw.reward_risk ?? raw.rewardRisk, 2),
     slopeLookback: readNonNegativeInteger(raw.slope_lookback ?? raw.slopeLookback, 0),
     requireEmaStack: readBoolean(raw.require_ema_stack ?? raw.requireEmaStack, true),
+    indicatorFilters: readIndicatorFilters(raw.indicator_filters ?? raw.indicatorFilters),
   }
 }
 
@@ -395,6 +641,77 @@ function trendPullbackParamsToJson(params: TrendPullbackParams): JSONRecord {
     rewardRisk: params.rewardRisk,
     slopeLookback: params.slopeLookback,
     requireEmaStack: params.requireEmaStack,
+    indicatorFilters: params.indicatorFilters.map((filter) => ({ ...filter })),
+  }
+}
+
+function readIndicatorFilters(value: unknown): IndicatorFilter[] {
+  if (!Array.isArray(value)) {
+    return []
+  }
+  return value.map((raw) => {
+    const item = asRecord(raw)
+    const op = readIndicatorFilterOp(item.op)
+    return {
+      indicatorId: stringField(item.indicator_id ?? item.indicatorId),
+      timeframe: stringField(item.timeframe) || undefined,
+      op,
+      value: optionalNumber(item.value),
+      min: optionalNumber(item.min),
+      max: optionalNumber(item.max),
+    }
+  }).filter((filter) => filter.indicatorId && isValidIndicatorFilter(filter))
+}
+
+function isValidIndicatorFilter(filter: IndicatorFilter): boolean {
+  if (filter.op === "between") {
+    return filter.min !== undefined && filter.max !== undefined
+  }
+  return filter.value !== undefined
+}
+
+function readIndicatorFilterOp(value: unknown): IndicatorFilterOp {
+  if (value === "lt" || value === "between") {
+    return value
+  }
+  return "gt"
+}
+
+function loadIndicatorFeatureStore(path: string): IndicatorFeatureStore {
+  const report = asRecord(JSON.parse(readFileSync(path, "utf8")))
+  const data = asRecord(report.data)
+  const timeframes = asRecord(data.timeframes)
+  const values = new Map<string, Map<string, number>>()
+  for (const [timeframe, rawFrame] of Object.entries(timeframes)) {
+    const frame = asRecord(rawFrame)
+    const features = asRecord(frame.features)
+    for (const [indicatorId, rawFeature] of Object.entries(features)) {
+      const feature = asRecord(rawFeature)
+      const points = Array.isArray(feature.values) ? feature.values : []
+      const byTimestamp = new Map<string, number>()
+      for (const rawPoint of points) {
+        const point = asRecord(rawPoint)
+        const timestamp = stringField(point.timestamp)
+        const value = optionalNumber(point.value)
+        if (timestamp && value !== undefined) {
+          byTimestamp.set(timestamp, value)
+        }
+      }
+      values.set(`${timeframe}:${indicatorId}`, byTimestamp)
+    }
+  }
+  return {
+    read(timeframe: string, indicatorId: string, timestamp: string): number | undefined {
+      return values.get(`${timeframe}:${indicatorId}`)?.get(timestamp)
+    },
+  }
+}
+
+function emptyFeatureStore(): IndicatorFeatureStore {
+  return {
+    read() {
+      return undefined
+    },
   }
 }
 
@@ -416,7 +733,12 @@ function compareCandidates(a: StrategyRndCandidateReport, b: StrategyRndCandidat
 }
 
 function countActiveParameters(params: JSONRecord): number {
-  return Object.values(params).filter((value) => value !== undefined && value !== null && value !== "").length
+  return Object.values(params).reduce<number>((count, value) => {
+    if (Array.isArray(value)) {
+      return count + value.length
+    }
+    return value !== undefined && value !== null && value !== "" ? count + 1 : count
+  }, 0)
 }
 
 function readSide(value: unknown): SideFilter {
@@ -459,9 +781,20 @@ function strategyRndBatchInputFromJson(input: JSONRecord): StrategyRndBatchInput
     slippageBps: optionalNumber(input.slippage_bps ?? input.slippageBps),
     oosSplitRatio: optionalNumber(input.oos_split ?? input.oosSplitRatio),
     indicatorReportPath: stringField(input.indicator_report_path ?? input.indicatorReportPath) || undefined,
+    autoCandidates: readBoolean(input.auto_candidates ?? input.autoCandidates, false),
     candidates: Array.isArray(input.candidates)
       ? input.candidates.map((candidate) => candidateFromJson(candidate as JSONRecord))
       : [],
+  }
+}
+
+function strategyRndLoopInputFromJson(input: JSONRecord): StrategyRndLoopInput {
+  return {
+    ...strategyRndBatchInputFromJson(input),
+    runId: stringField(input.run_id ?? input.runId) || undefined,
+    artifactRoot: stringField(input.artifact_root ?? input.artifactRoot) || undefined,
+    ledgerPath: stringField(input.ledger_path ?? input.ledgerPath) || undefined,
+    now: stringField(input.now) || undefined,
   }
 }
 
@@ -492,9 +825,27 @@ function round(value: number): number {
   return Math.round(value * 1_000_000) / 1_000_000
 }
 
+function safeFileName(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]/g, "-")
+}
+
+function writeJsonFile(path: string, value: unknown): void {
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`)
+}
+
+function appendJsonLine(path: string, value: unknown): void {
+  mkdirSync(dirname(path), { recursive: true })
+  writeFileSync(path, `${JSON.stringify(value)}\n`, { flag: "a" })
+}
+
 export {
   runStrategyRndBatch,
+  runStrategyRndLoop,
   strategyRndBatchInputFromJson,
+  strategyRndLoopInputFromJson,
   type StrategyRndBatchInput,
   type StrategyRndBatchReport,
+  type StrategyRndLoopInput,
+  type StrategyRndLoopReport,
 }

@@ -436,6 +436,87 @@ test("run strategy R&D batch without creating DB", async () => {
   }
 })
 
+test("run strategy R&D loop writes ledger without creating DB", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "trade-flow-rnd-loop-cli-"))
+  const dbPath = join(dir, "should-not-exist", "trade.db")
+  const artifactRoot = join(dir, "artifacts")
+  const ledgerPath = join(dir, "strategy-rnd-ledger.jsonl")
+  try {
+    writeFileSync(join(dir, "4h.csv"), [
+      "date,timestamp,open,high,low,close,volume",
+      ...buildReplayCandles().map((item, index) => [
+        new Date(1_700_000_000_000 + index * 4 * 60 * 60 * 1000).toISOString(),
+        1_700_000_000_000 + index * 4 * 60 * 60 * 1000,
+        item.open,
+        item.high,
+        item.low,
+        item.close,
+        item.volume,
+      ].join(",")),
+    ].join("\n"))
+    const manifestPath = join(dir, "manifest.json")
+    const indicatorReportPath = join(dir, "indicator-report.json")
+    writeFileSync(manifestPath, JSON.stringify({
+      symbol: "BTCUSDT",
+      timeframes: {
+        "4h": {
+          file: "4h.csv",
+        },
+      },
+    }))
+    writeFileSync(indicatorReportPath, JSON.stringify({
+      ok: true,
+      data: {
+        selected_indicators: {
+          vpci: {
+            category: "volume",
+            defaults: { period_short: 5, period_long: 20 },
+            observe: "volume confirmation",
+          },
+        },
+        timeframes: {
+          "4h": {
+            features: {
+              vpci: {
+                status: "ok",
+                values: buildReplayCandles().map((_, index) => ({
+                  timestamp: new Date(1_700_000_000_000 + index * 4 * 60 * 60 * 1000).toISOString(),
+                  value: 1,
+                })),
+              },
+            },
+          },
+        },
+      },
+    }))
+
+    const result = await run([
+      "--db",
+      dbPath,
+      "--strategy-rnd-loop",
+      "--json",
+      JSON.stringify({
+        run_id: "rnd-cli-loop-test",
+        manifest_path: manifestPath,
+        indicator_report_path: indicatorReportPath,
+        artifact_root: artifactRoot,
+        ledger_path: ledgerPath,
+        auto_candidates: true,
+        candidates: [],
+      }),
+    ])
+
+    assert.equal(result.ok, true)
+    const data = (result as { ok: true; data: { run_id: string; artifact_ref: string; ledger_ref: string } }).data
+    assert.equal(data.run_id, "rnd-cli-loop-test")
+    assert.equal(existsSync(data.artifact_ref), true)
+    assert.equal(existsSync(data.ledger_ref), true)
+    assert.equal(existsSync(dbPath), false)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("run artifact gc reports candidates without creating DB", async () => {
   const dir = mkdtempSync(join(tmpdir(), "trade-flow-artifact-gc-"))
   const dbPath = join(dir, "trade.db")

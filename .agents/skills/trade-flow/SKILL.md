@@ -29,6 +29,7 @@ latest_observe.action_intent.request
 - 需要对 draft strategy 做机械 replay，产生 shadow / live-small 资格证据
 - 需要用统一 replay core + strategy registry 回放不同策略
 - 需要运行受搜索预算约束的 strategy R&D candidate batch
+- 需要运行一轮可审计的 strategy R&D loop，并写入 R&D artifact / JSONL ledger
 - 需要把 replay / shadow / live-small 样本写入 strategy evidence ledger
 - 需要生成 strategy review 报告，判断 stale evidence / promotion gate / 下一步
 - 需要按证据门槛把 strategy status 从 `draft -> shadow -> live-small / paused`
@@ -58,7 +59,8 @@ latest_observe.action_intent.request
   - `--build-observe --json <payload>`：从账户 / 市场投影构建 observe event
   - `--observe-from-skills --json <payload>`：调用只读 `binance-account-snapshot` / `binance-symbol-snapshot` 后构建 observe event
   - `--replay-strategy --manifest <manifest> --strategy-id <id>`：读取 OHLCV manifest，通过 replay registry 机械回放策略，并输出统计与 gate
-  - `--strategy-rnd-batch --json <payload>`：运行最多 10 个预声明候选的 R&D 批次，统一 replay/OOS，输出 winner 或 no_promote；可消费 `tech-indicators` report 做 indicator research；不自动升格
+  - `--strategy-rnd-batch --json <payload>`：运行最多 10 个预声明候选的 R&D 批次，统一 replay/OOS，输出 winner 或 no_promote；可消费 `tech-indicators` report / feature series 做 indicator research，也可 `auto_candidates=true` 受限合成候选；不自动升格
+  - `--strategy-rnd-loop --json <payload>`：运行一轮 R&D loop，写 artifact JSON 和 `strategy-rnd-ledger.jsonl`；不写 `trade.db`，不自动升格
   - `--append-strategy-evidence --strategy <path> --ledger <path> --json <payload>`：把 replay / shadow / live-small / review_batch 证据追加进 JSONL ledger
   - `--strategy-review --strategy <path> --ledger <path> [--db <path>]`：读取 strategy、evidence ledger 和可选 DB review，生成迭代报告
   - `--strategy-promote --strategy <path> --ledger <path> --to <status> [--yes]`：按 gate dry-run 或更新 strategy frontmatter status
@@ -82,7 +84,9 @@ latest_observe.action_intent.request
 - `--observe-from-skills` 只调用只读 skill，不触发 Binance 写接口
 - `--replay-strategy` 只读 OHLCV 文件，不写 DB，不触发 Binance；replay 结果只能作为 draft / shadow evidence
 - `--strategy-rnd-batch` 只读 OHLCV 文件，不写 DB，不触发 Binance；候选必须预声明，最多 10 个 trial，单候选参数数最多 8
-- indicator 的发现、目录、解释和计算由 `tech-indicators` 提供；trade-flow 只消费其 report，不在 R&D 内硬编码全量指标体系
+- `--strategy-rnd-loop` 只包装 batch、artifact 和 R&D ledger；R&D ledger 是研究审计，不是策略准入 evidence
+- indicator 的发现、目录、解释和计算由 `tech-indicators` 提供；trade-flow 只消费其 report / feature series，不在 R&D 内硬编码全量指标体系
+- `auto_candidates=true` 只做 bounded candidate synthesis；仍受 trial / parameter / OOS gate 约束，不能直接写 strategy status
 - replay core 固定保守口径：同一 lane 不重叠持仓、同 K 同时触发 stop/target 时先算 stop、支持 fee/slippage bps、输出 replay gate
 - `gate.live_small_candidate` 在 replay 阶段永远是 false；live-small 还必须经过 shadow 与人工确认
 - strategy iteration 使用 `./data/strategy-evidence.jsonl` 这类 JSONL ledger；不新增 DB 表，不扩大 `plan_event.kind`
