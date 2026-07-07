@@ -25,6 +25,9 @@
 - aggTrades
 - depth
 - liquidation-like zones
+- R&D 长历史 OI / taker ratio（Binance Vision metrics）
+- R&D 限窗 aggTrades / ±1% depth（Binance Vision，最多 7 天）
+- Deribit DVOL；BRK BTC MVRV / SOPR / active-addresses average
 - 账户侧 markPrice / liquidationPrice / 持仓 / 挂单 / 保护单
 
 ## 微观结构证据
@@ -85,6 +88,8 @@
 - 不新增 market snapshot 表。
 - replay / shadow 需要的数据由对应 skill 输出引用，不进入 `trade.db`。
 - 未被 refs / evidence / review / `.pin` 引用的市场 artifact 不长期保留；默认通过 `trade-flow --artifact-gc` dry-run 后显式清理。
+- Vision ZIP 只在进程内校验、解压、聚合，不落长期缓存；factor report 是唯一持久结果。
+- 完整 L2 queue、真实 liquidation、带地址标签的 exchange netflow 与完整历史 option surface 以 `capability_gaps` 明示。
 
 ## 禁止项
 

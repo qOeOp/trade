@@ -22,6 +22,7 @@ import { getRndFamily } from "./rnd-family"
 
 type JSONRecord = Record<string, unknown>
 type CandidateSource = "provided" | "bounded_factor_composition" | "scientific_factor_discovery"
+const fundingEventCache = new Map<string, Array<{ timestamp: string; value: number }>>()
 
 interface StrategyRndBatchInput {
   batchId?: string
@@ -521,6 +522,7 @@ function buildFactorResearch(input: StrategyRndBatchInput, featureStore: FactorF
     feeBps: input.feeBps,
     slippageBps: input.slippageBps,
     fundingBpsPer8h: input.fundingBpsPer8h,
+    fundingEvents: loadFundingEvents(input.indicatorReportPath),
   })
   return researchFactorSeeds(
     featureStore,
@@ -543,6 +545,20 @@ function ensureNonOverlappingManifests(discoveryPath: string, validationPath: st
   if (discovery.first <= validation.last && validation.first <= discovery.last) {
     throw new Error(`discovery and validation manifests overlap for ${timeframe}`)
   }
+}
+
+function loadFundingEvents(path?: string): Array<{ timestamp: string; value: number }> {
+  if (!path) return []
+  const cached = fundingEventCache.get(path)
+  if (cached) return cached
+  const report = asRecord(JSON.parse(readFileSync(path, "utf8")))
+  const raw = asRecord(asRecord(report.data).market_events).funding
+  const events = (Array.isArray(raw) ? raw : []).map((item) => {
+    const value = asRecord(item)
+    return { timestamp: stringField(value.timestamp), value: Number(value.value) }
+  }).filter((item) => item.timestamp && Number.isFinite(item.value))
+  fundingEventCache.set(path, events)
+  return events
 }
 
 function readManifestRange(manifestPath: string, timeframe: string): { first: number; last: number } {
@@ -650,6 +666,7 @@ function runCandidate(input: StrategyRndBatchInput, candidate: StrategyRndCandid
     feeBps: input.feeBps,
     slippageBps: input.slippageBps,
     fundingBpsPer8h: input.fundingBpsPer8h,
+    fundingEvents: loadFundingEvents(input.indicatorReportPath),
     oosSplitRatio: input.oosSplitRatio ?? 0.3,
     trialCount: input.searchTrialCount ?? input.candidates.length,
     parameterCount,
@@ -699,6 +716,7 @@ function evaluateParameterStability(
         feeBps: input.feeBps,
         slippageBps: input.slippageBps,
         fundingBpsPer8h: input.fundingBpsPer8h,
+        fundingEvents: loadFundingEvents(input.indicatorReportPath),
         supplementalDataRefs: input.indicatorReportPath ? [input.indicatorReportPath] : [],
       })
       results.push({ parameter: key, multiplier, avg_r: replay.avg_r, total_r: replay.total_r })

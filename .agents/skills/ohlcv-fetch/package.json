@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "dependencies": {
-    "binance-api-node": "^0.13.9"
+    "binance-api-node": "^0.13.9",
+    "fflate": "^0.8.3"
   },
   "devDependencies": {
     "@types/node": "^24.5.2",

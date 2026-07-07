@@ -6,6 +6,7 @@
       "name": "ohlcv-fetch-skill",
       "dependencies": {
         "binance-api-node": "^0.13.9",
+        "fflate": "^0.8.3",
       },
       "devDependencies": {
         "@types/node": "^24.5.2",
@@ -23,6 +24,8 @@
     "binance-api-node": ["binance-api-node@0.13.9", "", { "dependencies": { "https-proxy-agent": "^5.0.0", "isomorphic-ws": "^4.0.1", "json-bigint": "^1.0.0", "lodash.zipobject": "^4.1.3", "node-fetch": "^2.7.0", "reconnecting-websocket": "^4.2.0", "ws": "^7.2.0" } }, "sha512-Wb0Qrg9aqbjPN2AoPTgFPz/2SNATvI5wwlTv6VUT3isWgT7RK+Eon3V3bp0d8fytGJAcDQBfaUwMnwzlLxiCpg=="],
 
     "debug": ["debug@4.4.3", "", { "dependencies": { "ms": "^2.1.3" } }, "sha512-RGwwWnwQvkVfavKVt22FGLw+xYSdzARwm0ru6DhTVA3umU5hZc28V3kO4stgYryrTlLpuvgI9GiijltAjNbcqA=="],
+
+    "fflate": ["fflate@0.8.3", "", {}, "sha512-tbZNuJrLwGUp3zshBtdy4W+ORxZuIh8a5ilyIEQDC5rY1f3U20JMry0Ll3WBzU58EZKsEuJFXhb5gwv8CsPvgA=="],
 
     "https-proxy-agent": ["https-proxy-agent@5.0.1", "", { "dependencies": { "agent-base": "6", "debug": "4" } }, "sha512-dFcAjpTQFgoLMzC2VwU+C/CbS7uRL0lWmxDITmqm7C+7F0Odmj6s9l6alZc6AELXhrnggM2CeWSXHGOdX2YtwA=="],
 

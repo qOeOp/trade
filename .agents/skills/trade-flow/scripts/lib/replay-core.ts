@@ -44,6 +44,7 @@ interface ReplayTrade {
   stop: number
   target: number
   r: number
+  funding_r?: number
   outcome: ExitReason
   reason: string
   bars_held: number
@@ -74,6 +75,7 @@ interface ReplayOptions {
   feeBps?: number
   slippageBps?: number
   fundingBpsPer8h?: number
+  fundingEvents?: Array<{ timestamp: string; value: number }>
   oosSplitRatio?: number
   trialCount?: number
   parameterCount?: number
@@ -132,6 +134,7 @@ function replayStrategy(strategy: ReplayStrategy, options: ReplayOptions): Repla
   const manifest = loadManifest(options.manifestPath)
   const candles = loadCandlesFromManifest(options.manifestPath, manifest, timeframe)
   const indicators = buildIndicators(candles)
+  const fundingCoverage = analyzeFundingCoverage(candles, options.fundingEvents || [])
   const trades: ReplayTrade[] = []
   let index = Math.max(strategy.warmup_bars, 1)
 
@@ -161,6 +164,10 @@ function replayStrategy(strategy: ReplayStrategy, options: ReplayOptions): Repla
     fee_bps: options.feeBps ?? 0,
     slippage_bps: options.slippageBps ?? 0,
     adverse_funding_bps_per_8h: options.fundingBpsPer8h ?? 0,
+    funding_model: options.fundingEvents?.length ? "historical_events_entry_notional" : "adverse_stress_only",
+    funding_event_count: options.fundingEvents?.length ?? 0,
+    funding_events_hash: options.fundingEvents?.length ? hashCanonical(options.fundingEvents) : null,
+    funding_event_coverage: fundingCoverage,
     stop_gap_policy: "next_open_if_worse",
     same_candle_policy: "stop_first",
     overlapping_positions: false,
@@ -178,8 +185,24 @@ function replayStrategy(strategy: ReplayStrategy, options: ReplayOptions): Repla
     trades,
     assumptions,
   })
+  if (fundingCoverage.status === "partial") {
+    result.gate.shadow_candidate = false
+    result.gate.blocked_by.push({ check_id: "R-FUNDING-COVERAGE", reason: "historical funding events do not cover the complete replay interval" })
+  }
   result.provenance = buildReplayProvenance(options.manifestPath, timeframe, assumptions, options.supplementalDataRefs)
   return result
+}
+
+function analyzeFundingCoverage(candles: Candle[], events: Array<{ timestamp: string; value: number }>): JSONRecord {
+  if (events.length === 0 || candles.length === 0) return { status: "none", event_count: events.length }
+  const timestamps = events.map((event) => Date.parse(event.timestamp)).filter(Number.isFinite).sort((a, b) => a - b)
+  if (timestamps.length === 0) return { status: "invalid", event_count: events.length }
+  const first = timestamps[0]
+  const last = timestamps.at(-1) || first
+  const maxGap = timestamps.slice(1).reduce((gap, timestamp, index) => Math.max(gap, timestamp - timestamps[index]), 0)
+  const tolerance = 9 * 3_600_000
+  const complete = first <= candles[0].timestamp + tolerance && last >= candles.at(-1)!.timestamp - tolerance && maxGap <= tolerance
+  return { status: complete ? "complete" : "partial", event_count: timestamps.length, first: new Date(first).toISOString(), last: new Date(last).toISOString(), max_gap_hours: round(maxGap / 3_600_000) }
 }
 
 function evaluateLatestSignal(
@@ -317,7 +340,7 @@ function buildTrade(
   const grossR = signal.side === "long"
     ? (exit - signal.entry) / risk
     : (signal.entry - exit) / risk
-  const costR = estimateCostR(signal.entry, exit, risk, barsHeld, options)
+  const costs = estimateCostR(signal.side, signal.entry, exit, risk, barsHeld, entryCandle.timestamp, exitCandle.timestamp + (outcome === "time_exit" ? timeframeMilliseconds(options.timeframe || "4h") : 0), options)
   return {
     side: signal.side,
     signal_time: signalCandle.date,
@@ -327,7 +350,8 @@ function buildTrade(
     exit: round(exit),
     stop: round(signal.stop),
     target: round(signal.target),
-    r: round(grossR - costR),
+    r: round(grossR - costs.total),
+    funding_r: round(costs.funding),
     outcome,
     reason: signal.reason,
     bars_held: barsHeld,
@@ -336,18 +360,21 @@ function buildTrade(
   }
 }
 
-function estimateCostR(entry: number, exit: number, risk: number, barsHeld: number, options: ReplayOptions): number {
+function estimateCostR(side: Side, entry: number, exit: number, risk: number, barsHeld: number, entryTime: number, exitTime: number, options: ReplayOptions): { total: number; funding: number } {
   const feeBps = options.feeBps ?? 0
   const slippageBps = options.slippageBps ?? 0
   const fundingBps = options.fundingBpsPer8h ?? 0
-  if (risk <= 0 || (feeBps <= 0 && slippageBps <= 0 && fundingBps <= 0)) {
-    return 0
+  if (risk <= 0 || (feeBps <= 0 && slippageBps <= 0 && fundingBps <= 0 && !options.fundingEvents?.length)) {
+    return { total: 0, funding: 0 }
   }
   const tradingCost = (Math.abs(entry) + Math.abs(exit)) * (feeBps + slippageBps) / 10000
   const heldHours = (barsHeld + 1) * timeframeMilliseconds(options.timeframe || "4h") / 3_600_000
-  const fundingCost = Math.abs(entry) * fundingBps * heldHours / 8 / 10000
-  const cost = tradingCost + fundingCost
-  return cost / risk
+  const stressFunding = Math.abs(entry) * fundingBps * heldHours / 8 / 10000
+  const historicalFunding = Math.abs(entry) * (side === "long" ? 1 : -1) * (options.fundingEvents || [])
+    .filter((event) => Date.parse(event.timestamp) > entryTime && Date.parse(event.timestamp) <= exitTime)
+    .reduce((sum, event) => sum + event.value, 0)
+  const fundingR = (stressFunding + historicalFunding) / risk
+  return { total: tradingCost / risk + fundingR, funding: fundingR }
 }
 
 function summarizeReplay(input: {

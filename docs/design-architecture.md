@@ -791,9 +791,9 @@ Factor discovery 先在 discovery 数据上运行 base family，以实际 setup 
 
 研究先跑多资产 panel：同一机制至少跨 3 个资产，保留逐资产结果，统一检查 pooled sample、正收益广度、OOS、额外成本与单资产灾难损失。单资产 BTC 结果只能提出假设，不能证明普适 edge。
 
-Replay 成交口径包含双边 fee/slippage、按持仓时长计 adverse funding、同 K stop-first、止损 gap 按更差开盘。OHLCV 无法识别盘口队列与被动单真实成交概率，相关能力在获得历史 L2/订单回报前保持未实现，不用常数命中率伪造。
+Replay 成交口径包含双边 fee/slippage、同 K stop-first、止损 gap 按更差开盘。factor report 有原始 funding events 时，按持仓方向与实际结算时点、入场名义价值近似逐次计费；`adverse funding` 只作额外压力或无事件时 fallback。funding 未覆盖完整 replay 或存在 >9h 缺口时以 `R-FUNDING-COVERAGE` 拒绝 shadow。OHLCV 与 Binance Vision 百分比 depth 都无法识别盘口队列，被动单真实成交概率保持未实现，不用常数命中率伪造。
 
-加密原生 factor 可消费 funding、premium index、open interest value 与 taker buy/sell ratio。Binance funding/premium 可取长历史；public OI/taker ratio 仅近 30 天、aggTrades 仅近 24 小时，必须随 report 暴露 coverage，短覆盖 factor 不参与长周期结论。
+加密原生 factor 可消费 funding、premium、OI、taker ratio、归档 aggTrades/depth、Deribit DVOL 与 BRK BTC 链上序列。REST 的 OI/taker 30 天与 aggTrades 24 小时限制由 Binance Vision 日归档补齐；metrics 可跑长历史，逐笔/depth 只允许显式 1-7 天窗口。归档逐文件校验 checksum，原始 ZIP 不保留，factor report 暴露 coverage / external errors / capability gaps。
 
 Replay / online parity：strategy family 不读取下一根 K 线；replay 注入 next-open 作为成交参考，在线 signal 注入当前报价。两条路径共享信号条件、止损与目标计算，在线 signal 本身不执行。
 

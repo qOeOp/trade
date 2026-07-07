@@ -83,12 +83,16 @@ cd .agents/skills/ohlcv-fetch
 
 ## 加密原生特征
 
-`market-features.ts` 以 `tech-indicators --feature-series` 报告的时间网格为基准，因果对齐 Binance funding、premium index、open interest value 与 taker buy/sell ratio；输出仍是可直接交给 R&D 的 factor report。
+`market-features.ts` 以 `tech-indicators --feature-series` 报告的时间网格为基准，因果对齐 Binance / Deribit / BRK 数据；输出仍是可直接交给 R&D 的 factor report。
 
 ```bash
 ./scripts/market-features.ts --symbol BTCUSDT --timeframe 4h --since-ts 1609459200000 --base-report /tmp/factors.json
+./scripts/market-features.ts --symbol BTCUSDT --timeframe 4h --since-ts 1704067200000 --base-report /tmp/factors.json --microstructure-days 1
 ```
 
-- funding / premium 可分页覆盖长历史。
-- Binance public data 的 open interest / taker ratio 仅保留近 30 天；报告写入 coverage，不能冒充长周期证据。
-- public aggTrades REST 只支持近 24 小时，不在本脚本伪造历史。
+- funding / premium 走 REST 长历史；原始 funding events 写入 report，供 replay 精确结算。
+- OI / taker ratio 默认从 Binance Vision 每日 metrics 恢复长历史；`--metrics-source rest` 才退回近 30 天。
+- `--microstructure-days 1..7` 从 Vision 临时读取 aggTrades 与 ±1% bookDepth，聚合 orderflow / concentration / depth 后立即释放原始 ZIP；默认不抓。
+- BTC / ETH 接 Deribit DVOL；BTC 接 BRK `MVRV / SOPR-24h / active-addresses-24h-average`。外部源失败写入 `external_errors`，不拖垮 Binance 主链。
+- 每个 Vision ZIP 都校验官方 SHA-256；长期只保存 factor report，不保留原始归档。
+- 完整 L2 queue、真实 liquidation label、带地址标签的 CEX netflow、完整历史期权曲面仍标为 capability gap，不做推测填充。

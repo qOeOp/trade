@@ -116,7 +116,7 @@ tags: []
 - factor transform 固定为 `level / delta / slope / zscore / percentile`，condition 固定为 `gt / lt / between`；composer 最多 3 个不同角色 factor、10 个候选、8 个参数
 - scientific factor discovery 以 base family 实际 setup 的 realized R 为目标做 causal rank IC；全部被扫描 factor 统一做 5% FDR，再检查时间折、regime 与 `|corr|>=0.85` 去重。筛选结果只是 seed，不是 edge 结论
 - replay 对训练标签跨 OOS 分界做 purge；多候选样本足够时执行四时间块选择反转审计
-- replay 成本包含 fee、slippage、按持仓时长的 adverse funding 与止损 gap；历史 L2 缺失时不估算 maker queue fill
+- replay 成本包含 fee、slippage、止损 gap；有 funding events 时逐次结算，无事件时才使用 adverse funding fallback；历史 L2 queue 缺失时不估算 maker fill
 - `strategy-evidence.jsonl`：保存 replay / shadow / live-small / review_batch 证据，不进入 `trade.db`
 - evidence fingerprint：`policy_hash + harness_hash + data_hash + assumptions_hash`；data hash 同时覆盖 OHLCV 与消费的 factor report，策略、回放代码、数据或假设任一变化均使旧证据 stale
 - `anti_overfit`：普通末段切片只算 selection validation；准入证据必须是只查看一次的 locked holdout 或 locked walk-forward

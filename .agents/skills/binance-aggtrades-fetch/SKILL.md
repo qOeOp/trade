@@ -28,3 +28,4 @@ description: OBSERVE 阶段的 Binance aggTrades 原始数据 skill。用于给 
 - 默认 `limit=500`
 - 支持 `--from-id`、`--start-time`、`--end-time`
 - 返回 JSON，包含 `request`、`summary`、`trades`
+- 本 skill 服务在线近期观察；长期 R&D 的 aggTrades 由 `ohlcv-fetch/market-features.ts --microstructure-days` 从 Binance Vision 校验并聚合，避免把大体积原始成交长期落盘

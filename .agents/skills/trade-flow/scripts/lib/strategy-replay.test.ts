@@ -114,9 +114,15 @@ test("replayStrategy charges adverse funding and fills a stop gap at the worse o
         return index === 1 ? { side: "long", signal_index: 1, entry_index: 2, entry: 100, stop: 98, target: 110, reason: "gap test" } : null
       },
     }
-    const result = replayStrategy(strategy, { manifestPath: join(dir, "manifest.json"), maxHoldBars: 2, fundingBpsPer8h: 2 })
+    const result = replayStrategy(strategy, {
+      manifestPath: join(dir, "manifest.json"), maxHoldBars: 2, fundingBpsPer8h: 2,
+      fundingEvents: [{ timestamp: "2026-01-01T12:00:00Z", value: 0.01 }],
+    })
     assert.equal(result.trades[0].exit, 95)
-    assert.ok(result.trades[0].r < -2.5)
+    assert.ok(result.trades[0].r < -3)
+    assert.ok(Number(result.trades[0].funding_r) > 0.5)
+    assert.equal(result.assumptions.funding_model, "historical_events_entry_notional")
+    assert.ok(result.gate.blocked_by.some((item) => item.check_id === "R-FUNDING-COVERAGE"))
     assert.equal(result.assumptions.stop_gap_policy, "next_open_if_worse")
   } finally {
     rmSync(dir, { recursive: true, force: true })
