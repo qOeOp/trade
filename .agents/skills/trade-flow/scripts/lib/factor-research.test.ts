@@ -44,6 +44,7 @@ test("factor research keeps stable predictive factors and prunes correlated copi
     assert.ok(report.profiles.some((item) => item.rejected_by.includes("redundant_correlation")))
     assert.ok(report.profiles.find((item) => item.accepted)?.fold_ics.filter((ic) => ic > 0).length! >= 2)
     assert.ok(report.profiles.find((item) => item.accepted)?.regime_ics.filter((item) => item.ic > 0).length! >= 2)
+    assert.ok(report.profiles.find((item) => item.accepted)!.fdr_q_value <= 0.05)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

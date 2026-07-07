@@ -108,14 +108,16 @@ tags: []
 - `--strategy-rnd-batch`：最多 10 个候选；可先在 discovery 数据上筛 factor，再按角色、数量与参数预算组合到预声明 base family；统一 replay/OOS，不自动升格
 - `--strategy-rnd-loop`：包装一轮 R&D batch，写 artifact JSON 与 `strategy-rnd-ledger.jsonl`；ledger 只做研究审计，不作为 promote evidence
 - `--strategy-rnd-campaign`：在全局最多 10 次 discovery trial 内运行 hypothesis queue；没有 winner 才继续，首个 winner 冻结后只查看一次不重叠 locked holdout，失败即结束 campaign
+- `--strategy-signal`：candidate 在最新闭合 K 线上复用 replay family并返回稳定 hash；entry reference 由在线报价注入，只返回信号，不执行、不落交易事实
 - replay 只能给 `shadow_candidate`；`live-small` 必须另有 shadow 样本与人工确认
 - candidate family 只承载少量可检验市场机制，不做形态百科；只有通过样本外、成本和稳定性门槛的版本才可沉淀为策略 asset
 - factor 由 indicator 自身 catalog descriptor 自动发现，统一使用稳定 `factor_id`；family 由目录模块自动发现，两者新增都不改 R&D core 或中央注册表
 - factor transform 固定为 `level / delta / slope / zscore / percentile`，condition 固定为 `gt / lt / between`；composer 最多 3 个不同角色 factor、10 个候选、8 个参数
-- scientific factor discovery 使用 causal rank IC；默认最少 300 样本、三段时间至少两段同向、至少两个 regime 同向，`|corr|>=0.85` 只保留预测力更强者。筛选结果只是 seed，不是 edge 结论
+- scientific factor discovery 使用 causal rank IC；有效样本按预测 horizon 折减，全部被扫描 factor 统一做 5% FDR，之后才检查时间折、regime 与 `|corr|>=0.85` 去重。筛选结果只是 seed，不是 edge 结论
 - `strategy-evidence.jsonl`：保存 replay / shadow / live-small / review_batch 证据，不进入 `trade.db`
 - evidence fingerprint：`policy_hash + harness_hash + data_hash + assumptions_hash`；data hash 同时覆盖 OHLCV 与消费的 factor report，策略、回放代码、数据或假设任一变化均使旧证据 stale
 - `anti_overfit`：普通末段切片只算 selection validation；准入证据必须是只查看一次的 locked holdout 或 locked walk-forward
+- `external_validation` 可评估完整不重叠区间，但不提供 shadow 准入资格；历史上已被项目使用的数据不得重新命名为 locked holdout
 - replay robustness：至少两个有效 regime 分桶、额外单边 5 bps 成本压力、预声明 ±10% 参数扰动
 - `--strategy-review`：汇总 fresh / stale evidence、DB review stats 和 promotion gate
 - `--strategy-promote`：默认 dry-run，满足 gate 且 `--yes` 后才改 strategy status

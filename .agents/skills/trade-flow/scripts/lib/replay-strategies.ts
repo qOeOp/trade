@@ -4,22 +4,21 @@ const btcTrendPullbackStrategy: ReplayStrategy = {
   strategy_id: "S-BTC-4H-TREND-PULLBACK",
   default_timeframe: "4h",
   warmup_bars: 200,
-  generateSignal({ candles, indicators, index, options }) {
+  generateSignal({ candles, indicators, index, entryPrice, entryIndex, options }) {
     const candle = candles[index]
-    const next = candles[index + 1]
     const emaFast = indicators.ema50[index]
     const emaSlow = indicators.ema200[index]
     const currentAtr = indicators.atr14[index]
     const trend = readTrend(candle, emaFast, emaSlow, currentAtr)
-    if (!trend || !next) {
+    if (!trend) {
       return null
     }
     return buildTrendPullbackSignal({
       side: trend,
       signal: candle,
       signalIndex: index,
-      entryIndex: index + 1,
-      entry: next.open,
+      entryIndex,
+      entry: entryPrice,
       emaFast,
       currentAtr,
       rewardRisk: options.rewardRisk ?? 2,

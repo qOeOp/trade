@@ -177,6 +177,28 @@ test("locked holdout evaluates the complete frozen dataset", () => {
   }
 })
 
+test("external validation evaluates the complete dataset without claiming holdout", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-replay-external-"))
+  try {
+    writeMultiReplayFixture(dir)
+    const strategy: ReplayStrategy = {
+      strategy_id: "S-EXTERNAL",
+      default_timeframe: "4h",
+      warmup_bars: 1,
+      generateSignal({ candles, index }) {
+        if (index !== 1 && index !== 3) return null
+        return { side: "long", signal_index: index, entry_index: index + 1, entry: candles[index + 1].open, stop: candles[index + 1].open - 1, target: candles[index + 1].open + 2, reason: "external" }
+      },
+    }
+    const result = replayStrategy(strategy, { manifestPath: join(dir, "manifest.json"), antiOverfitStage: "external_validation" })
+    const proof = result.assumptions.anti_overfit as { stage: string; oos_stats: { sample_count: number } }
+    assert.equal(proof.stage, "external_validation")
+    assert.equal(proof.oos_stats.sample_count, result.sample_count)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("evaluateReplayGate blocks weak replay evidence", () => {
   const weak = evaluateReplayGate({
     sample_count: 12,

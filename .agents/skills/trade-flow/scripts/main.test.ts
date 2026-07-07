@@ -432,6 +432,24 @@ test("run strategy R&D batch without creating DB", async () => {
     assert.equal(data.trial_count, 1)
     assert.equal(data.guardrails.no_auto_promote, true)
     assert.equal(existsSync(dbPath), false)
+
+    const signalResult = await run([
+      "--strategy-signal",
+      "--json",
+      JSON.stringify({
+        manifest_path: manifestPath,
+        entry_price: buildReplayCandles().at(-1)!.close,
+        now: new Date(1_700_000_000_000 + buildReplayCandles().length * 4 * 60 * 60 * 1000).toISOString(),
+        candidate: {
+          candidate_id: "C-LIVE-SIGNAL",
+          family: "trend_pullback_v1",
+          params: { side: "both", pullback_atr: 10, max_risk_atr: 20 },
+        },
+      }),
+    ])
+    assert.equal(signalResult.ok, true)
+    assert.equal((signalResult as { ok: true; data: { action: string } }).data.action, "entry")
+    assert.equal(existsSync(dbPath), false)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

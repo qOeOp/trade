@@ -71,6 +71,8 @@ test("bounded composer avoids same-role combinations and enforces parameter budg
   }], seeds, { maxFactorsPerCandidate: 2, maxCandidates: 10, maxParameterCount: 7 })
 
   assert.equal(candidates.length, 5)
+  assert.equal(new Set(candidates.map((candidate) => candidate.candidateId)).size, candidates.length)
+  assert.ok(candidates.some((candidate) => candidate.candidateId.includes("gt-0")))
   assert.ok(candidates.every((candidate) => Number(candidate.parameterCount) <= 7))
   assert.ok(candidates.every((candidate) => !candidate.candidateId.includes("trend-a-level-trend-b-level")))
 })

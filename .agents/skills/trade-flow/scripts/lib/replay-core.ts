@@ -59,6 +59,8 @@ interface ReplayStrategy {
     candles: Candle[]
     indicators: IndicatorSet
     index: number
+    entryPrice: number
+    entryIndex: number
     options: ReplayOptions
   }): ReplaySignal | null
 }
@@ -74,7 +76,7 @@ interface ReplayOptions {
   oosSplitRatio?: number
   trialCount?: number
   parameterCount?: number
-  antiOverfitStage?: "selection_validation" | "locked_holdout"
+  antiOverfitStage?: "selection_validation" | "external_validation" | "locked_holdout"
   supplementalDataRefs?: string[]
 }
 
@@ -112,6 +114,16 @@ interface ReplayProvenance {
   supplemental_data?: Array<{ ref: string; content_sha256: string }>
 }
 
+interface LatestSignalResult {
+  strategy_id: string
+  symbol: string
+  timeframe: string
+  signal_time: string
+  entry_reference: number
+  action: "entry" | "no_action"
+  signal: ReplaySignal | null
+}
+
 function replayStrategy(strategy: ReplayStrategy, options: ReplayOptions): ReplayResult {
   const timeframe = options.timeframe || strategy.default_timeframe
   const maxHoldBars = options.maxHoldBars ?? 18
@@ -126,6 +138,8 @@ function replayStrategy(strategy: ReplayStrategy, options: ReplayOptions): Repla
       candles,
       indicators,
       index,
+      entryPrice: candles[index + 1].open,
+      entryIndex: index + 1,
       options,
     })
     if (!signal) {
@@ -162,6 +176,55 @@ function replayStrategy(strategy: ReplayStrategy, options: ReplayOptions): Repla
   })
   result.provenance = buildReplayProvenance(options.manifestPath, timeframe, assumptions, options.supplementalDataRefs)
   return result
+}
+
+function evaluateLatestSignal(
+  strategy: ReplayStrategy,
+  options: ReplayOptions,
+  entryPrice: number,
+  freshness: { now?: string; maxAgeBars?: number } = {},
+): LatestSignalResult {
+  if (!Number.isFinite(entryPrice) || entryPrice <= 0) {
+    throw new Error("latest signal requires a positive entry price")
+  }
+  const timeframe = options.timeframe || strategy.default_timeframe
+  const manifest = loadManifest(options.manifestPath)
+  const candles = loadCandlesFromManifest(options.manifestPath, manifest, timeframe)
+  const index = candles.length - 1
+  if (index < strategy.warmup_bars) {
+    throw new Error(`latest signal requires at least ${strategy.warmup_bars + 1} candles`)
+  }
+  const interval = timeframeMilliseconds(timeframe)
+  const now = freshness.now ? Date.parse(freshness.now) : Date.now()
+  const closedAt = candles[index].timestamp + interval
+  const maxAgeBars = freshness.maxAgeBars ?? 1
+  if (!Number.isFinite(now) || maxAgeBars < 0 || closedAt > now || now - closedAt > interval * maxAgeBars) {
+    throw new Error(`latest closed candle is stale or not yet closed: ${candles[index].date}`)
+  }
+  const signal = strategy.generateSignal({
+    candles,
+    indicators: buildIndicators(candles),
+    index,
+    entryPrice,
+    entryIndex: candles.length,
+    options,
+  })
+  return {
+    strategy_id: strategy.strategy_id,
+    symbol: stringField(manifest.symbol) || stringField(manifest.requested_symbol) || "UNKNOWN",
+    timeframe,
+    signal_time: candles[index].date,
+    entry_reference: entryPrice,
+    action: signal ? "entry" : "no_action",
+    signal,
+  }
+}
+
+function timeframeMilliseconds(timeframe: string): number {
+  const match = timeframe.match(/^(\d+)([mhdw])$/)
+  if (!match) throw new Error(`unsupported signal timeframe: ${timeframe}`)
+  const unit = { m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000 }[match[2]] || 0
+  return Number(match[1]) * unit
 }
 
 function loadManifest(path: string): JSONRecord {
@@ -318,14 +381,17 @@ function buildAntiOverfitProof(trades: ReplayTrade[], options: ReplayOptions): J
   if (trades.length === 0) {
     return null
   }
-  if (options.antiOverfitStage === "locked_holdout") {
+  if (options.antiOverfitStage === "locked_holdout" || options.antiOverfitStage === "external_validation") {
+    const stage = options.antiOverfitStage
     return {
       method: "out_of_sample",
-      stage: "locked_holdout",
+      stage,
       oos_stats: summarizeTrades(trades),
       trial_count: options.trialCount ?? 1,
       parameter_count: options.parameterCount ?? 0,
-      notes: "The frozen candidate is evaluated on the complete locked holdout; no holdout segment is reused for selection.",
+      notes: stage === "locked_holdout"
+        ? "The frozen candidate is evaluated on the complete pristine holdout; no holdout segment is reused for selection."
+        : "The frozen candidate is evaluated on the complete non-overlapping external dataset; this is not pristine holdout evidence.",
     }
   }
   const ratio = options.oosSplitRatio ?? 0
@@ -606,6 +672,7 @@ export {
   atr,
   buildIndicators,
   ema,
+  evaluateLatestSignal,
   loadCandlesFromManifest,
   parseCsvCandles,
   replayStrategy,
@@ -618,6 +685,7 @@ export {
   evaluateReplayGate,
   type Candle,
   type IndicatorSet,
+  type LatestSignalResult,
   type ReplayOptions,
   type ReplayResult,
   type ReplayProvenance,

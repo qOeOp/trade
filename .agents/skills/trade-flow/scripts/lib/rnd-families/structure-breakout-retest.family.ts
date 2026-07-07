@@ -48,14 +48,13 @@ function buildStrategy(strategyId: string, params: Params, factorStore: FactorFe
     strategy_id: strategyId,
     default_timeframe: "4h",
     warmup_bars: Math.max(20, params.lookbackBars + 2),
-    generateSignal({ candles, indicators, index, options }) {
+    generateSignal({ candles, indicators, index, entryPrice, entryIndex, options }) {
       const breakoutIndex = index - 1
       const breakout = candles[breakoutIndex]
       const retest = candles[index]
-      const next = candles[index + 1]
       const breakoutAtr = indicators.atr14[breakoutIndex]
       const retestAtr = indicators.atr14[index]
-      if (!breakout || !retest || !next || !Number.isFinite(breakoutAtr) || !Number.isFinite(retestAtr) || breakoutAtr <= 0 || retestAtr <= 0) return null
+      if (!breakout || !retest || !Number.isFinite(breakoutAtr) || !Number.isFinite(retestAtr) || breakoutAtr <= 0 || retestAtr <= 0) return null
       if (!passesFactorConditions(params.factorConditions, factorStore, options.timeframe || "4h", retest.date)) return null
       const structure = candles.slice(Math.max(0, breakoutIndex - params.lookbackBars), breakoutIndex)
       if (structure.length < params.lookbackBars) return null
@@ -65,29 +64,29 @@ function buildStrategy(strategyId: string, params: Params, factorStore: FactorFe
       if (params.side === "long" || params.side === "both") {
         const broken = breakout.close > resistance + params.breakoutBufferAtr * breakoutAtr
         const tested = retest.low <= resistance + params.retestToleranceAtr * retestAtr && retest.low >= resistance - params.retestToleranceAtr * retestAtr
-        if (broken && tested && retest.close >= resistance) return buildSignal("long", resistance, retest, index, next.open, retestAtr, params)
+        if (broken && tested && retest.close >= resistance) return buildSignal("long", resistance, retest, index, entryIndex, entryPrice, retestAtr, params)
       }
       if (params.side === "short" || params.side === "both") {
         const broken = breakout.close < support - params.breakoutBufferAtr * breakoutAtr
         const tested = retest.high >= support - params.retestToleranceAtr * retestAtr && retest.high <= support + params.retestToleranceAtr * retestAtr
-        if (broken && tested && retest.close <= support) return buildSignal("short", support, retest, index, next.open, retestAtr, params)
+        if (broken && tested && retest.close <= support) return buildSignal("short", support, retest, index, entryIndex, entryPrice, retestAtr, params)
       }
       return null
     },
   }
 }
 
-function buildSignal(side: "long" | "short", level: number, retest: Candle, index: number, entry: number, atr: number, params: Params): ReplaySignal | null {
+function buildSignal(side: "long" | "short", level: number, retest: Candle, index: number, entryIndex: number, entry: number, atr: number, params: Params): ReplaySignal | null {
   if (side === "long") {
     const stop = Math.min(retest.low, level) - params.stopAtr * atr
     const risk = entry - stop
     if (risk <= 0 || risk > params.maxRiskAtr * atr) return null
-    return { side, signal_index: index, entry_index: index + 1, entry, stop, target: entry + risk * params.rewardRisk, reason: "rnd structure breakout retest long", meta: { ...toJSON(params), structureLevel: round(level) } }
+    return { side, signal_index: index, entry_index: entryIndex, entry, stop, target: entry + risk * params.rewardRisk, reason: "rnd structure breakout retest long", meta: { ...toJSON(params), structureLevel: round(level) } }
   }
   const stop = Math.max(retest.high, level) + params.stopAtr * atr
   const risk = stop - entry
   if (risk <= 0 || risk > params.maxRiskAtr * atr) return null
-  return { side, signal_index: index, entry_index: index + 1, entry, stop, target: entry - risk * params.rewardRisk, reason: "rnd structure breakout retest short", meta: { ...toJSON(params), structureLevel: round(level) } }
+  return { side, signal_index: index, entry_index: entryIndex, entry, stop, target: entry - risk * params.rewardRisk, reason: "rnd structure breakout retest short", meta: { ...toJSON(params), structureLevel: round(level) } }
 }
 
 export default family

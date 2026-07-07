@@ -787,7 +787,9 @@ Strategy evidence 写 JSONL ledger，不入 `plan_event`。`draft -> shadow` 必
 
 R&D 扩展边界：indicator 在自身 catalog descriptor 声明稳定 factor；factor engine 只维护有限数学原语，R&D 通用计算 transform / condition；strategy family 以独立模块放入 `rnd-families/` 并由目录自动发现。新增普通 indicator 或 family 不修改 R&D core。bounded composer 只组合不同角色 factor，并受 candidate、factor 数和参数预算约束；模板定义入场/退出骨架，factor 定义可检验条件，二者不互相硬编码。
 
-Factor discovery 只在 discovery 数据上做 causal rank IC、三段时间稳定性、跨 regime 稳定性与相关性去重；通过者仅成为 bounded composer seed。locked holdout 使用完整冻结集且每个 data hash 只能评估一次；OHLCV、factor report、harness、策略与假设共同决定证据是否 fresh。
+Factor discovery 只在 discovery 数据上做 causal rank IC、按 horizon 折减有效样本的 5% FDR、三段时间稳定性、跨 regime 稳定性与相关性去重；通过者仅成为 bounded composer seed。locked holdout 使用完整冻结集且每个 data hash 只能评估一次；OHLCV、factor report、harness、策略与假设共同决定证据是否 fresh。
+
+Replay / online parity：strategy family 不读取下一根 K 线；replay 注入 next-open 作为成交参考，在线 signal 注入当前报价。两条路径共享信号条件、止损与目标计算，在线 signal 本身不执行。
 
 ---
 

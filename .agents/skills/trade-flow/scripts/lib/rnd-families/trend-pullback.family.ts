@@ -71,20 +71,19 @@ function buildStrategy(strategyId: string, params: Params, factorStore: Paramete
     strategy_id: strategyId,
     default_timeframe: "4h",
     warmup_bars: Math.max(200, params.slopeLookback + 1),
-    generateSignal({ candles, indicators, index, options }) {
+    generateSignal({ candles, indicators, index, entryPrice, entryIndex, options }) {
       const candle = candles[index]
-      const next = candles[index + 1]
       const fast = readEma(indicators, params.fastEma, index)
       const slow = readEma(indicators, params.slowEma, index)
       const atr = indicators.atr14[index]
-      if (!candle || !next || !Number.isFinite(fast) || !Number.isFinite(slow) || !Number.isFinite(atr) || atr <= 0) {
+      if (!candle || !Number.isFinite(fast) || !Number.isFinite(slow) || !Number.isFinite(atr) || atr <= 0) {
         return null
       }
       if (!passesFactorConditions(params.factorConditions, factorStore, options.timeframe || "4h", candle.date)) {
         return null
       }
       const side = candidateSide(candles, indicators, index, params)
-      return side ? signal(side, candle, index, next.open, fast, atr, params) : null
+      return side ? signal(side, candle, index, entryIndex, entryPrice, fast, atr, params) : null
     },
   }
 }
@@ -101,19 +100,19 @@ function candidateSide(candles: Candle[], indicators: IndicatorSet, index: numbe
   return null
 }
 
-function signal(side: "long" | "short", candle: Candle, index: number, entry: number, fast: number, atr: number, params: Params): ReplaySignal | null {
+function signal(side: "long" | "short", candle: Candle, index: number, entryIndex: number, entry: number, fast: number, atr: number, params: Params): ReplaySignal | null {
   if (side === "long") {
     if (candle.low > fast + params.pullbackAtr * atr) return null
     const stop = Math.min(candle.low, fast) - params.stopAtr * atr
     const risk = entry - stop
     if (risk <= 0 || risk > params.maxRiskAtr * atr) return null
-    return { side, signal_index: index, entry_index: index + 1, entry, stop, target: entry + risk * params.rewardRisk, reason: "rnd trend pullback long", meta: toJSON(params) }
+    return { side, signal_index: index, entry_index: entryIndex, entry, stop, target: entry + risk * params.rewardRisk, reason: "rnd trend pullback long", meta: toJSON(params) }
   }
   if (candle.high < fast - params.pullbackAtr * atr) return null
   const stop = Math.max(candle.high, fast) + params.stopAtr * atr
   const risk = stop - entry
   if (risk <= 0 || risk > params.maxRiskAtr * atr) return null
-  return { side, signal_index: index, entry_index: index + 1, entry, stop, target: entry - risk * params.rewardRisk, reason: "rnd trend pullback short", meta: toJSON(params) }
+  return { side, signal_index: index, entry_index: entryIndex, entry, stop, target: entry - risk * params.rewardRisk, reason: "rnd trend pullback short", meta: toJSON(params) }
 }
 
 function readEma(indicators: IndicatorSet, length: 20 | 50 | 200, index: number): number {

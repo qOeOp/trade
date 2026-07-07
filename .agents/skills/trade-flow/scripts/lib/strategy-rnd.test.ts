@@ -4,22 +4,61 @@ import { join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { runStrategyRndBatch, runStrategyRndCampaign, runStrategyRndLoop, strategyRndBatchInputFromJson } from "./strategy-rnd"
+import { evaluateRndSignal, runStrategyRndBatch, runStrategyRndCampaign, runStrategyRndLoop, strategyRndBatchInputFromJson } from "./strategy-rnd"
 
 test("strategy R&D parser normalizes factor discovery options", () => {
   const input = strategyRndBatchInputFromJson({
     manifest_path: "/tmp/manifest.json",
     factor_discover: true,
+    anti_overfit_stage: "external_validation",
     search_trial_count: 7,
     factor_research_options: { horizon_bars: 8, min_samples: 500, max_correlation: 0.8 },
     candidates: [{ candidate_id: "C-1", params: { side: "long" } }],
   })
 
   assert.equal(input.factorDiscover, true)
+  assert.equal(input.antiOverfitStage, "external_validation")
   assert.equal(input.searchTrialCount, 7)
   assert.equal(input.factorResearchOptions?.horizonBars, 8)
   assert.equal(input.factorResearchOptions?.minSamples, 500)
   assert.equal(input.factorResearchOptions?.maxCorrelation, 0.8)
+})
+
+test("latest strategy signal injects a live entry reference into the replay family", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-signal-"))
+  try {
+    const entryPrice = buildReplayCandles().at(-1)!.close
+    const result = evaluateRndSignal({
+      manifestPath: writeManifest(dir),
+      entryPrice,
+      now: new Date(1_700_000_000_000 + 280 * 4 * 60 * 60 * 1000).toISOString(),
+      candidate: {
+        candidateId: "C-LIVE-SIGNAL",
+        family: "trend_pullback_v1",
+        params: { side: "both", fast_ema: 50, slow_ema: 200, pullback_atr: 10, stop_atr: 0.5, max_risk_atr: 20, reward_risk: 2 },
+      },
+    })
+    assert.equal(result.entry_reference, entryPrice)
+    assert.equal(result.action, "entry")
+    assert.equal((result.signal as { entry: number }).entry, entryPrice)
+    assert.equal(typeof result.candidate_hash, "string")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("latest strategy signal rejects stale candles", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-stale-signal-"))
+  try {
+    assert.throws(() => evaluateRndSignal({
+      manifestPath: writeManifest(dir),
+      entryPrice: 100,
+      now: "2026-01-01T00:00:00.000Z",
+      candidate: { candidateId: "C-STALE", params: { side: "both" } },
+    }), /latest closed candle is stale/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test("strategy R&D batch runs bounded predeclared candidates", () => {
@@ -117,6 +156,34 @@ test("strategy R&D batch refuses excessive trial budget", () => {
     }),
     /trial_count 11 exceeds 10/,
   )
+})
+
+test("strategy R&D batch rejects duplicate candidate ids", () => {
+  assert.throws(() => runStrategyRndBatch({
+    manifestPath: "/tmp/manifest.json",
+    candidates: [
+      { candidateId: "DUP", params: { side: "long" } },
+      { candidateId: "DUP", params: { side: "short" } },
+    ],
+  }), /candidate_id must be unique/)
+})
+
+test("parameter stability does not perturb discrete EMA selectors", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-stability-"))
+  try {
+    const report = runStrategyRndBatch({
+      manifestPath: writeManifest(dir),
+      candidates: [{
+        candidateId: "C-STABILITY",
+        parameterCount: 6,
+        params: { side: "long", fastEma: 50, slowEma: 200, pullbackAtr: 0.25, stopAtr: 0.5, maxRiskAtr: 1.25, rewardRisk: 2 },
+      }],
+    })
+    const stability = (report.candidates[0].replay.assumptions.robustness as { parameter_stability: { results: Array<{ parameter: string }> } }).parameter_stability
+    assert.deepEqual(stability.results.map((item) => item.parameter), ["pullbackAtr", "pullbackAtr", "stopAtr", "stopAtr", "maxRiskAtr", "maxRiskAtr"])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test("strategy R&D batch executes structure breakout retest family without future levels", () => {

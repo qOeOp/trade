@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import {
+  evaluateLatestSignal,
   hashCanonical,
   loadCandlesFromManifest,
   replayDataHash,
@@ -38,7 +39,7 @@ interface StrategyRndBatchInput {
   factorSeeds?: FactorCondition[]
   maxFactorsPerCandidate?: number
   candidates: StrategyRndCandidateInput[]
-  antiOverfitStage?: "selection_validation" | "locked_holdout"
+  antiOverfitStage?: "selection_validation" | "external_validation" | "locked_holdout"
   parameterStability?: JSONRecord
   searchTrialCount?: number
 }
@@ -48,6 +49,16 @@ interface StrategyRndLoopInput extends StrategyRndBatchInput {
   artifactRoot?: string
   ledgerPath?: string
   now?: string
+}
+
+interface StrategyRndSignalInput {
+  manifestPath: string
+  indicatorReportPath?: string
+  timeframe?: string
+  entryPrice: number
+  now?: string
+  maxSignalAgeBars?: number
+  candidate: StrategyRndCandidateInput
 }
 
 interface StrategyRndCampaignHypothesisInput extends StrategyRndBatchInput {
@@ -142,7 +153,7 @@ interface StrategyRndLedgerRecord {
   trial_count: number
   accepted_count: number
   winner_candidate_id: string | null
-  stage: "selection_validation" | "locked_holdout"
+  stage: "selection_validation" | "external_validation" | "locked_holdout"
   data_hash: string
   holdout_key: string | null
   rejected_reasons: Array<{
@@ -164,6 +175,28 @@ interface StrategyRndCandidateReport {
   }
 }
 
+function evaluateRndSignal(input: StrategyRndSignalInput): JSONRecord {
+  if (!input.manifestPath || !input.candidate.candidateId) {
+    throw new Error("strategy signal requires manifestPath and candidate")
+  }
+  const family = input.candidate.family || "trend_pullback_v1"
+  const store = input.indicatorReportPath ? loadFactorFeatureStore(input.indicatorReportPath) : emptyFeatureStore()
+  const configured = getRndFamily(family).configure(input.candidate.candidateId, input.candidate.params || {}, store)
+  return {
+    candidate_id: input.candidate.candidateId,
+    family,
+    params: configured.params,
+    candidate_hash: hashCanonical({ family, params: configured.params }),
+    data_hash: replayDataHash(input.manifestPath, input.timeframe || configured.strategy.default_timeframe, input.indicatorReportPath ? [input.indicatorReportPath] : []),
+    ...evaluateLatestSignal(
+      configured.strategy,
+      { manifestPath: input.manifestPath, timeframe: input.timeframe },
+      input.entryPrice,
+      { now: input.now, maxAgeBars: input.maxSignalAgeBars },
+    ),
+  }
+}
+
 function runStrategyRndBatch(input: StrategyRndBatchInput): StrategyRndBatchReport {
   if (!input.manifestPath) {
     throw new Error("strategy R&D batch requires manifestPath")
@@ -172,9 +205,10 @@ function runStrategyRndBatch(input: StrategyRndBatchInput): StrategyRndBatchRepo
   const factorResearch = buildFactorResearch(input, featureStore)
   const resolved = resolveRndCandidates(input, factorResearch)
   const candidates = resolved.candidates
-  if (!Array.isArray(candidates) || candidates.length === 0) {
+  if (!Array.isArray(candidates) || (candidates.length === 0 && !factorResearch)) {
     throw new Error("strategy R&D batch requires at least one candidate")
   }
+  assertUniqueCandidateIds(candidates)
   if (candidates.length > 10) {
     throw new Error(`strategy R&D batch trial_count ${candidates.length} exceeds 10`)
   }
@@ -203,6 +237,16 @@ function runStrategyRndBatch(input: StrategyRndBatchInput): StrategyRndBatchRepo
     next_action: winner
       ? "Draft a strategy policy for the winning candidate, then append replay evidence and run strategy-review before any shadow promotion."
       : "Stop this hypothesis batch; predeclare a new edge hypothesis before running more trials.",
+  }
+}
+
+function assertUniqueCandidateIds(candidates: StrategyRndCandidateInput[]): void {
+  const seen = new Set<string>()
+  for (const candidate of candidates) {
+    if (!candidate.candidateId || seen.has(candidate.candidateId)) {
+      throw new Error(`strategy R&D candidate_id must be unique: ${candidate.candidateId || "<empty>"}`)
+    }
+    seen.add(candidate.candidateId)
   }
 }
 
@@ -396,7 +440,7 @@ function runStrategyRndCampaign(input: StrategyRndCampaignInput): StrategyRndCam
 function resolveCandidateCount(input: StrategyRndBatchInput): number {
   const featureStore = input.indicatorReportPath ? loadFactorFeatureStore(input.indicatorReportPath) : emptyFeatureStore()
   const count = resolveRndCandidates(input, buildFactorResearch(input, featureStore)).candidates.length
-  if (count === 0) {
+  if (count === 0 && !input.factorDiscover) {
     throw new Error("strategy R&D campaign hypothesis requires at least one candidate")
   }
   return count
@@ -560,7 +604,10 @@ function evaluateParameterStability(
 ): JSONRecord {
   const raw = candidate.params || {}
   const keys = Object.entries(raw)
-    .filter(([key, value]) => typeof value === "number" && value > 0 && !key.includes("ema") && !key.includes("lookback"))
+    .filter(([key, value]) => {
+      const normalized = key.toLowerCase()
+      return typeof value === "number" && value > 0 && !normalized.includes("ema") && !normalized.includes("lookback")
+    })
     .map(([key]) => key)
     .slice(0, 3)
   const results: Array<{ parameter: string; multiplier: number; avg_r: number; total_r: number }> = []
@@ -701,6 +748,7 @@ function strategyRndBatchInputFromJson(input: JSONRecord): StrategyRndBatchInput
     feeBps: optionalNumber(input.fee_bps ?? input.feeBps),
     slippageBps: optionalNumber(input.slippage_bps ?? input.slippageBps),
     oosSplitRatio: optionalNumber(input.oos_split ?? input.oosSplitRatio),
+    antiOverfitStage: readAntiOverfitStage(input.anti_overfit_stage ?? input.antiOverfitStage),
     searchTrialCount: optionalNumber(input.search_trial_count ?? input.searchTrialCount),
     indicatorReportPath: stringField(input.indicator_report_path ?? input.indicatorReportPath) || undefined,
     factorCompose: readBoolean(input.factor_compose ?? input.factorCompose, false),
@@ -750,6 +798,18 @@ function strategyRndCampaignInputFromJson(input: JSONRecord): StrategyRndCampaig
   }
 }
 
+function strategyRndSignalInputFromJson(input: JSONRecord): StrategyRndSignalInput {
+  return {
+    manifestPath: stringField(input.manifest_path ?? input.manifestPath),
+    indicatorReportPath: stringField(input.indicator_report_path ?? input.indicatorReportPath) || undefined,
+    timeframe: stringField(input.timeframe) || undefined,
+    entryPrice: Number(input.entry_price ?? input.entryPrice),
+    now: stringField(input.now) || undefined,
+    maxSignalAgeBars: optionalNumber(input.max_signal_age_bars ?? input.maxSignalAgeBars),
+    candidate: candidateFromJson(asRecord(input.candidate)),
+  }
+}
+
 function candidateFromJson(input: JSONRecord): StrategyRndCandidateInput {
   return {
     candidateId: stringField(input.candidate_id ?? input.candidateId),
@@ -783,6 +843,10 @@ function factorResearchOptionsFromJson(value: unknown): FactorResearchOptions {
     maxCorrelation: optionalNumber(input.max_correlation ?? input.maxCorrelation),
     maxSelected: optionalNumber(input.max_selected ?? input.maxSelected),
   }
+}
+
+function readAntiOverfitStage(value: unknown): StrategyRndBatchInput["antiOverfitStage"] {
+  return value === "external_validation" || value === "locked_holdout" || value === "selection_validation" ? value : undefined
 }
 
 function safeFileName(value: string): string {
@@ -832,16 +896,19 @@ function appendJsonLine(path: string, value: unknown): void {
 }
 
 export {
+  evaluateRndSignal,
   runStrategyRndBatch,
   runStrategyRndCampaign,
   runStrategyRndLoop,
   strategyRndBatchInputFromJson,
   strategyRndCampaignInputFromJson,
   strategyRndLoopInputFromJson,
+  strategyRndSignalInputFromJson,
   type StrategyRndBatchInput,
   type StrategyRndBatchReport,
   type StrategyRndCampaignInput,
   type StrategyRndCampaignReport,
   type StrategyRndLoopInput,
   type StrategyRndLoopReport,
+  type StrategyRndSignalInput,
 }

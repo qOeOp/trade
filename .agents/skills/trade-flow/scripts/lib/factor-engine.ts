@@ -242,7 +242,7 @@ function composeFactorCandidates(
       if (parameterCount > maxParameters) {
         continue
       }
-      const suffix = conditions.map((condition) => `${safeId(condition.factorId)}-${condition.transform}`).join("-")
+      const suffix = conditions.map(conditionSlug).join("-")
       candidates.push({
         ...base,
         candidateId: `${base.candidateId}-${suffix}`,
@@ -259,6 +259,19 @@ function composeFactorCandidates(
     }
   }
   return candidates
+}
+
+function conditionSlug(condition: FactorCondition): string {
+  return safeId([
+    condition.factorId,
+    condition.timeframe,
+    condition.transform,
+    condition.lookback,
+    condition.op,
+    condition.value,
+    condition.min,
+    condition.max,
+  ].filter((value) => value !== undefined).join("-"))
 }
 
 function buildConditionCombinations(conditions: FactorCondition[], maxFactors: number): FactorCondition[][] {

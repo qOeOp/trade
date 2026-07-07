@@ -41,7 +41,7 @@ interface EvidenceStats {
 
 interface AntiOverfitProof {
   method: "out_of_sample" | "walk_forward"
-  stage?: "selection_validation" | "locked_holdout"
+  stage?: "selection_validation" | "external_validation" | "locked_holdout"
   oos_stats: EvidenceStats
   train_stats?: EvidenceStats
   trial_count?: number

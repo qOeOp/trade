@@ -63,6 +63,7 @@ latest_observe.action_intent.request
   - `--strategy-rnd-batch --json <payload>`：运行最多 10 个候选；`factor_discover=true + factor_compose=true` 时先做因子统计筛选，再按角色与参数预算组合到预声明 base family；统一 replay/OOS，不自动升格
   - `--strategy-rnd-loop --json <payload>`：运行一轮 R&D loop，写 artifact JSON 和 `strategy-rnd-ledger.jsonl`；不写 `trade.db`，不自动升格
   - `--strategy-rnd-campaign --json <payload>`：依次运行 hypothesis queue；未产生 discovery winner 才继续下一假设；首个 winner 冻结后只查看一次不重叠 locked holdout，通过即返回，失败即结束 campaign
+  - `--strategy-signal --json <payload>`：用最新闭合 K 线与传入 `entry_price` 评估 candidate，并返回稳定 candidate hash；只返回 `entry / no_action`，不写 DB、不执行
   - `--append-strategy-evidence --strategy <path> --ledger <path> --json <payload>`：把 replay / shadow / live-small / review_batch 证据追加进 JSONL ledger
   - `--strategy-review --strategy <path> --ledger <path> [--db <path>]`：读取 strategy、evidence ledger 和可选 DB review，生成迭代报告
   - `--strategy-promote --strategy <path> --ledger <path> --to <status> [--yes]`：按 gate dry-run 或更新 strategy frontmatter status
@@ -90,10 +91,12 @@ latest_observe.action_intent.request
 - `--strategy-rnd-campaign` 的总 discovery trial budget 最多 10；只接受预声明 hypothesis queue，validation manifest 必须与 discovery manifest 时间不重叠；locked holdout 只允许看一次，失败即结束 campaign
 - discovery winner 含 indicator filter 时必须提供独立 `validation_indicator_report_path`，不得拿 discovery feature series 验证
 - campaign 产出的 `validated_candidate_found` 仍只是待写 strategy policy 的候选，不自动进入 strategy evidence、shadow 或实盘
+- replay 与 `--strategy-signal` 调用同一 family：replay 注入下一根 open，在线评估注入当前可成交报价；family 不得读取未来 K 线
+- `--strategy-signal` 默认要求最后一根闭合 K 线距当前不超过 1 个周期；陈旧或尚未闭合的数据直接拒绝
 - factor 发现、目录、解释和计算由 `tech-indicators` descriptor 提供；trade-flow 只消费稳定 `factor_id` 与 feature series，不硬编码 indicator 名称
 - factor condition 通用支持 `level / delta / slope / zscore / percentile` 与 `gt / lt / between`；旧 `indicator_filters` 自动映射为 `level`，仅用于兼容
 - bounded composer 最多组合 3 个不同角色 factor、最多输出 10 个 candidate，并把 threshold 与 transform lookback 计入 8 参数上限；不做无界笛卡尔积
-- `factor_discover=true` 只在 discovery 数据上计算 causal rank IC；至少 300 个样本、三段时间中至少两段同向、至少两个 market regime 同向，并按 `|corr|>=0.85` 去重后才能成为 seed
+- `factor_discover=true` 只在 discovery 数据上计算 causal rank IC；有效样本按 horizon 折减并通过 5% FDR、三段时间至少两段同向、至少两个 market regime 同向，再按 `|corr|>=0.85` 去重后才能成为 seed
 - family 是少量市场机制的可执行实验模板，不追求穷举形态；未经 replay/OOS/成本/稳定性验证的 candidate 不进入长期 asset
 - family 从 `scripts/lib/rnd-families/*.family.ts` 自动发现；新增 family 只新增模块，不修改 `strategy-rnd.ts`、union 或中央注册表
 - 冻结 candidate 在不重叠外部样本上失败后必须停止；任何参数、过滤器或规则修改都作为新 hypothesis / trial，不能用调参覆盖失败结论
@@ -105,6 +108,7 @@ latest_observe.action_intent.request
 - promotion 只接受 `schema_version>=2`、`closed_candles_only=true` 且 checksum 可核验的数据；旧 manifest 可研究，不可准入
 - `policy_hash` 只覆盖可交易策略定义；strategy markdown 中 `## Setup Certificate` 之前的研究引用、replay refs、迭代日志不应让 evidence stale
 - 普通 chronological tail split 只算 `selection_validation`，不能授权 shadow；`draft -> shadow` 必须带 `stage=locked_holdout` 的 OOS / walk-forward proof
+- `external_validation` 使用完整不重叠区间，但只做研究确认；已被项目查看过的数据不能冒充 locked holdout，也不能授权 shadow
 - anti-overfit proof 的 `oos_stats.sample_count` 至少 10，且 OOS 表现必须为正；`trial_count > 10` 或 `parameter_count > 8` 会被拒绝
 - replay evidence 必须在至少两个有效 market regime 分桶中具备稳定性，在额外单边 5 bps 成本后仍为正，并通过预声明的 ±10% 参数扰动
 - `shadow -> live-small` 需要 fresh replay + fresh shadow，且 shadow 样本数至少 20

@@ -218,6 +218,7 @@ RAVE skill 降级链路：build-skills.sh 打包失败 → 复用已编好的 bi
 - replay evidence 的身份不能只有 `policy_hash`，还必须绑定 Harness 代码、数据内容和回放假设；四者任一变化都要 stale。
 - 准入数据必须可验证为闭合 K 线并带内容 checksum；路径和生成时间不足以支持复现。
 - replay feedback 不能只看总体收益；至少补 regime 分桶、成本压力和预声明参数扰动，避免单一市场阶段带来的控制感错觉。
+- 2026-07-07 真实 BTC 4H R&D：趋势回撤 long 的表面 winner 在 2025+ external validation 上因样本、成本、regime 与参数稳定性失败；加入按 horizon 折减有效样本的 5% FDR 后，41 个 factor 全部不显著，原 VFI winner 被判定为多重检验假阳性。long / short 无因子基线同样为负，未冻结策略、未降低 gate。
 
 ---
 

@@ -21,6 +21,8 @@ interface FactorResearchProfile {
   transform: FactorTransform
   sample_count: number
   ic: number
+  p_value: number
+  fdr_q_value: number
   fold_ics: number[]
   regime_ics: Array<{ regime: string; sample_count: number; ic: number }>
   accepted: boolean
@@ -34,6 +36,7 @@ interface FactorResearchReport {
   min_samples: number
   min_abs_ic: number
   max_correlation: number
+  max_fdr: 0.05
   profiles: FactorResearchProfile[]
   selected_factor_ids: string[]
   seeds: FactorCondition[]
@@ -97,12 +100,22 @@ function researchFactorSeeds(
         transform,
         sample_count: observations.length,
         ic: round(ic),
+        p_value: round(icPValue(ic, observations.length, horizonBars)),
+        fdr_q_value: 1,
         fold_ics: foldIcs.map(round),
         regime_ics: regimeIcs.map((item) => ({ ...item, ic: round(item.ic) })),
         accepted: rejectedBy.length === 0,
         rejected_by: rejectedBy,
       },
     })
+  }
+
+  assignFdr(internals.map((item) => item.profile))
+  for (const item of internals) {
+    if (item.profile.fdr_q_value > 0.05) {
+      item.profile.accepted = false
+      item.profile.rejected_by.push("fdr_not_significant")
+    }
   }
 
   const selected: typeof internals = []
@@ -128,10 +141,29 @@ function researchFactorSeeds(
     min_samples: minSamples,
     min_abs_ic: minAbsIc,
     max_correlation: maxCorrelation,
+    max_fdr: 0.05,
     profiles: internals.map((item) => item.profile).sort((a, b) => Math.abs(b.ic) - Math.abs(a.ic)),
     selected_factor_ids: selected.map((item) => item.definition.factor_id),
     seeds: selected.flatMap(({ definition, profile }) => buildDirectionalSeeds(definition, profile, lookback)),
   }
+}
+
+function assignFdr(profiles: FactorResearchProfile[]): void {
+  const ranked = [...profiles].sort((a, b) => a.p_value - b.p_value)
+  let next = 1
+  for (let index = ranked.length - 1; index >= 0; index -= 1) {
+    next = Math.min(next, ranked[index].p_value * ranked.length / (index + 1))
+    ranked[index].fdr_q_value = round(next)
+  }
+}
+
+function icPValue(ic: number, samples: number, horizonBars: number): number {
+  const effectiveSamples = Math.max(3, Math.floor(samples / Math.max(1, horizonBars)))
+  const z = Math.abs(ic) * Math.sqrt(effectiveSamples - 3)
+  const t = 1 / (1 + 0.2316419 * z)
+  const density = 0.39894228 * Math.exp(-0.5 * z * z)
+  const tail = density * t * (0.31938153 + t * (-0.356563782 + t * (1.781477937 + t * (-1.821255978 + t * 1.330274429))))
+  return Math.min(1, 2 * tail)
 }
 
 function buildDirectionalSeeds(definition: FactorSeriesDefinition, profile: FactorResearchProfile, lookback: number): FactorCondition[] {
