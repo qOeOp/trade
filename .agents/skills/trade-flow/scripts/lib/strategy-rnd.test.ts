@@ -1,10 +1,26 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { runStrategyRndBatch, runStrategyRndLoop } from "./strategy-rnd"
+import { runStrategyRndBatch, runStrategyRndCampaign, runStrategyRndLoop, strategyRndBatchInputFromJson } from "./strategy-rnd"
+
+test("strategy R&D parser normalizes factor discovery options", () => {
+  const input = strategyRndBatchInputFromJson({
+    manifest_path: "/tmp/manifest.json",
+    factor_discover: true,
+    search_trial_count: 7,
+    factor_research_options: { horizon_bars: 8, min_samples: 500, max_correlation: 0.8 },
+    candidates: [{ candidate_id: "C-1", params: { side: "long" } }],
+  })
+
+  assert.equal(input.factorDiscover, true)
+  assert.equal(input.searchTrialCount, 7)
+  assert.equal(input.factorResearchOptions?.horizonBars, 8)
+  assert.equal(input.factorResearchOptions?.minSamples, 500)
+  assert.equal(input.factorResearchOptions?.maxCorrelation, 0.8)
+})
 
 test("strategy R&D batch runs bounded predeclared candidates", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-"))
@@ -54,6 +70,7 @@ test("strategy R&D batch runs bounded predeclared candidates", () => {
       maxHoldBars: 8,
       feeBps: 2,
       slippageBps: 1,
+      searchTrialCount: 7,
       candidates: [{
         candidateId: "C-LONG-EMA50",
         description: "long-only EMA50 pullback",
@@ -78,10 +95,9 @@ test("strategy R&D batch runs bounded predeclared candidates", () => {
     assert.equal(report.batch_id, "rnd-test")
     assert.equal(report.trial_count, 1)
     assert.equal(report.guardrails.no_auto_promote, true)
-    assert.equal(report.indicator_research?.selected_indicators.length, 2)
-    assert.equal(report.indicator_research?.structure_edges[0].feature_id, "support")
     assert.equal(report.candidates.length, 1)
     assert.equal(report.candidates[0].replay.strategy_id, "C-LONG-EMA50")
+    assert.equal((report.candidates[0].replay.assumptions.anti_overfit as { trial_count: number }).trial_count, 7)
     assert.ok(["candidate_found", "no_promote"].includes(report.outcome))
   } finally {
     rmSync(dir, { recursive: true, force: true })
@@ -103,49 +119,142 @@ test("strategy R&D batch refuses excessive trial budget", () => {
   )
 })
 
-test("strategy R&D batch can synthesize bounded candidates from indicator research", () => {
-  const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-auto-"))
+test("strategy R&D batch executes structure breakout retest family without future levels", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-structure-"))
+  try {
+    const manifestPath = writeStructureManifest(dir)
+    const report = runStrategyRndBatch({
+      batchId: "rnd-structure-test",
+      hypothesis: "range resistance breakout followed by a defended retest",
+      manifestPath,
+      timeframe: "4h",
+      maxHoldBars: 8,
+      feeBps: 2,
+      slippageBps: 1,
+      candidates: [{
+        candidateId: "C-STRUCTURE-LONG",
+        description: "long breakout and retest of rolling resistance",
+        family: "structure_breakout_retest_v1",
+        parameterCount: 7,
+        params: {
+          side: "long",
+          lookback_bars: 40,
+          breakout_buffer_atr: 0.1,
+          retest_tolerance_atr: 0.5,
+          stop_atr: 0.25,
+          max_risk_atr: 2,
+          reward_risk: 2,
+        },
+      }],
+    })
+
+    assert.equal(report.candidates[0].family, "structure_breakout_retest_v1")
+    assert.equal(report.candidates[0].replay.strategy_id, "C-STRUCTURE-LONG")
+    assert.ok(report.candidates[0].replay.sample_count > 0)
+    assert.equal(report.candidates[0].replay.trades[0].reason, "rnd structure breakout retest long")
+    assert.equal(report.candidates[0].params.lookbackBars, 40)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("strategy R&D batch composes generic factor conditions without indicator-specific branches", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-factor-compose-"))
   try {
     const manifestPath = writeManifest(dir)
-    const indicatorReportPath = join(dir, "indicator-report.json")
+    const indicatorReportPath = join(dir, "factor-report.json")
     writeFileSync(indicatorReportPath, JSON.stringify({
-      ok: true,
       data: {
-        selected_indicators: {
-          vpci: {
-            category: "volume",
-            defaults: { period_short: 5, period_long: 20 },
-            observe: "volume confirmation",
-          },
-          stc: {
-            category: "momentum",
-            defaults: { fast: 23, slow: 50, length: 10 },
-            observe: "momentum timing",
-          },
-        },
+        selected_indicators: {},
         timeframes: {
           "4h": {
             features: {
-              vpci: { status: "ok", values: buildFeaturePoints(280, 1) },
-              stc: { status: "ok", values: buildFeaturePoints(280, 80) },
+              "vpci.value": {
+                status: "ok",
+                factor_id: "vpci.value",
+                source_indicator: "vpci",
+                output: "value",
+                category: "volume",
+                roles: ["confirmation"],
+                allowed_transforms: ["level", "slope"],
+                values: buildFeaturePoints(280, 1),
+              },
             },
           },
         },
       },
     }))
-
     const report = runStrategyRndBatch({
       manifestPath,
       indicatorReportPath,
-      autoCandidates: true,
-      candidates: [],
+      factorCompose: true,
+      factorSeeds: [{
+        factorId: "vpci.value",
+        role: "confirmation",
+        transform: "level",
+        lookback: 1,
+        op: "gt",
+        value: 0,
+      }],
+      maxFactorsPerCandidate: 2,
+      candidates: [{
+        candidateId: "BASE-LONG",
+        family: "trend_pullback_v1",
+        parameterCount: 7,
+        params: { side: "long" },
+      }],
     })
 
-    assert.equal(report.candidate_source, "auto_indicator_synthesis")
-    assert.equal(report.guardrails.max_trials, 10)
+    assert.equal(report.candidate_source, "bounded_factor_composition")
+    assert.equal(report.trial_count, 1)
+    assert.equal(report.candidates[0].parameter_count, 8)
+    assert.equal((report.candidates[0].params.factorConditions as Array<{ factorId: string }>)[0].factorId, "vpci.value")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("strategy R&D batch discovers statistically screened factor seeds", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-factor-discovery-"))
+  try {
+    const closes = Array.from({ length: 900 }, (_, index) => 100 + Math.sin(index / 35) * 12 + Math.sin(index / 4) * (Math.floor(index / 90) % 2 === 0 ? 1.5 : 5))
+    const rows = closes.map((close, index) => {
+      const open = closes[Math.max(0, index - 1)]
+      const timestamp = 1_700_000_000_000 + index * 4 * 60 * 60 * 1000
+      return [new Date(timestamp).toISOString(), timestamp, open, Math.max(open, close) + 1, Math.min(open, close) - 1, close, 1_000 + index].join(",")
+    })
+    writeFileSync(join(dir, "4h.csv"), ["date,timestamp,open,high,low,close,volume", ...rows].join("\n"))
+    const manifestPath = join(dir, "manifest.json")
+    writeFileSync(manifestPath, JSON.stringify({ symbol: "BTCUSDT", timeframes: { "4h": { file: "4h.csv" } } }))
+    const reportPath = join(dir, "factor-report.json")
+    writeFileSync(reportPath, JSON.stringify({ data: { timeframes: { "4h": { features: {
+      "forward.proxy": {
+        status: "ok",
+        factor_id: "forward.proxy",
+        source_indicator: "test",
+        output: "value",
+        category: "momentum",
+        roles: ["confirmation"],
+        allowed_transforms: ["percentile"],
+        values: closes.map((close, index) => ({
+          timestamp: new Date(1_700_000_000_000 + index * 4 * 60 * 60 * 1000).toISOString(),
+          value: index + 6 < closes.length ? closes[index + 6] / close - 1 : 0,
+        })),
+      },
+    } } } } }))
+
+    const report = runStrategyRndBatch({
+      manifestPath,
+      indicatorReportPath: reportPath,
+      factorDiscover: true,
+      factorCompose: true,
+      factorResearchOptions: { lookback: 60, minSamples: 300, minAbsIc: 0.05 },
+      candidates: [{ candidateId: "BASE-LONG", family: "trend_pullback_v1", parameterCount: 6, params: { side: "long" } }],
+    })
+
+    assert.equal(report.candidate_source, "scientific_factor_discovery")
+    assert.deepEqual(report.factor_research?.selected_factor_ids, ["forward.proxy"])
     assert.ok(report.trial_count > 0)
-    assert.ok(report.trial_count <= 10)
-    assert.ok(report.candidates.every((candidate) => candidate.parameter_count <= 8))
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -185,8 +294,7 @@ test("strategy R&D loop writes artifact and compact JSONL ledger", () => {
       indicatorReportPath,
       artifactRoot,
       ledgerPath,
-      autoCandidates: true,
-      candidates: [],
+      candidates: [{ candidateId: "C-LOOP", parameterCount: 1, params: { side: "long" } }],
       now: "2026-07-07T00:00:00.000Z",
     })
 
@@ -206,6 +314,113 @@ test("strategy R&D loop writes artifact and compact JSONL ledger", () => {
   }
 })
 
+test("strategy R&D loop rejects duplicate run ids", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-idempotence-"))
+  try {
+    const input = {
+      runId: "same-run",
+      manifestPath: writeManifest(dir),
+      artifactRoot: join(dir, "artifacts"),
+      ledgerPath: join(dir, "strategy-rnd-ledger.jsonl"),
+      candidates: [{ candidateId: "C-1", parameterCount: 1, params: { side: "long" } }],
+    }
+    runStrategyRndLoop(input)
+    assert.throws(() => runStrategyRndLoop(input), /run_id already exists/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("strategy R&D loop permits one evaluation per locked holdout", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-holdout-once-"))
+  try {
+    const manifestPath = writeManifest(dir)
+    const common = {
+      manifestPath,
+      artifactRoot: join(dir, "artifacts"),
+      ledgerPath: join(dir, "strategy-rnd-ledger.jsonl"),
+      antiOverfitStage: "locked_holdout" as const,
+      oosSplitRatio: 0.3,
+      candidates: [{ candidateId: "C-1", parameterCount: 1, params: { side: "long" } }],
+    }
+    runStrategyRndLoop({ ...common, runId: "holdout-first" })
+    assert.throws(
+      () => runStrategyRndLoop({ ...common, runId: "holdout-second" }),
+      /locked holdout has already been evaluated/,
+    )
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("strategy R&D campaign continues after a failed hypothesis", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-campaign-"))
+  try {
+    const discoveryDir = join(dir, "discovery")
+    const validationDir = join(dir, "validation")
+    mkdirSync(discoveryDir)
+    mkdirSync(validationDir)
+    const discoveryManifest = writeManifest(discoveryDir, 1_700_000_000_000)
+    const validationManifest = writeManifest(validationDir, 1_600_000_000_000)
+    const ledgerPath = join(dir, "strategy-rnd-ledger.jsonl")
+    const candidate = {
+      candidateId: "C-LONG",
+      parameterCount: 7,
+      params: {
+        side: "long",
+        fast_ema: 50,
+        slow_ema: 200,
+        pullback_atr: 0.25,
+        stop_atr: 0.5,
+        max_risk_atr: 1.25,
+        reward_risk: 2,
+      },
+    }
+    const report = runStrategyRndCampaign({
+      campaignId: "campaign-test",
+      maxTotalTrials: 2,
+      artifactRoot: join(dir, "artifacts"),
+      ledgerPath,
+      now: "2026-07-07T00:00:00.000Z",
+      hypotheses: ["h1", "h2"].map((hypothesisId) => ({
+        hypothesisId,
+        hypothesis: `test ${hypothesisId}`,
+        manifestPath: discoveryManifest,
+        validationManifestPath: validationManifest,
+        candidates: [{ ...candidate, candidateId: `${candidate.candidateId}-${hypothesisId}` }],
+      })),
+    })
+
+    assert.equal(report.outcome, "no_validated_candidate")
+    assert.equal(report.stop_reason, "hypothesis_queue_exhausted")
+    assert.equal(report.hypotheses_run, 2)
+    assert.equal(report.trials_used, 2)
+    assert.equal(report.runs.every((run) => run.discovery_outcome === "no_promote"), true)
+    assert.equal(readFileSync(ledgerPath, "utf8").trim().split("\n").length, 2)
+    assert.equal(existsSync(report.artifact_ref), true)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("strategy R&D campaign rejects overlapping validation data", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-campaign-overlap-"))
+  try {
+    const manifestPath = writeManifest(dir)
+    assert.throws(() => runStrategyRndCampaign({
+      campaignId: "campaign-overlap-test",
+      hypotheses: [{
+        hypothesisId: "h1",
+        manifestPath,
+        validationManifestPath: manifestPath,
+        candidates: [{ candidateId: "C-1", params: { side: "long" } }],
+      }],
+    }), /manifests overlap/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 function buildFeaturePoints(count: number, value: number): Array<{ timestamp: string; value: number }> {
   return Array.from({ length: count }, (_, index) => ({
     timestamp: new Date(1_700_000_000_000 + index * 4 * 60 * 60 * 1000).toISOString(),
@@ -213,10 +428,50 @@ function buildFeaturePoints(count: number, value: number): Array<{ timestamp: st
   }))
 }
 
-function writeManifest(dir: string): string {
+function writeManifest(dir: string, startTimestamp = 1_700_000_000_000): string {
   writeFileSync(join(dir, "4h.csv"), [
     "date,timestamp,open,high,low,close,volume",
     ...buildReplayCandles().map((item, index) => [
+      new Date(startTimestamp + index * 4 * 60 * 60 * 1000).toISOString(),
+      startTimestamp + index * 4 * 60 * 60 * 1000,
+      item.open,
+      item.high,
+      item.low,
+      item.close,
+      item.volume,
+    ].join(",")),
+  ].join("\n"))
+  const manifestPath = join(dir, "manifest.json")
+  writeFileSync(manifestPath, JSON.stringify({
+    symbol: "BTCUSDT",
+    timeframes: {
+      "4h": {
+        file: "4h.csv",
+      },
+    },
+  }))
+  return manifestPath
+}
+
+function writeStructureManifest(dir: string): string {
+  const candles = Array.from({ length: 280 }, (_, index) => {
+    const center = 100 + Math.sin(index / 3) * 0.25
+    return {
+      open: Number((center - 0.1).toFixed(2)),
+      high: Number((center + 0.5).toFixed(2)),
+      low: Number((center - 0.5).toFixed(2)),
+      close: Number((center + 0.1).toFixed(2)),
+      volume: 1000 + index,
+    }
+  })
+  candles[230] = { open: 100.2, high: 103.2, low: 100, close: 103, volume: 1800 }
+  candles[231] = { open: 103, high: 103.1, low: 100.65, close: 101.2, volume: 1700 }
+  candles[232] = { open: 101.2, high: 105, low: 101, close: 104.5, volume: 1900 }
+  candles[233] = { open: 104.5, high: 106, low: 104, close: 105.5, volume: 1600 }
+
+  writeFileSync(join(dir, "4h.csv"), [
+    "date,timestamp,open,high,low,close,volume",
+    ...candles.map((item, index) => [
       new Date(1_700_000_000_000 + index * 4 * 60 * 60 * 1000).toISOString(),
       1_700_000_000_000 + index * 4 * 60 * 60 * 1000,
       item.open,

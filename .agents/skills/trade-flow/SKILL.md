@@ -30,6 +30,7 @@ latest_observe.action_intent.request
 - 需要用统一 replay core + strategy registry 回放不同策略
 - 需要运行受搜索预算约束的 strategy R&D candidate batch
 - 需要运行一轮可审计的 strategy R&D loop，并写入 R&D artifact / JSONL ledger
+- 需要在总搜索预算内连续运行多条 hypothesis，并对 discovery winner 自动做不重叠外部验证
 - 需要把 replay / shadow / live-small 样本写入 strategy evidence ledger
 - 需要生成 strategy review 报告，判断 stale evidence / promotion gate / 下一步
 - 需要按证据门槛把 strategy status 从 `draft -> shadow -> live-small / paused`
@@ -59,8 +60,9 @@ latest_observe.action_intent.request
   - `--build-observe --json <payload>`：从账户 / 市场投影构建 observe event
   - `--observe-from-skills --json <payload>`：调用只读 `binance-account-snapshot` / `binance-symbol-snapshot` 后构建 observe event
   - `--replay-strategy --manifest <manifest> --strategy-id <id>`：读取 OHLCV manifest，通过 replay registry 机械回放策略，并输出统计与 gate
-  - `--strategy-rnd-batch --json <payload>`：运行最多 10 个预声明候选的 R&D 批次，统一 replay/OOS，输出 winner 或 no_promote；可消费 `tech-indicators` report / feature series 做 indicator research，也可 `auto_candidates=true` 受限合成候选；不自动升格
+  - `--strategy-rnd-batch --json <payload>`：运行最多 10 个候选；`factor_discover=true + factor_compose=true` 时先做因子统计筛选，再按角色与参数预算组合到预声明 base family；统一 replay/OOS，不自动升格
   - `--strategy-rnd-loop --json <payload>`：运行一轮 R&D loop，写 artifact JSON 和 `strategy-rnd-ledger.jsonl`；不写 `trade.db`，不自动升格
+  - `--strategy-rnd-campaign --json <payload>`：依次运行 hypothesis queue；未产生 discovery winner 才继续下一假设；首个 winner 冻结后只查看一次不重叠 locked holdout，通过即返回，失败即结束 campaign
   - `--append-strategy-evidence --strategy <path> --ledger <path> --json <payload>`：把 replay / shadow / live-small / review_batch 证据追加进 JSONL ledger
   - `--strategy-review --strategy <path> --ledger <path> [--db <path>]`：读取 strategy、evidence ledger 和可选 DB review，生成迭代报告
   - `--strategy-promote --strategy <path> --ledger <path> --to <status> [--yes]`：按 gate dry-run 或更新 strategy frontmatter status
@@ -83,17 +85,28 @@ latest_observe.action_intent.request
 - `--build-observe` 只构建事实快照，不判断交易，不写 DB
 - `--observe-from-skills` 只调用只读 skill，不触发 Binance 写接口
 - `--replay-strategy` 只读 OHLCV 文件，不写 DB，不触发 Binance；replay 结果只能作为 draft / shadow evidence
-- `--strategy-rnd-batch` 只读 OHLCV 文件，不写 DB，不触发 Binance；候选必须预声明，最多 10 个 trial，单候选参数数最多 8
+- `--strategy-rnd-batch` 只读 OHLCV / factor report，不写 DB，不触发 Binance；base family 与搜索预算必须预声明，最多 10 个 trial，单候选参数数最多 8
 - `--strategy-rnd-loop` 只包装 batch、artifact 和 R&D ledger；R&D ledger 是研究审计，不是策略准入 evidence
-- indicator 的发现、目录、解释和计算由 `tech-indicators` 提供；trade-flow 只消费其 report / feature series，不在 R&D 内硬编码全量指标体系
-- `auto_candidates=true` 只做 bounded candidate synthesis；仍受 trial / parameter / OOS gate 约束，不能直接写 strategy status
+- `--strategy-rnd-campaign` 的总 discovery trial budget 最多 10；只接受预声明 hypothesis queue，validation manifest 必须与 discovery manifest 时间不重叠；locked holdout 只允许看一次，失败即结束 campaign
+- discovery winner 含 indicator filter 时必须提供独立 `validation_indicator_report_path`，不得拿 discovery feature series 验证
+- campaign 产出的 `validated_candidate_found` 仍只是待写 strategy policy 的候选，不自动进入 strategy evidence、shadow 或实盘
+- factor 发现、目录、解释和计算由 `tech-indicators` descriptor 提供；trade-flow 只消费稳定 `factor_id` 与 feature series，不硬编码 indicator 名称
+- factor condition 通用支持 `level / delta / slope / zscore / percentile` 与 `gt / lt / between`；旧 `indicator_filters` 自动映射为 `level`，仅用于兼容
+- bounded composer 最多组合 3 个不同角色 factor、最多输出 10 个 candidate，并把 threshold 与 transform lookback 计入 8 参数上限；不做无界笛卡尔积
+- `factor_discover=true` 只在 discovery 数据上计算 causal rank IC；至少 300 个样本、三段时间中至少两段同向、至少两个 market regime 同向，并按 `|corr|>=0.85` 去重后才能成为 seed
+- family 是少量市场机制的可执行实验模板，不追求穷举形态；未经 replay/OOS/成本/稳定性验证的 candidate 不进入长期 asset
+- family 从 `scripts/lib/rnd-families/*.family.ts` 自动发现；新增 family 只新增模块，不修改 `strategy-rnd.ts`、union 或中央注册表
+- 冻结 candidate 在不重叠外部样本上失败后必须停止；任何参数、过滤器或规则修改都作为新 hypothesis / trial，不能用调参覆盖失败结论
+- `structure_breakout_retest_v1` 的结构位只从突破前历史窗口滚动计算，固定要求收盘突破、随后回踩守住，不消费事后生成的支撑阻力
 - replay core 固定保守口径：同一 lane 不重叠持仓、同 K 同时触发 stop/target 时先算 stop、支持 fee/slippage bps、输出 replay gate
 - `gate.live_small_candidate` 在 replay 阶段永远是 false；live-small 还必须经过 shadow 与人工确认
 - strategy iteration 使用 `./data/strategy-evidence.jsonl` 这类 JSONL ledger；不新增 DB 表，不扩大 `plan_event.kind`
-- 每条 evidence 绑定当前 `policy_hash`；strategy policy 改动后旧 evidence 自动变 stale，不可用于 promote
+- replay evidence 绑定 `policy_hash + harness_hash + data_hash + assumptions_hash`；OHLCV 与实际消费的 factor report 同属 data hash，任一变化、数据不可用或 checksum 不符即 stale
+- promotion 只接受 `schema_version>=2`、`closed_candles_only=true` 且 checksum 可核验的数据；旧 manifest 可研究，不可准入
 - `policy_hash` 只覆盖可交易策略定义；strategy markdown 中 `## Setup Certificate` 之前的研究引用、replay refs、迭代日志不应让 evidence stale
-- `draft -> shadow` 需要 fresh replay 正收益，且 replay evidence 必须带 `anti_overfit.method=out_of_sample|walk_forward`
+- 普通 chronological tail split 只算 `selection_validation`，不能授权 shadow；`draft -> shadow` 必须带 `stage=locked_holdout` 的 OOS / walk-forward proof
 - anti-overfit proof 的 `oos_stats.sample_count` 至少 10，且 OOS 表现必须为正；`trial_count > 10` 或 `parameter_count > 8` 会被拒绝
+- replay evidence 必须在至少两个有效 market regime 分桶中具备稳定性，在额外单边 5 bps 成本后仍为正，并通过预声明的 ±10% 参数扰动
 - `shadow -> live-small` 需要 fresh replay + fresh shadow，且 shadow 样本数至少 20
 - `--strategy-promote` 默认 dry-run；更新 strategy 文件必须显式 `--yes`
 - `--artifact-gc` 不打开 DB、不触发 Binance；只扫描显式 `--artifact-root`，保留 `.pin` / referenced / durable store，默认不删除

@@ -105,12 +105,18 @@ tags: []
 - `replay-core`：OHLCV manifest loader / 指标缓存 / 单 lane 撮合 / R 统计 / fee + slippage / replay gate
 - `replay-strategies`：`strategy_id -> ReplayStrategy` registry；新增策略只补 strategy definition，不改 core
 - `--replay-strategy`：只读文件，不写 DB，不触发 Binance
-- `--strategy-rnd-batch`：最多 10 个预声明候选；可消费 `tech-indicators` report / feature series 挖掘 indicator / structure candidate uses；`auto_candidates=true` 只做 bounded synthesis，不自动升格
+- `--strategy-rnd-batch`：最多 10 个候选；可先在 discovery 数据上筛 factor，再按角色、数量与参数预算组合到预声明 base family；统一 replay/OOS，不自动升格
 - `--strategy-rnd-loop`：包装一轮 R&D batch，写 artifact JSON 与 `strategy-rnd-ledger.jsonl`；ledger 只做研究审计，不作为 promote evidence
+- `--strategy-rnd-campaign`：在全局最多 10 次 discovery trial 内运行 hypothesis queue；没有 winner 才继续，首个 winner 冻结后只查看一次不重叠 locked holdout，失败即结束 campaign
 - replay 只能给 `shadow_candidate`；`live-small` 必须另有 shadow 样本与人工确认
+- candidate family 只承载少量可检验市场机制，不做形态百科；只有通过样本外、成本和稳定性门槛的版本才可沉淀为策略 asset
+- factor 由 indicator 自身 catalog descriptor 自动发现，统一使用稳定 `factor_id`；family 由目录模块自动发现，两者新增都不改 R&D core 或中央注册表
+- factor transform 固定为 `level / delta / slope / zscore / percentile`，condition 固定为 `gt / lt / between`；composer 最多 3 个不同角色 factor、10 个候选、8 个参数
+- scientific factor discovery 使用 causal rank IC；默认最少 300 样本、三段时间至少两段同向、至少两个 regime 同向，`|corr|>=0.85` 只保留预测力更强者。筛选结果只是 seed，不是 edge 结论
 - `strategy-evidence.jsonl`：保存 replay / shadow / live-small / review_batch 证据，不进入 `trade.db`
-- `policy_hash`：策略规则一改，旧证据自动变 stale，必须重新 replay / shadow
-- `anti_overfit`：replay evidence 必须带 OOS 或 walk-forward 证明
+- evidence fingerprint：`policy_hash + harness_hash + data_hash + assumptions_hash`；data hash 同时覆盖 OHLCV 与消费的 factor report，策略、回放代码、数据或假设任一变化均使旧证据 stale
+- `anti_overfit`：普通末段切片只算 selection validation；准入证据必须是只查看一次的 locked holdout 或 locked walk-forward
+- replay robustness：至少两个有效 regime 分桶、额外单边 5 bps 成本压力、预声明 ±10% 参数扰动
 - `--strategy-review`：汇总 fresh / stale evidence、DB review stats 和 promotion gate
 - `--strategy-promote`：默认 dry-run，满足 gate 且 `--yes` 后才改 strategy status
 
@@ -123,11 +129,15 @@ replay evidence -> shadow samples -> live-small samples -> review -> strategy po
 禁止把单次 review、单段漂亮回测或自动参数搜索直接变成实盘资格。
 禁止在 trade-flow 内固定全量 indicator 体系；indicator 发现、解释和计算归 `tech-indicators`，R&D 只消费其 report / feature series，并把结果变成待 replay 的候选假设。
 R&D loop 的失败结果必须进入 R&D ledger；重复失败不是交易数据，也不能污染 `trade.db` 或 strategy evidence。
+R&D artifact、strategy evidence / R&D ledger 是本地运行态，不进入 Git；保留与清理由引用、pin 和 retention policy 决定。
+冻结候选在不重叠 locked holdout 上失败后必须终止整个 campaign；不得看完 holdout 后换假设继续试。修改参数、过滤器或规则均视为新 hypothesis / trial，只能进入下一轮使用新 holdout 的 campaign。
+持续 R&D 的目标是找到可复现 edge，不是循环到出现漂亮回测；单个 campaign 在 locked holdout 通过、失败或 discovery budget 耗尽时结束。后续研究必须新开 hypothesis campaign 并换未查看的 holdout，不能沿用失败样本继续调到盈利。
+含 indicator filter 的候选必须使用与 validation OHLCV 对齐的独立 feature report；discovery feature series 不得复用到外部验证。
 
 升格门槛：
 
-- `draft -> shadow`：fresh replay 正收益、drawdown 不超阈值，并通过 OOS / walk-forward proof
-- OOS 样本至少 10，且 OOS 表现为正
+- `draft -> shadow`：fresh fingerprint replay 正收益、drawdown 不超阈值，并通过 locked holdout / walk-forward 与 robustness gate
+- locked holdout 样本至少 10，且表现为正
 - trial search budget 不能超过 10；参数数量不能超过 8
 - `shadow -> live-small`：fresh replay + fresh shadow；shadow 样本至少 20，表现为正
 - 任意状态可降级到 `paused / draft`

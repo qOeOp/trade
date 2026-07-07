@@ -12,7 +12,7 @@ import {
   promoteStrategy,
   reviewStrategy,
 } from "./strategy-iteration"
-import type { ReplayResult } from "./replay-core"
+import { hashCanonical, replayContentHash, replayDataHash, replayHarnessHash, type ReplayResult } from "./replay-core"
 
 test("strategy review separates fresh and stale evidence by policy hash", () => {
   const dir = makeDir()
@@ -21,7 +21,7 @@ test("strategy review separates fresh and stale evidence by policy hash", () => 
   appendReplayEvidence({
     strategyPath,
     ledgerPath,
-    replayResult: positiveReplay(),
+    replayResult: positiveReplay(dir),
     now: "2026-01-01T00:00:00.000Z",
   })
 
@@ -47,7 +47,7 @@ test("strategy promote to shadow requires positive fresh replay evidence", () =>
   appendReplayEvidence({
     strategyPath,
     ledgerPath,
-    replayResult: positiveReplay(),
+    replayResult: positiveReplay(dir),
     now: "2026-01-01T00:00:00.000Z",
   })
   const dryRun = promoteStrategy({ strategyPath, ledgerPath, toStatus: "shadow" })
@@ -66,10 +66,7 @@ test("strategy promote blocks replay evidence without anti-overfit proof", () =>
   appendReplayEvidence({
     strategyPath,
     ledgerPath,
-    replayResult: {
-      ...positiveReplay(),
-      assumptions: {},
-    },
+    replayResult: replayWithAssumptions(dir, {}),
     now: "2026-01-01T00:00:00.000Z",
   })
 
@@ -90,11 +87,10 @@ test("strategy promote blocks weak out-of-sample replay evidence", () => {
   appendReplayEvidence({
     strategyPath,
     ledgerPath,
-    replayResult: {
-      ...positiveReplay(),
-      assumptions: {
+    replayResult: replayWithAssumptions(dir, {
         anti_overfit: {
           method: "out_of_sample",
+          stage: "locked_holdout",
           oos_stats: {
             sample_count: 12,
             win_rate: 0.25,
@@ -105,8 +101,7 @@ test("strategy promote blocks weak out-of-sample replay evidence", () => {
           trial_count: 3,
           parameter_count: 4,
         },
-      },
-    },
+      }),
     now: "2026-01-01T00:00:00.000Z",
   })
 
@@ -123,11 +118,10 @@ test("strategy promote blocks excessive search budget", () => {
   appendReplayEvidence({
     strategyPath,
     ledgerPath,
-    replayResult: {
-      ...positiveReplay(),
-      assumptions: {
+    replayResult: replayWithAssumptions(dir, {
         anti_overfit: {
           method: "walk_forward",
+          stage: "locked_holdout",
           oos_stats: {
             sample_count: 12,
             win_rate: 0.5,
@@ -138,8 +132,7 @@ test("strategy promote blocks excessive search budget", () => {
           trial_count: 11,
           parameter_count: 4,
         },
-      },
-    },
+      }),
     now: "2026-01-01T00:00:00.000Z",
   })
 
@@ -149,6 +142,53 @@ test("strategy promote blocks excessive search budget", () => {
   assert.equal(report.gate.blocked_by.some((item) => item.check_id === "S-SEARCH-BUDGET"), true)
 })
 
+test("selection validation cannot authorize shadow", () => {
+  const dir = makeDir()
+  const strategyPath = writeStrategy(dir, "draft", "Rule v1")
+  const ledgerPath = join(dir, "strategy-evidence.jsonl")
+  const replay = positiveReplay(dir)
+  const assumptions = structuredClone(replay.assumptions) as Record<string, any>
+  assumptions.anti_overfit.stage = "selection_validation"
+  appendReplayEvidence({ strategyPath, ledgerPath, replayResult: replayWithAssumptions(dir, assumptions) })
+
+  const report = reviewStrategy({ strategyPath, ledgerPath })
+  assert.equal(report.gate.shadow_candidate, false)
+  assert.equal(report.gate.blocked_by.some((item) => item.check_id === "S-HOLDOUT-MISSING"), true)
+})
+
+test("replay evidence becomes stale when source data changes", () => {
+  const dir = makeDir()
+  const strategyPath = writeStrategy(dir, "draft", "Rule v1")
+  const ledgerPath = join(dir, "strategy-evidence.jsonl")
+  appendReplayEvidence({ strategyPath, ledgerPath, replayResult: positiveReplay(dir) })
+  writeFileSync(join(dir, "4h.csv"), "date,timestamp,open,high,low,close,volume\n2026-01-01T00:00:00Z,1,100,102,99,101,1\n")
+
+  const report = reviewStrategy({ strategyPath, ledgerPath })
+  assert.equal(report.evidence.fresh.length, 0)
+  assert.equal(report.evidence.stale_reasons[0].check_ids.includes("E-DATA-UNAVAILABLE"), true)
+})
+
+test("replay evidence becomes stale when its factor report changes", () => {
+  const dir = makeDir()
+  const strategyPath = writeStrategy(dir, "draft", "Rule v1")
+  const ledgerPath = join(dir, "strategy-evidence.jsonl")
+  const factorPath = join(dir, "factor-report.json")
+  writeFileSync(factorPath, JSON.stringify({ version: 1, factors: ["trend"] }))
+  const replay = positiveReplay(dir)
+  const manifestPath = join(dir, "manifest.json")
+  replay.provenance = {
+    ...replay.provenance,
+    data_hash: replayDataHash(manifestPath, "4h", [factorPath]),
+    supplemental_data: [{ ref: factorPath, content_sha256: "recorded-by-replay" }],
+  }
+  appendReplayEvidence({ strategyPath, ledgerPath, replayResult: replay })
+  writeFileSync(factorPath, JSON.stringify({ version: 2, factors: ["trend", "volume"] }))
+
+  const report = reviewStrategy({ strategyPath, ledgerPath })
+  assert.equal(report.evidence.fresh.length, 0)
+  assert.equal(report.evidence.stale_reasons[0].check_ids.includes("E-DATA-STALE"), true)
+})
+
 test("strategy promote to live-small requires shadow evidence", () => {
   const dir = makeDir()
   const strategyPath = writeStrategy(dir, "shadow", "Rule v1")
@@ -156,7 +196,7 @@ test("strategy promote to live-small requires shadow evidence", () => {
   appendReplayEvidence({
     strategyPath,
     ledgerPath,
-    replayResult: positiveReplay(),
+    replayResult: positiveReplay(dir),
     now: "2026-01-01T00:00:00.000Z",
   })
 
@@ -257,7 +297,48 @@ function writeStrategy(dir: string, status: string, body: string): string {
   return path
 }
 
-function positiveReplay(): ReplayResult {
+function positiveReplay(dir: string): ReplayResult {
+  const csvPath = join(dir, "4h.csv")
+  const manifestPath = join(dir, "manifest.json")
+  if (!readFileIfExists(csvPath)) {
+    writeFileSync(csvPath, "date,timestamp,open,high,low,close,volume\n2026-01-01T00:00:00Z,1,100,101,99,100,1\n")
+    const manifest = { schema_version: 2, closed_candles_only: true, symbol: "BTCUSDT", exchange: "binanceusdm", columns: ["date", "timestamp", "open", "high", "low", "close", "volume"], timeframes: { "4h": { file: "4h.csv", content_sha256: "" } } }
+    writeFileSync(manifestPath, JSON.stringify(manifest))
+    manifest.timeframes["4h"].content_sha256 = replayContentHash(manifestPath, "4h")
+    writeFileSync(manifestPath, JSON.stringify(manifest))
+  }
+  const assumptions = {
+    anti_overfit: {
+      method: "out_of_sample",
+      stage: "locked_holdout",
+      oos_stats: {
+        sample_count: 12,
+        win_rate: 0.5,
+        avg_r: 0.09,
+        total_r: 1.08,
+        max_drawdown_r: 3,
+        profit_factor: 1.2,
+      },
+      train_stats: {
+        sample_count: 20,
+        win_rate: 0.5,
+        avg_r: 0.14,
+        total_r: 2.8,
+        max_drawdown_r: 4,
+        profit_factor: 1.35,
+      },
+      trial_count: 3,
+      parameter_count: 4,
+    },
+    robustness: {
+      regime_slices: [
+        { regime: "bull_low_vol", sample_count: 8, avg_r: 0.1, total_r: 0.8, profit_factor: 1.2 },
+        { regime: "bear_high_vol", sample_count: 7, avg_r: 0.08, total_r: 0.56, profit_factor: 1.15 },
+      ],
+      cost_stress: { extra_bps_per_side: 5, stats: { sample_count: 32, avg_r: 0.07, total_r: 2.24, profit_factor: 1.15 } },
+      parameter_stability: { method: "fixed_plus_minus_10pct", evaluation_count: 6, positive_ratio: 1, worst_avg_r: 0.04 },
+    },
+  }
   return {
     strategy_id: "S-TEST",
     symbol: "BTCUSDT",
@@ -275,29 +356,38 @@ function positiveReplay(): ReplayResult {
       blocked_by: [],
     },
     trades: [],
-    assumptions: {
-      anti_overfit: {
-        method: "out_of_sample",
-        oos_stats: {
-          sample_count: 12,
-          win_rate: 0.5,
-          avg_r: 0.09,
-          total_r: 1.08,
-          max_drawdown_r: 3,
-          profit_factor: 1.2,
-        },
-        train_stats: {
-          sample_count: 20,
-          win_rate: 0.5,
-          avg_r: 0.14,
-          total_r: 2.8,
-          max_drawdown_r: 4,
-          profit_factor: 1.35,
-        },
-        trial_count: 3,
-        parameter_count: 4,
-      },
+    assumptions,
+    provenance: {
+      harness_hash: replayHarnessHash(),
+      data_hash: replayDataHash(manifestPath, "4h"),
+      assumptions_hash: hashCanonical(assumptions),
+      data_ref: manifestPath,
+      timeframe: "4h",
+      data_schema_version: 2,
+      closed_candles_only: true,
+      manifest_checksum_verified: true,
     },
     notes: ["positive mechanical replay"],
+  }
+}
+
+function replayWithAssumptions(dir: string, assumptions: Record<string, unknown>): ReplayResult {
+  const replay = positiveReplay(dir)
+  return {
+    ...replay,
+    assumptions,
+    provenance: {
+      ...replay.provenance,
+      assumptions_hash: hashCanonical(assumptions),
+    },
+  }
+}
+
+function readFileIfExists(path: string): boolean {
+  try {
+    readFileSync(path)
+    return true
+  } catch {
+    return false
   }
 }

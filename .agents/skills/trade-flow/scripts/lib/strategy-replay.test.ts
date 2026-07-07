@@ -136,6 +136,47 @@ test("replayStrategy can attach chronological OOS anti-overfit proof", () => {
   }
 })
 
+test("locked holdout evaluates the complete frozen dataset", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-replay-holdout-"))
+  try {
+    writeMultiReplayFixture(dir)
+    const customStrategy: ReplayStrategy = {
+      strategy_id: "S-CUSTOM-HOLDOUT",
+      default_timeframe: "4h",
+      warmup_bars: 1,
+      generateSignal({ candles, index }) {
+        if (index !== 1 && index !== 3) return null
+        return {
+          side: "long",
+          signal_index: index,
+          entry_index: index + 1,
+          entry: candles[index + 1].open,
+          stop: candles[index + 1].open - 1,
+          target: candles[index + 1].open + 2,
+          reason: "test locked holdout",
+        }
+      },
+    }
+
+    const result = replayStrategy(customStrategy, {
+      manifestPath: join(dir, "manifest.json"),
+      maxHoldBars: 3,
+      antiOverfitStage: "locked_holdout",
+    })
+    const proof = result.assumptions.anti_overfit as {
+      stage: string
+      train_stats?: unknown
+      oos_stats: { sample_count: number }
+    }
+
+    assert.equal(proof.stage, "locked_holdout")
+    assert.equal(proof.train_stats, undefined)
+    assert.equal(proof.oos_stats.sample_count, result.sample_count)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("evaluateReplayGate blocks weak replay evidence", () => {
   const weak = evaluateReplayGate({
     sample_count: 12,

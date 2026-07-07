@@ -1,8 +1,11 @@
 import assert from "node:assert/strict"
 import test from "node:test"
+import type { BinanceRest } from "binance-api-node"
 
 import {
+  candleCloseTimestamp,
   ensureSymbolSupported,
+  fetchKlines,
   formatRFC3339UTC,
   orderedTimeframes,
   parseArgs,
@@ -17,6 +20,13 @@ test("parseArgs rejects negative limit", () => {
   assert.throws(
     () => parseArgs(["--symbol", "ETHUSDT", "--limit", "-1"]),
     /--limit cannot be negative/,
+  )
+})
+
+test("parseArgs requires --since-ts for paginated history", () => {
+  assert.throws(
+    () => parseArgs(["--symbol", "BTCUSDT", "--limit", "1501"]),
+    /requires --since-ts/,
   )
 })
 
@@ -109,4 +119,71 @@ test("ensureSymbolSupported rejects payload with error code", () => {
 test("formatRFC3339UTC strips zero milliseconds for parity with Go RFC3339", () => {
   assert.equal(formatRFC3339UTC(0), "1970-01-01T00:00:00Z")
   assert.equal(formatRFC3339UTC(1735689600000), "2025-01-01T00:00:00Z")
+})
+
+test("candleCloseTimestamp verifies monthly candles and rejects unknown intervals", () => {
+  assert.equal(
+    candleCloseTimestamp(Date.UTC(2026, 0, 1), "1M"),
+    Date.UTC(2026, 1, 1),
+  )
+  assert.throws(() => candleCloseTimestamp(0, "odd"), /unsupported timeframe/)
+})
+
+test("fetchKlines paginates above the Binance page limit", async () => {
+  const start = 1_000
+  const step = 14_400_000
+  const calls: Array<Record<string, unknown>> = []
+  const rows = Array.from({ length: 1502 }, (_, index) => ({
+    openTime: start + index * step,
+    open: "1",
+    high: "2",
+    low: "0.5",
+    close: "1.5",
+    volume: "10",
+  }))
+  const client = {
+    futuresCandles: async (payload: { startTime?: number; limit: number }) => {
+      calls.push(payload)
+      const offset = payload.startTime
+        ? rows.findIndex((row) => row.openTime >= Number(payload.startTime))
+        : 0
+      return rows.slice(Math.max(0, offset), Math.max(0, offset) + payload.limit)
+    },
+  } as unknown as BinanceRest
+
+  const candles = await fetchKlines(
+    client,
+    { exchangeID: "binanceusdm", symbol: { manifest: "BTCUSDT", api: "BTCUSDT" } },
+    "4h",
+    1502,
+    start,
+  )
+
+  assert.equal(candles.length, 1502)
+  assert.deepEqual(calls.map((call) => call.limit), [1500, 3])
+  assert.equal(calls[1].startTime, rows[1499].openTime + 1)
+  assert.equal(candles[0].timestamp, start)
+  assert.equal(candles.at(-1)?.timestamp, rows.at(-1)?.openTime)
+})
+
+test("fetchKlines keeps the latest closed candles when no start time is given", async () => {
+  const rows = [1, 2, 3, 4].map((index) => ({
+    openTime: index * 14_400_000,
+    open: "1",
+    high: "2",
+    low: "0.5",
+    close: "1.5",
+    volume: "10",
+  }))
+  const client = { futuresCandles: async () => rows } as unknown as BinanceRest
+
+  const candles = await fetchKlines(
+    client,
+    { exchangeID: "binanceusdm", symbol: { manifest: "BTCUSDT", api: "BTCUSDT" } },
+    "4h",
+    3,
+    0,
+  )
+
+  assert.deepEqual(candles.map((candle) => candle.timestamp), rows.slice(-3).map((row) => row.openTime))
 })

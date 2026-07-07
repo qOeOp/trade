@@ -7,6 +7,7 @@ import { Database } from "bun:sqlite"
 
 import { appendPlanEvent, buildRecordedExecutionEvent, cronRecoverFromSkills, ensureSchema, reconcileFromSkills, reduceFlowState, run, runLiveSmall, runShadowFromSkills, validateOrderFill } from "./main"
 import { type Runner } from "./lib/observe-adapter"
+import { hashCanonical, replayContentHash, replayDataHash, replayHarnessHash } from "./lib/replay-core"
 
 test("validateOrderFill requires audit fields for trade_flow source", () => {
   assert.throws(
@@ -501,8 +502,7 @@ test("run strategy R&D loop writes ledger without creating DB", async () => {
         indicator_report_path: indicatorReportPath,
         artifact_root: artifactRoot,
         ledger_path: ledgerPath,
-        auto_candidates: true,
-        candidates: [],
+        candidates: [{ candidate_id: "C-CLI-LOOP", parameter_count: 1, params: { side: "long" } }],
       }),
     ])
 
@@ -557,6 +557,36 @@ test("run strategy iteration commands do not create DB unless DB exists", async 
   const ledgerPath = join(dir, "strategy-evidence.jsonl")
   try {
     writeFileSync(strategyPath, "---\nstrategy_id: S-TEST\nname: Test\nstatus: draft\ntags: [test]\n---\n\n# Test\n\nRule v1\n")
+    const manifestPath = join(dir, "manifest.json")
+    writeFileSync(join(dir, "4h.csv"), "date,timestamp,open,high,low,close,volume\n2026-01-01T00:00:00Z,1,100,101,99,100,1\n")
+    const manifest = { schema_version: 2, closed_candles_only: true, symbol: "BTCUSDT", exchange: "binanceusdm", columns: ["date", "timestamp", "open", "high", "low", "close", "volume"], timeframes: { "4h": { file: "4h.csv", content_sha256: "" } } }
+    writeFileSync(manifestPath, JSON.stringify(manifest))
+    manifest.timeframes["4h"].content_sha256 = replayContentHash(manifestPath, "4h")
+    writeFileSync(manifestPath, JSON.stringify(manifest))
+    const assumptions = {
+      anti_overfit: {
+        method: "out_of_sample",
+        stage: "locked_holdout",
+        oos_stats: {
+          sample_count: 12,
+          win_rate: 0.5,
+          avg_r: 0.08,
+          total_r: 0.96,
+          max_drawdown_r: 3,
+          profit_factor: 1.15,
+        },
+        trial_count: 3,
+        parameter_count: 4,
+      },
+      robustness: {
+        regime_slices: [
+          { regime: "bull_low_vol", sample_count: 8, avg_r: 0.1, total_r: 0.8, profit_factor: 1.2 },
+          { regime: "bear_high_vol", sample_count: 7, avg_r: 0.08, total_r: 0.56, profit_factor: 1.15 },
+        ],
+        cost_stress: { extra_bps_per_side: 5, stats: { sample_count: 32, avg_r: 0.07, total_r: 2.24, profit_factor: 1.15 } },
+        parameter_stability: { method: "fixed_plus_minus_10pct", evaluation_count: 6, positive_ratio: 1, worst_avg_r: 0.04 },
+      },
+    }
     const appendResult = await run([
       "--db",
       dbPath,
@@ -576,20 +606,16 @@ test("run strategy iteration commands do not create DB unless DB exists", async 
           max_drawdown_r: 4,
           profit_factor: 1.25,
           gate: { shadow_candidate: true, live_small_candidate: false, blocked_by: [] },
-          assumptions: {
-            anti_overfit: {
-              method: "out_of_sample",
-              oos_stats: {
-                sample_count: 12,
-                win_rate: 0.5,
-                avg_r: 0.08,
-                total_r: 0.96,
-                max_drawdown_r: 3,
-                profit_factor: 1.15,
-              },
-              trial_count: 3,
-              parameter_count: 4,
-            },
+          assumptions,
+          provenance: {
+            harness_hash: replayHarnessHash(),
+            data_hash: replayDataHash(manifestPath, "4h"),
+            assumptions_hash: hashCanonical(assumptions),
+            data_ref: manifestPath,
+            timeframe: "4h",
+            data_schema_version: 2,
+            closed_candles_only: true,
+            manifest_checksum_verified: true,
           },
           notes: ["ok"],
         },

@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"
 import type { Database } from "bun:sqlite"
 import { loadStrategyFile, parseFrontmatter } from "./loaders"
-import type { ReplayResult } from "./replay-core"
+import { hashCanonical, replayDataHash, replayHarnessHash, type ReplayProvenance, type ReplayResult } from "./replay-core"
 
 type JSONRecord = Record<string, unknown>
 type StrategyStatus = "draft" | "shadow" | "live-small" | "paused"
@@ -16,11 +16,18 @@ interface StrategyEvidenceRecord {
   setup_id: string
   kind: EvidenceKind
   policy_hash: string
+  fingerprint?: EvidenceFingerprint
+  replay_context?: { assumptions: JSONRecord }
   source_ref: string
   stats: EvidenceStats
   anti_overfit?: AntiOverfitProof
+  robustness?: RobustnessProof
   gate?: JSONRecord
   notes?: string
+}
+
+interface EvidenceFingerprint extends ReplayProvenance {
+  policy_hash: string
 }
 
 interface EvidenceStats {
@@ -34,11 +41,18 @@ interface EvidenceStats {
 
 interface AntiOverfitProof {
   method: "out_of_sample" | "walk_forward"
+  stage?: "selection_validation" | "locked_holdout"
   oos_stats: EvidenceStats
   train_stats?: EvidenceStats
   trial_count?: number
   parameter_count?: number
   notes?: string
+}
+
+interface RobustnessProof {
+  regime_slices: Array<{ regime: string; sample_count: number; avg_r: number; total_r: number; profit_factor?: number; max_drawdown_r?: number }>
+  cost_stress: { extra_bps_per_side: number; stats: EvidenceStats }
+  parameter_stability?: { method?: string; evaluation_count: number; positive_ratio: number; worst_avg_r: number }
 }
 
 interface StrategyReviewReport {
@@ -49,6 +63,7 @@ interface StrategyReviewReport {
   evidence: {
     fresh: StrategyEvidenceRecord[]
     stale: StrategyEvidenceRecord[]
+    stale_reasons: Array<{ evidence_id: string; check_ids: string[] }>
   }
   latest: {
     replay: StrategyEvidenceRecord | null
@@ -84,10 +99,13 @@ function appendStrategyEvidence(input: {
   setupId?: string
   stats: EvidenceStats
   antiOverfit?: AntiOverfitProof
+  robustness?: RobustnessProof
   sourceRef?: string
   gate?: JSONRecord
   notes?: string
   now?: string
+  fingerprint?: EvidenceFingerprint
+  replayContext?: { assumptions: JSONRecord }
 }): StrategyEvidenceRecord {
   const strategy = loadStrategyFile(input.strategyPath)
   const record: StrategyEvidenceRecord = {
@@ -97,9 +115,12 @@ function appendStrategyEvidence(input: {
     setup_id: input.setupId || DEFAULT_SETUP_ID,
     kind: input.kind,
     policy_hash: policyHashForFile(input.strategyPath),
+    ...(input.fingerprint ? { fingerprint: input.fingerprint } : {}),
+    ...(input.replayContext ? { replay_context: input.replayContext } : {}),
     source_ref: input.sourceRef || "",
     stats: normalizeEvidenceStats(input.stats),
     ...(input.antiOverfit ? { anti_overfit: normalizeAntiOverfitProof(input.antiOverfit) } : {}),
+    ...(input.robustness ? { robustness: input.robustness } : {}),
     ...(input.gate ? { gate: input.gate } : {}),
     ...(input.notes ? { notes: input.notes } : {}),
   }
@@ -115,6 +136,11 @@ function appendReplayEvidence(input: {
   sourceRef?: string
   now?: string
 }): StrategyEvidenceRecord {
+  const policyHash = policyHashForFile(input.strategyPath)
+  const provenance = input.replayResult.provenance
+  if (!provenance?.harness_hash || !provenance.data_hash || !provenance.assumptions_hash || !provenance.data_ref) {
+    throw new Error("replay evidence requires complete provenance")
+  }
   return appendStrategyEvidence({
     strategyPath: input.strategyPath,
     ledgerPath: input.ledgerPath,
@@ -131,8 +157,11 @@ function appendReplayEvidence(input: {
       profit_factor: input.replayResult.profit_factor,
     },
     antiOverfit: readAntiOverfitProof(input.replayResult.assumptions),
+    robustness: readRobustnessProof(input.replayResult.assumptions),
     gate: input.replayResult.gate,
     notes: input.replayResult.notes.join(" "),
+    fingerprint: { policy_hash: policyHash, ...provenance },
+    replayContext: { assumptions: input.replayResult.assumptions },
   })
 }
 
@@ -144,8 +173,9 @@ function reviewStrategy(input: {
   const strategy = loadStrategyFile(input.strategyPath)
   const policyHash = policyHashForFile(input.strategyPath)
   const allEvidence = loadEvidenceLedger(input.ledgerPath).filter((record) => record.strategy_id === strategy.strategy_id)
-  const fresh = allEvidence.filter((record) => record.policy_hash === policyHash)
-  const stale = allEvidence.filter((record) => record.policy_hash !== policyHash)
+  const classified = allEvidence.map((record) => ({ record, reasons: evidenceStaleReasons(record, policyHash) }))
+  const fresh = classified.filter((item) => item.reasons.length === 0).map((item) => item.record)
+  const stale = classified.filter((item) => item.reasons.length > 0).map((item) => item.record)
   const dbReviewStats = input.db ? readDbReviewStats(input.db, strategy.strategy_id) : null
   const combinedFresh = dbReviewStats
     ? [...fresh, buildReviewBatchEvidence(strategy.strategy_id, policyHash, dbReviewStats)]
@@ -162,7 +192,14 @@ function reviewStrategy(input: {
     strategy_path: strategy.path,
     status: strategy.status,
     policy_hash: policyHash,
-    evidence: { fresh: combinedFresh, stale },
+    evidence: {
+      fresh: combinedFresh,
+      stale,
+      stale_reasons: classified.filter((item) => item.reasons.length > 0).map((item) => ({
+        evidence_id: item.record.evidence_id,
+        check_ids: item.reasons,
+      })),
+    },
     latest,
     db_review_stats: dbReviewStats,
     gate: evaluateStrategyGate(latest),
@@ -216,6 +253,7 @@ function evaluateStrategyGate(latest: StrategyReviewReport["latest"]): StrategyP
     blockedBy.push({ check_id: "S-REPLAY-WEAK", reason: "fresh replay evidence is not positive after costs" })
   } else {
     blockedBy.push(...evaluateAntiOverfit(replay))
+    blockedBy.push(...evaluateRobustness(replay))
   }
 
   const shadow = latest.shadow
@@ -230,7 +268,7 @@ function evaluateStrategyGate(latest: StrategyReviewReport["latest"]): StrategyP
     }
   }
 
-  const replayOk = Boolean(replay && isPositiveEvidence(replay.stats) && evaluateAntiOverfit(replay).length === 0)
+  const replayOk = Boolean(replay && isPositiveEvidence(replay.stats) && evaluateAntiOverfit(replay).length === 0 && evaluateRobustness(replay).length === 0)
   const shadowOk = Boolean(shadow && shadow.stats.sample_count >= 20 && isPositiveEvidence(shadow.stats))
   return {
     shadow_candidate: replayOk,
@@ -257,6 +295,43 @@ function isReplayQualificationBlock(checkId: string): boolean {
     || checkId.startsWith("S-OOS")
     || checkId === "S-SEARCH-BUDGET"
     || checkId === "S-PARAM-COUNT"
+    || checkId === "S-HOLDOUT-MISSING"
+    || checkId.startsWith("S-ROBUSTNESS")
+}
+
+function evidenceStaleReasons(record: StrategyEvidenceRecord, policyHash: string): string[] {
+  const reasons: string[] = []
+  if (record.policy_hash !== policyHash) {
+    reasons.push("E-POLICY-STALE")
+  }
+  if (record.kind !== "replay") {
+    return reasons
+  }
+  const fingerprint = record.fingerprint
+  if (!fingerprint || !record.replay_context) {
+    return [...reasons, "E-FINGERPRINT-MISSING"]
+  }
+  if (fingerprint.policy_hash !== record.policy_hash) {
+    reasons.push("E-FINGERPRINT-POLICY-MISMATCH")
+  }
+  if (fingerprint.harness_hash !== replayHarnessHash()) {
+    reasons.push("E-HARNESS-STALE")
+  }
+  if (fingerprint.data_schema_version < 2 || !fingerprint.closed_candles_only || !fingerprint.manifest_checksum_verified) {
+    reasons.push("E-DATA-CONTRACT-LEGACY")
+  }
+  if (fingerprint.assumptions_hash !== hashCanonical(record.replay_context.assumptions)) {
+    reasons.push("E-ASSUMPTIONS-CORRUPT")
+  }
+  try {
+    const supplementalRefs = (fingerprint.supplemental_data || []).map((item) => item.ref)
+    if (fingerprint.data_hash !== replayDataHash(fingerprint.data_ref, fingerprint.timeframe, supplementalRefs)) {
+      reasons.push("E-DATA-STALE")
+    }
+  } catch {
+    reasons.push("E-DATA-UNAVAILABLE")
+  }
+  return reasons
 }
 
 function policyHashForFile(path: string): string {
@@ -387,6 +462,9 @@ function evaluateAntiOverfit(record: StrategyEvidenceRecord): Array<{ check_id: 
   if (proof.method !== "out_of_sample" && proof.method !== "walk_forward") {
     blockedBy.push({ check_id: "S-OOS-METHOD", reason: "anti_overfit.method must be out_of_sample or walk_forward" })
   }
+  if (proof.stage !== "locked_holdout") {
+    blockedBy.push({ check_id: "S-HOLDOUT-MISSING", reason: "selection validation cannot authorize shadow; locked holdout evidence is required" })
+  }
   if (proof.oos_stats.sample_count < 10) {
     blockedBy.push({ check_id: "S-OOS-SAMPLE", reason: `oos sample_count ${proof.oos_stats.sample_count} is below 10` })
   }
@@ -407,9 +485,40 @@ function readAntiOverfitProof(assumptions: JSONRecord): AntiOverfitProof | undef
   return proof && typeof proof === "object" ? proof as AntiOverfitProof : undefined
 }
 
+function readRobustnessProof(assumptions: JSONRecord): RobustnessProof | undefined {
+  const proof = assumptions.robustness
+  return proof && typeof proof === "object" ? proof as RobustnessProof : undefined
+}
+
+function evaluateRobustness(record: StrategyEvidenceRecord): Array<{ check_id: string; reason: string }> {
+  const proof = record.robustness
+  if (!proof) {
+    return [{ check_id: "S-ROBUSTNESS-MISSING", reason: "replay evidence must include regime and cost robustness" }]
+  }
+  const eligible = proof.regime_slices.filter((slice) => slice.sample_count >= 5)
+  if (eligible.length < 2) {
+    return [{ check_id: "S-ROBUSTNESS-REGIME", reason: "at least two regime slices with five samples each are required" }]
+  }
+  const positive = eligible.filter((slice) => slice.avg_r > 0 && slice.total_r > 0)
+  const blocked: Array<{ check_id: string; reason: string }> = []
+  if (positive.length < 2) {
+    blocked.push({ check_id: "S-ROBUSTNESS-REGIME", reason: "at least two eligible regime slices must be positive" })
+  }
+  if (proof.cost_stress.extra_bps_per_side < 5 || !isPositiveEvidence(proof.cost_stress.stats)) {
+    blocked.push({ check_id: "S-ROBUSTNESS-COST", reason: "edge does not remain positive under the declared cost stress" })
+  }
+  if (!proof.parameter_stability || proof.parameter_stability.method !== "fixed_plus_minus_10pct" || proof.parameter_stability.evaluation_count < 2) {
+    blocked.push({ check_id: "S-ROBUSTNESS-PARAM", reason: "at least two fixed parameter perturbations are required" })
+  } else if (proof.parameter_stability.positive_ratio < 0.5 || proof.parameter_stability.worst_avg_r <= 0) {
+    blocked.push({ check_id: "S-ROBUSTNESS-PARAM", reason: "parameter perturbation stability is too weak" })
+  }
+  return blocked
+}
+
 function normalizeAntiOverfitProof(proof: AntiOverfitProof): AntiOverfitProof {
   return {
     method: proof.method,
+    ...(proof.stage ? { stage: proof.stage } : {}),
     oos_stats: normalizeEvidenceStats(proof.oos_stats),
     ...(proof.train_stats ? { train_stats: normalizeEvidenceStats(proof.train_stats) } : {}),
     ...(optionalNumber(proof.trial_count) !== undefined ? { trial_count: optionalNumber(proof.trial_count) } : {}),
@@ -466,6 +575,8 @@ export {
   type EvidenceKind,
   type EvidenceStats,
   type AntiOverfitProof,
+  type EvidenceFingerprint,
+  type RobustnessProof,
   type StrategyEvidenceRecord,
   type StrategyPromotionGate,
   type StrategyReviewReport,

@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import Binance, { type BinanceRest } from "binance-api-node"
+import { createHash } from "node:crypto"
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, resolve } from "node:path"
@@ -42,9 +43,13 @@ interface TimeframeEntry {
   rows: number
   append_only: boolean
   ascending_ts: boolean
+  content_sha256: string
 }
 
 interface FetchResponse {
+  schema_version: 2
+  source: { provider: "binance"; market: "usdm_perpetual"; endpoint: "fapi/v1/klines" }
+  closed_candles_only: true
   symbol: string
   requested_symbol: string
   exchange: string
@@ -81,6 +86,7 @@ const DEFAULT_LIMITS: Record<string, number> = {
 }
 
 const TIMEFRAME_ORDER = ["1w", "1d", "4h", "1h"]
+const MAX_KLINE_PAGE_SIZE = 1500
 
 const HELP_TEXT = `Usage:
   ./scripts/main.ts --symbol ETHUSDT
@@ -130,6 +136,9 @@ export async function run(
     const candleSets = await fetchAllTimeframes(client, fetchCfg, config.timeframes, config.limit, config.sinceTS)
 
     const response: FetchResponse = {
+      schema_version: 2,
+      source: { provider: "binance", market: "usdm_perpetual", endpoint: "fapi/v1/klines" },
+      closed_candles_only: true,
       symbol: fetchCfg.symbol.manifest,
       requested_symbol: config.symbol,
       exchange: fetchCfg.exchangeID,
@@ -156,6 +165,7 @@ export async function run(
         last_open_ts: set.candles.length > 0 ? set.candles[set.candles.length - 1].timestamp : 0,
         append_only: true,
         ascending_ts: true,
+        content_sha256: candleContentHash(set.candles),
       }
       writeCandlesCSV(join(outputDir, fileName), set.candles)
       response.timeframes[timeframe] = entry
@@ -219,6 +229,9 @@ export function parseArgs(argv: string[]): Config {
 
   if (!config.symbol.trim()) {
     throw new Error("--symbol is required")
+  }
+  if (config.limit > MAX_KLINE_PAGE_SIZE && config.sinceTS <= 0) {
+    throw new Error(`--limit above ${MAX_KLINE_PAGE_SIZE} requires --since-ts`)
   }
   return config
 }
@@ -322,25 +335,76 @@ async function fetchAllTimeframes(
   return Object.fromEntries(results)
 }
 
-async function fetchKlines(
+export async function fetchKlines(
   client: BinanceRest,
   cfg: FetchConfig,
   interval: string,
   limit: number,
   sinceTS: number,
 ): Promise<Candle[]> {
-  const payload: { symbol: string; interval: string; limit: number; startTime?: number } = {
-    symbol: cfg.symbol.api,
-    interval,
-    limit,
-  }
-  if (sinceTS > 0) payload.startTime = sinceTS
+  const target = Math.max(1, limit)
+  const fetchTarget = target + 1
+  const byTimestamp = new Map<number, Candle>()
+  let cursor = sinceTS
 
-  const raw = (await client.futuresCandles(payload)) as unknown as RawCandle[]
-  if (raw.length === 0) {
+  while (byTimestamp.size < fetchTarget) {
+    const pageLimit = Math.min(MAX_KLINE_PAGE_SIZE, fetchTarget - byTimestamp.size)
+    const payload: { symbol: string; interval: string; limit: number; startTime?: number } = {
+      symbol: cfg.symbol.api,
+      interval,
+      limit: pageLimit,
+    }
+    if (cursor > 0) payload.startTime = cursor
+
+    const raw = (await client.futuresCandles(payload)) as unknown as RawCandle[]
+    if (raw.length === 0) {
+      break
+    }
+    for (const row of raw) {
+      byTimestamp.set(row.openTime, toCandle(row))
+    }
+
+    const lastOpenTime = Math.max(...raw.map((row) => row.openTime))
+    if (cursor > 0 && lastOpenTime < cursor) {
+      throw new Error(`${cfg.symbol.manifest} ${interval} pagination did not advance`)
+    }
+    cursor = lastOpenTime + 1
+    if (raw.length < pageLimit) {
+      break
+    }
+  }
+
+  const now = Date.now()
+  const candles = Array.from(byTimestamp.values())
+    .filter((candle) => candleCloseTimestamp(candle.timestamp, interval) <= now)
+    .sort((a, b) => a.timestamp - b.timestamp)
+  const selected = sinceTS > 0 ? candles.slice(0, target) : candles.slice(-target)
+  if (selected.length === 0) {
     throw new Error(`${cfg.symbol.manifest} ${interval} returned no OHLCV data`)
   }
-  return raw.map((row) => ({
+  return selected
+}
+
+export function candleCloseTimestamp(openTimestamp: number, interval: string): number {
+  const monthly = interval.match(/^(\d+)M$/)
+  if (monthly) {
+    const date = new Date(openTimestamp)
+    return Date.UTC(date.getUTCFullYear(), date.getUTCMonth() + Number(monthly[1]), 1)
+  }
+  const match = interval.match(/^(\d+)([mhdw])$/)
+  if (!match) {
+    throw new Error(`unsupported timeframe for closed-candle verification: ${interval}`)
+  }
+  const unit = { m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000 }[match[2]] || 0
+  return openTimestamp + Number(match[1]) * unit
+}
+
+function candleContentHash(candles: Candle[]): string {
+  return createHash("sha256").update(candlesCsv(candles)).digest("hex")
+}
+
+function toCandle(row: RawCandle): Candle {
+  return {
     date: formatRFC3339UTC(row.openTime),
     timestamp: row.openTime,
     open: row.open,
@@ -348,7 +412,7 @@ async function fetchKlines(
     low: row.low,
     close: row.close,
     volume: row.volume,
-  }))
+  }
 }
 
 interface RawCandle {
@@ -372,11 +436,15 @@ function resolveOutputDir(raw: string): string {
 }
 
 function writeCandlesCSV(path: string, candles: Candle[]): void {
+  writeFileSync(path, candlesCsv(candles))
+}
+
+function candlesCsv(candles: Candle[]): string {
   const lines: string[] = ["date,timestamp,open,high,low,close,volume"]
   for (const c of candles) {
     lines.push(`${c.date},${c.timestamp},${c.open},${c.high},${c.low},${c.close},${c.volume}`)
   }
-  writeFileSync(path, `${lines.join("\n")}\n`)
+  return `${lines.join("\n")}\n`
 }
 
 export function formatRFC3339UTC(ms: number): string {

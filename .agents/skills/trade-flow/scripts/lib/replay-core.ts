@@ -1,4 +1,5 @@
-import { readFileSync } from "node:fs"
+import { createHash } from "node:crypto"
+import { readdirSync, readFileSync, statSync } from "node:fs"
 import { dirname, join } from "node:path"
 
 type Side = "long" | "short"
@@ -39,12 +40,14 @@ interface ReplayTrade {
   entry_time: string
   exit_time: string
   entry: number
+  exit: number
   stop: number
   target: number
   r: number
   outcome: ExitReason
   reason: string
   bars_held: number
+  regime: string
   meta?: JSONRecord
 }
 
@@ -71,6 +74,8 @@ interface ReplayOptions {
   oosSplitRatio?: number
   trialCount?: number
   parameterCount?: number
+  antiOverfitStage?: "selection_validation" | "locked_holdout"
+  supplementalDataRefs?: string[]
 }
 
 interface ReplayResult {
@@ -91,7 +96,20 @@ interface ReplayResult {
   }
   trades: ReplayTrade[]
   assumptions: JSONRecord
+  provenance: ReplayProvenance
   notes: string[]
+}
+
+interface ReplayProvenance {
+  harness_hash: string
+  data_hash: string
+  assumptions_hash: string
+  data_ref: string
+  timeframe: string
+  data_schema_version: number
+  closed_candles_only: boolean
+  manifest_checksum_verified: boolean
+  supplemental_data?: Array<{ ref: string; content_sha256: string }>
 }
 
 function replayStrategy(strategy: ReplayStrategy, options: ReplayOptions): ReplayResult {
@@ -115,6 +133,7 @@ function replayStrategy(strategy: ReplayStrategy, options: ReplayOptions): Repla
       continue
     }
     const trade = resolveTrade(candles, signal, maxHoldBars, options)
+    trade.regime = classifyMarketRegime(candles, indicators, signal.signal_index)
     trades.push(trade)
     const exitIndex = candles.findIndex((candle) => candle.timestamp === Date.parse(trade.exit_time))
     index = Math.max(signal.entry_index + 1, exitIndex + 1)
@@ -132,14 +151,17 @@ function replayStrategy(strategy: ReplayStrategy, options: ReplayOptions): Repla
   if (antiOverfit) {
     assumptions.anti_overfit = antiOverfit
   }
+  assumptions.robustness = buildRobustnessProof(trades)
 
-  return summarizeReplay({
+  const result = summarizeReplay({
     strategy_id: strategy.strategy_id,
     symbol: stringField(manifest.symbol) || stringField(manifest.requested_symbol) || "UNKNOWN",
     timeframe,
     trades,
     assumptions,
   })
+  result.provenance = buildReplayProvenance(options.manifestPath, timeframe, assumptions, options.supplementalDataRefs)
+  return result
 }
 
 function loadManifest(path: string): JSONRecord {
@@ -235,12 +257,14 @@ function buildTrade(
     entry_time: entryCandle.date,
     exit_time: exitCandle.date,
     entry: round(signal.entry),
+    exit: round(exit),
     stop: round(signal.stop),
     target: round(signal.target),
     r: round(grossR - costR),
     outcome,
     reason: signal.reason,
     bars_held: barsHeld,
+    regime: "unknown",
     ...(signal.meta ? { meta: signal.meta } : {}),
   }
 }
@@ -272,6 +296,16 @@ function summarizeReplay(input: {
     gate: evaluateReplayGate(stats),
     trades: input.trades,
     assumptions: input.assumptions,
+    provenance: {
+      harness_hash: "",
+      data_hash: "",
+      assumptions_hash: hashCanonical(input.assumptions),
+      data_ref: "",
+      timeframe: input.timeframe,
+      data_schema_version: 0,
+      closed_candles_only: false,
+      manifest_checksum_verified: false,
+    },
     notes: [
       "Replay is mechanical and conservative: if stop and target hit in the same candle, stop wins.",
       "Replay enforces one active position per strategy lane.",
@@ -281,19 +315,189 @@ function summarizeReplay(input: {
 }
 
 function buildAntiOverfitProof(trades: ReplayTrade[], options: ReplayOptions): JSONRecord | null {
+  if (trades.length === 0) {
+    return null
+  }
+  if (options.antiOverfitStage === "locked_holdout") {
+    return {
+      method: "out_of_sample",
+      stage: "locked_holdout",
+      oos_stats: summarizeTrades(trades),
+      trial_count: options.trialCount ?? 1,
+      parameter_count: options.parameterCount ?? 0,
+      notes: "The frozen candidate is evaluated on the complete locked holdout; no holdout segment is reused for selection.",
+    }
+  }
   const ratio = options.oosSplitRatio ?? 0
-  if (!Number.isFinite(ratio) || ratio <= 0 || ratio >= 1 || trades.length === 0) {
+  if (!Number.isFinite(ratio) || ratio <= 0 || ratio >= 1) {
     return null
   }
   const splitIndex = Math.max(1, Math.min(trades.length - 1, Math.floor(trades.length * (1 - ratio))))
   return {
     method: "out_of_sample",
+    stage: "selection_validation",
     train_stats: summarizeTrades(trades.slice(0, splitIndex)),
     oos_stats: summarizeTrades(trades.slice(splitIndex)),
     trial_count: options.trialCount ?? 1,
     parameter_count: options.parameterCount ?? 0,
-    notes: `OOS uses the last ${round(ratio * 100)}% of chronological replay trades.`,
+    notes: `Selection validation uses the last ${round(ratio * 100)}% of chronological replay trades; it is not a locked final holdout.`,
   }
+}
+
+function classifyMarketRegime(candles: Candle[], indicators: IndicatorSet, index: number): string {
+  const close = candles[index]?.close
+  const longTrend = indicators.ema200[index]
+  const atrNow = indicators.atr14[index]
+  if (!Number.isFinite(close) || !Number.isFinite(longTrend) || !Number.isFinite(atrNow) || close <= 0) {
+    return "unknown"
+  }
+  const ratios = candles.slice(Math.max(0, index - 99), index + 1)
+    .map((candle, offset) => {
+      const absoluteIndex = Math.max(0, index - 99) + offset
+      const value = indicators.atr14[absoluteIndex] / candle.close
+      return Number.isFinite(value) ? value : null
+    })
+    .filter((value): value is number => value !== null)
+    .sort((a, b) => a - b)
+  const median = ratios[Math.floor(ratios.length / 2)] ?? atrNow / close
+  return `${close >= longTrend ? "bull" : "bear"}_${atrNow / close >= median ? "high_vol" : "low_vol"}`
+}
+
+function buildRobustnessProof(trades: ReplayTrade[]): JSONRecord {
+  const groups = new Map<string, ReplayTrade[]>()
+  for (const trade of trades) {
+    const list = groups.get(trade.regime) || []
+    list.push(trade)
+    groups.set(trade.regime, list)
+  }
+  const regimeSlices = Array.from(groups.entries())
+    .filter(([regime, items]) => regime !== "unknown" && items.length >= 5)
+    .map(([regime, items]) => ({ regime, ...summarizeTrades(items) }))
+  const stressed = trades.map((trade) => {
+    const risk = Math.abs(trade.entry - trade.stop)
+    const extraCostR = risk > 0 ? ((Math.abs(trade.entry) + Math.abs(trade.exit)) * 5 / 10000) / risk : 0
+    return { ...trade, r: round(trade.r - extraCostR) }
+  })
+  return {
+    regime_slices: regimeSlices,
+    cost_stress: { extra_bps_per_side: 5, stats: summarizeTrades(stressed) },
+  }
+}
+
+function buildReplayProvenance(manifestPath: string, timeframe: string, assumptions: JSONRecord, supplementalDataRefs: string[] = []): ReplayProvenance {
+  const manifest = loadManifest(manifestPath)
+  const item = asRecord(asRecord(manifest.timeframes)[timeframe])
+  const declaredChecksum = stringField(item.content_sha256)
+  const supplementalData = [...new Set(supplementalDataRefs)].sort().map((ref) => ({
+    ref,
+    content_sha256: hashFile(ref),
+  }))
+  const actualDataHash = replayDataHash(manifestPath, timeframe, supplementalData.map((item) => item.ref))
+  const contentHash = replayContentHash(manifestPath, timeframe)
+  return {
+    harness_hash: replayHarnessHash(),
+    data_hash: actualDataHash,
+    assumptions_hash: hashCanonical(assumptions),
+    data_ref: manifestPath,
+    timeframe,
+    data_schema_version: Number(manifest.schema_version) || 0,
+    closed_candles_only: manifest.closed_candles_only === true,
+    manifest_checksum_verified: Boolean(declaredChecksum && declaredChecksum === contentHash),
+    ...(supplementalData.length > 0 ? { supplemental_data: supplementalData } : {}),
+  }
+}
+
+function replayDataHash(manifestPath: string, timeframe: string, supplementalDataRefs: string[] = []): string {
+  const manifest = loadManifest(manifestPath)
+  const item = asRecord(asRecord(manifest.timeframes)[timeframe])
+  const file = stringField(item.file)
+  if (!file) {
+    throw new Error(`manifest missing timeframe ${timeframe}`)
+  }
+  const identity = {
+    schema_version: Number(manifest.schema_version) || 0,
+    source: asRecord(manifest.source),
+    closed_candles_only: manifest.closed_candles_only === true,
+    symbol: stringField(manifest.symbol) || stringField(manifest.requested_symbol),
+    exchange: stringField(manifest.exchange) || stringField(manifest.requested_exchange),
+    timeframe,
+    columns: Array.isArray(manifest.columns) ? manifest.columns : [],
+  }
+  const contentHash = replayContentHash(manifestPath, timeframe)
+  const declaredChecksum = stringField(item.content_sha256)
+  if (declaredChecksum && declaredChecksum !== contentHash) {
+    throw new Error(`manifest checksum mismatch for ${timeframe}`)
+  }
+  const marketDataHash = createHash("sha256").update(stableJson(identity)).update("\n").update(contentHash).digest("hex")
+  const supplementalData = [...new Set(supplementalDataRefs)].sort().map((ref) => ({ ref, content_sha256: hashFile(ref) }))
+  return hashCanonical({ market_data_hash: marketDataHash, supplemental_data: supplementalData })
+}
+
+function replayContentHash(manifestPath: string, timeframe: string): string {
+  const manifest = loadManifest(manifestPath)
+  const item = asRecord(asRecord(manifest.timeframes)[timeframe])
+  const file = stringField(item.file)
+  if (!file) throw new Error(`manifest missing timeframe ${timeframe}`)
+  return createHash("sha256").update(readFileSync(join(dirname(manifestPath), file))).digest("hex")
+}
+
+function replayHarnessHash(): string {
+  const root = import.meta.dir
+  const files = [
+    join(root, "replay-core.ts"),
+    join(root, "replay-strategies.ts"),
+    join(root, "strategy-replay.ts"),
+    join(root, "strategy-rnd.ts"),
+    join(root, "factor-engine.ts"),
+    join(root, "factor-research.ts"),
+    join(root, "rnd-family.ts"),
+    join(root, "rnd-family-helpers.ts"),
+    ...sourceFiles(join(root, "rnd-families")),
+  ].filter((path) => statOrNull(path)?.isFile())
+  const hash = createHash("sha256")
+  for (const path of files.sort()) {
+    hash.update(path.slice(root.length))
+    hash.update("\n")
+    hash.update(readFileSync(path))
+    hash.update("\n")
+  }
+  return hash.digest("hex")
+}
+
+function hashFile(path: string): string {
+  return createHash("sha256").update(readFileSync(path)).digest("hex")
+}
+
+function sourceFiles(path: string): string[] {
+  if (!statOrNull(path)?.isDirectory()) {
+    return []
+  }
+  return readdirSync(path, { withFileTypes: true }).flatMap((entry) => {
+    const child = join(path, entry.name)
+    return entry.isDirectory() ? sourceFiles(child) : entry.name.endsWith(".ts") ? [child] : []
+  })
+}
+
+function statOrNull(path: string): ReturnType<typeof statSync> | null {
+  try {
+    return statSync(path)
+  } catch {
+    return null
+  }
+}
+
+function hashCanonical(value: unknown): string {
+  return createHash("sha256").update(stableJson(value)).digest("hex")
+}
+
+function stableJson(value: unknown): string {
+  if (Array.isArray(value)) {
+    return `[${value.map(stableJson).join(",")}]`
+  }
+  if (value && typeof value === "object") {
+    return `{${Object.entries(value as JSONRecord).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`).join(",")}}`
+  }
+  return JSON.stringify(value) ?? "null"
 }
 
 function summarizeTrades(trades: ReplayTrade[]): {
@@ -405,6 +609,10 @@ export {
   loadCandlesFromManifest,
   parseCsvCandles,
   replayStrategy,
+  replayDataHash,
+  replayContentHash,
+  replayHarnessHash,
+  hashCanonical,
   summarizeReplay,
   summarizeTrades,
   evaluateReplayGate,
@@ -412,6 +620,7 @@ export {
   type IndicatorSet,
   type ReplayOptions,
   type ReplayResult,
+  type ReplayProvenance,
   type ReplaySignal,
   type ReplayStrategy,
   type ReplayTrade,

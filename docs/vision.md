@@ -12,7 +12,7 @@
 - 离线验证链：`research / review -> replay / backtest -> shadow -> live-small / paused`
 
 当前优先实现在线链和 setup 级 replay / shadow gate；离线验证链已实现最小可运行闭环，不提前做平台化。
-最终产品必须形成完整策略迭代闭环：`replay evidence -> shadow samples -> live-small samples -> review -> strategy policy change -> replay again`。当前已固定 evidence ledger、policy_hash、strategy-review、strategy-promote，不做自动挖矿和自动升格。
+最终产品必须形成完整策略迭代闭环：`replay evidence -> shadow samples -> live-small samples -> review -> strategy policy change -> replay again`。当前已固定 evidence ledger、四类 evidence fingerprint、locked holdout、strategy-review、strategy-promote；只做有预算的因子筛选，不做无界搜索或自动升格。
 
 ## 核心原则
 

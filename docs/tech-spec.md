@@ -568,7 +568,7 @@ Strategy 文件 frontmatter shape：
 ---
 strategy_id: S-GENERIC-TREND
 name: 通用趋势跟随
-status: active | draft | retired
+status: draft | shadow | live-small | paused
 tags: [directional, technical]
 ---
 
@@ -581,10 +581,12 @@ trade-flow 启动时遍历 `strategies/*.md`，按 frontmatter 索引到内存 m
 
 Strategy evidence ledger 规则：
 
-- 每条 evidence 绑定当前 `policy_hash`；strategy 正文、名称或 tags 改动后旧 evidence stale
-- `draft -> shadow` 需要 fresh replay 正收益，且 replay evidence 必须带 OOS / walk-forward anti-overfit proof
+- replay evidence 绑定 `policy_hash + harness_hash + data_hash + assumptions_hash`；`data_hash` 覆盖 OHLCV 与实际消费的 factor report，任一变化或 checksum 失配后 stale
+- `draft -> shadow` 需要 fingerprint fresh replay 正收益；chronological tail split 只作 selection validation，准入必须是 locked holdout / walk-forward
 - `anti_overfit.oos_stats.sample_count >= 10`，OOS 表现必须为正
 - `anti_overfit.trial_count > 10` 或 `parameter_count > 8` 直接拒绝升格
+- 数据必须来自 schema v2、仅闭合 K 线且 checksum 可核验的 manifest
+- robustness 必须覆盖至少两个 regime 分桶、额外单边 5 bps 成本与预声明 ±10% 参数扰动
 
 ### 12.4 存储约束
 

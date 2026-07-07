@@ -212,7 +212,7 @@
 - 触发：累积一批 review 后发现共性，或外部信源提示新模式。
 - 用户行为：
   - 新 strategy：在 `.agents/skills/trade-flow/strategies/` 加一个 markdown 文件（frontmatter `strategy_id / name / status / tags` + policy 正文）
-  - 若要从 `draft` 升 `shadow`，先写入 fresh replay evidence；evidence 必须带 OOS / walk-forward anti-overfit proof
+  - 若要从 `draft` 升 `shadow`，先写入 fingerprint fresh replay evidence；普通 selection split 不够，必须带 locked holdout / walk-forward、regime / cost / parameter robustness proof
   - 调整 hard guard：只在“确定性、全局重要、可脚本化”的前提下修改对应 guard 代码或脚本
 - 验证：下一轮 cron 跑会自动加载，无需 schema 迁移、无需改代码。
 
@@ -222,7 +222,7 @@
 
 - 跨策略 / 跨阶段性样本总结不在 cron 周期里跑——cron 只管单 flow 内的即时 review。
 - 用户每周或每月主动跑一次回看脚本（待建）：聚合最近 N 条 `review` 事件，看共性。
-- MVP 阶段累积 30+ review 样本前不建 backtest / iterate 自动链路。
+- setup 级 replay / R&D campaign / shadow gate 已有最小闭环；累积 30+ review 样本前不建平台化 strategy-pool 或自动升级。
 
 ### US-14 一段时间后回看哪些 strategy / 条款值得改
 
@@ -256,6 +256,6 @@
 
 - **probe / 日内策略**：项目层固定不做
 - **hedge 多腿净敞口管理**：推迟，等真有对冲需求再启用（届时增设 `plan_relation` 表 + `S-HEDGE-GENERIC` strategy + 升级 `G-RISK-OPEN-CAP` 公式为 hedge-aware 版本）
-- **离线 backtest / iterate / strategy-pool 升级链路**：累积 30+ review 样本后再展开
+- **平台化 strategy-pool 与自动升级**：累积 30+ review 样本后再展开；当前 setup 级 replay / R&D campaign / shadow gate 已实现
 - **跨账户 / 跨平台**：项目层固定 Binance USDM 永续单账户
 - **手工逐笔下单的交互式协作**：本系统不为此设计——用户偶尔想手工干预 → 直接在 Binance UI 做，下次 cron 跑会通过对账自动衔接

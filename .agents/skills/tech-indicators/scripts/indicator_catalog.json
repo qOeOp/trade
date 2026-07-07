@@ -22,7 +22,8 @@
       "debug": false
     },
     "meaning": "降低噪音的 RSI 类动量指标。",
-    "observe": "看超买超卖区、拐头、与价格背离。"
+    "observe": "看超买超卖区、拐头、与价格背离。",
+    "factors": [{"id":"laguerre.value","output":"value","formula":"laguerre","roles":["timing","filter"],"legacy_alias":"laguerre"}]
   },
   "mmar": {
     "module": "technical.indicators.indicators",
@@ -59,7 +60,8 @@
       "periods": 14
     },
     "meaning": "方向动量振荡器。",
-    "observe": "看上行动量与下行动量占比。"
+    "observe": "看上行动量与下行动量占比。",
+    "factors": [{"id":"osc.value","output":"value","formula":"osc","roles":["timing","confirmation"]}]
   },
   "vfi": {
     "module": "technical.indicators.indicators",
@@ -74,7 +76,12 @@
     },
     "output_names": ["vfi", "vfima", "vfi_hist"],
     "meaning": "量价资金流方向。",
-    "observe": "看资金流是否与价格趋势共振。"
+    "observe": "看资金流是否与价格趋势共振。",
+    "factors": [
+      {"id":"vfi.value","output":"value","formula":"vfi","roles":["confirmation","filter"]},
+      {"id":"vfi.signal","output":"signal","formula":"vfi_signal","roles":["confirmation"]},
+      {"id":"vfi.histogram","output":"histogram","formula":"vfi_histogram","roles":["timing","confirmation"],"legacy_alias":"vfi"}
+    ]
   },
   "stc": {
     "module": "technical.indicators.indicators",
@@ -86,7 +93,8 @@
       "length": 10
     },
     "meaning": "结合 MACD 与周期节奏的趋势振荡器。",
-    "observe": "看 25/75 区域穿越和方向切换。"
+    "observe": "看 25/75 区域穿越和方向切换。",
+    "factors": [{"id":"stc.value","output":"value","formula":"stc","roles":["timing","confirmation"],"legacy_alias":"stc"}]
   },
   "vpcii": {
     "module": "technical.indicators.indicators",
@@ -98,7 +106,12 @@
       "hist": 14
     },
     "meaning": "量价确认强度指数。",
-    "observe": "看量能是否支持当前价格趋势。"
+    "observe": "看量能是否支持当前价格趋势。",
+    "factors": [
+      {"id":"vpcii.value","output":"value","formula":"vpci","roles":["confirmation","filter"]},
+      {"id":"vpcii.signal","output":"signal","formula":"vpcii_signal","roles":["confirmation"]},
+      {"id":"vpcii.histogram","output":"histogram","formula":"vpcii_histogram","roles":["timing","confirmation"],"legacy_alias":"vpcii"}
+    ]
   },
   "vpci": {
     "module": "technical.indicators.indicators",
@@ -109,7 +122,8 @@
       "period_long": 20
     },
     "meaning": "Volume Price Confirmation Indicator。",
-    "observe": "看量价方向一致还是背离。"
+    "observe": "看量价方向一致还是背离。",
+    "factors": [{"id":"vpci.value","output":"value","formula":"vpci","roles":["confirmation","filter"],"legacy_alias":"vpci"}]
   },
   "fibonacci_retracements": {
     "module": "technical.indicators.indicators",
@@ -257,7 +271,8 @@
       "period": 14
     },
     "meaning": "Williams %R 超买超卖振荡器。",
-    "observe": "看高低位区间、背离和反转。"
+    "observe": "看高低位区间、背离和反转。",
+    "factors": [{"id":"williams_percent.value","output":"value","formula":"williams_percent","roles":["timing","filter"]}]
   },
   "bollinger_bands": {
     "module": "technical.indicators.overlap_studies",
@@ -271,7 +286,11 @@
       "ma_type": "sma"
     },
     "meaning": "波动带与均值回归区间。",
-    "observe": "看带宽收缩/扩张、价格贴上轨下轨。"
+    "observe": "看带宽收缩/扩张、价格贴上轨下轨。",
+    "factors": [
+      {"id":"bollinger_bands.middle","output":"middle","formula":"bollinger_middle","roles":["location","filter"]},
+      {"id":"bollinger_bands.width_pct","output":"width_pct","formula":"bollinger_width_pct","roles":["regime","trigger"]}
+    ]
   },
   "dema": {
     "module": "technical.indicators.overlap_studies",
@@ -304,7 +323,8 @@
       "field": "close"
     },
     "meaning": "指数移动平均线。",
-    "observe": "看趋势方向、价格站位、均线斜率。"
+    "observe": "看趋势方向、价格站位、均线斜率。",
+    "factors": [{"id":"ema.value","output":"value","formula":"ema","roles":["regime","filter"]}]
   },
   "sma": {
     "module": "technical.indicators.overlap_studies",
@@ -315,7 +335,8 @@
       "field": "close"
     },
     "meaning": "简单移动平均线。",
-    "observe": "看均值方向和偏离程度。"
+    "observe": "看均值方向和偏离程度。",
+    "factors": [{"id":"sma.value","output":"value","formula":"sma","roles":["regime","filter"]}]
   },
   "tema": {
     "module": "technical.indicators.overlap_studies",
@@ -370,7 +391,8 @@
       "period": 14
     },
     "meaning": "ATR 相对现价百分比。",
-    "observe": "看波动放大还是收缩。"
+    "observe": "看波动放大还是收缩。",
+    "factors": [{"id":"atr_percent.value","output":"value","formula":"atr_percent","roles":["regime","risk"]}]
   },
   "chopiness": {
     "module": "technical.indicators.volatility",
@@ -380,7 +402,8 @@
       "period": 14
     },
     "meaning": "衡量趋势市还是震荡市。",
-    "observe": "数值高偏震荡，数值低偏趋势。"
+    "observe": "数值高偏震荡，数值低偏趋势。",
+    "factors": [{"id":"chopiness.value","output":"value","formula":"chopiness","roles":["regime","filter"]}]
   },
   "chaikin_money_flow": {
     "module": "technical.indicators.volume_indicators",
@@ -390,7 +413,8 @@
       "period": 21
     },
     "meaning": "资金流入流出强弱。",
-    "observe": "看量价配合和资金净流入方向。"
+    "observe": "看量价配合和资金净流入方向。",
+    "factors": [{"id":"chaikin_money_flow.value","output":"value","formula":"chaikin_money_flow","roles":["confirmation","filter"]}]
   },
   "pivots_points": {
     "module": "technical.pivots_points",

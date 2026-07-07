@@ -1,18 +1,26 @@
 import { randomUUID } from "node:crypto"
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import {
+  hashCanonical,
+  loadCandlesFromManifest,
+  replayDataHash,
   replayStrategy,
-  type Candle,
-  type IndicatorSet,
   type ReplayResult,
-  type ReplaySignal,
-  type ReplayStrategy,
 } from "./replay-core"
+import {
+  composeFactorCandidates,
+  factorConditionsToJson,
+  loadFactorFeatureStore,
+  readFactorConditions,
+  type FactorCondition,
+  type FactorFeatureStore,
+} from "./factor-engine"
+import { researchFactorSeeds, type FactorResearchOptions, type FactorResearchReport } from "./factor-research"
+import { getRndFamily } from "./rnd-family"
 
 type JSONRecord = Record<string, unknown>
-type SideFilter = "long" | "short" | "both"
-type IndicatorFilterOp = "gt" | "lt" | "between"
+type CandidateSource = "provided" | "bounded_factor_composition" | "scientific_factor_discovery"
 
 interface StrategyRndBatchInput {
   batchId?: string
@@ -24,8 +32,15 @@ interface StrategyRndBatchInput {
   slippageBps?: number
   oosSplitRatio?: number
   indicatorReportPath?: string
-  autoCandidates?: boolean
+  factorCompose?: boolean
+  factorDiscover?: boolean
+  factorResearchOptions?: FactorResearchOptions
+  factorSeeds?: FactorCondition[]
+  maxFactorsPerCandidate?: number
   candidates: StrategyRndCandidateInput[]
+  antiOverfitStage?: "selection_validation" | "locked_holdout"
+  parameterStability?: JSONRecord
+  searchTrialCount?: number
 }
 
 interface StrategyRndLoopInput extends StrategyRndBatchInput {
@@ -35,10 +50,25 @@ interface StrategyRndLoopInput extends StrategyRndBatchInput {
   now?: string
 }
 
+interface StrategyRndCampaignHypothesisInput extends StrategyRndBatchInput {
+  hypothesisId: string
+  validationManifestPath: string
+  validationIndicatorReportPath?: string
+}
+
+interface StrategyRndCampaignInput {
+  campaignId?: string
+  hypotheses: StrategyRndCampaignHypothesisInput[]
+  maxTotalTrials?: number
+  artifactRoot?: string
+  ledgerPath?: string
+  now?: string
+}
+
 interface StrategyRndCandidateInput {
   candidateId: string
   description?: string
-  family?: "trend_pullback_v1"
+  family?: string
   parameterCount?: number
   params?: JSONRecord
 }
@@ -48,7 +78,7 @@ interface StrategyRndBatchReport {
   hypothesis: string
   trial_count: number
   accepted_count: number
-  candidate_source: "provided" | "auto_indicator_synthesis"
+  candidate_source: CandidateSource
   outcome: "candidate_found" | "no_promote"
   winner: StrategyRndCandidateReport | null
   candidates: StrategyRndCandidateReport[]
@@ -58,7 +88,7 @@ interface StrategyRndBatchReport {
     oos_required: true
     no_auto_promote: true
   }
-  indicator_research: StrategyIndicatorResearch | null
+  factor_research: FactorResearchReport | null
   next_action: string
 }
 
@@ -72,6 +102,33 @@ interface StrategyRndLoopReport {
   stop_reason: "candidate_found" | "no_promote"
 }
 
+interface StrategyRndCampaignReport {
+  campaign_id: string
+  created_at: string
+  artifact_ref: string
+  ledger_ref: string
+  outcome: "validated_candidate_found" | "no_validated_candidate"
+  stop_reason: "validated_candidate_found" | "hypothesis_queue_exhausted" | "trial_budget_exhausted" | "locked_holdout_failed"
+  trial_budget: number
+  trials_used: number
+  hypotheses_run: number
+  holdout_evaluations: number
+  validated_candidate: {
+    candidate_id: string
+    family: string
+    parameter_count: number
+    params: JSONRecord
+    validation_run_ref: string
+  } | null
+  runs: Array<{
+    hypothesis_id: string
+    discovery_run_ref: string
+    discovery_outcome: "candidate_found" | "no_promote"
+    validation_run_ref: string | null
+    validation_outcome: "candidate_found" | "no_promote" | null
+  }>
+}
+
 interface StrategyRndLedgerRecord {
   run_id: string
   created_at: string
@@ -80,33 +137,17 @@ interface StrategyRndLedgerRecord {
   manifest_ref: string
   indicator_report_ref: string
   artifact_ref: string
-  candidate_source: "provided" | "auto_indicator_synthesis"
+  candidate_source: CandidateSource
   outcome: "candidate_found" | "no_promote"
   trial_count: number
   accepted_count: number
   winner_candidate_id: string | null
+  stage: "selection_validation" | "locked_holdout"
+  data_hash: string
+  holdout_key: string | null
   rejected_reasons: Array<{
     check_id: string
     count: number
-  }>
-}
-
-interface StrategyIndicatorResearch {
-  source_ref: string
-  selected_indicators: Array<{
-    indicator_id: string
-    category: string
-    defaults: JSONRecord
-    observe: string
-    proposed_use: string
-  }>
-  structure_edges: Array<{
-    timeframe: string
-    feature_id: string
-    respect_rate: number
-    break_rate: number
-    sample_count: number
-    proposed_use: string
   }>
 }
 
@@ -123,42 +164,14 @@ interface StrategyRndCandidateReport {
   }
 }
 
-interface TrendPullbackParams {
-  side: SideFilter
-  fastEma: 20 | 50
-  slowEma: 50 | 200
-  pullbackAtr: number
-  stopAtr: number
-  maxRiskAtr: number
-  rewardRisk: number
-  slopeLookback: number
-  requireEmaStack: boolean
-  indicatorFilters: IndicatorFilter[]
-}
-
-interface IndicatorFilter {
-  indicatorId: string
-  timeframe?: string
-  op: IndicatorFilterOp
-  value?: number
-  min?: number
-  max?: number
-}
-
-interface IndicatorFeatureStore {
-  read(timeframe: string, indicatorId: string, timestamp: string): number | undefined
-}
-
 function runStrategyRndBatch(input: StrategyRndBatchInput): StrategyRndBatchReport {
   if (!input.manifestPath) {
     throw new Error("strategy R&D batch requires manifestPath")
   }
-  const indicatorResearch = input.indicatorReportPath ? loadIndicatorResearch(input.indicatorReportPath) : null
-  const candidates = input.candidates.length > 0
-    ? input.candidates
-    : input.autoCandidates && indicatorResearch
-      ? synthesizeIndicatorCandidates(indicatorResearch)
-      : []
+  const featureStore = input.indicatorReportPath ? loadFactorFeatureStore(input.indicatorReportPath) : emptyFeatureStore()
+  const factorResearch = buildFactorResearch(input, featureStore)
+  const resolved = resolveRndCandidates(input, factorResearch)
+  const candidates = resolved.candidates
   if (!Array.isArray(candidates) || candidates.length === 0) {
     throw new Error("strategy R&D batch requires at least one candidate")
   }
@@ -166,7 +179,6 @@ function runStrategyRndBatch(input: StrategyRndBatchInput): StrategyRndBatchRepo
     throw new Error(`strategy R&D batch trial_count ${candidates.length} exceeds 10`)
   }
 
-  const featureStore = input.indicatorReportPath ? loadIndicatorFeatureStore(input.indicatorReportPath) : emptyFeatureStore()
   const batch = { ...input, candidates }
   const reports = candidates.map((candidate) => runCandidate(batch, candidate, featureStore))
   const accepted = reports.filter((report) => report.gate.accepted)
@@ -177,7 +189,7 @@ function runStrategyRndBatch(input: StrategyRndBatchInput): StrategyRndBatchRepo
     hypothesis: input.hypothesis || "",
     trial_count: candidates.length,
     accepted_count: accepted.length,
-    candidate_source: input.candidates.length > 0 ? "provided" : "auto_indicator_synthesis",
+    candidate_source: resolved.source,
     outcome: winner ? "candidate_found" : "no_promote",
     winner,
     candidates: reports,
@@ -187,11 +199,31 @@ function runStrategyRndBatch(input: StrategyRndBatchInput): StrategyRndBatchRepo
       oos_required: true,
       no_auto_promote: true,
     },
-    indicator_research: indicatorResearch,
+    factor_research: factorResearch,
     next_action: winner
       ? "Draft a strategy policy for the winning candidate, then append replay evidence and run strategy-review before any shadow promotion."
       : "Stop this hypothesis batch; predeclare a new edge hypothesis before running more trials.",
   }
+}
+
+function resolveRndCandidates(
+  input: StrategyRndBatchInput,
+  factorResearch: FactorResearchReport | null,
+): { candidates: StrategyRndCandidateInput[]; source: CandidateSource } {
+  const bases = input.candidates
+  if (!input.factorCompose) {
+    return {
+      candidates: bases,
+      source: "provided",
+    }
+  }
+  const seeds = input.factorSeeds && input.factorSeeds.length > 0 ? input.factorSeeds : factorResearch?.seeds || []
+  const candidates = composeFactorCandidates(bases, seeds, {
+    maxCandidates: 10,
+    maxFactorsPerCandidate: input.maxFactorsPerCandidate,
+    maxParameterCount: 8,
+  }) as StrategyRndCandidateInput[]
+  return { candidates, source: factorResearch ? "scientific_factor_discovery" : "bounded_factor_composition" }
 }
 
 function runStrategyRndLoop(input: StrategyRndLoopInput): StrategyRndLoopReport {
@@ -200,6 +232,10 @@ function runStrategyRndLoop(input: StrategyRndLoopInput): StrategyRndLoopReport 
   const artifactRoot = input.artifactRoot || "./data/artifacts/strategy-rnd"
   const ledgerPath = input.ledgerPath || "./data/strategy-rnd-ledger.jsonl"
   const artifactRef = join(artifactRoot, `${safeFileName(runId)}.json`)
+  if (input.antiOverfitStage === "locked_holdout") {
+    assertHoldoutUnused(ledgerPath, holdoutKeyForInput(input))
+  }
+  assertRunIdUnused(ledgerPath, runId)
   const batch = runStrategyRndBatch(input)
   const ledgerRecord = buildRndLedgerRecord({
     input,
@@ -230,6 +266,189 @@ function runStrategyRndLoop(input: StrategyRndLoopInput): StrategyRndLoopReport 
   }
 }
 
+function runStrategyRndCampaign(input: StrategyRndCampaignInput): StrategyRndCampaignReport {
+  if (!Array.isArray(input.hypotheses) || input.hypotheses.length === 0) {
+    throw new Error("strategy R&D campaign requires at least one hypothesis")
+  }
+  const trialBudget = input.maxTotalTrials ?? 10
+  if (!Number.isInteger(trialBudget) || trialBudget < 1 || trialBudget > 10) {
+    throw new Error("strategy R&D campaign maxTotalTrials must be an integer from 1 to 10")
+  }
+
+  const createdAt = input.now || new Date().toISOString()
+  const campaignId = input.campaignId || `rnd-campaign-${createdAt.replace(/[^0-9]/g, "").slice(0, 14)}-${randomUUID().slice(0, 8)}`
+  const artifactRoot = input.artifactRoot || "./data/artifacts/strategy-rnd"
+  const ledgerPath = input.ledgerPath || "./data/strategy-rnd-ledger.jsonl"
+  const runs: StrategyRndCampaignReport["runs"] = []
+  let trialsUsed = 0
+  let validatedCandidate: StrategyRndCampaignReport["validated_candidate"] = null
+  let stopReason: StrategyRndCampaignReport["stop_reason"] = "hypothesis_queue_exhausted"
+  let holdoutEvaluations = 0
+
+  for (const hypothesis of input.hypotheses) {
+    if (!hypothesis.hypothesisId) {
+      throw new Error("strategy R&D campaign hypothesis_id is required")
+    }
+    if (!hypothesis.validationManifestPath) {
+      throw new Error(`strategy R&D campaign ${hypothesis.hypothesisId} requires validation_manifest_path`)
+    }
+    const trialCount = resolveCandidateCount(hypothesis)
+    if (trialsUsed + trialCount > trialBudget) {
+      stopReason = "trial_budget_exhausted"
+      break
+    }
+    ensureNonOverlappingManifests(
+      hypothesis.manifestPath,
+      hypothesis.validationManifestPath,
+      hypothesis.timeframe || "4h",
+    )
+
+    const discovery = runStrategyRndLoop({
+      ...hypothesis,
+      runId: `${campaignId}-${hypothesis.hypothesisId}-discovery`,
+      batchId: `${campaignId}-${hypothesis.hypothesisId}-discovery`,
+      artifactRoot,
+      ledgerPath,
+      now: createdAt,
+    })
+    trialsUsed += discovery.batch.trial_count
+    const runSummary: StrategyRndCampaignReport["runs"][number] = {
+      hypothesis_id: hypothesis.hypothesisId,
+      discovery_run_ref: discovery.artifact_ref,
+      discovery_outcome: discovery.batch.outcome,
+      validation_run_ref: null,
+      validation_outcome: null,
+    }
+    runs.push(runSummary)
+    if (!discovery.batch.winner) {
+      continue
+    }
+
+    const winner = discovery.batch.winner
+    const winnerFilters = Array.isArray(winner.params.factorConditions) ? winner.params.factorConditions : []
+    if (winnerFilters.length > 0 && !hypothesis.validationIndicatorReportPath) {
+      throw new Error(`strategy R&D campaign ${hypothesis.hypothesisId} requires validation_indicator_report_path for frozen indicator filters`)
+    }
+    assertHoldoutUnused(ledgerPath, holdoutKeyForInput({
+      ...hypothesis,
+      manifestPath: hypothesis.validationManifestPath,
+      indicatorReportPath: hypothesis.validationIndicatorReportPath,
+      antiOverfitStage: "locked_holdout",
+    }))
+    const validation = runStrategyRndLoop({
+      ...hypothesis,
+      runId: `${campaignId}-${hypothesis.hypothesisId}-validation`,
+      batchId: `${campaignId}-${hypothesis.hypothesisId}-validation`,
+      hypothesis: `External validation of frozen candidate ${winner.candidate_id}: ${hypothesis.hypothesis || ""}`.trim(),
+      manifestPath: hypothesis.validationManifestPath,
+      indicatorReportPath: hypothesis.validationIndicatorReportPath,
+      candidates: [{
+        candidateId: `${winner.candidate_id}-external-validation`,
+        description: winner.description,
+        family: winner.family,
+        parameterCount: winner.parameter_count,
+        params: winner.params,
+      }],
+      antiOverfitStage: "locked_holdout",
+      searchTrialCount: trialsUsed,
+      parameterStability: asRecord(asRecord(winner.replay.assumptions.robustness).parameter_stability),
+      artifactRoot,
+      ledgerPath,
+      now: createdAt,
+    })
+    holdoutEvaluations += 1
+    runSummary.validation_run_ref = validation.artifact_ref
+    runSummary.validation_outcome = validation.batch.outcome
+    if (validation.batch.winner) {
+      validatedCandidate = {
+        candidate_id: validation.batch.winner.candidate_id,
+        family: validation.batch.winner.family,
+        parameter_count: validation.batch.winner.parameter_count,
+        params: validation.batch.winner.params,
+        validation_run_ref: validation.artifact_ref,
+      }
+      stopReason = "validated_candidate_found"
+      break
+    }
+    stopReason = "locked_holdout_failed"
+    break
+  }
+
+  const artifactRef = join(artifactRoot, `${safeFileName(campaignId)}.campaign.json`)
+  const report: StrategyRndCampaignReport = {
+    campaign_id: campaignId,
+    created_at: createdAt,
+    artifact_ref: artifactRef,
+    ledger_ref: ledgerPath,
+    outcome: validatedCandidate ? "validated_candidate_found" : "no_validated_candidate",
+    stop_reason: stopReason,
+    trial_budget: trialBudget,
+    trials_used: trialsUsed,
+    hypotheses_run: runs.length,
+    holdout_evaluations: holdoutEvaluations,
+    validated_candidate: validatedCandidate,
+    runs,
+  }
+  writeJsonFile(artifactRef, report)
+  return report
+}
+
+function resolveCandidateCount(input: StrategyRndBatchInput): number {
+  const featureStore = input.indicatorReportPath ? loadFactorFeatureStore(input.indicatorReportPath) : emptyFeatureStore()
+  const count = resolveRndCandidates(input, buildFactorResearch(input, featureStore)).candidates.length
+  if (count === 0) {
+    throw new Error("strategy R&D campaign hypothesis requires at least one candidate")
+  }
+  return count
+}
+
+function buildFactorResearch(input: StrategyRndBatchInput, featureStore: FactorFeatureStore): FactorResearchReport | null {
+  if (!input.factorDiscover || !input.indicatorReportPath) {
+    return null
+  }
+  const timeframe = input.timeframe || "4h"
+  return researchFactorSeeds(
+    featureStore,
+    loadCandlesFromManifest(
+      input.manifestPath,
+      JSON.parse(readFileSync(input.manifestPath, "utf8")) as JSONRecord,
+      timeframe,
+    ),
+    timeframe,
+    input.factorResearchOptions,
+  )
+}
+
+function ensureNonOverlappingManifests(discoveryPath: string, validationPath: string, timeframe: string): void {
+  const discovery = readManifestRange(discoveryPath, timeframe)
+  const validation = readManifestRange(validationPath, timeframe)
+  if (discovery.first <= validation.last && validation.first <= discovery.last) {
+    throw new Error(`discovery and validation manifests overlap for ${timeframe}`)
+  }
+}
+
+function readManifestRange(manifestPath: string, timeframe: string): { first: number; last: number } {
+  const manifest = asRecord(JSON.parse(readFileSync(manifestPath, "utf8")))
+  const entry = asRecord(asRecord(manifest.timeframes)[timeframe])
+  const first = Number(entry.first_open_ts)
+  const last = Number(entry.last_open_ts)
+  if (Number.isFinite(first) && first > 0 && Number.isFinite(last) && last >= first) {
+    return { first, last }
+  }
+  const file = stringField(entry.file)
+  if (!file) {
+    throw new Error(`manifest missing timeframe ${timeframe}`)
+  }
+  const rows = readFileSync(join(dirname(manifestPath), file), "utf8").trim().split(/\r?\n/).slice(1)
+  const timestamps = rows
+    .map((row) => Number(row.split(",")[1]))
+    .filter((timestamp) => Number.isFinite(timestamp))
+  if (timestamps.length === 0) {
+    throw new Error(`manifest timeframe ${timeframe} has no candles`)
+  }
+  return { first: Math.min(...timestamps), last: Math.max(...timestamps) }
+}
+
 function buildRndLedgerRecord(input: {
   input: StrategyRndLoopInput
   runId: string
@@ -237,6 +456,12 @@ function buildRndLedgerRecord(input: {
   artifactRef: string
   batch: StrategyRndBatchReport
 }): StrategyRndLedgerRecord {
+  const stage = input.input.antiOverfitStage || "selection_validation"
+  const dataHash = replayDataHash(
+    input.input.manifestPath,
+    input.input.timeframe || "4h",
+    input.input.indicatorReportPath ? [input.input.indicatorReportPath] : [],
+  )
   return {
     run_id: input.runId,
     created_at: input.createdAt,
@@ -250,6 +475,9 @@ function buildRndLedgerRecord(input: {
     trial_count: input.batch.trial_count,
     accepted_count: input.batch.accepted_count,
     winner_candidate_id: input.batch.winner?.candidate_id ?? null,
+    stage,
+    data_hash: dataHash,
+    holdout_key: stage === "locked_holdout" ? hashCanonical({ stage, data_hash: dataHash }) : null,
     rejected_reasons: summarizeRejectedReasons(input.batch),
   }
 }
@@ -279,307 +507,90 @@ function redactLoopInputForArtifact(input: StrategyRndLoopInput): JSONRecord {
     feeBps: input.feeBps,
     slippageBps: input.slippageBps,
     oosSplitRatio: input.oosSplitRatio,
+    searchTrialCount: input.searchTrialCount,
     indicatorReportPath: input.indicatorReportPath,
-    autoCandidates: input.autoCandidates,
+    factorCompose: input.factorCompose,
+    factorDiscover: input.factorDiscover,
+    factorResearchOptions: input.factorResearchOptions,
+    factorSeeds: factorConditionsToJson(input.factorSeeds || []),
+    maxFactorsPerCandidate: input.maxFactorsPerCandidate,
     candidates: input.candidates,
   }
 }
 
-function loadIndicatorResearch(path: string): StrategyIndicatorResearch {
-  const report = asRecord(JSON.parse(readFileSync(path, "utf8")))
-  const data = asRecord(report.data)
-  const selected = asRecord(data.selected_indicators)
-  return {
-    source_ref: path,
-    selected_indicators: Object.entries(selected).map(([indicatorId, raw]) => {
-      const item = asRecord(raw)
-      const category = stringField(item.category)
-      return {
-        indicator_id: indicatorId,
-        category,
-        defaults: asRecord(item.defaults),
-        observe: stringField(item.observe),
-        proposed_use: proposedIndicatorUse(category, stringField(item.observe)),
-      }
-    }),
-    structure_edges: readStructureEdges(data),
-  }
-}
-
-function readStructureEdges(data: JSONRecord): StrategyIndicatorResearch["structure_edges"] {
-  const timeframes = asRecord(data.timeframes)
-  const edges: StrategyIndicatorResearch["structure_edges"] = []
-  for (const [timeframe, rawFrame] of Object.entries(timeframes)) {
-    const frame = asRecord(rawFrame)
-    const validation = asRecord(frame.structure_validation)
-    for (const [featureId, rawStats] of Object.entries(validation)) {
-      const stats = asRecord(rawStats)
-      const sampleCount = Number(stats.sample_count)
-      const respectRate = Number(stats.respect_rate)
-      const breakRate = Number(stats.break_rate)
-      if (!Number.isFinite(sampleCount) || sampleCount < 30 || !Number.isFinite(respectRate)) {
-        continue
-      }
-      if (respectRate >= 0.9 || breakRate >= 0.1) {
-        edges.push({
-          timeframe,
-          feature_id: featureId,
-          respect_rate: round(respectRate),
-          break_rate: Number.isFinite(breakRate) ? round(breakRate) : 0,
-          sample_count: sampleCount,
-          proposed_use: respectRate >= 0.9
-            ? "use as structure-respect filter or invalidation reference; must replay before promotion"
-            : "use as breakout/breakdown hypothesis seed; must replay before promotion",
-        })
-      }
-    }
-  }
-  return edges.sort((a, b) => b.sample_count - a.sample_count || b.respect_rate - a.respect_rate).slice(0, 20)
-}
-
-function proposedIndicatorUse(category: string, observe: string): string {
-  if (category === "trend" || category === "moving-average") {
-    return `candidate trend/regime filter: ${observe}`
-  }
-  if (category === "momentum" || category === "timing") {
-    return `candidate confirmation/timing filter: ${observe}`
-  }
-  if (category === "volume") {
-    return `candidate participation/liquidity confirmation: ${observe}`
-  }
-  if (category === "level") {
-    return `candidate location/invalidation feature: ${observe}`
-  }
-  return `candidate feature; must define exact rule and replay: ${observe}`
-}
-
-function runCandidate(input: StrategyRndBatchInput, candidate: StrategyRndCandidateInput, featureStore: IndicatorFeatureStore): StrategyRndCandidateReport {
+function runCandidate(input: StrategyRndBatchInput, candidate: StrategyRndCandidateInput, featureStore: FactorFeatureStore): StrategyRndCandidateReport {
   const family = candidate.family || "trend_pullback_v1"
-  if (family !== "trend_pullback_v1") {
-    throw new Error(`unsupported strategy R&D family: ${family}`)
-  }
-  const params = normalizeTrendPullbackParams(candidate.params || {})
   const parameterCount = candidate.parameterCount ?? countActiveParameters(candidate.params || {})
-  const strategy = buildTrendPullbackCandidate(candidate.candidateId, params, featureStore)
-  const replay = replayStrategy(strategy, {
+  const rawParams = candidate.params || {}
+  const configured = getRndFamily(family).configure(candidate.candidateId, rawParams, featureStore)
+  const replay = replayStrategy(configured.strategy, {
     manifestPath: input.manifestPath,
     timeframe: input.timeframe,
     maxHoldBars: input.maxHoldBars,
-    rewardRisk: params.rewardRisk,
+    rewardRisk: configured.rewardRisk,
     feeBps: input.feeBps,
     slippageBps: input.slippageBps,
     oosSplitRatio: input.oosSplitRatio ?? 0.3,
-    trialCount: input.candidates.length,
+    trialCount: input.searchTrialCount ?? input.candidates.length,
     parameterCount,
+    antiOverfitStage: input.antiOverfitStage,
+    supplementalDataRefs: input.indicatorReportPath ? [input.indicatorReportPath] : [],
   })
+  const robustness = asRecord(replay.assumptions.robustness)
+  robustness.parameter_stability = Object.keys(input.parameterStability || {}).length > 0
+    ? input.parameterStability
+    : evaluateParameterStability(input, candidate, featureStore)
+  replay.assumptions.robustness = robustness
+  replay.provenance.assumptions_hash = hashCanonical(replay.assumptions)
   return {
     candidate_id: candidate.candidateId,
     description: candidate.description || "",
     family,
     parameter_count: parameterCount,
-    params: trendPullbackParamsToJson(params),
+    params: configured.params,
     replay,
     gate: evaluateRndCandidate(replay, parameterCount),
   }
 }
 
-function synthesizeIndicatorCandidates(research: StrategyIndicatorResearch): StrategyRndCandidateInput[] {
-  const candidates: StrategyRndCandidateInput[] = []
-  for (const item of research.selected_indicators) {
-    if (candidates.length >= 10) {
-      break
-    }
-    if (item.category === "volume" && item.indicator_id === "vpci") {
-      candidates.push(buildAutoCandidate("AUTO-LONG-VPCI-POS", "long trend pullback with positive VPCI", "long", [{
-        indicator_id: item.indicator_id,
-        op: "gt",
-        value: 0,
-      }]))
-      candidates.push(buildAutoCandidate("AUTO-SHORT-VPCI-NEG", "short trend pullback with negative VPCI", "short", [{
-        indicator_id: item.indicator_id,
-        op: "lt",
-        value: 0,
-      }]))
-      continue
-    }
-    if (item.category === "momentum" && item.indicator_id === "stc") {
-      candidates.push(buildAutoCandidate("AUTO-LONG-STC-GT50", "long trend pullback with STC above 50", "long", [{
-        indicator_id: item.indicator_id,
-        op: "gt",
-        value: 50,
-      }]))
-      candidates.push(buildAutoCandidate("AUTO-SHORT-STC-LT50", "short trend pullback with STC below 50", "short", [{
-        indicator_id: item.indicator_id,
-        op: "lt",
-        value: 50,
-      }]))
-      continue
-    }
-    if (item.category === "momentum" && item.indicator_id === "laguerre") {
-      candidates.push(buildAutoCandidate("AUTO-LONG-LAGUERRE-MID", "long trend pullback with Laguerre not overextended", "long", [{
-        indicator_id: item.indicator_id,
-        op: "between",
-        min: 0.2,
-        max: 0.85,
-      }]))
-      candidates.push(buildAutoCandidate("AUTO-SHORT-LAGUERRE-MID", "short trend pullback with Laguerre not washed out", "short", [{
-        indicator_id: item.indicator_id,
-        op: "between",
-        min: 0.15,
-        max: 0.8,
-      }]))
-    }
-  }
-  return candidates.slice(0, 10)
-}
-
-function buildAutoCandidate(id: string, description: string, side: "long" | "short", filters: JSONRecord[]): StrategyRndCandidateInput {
-  return {
-    candidateId: id,
-    description,
-    parameterCount: 8,
-    params: {
-      side,
-      fast_ema: 50,
-      slow_ema: 200,
-      pullback_atr: 0.25,
-      stop_atr: 0.5,
-      max_risk_atr: 1.25,
-      reward_risk: 2,
-      require_ema_stack: true,
-      indicator_filters: filters,
-    },
-  }
-}
-
-function buildTrendPullbackCandidate(strategyId: string, params: TrendPullbackParams, featureStore: IndicatorFeatureStore): ReplayStrategy {
-  return {
-    strategy_id: strategyId,
-    default_timeframe: "4h",
-    warmup_bars: Math.max(200, params.slopeLookback + 1),
-    generateSignal({ candles, indicators, index, options }) {
-      const candle = candles[index]
-      const next = candles[index + 1]
-      const fast = readEma(indicators, params.fastEma, index)
-      const slow = readEma(indicators, params.slowEma, index)
-      const currentAtr = indicators.atr14[index]
-      if (!candle || !next || !Number.isFinite(fast) || !Number.isFinite(slow) || !Number.isFinite(currentAtr) || currentAtr <= 0) {
-        return null
-      }
-      if (!passesIndicatorFilters(params.indicatorFilters, featureStore, options.timeframe || "4h", candle.date)) {
-        return null
-      }
-      const side = readCandidateSide(candles, indicators, index, params)
-      if (!side) {
-        return null
-      }
-      return buildCandidateSignal({
-        side,
-        signal: candle,
-        signalIndex: index,
-        entryIndex: index + 1,
-        entry: next.open,
-        fast,
-        currentAtr,
-        params,
+function evaluateParameterStability(
+  input: StrategyRndBatchInput,
+  candidate: StrategyRndCandidateInput,
+  featureStore: FactorFeatureStore,
+): JSONRecord {
+  const raw = candidate.params || {}
+  const keys = Object.entries(raw)
+    .filter(([key, value]) => typeof value === "number" && value > 0 && !key.includes("ema") && !key.includes("lookback"))
+    .map(([key]) => key)
+    .slice(0, 3)
+  const results: Array<{ parameter: string; multiplier: number; avg_r: number; total_r: number }> = []
+  for (const key of keys) {
+    for (const multiplier of [0.9, 1.1]) {
+      const params = { ...raw, [key]: Number(raw[key]) * multiplier }
+      const configured = getRndFamily(candidate.family || "trend_pullback_v1").configure(`${candidate.candidateId}-stability`, params, featureStore)
+      const replay = replayStrategy(configured.strategy, {
+        manifestPath: input.manifestPath,
+        timeframe: input.timeframe,
+        maxHoldBars: input.maxHoldBars,
+        rewardRisk: configured.rewardRisk,
+        feeBps: input.feeBps,
+        slippageBps: input.slippageBps,
+        supplementalDataRefs: input.indicatorReportPath ? [input.indicatorReportPath] : [],
       })
-    },
-  }
-}
-
-function passesIndicatorFilters(filters: IndicatorFilter[], store: IndicatorFeatureStore, defaultTimeframe: string, timestamp: string): boolean {
-  for (const filter of filters) {
-    const value = store.read(filter.timeframe || defaultTimeframe, filter.indicatorId, timestamp)
-    if (!Number.isFinite(value)) {
-      return false
-    }
-    if (filter.op === "gt" && !(Number(value) > Number(filter.value))) {
-      return false
-    }
-    if (filter.op === "lt" && !(Number(value) < Number(filter.value))) {
-      return false
-    }
-    if (filter.op === "between" && !(Number(value) >= Number(filter.min) && Number(value) <= Number(filter.max))) {
-      return false
+      results.push({ parameter: key, multiplier, avg_r: replay.avg_r, total_r: replay.total_r })
     }
   }
-  return true
-}
-
-function readCandidateSide(candles: Candle[], indicators: IndicatorSet, index: number, params: TrendPullbackParams): "long" | "short" | null {
-  const candle = candles[index]
-  const fast = readEma(indicators, params.fastEma, index)
-  const slow = readEma(indicators, params.slowEma, index)
-  const previousFast = params.slopeLookback > 0 ? readEma(indicators, params.fastEma, index - params.slopeLookback) : fast
-  const longAllowed = params.side === "long" || params.side === "both"
-  const shortAllowed = params.side === "short" || params.side === "both"
-  const longTrend = candle.close > fast
-    && (!params.requireEmaStack || fast > slow)
-    && (!params.slopeLookback || fast > previousFast)
-  const shortTrend = candle.close < fast
-    && (!params.requireEmaStack || fast < slow)
-    && (!params.slopeLookback || fast < previousFast)
-  if (longAllowed && longTrend) {
-    return "long"
-  }
-  if (shortAllowed && shortTrend) {
-    return "short"
-  }
-  return null
-}
-
-function buildCandidateSignal(input: {
-  side: "long" | "short"
-  signal: Candle
-  signalIndex: number
-  entryIndex: number
-  entry: number
-  fast: number
-  currentAtr: number
-  params: TrendPullbackParams
-}): ReplaySignal | null {
-  if (input.side === "long") {
-    const pulledBack = input.signal.low <= input.fast + input.params.pullbackAtr * input.currentAtr
-    if (!pulledBack) {
-      return null
-    }
-    const stop = Math.min(input.signal.low, input.fast) - input.params.stopAtr * input.currentAtr
-    const risk = input.entry - stop
-    if (risk <= 0 || risk > input.params.maxRiskAtr * input.currentAtr) {
-      return null
-    }
-    return {
-      side: "long",
-      signal_index: input.signalIndex,
-      entry_index: input.entryIndex,
-      entry: input.entry,
-      stop,
-      target: input.entry + risk * input.params.rewardRisk,
-      reason: "rnd trend pullback long",
-      meta: trendPullbackParamsToJson(input.params),
-    }
-  }
-
-  const pulledBack = input.signal.high >= input.fast - input.params.pullbackAtr * input.currentAtr
-  if (!pulledBack) {
-    return null
-  }
-  const stop = Math.max(input.signal.high, input.fast) + input.params.stopAtr * input.currentAtr
-  const risk = stop - input.entry
-  if (risk <= 0 || risk > input.params.maxRiskAtr * input.currentAtr) {
-    return null
-  }
+  const positive = results.filter((item) => item.avg_r > 0 && item.total_r > 0)
   return {
-    side: "short",
-    signal_index: input.signalIndex,
-    entry_index: input.entryIndex,
-    entry: input.entry,
-    stop,
-    target: input.entry - risk * input.params.rewardRisk,
-    reason: "rnd trend pullback short",
-    meta: trendPullbackParamsToJson(input.params),
+    method: "fixed_plus_minus_10pct",
+    evaluation_count: results.length,
+    positive_ratio: results.length > 0 ? Number((positive.length / results.length).toFixed(6)) : 0,
+    worst_avg_r: results.length > 0 ? Math.min(...results.map((item) => item.avg_r)) : 0,
+    results,
   }
 }
+
+
 
 function evaluateRndCandidate(replay: ReplayResult, parameterCount: number): StrategyRndCandidateReport["gate"] {
   const blockedBy = [...replay.gate.blocked_by]
@@ -609,121 +620,52 @@ function evaluateRndCandidate(replay: ReplayResult, parameterCount: number): Str
   if (parameterCount > 8) {
     blockedBy.push({ check_id: "RND-PARAM-COUNT", reason: `parameter_count ${parameterCount} exceeds 8` })
   }
+  blockedBy.push(...evaluateRndRobustness(replay))
   return {
     accepted: blockedBy.length === 0,
     blocked_by: blockedBy,
   }
 }
 
-function normalizeTrendPullbackParams(raw: JSONRecord): TrendPullbackParams {
+function evaluateRndRobustness(replay: ReplayResult): Array<{ check_id: string; reason: string }> {
+  const robustness = asRecord(replay.assumptions.robustness)
+  const slices = Array.isArray(robustness.regime_slices) ? robustness.regime_slices.map(asRecord) : []
+  const eligible = slices.filter((slice) => Number(slice.sample_count) >= 5)
+  const positive = eligible.filter((slice) => Number(slice.avg_r) > 0 && Number(slice.total_r) > 0)
+  const blocked: Array<{ check_id: string; reason: string }> = []
+  if (eligible.length < 2 || positive.length < 2) {
+    blocked.push({ check_id: "RND-ROBUSTNESS-REGIME", reason: "at least two regime slices with five samples each must be positive" })
+  }
+  const costStress = asRecord(robustness.cost_stress)
+  const costStats = asRecord(costStress.stats)
+  if (Number(costStress.extra_bps_per_side) < 5 || Number(costStats.avg_r) <= 0 || Number(costStats.total_r) <= 0) {
+    blocked.push({ check_id: "RND-ROBUSTNESS-COST", reason: "candidate must remain positive under at least 5 bps extra cost per side" })
+  }
+  const stability = asRecord(robustness.parameter_stability)
+  if (stringField(stability.method) !== "fixed_plus_minus_10pct"
+    || Number(stability.evaluation_count) < 2
+    || Number(stability.positive_ratio) < 0.5
+    || Number(stability.worst_avg_r) <= 0) {
+    blocked.push({ check_id: "RND-ROBUSTNESS-PARAM", reason: "fixed +/-10% parameter perturbations are not stable" })
+  }
+  return blocked
+}
+
+
+function emptyFeatureStore(): FactorFeatureStore {
   return {
-    side: readSide(raw.side),
-    fastEma: readEmaLength(raw.fast_ema ?? raw.fastEma, 50, [20, 50]) as 20 | 50,
-    slowEma: readEmaLength(raw.slow_ema ?? raw.slowEma, 200, [50, 200]) as 50 | 200,
-    pullbackAtr: readPositiveNumber(raw.pullback_atr ?? raw.pullbackAtr, 0.25),
-    stopAtr: readPositiveNumber(raw.stop_atr ?? raw.stopAtr, 0.5),
-    maxRiskAtr: readPositiveNumber(raw.max_risk_atr ?? raw.maxRiskAtr, 1.25),
-    rewardRisk: readPositiveNumber(raw.reward_risk ?? raw.rewardRisk, 2),
-    slopeLookback: readNonNegativeInteger(raw.slope_lookback ?? raw.slopeLookback, 0),
-    requireEmaStack: readBoolean(raw.require_ema_stack ?? raw.requireEmaStack, true),
-    indicatorFilters: readIndicatorFilters(raw.indicator_filters ?? raw.indicatorFilters),
-  }
-}
-
-function trendPullbackParamsToJson(params: TrendPullbackParams): JSONRecord {
-  return {
-    side: params.side,
-    fastEma: params.fastEma,
-    slowEma: params.slowEma,
-    pullbackAtr: params.pullbackAtr,
-    stopAtr: params.stopAtr,
-    maxRiskAtr: params.maxRiskAtr,
-    rewardRisk: params.rewardRisk,
-    slopeLookback: params.slopeLookback,
-    requireEmaStack: params.requireEmaStack,
-    indicatorFilters: params.indicatorFilters.map((filter) => ({ ...filter })),
-  }
-}
-
-function readIndicatorFilters(value: unknown): IndicatorFilter[] {
-  if (!Array.isArray(value)) {
-    return []
-  }
-  return value.map((raw) => {
-    const item = asRecord(raw)
-    const op = readIndicatorFilterOp(item.op)
-    return {
-      indicatorId: stringField(item.indicator_id ?? item.indicatorId),
-      timeframe: stringField(item.timeframe) || undefined,
-      op,
-      value: optionalNumber(item.value),
-      min: optionalNumber(item.min),
-      max: optionalNumber(item.max),
-    }
-  }).filter((filter) => filter.indicatorId && isValidIndicatorFilter(filter))
-}
-
-function isValidIndicatorFilter(filter: IndicatorFilter): boolean {
-  if (filter.op === "between") {
-    return filter.min !== undefined && filter.max !== undefined
-  }
-  return filter.value !== undefined
-}
-
-function readIndicatorFilterOp(value: unknown): IndicatorFilterOp {
-  if (value === "lt" || value === "between") {
-    return value
-  }
-  return "gt"
-}
-
-function loadIndicatorFeatureStore(path: string): IndicatorFeatureStore {
-  const report = asRecord(JSON.parse(readFileSync(path, "utf8")))
-  const data = asRecord(report.data)
-  const timeframes = asRecord(data.timeframes)
-  const values = new Map<string, Map<string, number>>()
-  for (const [timeframe, rawFrame] of Object.entries(timeframes)) {
-    const frame = asRecord(rawFrame)
-    const features = asRecord(frame.features)
-    for (const [indicatorId, rawFeature] of Object.entries(features)) {
-      const feature = asRecord(rawFeature)
-      const points = Array.isArray(feature.values) ? feature.values : []
-      const byTimestamp = new Map<string, number>()
-      for (const rawPoint of points) {
-        const point = asRecord(rawPoint)
-        const timestamp = stringField(point.timestamp)
-        const value = optionalNumber(point.value)
-        if (timestamp && value !== undefined) {
-          byTimestamp.set(timestamp, value)
-        }
-      }
-      values.set(`${timeframe}:${indicatorId}`, byTimestamp)
-    }
-  }
-  return {
-    read(timeframe: string, indicatorId: string, timestamp: string): number | undefined {
-      return values.get(`${timeframe}:${indicatorId}`)?.get(timestamp)
+    definitions() {
+      return []
     },
-  }
-}
-
-function emptyFeatureStore(): IndicatorFeatureStore {
-  return {
+    series() {
+      return undefined
+    },
     read() {
       return undefined
     },
   }
 }
 
-function readEma(indicators: IndicatorSet, length: 20 | 50 | 200, index: number): number {
-  if (length === 20) {
-    return indicators.ema20[index]
-  }
-  if (length === 50) {
-    return indicators.ema50[index]
-  }
-  return indicators.ema200[index]
-}
 
 function compareCandidates(a: StrategyRndCandidateReport, b: StrategyRndCandidateReport): number {
   const aOos = (a.replay.assumptions.anti_overfit as { oos_stats?: { total_r?: number; avg_r?: number } } | undefined)?.oos_stats
@@ -741,27 +683,6 @@ function countActiveParameters(params: JSONRecord): number {
   }, 0)
 }
 
-function readSide(value: unknown): SideFilter {
-  if (value === "long" || value === "short" || value === "both") {
-    return value
-  }
-  return "both"
-}
-
-function readEmaLength(value: unknown, fallback: number, allowed: number[]): number {
-  const number = Number(value)
-  return allowed.includes(number) ? number : fallback
-}
-
-function readPositiveNumber(value: unknown, fallback: number): number {
-  const number = Number(value)
-  return Number.isFinite(number) && number > 0 ? number : fallback
-}
-
-function readNonNegativeInteger(value: unknown, fallback: number): number {
-  const number = Number(value)
-  return Number.isInteger(number) && number >= 0 ? number : fallback
-}
 
 function readBoolean(value: unknown, fallback: boolean): boolean {
   if (typeof value === "boolean") {
@@ -780,8 +701,13 @@ function strategyRndBatchInputFromJson(input: JSONRecord): StrategyRndBatchInput
     feeBps: optionalNumber(input.fee_bps ?? input.feeBps),
     slippageBps: optionalNumber(input.slippage_bps ?? input.slippageBps),
     oosSplitRatio: optionalNumber(input.oos_split ?? input.oosSplitRatio),
+    searchTrialCount: optionalNumber(input.search_trial_count ?? input.searchTrialCount),
     indicatorReportPath: stringField(input.indicator_report_path ?? input.indicatorReportPath) || undefined,
-    autoCandidates: readBoolean(input.auto_candidates ?? input.autoCandidates, false),
+    factorCompose: readBoolean(input.factor_compose ?? input.factorCompose, false),
+    factorDiscover: readBoolean(input.factor_discover ?? input.factorDiscover, false),
+    factorResearchOptions: factorResearchOptionsFromJson(input.factor_research_options ?? input.factorResearchOptions),
+    factorSeeds: readFactorConditions(input.factor_seeds ?? input.factorSeeds),
+    maxFactorsPerCandidate: optionalNumber(input.max_factors_per_candidate ?? input.maxFactorsPerCandidate),
     candidates: Array.isArray(input.candidates)
       ? input.candidates.map((candidate) => candidateFromJson(candidate as JSONRecord))
       : [],
@@ -798,11 +724,37 @@ function strategyRndLoopInputFromJson(input: JSONRecord): StrategyRndLoopInput {
   }
 }
 
+function strategyRndCampaignInputFromJson(input: JSONRecord): StrategyRndCampaignInput {
+  const rawHypotheses = Array.isArray(input.hypotheses) ? input.hypotheses : []
+  return {
+    campaignId: stringField(input.campaign_id ?? input.campaignId) || undefined,
+    maxTotalTrials: optionalNumber(input.max_total_trials ?? input.maxTotalTrials),
+    artifactRoot: stringField(input.artifact_root ?? input.artifactRoot) || undefined,
+    ledgerPath: stringField(input.ledger_path ?? input.ledgerPath) || undefined,
+    now: stringField(input.now) || undefined,
+    hypotheses: rawHypotheses.map((raw) => {
+      const hypothesis = asRecord(raw)
+      return {
+        ...strategyRndBatchInputFromJson({
+          ...hypothesis,
+          manifest_path: hypothesis.discovery_manifest_path
+            ?? hypothesis.discoveryManifestPath
+            ?? hypothesis.manifest_path
+            ?? hypothesis.manifestPath,
+        }),
+        hypothesisId: stringField(hypothesis.hypothesis_id ?? hypothesis.hypothesisId),
+        validationManifestPath: stringField(hypothesis.validation_manifest_path ?? hypothesis.validationManifestPath),
+        validationIndicatorReportPath: stringField(hypothesis.validation_indicator_report_path ?? hypothesis.validationIndicatorReportPath) || undefined,
+      }
+    }),
+  }
+}
+
 function candidateFromJson(input: JSONRecord): StrategyRndCandidateInput {
   return {
     candidateId: stringField(input.candidate_id ?? input.candidateId),
     description: stringField(input.description) || undefined,
-    family: input.family === "trend_pullback_v1" ? "trend_pullback_v1" : undefined,
+    family: stringField(input.family) || undefined,
     parameterCount: optionalNumber(input.parameter_count ?? input.parameterCount),
     params: asRecord(input.params),
   }
@@ -821,8 +773,16 @@ function optionalNumber(value: unknown): number | undefined {
   return Number.isFinite(number) ? number : undefined
 }
 
-function round(value: number): number {
-  return Math.round(value * 1_000_000) / 1_000_000
+function factorResearchOptionsFromJson(value: unknown): FactorResearchOptions {
+  const input = asRecord(value)
+  return {
+    horizonBars: optionalNumber(input.horizon_bars ?? input.horizonBars),
+    lookback: optionalNumber(input.lookback),
+    minSamples: optionalNumber(input.min_samples ?? input.minSamples),
+    minAbsIc: optionalNumber(input.min_abs_ic ?? input.minAbsIc),
+    maxCorrelation: optionalNumber(input.max_correlation ?? input.maxCorrelation),
+    maxSelected: optionalNumber(input.max_selected ?? input.maxSelected),
+  }
 }
 
 function safeFileName(value: string): string {
@@ -834,6 +794,38 @@ function writeJsonFile(path: string, value: unknown): void {
   writeFileSync(path, `${JSON.stringify(value, null, 2)}\n`)
 }
 
+function holdoutKeyForInput(input: StrategyRndBatchInput): string {
+  const dataHash = replayDataHash(
+    input.manifestPath,
+    input.timeframe || "4h",
+    input.indicatorReportPath ? [input.indicatorReportPath] : [],
+  )
+  return hashCanonical({ stage: "locked_holdout", data_hash: dataHash })
+}
+
+function loadRndLedger(path: string): StrategyRndLedgerRecord[] {
+  if (!existsSync(path)) {
+    return []
+  }
+  return readFileSync(path, "utf8")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => JSON.parse(line) as StrategyRndLedgerRecord)
+}
+
+function assertRunIdUnused(ledgerPath: string, runId: string): void {
+  if (loadRndLedger(ledgerPath).some((record) => record.run_id === runId)) {
+    throw new Error(`strategy R&D run_id already exists: ${runId}`)
+  }
+}
+
+function assertHoldoutUnused(ledgerPath: string, holdoutKey: string): void {
+  if (loadRndLedger(ledgerPath).some((record) => record.holdout_key === holdoutKey)) {
+    throw new Error("locked holdout has already been evaluated")
+  }
+}
+
 function appendJsonLine(path: string, value: unknown): void {
   mkdirSync(dirname(path), { recursive: true })
   writeFileSync(path, `${JSON.stringify(value)}\n`, { flag: "a" })
@@ -841,11 +833,15 @@ function appendJsonLine(path: string, value: unknown): void {
 
 export {
   runStrategyRndBatch,
+  runStrategyRndCampaign,
   runStrategyRndLoop,
   strategyRndBatchInputFromJson,
+  strategyRndCampaignInputFromJson,
   strategyRndLoopInputFromJson,
   type StrategyRndBatchInput,
   type StrategyRndBatchReport,
+  type StrategyRndCampaignInput,
+  type StrategyRndCampaignReport,
   type StrategyRndLoopInput,
   type StrategyRndLoopReport,
 }

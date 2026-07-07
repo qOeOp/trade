@@ -27,6 +27,7 @@ description: >-
 - 公共 K 线接口不需要 API key，无需配置 `BINANCE_API_KEY`。
 - 默认周期是 `1w,1d,4h,1h`；需要变更时显式传 `--timeframes`。
 - 输出的 CSV 按 `timestamp` 升序，适合直接去重追加。
+- 默认剔除尚未闭合的 K 线；manifest 固定 `closed_candles_only=true`。
 - 支持性校验基于 USDM `exchangeInfo` 全量列表匹配，不依赖返回结果的第一条记录。
 
 ## 关键输入
@@ -35,8 +36,10 @@ description: >-
 - `--exchange`: 默认 `binance`；只接受 `binance` 或 `binanceusdm`
 - `--timeframes`: 逗号分隔周期列表
 - `--output-dir`: 可选；manifest 与 CSV 的输出目录
-- `--limit`: 可选；未传时按内置默认值抓取
+- `--limit`: 可选；未传时按内置默认值抓取；超过 1500 时分页
 - `--since-ts`: 可选；按 open timestamp 毫秒值增量抓取
+
+超过 Binance 单请求上限 1500 根时必须同时提供 `--since-ts`。分页从该时间向前推进，按 open timestamp 去重并升序输出；无更多数据时提前停止。
 
 ## Symbol 口径
 
@@ -65,6 +68,7 @@ stdout 会返回 `{ ok, data }`，其中包含：
 - `columns`
 - `dedupe_key`
 - 每个 timeframe 的 `file` / `rows` / `first_open_ts` / `last_open_ts`
+- `schema_version=2`、Binance USDM source identity、每个 timeframe 的 `content_sha256`
 
 推荐直接把 `manifest_path` 传给下游 `tech-indicators`。
 

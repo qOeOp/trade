@@ -49,13 +49,23 @@ type manifestTimeframe struct {
 }
 
 type catalogSpec struct {
-	Module      string         `json:"module"`
-	Function    string         `json:"function"`
-	Category    string         `json:"category"`
-	Defaults    map[string]any `json:"defaults"`
-	OutputNames []string       `json:"output_names"`
-	Meaning     string         `json:"meaning"`
-	Observe     string         `json:"observe"`
+	Module      string              `json:"module"`
+	Function    string              `json:"function"`
+	Category    string              `json:"category"`
+	Defaults    map[string]any      `json:"defaults"`
+	OutputNames []string            `json:"output_names"`
+	Meaning     string              `json:"meaning"`
+	Observe     string              `json:"observe"`
+	Factors     []catalogFactorSpec `json:"factors"`
+}
+
+type catalogFactorSpec struct {
+	ID                string   `json:"id"`
+	Output            string   `json:"output"`
+	Formula           string   `json:"formula"`
+	Roles             []string `json:"roles"`
+	AllowedTransforms []string `json:"allowed_transforms"`
+	LegacyAlias       string   `json:"legacy_alias"`
 }
 
 type config struct {
@@ -343,6 +353,18 @@ func loadIndicatorCatalog(path string) (map[string]catalogSpec, error) {
 	if err := json.Unmarshal(body, &catalog); err != nil {
 		return nil, err
 	}
+	seenFactors := map[string]string{}
+	for indicator, spec := range catalog {
+		for _, factor := range spec.Factors {
+			if strings.TrimSpace(factor.ID) == "" || strings.TrimSpace(factor.Formula) == "" {
+				return nil, fmt.Errorf("indicator %s has factor without id or formula", indicator)
+			}
+			if owner, exists := seenFactors[factor.ID]; exists {
+				return nil, fmt.Errorf("factor id %s is duplicated by %s and %s", factor.ID, owner, indicator)
+			}
+			seenFactors[factor.ID] = indicator
+		}
+	}
 	return catalog, nil
 }
 
@@ -445,6 +467,7 @@ func buildSelectedCatalog(
 			"output_names": spec.OutputNames,
 			"meaning":      spec.Meaning,
 			"observe":      spec.Observe,
+			"factors":      spec.Factors,
 		}
 	}
 	return out

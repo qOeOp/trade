@@ -37,7 +37,7 @@ description: >-
 - `summary_markdown`
 - `selected_indicators`
 - 各 timeframe 的完整 `indicators` / `supports` / `resistances` / `trendlines`
-- 可选 `features`：由 `--feature-series` 打开，输出支持指标的逐 bar `{timestamp,value}` 序列，供 strategy R&D 回测消费
+- 可选 `features`：由 `--feature-series` 打开；key 是稳定 `factor_id`，每项包含 `source_indicator / output / category / roles / allowed_transforms / params / values`
 - 结构输出会附带当前仓库口径下的证据字段与历史触碰自校验统计
 - 各 timeframe 的 `structure_validation`，用于输出 walk-forward 的第二层历史验证汇总
 - 结构字段定义见 `references/indicators.md`
@@ -99,5 +99,8 @@ description: >-
 - 某个指标失败不会中断整次分析，错误会直接写进返回 JSON 的对应指标节点
 - 支撑位、压力位、趋势线和失效位沿用当前仓库自己的计算口径
 - 默认参数和指标释义见 `scripts/indicator_catalog.json` 与 `references/indicators.md`
-- `--feature-series` 当前只对已接入 feature exporter 的指标输出历史序列；未支持的指标返回 `status=unsupported`，不能直接用于 replay
+- factor 自动发现由 `indicator_catalog.json` 中各 indicator 自己的 `factors` descriptor 驱动，不维护中央 indicator/factor 注册表
+- descriptor 使用稳定公式原语；新增或调整基于现有原语的 indicator 只改自身 catalog 条目，只有全新数学计算才扩 `factor_engine.go`
+- 当前 transform 由 R&D 消费层统一提供：`level / delta / slope / zscore / percentile`，不在每个 indicator 重复实现
+- 未声明 factor descriptor 的指标返回 `status=unsupported`，不能直接用于 replay
 - 如果你要持久化分析结果，由 LLM 自己决定是否落盘

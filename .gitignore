@@ -5,6 +5,11 @@
 tmp/
 .env
 data/outline_audit/
+data/artifacts/
+data/strategy-evidence.jsonl
+data/strategy-rnd-ledger.jsonl
+data/*.db
+data/*.sqlite*
 
 # Skill-local dependency and cache directories
 node_modules/

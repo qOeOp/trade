@@ -207,8 +207,17 @@ RAVE skill 降级链路：build-skills.sh 打包失败 → 复用已编好的 bi
 - 用户明确担心项目长期运行后无用数据像垃圾一样累计；这属于产品生命线，不是运维细节。
 - `trade.db` 必须只存事件、摘要和 refs；原始 OHLCV / aggTrades / replay 输出是 artifact，不是长期事实源。
 - 未被 strategy evidence / review / active observe / `.pin` 引用的 artifact 必须可 dry-run 扫描和显式清理。
-- 本轮实现落点：`strategy-evidence.jsonl`、`policy_hash`、`strategy-review`、`strategy-promote`。策略规则一改，旧证据 stale；升格默认 dry-run，实改必须 `--yes`。
-- 防过拟合落点：replay evidence 必须带 `anti_overfit.method=out_of_sample|walk_forward`；OOS 不为正、样本太少、搜索次数过多或参数过多，不能升 `shadow`。
+- 本轮实现落点：`strategy-evidence.jsonl`、四类 evidence fingerprint、`strategy-review`、`strategy-promote`。策略、Harness、数据或假设一改，旧证据 stale；升格默认 dry-run，实改必须 `--yes`。
+- 防过拟合落点：replay evidence 必须带 locked holdout / walk-forward；表现不为正、样本太少、搜索次数过多、参数过多或 robustness 不足，不能升 `shadow`。
+
+## 十一、Harness 证据治理
+
+**核心发现（2026-07-07）**
+
+- 普通时间末段切片一旦参与选 winner，就只是 selection validation，不能再叫最终 OOS；locked holdout 只允许查看一次，失败后结束 campaign。
+- replay evidence 的身份不能只有 `policy_hash`，还必须绑定 Harness 代码、数据内容和回放假设；四者任一变化都要 stale。
+- 准入数据必须可验证为闭合 K 线并带内容 checksum；路径和生成时间不足以支持复现。
+- replay feedback 不能只看总体收益；至少补 regime 分桶、成本压力和预声明参数扰动，避免单一市场阶段带来的控制感错觉。
 
 ---
 
