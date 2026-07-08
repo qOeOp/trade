@@ -66,6 +66,7 @@ latest_observe.action_intent.request
 - artifact GC 结果外壳 schema：`./schemas/artifact-gc-result.schema.json`
 - strategy evidence record 外壳 schema：`./schemas/strategy-evidence-record.schema.json`
 - strategy review report 外壳 schema：`./schemas/strategy-review-report.schema.json`
+- strategy promote result 外壳 schema：`./schemas/strategy-promote-result.schema.json`
 - 支持动作：
   - `--init`：初始化 `plan_event`
   - `--append-order-fill --json <body>`：校验并追加 order_fill
