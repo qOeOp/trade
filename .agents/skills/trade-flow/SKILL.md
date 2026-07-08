@@ -64,7 +64,7 @@ latest_observe.action_intent.request
   - `--replay-strategy --manifest <manifest> --strategy-id <id>`：读取 OHLCV manifest，通过 replay registry 机械回放策略，并输出统计与 gate
   - `--strategy-rnd-batch --json <payload>`：运行最多 10 个候选；`factor_discover=true + factor_compose=true` 时先做因子统计筛选，再按角色与参数预算组合到预声明 base family；统一 replay/OOS，不自动升格
   - `--strategy-rnd-loop --json <payload>`：运行一轮 R&D loop，写 artifact JSON 和 `strategy-rnd-ledger.jsonl`；不写 `trade.db`，不自动升格
-  - `--strategy-rnd-campaign --json <payload>`：依次运行 hypothesis queue；未产生 discovery winner 才继续下一假设；首个 winner 冻结后只查看一次不重叠 locked holdout，通过即返回，失败即结束 campaign
+  - `--strategy-rnd-campaign --json <payload>`：依次运行 hypothesis queue；可选 `calibration_report_path` 未过则零 trial 停止；未产生 discovery winner 才继续下一假设；首个 winner 冻结后只查看一次不重叠 locked holdout，通过即返回，失败即结束 campaign
   - `--strategy-panel-rnd --json <payload>`：同一候选在至少三个资产上复用统一 replay，保留逐资产证据并执行样本、广度、OOS、成本与灾难损失门槛
   - `--strategy-benchmark --json <payload>`：运行固定 30/90/180 日、15% 目标波动的多资产趋势基准、成本/资金费压力、时间折和组合权重循环移位负对照；只标定研究管线
   - `--strategy-calibration-suite --json <payload>`：运行 buy-and-hold / cash baseline、固定趋势基准、固定横截面强弱基准，并可消费 dataset `indicator_report_path` 中的 exact funding events，输出 data_panel、beta、fee/slippage 成本拆分、funding、换手、暴露、时间/趋势/波动 regime 稳定性、time-shift / side-flip / asset-shuffle 负对照与数据广度诊断；只回答 R&D 管线该先修哪里
@@ -94,6 +94,7 @@ latest_observe.action_intent.request
 - `--strategy-rnd-batch` 只读 OHLCV / factor report，不写 DB，不触发 Binance；base family 与搜索预算必须预声明，最多 10 个 trial，单候选参数数最多 8
 - `--strategy-rnd-loop` 只包装 batch、artifact 和 R&D ledger；R&D ledger 是研究审计，不是策略准入 evidence
 - `--strategy-rnd-campaign` 的总 discovery trial budget 最多 10；只接受预声明 hypothesis queue，validation manifest 必须与 discovery manifest 时间不重叠；locked holdout 只允许看一次，失败即结束 campaign
+- `--strategy-rnd-campaign` 若传入 `calibration_report_path`，必须先通过 calibration gate；`calibrated=false` 或存在 blocker finding 时停止，不能消耗 trial budget
 - discovery winner 含 indicator filter 时必须提供独立 `validation_indicator_report_path`，不得拿 discovery feature series 验证
 - campaign 产出的 `validated_candidate_found` 仍只是待写 strategy policy 的候选，不自动进入 strategy evidence、shadow 或实盘
 - `--strategy-benchmark` 固定规则且禁止参数搜索；结果只回答管线能否识别已知机制，不是策略准入证据，不进入 shadow / live

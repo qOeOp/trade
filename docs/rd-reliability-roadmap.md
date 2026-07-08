@@ -44,7 +44,8 @@ title: R&D Reliability Roadmap
 ## 6. R&D 搜索层
 
 - 目标：只有 calibration 过关后才搜索；搜索失败回到系统诊断，不盲目换假设。
-- 下一块：R&D campaign 读取最新 calibration status。
+- 当前：`--strategy-rnd-campaign` 可读取 `calibration_report_path`；未校准或含 blocker 时零 trial 停止。
+- 下一块：把 candidate R&D report 的失败原因汇总回 before-search report。
 - 完成信号：pipeline 能自动拒绝在未校准环境下扩大 trial budget。
 
 ## 7. Evidence 层

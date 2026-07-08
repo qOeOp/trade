@@ -72,6 +72,7 @@ interface StrategyRndCampaignHypothesisInput extends StrategyRndBatchInput {
 interface StrategyRndCampaignInput {
   campaignId?: string
   hypotheses: StrategyRndCampaignHypothesisInput[]
+  calibrationReportPath?: string
   maxTotalTrials?: number
   artifactRoot?: string
   ledgerPath?: string
@@ -131,7 +132,8 @@ interface StrategyRndCampaignReport {
   artifact_ref: string
   ledger_ref: string
   outcome: "validated_candidate_found" | "no_validated_candidate"
-  stop_reason: "validated_candidate_found" | "hypothesis_queue_exhausted" | "trial_budget_exhausted" | "locked_holdout_failed"
+  stop_reason: "validated_candidate_found" | "hypothesis_queue_exhausted" | "trial_budget_exhausted" | "locked_holdout_failed" | "calibration_failed"
+  calibration_gate: JSONRecord | null
   trial_budget: number
   trials_used: number
   hypotheses_run: number
@@ -382,12 +384,13 @@ function runStrategyRndCampaign(input: StrategyRndCampaignInput): StrategyRndCam
   const artifactRoot = input.artifactRoot || "./data/artifacts/strategy-rnd"
   const ledgerPath = input.ledgerPath || "./data/strategy-rnd-ledger.jsonl"
   const runs: StrategyRndCampaignReport["runs"] = []
+  const calibrationGate = input.calibrationReportPath ? readCalibrationGate(input.calibrationReportPath) : null
   let trialsUsed = 0
   let validatedCandidate: StrategyRndCampaignReport["validated_candidate"] = null
-  let stopReason: StrategyRndCampaignReport["stop_reason"] = "hypothesis_queue_exhausted"
+  let stopReason: StrategyRndCampaignReport["stop_reason"] = calibrationGate?.blocked === true ? "calibration_failed" : "hypothesis_queue_exhausted"
   let holdoutEvaluations = 0
 
-  for (const hypothesis of input.hypotheses) {
+  for (const hypothesis of calibrationGate?.blocked === true ? [] : input.hypotheses) {
     if (!hypothesis.hypothesisId) {
       throw new Error("strategy R&D campaign hypothesis_id is required")
     }
@@ -484,6 +487,7 @@ function runStrategyRndCampaign(input: StrategyRndCampaignInput): StrategyRndCam
     ledger_ref: ledgerPath,
     outcome: validatedCandidate ? "validated_candidate_found" : "no_validated_candidate",
     stop_reason: stopReason,
+    calibration_gate: calibrationGate,
     trial_budget: trialBudget,
     trials_used: trialsUsed,
     hypotheses_run: runs.length,
@@ -493,6 +497,24 @@ function runStrategyRndCampaign(input: StrategyRndCampaignInput): StrategyRndCam
   }
   writeJsonFile(artifactRef, report)
   return report
+}
+
+function readCalibrationGate(path: string): JSONRecord {
+  const raw = asRecord(JSON.parse(readFileSync(path, "utf8")))
+  const report = asRecord(raw.data ?? raw)
+  const findings = array(asRecord(report.failure_analysis).findings).map(asRecord)
+  const blockers = findings.filter((finding) => stringField(finding.severity) === "blocker")
+  const warnings = findings.filter((finding) => stringField(finding.severity) === "warning")
+  const calibrated = report.calibrated === true
+  const blocked = !calibrated || blockers.length > 0
+  return {
+    report_ref: path,
+    calibrated,
+    blocked,
+    blocker_count: blockers.length,
+    warning_count: warnings.length,
+    blocked_by: blockers.map((finding) => stringField(finding.check_id)).filter(Boolean),
+  }
 }
 
 function resolveCandidateCount(input: StrategyRndBatchInput): number {
@@ -872,6 +894,7 @@ function strategyRndCampaignInputFromJson(input: JSONRecord): StrategyRndCampaig
   const rawHypotheses = Array.isArray(input.hypotheses) ? input.hypotheses : []
   return {
     campaignId: stringField(input.campaign_id ?? input.campaignId) || undefined,
+    calibrationReportPath: stringField(input.calibration_report_path ?? input.calibrationReportPath) || undefined,
     maxTotalTrials: optionalNumber(input.max_total_trials ?? input.maxTotalTrials),
     artifactRoot: stringField(input.artifact_root ?? input.artifactRoot) || undefined,
     ledgerPath: stringField(input.ledger_path ?? input.ledgerPath) || undefined,
@@ -918,6 +941,10 @@ function candidateFromJson(input: JSONRecord): StrategyRndCandidateInput {
 
 function asRecord(value: unknown): JSONRecord {
   return value && typeof value === "object" && !Array.isArray(value) ? value as JSONRecord : {}
+}
+
+function array(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : []
 }
 
 function stringField(value: unknown): string {

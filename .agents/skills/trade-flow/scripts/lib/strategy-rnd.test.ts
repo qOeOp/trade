@@ -475,6 +475,52 @@ test("strategy R&D campaign continues after a failed hypothesis", () => {
   }
 })
 
+test("strategy R&D campaign stops before search when calibration fails", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-campaign-calibration-"))
+  try {
+    const discoveryDir = join(dir, "discovery")
+    const validationDir = join(dir, "validation")
+    mkdirSync(discoveryDir)
+    mkdirSync(validationDir)
+    const calibrationReport = join(dir, "calibration.json")
+    const ledgerPath = join(dir, "strategy-rnd-ledger.jsonl")
+    writeFileSync(calibrationReport, JSON.stringify({
+      ok: true,
+      data: {
+        calibrated: false,
+        failure_analysis: {
+          findings: [
+            { check_id: "CAL-NULL-NOT-BEATEN", severity: "blocker" },
+            { check_id: "CAL-PANEL-BREADTH", severity: "warning" },
+          ],
+        },
+      },
+    }))
+    const report = runStrategyRndCampaign({
+      campaignId: "campaign-calibration-test",
+      calibrationReportPath: calibrationReport,
+      artifactRoot: join(dir, "artifacts"),
+      ledgerPath,
+      hypotheses: [{
+        hypothesisId: "h1",
+        manifestPath: writeManifest(discoveryDir, 1_700_000_000_000),
+        validationManifestPath: writeManifest(validationDir, 1_600_000_000_000),
+        candidates: [{ candidateId: "C-1", params: { side: "long" } }],
+      }],
+    })
+
+    assert.equal(report.stop_reason, "calibration_failed")
+    assert.equal(report.trials_used, 0)
+    assert.equal(report.hypotheses_run, 0)
+    assert.equal((report.calibration_gate as { blocked: boolean; blocker_count: number }).blocked, true)
+    assert.equal((report.calibration_gate as { blocker_count: number }).blocker_count, 1)
+    assert.equal(existsSync(ledgerPath), false)
+    assert.equal(existsSync(report.artifact_ref), true)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("strategy R&D campaign rejects overlapping validation data", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-campaign-overlap-"))
   try {
