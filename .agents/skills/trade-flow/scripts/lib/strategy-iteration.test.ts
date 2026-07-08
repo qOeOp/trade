@@ -7,6 +7,7 @@ import { Database } from "bun:sqlite"
 import { ensureSchema, appendPlanEvent } from "../main"
 import {
   appendReplayEvidence,
+  appendShadowEvidenceFromReviews,
   appendStrategyEvidence,
   policyHashForFile,
   promoteStrategy,
@@ -341,6 +342,109 @@ test("strategy review can include DB review stats without changing the ledger", 
     assert.equal(report.db_review_stats?.total_r, 0.7)
     assert.equal(report.latest.review_batch?.kind, "review_batch")
     assert.equal(policyHashForFile(strategyPath), report.policy_hash)
+  } finally {
+    db.close()
+  }
+})
+
+test("shadow evidence can be derived from DB review attribution", () => {
+  const dir = makeDir()
+  const strategyPath = writeStrategy(dir, "shadow", "Rule v1")
+  const ledgerPath = join(dir, "strategy-evidence.jsonl")
+  const db = new Database(join(dir, "trade.db"))
+  try {
+    ensureSchema(db)
+    appendPlanEvent(db, {
+      event_key: "review-shadow-1",
+      chain_id: "flow-shadow-1",
+      kind: "review",
+      created_at: "2026-01-01T00:00:00.000Z",
+      body_json: {
+        strategy_ref: "S-TEST",
+        setup_id: "default",
+        outcome: "win",
+        pnl_r: 1.2,
+        fee_r: 0.02,
+        slippage_r: 0.03,
+        funding_r: 0.01,
+        thesis_held: true,
+        key_lesson: "worked",
+        promote_to_strategy: false,
+      },
+    })
+    appendPlanEvent(db, {
+      event_key: "review-shadow-2",
+      chain_id: "flow-shadow-2",
+      kind: "review",
+      created_at: "2026-01-02T00:00:00.000Z",
+      body_json: {
+        strategy_ref: "S-TEST",
+        outcome: "loss",
+        pnl_r: -0.4,
+        fee_usdt: 1,
+        slippage_usdt_total: 2,
+        funding_usdt: -0.5,
+        initial_risk_usdt: 100,
+        thesis_held: false,
+        key_lesson: "failed",
+        promote_to_strategy: false,
+      },
+    })
+
+    const record = appendShadowEvidenceFromReviews({
+      strategyPath,
+      ledgerPath,
+      db,
+      now: "2026-01-03T00:00:00.000Z",
+    })
+
+    assert.equal(record.kind, "shadow")
+    assert.equal(record.stats.sample_count, 2)
+    assert.equal(record.stats.total_r, 0.8)
+    assert.equal(record.stats.profit_factor, 3)
+    assert.equal(record.execution_attribution?.total_fee_drag, 0.03)
+    assert.equal(record.execution_attribution?.total_slippage_drag, 0.05)
+    assert.equal(record.execution_attribution?.total_funding_drag, 0.015)
+    assert.equal(record.execution_attribution?.total_cost_drag, 0.095)
+    const ledgerRecord = JSON.parse(readFileSync(ledgerPath, "utf8").trim()) as { kind: string; execution_attribution: { total_cost_drag: number } }
+    assert.equal(ledgerRecord.kind, "shadow")
+    assert.equal(ledgerRecord.execution_attribution.total_cost_drag, 0.095)
+  } finally {
+    db.close()
+  }
+})
+
+test("review-derived shadow evidence keeps missing attribution incomplete", () => {
+  const dir = makeDir()
+  const strategyPath = writeStrategy(dir, "shadow", "Rule v1")
+  const ledgerPath = join(dir, "strategy-evidence.jsonl")
+  const db = new Database(join(dir, "trade.db"))
+  try {
+    ensureSchema(db)
+    appendPlanEvent(db, {
+      event_key: "review-missing-funding",
+      chain_id: "flow-missing-funding",
+      kind: "review",
+      created_at: "2026-01-01T00:00:00.000Z",
+      body_json: {
+        strategy_ref: "S-TEST",
+        outcome: "win",
+        pnl_r: 0.6,
+        fee_r: 0.01,
+        slippage_r: 0.02,
+        thesis_held: true,
+        key_lesson: "worked",
+        promote_to_strategy: false,
+      },
+    })
+
+    const record = appendShadowEvidenceFromReviews({ strategyPath, ledgerPath, db })
+
+    assert.equal(record.execution_attribution?.total_fee_drag, 0.01)
+    assert.equal(record.execution_attribution?.total_slippage_drag, 0.02)
+    assert.equal(record.execution_attribution?.total_funding_drag, undefined)
+    assert.equal(record.execution_attribution?.total_cost_drag, undefined)
+    assert.match(record.execution_attribution?.notes || "", /missing attribution: funding/)
   } finally {
     db.close()
   }

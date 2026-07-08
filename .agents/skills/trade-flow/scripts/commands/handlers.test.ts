@@ -1,9 +1,10 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Database } from "bun:sqlite"
+import { handleEvidenceCommand } from "./evidence"
 import { handleExecutionCommand } from "./execution"
 import { handleObserveCommand } from "./observe"
 import { handleRecoveryCommand } from "./recovery"
@@ -167,6 +168,55 @@ test("recovery command handler reduces local state and returns reconcile drafts"
     assert.equal(data.drafts[0].body_json.source, "reconcile")
   } finally {
     db.close()
+  }
+})
+
+test("evidence command handler can append shadow evidence from DB reviews", () => {
+  const dir = mkdtempSync(join(tmpdir(), "trade-flow-evidence-handler-"))
+  const dbPath = join(dir, "trade.db")
+  const strategyPath = join(dir, "s-test.md")
+  const ledgerPath = join(dir, "strategy-evidence.jsonl")
+  const db = new Database(dbPath)
+  let dbClosed = false
+  try {
+    writeFileSync(strategyPath, "---\nstrategy_id: S-TEST\nname: Test\nstatus: shadow\ntags: [test]\n---\n\n# Test\n\nRule v1\n")
+    ensureSchema(db)
+    appendPlanEvent(db, {
+      event_key: "review-handler-1",
+      chain_id: "flow-handler-review-1",
+      kind: "review",
+      created_at: "2026-07-08T12:00:00Z",
+      body_json: {
+        strategy_ref: "S-TEST",
+        outcome: "win",
+        pnl_r: 0.8,
+        fee_r: 0.01,
+        slippage_r: 0.02,
+        funding_r: 0,
+      },
+    })
+    db.close()
+    dbClosed = true
+
+    const response = handleEvidenceCommand(baseConfig({
+      appendStrategyEvidence: true,
+      dbPath,
+      strategyPath,
+      ledgerPath,
+      input: {
+        kind: "shadow",
+        from_reviews: true,
+        now: "2026-07-08T12:01:00Z",
+      },
+    }))
+
+    assert.equal(response?.ok, true)
+    const record = JSON.parse(readFileSync(ledgerPath, "utf8").trim()) as { kind: string; execution_attribution: { total_cost_drag: number } }
+    assert.equal(record.kind, "shadow")
+    assert.equal(record.execution_attribution.total_cost_drag, 0.03)
+  } finally {
+    if (!dbClosed) db.close()
+    rmSync(dir, { recursive: true, force: true })
   }
 })
 

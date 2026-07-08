@@ -3,6 +3,7 @@ import { Database } from "bun:sqlite"
 import type { ReplayResult } from "../lib/replay-core"
 import {
   appendReplayEvidence,
+  appendShadowEvidenceFromReviews,
   appendStrategyEvidence,
   promoteStrategy,
   reviewStrategy,
@@ -51,6 +52,25 @@ function appendStrategyEvidenceFromInput(config: CommandConfig): unknown {
       sourceRef: stringField(config.input.source_ref) || undefined,
       now: stringField(config.input.now) || undefined,
       qualification: readQualification(config.input),
+    })
+  }
+  if (config.input.from_reviews === true || config.input.from_db_reviews === true) {
+    const kind = readEvidenceKind(config.input.kind)
+    if (kind !== "shadow") {
+      throw new Error("review-derived strategy evidence must use kind=shadow")
+    }
+    return withExistingDb(config.dbPath, (db) => {
+      if (!db) {
+        throw new Error("review-derived shadow evidence requires an existing --db")
+      }
+      return appendShadowEvidenceFromReviews({
+        strategyPath: config.strategyPath,
+        ledgerPath: config.ledgerPath,
+        db,
+        setupId: stringField(config.input.setup_id) || undefined,
+        sourceRef: stringField(config.input.source_ref) || undefined,
+        now: stringField(config.input.now) || undefined,
+      })
     })
   }
   const gate = asRecord(config.input.gate)

@@ -6,9 +6,12 @@ import { loadStrategyFile, parseFrontmatter } from "./loaders"
 import { hashCanonical, replayDataHash, replayHarnessHash, type ReplayProvenance, type ReplayResult } from "./replay-core"
 
 type JSONRecord = Record<string, unknown>
-type StrategyStatus = "draft" | "shadow" | "live-small" | "paused"
+const STRATEGY_STATUSES = ["draft", "shadow", "live-small", "paused"] as const
+type StrategyStatus = typeof STRATEGY_STATUSES[number]
 const EVIDENCE_KINDS = ["replay", "shadow", "live_small", "review_batch"] as const
 type EvidenceKind = typeof EVIDENCE_KINDS[number]
+const PROMOTE_RESULT_STATUSES = ["dry-run", "updated"] as const
+type PromoteResultStatus = typeof PROMOTE_RESULT_STATUSES[number]
 
 interface StrategyEvidenceRecord {
   evidence_id: string
@@ -117,6 +120,14 @@ interface PromoteStrategyInput {
   now?: string
 }
 
+interface PromoteStrategyResult {
+  status: PromoteResultStatus
+  from_status: string
+  to_status: StrategyStatus
+  report: StrategyReviewReport
+  updated_path?: string
+}
+
 const DEFAULT_SETUP_ID = "default"
 
 function appendStrategyEvidence(input: {
@@ -198,6 +209,31 @@ function appendReplayEvidence(input: {
   })
 }
 
+function appendShadowEvidenceFromReviews(input: {
+  strategyPath: string
+  ledgerPath: string
+  db: Database
+  setupId?: string
+  sourceRef?: string
+  now?: string
+}): StrategyEvidenceRecord {
+  const strategy = loadStrategyFile(input.strategyPath)
+  const reviews = readDbReviewBodies(input.db, strategy.strategy_id, input.setupId)
+  if (reviews.length === 0) {
+    throw new Error("shadow evidence requires at least one matching review event")
+  }
+  return appendStrategyEvidence({
+    strategyPath: input.strategyPath,
+    ledgerPath: input.ledgerPath,
+    kind: "shadow",
+    setupId: input.setupId,
+    sourceRef: input.sourceRef || "trade.db:plan_event.review",
+    stats: evidenceStatsFromReviews(reviews),
+    executionAttribution: executionAttributionFromReviews(reviews),
+    now: input.now,
+  })
+}
+
 function reviewStrategy(input: {
   strategyPath: string
   ledgerPath: string
@@ -241,13 +277,7 @@ function reviewStrategy(input: {
   }
 }
 
-function promoteStrategy(input: PromoteStrategyInput): {
-  status: "dry-run" | "updated"
-  from_status: string
-  to_status: StrategyStatus
-  report: StrategyReviewReport
-  updated_path?: string
-} {
+function promoteStrategy(input: PromoteStrategyInput): PromoteStrategyResult {
   const report = reviewStrategy({
     strategyPath: input.strategyPath,
     ledgerPath: input.ledgerPath,
@@ -423,6 +453,11 @@ function loadEvidenceLedger(path: string): StrategyEvidenceRecord[] {
 }
 
 function readDbReviewStats(db: Database, strategyId: string): EvidenceStats | null {
+  const reviews = readDbReviewBodies(db, strategyId)
+  return reviews.length > 0 ? evidenceStatsFromReviews(reviews) : null
+}
+
+function readDbReviewBodies(db: Database, strategyId: string, setupId?: string): JSONRecord[] {
   const rows = db.query(`
     SELECT body_json FROM plan_event
     WHERE kind='review'
@@ -430,9 +465,17 @@ function readDbReviewStats(db: Database, strategyId: string): EvidenceStats | nu
     ORDER BY created_at ASC
   `).all({ $strategy_id: strategyId }) as Array<{ body_json: string }>
   const reviews = rows.map((row) => JSON.parse(row.body_json) as JSONRecord)
-  if (reviews.length === 0) {
-    return null
+  if (!setupId) {
+    return reviews
   }
+  return reviews.filter((review) => reviewSetupId(review) === setupId)
+}
+
+function reviewSetupId(review: JSONRecord): string {
+  return stringField(review.setup_id) || DEFAULT_SETUP_ID
+}
+
+function evidenceStatsFromReviews(reviews: JSONRecord[]): EvidenceStats {
   const rValues = reviews.map((review) => Number(review.r ?? review.pnl_r ?? review.pnl_R)).filter(Number.isFinite)
   const pnlPctValues = reviews.map((review) => Number(review.pnl_pct)).filter(Number.isFinite)
   const wins = reviews.filter((review) => stringField(review.outcome) === "win").length
@@ -440,14 +483,86 @@ function readDbReviewStats(db: Database, strategyId: string): EvidenceStats | nu
   const totalR = rValues.length > 0
     ? sum(rValues)
     : sum(pnlPctValues.map((value) => value / 100))
+  const profits = rValues.filter((value) => value > 0)
+  const grossProfit = sum(profits)
+  const grossLoss = Math.abs(sum(rValues.filter((value) => value < 0)))
   const sampleCount = reviews.length
   return {
     sample_count: sampleCount,
     win_rate: round(wins / sampleCount),
     avg_r: round(totalR / sampleCount),
     total_r: round(totalR),
-    profit_factor: losses > 0 ? round(wins / losses) : wins > 0 ? Number.POSITIVE_INFINITY : 0,
+    max_drawdown_r: rValues.length > 0 ? round(maxDrawdown(rValues)) : undefined,
+    profit_factor: rValues.length > 0
+      ? grossLoss > 0 ? round(grossProfit / grossLoss) : grossProfit > 0 ? Number.POSITIVE_INFINITY : 0
+      : losses > 0 ? round(wins / losses) : wins > 0 ? Number.POSITIVE_INFINITY : 0,
   }
+}
+
+function executionAttributionFromReviews(reviews: JSONRecord[]): ExecutionAttribution {
+  const fee = reviewDragTotal(reviews, "total_fee_drag", ["fee_drag_r", "fee_r", "commission_r"], ["fee_usdt", "commission_usdt"])
+  const slippage = reviewDragTotal(reviews, "total_slippage_drag", ["slippage_drag_r", "slippage_r"], ["slippage_usdt_total", "slippage_usdt"])
+  const funding = reviewDragTotal(reviews, "total_funding_drag", ["funding_drag_r", "funding_r"], ["funding_usdt"])
+  const explicitCost = reviewDragTotal(reviews, "total_cost_drag", ["cost_drag_r", "cost_r"], ["cost_usdt", "total_cost_usdt"])
+  const inferredCost = fee.observed && slippage.observed && funding.observed
+    ? fee.total + slippage.total + funding.total
+    : undefined
+  const missing = [
+    fee.observed ? "" : "fee",
+    slippage.observed ? "" : "slippage",
+    funding.observed ? "" : "funding",
+  ].filter(Boolean)
+  return {
+    ...(fee.observed ? { total_fee_drag: round(fee.total) } : {}),
+    ...(slippage.observed ? { total_slippage_drag: round(slippage.total) } : {}),
+    ...(funding.observed ? { total_funding_drag: round(funding.total) } : {}),
+    ...(explicitCost.observed ? { total_cost_drag: round(explicitCost.total) } : inferredCost !== undefined ? { total_cost_drag: round(inferredCost) } : {}),
+    notes: missing.length > 0
+      ? `aggregated from plan_event.review; missing attribution: ${missing.join(", ")}`
+      : "aggregated from plan_event.review",
+  }
+}
+
+function reviewDragTotal(reviews: JSONRecord[], attributionKey: string, rKeys: string[], usdtKeys: string[]): { total: number; observed: boolean } {
+  const values = reviews.map((review) => reviewDragR(review, attributionKey, rKeys, usdtKeys))
+  return {
+    total: sum(values.map((value) => value.dragR)),
+    observed: values.some((value) => value.observed),
+  }
+}
+
+function reviewDragR(review: JSONRecord, attributionKey: string, rKeys: string[], usdtKeys: string[]): { dragR: number; observed: boolean } {
+  const nested = asRecord(review.execution_attribution)
+  const direct = optionalNumber(nested[attributionKey]) ?? firstNumber(review, rKeys)
+  if (direct !== undefined) {
+    return { dragR: Math.abs(direct), observed: true }
+  }
+  const usdt = firstNumber(review, usdtKeys)
+  const risk = firstNumber(review, ["initial_risk_usdt", "max_live_risk_usdt", "risk_budget_usdt"])
+  if (usdt !== undefined && risk !== undefined && risk > 0) {
+    return { dragR: Math.abs(usdt / risk), observed: true }
+  }
+  return { dragR: 0, observed: false }
+}
+
+function firstNumber(record: JSONRecord, keys: string[]): number | undefined {
+  for (const key of keys) {
+    const value = optionalNumber(record[key])
+    if (value !== undefined) return value
+  }
+  return undefined
+}
+
+function maxDrawdown(values: number[]): number {
+  let equity = 0
+  let peak = 0
+  let drawdown = 0
+  for (const value of values) {
+    equity += value
+    peak = Math.max(peak, equity)
+    drawdown = Math.max(drawdown, peak - equity)
+  }
+  return drawdown
 }
 
 function buildReviewBatchEvidence(strategyId: string, policyHash: string, stats: EvidenceStats): StrategyEvidenceRecord {
@@ -722,6 +837,7 @@ function round(value: number): number {
 
 export {
   appendReplayEvidence,
+  appendShadowEvidenceFromReviews,
   appendStrategyEvidence,
   blockedForTransition,
   evaluateStrategyGate,
@@ -731,10 +847,14 @@ export {
   reviewStrategy,
   updateStrategyStatus,
   EVIDENCE_KINDS,
+  PROMOTE_RESULT_STATUSES,
+  STRATEGY_STATUSES,
   type EvidenceKind,
   type EvidenceStats,
   type AntiOverfitProof,
   type EvidenceFingerprint,
+  type PromoteResultStatus,
+  type PromoteStrategyResult,
   type RobustnessProof,
   type EvidenceQualification,
   type StrategyEvidenceRecord,
