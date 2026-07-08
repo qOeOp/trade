@@ -112,7 +112,7 @@ tags: []
 - `--strategy-benchmark`：用固定多资产趋势规则、15% 目标波动、成本/资金费压力和组合权重循环移位负对照标定 R&D 管线；不写 DB、不产生准入证据
 - `--strategy-calibration-suite`：固定跑 buy-and-hold / cash baseline、趋势基准、横截面强弱基准，可消费 dataset `indicator_report_path` 中的 exact funding events，并输出 report hash、可选 previous-run comparison、data_panel、beta、fee/slippage 成本拆分、funding、换手、暴露、时间/趋势/波动 regime 稳定性、time-shift / side-flip / asset-shuffle 负对照与数据广度归因；只暴露系统问题，不产生准入证据
 - `--strategy-signal`：candidate 在最新闭合 K 线上复用 replay family并返回稳定 hash；entry reference 由在线报价注入，只返回信号，不执行、不落交易事实
-- replay 只能给 `shadow_candidate`；`live-small` 必须另有 shadow 样本与人工确认
+- replay 只能给 `shadow_candidate`；`live-small` 必须另有 shadow 样本、execution attribution 与人工确认
 - candidate family 只承载少量可检验市场机制，不做形态百科；只有通过样本外、成本和稳定性门槛的版本才可沉淀为策略 asset
 - factor 由 indicator 自身 catalog descriptor 自动发现，统一使用稳定 `factor_id`；family 由目录模块自动发现，两者新增都不改 R&D core 或中央注册表
 - factor transform 固定为 `level / delta / slope / zscore / percentile`，condition 固定为 `gt / lt / between`；composer 最多 3 个不同角色 factor、10 个候选、8 个参数

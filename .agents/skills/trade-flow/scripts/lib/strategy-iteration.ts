@@ -22,6 +22,7 @@ interface StrategyEvidenceRecord {
   stats: EvidenceStats
   anti_overfit?: AntiOverfitProof
   robustness?: RobustnessProof
+  execution_attribution?: ExecutionAttribution
   gate?: JSONRecord
   notes?: string
 }
@@ -53,6 +54,14 @@ interface RobustnessProof {
   regime_slices: Array<{ regime: string; sample_count: number; avg_r: number; total_r: number; profit_factor?: number; max_drawdown_r?: number }>
   cost_stress: { extra_bps_per_side: number; stats: EvidenceStats }
   parameter_stability?: { method?: string; evaluation_count: number; positive_ratio: number; worst_avg_r: number }
+}
+
+interface ExecutionAttribution {
+  total_fee_drag?: number
+  total_slippage_drag?: number
+  total_funding_drag?: number
+  total_cost_drag?: number
+  notes?: string
 }
 
 interface StrategyReviewReport {
@@ -100,6 +109,7 @@ function appendStrategyEvidence(input: {
   stats: EvidenceStats
   antiOverfit?: AntiOverfitProof
   robustness?: RobustnessProof
+  executionAttribution?: ExecutionAttribution
   sourceRef?: string
   gate?: JSONRecord
   notes?: string
@@ -121,6 +131,7 @@ function appendStrategyEvidence(input: {
     stats: normalizeEvidenceStats(input.stats),
     ...(input.antiOverfit ? { anti_overfit: normalizeAntiOverfitProof(input.antiOverfit) } : {}),
     ...(input.robustness ? { robustness: input.robustness } : {}),
+    ...(input.executionAttribution ? { execution_attribution: normalizeExecutionAttribution(input.executionAttribution) } : {}),
     ...(input.gate ? { gate: input.gate } : {}),
     ...(input.notes ? { notes: input.notes } : {}),
   }
@@ -266,10 +277,13 @@ function evaluateStrategyGate(latest: StrategyReviewReport["latest"]): StrategyP
     if (!isPositiveEvidence(shadow.stats)) {
       blockedBy.push({ check_id: "S-SHADOW-WEAK", reason: "fresh shadow evidence is not positive" })
     }
+    if (!hasCompleteExecutionAttribution(shadow.execution_attribution)) {
+      blockedBy.push({ check_id: "S-SHADOW-ATTRIBUTION-MISSING", reason: "fresh shadow evidence must include cost, slippage, and funding attribution" })
+    }
   }
 
   const replayOk = Boolean(replay && isPositiveEvidence(replay.stats) && evaluateAntiOverfit(replay).length === 0 && evaluateRobustness(replay).length === 0)
-  const shadowOk = Boolean(shadow && shadow.stats.sample_count >= 20 && isPositiveEvidence(shadow.stats))
+  const shadowOk = Boolean(shadow && shadow.stats.sample_count >= 20 && isPositiveEvidence(shadow.stats) && hasCompleteExecutionAttribution(shadow.execution_attribution))
   return {
     shadow_candidate: replayOk,
     live_small_candidate: replayOk && shadowOk,
@@ -443,6 +457,21 @@ function normalizeEvidenceStats(stats: EvidenceStats): EvidenceStats {
     max_drawdown_r: optionalNumber(stats.max_drawdown_r),
     profit_factor: optionalNumber(stats.profit_factor),
   }
+}
+
+function normalizeExecutionAttribution(value: ExecutionAttribution): ExecutionAttribution {
+  return {
+    total_fee_drag: optionalNumber(value.total_fee_drag),
+    total_slippage_drag: optionalNumber(value.total_slippage_drag),
+    total_funding_drag: optionalNumber(value.total_funding_drag),
+    total_cost_drag: optionalNumber(value.total_cost_drag),
+    ...(value.notes ? { notes: String(value.notes) } : {}),
+  }
+}
+
+function hasCompleteExecutionAttribution(value?: ExecutionAttribution): boolean {
+  if (!value) return false
+  return [value.total_cost_drag, value.total_slippage_drag, value.total_funding_drag].every((item) => Number.isFinite(item))
 }
 
 function isPositiveEvidence(stats: EvidenceStats): boolean {

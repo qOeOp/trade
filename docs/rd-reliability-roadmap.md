@@ -58,5 +58,6 @@ title: R&D Reliability Roadmap
 ## 8. Shadow 层
 
 - 目标：locked holdout 后仍必须用真实 shadow 样本证明执行链不吃掉 edge。
-- 下一块：shadow evidence 增加 cost / funding / slippage attribution。
+- 当前：`shadow -> live-small` 要求 shadow evidence 带 cost / slippage / funding attribution。
+- 下一块：从真实 shadow order/event 自动汇总 attribution，减少人工填报。
 - 完成信号：`shadow -> live-small` 不只看胜率，还看真实执行损耗是否在 replay 假设内。

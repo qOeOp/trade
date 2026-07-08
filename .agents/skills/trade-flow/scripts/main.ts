@@ -817,6 +817,7 @@ function appendStrategyEvidenceFromInput(config: ReturnType<typeof parseArgs>): 
   }
   const gate = asRecord(config.input.gate)
   const antiOverfit = asRecord(config.input.anti_overfit)
+  const executionAttribution = asRecord(config.input.execution_attribution)
   return appendStrategyEvidence({
     strategyPath: config.strategyPath,
     ledgerPath: config.ledgerPath,
@@ -825,6 +826,7 @@ function appendStrategyEvidenceFromInput(config: ReturnType<typeof parseArgs>): 
     sourceRef: stringField(config.input.source_ref) || undefined,
     stats: asRecord(config.input.stats) as unknown as EvidenceStats,
     antiOverfit: Object.keys(antiOverfit).length > 0 ? antiOverfit as unknown as AntiOverfitProof : undefined,
+    executionAttribution: Object.keys(executionAttribution).length > 0 ? executionAttribution : undefined,
     gate: Object.keys(gate).length > 0 ? gate : undefined,
     notes: stringField(config.input.notes) || undefined,
     now: stringField(config.input.now) || undefined,

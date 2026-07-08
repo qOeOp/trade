@@ -125,6 +125,7 @@ latest_observe.action_intent.request
 - anti-overfit proof 的 `oos_stats.sample_count` 至少 10，且 OOS 表现必须为正；`trial_count > 10` 或 `parameter_count > 8` 会被拒绝
 - replay evidence 必须在至少两个有效 market regime 分桶中具备稳定性，在额外单边 5 bps 成本后仍为正，并通过预声明的 ±10% 参数扰动
 - `shadow -> live-small` 需要 fresh replay + fresh shadow，且 shadow 样本数至少 20
+- `shadow -> live-small` 的 shadow evidence 必须包含 `execution_attribution.total_cost_drag / total_slippage_drag / total_funding_drag`
 - `--strategy-promote` 默认 dry-run；更新 strategy 文件必须显式 `--yes`
 - `--artifact-gc` 不打开 DB、不触发 Binance；只扫描显式 `--artifact-root`，保留 `.pin` / referenced / durable store，默认不删除
 - `--run-shadow-from-skills` 会写 shadow `order_fill`，但不触发 Binance 写接口

@@ -219,6 +219,31 @@ test("strategy promote to live-small requires shadow evidence", () => {
     },
     now: "2026-01-02T00:00:00.000Z",
   })
+  assert.throws(
+    () => promoteStrategy({ strategyPath, ledgerPath, toStatus: "live-small" }),
+    /S-SHADOW-ATTRIBUTION-MISSING/,
+  )
+
+  appendStrategyEvidence({
+    strategyPath,
+    ledgerPath,
+    kind: "shadow",
+    stats: {
+      sample_count: 21,
+      win_rate: 0.52,
+      avg_r: 0.08,
+      total_r: 1.68,
+      max_drawdown_r: 3,
+      profit_factor: 1.2,
+    },
+    executionAttribution: {
+      total_fee_drag: 0.02,
+      total_slippage_drag: 0.01,
+      total_funding_drag: 0,
+      total_cost_drag: 0.03,
+    },
+    now: "2026-01-03T00:00:00.000Z",
+  })
   const result = promoteStrategy({ strategyPath, ledgerPath, toStatus: "live-small", yes: true })
   assert.equal(result.status, "updated")
   assert.match(readFileSync(strategyPath, "utf8"), /status: live-small/)
