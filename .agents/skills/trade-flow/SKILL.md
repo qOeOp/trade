@@ -31,7 +31,7 @@ latest_observe.action_intent.request
 - 需要运行受搜索预算约束的 strategy R&D candidate batch
 - 需要运行一轮可审计的 strategy R&D loop，并写入 R&D artifact / JSONL ledger
 - 需要在总搜索预算内连续运行多条 hypothesis，并对 discovery winner 自动做不重叠外部验证
-- 需要用固定多资产趋势基准和信号时序打乱负对照标定 R&D 管线
+- 需要用固定多资产趋势基准和组合权重循环移位负对照标定 R&D 管线
 - 需要把 replay / shadow / live-small 样本写入 strategy evidence ledger
 - 需要生成 strategy review 报告，判断 stale evidence / promotion gate / 下一步
 - 需要按证据门槛把 strategy status 从 `draft -> shadow -> live-small / paused`

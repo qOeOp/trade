@@ -51,7 +51,16 @@ test("benchmark parser keeps the public definition fixed", () => {
   assert.equal(input.horizonBars, undefined)
   assert.equal(input.randomTrials, 20)
   assert.throws(() => runTrendBenchmark({ datasets: [] }), /at least three/)
+  assert.throws(() => runTrendBenchmark({ datasets: validDatasets(), feeBps: -1, slippageBps: 2 }), /non-negative/)
 })
+
+function validDatasets() {
+  return [
+    { datasetId: "BTC", manifestPath: "/tmp/btc.json" },
+    { datasetId: "ETH", manifestPath: "/tmp/eth.json" },
+    { datasetId: "SOL", manifestPath: "/tmp/sol.json" },
+  ]
+}
 
 function writeRegimeManifest(root: string, asset: number, phase: number): string {
   const dir = join(root, String(asset))

@@ -39,16 +39,18 @@ function runTrendBenchmark(input: TrendBenchmarkInput): JSONRecord {
   const volatilityBars = input.volatilityBars ?? 180
   const rebalanceBars = input.rebalanceBars ?? 6
   const randomTrials = input.randomTrials ?? 100
+  const feeBps = input.feeBps ?? 5
+  const slippageBps = input.slippageBps ?? 2
+  const fundingStressBps = input.fundingBpsPer8h ?? 1
   if (!Number.isInteger(volatilityBars) || volatilityBars < 2) throw new Error("trend benchmark volatilityBars must be an integer >= 2")
   if (!Number.isInteger(rebalanceBars) || rebalanceBars < 1) throw new Error("trend benchmark rebalanceBars must be a positive integer")
   if (!Number.isInteger(randomTrials) || randomTrials < 20 || randomTrials > 500) throw new Error("trend benchmark randomTrials must be 20-500")
+  if (feeBps < 0 || slippageBps < 0 || fundingStressBps < 0) throw new Error("trend benchmark costs must be non-negative")
   const panel = alignedPanel(input.datasets, timeframe)
   const warmup = Math.max(volatilityBars, ...horizons)
   if (panel.timestamps.length <= warmup + rebalanceBars) throw new Error("trend benchmark has insufficient aligned history")
   const weights = buildWeightSchedule(panel.closes, warmup, horizons, volatilityBars, rebalanceBars, timeframe)
-  const costBps = (input.feeBps ?? 5) + (input.slippageBps ?? 2)
-  const fundingStressBps = input.fundingBpsPer8h ?? 1
-  if (costBps < 0 || fundingStressBps < 0) throw new Error("trend benchmark costs must be non-negative")
+  const costBps = feeBps + slippageBps
   const observed = simulate(panel, weights, warmup, rebalanceBars, costBps, 0, timeframe)
   const stressed = simulate(panel, weights, warmup, rebalanceBars, costBps + 5, 0, timeframe)
   const fundingStressed = simulate(panel, weights, warmup, rebalanceBars, costBps, fundingStressBps, timeframe)
@@ -71,7 +73,7 @@ function runTrendBenchmark(input: TrendBenchmarkInput): JSONRecord {
     blocked_by: blockedBy,
     datasets: input.datasets.map((item, index) => ({ dataset_id: item.datasetId, manifest_ref: item.manifestPath, data_hash: replayDataHash(item.manifestPath, timeframe), aligned_rows: panel.closes[index].length })),
     period: { first: new Date(panel.timestamps[warmup]).toISOString(), last: new Date(panel.timestamps.at(-1)!).toISOString() },
-    assumptions: { timeframe, horizon_bars: horizons, volatility_bars: volatilityBars, rebalance_bars: rebalanceBars, inverse_volatility_weighting: true, target_annual_volatility: 0.15, max_gross_exposure: 1, fee_bps: input.feeBps ?? 5, slippage_bps: input.slippageBps ?? 2, adverse_funding_stress_bps_per_8h: fundingStressBps, parameter_search: false },
+    assumptions: { timeframe, horizon_bars: horizons, volatility_bars: volatilityBars, rebalance_bars: rebalanceBars, inverse_volatility_weighting: true, target_annual_volatility: 0.15, max_gross_exposure: 1, fee_bps: feeBps, slippage_bps: slippageBps, adverse_funding_stress_bps_per_8h: fundingStressBps, parameter_search: false },
     observed: observed.stats,
     chronological_folds: folds,
     cost_stress: stressed.stats,
