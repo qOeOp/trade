@@ -16,8 +16,8 @@ title: R&D Reliability Roadmap
 ## 2. Funding 层
 
 - 目标：calibration / replay / R&D 统一使用 exact funding events；覆盖不足时只诊断，不准入。
-- 当前：`--strategy-calibration-suite` 已消费 dataset `indicator_report_path` 的 `market_events.funding`；`ohlcv-fetch/scripts/calibration-market-features.ts` 已实跑完整 panel，失败缓存可重试，最终输出 full funding coverage。
-- 下一块：把同样的 funding coverage 诊断持续接入候选 R&D / strategy evidence。
+- 当前：`--strategy-calibration-suite` 已消费 dataset `indicator_report_path` 的 `market_events.funding`；`ohlcv-fetch/scripts/calibration-market-features.ts` 已实跑完整 panel，失败缓存可重试，最终输出 full funding coverage；strategy evidence 已继承 replay `funding_event_coverage`，partial / invalid 时阻断升 `shadow`。
+- 下一块：把 exact funding coverage 继续接入 shadow / live-small execution attribution 的自动汇总。
 - 完成信号：输出 `funding_event_coverage.status=full` 与 `historical_funding_attribution`。
 
 ## 3. 成本层
@@ -37,15 +37,15 @@ title: R&D Reliability Roadmap
 ## 5. 负对照层
 
 - 目标：所有 known-edge 和 candidate 都必须战胜合理 null。
-- 当前：calibration 已保留 weight time-shift，并新增 side flip / asset-label shuffle 诊断；candidate batch 已输出 side-flip / entry-lag null controls；panel R&D 已输出 cross-candidate asset shuffle null，单候选时显式 `not_applicable`；campaign 可消费 `panel_report_path`，panel null 失败时停止在 `panel_null_failed`。
-- 下一块：把 funding coverage 诊断持续接入 candidate evidence / strategy evidence。
+- 当前：calibration 已保留 weight time-shift，并新增 side flip / asset-label shuffle 诊断；candidate batch 已输出 side-flip / entry-lag null controls；panel R&D 已输出 cross-candidate asset shuffle null，单候选时显式 `not_applicable`；campaign 可消费 `panel_report_path`，panel null 失败时停止在 `panel_null_failed`；strategy evidence 已记录 `panel_null_gate` 并在 blocked / not evaluated 时阻断升 `shadow`。
+- 下一块：把 shadow 阶段的真实执行归因自动汇总，避免 replay 合格但执行吃掉 edge。
 - 完成信号：轻微正收益但未过 null 的候选不会进入下一阶段。
 
 ## 6. R&D 搜索层
 
 - 目标：只有 calibration 过关后才搜索；搜索失败回到系统诊断，不盲目换假设。
 - 当前：`--strategy-rnd-campaign` 可读取 `calibration_report_path`；未校准或含 blocker 时零 trial 停止；candidate batch 已输出 `failure_summary` 与 `reliability_gate`，把样本画像、失败层和继续 trial 权限机器化。
-- 下一块：让 candidate evidence 继承 funding coverage 与 panel null 结论，避免通过后的证据脱离上游诊断。
+- 下一块：把 campaign / evidence 的 qualification 汇总写入策略 review 报告的失败归因，减少人工翻 artifact。
 - 完成信号：pipeline 能自动拒绝在未校准环境下扩大 trial budget。
 
 ## 7. Evidence 层

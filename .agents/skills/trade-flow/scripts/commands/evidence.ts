@@ -7,6 +7,7 @@ import {
   promoteStrategy,
   reviewStrategy,
   type AntiOverfitProof,
+  type EvidenceQualification,
   type EvidenceKind,
   type EvidenceStats,
 } from "../lib/strategy-iteration"
@@ -49,6 +50,7 @@ function appendStrategyEvidenceFromInput(config: CommandConfig): unknown {
       setupId: stringField(config.input.setup_id) || undefined,
       sourceRef: stringField(config.input.source_ref) || undefined,
       now: stringField(config.input.now) || undefined,
+      qualification: readQualification(config.input),
     })
   }
   const gate = asRecord(config.input.gate)
@@ -63,10 +65,22 @@ function appendStrategyEvidenceFromInput(config: CommandConfig): unknown {
     stats: asRecord(config.input.stats) as unknown as EvidenceStats,
     antiOverfit: Object.keys(antiOverfit).length > 0 ? antiOverfit as unknown as AntiOverfitProof : undefined,
     executionAttribution: Object.keys(executionAttribution).length > 0 ? executionAttribution : undefined,
+    qualification: readQualification(config.input),
     gate: Object.keys(gate).length > 0 ? gate : undefined,
     notes: stringField(config.input.notes) || undefined,
     now: stringField(config.input.now) || undefined,
   })
+}
+
+function readQualification(input: JSONRecord): EvidenceQualification | undefined {
+  const qualification = asRecord(input.qualification)
+  const funding = asRecord(input.funding_event_coverage ?? qualification.funding_event_coverage)
+  const panel = asRecord(input.panel_null_gate ?? qualification.panel_null_gate)
+  const result = {
+    ...(Object.keys(funding).length > 0 ? { funding_event_coverage: funding } : {}),
+    ...(Object.keys(panel).length > 0 ? { panel_null_gate: panel } : {}),
+  }
+  return Object.keys(result).length > 0 ? result : undefined
 }
 
 function readEvidenceKind(value: unknown): EvidenceKind {

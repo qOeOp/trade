@@ -156,6 +156,35 @@ test("selection validation cannot authorize shadow", () => {
   assert.equal(report.gate.blocked_by.some((item) => item.check_id === "S-HOLDOUT-MISSING"), true)
 })
 
+test("strategy promote blocks replay qualification failures", () => {
+  const dir = makeDir()
+  const strategyPath = writeStrategy(dir, "draft", "Rule v1")
+  const ledgerPath = join(dir, "strategy-evidence.jsonl")
+  const replay = positiveReplay(dir)
+  const assumptions = structuredClone(replay.assumptions) as Record<string, any>
+  assumptions.funding_event_coverage = { status: "partial", event_count: 3 }
+  appendReplayEvidence({
+    strategyPath,
+    ledgerPath,
+    replayResult: replayWithAssumptions(dir, assumptions),
+    qualification: {
+      panel_null_gate: {
+        status: "evaluated",
+        blocked: true,
+        blocked_by: ["PANEL-ASSET-SHUFFLE"],
+      },
+    },
+  })
+
+  const report = reviewStrategy({ strategyPath, ledgerPath })
+  assert.equal(report.gate.shadow_candidate, false)
+  assert.equal(report.gate.blocked_by.some((item) => item.check_id === "S-FUNDING-COVERAGE"), true)
+  assert.equal(report.gate.blocked_by.some((item) => item.check_id === "S-PANEL-NULL"), true)
+  const ledgerRecord = JSON.parse(readFileSync(ledgerPath, "utf8").trim()) as { qualification: { funding_event_coverage: { status: string }; panel_null_gate: { blocked: boolean } } }
+  assert.equal(ledgerRecord.qualification.funding_event_coverage.status, "partial")
+  assert.equal(ledgerRecord.qualification.panel_null_gate.blocked, true)
+})
+
 test("replay evidence becomes stale when source data changes", () => {
   const dir = makeDir()
   const strategyPath = writeStrategy(dir, "draft", "Rule v1")

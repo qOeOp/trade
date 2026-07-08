@@ -23,6 +23,7 @@ interface StrategyEvidenceRecord {
   anti_overfit?: AntiOverfitProof
   robustness?: RobustnessProof
   execution_attribution?: ExecutionAttribution
+  qualification?: EvidenceQualification
   gate?: JSONRecord
   notes?: string
 }
@@ -62,6 +63,11 @@ interface ExecutionAttribution {
   total_funding_drag?: number
   total_cost_drag?: number
   notes?: string
+}
+
+interface EvidenceQualification {
+  funding_event_coverage?: JSONRecord
+  panel_null_gate?: JSONRecord
 }
 
 interface StrategyReviewReport {
@@ -110,6 +116,7 @@ function appendStrategyEvidence(input: {
   antiOverfit?: AntiOverfitProof
   robustness?: RobustnessProof
   executionAttribution?: ExecutionAttribution
+  qualification?: EvidenceQualification
   sourceRef?: string
   gate?: JSONRecord
   notes?: string
@@ -132,6 +139,7 @@ function appendStrategyEvidence(input: {
     ...(input.antiOverfit ? { anti_overfit: normalizeAntiOverfitProof(input.antiOverfit) } : {}),
     ...(input.robustness ? { robustness: input.robustness } : {}),
     ...(input.executionAttribution ? { execution_attribution: normalizeExecutionAttribution(input.executionAttribution) } : {}),
+    ...(input.qualification ? { qualification: normalizeQualification(input.qualification) } : {}),
     ...(input.gate ? { gate: input.gate } : {}),
     ...(input.notes ? { notes: input.notes } : {}),
   }
@@ -146,6 +154,7 @@ function appendReplayEvidence(input: {
   setupId?: string
   sourceRef?: string
   now?: string
+  qualification?: EvidenceQualification
 }): StrategyEvidenceRecord {
   const policyHash = policyHashForFile(input.strategyPath)
   const provenance = input.replayResult.provenance
@@ -169,6 +178,7 @@ function appendReplayEvidence(input: {
     },
     antiOverfit: readAntiOverfitProof(input.replayResult.assumptions),
     robustness: readRobustnessProof(input.replayResult.assumptions),
+    qualification: replayQualification(input.replayResult, input.qualification),
     gate: input.replayResult.gate,
     notes: input.replayResult.notes.join(" "),
     fingerprint: { policy_hash: policyHash, ...provenance },
@@ -265,6 +275,7 @@ function evaluateStrategyGate(latest: StrategyReviewReport["latest"]): StrategyP
   } else {
     blockedBy.push(...evaluateAntiOverfit(replay))
     blockedBy.push(...evaluateRobustness(replay))
+    blockedBy.push(...evaluateQualification(replay))
   }
 
   const shadow = latest.shadow
@@ -282,7 +293,7 @@ function evaluateStrategyGate(latest: StrategyReviewReport["latest"]): StrategyP
     }
   }
 
-  const replayOk = Boolean(replay && isPositiveEvidence(replay.stats) && evaluateAntiOverfit(replay).length === 0 && evaluateRobustness(replay).length === 0)
+  const replayOk = Boolean(replay && isPositiveEvidence(replay.stats) && evaluateAntiOverfit(replay).length === 0 && evaluateRobustness(replay).length === 0 && evaluateQualification(replay).length === 0)
   const shadowOk = Boolean(shadow && shadow.stats.sample_count >= 20 && isPositiveEvidence(shadow.stats) && hasCompleteExecutionAttribution(shadow.execution_attribution))
   return {
     shadow_candidate: replayOk,
@@ -311,6 +322,8 @@ function isReplayQualificationBlock(checkId: string): boolean {
     || checkId === "S-PARAM-COUNT"
     || checkId === "S-HOLDOUT-MISSING"
     || checkId.startsWith("S-ROBUSTNESS")
+    || checkId.startsWith("S-FUNDING")
+    || checkId.startsWith("S-PANEL")
 }
 
 function evidenceStaleReasons(record: StrategyEvidenceRecord, policyHash: string): string[] {
@@ -469,6 +482,24 @@ function normalizeExecutionAttribution(value: ExecutionAttribution): ExecutionAt
   }
 }
 
+function replayQualification(replay: ReplayResult, input?: EvidenceQualification): EvidenceQualification | undefined {
+  const qualification = normalizeQualification(input || {})
+  const fundingCoverage = asRecord(replay.assumptions.funding_event_coverage)
+  if (Object.keys(fundingCoverage).length > 0 && !qualification.funding_event_coverage) {
+    qualification.funding_event_coverage = fundingCoverage
+  }
+  return Object.keys(qualification).length > 0 ? qualification : undefined
+}
+
+function normalizeQualification(value: EvidenceQualification): EvidenceQualification {
+  const funding = asRecord(value.funding_event_coverage)
+  const panel = asRecord(value.panel_null_gate)
+  return {
+    ...(Object.keys(funding).length > 0 ? { funding_event_coverage: funding } : {}),
+    ...(Object.keys(panel).length > 0 ? { panel_null_gate: panel } : {}),
+  }
+}
+
 function hasCompleteExecutionAttribution(value?: ExecutionAttribution): boolean {
   if (!value) return false
   return [value.total_cost_drag, value.total_slippage_drag, value.total_funding_drag].every((item) => Number.isFinite(item))
@@ -544,6 +575,21 @@ function evaluateRobustness(record: StrategyEvidenceRecord): Array<{ check_id: s
   return blocked
 }
 
+function evaluateQualification(record: StrategyEvidenceRecord): Array<{ check_id: string; reason: string }> {
+  const blocked: Array<{ check_id: string; reason: string }> = []
+  const funding = asRecord(record.qualification?.funding_event_coverage)
+  const fundingStatus = stringField(funding.status)
+  if (fundingStatus && !["complete", "full", "none", "not_provided"].includes(fundingStatus)) {
+    blocked.push({ check_id: "S-FUNDING-COVERAGE", reason: `funding_event_coverage.status=${fundingStatus} cannot authorize shadow` })
+  }
+  const panel = asRecord(record.qualification?.panel_null_gate)
+  const panelStatus = stringField(panel.status)
+  if (Object.keys(panel).length > 0 && (panel.blocked === true || panelStatus !== "evaluated")) {
+    blocked.push({ check_id: "S-PANEL-NULL", reason: "panel null gate must be evaluated and unblocked before shadow" })
+  }
+  return blocked
+}
+
 function normalizeAntiOverfitProof(proof: AntiOverfitProof): AntiOverfitProof {
   return {
     method: proof.method,
@@ -572,6 +618,10 @@ function formatYamlValue(value: unknown): string {
 
 function stringField(value: unknown): string {
   return typeof value === "string" ? value.trim() : ""
+}
+
+function asRecord(value: unknown): JSONRecord {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as JSONRecord : {}
 }
 
 function arrayOfStrings(value: unknown): string[] {
@@ -606,6 +656,7 @@ export {
   type AntiOverfitProof,
   type EvidenceFingerprint,
   type RobustnessProof,
+  type EvidenceQualification,
   type StrategyEvidenceRecord,
   type StrategyPromotionGate,
   type StrategyReviewReport,
