@@ -81,6 +81,19 @@ cd .agents/skills/ohlcv-fetch
 ./scripts/main.ts --symbol BTCUSDT --timeframes 1d,4h,1h
 ```
 
+## Calibration panel
+
+`calibration-panel.ts` 用来重复生成 trade-flow `--strategy-calibration-suite` 输入；它只编排 OHLCV 拉取与 manifest 汇总，不做策略判断。
+
+```bash
+./scripts/calibration-panel.ts --output-root ./data/calibration-panel --timeframe 4h --since-ts 1609459200000 --limit 12000
+```
+
+- 默认 symbol universe 为 20 个 USDM 主流合约。
+- 输出 `panel-manifest.json` 与 `calibration-suite-input.json`。
+- 若传 `--funding-report-root`，会按 `<root>/<symbol>/market-features.json` 等路径自动挂入 `indicator_report_path`。
+- 支持 `--dry-run` 只生成路径与 suite input，不连接 Binance。
+
 ## 加密原生特征
 
 `market-features.ts` 以 `tech-indicators --feature-series` 报告的时间网格为基准，因果对齐 Binance / Deribit / BRK 数据；输出仍是可直接交给 R&D 的 factor report。
