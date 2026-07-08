@@ -1,6 +1,13 @@
 ---
 name: binance-position-adjust
 description: EXECUTE 阶段的 Binance USDM 持仓数量调整 skill。用于已有 live position 的部分减仓或全平；不处理主单开仓或保护腿。
+capability_class: [T]
+writes:
+  trade_db: false
+  evidence_ledger: false
+  artifacts: false
+  binance: true
+requires_preflight: true
 ---
 
 # Binance Position Adjust

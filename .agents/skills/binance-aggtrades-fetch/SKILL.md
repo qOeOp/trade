@@ -1,6 +1,13 @@
 ---
 name: binance-aggtrades-fetch
 description: OBSERVE 阶段的 Binance aggTrades 原始数据 skill。用于给 liquidation-zone、microstructure 或其他上层分析提供最近一段聚合逐笔成交材料。
+capability_class: [R, A]
+writes:
+  trade_db: false
+  evidence_ledger: false
+  artifacts: false
+  binance: false
+requires_preflight: false
 ---
 
 # Binance AggTrades Fetch

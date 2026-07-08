@@ -1,6 +1,13 @@
 ---
 name: binance-market-scan
 description: OBSERVE 阶段的 Binance 全市场初筛 skill。用于生成 long / short 候选列表，回答“先看谁”；不负责单标的深判、账户或执行。
+capability_class: [A]
+writes:
+  trade_db: false
+  evidence_ledger: false
+  artifacts: false
+  binance: false
+requires_preflight: false
 ---
 
 # Binance Market Scan

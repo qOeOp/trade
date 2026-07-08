@@ -1,6 +1,13 @@
 ---
 name: binance-liquidation-zones
 description: OBSERVE 阶段的 Binance USDM liquidation-like zone 推断 skill。优先消费 aggTrades 与 symbol snapshot，再用 liquidator-indicator 从公开数据估计最近的 liquidation cluster。
+capability_class: [A]
+writes:
+  trade_db: false
+  evidence_ledger: false
+  artifacts: false
+  binance: false
+requires_preflight: false
 ---
 
 # Binance Liquidation Zones

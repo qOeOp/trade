@@ -7,6 +7,13 @@ description: >-
   mapping; reads channel credentials from environment variables. Always writes
   a fallback line to ./data/cron.log; never blocks the cron main path on
   channel failure.
+capability_class: [V]
+writes:
+  trade_db: false
+  evidence_ledger: false
+  artifacts: false
+  binance: false
+requires_preflight: false
 ---
 
 # notify-dispatch

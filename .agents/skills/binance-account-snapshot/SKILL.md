@@ -1,6 +1,13 @@
 ---
 name: binance-account-snapshot
 description: OBSERVE / RECOVERY 阶段的 Binance 账户快照 skill。用于读取余额、持仓、普通挂单、保护单与必要的 symbol 历史订单；不执行交易动作。
+capability_class: [R]
+writes:
+  trade_db: false
+  evidence_ledger: false
+  artifacts: false
+  binance: false
+requires_preflight: false
 ---
 
 # Binance Account Snapshot

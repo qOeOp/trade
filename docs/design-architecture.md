@@ -8,6 +8,8 @@ trade-flow 是套件 skill 的总入口（功能 skill 拓扑见 [skill-layout.m
 - 流程语义直接内嵌在 flow / stage 定义里；只有少量 hard guards 走确定性代码或脚本
 - decision_card 渲染 = 校验
 - 双轨：慢轨拥有战略层（thesis / direction / risk），快轨守护执行层（条件触发 / 防御性补救）；两轨通过事件流通信，没有专门的共享状态
+- 所有入口共用 executor；入口只改变授权范围，不改变执行路径
+- 交易所事实优先级高于本地事件、evidence、artifact 和 memory
 
 ---
 
@@ -241,7 +243,8 @@ request:                          # 通常为空；executor 从 latest observe �
 ### order_fill.body shape
 
 ```yaml
-sub_kind: submit | cancel | amend | fill | partial_fill
+sub_kind: submit | cancel | amend | fill | partial_fill | reject | expire | unknown
+lifecycle_status: intent_created | contract_compiled | submitted | accepted | partially_filled | filled | amended | cancel_requested | cancelled | rejected | expired | unknown | needs_review | reconciled
 client_order_id: string             # <chain_id>-<seq>-<action>
 exchange_order_id: string?          # Binance orderId（submit ack 后才有）
 symbol: BTCUSDT
@@ -261,6 +264,15 @@ source: trade_flow | reconcile      # 主动执行 vs 对账补录
 ```
 
 `current_orders` / `current_position` reduce 时只读 `sub_kind / client_order_id / side / position_side / qty / filled_qty / avg_fill_price`；其余字段是审计 / 复盘用。`source=reconcile` 只用于“交易所事实已经发生，且本轮对账能可靠归属到当前 flow”的补录事件。Binance API 字段全集见 [tech-spec.md](tech-spec.md)。
+
+### Order lifecycle 语义
+
+- 新增风险必须先产生 `intent_created -> contract_compiled` 语义；`execution_contract_snapshot` 是 `contract_compiled` 的审计载体。
+- `submitted / accepted` 不改变 position；只有 `filled / partially_filled / reconciled` 改变 `current_position`。
+- `rejected / expired / cancelled` 关闭对应 `current_orders`，不改变 position。
+- `unknown` 表示交易所状态无法可靠确认；本 flow 禁止加风险，只允许 reconcile、cancel、sync protection、reduce 或人工接管。
+- `needs_review` 是恢复失败后的持久语义；慢轨全量对账或用户明确处理前，不允许 `place_entry / adjust_position add`。
+- 防御动作可在 `unknown / needs_review` 背景下执行，但必须写明 `decision_summary` 与来源，不能把防御动作当作账本已恢复。
 
 ### PLAN 与 EXECUTE 的边界
 
@@ -1089,6 +1101,28 @@ sequenceDiagram
 6. 不一致 → 视为 `reconcile mismatch`；快轨不补账。若 Binance live position 能明确归属到当前 flow，可先做防御性 `sync_protection`，随后写 light observe `decision_summary="skipped: reconcile mismatch"`；其余缺失事件等下次慢轨入口的全量对账兜底
 
 MVP 不把"对账失败"设计成单独的持久状态字段，也不为它再加一层专门 hard guard。对账只是 cron 入口的恢复步骤：能恢复成 event 就继续，恢复不了就把本轮当作一次恢复失败处理。
+
+恢复优先级固定：
+
+```text
+Binance facts
+  > exchange order/fill history
+  > local plan_event
+  > strategy evidence
+  > artifact / notes
+  > memory
+```
+
+恢复分类固定：
+
+| 分类 | 含义 | 动作 |
+| --- | --- | --- |
+| `matched` | 本地事件与 Binance 事实一致 | 继续 |
+| `reconcile_draft` | 缺本地事件但能可靠归属 | 慢轨可补 `source=reconcile` |
+| `protective_drift` | 持仓事实清楚，保护腿缺失或价位漂移 | 允许防御性 `sync_protection`，不算账本恢复 |
+| `unmatched` | 无法可靠归属的订单 / 仓位 / 成交差异 | 标记 `needs_review`，本轮不新增风险 |
+
+快轨只做当前 flow 的轻量一致性检查；除防御性保护动作外，不补 `source=reconcile`。
 
 ---
 

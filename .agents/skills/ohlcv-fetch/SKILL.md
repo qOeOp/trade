@@ -4,6 +4,13 @@ description: >-
   Fetch Binance USDM perpetual OHLCV data into local files for later analysis.
   Use when the agent needs to pull candles, normalize symbols, and write
   per-timeframe CSV files plus manifest.json for downstream analysis.
+capability_class: [R, A]
+writes:
+  trade_db: false
+  evidence_ledger: false
+  artifacts: true
+  binance: false
+requires_preflight: false
 ---
 
 # OHLCV Fetch

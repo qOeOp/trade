@@ -1,6 +1,13 @@
 ---
 name: binance-order-preview
 description: PLAN / EXECUTE 之间的 Binance 下单预演 skill。用于确认方法归属、关键参数、主单或保护腿分类、参考价与 warnings；不执行真实订单。只做 USDM 永续。
+capability_class: [A]
+writes:
+  trade_db: false
+  evidence_ledger: false
+  artifacts: false
+  binance: false
+requires_preflight: false
 ---
 
 # Binance Order Preview

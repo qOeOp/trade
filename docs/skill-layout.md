@@ -7,6 +7,30 @@
 
 两层不替代——套件管"怎么思考"，功能管"怎么动手"。套件内 stages 调用功能 skill。
 
+当前整理基线见 [architecture-inventory.md](architecture-inventory.md)；深层整理施工图见 [architecture-cleanup-plan.md](architecture-cleanup-plan.md)。
+
+---
+
+## 动作权限分级
+
+每个 skill / command 必须归入一个或多个权限 class：
+
+| Class | 名称 | 允许 | 禁止 |
+| --- | --- | --- | --- |
+| `R` | read facts | 读本地或外部事实 | 写 `trade.db` / Binance 写接口 |
+| `A` | analyze | 计算指标、replay、calibration、候选筛选；可写 artifact | 写交易事实、触发 Binance |
+| `E` | evidence write | 写 strategy evidence / R&D ledger | 写 `plan_event` 或 Binance |
+| `V` | event write | 写本地事件、shadow、reconcile draft apply | 触发 Binance |
+| `T` | trade write | Binance 下单、撤单、保护、减仓 | 绕过 preflight / execution contract |
+| `C` | credentials/config | 读写敏感配置 | 进入普通 artifact / notes / cron 输出 |
+
+硬规则：
+
+- `T` 类动作只能由 executor 路径触发：`action_intent -> preflight -> execution_contract_snapshot -> execute skill -> order_fill`。
+- `R/A/E/V` 失败不得自动升级为 `T` 补救。
+- market scan / replay / R&D candidate 不能直接生成 live action，只能进入候选或 evidence。
+- `C` 类内容不得进入 `plan_event.body_json`、artifact、LLM notes 或通知正文。
+
 ---
 
 ## 套件 skill：`trade-flow`
@@ -45,6 +69,7 @@
 
 `< 300 行`。只放：
 
+- skill / command 的权限 class
 - Router 规则（用户消息 / cron 触发 → 哪个 stage；触发源含 `track=slow|fast` 标识）
 - 各 stage 一句话简介
 - 数据库位置 + 关键表名
@@ -109,12 +134,12 @@ cron.log 追加本轮元数据
 
 | Stage | 干什么 | 调用的功能 skill |
 | --- | --- | --- |
-| **observe** | 慢轨：拉账户快照 + 全量对账（先补 `source=reconcile` 事件；若仍无法可靠归属则 abort 当前周期）+ 拉市场数据 + 识别 regime / 算跨链 exposure，本轮收尾 append 完整 observe(source=slow_track)。快轨：per-flow 轻量对账（fresh account + symbol-scoped open orders），mismatch 直接写 light observe 跳过 | `binance-account-snapshot`, `binance-symbol-snapshot`, `ohlcv-fetch`, `tech-indicators`, `binance-market-scan` |
-| **plan** | **仅慢轨走**。对每条 active flow：LLM 读 current_plan + latest_observe + strategy.policy + flow semantics 决定本轮动作 + 写 `action_intent.trigger_condition`；调 `plan-preflight` 跑 hard guard 全集与卡片校验。快轨不进 plan stage | `plan-preflight`, `binance-account-snapshot`（兜底）+ 读 `strategies/*.md` |
-| **execute** | 慢轨/快轨共用。读 latest action_intent 的 trigger_condition → mark 在 range 内则刷新执行事实 → 跑当前 track 的 preflight 子集 → preview → 下单 → 回填 order_fill。快轨 LLM 仅 orchestrator，不做质性判断 | `binance-order-preview`, `binance-order-place`, `binance-position-protect`, `binance-position-adjust` |
-| **review** | 仅慢轨写。某次仓位 / plan 阶段性闭合后写 review 事件（5 个必填字段 + notes 自由 markdown） | — |
-| **backtest** | 跑历史样本验证假设（远期，30+ review 样本后） | `ohlcv-fetch` |
-| **iterate** | REVIEW 产出沉淀进 `strategies/`（远期） | — |
+| **observe** | `R/V`。慢轨：拉账户快照 + 全量对账（先补 `source=reconcile` 事件；若仍无法可靠归属则 abort 当前周期）+ 拉市场数据 + 识别 regime / 算跨链 exposure，本轮收尾 append 完整 observe(source=slow_track)。快轨：per-flow 轻量对账（fresh account + symbol-scoped open orders），mismatch 直接写 light observe 跳过 | `binance-account-snapshot`, `binance-symbol-snapshot`, `ohlcv-fetch`, `tech-indicators`, `binance-market-scan` |
+| **plan** | `A/V`。**仅慢轨走**。对每条 active flow：LLM 读 current_plan + latest_observe + strategy.policy + flow semantics 决定本轮动作 + 写 `action_intent.trigger_condition`；调 `plan-preflight` 跑 hard guard 全集与卡片校验。快轨不进 plan stage | `plan-preflight`, `binance-account-snapshot`（兜底）+ 读 `strategies/*.md` |
+| **execute** | `T/V`。慢轨/快轨共用。读 latest action_intent 的 trigger_condition → mark 在 range 内则刷新执行事实 → 跑当前 track 的 preflight 子集 → preview → 下单 → 回填 order_fill。快轨 LLM 仅 orchestrator，不做质性判断 | `binance-order-preview`, `binance-order-place`, `binance-position-protect`, `binance-position-adjust` |
+| **review** | `E/V`。仅慢轨写。某次仓位 / plan 阶段性闭合后写 review 事件（5 个必填字段 + notes 自由 markdown） | — |
+| **backtest** | `A/E`。跑历史样本验证假设；只写 artifact / evidence，不写交易事实 | `ohlcv-fetch` |
+| **iterate** | `E/V`。REVIEW 产出沉淀进 `strategies/`；不得自动升 live-small | — |
 
 注：cron 模式下"分阶段"是逻辑划分。慢轨周期一次性跑完 observe → plan → execute → (review)；快轨周期跑 observe(轻) → execute（不进 plan / review）。不是用户主动一次次切阶段。
 
@@ -133,6 +158,7 @@ cron.log 追加本轮元数据
 - `binance-order-preview`
 - `binance-position-protect`
 - `binance-position-adjust`
+- `binance-order-cancel`
 
 **远期迁移路径**：`trade-flow/tools/binance/{name}/`。MVP 不动，等套件骨架跑通 + 完成 Claude Code skill 嵌套的技术验证后再迁。
 
@@ -146,6 +172,25 @@ cron.log 追加本轮元数据
 - `binance-market-scan`：扫描器，独立有价值
 
 绑死在套件内会失去复用价值。永久保持平铺。
+
+### 当前功能 skill 权限
+
+| Skill | Class | 说明 |
+| --- | --- | --- |
+| `binance-account-snapshot` | `R` | 只读账户事实 |
+| `binance-symbol-snapshot` | `R` | 只读单标的事实 |
+| `binance-aggtrades-fetch` | `R/A` | 成交流原材料 |
+| `binance-liquidation-zones` | `A` | liquidation-like refs |
+| `binance-market-scan` | `A` | 候选粗筛 |
+| `ohlcv-fetch` | `R/A` | 数据获取与 manifest |
+| `tech-indicators` | `A` | 指标、结构、feature report |
+| `plan-preflight` | `A` | hard guard，不写事件 |
+| `binance-order-preview` | `A` | 不发单，只预演/编译 |
+| `binance-order-place` | `T` | 主单写 Binance |
+| `binance-position-protect` | `T` | 保护腿写 Binance |
+| `binance-position-adjust` | `T` | 减仓 / 平仓写 Binance |
+| `binance-order-cancel` | `T` | 撤单写 Binance |
+| `notify-dispatch` | `V` | 通知与 cron.log fallback |
 
 ---
 

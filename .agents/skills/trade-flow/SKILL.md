@@ -1,6 +1,13 @@
 ---
 name: trade-flow
 description: 4H+ swing 交易主流程 glue。只负责事件流落库、执行结果审计字段校验和最小 SQLite schema；不直接判断策略、不直接调用 Binance。
+capability_class: [E, V, T]
+writes:
+  trade_db: true
+  evidence_ledger: true
+  artifacts: true
+  binance: optional
+requires_preflight: true
 ---
 
 # Trade Flow

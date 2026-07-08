@@ -215,6 +215,100 @@ test("run dry-run does not record blocked preflight", async () => {
   }
 })
 
+test("run dry-run skips when trigger condition is not hit", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "trade-flow-trigger-skip-"))
+  const dbPath = join(dir, "trade.db")
+  try {
+    const result = await run([
+      "--db",
+      dbPath,
+      "--run",
+      "--mode",
+      "dry-run",
+      "--json",
+      JSON.stringify({
+        ...dryRunInput(),
+        current_mark: 66500,
+        trigger_condition: {
+          price_in_range: [65900, 66100],
+          valid_until_at: "2026-07-06T12:05:00+08:00",
+        },
+      }),
+    ])
+    assert.equal(result.ok, true)
+    const data = (result as {
+      ok: true
+      data: { recorded: boolean; execution_gate: { status: string; reason: string } }
+    }).data
+    assert.equal(data.recorded, false)
+    assert.equal(data.execution_gate.status, "skipped")
+    assert.equal(data.execution_gate.reason, "current_mark_outside_trigger_range")
+
+    const db = new Database(dbPath)
+    try {
+      const row = db.query("SELECT COUNT(*) AS count FROM plan_event").get() as { count: number }
+      assert.equal(row.count, 0)
+    } finally {
+      db.close()
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("run dry-run skips when source observe was already recorded", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "trade-flow-idempotent-"))
+  const dbPath = join(dir, "trade.db")
+  const db = new Database(dbPath)
+  let closed = false
+  try {
+    ensureSchema(db)
+    appendPlanEvent(db, {
+      event_key: "evt-existing-source-1",
+      chain_id: "flow-1",
+      kind: "order_fill",
+      created_at: "2026-07-06T12:00:10Z",
+      body_json: {
+        sub_kind: "submit",
+        source: "trade_flow",
+        source_observe_event_key: "obs-1",
+        execution_contract_snapshot: executionContractInput(),
+        client_order_id: "flow-1-1-entry",
+        symbol: "BTCUSDT",
+        side: "BUY",
+        qty: 0.01,
+      },
+    })
+    db.close()
+    closed = true
+
+    const result = await run([
+      "--db",
+      dbPath,
+      "--run",
+      "--mode",
+      "dry-run",
+      "--json",
+      JSON.stringify({
+        ...dryRunInput(),
+        event_key: "evt-idempotent-new-1",
+      }),
+    ])
+    assert.equal(result.ok, true)
+    const data = (result as {
+      ok: true
+      data: { recorded: boolean; execution_gate: { status: string; reason: string } }
+    }).data
+    assert.equal(data.recorded, false)
+    assert.equal(data.execution_gate.reason, "source_observe_already_recorded")
+  } finally {
+    if (!closed) {
+      db.close()
+    }
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("run shadow records shadow execution without live exchange result", async () => {
   const dir = mkdtempSync(join(tmpdir(), "trade-flow-shadow-"))
   const dbPath = join(dir, "trade.db")
@@ -827,6 +921,42 @@ test("runLiveSmall calls order-place and records audited order_fill", async () =
   } finally {
     db.close()
     rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("runLiveSmall skips before calling order-place when trigger is not hit", async () => {
+  const db = new Database(":memory:")
+  ensureSchema(db)
+  let called = false
+  const runner: Runner = async () => {
+    called = true
+    return {
+      ok: false,
+      error: "runner should not be called",
+      stdout: "",
+      stderr: "",
+      exitCode: 1,
+    }
+  }
+
+  try {
+    const result = await runLiveSmall(db, {
+      ...dryRunInput(),
+      current_mark: 66500,
+      trigger_condition: {
+        price_in_range: [65900, 66100],
+        valid_until_at: "2026-07-06T12:05:00+08:00",
+      },
+    }, true, runner) as {
+      recorded: boolean
+      execution_gate: { status: string; reason: string }
+    }
+
+    assert.equal(result.recorded, false)
+    assert.equal(result.execution_gate.reason, "current_mark_outside_trigger_range")
+    assert.equal(called, false)
+  } finally {
+    db.close()
   }
 })
 

@@ -1,6 +1,13 @@
 ---
 name: binance-position-protect
 description: EXECUTE 阶段的 Binance USDM 保护腿 skill。用于为已有仓位或计划仓位补止损、止盈或 trailing；不处理主单开仓、减仓或撤单。
+capability_class: [T]
+writes:
+  trade_db: false
+  evidence_ledger: false
+  artifacts: false
+  binance: true
+requires_preflight: true
 ---
 
 # Binance Position Protect

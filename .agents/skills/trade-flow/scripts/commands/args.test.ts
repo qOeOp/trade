@@ -1,0 +1,63 @@
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import assert from "node:assert/strict"
+import test from "node:test"
+import { parseArgs } from "./args"
+
+test("parseArgs keeps core execution and evidence flags stable", () => {
+  const config = parseArgs([
+    "--db",
+    "/tmp/trade.db",
+    "--run-live-small",
+    "--yes",
+    "--track",
+    "slow",
+    "--chain-id",
+    "flow-1",
+    "--mode",
+    "shadow",
+    "--strategy-promote",
+    "--strategy",
+    "strategy.md",
+    "--ledger",
+    "ledger.jsonl",
+    "--to",
+    "live-small",
+    "--json",
+    JSON.stringify({ symbol: "BTCUSDT" }),
+  ])
+
+  assert.equal(config.dbPath, "/tmp/trade.db")
+  assert.equal(config.runLiveSmall, true)
+  assert.equal(config.yes, true)
+  assert.equal(config.track, "slow")
+  assert.equal(config.chainId, "flow-1")
+  assert.equal(config.mode, "shadow")
+  assert.equal(config.strategyPromote, true)
+  assert.equal(config.strategyPath, "strategy.md")
+  assert.equal(config.ledgerPath, "ledger.jsonl")
+  assert.equal(config.promoteTo, "live-small")
+  assert.deepEqual(config.input, { symbol: "BTCUSDT" })
+})
+
+test("parseArgs reads JSON input files", () => {
+  const dir = mkdtempSync(join(tmpdir(), "trade-flow-args-"))
+  try {
+    const inputPath = join(dir, "input.json")
+    writeFileSync(inputPath, JSON.stringify({ chain_id: "flow-file" }))
+    const config = parseArgs(["--append-order-fill", "--input", inputPath])
+    assert.equal(config.appendOrderFill, true)
+    assert.deepEqual(config.input, { chain_id: "flow-file" })
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("parseArgs rejects unknown flags and invalid enum values", () => {
+  assert.throws(() => parseArgs(["--missing"]), /unknown flag/)
+  assert.throws(() => parseArgs(["--mode", "live"]), /unsupported --mode/)
+  assert.throws(() => parseArgs(["--track", "medium"]), /--track must be/)
+  assert.throws(() => parseArgs(["--to", "production"]), /--to must be/)
+  assert.throws(() => parseArgs(["--db"]), /--db requires a value/)
+})

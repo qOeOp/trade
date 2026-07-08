@@ -42,6 +42,12 @@
   - `request`：结构化执行参数，shape 由 `target_action` 决定，preview 解析后路由到执行 skill
 - `execution_contract`
   定义：提交前由 `current_plan + execute 前刚刷新的账户 / 挂单 / 当前 mark + 交易所规格` 编译出的执行快照；是交易所 payload 的唯一真相
+- `order_lifecycle`
+  定义：执行事件的标准状态词表。值域：
+  `intent_created / contract_compiled / submitted / accepted / partially_filled / filled / amended / cancel_requested / cancelled / rejected / expired / unknown / needs_review / reconciled`
+  - `submitted / accepted` 不改变仓位
+  - `filled / partially_filled / reconciled` 才改变 `current_position`
+  - `unknown / needs_review` 阻断新增风险，只允许恢复或防御动作
 - `observe snapshot`
   定义：可被 `EXECUTE / preflight` 直接消费的最小完整快照，不是 patch；同条 observe 同时承载意图段 + 证据段
 
@@ -606,6 +612,10 @@ Strategy evidence ledger 规则：
   - 防御方向（`cancel_order` / `sync_protection` / `adjust_position` 减仓段）快轨可自主发起
   - 战略层字段（thesis 等）必须继承 `latest_slow_observe`，不修改
 - `order_fill.body_json` shape 见 [design-architecture.md §order_fill.body shape](design-architecture.md)；`source: trade_flow | reconcile` 标识来源（主动执行 vs 对账补录）；可选 `source_observe_event_key` 引用本笔 fill 对应的决策 observe（慢轨或快轨写的 observe 都可被引用）
+- `lifecycle_status` 是推荐状态字段；旧事件可只含 `sub_kind`，reducer 必须向后兼容。
+- reducer 只在 `sub_kind in (fill, partial_fill)` 或 `lifecycle_status in (filled, partially_filled, reconciled)` 时改变 `current_position`。
+- `lifecycle_status in (unknown, needs_review)` 时，executor 必须拒绝 `place_entry / adjust_position add`；`cancel_order / sync_protection / adjust_position reduce` 可作为防御动作继续。
+- `rejected / expired / cancelled` 只关闭对应 `current_orders`，不得修改仓位。
 - `review.body_json` 由某次仓位 / plan 阶段性闭合时写入；单条 flow 默认只写 1 条 terminal `review`；同一 lane 会跨多条历史 flow 累积多条 `review`
   - review 是 **flow 级终局复盘**，不是 fill / tranche 级；分批成交、加仓、减仓、部分止盈都归同一条 review
   - 数字字段（`net_pnl_usdt / fee_usdt / funding_usdt / slippage_usdt_total / initial_risk_usdt / max_live_risk_usdt / r_multiple / mfe_r / mae_r / holding_hours`）全部由 reducer / executor 确定性生成；LLM 不改数字

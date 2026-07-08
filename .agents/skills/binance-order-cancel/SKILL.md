@@ -1,6 +1,13 @@
 ---
 name: binance-order-cancel
 description: EXECUTE 阶段的 Binance 撤单 skill。用于撤销 USDM 的普通单与 Algo 条件单，支持单笔或整组取消。
+capability_class: [T]
+writes:
+  trade_db: false
+  evidence_ledger: false
+  artifacts: false
+  binance: true
+requires_preflight: true
 ---
 
 # Binance Order Cancel

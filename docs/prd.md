@@ -43,9 +43,11 @@ research / review
 任何 `target_action != no_action` 且会新增风险的动作，必须满足：
 
 - strategy / setup 已获 `live-small`
+- runtime live gate 允许当前账户进入真钱路径
 - `setup_id` 存在
 - 账户、挂单、持仓、价格事实新鲜
 - stop / invalidation / risk_budget 完整
+- setup 有 replay / shadow / live 对齐契约
 - preflight 通过
 - `execution_contract_snapshot` 已生成
 - 对账未失败
@@ -76,6 +78,19 @@ tags: []
 - `size_policy`
 - `evidence_ref`
 - `live_permission`
+- `execution_alignment`
+
+`execution_alignment` 至少说明：
+
+| 字段 | 含义 |
+| --- | --- |
+| `signal_source` | replay family / strategy rule / manual setup |
+| `signal_timing` | confirmed closed candle / trigger condition / manual |
+| `execution_timing` | next bar open / current mark / limit trigger |
+| `exit_owner` | protective order / strategy rule / manual review |
+| `same_bar_policy` | stop_first / no_same_bar / not_applicable |
+| `cost_model` | fee / slippage / funding / gap 假设 |
+| `live_deviation_policy` | live 与 replay 偏差如何进入 review |
 
 `draft` 只能分析；`shadow` 可记录影子动作，不提交 Binance；`live-small` 才能小资金实盘；`paused` 只允许观察和减风险。
 
@@ -99,6 +114,13 @@ tags: []
 - 最大回撤
 - 失败类型
 - 是否允许进入 `shadow` 或 `live-small`
+
+Replay / shadow / live 对齐要求：
+
+- 没有 `execution_alignment` 的 replay 只能研究，不能作为升格 evidence。
+- replay 成交口径、shadow 记录口径、live 执行口径必须能互相解释；偏差进入 review，不许事后改 replay 假设圆结果。
+- `exit_owner` 只能有一个主负责人；保护单可兜底，但不得和 strategy exit 形成重复平仓竞争。
+- `same_bar_policy` 必须固定；同 K 同时触发 stop/target 时不得由实现细节随机决定。
 
 当前实现映射：
 

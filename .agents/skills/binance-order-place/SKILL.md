@@ -1,6 +1,13 @@
 ---
 name: binance-order-place
 description: EXECUTE 阶段的 Binance 主单执行 skill。用于已收敛 entry plan 后的 USDM 永续开仓或加仓，覆盖立即进场、突破进场、回撤进场;不处理减仓、平仓或保护腿。
+capability_class: [T]
+writes:
+  trade_db: false
+  evidence_ledger: false
+  artifacts: false
+  binance: true
+requires_preflight: true
 ---
 
 # Binance Order Place

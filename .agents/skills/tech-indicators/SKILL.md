@@ -7,6 +7,13 @@ description: >-
   or compute per-symbol BTC beta (full + downside) for cross-lane risk
   aggregation, and write machine-readable and readable summaries to local
   files.
+capability_class: [A]
+writes:
+  trade_db: false
+  evidence_ledger: false
+  artifacts: true
+  binance: false
+requires_preflight: false
 ---
 
 # Tech Indicators

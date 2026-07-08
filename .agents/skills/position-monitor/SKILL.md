@@ -4,6 +4,13 @@ description: >-
   Orchestrate active-position monitoring using capability-based steps rather
   than fixed skill names. Use when Codex needs to decide whether current
   holdings or working orders need adjustment.
+capability_class: [A]
+writes:
+  trade_db: false
+  evidence_ledger: false
+  artifacts: false
+  binance: false
+requires_preflight: false
 ---
 
 # Position Monitor

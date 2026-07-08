@@ -1,6 +1,13 @@
 ---
 name: binance-symbol-snapshot
 description: OBSERVE 阶段的 Binance 单标的快照 skill。用于在不拉全量 OHLCV 的前提下查看 24h 变化、盘口价格、premiumIndex、fundingRate 与 openInterest，并可选补轻量多周期 K 线快照。
+capability_class: [R]
+writes:
+  trade_db: false
+  evidence_ledger: false
+  artifacts: false
+  binance: false
+requires_preflight: false
 ---
 
 # Binance Symbol Snapshot

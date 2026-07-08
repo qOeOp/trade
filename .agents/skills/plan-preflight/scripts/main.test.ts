@@ -88,6 +88,49 @@ test("evaluatePreflight blocks unverified setup for new risk", () => {
   assert.ok(result.blocked_by.some((item) => item.check_id === "G-SETUP-LIVE-PERMISSION"))
 })
 
+test("evaluatePreflight treats adjust_position add as new risk", () => {
+  const result = evaluatePreflight({
+    ...baseInput,
+    target_action: "adjust_position",
+    request: {
+      direction: "add",
+      entries: [{ price: 65000, risk_ratio: 0.5 }],
+    },
+    strategy: {
+      status: "shadow",
+    },
+    plan: {
+      ...baseInput.plan,
+      live_permission: "shadow",
+    },
+  })
+
+  assert.equal(result.verdict, "blocked")
+  assert.ok(result.blocked_by.some((item) => item.check_id === "G-SETUP-LIVE-PERMISSION"))
+})
+
+test("evaluatePreflight does not treat adjust_position reduce as new risk", () => {
+  const result = evaluatePreflight({
+    ...baseInput,
+    target_action: "adjust_position",
+    request: {
+      direction: "reduce",
+      qty_ratio: 0.5,
+    },
+    strategy: {
+      status: "shadow",
+    },
+    plan: {
+      ...baseInput.plan,
+      setup_id: "",
+      live_permission: "shadow",
+    },
+  })
+
+  assert.equal(result.verdict, "armable")
+  assert.equal(result.blocked_by.some((item) => item.check_id === "G-SETUP-LIVE-PERMISSION"), false)
+})
+
 test("evaluatePreflight abstains for no_action", () => {
   const result = evaluatePreflight({
     ...baseInput,

@@ -1,6 +1,13 @@
 ---
 name: plan-preflight
 description: cron 周期里 EXECUTE 之前的最后一道闸。先按 flow semantics 收敛动作，再跑 hard guards 与 6 行 DECISION_CARD 校验；只读，不下单。任何 `target_action != no_action` 的本轮动作都必须先过它。
+capability_class: [A]
+writes:
+  trade_db: false
+  evidence_ledger: false
+  artifacts: false
+  binance: false
+requires_preflight: false
 ---
 
 # Plan Preflight

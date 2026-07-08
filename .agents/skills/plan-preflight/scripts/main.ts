@@ -292,6 +292,9 @@ function isNewRiskAction(targetAction: TargetAction, request: JSONRecord | undef
   if (request?.increases_risk === false) {
     return false
   }
+  if (targetAction === "adjust_position") {
+    return String(request?.direction ?? "") === "add"
+  }
   return NEW_RISK_ACTIONS.has(targetAction)
 }
 
