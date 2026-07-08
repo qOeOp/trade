@@ -30,7 +30,8 @@ title: R&D Reliability Roadmap
 ## 4. Regime 层
 
 - 目标：失败不是只按时间切片，而是按趋势、波动、流动性、funding regime 定位。
-- 下一块：calibration 输出 regime attribution。
+- 当前：calibration 已输出趋势/波动 `regime_attribution`，并用 `CAL-REGIME-FRAGILITY` 暴露单一市场状态依赖。
+- 下一块：有可靠历史数据后补 liquidity / funding regime。
 - 完成信号：R&D before-search report 能说明候选适用/失效的 market state。
 
 ## 5. 负对照层

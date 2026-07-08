@@ -158,6 +158,7 @@ function runTrendBenchmark(input: TrendBenchmarkInput): JSONRecord {
     observed: observed.stats,
     execution_attribution: observed.attribution,
     chronological_folds: folds,
+    regime_attribution: regimeAttribution(panel, observed.returns, warmup, timeframe),
     cost_stress: stressed.stats,
     cost_stress_attribution: stressed.attribution,
     funding_stress: fundingStressed.stats,
@@ -245,6 +246,7 @@ function runRelativeStrengthBenchmark(input: TrendBenchmarkInput): JSONRecord {
     observed: observed.stats,
     execution_attribution: observed.attribution,
     chronological_folds: folds,
+    regime_attribution: regimeAttribution(panel, observed.returns, warmup, timeframe),
     cost_stress: stressed.stats,
     cost_stress_attribution: stressed.attribution,
     funding_stress: fundingStressed.stats,
@@ -391,6 +393,7 @@ function componentFindings(component: string, report: JSONRecord): DiagnosticFin
   const nullControl = asRecord(report.null_control)
   const fundingCoverage = asRecord(report.funding_event_coverage)
   const folds = array(report.chronological_folds).map(asStats)
+  const regimeBuckets = array(asRecord(report.regime_attribution).buckets).map(asRecord)
   const findings: DiagnosticFinding[] = []
   if (stringField(fundingCoverage.status) !== "full") {
     findings.push({
@@ -463,6 +466,18 @@ function componentFindings(component: string, report: JSONRecord): DiagnosticFin
       component,
       evidence: { negative_fold_count: negativeFolds.length, fold_total_returns: folds.map((fold) => fold.total_return) },
       next_system_action: "Add regime and subperiod diagnostics before optimizing parameters.",
+    })
+  }
+  const negativeRegimes = regimeBuckets
+    .map((bucket) => ({ bucket: stringField(bucket.bucket), total_return: numberField(bucket.total_return), sample_count: numberField(bucket.sample_count) }))
+    .filter((bucket) => bucket.sample_count > 0 && bucket.total_return <= 0)
+  if (negativeRegimes.length > 0) {
+    findings.push({
+      check_id: "CAL-REGIME-FRAGILITY",
+      severity: "warning",
+      component,
+      evidence: { negative_regimes: negativeRegimes },
+      next_system_action: "Diagnose whether the mechanism only works in one market state before expanding R&D search.",
     })
   }
   return findings
@@ -615,6 +630,37 @@ function circularShift<T>(values: T[], seed: number): T[] {
 
 function chronologicalFolds(returns: number[], count: number, timeframe: string): PortfolioStats[] {
   return Array.from({ length: count }, (_, index) => portfolioStats(returns.slice(Math.floor(index * returns.length / count), Math.floor((index + 1) * returns.length / count)), timeframe))
+}
+
+function regimeAttribution(panel: { timestamps: number[]; closes: number[][] }, returns: number[], warmup: number, timeframe: string): JSONRecord {
+  const marketReturns = Array.from({ length: returns.length }, (_, offset) => {
+    const index = warmup + offset + 1
+    return panel.closes.reduce((sum, series) => sum + (series[index] / series[index - 1] - 1), 0) / panel.closes.length
+  })
+  const lookback = Math.min(180, Math.max(20, Math.floor(returns.length / 4)), Math.max(1, warmup - 1))
+  const trendScores = Array.from({ length: returns.length }, (_, offset) => {
+    const index = warmup + offset + 1
+    return panel.closes.reduce((sum, series) => sum + (series[index - 1] / series[index - 1 - lookback] - 1), 0) / panel.closes.length
+  })
+  const volSeries = marketReturns.map((_, offset) => offset < lookback ? Number.NaN : standardDeviation(marketReturns.slice(offset - lookback, offset)))
+  const volMedian = quantile(volSeries.filter(Number.isFinite), 0.5)
+  const buckets = [
+    bucketStats("trend_up", returns, trendScores.map((value) => value > 0), timeframe),
+    bucketStats("trend_down", returns, trendScores.map((value) => value <= 0), timeframe),
+    bucketStats("volatility_high", returns, volSeries.map((value) => Number.isFinite(value) && value >= volMedian), timeframe),
+    bucketStats("volatility_low", returns, volSeries.map((value) => Number.isFinite(value) && value < volMedian), timeframe),
+  ]
+  return {
+    method: "causal_panel_trend_volatility_buckets_v1",
+    lookback_bars: lookback,
+    buckets,
+    notes: ["Regime attribution is diagnostic only; it does not authorize parameter search or live trading."],
+  }
+}
+
+function bucketStats(bucket: string, returns: number[], mask: boolean[], timeframe: string): JSONRecord {
+  const selected = returns.filter((_, index) => mask[index])
+  return { bucket, ...portfolioStats(selected, timeframe) }
 }
 
 function portfolioStats(returns: number[], timeframe: string): PortfolioStats {

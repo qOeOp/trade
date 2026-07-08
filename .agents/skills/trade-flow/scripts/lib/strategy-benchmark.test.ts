@@ -26,7 +26,7 @@ test("fixed trend benchmark beats shuffled timing and CLI does not create trade 
       slippageBps: 0.4,
       fundingBpsPer8h: 0,
       randomTrials: 20,
-    }) as { calibrated: boolean; observed: { sharpe: number }; null_control: { p95_sharpe: number; empirical_p_value: number }; datasets: Array<{ data_hash: string }>; execution_attribution: { cost_model: { effective_fee_bps: number; effective_slippage_bps: number }; total_fee_drag: number; total_slippage_drag: number } }
+    }) as { calibrated: boolean; observed: { sharpe: number }; null_control: { p95_sharpe: number; empirical_p_value: number }; datasets: Array<{ data_hash: string }>; execution_attribution: { cost_model: { effective_fee_bps: number; effective_slippage_bps: number }; total_fee_drag: number; total_slippage_drag: number }; regime_attribution: { buckets: Array<{ bucket: string; sample_count: number }> } }
 
     assert.equal(report.calibrated, true)
     assert.ok(report.observed.sharpe > report.null_control.p95_sharpe)
@@ -36,6 +36,8 @@ test("fixed trend benchmark beats shuffled timing and CLI does not create trade 
     assert.equal(report.execution_attribution.cost_model.effective_slippage_bps, 0.2)
     assert.ok(report.execution_attribution.total_fee_drag > 0)
     assert.ok(report.execution_attribution.total_slippage_drag > 0)
+    assert.deepEqual(report.regime_attribution.buckets.map((item) => item.bucket), ["trend_up", "trend_down", "volatility_high", "volatility_low"])
+    assert.ok(report.regime_attribution.buckets.every((item) => item.sample_count >= 0))
 
     const dbPath = join(dir, "trade.db")
     const cli = await run(["--db", dbPath, "--strategy-benchmark", "--json", JSON.stringify({
@@ -81,7 +83,7 @@ test("calibration suite reports fixed baselines and CLI stays read-only", async 
       purpose: string
       harness_hash: string
       data_panel: { dataset_count: number; schema_version_ok: boolean; closed_candles_only: boolean; min_aligned_ratio: number }
-      components: Record<string, { benchmark_id?: string; purpose?: string; execution_attribution?: { average_turnover_per_rebalance: number; total_fee_drag: number; total_slippage_drag: number }; funding_stress_attribution?: { total_funding_drag: number }; funding_event_coverage?: { status: string }; historical_funding?: unknown }>
+      components: Record<string, { benchmark_id?: string; purpose?: string; execution_attribution?: { average_turnover_per_rebalance: number; total_fee_drag: number; total_slippage_drag: number }; funding_stress_attribution?: { total_funding_drag: number }; funding_event_coverage?: { status: string }; historical_funding?: unknown; regime_attribution?: { buckets: Array<{ bucket: string }> } }>
       failure_analysis: { findings: Array<{ check_id: string; next_system_action: string }> }
     }
     assert.equal(report.purpose, "rd_pipeline_calibration_only")
@@ -93,6 +95,7 @@ test("calibration suite reports fixed baselines and CLI stays read-only", async 
     assert.equal(report.components.buy_and_hold_baseline.benchmark_id, "first_dataset_buy_and_hold_v1")
     assert.equal(report.components.time_series_trend.purpose, "rd_pipeline_calibration_only")
     assert.equal(report.components.cross_sectional_relative_strength.benchmark_id, "cross_sectional_relative_strength_v1")
+    assert.equal(report.components.time_series_trend.regime_attribution?.buckets.length, 4)
     assert.ok((report.components.time_series_trend.execution_attribution?.average_turnover_per_rebalance ?? -1) >= 0)
     assert.ok((report.components.time_series_trend.execution_attribution?.total_fee_drag ?? -1) >= 0)
     assert.ok((report.components.time_series_trend.execution_attribution?.total_slippage_drag ?? -1) >= 0)
