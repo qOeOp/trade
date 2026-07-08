@@ -68,6 +68,41 @@ test("slow track workflow dry-run builds real watchlist without live action", as
         openInterest: { openInterest: "12345" },
       })
     }
+    if (options?.cwd?.endsWith("ohlcv-fetch")) {
+      const symbol = command[command.indexOf("--symbol") + 1]
+      return jsonOk({
+        symbol,
+        manifest_path: join(repoRoot, ".agents/skills/trade-flow/data/market/run-slow-test", symbol, "manifest.json"),
+        output_dir: join(repoRoot, ".agents/skills/trade-flow/data/market/run-slow-test", symbol),
+        timeframes: {
+          "1d": { rows: 100, first_open_ts: 1, last_open_ts: 100 },
+          "4h": { rows: 100, first_open_ts: 1, last_open_ts: 100 },
+          "1h": { rows: 100, first_open_ts: 1, last_open_ts: 100 },
+        },
+      })
+    }
+    if (options?.cwd?.endsWith("tech-indicators")) {
+      return jsonOk({
+        symbol: "BTC/USDT:USDT",
+        generated_at: "2026-07-08T16:00:02+08:00",
+        summary: { bias: "bullish", suggestion: "wait for pullback to support" },
+        timeframes: {
+          "1d": { trend: "up", core_context: { current_price: 65000 }, supports: [], resistances: [] },
+          "4h": {
+            trend: "up",
+            core_context: { current_price: 65000, atr_14: 1000 },
+            position_in_range: "upper",
+            bullish_invalidation: "close below 64000",
+            bearish_invalidation: "close above 66000",
+            supports: [{ price: 64000, zone_low: 63800, zone_high: 64200, strength: "strong", touches: 3, distance_from_price_pct: -0.015 }],
+            resistances: [{ price: 67000, zone_low: 66800, zone_high: 67200, strength: "medium", touches: 2, distance_from_price_pct: 0.03 }],
+            trendlines: [],
+          },
+          "1h": { trend: "up", core_context: { current_price: 65000 }, supports: [], resistances: [] },
+        },
+        summary_markdown: "# BTC Technical Analysis\n",
+      })
+    }
     throw new Error("unexpected runner call")
   }
 
@@ -79,12 +114,13 @@ test("slow track workflow dry-run builds real watchlist without live action", as
       db,
       runner,
     })
-    assert.equal(result.mode, "workflow-dry-run")
+    assert.equal(result.mode, "analysis-only")
     assert.equal((result.trade_decision as { target_action: string }).target_action, "no_action")
     assert.equal((result.strategy_pool as { live_small_ready: unknown[] }).live_small_ready.length, 1)
     assert.equal((result.watchlist as unknown[]).length, 2)
     assert.equal((result.watchlist as Array<{ symbol: string; strategy_usage: { matched_live_small_strategies: string[] } }>)[0].symbol, "BTCUSDT")
     assert.deepEqual((result.watchlist as Array<{ strategy_usage: { matched_live_small_strategies: string[] } }>)[0].strategy_usage.matched_live_small_strategies, ["S-BTC"])
+    assert.equal((result.watchlist as Array<{ operator_suggestion: { action: string } }>)[0].operator_suggestion.action, "watch_long_setup")
     assert.match(readFileSync(String(result.artifact_path), "utf8"), /BTCUSDT/)
     assert.equal(calls.some((call) => call.command.includes("--run-live-small")), false)
   } finally {
@@ -123,6 +159,90 @@ test("slow track workflow reports account snapshot unavailable without inventing
     })
     assert.equal((result.account_state as { ok: boolean }).ok, false)
     assert.equal((result.trade_decision as { reason: string }).reason, "account_snapshot_unavailable")
+  } finally {
+    db.close()
+    rmSync(repoRoot, { recursive: true, force: true })
+  }
+})
+
+test("slow track workflow analyzes every default watchlist candidate", async () => {
+  const repoRoot = mkdtempSync(join(tmpdir(), "trade-flow-slow-full-analysis-"))
+  const dataDir = join(repoRoot, ".agents/skills/trade-flow/data")
+  mkdirSync(join(repoRoot, "profile"), { recursive: true })
+  mkdirSync(join(repoRoot, ".agents/skills/trade-flow/strategies"), { recursive: true })
+  mkdirSync(dataDir, { recursive: true })
+  writeFileSync(join(repoRoot, "profile/account_config.json"), "{}")
+  writeFileSync(join(repoRoot, ".agents/skills/trade-flow/strategies/s-draft.md"), "---\nstrategy_id: S-DRAFT\nstatus: draft\n---\n")
+  const db = new Database(":memory:")
+  ensureSchema(db)
+  const analyzedSymbols: string[] = []
+  const runner: Runner = async (command, options) => {
+    if (options?.cwd?.endsWith("binance-account-snapshot")) {
+      return jsonOk({
+        generatedAt: "2026-07-08T16:00:00+08:00",
+        balances: [],
+        positions: [],
+        openOrders: { regular: [], protective: [] },
+        errors: {},
+      })
+    }
+    if (options?.cwd?.endsWith("binance-market-scan")) {
+      return jsonOk({
+        candidates: {
+          long: ["AAAUSDT", "BBBUSDT", "CCCUSDT"].map((symbol, index) => ({
+            symbol,
+            priceChangePercent: String(index + 1),
+            quoteVolume: "100000000",
+            score: 100 - index,
+            tags: ["liquid"],
+          })),
+          short: [],
+        },
+      })
+    }
+    if (options?.cwd?.endsWith("binance-symbol-snapshot")) {
+      const symbol = command[command.indexOf("--symbol") + 1]
+      return jsonOk({
+        symbol,
+        ticker24h: { lastPrice: "1" },
+        priceSnapshot: { markPrice: "1" },
+        premiumIndex: { markPrice: "1", lastFundingRate: "0" },
+        openInterest: { openInterest: "1000" },
+      })
+    }
+    if (options?.cwd?.endsWith("ohlcv-fetch")) {
+      const symbol = command[command.indexOf("--symbol") + 1]
+      analyzedSymbols.push(symbol)
+      return jsonOk({
+        symbol,
+        manifest_path: join(repoRoot, ".agents/skills/trade-flow/data/market/run-full-analysis", symbol, "manifest.json"),
+        output_dir: join(repoRoot, ".agents/skills/trade-flow/data/market/run-full-analysis", symbol),
+        timeframes: {},
+      })
+    }
+    if (options?.cwd?.endsWith("tech-indicators")) {
+      return jsonOk({
+        summary: { bias: "slightly-bullish", suggestion: "wait" },
+        timeframes: {
+          "1d": {},
+          "4h": {},
+          "1h": {},
+        },
+      })
+    }
+    throw new Error("unexpected runner call")
+  }
+
+  try {
+    const result = await runSlowTrackWorkflowDryRun({
+      repoRoot,
+      dataDir,
+      runId: "run-full-analysis",
+      db,
+      runner,
+    })
+    assert.deepEqual(analyzedSymbols, ["AAAUSDT", "BBBUSDT", "CCCUSDT"])
+    assert.equal((result.watchlist as Array<{ technical_analysis: { indicators?: { ok?: boolean } } }>)[2].technical_analysis.indicators?.ok, true)
   } finally {
     db.close()
     rmSync(repoRoot, { recursive: true, force: true })

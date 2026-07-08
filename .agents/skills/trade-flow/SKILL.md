@@ -61,6 +61,11 @@ latest_observe.action_intent.request
 - 示例输入：`./examples/*.example.json`
 - 响应外壳 schema：`./schemas/script-response.schema.json`
 - plan_event 外壳 schema：`./schemas/plan-event.schema.json`
+- reconcile 结果外壳 schema：`./schemas/reconcile-result.schema.json`
+- execution command spec 外壳 schema：`./schemas/execution-command-spec.schema.json`
+- artifact GC 结果外壳 schema：`./schemas/artifact-gc-result.schema.json`
+- strategy evidence record 外壳 schema：`./schemas/strategy-evidence-record.schema.json`
+- strategy review report 外壳 schema：`./schemas/strategy-review-report.schema.json`
 - 支持动作：
   - `--init`：初始化 `plan_event`
   - `--append-order-fill --json <body>`：校验并追加 order_fill

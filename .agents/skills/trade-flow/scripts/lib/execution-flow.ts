@@ -11,8 +11,10 @@ import { appendPlanEvent, readFlowEvents, readLatestOrderFill, type PlanEvent } 
 import type { RunMode } from "./run-mode"
 
 export type TargetAction = "no_action" | "place_entry" | "cancel_order" | "sync_protection" | "adjust_position"
+export const EXECUTABLE_TARGET_ACTIONS = ["place_entry", "cancel_order", "sync_protection", "adjust_position"] as const
+export type ExecutableTargetAction = typeof EXECUTABLE_TARGET_ACTIONS[number]
 export interface ExecutionCommandSpec {
-  target_action: TargetAction
+  target_action: ExecutableTargetAction
   skill: string
   cwd: string
   command: string[]

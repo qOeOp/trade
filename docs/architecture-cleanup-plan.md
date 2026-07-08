@@ -641,14 +641,19 @@ Binance facts
   - `successResponse / errorResponse` 统一命令响应构造，避免散落裸 `{ ok, data }`。
   - `schemas/script-response.schema.json` 落地外层响应 JSON Schema，只约束 envelope，不约束 command-specific `data`。
   - `schemas/plan-event.schema.json` 落地 `plan_event` 外壳 JSON Schema，只约束事件行外层，不约束各 `kind.body_json`。
+  - `schemas/reconcile-result.schema.json` 落地对账结果外壳 JSON Schema；`drafts` 复用 `plan_event` 外壳，`unmatched` 内部诊断不提前冻结。
+  - `schemas/execution-command-spec.schema.json` 落地执行 skill 路由外壳 JSON Schema；只约束 action / skill / cwd / argv，不冻结各执行 skill 参数语义。
+  - `schemas/artifact-gc-result.schema.json` 落地 artifact GC 结果外壳 JSON Schema；只约束 root / retention / mode / file arrays，不冻结诊断 reason 枚举。
+  - `schemas/strategy-evidence-record.schema.json` 落地 strategy evidence JSONL record 外壳 JSON Schema；只约束 record / stats 外层，不冻结 proof payload。
+  - `schemas/strategy-review-report.schema.json` 落地 strategy review report 外壳 JSON Schema；只约束 evidence/latest/gate 外层，不冻结诊断细节。
   - `ScriptResponse` 明确 `INVALID_ARGUMENT / PRECONDITION_FAILED / EXTERNAL_FAILURE / INTERNAL_ERROR`。
-  - `response.test.ts` 锁定 response schema 与 builder 不漂移；`plan-events-schema.test.ts` 锁定 plan_event schema 与 validator-owned kind 枚举不漂移。
+  - `response.test.ts` 锁定 response schema 与 builder 不漂移；`plan-events-schema.test.ts` / `reconcile-schema.test.ts` / `execution-command-spec-schema.test.ts` / `artifact-gc-schema.test.ts` / `strategy-evidence-schema.test.ts` / `strategy-review-schema.test.ts` 锁定核心 data schema 不漂移。
   - `main.test.ts` 锁定成功、invalid argument、precondition 三类外层 envelope。
 
 验证：
 
 - `.agents/skills/trade-flow`: `bun run typecheck`
-- `.agents/skills/trade-flow`: `bun run test`，170 pass / 0 fail
+- `.agents/skills/trade-flow`: `bun run test`，178 pass / 0 fail
 - repo root: `git diff --check`
 
 下一步：
