@@ -69,9 +69,18 @@ latest_observe.action_intent.request
 - strategy promote result 外壳 schema：`./schemas/strategy-promote-result.schema.json`
 - track dry-run summary 外壳 schema：`./schemas/track-dry-run-summary.schema.json`
 - cron log entry 外壳 schema：`./schemas/cron-log-entry.schema.json`
+- flow state result 外壳 schema：`./schemas/flow-state-result.schema.json`
+- apply reconcile result 外壳 schema：`./schemas/apply-reconcile-result.schema.json`
+- cron recover result 外壳 schema：`./schemas/cron-recover-result.schema.json`
+- runtime load result 外壳 schema：`./schemas/runtime-load-result.schema.json`
+- observe event 外壳 schema：`./schemas/observe-event.schema.json`
+- strategy review body 最小 schema：`./schemas/strategy-review-body.schema.json`
+- run step result 外壳 schema：`./schemas/run-step-result.schema.json`
+- strategy cycle result 外壳 schema：`./schemas/strategy-cycle-result.schema.json`
 - 支持动作：
   - `--init`：初始化 `plan_event`
   - `--append-order-fill --json <body>`：校验并追加 order_fill
+  - `--append-review --json <body>`：校验并追加结构化 strategy review；恢复用 `needs_review` 仍保持轻量开放
   - `--record-execution --json <payload>`：要求 `preflight_result.verdict=armable`，编译 `execution_contract`，把执行 skill 返回结果封成 `order_fill` 并落库
   - `--run --mode dry-run --json <payload>`：跑 `preflight -> contract -> mock execution -> order_fill -> reducer readback`
   - `--run --mode shadow --json <payload>`：同 dry-run，但 `execution_result.mode=shadow`
@@ -89,6 +98,7 @@ latest_observe.action_intent.request
   - `--append-strategy-evidence --strategy <path> --ledger <path> --json <payload>`：把 replay / shadow / live-small / review_batch 证据追加进 JSONL ledger
   - `--strategy-review --strategy <path> --ledger <path> [--db <path>]`：读取 strategy、evidence ledger 和可选 DB review，生成迭代报告
   - `--strategy-promote --strategy <path> --ledger <path> --to <status> [--yes]`：按 gate dry-run 或更新 strategy frontmatter status
+  - `--strategy-cycle --strategy <path> --ledger <path> [--db <path>] [--to <status>] [--yes]`：把 DB reviews 去重同步为 shadow evidence，再生成 review，并可选 promotion dry-run / apply
   - `--artifact-gc --artifact-root <path> --retention-hours <n>`：报告或清理过期未引用 artifact；默认 dry-run，删除必须加 `--yes`
   - `--run-shadow-from-skills --json <payload>`：调用只读 snapshot skills，构建 observe，然后跑 shadow 链并落 `order_fill`
   - `--run-live-small --yes --json <payload>`：通过 `binance-order-place` 执行主单，并把返回结果落成 audited `order_fill`
@@ -147,6 +157,7 @@ latest_observe.action_intent.request
 - `shadow -> live-small` 需要 fresh replay + fresh shadow，且 shadow 样本数至少 20
 - `shadow -> live-small` 的 shadow evidence 必须包含 `execution_attribution.total_cost_drag / total_slippage_drag / total_funding_drag`
 - `--strategy-promote` 默认 dry-run；更新 strategy 文件必须显式 `--yes`
+- `--strategy-cycle` 只把同一批 DB review 同步成一条 deterministic `source_ref` 的 shadow evidence；重复运行必须复用旧证据，不得制造 ledger 垃圾
 - `--artifact-gc` 不打开 DB、不触发 Binance；只扫描显式 `--artifact-root`，保留 `.pin` / referenced / durable store，默认不删除
 - `--run-shadow-from-skills` 会写 shadow `order_fill`，但不触发 Binance 写接口
 - `--run-live-small` 会触发 Binance 写接口；没有 `--yes` 必须拒绝

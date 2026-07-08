@@ -10,6 +10,8 @@ import {
 } from "./json"
 import { appendPlanEvent, readFlowEvents, type PlanEvent } from "./plan-events"
 
+export const FLOW_POSITION_STATES = ["flat", "long", "short"] as const
+
 export interface ActiveFlowSummary {
   chain_id: string
   event_count: number

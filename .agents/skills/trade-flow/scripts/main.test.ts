@@ -960,6 +960,66 @@ test("run appends review then derives shadow evidence from DB", async () => {
   }
 })
 
+test("run strategy-cycle syncs review evidence without duplicate ledger rows", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "trade-flow-strategy-cycle-"))
+  const dbPath = join(dir, "trade.db")
+  const strategyPath = join(dir, "s-test.md")
+  const ledgerPath = join(dir, "strategy-evidence.jsonl")
+  try {
+    writeFileSync(strategyPath, "---\nstrategy_id: S-TEST\nname: Test Strategy\nstatus: shadow\ntags: [test]\n---\n\n# Test Strategy\n\nRule v1\n")
+    const appendReview = await run([
+      "--db",
+      dbPath,
+      "--append-review",
+      "--json",
+      JSON.stringify({
+        event_key: "review-cycle-1",
+        chain_id: "flow-review-cycle-1",
+        created_at: "2026-07-08T12:00:00Z",
+        body_json: {
+          strategy_ref: "S-TEST",
+          outcome: "win",
+          pnl_r: 0.8,
+          fee_r: 0.01,
+          slippage_r: 0.02,
+          funding_r: 0,
+          thesis_held: true,
+          key_lesson: "cycle can sync evidence",
+          promote_to_strategy: false,
+        },
+      }),
+    ])
+    assert.equal(appendReview.ok, true)
+
+    const firstCycle = await run([
+      "--db",
+      dbPath,
+      "--strategy-cycle",
+      "--strategy",
+      strategyPath,
+      "--ledger",
+      ledgerPath,
+    ])
+    assert.equal(firstCycle.ok, true)
+    assert.equal((firstCycle as { ok: true; data: { shadow_evidence: { status: string } } }).data.shadow_evidence.status, "created")
+
+    const secondCycle = await run([
+      "--db",
+      dbPath,
+      "--strategy-cycle",
+      "--strategy",
+      strategyPath,
+      "--ledger",
+      ledgerPath,
+    ])
+    assert.equal(secondCycle.ok, true)
+    assert.equal((secondCycle as { ok: true; data: { shadow_evidence: { status: string } } }).data.shadow_evidence.status, "reused")
+    assert.equal(readFileSync(ledgerPath, "utf8").trim().split(/\r?\n/).length, 1)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("run rejects unsupported replay strategy id", async () => {
   const dir = mkdtempSync(join(tmpdir(), "trade-flow-replay-unknown-"))
   try {

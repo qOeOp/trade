@@ -7,6 +7,9 @@ import { buildReconcileDrafts } from "./reconcile"
 import { runJsonCommand } from "./skill-runner"
 import { unwrapSkillResponse } from "./execution-flow"
 
+export const CRON_RECOVER_STATUSES = ["abort_unmatched_reconcile", "recovered_noop", "recovered_applied", "reconcile_draft_ready"] as const
+export type CronRecoverStatus = typeof CRON_RECOVER_STATUSES[number]
+
 export async function reconcileFromSkills(
   db: Database,
   chainId: string,

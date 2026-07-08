@@ -3,10 +3,11 @@ import { Database } from "bun:sqlite"
 import type { ReplayResult } from "../lib/replay-core"
 import {
   appendReplayEvidence,
-  appendShadowEvidenceFromReviews,
   appendStrategyEvidence,
   promoteStrategy,
   reviewStrategy,
+  runStrategyCycle,
+  syncShadowEvidenceFromReviews,
   type AntiOverfitProof,
   type EvidenceQualification,
   type EvidenceKind,
@@ -33,6 +34,17 @@ export function handleEvidenceCommand(config: CommandConfig): ScriptResponse | n
       db,
       toStatus: config.promoteTo,
       yes: config.yes,
+    })))
+  }
+  if (config.strategyCycle) {
+    return successResponse(withExistingDb(config.dbPath, (db) => runStrategyCycle({
+      strategyPath: config.strategyPath,
+      ledgerPath: config.ledgerPath,
+      db,
+      setupId: stringField(config.input.setup_id) || undefined,
+      promoteTo: config.promoteToExplicit ? config.promoteTo : undefined,
+      yes: config.yes,
+      now: stringField(config.input.now) || undefined,
     })))
   }
   return null
@@ -63,12 +75,11 @@ function appendStrategyEvidenceFromInput(config: CommandConfig): unknown {
       if (!db) {
         throw new Error("review-derived shadow evidence requires an existing --db")
       }
-      return appendShadowEvidenceFromReviews({
+      return syncShadowEvidenceFromReviews({
         strategyPath: config.strategyPath,
         ledgerPath: config.ledgerPath,
         db,
         setupId: stringField(config.input.setup_id) || undefined,
-        sourceRef: stringField(config.input.source_ref) || undefined,
         now: stringField(config.input.now) || undefined,
       })
     })

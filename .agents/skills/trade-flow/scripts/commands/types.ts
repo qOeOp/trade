@@ -36,6 +36,8 @@ export interface CommandConfig {
   appendStrategyEvidence: boolean
   strategyReview: boolean
   strategyPromote: boolean
+  strategyCycle: boolean
+  promoteToExplicit: boolean
   runShadowFromSkills: boolean
   runLiveSmall: boolean
   recoverFlow: boolean

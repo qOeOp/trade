@@ -1,0 +1,57 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade-flow.observe-event.v1",
+  "title": "trade-flow observe event",
+  "description": "Stable outer shape for observe plan_event rows built by trade-flow. The body keeps core fields required by downstream execution while allowing additional diagnostics.",
+  "type": "object",
+  "required": ["event_key", "chain_id", "kind", "body_json", "created_at"],
+  "properties": {
+    "event_key": {
+      "type": "string",
+      "minLength": 1
+    },
+    "chain_id": {
+      "type": "string"
+    },
+    "kind": {
+      "const": "observe"
+    },
+    "body_json": {
+      "type": "object",
+      "required": ["symbol", "side", "strategy_ref", "account", "microstructure", "preflight_result", "decision_summary", "created_at"],
+      "properties": {
+        "symbol": {
+          "type": "string",
+          "minLength": 1
+        },
+        "side": {
+          "enum": ["long", "short"]
+        },
+        "strategy_ref": {
+          "type": "string"
+        },
+        "account": {
+          "type": "object"
+        },
+        "microstructure": {
+          "type": "object"
+        },
+        "preflight_result": {
+          "type": "object"
+        },
+        "decision_summary": {
+          "type": "string"
+        },
+        "created_at": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "created_at": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}

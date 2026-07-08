@@ -1,9 +1,12 @@
 type JSONRecord = Record<string, unknown>
 
+const OBSERVE_SIDES = ["long", "short"] as const
+type ObserveSide = typeof OBSERVE_SIDES[number]
+
 interface ObserveInput {
   chain_id: string
   symbol: string
-  side: "long" | "short"
+  side: ObserveSide
   strategy_ref: string
   setup_id?: string
   account_snapshot: JSONRecord
@@ -146,8 +149,10 @@ function numberField(value: unknown): number {
 }
 
 export {
+  OBSERVE_SIDES,
   buildAccountProjection,
   buildObserveEvent,
   type ObserveEvent,
   type ObserveInput,
+  type ObserveSide,
 }

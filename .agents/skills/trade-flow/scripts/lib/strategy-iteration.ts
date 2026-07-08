@@ -120,12 +120,38 @@ interface PromoteStrategyInput {
   now?: string
 }
 
+interface StrategyCycleInput {
+  strategyPath: string
+  ledgerPath: string
+  db?: Database
+  setupId?: string
+  promoteTo?: StrategyStatus
+  yes?: boolean
+  now?: string
+}
+
 interface PromoteStrategyResult {
   status: PromoteResultStatus
   from_status: string
   to_status: StrategyStatus
   report: StrategyReviewReport
   updated_path?: string
+}
+
+const SHADOW_EVIDENCE_SYNC_STATUSES = ["created", "reused", "skipped"] as const
+type ShadowEvidenceSyncStatus = typeof SHADOW_EVIDENCE_SYNC_STATUSES[number]
+
+interface ShadowEvidenceSyncResult {
+  status: ShadowEvidenceSyncStatus
+  source_ref?: string
+  evidence?: StrategyEvidenceRecord
+  reason?: string
+}
+
+interface StrategyCycleResult {
+  shadow_evidence: ShadowEvidenceSyncResult
+  report: StrategyReviewReport
+  promotion?: PromoteStrategyResult
 }
 
 const DEFAULT_SETUP_ID = "default"
@@ -218,20 +244,74 @@ function appendShadowEvidenceFromReviews(input: {
   now?: string
 }): StrategyEvidenceRecord {
   const strategy = loadStrategyFile(input.strategyPath)
-  const reviews = readDbReviewBodies(input.db, strategy.strategy_id, input.setupId)
-  if (reviews.length === 0) {
+  const snapshot = readDbReviewSnapshot(input.db, strategy.strategy_id, input.setupId)
+  if (snapshot.reviews.length === 0) {
     throw new Error("shadow evidence requires at least one matching review event")
   }
+  return appendShadowEvidenceRecord({
+    strategyPath: input.strategyPath,
+    ledgerPath: input.ledgerPath,
+    reviews: snapshot.reviews,
+    setupId: input.setupId,
+    sourceRef: input.sourceRef || snapshot.source_ref,
+    now: input.now,
+  })
+}
+
+function appendShadowEvidenceRecord(input: {
+  strategyPath: string
+  ledgerPath: string
+  reviews: JSONRecord[]
+  setupId?: string
+  sourceRef: string
+  now?: string
+}): StrategyEvidenceRecord {
   return appendStrategyEvidence({
     strategyPath: input.strategyPath,
     ledgerPath: input.ledgerPath,
     kind: "shadow",
     setupId: input.setupId,
-    sourceRef: input.sourceRef || "trade.db:plan_event.review",
-    stats: evidenceStatsFromReviews(reviews),
-    executionAttribution: executionAttributionFromReviews(reviews),
+    sourceRef: input.sourceRef,
+    stats: evidenceStatsFromReviews(input.reviews),
+    executionAttribution: executionAttributionFromReviews(input.reviews),
     now: input.now,
   })
+}
+
+function syncShadowEvidenceFromReviews(input: {
+  strategyPath: string
+  ledgerPath: string
+  db?: Database
+  setupId?: string
+  now?: string
+}): ShadowEvidenceSyncResult {
+  if (!input.db) {
+    return { status: "skipped", reason: "db_not_provided" }
+  }
+  const strategy = loadStrategyFile(input.strategyPath)
+  const snapshot = readDbReviewSnapshot(input.db, strategy.strategy_id, input.setupId)
+  if (snapshot.reviews.length === 0) {
+    return { status: "skipped", source_ref: snapshot.source_ref, reason: "no_matching_reviews" }
+  }
+  const policyHash = policyHashForFile(input.strategyPath)
+  const existing = loadEvidenceLedger(input.ledgerPath).find((record) => (
+    record.strategy_id === strategy.strategy_id
+    && record.kind === "shadow"
+    && record.source_ref === snapshot.source_ref
+    && evidenceStaleReasons(record, policyHash).length === 0
+  ))
+  if (existing) {
+    return { status: "reused", source_ref: snapshot.source_ref, evidence: existing }
+  }
+  const evidence = appendShadowEvidenceRecord({
+    strategyPath: input.strategyPath,
+    ledgerPath: input.ledgerPath,
+    reviews: snapshot.reviews,
+    setupId: input.setupId,
+    sourceRef: snapshot.source_ref,
+    now: input.now,
+  })
+  return { status: "created", source_ref: snapshot.source_ref, evidence }
 }
 
 function reviewStrategy(input: {
@@ -306,6 +386,35 @@ function promoteStrategy(input: PromoteStrategyInput): PromoteStrategyResult {
       db: input.db,
     }),
     updated_path: input.strategyPath,
+  }
+}
+
+function runStrategyCycle(input: StrategyCycleInput): StrategyCycleResult {
+  const shadowEvidence = syncShadowEvidenceFromReviews({
+    strategyPath: input.strategyPath,
+    ledgerPath: input.ledgerPath,
+    db: input.db,
+    setupId: input.setupId,
+    now: input.now,
+  })
+  const report = reviewStrategy({
+    strategyPath: input.strategyPath,
+    ledgerPath: input.ledgerPath,
+    db: input.db,
+  })
+  if (!input.promoteTo) {
+    return { shadow_evidence: shadowEvidence, report }
+  }
+  return {
+    shadow_evidence: shadowEvidence,
+    report,
+    promotion: promoteStrategy({
+      strategyPath: input.strategyPath,
+      ledgerPath: input.ledgerPath,
+      db: input.db,
+      toStatus: input.promoteTo,
+      yes: input.yes,
+    }),
   }
 }
 
@@ -453,22 +562,28 @@ function loadEvidenceLedger(path: string): StrategyEvidenceRecord[] {
 }
 
 function readDbReviewStats(db: Database, strategyId: string): EvidenceStats | null {
-  const reviews = readDbReviewBodies(db, strategyId)
+  const reviews = readDbReviewSnapshot(db, strategyId).reviews
   return reviews.length > 0 ? evidenceStatsFromReviews(reviews) : null
 }
 
-function readDbReviewBodies(db: Database, strategyId: string, setupId?: string): JSONRecord[] {
+function readDbReviewSnapshot(db: Database, strategyId: string, setupId?: string): { reviews: JSONRecord[]; source_ref: string } {
   const rows = db.query(`
-    SELECT body_json FROM plan_event
+    SELECT event_key, created_at, body_json FROM plan_event
     WHERE kind='review'
       AND json_extract(body_json, '$.strategy_ref') = $strategy_id
     ORDER BY created_at ASC
-  `).all({ $strategy_id: strategyId }) as Array<{ body_json: string }>
-  const reviews = rows.map((row) => JSON.parse(row.body_json) as JSONRecord)
-  if (!setupId) {
-    return reviews
+  `).all({ $strategy_id: strategyId }) as Array<{ event_key: string; created_at: string; body_json: string }>
+  const filtered = rows
+    .map((row) => ({ ...row, body: JSON.parse(row.body_json) as JSONRecord }))
+    .filter((row) => !setupId || reviewSetupId(row.body) === setupId)
+  const digest = createHash("sha256")
+    .update(JSON.stringify(filtered.map((row) => ({ event_key: row.event_key, created_at: row.created_at, body_json: row.body_json }))))
+    .digest("hex")
+    .slice(0, 16)
+  return {
+    reviews: filtered.map((row) => row.body),
+    source_ref: `trade.db:plan_event.review:${strategyId}:${setupId || "*"}:${filtered.length}:${digest}`,
   }
-  return reviews.filter((review) => reviewSetupId(review) === setupId)
 }
 
 function reviewSetupId(review: JSONRecord): string {
@@ -845,9 +960,12 @@ export {
   policyHashForFile,
   promoteStrategy,
   reviewStrategy,
+  runStrategyCycle,
+  syncShadowEvidenceFromReviews,
   updateStrategyStatus,
   EVIDENCE_KINDS,
   PROMOTE_RESULT_STATUSES,
+  SHADOW_EVIDENCE_SYNC_STATUSES,
   STRATEGY_STATUSES,
   type EvidenceKind,
   type EvidenceStats,
@@ -855,7 +973,10 @@ export {
   type EvidenceFingerprint,
   type PromoteResultStatus,
   type PromoteStrategyResult,
+  type ShadowEvidenceSyncStatus,
+  type ShadowEvidenceSyncResult,
   type RobustnessProof,
+  type StrategyCycleResult,
   type EvidenceQualification,
   type StrategyEvidenceRecord,
   type StrategyPromotionGate,

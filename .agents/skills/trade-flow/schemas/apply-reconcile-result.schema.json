@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade-flow.apply-reconcile-result.v1",
+  "title": "trade-flow apply reconcile result",
+  "description": "Stable result shape for locally applying reconcile drafts.",
+  "type": "object",
+  "required": ["applied_count", "applied_event_keys"],
+  "properties": {
+    "applied_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "applied_event_keys": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    }
+  },
+  "additionalProperties": false
+}

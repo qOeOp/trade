@@ -24,6 +24,7 @@ export function parseArgs(argv: string[]): CommandConfig {
   let appendStrategyEvidenceEnabled = false
   let strategyReview = false
   let strategyPromote = false
+  let strategyCycle = false
   let runShadowFromSkillsEnabled = false
   let runLiveSmallEnabled = false
   let recoverFlow = false
@@ -53,6 +54,7 @@ export function parseArgs(argv: string[]): CommandConfig {
   let strategyPath = ""
   let ledgerPath = "./data/strategy-evidence.jsonl"
   let promoteTo: StrategyStatus = "shadow"
+  let promoteToExplicit = false
   let raw = ""
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -123,6 +125,9 @@ export function parseArgs(argv: string[]): CommandConfig {
         break
       case "--strategy-promote":
         strategyPromote = true
+        break
+      case "--strategy-cycle":
+        strategyCycle = true
         break
       case "--run-shadow-from-skills":
         runShadowFromSkillsEnabled = true
@@ -210,6 +215,7 @@ export function parseArgs(argv: string[]): CommandConfig {
         break
       case "--to":
         promoteTo = readStrategyStatus(readFlagValue(argv, ++index, arg))
+        promoteToExplicit = true
         break
       case "--input":
         raw = readFileSync(readFlagValue(argv, ++index, arg), "utf8")
@@ -245,6 +251,8 @@ export function parseArgs(argv: string[]): CommandConfig {
     appendStrategyEvidence: appendStrategyEvidenceEnabled,
     strategyReview,
     strategyPromote,
+    strategyCycle,
+    promoteToExplicit,
     runShadowFromSkills: runShadowFromSkillsEnabled,
     runLiveSmall: runLiveSmallEnabled,
     recoverFlow,

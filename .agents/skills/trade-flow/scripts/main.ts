@@ -87,7 +87,7 @@ async function run(argv: string[]): Promise<ScriptResponse> {
       if (recoveryResponse) {
         return recoveryResponse
       }
-      throw new Error("provide --init, --track, --append-order-fill, --append-review, --record-execution, --run, --load-runtime, --build-observe, --observe-from-skills, --replay-strategy, --strategy-rnd-batch, --strategy-rnd-loop, --strategy-rnd-campaign, --strategy-panel-rnd, --strategy-benchmark, --strategy-calibration-suite, --strategy-signal, --artifact-gc, --append-strategy-evidence, --strategy-review, --strategy-promote, --run-shadow-from-skills, --run-live-small, --recover-flow, --reconcile-flow, --reconcile-from-skills, --apply-reconcile, or --cron-recover-from-skills")
+      throw new Error("provide --init, --track, --append-order-fill, --append-review, --record-execution, --run, --load-runtime, --build-observe, --observe-from-skills, --replay-strategy, --strategy-rnd-batch, --strategy-rnd-loop, --strategy-rnd-campaign, --strategy-panel-rnd, --strategy-benchmark, --strategy-calibration-suite, --strategy-signal, --artifact-gc, --append-strategy-evidence, --strategy-review, --strategy-promote, --strategy-cycle, --run-shadow-from-skills, --run-live-small, --recover-flow, --reconcile-flow, --reconcile-from-skills, --apply-reconcile, or --cron-recover-from-skills")
     } finally {
       db.close()
     }

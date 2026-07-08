@@ -649,16 +649,20 @@ Binance facts
   - `schemas/strategy-promote-result.schema.json` 落地 strategy promote result 外壳 JSON Schema；`report` 复用 review report，不重复冻结 promotion 诊断细节。
   - `schemas/track-dry-run-summary.schema.json` 落地 slow/fast track dry-run summary 外壳 JSON Schema；只约束运行层共用字段，不冻结 workflow-specific 诊断。
   - `schemas/cron-log-entry.schema.json` 落地 slow/fast cron JSONL 审计行外壳 JSON Schema；约束 run / track / duration / status / actions / errors。
+  - `schemas/flow-state-result.schema.json` / `schemas/apply-reconcile-result.schema.json` / `schemas/cron-recover-result.schema.json` 落地 recovery/lifecycle 外壳契约；嵌套 reconcile 与 plan_event 复用已有 schema。
+  - `schemas/runtime-load-result.schema.json` / `schemas/observe-event.schema.json` / `schemas/run-step-result.schema.json` 落地 observe/runtime/one-step execution 外壳契约；不冻结 preflight、contract、execution payload 内部。
+  - `schemas/strategy-review-body.schema.json` 落地结构化 review body 最小契约；needs_review recovery note 仍保持轻量开放。
+  - `schemas/strategy-cycle-result.schema.json` 落地 strategy cycle 外壳契约；shadow evidence sync / review / optional promotion 分层复用既有 schema。
   - `ScriptResponse` 明确 `INVALID_ARGUMENT / PRECONDITION_FAILED / EXTERNAL_FAILURE / INTERNAL_ERROR`。
-  - `response.test.ts` 锁定 response schema 与 builder 不漂移；`plan-events-schema.test.ts` / `reconcile-schema.test.ts` / `execution-command-spec-schema.test.ts` / `artifact-gc-schema.test.ts` / `strategy-evidence-schema.test.ts` / `strategy-review-schema.test.ts` / `strategy-promote-schema.test.ts` / `track-dry-run-schema.test.ts` / `cron-log-schema.test.ts` 锁定核心 data schema 不漂移。
+  - `response.test.ts` 锁定 response schema 与 builder 不漂移；`plan-events-schema.test.ts` / `reconcile-schema.test.ts` / `execution-command-spec-schema.test.ts` / `artifact-gc-schema.test.ts` / `strategy-evidence-schema.test.ts` / `strategy-review-schema.test.ts` / `strategy-promote-schema.test.ts` / `track-dry-run-schema.test.ts` / `cron-log-schema.test.ts` / `core-data-schemas.test.ts` 锁定核心 data schema 不漂移。
   - `main.test.ts` 锁定成功、invalid argument、precondition 三类外层 envelope。
 
 验证：
 
 - `.agents/skills/trade-flow`: `bun run typecheck`
-- `.agents/skills/trade-flow`: `bun run test`，185 pass / 0 fail
+- `.agents/skills/trade-flow`: `bun run test`，197 pass / 0 fail
 - repo root: `git diff --check`
 
-下一步：
+完成判定：
 
-- 继续盘点是否需要为少数核心 `data` 输出补 JSON schema；只冻结已经稳定的契约。
+- 核心运行、恢复、review、strategy cycle 的稳定外壳已冻结；后续只在新增稳定输出时补 schema，不预设额外结构。

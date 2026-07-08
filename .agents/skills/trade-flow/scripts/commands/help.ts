@@ -29,6 +29,7 @@ export const HELP_TEXT = `Usage:
   ./scripts/main.ts --append-strategy-evidence --strategy <strategy.md> --ledger ./data/strategy-evidence.jsonl --json '{"kind":"shadow","stats":{...}}'
   ./scripts/main.ts --strategy-review --strategy <strategy.md> --ledger ./data/strategy-evidence.jsonl
   ./scripts/main.ts --strategy-promote --strategy <strategy.md> --ledger ./data/strategy-evidence.jsonl --to shadow --yes
+  ./scripts/main.ts --db ./data/trade.db --strategy-cycle --strategy <strategy.md> --ledger ./data/strategy-evidence.jsonl --to live-small
 
 Key flags:
   response schema         ./schemas/script-response.schema.json; only the outer envelope is stable
@@ -62,6 +63,7 @@ Key flags:
   --append-strategy-evidence Append replay/shadow/live-small evidence to strategy ledger
   --strategy-review       Build one strategy iteration report from ledger and optional DB reviews
   --strategy-promote      Dry-run or apply strategy status transition
+  --strategy-cycle        Sync DB reviews into shadow evidence, review, then optional promotion dry-run/apply
   --chain-id <chain_id>    Flow id for recovery / reconcile
   --yes                    Required for --run-live-small / --apply-reconcile
   --strategy <path>        Strategy markdown path for iteration commands

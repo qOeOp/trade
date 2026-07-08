@@ -295,6 +295,8 @@ function baseConfig(overrides: Partial<CommandConfig>): CommandConfig {
     appendStrategyEvidence: false,
     strategyReview: false,
     strategyPromote: false,
+    strategyCycle: false,
+    promoteToExplicit: false,
     runShadowFromSkills: false,
     runLiveSmall: false,
     recoverFlow: false,

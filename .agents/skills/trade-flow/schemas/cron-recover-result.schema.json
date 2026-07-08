@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade-flow.cron-recover-result.v1",
+  "title": "trade-flow cron recover result",
+  "description": "Stable outer shape for cron recovery. Nested reconcile, flow state, and local apply results reuse their own schemas.",
+  "type": "object",
+  "required": ["status", "before", "reconcile", "after"],
+  "properties": {
+    "status": {
+      "enum": ["abort_unmatched_reconcile", "recovered_noop", "recovered_applied", "reconcile_draft_ready"]
+    },
+    "before": {
+      "$ref": "flow-state-result.schema.json"
+    },
+    "reconcile": {
+      "$ref": "reconcile-result.schema.json"
+    },
+    "apply_result": {
+      "$ref": "apply-reconcile-result.schema.json"
+    },
+    "review_event": {
+      "$ref": "plan-event.schema.json"
+    },
+    "after": {
+      "$ref": "flow-state-result.schema.json"
+    }
+  },
+  "additionalProperties": false
+}

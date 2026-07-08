@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade-flow.runtime-load-result.v1",
+  "title": "trade-flow runtime load result",
+  "description": "Stable outer shape for loaded runtime policy/config. Account config and strategy internals remain owned by their source files.",
+  "type": "object",
+  "required": ["account_config", "strategies", "loaded_at"],
+  "properties": {
+    "account_config": {
+      "type": "object"
+    },
+    "strategies": {
+      "type": "array",
+      "items": {
+        "type": "object"
+      }
+    },
+    "loaded_at": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "additionalProperties": false
+}
