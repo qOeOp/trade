@@ -4,7 +4,7 @@ import { join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
 import { run } from "../main"
-import { runTrendBenchmark, strategyBenchmarkInputFromJson } from "./strategy-benchmark"
+import { runCalibrationSuite, runTrendBenchmark, strategyBenchmarkInputFromJson } from "./strategy-benchmark"
 
 test("fixed trend benchmark beats shuffled timing and CLI does not create trade DB", async () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-benchmark-"))
@@ -52,6 +52,36 @@ test("benchmark parser keeps the public definition fixed", () => {
   assert.equal(input.randomTrials, 20)
   assert.throws(() => runTrendBenchmark({ datasets: [] }), /at least three/)
   assert.throws(() => runTrendBenchmark({ datasets: validDatasets(), feeBps: -1, slippageBps: 2 }), /non-negative/)
+})
+
+test("calibration suite reports fixed baselines and CLI stays read-only", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-calibration-suite-"))
+  try {
+    const datasets = [0, 17, 41].map((offset, index) => ({
+      datasetId: ["BTC", "ETH", "SOL"][index],
+      manifestPath: writeRegimeManifest(dir, index, offset),
+    }))
+    const report = runCalibrationSuite({ datasets, feeBps: 1, slippageBps: 0, fundingBpsPer8h: 0, randomTrials: 20 }) as {
+      purpose: string
+      harness_hash: string
+      components: Record<string, { benchmark_id?: string; purpose?: string }>
+    }
+    assert.equal(report.purpose, "rd_pipeline_calibration_only")
+    assert.match(report.harness_hash, /^[a-f0-9]{64}$/)
+    assert.equal(report.components.buy_and_hold_baseline.benchmark_id, "first_dataset_buy_and_hold_v1")
+    assert.equal(report.components.time_series_trend.purpose, "rd_pipeline_calibration_only")
+    assert.equal(report.components.cross_sectional_relative_strength.benchmark_id, "cross_sectional_relative_strength_v1")
+
+    const dbPath = join(dir, "trade.db")
+    const cli = await run(["--db", dbPath, "--strategy-calibration-suite", "--json", JSON.stringify({
+      datasets: datasets.map((item) => ({ dataset_id: item.datasetId, manifest_path: item.manifestPath })),
+      fee_bps: 1, slippage_bps: 0, funding_bps_per_8h: 0, random_trials: 20,
+    })])
+    assert.equal(cli.ok, true)
+    assert.equal(existsSync(dbPath), false)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 function validDatasets() {

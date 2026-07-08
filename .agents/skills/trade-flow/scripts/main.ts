@@ -16,7 +16,7 @@ import { runArtifactGc } from "./lib/artifact-hygiene"
 import { buildReconcileDrafts } from "./lib/reconcile"
 import { runJsonCommand } from "./lib/skill-runner"
 import { runStrategyPanelRnd, strategyPanelRndInputFromJson } from "./lib/strategy-panel-rnd"
-import { runTrendBenchmark, strategyBenchmarkInputFromJson } from "./lib/strategy-benchmark"
+import { runCalibrationSuite, runTrendBenchmark, strategyBenchmarkInputFromJson, strategyCalibrationInputFromJson } from "./lib/strategy-benchmark"
 import { replayRegisteredStrategy } from "./lib/strategy-replay"
 import type { ReplayResult } from "./lib/replay-core"
 import {
@@ -71,6 +71,7 @@ const HELP_TEXT = `Usage:
   ./scripts/main.ts --strategy-rnd-campaign --json '{"campaign_id":"...","max_total_trials":10,"hypotheses":[...]}'
   ./scripts/main.ts --strategy-panel-rnd --json '{"datasets":[...],"candidates":[...]}'
   ./scripts/main.ts --strategy-benchmark --json '{"datasets":[...]}'
+  ./scripts/main.ts --strategy-calibration-suite --json '{"datasets":[...]}'
   ./scripts/main.ts --strategy-signal --json '{"manifest_path":"...","entry_price":60000,"candidate":{...}}'
   ./scripts/main.ts --run-shadow-from-skills --json '{"repoRoot":"/repo","chain_id":"...","symbol":"BTCUSDT",...}'
   ./scripts/main.ts --run-live-small --yes --json '{"repoRoot":"/repo","plan":{...},"observe":{...},"execution_contract_input":{...}}'
@@ -100,6 +101,7 @@ Key flags:
   --strategy-rnd-campaign  Run bounded hypotheses through discovery and non-overlapping external validation
   --strategy-panel-rnd     Evaluate fixed candidates across at least three assets
   --strategy-benchmark     Calibrate the R&D pipeline with one fixed multi-asset trend benchmark
+  --strategy-calibration-suite Run fixed known-edge calibration baselines; never auto-promotes
   --strategy-signal        Evaluate one R&D candidate on the latest closed candle; never executes
   --run-shadow-from-skills Call read-only snapshot skills, build observe, then record shadow execution
   --run-live-small         Execute one live-small main entry through binance-order-place
@@ -212,6 +214,9 @@ async function run(argv: string[]): Promise<ScriptResponse> {
     if (config.strategyBenchmark) {
       return { ok: true, data: runTrendBenchmark(strategyBenchmarkInputFromJson(config.input)) }
     }
+    if (config.strategyCalibrationSuite) {
+      return { ok: true, data: runCalibrationSuite(strategyCalibrationInputFromJson(config.input)) }
+    }
     if (config.strategySignal) {
       return { ok: true, data: evaluateRndSignal(strategyRndSignalInputFromJson(config.input)) }
     }
@@ -306,7 +311,7 @@ async function run(argv: string[]): Promise<ScriptResponse> {
       if (config.cronRecoverFromSkills) {
         return { ok: true, data: await cronRecoverFromSkills(db, config.chainId, config.input, config.yes) }
       }
-      throw new Error("provide --init, --append-order-fill, --record-execution, --run, --load-runtime, --build-observe, --observe-from-skills, --replay-strategy, --strategy-rnd-batch, --strategy-rnd-loop, --strategy-rnd-campaign, --strategy-panel-rnd, --strategy-benchmark, --strategy-signal, --artifact-gc, --append-strategy-evidence, --strategy-review, --strategy-promote, --run-shadow-from-skills, --run-live-small, --recover-flow, --reconcile-flow, --reconcile-from-skills, --apply-reconcile, or --cron-recover-from-skills")
+      throw new Error("provide --init, --append-order-fill, --record-execution, --run, --load-runtime, --build-observe, --observe-from-skills, --replay-strategy, --strategy-rnd-batch, --strategy-rnd-loop, --strategy-rnd-campaign, --strategy-panel-rnd, --strategy-benchmark, --strategy-calibration-suite, --strategy-signal, --artifact-gc, --append-strategy-evidence, --strategy-review, --strategy-promote, --run-shadow-from-skills, --run-live-small, --recover-flow, --reconcile-flow, --reconcile-from-skills, --apply-reconcile, or --cron-recover-from-skills")
     } finally {
       db.close()
     }
@@ -492,6 +497,7 @@ function parseArgs(argv: string[]): {
   strategyRndCampaign: boolean
   strategyPanelRnd: boolean
   strategyBenchmark: boolean
+  strategyCalibrationSuite: boolean
   strategySignal: boolean
   artifactGc: boolean
   appendStrategyEvidence: boolean
@@ -541,6 +547,7 @@ function parseArgs(argv: string[]): {
   let strategyRndCampaign = false
   let strategyPanelRnd = false
   let strategyBenchmark = false
+  let strategyCalibrationSuite = false
   let strategySignal = false
   let artifactGc = false
   let appendStrategyEvidenceEnabled = false
@@ -622,6 +629,9 @@ function parseArgs(argv: string[]): {
         break
       case "--strategy-benchmark":
         strategyBenchmark = true
+        break
+      case "--strategy-calibration-suite":
+        strategyCalibrationSuite = true
         break
       case "--strategy-signal":
         strategySignal = true
@@ -746,6 +756,7 @@ function parseArgs(argv: string[]): {
     strategyRndCampaign,
     strategyPanelRnd,
     strategyBenchmark,
+    strategyCalibrationSuite,
     strategySignal,
     artifactGc,
     appendStrategyEvidence: appendStrategyEvidenceEnabled,

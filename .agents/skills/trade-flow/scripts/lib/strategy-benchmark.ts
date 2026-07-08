@@ -19,6 +19,10 @@ interface TrendBenchmarkInput {
   randomTrials?: number
 }
 
+interface CalibrationSuiteInput extends TrendBenchmarkInput {
+  suiteId?: string
+}
+
 interface PortfolioStats {
   sample_count: number
   total_return: number
@@ -67,7 +71,7 @@ function runTrendBenchmark(input: TrendBenchmarkInput): JSONRecord {
   if (empiricalP > 0.05) blockedBy.push({ check_id: "BENCHMARK-NULL", reason: `empirical p-value ${round(empiricalP)} exceeds 0.05` })
   return {
     benchmark_id: input.benchmarkId || "multi_asset_time_series_trend_v1",
-    harness_hash: createHash("sha256").update(readFileSync(fileURLToPath(import.meta.url))).digest("hex"),
+    harness_hash: benchmarkHarnessHash(),
     purpose: "rd_pipeline_calibration_only",
     calibrated: blockedBy.length === 0,
     blocked_by: blockedBy,
@@ -83,6 +87,80 @@ function runTrendBenchmark(input: TrendBenchmarkInput): JSONRecord {
   }
 }
 
+function runCalibrationSuite(input: CalibrationSuiteInput): JSONRecord {
+  const trend = runTrendBenchmark({ ...input, benchmarkId: "multi_asset_time_series_trend_v1" })
+  const relativeStrength = runRelativeStrengthBenchmark(input)
+  const panel = alignedPanel(input.datasets, input.timeframe || "4h")
+  const buyHold = buyAndHoldBaseline(panel, input.datasets[0], input.timeframe || "4h")
+  const blockedBy: Array<{ check_id: string; reason: string }> = []
+  if (!booleanField(trend.calibrated)) blockedBy.push({ check_id: "CAL-TREND", reason: "fixed time-series trend benchmark is not calibrated" })
+  if (!booleanField(relativeStrength.calibrated)) blockedBy.push({ check_id: "CAL-RELATIVE-STRENGTH", reason: "fixed cross-sectional relative strength benchmark is not calibrated" })
+  return {
+    calibration_suite_id: input.suiteId || "known_edge_calibration_v1",
+    harness_hash: benchmarkHarnessHash(),
+    purpose: "rd_pipeline_calibration_only",
+    calibrated: blockedBy.length === 0,
+    blocked_by: blockedBy,
+    components: {
+      buy_and_hold_baseline: buyHold,
+      time_series_trend: trend,
+      cross_sectional_relative_strength: relativeStrength,
+      cash_baseline: { total_return: 0, annualized_return: 0, annualized_volatility: 0, sharpe: 0, max_drawdown: 0 },
+    },
+    diagnostics: [
+      "Buy-and-hold is diagnostic only; it separates beta from claimed alpha.",
+      "Failed calibration means R&D should diagnose data, costs, portfolio construction, or replay before searching more candidates.",
+    ],
+    notes: ["Calibration suite never authorizes shadow, live-small, or live trading."],
+  }
+}
+
+function runRelativeStrengthBenchmark(input: TrendBenchmarkInput): JSONRecord {
+  if (input.datasets.length < 3) throw new Error("relative strength benchmark requires at least three datasets")
+  const timeframe = input.timeframe || "4h"
+  if (timeframe !== "4h") throw new Error("fixed relative strength benchmark only supports 4h")
+  const lookbackBars = 540
+  const volatilityBars = 180
+  const rebalanceBars = 6
+  const randomTrials = input.randomTrials ?? 100
+  const feeBps = input.feeBps ?? 5
+  const slippageBps = input.slippageBps ?? 2
+  const fundingStressBps = input.fundingBpsPer8h ?? 1
+  if (!Number.isInteger(randomTrials) || randomTrials < 20 || randomTrials > 500) throw new Error("relative strength randomTrials must be 20-500")
+  if (feeBps < 0 || slippageBps < 0 || fundingStressBps < 0) throw new Error("relative strength costs must be non-negative")
+  const panel = alignedPanel(input.datasets, timeframe)
+  const warmup = Math.max(lookbackBars, volatilityBars)
+  if (panel.timestamps.length <= warmup + rebalanceBars) throw new Error("relative strength benchmark has insufficient aligned history")
+  const weights = buildRelativeStrengthSchedule(panel.closes, warmup, lookbackBars, volatilityBars, rebalanceBars, timeframe)
+  const costBps = feeBps + slippageBps
+  const observed = simulate(panel, weights, warmup, rebalanceBars, costBps, 0, timeframe)
+  const stressed = simulate(panel, weights, warmup, rebalanceBars, costBps + 5, 0, timeframe)
+  const fundingStressed = simulate(panel, weights, warmup, rebalanceBars, costBps, fundingStressBps, timeframe)
+  const randomSharpes = Array.from({ length: randomTrials }, (_, trial) => simulate(panel, circularShift(weights, trial + 17), warmup, rebalanceBars, costBps, 0, timeframe).stats.sharpe)
+  const empiricalP = (1 + randomSharpes.filter((value) => value >= observed.stats.sharpe).length) / (randomTrials + 1)
+  const folds = chronologicalFolds(observed.returns, 3, timeframe)
+  const blockedBy: Array<{ check_id: string; reason: string }> = []
+  if (observed.stats.total_return <= 0 || observed.stats.sharpe < 0.5) blockedBy.push({ check_id: "XSEC-EDGE", reason: "relative strength benchmark is not positive with Sharpe >= 0.5" })
+  if (folds.filter((fold) => fold.total_return > 0).length < 2) blockedBy.push({ check_id: "XSEC-TIME", reason: "fewer than two of three chronological folds are positive" })
+  if (stressed.stats.total_return <= 0) blockedBy.push({ check_id: "XSEC-COST", reason: "relative strength benchmark fails extra 5 bps turnover stress" })
+  if (empiricalP > 0.05) blockedBy.push({ check_id: "XSEC-NULL", reason: `empirical p-value ${round(empiricalP)} exceeds 0.05` })
+  return {
+    benchmark_id: "cross_sectional_relative_strength_v1",
+    harness_hash: benchmarkHarnessHash(),
+    purpose: "rd_pipeline_calibration_only",
+    calibrated: blockedBy.length === 0,
+    blocked_by: blockedBy,
+    datasets: input.datasets.map((item, index) => ({ dataset_id: item.datasetId, manifest_ref: item.manifestPath, data_hash: replayDataHash(item.manifestPath, timeframe), aligned_rows: panel.closes[index].length })),
+    period: { first: new Date(panel.timestamps[warmup]).toISOString(), last: new Date(panel.timestamps.at(-1)!).toISOString() },
+    assumptions: { timeframe, lookback_bars: lookbackBars, volatility_bars: volatilityBars, rebalance_bars: rebalanceBars, long_top_fraction: 1 / 3, short_bottom_fraction: 1 / 3, target_annual_volatility: 0.15, max_gross_exposure: 1, fee_bps: feeBps, slippage_bps: slippageBps, adverse_funding_stress_bps_per_8h: fundingStressBps, parameter_search: false },
+    observed: observed.stats,
+    chronological_folds: folds,
+    cost_stress: stressed.stats,
+    funding_stress: fundingStressed.stats,
+    null_control: { method: "portfolio_weight_circular_time_shift", trials: randomTrials, empirical_p_value: round(empiricalP), median_sharpe: round(quantile(randomSharpes, 0.5)), p95_sharpe: round(quantile(randomSharpes, 0.95)) },
+  }
+}
+
 function alignedPanel(datasets: BenchmarkDataset[], timeframe: string): { timestamps: number[]; closes: number[][] } {
   const loaded = datasets.map((dataset) => loadCandlesFromManifest(dataset.manifestPath, JSON.parse(readFileSync(dataset.manifestPath, "utf8")) as JSONRecord, timeframe))
   const common = loaded.slice(1).reduce((set, candles) => {
@@ -94,9 +172,46 @@ function alignedPanel(datasets: BenchmarkDataset[], timeframe: string): { timest
   return { timestamps, closes: loaded.map((candles) => alignCloses(candles, timestamps)) }
 }
 
+function buyAndHoldBaseline(panel: { timestamps: number[]; closes: number[][] }, dataset: BenchmarkDataset, timeframe: string): JSONRecord {
+  const warmup = Math.min(1080, Math.max(0, panel.timestamps.length - 2))
+  const returns = Array.from({ length: panel.timestamps.length - warmup - 1 }, (_, offset) => panel.closes[0][warmup + offset + 1] / panel.closes[0][warmup + offset] - 1)
+  return {
+    benchmark_id: "first_dataset_buy_and_hold_v1",
+    purpose: "beta_baseline_only",
+    dataset_id: dataset.datasetId,
+    manifest_ref: dataset.manifestPath,
+    data_hash: replayDataHash(dataset.manifestPath, timeframe),
+    period: { first: new Date(panel.timestamps[warmup]).toISOString(), last: new Date(panel.timestamps.at(-1)!).toISOString() },
+    assumptions: { timeframe, transaction_costs: false, parameter_search: false },
+    observed: portfolioStats(returns, timeframe),
+  }
+}
+
 function alignCloses(candles: Candle[], timestamps: number[]): number[] {
   const values = new Map(candles.map((candle) => [candle.timestamp, candle.close]))
   return timestamps.map((timestamp) => values.get(timestamp) || Number.NaN)
+}
+
+function buildRelativeStrengthSchedule(closes: number[][], warmup: number, lookbackBars: number, volatilityBars: number, rebalanceBars: number, timeframe: string): number[][] {
+  const weights: number[][] = []
+  const annualPeriods = 365 * 24 / timeframeHours(timeframe)
+  for (let index = warmup; index < closes[0].length - 1; index += rebalanceBars) {
+    const ranked = closes.map((series, asset) => ({ asset, momentum: series[index] / series[index - lookbackBars] - 1 })).sort((a, b) => a.momentum - b.momentum)
+    const count = Math.max(1, Math.floor(closes.length / 3))
+    const next = Array(closes.length).fill(0) as number[]
+    assignSideWeights(next, ranked.slice(0, count).map((item) => item.asset), closes, index, volatilityBars, -0.5)
+    assignSideWeights(next, ranked.slice(-count).map((item) => item.asset), closes, index, volatilityBars, 0.5)
+    const portfolioReturns = Array.from({ length: volatilityBars }, (_, offset) => next.reduce((sum, weight, asset) => sum + weight * (closes[asset][index - offset] / closes[asset][index - offset - 1] - 1), 0))
+    const scale = Math.min(1, 0.15 / Math.max(standardDeviation(portfolioReturns) * Math.sqrt(annualPeriods), 1e-8))
+    weights.push(next.map((value) => value * scale))
+  }
+  return weights
+}
+
+function assignSideWeights(weights: number[], assets: number[], closes: number[][], index: number, volatilityBars: number, gross: number): void {
+  const invVol = assets.map((asset) => 1 / Math.max(standardDeviation(Array.from({ length: volatilityBars }, (_, offset) => closes[asset][index - offset] / closes[asset][index - offset - 1] - 1)), 1e-8))
+  const total = invVol.reduce((sum, value) => sum + value, 0)
+  assets.forEach((asset, offset) => { weights[asset] = total > 0 ? gross * invVol[offset] / total : 0 })
 }
 
 function buildWeightSchedule(closes: number[][], warmup: number, horizons: number[], volatilityBars: number, rebalanceBars: number, timeframe: string): number[][] {
@@ -167,6 +282,14 @@ function strategyBenchmarkInputFromJson(value: JSONRecord): TrendBenchmarkInput 
   }
 }
 
+function strategyCalibrationInputFromJson(value: JSONRecord): CalibrationSuiteInput {
+  return {
+    ...strategyBenchmarkInputFromJson(value),
+    suiteId: stringField(value.calibration_suite_id ?? value.suiteId) || undefined,
+  }
+}
+
+function benchmarkHarnessHash(): string { return createHash("sha256").update(readFileSync(fileURLToPath(import.meta.url))).digest("hex") }
 function timeframeHours(value: string): number { const match = value.match(/^(\d+)([hd])$/); if (!match) throw new Error(`unsupported benchmark timeframe: ${value}`); return Number(match[1]) * (match[2] === "d" ? 24 : 1) }
 function standardDeviation(values: number[]): number { if (values.length < 2) return 0; const mean = values.reduce((sum, value) => sum + value, 0) / values.length; return Math.sqrt(values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length) }
 function quantile(values: number[], probability: number): number { const sorted = [...values].sort((a, b) => a - b); return sorted[Math.min(sorted.length - 1, Math.floor(probability * sorted.length))] ?? 0 }
@@ -176,5 +299,6 @@ function asRecord(value: unknown): JSONRecord { return value && typeof value ===
 function array(value: unknown): unknown[] { return Array.isArray(value) ? value : [] }
 function optionalNumber(value: unknown): number | undefined { const number = Number(value); return Number.isFinite(number) ? number : undefined }
 function stringField(value: unknown): string { return typeof value === "string" ? value.trim() : "" }
+function booleanField(value: unknown): boolean { return value === true }
 
-export { runTrendBenchmark, strategyBenchmarkInputFromJson, type TrendBenchmarkInput }
+export { runTrendBenchmark, runCalibrationSuite, strategyBenchmarkInputFromJson, strategyCalibrationInputFromJson, type TrendBenchmarkInput }
