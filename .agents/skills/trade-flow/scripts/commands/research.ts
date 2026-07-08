@@ -37,6 +37,7 @@ export function handleResearchCommand(config: CommandConfig): ScriptResponse | n
         oosSplitRatio: config.oosSplitRatio,
         trialCount: config.trialCount,
         parameterCount: config.parameterCount,
+        antiOverfitStage: config.antiOverfitStage,
       }))
   }
   if (config.strategyRndBatch) {

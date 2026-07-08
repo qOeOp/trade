@@ -48,6 +48,7 @@ export function parseArgs(argv: string[]): CommandConfig {
   let oosSplitRatio: number | undefined
   let trialCount: number | undefined
   let parameterCount: number | undefined
+  let antiOverfitStage: CommandConfig["antiOverfitStage"]
   let artifactRoot = ""
   let retentionHours: number | undefined
   let ephemeralRetentionHours: number | undefined
@@ -198,6 +199,9 @@ export function parseArgs(argv: string[]): CommandConfig {
       case "--parameter-count":
         parameterCount = Number(readFlagValue(argv, ++index, arg))
         break
+      case "--anti-overfit-stage":
+        antiOverfitStage = readAntiOverfitStage(readFlagValue(argv, ++index, arg))
+        break
       case "--artifact-root":
         artifactRoot = readFlagValue(argv, ++index, arg)
         break
@@ -276,6 +280,7 @@ export function parseArgs(argv: string[]): CommandConfig {
     oosSplitRatio,
     trialCount,
     parameterCount,
+    antiOverfitStage,
     artifactRoot,
     retentionHours,
     ephemeralRetentionHours,
@@ -306,6 +311,13 @@ function readTrackMode(value: string): TrackMode {
     return value
   }
   throw new Error("--track must be slow or fast")
+}
+
+function readAntiOverfitStage(value: string): CommandConfig["antiOverfitStage"] {
+  if (value === "selection_validation" || value === "external_validation" || value === "locked_holdout") {
+    return value
+  }
+  throw new Error("--anti-overfit-stage must be selection_validation, external_validation, or locked_holdout")
 }
 
 function readRunMode(value: string): RunMode {

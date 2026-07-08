@@ -61,6 +61,7 @@ export interface CommandConfig {
   oosSplitRatio?: number
   trialCount?: number
   parameterCount?: number
+  antiOverfitStage?: "selection_validation" | "external_validation" | "locked_holdout"
   artifactRoot: string
   retentionHours?: number
   ephemeralRetentionHours?: number

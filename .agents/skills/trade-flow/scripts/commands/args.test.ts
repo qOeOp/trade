@@ -32,6 +32,8 @@ test("parseArgs keeps core execution and evidence flags stable", () => {
     "168",
     "--ephemeral-retention-hours",
     "12",
+    "--anti-overfit-stage",
+    "locked_holdout",
     "--json",
     JSON.stringify({ symbol: "BTCUSDT" }),
   ])
@@ -52,6 +54,7 @@ test("parseArgs keeps core execution and evidence flags stable", () => {
   assert.equal(config.artifactRoot, "/tmp/artifacts")
   assert.equal(config.retentionHours, 168)
   assert.equal(config.ephemeralRetentionHours, 12)
+  assert.equal(config.antiOverfitStage, "locked_holdout")
   assert.deepEqual(config.input, { symbol: "BTCUSDT" })
 })
 
@@ -73,5 +76,6 @@ test("parseArgs rejects unknown flags and invalid enum values", () => {
   assert.throws(() => parseArgs(["--mode", "live"]), /unsupported --mode/)
   assert.throws(() => parseArgs(["--track", "medium"]), /--track must be/)
   assert.throws(() => parseArgs(["--to", "production"]), /--to must be/)
+  assert.throws(() => parseArgs(["--anti-overfit-stage", "peek"]), /--anti-overfit-stage must be/)
   assert.throws(() => parseArgs(["--db"]), /--db requires a value/)
 })

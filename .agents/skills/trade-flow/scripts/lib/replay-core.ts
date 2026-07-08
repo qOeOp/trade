@@ -81,6 +81,7 @@ interface ReplayOptions {
   parameterCount?: number
   antiOverfitStage?: "selection_validation" | "external_validation" | "locked_holdout"
   supplementalDataRefs?: string[]
+  skipParameterStability?: boolean
 }
 
 interface ReplayResult {
@@ -176,7 +177,11 @@ function replayStrategy(strategy: ReplayStrategy, options: ReplayOptions): Repla
   if (antiOverfit) {
     assumptions.anti_overfit = antiOverfit
   }
-  assumptions.robustness = buildRobustnessProof(trades)
+  const robustness = buildRobustnessProof(trades)
+  if (options.antiOverfitStage === "locked_holdout" && !options.skipParameterStability) {
+    robustness.parameter_stability = buildReplayParameterStability(strategy, effectiveOptions)
+  }
+  assumptions.robustness = robustness
 
   const result = summarizeReplay({
     strategy_id: strategy.strategy_id,
@@ -501,6 +506,54 @@ function buildRobustnessProof(trades: ReplayTrade[]): JSONRecord {
   }
 }
 
+function buildReplayParameterStability(strategy: ReplayStrategy, options: ReplayOptions): JSONRecord {
+  const base = {
+    maxHoldBars: options.maxHoldBars ?? 18,
+    rewardRisk: options.rewardRisk ?? 2,
+  }
+  const variants: Array<{ parameter: string; multiplier: number; options: ReplayOptions }> = []
+  for (const multiplier of [0.9, 1.1]) {
+    variants.push({
+      parameter: "maxHoldBars",
+      multiplier,
+      options: { ...options, maxHoldBars: Math.max(1, Math.round(base.maxHoldBars * multiplier)) },
+    })
+    variants.push({
+      parameter: "rewardRisk",
+      multiplier,
+      options: { ...options, rewardRisk: Number((base.rewardRisk * multiplier).toFixed(6)) },
+    })
+  }
+  const seen = new Set<string>()
+  const results = variants
+    .filter((variant) => {
+      const key = hashCanonical({ parameter: variant.parameter, maxHoldBars: variant.options.maxHoldBars, rewardRisk: variant.options.rewardRisk })
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+    .map((variant) => {
+      const replay = replayStrategy(strategy, {
+        ...variant.options,
+        skipParameterStability: true,
+      })
+      return {
+        parameter: variant.parameter,
+        multiplier: variant.multiplier,
+        avg_r: replay.avg_r,
+        total_r: replay.total_r,
+      }
+    })
+  const positive = results.filter((item) => item.avg_r > 0 && item.total_r > 0)
+  return {
+    method: "fixed_plus_minus_10pct",
+    evaluation_count: results.length,
+    positive_ratio: results.length > 0 ? round(positive.length / results.length) : 0,
+    worst_avg_r: results.length > 0 ? round(Math.min(...results.map((item) => item.avg_r))) : 0,
+    results,
+  }
+}
+
 function buildReplayProvenance(manifestPath: string, timeframe: string, assumptions: JSONRecord, supplementalDataRefs: string[] = []): ReplayProvenance {
   const manifest = loadManifest(manifestPath)
   const item = asRecord(asRecord(manifest.timeframes)[timeframe])
@@ -635,7 +688,7 @@ function summarizeTrades(trades: ReplayTrade[]): {
     avg_r: trades.length > 0 ? round(total / trades.length) : 0,
     total_r: round(total),
     max_drawdown_r: round(maxDrawdown(trades.map((trade) => trade.r))),
-    profit_factor: losses > 0 ? round(gains / losses) : gains > 0 ? Number.POSITIVE_INFINITY : 0,
+    profit_factor: losses > 0 ? round(gains / losses) : gains > 0 ? 999999 : 0,
   }
 }
 

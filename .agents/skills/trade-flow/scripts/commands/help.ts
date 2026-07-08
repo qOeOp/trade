@@ -83,6 +83,7 @@ Key flags:
   --slippage-bps <n>       Slippage estimate in bps per side for replay
   --funding-bps-per-8h <n> Adverse funding stress in bps per 8h held
   --oos-split <ratio>      Replay anti-overfit OOS split ratio. Example: 0.3
+  --anti-overfit-stage <stage> Replay proof stage: selection_validation, external_validation, or locked_holdout
   --trial-count <n>        Number of predeclared strategy trials represented by this replay
   --parameter-count <n>    Number of active strategy parameters represented by this replay
   --input <path>           JSON event input

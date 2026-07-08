@@ -13,7 +13,7 @@ import {
   promoteStrategy,
   reviewStrategy,
 } from "./strategy-iteration"
-import { hashCanonical, replayContentHash, replayDataHash, replayHarnessHash, type ReplayResult } from "./replay-core"
+import { hashCanonical, replayContentHash, replayDataHash, replayHarnessHash, replayStrategy, type ReplayResult, type ReplayStrategy } from "./replay-core"
 
 test("strategy review separates fresh and stale evidence by policy hash", () => {
   const dir = makeDir()
@@ -58,6 +58,48 @@ test("strategy promote to shadow requires positive fresh replay evidence", () =>
   const updated = promoteStrategy({ strategyPath, ledgerPath, toStatus: "shadow", yes: true })
   assert.equal(updated.status, "updated")
   assert.match(readFileSync(strategyPath, "utf8"), /status: shadow/)
+})
+
+test("mechanical replay positive control can authorize shadow", () => {
+  const dir = makeDir()
+  const strategyPath = writeStrategy(dir, "draft", "Rule v1")
+  const ledgerPath = join(dir, "strategy-evidence.jsonl")
+  writePositiveControlDataset(dir)
+  const controlStrategy: ReplayStrategy = {
+    strategy_id: "S-TEST",
+    default_timeframe: "4h",
+    warmup_bars: 210,
+    generateSignal({ index, entryPrice, entryIndex, options }) {
+      if (index % 3 !== 0) return null
+      const risk = 10
+      return {
+        side: "long",
+        signal_index: index,
+        entry_index: entryIndex,
+        entry: entryPrice,
+        stop: entryPrice - risk,
+        target: entryPrice + risk * (options.rewardRisk ?? 2),
+        reason: "positive control",
+      }
+    },
+  }
+  const replay = replayStrategy(controlStrategy, {
+    manifestPath: join(dir, "manifest.json"),
+    maxHoldBars: 2,
+    rewardRisk: 2,
+    antiOverfitStage: "locked_holdout",
+    trialCount: 1,
+    parameterCount: 2,
+  })
+
+  assert.equal(replay.gate.shadow_candidate, true)
+  assert.equal((replay.assumptions.anti_overfit as { stage: string }).stage, "locked_holdout")
+  assert.equal((replay.assumptions.robustness as { parameter_stability: { method: string } }).parameter_stability.method, "fixed_plus_minus_10pct")
+  appendReplayEvidence({ strategyPath, ledgerPath, replayResult: replay })
+
+  const report = reviewStrategy({ strategyPath, ledgerPath })
+  assert.equal(report.gate.shadow_candidate, true)
+  assert.deepEqual(report.gate.blocked_by.filter((item) => item.check_id !== "S-SHADOW-MISSING"), [])
 })
 
 test("strategy promote blocks replay evidence without anti-overfit proof", () => {
@@ -533,6 +575,29 @@ function positiveReplay(dir: string): ReplayResult {
     },
     notes: ["positive mechanical replay"],
   }
+}
+
+function writePositiveControlDataset(dir: string): void {
+  const rows = ["date,timestamp,open,high,low,close,volume"]
+  const start = 1_767_225_600_000
+  for (let index = 0; index < 360; index += 1) {
+    const open = 1000 + index * 3
+    const highExtension = index % 20 < 10 ? 60 : 25
+    rows.push([
+      new Date(start + index * 4 * 60 * 60 * 1000).toISOString(),
+      start + index * 4 * 60 * 60 * 1000,
+      open,
+      open + highExtension,
+      open - 2,
+      open + 8,
+      1000 + index,
+    ].join(","))
+  }
+  writeFileSync(join(dir, "4h.csv"), rows.join("\n"))
+  const manifest = { schema_version: 2, closed_candles_only: true, symbol: "BTCUSDT", exchange: "binanceusdm", columns: ["date", "timestamp", "open", "high", "low", "close", "volume"], timeframes: { "4h": { file: "4h.csv", content_sha256: "" } } }
+  writeFileSync(join(dir, "manifest.json"), JSON.stringify(manifest))
+  manifest.timeframes["4h"].content_sha256 = replayContentHash(join(dir, "manifest.json"), "4h")
+  writeFileSync(join(dir, "manifest.json"), JSON.stringify(manifest))
 }
 
 function replayWithAssumptions(dir: string, assumptions: Record<string, unknown>): ReplayResult {
