@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite"
 import { applyReconcileDrafts, reduceFlowState } from "./flow-state"
 import { asRecord, stringField, type JSONRecord } from "./json"
 import type { Runner } from "./observe-adapter"
-import { readFlowEvents, type PlanEvent } from "./plan-events"
+import { appendPlanEvent, readFlowEvents, type PlanEvent } from "./plan-events"
 import { buildReconcileDrafts } from "./reconcile"
 import { runJsonCommand } from "./skill-runner"
 import { unwrapSkillResponse } from "./execution-flow"
@@ -54,11 +54,14 @@ export async function cronRecoverFromSkills(
   const before = reduceFlowState(db, chainId)
   const reconcile = await reconcileFromSkills(db, chainId, input, runner)
   if (Array.isArray(reconcile.unmatched) && reconcile.unmatched.length > 0) {
+    const reviewEvent = buildNeedsReviewEvent(chainId, reconcile, input)
+    appendPlanEvent(db, reviewEvent)
     return {
       status: "abort_unmatched_reconcile",
       before,
       reconcile,
-      after: before,
+      review_event: reviewEvent,
+      after: reduceFlowState(db, chainId),
     }
   }
   const drafts = Array.isArray(reconcile.drafts) ? reconcile.drafts : []
@@ -85,6 +88,23 @@ export async function cronRecoverFromSkills(
     before,
     reconcile,
     after: before,
+  }
+}
+
+function buildNeedsReviewEvent(chainId: string, reconcile: JSONRecord, input: JSONRecord): PlanEvent {
+  const createdAt = stringField(input.created_at) || stringField(input.now) || new Date().toISOString()
+  return {
+    event_key: stringField(input.needs_review_event_key) || `needs-review-${chainId}-${createdAt.replace(/[^0-9]/g, "") || crypto.randomUUID()}`,
+    chain_id: chainId,
+    kind: "review",
+    created_at: createdAt,
+    body_json: {
+      status: "needs_review",
+      lifecycle_status: "needs_review",
+      reason: "unmatched_reconcile",
+      unmatched: Array.isArray(reconcile.unmatched) ? reconcile.unmatched : [],
+      compared_at: reconcile.compared_at,
+    },
   }
 }
 

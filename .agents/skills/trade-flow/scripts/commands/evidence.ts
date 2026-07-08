@@ -10,27 +10,28 @@ import {
   type EvidenceKind,
   type EvidenceStats,
 } from "../lib/strategy-iteration"
+import { successResponse } from "./response"
 import type { CommandConfig, JSONRecord, ScriptResponse } from "./types"
 
 export function handleEvidenceCommand(config: CommandConfig): ScriptResponse | null {
   if (config.appendStrategyEvidence) {
-    return { ok: true, data: appendStrategyEvidenceFromInput(config) }
+    return successResponse(appendStrategyEvidenceFromInput(config))
   }
   if (config.strategyReview) {
-    return { ok: true, data: withExistingDb(config.dbPath, (db) => reviewStrategy({
+    return successResponse(withExistingDb(config.dbPath, (db) => reviewStrategy({
       strategyPath: config.strategyPath,
       ledgerPath: config.ledgerPath,
       db,
-    })) }
+    })))
   }
   if (config.strategyPromote) {
-    return { ok: true, data: withExistingDb(config.dbPath, (db) => promoteStrategy({
+    return successResponse(withExistingDb(config.dbPath, (db) => promoteStrategy({
       strategyPath: config.strategyPath,
       ledgerPath: config.ledgerPath,
       db,
       toStatus: config.promoteTo,
       yes: config.yes,
-    })) }
+    })))
   }
   return null
 }

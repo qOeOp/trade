@@ -43,6 +43,12 @@ function buildReconcileDrafts(input: ReconcileInput): ReconcileResult {
       unmatched.push({ kind: "open_order_unassigned", client_order_id: clientOrderId, order })
       continue
     }
+    if (isProtectiveOrder(order)) {
+      if (!localOrders.has(clientOrderId) && !known.has(factKey("submit", clientOrderId))) {
+        unmatched.push({ kind: "protective_drift", client_order_id: clientOrderId, order })
+      }
+      continue
+    }
     if (!localOrders.has(clientOrderId) && !known.has(factKey("submit", clientOrderId))) {
       pushDraft(drafts, proposed, input.chain_id, comparedAt, "submit", order)
     }
@@ -69,7 +75,7 @@ function buildReconcileDrafts(input: ReconcileInput): ReconcileResult {
     }
   }
 
-  appendPositionMismatches(unmatched, snapshot, input.local_state)
+  appendPositionMismatches(unmatched, snapshot, input.local_state, drafts)
 
   return {
     chain_id: input.chain_id,
@@ -106,6 +112,7 @@ function pushDraft(
 function buildReconcileBody(subKind: string, order: JSONRecord): JSONRecord {
   const body: JSONRecord = {
     sub_kind: subKind,
+    lifecycle_status: lifecycleStatusForSubKind(subKind),
     client_order_id: readClientOrderId(order),
     exchange_order_id: readExchangeOrderId(order),
     symbol: stringField(order.symbol),
@@ -125,10 +132,17 @@ function buildReconcileBody(subKind: string, order: JSONRecord): JSONRecord {
   return body
 }
 
+function lifecycleStatusForSubKind(subKind: string): string {
+  if (subKind === "partial_fill") return "partially_filled"
+  if (subKind === "fill") return "reconciled"
+  if (subKind === "cancel") return "cancelled"
+  return "submitted"
+}
+
 function readSnapshotOrders(snapshot: JSONRecord, source: "open" | "history"): JSONRecord[] {
   const bucket = asRecord(source === "open" ? snapshot.openOrders : snapshot.orderHistory)
-  const regular = Array.isArray(bucket.regular) ? bucket.regular.map(asRecord) : []
-  const protective = Array.isArray(bucket.protective) ? bucket.protective.map(asRecord) : []
+  const regular = Array.isArray(bucket.regular) ? bucket.regular.map((order) => ({ ...asRecord(order), reconcile_order_bucket: "regular" })) : []
+  const protective = Array.isArray(bucket.protective) ? bucket.protective.map((order) => ({ ...asRecord(order), reconcile_order_bucket: "protective" })) : []
   return [...regular, ...protective]
 }
 
@@ -152,10 +166,10 @@ function collectLocalOpenOrders(localState: JSONRecord): Set<string> {
   return new Set(orders.map((order) => stringField(order.client_order_id)).filter(Boolean))
 }
 
-function appendPositionMismatches(unmatched: JSONRecord[], snapshot: JSONRecord, localState: JSONRecord): void {
+function appendPositionMismatches(unmatched: JSONRecord[], snapshot: JSONRecord, localState: JSONRecord, drafts: FlowEvent[]): void {
   const positions = Array.isArray(snapshot.positions) ? snapshot.positions.map(asRecord) : []
   const localPosition = asRecord(localState.current_position)
-  const localQty = numberField(localPosition.net_qty)
+  const localQty = projectedLocalNetQty(numberField(localPosition.net_qty), drafts)
   const exchangeNetQty = positions.reduce((sum, position) => sum + numberField(position.positionAmt), 0)
   if (Math.abs(exchangeNetQty - localQty) > 1e-12) {
     unmatched.push({
@@ -164,6 +178,31 @@ function appendPositionMismatches(unmatched: JSONRecord[], snapshot: JSONRecord,
       local_net_qty: localQty,
     })
   }
+}
+
+function projectedLocalNetQty(localQty: number, drafts: FlowEvent[]): number {
+  return drafts.reduce((qty, draft) => {
+    const body = draft.body_json
+    const subKind = stringField(body.sub_kind)
+    if (subKind !== "fill" && subKind !== "partial_fill") {
+      return qty
+    }
+    const filledQty = numberField(body.filled_qty) || numberField(body.qty)
+    if (filledQty <= 0) {
+      return qty
+    }
+    return qty + (stringField(body.side) === "SELL" ? -filledQty : filledQty)
+  }, localQty)
+}
+
+function isProtectiveOrder(order: JSONRecord): boolean {
+  const bucket = stringField(order.reconcile_order_bucket)
+  const sourceType = stringField(order.sourceType).toLowerCase()
+  const orderType = stringField(order.type || order.orderType).toUpperCase()
+  return bucket === "protective"
+    || sourceType === "protective"
+    || sourceType === "algo"
+    || (orderType.includes("STOP") && stringField(order.reduceOnly).toLowerCase() === "true")
 }
 
 function readClientOrderId(order: JSONRecord): string {

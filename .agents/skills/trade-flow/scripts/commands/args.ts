@@ -48,6 +48,7 @@ export function parseArgs(argv: string[]): CommandConfig {
   let parameterCount: number | undefined
   let artifactRoot = ""
   let retentionHours: number | undefined
+  let ephemeralRetentionHours: number | undefined
   let strategyPath = ""
   let ledgerPath = "./data/strategy-evidence.jsonl"
   let promoteTo: StrategyStatus = "shadow"
@@ -194,6 +195,9 @@ export function parseArgs(argv: string[]): CommandConfig {
       case "--retention-hours":
         retentionHours = Number(readFlagValue(argv, ++index, arg))
         break
+      case "--ephemeral-retention-hours":
+        ephemeralRetentionHours = Number(readFlagValue(argv, ++index, arg))
+        break
       case "--strategy":
         strategyPath = readFlagValue(argv, ++index, arg)
         break
@@ -261,6 +265,7 @@ export function parseArgs(argv: string[]): CommandConfig {
     parameterCount,
     artifactRoot,
     retentionHours,
+    ephemeralRetentionHours,
     strategyPath,
     ledgerPath,
     promoteTo,

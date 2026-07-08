@@ -24,6 +24,12 @@ test("parseArgs keeps core execution and evidence flags stable", () => {
     "ledger.jsonl",
     "--to",
     "live-small",
+    "--artifact-root",
+    "/tmp/artifacts",
+    "--retention-hours",
+    "168",
+    "--ephemeral-retention-hours",
+    "12",
     "--json",
     JSON.stringify({ symbol: "BTCUSDT" }),
   ])
@@ -38,6 +44,9 @@ test("parseArgs keeps core execution and evidence flags stable", () => {
   assert.equal(config.strategyPath, "strategy.md")
   assert.equal(config.ledgerPath, "ledger.jsonl")
   assert.equal(config.promoteTo, "live-small")
+  assert.equal(config.artifactRoot, "/tmp/artifacts")
+  assert.equal(config.retentionHours, 168)
+  assert.equal(config.ephemeralRetentionHours, 12)
   assert.deepEqual(config.input, { symbol: "BTCUSDT" })
 })
 

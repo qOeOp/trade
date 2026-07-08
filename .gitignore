@@ -10,6 +10,7 @@ data/strategy-evidence.jsonl
 data/strategy-rnd-ledger.jsonl
 data/*.db
 data/*.sqlite*
+.agents/skills/trade-flow/data/
 
 # Skill-local dependency and cache directories
 node_modules/

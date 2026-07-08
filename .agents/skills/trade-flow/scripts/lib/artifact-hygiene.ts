@@ -1,9 +1,10 @@
 import { existsSync, readdirSync, rmSync, statSync } from "node:fs"
-import { basename, resolve } from "node:path"
+import { basename, dirname, isAbsolute, relative, resolve } from "node:path"
 
 interface ArtifactGcInput {
   root: string
   retentionHours?: number
+  ephemeralRetentionHours?: number
   now?: string | Date
   yes?: boolean
   referencedPaths?: string[]
@@ -18,6 +19,7 @@ interface ArtifactGcFile {
 interface ArtifactGcResult {
   root: string
   retention_hours: number
+  ephemeral_retention_hours: number
   mode: "dry-run" | "delete"
   candidates: ArtifactGcFile[]
   deleted: ArtifactGcFile[]
@@ -25,8 +27,11 @@ interface ArtifactGcResult {
 }
 
 const DEFAULT_RETENTION_HOURS = 168
+const DEFAULT_EPHEMERAL_RETENTION_HOURS = 24
 const SKIP_DIRS = new Set([".git", "node_modules"])
-const NEVER_DELETE_EXTENSIONS = new Set([".db", ".sqlite", ".sqlite3"])
+const NEVER_DELETE_EXTENSIONS = new Set([".db", ".sqlite", ".sqlite3", ".jsonl"])
+const DURABLE_DIRS = new Set(["durable", "ledger", "ledgers"])
+const EPHEMERAL_DIRS = new Set(["tmp", "temp", "cache", "scratch", "ephemeral"])
 
 function runArtifactGc(input: ArtifactGcInput): ArtifactGcResult {
   const root = resolve(input.root || "")
@@ -36,13 +41,17 @@ function runArtifactGc(input: ArtifactGcInput): ArtifactGcResult {
   if (!Number.isFinite(retentionHours) || retentionHours <= 0) {
     throw new Error("retentionHours must be a positive number")
   }
+  const ephemeralRetentionHours = input.ephemeralRetentionHours ?? Math.min(DEFAULT_EPHEMERAL_RETENTION_HOURS, retentionHours)
+  if (!Number.isFinite(ephemeralRetentionHours) || ephemeralRetentionHours <= 0) {
+    throw new Error("ephemeralRetentionHours must be a positive number")
+  }
 
   const now = input.now ? new Date(input.now) : new Date()
   if (!Number.isFinite(now.getTime())) {
     throw new Error("now must be a valid date")
   }
 
-  const referenced = new Set((input.referencedPaths ?? []).map((path) => resolve(path)))
+  const referenced = new Set((input.referencedPaths ?? []).map((path) => resolveArtifactPath(root, path)))
   const candidates: ArtifactGcFile[] = []
   const deleted: ArtifactGcFile[] = []
   const kept: ArtifactGcFile[] = []
@@ -55,12 +64,15 @@ function runArtifactGc(input: ArtifactGcInput): ArtifactGcResult {
       kept.push({ path, age_hours: ageHours, reason: keepReason })
       continue
     }
-    if (ageHours < retentionHours) {
+    const ephemeral = isEphemeral(path, root)
+    const effectiveRetentionHours = ephemeral ? ephemeralRetentionHours : retentionHours
+    if (ageHours < effectiveRetentionHours) {
       kept.push({ path, age_hours: ageHours, reason: "fresh" })
       continue
     }
 
-    const file = { path, age_hours: ageHours, reason: "stale_unreferenced_artifact" }
+    const reason = ephemeral ? "stale_ephemeral_artifact" : "stale_unreferenced_artifact"
+    const file = { path, age_hours: ageHours, reason }
     candidates.push(file)
     if (input.yes) {
       rmSync(path)
@@ -71,6 +83,7 @@ function runArtifactGc(input: ArtifactGcInput): ArtifactGcResult {
   return {
     root,
     retention_hours: retentionHours,
+    ephemeral_retention_hours: ephemeralRetentionHours,
     mode: input.yes ? "delete" : "dry-run",
     candidates,
     deleted,
@@ -82,10 +95,10 @@ function keepReasonFor(path: string, root: string, referenced: Set<string>): str
   if (!path.startsWith(`${root}/`) && path !== root) {
     return "outside_root"
   }
-  if (referenced.has(resolve(path))) {
+  if (isReferenced(path, referenced)) {
     return "referenced"
   }
-  if (path.endsWith(".pin") || existsSync(`${path}.pin`)) {
+  if (isPinned(path, root)) {
     return "pinned"
   }
   for (const extension of NEVER_DELETE_EXTENSIONS) {
@@ -93,7 +106,54 @@ function keepReasonFor(path: string, root: string, referenced: Set<string>): str
       return "durable_store"
     }
   }
+  if (isDurable(path, root)) {
+    return "durable_store"
+  }
   return ""
+}
+
+function resolveArtifactPath(root: string, path: string): string {
+  return isAbsolute(path) ? resolve(path) : resolve(root, path)
+}
+
+function isReferenced(path: string, referenced: Set<string>): boolean {
+  const resolved = resolve(path)
+  for (const ref of referenced) {
+    if (resolved === ref || resolved.startsWith(`${ref}/`)) {
+      return true
+    }
+  }
+  return false
+}
+
+function isPinned(path: string, root: string): boolean {
+  if (path.endsWith(".pin") || existsSync(`${path}.pin`)) {
+    return true
+  }
+  let current = dirname(path)
+  while (current.startsWith(root)) {
+    if (existsSync(resolve(current, ".pin"))) {
+      return true
+    }
+    if (current === root) {
+      break
+    }
+    current = dirname(current)
+  }
+  return false
+}
+
+function isDurable(path: string, root: string): boolean {
+  return relativeParts(root, path).some((part) => DURABLE_DIRS.has(part))
+}
+
+function isEphemeral(path: string, root: string): boolean {
+  return relativeParts(root, path).some((part) => EPHEMERAL_DIRS.has(part))
+}
+
+function relativeParts(root: string, path: string): string[] {
+  const rel = relative(root, path)
+  return rel.split("/").filter(Boolean)
 }
 
 function assertSafeArtifactRoot(root: string): void {
@@ -132,6 +192,7 @@ function roundHours(value: number): number {
 
 export {
   DEFAULT_RETENTION_HOURS,
+  DEFAULT_EPHEMERAL_RETENTION_HOURS,
   runArtifactGc,
   type ArtifactGcFile,
   type ArtifactGcInput,

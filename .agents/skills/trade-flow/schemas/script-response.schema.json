@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade-flow.script-response.v1",
+  "title": "trade-flow script response envelope",
+  "description": "Stable outer envelope for trade-flow CLI responses. The data payload is command-specific and intentionally unconstrained here.",
+  "type": "object",
+  "oneOf": [
+    {
+      "title": "success",
+      "type": "object",
+      "required": ["ok", "schema_version", "data"],
+      "properties": {
+        "ok": { "const": true },
+        "schema_version": { "const": "trade-flow.script-response.v1" },
+        "data": {}
+      },
+      "additionalProperties": true
+    },
+    {
+      "title": "failure",
+      "type": "object",
+      "required": ["ok", "schema_version", "error", "code", "retriable"],
+      "properties": {
+        "ok": { "const": false },
+        "schema_version": { "const": "trade-flow.script-response.v1" },
+        "error": { "type": "string" },
+        "code": {
+          "enum": [
+            "INVALID_ARGUMENT",
+            "PRECONDITION_FAILED",
+            "EXTERNAL_FAILURE",
+            "INTERNAL_ERROR"
+          ]
+        },
+        "retriable": { "type": "boolean" },
+        "details": { "type": "object" },
+        "data": {}
+      },
+      "additionalProperties": true
+    }
+  ]
+}

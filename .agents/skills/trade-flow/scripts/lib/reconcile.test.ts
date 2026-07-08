@@ -109,7 +109,7 @@ test("buildReconcileDrafts proposes fill from symbol-scoped order history", () =
         remaining_qty: 0.01,
       }],
       current_position: {
-        net_qty: 0.01,
+        net_qty: 0,
       },
     },
     account_snapshot: {
@@ -145,6 +145,111 @@ test("buildReconcileDrafts proposes fill from symbol-scoped order history", () =
   assert.equal(result.can_reconcile, true)
   assert.equal(result.drafts.length, 1)
   assert.equal(result.drafts[0].body_json.sub_kind, "fill")
+  assert.equal(result.drafts[0].body_json.lifecycle_status, "reconciled")
   assert.equal(result.drafts[0].body_json.filled_qty, 0.01)
   assert.equal(result.drafts[0].body_json.avg_fill_price, 65000)
+})
+
+test("buildReconcileDrafts proposes partial fill from history when local fill is missing", () => {
+  const result = buildReconcileDrafts({
+    chain_id: "flow-reconcile-4",
+    created_at: "2026-07-06T12:00:00Z",
+    local_events: [{
+      event_key: "submit-known",
+      chain_id: "flow-reconcile-4",
+      kind: "order_fill",
+      created_at: "2026-07-06T11:59:00Z",
+      body_json: {
+        sub_kind: "submit",
+        client_order_id: "flow-reconcile-4-1-entry",
+      },
+    }],
+    local_state: {
+      current_orders: [{
+        client_order_id: "flow-reconcile-4-1-entry",
+        remaining_qty: 0.01,
+      }],
+      current_position: {
+        net_qty: 0,
+      },
+    },
+    account_snapshot: {
+      openOrders: {
+        regular: [],
+        protective: [],
+      },
+      orderHistory: {
+        regular: [{
+          symbol: "BTCUSDT",
+          side: "BUY",
+          type: "LIMIT",
+          status: "PARTIALLY_FILLED",
+          origQty: "0.01",
+          executedQty: "0.004",
+          cumQuote: "260",
+          orderId: "790",
+          clientOrderId: "flow-reconcile-4-1-entry",
+          positionSide: "BOTH",
+          source: "allOrders",
+          sourceType: "standard",
+        }],
+        protective: [],
+      },
+      positions: [{
+        symbol: "BTCUSDT",
+        positionSide: "BOTH",
+        positionAmt: "0.004",
+      }],
+    },
+  })
+
+  assert.equal(result.can_reconcile, true)
+  assert.equal(result.unmatched.length, 0)
+  assert.equal(result.drafts.length, 1)
+  assert.equal(result.drafts[0].body_json.sub_kind, "partial_fill")
+  assert.equal(result.drafts[0].body_json.lifecycle_status, "partially_filled")
+  assert.equal(result.drafts[0].body_json.filled_qty, 0.004)
+  assert.equal(result.drafts[0].body_json.avg_fill_price, 65000)
+})
+
+test("buildReconcileDrafts classifies protective order drift without submit draft", () => {
+  const result = buildReconcileDrafts({
+    chain_id: "flow-reconcile-5",
+    created_at: "2026-07-06T12:00:00Z",
+    local_events: [],
+    local_state: {
+      current_orders: [],
+      current_position: {
+        net_qty: 0.01,
+      },
+    },
+    account_snapshot: {
+      openOrders: {
+        regular: [],
+        protective: [{
+          symbol: "BTCUSDT",
+          side: "SELL",
+          type: "STOP_MARKET",
+          status: "NEW",
+          origQty: "0.01",
+          stopPrice: "64000",
+          algoId: "9001",
+          clientAlgoId: "flow-reconcile-5-protect-stop",
+          positionSide: "BOTH",
+          source: "openAlgoOrders",
+          sourceType: "protective",
+        }],
+      },
+      positions: [{
+        symbol: "BTCUSDT",
+        positionSide: "BOTH",
+        positionAmt: "0.01",
+      }],
+    },
+  })
+
+  assert.equal(result.can_reconcile, false)
+  assert.equal(result.drafts.length, 0)
+  assert.deepEqual(result.unmatched.map((item) => item.kind), ["protective_drift"])
+  assert.equal(result.unmatched[0].client_order_id, "flow-reconcile-5-protect-stop")
 })

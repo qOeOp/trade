@@ -20,7 +20,9 @@ test("run initializes schema and appends audited order_fill", async () => {
   const dir = mkdtempSync(join(tmpdir(), "trade-flow-"))
   const dbPath = join(dir, "trade.db")
   try {
-    assert.equal((await run(["--db", dbPath, "--init"])).ok, true)
+    const init = await run(["--db", dbPath, "--init"])
+    assert.equal(init.ok, true)
+    assert.equal(init.schema_version, "trade-flow.script-response.v1")
     const result = await run([
       "--db",
       dbPath,
@@ -41,6 +43,7 @@ test("run initializes schema and appends audited order_fill", async () => {
       }),
     ])
     assert.equal(result.ok, true)
+    assert.equal(result.schema_version, "trade-flow.script-response.v1")
 
     const db = new Database(dbPath)
     try {
@@ -183,7 +186,7 @@ test("dry-run example payload executes successfully", async () => {
   }
 })
 
-test("run dry-run does not record blocked preflight", async () => {
+test("run dry-run records blocked preflight as observe without order_fill", async () => {
   const dir = mkdtempSync(join(tmpdir(), "trade-flow-blocked-"))
   const dbPath = join(dir, "trade.db")
   try {
@@ -205,8 +208,17 @@ test("run dry-run does not record blocked preflight", async () => {
 
     const db = new Database(dbPath)
     try {
-      const row = db.query("SELECT COUNT(*) AS count FROM plan_event").get() as { count: number }
-      assert.equal(row.count, 0)
+      const row = db.query(`
+        SELECT kind,
+          json_extract(body_json, '$.source') AS source,
+          json_extract(body_json, '$.preflight_result.verdict') AS verdict,
+          json_extract(body_json, '$.decision_summary') AS decision_summary
+        FROM plan_event
+      `).get() as { kind: string; source: string; verdict: string; decision_summary: string }
+      assert.equal(row.kind, "observe")
+      assert.equal(row.source, "slow_track")
+      assert.equal(row.verdict, "blocked")
+      assert.match(row.decision_summary, /^slow_blocked:/)
     } finally {
       db.close()
     }
@@ -246,8 +258,17 @@ test("run dry-run skips when trigger condition is not hit", async () => {
 
     const db = new Database(dbPath)
     try {
-      const row = db.query("SELECT COUNT(*) AS count FROM plan_event").get() as { count: number }
-      assert.equal(row.count, 0)
+      const row = db.query(`
+        SELECT kind,
+          json_extract(body_json, '$.source') AS source,
+          json_extract(body_json, '$.execution_gate.reason') AS reason,
+          json_extract(body_json, '$.decision_summary') AS decision_summary
+        FROM plan_event
+      `).get() as { kind: string; source: string; reason: string; decision_summary: string }
+      assert.equal(row.kind, "observe")
+      assert.equal(row.source, "slow_track")
+      assert.equal(row.reason, "current_mark_outside_trigger_range")
+      assert.equal(row.decision_summary, "slow_skipped: current_mark_outside_trigger_range")
     } finally {
       db.close()
     }
@@ -301,6 +322,109 @@ test("run dry-run skips when source observe was already recorded", async () => {
     }).data
     assert.equal(data.recorded, false)
     assert.equal(data.execution_gate.reason, "source_observe_already_recorded")
+    const auditDb = new Database(dbPath)
+    try {
+      const row = auditDb.query(`
+        SELECT json_extract(body_json, '$.action_intent.target_action') AS target_action,
+          json_extract(body_json, '$.action_intent.cleared_reason') AS cleared_reason
+        FROM plan_event
+        WHERE kind = 'observe'
+      `).get() as { target_action: string; cleared_reason: string }
+      assert.equal(row.target_action, "no_action")
+      assert.equal(row.cleared_reason, "source_observe_already_recorded")
+    } finally {
+      auditDb.close()
+    }
+  } finally {
+    if (!closed) {
+      db.close()
+    }
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("run dry-run fast track skip inherits latest slow observe strategy fields", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "trade-flow-fast-inherit-"))
+  const dbPath = join(dir, "trade.db")
+  const db = new Database(dbPath)
+  let closed = false
+  try {
+    ensureSchema(db)
+    appendPlanEvent(db, {
+      event_key: "obs-fast-inherit-slow-1",
+      chain_id: "flow-1",
+      kind: "observe",
+      created_at: "2026-07-06T11:59:00Z",
+      body_json: {
+        source: "slow_track",
+        symbol: "BTCUSDT",
+        side: "long",
+        strategy_ref: "S-SLOW",
+        setup_id: "trend-breakout",
+        thesis: "slow thesis owns strategy context",
+        entry_intent: "slow entry intent",
+        exit_intent: "slow exit intent",
+        invalidation: "slow invalidation",
+        stop_price: 64000,
+        risk_budget_usdt: 10,
+        action_intent: {
+          target_action: "place_entry",
+          trigger_condition: {
+            price_in_range: [65900, 66100],
+            valid_until_at: "2026-07-06T12:05:00+08:00",
+          },
+          request: { type: "STOP_MARKET" },
+        },
+      },
+    })
+    db.close()
+    closed = true
+
+    const result = await run([
+      "--db",
+      dbPath,
+      "--run",
+      "--mode",
+      "dry-run",
+      "--json",
+      JSON.stringify({
+        ...dryRunInput(),
+        source: "fast_track",
+        created_at: "2026-07-06T12:00:22Z",
+        current_mark: 66500,
+        observe: {
+          ...dryRunInput().observe,
+          source: "fast_track",
+          thesis: "fast should not rewrite thesis",
+          account: { equity_usdt: 1000 },
+        },
+        trigger_condition: {
+          price_in_range: [65900, 66100],
+          valid_until_at: "2026-07-06T12:05:00+08:00",
+        },
+      }),
+    ])
+    assert.equal(result.ok, true)
+
+    const auditDb = new Database(dbPath)
+    try {
+      const row = auditDb.query(`
+        SELECT json_extract(body_json, '$.source') AS source,
+          json_extract(body_json, '$.strategy_ref') AS strategy_ref,
+          json_extract(body_json, '$.thesis') AS thesis,
+          json_extract(body_json, '$.stop_price') AS stop_price,
+          json_extract(body_json, '$.latest_slow_observe_event_key') AS latest_slow
+        FROM plan_event
+        WHERE kind = 'observe' AND json_extract(body_json, '$.source') = 'fast_track'
+      `).get() as { source: string; strategy_ref: string; thesis: string; stop_price: number; latest_slow: string }
+      assert.equal(row.source, "fast_track")
+      assert.equal(row.strategy_ref, "S-SLOW")
+      assert.equal(row.thesis, "slow thesis owns strategy context")
+      assert.equal(row.stop_price, 64000)
+      assert.equal(row.latest_slow, "obs-fast-inherit-slow-1")
+    } finally {
+      auditDb.close()
+    }
   } finally {
     if (!closed) {
       db.close()
@@ -794,7 +918,11 @@ test("run rejects unsupported replay strategy id", async () => {
     ])
 
     assert.equal(result.ok, false)
-    assert.match((result as { ok: false; error: string }).error, /unsupported replay strategy/)
+    const failure = result as { ok: false; schema_version: string; error: string; code: string; retriable: boolean }
+    assert.equal(failure.schema_version, "trade-flow.script-response.v1")
+    assert.match(failure.error, /unsupported replay strategy/)
+    assert.equal(failure.code, "INVALID_ARGUMENT")
+    assert.equal(failure.retriable, false)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -955,6 +1083,15 @@ test("runLiveSmall skips before calling order-place when trigger is not hit", as
     assert.equal(result.recorded, false)
     assert.equal(result.execution_gate.reason, "current_mark_outside_trigger_range")
     assert.equal(called, false)
+    const row = db.query(`
+      SELECT kind,
+        json_extract(body_json, '$.source') AS source,
+        json_extract(body_json, '$.execution_gate.reason') AS reason
+      FROM plan_event
+    `).get() as { kind: string; source: string; reason: string }
+    assert.equal(row.kind, "observe")
+    assert.equal(row.source, "slow_track")
+    assert.equal(row.reason, "current_mark_outside_trigger_range")
   } finally {
     db.close()
   }
@@ -1177,7 +1314,10 @@ test("run applies reconcile drafts only with explicit yes", async () => {
       JSON.stringify(payload),
     ])
     assert.equal(rejected.ok, false)
-    assert.match((rejected as { ok: false; error: string }).error, /requires --yes/)
+    const failure = rejected as { ok: false; error: string; code: string; retriable: boolean }
+    assert.match(failure.error, /requires --yes/)
+    assert.equal(failure.code, "PRECONDITION_FAILED")
+    assert.equal(failure.retriable, false)
 
     const accepted = await run([
       "--db",

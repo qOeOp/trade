@@ -24,12 +24,13 @@ export const HELP_TEXT = `Usage:
   ./scripts/main.ts --db ./data/trade.db --reconcile-from-skills --chain-id <chain_id> --json '{"repoRoot":"/repo","symbol":"BTCUSDT"}'
   ./scripts/main.ts --db ./data/trade.db --apply-reconcile --yes --json '{"can_reconcile":true,"drafts":[...]}'
   ./scripts/main.ts --db ./data/trade.db --cron-recover-from-skills --chain-id <chain_id> --json '{"repoRoot":"/repo","symbol":"BTCUSDT","apply_reconcile":false}'
-  ./scripts/main.ts --artifact-gc --artifact-root ./data/artifacts --retention-hours 168
+  ./scripts/main.ts --artifact-gc --artifact-root ./data/artifacts --retention-hours 168 --ephemeral-retention-hours 24
   ./scripts/main.ts --append-strategy-evidence --strategy <strategy.md> --ledger ./data/strategy-evidence.jsonl --json '{"kind":"shadow","stats":{...}}'
   ./scripts/main.ts --strategy-review --strategy <strategy.md> --ledger ./data/strategy-evidence.jsonl
   ./scripts/main.ts --strategy-promote --strategy <strategy.md> --ledger ./data/strategy-evidence.jsonl --to shadow --yes
 
 Key flags:
+  response schema         ./schemas/script-response.schema.json; only the outer envelope is stable
   --db <path>              SQLite trade.db path. Default: ./data/trade.db
   --init                   Initialize plan_event schema
   --track <slow|fast>      Dry-run one cron track summary; does not execute or write events
@@ -66,6 +67,7 @@ Key flags:
   --to <status>            Target status for --strategy-promote
   --artifact-root <path>   Directory scanned by --artifact-gc
   --retention-hours <n>    Artifact GC age threshold. Default: 168
+  --ephemeral-retention-hours <n> Shorter GC threshold for tmp/cache/scratch dirs. Default: min(24, retention)
   --account-config <path>  JSON account config path
   --strategies-dir <path>  Strategy markdown directory
   --manifest <path>        OHLCV manifest for --replay-strategy

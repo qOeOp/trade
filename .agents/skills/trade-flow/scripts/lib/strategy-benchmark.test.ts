@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import assert from "node:assert/strict"
@@ -26,7 +26,7 @@ test("fixed trend benchmark beats shuffled timing and CLI does not create trade 
       slippageBps: 0.4,
       fundingBpsPer8h: 0,
       randomTrials: 20,
-    }) as { calibrated: boolean; observed: { sharpe: number }; null_control: { p95_sharpe: number; empirical_p_value: number; time_shift: unknown; side_flip: unknown; asset_label_shuffle: unknown }; datasets: Array<{ data_hash: string }>; execution_attribution: { cost_model: { effective_fee_bps: number; effective_slippage_bps: number }; total_fee_drag: number; total_slippage_drag: number }; regime_attribution: { buckets: Array<{ bucket: string; sample_count: number }> } }
+    }) as { calibrated: boolean; harness_hash: string; observed: { sharpe: number }; null_control: { p95_sharpe: number; empirical_p_value: number; time_shift: unknown; side_flip: unknown; asset_label_shuffle: unknown }; datasets: Array<{ data_hash: string }>; execution_attribution: { cost_model: { effective_fee_bps: number; effective_slippage_bps: number }; total_fee_drag: number; total_slippage_drag: number }; regime_attribution: { buckets: Array<{ bucket: string; sample_count: number }> } }
 
     assert.equal(report.calibrated, true)
     assert.ok(report.observed.sharpe > report.null_control.p95_sharpe)
@@ -41,6 +41,7 @@ test("fixed trend benchmark beats shuffled timing and CLI does not create trade 
     assert.ok(report.execution_attribution.total_slippage_drag > 0)
     assert.deepEqual(report.regime_attribution.buckets.map((item) => item.bucket), ["trend_up", "trend_down", "volatility_high", "volatility_low"])
     assert.ok(report.regime_attribution.buckets.every((item) => item.sample_count >= 0))
+    assert.equal(report.harness_hash, expectedBenchmarkHarnessHash())
 
     const dbPath = join(dir, "trade.db")
     const cli = await run(["--db", dbPath, "--strategy-benchmark", "--json", JSON.stringify({
@@ -219,4 +220,22 @@ function writeFundingReport(root: string, asset: number, rate: number, count = 7
   const path = join(dir, "factors.json")
   writeFileSync(path, JSON.stringify({ data: { market_events: { funding: events } } }))
   return path
+}
+
+function expectedBenchmarkHarnessHash(): string {
+  const files = [
+    "strategy-benchmark.ts",
+    "strategy-benchmark-inputs.ts",
+    "strategy-benchmark-data.ts",
+    "strategy-benchmark-simulation.ts",
+    "strategy-calibration-report.ts",
+  ]
+  const hash = createHash("sha256")
+  for (const file of files.sort()) {
+    hash.update(file)
+    hash.update("\n")
+    hash.update(readFileSync(new URL(file, import.meta.url)))
+    hash.update("\n")
+  }
+  return hash.digest("hex")
 }

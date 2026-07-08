@@ -6,10 +6,12 @@ export type { StrategyStatus }
 export type { JSONRecord }
 export type { RunMode }
 export type TrackMode = "" | "slow" | "fast"
+export type ScriptErrorCode = "INVALID_ARGUMENT" | "PRECONDITION_FAILED" | "EXTERNAL_FAILURE" | "INTERNAL_ERROR"
+export type ScriptResponseSchemaVersion = "trade-flow.script-response.v1"
 
 export type ScriptResponse =
-  | { ok: true; data: unknown }
-  | { ok: false; error: string; data?: unknown }
+  | { ok: true; schema_version: ScriptResponseSchemaVersion; data: unknown }
+  | { ok: false; schema_version: ScriptResponseSchemaVersion; error: string; code: ScriptErrorCode; retriable: boolean; details?: JSONRecord; data?: unknown }
 
 export interface CommandConfig {
   dbPath: string
@@ -58,6 +60,7 @@ export interface CommandConfig {
   parameterCount?: number
   artifactRoot: string
   retentionHours?: number
+  ephemeralRetentionHours?: number
   strategyPath: string
   ledgerPath: string
   promoteTo: StrategyStatus

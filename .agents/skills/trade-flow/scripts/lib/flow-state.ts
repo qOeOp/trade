@@ -34,16 +34,24 @@ export function reduceFlowState(db: Database, chainId: string): JSONRecord {
   }
   let latestObserve: PlanEvent | null = null
   let latestOrderFill: PlanEvent | null = null
+  let riskLock: JSONRecord = {
+    locked: false,
+  }
 
   for (const event of events) {
     if (event.kind === "observe") {
       latestObserve = event
       continue
     }
+    if (event.kind === "review") {
+      riskLock = updateReviewRiskLock(riskLock, event)
+      continue
+    }
     if (event.kind !== "order_fill") {
       continue
     }
     latestOrderFill = event
+    riskLock = updateRiskLock(riskLock, event)
     reduceOrderFill(event.body_json, orders, position)
   }
 
@@ -59,6 +67,7 @@ export function reduceFlowState(db: Database, chainId: string): JSONRecord {
       avg_entry_price: normalizeZero(position.avg_entry_price),
       state: position.net_qty > 0 ? "long" : position.net_qty < 0 ? "short" : "flat",
     },
+    risk_lock: riskLock,
     open_action_gap: detectOpenActionGap(latestObserve, events),
   }
 }
@@ -173,7 +182,9 @@ function reduceOrderFill(
     return
   }
 
-  if (subKind === "submit" || subKind === "amend") {
+  const lifecycleStatus = normalizeLifecycleStatus(body)
+
+  if (subKind === "submit" || subKind === "amend" || lifecycleStatus === "submitted" || lifecycleStatus === "accepted" || lifecycleStatus === "amended") {
     const qty = numberField(body.qty)
     const filledQty = numberField(body.filled_qty)
     orders.set(clientOrderId, compactRecord({
@@ -191,12 +202,12 @@ function reduceOrderFill(
     return
   }
 
-  if (subKind === "cancel") {
+  if (subKind === "cancel" || subKind === "reject" || subKind === "expire" || lifecycleStatus === "cancelled" || lifecycleStatus === "rejected" || lifecycleStatus === "expired") {
     orders.delete(clientOrderId)
     return
   }
 
-  if (subKind === "partial_fill" || subKind === "fill") {
+  if (subKind === "partial_fill" || subKind === "fill" || lifecycleStatus === "partially_filled" || lifecycleStatus === "filled" || lifecycleStatus === "reconciled") {
     const fillQty = numberField(body.filled_qty) || numberField(body.qty)
     const avgFillPrice = numberField(body.avg_fill_price) || numberField(body.price)
     applyPositionFill(position, body, fillQty, avgFillPrice)
@@ -213,6 +224,52 @@ function reduceOrderFill(
       }
     }
   }
+}
+
+function updateRiskLock(current: JSONRecord, event: PlanEvent): JSONRecord {
+  const body = event.body_json
+  const lifecycleStatus = normalizeLifecycleStatus(body)
+  const subKind = stringField(body.sub_kind)
+  if (lifecycleStatus === "unknown" || lifecycleStatus === "needs_review" || subKind === "unknown" || subKind === "needs_review") {
+    return {
+      locked: true,
+      reason: lifecycleStatus === "needs_review" || subKind === "needs_review" ? "needs_review" : "unknown_order_state",
+      event_key: event.event_key,
+      client_order_id: stringField(body.client_order_id),
+      lifecycle_status: lifecycleStatus || subKind,
+    }
+  }
+  return current
+}
+
+function updateReviewRiskLock(current: JSONRecord, event: PlanEvent): JSONRecord {
+  const body = event.body_json
+  const lifecycleStatus = normalizeLifecycleStatus(body)
+  const status = stringField(body.status)
+  if (lifecycleStatus === "needs_review" || status === "needs_review") {
+    return {
+      locked: true,
+      reason: "needs_review",
+      event_key: event.event_key,
+      lifecycle_status: "needs_review",
+      review_reason: stringField(body.reason),
+    }
+  }
+  return current
+}
+
+function normalizeLifecycleStatus(body: JSONRecord): string {
+  const explicit = stringField(body.lifecycle_status)
+  if (explicit) return explicit
+  const subKind = stringField(body.sub_kind)
+  if (subKind === "partial_fill") return "partially_filled"
+  if (subKind === "fill") return "filled"
+  if (subKind === "cancel") return "cancelled"
+  if (subKind === "reject") return "rejected"
+  if (subKind === "expire") return "expired"
+  if (subKind === "submit") return "submitted"
+  if (subKind === "amend") return "amended"
+  return subKind
 }
 
 function applyPositionFill(

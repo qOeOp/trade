@@ -609,14 +609,44 @@ Binance facts
 - 外部 skill runner fixture：
   - `lib/live-execution.test.ts`：锁定 live-small 调用 `binance-order-place` 的 cwd、命令参数、失败不写 `order_fill`。
   - `lib/recovery-flow.test.ts`：锁定 reconcile 调用 `binance-account-snapshot` 的 cwd、history 参数、snapshot 失败不 apply。
+- 执行生命周期硬化：
+  - `buildRecordedExecutionEvent` 写入 `lifecycle_status=submitted`。
+  - `flow-state` reducer 支持 `submitted / accepted / amended / rejected / expired / cancelled / partially_filled / filled / reconciled / unknown / needs_review` 语义。
+  - `unknown / needs_review` 进入 `risk_lock`，`live-small` 在风险锁下拒绝继续加风险。
+  - `lib/flow-state.test.ts` 锁定 rejected/expired/cancelled 不改仓位、filled/reconciled 改仓位、unknown/review 形成风险锁。
+- Recovery drill 硬化：
+  - `cronRecoverFromSkills` 遇到 unmatched reconcile 写入 `review(status=needs_review)`。
+  - recovery 后 `reduceFlowState` 可读到持久 `risk_lock`，避免异常后下一轮继续加风险。
+  - `lib/recovery-flow.test.ts` 增加 unmatched → needs_review fixture。
+- Recovery fixture 补齐：
+  - `reconcile` 对缺本地 fill / partial fill 先生成补录 draft，再按 projected position 判断仓位差异，避免可解释成交被误判 unmatched。
+  - `reconcile` 对保护腿漂移输出 `protective_drift`，不生成普通 submit draft，不把保护腿异常冒充为账本恢复。
+  - `lib/reconcile.test.ts` 增加缺本地 fill、partial fill 历史补录、protective drift 三个 fixture。
+- Benchmark domain 拆分：
+  - `strategy-rnd.ts` 当前已基本只剩 batch / loop / campaign glue，暂不继续硬拆。
+  - `lib/strategy-benchmark-data.ts`：panel alignment、panel diagnostics、data hash、funding coverage、historical funding drag 独立。
+  - `lib/strategy-benchmark-simulation.ts`：cost model、weight schedule、portfolio simulation、null controls、regime attribution 独立。
+  - `lib/strategy-calibration-report.ts`：calibration report assembly、report hash、previous run comparison、failure findings 独立。
+  - `strategy-benchmark.ts` 降为 benchmark runner glue；当前约 179 行。
+  - `lib/strategy-benchmark-data.test.ts` 与 `lib/strategy-benchmark-simulation.test.ts` 锁定数据层和仿真层契约。
+- Artifact / data hygiene：
+  - `lib/artifact-hygiene.ts` 区分 durable / ephemeral / pinned；支持 root-relative 引用、目录引用、目录级 `.pin`、durable store/ledger 保护。
+  - `.jsonl`、`durable/`、`ledger/`、`ledgers/` 默认不被 GC 删除；`tmp/`、`temp/`、`cache/`、`scratch/`、`ephemeral/` 可走更短保留期。
+  - `--ephemeral-retention-hours` 接入 CLI，用于独立控制临时目录清理阈值。
+  - `lib/artifact-hygiene.test.ts` 锁定 dry-run、引用保护、目录 pin、durable 保护、ephemeral 短保留期、显式删除路径。
+- P8 机器契约开口：
+  - `commands/response.ts`：失败输出保留 `error`，新增 `code / retriable / details`。
+  - 成功与失败输出统一带 `schema_version=trade-flow.script-response.v1`；业务 `data` 暂不提前冻结。
+  - `successResponse / errorResponse` 统一命令响应构造，避免散落裸 `{ ok, data }`。
+  - `ScriptResponse` 明确 `INVALID_ARGUMENT / PRECONDITION_FAILED / EXTERNAL_FAILURE / INTERNAL_ERROR`。
+  - `main.test.ts` 锁定成功、invalid argument、precondition 三类外层 envelope。
 
 验证：
 
 - `.agents/skills/trade-flow`: `bun run typecheck`
-- `.agents/skills/trade-flow`: `bun run test`，132 pass / 0 fail
+- `.agents/skills/trade-flow`: `bun run test`，165 pass / 0 fail
 - repo root: `git diff --check`
 
 下一步：
 
-- 继续按 research domain 评估 `strategy-rnd.ts` 是否只剩 loop / batch orchestrator，必要时拆 batch report assembly。
-- 再评估是否把 `strategy-benchmark.ts` 的 calibration report / panel diagnostics / simulation 子模块继续下钻拆分。
+- 继续盘点是否需要为少数核心 `data` 输出补 JSON schema；只冻结已经稳定的契约。

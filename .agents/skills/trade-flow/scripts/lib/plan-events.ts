@@ -79,9 +79,13 @@ export function validateOrderFill(body: JSONRecord): void {
     if (!stringField(body.source_observe_event_key)) {
       throw new Error("order_fill.source_observe_event_key is required for source=trade_flow")
     }
-    const snapshot = body.execution_contract_snapshot
-    if (!snapshot || typeof snapshot !== "object") {
-      throw new Error("order_fill.execution_contract_snapshot is required for source=trade_flow")
+    const contractSnapshot = body.execution_contract_snapshot
+    const actionSnapshot = body.execution_action_snapshot
+    if (
+      (!contractSnapshot || typeof contractSnapshot !== "object")
+      && (!actionSnapshot || typeof actionSnapshot !== "object")
+    ) {
+      throw new Error("order_fill.execution_contract_snapshot or execution_action_snapshot is required for source=trade_flow")
     }
   }
 }

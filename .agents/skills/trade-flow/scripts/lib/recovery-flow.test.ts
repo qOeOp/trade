@@ -64,6 +64,61 @@ test("cron recover runner failure does not apply reconcile drafts", async () => 
   }
 })
 
+test("cron recover writes needs_review event when reconcile has unmatched facts", async () => {
+  const db = new Database(":memory:")
+  ensureSchema(db)
+  seedObserve(db, "flow-unmatched-recover")
+  const runner: Runner = async () => ({
+    ok: true,
+    data: {
+      ok: true,
+      data: {
+        openOrders: {
+          regular: [{
+            symbol: "BTCUSDT",
+            side: "BUY",
+            type: "LIMIT",
+            status: "NEW",
+            origQty: "0.01",
+            price: "65000",
+            orderId: "8001",
+            clientOrderId: "foreign-flow-entry",
+            positionSide: "BOTH",
+            source: "openOrders",
+            sourceType: "standard",
+          }],
+          protective: [],
+        },
+        positions: [],
+      },
+    },
+    stdout: "{}",
+    stderr: "",
+  })
+
+  try {
+    const result = await cronRecoverFromSkills(db, "flow-unmatched-recover", {
+      repoRoot: "/repo",
+      needs_review_event_key: "needs-review-fixture",
+    }, true, runner) as {
+      status: string
+      review_event: { kind: string; body_json: { status: string; reason: string } }
+      after: { risk_lock: { locked: boolean; reason: string } }
+    }
+    assert.equal(result.status, "abort_unmatched_reconcile")
+    assert.equal(result.review_event.kind, "review")
+    assert.equal(result.review_event.body_json.status, "needs_review")
+    assert.equal(result.review_event.body_json.reason, "unmatched_reconcile")
+    assert.equal(result.after.risk_lock.locked, true)
+    assert.equal(result.after.risk_lock.reason, "needs_review")
+
+    const row = db.query("SELECT COUNT(*) AS count FROM plan_event WHERE kind='review'").get() as { count: number }
+    assert.equal(row.count, 1)
+  } finally {
+    db.close()
+  }
+})
+
 function seedObserve(db: Database, chainId: string): void {
   appendPlanEvent(db, {
     event_key: `${chainId}-observe-1`,

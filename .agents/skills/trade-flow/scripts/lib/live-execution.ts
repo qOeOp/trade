@@ -2,7 +2,8 @@ import { Database } from "bun:sqlite"
 import { compileExecutionContract, type ExecutionContractInput } from "../../../binance-order-preview/scripts/execution-contract"
 import { evaluatePreflight } from "../../../plan-preflight/scripts/main"
 import {
-  buildOrderPlaceCommand,
+  appendExecutionObserve,
+  buildExecutionCommandSpec,
   buildRecordedExecutionEvent,
   evaluateIdempotency,
   evaluateTriggerCondition,
@@ -59,20 +60,42 @@ export async function runLiveSmall(
     now: stringField(input.now) || undefined,
   })
   if (preflightResult.verdict !== "armable") {
+    const executionGate = { status: "skipped" as const, reason: "preflight_not_armable" }
+    const observeEvent = appendExecutionObserve(db, input, preflightResult, executionGate)
     return {
       mode: "live-small",
       preflight_result: preflightResult,
-      execution_gate: { status: "skipped", reason: "preflight_not_armable" },
+      execution_gate: executionGate,
+      observe_event: observeEvent,
+      recorded: false,
+    }
+  }
+
+  const targetAction = readTargetAction(input.target_action)
+  if (targetAction !== "place_entry") {
+    const executionGate = {
+      status: "skipped" as const,
+      reason: "unsupported_live_small_target_action",
+      evidence: { target_action: targetAction },
+    }
+    const observeEvent = appendExecutionObserve(db, input, preflightResult, executionGate)
+    return {
+      mode: "live-small",
+      preflight_result: preflightResult,
+      execution_gate: executionGate,
+      observe_event: observeEvent,
       recorded: false,
     }
   }
 
   const triggerGate = evaluateTriggerCondition(input)
   if (triggerGate.status === "skipped") {
+    const observeEvent = appendExecutionObserve(db, input, preflightResult, triggerGate)
     return {
       mode: "live-small",
       preflight_result: preflightResult,
       execution_gate: triggerGate,
+      observe_event: observeEvent,
       recorded: false,
     }
   }
@@ -80,20 +103,21 @@ export async function runLiveSmall(
   const contract = compileExecutionContract(asRecord(input.execution_contract_input) as unknown as ExecutionContractInput)
   const idempotencyGate = evaluateIdempotency(db, contract)
   if (idempotencyGate.status === "skipped") {
+    const observeEvent = appendExecutionObserve(db, input, preflightResult, idempotencyGate)
     return {
       mode: "live-small",
       preflight_result: preflightResult,
       execution_gate: idempotencyGate,
       execution_contract: contract,
+      observe_event: observeEvent,
       latest_order_fill: readLatestOrderFill(db, contract.chain_id),
       recorded: false,
     }
   }
 
   const repoRoot = stringField(input.repoRoot) || process.cwd()
-  const execution = await runner(buildOrderPlaceCommand(contract), {
-    cwd: `${repoRoot}/.agents/skills/binance-order-place`,
-  })
+  const commandSpec = buildExecutionCommandSpec({ ...input, repoRoot }, contract)
+  const execution = await runner(commandSpec.command, { cwd: commandSpec.cwd })
   if (!execution.ok) {
     throw new Error(`live-small execution failed: ${execution.error}`)
   }

@@ -10,6 +10,7 @@ import { HELP_TEXT } from "./commands/help"
 import { handleObserveCommand } from "./commands/observe"
 import { handleResearchCommand } from "./commands/research"
 import { handleRecoveryCommand } from "./commands/recovery"
+import { errorResponse, successResponse } from "./commands/response"
 import { handleRuntimeCommand } from "./commands/runtime"
 import type { ScriptResponse } from "./commands/types"
 import {
@@ -31,7 +32,7 @@ import {
   type PlanEvent,
 } from "./lib/plan-events"
 import { cronRecoverFromSkills, reconcileFromSkills } from "./lib/recovery-flow"
-import { buildTrackDryRunSummary } from "./lib/track-runner"
+import { buildTrackDryRunSummary, runTrackDryRunAtPath } from "./lib/track-runner"
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2)
@@ -64,6 +65,10 @@ async function run(argv: string[]): Promise<ScriptResponse> {
       return evidenceResponse
     }
 
+    if (config.track) {
+      return successResponse(await runTrackDryRunAtPath(config.dbPath, config.track))
+    }
+
     mkdirSync(dirname(config.dbPath), { recursive: true })
     const db = new Database(config.dbPath)
     try {
@@ -85,7 +90,7 @@ async function run(argv: string[]): Promise<ScriptResponse> {
       db.close()
     }
   } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) }
+    return errorResponse(error)
   }
 }
 

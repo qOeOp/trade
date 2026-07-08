@@ -2,7 +2,7 @@ import { Database } from "bun:sqlite"
 import assert from "node:assert/strict"
 import test from "node:test"
 import { runLiveSmall } from "./live-execution"
-import { ensureSchema } from "./plan-events"
+import { appendPlanEvent, ensureSchema } from "./plan-events"
 import type { Runner } from "./observe-adapter"
 
 test("live-small uses injected runner with stable order-place command contract", async () => {
@@ -67,6 +67,133 @@ test("live-small runner failure does not record order_fill", async () => {
     )
     const row = db.query("SELECT COUNT(*) AS count FROM plan_event WHERE kind='order_fill'").get() as { count: number }
     assert.equal(row.count, 0)
+  } finally {
+    db.close()
+  }
+})
+
+test("live-small skips non-place actions before order-place routing", async () => {
+  const db = new Database(":memory:")
+  ensureSchema(db)
+  let called = false
+  const runner: Runner = async () => {
+    called = true
+    return {
+      ok: false,
+      error: "runner should not be called",
+      stdout: "",
+      stderr: "",
+      exitCode: 1,
+    }
+  }
+
+  try {
+    const result = await runLiveSmall(db, {
+      ...liveSmallInput(),
+      target_action: "cancel_order",
+      request: {
+        symbol: "BTCUSDT",
+        orig_client_order_id: "flow-live-fixture-1-entry",
+      },
+    }, true, runner) as {
+      recorded: boolean
+      execution_gate: { status: string; reason: string; evidence: { target_action: string } }
+    }
+
+    assert.equal(result.recorded, false)
+    assert.equal(result.execution_gate.reason, "unsupported_live_small_target_action")
+    assert.equal(result.execution_gate.evidence.target_action, "cancel_order")
+    assert.equal(called, false)
+    const row = db.query(`
+      SELECT json_extract(body_json, '$.execution_gate.reason') AS reason,
+        json_extract(body_json, '$.action_intent.target_action') AS target_action
+      FROM plan_event
+      WHERE kind = 'observe'
+    `).get() as { reason: string; target_action: string }
+    assert.equal(row.reason, "unsupported_live_small_target_action")
+    assert.equal(row.target_action, "cancel_order")
+  } finally {
+    db.close()
+  }
+})
+
+test("live-small treats missing target_action as no_action", async () => {
+  const db = new Database(":memory:")
+  ensureSchema(db)
+  let called = false
+  const runner: Runner = async () => {
+    called = true
+    return {
+      ok: false,
+      error: "runner should not be called",
+      stdout: "",
+      stderr: "",
+      exitCode: 1,
+    }
+  }
+
+  try {
+    const input = liveSmallInput()
+    delete (input as { target_action?: string }).target_action
+    const result = await runLiveSmall(db, input, true, runner) as {
+      recorded: boolean
+      execution_gate: { status: string; reason: string }
+    }
+
+    assert.equal(result.recorded, false)
+    assert.equal(result.execution_gate.reason, "preflight_not_armable")
+    assert.equal(called, false)
+  } finally {
+    db.close()
+  }
+})
+
+test("live-small refuses to add risk while flow is locked by unknown lifecycle", async () => {
+  const db = new Database(":memory:")
+  ensureSchema(db)
+  appendPlanEvent(db, {
+    event_key: "unknown-live-lock-1",
+    chain_id: "flow-live-fixture",
+    kind: "order_fill",
+    created_at: "2026-07-06T12:00:00Z",
+    body_json: {
+      sub_kind: "unknown",
+      lifecycle_status: "unknown",
+      client_order_id: "flow-live-fixture-unknown",
+      source: "reconcile",
+    },
+  })
+  let called = false
+  const runner: Runner = async () => {
+    called = true
+    return {
+      ok: false,
+      error: "runner should not be called",
+      stdout: "",
+      stderr: "",
+      exitCode: 1,
+    }
+  }
+
+  try {
+    const result = await runLiveSmall(db, liveSmallInput(), true, runner) as {
+      recorded: boolean
+      execution_gate: { status: string; reason: string; evidence: { locked: boolean } }
+    }
+    assert.equal(result.recorded, false)
+    assert.equal(result.execution_gate.reason, "flow_risk_locked")
+    assert.equal(result.execution_gate.evidence.locked, true)
+    assert.equal(called, false)
+    const row = db.query(`
+      SELECT kind,
+        json_extract(body_json, '$.execution_gate.reason') AS reason,
+        json_extract(body_json, '$.action_intent.target_action') AS target_action
+      FROM plan_event
+      WHERE kind = 'observe'
+    `).get() as { kind: string; reason: string; target_action: string }
+    assert.equal(row.kind, "observe")
+    assert.equal(row.reason, "flow_risk_locked")
+    assert.equal(row.target_action, "place_entry")
   } finally {
     db.close()
   }

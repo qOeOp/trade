@@ -1,5 +1,8 @@
 import assert from "node:assert/strict"
 import test from "node:test"
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import { Database } from "bun:sqlite"
 import { handleExecutionCommand } from "./execution"
 import { handleObserveCommand } from "./observe"
@@ -52,6 +55,7 @@ test("runtime command handler initializes schema and appends local order_fill", 
 })
 
 test("runtime command handler returns track dry-run summary with lane conflicts", () => {
+  const dir = mkdtempSync(join(tmpdir(), "trade-flow-track-handler-"))
   const db = new Database(":memory:")
   try {
     ensureSchema(db)
@@ -66,7 +70,7 @@ test("runtime command handler returns track dry-run summary with lane conflicts"
       created_at: "2026-07-08T12:03:00Z",
     })
 
-    const response = handleRuntimeCommand(db, baseConfig({ track: "slow" }))
+    const response = handleRuntimeCommand(db, baseConfig({ track: "slow", dbPath: join(dir, "trade.db") }))
     assert.equal(response?.ok, true)
     const data = response?.data as {
       track: string
@@ -85,6 +89,7 @@ test("runtime command handler returns track dry-run summary with lane conflicts"
     }])
   } finally {
     db.close()
+    rmSync(dir, { recursive: true, force: true })
   }
 })
 

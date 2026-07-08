@@ -1,0 +1,139 @@
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { Database } from "bun:sqlite"
+import assert from "node:assert/strict"
+import test from "node:test"
+import { runSlowTrackWorkflowDryRun } from "./slow-track-workflow"
+import { ensureSchema } from "./plan-events"
+import type { Runner } from "./observe-adapter"
+
+test("slow track workflow dry-run builds real watchlist without live action", async () => {
+  const repoRoot = mkdtempSync(join(tmpdir(), "trade-flow-slow-workflow-"))
+  const dataDir = join(repoRoot, ".agents/skills/trade-flow/data")
+  mkdirSync(join(repoRoot, "profile"), { recursive: true })
+  mkdirSync(join(repoRoot, ".agents/skills/trade-flow/strategies"), { recursive: true })
+  mkdirSync(dataDir, { recursive: true })
+  writeFileSync(join(repoRoot, "profile/account_config.json"), JSON.stringify({
+    max_open_risk_pct: 0.03,
+    max_day_loss_pct: 0.05,
+  }))
+  writeFileSync(
+    join(repoRoot, ".agents/skills/trade-flow/strategies/s-btc.md"),
+    "---\nstrategy_id: S-BTC\nname: BTC Live\nstatus: live-small\ntags: [btc, usdm]\n---\nbody\n",
+  )
+  const db = new Database(":memory:")
+  ensureSchema(db)
+  const calls: Array<{ command: string[]; cwd?: string }> = []
+  const runner: Runner = async (command, options) => {
+    calls.push({ command, cwd: options?.cwd })
+    if (options?.cwd?.endsWith("binance-account-snapshot")) {
+      return jsonOk({
+        generatedAt: "2026-07-08T16:00:00+08:00",
+        balances: [{ asset: "USDT", balance: "1000" }],
+        positions: [],
+        openOrders: { regular: [], protective: [] },
+        errors: {},
+      })
+    }
+    if (options?.cwd?.endsWith("binance-market-scan")) {
+      return jsonOk({
+        summary: { eligibleSymbols: 2 },
+        filters: { direction: "both" },
+        candidates: {
+          long: [{
+            symbol: "BTCUSDT",
+            priceChangePercent: "3.5",
+            quoteVolume: "1000000000",
+            score: 430,
+            tags: ["very-liquid", "trend-up-day"],
+          }],
+          short: [{
+            symbol: "ETHUSDT",
+            priceChangePercent: "-2.1",
+            quoteVolume: "800000000",
+            score: 290,
+            tags: ["liquid", "trend-down-day"],
+          }],
+        },
+      })
+    }
+    if (options?.cwd?.endsWith("binance-symbol-snapshot")) {
+      const symbol = command[command.indexOf("--symbol") + 1]
+      return jsonOk({
+        symbol,
+        ticker24h: { lastPrice: symbol === "BTCUSDT" ? "65000" : "3500" },
+        priceSnapshot: { markPrice: symbol === "BTCUSDT" ? "65010" : "3498" },
+        premiumIndex: { markPrice: "65010", lastFundingRate: "0.0001" },
+        openInterest: { openInterest: "12345" },
+      })
+    }
+    throw new Error("unexpected runner call")
+  }
+
+  try {
+    const result = await runSlowTrackWorkflowDryRun({
+      repoRoot,
+      dataDir,
+      runId: "run-slow-test",
+      db,
+      runner,
+    })
+    assert.equal(result.mode, "workflow-dry-run")
+    assert.equal((result.trade_decision as { target_action: string }).target_action, "no_action")
+    assert.equal((result.strategy_pool as { live_small_ready: unknown[] }).live_small_ready.length, 1)
+    assert.equal((result.watchlist as unknown[]).length, 2)
+    assert.equal((result.watchlist as Array<{ symbol: string; strategy_usage: { matched_live_small_strategies: string[] } }>)[0].symbol, "BTCUSDT")
+    assert.deepEqual((result.watchlist as Array<{ strategy_usage: { matched_live_small_strategies: string[] } }>)[0].strategy_usage.matched_live_small_strategies, ["S-BTC"])
+    assert.match(readFileSync(String(result.artifact_path), "utf8"), /BTCUSDT/)
+    assert.equal(calls.some((call) => call.command.includes("--run-live-small")), false)
+  } finally {
+    db.close()
+    rmSync(repoRoot, { recursive: true, force: true })
+  }
+})
+
+test("slow track workflow reports account snapshot unavailable without inventing action", async () => {
+  const repoRoot = mkdtempSync(join(tmpdir(), "trade-flow-slow-no-account-"))
+  const dataDir = join(repoRoot, ".agents/skills/trade-flow/data")
+  mkdirSync(join(repoRoot, "profile"), { recursive: true })
+  mkdirSync(join(repoRoot, ".agents/skills/trade-flow/strategies"), { recursive: true })
+  mkdirSync(dataDir, { recursive: true })
+  writeFileSync(join(repoRoot, "profile/account_config.json"), "{}")
+  writeFileSync(join(repoRoot, ".agents/skills/trade-flow/strategies/s-draft.md"), "---\nstrategy_id: S-DRAFT\nstatus: draft\n---\n")
+  const db = new Database(":memory:")
+  ensureSchema(db)
+  const runner: Runner = async (_command, options) => {
+    if (options?.cwd?.endsWith("binance-account-snapshot")) {
+      return { ok: false, error: "missing env", stdout: "", stderr: "", exitCode: 1 }
+    }
+    if (options?.cwd?.endsWith("binance-market-scan")) {
+      return jsonOk({ candidates: { long: [], short: [] } })
+    }
+    return jsonOk({})
+  }
+
+  try {
+    const result = await runSlowTrackWorkflowDryRun({
+      repoRoot,
+      dataDir,
+      runId: "run-no-account",
+      db,
+      runner,
+    })
+    assert.equal((result.account_state as { ok: boolean }).ok, false)
+    assert.equal((result.trade_decision as { reason: string }).reason, "account_snapshot_unavailable")
+  } finally {
+    db.close()
+    rmSync(repoRoot, { recursive: true, force: true })
+  }
+})
+
+function jsonOk(data: unknown) {
+  return {
+    ok: true as const,
+    data: { ok: true, data },
+    stdout: "{}",
+    stderr: "",
+  }
+}
