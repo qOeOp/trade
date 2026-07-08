@@ -53,6 +53,7 @@ export interface StrategyRndCampaignInput {
   campaignId?: string
   hypotheses: StrategyRndCampaignHypothesisInput[]
   calibrationReportPath?: string
+  panelReportPath?: string
   maxTotalTrials?: number
   artifactRoot?: string
   ledgerPath?: string
@@ -105,6 +106,7 @@ export function strategyRndCampaignInputFromJson(input: JSONRecord): StrategyRnd
   return {
     campaignId: stringField(input.campaign_id ?? input.campaignId) || undefined,
     calibrationReportPath: stringField(input.calibration_report_path ?? input.calibrationReportPath) || undefined,
+    panelReportPath: stringField(input.panel_report_path ?? input.panelReportPath) || undefined,
     maxTotalTrials: optionalNumber(input.max_total_trials ?? input.maxTotalTrials),
     artifactRoot: stringField(input.artifact_root ?? input.artifactRoot) || undefined,
     ledgerPath: stringField(input.ledger_path ?? input.ledgerPath) || undefined,

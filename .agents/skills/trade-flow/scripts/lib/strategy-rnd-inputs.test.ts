@@ -34,6 +34,7 @@ test("strategy R&D input parser keeps factor research option aliases", () => {
 test("strategy R&D campaign parser keeps discovery manifest aliases", () => {
   const input = strategyRndCampaignInputFromJson({
     campaign_id: "campaign-1",
+    panel_report_path: "/tmp/panel.json",
     hypotheses: [{
       hypothesis_id: "h1",
       discoveryManifestPath: "/tmp/discovery.json",
@@ -43,6 +44,7 @@ test("strategy R&D campaign parser keeps discovery manifest aliases", () => {
   })
 
   assert.equal(input.campaignId, "campaign-1")
+  assert.equal(input.panelReportPath, "/tmp/panel.json")
   assert.equal(input.hypotheses[0].hypothesisId, "h1")
   assert.equal(input.hypotheses[0].manifestPath, "/tmp/discovery.json")
   assert.equal(input.hypotheses[0].validationManifestPath, "/tmp/validation.json")

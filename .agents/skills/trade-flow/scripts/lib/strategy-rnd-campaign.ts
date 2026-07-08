@@ -11,8 +11,9 @@ export interface StrategyRndCampaignReport {
   artifact_ref: string
   ledger_ref: string
   outcome: "validated_candidate_found" | "no_validated_candidate"
-  stop_reason: "validated_candidate_found" | "hypothesis_queue_exhausted" | "trial_budget_exhausted" | "locked_holdout_failed" | "calibration_failed"
+  stop_reason: "validated_candidate_found" | "hypothesis_queue_exhausted" | "trial_budget_exhausted" | "locked_holdout_failed" | "calibration_failed" | "panel_null_failed"
   calibration_gate: JSONRecord | null
+  panel_report_ref: string | null
   trial_budget: number
   trials_used: number
   hypotheses_run: number
@@ -28,6 +29,7 @@ export interface StrategyRndCampaignReport {
     hypothesis_id: string
     discovery_run_ref: string
     discovery_outcome: "candidate_found" | "no_promote"
+    panel_null_gate: JSONRecord | null
     validation_run_ref: string | null
     validation_outcome: "candidate_found" | "no_promote" | null
   }>
@@ -108,6 +110,7 @@ export function runStrategyRndCampaignWithDeps(
       hypothesis_id: hypothesis.hypothesisId,
       discovery_run_ref: discovery.artifact_ref,
       discovery_outcome: discovery.batch.outcome,
+      panel_null_gate: null,
       validation_run_ref: null,
       validation_outcome: null,
     }
@@ -117,6 +120,12 @@ export function runStrategyRndCampaignWithDeps(
     }
 
     const winner = discovery.batch.winner
+    const panelNullGate = input.panelReportPath ? readPanelNullGate(input.panelReportPath, winner.candidate_id) : null
+    runSummary.panel_null_gate = panelNullGate
+    if (panelNullGate?.blocked === true) {
+      stopReason = "panel_null_failed"
+      break
+    }
     const winnerFilters = Array.isArray(winner.params.factorConditions) ? winner.params.factorConditions : []
     if (winnerFilters.length > 0 && !hypothesis.validationIndicatorReportPath) {
       throw new Error(`strategy R&D campaign ${hypothesis.hypothesisId} requires validation_indicator_report_path for frozen indicator filters`)
@@ -175,6 +184,7 @@ export function runStrategyRndCampaignWithDeps(
     outcome: validatedCandidate ? "validated_candidate_found" : "no_validated_candidate",
     stop_reason: stopReason,
     calibration_gate: calibrationGate,
+    panel_report_ref: input.panelReportPath ?? null,
     trial_budget: trialBudget,
     trials_used: trialsUsed,
     hypotheses_run: runs.length,
@@ -184,6 +194,41 @@ export function runStrategyRndCampaignWithDeps(
   }
   writeJsonFile(artifactRef, report)
   return report
+}
+
+export function readPanelNullGate(path: string, candidateId: string): JSONRecord {
+  const raw = asRecord(JSON.parse(readFileSync(path, "utf8")))
+  const report = asRecord(raw.data ?? raw)
+  const candidates = array(report.candidates).map(asRecord)
+  const candidate = candidates.find((item) => panelCandidateMatches(candidateId, stringField(item.candidate_id)))
+  if (!candidate) {
+    return {
+      report_ref: path,
+      candidate_id: candidateId,
+      blocked: true,
+      status: "missing_candidate",
+      blocked_by: ["PANEL-CANDIDATE-MISSING"],
+    }
+  }
+  const gate = asRecord(candidate.gate)
+  const gateBlocks = array(gate.blocked_by).map(asRecord).map((item) => stringField(item.check_id)).filter(Boolean)
+  const panelNull = asRecord(candidate.panel_null_controls)
+  const status = stringField(panelNull.status)
+  const blockedBy = [...gateBlocks]
+  if (status !== "evaluated") {
+    blockedBy.push("PANEL-ASSET-SHUFFLE-NOT-EVALUATED")
+  } else if (panelNull.passed !== true) {
+    blockedBy.push("PANEL-ASSET-SHUFFLE")
+  }
+  return {
+    report_ref: path,
+    candidate_id: stringField(candidate.candidate_id),
+    requested_candidate_id: candidateId,
+    status,
+    blocked: blockedBy.length > 0,
+    blocked_by: Array.from(new Set(blockedBy)),
+    panel_null_controls: panelNull,
+  }
 }
 
 export function readCalibrationGate(path: string): JSONRecord {
@@ -244,4 +289,8 @@ function array(value: unknown): unknown[] {
 
 function stringField(value: unknown): string {
   return typeof value === "string" ? value.trim() : ""
+}
+
+function panelCandidateMatches(requested: string, panelCandidate: string): boolean {
+  return panelCandidate === requested || requested.startsWith(`${panelCandidate}-`)
 }

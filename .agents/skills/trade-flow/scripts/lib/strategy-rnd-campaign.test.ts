@@ -6,6 +6,7 @@ import test from "node:test"
 import {
   ensureNonOverlappingManifests,
   readCalibrationGate,
+  readPanelNullGate,
   runStrategyRndCampaignWithDeps,
   type StrategyRndCampaignDeps,
 } from "./strategy-rnd-campaign"
@@ -123,6 +124,72 @@ test("strategy R&D campaign orchestrates discovery then locked validation", () =
     assert.equal(existsSync(report.artifact_ref), true)
     const artifact = JSON.parse(readFileSync(report.artifact_ref, "utf8")) as { campaign_id: string }
     assert.equal(artifact.campaign_id, "campaign-fixture")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("strategy R&D campaign blocks validation when panel null fails", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-campaign-panel-null-"))
+  try {
+    const discovery = writeManifest(join(dir, "discovery"), 1000, 2000)
+    const validation = writeManifest(join(dir, "validation"), 3000, 4000)
+    const panelReportPath = join(dir, "panel.json")
+    writeFileSync(panelReportPath, JSON.stringify({
+      panel_id: "panel-fixture",
+      candidates: [{
+        candidate_id: "candidate-1",
+        panel_null_controls: {
+          method: "cross_candidate_asset_shuffle_v1",
+          status: "evaluated",
+          passed: false,
+        },
+        gate: {
+          accepted: false,
+          blocked_by: [{ check_id: "PANEL-ASSET-SHUFFLE" }],
+        },
+      }],
+    }))
+    const calls: string[] = []
+    const report = runStrategyRndCampaignWithDeps({
+      campaignId: "campaign-panel-null",
+      panelReportPath,
+      artifactRoot: join(dir, "artifacts"),
+      hypotheses: [{
+        hypothesisId: "h1",
+        manifestPath: discovery,
+        validationManifestPath: validation,
+        candidates: [{ candidateId: "candidate-1" }],
+      }],
+    }, {
+      resolveCandidateCount: () => 1,
+      runLoop: (input) => {
+        calls.push(input.runId || "")
+        return {
+          artifact_ref: join(dir, "discovery-artifact.json"),
+          batch: {
+            outcome: "candidate_found",
+            trial_count: 1,
+            winner: {
+              candidate_id: "candidate-1",
+              description: "candidate",
+              family: "trend_pullback_v1",
+              parameter_count: 1,
+              params: { side: "long" },
+              replay: {},
+            },
+          },
+        }
+      },
+    })
+
+    assert.deepEqual(calls, ["campaign-panel-null-h1-discovery"])
+    assert.equal(report.stop_reason, "panel_null_failed")
+    assert.equal(report.outcome, "no_validated_candidate")
+    assert.equal(report.holdout_evaluations, 0)
+    assert.equal(report.runs[0].validation_run_ref, null)
+    assert.deepEqual((report.runs[0].panel_null_gate as { blocked_by: string[] }).blocked_by, ["PANEL-ASSET-SHUFFLE"])
+    assert.equal(readPanelNullGate(panelReportPath, "candidate-1-external-validation").blocked, true)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
