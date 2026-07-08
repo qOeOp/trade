@@ -39,6 +39,8 @@ function runStrategyPanelRnd(input: StrategyPanelRndInput): JSONRecord {
         candidates: [candidate],
       })
       const replay = report.candidates[0].replay
+      const nullControls = asRecord(report.candidates[0].null_controls)
+      const nullBlocks = array(nullControls.blocked_by).map(asRecord)
       const oos = asRecord(asRecord(replay.assumptions).anti_overfit).oos_stats
       const cost = asRecord(asRecord(asRecord(replay.assumptions).robustness).cost_stress).stats
       return {
@@ -51,16 +53,26 @@ function runStrategyPanelRnd(input: StrategyPanelRndInput): JSONRecord {
         max_drawdown_r: replay.max_drawdown_r,
         oos_positive: positiveStats(asRecord(oos)),
         cost_stress_positive: positiveStats(asRecord(cost)),
+        null_control_passed: nullBlocks.length === 0,
+        null_control_blocked_by: nullBlocks.map((block) => stringField(block.check_id)).filter(Boolean),
       }
     })
     const sampleCount = sum(assets.map((asset) => asset.sample_count))
     const positiveAssets = assets.filter((asset) => asset.avg_r > 0 && asset.total_r > 0).length
     const requiredPositive = Math.ceil(assets.length * 0.6)
+    const nullPassedAssets = assets.filter((asset) => asset.null_control_passed).length
+    const nullControl = {
+      method: "per_asset_candidate_null_controls",
+      passed_assets: nullPassedAssets,
+      required_passed_assets: requiredPositive,
+      asset_count: assets.length,
+    }
     const blockedBy: Array<{ check_id: string; reason: string }> = []
     if (sampleCount < 100) blockedBy.push({ check_id: "PANEL-SAMPLES", reason: `pooled sample_count ${sampleCount} is below 100` })
     if (positiveAssets < requiredPositive) blockedBy.push({ check_id: "PANEL-BREADTH", reason: `${positiveAssets}/${assets.length} assets are positive; ${requiredPositive} required` })
     if (assets.filter((asset) => asset.oos_positive).length < requiredPositive) blockedBy.push({ check_id: "PANEL-OOS", reason: "selection validation is not positive across enough assets" })
     if (assets.filter((asset) => asset.cost_stress_positive).length < requiredPositive) blockedBy.push({ check_id: "PANEL-COST", reason: "cost stress is not positive across enough assets" })
+    if (nullPassedAssets < requiredPositive) blockedBy.push({ check_id: "PANEL-NULL", reason: `${nullPassedAssets}/${assets.length} assets beat candidate null controls; ${requiredPositive} required` })
     if (assets.some((asset) => asset.total_r < -10 || asset.max_drawdown_r > 15)) blockedBy.push({ check_id: "PANEL-CATASTROPHIC", reason: "at least one asset exceeds the catastrophic loss veto" })
     return {
       candidate_id: candidate.candidateId,
@@ -72,6 +84,7 @@ function runStrategyPanelRnd(input: StrategyPanelRndInput): JSONRecord {
         positive_assets: positiveAssets,
         asset_count: assets.length,
       },
+      null_controls: nullControl,
       assets,
       gate: { accepted: blockedBy.length === 0, blocked_by: blockedBy },
     }

@@ -17,6 +17,10 @@ test("panel R&D pools samples but keeps per-asset evidence", () => {
     assert.equal(report.dataset_count, 3)
     assert.equal((report.candidates as Array<{ assets: unknown[] }>)[0].assets.length, 3)
     assert.ok(Number((report.candidates as Array<{ pooled: { sample_count: number } }>)[0].pooled.sample_count) > 0)
+    const candidate = (report.candidates as Array<{ null_controls: { method: string; asset_count: number }; assets: Array<{ null_control_passed: boolean }> }>)[0]
+    assert.equal(candidate.null_controls.method, "per_asset_candidate_null_controls")
+    assert.equal(candidate.null_controls.asset_count, 3)
+    assert.equal(candidate.assets.every((asset) => typeof asset.null_control_passed === "boolean"), true)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
