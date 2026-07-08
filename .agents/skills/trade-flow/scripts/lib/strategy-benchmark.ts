@@ -370,16 +370,19 @@ function calibrationFindings(buyHold: JSONRecord, trend: JSONRecord, relativeStr
 }
 
 function panelDiagnostics(loaded: Array<{ dataset: BenchmarkDataset; manifest: JSONRecord; candles: Candle[] }>, timestamps: number[], timeframe: string): PanelDiagnostics {
+  const alignedStart = timestamps[0] ?? 0
+  const alignedEnd = timestamps.at(-1) ?? 0
   const datasetDiagnostics = loaded.map((item) => {
     const timeframeEntry = asRecord(asRecord(item.manifest.timeframes)[timeframe])
     const source = asRecord(item.manifest.source)
+    const rowsInAlignedWindow = item.candles.filter((candle) => candle.timestamp >= alignedStart && candle.timestamp <= alignedEnd).length
     return {
       dataset_id: item.dataset.datasetId,
       manifest_ref: item.dataset.manifestPath,
       ...(item.dataset.indicatorReportPath ? { indicator_report_ref: item.dataset.indicatorReportPath } : {}),
       raw_rows: item.candles.length,
       aligned_rows: timestamps.length,
-      aligned_ratio: round(timestamps.length / Math.max(1, item.candles.length)),
+      aligned_ratio: round(timestamps.length / Math.max(1, rowsInAlignedWindow)),
       first_open: item.candles[0] ? new Date(item.candles[0].timestamp).toISOString() : null,
       last_open: item.candles.at(-1) ? new Date(item.candles.at(-1)!.timestamp).toISOString() : null,
       schema_version: numberField(item.manifest.schema_version),
