@@ -105,7 +105,7 @@ tags: []
 - `replay-core`：OHLCV manifest loader / 指标缓存 / 单 lane 撮合 / R 统计 / fee + slippage / replay gate
 - `replay-strategies`：`strategy_id -> ReplayStrategy` registry；新增策略只补 strategy definition，不改 core
 - `--replay-strategy`：只读文件，不写 DB，不触发 Binance
-- `--strategy-rnd-batch`：最多 10 个候选；可先在 discovery 数据上筛 factor，再按角色、数量与参数预算组合到预声明 base family；统一 replay/OOS，不自动升格
+- `--strategy-rnd-batch`：最多 10 个候选；可先在 discovery 数据上筛 factor，再按角色、数量与参数预算组合到预声明 base family；统一 replay/OOS，输出失败归因，不自动升格
 - `--strategy-rnd-loop`：包装一轮 R&D batch，写 artifact JSON 与 `strategy-rnd-ledger.jsonl`；ledger 只做研究审计，不作为 promote evidence
 - `--strategy-rnd-campaign`：在全局最多 10 次 discovery trial 内运行 hypothesis queue；可选 `calibration_report_path` 未过则零 trial 停止；没有 winner 才继续，首个 winner 冻结后只查看一次不重叠 locked holdout，失败即结束 campaign
 - `--strategy-panel-rnd`：同一候选跨至少 3 个资产评估，保留逐资产证据，并检查 pooled sample、广度、OOS、成本与灾难损失
@@ -136,6 +136,7 @@ replay evidence -> shadow samples -> live-small samples -> review -> strategy po
 禁止把单次 review、单段漂亮回测或自动参数搜索直接变成实盘资格。
 禁止在 trade-flow 内固定全量 indicator 体系；indicator 发现、解释和计算归 `tech-indicators`，R&D 只消费其 report / feature series，并把结果变成待 replay 的候选假设。
 R&D loop 的失败结果必须进入 R&D ledger；重复失败不是交易数据，也不能污染 `trade.db` 或 strategy evidence。
+R&D batch 失败不能只返回 `no_promote`；必须输出 blocker 汇总、selection audit 状态和下一步系统动作，指导回到数据、成本、regime、样本或假设层修正。
 R&D artifact、strategy evidence / R&D ledger 是本地运行态，不进入 Git；保留与清理由引用、pin 和 retention policy 决定。
 冻结候选在不重叠 locked holdout 上失败后必须终止整个 campaign；不得看完 holdout 后换假设继续试。修改参数、过滤器或规则均视为新 hypothesis / trial，只能进入下一轮使用新 holdout 的 campaign。
 持续 R&D 的目标是找到可复现 edge，不是循环到出现漂亮回测；单个 campaign 在 locked holdout 通过、失败或 discovery budget 耗尽时结束。后续研究必须新开 hypothesis campaign 并换未查看的 holdout，不能沿用失败样本继续调到盈利。

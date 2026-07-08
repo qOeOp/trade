@@ -160,6 +160,28 @@ test("strategy R&D batch refuses excessive trial budget", () => {
   )
 })
 
+test("strategy R&D batch reports actionable failure summary", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-failure-summary-"))
+  try {
+    const report = runStrategyRndBatch({
+      manifestPath: writeManifest(dir),
+      candidates: [{
+        candidateId: "C-TOO-COMPLEX",
+        parameterCount: 9,
+        params: { side: "long" },
+      }],
+    })
+
+    assert.equal(report.outcome, "no_promote")
+    assert.equal(report.failure_summary.rejected_candidate_count, 1)
+    assert.equal(report.failure_summary.top_blockers.some((item) => item.check_id === "RND-PARAM-COUNT"), true)
+    assert.notEqual(report.failure_summary.primary_failure_area, "none")
+    assert.ok(report.failure_summary.next_system_actions.length > 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("strategy R&D batch rejects duplicate candidate ids", () => {
   assert.throws(() => runStrategyRndBatch({
     manifestPath: "/tmp/manifest.json",

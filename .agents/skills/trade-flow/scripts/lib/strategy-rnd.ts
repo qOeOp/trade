@@ -104,6 +104,7 @@ interface StrategyRndBatchReport {
   }
   factor_research: FactorResearchReport | null
   selection_audit: SelectionAudit
+  failure_summary: FailureSummary
   next_action: string
 }
 
@@ -114,6 +115,15 @@ interface SelectionAudit {
   evaluated_folds: number
   rank_reversal_rate: number | null
   blocked: boolean
+}
+
+interface FailureSummary {
+  rejected_candidate_count: number
+  accepted_candidate_count: number
+  top_blockers: Array<{ check_id: string; count: number }>
+  selection_blocked: boolean
+  primary_failure_area: string
+  next_system_actions: string[]
 }
 
 interface StrategyRndLoopReport {
@@ -232,6 +242,7 @@ function runStrategyRndBatch(input: StrategyRndBatchInput): StrategyRndBatchRepo
   const accepted = reports.filter((report) => report.gate.accepted)
   const selectionAudit = buildSelectionAudit(reports, input.searchTrialCount ?? candidates.length)
   const winner = selectionAudit.blocked ? null : accepted.sort(compareCandidates)[0] ?? null
+  const failureSummary = buildFailureSummary(reports, selectionAudit)
 
   return {
     batch_id: input.batchId || "strategy-rnd-batch",
@@ -250,9 +261,83 @@ function runStrategyRndBatch(input: StrategyRndBatchInput): StrategyRndBatchRepo
     },
     factor_research: factorResearch,
     selection_audit: selectionAudit,
+    failure_summary: failureSummary,
     next_action: winner
       ? "Draft a strategy policy for the winning candidate, then append replay evidence and run strategy-review before any shadow promotion."
-      : "Stop this hypothesis batch; predeclare a new edge hypothesis before running more trials.",
+      : failureSummary.next_system_actions[0] || "Stop this hypothesis batch; predeclare a new edge hypothesis before running more trials.",
+  }
+}
+
+function buildFailureSummary(candidates: StrategyRndCandidateReport[], selectionAudit: SelectionAudit): FailureSummary {
+  const topBlockers = summarizeCandidateBlockers(candidates)
+  const primary = selectionAudit.blocked
+    ? "selection_instability"
+    : failureAreaForCheck(topBlockers[0]?.check_id || "")
+  const actions = nextSystemActions(primary, topBlockers, selectionAudit)
+  return {
+    rejected_candidate_count: candidates.filter((candidate) => !candidate.gate.accepted).length,
+    accepted_candidate_count: candidates.filter((candidate) => candidate.gate.accepted).length,
+    top_blockers: topBlockers,
+    selection_blocked: selectionAudit.blocked,
+    primary_failure_area: primary || "none",
+    next_system_actions: actions,
+  }
+}
+
+function summarizeCandidateBlockers(candidates: StrategyRndCandidateReport[]): FailureSummary["top_blockers"] {
+  const counts = new Map<string, number>()
+  for (const candidate of candidates) {
+    if (candidate.gate.accepted) continue
+    for (const block of candidate.gate.blocked_by) {
+      counts.set(block.check_id, (counts.get(block.check_id) || 0) + 1)
+    }
+  }
+  return Array.from(counts.entries())
+    .map(([check_id, count]) => ({ check_id, count }))
+    .sort((a, b) => b.count - a.count || a.check_id.localeCompare(b.check_id))
+    .slice(0, 5)
+}
+
+function failureAreaForCheck(checkId: string): string {
+  if (!checkId) return "none"
+  if (checkId.includes("FUNDING-COVERAGE")) return "data_funding_coverage"
+  if (checkId.includes("SAMPLE")) return "sample_efficiency"
+  if (checkId.includes("EXPECTANCY") || checkId.includes("PROFIT-FACTOR")) return "edge_expectancy"
+  if (checkId.includes("DRAWDOWN")) return "risk_shape"
+  if (checkId.includes("ROBUSTNESS-COST")) return "execution_cost"
+  if (checkId.includes("ROBUSTNESS-REGIME")) return "regime_fragility"
+  if (checkId.includes("ROBUSTNESS-PARAM")) return "parameter_fragility"
+  if (checkId.includes("PARAM-COUNT") || checkId.includes("SEARCH-BUDGET")) return "research_complexity"
+  return "gate_blocker"
+}
+
+function nextSystemActions(primary: string, blockers: FailureSummary["top_blockers"], selectionAudit: SelectionAudit): string[] {
+  if (selectionAudit.blocked) {
+    return ["Stop candidate selection; expand independent validation or reduce hypothesis overlap before more trials."]
+  }
+  const blockerIds = new Set(blockers.map((item) => item.check_id))
+  if (blockerIds.has("R-FUNDING-COVERAGE")) {
+    return ["Backfill exact funding events for the full replay interval before interpreting this candidate batch."]
+  }
+  switch (primary) {
+    case "sample_efficiency":
+      return ["Move this hypothesis to panel R&D or loosen setup frequency before spending more single-asset trials."]
+    case "edge_expectancy":
+      return ["Reject this setup mechanism; predeclare a different market edge instead of adding filters."]
+    case "execution_cost":
+      return ["Audit turnover, marketability, and fee tier assumptions before promoting any high-turnover variant."]
+    case "regime_fragility":
+      return ["Add regime attribution to the hypothesis and test whether the edge is state-specific, not universal."]
+    case "parameter_fragility":
+      return ["Simplify parameters or widen fixed rule bands; do not tune thresholds on the failed sample."]
+    case "research_complexity":
+      return ["Reduce parameter count and trial budget; restart as a smaller predeclared hypothesis."]
+    case "risk_shape":
+      return ["Redesign stop/target geometry before adding confirmation factors."]
+    default:
+      return blockers.length > 0
+        ? ["Stop this hypothesis batch; inspect top blockers before running more trials."]
+        : []
   }
 }
 

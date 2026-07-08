@@ -9,15 +9,15 @@ title: R&D Reliability Roadmap
 ## 1. 数据层
 
 - 目标：20+ 可交易资产，减少 current-symbol survivorship bias。
-- 当前：`--strategy-calibration-suite` 已输出 `data_panel`；`ohlcv-fetch/scripts/calibration-panel.ts` 已可生成 20 symbol panel manifest 与 suite input。
-- 下一块：实际回填 20 symbol OHLCV，并标记上市时间 / 下架缺口 / 数据源。
+- 当前：`--strategy-calibration-suite` 已输出 `data_panel`；`ohlcv-fetch/scripts/calibration-panel.ts` 已生成并实跑 20 symbol panel。
+- 下一块：补 delisted / 下架资产来源，降低 survivor-only 样本偏差。
 - 完成信号：calibration suite 不再触发 `CAL-PANEL-BREADTH / CAL-PANEL-SCHEMA / CAL-PANEL-ALIGNMENT`。
 
 ## 2. Funding 层
 
 - 目标：calibration / replay / R&D 统一使用 exact funding events；覆盖不足时只诊断，不准入。
-- 当前：`--strategy-calibration-suite` 已消费 dataset `indicator_report_path` 的 `market_events.funding`；`ohlcv-fetch/scripts/calibration-market-features.ts` 已可从 panel manifest 生成 funding-aware suite input。
-- 下一块：实际运行完整 panel 的 market feature backfill。
+- 当前：`--strategy-calibration-suite` 已消费 dataset `indicator_report_path` 的 `market_events.funding`；`ohlcv-fetch/scripts/calibration-market-features.ts` 已实跑完整 panel，失败缓存可重试，最终输出 full funding coverage。
+- 下一块：把同样的 funding coverage 诊断持续接入候选 R&D / strategy evidence。
 - 完成信号：输出 `funding_event_coverage.status=full` 与 `historical_funding_attribution`。
 
 ## 3. 成本层
@@ -44,8 +44,8 @@ title: R&D Reliability Roadmap
 ## 6. R&D 搜索层
 
 - 目标：只有 calibration 过关后才搜索；搜索失败回到系统诊断，不盲目换假设。
-- 当前：`--strategy-rnd-campaign` 可读取 `calibration_report_path`；未校准或含 blocker 时零 trial 停止。
-- 下一块：把 candidate R&D report 的失败原因汇总回 before-search report。
+- 当前：`--strategy-rnd-campaign` 可读取 `calibration_report_path`；未校准或含 blocker 时零 trial 停止；candidate batch 已输出 `failure_summary`。
+- 下一块：把 candidate 负对照接入 batch report。
 - 完成信号：pipeline 能自动拒绝在未校准环境下扩大 trial budget。
 
 ## 7. Evidence 层

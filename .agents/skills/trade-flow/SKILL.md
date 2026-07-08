@@ -62,7 +62,7 @@ latest_observe.action_intent.request
   - `--build-observe --json <payload>`：从账户 / 市场投影构建 observe event
   - `--observe-from-skills --json <payload>`：调用只读 `binance-account-snapshot` / `binance-symbol-snapshot` 后构建 observe event
   - `--replay-strategy --manifest <manifest> --strategy-id <id>`：读取 OHLCV manifest，通过 replay registry 机械回放策略，并输出统计与 gate
-  - `--strategy-rnd-batch --json <payload>`：运行最多 10 个候选；`factor_discover=true + factor_compose=true` 时先做因子统计筛选，再按角色与参数预算组合到预声明 base family；统一 replay/OOS，不自动升格
+  - `--strategy-rnd-batch --json <payload>`：运行最多 10 个候选；`factor_discover=true + factor_compose=true` 时先做因子统计筛选，再按角色与参数预算组合到预声明 base family；统一 replay/OOS，输出失败归因，不自动升格
   - `--strategy-rnd-loop --json <payload>`：运行一轮 R&D loop，写 artifact JSON 和 `strategy-rnd-ledger.jsonl`；不写 `trade.db`，不自动升格
   - `--strategy-rnd-campaign --json <payload>`：依次运行 hypothesis queue；可选 `calibration_report_path` 未过则零 trial 停止；未产生 discovery winner 才继续下一假设；首个 winner 冻结后只查看一次不重叠 locked holdout，通过即返回，失败即结束 campaign
   - `--strategy-panel-rnd --json <payload>`：同一候选在至少三个资产上复用统一 replay，保留逐资产证据并执行样本、广度、OOS、成本与灾难损失门槛
@@ -92,6 +92,7 @@ latest_observe.action_intent.request
 - `--observe-from-skills` 只调用只读 skill，不触发 Binance 写接口
 - `--replay-strategy` 只读 OHLCV 文件，不写 DB，不触发 Binance；replay 结果只能作为 draft / shadow evidence
 - `--strategy-rnd-batch` 只读 OHLCV / factor report，不写 DB，不触发 Binance；base family 与搜索预算必须预声明，最多 10 个 trial，单候选参数数最多 8
+- `--strategy-rnd-batch` 失败时必须输出 `failure_summary`，把 blocker、selection instability 与下一步系统动作说清楚；不得只返回 no_promote
 - `--strategy-rnd-loop` 只包装 batch、artifact 和 R&D ledger；R&D ledger 是研究审计，不是策略准入 evidence
 - `--strategy-rnd-campaign` 的总 discovery trial budget 最多 10；只接受预声明 hypothesis queue，validation manifest 必须与 discovery manifest 时间不重叠；locked holdout 只允许看一次，失败即结束 campaign
 - `--strategy-rnd-campaign` 若传入 `calibration_report_path`，必须先通过 calibration gate；`calibrated=false` 或存在 blocker finding 时停止，不能消耗 trial budget
