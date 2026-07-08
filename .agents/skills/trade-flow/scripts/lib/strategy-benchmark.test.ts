@@ -26,11 +26,14 @@ test("fixed trend benchmark beats shuffled timing and CLI does not create trade 
       slippageBps: 0.4,
       fundingBpsPer8h: 0,
       randomTrials: 20,
-    }) as { calibrated: boolean; observed: { sharpe: number }; null_control: { p95_sharpe: number; empirical_p_value: number }; datasets: Array<{ data_hash: string }>; execution_attribution: { cost_model: { effective_fee_bps: number; effective_slippage_bps: number }; total_fee_drag: number; total_slippage_drag: number }; regime_attribution: { buckets: Array<{ bucket: string; sample_count: number }> } }
+    }) as { calibrated: boolean; observed: { sharpe: number }; null_control: { p95_sharpe: number; empirical_p_value: number; time_shift: unknown; side_flip: unknown; asset_label_shuffle: unknown }; datasets: Array<{ data_hash: string }>; execution_attribution: { cost_model: { effective_fee_bps: number; effective_slippage_bps: number }; total_fee_drag: number; total_slippage_drag: number }; regime_attribution: { buckets: Array<{ bucket: string; sample_count: number }> } }
 
     assert.equal(report.calibrated, true)
     assert.ok(report.observed.sharpe > report.null_control.p95_sharpe)
     assert.ok(report.null_control.empirical_p_value <= 0.05)
+    assert.ok(report.null_control.time_shift)
+    assert.ok(report.null_control.side_flip)
+    assert.ok(report.null_control.asset_label_shuffle)
     assert.match(report.datasets[0].data_hash, /^[a-f0-9]{64}$/)
     assert.equal(report.execution_attribution.cost_model.effective_fee_bps, 0.6)
     assert.equal(report.execution_attribution.cost_model.effective_slippage_bps, 0.2)

@@ -37,7 +37,8 @@ title: R&D Reliability Roadmap
 ## 5. 负对照层
 
 - 目标：所有 known-edge 和 candidate 都必须战胜合理 null。
-- 下一块：保留 weight time-shift，再补 side flip / asset-label shuffle。
+- 当前：calibration 已保留 weight time-shift，并新增 side flip / asset-label shuffle 诊断。
+- 下一块：把同一组负对照接入 candidate R&D report。
 - 完成信号：轻微正收益但未过 null 的候选不会进入下一阶段。
 
 ## 6. R&D 搜索层

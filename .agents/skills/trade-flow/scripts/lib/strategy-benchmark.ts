@@ -135,11 +135,8 @@ function runTrendBenchmark(input: TrendBenchmarkInput): JSONRecord {
   const stressed = simulate(panel, weights, warmup, rebalanceBars, stressCostModel(costModel, 5), 0, timeframe)
   const fundingStressed = simulate(panel, weights, warmup, rebalanceBars, costModel, fundingStressBps, timeframe)
   const historicalFunding = fundingEvents.coverage.status === "full" ? simulate(panel, weights, warmup, rebalanceBars, costModel, 0, timeframe, fundingEvents.eventsByAsset) : null
-  const randomSharpes: number[] = []
-  for (let trial = 0; trial < randomTrials; trial += 1) {
-    randomSharpes.push(simulate(panel, circularShift(weights, trial + 1), warmup, rebalanceBars, costModel, 0, timeframe).stats.sharpe)
-  }
-  const empiricalP = (1 + randomSharpes.filter((value) => value >= observed.stats.sharpe).length) / (randomTrials + 1)
+  const nullControl = nullControlDiagnostics(panel, weights, warmup, rebalanceBars, costModel, timeframe, randomTrials, observed.stats.sharpe, 1)
+  const empiricalP = numberField(nullControl.empirical_p_value)
   const folds = chronologicalFolds(observed.returns, 3, timeframe)
   const blockedBy: Array<{ check_id: string; reason: string }> = []
   if (observed.stats.total_return <= 0 || observed.stats.sharpe < 0.5) blockedBy.push({ check_id: "BENCHMARK-EDGE", reason: "trend benchmark is not positive with Sharpe >= 0.5" })
@@ -166,7 +163,7 @@ function runTrendBenchmark(input: TrendBenchmarkInput): JSONRecord {
     funding_event_coverage: fundingEvents.coverage,
     historical_funding: historicalFunding?.stats ?? null,
     historical_funding_attribution: historicalFunding?.attribution ?? null,
-    null_control: { method: "portfolio_weight_circular_time_shift", trials: randomTrials, empirical_p_value: round(empiricalP), median_sharpe: round(quantile(randomSharpes, 0.5)), p95_sharpe: round(quantile(randomSharpes, 0.95)) },
+    null_control: nullControl,
     notes: ["Calibration does not authorize strategy promotion or live trading.", "Current-symbol panels carry survivorship bias and are insufficient as final strategy evidence."],
   }
 }
@@ -226,8 +223,8 @@ function runRelativeStrengthBenchmark(input: TrendBenchmarkInput): JSONRecord {
   const stressed = simulate(panel, weights, warmup, rebalanceBars, stressCostModel(costModel, 5), 0, timeframe)
   const fundingStressed = simulate(panel, weights, warmup, rebalanceBars, costModel, fundingStressBps, timeframe)
   const historicalFunding = fundingEvents.coverage.status === "full" ? simulate(panel, weights, warmup, rebalanceBars, costModel, 0, timeframe, fundingEvents.eventsByAsset) : null
-  const randomSharpes = Array.from({ length: randomTrials }, (_, trial) => simulate(panel, circularShift(weights, trial + 17), warmup, rebalanceBars, costModel, 0, timeframe).stats.sharpe)
-  const empiricalP = (1 + randomSharpes.filter((value) => value >= observed.stats.sharpe).length) / (randomTrials + 1)
+  const nullControl = nullControlDiagnostics(panel, weights, warmup, rebalanceBars, costModel, timeframe, randomTrials, observed.stats.sharpe, 17)
+  const empiricalP = numberField(nullControl.empirical_p_value)
   const folds = chronologicalFolds(observed.returns, 3, timeframe)
   const blockedBy: Array<{ check_id: string; reason: string }> = []
   if (observed.stats.total_return <= 0 || observed.stats.sharpe < 0.5) blockedBy.push({ check_id: "XSEC-EDGE", reason: "relative strength benchmark is not positive with Sharpe >= 0.5" })
@@ -254,7 +251,7 @@ function runRelativeStrengthBenchmark(input: TrendBenchmarkInput): JSONRecord {
     funding_event_coverage: fundingEvents.coverage,
     historical_funding: historicalFunding?.stats ?? null,
     historical_funding_attribution: historicalFunding?.attribution ?? null,
-    null_control: { method: "portfolio_weight_circular_time_shift", trials: randomTrials, empirical_p_value: round(empiricalP), median_sharpe: round(quantile(randomSharpes, 0.5)), p95_sharpe: round(quantile(randomSharpes, 0.95)) },
+    null_control: nullControl,
   }
 }
 
@@ -421,6 +418,27 @@ function componentFindings(component: string, report: JSONRecord): DiagnosticFin
       component,
       evidence: { empirical_p_value: empiricalP, observed_sharpe: stats.sharpe, p95_sharpe: numberField(nullControl.p95_sharpe) },
       next_system_action: "Keep negative controls in the loop; do not accept mild positive returns as edge.",
+    })
+  }
+  const sideFlip = asStats(nullControl.side_flip)
+  if (sideFlip.sharpe >= stats.sharpe || sideFlip.total_return > 0) {
+    findings.push({
+      check_id: "CAL-SIDE-FLIP-NOT-BEATEN",
+      severity: "warning",
+      component,
+      evidence: { observed_sharpe: stats.sharpe, side_flip_sharpe: sideFlip.sharpe, side_flip_total_return: sideFlip.total_return },
+      next_system_action: "Check whether the rule direction is economically meaningful before treating it as edge.",
+    })
+  }
+  const assetShuffle = asRecord(nullControl.asset_label_shuffle)
+  const assetShuffleP = numberField(assetShuffle.empirical_p_value)
+  if (assetShuffleP > 0.05) {
+    findings.push({
+      check_id: "CAL-ASSET-SHUFFLE-NOT-BEATEN",
+      severity: "warning",
+      component,
+      evidence: { empirical_p_value: assetShuffleP, observed_sharpe: stats.sharpe, p95_sharpe: numberField(assetShuffle.p95_sharpe) },
+      next_system_action: "Verify the edge is not just broad market co-movement or asset-label coincidence.",
     })
   }
   if (cost.total_return <= 0 || cost.total_return < stats.total_return * 0.5) {
@@ -626,6 +644,44 @@ function simulate(panel: { timestamps: number[]; closes: number[][] }, schedule:
 function circularShift<T>(values: T[], seed: number): T[] {
   const offset = 1 + Math.floor(mulberry32(seed)() * Math.max(1, values.length - 1))
   return values.map((_, index) => values[(index + offset) % values.length])
+}
+
+function nullControlDiagnostics(panel: { timestamps: number[]; closes: number[][] }, weights: number[][], warmup: number, rebalanceBars: number, costModel: CostModel, timeframe: string, randomTrials: number, observedSharpe: number, seedOffset: number): JSONRecord {
+  const timeShiftSharpes = Array.from({ length: randomTrials }, (_, trial) => simulate(panel, circularShift(weights, trial + seedOffset), warmup, rebalanceBars, costModel, 0, timeframe).stats.sharpe)
+  const assetShuffleSharpes = Array.from({ length: randomTrials }, (_, trial) => simulate(panel, assetLabelShuffle(weights, panel.closes.length, trial + seedOffset + 101), warmup, rebalanceBars, costModel, 0, timeframe).stats.sharpe)
+  const sideFlip = simulate(panel, weights.map((row) => row.map((value) => -value)), warmup, rebalanceBars, costModel, 0, timeframe).stats
+  return {
+    method: "portfolio_weight_time_shift_side_flip_asset_shuffle",
+    trials: randomTrials,
+    empirical_p_value: empiricalPValue(timeShiftSharpes, observedSharpe),
+    median_sharpe: round(quantile(timeShiftSharpes, 0.5)),
+    p95_sharpe: round(quantile(timeShiftSharpes, 0.95)),
+    time_shift: controlSummary(timeShiftSharpes, observedSharpe),
+    side_flip: { total_return: sideFlip.total_return, sharpe: sideFlip.sharpe, max_drawdown: sideFlip.max_drawdown },
+    asset_label_shuffle: controlSummary(assetShuffleSharpes, observedSharpe),
+  }
+}
+
+function assetLabelShuffle(weights: number[][], assetCount: number, seed: number): number[][] {
+  const permutation = Array.from({ length: assetCount }, (_, index) => index)
+  const random = mulberry32(seed)
+  for (let index = permutation.length - 1; index > 0; index -= 1) {
+    const swap = Math.floor(random() * (index + 1))
+    ;[permutation[index], permutation[swap]] = [permutation[swap], permutation[index]]
+  }
+  return weights.map((row) => row.map((_, asset) => row[permutation[asset]]))
+}
+
+function controlSummary(sharpes: number[], observedSharpe: number): JSONRecord {
+  return {
+    empirical_p_value: empiricalPValue(sharpes, observedSharpe),
+    median_sharpe: round(quantile(sharpes, 0.5)),
+    p95_sharpe: round(quantile(sharpes, 0.95)),
+  }
+}
+
+function empiricalPValue(values: number[], observed: number): number {
+  return round((1 + values.filter((value) => value >= observed).length) / (values.length + 1))
 }
 
 function chronologicalFolds(returns: number[], count: number, timeframe: string): PortfolioStats[] {
