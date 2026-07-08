@@ -16,8 +16,8 @@ title: R&D Reliability Roadmap
 ## 2. Funding 层
 
 - 目标：calibration / replay / R&D 统一使用 exact funding events；覆盖不足时只诊断，不准入。
-- 当前：`--strategy-calibration-suite` 已消费 dataset `indicator_report_path` 的 `market_events.funding`，并输出 coverage / historical funding attribution。
-- 下一块：为完整 calibration panel 回填同区间 funding reports。
+- 当前：`--strategy-calibration-suite` 已消费 dataset `indicator_report_path` 的 `market_events.funding`；`ohlcv-fetch/scripts/calibration-market-features.ts` 已可从 panel manifest 生成 funding-aware suite input。
+- 下一块：实际运行完整 panel 的 market feature backfill。
 - 完成信号：输出 `funding_event_coverage.status=full` 与 `historical_funding_attribution`。
 
 ## 3. 成本层

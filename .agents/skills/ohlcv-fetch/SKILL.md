@@ -94,6 +94,15 @@ cd .agents/skills/ohlcv-fetch
 - 若传 `--funding-report-root`，会按 `<root>/<symbol>/market-features.json` 等路径自动挂入 `indicator_report_path`。
 - 支持 `--dry-run` 只生成路径与 suite input，不连接 Binance。
 
+`calibration-market-features.ts` 读取 `panel-manifest.json`，逐 symbol 生成 tech-indicators `--feature-series` base report，再调用 `market-features.ts` 补 exact funding events，输出 `calibration-suite-input-with-funding.json`。
+
+```bash
+./scripts/calibration-market-features.ts --panel-manifest ./data/calibration-panel/panel-manifest.json --output-root ./data/calibration-market-features --external false
+```
+
+- 输出的 suite input 可直接传给 `trade-flow --strategy-calibration-suite --json ...`。
+- 默认只补 Binance/Vision 可得数据；Deribit/BRK 外部源需显式 `--external true`。
+
 ## 加密原生特征
 
 `market-features.ts` 以 `tech-indicators --feature-series` 报告的时间网格为基准，因果对齐 Binance / Deribit / BRK 数据；输出仍是可直接交给 R&D 的 factor report。
