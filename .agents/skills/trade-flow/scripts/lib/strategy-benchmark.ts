@@ -15,6 +15,39 @@ interface FundingCoverage {
   first_event: string | null
   last_event: string | null
 }
+interface AlignedPanel {
+  timestamps: number[]
+  closes: number[][]
+  diagnostics: PanelDiagnostics
+}
+interface PanelDiagnostics {
+  dataset_count: number
+  target_dataset_count: number
+  timeframe: string
+  aligned_rows: number
+  aligned_start: string | null
+  aligned_end: string | null
+  min_raw_rows: number
+  min_aligned_ratio: number
+  schema_version_ok: boolean
+  closed_candles_only: boolean
+  source_providers: string[]
+  datasets: Array<{
+    dataset_id: string
+    manifest_ref: string
+    indicator_report_ref?: string
+    raw_rows: number
+    aligned_rows: number
+    aligned_ratio: number
+    first_open: string | null
+    last_open: string | null
+    schema_version: number
+    closed_candles_only: boolean
+    source_provider: string
+    source_market: string
+    content_sha256_present: boolean
+  }>
+}
 interface TrendBenchmarkInput {
   benchmarkId?: string
   datasets: BenchmarkDataset[]
@@ -128,7 +161,7 @@ function runCalibrationSuite(input: CalibrationSuiteInput): JSONRecord {
   const relativeStrength = runRelativeStrengthBenchmark(input)
   const panel = alignedPanel(input.datasets, input.timeframe || "4h")
   const buyHold = buyAndHoldBaseline(panel, input.datasets[0], input.timeframe || "4h")
-  const findings = calibrationFindings(buyHold, trend, relativeStrength, input.datasets.length)
+  const findings = calibrationFindings(buyHold, trend, relativeStrength, panel.diagnostics)
   const blockedBy: Array<{ check_id: string; reason: string }> = []
   if (!booleanField(trend.calibrated)) blockedBy.push({ check_id: "CAL-TREND", reason: "fixed time-series trend benchmark is not calibrated" })
   if (!booleanField(relativeStrength.calibrated)) blockedBy.push({ check_id: "CAL-RELATIVE-STRENGTH", reason: "fixed cross-sectional relative strength benchmark is not calibrated" })
@@ -138,6 +171,7 @@ function runCalibrationSuite(input: CalibrationSuiteInput): JSONRecord {
     purpose: "rd_pipeline_calibration_only",
     calibrated: blockedBy.length === 0,
     blocked_by: blockedBy,
+    data_panel: panel.diagnostics,
     components: {
       buy_and_hold_baseline: buyHold,
       time_series_trend: trend,
@@ -210,15 +244,23 @@ function runRelativeStrengthBenchmark(input: TrendBenchmarkInput): JSONRecord {
   }
 }
 
-function alignedPanel(datasets: BenchmarkDataset[], timeframe: string): { timestamps: number[]; closes: number[][] } {
-  const loaded = datasets.map((dataset) => loadCandlesFromManifest(dataset.manifestPath, JSON.parse(readFileSync(dataset.manifestPath, "utf8")) as JSONRecord, timeframe))
-  const common = loaded.slice(1).reduce((set, candles) => {
+function alignedPanel(datasets: BenchmarkDataset[], timeframe: string): AlignedPanel {
+  const loaded = datasets.map((dataset) => {
+    const manifest = JSON.parse(readFileSync(dataset.manifestPath, "utf8")) as JSONRecord
+    return { dataset, manifest, candles: loadCandlesFromManifest(dataset.manifestPath, manifest, timeframe) }
+  })
+  const common = loaded.slice(1).reduce((set, item) => {
+    const candles = item.candles
     const available = new Set(candles.map((candle) => candle.timestamp))
     return new Set([...set].filter((timestamp) => available.has(timestamp)))
-  }, new Set(loaded[0].map((candle) => candle.timestamp)))
+  }, new Set(loaded[0].candles.map((candle) => candle.timestamp)))
   const timestamps = [...common].sort((a, b) => a - b)
   if (timestamps.length === 0) throw new Error("trend benchmark datasets have no aligned timestamps")
-  return { timestamps, closes: loaded.map((candles) => alignCloses(candles, timestamps)) }
+  return {
+    timestamps,
+    closes: loaded.map((item) => alignCloses(item.candles, timestamps)),
+    diagnostics: panelDiagnostics(loaded, timestamps, timeframe),
+  }
 }
 
 function buyAndHoldBaseline(panel: { timestamps: number[]; closes: number[][] }, dataset: BenchmarkDataset, timeframe: string): JSONRecord {
@@ -236,7 +278,7 @@ function buyAndHoldBaseline(panel: { timestamps: number[]; closes: number[][] },
   }
 }
 
-function calibrationFindings(buyHold: JSONRecord, trend: JSONRecord, relativeStrength: JSONRecord, datasetCount: number): DiagnosticFinding[] {
+function calibrationFindings(buyHold: JSONRecord, trend: JSONRecord, relativeStrength: JSONRecord, panel: PanelDiagnostics): DiagnosticFinding[] {
   const findings: DiagnosticFinding[] = []
   const buyHoldStats = asStats(buyHold.observed)
   if (buyHoldStats.total_return > 0 && (!booleanField(trend.calibrated) || !booleanField(relativeStrength.calibrated))) {
@@ -250,15 +292,16 @@ function calibrationFindings(buyHold: JSONRecord, trend: JSONRecord, relativeStr
   }
   findings.push(...componentFindings("time_series_trend", trend))
   findings.push(...componentFindings("cross_sectional_relative_strength", relativeStrength))
-  if (datasetCount < 20) {
+  if (panel.dataset_count < panel.target_dataset_count) {
     findings.push({
       check_id: "CAL-PANEL-BREADTH",
       severity: "warning",
       component: "data_panel",
-      evidence: { dataset_count: datasetCount, minimum_target: 20 },
+      evidence: { dataset_count: panel.dataset_count, minimum_target: panel.target_dataset_count },
       next_system_action: "Expand calibration data breadth before treating failed known-edge tests as final market evidence.",
     })
   }
+  findings.push(...panelFindings(panel as unknown as JSONRecord))
   findings.push({
     check_id: "CAL-SURVIVORSHIP-RISK",
     severity: "info",
@@ -266,6 +309,65 @@ function calibrationFindings(buyHold: JSONRecord, trend: JSONRecord, relativeStr
     evidence: { panel_type: "current_symbol_manifest_panel" },
     next_system_action: "Add delisted and historically tradable symbols when a reliable source is available.",
   })
+  return findings
+}
+
+function panelDiagnostics(loaded: Array<{ dataset: BenchmarkDataset; manifest: JSONRecord; candles: Candle[] }>, timestamps: number[], timeframe: string): PanelDiagnostics {
+  const datasetDiagnostics = loaded.map((item) => {
+    const timeframeEntry = asRecord(asRecord(item.manifest.timeframes)[timeframe])
+    const source = asRecord(item.manifest.source)
+    return {
+      dataset_id: item.dataset.datasetId,
+      manifest_ref: item.dataset.manifestPath,
+      ...(item.dataset.indicatorReportPath ? { indicator_report_ref: item.dataset.indicatorReportPath } : {}),
+      raw_rows: item.candles.length,
+      aligned_rows: timestamps.length,
+      aligned_ratio: round(timestamps.length / Math.max(1, item.candles.length)),
+      first_open: item.candles[0] ? new Date(item.candles[0].timestamp).toISOString() : null,
+      last_open: item.candles.at(-1) ? new Date(item.candles.at(-1)!.timestamp).toISOString() : null,
+      schema_version: numberField(item.manifest.schema_version),
+      closed_candles_only: item.manifest.closed_candles_only === true,
+      source_provider: stringField(source.provider),
+      source_market: stringField(source.market),
+      content_sha256_present: Boolean(stringField(timeframeEntry.content_sha256)),
+    }
+  })
+  return {
+    dataset_count: loaded.length,
+    target_dataset_count: 20,
+    timeframe,
+    aligned_rows: timestamps.length,
+    aligned_start: timestamps[0] ? new Date(timestamps[0]).toISOString() : null,
+    aligned_end: timestamps.at(-1) ? new Date(timestamps.at(-1)!).toISOString() : null,
+    min_raw_rows: Math.min(...datasetDiagnostics.map((item) => item.raw_rows)),
+    min_aligned_ratio: round(Math.min(...datasetDiagnostics.map((item) => item.aligned_ratio))),
+    schema_version_ok: datasetDiagnostics.every((item) => item.schema_version >= 2 && item.content_sha256_present),
+    closed_candles_only: datasetDiagnostics.every((item) => item.closed_candles_only),
+    source_providers: [...new Set(datasetDiagnostics.map((item) => item.source_provider).filter(Boolean))].sort(),
+    datasets: datasetDiagnostics,
+  }
+}
+
+function panelFindings(panel: JSONRecord): DiagnosticFinding[] {
+  const findings: DiagnosticFinding[] = []
+  if (panel.schema_version_ok !== true || panel.closed_candles_only !== true) {
+    findings.push({
+      check_id: "CAL-PANEL-SCHEMA",
+      severity: "blocker",
+      component: "data_panel",
+      evidence: { schema_version_ok: panel.schema_version_ok, closed_candles_only: panel.closed_candles_only },
+      next_system_action: "Regenerate calibration manifests with schema_version>=2, checksums, and closed candles only.",
+    })
+  }
+  if (numberField(panel.min_aligned_ratio) < 0.95) {
+    findings.push({
+      check_id: "CAL-PANEL-ALIGNMENT",
+      severity: "warning",
+      component: "data_panel",
+      evidence: { min_aligned_ratio: panel.min_aligned_ratio, aligned_rows: panel.aligned_rows, min_raw_rows: panel.min_raw_rows },
+      next_system_action: "Diagnose listing windows, missing candles, and symbol overlap before treating panel results as market evidence.",
+    })
+  }
   return findings
 }
 

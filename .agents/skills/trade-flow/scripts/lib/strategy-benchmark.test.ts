@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -66,11 +67,16 @@ test("calibration suite reports fixed baselines and CLI stays read-only", async 
     const report = runCalibrationSuite({ datasets, feeBps: 1, slippageBps: 0, fundingBpsPer8h: 0, randomTrials: 20 }) as {
       purpose: string
       harness_hash: string
+      data_panel: { dataset_count: number; schema_version_ok: boolean; closed_candles_only: boolean; min_aligned_ratio: number }
       components: Record<string, { benchmark_id?: string; purpose?: string; execution_attribution?: { average_turnover_per_rebalance: number }; funding_stress_attribution?: { total_funding_drag: number }; funding_event_coverage?: { status: string }; historical_funding?: unknown }>
       failure_analysis: { findings: Array<{ check_id: string; next_system_action: string }> }
     }
     assert.equal(report.purpose, "rd_pipeline_calibration_only")
     assert.match(report.harness_hash, /^[a-f0-9]{64}$/)
+    assert.equal(report.data_panel.dataset_count, 3)
+    assert.equal(report.data_panel.schema_version_ok, true)
+    assert.equal(report.data_panel.closed_candles_only, true)
+    assert.equal(report.data_panel.min_aligned_ratio, 1)
     assert.equal(report.components.buy_and_hold_baseline.benchmark_id, "first_dataset_buy_and_hold_v1")
     assert.equal(report.components.time_series_trend.purpose, "rd_pipeline_calibration_only")
     assert.equal(report.components.cross_sectional_relative_strength.benchmark_id, "cross_sectional_relative_strength_v1")
@@ -132,9 +138,16 @@ function writeRegimeManifest(root: string, asset: number, phase: number): string
     const timestamp = 1_600_000_000_000 + index * 14_400_000
     return [new Date(timestamp).toISOString(), timestamp, previous, Math.max(previous, close), Math.min(previous, close), close, 1000].join(",")
   })
-  writeFileSync(join(dir, "4h.csv"), ["date,timestamp,open,high,low,close,volume", ...rows].join("\n"))
+  const csv = ["date,timestamp,open,high,low,close,volume", ...rows].join("\n")
+  writeFileSync(join(dir, "4h.csv"), csv)
   const manifestPath = join(dir, "manifest.json")
-  writeFileSync(manifestPath, JSON.stringify({ symbol: `ASSET${asset}`, timeframes: { "4h": { file: "4h.csv" } } }))
+  writeFileSync(manifestPath, JSON.stringify({
+    schema_version: 2,
+    source: { provider: "test", market: "synthetic" },
+    closed_candles_only: true,
+    symbol: `ASSET${asset}`,
+    timeframes: { "4h": { file: "4h.csv", content_sha256: createHash("sha256").update(csv).digest("hex") } },
+  }))
   return manifestPath
 }
 

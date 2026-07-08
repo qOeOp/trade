@@ -9,8 +9,9 @@ title: R&D Reliability Roadmap
 ## 1. 数据层
 
 - 目标：20+ 可交易资产，减少 current-symbol survivorship bias。
-- 下一块：扩 panel manifest，并标记上市时间 / 下架缺口 / 数据源。
-- 完成信号：calibration suite 不再触发 `CAL-PANEL-BREADTH`。
+- 当前：`--strategy-calibration-suite` 已输出 `data_panel`，包含 schema、closed candle、source、行数、对齐行数与对齐比例。
+- 下一块：扩 panel manifest 到 20+ 资产，并标记上市时间 / 下架缺口 / 数据源。
+- 完成信号：calibration suite 不再触发 `CAL-PANEL-BREADTH / CAL-PANEL-SCHEMA / CAL-PANEL-ALIGNMENT`。
 
 ## 2. Funding 层
 
