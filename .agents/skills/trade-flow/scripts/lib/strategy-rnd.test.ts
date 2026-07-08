@@ -179,6 +179,9 @@ test("strategy R&D batch reports actionable failure summary", () => {
     assert.equal(report.failure_summary.top_blockers.some((item) => item.check_id === "RND-PARAM-COUNT"), true)
     assert.notEqual(report.failure_summary.primary_failure_area, "none")
     assert.ok(report.failure_summary.next_system_actions.length > 0)
+    assert.equal(report.reliability_gate.status, "blocked")
+    assert.equal(report.reliability_gate.more_trials_allowed, false)
+    assert.equal(report.reliability_gate.sample_profile.candidate_count, 1)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

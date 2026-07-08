@@ -36,9 +36,11 @@ import {
 } from "./strategy-rnd-evaluation"
 import {
   buildFailureSummary,
+  buildReliabilityGate,
   buildSelectionAudit,
   selectRndWinner,
   type FailureSummary,
+  type ReliabilityGate,
   type SelectionAudit,
 } from "./strategy-rnd-selection"
 import {
@@ -72,6 +74,7 @@ interface StrategyRndBatchReport {
   factor_research: FactorResearchReport | null
   selection_audit: SelectionAudit
   failure_summary: FailureSummary
+  reliability_gate: ReliabilityGate
   next_action: string
 }
 
@@ -129,6 +132,7 @@ function runStrategyRndBatch(input: StrategyRndBatchInput): StrategyRndBatchRepo
   const selectionAudit = buildSelectionAudit(reports, input.searchTrialCount ?? candidates.length)
   const winner = selectRndWinner(reports, selectionAudit)
   const failureSummary = buildFailureSummary(reports, selectionAudit)
+  const reliabilityGate = buildReliabilityGate(reports, selectionAudit, winner, failureSummary)
 
   return {
     batch_id: input.batchId || "strategy-rnd-batch",
@@ -148,6 +152,7 @@ function runStrategyRndBatch(input: StrategyRndBatchInput): StrategyRndBatchRepo
     factor_research: factorResearch,
     selection_audit: selectionAudit,
     failure_summary: failureSummary,
+    reliability_gate: reliabilityGate,
     next_action: winner
       ? "Draft a strategy policy for the winning candidate, then append replay evidence and run strategy-review before any shadow promotion."
       : failureSummary.next_system_actions[0] || "Stop this hypothesis batch; predeclare a new edge hypothesis before running more trials.",

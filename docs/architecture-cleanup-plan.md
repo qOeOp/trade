@@ -602,7 +602,8 @@ Binance facts
   - `lib/strategy-rnd-evaluation.test.ts`：锁定 parameter count / side flip、entry lag rebuild、gate blockers、robustness、candidate ranking。
 - 研究侧 selection / failure summary 拆分：
   - `lib/strategy-rnd-selection.ts`：winner selection、rank reversal audit、blocker summary、failure area、next action 独立。
-  - `lib/strategy-rnd-selection.test.ts`：锁定 unstable selection blocker、accepted candidate ranking、failure summary 与 action 建议。
+  - `lib/strategy-rnd-selection.ts`：新增 `reliability_gate`，把样本画像、失败层归因与继续 trial 权限机器化。
+  - `lib/strategy-rnd-selection.test.ts`：锁定 unstable selection blocker、accepted candidate ranking、failure summary、reliability gate 与 action 建议。
 - 研究侧 candidate source 拆分：
   - `lib/strategy-rnd-candidates.ts`：feature store load、candidate id 校验、provided / bounded composition / scientific discovery 候选来源、campaign candidate count、setup-conditioned factor research 独立。
   - `lib/strategy-rnd-candidates.test.ts`：锁定 duplicate/empty candidate id、候选来源分类、factor condition 注入、campaign 计数与 discovery 约束。
@@ -639,13 +640,15 @@ Binance facts
   - 成功与失败输出统一带 `schema_version=trade-flow.script-response.v1`；业务 `data` 暂不提前冻结。
   - `successResponse / errorResponse` 统一命令响应构造，避免散落裸 `{ ok, data }`。
   - `schemas/script-response.schema.json` 落地外层响应 JSON Schema，只约束 envelope，不约束 command-specific `data`。
+  - `schemas/plan-event.schema.json` 落地 `plan_event` 外壳 JSON Schema，只约束事件行外层，不约束各 `kind.body_json`。
   - `ScriptResponse` 明确 `INVALID_ARGUMENT / PRECONDITION_FAILED / EXTERNAL_FAILURE / INTERNAL_ERROR`。
-  - `response.test.ts` 锁定 schema 与 response builder 不漂移；`main.test.ts` 锁定成功、invalid argument、precondition 三类外层 envelope。
+  - `response.test.ts` 锁定 response schema 与 builder 不漂移；`plan-events-schema.test.ts` 锁定 plan_event schema 与 validator-owned kind 枚举不漂移。
+  - `main.test.ts` 锁定成功、invalid argument、precondition 三类外层 envelope。
 
 验证：
 
 - `.agents/skills/trade-flow`: `bun run typecheck`
-- `.agents/skills/trade-flow`: `bun run test`，168 pass / 0 fail
+- `.agents/skills/trade-flow`: `bun run test`，170 pass / 0 fail
 - repo root: `git diff --check`
 
 下一步：

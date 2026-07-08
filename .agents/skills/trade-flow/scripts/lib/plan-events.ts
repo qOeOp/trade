@@ -1,7 +1,8 @@
 import { Database } from "bun:sqlite"
 import { asRecord, stringField, type JSONRecord } from "./json"
 
-export type EventKind = "observe" | "order_fill" | "review"
+export const PLAN_EVENT_KINDS = ["observe", "order_fill", "review"] as const
+export type EventKind = typeof PLAN_EVENT_KINDS[number]
 
 export interface PlanEvent {
   event_key: string
@@ -62,8 +63,11 @@ export function validatePlanEvent(event: PlanEvent): void {
   if (!event.chain_id) {
     throw new Error("chain_id is required")
   }
-  if (!["observe", "order_fill", "review"].includes(event.kind)) {
+  if (!PLAN_EVENT_KINDS.includes(event.kind)) {
     throw new Error(`unsupported event kind: ${event.kind}`)
+  }
+  if (!event.created_at) {
+    throw new Error("created_at is required")
   }
   if (event.kind === "order_fill") {
     validateOrderFill(event.body_json)

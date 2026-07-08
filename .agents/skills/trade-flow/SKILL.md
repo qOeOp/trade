@@ -60,6 +60,7 @@ latest_observe.action_intent.request
 - 入口：`./scripts/main.ts`
 - 示例输入：`./examples/*.example.json`
 - 响应外壳 schema：`./schemas/script-response.schema.json`
+- plan_event 外壳 schema：`./schemas/plan-event.schema.json`
 - 支持动作：
   - `--init`：初始化 `plan_event`
   - `--append-order-fill --json <body>`：校验并追加 order_fill
@@ -101,6 +102,7 @@ latest_observe.action_intent.request
 - `--replay-strategy` 只读 OHLCV 文件，不写 DB，不触发 Binance；replay 结果只能作为 draft / shadow evidence
 - `--strategy-rnd-batch` 只读 OHLCV / factor report，不写 DB，不触发 Binance；base family 与搜索预算必须预声明，最多 10 个 trial，单候选参数数最多 8
 - `--strategy-rnd-batch` 失败时必须输出 `failure_summary`，把 blocker、selection instability 与下一步系统动作说清楚；不得只返回 no_promote
+- `--strategy-rnd-batch` 必须输出 `reliability_gate`，把失败归因、样本画像和是否允许继续 trial 机器化；当前通过与失败都不允许无理由追加 trial
 - `--strategy-rnd-loop` 只包装 batch、artifact 和 R&D ledger；R&D ledger 是研究审计，不是策略准入 evidence
 - `--strategy-rnd-campaign` 的总 discovery trial budget 最多 10；只接受预声明 hypothesis queue，validation manifest 必须与 discovery manifest 时间不重叠；locked holdout 只允许看一次，失败即结束 campaign
 - `--strategy-rnd-campaign` 若传入 `calibration_report_path`，必须先通过 calibration gate；`calibrated=false` 或存在 blocker finding 时停止，不能消耗 trial budget

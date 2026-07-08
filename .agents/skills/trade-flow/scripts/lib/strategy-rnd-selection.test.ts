@@ -4,10 +4,12 @@ import type { ReplayResult } from "./replay-core"
 import type { StrategyRndCandidateReport } from "./strategy-rnd-evaluation"
 import {
   buildFailureSummary,
+  buildReliabilityGate,
   buildSelectionAudit,
   failureAreaForCheck,
   selectRndWinner,
   summarizeCandidateBlockers,
+  summarizeFailureLayers,
   type SelectionAudit,
 } from "./strategy-rnd-selection"
 
@@ -46,6 +48,27 @@ test("strategy R&D failure summary keeps blocker counts and next action determin
   assert.equal(summary.accepted_candidate_count, 1)
   assert.equal(summary.primary_failure_area, "sample_efficiency")
   assert.equal(summary.next_system_actions[0], "Move this hypothesis to panel R&D or loosen setup frequency before spending more single-asset trials.")
+  assert.deepEqual(summarizeFailureLayers(summary.top_blockers), [
+    { area: "sample_efficiency", count: 2 },
+    { area: "edge_expectancy", count: 1 },
+    { area: "negative_control", count: 1 },
+  ])
+  const gate = buildReliabilityGate(candidates, stableAudit(), null, summary)
+  assert.equal(gate.status, "blocked")
+  assert.equal(gate.decision, "move_to_panel")
+  assert.equal(gate.more_trials_allowed, false)
+  assert.equal(gate.sample_profile.candidate_count, 3)
+  assert.equal(gate.sample_profile.min_oos_sample_count, 20)
+})
+
+test("strategy R&D reliability gate stops search after a candidate passes", () => {
+  const winner = candidateReport("winner", true, [1, 1, 1, 1])
+  const summary = buildFailureSummary([winner], stableAudit())
+  const gate = buildReliabilityGate([winner], stableAudit(), winner, summary)
+  assert.equal(gate.status, "candidate_ready")
+  assert.equal(gate.decision, "draft_policy")
+  assert.equal(gate.more_trials_allowed, false)
+  assert.equal(gate.sample_profile.total_trade_count, 20)
 })
 
 function stableAudit(): SelectionAudit {
@@ -111,6 +134,7 @@ function replayFixture(id: string, foldRValues: number[], totalR: number, avgR: 
         oos_stats: {
           total_r: oosTotalR,
           avg_r: avgR,
+          sample_count: 20,
         },
       },
     },

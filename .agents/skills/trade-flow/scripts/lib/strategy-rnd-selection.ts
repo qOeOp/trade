@@ -19,6 +19,21 @@ export interface FailureSummary {
   next_system_actions: string[]
 }
 
+export interface ReliabilityGate {
+  status: "candidate_ready" | "blocked"
+  decision: "draft_policy" | "stop_selection" | "fix_data" | "move_to_panel" | "reject_hypothesis" | "fix_cost_model" | "define_regime_scope" | "simplify_rules" | "inspect_blockers"
+  more_trials_allowed: false
+  reason: string
+  sample_profile: {
+    candidate_count: number
+    total_trade_count: number
+    min_sample_count: number
+    median_sample_count: number
+    min_oos_sample_count: number
+  }
+  layer_counts: Array<{ area: string; count: number }>
+}
+
 export function selectRndWinner(
   candidates: StrategyRndCandidateReport[],
   selectionAudit: SelectionAudit,
@@ -42,6 +57,35 @@ export function buildFailureSummary(candidates: StrategyRndCandidateReport[], se
     selection_blocked: selectionAudit.blocked,
     primary_failure_area: primary || "none",
     next_system_actions: actions,
+  }
+}
+
+export function buildReliabilityGate(
+  candidates: StrategyRndCandidateReport[],
+  selectionAudit: SelectionAudit,
+  winner: StrategyRndCandidateReport | null,
+  failureSummary: FailureSummary,
+): ReliabilityGate {
+  const sampleProfile = buildSampleProfile(candidates)
+  const layerCounts = summarizeFailureLayers(failureSummary.top_blockers)
+  if (winner) {
+    return {
+      status: "candidate_ready",
+      decision: "draft_policy",
+      more_trials_allowed: false,
+      reason: "candidate passed current R&D gate; stop searching and draft a strategy policy for evidence review",
+      sample_profile: sampleProfile,
+      layer_counts: layerCounts,
+    }
+  }
+  const decision = decisionForFailure(failureSummary.primary_failure_area, selectionAudit)
+  return {
+    status: "blocked",
+    decision,
+    more_trials_allowed: false,
+    reason: reasonForDecision(decision),
+    sample_profile: sampleProfile,
+    layer_counts: layerCounts,
   }
 }
 
@@ -103,6 +147,84 @@ export function nextSystemActions(primary: string, blockers: FailureSummary["top
         ? ["Stop this hypothesis batch; inspect top blockers before running more trials."]
         : []
   }
+}
+
+export function summarizeFailureLayers(blockers: FailureSummary["top_blockers"]): ReliabilityGate["layer_counts"] {
+  const counts = new Map<string, number>()
+  for (const blocker of blockers) {
+    const area = failureAreaForCheck(blocker.check_id)
+    counts.set(area, (counts.get(area) || 0) + blocker.count)
+  }
+  return Array.from(counts.entries())
+    .map(([area, count]) => ({ area, count }))
+    .sort((a, b) => b.count - a.count || a.area.localeCompare(b.area))
+}
+
+function buildSampleProfile(candidates: StrategyRndCandidateReport[]): ReliabilityGate["sample_profile"] {
+  const sampleCounts = candidates.map((candidate) => candidate.replay.sample_count).sort((a, b) => a - b)
+  const oosCounts = candidates.map((candidate) => {
+    const proof = candidate.replay.assumptions.anti_overfit as { oos_stats?: { sample_count?: number } } | undefined
+    return Number(proof?.oos_stats?.sample_count) || 0
+  }).sort((a, b) => a - b)
+  return {
+    candidate_count: candidates.length,
+    total_trade_count: sampleCounts.reduce((sum, value) => sum + value, 0),
+    min_sample_count: sampleCounts[0] ?? 0,
+    median_sample_count: median(sampleCounts),
+    min_oos_sample_count: oosCounts[0] ?? 0,
+  }
+}
+
+function decisionForFailure(primary: string, selectionAudit: SelectionAudit): ReliabilityGate["decision"] {
+  if (selectionAudit.blocked) return "stop_selection"
+  switch (primary) {
+    case "data_funding_coverage":
+      return "fix_data"
+    case "sample_efficiency":
+      return "move_to_panel"
+    case "edge_expectancy":
+    case "negative_control":
+    case "risk_shape":
+      return "reject_hypothesis"
+    case "execution_cost":
+      return "fix_cost_model"
+    case "regime_fragility":
+      return "define_regime_scope"
+    case "parameter_fragility":
+    case "research_complexity":
+      return "simplify_rules"
+    default:
+      return "inspect_blockers"
+  }
+}
+
+function reasonForDecision(decision: ReliabilityGate["decision"]): string {
+  switch (decision) {
+    case "draft_policy":
+      return "candidate is ready for policy drafting, not for more search"
+    case "stop_selection":
+      return "candidate selection is unstable across time blocks"
+    case "fix_data":
+      return "data coverage blocks interpretation"
+    case "move_to_panel":
+      return "single-symbol sample efficiency is too low; use panel R&D or a less sparse setup"
+    case "reject_hypothesis":
+      return "the market mechanism did not survive expectancy, risk-shape, or negative-control checks"
+    case "fix_cost_model":
+      return "execution cost assumptions dominate the result"
+    case "define_regime_scope":
+      return "edge appears regime-specific and needs an explicit state hypothesis"
+    case "simplify_rules":
+      return "rules are too fragile or over-parameterized for more trials"
+    default:
+      return "inspect top blockers before any new trial"
+  }
+}
+
+function median(values: number[]): number {
+  if (values.length === 0) return 0
+  const mid = Math.floor(values.length / 2)
+  return values.length % 2 === 1 ? values[mid] : Number(((values[mid - 1] + values[mid]) / 2).toFixed(6))
 }
 
 export function buildSelectionAudit(candidates: StrategyRndCandidateReport[], declaredTrials: number): SelectionAudit {
