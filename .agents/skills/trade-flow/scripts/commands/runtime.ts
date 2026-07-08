@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite"
 import { dirname } from "node:path"
 import { runTrackDryRun } from "../lib/track-runner"
-import { appendPlanEvent, buildOrderFillEvent } from "../lib/plan-events"
+import { appendPlanEvent, buildOrderFillEvent, buildReviewEvent } from "../lib/plan-events"
 import { successResponse } from "./response"
 import type { CommandConfig, ScriptResponse } from "./types"
 
@@ -14,6 +14,11 @@ export function handleRuntimeCommand(db: Database, config: CommandConfig): Scrip
   }
   if (config.appendOrderFill) {
     const event = buildOrderFillEvent(config.input)
+    appendPlanEvent(db, event)
+    return successResponse(event)
+  }
+  if (config.appendReview) {
+    const event = buildReviewEvent(config.input)
     appendPlanEvent(db, event)
     return successResponse(event)
   }

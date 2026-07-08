@@ -5,6 +5,7 @@ export function parseArgs(argv: string[]): CommandConfig {
   let dbPath = "./data/trade.db"
   let init = false
   let appendOrderFill = false
+  let appendReview = false
   let recordExecution = false
   let runFlow = false
   let mode: RunMode = "dry-run"
@@ -65,6 +66,9 @@ export function parseArgs(argv: string[]): CommandConfig {
         break
       case "--append-order-fill":
         appendOrderFill = true
+        break
+      case "--append-review":
+        appendReview = true
         break
       case "--record-execution":
         recordExecution = true
@@ -222,6 +226,7 @@ export function parseArgs(argv: string[]): CommandConfig {
     dbPath,
     init,
     appendOrderFill,
+    appendReview,
     recordExecution,
     run: runFlow,
     mode,

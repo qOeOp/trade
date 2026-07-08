@@ -7,6 +7,9 @@ import { ensureSchema } from "./plan-events"
 import { runSlowTrackWorkflowDryRun } from "./slow-track-workflow"
 import type { TrackMode } from "../commands/types"
 
+export const TRACK_DRY_RUN_TRACKS = ["slow", "fast"] as const
+export const TRACK_DRY_RUN_MODES = ["dry-run", "analysis-only", "workflow-dry-run"] as const
+
 export function buildTrackDryRunSummary(db: Database, track: Exclude<TrackMode, "">): Record<string, unknown> {
   const activeFlows = listActiveFlows(db)
   const laneConflicts = findActiveLaneConflicts(activeFlows)

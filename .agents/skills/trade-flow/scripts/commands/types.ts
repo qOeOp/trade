@@ -17,6 +17,7 @@ export interface CommandConfig {
   dbPath: string
   init: boolean
   appendOrderFill: boolean
+  appendReview: boolean
   recordExecution: boolean
   run: boolean
   mode: RunMode

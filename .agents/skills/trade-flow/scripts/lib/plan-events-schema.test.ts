@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import assert from "node:assert/strict"
 import test from "node:test"
-import { PLAN_EVENT_KINDS, validatePlanEvent } from "./plan-events"
+import { PLAN_EVENT_KINDS, validatePlanEvent, validateReview } from "./plan-events"
 
 type JSONRecord = Record<string, unknown>
 
@@ -28,6 +28,39 @@ test("plan_event schema matches validator-owned outer contract", () => {
       created_at: "",
     }),
     /created_at is required/,
+  )
+})
+
+test("review validation keeps recovery notes loose but strategy reviews structured", () => {
+  validateReview({
+    status: "needs_review",
+    reason: "unmatched_reconcile",
+  })
+  validateReview({})
+  validateReview({
+    strategy_ref: "S-TEST",
+    outcome: "win",
+    pnl_r: 0.5,
+    thesis_held: true,
+    key_lesson: "entry thesis held",
+    promote_to_strategy: false,
+  })
+
+  assert.throws(
+    () => validateReview({
+      strategy_ref: "S-TEST",
+      outcome: "win",
+      pnl_r: 0.5,
+      key_lesson: "missing thesis",
+      promote_to_strategy: false,
+    }),
+    /review.thesis_held/,
+  )
+  assert.throws(
+    () => validateReview({
+      status: "needs_review",
+    }),
+    /review.reason/,
   )
 })
 

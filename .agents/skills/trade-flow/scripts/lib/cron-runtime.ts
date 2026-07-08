@@ -2,6 +2,10 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, appendFileS
 import { join } from "node:path"
 import type { TrackMode } from "../commands/types"
 
+export const CRON_LOG_TRACKS = ["slow", "fast"] as const
+export const CRON_LOG_STATUSES = ["completed", "skipped_lock", "failed"] as const
+export type CronLogStatus = typeof CRON_LOG_STATUSES[number]
+
 export interface CronLock {
   run_id: string
   track: Exclude<TrackMode, "">
@@ -21,7 +25,7 @@ export interface CronLogEntry {
   track: Exclude<TrackMode, "">
   triggered_at: string
   duration_ms: number
-  status: "completed" | "skipped_lock" | "failed"
+  status: CronLogStatus
   chains_processed: number
   actions_taken: string[]
   errors: string[]

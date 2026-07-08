@@ -9,6 +9,7 @@ test("parseArgs keeps core execution and evidence flags stable", () => {
   const config = parseArgs([
     "--db",
     "/tmp/trade.db",
+    "--append-review",
     "--run-live-small",
     "--yes",
     "--track",
@@ -35,6 +36,7 @@ test("parseArgs keeps core execution and evidence flags stable", () => {
   ])
 
   assert.equal(config.dbPath, "/tmp/trade.db")
+  assert.equal(config.appendReview, true)
   assert.equal(config.runLiveSmall, true)
   assert.equal(config.yes, true)
   assert.equal(config.track, "slow")

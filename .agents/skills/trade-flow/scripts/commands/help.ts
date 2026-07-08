@@ -3,6 +3,7 @@ export const HELP_TEXT = `Usage:
   ./scripts/main.ts --db ./data/trade.db --track slow
   ./scripts/main.ts --db ./data/trade.db --track fast
   ./scripts/main.ts --db ./data/trade.db --append-order-fill --json '{"chain_id":"...","body_json":{...}}'
+  ./scripts/main.ts --db ./data/trade.db --append-review --json '{"chain_id":"...","body_json":{"strategy_ref":"...","outcome":"win","pnl_r":1,"thesis_held":true,"key_lesson":"...","promote_to_strategy":false}}'
   ./scripts/main.ts --db ./data/trade.db --record-execution --json '{"preflight_result":{"verdict":"armable"},"execution_contract_input":{...},"execution_result":{...}}'
   ./scripts/main.ts --db ./data/trade.db --run --mode dry-run --json '{"plan":{...},"observe":{...},"execution_contract_input":{...}}'
   ./scripts/main.ts --db ./data/trade.db --run --mode shadow --json '{"plan":{...},"observe":{...},"execution_contract_input":{...}}'
@@ -35,6 +36,7 @@ Key flags:
   --init                   Initialize plan_event schema
   --track <slow|fast>      Dry-run one cron track summary; does not execute or write events
   --append-order-fill      Append one order_fill event
+  --append-review          Append one strategy review event with minimum outcome fields
   --record-execution       Compile contract and append audited order_fill from an execute-skill result
   --run                    Run one orchestrated flow step
   --mode <dry-run|shadow>  Execution mode for --run

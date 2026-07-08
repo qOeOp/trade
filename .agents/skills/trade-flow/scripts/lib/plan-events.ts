@@ -3,6 +3,7 @@ import { asRecord, stringField, type JSONRecord } from "./json"
 
 export const PLAN_EVENT_KINDS = ["observe", "order_fill", "review"] as const
 export type EventKind = typeof PLAN_EVENT_KINDS[number]
+export const REVIEW_OUTCOMES = ["win", "loss", "breakeven", "scratch"] as const
 
 export interface PlanEvent {
   event_key: string
@@ -56,6 +57,21 @@ export function buildOrderFillEvent(input: JSONRecord): PlanEvent {
   }
 }
 
+export function buildReviewEvent(input: JSONRecord): PlanEvent {
+  const body = asRecord(input.body_json ?? input.body ?? input)
+  const chainId = stringField(input.chain_id) || stringField(body.chain_id)
+  const eventKey = stringField(input.event_key) || crypto.randomUUID()
+  const createdAt = stringField(input.created_at) || stringField(body.created_at) || new Date().toISOString()
+  validateStrategyReviewBody(body)
+  return {
+    event_key: eventKey,
+    chain_id: chainId,
+    kind: "review",
+    body_json: body,
+    created_at: createdAt,
+  }
+}
+
 export function validatePlanEvent(event: PlanEvent): void {
   if (!event.event_key) {
     throw new Error("event_key is required")
@@ -71,6 +87,9 @@ export function validatePlanEvent(event: PlanEvent): void {
   }
   if (event.kind === "order_fill") {
     validateOrderFill(event.body_json)
+  }
+  if (event.kind === "review") {
+    validateReview(event.body_json)
   }
 }
 
@@ -92,6 +111,60 @@ export function validateOrderFill(body: JSONRecord): void {
       throw new Error("order_fill.execution_contract_snapshot or execution_action_snapshot is required for source=trade_flow")
     }
   }
+}
+
+export function validateReview(body: JSONRecord): void {
+  if (isNeedsReview(body)) {
+    if (!stringField(body.reason)) {
+      throw new Error("review.reason is required for needs_review")
+    }
+    return
+  }
+  if (!looksLikeStrategyReview(body)) {
+    return
+  }
+  validateStrategyReviewBody(body)
+}
+
+function validateStrategyReviewBody(body: JSONRecord): void {
+  if (!stringField(body.strategy_ref)) {
+    throw new Error("review.strategy_ref is required")
+  }
+  const outcome = stringField(body.outcome)
+  if (!REVIEW_OUTCOMES.includes(outcome as typeof REVIEW_OUTCOMES[number])) {
+    throw new Error(`review.outcome must be one of ${REVIEW_OUTCOMES.join(", ")}`)
+  }
+  if (!hasNumber(body.r) && !hasNumber(body.pnl_r) && !hasNumber(body.pnl_R) && !hasNumber(body.pnl_pct)) {
+    throw new Error("review.pnl_r or review.pnl_pct is required")
+  }
+  if (typeof body.thesis_held !== "boolean") {
+    throw new Error("review.thesis_held must be boolean")
+  }
+  if (!stringField(body.key_lesson)) {
+    throw new Error("review.key_lesson is required")
+  }
+  if (typeof body.promote_to_strategy !== "boolean") {
+    throw new Error("review.promote_to_strategy must be boolean")
+  }
+}
+
+function isNeedsReview(body: JSONRecord): boolean {
+  return stringField(body.status) === "needs_review" || stringField(body.lifecycle_status) === "needs_review"
+}
+
+function looksLikeStrategyReview(body: JSONRecord): boolean {
+  return Boolean(
+    stringField(body.strategy_ref)
+    || stringField(body.outcome)
+    || hasNumber(body.r)
+    || hasNumber(body.pnl_r)
+    || hasNumber(body.pnl_R)
+    || hasNumber(body.pnl_pct),
+  )
+}
+
+function hasNumber(value: unknown): boolean {
+  return Number.isFinite(Number(value))
 }
 
 export function readFlowEvents(db: Database, chainId: string): PlanEvent[] {

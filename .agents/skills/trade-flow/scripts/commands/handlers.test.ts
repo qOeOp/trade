@@ -55,6 +55,54 @@ test("runtime command handler initializes schema and appends local order_fill", 
   }
 })
 
+test("runtime command handler appends validated strategy review", () => {
+  const db = new Database(":memory:")
+  try {
+    ensureSchema(db)
+    const response = handleRuntimeCommand(db, baseConfig({
+      appendReview: true,
+      input: {
+        event_key: "review-handler-valid-1",
+        chain_id: "flow-review-handler-1",
+        created_at: "2026-07-08T12:30:00Z",
+        body_json: {
+          strategy_ref: "S-TREND",
+          outcome: "win",
+          pnl_r: 0.7,
+          fee_r: 0.01,
+          slippage_r: 0.02,
+          funding_r: 0,
+          thesis_held: true,
+          key_lesson: "setup followed the expected path",
+          promote_to_strategy: false,
+        },
+      },
+    }))
+    assert.equal(response?.ok, true)
+    const event = readFlowEvents(db, "flow-review-handler-1")[0]
+    assert.equal(event.kind, "review")
+    assert.equal(event.body_json.strategy_ref, "S-TREND")
+
+    assert.throws(
+      () => handleRuntimeCommand(db, baseConfig({
+        appendReview: true,
+        input: {
+          event_key: "review-handler-invalid-1",
+          chain_id: "flow-review-handler-1",
+          body_json: {
+            strategy_ref: "S-TREND",
+            outcome: "win",
+            pnl_r: 0.4,
+          },
+        },
+      })),
+      /review.thesis_held/,
+    )
+  } finally {
+    db.close()
+  }
+})
+
 test("runtime command handler returns track dry-run summary with lane conflicts", () => {
   const dir = mkdtempSync(join(tmpdir(), "trade-flow-track-handler-"))
   const db = new Database(":memory:")
@@ -193,6 +241,9 @@ test("evidence command handler can append shadow evidence from DB reviews", () =
         fee_r: 0.01,
         slippage_r: 0.02,
         funding_r: 0,
+        thesis_held: true,
+        key_lesson: "shadow evidence fixture",
+        promote_to_strategy: false,
       },
     })
     db.close()
@@ -225,6 +276,7 @@ function baseConfig(overrides: Partial<CommandConfig>): CommandConfig {
     dbPath: "./data/trade.db",
     init: false,
     appendOrderFill: false,
+    appendReview: false,
     recordExecution: false,
     run: false,
     mode: "dry-run",

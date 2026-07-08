@@ -892,6 +892,74 @@ test("run strategy iteration commands do not create DB unless DB exists", async 
   }
 })
 
+test("run appends review then derives shadow evidence from DB", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "trade-flow-review-evidence-"))
+  const dbPath = join(dir, "trade.db")
+  const strategyPath = join(dir, "s-test.md")
+  const ledgerPath = join(dir, "strategy-evidence.jsonl")
+  try {
+    writeFileSync(strategyPath, "---\nstrategy_id: S-TEST\nname: Test Strategy\nstatus: shadow\ntags: [test]\n---\n\n# Test Strategy\n\nRule v1\n")
+
+    const appendReview = await run([
+      "--db",
+      dbPath,
+      "--append-review",
+      "--json",
+      JSON.stringify({
+        event_key: "review-e2e-1",
+        chain_id: "flow-review-e2e-1",
+        created_at: "2026-07-08T12:00:00Z",
+        body_json: {
+          strategy_ref: "S-TEST",
+          setup_id: "default",
+          outcome: "win",
+          pnl_r: 0.8,
+          fee_r: 0.01,
+          slippage_r: 0.02,
+          funding_r: 0,
+          thesis_held: true,
+          key_lesson: "shadow path followed the setup",
+          promote_to_strategy: false,
+        },
+      }),
+    ])
+    assert.equal(appendReview.ok, true)
+
+    const appendEvidence = await run([
+      "--db",
+      dbPath,
+      "--append-strategy-evidence",
+      "--strategy",
+      strategyPath,
+      "--ledger",
+      ledgerPath,
+      "--json",
+      JSON.stringify({
+        kind: "shadow",
+        from_reviews: true,
+        now: "2026-07-08T12:01:00Z",
+      }),
+    ])
+    assert.equal(appendEvidence.ok, true)
+
+    const reviewResult = await run([
+      "--db",
+      dbPath,
+      "--strategy-review",
+      "--strategy",
+      strategyPath,
+      "--ledger",
+      ledgerPath,
+    ])
+    assert.equal(reviewResult.ok, true)
+    const review = (reviewResult as { ok: true; data: { latest: { shadow: { kind: string; execution_attribution: { total_cost_drag: number } } | null } } }).data
+    assert.equal(review.latest.shadow?.kind, "shadow")
+    assert.equal(review.latest.shadow?.execution_attribution.total_cost_drag, 0.03)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("run rejects unsupported replay strategy id", async () => {
   const dir = mkdtempSync(join(tmpdir(), "trade-flow-replay-unknown-"))
   try {
