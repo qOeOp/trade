@@ -12,6 +12,7 @@ test("fixed trend benchmark beats shuffled timing and CLI does not create trade 
     const datasets = [0, 17, 41].map((offset, index) => ({
       datasetId: ["BTC", "ETH", "SOL"][index],
       manifestPath: writeRegimeManifest(dir, index, offset),
+      indicatorReportPath: writeFundingReport(dir, index, -0.00001 + index * 0.00001),
     }))
     const report = runTrendBenchmark({
       datasets,
@@ -60,11 +61,12 @@ test("calibration suite reports fixed baselines and CLI stays read-only", async 
     const datasets = [0, 17, 41].map((offset, index) => ({
       datasetId: ["BTC", "ETH", "SOL"][index],
       manifestPath: writeRegimeManifest(dir, index, offset),
+      indicatorReportPath: writeFundingReport(dir, index, -0.00001 + index * 0.00001),
     }))
     const report = runCalibrationSuite({ datasets, feeBps: 1, slippageBps: 0, fundingBpsPer8h: 0, randomTrials: 20 }) as {
       purpose: string
       harness_hash: string
-      components: Record<string, { benchmark_id?: string; purpose?: string; execution_attribution?: { average_turnover_per_rebalance: number }; funding_stress_attribution?: { total_funding_drag: number } }>
+      components: Record<string, { benchmark_id?: string; purpose?: string; execution_attribution?: { average_turnover_per_rebalance: number }; funding_stress_attribution?: { total_funding_drag: number }; funding_event_coverage?: { status: string }; historical_funding?: unknown }>
       failure_analysis: { findings: Array<{ check_id: string; next_system_action: string }> }
     }
     assert.equal(report.purpose, "rd_pipeline_calibration_only")
@@ -74,12 +76,14 @@ test("calibration suite reports fixed baselines and CLI stays read-only", async 
     assert.equal(report.components.cross_sectional_relative_strength.benchmark_id, "cross_sectional_relative_strength_v1")
     assert.ok((report.components.time_series_trend.execution_attribution?.average_turnover_per_rebalance ?? -1) >= 0)
     assert.ok((report.components.time_series_trend.funding_stress_attribution?.total_funding_drag ?? -1) >= 0)
+    assert.equal(report.components.time_series_trend.funding_event_coverage?.status, "full")
+    assert.notEqual(report.components.time_series_trend.historical_funding, null)
     assert.ok(report.failure_analysis.findings.some((finding) => finding.check_id === "CAL-SURVIVORSHIP-RISK"))
     assert.ok(report.failure_analysis.findings.every((finding) => finding.next_system_action.length > 0))
 
     const dbPath = join(dir, "trade.db")
     const cli = await run(["--db", dbPath, "--strategy-calibration-suite", "--json", JSON.stringify({
-      datasets: datasets.map((item) => ({ dataset_id: item.datasetId, manifest_path: item.manifestPath })),
+      datasets: datasets.map((item) => ({ dataset_id: item.datasetId, manifest_path: item.manifestPath, indicator_report_path: item.indicatorReportPath })),
       fee_bps: 1, slippage_bps: 0, funding_bps_per_8h: 0, random_trials: 20,
     })])
     assert.equal(cli.ok, true)
@@ -97,6 +101,26 @@ function validDatasets() {
   ]
 }
 
+test("calibration suite flags partial funding coverage instead of using it", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-calibration-funding-"))
+  try {
+    const datasets = [0, 17, 41].map((offset, index) => ({
+      datasetId: ["BTC", "ETH", "SOL"][index],
+      manifestPath: writeRegimeManifest(dir, index, offset),
+      indicatorReportPath: index === 0 ? writeFundingReport(dir, index, 0.00001, 20) : undefined,
+    }))
+    const report = runCalibrationSuite({ datasets, feeBps: 1, slippageBps: 0, fundingBpsPer8h: 0, randomTrials: 20 }) as {
+      components: Record<string, { funding_event_coverage?: { status: string }; historical_funding?: unknown }>
+      failure_analysis: { findings: Array<{ check_id: string }> }
+    }
+    assert.equal(report.components.time_series_trend.funding_event_coverage?.status, "partial")
+    assert.equal(report.components.time_series_trend.historical_funding, null)
+    assert.ok(report.failure_analysis.findings.some((finding) => finding.check_id === "CAL-FUNDING-COVERAGE"))
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 function writeRegimeManifest(root: string, asset: number, phase: number): string {
   const dir = join(root, String(asset))
   mkdirSync(dir, { recursive: true })
@@ -112,4 +136,16 @@ function writeRegimeManifest(root: string, asset: number, phase: number): string
   const manifestPath = join(dir, "manifest.json")
   writeFileSync(manifestPath, JSON.stringify({ symbol: `ASSET${asset}`, timeframes: { "4h": { file: "4h.csv" } } }))
   return manifestPath
+}
+
+function writeFundingReport(root: string, asset: number, rate: number, count = 750): string {
+  const dir = join(root, String(asset))
+  mkdirSync(dir, { recursive: true })
+  const events = Array.from({ length: count }, (_, index) => ({
+    timestamp: new Date(1_600_000_000_000 + index * 28_800_000).toISOString(),
+    value: rate,
+  }))
+  const path = join(dir, "factors.json")
+  writeFileSync(path, JSON.stringify({ data: { market_events: { funding: events } } }))
+  return path
 }

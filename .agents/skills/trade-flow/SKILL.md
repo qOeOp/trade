@@ -67,7 +67,7 @@ latest_observe.action_intent.request
   - `--strategy-rnd-campaign --json <payload>`：依次运行 hypothesis queue；未产生 discovery winner 才继续下一假设；首个 winner 冻结后只查看一次不重叠 locked holdout，通过即返回，失败即结束 campaign
   - `--strategy-panel-rnd --json <payload>`：同一候选在至少三个资产上复用统一 replay，保留逐资产证据并执行样本、广度、OOS、成本与灾难损失门槛
   - `--strategy-benchmark --json <payload>`：运行固定 30/90/180 日、15% 目标波动的多资产趋势基准、成本/资金费压力、时间折和组合权重循环移位负对照；只标定研究管线
-  - `--strategy-calibration-suite --json <payload>`：运行 buy-and-hold / cash baseline、固定趋势基准、固定横截面强弱基准，并输出 beta、成本、funding、换手、暴露、时间稳定性、负对照与数据广度诊断；只回答 R&D 管线该先修哪里
+  - `--strategy-calibration-suite --json <payload>`：运行 buy-and-hold / cash baseline、固定趋势基准、固定横截面强弱基准，并可消费 dataset `indicator_report_path` 中的 exact funding events，输出 beta、成本、funding、换手、暴露、时间稳定性、负对照与数据广度诊断；只回答 R&D 管线该先修哪里
   - `--strategy-signal --json <payload>`：用最新闭合 K 线与传入 `entry_price` 评估 candidate，并返回稳定 candidate hash；只返回 `entry / no_action`，不写 DB、不执行
   - `--append-strategy-evidence --strategy <path> --ledger <path> --json <payload>`：把 replay / shadow / live-small / review_batch 证据追加进 JSONL ledger
   - `--strategy-review --strategy <path> --ledger <path> [--db <path>]`：读取 strategy、evidence ledger 和可选 DB review，生成迭代报告
@@ -97,7 +97,7 @@ latest_observe.action_intent.request
 - discovery winner 含 indicator filter 时必须提供独立 `validation_indicator_report_path`，不得拿 discovery feature series 验证
 - campaign 产出的 `validated_candidate_found` 仍只是待写 strategy policy 的候选，不自动进入 strategy evidence、shadow 或实盘
 - `--strategy-benchmark` 固定规则且禁止参数搜索；结果只回答管线能否识别已知机制，不是策略准入证据，不进入 shadow / live
-- `--strategy-calibration-suite` 固定规则且禁止参数搜索；buy-and-hold 只做 beta 诊断，`execution_attribution / failure_analysis` 用来暴露系统问题和下一步修复动作，suite 结果不进入 strategy evidence 或 promotion gate
+- `--strategy-calibration-suite` 固定规则且禁止参数搜索；buy-and-hold 只做 beta 诊断，`execution_attribution / failure_analysis` 用来暴露系统问题和下一步修复动作；exact funding 覆盖不足只触发 `CAL-FUNDING-COVERAGE`，不得伪装成历史 funding 结果；suite 结果不进入 strategy evidence 或 promotion gate
 - replay 与 `--strategy-signal` 调用同一 family：replay 注入下一根 open，在线评估注入当前可成交报价；family 不得读取未来 K 线
 - `--strategy-signal` 默认要求最后一根闭合 K 线距当前不超过 1 个周期；陈旧或尚未闭合的数据直接拒绝
 - factor 发现、目录、解释和计算由 `tech-indicators` descriptor 提供；trade-flow 只消费稳定 `factor_id` 与 feature series，不硬编码 indicator 名称

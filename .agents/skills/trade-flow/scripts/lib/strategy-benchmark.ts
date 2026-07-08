@@ -5,7 +5,16 @@ import { loadCandlesFromManifest, replayDataHash, type Candle } from "./replay-c
 
 type JSONRecord = Record<string, unknown>
 
-interface BenchmarkDataset { datasetId: string; manifestPath: string }
+interface BenchmarkDataset { datasetId: string; manifestPath: string; indicatorReportPath?: string }
+interface FundingEvent { timestamp: string; value: number }
+interface FundingCoverage {
+  status: "not_provided" | "partial" | "full"
+  missing_dataset_ids: string[]
+  event_counts: Record<string, number>
+  max_gap_hours: number | null
+  first_event: string | null
+  last_event: string | null
+}
 interface TrendBenchmarkInput {
   benchmarkId?: string
   datasets: BenchmarkDataset[]
@@ -72,11 +81,13 @@ function runTrendBenchmark(input: TrendBenchmarkInput): JSONRecord {
   const panel = alignedPanel(input.datasets, timeframe)
   const warmup = Math.max(volatilityBars, ...horizons)
   if (panel.timestamps.length <= warmup + rebalanceBars) throw new Error("trend benchmark has insufficient aligned history")
+  const fundingEvents = panelFundingEvents(input.datasets, panel.timestamps[warmup], panel.timestamps.at(-1)!)
   const weights = buildWeightSchedule(panel.closes, warmup, horizons, volatilityBars, rebalanceBars, timeframe)
   const costBps = feeBps + slippageBps
   const observed = simulate(panel, weights, warmup, rebalanceBars, costBps, 0, timeframe)
   const stressed = simulate(panel, weights, warmup, rebalanceBars, costBps + 5, 0, timeframe)
   const fundingStressed = simulate(panel, weights, warmup, rebalanceBars, costBps, fundingStressBps, timeframe)
+  const historicalFunding = fundingEvents.coverage.status === "full" ? simulate(panel, weights, warmup, rebalanceBars, costBps, 0, timeframe, fundingEvents.eventsByAsset) : null
   const randomSharpes: number[] = []
   for (let trial = 0; trial < randomTrials; trial += 1) {
     randomSharpes.push(simulate(panel, circularShift(weights, trial + 1), warmup, rebalanceBars, costBps, 0, timeframe).stats.sharpe)
@@ -94,7 +105,7 @@ function runTrendBenchmark(input: TrendBenchmarkInput): JSONRecord {
     purpose: "rd_pipeline_calibration_only",
     calibrated: blockedBy.length === 0,
     blocked_by: blockedBy,
-    datasets: input.datasets.map((item, index) => ({ dataset_id: item.datasetId, manifest_ref: item.manifestPath, data_hash: replayDataHash(item.manifestPath, timeframe), aligned_rows: panel.closes[index].length })),
+    datasets: input.datasets.map((item, index) => ({ dataset_id: item.datasetId, manifest_ref: item.manifestPath, data_hash: datasetDataHash(item, timeframe), aligned_rows: panel.closes[index].length })),
     period: { first: new Date(panel.timestamps[warmup]).toISOString(), last: new Date(panel.timestamps.at(-1)!).toISOString() },
     assumptions: { timeframe, horizon_bars: horizons, volatility_bars: volatilityBars, rebalance_bars: rebalanceBars, inverse_volatility_weighting: true, target_annual_volatility: 0.15, max_gross_exposure: 1, fee_bps: feeBps, slippage_bps: slippageBps, adverse_funding_stress_bps_per_8h: fundingStressBps, parameter_search: false },
     observed: observed.stats,
@@ -104,6 +115,9 @@ function runTrendBenchmark(input: TrendBenchmarkInput): JSONRecord {
     cost_stress_attribution: stressed.attribution,
     funding_stress: fundingStressed.stats,
     funding_stress_attribution: fundingStressed.attribution,
+    funding_event_coverage: fundingEvents.coverage,
+    historical_funding: historicalFunding?.stats ?? null,
+    historical_funding_attribution: historicalFunding?.attribution ?? null,
     null_control: { method: "portfolio_weight_circular_time_shift", trials: randomTrials, empirical_p_value: round(empiricalP), median_sharpe: round(quantile(randomSharpes, 0.5)), p95_sharpe: round(quantile(randomSharpes, 0.95)) },
     notes: ["Calibration does not authorize strategy promotion or live trading.", "Current-symbol panels carry survivorship bias and are insufficient as final strategy evidence."],
   }
@@ -158,11 +172,13 @@ function runRelativeStrengthBenchmark(input: TrendBenchmarkInput): JSONRecord {
   const panel = alignedPanel(input.datasets, timeframe)
   const warmup = Math.max(lookbackBars, volatilityBars)
   if (panel.timestamps.length <= warmup + rebalanceBars) throw new Error("relative strength benchmark has insufficient aligned history")
+  const fundingEvents = panelFundingEvents(input.datasets, panel.timestamps[warmup], panel.timestamps.at(-1)!)
   const weights = buildRelativeStrengthSchedule(panel.closes, warmup, lookbackBars, volatilityBars, rebalanceBars, timeframe)
   const costBps = feeBps + slippageBps
   const observed = simulate(panel, weights, warmup, rebalanceBars, costBps, 0, timeframe)
   const stressed = simulate(panel, weights, warmup, rebalanceBars, costBps + 5, 0, timeframe)
   const fundingStressed = simulate(panel, weights, warmup, rebalanceBars, costBps, fundingStressBps, timeframe)
+  const historicalFunding = fundingEvents.coverage.status === "full" ? simulate(panel, weights, warmup, rebalanceBars, costBps, 0, timeframe, fundingEvents.eventsByAsset) : null
   const randomSharpes = Array.from({ length: randomTrials }, (_, trial) => simulate(panel, circularShift(weights, trial + 17), warmup, rebalanceBars, costBps, 0, timeframe).stats.sharpe)
   const empiricalP = (1 + randomSharpes.filter((value) => value >= observed.stats.sharpe).length) / (randomTrials + 1)
   const folds = chronologicalFolds(observed.returns, 3, timeframe)
@@ -177,7 +193,7 @@ function runRelativeStrengthBenchmark(input: TrendBenchmarkInput): JSONRecord {
     purpose: "rd_pipeline_calibration_only",
     calibrated: blockedBy.length === 0,
     blocked_by: blockedBy,
-    datasets: input.datasets.map((item, index) => ({ dataset_id: item.datasetId, manifest_ref: item.manifestPath, data_hash: replayDataHash(item.manifestPath, timeframe), aligned_rows: panel.closes[index].length })),
+    datasets: input.datasets.map((item, index) => ({ dataset_id: item.datasetId, manifest_ref: item.manifestPath, data_hash: datasetDataHash(item, timeframe), aligned_rows: panel.closes[index].length })),
     period: { first: new Date(panel.timestamps[warmup]).toISOString(), last: new Date(panel.timestamps.at(-1)!).toISOString() },
     assumptions: { timeframe, lookback_bars: lookbackBars, volatility_bars: volatilityBars, rebalance_bars: rebalanceBars, long_top_fraction: 1 / 3, short_bottom_fraction: 1 / 3, target_annual_volatility: 0.15, max_gross_exposure: 1, fee_bps: feeBps, slippage_bps: slippageBps, adverse_funding_stress_bps_per_8h: fundingStressBps, parameter_search: false },
     observed: observed.stats,
@@ -187,6 +203,9 @@ function runRelativeStrengthBenchmark(input: TrendBenchmarkInput): JSONRecord {
     cost_stress_attribution: stressed.attribution,
     funding_stress: fundingStressed.stats,
     funding_stress_attribution: fundingStressed.attribution,
+    funding_event_coverage: fundingEvents.coverage,
+    historical_funding: historicalFunding?.stats ?? null,
+    historical_funding_attribution: historicalFunding?.attribution ?? null,
     null_control: { method: "portfolio_weight_circular_time_shift", trials: randomTrials, empirical_p_value: round(empiricalP), median_sharpe: round(quantile(randomSharpes, 0.5)), p95_sharpe: round(quantile(randomSharpes, 0.95)) },
   }
 }
@@ -254,9 +273,20 @@ function componentFindings(component: string, report: JSONRecord): DiagnosticFin
   const stats = asStats(report.observed)
   const cost = asStats(report.cost_stress)
   const funding = asStats(report.funding_stress)
+  const historicalFunding = asStats(report.historical_funding)
   const nullControl = asRecord(report.null_control)
+  const fundingCoverage = asRecord(report.funding_event_coverage)
   const folds = array(report.chronological_folds).map(asStats)
   const findings: DiagnosticFinding[] = []
+  if (stringField(fundingCoverage.status) !== "full") {
+    findings.push({
+      check_id: "CAL-FUNDING-COVERAGE",
+      severity: "warning",
+      component,
+      evidence: fundingCoverage,
+      next_system_action: "Backfill exact funding events before interpreting perpetual funding fragility.",
+    })
+  }
   if (stats.sharpe < 0.5 || stats.total_return <= 0) {
     findings.push({
       check_id: "CAL-EDGE-WEAK",
@@ -292,6 +322,15 @@ function componentFindings(component: string, report: JSONRecord): DiagnosticFin
       component,
       evidence: { observed_total_return: stats.total_return, funding_stress_total_return: funding.total_return, total_funding_drag: numberField(asRecord(report.funding_stress_attribution).total_funding_drag) },
       next_system_action: "Integrate exact funding coverage into calibration before using perpetual-only results.",
+    })
+  }
+  if (stringField(fundingCoverage.status) === "full" && historicalFunding.total_return <= 0) {
+    findings.push({
+      check_id: "CAL-HISTORICAL-FUNDING-FRAGILE",
+      severity: "warning",
+      component,
+      evidence: { historical_funding_total_return: historicalFunding.total_return, total_funding_drag: numberField(asRecord(report.historical_funding_attribution).total_funding_drag) },
+      next_system_action: "Decide whether funding is a tradable filter, hedge input, or strategy veto before R&D search.",
     })
   }
   const negativeFolds = folds.filter((fold) => fold.total_return <= 0)
@@ -354,7 +393,7 @@ function buildWeightSchedule(closes: number[][], warmup: number, horizons: numbe
   return weights
 }
 
-function simulate(panel: { timestamps: number[]; closes: number[][] }, schedule: number[][], warmup: number, rebalanceBars: number, costBps: number, fundingBps: number, timeframe: string): { stats: PortfolioStats; returns: number[]; attribution: SimulationAttribution } {
+function simulate(panel: { timestamps: number[]; closes: number[][] }, schedule: number[][], warmup: number, rebalanceBars: number, costBps: number, fundingBps: number, timeframe: string, fundingEventsByAsset: FundingEvent[][] = []): { stats: PortfolioStats; returns: number[]; attribution: SimulationAttribution } {
   const returns: number[] = []
   const grossReturns: number[] = []
   let weights = Array(panel.closes.length).fill(0) as number[]
@@ -364,6 +403,7 @@ function simulate(panel: { timestamps: number[]; closes: number[][] }, schedule:
   let totalFundingDrag = 0
   let grossExposureSum = 0
   let rebalanceCount = 0
+  const fundingOffsets = fundingEventsByAsset.map(() => 0)
   for (let index = warmup + 1; index < panel.timestamps.length; index += 1) {
     let turnover = 0
     if ((index - warmup - 1) % rebalanceBars === 0 && scheduleIndex < schedule.length) {
@@ -376,7 +416,9 @@ function simulate(panel: { timestamps: number[]; closes: number[][] }, schedule:
     const grossReturn = weights.reduce((sum, weight, asset) => sum + weight * (panel.closes[asset][index] / panel.closes[asset][index - 1] - 1), 0)
     const grossExposure = weights.reduce((sum, value) => sum + Math.abs(value), 0)
     const cost = turnover * costBps / 10000
-    const funding = grossExposure * fundingBps / 10000 * timeframeHours(timeframe) / 8
+    const funding = fundingEventsByAsset.length > 0
+      ? historicalFundingDrag(weights, fundingEventsByAsset, fundingOffsets, panel.timestamps[index - 1], panel.timestamps[index])
+      : grossExposure * fundingBps / 10000 * timeframeHours(timeframe) / 8
     grossReturns.push(grossReturn)
     returns.push(grossReturn - cost - funding)
     totalTurnover += turnover
@@ -425,7 +467,14 @@ function strategyBenchmarkInputFromJson(value: JSONRecord): TrendBenchmarkInput 
     benchmarkId: stringField(value.benchmark_id ?? value.benchmarkId) || undefined,
     timeframe: stringField(value.timeframe) || undefined,
     feeBps: optionalNumber(value.fee_bps ?? value.feeBps), slippageBps: optionalNumber(value.slippage_bps ?? value.slippageBps), fundingBpsPer8h: optionalNumber(value.funding_bps_per_8h ?? value.fundingBpsPer8h), randomTrials: optionalNumber(value.random_trials ?? value.randomTrials),
-    datasets: array(value.datasets).map((raw) => { const item = asRecord(raw); return { datasetId: stringField(item.dataset_id ?? item.datasetId), manifestPath: stringField(item.manifest_path ?? item.manifestPath) } }),
+    datasets: array(value.datasets).map((raw) => {
+      const item = asRecord(raw)
+      return {
+        datasetId: stringField(item.dataset_id ?? item.datasetId),
+        manifestPath: stringField(item.manifest_path ?? item.manifestPath),
+        indicatorReportPath: stringField(item.indicator_report_path ?? item.indicatorReportPath ?? item.funding_report_path ?? item.fundingReportPath) || undefined,
+      }
+    }),
   }
 }
 
@@ -437,6 +486,57 @@ function strategyCalibrationInputFromJson(value: JSONRecord): CalibrationSuiteIn
 }
 
 function benchmarkHarnessHash(): string { return createHash("sha256").update(readFileSync(fileURLToPath(import.meta.url))).digest("hex") }
+function datasetDataHash(dataset: BenchmarkDataset, timeframe: string): string { return replayDataHash(dataset.manifestPath, timeframe, dataset.indicatorReportPath ? [dataset.indicatorReportPath] : []) }
+function panelFundingEvents(datasets: BenchmarkDataset[], firstTimestamp: number, lastTimestamp: number): { coverage: FundingCoverage; eventsByAsset: FundingEvent[][] } {
+  const eventsByAsset = datasets.map((dataset) => loadFundingEvents(dataset.indicatorReportPath))
+  const missing = datasets.filter((dataset, index) => !dataset.indicatorReportPath || eventsByAsset[index].length === 0).map((dataset) => dataset.datasetId)
+  if (missing.length === datasets.length) return { eventsByAsset, coverage: fundingCoverage("not_provided", datasets, eventsByAsset, missing) }
+  const allEvents = eventsByAsset.flat().map((event) => Date.parse(event.timestamp)).filter(Number.isFinite).sort((a, b) => a - b)
+  const maxGapHours = maxFundingGapHours(eventsByAsset)
+  const firstEvent = allEvents[0]
+  const lastEvent = allEvents.at(-1)
+  const incomplete = missing.length > 0 || !firstEvent || !lastEvent || firstEvent > firstTimestamp + 9 * 3_600_000 || lastEvent < lastTimestamp - 9 * 3_600_000 || maxGapHours > 9
+  return { eventsByAsset, coverage: fundingCoverage(incomplete ? "partial" : "full", datasets, eventsByAsset, missing, maxGapHours, firstEvent, lastEvent) }
+}
+function fundingCoverage(status: FundingCoverage["status"], datasets: BenchmarkDataset[], eventsByAsset: FundingEvent[][], missing: string[], maxGapHours: number | null = null, firstEvent?: number, lastEvent?: number): FundingCoverage {
+  return {
+    status,
+    missing_dataset_ids: missing,
+    event_counts: Object.fromEntries(datasets.map((dataset, index) => [dataset.datasetId, eventsByAsset[index].length])),
+    max_gap_hours: maxGapHours === null ? null : round(maxGapHours),
+    first_event: firstEvent ? new Date(firstEvent).toISOString() : null,
+    last_event: lastEvent ? new Date(lastEvent).toISOString() : null,
+  }
+}
+function loadFundingEvents(path?: string): FundingEvent[] {
+  if (!path) return []
+  const report = asRecord(JSON.parse(readFileSync(path, "utf8")))
+  const raw = asRecord(asRecord(report.data).market_events).funding
+  return (Array.isArray(raw) ? raw : []).map((item) => {
+    const record = asRecord(item)
+    return { timestamp: stringField(record.timestamp), value: Number(record.value) }
+  }).filter((item) => item.timestamp && Number.isFinite(item.value)).sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
+}
+function maxFundingGapHours(eventsByAsset: FundingEvent[][]): number {
+  return eventsByAsset.reduce((maxGap, events) => {
+    for (let index = 1; index < events.length; index += 1) {
+      maxGap = Math.max(maxGap, (Date.parse(events[index].timestamp) - Date.parse(events[index - 1].timestamp)) / 3_600_000)
+    }
+    return maxGap
+  }, 0)
+}
+function historicalFundingDrag(weights: number[], eventsByAsset: FundingEvent[][], offsets: number[], previousTimestamp: number, timestamp: number): number {
+  return weights.reduce((sum, weight, asset) => {
+    const events = eventsByAsset[asset]
+    while (offsets[asset] < events.length && Date.parse(events[offsets[asset]].timestamp) <= previousTimestamp) offsets[asset] += 1
+    let funding = 0
+    while (offsets[asset] < events.length && Date.parse(events[offsets[asset]].timestamp) <= timestamp) {
+      funding += events[offsets[asset]].value
+      offsets[asset] += 1
+    }
+    return sum + weight * funding
+  }, 0)
+}
 function timeframeHours(value: string): number { const match = value.match(/^(\d+)([hd])$/); if (!match) throw new Error(`unsupported benchmark timeframe: ${value}`); return Number(match[1]) * (match[2] === "d" ? 24 : 1) }
 function standardDeviation(values: number[]): number { if (values.length < 2) return 0; const mean = values.reduce((sum, value) => sum + value, 0) / values.length; return Math.sqrt(values.reduce((sum, value) => sum + (value - mean) ** 2, 0) / values.length) }
 function quantile(values: number[], probability: number): number { const sorted = [...values].sort((a, b) => a - b); return sorted[Math.min(sorted.length - 1, Math.floor(probability * sorted.length))] ?? 0 }
