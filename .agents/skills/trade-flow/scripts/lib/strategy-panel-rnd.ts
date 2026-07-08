@@ -21,10 +21,40 @@ interface StrategyPanelRndInput {
   oosSplitRatio?: number
 }
 
+interface PanelAssetReport {
+  dataset_id: string
+  symbol: string
+  sample_count: number
+  avg_r: number
+  total_r: number
+  profit_factor: number
+  max_drawdown_r: number
+  oos_positive: boolean
+  cost_stress_positive: boolean
+  null_control_passed: boolean
+  null_control_blocked_by: string[]
+}
+
+interface PanelCandidateReport {
+  candidate_id: string
+  family: string
+  pooled: {
+    sample_count: number
+    avg_r: number
+    total_r: number
+    positive_assets: number
+    asset_count: number
+  }
+  null_controls: JSONRecord
+  panel_null_controls?: JSONRecord
+  assets: PanelAssetReport[]
+  gate: { accepted: boolean; blocked_by: Array<{ check_id: string; reason: string }> }
+}
+
 function runStrategyPanelRnd(input: StrategyPanelRndInput): JSONRecord {
   if (input.datasets.length < 3) throw new Error("strategy panel R&D requires at least three datasets")
   if (input.candidates.length < 1 || input.candidates.length > 10) throw new Error("strategy panel R&D requires 1-10 candidates")
-  const candidates = input.candidates.map((candidate) => {
+  const candidates: PanelCandidateReport[] = input.candidates.map((candidate) => {
     const assets = input.datasets.map((dataset) => {
       const report = runStrategyRndBatch({
         manifestPath: dataset.manifestPath,
@@ -56,7 +86,7 @@ function runStrategyPanelRnd(input: StrategyPanelRndInput): JSONRecord {
         null_control_passed: nullBlocks.length === 0,
         null_control_blocked_by: nullBlocks.map((block) => stringField(block.check_id)).filter(Boolean),
       }
-    })
+    }) as PanelAssetReport[]
     const sampleCount = sum(assets.map((asset) => asset.sample_count))
     const positiveAssets = assets.filter((asset) => asset.avg_r > 0 && asset.total_r > 0).length
     const requiredPositive = Math.ceil(assets.length * 0.6)
@@ -89,6 +119,15 @@ function runStrategyPanelRnd(input: StrategyPanelRndInput): JSONRecord {
       gate: { accepted: blockedBy.length === 0, blocked_by: blockedBy },
     }
   })
+  const panelNullControls = buildPanelAssetShuffleNull(candidates)
+  candidates.forEach((candidate, index) => {
+    const control = panelNullControls[index]
+    candidate.panel_null_controls = control
+    if (stringField(control.status) === "evaluated" && control.passed !== true) {
+      candidate.gate.blocked_by.push({ check_id: "PANEL-ASSET-SHUFFLE", reason: "candidate pooled result does not beat cross-candidate asset shuffle null" })
+      candidate.gate.accepted = false
+    }
+  })
   return {
     panel_id: input.panelId || "strategy-panel-rnd",
     hypothesis: input.hypothesis || "",
@@ -97,6 +136,41 @@ function runStrategyPanelRnd(input: StrategyPanelRndInput): JSONRecord {
     outcome: candidates.some((candidate) => candidate.gate.accepted) ? "candidate_found" : "no_promote",
     candidates,
   }
+}
+
+function buildPanelAssetShuffleNull(candidates: PanelCandidateReport[]): JSONRecord[] {
+  const candidateCount = candidates.length
+  const assetCount = candidates[0]?.assets.length ?? 0
+  if (candidateCount < 2 || assetCount < 3) {
+    return candidates.map((candidate) => ({
+      method: "cross_candidate_asset_shuffle_v1",
+      status: "not_applicable",
+      reason: "requires at least two candidates and three assets",
+      observed_total_r: candidate.pooled.total_r,
+      passed: true,
+    }))
+  }
+  const trials = Math.min(30, Math.max(10, candidateCount * assetCount))
+  return candidates.map((candidate, candidateIndex) => {
+    const nullTotals = Array.from({ length: trials }, (_, trial) => {
+      return round(sum(candidate.assets.map((_, assetIndex) => {
+        const shuffledCandidate = alternateCandidateIndex(candidateIndex, assetIndex, trial, candidateCount)
+        return candidates[shuffledCandidate].assets[assetIndex]?.total_r ?? 0
+      })))
+    }).sort((a, b) => a - b)
+    const p95 = quantile(nullTotals, 0.95)
+    const empirical = round((1 + nullTotals.filter((value) => value >= candidate.pooled.total_r).length) / (nullTotals.length + 1))
+    return {
+      method: "cross_candidate_asset_shuffle_v1",
+      status: "evaluated",
+      trials,
+      observed_total_r: candidate.pooled.total_r,
+      median_total_r: quantile(nullTotals, 0.5),
+      p95_total_r: p95,
+      empirical_p_value: empirical,
+      passed: candidate.pooled.total_r > p95,
+    }
+  })
 }
 
 function strategyPanelRndInputFromJson(value: JSONRecord): StrategyPanelRndInput {
@@ -140,5 +214,13 @@ function stringField(value: unknown): string { return typeof value === "string" 
 function optionalNumber(value: unknown): number | undefined { const number = Number(value); return Number.isFinite(number) ? number : undefined }
 function sum(values: number[]): number { return values.reduce((total, value) => total + value, 0) }
 function round(value: number): number { return Number(value.toFixed(6)) }
+function quantile(values: number[], q: number): number {
+  if (values.length === 0) return 0
+  const index = Math.min(values.length - 1, Math.max(0, Math.ceil(values.length * q) - 1))
+  return round(values[index])
+}
+function alternateCandidateIndex(current: number, assetIndex: number, trial: number, count: number): number {
+  return (current + 1 + ((assetIndex + trial) % (count - 1))) % count
+}
 
 export { runStrategyPanelRnd, strategyPanelRndInputFromJson, type StrategyPanelRndInput }

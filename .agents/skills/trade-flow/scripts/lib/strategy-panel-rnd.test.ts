@@ -17,10 +17,41 @@ test("panel R&D pools samples but keeps per-asset evidence", () => {
     assert.equal(report.dataset_count, 3)
     assert.equal((report.candidates as Array<{ assets: unknown[] }>)[0].assets.length, 3)
     assert.ok(Number((report.candidates as Array<{ pooled: { sample_count: number } }>)[0].pooled.sample_count) > 0)
-    const candidate = (report.candidates as Array<{ null_controls: { method: string; asset_count: number }; assets: Array<{ null_control_passed: boolean }> }>)[0]
+    const candidate = (report.candidates as Array<{ null_controls: { method: string; asset_count: number }; panel_null_controls: { status: string; passed: boolean }; assets: Array<{ null_control_passed: boolean }> }>)[0]
     assert.equal(candidate.null_controls.method, "per_asset_candidate_null_controls")
     assert.equal(candidate.null_controls.asset_count, 3)
+    assert.equal(candidate.panel_null_controls.status, "not_applicable")
+    assert.equal(candidate.panel_null_controls.passed, true)
     assert.equal(candidate.assets.every((asset) => typeof asset.null_control_passed === "boolean"), true)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("panel R&D evaluates cross-candidate asset shuffle null", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-panel-rnd-shuffle-"))
+  try {
+    const manifestPath = writeManifest(dir)
+    const report = runStrategyPanelRnd({
+      panelId: "panel-shuffle-test",
+      datasets: ["BTC", "ETH", "SOL"].map((datasetId) => ({ datasetId, manifestPath })),
+      candidates: [
+        { candidateId: "PANEL-LONG", params: { side: "long" } },
+        { candidateId: "PANEL-SHORT", params: { side: "short" } },
+      ],
+    })
+    const candidates = report.candidates as Array<{
+      candidate_id: string
+      panel_null_controls: { status: string; passed: boolean; p95_total_r: number }
+      gate: { blocked_by: Array<{ check_id: string }> }
+    }>
+    const long = candidates.find((candidate) => candidate.candidate_id === "PANEL-LONG")
+    const short = candidates.find((candidate) => candidate.candidate_id === "PANEL-SHORT")
+    assert.equal(long?.panel_null_controls.status, "evaluated")
+    assert.equal(typeof long?.panel_null_controls.p95_total_r, "number")
+    assert.equal(short?.panel_null_controls.status, "evaluated")
+    assert.equal(long?.panel_null_controls.passed, false)
+    assert.equal(long?.gate.blocked_by.some((item) => item.check_id === "PANEL-ASSET-SHUFFLE"), true)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

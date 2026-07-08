@@ -37,15 +37,15 @@ title: R&D Reliability Roadmap
 ## 5. 负对照层
 
 - 目标：所有 known-edge 和 candidate 都必须战胜合理 null。
-- 当前：calibration 已保留 weight time-shift，并新增 side flip / asset-label shuffle 诊断；candidate batch 已输出 side-flip / entry-lag null controls。
-- 下一块：把多资产 asset-shuffle null 接入 panel/campaign 层。
+- 当前：calibration 已保留 weight time-shift，并新增 side flip / asset-label shuffle 诊断；candidate batch 已输出 side-flip / entry-lag null controls；panel R&D 已输出 cross-candidate asset shuffle null，单候选时显式 `not_applicable`。
+- 下一块：把 panel null 汇总接入 campaign 报告。
 - 完成信号：轻微正收益但未过 null 的候选不会进入下一阶段。
 
 ## 6. R&D 搜索层
 
 - 目标：只有 calibration 过关后才搜索；搜索失败回到系统诊断，不盲目换假设。
 - 当前：`--strategy-rnd-campaign` 可读取 `calibration_report_path`；未校准或含 blocker 时零 trial 停止；candidate batch 已输出 `failure_summary` 与 `reliability_gate`，把样本画像、失败层和继续 trial 权限机器化。
-- 下一块：把多资产 panel 的 asset-shuffle null 接入 campaign 汇总。
+- 下一块：campaign 消费 panel null 汇总，防止 validated candidate 只来自资产选择运气。
 - 完成信号：pipeline 能自动拒绝在未校准环境下扩大 trial budget。
 
 ## 7. Evidence 层
