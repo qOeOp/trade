@@ -32,6 +32,17 @@ interface PortfolioStats {
   max_drawdown: number
 }
 
+interface SimulationAttribution {
+  gross_stats: PortfolioStats
+  net_stats: PortfolioStats
+  total_turnover: number
+  rebalance_count: number
+  average_turnover_per_rebalance: number
+  average_gross_exposure: number
+  total_cost_drag: number
+  total_funding_drag: number
+}
+
 interface DiagnosticFinding {
   check_id: string
   severity: "info" | "warning" | "blocker"
@@ -87,9 +98,12 @@ function runTrendBenchmark(input: TrendBenchmarkInput): JSONRecord {
     period: { first: new Date(panel.timestamps[warmup]).toISOString(), last: new Date(panel.timestamps.at(-1)!).toISOString() },
     assumptions: { timeframe, horizon_bars: horizons, volatility_bars: volatilityBars, rebalance_bars: rebalanceBars, inverse_volatility_weighting: true, target_annual_volatility: 0.15, max_gross_exposure: 1, fee_bps: feeBps, slippage_bps: slippageBps, adverse_funding_stress_bps_per_8h: fundingStressBps, parameter_search: false },
     observed: observed.stats,
+    execution_attribution: observed.attribution,
     chronological_folds: folds,
     cost_stress: stressed.stats,
+    cost_stress_attribution: stressed.attribution,
     funding_stress: fundingStressed.stats,
+    funding_stress_attribution: fundingStressed.attribution,
     null_control: { method: "portfolio_weight_circular_time_shift", trials: randomTrials, empirical_p_value: round(empiricalP), median_sharpe: round(quantile(randomSharpes, 0.5)), p95_sharpe: round(quantile(randomSharpes, 0.95)) },
     notes: ["Calibration does not authorize strategy promotion or live trading.", "Current-symbol panels carry survivorship bias and are insufficient as final strategy evidence."],
   }
@@ -167,9 +181,12 @@ function runRelativeStrengthBenchmark(input: TrendBenchmarkInput): JSONRecord {
     period: { first: new Date(panel.timestamps[warmup]).toISOString(), last: new Date(panel.timestamps.at(-1)!).toISOString() },
     assumptions: { timeframe, lookback_bars: lookbackBars, volatility_bars: volatilityBars, rebalance_bars: rebalanceBars, long_top_fraction: 1 / 3, short_bottom_fraction: 1 / 3, target_annual_volatility: 0.15, max_gross_exposure: 1, fee_bps: feeBps, slippage_bps: slippageBps, adverse_funding_stress_bps_per_8h: fundingStressBps, parameter_search: false },
     observed: observed.stats,
+    execution_attribution: observed.attribution,
     chronological_folds: folds,
     cost_stress: stressed.stats,
+    cost_stress_attribution: stressed.attribution,
     funding_stress: fundingStressed.stats,
+    funding_stress_attribution: fundingStressed.attribution,
     null_control: { method: "portfolio_weight_circular_time_shift", trials: randomTrials, empirical_p_value: round(empiricalP), median_sharpe: round(quantile(randomSharpes, 0.5)), p95_sharpe: round(quantile(randomSharpes, 0.95)) },
   }
 }
@@ -264,7 +281,7 @@ function componentFindings(component: string, report: JSONRecord): DiagnosticFin
       check_id: "CAL-COST-FRAGILE",
       severity: cost.total_return <= 0 ? "blocker" : "warning",
       component,
-      evidence: { observed_total_return: stats.total_return, cost_stress_total_return: cost.total_return },
+      evidence: { observed_total_return: stats.total_return, cost_stress_total_return: cost.total_return, total_turnover: numberField(asRecord(report.cost_stress_attribution).total_turnover), total_cost_drag: numberField(asRecord(report.cost_stress_attribution).total_cost_drag) },
       next_system_action: "Improve turnover, fee, and slippage diagnostics before strategy iteration.",
     })
   }
@@ -273,7 +290,7 @@ function componentFindings(component: string, report: JSONRecord): DiagnosticFin
       check_id: "CAL-FUNDING-FRAGILE",
       severity: "warning",
       component,
-      evidence: { observed_total_return: stats.total_return, funding_stress_total_return: funding.total_return },
+      evidence: { observed_total_return: stats.total_return, funding_stress_total_return: funding.total_return, total_funding_drag: numberField(asRecord(report.funding_stress_attribution).total_funding_drag) },
       next_system_action: "Integrate exact funding coverage into calibration before using perpetual-only results.",
     })
   }
@@ -337,10 +354,16 @@ function buildWeightSchedule(closes: number[][], warmup: number, horizons: numbe
   return weights
 }
 
-function simulate(panel: { timestamps: number[]; closes: number[][] }, schedule: number[][], warmup: number, rebalanceBars: number, costBps: number, fundingBps: number, timeframe: string): { stats: PortfolioStats; returns: number[] } {
+function simulate(panel: { timestamps: number[]; closes: number[][] }, schedule: number[][], warmup: number, rebalanceBars: number, costBps: number, fundingBps: number, timeframe: string): { stats: PortfolioStats; returns: number[]; attribution: SimulationAttribution } {
   const returns: number[] = []
+  const grossReturns: number[] = []
   let weights = Array(panel.closes.length).fill(0) as number[]
   let scheduleIndex = 0
+  let totalTurnover = 0
+  let totalCostDrag = 0
+  let totalFundingDrag = 0
+  let grossExposureSum = 0
+  let rebalanceCount = 0
   for (let index = warmup + 1; index < panel.timestamps.length; index += 1) {
     let turnover = 0
     if ((index - warmup - 1) % rebalanceBars === 0 && scheduleIndex < schedule.length) {
@@ -348,13 +371,34 @@ function simulate(panel: { timestamps: number[]; closes: number[][] }, schedule:
       turnover = next.reduce((sum, value, asset) => sum + Math.abs(value - weights[asset]), 0)
       weights = next
       scheduleIndex += 1
+      rebalanceCount += 1
     }
     const grossReturn = weights.reduce((sum, weight, asset) => sum + weight * (panel.closes[asset][index] / panel.closes[asset][index - 1] - 1), 0)
     const grossExposure = weights.reduce((sum, value) => sum + Math.abs(value), 0)
+    const cost = turnover * costBps / 10000
     const funding = grossExposure * fundingBps / 10000 * timeframeHours(timeframe) / 8
-    returns.push(grossReturn - turnover * costBps / 10000 - funding)
+    grossReturns.push(grossReturn)
+    returns.push(grossReturn - cost - funding)
+    totalTurnover += turnover
+    totalCostDrag += cost
+    totalFundingDrag += funding
+    grossExposureSum += grossExposure
   }
-  return { stats: portfolioStats(returns, timeframe), returns }
+  const stats = portfolioStats(returns, timeframe)
+  return {
+    stats,
+    returns,
+    attribution: {
+      gross_stats: portfolioStats(grossReturns, timeframe),
+      net_stats: stats,
+      total_turnover: round(totalTurnover),
+      rebalance_count: rebalanceCount,
+      average_turnover_per_rebalance: round(totalTurnover / Math.max(1, rebalanceCount)),
+      average_gross_exposure: round(grossExposureSum / Math.max(1, returns.length)),
+      total_cost_drag: round(totalCostDrag),
+      total_funding_drag: round(totalFundingDrag),
+    },
+  }
 }
 
 function circularShift<T>(values: T[], seed: number): T[] {

@@ -64,7 +64,7 @@ test("calibration suite reports fixed baselines and CLI stays read-only", async 
     const report = runCalibrationSuite({ datasets, feeBps: 1, slippageBps: 0, fundingBpsPer8h: 0, randomTrials: 20 }) as {
       purpose: string
       harness_hash: string
-      components: Record<string, { benchmark_id?: string; purpose?: string }>
+      components: Record<string, { benchmark_id?: string; purpose?: string; execution_attribution?: { average_turnover_per_rebalance: number }; funding_stress_attribution?: { total_funding_drag: number } }>
       failure_analysis: { findings: Array<{ check_id: string; next_system_action: string }> }
     }
     assert.equal(report.purpose, "rd_pipeline_calibration_only")
@@ -72,6 +72,8 @@ test("calibration suite reports fixed baselines and CLI stays read-only", async 
     assert.equal(report.components.buy_and_hold_baseline.benchmark_id, "first_dataset_buy_and_hold_v1")
     assert.equal(report.components.time_series_trend.purpose, "rd_pipeline_calibration_only")
     assert.equal(report.components.cross_sectional_relative_strength.benchmark_id, "cross_sectional_relative_strength_v1")
+    assert.ok((report.components.time_series_trend.execution_attribution?.average_turnover_per_rebalance ?? -1) >= 0)
+    assert.ok((report.components.time_series_trend.funding_stress_attribution?.total_funding_drag ?? -1) >= 0)
     assert.ok(report.failure_analysis.findings.some((finding) => finding.check_id === "CAL-SURVIVORSHIP-RISK"))
     assert.ok(report.failure_analysis.findings.every((finding) => finding.next_system_action.length > 0))
 
