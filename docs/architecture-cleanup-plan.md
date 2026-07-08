@@ -603,15 +603,20 @@ Binance facts
 - 研究侧 selection / failure summary 拆分：
   - `lib/strategy-rnd-selection.ts`：winner selection、rank reversal audit、blocker summary、failure area、next action 独立。
   - `lib/strategy-rnd-selection.test.ts`：锁定 unstable selection blocker、accepted candidate ranking、failure summary 与 action 建议。
+- 研究侧 candidate source 拆分：
+  - `lib/strategy-rnd-candidates.ts`：feature store load、candidate id 校验、provided / bounded composition / scientific discovery 候选来源、campaign candidate count、setup-conditioned factor research 独立。
+  - `lib/strategy-rnd-candidates.test.ts`：锁定 duplicate/empty candidate id、候选来源分类、factor condition 注入、campaign 计数与 discovery 约束。
+- 外部 skill runner fixture：
+  - `lib/live-execution.test.ts`：锁定 live-small 调用 `binance-order-place` 的 cwd、命令参数、失败不写 `order_fill`。
+  - `lib/recovery-flow.test.ts`：锁定 reconcile 调用 `binance-account-snapshot` 的 cwd、history 参数、snapshot 失败不 apply。
 
 验证：
 
 - `.agents/skills/trade-flow`: `bun run typecheck`
-- `.agents/skills/trade-flow`: `bun run test`，124 pass / 0 fail
+- `.agents/skills/trade-flow`: `bun run test`，132 pass / 0 fail
 - repo root: `git diff --check`
 
 下一步：
 
-- 继续补 live-small / reconcile-from-skills 的注入式 runner fixture，避免外部 skill 调用路径漂移。
-- 继续按 research domain 拆 `strategy-rnd.ts` 的 factor research / candidate resolution 子模块。
+- 继续按 research domain 评估 `strategy-rnd.ts` 是否只剩 loop / batch orchestrator，必要时拆 batch report assembly。
 - 再评估是否把 `strategy-benchmark.ts` 的 calibration report / panel diagnostics / simulation 子模块继续下钻拆分。

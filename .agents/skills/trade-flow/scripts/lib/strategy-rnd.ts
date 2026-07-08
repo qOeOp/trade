@@ -1,19 +1,11 @@
 import { randomUUID } from "node:crypto"
-import { readFileSync } from "node:fs"
 import { join } from "node:path"
 import {
   hashCanonical,
   evaluateLatestSignal,
-  loadCandlesFromManifest,
   replayDataHash,
-  replayStrategy,
 } from "./replay-core"
-import {
-  composeFactorCandidates,
-  loadFactorFeatureStore,
-  type FactorFeatureStore,
-} from "./factor-engine"
-import { researchFactorSeeds, type FactorResearchReport } from "./factor-research"
+import type { FactorResearchReport } from "./factor-research"
 import { getRndFamily } from "./rnd-family"
 import {
   strategyRndBatchInputFromJson,
@@ -39,8 +31,6 @@ import {
   type StrategyRndLedgerRecord,
 } from "./strategy-rnd-ledger"
 import {
-  emptyFeatureStore,
-  loadFundingEvents,
   runCandidate,
   type StrategyRndCandidateReport,
 } from "./strategy-rnd-evaluation"
@@ -55,6 +45,13 @@ import {
   runStrategyRndCampaignWithDeps,
   type StrategyRndCampaignReport,
 } from "./strategy-rnd-campaign"
+import {
+  assertUniqueCandidateIds,
+  buildFactorResearch,
+  loadStrategyRndFeatureStore,
+  resolveCandidateCount,
+  resolveRndCandidates,
+} from "./strategy-rnd-candidates"
 
 type JSONRecord = Record<string, unknown>
 interface StrategyRndBatchReport {
@@ -93,7 +90,7 @@ function evaluateRndSignal(input: StrategyRndSignalInput): JSONRecord {
     throw new Error("strategy signal requires manifestPath and candidate")
   }
   const family = input.candidate.family || "trend_pullback_v1"
-  const store = input.indicatorReportPath ? loadFactorFeatureStore(input.indicatorReportPath) : emptyFeatureStore()
+  const store = loadStrategyRndFeatureStore(input.indicatorReportPath)
   const configured = getRndFamily(family).configure(input.candidate.candidateId, input.candidate.params || {}, store)
   return {
     candidate_id: input.candidate.candidateId,
@@ -114,7 +111,7 @@ function runStrategyRndBatch(input: StrategyRndBatchInput): StrategyRndBatchRepo
   if (!input.manifestPath) {
     throw new Error("strategy R&D batch requires manifestPath")
   }
-  const featureStore = input.indicatorReportPath ? loadFactorFeatureStore(input.indicatorReportPath) : emptyFeatureStore()
+  const featureStore = loadStrategyRndFeatureStore(input.indicatorReportPath)
   const factorResearch = buildFactorResearch(input, featureStore)
   const resolved = resolveRndCandidates(input, factorResearch)
   const candidates = resolved.candidates
@@ -155,36 +152,6 @@ function runStrategyRndBatch(input: StrategyRndBatchInput): StrategyRndBatchRepo
       ? "Draft a strategy policy for the winning candidate, then append replay evidence and run strategy-review before any shadow promotion."
       : failureSummary.next_system_actions[0] || "Stop this hypothesis batch; predeclare a new edge hypothesis before running more trials.",
   }
-}
-
-function assertUniqueCandidateIds(candidates: StrategyRndCandidateInput[]): void {
-  const seen = new Set<string>()
-  for (const candidate of candidates) {
-    if (!candidate.candidateId || seen.has(candidate.candidateId)) {
-      throw new Error(`strategy R&D candidate_id must be unique: ${candidate.candidateId || "<empty>"}`)
-    }
-    seen.add(candidate.candidateId)
-  }
-}
-
-function resolveRndCandidates(
-  input: StrategyRndBatchInput,
-  factorResearch: FactorResearchReport | null,
-): { candidates: StrategyRndCandidateInput[]; source: CandidateSource } {
-  const bases = input.candidates
-  if (!input.factorCompose) {
-    return {
-      candidates: bases,
-      source: "provided",
-    }
-  }
-  const seeds = input.factorSeeds && input.factorSeeds.length > 0 ? input.factorSeeds : factorResearch?.seeds || []
-  const candidates = composeFactorCandidates(bases, seeds, {
-    maxCandidates: 10,
-    maxFactorsPerCandidate: input.maxFactorsPerCandidate,
-    maxParameterCount: 8,
-  }) as StrategyRndCandidateInput[]
-  return { candidates, source: factorResearch ? "scientific_factor_discovery" : "bounded_factor_composition" }
 }
 
 function runStrategyRndLoop(input: StrategyRndLoopInput): StrategyRndLoopReport {
@@ -232,50 +199,6 @@ function runStrategyRndCampaign(input: StrategyRndCampaignInput): StrategyRndCam
     runLoop: runStrategyRndLoop,
     resolveCandidateCount,
   })
-}
-
-function resolveCandidateCount(input: StrategyRndBatchInput): number {
-  const featureStore = input.indicatorReportPath ? loadFactorFeatureStore(input.indicatorReportPath) : emptyFeatureStore()
-  const count = resolveRndCandidates(input, buildFactorResearch(input, featureStore)).candidates.length
-  if (count === 0 && !input.factorDiscover) {
-    throw new Error("strategy R&D campaign hypothesis requires at least one candidate")
-  }
-  return count
-}
-
-function buildFactorResearch(input: StrategyRndBatchInput, featureStore: FactorFeatureStore): FactorResearchReport | null {
-  if (!input.factorDiscover || !input.indicatorReportPath) {
-    return null
-  }
-  if (input.candidates.length !== 1) {
-    throw new Error("setup-conditioned factor discovery requires exactly one base candidate")
-  }
-  const timeframe = input.timeframe || "4h"
-  const base = input.candidates[0]
-  const configured = getRndFamily(base.family || "trend_pullback_v1").configure(base.candidateId, base.params || {}, featureStore)
-  const setupReplay = replayStrategy(configured.strategy, {
-    manifestPath: input.manifestPath,
-    timeframe,
-    maxHoldBars: input.maxHoldBars,
-    rewardRisk: configured.rewardRisk,
-    feeBps: input.feeBps,
-    slippageBps: input.slippageBps,
-    fundingBpsPer8h: input.fundingBpsPer8h,
-    fundingEvents: loadFundingEvents(input.indicatorReportPath),
-  })
-  return researchFactorSeeds(
-    featureStore,
-    loadCandlesFromManifest(
-      input.manifestPath,
-      JSON.parse(readFileSync(input.manifestPath, "utf8")) as JSONRecord,
-      timeframe,
-    ),
-    timeframe,
-    {
-      ...input.factorResearchOptions,
-      targets: setupReplay.trades.map((trade) => ({ timestamp: trade.signal_time, value: trade.r, regime: trade.regime })),
-    },
-  )
 }
 
 export {
