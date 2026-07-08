@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
-import { loadCandlesFromManifest, replayDataHash, type Candle } from "./replay-core"
+import { hashCanonical, loadCandlesFromManifest, replayDataHash, type Candle } from "./replay-core"
 
 type JSONRecord = Record<string, unknown>
 
@@ -66,6 +66,7 @@ interface TrendBenchmarkInput {
 
 interface CalibrationSuiteInput extends TrendBenchmarkInput {
   suiteId?: string
+  previousCalibrationReportPath?: string
 }
 
 interface PortfolioStats {
@@ -177,7 +178,7 @@ function runCalibrationSuite(input: CalibrationSuiteInput): JSONRecord {
   const blockedBy: Array<{ check_id: string; reason: string }> = []
   if (!booleanField(trend.calibrated)) blockedBy.push({ check_id: "CAL-TREND", reason: "fixed time-series trend benchmark is not calibrated" })
   if (!booleanField(relativeStrength.calibrated)) blockedBy.push({ check_id: "CAL-RELATIVE-STRENGTH", reason: "fixed cross-sectional relative strength benchmark is not calibrated" })
-  return {
+  const report: JSONRecord = {
     calibration_suite_id: input.suiteId || "known_edge_calibration_v1",
     harness_hash: benchmarkHarnessHash(),
     purpose: "rd_pipeline_calibration_only",
@@ -199,6 +200,11 @@ function runCalibrationSuite(input: CalibrationSuiteInput): JSONRecord {
       next_system_actions: [...new Set(findings.map((finding) => finding.next_system_action))],
     },
     notes: ["Calibration suite never authorizes shadow, live-small, or live trading."],
+  }
+  return {
+    ...report,
+    report_hash: calibrationReportHash(report),
+    previous_run_comparison: input.previousCalibrationReportPath ? compareCalibrationReports(report, input.previousCalibrationReportPath) : null,
   }
 }
 
@@ -287,6 +293,46 @@ function buyAndHoldBaseline(panel: { timestamps: number[]; closes: number[][] },
     assumptions: { timeframe, transaction_costs: false, parameter_search: false },
     observed: portfolioStats(returns, timeframe),
   }
+}
+
+function calibrationReportHash(report: JSONRecord): string {
+  const { report_hash: _reportHash, previous_run_comparison: _comparison, ...stable } = report
+  return hashCanonical(stable)
+}
+
+function compareCalibrationReports(current: JSONRecord, previousPath: string): JSONRecord {
+  const previous = readCalibrationReport(previousPath)
+  const currentBlockers = findingIds(current, "blocker")
+  const previousBlockers = findingIds(previous, "blocker")
+  return {
+    previous_report_ref: previousPath,
+    previous_report_hash: stringField(previous.report_hash) || calibrationReportHash(previous),
+    current_report_hash: calibrationReportHash(current),
+    harness_changed: stringField(previous.harness_hash) !== stringField(current.harness_hash),
+    calibrated_changed: previous.calibrated !== current.calibrated,
+    blocker_count_delta: currentBlockers.length - previousBlockers.length,
+    new_blockers: currentBlockers.filter((item) => !previousBlockers.includes(item)),
+    cleared_blockers: previousBlockers.filter((item) => !currentBlockers.includes(item)),
+    data_panel_changed: hashCanonical(previous.data_panel ?? null) !== hashCanonical(current.data_panel ?? null),
+    component_sharpe_delta: {
+      time_series_trend: round(asStats(asRecord(asRecord(current.components).time_series_trend).observed).sharpe - asStats(asRecord(asRecord(previous.components).time_series_trend).observed).sharpe),
+      cross_sectional_relative_strength: round(asStats(asRecord(asRecord(current.components).cross_sectional_relative_strength).observed).sharpe - asStats(asRecord(asRecord(previous.components).cross_sectional_relative_strength).observed).sharpe),
+    },
+  }
+}
+
+function readCalibrationReport(path: string): JSONRecord {
+  const raw = asRecord(JSON.parse(readFileSync(path, "utf8")))
+  return asRecord(raw.data ?? raw)
+}
+
+function findingIds(report: JSONRecord, severity: string): string[] {
+  return array(asRecord(asRecord(report.failure_analysis).findings))
+    .map(asRecord)
+    .filter((finding) => stringField(finding.severity) === severity)
+    .map((finding) => stringField(finding.check_id))
+    .filter(Boolean)
+    .sort()
 }
 
 function calibrationFindings(buyHold: JSONRecord, trend: JSONRecord, relativeStrength: JSONRecord, panel: PanelDiagnostics): DiagnosticFinding[] {
@@ -755,6 +801,7 @@ function strategyCalibrationInputFromJson(value: JSONRecord): CalibrationSuiteIn
   return {
     ...strategyBenchmarkInputFromJson(value),
     suiteId: stringField(value.calibration_suite_id ?? value.suiteId) || undefined,
+    previousCalibrationReportPath: stringField(value.previous_calibration_report_path ?? value.previousCalibrationReportPath) || undefined,
   }
 }
 

@@ -85,12 +85,16 @@ test("calibration suite reports fixed baselines and CLI stays read-only", async 
     const report = runCalibrationSuite({ datasets, feeBps: 1, slippageBps: 0, fundingBpsPer8h: 0, randomTrials: 20 }) as {
       purpose: string
       harness_hash: string
+      report_hash: string
+      previous_run_comparison: unknown
       data_panel: { dataset_count: number; schema_version_ok: boolean; closed_candles_only: boolean; min_aligned_ratio: number }
       components: Record<string, { benchmark_id?: string; purpose?: string; execution_attribution?: { average_turnover_per_rebalance: number; total_fee_drag: number; total_slippage_drag: number }; funding_stress_attribution?: { total_funding_drag: number }; funding_event_coverage?: { status: string }; historical_funding?: unknown; regime_attribution?: { buckets: Array<{ bucket: string }> } }>
       failure_analysis: { findings: Array<{ check_id: string; next_system_action: string }> }
     }
     assert.equal(report.purpose, "rd_pipeline_calibration_only")
     assert.match(report.harness_hash, /^[a-f0-9]{64}$/)
+    assert.match(report.report_hash, /^[a-f0-9]{64}$/)
+    assert.equal(report.previous_run_comparison, null)
     assert.equal(report.data_panel.dataset_count, 3)
     assert.equal(report.data_panel.schema_version_ok, true)
     assert.equal(report.data_panel.closed_candles_only, true)
@@ -107,6 +111,18 @@ test("calibration suite reports fixed baselines and CLI stays read-only", async 
     assert.notEqual(report.components.time_series_trend.historical_funding, null)
     assert.ok(report.failure_analysis.findings.some((finding) => finding.check_id === "CAL-SURVIVORSHIP-RISK"))
     assert.ok(report.failure_analysis.findings.every((finding) => finding.next_system_action.length > 0))
+
+    const previousPath = join(dir, "previous-calibration.json")
+    writeFileSync(previousPath, JSON.stringify(report))
+    const compared = runCalibrationSuite({ datasets, feeBps: 1, slippageBps: 0, fundingBpsPer8h: 0, randomTrials: 20, previousCalibrationReportPath: previousPath }) as {
+      report_hash: string
+      previous_run_comparison: { previous_report_hash: string; current_report_hash: string; blocker_count_delta: number; harness_changed: boolean; data_panel_changed: boolean }
+    }
+    assert.equal(compared.previous_run_comparison.previous_report_hash, report.report_hash)
+    assert.equal(compared.previous_run_comparison.current_report_hash, compared.report_hash)
+    assert.equal(compared.previous_run_comparison.blocker_count_delta, 0)
+    assert.equal(compared.previous_run_comparison.harness_changed, false)
+    assert.equal(compared.previous_run_comparison.data_panel_changed, false)
 
     const dbPath = join(dir, "trade.db")
     const cli = await run(["--db", dbPath, "--strategy-calibration-suite", "--json", JSON.stringify({
