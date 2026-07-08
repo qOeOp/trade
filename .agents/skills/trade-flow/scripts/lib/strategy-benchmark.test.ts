@@ -20,16 +20,22 @@ test("fixed trend benchmark beats shuffled timing and CLI does not create trade 
       horizonBars: [12, 24, 48],
       volatilityBars: 12,
       rebalanceBars: 3,
-      feeBps: 1,
-      slippageBps: 0,
+      makerFeeBps: 0.2,
+      takerFeeBps: 1,
+      marketOrderShare: 0.5,
+      slippageBps: 0.4,
       fundingBpsPer8h: 0,
       randomTrials: 20,
-    }) as { calibrated: boolean; observed: { sharpe: number }; null_control: { p95_sharpe: number; empirical_p_value: number }; datasets: Array<{ data_hash: string }> }
+    }) as { calibrated: boolean; observed: { sharpe: number }; null_control: { p95_sharpe: number; empirical_p_value: number }; datasets: Array<{ data_hash: string }>; execution_attribution: { cost_model: { effective_fee_bps: number; effective_slippage_bps: number }; total_fee_drag: number; total_slippage_drag: number } }
 
     assert.equal(report.calibrated, true)
     assert.ok(report.observed.sharpe > report.null_control.p95_sharpe)
     assert.ok(report.null_control.empirical_p_value <= 0.05)
     assert.match(report.datasets[0].data_hash, /^[a-f0-9]{64}$/)
+    assert.equal(report.execution_attribution.cost_model.effective_fee_bps, 0.6)
+    assert.equal(report.execution_attribution.cost_model.effective_slippage_bps, 0.2)
+    assert.ok(report.execution_attribution.total_fee_drag > 0)
+    assert.ok(report.execution_attribution.total_slippage_drag > 0)
 
     const dbPath = join(dir, "trade.db")
     const cli = await run(["--db", dbPath, "--strategy-benchmark", "--json", JSON.stringify({
@@ -48,12 +54,19 @@ test("benchmark parser keeps the public definition fixed", () => {
   const input = strategyBenchmarkInputFromJson({
     horizon_bars: [12, 24, 48],
     random_trials: 20,
+    maker_fee_bps: 0.2,
+    taker_fee_bps: 1,
+    market_order_share: 0.5,
     datasets: [{ dataset_id: "BTC", manifest_path: "/tmp/btc.json" }],
   })
   assert.equal(input.horizonBars, undefined)
   assert.equal(input.randomTrials, 20)
+  assert.equal(input.makerFeeBps, 0.2)
+  assert.equal(input.takerFeeBps, 1)
+  assert.equal(input.marketOrderShare, 0.5)
   assert.throws(() => runTrendBenchmark({ datasets: [] }), /at least three/)
   assert.throws(() => runTrendBenchmark({ datasets: validDatasets(), feeBps: -1, slippageBps: 2 }), /non-negative/)
+  assert.throws(() => runTrendBenchmark({ datasets: validDatasets(), marketOrderShare: 1.5 }), /between 0 and 1/)
 })
 
 test("calibration suite reports fixed baselines and CLI stays read-only", async () => {
@@ -68,7 +81,7 @@ test("calibration suite reports fixed baselines and CLI stays read-only", async 
       purpose: string
       harness_hash: string
       data_panel: { dataset_count: number; schema_version_ok: boolean; closed_candles_only: boolean; min_aligned_ratio: number }
-      components: Record<string, { benchmark_id?: string; purpose?: string; execution_attribution?: { average_turnover_per_rebalance: number }; funding_stress_attribution?: { total_funding_drag: number }; funding_event_coverage?: { status: string }; historical_funding?: unknown }>
+      components: Record<string, { benchmark_id?: string; purpose?: string; execution_attribution?: { average_turnover_per_rebalance: number; total_fee_drag: number; total_slippage_drag: number }; funding_stress_attribution?: { total_funding_drag: number }; funding_event_coverage?: { status: string }; historical_funding?: unknown }>
       failure_analysis: { findings: Array<{ check_id: string; next_system_action: string }> }
     }
     assert.equal(report.purpose, "rd_pipeline_calibration_only")
@@ -81,6 +94,8 @@ test("calibration suite reports fixed baselines and CLI stays read-only", async 
     assert.equal(report.components.time_series_trend.purpose, "rd_pipeline_calibration_only")
     assert.equal(report.components.cross_sectional_relative_strength.benchmark_id, "cross_sectional_relative_strength_v1")
     assert.ok((report.components.time_series_trend.execution_attribution?.average_turnover_per_rebalance ?? -1) >= 0)
+    assert.ok((report.components.time_series_trend.execution_attribution?.total_fee_drag ?? -1) >= 0)
+    assert.ok((report.components.time_series_trend.execution_attribution?.total_slippage_drag ?? -1) >= 0)
     assert.ok((report.components.time_series_trend.funding_stress_attribution?.total_funding_drag ?? -1) >= 0)
     assert.equal(report.components.time_series_trend.funding_event_coverage?.status, "full")
     assert.notEqual(report.components.time_series_trend.historical_funding, null)

@@ -56,7 +56,10 @@ interface TrendBenchmarkInput {
   volatilityBars?: number
   rebalanceBars?: number
   feeBps?: number
+  makerFeeBps?: number
+  takerFeeBps?: number
   slippageBps?: number
+  marketOrderShare?: number
   fundingBpsPer8h?: number
   randomTrials?: number
 }
@@ -77,12 +80,25 @@ interface PortfolioStats {
 interface SimulationAttribution {
   gross_stats: PortfolioStats
   net_stats: PortfolioStats
+  cost_model: CostModel
   total_turnover: number
   rebalance_count: number
   average_turnover_per_rebalance: number
   average_gross_exposure: number
+  total_fee_drag: number
+  total_slippage_drag: number
   total_cost_drag: number
   total_funding_drag: number
+}
+
+interface CostModel {
+  maker_fee_bps: number
+  taker_fee_bps: number
+  market_order_share: number
+  slippage_bps: number
+  effective_fee_bps: number
+  effective_slippage_bps: number
+  effective_cost_bps: number
 }
 
 interface DiagnosticFinding {
@@ -104,26 +120,24 @@ function runTrendBenchmark(input: TrendBenchmarkInput): JSONRecord {
   const volatilityBars = input.volatilityBars ?? 180
   const rebalanceBars = input.rebalanceBars ?? 6
   const randomTrials = input.randomTrials ?? 100
-  const feeBps = input.feeBps ?? 5
-  const slippageBps = input.slippageBps ?? 2
+  const costModel = buildCostModel(input)
   const fundingStressBps = input.fundingBpsPer8h ?? 1
   if (!Number.isInteger(volatilityBars) || volatilityBars < 2) throw new Error("trend benchmark volatilityBars must be an integer >= 2")
   if (!Number.isInteger(rebalanceBars) || rebalanceBars < 1) throw new Error("trend benchmark rebalanceBars must be a positive integer")
   if (!Number.isInteger(randomTrials) || randomTrials < 20 || randomTrials > 500) throw new Error("trend benchmark randomTrials must be 20-500")
-  if (feeBps < 0 || slippageBps < 0 || fundingStressBps < 0) throw new Error("trend benchmark costs must be non-negative")
+  if (fundingStressBps < 0) throw new Error("trend benchmark costs must be non-negative")
   const panel = alignedPanel(input.datasets, timeframe)
   const warmup = Math.max(volatilityBars, ...horizons)
   if (panel.timestamps.length <= warmup + rebalanceBars) throw new Error("trend benchmark has insufficient aligned history")
   const fundingEvents = panelFundingEvents(input.datasets, panel.timestamps[warmup], panel.timestamps.at(-1)!)
   const weights = buildWeightSchedule(panel.closes, warmup, horizons, volatilityBars, rebalanceBars, timeframe)
-  const costBps = feeBps + slippageBps
-  const observed = simulate(panel, weights, warmup, rebalanceBars, costBps, 0, timeframe)
-  const stressed = simulate(panel, weights, warmup, rebalanceBars, costBps + 5, 0, timeframe)
-  const fundingStressed = simulate(panel, weights, warmup, rebalanceBars, costBps, fundingStressBps, timeframe)
-  const historicalFunding = fundingEvents.coverage.status === "full" ? simulate(panel, weights, warmup, rebalanceBars, costBps, 0, timeframe, fundingEvents.eventsByAsset) : null
+  const observed = simulate(panel, weights, warmup, rebalanceBars, costModel, 0, timeframe)
+  const stressed = simulate(panel, weights, warmup, rebalanceBars, stressCostModel(costModel, 5), 0, timeframe)
+  const fundingStressed = simulate(panel, weights, warmup, rebalanceBars, costModel, fundingStressBps, timeframe)
+  const historicalFunding = fundingEvents.coverage.status === "full" ? simulate(panel, weights, warmup, rebalanceBars, costModel, 0, timeframe, fundingEvents.eventsByAsset) : null
   const randomSharpes: number[] = []
   for (let trial = 0; trial < randomTrials; trial += 1) {
-    randomSharpes.push(simulate(panel, circularShift(weights, trial + 1), warmup, rebalanceBars, costBps, 0, timeframe).stats.sharpe)
+    randomSharpes.push(simulate(panel, circularShift(weights, trial + 1), warmup, rebalanceBars, costModel, 0, timeframe).stats.sharpe)
   }
   const empiricalP = (1 + randomSharpes.filter((value) => value >= observed.stats.sharpe).length) / (randomTrials + 1)
   const folds = chronologicalFolds(observed.returns, 3, timeframe)
@@ -140,7 +154,7 @@ function runTrendBenchmark(input: TrendBenchmarkInput): JSONRecord {
     blocked_by: blockedBy,
     datasets: input.datasets.map((item, index) => ({ dataset_id: item.datasetId, manifest_ref: item.manifestPath, data_hash: datasetDataHash(item, timeframe), aligned_rows: panel.closes[index].length })),
     period: { first: new Date(panel.timestamps[warmup]).toISOString(), last: new Date(panel.timestamps.at(-1)!).toISOString() },
-    assumptions: { timeframe, horizon_bars: horizons, volatility_bars: volatilityBars, rebalance_bars: rebalanceBars, inverse_volatility_weighting: true, target_annual_volatility: 0.15, max_gross_exposure: 1, fee_bps: feeBps, slippage_bps: slippageBps, adverse_funding_stress_bps_per_8h: fundingStressBps, parameter_search: false },
+    assumptions: { timeframe, horizon_bars: horizons, volatility_bars: volatilityBars, rebalance_bars: rebalanceBars, inverse_volatility_weighting: true, target_annual_volatility: 0.15, max_gross_exposure: 1, execution_cost_model: costModel, adverse_funding_stress_bps_per_8h: fundingStressBps, parameter_search: false },
     observed: observed.stats,
     execution_attribution: observed.attribution,
     chronological_folds: folds,
@@ -198,22 +212,20 @@ function runRelativeStrengthBenchmark(input: TrendBenchmarkInput): JSONRecord {
   const volatilityBars = 180
   const rebalanceBars = 6
   const randomTrials = input.randomTrials ?? 100
-  const feeBps = input.feeBps ?? 5
-  const slippageBps = input.slippageBps ?? 2
+  const costModel = buildCostModel(input)
   const fundingStressBps = input.fundingBpsPer8h ?? 1
   if (!Number.isInteger(randomTrials) || randomTrials < 20 || randomTrials > 500) throw new Error("relative strength randomTrials must be 20-500")
-  if (feeBps < 0 || slippageBps < 0 || fundingStressBps < 0) throw new Error("relative strength costs must be non-negative")
+  if (fundingStressBps < 0) throw new Error("relative strength costs must be non-negative")
   const panel = alignedPanel(input.datasets, timeframe)
   const warmup = Math.max(lookbackBars, volatilityBars)
   if (panel.timestamps.length <= warmup + rebalanceBars) throw new Error("relative strength benchmark has insufficient aligned history")
   const fundingEvents = panelFundingEvents(input.datasets, panel.timestamps[warmup], panel.timestamps.at(-1)!)
   const weights = buildRelativeStrengthSchedule(panel.closes, warmup, lookbackBars, volatilityBars, rebalanceBars, timeframe)
-  const costBps = feeBps + slippageBps
-  const observed = simulate(panel, weights, warmup, rebalanceBars, costBps, 0, timeframe)
-  const stressed = simulate(panel, weights, warmup, rebalanceBars, costBps + 5, 0, timeframe)
-  const fundingStressed = simulate(panel, weights, warmup, rebalanceBars, costBps, fundingStressBps, timeframe)
-  const historicalFunding = fundingEvents.coverage.status === "full" ? simulate(panel, weights, warmup, rebalanceBars, costBps, 0, timeframe, fundingEvents.eventsByAsset) : null
-  const randomSharpes = Array.from({ length: randomTrials }, (_, trial) => simulate(panel, circularShift(weights, trial + 17), warmup, rebalanceBars, costBps, 0, timeframe).stats.sharpe)
+  const observed = simulate(panel, weights, warmup, rebalanceBars, costModel, 0, timeframe)
+  const stressed = simulate(panel, weights, warmup, rebalanceBars, stressCostModel(costModel, 5), 0, timeframe)
+  const fundingStressed = simulate(panel, weights, warmup, rebalanceBars, costModel, fundingStressBps, timeframe)
+  const historicalFunding = fundingEvents.coverage.status === "full" ? simulate(panel, weights, warmup, rebalanceBars, costModel, 0, timeframe, fundingEvents.eventsByAsset) : null
+  const randomSharpes = Array.from({ length: randomTrials }, (_, trial) => simulate(panel, circularShift(weights, trial + 17), warmup, rebalanceBars, costModel, 0, timeframe).stats.sharpe)
   const empiricalP = (1 + randomSharpes.filter((value) => value >= observed.stats.sharpe).length) / (randomTrials + 1)
   const folds = chronologicalFolds(observed.returns, 3, timeframe)
   const blockedBy: Array<{ check_id: string; reason: string }> = []
@@ -229,7 +241,7 @@ function runRelativeStrengthBenchmark(input: TrendBenchmarkInput): JSONRecord {
     blocked_by: blockedBy,
     datasets: input.datasets.map((item, index) => ({ dataset_id: item.datasetId, manifest_ref: item.manifestPath, data_hash: datasetDataHash(item, timeframe), aligned_rows: panel.closes[index].length })),
     period: { first: new Date(panel.timestamps[warmup]).toISOString(), last: new Date(panel.timestamps.at(-1)!).toISOString() },
-    assumptions: { timeframe, lookback_bars: lookbackBars, volatility_bars: volatilityBars, rebalance_bars: rebalanceBars, long_top_fraction: 1 / 3, short_bottom_fraction: 1 / 3, target_annual_volatility: 0.15, max_gross_exposure: 1, fee_bps: feeBps, slippage_bps: slippageBps, adverse_funding_stress_bps_per_8h: fundingStressBps, parameter_search: false },
+    assumptions: { timeframe, lookback_bars: lookbackBars, volatility_bars: volatilityBars, rebalance_bars: rebalanceBars, long_top_fraction: 1 / 3, short_bottom_fraction: 1 / 3, target_annual_volatility: 0.15, max_gross_exposure: 1, execution_cost_model: costModel, adverse_funding_stress_bps_per_8h: fundingStressBps, parameter_search: false },
     observed: observed.stats,
     execution_attribution: observed.attribution,
     chronological_folds: folds,
@@ -409,11 +421,19 @@ function componentFindings(component: string, report: JSONRecord): DiagnosticFin
     })
   }
   if (cost.total_return <= 0 || cost.total_return < stats.total_return * 0.5) {
+    const costAttribution = asRecord(report.cost_stress_attribution)
     findings.push({
       check_id: "CAL-COST-FRAGILE",
       severity: cost.total_return <= 0 ? "blocker" : "warning",
       component,
-      evidence: { observed_total_return: stats.total_return, cost_stress_total_return: cost.total_return, total_turnover: numberField(asRecord(report.cost_stress_attribution).total_turnover), total_cost_drag: numberField(asRecord(report.cost_stress_attribution).total_cost_drag) },
+      evidence: {
+        observed_total_return: stats.total_return,
+        cost_stress_total_return: cost.total_return,
+        total_turnover: numberField(costAttribution.total_turnover),
+        total_fee_drag: numberField(costAttribution.total_fee_drag),
+        total_slippage_drag: numberField(costAttribution.total_slippage_drag),
+        total_cost_drag: numberField(costAttribution.total_cost_drag),
+      },
       next_system_action: "Improve turnover, fee, and slippage diagnostics before strategy iteration.",
     })
   }
@@ -495,12 +515,48 @@ function buildWeightSchedule(closes: number[][], warmup: number, horizons: numbe
   return weights
 }
 
-function simulate(panel: { timestamps: number[]; closes: number[][] }, schedule: number[][], warmup: number, rebalanceBars: number, costBps: number, fundingBps: number, timeframe: string, fundingEventsByAsset: FundingEvent[][] = []): { stats: PortfolioStats; returns: number[]; attribution: SimulationAttribution } {
+function buildCostModel(input: TrendBenchmarkInput): CostModel {
+  const legacyFee = input.feeBps ?? 5
+  const makerFee = input.makerFeeBps ?? legacyFee
+  const takerFee = input.takerFeeBps ?? legacyFee
+  const marketShare = input.marketOrderShare ?? 1
+  const slippage = input.slippageBps ?? 2
+  if (makerFee < 0 || takerFee < 0 || slippage < 0) throw new Error("benchmark costs must be non-negative")
+  if (marketShare < 0 || marketShare > 1) throw new Error("benchmark marketOrderShare must be between 0 and 1")
+  return normalizeCostModel({
+    maker_fee_bps: makerFee,
+    taker_fee_bps: takerFee,
+    market_order_share: marketShare,
+    slippage_bps: slippage,
+    effective_fee_bps: 0,
+    effective_slippage_bps: 0,
+    effective_cost_bps: 0,
+  })
+}
+
+function stressCostModel(model: CostModel, extraBps: number): CostModel {
+  return normalizeCostModel({ ...model, taker_fee_bps: model.taker_fee_bps + extraBps, slippage_bps: model.slippage_bps + extraBps })
+}
+
+function normalizeCostModel(model: CostModel): CostModel {
+  const effectiveFee = model.maker_fee_bps * (1 - model.market_order_share) + model.taker_fee_bps * model.market_order_share
+  const effectiveSlippage = model.slippage_bps * model.market_order_share
+  return {
+    ...model,
+    effective_fee_bps: round(effectiveFee),
+    effective_slippage_bps: round(effectiveSlippage),
+    effective_cost_bps: round(effectiveFee + effectiveSlippage),
+  }
+}
+
+function simulate(panel: { timestamps: number[]; closes: number[][] }, schedule: number[][], warmup: number, rebalanceBars: number, costModel: CostModel, fundingBps: number, timeframe: string, fundingEventsByAsset: FundingEvent[][] = []): { stats: PortfolioStats; returns: number[]; attribution: SimulationAttribution } {
   const returns: number[] = []
   const grossReturns: number[] = []
   let weights = Array(panel.closes.length).fill(0) as number[]
   let scheduleIndex = 0
   let totalTurnover = 0
+  let totalFeeDrag = 0
+  let totalSlippageDrag = 0
   let totalCostDrag = 0
   let totalFundingDrag = 0
   let grossExposureSum = 0
@@ -517,13 +573,17 @@ function simulate(panel: { timestamps: number[]; closes: number[][] }, schedule:
     }
     const grossReturn = weights.reduce((sum, weight, asset) => sum + weight * (panel.closes[asset][index] / panel.closes[asset][index - 1] - 1), 0)
     const grossExposure = weights.reduce((sum, value) => sum + Math.abs(value), 0)
-    const cost = turnover * costBps / 10000
+    const fee = turnover * costModel.effective_fee_bps / 10000
+    const slippage = turnover * costModel.effective_slippage_bps / 10000
+    const cost = fee + slippage
     const funding = fundingEventsByAsset.length > 0
       ? historicalFundingDrag(weights, fundingEventsByAsset, fundingOffsets, panel.timestamps[index - 1], panel.timestamps[index])
       : grossExposure * fundingBps / 10000 * timeframeHours(timeframe) / 8
     grossReturns.push(grossReturn)
     returns.push(grossReturn - cost - funding)
     totalTurnover += turnover
+    totalFeeDrag += fee
+    totalSlippageDrag += slippage
     totalCostDrag += cost
     totalFundingDrag += funding
     grossExposureSum += grossExposure
@@ -535,10 +595,13 @@ function simulate(panel: { timestamps: number[]; closes: number[][] }, schedule:
     attribution: {
       gross_stats: portfolioStats(grossReturns, timeframe),
       net_stats: stats,
+      cost_model: costModel,
       total_turnover: round(totalTurnover),
       rebalance_count: rebalanceCount,
       average_turnover_per_rebalance: round(totalTurnover / Math.max(1, rebalanceCount)),
       average_gross_exposure: round(grossExposureSum / Math.max(1, returns.length)),
+      total_fee_drag: round(totalFeeDrag),
+      total_slippage_drag: round(totalSlippageDrag),
       total_cost_drag: round(totalCostDrag),
       total_funding_drag: round(totalFundingDrag),
     },
@@ -568,7 +631,13 @@ function strategyBenchmarkInputFromJson(value: JSONRecord): TrendBenchmarkInput 
   return {
     benchmarkId: stringField(value.benchmark_id ?? value.benchmarkId) || undefined,
     timeframe: stringField(value.timeframe) || undefined,
-    feeBps: optionalNumber(value.fee_bps ?? value.feeBps), slippageBps: optionalNumber(value.slippage_bps ?? value.slippageBps), fundingBpsPer8h: optionalNumber(value.funding_bps_per_8h ?? value.fundingBpsPer8h), randomTrials: optionalNumber(value.random_trials ?? value.randomTrials),
+    feeBps: optionalNumber(value.fee_bps ?? value.feeBps),
+    makerFeeBps: optionalNumber(value.maker_fee_bps ?? value.makerFeeBps),
+    takerFeeBps: optionalNumber(value.taker_fee_bps ?? value.takerFeeBps),
+    marketOrderShare: optionalNumber(value.market_order_share ?? value.marketOrderShare),
+    slippageBps: optionalNumber(value.slippage_bps ?? value.slippageBps),
+    fundingBpsPer8h: optionalNumber(value.funding_bps_per_8h ?? value.fundingBpsPer8h),
+    randomTrials: optionalNumber(value.random_trials ?? value.randomTrials),
     datasets: array(value.datasets).map((raw) => {
       const item = asRecord(raw)
       return {

@@ -23,7 +23,8 @@ title: R&D Reliability Roadmap
 ## 3. 成本层
 
 - 目标：把 gross edge、turnover、fee、slippage、funding drag 拆开。
-- 下一块：把 fee tier / maker-taker / marketability 从单一 bps 中拆出。
+- 当前：calibration cost model 已从单一 bps 拆为 `maker_fee_bps / taker_fee_bps / market_order_share / slippage_bps`，并输出 fee/slippage drag。
+- 下一块：从账户配置或交易所费率源注入真实 fee tier；继续不伪造 maker 队列成交概率。
 - 完成信号：`CAL-COST-FRAGILE` 能定位到换手、费率或滑点。
 
 ## 4. Regime 层
