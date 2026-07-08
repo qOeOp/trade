@@ -638,13 +638,14 @@ Binance facts
   - `commands/response.ts`：失败输出保留 `error`，新增 `code / retriable / details`。
   - 成功与失败输出统一带 `schema_version=trade-flow.script-response.v1`；业务 `data` 暂不提前冻结。
   - `successResponse / errorResponse` 统一命令响应构造，避免散落裸 `{ ok, data }`。
+  - `schemas/script-response.schema.json` 落地外层响应 JSON Schema，只约束 envelope，不约束 command-specific `data`。
   - `ScriptResponse` 明确 `INVALID_ARGUMENT / PRECONDITION_FAILED / EXTERNAL_FAILURE / INTERNAL_ERROR`。
-  - `main.test.ts` 锁定成功、invalid argument、precondition 三类外层 envelope。
+  - `response.test.ts` 锁定 schema 与 response builder 不漂移；`main.test.ts` 锁定成功、invalid argument、precondition 三类外层 envelope。
 
 验证：
 
 - `.agents/skills/trade-flow`: `bun run typecheck`
-- `.agents/skills/trade-flow`: `bun run test`，165 pass / 0 fail
+- `.agents/skills/trade-flow`: `bun run test`，168 pass / 0 fail
 - repo root: `git diff --check`
 
 下一步：

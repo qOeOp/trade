@@ -59,6 +59,7 @@ latest_observe.action_intent.request
 
 - 入口：`./scripts/main.ts`
 - 示例输入：`./examples/*.example.json`
+- 响应外壳 schema：`./schemas/script-response.schema.json`
 - 支持动作：
   - `--init`：初始化 `plan_event`
   - `--append-order-fill --json <body>`：校验并追加 order_fill
