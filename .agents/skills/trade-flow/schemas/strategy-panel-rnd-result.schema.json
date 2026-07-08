@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade-flow.strategy-panel-rnd-result.v1",
+  "title": "trade-flow strategy panel R&D result",
+  "description": "Stable outer shape for panel R&D reports. Per-asset candidate evidence remains shallow.",
+  "type": "object",
+  "required": ["panel_id", "hypothesis", "dataset_count", "trial_count", "outcome", "candidates"],
+  "properties": {
+    "panel_id": { "type": "string", "minLength": 1 },
+    "hypothesis": { "type": "string" },
+    "dataset_count": { "type": "integer", "minimum": 3 },
+    "trial_count": { "type": "integer", "minimum": 1, "maximum": 10 },
+    "outcome": { "enum": ["candidate_found", "no_promote"] },
+    "candidates": { "type": "array" }
+  },
+  "additionalProperties": false
+}

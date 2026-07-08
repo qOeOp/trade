@@ -59,7 +59,11 @@ latest_observe.action_intent.request
 
 - 入口：`./scripts/main.ts`
 - 示例输入：`./examples/*.example.json`
+- 项目级检查契约：`../../../docs/check-contract.md`
+- 执行 skill 输出契约：`../../../docs/execution-skill-contract.md`
+- schema registry / coverage map：`./schemas/registry.json`
 - 响应外壳 schema：`./schemas/script-response.schema.json`
+- init 结果外壳 schema：`./schemas/init-result.schema.json`
 - plan_event 外壳 schema：`./schemas/plan-event.schema.json`
 - reconcile 结果外壳 schema：`./schemas/reconcile-result.schema.json`
 - execution command spec 外壳 schema：`./schemas/execution-command-spec.schema.json`
@@ -76,7 +80,12 @@ latest_observe.action_intent.request
 - observe event 外壳 schema：`./schemas/observe-event.schema.json`
 - strategy review body 最小 schema：`./schemas/strategy-review-body.schema.json`
 - run step result 外壳 schema：`./schemas/run-step-result.schema.json`
+- live-small result 外壳 schema：`./schemas/live-small-result.schema.json`
 - strategy cycle result 外壳 schema：`./schemas/strategy-cycle-result.schema.json`
+- replay result 外壳 schema：`./schemas/replay-result.schema.json`
+- strategy R&D batch / loop / campaign / panel result 外壳 schema：`./schemas/strategy-rnd-batch-result.schema.json` / `./schemas/strategy-rnd-loop-result.schema.json` / `./schemas/strategy-rnd-campaign-result.schema.json` / `./schemas/strategy-panel-rnd-result.schema.json`
+- strategy benchmark / calibration result 外壳 schema：`./schemas/strategy-benchmark-result.schema.json` / `./schemas/strategy-calibration-result.schema.json`
+- strategy signal result 外壳 schema：`./schemas/strategy-signal-result.schema.json`
 - 支持动作：
   - `--init`：初始化 `plan_event`
   - `--append-order-fill --json <body>`：校验并追加 order_fill

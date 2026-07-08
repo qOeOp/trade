@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade-flow.strategy-rnd-batch-result.v1",
+  "title": "trade-flow strategy R&D batch result",
+  "description": "Stable outer shape for a bounded R&D candidate batch. Candidate internals remain research-owned.",
+  "type": "object",
+  "required": ["batch_id", "hypothesis", "trial_count", "accepted_count", "candidate_source", "outcome", "winner", "candidates", "guardrails", "factor_research", "selection_audit", "failure_summary", "reliability_gate", "next_action"],
+  "properties": {
+    "batch_id": { "type": "string", "minLength": 1 },
+    "hypothesis": { "type": "string" },
+    "trial_count": { "type": "integer", "minimum": 0, "maximum": 10 },
+    "accepted_count": { "type": "integer", "minimum": 0 },
+    "candidate_source": { "type": "string", "minLength": 1 },
+    "outcome": { "enum": ["candidate_found", "no_promote"] },
+    "winner": { "type": ["object", "null"] },
+    "candidates": { "type": "array" },
+    "guardrails": { "type": "object" },
+    "factor_research": { "type": ["object", "null"] },
+    "selection_audit": { "type": "object" },
+    "failure_summary": { "type": "object" },
+    "reliability_gate": { "type": "object" },
+    "next_action": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": false
+}

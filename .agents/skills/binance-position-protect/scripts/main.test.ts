@@ -6,6 +6,7 @@ import {
   buildDryRun,
   buildLegs,
   cleanRequest,
+  executeProtection,
   parseArgs,
   resolveProtectiveSide,
   run,
@@ -77,7 +78,36 @@ test("run returns protective legs for --dry-json without env access", async () =
 
   assert.equal(result.ok, true)
   assert.deepEqual("data" in result ? result.data : null, buildDryRun(config))
+  assert.equal((result.data as { method: string }).method, "futuresCreateAlgoOrder")
   assert.equal(resolveProtectiveSide(config), "SELL")
+})
+
+test("executeProtection returns stable method and created legs", async () => {
+  const config = parseArgs([
+    "--symbol",
+    "CLUSDT",
+    "--position-side",
+    "LONG",
+    "--quantity",
+    "14.85",
+    "--stop-loss-trigger",
+    "79.10",
+    "--yes",
+  ])
+
+  const client = {
+    futuresPositionRisk() {
+      return Promise.resolve([{ symbol: "CLUSDT", positionSide: "SHORT", positionAmt: "-14.85" }])
+    },
+    futuresCreateAlgoOrder(request: Record<string, unknown>) {
+      return Promise.resolve({ algoId: 9001, clientAlgoId: request.clientAlgoId })
+    },
+  }
+
+  const result = await executeProtection(config, client as never)
+  assert.equal(result.method, "futuresCreateAlgoOrder")
+  assert.equal(result.created.length, 1)
+  assert.equal(result.created[0].result.algoId, 9001)
 })
 
 test("assertProtectionMatchesPosition allows planned quantity protection without live hedge leg", async () => {

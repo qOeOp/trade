@@ -315,6 +315,7 @@ strategy policy 走 markdown；account / notify config 走 JSON；市场原始�
 - strategy evidence ledger 独立为 JSONL；它是策略准入证据，不是交易事实源
 - ad-hoc 分析优先写临时目录；只有会影响策略准入或复盘的结果进入 `./data/artifacts` 类目录
 - 清理必须默认 dry-run；只有显式确认才删除
+- Git 边界与 data 留存规则见 [data-hygiene.md](data-hygiene.md)
 
 ## 13. 非目标
 

@@ -210,6 +210,7 @@ async function executeAdjustment(config: Config, plan: AdjustmentPlan, client: B
     }
     return {
       market: "usdm",
+      method: "futuresOrder",
       symbol: config.symbol,
       reduced,
       remainingPosition: null,
@@ -232,6 +233,7 @@ async function executeAdjustment(config: Config, plan: AdjustmentPlan, client: B
 
   return {
     market: "usdm",
+    method: "futuresOrder",
     symbol: config.symbol,
     reduced,
     remainingPosition: refreshedPosition,

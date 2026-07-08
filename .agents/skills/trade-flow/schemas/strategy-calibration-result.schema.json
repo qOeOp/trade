@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade-flow.strategy-calibration-result.v1",
+  "title": "trade-flow strategy calibration result",
+  "description": "Stable outer shape for fixed calibration suite reports.",
+  "type": "object",
+  "required": ["calibration_suite_id", "purpose", "harness_hash", "report_hash", "previous_run_comparison", "calibrated", "blocked_by", "data_panel", "components", "diagnostics", "failure_analysis", "notes"],
+  "properties": {
+    "calibration_suite_id": { "type": "string", "minLength": 1 },
+    "purpose": { "const": "rd_pipeline_calibration_only" },
+    "harness_hash": { "type": "string", "minLength": 1 },
+    "report_hash": { "type": "string", "minLength": 1 },
+    "previous_run_comparison": {},
+    "calibrated": { "type": "boolean" },
+    "blocked_by": { "type": "array" },
+    "data_panel": { "type": "object" },
+    "components": { "type": "object" },
+    "diagnostics": { "type": "array" },
+    "failure_analysis": { "type": "object" },
+    "notes": { "type": "array" }
+  },
+  "additionalProperties": false
+}

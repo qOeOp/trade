@@ -237,6 +237,7 @@ test("recorded protection action events add protective submitted orders", () => 
       },
       execution_result: {
         market: "usdm",
+        method: "futuresCreateAlgoOrder",
         symbol: "BTCUSDT",
         positionSide: "LONG",
         created: [{
@@ -323,6 +324,7 @@ test("recorded adjust action event reduces local position", () => {
       },
       execution_result: {
         market: "usdm",
+        method: "futuresOrder",
         symbol: "BTCUSDT",
         reduced: {
           orderId: 456,
@@ -352,6 +354,47 @@ test("recorded adjust action event reduces local position", () => {
   } finally {
     db.close()
   }
+})
+
+test("recorded action events reject incomplete execution skill results", () => {
+  assert.throws(
+    () => buildRecordedActionEvents({
+      target_action: "cancel_order",
+      chain_id: "flow-incomplete-cancel",
+      source_observe_event_key: "obs-incomplete-cancel",
+      request: { symbol: "BTCUSDT", orig_client_order_id: "flow-incomplete-entry" },
+      execution_result: {
+        result: { clientOrderId: "flow-incomplete-entry" },
+      },
+    }),
+    /cancel_order execution_result\.method is required/,
+  )
+  assert.throws(
+    () => buildRecordedActionEvents({
+      target_action: "sync_protection",
+      chain_id: "flow-incomplete-protect",
+      source_observe_event_key: "obs-incomplete-protect",
+      request: { symbol: "BTCUSDT", position_side: "LONG", quantity: "0.01" },
+      execution_result: {
+        method: "futuresCreateAlgoOrder",
+        created: [{ leg: "stopLoss", request: { symbol: "BTCUSDT" } }],
+      },
+    }),
+    /sync_protection execution_result\.created\[0\]\.result must be an object/,
+  )
+  assert.throws(
+    () => buildRecordedActionEvents({
+      target_action: "adjust_position",
+      chain_id: "flow-incomplete-adjust",
+      source_observe_event_key: "obs-incomplete-adjust",
+      request: { symbol: "BTCUSDT", position_side: "BOTH", reduce_quantity: "0.1" },
+      execution_result: {
+        method: "futuresOrder",
+        reduced: { orderId: 1 },
+      },
+    }),
+    /adjust_position execution_result\.remainingPosition is required/,
+  )
 })
 
 function contractInput() {

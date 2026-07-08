@@ -17,6 +17,13 @@ test("live-small uses injected runner with stable order-place command contract",
         ok: true,
         data: {
           method: "futuresCreateAlgoOrder",
+          request: {
+            symbol: "BTCUSDT",
+            side: "BUY",
+            type: "STOP_MARKET",
+            quantity: "0.001",
+            clientAlgoId: "flow-live-fixture-1-entry",
+          },
           result: { algoId: 9001, clientAlgoId: "flow-live-fixture-1-entry" },
           confirmedResult: { algoId: 9001, clientAlgoId: "flow-live-fixture-1-entry" },
         },

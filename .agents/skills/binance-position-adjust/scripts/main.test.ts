@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { buildPlan, parseArgs, resolveLivePosition, run } from "./main"
+import { buildPlan, executeAdjustment, parseArgs, resolveLivePosition, run } from "./main"
 
 test("parseArgs requires reduction intent", () => {
   assert.throws(
@@ -76,6 +76,62 @@ test("buildPlan allows partial adjustment without touching protection", async ()
 
   const plan = await buildPlan(config, client as never)
   assert.equal(plan.reduction.remainingQuantity, "19.69")
+})
+
+test("executeAdjustment returns stable method and remaining position", async () => {
+  const config = parseArgs([
+    "--symbol",
+    "CLUSDT",
+    "--position-side",
+    "LONG",
+    "--reduce-quantity",
+    "10",
+    "--yes",
+  ])
+  const plan = {
+    generatedAt: "2026-07-08T00:00:00.000Z",
+    market: "usdm",
+    symbol: "CLUSDT",
+    positionSide: "LONG",
+    currentPosition: {
+      symbol: "CLUSDT",
+      positionSide: "LONG",
+      quantity: "29.69",
+      quantityAbs: 29.69,
+      rawPositionAmt: "29.69",
+      reduceSide: "SELL",
+    },
+    reduction: {
+      closePosition: false,
+      reduceQuantity: "10",
+      remainingQuantity: "19.69",
+    },
+    reduceOrder: {
+      symbol: "CLUSDT",
+      side: "SELL",
+      type: "MARKET",
+      quantity: "10",
+      positionSide: "LONG",
+    },
+  } as const
+  const client = {
+    futuresOrder(request: Record<string, unknown>) {
+      return Promise.resolve({
+        orderId: 456,
+        clientOrderId: "reduce-456",
+        ...request,
+        origQty: request.quantity,
+        executedQty: request.quantity,
+      })
+    },
+    futuresPositionRisk() {
+      return Promise.resolve([{ symbol: "CLUSDT", positionSide: "LONG", positionAmt: "19.69" }])
+    },
+  }
+
+  const result = await executeAdjustment(config, plan, client as never)
+  assert.equal(result.method, "futuresOrder")
+  assert.equal(result.remainingPosition?.quantity, "19.69")
 })
 
 test("run returns env status for --check-env", async () => {

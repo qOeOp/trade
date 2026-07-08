@@ -623,6 +623,10 @@ Binance facts
   - `reconcile` 对缺本地 fill / partial fill 先生成补录 draft，再按 projected position 判断仓位差异，避免可解释成交被误判 unmatched。
   - `reconcile` 对保护腿漂移输出 `protective_drift`，不生成普通 submit draft，不把保护腿异常冒充为账本恢复。
   - `lib/reconcile.test.ts` 增加缺本地 fill、partial fill 历史补录、protective drift 三个 fixture。
+- 执行 skill contract 收口：
+  - `docs/execution-skill-contract.md` 落地 Binance 写 skill 成功输出到 `trade-flow` 记账的最低契约。
+  - `trade-flow` 在写 `order_fill` 前校验 `place_entry / cancel_order / sync_protection / adjust_position` 的最低 `execution_result` 字段，缺字段直接拒绝，不静默记账。
+  - `binance-position-protect` / `binance-position-adjust` 成功输出补齐 `method` 字段，与 `binance-order-place` / `binance-order-cancel` 对齐。
 - Benchmark domain 拆分：
   - `strategy-rnd.ts` 当前已基本只剩 batch / loop / campaign glue，暂不继续硬拆。
   - `lib/strategy-benchmark-data.ts`：panel alignment、panel diagnostics、data hash、funding coverage、historical funding drag 独立。
@@ -635,6 +639,8 @@ Binance facts
   - `.jsonl`、`durable/`、`ledger/`、`ledgers/` 默认不被 GC 删除；`tmp/`、`temp/`、`cache/`、`scratch/`、`ephemeral/` 可走更短保留期。
   - `--ephemeral-retention-hours` 接入 CLI，用于独立控制临时目录清理阈值。
   - `lib/artifact-hygiene.test.ts` 锁定 dry-run、引用保护、目录 pin、durable 保护、ephemeral 短保留期、显式删除路径。
+  - `docs/data-hygiene.md` 落地 Git 边界与 data 留存规则；`data/ohlcv/`、`data/calibration-panel-*/`、runtime DB/log/lock/system state、ledger、artifact 与本地 profile config 默认不进 Git。
+  - `.gitignore` 补齐生成行情、calibration panel、strategy audits、cron/system runtime 与本地 operator config，避免 R&D / cron 产物污染源码 review。
 - P8 机器契约开口：
   - `commands/response.ts`：失败输出保留 `error`，新增 `code / retriable / details`。
   - 成功与失败输出统一带 `schema_version=trade-flow.script-response.v1`；业务 `data` 暂不提前冻结。
@@ -653,14 +659,22 @@ Binance facts
   - `schemas/runtime-load-result.schema.json` / `schemas/observe-event.schema.json` / `schemas/run-step-result.schema.json` 落地 observe/runtime/one-step execution 外壳契约；不冻结 preflight、contract、execution payload 内部。
   - `schemas/strategy-review-body.schema.json` 落地结构化 review body 最小契约；needs_review recovery note 仍保持轻量开放。
   - `schemas/strategy-cycle-result.schema.json` 落地 strategy cycle 外壳契约；shadow evidence sync / review / optional promotion 分层复用既有 schema。
+  - `schemas/init-result.schema.json` 落地 init 结果外壳契约。
+  - `schemas/replay-result.schema.json` / `schemas/strategy-rnd-batch-result.schema.json` / `schemas/strategy-rnd-loop-result.schema.json` / `schemas/strategy-rnd-campaign-result.schema.json` / `schemas/strategy-panel-rnd-result.schema.json` / `schemas/strategy-benchmark-result.schema.json` / `schemas/strategy-calibration-result.schema.json` / `schemas/strategy-signal-result.schema.json` 落地研究侧稳定输出外壳；只锁外层报告字段，不冻结候选诊断细节。
+  - `schemas/live-small-result.schema.json` 落地 live-small 稳定输出外壳；只锁本项目 preflight / gate / recorded 边界，不冻结外部 Binance 执行 skill 的 `execution_result` 内部。
+  - `schemas/registry.json` 落地 schema registry / command coverage map；当前所有已登记 command data 输出均为 covered，防止新增 schema 或命令输出无人认领。
   - `ScriptResponse` 明确 `INVALID_ARGUMENT / PRECONDITION_FAILED / EXTERNAL_FAILURE / INTERNAL_ERROR`。
-  - `response.test.ts` 锁定 response schema 与 builder 不漂移；`plan-events-schema.test.ts` / `reconcile-schema.test.ts` / `execution-command-spec-schema.test.ts` / `artifact-gc-schema.test.ts` / `strategy-evidence-schema.test.ts` / `strategy-review-schema.test.ts` / `strategy-promote-schema.test.ts` / `track-dry-run-schema.test.ts` / `cron-log-schema.test.ts` / `core-data-schemas.test.ts` 锁定核心 data schema 不漂移。
+  - `response.test.ts` 锁定 response schema 与 builder 不漂移；`plan-events-schema.test.ts` / `reconcile-schema.test.ts` / `execution-command-spec-schema.test.ts` / `artifact-gc-schema.test.ts` / `strategy-evidence-schema.test.ts` / `strategy-review-schema.test.ts` / `strategy-promote-schema.test.ts` / `track-dry-run-schema.test.ts` / `cron-log-schema.test.ts` / `core-data-schemas.test.ts` / `research-output-schemas.test.ts` / `schema-registry.test.ts` 锁定核心 data schema 不漂移。
   - `main.test.ts` 锁定成功、invalid argument、precondition 三类外层 envelope。
+- P6 命令与测试契约：
+  - `docs/check-contract.md` 落地项目级检查契约，按 docs / CLI / schema / runtime / execution / recovery / observe / research / artifact / cron / 外部 skill 改动域给出最小检查命令。
+  - `docs/architecture-inventory.md` 的测试入口基线改为指向 `check-contract.md`，避免 P0 盘点与当前执行契约分叉。
+  - `trade-flow/SKILL.md` 增加项目级检查契约索引，后续改 skill 时可直接定位“改了哪里跑什么”。
 
 验证：
 
 - `.agents/skills/trade-flow`: `bun run typecheck`
-- `.agents/skills/trade-flow`: `bun run test`，197 pass / 0 fail
+- `.agents/skills/trade-flow`: `bun run test`，204 pass / 0 fail
 - repo root: `git diff --check`
 
 完成判定：

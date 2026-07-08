@@ -335,6 +335,8 @@ CREATE INDEX idx_beta_symbol_date ON beta_cache(symbol, computed_date DESC);
 | OHLCV / 市场数据 | CSV + manifest（后期切 SQLite） | `./data/ohlcv/` |
 | Strategy degradation audits | Markdown（一文件一次触发） | `./data/strategy_audits/<strategy_ref>/<ISO8601_utc>.md` |
 
+Git 边界与 data 留存规则见 [data-hygiene.md](data-hygiene.md)。
+
 选型原则：
 
 - **SQLite（关系列 + JSON body）**：事件流 —— 需要按 chain_id / kind / time 索引和聚合，且每种 kind 自带 shape 不需 schema migration

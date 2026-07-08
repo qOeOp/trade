@@ -153,6 +153,11 @@ test("execution command handler records execution and dry-run flow through execu
         execution_contract_input: executionContractInput(),
         execution_result: {
           method: "futuresCreateAlgoOrder",
+          request: {
+            symbol: "BTCUSDT",
+            side: "BUY",
+            type: "STOP_MARKET",
+          },
           result: {
             algoId: 123,
             clientAlgoId: "flow-handler-1-1-entry",

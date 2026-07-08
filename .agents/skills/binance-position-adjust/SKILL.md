@@ -57,5 +57,6 @@ requires_preflight: true
 - 优先先执行 `--plan`，再决定是否 `--yes`
 - `--plan` 只读，不改状态
 - live 执行后会回读持仓，确认余仓数量或归零结果
+- 成功输出带 `method=futuresOrder`、`reduced` 与 `remainingPosition`，供 `trade-flow` 记录 reduce fill
 
 低频示例见 [reference.md](./reference.md)。

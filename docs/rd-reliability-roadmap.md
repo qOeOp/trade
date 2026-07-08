@@ -53,7 +53,8 @@ title: R&D Reliability Roadmap
 
 - 目标：calibration artifact 可存档、可 diff、可发现退化，但不进入 strategy promotion evidence。
 - 当前：calibration 已输出 `report_hash`，并可通过 `previous_calibration_report_path` 输出 previous-run comparison。
-- 下一块：把 calibration artifact 存档位置纳入运行约定。
+- 当前：calibration panel / OHLCV / artifact 的 Git 边界与留存位置已纳入 [data-hygiene.md](data-hygiene.md)。
+- 下一块：从真实 shadow order/event 自动汇总 attribution，减少人工填报。
 - 完成信号：系统能回答“这次失败是策略退化，还是数据/成本/harness 变化”。
 
 ## 8. Shadow 层

@@ -212,6 +212,7 @@ async function executeProtection(config: Config, client: BinanceRest) {
 
   return {
     market: "usdm",
+    method: "futuresCreateAlgoOrder",
     symbol: config.symbol,
     positionSide: config.positionSide,
     created,
@@ -222,6 +223,7 @@ function buildDryRun(config: Config) {
   const side = resolveProtectiveSide(config)
   return {
     market: "usdm",
+    method: "futuresCreateAlgoOrder",
     symbol: config.symbol,
     positionSide: config.positionSide,
     legs: buildLegs(config, side).map((leg) => ({

@@ -32,6 +32,7 @@ export function buildRecordedExecutionEvent(input: JSONRecord): PlanEvent {
 
   const contract = compileExecutionContract(asRecord(input.execution_contract_input) as unknown as ExecutionContractInput)
   const executionResult = asRecord(input.execution_result)
+  validateExecutionResultForTarget("place_entry", executionResult)
   const submitResult = asRecord(executionResult.result)
   const confirmedResult = asRecord(executionResult.confirmedResult)
   const primaryEntry = contract.entries[0]
@@ -324,8 +325,72 @@ export function buildMockExecutionResult(contract: ExecutionContract, mode: RunM
   }
 }
 
+export function validateExecutionResultForTarget(
+  targetAction: ExecutableTargetAction,
+  executionResult: JSONRecord,
+): void {
+  if (targetAction === "place_entry") {
+    requireExecutionMethod(targetAction, executionResult)
+    requireRecordField(targetAction, executionResult, "request")
+    requireRecordField(targetAction, executionResult, "result")
+    return
+  }
+  if (targetAction === "cancel_order") {
+    requireExecutionMethod(targetAction, executionResult)
+    requireRecordField(targetAction, executionResult, "result")
+    return
+  }
+  if (targetAction === "sync_protection") {
+    requireExecutionMethod(targetAction, executionResult)
+    const created = executionResult.created
+    if (!Array.isArray(created) || created.length === 0) {
+      throw new Error("sync_protection execution_result.created must contain at least one leg")
+    }
+    for (const [index, leg] of created.entries()) {
+      if (!isPlainRecord(leg)) {
+        throw new Error(`sync_protection execution_result.created[${index}] must be an object`)
+      }
+      requireRecordField(targetAction, leg, "request", `execution_result.created[${index}]`)
+      requireRecordField(targetAction, leg, "result", `execution_result.created[${index}]`)
+    }
+    return
+  }
+  if (targetAction === "adjust_position") {
+    requireExecutionMethod(targetAction, executionResult)
+    requireRecordField(targetAction, executionResult, "reduced")
+    if (!Object.prototype.hasOwnProperty.call(executionResult, "remainingPosition")) {
+      throw new Error("adjust_position execution_result.remainingPosition is required")
+    }
+    return
+  }
+  throw new Error(`${targetAction} has no execution result contract`)
+}
+
+function requireExecutionMethod(targetAction: ExecutableTargetAction, executionResult: JSONRecord): void {
+  if (!stringField(executionResult.method)) {
+    throw new Error(`${targetAction} execution_result.method is required`)
+  }
+}
+
+function requireRecordField(
+  targetAction: ExecutableTargetAction,
+  record: unknown,
+  field: string,
+  path = "execution_result",
+): void {
+  const parent = asRecord(record)
+  if (!isPlainRecord(parent[field])) {
+    throw new Error(`${targetAction} ${path}.${field} must be an object`)
+  }
+}
+
+function isPlainRecord(value: unknown): value is JSONRecord {
+  return value != null && typeof value === "object" && !Array.isArray(value)
+}
+
 function buildRecordedCancelEvent(input: JSONRecord): PlanEvent {
   const executionResult = asRecord(input.execution_result)
+  validateExecutionResultForTarget("cancel_order", executionResult)
   const request = asRecord(input.request)
   const result = asRecord(executionResult.result)
   const clientOrderId = readActionClientOrderId(
@@ -350,6 +415,7 @@ function buildRecordedCancelEvent(input: JSONRecord): PlanEvent {
 
 function buildRecordedProtectionEvents(input: JSONRecord): PlanEvent[] {
   const executionResult = asRecord(input.execution_result)
+  validateExecutionResultForTarget("sync_protection", executionResult)
   const created = Array.isArray(executionResult.created) ? executionResult.created.map(asRecord) : []
   if (created.length === 0) {
     throw new Error("sync_protection execution_result.created must contain at least one leg")
@@ -384,6 +450,7 @@ function buildRecordedProtectionEvents(input: JSONRecord): PlanEvent[] {
 
 function buildRecordedPositionAdjustEvent(input: JSONRecord): PlanEvent {
   const executionResult = asRecord(input.execution_result)
+  validateExecutionResultForTarget("adjust_position", executionResult)
   const reduced = asRecord(executionResult.reduced)
   return buildActionPlanEvent(input, compactRecord({
     sub_kind: "fill",

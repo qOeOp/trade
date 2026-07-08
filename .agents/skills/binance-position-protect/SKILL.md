@@ -68,6 +68,7 @@ requires_preflight: true
 - 优先直接执行 `./scripts/main.ts`
 - `--close-position true` 时可以不传 `--quantity`
 - live 路径会先核对保护方向和数量是否与现有仓位匹配
+- 成功输出带 `method=futuresCreateAlgoOrder` 与 `created[]`，供 `trade-flow` 记录 protective submit
 - 支持 `--dry-json` 打印最终保护腿请求体，不触网
 
 低频示例见 [reference.md](./reference.md)。

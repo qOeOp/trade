@@ -65,6 +65,11 @@ test("buildRecordedExecutionEvent compiles contract and writes audit snapshot", 
     execution_contract_input: executionContractInput(),
     execution_result: {
       method: "futuresCreateAlgoOrder",
+      request: {
+        symbol: "BTCUSDT",
+        side: "BUY",
+        type: "STOP_MARKET",
+      },
       result: {
         algoId: 12345,
         clientAlgoId: "flow-1-1-entry",
@@ -112,6 +117,11 @@ test("run records execution into plan_event", async () => {
         execution_contract_input: executionContractInput(),
         execution_result: {
           method: "futuresOrder",
+          request: {
+            symbol: "BTCUSDT",
+            side: "BUY",
+            type: "LIMIT",
+          },
           result: {
             orderId: 88,
             clientOrderId: "flow-1-1-entry",
@@ -1145,6 +1155,13 @@ test("runLiveSmall calls order-place and records audited order_fill", async () =
         data: {
           mode: "live",
           method: "futuresCreateAlgoOrder",
+          request: {
+            symbol: "BTCUSDT",
+            side: "BUY",
+            type: "STOP_MARKET",
+            quantity: "0.001",
+            clientAlgoId: "flow-1-1-entry",
+          },
           result: {
             algoId: 456,
             clientAlgoId: "flow-1-1-entry",

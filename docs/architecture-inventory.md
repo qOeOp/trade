@@ -83,6 +83,8 @@
 
 ## 5. 测试入口基线
 
+项目级“改了哪里跑什么”见 [check-contract.md](check-contract.md)。本节只保留 P0 盘点时的粗入口。
+
 | Area | 当前入口 |
 | --- | --- |
 | TS skill | 各 skill `bun run check` |

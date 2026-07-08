@@ -4,13 +4,25 @@
 .claude/
 tmp/
 .env
+
+# Local runtime state and generated trading/research data.
 data/outline_audit/
 data/artifacts/
+data/ohlcv/
+data/calibration-panel-*/
+data/strategy_audits/
 data/strategy-evidence.jsonl
 data/strategy-rnd-ledger.jsonl
+data/cron.log
+data/system_state.json
+data/.trade-flow.lock
 data/*.db
 data/*.sqlite*
 .agents/skills/trade-flow/data/
+
+# Local operator config; keep examples/templates in repo instead.
+profile/account_config.json
+profile/notify_config.json
 
 # Skill-local dependency and cache directories
 node_modules/

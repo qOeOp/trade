@@ -142,6 +142,8 @@
 - 没有统一输出”这版 plan 需要几张主单、几张保护单”。
 - 还没有把 `保证金额 / 杠杆 / 笔数` 编译进来；第一版编译器至少要覆盖 `max_single_position_leverage` 的单持仓约束，不做账户级 gross exposure reservation。
 
+写 skill 成功输出到 `trade-flow` 记账的最低契约见 [execution-skill-contract.md](execution-skill-contract.md)。
+
 ## 5. `binance-order-place`
 
 ### 5.1 定位
@@ -567,6 +569,8 @@ CREATE INDEX idx_beta_symbol_date ON beta_cache(symbol, computed_date DESC);
 | Notify config | JSON | `./profile/notify_config.json` |
 | Cron 运维日志 | 文本日志 | `./data/cron.log` |
 | OHLCV / 市场数据 | CSV + manifest（后期切 SQLite） | `./data/ohlcv/` |
+
+Git 边界与 data 留存规则见 [data-hygiene.md](data-hygiene.md)。
 
 Strategy 文件 frontmatter shape：
 

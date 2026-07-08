@@ -35,6 +35,20 @@ test("flow state result schema matches reducer output", () => {
   }
 })
 
+test("init result schema matches runtime init response data", () => {
+  const schema = readSchema("init-result")
+  assert.equal(schema.$id, "trade-flow.init-result.v1")
+  assert.deepEqual(asArray(schema.required), ["initialized", "dbPath"])
+  assert.equal(asRecord(asRecord(schema.properties).initialized).const, true)
+
+  const result: JSONRecord = {
+    initialized: true,
+    dbPath: "./data/trade.db",
+  }
+  assertSchemaRequired(schema, result)
+  assert.equal(result.initialized, true)
+})
+
 test("apply reconcile result schema matches local apply result", () => {
   const schema = readSchema("apply-reconcile-result")
   assert.equal(schema.$id, "trade-flow.apply-reconcile-result.v1")
