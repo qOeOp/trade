@@ -83,15 +83,23 @@ function mergeMarketFeatures(
 }
 
 async function fetchRecentMarket(config: Config, start: number, end: number, fetchJSON: FetchJSON): Promise<VisionFeatures> {
-  const [openInterest, takerRatio] = await Promise.all([
-    fetchOnce("https://fapi.binance.com/futures/data/openInterestHist", { symbol: config.symbol, period: config.timeframe, limit: "500", startTime: String(start), endTime: String(end) }, fetchJSON),
-    fetchOnce("https://fapi.binance.com/futures/data/takerlongshortRatio", { symbol: config.symbol, period: config.timeframe, limit: "500", startTime: String(start), endTime: String(end) }, fetchJSON),
-  ])
-  return {
-    openInterest: openInterest.map((row) => point(row, "timestamp", "sumOpenInterestValue", "sumOpenInterest")),
-    takerRatio: takerRatio.map((row) => point(row, "timestamp", "buySellRatio")),
-    takerImbalance: [], tradeConcentration: [], depth1PctNotional: [],
-    coverage: { provider: "binance-rest", recent_only_start_ts: start, history_limit_days: 30 },
+  try {
+    const [openInterest, takerRatio] = await Promise.all([
+      fetchOnce("https://fapi.binance.com/futures/data/openInterestHist", { symbol: config.symbol, period: config.timeframe, limit: "500", startTime: String(start), endTime: String(end) }, fetchJSON),
+      fetchOnce("https://fapi.binance.com/futures/data/takerlongshortRatio", { symbol: config.symbol, period: config.timeframe, limit: "500", startTime: String(start), endTime: String(end) }, fetchJSON),
+    ])
+    return {
+      openInterest: openInterest.map((row) => point(row, "timestamp", "sumOpenInterestValue", "sumOpenInterest")),
+      takerRatio: takerRatio.map((row) => point(row, "timestamp", "buySellRatio")),
+      takerImbalance: [], tradeConcentration: [], depth1PctNotional: [],
+      coverage: { provider: "binance-rest", recent_only_start_ts: start, history_limit_days: 30 },
+    }
+  } catch (error) {
+    return {
+      openInterest: [], takerRatio: [],
+      takerImbalance: [], tradeConcentration: [], depth1PctNotional: [],
+      coverage: { provider: "binance-rest", recent_only_start_ts: start, history_limit_days: 30, market_errors: [String(error)] },
+    }
   }
 }
 

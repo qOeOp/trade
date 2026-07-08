@@ -19,6 +19,9 @@ interface Config {
   microstructureDays: number
   external: boolean
   techIndicatorsDir: string
+  analyzerTimeoutMs: number
+  marketTimeoutMs: number
+  force: boolean
 }
 
 async function runCalibrationMarketFeatures(argv: string[], analyzer: Analyzer = defaultAnalyzer, marketRunner: MarketRunner = runMarketFeatures): Promise<{ ok: true; data: JSONRecord } | { ok: false; error: string }> {
@@ -29,7 +32,7 @@ async function runCalibrationMarketFeatures(argv: string[], analyzer: Analyzer =
     mkdirSync(outputRoot, { recursive: true })
     const datasets = array(panel.datasets).map(asRecord)
     if (datasets.length === 0) throw new Error("panel manifest has no datasets")
-    const analyze = analyzer === defaultAnalyzer ? (manifestPath: string) => defaultAnalyzer(manifestPath, config.techIndicatorsDir) : analyzer
+    const analyze = analyzer === defaultAnalyzer ? (manifestPath: string) => defaultAnalyzer(manifestPath, config.techIndicatorsDir, config.analyzerTimeoutMs) : analyzer
 
     const suiteDatasets: JSONRecord[] = []
     const reports: JSONRecord[] = []
@@ -43,20 +46,38 @@ async function runCalibrationMarketFeatures(argv: string[], analyzer: Analyzer =
       mkdirSync(dir, { recursive: true })
       const baseReportPath = join(dir, "base-features.json")
       const marketFeaturesPath = join(dir, "market-features.json")
-      writeFileSync(baseReportPath, `${JSON.stringify(analyze(manifestPath), null, 2)}\n`)
-      const enriched = await marketRunner([
-        "--symbol", symbol,
-        "--timeframe", config.timeframe,
-        "--since-ts", String(config.sinceTS || Number(panel.since_ts) || Date.UTC(2021, 0, 1)),
-        "--base-report", baseReportPath,
-        "--metrics-source", config.metricsSource,
-        "--microstructure-days", String(config.microstructureDays),
-        "--external", String(config.external),
-      ])
-      writeFileSync(marketFeaturesPath, `${JSON.stringify(enriched, null, 2)}\n`)
+      let status = "ok"
+      let error: string | null = null
+      let enriched: JSONRecord
+      process.stderr.write(`[calibration-market-features] ${datasetID} start\n`)
+      const cached = existsSync(marketFeaturesPath) && !config.force ? JSON.parse(readFileSync(marketFeaturesPath, "utf8")) as JSONRecord : null
+      if (cached && cached.ok !== false) {
+        enriched = cached
+        status = "cached"
+        error = stringField(enriched.error) || null
+      } else {
+        try {
+          writeFileSync(baseReportPath, `${JSON.stringify(analyze(manifestPath), null, 2)}\n`)
+          enriched = await withTimeout(marketRunner([
+            "--symbol", symbol,
+            "--timeframe", config.timeframe,
+            "--since-ts", String(config.sinceTS || Number(panel.since_ts) || Date.UTC(2021, 0, 1)),
+            "--base-report", baseReportPath,
+            "--metrics-source", config.metricsSource,
+            "--microstructure-days", String(config.microstructureDays),
+            "--external", String(config.external),
+          ]), config.marketTimeoutMs, `${datasetID} market feature timeout`)
+        } catch (caught) {
+          status = "failed"
+          error = caught instanceof Error ? caught.message : String(caught)
+          enriched = { ok: false, error, data: { market_events: { funding: [] } } }
+        }
+        writeFileSync(marketFeaturesPath, `${JSON.stringify(enriched, null, 2)}\n`)
+      }
       const fundingCount = array(asRecord(asRecord(enriched.data).market_events).funding).length
       suiteDatasets.push({ dataset_id: datasetID, manifest_path: manifestPath, indicator_report_path: marketFeaturesPath })
-      reports.push({ dataset_id: datasetID, symbol, base_report_path: baseReportPath, market_features_path: marketFeaturesPath, funding_event_count: fundingCount })
+      reports.push({ dataset_id: datasetID, symbol, status, error, base_report_path: baseReportPath, market_features_path: marketFeaturesPath, funding_event_count: fundingCount })
+      process.stderr.write(`[calibration-market-features] ${datasetID} ${status} funding_events=${fundingCount}${error ? ` error=${error.slice(0, 160)}` : ""}\n`)
     }
 
     const suiteInput = {
@@ -85,8 +106,8 @@ async function runCalibrationMarketFeatures(argv: string[], analyzer: Analyzer =
   }
 }
 
-function defaultAnalyzer(manifestPath: string, techDir = defaultTechIndicatorsDir()): JSONRecord {
-  const stdout = execFileSync("go", ["run", "./scripts", "--manifest", manifestPath, "--feature-series"], { cwd: techDir, encoding: "utf8", maxBuffer: 256 * 1024 * 1024 })
+function defaultAnalyzer(manifestPath: string, techDir = defaultTechIndicatorsDir(), timeout = 60_000): JSONRecord {
+  const stdout = execFileSync("go", ["run", "./scripts", "--manifest", manifestPath, "--feature-series"], { cwd: techDir, encoding: "utf8", maxBuffer: 256 * 1024 * 1024, timeout })
   return JSON.parse(stdout) as JSONRecord
 }
 
@@ -111,7 +132,17 @@ function parseArgs(argv: string[]): Config {
     microstructureDays: numberValue(values.get("--microstructure-days"), 0, "--microstructure-days"),
     external: values.get("--external") === "true",
     techIndicatorsDir: values.get("--tech-indicators-dir") || defaultTechIndicatorsDir(),
+    analyzerTimeoutMs: numberValue(values.get("--analyzer-timeout-ms"), 60_000, "--analyzer-timeout-ms"),
+    marketTimeoutMs: numberValue(values.get("--market-timeout-ms"), 45_000, "--market-timeout-ms"),
+    force: values.get("--force") === "true",
   }
+}
+
+function withTimeout<T>(task: Promise<T>, ms: number, message: string): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => reject(new Error(message)), ms)
+    task.then((value) => { clearTimeout(timer); resolve(value) }, (error) => { clearTimeout(timer); reject(error) })
+  })
 }
 
 function defaultTechIndicatorsDir(): string {
