@@ -65,12 +65,15 @@ test("calibration suite reports fixed baselines and CLI stays read-only", async 
       purpose: string
       harness_hash: string
       components: Record<string, { benchmark_id?: string; purpose?: string }>
+      failure_analysis: { findings: Array<{ check_id: string; next_system_action: string }> }
     }
     assert.equal(report.purpose, "rd_pipeline_calibration_only")
     assert.match(report.harness_hash, /^[a-f0-9]{64}$/)
     assert.equal(report.components.buy_and_hold_baseline.benchmark_id, "first_dataset_buy_and_hold_v1")
     assert.equal(report.components.time_series_trend.purpose, "rd_pipeline_calibration_only")
     assert.equal(report.components.cross_sectional_relative_strength.benchmark_id, "cross_sectional_relative_strength_v1")
+    assert.ok(report.failure_analysis.findings.some((finding) => finding.check_id === "CAL-SURVIVORSHIP-RISK"))
+    assert.ok(report.failure_analysis.findings.every((finding) => finding.next_system_action.length > 0))
 
     const dbPath = join(dir, "trade.db")
     const cli = await run(["--db", dbPath, "--strategy-calibration-suite", "--json", JSON.stringify({

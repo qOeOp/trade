@@ -32,6 +32,14 @@ interface PortfolioStats {
   max_drawdown: number
 }
 
+interface DiagnosticFinding {
+  check_id: string
+  severity: "info" | "warning" | "blocker"
+  component: string
+  evidence: JSONRecord
+  next_system_action: string
+}
+
 function runTrendBenchmark(input: TrendBenchmarkInput): JSONRecord {
   if (input.datasets.length < 3) throw new Error("trend benchmark requires at least three datasets")
   if (input.datasets.some((item) => !item.datasetId || !item.manifestPath)) throw new Error("trend benchmark datasets require datasetId and manifestPath")
@@ -92,6 +100,7 @@ function runCalibrationSuite(input: CalibrationSuiteInput): JSONRecord {
   const relativeStrength = runRelativeStrengthBenchmark(input)
   const panel = alignedPanel(input.datasets, input.timeframe || "4h")
   const buyHold = buyAndHoldBaseline(panel, input.datasets[0], input.timeframe || "4h")
+  const findings = calibrationFindings(buyHold, trend, relativeStrength, input.datasets.length)
   const blockedBy: Array<{ check_id: string; reason: string }> = []
   if (!booleanField(trend.calibrated)) blockedBy.push({ check_id: "CAL-TREND", reason: "fixed time-series trend benchmark is not calibrated" })
   if (!booleanField(relativeStrength.calibrated)) blockedBy.push({ check_id: "CAL-RELATIVE-STRENGTH", reason: "fixed cross-sectional relative strength benchmark is not calibrated" })
@@ -111,6 +120,10 @@ function runCalibrationSuite(input: CalibrationSuiteInput): JSONRecord {
       "Buy-and-hold is diagnostic only; it separates beta from claimed alpha.",
       "Failed calibration means R&D should diagnose data, costs, portfolio construction, or replay before searching more candidates.",
     ],
+    failure_analysis: {
+      findings,
+      next_system_actions: [...new Set(findings.map((finding) => finding.next_system_action))],
+    },
     notes: ["Calibration suite never authorizes shadow, live-small, or live trading."],
   }
 }
@@ -185,6 +198,96 @@ function buyAndHoldBaseline(panel: { timestamps: number[]; closes: number[][] },
     assumptions: { timeframe, transaction_costs: false, parameter_search: false },
     observed: portfolioStats(returns, timeframe),
   }
+}
+
+function calibrationFindings(buyHold: JSONRecord, trend: JSONRecord, relativeStrength: JSONRecord, datasetCount: number): DiagnosticFinding[] {
+  const findings: DiagnosticFinding[] = []
+  const buyHoldStats = asStats(buyHold.observed)
+  if (buyHoldStats.total_return > 0 && (!booleanField(trend.calibrated) || !booleanField(relativeStrength.calibrated))) {
+    findings.push({
+      check_id: "CAL-BETA-NOT-ENOUGH",
+      severity: "warning",
+      component: "buy_and_hold_baseline",
+      evidence: { total_return: buyHoldStats.total_return, sharpe: buyHoldStats.sharpe, max_drawdown: buyHoldStats.max_drawdown },
+      next_system_action: "Separate beta exposure from claimed alpha before running more R&D search.",
+    })
+  }
+  findings.push(...componentFindings("time_series_trend", trend))
+  findings.push(...componentFindings("cross_sectional_relative_strength", relativeStrength))
+  if (datasetCount < 20) {
+    findings.push({
+      check_id: "CAL-PANEL-BREADTH",
+      severity: "warning",
+      component: "data_panel",
+      evidence: { dataset_count: datasetCount, minimum_target: 20 },
+      next_system_action: "Expand calibration data breadth before treating failed known-edge tests as final market evidence.",
+    })
+  }
+  findings.push({
+    check_id: "CAL-SURVIVORSHIP-RISK",
+    severity: "info",
+    component: "data_panel",
+    evidence: { panel_type: "current_symbol_manifest_panel" },
+    next_system_action: "Add delisted and historically tradable symbols when a reliable source is available.",
+  })
+  return findings
+}
+
+function componentFindings(component: string, report: JSONRecord): DiagnosticFinding[] {
+  const stats = asStats(report.observed)
+  const cost = asStats(report.cost_stress)
+  const funding = asStats(report.funding_stress)
+  const nullControl = asRecord(report.null_control)
+  const folds = array(report.chronological_folds).map(asStats)
+  const findings: DiagnosticFinding[] = []
+  if (stats.sharpe < 0.5 || stats.total_return <= 0) {
+    findings.push({
+      check_id: "CAL-EDGE-WEAK",
+      severity: "blocker",
+      component,
+      evidence: { total_return: stats.total_return, sharpe: stats.sharpe },
+      next_system_action: "Diagnose benchmark construction and data before increasing candidate search.",
+    })
+  }
+  const empiricalP = numberField(nullControl.empirical_p_value)
+  if (empiricalP > 0.05) {
+    findings.push({
+      check_id: "CAL-NULL-NOT-BEATEN",
+      severity: "blocker",
+      component,
+      evidence: { empirical_p_value: empiricalP, observed_sharpe: stats.sharpe, p95_sharpe: numberField(nullControl.p95_sharpe) },
+      next_system_action: "Keep negative controls in the loop; do not accept mild positive returns as edge.",
+    })
+  }
+  if (cost.total_return <= 0 || cost.total_return < stats.total_return * 0.5) {
+    findings.push({
+      check_id: "CAL-COST-FRAGILE",
+      severity: cost.total_return <= 0 ? "blocker" : "warning",
+      component,
+      evidence: { observed_total_return: stats.total_return, cost_stress_total_return: cost.total_return },
+      next_system_action: "Improve turnover, fee, and slippage diagnostics before strategy iteration.",
+    })
+  }
+  if (funding.total_return <= 0) {
+    findings.push({
+      check_id: "CAL-FUNDING-FRAGILE",
+      severity: "warning",
+      component,
+      evidence: { observed_total_return: stats.total_return, funding_stress_total_return: funding.total_return },
+      next_system_action: "Integrate exact funding coverage into calibration before using perpetual-only results.",
+    })
+  }
+  const negativeFolds = folds.filter((fold) => fold.total_return <= 0)
+  if (negativeFolds.length > 0) {
+    findings.push({
+      check_id: "CAL-TIME-INSTABILITY",
+      severity: "warning",
+      component,
+      evidence: { negative_fold_count: negativeFolds.length, fold_total_returns: folds.map((fold) => fold.total_return) },
+      next_system_action: "Add regime and subperiod diagnostics before optimizing parameters.",
+    })
+  }
+  return findings
 }
 
 function alignCloses(candles: Candle[], timestamps: number[]): number[] {
@@ -298,7 +401,9 @@ function round(value: number): number { return Number.isFinite(value) ? Number(v
 function asRecord(value: unknown): JSONRecord { return value && typeof value === "object" && !Array.isArray(value) ? value as JSONRecord : {} }
 function array(value: unknown): unknown[] { return Array.isArray(value) ? value : [] }
 function optionalNumber(value: unknown): number | undefined { const number = Number(value); return Number.isFinite(number) ? number : undefined }
+function numberField(value: unknown): number { const number = Number(value); return Number.isFinite(number) ? number : 0 }
 function stringField(value: unknown): string { return typeof value === "string" ? value.trim() : "" }
 function booleanField(value: unknown): boolean { return value === true }
+function asStats(value: unknown): PortfolioStats { const item = asRecord(value); return { sample_count: numberField(item.sample_count), total_return: numberField(item.total_return), annualized_return: numberField(item.annualized_return), annualized_volatility: numberField(item.annualized_volatility), sharpe: numberField(item.sharpe), max_drawdown: numberField(item.max_drawdown) } }
 
 export { runTrendBenchmark, runCalibrationSuite, strategyBenchmarkInputFromJson, strategyCalibrationInputFromJson, type TrendBenchmarkInput }

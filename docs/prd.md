@@ -110,7 +110,7 @@ tags: []
 - `--strategy-rnd-campaign`：在全局最多 10 次 discovery trial 内运行 hypothesis queue；没有 winner 才继续，首个 winner 冻结后只查看一次不重叠 locked holdout，失败即结束 campaign
 - `--strategy-panel-rnd`：同一候选跨至少 3 个资产评估，保留逐资产证据，并检查 pooled sample、广度、OOS、成本与灾难损失
 - `--strategy-benchmark`：用固定多资产趋势规则、15% 目标波动、成本/资金费压力和组合权重循环移位负对照标定 R&D 管线；不写 DB、不产生准入证据
-- `--strategy-calibration-suite`：固定跑 buy-and-hold / cash baseline、趋势基准、横截面强弱基准；只判断 R&D 管线是否值得继续搜索，不产生准入证据
+- `--strategy-calibration-suite`：固定跑 buy-and-hold / cash baseline、趋势基准、横截面强弱基准，并输出 beta、成本、funding、时间稳定性、负对照与数据广度诊断；只暴露系统问题，不产生准入证据
 - `--strategy-signal`：candidate 在最新闭合 K 线上复用 replay family并返回稳定 hash；entry reference 由在线报价注入，只返回信号，不执行、不落交易事实
 - replay 只能给 `shadow_candidate`；`live-small` 必须另有 shadow 样本与人工确认
 - candidate family 只承载少量可检验市场机制，不做形态百科；只有通过样本外、成本和稳定性门槛的版本才可沉淀为策略 asset
