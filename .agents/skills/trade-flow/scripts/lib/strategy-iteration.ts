@@ -7,7 +7,8 @@ import { hashCanonical, replayDataHash, replayHarnessHash, type ReplayProvenance
 
 type JSONRecord = Record<string, unknown>
 type StrategyStatus = "draft" | "shadow" | "live-small" | "paused"
-type EvidenceKind = "replay" | "shadow" | "live_small" | "review_batch"
+const EVIDENCE_KINDS = ["replay", "shadow", "live_small", "review_batch"] as const
+type EvidenceKind = typeof EVIDENCE_KINDS[number]
 
 interface StrategyEvidenceRecord {
   evidence_id: string
@@ -87,7 +88,18 @@ interface StrategyReviewReport {
     review_batch: StrategyEvidenceRecord | null
   }
   db_review_stats: EvidenceStats | null
+  diagnostics: StrategyReviewDiagnostics
   gate: StrategyPromotionGate
+}
+
+interface StrategyReviewDiagnostics {
+  qualification: {
+    funding_event_coverage_status: string | null
+    panel_null_status: string | null
+    panel_null_blocked: boolean | null
+    blocked_by: string[]
+  }
+  failure_attribution: Array<{ area: string; count: number; check_ids: string[]; next_action: string }>
 }
 
 interface StrategyPromotionGate {
@@ -207,6 +219,7 @@ function reviewStrategy(input: {
     live_small: latestEvidence(combinedFresh, "live_small"),
     review_batch: latestEvidence(combinedFresh, "review_batch"),
   }
+  const gate = evaluateStrategyGate(latest)
 
   return {
     strategy_id: strategy.strategy_id,
@@ -223,7 +236,8 @@ function reviewStrategy(input: {
     },
     latest,
     db_review_stats: dbReviewStats,
-    gate: evaluateStrategyGate(latest),
+    diagnostics: buildReviewDiagnostics(latest, gate),
+    gate,
   }
 }
 
@@ -590,6 +604,71 @@ function evaluateQualification(record: StrategyEvidenceRecord): Array<{ check_id
   return blocked
 }
 
+function buildReviewDiagnostics(latest: StrategyReviewReport["latest"], gate: StrategyPromotionGate): StrategyReviewDiagnostics {
+  const replay = latest.replay
+  const funding = asRecord(replay?.qualification?.funding_event_coverage)
+  const panel = asRecord(replay?.qualification?.panel_null_gate)
+  const blockedBy = gate.blocked_by.map((item) => item.check_id)
+  return {
+    qualification: {
+      funding_event_coverage_status: stringField(funding.status) || null,
+      panel_null_status: stringField(panel.status) || null,
+      panel_null_blocked: Object.keys(panel).length > 0 ? panel.blocked === true : null,
+      blocked_by: blockedBy.filter((checkId) => checkId.startsWith("S-FUNDING") || checkId.startsWith("S-PANEL")),
+    },
+    failure_attribution: summarizeReviewFailures(blockedBy),
+  }
+}
+
+function summarizeReviewFailures(checkIds: string[]): StrategyReviewDiagnostics["failure_attribution"] {
+  const groups = new Map<string, Set<string>>()
+  for (const checkId of checkIds) {
+    const area = reviewFailureArea(checkId)
+    if (!groups.has(area)) groups.set(area, new Set())
+    groups.get(area)!.add(checkId)
+  }
+  return Array.from(groups.entries())
+    .map(([area, ids]) => ({
+      area,
+      count: checkIds.filter((checkId) => reviewFailureArea(checkId) === area).length,
+      check_ids: Array.from(ids).sort(),
+      next_action: reviewFailureNextAction(area),
+    }))
+    .sort((a, b) => b.count - a.count || a.area.localeCompare(b.area))
+}
+
+function reviewFailureArea(checkId: string): string {
+  if (checkId.startsWith("S-FUNDING")) return "funding_coverage"
+  if (checkId.startsWith("S-PANEL")) return "panel_null"
+  if (checkId.startsWith("S-OOS") || checkId === "S-HOLDOUT-MISSING" || checkId === "S-SEARCH-BUDGET" || checkId === "S-PARAM-COUNT") return "anti_overfit"
+  if (checkId.startsWith("S-ROBUSTNESS")) return "robustness"
+  if (checkId.startsWith("S-SHADOW-ATTRIBUTION")) return "shadow_execution_attribution"
+  if (checkId.startsWith("S-SHADOW")) return "shadow_quality"
+  if (checkId.startsWith("S-REPLAY")) return "replay_quality"
+  return "promotion_gate"
+}
+
+function reviewFailureNextAction(area: string): string {
+  switch (area) {
+    case "funding_coverage":
+      return "Backfill exact funding coverage before treating replay evidence as shadow-ready."
+    case "panel_null":
+      return "Re-run or reject the candidate through panel R&D; do not use single-asset evidence alone."
+    case "anti_overfit":
+      return "Use locked holdout or walk-forward proof within the declared search budget."
+    case "robustness":
+      return "Fix regime, cost, or parameter fragility before promotion."
+    case "shadow_execution_attribution":
+      return "Aggregate real shadow fee, slippage, and funding drag before live-small."
+    case "shadow_quality":
+      return "Collect more positive shadow samples before live-small."
+    case "replay_quality":
+      return "Produce fresh positive replay evidence before promotion."
+    default:
+      return "Inspect promotion gate blockers before changing strategy status."
+  }
+}
+
 function normalizeAntiOverfitProof(proof: AntiOverfitProof): AntiOverfitProof {
   return {
     method: proof.method,
@@ -651,6 +730,7 @@ export {
   promoteStrategy,
   reviewStrategy,
   updateStrategyStatus,
+  EVIDENCE_KINDS,
   type EvidenceKind,
   type EvidenceStats,
   type AntiOverfitProof,
@@ -659,6 +739,7 @@ export {
   type EvidenceQualification,
   type StrategyEvidenceRecord,
   type StrategyPromotionGate,
+  type StrategyReviewDiagnostics,
   type StrategyReviewReport,
   type StrategyStatus,
 }

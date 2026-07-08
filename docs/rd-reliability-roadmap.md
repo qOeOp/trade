@@ -45,7 +45,8 @@ title: R&D Reliability Roadmap
 
 - 目标：只有 calibration 过关后才搜索；搜索失败回到系统诊断，不盲目换假设。
 - 当前：`--strategy-rnd-campaign` 可读取 `calibration_report_path`；未校准或含 blocker 时零 trial 停止；candidate batch 已输出 `failure_summary` 与 `reliability_gate`，把样本画像、失败层和继续 trial 权限机器化。
-- 下一块：把 campaign / evidence 的 qualification 汇总写入策略 review 报告的失败归因，减少人工翻 artifact。
+- 当前：strategy review 已输出 `diagnostics.qualification` 与 `diagnostics.failure_attribution`，能直接暴露 funding / panel null / anti-overfit / robustness / shadow attribution 阻断层。
+- 下一块：从真实 shadow order/event 自动汇总 execution attribution，减少人工填报。
 - 完成信号：pipeline 能自动拒绝在未校准环境下扩大 trial budget。
 
 ## 7. Evidence 层
