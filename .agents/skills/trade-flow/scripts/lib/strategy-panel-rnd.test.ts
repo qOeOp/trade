@@ -57,15 +57,40 @@ test("panel R&D evaluates cross-candidate asset shuffle null", () => {
   }
 })
 
+test("panel R&D diagnostic mode skips expensive null controls and cannot promote", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-panel-rnd-diagnostic-"))
+  try {
+    const manifestPath = writeManifest(dir)
+    const report = runStrategyPanelRnd({
+      panelId: "panel-diagnostic-test",
+      diagnosticMode: true,
+      datasets: ["BTC", "ETH", "SOL"].map((datasetId) => ({ datasetId, manifestPath })),
+      candidates: [{ candidateId: "PANEL-LONG", params: { side: "long" } }],
+    })
+    const candidate = (report.candidates as Array<{
+      gate: { accepted: boolean; blocked_by: Array<{ check_id: string }> }
+      panel_null_controls: { status: string }
+    }>)[0]
+    assert.equal(report.outcome, "diagnostic_only")
+    assert.equal(candidate.gate.accepted, false)
+    assert.equal(candidate.gate.blocked_by.some((item) => item.check_id === "PANEL-DIAGNOSTIC-ONLY"), true)
+    assert.equal(candidate.panel_null_controls.status, "diagnostic_skipped")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("panel parser requires real dataset identifiers downstream", () => {
   const input = strategyPanelRndInputFromJson({
     funding_bps_per_8h: 1,
+    diagnostic_mode: true,
     datasets: [{ dataset_id: "BTC", manifest_path: "/tmp/btc.json" }],
     candidates: [{ candidate_id: "C-1", family: "trend_pullback_v1", params: { side: "long" } }],
   })
   assert.equal(input.datasets[0].datasetId, "BTC")
   assert.equal(input.candidates[0].candidateId, "C-1")
   assert.equal(input.fundingBpsPer8h, 1)
+  assert.equal(input.diagnosticMode, true)
 })
 
 function writeManifest(dir: string): string {

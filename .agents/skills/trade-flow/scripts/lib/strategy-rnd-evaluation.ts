@@ -61,12 +61,16 @@ export function runCandidate(input: StrategyRndBatchInput, candidate: StrategyRn
     supplementalDataRefs: input.indicatorReportPath ? [input.indicatorReportPath] : [],
   })
   const robustness = asRecord(replay.assumptions.robustness)
-  robustness.parameter_stability = Object.keys(input.parameterStability || {}).length > 0
+  robustness.parameter_stability = input.diagnosticMode
+    ? { method: "diagnostic_skipped", evaluation_count: 0, positive_ratio: 0, worst_avg_r: 0 }
+    : Object.keys(input.parameterStability || {}).length > 0
     ? input.parameterStability
     : evaluateParameterStability(input, candidate, featureStore)
   replay.assumptions.robustness = robustness
   replay.provenance.assumptions_hash = hashCanonical(replay.assumptions)
-  const nullControls = buildCandidateNullControls(input, candidate, configured, featureStore, replay)
+  const nullControls = input.diagnosticMode
+    ? diagnosticNullControls(replay)
+    : buildCandidateNullControls(input, candidate, configured, featureStore, replay)
   return {
     candidate_id: candidate.candidateId,
     description: candidate.description || "",
@@ -76,6 +80,15 @@ export function runCandidate(input: StrategyRndBatchInput, candidate: StrategyRn
     replay,
     null_controls: nullControls,
     gate: evaluateRndCandidate(replay, parameterCount, nullControls.blocked_by),
+  }
+}
+
+function diagnosticNullControls(observed: ReplayResult): CandidateNullControlReport {
+  return {
+    method: "side_flip_and_entry_lag",
+    observed_total_r: observed.total_r,
+    controls: [],
+    blocked_by: [],
   }
 }
 

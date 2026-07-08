@@ -19,6 +19,7 @@ interface StrategyPanelRndInput {
   slippageBps?: number
   fundingBpsPer8h?: number
   oosSplitRatio?: number
+  diagnosticMode?: boolean
 }
 
 interface PanelAssetReport {
@@ -65,6 +66,7 @@ function runStrategyPanelRnd(input: StrategyPanelRndInput): JSONRecord {
         slippageBps: input.slippageBps,
         fundingBpsPer8h: input.fundingBpsPer8h,
         oosSplitRatio: input.oosSplitRatio,
+        diagnosticMode: input.diagnosticMode,
         searchTrialCount: input.candidates.length,
         candidates: [candidate],
       })
@@ -102,8 +104,9 @@ function runStrategyPanelRnd(input: StrategyPanelRndInput): JSONRecord {
     if (positiveAssets < requiredPositive) blockedBy.push({ check_id: "PANEL-BREADTH", reason: `${positiveAssets}/${assets.length} assets are positive; ${requiredPositive} required` })
     if (assets.filter((asset) => asset.oos_positive).length < requiredPositive) blockedBy.push({ check_id: "PANEL-OOS", reason: "selection validation is not positive across enough assets" })
     if (assets.filter((asset) => asset.cost_stress_positive).length < requiredPositive) blockedBy.push({ check_id: "PANEL-COST", reason: "cost stress is not positive across enough assets" })
-    if (nullPassedAssets < requiredPositive) blockedBy.push({ check_id: "PANEL-NULL", reason: `${nullPassedAssets}/${assets.length} assets beat candidate null controls; ${requiredPositive} required` })
+    if (!input.diagnosticMode && nullPassedAssets < requiredPositive) blockedBy.push({ check_id: "PANEL-NULL", reason: `${nullPassedAssets}/${assets.length} assets beat candidate null controls; ${requiredPositive} required` })
     if (assets.some((asset) => asset.total_r < -10 || asset.max_drawdown_r > 15)) blockedBy.push({ check_id: "PANEL-CATASTROPHIC", reason: "at least one asset exceeds the catastrophic loss veto" })
+    if (input.diagnosticMode) blockedBy.push({ check_id: "PANEL-DIAGNOSTIC-ONLY", reason: "diagnostic mode skips candidate null controls and parameter stability; rerun survivors with diagnostic_mode=false" })
     return {
       candidate_id: candidate.candidateId,
       family: candidate.family || "trend_pullback_v1",
@@ -119,7 +122,7 @@ function runStrategyPanelRnd(input: StrategyPanelRndInput): JSONRecord {
       gate: { accepted: blockedBy.length === 0, blocked_by: blockedBy },
     }
   })
-  const panelNullControls = buildPanelAssetShuffleNull(candidates)
+  const panelNullControls = input.diagnosticMode ? buildDiagnosticPanelNull(candidates) : buildPanelAssetShuffleNull(candidates)
   candidates.forEach((candidate, index) => {
     const control = panelNullControls[index]
     candidate.panel_null_controls = control
@@ -131,11 +134,22 @@ function runStrategyPanelRnd(input: StrategyPanelRndInput): JSONRecord {
   return {
     panel_id: input.panelId || "strategy-panel-rnd",
     hypothesis: input.hypothesis || "",
+    diagnostic_mode: input.diagnosticMode === true,
     dataset_count: input.datasets.length,
     trial_count: input.candidates.length,
-    outcome: candidates.some((candidate) => candidate.gate.accepted) ? "candidate_found" : "no_promote",
+    outcome: input.diagnosticMode ? "diagnostic_only" : candidates.some((candidate) => candidate.gate.accepted) ? "candidate_found" : "no_promote",
     candidates,
   }
+}
+
+function buildDiagnosticPanelNull(candidates: PanelCandidateReport[]): JSONRecord[] {
+  return candidates.map((candidate) => ({
+    method: "cross_candidate_asset_shuffle_v1",
+    status: "diagnostic_skipped",
+    reason: "diagnostic mode skips panel null controls",
+    observed_total_r: candidate.pooled.total_r,
+    passed: false,
+  }))
 }
 
 function buildPanelAssetShuffleNull(candidates: PanelCandidateReport[]): JSONRecord[] {
@@ -183,6 +197,7 @@ function strategyPanelRndInputFromJson(value: JSONRecord): StrategyPanelRndInput
     slippageBps: optionalNumber(value.slippage_bps ?? value.slippageBps),
     fundingBpsPer8h: optionalNumber(value.funding_bps_per_8h ?? value.fundingBpsPer8h),
     oosSplitRatio: optionalNumber(value.oos_split ?? value.oosSplitRatio),
+    diagnosticMode: value.diagnostic_mode === true || value.diagnosticMode === true,
     datasets: array(value.datasets).map((raw) => {
       const item = asRecord(raw)
       return {

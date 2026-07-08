@@ -20,6 +20,7 @@ export interface StrategyRndBatchInput {
   factorResearchOptions?: FactorResearchOptions
   factorSeeds?: FactorCondition[]
   maxFactorsPerCandidate?: number
+  diagnosticMode?: boolean
   candidates: StrategyRndCandidateInput[]
   antiOverfitStage?: "selection_validation" | "external_validation" | "locked_holdout"
   parameterStability?: JSONRecord
@@ -87,6 +88,7 @@ export function strategyRndBatchInputFromJson(input: JSONRecord): StrategyRndBat
     factorResearchOptions: factorResearchOptionsFromJson(input.factor_research_options ?? input.factorResearchOptions),
     factorSeeds: readFactorConditions(input.factor_seeds ?? input.factorSeeds),
     maxFactorsPerCandidate: optionalNumber(input.max_factors_per_candidate ?? input.maxFactorsPerCandidate),
+    diagnosticMode: readBoolean(input.diagnostic_mode ?? input.diagnosticMode, false),
     parameterStability: asRecord(input.parameter_stability ?? input.parameterStability),
     candidates: array(input.candidates).map((item) => candidateFromJson(asRecord(item))),
   }
