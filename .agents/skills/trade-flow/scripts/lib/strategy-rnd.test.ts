@@ -138,6 +138,8 @@ test("strategy R&D batch runs bounded predeclared candidates", () => {
     assert.equal(report.selection_audit.declared_trials, 7)
     assert.equal(report.candidates.length, 1)
     assert.equal(report.candidates[0].replay.strategy_id, "C-LONG-EMA50")
+    assert.equal(report.candidates[0].null_controls.method, "side_flip_and_entry_lag")
+    assert.deepEqual(report.candidates[0].null_controls.controls.map((item) => item.control_id), ["side_flip", "entry_lag_3"])
     assert.equal((report.candidates[0].replay.assumptions.anti_overfit as { trial_count: number }).trial_count, 7)
     assert.ok(["candidate_found", "no_promote"].includes(report.outcome))
   } finally {

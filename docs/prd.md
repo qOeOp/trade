@@ -105,7 +105,7 @@ tags: []
 - `replay-core`：OHLCV manifest loader / 指标缓存 / 单 lane 撮合 / R 统计 / fee + slippage / replay gate
 - `replay-strategies`：`strategy_id -> ReplayStrategy` registry；新增策略只补 strategy definition，不改 core
 - `--replay-strategy`：只读文件，不写 DB，不触发 Binance
-- `--strategy-rnd-batch`：最多 10 个候选；可先在 discovery 数据上筛 factor，再按角色、数量与参数预算组合到预声明 base family；统一 replay/OOS，输出失败归因，不自动升格
+- `--strategy-rnd-batch`：最多 10 个候选；可先在 discovery 数据上筛 factor，再按角色、数量与参数预算组合到预声明 base family；统一 replay/OOS、candidate null controls 和失败归因，不自动升格
 - `--strategy-rnd-loop`：包装一轮 R&D batch，写 artifact JSON 与 `strategy-rnd-ledger.jsonl`；ledger 只做研究审计，不作为 promote evidence
 - `--strategy-rnd-campaign`：在全局最多 10 次 discovery trial 内运行 hypothesis queue；可选 `calibration_report_path` 未过则零 trial 停止；没有 winner 才继续，首个 winner 冻结后只查看一次不重叠 locked holdout，失败即结束 campaign
 - `--strategy-panel-rnd`：同一候选跨至少 3 个资产评估，保留逐资产证据，并检查 pooled sample、广度、OOS、成本与灾难损失
@@ -118,6 +118,7 @@ tags: []
 - factor transform 固定为 `level / delta / slope / zscore / percentile`，condition 固定为 `gt / lt / between`；composer 最多 3 个不同角色 factor、10 个候选、8 个参数
 - scientific factor discovery 以 base family 实际 setup 的 realized R 为目标做 causal rank IC；全部被扫描 factor 统一做 5% FDR，再检查时间折、regime 与 `|corr|>=0.85` 去重。筛选结果只是 seed，不是 edge 结论
 - replay 对训练标签跨 OOS 分界做 purge；多候选样本足够时执行四时间块选择反转审计
+- candidate R&D 固定输出 side-flip 与 entry-lag null controls；候选为正但打不过有效 null 时不能进入下一阶段
 - replay 成本包含 fee、slippage、止损 gap；有 funding events 时逐次结算，无事件时才使用 adverse funding fallback；历史 L2 queue 缺失时不估算 maker fill
 - `strategy-evidence.jsonl`：保存 replay / shadow / live-small / review_batch 证据，不进入 `trade.db`
 - evidence fingerprint：`policy_hash + harness_hash + data_hash + assumptions_hash`；data hash 同时覆盖 OHLCV 与消费的 factor report，策略、回放代码、数据或假设任一变化均使旧证据 stale

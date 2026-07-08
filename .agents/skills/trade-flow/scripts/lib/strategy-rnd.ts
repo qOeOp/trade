@@ -7,7 +7,9 @@ import {
   loadCandlesFromManifest,
   replayDataHash,
   replayStrategy,
+  type ReplaySignal,
   type ReplayResult,
+  type ReplayStrategy,
 } from "./replay-core"
 import {
   composeFactorCandidates,
@@ -18,7 +20,7 @@ import {
   type FactorFeatureStore,
 } from "./factor-engine"
 import { researchFactorSeeds, type FactorResearchOptions, type FactorResearchReport } from "./factor-research"
-import { getRndFamily } from "./rnd-family"
+import { getRndFamily, type RndFamilyConfigured } from "./rnd-family"
 
 type JSONRecord = Record<string, unknown>
 type CandidateSource = "provided" | "bounded_factor_composition" | "scientific_factor_discovery"
@@ -193,10 +195,24 @@ interface StrategyRndCandidateReport {
   parameter_count: number
   params: JSONRecord
   replay: ReplayResult
+  null_controls: CandidateNullControlReport
   gate: {
     accepted: boolean
     blocked_by: Array<{ check_id: string; reason: string }>
   }
+}
+
+interface CandidateNullControlReport {
+  method: "side_flip_and_entry_lag"
+  observed_total_r: number
+  controls: Array<{
+    control_id: string
+    sample_count: number
+    avg_r: number
+    total_r: number
+    profit_factor: number
+  }>
+  blocked_by: Array<{ check_id: string; reason: string }>
 }
 
 function evaluateRndSignal(input: StrategyRndSignalInput): JSONRecord {
@@ -301,6 +317,7 @@ function summarizeCandidateBlockers(candidates: StrategyRndCandidateReport[]): F
 function failureAreaForCheck(checkId: string): string {
   if (!checkId) return "none"
   if (checkId.includes("FUNDING-COVERAGE")) return "data_funding_coverage"
+  if (checkId.includes("NULL-NOT-BEATEN")) return "negative_control"
   if (checkId.includes("SAMPLE")) return "sample_efficiency"
   if (checkId.includes("EXPECTANCY") || checkId.includes("PROFIT-FACTOR")) return "edge_expectancy"
   if (checkId.includes("DRAWDOWN")) return "risk_shape"
@@ -334,6 +351,8 @@ function nextSystemActions(primary: string, blockers: FailureSummary["top_blocke
       return ["Reduce parameter count and trial budget; restart as a smaller predeclared hypothesis."]
     case "risk_shape":
       return ["Redesign stop/target geometry before adding confirmation factors."]
+    case "negative_control":
+      return ["Reject mild positive edge until it beats side-flip and delayed-entry null controls."]
     default:
       return blockers.length > 0
         ? ["Stop this hypothesis batch; inspect top blockers before running more trials."]
@@ -786,6 +805,7 @@ function runCandidate(input: StrategyRndBatchInput, candidate: StrategyRndCandid
     : evaluateParameterStability(input, candidate, featureStore)
   replay.assumptions.robustness = robustness
   replay.provenance.assumptions_hash = hashCanonical(replay.assumptions)
+  const nullControls = buildCandidateNullControls(input, candidate, configured, featureStore, replay)
   return {
     candidate_id: candidate.candidateId,
     description: candidate.description || "",
@@ -793,7 +813,104 @@ function runCandidate(input: StrategyRndBatchInput, candidate: StrategyRndCandid
     parameter_count: parameterCount,
     params: configured.params,
     replay,
-    gate: evaluateRndCandidate(replay, parameterCount),
+    null_controls: nullControls,
+    gate: evaluateRndCandidate(replay, parameterCount, nullControls.blocked_by),
+  }
+}
+
+function buildCandidateNullControls(
+  input: StrategyRndBatchInput,
+  candidate: StrategyRndCandidateInput,
+  configured: RndFamilyConfigured,
+  featureStore: FactorFeatureStore,
+  observed: ReplayResult,
+): CandidateNullControlReport {
+  const parameterCount = candidate.parameterCount ?? countActiveParameters(candidate.params || {})
+  const controls: CandidateNullControlReport["controls"] = []
+  const sideFlipped = flippedSideParams(candidate.params || {})
+  if (sideFlipped) {
+    const flipped = getRndFamily(candidate.family || "trend_pullback_v1").configure(`${candidate.candidateId}-null-side-flip`, sideFlipped, featureStore)
+    controls.push(summarizeNullControl("side_flip", runConfiguredReplay(input, flipped, countActiveParameters(sideFlipped))))
+  }
+  controls.push(summarizeNullControl(
+    "entry_lag_3",
+    runConfiguredReplay(input, { ...configured, strategy: laggedEntryStrategy(configured.strategy, 3) }, parameterCount),
+  ))
+  const eligible = controls.filter((control) => control.sample_count >= 10)
+  const blocked = observed.total_r > 0
+    && observed.avg_r > 0
+    && eligible.some((control) => control.total_r >= observed.total_r || control.avg_r >= observed.avg_r)
+  return {
+    method: "side_flip_and_entry_lag",
+    observed_total_r: observed.total_r,
+    controls,
+    blocked_by: blocked
+      ? [{ check_id: "RND-NULL-NOT-BEATEN", reason: "candidate does not beat side-flip or delayed-entry null control" }]
+      : [],
+  }
+}
+
+function runConfiguredReplay(input: StrategyRndBatchInput, configured: RndFamilyConfigured, parameterCount: number): ReplayResult {
+  return replayStrategy(configured.strategy, {
+    manifestPath: input.manifestPath,
+    timeframe: input.timeframe,
+    maxHoldBars: input.maxHoldBars,
+    rewardRisk: configured.rewardRisk,
+    feeBps: input.feeBps,
+    slippageBps: input.slippageBps,
+    fundingBpsPer8h: input.fundingBpsPer8h,
+    fundingEvents: loadFundingEvents(input.indicatorReportPath),
+    oosSplitRatio: input.oosSplitRatio ?? 0.3,
+    trialCount: input.searchTrialCount ?? input.candidates.length,
+    parameterCount,
+    antiOverfitStage: input.antiOverfitStage,
+    supplementalDataRefs: input.indicatorReportPath ? [input.indicatorReportPath] : [],
+  })
+}
+
+function summarizeNullControl(controlId: string, replay: ReplayResult): CandidateNullControlReport["controls"][number] {
+  return {
+    control_id: controlId,
+    sample_count: replay.sample_count,
+    avg_r: replay.avg_r,
+    total_r: replay.total_r,
+    profit_factor: replay.profit_factor,
+  }
+}
+
+function flippedSideParams(params: JSONRecord): JSONRecord | null {
+  const side = stringField(params.side).toLowerCase()
+  if (side === "long") return { ...params, side: "short" }
+  if (side === "short") return { ...params, side: "long" }
+  return null
+}
+
+function laggedEntryStrategy(strategy: ReplayStrategy, lagBars: number): ReplayStrategy {
+  return {
+    ...strategy,
+    strategy_id: `${strategy.strategy_id}-null-entry-lag-${lagBars}`,
+    generateSignal(input) {
+      const sourceIndex = input.index - lagBars
+      if (sourceIndex < strategy.warmup_bars) return null
+      const original = strategy.generateSignal({ ...input, index: sourceIndex })
+      return original ? rebuildSignalAtEntry(original, input.index, input.entryIndex, input.entryPrice) : null
+    },
+  }
+}
+
+function rebuildSignalAtEntry(signal: ReplaySignal, signalIndex: number, entryIndex: number, entry: number): ReplaySignal | null {
+  const originalRisk = Math.abs(signal.entry - signal.stop)
+  const originalReward = Math.abs(signal.target - signal.entry)
+  const rewardRisk = originalRisk > 0 ? originalReward / originalRisk : 0
+  const risk = Math.abs(entry - signal.stop)
+  if (!Number.isFinite(rewardRisk) || rewardRisk <= 0 || risk <= 0) return null
+  return {
+    ...signal,
+    signal_index: signalIndex,
+    entry_index: entryIndex,
+    entry,
+    target: signal.side === "long" ? entry + risk * rewardRisk : entry - risk * rewardRisk,
+    reason: `${signal.reason} null entry lag`,
   }
 }
 
@@ -841,7 +958,11 @@ function evaluateParameterStability(
 
 
 
-function evaluateRndCandidate(replay: ReplayResult, parameterCount: number): StrategyRndCandidateReport["gate"] {
+function evaluateRndCandidate(
+  replay: ReplayResult,
+  parameterCount: number,
+  nullBlocks: Array<{ check_id: string; reason: string }> = [],
+): StrategyRndCandidateReport["gate"] {
   const blockedBy = [...replay.gate.blocked_by]
   const proof = replay.assumptions.anti_overfit as { oos_stats?: { sample_count: number; avg_r: number; total_r: number; max_drawdown_r: number; profit_factor: number }; trial_count?: number; parameter_count?: number } | undefined
   if (!proof || !proof.oos_stats) {
@@ -870,6 +991,7 @@ function evaluateRndCandidate(replay: ReplayResult, parameterCount: number): Str
     blockedBy.push({ check_id: "RND-PARAM-COUNT", reason: `parameter_count ${parameterCount} exceeds 8` })
   }
   blockedBy.push(...evaluateRndRobustness(replay))
+  blockedBy.push(...nullBlocks)
   return {
     accepted: blockedBy.length === 0,
     blocked_by: blockedBy,

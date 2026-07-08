@@ -62,7 +62,7 @@ latest_observe.action_intent.request
   - `--build-observe --json <payload>`：从账户 / 市场投影构建 observe event
   - `--observe-from-skills --json <payload>`：调用只读 `binance-account-snapshot` / `binance-symbol-snapshot` 后构建 observe event
   - `--replay-strategy --manifest <manifest> --strategy-id <id>`：读取 OHLCV manifest，通过 replay registry 机械回放策略，并输出统计与 gate
-  - `--strategy-rnd-batch --json <payload>`：运行最多 10 个候选；`factor_discover=true + factor_compose=true` 时先做因子统计筛选，再按角色与参数预算组合到预声明 base family；统一 replay/OOS，输出失败归因，不自动升格
+  - `--strategy-rnd-batch --json <payload>`：运行最多 10 个候选；`factor_discover=true + factor_compose=true` 时先做因子统计筛选，再按角色与参数预算组合到预声明 base family；统一 replay/OOS、candidate null controls 和失败归因，不自动升格
   - `--strategy-rnd-loop --json <payload>`：运行一轮 R&D loop，写 artifact JSON 和 `strategy-rnd-ledger.jsonl`；不写 `trade.db`，不自动升格
   - `--strategy-rnd-campaign --json <payload>`：依次运行 hypothesis queue；可选 `calibration_report_path` 未过则零 trial 停止；未产生 discovery winner 才继续下一假设；首个 winner 冻结后只查看一次不重叠 locked holdout，通过即返回，失败即结束 campaign
   - `--strategy-panel-rnd --json <payload>`：同一候选在至少三个资产上复用统一 replay，保留逐资产证据并执行样本、广度、OOS、成本与灾难损失门槛
@@ -109,6 +109,7 @@ latest_observe.action_intent.request
 - bounded composer 最多组合 3 个不同角色 factor、最多输出 10 个 candidate，并把 threshold 与 transform lookback 计入 8 参数上限；不做无界笛卡尔积
 - `factor_discover=true` 先用 base family 的实际 setup/trade R 作为目标，再做 causal rank IC；全部扫描 factor 通过 5% FDR、时间折、regime 与 `|corr|>=0.85` 去重后才能成为 seed
 - 多候选且样本足够时执行四时间块 rank-reversal 审计；反转率超过 50% 时 batch 不选 winner。它是轻量选择偏差诊断，不冒充完整 CSCV/PBO
+- candidate R&D 固定输出 side-flip 与 entry-lag null controls；候选为正但打不过有效 null 时追加 `RND-NULL-NOT-BEATEN`
 - family 是少量市场机制的可执行实验模板，不追求穷举形态；未经 replay/OOS/成本/稳定性验证的 candidate 不进入长期 asset
 - family 从 `scripts/lib/rnd-families/*.family.ts` 自动发现；新增 family 只新增模块，不修改 `strategy-rnd.ts`、union 或中央注册表
 - 冻结 candidate 在不重叠外部样本上失败后必须停止；任何参数、过滤器或规则修改都作为新 hypothesis / trial，不能用调参覆盖失败结论
