@@ -12,7 +12,7 @@
 | --- | --- | --- |
 | docs / skill source / schema / tests | 是 | `docs/`, `.agents/skills/**/scripts`, `.agents/skills/**/schemas` |
 | 示例输入 / 模板 | 是 | `.agents/skills/**/examples` |
-| strategy policy | 是 | `.agents/skills/trade-flow/strategies/*.md` |
+| strategy policy | 是 | `strategies/*.md` |
 | trade runtime DB | 否 | `data/trade.db`, `data/*.sqlite*` |
 | cron / lock / system state | 否 | `data/cron.log`, `data/.trade-flow.lock`, `data/system_state.json` |
 | strategy evidence / R&D ledger | 否 | `data/data_catalog.db` |
@@ -25,6 +25,7 @@
 ## 2. 放置规则
 
 - 原始 OHLCV：写 `data/ohlcv/`
+- 策略 policy：写 `strategies/*.md`；这是项目资产，不是 skill 源码，也不是运行数据
 - calibration / validation / external / forward holdout panel：默认写 `tmp/panels/<kind>-<name>-<date>/`
 - replay / R&D / calibration 普通报告：默认写 `tmp/artifacts/<domain>/`
 - 已被策略准入、复盘或人工 review 明确引用的 durable artifact：才显式归档到 `data/artifacts/<domain>/`

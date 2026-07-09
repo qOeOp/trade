@@ -725,7 +725,7 @@ CREATE INDEX idx_research_report_kind ON research_report(report_kind, generated_
 
 | 内容 | 介质 | 位置 |
 | --- | --- | --- |
-| Strategy policy | Markdown 文件（一文件一 strategy，含 frontmatter） | `.agents/skills/trade-flow/strategies/*.md` |
+| Strategy policy | Markdown 文件（一文件一 strategy，含 frontmatter） | `strategies/*.md` |
 | Strategy evidence ledger | SQLite record + catalog 索引 | `./data/data_catalog.db` → `strategy_evidence` |
 | Trading config | JSON | `./profile/trading-config.json` |
 | Account config | JSON | `./profile/account_config.json`（兼容输入，后续由 trading config 取代） |

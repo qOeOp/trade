@@ -193,7 +193,7 @@
 - 用户行为：
   - 创建 `./profile/account_config.json`：必填 `max_open_risk_pct / max_day_loss_pct / max_single_position_leverage`
   - 创建 `./profile/notify_config.json`：通知通道（Telegram / 邮件 / Push 任选）
-  - 在 `.agents/skills/trade-flow/strategies/` 放 MVP 种子文件（`S-GENERIC-TREND.md` / `S-GENERIC-MEANREVERT.md`，frontmatter + policy markdown）；可加自有策略
+  - 在 `strategies/` 放 MVP 种子文件（`S-GENERIC-TREND.md` / `S-GENERIC-MEANREVERT.md`，frontmatter + policy markdown）；可加自有策略
   - 配置**两条**外部 cron 调度（Claude routines / Codex schedule）：
     - 慢轨：1H 或 4H 整点调起 `trade-flow --track slow`
     - 快轨：5m 或 15m 偏移点（如 :05/:20/:35/:50）调起 `trade-flow --track fast`
@@ -211,7 +211,7 @@
 
 - 触发：累积一批 review 后发现共性，或外部信源提示新模式。
 - 用户行为：
-  - 新 strategy：在 `.agents/skills/trade-flow/strategies/` 加一个 markdown 文件（frontmatter `strategy_id / name / status / tags` + policy 正文）
+  - 新 strategy：在 `strategies/` 加一个 markdown 文件（frontmatter `strategy_id / name / status / tags` + policy 正文）
   - 若要从 `draft` 升 `shadow`，先写入 fingerprint fresh replay evidence；普通 selection split 不够，必须带 locked holdout / walk-forward、regime / cost / parameter robustness proof
   - 调整 hard guard：只在“确定性、全局重要、可脚本化”的前提下修改对应 guard 代码或脚本
 - 验证：下一轮 cron 跑会自动加载，无需 schema 迁移、无需改代码。

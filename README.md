@@ -25,6 +25,7 @@
 | 路径 | 作用 |
 | --- | --- |
 | `.agents/skills/` | agent 可调用能力。每个 skill 自带 `SKILL.md`、脚本、测试与本地依赖 |
+| `strategies/` | 项目级 strategy policy，一文件一策略，进 Git、可 review、可 diff |
 | `docs/` | vision / PRD / 架构 / 技术契约 / 检查契约 / R&D 记录 |
 | `data/` | 可审计运行数据，如 trade DB、strategy evidence、R&D ledger、OHLCV |
 | `profile/` | 本地交易配置、账户/通知兼容配置；凭证通过环境变量进入 |

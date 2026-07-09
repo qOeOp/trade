@@ -149,6 +149,7 @@ latest_observe.action_intent.request
 - `--strategy-signal` 默认要求最后一根闭合 K 线距当前不超过 1 个周期；陈旧或尚未闭合的数据直接拒绝
 - factor 发现、目录、解释和计算由 `tech-indicators` descriptor 提供；trade-flow 只消费稳定 `factor_id` 与 feature series，不硬编码 indicator 名称
 - R&D 需要 feature-series 时优先用 `scripts/feature-report.ts` 生成或命中缓存；不得在仓库根目录直接 `go run .agents/skills/tech-indicators/scripts`，也不得重复计算已匹配 manifest 的 feature artifact
+- strategy policy 的 canonical 目录是仓库根 `strategies/`；skill 内 `.agents/skills/trade-flow/strategies` 只作为 legacy fallback，不再新增项目策略
 - 读取旧 R&D / panel artifact 时，`data/*-panel-*` manifest 路径会兼容解析到当前 `tmp/panels/*`；这是迁移兼容，不是新产物位置规范，新 panel 仍应写 `tmp/panels/` 且使用 repo 相对路径
 - factor condition 通用支持 `level / delta / slope / zscore / percentile` 与 `gt / lt / between`；旧 `indicator_filters` 自动映射为 `level`，仅用于兼容
 - bounded composer 最多组合 3 个不同角色 factor、最多输出 10 个 candidate，并把 threshold 与 transform lookback 计入 8 参数上限；不做无界笛卡尔积

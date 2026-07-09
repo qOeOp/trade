@@ -327,7 +327,7 @@ CREATE INDEX idx_beta_symbol_date ON beta_cache(symbol, computed_date DESC);
 | --- | --- | --- |
 | 事件流 | SQLite | `./data/trade.db` → `plan_event` |
 | β 缓存 | SQLite | `./data/trade.db` → `beta_cache` |
-| Strategy policy | Markdown（一文件一 strategy） | `.agents/skills/trade-flow/strategies/*.md` |
+| Strategy policy | Markdown（一文件一 strategy） | `strategies/*.md` |
 | Account config | JSON 文件 | `./profile/account_config.json` |
 | Notify config | JSON 文件 | `./profile/notify_config.json` |
 | System state | JSON 文件 | `./data/system_state.json`（熔断状态） |
@@ -795,7 +795,7 @@ review 阶段按 `blocked_by[].check_id` group by，自然得到"哪项 hard gua
 
 ## Strategy 池
 
-Strategy 是 `observe.body.strategy_ref` 指向的对象。strategy 是规则模板，不是 flow 身份。一个 strategy 可以在不同 symbol / side 上展开多个 lane；MVP lane 先用 `strategy_ref + symbol + side` 读时定位。每个 lane 同时最多 1 条 active flow；同一 lane 的旧 flow 闭合后，后续再出现新机会时新开 flow。这里不是"暂不支持同 lane 多重重入"，而是**当前产品层明确禁止**：同 lane 的新理由、新结构、新加一段都并回当前 flow 管理，不开并行 flow。是否支持同 symbol 双向同时并行，等真实需求出现再单独设计。MVP 2 条种子（`S-GENERIC-TREND` / `S-GENERIC-MEANREVERT`），完整 policy 落 [.agents/skills/trade-flow/strategies/](../.agents/skills/trade-flow/strategies/)。schema 见 [tech-spec.md](tech-spec.md)。
+Strategy 是 `observe.body.strategy_ref` 指向的对象。strategy 是规则模板，不是 flow 身份。一个 strategy 可以在不同 symbol / side 上展开多个 lane；MVP lane 先用 `strategy_ref + symbol + side` 读时定位。每个 lane 同时最多 1 条 active flow；同一 lane 的旧 flow 闭合后，后续再出现新机会时新开 flow。这里不是"暂不支持同 lane 多重重入"，而是**当前产品层明确禁止**：同 lane 的新理由、新结构、新加一段都并回当前 flow 管理，不开并行 flow。是否支持同 symbol 双向同时并行，等真实需求出现再单独设计。完整 strategy policy 落 [strategies/](../strategies/)。schema 见 [tech-spec.md](tech-spec.md)。
 
 Strategy evidence 写 `data_catalog.db.strategy_evidence`，不入 `plan_event`。`draft -> shadow` 必须有 fresh replay 正收益，并带 `anti_overfit.method=out_of_sample|walk_forward`；OOS 样本至少 10 且表现为正，`trial_count > 10` 或 `parameter_count > 8` 直接拒绝升格。
 

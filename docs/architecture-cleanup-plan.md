@@ -114,7 +114,7 @@ QuantDinger 可借鉴的是工程组织，不是产品范围：
 │     ├─ evidence/           # strategy evidence / review / promote
 │     ├─ artifacts/          # GC / pin / refs
 │     └─ shared/             # json, hash, time, schema helpers
-└─ strategies/               # strategy assets；后续再定是否外迁
+└─ strategies/               # project-level strategy policy assets
 ```
 
 功能 skill 保持平铺；只有满足以下条件才迁入 suite 内部 tools：
