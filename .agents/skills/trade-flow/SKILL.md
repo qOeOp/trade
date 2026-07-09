@@ -60,6 +60,7 @@ latest_observe.action_intent.request
 - 入口：`./scripts/main.ts`
 - R&D artifact 摘要：`./scripts/rnd-artifact.ts --input <result.json>`，自动 unwrap `{ok,data}` 外壳，避免手写 jq 误读结果结构
 - R&D feature report 缓存：`./scripts/feature-report.ts --manifest <manifest.json> --output <features.json> [--indicators stc,vfi]`，固定从 `tech-indicators` skill 目录调用 Go，并复用已匹配 manifest 的 feature-series artifact
+- Forward locked holdout 守门：`./scripts/forward-holdout.ts --input <input.json>`，只评估策略冻结后新闭合的 K 线；冻结点及之前的数据一律拒绝，避免把已看过样本伪装成 promotion evidence
 - 示例输入：`./examples/*.example.json`
 - 项目级检查契约：`../../../docs/check-contract.md`
 - 执行 skill 输出契约：`../../../docs/execution-skill-contract.md`
