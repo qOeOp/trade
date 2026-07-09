@@ -95,12 +95,12 @@ export async function cronRecoverFromSkills(
 }
 
 function buildNeedsReviewEvent(chainId: string, reconcile: JSONRecord, input: JSONRecord): PlanEvent {
-  const createdAt = stringField(input.created_at) || stringField(input.now) || new Date().toISOString()
+  const created_at = stringField(input.created_at) || stringField(input.now) || new Date().toISOString()
   return {
-    event_key: stringField(input.needs_review_event_key) || `needs-review-${chainId}-${createdAt.replace(/[^0-9]/g, "") || crypto.randomUUID()}`,
+    event_key: stringField(input.needs_review_event_key) || `needs-review-${chainId}-${created_at.replace(/[^0-9]/g, "") || crypto.randomUUID()}`,
     chain_id: chainId,
     kind: "review",
-    created_at: createdAt,
+    created_at,
     body_json: {
       status: "needs_review",
       lifecycle_status: "needs_review",

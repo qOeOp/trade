@@ -3,16 +3,17 @@ import {
   compileExecutionContract,
   type ExecutionContract,
   type ExecutionContractInput,
-} from "../../../binance-order-preview/scripts/execution-contract"
-import { evaluatePreflight } from "../../../plan-preflight/scripts/main"
+} from "../../../_shared/execution-contract"
+import { evaluatePreflight } from "../../../_shared/preflight"
+import { readTargetAction, TARGET_ACTIONS, type ExecutableTargetAction } from "../../../_shared/target-action"
 import { asRecord, compactRecord, numberOrUndefined, removeUndefined, stringField, type JSONRecord } from "./json"
 import { latestSlowObserve, reduceFlowState } from "./flow-state"
 import { appendPlanEvent, readFlowEvents, readLatestOrderFill, type PlanEvent } from "./plan-events"
 import type { RunMode } from "./run-mode"
 
-export type TargetAction = "no_action" | "place_entry" | "cancel_order" | "sync_protection" | "adjust_position"
-export const EXECUTABLE_TARGET_ACTIONS = ["place_entry", "cancel_order", "sync_protection", "adjust_position"] as const
-export type ExecutableTargetAction = typeof EXECUTABLE_TARGET_ACTIONS[number]
+export type { TargetAction } from "../../../_shared/target-action"
+export { readTargetAction } from "../../../_shared/target-action"
+export const EXECUTABLE_TARGET_ACTIONS = TARGET_ACTIONS.filter((action): action is ExecutableTargetAction => action !== "no_action")
 export interface ExecutionCommandSpec {
   target_action: ExecutableTargetAction
   skill: string
@@ -168,7 +169,7 @@ export function buildExecutionObserveEvent(
   const observe = asRecord(input.observe)
   const plan = asRecord(input.plan)
   const contractInput = asRecord(input.execution_contract_input)
-  const createdAt = stringField(input.created_at) || new Date().toISOString()
+  const created_at = stringField(input.created_at) || new Date().toISOString()
   const body: JSONRecord = {
     ...observe,
     source: readTrackSource(input, observe),
@@ -189,7 +190,7 @@ export function buildExecutionObserveEvent(
     preflight_result: preflightResult,
     execution_gate: executionGate,
     decision_summary: buildExecutionDecisionSummary(input, preflightResult, executionGate),
-    created_at: createdAt,
+    created_at,
   }
   removeUndefined(body)
 
@@ -198,7 +199,7 @@ export function buildExecutionObserveEvent(
     chain_id: firstString(input.chain_id, observe.chain_id, contractInput.chain_id),
     kind: "observe",
     body_json: body,
-    created_at: createdAt,
+    created_at,
   }
 }
 
@@ -467,14 +468,6 @@ function buildRecordedPositionAdjustEvent(input: JSONRecord): PlanEvent {
     execution_method: stringField(executionResult.method),
     remaining_position: executionResult.remainingPosition ?? null,
   }))
-}
-
-export function readTargetAction(value: unknown): TargetAction {
-  const candidate = stringField(value)
-  if (["no_action", "place_entry", "cancel_order", "sync_protection", "adjust_position"].includes(candidate)) {
-    return candidate as TargetAction
-  }
-  return "no_action"
 }
 
 function readTriggerCondition(input: JSONRecord): JSONRecord {
@@ -878,7 +871,7 @@ function readExchangeOrderId(submitResult: JSONRecord, confirmedResult: JSONReco
 function buildActionPlanEvent(input: JSONRecord, body: JSONRecord): PlanEvent {
   const targetAction = readTargetAction(input.target_action)
   const executionResult = asRecord(input.execution_result)
-  const createdAt = stringField(input.created_at) || new Date().toISOString()
+  const created_at = stringField(input.created_at) || new Date().toISOString()
   return {
     event_key: stringField(input.event_key) || crypto.randomUUID(),
     chain_id: readActionChainId(input),
@@ -894,7 +887,7 @@ function buildActionPlanEvent(input: JSONRecord, body: JSONRecord): PlanEvent {
       },
       execution_result: executionResult,
     },
-    created_at: createdAt,
+    created_at,
   }
 }
 

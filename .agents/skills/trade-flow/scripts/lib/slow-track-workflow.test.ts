@@ -29,7 +29,7 @@ test("slow track workflow dry-run builds real watchlist without live action", as
     calls.push({ command, cwd: options?.cwd })
     if (options?.cwd?.endsWith("binance-account-snapshot")) {
       return jsonOk({
-        generatedAt: "2026-07-08T16:00:00+08:00",
+        generated_at: "2026-07-08T16:00:00+08:00",
         balances: [{ asset: "USDT", balance: "1000" }],
         positions: [],
         openOrders: { regular: [], protective: [] },
@@ -187,7 +187,7 @@ test("slow track workflow analyzes every default watchlist candidate", async () 
   const runner: Runner = async (command, options) => {
     if (options?.cwd?.endsWith("binance-account-snapshot")) {
       return jsonOk({
-        generatedAt: "2026-07-08T16:00:00+08:00",
+        generated_at: "2026-07-08T16:00:00+08:00",
         balances: [],
         positions: [],
         openOrders: { regular: [], protective: [] },

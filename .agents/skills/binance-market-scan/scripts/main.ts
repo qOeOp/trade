@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import Binance, { type BinanceRest } from "binance-api-node"
+import { nowIsoUTC } from "../../_shared/time"
 
 interface Config {
   direction: "both" | "long" | "short"
@@ -111,7 +112,7 @@ async function buildScan(config: Config, client: BinanceRest) {
   return {
     exchange: "binance",
     market: "usdm",
-    generatedAt: nowInShanghai(),
+    generated_at: nowIsoUTC(),
     filters: {
       direction: config.direction,
       minQuoteVolume: config.minQuoteVolume,
@@ -252,10 +253,6 @@ function createClient(timeout: number): BinanceRest {
 
 function isBinanceSymbolInfo(value: unknown): value is { symbol: string; status?: string; quoteAsset?: string; contractType?: string } {
   return Boolean(value && typeof value === "object" && "symbol" in (value as JSONMap))
-}
-
-function nowInShanghai(): string {
-  return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().replace("Z", "+08:00")
 }
 
 function parsePositiveNumber(value: string, name: string): number {

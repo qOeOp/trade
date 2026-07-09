@@ -42,7 +42,7 @@ test("fast track workflow checks active flow and appends fast observe", async ()
     calls.push({ command, cwd: options?.cwd })
     if (options?.cwd?.endsWith("binance-account-snapshot")) {
       return jsonOk({
-        generatedAt: "2026-07-08T16:00:00+08:00",
+        generated_at: "2026-07-08T16:00:00+08:00",
         positions: [],
         openOrders: { regular: [], protective: [] },
         errors: {},
@@ -51,7 +51,7 @@ test("fast track workflow checks active flow and appends fast observe", async ()
     if (options?.cwd?.endsWith("binance-symbol-snapshot")) {
       return jsonOk({
         symbol: "BTCUSDT",
-        generatedAt: "2026-07-08T16:00:01+08:00",
+        generated_at: "2026-07-08T16:00:01+08:00",
         priceSnapshot: { markPrice: "65000" },
         premiumIndex: { lastFundingRate: "0.0001" },
         openInterest: { openInterest: "12345" },

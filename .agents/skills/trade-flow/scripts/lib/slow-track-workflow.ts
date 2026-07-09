@@ -238,7 +238,7 @@ function summarizeAccountState(snapshot: SkillCallResult): JSONRecord {
   const protectiveOrders = readArray(asRecord(data.openOrders).protective)
   return {
     ok: true,
-    generated_at: stringField(data.generatedAt),
+    generated_at: stringField(data.generated_at),
     balances_count: readArray(data.balances).length,
     positions_count: readArray(data.positions).length,
     open_orders_count: regularOrders.length + protectiveOrders.length,

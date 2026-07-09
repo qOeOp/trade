@@ -227,7 +227,7 @@ function summarizeAccountState(snapshot: SkillCallResult): JSONRecord {
   const protectiveOrders = readArray(asRecord(data.openOrders).protective)
   return {
     ok: true,
-    generated_at: stringField(data.generatedAt),
+    generated_at: stringField(data.generated_at),
     positions_count: readArray(data.positions).length,
     open_orders_count: regularOrders.length + protectiveOrders.length,
     regular_orders_count: regularOrders.length,
@@ -246,7 +246,7 @@ function summarizeMarketState(snapshot: SkillCallResult | undefined): JSONRecord
   const data = asRecord(snapshot.data)
   return {
     ok: true,
-    generated_at: stringField(data.generatedAt),
+    generated_at: stringField(data.generated_at),
     mark_price: readMarkPrice(snapshot),
     funding_rate: stringField(asRecord(data.premiumIndex).lastFundingRate),
     open_interest: stringField(asRecord(data.openInterest).openInterest),

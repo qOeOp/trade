@@ -89,7 +89,7 @@ test("executeAdjustment returns stable method and remaining position", async () 
     "--yes",
   ])
   const plan = {
-    generatedAt: "2026-07-08T00:00:00.000Z",
+    generated_at: "2026-07-08T00:00:00.000Z",
     market: "usdm",
     symbol: "CLUSDT",
     positionSide: "LONG",

@@ -26,7 +26,7 @@ interface ObserveEvent {
 }
 
 function buildObserveEvent(input: ObserveInput): ObserveEvent {
-  const createdAt = input.created_at || new Date().toISOString()
+  const created_at = input.created_at || new Date().toISOString()
   const account = buildAccountProjection(input.account_snapshot, input.symbol)
   const body: JSONRecord = {
     symbol: input.symbol.toUpperCase(),
@@ -57,7 +57,7 @@ function buildObserveEvent(input: ObserveInput): ObserveEvent {
       warnings: [],
     },
     decision_summary: "observe snapshot built from account and market projections",
-    created_at: createdAt,
+      created_at,
   }
   removeUndefined(body)
 
@@ -66,7 +66,7 @@ function buildObserveEvent(input: ObserveInput): ObserveEvent {
     chain_id: input.chain_id,
     kind: "observe",
     body_json: body,
-    created_at: createdAt,
+    created_at,
   }
 }
 

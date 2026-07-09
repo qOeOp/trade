@@ -36,11 +36,18 @@ check_helpers() {
 check_typescript_skills() {
   require_cmd bun
   log "typescript skills"
+  if find .agents/skills -maxdepth 2 -name bun.lock -type f | grep -q .; then
+    find .agents/skills -maxdepth 2 -name bun.lock -type f | sort >&2
+    printf 'quality: skill-local bun.lock files are not allowed; use the root install lockfile\n' >&2
+    exit 1
+  fi
+  bun scripts/check-ts-skill-boundaries.ts
+  bun install --frozen-lockfile
   for package in .agents/skills/*/package.json; do
     [ -f "$package" ] || continue
     dir="$(dirname "$package")"
     if grep -q '"check"' "$package"; then
-      (cd "$dir" && bun install --frozen-lockfile && bun run check)
+      (cd "$dir" && bun run check)
     fi
   done
 }

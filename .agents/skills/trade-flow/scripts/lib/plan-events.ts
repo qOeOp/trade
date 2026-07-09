@@ -46,14 +46,14 @@ export function buildOrderFillEvent(input: JSONRecord): PlanEvent {
   const body = asRecord(input.body_json ?? input.body)
   const chainId = stringField(input.chain_id) || stringField(body.chain_id)
   const eventKey = stringField(input.event_key) || crypto.randomUUID()
-  const createdAt = stringField(input.created_at) || new Date().toISOString()
+  const created_at = stringField(input.created_at) || new Date().toISOString()
 
   return {
     event_key: eventKey,
     chain_id: chainId,
     kind: "order_fill",
     body_json: body,
-    created_at: createdAt,
+    created_at,
   }
 }
 
@@ -61,14 +61,14 @@ export function buildReviewEvent(input: JSONRecord): PlanEvent {
   const body = asRecord(input.body_json ?? input.body ?? input)
   const chainId = stringField(input.chain_id) || stringField(body.chain_id)
   const eventKey = stringField(input.event_key) || crypto.randomUUID()
-  const createdAt = stringField(input.created_at) || stringField(body.created_at) || new Date().toISOString()
+  const created_at = stringField(input.created_at) || stringField(body.created_at) || new Date().toISOString()
   validateStrategyReviewBody(body)
   return {
     event_key: eventKey,
     chain_id: chainId,
     kind: "review",
     body_json: body,
-    created_at: createdAt,
+    created_at,
   }
 }
 

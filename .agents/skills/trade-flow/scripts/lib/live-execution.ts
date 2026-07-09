@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite"
-import { compileExecutionContract, type ExecutionContractInput } from "../../../binance-order-preview/scripts/execution-contract"
-import { evaluatePreflight } from "../../../plan-preflight/scripts/main"
+import { compileExecutionContract, type ExecutionContractInput } from "../../../_shared/execution-contract"
+import { evaluatePreflight } from "../../../_shared/preflight"
 import {
   appendExecutionObserve,
   buildExecutionCommandSpec,

@@ -5,6 +5,7 @@ import { createHash } from "node:crypto"
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, relative, resolve } from "node:path"
+import { nowIsoUTC } from "../../_shared/time"
 
 export interface Config {
   symbol: string
@@ -148,7 +149,7 @@ export async function run(
       requested_symbol: config.symbol,
       exchange: fetchCfg.exchangeID,
       requested_exchange: config.exchange,
-      generated_at: nowInShanghai(),
+      generated_at: nowIsoUTC(),
       output_dir: outputPaths.manifestDir,
       manifest_path: join(outputPaths.manifestDir, "manifest.json"),
       columns: ["date", "timestamp", "open", "high", "low", "close", "volume"],
@@ -462,10 +463,6 @@ function candlesCsv(candles: Candle[]): string {
 
 export function formatRFC3339UTC(ms: number): string {
   return new Date(ms).toISOString().replace(/\.\d{3}Z$/, "Z")
-}
-
-function nowInShanghai(): string {
-  return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().replace("Z", "+08:00")
 }
 
 if (import.meta.main) {

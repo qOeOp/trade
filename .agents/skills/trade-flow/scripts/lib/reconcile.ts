@@ -90,7 +90,7 @@ function pushDraft(
   drafts: FlowEvent[],
   proposed: Set<string>,
   chainId: string,
-  createdAt: string,
+  created_at: string,
   subKind: "submit" | "partial_fill" | "fill" | "cancel",
   order: JSONRecord,
 ): void {
@@ -104,7 +104,7 @@ function pushDraft(
     event_key: `reconcile-${chainId}-${subKind}-${clientOrderId}`,
     chain_id: chainId,
     kind: "order_fill",
-    created_at: createdAt,
+    created_at,
     body_json: buildReconcileBody(subKind, order),
   })
 }

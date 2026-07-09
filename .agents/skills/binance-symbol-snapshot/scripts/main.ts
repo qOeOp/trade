@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import Binance, { type BinanceRest } from "binance-api-node"
+import { nowIsoUTC } from "../../_shared/time"
 
 interface Config {
   symbol: string
@@ -161,7 +162,7 @@ async function buildSnapshot(config: Config, client: BinanceRest) {
     exchange: "binance",
     market: "usdm",
     symbol: config.symbol,
-    generatedAt: nowInShanghai(),
+    generated_at: nowIsoUTC(),
     ticker24h: normalizeFuturesTicker(ticker, premiumIndex.markPrice),
     priceSnapshot: buildFuturesPriceSnapshot(ticker, premiumIndex, bookTicker),
     premiumIndex: {
@@ -295,10 +296,6 @@ function createClient(timeout: number): BinanceRest {
 
 function normalizeSymbol(symbol: string): string {
   return symbol.trim().toUpperCase().replace(/[\/:_\-\s]/g, "")
-}
-
-function nowInShanghai(): string {
-  return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().replace("Z", "+08:00")
 }
 
 function parsePositiveNumber(value: string, name: string): number {

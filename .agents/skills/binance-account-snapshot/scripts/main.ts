@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import Binance, { type BinanceRest } from "binance-api-node"
+import { nowIsoUTC } from "../../_shared/time"
 
 type JSONMap = Record<string, unknown>
 
@@ -30,7 +31,7 @@ const MANUAL_TP_SL_PROMPT =
   "Ask the user to provide the TP/SL prices they set manually for this order in the Binance app."
 
 interface Snapshot {
-  generatedAt: string
+  generated_at: string
   symbolFilter: string | null
   account: JSONMap
   balances: JSONMap[]
@@ -182,19 +183,15 @@ function checkEnv(): EnvStatus {
   }
 }
 
-function nowInShanghai(): string {
-  return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().replace("Z", "+08:00")
-}
-
 async function buildSnapshot(config: Config, client: BinanceRest): Promise<Snapshot> {
   const errors: Record<string, string> = {}
   const params: { symbol?: string } = config.symbol ? { symbol: config.symbol } : {}
-  const generatedAt = nowInShanghai()
+  const generated_at = nowIsoUTC()
 
   const futures = await buildFuturesSnapshot(config, client, params, errors)
 
   return {
-    generatedAt,
+    generated_at,
     symbolFilter: config.symbol || null,
     ...futures,
     errors,
@@ -206,7 +203,7 @@ async function buildFuturesSnapshot(
   client: BinanceRest,
   params: { symbol?: string },
   errors: Record<string, string>,
-): Promise<Omit<Snapshot, "generatedAt" | "symbolFilter" | "errors">> {
+): Promise<Omit<Snapshot, "generated_at" | "symbolFilter" | "errors">> {
   const historyParams =
     config.includeHistory && config.symbol
       ? withRecvWindow(copyParamsWithLimit({ symbol: config.symbol }, config.historyLimit), config.recvWindow)

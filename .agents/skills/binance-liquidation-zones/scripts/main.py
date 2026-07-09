@@ -7,7 +7,7 @@ import pathlib
 import sys
 import time
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from typing import Any, Optional
 
 
@@ -160,7 +160,7 @@ def build_liquidation_zones(config: Config) -> dict[str, Any]:
         "exchange": "binance",
         "market": "usdm",
         "symbol": symbol,
-        "generatedAt": now_in_shanghai(),
+        "generated_at": now_utc().isoformat(),
         "engine": {
             "name": "liquidator-indicator",
             "version": getattr(liquidator_module, "__version__", None),
@@ -623,10 +623,6 @@ def to_iso8601_from_millis(value: Any) -> Optional[str]:
 
 def now_utc() -> datetime:
     return datetime.now(timezone.utc)
-
-
-def now_in_shanghai() -> str:
-    return datetime.now(timezone(timedelta(hours=8))).isoformat()
 
 
 def print_json(value: Any) -> None:

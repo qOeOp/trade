@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import Binance, { type BinanceRest } from "binance-api-node"
+import { nowIsoUTC } from "../../_shared/time"
 
 type PositionSide = "BOTH" | "LONG" | "SHORT"
 type OrderSide = "BUY" | "SELL"
@@ -40,7 +41,7 @@ interface PositionSnapshot {
 }
 
 interface AdjustmentPlan {
-  generatedAt: string
+  generated_at: string
   market: "usdm"
   symbol: string
   positionSide: PositionSide
@@ -178,7 +179,7 @@ async function buildPlan(config: Config, client: BinanceRest): Promise<Adjustmen
   const remainingQuantity = formatDecimal(livePosition.quantityAbs - Number(reduceQuantity), scale)
 
   return {
-    generatedAt: nowInShanghai(),
+    generated_at: nowIsoUTC(),
     market: "usdm",
     symbol: config.symbol,
     positionSide: config.positionSide,
@@ -355,10 +356,6 @@ function createClient(timeout: number): BinanceRest {
     apiSecret: process.env.BINANCE_API_SECRET,
     timeout,
   })
-}
-
-function nowInShanghai(): string {
-  return new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().replace("Z", "+08:00")
 }
 
 function normalizeSymbol(symbol: string): string {
