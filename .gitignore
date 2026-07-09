@@ -13,6 +13,7 @@ data/artifacts/
 data/ohlcv/
 data/calibration-panel-*/
 data/validation-panel-*/
+data/external-panel-*/
 data/strategy_audits/
 data/strategy-evidence.jsonl
 data/strategy-rnd-ledger.jsonl
