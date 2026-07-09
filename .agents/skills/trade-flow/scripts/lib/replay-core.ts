@@ -30,6 +30,8 @@ interface ReplaySignal {
   entry: number
   stop: number
   target: number
+  break_even_after_r?: number
+  break_even_offset_r?: number
   reason: string
   meta?: JSONRecord
 }
@@ -171,6 +173,7 @@ function replayStrategy(strategy: ReplayStrategy, options: ReplayOptions): Repla
     funding_event_coverage: fundingCoverage,
     stop_gap_policy: "next_open_if_worse",
     same_candle_policy: "stop_first",
+    protective_stop_policy: "optional_break_even_stop_activates_next_bar",
     overlapping_positions: false,
   }
   const antiOverfit = buildAntiOverfitProof(trades, effectiveOptions)
@@ -308,27 +311,52 @@ function resolveTrade(
   options: ReplayOptions,
 ): ReplayTrade {
   const end = Math.min(candles.length - 1, signal.entry_index + maxHoldBars)
+  const initialStop = signal.stop
+  let activeStop = signal.stop
   for (let index = signal.entry_index; index <= end; index += 1) {
     const candle = candles[index]
     if (signal.side === "long") {
-      const hitStop = candle.low <= signal.stop
+      const hitStop = candle.low <= activeStop
       const hitTarget = candle.high >= signal.target
       if (hitStop || hitTarget) {
-        return buildTrade(signal, candles[signal.signal_index], candles[signal.entry_index], candle, hitStop ? "stop" : "target", options, index - signal.entry_index)
+        return buildTrade({ ...signal, stop: activeStop }, initialStop, candles[signal.signal_index], candles[signal.entry_index], candle, hitStop ? "stop" : "target", options, index - signal.entry_index)
       }
+      activeStop = nextProtectiveStop(signal, activeStop, candle)
     } else {
-      const hitStop = candle.high >= signal.stop
+      const hitStop = candle.high >= activeStop
       const hitTarget = candle.low <= signal.target
       if (hitStop || hitTarget) {
-        return buildTrade(signal, candles[signal.signal_index], candles[signal.entry_index], candle, hitStop ? "stop" : "target", options, index - signal.entry_index)
+        return buildTrade({ ...signal, stop: activeStop }, initialStop, candles[signal.signal_index], candles[signal.entry_index], candle, hitStop ? "stop" : "target", options, index - signal.entry_index)
       }
+      activeStop = nextProtectiveStop(signal, activeStop, candle)
     }
   }
-  return buildTrade(signal, candles[signal.signal_index], candles[signal.entry_index], candles[end], "time_exit", options, end - signal.entry_index)
+  return buildTrade({ ...signal, stop: activeStop }, initialStop, candles[signal.signal_index], candles[signal.entry_index], candles[end], "time_exit", options, end - signal.entry_index)
+}
+
+function nextProtectiveStop(signal: ReplaySignal, activeStop: number, candle: Candle): number {
+  const triggerR = signal.break_even_after_r
+  if (!Number.isFinite(triggerR) || Number(triggerR) <= 0) {
+    return activeStop
+  }
+  const initialRisk = Math.abs(signal.entry - signal.stop)
+  if (initialRisk <= 0) {
+    return activeStop
+  }
+  const offsetR = Number.isFinite(signal.break_even_offset_r) ? Number(signal.break_even_offset_r) : 0
+  if (signal.side === "long") {
+    const trigger = signal.entry + initialRisk * Number(triggerR)
+    const protectedStop = signal.entry + initialRisk * offsetR
+    return candle.high >= trigger ? Math.max(activeStop, protectedStop) : activeStop
+  }
+  const trigger = signal.entry - initialRisk * Number(triggerR)
+  const protectedStop = signal.entry - initialRisk * offsetR
+  return candle.low <= trigger ? Math.min(activeStop, protectedStop) : activeStop
 }
 
 function buildTrade(
   signal: ReplaySignal,
+  initialStop: number,
   signalCandle: Candle,
   entryCandle: Candle,
   exitCandle: Candle,
@@ -336,7 +364,7 @@ function buildTrade(
   options: ReplayOptions,
   barsHeld: number,
 ): ReplayTrade {
-  const risk = Math.abs(signal.entry - signal.stop)
+  const risk = Math.abs(signal.entry - initialStop)
   const exit = outcome === "target"
     ? signal.target
     : outcome === "stop"

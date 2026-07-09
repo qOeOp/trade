@@ -1,7 +1,7 @@
 import { factorConditionsToJson, passesFactorConditions, readFactorConditions, type FactorCondition, type FactorFeatureStore } from "../factor-engine"
 import type { Candle, ReplaySignal, ReplayStrategy } from "../replay-core"
 import type { RndFamilyModule } from "../rnd-family"
-import { readPositiveInteger, readPositiveNumber, readSide, type JSONRecord, type SideFilter } from "../rnd-family-helpers"
+import { readNonNegativeNumber, readPositiveInteger, readPositiveNumber, readSide, type JSONRecord, type SideFilter } from "../rnd-family-helpers"
 
 interface Params {
   side: SideFilter
@@ -10,6 +10,8 @@ interface Params {
   stopAtr: number
   maxRiskAtr: number
   rewardRisk: number
+  breakEvenAfterR: number
+  breakEvenOffsetR: number
   factorConditions: FactorCondition[]
 }
 
@@ -29,12 +31,14 @@ function normalize(raw: JSONRecord): Params {
     stopAtr: readPositiveNumber(raw.stop_atr ?? raw.stopAtr, 1),
     maxRiskAtr: readPositiveNumber(raw.max_risk_atr ?? raw.maxRiskAtr, 2.5),
     rewardRisk: readPositiveNumber(raw.reward_risk ?? raw.rewardRisk, 2),
+    breakEvenAfterR: readNonNegativeNumber(raw.break_even_after_r ?? raw.breakEvenAfterR, 0),
+    breakEvenOffsetR: readNonNegativeNumber(raw.break_even_offset_r ?? raw.breakEvenOffsetR, 0),
     factorConditions: readFactorConditions(raw.factor_conditions ?? raw.factorConditions),
   }
 }
 
 function json(params: Params): JSONRecord {
-  return { side: params.side, lookbackBars: params.lookbackBars, thresholdAtr: params.thresholdAtr, stopAtr: params.stopAtr, maxRiskAtr: params.maxRiskAtr, rewardRisk: params.rewardRisk, factorConditions: factorConditionsToJson(params.factorConditions) }
+  return { side: params.side, lookbackBars: params.lookbackBars, thresholdAtr: params.thresholdAtr, stopAtr: params.stopAtr, maxRiskAtr: params.maxRiskAtr, rewardRisk: params.rewardRisk, breakEvenAfterR: params.breakEvenAfterR, breakEvenOffsetR: params.breakEvenOffsetR, factorConditions: factorConditionsToJson(params.factorConditions) }
 }
 
 function strategy(id: string, params: Params, store: FactorFeatureStore): ReplayStrategy {
@@ -59,7 +63,17 @@ function signal(side: "long" | "short", candle: Candle, index: number, entryInde
   const stop = side === "long" ? candle.low - params.stopAtr * atr : candle.high + params.stopAtr * atr
   const risk = Math.abs(entry - stop)
   if (risk <= 0 || risk > params.maxRiskAtr * atr) return null
-  return { side, signal_index: index, entry_index: entryIndex, entry, stop, target: side === "long" ? entry + risk * params.rewardRisk : entry - risk * params.rewardRisk, reason: `rnd time-series momentum ${side}`, meta: json(params) }
+  return {
+    side,
+    signal_index: index,
+    entry_index: entryIndex,
+    entry,
+    stop,
+    target: side === "long" ? entry + risk * params.rewardRisk : entry - risk * params.rewardRisk,
+    ...(params.breakEvenAfterR > 0 ? { break_even_after_r: params.breakEvenAfterR, break_even_offset_r: params.breakEvenOffsetR } : {}),
+    reason: `rnd time-series momentum ${side}`,
+    meta: json(params),
+  }
 }
 
 export default family

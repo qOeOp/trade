@@ -129,6 +129,53 @@ test("replayStrategy charges adverse funding and fills a stop gap at the worse o
   }
 })
 
+test("replayStrategy applies break-even protection only after a completed trigger bar", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-replay-break-even-"))
+  try {
+    writeFileSync(join(dir, "4h.csv"), [
+      "date,timestamp,open,high,low,close,volume",
+      "2026-01-01T00:00:00Z,1767225600000,100,101,99,100,10",
+      "2026-01-01T04:00:00Z,1767240000000,100,101,99,100,10",
+      "2026-01-01T08:00:00Z,1767254400000,100,111,99,108,10",
+      "2026-01-01T12:00:00Z,1767268800000,108,109,99,100,10",
+      "2026-01-01T16:00:00Z,1767283200000,100,101,89,90,10",
+    ].join("\n"))
+    writeFileSync(join(dir, "manifest.json"), JSON.stringify({ symbol: "BTCUSDT", timeframes: { "4h": { file: "4h.csv" } } }))
+    const strategy: ReplayStrategy = {
+      strategy_id: "S-BREAK-EVEN",
+      default_timeframe: "4h",
+      warmup_bars: 1,
+      generateSignal({ index }) {
+        return index === 1
+          ? {
+            side: "long",
+            signal_index: 1,
+            entry_index: 2,
+            entry: 100,
+            stop: 90,
+            target: 130,
+            break_even_after_r: 1,
+            reason: "break-even test",
+          }
+          : null
+      },
+    }
+
+    const result = replayStrategy(strategy, {
+      manifestPath: join(dir, "manifest.json"),
+      maxHoldBars: 3,
+    })
+
+    assert.equal(result.trades[0].outcome, "stop")
+    assert.equal(result.trades[0].exit, 100)
+    assert.equal(result.trades[0].stop, 100)
+    assert.equal(result.trades[0].r, 0)
+    assert.equal(result.assumptions.protective_stop_policy, "optional_break_even_stop_activates_next_bar")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("replayStrategy can attach chronological OOS anti-overfit proof", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-replay-oos-"))
   try {

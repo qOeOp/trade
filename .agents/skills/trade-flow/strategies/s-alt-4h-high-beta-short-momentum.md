@@ -16,6 +16,7 @@ Research refs:
 - Risk-capped discovery found one survivor: `TSM-S-HB-120-3R-H12-STC-BEAR`, pooled `sample_count=797`, `avg_r=0.072409`, `total_r=57.709633`, 5/5 assets positive, blocked only by diagnostic marker.
 - Full discovery accepted the same frozen candidate: 5/5 assets positive, per-asset null passed 5/5 required 3, no blocked gates.
 - 2026-07-09 unseen validation rejected the frozen candidate: pooled `sample_count=755`, `avg_r=0.059392`, `total_r=44.840722`, 4/5 assets positive, per-asset null passed 4/5, but blocked by `PANEL-OOS` and `PANEL-CATASTROPHIC`; APT max drawdown was `18.127905R`, above the 15R veto.
+- 2026-07-09 post-failure diagnostic after adding executable break-even protection showed `break_even_after_r=0.5` removed the catastrophic veto on the already-seen validation basket: pooled `sample_count=902`, `avg_r=0.060957`, `total_r=54.983484`, 5/5 assets positive; still blocked by `PANEL-OOS`. This is contaminated diagnostic evidence only, not validation.
 - Result: useful research direction, not a usable strategy. The edge may exist, but current exit/risk model is not stable enough for shadow.
 
 ## Setup Certificate
@@ -35,6 +36,7 @@ max_risk_atr: 2.5
 reward_risk: 2
 max_hold_bars: 12
 filter: stc.value < 50
+diagnostic_risk_repair: break_even_after_r=0.5 removed catastrophic veto on already-seen validation data, but did not solve OOS instability.
 entry_rule: when 120-bar downside momentum is at least 3 ATR and STC is below 50 on a closed 4H candle; enter next open or equivalent executable quote only.
 stop_rule: signal candle high plus 1 ATR.
 target_rule: fixed 2R; no discretionary target relocation.

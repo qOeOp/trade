@@ -155,7 +155,7 @@ latest_observe.action_intent.request
 - 冻结 candidate 在不重叠外部样本上失败后必须停止；任何参数、过滤器或规则修改都作为新 hypothesis / trial，不能用调参覆盖失败结论
 - `structure_breakout_retest_v1` 的结构位只从突破前历史窗口滚动计算，固定要求收盘突破、随后回踩守住，不消费事后生成的支撑阻力
 - 当前 family 覆盖 trend pullback、structure breakout/retest、time-series momentum 与 volatility compression breakout 四类机制；不是形态百科
-- replay core 固定保守口径：同一 lane 不重叠持仓、同 K 同时触发 stop/target 时先算 stop、止损跳空按更差开盘、支持 fee/slippage；factor report 含 funding events 时按方向与结算时点逐次计费，否则使用 adverse funding stress；训练标签跨 OOS 边界时 purge
+- replay core 固定保守口径：同一 lane 不重叠持仓、同 K 同时触发 stop/target 时先算 stop、止损跳空按更差开盘、可选 break-even 保护止损只在触发 K 线之后生效、支持 fee/slippage；factor report 含 funding events 时按方向与结算时点逐次计费，否则使用 adverse funding stress；训练标签跨 OOS 边界时 purge
 - funding events 若未覆盖完整 replay 区间或存在大于 9 小时缺口，证据标记 `R-FUNDING-COVERAGE`，不得进入 shadow
 - `gate.live_small_candidate` 在 replay 阶段永远是 false；live-small 还必须经过 shadow 与人工确认
 - strategy iteration 使用 `./data/strategy-evidence.jsonl` 这类 JSONL ledger；不新增 DB 表，不扩大 `plan_event.kind`

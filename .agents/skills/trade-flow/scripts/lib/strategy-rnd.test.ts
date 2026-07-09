@@ -254,6 +254,39 @@ test("strategy R&D batch executes structure breakout retest family without futur
   }
 })
 
+test("time-series momentum family can declare break-even protection", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-break-even-"))
+  try {
+    const report = runStrategyRndBatch({
+      manifestPath: writeManifest(dir),
+      timeframe: "4h",
+      maxHoldBars: 8,
+      candidates: [{
+        candidateId: "C-TSM-BE",
+        family: "time_series_momentum_v1",
+        parameterCount: 8,
+        params: {
+          side: "long",
+          lookback_bars: 20,
+          threshold_atr: 0.5,
+          stop_atr: 1,
+          max_risk_atr: 3,
+          reward_risk: 2,
+          break_even_after_r: 1,
+          break_even_offset_r: 0,
+        },
+      }],
+    })
+
+    assert.equal(report.candidates[0].family, "time_series_momentum_v1")
+    assert.equal(report.candidates[0].params.breakEvenAfterR, 1)
+    assert.equal(report.candidates[0].params.breakEvenOffsetR, 0)
+    assert.equal(report.candidates[0].replay.assumptions.protective_stop_policy, "optional_break_even_stop_activates_next_bar")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("strategy R&D batch composes generic factor conditions without indicator-specific branches", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-factor-compose-"))
   try {
