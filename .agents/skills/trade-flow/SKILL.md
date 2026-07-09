@@ -58,6 +58,8 @@ latest_observe.action_intent.request
 ## 脚本
 
 - 入口：`./scripts/main.ts`
+- R&D artifact 摘要：`./scripts/rnd-artifact.ts --input <result.json>`，自动 unwrap `{ok,data}` 外壳，避免手写 jq 误读结果结构
+- R&D feature report 缓存：`./scripts/feature-report.ts --manifest <manifest.json> --output <features.json> [--indicators stc,vfi]`，固定从 `tech-indicators` skill 目录调用 Go，并复用已匹配 manifest 的 feature-series artifact
 - 示例输入：`./examples/*.example.json`
 - 项目级检查契约：`../../../docs/check-contract.md`
 - 执行 skill 输出契约：`../../../docs/execution-skill-contract.md`
@@ -142,6 +144,7 @@ latest_observe.action_intent.request
 - replay 与 `--strategy-signal` 调用同一 family：replay 注入下一根 open，在线评估注入当前可成交报价；family 不得读取未来 K 线
 - `--strategy-signal` 默认要求最后一根闭合 K 线距当前不超过 1 个周期；陈旧或尚未闭合的数据直接拒绝
 - factor 发现、目录、解释和计算由 `tech-indicators` descriptor 提供；trade-flow 只消费稳定 `factor_id` 与 feature series，不硬编码 indicator 名称
+- R&D 需要 feature-series 时优先用 `scripts/feature-report.ts` 生成或命中缓存；不得在仓库根目录直接 `go run .agents/skills/tech-indicators/scripts`，也不得重复计算已匹配 manifest 的 feature artifact
 - factor condition 通用支持 `level / delta / slope / zscore / percentile` 与 `gt / lt / between`；旧 `indicator_filters` 自动映射为 `level`，仅用于兼容
 - bounded composer 最多组合 3 个不同角色 factor、最多输出 10 个 candidate，并把 threshold 与 transform lookback 计入 8 参数上限；不做无界笛卡尔积
 - `factor_discover=true` 先用 base family 的实际 setup/trade R 作为目标，再做 causal rank IC；全部扫描 factor 通过 5% FDR、时间折、regime 与 `|corr|>=0.85` 去重后才能成为 seed
