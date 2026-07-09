@@ -3,6 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
+import { Database } from "bun:sqlite"
 
 import { replayDataHash } from "./replay-core"
 import { evaluateRndSignal, runStrategyRndBatch, runStrategyRndCampaign, runStrategyRndLoop, strategyRndBatchInputFromJson } from "./strategy-rnd"
@@ -660,6 +661,14 @@ test("strategy R&D loop writes artifact and compact JSONL ledger", () => {
     assert.equal(record.trial_count, report.batch.trial_count)
     const artifact = JSON.parse(readFileSync(report.artifact_ref, "utf8")) as { stop_reason: string }
     assert.equal(artifact.stop_reason, report.stop_reason)
+    const catalog = new Database(join(artifactRoot, "data_catalog.db"))
+    try {
+      assert.equal((catalog.query("SELECT count(*) AS count FROM artifact").get() as { count: number }).count, 2)
+      assert.equal((catalog.query("SELECT count(*) AS count FROM research_report WHERE report_kind='strategy_rnd_loop'").get() as { count: number }).count, 1)
+      assert.equal((catalog.query("SELECT count(*) AS count FROM strategy_rnd_run WHERE run_id='rnd-loop-test'").get() as { count: number }).count, 1)
+    } finally {
+      catalog.close()
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

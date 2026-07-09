@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto"
 import { join } from "node:path"
+import { defaultCatalogDbPathForGeneratedPath, registerCatalogArtifact } from "./data-catalog"
 import {
   hashCanonical,
   evaluateLatestSignal,
@@ -197,6 +198,23 @@ function runStrategyRndLoop(input: StrategyRndLoopInput): StrategyRndLoopReport 
     stop_reason: batch.outcome,
   })
   appendJsonLine(ledgerPath, ledgerRecord)
+  const catalogDbPath = input.catalogDbPath || defaultCatalogDbPathForGeneratedPath(artifactRef)
+  registerCatalogArtifact({
+    catalogDbPath,
+    path: artifactRef,
+    now: createdAt,
+    referrerType: "run",
+    referrerID: runId,
+    role: "output",
+  })
+  registerCatalogArtifact({
+    catalogDbPath,
+    path: ledgerPath,
+    now: createdAt,
+    referrerType: "run",
+    referrerID: runId,
+    role: "ledger",
+  })
 
   return {
     run_id: runId,

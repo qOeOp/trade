@@ -8,6 +8,7 @@ import {
   updateRdShadowTracker,
   type RdShadowTrackerOptions,
 } from "./lib/rd-shadow-tracker"
+import { defaultCatalogDbPathForGeneratedPath, registerCatalogArtifact } from "./lib/data-catalog"
 import type { JSONRecord } from "./lib/json"
 
 function main(): void {
@@ -32,6 +33,14 @@ function main(): void {
   const text = `${JSON.stringify(response, null, 2)}\n`
   if (output) {
     writeFileSync(output, text)
+    registerCatalogArtifact({
+      catalogDbPath: readFlag(argv, "--catalog-db") || defaultCatalogDbPathForGeneratedPath(output),
+      path: output,
+      now: state.updated_at,
+      referrerType: "run",
+      referrerID: state.tracker_id,
+      role: "output",
+    })
   } else {
     process.stdout.write(text)
   }

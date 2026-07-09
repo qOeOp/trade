@@ -8,6 +8,7 @@ import { type Runner } from "./observe-adapter"
 import { appendPlanEvent, readFlowEvents, type PlanEvent } from "./plan-events"
 import { runJsonCommand } from "./skill-runner"
 import { displayPath } from "./paths"
+import { registerCatalogArtifact } from "./data-catalog"
 
 interface FastTrackWorkflowInput {
   repoRoot: string
@@ -183,6 +184,13 @@ async function callSkill(runner: Runner, command: string[], cwd: string): Promis
 function writeFastArtifact(input: FastTrackWorkflowInput, report: JSONRecord): JSONRecord {
   const artifactPath = join(input.dataDir, `fast-track-${input.runId}.json`)
   writeFileSync(artifactPath, `${JSON.stringify(report, null, 2)}\n`)
+  registerCatalogArtifact({
+    catalogDbPath: join(input.dataDir, "data_catalog.db"),
+    path: artifactPath,
+    referrerType: "run",
+    referrerID: input.runId,
+    role: "output",
+  })
   return {
     ...report,
     artifact_path: displayPath(artifactPath, input.repoRoot),

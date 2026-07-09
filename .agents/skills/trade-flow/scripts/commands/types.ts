@@ -33,6 +33,11 @@ export interface CommandConfig {
   strategyCalibrationSuite: boolean
   strategySignal: boolean
   artifactGc: boolean
+  catalogInit: boolean
+  catalogScan: boolean
+  catalogQuery: boolean
+  catalogStale: boolean
+  catalogGc: boolean
   appendStrategyEvidence: boolean
   strategyReview: boolean
   strategyPromote: boolean
@@ -64,6 +69,8 @@ export interface CommandConfig {
   parameterCount?: number
   antiOverfitStage?: "selection_validation" | "external_validation" | "locked_holdout"
   artifactRoot: string
+  catalogDbPath: string
+  catalogRoots: string[]
   retentionHours?: number
   ephemeralRetentionHours?: number
   strategyPath: string

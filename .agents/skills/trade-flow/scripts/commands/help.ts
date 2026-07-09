@@ -18,6 +18,11 @@ export const HELP_TEXT = `Usage:
   ./scripts/main.ts --strategy-benchmark --json '{"datasets":[...]}'
   ./scripts/main.ts --strategy-calibration-suite --json '{"datasets":[...]}'
   ./scripts/main.ts --strategy-signal --json '{"manifest_path":"...","entry_price":60000,"candidate":{...}}'
+  ./scripts/main.ts --catalog-init --catalog-db ./data/data_catalog.db
+  ./scripts/main.ts --catalog-scan --catalog-db ./data/data_catalog.db --catalog-root ./data --catalog-root ./tmp
+  ./scripts/main.ts --catalog-query --catalog-db ./data/data_catalog.db --json '{"symbol":"BTCUSDT","limit":20}'
+  ./scripts/main.ts --catalog-stale --catalog-db ./data/data_catalog.db --catalog-root ./data --retention-hours 168
+  ./scripts/main.ts --catalog-gc --catalog-db ./data/data_catalog.db --catalog-root ./tmp --retention-hours 168 --yes
   ./scripts/main.ts --run-shadow-from-skills --json '{"repoRoot":"/repo","chain_id":"...","symbol":"BTCUSDT",...}'
   ./scripts/main.ts --run-live-small --yes --json '{"repoRoot":"/repo","plan":{...},"observe":{...},"execution_contract_input":{...}}'
   ./scripts/main.ts --db ./data/trade.db --recover-flow --chain-id <chain_id>
@@ -52,6 +57,11 @@ Key flags:
   --strategy-benchmark     Calibrate the R&D pipeline with one fixed multi-asset trend benchmark
   --strategy-calibration-suite Run fixed known-edge calibration baselines; never auto-promotes
   --strategy-signal        Evaluate one R&D candidate on the latest closed candle; never executes
+  --catalog-init           Initialize data_catalog.db schema
+  --catalog-scan           Index run, dataset, artifact, R&D, and evidence metadata without moving payload files
+  --catalog-query          Query catalog metadata by path, artifact_id, symbol, or strategy_id
+  --catalog-stale          Report stale catalog artifacts; dry-run only, never deletes files
+  --catalog-gc             Delete stale catalog candidates only when --yes is provided
   --run-shadow-from-skills Call read-only snapshot skills, build observe, then record shadow execution
   --run-live-small         Execute one live-small main entry through binance-order-place
   --recover-flow           Reduce local plan_event history for one flow
@@ -70,6 +80,8 @@ Key flags:
   --ledger <path>          Strategy evidence JSONL ledger. Default: ./data/strategy-evidence.jsonl
   --to <status>            Target status for --strategy-promote
   --artifact-root <path>   Directory scanned by --artifact-gc
+  --catalog-db <path>      SQLite data catalog path. Default: ./data/data_catalog.db
+  --catalog-root <path>    Directory scanned by --catalog-scan or filtered by --catalog-stale; repeatable. Default: ./data
   --retention-hours <n>    Artifact GC age threshold. Default: 168
   --ephemeral-retention-hours <n> Shorter GC threshold for tmp/cache/scratch dirs. Default: min(24, retention)
   --trading-config <path>  JSON trading config path. Default: ./profile/trading-config.json

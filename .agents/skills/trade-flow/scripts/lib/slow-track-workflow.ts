@@ -7,6 +7,7 @@ import { loadRuntime } from "./observe-flow"
 import { type Runner } from "./observe-adapter"
 import { runJsonCommand } from "./skill-runner"
 import { displayPath, displayPathFrom, resolvePathFrom } from "./paths"
+import { registerCatalogArtifact } from "./data-catalog"
 
 interface SlowTrackWorkflowInput {
   repoRoot: string
@@ -85,6 +86,13 @@ export async function runSlowTrackWorkflowDryRun(input: SlowTrackWorkflowInput):
   }
   const artifactPath = join(input.dataDir, `slow-track-${input.runId}.json`)
   writeFileSync(artifactPath, `${JSON.stringify(report, null, 2)}\n`)
+  registerCatalogArtifact({
+    catalogDbPath: join(input.dataDir, "data_catalog.db"),
+    path: artifactPath,
+    referrerType: "run",
+    referrerID: input.runId,
+    role: "output",
+  })
   return {
     ...report,
     artifact_path: displayPath(artifactPath, input.repoRoot),

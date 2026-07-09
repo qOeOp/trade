@@ -115,7 +115,7 @@ function createRdShadowTrackerFromForwardHoldout(rawReport: JSONRecord, options:
 }
 
 function updateRdShadowTracker(rawState: RdShadowTrackerState | JSONRecord, options: RdShadowTrackerOptions = {}): RdShadowTrackerState {
-  const state = stateFromJson(asRecord(rawState))
+  const state = stateFromJson(unwrapTrackerState(asRecord(rawState)))
   const manifestRefs = new Map<string, string>()
   for (const ref of options.manifestRefs || []) {
     if (ref.datasetId) manifestRefs.set(ref.datasetId, ref.manifestPath)
@@ -330,6 +330,11 @@ function stateFromJson(raw: JSONRecord): RdShadowTrackerState {
     throw new Error("rd shadow tracker state must be schema_version=1 with paper_positions")
   }
   return state
+}
+
+function unwrapTrackerState(raw: JSONRecord): JSONRecord {
+  const data = asRecord(raw.data)
+  return data.schema_version === 1 ? data : raw
 }
 
 function buildTrackerId(report: JSONRecord, sourceRef?: string): string {

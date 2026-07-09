@@ -89,6 +89,29 @@ test("rd shadow tracker can update an existing open state and carry break-even s
   }
 })
 
+test("rd shadow tracker update accepts script response wrapped state", () => {
+  const dir = mkdtempSync(join(tmpdir(), "rd-shadow-tracker-"))
+  try {
+    const firstManifest = writeManifest(join(dir, "first"), [[100, 101, 99, 100]])
+    const nextManifest = writeManifest(join(dir, "next"), [
+      [100, 101, 99, 100],
+      [100, 101, 89, 95],
+    ])
+    const state = createRdShadowTrackerFromForwardHoldout(report(firstManifest), {
+      now: "2026-07-09T04:10:00.000Z",
+      maxHoldBars: 3,
+    })
+    const updated = updateRdShadowTracker({ ok: true, data: state }, {
+      now: "2026-07-09T08:10:00.000Z",
+      manifestRefs: [{ datasetId: "ALT", manifestPath: nextManifest }],
+    })
+    assert.equal(updated.paper_positions[0].status, "closed")
+    assert.equal(updated.paper_positions[0].outcome, "target")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 function report(manifestPath: string) {
   return {
     ok: true,

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
+import { defaultCatalogDbPathForGeneratedPath, registerCatalogArtifact } from "./data-catalog"
 import { assertHoldoutUnused, holdoutKeyForInput, safeFileName, writeJsonFile } from "./strategy-rnd-ledger"
 import type { JSONRecord } from "./json"
 import type { StrategyRndCampaignHypothesisInput, StrategyRndCampaignInput, StrategyRndLoopInput } from "./strategy-rnd-inputs"
@@ -80,6 +81,7 @@ export function runStrategyRndCampaignWithDeps(
   const campaignId = input.campaignId || `rnd-campaign-${createdAt.replace(/[^0-9]/g, "").slice(0, 14)}-${randomUUID().slice(0, 8)}`
   const artifactRoot = input.artifactRoot || "./data/artifacts/strategy-rnd"
   const ledgerPath = input.ledgerPath || "./data/strategy-rnd-ledger.jsonl"
+  const catalogDbPath = input.catalogDbPath || defaultCatalogDbPathForGeneratedPath(artifactRoot)
   const runs: StrategyRndCampaignReport["runs"] = []
   const calibrationGate = input.calibrationReportPath ? readCalibrationGate(input.calibrationReportPath) : null
   const hypothesisCertificates = input.hypotheses.map(readHypothesisCertificateGate)
@@ -118,6 +120,7 @@ export function runStrategyRndCampaignWithDeps(
       batchId: `${campaignId}-${hypothesis.hypothesisId}-discovery`,
       artifactRoot,
       ledgerPath,
+      catalogDbPath,
       now: createdAt,
     })
     trialsUsed += discovery.batch.trial_count
@@ -170,6 +173,7 @@ export function runStrategyRndCampaignWithDeps(
       parameterStability: asRecord(asRecord(asRecord(winner.replay).assumptions).robustness).parameter_stability as JSONRecord,
       artifactRoot,
       ledgerPath,
+      catalogDbPath,
       now: createdAt,
     })
     holdoutEvaluations += 1
@@ -209,6 +213,14 @@ export function runStrategyRndCampaignWithDeps(
     runs,
   }
   writeJsonFile(artifactRef, report)
+  registerCatalogArtifact({
+    catalogDbPath,
+    path: artifactRef,
+    now: createdAt,
+    referrerType: "run",
+    referrerID: campaignId,
+    role: "output",
+  })
   return report
 }
 

@@ -31,6 +31,7 @@ export interface StrategyRndLoopInput extends StrategyRndBatchInput {
   runId?: string
   artifactRoot?: string
   ledgerPath?: string
+  catalogDbPath?: string
   now?: string
 }
 
@@ -70,6 +71,7 @@ export interface StrategyRndCampaignInput {
   maxTotalTrials?: number
   artifactRoot?: string
   ledgerPath?: string
+  catalogDbPath?: string
   now?: string
 }
 
@@ -112,6 +114,7 @@ export function strategyRndLoopInputFromJson(input: JSONRecord): StrategyRndLoop
     runId: stringField(input.run_id) || undefined,
     artifactRoot: stringField(input.artifact_root) || undefined,
     ledgerPath: stringField(input.ledger_path) || undefined,
+    catalogDbPath: stringField(input.catalog_db_path) || undefined,
     now: stringField(input.now) || undefined,
   }
 }
@@ -124,6 +127,7 @@ export function strategyRndCampaignInputFromJson(input: JSONRecord): StrategyRnd
     maxTotalTrials: optionalNumber(input.max_total_trials),
     artifactRoot: stringField(input.artifact_root) || undefined,
     ledgerPath: stringField(input.ledger_path) || undefined,
+    catalogDbPath: stringField(input.catalog_db_path) || undefined,
     now: stringField(input.now) || undefined,
     hypotheses: array(input.hypotheses).map((raw) => {
       const hypothesis = asRecord(raw)

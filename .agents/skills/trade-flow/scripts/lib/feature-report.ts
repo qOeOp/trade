@@ -2,6 +2,7 @@ import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { spawnSync } from "node:child_process"
+import { defaultCatalogDbPathForGeneratedPath, registerCatalogArtifact } from "./data-catalog"
 
 type JSONRecord = Record<string, unknown>
 
@@ -12,6 +13,7 @@ interface FeatureReportOptions {
   featureSeries?: boolean
   force?: boolean
   techIndicatorsDir?: string
+  catalogDbPath?: string
   runner?: TechIndicatorRunner
 }
 
@@ -45,6 +47,13 @@ function ensureFeatureReport(options: FeatureReportOptions): FeatureReportResult
   if (!options.force && existsSync(outputPath)) {
     const cached = readFeatureReport(outputPath)
     if (cached && reportMatches(cached.data, manifestPath, featureSeries)) {
+      registerCatalogArtifact({
+        catalogDbPath: options.catalogDbPath || defaultCatalogDbPathForGeneratedPath(outputPath),
+        path: outputPath,
+        referrerType: "dataset",
+        referrerID: manifestPath,
+        role: "feature_report",
+      })
       return result("cached", manifestPath, outputPath, cached.data, cached.raw)
     }
   }
@@ -68,6 +77,13 @@ function ensureFeatureReport(options: FeatureReportOptions): FeatureReportResult
   const tempPath = `${outputPath}.tmp`
   writeFileSync(tempPath, run.stdout)
   renameSync(tempPath, outputPath)
+  registerCatalogArtifact({
+    catalogDbPath: options.catalogDbPath || defaultCatalogDbPathForGeneratedPath(outputPath),
+    path: outputPath,
+    referrerType: "dataset",
+    referrerID: manifestPath,
+    role: "feature_report",
+  })
   return result("generated", manifestPath, outputPath, parsed.data, run.stdout)
 }
 

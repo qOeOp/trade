@@ -4,6 +4,7 @@ import { dirname } from "node:path"
 import type { Database } from "bun:sqlite"
 import { loadStrategyFile, parseFrontmatter } from "./loaders"
 import { hashCanonical, replayDataHash, replayHarnessHash, type ReplayProvenance, type ReplayResult } from "./replay-core"
+import { defaultCatalogDbPathForGeneratedPath, registerCatalogArtifact } from "./data-catalog"
 
 type JSONRecord = Record<string, unknown>
 const STRATEGY_STATUSES = ["draft", "shadow", "live-small", "paused"] as const
@@ -763,6 +764,14 @@ function appendJsonLine(path: string, value: StrategyEvidenceRecord): void {
   mkdirSync(dirname(path), { recursive: true })
   const line = `${JSON.stringify(value)}\n`
   writeFileSync(path, line, { flag: "a" })
+  registerCatalogArtifact({
+    catalogDbPath: defaultCatalogDbPathForGeneratedPath(path),
+    path,
+    now: value.created_at,
+    referrerType: "evidence",
+    referrerID: value.evidence_id,
+    role: "ledger",
+  })
 }
 
 function latestEvidence(records: StrategyEvidenceRecord[], kind: EvidenceKind): StrategyEvidenceRecord | null {

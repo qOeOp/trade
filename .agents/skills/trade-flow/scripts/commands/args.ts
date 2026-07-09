@@ -21,6 +21,11 @@ export function parseArgs(argv: string[]): CommandConfig {
   let strategyCalibrationSuite = false
   let strategySignal = false
   let artifactGc = false
+  let catalogInit = false
+  let catalogScan = false
+  let catalogQuery = false
+  let catalogStale = false
+  let catalogGc = false
   let appendStrategyEvidenceEnabled = false
   let strategyReview = false
   let strategyPromote = false
@@ -51,6 +56,8 @@ export function parseArgs(argv: string[]): CommandConfig {
   let parameterCount: number | undefined
   let antiOverfitStage: CommandConfig["antiOverfitStage"]
   let artifactRoot = ""
+  let catalogDbPath = "./data/data_catalog.db"
+  const catalogRoots: string[] = []
   let retentionHours: number | undefined
   let ephemeralRetentionHours: number | undefined
   let strategyPath = ""
@@ -118,6 +125,21 @@ export function parseArgs(argv: string[]): CommandConfig {
         break
       case "--artifact-gc":
         artifactGc = true
+        break
+      case "--catalog-init":
+        catalogInit = true
+        break
+      case "--catalog-scan":
+        catalogScan = true
+        break
+      case "--catalog-query":
+        catalogQuery = true
+        break
+      case "--catalog-stale":
+        catalogStale = true
+        break
+      case "--catalog-gc":
+        catalogGc = true
         break
       case "--append-strategy-evidence":
         appendStrategyEvidenceEnabled = true
@@ -209,6 +231,12 @@ export function parseArgs(argv: string[]): CommandConfig {
       case "--artifact-root":
         artifactRoot = readFlagValue(argv, ++index, arg)
         break
+      case "--catalog-db":
+        catalogDbPath = readFlagValue(argv, ++index, arg)
+        break
+      case "--catalog-root":
+        catalogRoots.push(readFlagValue(argv, ++index, arg))
+        break
       case "--retention-hours":
         retentionHours = Number(readFlagValue(argv, ++index, arg))
         break
@@ -256,6 +284,11 @@ export function parseArgs(argv: string[]): CommandConfig {
     strategyCalibrationSuite,
     strategySignal,
     artifactGc,
+    catalogInit,
+    catalogScan,
+    catalogQuery,
+    catalogStale,
+    catalogGc,
     appendStrategyEvidence: appendStrategyEvidenceEnabled,
     strategyReview,
     strategyPromote,
@@ -287,6 +320,8 @@ export function parseArgs(argv: string[]): CommandConfig {
     parameterCount,
     antiOverfitStage,
     artifactRoot,
+    catalogDbPath,
+    catalogRoots,
     retentionHours,
     ephemeralRetentionHours,
     strategyPath,

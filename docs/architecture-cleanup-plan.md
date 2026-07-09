@@ -513,11 +513,16 @@ Binance facts
 - GC dry-run 默认输出引用原因。
 - `.pin`、evidence ref、ledger ref 三类保护统一。
 - tmp 与 data/artifacts 的迁移/清理规则落地。
+- 建立 `data_catalog.db` 最小索引层：run、dataset、artifact、artifact_ref、R&D run、strategy evidence、panel、feature report、research report、schema migration。
+- 提供 catalog query、stale dry-run 与 `--catalog-gc --yes`；删除只消费 catalog 候选和保护原因。
+- R&D loop / campaign、feature report、track artifact、cron log、strategy evidence ledger、rd-shadow-tracker 输出生成时登记 catalog。
+- 大型 JSON / CSV payload 留在文件系统；catalog 只存路径、hash、schema、summary、引用关系。
 
 验收：
 
 - 未引用 artifact 可安全 dry-run 清理。
 - 被 evidence 引用的 artifact 不会被删。
+- 不扫目录也能查询一次 run 生成了哪些 dataset / artifact，以及某个 artifact 被谁引用。
 
 ### P8：可选机器契约
 

@@ -113,6 +113,7 @@ latest_observe.action_intent.request
   - `--strategy-promote --strategy <path> --ledger <path> --to <status> [--yes]`：按 gate dry-run 或更新 strategy frontmatter status
   - `--strategy-cycle --strategy <path> --ledger <path> [--db <path>] [--to <status>] [--yes]`：把 DB reviews 去重同步为 shadow evidence，再生成 review，并可选 promotion dry-run / apply
   - `--artifact-gc --artifact-root <path> --retention-hours <n>`：报告或清理过期未引用 artifact；默认 dry-run，删除必须加 `--yes`
+  - `--catalog-init / --catalog-scan / --catalog-query / --catalog-stale / --catalog-gc`：初始化、扫描、查询、报告或显式清理 `data_catalog.db` 管理的生成产物；`--catalog-gc` 删除必须加 `--yes`
   - `--run-shadow-from-skills --json <payload>`：调用只读 snapshot skills，构建 observe，然后跑 shadow 链并落 `order_fill`
   - `--run-live-small --yes --json <payload>`：通过 `binance-order-place` 执行主单，并把返回结果落成 audited `order_fill`
   - `--recover-flow --chain-id <chain_id>`：从本地事件流 reduce 出 latest_observe / latest_order_fill / current_orders / current_position / open_action_gap
@@ -173,7 +174,8 @@ latest_observe.action_intent.request
 - `shadow -> live-small` 的 shadow evidence 必须包含 `execution_attribution.total_cost_drag / total_slippage_drag / total_funding_drag`
 - `--strategy-promote` 默认 dry-run；更新 strategy 文件必须显式 `--yes`
 - `--strategy-cycle` 只把同一批 DB review 同步成一条 deterministic `source_ref` 的 shadow evidence；重复运行必须复用旧证据，不得制造 ledger 垃圾
-- `--artifact-gc` 不打开 DB、不触发 Binance；只扫描显式 `--artifact-root`，保留 `.pin` / referenced / durable store，默认不删除
+- `--artifact-gc` 是旧文件扫描式清理；不打开 DB、不触发 Binance；只扫描显式 `--artifact-root`，保留 `.pin` / referenced / durable store，默认不删除
+- `--catalog-gc` 是 catalog-aware 清理；只消费 `data_catalog.db` stale 候选、`.pin` 与引用关系，不触发 Binance；没有 `--yes` 不删除
 - `--run-shadow-from-skills` 会写 shadow `order_fill`，但不触发 Binance 写接口
 - `--run-live-small` 会触发 Binance 写接口；没有 `--yes` 必须拒绝
 - `--recover-flow` 只读本地 DB；`submit` 只进入 current_orders，只有 `fill / partial_fill` 才改变 current_position

@@ -16,6 +16,7 @@ function main(): void {
     featureSeries: !argv.includes("--no-feature-series"),
     force: argv.includes("--force"),
     techIndicatorsDir: readFlag(argv, "--tech-indicators-dir") || undefined,
+    catalogDbPath: readFlag(argv, "--catalog-db") || undefined,
   })
   process.stdout.write(`${JSON.stringify({ ok: true, data: result }, null, 2)}\n`)
 }

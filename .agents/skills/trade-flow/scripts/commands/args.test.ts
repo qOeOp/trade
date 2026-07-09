@@ -30,6 +30,17 @@ test("parseArgs keeps core execution and evidence flags stable", () => {
     "live-small",
     "--artifact-root",
     "/tmp/artifacts",
+    "--catalog-init",
+    "--catalog-scan",
+    "--catalog-query",
+    "--catalog-stale",
+    "--catalog-gc",
+    "--catalog-db",
+    "/tmp/data_catalog.db",
+    "--catalog-root",
+    "/tmp/data",
+    "--catalog-root",
+    "/tmp/tmp",
     "--retention-hours",
     "168",
     "--ephemeral-retention-hours",
@@ -55,6 +66,13 @@ test("parseArgs keeps core execution and evidence flags stable", () => {
   assert.equal(config.promoteTo, "live-small")
   assert.equal(config.promoteToExplicit, true)
   assert.equal(config.artifactRoot, "/tmp/artifacts")
+  assert.equal(config.catalogInit, true)
+  assert.equal(config.catalogScan, true)
+  assert.equal(config.catalogQuery, true)
+  assert.equal(config.catalogStale, true)
+  assert.equal(config.catalogGc, true)
+  assert.equal(config.catalogDbPath, "/tmp/data_catalog.db")
+  assert.deepEqual(config.catalogRoots, ["/tmp/data", "/tmp/tmp"])
   assert.equal(config.retentionHours, 168)
   assert.equal(config.ephemeralRetentionHours, 12)
   assert.equal(config.antiOverfitStage, "locked_holdout")

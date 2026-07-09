@@ -25,6 +25,12 @@
       "covers": ["data/cron.log JSONL entry"]
     },
     {
+      "file": "data-catalog-result.schema.json",
+      "id": "trade-flow.data-catalog-result.v1",
+      "owner": "scripts/lib/data-catalog.ts",
+      "covers": ["--catalog-init data", "--catalog-scan data", "--catalog-query data", "--catalog-stale data", "--catalog-gc data"]
+    },
+    {
       "file": "cron-recover-result.schema.json",
       "id": "trade-flow.cron-recover-result.v1",
       "owner": "scripts/lib/recovery-flow.ts",
@@ -266,6 +272,31 @@
       "command": "--strategy-signal",
       "status": "covered",
       "schemas": ["script-response.schema.json", "strategy-signal-result.schema.json"]
+    },
+    {
+      "command": "--catalog-init",
+      "status": "covered",
+      "schemas": ["script-response.schema.json", "data-catalog-result.schema.json"]
+    },
+    {
+      "command": "--catalog-scan",
+      "status": "covered",
+      "schemas": ["script-response.schema.json", "data-catalog-result.schema.json"]
+    },
+    {
+      "command": "--catalog-query",
+      "status": "covered",
+      "schemas": ["script-response.schema.json", "data-catalog-result.schema.json"]
+    },
+    {
+      "command": "--catalog-stale",
+      "status": "covered",
+      "schemas": ["script-response.schema.json", "data-catalog-result.schema.json"]
+    },
+    {
+      "command": "--catalog-gc",
+      "status": "covered",
+      "schemas": ["script-response.schema.json", "data-catalog-result.schema.json"]
     },
     {
       "command": "--artifact-gc",

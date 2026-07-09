@@ -505,12 +505,13 @@ cron 自动化模式必须保证：
 
 - [design-architecture.md](design-architecture.md) 回答"为什么是 event-sourcing、Plan 怎么设计、cron 周期怎么走"
 - 本节回答 `trade.db` 里到底落什么、怎么读、哪些东西不落库
-- 在线主线只写一个文件 `./data/trade.db`，里面只有一张事件表
+- 在线主线只写 `./data/trade.db`，当前实现只有一张事件表
+- 研究 / calibration / feature / artifact 资产不进 `trade.db`；需要结构化读取时走独立 catalog DB
 - OHLCV / replay / backtest 的行情库后续单独走 `./data/ohlcv.db`
 
 ### 12.2 `trade.db` 表结构
 
-事件表 + β 缓存表：
+当前已实现事件表：
 
 ```sql
 CREATE TABLE plan_event (
@@ -528,6 +529,21 @@ CREATE INDEX idx_kind_chain ON plan_event(kind, chain_id);
 CREATE INDEX idx_obs_symbol ON plan_event(
     json_extract(body_json, '$.symbol')
 ) WHERE kind = 'observe';
+```
+
+`body_json` 用 SQLite TEXT + `json_valid` CHECK 约束。SQLite JSON1 扩展默认开启，支持 `json_extract` / expression index，可以为投影路径加索引。
+
+具体 body shape 三种，定义见 [design-architecture.md](design-architecture.md)：
+
+| kind | body shape 定义位置 |
+| --- | --- |
+| `observe` | §observe.body shape |
+| `order_fill` | §order_fill.body shape |
+| `review` | §REVIEW → review.body shape |
+
+按需补充表：
+
+```sql
 
 CREATE TABLE beta_cache (
     symbol           TEXT NOT NULL,
@@ -545,31 +561,178 @@ CREATE TABLE beta_cache (
 CREATE INDEX idx_beta_symbol_date ON beta_cache(symbol, computed_date DESC);
 ```
 
-`beta_cache` 是 `G-BTC-BETA-DIRECTION-CAP` 的数据源，按 `(symbol, computed_date)` 主键去重，同一 UTC 日同一 symbol 只算一次；lazy compute 流程与读路径见 [design-architecture.md §β 缓存与 lazy compute](design-architecture.md)。`beta_full` / `beta_downside` 为 null 的可能取值含义记录在 `fallback_reason` 字段（`insufficient_samples` / `no_cache_fallback` / 其它）。
+`beta_cache` 只有在 `G-BTC-BETA-DIRECTION-CAP` 进入真实读路径时才落地；当前代码尚未创建该表。落地前不得把它当已存在的数据源。
 
-`body_json` 用 SQLite TEXT + `json_valid` CHECK 约束。SQLite JSON1 扩展默认开启，支持 `json_extract` / expression index，可以为投影路径加索引。
+### 12.3 `data_catalog.db`
 
-具体 body shape 三种，定义见 [design-architecture.md](design-architecture.md)：
+`data_catalog.db` 是文件型研究资产的索引层，不保存大 payload。
 
-| kind | body shape 定义位置 |
-| --- | --- |
-| `observe` | §observe.body shape |
-| `order_fill` | §order_fill.body shape |
-| `review` | §REVIEW → review.body shape |
+目标：
 
-### 12.3 文件型存储
+- run 可查：一次 slow / fast / R&D / calibration / GC 是谁触发、输入 hash、输出哪些 artifact。
+- dataset 可查：一个 manifest 覆盖哪些 symbol / timeframe / 时间范围 / hash。
+- artifact 可查：一个 JSON/CSV/report 多大、schema 是什么、谁引用、能否清理。
+- evidence 可查：策略升格依赖哪些数据、artifact、review 和 R&D run。
+
+最小 schema：
+
+```sql
+CREATE TABLE schema_migration (
+    component  TEXT PRIMARY KEY,
+    version    INTEGER NOT NULL,
+    applied_at TEXT NOT NULL
+);
+
+CREATE TABLE run (
+    run_id       TEXT PRIMARY KEY,
+    kind         TEXT NOT NULL,      -- slow_track | fast_track | rnd | calibration | gc | manual
+    status       TEXT NOT NULL,      -- running | completed | failed | skipped
+    started_at   TEXT NOT NULL,
+    ended_at     TEXT,
+    input_hash   TEXT,
+    summary_json TEXT CHECK(summary_json IS NULL OR json_valid(summary_json))
+);
+
+CREATE TABLE dataset (
+    dataset_id    TEXT PRIMARY KEY,
+    kind          TEXT NOT NULL,      -- ohlcv | panel | feature_source
+    symbol        TEXT,
+    timeframe     TEXT,
+    source        TEXT,
+    first_ts      INTEGER,
+    last_ts       INTEGER,
+    rows          INTEGER,
+    content_hash  TEXT,
+    manifest_path TEXT NOT NULL,
+    created_at    TEXT NOT NULL
+);
+
+CREATE TABLE artifact (
+    artifact_id     TEXT PRIMARY KEY,
+    path            TEXT NOT NULL UNIQUE,
+    type            TEXT NOT NULL,    -- json | jsonl | csv | db | log | report
+    bytes           INTEGER NOT NULL,
+    content_hash    TEXT,
+    schema_id       TEXT,
+    retention_class TEXT NOT NULL,    -- durable | evidence | reproducible | ephemeral
+    created_at      TEXT NOT NULL,
+    summary_json    TEXT CHECK(summary_json IS NULL OR json_valid(summary_json))
+);
+
+CREATE TABLE artifact_ref (
+    referrer_type TEXT NOT NULL,      -- run | dataset | strategy | evidence | ledger
+    referrer_id   TEXT NOT NULL,
+    artifact_id   TEXT NOT NULL,
+    role          TEXT NOT NULL,      -- input | output | proof | cache | derived_from
+    created_at    TEXT NOT NULL,
+    PRIMARY KEY (referrer_type, referrer_id, artifact_id, role),
+    FOREIGN KEY (artifact_id) REFERENCES artifact(artifact_id)
+);
+
+CREATE TABLE strategy_rnd_run (
+    run_id       TEXT PRIMARY KEY,
+    strategy_id  TEXT,
+    candidate_id TEXT,
+    family       TEXT,
+    stage        TEXT,
+    accepted     INTEGER NOT NULL CHECK(accepted IN (0, 1)),
+    holdout_key  TEXT,
+    artifact_id  TEXT,
+    FOREIGN KEY (run_id) REFERENCES run(run_id),
+    FOREIGN KEY (artifact_id) REFERENCES artifact(artifact_id)
+);
+
+CREATE TABLE strategy_evidence (
+    evidence_id  TEXT PRIMARY KEY,
+    strategy_id  TEXT NOT NULL,
+    kind         TEXT NOT NULL,
+    source_ref   TEXT NOT NULL,
+    artifact_id  TEXT,
+    created_at   TEXT NOT NULL,
+    summary_json TEXT CHECK(summary_json IS NULL OR json_valid(summary_json)),
+    FOREIGN KEY (artifact_id) REFERENCES artifact(artifact_id)
+);
+
+CREATE TABLE panel (
+    panel_id      TEXT PRIMARY KEY,
+    purpose       TEXT,
+    timeframe     TEXT,
+    dataset_count INTEGER,
+    symbol_count  INTEGER,
+    manifest_path TEXT NOT NULL,
+    created_at    TEXT NOT NULL,
+    summary_json  TEXT CHECK(summary_json IS NULL OR json_valid(summary_json))
+);
+
+CREATE TABLE panel_member (
+    panel_id            TEXT NOT NULL,
+    dataset_id          TEXT NOT NULL,
+    symbol              TEXT,
+    manifest_path       TEXT,
+    funding_report_path TEXT,
+    rows                INTEGER,
+    first_ts            INTEGER,
+    last_ts             INTEGER,
+    artifact_id         TEXT,
+    PRIMARY KEY (panel_id, dataset_id),
+    FOREIGN KEY (artifact_id) REFERENCES artifact(artifact_id)
+);
+
+CREATE TABLE feature_report (
+    artifact_id       TEXT PRIMARY KEY,
+    symbol            TEXT,
+    exchange          TEXT,
+    source_manifest   TEXT,
+    generated_at      TEXT,
+    indicator_count   INTEGER,
+    timeframe_count   INTEGER,
+    has_market_events INTEGER NOT NULL CHECK(has_market_events IN (0, 1)),
+    summary_json      TEXT CHECK(summary_json IS NULL OR json_valid(summary_json)),
+    FOREIGN KEY (artifact_id) REFERENCES artifact(artifact_id)
+);
+
+CREATE TABLE research_report (
+    artifact_id  TEXT PRIMARY KEY,
+    report_kind  TEXT NOT NULL,      -- strategy_rnd_loop | strategy_rnd_campaign | strategy_benchmark | strategy_calibration_suite | strategy_panel_rnd | rd_shadow_tracker
+    report_id    TEXT NOT NULL,
+    status       TEXT,
+    generated_at TEXT,
+    summary_json TEXT CHECK(summary_json IS NULL OR json_valid(summary_json)),
+    FOREIGN KEY (artifact_id) REFERENCES artifact(artifact_id)
+);
+
+CREATE INDEX idx_artifact_retention ON artifact(retention_class, created_at);
+CREATE INDEX idx_dataset_symbol_timeframe ON dataset(symbol, timeframe, last_ts DESC);
+CREATE INDEX idx_strategy_evidence_strategy ON strategy_evidence(strategy_id, created_at DESC);
+CREATE INDEX idx_panel_member_symbol ON panel_member(symbol);
+CREATE INDEX idx_feature_report_symbol ON feature_report(symbol, generated_at DESC);
+CREATE INDEX idx_research_report_kind ON research_report(report_kind, generated_at DESC);
+```
+
+迁移策略：
+
+- 已落地 catalog schema / scanner / query / stale dry-run / catalog-gc / generation-time writer，不改变现有文件 payload。
+- JSONL ledger 仍可作为 append-only 原始记录；catalog 表是可重建索引。
+- `schema_migration(component='data_catalog')` 记录当前 catalog schema 版本。
+- `cron.log` 不单独建表；JSONL 行归一化进 `run`，原文件作为 `artifact_ref(role=log)`。
+- `research_report` 只保存报告摘要；完整 replay / campaign / calibration / panel / tracker payload 仍在文件系统。
+- `--catalog-query` 按 path / artifact / symbol / strategy 查结构化索引；`--catalog-stale` 只报告候选。
+- `--catalog-gc --yes` 只删除 catalog 判定为 stale 的候选；默认仍是 dry-run。
+
+### 12.4 文件型存储
 
 不进 DB 的：
 
 | 内容 | 介质 | 位置 |
 | --- | --- | --- |
 | Strategy policy | Markdown 文件（一文件一 strategy，含 frontmatter） | `.agents/skills/trade-flow/strategies/*.md` |
-| Strategy evidence ledger | JSONL（一条 evidence 一行） | `./data/strategy-evidence.jsonl` |
+| Strategy evidence ledger | JSONL 原始记录 + catalog 索引 | `./data/strategy-evidence.jsonl` |
 | Trading config | JSON | `./profile/trading-config.json` |
 | Account config | JSON | `./profile/account_config.json`（兼容输入，后续由 trading config 取代） |
 | Notify config | JSON | `./profile/notify_config.json`（兼容输入，后续迁入 trading config；凭证仍只走环境变量） |
-| Cron 运维日志 | 文本日志 | `./data/cron.log` |
-| OHLCV / 市场数据 | CSV + manifest（后期切 SQLite） | `./data/ohlcv/` |
+| Cron 运维日志 | JSONL 原始记录 + catalog 索引 | `./data/cron.log` |
+| OHLCV / 市场数据 | CSV + manifest + catalog 索引 | `./data/ohlcv/` |
+| 大型 feature / replay / campaign report | 文件 payload + catalog 索引 | `./data/artifacts/` |
 
 Git 边界与 data 留存规则见 [data-hygiene.md](data-hygiene.md)。
 
