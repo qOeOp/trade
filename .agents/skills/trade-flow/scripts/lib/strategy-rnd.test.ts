@@ -319,12 +319,79 @@ test("relative weakness momentum family consumes benchmark data causally", () =>
     })
 
     const candidate = report.candidates[0]
+    assert.ok(candidate)
     assert.equal(candidate.family, "relative_weakness_momentum_v1")
     assert.equal(candidate.params.benchmarkManifestPath, benchmarkManifest)
     assert.ok(candidate.replay.sample_count > 0)
-    assert.equal(candidate.replay.trades[0].reason, "rnd relative weakness momentum short")
+    const trade = candidate.replay.trades[0]
+    assert.ok(trade)
+    assert.ok(trade.meta)
+    assert.equal(trade.reason, "rnd relative weakness momentum short")
+    assert.equal(typeof trade.meta.benchmarkReturn, "number")
     assert.equal(candidate.replay.provenance.data_hash, replayDataHash(assetManifest, "4h", [benchmarkManifest]))
     assert.equal(candidate.replay.provenance.supplemental_data?.[0].ref, benchmarkManifest)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("relative weakness momentum can require matching benchmark regime", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-relative-regime-"))
+  try {
+    const assetDir = join(dir, "asset")
+    const strongBenchmarkDir = join(dir, "strong-benchmark")
+    const weakBenchmarkDir = join(dir, "weak-benchmark")
+    mkdirSync(assetDir)
+    mkdirSync(strongBenchmarkDir)
+    mkdirSync(weakBenchmarkDir)
+    const assetManifest = writeRelativeManifest(assetDir, "ALTUSDT", "weak")
+    const strongBenchmarkManifest = writeRelativeManifest(strongBenchmarkDir, "BTCUSDT", "benchmark")
+    const weakBenchmarkManifest = writeRelativeManifest(weakBenchmarkDir, "BTCUSDT", "benchmark-weak")
+    const report = runStrategyRndBatch({
+      manifestPath: assetManifest,
+      timeframe: "4h",
+      maxHoldBars: 8,
+      candidates: [{
+        candidateId: "C-REL-WEAK-STRONG-BTC",
+        family: "relative_weakness_momentum_v1",
+        parameterCount: 8,
+        params: {
+          side: "short",
+          benchmark_manifest_path: strongBenchmarkManifest,
+          benchmark_return_max: -0.01,
+          lookback_bars: 40,
+          relative_threshold_atr: 0.5,
+          stop_atr: 1,
+          max_risk_atr: 3,
+          reward_risk: 2,
+        },
+      }, {
+        candidateId: "C-REL-WEAK-WEAK-BTC",
+        family: "relative_weakness_momentum_v1",
+        parameterCount: 8,
+        params: {
+          side: "short",
+          benchmark_manifest_path: weakBenchmarkManifest,
+          benchmark_return_max: -0.01,
+          lookback_bars: 40,
+          relative_threshold_atr: 0.5,
+          stop_atr: 1,
+          max_risk_atr: 3,
+          reward_risk: 2,
+        },
+      }],
+    })
+
+    const [strongBtcCandidate, weakBtcCandidate] = report.candidates
+    assert.ok(strongBtcCandidate)
+    assert.ok(weakBtcCandidate)
+    assert.equal(strongBtcCandidate.params.benchmarkReturnMax, -0.01)
+    assert.equal(strongBtcCandidate.replay.sample_count, 0)
+    assert.ok(weakBtcCandidate.replay.sample_count > 0)
+    const weakBtcTrade = weakBtcCandidate.replay.trades[0]
+    assert.ok(weakBtcTrade)
+    assert.ok(weakBtcTrade.meta)
+    assert.ok((weakBtcTrade.meta.benchmarkReturn as number) <= -0.01)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -714,11 +781,11 @@ function writeStructureManifest(dir: string): string {
   return manifestPath
 }
 
-function writeRelativeManifest(dir: string, symbol: string, kind: "weak" | "benchmark"): string {
+function writeRelativeManifest(dir: string, symbol: string, kind: "weak" | "benchmark" | "benchmark-weak"): string {
   const candles: Array<{ open: number; high: number; low: number; close: number; volume: number }> = []
   let close = 100
   for (let index = 0; index < 280; index += 1) {
-    const drift = kind === "benchmark" ? 0.12 : index < 210 ? 0.05 : -0.18
+    const drift = kind === "benchmark" ? 0.12 : kind === "benchmark-weak" && index >= 210 ? -0.08 : index < 210 ? 0.05 : -0.18
     const open = close
     close = close + drift
     candles.push({

@@ -6,6 +6,7 @@ import { asRecord, numberField, stringField, type JSONRecord } from "./json"
 import { loadRuntime } from "./observe-flow"
 import { type Runner } from "./observe-adapter"
 import { runJsonCommand } from "./skill-runner"
+import { displayPath, displayPathFrom, resolvePathFrom } from "./paths"
 
 interface SlowTrackWorkflowInput {
   repoRoot: string
@@ -86,7 +87,7 @@ export async function runSlowTrackWorkflowDryRun(input: SlowTrackWorkflowInput):
   writeFileSync(artifactPath, `${JSON.stringify(report, null, 2)}\n`)
   return {
     ...report,
-    artifact_path: artifactPath,
+    artifact_path: displayPath(artifactPath, input.repoRoot),
   }
 }
 
@@ -108,11 +109,12 @@ async function runTechnicalAnalysis(
   runner: Runner,
   symbol: string,
 ): Promise<SkillCallResult> {
+  const ohlcvSkillDir = join(input.repoRoot, ".agents/skills/ohlcv-fetch")
   const ohlcvOutputDir = join("..", "trade-flow", "data", "market", input.runId, symbol)
   const ohlcv = await callSkill(
     runner,
     ["bun", "scripts/main.ts", "--symbol", symbol, "--timeframes", "1d,4h,1h", "--output-dir", ohlcvOutputDir],
-    join(input.repoRoot, ".agents/skills/ohlcv-fetch"),
+    ohlcvSkillDir,
   )
   if (!ohlcv.ok) {
     return ohlcv
@@ -125,9 +127,10 @@ async function runTechnicalAnalysis(
       data: ohlcv.data,
     }
   }
+  const manifestFsPath = resolvePathFrom(manifestPath, ohlcvSkillDir)
   const indicators = await callSkill(
     runner,
-    ["go", "run", "./scripts", "--manifest", manifestPath],
+    ["go", "run", "./scripts", "--manifest", manifestFsPath],
     join(input.repoRoot, ".agents/skills/tech-indicators"),
   )
   if (!indicators.ok) {
@@ -142,7 +145,7 @@ async function runTechnicalAnalysis(
   return {
     ok: true,
     data: {
-      ohlcv: summarizeOhlcv(input.repoRoot, asRecord(ohlcv.data)),
+      ohlcv: summarizeOhlcv(input.repoRoot, ohlcvSkillDir, asRecord(ohlcv.data)),
       indicators: summarizeIndicators(asRecord(indicators.data)),
     },
   }
@@ -288,11 +291,11 @@ function buildWatchlist(
   })
 }
 
-function summarizeOhlcv(repoRoot: string, data: JSONRecord): JSONRecord {
+function summarizeOhlcv(repoRoot: string, fromDir: string, data: JSONRecord): JSONRecord {
   const timeframes = asRecord(data.timeframes)
   return {
-    manifest_path: relativeToRepo(repoRoot, stringField(data.manifest_path)),
-    output_dir: relativeToRepo(repoRoot, stringField(data.output_dir)),
+    manifest_path: displayPathFrom(stringField(data.manifest_path), fromDir, repoRoot),
+    output_dir: displayPathFrom(stringField(data.output_dir), fromDir, repoRoot),
     symbol: stringField(data.symbol),
     timeframes: Object.fromEntries(Object.entries(timeframes).map(([key, value]) => {
       const row = asRecord(value)
@@ -462,13 +465,6 @@ function readArray(value: unknown): unknown[] {
 export function workflowRuntimeAvailable(repoRoot: string): boolean {
   return existsSync(join(repoRoot, "profile/account_config.json"))
     && existsSync(join(repoRoot, ".agents/skills/trade-flow/strategies"))
-}
-
-function relativeToRepo(repoRoot: string, path: string): string {
-  if (!path) {
-    return ""
-  }
-  return path.startsWith(repoRoot) ? path.slice(repoRoot.length + 1) : path
 }
 
 function clipText(value: string, maxLength: number): string {

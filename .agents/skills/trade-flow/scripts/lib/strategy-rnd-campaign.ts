@@ -95,6 +95,7 @@ export function runStrategyRndCampaignWithDeps(
       hypothesis.manifestPath,
       hypothesis.validationManifestPath,
       hypothesis.timeframe || "4h",
+      holdoutEmbargoMs(hypothesis),
     )
 
     const discovery = deps.runLoop({
@@ -249,12 +250,43 @@ export function readCalibrationGate(path: string): JSONRecord {
   }
 }
 
-export function ensureNonOverlappingManifests(discoveryPath: string, validationPath: string, timeframe: string): void {
+export function ensureNonOverlappingManifests(discoveryPath: string, validationPath: string, timeframe: string, embargoMs = 0): void {
   const discovery = readManifestRange(discoveryPath, timeframe)
   const validation = readManifestRange(validationPath, timeframe)
   if (discovery.first <= validation.last && validation.first <= discovery.last) {
     throw new Error(`discovery and validation manifests overlap for ${timeframe}`)
   }
+  if (embargoMs > 0) {
+    const gap = validation.first > discovery.last
+      ? validation.first - discovery.last
+      : discovery.first - validation.last
+    if (gap < embargoMs) {
+      throw new Error(`discovery and validation manifests violate locked holdout embargo for ${timeframe}: gap ${gap}ms is below ${embargoMs}ms`)
+    }
+  }
+}
+
+function holdoutEmbargoMs(input: StrategyRndCampaignHypothesisLike): number {
+  const timeframe = input.timeframe || "4h"
+  const bars = Math.max(
+    input.maxHoldBars ?? 18,
+    Number(asRecord(input.factorResearchOptions).lookback) || 0,
+    Math.ceil(8 * 3_600_000 / timeframeMilliseconds(timeframe)),
+  )
+  return bars * timeframeMilliseconds(timeframe)
+}
+
+interface StrategyRndCampaignHypothesisLike {
+  timeframe?: string
+  maxHoldBars?: number
+  factorResearchOptions?: unknown
+}
+
+function timeframeMilliseconds(timeframe: string): number {
+  const match = timeframe.match(/^(\d+)([mhdw])$/)
+  if (!match) throw new Error(`unsupported campaign timeframe: ${timeframe}`)
+  const unit = { m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000 }[match[2]] || 0
+  return Number(match[1]) * unit
 }
 
 function readManifestRange(manifestPath: string, timeframe: string): { first: number; last: number } {

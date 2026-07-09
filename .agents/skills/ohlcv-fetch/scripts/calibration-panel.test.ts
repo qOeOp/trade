@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { isAbsolute, join } from "node:path"
 import { DEFAULT_SYMBOLS, parseArgs, runCalibrationPanel } from "./calibration-panel"
 
 test("calibration panel parser defaults to 20 symbols", () => {
@@ -47,8 +47,12 @@ test("calibration panel writes trade-flow suite input from fetched manifests", a
   assert.equal(result.ok, true)
   if (!result.ok) return
   assert.equal(result.data.dataset_count, 2)
+  assert.equal(isAbsolute(String(result.data.output_root)), false)
+  assert.equal(isAbsolute(String(result.data.suite_input_path)), false)
+  assert.equal(isAbsolute(String(result.data.panel_manifest_path)), false)
   assert.equal(calls.length, 2)
   assert.equal(calls[0].includes("--since-ts"), true)
+  assert.equal(isAbsolute(calls[0][calls[0].indexOf("--output-dir") + 1]), false)
   const suite = JSON.parse(readFileSync(String(result.data.suite_input_path), "utf8")) as {
     datasets: Array<{ dataset_id: string; manifest_path: string; indicator_report_path?: string }>
     maker_fee_bps: number
@@ -59,7 +63,9 @@ test("calibration panel writes trade-flow suite input from fetched manifests", a
     random_trials: number
   }
   assert.deepEqual(suite.datasets.map((item) => item.dataset_id), ["BTCUSDT", "ETHUSDT"])
+  assert.equal(suite.datasets.every((item) => !isAbsolute(item.manifest_path)), true)
   assert.match(suite.datasets[0].indicator_report_path || "", /market-features\.json$/)
+  assert.equal(isAbsolute(suite.datasets[0].indicator_report_path || ""), false)
   assert.equal(suite.datasets[1].indicator_report_path, undefined)
   assert.equal(suite.maker_fee_bps, 2)
   assert.equal(suite.taker_fee_bps, 5)
@@ -68,7 +74,10 @@ test("calibration panel writes trade-flow suite input from fetched manifests", a
   assert.equal(suite.funding_bps_per_8h, 1)
   assert.equal(suite.random_trials, 20)
 
-  const panel = JSON.parse(readFileSync(String(result.data.panel_manifest_path), "utf8")) as { datasets: Array<{ manifest_available: boolean; rows: number }> }
+  const panel = JSON.parse(readFileSync(String(result.data.panel_manifest_path), "utf8")) as { suite_input_path: string; datasets: Array<{ manifest_available: boolean; rows: number; manifest_path: string; funding_report_path: string | null }> }
+  assert.equal(isAbsolute(panel.suite_input_path), false)
+  assert.equal(panel.datasets.every((item) => !isAbsolute(item.manifest_path)), true)
+  assert.equal(isAbsolute(panel.datasets[0].funding_report_path || ""), false)
   assert.equal(panel.datasets[0].manifest_available, true)
   assert.equal(panel.datasets[0].rows, 12000)
 })

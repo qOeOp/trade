@@ -10,6 +10,8 @@ interface Params {
   benchmarkTimeframe: string
   lookbackBars: number
   relativeThresholdAtr: number
+  benchmarkReturnMax?: number
+  benchmarkReturnMin?: number
   stopAtr: number
   maxRiskAtr: number
   rewardRisk: number
@@ -21,6 +23,11 @@ interface Params {
 interface BenchmarkSeries {
   byTimestamp: Map<number, number>
   closes: number[]
+}
+
+interface RelativeMove {
+  relativeAtr: number
+  benchmarkReturn: number
 }
 
 const family: RndFamilyModule = {
@@ -48,6 +55,8 @@ function normalize(raw: JSONRecord): Params {
     benchmarkTimeframe: stringField(raw.benchmark_timeframe ?? raw.benchmarkTimeframe) || "4h",
     lookbackBars: readPositiveInteger(raw.lookback_bars ?? raw.lookbackBars, 120),
     relativeThresholdAtr: readPositiveNumber(raw.relative_threshold_atr ?? raw.relativeThresholdAtr, 1),
+    benchmarkReturnMax: optionalNumber(raw.benchmark_return_max ?? raw.benchmarkReturnMax),
+    benchmarkReturnMin: optionalNumber(raw.benchmark_return_min ?? raw.benchmarkReturnMin),
     stopAtr: readPositiveNumber(raw.stop_atr ?? raw.stopAtr, 1),
     maxRiskAtr: readPositiveNumber(raw.max_risk_atr ?? raw.maxRiskAtr, 2.5),
     rewardRisk: readPositiveNumber(raw.reward_risk ?? raw.rewardRisk, 2),
@@ -64,6 +73,8 @@ function json(params: Params): JSONRecord {
     benchmarkTimeframe: params.benchmarkTimeframe,
     lookbackBars: params.lookbackBars,
     relativeThresholdAtr: params.relativeThresholdAtr,
+    ...(params.benchmarkReturnMax !== undefined ? { benchmarkReturnMax: params.benchmarkReturnMax } : {}),
+    ...(params.benchmarkReturnMin !== undefined ? { benchmarkReturnMin: params.benchmarkReturnMin } : {}),
     stopAtr: params.stopAtr,
     maxRiskAtr: params.maxRiskAtr,
     rewardRisk: params.rewardRisk,
@@ -92,31 +103,40 @@ function strategy(id: string, params: Params, benchmark: BenchmarkSeries, store:
       const prior = candles[index - params.lookbackBars]
       const atr = indicators.atr14[index]
       if (!prior || !Number.isFinite(atr) || atr <= 0 || !passesFactorConditions(params.factorConditions, store, options.timeframe || "4h", candle.date)) return null
-      const relativeAtr = relativeMoveAtr(candle, prior, benchmark, params.lookbackBars, atr)
-      if (!Number.isFinite(relativeAtr)) return null
-      if ((params.side === "short" || params.side === "both") && relativeAtr <= -params.relativeThresholdAtr) {
-        return signal("short", candle, index, entryIndex, entryPrice, atr, relativeAtr, params)
+      const move = relativeMoveAtr(candle, prior, benchmark, params.lookbackBars, atr)
+      if (!move || !Number.isFinite(move.relativeAtr)) return null
+      if ((params.side === "short" || params.side === "both") && move.relativeAtr <= -params.relativeThresholdAtr && passesBenchmarkRegime("short", move.benchmarkReturn, params)) {
+        return signal("short", candle, index, entryIndex, entryPrice, atr, move, params)
       }
-      if ((params.side === "long" || params.side === "both") && relativeAtr >= params.relativeThresholdAtr) {
-        return signal("long", candle, index, entryIndex, entryPrice, atr, relativeAtr, params)
+      if ((params.side === "long" || params.side === "both") && move.relativeAtr >= params.relativeThresholdAtr && passesBenchmarkRegime("long", move.benchmarkReturn, params)) {
+        return signal("long", candle, index, entryIndex, entryPrice, atr, move, params)
       }
       return null
     },
   }
 }
 
-function relativeMoveAtr(candle: Candle, prior: Candle, benchmark: BenchmarkSeries, lookbackBars: number, atr: number): number {
+function relativeMoveAtr(candle: Candle, prior: Candle, benchmark: BenchmarkSeries, lookbackBars: number, atr: number): RelativeMove | null {
   const benchmarkIndex = benchmark.byTimestamp.get(candle.timestamp)
-  if (benchmarkIndex === undefined) return Number.NaN
+  if (benchmarkIndex === undefined) return null
   const benchmarkPrior = benchmark.closes[benchmarkIndex - lookbackBars]
   const benchmarkNow = benchmark.closes[benchmarkIndex]
-  if (!Number.isFinite(benchmarkPrior) || !Number.isFinite(benchmarkNow) || benchmarkPrior <= 0 || prior.close <= 0) return Number.NaN
+  if (!Number.isFinite(benchmarkPrior) || !Number.isFinite(benchmarkNow) || benchmarkPrior <= 0 || prior.close <= 0) return null
   const assetReturn = candle.close / prior.close - 1
   const benchmarkReturn = benchmarkNow / benchmarkPrior - 1
-  return ((assetReturn - benchmarkReturn) * candle.close) / atr
+  return {
+    relativeAtr: ((assetReturn - benchmarkReturn) * candle.close) / atr,
+    benchmarkReturn,
+  }
 }
 
-function signal(side: "long" | "short", candle: Candle, index: number, entryIndex: number, entry: number, atr: number, relativeAtr: number, params: Params): ReplaySignal | null {
+function passesBenchmarkRegime(side: "long" | "short", benchmarkReturn: number, params: Params): boolean {
+  if (side === "short" && params.benchmarkReturnMax !== undefined && benchmarkReturn > params.benchmarkReturnMax) return false
+  if (side === "long" && params.benchmarkReturnMin !== undefined && benchmarkReturn < params.benchmarkReturnMin) return false
+  return true
+}
+
+function signal(side: "long" | "short", candle: Candle, index: number, entryIndex: number, entry: number, atr: number, move: RelativeMove, params: Params): ReplaySignal | null {
   const stop = side === "long" ? candle.low - params.stopAtr * atr : candle.high + params.stopAtr * atr
   const risk = Math.abs(entry - stop)
   if (risk <= 0 || risk > params.maxRiskAtr * atr) return null
@@ -129,12 +149,17 @@ function signal(side: "long" | "short", candle: Candle, index: number, entryInde
     target: side === "long" ? entry + risk * params.rewardRisk : entry - risk * params.rewardRisk,
     ...(params.breakEvenAfterR > 0 ? { break_even_after_r: params.breakEvenAfterR, break_even_offset_r: params.breakEvenOffsetR } : {}),
     reason: `rnd relative weakness momentum ${side}`,
-    meta: { ...json(params), relativeAtr: round(relativeAtr) },
+    meta: { ...json(params), relativeAtr: round(move.relativeAtr), benchmarkReturn: round(move.benchmarkReturn) },
   }
 }
 
 function stringField(value: unknown): string {
   return typeof value === "string" ? value.trim() : ""
+}
+
+function optionalNumber(value: unknown): number | undefined {
+  const number = Number(value)
+  return Number.isFinite(number) ? number : undefined
 }
 
 export default family

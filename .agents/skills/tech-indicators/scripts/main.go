@@ -640,12 +640,12 @@ func timeframeAnalysis(
 
 	bullishInvalidation := "no near-term support invalidation"
 	if len(supports) > 0 {
-		bullishInvalidation = fmt.Sprintf("%s close below %.2f", timeframe, supports[0].Price)
+		bullishInvalidation = fmt.Sprintf("%s close below %s", timeframe, formatPrice(supports[0].Price))
 	}
 
 	bearishInvalidation := "no near-term resistance invalidation"
 	if len(resistances) > 0 {
-		bearishInvalidation = fmt.Sprintf("%s close above %.2f", timeframe, resistances[0].Price)
+		bearishInvalidation = fmt.Sprintf("%s close above %s", timeframe, formatPrice(resistances[0].Price))
 	}
 
 	input := &indicatorInput{
@@ -662,13 +662,13 @@ func timeframeAnalysis(
 	result := timeframeResult{
 		Trend: trend,
 		CoreContext: map[string]any{
-			"current_price":  roundTo(currentPrice, 2),
-			"atr_14":         roundTo(atrValue, 2),
-			"ema_50":         roundTo(latestValid(ema50), 2),
-			"ema_200":        roundTo(latestValid(ema200), 2),
-			"macd":           roundTo(latestValid(macdLine), 4),
-			"macd_signal":    roundTo(latestValid(macdSignal), 4),
-			"macd_histogram": roundTo(latestValid(macdHist), 4),
+			"current_price":  roundPrice(currentPrice),
+			"atr_14":         roundPrice(atrValue),
+			"ema_50":         roundPrice(latestValid(ema50)),
+			"ema_200":        roundPrice(latestValid(ema200)),
+			"macd":           roundPrice(latestValid(macdLine)),
+			"macd_signal":    roundPrice(latestValid(macdSignal)),
+			"macd_histogram": roundPrice(latestValid(macdHist)),
 		},
 		Indicators:          computeIndicators(input, selected, catalog, overrides),
 		Supports:            supports,

@@ -2,8 +2,10 @@
 .idea/
 .cache/
 .claude/
+.codex/
 tmp/
 .env
+$CODEX_HOME/
 
 # Local runtime state and generated trading/research data.
 data/outline_audit/

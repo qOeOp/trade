@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
-import { join, resolve } from "node:path"
+import { join, relative, resolve } from "node:path"
 import { run as fetchOhlcv } from "./main"
 
 type JSONRecord = Record<string, unknown>
@@ -43,12 +43,14 @@ async function runCalibrationPanel(argv: string[], fetcher: Fetcher = fetchOhlcv
       const datasetID = symbolId(symbol)
       const outputDir = join(outputRoot, datasetID.toLowerCase())
       const manifestPath = join(outputDir, "manifest.json")
+      const displayOutputDir = displayPath(outputDir)
+      const displayManifestPath = displayPath(manifestPath)
       mkdirSync(outputDir, { recursive: true })
       if (!config.dryRun) {
         const result = await fetcher([
           "--symbol", symbol,
           "--timeframes", config.timeframe,
-          "--output-dir", outputDir,
+          "--output-dir", displayOutputDir,
           "--limit", String(config.limit),
           "--since-ts", String(config.sinceTS),
         ])
@@ -57,14 +59,14 @@ async function runCalibrationPanel(argv: string[], fetcher: Fetcher = fetchOhlcv
       const fundingReport = findFundingReport(config.fundingReportRoot, datasetID)
       datasets.push({
         dataset_id: datasetID,
-        manifest_path: manifestPath,
-        ...(fundingReport ? { indicator_report_path: fundingReport } : {}),
+        manifest_path: displayManifestPath,
+        ...(fundingReport ? { indicator_report_path: displayPath(fundingReport) } : {}),
       })
       panelDatasets.push({
         dataset_id: datasetID,
         symbol,
-        manifest_path: manifestPath,
-        funding_report_path: fundingReport || null,
+        manifest_path: displayManifestPath,
+        funding_report_path: fundingReport ? displayPath(fundingReport) : null,
         ...manifestSummary(manifestPath, config.timeframe),
       })
     }
@@ -73,7 +75,7 @@ async function runCalibrationPanel(argv: string[], fetcher: Fetcher = fetchOhlcv
       datasets,
       timeframe: config.timeframe,
       random_trials: config.randomTrials,
-      ...(config.previousCalibrationReportPath ? { previous_calibration_report_path: resolve(config.previousCalibrationReportPath) } : {}),
+      ...(config.previousCalibrationReportPath ? { previous_calibration_report_path: displayPath(resolve(config.previousCalibrationReportPath)) } : {}),
       ...(config.makerFeeBps !== undefined ? { maker_fee_bps: config.makerFeeBps } : {}),
       ...(config.takerFeeBps !== undefined ? { taker_fee_bps: config.takerFeeBps } : {}),
       ...(config.marketOrderShare !== undefined ? { market_order_share: config.marketOrderShare } : {}),
@@ -91,11 +93,19 @@ async function runCalibrationPanel(argv: string[], fetcher: Fetcher = fetchOhlcv
       symbol_count: config.symbols.length,
       timeframe: config.timeframe,
       since_ts: config.sinceTS,
-      suite_input_path: suiteInputPath,
+      suite_input_path: displayPath(suiteInputPath),
       datasets: panelDatasets,
     }, null, 2)}\n`)
 
-    return { ok: true, data: { output_root: outputRoot, suite_input_path: suiteInputPath, panel_manifest_path: panelManifestPath, dataset_count: datasets.length } }
+    return {
+      ok: true,
+      data: {
+        output_root: displayPath(outputRoot),
+        suite_input_path: displayPath(suiteInputPath),
+        panel_manifest_path: displayPath(panelManifestPath),
+        dataset_count: datasets.length,
+      },
+    }
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) }
   }
@@ -156,6 +166,10 @@ function findFundingReport(root: string, datasetID: string): string | null {
     if (existsSync(path)) return path
   }
   return null
+}
+
+function displayPath(path: string): string {
+  return relative(process.cwd(), path) || "."
 }
 
 function symbolId(symbol: string): string {

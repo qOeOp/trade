@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { isAbsolute, join } from "node:path"
 import { Database } from "bun:sqlite"
 import assert from "node:assert/strict"
 import test from "node:test"
@@ -72,8 +72,8 @@ test("slow track workflow dry-run builds real watchlist without live action", as
       const symbol = command[command.indexOf("--symbol") + 1]
       return jsonOk({
         symbol,
-        manifest_path: join(repoRoot, ".agents/skills/trade-flow/data/market/run-slow-test", symbol, "manifest.json"),
-        output_dir: join(repoRoot, ".agents/skills/trade-flow/data/market/run-slow-test", symbol),
+        manifest_path: join("..", "trade-flow", "data", "market", "run-slow-test", symbol, "manifest.json"),
+        output_dir: join("..", "trade-flow", "data", "market", "run-slow-test", symbol),
         timeframes: {
           "1d": { rows: 100, first_open_ts: 1, last_open_ts: 100 },
           "4h": { rows: 100, first_open_ts: 1, last_open_ts: 100 },
@@ -115,13 +115,20 @@ test("slow track workflow dry-run builds real watchlist without live action", as
       runner,
     })
     assert.equal(result.mode, "analysis-only")
+    assert.equal(isAbsolute(String(result.artifact_path)), false)
     assert.equal((result.trade_decision as { target_action: string }).target_action, "no_action")
     assert.equal((result.strategy_pool as { live_small_ready: unknown[] }).live_small_ready.length, 1)
     assert.equal((result.watchlist as unknown[]).length, 2)
     assert.equal((result.watchlist as Array<{ symbol: string; strategy_usage: { matched_live_small_strategies: string[] } }>)[0].symbol, "BTCUSDT")
     assert.deepEqual((result.watchlist as Array<{ strategy_usage: { matched_live_small_strategies: string[] } }>)[0].strategy_usage.matched_live_small_strategies, ["S-BTC"])
+    const ohlcv = (result.watchlist as Array<{ technical_analysis: { ohlcv: { manifest_path: string; output_dir: string } } }>)[0].technical_analysis.ohlcv
+    assert.equal(ohlcv.manifest_path, ".agents/skills/trade-flow/data/market/run-slow-test/BTCUSDT/manifest.json")
+    assert.equal(ohlcv.output_dir, ".agents/skills/trade-flow/data/market/run-slow-test/BTCUSDT")
+    assert.equal(isAbsolute(ohlcv.manifest_path), false)
+    const indicatorCall = calls.find((call) => call.cwd?.endsWith("tech-indicators") && call.command.includes("--manifest"))
+    assert.equal(indicatorCall?.command[indicatorCall.command.indexOf("--manifest") + 1], join(repoRoot, ".agents/skills/trade-flow/data/market/run-slow-test/BTCUSDT/manifest.json"))
     assert.equal((result.watchlist as Array<{ operator_suggestion: { action: string } }>)[0].operator_suggestion.action, "watch_long_setup")
-    assert.match(readFileSync(String(result.artifact_path), "utf8"), /BTCUSDT/)
+    assert.match(readFileSync(join(repoRoot, String(result.artifact_path)), "utf8"), /BTCUSDT/)
     assert.equal(calls.some((call) => call.command.includes("--run-live-small")), false)
   } finally {
     db.close()
@@ -157,6 +164,7 @@ test("slow track workflow reports account snapshot unavailable without inventing
       db,
       runner,
     })
+    assert.equal(isAbsolute(String(result.artifact_path)), false)
     assert.equal((result.account_state as { ok: boolean }).ok, false)
     assert.equal((result.trade_decision as { reason: string }).reason, "account_snapshot_unavailable")
   } finally {
@@ -241,6 +249,7 @@ test("slow track workflow analyzes every default watchlist candidate", async () 
       db,
       runner,
     })
+    assert.equal(isAbsolute(String(result.artifact_path)), false)
     assert.deepEqual(analyzedSymbols, ["AAAUSDT", "BBBUSDT", "CCCUSDT"])
     assert.equal((result.watchlist as Array<{ technical_analysis: { indicators?: { ok?: boolean } } }>)[2].technical_analysis.indicators?.ok, true)
   } finally {

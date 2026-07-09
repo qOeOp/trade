@@ -28,3 +28,15 @@
 - 路径和文件名使用 ASCII、小写、短横线
 - 正文内容优先中文
 - 时间默认使用 `Asia/Shanghai`
+
+## Automation Guardrails
+
+- 涉及 automation memory 时，不要直接拼接 `$CODEX_HOME/...`
+- 一律通过 `scripts/automation-memory-path.sh <automation-id>` 解析 memory 路径；当 `CODEX_HOME` 为空时，它会自动回退到仓库内 `.codex`
+- 需要 Python 命令时，不要假设 `python` 存在；优先用 `python3`，或先通过 `scripts/resolve-python.sh` 解析可用命令
+
+## Quality Guardrails
+
+- 准备提交、跨语言改动或新增脚本后，跑 `scripts/quality-check.sh`
+- 不把 compiler / typecheck / test / vet warning 当成可忽略噪音；能修则修，不能修必须在交付说明里标明原因
+- 不把本机绝对路径写进 docs / code / helper 输出契约

@@ -7,6 +7,7 @@ import { asRecord, numberField, removeUndefined, stringField, type JSONRecord } 
 import { type Runner } from "./observe-adapter"
 import { appendPlanEvent, readFlowEvents, type PlanEvent } from "./plan-events"
 import { runJsonCommand } from "./skill-runner"
+import { displayPath } from "./paths"
 
 interface FastTrackWorkflowInput {
   repoRoot: string
@@ -184,7 +185,7 @@ function writeFastArtifact(input: FastTrackWorkflowInput, report: JSONRecord): J
   writeFileSync(artifactPath, `${JSON.stringify(report, null, 2)}\n`)
   return {
     ...report,
-    artifact_path: artifactPath,
+    artifact_path: displayPath(artifactPath, input.repoRoot),
   }
 }
 

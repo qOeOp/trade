@@ -19,6 +19,7 @@
 | Check id | 目录 | 命令 | 覆盖 |
 | --- | --- | --- | --- |
 | `repo-whitespace` | repo root | `git diff --check` | 空白、冲突标记、尾随空格 |
+| `project-quality` | repo root | `scripts/quality-check.sh` | 提交前 TS / Go / Python / shell / hygiene 总闸 |
 | `trade-flow-typecheck` | `.agents/skills/trade-flow` | `bun run typecheck` | TS 类型与未使用变量 |
 | `trade-flow-test` | `.agents/skills/trade-flow` | `bun run test` | 当前全部 trade-flow 单测 / 契约测 |
 | `trade-flow-check` | `.agents/skills/trade-flow` | `bun run check` | typecheck + test |
@@ -26,6 +27,7 @@
 | `binance-ts-check` | changed Binance TS skill | `bun run check` | 对应执行或只读 skill 的本地契约 |
 | `ohlcv-fetch-check` | `.agents/skills/ohlcv-fetch` | `bun run check` | OHLCV manifest / fetch 本地契约 |
 | `tech-indicators-check` | `.agents/skills/tech-indicators` | `go test ./...` | 指标与结构算法 |
+| `helper-scripts-smoke` | repo root | `sh scripts/resolve-codex-home.sh && sh scripts/automation-memory-path.sh demo && sh scripts/resolve-python.sh` | 本地 helper fallback 可用性 |
 
 ## 3. 改动域到最小检查
 
@@ -46,6 +48,7 @@
 | Binance execute skill | `.agents/skills/binance-order-*`, `.agents/skills/binance-position-*` | corresponding `binance-ts-check` + trade-flow execution targeted tests；输出边界见 [execution-skill-contract.md](execution-skill-contract.md) |
 | market / account read skill | `.agents/skills/binance-*-snapshot`, `.agents/skills/binance-market-scan` | corresponding `binance-ts-check` + observe/recovery targeted tests if consumed by trade-flow |
 | OHLCV / indicators | `.agents/skills/ohlcv-fetch`, `.agents/skills/tech-indicators` | corresponding skill check + trade-flow research targeted tests if manifest/factor shape changed |
+| local helper scripts | `scripts/*.sh`, README helper 入口 | `helper-scripts-smoke` + `repo-whitespace` |
 
 ## 4. 何时升级为全量
 
@@ -57,6 +60,13 @@
 - 修改 `plan_event`、recovery、execution、research 任一公共类型
 - 新增 command、schema、strategy family、evidence record 或 promotion gate
 - targeted test 失败后修复完成
+
+必须跑 `project-quality`：
+
+- 准备提交或交给别人 review
+- 跨语言改动
+- 新增脚本、helper、skill 或测试入口
+- 发现 warning / error / formatter / 本机路径泄漏后修复完成
 
 必须额外跑相关 skill 的 `bun run check`：
 

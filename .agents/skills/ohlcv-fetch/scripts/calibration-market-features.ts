@@ -2,7 +2,7 @@
 
 import { execFileSync } from "node:child_process"
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
-import { dirname, join, resolve } from "node:path"
+import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { runMarketFeatures } from "./market-features"
 
@@ -29,6 +29,7 @@ async function runCalibrationMarketFeatures(argv: string[], analyzer: Analyzer =
     const config = parseArgs(argv)
     const panel = asRecord(JSON.parse(readFileSync(config.panelManifestPath, "utf8")))
     const outputRoot = resolve(config.outputRoot || join(dirname(config.panelManifestPath), "market-features"))
+    const panelDir = dirname(config.panelManifestPath)
     mkdirSync(outputRoot, { recursive: true })
     const datasets = array(panel.datasets).map(asRecord)
     if (datasets.length === 0) throw new Error("panel manifest has no datasets")
@@ -39,13 +40,17 @@ async function runCalibrationMarketFeatures(argv: string[], analyzer: Analyzer =
     for (const dataset of datasets) {
       const datasetID = stringField(dataset.dataset_id)
       const symbol = stringField(dataset.symbol) || datasetID
-      const manifestPath = stringField(dataset.manifest_path)
-      if (!datasetID || !manifestPath) throw new Error("panel dataset requires dataset_id and manifest_path")
+      const manifestPathRaw = stringField(dataset.manifest_path)
+      if (!datasetID || !manifestPathRaw) throw new Error("panel dataset requires dataset_id and manifest_path")
+      const manifestPath = resolveInputPath(manifestPathRaw, panelDir)
       if (!existsSync(manifestPath)) throw new Error(`manifest not found: ${manifestPath}`)
       const dir = join(outputRoot, datasetID.toLowerCase())
       mkdirSync(dir, { recursive: true })
       const baseReportPath = join(dir, "base-features.json")
       const marketFeaturesPath = join(dir, "market-features.json")
+      const displayManifestPath = displayPath(manifestPath)
+      const displayBaseReportPath = displayPath(baseReportPath)
+      const displayMarketFeaturesPath = displayPath(marketFeaturesPath)
       let status = "ok"
       let error: string | null = null
       let enriched: JSONRecord
@@ -62,7 +67,7 @@ async function runCalibrationMarketFeatures(argv: string[], analyzer: Analyzer =
             "--symbol", symbol,
             "--timeframe", config.timeframe,
             "--since-ts", String(config.sinceTS || Number(panel.since_ts) || Date.UTC(2021, 0, 1)),
-            "--base-report", baseReportPath,
+            "--base-report", displayBaseReportPath,
             "--metrics-source", config.metricsSource,
             "--microstructure-days", String(config.microstructureDays),
             "--external", String(config.external),
@@ -75,8 +80,8 @@ async function runCalibrationMarketFeatures(argv: string[], analyzer: Analyzer =
         writeFileSync(marketFeaturesPath, `${JSON.stringify(enriched, null, 2)}\n`)
       }
       const fundingCount = array(asRecord(asRecord(enriched.data).market_events).funding).length
-      suiteDatasets.push({ dataset_id: datasetID, manifest_path: manifestPath, indicator_report_path: marketFeaturesPath })
-      reports.push({ dataset_id: datasetID, symbol, status, error, base_report_path: baseReportPath, market_features_path: marketFeaturesPath, funding_event_count: fundingCount })
+      suiteDatasets.push({ dataset_id: datasetID, manifest_path: displayManifestPath, indicator_report_path: displayMarketFeaturesPath })
+      reports.push({ dataset_id: datasetID, symbol, status, error, base_report_path: displayBaseReportPath, market_features_path: displayMarketFeaturesPath, funding_event_count: fundingCount })
       process.stderr.write(`[calibration-market-features] ${datasetID} ${status} funding_events=${fundingCount}${error ? ` error=${error.slice(0, 160)}` : ""}\n`)
     }
 
@@ -92,15 +97,23 @@ async function runCalibrationMarketFeatures(argv: string[], analyzer: Analyzer =
       schema_version: 1,
       generated_at: new Date().toISOString(),
       purpose: "trade_flow_calibration_market_features",
-      panel_manifest_ref: config.panelManifestPath,
-      suite_input_path: suiteInputPath,
+      panel_manifest_ref: displayPath(config.panelManifestPath),
+      suite_input_path: displayPath(suiteInputPath),
       timeframe: config.timeframe,
       metrics_source: config.metricsSource,
       microstructure_days: config.microstructureDays,
       external: config.external,
       reports,
     }, null, 2)}\n`)
-    return { ok: true, data: { output_root: outputRoot, suite_input_path: suiteInputPath, panel_manifest_path: manifestPath, dataset_count: suiteDatasets.length } }
+    return {
+      ok: true,
+      data: {
+        output_root: displayPath(outputRoot),
+        suite_input_path: displayPath(suiteInputPath),
+        panel_manifest_path: displayPath(manifestPath),
+        dataset_count: suiteDatasets.length,
+      },
+    }
   } catch (error) {
     return { ok: false, error: error instanceof Error ? error.message : String(error) }
   }
@@ -147,6 +160,17 @@ function withTimeout<T>(task: Promise<T>, ms: number, message: string): Promise<
 
 function defaultTechIndicatorsDir(): string {
   return resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "tech-indicators")
+}
+
+function resolveInputPath(path: string, fallbackDir: string): string {
+  if (isAbsolute(path)) return path
+  const fromCwd = resolve(path)
+  if (existsSync(fromCwd)) return fromCwd
+  return resolve(fallbackDir, path)
+}
+
+function displayPath(path: string): string {
+  return relative(process.cwd(), path) || "."
 }
 
 function numberValue(value: string | undefined, fallback: number, name: string): number {

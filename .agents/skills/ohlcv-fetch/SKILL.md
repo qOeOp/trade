@@ -115,8 +115,8 @@ cd .agents/skills/ohlcv-fetch
 `market-features.ts` 以 `tech-indicators --feature-series` 报告的时间网格为基准，因果对齐 Binance / Deribit / BRK 数据；输出仍是可直接交给 R&D 的 factor report。
 
 ```bash
-./scripts/market-features.ts --symbol BTCUSDT --timeframe 4h --since-ts 1609459200000 --base-report /tmp/factors.json
-./scripts/market-features.ts --symbol BTCUSDT --timeframe 4h --since-ts 1704067200000 --base-report /tmp/factors.json --microstructure-days 1
+./scripts/market-features.ts --symbol BTCUSDT --timeframe 4h --since-ts 1609459200000 --base-report ./data/factors.json
+./scripts/market-features.ts --symbol BTCUSDT --timeframe 4h --since-ts 1704067200000 --base-report ./data/factors.json --microstructure-days 1
 ```
 
 - funding / premium 走 REST 长历史；原始 funding events 写入 report，供 replay 精确结算。

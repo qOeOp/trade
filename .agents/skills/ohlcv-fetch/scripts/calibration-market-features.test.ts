@@ -2,7 +2,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { isAbsolute, join } from "node:path"
 import { parseArgs, runCalibrationMarketFeatures } from "./calibration-market-features"
 
 test("calibration market features parser requires panel manifest", () => {
@@ -58,12 +58,20 @@ test("calibration market features writes funding-aware suite input", async () =>
   assert.equal(result.ok, true)
   if (!result.ok) return
   assert.equal(result.data.dataset_count, 2)
+  assert.equal(isAbsolute(String(result.data.output_root)), false)
+  assert.equal(isAbsolute(String(result.data.suite_input_path)), false)
+  assert.equal(isAbsolute(String(result.data.panel_manifest_path)), false)
   assert.equal(calls.length, 2)
   assert.equal(calls[0].includes("--metrics-source"), true)
-  const suite = JSON.parse(readFileSync(String(result.data.suite_input_path), "utf8")) as { datasets: Array<{ indicator_report_path: string }> }
+  assert.equal(isAbsolute(calls[0][calls[0].indexOf("--base-report") + 1]), false)
+  const suite = JSON.parse(readFileSync(String(result.data.suite_input_path), "utf8")) as { datasets: Array<{ manifest_path: string; indicator_report_path: string }> }
   assert.equal(suite.datasets.length, 2)
+  assert.equal(suite.datasets.every((item) => !isAbsolute(item.manifest_path) && !isAbsolute(item.indicator_report_path)), true)
   assert.match(suite.datasets[0].indicator_report_path, /market-features\.json$/)
-  const manifest = JSON.parse(readFileSync(String(result.data.panel_manifest_path), "utf8")) as { reports: Array<{ funding_event_count: number }> }
+  const manifest = JSON.parse(readFileSync(String(result.data.panel_manifest_path), "utf8")) as { panel_manifest_ref: string; suite_input_path: string; reports: Array<{ funding_event_count: number; base_report_path: string; market_features_path: string }> }
+  assert.equal(isAbsolute(manifest.panel_manifest_ref), false)
+  assert.equal(isAbsolute(manifest.suite_input_path), false)
+  assert.equal(manifest.reports.every((item) => !isAbsolute(item.base_report_path) && !isAbsolute(item.market_features_path)), true)
   assert.equal(manifest.reports[0].funding_event_count, 1)
 })
 
@@ -89,6 +97,7 @@ test("calibration market features records per-symbol failures and continues", as
   assert.match(manifest.reports[0].error, /funding endpoint unavailable/)
   assert.equal(manifest.reports[0].funding_event_count, 0)
   const suite = JSON.parse(readFileSync(String(result.data.suite_input_path), "utf8")) as { datasets: Array<{ indicator_report_path: string }> }
+  assert.equal(isAbsolute(suite.datasets[0].indicator_report_path), false)
   assert.match(suite.datasets[0].indicator_report_path, /market-features\.json$/)
 
   const retried = await runCalibrationMarketFeatures([

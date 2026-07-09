@@ -39,3 +39,4 @@ requires_preflight: true
 - 优先直接执行 `./scripts/main.ts`
 - 只支持 USDM
 - 支持普通单取消、全部普通单取消、Algo 单取消、全部 Algo 单取消
+- 成功输出带 `method / result`，供 `trade-flow` 记录 cancel lifecycle

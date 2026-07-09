@@ -1,4 +1,7 @@
 import assert from "node:assert/strict"
+import { mkdtempSync, readFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { basename, isAbsolute, join } from "node:path"
 import test from "node:test"
 import type { BinanceRest } from "binance-api-node"
 
@@ -10,6 +13,7 @@ import {
   orderedTimeframes,
   parseArgs,
   resolveFetchConfig,
+  run,
 } from "./main"
 
 test("parseArgs requires --symbol", () => {
@@ -186,4 +190,70 @@ test("fetchKlines keeps the latest closed candles when no start time is given", 
   )
 
   assert.deepEqual(candles.map((candle) => candle.timestamp), rows.slice(-3).map((row) => row.openTime))
+})
+
+test("run preserves relative output paths in response and manifest", async () => {
+  const tempParent = mkdtempSync(join(tmpdir(), "ohlcv-fetch-test-"))
+  const relativeOutputDir = join(basename(tempParent), "market", "BTCUSDT")
+  const rows = [1, 2, 3].map((index) => ({
+    openTime: index * 14_400_000,
+    open: "1",
+    high: "2",
+    low: "0.5",
+    close: "1.5",
+    volume: "10",
+  }))
+  const client = {
+    futuresExchangeInfo: async () => ({ symbols: [{ symbol: "BTCUSDT", status: "TRADING" }] }),
+    futuresCandles: async () => rows,
+  } as unknown as BinanceRest
+
+  const previousCwd = process.cwd()
+  process.chdir(tmpdir())
+  try {
+    const result = await run(["--symbol", "BTCUSDT", "--timeframes", "4h", "--output-dir", relativeOutputDir], client)
+    assert.equal(result.ok, true)
+    if (!result.ok) return
+
+    assert.equal(result.data.output_dir, relativeOutputDir)
+    assert.equal(result.data.manifest_path, join(relativeOutputDir, "manifest.json"))
+
+    const manifest = JSON.parse(readFileSync(join(tmpdir(), relativeOutputDir, "manifest.json"), "utf8")) as {
+      output_dir: string
+      manifest_path: string
+    }
+    assert.equal(manifest.output_dir, relativeOutputDir)
+    assert.equal(manifest.manifest_path, join(relativeOutputDir, "manifest.json"))
+  } finally {
+    process.chdir(previousCwd)
+  }
+})
+
+test("run normalizes absolute output paths in response and manifest", async () => {
+  const outputDir = mkdtempSync(join(tmpdir(), "ohlcv-fetch-absolute-"))
+  const rows = [1, 2, 3].map((index) => ({
+    openTime: index * 14_400_000,
+    open: "1",
+    high: "2",
+    low: "0.5",
+    close: "1.5",
+    volume: "10",
+  }))
+  const client = {
+    futuresExchangeInfo: async () => ({ symbols: [{ symbol: "BTCUSDT", status: "TRADING" }] }),
+    futuresCandles: async () => rows,
+  } as unknown as BinanceRest
+
+  const result = await run(["--symbol", "BTCUSDT", "--timeframes", "4h", "--output-dir", outputDir], client)
+  assert.equal(result.ok, true)
+  if (!result.ok) return
+
+  assert.equal(isAbsolute(result.data.output_dir), false)
+  assert.equal(isAbsolute(result.data.manifest_path), false)
+  const manifest = JSON.parse(readFileSync(join(outputDir, "manifest.json"), "utf8")) as {
+    output_dir: string
+    manifest_path: string
+  }
+  assert.equal(isAbsolute(manifest.output_dir), false)
+  assert.equal(isAbsolute(manifest.manifest_path), false)
 })

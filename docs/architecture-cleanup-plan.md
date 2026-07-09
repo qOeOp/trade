@@ -627,6 +627,7 @@ Binance facts
   - `docs/execution-skill-contract.md` 落地 Binance 写 skill 成功输出到 `trade-flow` 记账的最低契约。
   - `trade-flow` 在写 `order_fill` 前校验 `place_entry / cancel_order / sync_protection / adjust_position` 的最低 `execution_result` 字段，缺字段直接拒绝，不静默记账。
   - `binance-position-protect` / `binance-position-adjust` 成功输出补齐 `method` 字段，与 `binance-order-place` / `binance-order-cancel` 对齐。
+  - `binance-order-place` / `binance-order-cancel` 增加成功输出 contract 测试，分别锁定 `method / request / result` 与 `method / result` 不漂移。
 - Benchmark domain 拆分：
   - `strategy-rnd.ts` 当前已基本只剩 batch / loop / campaign glue，暂不继续硬拆。
   - `lib/strategy-benchmark-data.ts`：panel alignment、panel diagnostics、data hash、funding coverage、historical funding drag 独立。
@@ -639,8 +640,9 @@ Binance facts
   - `.jsonl`、`durable/`、`ledger/`、`ledgers/` 默认不被 GC 删除；`tmp/`、`temp/`、`cache/`、`scratch/`、`ephemeral/` 可走更短保留期。
   - `--ephemeral-retention-hours` 接入 CLI，用于独立控制临时目录清理阈值。
   - `lib/artifact-hygiene.test.ts` 锁定 dry-run、引用保护、目录 pin、durable 保护、ephemeral 短保留期、显式删除路径。
-  - `docs/data-hygiene.md` 落地 Git 边界与 data 留存规则；`data/ohlcv/`、`data/calibration-panel-*/`、runtime DB/log/lock/system state、ledger、artifact 与本地 profile config 默认不进 Git。
+  - `docs/data-hygiene.md` 落地 Git 边界与 data 留存规则；`data/ohlcv/`、`data/calibration-panel-*/`、`data/validation-panel-*/`、runtime DB/log/lock/system state、ledger、artifact 与本地 profile config 默认不进 Git。
   - `.gitignore` 补齐生成行情、calibration panel、strategy audits、cron/system runtime 与本地 operator config，避免 R&D / cron 产物污染源码 review。
+  - `ohlcv-fetch` / calibration panel / calibration market-features / trade-flow track dry-run 输出收敛为 repo 可迁移相对路径；跨 skill 执行仍用解析后的实际路径，避免本机绝对路径写入 manifest / report。
 - P8 机器契约开口：
   - `commands/response.ts`：失败输出保留 `error`，新增 `code / retriable / details`。
   - 成功与失败输出统一带 `schema_version=trade-flow.script-response.v1`；业务 `data` 暂不提前冻结。
@@ -671,11 +673,44 @@ Binance facts
   - `docs/architecture-inventory.md` 的测试入口基线改为指向 `check-contract.md`，避免 P0 盘点与当前执行契约分叉。
   - `trade-flow/SKILL.md` 增加项目级检查契约索引，后续改 skill 时可直接定位“改了哪里跑什么”。
 
+### 2026-07-09
+
+收口审计：
+
+| 分期 | 判定 | 说明 |
+| --- | --- | --- |
+| P0 inventory | 完成 | inventory 与 check contract 分工明确，P0 不再作为测试真源 |
+| P1 契约补齐 | 完成 | skill capability、order lifecycle、replay-live、recovery 语义已进 owner docs |
+| P2 路由瘦身 | 完成 | `main.ts` 已是 thin router；当前不再为目录形态强行搬迁 |
+| P3 执行生命周期 | 完成 | lifecycle / risk_lock / execution skill output contract 已有测试 |
+| P4 Recovery drill | 完成 | missing fill、partial fill、protective drift、unmatched → `needs_review` 已有 fixture |
+| P5 R&D 边界 | 完成 | R&D / benchmark / calibration 有独立输入、ledger、schema、gate；不写 Binance |
+| P6 检查契约 | 完成 | `docs/check-contract.md` 已覆盖 helper scripts 与各改动域 |
+| P7 Artifact / data hygiene | 完成 | durable / ephemeral / pinned、validation panel、repo 相对路径已收口 |
+| P8 机器契约 | 完成 | response envelope、schema registry、核心 data output schema 已有漂移测试 |
+
+本次整理不继续强制把 `scripts/lib/*.ts` 迁入多层目录。当前收益主要来自 domain ownership、薄 command router、schema registry、targeted tests 与 helper 边界；纯目录搬迁会制造兼容风险，等下一次确有新增 domain 压力时再做。
+
+新增 helper：
+
+- `scripts/resolve-codex-home.sh`：`CODEX_HOME` 为空时回退 `.codex`
+- `scripts/automation-memory-path.sh`：统一 automation memory 路径
+- `scripts/resolve-python.sh`：优先解析 `python3`，避免脚本默认写死 `python`
+- `scripts/quality-check.sh`：提交前项目级质量闸，覆盖 TS / Go / Python / shell / hygiene
+
+新增质量契约：
+
+- `docs/code-quality.md`：定义“干净提交”的项目级品位线。
+- `docs/check-contract.md`：新增 `project-quality`，准备提交、跨语言改动、新增脚本或修复 warning/error 后必须跑。
+
 验证：
 
+- `.agents/skills/ohlcv-fetch`: `bun run check`，31 pass / 0 fail
 - `.agents/skills/trade-flow`: `bun run typecheck`
-- `.agents/skills/trade-flow`: `bun run test`，204 pass / 0 fail
+- `.agents/skills/trade-flow`: `bun run test`，206 pass / 0 fail
 - repo root: `git diff --check`
+- repo root: `helper-scripts-smoke`
+- repo root: `scripts/quality-check.sh`
 
 完成判定：
 

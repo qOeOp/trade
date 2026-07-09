@@ -4,7 +4,7 @@ import Binance, { type BinanceRest } from "binance-api-node"
 import { createHash } from "node:crypto"
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join, resolve } from "node:path"
+import { join, relative, resolve } from "node:path"
 
 export interface Config {
   symbol: string
@@ -61,6 +61,11 @@ interface FetchResponse {
   dedupe_key: string
   requested_since_ts?: number
   timeframes: Record<string, TimeframeEntry>
+}
+
+interface OutputPaths {
+  fsDir: string
+  manifestDir: string
 }
 
 type ScriptResponse =
@@ -132,7 +137,7 @@ export async function run(
       throw new Error("no timeframes to fetch")
     }
 
-    const outputDir = resolveOutputDir(config.outputDir)
+    const outputPaths = resolveOutputPaths(config.outputDir)
     const candleSets = await fetchAllTimeframes(client, fetchCfg, config.timeframes, config.limit, config.sinceTS)
 
     const response: FetchResponse = {
@@ -144,8 +149,8 @@ export async function run(
       exchange: fetchCfg.exchangeID,
       requested_exchange: config.exchange,
       generated_at: nowInShanghai(),
-      output_dir: outputDir,
-      manifest_path: join(outputDir, "manifest.json"),
+      output_dir: outputPaths.manifestDir,
+      manifest_path: join(outputPaths.manifestDir, "manifest.json"),
       columns: ["date", "timestamp", "open", "high", "low", "close", "volume"],
       dedupe_key: "timestamp",
       timeframes: {},
@@ -167,11 +172,11 @@ export async function run(
         ascending_ts: true,
         content_sha256: candleContentHash(set.candles),
       }
-      writeCandlesCSV(join(outputDir, fileName), set.candles)
+      writeCandlesCSV(join(outputPaths.fsDir, fileName), set.candles)
       response.timeframes[timeframe] = entry
     }
 
-    writeFileSync(response.manifest_path, `${JSON.stringify(response, null, 2)}\n`)
+    writeFileSync(join(outputPaths.fsDir, "manifest.json"), `${JSON.stringify(response, null, 2)}\n`)
     return { ok: true, data: response }
   } catch (error) {
     return {
@@ -424,15 +429,23 @@ interface RawCandle {
   volume: string
 }
 
-function resolveOutputDir(raw: string): string {
+function resolveOutputPaths(raw: string): OutputPaths {
   const trimmed = raw.trim()
   if (!trimmed) {
-    return mkdtempSync(join(tmpdir(), "ohlcv-fetch-"))
+    const tempDir = mkdtempSync(join(tmpdir(), "ohlcv-fetch-"))
+    return { fsDir: tempDir, manifestDir: displayPath(tempDir) }
   }
   const expanded = trimmed.replace(/\$([A-Z_][A-Z0-9_]*)/gi, (_, name: string) => process.env[name] ?? "")
-  const resolved = resolve(expanded)
-  mkdirSync(resolved, { recursive: true })
-  return resolved
+  const fsDir = resolve(expanded)
+  mkdirSync(fsDir, { recursive: true })
+  return {
+    fsDir,
+    manifestDir: displayPath(fsDir),
+  }
+}
+
+function displayPath(path: string): string {
+  return relative(process.cwd(), path) || "."
 }
 
 function writeCandlesCSV(path: string, candles: Candle[]): void {

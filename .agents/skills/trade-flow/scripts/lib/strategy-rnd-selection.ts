@@ -108,6 +108,7 @@ export function failureAreaForCheck(checkId: string): string {
   if (checkId.includes("FUNDING-COVERAGE")) return "data_funding_coverage"
   if (checkId.includes("NULL-NOT-BEATEN")) return "negative_control"
   if (checkId.includes("SAMPLE")) return "sample_efficiency"
+  if (checkId.includes("EDGE-MARGIN")) return "edge_expectancy"
   if (checkId.includes("EXPECTANCY") || checkId.includes("PROFIT-FACTOR")) return "edge_expectancy"
   if (checkId.includes("DRAWDOWN")) return "risk_shape"
   if (checkId.includes("ROBUSTNESS-COST")) return "execution_cost"

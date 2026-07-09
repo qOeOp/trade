@@ -64,6 +64,8 @@ test("strategy R&D evaluation summarizes null controls and gates blockers", () =
     "RND-OOS-EXPECTANCY",
     "RND-OOS-PROFIT-FACTOR",
     "RND-OOS-DRAWDOWN",
+    "RND-OOS-EFFECTIVE-SAMPLE",
+    "RND-OOS-EDGE-MARGIN",
     "RND-PARAM-COUNT",
     "RND-ROBUSTNESS-REGIME",
     "RND-ROBUSTNESS-COST",

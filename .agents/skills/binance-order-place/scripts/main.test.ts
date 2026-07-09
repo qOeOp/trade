@@ -371,6 +371,49 @@ test("executeOrder returns leverage adjustment details for usdm", async () => {
   })
 })
 
+test("executeOrder returns stable method request result for algo entry", async () => {
+  const config = parseArgs([
+    "--symbol",
+    "BTCUSDT",
+    "--side",
+    "BUY",
+    "--type",
+    "STOP_MARKET",
+    "--quantity",
+    "0.01",
+    "--stop-price",
+    "66000",
+    "--new-client-order-id",
+    "flow-1-1-entry",
+  ])
+
+  const client = {
+    futuresPositionRisk() {
+      return Promise.resolve([{ symbol: "BTCUSDT", positionSide: "BOTH", positionAmt: "0" }])
+    },
+    futuresCreateAlgoOrder(request: Record<string, unknown>) {
+      return Promise.resolve({ algoId: 9001, clientAlgoId: request.clientAlgoId })
+    },
+    futuresGetAlgoOrder(payload: Record<string, unknown>) {
+      return Promise.resolve({
+        algoId: payload.algoId,
+        clientAlgoId: payload.clientAlgoId,
+        status: "NEW",
+      })
+    },
+  }
+
+  const result = await executeOrder(config, client as never)
+  assert.equal(result.method, "futuresCreateAlgoOrder")
+  assert.deepEqual(result.request, buildDryRun(config).request)
+  assert.deepEqual(result.result, { algoId: 9001, clientAlgoId: "flow-1-1-entry" })
+  assert.deepEqual((result as { confirmedResult?: unknown }).confirmedResult, {
+    algoId: 9001,
+    clientAlgoId: "flow-1-1-entry",
+    status: "NEW",
+  })
+})
+
 test("submitUsdmTestOrder signs and posts to Binance futures test order endpoint", async () => {
   let capturedUrl = ""
   let capturedInit: RequestInit | undefined

@@ -155,6 +155,11 @@ interface StrategyCycleResult {
 }
 
 const DEFAULT_SETUP_ID = "default"
+const MIN_OOS_EFFECTIVE_SAMPLE_COUNT = 10
+const MIN_OOS_RAW_SAMPLE_COUNT = 20
+const MIN_OOS_AVG_R_MARGIN = 0.05
+const MIN_OOS_TOTAL_R_MARGIN = 1
+const MIN_OOS_PROFIT_FACTOR = 1.1
 
 function appendStrategyEvidence(input: {
   strategyPath: string
@@ -444,10 +449,13 @@ function evaluateStrategyGate(latest: StrategyReviewReport["latest"]): StrategyP
     if (!hasCompleteExecutionAttribution(shadow.execution_attribution)) {
       blockedBy.push({ check_id: "S-SHADOW-ATTRIBUTION-MISSING", reason: "fresh shadow evidence must include cost, slippage, and funding attribution" })
     }
+    if (hasCompleteExecutionAttribution(shadow.execution_attribution) && !hasReviewDerivedShadowAttribution(shadow)) {
+      blockedBy.push({ check_id: "S-SHADOW-ATTRIBUTION-SOURCE", reason: "shadow execution attribution must be derived from review events, not manual evidence fields" })
+    }
   }
 
   const replayOk = Boolean(replay && isPositiveEvidence(replay.stats) && evaluateAntiOverfit(replay).length === 0 && evaluateRobustness(replay).length === 0 && evaluateQualification(replay).length === 0)
-  const shadowOk = Boolean(shadow && shadow.stats.sample_count >= 20 && isPositiveEvidence(shadow.stats) && hasCompleteExecutionAttribution(shadow.execution_attribution))
+  const shadowOk = Boolean(shadow && shadow.stats.sample_count >= 20 && isPositiveEvidence(shadow.stats) && hasCompleteExecutionAttribution(shadow.execution_attribution) && hasReviewDerivedShadowAttribution(shadow))
   return {
     shadow_candidate: replayOk,
     live_small_candidate: replayOk && shadowOk,
@@ -749,6 +757,10 @@ function hasCompleteExecutionAttribution(value?: ExecutionAttribution): boolean 
   return [value.total_cost_drag, value.total_slippage_drag, value.total_funding_drag].every((item) => Number.isFinite(item))
 }
 
+function hasReviewDerivedShadowAttribution(record: StrategyEvidenceRecord): boolean {
+  return record.source_ref.startsWith("trade.db:plan_event.review:")
+}
+
 function isPositiveEvidence(stats: EvidenceStats): boolean {
   return stats.sample_count >= 1
     && stats.avg_r > 0
@@ -775,6 +787,7 @@ function evaluateAntiOverfit(record: StrategyEvidenceRecord): Array<{ check_id: 
   if (!isPositiveEvidence(proof.oos_stats)) {
     blockedBy.push({ check_id: "S-OOS-WEAK", reason: "out-of-sample evidence is not positive after costs" })
   }
+  blockedBy.push(...evaluateOosEdgeMargin(proof.oos_stats, proof.trial_count ?? 1))
   if (proof.trial_count !== undefined && proof.trial_count > 10) {
     blockedBy.push({ check_id: "S-SEARCH-BUDGET", reason: `trial_count ${proof.trial_count} exceeds 10` })
   }
@@ -782,6 +795,29 @@ function evaluateAntiOverfit(record: StrategyEvidenceRecord): Array<{ check_id: 
     blockedBy.push({ check_id: "S-PARAM-COUNT", reason: `parameter_count ${proof.parameter_count} exceeds 8` })
   }
   return blockedBy
+}
+
+function evaluateOosEdgeMargin(stats: EvidenceStats, trialCount: number): Array<{ check_id: string; reason: string }> {
+  const blockedBy: Array<{ check_id: string; reason: string }> = []
+  const effective = effectiveSampleCount(stats.sample_count, trialCount)
+  if (stats.sample_count < MIN_OOS_RAW_SAMPLE_COUNT || effective < MIN_OOS_EFFECTIVE_SAMPLE_COUNT) {
+    blockedBy.push({
+      check_id: "S-OOS-EFFECTIVE-SAMPLE",
+      reason: `oos raw/effective sample_count ${stats.sample_count}/${effective} is below ${MIN_OOS_RAW_SAMPLE_COUNT}/${MIN_OOS_EFFECTIVE_SAMPLE_COUNT}`,
+    })
+  }
+  if (stats.avg_r < MIN_OOS_AVG_R_MARGIN || stats.total_r < MIN_OOS_TOTAL_R_MARGIN || (stats.profit_factor !== undefined && stats.profit_factor < MIN_OOS_PROFIT_FACTOR)) {
+    blockedBy.push({
+      check_id: "S-OOS-EDGE-MARGIN",
+      reason: `oos edge margin is too thin: avg_r ${stats.avg_r}, total_r ${stats.total_r}, profit_factor ${stats.profit_factor ?? "n/a"}`,
+    })
+  }
+  return blockedBy
+}
+
+function effectiveSampleCount(sampleCount: number, trialCount: number): number {
+  const trials = Math.max(1, Number.isFinite(trialCount) ? trialCount : 1)
+  return Math.floor(sampleCount / Math.sqrt(trials))
 }
 
 function readAntiOverfitProof(assumptions: JSONRecord): AntiOverfitProof | undefined {

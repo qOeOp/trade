@@ -123,19 +123,19 @@ func clusterLevels(
 		}
 		sourcePrices := make([]float64, 0, len(cluster))
 		for _, point := range cluster {
-			sourcePrices = append(sourcePrices, roundTo(point.Price, 2))
+			sourcePrices = append(sourcePrices, roundPrice(point.Price))
 		}
 		levels = append(levels, priceLevel{
-			Price:            roundTo(avgPrice, 2),
-			ZoneLow:          roundTo(avgPrice-tolerance, 2),
-			ZoneHigh:         roundTo(avgPrice+tolerance, 2),
+			Price:            roundPrice(avgPrice),
+			ZoneLow:          roundPrice(avgPrice - tolerance),
+			ZoneHigh:         roundPrice(avgPrice + tolerance),
 			Touches:          touchCount,
 			Strength:         strength,
 			LastTouchIndex:   lastTouchIndex,
 			LastTouchTime:    data.Dates[lastTouchIndex].Format(time.RFC3339),
 			SourcePrices:     sourcePrices,
 			ClusterSize:      len(cluster),
-			ClusterTolerance: roundTo(tolerance, 4),
+			ClusterTolerance: roundPrice(tolerance),
 		})
 	}
 
@@ -318,19 +318,19 @@ func detectTrendlines(
 				AnchorMethod:   "two-pivot",
 				Confirmation:   classifyTrendlineConfirmation(len(pivotTouches), len(touchIndices)),
 				AnchorIndices:  []int{first.Index, second.Index},
-				AnchorPrices:   []float64{roundTo(first.Price, 2), roundTo(second.Price, 2)},
+				AnchorPrices:   []float64{roundPrice(first.Price), roundPrice(second.Price)},
 				Touches:        len(touchIndices),
 				PivotTouches:   len(pivotTouches),
 				SpanBars:       span,
-				TouchTolerance: roundTo(touchTolerance, 4),
+				TouchTolerance: roundPrice(touchTolerance),
 				Slope:          roundTo(slope, 6),
-				Intercept:      roundTo(intercept, 2),
-				ProjectedPrice: roundTo(projected, 2),
-				ProjectedLow:   roundTo(projected-touchTolerance, 2),
-				ProjectedHigh:  roundTo(projected+touchTolerance, 2),
+				Intercept:      roundPrice(intercept),
+				ProjectedPrice: roundPrice(projected),
+				ProjectedLow:   roundPrice(projected - touchTolerance),
+				ProjectedHigh:  roundPrice(projected + touchTolerance),
 				LastTouchIndex: lastTouchIndex,
 				LastTouchTime:  data.Dates[lastTouchIndex].Format(time.RFC3339),
-				Invalidation:   fmt.Sprintf("%s close %s trendline (%.2f)", timeframe, invalidationSide, projected),
+				Invalidation:   fmt.Sprintf("%s close %s trendline (%s)", timeframe, invalidationSide, formatPrice(projected)),
 				Score:          roundTo(score, 2),
 			})
 		}

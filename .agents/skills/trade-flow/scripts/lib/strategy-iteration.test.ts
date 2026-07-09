@@ -271,6 +271,7 @@ test("strategy promote to live-small requires shadow evidence", () => {
   const dir = makeDir()
   const strategyPath = writeStrategy(dir, "shadow", "Rule v1")
   const ledgerPath = join(dir, "strategy-evidence.jsonl")
+  const db = new Database(join(dir, "trade.db"))
   appendReplayEvidence({
     strategyPath,
     ledgerPath,
@@ -278,53 +279,64 @@ test("strategy promote to live-small requires shadow evidence", () => {
     now: "2026-01-01T00:00:00.000Z",
   })
 
-  assert.throws(
-    () => promoteStrategy({ strategyPath, ledgerPath, toStatus: "live-small" }),
-    /S-SHADOW-MISSING/,
-  )
+  try {
+    ensureSchema(db)
+    assert.throws(
+      () => promoteStrategy({ strategyPath, ledgerPath, toStatus: "live-small", db }),
+      /S-SHADOW-MISSING/,
+    )
 
-  appendStrategyEvidence({
-    strategyPath,
-    ledgerPath,
-    kind: "shadow",
-    stats: {
-      sample_count: 21,
-      win_rate: 0.52,
-      avg_r: 0.08,
-      total_r: 1.68,
-      max_drawdown_r: 3,
-      profit_factor: 1.2,
-    },
-    now: "2026-01-02T00:00:00.000Z",
-  })
-  assert.throws(
-    () => promoteStrategy({ strategyPath, ledgerPath, toStatus: "live-small" }),
-    /S-SHADOW-ATTRIBUTION-MISSING/,
-  )
+    appendStrategyEvidence({
+      strategyPath,
+      ledgerPath,
+      kind: "shadow",
+      stats: {
+        sample_count: 21,
+        win_rate: 0.52,
+        avg_r: 0.08,
+        total_r: 1.68,
+        max_drawdown_r: 3,
+        profit_factor: 1.2,
+      },
+      executionAttribution: {
+        total_fee_drag: 0.02,
+        total_slippage_drag: 0.01,
+        total_funding_drag: 0,
+        total_cost_drag: 0.03,
+      },
+      now: "2026-01-02T00:00:00.000Z",
+    })
+    assert.throws(
+      () => promoteStrategy({ strategyPath, ledgerPath, toStatus: "live-small", db }),
+      /S-SHADOW-ATTRIBUTION-SOURCE/,
+    )
 
-  appendStrategyEvidence({
-    strategyPath,
-    ledgerPath,
-    kind: "shadow",
-    stats: {
-      sample_count: 21,
-      win_rate: 0.52,
-      avg_r: 0.08,
-      total_r: 1.68,
-      max_drawdown_r: 3,
-      profit_factor: 1.2,
-    },
-    executionAttribution: {
-      total_fee_drag: 0.02,
-      total_slippage_drag: 0.01,
-      total_funding_drag: 0,
-      total_cost_drag: 0.03,
-    },
-    now: "2026-01-03T00:00:00.000Z",
-  })
-  const result = promoteStrategy({ strategyPath, ledgerPath, toStatus: "live-small", yes: true })
-  assert.equal(result.status, "updated")
-  assert.match(readFileSync(strategyPath, "utf8"), /status: live-small/)
+    for (let index = 0; index < 21; index += 1) {
+      appendPlanEvent(db, {
+        event_key: `review-live-small-${index}`,
+        chain_id: `flow-live-small-${index}`,
+        kind: "review",
+        created_at: new Date(Date.parse("2026-01-03T00:00:00.000Z") + index * 1000).toISOString(),
+        body_json: {
+          strategy_ref: "S-TEST",
+          outcome: index % 2 === 0 ? "win" : "loss",
+          pnl_r: index % 2 === 0 ? 0.28 : -0.1,
+          fee_r: 0.01,
+          slippage_r: 0.01,
+          funding_r: 0,
+          thesis_held: true,
+          key_lesson: "review-derived attribution",
+          promote_to_strategy: false,
+        },
+      })
+    }
+    appendShadowEvidenceFromReviews({ strategyPath, ledgerPath, db, now: "2026-01-04T00:00:00.000Z" })
+    const result = promoteStrategy({ strategyPath, ledgerPath, toStatus: "live-small", yes: true, db })
+    assert.equal(result.status, "updated")
+    assert.match(readFileSync(strategyPath, "utf8"), /status: live-small/)
+  } finally {
+    db.close()
+  }
 })
 
 test("strategy policy hash ignores pre-certificate research and replay notes", () => {
@@ -518,10 +530,10 @@ function positiveReplay(dir: string): ReplayResult {
       method: "out_of_sample",
       stage: "locked_holdout",
       oos_stats: {
-        sample_count: 12,
+        sample_count: 24,
         win_rate: 0.5,
         avg_r: 0.09,
-        total_r: 1.08,
+        total_r: 2.16,
         max_drawdown_r: 3,
         profit_factor: 1.2,
       },

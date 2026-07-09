@@ -70,6 +70,7 @@ requires_preflight: true
 - 脚本会拒绝 reduce-only、减仓、平仓、翻仓这类越界用法
 - 条件 entry 走 Binance futures algo order；`--new-client-order-id` 会映射为 `clientAlgoId`
 - live 提交后会尽量回读普通单 / algo 单状态，返回 `confirmedResult` 或 `confirmationWarning`
+- 成功输出带 `method / request / result`，供 `trade-flow` 记录主单 submit
 - `--dry-json` 只打印请求体，不触网
 - `--test` 可用于 USDM 普通单测试；USDM algo entry 没有官方 test endpoint，只会返回本地校验后的 payload
 

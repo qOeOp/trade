@@ -12,6 +12,11 @@ import type { JSONRecord } from "./json"
 import type { StrategyRndBatchInput, StrategyRndCandidateInput } from "./strategy-rnd-inputs"
 
 const fundingEventCache = new Map<string, Array<{ timestamp: string; value: number }>>()
+const MIN_OOS_EFFECTIVE_SAMPLE_COUNT = 10
+const MIN_OOS_RAW_SAMPLE_COUNT = 20
+const MIN_OOS_AVG_R_MARGIN = 0.05
+const MIN_OOS_TOTAL_R_MARGIN = 1
+const MIN_OOS_PROFIT_FACTOR = 1.1
 
 export interface StrategyRndCandidateReport {
   candidate_id: string
@@ -260,6 +265,7 @@ export function evaluateRndCandidate(
     if (proof.oos_stats.max_drawdown_r > 10) {
       blockedBy.push({ check_id: "RND-OOS-DRAWDOWN", reason: `OOS max_drawdown_r ${proof.oos_stats.max_drawdown_r} exceeds 10R` })
     }
+    blockedBy.push(...evaluateOosEdgeMargin(proof.oos_stats, proof.trial_count ?? 1))
     if ((proof.trial_count ?? 1) > 10) {
       blockedBy.push({ check_id: "RND-SEARCH-BUDGET", reason: `trial_count ${proof.trial_count} exceeds 10` })
     }
@@ -276,6 +282,32 @@ export function evaluateRndCandidate(
     accepted: blockedBy.length === 0,
     blocked_by: blockedBy,
   }
+}
+
+function evaluateOosEdgeMargin(
+  stats: { sample_count: number; avg_r: number; total_r: number; profit_factor: number },
+  trialCount: number,
+): Array<{ check_id: string; reason: string }> {
+  const blockedBy: Array<{ check_id: string; reason: string }> = []
+  const effective = effectiveSampleCount(stats.sample_count, trialCount)
+  if (stats.sample_count < MIN_OOS_RAW_SAMPLE_COUNT || effective < MIN_OOS_EFFECTIVE_SAMPLE_COUNT) {
+    blockedBy.push({
+      check_id: "RND-OOS-EFFECTIVE-SAMPLE",
+      reason: `oos raw/effective sample_count ${stats.sample_count}/${effective} is below ${MIN_OOS_RAW_SAMPLE_COUNT}/${MIN_OOS_EFFECTIVE_SAMPLE_COUNT}`,
+    })
+  }
+  if (stats.avg_r < MIN_OOS_AVG_R_MARGIN || stats.total_r < MIN_OOS_TOTAL_R_MARGIN || stats.profit_factor < MIN_OOS_PROFIT_FACTOR) {
+    blockedBy.push({
+      check_id: "RND-OOS-EDGE-MARGIN",
+      reason: `OOS edge margin is too thin: avg_r ${stats.avg_r}, total_r ${stats.total_r}, profit_factor ${stats.profit_factor}`,
+    })
+  }
+  return blockedBy
+}
+
+function effectiveSampleCount(sampleCount: number, trialCount: number): number {
+  const trials = Math.max(1, Number.isFinite(trialCount) ? trialCount : 1)
+  return Math.floor(sampleCount / Math.sqrt(trials))
 }
 
 export function evaluateRndRobustness(replay: ReplayResult): Array<{ check_id: string; reason: string }> {

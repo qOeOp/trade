@@ -1,6 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, appendFileSync } from "node:fs"
 import { join } from "node:path"
 import type { TrackMode } from "../commands/types"
+import { displayPath } from "./paths"
 
 export const CRON_LOG_TRACKS = ["slow", "fast"] as const
 export const CRON_LOG_STATUSES = ["completed", "skipped_lock", "failed"] as const
@@ -87,7 +88,7 @@ export function appendCronLog(dataDir: string, entry: CronLogEntry): string {
   mkdirSync(dataDir, { recursive: true })
   const logPath = join(dataDir, "cron.log")
   appendFileSync(logPath, `${JSON.stringify(entry)}\n`)
-  return logPath
+  return displayPath(logPath)
 }
 
 function readLock(path: string): CronLock | null {

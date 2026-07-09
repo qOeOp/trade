@@ -1,6 +1,6 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { isAbsolute, join } from "node:path"
 import { Database } from "bun:sqlite"
 import assert from "node:assert/strict"
 import test from "node:test"
@@ -69,12 +69,13 @@ test("fast track workflow checks active flow and appends fast observe", async ()
       runner,
     })
     assert.equal(result.mode, "workflow-dry-run")
+    assert.equal(isAbsolute(String(result.artifact_path)), false)
     assert.equal(result.active_flow_count, 1)
     assert.equal((result.trade_decision as { target_action: string }).target_action, "no_action")
     const check = (result.flow_checks as Array<{ execution_gate: { status: string }; symbol: string }>)[0]
     assert.equal(check.symbol, "BTCUSDT")
     assert.equal(check.execution_gate.status, "ready")
-    assert.match(readFileSync(String(result.artifact_path), "utf8"), /flow-fast-workflow-1/)
+    assert.match(readFileSync(join(repoRoot, String(result.artifact_path)), "utf8"), /flow-fast-workflow-1/)
     assert.equal(calls.some((call) => call.command.includes("--run-live-small")), false)
 
     const row = db.query(`
@@ -117,6 +118,7 @@ test("fast track workflow with no active flows does not call snapshot skills", a
       db,
       runner,
     })
+    assert.equal(isAbsolute(String(result.artifact_path)), false)
     assert.equal(result.active_flow_count, 0)
     assert.equal((result.trade_decision as { reason: string }).reason, "no_active_flows")
     assert.equal(called, false)

@@ -16,7 +16,7 @@
 | trade runtime DB | 否 | `data/trade.db`, `data/*.sqlite*` |
 | cron / lock / system state | 否 | `data/cron.log`, `data/.trade-flow.lock`, `data/system_state.json` |
 | strategy evidence / R&D ledger | 否 | `data/strategy-evidence.jsonl`, `data/strategy-rnd-ledger.jsonl` |
-| replay / R&D / calibration artifact | 否 | `data/artifacts/`, `data/calibration-panel-*/` |
+| replay / R&D / calibration / validation artifact | 否 | `data/artifacts/`, `data/calibration-panel-*/`, `data/validation-panel-*/` |
 | OHLCV / market data | 否 | `data/ohlcv/` |
 | local operator config | 否 | `profile/account_config.json`, `profile/notify_config.json` |
 
@@ -24,11 +24,12 @@
 
 ## 2. 放置规则
 
-- 原始行情、OHLCV、calibration panel：写 `data/ohlcv/` 或 `data/calibration-panel-<date>/`
+- 原始行情、OHLCV、calibration / validation panel：写 `data/ohlcv/`、`data/calibration-panel-<date>/` 或 `data/validation-panel-<name>-<date>/`
 - replay / R&D / calibration 报告：写 `data/artifacts/<domain>/`
 - 策略准入证据：写 `data/strategy-evidence.jsonl`
 - R&D 审计：写 `data/strategy-rnd-ledger.jsonl`
 - cron 运维日志：写 `data/cron.log`
+- manifest / report 中保存路径优先 repo 相对路径；跨 skill 执行时才解析为实际文件路径
 - 可提交的最小 fixture：放 skill 自己的 `examples/` 或测试 fixture，不放 `data/`
 
 ## 3. 清理规则
@@ -36,7 +37,7 @@
 - 删除必须显式；默认只 dry-run。
 - `data/artifacts/` 下被 `.pin`、evidence ref、ledger ref 或 durable 目录保护的文件不得删。
 - 未引用、未 pin、超过 retention 的 artifact 可由 `trade-flow --artifact-gc` 报告或清理。
-- `data/ohlcv/` 与 `data/calibration-panel-*/` 是可再生市场数据；清理前只需确认没有被当前 evidence / report 引用。
+- `data/ohlcv/`、`data/calibration-panel-*/` 与 `data/validation-panel-*/` 是可再生市场数据；清理前只需确认没有被当前 evidence / report 引用。
 
 ## 4. 当前 `.gitignore` 约定
 
@@ -45,6 +46,7 @@
 - `data/artifacts/`
 - `data/ohlcv/`
 - `data/calibration-panel-*/`
+- `data/validation-panel-*/`
 - `data/strategy_audits/`
 - `data/strategy-evidence.jsonl`
 - `data/strategy-rnd-ledger.jsonl`

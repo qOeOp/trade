@@ -1,7 +1,7 @@
 import { existsSync, mkdtempSync, rmSync } from "node:fs"
 import { readFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { isAbsolute, join } from "node:path"
 import { Database } from "bun:sqlite"
 import assert from "node:assert/strict"
 import test from "node:test"
@@ -36,11 +36,12 @@ test("track dry-run summary schema matches stable cron result envelope", () => {
     assert.equal(Array.isArray(completed.active_flows), true)
     assert.equal(Array.isArray(completed.planned_steps), true)
     assert.equal(existsSync(String(completed.cron_log_path)), true)
+    assert.equal(isAbsolute(String(completed.cron_log_path)), false)
 
     const lock = acquireCronLock({
       dataDir: dir,
       track: "slow",
-      now: new Date("2026-07-08T12:00:00Z"),
+      now: new Date(),
       runId: "track-schema-active-lock",
     })
     try {
@@ -55,6 +56,7 @@ test("track dry-run summary schema matches stable cron result envelope", () => {
       assert.equal(skipped.skip_reason, "active_lock")
       assert.equal(asRecord(skipped.active_lock).track, "slow")
       assert.equal(existsSync(String(skipped.cron_log_path)), true)
+      assert.equal(isAbsolute(String(skipped.cron_log_path)), false)
     } finally {
       releaseCronLock(lock)
     }

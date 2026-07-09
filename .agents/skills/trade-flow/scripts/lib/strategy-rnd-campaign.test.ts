@@ -49,11 +49,39 @@ test("strategy R&D campaign rejects overlapping discovery and validation manifes
   }
 })
 
+test("strategy R&D campaign rejects validation without locked holdout embargo", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-campaign-embargo-"))
+  try {
+    const discovery = writeManifest(join(dir, "discovery"), 1_000_000, 2_000_000)
+    const validation = writeManifest(join(dir, "validation"), 3_000_000, 4_000_000)
+    assert.throws(
+      () => runStrategyRndCampaignWithDeps({
+        campaignId: "campaign-embargo",
+        artifactRoot: join(dir, "artifacts"),
+        hypotheses: [{
+          hypothesisId: "h1",
+          manifestPath: discovery,
+          validationManifestPath: validation,
+          candidates: [{ candidateId: "candidate-1" }],
+        }],
+      }, {
+        resolveCandidateCount: () => 1,
+        runLoop: () => {
+          throw new Error("should not run")
+        },
+      }),
+      /holdout embargo/,
+    )
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("strategy R&D campaign orchestrates discovery then locked validation", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-campaign-orchestration-"))
   try {
-    const discovery = writeManifest(join(dir, "discovery"), 1000, 2000)
-    const validation = writeManifest(join(dir, "validation"), 3000, 4000)
+    const discovery = writeManifest(join(dir, "discovery"), 1_000_000, 2_000_000)
+    const validation = writeManifest(join(dir, "validation"), 300_000_000, 320_000_000)
     const calls: string[] = []
     const deps: StrategyRndCampaignDeps = {
       resolveCandidateCount: () => 1,
@@ -132,8 +160,8 @@ test("strategy R&D campaign orchestrates discovery then locked validation", () =
 test("strategy R&D campaign blocks validation when panel null fails", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-campaign-panel-null-"))
   try {
-    const discovery = writeManifest(join(dir, "discovery"), 1000, 2000)
-    const validation = writeManifest(join(dir, "validation"), 3000, 4000)
+    const discovery = writeManifest(join(dir, "discovery"), 1_000_000, 2_000_000)
+    const validation = writeManifest(join(dir, "validation"), 300_000_000, 320_000_000)
     const panelReportPath = join(dir, "panel.json")
     writeFileSync(panelReportPath, JSON.stringify({
       panel_id: "panel-fixture",
@@ -198,8 +226,8 @@ test("strategy R&D campaign blocks validation when panel null fails", () => {
 test("strategy R&D campaign stops before exceeding trial budget", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-campaign-budget-"))
   try {
-    const discovery = writeManifest(join(dir, "discovery"), 1000, 2000)
-    const validation = writeManifest(join(dir, "validation"), 3000, 4000)
+    const discovery = writeManifest(join(dir, "discovery"), 1_000_000, 2_000_000)
+    const validation = writeManifest(join(dir, "validation"), 300_000_000, 320_000_000)
     let loopCalls = 0
     const report = runStrategyRndCampaignWithDeps({
       campaignId: "campaign-budget",

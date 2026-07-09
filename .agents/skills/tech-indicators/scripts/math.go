@@ -449,6 +449,33 @@ func roundTo(value float64, digits int) float64 {
 	return math.Round(value*factor) / factor
 }
 
+func roundPrice(value float64) float64 {
+	return roundTo(value, pricePrecision(value))
+}
+
+func formatPrice(value float64) string {
+	if !isFinite(value) {
+		return "n/a"
+	}
+	return strconv.FormatFloat(roundPrice(value), 'f', -1, 64)
+}
+
+func pricePrecision(value float64) int {
+	absValue := math.Abs(value)
+	switch {
+	case absValue >= 100:
+		return 2
+	case absValue >= 1:
+		return 4
+	case absValue >= 0.01:
+		return 6
+	case absValue >= 0.0001:
+		return 8
+	default:
+		return 10
+	}
+}
+
 func paramInt(values map[string]any, key string, fallback int) int {
 	value, ok := values[key]
 	if !ok {
