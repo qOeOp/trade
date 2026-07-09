@@ -320,7 +320,7 @@ function baseConfig(overrides: Partial<CommandConfig>): CommandConfig {
     chainId: "",
     tradingConfigPath: "",
     accountConfigPath: "./data/account_config.json",
-    strategiesDir: ".agents/skills/trade-flow/strategies",
+    strategiesDir: "./strategies",
     manifestPath: "",
     strategyId: "S-BTC-4H-TREND-PULLBACK",
     timeframe: "",

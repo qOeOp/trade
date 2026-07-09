@@ -32,7 +32,7 @@ export async function runSlowTrackWorkflowDryRun(input: SlowTrackWorkflowInput):
   const snapshotLimit = input.symbolSnapshotLimitPerSide ?? 3
   const technicalLimit = input.technicalAnalysisLimitPerSide ?? snapshotLimit
   const accountConfigPath = join(input.repoRoot, "profile/account_config.json")
-  const strategiesDir = join(input.repoRoot, ".agents/skills/trade-flow/strategies")
+  const strategiesDir = join(input.repoRoot, "strategies")
   const runtime = loadRuntime(accountConfigPath, strategiesDir)
 
   const [accountSnapshot, marketScan] = await Promise.all([
@@ -472,7 +472,10 @@ function readArray(value: unknown): unknown[] {
 
 export function workflowRuntimeAvailable(repoRoot: string): boolean {
   return existsSync(join(repoRoot, "profile/account_config.json"))
-    && existsSync(join(repoRoot, ".agents/skills/trade-flow/strategies"))
+    && (
+      existsSync(join(repoRoot, "strategies"))
+      || existsSync(join(repoRoot, ".agents/skills/trade-flow/strategies"))
+    )
 }
 
 function clipText(value: string, maxLength: number): string {

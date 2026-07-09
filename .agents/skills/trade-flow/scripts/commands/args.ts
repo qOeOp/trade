@@ -42,7 +42,7 @@ export function parseArgs(argv: string[]): CommandConfig {
   let chainId = ""
   let tradingConfigPath = ""
   let accountConfigPath = "./profile/account_config.json"
-  let strategiesDir = ".agents/skills/trade-flow/strategies"
+  let strategiesDir = "./strategies"
   let manifestPath = ""
   let strategyId = "S-BTC-4H-TREND-PULLBACK"
   let timeframe = ""

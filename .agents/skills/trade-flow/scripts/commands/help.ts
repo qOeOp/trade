@@ -7,7 +7,7 @@ export const HELP_TEXT = `Usage:
   ./scripts/main.ts --db ./data/trade.db --record-execution --json '{"preflight_result":{"verdict":"armable"},"execution_contract_input":{...},"execution_result":{...}}'
   ./scripts/main.ts --db ./data/trade.db --run --mode dry-run --json '{"plan":{...},"observe":{...},"execution_contract_input":{...}}'
   ./scripts/main.ts --db ./data/trade.db --run --mode shadow --json '{"plan":{...},"observe":{...},"execution_contract_input":{...}}'
-  ./scripts/main.ts --load-runtime --trading-config ./profile/trading-config.json --strategies-dir .agents/skills/trade-flow/strategies
+  ./scripts/main.ts --load-runtime --trading-config ./profile/trading-config.json --strategies-dir ./strategies
   ./scripts/main.ts --build-observe --json '{"chain_id":"...","symbol":"BTCUSDT",...}'
   ./scripts/main.ts --observe-from-skills --json '{"repoRoot":"/repo","chain_id":"...","symbol":"BTCUSDT",...}'
   ./scripts/main.ts --replay-strategy --manifest ./data/ohlcv/BTCUSDT/manifest.json --strategy-id S-BTC-4H-TREND-PULLBACK

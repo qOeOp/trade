@@ -12,14 +12,14 @@ test("slow track workflow dry-run builds real watchlist without live action", as
   const repoRoot = mkdtempSync(join(tmpdir(), "trade-flow-slow-workflow-"))
   const dataDir = join(repoRoot, ".agents/skills/trade-flow/data")
   mkdirSync(join(repoRoot, "profile"), { recursive: true })
-  mkdirSync(join(repoRoot, ".agents/skills/trade-flow/strategies"), { recursive: true })
+  mkdirSync(join(repoRoot, "strategies"), { recursive: true })
   mkdirSync(dataDir, { recursive: true })
   writeFileSync(join(repoRoot, "profile/account_config.json"), JSON.stringify({
     max_open_risk_pct: 0.03,
     max_day_loss_pct: 0.05,
   }))
   writeFileSync(
-    join(repoRoot, ".agents/skills/trade-flow/strategies/s-btc.md"),
+    join(repoRoot, "strategies/s-btc.md"),
     "---\nstrategy_id: S-BTC\nname: BTC Live\nstatus: live-small\ntags: [btc, usdm]\n---\nbody\n",
   )
   const db = new Database(":memory:")
@@ -140,10 +140,10 @@ test("slow track workflow reports account snapshot unavailable without inventing
   const repoRoot = mkdtempSync(join(tmpdir(), "trade-flow-slow-no-account-"))
   const dataDir = join(repoRoot, ".agents/skills/trade-flow/data")
   mkdirSync(join(repoRoot, "profile"), { recursive: true })
-  mkdirSync(join(repoRoot, ".agents/skills/trade-flow/strategies"), { recursive: true })
+  mkdirSync(join(repoRoot, "strategies"), { recursive: true })
   mkdirSync(dataDir, { recursive: true })
   writeFileSync(join(repoRoot, "profile/account_config.json"), "{}")
-  writeFileSync(join(repoRoot, ".agents/skills/trade-flow/strategies/s-draft.md"), "---\nstrategy_id: S-DRAFT\nstatus: draft\n---\n")
+  writeFileSync(join(repoRoot, "strategies/s-draft.md"), "---\nstrategy_id: S-DRAFT\nstatus: draft\n---\n")
   const db = new Database(":memory:")
   ensureSchema(db)
   const runner: Runner = async (_command, options) => {
@@ -177,10 +177,10 @@ test("slow track workflow analyzes every default watchlist candidate", async () 
   const repoRoot = mkdtempSync(join(tmpdir(), "trade-flow-slow-full-analysis-"))
   const dataDir = join(repoRoot, ".agents/skills/trade-flow/data")
   mkdirSync(join(repoRoot, "profile"), { recursive: true })
-  mkdirSync(join(repoRoot, ".agents/skills/trade-flow/strategies"), { recursive: true })
+  mkdirSync(join(repoRoot, "strategies"), { recursive: true })
   mkdirSync(dataDir, { recursive: true })
   writeFileSync(join(repoRoot, "profile/account_config.json"), "{}")
-  writeFileSync(join(repoRoot, ".agents/skills/trade-flow/strategies/s-draft.md"), "---\nstrategy_id: S-DRAFT\nstatus: draft\n---\n")
+  writeFileSync(join(repoRoot, "strategies/s-draft.md"), "---\nstrategy_id: S-DRAFT\nstatus: draft\n---\n")
   const db = new Database(":memory:")
   ensureSchema(db)
   const analyzedSymbols: string[] = []

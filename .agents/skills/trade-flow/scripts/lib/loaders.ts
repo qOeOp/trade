@@ -31,9 +31,28 @@ function loadStrategyFile(path: string): StrategyPolicy {
 }
 
 function loadStrategies(dir: string): StrategyPolicy[] {
-  return readdirSync(dir, { withFileTypes: true })
+  const resolvedDir = resolveStrategiesDir(dir)
+  if (!resolvedDir) return []
+  return readdirSync(resolvedDir, { withFileTypes: true })
     .filter((entry) => entry.isFile() && entry.name.endsWith(".md"))
-    .map((entry) => loadStrategyFile(join(dir, entry.name)))
+    .map((entry) => loadStrategyFile(join(resolvedDir, entry.name)))
+}
+
+function resolveStrategiesDir(dir: string): string {
+  if (existsSync(dir)) return dir
+  const legacy = legacyStrategiesDirFor(dir)
+  return legacy && existsSync(legacy) ? legacy : ""
+}
+
+function legacyStrategiesDirFor(dir: string): string {
+  const normalized = dir.replace(/\\/g, "/").replace(/\/$/, "")
+  if (normalized === "strategies" || normalized === "./strategies") {
+    return ".agents/skills/trade-flow/strategies"
+  }
+  if (normalized.endsWith("/strategies")) {
+    return join(dir, "..", ".agents/skills/trade-flow/strategies")
+  }
+  return ""
 }
 
 function parseFrontmatter(raw: string): { frontmatter: JSONRecord; body: string } {

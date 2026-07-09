@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import assert from "node:assert/strict"
@@ -40,6 +40,22 @@ test("loadStrategies reads markdown strategies from directory", () => {
 
     assert.equal(strategies.length, 1)
     assert.equal(strategies[0].strategy_id, "S-ONE")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("loadStrategies falls back from project strategies to legacy skill strategies", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategies-fallback-"))
+  try {
+    const legacyDir = join(dir, ".agents/skills/trade-flow/strategies")
+    mkdirSync(legacyDir, { recursive: true })
+    writeFileSync(join(legacyDir, "s-legacy.md"), "---\nstrategy_id: S-LEGACY\n---\nlegacy")
+
+    const strategies = loadStrategies(join(dir, "strategies"))
+
+    assert.equal(strategies.length, 1)
+    assert.equal(strategies[0].strategy_id, "S-LEGACY")
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

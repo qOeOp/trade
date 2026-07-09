@@ -60,6 +60,7 @@ test("parseArgs keeps core execution and evidence flags stable", () => {
   assert.equal(config.mode, "shadow")
   assert.equal(config.strategyPromote, true)
   assert.equal(config.tradingConfigPath, "profile/trading-config.json")
+  assert.equal(config.strategiesDir, "./strategies")
   assert.equal(config.strategyCycle, true)
   assert.equal(config.strategyPath, "strategy.md")
   assert.equal(config.ledgerPath, "ledger.jsonl")
