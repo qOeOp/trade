@@ -17,15 +17,17 @@ Research refs:
 - Full discovery accepted the same frozen candidate: 5/5 assets positive, per-asset null passed 5/5 required 3, no blocked gates.
 - 2026-07-09 unseen validation rejected the frozen candidate: pooled `sample_count=755`, `avg_r=0.059392`, `total_r=44.840722`, 4/5 assets positive, per-asset null passed 4/5, but blocked by `PANEL-OOS` and `PANEL-CATASTROPHIC`; APT max drawdown was `18.127905R`, above the 15R veto.
 - 2026-07-09 post-failure diagnostic after adding executable break-even protection showed `break_even_after_r=0.5` removed the catastrophic veto on the already-seen validation basket: pooled `sample_count=902`, `avg_r=0.060957`, `total_r=54.983484`, 5/5 assets positive; still blocked by `PANEL-OOS`. This is contaminated diagnostic evidence only, not validation.
-- Result: useful research direction, not a usable strategy. The edge may exist, but current exit/risk model is not stable enough for shadow.
+- 2026-07-09 fresh unseen basket `FIL/AAVE/ETC/LDO/ORDI/1000PEPE` rejected the repaired `break_even_after_r=0.5` candidate: pooled `sample_count=1120`, `avg_r=-0.029309`, `total_r=-32.826083`, only 2/6 assets positive, blocked by breadth, OOS, cost, and catastrophic gates. Zero-cost control still failed with `total_r=-9.301431`.
+- Result: rejected as a general high-beta alt short-momentum strategy. Stop this hypothesis; do not spend more trials tuning STC / break-even variants without a new market mechanism.
 
 ## Setup Certificate
 
 ```yaml
 setup_id: alt-4h-high-beta-short-momentum
-hypothesis: High-beta alt downside momentum may have conditional positive expectancy when STC is bearish, but the current fixed-exit rule failed unseen validation stability and catastrophic-loss gates.
+hypothesis: High-beta alt downside momentum with STC bearish filter and 0.5R break-even protection failed fresh unseen validation.
 symbols_discovery: [OPUSDT, ARBUSDT, SUIUSDT, INJUSDT, SEIUSDT]
-symbols_validation: [APTUSDT, RUNEUSDT, TIAUSDT, JUPUSDT, WIFUSDT]
+symbols_seen_validation: [APTUSDT, RUNEUSDT, TIAUSDT, JUPUSDT, WIFUSDT]
+symbols_fresh_validation: [FILUSDT, AAVEUSDT, ETCUSDT, LDOUSDT, ORDIUSDT, 1000PEPEUSDT]
 timeframe: 4h
 family: time_series_momentum_v1
 side: short
@@ -37,10 +39,11 @@ reward_risk: 2
 max_hold_bars: 12
 filter: stc.value < 50
 diagnostic_risk_repair: break_even_after_r=0.5 removed catastrophic veto on already-seen validation data, but did not solve OOS instability.
+fresh_validation: failed; total_r=-32.826083, positive_assets=2/6, zero_cost_total_r=-9.301431.
 entry_rule: when 120-bar downside momentum is at least 3 ATR and STC is below 50 on a closed 4H candle; enter next open or equivalent executable quote only.
 stop_rule: signal candle high plus 1 ATR.
 target_rule: fixed 2R; no discretionary target relocation.
 no_trade_conditions: symbol outside declared research baskets, stale closed 4H data, missing STC feature, risk wider than 2.5 ATR, funding or spread abnormal, unresolved existing lane exposure, or setup not causally available before entry.
-evidence_ref: discovery passed, unseen validation failed on 2026-07-09.
+evidence_ref: discovery passed, seen validation failed, risk-repair diagnostic improved drawdown, fresh validation failed on 2026-07-09.
 live_permission: draft
 ```
