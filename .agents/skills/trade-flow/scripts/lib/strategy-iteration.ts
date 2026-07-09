@@ -1,10 +1,9 @@
 import { createHash, randomUUID } from "node:crypto"
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
-import { dirname } from "node:path"
+import { readFileSync, writeFileSync } from "node:fs"
 import type { Database } from "bun:sqlite"
 import { loadStrategyFile, parseFrontmatter } from "./loaders"
 import { hashCanonical, replayDataHash, replayHarnessHash, type ReplayProvenance, type ReplayResult } from "./replay-core"
-import { defaultCatalogDbPathForGeneratedPath, registerCatalogArtifact } from "./data-catalog"
+import { defaultCatalogDbPathForGeneratedPath, listCatalogStrategyEvidence, upsertCatalogStrategyEvidence } from "./data-catalog"
 
 type JSONRecord = Record<string, unknown>
 const STRATEGY_STATUSES = ["draft", "shadow", "live-small", "paused"] as const
@@ -156,6 +155,7 @@ interface StrategyPromotionGate {
 interface PromoteStrategyInput {
   strategyPath: string
   ledgerPath: string
+  catalogDbPath?: string
   toStatus: StrategyStatus
   db?: Database
   yes?: boolean
@@ -165,6 +165,7 @@ interface PromoteStrategyInput {
 interface StrategyCycleInput {
   strategyPath: string
   ledgerPath: string
+  catalogDbPath?: string
   db?: Database
   setupId?: string
   promoteTo?: StrategyStatus
@@ -208,6 +209,7 @@ const MIN_LIVE_AVG_R_RETENTION = 0.5
 function appendStrategyEvidence(input: {
   strategyPath: string
   ledgerPath: string
+  catalogDbPath?: string
   kind: EvidenceKind
   setupId?: string
   stats: EvidenceStats
@@ -241,13 +243,18 @@ function appendStrategyEvidence(input: {
     ...(input.gate ? { gate: input.gate } : {}),
     ...(input.notes ? { notes: input.notes } : {}),
   }
-  appendJsonLine(input.ledgerPath, record)
+  upsertCatalogStrategyEvidence({
+    catalogDbPath: evidenceCatalogDbPath(input),
+    record: record as unknown as JSONRecord,
+    now: record.created_at,
+  })
   return record
 }
 
 function appendReplayEvidence(input: {
   strategyPath: string
   ledgerPath: string
+  catalogDbPath?: string
   replayResult: ReplayResult
   setupId?: string
   sourceRef?: string
@@ -262,6 +269,7 @@ function appendReplayEvidence(input: {
   return appendStrategyEvidence({
     strategyPath: input.strategyPath,
     ledgerPath: input.ledgerPath,
+    catalogDbPath: input.catalogDbPath,
     kind: "replay",
     setupId: input.setupId,
     sourceRef: input.sourceRef,
@@ -287,6 +295,7 @@ function appendReplayEvidence(input: {
 function appendShadowEvidenceFromReviews(input: {
   strategyPath: string
   ledgerPath: string
+  catalogDbPath?: string
   db: Database
   setupId?: string
   sourceRef?: string
@@ -300,6 +309,7 @@ function appendShadowEvidenceFromReviews(input: {
   return appendShadowEvidenceRecord({
     strategyPath: input.strategyPath,
     ledgerPath: input.ledgerPath,
+    catalogDbPath: input.catalogDbPath,
     reviews: snapshot.reviews,
     setupId: input.setupId,
     sourceRef: input.sourceRef || snapshot.source_ref,
@@ -310,6 +320,7 @@ function appendShadowEvidenceFromReviews(input: {
 function appendShadowEvidenceRecord(input: {
   strategyPath: string
   ledgerPath: string
+  catalogDbPath?: string
   reviews: JSONRecord[]
   setupId?: string
   sourceRef: string
@@ -318,6 +329,7 @@ function appendShadowEvidenceRecord(input: {
   return appendStrategyEvidence({
     strategyPath: input.strategyPath,
     ledgerPath: input.ledgerPath,
+    catalogDbPath: input.catalogDbPath,
     kind: "shadow",
     setupId: input.setupId,
     sourceRef: input.sourceRef,
@@ -330,6 +342,7 @@ function appendShadowEvidenceRecord(input: {
 function syncShadowEvidenceFromReviews(input: {
   strategyPath: string
   ledgerPath: string
+  catalogDbPath?: string
   db?: Database
   setupId?: string
   now?: string
@@ -343,7 +356,7 @@ function syncShadowEvidenceFromReviews(input: {
     return { status: "skipped", source_ref: snapshot.source_ref, reason: "no_matching_reviews" }
   }
   const policyHash = policyHashForFile(input.strategyPath)
-  const existing = loadEvidenceLedger(input.ledgerPath).find((record) => (
+  const existing = loadEvidenceLedger(input).find((record) => (
     record.strategy_id === strategy.strategy_id
     && record.kind === "shadow"
     && record.source_ref === snapshot.source_ref
@@ -355,6 +368,7 @@ function syncShadowEvidenceFromReviews(input: {
   const evidence = appendShadowEvidenceRecord({
     strategyPath: input.strategyPath,
     ledgerPath: input.ledgerPath,
+    catalogDbPath: input.catalogDbPath,
     reviews: snapshot.reviews,
     setupId: input.setupId,
     sourceRef: snapshot.source_ref,
@@ -366,11 +380,12 @@ function syncShadowEvidenceFromReviews(input: {
 function reviewStrategy(input: {
   strategyPath: string
   ledgerPath: string
+  catalogDbPath?: string
   db?: Database
 }): StrategyReviewReport {
   const strategy = loadStrategyFile(input.strategyPath)
   const policyHash = policyHashForFile(input.strategyPath)
-  const allEvidence = loadEvidenceLedger(input.ledgerPath).filter((record) => record.strategy_id === strategy.strategy_id)
+  const allEvidence = loadEvidenceLedger(input).filter((record) => record.strategy_id === strategy.strategy_id)
   const classified = allEvidence.map((record) => ({ record, reasons: evidenceStaleReasons(record, policyHash) }))
   const fresh = classified.filter((item) => item.reasons.length === 0).map((item) => item.record)
   const stale = classified.filter((item) => item.reasons.length > 0).map((item) => item.record)
@@ -410,6 +425,7 @@ function promoteStrategy(input: PromoteStrategyInput): PromoteStrategyResult {
   const report = reviewStrategy({
     strategyPath: input.strategyPath,
     ledgerPath: input.ledgerPath,
+    catalogDbPath: input.catalogDbPath,
     db: input.db,
   })
   const blockedBy = blockedForTransition(report, input.toStatus)
@@ -432,6 +448,7 @@ function promoteStrategy(input: PromoteStrategyInput): PromoteStrategyResult {
     report: reviewStrategy({
       strategyPath: input.strategyPath,
       ledgerPath: input.ledgerPath,
+      catalogDbPath: input.catalogDbPath,
       db: input.db,
     }),
     updated_path: input.strategyPath,
@@ -442,6 +459,7 @@ function runStrategyCycle(input: StrategyCycleInput): StrategyCycleResult {
   const shadowEvidence = syncShadowEvidenceFromReviews({
     strategyPath: input.strategyPath,
     ledgerPath: input.ledgerPath,
+    catalogDbPath: input.catalogDbPath,
     db: input.db,
     setupId: input.setupId,
     now: input.now,
@@ -449,6 +467,7 @@ function runStrategyCycle(input: StrategyCycleInput): StrategyCycleResult {
   const report = reviewStrategy({
     strategyPath: input.strategyPath,
     ledgerPath: input.ledgerPath,
+    catalogDbPath: input.catalogDbPath,
     db: input.db,
   })
   if (!input.promoteTo) {
@@ -460,6 +479,7 @@ function runStrategyCycle(input: StrategyCycleInput): StrategyCycleResult {
     promotion: promoteStrategy({
       strategyPath: input.strategyPath,
       ledgerPath: input.ledgerPath,
+      catalogDbPath: input.catalogDbPath,
       db: input.db,
       toStatus: input.promoteTo,
       yes: input.yes,
@@ -617,15 +637,12 @@ function updateStrategyStatus(path: string, status: StrategyStatus): void {
   writeFileSync(path, `---\n${formatSimpleYaml(next)}---\n\n${body.trimStart()}`)
 }
 
-function loadEvidenceLedger(path: string): StrategyEvidenceRecord[] {
-  if (!existsSync(path)) {
-    return []
-  }
-  return readFileSync(path, "utf8")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as StrategyEvidenceRecord)
+function loadEvidenceLedger(input: string | { ledgerPath?: string; catalogDbPath?: string }): StrategyEvidenceRecord[] {
+  const store = typeof input === "string" ? { ledgerPath: input } : input
+  return listCatalogStrategyEvidence({
+    catalogDbPath: evidenceCatalogDbPath(store),
+    limit: 1000,
+  }) as unknown as StrategyEvidenceRecord[]
 }
 
 function readDbReviewStats(db: Database, strategyId: string): EvidenceStats | null {
@@ -760,18 +777,10 @@ function buildReviewBatchEvidence(strategyId: string, policyHash: string, stats:
   }
 }
 
-function appendJsonLine(path: string, value: StrategyEvidenceRecord): void {
-  mkdirSync(dirname(path), { recursive: true })
-  const line = `${JSON.stringify(value)}\n`
-  writeFileSync(path, line, { flag: "a" })
-  registerCatalogArtifact({
-    catalogDbPath: defaultCatalogDbPathForGeneratedPath(path),
-    path,
-    now: value.created_at,
-    referrerType: "evidence",
-    referrerID: value.evidence_id,
-    role: "ledger",
-  })
+function evidenceCatalogDbPath(input: { catalogDbPath?: string; ledgerPath?: string }): string {
+  if (input.catalogDbPath) return input.catalogDbPath
+  if (input.ledgerPath) return defaultCatalogDbPathForGeneratedPath(input.ledgerPath)
+  return "./data/data_catalog.db"
 }
 
 function latestEvidence(records: StrategyEvidenceRecord[], kind: EvidenceKind): StrategyEvidenceRecord | null {

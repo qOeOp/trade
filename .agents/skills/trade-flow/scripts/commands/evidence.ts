@@ -24,6 +24,7 @@ export function handleEvidenceCommand(config: CommandConfig): ScriptResponse | n
     return successResponse(withExistingDb(config.dbPath, (db) => reviewStrategy({
       strategyPath: config.strategyPath,
       ledgerPath: config.ledgerPath,
+      catalogDbPath: evidenceCatalogDbPath(config),
       db,
     })))
   }
@@ -31,6 +32,7 @@ export function handleEvidenceCommand(config: CommandConfig): ScriptResponse | n
     return successResponse(withExistingDb(config.dbPath, (db) => promoteStrategy({
       strategyPath: config.strategyPath,
       ledgerPath: config.ledgerPath,
+      catalogDbPath: evidenceCatalogDbPath(config),
       db,
       toStatus: config.promoteTo,
       yes: config.yes,
@@ -40,6 +42,7 @@ export function handleEvidenceCommand(config: CommandConfig): ScriptResponse | n
     return successResponse(withExistingDb(config.dbPath, (db) => runStrategyCycle({
       strategyPath: config.strategyPath,
       ledgerPath: config.ledgerPath,
+      catalogDbPath: evidenceCatalogDbPath(config),
       db,
       setupId: stringField(config.input.setup_id) || undefined,
       promoteTo: config.promoteToExplicit ? config.promoteTo : undefined,
@@ -59,6 +62,7 @@ function appendStrategyEvidenceFromInput(config: CommandConfig): unknown {
     return appendReplayEvidence({
       strategyPath: config.strategyPath,
       ledgerPath: config.ledgerPath,
+      catalogDbPath: evidenceCatalogDbPath(config),
       replayResult: replayResult as unknown as ReplayResult,
       setupId: stringField(config.input.setup_id) || undefined,
       sourceRef: stringField(config.input.source_ref) || undefined,
@@ -78,6 +82,7 @@ function appendStrategyEvidenceFromInput(config: CommandConfig): unknown {
       return syncShadowEvidenceFromReviews({
         strategyPath: config.strategyPath,
         ledgerPath: config.ledgerPath,
+        catalogDbPath: evidenceCatalogDbPath(config),
         db,
         setupId: stringField(config.input.setup_id) || undefined,
         now: stringField(config.input.now) || undefined,
@@ -90,6 +95,7 @@ function appendStrategyEvidenceFromInput(config: CommandConfig): unknown {
   return appendStrategyEvidence({
     strategyPath: config.strategyPath,
     ledgerPath: config.ledgerPath,
+    catalogDbPath: evidenceCatalogDbPath(config),
     kind: readEvidenceKind(config.input.kind),
     setupId: stringField(config.input.setup_id) || undefined,
     sourceRef: stringField(config.input.source_ref) || undefined,
@@ -101,6 +107,12 @@ function appendStrategyEvidenceFromInput(config: CommandConfig): unknown {
     notes: stringField(config.input.notes) || undefined,
     now: stringField(config.input.now) || undefined,
   })
+}
+
+function evidenceCatalogDbPath(config: CommandConfig): string | undefined {
+  return config.ledgerPath && config.catalogDbPath === "./data/data_catalog.db"
+    ? undefined
+    : config.catalogDbPath
 }
 
 function readQualification(input: JSONRecord): EvidenceQualification | undefined {

@@ -30,11 +30,11 @@ export const HELP_TEXT = `Usage:
   ./scripts/main.ts --db ./data/trade.db --reconcile-from-skills --chain-id <chain_id> --json '{"repoRoot":"/repo","symbol":"BTCUSDT"}'
   ./scripts/main.ts --db ./data/trade.db --apply-reconcile --yes --json '{"can_reconcile":true,"drafts":[...]}'
   ./scripts/main.ts --db ./data/trade.db --cron-recover-from-skills --chain-id <chain_id> --json '{"repoRoot":"/repo","symbol":"BTCUSDT","apply_reconcile":false}'
-  ./scripts/main.ts --artifact-gc --artifact-root ./data/artifacts --retention-hours 168 --ephemeral-retention-hours 24
-  ./scripts/main.ts --append-strategy-evidence --strategy <strategy.md> --ledger ./data/strategy-evidence.jsonl --json '{"kind":"shadow","stats":{...}}'
-  ./scripts/main.ts --strategy-review --strategy <strategy.md> --ledger ./data/strategy-evidence.jsonl
-  ./scripts/main.ts --strategy-promote --strategy <strategy.md> --ledger ./data/strategy-evidence.jsonl --to shadow --yes
-  ./scripts/main.ts --db ./data/trade.db --strategy-cycle --strategy <strategy.md> --ledger ./data/strategy-evidence.jsonl --to live-small
+  ./scripts/main.ts --artifact-gc --artifact-root ./tmp/artifacts --retention-hours 168 --ephemeral-retention-hours 24
+  ./scripts/main.ts --append-strategy-evidence --strategy <strategy.md> --catalog-db ./data/data_catalog.db --json '{"kind":"shadow","stats":{...}}'
+  ./scripts/main.ts --strategy-review --strategy <strategy.md> --catalog-db ./data/data_catalog.db
+  ./scripts/main.ts --strategy-promote --strategy <strategy.md> --catalog-db ./data/data_catalog.db --to shadow --yes
+  ./scripts/main.ts --db ./data/trade.db --strategy-cycle --strategy <strategy.md> --catalog-db ./data/data_catalog.db --to live-small
 
 Key flags:
   response schema         ./schemas/script-response.schema.json; only the outer envelope is stable
@@ -51,7 +51,7 @@ Key flags:
   --observe-from-skills    Call read-only snapshot skills and build an observe event
   --replay-strategy        Replay a draft strategy against manifest OHLCV
   --strategy-rnd-batch     Run a predeclared bounded R&D candidate batch; never auto-promotes
-  --strategy-rnd-loop      Run one R&D loop iteration, writing artifact + JSONL ledger; never auto-promotes
+  --strategy-rnd-loop      Run one R&D loop iteration, writing artifact + catalog DB ledger; never auto-promotes
   --strategy-rnd-campaign  Run bounded hypotheses through discovery and non-overlapping external validation
   --strategy-panel-rnd     Evaluate fixed candidates across at least three assets
   --strategy-benchmark     Calibrate the R&D pipeline with one fixed multi-asset trend benchmark
@@ -70,16 +70,16 @@ Key flags:
   --apply-reconcile        Append source=reconcile drafts returned by reconcile step
   --cron-recover-from-skills Run local reduce + read-only reconcile; optionally apply local reconcile drafts
   --artifact-gc           Report or delete stale unreferenced artifact files
-  --append-strategy-evidence Append replay/shadow/live-small evidence to strategy ledger
-  --strategy-review       Build one strategy iteration report from ledger and optional DB reviews
+  --append-strategy-evidence Append replay/shadow/live-small evidence to data_catalog.db
+  --strategy-review       Build one strategy iteration report from catalog evidence and optional DB reviews
   --strategy-promote      Dry-run or apply strategy status transition
   --strategy-cycle        Sync DB reviews into shadow evidence, review, then optional promotion dry-run/apply
   --chain-id <chain_id>    Flow id for recovery / reconcile
   --yes                    Required for --run-live-small / --apply-reconcile
   --strategy <path>        Strategy markdown path for iteration commands
-  --ledger <path>          Strategy evidence JSONL ledger. Default: ./data/strategy-evidence.jsonl
+  --ledger <path>          Deprecated legacy JSONL path; use --catalog-db for current storage
   --to <status>            Target status for --strategy-promote
-  --artifact-root <path>   Directory scanned by --artifact-gc
+  --artifact-root <path>   Artifact root for explicit GC or R&D output; R&D defaults to ./tmp/artifacts/strategy-rnd
   --catalog-db <path>      SQLite data catalog path. Default: ./data/data_catalog.db
   --catalog-root <path>    Directory scanned by --catalog-scan or filtered by --catalog-stale; repeatable. Default: ./data
   --retention-hours <n>    Artifact GC age threshold. Default: 168

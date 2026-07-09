@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs"
-import { hashCanonical, loadCandlesFromManifest, type Candle } from "./replay-core"
+import { hashCanonical, loadCandlesFromManifest, loadManifest, type Candle } from "./replay-core"
 import { asRecord, numberOrUndefined, stringField, type JSONRecord } from "./json"
 
 type Side = "long" | "short"
@@ -208,7 +208,7 @@ function positionFromRecord(report: JSONRecord, record: JSONRecord, maxHoldBars:
 }
 
 function updatePositionFromManifest(position: RdShadowPaperPosition, manifestPath: string): void {
-  const manifest = readJsonFile(manifestPath)
+  const manifest = loadManifest(manifestPath)
   const candles = loadCandlesFromManifest(manifestPath, manifest, position.timeframe)
   const start = Math.max(position.last_evaluated_index + 1, firstPostOpenIndex(candles, position))
   if (start < 0) return

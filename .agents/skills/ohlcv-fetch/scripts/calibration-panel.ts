@@ -157,7 +157,7 @@ function parseArgs(argv: string[]): Config {
   if (symbols.length === 0) throw new Error("--symbols cannot be empty")
   return {
     symbols,
-    outputRoot: values.get("--output-root") || "./data/calibration-panel",
+    outputRoot: values.get("--output-root") || "./tmp/panels/calibration-panel",
     timeframe: values.get("--timeframe") || "4h",
     sinceTS: numberValue(values, "--since-ts", Date.UTC(2021, 0, 1)),
     limit: numberValue(values, "--limit", 12_000),

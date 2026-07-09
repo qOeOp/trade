@@ -130,12 +130,12 @@ test("data catalog initializes schema and scans datasets, runs, artifacts, and l
       assert.equal(count(db, "run"), 3)
       assert.equal(count(db, "strategy_rnd_run"), 1)
       assert.equal(count(db, "strategy_evidence"), 1)
-      assert.equal(count(db, "artifact_ref"), 4)
+      assert.equal(count(db, "artifact_ref"), 2)
       assert.equal(count(db, "panel"), 1)
       assert.equal(count(db, "panel_member"), 1)
       assert.equal(count(db, "feature_report"), 1)
       assert.equal(count(db, "research_report"), 1)
-      assert.equal((db.query("SELECT version FROM schema_migration WHERE component='data_catalog'").get() as { version: number }).version, 2)
+      assert.equal((db.query("SELECT version FROM schema_migration WHERE component='data_catalog'").get() as { version: number }).version, 3)
       const dataset = db.query("SELECT symbol, timeframe, rows, content_hash FROM dataset WHERE kind = 'ohlcv'").get() as {
         symbol: string
         timeframe: string

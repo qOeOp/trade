@@ -37,7 +37,7 @@ test("strategy R&D ledger record includes locked holdout key", () => {
     const record = buildRndLedgerRecord({
       input,
       runId: "run-1",
-      createdAt: "2026-07-08T12:00:00Z",
+      created_at: "2026-07-08T12:00:00Z",
       artifactRef: "/tmp/run-1.json",
       batch: batchView(),
     })
@@ -85,7 +85,7 @@ test("strategy R&D ledger enforces run id and holdout idempotence", () => {
         candidates: [{ candidateId: "C-1" }],
       },
       runId: "run-1",
-      createdAt: "2026-07-08T12:00:00Z",
+      created_at: "2026-07-08T12:00:00Z",
       artifactRef: "/tmp/run-1.json",
       batch: batchView(),
     })

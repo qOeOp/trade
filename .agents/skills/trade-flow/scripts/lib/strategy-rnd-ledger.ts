@@ -1,5 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { mkdirSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"
+import { defaultCatalogDbPathForGeneratedPath, listCatalogStrategyRndRuns, upsertCatalogStrategyRndRun } from "./data-catalog"
 import { factorConditionsToJson } from "./factor-engine"
 import { hashCanonical, replayDataHash } from "./replay-core"
 import type { JSONRecord } from "./json"
@@ -43,10 +44,15 @@ export interface StrategyRndLedgerRecord {
   }>
 }
 
+interface StrategyRndLedgerStore {
+  catalogDbPath?: string
+  ledgerPath?: string
+}
+
 export function buildRndLedgerRecord(input: {
   input: StrategyRndLoopInput
   runId: string
-  createdAt: string
+  created_at: string
   artifactRef: string
   batch: StrategyRndLedgerBatchView
 }): StrategyRndLedgerRecord {
@@ -58,7 +64,7 @@ export function buildRndLedgerRecord(input: {
   )
   return {
     run_id: input.runId,
-    created_at: input.createdAt,
+    created_at: input.created_at,
     batch_id: input.batch.batch_id,
     hypothesis: input.batch.hypothesis,
     manifest_ref: input.input.manifestPath,
@@ -165,30 +171,40 @@ function stringField(value: unknown): string {
   return typeof value === "string" ? value.trim() : ""
 }
 
-export function loadRndLedger(path: string): StrategyRndLedgerRecord[] {
-  if (!existsSync(path)) {
-    return []
-  }
-  return readFileSync(path, "utf8")
-    .split(/\r?\n/)
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .map((line) => JSON.parse(line) as StrategyRndLedgerRecord)
+export function loadRndLedger(input: string | StrategyRndLedgerStore): StrategyRndLedgerRecord[] {
+  return listCatalogStrategyRndRuns({
+    catalogDbPath: rndCatalogDbPath(input),
+    limit: 1000,
+  }) as unknown as StrategyRndLedgerRecord[]
 }
 
-export function assertRunIdUnused(ledgerPath: string, runId: string): void {
-  if (loadRndLedger(ledgerPath).some((record) => record.run_id === runId)) {
+export function assertRunIdUnused(input: string | StrategyRndLedgerStore, runId: string): void {
+  if (loadRndLedger(input).some((record) => record.run_id === runId)) {
     throw new Error(`strategy R&D run_id already exists: ${runId}`)
   }
 }
 
-export function assertHoldoutUnused(ledgerPath: string, holdoutKey: string): void {
-  if (loadRndLedger(ledgerPath).some((record) => record.holdout_key === holdoutKey)) {
+export function assertHoldoutUnused(input: string | StrategyRndLedgerStore, holdoutKey: string): void {
+  if (loadRndLedger(input).some((record) => record.holdout_key === holdoutKey)) {
     throw new Error("locked holdout has already been evaluated")
   }
 }
 
+export function appendRndLedgerRecord(input: StrategyRndLedgerStore, record: StrategyRndLedgerRecord): void {
+  upsertCatalogStrategyRndRun({
+    catalogDbPath: rndCatalogDbPath(input),
+    record: record as unknown as Record<string, unknown>,
+    now: record.created_at,
+  })
+}
+
 export function appendJsonLine(path: string, value: unknown): void {
-  mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, `${JSON.stringify(value)}\n`, { flag: "a" })
+  appendRndLedgerRecord({ ledgerPath: path }, value as StrategyRndLedgerRecord)
+}
+
+function rndCatalogDbPath(input: string | StrategyRndLedgerStore): string {
+  if (typeof input === "string") return defaultCatalogDbPathForGeneratedPath(input)
+  if (input.catalogDbPath) return input.catalogDbPath
+  if (input.ledgerPath) return defaultCatalogDbPathForGeneratedPath(input.ledgerPath)
+  return "./data/data_catalog.db"
 }

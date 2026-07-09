@@ -21,7 +21,7 @@ import {
   type StrategyRndSignalInput,
 } from "./strategy-rnd-inputs"
 import {
-  appendJsonLine,
+  appendRndLedgerRecord,
   assertHoldoutUnused,
   assertRunIdUnused,
   buildRndLedgerRecord,
@@ -171,56 +171,48 @@ function runStrategyRndBatch(input: StrategyRndBatchInput): StrategyRndBatchRepo
 }
 
 function runStrategyRndLoop(input: StrategyRndLoopInput): StrategyRndLoopReport {
-  const createdAt = input.now || new Date().toISOString()
-  const runId = input.runId || `rnd-${createdAt.replace(/[^0-9]/g, "").slice(0, 14)}-${randomUUID().slice(0, 8)}`
-  const artifactRoot = input.artifactRoot || "./data/artifacts/strategy-rnd"
-  const ledgerPath = input.ledgerPath || "./data/strategy-rnd-ledger.jsonl"
+  const created_at = input.now || new Date().toISOString()
+  const runId = input.runId || `rnd-${created_at.replace(/[^0-9]/g, "").slice(0, 14)}-${randomUUID().slice(0, 8)}`
+  const artifactRoot = input.artifactRoot || "./tmp/artifacts/strategy-rnd"
   const artifactRef = join(artifactRoot, `${safeFileName(runId)}.json`)
+  const catalogDbPath = input.catalogDbPath || defaultCatalogDbPathForGeneratedPath(artifactRef)
+  const ledgerRef = catalogDbPath
   if (input.antiOverfitStage === "locked_holdout") {
-    assertHoldoutUnused(ledgerPath, holdoutKeyForInput(input))
+    assertHoldoutUnused({ catalogDbPath, ledgerPath: input.ledgerPath }, holdoutKeyForInput(input))
   }
-  assertRunIdUnused(ledgerPath, runId)
+  assertRunIdUnused({ catalogDbPath, ledgerPath: input.ledgerPath }, runId)
   const batch = runStrategyRndBatch(input)
   const ledgerRecord = buildRndLedgerRecord({
     input,
     runId,
-    createdAt,
+    created_at,
     artifactRef,
     batch,
   })
 
   writeJsonFile(artifactRef, {
     run_id: runId,
-    created_at: createdAt,
+    created_at,
     input: redactLoopInputForArtifact(input),
     batch,
     ledger_record: ledgerRecord,
     stop_reason: batch.outcome,
   })
-  appendJsonLine(ledgerPath, ledgerRecord)
-  const catalogDbPath = input.catalogDbPath || defaultCatalogDbPathForGeneratedPath(artifactRef)
   registerCatalogArtifact({
     catalogDbPath,
     path: artifactRef,
-    now: createdAt,
+    now: created_at,
     referrerType: "run",
     referrerID: runId,
     role: "output",
   })
-  registerCatalogArtifact({
-    catalogDbPath,
-    path: ledgerPath,
-    now: createdAt,
-    referrerType: "run",
-    referrerID: runId,
-    role: "ledger",
-  })
+  appendRndLedgerRecord({ catalogDbPath, ledgerPath: input.ledgerPath }, ledgerRecord)
 
   return {
     run_id: runId,
-    created_at: createdAt,
+    created_at,
     artifact_ref: artifactRef,
-    ledger_ref: ledgerPath,
+    ledger_ref: ledgerRef,
     batch,
     ledger_record: ledgerRecord,
     stop_reason: batch.outcome,

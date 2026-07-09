@@ -1,5 +1,4 @@
-import { readFileSync } from "node:fs"
-import { hashCanonical, loadCandlesFromManifest, type Candle } from "./replay-core"
+import { hashCanonical, loadCandlesFromManifest, loadManifest, type Candle } from "./replay-core"
 import { evaluateRndSignal, type StrategyRndCandidateInput } from "./strategy-rnd"
 import type { JSONRecord } from "./json"
 
@@ -190,7 +189,7 @@ function candidateFromJson(input: JSONRecord): StrategyRndCandidateInput {
 }
 
 function evaluateDataset(input: ForwardHoldoutInput, dataset: ForwardHoldoutDataset, frozenAtMs: number): ForwardHoldoutRecord {
-  const manifest = readManifest(dataset.manifestPath)
+  const manifest = loadManifest(dataset.manifestPath)
   const timeframe = input.timeframe || "4h"
   const candles = loadCandlesFromManifest(dataset.manifestPath, manifest, timeframe)
   const latest = candles.at(-1)
@@ -241,7 +240,7 @@ function supplementalManifestGuards(input: ForwardHoldoutInput, frozenAtMs: numb
   const blockedBy: Array<{ check_id: string; reason: string }> = []
   for (const ref of refs) {
     try {
-      const manifest = readManifest(ref)
+      const manifest = loadManifest(ref)
       blockedBy.push(...manifestGuards(manifest).map((item) => ({
         check_id: `HOLDOUT-SUPPLEMENTAL-${item.check_id.replace(/^HOLDOUT-/, "")}`,
         reason: `${ref}: ${item.reason}`,
@@ -298,10 +297,6 @@ function timeframeMilliseconds(timeframe: string): number {
   const unit = match[2]
   const multipliers: Record<string, number> = { m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000 }
   return value * multipliers[unit]
-}
-
-function readManifest(path: string): JSONRecord {
-  return JSON.parse(readFileSync(path, "utf8")) as JSONRecord
 }
 
 function asRecord(value: unknown): JSONRecord {

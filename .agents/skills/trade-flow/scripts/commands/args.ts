@@ -61,7 +61,7 @@ export function parseArgs(argv: string[]): CommandConfig {
   let retentionHours: number | undefined
   let ephemeralRetentionHours: number | undefined
   let strategyPath = ""
-  let ledgerPath = "./data/strategy-evidence.jsonl"
+  let ledgerPath = ""
   let promoteTo: StrategyStatus = "shadow"
   let promoteToExplicit = false
   let raw = ""

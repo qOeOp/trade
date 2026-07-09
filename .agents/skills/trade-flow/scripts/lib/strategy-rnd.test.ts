@@ -7,6 +7,7 @@ import { Database } from "bun:sqlite"
 
 import { replayDataHash } from "./replay-core"
 import { evaluateRndSignal, runStrategyRndBatch, runStrategyRndCampaign, runStrategyRndLoop, strategyRndBatchInputFromJson } from "./strategy-rnd"
+import { loadRndLedger } from "./strategy-rnd-ledger"
 
 test("strategy R&D parser normalizes factor discovery options", () => {
   const input = strategyRndBatchInputFromJson({
@@ -612,7 +613,7 @@ test("strategy R&D batch discovers statistically screened factor seeds", () => {
   }
 })
 
-test("strategy R&D loop writes artifact and compact JSONL ledger", () => {
+test("strategy R&D loop writes artifact and catalog ledger", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-loop-"))
   try {
     const manifestPath = writeManifest(dir)
@@ -651,11 +652,11 @@ test("strategy R&D loop writes artifact and compact JSONL ledger", () => {
     })
 
     assert.equal(report.run_id, "rnd-loop-test")
-    assert.equal(report.ledger_ref, ledgerPath)
+    assert.equal(report.ledger_ref, join(artifactRoot, "data_catalog.db"))
     assert.equal(existsSync(report.artifact_ref), true)
-    const ledgerLines = readFileSync(ledgerPath, "utf8").trim().split("\n")
-    assert.equal(ledgerLines.length, 1)
-    const record = JSON.parse(ledgerLines[0]) as { run_id: string; artifact_ref: string; trial_count: number }
+    const ledgerRecords = loadRndLedger({ catalogDbPath: report.ledger_ref })
+    assert.equal(ledgerRecords.length, 1)
+    const record = ledgerRecords[0] as { run_id: string; artifact_ref: string; trial_count: number }
     assert.equal(record.run_id, "rnd-loop-test")
     assert.equal(record.artifact_ref, report.artifact_ref)
     assert.equal(record.trial_count, report.batch.trial_count)
@@ -663,7 +664,7 @@ test("strategy R&D loop writes artifact and compact JSONL ledger", () => {
     assert.equal(artifact.stop_reason, report.stop_reason)
     const catalog = new Database(join(artifactRoot, "data_catalog.db"))
     try {
-      assert.equal((catalog.query("SELECT count(*) AS count FROM artifact").get() as { count: number }).count, 2)
+      assert.equal((catalog.query("SELECT count(*) AS count FROM artifact").get() as { count: number }).count, 1)
       assert.equal((catalog.query("SELECT count(*) AS count FROM research_report WHERE report_kind='strategy_rnd_loop'").get() as { count: number }).count, 1)
       assert.equal((catalog.query("SELECT count(*) AS count FROM strategy_rnd_run WHERE run_id='rnd-loop-test'").get() as { count: number }).count, 1)
     } finally {
@@ -757,7 +758,7 @@ test("strategy R&D campaign continues after a failed hypothesis", () => {
     assert.equal(report.hypotheses_run, 2)
     assert.equal(report.trials_used, 2)
     assert.equal(report.runs.every((run) => run.discovery_outcome === "no_promote"), true)
-    assert.equal(readFileSync(ledgerPath, "utf8").trim().split("\n").length, 2)
+    assert.equal(loadRndLedger({ catalogDbPath: report.ledger_ref }).length, 2)
     assert.equal(existsSync(report.artifact_ref), true)
   } finally {
     rmSync(dir, { recursive: true, force: true })

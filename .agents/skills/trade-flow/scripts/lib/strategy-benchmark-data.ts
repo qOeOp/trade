@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs"
-import { loadCandlesFromManifest, replayDataHash, type Candle } from "./replay-core"
+import { loadCandlesFromManifest, loadManifest, replayDataHash, type Candle } from "./replay-core"
+import { resolveReadablePath } from "./paths"
 import type { BenchmarkDataset } from "./strategy-benchmark-inputs"
 
 type JSONRecord = Record<string, unknown>
@@ -67,7 +68,7 @@ export interface PanelDiagnosticFinding {
 
 export function alignedPanel(datasets: BenchmarkDataset[], timeframe: string): AlignedPanel {
   const loaded = datasets.map((dataset) => {
-    const manifest = JSON.parse(readFileSync(dataset.manifestPath, "utf8")) as JSONRecord
+    const manifest = loadManifest(dataset.manifestPath)
     return { dataset, manifest, candles: loadCandlesFromManifest(dataset.manifestPath, manifest, timeframe) }
   })
   const common = loaded.slice(1).reduce((set, item) => {
@@ -214,7 +215,7 @@ function fundingCoverage(status: FundingCoverage["status"], datasets: BenchmarkD
 
 function loadFundingEvents(path?: string): FundingEvent[] {
   if (!path) return []
-  const report = asRecord(JSON.parse(readFileSync(path, "utf8")))
+  const report = asRecord(JSON.parse(readFileSync(resolveReadablePath(path), "utf8")))
   const raw = asRecord(asRecord(report.data).market_events).funding
   return (Array.isArray(raw) ? raw : []).map((item) => {
     const record = asRecord(item)

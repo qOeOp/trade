@@ -1,6 +1,5 @@
-import { readFileSync } from "node:fs"
 import { factorConditionsToJson, passesFactorConditions, readFactorConditions, type FactorCondition, type FactorFeatureStore } from "../factor-engine"
-import { loadCandlesFromManifest, type Candle, type ReplaySignal, type ReplayStrategy } from "../replay-core"
+import { loadCandlesFromManifest, loadManifest, type Candle, type ReplaySignal, type ReplayStrategy } from "../replay-core"
 import type { RndFamilyModule } from "../rnd-family"
 import { readNonNegativeNumber, readPositiveInteger, readPositiveNumber, readSide, round, type JSONRecord, type SideFilter } from "../rnd-family-helpers"
 
@@ -94,7 +93,7 @@ function json(params: Params): JSONRecord {
 }
 
 function loadBenchmark(params: Params): BenchmarkSeries {
-  const manifest = JSON.parse(readFileSync(params.benchmarkManifestPath, "utf8")) as JSONRecord
+  const manifest = loadManifest(params.benchmarkManifestPath)
   const candles = loadCandlesFromManifest(params.benchmarkManifestPath, manifest, params.benchmarkTimeframe)
   return {
     byTimestamp: new Map(candles.map((candle, index) => [candle.timestamp, index])),

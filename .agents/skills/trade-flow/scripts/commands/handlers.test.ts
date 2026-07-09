@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Database } from "bun:sqlite"
@@ -11,6 +11,7 @@ import { handleRecoveryCommand } from "./recovery"
 import { handleRuntimeCommand } from "./runtime"
 import type { CommandConfig, JSONRecord } from "./types"
 import { appendPlanEvent, ensureSchema, readFlowEvents } from "../lib/plan-events"
+import { loadEvidenceLedger } from "../lib/strategy-iteration"
 
 test("observe command handler builds observe events without opening trade DB", async () => {
   const response = await handleObserveCommand(baseConfig({
@@ -267,7 +268,7 @@ test("evidence command handler can append shadow evidence from DB reviews", () =
     }))
 
     assert.equal(response?.ok, true)
-    const record = JSON.parse(readFileSync(ledgerPath, "utf8").trim()) as { kind: string; execution_attribution: { total_cost_drag: number } }
+    const record = loadEvidenceLedger(ledgerPath)[0] as { kind: string; execution_attribution: { total_cost_drag: number } }
     assert.equal(record.kind, "shadow")
     assert.equal(record.execution_attribution.total_cost_drag, 0.03)
   } finally {
@@ -359,7 +360,7 @@ function observeInput(): JSONRecord {
   }
 }
 
-function appendObserve(db: Database, eventKey: string, chainId: string, createdAt: string): void {
+function appendObserve(db: Database, eventKey: string, chainId: string, created_at: string): void {
   appendPlanEvent(db, {
     event_key: eventKey,
     chain_id: chainId,
@@ -373,7 +374,7 @@ function appendObserve(db: Database, eventKey: string, chainId: string, createdA
         target_action: "no_action",
       },
     },
-    created_at: createdAt,
+    created_at,
   })
 }
 

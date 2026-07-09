@@ -363,10 +363,6 @@
     {
       "artifact": "data/cron.log",
       "schema": "cron-log-entry.schema.json"
-    },
-    {
-      "artifact": "data/strategy-evidence.jsonl",
-      "schema": "strategy-evidence-record.schema.json"
     }
   ]
 }

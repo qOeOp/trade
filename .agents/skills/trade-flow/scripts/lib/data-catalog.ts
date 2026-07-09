@@ -96,6 +96,12 @@ interface CatalogQueryResult {
   strategy_evidence: JSONRecord[]
 }
 
+interface CatalogStoredRecordInput {
+  catalogDbPath: string
+  record: JSONRecord
+  now?: string | Date
+}
+
 interface CatalogStaleResult {
   catalog_db_path: string
   mode: "dry-run" | "delete"
@@ -111,7 +117,7 @@ interface CatalogStaleResult {
   deleted: JSONRecord[]
 }
 
-const DATA_CATALOG_SCHEMA_VERSION = 2
+const DATA_CATALOG_SCHEMA_VERSION = 3
 const DEFAULT_MAX_HASH_BYTES = 50 * 1024 * 1024
 const DEFAULT_MAX_PARSE_BYTES = 40 * 1024 * 1024
 const DEFAULT_RETENTION_HOURS = 168
@@ -213,6 +219,83 @@ function registerCatalogArtifact(input: CatalogRegisterArtifactInput): CatalogRe
       feature_reports_upserted: counts.featureReports,
       research_reports_upserted: counts.researchReports,
     }
+  } finally {
+    db.close()
+  }
+}
+
+function upsertCatalogStrategyEvidence(input: CatalogStoredRecordInput): { catalog_db_path: string; evidence_id: string } {
+  const now = input.now ? new Date(input.now) : new Date()
+  if (!Number.isFinite(now.getTime())) {
+    throw new Error("strategy evidence catalog now must be a valid date")
+  }
+  mkdirSync(dirname(input.catalogDbPath), { recursive: true })
+  const db = new Database(input.catalogDbPath)
+  try {
+    ensureDataCatalogSchema(db)
+    const evidenceID = upsertStrategyEvidenceRecord(db, input.record, artifactIDForPath(db, stringField(input.record.source_ref)), now)
+    return { catalog_db_path: displayPath(input.catalogDbPath), evidence_id: evidenceID }
+  } finally {
+    db.close()
+  }
+}
+
+function listCatalogStrategyEvidence(input: { catalogDbPath: string; strategyID?: string; limit?: number }): JSONRecord[] {
+  const limit = boundedLimit(input.limit, 1000)
+  mkdirSync(dirname(input.catalogDbPath), { recursive: true })
+  const db = new Database(input.catalogDbPath)
+  try {
+    ensureDataCatalogSchema(db)
+    const rows = input.strategyID
+      ? db.query(`
+        SELECT evidence_id, strategy_id, kind, source_ref, artifact_id, created_at, summary_json, record_json
+        FROM strategy_evidence
+        WHERE strategy_id = $strategy_id
+        ORDER BY created_at ASC
+        LIMIT $limit
+      `).all({ $strategy_id: input.strategyID, $limit: limit }) as JSONRecord[]
+      : db.query(`
+        SELECT evidence_id, strategy_id, kind, source_ref, artifact_id, created_at, summary_json, record_json
+        FROM strategy_evidence
+        ORDER BY created_at ASC
+        LIMIT $limit
+      `).all({ $limit: limit }) as JSONRecord[]
+    return rows.map(recordFromStoredRow)
+  } finally {
+    db.close()
+  }
+}
+
+function upsertCatalogStrategyRndRun(input: CatalogStoredRecordInput): { catalog_db_path: string; run_id: string } {
+  const now = input.now ? new Date(input.now) : new Date()
+  if (!Number.isFinite(now.getTime())) {
+    throw new Error("strategy R&D catalog now must be a valid date")
+  }
+  mkdirSync(dirname(input.catalogDbPath), { recursive: true })
+  const db = new Database(input.catalogDbPath)
+  try {
+    ensureDataCatalogSchema(db)
+    const runID = upsertStrategyRndRunRecord(db, input.record, artifactIDForPath(db, stringField(input.record.artifact_ref)), now).runID
+    return { catalog_db_path: displayPath(input.catalogDbPath), run_id: runID }
+  } finally {
+    db.close()
+  }
+}
+
+function listCatalogStrategyRndRuns(input: { catalogDbPath: string; limit?: number }): JSONRecord[] {
+  const limit = boundedLimit(input.limit, 1000)
+  mkdirSync(dirname(input.catalogDbPath), { recursive: true })
+  const db = new Database(input.catalogDbPath)
+  try {
+    ensureDataCatalogSchema(db)
+    const rows = db.query(`
+      SELECT sr.run_id, sr.strategy_id, sr.candidate_id, sr.family, sr.stage, sr.accepted, sr.holdout_key, sr.artifact_id, run.started_at AS created_at, run.summary_json, sr.record_json
+      FROM strategy_rnd_run sr
+      JOIN run ON run.run_id = sr.run_id
+      ORDER BY run.started_at ASC
+      LIMIT $limit
+    `).all({ $limit: limit }) as JSONRecord[]
+    return rows.map(recordFromStoredRow)
   } finally {
     db.close()
   }
@@ -498,6 +581,7 @@ function ensureDataCatalogSchema(db: Database): void {
       accepted     INTEGER NOT NULL CHECK(accepted IN (0, 1)),
       holdout_key  TEXT,
       artifact_id  TEXT,
+      record_json  TEXT CHECK(record_json IS NULL OR json_valid(record_json)),
       FOREIGN KEY (run_id) REFERENCES run(run_id),
       FOREIGN KEY (artifact_id) REFERENCES artifact(artifact_id)
     )
@@ -506,14 +590,21 @@ function ensureDataCatalogSchema(db: Database): void {
     CREATE TABLE IF NOT EXISTS strategy_evidence (
       evidence_id  TEXT PRIMARY KEY,
       strategy_id  TEXT NOT NULL,
+      setup_id     TEXT,
       kind         TEXT NOT NULL,
+      policy_hash  TEXT,
       source_ref   TEXT NOT NULL,
       artifact_id  TEXT,
       created_at   TEXT NOT NULL,
       summary_json TEXT CHECK(summary_json IS NULL OR json_valid(summary_json)),
+      record_json  TEXT CHECK(record_json IS NULL OR json_valid(record_json)),
       FOREIGN KEY (artifact_id) REFERENCES artifact(artifact_id)
     )
   `)
+  ensureColumn(db, "strategy_rnd_run", "record_json", "ALTER TABLE strategy_rnd_run ADD COLUMN record_json TEXT CHECK(record_json IS NULL OR json_valid(record_json))")
+  ensureColumn(db, "strategy_evidence", "setup_id", "ALTER TABLE strategy_evidence ADD COLUMN setup_id TEXT")
+  ensureColumn(db, "strategy_evidence", "policy_hash", "ALTER TABLE strategy_evidence ADD COLUMN policy_hash TEXT")
+  ensureColumn(db, "strategy_evidence", "record_json", "ALTER TABLE strategy_evidence ADD COLUMN record_json TEXT CHECK(record_json IS NULL OR json_valid(record_json))")
   db.run(`
     CREATE TABLE IF NOT EXISTS panel (
       panel_id      TEXT PRIMARY KEY,
@@ -581,6 +672,13 @@ function ensureDataCatalogSchema(db: Database): void {
   db.run("CREATE INDEX IF NOT EXISTS idx_research_report_kind ON research_report(report_kind, generated_at DESC)")
 }
 
+function ensureColumn(db: Database, table: string, column: string, ddl: string): void {
+  const rows = db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>
+  if (!rows.some((row) => row.name === column)) {
+    db.run(ddl)
+  }
+}
+
 interface ArtifactExtractionCounts {
   datasets: number
   runs: number
@@ -618,6 +716,10 @@ function extractArtifactMetadata(db: Database, artifactID: string, path: string,
   counts.panelMembers += panel.members
   counts.featureReports += upsertFeatureReport(db, artifactID, json)
   counts.researchReports += upsertResearchReport(db, artifactID, path, json, now)
+  const rndRecord = upsertRndLedgerRecordFromArtifact(db, artifactID, path, json, now)
+  counts.strategyRndRuns += rndRecord.runs
+  counts.runs += rndRecord.runRows
+  counts.artifactRefs += rndRecord.refs
   const runUpsert = upsertRunFromArtifact(db, artifactID, path, json, now)
   counts.runs += runUpsert.runs
   counts.artifactRefs += runUpsert.refs
@@ -629,13 +731,13 @@ function extractArtifactMetadata(db: Database, artifactID: string, path: string,
     counts.artifactRefs += cron.refs
   }
   if (path.endsWith("strategy-rnd-ledger.jsonl")) {
-    const ledger = upsertRndLedger(db, artifactID, path, now)
+    const ledger = upsertRndLedger(db, path, now)
     counts.strategyRndRuns += ledger.runs
     counts.runs += ledger.runRows
     counts.artifactRefs += ledger.refs
   }
   if (path.endsWith("strategy-evidence.jsonl")) {
-    const evidence = upsertEvidenceLedger(db, artifactID, path, now)
+    const evidence = upsertEvidenceLedger(db, path, now)
     counts.strategyEvidence += evidence.evidence
     counts.artifactRefs += evidence.refs
   }
@@ -1027,88 +1129,152 @@ function upsertRunFromArtifact(db: Database, artifactID: string, path: string, j
   return { runs: 1, refs: 1 }
 }
 
-function upsertRndLedger(db: Database, artifactID: string, path: string, now: Date): { runs: number; runRows: number; refs: number } {
+function upsertRndLedger(db: Database, path: string, now: Date): { runs: number; runRows: number; refs: number } {
   let runs = 0
   let runRows = 0
   let refs = 0
   for (const record of readJsonLines(path)) {
-    const runID = stringField(record.run_id)
-    if (!runID) continue
-    upsertRun(db, {
-      run_id: runID,
-      kind: "rnd",
-      status: "completed",
-      started_at: stringField(record.created_at) || now.toISOString(),
-      ended_at: stringField(record.created_at) || now.toISOString(),
-      input_hash: null,
-      summary_json: JSON.stringify({
-        outcome: stringField(record.outcome),
-        trial_count: nullableNumber(record.trial_count),
-        accepted_count: nullableNumber(record.accepted_count),
-      }),
-    })
+    const artifactID = artifactIDForPath(db, stringField(record.artifact_ref))
+    const { artifactRefInserted } = upsertStrategyRndRunRecord(db, record, artifactID, now)
     runRows += 1
-    db.query(`
-      INSERT INTO strategy_rnd_run(run_id, strategy_id, candidate_id, family, stage, accepted, holdout_key, artifact_id)
-      VALUES ($run_id, $strategy_id, $candidate_id, $family, $stage, $accepted, $holdout_key, $artifact_id)
-      ON CONFLICT(run_id) DO UPDATE SET
-        strategy_id = excluded.strategy_id,
-        candidate_id = excluded.candidate_id,
-        family = excluded.family,
-        stage = excluded.stage,
-        accepted = excluded.accepted,
-        holdout_key = excluded.holdout_key,
-        artifact_id = excluded.artifact_id
-    `).run({
-      $run_id: runID,
-      $strategy_id: nullableString(record.strategy_id),
-      $candidate_id: nullableString(record.winner_candidate_id),
-      $family: nullableString(record.candidate_source),
-      $stage: nullableString(record.stage),
-      $accepted: Number(record.accepted_count) > 0 ? 1 : 0,
-      $holdout_key: nullableString(record.holdout_key),
-      $artifact_id: artifactID,
-    })
-    upsertArtifactRef(db, "ledger", runID, artifactID, "proof", now)
     runs += 1
-    refs += 1
+    refs += artifactRefInserted
   }
   return { runs, runRows, refs }
 }
 
-function upsertEvidenceLedger(db: Database, artifactID: string, path: string, now: Date): { evidence: number; refs: number } {
+function upsertRndLedgerRecordFromArtifact(db: Database, artifactID: string, path: string, json: JSONRecord | null, now: Date): { runs: number; runRows: number; refs: number } {
+  const record = asRecord(json?.ledger_record)
+  if (!stringField(record.run_id)) {
+    return { runs: 0, runRows: 0, refs: 0 }
+  }
+  upsertStrategyRndRunRecord(db, {
+    ...record,
+    artifact_ref: displayPath(path),
+  }, artifactID, now)
+  return { runs: 1, runRows: 1, refs: 1 }
+}
+
+function upsertEvidenceLedger(db: Database, path: string, now: Date): { evidence: number; refs: number } {
   let evidence = 0
   let refs = 0
   for (const record of readJsonLines(path)) {
-    const evidenceID = stringField(record.evidence_id) || stableID("evidence", JSON.stringify(record))
-    const strategyID = stringField(record.strategy_id)
-    if (!strategyID) continue
-    db.query(`
-      INSERT INTO strategy_evidence(evidence_id, strategy_id, kind, source_ref, artifact_id, created_at, summary_json)
-      VALUES ($evidence_id, $strategy_id, $kind, $source_ref, $artifact_id, $created_at, $summary_json)
-      ON CONFLICT(evidence_id) DO UPDATE SET
-        strategy_id = excluded.strategy_id,
-        kind = excluded.kind,
-        source_ref = excluded.source_ref,
-        artifact_id = excluded.artifact_id,
-        summary_json = excluded.summary_json
-    `).run({
-      $evidence_id: evidenceID,
-      $strategy_id: strategyID,
-      $kind: stringField(record.kind) || "unknown",
-      $source_ref: stringField(record.source_ref) || "unknown",
-      $artifact_id: artifactID,
-      $created_at: stringField(record.created_at) || now.toISOString(),
-      $summary_json: JSON.stringify({
-        stats: asRecord(record.stats),
-        gate: asRecord(record.gate),
-      }),
-    })
-    upsertArtifactRef(db, "evidence", evidenceID, artifactID, "proof", now)
+    const artifactID = artifactIDForPath(db, stringField(record.source_ref))
+    upsertStrategyEvidenceRecord(db, record, artifactID, now)
+    refs += artifactID ? 1 : 0
     evidence += 1
-    refs += 1
   }
   return { evidence, refs }
+}
+
+function upsertStrategyRndRunRecord(db: Database, record: JSONRecord, artifactID: string | null, now: Date): { runID: string; artifactRefInserted: number } {
+  const runID = stringField(record.run_id)
+  if (!runID) {
+    throw new Error("strategy R&D record requires run_id")
+  }
+  upsertRun(db, {
+    run_id: runID,
+    kind: "rnd",
+    status: "completed",
+    started_at: stringField(record.created_at) || now.toISOString(),
+    ended_at: stringField(record.created_at) || now.toISOString(),
+    input_hash: null,
+    summary_json: JSON.stringify({
+      outcome: stringField(record.outcome),
+      trial_count: nullableNumber(record.trial_count),
+      accepted_count: nullableNumber(record.accepted_count),
+    }),
+  })
+  db.query(`
+    INSERT INTO strategy_rnd_run(run_id, strategy_id, candidate_id, family, stage, accepted, holdout_key, artifact_id, record_json)
+    VALUES ($run_id, $strategy_id, $candidate_id, $family, $stage, $accepted, $holdout_key, $artifact_id, $record_json)
+    ON CONFLICT(run_id) DO UPDATE SET
+      strategy_id = excluded.strategy_id,
+      candidate_id = excluded.candidate_id,
+      family = excluded.family,
+      stage = excluded.stage,
+      accepted = excluded.accepted,
+      holdout_key = excluded.holdout_key,
+      artifact_id = excluded.artifact_id,
+      record_json = excluded.record_json
+  `).run({
+    $run_id: runID,
+    $strategy_id: nullableString(record.strategy_id),
+    $candidate_id: nullableString(record.winner_candidate_id),
+    $family: nullableString(record.candidate_source),
+    $stage: nullableString(record.stage),
+    $accepted: Number(record.accepted_count) > 0 ? 1 : 0,
+    $holdout_key: nullableString(record.holdout_key),
+    $artifact_id: artifactID,
+    $record_json: JSON.stringify(record),
+  })
+  if (artifactID) {
+    upsertArtifactRef(db, "run", runID, artifactID, "ledger_record", now)
+  }
+  return { runID, artifactRefInserted: artifactID ? 1 : 0 }
+}
+
+function upsertStrategyEvidenceRecord(db: Database, record: JSONRecord, artifactID: string | null, now: Date): string {
+  const evidenceID = stringField(record.evidence_id) || stableID("evidence", JSON.stringify(record))
+  const strategyID = stringField(record.strategy_id)
+  if (!strategyID) {
+    throw new Error("strategy evidence record requires strategy_id")
+  }
+  db.query(`
+    INSERT INTO strategy_evidence(evidence_id, strategy_id, setup_id, kind, policy_hash, source_ref, artifact_id, created_at, summary_json, record_json)
+    VALUES ($evidence_id, $strategy_id, $setup_id, $kind, $policy_hash, $source_ref, $artifact_id, $created_at, $summary_json, $record_json)
+    ON CONFLICT(evidence_id) DO UPDATE SET
+      strategy_id = excluded.strategy_id,
+      setup_id = excluded.setup_id,
+      kind = excluded.kind,
+      policy_hash = excluded.policy_hash,
+      source_ref = excluded.source_ref,
+      artifact_id = excluded.artifact_id,
+      created_at = excluded.created_at,
+      summary_json = excluded.summary_json,
+      record_json = excluded.record_json
+  `).run({
+    $evidence_id: evidenceID,
+    $strategy_id: strategyID,
+    $setup_id: nullableString(record.setup_id),
+    $kind: stringField(record.kind) || "unknown",
+    $policy_hash: nullableString(record.policy_hash),
+    $source_ref: stringField(record.source_ref) || "unknown",
+    $artifact_id: artifactID,
+    $created_at: stringField(record.created_at) || now.toISOString(),
+    $summary_json: JSON.stringify({
+      stats: asRecord(record.stats),
+      gate: asRecord(record.gate),
+      qualification: asRecord(record.qualification),
+    }),
+    $record_json: JSON.stringify({ ...record, evidence_id: evidenceID }),
+  })
+  if (artifactID) {
+    upsertArtifactRef(db, "evidence", evidenceID, artifactID, "proof", now)
+  }
+  return evidenceID
+}
+
+function artifactIDForPath(db: Database, path: string): string | null {
+  if (!path) return null
+  const relPath = displayPath(path)
+  const row = db.query(`
+    SELECT artifact_id
+    FROM artifact
+    WHERE path = $path OR path = $rel_path
+    LIMIT 1
+  `).get({ $path: path, $rel_path: relPath }) as { artifact_id?: string } | null
+  return row?.artifact_id || null
+}
+
+function recordFromStoredRow(row: JSONRecord): JSONRecord {
+  const record = parseJsonObject(row.record_json)
+  if (Object.keys(record).length > 0) return record
+  const summary = parseJsonObject(row.summary_json)
+  return {
+    ...row,
+    ...(Object.keys(summary).length > 0 ? summary : {}),
+  }
 }
 
 function upsertCronLogRuns(db: Database, artifactID: string, path: string, now: Date): { runs: number; refs: number } {
@@ -1629,9 +1795,13 @@ export {
   ensureDataCatalogSchema,
   defaultCatalogDbPathForGeneratedPath,
   initDataCatalog,
+  listCatalogStrategyEvidence,
+  listCatalogStrategyRndRuns,
   listStaleCatalogArtifacts,
   queryDataCatalog,
   registerCatalogArtifact,
+  upsertCatalogStrategyEvidence,
+  upsertCatalogStrategyRndRun,
   type CatalogRegisterArtifactInput,
   type CatalogRegisterArtifactResult,
   scanDataCatalog,

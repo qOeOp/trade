@@ -1,5 +1,4 @@
-import { readFileSync } from "node:fs"
-import { loadCandlesFromManifest, replayStrategy } from "./replay-core"
+import { loadCandlesFromManifest, loadManifest, replayStrategy } from "./replay-core"
 import {
   composeFactorCandidates,
   loadFactorFeatureStore,
@@ -7,7 +6,6 @@ import {
 } from "./factor-engine"
 import { researchFactorSeeds, type FactorResearchReport } from "./factor-research"
 import { getRndFamily } from "./rnd-family"
-import type { JSONRecord } from "./json"
 import { emptyFeatureStore, loadFundingEvents } from "./strategy-rnd-evaluation"
 import type { CandidateSource, StrategyRndBatchInput, StrategyRndCandidateInput } from "./strategy-rnd-inputs"
 
@@ -78,7 +76,7 @@ export function buildFactorResearch(input: StrategyRndBatchInput, featureStore: 
     featureStore,
     loadCandlesFromManifest(
       input.manifestPath,
-      JSON.parse(readFileSync(input.manifestPath, "utf8")) as JSONRecord,
+      loadManifest(input.manifestPath),
       timeframe,
     ),
     timeframe,

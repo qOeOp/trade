@@ -8,6 +8,7 @@ import { Database } from "bun:sqlite"
 import { appendPlanEvent, buildRecordedExecutionEvent, cronRecoverFromSkills, ensureSchema, reconcileFromSkills, reduceFlowState, run, runLiveSmall, runShadowFromSkills, validateOrderFill } from "./main"
 import { type Runner } from "./lib/observe-adapter"
 import { hashCanonical, replayContentHash, replayDataHash, replayHarnessHash } from "./lib/replay-core"
+import { loadEvidenceLedger } from "./lib/strategy-iteration"
 
 test("validateOrderFill requires audit fields for trade_flow source", () => {
   assert.throws(
@@ -1026,7 +1027,7 @@ test("run strategy-cycle syncs review evidence without duplicate ledger rows", a
     ])
     assert.equal(secondCycle.ok, true)
     assert.equal((secondCycle as { ok: true; data: { shadow_evidence: { status: string } } }).data.shadow_evidence.status, "reused")
-    assert.equal(readFileSync(ledgerPath, "utf8").trim().split(/\r?\n/).length, 1)
+    assert.equal(loadEvidenceLedger(ledgerPath).length, 1)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

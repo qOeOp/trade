@@ -9,6 +9,7 @@ import {
   appendReplayEvidence,
   appendShadowEvidenceFromReviews,
   appendStrategyEvidence,
+  loadEvidenceLedger,
   policyHashForFile,
   promoteStrategy,
   reviewStrategy,
@@ -229,7 +230,7 @@ test("strategy promote blocks replay qualification failures", () => {
   assert.deepEqual(report.diagnostics.qualification.blocked_by, ["S-FUNDING-COVERAGE", "S-PANEL-NULL"])
   assert.equal(report.diagnostics.failure_attribution.some((item) => item.area === "funding_coverage"), true)
   assert.equal(report.diagnostics.failure_attribution.some((item) => item.area === "panel_null"), true)
-  const ledgerRecord = JSON.parse(readFileSync(ledgerPath, "utf8").trim()) as { qualification: { funding_event_coverage: { status: string }; panel_null_gate: { blocked: boolean } } }
+  const ledgerRecord = loadEvidenceLedger(ledgerPath)[0] as unknown as { qualification: { funding_event_coverage: { status: string }; panel_null_gate: { blocked: boolean } } }
   assert.equal(ledgerRecord.qualification.funding_event_coverage.status, "partial")
   assert.equal(ledgerRecord.qualification.panel_null_gate.blocked, true)
 })
@@ -507,7 +508,7 @@ test("shadow evidence can be derived from DB review attribution", () => {
     assert.equal(record.execution_attribution?.total_slippage_drag, 0.05)
     assert.equal(record.execution_attribution?.total_funding_drag, 0.015)
     assert.equal(record.execution_attribution?.total_cost_drag, 0.095)
-    const ledgerRecord = JSON.parse(readFileSync(ledgerPath, "utf8").trim()) as { kind: string; execution_attribution: { total_cost_drag: number } }
+    const ledgerRecord = loadEvidenceLedger(ledgerPath)[0] as { kind: string; execution_attribution: { total_cost_drag: number } }
     assert.equal(ledgerRecord.kind, "shadow")
     assert.equal(ledgerRecord.execution_attribution.total_cost_drag, 0.095)
   } finally {

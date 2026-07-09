@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import assert from "node:assert/strict"
@@ -77,6 +77,29 @@ test("panel R&D diagnostic mode skips expensive null controls and cannot promote
     assert.equal(candidate.panel_null_controls.status, "diagnostic_skipped")
   } finally {
     rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("panel R&D resolves legacy data panel paths to tmp panels", () => {
+  const panelRoot = join(process.cwd(), "tmp", "panels", "validation-panel-path-fallback-test")
+  try {
+    const manifestPath = join(panelRoot, "btcusdt", "manifest.json")
+    mkdirSync(join(panelRoot, "btcusdt"), { recursive: true })
+    writeManifest(join(panelRoot, "btcusdt"))
+    const report = runStrategyPanelRnd({
+      panelId: "panel-path-fallback-test",
+      diagnosticMode: true,
+      datasets: ["BTC", "ETH", "SOL"].map((datasetId) => ({
+        datasetId,
+        manifestPath: "data/validation-panel-path-fallback-test/btcusdt/manifest.json",
+      })),
+      candidates: [{ candidateId: "PANEL-LONG", params: { side: "long" } }],
+    })
+    assert.equal(report.dataset_count, 3)
+    assert.ok(Number((report.candidates as Array<{ pooled: { sample_count: number } }>)[0].pooled.sample_count) > 0)
+    assert.equal(manifestPath.endsWith("manifest.json"), true)
+  } finally {
+    rmSync(panelRoot, { recursive: true, force: true })
   }
 })
 

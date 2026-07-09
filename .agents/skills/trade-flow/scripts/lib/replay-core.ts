@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto"
 import { readdirSync, readFileSync, statSync } from "node:fs"
 import { dirname, join } from "node:path"
+import { resolveReadablePath } from "./paths"
 
 type Side = "long" | "short"
 type JSONRecord = Record<string, unknown>
@@ -285,17 +286,18 @@ function timeframeMilliseconds(timeframe: string): number {
 }
 
 function loadManifest(path: string): JSONRecord {
-  return JSON.parse(readFileSync(path, "utf8")) as JSONRecord
+  return JSON.parse(readFileSync(resolveReadablePath(path), "utf8")) as JSONRecord
 }
 
 function loadCandlesFromManifest(manifestPath: string, manifest: JSONRecord, timeframe: string): Candle[] {
+  const resolvedManifestPath = resolveReadablePath(manifestPath)
   const timeframes = asRecord(manifest.timeframes)
   const item = asRecord(timeframes[timeframe])
   const file = stringField(item.file)
   if (!file) {
     throw new Error(`manifest missing timeframe ${timeframe}`)
   }
-  return parseCsvCandles(readFileSync(join(dirname(manifestPath), file), "utf8"))
+  return parseCsvCandles(readFileSync(join(dirname(resolvedManifestPath), file), "utf8"))
 }
 
 function parseCsvCandles(csv: string): Candle[] {
@@ -690,14 +692,12 @@ function emptyTemporalContract(timeframe: string): ReplayTemporalContract {
 function readUniverseSelectionTime(manifest: JSONRecord, first: Candle | undefined): { value: string | null; source: string } {
   const declared = firstString(
     manifest.universe_selected_at,
-    manifest.universeSelectedAt,
     manifest.universe_selection_time,
-    manifest.universeSelectionTime,
   )
   if (declared) {
     return { value: normalizeIsoTime(declared), source: "manifest_universe_selected_at" }
   }
-  const generated = firstString(manifest.generated_at, manifest.generatedAt, manifest.created_at, manifest.createdAt)
+  const generated = firstString(manifest.generated_at, manifest.created_at)
   if (generated) {
     return { value: normalizeIsoTime(generated), source: "manifest_generated_at" }
   }
@@ -706,21 +706,15 @@ function readUniverseSelectionTime(manifest: JSONRecord, first: Candle | undefin
 
 function readSupplementalTemporalContract(ref: string): ReplaySupplementalTemporalContract {
   try {
-    const report = asRecord(JSON.parse(readFileSync(ref, "utf8")))
+    const report = asRecord(JSON.parse(readFileSync(resolveReadablePath(ref), "utf8")))
     const data = asRecord(report.data)
     const rawTime = firstString(
       report.generated_at,
-      report.generatedAt,
       report.created_at,
-      report.createdAt,
       report.updated_at,
-      report.updatedAt,
       data.generated_at,
-      data.generatedAt,
       data.created_at,
-      data.createdAt,
       data.updated_at,
-      data.updatedAt,
     )
     const normalized = rawTime ? normalizeIsoTime(rawTime) : null
     return {
@@ -770,7 +764,8 @@ function replayContentHash(manifestPath: string, timeframe: string): string {
   const item = asRecord(asRecord(manifest.timeframes)[timeframe])
   const file = stringField(item.file)
   if (!file) throw new Error(`manifest missing timeframe ${timeframe}`)
-  return createHash("sha256").update(readFileSync(join(dirname(manifestPath), file))).digest("hex")
+  const resolvedManifestPath = resolveReadablePath(manifestPath)
+  return createHash("sha256").update(readFileSync(join(dirname(resolvedManifestPath), file))).digest("hex")
 }
 
 function replayHarnessHash(): string {
@@ -797,7 +792,7 @@ function replayHarnessHash(): string {
 }
 
 function hashFile(path: string): string {
-  return createHash("sha256").update(readFileSync(path)).digest("hex")
+  return createHash("sha256").update(readFileSync(resolveReadablePath(path))).digest("hex")
 }
 
 function sourceFiles(path: string): string[] {
@@ -954,6 +949,7 @@ export {
   buildIndicators,
   ema,
   evaluateLatestSignal,
+  loadManifest,
   loadCandlesFromManifest,
   parseCsvCandles,
   replayStrategy,

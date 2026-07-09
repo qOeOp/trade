@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { defaultCatalogDbPathForGeneratedPath, registerCatalogArtifact } from "./data-catalog"
+import { resolveReadablePath } from "./paths"
 import { assertHoldoutUnused, holdoutKeyForInput, safeFileName, writeJsonFile } from "./strategy-rnd-ledger"
 import type { JSONRecord } from "./json"
 import type { StrategyRndCampaignHypothesisInput, StrategyRndCampaignInput, StrategyRndLoopInput } from "./strategy-rnd-inputs"
@@ -77,11 +78,11 @@ export function runStrategyRndCampaignWithDeps(
     throw new Error("strategy R&D campaign maxTotalTrials must be an integer from 1 to 10")
   }
 
-  const createdAt = input.now || new Date().toISOString()
-  const campaignId = input.campaignId || `rnd-campaign-${createdAt.replace(/[^0-9]/g, "").slice(0, 14)}-${randomUUID().slice(0, 8)}`
-  const artifactRoot = input.artifactRoot || "./data/artifacts/strategy-rnd"
-  const ledgerPath = input.ledgerPath || "./data/strategy-rnd-ledger.jsonl"
+  const created_at = input.now || new Date().toISOString()
+  const campaignId = input.campaignId || `rnd-campaign-${created_at.replace(/[^0-9]/g, "").slice(0, 14)}-${randomUUID().slice(0, 8)}`
+  const artifactRoot = input.artifactRoot || "./tmp/artifacts/strategy-rnd"
   const catalogDbPath = input.catalogDbPath || defaultCatalogDbPathForGeneratedPath(artifactRoot)
+  const ledgerRef = catalogDbPath
   const runs: StrategyRndCampaignReport["runs"] = []
   const calibrationGate = input.calibrationReportPath ? readCalibrationGate(input.calibrationReportPath) : null
   const hypothesisCertificates = input.hypotheses.map(readHypothesisCertificateGate)
@@ -119,9 +120,9 @@ export function runStrategyRndCampaignWithDeps(
       runId: `${campaignId}-${hypothesis.hypothesisId}-discovery`,
       batchId: `${campaignId}-${hypothesis.hypothesisId}-discovery`,
       artifactRoot,
-      ledgerPath,
+      ledgerPath: input.ledgerPath,
       catalogDbPath,
-      now: createdAt,
+      now: created_at,
     })
     trialsUsed += discovery.batch.trial_count
     const runSummary: StrategyRndCampaignReport["runs"][number] = {
@@ -148,7 +149,7 @@ export function runStrategyRndCampaignWithDeps(
     if (winnerFilters.length > 0 && !hypothesis.validationIndicatorReportPath) {
       throw new Error(`strategy R&D campaign ${hypothesis.hypothesisId} requires validation_indicator_report_path for frozen indicator filters`)
     }
-    assertHoldoutUnused(ledgerPath, holdoutKeyForInput({
+    assertHoldoutUnused({ catalogDbPath, ledgerPath: input.ledgerPath }, holdoutKeyForInput({
       ...hypothesis,
       manifestPath: hypothesis.validationManifestPath,
       indicatorReportPath: hypothesis.validationIndicatorReportPath,
@@ -172,9 +173,9 @@ export function runStrategyRndCampaignWithDeps(
       searchTrialCount: trialsUsed,
       parameterStability: asRecord(asRecord(asRecord(winner.replay).assumptions).robustness).parameter_stability as JSONRecord,
       artifactRoot,
-      ledgerPath,
+      ledgerPath: input.ledgerPath,
       catalogDbPath,
-      now: createdAt,
+      now: created_at,
     })
     holdoutEvaluations += 1
     runSummary.validation_run_ref = validation.artifact_ref
@@ -197,9 +198,9 @@ export function runStrategyRndCampaignWithDeps(
   const artifactRef = join(artifactRoot, `${safeFileName(campaignId)}.campaign.json`)
   const report: StrategyRndCampaignReport = {
     campaign_id: campaignId,
-    created_at: createdAt,
+    created_at,
     artifact_ref: artifactRef,
-    ledger_ref: ledgerPath,
+    ledger_ref: ledgerRef,
     outcome: validatedCandidate ? "validated_candidate_found" : "no_validated_candidate",
     stop_reason: stopReason,
     calibration_gate: calibrationGate,
@@ -216,7 +217,7 @@ export function runStrategyRndCampaignWithDeps(
   registerCatalogArtifact({
     catalogDbPath,
     path: artifactRef,
-    now: createdAt,
+    now: created_at,
     referrerType: "run",
     referrerID: campaignId,
     role: "output",
@@ -354,7 +355,8 @@ function timeframeMilliseconds(timeframe: string): number {
 }
 
 function readManifestRange(manifestPath: string, timeframe: string): { first: number; last: number } {
-  const manifest = asRecord(JSON.parse(readFileSync(manifestPath, "utf8")))
+  const resolvedManifestPath = resolveReadablePath(manifestPath)
+  const manifest = asRecord(JSON.parse(readFileSync(resolvedManifestPath, "utf8")))
   const entry = asRecord(asRecord(manifest.timeframes)[timeframe])
   const first = Number(entry.first_open_ts)
   const last = Number(entry.last_open_ts)
@@ -365,7 +367,7 @@ function readManifestRange(manifestPath: string, timeframe: string): { first: nu
   if (!file) {
     throw new Error(`manifest missing timeframe ${timeframe}`)
   }
-  const rows = readFileSync(join(dirname(manifestPath), file), "utf8").trim().split(/\r?\n/).slice(1)
+  const rows = readFileSync(join(dirname(resolvedManifestPath), file), "utf8").trim().split(/\r?\n/).slice(1)
   const timestamps = rows
     .map((row) => Number(row.split(",")[1]))
     .filter((timestamp) => Number.isFinite(timestamp))
