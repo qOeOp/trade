@@ -4,6 +4,7 @@ import { join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
 
+import { replayDataHash } from "./replay-core"
 import { evaluateRndSignal, runStrategyRndBatch, runStrategyRndCampaign, runStrategyRndLoop, strategyRndBatchInputFromJson } from "./strategy-rnd"
 
 test("strategy R&D parser normalizes factor discovery options", () => {
@@ -282,6 +283,48 @@ test("time-series momentum family can declare break-even protection", () => {
     assert.equal(report.candidates[0].params.breakEvenAfterR, 1)
     assert.equal(report.candidates[0].params.breakEvenOffsetR, 0)
     assert.equal(report.candidates[0].replay.assumptions.protective_stop_policy, "optional_break_even_stop_activates_next_bar")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("relative weakness momentum family consumes benchmark data causally", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-relative-weakness-"))
+  try {
+    const assetDir = join(dir, "asset")
+    const benchmarkDir = join(dir, "benchmark")
+    mkdirSync(assetDir)
+    mkdirSync(benchmarkDir)
+    const assetManifest = writeRelativeManifest(assetDir, "ALTUSDT", "weak")
+    const benchmarkManifest = writeRelativeManifest(benchmarkDir, "BTCUSDT", "benchmark")
+    const report = runStrategyRndBatch({
+      manifestPath: assetManifest,
+      timeframe: "4h",
+      maxHoldBars: 8,
+      candidates: [{
+        candidateId: "C-REL-WEAK-SHORT",
+        family: "relative_weakness_momentum_v1",
+        parameterCount: 8,
+        params: {
+          side: "short",
+          benchmark_manifest_path: benchmarkManifest,
+          lookback_bars: 40,
+          relative_threshold_atr: 0.5,
+          stop_atr: 1,
+          max_risk_atr: 3,
+          reward_risk: 2,
+          break_even_after_r: 0.5,
+        },
+      }],
+    })
+
+    const candidate = report.candidates[0]
+    assert.equal(candidate.family, "relative_weakness_momentum_v1")
+    assert.equal(candidate.params.benchmarkManifestPath, benchmarkManifest)
+    assert.ok(candidate.replay.sample_count > 0)
+    assert.equal(candidate.replay.trades[0].reason, "rnd relative weakness momentum short")
+    assert.equal(candidate.replay.provenance.data_hash, replayDataHash(assetManifest, "4h", [benchmarkManifest]))
+    assert.equal(candidate.replay.provenance.supplemental_data?.[0].ref, benchmarkManifest)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -662,6 +705,45 @@ function writeStructureManifest(dir: string): string {
   const manifestPath = join(dir, "manifest.json")
   writeFileSync(manifestPath, JSON.stringify({
     symbol: "BTCUSDT",
+    timeframes: {
+      "4h": {
+        file: "4h.csv",
+      },
+    },
+  }))
+  return manifestPath
+}
+
+function writeRelativeManifest(dir: string, symbol: string, kind: "weak" | "benchmark"): string {
+  const candles: Array<{ open: number; high: number; low: number; close: number; volume: number }> = []
+  let close = 100
+  for (let index = 0; index < 280; index += 1) {
+    const drift = kind === "benchmark" ? 0.12 : index < 210 ? 0.05 : -0.18
+    const open = close
+    close = close + drift
+    candles.push({
+      open: Number(open.toFixed(4)),
+      high: Number((Math.max(open, close) + 0.8).toFixed(4)),
+      low: Number((Math.min(open, close) - 0.8).toFixed(4)),
+      close: Number(close.toFixed(4)),
+      volume: 1000 + index,
+    })
+  }
+  writeFileSync(join(dir, "4h.csv"), [
+    "date,timestamp,open,high,low,close,volume",
+    ...candles.map((item, index) => [
+      new Date(1_700_000_000_000 + index * 4 * 60 * 60 * 1000).toISOString(),
+      1_700_000_000_000 + index * 4 * 60 * 60 * 1000,
+      item.open,
+      item.high,
+      item.low,
+      item.close,
+      item.volume,
+    ].join(",")),
+  ].join("\n"))
+  const manifestPath = join(dir, "manifest.json")
+  writeFileSync(manifestPath, JSON.stringify({
+    symbol,
     timeframes: {
       "4h": {
         file: "4h.csv",

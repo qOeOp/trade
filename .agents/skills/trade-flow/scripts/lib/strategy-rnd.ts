@@ -95,12 +95,16 @@ function evaluateRndSignal(input: StrategyRndSignalInput): JSONRecord {
   const family = input.candidate.family || "trend_pullback_v1"
   const store = loadStrategyRndFeatureStore(input.indicatorReportPath)
   const configured = getRndFamily(family).configure(input.candidate.candidateId, input.candidate.params || {}, store)
+  const supplementalDataRefs = [
+    ...(input.indicatorReportPath ? [input.indicatorReportPath] : []),
+    ...(configured.supplementalDataRefs || []),
+  ]
   return {
     candidate_id: input.candidate.candidateId,
     family,
     params: configured.params,
     candidate_hash: hashCanonical({ family, params: configured.params }),
-    data_hash: replayDataHash(input.manifestPath, input.timeframe || configured.strategy.default_timeframe, input.indicatorReportPath ? [input.indicatorReportPath] : []),
+    data_hash: replayDataHash(input.manifestPath, input.timeframe || configured.strategy.default_timeframe, supplementalDataRefs),
     ...evaluateLatestSignal(
       configured.strategy,
       { manifestPath: input.manifestPath, timeframe: input.timeframe },

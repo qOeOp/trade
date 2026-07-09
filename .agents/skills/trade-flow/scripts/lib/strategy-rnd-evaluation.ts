@@ -45,6 +45,7 @@ export function runCandidate(input: StrategyRndBatchInput, candidate: StrategyRn
   const parameterCount = candidate.parameterCount ?? countActiveParameters(candidate.params || {})
   const rawParams = candidate.params || {}
   const configured = getRndFamily(family).configure(candidate.candidateId, rawParams, featureStore)
+  const supplementalDataRefs = replaySupplementalDataRefs(input.indicatorReportPath, configured)
   const replay = replayStrategy(configured.strategy, {
     manifestPath: input.manifestPath,
     timeframe: input.timeframe,
@@ -58,7 +59,7 @@ export function runCandidate(input: StrategyRndBatchInput, candidate: StrategyRn
     trialCount: input.searchTrialCount ?? input.candidates.length,
     parameterCount,
     antiOverfitStage: input.antiOverfitStage,
-    supplementalDataRefs: input.indicatorReportPath ? [input.indicatorReportPath] : [],
+    supplementalDataRefs,
   })
   const robustness = asRecord(replay.assumptions.robustness)
   robustness.parameter_stability = input.diagnosticMode
@@ -138,7 +139,7 @@ export function runConfiguredReplay(input: StrategyRndBatchInput, configured: Rn
     trialCount: input.searchTrialCount ?? input.candidates.length,
     parameterCount,
     antiOverfitStage: input.antiOverfitStage,
-    supplementalDataRefs: input.indicatorReportPath ? [input.indicatorReportPath] : [],
+    supplementalDataRefs: replaySupplementalDataRefs(input.indicatorReportPath, configured),
   })
 }
 
@@ -215,7 +216,7 @@ export function evaluateParameterStability(
         slippageBps: input.slippageBps,
         fundingBpsPer8h: input.fundingBpsPer8h,
         fundingEvents: loadFundingEvents(input.indicatorReportPath),
-        supplementalDataRefs: input.indicatorReportPath ? [input.indicatorReportPath] : [],
+        supplementalDataRefs: replaySupplementalDataRefs(input.indicatorReportPath, configured),
       })
       results.push({ parameter: key, multiplier, avg_r: replay.avg_r, total_r: replay.total_r })
     }
@@ -228,6 +229,13 @@ export function evaluateParameterStability(
     worst_avg_r: results.length > 0 ? Math.min(...results.map((item) => item.avg_r)) : 0,
     results,
   }
+}
+
+function replaySupplementalDataRefs(indicatorReportPath: string | undefined, configured: RndFamilyConfigured): string[] {
+  return [
+    ...(indicatorReportPath ? [indicatorReportPath] : []),
+    ...(configured.supplementalDataRefs || []),
+  ]
 }
 
 export function evaluateRndCandidate(

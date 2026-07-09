@@ -54,7 +54,7 @@ export function buildRndLedgerRecord(input: {
   const dataHash = replayDataHash(
     input.input.manifestPath,
     input.input.timeframe || "4h",
-    input.input.indicatorReportPath ? [input.input.indicatorReportPath] : [],
+    supplementalDataRefsForInput(input.input),
   )
   return {
     run_id: input.runId,
@@ -126,9 +126,30 @@ export function holdoutKeyForInput(input: StrategyRndLoopInput): string {
   const dataHash = replayDataHash(
     input.manifestPath,
     input.timeframe || "4h",
-    input.indicatorReportPath ? [input.indicatorReportPath] : [],
+    supplementalDataRefsForInput(input),
   )
   return hashCanonical({ stage: "locked_holdout", data_hash: dataHash })
+}
+
+function supplementalDataRefsForInput(input: StrategyRndLoopInput): string[] {
+  const refs = input.indicatorReportPath ? [input.indicatorReportPath] : []
+  for (const candidate of input.candidates || []) {
+    const params = candidate.params || {}
+    const benchmark = stringField(params.benchmark_manifest_path ?? params.benchmarkManifestPath)
+    if (benchmark) refs.push(benchmark)
+    for (const ref of readStrings(params.supplemental_data_refs ?? params.supplementalDataRefs)) {
+      refs.push(ref)
+    }
+  }
+  return Array.from(new Set(refs)).sort()
+}
+
+function readStrings(value: unknown): string[] {
+  return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && item.trim().length > 0) : []
+}
+
+function stringField(value: unknown): string {
+  return typeof value === "string" ? value.trim() : ""
 }
 
 export function loadRndLedger(path: string): StrategyRndLedgerRecord[] {

@@ -1,4 +1,4 @@
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import assert from "node:assert/strict"
@@ -46,6 +46,28 @@ test("strategy R&D ledger record includes locked holdout key", () => {
     assert.equal(record.stage, "locked_holdout")
     assert.equal(record.holdout_key, holdoutKeyForInput(input))
     assert.equal(record.rejected_reasons[0].check_id, "low_oos_r")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("strategy R&D ledger holdout key includes benchmark supplemental data", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-ledger-supplemental-"))
+  try {
+    const manifestPath = writeManifest(dir)
+    const benchmarkManifestPath = writeManifest(join(dir, "benchmark"))
+    const base = {
+      manifestPath,
+      timeframe: "4h",
+      antiOverfitStage: "locked_holdout" as const,
+      candidates: [{ candidateId: "C-1", params: { side: "short" } }],
+    }
+    const withBenchmark = {
+      ...base,
+      candidates: [{ candidateId: "C-1", params: { side: "short", benchmark_manifest_path: benchmarkManifestPath } }],
+    }
+
+    assert.notEqual(holdoutKeyForInput(base), holdoutKeyForInput(withBenchmark))
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -137,6 +159,7 @@ function batchView(): StrategyRndLedgerBatchView {
 }
 
 function writeManifest(dir: string): string {
+  mkdirSync(dir, { recursive: true })
   writeFileSync(join(dir, "4h.csv"), [
     "timestamp,open_time,open,high,low,close,volume",
     "2026-07-08T00:00:00Z,1783468800000,100,101,99,100.5,1000",

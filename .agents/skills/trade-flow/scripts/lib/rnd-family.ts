@@ -10,6 +10,7 @@ interface RndFamilyConfigured {
   strategy: ReplayStrategy
   rewardRisk: number
   params: JSONRecord
+  supplementalDataRefs?: string[]
 }
 
 interface RndFamilyModule {
