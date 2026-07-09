@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
-import { runStrategyPanelRnd, strategyPanelRndInputFromJson } from "./strategy-panel-rnd"
+import { catastrophicAssetsFrom, runStrategyPanelRnd, strategyPanelRndInputFromJson } from "./strategy-panel-rnd"
 
 test("panel R&D pools samples but keeps per-asset evidence", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-panel-rnd-"))
@@ -78,6 +78,49 @@ test("panel R&D diagnostic mode skips expensive null controls and cannot promote
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test("panel R&D attributes assets that trigger catastrophic veto", () => {
+  const assets = catastrophicAssetsFrom([{
+    dataset_id: "SOL",
+    symbol: "SOLUSDT",
+    sample_count: 100,
+    avg_r: 0.01,
+    total_r: 1,
+    profit_factor: 1.1,
+    max_drawdown_r: 17,
+    oos_positive: true,
+    cost_stress_positive: false,
+    null_control_passed: true,
+    null_control_blocked_by: [],
+  }, {
+    dataset_id: "AVAX",
+    symbol: "AVAXUSDT",
+    sample_count: 100,
+    avg_r: -0.2,
+    total_r: -12,
+    profit_factor: 0.8,
+    max_drawdown_r: 8,
+    oos_positive: false,
+    cost_stress_positive: false,
+    null_control_passed: true,
+    null_control_blocked_by: [],
+  }, {
+    dataset_id: "LINK",
+    symbol: "LINKUSDT",
+    sample_count: 100,
+    avg_r: 0.1,
+    total_r: 10,
+    profit_factor: 1.4,
+    max_drawdown_r: 6,
+    oos_positive: true,
+    cost_stress_positive: true,
+    null_control_passed: true,
+    null_control_blocked_by: [],
+  }])
+  assert.deepEqual(assets.map((asset) => asset.dataset_id), ["SOL", "AVAX"])
+  assert.deepEqual(assets[0].reasons, ["max_drawdown_r_above_15"])
+  assert.deepEqual(assets[1].reasons, ["total_r_below_minus_10"])
 })
 
 test("panel parser requires real dataset identifiers downstream", () => {

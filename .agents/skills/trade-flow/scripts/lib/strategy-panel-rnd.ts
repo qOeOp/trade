@@ -48,6 +48,7 @@ interface PanelCandidateReport {
   }
   null_controls: JSONRecord
   panel_null_controls?: JSONRecord
+  catastrophic_assets: Array<{ dataset_id: string; symbol: string; total_r: number; max_drawdown_r: number; reasons: string[] }>
   assets: PanelAssetReport[]
   gate: { accepted: boolean; blocked_by: Array<{ check_id: string; reason: string }> }
 }
@@ -100,12 +101,13 @@ function runStrategyPanelRnd(input: StrategyPanelRndInput): JSONRecord {
       asset_count: assets.length,
     }
     const blockedBy: Array<{ check_id: string; reason: string }> = []
+    const catastrophicAssets = catastrophicAssetsFrom(assets)
     if (sampleCount < 100) blockedBy.push({ check_id: "PANEL-SAMPLES", reason: `pooled sample_count ${sampleCount} is below 100` })
     if (positiveAssets < requiredPositive) blockedBy.push({ check_id: "PANEL-BREADTH", reason: `${positiveAssets}/${assets.length} assets are positive; ${requiredPositive} required` })
     if (assets.filter((asset) => asset.oos_positive).length < requiredPositive) blockedBy.push({ check_id: "PANEL-OOS", reason: "selection validation is not positive across enough assets" })
     if (assets.filter((asset) => asset.cost_stress_positive).length < requiredPositive) blockedBy.push({ check_id: "PANEL-COST", reason: "cost stress is not positive across enough assets" })
     if (!input.diagnosticMode && nullPassedAssets < requiredPositive) blockedBy.push({ check_id: "PANEL-NULL", reason: `${nullPassedAssets}/${assets.length} assets beat candidate null controls; ${requiredPositive} required` })
-    if (assets.some((asset) => asset.total_r < -10 || asset.max_drawdown_r > 15)) blockedBy.push({ check_id: "PANEL-CATASTROPHIC", reason: "at least one asset exceeds the catastrophic loss veto" })
+    if (catastrophicAssets.length > 0) blockedBy.push({ check_id: "PANEL-CATASTROPHIC", reason: "at least one asset exceeds the catastrophic loss veto" })
     if (input.diagnosticMode) blockedBy.push({ check_id: "PANEL-DIAGNOSTIC-ONLY", reason: "diagnostic mode skips candidate null controls and parameter stability; rerun survivors with diagnostic_mode=false" })
     return {
       candidate_id: candidate.candidateId,
@@ -118,6 +120,7 @@ function runStrategyPanelRnd(input: StrategyPanelRndInput): JSONRecord {
         asset_count: assets.length,
       },
       null_controls: nullControl,
+      catastrophic_assets: catastrophicAssets,
       assets,
       gate: { accepted: blockedBy.length === 0, blocked_by: blockedBy },
     }
@@ -238,4 +241,17 @@ function alternateCandidateIndex(current: number, assetIndex: number, trial: num
   return (current + 1 + ((assetIndex + trial) % (count - 1))) % count
 }
 
-export { runStrategyPanelRnd, strategyPanelRndInputFromJson, type StrategyPanelRndInput }
+function catastrophicAssetsFrom(assets: PanelAssetReport[]): Array<{ dataset_id: string; symbol: string; total_r: number; max_drawdown_r: number; reasons: string[] }> {
+  return assets.map((asset) => ({
+    dataset_id: asset.dataset_id,
+    symbol: asset.symbol,
+    total_r: asset.total_r,
+    max_drawdown_r: asset.max_drawdown_r,
+    reasons: [
+      ...(asset.total_r < -10 ? ["total_r_below_minus_10"] : []),
+      ...(asset.max_drawdown_r > 15 ? ["max_drawdown_r_above_15"] : []),
+    ],
+  })).filter((asset) => asset.reasons.length > 0)
+}
+
+export { catastrophicAssetsFrom, runStrategyPanelRnd, strategyPanelRndInputFromJson, type StrategyPanelRndInput }

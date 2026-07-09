@@ -7,6 +7,7 @@ import { readNonNegativeNumber, readPositiveInteger, readPositiveNumber, readSid
 interface Params {
   side: SideFilter
   signalMode: SignalMode
+  confirmationMode: ConfirmationMode
   benchmarkManifestPath: string
   benchmarkTimeframe: string
   lookbackBars: number
@@ -32,6 +33,7 @@ interface RelativeMove {
 }
 
 type SignalMode = "momentum" | "reversion"
+type ConfirmationMode = "none" | "reversal_close"
 
 const family: RndFamilyModule = {
   id: "relative_weakness_momentum_v1",
@@ -55,6 +57,7 @@ function normalize(raw: JSONRecord): Params {
   return {
     side: readSide(raw.side),
     signalMode: readSignalMode(raw.signal_mode ?? raw.signalMode),
+    confirmationMode: readConfirmationMode(raw.confirmation_mode ?? raw.confirmationMode),
     benchmarkManifestPath,
     benchmarkTimeframe: stringField(raw.benchmark_timeframe ?? raw.benchmarkTimeframe) || "4h",
     lookbackBars: readPositiveInteger(raw.lookback_bars ?? raw.lookbackBars, 120),
@@ -74,6 +77,7 @@ function json(params: Params): JSONRecord {
   return {
     side: params.side,
     ...(params.signalMode !== "momentum" ? { signalMode: params.signalMode } : {}),
+    ...(params.confirmationMode !== "none" ? { confirmationMode: params.confirmationMode } : {}),
     benchmarkManifestPath: params.benchmarkManifestPath,
     benchmarkTimeframe: params.benchmarkTimeframe,
     lookbackBars: params.lookbackBars,
@@ -116,9 +120,11 @@ function strategy(id: string, params: Params, benchmark: BenchmarkSeries, store:
       const longSetup = params.signalMode === "momentum" ? strongAsset : weakAsset
       const shortSetup = params.signalMode === "momentum" ? weakAsset : strongAsset
       if ((params.side === "short" || params.side === "both") && shortSetup) {
+        if (!passesConfirmation("short", candles, index, params.confirmationMode)) return null
         return signal("short", candle, index, entryIndex, entryPrice, atr, move, params)
       }
       if ((params.side === "long" || params.side === "both") && longSetup) {
+        if (!passesConfirmation("long", candles, index, params.confirmationMode)) return null
         return signal("long", candle, index, entryIndex, entryPrice, atr, move, params)
       }
       return null
@@ -144,6 +150,15 @@ function passesBenchmarkBounds(benchmarkReturn: number, params: Params): boolean
   if (params.benchmarkReturnMax !== undefined && benchmarkReturn > params.benchmarkReturnMax) return false
   if (params.benchmarkReturnMin !== undefined && benchmarkReturn < params.benchmarkReturnMin) return false
   return true
+}
+
+function passesConfirmation(side: "long" | "short", candles: Candle[], index: number, mode: ConfirmationMode): boolean {
+  if (mode === "none") return true
+  const candle = candles[index]
+  const previous = candles[index - 1]
+  if (!previous) return false
+  if (side === "short") return candle.close < candle.open && candle.close < previous.close
+  return candle.close > candle.open && candle.close > previous.close
 }
 
 function signal(side: "long" | "short", candle: Candle, index: number, entryIndex: number, entry: number, atr: number, move: RelativeMove, params: Params): ReplaySignal | null {
@@ -174,6 +189,10 @@ function optionalNumber(value: unknown): number | undefined {
 
 function readSignalMode(value: unknown): SignalMode {
   return value === "reversion" ? "reversion" : "momentum"
+}
+
+function readConfirmationMode(value: unknown): ConfirmationMode {
+  return value === "reversal_close" ? "reversal_close" : "none"
 }
 
 export default family

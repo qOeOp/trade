@@ -443,6 +443,66 @@ test("relative weakness family can test reversion without adding a new family", 
   }
 })
 
+test("relative weakness reversion can wait for a reversal close confirmation", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-relative-confirmation-"))
+  try {
+    const assetDir = join(dir, "asset")
+    const benchmarkDir = join(dir, "benchmark")
+    mkdirSync(assetDir)
+    mkdirSync(benchmarkDir)
+    const assetManifest = writeRelativeManifest(assetDir, "ALTUSDT", "strong-reversal")
+    const benchmarkManifest = writeRelativeManifest(benchmarkDir, "BTCUSDT", "benchmark")
+    const report = runStrategyRndBatch({
+      manifestPath: assetManifest,
+      timeframe: "4h",
+      maxHoldBars: 8,
+      candidates: [{
+        candidateId: "C-REL-REVERSION-SHORT-RAW",
+        family: "relative_weakness_momentum_v1",
+        parameterCount: 8,
+        params: {
+          side: "short",
+          signal_mode: "reversion",
+          benchmark_manifest_path: benchmarkManifest,
+          benchmark_return_min: 0.01,
+          lookback_bars: 40,
+          relative_threshold_atr: 0.5,
+          stop_atr: 1,
+          reward_risk: 2,
+        },
+      }, {
+        candidateId: "C-REL-REVERSION-SHORT-CONFIRMED",
+        family: "relative_weakness_momentum_v1",
+        parameterCount: 8,
+        params: {
+          side: "short",
+          signal_mode: "reversion",
+          confirmation_mode: "reversal_close",
+          benchmark_manifest_path: benchmarkManifest,
+          benchmark_return_min: 0.01,
+          lookback_bars: 40,
+          relative_threshold_atr: 0.5,
+          stop_atr: 1,
+        },
+      }],
+    })
+
+    const raw = report.candidates[0]
+    const confirmed = report.candidates[1]
+    assert.ok(raw)
+    assert.ok(confirmed)
+    assert.equal(confirmed.params.confirmationMode, "reversal_close")
+    assert.ok(raw.replay.sample_count > confirmed.replay.sample_count)
+    assert.ok(confirmed.replay.sample_count > 0)
+    const trade = confirmed.replay.trades[0]
+    assert.ok(trade)
+    assert.ok(trade.meta)
+    assert.equal(trade.meta.confirmationMode, "reversal_close")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("strategy R&D batch composes generic factor conditions without indicator-specific branches", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-factor-compose-"))
   try {
@@ -827,11 +887,11 @@ function writeStructureManifest(dir: string): string {
   return manifestPath
 }
 
-function writeRelativeManifest(dir: string, symbol: string, kind: "weak" | "benchmark" | "benchmark-weak"): string {
+function writeRelativeManifest(dir: string, symbol: string, kind: "weak" | "benchmark" | "benchmark-weak" | "strong-reversal"): string {
   const candles: Array<{ open: number; high: number; low: number; close: number; volume: number }> = []
   let close = 100
   for (let index = 0; index < 280; index += 1) {
-    const drift = kind === "benchmark" ? 0.12 : kind === "benchmark-weak" && index >= 210 ? -0.08 : index < 210 ? 0.05 : -0.18
+    const drift = relativeFixtureDrift(kind, index)
     const open = close
     close = close + drift
     candles.push({
@@ -864,6 +924,13 @@ function writeRelativeManifest(dir: string, symbol: string, kind: "weak" | "benc
     },
   }))
   return manifestPath
+}
+
+function relativeFixtureDrift(kind: "weak" | "benchmark" | "benchmark-weak" | "strong-reversal", index: number): number {
+  if (kind === "benchmark") return 0.12
+  if (kind === "benchmark-weak" && index >= 210) return -0.08
+  if (kind === "strong-reversal") return index >= 210 && index % 8 === 0 ? -0.55 : 0.22
+  return index < 210 ? 0.05 : -0.18
 }
 
 function buildReplayCandles(): Array<{ open: number; high: number; low: number; close: number; volume: number }> {
