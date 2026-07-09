@@ -36,11 +36,11 @@ latest_observe.action_intent.request
 - 需要对 draft strategy 做机械 replay，产生 shadow / live-small 资格证据
 - 需要用统一 replay core + strategy registry 回放不同策略
 - 需要运行受搜索预算约束的 strategy R&D candidate batch
-- 需要运行一轮可审计的 strategy R&D loop，并写入 R&D artifact / JSONL ledger
+- 需要运行一轮可审计的 strategy R&D loop，并写入 R&D artifact / `data_catalog.db`
 - 需要在总搜索预算内连续运行多条 hypothesis，并对 discovery winner 自动做不重叠外部验证
 - 需要用固定多资产趋势基准和组合权重循环移位负对照标定 R&D 管线
 - 需要运行固定 known-edge calibration suite，比较 beta baseline、趋势基准与横截面强弱基准
-- 需要把 replay / shadow / live-small 样本写入 strategy evidence ledger
+- 需要把 replay / shadow / live-small 样本写入 `data_catalog.db` strategy evidence
 - 需要生成 strategy review 报告，判断 stale evidence / promotion gate / 下一步
 - 需要按证据门槛把 strategy status 从 `draft -> shadow -> live-small / paused`
 - 需要报告或清理过期、未引用、未 pin 的 replay / market artifact
@@ -102,16 +102,16 @@ latest_observe.action_intent.request
   - `--observe-from-skills --json <payload>`：调用只读 `binance-account-snapshot` / `binance-symbol-snapshot` 后构建 observe event
   - `--replay-strategy --manifest <manifest> --strategy-id <id>`：读取 OHLCV manifest，通过 replay registry 机械回放策略，并输出统计与 gate
   - `--strategy-rnd-batch --json <payload>`：运行最多 10 个候选；`factor_discover=true + factor_compose=true` 时先做因子统计筛选，再按角色与参数预算组合到预声明 base family；统一 replay/OOS、candidate null controls 和失败归因，不自动升格
-  - `--strategy-rnd-loop --json <payload>`：运行一轮 R&D loop，写 artifact JSON 和 `strategy-rnd-ledger.jsonl`；不写 `trade.db`，不自动升格
+  - `--strategy-rnd-loop --json <payload>`：运行一轮 R&D loop，写 artifact JSON 和 `data_catalog.db.strategy_rnd_run`；不写 `trade.db`，不自动升格
   - `--strategy-rnd-campaign --json <payload>`：依次运行 hypothesis queue；可选 `calibration_report_path` 未过则零 trial 停止；未产生 discovery winner 才继续下一假设；首个 winner 冻结后只查看一次不重叠 locked holdout，通过即返回，失败即结束 campaign
   - `--strategy-panel-rnd --json <payload>`：同一候选在至少三个资产上复用统一 replay，保留逐资产证据并执行样本、广度、OOS、成本与灾难损失门槛
   - `--strategy-benchmark --json <payload>`：运行固定 30/90/180 日、15% 目标波动的多资产趋势基准、成本/资金费压力、时间折和组合权重循环移位负对照；只标定研究管线
   - `--strategy-calibration-suite --json <payload>`：运行 buy-and-hold / cash baseline、固定趋势基准、固定横截面强弱基准，并可消费 dataset `indicator_report_path` 中的 exact funding events，输出 report hash、可选 previous-run comparison、data_panel、beta、fee/slippage 成本拆分、funding、换手、暴露、时间/趋势/波动 regime 稳定性、time-shift / side-flip / asset-shuffle 负对照与数据广度诊断；只回答 R&D 管线该先修哪里
   - `--strategy-signal --json <payload>`：用最新闭合 K 线与传入 `entry_price` 评估 candidate，并返回稳定 candidate hash；只返回 `entry / no_action`，不写 DB、不执行
-  - `--append-strategy-evidence --strategy <path> --ledger <path> --json <payload>`：把 replay / shadow / live-small / review_batch 证据追加进 JSONL ledger
-  - `--strategy-review --strategy <path> --ledger <path> [--db <path>]`：读取 strategy、evidence ledger 和可选 DB review，生成迭代报告
-  - `--strategy-promote --strategy <path> --ledger <path> --to <status> [--yes]`：按 gate dry-run 或更新 strategy frontmatter status
-  - `--strategy-cycle --strategy <path> --ledger <path> [--db <path>] [--to <status>] [--yes]`：把 DB reviews 去重同步为 shadow evidence，再生成 review，并可选 promotion dry-run / apply
+  - `--append-strategy-evidence --strategy <path> --catalog-db <path> --json <payload>`：把 replay / shadow / live-small / review_batch 证据写入 catalog DB
+  - `--strategy-review --strategy <path> --catalog-db <path> [--db <path>]`：读取 strategy、catalog evidence 和可选 DB review，生成迭代报告
+  - `--strategy-promote --strategy <path> --catalog-db <path> --to <status> [--yes]`：按 gate dry-run 或更新 strategy frontmatter status
+  - `--strategy-cycle --strategy <path> --catalog-db <path> [--db <path>] [--to <status>] [--yes]`：把 DB reviews 去重同步为 shadow evidence，再生成 review，并可选 promotion dry-run / apply
   - `--artifact-gc --artifact-root <path> --retention-hours <n>`：报告或清理过期未引用 artifact；默认 dry-run，删除必须加 `--yes`
   - `--catalog-init / --catalog-scan / --catalog-query / --catalog-stale / --catalog-gc`：初始化、扫描、查询、报告或显式清理 `data_catalog.db` 管理的生成产物；`--catalog-gc` 删除必须加 `--yes`
   - `--run-shadow-from-skills --json <payload>`：调用只读 snapshot skills，构建 observe，然后跑 shadow 链并落 `order_fill`
@@ -149,6 +149,7 @@ latest_observe.action_intent.request
 - `--strategy-signal` 默认要求最后一根闭合 K 线距当前不超过 1 个周期；陈旧或尚未闭合的数据直接拒绝
 - factor 发现、目录、解释和计算由 `tech-indicators` descriptor 提供；trade-flow 只消费稳定 `factor_id` 与 feature series，不硬编码 indicator 名称
 - R&D 需要 feature-series 时优先用 `scripts/feature-report.ts` 生成或命中缓存；不得在仓库根目录直接 `go run .agents/skills/tech-indicators/scripts`，也不得重复计算已匹配 manifest 的 feature artifact
+- 读取旧 R&D / panel artifact 时，`data/*-panel-*` manifest 路径会兼容解析到当前 `tmp/panels/*`；这是迁移兼容，不是新产物位置规范，新 panel 仍应写 `tmp/panels/` 且使用 repo 相对路径
 - factor condition 通用支持 `level / delta / slope / zscore / percentile` 与 `gt / lt / between`；旧 `indicator_filters` 自动映射为 `level`，仅用于兼容
 - bounded composer 最多组合 3 个不同角色 factor、最多输出 10 个 candidate，并把 threshold 与 transform lookback 计入 8 参数上限；不做无界笛卡尔积
 - `factor_discover=true` 先用 base family 的实际 setup/trade R 作为目标，再做 causal rank IC；全部扫描 factor 通过 5% FDR、时间折、regime 与 `|corr|>=0.85` 去重后才能成为 seed
@@ -162,7 +163,7 @@ latest_observe.action_intent.request
 - replay core 固定保守口径：同一 lane 不重叠持仓、同 K 同时触发 stop/target 时先算 stop、止损跳空按更差开盘、可选 break-even 保护止损只在触发 K 线之后生效、支持 fee/slippage；factor report 含 funding events 时按方向与结算时点逐次计费，否则使用 adverse funding stress；训练标签跨 OOS 边界时 purge
 - funding events 若未覆盖完整 replay 区间或存在大于 9 小时缺口，证据标记 `R-FUNDING-COVERAGE`，不得进入 shadow
 - `gate.live_small_candidate` 在 replay 阶段永远是 false；live-small 还必须经过 shadow 与人工确认
-- strategy iteration 使用 `./data/strategy-evidence.jsonl` 这类 JSONL ledger；不新增 DB 表，不扩大 `plan_event.kind`
+- strategy iteration 使用 `data_catalog.db.strategy_evidence`；不扩大 `plan_event.kind`，不把策略准入证据混进 `trade.db`
 - replay evidence 绑定 `policy_hash + harness_hash + data_hash + assumptions_hash`；OHLCV 与实际消费的 factor report 同属 data hash，任一变化、数据不可用或 checksum 不符即 stale
 - promotion 只接受 `schema_version>=2`、`closed_candles_only=true` 且 checksum 可核验的数据；旧 manifest 可研究，不可准入
 - `policy_hash` 只覆盖可交易策略定义；strategy markdown 中 `## Setup Certificate` 之前的研究引用、replay refs、迭代日志不应让 evidence stale

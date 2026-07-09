@@ -6,6 +6,8 @@
 
 它不是新的架构计划；只定义项目级质量闸。能自动检查的进入 `scripts/quality-check.sh`，不能自动检查的作为 review 口径。
 
+本仓库默认面向真实 Binance USDM `live-small`。质量闸只证明代码、契约与 helper 干净；真实交易安全边界由 runtime permissions、preflight、execution contract、显式 `--yes` 与 exchange fact reconciliation 承担。
+
 ## 1. 项目级入口
 
 ```bash
@@ -17,7 +19,7 @@ scripts/quality-check.sh
 - Git diff 空白检查：冲突标记、尾随空格、空白错误
 - Shell：`scripts/*.sh` 语法检查
 - Helper：`CODEX_HOME`、automation memory、Python command fallback smoke
-- TypeScript：所有带 `package.json` 且含 `check` script 的 skill 执行 `bun run check`
+- TypeScript：根目录 Bun install surface 统一安装依赖；禁止 skill-local `bun.lock`；skill 依赖版本必须与根 `package.json` 一致；禁止 skill 之间直接 import / re-export，复用只走 `_shared`，协作走 CLI JSON contract；所有带 `package.json` 且含 `check` script 的 skill 执行 `bun run check`
 - Go：`gofmt -l` 必须为空，随后 `go test ./...` 与 `go vet ./...`
 - Python：`compileall` + `python -W error -m unittest discover`
 - Hygiene：项目文件不得泄漏本机绝对路径
@@ -38,7 +40,7 @@ scripts/quality-check.sh
 
 - 小改动：按 [check-contract.md](check-contract.md) 跑最小检查
 - 提交前：跑 `scripts/quality-check.sh`
-- 涉及真实 Binance 写接口：仍需用户显式授权；quality gate 不执行真实下单 / 撤单 / 调仓
+- 涉及真实 Binance 写接口：仍需显式 `--yes`；quality gate 不执行真实下单 / 撤单 / 调仓
 
 ## 4. 不伪装的缺口
 

@@ -128,7 +128,7 @@ Replay / shadow / live 对齐要求：
 - `replay-strategies`：`strategy_id -> ReplayStrategy` registry；新增策略只补 strategy definition，不改 core
 - `--replay-strategy`：只读文件，不写 DB，不触发 Binance
 - `--strategy-rnd-batch`：最多 10 个候选；可先在 discovery 数据上筛 factor，再按角色、数量与参数预算组合到预声明 base family；统一 replay/OOS、candidate null controls 和失败归因，不自动升格
-- `--strategy-rnd-loop`：包装一轮 R&D batch，写 artifact JSON 与 `strategy-rnd-ledger.jsonl`；ledger 只做研究审计，不作为 promote evidence
+- `--strategy-rnd-loop`：包装一轮 R&D batch，写 artifact JSON 与 `data_catalog.db.strategy_rnd_run`；R&D 审计不作为 promote evidence
 - `--strategy-rnd-campaign`：在全局最多 10 次 discovery trial 内运行 hypothesis queue；每个 hypothesis 必须带 `thesis_certificate`，缺 edge 类型、行为假设、参与者、regime、失效条件、成本敏感度、候选 universe 或 null controls 时零 trial 停止；可选 `calibration_report_path` 未过则零 trial 停止；没有 winner 才继续，首个 winner 冻结后只查看一次不重叠 locked holdout，失败即结束 campaign
 - `--strategy-panel-rnd`：同一候选跨至少 3 个资产评估，保留逐资产证据，并检查 pooled sample、广度、OOS、成本与灾难损失
 - `--strategy-benchmark`：用固定多资产趋势规则、15% 目标波动、成本/资金费压力和组合权重循环移位负对照标定 R&D 管线；不写 DB、不产生准入证据
@@ -146,7 +146,7 @@ Replay / shadow / live 对齐要求：
 - replay 对训练标签跨 OOS 分界做 purge；多候选样本足够时执行四时间块选择反转审计
 - candidate R&D 固定输出 side-flip 与 entry-lag null controls；候选为正但打不过有效 null 时不能进入下一阶段
 - replay 成本包含 fee、slippage、止损 gap；有 funding events 时逐次结算，无事件时才使用 adverse funding fallback；历史 L2 queue 缺失时不估算 maker fill
-- `strategy-evidence.jsonl`：保存 replay / shadow / live-small / review_batch 证据，不进入 `trade.db`
+- `data_catalog.db.strategy_evidence`：保存 replay / shadow / live-small / review_batch 证据，不进入 `trade.db`
 - evidence fingerprint：`policy_hash + harness_hash + data_hash + assumptions_hash + temporal_contract`；data hash 同时覆盖 OHLCV 与消费的 factor report，temporal contract 记录 closed-candle reference、availability、lookback、label end、universe selection，策略、回放代码、数据、时点合同或假设任一变化均使旧证据 stale
 - `anti_overfit`：普通末段切片只算 selection validation；准入证据必须是只查看一次的 locked holdout 或 locked walk-forward
 - `external_validation` 可评估完整不重叠区间，但不提供 shadow 准入资格；历史上已被项目使用的数据不得重新命名为 locked holdout
@@ -318,7 +318,7 @@ strategy policy 走 markdown；account / notify config 走 JSON；市场原始�
 - `trade.db` 只存事件、摘要和 refs，不存原始 OHLCV / aggTrades / replay 大对象
 - 未被 strategy evidence、review、active observe 或 `.pin` 引用的文件型 artifact 必须可清理
 - strategy evidence ledger 独立为 JSONL；它是策略准入证据，不是交易事实源
-- ad-hoc 分析优先写临时目录；只有会影响策略准入或复盘的结果进入 `./data/artifacts` 类目录
+- ad-hoc 分析优先写 `./tmp/artifacts` / `./tmp/panels`；只有会影响策略准入或复盘的结果才归档到 `./data/artifacts` 类目录
 - 清理必须默认 dry-run；只有显式确认才删除
 - Git 边界与 data 留存规则见 [data-hygiene.md](data-hygiene.md)
 

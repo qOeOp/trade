@@ -1,6 +1,6 @@
 ---
 title: R&D Module Audit
-updated_at: 2026-07-09 12:03 CST
+updated_at: 2026-07-09 20:35 CST
 ---
 
 # R&D Module Audit
@@ -19,13 +19,22 @@ updated_at: 2026-07-09 12:03 CST
 - 已补：strategy review 输出 `cost_model_feedback`，把 review-derived fee / slippage / funding / total cost drag 反灌成 per-trade R 值与 unknown-size capacity bucket，供下一轮 replay cost stress 使用。
 - 已补：forward holdout 测试版输出冻结候选 hash、状态和下一步动作；主数据与 benchmark / supplemental 数据都必须是机器可读 `frozen_at` 之后的闭合样本，缺 `frozen_at` 的真实 artifact 会被拒绝。
 - 已补：calibration panel 明示 `survivor_only`，并支持通过外部归档 manifest 合入 inactive / delisted symbol；没有可靠归档输入时仍不得声称 survivorship robust。
+- 已补：R&D replay / panel / campaign / forward holdout / shadow tracker 读取 manifest 时支持把迁移前 `data/*-panel-*` 路径安全解析到当前 `tmp/panels/*`，并加回归测试；旧 artifact 可复读，但新产物仍应写 repo 相对 `tmp/panels/...`。
 - 未补：按订单 notional / ADV / depth 的 capacity 与 market impact 分桶、White Reality Check / Hansen SPA 完整实现、可靠 delisted 历史数据源。
 
 ## 当前测试状态
 
 - 2026-07-09 12:03 CST，`high-beta-alt-be-fresh` 冻结候选完成冻结点后第一根闭合 4H forward-holdout：冻结点 `2026-07-09T01:15:07Z`，最新闭合样本 `2026-07-09T04:00:00Z`，6/6 数据集 eligible，0 blocked。
 - 结果：`status=signal_found`，仅 `1000PEPEUSDT` 触发 short entry；`FILUSDT / AAVEUSDT / ETCUSDT / LDOUSDT / ORDIUSDT` 均为 `no_action`。该结果只能进入 shadow/paper review，不提供 promotion evidence。
-- 已生成 R&D shadow tracker：`status=open`，纸面 short entry `0.0025843`，stop `0.0026845145`，target `0.0023838710`，等待后续 4H 闭合 K 线判定；artifact：`data/artifacts/strategy-rnd/rd-shadow-tracker-high-beta-be-fresh-2026-07-09-1215-cst.json`。
+- 已生成 R&D shadow tracker：`status=open`，纸面 short entry `0.0025843`，stop `0.0026845145`，target `0.0023838710`，等待后续 4H 闭合 K 线判定；artifact：`tmp/artifacts/strategy-rnd/rd-shadow-tracker-high-beta-be-fresh-2026-07-09-1215-cst.json`。
+- 2026-07-09 19:45 CST，新增三条 liquid-alt 机制检查：
+  - `vol-compression-alt-validation-2026-07-09`：VCB long 三变体全部 `no_promote`；原始 `VCB-L-30-120` 在 8 资产 panel 上 `total_r=-32.522326`、3/8 资产正， blocked by breadth / cost / catastrophic / asset-shuffle。
+  - `relative-capitulation-reversion-long-2026-07-09`：BTC 弱势里做相对输家多头回归失败；三变体全部 pooled negative，最差 `RRV-L-BTCWEAK-180-1R-RC` 为 `total_r=-199.35362`、0/8 资产正。
+  - `relative-btc-weak-overstrong-short-2026-07-09`：`RRV-S-BTCWEAK-180-1R-RC` 有机制但不过 broad-universe gate；`sample_count=1322`、`avg_r=0.048568`、`total_r=64.207004`、7/8 资产正，panel asset-shuffle 通过，但 `TRXUSDT` 触发 `PANEL-CATASTROPHIC`（`total_r=-28.993152`、`max_drawdown_r=41.550344`）。
+- 已新增 draft policy：`S-ALT-4H-BTC-WEAK-RELATIVE-WINNER-REVERSION-SHORT`。它只记录受限假设，不提供 shadow / promotion evidence；任何排除 TRX-like 资产的版本都必须作为新 hypothesis 在 fresh panel / forward holdout 上验证。
+- 2026-07-09 20:35 CST，完成两条后续诊断：
+  - 路径 fallback 修复验证：旧 `alt-panel-competition-input-2026-07-08.json` 仍含 `data/calibration-panel-*` 路径，修复后可直接复跑并得到原始 panel summary。
+  - BTC 弱势相对赢家 short 风险修复诊断：0.5R BE 仍被 TRX catastrophic veto，1R BE 更差；非 TRX 外部 panel 上原始候选通过当前 gate（`total_r=7.844068`，4/5 资产正），但 SOL 为负且 panel 已被看过，只能作为机制支持。
 
 ## 外部校准
 
@@ -61,6 +70,7 @@ updated_at: 2026-07-09 12:03 CST
 
 - **strategy thesis certificate 已有基础 gate。** 当前已强制 campaign 预声明 edge 类型、市场行为假设、参与者、适用 regime、失效条件、成本敏感度、候选 universe、null controls；后续还可把预期持仓/换手与对应 null 的覆盖关系做得更细。
 - **Panel survivorship 已有基础防线。** 当前 20 个可交易资产 panel 会明示 `survivor_only=true`；若提供可靠 inactive / delisted manifest，可合入 calibration suite 并取消 survivor-only 标记。剩余缺口是真实归档数据源与 listing-age-aware universe。
+- **Panel artifact 路径边界已补读路径兼容。** 旧 artifact 中仍可见 `data/calibration-panel-*` / 绝对路径痕迹；当前已在读路径加兼容，后续仍要求新产物落在 `tmp/panels/` 且输出 repo 相对路径。
 - **Reality model 已有反馈闭环基础。** 当前已有 replay -> shadow/live decay 诊断与 `cost_model_feedback`；下一步应把 review 里的订单 notional / ADV / depth 接入，形成真实 capacity / impact 分桶。继续不伪造 maker 队列成交概率。
 - **统计报告已进入最小正式版。** 当前 full-trial report 已避免只看 winner，并加入 deflated edge probability 与四时间块 CSCV/PBO；后续要继续补 White Reality Check / Hansen SPA 和更严格的 DSR / min track record length。
 

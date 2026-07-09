@@ -2,6 +2,8 @@
 
 这是一个自用的 agent-native 加密交易工作仓库：把市场观察、账户恢复、技术分析、策略 R&D、执行预演、真实下单与复盘审计，拆成可被 Codex / Claude / Gemini 等 agent 直接调用的 skills。
 
+本仓库默认面向真实 Binance USDM `live-small` 运行；安全边界不靠默认 dry-run，而靠权限配置、preflight、execution contract、显式 `--yes` 与交易所事实回读 / reconcile。
+
 项目已经不再只是文档编辑阶段。`docs/` 仍是产品和架构契约入口，`.agents/skills/` 已经承载主要可运行能力。
 
 ## 当前状态
@@ -24,10 +26,10 @@
 | --- | --- |
 | `.agents/skills/` | agent 可调用能力。每个 skill 自带 `SKILL.md`、脚本、测试与本地依赖 |
 | `docs/` | vision / PRD / 架构 / 技术契约 / 检查契约 / R&D 记录 |
-| `data/` | 可审计运行数据，如 strategy evidence、R&D ledger、calibration panel |
+| `data/` | 可审计运行数据，如 trade DB、strategy evidence、R&D ledger、OHLCV |
 | `profile/` | 本地交易配置、账户/通知兼容配置；凭证通过环境变量进入 |
 | `scripts/` | 仓库级 helper 与质量入口 |
-| `tmp/` | 本地实验、OHLCV、replay、report 等可再生成材料 |
+| `tmp/` | 本地实验、panel、replay、report 等可再生成材料 |
 
 ## 主要能力
 
@@ -79,6 +81,7 @@ OBSERVE
 
 - 真实 Binance 写操作必须显式带 `--yes`。
 - 写操作前应先完成 preview / preflight / contract 收敛。
+- `profile/trading-config.json` 可默认允许 `live-small`；这表示项目运行目标，不等于绕过执行闸门。
 - 默认检查、dry-run、preview、replay 不应触发真实下单。
 - 凭证不写入仓库；API key、通知 token、chat id 等只从环境变量读取。
 - Automation memory 路径统一用 `scripts/automation-memory-path.sh <automation-id>` 解析，不手写 `$CODEX_HOME`。

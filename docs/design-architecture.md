@@ -797,7 +797,7 @@ review 阶段按 `blocked_by[].check_id` group by，自然得到"哪项 hard gua
 
 Strategy 是 `observe.body.strategy_ref` 指向的对象。strategy 是规则模板，不是 flow 身份。一个 strategy 可以在不同 symbol / side 上展开多个 lane；MVP lane 先用 `strategy_ref + symbol + side` 读时定位。每个 lane 同时最多 1 条 active flow；同一 lane 的旧 flow 闭合后，后续再出现新机会时新开 flow。这里不是"暂不支持同 lane 多重重入"，而是**当前产品层明确禁止**：同 lane 的新理由、新结构、新加一段都并回当前 flow 管理，不开并行 flow。是否支持同 symbol 双向同时并行，等真实需求出现再单独设计。MVP 2 条种子（`S-GENERIC-TREND` / `S-GENERIC-MEANREVERT`），完整 policy 落 [.agents/skills/trade-flow/strategies/](../.agents/skills/trade-flow/strategies/)。schema 见 [tech-spec.md](tech-spec.md)。
 
-Strategy evidence 写 JSONL ledger，不入 `plan_event`。`draft -> shadow` 必须有 fresh replay 正收益，并带 `anti_overfit.method=out_of_sample|walk_forward`；OOS 样本至少 10 且表现为正，`trial_count > 10` 或 `parameter_count > 8` 直接拒绝升格。
+Strategy evidence 写 `data_catalog.db.strategy_evidence`，不入 `plan_event`。`draft -> shadow` 必须有 fresh replay 正收益，并带 `anti_overfit.method=out_of_sample|walk_forward`；OOS 样本至少 10 且表现为正，`trial_count > 10` 或 `parameter_count > 8` 直接拒绝升格。
 
 R&D 扩展边界：indicator 在自身 catalog descriptor 声明稳定 factor；factor engine 只维护有限数学原语，R&D 通用计算 transform / condition；strategy family 以独立模块放入 `rnd-families/` 并由目录自动发现。新增普通 indicator 或 family 不修改 R&D core。bounded composer 只组合不同角色 factor，并受 candidate、factor 数和参数预算约束；模板定义入场/退出骨架，factor 定义可检验条件，二者不互相硬编码。当前机制只保留 trend pullback、structure breakout/retest、time-series momentum、volatility compression breakout。
 

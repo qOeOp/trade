@@ -93,7 +93,7 @@ cd .agents/skills/ohlcv-fetch
 `calibration-panel.ts` 用来重复生成 trade-flow `--strategy-calibration-suite` 输入；它只编排 OHLCV 拉取与 manifest 汇总，不做策略判断。
 
 ```bash
-./scripts/calibration-panel.ts --output-root ./data/calibration-panel --timeframe 4h --since-ts 1609459200000 --limit 12000
+./scripts/calibration-panel.ts --output-root ./tmp/panels/calibration-panel --timeframe 4h --since-ts 1609459200000 --limit 12000
 ```
 
 - 默认 symbol universe 为 20 个 USDM 主流合约。
@@ -105,7 +105,7 @@ cd .agents/skills/ohlcv-fetch
 `calibration-market-features.ts` 读取 `panel-manifest.json`，逐 symbol 生成 tech-indicators `--feature-series` base report，再调用 `market-features.ts` 补 exact funding events，输出 `calibration-suite-input-with-funding.json`。
 
 ```bash
-./scripts/calibration-market-features.ts --panel-manifest ./data/calibration-panel/panel-manifest.json --output-root ./data/calibration-market-features --external false
+./scripts/calibration-market-features.ts --panel-manifest ./tmp/panels/calibration-panel/panel-manifest.json --output-root ./tmp/panels/calibration-market-features --external false
 ```
 
 - 输出的 suite input 可直接传给 `trade-flow --strategy-calibration-suite --json ...`。
@@ -116,8 +116,8 @@ cd .agents/skills/ohlcv-fetch
 `market-features.ts` 以 `tech-indicators --feature-series` 报告的时间网格为基准，因果对齐 Binance / Deribit / BRK 数据；输出仍是可直接交给 R&D 的 factor report。
 
 ```bash
-./scripts/market-features.ts --symbol BTCUSDT --timeframe 4h --since-ts 1609459200000 --base-report ./data/factors.json
-./scripts/market-features.ts --symbol BTCUSDT --timeframe 4h --since-ts 1704067200000 --base-report ./data/factors.json --microstructure-days 1
+./scripts/market-features.ts --symbol BTCUSDT --timeframe 4h --since-ts 1609459200000 --base-report ./tmp/artifacts/factors.json
+./scripts/market-features.ts --symbol BTCUSDT --timeframe 4h --since-ts 1704067200000 --base-report ./tmp/artifacts/factors.json --microstructure-days 1
 ```
 
 - funding / premium 走 REST 长历史；原始 funding events 写入 report，供 replay 精确结算。

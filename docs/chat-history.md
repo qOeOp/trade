@@ -207,7 +207,7 @@ RAVE skill 降级链路：build-skills.sh 打包失败 → 复用已编好的 bi
 - 用户明确担心项目长期运行后无用数据像垃圾一样累计；这属于产品生命线，不是运维细节。
 - `trade.db` 必须只存事件、摘要和 refs；原始 OHLCV / aggTrades / replay 输出是 artifact，不是长期事实源。
 - 未被 strategy evidence / review / active observe / `.pin` 引用的 artifact 必须可 dry-run 扫描和显式清理。
-- 本轮实现落点：`strategy-evidence.jsonl`、四类 evidence fingerprint、`strategy-review`、`strategy-promote`。策略、Harness、数据或假设一改，旧证据 stale；升格默认 dry-run，实改必须 `--yes`。
+- 当时实现落点为 strategy evidence ledger、四类 evidence fingerprint、`strategy-review`、`strategy-promote`；当前 evidence canonical 存储已迁入 `data_catalog.db.strategy_evidence`。策略、Harness、数据或假设一改，旧证据 stale；升格默认 dry-run，实改必须 `--yes`。
 - 防过拟合落点：replay evidence 必须带 locked holdout / walk-forward；表现不为正、样本太少、搜索次数过多、参数过多或 robustness 不足，不能升 `shadow`。
 
 ## 十一、Harness 证据治理

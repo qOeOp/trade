@@ -712,7 +712,7 @@ CREATE INDEX idx_research_report_kind ON research_report(report_kind, generated_
 迁移策略：
 
 - 已落地 catalog schema / scanner / query / stale dry-run / catalog-gc / generation-time writer，不改变现有文件 payload。
-- JSONL ledger 仍可作为 append-only 原始记录；catalog 表是可重建索引。
+- legacy JSONL ledger 仅作为导入兼容；catalog 表保存完整 `record_json`，是 strategy evidence / R&D ledger 的当前存储。
 - `schema_migration(component='data_catalog')` 记录当前 catalog schema 版本。
 - `cron.log` 不单独建表；JSONL 行归一化进 `run`，原文件作为 `artifact_ref(role=log)`。
 - `research_report` 只保存报告摘要；完整 replay / campaign / calibration / panel / tracker payload 仍在文件系统。
@@ -726,13 +726,13 @@ CREATE INDEX idx_research_report_kind ON research_report(report_kind, generated_
 | 内容 | 介质 | 位置 |
 | --- | --- | --- |
 | Strategy policy | Markdown 文件（一文件一 strategy，含 frontmatter） | `.agents/skills/trade-flow/strategies/*.md` |
-| Strategy evidence ledger | JSONL 原始记录 + catalog 索引 | `./data/strategy-evidence.jsonl` |
+| Strategy evidence ledger | SQLite record + catalog 索引 | `./data/data_catalog.db` → `strategy_evidence` |
 | Trading config | JSON | `./profile/trading-config.json` |
 | Account config | JSON | `./profile/account_config.json`（兼容输入，后续由 trading config 取代） |
 | Notify config | JSON | `./profile/notify_config.json`（兼容输入，后续迁入 trading config；凭证仍只走环境变量） |
 | Cron 运维日志 | JSONL 原始记录 + catalog 索引 | `./data/cron.log` |
 | OHLCV / 市场数据 | CSV + manifest + catalog 索引 | `./data/ohlcv/` |
-| 大型 feature / replay / campaign report | 文件 payload + catalog 索引 | `./data/artifacts/` |
+| 大型 feature / replay / campaign report | 文件 payload + catalog 索引 | 默认 `./tmp/artifacts/`；准入 / 复盘证据才归档 `./data/artifacts/` |
 
 Git 边界与 data 留存规则见 [data-hygiene.md](data-hygiene.md)。
 

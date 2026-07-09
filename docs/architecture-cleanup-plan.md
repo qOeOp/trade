@@ -647,7 +647,7 @@ Binance facts
   - `.jsonl`、`durable/`、`ledger/`、`ledgers/` 默认不被 GC 删除；`tmp/`、`temp/`、`cache/`、`scratch/`、`ephemeral/` 可走更短保留期。
   - `--ephemeral-retention-hours` 接入 CLI，用于独立控制临时目录清理阈值。
   - `lib/artifact-hygiene.test.ts` 锁定 dry-run、引用保护、目录 pin、durable 保护、ephemeral 短保留期、显式删除路径。
-  - `docs/data-hygiene.md` 落地 Git 边界与 data 留存规则；`data/ohlcv/`、`data/calibration-panel-*/`、`data/validation-panel-*/`、runtime DB/log/lock/system state、ledger、artifact 与本地 profile config 默认不进 Git。
+  - `docs/data-hygiene.md` 落地 Git 边界与 data 留存规则；`data/ohlcv/`、`tmp/panels/`、`tmp/artifacts/`、runtime DB/log/lock/system state、ledger、artifact 与本地 profile config 默认不进 Git。
   - `.gitignore` 补齐生成行情、calibration panel、strategy audits、cron/system runtime 与本地 operator config，避免 R&D / cron 产物污染源码 review。
   - `ohlcv-fetch` / calibration panel / calibration market-features / trade-flow track dry-run 输出收敛为 repo 可迁移相对路径；跨 skill 执行仍用解析后的实际路径，避免本机绝对路径写入 manifest / report。
 - P8 机器契约开口：

@@ -2,6 +2,8 @@
 
 目标：用一个项目级配置入口管理交易底线、执行假设、R&D 约束与运行权限；不把账户事实、策略规则和运行状态塞进配置文件。
 
+本项目默认面向真实 Binance USDM `live-small`；配置可以默认 `mode=live` 且允许 `live-small`。安全边界不靠 dry-run 默认值，而靠 runtime permissions、strategy / setup lifecycle、preflight、execution contract、显式 `--yes` 与 exchange fact reconciliation。
+
 ## 1. 判断
 
 当前已有配置，但没有统一配置系统：
