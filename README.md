@@ -25,7 +25,7 @@
 | `.agents/skills/` | agent 可调用能力。每个 skill 自带 `SKILL.md`、脚本、测试与本地依赖 |
 | `docs/` | vision / PRD / 架构 / 技术契约 / 检查契约 / R&D 记录 |
 | `data/` | 可审计运行数据，如 strategy evidence、R&D ledger、calibration panel |
-| `profile/` | 本地账户与通知配置样例 / 工作配置；凭证通过环境变量进入 |
+| `profile/` | 本地交易配置、账户/通知兼容配置；凭证通过环境变量进入 |
 | `scripts/` | 仓库级 helper 与质量入口 |
 | `tmp/` | 本地实验、OHLCV、replay、report 等可再生成材料 |
 
@@ -127,5 +127,6 @@ go test ./...
 - [docs/chat-history.md](docs/chat-history.md)：高价值对话、决策变化与素材来源
 - [docs/design-architecture.md](docs/design-architecture.md)：流程与架构设计
 - [docs/tech-spec.md](docs/tech-spec.md)：实现口径
+- [docs/trading-config.md](docs/trading-config.md)：统一交易配置与 runtime policy 设计
 - [docs/check-contract.md](docs/check-contract.md)：改动后的最小检查
 - [docs/code-quality.md](docs/code-quality.md)：质量与品位线

@@ -22,12 +22,33 @@ test("benchmark data builds aligned panel diagnostics over common timestamps", (
     const panel = alignedPanel(datasets, "4h")
     assert.equal(panel.timestamps.length, 3)
     assert.equal(panel.diagnostics.dataset_count, 2)
+    assert.equal(panel.diagnostics.survivor_only, true)
+    assert.equal(panel.diagnostics.unknown_status_count, 2)
     assert.equal(panel.diagnostics.aligned_rows, 3)
     assert.equal(panel.diagnostics.min_raw_rows, 3)
     assert.equal(panel.diagnostics.min_aligned_ratio, 1)
     assert.equal(panel.diagnostics.schema_version_ok, true)
     assert.equal(panel.diagnostics.closed_candles_only, true)
     assert.match(datasetDataHash(datasets[0], "4h"), /^[a-f0-9]{64}$/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("benchmark data carries inactive symbol coverage into panel diagnostics", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-benchmark-data-inactive-"))
+  try {
+    const datasets = [
+      { datasetId: "ACTIVE", manifestPath: writeManifest(dir, "ACTIVE", 0, 5), symbolStatus: "active" },
+      { datasetId: "DEAD", manifestPath: writeManifest(dir, "DEAD", 0, 5), symbolStatus: "delisted" },
+    ]
+    const panel = alignedPanel(datasets, "4h")
+    assert.equal(panel.diagnostics.survivor_only, false)
+    assert.equal(panel.diagnostics.active_dataset_count, 1)
+    assert.equal(panel.diagnostics.delisted_dataset_count, 1)
+    assert.equal(panel.diagnostics.universe_source, "current_plus_inactive_or_delisted")
+    assert.deepEqual(panel.diagnostics.datasets.map((item) => item.symbol_status), ["active", "delisted"])
+    assert.equal(panelFindings(panel.diagnostics as unknown as Record<string, unknown>).some((finding) => finding.check_id === "CAL-SURVIVORSHIP-RISK"), false)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -64,9 +85,14 @@ test("benchmark data panel findings stay deterministic", () => {
     min_aligned_ratio: 0.5,
     aligned_rows: 10,
     min_raw_rows: 30,
+    survivor_only: true,
+    inactive_dataset_count: 0,
+    delisted_dataset_count: 0,
+    universe_source: "current_or_unknown_active_only",
   }).map((finding) => finding.check_id), [
     "CAL-PANEL-SCHEMA",
     "CAL-PANEL-ALIGNMENT",
+    "CAL-SURVIVORSHIP-RISK",
   ])
 })
 

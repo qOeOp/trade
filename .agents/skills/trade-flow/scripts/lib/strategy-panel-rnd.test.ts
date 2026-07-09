@@ -136,6 +136,24 @@ test("panel parser requires real dataset identifiers downstream", () => {
   assert.equal(input.diagnosticMode, true)
 })
 
+test("panel parser ignores camel-case contract fields", () => {
+  const input = strategyPanelRndInputFromJson({
+    panelId: "panel",
+    maxHoldBars: 8,
+    diagnosticMode: true,
+    datasets: [{ datasetId: "BTC", manifestPath: "/tmp/btc.json" }],
+    candidates: [{ candidateId: "C-1", parameterCount: 2, params: { side: "long" } }],
+  })
+
+  assert.equal(input.panelId, undefined)
+  assert.equal(input.maxHoldBars, undefined)
+  assert.equal(input.diagnosticMode, false)
+  assert.equal(input.datasets[0].datasetId, "")
+  assert.equal(input.datasets[0].manifestPath, "")
+  assert.equal(input.candidates[0].candidateId, "")
+  assert.equal(input.candidates[0].parameterCount, undefined)
+})
+
 function writeManifest(dir: string): string {
   let close = 100
   const rows = Array.from({ length: 280 }, (_, index) => {

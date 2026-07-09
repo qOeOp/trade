@@ -2,11 +2,22 @@ import { asRecord, stringField, type JSONRecord } from "./json"
 import { fetchObserveProjections, type Runner } from "./observe-adapter"
 import { loadJsonFile, loadStrategies } from "./loaders"
 import { buildObserveEvent, type ObserveEvent } from "./observe-builder"
+import { loadRuntimePolicy } from "./runtime-policy"
 
-export function loadRuntime(accountConfigPath: string, strategiesDir: string): JSONRecord {
+export function loadRuntime(accountConfigPath: string, strategiesDir: string): JSONRecord
+export function loadRuntime(input: { tradingConfigPath?: string; accountConfigPath: string; strategiesDir: string }): JSONRecord
+export function loadRuntime(input: string | { tradingConfigPath?: string; accountConfigPath: string; strategiesDir: string }, legacyStrategiesDir?: string): JSONRecord {
+  const accountConfigPath = typeof input === "string" ? input : input.accountConfigPath
+  const strategiesDir = typeof input === "string" ? legacyStrategiesDir || "" : input.strategiesDir
   const accountConfig = loadJsonFile(accountConfigPath)
   const strategies = loadStrategies(strategiesDir)
+  const { trading_config, runtime_policy } = loadRuntimePolicy({
+    tradingConfigPath: typeof input === "string" ? undefined : input.tradingConfigPath,
+    accountConfigPath,
+  })
   return {
+    trading_config,
+    runtime_policy,
     account_config: accountConfig,
     strategies,
     loaded_at: new Date().toISOString(),
@@ -34,6 +45,7 @@ export async function observeFromSkills(input: JSONRecord): Promise<ObserveEvent
     market_snapshot: projections.market_snapshot,
     market_refs: projections.market_refs,
     plan_seed: asRecord(input.plan_seed),
+    policy_snapshot: asRecord(input.policy_snapshot),
     created_at: stringField(input.created_at) || undefined,
   })
 }
@@ -59,6 +71,7 @@ export async function observeFromSkillsWithRunner(input: JSONRecord, runner?: Ru
     market_snapshot: projections.market_snapshot,
     market_refs: projections.market_refs,
     plan_seed: asRecord(input.plan),
+    policy_snapshot: asRecord(input.policy_snapshot),
     created_at: stringField(input.created_at) || undefined,
   })
 }

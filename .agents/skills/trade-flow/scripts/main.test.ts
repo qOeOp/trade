@@ -655,10 +655,11 @@ test("run strategy R&D batch without creating DB", async () => {
     ])
 
     assert.equal(result.ok, true)
-    const data = (result as { ok: true; data: { batch_id: string; trial_count: number; guardrails: { no_auto_promote: boolean } } }).data
+    const data = (result as { ok: true; data: { batch_id: string; trial_count: number; guardrails: { no_auto_promote: boolean }; statistical_report: { method: string } } }).data
     assert.equal(data.batch_id, "rnd-cli-test")
     assert.equal(data.trial_count, 1)
     assert.equal(data.guardrails.no_auto_promote, true)
+    assert.equal(data.statistical_report.method, "full_trial_statistical_report_v1")
     assert.equal(existsSync(dbPath), false)
 
     const signalResult = await run([
@@ -862,6 +863,7 @@ test("run strategy iteration commands do not create DB unless DB exists", async 
             data_schema_version: 2,
             closed_candles_only: true,
             manifest_checksum_verified: true,
+            temporal_contract: temporalContract(),
           },
           notes: ["ok"],
         },
@@ -1765,6 +1767,22 @@ function dryRunInput() {
       active_plans_worst_loss_at_stop: 0,
     },
     execution_contract_input: executionContractInput(),
+  }
+}
+
+function temporalContract() {
+  return {
+    method: "closed_candle_replay_v1",
+    timeframe: "4h",
+    closed_candle_only: true,
+    reference_at: "2026-01-01T00:00:00.000Z",
+    availability_at: "2026-01-01T04:00:00.000Z",
+    lookback_start: "2026-01-01T00:00:00.000Z",
+    label_end: "2026-01-01T04:00:00.000Z",
+    universe_selected_at: "2026-01-01T00:00:00.000Z",
+    universe_selection_source: "fixture",
+    label_policy: "signals use closed candles; entries occur on next open; labels are available after exit candle close",
+    supplemental_data: [],
   }
 }
 

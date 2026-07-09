@@ -31,13 +31,23 @@ test("strategy R&D input parser keeps factor research option aliases", () => {
   assert.equal(input.candidates[0].parameterCount, 2)
 })
 
-test("strategy R&D campaign parser keeps discovery manifest aliases", () => {
+test("strategy R&D campaign parser reads canonical discovery manifest field", () => {
   const input = strategyRndCampaignInputFromJson({
     campaign_id: "campaign-1",
     panel_report_path: "/tmp/panel.json",
     hypotheses: [{
       hypothesis_id: "h1",
-      discoveryManifestPath: "/tmp/discovery.json",
+      thesis_certificate: {
+        edge_type: "structural trend continuation",
+        behavioral_hypothesis: "late buyers defend pullbacks after trend confirmation",
+        market_participants: "trend followers and trapped short sellers",
+        regime: "liquid perpetual trend regime",
+        invalidation: "breaks when pullbacks fail trend support",
+        cost_sensitivity: "must survive fee and slippage stress",
+        candidate_universe: "trend pullback candidates with fixed role budget",
+        null_controls: ["side_flip", "entry_lag"],
+      },
+      discovery_manifest_path: "/tmp/discovery.json",
       validation_manifest_path: "/tmp/validation.json",
       candidates: [{ candidate_id: "candidate-1" }],
     }],
@@ -46,8 +56,39 @@ test("strategy R&D campaign parser keeps discovery manifest aliases", () => {
   assert.equal(input.campaignId, "campaign-1")
   assert.equal(input.panelReportPath, "/tmp/panel.json")
   assert.equal(input.hypotheses[0].hypothesisId, "h1")
+  assert.equal(input.hypotheses[0].thesisCertificate?.edgeType, "structural trend continuation")
+  assert.deepEqual(input.hypotheses[0].thesisCertificate?.nullControls, ["side_flip", "entry_lag"])
   assert.equal(input.hypotheses[0].manifestPath, "/tmp/discovery.json")
   assert.equal(input.hypotheses[0].validationManifestPath, "/tmp/validation.json")
+})
+
+test("strategy R&D input parser ignores camel-case contract fields", () => {
+  const batch = strategyRndBatchInputFromJson({
+    manifestPath: "/tmp/manifest.json",
+    maxHoldBars: 12,
+    factorDiscover: true,
+    factorResearchOptions: { horizonBars: 24 },
+    candidates: [{ candidateId: "candidate-1", parameterCount: 2 }],
+  })
+
+  assert.equal(batch.manifestPath, "")
+  assert.equal(batch.maxHoldBars, undefined)
+  assert.equal(batch.factorDiscover, false)
+  assert.equal(batch.factorResearchOptions?.horizonBars, undefined)
+  assert.equal(batch.candidates[0].candidateId, "")
+  assert.equal(batch.candidates[0].parameterCount, undefined)
+
+  const signal = strategyRndSignalInputFromJson({
+    manifestPath: "/tmp/manifest.json",
+    entryPrice: 65000,
+    maxSignalAgeBars: 2,
+    candidate: { candidateId: "candidate-1" },
+  })
+
+  assert.equal(signal.manifestPath, "")
+  assert.equal(Number.isNaN(signal.entryPrice), true)
+  assert.equal(signal.maxSignalAgeBars, undefined)
+  assert.equal(signal.candidate.candidateId, "")
 })
 
 test("strategy R&D signal parser normalizes candidate input", () => {

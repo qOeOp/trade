@@ -93,23 +93,36 @@ export function summarizeRejectedReasons(batch: StrategyRndLedgerBatchView): Str
 
 export function redactLoopInputForArtifact(input: StrategyRndLoopInput): JSONRecord {
   return {
-    batchId: input.batchId,
+    batch_id: input.batchId,
     hypothesis: input.hypothesis,
-    manifestPath: input.manifestPath,
+    manifest_path: input.manifestPath,
     timeframe: input.timeframe,
-    maxHoldBars: input.maxHoldBars,
-    feeBps: input.feeBps,
-    slippageBps: input.slippageBps,
-    fundingBpsPer8h: input.fundingBpsPer8h,
-    oosSplitRatio: input.oosSplitRatio,
-    searchTrialCount: input.searchTrialCount,
-    indicatorReportPath: input.indicatorReportPath,
-    factorCompose: input.factorCompose,
-    factorDiscover: input.factorDiscover,
-    factorResearchOptions: input.factorResearchOptions,
-    factorSeeds: factorConditionsToJson(input.factorSeeds || []),
-    maxFactorsPerCandidate: input.maxFactorsPerCandidate,
-    candidates: input.candidates,
+    max_hold_bars: input.maxHoldBars,
+    fee_bps: input.feeBps,
+    slippage_bps: input.slippageBps,
+    funding_bps_per_8h: input.fundingBpsPer8h,
+    oos_split: input.oosSplitRatio,
+    search_trial_count: input.searchTrialCount,
+    indicator_report_path: input.indicatorReportPath,
+    factor_compose: input.factorCompose,
+    factor_discover: input.factorDiscover,
+    factor_research_options: input.factorResearchOptions ? {
+      horizon_bars: input.factorResearchOptions.horizonBars,
+      lookback: input.factorResearchOptions.lookback,
+      min_samples: input.factorResearchOptions.minSamples,
+      min_abs_ic: input.factorResearchOptions.minAbsIc,
+      max_correlation: input.factorResearchOptions.maxCorrelation,
+      max_selected: input.factorResearchOptions.maxSelected,
+    } : undefined,
+    factor_seeds: factorConditionsToJson(input.factorSeeds || []),
+    max_factors_per_candidate: input.maxFactorsPerCandidate,
+    candidates: input.candidates.map((candidate) => ({
+      candidate_id: candidate.candidateId,
+      description: candidate.description,
+      family: candidate.family,
+      parameter_count: candidate.parameterCount,
+      params: candidate.params,
+    })),
   }
 }
 
@@ -135,9 +148,9 @@ function supplementalDataRefsForInput(input: StrategyRndLoopInput): string[] {
   const refs = input.indicatorReportPath ? [input.indicatorReportPath] : []
   for (const candidate of input.candidates || []) {
     const params = candidate.params || {}
-    const benchmark = stringField(params.benchmark_manifest_path ?? params.benchmarkManifestPath)
+    const benchmark = stringField(params.benchmark_manifest_path)
     if (benchmark) refs.push(benchmark)
-    for (const ref of readStrings(params.supplemental_data_refs ?? params.supplementalDataRefs)) {
+    for (const ref of readStrings(params.supplemental_data_refs)) {
       refs.push(ref)
     }
   }

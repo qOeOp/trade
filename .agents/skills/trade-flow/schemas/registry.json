@@ -43,6 +43,12 @@
       "covers": ["--recover-flow data", "nested flow state projections"]
     },
     {
+      "file": "forward-holdout-result.schema.json",
+      "id": "trade-flow.forward-holdout-result.v1",
+      "owner": "scripts/lib/forward-holdout.ts",
+      "covers": ["scripts/forward-holdout.ts data"]
+    },
+    {
       "file": "init-result.schema.json",
       "id": "trade-flow.init-result.v1",
       "owner": "scripts/commands/runtime.ts",

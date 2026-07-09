@@ -24,6 +24,12 @@ export interface AlignedPanel {
 export interface PanelDiagnostics {
   dataset_count: number
   target_dataset_count: number
+  active_dataset_count: number
+  inactive_dataset_count: number
+  delisted_dataset_count: number
+  unknown_status_count: number
+  survivor_only: boolean
+  universe_source: string
   timeframe: string
   aligned_rows: number
   aligned_start: string | null
@@ -46,6 +52,7 @@ export interface PanelDiagnostics {
     closed_candles_only: boolean
     source_provider: string
     source_market: string
+    symbol_status: string
     content_sha256_present: boolean
   }>
 }
@@ -126,6 +133,15 @@ export function panelFindings(panel: JSONRecord): PanelDiagnosticFinding[] {
       next_system_action: "Diagnose listing windows, missing candles, and symbol overlap before treating panel results as market evidence.",
     })
   }
+  if (panel.survivor_only === true) {
+    findings.push({
+      check_id: "CAL-SURVIVORSHIP-RISK",
+      severity: "info",
+      component: "data_panel",
+      evidence: { universe_source: panel.universe_source, inactive_dataset_count: panel.inactive_dataset_count, delisted_dataset_count: panel.delisted_dataset_count },
+      next_system_action: "Add inactive or delisted archived manifests before treating panel breadth as survivorship-robust.",
+    })
+  }
   return findings
 }
 
@@ -154,12 +170,24 @@ function panelDiagnostics(loaded: Array<{ dataset: BenchmarkDataset; manifest: J
       closed_candles_only: item.manifest.closed_candles_only === true,
       source_provider: stringField(source.provider),
       source_market: stringField(source.market),
+      symbol_status: normalizedSymbolStatus(item.dataset.symbolStatus),
       content_sha256_present: Boolean(stringField(timeframeEntry.content_sha256)),
     }
   })
+  const activeCount = datasetDiagnostics.filter((item) => item.symbol_status === "active").length
+  const inactiveCount = datasetDiagnostics.filter((item) => item.symbol_status === "inactive").length
+  const delistedCount = datasetDiagnostics.filter((item) => item.symbol_status === "delisted").length
+  const unknownCount = datasetDiagnostics.filter((item) => item.symbol_status === "unknown").length
+  const survivorOnly = inactiveCount + delistedCount === 0
   return {
     dataset_count: loaded.length,
     target_dataset_count: 20,
+    active_dataset_count: activeCount,
+    inactive_dataset_count: inactiveCount,
+    delisted_dataset_count: delistedCount,
+    unknown_status_count: unknownCount,
+    survivor_only: survivorOnly,
+    universe_source: survivorOnly ? "current_or_unknown_active_only" : "current_plus_inactive_or_delisted",
     timeframe,
     aligned_rows: timestamps.length,
     aligned_start: timestamps[0] ? new Date(timestamps[0]).toISOString() : null,
@@ -207,3 +235,8 @@ function round(value: number): number { return Number.isFinite(value) ? Number(v
 function asRecord(value: unknown): JSONRecord { return value && typeof value === "object" && !Array.isArray(value) ? value as JSONRecord : {} }
 function numberField(value: unknown): number { const number = Number(value); return Number.isFinite(number) ? number : 0 }
 function stringField(value: unknown): string { return typeof value === "string" ? value.trim() : "" }
+function normalizedSymbolStatus(value: unknown): string {
+  const status = stringField(value)
+  if (status === "active" || status === "inactive" || status === "delisted") return status
+  return "unknown"
+}

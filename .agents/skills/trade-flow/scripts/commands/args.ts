@@ -35,7 +35,8 @@ export function parseArgs(argv: string[]): CommandConfig {
   let track: TrackMode = ""
   let yes = false
   let chainId = ""
-  let accountConfigPath = "./data/account_config.json"
+  let tradingConfigPath = ""
+  let accountConfigPath = "./profile/account_config.json"
   let strategiesDir = ".agents/skills/trade-flow/strategies"
   let manifestPath = ""
   let strategyId = "S-BTC-4H-TREND-PULLBACK"
@@ -163,6 +164,9 @@ export function parseArgs(argv: string[]): CommandConfig {
       case "--account-config":
         accountConfigPath = readFlagValue(argv, ++index, arg)
         break
+      case "--trading-config":
+        tradingConfigPath = readFlagValue(argv, ++index, arg)
+        break
       case "--strategies-dir":
         strategiesDir = readFlagValue(argv, ++index, arg)
         break
@@ -267,6 +271,7 @@ export function parseArgs(argv: string[]): CommandConfig {
     track,
     yes,
     chainId,
+    tradingConfigPath,
     accountConfigPath,
     strategiesDir,
     manifestPath,

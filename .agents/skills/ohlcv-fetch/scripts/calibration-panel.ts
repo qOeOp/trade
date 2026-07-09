@@ -14,6 +14,7 @@ interface Config {
   sinceTS: number
   limit: number
   dryRun: boolean
+  inactiveManifestMapPath: string
   fundingReportRoot: string
   previousCalibrationReportPath: string
   randomTrials: number
@@ -38,6 +39,7 @@ async function runCalibrationPanel(argv: string[], fetcher: Fetcher = fetchOhlcv
     mkdirSync(outputRoot, { recursive: true })
     const datasets: JSONRecord[] = []
     const panelDatasets: JSONRecord[] = []
+    const inactiveDatasets = loadInactiveDatasets(config.inactiveManifestMapPath)
 
     for (const symbol of config.symbols) {
       const datasetID = symbolId(symbol)
@@ -60,16 +62,38 @@ async function runCalibrationPanel(argv: string[], fetcher: Fetcher = fetchOhlcv
       datasets.push({
         dataset_id: datasetID,
         manifest_path: displayManifestPath,
+        symbol_status: "active",
         ...(fundingReport ? { indicator_report_path: displayPath(fundingReport) } : {}),
       })
       panelDatasets.push({
         dataset_id: datasetID,
         symbol,
+        symbol_status: "active",
         manifest_path: displayManifestPath,
         funding_report_path: fundingReport ? displayPath(fundingReport) : null,
         ...manifestSummary(manifestPath, config.timeframe),
       })
     }
+    for (const dataset of inactiveDatasets) {
+      datasets.push({
+        dataset_id: dataset.dataset_id,
+        manifest_path: displayPath(resolve(dataset.manifest_path)),
+        symbol_status: dataset.symbol_status,
+        ...(dataset.indicator_report_path ? { indicator_report_path: displayPath(resolve(dataset.indicator_report_path)) } : {}),
+      })
+      panelDatasets.push({
+        dataset_id: dataset.dataset_id,
+        symbol: dataset.symbol,
+        symbol_status: dataset.symbol_status,
+        ...(dataset.listed_at ? { listed_at: dataset.listed_at } : {}),
+        ...(dataset.delisted_at ? { delisted_at: dataset.delisted_at } : {}),
+        manifest_path: displayPath(resolve(dataset.manifest_path)),
+        funding_report_path: dataset.indicator_report_path ? displayPath(resolve(dataset.indicator_report_path)) : null,
+        ...manifestSummary(resolve(dataset.manifest_path), config.timeframe),
+      })
+    }
+    const inactiveCount = inactiveDatasets.filter((dataset) => dataset.symbol_status === "inactive" || dataset.symbol_status === "delisted").length
+    const survivorOnly = inactiveCount === 0
 
     const suiteInput = {
       datasets,
@@ -91,6 +115,12 @@ async function runCalibrationPanel(argv: string[], fetcher: Fetcher = fetchOhlcv
       purpose: "trade_flow_calibration_panel_input",
       target_dataset_count: 20,
       symbol_count: config.symbols.length,
+      dataset_count: panelDatasets.length,
+      active_dataset_count: config.symbols.length,
+      inactive_dataset_count: inactiveDatasets.filter((dataset) => dataset.symbol_status === "inactive").length,
+      delisted_dataset_count: inactiveDatasets.filter((dataset) => dataset.symbol_status === "delisted").length,
+      survivor_only: survivorOnly,
+      universe_source: survivorOnly ? "current_tradable_usdm" : "current_tradable_usdm_plus_external_inactive",
       timeframe: config.timeframe,
       since_ts: config.sinceTS,
       suite_input_path: displayPath(suiteInputPath),
@@ -132,6 +162,7 @@ function parseArgs(argv: string[]): Config {
     sinceTS: numberValue(values, "--since-ts", Date.UTC(2021, 0, 1)),
     limit: numberValue(values, "--limit", 12_000),
     dryRun: flags.has("--dry-run"),
+    inactiveManifestMapPath: values.get("--inactive-manifest-map") || "",
     fundingReportRoot: values.get("--funding-report-root") || "",
     previousCalibrationReportPath: values.get("--previous-calibration-report-path") || "",
     randomTrials: numberValue(values, "--random-trials", 100),
@@ -141,6 +172,42 @@ function parseArgs(argv: string[]): Config {
     slippageBps: optionalNumber(values.get("--slippage-bps")),
     fundingBpsPer8h: optionalNumber(values.get("--funding-bps-per-8h")),
   }
+}
+
+function loadInactiveDatasets(path: string): Array<{
+  dataset_id: string
+  symbol: string
+  symbol_status: "inactive" | "delisted"
+  manifest_path: string
+  indicator_report_path?: string
+  listed_at?: string
+  delisted_at?: string
+}> {
+  if (!path) return []
+  const payload = JSON.parse(readFileSync(resolve(path), "utf8")) as unknown
+  const rawDatasets = Array.isArray(payload)
+    ? payload
+    : Array.isArray(asRecord(payload).datasets)
+      ? asRecord(payload).datasets as unknown[]
+      : Object.entries(asRecord(payload)).map(([symbol, manifestPath]) => ({ symbol, manifest_path: manifestPath }))
+  return rawDatasets.map((raw) => {
+    const item = asRecord(raw)
+    const symbol = stringField(item.symbol) || stringField(item.dataset_id)
+    const datasetID = symbolId(stringField(item.dataset_id) || symbol)
+    const status = stringField(item.symbol_status || item.status)
+    const symbolStatus = status === "delisted" ? "delisted" : "inactive"
+    const manifestPath = stringField(item.manifest_path)
+    if (!datasetID || !symbol || !manifestPath) throw new Error("--inactive-manifest-map entries require dataset_id or symbol plus manifest_path")
+    return {
+      dataset_id: datasetID,
+      symbol: symbolId(symbol),
+      symbol_status: symbolStatus,
+      manifest_path: manifestPath,
+      indicator_report_path: stringField(item.indicator_report_path) || undefined,
+      listed_at: stringField(item.listed_at) || undefined,
+      delisted_at: stringField(item.delisted_at) || undefined,
+    }
+  })
 }
 
 function manifestSummary(path: string, timeframe: string): JSONRecord {
@@ -192,6 +259,10 @@ function optionalNumber(value: string | undefined): number | undefined {
 
 function asRecord(value: unknown): JSONRecord {
   return value && typeof value === "object" && !Array.isArray(value) ? value as JSONRecord : {}
+}
+
+function stringField(value: unknown): string {
+  return typeof value === "string" ? value.trim() : ""
 }
 
 if (import.meta.main) {

@@ -14,6 +14,7 @@ data/ohlcv/
 data/calibration-panel-*/
 data/validation-panel-*/
 data/external-panel-*/
+data/forward-holdout-*/
 data/strategy_audits/
 data/strategy-evidence.jsonl
 data/strategy-rnd-ledger.jsonl

@@ -7,7 +7,7 @@ export const HELP_TEXT = `Usage:
   ./scripts/main.ts --db ./data/trade.db --record-execution --json '{"preflight_result":{"verdict":"armable"},"execution_contract_input":{...},"execution_result":{...}}'
   ./scripts/main.ts --db ./data/trade.db --run --mode dry-run --json '{"plan":{...},"observe":{...},"execution_contract_input":{...}}'
   ./scripts/main.ts --db ./data/trade.db --run --mode shadow --json '{"plan":{...},"observe":{...},"execution_contract_input":{...}}'
-  ./scripts/main.ts --load-runtime --account-config ./data/account_config.json --strategies-dir .agents/skills/trade-flow/strategies
+  ./scripts/main.ts --load-runtime --trading-config ./profile/trading-config.json --strategies-dir .agents/skills/trade-flow/strategies
   ./scripts/main.ts --build-observe --json '{"chain_id":"...","symbol":"BTCUSDT",...}'
   ./scripts/main.ts --observe-from-skills --json '{"repoRoot":"/repo","chain_id":"...","symbol":"BTCUSDT",...}'
   ./scripts/main.ts --replay-strategy --manifest ./data/ohlcv/BTCUSDT/manifest.json --strategy-id S-BTC-4H-TREND-PULLBACK
@@ -41,7 +41,7 @@ Key flags:
   --record-execution       Compile contract and append audited order_fill from an execute-skill result
   --run                    Run one orchestrated flow step
   --mode <dry-run|shadow>  Execution mode for --run
-  --load-runtime           Load account config and strategy files
+  --load-runtime           Load trading config, runtime policy, account config compatibility, and strategy files
   --build-observe          Build an observe event from account / market projections
   --observe-from-skills    Call read-only snapshot skills and build an observe event
   --replay-strategy        Replay a draft strategy against manifest OHLCV
@@ -72,7 +72,8 @@ Key flags:
   --artifact-root <path>   Directory scanned by --artifact-gc
   --retention-hours <n>    Artifact GC age threshold. Default: 168
   --ephemeral-retention-hours <n> Shorter GC threshold for tmp/cache/scratch dirs. Default: min(24, retention)
-  --account-config <path>  JSON account config path
+  --trading-config <path>  JSON trading config path. Default: ./profile/trading-config.json
+  --account-config <path>  Legacy JSON account config path used as fallback compatibility input
   --strategies-dir <path>  Strategy markdown directory
   --manifest <path>        OHLCV manifest for --replay-strategy
   --strategy-id <id>       Strategy id for --replay-strategy

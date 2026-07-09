@@ -6,6 +6,7 @@ import type { JSONRecord } from "./json"
 interface ForwardHoldoutDataset {
   datasetId: string
   manifestPath: string
+  indicatorReportPath?: string
   entryPrice?: number
 }
 
@@ -17,6 +18,16 @@ interface ForwardHoldoutInput {
   datasets: ForwardHoldoutDataset[]
   timeframe?: string
   benchmarkManifestPath?: string
+  now?: string
+  maxSignalAgeBars?: number
+}
+
+interface ForwardHoldoutPanelOptions {
+  plan?: JSONRecord
+  strategyId?: string
+  setupId?: string
+  frozenAt?: string
+  candidateId?: string
   now?: string
   maxSignalAgeBars?: number
 }
@@ -96,25 +107,73 @@ function runForwardHoldout(input: ForwardHoldoutInput): ForwardHoldoutReport {
 function forwardHoldoutInputFromJson(value: JSONRecord): ForwardHoldoutInput {
   const candidate = candidateFromJson(asRecord(value.candidate))
   const params = asRecord(candidate.params)
-  const benchmarkManifestPath = stringField(value.benchmark_manifest_path ?? value.benchmarkManifestPath)
-  if (benchmarkManifestPath && !stringField(params.benchmark_manifest_path ?? params.benchmarkManifestPath)) {
+  const benchmarkManifestPath = stringField(value.benchmark_manifest_path)
+  if (benchmarkManifestPath && !stringField(params.benchmark_manifest_path)) {
     candidate.params = { ...params, benchmark_manifest_path: benchmarkManifestPath }
   }
   return {
-    strategyId: stringField(value.strategy_id ?? value.strategyId),
-    setupId: stringField(value.setup_id ?? value.setupId),
-    frozenAt: stringField(value.frozen_at ?? value.frozenAt),
+    strategyId: stringField(value.strategy_id),
+    setupId: stringField(value.setup_id),
+    frozenAt: stringField(value.frozen_at),
     timeframe: stringField(value.timeframe) || undefined,
     benchmarkManifestPath: benchmarkManifestPath || undefined,
     now: stringField(value.now) || undefined,
-    maxSignalAgeBars: optionalNumber(value.max_signal_age_bars ?? value.maxSignalAgeBars),
+    maxSignalAgeBars: optionalNumber(value.max_signal_age_bars),
     candidate,
     datasets: array(value.datasets).map((raw) => {
       const item = asRecord(raw)
       return {
-        datasetId: stringField(item.dataset_id ?? item.datasetId),
-        manifestPath: stringField(item.manifest_path ?? item.manifestPath),
-        entryPrice: optionalNumber(item.entry_price ?? item.entryPrice),
+        datasetId: stringField(item.dataset_id),
+        manifestPath: stringField(item.manifest_path),
+        indicatorReportPath: stringField(item.indicator_report_path) || undefined,
+        entryPrice: optionalNumber(item.entry_price),
+      }
+    }),
+  }
+}
+
+function forwardHoldoutInputFromPanelJson(panel: JSONRecord, options: ForwardHoldoutPanelOptions = {}): ForwardHoldoutInput {
+  const plan = asRecord(options.plan)
+  const planCandidate = asRecord(plan.candidate)
+  const panelCandidates = array(panel.candidates).map(asRecord)
+  const requestedCandidateId = stringField(options.candidateId ?? planCandidate.candidate_id)
+  const panelCandidate = requestedCandidateId
+    ? panelCandidates.find((candidate) => stringField(candidate.candidate_id) === requestedCandidateId)
+    : panelCandidates.length === 1
+      ? panelCandidates[0]
+      : {}
+  const selectedCandidate = Object.keys(planCandidate).length > 0
+    ? { ...asRecord(panelCandidate), ...planCandidate, params: { ...asRecord(asRecord(panelCandidate).params), ...asRecord(planCandidate.params) } }
+    : requestedCandidateId
+      ? panelCandidates.find((candidate) => stringField(candidate.candidate_id) === requestedCandidateId)
+      : panelCandidates.length === 1
+        ? panelCandidates[0]
+        : {}
+  const candidate = candidateFromJson(asRecord(selectedCandidate))
+  const frozenAt = stringField(
+    options.frozenAt
+      ?? plan.frozen_at
+      ?? planCandidate.frozen_at
+      ?? panel.frozen_at
+  )
+  if (!frozenAt) {
+    throw new Error("forward holdout panel input requires explicit frozenAt; do not infer freeze time from artifact names or generated_at")
+  }
+  return {
+    strategyId: stringField(options.strategyId ?? panel.strategy_id ?? plan.strategy_id ?? plan.run_id ?? panel.panel_id),
+    setupId: stringField(options.setupId ?? panel.setup_id ?? plan.setup_id ?? plan.run_id ?? panel.panel_id),
+    frozenAt,
+    timeframe: stringField(panel.timeframe ?? plan.timeframe) || undefined,
+    now: options.now,
+    maxSignalAgeBars: options.maxSignalAgeBars,
+    candidate,
+    datasets: array(panel.datasets).map((raw) => {
+      const item = asRecord(raw)
+      return {
+        datasetId: stringField(item.dataset_id),
+        manifestPath: stringField(item.manifest_path),
+        indicatorReportPath: stringField(item.indicator_report_path) || undefined,
+        entryPrice: optionalNumber(item.entry_price),
       }
     }),
   }
@@ -122,10 +181,10 @@ function forwardHoldoutInputFromJson(value: JSONRecord): ForwardHoldoutInput {
 
 function candidateFromJson(input: JSONRecord): StrategyRndCandidateInput {
   return {
-    candidateId: stringField(input.candidate_id ?? input.candidateId),
+    candidateId: stringField(input.candidate_id),
     description: stringField(input.description) || undefined,
     family: stringField(input.family) || undefined,
-    parameterCount: optionalNumber(input.parameter_count ?? input.parameterCount),
+    parameterCount: optionalNumber(input.parameter_count),
     params: asRecord(input.params),
   }
 }
@@ -150,6 +209,7 @@ function evaluateDataset(input: ForwardHoldoutInput, dataset: ForwardHoldoutData
   try {
     const signal = evaluateRndSignal({
       manifestPath: dataset.manifestPath,
+      indicatorReportPath: dataset.indicatorReportPath,
       timeframe,
       entryPrice: dataset.entryPrice || latest.close,
       now: input.now,
@@ -210,7 +270,7 @@ function supplementalManifestRefs(input: ForwardHoldoutInput): string[] {
   const params = asRecord(input.candidate.params)
   return [
     input.benchmarkManifestPath,
-    stringField(params.benchmark_manifest_path ?? params.benchmarkManifestPath),
+    stringField(params.benchmark_manifest_path),
   ].filter((ref): ref is string => Boolean(ref))
     .filter((ref, index, refs) => refs.indexOf(ref) === index)
 }
@@ -279,4 +339,4 @@ function countActiveParameters(params: JSONRecord): number {
   }, 0)
 }
 
-export { forwardHoldoutInputFromJson, runForwardHoldout, type ForwardHoldoutInput, type ForwardHoldoutReport }
+export { forwardHoldoutInputFromJson, forwardHoldoutInputFromPanelJson, runForwardHoldout, type ForwardHoldoutInput, type ForwardHoldoutPanelOptions, type ForwardHoldoutReport }

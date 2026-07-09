@@ -197,7 +197,7 @@ function readFactorConditions(value: unknown): FactorCondition[] {
     const item = asRecord(raw)
     const op = readOp(item.op)
     return {
-      factorId: stringField(item.factor_id ?? item.factorId ?? item.indicator_id ?? item.indicatorId),
+      factorId: stringField(item.factor_id),
       timeframe: stringField(item.timeframe) || undefined,
       role: readRole(item.role),
       transform: readTransform(item.transform),
@@ -212,7 +212,7 @@ function readFactorConditions(value: unknown): FactorCondition[] {
 
 function factorConditionsToJson(conditions: FactorCondition[]): JSONRecord[] {
   return conditions.map((condition) => ({
-    factorId: condition.factorId,
+    factor_id: condition.factorId,
     timeframe: condition.timeframe,
     role: condition.role,
     transform: condition.transform,

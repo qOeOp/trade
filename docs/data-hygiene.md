@@ -16,7 +16,7 @@
 | trade runtime DB | 否 | `data/trade.db`, `data/*.sqlite*` |
 | cron / lock / system state | 否 | `data/cron.log`, `data/.trade-flow.lock`, `data/system_state.json` |
 | strategy evidence / R&D ledger | 否 | `data/strategy-evidence.jsonl`, `data/strategy-rnd-ledger.jsonl` |
-| replay / R&D / calibration / validation artifact | 否 | `data/artifacts/`, `data/calibration-panel-*/`, `data/validation-panel-*/` |
+| replay / R&D / calibration / validation / forward holdout artifact | 否 | `data/artifacts/`, `data/calibration-panel-*/`, `data/validation-panel-*/`, `data/external-panel-*/`, `data/forward-holdout-*/` |
 | OHLCV / market data | 否 | `data/ohlcv/` |
 | local operator config | 否 | `profile/account_config.json`, `profile/notify_config.json` |
 
@@ -24,7 +24,7 @@
 
 ## 2. 放置规则
 
-- 原始行情、OHLCV、calibration / validation panel：写 `data/ohlcv/`、`data/calibration-panel-<date>/` 或 `data/validation-panel-<name>-<date>/`
+- 原始行情、OHLCV、calibration / validation / external / forward holdout panel：写 `data/ohlcv/`、`data/calibration-panel-<date>/`、`data/validation-panel-<name>-<date>/`、`data/external-panel-<name>-<date>/` 或 `data/forward-holdout-<name>-<date>/`
 - replay / R&D / calibration 报告：写 `data/artifacts/<domain>/`
 - 策略准入证据：写 `data/strategy-evidence.jsonl`
 - R&D 审计：写 `data/strategy-rnd-ledger.jsonl`
@@ -47,6 +47,8 @@
 - `data/ohlcv/`
 - `data/calibration-panel-*/`
 - `data/validation-panel-*/`
+- `data/external-panel-*/`
+- `data/forward-holdout-*/`
 - `data/strategy_audits/`
 - `data/strategy-evidence.jsonl`
 - `data/strategy-rnd-ledger.jsonl`

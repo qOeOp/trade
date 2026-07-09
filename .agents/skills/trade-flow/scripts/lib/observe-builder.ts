@@ -13,6 +13,7 @@ interface ObserveInput {
   market_snapshot?: JSONRecord
   market_refs?: string[]
   plan_seed?: JSONRecord
+  policy_snapshot?: JSONRecord
   created_at?: string
 }
 
@@ -49,6 +50,7 @@ function buildObserveEvent(input: ObserveInput): ObserveEvent {
       notes: buildMarketNotes(input.market_snapshot),
       refs: input.market_refs ?? [],
     },
+    policy_snapshot: Object.keys(input.policy_snapshot || {}).length > 0 ? input.policy_snapshot : undefined,
     preflight_result: {
       verdict: "abstain",
       blocked_by: [],

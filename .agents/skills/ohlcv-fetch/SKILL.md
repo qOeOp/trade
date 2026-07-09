@@ -99,6 +99,7 @@ cd .agents/skills/ohlcv-fetch
 - 默认 symbol universe 为 20 个 USDM 主流合约。
 - 输出 `panel-manifest.json` 与 `calibration-suite-input.json`。
 - 若传 `--funding-report-root`，会按 `<root>/<symbol>/market-features.json` 等路径自动挂入 `indicator_report_path`。
+- 若有可靠归档数据，可传 `--inactive-manifest-map <json>` 合入 inactive / delisted symbol manifest；缺该输入时 panel 明示 `survivor_only=true`。
 - 支持 `--dry-run` 只生成路径与 suite input，不连接 Binance。
 
 `calibration-market-features.ts` 读取 `panel-manifest.json`，逐 symbol 生成 tech-indicators `--feature-series` base report，再调用 `market-features.ts` 补 exact funding events，输出 `calibration-suite-input-with-funding.json`。

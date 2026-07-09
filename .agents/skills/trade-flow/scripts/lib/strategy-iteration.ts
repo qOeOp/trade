@@ -102,7 +102,48 @@ interface StrategyReviewDiagnostics {
     panel_null_blocked: boolean | null
     blocked_by: string[]
   }
+  decay: StrategyDecayDiagnostics
+  cost_model_feedback: CostModelFeedback
   failure_attribution: Array<{ area: string; count: number; check_ids: string[]; next_action: string }>
+}
+
+interface StrategyDecayDiagnostics {
+  status: "not_evaluated" | "stable" | "degraded" | "failed"
+  blocked_by: Array<{ check_id: string; reason: string }>
+  comparisons: Array<{
+    from: EvidenceKind
+    to: EvidenceKind
+    from_sample_count: number
+    to_sample_count: number
+    avg_r_ratio: number | null
+    avg_r_delta: number
+    total_r_delta: number
+    from_cost_drag: number | null
+    to_cost_drag: number | null
+    status: "stable" | "degraded" | "failed"
+  }>
+}
+
+interface CostModelFeedback {
+  status: "not_evaluated" | "missing_attribution" | "ready"
+  source_kind: EvidenceKind | null
+  sample_count: number
+  observed_drag_r_per_trade: {
+    fee: number | null
+    slippage: number | null
+    funding: number | null
+    total: number | null
+  }
+  replay_assumed_cost_drag_r_per_trade: number | null
+  cost_drag_delta_r_per_trade: number | null
+  recommended_extra_cost_r_per_trade: number | null
+  capacity_buckets: Array<{
+    bucket: "unknown_size"
+    sample_count: number
+    avg_slippage_drag_r: number | null
+    avg_total_cost_drag_r: number | null
+  }>
+  recommended_action: string
 }
 
 interface StrategyPromotionGate {
@@ -160,6 +201,8 @@ const MIN_OOS_RAW_SAMPLE_COUNT = 20
 const MIN_OOS_AVG_R_MARGIN = 0.05
 const MIN_OOS_TOTAL_R_MARGIN = 1
 const MIN_OOS_PROFIT_FACTOR = 1.1
+const MIN_SHADOW_AVG_R_RETENTION = 0.5
+const MIN_LIVE_AVG_R_RETENTION = 0.5
 
 function appendStrategyEvidence(input: {
   strategyPath: string
@@ -453,12 +496,14 @@ function evaluateStrategyGate(latest: StrategyReviewReport["latest"]): StrategyP
       blockedBy.push({ check_id: "S-SHADOW-ATTRIBUTION-SOURCE", reason: "shadow execution attribution must be derived from review events, not manual evidence fields" })
     }
   }
+  const decayBlocks = evaluateDecayGate(latest)
+  blockedBy.push(...decayBlocks)
 
   const replayOk = Boolean(replay && isPositiveEvidence(replay.stats) && evaluateAntiOverfit(replay).length === 0 && evaluateRobustness(replay).length === 0 && evaluateQualification(replay).length === 0)
   const shadowOk = Boolean(shadow && shadow.stats.sample_count >= 20 && isPositiveEvidence(shadow.stats) && hasCompleteExecutionAttribution(shadow.execution_attribution) && hasReviewDerivedShadowAttribution(shadow))
   return {
     shadow_candidate: replayOk,
-    live_small_candidate: replayOk && shadowOk,
+    live_small_candidate: replayOk && shadowOk && decayBlocks.length === 0,
     blocked_by: blockedBy,
   }
 }
@@ -508,6 +553,9 @@ function evidenceStaleReasons(record: StrategyEvidenceRecord, policyHash: string
   if (fingerprint.data_schema_version < 2 || !fingerprint.closed_candles_only || !fingerprint.manifest_checksum_verified) {
     reasons.push("E-DATA-CONTRACT-LEGACY")
   }
+  if (!hasTemporalContract(fingerprint)) {
+    reasons.push("E-TEMPORAL-CONTRACT-MISSING")
+  }
   if (fingerprint.assumptions_hash !== hashCanonical(record.replay_context.assumptions)) {
     reasons.push("E-ASSUMPTIONS-CORRUPT")
   }
@@ -520,6 +568,16 @@ function evidenceStaleReasons(record: StrategyEvidenceRecord, policyHash: string
     reasons.push("E-DATA-UNAVAILABLE")
   }
   return reasons
+}
+
+function hasTemporalContract(fingerprint: EvidenceFingerprint): boolean {
+  const contract = asRecord(fingerprint.temporal_contract)
+  return stringField(contract.method) === "closed_candle_replay_v1"
+    && Boolean(stringField(contract.reference_at))
+    && Boolean(stringField(contract.availability_at))
+    && Boolean(stringField(contract.lookback_start))
+    && Boolean(stringField(contract.label_end))
+    && Boolean(stringField(contract.universe_selected_at))
 }
 
 function policyHashForFile(path: string): string {
@@ -875,6 +933,7 @@ function buildReviewDiagnostics(latest: StrategyReviewReport["latest"], gate: St
   const funding = asRecord(replay?.qualification?.funding_event_coverage)
   const panel = asRecord(replay?.qualification?.panel_null_gate)
   const blockedBy = gate.blocked_by.map((item) => item.check_id)
+  const decay = buildDecayDiagnostics(latest)
   return {
     qualification: {
       funding_event_coverage_status: stringField(funding.status) || null,
@@ -882,8 +941,144 @@ function buildReviewDiagnostics(latest: StrategyReviewReport["latest"], gate: St
       panel_null_blocked: Object.keys(panel).length > 0 ? panel.blocked === true : null,
       blocked_by: blockedBy.filter((checkId) => checkId.startsWith("S-FUNDING") || checkId.startsWith("S-PANEL")),
     },
+    decay,
+    cost_model_feedback: buildCostModelFeedback(latest),
     failure_attribution: summarizeReviewFailures(blockedBy),
   }
+}
+
+function evaluateDecayGate(latest: StrategyReviewReport["latest"]): Array<{ check_id: string; reason: string }> {
+  return buildDecayDiagnostics(latest).blocked_by
+}
+
+function buildDecayDiagnostics(latest: StrategyReviewReport["latest"]): StrategyDecayDiagnostics {
+  const comparisons = [
+    latest.replay && latest.shadow ? buildDecayComparison(latest.replay, latest.shadow) : null,
+    latest.shadow && latest.live_small ? buildDecayComparison(latest.shadow, latest.live_small) : null,
+    latest.replay && latest.live_small ? buildDecayComparison(latest.replay, latest.live_small) : null,
+  ].filter((item): item is StrategyDecayDiagnostics["comparisons"][number] => item !== null)
+  const blockedBy: StrategyDecayDiagnostics["blocked_by"] = []
+  const replayToShadow = comparisons.find((item) => item.from === "replay" && item.to === "shadow")
+  if (replayToShadow && replayToShadow.status !== "stable") {
+    blockedBy.push({
+      check_id: "S-DECAY-SHADOW",
+      reason: `shadow avg_r retention ${replayToShadow.avg_r_ratio ?? "n/a"} is below ${MIN_SHADOW_AVG_R_RETENTION}`,
+    })
+  }
+  const shadowToLive = comparisons.find((item) => item.from === "shadow" && item.to === "live_small")
+  if (shadowToLive && shadowToLive.status !== "stable") {
+    blockedBy.push({
+      check_id: "S-DECAY-LIVE",
+      reason: `live-small avg_r retention ${shadowToLive.avg_r_ratio ?? "n/a"} is below ${MIN_LIVE_AVG_R_RETENTION}`,
+    })
+  }
+  const statuses = comparisons.map((item) => item.status)
+  return {
+    status: comparisons.length === 0
+      ? "not_evaluated"
+      : statuses.includes("failed")
+        ? "failed"
+        : statuses.includes("degraded")
+          ? "degraded"
+          : "stable",
+    blocked_by: blockedBy,
+    comparisons,
+  }
+}
+
+function buildDecayComparison(from: StrategyEvidenceRecord, to: StrategyEvidenceRecord): StrategyDecayDiagnostics["comparisons"][number] {
+  const ratio = from.stats.avg_r > 0 ? round(to.stats.avg_r / from.stats.avg_r) : null
+  const threshold = to.kind === "live_small" ? MIN_LIVE_AVG_R_RETENTION : MIN_SHADOW_AVG_R_RETENTION
+  const status = !isPositiveEvidence(to.stats)
+    ? "failed"
+    : ratio !== null && ratio < threshold
+      ? "degraded"
+      : "stable"
+  return {
+    from: from.kind,
+    to: to.kind,
+    from_sample_count: from.stats.sample_count,
+    to_sample_count: to.stats.sample_count,
+    avg_r_ratio: ratio,
+    avg_r_delta: round(to.stats.avg_r - from.stats.avg_r),
+    total_r_delta: round(to.stats.total_r - from.stats.total_r),
+    from_cost_drag: costDrag(from),
+    to_cost_drag: costDrag(to),
+    status,
+  }
+}
+
+function costDrag(record: StrategyEvidenceRecord): number | null {
+  const value = optionalNumber(record.execution_attribution?.total_cost_drag)
+  return value === undefined ? null : value
+}
+
+function buildCostModelFeedback(latest: StrategyReviewReport["latest"]): CostModelFeedback {
+  const source = latest.live_small ?? latest.shadow
+  if (!source) {
+    return {
+      status: "not_evaluated",
+      source_kind: null,
+      sample_count: 0,
+      observed_drag_r_per_trade: { fee: null, slippage: null, funding: null, total: null },
+      replay_assumed_cost_drag_r_per_trade: null,
+      cost_drag_delta_r_per_trade: null,
+      recommended_extra_cost_r_per_trade: null,
+      capacity_buckets: [],
+      recommended_action: "Collect review-derived shadow or live-small attribution before recalibrating replay costs.",
+    }
+  }
+  const attr = source.execution_attribution
+  const replayCostPerTrade = latest.replay ? perTrade(costDrag(latest.replay), latest.replay.stats.sample_count) : null
+  if (!hasCompleteExecutionAttribution(attr)) {
+    return {
+      status: "missing_attribution",
+      source_kind: source.kind,
+      sample_count: source.stats.sample_count,
+      observed_drag_r_per_trade: {
+        fee: perTrade(attr?.total_fee_drag, source.stats.sample_count),
+        slippage: perTrade(attr?.total_slippage_drag, source.stats.sample_count),
+        funding: perTrade(attr?.total_funding_drag, source.stats.sample_count),
+        total: perTrade(attr?.total_cost_drag, source.stats.sample_count),
+      },
+      replay_assumed_cost_drag_r_per_trade: replayCostPerTrade,
+      cost_drag_delta_r_per_trade: null,
+      recommended_extra_cost_r_per_trade: null,
+      capacity_buckets: [],
+      recommended_action: "Backfill fee, slippage, and funding attribution before changing replay cost stress.",
+    }
+  }
+  const observedTotal = perTrade(attr?.total_cost_drag, source.stats.sample_count)
+  const observedSlippage = perTrade(attr?.total_slippage_drag, source.stats.sample_count)
+  return {
+    status: "ready",
+    source_kind: source.kind,
+    sample_count: source.stats.sample_count,
+    observed_drag_r_per_trade: {
+      fee: perTrade(attr?.total_fee_drag, source.stats.sample_count),
+      slippage: observedSlippage,
+      funding: perTrade(attr?.total_funding_drag, source.stats.sample_count),
+      total: observedTotal,
+    },
+    replay_assumed_cost_drag_r_per_trade: replayCostPerTrade,
+    cost_drag_delta_r_per_trade: observedTotal !== null && replayCostPerTrade !== null ? round(observedTotal - replayCostPerTrade) : null,
+    recommended_extra_cost_r_per_trade: observedTotal,
+    capacity_buckets: [{
+      bucket: "unknown_size",
+      sample_count: source.stats.sample_count,
+      avg_slippage_drag_r: observedSlippage,
+      avg_total_cost_drag_r: observedTotal,
+    }],
+    recommended_action: observedTotal !== null && observedTotal > 0.02
+      ? "Raise replay cost stress or reduce turnover before any live-small increase."
+      : "Feed observed per-trade cost drag into the next replay cost stress and keep collecting samples.",
+  }
+}
+
+function perTrade(value: number | undefined | null, sampleCount: number): number | null {
+  return value === undefined || value === null || !Number.isFinite(value) || sampleCount <= 0
+    ? null
+    : round(value / sampleCount)
 }
 
 function summarizeReviewFailures(checkIds: string[]): StrategyReviewDiagnostics["failure_attribution"] {
@@ -910,6 +1105,7 @@ function reviewFailureArea(checkId: string): string {
   if (checkId.startsWith("S-ROBUSTNESS")) return "robustness"
   if (checkId.startsWith("S-SHADOW-ATTRIBUTION")) return "shadow_execution_attribution"
   if (checkId.startsWith("S-SHADOW")) return "shadow_quality"
+  if (checkId.startsWith("S-DECAY")) return "replay_to_live_decay"
   if (checkId.startsWith("S-REPLAY")) return "replay_quality"
   return "promotion_gate"
 }
@@ -928,6 +1124,8 @@ function reviewFailureNextAction(area: string): string {
       return "Aggregate real shadow fee, slippage, and funding drag before live-small."
     case "shadow_quality":
       return "Collect more positive shadow samples before live-small."
+    case "replay_to_live_decay":
+      return "Treat missing edge as execution/reality decay; recalibrate costs or reject the setup before increasing risk."
     case "replay_quality":
       return "Produce fresh positive replay evidence before promotion."
     default:

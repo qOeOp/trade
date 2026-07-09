@@ -60,7 +60,8 @@ latest_observe.action_intent.request
 - 入口：`./scripts/main.ts`
 - R&D artifact 摘要：`./scripts/rnd-artifact.ts --input <result.json>`，自动 unwrap `{ok,data}` 外壳，避免手写 jq 误读结果结构
 - R&D feature report 缓存：`./scripts/feature-report.ts --manifest <manifest.json> --output <features.json> [--indicators stc,vfi]`，固定从 `tech-indicators` skill 目录调用 Go，并复用已匹配 manifest 的 feature-series artifact
-- Forward locked holdout 守门：`./scripts/forward-holdout.ts --input <input.json>`，只评估策略冻结后新闭合的 K 线；冻结点及之前的数据一律拒绝，避免把已看过样本伪装成 promotion evidence
+- Forward locked holdout 守门：`bun ./scripts/forward-holdout.ts --input <input.json>`；也可用 `--panel-input <panel-input.json> --plan <plan.json> --frozen-at <iso>` 从 panel artifact 构造。必须有机器可读 `frozen_at`；只评估策略冻结后新闭合的 K 线，冻结点及之前的数据一律拒绝，避免把已看过样本伪装成 promotion evidence
+- R&D shadow tracker：`bun ./scripts/rd-shadow-tracker.ts --forward-result <forward-result.json> --output <tracker.json> [--state <tracker.json>] [--manifest-map <map.json>] [--max-hold-bars 18]`；把 forward entry 信号变成纸面持仓，用后续闭合 K 线判定 stop / target / time_exit，只产 review draft，不写 DB、不触发 Binance、不提供 promotion evidence
 - 示例输入：`./examples/*.example.json`
 - 项目级检查契约：`../../../docs/check-contract.md`
 - 执行 skill 输出契约：`../../../docs/execution-skill-contract.md`
@@ -96,7 +97,7 @@ latest_observe.action_intent.request
   - `--record-execution --json <payload>`：要求 `preflight_result.verdict=armable`，编译 `execution_contract`，把执行 skill 返回结果封成 `order_fill` 并落库
   - `--run --mode dry-run --json <payload>`：跑 `preflight -> contract -> mock execution -> order_fill -> reducer readback`
   - `--run --mode shadow --json <payload>`：同 dry-run，但 `execution_result.mode=shadow`
-  - `--load-runtime --account-config <path> --strategies-dir <path>`：加载运行配置与 strategy policy
+  - `--load-runtime --trading-config <path> --account-config <legacy-path> --strategies-dir <path>`：加载统一交易配置、编译 runtime policy，并兼容读取旧 account config 与 strategy policy
   - `--build-observe --json <payload>`：从账户 / 市场投影构建 observe event
   - `--observe-from-skills --json <payload>`：调用只读 `binance-account-snapshot` / `binance-symbol-snapshot` 后构建 observe event
   - `--replay-strategy --manifest <manifest> --strategy-id <id>`：读取 OHLCV manifest，通过 replay registry 机械回放策略，并输出统计与 gate
@@ -138,6 +139,7 @@ latest_observe.action_intent.request
 - `--strategy-rnd-campaign` 若传入 `calibration_report_path`，必须先通过 calibration gate；`calibrated=false` 或存在 blocker finding 时停止，不能消耗 trial budget
 - discovery winner 含 indicator filter 时必须提供独立 `validation_indicator_report_path`，不得拿 discovery feature series 验证
 - campaign 产出的 `validated_candidate_found` 仍只是待写 strategy policy 的候选，不自动进入 strategy evidence、shadow 或实盘
+- `rd-shadow-tracker.ts` 是 R&D artifact 跟踪器，不是 strategy shadow executor；结果必须经 review / attribution 后，才可能被人工整理为 strategy evidence
 - `--strategy-benchmark` 固定规则且禁止参数搜索；结果只回答管线能否识别已知机制，不是策略准入证据，不进入 shadow / live
 - `--strategy-calibration-suite` 固定规则且禁止参数搜索；`data_panel` 用来暴露 schema、closed candle、source 与对齐质量问题；buy-and-hold 只做 beta 诊断，`execution_attribution / regime_attribution / failure_analysis` 用来暴露系统问题和下一步修复动作；成本模型只拆 `maker_fee_bps / taker_fee_bps / market_order_share / slippage_bps`，不伪造 maker 队列成交概率；exact funding 覆盖不足只触发 `CAL-FUNDING-COVERAGE`，不得伪装成历史 funding 结果；suite 结果不进入 strategy evidence 或 promotion gate
 - calibration `report_hash / previous_run_comparison` 只用于 artifact diff 和退化诊断；不得作为 strategy promotion evidence

@@ -6,6 +6,7 @@ import test from "node:test"
 import {
   ensureNonOverlappingManifests,
   readCalibrationGate,
+  readHypothesisCertificateGate,
   readPanelNullGate,
   runStrategyRndCampaignWithDeps,
   type StrategyRndCampaignDeps,
@@ -60,6 +61,7 @@ test("strategy R&D campaign rejects validation without locked holdout embargo", 
         artifactRoot: join(dir, "artifacts"),
         hypotheses: [{
           hypothesisId: "h1",
+          thesisCertificate: thesisCertificate(),
           manifestPath: discovery,
           validationManifestPath: validation,
           candidates: [{ candidateId: "candidate-1" }],
@@ -72,6 +74,39 @@ test("strategy R&D campaign rejects validation without locked holdout embargo", 
       }),
       /holdout embargo/,
     )
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("strategy R&D campaign stops with zero trials when thesis certificate is missing", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-campaign-certificate-"))
+  try {
+    const discovery = writeManifest(join(dir, "discovery"), 1_000_000, 2_000_000)
+    const validation = writeManifest(join(dir, "validation"), 300_000_000, 320_000_000)
+    const report = runStrategyRndCampaignWithDeps({
+      campaignId: "campaign-missing-certificate",
+      artifactRoot: join(dir, "artifacts"),
+      hypotheses: [{
+        hypothesisId: "h1",
+        manifestPath: discovery,
+        validationManifestPath: validation,
+        candidates: [{ candidateId: "candidate-1" }],
+      }],
+    }, {
+      resolveCandidateCount: () => {
+        throw new Error("should not count trials")
+      },
+      runLoop: () => {
+        throw new Error("should not run")
+      },
+    })
+
+    assert.equal(report.stop_reason, "hypothesis_certificate_failed")
+    assert.equal(report.trials_used, 0)
+    assert.equal(report.hypotheses_run, 0)
+    assert.deepEqual(report.hypothesis_certificates[0].blocked_by, ["RND-HYPOTHESIS-CERTIFICATE-MISSING"])
+    assert.equal(readHypothesisCertificateGate({ hypothesisId: "h2", manifestPath: discovery, validationManifestPath: validation, candidates: [] }).accepted, false)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -138,6 +173,7 @@ test("strategy R&D campaign orchestrates discovery then locked validation", () =
       now: "2026-07-08T12:00:00Z",
       hypotheses: [{
         hypothesisId: "h1",
+        thesisCertificate: thesisCertificate(),
         manifestPath: discovery,
         validationManifestPath: validation,
         candidates: [{ candidateId: "candidate-1" }],
@@ -185,6 +221,7 @@ test("strategy R&D campaign blocks validation when panel null fails", () => {
       artifactRoot: join(dir, "artifacts"),
       hypotheses: [{
         hypothesisId: "h1",
+        thesisCertificate: thesisCertificate(),
         manifestPath: discovery,
         validationManifestPath: validation,
         candidates: [{ candidateId: "candidate-1" }],
@@ -235,6 +272,7 @@ test("strategy R&D campaign stops before exceeding trial budget", () => {
       artifactRoot: join(dir, "artifacts"),
       hypotheses: [{
         hypothesisId: "h1",
+        thesisCertificate: thesisCertificate(),
         manifestPath: discovery,
         validationManifestPath: validation,
         candidates: [{ candidateId: "candidate-1" }],
@@ -279,4 +317,17 @@ function writeManifest(dir: string, first: number, last: number): string {
     },
   }))
   return manifestPath
+}
+
+function thesisCertificate() {
+  return {
+    edgeType: "structural trend continuation",
+    behavioralHypothesis: "late momentum buyers defend pullbacks after trend confirmation",
+    marketParticipants: "trend followers and trapped countertrend liquidity",
+    regime: "liquid perpetual markets with persistent directional drift",
+    invalidation: "fails when pullbacks no longer hold above trend support",
+    costSensitivity: "edge must survive fee, slippage, and funding stress",
+    candidateUniverse: "trend pullback family with fixed long side parameters",
+    nullControls: ["side_flip", "entry_lag"],
+  }
 }

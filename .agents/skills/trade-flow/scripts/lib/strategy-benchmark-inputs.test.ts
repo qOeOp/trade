@@ -17,7 +17,8 @@ test("strategy benchmark input parser keeps public benchmark definition fixed", 
     datasets: [{
       dataset_id: "BTC",
       manifest_path: "/tmp/btc.json",
-      funding_report_path: "/tmp/funding.json",
+      indicator_report_path: "/tmp/funding.json",
+      symbol_status: "delisted",
     }],
   })
 
@@ -30,6 +31,22 @@ test("strategy benchmark input parser keeps public benchmark definition fixed", 
   assert.equal(input.fundingBpsPer8h, 0.1)
   assert.equal(input.datasets[0].datasetId, "BTC")
   assert.equal(input.datasets[0].indicatorReportPath, "/tmp/funding.json")
+  assert.equal(input.datasets[0].symbolStatus, "delisted")
+})
+
+test("strategy benchmark input parser ignores camel-case aliases", () => {
+  const input = strategyBenchmarkInputFromJson({
+    benchmarkId: "bench-1",
+    makerFeeBps: 0.2,
+    datasets: [{ datasetId: "BTC", manifestPath: "/tmp/btc.json", indicatorReportPath: "/tmp/funding.json" }],
+  })
+
+  assert.equal(input.benchmarkId, undefined)
+  assert.equal(input.makerFeeBps, undefined)
+  assert.equal(input.datasets[0].datasetId, "")
+  assert.equal(input.datasets[0].manifestPath, "")
+  assert.equal(input.datasets[0].indicatorReportPath, undefined)
+  assert.equal(input.datasets[0].symbolStatus, undefined)
 })
 
 test("strategy calibration input parser preserves calibration-only fields", () => {

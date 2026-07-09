@@ -565,12 +565,15 @@ CREATE INDEX idx_beta_symbol_date ON beta_cache(symbol, computed_date DESC);
 | --- | --- | --- |
 | Strategy policy | Markdown 文件（一文件一 strategy，含 frontmatter） | `.agents/skills/trade-flow/strategies/*.md` |
 | Strategy evidence ledger | JSONL（一条 evidence 一行） | `./data/strategy-evidence.jsonl` |
-| Account config | JSON | `./profile/account_config.json` |
-| Notify config | JSON | `./profile/notify_config.json` |
+| Trading config | JSON | `./profile/trading-config.json` |
+| Account config | JSON | `./profile/account_config.json`（兼容输入，后续由 trading config 取代） |
+| Notify config | JSON | `./profile/notify_config.json`（兼容输入，后续迁入 trading config；凭证仍只走环境变量） |
 | Cron 运维日志 | 文本日志 | `./data/cron.log` |
 | OHLCV / 市场数据 | CSV + manifest（后期切 SQLite） | `./data/ohlcv/` |
 
 Git 边界与 data 留存规则见 [data-hygiene.md](data-hygiene.md)。
+
+统一交易配置设计见 [trading-config.md](trading-config.md)。执行、preflight、R&D 后续应消费编译后的 `runtime_policy`，不再各自散读 `account_config` 字段。
 
 Strategy 文件 frontmatter shape：
 

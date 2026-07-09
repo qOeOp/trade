@@ -17,7 +17,7 @@ QuantDinger 可借鉴的是工程组织，不是产品范围：
 | 文档契约 / 命令契约 / API-MCP 契约分层 | 改为：docs 契约 / skill CLI 契约 / event-evidence 契约 |
 | Human API 与 Agent Gateway 分面 | 改为：用户接管 / cron 慢轨 / cron 快轨共用 executor，但入口权限分级 |
 | capability scope：R/W/B/C/T | 改为本地动作权限分级，不做 token 系统 |
-| paper-only default + live 双重解锁 | 改为 setup `live-small` + runtime live gate + preflight 三重准入 |
+| paper-only default + live 双重解锁 | 改为项目账户默认允许 `live-small` 路径，但 setup lifecycle + runtime health + preflight 三重准入 |
 | order intent / fill / runtime event 分离 | 在 `plan_event` 单表内补足 lifecycle 语义，不提前多表化 |
 | concurrency model：idempotency / lock / claim-before-work | 改为 cron lock、flow/lane 单写入者、clientOrderId 幂等、执行前 claim |
 | module boundaries / extension guide | 改为 skill 与脚本 ownership rules，防止 `trade-flow` 继续膨胀 |
@@ -39,6 +39,7 @@ QuantDinger 可借鉴的是工程组织，不是产品范围：
 - `trade-flow/scripts/main.ts` 与 `SKILL.md` 变成命令总线，新增能力容易继续往里塞。
 - 没有项目级命令契约；各 skill 有各自 `check`，但没有统一“改了什么跑什么”。
 - 动作权限没有机器可读边界；只读、写 evidence、写 `trade.db`、真实下单都靠文档和人工识别。
+- 交易配置缺少统一 runtime policy compiler；账户风险、通知、R&D 成本模型、strategy/lane 权限仍分散在多个文件和 payload。
 - order lifecycle 仍偏事件描述，缺少统一状态机词表。
 - recovery 已有方向，但还不是独立算法契约。
 - R&D 代码和在线交易 glue 共处一个 skill，容易让“研究失败样本”与“交易事实”在心智上混杂。
@@ -89,6 +90,7 @@ QuantDinger 可借鉴的是工程组织，不是产品范围：
 | `research` | replay、R&D、calibration、benchmark、candidate signal | 写 `trade.db`、触发 Binance |
 | `evidence` | fingerprint、strategy status gate、ledger | 交易事实替代品 |
 | `artifact` | refs、pin、retention、GC | 业务判断 |
+| `config` | trading config、runtime policy compiler、policy snapshot hash | live 账户事实、strategy 规则正文、凭证 |
 
 `trade-flow` 可以继续作为 suite 入口，但脚本内部必须按 domain 分包；入口只做 command routing。
 

@@ -23,21 +23,21 @@ const family: RndFamilyModule = {
 }
 
 function normalize(raw: JSONRecord): Params {
-  const percentile = readPositiveNumber(raw.compression_percentile ?? raw.compressionPercentile, 0.25)
+  const percentile = readPositiveNumber(raw.compression_percentile, 0.25)
   return {
     side: readSide(raw.side),
-    breakoutBars: readPositiveInteger(raw.breakout_bars ?? raw.breakoutBars, 40),
-    compressionBars: readPositiveInteger(raw.compression_bars ?? raw.compressionBars, 120),
+    breakoutBars: readPositiveInteger(raw.breakout_bars, 40),
+    compressionBars: readPositiveInteger(raw.compression_bars, 120),
     compressionPercentile: Math.min(percentile, 1),
-    stopAtr: readPositiveNumber(raw.stop_atr ?? raw.stopAtr, 0.75),
-    maxRiskAtr: readPositiveNumber(raw.max_risk_atr ?? raw.maxRiskAtr, 2.5),
-    rewardRisk: readPositiveNumber(raw.reward_risk ?? raw.rewardRisk, 2),
-    factorConditions: readFactorConditions(raw.factor_conditions ?? raw.factorConditions),
+    stopAtr: readPositiveNumber(raw.stop_atr, 0.75),
+    maxRiskAtr: readPositiveNumber(raw.max_risk_atr, 2.5),
+    rewardRisk: readPositiveNumber(raw.reward_risk, 2),
+    factorConditions: readFactorConditions(raw.factor_conditions),
   }
 }
 
 function json(params: Params): JSONRecord {
-  return { side: params.side, breakoutBars: params.breakoutBars, compressionBars: params.compressionBars, compressionPercentile: params.compressionPercentile, stopAtr: params.stopAtr, maxRiskAtr: params.maxRiskAtr, rewardRisk: params.rewardRisk, factorConditions: factorConditionsToJson(params.factorConditions) }
+  return { side: params.side, breakout_bars: params.breakoutBars, compression_bars: params.compressionBars, compression_percentile: params.compressionPercentile, stop_atr: params.stopAtr, max_risk_atr: params.maxRiskAtr, reward_risk: params.rewardRisk, factor_conditions: factorConditionsToJson(params.factorConditions) }
 }
 
 function strategy(id: string, params: Params, store: FactorFeatureStore): ReplayStrategy {

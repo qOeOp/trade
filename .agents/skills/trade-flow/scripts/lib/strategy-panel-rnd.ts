@@ -192,30 +192,30 @@ function buildPanelAssetShuffleNull(candidates: PanelCandidateReport[]): JSONRec
 
 function strategyPanelRndInputFromJson(value: JSONRecord): StrategyPanelRndInput {
   return {
-    panelId: stringField(value.panel_id ?? value.panelId) || undefined,
+    panelId: stringField(value.panel_id) || undefined,
     hypothesis: stringField(value.hypothesis) || undefined,
     timeframe: stringField(value.timeframe) || undefined,
-    maxHoldBars: optionalNumber(value.max_hold_bars ?? value.maxHoldBars),
-    feeBps: optionalNumber(value.fee_bps ?? value.feeBps),
-    slippageBps: optionalNumber(value.slippage_bps ?? value.slippageBps),
-    fundingBpsPer8h: optionalNumber(value.funding_bps_per_8h ?? value.fundingBpsPer8h),
-    oosSplitRatio: optionalNumber(value.oos_split ?? value.oosSplitRatio),
-    diagnosticMode: value.diagnostic_mode === true || value.diagnosticMode === true,
+    maxHoldBars: optionalNumber(value.max_hold_bars),
+    feeBps: optionalNumber(value.fee_bps),
+    slippageBps: optionalNumber(value.slippage_bps),
+    fundingBpsPer8h: optionalNumber(value.funding_bps_per_8h),
+    oosSplitRatio: optionalNumber(value.oos_split),
+    diagnosticMode: value.diagnostic_mode === true,
     datasets: array(value.datasets).map((raw) => {
       const item = asRecord(raw)
       return {
-        datasetId: stringField(item.dataset_id ?? item.datasetId),
-        manifestPath: stringField(item.manifest_path ?? item.manifestPath),
-        indicatorReportPath: stringField(item.indicator_report_path ?? item.indicatorReportPath) || undefined,
+        datasetId: stringField(item.dataset_id),
+        manifestPath: stringField(item.manifest_path),
+        indicatorReportPath: stringField(item.indicator_report_path) || undefined,
       }
     }),
     candidates: array(value.candidates).map((raw) => {
       const item = asRecord(raw)
       return {
-        candidateId: stringField(item.candidate_id ?? item.candidateId),
+        candidateId: stringField(item.candidate_id),
         description: stringField(item.description) || undefined,
         family: stringField(item.family) || undefined,
-        parameterCount: optionalNumber(item.parameter_count ?? item.parameterCount),
+        parameterCount: optionalNumber(item.parameter_count),
         params: asRecord(item.params),
       }
     }),

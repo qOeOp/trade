@@ -50,46 +50,46 @@ const family: RndFamilyModule = {
 }
 
 function normalize(raw: JSONRecord): Params {
-  const benchmarkManifestPath = stringField(raw.benchmark_manifest_path ?? raw.benchmarkManifestPath)
+  const benchmarkManifestPath = stringField(raw.benchmark_manifest_path)
   if (!benchmarkManifestPath) {
     throw new Error("relative_weakness_momentum_v1 requires benchmark_manifest_path")
   }
   return {
     side: readSide(raw.side),
-    signalMode: readSignalMode(raw.signal_mode ?? raw.signalMode),
-    confirmationMode: readConfirmationMode(raw.confirmation_mode ?? raw.confirmationMode),
+    signalMode: readSignalMode(raw.signal_mode),
+    confirmationMode: readConfirmationMode(raw.confirmation_mode),
     benchmarkManifestPath,
-    benchmarkTimeframe: stringField(raw.benchmark_timeframe ?? raw.benchmarkTimeframe) || "4h",
-    lookbackBars: readPositiveInteger(raw.lookback_bars ?? raw.lookbackBars, 120),
-    relativeThresholdAtr: readPositiveNumber(raw.relative_threshold_atr ?? raw.relativeThresholdAtr, 1),
-    benchmarkReturnMax: optionalNumber(raw.benchmark_return_max ?? raw.benchmarkReturnMax),
-    benchmarkReturnMin: optionalNumber(raw.benchmark_return_min ?? raw.benchmarkReturnMin),
-    stopAtr: readPositiveNumber(raw.stop_atr ?? raw.stopAtr, 1),
-    maxRiskAtr: readPositiveNumber(raw.max_risk_atr ?? raw.maxRiskAtr, 2.5),
-    rewardRisk: readPositiveNumber(raw.reward_risk ?? raw.rewardRisk, 2),
-    breakEvenAfterR: readNonNegativeNumber(raw.break_even_after_r ?? raw.breakEvenAfterR, 0),
-    breakEvenOffsetR: readNonNegativeNumber(raw.break_even_offset_r ?? raw.breakEvenOffsetR, 0),
-    factorConditions: readFactorConditions(raw.factor_conditions ?? raw.factorConditions),
+    benchmarkTimeframe: stringField(raw.benchmark_timeframe) || "4h",
+    lookbackBars: readPositiveInteger(raw.lookback_bars, 120),
+    relativeThresholdAtr: readPositiveNumber(raw.relative_threshold_atr, 1),
+    benchmarkReturnMax: optionalNumber(raw.benchmark_return_max),
+    benchmarkReturnMin: optionalNumber(raw.benchmark_return_min),
+    stopAtr: readPositiveNumber(raw.stop_atr, 1),
+    maxRiskAtr: readPositiveNumber(raw.max_risk_atr, 2.5),
+    rewardRisk: readPositiveNumber(raw.reward_risk, 2),
+    breakEvenAfterR: readNonNegativeNumber(raw.break_even_after_r, 0),
+    breakEvenOffsetR: readNonNegativeNumber(raw.break_even_offset_r, 0),
+    factorConditions: readFactorConditions(raw.factor_conditions),
   }
 }
 
 function json(params: Params): JSONRecord {
   return {
     side: params.side,
-    ...(params.signalMode !== "momentum" ? { signalMode: params.signalMode } : {}),
-    ...(params.confirmationMode !== "none" ? { confirmationMode: params.confirmationMode } : {}),
-    benchmarkManifestPath: params.benchmarkManifestPath,
-    benchmarkTimeframe: params.benchmarkTimeframe,
-    lookbackBars: params.lookbackBars,
-    relativeThresholdAtr: params.relativeThresholdAtr,
-    ...(params.benchmarkReturnMax !== undefined ? { benchmarkReturnMax: params.benchmarkReturnMax } : {}),
-    ...(params.benchmarkReturnMin !== undefined ? { benchmarkReturnMin: params.benchmarkReturnMin } : {}),
-    stopAtr: params.stopAtr,
-    maxRiskAtr: params.maxRiskAtr,
-    rewardRisk: params.rewardRisk,
-    breakEvenAfterR: params.breakEvenAfterR,
-    breakEvenOffsetR: params.breakEvenOffsetR,
-    factorConditions: factorConditionsToJson(params.factorConditions),
+    ...(params.signalMode !== "momentum" ? { signal_mode: params.signalMode } : {}),
+    ...(params.confirmationMode !== "none" ? { confirmation_mode: params.confirmationMode } : {}),
+    benchmark_manifest_path: params.benchmarkManifestPath,
+    benchmark_timeframe: params.benchmarkTimeframe,
+    lookback_bars: params.lookbackBars,
+    relative_threshold_atr: params.relativeThresholdAtr,
+    ...(params.benchmarkReturnMax !== undefined ? { benchmark_return_max: params.benchmarkReturnMax } : {}),
+    ...(params.benchmarkReturnMin !== undefined ? { benchmark_return_min: params.benchmarkReturnMin } : {}),
+    stop_atr: params.stopAtr,
+    max_risk_atr: params.maxRiskAtr,
+    reward_risk: params.rewardRisk,
+    break_even_after_r: params.breakEvenAfterR,
+    break_even_offset_r: params.breakEvenOffsetR,
+    factor_conditions: factorConditionsToJson(params.factorConditions),
   }
 }
 
@@ -174,7 +174,7 @@ function signal(side: "long" | "short", candle: Candle, index: number, entryInde
     target: side === "long" ? entry + risk * params.rewardRisk : entry - risk * params.rewardRisk,
     ...(params.breakEvenAfterR > 0 ? { break_even_after_r: params.breakEvenAfterR, break_even_offset_r: params.breakEvenOffsetR } : {}),
     reason: `rnd relative weakness ${params.signalMode} ${side}`,
-    meta: { ...json(params), relativeAtr: round(move.relativeAtr), benchmarkReturn: round(move.benchmarkReturn) },
+    meta: { ...json(params), relative_atr: round(move.relativeAtr), benchmark_return: round(move.benchmarkReturn) },
   }
 }
 

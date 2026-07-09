@@ -25,21 +25,21 @@ const family: RndFamilyModule = {
 function normalize(raw: JSONRecord): Params {
   return {
     side: readSide(raw.side),
-    lookbackBars: readPositiveInteger(raw.lookback_bars ?? raw.lookbackBars, 80),
-    breakoutBufferAtr: readNonNegativeNumber(raw.breakout_buffer_atr ?? raw.breakoutBufferAtr, 0.1),
-    retestToleranceAtr: readPositiveNumber(raw.retest_tolerance_atr ?? raw.retestToleranceAtr, 0.5),
-    stopAtr: readPositiveNumber(raw.stop_atr ?? raw.stopAtr, 0.5),
-    maxRiskAtr: readPositiveNumber(raw.max_risk_atr ?? raw.maxRiskAtr, 1.5),
-    rewardRisk: readPositiveNumber(raw.reward_risk ?? raw.rewardRisk, 2),
-    factorConditions: readFactorConditions(raw.factor_conditions ?? raw.factorConditions ?? raw.indicator_filters ?? raw.indicatorFilters),
+    lookbackBars: readPositiveInteger(raw.lookback_bars, 80),
+    breakoutBufferAtr: readNonNegativeNumber(raw.breakout_buffer_atr, 0.1),
+    retestToleranceAtr: readPositiveNumber(raw.retest_tolerance_atr, 0.5),
+    stopAtr: readPositiveNumber(raw.stop_atr, 0.5),
+    maxRiskAtr: readPositiveNumber(raw.max_risk_atr, 1.5),
+    rewardRisk: readPositiveNumber(raw.reward_risk, 2),
+    factorConditions: readFactorConditions(raw.factor_conditions),
   }
 }
 
 function toJSON(params: Params): JSONRecord {
   return {
-    side: params.side, lookbackBars: params.lookbackBars, breakoutBufferAtr: params.breakoutBufferAtr,
-    retestToleranceAtr: params.retestToleranceAtr, stopAtr: params.stopAtr, maxRiskAtr: params.maxRiskAtr,
-    rewardRisk: params.rewardRisk, factorConditions: factorConditionsToJson(params.factorConditions),
+    side: params.side, lookback_bars: params.lookbackBars, breakout_buffer_atr: params.breakoutBufferAtr,
+    retest_tolerance_atr: params.retestToleranceAtr, stop_atr: params.stopAtr, max_risk_atr: params.maxRiskAtr,
+    reward_risk: params.rewardRisk, factor_conditions: factorConditionsToJson(params.factorConditions),
   }
 }
 
@@ -81,12 +81,12 @@ function buildSignal(side: "long" | "short", level: number, retest: Candle, inde
     const stop = Math.min(retest.low, level) - params.stopAtr * atr
     const risk = entry - stop
     if (risk <= 0 || risk > params.maxRiskAtr * atr) return null
-    return { side, signal_index: index, entry_index: entryIndex, entry, stop, target: entry + risk * params.rewardRisk, reason: "rnd structure breakout retest long", meta: { ...toJSON(params), structureLevel: round(level) } }
+    return { side, signal_index: index, entry_index: entryIndex, entry, stop, target: entry + risk * params.rewardRisk, reason: "rnd structure breakout retest long", meta: { ...toJSON(params), structure_level: round(level) } }
   }
   const stop = Math.max(retest.high, level) + params.stopAtr * atr
   const risk = stop - entry
   if (risk <= 0 || risk > params.maxRiskAtr * atr) return null
-  return { side, signal_index: index, entry_index: entryIndex, entry, stop, target: entry - risk * params.rewardRisk, reason: "rnd structure breakout retest short", meta: { ...toJSON(params), structureLevel: round(level) } }
+  return { side, signal_index: index, entry_index: entryIndex, entry, stop, target: entry - risk * params.rewardRisk, reason: "rnd structure breakout retest short", meta: { ...toJSON(params), structure_level: round(level) } }
 }
 
 export default family

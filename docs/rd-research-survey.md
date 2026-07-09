@@ -30,7 +30,7 @@ updated_at: 2026-07-09 10:42 CST
 落点：
 
 - 已补 locked holdout embargo，但只覆盖时间边界；后续应把每笔 trade label 的 `signal_at / entry_at / exit_at / feature_lookback_start` 显式输出，做真正 label purge。
-- 现有 effective sample / edge margin 只是 heuristic；正式版应输出 `pbo / dsr / min_track_record_length / loss_probability`。
+- effective sample / edge margin 只是底线；正式报告应至少输出 deflated edge、PBO / CSCV、min track record length 或 loss probability。
 - Walk-forward 可作为部署模拟，不应替代 pristine holdout。
 
 ### Factor zoo / alpha decay
@@ -45,10 +45,11 @@ updated_at: 2026-07-09 10:42 CST
 - 项目不能把“有经济叙事”当成放松统计门槛的理由。
 - `strategy.policy` 应区分 structural edge、temporary dislocation、execution edge、regime edge。
 - 所有 strategy evidence 应默认带 decay watch：shadow/live-small 表现相对 replay 的衰减率。
+- 若 strategy edge 只能通过越来越复杂的 feature/filter 维持，默认提高 overfit prior，而不是提高信心。
 
 ### Temporal leakage / point-in-time correctness
 
-- 近期研究把 lookahead freedom 表述为 temporal non-interference：每个 datum 要区分 reference time 与 availability time。
+- 近期 point-in-time finance 研究把 lookahead 扩展到 LLM / research workflow：不是只防价格未来函数，而是防任何决策时点不可得的信息进入研究与解释链。
 - 社区和工具实践也反复证明，lookahead 往往来自指标一次性全量计算、resample/join、当前 K 高低点、未来可见的 universe。
 
 落点：
@@ -122,6 +123,7 @@ updated_at: 2026-07-09 10:42 CST
 对项目启发：
 
 - 自动 R&D 可以存在，但必须有人类定义的 hypothesis boundary、trial ledger、holdout policy 和 deployment gate。
+- RD-Agent/Qlib 的价值在“把重复工程自动化”，不是让 agent 自由挖到满意为止；越自动，越需要 universe ledger、negative result、statistical correction。
 - 对本项目而言，Qlib 更像远期参考，不是当前要复制的平台化目标。
 
 ## 4. 对当前 R&D 的升级建议
@@ -129,16 +131,19 @@ updated_at: 2026-07-09 10:42 CST
 ### P0
 
 1. **Hypothesis certificate**
-   每个 campaign 开始前必须写：edge 类型、市场参与者行为假设、适用 regime、失效条件、成本敏感度、候选 universe、null controls。空缺则零 trial。
+   已落地基础 gate：每个 campaign 开始前必须写 edge 类型、市场参与者行为假设、适用 regime、失效条件、成本敏感度、候选 universe、null controls；空缺则零 trial。后续可增强 expected holding/turnover 与 null coverage。
 
 2. **Temporal contract**
-   每个 replay / factor report 输出：`reference_at / availability_at / lookback_start / label_end / universe_selected_at`。先覆盖 OHLCV、funding、indicator report。
+   已落地 replay provenance 基础版：每个 replay 输出 `reference_at / availability_at / lookback_start / label_end / universe_selected_at`，并记录 supplemental report 的 declared availability；缺 temporal contract 的 replay evidence 在 strategy review 中视为 legacy/stale。后续再做 factor pipeline 的逐步可见重算。
 
 3. **Full-trial statistical report**
-   在当前 heuristic edge margin 后面加 `PBO/DSR` 或 SPA/Reality Check 的最小版；没有足够样本时明确输出 `statistically_unresolved`，不能叫 `candidate_ready`。
+   已落地最小正式版：R&D batch 输出完整 trial universe、accepted/rejected、winner、OOS/effective sample、edge margin、deflated edge probability 与四时间块 CSCV/PBO；没有足够样本或 PBO 失败时不能叫 `candidate_ready`。后续补 White Reality Check / Hansen SPA 与更严格 DSR。
 
 4. **Replay-to-shadow/live decay**
-   strategy review 增加 replay、shadow、live-small 三段的成本和收益衰减。edge 若只存在 replay，自动归因为 execution/reality gap，不允许靠 narrative 解释。
+   已落地反馈基础版：strategy review 输出 replay、shadow、live-small 三段收益/成本衰减诊断与 `cost_model_feedback`；shadow 相对 replay 的 avg_r 保留率过低时阻断 live-small，真实 fee / slippage / funding drag 会反灌为下一轮 replay cost stress 输入。后续再接订单 notional / ADV / depth 的 capacity / impact 分桶。
+
+5. **Forward holdout test loop**
+   已落地测试版：冻结 candidate 后可在机器可读 `frozen_at` 之后的闭合样本上只读评估，并校验 benchmark / supplemental 数据同样 forward；输出状态、下一步动作和 candidate hash。缺 `frozen_at` 的 plan 被拒绝，不从文件名或 generated_at 推断。它是 shadow 前观察工具，不替代 pristine holdout、统计校正或实盘归因。
 
 ### P1
 
@@ -146,10 +151,10 @@ updated_at: 2026-07-09 10:42 CST
    对 factor pipeline 做逐步可见重算，比较全量计算结果；发现差异直接 blocker。
 
 2. **Reality model feedback loop**
-   从 shadow/live-small review 聚合真实 slippage、fee、funding、missed-fill，回写 replay cost stress bucket。
+   已落地基础版：从 shadow/live-small evidence 聚合真实 fee、slippage、funding、total cost drag，输出 per-trade R 值与 unknown-size bucket。后续补 missed-fill、订单规模与流动性分桶。
 
 3. **Panel survivorship repair**
-   引入 delisted / inactive / listing-age-aware panel。未完成前所有 panel 报告标 `survivor_only=true`。
+   已落地基础防线：calibration panel 输出 `survivor_only`，并可通过外部归档 manifest 合入 inactive / delisted symbol。剩余缺口是真实 delisted 数据源与 listing-age-aware universe。
 
 4. **Selection universe ledger**
    把所有自动生成候选、参数、filter、失败原因记录为同一 universe，支持以后做 SPA/PBO。
@@ -173,12 +178,17 @@ updated_at: 2026-07-09 10:42 CST
 - McLean / Pontiff, *Does Academic Research Destroy Stock Return Predictability?*: https://papers.ssrn.com/sol3/papers.cfm?abstract_id=2156623
 - Chen / Zimmermann, *Open Source Cross-Sectional Asset Pricing*: https://www.openassetpricing.com/
 - QuantConnect LEAN: https://github.com/QuantConnect/Lean
+- QuantConnect reality modeling: https://www.quantconnect.com/docs/v2/writing-algorithms/reality-modeling/key-concepts
+- QuantConnect slippage models: https://www.quantconnect.com/docs/v2/writing-algorithms/reality-modeling/slippage/key-concepts
 - NautilusTrader: https://nautilustrader.io/
 - Freqtrade lookahead analysis: https://www.freqtrade.io/en/stable/lookahead-analysis/
 - Freqtrade recursive analysis: https://www.freqtrade.io/en/stable/recursive-analysis/
+- Look-Ahead-Bench, point-in-time finance workflow benchmark: https://arxiv.org/pdf/2601.13770
 - vectorbt: https://github.com/polakowo/vectorbt
+- backtesting.py: https://github.com/kernc/backtesting.py
 - backtrader: https://github.com/mementum/backtrader
 - Qlib: https://github.com/microsoft/qlib
+- Microsoft RD-Agent: https://github.com/microsoft/RD-Agent
+- R&D-Agent-Quant paper: https://arxiv.org/html/2505.15155v2
 - r/algotrading backtesting discussions: https://www.reddit.com/r/algotrading/
 - QuantConnect robust backtesting discussion: https://www.quantconnect.com/forum/discussion/20140/robust-backtesting-guide-walk-forward-validation-transaction-costs-out-of-sample-testing/
-

@@ -39,30 +39,30 @@ const family: RndFamilyModule = {
 function normalize(raw: JSONRecord): Params {
   return {
     side: readSide(raw.side),
-    fastEma: readEmaLength(raw.fast_ema ?? raw.fastEma, 50, [20, 50]) as 20 | 50,
-    slowEma: readEmaLength(raw.slow_ema ?? raw.slowEma, 200, [50, 200]) as 50 | 200,
-    pullbackAtr: readPositiveNumber(raw.pullback_atr ?? raw.pullbackAtr, 0.25),
-    stopAtr: readPositiveNumber(raw.stop_atr ?? raw.stopAtr, 0.5),
-    maxRiskAtr: readPositiveNumber(raw.max_risk_atr ?? raw.maxRiskAtr, 1.25),
-    rewardRisk: readPositiveNumber(raw.reward_risk ?? raw.rewardRisk, 2),
-    slopeLookback: readNonNegativeInteger(raw.slope_lookback ?? raw.slopeLookback, 0),
-    requireEmaStack: readBoolean(raw.require_ema_stack ?? raw.requireEmaStack, true),
-    factorConditions: readFactorConditions(raw.factor_conditions ?? raw.factorConditions ?? raw.indicator_filters ?? raw.indicatorFilters),
+    fastEma: readEmaLength(raw.fast_ema, 50, [20, 50]) as 20 | 50,
+    slowEma: readEmaLength(raw.slow_ema, 200, [50, 200]) as 50 | 200,
+    pullbackAtr: readPositiveNumber(raw.pullback_atr, 0.25),
+    stopAtr: readPositiveNumber(raw.stop_atr, 0.5),
+    maxRiskAtr: readPositiveNumber(raw.max_risk_atr, 1.25),
+    rewardRisk: readPositiveNumber(raw.reward_risk, 2),
+    slopeLookback: readNonNegativeInteger(raw.slope_lookback, 0),
+    requireEmaStack: readBoolean(raw.require_ema_stack, true),
+    factorConditions: readFactorConditions(raw.factor_conditions),
   }
 }
 
 function toJSON(params: Params): JSONRecord {
   return {
     side: params.side,
-    fastEma: params.fastEma,
-    slowEma: params.slowEma,
-    pullbackAtr: params.pullbackAtr,
-    stopAtr: params.stopAtr,
-    maxRiskAtr: params.maxRiskAtr,
-    rewardRisk: params.rewardRisk,
-    slopeLookback: params.slopeLookback,
-    requireEmaStack: params.requireEmaStack,
-    factorConditions: factorConditionsToJson(params.factorConditions),
+    fast_ema: params.fastEma,
+    slow_ema: params.slowEma,
+    pullback_atr: params.pullbackAtr,
+    stop_atr: params.stopAtr,
+    max_risk_atr: params.maxRiskAtr,
+    reward_risk: params.rewardRisk,
+    slope_lookback: params.slopeLookback,
+    require_ema_stack: params.requireEmaStack,
+    factor_conditions: factorConditionsToJson(params.factorConditions),
   }
 }
 

@@ -5,7 +5,11 @@ import type { CommandConfig, ScriptResponse } from "./types"
 
 export async function handleObserveCommand(config: CommandConfig): Promise<ScriptResponse | null> {
   if (config.loadRuntime) {
-    return successResponse(loadRuntime(config.accountConfigPath, config.strategiesDir))
+    return successResponse(loadRuntime({
+      tradingConfigPath: config.tradingConfigPath || undefined,
+      accountConfigPath: config.accountConfigPath,
+      strategiesDir: config.strategiesDir,
+    }))
   }
   if (config.buildObserve) {
     return successResponse(buildObserveEvent(config.input as unknown as ObserveInput))

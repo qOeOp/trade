@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { assertHoldoutUnused, holdoutKeyForInput, safeFileName, writeJsonFile } from "./strategy-rnd-ledger"
 import type { JSONRecord } from "./json"
-import type { StrategyRndCampaignInput, StrategyRndLoopInput } from "./strategy-rnd-inputs"
+import type { StrategyRndCampaignHypothesisInput, StrategyRndCampaignInput, StrategyRndLoopInput } from "./strategy-rnd-inputs"
 
 export interface StrategyRndCampaignReport {
   campaign_id: string
@@ -11,8 +11,9 @@ export interface StrategyRndCampaignReport {
   artifact_ref: string
   ledger_ref: string
   outcome: "validated_candidate_found" | "no_validated_candidate"
-  stop_reason: "validated_candidate_found" | "hypothesis_queue_exhausted" | "trial_budget_exhausted" | "locked_holdout_failed" | "calibration_failed" | "panel_null_failed"
+  stop_reason: "validated_candidate_found" | "hypothesis_queue_exhausted" | "trial_budget_exhausted" | "locked_holdout_failed" | "calibration_failed" | "hypothesis_certificate_failed" | "panel_null_failed"
   calibration_gate: JSONRecord | null
+  hypothesis_certificates: HypothesisCertificateGate[]
   panel_report_ref: string | null
   trial_budget: number
   trials_used: number
@@ -33,6 +34,13 @@ export interface StrategyRndCampaignReport {
     validation_run_ref: string | null
     validation_outcome: "candidate_found" | "no_promote" | null
   }>
+}
+
+export interface HypothesisCertificateGate {
+  hypothesis_id: string
+  accepted: boolean
+  blocked_by: string[]
+  certificate: JSONRecord | null
 }
 
 export interface StrategyRndCampaignLoopResult {
@@ -74,12 +82,18 @@ export function runStrategyRndCampaignWithDeps(
   const ledgerPath = input.ledgerPath || "./data/strategy-rnd-ledger.jsonl"
   const runs: StrategyRndCampaignReport["runs"] = []
   const calibrationGate = input.calibrationReportPath ? readCalibrationGate(input.calibrationReportPath) : null
+  const hypothesisCertificates = input.hypotheses.map(readHypothesisCertificateGate)
+  const certificateBlocked = hypothesisCertificates.some((gate) => !gate.accepted)
   let trialsUsed = 0
   let validatedCandidate: StrategyRndCampaignReport["validated_candidate"] = null
-  let stopReason: StrategyRndCampaignReport["stop_reason"] = calibrationGate?.blocked === true ? "calibration_failed" : "hypothesis_queue_exhausted"
+  let stopReason: StrategyRndCampaignReport["stop_reason"] = calibrationGate?.blocked === true
+    ? "calibration_failed"
+    : certificateBlocked
+      ? "hypothesis_certificate_failed"
+      : "hypothesis_queue_exhausted"
   let holdoutEvaluations = 0
 
-  for (const hypothesis of calibrationGate?.blocked === true ? [] : input.hypotheses) {
+  for (const hypothesis of calibrationGate?.blocked === true || certificateBlocked ? [] : input.hypotheses) {
     if (!hypothesis.hypothesisId) {
       throw new Error("strategy R&D campaign hypothesis_id is required")
     }
@@ -127,7 +141,7 @@ export function runStrategyRndCampaignWithDeps(
       stopReason = "panel_null_failed"
       break
     }
-    const winnerFilters = Array.isArray(winner.params.factorConditions) ? winner.params.factorConditions : []
+    const winnerFilters = Array.isArray(winner.params.factor_conditions) ? winner.params.factor_conditions : []
     if (winnerFilters.length > 0 && !hypothesis.validationIndicatorReportPath) {
       throw new Error(`strategy R&D campaign ${hypothesis.hypothesisId} requires validation_indicator_report_path for frozen indicator filters`)
     }
@@ -185,6 +199,7 @@ export function runStrategyRndCampaignWithDeps(
     outcome: validatedCandidate ? "validated_candidate_found" : "no_validated_candidate",
     stop_reason: stopReason,
     calibration_gate: calibrationGate,
+    hypothesis_certificates: hypothesisCertificates,
     panel_report_ref: input.panelReportPath ?? null,
     trial_budget: trialBudget,
     trials_used: trialsUsed,
@@ -195,6 +210,43 @@ export function runStrategyRndCampaignWithDeps(
   }
   writeJsonFile(artifactRef, report)
   return report
+}
+
+export function readHypothesisCertificateGate(hypothesis: StrategyRndCampaignHypothesisInput): HypothesisCertificateGate {
+  const certificate = hypothesis.thesisCertificate
+  if (!certificate) {
+    return {
+      hypothesis_id: hypothesis.hypothesisId,
+      accepted: false,
+      blocked_by: ["RND-HYPOTHESIS-CERTIFICATE-MISSING"],
+      certificate: null,
+    }
+  }
+  const blockedBy = [
+    requiredText(certificate.edgeType, "RND-HYPOTHESIS-EDGE-TYPE"),
+    requiredText(certificate.behavioralHypothesis, "RND-HYPOTHESIS-BEHAVIOR"),
+    requiredText(certificate.marketParticipants, "RND-HYPOTHESIS-PARTICIPANTS"),
+    requiredText(certificate.regime, "RND-HYPOTHESIS-REGIME"),
+    requiredText(certificate.invalidation, "RND-HYPOTHESIS-INVALIDATION"),
+    requiredText(certificate.costSensitivity, "RND-HYPOTHESIS-COST-SENSITIVITY"),
+    requiredStructured(certificate.candidateUniverse, "RND-HYPOTHESIS-CANDIDATE-UNIVERSE"),
+    certificate.nullControls && certificate.nullControls.length > 0 ? "" : "RND-HYPOTHESIS-NULL-CONTROLS",
+  ].filter(Boolean)
+  return {
+    hypothesis_id: hypothesis.hypothesisId,
+    accepted: blockedBy.length === 0,
+    blocked_by: blockedBy,
+    certificate: {
+      edge_type: certificate.edgeType ?? "",
+      behavioral_hypothesis: certificate.behavioralHypothesis ?? "",
+      market_participants: certificate.marketParticipants ?? "",
+      regime: certificate.regime ?? "",
+      invalidation: certificate.invalidation ?? "",
+      cost_sensitivity: certificate.costSensitivity ?? "",
+      candidate_universe: certificate.candidateUniverse ?? null,
+      null_controls: certificate.nullControls ?? [],
+    },
+  }
 }
 
 export function readPanelNullGate(path: string, candidateId: string): JSONRecord {
@@ -325,4 +377,21 @@ function stringField(value: unknown): string {
 
 function panelCandidateMatches(requested: string, panelCandidate: string): boolean {
   return panelCandidate === requested || requested.startsWith(`${panelCandidate}-`)
+}
+
+function requiredText(value: unknown, checkId: string): string {
+  return stringField(value).length >= 8 ? "" : checkId
+}
+
+function requiredStructured(value: unknown, checkId: string): string {
+  if (typeof value === "string") {
+    return value.trim().length >= 8 ? "" : checkId
+  }
+  if (Array.isArray(value)) {
+    return value.length > 0 ? "" : checkId
+  }
+  if (value && typeof value === "object") {
+    return Object.keys(value).length > 0 ? "" : checkId
+  }
+  return checkId
 }

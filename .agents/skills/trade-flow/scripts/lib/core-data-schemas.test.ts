@@ -102,7 +102,7 @@ test("cron recover result schema matches recovery statuses and noop output", asy
 test("runtime load result schema matches runtime loader output", () => {
   const schema = readSchema("runtime-load-result")
   assert.equal(schema.$id, "trade-flow.runtime-load-result.v1")
-  assert.deepEqual(asArray(schema.required), ["account_config", "strategies", "loaded_at"])
+  assert.deepEqual(asArray(schema.required), ["trading_config", "runtime_policy", "account_config", "strategies", "loaded_at"])
 
   const dir = mkdtempSync(join(tmpdir(), "runtime-load-schema-"))
   try {
@@ -119,9 +119,39 @@ test("runtime load result schema matches runtime loader output", () => {
     writeFileSync(join(strategiesDir, "s-test.md"), "---\nstrategy_id: S-RUNTIME\nname: Runtime\nstatus: draft\ntags: [schema]\n---\n\n# Runtime\n")
     const result = loadRuntime(join(dir, "account-config.json"), strategiesDir) as JSONRecord
     assertSchemaRequired(schema, result)
+    assert.equal(asRecord(result.runtime_policy).schema_version, "runtime-policy.v1")
+    assert.equal(typeof asRecord(result.runtime_policy).source_hash, "string")
     assert.equal(typeof result.account_config, "object")
     assert.equal(Array.isArray(result.strategies), true)
     assert.equal(typeof result.loaded_at, "string")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("runtime load result does not require legacy account config when trading config exists", () => {
+  const dir = mkdtempSync(join(tmpdir(), "runtime-load-no-legacy-"))
+  try {
+    const tradingConfigPath = join(dir, "trading-config.json")
+    const accountConfigPath = join(dir, "account-config.json")
+    const strategiesDir = join(dir, "strategies")
+    mkdirSync(strategiesDir, { recursive: true })
+    writeFileSync(tradingConfigPath, JSON.stringify({
+      schema_version: 1,
+      profile_id: "test-live",
+      mode: "live",
+      permissions: { live_small_enabled: true, max_stage: "live-small" },
+      risk: {},
+      exposure: {},
+      execution: {},
+      research: {},
+    }))
+    writeFileSync(join(strategiesDir, "s-test.md"), "---\nstrategy_id: S-RUNTIME\nstatus: draft\n---\n")
+
+    const result = loadRuntime({ tradingConfigPath, accountConfigPath, strategiesDir }) as JSONRecord
+
+    assert.deepEqual(result.account_config, {})
+    assert.equal(asRecord(asRecord(result.runtime_policy).permissions).can_live_small, true)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

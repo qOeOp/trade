@@ -4,6 +4,7 @@ export interface BenchmarkDataset {
   datasetId: string
   manifestPath: string
   indicatorReportPath?: string
+  symbolStatus?: string
 }
 
 export interface TrendBenchmarkInput {
@@ -29,21 +30,22 @@ export interface CalibrationSuiteInput extends TrendBenchmarkInput {
 
 export function strategyBenchmarkInputFromJson(value: JSONRecord): TrendBenchmarkInput {
   return {
-    benchmarkId: stringField(value.benchmark_id ?? value.benchmarkId) || undefined,
+    benchmarkId: stringField(value.benchmark_id) || undefined,
     timeframe: stringField(value.timeframe) || undefined,
-    feeBps: optionalNumber(value.fee_bps ?? value.feeBps),
-    makerFeeBps: optionalNumber(value.maker_fee_bps ?? value.makerFeeBps),
-    takerFeeBps: optionalNumber(value.taker_fee_bps ?? value.takerFeeBps),
-    marketOrderShare: optionalNumber(value.market_order_share ?? value.marketOrderShare),
-    slippageBps: optionalNumber(value.slippage_bps ?? value.slippageBps),
-    fundingBpsPer8h: optionalNumber(value.funding_bps_per_8h ?? value.fundingBpsPer8h),
-    randomTrials: optionalNumber(value.random_trials ?? value.randomTrials),
+    feeBps: optionalNumber(value.fee_bps),
+    makerFeeBps: optionalNumber(value.maker_fee_bps),
+    takerFeeBps: optionalNumber(value.taker_fee_bps),
+    marketOrderShare: optionalNumber(value.market_order_share),
+    slippageBps: optionalNumber(value.slippage_bps),
+    fundingBpsPer8h: optionalNumber(value.funding_bps_per_8h),
+    randomTrials: optionalNumber(value.random_trials),
     datasets: array(value.datasets).map((raw) => {
       const item = asRecord(raw)
       return {
-        datasetId: stringField(item.dataset_id ?? item.datasetId),
-        manifestPath: stringField(item.manifest_path ?? item.manifestPath),
-        indicatorReportPath: stringField(item.indicator_report_path ?? item.indicatorReportPath ?? item.funding_report_path ?? item.fundingReportPath) || undefined,
+        datasetId: stringField(item.dataset_id),
+        manifestPath: stringField(item.manifest_path),
+        indicatorReportPath: stringField(item.indicator_report_path) || undefined,
+        symbolStatus: stringField(item.symbol_status) || undefined,
       }
     }),
   }
@@ -52,8 +54,8 @@ export function strategyBenchmarkInputFromJson(value: JSONRecord): TrendBenchmar
 export function strategyCalibrationInputFromJson(value: JSONRecord): CalibrationSuiteInput {
   return {
     ...strategyBenchmarkInputFromJson(value),
-    suiteId: stringField(value.calibration_suite_id ?? value.suiteId) || undefined,
-    previousCalibrationReportPath: stringField(value.previous_calibration_report_path ?? value.previousCalibrationReportPath) || undefined,
+    suiteId: stringField(value.calibration_suite_id) || undefined,
+    previousCalibrationReportPath: stringField(value.previous_calibration_report_path) || undefined,
   }
 }
 

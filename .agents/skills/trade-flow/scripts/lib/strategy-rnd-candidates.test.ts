@@ -50,7 +50,7 @@ test("strategy R&D candidates preserve scientific factor discovery source", () =
   const resolved = resolveRndCandidates(input, factorResearchFixture())
   assert.equal(resolved.source, "scientific_factor_discovery")
   assert.equal(Array.isArray(resolved.candidates[0].params?.factor_conditions), true)
-  assert.equal((resolved.candidates[0].params?.factor_conditions as Array<{ factorId: string }>)[0].factorId, "edge.factor")
+  assert.equal((resolved.candidates[0].params?.factor_conditions as Array<{ factor_id: string }>)[0].factor_id, "edge.factor")
 })
 
 test("strategy R&D candidates keep campaign candidate counting and discovery constraints explicit", () => {

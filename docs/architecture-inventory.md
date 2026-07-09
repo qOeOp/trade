@@ -28,6 +28,7 @@
 | `tech-indicators` | `A` | 指标、结构、factor descriptor、beta | report/artifact | 不知道交易动作；只输出 feature/report |
 | `plan-preflight` | `A` | hard guards、decision card | stdout | 保持独立 guard；不写事件 |
 | `trade-flow` | `E/V/T` | 在线链 glue、event、execution recording、recovery、R&D、evidence | trade.db / ledger / artifact / optional Binance | 拆 domain owner；入口瘦身 |
+| `runtime-policy` | `C/A` | 目标模块：统一交易配置读取、校验、合成、hash | stdout / observe policy snapshot | 设计见 `docs/trading-config.md`；尚未实现为独立命令 |
 | `binance-order-preview` | `A` | 执行预演、方法路由、contract compile | stdout | 统一 contract output；不发单 |
 | `binance-order-place` | `T` | USDM 主单开仓 / 加仓 | Binance | 只接受 executor 编译后的 contract 作为推荐路径 |
 | `binance-position-protect` | `T` | 止损、止盈、trailing 保护腿 | Binance | 输出 normalized event |
@@ -45,7 +46,7 @@
 | `--record-execution` | `V` | contract + execution result -> audited order_fill | `execution` |
 | `--run --mode dry-run` | `V` | mock 链路落库 | `execution` |
 | `--run --mode shadow` | `V/E` | shadow order_fill | `execution/evidence` |
-| `--load-runtime` | `R/C` | 读取 account config / strategy | `runtime` |
+| `--load-runtime` | `R/C` | 读取 trading config、编译 runtime policy、兼容读取 account config / strategy | `runtime/config` |
 | `--build-observe` | `V` | 构建 observe event | `observe` |
 | `--observe-from-skills` | `R/V` | 调只读 skill + observe | `observe` |
 | `--replay-strategy` | `A` | 单 strategy replay | `research/replay` |

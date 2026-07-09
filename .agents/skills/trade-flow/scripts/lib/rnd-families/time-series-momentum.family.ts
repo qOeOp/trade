@@ -26,19 +26,19 @@ const family: RndFamilyModule = {
 function normalize(raw: JSONRecord): Params {
   return {
     side: readSide(raw.side),
-    lookbackBars: readPositiveInteger(raw.lookback_bars ?? raw.lookbackBars, 126),
-    thresholdAtr: readPositiveNumber(raw.threshold_atr ?? raw.thresholdAtr, 2),
-    stopAtr: readPositiveNumber(raw.stop_atr ?? raw.stopAtr, 1),
-    maxRiskAtr: readPositiveNumber(raw.max_risk_atr ?? raw.maxRiskAtr, 2.5),
-    rewardRisk: readPositiveNumber(raw.reward_risk ?? raw.rewardRisk, 2),
-    breakEvenAfterR: readNonNegativeNumber(raw.break_even_after_r ?? raw.breakEvenAfterR, 0),
-    breakEvenOffsetR: readNonNegativeNumber(raw.break_even_offset_r ?? raw.breakEvenOffsetR, 0),
-    factorConditions: readFactorConditions(raw.factor_conditions ?? raw.factorConditions),
+    lookbackBars: readPositiveInteger(raw.lookback_bars, 126),
+    thresholdAtr: readPositiveNumber(raw.threshold_atr, 2),
+    stopAtr: readPositiveNumber(raw.stop_atr, 1),
+    maxRiskAtr: readPositiveNumber(raw.max_risk_atr, 2.5),
+    rewardRisk: readPositiveNumber(raw.reward_risk, 2),
+    breakEvenAfterR: readNonNegativeNumber(raw.break_even_after_r, 0),
+    breakEvenOffsetR: readNonNegativeNumber(raw.break_even_offset_r, 0),
+    factorConditions: readFactorConditions(raw.factor_conditions),
   }
 }
 
 function json(params: Params): JSONRecord {
-  return { side: params.side, lookbackBars: params.lookbackBars, thresholdAtr: params.thresholdAtr, stopAtr: params.stopAtr, maxRiskAtr: params.maxRiskAtr, rewardRisk: params.rewardRisk, breakEvenAfterR: params.breakEvenAfterR, breakEvenOffsetR: params.breakEvenOffsetR, factorConditions: factorConditionsToJson(params.factorConditions) }
+  return { side: params.side, lookback_bars: params.lookbackBars, threshold_atr: params.thresholdAtr, stop_atr: params.stopAtr, max_risk_atr: params.maxRiskAtr, reward_risk: params.rewardRisk, break_even_after_r: params.breakEvenAfterR, break_even_offset_r: params.breakEvenOffsetR, factor_conditions: factorConditionsToJson(params.factorConditions) }
 }
 
 function strategy(id: string, params: Params, store: FactorFeatureStore): ReplayStrategy {

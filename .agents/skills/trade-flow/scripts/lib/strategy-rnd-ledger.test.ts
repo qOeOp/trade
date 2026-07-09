@@ -124,7 +124,10 @@ test("strategy R&D ledger writes artifacts and redacts loop input", () => {
     const written = JSON.parse(readFileSync(artifactPath, "utf8")) as { input: Record<string, unknown> }
     assert.equal(written.input.ledgerPath, undefined)
     assert.equal(written.input.artifactRoot, undefined)
-    assert.equal(Array.isArray(written.input.factorSeeds), true)
+    assert.equal(written.input.ledger_path, undefined)
+    assert.equal(written.input.artifact_root, undefined)
+    assert.equal(Array.isArray(written.input.factor_seeds), true)
+    assert.equal((written.input.candidates as Array<Record<string, unknown>>)[0].candidate_id, "C-1")
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

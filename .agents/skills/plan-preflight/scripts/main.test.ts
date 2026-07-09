@@ -154,3 +154,42 @@ test("evaluatePreflight blocks open risk cap breach", () => {
   assert.equal(result.verdict, "blocked")
   assert.ok(result.blocked_by.some((item) => item.check_id === "G-RISK-OPEN-CAP"))
 })
+
+test("evaluatePreflight blocks runtime policy single-trade risk cap", () => {
+  const result = evaluatePreflight({
+    ...baseInput,
+    runtime_policy: {
+      effective_limits: {
+        max_single_trade_risk_usdt: 10,
+      },
+    },
+  })
+
+  assert.equal(result.verdict, "blocked")
+  assert.ok(result.blocked_by.some((item) => item.check_id === "G-MAX-SINGLE-TRADE-RISK"))
+})
+
+test("evaluatePreflight blocks small-account notional and leverage caps", () => {
+  const result = evaluatePreflight({
+    ...baseInput,
+    plan: {
+      ...baseInput.plan,
+      stop_price: 64900,
+      risk_budget_usdt: 20,
+    },
+    request: {
+      type: "LIMIT",
+      entries: [{ price: 65000, risk_ratio: 1 }],
+    },
+    runtime_policy: {
+      effective_limits: {
+        max_entry_notional_usdt: 1000,
+        max_single_position_leverage: 5,
+      },
+    },
+  })
+
+  assert.equal(result.verdict, "blocked")
+  assert.ok(result.blocked_by.some((item) => item.check_id === "G-MAX-ENTRY-NOTIONAL"))
+  assert.ok(result.blocked_by.some((item) => item.check_id === "G-SINGLE-POSITION-LEVERAGE-CAP"))
+})

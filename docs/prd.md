@@ -129,21 +129,25 @@ Replay / shadow / live 对齐要求：
 - `--replay-strategy`：只读文件，不写 DB，不触发 Binance
 - `--strategy-rnd-batch`：最多 10 个候选；可先在 discovery 数据上筛 factor，再按角色、数量与参数预算组合到预声明 base family；统一 replay/OOS、candidate null controls 和失败归因，不自动升格
 - `--strategy-rnd-loop`：包装一轮 R&D batch，写 artifact JSON 与 `strategy-rnd-ledger.jsonl`；ledger 只做研究审计，不作为 promote evidence
-- `--strategy-rnd-campaign`：在全局最多 10 次 discovery trial 内运行 hypothesis queue；可选 `calibration_report_path` 未过则零 trial 停止；没有 winner 才继续，首个 winner 冻结后只查看一次不重叠 locked holdout，失败即结束 campaign
+- `--strategy-rnd-campaign`：在全局最多 10 次 discovery trial 内运行 hypothesis queue；每个 hypothesis 必须带 `thesis_certificate`，缺 edge 类型、行为假设、参与者、regime、失效条件、成本敏感度、候选 universe 或 null controls 时零 trial 停止；可选 `calibration_report_path` 未过则零 trial 停止；没有 winner 才继续，首个 winner 冻结后只查看一次不重叠 locked holdout，失败即结束 campaign
 - `--strategy-panel-rnd`：同一候选跨至少 3 个资产评估，保留逐资产证据，并检查 pooled sample、广度、OOS、成本与灾难损失
 - `--strategy-benchmark`：用固定多资产趋势规则、15% 目标波动、成本/资金费压力和组合权重循环移位负对照标定 R&D 管线；不写 DB、不产生准入证据
-- `--strategy-calibration-suite`：固定跑 buy-and-hold / cash baseline、趋势基准、横截面强弱基准，可消费 dataset `indicator_report_path` 中的 exact funding events，并输出 report hash、可选 previous-run comparison、data_panel、beta、fee/slippage 成本拆分、funding、换手、暴露、时间/趋势/波动 regime 稳定性、time-shift / side-flip / asset-shuffle 负对照与数据广度归因；只暴露系统问题，不产生准入证据
+- `--strategy-calibration-suite`：固定跑 buy-and-hold / cash baseline、趋势基准、横截面强弱基准，可消费 dataset `indicator_report_path` 中的 exact funding events 与 `symbol_status`，并输出 report hash、可选 previous-run comparison、data_panel、survivor-only 标记、beta、fee/slippage 成本拆分、funding、换手、暴露、时间/趋势/波动 regime 稳定性、time-shift / side-flip / asset-shuffle 负对照与数据广度归因；只暴露系统问题，不产生准入证据
 - `--strategy-signal`：candidate 在最新闭合 K 线上复用 replay family并返回稳定 hash；entry reference 由在线报价注入，只返回信号，不执行、不落交易事实
+- `scripts/forward-holdout.ts`：对已冻结 candidate 做只读 forward holdout 验收；主数据与 benchmark / supplemental 数据都必须晚于机器可读 `frozen_at`，输出 `status / next_action / frozen_candidate hash`，只作为 shadow/review 前置观察，不直接产生 promotion evidence；缺 `frozen_at` 的“frozen”描述一律不验收
+- `scripts/rd-shadow-tracker.ts`：把 forward entry 信号转成 R&D 纸面持仓，用后续闭合 K 线判定 stop / target / time_exit 并生成 review draft；不写 DB、不执行、不等同 strategy shadow evidence
 - replay 只能给 `shadow_candidate`；`live-small` 必须另有 shadow 样本、execution attribution 与人工确认
+- strategy review 固定输出 replay -> shadow -> live-small decay diagnostics 与 `cost_model_feedback`；shadow 相对 replay 的 avg_r 保留率过低时阻断 live-small，真实 fee / slippage / funding drag 会反灌为下一轮 replay cost stress 输入，而不是靠叙事解释
 - candidate family 只承载少量可检验市场机制，不做形态百科；只有通过样本外、成本和稳定性门槛的版本才可沉淀为策略 asset
 - factor 由 indicator 自身 catalog descriptor 自动发现，统一使用稳定 `factor_id`；family 由目录模块自动发现，两者新增都不改 R&D core 或中央注册表
 - factor transform 固定为 `level / delta / slope / zscore / percentile`，condition 固定为 `gt / lt / between`；composer 最多 3 个不同角色 factor、10 个候选、8 个参数
 - scientific factor discovery 以 base family 实际 setup 的 realized R 为目标做 causal rank IC；全部被扫描 factor 统一做 5% FDR，再检查时间折、regime 与 `|corr|>=0.85` 去重。筛选结果只是 seed，不是 edge 结论
+- R&D batch 固定输出 `statistical_report`，记录完整 trial universe、accepted/rejected、winner、OOS/effective sample、edge margin、deflated edge probability 与四时间块 CSCV/PBO；当前不等同完整 White Reality Check / Hansen SPA
 - replay 对训练标签跨 OOS 分界做 purge；多候选样本足够时执行四时间块选择反转审计
 - candidate R&D 固定输出 side-flip 与 entry-lag null controls；候选为正但打不过有效 null 时不能进入下一阶段
 - replay 成本包含 fee、slippage、止损 gap；有 funding events 时逐次结算，无事件时才使用 adverse funding fallback；历史 L2 queue 缺失时不估算 maker fill
 - `strategy-evidence.jsonl`：保存 replay / shadow / live-small / review_batch 证据，不进入 `trade.db`
-- evidence fingerprint：`policy_hash + harness_hash + data_hash + assumptions_hash`；data hash 同时覆盖 OHLCV 与消费的 factor report，策略、回放代码、数据或假设任一变化均使旧证据 stale
+- evidence fingerprint：`policy_hash + harness_hash + data_hash + assumptions_hash + temporal_contract`；data hash 同时覆盖 OHLCV 与消费的 factor report，temporal contract 记录 closed-candle reference、availability、lookback、label end、universe selection，策略、回放代码、数据、时点合同或假设任一变化均使旧证据 stale
 - `anti_overfit`：普通末段切片只算 selection validation；准入证据必须是只查看一次的 locked holdout 或 locked walk-forward
 - `external_validation` 可评估完整不重叠区间，但不提供 shadow 准入资格；历史上已被项目使用的数据不得重新命名为 locked holdout
 - replay robustness：至少两个有效 regime 分桶、额外单边 5 bps 成本压力、预声明 ±10% 参数扰动
@@ -172,6 +176,7 @@ R&D artifact、strategy evidence / R&D ledger 是本地运行态，不进入 Git
 - locked holdout 样本至少 10，且表现为正
 - trial search budget 不能超过 10；参数数量不能超过 8
 - `shadow -> live-small`：fresh replay + fresh shadow；shadow 样本至少 20，表现为正
+- R&D tracker 关闭样本只能作为 review 输入；升 `live-small` 仍必须走正式 strategy evidence 与 execution attribution
 - 任意状态可降级到 `paused / draft`
 - 只改 `status` 不改变 `policy_hash`；改规则正文 / 名称 / tags 会使旧证据失效
 

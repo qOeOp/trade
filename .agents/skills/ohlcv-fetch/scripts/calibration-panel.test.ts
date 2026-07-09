@@ -74,10 +74,79 @@ test("calibration panel writes trade-flow suite input from fetched manifests", a
   assert.equal(suite.funding_bps_per_8h, 1)
   assert.equal(suite.random_trials, 20)
 
-  const panel = JSON.parse(readFileSync(String(result.data.panel_manifest_path), "utf8")) as { suite_input_path: string; datasets: Array<{ manifest_available: boolean; rows: number; manifest_path: string; funding_report_path: string | null }> }
+  const panel = JSON.parse(readFileSync(String(result.data.panel_manifest_path), "utf8")) as {
+    suite_input_path: string
+    survivor_only: boolean
+    inactive_dataset_count: number
+    datasets: Array<{ manifest_available: boolean; rows: number; manifest_path: string; funding_report_path: string | null }>
+  }
   assert.equal(isAbsolute(panel.suite_input_path), false)
+  assert.equal(panel.survivor_only, true)
+  assert.equal(panel.inactive_dataset_count, 0)
   assert.equal(panel.datasets.every((item) => !isAbsolute(item.manifest_path)), true)
   assert.equal(isAbsolute(panel.datasets[0].funding_report_path || ""), false)
   assert.equal(panel.datasets[0].manifest_available, true)
   assert.equal(panel.datasets[0].rows, 12000)
+})
+
+test("calibration panel can include external inactive manifests", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "calibration-panel-inactive-"))
+  const inactiveDir = join(dir, "inactive")
+  mkdirSync(inactiveDir, { recursive: true })
+  const inactiveManifestPath = join(inactiveDir, "lunausdt-manifest.json")
+  writeFileSync(inactiveManifestPath, JSON.stringify({
+    schema_version: 2,
+    closed_candles_only: true,
+    source: { provider: "archive", market: "usdm_perpetual" },
+    symbol: "LUNAUSDT",
+    timeframes: { "4h": { rows: 5000, first_open_ts: 1609459200000, last_open_ts: 1654041600000, content_sha256: "def" } },
+  }))
+  const inactiveMapPath = join(dir, "inactive-map.json")
+  writeFileSync(inactiveMapPath, JSON.stringify({
+    datasets: [{
+      dataset_id: "LUNAUSDT",
+      symbol: "LUNAUSDT",
+      symbol_status: "delisted",
+      manifest_path: inactiveManifestPath,
+      delisted_at: "2022-05-12T00:00:00Z",
+    }],
+  }))
+
+  const result = await runCalibrationPanel([
+    "--symbols", "BTCUSDT",
+    "--output-root", join(dir, "panel"),
+    "--inactive-manifest-map", inactiveMapPath,
+  ], async (argv) => {
+    const outputDir = argv[argv.indexOf("--output-dir") + 1]
+    const symbol = argv[argv.indexOf("--symbol") + 1]
+    writeFileSync(join(outputDir, "manifest.json"), JSON.stringify({
+      schema_version: 2,
+      closed_candles_only: true,
+      source: { provider: "binance", market: "usdm_perpetual" },
+      symbol,
+      timeframes: { "4h": { rows: 12000, first_open_ts: 1609459200000, last_open_ts: 1782259200000, content_sha256: "abc" } },
+    }))
+    return { ok: true, data: {} }
+  })
+
+  assert.equal(result.ok, true)
+  if (!result.ok) return
+  assert.equal(result.data.dataset_count, 2)
+  const suite = JSON.parse(readFileSync(String(result.data.suite_input_path), "utf8")) as { datasets: Array<{ dataset_id: string; symbol_status: string; manifest_path: string }> }
+  assert.deepEqual(suite.datasets.map((item) => item.dataset_id), ["BTCUSDT", "LUNAUSDT"])
+  assert.deepEqual(suite.datasets.map((item) => item.symbol_status), ["active", "delisted"])
+  assert.equal(suite.datasets.every((item) => !isAbsolute(item.manifest_path)), true)
+
+  const panel = JSON.parse(readFileSync(String(result.data.panel_manifest_path), "utf8")) as {
+    survivor_only: boolean
+    active_dataset_count: number
+    delisted_dataset_count: number
+    datasets: Array<{ dataset_id: string; symbol_status: string; manifest_available: boolean; rows: number }>
+  }
+  assert.equal(panel.survivor_only, false)
+  assert.equal(panel.active_dataset_count, 1)
+  assert.equal(panel.delisted_dataset_count, 1)
+  assert.deepEqual(panel.datasets.map((item) => item.symbol_status), ["active", "delisted"])
+  assert.equal(panel.datasets[1].manifest_available, true)
+  assert.equal(panel.datasets[1].rows, 5000)
 })

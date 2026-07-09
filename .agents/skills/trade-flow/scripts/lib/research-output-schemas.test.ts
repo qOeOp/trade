@@ -75,6 +75,7 @@ test("strategy R&D batch loop campaign panel and signal schemas match shallow re
       artifactRoot: join(dir, "campaign-artifacts"),
       hypotheses: [{
         hypothesisId: "h1",
+        thesisCertificate: thesisCertificate(),
         manifestPath,
         validationManifestPath,
         candidates: [candidate],
@@ -150,6 +151,19 @@ function writeManifest(dir: string, stem = "4h", startIndex = 0): string {
     },
   }))
   return path
+}
+
+function thesisCertificate() {
+  return {
+    edgeType: "structural trend continuation",
+    behavioralHypothesis: "late momentum buyers defend pullbacks after trend confirmation",
+    marketParticipants: "trend followers and trapped countertrend liquidity",
+    regime: "liquid perpetual markets with persistent directional drift",
+    invalidation: "fails when pullbacks no longer hold above trend support",
+    costSensitivity: "edge must survive fee, slippage, and funding stress",
+    candidateUniverse: "trend pullback family with fixed long side parameters",
+    nullControls: ["side_flip", "entry_lag"],
+  }
 }
 
 function readSchema(name: string): JSONRecord {

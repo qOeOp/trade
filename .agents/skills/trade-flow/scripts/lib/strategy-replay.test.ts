@@ -90,6 +90,12 @@ test("replayStrategy runs a custom strategy definition through generic engine", 
     assert.equal(result.sample_count, 1)
     assert.equal(result.trades[0].reason, "test one-shot")
     assert.equal(result.trades[0].signal_time, "2026-01-01T04:00:00Z")
+    assert.equal(result.provenance.temporal_contract.method, "closed_candle_replay_v1")
+    assert.equal(result.provenance.temporal_contract.reference_at, "2026-01-01T12:00:00.000Z")
+    assert.equal(result.provenance.temporal_contract.availability_at, "2026-01-01T16:00:00.000Z")
+    assert.equal(result.provenance.temporal_contract.lookback_start, "2026-01-01T00:00:00.000Z")
+    assert.equal(result.provenance.temporal_contract.label_end, "2026-01-01T12:00:00.000Z")
+    assert.equal(result.provenance.temporal_contract.universe_selection_source, "dataset_start_fallback")
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

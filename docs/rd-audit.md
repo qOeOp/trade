@@ -1,6 +1,6 @@
 ---
 title: R&D Module Audit
-updated_at: 2026-07-09 09:19 CST
+updated_at: 2026-07-09 12:03 CST
 ---
 
 # R&D Module Audit
@@ -10,9 +10,22 @@ updated_at: 2026-07-09 09:19 CST
 ## 修复状态
 
 - 已补：campaign validation 必须与 discovery 保持 locked holdout embargo；默认按 `max(max_hold_bars, factor lookback, funding interval)` 换算。
+- 已补：campaign 每个 hypothesis 必须带 `thesis_certificate`；缺 edge 类型、行为假设、参与者、regime、失效条件、成本敏感度、候选 universe 或 null controls 时零 trial 停止。
+- 已补：replay provenance 输出 `temporal_contract`，覆盖 closed-candle reference、availability、lookback start、label end、universe selection 与 supplemental report availability；strategy review 会把缺 temporal contract 的 replay evidence 判为 legacy/stale。
+- 已补：R&D batch 输出 `statistical_report`，记录完整 trial universe、accepted/rejected、winner、OOS/effective sample、edge margin、deflated edge probability 与四时间块 CSCV/PBO；统计未决或 PBO 失败时不会把 winner 标成 ready。
 - 已补：R&D candidate 与 strategy promotion 的 OOS gate 增加 raw/effective sample 与净 edge margin，不再只看正收益。
 - 已补：`shadow -> live-small` 只接受 review-derived shadow attribution；手工填 `execution_attribution` 不能补齐 live-small gate。
-- 未补：delisted / inactive symbol panel、capacity / market impact 分桶、DSR/PBO 完整统计实现。
+- 已补：strategy review 输出 replay -> shadow -> live-small decay diagnostics；shadow 相对 replay 的 avg_r 保留率过低时阻断 live-small，并归因为 execution/reality decay。
+- 已补：strategy review 输出 `cost_model_feedback`，把 review-derived fee / slippage / funding / total cost drag 反灌成 per-trade R 值与 unknown-size capacity bucket，供下一轮 replay cost stress 使用。
+- 已补：forward holdout 测试版输出冻结候选 hash、状态和下一步动作；主数据与 benchmark / supplemental 数据都必须是机器可读 `frozen_at` 之后的闭合样本，缺 `frozen_at` 的真实 artifact 会被拒绝。
+- 已补：calibration panel 明示 `survivor_only`，并支持通过外部归档 manifest 合入 inactive / delisted symbol；没有可靠归档输入时仍不得声称 survivorship robust。
+- 未补：按订单 notional / ADV / depth 的 capacity 与 market impact 分桶、White Reality Check / Hansen SPA 完整实现、可靠 delisted 历史数据源。
+
+## 当前测试状态
+
+- 2026-07-09 12:03 CST，`high-beta-alt-be-fresh` 冻结候选完成冻结点后第一根闭合 4H forward-holdout：冻结点 `2026-07-09T01:15:07Z`，最新闭合样本 `2026-07-09T04:00:00Z`，6/6 数据集 eligible，0 blocked。
+- 结果：`status=signal_found`，仅 `1000PEPEUSDT` 触发 short entry；`FILUSDT / AAVEUSDT / ETCUSDT / LDOUSDT / ORDIUSDT` 均为 `no_action`。该结果只能进入 shadow/paper review，不提供 promotion evidence。
+- 已生成 R&D shadow tracker：`status=open`，纸面 short entry `0.0025843`，stop `0.0026845145`，target `0.0023838710`，等待后续 4H 闭合 K 线判定；artifact：`data/artifacts/strategy-rnd/rd-shadow-tracker-high-beta-be-fresh-2026-07-09-1215-cst.json`。
 
 ## 外部校准
 
@@ -46,10 +59,10 @@ updated_at: 2026-07-09 09:19 CST
 
 ## P1 缺口
 
-- **缺 strategy thesis certificate。** 每个 campaign 应预声明：edge 机制、谁在亏钱/为什么会持续、适用 regime、失效条件、预期持仓/换手/成本敏感度、对应 null。否则 bounded composer 仍可能变成“克制版形态百科”。
-- **Panel 仍有 survivorship bias。** 20 个当前可交易资产比单 BTC 强，但没有 delisted / 下架样本前，不能声称机制跨周期可靠。
-- **Reality model 还缺 capacity/impact 闭环。** 当前不伪造 maker 队列成交概率是正确的；下一步应把 live/shadow slippage 反灌到 replay cost model，按资产流动性和订单占成交量分桶。
-- **负对照够实用，但还不够先进。** side-flip、entry-lag、asset-shuffle 是好底线；若以后要“卷”到更高质量，应引入 CPCV/PBO/DSR 或 White Reality Check 风格的全 trial 统计，而不是继续加单点规则。
+- **strategy thesis certificate 已有基础 gate。** 当前已强制 campaign 预声明 edge 类型、市场行为假设、参与者、适用 regime、失效条件、成本敏感度、候选 universe、null controls；后续还可把预期持仓/换手与对应 null 的覆盖关系做得更细。
+- **Panel survivorship 已有基础防线。** 当前 20 个可交易资产 panel 会明示 `survivor_only=true`；若提供可靠 inactive / delisted manifest，可合入 calibration suite 并取消 survivor-only 标记。剩余缺口是真实归档数据源与 listing-age-aware universe。
+- **Reality model 已有反馈闭环基础。** 当前已有 replay -> shadow/live decay 诊断与 `cost_model_feedback`；下一步应把 review 里的订单 notional / ADV / depth 接入，形成真实 capacity / impact 分桶。继续不伪造 maker 队列成交概率。
+- **统计报告已进入最小正式版。** 当前 full-trial report 已避免只看 winner，并加入 deflated edge probability 与四时间块 CSCV/PBO；后续要继续补 White Reality Check / Hansen SPA 和更严格的 DSR / min track record length。
 
 ## 实用流程判定
 
@@ -58,6 +71,8 @@ updated_at: 2026-07-09 09:19 CST
 - 用 calibration suite 判断数据、成本、funding、panel 是否可靠。
 - 用 campaign 做少量预声明假设验证。
 - 把 locked holdout 通过者送入 shadow，禁止直接 live-small。
+- 用 forward holdout 测试版验证冻结候选在 `frozen_at` 后真实闭合样本上的信号表现；结果只能进入 shadow/review 判断。
+- 用 R&D shadow tracker 持续跟踪 forward 信号；关闭后生成 review draft，再决定是否整理为正式 strategy evidence。
 - 用失败 ledger 指导回到数据、成本、regime、样本或假设层，不继续加 trial。
 
 暂不应投入使用的范围：
@@ -69,7 +84,6 @@ updated_at: 2026-07-09 09:19 CST
 
 ## 最小整改队列
 
-1. campaign 输入强制 `thesis_certificate`，空缺则零 trial。
-2. calibration panel 增补 delisted / inactive symbol 来源；未完成前在 report 明示 survivor-only。
-3. 增加 DSR/PBO 或等价统计报告，替代当前 heuristic edge margin。
-4. 把 shadow/live slippage 反灌 replay cost model，形成 capacity / impact 分桶。
+1. 接入可靠 delisted / inactive 历史数据源，并形成 listing-age-aware calibration universe。
+2. 补 White Reality Check / Hansen SPA 与更严格 DSR / min track record length。
+3. 接入订单 notional / ADV / depth，形成 capacity / impact 分桶。

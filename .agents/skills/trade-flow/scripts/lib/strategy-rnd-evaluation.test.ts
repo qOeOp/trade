@@ -167,8 +167,25 @@ function replayFixture(input: {
       data_schema_version: 1,
       closed_candles_only: true,
       manifest_checksum_verified: true,
+      temporal_contract: temporalContract(),
     },
     notes: [],
+  }
+}
+
+function temporalContract() {
+  return {
+    method: "closed_candle_replay_v1" as const,
+    timeframe: "4h",
+    closed_candle_only: true,
+    reference_at: "2026-01-01T00:00:00.000Z",
+    availability_at: "2026-01-01T04:00:00.000Z",
+    lookback_start: "2026-01-01T00:00:00.000Z",
+    label_end: "2026-01-01T04:00:00.000Z",
+    universe_selected_at: "2026-01-01T00:00:00.000Z",
+    universe_selection_source: "fixture",
+    label_policy: "signals use closed candles; entries occur on next open; labels are available after exit candle close",
+    supplemental_data: [],
   }
 }
 

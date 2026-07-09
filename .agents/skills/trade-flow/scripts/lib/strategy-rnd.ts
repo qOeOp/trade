@@ -36,10 +36,12 @@ import {
 } from "./strategy-rnd-evaluation"
 import {
   buildFailureSummary,
+  buildFullTrialStatisticalReport,
   buildReliabilityGate,
   buildSelectionAudit,
   selectRndWinner,
   type FailureSummary,
+  type FullTrialStatisticalReport,
   type ReliabilityGate,
   type SelectionAudit,
 } from "./strategy-rnd-selection"
@@ -73,6 +75,7 @@ interface StrategyRndBatchReport {
   }
   factor_research: FactorResearchReport | null
   selection_audit: SelectionAudit
+  statistical_report: FullTrialStatisticalReport
   failure_summary: FailureSummary
   reliability_gate: ReliabilityGate
   next_action: string
@@ -134,9 +137,11 @@ function runStrategyRndBatch(input: StrategyRndBatchInput): StrategyRndBatchRepo
   const reports = candidates.map((candidate) => runCandidate(batch, candidate, featureStore))
   const accepted = reports.filter((report) => report.gate.accepted)
   const selectionAudit = buildSelectionAudit(reports, input.searchTrialCount ?? candidates.length)
-  const winner = selectRndWinner(reports, selectionAudit)
+  const selectedWinner = selectRndWinner(reports, selectionAudit)
+  const statisticalReport = buildFullTrialStatisticalReport(reports, selectionAudit, selectedWinner)
+  const winner = statisticalReport.status === "candidate_ready" ? selectedWinner : null
   const failureSummary = buildFailureSummary(reports, selectionAudit)
-  const reliabilityGate = buildReliabilityGate(reports, selectionAudit, winner, failureSummary)
+  const reliabilityGate = buildReliabilityGate(reports, selectionAudit, winner, failureSummary, statisticalReport)
 
   return {
     batch_id: input.batchId || "strategy-rnd-batch",
@@ -155,6 +160,7 @@ function runStrategyRndBatch(input: StrategyRndBatchInput): StrategyRndBatchRepo
     },
     factor_research: factorResearch,
     selection_audit: selectionAudit,
+    statistical_report: statisticalReport,
     failure_summary: failureSummary,
     reliability_gate: reliabilityGate,
     next_action: winner

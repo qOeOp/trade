@@ -137,6 +137,9 @@ test("strategy R&D batch runs bounded predeclared candidates", () => {
     assert.equal(report.guardrails.no_auto_promote, true)
     assert.equal(report.selection_audit.method, "four_block_rank_reversal")
     assert.equal(report.selection_audit.declared_trials, 7)
+    assert.equal(report.statistical_report.method, "full_trial_statistical_report_v1")
+    assert.equal(report.statistical_report.trial_universe.declared_trials, 7)
+    assert.deepEqual(report.statistical_report.trial_universe.candidate_ids, ["C-LONG-EMA50"])
     assert.equal(report.candidates.length, 1)
     assert.equal(report.candidates[0].replay.strategy_id, "C-LONG-EMA50")
     assert.equal(report.candidates[0].null_controls.method, "side_flip_and_entry_lag")
@@ -249,7 +252,7 @@ test("strategy R&D batch executes structure breakout retest family without futur
     assert.equal(report.candidates[0].replay.strategy_id, "C-STRUCTURE-LONG")
     assert.ok(report.candidates[0].replay.sample_count > 0)
     assert.equal(report.candidates[0].replay.trades[0].reason, "rnd structure breakout retest long")
-    assert.equal(report.candidates[0].params.lookbackBars, 40)
+    assert.equal(report.candidates[0].params.lookback_bars, 40)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -280,8 +283,8 @@ test("time-series momentum family can declare break-even protection", () => {
     })
 
     assert.equal(report.candidates[0].family, "time_series_momentum_v1")
-    assert.equal(report.candidates[0].params.breakEvenAfterR, 1)
-    assert.equal(report.candidates[0].params.breakEvenOffsetR, 0)
+    assert.equal(report.candidates[0].params.break_even_after_r, 1)
+    assert.equal(report.candidates[0].params.break_even_offset_r, 0)
     assert.equal(report.candidates[0].replay.assumptions.protective_stop_policy, "optional_break_even_stop_activates_next_bar")
   } finally {
     rmSync(dir, { recursive: true, force: true })
@@ -321,13 +324,13 @@ test("relative weakness momentum family consumes benchmark data causally", () =>
     const candidate = report.candidates[0]
     assert.ok(candidate)
     assert.equal(candidate.family, "relative_weakness_momentum_v1")
-    assert.equal(candidate.params.benchmarkManifestPath, benchmarkManifest)
+    assert.equal(candidate.params.benchmark_manifest_path, benchmarkManifest)
     assert.ok(candidate.replay.sample_count > 0)
     const trade = candidate.replay.trades[0]
     assert.ok(trade)
     assert.ok(trade.meta)
     assert.equal(trade.reason, "rnd relative weakness momentum short")
-    assert.equal(typeof trade.meta.benchmarkReturn, "number")
+    assert.equal(typeof trade.meta.benchmark_return, "number")
     assert.equal(candidate.replay.provenance.data_hash, replayDataHash(assetManifest, "4h", [benchmarkManifest]))
     assert.equal(candidate.replay.provenance.supplemental_data?.[0].ref, benchmarkManifest)
   } finally {
@@ -385,13 +388,13 @@ test("relative weakness momentum can require matching benchmark regime", () => {
     const [strongBtcCandidate, weakBtcCandidate] = report.candidates
     assert.ok(strongBtcCandidate)
     assert.ok(weakBtcCandidate)
-    assert.equal(strongBtcCandidate.params.benchmarkReturnMax, -0.01)
+    assert.equal(strongBtcCandidate.params.benchmark_return_max, -0.01)
     assert.equal(strongBtcCandidate.replay.sample_count, 0)
     assert.ok(weakBtcCandidate.replay.sample_count > 0)
     const weakBtcTrade = weakBtcCandidate.replay.trades[0]
     assert.ok(weakBtcTrade)
     assert.ok(weakBtcTrade.meta)
-    assert.ok((weakBtcTrade.meta.benchmarkReturn as number) <= -0.01)
+    assert.ok((weakBtcTrade.meta.benchmark_return as number) <= -0.01)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -430,14 +433,14 @@ test("relative weakness family can test reversion without adding a new family", 
 
     const candidate = report.candidates[0]
     assert.ok(candidate)
-    assert.equal(candidate.params.signalMode, "reversion")
+    assert.equal(candidate.params.signal_mode, "reversion")
     assert.ok(candidate.replay.sample_count > 0)
     const trade = candidate.replay.trades[0]
     assert.ok(trade)
     assert.ok(trade.meta)
     assert.equal(trade.reason, "rnd relative weakness reversion long")
-    assert.ok((trade.meta.relativeAtr as number) <= -0.5)
-    assert.ok((trade.meta.benchmarkReturn as number) <= -0.01)
+    assert.ok((trade.meta.relative_atr as number) <= -0.5)
+    assert.ok((trade.meta.benchmark_return as number) <= -0.01)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -491,13 +494,13 @@ test("relative weakness reversion can wait for a reversal close confirmation", (
     const confirmed = report.candidates[1]
     assert.ok(raw)
     assert.ok(confirmed)
-    assert.equal(confirmed.params.confirmationMode, "reversal_close")
+    assert.equal(confirmed.params.confirmation_mode, "reversal_close")
     assert.ok(raw.replay.sample_count > confirmed.replay.sample_count)
     assert.ok(confirmed.replay.sample_count > 0)
     const trade = confirmed.replay.trades[0]
     assert.ok(trade)
     assert.ok(trade.meta)
-    assert.equal(trade.meta.confirmationMode, "reversal_close")
+    assert.equal(trade.meta.confirmation_mode, "reversal_close")
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -553,7 +556,7 @@ test("strategy R&D batch composes generic factor conditions without indicator-sp
     assert.equal(report.candidate_source, "bounded_factor_composition")
     assert.equal(report.trial_count, 1)
     assert.equal(report.candidates[0].parameter_count, 8)
-    assert.equal((report.candidates[0].params.factorConditions as Array<{ factorId: string }>)[0].factorId, "vpci.value")
+    assert.equal((report.candidates[0].params.factor_conditions as Array<{ factor_id: string }>)[0].factor_id, "vpci.value")
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -732,6 +735,7 @@ test("strategy R&D campaign continues after a failed hypothesis", () => {
       now: "2026-07-07T00:00:00.000Z",
       hypotheses: ["h1", "h2"].map((hypothesisId) => ({
         hypothesisId,
+        thesisCertificate: thesisCertificate(),
         hypothesis: `test ${hypothesisId}`,
         manifestPath: discoveryManifest,
         validationManifestPath: validationManifest,
@@ -779,6 +783,7 @@ test("strategy R&D campaign stops before search when calibration fails", () => {
       ledgerPath,
       hypotheses: [{
         hypothesisId: "h1",
+        thesisCertificate: thesisCertificate(),
         manifestPath: writeManifest(discoveryDir, 1_700_000_000_000),
         validationManifestPath: writeManifest(validationDir, 1_600_000_000_000),
         candidates: [{ candidateId: "C-1", params: { side: "long" } }],
@@ -805,6 +810,7 @@ test("strategy R&D campaign rejects overlapping validation data", () => {
       campaignId: "campaign-overlap-test",
       hypotheses: [{
         hypothesisId: "h1",
+        thesisCertificate: thesisCertificate(),
         manifestPath,
         validationManifestPath: manifestPath,
         candidates: [{ candidateId: "C-1", params: { side: "long" } }],
@@ -845,6 +851,19 @@ function writeManifest(dir: string, startTimestamp = 1_700_000_000_000): string 
     },
   }))
   return manifestPath
+}
+
+function thesisCertificate() {
+  return {
+    edgeType: "structural trend continuation",
+    behavioralHypothesis: "late momentum buyers defend pullbacks after trend confirmation",
+    marketParticipants: "trend followers and trapped countertrend liquidity",
+    regime: "liquid perpetual markets with persistent directional drift",
+    invalidation: "fails when pullbacks no longer hold above trend support",
+    costSensitivity: "edge must survive fee, slippage, and funding stress",
+    candidateUniverse: "trend pullback family with fixed long side parameters",
+    nullControls: ["side_flip", "entry_lag"],
+  }
 }
 
 function writeStructureManifest(dir: string): string {

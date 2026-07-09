@@ -9,8 +9,8 @@ title: R&D Reliability Roadmap
 ## 1. 数据层
 
 - 目标：20+ 可交易资产，减少 current-symbol survivorship bias。
-- 当前：`--strategy-calibration-suite` 已输出 `data_panel`；`ohlcv-fetch/scripts/calibration-panel.ts` 已生成并实跑 20 symbol panel。
-- 下一块：补 delisted / 下架资产来源，降低 survivor-only 样本偏差。
+- 当前：`--strategy-calibration-suite` 已输出 `data_panel`、`survivor_only` 与 symbol status 分布；`ohlcv-fetch/scripts/calibration-panel.ts` 已生成 20 symbol panel，并可通过外部归档 manifest 合入 inactive / delisted symbol。
+- 下一块：接入可靠 delisted / 下架历史数据源，形成 listing-age-aware universe。
 - 完成信号：calibration suite 不再触发 `CAL-PANEL-BREADTH / CAL-PANEL-SCHEMA / CAL-PANEL-ALIGNMENT`。
 
 ## 2. Funding 层
@@ -23,8 +23,8 @@ title: R&D Reliability Roadmap
 ## 3. 成本层
 
 - 目标：把 gross edge、turnover、fee、slippage、funding drag 拆开。
-- 当前：calibration cost model 已从单一 bps 拆为 `maker_fee_bps / taker_fee_bps / market_order_share / slippage_bps`，并输出 fee/slippage drag。
-- 下一块：从账户配置或交易所费率源注入真实 fee tier；继续不伪造 maker 队列成交概率。
+- 当前：calibration cost model 已从单一 bps 拆为 `maker_fee_bps / taker_fee_bps / market_order_share / slippage_bps`，并输出 fee/slippage drag；strategy review 已输出 `cost_model_feedback`，把 shadow/live 真实成本反灌为 per-trade R 值。
+- 下一块：从账户配置或交易所费率源注入真实 fee tier，并接入订单 notional / ADV / depth 分桶；继续不伪造 maker 队列成交概率。
 - 完成信号：`CAL-COST-FRAGILE` 能定位到换手、费率或滑点。
 
 ## 4. Regime 层
@@ -60,6 +60,6 @@ title: R&D Reliability Roadmap
 ## 8. Shadow 层
 
 - 目标：locked holdout 后仍必须用真实 shadow 样本证明执行链不吃掉 edge。
-- 当前：`shadow -> live-small` 要求 shadow evidence 带 cost / slippage / funding attribution。
-- 下一块：从真实 shadow order/event 自动汇总 attribution，减少人工填报。
-- 完成信号：`shadow -> live-small` 不只看胜率，还看真实执行损耗是否在 replay 假设内。
+- 当前：`shadow -> live-small` 要求 shadow evidence 带 cost / slippage / funding attribution；review 会输出 cost feedback 给下一轮 replay。R&D shadow tracker 已能把 forward 信号转成纸面持仓并等待 stop / target / time_exit，但其输出仍只是 review 输入。
+- 下一块：补 missed-fill、订单规模与流动性分桶，减少 replay cost model 的假设空间。
+- 完成信号：`shadow -> live-small` 不只看胜率，还看真实执行损耗是否在 replay 假设内，并能转成下一轮成本压力参数。

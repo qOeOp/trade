@@ -48,6 +48,7 @@ export interface CommandConfig {
   track: TrackMode
   yes: boolean
   chainId: string
+  tradingConfigPath: string
   accountConfigPath: string
   strategiesDir: string
   manifestPath: string

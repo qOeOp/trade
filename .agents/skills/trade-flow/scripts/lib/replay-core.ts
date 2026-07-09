@@ -117,7 +117,29 @@ interface ReplayProvenance {
   data_schema_version: number
   closed_candles_only: boolean
   manifest_checksum_verified: boolean
+  temporal_contract: ReplayTemporalContract
   supplemental_data?: Array<{ ref: string; content_sha256: string }>
+}
+
+interface ReplayTemporalContract {
+  method: "closed_candle_replay_v1"
+  timeframe: string
+  closed_candle_only: boolean
+  reference_at: string | null
+  availability_at: string | null
+  lookback_start: string | null
+  label_end: string | null
+  universe_selected_at: string | null
+  universe_selection_source: string
+  label_policy: string
+  supplemental_data: ReplaySupplementalTemporalContract[]
+}
+
+interface ReplaySupplementalTemporalContract {
+  ref: string
+  reference_at: string | null
+  availability_at: string | null
+  availability_source: string
 }
 
 interface LatestSignalResult {
@@ -197,7 +219,7 @@ function replayStrategy(strategy: ReplayStrategy, options: ReplayOptions): Repla
     result.gate.shadow_candidate = false
     result.gate.blocked_by.push({ check_id: "R-FUNDING-COVERAGE", reason: "historical funding events do not cover the complete replay interval" })
   }
-  result.provenance = buildReplayProvenance(options.manifestPath, timeframe, assumptions, options.supplementalDataRefs)
+  result.provenance = buildReplayProvenance(options.manifestPath, timeframe, assumptions, trades, candles, options.supplementalDataRefs)
   return result
 }
 
@@ -436,6 +458,7 @@ function summarizeReplay(input: {
       data_schema_version: 0,
       closed_candles_only: false,
       manifest_checksum_verified: false,
+      temporal_contract: emptyTemporalContract(input.timeframe),
     },
     notes: [
       "Replay is mechanical and conservative: if stop and target hit in the same candle, stop wins.",
@@ -582,7 +605,14 @@ function buildReplayParameterStability(strategy: ReplayStrategy, options: Replay
   }
 }
 
-function buildReplayProvenance(manifestPath: string, timeframe: string, assumptions: JSONRecord, supplementalDataRefs: string[] = []): ReplayProvenance {
+function buildReplayProvenance(
+  manifestPath: string,
+  timeframe: string,
+  assumptions: JSONRecord,
+  trades: ReplayTrade[],
+  candles: Candle[],
+  supplementalDataRefs: string[] = [],
+): ReplayProvenance {
   const manifest = loadManifest(manifestPath)
   const item = asRecord(asRecord(manifest.timeframes)[timeframe])
   const declaredChecksum = stringField(item.content_sha256)
@@ -601,7 +631,111 @@ function buildReplayProvenance(manifestPath: string, timeframe: string, assumpti
     data_schema_version: Number(manifest.schema_version) || 0,
     closed_candles_only: manifest.closed_candles_only === true,
     manifest_checksum_verified: Boolean(declaredChecksum && declaredChecksum === contentHash),
+    temporal_contract: buildTemporalContract(manifest, timeframe, candles, trades, supplementalData.map((item) => item.ref)),
     ...(supplementalData.length > 0 ? { supplemental_data: supplementalData } : {}),
+  }
+}
+
+function buildTemporalContract(
+  manifest: JSONRecord,
+  timeframe: string,
+  candles: Candle[],
+  trades: ReplayTrade[],
+  supplementalDataRefs: string[],
+): ReplayTemporalContract {
+  const interval = timeframeMilliseconds(timeframe)
+  const first = candles[0]
+  const last = candles.at(-1)
+  const referenceAt = last ? new Date(last.timestamp).toISOString() : null
+  const availabilityAt = last ? new Date(last.timestamp + interval).toISOString() : null
+  const latestTradeExit = trades
+    .map((trade) => Date.parse(trade.exit_time))
+    .filter(Number.isFinite)
+    .reduce((max, timestamp) => Math.max(max, timestamp), Number.NEGATIVE_INFINITY)
+  const labelEnd = Number.isFinite(latestTradeExit)
+    ? new Date(latestTradeExit + interval).toISOString()
+    : availabilityAt
+  const universe = readUniverseSelectionTime(manifest, first)
+  return {
+    method: "closed_candle_replay_v1",
+    timeframe,
+    closed_candle_only: manifest.closed_candles_only === true,
+    reference_at: referenceAt,
+    availability_at: availabilityAt,
+    lookback_start: first ? new Date(first.timestamp).toISOString() : null,
+    label_end: labelEnd,
+    universe_selected_at: universe.value,
+    universe_selection_source: universe.source,
+    label_policy: "signals use closed candles; entries occur on next open; trade labels are only available after the exit candle closes; selection-validation train labels crossing the OOS boundary are purged",
+    supplemental_data: supplementalDataRefs.map(readSupplementalTemporalContract),
+  }
+}
+
+function emptyTemporalContract(timeframe: string): ReplayTemporalContract {
+  return {
+    method: "closed_candle_replay_v1",
+    timeframe,
+    closed_candle_only: false,
+    reference_at: null,
+    availability_at: null,
+    lookback_start: null,
+    label_end: null,
+    universe_selected_at: null,
+    universe_selection_source: "not_declared",
+    label_policy: "not_evaluated",
+    supplemental_data: [],
+  }
+}
+
+function readUniverseSelectionTime(manifest: JSONRecord, first: Candle | undefined): { value: string | null; source: string } {
+  const declared = firstString(
+    manifest.universe_selected_at,
+    manifest.universeSelectedAt,
+    manifest.universe_selection_time,
+    manifest.universeSelectionTime,
+  )
+  if (declared) {
+    return { value: normalizeIsoTime(declared), source: "manifest_universe_selected_at" }
+  }
+  const generated = firstString(manifest.generated_at, manifest.generatedAt, manifest.created_at, manifest.createdAt)
+  if (generated) {
+    return { value: normalizeIsoTime(generated), source: "manifest_generated_at" }
+  }
+  return { value: first ? new Date(first.timestamp).toISOString() : null, source: "dataset_start_fallback" }
+}
+
+function readSupplementalTemporalContract(ref: string): ReplaySupplementalTemporalContract {
+  try {
+    const report = asRecord(JSON.parse(readFileSync(ref, "utf8")))
+    const data = asRecord(report.data)
+    const rawTime = firstString(
+      report.generated_at,
+      report.generatedAt,
+      report.created_at,
+      report.createdAt,
+      report.updated_at,
+      report.updatedAt,
+      data.generated_at,
+      data.generatedAt,
+      data.created_at,
+      data.createdAt,
+      data.updated_at,
+      data.updatedAt,
+    )
+    const normalized = rawTime ? normalizeIsoTime(rawTime) : null
+    return {
+      ref,
+      reference_at: normalized,
+      availability_at: normalized,
+      availability_source: normalized ? "declared_report_time" : "not_declared",
+    }
+  } catch {
+    return {
+      ref,
+      reference_at: null,
+      availability_at: null,
+      availability_source: "unreadable",
+    }
   }
 }
 
@@ -796,6 +930,21 @@ function stringField(value: unknown): string {
   return typeof value === "string" ? value.trim() : ""
 }
 
+function firstString(...values: unknown[]): string {
+  for (const value of values) {
+    const text = stringField(value)
+    if (text) {
+      return text
+    }
+  }
+  return ""
+}
+
+function normalizeIsoTime(value: string): string {
+  const parsed = Date.parse(value)
+  return Number.isFinite(parsed) ? new Date(parsed).toISOString() : value
+}
+
 function round(value: number): number {
   return Number.isFinite(value) ? Number(value.toFixed(6)) : value
 }
@@ -821,6 +970,7 @@ export {
   type ReplayOptions,
   type ReplayResult,
   type ReplayProvenance,
+  type ReplayTemporalContract,
   type ReplaySignal,
   type ReplayStrategy,
   type ReplayTrade,

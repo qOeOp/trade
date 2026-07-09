@@ -21,6 +21,7 @@ interface PreflightInput {
   observe: JSONRecord
   strategy?: JSONRecord
   account_config?: JSONRecord
+  runtime_policy?: JSONRecord
   target_action?: TargetAction
   request?: JSONRecord
   aggregate_view?: JSONRecord
@@ -200,6 +201,7 @@ function checkRiskLimits(input: PreflightInput, targetAction: TargetAction, bloc
     return
   }
   const accountConfig = input.account_config ?? {}
+  const effectiveLimits = asRecord(input.runtime_policy?.effective_limits)
   const aggregate = input.aggregate_view ?? {}
   const account = asRecord(input.observe.account)
   const equity = numeric(account.equity_usdt)
@@ -210,7 +212,12 @@ function checkRiskLimits(input: PreflightInput, targetAction: TargetAction, bloc
     return
   }
 
-  const maxOpenRiskPct = numeric(accountConfig.max_open_risk_pct)
+  const maxSingleTradeRisk = firstPositive(effectiveLimits.max_single_trade_risk_usdt, accountConfig.max_single_trade_risk_usdt)
+  if (maxSingleTradeRisk > 0 && riskBudget > maxSingleTradeRisk) {
+    blockedBy.push({ check_id: "G-MAX-SINGLE-TRADE-RISK", reason: `risk_budget_usdt ${riskBudget} exceeds cap ${maxSingleTradeRisk}` })
+  }
+
+  const maxOpenRiskPct = firstPositive(effectiveLimits.max_open_risk_pct, accountConfig.max_open_risk_pct)
   if (maxOpenRiskPct > 0) {
     const totalRisk = numeric(aggregate.active_plans_risk_sum)
       + numeric(aggregate.current_account_open_risk_usdt)
@@ -220,7 +227,17 @@ function checkRiskLimits(input: PreflightInput, targetAction: TargetAction, bloc
     }
   }
 
-  const maxDayLossPct = numeric(accountConfig.max_day_loss_pct)
+  const maxOpenRiskUsdt = firstPositive(effectiveLimits.max_open_risk_usdt, accountConfig.max_open_risk_usdt)
+  if (maxOpenRiskUsdt > 0) {
+    const totalRisk = numeric(aggregate.active_plans_risk_sum)
+      + numeric(aggregate.current_account_open_risk_usdt)
+      + riskBudget
+    if (totalRisk > maxOpenRiskUsdt) {
+      blockedBy.push({ check_id: "G-RISK-OPEN-CAP", reason: `open risk ${totalRisk} exceeds fixed cap ${maxOpenRiskUsdt}` })
+    }
+  }
+
+  const maxDayLossPct = firstPositive(effectiveLimits.max_day_loss_pct, accountConfig.max_day_loss_pct)
   if (maxDayLossPct > 0) {
     const floor = -(equity * maxDayLossPct)
     const worst = numeric(aggregate.realized_pnl_today_usdt)
@@ -230,6 +247,78 @@ function checkRiskLimits(input: PreflightInput, targetAction: TargetAction, bloc
       blockedBy.push({ check_id: "G-RISK-DAY-FLOOR", reason: `worst day pnl ${worst} is below floor ${floor}` })
     }
   }
+  const maxDayLossUsdt = firstPositive(effectiveLimits.max_day_loss_usdt, accountConfig.max_day_loss_usdt)
+  if (maxDayLossUsdt > 0) {
+    const worst = numeric(aggregate.realized_pnl_today_usdt)
+      + numeric(aggregate.active_plans_worst_loss_at_stop)
+      - riskBudget
+    if (worst < -maxDayLossUsdt) {
+      blockedBy.push({ check_id: "G-RISK-DAY-FLOOR", reason: `worst day pnl ${worst} is below fixed floor ${-maxDayLossUsdt}` })
+    }
+  }
+
+  const request = input.request ?? asRecord(asRecord(input.observe.action_intent).request)
+  const estimatedNewNotional = estimateNewNotional(input.plan, input.observe, request)
+  if (estimatedNewNotional > 0) {
+    checkNotionalCaps(effectiveLimits, accountConfig, aggregate, equity, estimatedNewNotional, blockedBy)
+  }
+  const maxConcurrentFlows = firstPositive(effectiveLimits.max_concurrent_risk_flows, accountConfig.max_concurrent_risk_flows)
+  const activeFlows = numeric(aggregate.active_risk_flow_count)
+  if (maxConcurrentFlows > 0 && activeFlows >= maxConcurrentFlows) {
+    blockedBy.push({ check_id: "G-MAX-CONCURRENT-RISK-FLOWS", reason: `active risk flows ${activeFlows} meets cap ${maxConcurrentFlows}` })
+  }
+}
+
+function checkNotionalCaps(
+  effectiveLimits: JSONRecord,
+  accountConfig: JSONRecord,
+  aggregate: JSONRecord,
+  equity: number,
+  estimatedNewNotional: number,
+  blockedBy: CheckResult[],
+): void {
+  const maxEntryNotional = firstPositive(effectiveLimits.max_entry_notional_usdt, accountConfig.max_entry_notional_usdt)
+  if (maxEntryNotional > 0 && estimatedNewNotional > maxEntryNotional) {
+    blockedBy.push({ check_id: "G-MAX-ENTRY-NOTIONAL", reason: `entry notional ${round(estimatedNewNotional)} exceeds cap ${maxEntryNotional}` })
+  }
+  const maxSymbolNotional = firstPositive(effectiveLimits.max_symbol_notional_usdt, accountConfig.max_symbol_notional_usdt)
+  const symbolNotional = numeric(aggregate.current_symbol_notional_usdt) + estimatedNewNotional
+  if (maxSymbolNotional > 0 && symbolNotional > maxSymbolNotional) {
+    blockedBy.push({ check_id: "G-MAX-SYMBOL-NOTIONAL", reason: `symbol notional ${round(symbolNotional)} exceeds cap ${maxSymbolNotional}` })
+  }
+  const maxGrossNotional = firstPositive(effectiveLimits.max_gross_notional_usdt, accountConfig.max_gross_notional_usdt)
+  const grossNotional = numeric(aggregate.current_gross_notional_usdt) + estimatedNewNotional
+  if (maxGrossNotional > 0 && grossNotional > maxGrossNotional) {
+    blockedBy.push({ check_id: "G-GROSS-NOTIONAL-CAP", reason: `gross notional ${round(grossNotional)} exceeds cap ${maxGrossNotional}` })
+  }
+  const maxSingleLeverage = firstPositive(effectiveLimits.max_single_position_leverage, accountConfig.max_single_position_leverage)
+  const laneNotional = numeric(aggregate.current_lane_notional_usdt) + estimatedNewNotional
+  if (equity > 0 && maxSingleLeverage > 0 && laneNotional > equity * maxSingleLeverage) {
+    blockedBy.push({ check_id: "G-SINGLE-POSITION-LEVERAGE-CAP", reason: `lane notional ${round(laneNotional)} exceeds cap ${round(equity * maxSingleLeverage)}` })
+  }
+  const maxGrossExposure = firstPositive(effectiveLimits.max_gross_exposure, accountConfig.max_gross_exposure)
+  if (equity > 0 && maxGrossExposure > 0 && grossNotional > equity * maxGrossExposure) {
+    blockedBy.push({ check_id: "G-GROSS-EXPOSURE-CAP", reason: `gross notional ${round(grossNotional)} exceeds exposure cap ${round(equity * maxGrossExposure)}` })
+  }
+}
+
+function estimateNewNotional(plan: JSONRecord, observe: JSONRecord, request: JSONRecord): number {
+  const stop = numeric(plan.stop_price) || numeric(observe.stop_price)
+  const riskBudget = numeric(plan.risk_budget_usdt)
+  if (stop <= 0 || riskBudget <= 0) return 0
+  const entries = Array.isArray(request.entries) ? request.entries.map(asRecord) : []
+  if (entries.length === 0) return numeric(request.notional_usdt)
+  return entries.reduce((sum, entry) => {
+    const riskRatio = numeric(entry.risk_ratio) || 1
+    const entryRef = numeric(entry.price)
+      || numeric(entry.reference_price)
+      || numeric(observe.current_mark)
+      || numeric(asRecord(observe.market_state).mark_price)
+      || numeric(asRecord(observe.microstructure).mark_price)
+    const riskPerUnit = Math.abs(entryRef - stop)
+    if (entryRef <= 0 || riskPerUnit <= 0) return sum
+    return sum + (riskBudget * riskRatio / riskPerUnit) * entryRef
+  }, 0)
 }
 
 function checkRequest(request: JSONRecord | undefined, targetAction: TargetAction, blockedBy: CheckResult[]): void {
@@ -326,6 +415,18 @@ function stringOrQuestion(value: unknown): string {
 function numeric(value: unknown): number {
   const parsed = Number(value)
   return Number.isFinite(parsed) ? parsed : 0
+}
+
+function firstPositive(...values: unknown[]): number {
+  for (const value of values) {
+    const number = numeric(value)
+    if (number > 0) return number
+  }
+  return 0
+}
+
+function round(value: number): number {
+  return Number(value.toFixed(6))
 }
 
 function asRecord(value: unknown): JSONRecord {

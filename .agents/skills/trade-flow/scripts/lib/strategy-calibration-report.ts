@@ -122,13 +122,6 @@ function calibrationFindings(buyHold: JSONRecord, trend: JSONRecord, relativeStr
     })
   }
   findings.push(...panelFindings(panel as unknown as JSONRecord))
-  findings.push({
-    check_id: "CAL-SURVIVORSHIP-RISK",
-    severity: "info",
-    component: "data_panel",
-    evidence: { panel_type: "current_symbol_manifest_panel" },
-    next_system_action: "Add delisted and historically tradable symbols when a reliable source is available.",
-  })
   return findings
 }
 

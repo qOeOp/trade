@@ -46,8 +46,20 @@ export interface StrategyRndSignalInput {
 
 export interface StrategyRndCampaignHypothesisInput extends StrategyRndBatchInput {
   hypothesisId: string
+  thesisCertificate?: StrategyRndHypothesisCertificate
   validationManifestPath: string
   validationIndicatorReportPath?: string
+}
+
+export interface StrategyRndHypothesisCertificate {
+  edgeType?: string
+  behavioralHypothesis?: string
+  marketParticipants?: string
+  regime?: string
+  invalidation?: string
+  costSensitivity?: string
+  candidateUniverse?: unknown
+  nullControls?: string[]
 }
 
 export interface StrategyRndCampaignInput {
@@ -71,25 +83,25 @@ export interface StrategyRndCandidateInput {
 
 export function strategyRndBatchInputFromJson(input: JSONRecord): StrategyRndBatchInput {
   return {
-    batchId: stringField(input.batch_id ?? input.batchId) || undefined,
+    batchId: stringField(input.batch_id) || undefined,
     hypothesis: stringField(input.hypothesis) || undefined,
-    manifestPath: stringField(input.manifest_path ?? input.manifestPath),
+    manifestPath: stringField(input.manifest_path),
     timeframe: stringField(input.timeframe) || undefined,
-    maxHoldBars: optionalNumber(input.max_hold_bars ?? input.maxHoldBars),
-    feeBps: optionalNumber(input.fee_bps ?? input.feeBps),
-    slippageBps: optionalNumber(input.slippage_bps ?? input.slippageBps),
-    fundingBpsPer8h: optionalNumber(input.funding_bps_per_8h ?? input.fundingBpsPer8h),
-    oosSplitRatio: optionalNumber(input.oos_split ?? input.oosSplitRatio),
-    antiOverfitStage: readAntiOverfitStage(input.anti_overfit_stage ?? input.antiOverfitStage),
-    searchTrialCount: optionalNumber(input.search_trial_count ?? input.searchTrialCount),
-    indicatorReportPath: stringField(input.indicator_report_path ?? input.indicatorReportPath) || undefined,
-    factorCompose: readBoolean(input.factor_compose ?? input.factorCompose, false),
-    factorDiscover: readBoolean(input.factor_discover ?? input.factorDiscover, false),
-    factorResearchOptions: factorResearchOptionsFromJson(input.factor_research_options ?? input.factorResearchOptions),
-    factorSeeds: readFactorConditions(input.factor_seeds ?? input.factorSeeds),
-    maxFactorsPerCandidate: optionalNumber(input.max_factors_per_candidate ?? input.maxFactorsPerCandidate),
-    diagnosticMode: readBoolean(input.diagnostic_mode ?? input.diagnosticMode, false),
-    parameterStability: asRecord(input.parameter_stability ?? input.parameterStability),
+    maxHoldBars: optionalNumber(input.max_hold_bars),
+    feeBps: optionalNumber(input.fee_bps),
+    slippageBps: optionalNumber(input.slippage_bps),
+    fundingBpsPer8h: optionalNumber(input.funding_bps_per_8h),
+    oosSplitRatio: optionalNumber(input.oos_split),
+    antiOverfitStage: readAntiOverfitStage(input.anti_overfit_stage),
+    searchTrialCount: optionalNumber(input.search_trial_count),
+    indicatorReportPath: stringField(input.indicator_report_path) || undefined,
+    factorCompose: readBoolean(input.factor_compose, false),
+    factorDiscover: readBoolean(input.factor_discover, false),
+    factorResearchOptions: factorResearchOptionsFromJson(input.factor_research_options),
+    factorSeeds: readFactorConditions(input.factor_seeds),
+    maxFactorsPerCandidate: optionalNumber(input.max_factors_per_candidate),
+    diagnosticMode: readBoolean(input.diagnostic_mode, false),
+    parameterStability: asRecord(input.parameter_stability),
     candidates: array(input.candidates).map((item) => candidateFromJson(asRecord(item))),
   }
 }
@@ -97,21 +109,21 @@ export function strategyRndBatchInputFromJson(input: JSONRecord): StrategyRndBat
 export function strategyRndLoopInputFromJson(input: JSONRecord): StrategyRndLoopInput {
   return {
     ...strategyRndBatchInputFromJson(input),
-    runId: stringField(input.run_id ?? input.runId) || undefined,
-    artifactRoot: stringField(input.artifact_root ?? input.artifactRoot) || undefined,
-    ledgerPath: stringField(input.ledger_path ?? input.ledgerPath) || undefined,
+    runId: stringField(input.run_id) || undefined,
+    artifactRoot: stringField(input.artifact_root) || undefined,
+    ledgerPath: stringField(input.ledger_path) || undefined,
     now: stringField(input.now) || undefined,
   }
 }
 
 export function strategyRndCampaignInputFromJson(input: JSONRecord): StrategyRndCampaignInput {
   return {
-    campaignId: stringField(input.campaign_id ?? input.campaignId) || undefined,
-    calibrationReportPath: stringField(input.calibration_report_path ?? input.calibrationReportPath) || undefined,
-    panelReportPath: stringField(input.panel_report_path ?? input.panelReportPath) || undefined,
-    maxTotalTrials: optionalNumber(input.max_total_trials ?? input.maxTotalTrials),
-    artifactRoot: stringField(input.artifact_root ?? input.artifactRoot) || undefined,
-    ledgerPath: stringField(input.ledger_path ?? input.ledgerPath) || undefined,
+    campaignId: stringField(input.campaign_id) || undefined,
+    calibrationReportPath: stringField(input.calibration_report_path) || undefined,
+    panelReportPath: stringField(input.panel_report_path) || undefined,
+    maxTotalTrials: optionalNumber(input.max_total_trials),
+    artifactRoot: stringField(input.artifact_root) || undefined,
+    ledgerPath: stringField(input.ledger_path) || undefined,
     now: stringField(input.now) || undefined,
     hypotheses: array(input.hypotheses).map((raw) => {
       const hypothesis = asRecord(raw)
@@ -119,36 +131,51 @@ export function strategyRndCampaignInputFromJson(input: JSONRecord): StrategyRnd
         ...strategyRndBatchInputFromJson({
           ...hypothesis,
           manifest_path: hypothesis.discovery_manifest_path
-            ?? hypothesis.discoveryManifestPath
-            ?? hypothesis.manifest_path
-            ?? hypothesis.manifestPath,
         }),
-        hypothesisId: stringField(hypothesis.hypothesis_id ?? hypothesis.hypothesisId),
-        validationManifestPath: stringField(hypothesis.validation_manifest_path ?? hypothesis.validationManifestPath),
-        validationIndicatorReportPath: stringField(hypothesis.validation_indicator_report_path ?? hypothesis.validationIndicatorReportPath) || undefined,
+        hypothesisId: stringField(hypothesis.hypothesis_id),
+        thesisCertificate: hypothesisCertificateFromJson(hypothesis.thesis_certificate),
+        validationManifestPath: stringField(hypothesis.validation_manifest_path),
+        validationIndicatorReportPath: stringField(hypothesis.validation_indicator_report_path) || undefined,
       }
     }),
   }
 }
 
+function hypothesisCertificateFromJson(value: unknown): StrategyRndHypothesisCertificate | undefined {
+  const input = asRecord(value)
+  if (Object.keys(input).length === 0) {
+    return undefined
+  }
+  return {
+    edgeType: stringField(input.edge_type) || undefined,
+    behavioralHypothesis: stringField(input.behavioral_hypothesis) || undefined,
+    marketParticipants: stringField(input.market_participants) || undefined,
+    regime: stringField(input.regime) || undefined,
+    invalidation: stringField(input.invalidation) || undefined,
+    costSensitivity: stringField(input.cost_sensitivity) || undefined,
+    candidateUniverse: input.candidate_universe,
+    nullControls: array(input.null_controls).map(stringField).filter(Boolean),
+  }
+}
+
 export function strategyRndSignalInputFromJson(input: JSONRecord): StrategyRndSignalInput {
   return {
-    manifestPath: stringField(input.manifest_path ?? input.manifestPath),
-    indicatorReportPath: stringField(input.indicator_report_path ?? input.indicatorReportPath) || undefined,
+    manifestPath: stringField(input.manifest_path),
+    indicatorReportPath: stringField(input.indicator_report_path) || undefined,
     timeframe: stringField(input.timeframe) || undefined,
-    entryPrice: Number(input.entry_price ?? input.entryPrice),
+    entryPrice: Number(input.entry_price),
     now: stringField(input.now) || undefined,
-    maxSignalAgeBars: optionalNumber(input.max_signal_age_bars ?? input.maxSignalAgeBars),
+    maxSignalAgeBars: optionalNumber(input.max_signal_age_bars),
     candidate: candidateFromJson(asRecord(input.candidate)),
   }
 }
 
 function candidateFromJson(input: JSONRecord): StrategyRndCandidateInput {
   return {
-    candidateId: stringField(input.candidate_id ?? input.candidateId),
+    candidateId: stringField(input.candidate_id),
     description: stringField(input.description) || undefined,
     family: stringField(input.family) || undefined,
-    parameterCount: optionalNumber(input.parameter_count ?? input.parameterCount),
+    parameterCount: optionalNumber(input.parameter_count),
     params: asRecord(input.params),
   }
 }
@@ -177,12 +204,12 @@ function readBoolean(value: unknown, fallback: boolean): boolean {
 function factorResearchOptionsFromJson(value: unknown): FactorResearchOptions {
   const input = asRecord(value)
   return {
-    horizonBars: optionalNumber(input.horizon_bars ?? input.horizonBars),
+    horizonBars: optionalNumber(input.horizon_bars),
     lookback: optionalNumber(input.lookback),
-    minSamples: optionalNumber(input.min_samples ?? input.minSamples),
-    minAbsIc: optionalNumber(input.min_abs_ic ?? input.minAbsIc),
-    maxCorrelation: optionalNumber(input.max_correlation ?? input.maxCorrelation),
-    maxSelected: optionalNumber(input.max_selected ?? input.maxSelected),
+    minSamples: optionalNumber(input.min_samples),
+    minAbsIc: optionalNumber(input.min_abs_ic),
+    maxCorrelation: optionalNumber(input.max_correlation),
+    maxSelected: optionalNumber(input.max_selected),
   }
 }
 

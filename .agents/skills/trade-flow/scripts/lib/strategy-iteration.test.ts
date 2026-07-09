@@ -339,6 +339,53 @@ test("strategy promote to live-small requires shadow evidence", () => {
   }
 })
 
+test("strategy review blocks live-small when replay edge decays in shadow", () => {
+  const dir = makeDir()
+  const strategyPath = writeStrategy(dir, "shadow", "Rule v1")
+  const ledgerPath = join(dir, "strategy-evidence.jsonl")
+  appendReplayEvidence({
+    strategyPath,
+    ledgerPath,
+    replayResult: positiveReplay(dir),
+    now: "2026-01-01T00:00:00.000Z",
+  })
+  appendStrategyEvidence({
+    strategyPath,
+    ledgerPath,
+    kind: "shadow",
+    sourceRef: "trade.db:plan_event.review:S-TEST:*:21:decay",
+    stats: {
+      sample_count: 21,
+      win_rate: 0.52,
+      avg_r: 0.04,
+      total_r: 0.84,
+      max_drawdown_r: 2,
+      profit_factor: 1.1,
+    },
+    executionAttribution: {
+      total_fee_drag: 0.02,
+      total_slippage_drag: 0.02,
+      total_funding_drag: 0,
+      total_cost_drag: 0.04,
+    },
+    now: "2026-01-02T00:00:00.000Z",
+  })
+
+  const report = reviewStrategy({ strategyPath, ledgerPath })
+
+  assert.equal(report.gate.live_small_candidate, false)
+  assert.equal(report.gate.blocked_by.some((item) => item.check_id === "S-DECAY-SHADOW"), true)
+  assert.equal(report.diagnostics.decay.status, "degraded")
+  assert.equal(report.diagnostics.decay.comparisons[0].from, "replay")
+  assert.equal(report.diagnostics.decay.comparisons[0].to, "shadow")
+  assert.equal(report.diagnostics.cost_model_feedback.status, "ready")
+  assert.equal(report.diagnostics.cost_model_feedback.source_kind, "shadow")
+  assert.equal(report.diagnostics.cost_model_feedback.observed_drag_r_per_trade.slippage, 0.000952)
+  assert.equal(report.diagnostics.cost_model_feedback.observed_drag_r_per_trade.total, 0.001905)
+  assert.equal(report.diagnostics.cost_model_feedback.capacity_buckets[0].bucket, "unknown_size")
+  assert.equal(report.diagnostics.failure_attribution.some((item) => item.area === "replay_to_live_decay"), true)
+})
+
 test("strategy policy hash ignores pre-certificate research and replay notes", () => {
   const dir = makeDir()
   const policy = "## Setup Certificate\n\nentry_rule: same\n\n## Signal Stack\n\nUse rule A."
@@ -584,8 +631,25 @@ function positiveReplay(dir: string): ReplayResult {
       data_schema_version: 2,
       closed_candles_only: true,
       manifest_checksum_verified: true,
+      temporal_contract: temporalContract(),
     },
     notes: ["positive mechanical replay"],
+  }
+}
+
+function temporalContract() {
+  return {
+    method: "closed_candle_replay_v1" as const,
+    timeframe: "4h",
+    closed_candle_only: true,
+    reference_at: "2026-01-01T00:00:00.000Z",
+    availability_at: "2026-01-01T04:00:00.000Z",
+    lookback_start: "2026-01-01T00:00:00.000Z",
+    label_end: "2026-01-01T04:00:00.000Z",
+    universe_selected_at: "2026-01-01T00:00:00.000Z",
+    universe_selection_source: "fixture",
+    label_policy: "signals use closed candles; entries occur on next open; labels are available after exit candle close",
+    supplemental_data: [],
   }
 }
 

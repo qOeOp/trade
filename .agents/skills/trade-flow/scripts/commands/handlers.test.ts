@@ -312,6 +312,7 @@ function baseConfig(overrides: Partial<CommandConfig>): CommandConfig {
     track: "",
     yes: false,
     chainId: "",
+    tradingConfigPath: "",
     accountConfigPath: "./data/account_config.json",
     strategiesDir: ".agents/skills/trade-flow/strategies",
     manifestPath: "",

@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync } from "node:fs"
+import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 
 type JSONRecord = Record<string, unknown>
@@ -13,6 +13,7 @@ interface StrategyPolicy {
 }
 
 function loadJsonFile(path: string): JSONRecord {
+  if (!existsSync(path)) return {}
   return JSON.parse(readFileSync(path, "utf8")) as JSONRecord
 }
 
