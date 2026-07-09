@@ -397,6 +397,52 @@ test("relative weakness momentum can require matching benchmark regime", () => {
   }
 })
 
+test("relative weakness family can test reversion without adding a new family", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-relative-reversion-"))
+  try {
+    const assetDir = join(dir, "asset")
+    const benchmarkDir = join(dir, "benchmark")
+    mkdirSync(assetDir)
+    mkdirSync(benchmarkDir)
+    const assetManifest = writeRelativeManifest(assetDir, "ALTUSDT", "weak")
+    const benchmarkManifest = writeRelativeManifest(benchmarkDir, "BTCUSDT", "benchmark-weak")
+    const report = runStrategyRndBatch({
+      manifestPath: assetManifest,
+      timeframe: "4h",
+      maxHoldBars: 8,
+      candidates: [{
+        candidateId: "C-REL-REVERSION-LONG",
+        family: "relative_weakness_momentum_v1",
+        parameterCount: 8,
+        params: {
+          side: "long",
+          signal_mode: "reversion",
+          benchmark_manifest_path: benchmarkManifest,
+          benchmark_return_max: -0.01,
+          lookback_bars: 40,
+          relative_threshold_atr: 0.5,
+          stop_atr: 1,
+          max_risk_atr: 3,
+          reward_risk: 2,
+        },
+      }],
+    })
+
+    const candidate = report.candidates[0]
+    assert.ok(candidate)
+    assert.equal(candidate.params.signalMode, "reversion")
+    assert.ok(candidate.replay.sample_count > 0)
+    const trade = candidate.replay.trades[0]
+    assert.ok(trade)
+    assert.ok(trade.meta)
+    assert.equal(trade.reason, "rnd relative weakness reversion long")
+    assert.ok((trade.meta.relativeAtr as number) <= -0.5)
+    assert.ok((trade.meta.benchmarkReturn as number) <= -0.01)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("strategy R&D batch composes generic factor conditions without indicator-specific branches", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-factor-compose-"))
   try {

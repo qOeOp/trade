@@ -6,6 +6,7 @@ import { readNonNegativeNumber, readPositiveInteger, readPositiveNumber, readSid
 
 interface Params {
   side: SideFilter
+  signalMode: SignalMode
   benchmarkManifestPath: string
   benchmarkTimeframe: string
   lookbackBars: number
@@ -30,6 +31,8 @@ interface RelativeMove {
   benchmarkReturn: number
 }
 
+type SignalMode = "momentum" | "reversion"
+
 const family: RndFamilyModule = {
   id: "relative_weakness_momentum_v1",
   configure(strategyId, raw, store) {
@@ -51,6 +54,7 @@ function normalize(raw: JSONRecord): Params {
   }
   return {
     side: readSide(raw.side),
+    signalMode: readSignalMode(raw.signal_mode ?? raw.signalMode),
     benchmarkManifestPath,
     benchmarkTimeframe: stringField(raw.benchmark_timeframe ?? raw.benchmarkTimeframe) || "4h",
     lookbackBars: readPositiveInteger(raw.lookback_bars ?? raw.lookbackBars, 120),
@@ -69,6 +73,7 @@ function normalize(raw: JSONRecord): Params {
 function json(params: Params): JSONRecord {
   return {
     side: params.side,
+    ...(params.signalMode !== "momentum" ? { signalMode: params.signalMode } : {}),
     benchmarkManifestPath: params.benchmarkManifestPath,
     benchmarkTimeframe: params.benchmarkTimeframe,
     lookbackBars: params.lookbackBars,
@@ -105,10 +110,15 @@ function strategy(id: string, params: Params, benchmark: BenchmarkSeries, store:
       if (!prior || !Number.isFinite(atr) || atr <= 0 || !passesFactorConditions(params.factorConditions, store, options.timeframe || "4h", candle.date)) return null
       const move = relativeMoveAtr(candle, prior, benchmark, params.lookbackBars, atr)
       if (!move || !Number.isFinite(move.relativeAtr)) return null
-      if ((params.side === "short" || params.side === "both") && move.relativeAtr <= -params.relativeThresholdAtr && passesBenchmarkRegime("short", move.benchmarkReturn, params)) {
+      if (!passesBenchmarkBounds(move.benchmarkReturn, params)) return null
+      const weakAsset = move.relativeAtr <= -params.relativeThresholdAtr
+      const strongAsset = move.relativeAtr >= params.relativeThresholdAtr
+      const longSetup = params.signalMode === "momentum" ? strongAsset : weakAsset
+      const shortSetup = params.signalMode === "momentum" ? weakAsset : strongAsset
+      if ((params.side === "short" || params.side === "both") && shortSetup) {
         return signal("short", candle, index, entryIndex, entryPrice, atr, move, params)
       }
-      if ((params.side === "long" || params.side === "both") && move.relativeAtr >= params.relativeThresholdAtr && passesBenchmarkRegime("long", move.benchmarkReturn, params)) {
+      if ((params.side === "long" || params.side === "both") && longSetup) {
         return signal("long", candle, index, entryIndex, entryPrice, atr, move, params)
       }
       return null
@@ -130,9 +140,9 @@ function relativeMoveAtr(candle: Candle, prior: Candle, benchmark: BenchmarkSeri
   }
 }
 
-function passesBenchmarkRegime(side: "long" | "short", benchmarkReturn: number, params: Params): boolean {
-  if (side === "short" && params.benchmarkReturnMax !== undefined && benchmarkReturn > params.benchmarkReturnMax) return false
-  if (side === "long" && params.benchmarkReturnMin !== undefined && benchmarkReturn < params.benchmarkReturnMin) return false
+function passesBenchmarkBounds(benchmarkReturn: number, params: Params): boolean {
+  if (params.benchmarkReturnMax !== undefined && benchmarkReturn > params.benchmarkReturnMax) return false
+  if (params.benchmarkReturnMin !== undefined && benchmarkReturn < params.benchmarkReturnMin) return false
   return true
 }
 
@@ -148,7 +158,7 @@ function signal(side: "long" | "short", candle: Candle, index: number, entryInde
     stop,
     target: side === "long" ? entry + risk * params.rewardRisk : entry - risk * params.rewardRisk,
     ...(params.breakEvenAfterR > 0 ? { break_even_after_r: params.breakEvenAfterR, break_even_offset_r: params.breakEvenOffsetR } : {}),
-    reason: `rnd relative weakness momentum ${side}`,
+    reason: `rnd relative weakness ${params.signalMode} ${side}`,
     meta: { ...json(params), relativeAtr: round(move.relativeAtr), benchmarkReturn: round(move.benchmarkReturn) },
   }
 }
@@ -160,6 +170,10 @@ function stringField(value: unknown): string {
 function optionalNumber(value: unknown): number | undefined {
   const number = Number(value)
   return Number.isFinite(number) ? number : undefined
+}
+
+function readSignalMode(value: unknown): SignalMode {
+  return value === "reversion" ? "reversion" : "momentum"
 }
 
 export default family
