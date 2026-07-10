@@ -53,6 +53,29 @@ check_module_contracts() {
     printf 'quality: strategy review must be registered as strategy-review, not trade-flow.review\n' >&2
     exit 1
   fi
+  for retired in \
+    modules/trade-flow/src/domain/research \
+    modules/trade-flow/src/domain/review \
+    modules/trade-flow/src/domain/artifact \
+    modules/trade-flow/src/scripts/commands/research.ts \
+    modules/trade-flow/src/scripts/commands/evidence.ts \
+    modules/trade-flow/src/scripts/commands/catalog.ts \
+    modules/trade-flow/src/scripts/lib/data-catalog.ts \
+    modules/trade-flow/src/scripts/lib/strategy-iteration.ts \
+    modules/trade-flow/src/scripts/lib/replay-core.ts \
+    modules/trade-flow/src/scripts/lib/rd-program-state.ts \
+    modules/trade-flow/src/scripts/lib/strategy-rnd.ts
+  do
+    if [ -e "$retired" ]; then
+      printf 'quality: retired trade-flow compatibility path must not exist: %s\n' "$retired" >&2
+      exit 1
+    fi
+  done
+  if rg -n 'handle(Catalog|Evidence|Research)Command|from "\./commands/(catalog|evidence|research)"|from "\./lib/(data-catalog|strategy-iteration|replay-core|rd-program-state|strategy-rnd)"' modules/trade-flow/src >/dev/null; then
+    rg -n 'handle(Catalog|Evidence|Research)Command|from "\./commands/(catalog|evidence|research)"|from "\./lib/(data-catalog|strategy-iteration|replay-core|rd-program-state|strategy-rnd)"' modules/trade-flow/src >&2
+    printf 'quality: migrated research/review/catalog code must not be re-imported by trade-flow\n' >&2
+    exit 1
+  fi
   find modules \( -name package.json -o -name go.mod -o -name requirements.txt \) -type f | sort | while IFS= read -r marker; do
     module_dir="$(dirname "$marker")"
     if [ ! -f "$module_dir/CONTRACT.md" ]; then

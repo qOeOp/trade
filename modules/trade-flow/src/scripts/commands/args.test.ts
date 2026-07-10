@@ -5,7 +5,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { parseArgs } from "./args"
 
-test("parseArgs keeps core execution and evidence flags stable", () => {
+test("parseArgs keeps core runtime and execution flags stable", () => {
   const config = parseArgs([
     "--db",
     "/tmp/trade.db",
@@ -18,43 +18,9 @@ test("parseArgs keeps core execution and evidence flags stable", () => {
     "flow-1",
     "--mode",
     "shadow",
-    "--strategy-promote",
-    "--strategy-compile",
-    "--strategy-lint",
-    "--strategy-data-split",
-    "--rd-program-state",
-    "--rd-supervisor-run",
     "--automation-cycle",
     "--trading-config",
     "profile/trading-config.json",
-    "--strategy-cycle",
-    "--strategy",
-    "strategy.md",
-    "--ledger",
-    "ledger.jsonl",
-    "--state",
-    "rd-state.json",
-    "--to",
-    "live-small",
-    "--artifact-root",
-    "/tmp/artifacts",
-    "--catalog-init",
-    "--catalog-scan",
-    "--catalog-query",
-    "--catalog-stale",
-    "--catalog-gc",
-    "--catalog-db",
-    "/tmp/data_catalog.db",
-    "--catalog-root",
-    "/tmp/data",
-    "--catalog-root",
-    "/tmp/tmp",
-    "--retention-hours",
-    "168",
-    "--ephemeral-retention-hours",
-    "12",
-    "--anti-overfit-stage",
-    "locked_holdout",
     "--json",
     JSON.stringify({ symbol: "BTCUSDT" }),
   ])
@@ -66,32 +32,9 @@ test("parseArgs keeps core execution and evidence flags stable", () => {
   assert.equal(config.track, "slow")
   assert.equal(config.chainId, "flow-1")
   assert.equal(config.mode, "shadow")
-  assert.equal(config.strategyPromote, true)
-  assert.equal(config.strategyCompile, true)
-  assert.equal(config.strategyLint, true)
-  assert.equal(config.strategyDataSplit, true)
-  assert.equal(config.rdProgramState, true)
-  assert.equal(config.rdSupervisorRun, true)
   assert.equal(config.automationCycle, true)
   assert.equal(config.tradingConfigPath, "profile/trading-config.json")
   assert.equal(config.strategiesDir, "./strategies")
-  assert.equal(config.strategyCycle, true)
-  assert.equal(config.strategyPath, "strategy.md")
-  assert.equal(config.ledgerPath, "ledger.jsonl")
-  assert.equal(config.statePath, "rd-state.json")
-  assert.equal(config.promoteTo, "live-small")
-  assert.equal(config.promoteToExplicit, true)
-  assert.equal(config.artifactRoot, "/tmp/artifacts")
-  assert.equal(config.catalogInit, true)
-  assert.equal(config.catalogScan, true)
-  assert.equal(config.catalogQuery, true)
-  assert.equal(config.catalogStale, true)
-  assert.equal(config.catalogGc, true)
-  assert.equal(config.catalogDbPath, "/tmp/data_catalog.db")
-  assert.deepEqual(config.catalogRoots, ["/tmp/data", "/tmp/tmp"])
-  assert.equal(config.retentionHours, 168)
-  assert.equal(config.ephemeralRetentionHours, 12)
-  assert.equal(config.antiOverfitStage, "locked_holdout")
   assert.deepEqual(config.input, { symbol: "BTCUSDT" })
 })
 
@@ -112,7 +55,8 @@ test("parseArgs rejects unknown flags and invalid enum values", () => {
   assert.throws(() => parseArgs(["--missing"]), /unknown flag/)
   assert.throws(() => parseArgs(["--mode", "live"]), /unsupported --mode/)
   assert.throws(() => parseArgs(["--track", "medium"]), /--track must be/)
-  assert.throws(() => parseArgs(["--to", "production"]), /--to must be/)
-  assert.throws(() => parseArgs(["--anti-overfit-stage", "peek"]), /--anti-overfit-stage must be/)
+  assert.throws(() => parseArgs(["--strategy-rnd-loop"]), /unknown flag/)
+  assert.throws(() => parseArgs(["--catalog-scan"]), /unknown flag/)
+  assert.throws(() => parseArgs(["--strategy-review"]), /unknown flag/)
   assert.throws(() => parseArgs(["--db"]), /--db requires a value/)
 })

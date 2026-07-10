@@ -10,27 +10,7 @@ export const HELP_TEXT = `Usage:
   bun src/scripts/main.ts --load-runtime --trading-config ./profile/trading-config.json --strategies-dir ./strategies
   bun src/scripts/main.ts --build-observe --json '{"chain_id":"...","symbol":"BTCUSDT",...}'
   bun src/scripts/main.ts --observe-from-tools --json '{"repoRoot":"/repo","chain_id":"...","symbol":"BTCUSDT",...}'
-  bun src/scripts/main.ts --replay-strategy --manifest ./data/ohlcv/BTCUSDT/manifest.json --strategy-id S-BTC-4H-TREND-PULLBACK
-  bun src/scripts/main.ts --strategy-rnd-batch --json '{"manifest_path":"./data/ohlcv/BTCUSDT/manifest.json","candidates":[...]}'
-  bun src/scripts/main.ts --strategy-rnd-loop --json '{"manifest_path":"./data/ohlcv/BTCUSDT/manifest.json","indicator_report_path":"...","factor_discover":true,"factor_compose":true,"candidates":[...]}'
-  bun src/scripts/main.ts --strategy-rnd-campaign --json '{"campaign_id":"...","max_total_trials":10,"hypotheses":[...]}'
-  bun src/scripts/main.ts --strategy-panel-rnd --json '{"datasets":[...],"candidates":[...]}'
-  bun src/scripts/main.ts --strategy-data-split --json '{"split_id":"...","datasets":[...],"timeframe":"4h"}'
-  bun src/scripts/main.ts --rd-program-state --state ./data/rd/program.json --json '{"action":"init","objective":"find a shadow-eligible 4H swing strategy"}'
-  bun src/scripts/main.ts --rd-program-state --state ./data/rd/program.json --json '{"action":"plan_next"}'
-  bun src/scripts/main.ts --rd-supervisor-run --state ./data/rd/program.json --json '{"max_iterations":10,"artifact_root":"./tmp/artifacts/strategy-rnd"}'
   bun src/scripts/main.ts --db ./data/trade.db --automation-cycle --json '{"slow_interval_minutes":240,"rd_trackers":[...]}'
-  bun src/scripts/main.ts --strategy-benchmark --json '{"datasets":[...]}'
-  bun src/scripts/main.ts --strategy-calibration-suite --json '{"datasets":[...]}'
-  bun src/scripts/main.ts --strategy-signal --json '{"manifest_path":"...","entry_price":60000,"candidate":{...}}'
-  bun src/scripts/main.ts --strategy-signal --strategy ./strategies/s-example.md --json '{"manifest_path":"...","entry_price":60000,"benchmark_manifest_path":"..."}'
-  bun src/scripts/main.ts --strategy-compile --strategy ./strategies/s-example.md
-  bun src/scripts/main.ts --strategy-lint --strategy ./strategies/s-example.md
-  bun src/scripts/main.ts --catalog-init --catalog-db ./data/data_catalog.db
-  bun src/scripts/main.ts --catalog-scan --catalog-db ./data/data_catalog.db --catalog-root ./data --catalog-root ./tmp
-  bun src/scripts/main.ts --catalog-query --catalog-db ./data/data_catalog.db --json '{"symbol":"BTCUSDT","limit":20}'
-  bun src/scripts/main.ts --catalog-stale --catalog-db ./data/data_catalog.db --catalog-root ./data --retention-hours 168
-  bun src/scripts/main.ts --catalog-gc --catalog-db ./data/data_catalog.db --catalog-root ./tmp --retention-hours 168 --yes
   bun src/scripts/main.ts --run-shadow-from-tools --json '{"repoRoot":"/repo","chain_id":"...","symbol":"BTCUSDT",...}'
   bun src/scripts/main.ts --run-live-small --yes --json '{"repoRoot":"/repo","plan":{...},"observe":{...},"execution_contract_input":{...}}'
   bun src/scripts/main.ts --db ./data/trade.db --recover-flow --chain-id <chain_id>
@@ -38,11 +18,6 @@ export const HELP_TEXT = `Usage:
   bun src/scripts/main.ts --db ./data/trade.db --reconcile-from-tools --chain-id <chain_id> --json '{"repoRoot":"/repo","symbol":"BTCUSDT"}'
   bun src/scripts/main.ts --db ./data/trade.db --apply-reconcile --yes --json '{"can_reconcile":true,"drafts":[...]}'
   bun src/scripts/main.ts --db ./data/trade.db --cron-recover-from-tools --chain-id <chain_id> --json '{"repoRoot":"/repo","symbol":"BTCUSDT","apply_reconcile":false}'
-  bun src/scripts/main.ts --artifact-gc --artifact-root ./tmp/artifacts --retention-hours 168 --ephemeral-retention-hours 24
-  bun src/scripts/main.ts --append-strategy-evidence --strategy <strategy.md> --catalog-db ./data/data_catalog.db --json '{"kind":"shadow","stats":{...}}'
-  bun src/scripts/main.ts --strategy-review --strategy <strategy.md> --catalog-db ./data/data_catalog.db
-  bun src/scripts/main.ts --strategy-promote --strategy <strategy.md> --catalog-db ./data/data_catalog.db --to shadow --yes
-  bun src/scripts/main.ts --db ./data/trade.db --strategy-cycle --strategy <strategy.md> --catalog-db ./data/data_catalog.db --to live-small
 
 Key flags:
   response schema         ./schemas/script-response.schema.json; only the outer envelope is stable
@@ -57,25 +32,7 @@ Key flags:
   --load-runtime           Load trading config, runtime policy, account config compatibility, and strategy files
   --build-observe          Build an observe event from account / market projections
   --observe-from-tools    Call read-only snapshot tools and build an observe event
-  --replay-strategy        Replay a draft strategy against manifest OHLCV
-  --strategy-rnd-batch     Run a predeclared bounded R&D candidate batch; never auto-promotes
-  --strategy-rnd-loop      Run one R&D loop iteration, writing artifact + catalog DB ledger; never auto-promotes
-  --strategy-rnd-campaign  Run bounded hypotheses through discovery and non-overlapping external validation
-  --strategy-panel-rnd     Evaluate fixed candidates across at least three assets
-  --strategy-data-split    Split OHLCV manifests into discovery, validation, and locked_holdout manifests before R&D
-  --rd-program-state       Init/read/update/plan_next durable R&D learning memory; R&D loop/campaign can write back via rd_program_state_path
-  --rd-supervisor-run      Run plan_next -> R&D loop/campaign -> state writeback until terminal status or max_iterations
   --automation-cycle       Build a single-entry automation supervisor plan with subagent fanout and cadence gates
-  --strategy-benchmark     Calibrate the R&D pipeline with one fixed multi-asset trend benchmark
-  --strategy-calibration-suite Run fixed known-edge calibration baselines; never auto-promotes
-  --strategy-signal        Evaluate one R&D candidate on the latest closed candle; never executes
-  --strategy-compile       Compile a strategy markdown Trade Contract into engine-facing JSON
-  --strategy-lint          Validate a strategy markdown Trade Contract
-  --catalog-init           Initialize data_catalog.db schema
-  --catalog-scan           Index run, dataset, artifact, R&D, and evidence metadata without moving payload files
-  --catalog-query          Query catalog metadata by path, artifact_id, symbol, or strategy_id
-  --catalog-stale          Report stale catalog artifacts; dry-run only, never deletes files
-  --catalog-gc             Delete stale catalog candidates only when --yes is provided
   --run-shadow-from-tools Call read-only snapshot tools, build observe, then record shadow execution
   --run-live-small         Execute one live-small main entry through binance-order-place
   --recover-flow           Reduce local plan_event history for one flow
@@ -83,38 +40,11 @@ Key flags:
   --reconcile-from-tools  Call read-only account snapshot with history, then return reconcile drafts
   --apply-reconcile        Append source=reconcile drafts returned by reconcile step
   --cron-recover-from-tools Run local reduce + read-only reconcile; optionally apply local reconcile drafts
-  --artifact-gc           Report or delete stale unreferenced artifact files
-  --append-strategy-evidence Append replay/shadow/live-small evidence to data_catalog.db
-  --strategy-review       Build one strategy iteration report from catalog evidence and optional DB reviews
-  --strategy-promote      Dry-run or apply strategy status transition
-  --strategy-cycle        Sync DB reviews into shadow evidence, review, then optional promotion dry-run/apply
-  --funding-carry-governance Check exact funding event coverage before funding_carry_v1 trials
   --chain-id <chain_id>    Flow id for recovery / reconcile
   --yes                    Required for --run-live-small / --apply-reconcile
-  --strategy <path>        Strategy markdown path for iteration commands
-  --ledger <path>          Deprecated legacy JSONL path; use --catalog-db for current storage
-  --state <path>           R&D program state artifact path for --rd-program-state / --rd-supervisor-run
-  --to <status>            Target status for --strategy-promote
-  --artifact-root <path>   Artifact root for explicit GC or R&D output; R&D defaults to ./tmp/artifacts/strategy-rnd
-  --catalog-db <path>      SQLite data catalog path. Default: ./data/data_catalog.db
-  --catalog-root <path>    Directory scanned by --catalog-scan or filtered by --catalog-stale; repeatable. Default: ./data
-  --retention-hours <n>    Artifact GC age threshold. Default: 168
-  --ephemeral-retention-hours <n> Shorter GC threshold for tmp/cache/scratch dirs. Default: min(24, retention)
   --trading-config <path>  JSON trading config path. Default: ./profile/trading-config.json
   --account-config <path>  Legacy JSON account config path used as fallback compatibility input
   --strategies-dir <path>  Strategy markdown directory
-  --manifest <path>        OHLCV manifest for --replay-strategy
-  --strategy-id <id>       Strategy id for --replay-strategy
-  --timeframe <tf>         Timeframe for --replay-strategy. Default: strategy default
-  --max-hold-bars <n>      Max bars to hold in replay
-  --reward-risk <n>        Target R multiple in replay
-  --fee-bps <n>            Round-trip side fee estimate in bps per side for replay
-  --slippage-bps <n>       Slippage estimate in bps per side for replay
-  --funding-bps-per-8h <n> Adverse funding stress in bps per 8h held
-  --oos-split <ratio>      Replay anti-overfit OOS split ratio. Example: 0.3
-  --anti-overfit-stage <stage> Replay proof stage: selection_validation, external_validation, or locked_holdout
-  --trial-count <n>        Number of predeclared strategy trials represented by this replay
-  --parameter-count <n>    Number of active strategy parameters represented by this replay
   --input <path>           JSON event input
   --json <json>            Inline JSON event input
   --help                   Show this help

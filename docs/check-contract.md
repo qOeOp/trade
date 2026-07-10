@@ -23,6 +23,9 @@
 | `trade-flow-typecheck` | `modules/trade-flow` | `bun run typecheck` | TS 类型与未使用变量 |
 | `trade-flow-test` | `modules/trade-flow` | `bun run test` | 当前全部 trade-flow 单测 / 契约测 |
 | `trade-flow-check` | `modules/trade-flow` | `bun run check` | typecheck + test |
+| `strategy-rd-check` | `modules/research/strategy-rd` | `bun run check` | replay / R&D / panel / benchmark / calibration / RD memory |
+| `strategy-review-check` | `modules/governance/strategy-review` | `bun run check` | evidence / review / promotion |
+| `artifact-catalog-check` | `modules/ops/artifact-catalog` | `bun run check` | catalog / artifact GC / feature refs |
 | `plan-preflight-check` | `modules/guards/plan-preflight` | `bun run check` | hard guards / decision card |
 | `binance-ts-check` | changed Binance TS tool | `bun run check` | 对应执行或只读 tool 的本地契约 |
 | `ohlcv-fetch-check` | `modules/ohlcv-fetch` | `bun run check` | OHLCV manifest / fetch 本地契约 |
@@ -41,8 +44,9 @@
 | execution dry/shadow/live-small glue | `src/scripts/lib/execution-flow.ts`, `src/scripts/lib/live-execution.ts`, `src/scripts/commands/execution.ts` | `trade-flow-typecheck` + `bun test ./src/scripts/lib/execution-flow.test.ts ./src/scripts/lib/live-execution.test.ts ./src/scripts/lib/live-small-result-schema.test.ts ./src/scripts/main.test.ts` |
 | recovery / reconcile | `src/scripts/lib/reconcile.ts`, `src/scripts/lib/recovery-flow.ts`, `src/scripts/commands/recovery.ts` | `trade-flow-typecheck` + `bun test ./src/scripts/lib/reconcile.test.ts ./src/scripts/lib/recovery-flow.test.ts ./src/scripts/lib/reconcile-schema.test.ts ./src/scripts/main.test.ts` |
 | observe / runtime load | `src/scripts/lib/observe-*`, `src/scripts/commands/observe.ts` | `trade-flow-typecheck` + `bun test ./src/scripts/lib/observe-*.test.ts ./src/scripts/commands/handlers.test.ts` |
-| research replay / R&D / benchmark / forward holdout | `src/scripts/lib/strategy-*`, `src/scripts/lib/rnd-*`, `src/scripts/lib/forward-holdout.ts`, `scripts/forward-holdout.ts` | `trade-flow-typecheck` + `bun test ./src/scripts/lib/strategy-*.test.ts ./src/scripts/lib/rnd-*.test.ts ./src/scripts/lib/forward-holdout.test.ts ./src/scripts/lib/research-output-schemas.test.ts` |
-| artifact hygiene | `src/scripts/lib/artifact-hygiene.ts`, `schemas/artifact-gc-result.schema.json` | `trade-flow-typecheck` + `bun test ./src/scripts/lib/artifact-hygiene.test.ts ./src/scripts/lib/artifact-gc-schema.test.ts` |
+| research replay / R&D / benchmark / forward holdout | `modules/research/strategy-rd/src/**` | `strategy-rd-check` |
+| strategy evidence / review / promotion | `modules/governance/strategy-review/src/**` | `strategy-review-check` |
+| artifact hygiene / catalog | `modules/ops/artifact-catalog/src/**` | `artifact-catalog-check` |
 | cron slow/fast track | `src/scripts/lib/*track*`, `src/scripts/lib/cron-runtime.ts` | `trade-flow-typecheck` + `bun test ./src/scripts/lib/slow-track-workflow.test.ts ./src/scripts/lib/fast-track-workflow.test.ts ./src/scripts/lib/cron-runtime.test.ts ./src/scripts/lib/track-dry-run-schema.test.ts` |
 | preflight hard guard | `modules/guards/plan-preflight/**` | `plan-preflight-check` + trade-flow execution/recovery targeted tests if guard output shape changed |
 | Binance execute tool | `modules/binance/order-*`, `modules/binance/position-*` | corresponding `binance-ts-check` + trade-flow execution targeted tests；输出边界见 [execution-tool-contract.md](execution-tool-contract.md) |
@@ -57,7 +61,7 @@
 - 修改 `src/scripts/main.ts`
 - 修改 `src/scripts/commands/*`
 - 修改 `schemas/registry.json`
-- 修改 `plan_event`、recovery、execution、research 任一公共类型
+- 修改 `plan_event`、recovery、execution 任一 trade-flow 公共类型
 - 新增 command、schema、strategy family、evidence record 或 promotion gate
 - targeted test 失败后修复完成
 
@@ -73,6 +77,7 @@
 - trade-flow 调用的外部 tool CLI 参数变化
 - 外部 tool 输出被 trade-flow 解析
 - `plan-preflight` verdict / blocked shape / decision card 变化
+- research / review / catalog owner 模块内部契约变化
 
 ## 5. 明确不自动跑
 

@@ -1,8 +1,6 @@
-import type { StrategyStatus } from "../lib/strategy-iteration"
 import type { JSONRecord } from "../lib/json"
 import type { RunMode } from "../lib/run-mode"
 
-export type { StrategyStatus }
 export type { JSONRecord }
 export type { RunMode }
 export type TrackMode = "" | "slow" | "fast"
@@ -24,32 +22,7 @@ export interface CommandConfig {
   loadRuntime: boolean
   buildObserve: boolean
   observeFromTools: boolean
-  replayStrategy: boolean
-  strategyRndBatch: boolean
-  strategyRndLoop: boolean
-  strategyRndCampaign: boolean
-  strategyPanelRnd: boolean
-  strategyDataSplit: boolean
-  rdProgramState: boolean
-  rdSupervisorRun: boolean
   automationCycle: boolean
-  strategyBenchmark: boolean
-  strategyCalibrationSuite: boolean
-  fundingCarryGovernance: boolean
-  strategySignal: boolean
-  strategyCompile: boolean
-  strategyLint: boolean
-  artifactGc: boolean
-  catalogInit: boolean
-  catalogScan: boolean
-  catalogQuery: boolean
-  catalogStale: boolean
-  catalogGc: boolean
-  appendStrategyEvidence: boolean
-  strategyReview: boolean
-  strategyPromote: boolean
-  strategyCycle: boolean
-  promoteToExplicit: boolean
   runShadowFromTools: boolean
   runLiveSmall: boolean
   recoverFlow: boolean
@@ -63,26 +36,5 @@ export interface CommandConfig {
   tradingConfigPath: string
   accountConfigPath: string
   strategiesDir: string
-  manifestPath: string
-  strategyId: string
-  timeframe: string
-  maxHoldBars?: number
-  rewardRisk?: number
-  feeBps?: number
-  slippageBps?: number
-  fundingBpsPer8h?: number
-  oosSplitRatio?: number
-  trialCount?: number
-  parameterCount?: number
-  antiOverfitStage?: "selection_validation" | "external_validation" | "locked_holdout"
-  artifactRoot: string
-  catalogDbPath: string
-  catalogRoots: string[]
-  retentionHours?: number
-  ephemeralRetentionHours?: number
-  strategyPath: string
-  ledgerPath: string
-  statePath: string
-  promoteTo: StrategyStatus
   input: JSONRecord
 }

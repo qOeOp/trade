@@ -10,397 +10,278 @@
       "file": "apply-reconcile-result.schema.json",
       "id": "trade-flow.apply-reconcile-result.v1",
       "owner": "scripts/lib/flow-state.ts",
-      "covers": ["--apply-reconcile data"]
-    },
-    {
-      "file": "artifact-gc-result.schema.json",
-      "id": "trade-flow.artifact-gc-result.v1",
-      "owner": "scripts/lib/artifact-hygiene.ts",
-      "covers": ["--artifact-gc data"]
+      "covers": [
+        "--apply-reconcile data"
+      ]
     },
     {
       "file": "automation-cycle-plan.schema.json",
       "id": "trade-flow.automation-cycle-plan.v1",
       "owner": "scripts/lib/automation-cycle.ts",
-      "covers": ["--automation-cycle data"]
+      "covers": [
+        "--automation-cycle data"
+      ]
     },
     {
       "file": "cron-log-entry.schema.json",
       "id": "trade-flow.cron-log-entry.v1",
       "owner": "scripts/lib/cron-runtime.ts",
-      "covers": ["data/cron.log JSONL entry"]
-    },
-    {
-      "file": "data-catalog-result.schema.json",
-      "id": "trade-flow.data-catalog-result.v1",
-      "owner": "scripts/lib/data-catalog.ts",
-      "covers": ["--catalog-init data", "--catalog-scan data", "--catalog-query data", "--catalog-stale data", "--catalog-gc data"]
+      "covers": [
+        "data/cron.log JSONL entry"
+      ]
     },
     {
       "file": "cron-recover-result.schema.json",
       "id": "trade-flow.cron-recover-result.v1",
       "owner": "scripts/lib/recovery-flow.ts",
-      "covers": ["--cron-recover-from-tools data"]
+      "covers": [
+        "--cron-recover-from-tools data"
+      ]
     },
     {
       "file": "execution-command-spec.schema.json",
       "id": "trade-flow.execution-command-spec.v1",
       "owner": "scripts/lib/execution-flow.ts",
-      "covers": ["execution tool routing contract"]
+      "covers": [
+        "execution tool routing contract"
+      ]
     },
     {
       "file": "flow-state-result.schema.json",
       "id": "trade-flow.flow-state-result.v1",
       "owner": "scripts/lib/flow-state.ts",
-      "covers": ["--recover-flow data", "nested flow state projections"]
-    },
-    {
-      "file": "forward-holdout-result.schema.json",
-      "id": "trade-flow.forward-holdout-result.v1",
-      "owner": "scripts/lib/forward-holdout.ts",
-      "covers": ["scripts/forward-holdout.ts data"]
+      "covers": [
+        "--recover-flow data",
+        "nested flow state projections"
+      ]
     },
     {
       "file": "init-result.schema.json",
       "id": "trade-flow.init-result.v1",
       "owner": "scripts/commands/runtime.ts",
-      "covers": ["--init data"]
+      "covers": [
+        "--init data"
+      ]
     },
     {
       "file": "live-small-result.schema.json",
       "id": "trade-flow.live-small-result.v1",
       "owner": "scripts/lib/live-execution.ts",
-      "covers": ["--run-live-small data"]
+      "covers": [
+        "--run-live-small data"
+      ]
     },
     {
       "file": "observe-event.schema.json",
       "id": "trade-flow.observe-event.v1",
       "owner": "scripts/lib/observe-builder.ts",
-      "covers": ["--build-observe data", "--observe-from-tools data", "skipped execution observe_event"]
+      "covers": [
+        "--build-observe data",
+        "--observe-from-tools data",
+        "skipped execution observe_event"
+      ]
     },
     {
       "file": "plan-event.schema.json",
       "id": "trade-flow.plan-event.v1",
       "owner": "scripts/lib/plan-events.ts",
-      "covers": ["plan_event row", "--append-order-fill data", "--append-review data", "--record-execution data"]
+      "covers": [
+        "plan_event row",
+        "--append-order-fill data",
+        "--append-review data",
+        "--record-execution data"
+      ]
     },
     {
       "file": "reconcile-result.schema.json",
       "id": "trade-flow.reconcile-result.v1",
       "owner": "scripts/lib/reconcile.ts",
-      "covers": ["--reconcile-flow data", "--reconcile-from-tools data"]
-    },
-    {
-      "file": "rd-program-state-result.schema.json",
-      "id": "trade-flow.rd-program-state-result.v1",
-      "owner": "scripts/lib/rd-program-state.ts",
-      "covers": ["--rd-program-state data", "nested R&D program state writeback"]
-    },
-    {
-      "file": "rd-supervisor-run-result.schema.json",
-      "id": "trade-flow.rd-supervisor-run-result.v1",
-      "owner": "scripts/lib/rd-supervisor-runner.ts",
-      "covers": ["--rd-supervisor-run data"]
+      "covers": [
+        "--reconcile-flow data",
+        "--reconcile-from-tools data"
+      ]
     },
     {
       "file": "run-step-result.schema.json",
       "id": "trade-flow.run-step-result.v1",
       "owner": "scripts/lib/execution-flow.ts",
-      "covers": ["--run data", "--run-shadow-from-tools data"]
+      "covers": [
+        "--run data",
+        "--run-shadow-from-tools data"
+      ]
     },
     {
       "file": "runtime-load-result.schema.json",
       "id": "trade-flow.runtime-load-result.v1",
       "owner": "scripts/lib/observe-flow.ts",
-      "covers": ["--load-runtime data"]
+      "covers": [
+        "--load-runtime data"
+      ]
     },
     {
       "file": "script-response.schema.json",
       "id": "trade-flow.script-response.v1",
       "owner": "scripts/commands/response.ts",
-      "covers": ["all command response envelopes"]
-    },
-    {
-      "file": "replay-result.schema.json",
-      "id": "trade-flow.replay-result.v1",
-      "owner": "scripts/lib/replay-core.ts",
-      "covers": ["--replay-strategy data"]
-    },
-    {
-      "file": "strategy-benchmark-result.schema.json",
-      "id": "trade-flow.strategy-benchmark-result.v1",
-      "owner": "scripts/lib/strategy-benchmark.ts",
-      "covers": ["--strategy-benchmark data"]
-    },
-    {
-      "file": "strategy-calibration-result.schema.json",
-      "id": "trade-flow.strategy-calibration-result.v1",
-      "owner": "scripts/lib/strategy-calibration-report.ts",
-      "covers": ["--strategy-calibration-suite data"]
-    },
-    {
-      "file": "strategy-cycle-result.schema.json",
-      "id": "trade-flow.strategy-cycle-result.v1",
-      "owner": "scripts/lib/strategy-iteration.ts",
-      "covers": ["--strategy-cycle data"]
-    },
-    {
-      "file": "strategy-evidence-record.schema.json",
-      "id": "trade-flow.strategy-evidence-record.v1",
-      "owner": "scripts/lib/strategy-iteration.ts",
-      "covers": ["--append-strategy-evidence data", "strategy-evidence JSONL entry"]
-    },
-    {
-      "file": "strategy-data-split-result.schema.json",
-      "id": "trade-flow.strategy-data-split-result.v1",
-      "owner": "scripts/lib/strategy-data-split.ts",
-      "covers": ["--strategy-data-split data"]
-    },
-    {
-      "file": "strategy-panel-rnd-result.schema.json",
-      "id": "trade-flow.strategy-panel-rnd-result.v1",
-      "owner": "scripts/lib/strategy-panel-rnd.ts",
-      "covers": ["--strategy-panel-rnd data"]
-    },
-    {
-      "file": "strategy-promote-result.schema.json",
-      "id": "trade-flow.strategy-promote-result.v1",
-      "owner": "scripts/lib/strategy-iteration.ts",
-      "covers": ["--strategy-promote data", "nested promotion result"]
-    },
-    {
-      "file": "strategy-rnd-batch-result.schema.json",
-      "id": "trade-flow.strategy-rnd-batch-result.v1",
-      "owner": "scripts/lib/strategy-rnd.ts",
-      "covers": ["--strategy-rnd-batch data"]
-    },
-    {
-      "file": "strategy-rnd-campaign-result.schema.json",
-      "id": "trade-flow.strategy-rnd-campaign-result.v1",
-      "owner": "scripts/lib/strategy-rnd-campaign.ts",
-      "covers": ["--strategy-rnd-campaign data"]
-    },
-    {
-      "file": "strategy-rnd-loop-result.schema.json",
-      "id": "trade-flow.strategy-rnd-loop-result.v1",
-      "owner": "scripts/lib/strategy-rnd.ts",
-      "covers": ["--strategy-rnd-loop data"]
+      "covers": [
+        "all command response envelopes"
+      ]
     },
     {
       "file": "strategy-review-body.schema.json",
       "id": "trade-flow.strategy-review-body.v1",
       "owner": "scripts/lib/plan-events.ts",
-      "covers": ["structured review body minimum"]
-    },
-    {
-      "file": "strategy-review-report.schema.json",
-      "id": "trade-flow.strategy-review-report.v1",
-      "owner": "scripts/lib/strategy-iteration.ts",
-      "covers": ["--strategy-review data", "nested strategy report"]
-    },
-    {
-      "file": "strategy-signal-result.schema.json",
-      "id": "trade-flow.strategy-signal-result.v1",
-      "owner": "scripts/lib/strategy-rnd.ts",
-      "covers": ["--strategy-signal data"]
+      "covers": [
+        "structured review body minimum"
+      ]
     },
     {
       "file": "track-dry-run-summary.schema.json",
       "id": "trade-flow.track-dry-run-summary.v1",
       "owner": "scripts/lib/track-runner.ts",
-      "covers": ["--track slow data", "--track fast data"]
+      "covers": [
+        "--track slow data",
+        "--track fast data"
+      ]
     }
   ],
   "command_data": [
     {
       "command": "--init",
       "status": "covered",
-      "schemas": ["script-response.schema.json", "init-result.schema.json"]
+      "schemas": [
+        "script-response.schema.json",
+        "init-result.schema.json"
+      ]
     },
     {
       "command": "--track",
       "status": "covered",
-      "schemas": ["script-response.schema.json", "track-dry-run-summary.schema.json"]
+      "schemas": [
+        "script-response.schema.json",
+        "track-dry-run-summary.schema.json"
+      ]
     },
     {
       "command": "--automation-cycle",
       "status": "covered",
-      "schemas": ["script-response.schema.json", "automation-cycle-plan.schema.json"]
+      "schemas": [
+        "script-response.schema.json",
+        "automation-cycle-plan.schema.json"
+      ]
     },
     {
       "command": "--append-order-fill",
       "status": "covered",
-      "schemas": ["script-response.schema.json", "plan-event.schema.json"]
+      "schemas": [
+        "script-response.schema.json",
+        "plan-event.schema.json"
+      ]
     },
     {
       "command": "--append-review",
       "status": "covered",
-      "schemas": ["script-response.schema.json", "plan-event.schema.json", "strategy-review-body.schema.json"]
+      "schemas": [
+        "script-response.schema.json",
+        "plan-event.schema.json",
+        "strategy-review-body.schema.json"
+      ]
     },
     {
       "command": "--record-execution",
       "status": "covered",
-      "schemas": ["script-response.schema.json", "plan-event.schema.json"]
+      "schemas": [
+        "script-response.schema.json",
+        "plan-event.schema.json"
+      ]
     },
     {
       "command": "--run",
       "status": "covered",
-      "schemas": ["script-response.schema.json", "run-step-result.schema.json"]
+      "schemas": [
+        "script-response.schema.json",
+        "run-step-result.schema.json"
+      ]
     },
     {
       "command": "--load-runtime",
       "status": "covered",
-      "schemas": ["script-response.schema.json", "runtime-load-result.schema.json"]
+      "schemas": [
+        "script-response.schema.json",
+        "runtime-load-result.schema.json"
+      ]
     },
     {
       "command": "--build-observe",
       "status": "covered",
-      "schemas": ["script-response.schema.json", "observe-event.schema.json"]
+      "schemas": [
+        "script-response.schema.json",
+        "observe-event.schema.json"
+      ]
     },
     {
       "command": "--observe-from-tools",
       "status": "covered",
-      "schemas": ["script-response.schema.json", "observe-event.schema.json"]
-    },
-    {
-      "command": "--replay-strategy",
-      "status": "covered",
-      "schemas": ["script-response.schema.json", "replay-result.schema.json"]
-    },
-    {
-      "command": "--strategy-rnd-batch",
-      "status": "covered",
-      "schemas": ["script-response.schema.json", "strategy-rnd-batch-result.schema.json"]
-    },
-    {
-      "command": "--strategy-rnd-loop",
-      "status": "covered",
-      "schemas": ["script-response.schema.json", "strategy-rnd-loop-result.schema.json"]
-    },
-    {
-      "command": "--strategy-rnd-campaign",
-      "status": "covered",
-      "schemas": ["script-response.schema.json", "strategy-rnd-campaign-result.schema.json"]
-    },
-    {
-      "command": "--strategy-panel-rnd",
-      "status": "covered",
-      "schemas": ["script-response.schema.json", "strategy-panel-rnd-result.schema.json"]
-    },
-    {
-      "command": "--strategy-data-split",
-      "status": "covered",
-      "schemas": ["script-response.schema.json", "strategy-data-split-result.schema.json"]
-    },
-    {
-      "command": "--rd-program-state",
-      "status": "covered",
-      "schemas": ["script-response.schema.json", "rd-program-state-result.schema.json"]
-    },
-    {
-      "command": "--rd-supervisor-run",
-      "status": "covered",
-      "schemas": ["script-response.schema.json", "rd-supervisor-run-result.schema.json"]
-    },
-    {
-      "command": "--strategy-benchmark",
-      "status": "covered",
-      "schemas": ["script-response.schema.json", "strategy-benchmark-result.schema.json"]
-    },
-    {
-      "command": "--strategy-calibration-suite",
-      "status": "covered",
-      "schemas": ["script-response.schema.json", "strategy-calibration-result.schema.json"]
-    },
-    {
-      "command": "--strategy-signal",
-      "status": "covered",
-      "schemas": ["script-response.schema.json", "strategy-signal-result.schema.json"]
-    },
-    {
-      "command": "--catalog-init",
-      "status": "covered",
-      "schemas": ["script-response.schema.json", "data-catalog-result.schema.json"]
-    },
-    {
-      "command": "--catalog-scan",
-      "status": "covered",
-      "schemas": ["script-response.schema.json", "data-catalog-result.schema.json"]
-    },
-    {
-      "command": "--catalog-query",
-      "status": "covered",
-      "schemas": ["script-response.schema.json", "data-catalog-result.schema.json"]
-    },
-    {
-      "command": "--catalog-stale",
-      "status": "covered",
-      "schemas": ["script-response.schema.json", "data-catalog-result.schema.json"]
-    },
-    {
-      "command": "--catalog-gc",
-      "status": "covered",
-      "schemas": ["script-response.schema.json", "data-catalog-result.schema.json"]
-    },
-    {
-      "command": "--artifact-gc",
-      "status": "covered",
-      "schemas": ["script-response.schema.json", "artifact-gc-result.schema.json"]
-    },
-    {
-      "command": "--append-strategy-evidence",
-      "status": "covered",
-      "schemas": ["script-response.schema.json", "strategy-evidence-record.schema.json"]
-    },
-    {
-      "command": "--strategy-review",
-      "status": "covered",
-      "schemas": ["script-response.schema.json", "strategy-review-report.schema.json"]
-    },
-    {
-      "command": "--strategy-promote",
-      "status": "covered",
-      "schemas": ["script-response.schema.json", "strategy-promote-result.schema.json"]
-    },
-    {
-      "command": "--strategy-cycle",
-      "status": "covered",
-      "schemas": ["script-response.schema.json", "strategy-cycle-result.schema.json"]
+      "schemas": [
+        "script-response.schema.json",
+        "observe-event.schema.json"
+      ]
     },
     {
       "command": "--run-shadow-from-tools",
       "status": "covered",
-      "schemas": ["script-response.schema.json", "run-step-result.schema.json", "observe-event.schema.json"]
+      "schemas": [
+        "script-response.schema.json",
+        "run-step-result.schema.json",
+        "observe-event.schema.json"
+      ]
     },
     {
       "command": "--run-live-small",
       "status": "covered",
-      "schemas": ["script-response.schema.json", "live-small-result.schema.json"]
+      "schemas": [
+        "script-response.schema.json",
+        "live-small-result.schema.json"
+      ]
     },
     {
       "command": "--recover-flow",
       "status": "covered",
-      "schemas": ["script-response.schema.json", "flow-state-result.schema.json"]
+      "schemas": [
+        "script-response.schema.json",
+        "flow-state-result.schema.json"
+      ]
     },
     {
       "command": "--reconcile-flow",
       "status": "covered",
-      "schemas": ["script-response.schema.json", "reconcile-result.schema.json"]
+      "schemas": [
+        "script-response.schema.json",
+        "reconcile-result.schema.json"
+      ]
     },
     {
       "command": "--reconcile-from-tools",
       "status": "covered",
-      "schemas": ["script-response.schema.json", "reconcile-result.schema.json"]
+      "schemas": [
+        "script-response.schema.json",
+        "reconcile-result.schema.json"
+      ]
     },
     {
       "command": "--apply-reconcile",
       "status": "covered",
-      "schemas": ["script-response.schema.json", "apply-reconcile-result.schema.json"]
+      "schemas": [
+        "script-response.schema.json",
+        "apply-reconcile-result.schema.json"
+      ]
     },
     {
       "command": "--cron-recover-from-tools",
       "status": "covered",
-      "schemas": ["script-response.schema.json", "cron-recover-result.schema.json"]
+      "schemas": [
+        "script-response.schema.json",
+        "cron-recover-result.schema.json"
+      ]
     }
   ],
   "jsonl_artifacts": [

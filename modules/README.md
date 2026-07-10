@@ -36,17 +36,14 @@
 
 ## Trade-Flow Domains
 
-`trade-flow` 是编排模块，但内部不能再是大平层。当前仍保留 `research` / `review` / `artifact` 兼容 domain；真实 RD owner 是 `modules/research/strategy-rd`，真实 review owner 是 `modules/governance/strategy-review`，真实 artifact/catalog owner 是 `modules/ops/artifact-catalog`。
+`trade-flow` 是编排模块，但内部不能再是大平层。`research` / `review` / `artifact` 兼容 domain 已移除；真实 RD owner 是 `modules/research/strategy-rd`，真实 review owner 是 `modules/governance/strategy-review`，真实 artifact/catalog owner 是 `modules/ops/artifact-catalog`。
 
 | Domain | Contract | 负责 |
 | --- | --- | --- |
-| `research` | `modules/trade-flow/src/domain/research/CONTRACT.md` | 兼容旧 CLI；新代码不得在此新增 RD 实现 |
-| `review` | `modules/trade-flow/src/domain/review/CONTRACT.md` | 兼容旧 CLI；新代码不得在此新增 review / promotion 实现 |
 | `execution` | `modules/trade-flow/src/domain/execution/CONTRACT.md` | dry-run、shadow、live-small、execution command spec、order_fill |
 | `recovery` | `modules/trade-flow/src/domain/recovery/CONTRACT.md` | reduce、reconcile、safe local apply、needs_review |
 | `observe` | `modules/trade-flow/src/domain/observe/CONTRACT.md` | runtime load、snapshot projection、observe event build |
 | `runtime` | `modules/trade-flow/src/domain/runtime/CONTRACT.md` | event store、flow projection、cron、automation plan |
-| `artifact` | `modules/trade-flow/src/domain/artifact/CONTRACT.md` | 兼容旧 CLI；新代码不得在此新增 catalog / GC 实现 |
 
 ## Rules
 

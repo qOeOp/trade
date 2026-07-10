@@ -75,10 +75,10 @@
 | --- | ---: | --- | --- |
 | `modules/trade-flow/src/scripts/main.ts` | ~1500 | command router + 业务逻辑混合 | 拆 `commands/*` |
 | `modules/trade-flow/src/scripts/main.test.ts` | ~1375 | 大集成测试难定位 | 按 domain fixture 拆 |
-| `modules/trade-flow/src/scripts/lib/strategy-rnd.ts` | ~1245 | R&D 输入、搜索、评估、报告混合 | 拆 `research/rnd/*` |
-| `modules/trade-flow/src/scripts/lib/strategy-benchmark.ts` | ~876 | benchmark / calibration / negative control 混合 | 拆 `research/calibration/*` |
-| `modules/trade-flow/src/scripts/lib/replay-core.ts` | ~746 | loader / indicators / matching / gate 混合 | 拆 `research/replay/*` |
-| `modules/trade-flow/src/scripts/lib/strategy-iteration.ts` | ~613 | evidence / review / promote 混合 | 拆 `evidence/*` |
+| `modules/research/strategy-rd/src/lib/strategy-rnd.ts` | 已迁移 | R&D glue 仍偏重 | 继续按 candidate / evaluation / selection 收敛 |
+| `modules/research/strategy-rd/src/lib/strategy-benchmark.ts` | 已迁移 | benchmark / calibration glue | 后续按 data / simulation / report 收敛 |
+| `modules/research/strategy-rd/src/lib/strategy-replay.ts` | 已迁移 | replay contract owner | 继续保持只读 research 边界 |
+| `modules/governance/strategy-review/src/lib/strategy-iteration.ts` | 已迁移 | evidence / review / promote owner | 继续强化 catalog-backed evidence |
 | `modules/binance/order-place/src/scripts/main.ts` | ~1021 | 执行入口复杂，安全关键 | contract-first + normalized event |
 | `modules/analytics/tech-indicators/src/scripts/structure.go` | ~1204 | 指标/结构算法集中 | 后续按 indicator/domain 拆 |
 
@@ -99,4 +99,4 @@
 
 - `node_modules` 当前未被 Git 跟踪，`.gitignore` 已覆盖依赖目录。
 - 最大整理风险集中在 `trade-flow`：它已成为 online + research + recovery + evidence 的混合命令总线。
-- 第一批代码实施应只做“移动与分包，不改行为”，并以旧 CLI 兼容作为硬验收。
+- 第一批迁移已改为全迁移原则：移动与分包后删除旧 CLI 兼容入口，以 owner 模块 contract 和质量检查作为硬验收。

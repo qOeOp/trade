@@ -12,7 +12,6 @@ import { cronRecoverFromTools, CRON_RECOVER_STATUSES } from "./recovery-flow"
 import { runOneFlowStep } from "./execution-flow"
 import { RUN_MODES } from "./run-mode"
 import type { JSONRecord } from "./json"
-import { runStrategyCycle, SHADOW_EVIDENCE_SYNC_STATUSES } from "./strategy-iteration"
 
 test("flow state result schema matches reducer output", () => {
   const schema = readSchema("flow-state-result")
@@ -209,29 +208,6 @@ test("run step result schema matches dry-run execution step output", () => {
     assert.equal(asRecord(result.order_fill_event).kind, "order_fill")
   } finally {
     db.close()
-  }
-})
-
-test("strategy cycle result schema matches review and optional promotion wrapper", () => {
-  const schema = readSchema("strategy-cycle-result")
-  assert.equal(schema.$id, "trade-flow.strategy-cycle-result.v1")
-  assert.deepEqual(asArray(schema.required), ["shadow_evidence", "report"])
-  const shadowProperties = asRecord(asRecord(asRecord(schema.properties).shadow_evidence).properties)
-  assert.deepEqual(asArray(asRecord(shadowProperties.status).enum), [...SHADOW_EVIDENCE_SYNC_STATUSES])
-
-  const dir = mkdtempSync(join(tmpdir(), "strategy-cycle-schema-"))
-  try {
-    const strategyPath = join(dir, "s-cycle.md")
-    const ledgerPath = join(dir, "strategy-evidence.jsonl")
-    writeFileSync(strategyPath, "---\nstrategy_id: S-CYCLE\nname: Cycle Strategy\nstatus: draft\ntags: [schema]\n---\n\n# Cycle Strategy\n")
-    const result = runStrategyCycle({ strategyPath, ledgerPath }) as unknown as JSONRecord
-    assertSchemaRequired(schema, result)
-    assert.equal(asRecord(result.shadow_evidence).status, "skipped")
-    assert.equal(asRecord(result.shadow_evidence).reason, "db_not_provided")
-    assert.equal(asRecord(result.report).strategy_id, "S-CYCLE")
-    assert.equal("promotion" in result, false)
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
   }
 })
 

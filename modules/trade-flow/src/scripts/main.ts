@@ -4,12 +4,9 @@ import { mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 import { Database } from "bun:sqlite"
 import { parseArgs } from "./commands/args"
-import { handleCatalogCommand } from "./commands/catalog"
-import { handleEvidenceCommand } from "./commands/evidence"
 import { handleExecutionCommand } from "./commands/execution"
 import { HELP_TEXT } from "./commands/help"
 import { handleObserveCommand } from "./commands/observe"
-import { handleResearchCommand } from "./commands/research"
 import { handleRecoveryCommand } from "./commands/recovery"
 import { errorResponse, successResponse } from "./commands/response"
 import { handleRuntimeCommand } from "./commands/runtime"
@@ -58,21 +55,9 @@ async function run(argv: string[]): Promise<ScriptResponse> {
   try {
     const config = normalizeCommandPaths(parseArgs(argv))
 
-    const catalogResponse = handleCatalogCommand(config)
-    if (catalogResponse) {
-      return catalogResponse
-    }
     const observeResponse = await handleObserveCommand(config)
     if (observeResponse) {
       return observeResponse
-    }
-    const researchResponse = handleResearchCommand(config)
-    if (researchResponse) {
-      return researchResponse
-    }
-    const evidenceResponse = handleEvidenceCommand(config)
-    if (evidenceResponse) {
-      return evidenceResponse
     }
 
     if (config.track) {
@@ -98,7 +83,7 @@ async function run(argv: string[]): Promise<ScriptResponse> {
       if (recoveryResponse) {
         return recoveryResponse
       }
-      throw new Error("provide --init, --track, --automation-cycle, --catalog-init, --catalog-scan, --catalog-query, --catalog-stale, --catalog-gc, --append-order-fill, --append-review, --record-execution, --run, --load-runtime, --build-observe, --observe-from-tools, --replay-strategy, --strategy-rnd-batch, --strategy-rnd-loop, --strategy-rnd-campaign, --strategy-panel-rnd, --strategy-data-split, --rd-program-state, --rd-supervisor-run, --strategy-benchmark, --strategy-calibration-suite, --funding-carry-governance, --strategy-signal, --strategy-compile, --strategy-lint, --artifact-gc, --append-strategy-evidence, --strategy-review, --strategy-promote, --strategy-cycle, --run-shadow-from-tools, --run-live-small, --recover-flow, --reconcile-flow, --reconcile-from-tools, --apply-reconcile, or --cron-recover-from-tools")
+      throw new Error("provide --init, --track, --automation-cycle, --append-order-fill, --append-review, --record-execution, --run, --load-runtime, --build-observe, --observe-from-tools, --run-shadow-from-tools, --run-live-small, --recover-flow, --reconcile-flow, --reconcile-from-tools, --apply-reconcile, or --cron-recover-from-tools")
     } finally {
       db.close()
     }
@@ -117,24 +102,12 @@ function normalizeCommandPaths(config: CommandConfig): CommandConfig {
     tradingConfigPath: config.tradingConfigPath ? resolveRepoPath(config.tradingConfigPath) : config.tradingConfigPath,
     accountConfigPath: config.accountConfigPath ? resolveRepoPath(config.accountConfigPath) : config.accountConfigPath,
     strategiesDir: config.strategiesDir ? resolveRepoPath(config.strategiesDir) : config.strategiesDir,
-    manifestPath: config.manifestPath ? resolveRepoPath(config.manifestPath) : config.manifestPath,
-    artifactRoot: config.artifactRoot ? resolveRepoPath(config.artifactRoot) : config.artifactRoot,
-    catalogDbPath: config.catalogDbPath ? resolveRepoPath(config.catalogDbPath) : config.catalogDbPath,
-    catalogRoots: config.catalogRoots.map(resolveRepoPath),
-    strategyPath: config.strategyPath ? resolveRepoPath(config.strategyPath) : config.strategyPath,
-    ledgerPath: config.ledgerPath ? resolveRepoPath(config.ledgerPath) : config.ledgerPath,
-    statePath: config.statePath ? resolveRepoPath(config.statePath) : config.statePath,
   }
 }
 
 function runtimeOutputPaths(config: CommandConfig): string[] {
   return [
     config.dbPath,
-    config.artifactRoot,
-    config.catalogDbPath,
-    ...config.catalogRoots,
-    config.ledgerPath,
-    config.statePath,
   ].filter(Boolean)
 }
 

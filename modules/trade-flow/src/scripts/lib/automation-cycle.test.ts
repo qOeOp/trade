@@ -1,12 +1,11 @@
 import assert from "node:assert/strict"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
 import { Database } from "bun:sqlite"
 import { buildAutomationCyclePlan } from "./automation-cycle"
 import { appendPlanEvent, ensureSchema } from "./plan-events"
-import { createRdProgramState, updateRdProgramState, writeRdProgramState } from "./rd-program-state"
 
 type JSONRecord = Record<string, unknown>
 
@@ -45,7 +44,7 @@ test("automation cycle plan isolates trade db work from R&D artifact jobs", () =
     assert.equal(review.trigger_mode, "event_or_fallback_sweep")
     assert.equal(review.command, undefined)
     assert.deepEqual(review.candidate_chain_ids, ["flow-cycle-1"])
-    assert.equal(jobs.find((job) => job.job_id === "catalog_hygiene_scan")?.command, "bun modules/trade-flow/src/scripts/main.ts --catalog-scan --catalog-db data/data_catalog.db --catalog-root ./data --catalog-root ./tmp")
+    assert.equal(jobs.find((job) => job.job_id === "catalog_hygiene_scan")?.command, "bun modules/ops/artifact-catalog/src/scripts/main.ts --catalog-scan --catalog-db data/data_catalog.db --catalog-root ./data --catalog-root ./tmp")
     assert.deepEqual(asArray(result.dispatch_order).map((stage) => asRecord(stage).stage), [
       "serial_trade_db_guard",
       "parallel_isolated_work",
@@ -119,7 +118,7 @@ test("automation cycle plan can dispatch a learning strategy R&D supervisor", ()
     assert.equal(rd.command, undefined)
     assert.deepEqual(asArray(asRecord(rd.init_command_spec).argv).slice(0, 5), [
       "bun",
-      "modules/trade-flow/src/scripts/main.ts",
+      "modules/research/strategy-rd/src/scripts/main.ts",
       "--rd-program-state",
       "--state",
       "./data/rd/program.json",
@@ -140,18 +139,17 @@ test("automation cycle plan can drive R&D supervisor from durable program state"
   try {
     ensureSchema(db)
     const statePath = join(dir, "state.json")
-    const catalogDb = join(dir, "catalog.db")
-    const state = createRdProgramState({
-      programId: "rd-program-main",
+    const state = rdProgramStateFixture({
+      program_id: "rd-program-main",
       objective: "find a shadow-eligible 4H swing strategy",
-      now: "2026-07-09T12:00:00Z",
+      updated_at: "2026-07-09T12:00:00Z",
       budget: {
         max_hypotheses: 2,
         max_trials_total: 8,
         max_locked_holdout_uses: 1,
       },
     })
-    writeRdProgramState(statePath, state, catalogDb)
+    writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`)
 
     const activeResult = buildAutomationCyclePlan(db, "data/trade.db", {
       cycle_id: "cycle-rd-state-active",
@@ -173,7 +171,7 @@ test("automation cycle plan can drive R&D supervisor from durable program state"
     assert.equal(commandSpec.executable, true)
     assert.deepEqual(asArray(commandSpec.argv).slice(0, 5), [
       "bun",
-      "modules/trade-flow/src/scripts/main.ts",
+      "modules/research/strategy-rd/src/scripts/main.ts",
       "--rd-supervisor-run",
       "--state",
       String(activeRd.program_state_ref),
@@ -185,16 +183,15 @@ test("automation cycle plan can drive R&D supervisor from durable program state"
     const supervisorPayload = JSON.parse(String(asArray(commandSpec.argv).at(-1))) as { max_iterations: number }
     assert.equal(supervisorPayload.max_iterations, 20)
 
-    writeRdProgramState(
-      statePath,
-      updateRdProgramState(state, {
-        now: "2026-07-09T13:00:00Z",
-        usageDelta: {
-          hypotheses_run: 2,
-        },
-      }),
-      catalogDb,
-    )
+    writeFileSync(statePath, `${JSON.stringify({
+      ...state,
+      status: "budget_exhausted",
+      updated_at: "2026-07-09T13:00:00Z",
+      usage: {
+        ...asRecord(state.usage),
+        hypotheses_run: 2,
+      },
+    }, null, 2)}\n`)
     const stoppedResult = buildAutomationCyclePlan(db, "data/trade.db", {
       cycle_id: "cycle-rd-state-stopped",
       now: "2026-07-09T13:15:00Z",
@@ -256,4 +253,31 @@ function asArray(value: unknown): unknown[] {
 
 function asRecord(value: unknown): JSONRecord {
   return value && typeof value === "object" && !Array.isArray(value) ? value as JSONRecord : {}
+}
+
+function rdProgramStateFixture(overrides: JSONRecord): JSONRecord {
+  return {
+    schema_version: "trade-flow.rd-program-state.v1",
+    program_id: "rd-program",
+    objective: "find a shadow-eligible 4H swing strategy",
+    status: "active",
+    created_at: "2026-07-09T12:00:00Z",
+    updated_at: "2026-07-09T12:00:00Z",
+    budget: {
+      max_hypotheses: 20,
+      max_trials_total: 80,
+      max_locked_holdout_uses: 1,
+    },
+    usage: {
+      hypotheses_run: 0,
+      trials_run: 0,
+      locked_holdout_uses: 0,
+    },
+    stop_conditions: {},
+    rejected_mechanisms: [],
+    universe_lessons: [],
+    next_hypothesis_queue: [],
+    artifact_refs: [],
+    ...overrides,
+  }
 }

@@ -3,12 +3,12 @@ import { dirname, join } from "node:path"
 import { Database } from "bun:sqlite"
 import { findActiveLaneConflicts, listActiveFlows } from "./flow-state"
 import { displayPath } from "./paths"
-import { rdProgramGoalFromState, readRdProgramState } from "./rd-program-state"
 
 type JSONRecord = Record<string, unknown>
 
 const DEFAULT_CATALOG_DB = "./data/data_catalog.db"
 const TRADE_FLOW_MAIN = "bun modules/trade-flow/src/scripts/main.ts"
+const ARTIFACT_CATALOG_MAIN = "bun modules/ops/artifact-catalog/src/scripts/main.ts"
 
 interface CadenceState {
   due: boolean
@@ -100,8 +100,8 @@ export function buildAutomationCyclePlan(db: Database, dbPath: string, input: Au
   }
   const rdTrackers = asArray(input.rd_trackers).map(asRecord).filter((item) => stringField(item.tracker_id))
   const rdProgramStatePath = stringField(input.rd_program_state_path)
-  const rdProgramState = rdProgramStatePath ? readRdProgramState(rdProgramStatePath) : null
-  const rdStrategyGoal = rdProgramState ? rdProgramGoalFromState(rdProgramState) : asRecord(input.rd_strategy_goal)
+  const rdProgramState = rdProgramStatePath ? readRdProgramStateSummary(rdProgramStatePath) : null
+  const rdStrategyGoal = rdProgramState ? rdProgramGoalFromSummary(rdProgramState) : asRecord(input.rd_strategy_goal)
   const rdStrategyConfigured = Object.keys(rdStrategyGoal).length > 0
   const rdStrategyCanRun = rdStrategyConfigured && (!rdProgramState || rdProgramState.status === "active")
   const configuredCatalogRoots = asArray(input.catalog_roots).map(String).filter(Boolean)
@@ -139,7 +139,7 @@ export function buildAutomationCyclePlan(db: Database, dbPath: string, input: Au
       goal: rdStrategyGoal,
       learningMemoryRef: stringField(input.rd_learning_memory_ref) || rdProgramStatePath || "data_catalog.db + docs/rd-audit.md",
       programStateRef: rdProgramStatePath,
-      programStateStatus: rdProgramState?.status,
+      programStateStatus: rdProgramState ? stringField(rdProgramState.status) : undefined,
       catalogDb,
     }),
     artifactJob({
@@ -163,7 +163,7 @@ export function buildAutomationCyclePlan(db: Database, dbPath: string, input: Au
       enabled: input.include_catalog_hygiene !== false,
       active: cadence.catalog_hygiene_scan.due,
       reason: "artifact visibility can run outside trade.db mutation path",
-      command: `${TRADE_FLOW_MAIN} --catalog-scan --catalog-db ${catalogDb}${catalogRoots.map((root) => ` --catalog-root ${root}`).join("")}`,
+      command: `${ARTIFACT_CATALOG_MAIN} --catalog-scan --catalog-db ${catalogDb}${catalogRoots.map((root) => ` --catalog-root ${root}`).join("")}`,
       cadence: cadence.catalog_hygiene_scan,
     }),
   ]
@@ -277,7 +277,7 @@ function rdStrategySupervisorJob(input: {
   const commandArgv = programStateRef
     ? [
       "bun",
-      "modules/trade-flow/src/scripts/main.ts",
+      "modules/research/strategy-rd/src/scripts/main.ts",
       "--rd-supervisor-run",
       "--state",
       programStateRef,
@@ -289,7 +289,7 @@ function rdStrategySupervisorJob(input: {
     : []
   const initArgv = [
     "bun",
-    "modules/trade-flow/src/scripts/main.ts",
+    "modules/research/strategy-rd/src/scripts/main.ts",
     "--rd-program-state",
     "--state",
     "./data/rd/program.json",
@@ -342,7 +342,7 @@ function rdStrategySupervisorJob(input: {
         "--strategy-panel-rnd",
         "forward-holdout",
         "rd-shadow-tracker",
-        "--strategy-review dry-run",
+        "strategy-review dry-run",
         "draft strategy policy after gated candidate only",
       ],
       forbidden_actions: [
@@ -425,6 +425,30 @@ function baseJob(input: { job_id: string; enabled: boolean; active: boolean; rea
     enabled: input.enabled,
     active: input.enabled && input.active,
     reason: input.reason,
+  }
+}
+
+function readRdProgramStateSummary(path: string): JSONRecord | null {
+  try {
+    return asRecord(JSON.parse(readFileSync(path, "utf8")))
+  } catch {
+    return null
+  }
+}
+
+function rdProgramGoalFromSummary(state: JSONRecord): JSONRecord {
+  return {
+    objective: stringField(state.objective),
+    status: stringField(state.status),
+    budget: asRecord(state.budget),
+    usage: asRecord(state.usage),
+    stop_conditions: asRecord(state.stop_conditions),
+    latest_failure_summary: asRecord(state.latest_failure_summary),
+    latest_reliability_gate: asRecord(state.latest_reliability_gate),
+    rejected_mechanisms: asArray(state.rejected_mechanisms),
+    universe_lessons: asArray(state.universe_lessons),
+    next_hypothesis_queue: asArray(state.next_hypothesis_queue),
+    artifact_refs: asArray(state.artifact_refs),
   }
 }
 

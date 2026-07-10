@@ -8,7 +8,6 @@ import { type Runner } from "./observe-adapter"
 import { appendPlanEvent, readFlowEvents, type PlanEvent } from "./plan-events"
 import { runJsonCommand } from "./tool-runner"
 import { displayPath } from "./paths"
-import { registerCatalogArtifact } from "./data-catalog"
 
 interface FastTrackWorkflowInput {
   repoRoot: string
@@ -185,13 +184,6 @@ function writeFastArtifact(input: FastTrackWorkflowInput, report: JSONRecord): J
   const artifactPath = join(input.repoRoot, "tmp", "artifacts", "trade-flow", `fast-track-${input.runId}.json`)
   mkdirSync(dirname(artifactPath), { recursive: true })
   writeFileSync(artifactPath, `${JSON.stringify(report, null, 2)}\n`)
-  registerCatalogArtifact({
-    catalogDbPath: join(input.dataDir, "data_catalog.db"),
-    path: artifactPath,
-    referrerType: "run",
-    referrerID: input.runId,
-    role: "output",
-  })
   return {
     ...report,
     artifact_path: displayPath(artifactPath, input.repoRoot),
