@@ -23,6 +23,7 @@ import { applyReconcileDrafts, findActiveLaneConflicts, laneKeyFromObserve, late
 import { runLiveSmall, runShadowFromSkills } from "./lib/live-execution"
 import { buildAutomationCyclePlan } from "./lib/automation-cycle"
 import { loadRuntime, observeFromSkills, observeFromSkillsWithRunner } from "./lib/observe-flow"
+import { resolveRepoPath } from "./lib/paths"
 import {
   appendPlanEvent,
   buildOrderFillEvent,
@@ -37,6 +38,7 @@ import {
 } from "./lib/plan-events"
 import { cronRecoverFromSkills, reconcileFromSkills } from "./lib/recovery-flow"
 import { buildTrackDryRunSummary, runTrackDryRunAtPath } from "./lib/track-runner"
+import type { CommandConfig } from "./commands/types"
 
 async function main(): Promise<void> {
   const argv = process.argv.slice(2)
@@ -54,7 +56,7 @@ async function main(): Promise<void> {
 
 async function run(argv: string[]): Promise<ScriptResponse> {
   try {
-    const config = parseArgs(argv)
+    const config = normalizeCommandPaths(parseArgs(argv))
 
     const catalogResponse = handleCatalogCommand(config)
     if (catalogResponse) {
@@ -102,6 +104,23 @@ async function run(argv: string[]): Promise<ScriptResponse> {
     }
   } catch (error) {
     return errorResponse(error)
+  }
+}
+
+function normalizeCommandPaths(config: CommandConfig): CommandConfig {
+  return {
+    ...config,
+    dbPath: resolveRepoPath(config.dbPath),
+    tradingConfigPath: config.tradingConfigPath ? resolveRepoPath(config.tradingConfigPath) : config.tradingConfigPath,
+    accountConfigPath: config.accountConfigPath ? resolveRepoPath(config.accountConfigPath) : config.accountConfigPath,
+    strategiesDir: config.strategiesDir ? resolveRepoPath(config.strategiesDir) : config.strategiesDir,
+    manifestPath: config.manifestPath ? resolveRepoPath(config.manifestPath) : config.manifestPath,
+    artifactRoot: config.artifactRoot ? resolveRepoPath(config.artifactRoot) : config.artifactRoot,
+    catalogDbPath: config.catalogDbPath ? resolveRepoPath(config.catalogDbPath) : config.catalogDbPath,
+    catalogRoots: config.catalogRoots.map(resolveRepoPath),
+    strategyPath: config.strategyPath ? resolveRepoPath(config.strategyPath) : config.strategyPath,
+    ledgerPath: config.ledgerPath ? resolveRepoPath(config.ledgerPath) : config.ledgerPath,
+    statePath: config.statePath ? resolveRepoPath(config.statePath) : config.statePath,
   }
 }
 

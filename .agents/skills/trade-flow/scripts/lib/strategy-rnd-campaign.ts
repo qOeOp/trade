@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto"
 import { readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { defaultCatalogDbPathForGeneratedPath, registerCatalogArtifact } from "./data-catalog"
-import { resolveReadablePath } from "./paths"
+import { displayPath, resolveReadablePath, resolveRepoPath } from "./paths"
 import { assertHoldoutUnused, holdoutKeyForInput, safeFileName, writeJsonFile } from "./strategy-rnd-ledger"
 import type { JSONRecord } from "./json"
 import type { RdProgramStateCommandResult } from "./rd-program-state"
@@ -86,7 +86,7 @@ export function runStrategyRndCampaignWithDeps(
 
   const created_at = input.now || new Date().toISOString()
   const campaignId = input.campaignId || `rnd-campaign-${created_at.replace(/[^0-9]/g, "").slice(0, 14)}-${randomUUID().slice(0, 8)}`
-  const artifactRoot = input.artifactRoot || "./tmp/artifacts/strategy-rnd"
+  const artifactRoot = resolveRepoPath(input.artifactRoot || "./tmp/artifacts/strategy-rnd")
   const catalogDbPath = input.catalogDbPath || defaultCatalogDbPathForGeneratedPath(artifactRoot)
   const ledgerRef = catalogDbPath
   const runs: StrategyRndCampaignReport["runs"] = []
@@ -203,7 +203,8 @@ export function runStrategyRndCampaignWithDeps(
     break
   }
 
-  const artifactRef = join(artifactRoot, `${safeFileName(campaignId)}.campaign.json`)
+  const artifactPath = join(artifactRoot, `${safeFileName(campaignId)}.campaign.json`)
+  const artifactRef = displayPath(artifactPath)
   const report: StrategyRndCampaignReport = {
     campaign_id: campaignId,
     created_at,
@@ -221,7 +222,7 @@ export function runStrategyRndCampaignWithDeps(
     validated_candidate: validatedCandidate,
     runs,
   }
-  writeJsonFile(artifactRef, report)
+  writeJsonFile(artifactPath, report)
   registerCatalogArtifact({
     catalogDbPath,
     path: artifactRef,

@@ -278,7 +278,7 @@ flowchart TD
 高阶入口：
 
 ```bash
-bun ./scripts/main.ts --rd-supervisor-run --state ./data/rd/program.json --json '{"max_iterations":10}'
+bun .agents/skills/trade-flow/scripts/main.ts --rd-supervisor-run --state ./state/rd/program.json --json '{"max_iterations":10}'
 ```
 
 低阶入口：
@@ -371,18 +371,17 @@ sequenceDiagram
 scripts/quality-check.sh
 
 # trade-flow help
-cd .agents/skills/trade-flow
-bun ./scripts/main.ts --help
+bun .agents/skills/trade-flow/scripts/main.ts --help
 
 # 初始化在线事件库
-bun ./scripts/main.ts --db ./data/trade.db --init
+bun .agents/skills/trade-flow/scripts/main.ts --db ./data/trade.db --init
 
 # 生成单入口 supervisor plan
-bun ./scripts/main.ts --db ./data/trade.db --automation-cycle --json '{"slow_interval_minutes":240}'
+bun .agents/skills/trade-flow/scripts/main.ts --db ./data/trade.db --automation-cycle --json '{"slow_interval_minutes":240,"rd_program_state_path":"./state/rd/program.json"}'
 
 # 初始化并运行 R&D supervisor
-bun ./scripts/main.ts --rd-program-state --state ./data/rd/program.json --json '{"action":"init","objective":"find a shadow-eligible 4H swing strategy"}'
-bun ./scripts/main.ts --rd-supervisor-run --state ./data/rd/program.json --json '{"max_iterations":10}'
+bun .agents/skills/trade-flow/scripts/main.ts --rd-program-state --state ./state/rd/program.json --json '{"action":"init","objective":"find a shadow-eligible 4H swing strategy"}'
+bun .agents/skills/trade-flow/scripts/main.ts --rd-supervisor-run --state ./state/rd/program.json --json '{"max_iterations":10}'
 ```
 
 ## 15. 安全边界

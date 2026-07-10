@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { join } from "node:path"
 import { defaultCatalogDbPathForGeneratedPath, registerCatalogArtifact } from "./data-catalog"
+import { displayPath, resolveRepoPath } from "./paths"
 import {
   readRdProgramState,
   updateRdProgramStateFromResearchResult,
@@ -180,8 +181,9 @@ function runStrategyRndBatch(input: StrategyRndBatchInput): StrategyRndBatchRepo
 function runStrategyRndLoop(input: StrategyRndLoopInput): StrategyRndLoopReport {
   const created_at = input.now || new Date().toISOString()
   const runId = input.runId || `rnd-${created_at.replace(/[^0-9]/g, "").slice(0, 14)}-${randomUUID().slice(0, 8)}`
-  const artifactRoot = input.artifactRoot || "./tmp/artifacts/strategy-rnd"
-  const artifactRef = join(artifactRoot, `${safeFileName(runId)}.json`)
+  const artifactRoot = resolveRepoPath(input.artifactRoot || "./tmp/artifacts/strategy-rnd")
+  const artifactPath = join(artifactRoot, `${safeFileName(runId)}.json`)
+  const artifactRef = displayPath(artifactPath)
   const catalogDbPath = input.catalogDbPath || defaultCatalogDbPathForGeneratedPath(artifactRef)
   const ledgerRef = catalogDbPath
   if (input.antiOverfitStage === "locked_holdout") {
@@ -197,7 +199,7 @@ function runStrategyRndLoop(input: StrategyRndLoopInput): StrategyRndLoopReport 
     batch,
   })
 
-  writeJsonFile(artifactRef, {
+  writeJsonFile(artifactPath, {
     run_id: runId,
     created_at,
     input: redactLoopInputForArtifact(input),

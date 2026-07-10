@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs"
 import { dirname, extname, join, resolve } from "node:path"
 import { Database } from "bun:sqlite"
-import { displayPath } from "./paths"
+import { displayPath, resolveRepoPath } from "./paths"
 
 type JSONRecord = Record<string, unknown>
 type SQLiteBindingValue = string | number | boolean | null
@@ -125,6 +125,7 @@ const DEFAULT_EPHEMERAL_RETENTION_HOURS = 24
 const SKIP_DIRS = new Set([".git", "node_modules", ".venv", "__pycache__"])
 
 function initDataCatalog(catalogDbPath: string): { initialized: true; catalog_db_path: string } {
+  catalogDbPath = resolveRepoPath(catalogDbPath)
   mkdirSync(dirname(catalogDbPath), { recursive: true })
   const db = new Database(catalogDbPath)
   try {
@@ -136,8 +137,8 @@ function initDataCatalog(catalogDbPath: string): { initialized: true; catalog_db
 }
 
 function scanDataCatalog(input: CatalogScanInput): CatalogScanResult {
-  const catalogDbPath = input.catalogDbPath || "./data/data_catalog.db"
-  const roots = (input.roots.length > 0 ? input.roots : ["./data"]).map((root) => resolve(root))
+  const catalogDbPath = resolveRepoPath(input.catalogDbPath || "./data/data_catalog.db")
+  const roots = (input.roots.length > 0 ? input.roots : ["./data"]).map((root) => resolveRepoPath(root))
   const now = input.now ? new Date(input.now) : new Date()
   if (!Number.isFinite(now.getTime())) {
     throw new Error("catalog scan now must be a valid date")
@@ -187,7 +188,8 @@ function scanDataCatalog(input: CatalogScanInput): CatalogScanResult {
 }
 
 function registerCatalogArtifact(input: CatalogRegisterArtifactInput): CatalogRegisterArtifactResult {
-  const catalogDbPath = input.catalogDbPath || defaultCatalogDbPathForGeneratedPath(input.path)
+  const catalogDbPath = resolveRepoPath(input.catalogDbPath || defaultCatalogDbPathForGeneratedPath(input.path))
+  const artifactPath = resolveRepoPath(input.path)
   const now = input.now ? new Date(input.now) : new Date()
   if (!Number.isFinite(now.getTime())) {
     throw new Error("catalog register now must be a valid date")
@@ -196,9 +198,9 @@ function registerCatalogArtifact(input: CatalogRegisterArtifactInput): CatalogRe
   const db = new Database(catalogDbPath)
   try {
     ensureDataCatalogSchema(db)
-    const artifact = artifactRecord(input.path, input.maxHashBytes ?? DEFAULT_MAX_HASH_BYTES, now)
+    const artifact = artifactRecord(artifactPath, input.maxHashBytes ?? DEFAULT_MAX_HASH_BYTES, now)
     upsertArtifact(db, artifact)
-    const counts = extractArtifactMetadata(db, artifact.artifact_id, input.path, now)
+    const counts = extractArtifactMetadata(db, artifact.artifact_id, artifactPath, now)
     let refs = counts.artifactRefs
     if (input.referrerType && input.referrerID) {
       upsertArtifactRef(db, input.referrerType, input.referrerID, artifact.artifact_id, input.role || "output", now)
@@ -225,25 +227,27 @@ function registerCatalogArtifact(input: CatalogRegisterArtifactInput): CatalogRe
 }
 
 function upsertCatalogStrategyEvidence(input: CatalogStoredRecordInput): { catalog_db_path: string; evidence_id: string } {
+  const catalogDbPath = resolveRepoPath(input.catalogDbPath)
   const now = input.now ? new Date(input.now) : new Date()
   if (!Number.isFinite(now.getTime())) {
     throw new Error("strategy evidence catalog now must be a valid date")
   }
-  mkdirSync(dirname(input.catalogDbPath), { recursive: true })
-  const db = new Database(input.catalogDbPath)
+  mkdirSync(dirname(catalogDbPath), { recursive: true })
+  const db = new Database(catalogDbPath)
   try {
     ensureDataCatalogSchema(db)
     const evidenceID = upsertStrategyEvidenceRecord(db, input.record, artifactIDForPath(db, stringField(input.record.source_ref)), now)
-    return { catalog_db_path: displayPath(input.catalogDbPath), evidence_id: evidenceID }
+    return { catalog_db_path: displayPath(catalogDbPath), evidence_id: evidenceID }
   } finally {
     db.close()
   }
 }
 
 function listCatalogStrategyEvidence(input: { catalogDbPath: string; strategyID?: string; limit?: number }): JSONRecord[] {
+  const catalogDbPath = resolveRepoPath(input.catalogDbPath)
   const limit = boundedLimit(input.limit, 1000)
-  mkdirSync(dirname(input.catalogDbPath), { recursive: true })
-  const db = new Database(input.catalogDbPath)
+  mkdirSync(dirname(catalogDbPath), { recursive: true })
+  const db = new Database(catalogDbPath)
   try {
     ensureDataCatalogSchema(db)
     const rows = input.strategyID
@@ -267,25 +271,27 @@ function listCatalogStrategyEvidence(input: { catalogDbPath: string; strategyID?
 }
 
 function upsertCatalogStrategyRndRun(input: CatalogStoredRecordInput): { catalog_db_path: string; run_id: string } {
+  const catalogDbPath = resolveRepoPath(input.catalogDbPath)
   const now = input.now ? new Date(input.now) : new Date()
   if (!Number.isFinite(now.getTime())) {
     throw new Error("strategy R&D catalog now must be a valid date")
   }
-  mkdirSync(dirname(input.catalogDbPath), { recursive: true })
-  const db = new Database(input.catalogDbPath)
+  mkdirSync(dirname(catalogDbPath), { recursive: true })
+  const db = new Database(catalogDbPath)
   try {
     ensureDataCatalogSchema(db)
     const runID = upsertStrategyRndRunRecord(db, input.record, artifactIDForPath(db, stringField(input.record.artifact_ref)), now).runID
-    return { catalog_db_path: displayPath(input.catalogDbPath), run_id: runID }
+    return { catalog_db_path: displayPath(catalogDbPath), run_id: runID }
   } finally {
     db.close()
   }
 }
 
 function listCatalogStrategyRndRuns(input: { catalogDbPath: string; limit?: number }): JSONRecord[] {
+  const catalogDbPath = resolveRepoPath(input.catalogDbPath)
   const limit = boundedLimit(input.limit, 1000)
-  mkdirSync(dirname(input.catalogDbPath), { recursive: true })
-  const db = new Database(input.catalogDbPath)
+  mkdirSync(dirname(catalogDbPath), { recursive: true })
+  const db = new Database(catalogDbPath)
   try {
     ensureDataCatalogSchema(db)
     const rows = db.query(`
@@ -306,10 +312,11 @@ function defaultCatalogDbPathForGeneratedPath(path: string): string {
   if (!rel.startsWith("../")) {
     return "./data/data_catalog.db"
   }
-  return join(dirname(resolve(path)), "data_catalog.db")
+  return join(dirname(resolveRepoPath(path)), "data_catalog.db")
 }
 
 function queryDataCatalog(input: CatalogQueryInput): CatalogQueryResult {
+  const catalogDbPath = resolveRepoPath(input.catalogDbPath)
   const limit = boundedLimit(input.limit)
   const query = {
     path: input.path ? displayPath(input.path) : undefined,
@@ -319,7 +326,7 @@ function queryDataCatalog(input: CatalogQueryInput): CatalogQueryResult {
     report_kind: input.reportKind || undefined,
     limit,
   }
-  const db = new Database(input.catalogDbPath)
+  const db = new Database(catalogDbPath)
   try {
     ensureDataCatalogSchema(db)
     const artifactIDs = new Set<string>()
@@ -357,7 +364,7 @@ function queryDataCatalog(input: CatalogQueryInput): CatalogQueryResult {
     }
 
     return {
-      catalog_db_path: displayPath(input.catalogDbPath),
+      catalog_db_path: displayPath(catalogDbPath),
       query,
       artifacts,
       datasets,
@@ -373,6 +380,7 @@ function queryDataCatalog(input: CatalogQueryInput): CatalogQueryResult {
 }
 
 function listStaleCatalogArtifacts(input: CatalogStaleInput): CatalogStaleResult {
+  const catalogDbPath = resolveRepoPath(input.catalogDbPath)
   const retentionHours = input.retentionHours ?? DEFAULT_RETENTION_HOURS
   if (!Number.isFinite(retentionHours) || retentionHours <= 0) {
     throw new Error("retentionHours must be a positive number")
@@ -386,7 +394,7 @@ function listStaleCatalogArtifacts(input: CatalogStaleInput): CatalogStaleResult
     throw new Error("catalog stale now must be a valid date")
   }
 
-  const roots = (input.roots ?? []).map((root) => displayPath(root)).filter(Boolean)
+  const roots = (input.roots ?? []).map((root) => displayPath(resolveRepoPath(root))).filter(Boolean)
   const limit = boundedLimit(input.limit, 500)
   const candidates: JSONRecord[] = []
   const kept: JSONRecord[] = []
@@ -394,7 +402,7 @@ function listStaleCatalogArtifacts(input: CatalogStaleInput): CatalogStaleResult
   let candidateCount = 0
   let keptCount = 0
   let deletedCount = 0
-  const db = new Database(input.catalogDbPath)
+  const db = new Database(catalogDbPath)
   try {
     ensureDataCatalogSchema(db)
     const rows = db.query(`
@@ -438,7 +446,7 @@ function listStaleCatalogArtifacts(input: CatalogStaleInput): CatalogStaleResult
   }
 
   return {
-    catalog_db_path: displayPath(input.catalogDbPath),
+    catalog_db_path: displayPath(catalogDbPath),
     mode: input.yes ? "delete" : "dry-run",
     roots,
     retention_hours: retentionHours,
@@ -458,7 +466,7 @@ function deleteCatalogArtifactCandidate(db: Database, record: JSONRecord, now: D
   const path = stringField(record.path)
   const existed = record.exists === true
   if (existed && path) {
-    rmSync(resolve(path), { force: true })
+    rmSync(resolveRepoPath(path), { force: true })
   }
   if (artifactID) {
     db.query("DELETE FROM artifact_ref WHERE artifact_id = $artifact_id").run({ $artifact_id: artifactID })
@@ -768,9 +776,10 @@ function artifactRecord(path: string, maxHashBytes: number, now: Date): {
   created_at: string
   summary_json: string
 } {
-  const stat = statSync(path)
-  const relPath = displayPath(path)
-  const contentHash = stat.size <= maxHashBytes ? sha256File(path) : null
+  const fsPath = resolveRepoPath(path)
+  const stat = statSync(fsPath)
+  const relPath = displayPath(fsPath)
+  const contentHash = stat.size <= maxHashBytes ? sha256File(fsPath) : null
   const summary = {
     mtime: stat.mtime.toISOString(),
     hash_skipped: contentHash === null,
@@ -778,10 +787,10 @@ function artifactRecord(path: string, maxHashBytes: number, now: Date): {
   return {
     artifact_id: stableID("artifact", relPath),
     path: relPath,
-    type: artifactType(path),
+    type: artifactType(relPath),
     bytes: stat.size,
     content_hash: contentHash,
-    schema_id: schemaIDFor(path),
+    schema_id: schemaIDFor(relPath),
     retention_class: retentionClassFor(relPath),
     created_at: now.toISOString(),
     summary_json: JSON.stringify(summary),
@@ -1662,7 +1671,7 @@ function staleDecision(
   const path = stringField(row.path)
   const retentionClass = stringField(row.retention_class) || "reproducible"
   const refCount = Number(row.ref_count) || 0
-  const exists = path ? existsSync(resolve(path)) : false
+  const exists = path ? existsSync(resolveRepoPath(path)) : false
   const ageHours = roundHours((now.getTime() - artifactMtime(row).getTime()) / 3_600_000)
   const rootMatched = roots.length === 0 || roots.some((root) => path === root || path.startsWith(`${root}/`))
   const record = {
@@ -1715,12 +1724,12 @@ function artifactMtime(row: JSONRecord): Date {
 }
 
 function catalogPinReason(path: string): string {
-  const resolved = resolve(path)
+  const resolved = resolveRepoPath(path)
   if (path.endsWith(".pin") || existsSync(`${resolved}.pin`)) {
     return "pinned"
   }
   let current = dirname(resolved)
-  const cwd = resolve(process.cwd())
+  const cwd = resolveRepoPath(".")
   while (current.startsWith(cwd)) {
     if (existsSync(resolve(current, ".pin"))) {
       return "pinned"

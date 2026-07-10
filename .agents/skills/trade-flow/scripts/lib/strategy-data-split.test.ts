@@ -5,6 +5,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { run } from "../main"
 import { loadCandlesFromManifest, loadManifest } from "./replay-core"
+import { resolveRepoPath } from "./paths"
 import { runStrategyDataSplit, strategyDataSplitInputFromJson } from "./strategy-data-split"
 
 test("strategy data split writes discovery validation and locked holdout manifests with embargo gaps", () => {
@@ -25,7 +26,7 @@ test("strategy data split writes discovery validation and locked holdout manifes
     assert.equal(report.datasets.length, 1)
     const segments = report.datasets[0].segments
     assert.deepEqual(segments.map((segment) => segment.segment), ["discovery", "validation", "locked_holdout"])
-    assert.equal(segments.every((segment) => existsSync(segment.manifest_path)), true)
+    assert.equal(segments.every((segment) => existsSync(resolveRepoPath(segment.manifest_path))), true)
     assert.ok(segments[1].first_open_ts - segments[0].last_open_ts > report.embargo.milliseconds)
     assert.ok(segments[2].first_open_ts - segments[1].last_open_ts > report.embargo.milliseconds)
 

@@ -7,6 +7,7 @@ import test from "node:test"
 import { acquireCronLock, appendCronLog, releaseCronLock } from "./cron-runtime"
 import { runTrackDryRun } from "./track-runner"
 import { ensureSchema } from "./plan-events"
+import { resolveRepoPath } from "./paths"
 
 test("cron lock skips active lock and releases acquired lock", () => {
   const dir = mkdtempSync(join(tmpdir(), "trade-flow-lock-"))
@@ -74,12 +75,12 @@ test("cron log writes json lines and track dry-run releases lock", () => {
       actions_taken: [],
       errors: [],
     })
-    assert.equal(JSON.parse(readFileSync(logPath, "utf8").trim()).run_id, "run-log-1")
+    assert.equal(JSON.parse(readFileSync(resolveRepoPath(logPath), "utf8").trim()).run_id, "run-log-1")
 
     const result = runTrackDryRun(db, "fast", dir) as { status?: string; cron_log_path: string }
     assert.equal(result.status, undefined)
     assert.equal(existsSync(join(dir, ".trade-flow.lock")), false)
-    const lines = readFileSync(result.cron_log_path, "utf8").trim().split("\n")
+    const lines = readFileSync(resolveRepoPath(result.cron_log_path), "utf8").trim().split("\n")
     assert.equal(lines.length, 2)
   } finally {
     db.close()

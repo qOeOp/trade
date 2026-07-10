@@ -49,6 +49,7 @@
 
 - `data/ohlcv/`
 - `data/artifacts/`（legacy / durable archive）
+- `data/rd/`（legacy R&D state；新 state 写 `state/rd/`）
 - `data/calibration-panel-*/`
 - `data/validation-panel-*/`
 - `data/external-panel-*/`
@@ -60,6 +61,7 @@
 - `data/system_state.json`
 - `data/.trade-flow.lock`
 - `data/*.db`, `data/*.sqlite*`
+- `state/rd/`
 - `.agents/skills/trade-flow/data/`
 - `tmp/`
 - `profile/account_config.json`, `profile/notify_config.json`
@@ -84,7 +86,16 @@ data/
 ```text
 tmp/
   artifacts/                # replay / R&D / feature 大报告
+  artifacts/trade-flow/     # slow / fast track JSON report
   panels/                   # calibration / validation / external / forward holdout panel
+  market/                   # automation / slow-track 市场候选 cache
+```
+
+本地 learning memory 放 `state/`：
+
+```text
+state/
+  rd/                       # rd_program_state；research memory，不是 strategy evidence
 ```
 
 规则很简单：默认先临时，只有会影响策略准入、复盘或运行恢复的事实，才进入 `data/`。
@@ -97,7 +108,7 @@ tmp/
 | --- | ---: | ---: | --- |
 | `data/` | 4 | 1.9M | 已收敛目标：durable 状态 + OHLCV |
 | `tmp/` | 177 | 179M | 已 ignore；承接研究中间产物 |
-| `.agents/skills/trade-flow/data/` | 202 | 4.6M | 已 ignore；属于 skill-local runtime data |
+| `.agents/skills/trade-flow/data/` | 202 | 4.6M | legacy ignored cache；新运行不再写入 |
 | `.codex/automations/` | 2 | 7.5K | 已 ignore；通过 automation memory path helper 访问 |
 
 主要占用：
@@ -116,11 +127,11 @@ tmp/
 ## 7. 当前治理状态
 
 - DB 没有膨胀；大 payload 仍在文件系统，`data_catalog.db` 只索引元数据、hash、summary、引用关系与 retention。
-- `data/`、`tmp/`、`.agents/skills/trade-flow/data/` 均可通过 catalog scan 纳入统一视图。
+- `data/`、`tmp/`、`state/rd/` 均可通过 catalog scan 纳入统一视图；`.agents/skills/trade-flow/data/` 只作为 legacy cache 看待。
 - `--catalog-stale` 已覆盖 `tmp/`、panel data、skill-local runtime data；默认只报告候选、保留原因与引用状态。
 - `--catalog-gc --yes` 只删除 catalog 判定为 stale 的候选；`.pin`、引用、durable / evidence retention class 会保护文件。
 - `tmp/artifacts/strategy-rnd/`、R&D ledger、strategy evidence、cron log、track output、feature report、panel / calibration / campaign / shadow tracker 已有结构化索引。
-- `.agents/skills/trade-flow/data/market/` 与根 `data/ohlcv/` 仍按职责分层：前者是 automation / skill runtime cache，后者是项目级可复算数据。
+- `tmp/market/` 与根 `data/ohlcv/` 按职责分层：前者是 automation / slow-track 可删 cache，后者是项目级可复算数据。
 
 ## 8. 剩余边界
 
@@ -134,14 +145,14 @@ tmp/
 | 管道 | 当前落地 | 结构化程度 | 判断 |
 | --- | --- | --- | --- |
 | online flow event | `data/trade.db.plan_event` | 中：SQLite + JSON body + 少量校验 | 方向正确；查询投影不足 |
-| cron / track run | `data/cron.log` JSONL、`slow-track-*.json`、`fast-track-*.json` | 中：有 schema registry，但读取仍靠文件扫描 | 应进入 run catalog 或 DB 表 |
+| cron / track run | `data/cron.log` JSONL、`tmp/artifacts/trade-flow/*.json` | 中：有 schema registry，但读取仍靠文件扫描 | artifact 进 catalog；cron log 保留为恢复日志 |
 | OHLCV | CSV + `manifest.json` | 中：manifest 有 hash / closed candle 口径 | 文件可保留；需要 dataset catalog |
 | tech feature report | 大 JSON feature series | 低到中：有 source manifest，但无统一索引 | 不宜全进 DB；需要摘要表 + artifact ref |
 | R&D loop / campaign | `tmp/artifacts/strategy-rnd/*.json` + `data_catalog.db.strategy_rnd_run` | 中：DB 防重复，artifact 大而散 | 保持完整 record_json + summary columns；准入证据再归档到 `data/artifacts` |
 | strategy evidence | `data_catalog.db.strategy_evidence` | 中：DB canonical，shape 有 schema | 不进 `trade.db`；review / promote 直接读 catalog |
 | calibration / validation panel | 目录 + per-symbol manifest + suite input | 中：可复算，但 panel 元数据散落 | 需要 panel catalog |
 | automation memory | `.codex/automations/*/memory.md` | 低：人类摘要 | 不入业务 DB；只保留路径访问规范 |
-| skill-local market cache | `.agents/skills/trade-flow/data/market/*` | 低到中：runtime cache | 应视为可删 cache，不作为事实源 |
+| market candidate cache | `tmp/market/*` | 低到中：runtime cache | 可删 cache，不作为事实源 |
 
 核心问题不是“用了文件”本身，而是缺一层可查询 catalog：文件承载大 payload，DB 承载 run / dataset / artifact / reference / retention 元数据。
 

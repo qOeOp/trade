@@ -1,5 +1,5 @@
-import { writeFileSync } from "node:fs"
-import { join } from "node:path"
+import { mkdirSync, writeFileSync } from "node:fs"
+import { dirname, join } from "node:path"
 import { Database } from "bun:sqlite"
 import { latestSlowObserve, listActiveFlows, reduceFlowState } from "./flow-state"
 import { evaluateTriggerCondition } from "./execution-flow"
@@ -182,7 +182,8 @@ async function callSkill(runner: Runner, command: string[], cwd: string): Promis
 }
 
 function writeFastArtifact(input: FastTrackWorkflowInput, report: JSONRecord): JSONRecord {
-  const artifactPath = join(input.dataDir, `fast-track-${input.runId}.json`)
+  const artifactPath = join(input.repoRoot, "tmp", "artifacts", "trade-flow", `fast-track-${input.runId}.json`)
+  mkdirSync(dirname(artifactPath), { recursive: true })
   writeFileSync(artifactPath, `${JSON.stringify(report, null, 2)}\n`)
   registerCatalogArtifact({
     catalogDbPath: join(input.dataDir, "data_catalog.db"),

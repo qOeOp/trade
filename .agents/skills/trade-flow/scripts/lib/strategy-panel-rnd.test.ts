@@ -4,6 +4,7 @@ import { join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
 import { catastrophicAssetsFrom, runStrategyPanelRnd, strategyPanelRndInputFromJson } from "./strategy-panel-rnd"
+import { resolveRepoPath } from "./paths"
 
 test("panel R&D pools samples but keeps per-asset evidence", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-panel-rnd-"))
@@ -81,7 +82,7 @@ test("panel R&D diagnostic mode skips expensive null controls and cannot promote
 })
 
 test("panel R&D resolves legacy data panel paths to tmp panels", () => {
-  const panelRoot = join(process.cwd(), "tmp", "panels", "validation-panel-path-fallback-test")
+  const panelRoot = resolveRepoPath("tmp/panels/validation-panel-path-fallback-test")
   try {
     const manifestPath = join(panelRoot, "btcusdt", "manifest.json")
     mkdirSync(join(panelRoot, "btcusdt"), { recursive: true })

@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs"
 import { Database } from "bun:sqlite"
 import { readRdProgramState, updateRdProgramStateFromStrategyReview, writeRdProgramState } from "../lib/rd-program-state"
+import { displayPath } from "../lib/paths"
 import type { ReplayResult } from "../lib/replay-core"
 import {
   appendReplayEvidence,
@@ -148,7 +149,7 @@ function appendStrategyEvidenceFromInput(config: CommandConfig): unknown {
 }
 
 function evidenceCatalogDbPath(config: CommandConfig): string | undefined {
-  return config.ledgerPath && config.catalogDbPath === "./data/data_catalog.db"
+  return config.ledgerPath && displayPath(config.catalogDbPath) === "data/data_catalog.db"
     ? undefined
     : config.catalogDbPath
 }

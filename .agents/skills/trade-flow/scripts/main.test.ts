@@ -9,6 +9,7 @@ import { appendPlanEvent, buildRecordedExecutionEvent, cronRecoverFromSkills, en
 import { type Runner } from "./lib/observe-adapter"
 import { hashCanonical, replayContentHash, replayDataHash, replayHarnessHash } from "./lib/replay-core"
 import { loadEvidenceLedger } from "./lib/strategy-iteration"
+import { resolveRepoPath } from "./lib/paths"
 
 test("validateOrderFill requires audit fields for trade_flow source", () => {
   assert.throws(
@@ -884,7 +885,7 @@ test("run strategy R&D loop writes ledger without creating DB", async () => {
     assert.equal(result.ok, true)
     const data = (result as { ok: true; data: { run_id: string; artifact_ref: string; ledger_ref: string } }).data
     assert.equal(data.run_id, "rnd-cli-loop-test")
-    assert.equal(existsSync(data.artifact_ref), true)
+    assert.equal(existsSync(resolveRepoPath(data.artifact_ref)), true)
     assert.equal(existsSync(data.ledger_ref), true)
     assert.equal(existsSync(dbPath), false)
   } finally {

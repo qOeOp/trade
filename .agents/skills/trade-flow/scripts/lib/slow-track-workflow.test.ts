@@ -70,10 +70,11 @@ test("slow track workflow dry-run builds real watchlist without live action", as
     }
     if (options?.cwd?.endsWith("ohlcv-fetch")) {
       const symbol = command[command.indexOf("--symbol") + 1]
+      const outputDir = command[command.indexOf("--output-dir") + 1]
       return jsonOk({
         symbol,
-        manifest_path: join("..", "trade-flow", "data", "market", "run-slow-test", symbol, "manifest.json"),
-        output_dir: join("..", "trade-flow", "data", "market", "run-slow-test", symbol),
+        manifest_path: join(outputDir, "manifest.json"),
+        output_dir: outputDir,
         timeframes: {
           "1d": { rows: 100, first_open_ts: 1, last_open_ts: 100 },
           "4h": { rows: 100, first_open_ts: 1, last_open_ts: 100 },
@@ -122,11 +123,11 @@ test("slow track workflow dry-run builds real watchlist without live action", as
     assert.equal((result.watchlist as Array<{ symbol: string; strategy_usage: { matched_live_small_strategies: string[] } }>)[0].symbol, "BTCUSDT")
     assert.deepEqual((result.watchlist as Array<{ strategy_usage: { matched_live_small_strategies: string[] } }>)[0].strategy_usage.matched_live_small_strategies, ["S-BTC"])
     const ohlcv = (result.watchlist as Array<{ technical_analysis: { ohlcv: { manifest_path: string; output_dir: string } } }>)[0].technical_analysis.ohlcv
-    assert.equal(ohlcv.manifest_path, ".agents/skills/trade-flow/data/market/run-slow-test/BTCUSDT/manifest.json")
-    assert.equal(ohlcv.output_dir, ".agents/skills/trade-flow/data/market/run-slow-test/BTCUSDT")
+    assert.equal(ohlcv.manifest_path, "tmp/market/run-slow-test/BTCUSDT/manifest.json")
+    assert.equal(ohlcv.output_dir, "tmp/market/run-slow-test/BTCUSDT")
     assert.equal(isAbsolute(ohlcv.manifest_path), false)
     const indicatorCall = calls.find((call) => call.cwd?.endsWith("tech-indicators") && call.command.includes("--manifest"))
-    assert.equal(indicatorCall?.command[indicatorCall.command.indexOf("--manifest") + 1], join(repoRoot, ".agents/skills/trade-flow/data/market/run-slow-test/BTCUSDT/manifest.json"))
+    assert.equal(indicatorCall?.command[indicatorCall.command.indexOf("--manifest") + 1], join(repoRoot, "tmp/market/run-slow-test/BTCUSDT/manifest.json"))
     assert.equal((result.watchlist as Array<{ operator_suggestion: { action: string } }>)[0].operator_suggestion.action, "watch_long_setup")
     assert.match(readFileSync(join(repoRoot, String(result.artifact_path)), "utf8"), /BTCUSDT/)
     assert.equal(calls.some((call) => call.command.includes("--run-live-small")), false)
@@ -223,8 +224,8 @@ test("slow track workflow analyzes every default watchlist candidate", async () 
       analyzedSymbols.push(symbol)
       return jsonOk({
         symbol,
-        manifest_path: join(repoRoot, ".agents/skills/trade-flow/data/market/run-full-analysis", symbol, "manifest.json"),
-        output_dir: join(repoRoot, ".agents/skills/trade-flow/data/market/run-full-analysis", symbol),
+        manifest_path: join(repoRoot, "tmp/market/run-full-analysis", symbol, "manifest.json"),
+        output_dir: join(repoRoot, "tmp/market/run-full-analysis", symbol),
         timeframes: {},
       })
     }
