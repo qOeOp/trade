@@ -8,25 +8,81 @@ agent-native 加密交易工作仓库。目标是让 agent 在可审计事实、
 
 ```mermaid
 flowchart LR
-  ENTRY["single automation entry<br/>or user takeover"] --> SUP["trade-flow supervisor"]
-  SUP --> JOBS["job lanes<br/>live / R&D / review / hygiene"]
-  JOBS --> CAP["capability banks<br/>observe / data / execute / governance"]
+  ENTRY["single automation entry<br/>automation wakeup / user takeover"] --> SP
+
+  subgraph SUP["trade-flow supervisor"]
+    direction TB
+    SP["supervisor plan<br/>read config + current facts"]
+    GT["cadence / lock / concurrency<br/>permission gate"]
+    FO["subagent fan-out<br/>isolated job contracts"]
+    MG["merge results<br/>summary + next constraints"]
+    SP --> GT --> FO --> MG
+  end
+
+  subgraph FLOWS["project flow registry"]
+    direction TB
+    subgraph TF["Trading flows"]
+      direction TB
+      F1["live opportunity watch<br/>slow_track_market_watch"]
+      F2["active flow guard<br/>fast_track_guard"]
+      F3["plan / preflight / execute<br/>preview + guards + order skills"]
+      F4["recovery / reconcile<br/>exchange facts override local"]
+    end
+
+    subgraph RF["Research flows"]
+      direction TB
+      F5["new strategy R&D<br/>rd supervisor + scout subagents"]
+      F6["shadow / forward validation<br/>paper sample tracker"]
+      F7["replay / panel / data split<br/>anti-overfit evidence"]
+    end
+
+    subgraph GF["Governance + ops flows"]
+      direction TB
+      F8["closed-flow review<br/>post-trade attribution"]
+      F9["strategy promotion<br/>draft -> shadow -> live-small -> paused"]
+      F10["catalog / artifact hygiene<br/>register / stale / GC"]
+      F11["notify + quality<br/>alerts / tests / contracts"]
+    end
+  end
+
+  MG --> FLOWS
+  FLOWS --> CAP["capability banks<br/>observe / data / execute / governance"]
   CAP --> FACTS["durable facts<br/>DB / catalog / artifact / strategy / state"]
   FACTS --> SUMMARY["supervisor summary<br/>next constraints"]
-  SUMMARY --> SUP
+  SUMMARY -. "next wakeup constraints" .-> SP
 
   CAP --> EX["Binance IO<br/>read APIs / gated write APIs"]
   EX --> FACTS
 
   classDef entry fill:#102a43,stroke:#102a43,color:#fff;
+  classDef sup fill:#efe7ff,stroke:#7a55c7,color:#111;
+  classDef flow fill:#fff3d8,stroke:#d9902f,color:#111;
   classDef block fill:#f7f7f7,stroke:#666,color:#111;
   classDef io fill:#e8f8fb,stroke:#358b9a,color:#111;
   class ENTRY entry;
-  class SUP,JOBS,CAP,FACTS,SUMMARY block;
+  class SP,GT,FO,MG sup;
+  class F1,F2,F3,F4,F5,F6,F7,F8,F9,F10,F11 flow;
+  class CAP,FACTS,SUMMARY block;
   class EX io;
 ```
 
-一句话：外部只有一个长期入口；入口只生成任务图和权限边界；具体工作交给隔离 subagent；长期事实必须落到 DB、artifact、catalog、strategy 文件或 R&D state。
+一句话：外部只有一个长期入口；`trade-flow supervisor` 负责生成任务图、执行节奏/锁/权限闸、分发隔离 subagent、合并结果并写回下一轮约束；具体 flow 只通过能力层和持久事实层交换信息。
+
+全局 flow 清单：
+
+| Flow | 归属 | 作用 |
+| --- | --- | --- |
+| `live opportunity watch` | 交易 | 慢轨盯市，生成 full observe、thesis、trigger |
+| `active flow guard` | 交易 | 快轨守护 active flow，处理触发、防御、轻量对账 |
+| `plan / preflight / execute` | 交易 | 预演、hard guards、真实下单写口 |
+| `recovery / reconcile` | 交易 | 用交易所事实修正本地状态 |
+| `new strategy R&D` | 研究 | 自主提假设、scout、验证，直到 shadow candidate / blocked / budget exhausted |
+| `shadow / forward validation` | 研究 | 影子交易和 forward 样本跟踪 |
+| `replay / panel / data split` | 研究 | 回放、切分、跨标的 panel、anti-overfit evidence |
+| `closed-flow review` | 治理 | 闭合交易复盘，生成 attribution 与诊断 |
+| `strategy promotion` | 治理 | `draft -> shadow -> live-small -> paused` 准入 |
+| `catalog / artifact hygiene` | 运维 | artifact 注册、stale scan、GC |
+| `notify + quality` | 运维 | 通知 fallback、测试、typecheck、契约检查 |
 
 ## 2. 两条主链
 
