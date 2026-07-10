@@ -19,11 +19,11 @@ flowchart TB
     SP --> GT --> FO --> MG
   end
 
-  subgraph MATRIX["supervisor-controlled flow matrix"]
-    direction LR
+  subgraph MATRIX["supervisor-controlled parallel pipelines"]
+    direction TB
 
-    subgraph TRADING["Trading"]
-      direction TB
+    subgraph TRADING["Trading pipeline"]
+      direction LR
       T1["live opportunity watch<br/>slow_track_market_watch"]
       T2["active flow guard<br/>fast_track_guard"]
       T3["plan / preflight / execute<br/>preview + order skills"]
@@ -31,24 +31,24 @@ flowchart TB
       T1 --> T2 --> T3 --> T4
     end
 
-    subgraph RESEARCH["Research"]
-      direction TB
+    subgraph RESEARCH["Research pipeline"]
+      direction LR
       R1["new strategy R&D<br/>rd supervisor + scouts"]
       R2["replay / panel / data split<br/>anti-overfit evidence"]
       R3["shadow / forward validation<br/>paper sample tracker"]
       R1 --> R2 --> R3
     end
 
-    subgraph GOVERNANCE["Governance"]
-      direction TB
+    subgraph GOVERNANCE["Governance pipeline"]
+      direction LR
       G1["closed-flow review<br/>post-trade attribution"]
       G2["strategy promotion<br/>draft -> shadow -> live-small -> paused"]
       G3["strategy diagnostics<br/>lessons + blockers"]
       G1 --> G2 --> G3
     end
 
-    subgraph OPS["Ops"]
-      direction TB
+    subgraph OPS["Ops pipeline"]
+      direction LR
       O1["catalog / artifact hygiene<br/>register / stale / GC"]
       O2["notify dispatch<br/>operator alerts"]
       O3["quality checks<br/>tests / contracts"]
@@ -68,15 +68,15 @@ flowchart TB
   end
 
   ENTRY --> SP
-  MG --> T1
-  MG --> R1
-  MG --> G1
-  MG --> O1
+  FO --> T1
+  FO --> R1
+  FO --> G1
+  FO --> O1
   T4 --> CAP
   R3 --> CAP
   G3 --> CAP
   O3 --> CAP
-  SUMMARY -. "next wakeup constraints" .-> SP
+  SUMMARY -. "next wakeup constraints" .-> MG
 
   classDef entry fill:#102a43,stroke:#102a43,color:#fff;
   classDef sup fill:#efe7ff,stroke:#7a55c7,color:#111;
@@ -195,7 +195,7 @@ flowchart LR
     CAT[("data/data_catalog.db")]
     OHLCV["data/ohlcv"]
     ART["tmp/artifacts"]
-    STATE["state/rd"]
+    STATE["data/rd"]
     STRAT["strategies/*.md"]
     CAT --> OHLCV
     CAT --> ART
@@ -308,7 +308,7 @@ flowchart TD
 高阶入口：
 
 ```bash
-bun .agents/skills/trade-flow/scripts/main.ts --rd-supervisor-run --state ./state/rd/program.json --json '{"max_iterations":10}'
+bun .agents/skills/trade-flow/scripts/main.ts --rd-supervisor-run --state ./data/rd/program.json --json '{"max_iterations":10}'
 ```
 
 低阶入口：
@@ -397,11 +397,11 @@ bun .agents/skills/trade-flow/scripts/main.ts --help
 bun .agents/skills/trade-flow/scripts/main.ts --db ./data/trade.db --init
 
 # 生成单入口 supervisor plan
-bun .agents/skills/trade-flow/scripts/main.ts --db ./data/trade.db --automation-cycle --json '{"slow_interval_minutes":240,"rd_program_state_path":"./state/rd/program.json"}'
+bun .agents/skills/trade-flow/scripts/main.ts --db ./data/trade.db --automation-cycle --json '{"slow_interval_minutes":240,"rd_program_state_path":"./data/rd/program.json"}'
 
 # 初始化并运行 R&D supervisor
-bun .agents/skills/trade-flow/scripts/main.ts --rd-program-state --state ./state/rd/program.json --json '{"action":"init","objective":"find a shadow-eligible 4H swing strategy"}'
-bun .agents/skills/trade-flow/scripts/main.ts --rd-supervisor-run --state ./state/rd/program.json --json '{"max_iterations":10}'
+bun .agents/skills/trade-flow/scripts/main.ts --rd-program-state --state ./data/rd/program.json --json '{"action":"init","objective":"find a shadow-eligible 4H swing strategy"}'
+bun .agents/skills/trade-flow/scripts/main.ts --rd-supervisor-run --state ./data/rd/program.json --json '{"max_iterations":10}'
 ```
 
 ## 15. 安全边界
