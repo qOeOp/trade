@@ -67,3 +67,12 @@ title: R&D Reliability Roadmap
 - 当前：`shadow -> live-small` 要求 shadow evidence 带 cost / slippage / funding attribution；review 会输出 cost feedback 给下一轮 replay。R&D shadow tracker 已升级为 schema v2 行为事件链，输出仍只是 review 输入；R&D event chain 设计见 [rd-event-chain-design.md](rd-event-chain-design.md)。
 - 下一块：补 15m fast paper monitor、missed-fill、订单规模与流动性分桶。
 - 完成信号：`shadow -> live-small` 不只看胜率，还看真实执行损耗是否在 replay 假设内，并能转成下一轮成本压力参数。
+
+## 9. Simulator Fidelity 层
+
+- 目标：replay、forward shadow、live signal 看到同一份策略事实；性能优化、批量 replay 或 paper tracker 不改变交易路径。
+- Jesse 调研吸收：借鉴其 step / fast simulator parity、K 线内触价、多订单排序、partial exit、reduce-only 数量上限等内核纪律；只重写等价行为，不引入 Jesse 运行依赖。
+- 当前：`replay-core` 已有 next-open、stop-first、gap worse open、break-even next bar、fee/slippage/funding；R&D shadow tracker 已有 stop-first 行为事件链。
+- 缺口：replay 仍偏单笔 trade resolver，缺 lane-level active orders / simulated position；partial takeprofit 后的剩余仓位、oversized reduce-only、同 K 多订单排序与 step/fast parity fixture 还不完整。
+- 下一块：先补 fixture，再补内核：multiple entry、partial takeprofit 后 stop、oversized reduce-only stop、same-bar stop/target、gap worse open、step/fast replay hash parity。
+- 完成信号：同一 strategy contract、同一 manifest、同一 assumptions 下，step replay / batch replay / latest signal / shadow tracker 的 signal 与 closed trade hash 可解释一致；任何 live 偏差都进入 review attribution。

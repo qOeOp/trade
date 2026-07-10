@@ -24,6 +24,17 @@ QuantDinger 可借鉴的是工程组织，不是产品范围：
 | signal execution standard | 改为 replay / shadow / live 对齐契约：信号时刻、成交时刻、退出负责人 |
 | agent audit / redaction / payload bounds | 改为 skill 输出 schema、敏感字段红线、artifact retention |
 
+Jesse 可借鉴的是交易内核，不是产品形态：
+
+| Jesse 做法 | 本项目吸收方式 |
+| --- | --- |
+| strategy lifecycle：signal / entry / position update / hooks | 改为 strategy markdown 的机器可编译 lifecycle contract，不引入 Python 继承式策略 API |
+| Broker 语义层：buy / sell / reduce at price，再路由 market / limit / stop | 改为 `execution-intent-resolver`：先归一订单语义，再编译 Binance payload |
+| step / fast simulator parity | 改为 replay / shadow / live signal parity fixture，防止不同路径喂给策略的事实不一致 |
+| candle 内触价、partial candle、多订单排序 | 改为 replay 撮合内核的确定性 execution model，保留 `same_bar_policy` 与可审计 assumptions |
+| reduce-only、partial fill、oversized exit 的行为测试 | 改为 execution / recovery / replay 三域 fixture，不让部分成交被当成完整仓位 |
+| metrics / Monte Carlo / optimization | 只吸收为可靠性诊断；不得绕过 locked holdout、shadow attribution 与 live-small gate |
+
 ## 2. 当前诊断
 
 已有强项：
@@ -339,6 +350,15 @@ Binance facts
 | `live_deviation_policy` | live 与 replay 偏差如何进入 review |
 
 没有这组对齐契约的 replay 只能研究，不能作为升格 evidence。
+
+Jesse 调研后的补充要求：
+
+- replay 不能只按 OHLCV 终点判定；至少要有确定性 order execution model。
+- 同一根 K 内多个 entry / stop / target 同时触发时，必须输出排序口径与 `same_bar_policy`。
+- partial takeprofit / partial reduce 后，剩余仓位继续参与后续 R、MFE、MAE、holding time 计算。
+- reduce-only 保护腿数量超过剩余仓位时，实际 fill quantity 必须 cap 到剩余仓位。
+- replay / shadow tracker / live signal 使用同一份 strategy contract；偏差进入 review，不靠叙事解释。
+- fast-path replay 或批量 simulator 只允许作为性能优化；必须有 parity fixture 证明输出与 step simulator 一致。
 
 ## 8. 命令契约
 
@@ -722,3 +742,123 @@ Binance facts
 完成判定：
 
 - 核心运行、恢复、review、strategy cycle 的稳定外壳已冻结；后续只在新增稳定输出时补 schema，不预设额外结构。
+
+## 14. Jesse 设计吸收计划
+
+目标：吸收 Jesse 的确定性交易内核经验，不改变本项目 agent-first / evidence-first / Binance USDM 单账户边界。
+
+### J0：边界确认
+
+结论：
+
+- 不引入 Jesse 作为运行依赖。
+- 不迁移到 Python 策略继承模型。
+- 不引入 Jesse UI、多交易所、优化平台或 ML pipeline。
+- 只重写吸收：订单语义层、撮合细节、策略 lifecycle contract、parity 测试。
+
+验收：
+
+- docs 明确 Jesse 是交易内核参照，不是产品目标。
+
+### J1：订单语义归一层
+
+目标：把“想做什么”和“Binance 用哪个 order type”拆开。
+
+任务：
+
+- 新增 `execution-intent-resolver`：`entry_at / reduce_at / protect_at / cancel_scope`。
+- `entry_at(price)` 按 side、current mark、trigger intent 编译为 LIMIT / MARKET / STOP / TAKE_PROFIT 族。
+- `reduce_at(price)` 强制 reduce-only；无 live position 时拒绝。
+- `sync_protection` 从 current position + protection plan 编译，不接受裸交易所方法作为策略判断来源。
+- `execution_contract_snapshot` 保留 resolver 输入、输出、current mark 与路由原因。
+
+验收：
+
+- LLM / strategy contract 不直接决定 Binance method。
+- reduce-only 无仓位、负价、缺 reference price、min notional / step size 均有 fixture。
+- `binance-order-preview` 退回执行方法预演角色，不再承担整版 plan 编译。
+
+### J2：Replay 撮合内核硬化
+
+目标：让 replay 更像可审计的 execution simulator，而不是单笔 stop/target 判定器。
+
+任务：
+
+- 引入 lane-level simulated position / active orders / fills。
+- 支持多 entry、partial fill、partial reduce、takeprofit ladder、stop ladder。
+- 同一 candle 内触发多个 order 时使用固定排序，并把排序 policy 写入 assumptions。
+- stop / target 同 bar 触发继续默认 `stop_first`，但必须在 result 中显式暴露。
+- oversized reduce-only exit 按剩余 position cap actual filled qty。
+- 计算 `r_multiple_initial` 与 `r_multiple_max_live_risk` 两套口径，为 review 对齐。
+
+验收：
+
+- replay fixture 覆盖：multiple entry、partial takeprofit 后 stop、oversized reduce-only stop、same-bar stop/target、gap worse open。
+- 旧 replay 输出外壳兼容；新增字段只扩展，不破坏 schema registry。
+
+### J3：Strategy lifecycle contract
+
+目标：把 Jesse 的 strategy lifecycle 吸收到 markdown contract，而不是代码继承。
+
+任务：
+
+- `## Trade Contract` 增加可选 lifecycle 段：
+  - `signal_rule`
+  - `entry_builder`
+  - `protection_builder`
+  - `position_update_rule`
+  - `exit_rule`
+  - `review_attribution`
+- `rnd_family_v1` 自动生成这些段；`manual_policy_v1` 允许人工声明但必须 lint。
+- `--strategy-signal`、`--replay-strategy`、R&D shadow tracker 共用编译后的 lifecycle contract。
+
+验收：
+
+- 同一 frozen strategy contract 能驱动 replay latest signal 与 shadow tracker open/observe/close。
+- 缺 lifecycle 的 legacy strategy 只能按当前兼容路径研究，不能新增 promotion 能力。
+
+### J4：Parity fixture
+
+目标：任何性能优化或路径拆分，都不能改变策略看到的事实。
+
+任务：
+
+- 增加 replay step simulator 与 fast/batch simulator 的 parity fixture。
+- 增加 replay latest signal 与 live signal 的 closed-candle freshness fixture。
+- 增加 R&D shadow tracker 与 replay execution policy 的 parity fixture。
+
+验收：
+
+- 同一数据、同一 contract、同一 assumptions 下，step / fast 输出 trades hash 一致。
+- signal path 不读取下一根 K 线；entry reference 差异必须进入 `execution_alignment`。
+
+### J5：诊断型 metrics / Monte Carlo
+
+目标：增强“发现脆弱性”的能力，不扩大策略搜索权。
+
+任务：
+
+- 先补 trade-order shuffle / candle perturbation 两类 Monte Carlo 诊断。
+- 输出只进 calibration / review diagnostics，不作为 promotion evidence。
+- metrics 保持 R、drawdown、cost drag、regime slice、execution decay 优先；Sharpe 类指标只辅助。
+
+验收：
+
+- Monte Carlo 失败只能阻断或提示复核，不能单独放行 shadow / live-small。
+
+### 优先级
+
+| Priority | 内容 | 先后 |
+| --- | --- | --- |
+| P0 | J1 订单语义归一 | 先做，直接降低真钱路径歧义 |
+| P1 | J2 replay 撮合硬化 | 紧随 J1，决定 evidence 是否可信 |
+| P2 | J4 parity fixture | 与 J2 并行，先覆盖最小 fixtures |
+| P3 | J3 lifecycle contract | 在 replay 内核稳定后扩展 strategy contract |
+| P4 | J5 metrics / Monte Carlo | 只做诊断增强，不进入准入捷径 |
+
+红线：
+
+- 不因吸收 Jesse 而新增通用回测平台目标。
+- 不让 optimizer / ML / Monte Carlo 变成升格捷径。
+- 不让 replay 内核直接调用 Binance 或写 `trade.db`。
+- 不把未实现的 J1-J5 写成当前能力。
