@@ -129,7 +129,7 @@ test("rd shadow tracker update accepts script response wrapped state", () => {
   }
 })
 
-test("rd shadow tracker state update merges new forward entries idempotently", () => {
+test("rd shadow tracker suppresses repeated same-side entries while a matching position is open", () => {
   const dir = mkdtempSync(join(tmpdir(), "rd-shadow-tracker-"))
   try {
     const manifestPath = writeManifest(dir, [
@@ -150,15 +150,83 @@ test("rd shadow tracker state update merges new forward entries idempotently", (
       now: "2026-07-09T08:12:00.000Z",
       forwardReport: shiftedReport(manifestPath),
     })
-    assert.equal(merged.summary.position_count, 2)
-    assert.equal(merged.paper_positions[1].events[0].behavior, "open_setup")
-    assert.equal(merged.paper_positions[1].entry_index, 2)
+    assert.equal(merged.summary.position_count, 1)
+    assert.equal(merged.summary.open_count, 1)
+    assert.equal(merged.paper_positions[0].events.at(-1)?.behavior, "observe_setup")
+    assert.equal(merged.paper_positions[0].events.at(-1)?.payload.event_type, "rd_reinforce_signal")
+    assert.equal(merged.paper_positions[0].events.at(-1)?.payload.suppression_reason, "open_same_symbol_candidate_side")
 
     const repeated = updateRdShadowTracker(merged, {
       now: "2026-07-09T08:13:00.000Z",
       forwardReport: shiftedReport(manifestPath),
     })
-    assert.equal(repeated.summary.position_count, 2)
+    assert.equal(repeated.summary.position_count, 1)
+    assert.equal(repeated.summary.event_count, merged.summary.event_count)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("rd shadow tracker allows a new entry after the matching position closes", () => {
+  const dir = mkdtempSync(join(tmpdir(), "rd-shadow-tracker-"))
+  try {
+    const firstManifest = writeManifest(join(dir, "first"), [
+      [100, 101, 99, 100],
+      [100, 101, 89, 95],
+    ])
+    const nextManifest = writeManifest(join(dir, "next"), [
+      [100, 101, 99, 100],
+      [100, 101, 89, 95],
+      [95, 96, 94, 95],
+    ])
+    const closed = createRdShadowTrackerFromForwardHoldout(report(firstManifest), {
+      now: "2026-07-09T08:10:00.000Z",
+      maxHoldBars: 3,
+    })
+    assert.equal(closed.summary.closed_count, 1)
+
+    const merged = updateRdShadowTracker(closed, {
+      now: "2026-07-09T08:12:00.000Z",
+      forwardReport: shiftedReport(nextManifest),
+      manifestRefs: [{ datasetId: "ALT", manifestPath: nextManifest }],
+    })
+    assert.equal(merged.summary.position_count, 2)
+    assert.equal(merged.paper_positions[1].events[0].behavior, "open_setup")
+    assert.equal(merged.paper_positions[1].entry_index, 2)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("rd shadow tracker normalizes legacy duplicate open positions", () => {
+  const dir = mkdtempSync(join(tmpdir(), "rd-shadow-tracker-"))
+  try {
+    const manifestPath = writeManifest(dir, [
+      [100, 101, 99, 100],
+      [100, 101, 99, 100],
+    ])
+    const state = createRdShadowTrackerFromForwardHoldout(report(manifestPath), {
+      now: "2026-07-09T04:10:00.000Z",
+      maxHoldBars: 3,
+    })
+    const legacy = structuredClone(state)
+    const duplicate = structuredClone(legacy.paper_positions[0])
+    duplicate.position_id = "legacy-duplicate-position"
+    duplicate.rd_chain_id = "rd-legacy-duplicate-position"
+    duplicate.signal_time = "2026-07-09T04:00:00.000Z"
+    duplicate.opened_at = "2026-07-09T08:00:00.000Z"
+    duplicate.entry_index = 2
+    duplicate.last_evaluated_index = 1
+    legacy.paper_positions.push(duplicate)
+
+    const normalized = updateRdShadowTracker(legacy, {
+      now: "2026-07-09T08:20:00.000Z",
+    })
+
+    assert.equal(normalized.summary.position_count, 1)
+    assert.equal(normalized.summary.open_count, 1)
+    assert.equal(normalized.paper_positions[0].events.at(-1)?.payload.event_type, "rd_reinforce_signal")
+    assert.equal(normalized.paper_positions[0].events.at(-1)?.payload.suppressed_position_id, "legacy-duplicate-position")
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

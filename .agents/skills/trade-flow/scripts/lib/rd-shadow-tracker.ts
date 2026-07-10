@@ -130,6 +130,7 @@ function createRdShadowTrackerFromForwardHoldout(rawReport: JSONRecord, options:
 function updateRdShadowTracker(rawState: RdShadowTrackerState | JSONRecord, options: RdShadowTrackerOptions = {}): RdShadowTrackerState {
   const state = stateFromJson(unwrapTrackerState(asRecord(rawState)))
   const now = normalizeTime(options.now) || new Date().toISOString()
+  suppressDuplicateOpenPositions(state)
   if (options.forwardReport) {
     mergeForwardEntries(state, unwrapForwardReport(options.forwardReport), options, now)
   }
@@ -154,10 +155,93 @@ function mergeForwardEntries(state: RdShadowTrackerState, report: JSONRecord, op
   for (const record of entryRecords(report)) {
     const position = positionFromRecord(report, record, maxHoldBars, options.sourceRef, now)
     if (existingIds.has(position.position_id)) continue
+    const existingOpen = matchingOpenPosition(state, position)
+    if (existingOpen) {
+      appendSuppressedReentryEvent(existingOpen, position, record)
+      continue
+    }
     state.paper_positions.push(position)
     existingIds.add(position.position_id)
   }
   if (options.sourceRef) state.source_forward_holdout_result_ref = options.sourceRef
+}
+
+function matchingOpenPosition(state: RdShadowTrackerState, incoming: RdShadowPaperPosition): RdShadowPaperPosition | undefined {
+  return state.paper_positions.find((position) => position.status === "open" && sameOpenPositionKey(position, incoming))
+}
+
+function suppressDuplicateOpenPositions(state: RdShadowTrackerState): void {
+  const openByKey = new Map<string, RdShadowPaperPosition>()
+  const uniquePositions: RdShadowPaperPosition[] = []
+  for (const position of state.paper_positions) {
+    refreshPositionProjection(position)
+    if (position.status !== "open") {
+      uniquePositions.push(position)
+      continue
+    }
+    const key = openPositionKey(position)
+    const existing = openByKey.get(key)
+    if (existing) {
+      appendSuppressedReentryEvent(existing, position)
+      continue
+    }
+    openByKey.set(key, position)
+    uniquePositions.push(position)
+  }
+  state.paper_positions = uniquePositions
+}
+
+function sameOpenPositionKey(existing: RdShadowPaperPosition, incoming: RdShadowPaperPosition): boolean {
+  return openPositionKey(existing) === openPositionKey(incoming)
+}
+
+function openPositionKey(position: RdShadowPaperPosition): string {
+  return [
+    position.symbol,
+    position.side,
+    position.strategy_id,
+    position.candidate_hash || position.candidate_id,
+  ].join("\u0000")
+}
+
+function appendSuppressedReentryEvent(existing: RdShadowPaperPosition, incoming: RdShadowPaperPosition, record?: JSONRecord): void {
+  if (existing.events.some((event) => {
+    const payload = asRecord(event.payload)
+    return stringField(payload.event_type) === "rd_reinforce_signal"
+      && stringField(payload.suppressed_position_id) === incoming.position_id
+  })) return
+  const signalEvent = buildSetupEvent({
+    chainId: existing.rd_chain_id,
+    behavior: "observe_setup",
+    backend: "rd_artifact",
+    source: "rd_4h_tracker",
+    createdAt: incoming.opened_at || incoming.signal_time,
+    payload: {
+      event_type: "rd_reinforce_signal",
+      position_id: existing.position_id,
+      rd_chain_id: existing.rd_chain_id,
+      suppressed_position_id: incoming.position_id,
+      suppression_reason: "open_same_symbol_candidate_side",
+      symbol: existing.symbol,
+      side: existing.side,
+      strategy_id: existing.strategy_id,
+      setup_id: existing.setup_id,
+      candidate_id: existing.candidate_id,
+      candidate_hash: existing.candidate_hash,
+      signal_time: incoming.signal_time,
+      data_cutoff: stringField(record?.latest_candle_closed_at) || incoming.opened_at,
+      entry_reference: incoming.entry_reference,
+      entry: incoming.entry,
+      stop: incoming.initial_stop,
+      target: incoming.target,
+      active_position_entry: existing.entry,
+      active_position_opened_at: existing.opened_at,
+      active_position_stop: existing.active_stop,
+      active_position_target: existing.target,
+    },
+  })
+  existing.events.push(signalEvent)
+  refreshPositionProjection(existing)
 }
 
 function manifestRefsFromJson(value: JSONRecord): RdShadowManifestRef[] {
