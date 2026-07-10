@@ -7,11 +7,11 @@ agent-native 加密交易工作仓库。目标是让 agent 在可审计事实、
 ## 1. 全局架构
 
 ```mermaid
-flowchart LR
-  ENTRY["single automation entry<br/>automation wakeup / user takeover"] --> SP
+flowchart TB
+  ENTRY["single automation entry<br/>automation wakeup / user takeover"]
 
   subgraph SUP["trade-flow supervisor"]
-    direction TB
+    direction LR
     SP["supervisor plan<br/>read config + current facts"]
     GT["cadence / lock / concurrency<br/>permission gate"]
     FO["subagent fan-out<br/>isolated job contracts"]
@@ -19,40 +19,64 @@ flowchart LR
     SP --> GT --> FO --> MG
   end
 
-  subgraph FLOWS["project flow registry"]
-    direction TB
-    subgraph TF["Trading flows"]
+  subgraph MATRIX["supervisor-controlled flow matrix"]
+    direction LR
+
+    subgraph TRADING["Trading"]
       direction TB
-      F1["live opportunity watch<br/>slow_track_market_watch"]
-      F2["active flow guard<br/>fast_track_guard"]
-      F3["plan / preflight / execute<br/>preview + guards + order skills"]
-      F4["recovery / reconcile<br/>exchange facts override local"]
+      T1["live opportunity watch<br/>slow_track_market_watch"]
+      T2["active flow guard<br/>fast_track_guard"]
+      T3["plan / preflight / execute<br/>preview + order skills"]
+      T4["recovery / reconcile<br/>exchange overrides local"]
+      T1 --> T2 --> T3 --> T4
     end
 
-    subgraph RF["Research flows"]
+    subgraph RESEARCH["Research"]
       direction TB
-      F5["new strategy R&D<br/>rd supervisor + scout subagents"]
-      F6["shadow / forward validation<br/>paper sample tracker"]
-      F7["replay / panel / data split<br/>anti-overfit evidence"]
+      R1["new strategy R&D<br/>rd supervisor + scouts"]
+      R2["replay / panel / data split<br/>anti-overfit evidence"]
+      R3["shadow / forward validation<br/>paper sample tracker"]
+      R1 --> R2 --> R3
     end
 
-    subgraph GF["Governance + ops flows"]
+    subgraph GOVERNANCE["Governance"]
       direction TB
-      F8["closed-flow review<br/>post-trade attribution"]
-      F9["strategy promotion<br/>draft -> shadow -> live-small -> paused"]
-      F10["catalog / artifact hygiene<br/>register / stale / GC"]
-      F11["notify + quality<br/>alerts / tests / contracts"]
+      G1["closed-flow review<br/>post-trade attribution"]
+      G2["strategy promotion<br/>draft -> shadow -> live-small -> paused"]
+      G3["strategy diagnostics<br/>lessons + blockers"]
+      G1 --> G2 --> G3
+    end
+
+    subgraph OPS["Ops"]
+      direction TB
+      O1["catalog / artifact hygiene<br/>register / stale / GC"]
+      O2["notify dispatch<br/>operator alerts"]
+      O3["quality checks<br/>tests / contracts"]
+      O1 --> O2 --> O3
     end
   end
 
-  MG --> FLOWS
-  FLOWS --> CAP["capability banks<br/>observe / data / execute / governance"]
-  CAP --> FACTS["durable facts<br/>DB / catalog / artifact / strategy / state"]
-  FACTS --> SUMMARY["supervisor summary<br/>next constraints"]
-  SUMMARY -. "next wakeup constraints" .-> SP
+  subgraph SHARED["shared substrate"]
+    direction LR
+    CAP["capability banks<br/>observe / data / execute / governance"]
+    FACTS["durable facts<br/>trade.db / catalog / artifact / strategy / state"]
+    EX["Binance IO<br/>read APIs / gated write APIs"]
+    SUMMARY["supervisor summary<br/>next constraints"]
+    CAP --> FACTS
+    CAP --> EX --> FACTS
+    FACTS --> SUMMARY
+  end
 
-  CAP --> EX["Binance IO<br/>read APIs / gated write APIs"]
-  EX --> FACTS
+  ENTRY --> SP
+  MG --> T1
+  MG --> R1
+  MG --> G1
+  MG --> O1
+  T4 --> CAP
+  R3 --> CAP
+  G3 --> CAP
+  O3 --> CAP
+  SUMMARY -. "next wakeup constraints" .-> SP
 
   classDef entry fill:#102a43,stroke:#102a43,color:#fff;
   classDef sup fill:#efe7ff,stroke:#7a55c7,color:#111;
@@ -61,7 +85,7 @@ flowchart LR
   classDef io fill:#e8f8fb,stroke:#358b9a,color:#111;
   class ENTRY entry;
   class SP,GT,FO,MG sup;
-  class F1,F2,F3,F4,F5,F6,F7,F8,F9,F10,F11 flow;
+  class T1,T2,T3,T4,R1,R2,R3,G1,G2,G3,O1,O2,O3 flow;
   class CAP,FACTS,SUMMARY block;
   class EX io;
 ```
