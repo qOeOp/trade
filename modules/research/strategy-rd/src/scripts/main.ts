@@ -1,8 +1,17 @@
 #!/usr/bin/env bun
 
-import { readFileSync } from "node:fs"
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { dirname } from "node:path"
 import { assertProjectRuntimePath, repoRoot } from "../lib/paths"
+import { defaultCatalogDbPathForGeneratedPath, registerCatalogArtifact } from "../lib/data-catalog"
 import { fundingCarryGovernanceInputFromJson, runFundingCarryGovernance } from "../lib/funding-carry-governance"
+import {
+  createRdShadowTrackerFromForwardHoldout,
+  manifestRefsFromJson,
+  readJsonFile as readTrackerJsonFile,
+  updateRdShadowTracker,
+  type RdShadowTrackerOptions,
+} from "../lib/rd-shadow-tracker"
 import { runRdProgramStateCommand } from "../lib/rd-program-state"
 import { runRdSupervisorLoop } from "../lib/rd-supervisor-runner"
 import { candidateFromStrategyContract, compileStrategyContract, lintStrategyContract } from "../lib/strategy-contract"
@@ -37,12 +46,17 @@ interface Config {
   strategyDataSplit: boolean
   rdProgramState: boolean
   rdSupervisorRun: boolean
+  rdShadowTracker: boolean
   strategyBenchmark: boolean
   strategyCalibrationSuite: boolean
   fundingCarryGovernance: boolean
   strategySignal: boolean
   strategyCompile: boolean
   strategyLint: boolean
+  forwardResultPath: string
+  manifestMapPath: string
+  outputPath: string
+  now: string
   manifestPath: string
   strategyId: string
   timeframe: string
@@ -116,6 +130,7 @@ function runConfig(config: Config): unknown {
   }
   if (config.rdProgramState) return runRdProgramStateCommand({ path: config.statePath, input: config.input, catalogDbPath: config.catalogDbPath })
   if (config.rdSupervisorRun) return runRdSupervisorLoop({ path: config.statePath, input: config.input, catalogDbPath: config.catalogDbPath })
+  if (config.rdShadowTracker) return runRdShadowTracker(config)
   if (config.strategyBenchmark) return runTrendBenchmark(strategyBenchmarkInputFromJson(config.input))
   if (config.strategyCalibrationSuite) return runCalibrationSuite(strategyCalibrationInputFromJson(config.input))
   if (config.fundingCarryGovernance) return runFundingCarryGovernance(fundingCarryGovernanceInputFromJson(config.input))
@@ -147,12 +162,17 @@ function parseArgs(argv: string[]): Config {
     strategyDataSplit: false,
     rdProgramState: false,
     rdSupervisorRun: false,
+    rdShadowTracker: false,
     strategyBenchmark: false,
     strategyCalibrationSuite: false,
     fundingCarryGovernance: false,
     strategySignal: false,
     strategyCompile: false,
     strategyLint: false,
+    forwardResultPath: "",
+    manifestMapPath: "",
+    outputPath: "",
+    now: "",
     manifestPath: "",
     strategyId: "S-BTC-4H-TREND-PULLBACK",
     timeframe: "",
@@ -172,6 +192,7 @@ function parseArgs(argv: string[]): Config {
       case "--strategy-data-split": config.strategyDataSplit = true; break
       case "--rd-program-state": config.rdProgramState = true; break
       case "--rd-supervisor-run": config.rdSupervisorRun = true; break
+      case "--rd-shadow-tracker": config.rdShadowTracker = true; break
       case "--strategy-benchmark": config.strategyBenchmark = true; break
       case "--strategy-calibration-suite": config.strategyCalibrationSuite = true; break
       case "--funding-carry-governance": config.fundingCarryGovernance = true; break
@@ -192,7 +213,11 @@ function parseArgs(argv: string[]): Config {
       case "--anti-overfit-stage": config.antiOverfitStage = readAntiOverfitStage(readValue(argv, ++index, arg)); break
       case "--strategy": config.strategyPath = readValue(argv, ++index, arg); break
       case "--state": config.statePath = readValue(argv, ++index, arg); break
+      case "--forward-result": config.forwardResultPath = readValue(argv, ++index, arg); break
+      case "--manifest-map": config.manifestMapPath = readValue(argv, ++index, arg); break
+      case "--output": config.outputPath = readValue(argv, ++index, arg); break
       case "--catalog-db": config.catalogDbPath = readValue(argv, ++index, arg); break
+      case "--now": config.now = readValue(argv, ++index, arg); break
       case "--db": ++index; break
       case "--input": config.input = readJsonFile(readValue(argv, ++index, arg)); break
       case "--json": config.input = readJson(readValue(argv, ++index, arg)); break
@@ -230,6 +255,42 @@ function assertRuntimeOutputPaths(...paths: Array<string | undefined>): void {
   }
 }
 
+function runRdShadowTracker(config: Config): unknown {
+  if (!config.forwardResultPath && !config.statePath) {
+    throw new Error("--rd-shadow-tracker requires --forward-result or --state")
+  }
+  assertRuntimeOutputPaths(config.outputPath, config.catalogDbPath)
+  const options: RdShadowTrackerOptions = {
+    now: config.now || undefined,
+    sourceRef: config.forwardResultPath || undefined,
+    maxHoldBars: config.maxHoldBars,
+    forwardReport: config.statePath && config.forwardResultPath ? readTrackerJsonFile(config.forwardResultPath) : undefined,
+    manifestRefs: config.manifestMapPath ? manifestRefsFromJson(readTrackerJsonFile(config.manifestMapPath)) : undefined,
+  }
+  const state = config.statePath
+    ? updateRdShadowTracker(readTrackerJsonFile(config.statePath), options)
+    : createRdShadowTrackerFromForwardHoldout(readTrackerJsonFile(config.forwardResultPath), options)
+  if (!config.outputPath) {
+    return state
+  }
+  mkdirSync(dirname(config.outputPath), { recursive: true })
+  writeFileSync(config.outputPath, `${JSON.stringify({ ok: true, data: state }, null, 2)}\n`)
+  const catalogDbPath = config.catalogDbPath || defaultCatalogDbPathForGeneratedPath(config.outputPath)
+  registerCatalogArtifact({
+    catalogDbPath,
+    path: config.outputPath,
+    now: state.updated_at,
+    referrerType: "run",
+    referrerID: state.tracker_id,
+    role: "output",
+  })
+  return {
+    ...state,
+    output_ref: config.outputPath,
+    catalog_db_path: catalogDbPath,
+  }
+}
+
 function asRecord(value: unknown): JSONRecord {
   return value && typeof value === "object" && !Array.isArray(value) ? value as JSONRecord : {}
 }
@@ -263,6 +324,7 @@ function printHelp(): void {
   bun src/scripts/main.ts --strategy-rnd-campaign --json '{"campaign_id":"...","hypotheses":[...]}'
   bun src/scripts/main.ts --strategy-panel-rnd --json '{"datasets":[...],"candidates":[...]}'
   bun src/scripts/main.ts --rd-program-state --state ./data/rd/program.json --json '{"action":"plan_next"}'
+  bun src/scripts/main.ts --rd-shadow-tracker --forward-result ./tmp/forward.json --output ./tmp/artifacts/strategy-rnd/shadow.json
 `)
 }
 
