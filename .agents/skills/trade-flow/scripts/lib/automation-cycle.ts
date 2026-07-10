@@ -205,7 +205,7 @@ export function buildAutomationCyclePlan(db: Database, dbPath: string, input: Au
       "The supervisor and subagents must never call --run-live-small or execution Binance skills unless a separate live-small request is explicitly authorized.",
       "At most one job in a cycle may write trade.db at a time; existing cron lock remains the final local guard.",
       "Slow/R&D/catalog jobs must pass cadence due checks when the single external automation runs at fast-track frequency; review is event-first with cadence fallback.",
-      "R&D strategy supervisor must stop at shadow_candidate_found, budget_exhausted, or data_or_tool_blocked; it must not keep searching until something merely looks good.",
+      "R&D strategy supervisor must write a draft strategy policy after a gated validated candidate; otherwise it stops at budget_exhausted or data_or_tool_blocked.",
       "R&D strategy supervisor learns from prior failure_summary/reliability_gate records and must carry rejected mechanisms, universe lessons, and next hypothesis constraints forward.",
       "R&D forward trackers write artifacts only and cannot create strategy evidence or promotion by themselves.",
       "Closed-flow review is event-first: dispatch after trade/reconcile reports a newly closed unreviewed flow; the review cadence is only a fallback sweep.",
@@ -270,7 +270,7 @@ function rdStrategySupervisorJob(input: {
   const budget = asRecord(input.goal.budget)
   const programStateRef = input.programStateRef ? displayPath(input.programStateRef) : ""
   const supervisorPayload = {
-    max_iterations: 10,
+    max_iterations: 20,
     artifact_root: "./tmp/artifacts/strategy-rnd",
     catalog_db_path: input.catalogDb,
   }
@@ -296,7 +296,15 @@ function rdStrategySupervisorJob(input: {
     "--catalog-db",
     input.catalogDb,
     "--json",
-    JSON.stringify({ action: "init", objective: stringField(input.goal.objective) || "find a shadow-eligible 4H swing strategy" }),
+    JSON.stringify({
+      action: "init",
+      objective: stringField(input.goal.objective) || "find a shadow-eligible 4H swing strategy",
+      budget: {
+        max_hypotheses: positiveNumber(budget.max_hypotheses) || 20,
+        max_trials_total: positiveNumber(budget.max_trials_total) || 80,
+        max_locked_holdout_uses: positiveNumber(budget.max_locked_holdout_uses) || 1,
+      },
+    }),
   ]
   return {
     ...baseJob(input),
@@ -325,7 +333,7 @@ function rdStrategySupervisorJob(input: {
     }),
     entrypoint: "read rd_program_state, request action=plan_next, then explicitly run the returned R&D loop/campaign payload and write learning-memory updates until a stop condition is reached",
     research_loop_contract: {
-      loop_until: ["shadow_candidate_found", "budget_exhausted", "data_or_tool_blocked"],
+      loop_until: ["strategy_draft_created", "budget_exhausted", "data_or_tool_blocked"],
       stop_without_user: true,
       allowed_actions: [
         "--rd-program-state action=plan_next",
@@ -344,8 +352,8 @@ function rdStrategySupervisorJob(input: {
         "reuse failed locked holdout after modifying parameters",
       ],
       budget: {
-        max_hypotheses: positiveNumber(budget.max_hypotheses) || 5,
-        max_trials_total: positiveNumber(budget.max_trials_total) || 30,
+        max_hypotheses: positiveNumber(budget.max_hypotheses) || 20,
+        max_trials_total: positiveNumber(budget.max_trials_total) || 80,
         max_locked_holdout_uses: positiveNumber(budget.max_locked_holdout_uses) || 1,
       },
       learning_memory: {

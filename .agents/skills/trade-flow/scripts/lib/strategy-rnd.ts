@@ -202,6 +202,8 @@ function runStrategyRndLoop(input: StrategyRndLoopInput): StrategyRndLoopReport 
   writeJsonFile(artifactPath, {
     run_id: runId,
     created_at,
+    artifact_ref: artifactRef,
+    ledger_ref: ledgerRef,
     input: redactLoopInputForArtifact(input),
     batch,
     ledger_record: ledgerRecord,

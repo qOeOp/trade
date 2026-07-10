@@ -259,8 +259,8 @@ function readOptionalStatus(value: unknown): RdProgramStatus | undefined {
 
 function normalizeBudget(input: Partial<RdProgramBudget> | JSONRecord | undefined): RdProgramBudget {
   return {
-    max_hypotheses: positiveInteger(asRecord(input).max_hypotheses, 5),
-    max_trials_total: positiveInteger(asRecord(input).max_trials_total, 30),
+    max_hypotheses: positiveInteger(asRecord(input).max_hypotheses, 20),
+    max_trials_total: positiveInteger(asRecord(input).max_trials_total, 80),
     max_locked_holdout_uses: positiveInteger(asRecord(input).max_locked_holdout_uses, 1),
   }
 }

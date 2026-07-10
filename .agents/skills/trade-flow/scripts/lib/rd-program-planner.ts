@@ -1,15 +1,20 @@
+import { existsSync, readFileSync } from "node:fs"
 import type { JSONRecord } from "./json"
+import { resolveReadablePath } from "./paths"
 import type { RdProgramBudget, RdProgramState, RdSupervisorNextPlan } from "./rd-program-types"
 
 function buildRdSupervisorNextPlan(state: RdProgramState, statePath: string, input: JSONRecord = {}): RdSupervisorNextPlan {
   const now = normalizeDate(stringField(input.now) || undefined)
   const remaining = budgetRemaining(state)
+  const strategyUniverseBacklog = buildStrategyUniverseBacklog()
   const base = {
     schema_version: "trade-flow.rd-supervisor-next-plan.v1" as const,
     plan_id: stringField(input.plan_id) || `rd-next-${state.program_id}-${now.replace(/[^0-9]/g, "").slice(0, 14)}`,
     created_at: now,
     selected_hypothesis: null,
+    queue_seed_recommendation: buildQueueSeedRecommendation(state, strategyUniverseBacklog),
     scout_subagent_plan: buildScoutSubagentPlan(state, statePath, null),
+    strategy_universe_backlog: strategyUniverseBacklog,
     budget_remaining: remaining,
     guardrails: {
       read_only_plan: true as const,
@@ -30,7 +35,9 @@ function buildRdSupervisorNextPlan(state: RdProgramState, statePath: string, inp
     return {
       ...base,
       status: "blocked",
-      reason: hasBlockedQueue ? "next_hypothesis_queue has no ready hypothesis" : "next_hypothesis_queue is empty",
+      reason: hasBlockedQueue
+        ? "next_hypothesis_queue has no ready hypothesis; queue seed recommendation is available"
+        : "next_hypothesis_queue is empty; queue seed recommendation is available",
       command: null,
       payload: null,
     }
@@ -47,6 +54,7 @@ function buildRdSupervisorNextPlan(state: RdProgramState, statePath: string, inp
     command: useLoop ? "--strategy-rnd-loop" : "--strategy-rnd-campaign",
     payload,
     selected_hypothesis: hypothesis,
+    queue_seed_recommendation: null,
     scout_subagent_plan: buildScoutSubagentPlan(state, statePath, hypothesis),
   }
 }
@@ -62,6 +70,15 @@ function buildScoutSubagentPlan(state: RdProgramState, statePath: string, hypoth
     selected_hypothesis_id: hypothesisId || null,
     single_writer_rule: "Scouts are read-only. Only strategy-rd-supervisor may execute the R&D command or write rd_program_state.",
     scouts: [
+      {
+        role: "rd-taxonomy-scout",
+        agent_type: "explorer",
+        purpose: "Map the selected hypothesis or empty queue to the strategy universe taxonomy, then propose the next return driver, portfolio shape, data surface, and implementation gap.",
+        inputs: ["docs/strategy-universe-taxonomy.md", "selected_hypothesis", "rd_program_state.universe_lessons", "rd_program_state.rejected_mechanisms"],
+        required_output: "taxonomy_coverage_and_backlog_recommendation",
+        may_write_files: false,
+        may_write_state: false,
+      },
       {
         role: "rd-history-scout",
         agent_type: "explorer",
@@ -89,6 +106,197 @@ function buildScoutSubagentPlan(state: RdProgramState, statePath: string, hypoth
         may_write_files: false,
         may_write_state: false,
       },
+    ],
+  }
+}
+
+function buildStrategyUniverseBacklog(): JSONRecord {
+  const docRef = "docs/strategy-universe-taxonomy.md"
+  const machineBacklogRef = "data/rd/family-backlog.json"
+  const machineBacklog = readStrategyFamilyBacklog(machineBacklogRef)
+  const machineFamilies = array(machineBacklog.families).map(asRecord)
+  const derivedPriorityBacklog = machineFamilies.length > 0
+    ? priorityBacklogFromFamilies(machineFamilies)
+    : fallbackPriorityBacklog()
+  const implementedFamilies = machineFamilies.length > 0
+    ? machineFamilies
+      .filter((family) => stringField(family.status).startsWith("implemented_"))
+      .map((family) => stringField(family.family_id))
+      .filter(Boolean)
+    : fallbackImplementedFamilies()
+  const familyStatuses = machineFamilies.map((family) => compactRecord({
+    family_id: stringField(family.family_id),
+    priority: stringField(family.priority),
+    status: stringField(family.status),
+    return_driver: stringField(family.return_driver),
+    portfolio_shape: stringField(family.portfolio_shape),
+    data_surfaces: array(family.data_surfaces).map(String).filter(Boolean),
+    first_executable_surface: stringField(family.first_executable_surface),
+    promotion_boundary: stringField(family.promotion_boundary),
+    negative_controls: array(family.negative_controls).map(String).filter(Boolean),
+    next_actions: array(family.next_actions).map(String).filter(Boolean),
+  })).filter((family) => stringField(family.family_id))
+
+  return {
+    doc_ref: docRef,
+    machine_backlog_ref: machineBacklogRef,
+    p0_certificate_ref: stringField(machineBacklog.p0_certificate_ref),
+    machine_backlog_status: stringField(machineBacklog.machine_backlog_status) || "loaded",
+    machine_backlog_error: stringField(machineBacklog.machine_backlog_error) || undefined,
+    purpose: stringField(machineBacklog.purpose) || "Prevent RD from treating the five executable price-action families as the full strategy universe.",
+    coverage_axes: array(machineBacklog.coverage_axes).map(String).filter(Boolean).length > 0
+      ? array(machineBacklog.coverage_axes).map(String).filter(Boolean)
+      : ["return_driver", "portfolio_shape", "data_surface", "implementation_gap", "negative_controls"],
+    implemented_families: implementedFamilies,
+    priority_family_backlog: derivedPriorityBacklog,
+    family_statuses: familyStatuses,
+    recommended_queue_order: array(machineBacklog.recommended_queue_order).map(String).filter(Boolean),
+    planning_rules: array(machineBacklog.planner_rules).map(String).filter(Boolean).length > 0
+      ? array(machineBacklog.planner_rules).map(String).filter(Boolean)
+      : [
+      "If no executable family covers the return driver, open a family-design task instead of spending strategy trial budget.",
+      "If the data surface is missing point-in-time history, open data governance work before strategy trials.",
+      "If family and data are available, require a hypothesis certificate and mechanism-specific negative controls before executing trials.",
+    ],
+  }
+}
+
+function buildQueueSeedRecommendation(state: RdProgramState, strategyUniverseBacklog: JSONRecord): JSONRecord | null {
+  if (state.status !== "active") return null
+  const family = firstRecommendedFamily(strategyUniverseBacklog)
+  if (!family) return null
+  const familyID = stringField(family.family_id)
+  const status = stringField(family.status)
+  const requiredAction = requiredActionForFamilyStatus(status)
+  return {
+    schema_version: "trade-flow.rd-queue-seed-recommendation.v1",
+    source: "strategy_family_backlog",
+    reason: state.next_hypothesis_queue.length > 0
+      ? "No ready hypothesis is available in the queue."
+      : "The R&D hypothesis queue is empty.",
+    family_id: familyID,
+    priority: stringField(family.priority),
+    status,
+    required_action: requiredAction,
+    ready_for_strategy_trials: requiredAction === "strategy_trial",
+    return_driver: stringField(family.return_driver),
+    portfolio_shape: stringField(family.portfolio_shape),
+    data_surfaces: array(family.data_surfaces).map(String).filter(Boolean),
+    first_executable_surface: stringField(family.first_executable_surface),
+    promotion_boundary: stringField(family.promotion_boundary),
+    negative_controls: array(family.negative_controls).map(String).filter(Boolean),
+    next_actions: array(family.next_actions).map(String).filter(Boolean),
+    suggested_state_patch: {
+      followup_hypotheses: [compactRecord({
+        hypothesis_id: `${safeID(familyID)}-seed`,
+        family: familyID,
+        ready: false,
+        blocked_reason: seedBlockedReason(requiredAction),
+        return_driver: stringField(family.return_driver),
+        portfolio_shape: stringField(family.portfolio_shape),
+        data_surface: array(family.data_surfaces).map(String).filter(Boolean),
+        required_action: requiredAction,
+        next_actions: array(family.next_actions).map(String).filter(Boolean),
+      })],
+    },
+  }
+}
+
+function firstRecommendedFamily(strategyUniverseBacklog: JSONRecord): JSONRecord | null {
+  const familyStatuses = array(strategyUniverseBacklog.family_statuses).map(asRecord)
+  const recommended = array(strategyUniverseBacklog.recommended_queue_order).map(String).filter(Boolean)
+  for (const familyID of recommended) {
+    const family = familyStatuses.find((item) => stringField(item.family_id) === familyID)
+    if (family) return family
+  }
+  return familyStatuses.find((family) => stringField(family.priority).toUpperCase() === "P0") || null
+}
+
+function requiredActionForFamilyStatus(status: string): string {
+  if (status === "data_backlog") return "data_governance"
+  if (status === "design_backlog") return "family_design"
+  if (status === "implemented_panel_scorer") return "universe_gate_run"
+  if (status === "implemented_panel_research") return "panel_research"
+  if (status === "implemented_single_asset_replay") return "strategy_trial"
+  return "manual_triage"
+}
+
+function seedBlockedReason(requiredAction: string): string {
+  if (requiredAction === "data_governance") return "point-in-time data contract is missing"
+  if (requiredAction === "family_design") return "hypothesis certificate and replay semantics are missing"
+  if (requiredAction === "universe_gate_run") return "run the gate/scorer before strategy trials"
+  if (requiredAction === "panel_research") return "panel research needs manifest and portfolio boundary"
+  if (requiredAction === "strategy_trial") return "manifest, thesis certificate, and candidate params are not yet bound"
+  return "manual triage required before execution"
+}
+
+function readStrategyFamilyBacklog(path: string): JSONRecord {
+  const resolved = resolveReadablePath(path)
+  if (!existsSync(resolved)) {
+    return {
+      machine_backlog_status: "missing",
+      machine_backlog_error: `${path} not found`,
+    }
+  }
+  try {
+    return {
+      ...asRecord(JSON.parse(readFileSync(resolved, "utf8"))),
+      machine_backlog_status: "loaded",
+    }
+  } catch (error) {
+    return {
+      machine_backlog_status: "invalid_json",
+      machine_backlog_error: error instanceof Error ? error.message : String(error),
+    }
+  }
+}
+
+function priorityBacklogFromFamilies(families: JSONRecord[]): JSONRecord {
+  return {
+    p0: familyIDsForPriority(families, "P0"),
+    p1: familyIDsForPriority(families, "P1"),
+    p2: familyIDsForPriority(families, "P2"),
+  }
+}
+
+function familyIDsForPriority(families: JSONRecord[], priority: string): string[] {
+  return families
+    .filter((family) => stringField(family.priority).toUpperCase() === priority)
+    .map((family) => stringField(family.family_id))
+    .filter(Boolean)
+}
+
+function fallbackImplementedFamilies(): string[] {
+  return [
+    "trend_pullback_v1",
+    "structure_breakout_retest_v1",
+    "time_series_momentum_v1",
+    "volatility_compression_breakout_v1",
+    "relative_weakness_momentum_v1",
+  ]
+}
+
+function fallbackPriorityBacklog(): JSONRecord {
+  return {
+    p0: [
+      "cross_sectional_momentum_v1",
+      "cross_sectional_reversal_v1",
+      "funding_carry_v1",
+      "marketability_score_v1",
+      "regime_router_v1",
+    ],
+    p1: [
+      "liquidation_sweep_reversal_v1",
+      "pairs_relative_value_v1",
+      "basis_relative_value_v1",
+      "orderflow_imbalance_v1",
+      "volatility_regime_breakout_v1",
+    ],
+    p2: [
+      "market_making_v1",
+      "options_vol_carry_v1",
+      "onchain_flow_v1",
+      "news_event_v1",
     ],
   }
 }

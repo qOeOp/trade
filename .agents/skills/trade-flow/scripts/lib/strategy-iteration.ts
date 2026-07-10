@@ -71,7 +71,7 @@ interface ExecutionAttribution {
 
 interface EvidenceQualification {
   funding_event_coverage?: JSONRecord
-  panel_null_gate?: JSONRecord
+  panel_negative_control_gate?: JSONRecord
 }
 
 interface StrategyReviewReport {
@@ -98,8 +98,8 @@ interface StrategyReviewReport {
 interface StrategyReviewDiagnostics {
   qualification: {
     funding_event_coverage_status: string | null
-    panel_null_status: string | null
-    panel_null_blocked: boolean | null
+    panel_negative_control_status: string | null
+    panel_negative_control_blocked: boolean | null
     blocked_by: string[]
   }
   decay: StrategyDecayDiagnostics
@@ -826,10 +826,10 @@ function replayQualification(replay: ReplayResult, input?: EvidenceQualification
 
 function normalizeQualification(value: EvidenceQualification): EvidenceQualification {
   const funding = asRecord(value.funding_event_coverage)
-  const panel = asRecord(value.panel_null_gate)
+  const panel = asRecord(value.panel_negative_control_gate)
   return {
     ...(Object.keys(funding).length > 0 ? { funding_event_coverage: funding } : {}),
-    ...(Object.keys(panel).length > 0 ? { panel_null_gate: panel } : {}),
+    ...(Object.keys(panel).length > 0 ? { panel_negative_control_gate: panel } : {}),
   }
 }
 
@@ -943,10 +943,10 @@ function evaluateQualification(record: StrategyEvidenceRecord): Array<{ check_id
   if (fundingStatus && !["complete", "full", "none", "not_provided"].includes(fundingStatus)) {
     blocked.push({ check_id: "S-FUNDING-COVERAGE", reason: `funding_event_coverage.status=${fundingStatus} cannot authorize shadow` })
   }
-  const panel = asRecord(record.qualification?.panel_null_gate)
+  const panel = asRecord(record.qualification?.panel_negative_control_gate)
   const panelStatus = stringField(panel.status)
   if (Object.keys(panel).length > 0 && (panel.blocked === true || panelStatus !== "evaluated")) {
-    blocked.push({ check_id: "S-PANEL-NULL", reason: "panel null gate must be evaluated and unblocked before shadow" })
+    blocked.push({ check_id: "S-PANEL-NEGATIVE-CONTROL", reason: "panel negative control gate must be evaluated and unblocked before shadow" })
   }
   return blocked
 }
@@ -954,14 +954,14 @@ function evaluateQualification(record: StrategyEvidenceRecord): Array<{ check_id
 function buildReviewDiagnostics(latest: StrategyReviewReport["latest"], gate: StrategyPromotionGate): StrategyReviewDiagnostics {
   const replay = latest.replay
   const funding = asRecord(replay?.qualification?.funding_event_coverage)
-  const panel = asRecord(replay?.qualification?.panel_null_gate)
+  const panel = asRecord(replay?.qualification?.panel_negative_control_gate)
   const blockedBy = gate.blocked_by.map((item) => item.check_id)
   const decay = buildDecayDiagnostics(latest)
   return {
     qualification: {
       funding_event_coverage_status: stringField(funding.status) || null,
-      panel_null_status: stringField(panel.status) || null,
-      panel_null_blocked: Object.keys(panel).length > 0 ? panel.blocked === true : null,
+      panel_negative_control_status: stringField(panel.status) || null,
+      panel_negative_control_blocked: Object.keys(panel).length > 0 ? panel.blocked === true : null,
       blocked_by: blockedBy.filter((checkId) => checkId.startsWith("S-FUNDING") || checkId.startsWith("S-PANEL")),
     },
     decay,
@@ -1123,7 +1123,7 @@ function summarizeReviewFailures(checkIds: string[]): StrategyReviewDiagnostics[
 
 function reviewFailureArea(checkId: string): string {
   if (checkId.startsWith("S-FUNDING")) return "funding_coverage"
-  if (checkId.startsWith("S-PANEL")) return "panel_null"
+  if (checkId.startsWith("S-PANEL")) return "panel_negative_control"
   if (checkId.startsWith("S-OOS") || checkId === "S-HOLDOUT-MISSING" || checkId === "S-SEARCH-BUDGET" || checkId === "S-PARAM-COUNT") return "anti_overfit"
   if (checkId.startsWith("S-ROBUSTNESS")) return "robustness"
   if (checkId.startsWith("S-SHADOW-ATTRIBUTION")) return "shadow_execution_attribution"
@@ -1137,7 +1137,7 @@ function reviewFailureNextAction(area: string): string {
   switch (area) {
     case "funding_coverage":
       return "Backfill exact funding coverage before treating replay evidence as shadow-ready."
-    case "panel_null":
+    case "panel_negative_control":
       return "Re-run or reject the candidate through panel R&D; do not use single-asset evidence alone."
     case "anti_overfit":
       return "Use locked holdout or walk-forward proof within the declared search budget."

@@ -23,6 +23,7 @@ export function parseArgs(argv: string[]): CommandConfig {
   let automationCycle = false
   let strategyBenchmark = false
   let strategyCalibrationSuite = false
+  let fundingCarryGovernance = false
   let strategySignal = false
   let strategyCompile = false
   let strategyLint = false
@@ -138,6 +139,9 @@ export function parseArgs(argv: string[]): CommandConfig {
         break
       case "--strategy-calibration-suite":
         strategyCalibrationSuite = true
+        break
+      case "--funding-carry-governance":
+        fundingCarryGovernance = true
         break
       case "--strategy-signal":
         strategySignal = true
@@ -314,6 +318,7 @@ export function parseArgs(argv: string[]): CommandConfig {
     automationCycle,
     strategyBenchmark,
     strategyCalibrationSuite,
+    fundingCarryGovernance,
     strategySignal,
     strategyCompile,
     strategyLint,

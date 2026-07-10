@@ -4,7 +4,7 @@ import {
   buildCostModel,
   buildWeightSchedule,
   chronologicalFolds,
-  nullControlDiagnostics,
+  negativeControlDiagnostics,
   regimeAttribution,
   simulate,
   stressCostModel,
@@ -35,7 +35,7 @@ test("benchmark simulation diagnostics remain deterministic", () => {
   const weights = [[0.5, -0.5], [0.25, -0.25], [0.5, -0.5]]
   const cost = buildCostModel({ datasets: [], feeBps: 0, slippageBps: 0, fundingBpsPer8h: 0 })
   const simulated = simulate(panel, weights, 3, 2, cost, 0, "4h")
-  const controls = nullControlDiagnostics(panel, weights, 3, 2, cost, "4h", 20, simulated.stats.sharpe, 7)
+  const controls = negativeControlDiagnostics(panel, weights, 3, 2, cost, "4h", 20, simulated.stats.sharpe, 7)
   assert.equal(controls.method, "portfolio_weight_time_shift_side_flip_asset_shuffle")
   assert.equal(controls.trials, 20)
   assert.ok(controls.time_shift)

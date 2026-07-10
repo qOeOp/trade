@@ -33,6 +33,39 @@ test("panel summary handles wrapped and missing blocker fields", () => {
   ])
 })
 
+test("panel summary reports marketability scores without pretending they are R", () => {
+  const summary = summarizeStrategyPanelRnd({
+    outcome: "no_promote",
+    diagnostic_mode: false,
+    trial_count: 1,
+    candidates: [{
+      candidate_id: "MKT",
+      family: "marketability_score_v1",
+      pooled: { avg_r: 91 },
+      marketability: { score_avg: 91, passed_assets: 2, required_passed_assets: 3 },
+      assets: [{
+        dataset_id: "BTC",
+        marketability: { score: 95, passed: true, blocked_by: [] },
+      }, {
+        dataset_id: "MICRO",
+        marketability: { score: 22, passed: false, blocked_by: ["MARKETABILITY-QUOTE-VOLUME"] },
+      }],
+      gate: { blocked_by: [{ check_id: "PANEL-NON-TRADING-FAMILY" }] },
+    }],
+  })
+
+  assert.deepEqual(summary.candidates, [{
+    candidate_id: "MKT",
+    family: "marketability_score_v1",
+    marketability: { score_avg: 91, passed_assets: 2, required_passed_assets: 3 },
+    asset_scores: [
+      { dataset_id: "BTC", score: 95, passed: true, blocked_by: [] },
+      { dataset_id: "MICRO", score: 22, passed: false, blocked_by: ["MARKETABILITY-QUOTE-VOLUME"] },
+    ],
+    blocked_by: ["PANEL-NON-TRADING-FAMILY"],
+  }])
+})
+
 test("R&D loop summary exposes batch failure context", () => {
   const artifact = {
     run_id: "run-1",

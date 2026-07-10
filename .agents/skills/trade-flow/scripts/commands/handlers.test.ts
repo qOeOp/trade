@@ -354,6 +354,7 @@ function baseConfig(overrides: Partial<CommandConfig>): CommandConfig {
     automationCycle: false,
     strategyBenchmark: false,
     strategyCalibrationSuite: false,
+    fundingCarryGovernance: false,
     strategySignal: false,
     strategyCompile: false,
     strategyLint: false,

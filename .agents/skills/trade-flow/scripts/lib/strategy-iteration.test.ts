@@ -212,7 +212,7 @@ test("strategy promote blocks replay qualification failures", () => {
     ledgerPath,
     replayResult: replayWithAssumptions(dir, assumptions),
     qualification: {
-      panel_null_gate: {
+      panel_negative_control_gate: {
         status: "evaluated",
         blocked: true,
         blocked_by: ["PANEL-ASSET-SHUFFLE"],
@@ -223,16 +223,16 @@ test("strategy promote blocks replay qualification failures", () => {
   const report = reviewStrategy({ strategyPath, ledgerPath })
   assert.equal(report.gate.shadow_candidate, false)
   assert.equal(report.gate.blocked_by.some((item) => item.check_id === "S-FUNDING-COVERAGE"), true)
-  assert.equal(report.gate.blocked_by.some((item) => item.check_id === "S-PANEL-NULL"), true)
+  assert.equal(report.gate.blocked_by.some((item) => item.check_id === "S-PANEL-NEGATIVE-CONTROL"), true)
   assert.equal(report.diagnostics.qualification.funding_event_coverage_status, "partial")
-  assert.equal(report.diagnostics.qualification.panel_null_status, "evaluated")
-  assert.equal(report.diagnostics.qualification.panel_null_blocked, true)
-  assert.deepEqual(report.diagnostics.qualification.blocked_by, ["S-FUNDING-COVERAGE", "S-PANEL-NULL"])
+  assert.equal(report.diagnostics.qualification.panel_negative_control_status, "evaluated")
+  assert.equal(report.diagnostics.qualification.panel_negative_control_blocked, true)
+  assert.deepEqual(report.diagnostics.qualification.blocked_by, ["S-FUNDING-COVERAGE", "S-PANEL-NEGATIVE-CONTROL"])
   assert.equal(report.diagnostics.failure_attribution.some((item) => item.area === "funding_coverage"), true)
-  assert.equal(report.diagnostics.failure_attribution.some((item) => item.area === "panel_null"), true)
-  const ledgerRecord = loadEvidenceLedger(ledgerPath)[0] as unknown as { qualification: { funding_event_coverage: { status: string }; panel_null_gate: { blocked: boolean } } }
+  assert.equal(report.diagnostics.failure_attribution.some((item) => item.area === "panel_negative_control"), true)
+  const ledgerRecord = loadEvidenceLedger(ledgerPath)[0] as unknown as { qualification: { funding_event_coverage: { status: string }; panel_negative_control_gate: { blocked: boolean } } }
   assert.equal(ledgerRecord.qualification.funding_event_coverage.status, "partial")
-  assert.equal(ledgerRecord.qualification.panel_null_gate.blocked, true)
+  assert.equal(ledgerRecord.qualification.panel_negative_control_gate.blocked, true)
 })
 
 test("replay evidence becomes stale when source data changes", () => {

@@ -6,10 +6,11 @@ import {
   evaluateRndCandidate,
   evaluateRndRobustness,
   flippedSideParams,
+  laggedEntryStrategy,
   rebuildSignalAtEntry,
-  summarizeNullControl,
+  summarizeNegativeControl,
 } from "./strategy-rnd-evaluation"
-import type { ReplayResult, ReplaySignal } from "./replay-core"
+import type { ReplayResult, ReplaySignal, ReplayStrategy } from "./replay-core"
 
 test("strategy R&D evaluation counts active parameters and flips side params", () => {
   assert.equal(countActiveParameters({
@@ -37,10 +38,56 @@ test("strategy R&D evaluation rebuilds delayed entry signal", () => {
   const rebuilt = rebuildSignalAtEntry(signal, 13, 14, 103)
   assert.equal(rebuilt?.entry, 103)
   assert.equal(rebuilt?.target, 119)
-  assert.equal(rebuilt?.reason, "fixture null entry lag")
+  assert.equal(rebuilt?.reason, "fixture negative control entry lag")
 })
 
-test("strategy R&D evaluation summarizes null controls and gates blockers", () => {
+test("strategy R&D entry-lag negative control replays source signal with source entry price", () => {
+  const calls: Array<{ index: number; entryIndex: number; entryPrice: number }> = []
+  const strategy: ReplayStrategy = {
+    strategy_id: "fixture",
+    default_timeframe: "4h",
+    warmup_bars: 0,
+    generateSignal(input) {
+      calls.push({ index: input.index, entryIndex: input.entryIndex, entryPrice: input.entryPrice })
+      return {
+        side: "long",
+        signal_index: input.index,
+        entry_index: input.entryIndex,
+        entry: input.entryPrice,
+        stop: input.entryPrice - 10,
+        target: input.entryPrice + 20,
+        reason: "fixture",
+      }
+    },
+  }
+  const candles = Array.from({ length: 20 }, (_, index) => ({
+    date: new Date(1_700_000_000_000 + index * 4 * 60 * 60 * 1000).toISOString(),
+    timestamp: 1_700_000_000_000 + index * 4 * 60 * 60 * 1000,
+    open: 100 + index,
+    high: 101 + index,
+    low: 99 + index,
+    close: 100 + index,
+    volume: 1000,
+  }))
+  const lagged = laggedEntryStrategy(strategy, 3)
+  const signal = lagged.generateSignal({
+    candles,
+    indicators: { ema20: [], ema50: [], ema200: [], atr14: [] },
+    index: 10,
+    entryIndex: 11,
+    entryPrice: 111,
+    options: { manifestPath: "/tmp/manifest.json" },
+  })
+
+  assert.deepEqual(calls, [{ index: 7, entryIndex: 8, entryPrice: 108 }])
+  assert.equal(signal?.signal_index, 10)
+  assert.equal(signal?.entry_index, 11)
+  assert.equal(signal?.entry, 111)
+  assert.equal(signal?.stop, 98)
+  assert.equal(signal?.target, 137)
+})
+
+test("strategy R&D evaluation summarizes negative controls and gates blockers", () => {
   const replay = replayFixture({
     total_r: 5,
     avg_r: 0.5,
@@ -53,11 +100,11 @@ test("strategy R&D evaluation summarizes null controls and gates blockers", () =
       profit_factor: 1,
     },
   })
-  const nullSummary = summarizeNullControl("side_flip", replay)
-  assert.equal(nullSummary.control_id, "side_flip")
-  assert.equal(nullSummary.sample_count, replay.sample_count)
+  const negativeControlSummary = summarizeNegativeControl("side_flip", replay)
+  assert.equal(negativeControlSummary.control_id, "side_flip")
+  assert.equal(negativeControlSummary.sample_count, replay.sample_count)
 
-  const gate = evaluateRndCandidate(replay, 9, [{ check_id: "RND-NULL-NOT-BEATEN", reason: "null beat candidate" }])
+  const gate = evaluateRndCandidate(replay, 9, [{ check_id: "RND-NEGATIVE-CONTROL-NOT-BEATEN", reason: "negative control beat candidate" }])
   assert.equal(gate.accepted, false)
   assert.deepEqual(gate.blocked_by.map((item) => item.check_id), [
     "RND-OOS-SAMPLE",
@@ -70,7 +117,7 @@ test("strategy R&D evaluation summarizes null controls and gates blockers", () =
     "RND-ROBUSTNESS-REGIME",
     "RND-ROBUSTNESS-COST",
     "RND-ROBUSTNESS-PARAM",
-    "RND-NULL-NOT-BEATEN",
+    "RND-NEGATIVE-CONTROL-NOT-BEATEN",
   ])
 })
 
@@ -197,8 +244,10 @@ function strongerReport(replay: ReplayResult) {
     parameter_count: 1,
     params: {},
     replay,
-    null_controls: {
+    negative_controls: {
       method: "side_flip_and_entry_lag" as const,
+      observed_sample_count: replay.sample_count,
+      observed_avg_r: replay.avg_r,
       observed_total_r: replay.total_r,
       controls: [],
       blocked_by: [],

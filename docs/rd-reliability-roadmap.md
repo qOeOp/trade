@@ -36,16 +36,16 @@ title: R&D Reliability Roadmap
 
 ## 5. 负对照层
 
-- 目标：所有 known-edge 和 candidate 都必须战胜合理 null。
-- 当前：calibration 已保留 weight time-shift，并新增 side flip / asset-label shuffle 诊断；candidate batch 已输出 side-flip / entry-lag null controls；panel R&D 已输出 cross-candidate asset shuffle null，单候选时显式 `not_applicable`；campaign 可消费 `panel_report_path`，panel null 失败时停止在 `panel_null_failed`；strategy evidence 已记录 `panel_null_gate` 并在 blocked / not evaluated 时阻断升 `shadow`。
+- 目标：所有 known-edge 和 candidate 都必须战胜合理 negative control。
+- 当前：calibration 已保留 weight time-shift，并新增 side flip / asset-label shuffle 诊断；candidate batch 已输出 side-flip / entry-lag negative controls；panel R&D 已输出 cross-candidate asset shuffle negative control，单候选时显式 `not_applicable`；campaign 可消费 `panel_report_path`，panel negative control 失败时停止在 `panel_negative_control_failed`；strategy evidence 已记录 `panel_negative_control_gate` 并在 blocked / not evaluated 时阻断升 `shadow`。
 - 下一块：把 shadow 阶段的真实执行归因自动汇总，避免 replay 合格但执行吃掉 edge。
-- 完成信号：轻微正收益但未过 null 的候选不会进入下一阶段。
+- 完成信号：轻微正收益但未过 negative control 的候选不会进入下一阶段。
 
 ## 6. R&D 搜索层
 
 - 目标：只有 calibration 过关后才搜索；搜索失败进入学习记忆并生成下一条更受约束的 hypothesis，不盲目换参数。
 - 当前：`--strategy-rnd-campaign` 可读取 `calibration_report_path`；未校准或含 blocker 时零 trial 停止；candidate batch 已输出 `failure_summary` 与 `reliability_gate`，把样本画像、失败层和继续 trial 权限机器化。
-- 当前：strategy review 已输出 `diagnostics.qualification` 与 `diagnostics.failure_attribution`，能直接暴露 funding / panel null / anti-overfit / robustness / shadow attribution 阻断层。
+- 当前：strategy review 已输出 `diagnostics.qualification` 与 `diagnostics.failure_attribution`，能直接暴露 funding / panel negative control / anti-overfit / robustness / shadow attribution 阻断层。
 - 当前：`--automation-cycle` 已能生成 `rd_strategy_supervisor` job；该 job 由 subagent 在 artifact/catalog scope 内循环到 `shadow_candidate_found / budget_exhausted / data_or_tool_blocked`，并把 `failure_summary / reliability_gate / rejected_mechanisms / universe_lessons / next_hypothesis_queue` 写回学习记忆。
 - 当前：learning memory 已有机器可读 `rd_program_state` artifact；总控可通过 `rd_program_state_path` 读取 objective / budget / usage / lessons / queue，并在 state 非 `active` 时停止 R&D supervisor。
 - 当前：`--rd-program-state` 可 init/read/update；`--strategy-rnd-loop` / `--strategy-rnd-campaign` 可显式写回 usage、failure、reliability 与 artifact refs；`--strategy-review` 可把 execution attribution、cost feedback 与 replay-to-shadow/live decay 写回 state。

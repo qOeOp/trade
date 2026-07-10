@@ -70,7 +70,7 @@ export interface FullTrialStatisticalReport {
     declared_trials: number
     observed_avg_r: number
     standard_error_r: number | null
-    expected_max_null_avg_r: number
+    expected_max_negative_control_avg_r: number
     probability_edge_after_trials: number | null
     required_probability: number
     passed: boolean
@@ -271,7 +271,7 @@ export function summarizeCandidateBlockers(candidates: StrategyRndCandidateRepor
 export function failureAreaForCheck(checkId: string): string {
   if (!checkId) return "none"
   if (checkId.includes("FUNDING-COVERAGE")) return "data_funding_coverage"
-  if (checkId.includes("NULL-NOT-BEATEN")) return "negative_control"
+  if (checkId.includes("NEGATIVE-CONTROL-NOT-BEATEN")) return "negative_control"
   if (checkId.includes("SAMPLE")) return "sample_efficiency"
   if (checkId.includes("EDGE-MARGIN")) return "edge_expectancy"
   if (checkId.includes("EXPECTANCY") || checkId.includes("PROFIT-FACTOR")) return "edge_expectancy"
@@ -307,7 +307,7 @@ export function nextSystemActions(primary: string, blockers: FailureSummary["top
     case "risk_shape":
       return ["Redesign stop/target geometry before adding confirmation factors."]
     case "negative_control":
-      return ["Reject mild positive edge until it beats side-flip and delayed-entry null controls."]
+      return ["Reject mild positive edge until it beats side-flip and delayed-entry negative controls."]
     default:
       return blockers.length > 0
         ? ["Stop this hypothesis batch; inspect top blockers before running more trials."]
@@ -369,7 +369,7 @@ function buildDeflatedEdgeProbability(
     declared_trials: trials,
     observed_avg_r: round(bestStats?.avg_r ?? 0),
     standard_error_r: null,
-    expected_max_null_avg_r: 0,
+    expected_max_negative_control_avg_r: 0,
     probability_edge_after_trials: null,
     required_probability: MIN_DEFLATED_EDGE_PROBABILITY,
     passed: false,
@@ -379,15 +379,15 @@ function buildDeflatedEdgeProbability(
   const rValues = winner.replay.trades.map((trade) => trade.r).filter(Number.isFinite)
   const stdev = sampleStdev(rValues)
   const standardError = stdev / Math.sqrt(Math.max(1, bestStats.sample_count))
-  const expectedMaxNullAvg = trials > 1 ? stdev * inverseNormalCdf(1 - 1 / Math.max(2, trials)) / Math.sqrt(Math.max(1, bestStats.sample_count)) : 0
+  const expectedMaxNegativeControlAvg = trials > 1 ? stdev * inverseNormalCdf(1 - 1 / Math.max(2, trials)) / Math.sqrt(Math.max(1, bestStats.sample_count)) : 0
   const probability = standardError === 0
-    ? bestStats.avg_r > expectedMaxNullAvg ? 1 : 0
-    : normalCdf((bestStats.avg_r - expectedMaxNullAvg) / standardError)
+    ? bestStats.avg_r > expectedMaxNegativeControlAvg ? 1 : 0
+    : normalCdf((bestStats.avg_r - expectedMaxNegativeControlAvg) / standardError)
   return {
     ...base,
     status: "evaluated",
     standard_error_r: round(standardError),
-    expected_max_null_avg_r: round(expectedMaxNullAvg),
+    expected_max_negative_control_avg_r: round(expectedMaxNegativeControlAvg),
     probability_edge_after_trials: round(probability),
     passed: probability >= MIN_DEFLATED_EDGE_PROBABILITY,
   }

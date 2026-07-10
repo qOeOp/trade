@@ -1,5 +1,6 @@
 import { runArtifactGc } from "../lib/artifact-hygiene"
 import { assertProjectRuntimePath } from "../lib/paths"
+import { fundingCarryGovernanceInputFromJson, runFundingCarryGovernance } from "../lib/funding-carry-governance"
 import { runRdProgramStateCommand } from "../lib/rd-program-state"
 import { runRdSupervisorLoop } from "../lib/rd-supervisor-runner"
 import { candidateFromStrategyContract, compileStrategyContract, lintStrategyContract } from "../lib/strategy-contract"
@@ -85,6 +86,9 @@ export function handleResearchCommand(config: CommandConfig): ScriptResponse | n
   }
   if (config.strategyCalibrationSuite) {
     return successResponse(runCalibrationSuite(strategyCalibrationInputFromJson(config.input)))
+  }
+  if (config.fundingCarryGovernance) {
+    return successResponse(runFundingCarryGovernance(fundingCarryGovernanceInputFromJson(config.input)))
   }
   if (config.strategyCompile) {
     if (!config.strategyPath) {

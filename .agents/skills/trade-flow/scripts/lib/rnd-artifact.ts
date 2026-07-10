@@ -2,12 +2,6 @@ import { readFileSync } from "node:fs"
 
 type JSONRecord = Record<string, unknown>
 
-interface PanelCandidateSummary {
-  candidate_id: string
-  pooled: JSONRecord
-  blocked_by: string[]
-}
-
 interface RndLoopCandidateSummary {
   candidate_id: string
   sample_count: number
@@ -37,8 +31,25 @@ function summarizeStrategyPanelRnd(value: JSONRecord): JSONRecord {
     outcome: stringField(data.outcome),
     diagnostic_mode: data.diagnostic_mode === true,
     trial_count: numberField(data.trial_count),
-    candidates: array(data.candidates).map((raw): PanelCandidateSummary => {
+    candidates: array(data.candidates).map((raw): JSONRecord => {
       const candidate = asRecord(raw)
+      if (stringField(candidate.family) === "marketability_score_v1" || isRecord(candidate.marketability)) {
+        return {
+          candidate_id: stringField(candidate.candidate_id),
+          family: "marketability_score_v1",
+          marketability: asRecord(candidate.marketability),
+          asset_scores: array(candidate.assets).map(asRecord).map((asset) => {
+            const marketability = asRecord(asset.marketability)
+            return {
+              dataset_id: stringField(asset.dataset_id),
+              score: numberField(marketability.score),
+              passed: marketability.passed === true,
+              blocked_by: array(marketability.blocked_by).map(String).filter(Boolean),
+            }
+          }),
+          blocked_by: candidateBlockedBy(candidate),
+        }
+      }
       return {
         candidate_id: stringField(candidate.candidate_id),
         pooled: asRecord(candidate.pooled),

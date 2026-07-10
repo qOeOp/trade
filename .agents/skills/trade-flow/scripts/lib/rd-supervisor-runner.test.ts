@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
@@ -10,6 +10,8 @@ import {
   writeRdProgramState,
 } from "./rd-program-state"
 import { runRdSupervisorLoopWithDeps } from "./rd-supervisor-runner"
+import { resolveRepoPath } from "./paths"
+import { lintStrategyContract } from "./strategy-contract"
 import type { JSONRecord } from "./json"
 
 test("rd supervisor runner loops plan execution and state writeback until budget exhaustion", () => {
@@ -82,6 +84,102 @@ test("rd supervisor runner loops plan execution and state writeback until budget
   }
 })
 
+test("rd supervisor runner writes a draft strategy after a validated campaign candidate", () => {
+  const dir = mkdtempSync(join(tmpdir(), "rd-supervisor-draft-"))
+  try {
+    const path = join(dir, "state.json")
+    const catalogDb = join(dir, "catalog.db")
+    const strategyRoot = join(dir, "strategies")
+    writeRdProgramState(path, createRdProgramState({
+      programId: "rd-draft",
+      objective: "validate a candidate before landing a strategy draft",
+      now: "2026-07-09T12:00:00Z",
+      budget: { max_hypotheses: 3, max_trials_total: 12, max_locked_holdout_uses: 2 },
+      nextHypothesisQueue: [{
+        hypothesis_id: "h1",
+        mode: "campaign",
+        hypothesis: "validated pullback continuation survives locked holdout",
+        discovery_manifest_path: "data/discovery/manifest.json",
+        validation_manifest_path: "data/validation/manifest.json",
+        thesis_certificate: {
+          causal_claim: "entry waits for post-impulse pullback instead of chasing continuation",
+          falsifiable_prediction: "locked validation remains positive after cost and negative controls",
+          negative_controls: ["side_flip", "entry_lag"],
+        },
+        candidates: [{
+          candidate_id: "Candidate Validated",
+          family: "trend_pullback_v1",
+          params: {
+            side: "long",
+            stop_atr: 0.8,
+            max_risk_atr: 1.6,
+            reward_risk: 2.4,
+            max_hold_bars: 18,
+          },
+        }],
+      }],
+    }), catalogDb)
+
+    const result = runRdSupervisorLoopWithDeps({
+      path,
+      catalogDbPath: catalogDb,
+      input: { now: "2026-07-09T13:00:00Z", max_iterations: 5, strategy_root: strategyRoot },
+    }, {
+      runLoop: () => {
+        throw new Error("loop should not run")
+      },
+      runCampaign: (payload) => {
+        const report = {
+          campaign_id: String(payload.campaign_id),
+          created_at: String(payload.now),
+          artifact_ref: join(dir, "campaign.json"),
+          outcome: "validated_candidate_found",
+          stop_reason: "validated_candidate_found",
+          trials_used: 1,
+          hypotheses_run: 1,
+          holdout_evaluations: 1,
+          validated_candidate: {
+            candidate_id: "Candidate Validated",
+            family: "trend_pullback_v1",
+            parameter_count: 1,
+            params: {
+              side: "long",
+              stop_atr: 0.8,
+              max_risk_atr: 1.6,
+              reward_risk: 2.4,
+              max_hold_bars: 18,
+            },
+            validation_run_ref: "tmp/artifacts/strategy-rnd/candidate-validation.json",
+          },
+          runs: [{
+            hypothesis_id: "h1",
+            discovery_run_ref: "tmp/artifacts/strategy-rnd/candidate-discovery.json",
+            validation_run_ref: "tmp/artifacts/strategy-rnd/candidate-validation.json",
+          }],
+        }
+        writeRdProgramState(
+          String(payload.rd_program_state_path),
+          updateRdProgramStateFromResearchResult(readRdProgramState(String(payload.rd_program_state_path)), report, String(payload.now)),
+          catalogDb,
+        )
+        return report
+      },
+    })
+
+    assertSchemaRequired(readSchema("rd-supervisor-run-result"), result as unknown as JSONRecord)
+    assert.equal(result.status, "strategy_draft_created")
+    assert.match(result.strategy_ref || "", /s-candidate-validated\.md$/)
+    assert.equal(existsSync(resolveRepoPath(result.strategy_ref || "")), true)
+    const lint = lintStrategyContract(resolveRepoPath(result.strategy_ref || ""))
+    assert.equal(lint.valid, true, lint.errors.join("; "))
+    assert.equal(result.final_state.status, "shadow_candidate_found")
+    assert.equal(asRecord(result.final_state.latest_reliability_gate).strategy_ref, result.strategy_ref)
+    assert.ok(result.final_state.artifact_refs.includes(result.strategy_ref || ""))
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("rd supervisor runner marks empty active queue as data/tool blocked", () => {
   const dir = mkdtempSync(join(tmpdir(), "rd-supervisor-empty-"))
   try {
@@ -107,6 +205,10 @@ test("rd supervisor runner marks empty active queue as data/tool blocked", () =>
     assert.equal(result.status, "data_or_tool_blocked")
     assert.equal(result.iterations.length, 1)
     assert.match(String(result.final_state.latest_failure_summary?.reason), /next_hypothesis_queue is empty/)
+    const iterationSeed = asRecord(result.iterations[0]?.queue_seed_recommendation)
+    assert.equal(iterationSeed.family_id, "marketability_score_v1")
+    const writtenSeed = asRecord(asRecord(result.final_state.latest_failure_summary).queue_seed_recommendation)
+    assert.equal(writtenSeed.required_action, "universe_gate_run")
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -124,4 +226,8 @@ function assertSchemaRequired(schema: JSONRecord, result: JSONRecord): void {
 
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : []
+}
+
+function asRecord(value: unknown): JSONRecord {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as JSONRecord : {}
 }

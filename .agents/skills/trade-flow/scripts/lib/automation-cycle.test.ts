@@ -102,7 +102,7 @@ test("automation cycle plan can dispatch a learning strategy R&D supervisor", ()
     assert.equal(rd.may_write_trade_db, false)
     assert.equal(rd.may_call_binance_write, false)
     const contract = asRecord(rd.research_loop_contract)
-    assert.deepEqual(contract.loop_until, ["shadow_candidate_found", "budget_exhausted", "data_or_tool_blocked"])
+    assert.deepEqual(contract.loop_until, ["strategy_draft_created", "budget_exhausted", "data_or_tool_blocked"])
     assert.equal(asRecord(contract.budget).max_hypotheses, 3)
     assert.deepEqual(asRecord(contract.learning_memory).write_back, [
       "failure_summary",
@@ -111,6 +111,7 @@ test("automation cycle plan can dispatch a learning strategy R&D supervisor", ()
       "universe_lessons",
       "next_hypothesis_queue",
     ])
+    assert.equal(asRecord(contract.budget).max_trials_total, 18)
     const sidecars = asArray(contract.sidecar_subagents).map(asRecord)
     assert.deepEqual(sidecars.map((sidecar) => sidecar.role), ["rd-history-scout", "rd-data-scout", "rd-edge-scout"])
     assert.equal(sidecars.every((sidecar) => sidecar.may_write_state === false), true)
@@ -123,6 +124,9 @@ test("automation cycle plan can dispatch a learning strategy R&D supervisor", ()
       "--state",
       "./data/rd/program.json",
     ])
+    const initPayload = JSON.parse(String(asArray(asRecord(rd.init_command_spec).argv).at(-1))) as { budget: { max_hypotheses: number; max_trials_total: number } }
+    assert.equal(initPayload.budget.max_hypotheses, 3)
+    assert.equal(initPayload.budget.max_trials_total, 18)
     const parallel = asRecord(asArray(result.dispatch_order).find((stage) => asRecord(stage).stage === "parallel_isolated_work"))
     assert.ok(asArray(parallel.job_ids).includes("rd_strategy_supervisor"))
   } finally {
@@ -178,6 +182,8 @@ test("automation cycle plan can drive R&D supervisor from durable program state"
     assert.equal(asRecord(contract.budget).max_trials_total, 8)
     assert.equal(asRecord(contract.learning_memory).read_ref, statePath)
     assert.ok(asArray(contract.allowed_actions).includes("--rd-program-state action=plan_next"))
+    const supervisorPayload = JSON.parse(String(asArray(commandSpec.argv).at(-1))) as { max_iterations: number }
+    assert.equal(supervisorPayload.max_iterations, 20)
 
     writeRdProgramState(
       statePath,

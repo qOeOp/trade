@@ -298,7 +298,7 @@ bun .agents/skills/trade-flow/scripts/main.ts --rd-supervisor-run --state ./data
 | `--strategy-rnd-loop` | 一轮 batch + artifact + catalog ledger |
 | `--strategy-rnd-campaign` | 多 hypothesis discovery + non-overlapping validation |
 | `--strategy-data-split` | 切 discovery / validation / locked_holdout |
-| `--strategy-panel-rnd` | 跨资产广度和 null control |
+| `--strategy-panel-rnd` | 跨资产广度和 negative control |
 
 `rd_program_state` 是 research memory，不是 strategy evidence。
 

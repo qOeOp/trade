@@ -288,6 +288,110 @@ test("data catalog initializes schema and scans datasets, runs, artifacts, and l
   }
 })
 
+test("data catalog classifies strategy data split reports without panel pollution", () => {
+  const dir = mkdtempSync(join(tmpdir(), "data-catalog-split-report-"))
+  try {
+    const catalogDbPath = join(dir, "data_catalog.db")
+    const reportPath = join(dir, "split-report.json")
+    writeFileSync(reportPath, JSON.stringify({
+      schema_version: "trade-flow.strategy-data-split.v1",
+      split_id: "split-1",
+      hypothesis_id: "h1",
+      generated_at: "2026-01-05T00:00:00.000Z",
+      timeframe: "4h",
+      output_root: "tmp/panels/strategy-data-splits/split-1",
+      ratios: { discovery: 0.6, validation: 0.2, locked_holdout: 0.2 },
+      embargo: { bars: 24 },
+      dataset_count: 1,
+      datasets: [{ dataset_id: "BTCUSDT", segments: [] }],
+      guardrails: { locked_holdout_reserved: true },
+    }))
+
+    const registered = registerCatalogArtifact({
+      catalogDbPath,
+      path: reportPath,
+      now: "2026-01-05T00:00:00.000Z",
+      referrerType: "strategy_data_split",
+      referrerID: "split-1",
+      role: "report",
+    })
+    assert.equal(registered.research_reports_upserted, 1)
+    assert.equal(registered.datasets_upserted, 0)
+    assert.equal(registered.panels_upserted, 0)
+
+    const query = queryDataCatalog({ catalogDbPath, reportKind: "strategy_data_split", limit: 10 })
+    assert.equal(query.research_reports.length, 1)
+    assert.equal(query.research_reports[0].report_kind, "strategy_data_split")
+    assert.equal(query.datasets.length, 0)
+    assert.equal(query.panels.length, 0)
+
+    const db = new Database(catalogDbPath)
+    try {
+      db.query("INSERT INTO dataset(dataset_id, kind, manifest_path, created_at) VALUES ('bad-dataset', 'panel', $path, '2026-01-05T00:00:00.000Z')").run({ $path: registered.path })
+      db.query("INSERT INTO panel(panel_id, manifest_path, created_at) VALUES ('bad-panel', $path, '2026-01-05T00:00:00.000Z')").run({ $path: registered.path })
+    } finally {
+      db.close()
+    }
+    registerCatalogArtifact({
+      catalogDbPath,
+      path: reportPath,
+      now: "2026-01-05T00:01:00.000Z",
+      referrerType: "strategy_data_split",
+      referrerID: "split-1",
+      role: "report",
+    })
+    const cleaned = queryDataCatalog({ catalogDbPath, reportKind: "strategy_data_split", limit: 10 })
+    assert.equal(cleaned.datasets.length, 0)
+    assert.equal(cleaned.panels.length, 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("data catalog does not classify panel R&D input drafts as reports", () => {
+  const dir = mkdtempSync(join(tmpdir(), "data-catalog-panel-rnd-"))
+  try {
+    const catalogDbPath = join(dir, "data_catalog.db")
+    const root = join(dir, "artifacts")
+    mkdirSync(root, { recursive: true })
+    writeFileSync(join(root, "panel-input.json"), JSON.stringify({
+      panel_id: "panel-input",
+      hypothesis: "input draft",
+      datasets: [{ dataset_id: "BTC", manifest_path: "tmp/panels/btc/manifest.json" }],
+      candidates: [{ candidate_id: "C-1", params: { side: "long" } }],
+    }))
+    writeFileSync(join(root, "panel-result.json"), JSON.stringify({
+      panel_id: "panel-result",
+      hypothesis: "complete result",
+      diagnostic_mode: false,
+      dataset_count: 3,
+      trial_count: 1,
+      outcome: "no_promote",
+      candidates: [{
+        candidate_id: "C-1",
+        family: "structure_breakout_retest_v1",
+        pooled: { sample_count: 101, avg_r: 0.01, total_r: 1, positive_assets: 1, asset_count: 3 },
+        negative_controls: {},
+        panel_negative_controls: {},
+        catastrophic_assets: [],
+        assets: [],
+        gate: { accepted: false, blocked_by: [] },
+      }],
+    }))
+
+    scanDataCatalog({ catalogDbPath, roots: [root], now: "2026-01-04T00:00:00.000Z" })
+    const catalog = new Database(catalogDbPath)
+    try {
+      const rows = catalog.query("SELECT report_id FROM research_report WHERE report_kind='strategy_panel_rnd' ORDER BY report_id").all() as Array<{ report_id: string }>
+      assert.deepEqual(rows.map((row) => row.report_id), ["panel-result"])
+    } finally {
+      catalog.close()
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 function displaySuffix(path: string): string {
   return path.split("/").slice(-4).join("/")
 }

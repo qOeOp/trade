@@ -105,7 +105,7 @@ latest_observe.action_intent.request
   - `--build-observe --json <payload>`：从账户 / 市场投影构建 observe event
   - `--observe-from-skills --json <payload>`：调用只读 `binance-account-snapshot` / `binance-symbol-snapshot` 后构建 observe event
   - `--replay-strategy --manifest <manifest> --strategy-id <id>`：读取 OHLCV manifest，通过 replay registry 机械回放策略，并输出统计与 gate
-  - `--strategy-rnd-batch --json <payload>`：运行最多 10 个候选；`factor_discover=true + factor_compose=true` 时先做因子统计筛选，再按角色与参数预算组合到预声明 base family；统一 replay/OOS、candidate null controls 和失败归因，不自动升格
+  - `--strategy-rnd-batch --json <payload>`：运行最多 10 个候选；`factor_discover=true + factor_compose=true` 时先做因子统计筛选，再按角色与参数预算组合到预声明 base family；统一 replay/OOS、candidate negative controls 和失败归因，不自动升格
   - `--strategy-rnd-loop --json <payload>`：运行一轮 R&D loop，写 artifact JSON 和 `data_catalog.db.strategy_rnd_run`；payload 带 `rd_program_state_path` 时把 `failure_summary / reliability_gate / artifact_ref` 写回 learning memory；不写 `trade.db`，不自动升格
   - `--strategy-rnd-campaign --json <payload>`：依次运行 hypothesis queue；可选 `calibration_report_path` 未过则零 trial 停止；未产生 discovery winner 才继续下一假设；首个 winner 冻结后只查看一次不重叠 locked holdout，通过即返回，失败即结束 campaign；payload 带 `rd_program_state_path` 时把 campaign usage、stop reason、validated candidate 或失败机制写回 learning memory
   - `--strategy-panel-rnd --json <payload>`：同一候选在至少三个资产上复用统一 replay，保留逐资产证据并执行样本、广度、OOS、成本与灾难损失门槛
@@ -114,7 +114,8 @@ latest_observe.action_intent.request
   - `--rd-supervisor-run --state <path> --json <payload>`：执行 `plan_next -> strategy-rnd-loop/campaign -> state writeback` 的自主 R&D supervisor loop，直到 `shadow_candidate_found / budget_exhausted / data_or_tool_blocked`、`max_iterations` 或非 active state；只写 R&D artifact / catalog / `rd_program_state`
   - `--automation-cycle --json <payload>`：生成单一自动化入口的 supervisor plan；外部 automation 可按该 plan 用 subagent 分发 slow / fast / strategy R&D supervisor / R&D forward tracker / review / catalog job。可传 `rd_program_state_path` 让研发线读取机器可读 learning memory；state 非 `active` 时研发 supervisor 停线。strategy R&D supervisor 负责在预算内持续迭代 hypothesis，直到 `shadow_candidate_found / budget_exhausted / data_or_tool_blocked`；closed-flow review 由上游闭合事件触发并在交易写入后串行执行，cadence 只补漏。该命令只产出任务图，`executable=false`，不执行交易
   - `--strategy-benchmark --json <payload>`：运行固定 30/90/180 日、15% 目标波动的多资产趋势基准、成本/资金费压力、时间折和组合权重循环移位负对照；只标定研究管线
-  - `--strategy-calibration-suite --json <payload>`：运行 buy-and-hold / cash baseline、固定趋势基准、固定横截面强弱基准，并可消费 dataset `indicator_report_path` 中的 exact funding events，输出 report hash、可选 previous-run comparison、data_panel、beta、fee/slippage 成本拆分、funding、换手、暴露、时间/趋势/波动 regime 稳定性、time-shift / side-flip / asset-shuffle 负对照与数据广度诊断；只回答 R&D 管线该先修哪里
+- `--strategy-calibration-suite --json <payload>`：运行 buy-and-hold / cash baseline、固定趋势基准、固定横截面强弱基准，并可消费 dataset `indicator_report_path` 中的 exact funding events，输出 report hash、可选 previous-run comparison、data_panel、beta、fee/slippage 成本拆分、funding、换手、暴露、时间/趋势/波动 regime 稳定性、time-shift / side-flip / asset-shuffle 负对照与数据广度诊断；只回答 R&D 管线该先修哪里
+- `--funding-carry-governance --json <payload>`：读取 OHLCV manifest 与 `indicator_report_path` 中的 exact funding events，检查 `funding_carry_v1` 是否具备 full funding coverage；覆盖不足时只输出 data governance blocker，不消耗策略 trial
   - `--strategy-signal --json <payload>`：用最新闭合 K 线与传入 `entry_price` 评估 candidate，并返回稳定 candidate hash；只返回 `entry / no_action`，不写 DB、不执行
   - `--strategy-signal --strategy <path> --json <payload>`：从 strategy markdown 的 `## Trade Contract` 编译 candidate；运行时路径如 `benchmark_manifest_path` 从 payload 注入
   - `--strategy-compile --strategy <path>`：把 strategy markdown 编译成 engine-facing contract JSON
@@ -157,7 +158,8 @@ latest_observe.action_intent.request
 - `--strategy-benchmark` 固定规则且禁止参数搜索；结果只回答管线能否识别已知机制，不是策略准入证据，不进入 shadow / live
 - `--strategy-calibration-suite` 固定规则且禁止参数搜索；`data_panel` 用来暴露 schema、closed candle、source 与对齐质量问题；buy-and-hold 只做 beta 诊断，`execution_attribution / regime_attribution / failure_analysis` 用来暴露系统问题和下一步修复动作；成本模型只拆 `maker_fee_bps / taker_fee_bps / market_order_share / slippage_bps`，不伪造 maker 队列成交概率；exact funding 覆盖不足只触发 `CAL-FUNDING-COVERAGE`，不得伪装成历史 funding 结果；suite 结果不进入 strategy evidence 或 promotion gate
 - calibration `report_hash / previous_run_comparison` 只用于 artifact diff 和退化诊断；不得作为 strategy promotion evidence
-- calibration 负对照固定包含 weight time-shift、side flip 与 asset-label shuffle；新增正收益必须先打败合理 null，不能只看绝对收益。
+- calibration 负对照固定包含 weight time-shift、side flip 与 asset-label shuffle；新增正收益必须先打败合理 negative control，不能只看绝对收益。
+- `--funding-carry-governance` 是 funding_carry_v1 的前置数据闸：只有 `funding_event_coverage.status=full` 且最大 funding gap 不超过 9 小时才允许进入 funding carry research；该命令本身不产生 strategy evidence
 - replay 与 `--strategy-signal` 调用同一 family：replay 注入下一根 open，在线评估注入当前可成交报价；family 不得读取未来 K 线
 - `--strategy-signal` 默认要求最后一根闭合 K 线距当前不超过 1 个周期；陈旧或尚未闭合的数据直接拒绝
 - factor 发现、目录、解释和计算由 `tech-indicators` descriptor 提供；trade-flow 只消费稳定 `factor_id` 与 feature series，不硬编码 indicator 名称
@@ -169,12 +171,12 @@ latest_observe.action_intent.request
 - bounded composer 最多组合 3 个不同角色 factor、最多输出 10 个 candidate，并把 threshold 与 transform lookback 计入 8 参数上限；不做无界笛卡尔积
 - `factor_discover=true` 先用 base family 的实际 setup/trade R 作为目标，再做 causal rank IC；全部扫描 factor 通过 5% FDR、时间折、regime 与 `|corr|>=0.85` 去重后才能成为 seed
 - 多候选且样本足够时执行四时间块 rank-reversal 审计；反转率超过 50% 时 batch 不选 winner。它是轻量选择偏差诊断，不冒充完整 CSCV/PBO
-- candidate R&D 固定输出 side-flip 与 entry-lag null controls；候选为正但打不过有效 null 时追加 `RND-NULL-NOT-BEATEN`
+- candidate R&D 固定输出 side-flip 与 entry-lag negative controls；候选为正但打不过有效 negative control 时追加 `RND-NEGATIVE-CONTROL-NOT-BEATEN`
 - family 是少量市场机制的可执行实验模板，不追求穷举形态；未经 replay/OOS/成本/稳定性验证的 candidate 不进入长期 asset
 - family 从 `scripts/lib/rnd-families/*.family.ts` 自动发现；新增 family 只新增模块，不修改 `strategy-rnd.ts`、union 或中央注册表
 - 冻结 candidate 在不重叠外部样本上失败后必须停止；任何参数、过滤器或规则修改都作为新 hypothesis / trial，不能用调参覆盖失败结论
 - `structure_breakout_retest_v1` 的结构位只从突破前历史窗口滚动计算，固定要求收盘突破、随后回踩守住，不消费事后生成的支撑阻力
-- 当前 family 覆盖 trend pullback、structure breakout/retest、time-series momentum、volatility compression breakout 与 relative weakness momentum；不是形态百科
+- 当前单资产 replay family 覆盖 trend pullback、structure breakout/retest、time-series momentum、volatility compression breakout 与 relative weakness momentum；panel research 另支持 `cross_sectional_momentum_v1` / `cross_sectional_reversal_v1` 的横截面排序研究，以及 `marketability_score_v1` 的 OHLCV marketability proxy。panel research family 不直接授权 shadow / promotion。
 - replay core 固定保守口径：同一 lane 不重叠持仓、同 K 同时触发 stop/target 时先算 stop、止损跳空按更差开盘、可选 break-even 保护止损只在触发 K 线之后生效、支持 fee/slippage；factor report 含 funding events 时按方向与结算时点逐次计费，否则使用 adverse funding stress；训练标签跨 OOS 边界时 purge
 - funding events 若未覆盖完整 replay 区间或存在大于 9 小时缺口，证据标记 `R-FUNDING-COVERAGE`，不得进入 shadow
 - `gate.live_small_candidate` 在 replay 阶段永远是 false；live-small 还必须经过 shadow 与人工确认

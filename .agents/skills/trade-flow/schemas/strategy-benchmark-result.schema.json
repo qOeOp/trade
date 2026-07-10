@@ -4,7 +4,7 @@
   "title": "trade-flow strategy benchmark result",
   "description": "Stable outer shape for fixed benchmark calibration reports.",
   "type": "object",
-  "required": ["benchmark_id", "harness_hash", "purpose", "calibrated", "blocked_by", "datasets", "period", "assumptions", "observed", "execution_attribution", "chronological_folds", "regime_attribution", "cost_stress", "cost_stress_attribution", "funding_stress", "funding_stress_attribution", "funding_event_coverage", "historical_funding", "historical_funding_attribution", "null_control"],
+  "required": ["benchmark_id", "harness_hash", "purpose", "calibrated", "blocked_by", "datasets", "period", "assumptions", "observed", "execution_attribution", "chronological_folds", "regime_attribution", "cost_stress", "cost_stress_attribution", "funding_stress", "funding_stress_attribution", "funding_event_coverage", "historical_funding", "historical_funding_attribution", "negative_control"],
   "properties": {
     "benchmark_id": { "type": "string", "minLength": 1 },
     "harness_hash": { "type": "string", "minLength": 1 },
@@ -25,7 +25,7 @@
     "funding_event_coverage": { "type": "object" },
     "historical_funding": {},
     "historical_funding_attribution": {},
-    "null_control": { "type": "object" },
+    "negative_control": { "type": "object" },
     "notes": { "type": "array" }
   },
   "additionalProperties": false

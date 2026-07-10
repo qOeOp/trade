@@ -717,6 +717,7 @@ function emptyExtractionCounts(): ArtifactExtractionCounts {
 
 function extractArtifactMetadata(db: Database, artifactID: string, path: string, now: Date): ArtifactExtractionCounts {
   const counts = emptyExtractionCounts()
+  clearDerivedArtifactMetadata(db, artifactID, path)
   const json = readJsonIfSmall(path)
   counts.datasets += upsertDatasetsFromManifest(db, path, json, now)
   const panel = upsertPanelFromJson(db, artifactID, path, json, now)
@@ -750,6 +751,17 @@ function extractArtifactMetadata(db: Database, artifactID: string, path: string,
     counts.artifactRefs += evidence.refs
   }
   return counts
+}
+
+function clearDerivedArtifactMetadata(db: Database, artifactID: string, path: string): void {
+  const relPath = displayPath(path)
+  db.query("DELETE FROM panel_member WHERE artifact_id = $artifact_id").run({ $artifact_id: artifactID })
+  db.query("DELETE FROM panel WHERE manifest_path = $path").run({ $path: relPath })
+  db.query("DELETE FROM dataset WHERE manifest_path = $path").run({ $path: relPath })
+  db.query("DELETE FROM feature_report WHERE artifact_id = $artifact_id").run({ $artifact_id: artifactID })
+  db.query("DELETE FROM research_report WHERE artifact_id = $artifact_id").run({ $artifact_id: artifactID })
+  db.query("DELETE FROM strategy_rnd_run WHERE artifact_id = $artifact_id").run({ $artifact_id: artifactID })
+  db.query("DELETE FROM strategy_evidence WHERE artifact_id = $artifact_id").run({ $artifact_id: artifactID })
 }
 
 function addExtractionCounts(result: CatalogScanResult, counts: ArtifactExtractionCounts): void {
@@ -1070,7 +1082,7 @@ function researchReportSummary(path: string, data: JSONRecord, now: Date): {
       },
     }
   }
-  if (stringField(data.panel_id) && asArray(data.candidates).length > 0) {
+  if (isStrategyPanelRndResult(data)) {
     return {
       report_kind: "strategy_panel_rnd",
       report_id: stringField(data.panel_id),
@@ -1099,6 +1111,24 @@ function researchReportSummary(path: string, data: JSONRecord, now: Date): {
     }
   }
   return null
+}
+
+function isStrategyPanelRndResult(data: JSONRecord): boolean {
+  const candidates = asArray(data.candidates).map(asRecord)
+  return stringField(data.panel_id).length > 0
+    && ["candidate_found", "no_promote", "diagnostic_only"].includes(stringField(data.outcome))
+    && Number.isInteger(Number(data.dataset_count))
+    && Number.isInteger(Number(data.trial_count))
+    && candidates.length > 0
+    && candidates.every((candidate) => {
+      const pooled = asRecord(candidate.pooled)
+      const gate = asRecord(candidate.gate)
+      return stringField(candidate.candidate_id).length > 0
+        && Number.isFinite(Number(pooled.sample_count))
+        && Array.isArray(candidate.assets)
+        && Array.isArray(gate.blocked_by)
+        && typeof gate.accepted === "boolean"
+    })
 }
 
 function compactDataPanel(panel: JSONRecord): JSONRecord {

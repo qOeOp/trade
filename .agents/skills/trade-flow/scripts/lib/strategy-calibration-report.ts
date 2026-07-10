@@ -130,7 +130,7 @@ function componentFindings(component: string, report: JSONRecord): DiagnosticFin
   const cost = asStats(report.cost_stress)
   const funding = asStats(report.funding_stress)
   const historicalFunding = asStats(report.historical_funding)
-  const nullControl = asRecord(report.null_control)
+  const negativeControl = asRecord(report.negative_control)
   const fundingCoverage = asRecord(report.funding_event_coverage)
   const folds = array(report.chronological_folds).map(asStats)
   const regimeBuckets = array(asRecord(report.regime_attribution).buckets).map(asRecord)
@@ -153,17 +153,17 @@ function componentFindings(component: string, report: JSONRecord): DiagnosticFin
       next_system_action: "Diagnose benchmark construction and data before increasing candidate search.",
     })
   }
-  const empiricalP = numberField(nullControl.empirical_p_value)
+  const empiricalP = numberField(negativeControl.empirical_p_value)
   if (empiricalP > 0.05) {
     findings.push({
-      check_id: "CAL-NULL-NOT-BEATEN",
+      check_id: "CAL-NEGATIVE-CONTROL-NOT-BEATEN",
       severity: "blocker",
       component,
-      evidence: { empirical_p_value: empiricalP, observed_sharpe: stats.sharpe, p95_sharpe: numberField(nullControl.p95_sharpe) },
+      evidence: { empirical_p_value: empiricalP, observed_sharpe: stats.sharpe, p95_sharpe: numberField(negativeControl.p95_sharpe) },
       next_system_action: "Keep negative controls in the loop; do not accept mild positive returns as edge.",
     })
   }
-  const sideFlip = asStats(nullControl.side_flip)
+  const sideFlip = asStats(negativeControl.side_flip)
   if (sideFlip.sharpe >= stats.sharpe || sideFlip.total_return > 0) {
     findings.push({
       check_id: "CAL-SIDE-FLIP-NOT-BEATEN",
@@ -173,7 +173,7 @@ function componentFindings(component: string, report: JSONRecord): DiagnosticFin
       next_system_action: "Check whether the rule direction is economically meaningful before treating it as edge.",
     })
   }
-  const assetShuffle = asRecord(nullControl.asset_label_shuffle)
+  const assetShuffle = asRecord(negativeControl.asset_label_shuffle)
   const assetShuffleP = numberField(assetShuffle.empirical_p_value)
   if (assetShuffleP > 0.05) {
     findings.push({

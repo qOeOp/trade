@@ -11,9 +11,10 @@
     "started_at": { "type": "string", "minLength": 1 },
     "stopped_at": { "type": "string", "minLength": 1 },
     "status": {
-      "enum": ["shadow_candidate_found", "budget_exhausted", "data_or_tool_blocked", "iteration_limit_reached", "stopped"]
+      "enum": ["strategy_draft_created", "shadow_candidate_found", "budget_exhausted", "data_or_tool_blocked", "iteration_limit_reached", "stopped"]
     },
     "stop_reason": { "type": "string", "minLength": 1 },
+    "strategy_ref": { "type": "string", "minLength": 1 },
     "iterations": {
       "type": "array",
       "items": {

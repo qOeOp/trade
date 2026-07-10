@@ -71,7 +71,9 @@ interface RdSupervisorNextPlan {
   command: string | null
   payload: JSONRecord | null
   selected_hypothesis: JSONRecord | null
+  queue_seed_recommendation: JSONRecord | null
   scout_subagent_plan: JSONRecord
+  strategy_universe_backlog: JSONRecord
   budget_remaining: RdProgramBudget
   guardrails: {
     read_only_plan: true

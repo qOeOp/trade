@@ -1,11 +1,13 @@
 ---
 title: R&D Research Survey
-updated_at: 2026-07-09 10:42 CST
+updated_at: 2026-07-10 CST
 ---
 
 # R&D Research Survey
 
 结论：先进策略研发不是“搜索更大参数空间”，而是**约束搜索自由度、证明结果不是选择偏差、证明执行链吃不掉 edge**。当前项目方向正确，但若要接近专业研发流程，下一层不是加更多 family，而是补研究审计、统计校正、数据可用性证明与执行现实模型。
+
+策略宇宙与 family backlog 单独维护在 `docs/strategy-universe-taxonomy.md`。本文件回答“如何证明”；taxonomy 回答“应该研究哪些收益来源、组合形态和数据面”。两者必须同时成立：分类不完整会让 RD 错过大类机会，验证不严格会让 RD 把噪音落成策略。
 
 ## 1. 学术与机构方法
 
@@ -18,7 +20,7 @@ updated_at: 2026-07-09 10:42 CST
 落点：
 
 - R&D ledger 不能只记录 winner；必须能重建本轮完整候选宇宙。
-- 后续新增 `research_universe_id`：同一 hypothesis 下的全部 transforms / thresholds / null / failed trials 共享一个统计校正上下文。
+- 后续新增 `research_universe_id`：同一 hypothesis 下的全部 transforms / thresholds / negative controls / failed trials 共享一个统计校正上下文。
 - 当前 `trial_count <= 10` 是好底线，但还不是 Reality Check / SPA。
 
 ### PBO / DSR / CPCV
@@ -131,7 +133,7 @@ updated_at: 2026-07-09 10:42 CST
 ### P0
 
 1. **Hypothesis certificate**
-   已落地基础 gate：每个 campaign 开始前必须写 edge 类型、市场参与者行为假设、适用 regime、失效条件、成本敏感度、候选 universe、null controls；空缺则零 trial。后续可增强 expected holding/turnover 与 null coverage。
+   已落地基础 gate：每个 campaign 开始前必须写 edge 类型、市场参与者行为假设、适用 regime、失效条件、成本敏感度、候选 universe、negative controls；空缺则零 trial。后续可增强 expected holding/turnover 与 negative control coverage。
 
 2. **Temporal contract**
    已落地 replay provenance 基础版：每个 replay 输出 `reference_at / availability_at / lookback_start / label_end / universe_selected_at`，并记录 supplemental report 的 declared availability；缺 temporal contract 的 replay evidence 在 strategy review 中视为 legacy/stale。后续再做 factor pipeline 的逐步可见重算。

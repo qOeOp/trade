@@ -37,7 +37,7 @@
     "goal": { "type": "object" },
     "next_plan": {
       "type": "object",
-      "required": ["schema_version", "plan_id", "created_at", "status", "reason", "command", "payload", "selected_hypothesis", "scout_subagent_plan", "budget_remaining", "guardrails"],
+      "required": ["schema_version", "plan_id", "created_at", "status", "reason", "command", "payload", "selected_hypothesis", "queue_seed_recommendation", "scout_subagent_plan", "strategy_universe_backlog", "budget_remaining", "guardrails"],
       "properties": {
         "schema_version": { "const": "trade-flow.rd-supervisor-next-plan.v1" },
         "plan_id": { "type": "string", "minLength": 1 },
@@ -47,6 +47,7 @@
         "command": { "type": ["string", "null"] },
         "payload": { "type": ["object", "null"] },
         "selected_hypothesis": { "type": ["object", "null"] },
+        "queue_seed_recommendation": { "type": ["object", "null"] },
         "scout_subagent_plan": {
           "type": "object",
           "required": ["schema_version", "enabled", "dispatch_timing", "execution_model", "state_ref", "selected_hypothesis_id", "single_writer_rule", "scouts"],
@@ -77,6 +78,19 @@
             }
           },
           "additionalProperties": false
+        },
+        "strategy_universe_backlog": {
+          "type": "object",
+          "required": ["doc_ref", "purpose", "coverage_axes", "implemented_families", "priority_family_backlog", "planning_rules"],
+          "properties": {
+            "doc_ref": { "type": "string", "minLength": 1 },
+            "purpose": { "type": "string", "minLength": 1 },
+            "coverage_axes": { "type": "array", "items": { "type": "string" } },
+            "implemented_families": { "type": "array", "items": { "type": "string" } },
+            "priority_family_backlog": { "type": "object" },
+            "planning_rules": { "type": "array", "items": { "type": "string" } }
+          },
+          "additionalProperties": true
         },
         "budget_remaining": { "type": "object" },
         "guardrails": {

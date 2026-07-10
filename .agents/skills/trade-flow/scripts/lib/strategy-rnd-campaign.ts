@@ -14,7 +14,7 @@ export interface StrategyRndCampaignReport {
   artifact_ref: string
   ledger_ref: string
   outcome: "validated_candidate_found" | "no_validated_candidate"
-  stop_reason: "validated_candidate_found" | "hypothesis_queue_exhausted" | "trial_budget_exhausted" | "locked_holdout_failed" | "calibration_failed" | "hypothesis_certificate_failed" | "panel_null_failed"
+  stop_reason: "validated_candidate_found" | "hypothesis_queue_exhausted" | "trial_budget_exhausted" | "locked_holdout_failed" | "calibration_failed" | "hypothesis_certificate_failed" | "panel_negative_control_failed"
   calibration_gate: JSONRecord | null
   hypothesis_certificates: HypothesisCertificateGate[]
   panel_report_ref: string | null
@@ -35,7 +35,7 @@ export interface StrategyRndCampaignReport {
     discovery_outcome: "candidate_found" | "no_promote"
     discovery_failure_summary: JSONRecord | null
     discovery_reliability_gate: JSONRecord | null
-    panel_null_gate: JSONRecord | null
+    panel_negative_control_gate: JSONRecord | null
     validation_run_ref: string | null
     validation_outcome: "candidate_found" | "no_promote" | null
   }>
@@ -137,7 +137,7 @@ export function runStrategyRndCampaignWithDeps(
       discovery_outcome: discovery.batch.outcome,
       discovery_failure_summary: asNullableRecord(discovery.batch.failure_summary),
       discovery_reliability_gate: asNullableRecord(discovery.batch.reliability_gate),
-      panel_null_gate: null,
+      panel_negative_control_gate: null,
       validation_run_ref: null,
       validation_outcome: null,
     }
@@ -147,10 +147,10 @@ export function runStrategyRndCampaignWithDeps(
     }
 
     const winner = discovery.batch.winner
-    const panelNullGate = input.panelReportPath ? readPanelNullGate(input.panelReportPath, winner.candidate_id) : null
-    runSummary.panel_null_gate = panelNullGate
-    if (panelNullGate?.blocked === true) {
-      stopReason = "panel_null_failed"
+    const panelNegativeControlGate = input.panelReportPath ? readPanelNegativeControlGate(input.panelReportPath, winner.candidate_id) : null
+    runSummary.panel_negative_control_gate = panelNegativeControlGate
+    if (panelNegativeControlGate?.blocked === true) {
+      stopReason = "panel_negative_control_failed"
       break
     }
     const winnerFilters = Array.isArray(winner.params.factor_conditions) ? winner.params.factor_conditions : []
@@ -252,7 +252,7 @@ export function readHypothesisCertificateGate(hypothesis: StrategyRndCampaignHyp
     requiredText(certificate.invalidation, "RND-HYPOTHESIS-INVALIDATION"),
     requiredText(certificate.costSensitivity, "RND-HYPOTHESIS-COST-SENSITIVITY"),
     requiredStructured(certificate.candidateUniverse, "RND-HYPOTHESIS-CANDIDATE-UNIVERSE"),
-    certificate.nullControls && certificate.nullControls.length > 0 ? "" : "RND-HYPOTHESIS-NULL-CONTROLS",
+    certificate.negativeControls && certificate.negativeControls.length > 0 ? "" : "RND-HYPOTHESIS-NEGATIVE-CONTROLS",
   ].filter(Boolean)
   return {
     hypothesis_id: hypothesis.hypothesisId,
@@ -266,12 +266,12 @@ export function readHypothesisCertificateGate(hypothesis: StrategyRndCampaignHyp
       invalidation: certificate.invalidation ?? "",
       cost_sensitivity: certificate.costSensitivity ?? "",
       candidate_universe: certificate.candidateUniverse ?? null,
-      null_controls: certificate.nullControls ?? [],
+      negative_controls: certificate.negativeControls ?? [],
     },
   }
 }
 
-export function readPanelNullGate(path: string, candidateId: string): JSONRecord {
+export function readPanelNegativeControlGate(path: string, candidateId: string): JSONRecord {
   const raw = asRecord(JSON.parse(readFileSync(path, "utf8")))
   const report = asRecord(raw.data ?? raw)
   const candidates = array(report.candidates).map(asRecord)
@@ -287,12 +287,12 @@ export function readPanelNullGate(path: string, candidateId: string): JSONRecord
   }
   const gate = asRecord(candidate.gate)
   const gateBlocks = array(gate.blocked_by).map(asRecord).map((item) => stringField(item.check_id)).filter(Boolean)
-  const panelNull = asRecord(candidate.panel_null_controls)
-  const status = stringField(panelNull.status)
+  const panelNegativeControl = asRecord(candidate.panel_negative_controls)
+  const status = stringField(panelNegativeControl.status)
   const blockedBy = [...gateBlocks]
   if (status !== "evaluated") {
     blockedBy.push("PANEL-ASSET-SHUFFLE-NOT-EVALUATED")
-  } else if (panelNull.passed !== true) {
+  } else if (panelNegativeControl.passed !== true) {
     blockedBy.push("PANEL-ASSET-SHUFFLE")
   }
   return {
@@ -302,7 +302,7 @@ export function readPanelNullGate(path: string, candidateId: string): JSONRecord
     status,
     blocked: blockedBy.length > 0,
     blocked_by: Array.from(new Set(blockedBy)),
-    panel_null_controls: panelNull,
+    panel_negative_controls: panelNegativeControl,
   }
 }
 

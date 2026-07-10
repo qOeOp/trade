@@ -21,7 +21,7 @@ import {
   buildRelativeStrengthSchedule,
   buildWeightSchedule,
   chronologicalFolds,
-  nullControlDiagnostics,
+  negativeControlDiagnostics,
   portfolioStats,
   regimeAttribution,
   simulate,
@@ -56,14 +56,14 @@ function runTrendBenchmark(input: TrendBenchmarkInput): JSONRecord {
   const stressed = simulate(panel, weights, warmup, rebalanceBars, stressCostModel(costModel, 5), 0, timeframe)
   const fundingStressed = simulate(panel, weights, warmup, rebalanceBars, costModel, fundingStressBps, timeframe)
   const historicalFunding = fundingEvents.coverage.status === "full" ? simulate(panel, weights, warmup, rebalanceBars, costModel, 0, timeframe, fundingEvents.eventsByAsset) : null
-  const nullControl = nullControlDiagnostics(panel, weights, warmup, rebalanceBars, costModel, timeframe, randomTrials, observed.stats.sharpe, 1)
-  const empiricalP = numberField(nullControl.empirical_p_value)
+  const negativeControl = negativeControlDiagnostics(panel, weights, warmup, rebalanceBars, costModel, timeframe, randomTrials, observed.stats.sharpe, 1)
+  const empiricalP = numberField(negativeControl.empirical_p_value)
   const folds = chronologicalFolds(observed.returns, 3, timeframe)
   const blockedBy: Array<{ check_id: string; reason: string }> = []
   if (observed.stats.total_return <= 0 || observed.stats.sharpe < 0.5) blockedBy.push({ check_id: "BENCHMARK-EDGE", reason: "trend benchmark is not positive with Sharpe >= 0.5" })
   if (folds.filter((fold) => fold.total_return > 0).length < 2) blockedBy.push({ check_id: "BENCHMARK-TIME", reason: "fewer than two of three chronological folds are positive" })
   if (stressed.stats.total_return <= 0) blockedBy.push({ check_id: "BENCHMARK-COST", reason: "trend benchmark fails extra 5 bps turnover stress" })
-  if (empiricalP > 0.05) blockedBy.push({ check_id: "BENCHMARK-NULL", reason: `empirical p-value ${round(empiricalP)} exceeds 0.05` })
+  if (empiricalP > 0.05) blockedBy.push({ check_id: "BENCHMARK-NEGATIVE-CONTROL", reason: `empirical p-value ${round(empiricalP)} exceeds 0.05` })
   return {
     benchmark_id: input.benchmarkId || "multi_asset_time_series_trend_v1",
     harness_hash: benchmarkHarnessHash(),
@@ -84,7 +84,7 @@ function runTrendBenchmark(input: TrendBenchmarkInput): JSONRecord {
     funding_event_coverage: fundingEvents.coverage,
     historical_funding: historicalFunding?.stats ?? null,
     historical_funding_attribution: historicalFunding?.attribution ?? null,
-    null_control: nullControl,
+    negative_control: negativeControl,
     notes: ["Calibration does not authorize strategy promotion or live trading.", "Current-symbol panels carry survivorship bias and are insufficient as final strategy evidence."],
   }
 }
@@ -126,14 +126,14 @@ function runRelativeStrengthBenchmark(input: TrendBenchmarkInput): JSONRecord {
   const stressed = simulate(panel, weights, warmup, rebalanceBars, stressCostModel(costModel, 5), 0, timeframe)
   const fundingStressed = simulate(panel, weights, warmup, rebalanceBars, costModel, fundingStressBps, timeframe)
   const historicalFunding = fundingEvents.coverage.status === "full" ? simulate(panel, weights, warmup, rebalanceBars, costModel, 0, timeframe, fundingEvents.eventsByAsset) : null
-  const nullControl = nullControlDiagnostics(panel, weights, warmup, rebalanceBars, costModel, timeframe, randomTrials, observed.stats.sharpe, 17)
-  const empiricalP = numberField(nullControl.empirical_p_value)
+  const negativeControl = negativeControlDiagnostics(panel, weights, warmup, rebalanceBars, costModel, timeframe, randomTrials, observed.stats.sharpe, 17)
+  const empiricalP = numberField(negativeControl.empirical_p_value)
   const folds = chronologicalFolds(observed.returns, 3, timeframe)
   const blockedBy: Array<{ check_id: string; reason: string }> = []
   if (observed.stats.total_return <= 0 || observed.stats.sharpe < 0.5) blockedBy.push({ check_id: "XSEC-EDGE", reason: "relative strength benchmark is not positive with Sharpe >= 0.5" })
   if (folds.filter((fold) => fold.total_return > 0).length < 2) blockedBy.push({ check_id: "XSEC-TIME", reason: "fewer than two of three chronological folds are positive" })
   if (stressed.stats.total_return <= 0) blockedBy.push({ check_id: "XSEC-COST", reason: "relative strength benchmark fails extra 5 bps turnover stress" })
-  if (empiricalP > 0.05) blockedBy.push({ check_id: "XSEC-NULL", reason: `empirical p-value ${round(empiricalP)} exceeds 0.05` })
+  if (empiricalP > 0.05) blockedBy.push({ check_id: "XSEC-NEGATIVE-CONTROL", reason: `empirical p-value ${round(empiricalP)} exceeds 0.05` })
   return {
     benchmark_id: "cross_sectional_relative_strength_v1",
     harness_hash: benchmarkHarnessHash(),
@@ -154,7 +154,7 @@ function runRelativeStrengthBenchmark(input: TrendBenchmarkInput): JSONRecord {
     funding_event_coverage: fundingEvents.coverage,
     historical_funding: historicalFunding?.stats ?? null,
     historical_funding_attribution: historicalFunding?.attribution ?? null,
-    null_control: nullControl,
+    negative_control: negativeControl,
   }
 }
 

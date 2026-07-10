@@ -35,6 +35,7 @@ export interface CommandConfig {
   automationCycle: boolean
   strategyBenchmark: boolean
   strategyCalibrationSuite: boolean
+  fundingCarryGovernance: boolean
   strategySignal: boolean
   strategyCompile: boolean
   strategyLint: boolean

@@ -61,7 +61,7 @@ export interface StrategyRndHypothesisCertificate {
   invalidation?: string
   costSensitivity?: string
   candidateUniverse?: unknown
-  nullControls?: string[]
+  negativeControls?: string[]
 }
 
 export interface StrategyRndCampaignInput {
@@ -162,7 +162,7 @@ function hypothesisCertificateFromJson(value: unknown): StrategyRndHypothesisCer
     invalidation: stringField(input.invalidation) || undefined,
     costSensitivity: stringField(input.cost_sensitivity) || undefined,
     candidateUniverse: input.candidate_universe,
-    nullControls: array(input.null_controls).map(stringField).filter(Boolean),
+    negativeControls: array(input.negative_controls).map(stringField).filter(Boolean),
   }
 }
 

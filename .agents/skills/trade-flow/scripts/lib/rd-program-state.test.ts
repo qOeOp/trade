@@ -76,6 +76,8 @@ test("rd program state can be persisted and registered in the data catalog", () 
     const restored = readRdProgramState(path)
     assert.equal(restored.program_id, "rd-learning-loop")
     assert.equal(restored.status, "active")
+    assert.equal(restored.budget.max_hypotheses, 20)
+    assert.equal(restored.budget.max_trials_total, 80)
 
     const db = new Database(catalogDb)
     try {
@@ -124,8 +126,8 @@ test("rd program state command initializes reads and updates the durable state",
         action: "update",
         now: "2026-07-09T13:00:00Z",
         usage_delta: { hypotheses_run: 1, trials_used: 2 },
-        rejected_mechanisms: [{ check_id: "RND-NULL-NOT-BEATEN" }],
-        universe_lessons: [{ lesson: "null control dominated" }],
+        rejected_mechanisms: [{ check_id: "RND-NEGATIVE-CONTROL-NOT-BEATEN" }],
+        universe_lessons: [{ lesson: "negative control dominated" }],
       },
     })
     assert.equal(update.action, "update")
@@ -169,7 +171,7 @@ test("rd program state command plans the next campaign from the hypothesis queue
             invalidation: "range reclaim failure",
             cost_sensitivity: "avoid high fee churn",
             candidate_universe: { symbols: ["BTCUSDT"] },
-            null_controls: ["side_flip"],
+            negative_controls: ["side_flip"],
           },
           candidates: [{ candidate_id: "C-BREAKOUT", family: "volatility_compression_breakout_v1", params: { side: "long" } }],
         }],
@@ -194,8 +196,20 @@ test("rd program state command plans the next campaign from the hypothesis queue
     const scoutPlan = asRecord(planned.next_plan?.scout_subagent_plan)
     assert.equal(scoutPlan.enabled, true)
     assert.equal(scoutPlan.dispatch_timing, "before_research_command")
-    assert.deepEqual(asArray(scoutPlan.scouts).map((scout) => asRecord(scout).role), ["rd-history-scout", "rd-data-scout", "rd-edge-scout"])
+    assert.deepEqual(asArray(scoutPlan.scouts).map((scout) => asRecord(scout).role), ["rd-taxonomy-scout", "rd-history-scout", "rd-data-scout", "rd-edge-scout"])
     assert.equal(asArray(scoutPlan.scouts).every((scout) => asRecord(scout).may_write_state === false), true)
+    const backlog = asRecord(planned.next_plan?.strategy_universe_backlog)
+    assert.equal(backlog.doc_ref, "docs/strategy-universe-taxonomy.md")
+    assert.equal(backlog.machine_backlog_ref, "data/rd/family-backlog.json")
+    assert.equal(backlog.p0_certificate_ref, "data/rd/p0-family-certificates.json")
+    assert.equal(backlog.machine_backlog_status, "loaded")
+    assert.ok(asArray(backlog.implemented_families).includes("time_series_momentum_v1"))
+    assert.ok(asArray(backlog.implemented_families).includes("marketability_score_v1"))
+    assert.ok(asArray(asRecord(backlog.priority_family_backlog).p0).includes("funding_carry_v1"))
+    assert.ok(asArray(backlog.recommended_queue_order).includes("cross_sectional_momentum_v1"))
+    const familyStatuses = asArray(backlog.family_statuses).map(asRecord)
+    assert.equal(familyStatuses.find((family) => family.family_id === "funding_carry_v1")?.status, "data_backlog")
+    assert.equal(familyStatuses.find((family) => family.family_id === "cross_sectional_momentum_v1")?.status, "implemented_panel_research")
     const payload = planned.next_plan?.payload as JSONRecord
     assert.equal(payload.rd_program_state_path, path)
     assert.equal(payload.max_total_trials, 5)
@@ -222,6 +236,13 @@ test("rd program state next plan blocks when no active queue can run", () => {
     const blocked = runRdProgramStateCommand({ path, input: { action: "plan_next", now: "2026-07-09T13:00:00Z" } })
     assert.equal(blocked.next_plan?.status, "blocked")
     assert.equal(blocked.next_plan?.command, null)
+    assert.match(blocked.next_plan?.reason || "", /queue seed recommendation/)
+    assert.equal(asRecord(blocked.next_plan?.strategy_universe_backlog).doc_ref, "docs/strategy-universe-taxonomy.md")
+    const queueSeed = asRecord(blocked.next_plan?.queue_seed_recommendation)
+    assert.equal(queueSeed.schema_version, "trade-flow.rd-queue-seed-recommendation.v1")
+    assert.equal(queueSeed.family_id, "marketability_score_v1")
+    assert.equal(queueSeed.required_action, "universe_gate_run")
+    assert.equal(queueSeed.ready_for_strategy_trials, false)
 
     writeRdProgramState(path, updateRdProgramState(state, { status: "paused", now: "2026-07-09T13:30:00Z" }), join(dir, "catalog.db"))
     const stopped = runRdProgramStateCommand({ path, input: { action: "plan_next", now: "2026-07-09T14:00:00Z" } })
@@ -331,7 +352,7 @@ test("rd program state retires failed hypotheses and schedules diagnostic follow
     budget: { max_hypotheses: 4, max_trials_total: 12, max_locked_holdout_uses: 1 },
     nextHypothesisQueue: [{
       hypothesis_id: "h1",
-      hypothesis: "weakness continuation survives null controls",
+      hypothesis: "weakness continuation survives negative controls",
       manifest_path: "data/discovery/manifest.json",
       timeframe: "4h",
       search_trial_count: 3,
@@ -345,17 +366,17 @@ test("rd program state retires failed hypotheses and schedules diagnostic follow
     artifact_ref: "tmp/artifacts/strategy-rnd/run-1.json",
     batch: {
       batch_id: "rd-learning-h1",
-      hypothesis: "weakness continuation survives null controls",
+      hypothesis: "weakness continuation survives negative controls",
       outcome: "no_promote",
       candidate_source: "provided",
       trial_count: 3,
       accepted_count: 0,
       winner: null,
-      next_action: "redesign against null controls",
+      next_action: "redesign against negative controls",
       failure_summary: {
-        primary_failure_area: "null_controls",
-        top_blockers: [{ check_id: "RND-NULL-NOT-BEATEN", count: 2 }],
-        next_system_actions: ["Retest only mechanisms that beat side-flip null controls."],
+        primary_failure_area: "negative_controls",
+        top_blockers: [{ check_id: "RND-NEGATIVE-CONTROL-NOT-BEATEN", count: 2 }],
+        next_system_actions: ["Retest only mechanisms that beat side-flip negative controls."],
       },
       reliability_gate: { status: "blocked" },
     },
@@ -363,7 +384,7 @@ test("rd program state retires failed hypotheses and schedules diagnostic follow
   })
 
   assert.equal(updated.next_hypothesis_queue.length, 1)
-  assert.equal(updated.next_hypothesis_queue[0]?.hypothesis_id, "h1-rnd-null-not-beaten")
+  assert.equal(updated.next_hypothesis_queue[0]?.hypothesis_id, "h1-rnd-negative-control-not-beaten")
   assert.equal(updated.next_hypothesis_queue[0]?.predecessor_hypothesis_id, "h1")
   assert.equal(updated.next_hypothesis_queue[0]?.source, "rd_learning_memory")
   assert.equal(asRecord(updated.next_hypothesis_queue[0]?.generated_from).source, "strategy_rnd_loop")
@@ -389,7 +410,7 @@ test("rd program state converts discovery winners into validation campaign work"
         invalidation: "failed range break",
         cost_sensitivity: "low turnover",
         candidate_universe: { symbols: ["BTCUSDT"] },
-        null_controls: ["side_flip"],
+        negative_controls: ["side_flip"],
       },
       candidates: [{ candidate_id: "C1", family: "volatility_compression_breakout_v1", params: { side: "long" } }],
     }],
@@ -475,8 +496,8 @@ test("rd program state blocks instead of rerunning a rejected mechanism", () => 
 
 test("rd program state blocks negative-control rejects instead of rerunning the same mechanism", () => {
   const state = createRdProgramState({
-    programId: "rd-null-reject",
-    objective: "do not rerun mechanisms that only show mild null-dominated edge",
+    programId: "rd-negative-control-reject",
+    objective: "do not rerun mechanisms that only show mild negative-control-dominated edge",
     now: "2026-07-09T12:00:00Z",
     budget: { max_hypotheses: 4, max_trials_total: 12, max_locked_holdout_uses: 1 },
     nextHypothesisQueue: [{
@@ -494,7 +515,7 @@ test("rd program state blocks negative-control rejects instead of rerunning the 
     created_at: "2026-07-09T13:00:00Z",
     artifact_ref: "tmp/artifacts/strategy-rnd/run-1.json",
     batch: {
-      batch_id: "rd-null-reject-h1",
+      batch_id: "rd-negative-control-reject-h1",
       hypothesis: "structure breakout retest has edge",
       outcome: "no_promote",
       candidate_source: "provided",
@@ -503,8 +524,8 @@ test("rd program state blocks negative-control rejects instead of rerunning the 
       winner: null,
       failure_summary: {
         primary_failure_area: "negative_control",
-        top_blockers: [{ check_id: "RND-NULL-NOT-BEATEN", count: 3 }],
-        next_system_actions: ["Reject mild positive edge until it beats side-flip and delayed-entry null controls."],
+        top_blockers: [{ check_id: "RND-NEGATIVE-CONTROL-NOT-BEATEN", count: 3 }],
+        next_system_actions: ["Reject mild positive edge until it beats side-flip and delayed-entry negative controls."],
       },
       reliability_gate: { status: "blocked", decision: "reject_hypothesis" },
     },
@@ -656,6 +677,95 @@ test("rd program state blocks repeated cost diagnostics after one diagnostic loo
   assert.equal(followup.ready, false)
   assert.match(String(followup.blocked_reason), /cost diagnostic already ran/)
   assert.equal(asRecord(followup.generated_from).required_next_step, "review_cost_model_or_predeclare_cost_reduction")
+})
+
+test("rd program state blocks repeated generic diagnostics after one diagnostic loop", () => {
+  const state = createRdProgramState({
+    programId: "rd-diagnostic-loop",
+    objective: "do not repeat generic diagnostics indefinitely",
+    now: "2026-07-09T12:00:00Z",
+    budget: { max_hypotheses: 4, max_trials_total: 12, max_locked_holdout_uses: 1 },
+    nextHypothesisQueue: [{
+      hypothesis_id: "h-diag",
+      hypothesis: "inspect sample efficiency",
+      manifest_path: "data/discovery/manifest.json",
+      timeframe: "4h",
+      diagnostic_mode: true,
+      search_trial_count: 2,
+      candidates: [{ candidate_id: "C1", family: "structure_breakout_retest_v1", params: { side: "long" } }],
+    }],
+  })
+
+  const updated = updateRdProgramStateFromResearchResult(state, {
+    run_id: "run-diag",
+    created_at: "2026-07-09T13:00:00Z",
+    artifact_ref: "tmp/artifacts/strategy-rnd/run-diag.json",
+    batch: {
+      batch_id: "rd-diagnostic-loop-h-diag",
+      hypothesis: "inspect sample efficiency",
+      outcome: "no_promote",
+      candidate_source: "provided",
+      trial_count: 2,
+      accepted_count: 0,
+      winner: null,
+      failure_summary: {
+        primary_failure_area: "sample_efficiency",
+        top_blockers: [{ check_id: "RND-OOS-EFFECTIVE-SAMPLE", count: 2 }],
+        next_system_actions: ["Open a constrained diagnostic hypothesis from the latest failed mechanism."],
+      },
+      reliability_gate: { status: "blocked", decision: "inspect_blockers" },
+    },
+    ledger_record: {},
+  })
+
+  const followup = asRecord(updated.next_hypothesis_queue[0])
+  assert.equal(followup.ready, false)
+  assert.match(String(followup.blocked_reason), /diagnostic follow-up already ran/)
+  assert.equal(asRecord(followup.generated_from).required_next_step, "predeclare_new_mechanism_or_research_surface")
+})
+
+test("rd program state blocks actions that require panel or independent validation", () => {
+  const state = createRdProgramState({
+    programId: "rd-panel-required",
+    objective: "do not spend single-asset loop budget when panel is required",
+    now: "2026-07-09T12:00:00Z",
+    budget: { max_hypotheses: 4, max_trials_total: 12, max_locked_holdout_uses: 1 },
+    nextHypothesisQueue: [{
+      hypothesis_id: "h-panel",
+      hypothesis: "single asset setup frequency is too low",
+      manifest_path: "data/discovery/manifest.json",
+      timeframe: "4h",
+      search_trial_count: 2,
+      candidates: [{ candidate_id: "C1", family: "structure_breakout_retest_v1", params: { side: "long" } }],
+    }],
+  })
+
+  const updated = updateRdProgramStateFromResearchResult(state, {
+    run_id: "run-panel",
+    created_at: "2026-07-09T13:00:00Z",
+    artifact_ref: "tmp/artifacts/strategy-rnd/run-panel.json",
+    batch: {
+      batch_id: "rd-panel-required-h-panel",
+      hypothesis: "single asset setup frequency is too low",
+      outcome: "no_promote",
+      candidate_source: "provided",
+      trial_count: 2,
+      accepted_count: 0,
+      winner: null,
+      failure_summary: {
+        primary_failure_area: "sample_efficiency",
+        top_blockers: [{ check_id: "RND-OOS-EFFECTIVE-SAMPLE", count: 2 }],
+        next_system_actions: ["Move this hypothesis to panel R&D or loosen setup frequency before spending more single-asset trials."],
+      },
+      reliability_gate: { status: "blocked", decision: "inspect_blockers" },
+    },
+    ledger_record: {},
+  })
+
+  const followup = asRecord(updated.next_hypothesis_queue[0])
+  assert.equal(followup.ready, false)
+  assert.match(String(followup.blocked_reason), /different research surface/)
+  assert.equal(asRecord(followup.generated_from).required_next_step, "move_to_panel_or_expand_independent_validation")
 })
 
 function readSchema(name: string): JSONRecord {

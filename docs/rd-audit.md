@@ -10,7 +10,7 @@ updated_at: 2026-07-10 10:20 CST
 ## 修复状态
 
 - 已补：campaign validation 必须与 discovery 保持 locked holdout embargo；默认按 `max(max_hold_bars, factor lookback, funding interval)` 换算。
-- 已补：campaign 每个 hypothesis 必须带 `thesis_certificate`；缺 edge 类型、行为假设、参与者、regime、失效条件、成本敏感度、候选 universe 或 null controls 时零 trial 停止。
+- 已补：campaign 每个 hypothesis 必须带 `thesis_certificate`；缺 edge 类型、行为假设、参与者、regime、失效条件、成本敏感度、候选 universe 或 negative controls 时零 trial 停止。
 - 已补：replay provenance 输出 `temporal_contract`，覆盖 closed-candle reference、availability、lookback start、label end、universe selection 与 supplemental report availability；strategy review 会把缺 temporal contract 的 replay evidence 判为 legacy/stale。
 - 已补：R&D batch 输出 `statistical_report`，记录完整 trial universe、accepted/rejected、winner、OOS/effective sample、edge margin、deflated edge probability 与四时间块 CSCV/PBO；统计未决或 PBO 失败时不会把 winner 标成 ready。
 - 已补：R&D candidate 与 strategy promotion 的 OOS gate 增加 raw/effective sample 与净 edge margin，不再只看正收益。
@@ -20,7 +20,7 @@ updated_at: 2026-07-10 10:20 CST
 - 已补：forward holdout 测试版输出冻结候选 hash、状态和下一步动作；主数据与 benchmark / supplemental 数据都必须是机器可读 `frozen_at` 之后的闭合样本，缺 `frozen_at` 的真实 artifact 会被拒绝。
 - 已补：calibration panel 明示 `survivor_only`，并支持通过外部归档 manifest 合入 inactive / delisted symbol；没有可靠归档输入时仍不得声称 survivorship robust。
 - 已补：R&D replay / panel / campaign / forward holdout / shadow tracker 读取 manifest 时支持把迁移前 `data/*-panel-*` 路径安全解析到当前 `tmp/panels/*`，并加回归测试；旧 artifact 可复读，但新产物仍应写 repo 相对 `tmp/panels/...`。
-- 已补：panel R&D 单候选时 `cross_candidate_asset_shuffle_v1` 不再显示 `passed=true`；状态仍是 `not_applicable`，避免误读成 panel-level null 通过。
+- 已补：panel R&D 单候选时 `cross_candidate_asset_shuffle_v1` 不再显示 `passed=true`；状态仍是 `not_applicable`，避免误读成 panel-level negative control 通过。
 - 已补：forward holdout 在全部阻塞原因只是主数据 / benchmark 尚未晚于 `frozen_at` 时，`next_action` 改为等待下一根闭合 K 线并刷新 manifest，而不是误报“修数据覆盖”。
 - 已补：新增 `--strategy-data-split`。新 hypothesis 开研前可把 OHLCV manifest 物理切成 discovery / validation / locked_holdout 三个独立 manifest，并自动按 max hold / feature lookback / funding interval 留 embargo；locked holdout 在策略合约冻结前不再需要靠人脑“记得别看”。
 - 已补：`rnd-artifact.ts` 可自动识别普通 R&D loop 与 panel R&D artifact；普通 loop 摘要会暴露 `failure_summary`、`reliability_gate`、候选 R/OOS 指标与 blocker，避免 no-promote 被误读为空结果。
@@ -41,7 +41,7 @@ updated_at: 2026-07-10 10:20 CST
   - BTC 弱势相对赢家 short 风险修复诊断：0.5R BE 仍被 TRX catastrophic veto，1R BE 更差；非 TRX 外部 panel 上原始候选通过当前 gate（`total_r=7.844068`，4/5 资产正），但 SOL 为负且 panel 已被看过，只能作为机制支持。
 - 2026-07-09 22:10 CST，BTC 强势相对赢家 short draft 做冻结候选外部检查：
   - `relative-reversion-btc-strong-fresh-check-2026-07-09`：`BCH/LTC/ATOM/NEAR/APT`，固定 `RRV-S-BTCSTRONG-NONMEME-120-1R-RC-FROZEN`，`sample_count=399`、`avg_r=0.063149`、`total_r=25.196466`、4/5 资产正、无 panel gate blocker。
-  - `ATOMUSDT` 为负（`total_r=-5.157863`），OOS 与 cost stress 均为 false；单候选 panel asset-shuffle 不适用，不能把这轮解释成 panel null 通过。
+  - `ATOMUSDT` 为负（`total_r=-5.157863`），OOS 与 cost stress 均为 false；单候选 panel asset-shuffle 不适用，不能把这轮解释成 panel negative control 通过。
   - forward holdout 以 `frozen_at=2026-07-09T14:00:00Z` 运行，全部被 `HOLDOUT-NOT-FORWARD / HOLDOUT-SUPPLEMENTAL-NOT-FORWARD` 阻塞；最新闭合 K 线是 `2026-07-09T12:00:00Z`，下一步是等下一根冻结后 4H 闭合 K 线并刷新资产与 BTC benchmark manifest。
 - 2026-07-10 09:05 CST，开研 BTC 4H volatility compression breakout long：
   - 先跑 `--strategy-data-split`：discovery `2019-09-08 -> 2023-09-04`，validation `2023-10-07 -> 2025-06-05`，locked holdout `2025-07-09 -> 2026-07-08`，embargo `200` 根 4H；locked holdout 未打开。
@@ -66,7 +66,7 @@ updated_at: 2026-07-10 10:20 CST
 - `calibration -> R&D -> locked holdout -> evidence -> shadow -> live-small` 的链路边界清楚；R&D ledger 和 strategy evidence 分离，避免失败搜索污染交易事实。
 - campaign 有全局 `<=10` trial budget；locked holdout 重复使用会被 `strategy-rnd-ledger` 拦住。
 - replay 已固定 next-open、stop-first、gap 更差开盘、双边 fee/slippage、funding coverage gate、fingerprint freshness。
-- candidate 必须过 side-flip / entry-lag null；panel R&D 有 asset shuffle null；promotion gate 会挡住缺 funding、panel null、robustness、shadow attribution 的证据。
+- candidate 必须过 side-flip / entry-lag negative control；panel R&D 有 asset shuffle negative control；promotion gate 会挡住缺 funding、panel negative control、robustness、shadow attribution 的证据。
 - 文档明确禁止自动升格和 holdout 失败后继续调参，这是正确的研究纪律。
 
 ## P0 缺口
@@ -85,7 +85,7 @@ updated_at: 2026-07-10 10:20 CST
 
 ## P1 缺口
 
-- **strategy thesis certificate 已有基础 gate。** 当前已强制 campaign 预声明 edge 类型、市场行为假设、参与者、适用 regime、失效条件、成本敏感度、候选 universe、null controls；后续还可把预期持仓/换手与对应 null 的覆盖关系做得更细。
+- **strategy thesis certificate 已有基础 gate。** 当前已强制 campaign 预声明 edge 类型、市场行为假设、参与者、适用 regime、失效条件、成本敏感度、候选 universe、negative controls；后续还可把预期持仓/换手与对应 negative control 的覆盖关系做得更细。
 - **Panel survivorship 已有基础防线。** 当前 20 个可交易资产 panel 会明示 `survivor_only=true`；若提供可靠 inactive / delisted manifest，可合入 calibration suite 并取消 survivor-only 标记。剩余缺口是真实归档数据源与 listing-age-aware universe。
 - **Panel artifact 路径边界已补读路径兼容。** 旧 artifact 中仍可见 `data/calibration-panel-*` / 绝对路径痕迹；当前已在读路径加兼容，后续仍要求新产物落在 `tmp/panels/` 且输出 repo 相对路径。
 - **Reality model 已有反馈闭环基础。** 当前已有 replay -> shadow/live decay 诊断与 `cost_model_feedback`；下一步应把 review 里的订单 notional / ADV / depth 接入，形成真实 capacity / impact 分桶。继续不伪造 maker 队列成交概率。

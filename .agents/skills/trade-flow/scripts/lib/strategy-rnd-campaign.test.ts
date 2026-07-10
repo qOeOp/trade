@@ -7,7 +7,7 @@ import {
   ensureNonOverlappingManifests,
   readCalibrationGate,
   readHypothesisCertificateGate,
-  readPanelNullGate,
+  readPanelNegativeControlGate,
   runStrategyRndCampaignWithDeps,
   type StrategyRndCampaignDeps,
 } from "./strategy-rnd-campaign"
@@ -198,8 +198,8 @@ test("strategy R&D campaign orchestrates discovery then locked validation", () =
   }
 })
 
-test("strategy R&D campaign blocks validation when panel null fails", () => {
-  const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-campaign-panel-null-"))
+test("strategy R&D campaign blocks validation when panel negative control fails", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-campaign-panel-negative-control-"))
   try {
     const discovery = writeManifest(join(dir, "discovery"), 1_000_000, 2_000_000)
     const validation = writeManifest(join(dir, "validation"), 300_000_000, 320_000_000)
@@ -208,7 +208,7 @@ test("strategy R&D campaign blocks validation when panel null fails", () => {
       panel_id: "panel-fixture",
       candidates: [{
         candidate_id: "candidate-1",
-        panel_null_controls: {
+        panel_negative_controls: {
           method: "cross_candidate_asset_shuffle_v1",
           status: "evaluated",
           passed: false,
@@ -221,7 +221,7 @@ test("strategy R&D campaign blocks validation when panel null fails", () => {
     }))
     const calls: string[] = []
     const report = runStrategyRndCampaignWithDeps({
-      campaignId: "campaign-panel-null",
+      campaignId: "campaign-panel-negative-control",
       panelReportPath,
       artifactRoot: join(dir, "artifacts"),
       hypotheses: [{
@@ -253,13 +253,13 @@ test("strategy R&D campaign blocks validation when panel null fails", () => {
       },
     })
 
-    assert.deepEqual(calls, ["campaign-panel-null-h1-discovery"])
-    assert.equal(report.stop_reason, "panel_null_failed")
+    assert.deepEqual(calls, ["campaign-panel-negative-control-h1-discovery"])
+    assert.equal(report.stop_reason, "panel_negative_control_failed")
     assert.equal(report.outcome, "no_validated_candidate")
     assert.equal(report.holdout_evaluations, 0)
     assert.equal(report.runs[0].validation_run_ref, null)
-    assert.deepEqual((report.runs[0].panel_null_gate as { blocked_by: string[] }).blocked_by, ["PANEL-ASSET-SHUFFLE"])
-    assert.equal(readPanelNullGate(panelReportPath, "candidate-1-external-validation").blocked, true)
+    assert.deepEqual((report.runs[0].panel_negative_control_gate as { blocked_by: string[] }).blocked_by, ["PANEL-ASSET-SHUFFLE"])
+    assert.equal(readPanelNegativeControlGate(panelReportPath, "candidate-1-external-validation").blocked, true)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -333,6 +333,6 @@ function thesisCertificate() {
     invalidation: "fails when pullbacks no longer hold above trend support",
     costSensitivity: "edge must survive fee, slippage, and funding stress",
     candidateUniverse: "trend pullback family with fixed long side parameters",
-    nullControls: ["side_flip", "entry_lag"],
+    negativeControls: ["side_flip", "entry_lag"],
   }
 }

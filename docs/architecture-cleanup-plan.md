@@ -51,7 +51,7 @@ NOFX 可借鉴的是 runtime discipline，不是产品形态；详细计划见 [
 
 - vision / prd / design 已把产品边界压住。
 - `plan_event`、`execution_contract_snapshot`、preflight、reconcile、evidence fingerprint 已形成安全骨架。
-- R&D gate 已有 locked holdout、null controls、calibration suite、artifact ledger。
+- R&D gate 已有 locked holdout、negative controls、calibration suite、artifact ledger。
 - 功能 skill 多数单一职责，且大多已有测试入口。
 
 主要风险：
@@ -271,7 +271,7 @@ scripts/
 | `runtime` | plan_event append/reduce/recover | Binance 写 |
 | `execution-dry` | contract compile、preview、mock order lifecycle | Binance 写 |
 | `recovery-fixture` | missing fill、unknown order、partial fill、protective drift | Binance 写 |
-| `research` | replay、R&D、calibration、null controls | trade.db / Binance 写 |
+| `research` | replay、R&D、calibration、negative controls | trade.db / Binance 写 |
 | `binance-test` | Binance test endpoint / read smoke | 默认关闭 |
 
 每个高风险 bug 修复都应落一个 fixture，而不是只修实现。
@@ -635,7 +635,7 @@ Jesse 调研后的补充要求：
   - `lib/strategy-rnd-campaign.ts`：R&D campaign orchestration、calibration gate、discovery/validation non-overlap、locked validation 调度独立。
   - `lib/strategy-rnd-campaign.test.ts`：锁定 calibration blocker 读取、overlap 拒绝、discovery→validation 调度、trial budget 阻断。
 - 研究侧 candidate evaluation 拆分：
-  - `lib/strategy-rnd-evaluation.ts`：candidate replay、null controls、parameter stability、R&D gate、funding events helper 独立。
+  - `lib/strategy-rnd-evaluation.ts`：candidate replay、negative controls、parameter stability、R&D gate、funding events helper 独立。
   - `lib/strategy-rnd-evaluation.test.ts`：锁定 parameter count / side flip、entry lag rebuild、gate blockers、robustness、candidate ranking。
 - 研究侧 selection / failure summary 拆分：
   - `lib/strategy-rnd-selection.ts`：winner selection、rank reversal audit、blocker summary、failure area、next action 独立。
@@ -668,7 +668,7 @@ Jesse 调研后的补充要求：
 - Benchmark domain 拆分：
   - `strategy-rnd.ts` 当前已基本只剩 batch / loop / campaign glue，暂不继续硬拆。
   - `lib/strategy-benchmark-data.ts`：panel alignment、panel diagnostics、data hash、funding coverage、historical funding drag 独立。
-  - `lib/strategy-benchmark-simulation.ts`：cost model、weight schedule、portfolio simulation、null controls、regime attribution 独立。
+  - `lib/strategy-benchmark-simulation.ts`：cost model、weight schedule、portfolio simulation、negative controls、regime attribution 独立。
   - `lib/strategy-calibration-report.ts`：calibration report assembly、report hash、previous run comparison、failure findings 独立。
   - `strategy-benchmark.ts` 降为 benchmark runner glue；当前约 179 行。
   - `lib/strategy-benchmark-data.test.ts` 与 `lib/strategy-benchmark-simulation.test.ts` 锁定数据层和仿真层契约。

@@ -277,6 +277,18 @@ function diagnosticFollowupsFromFailure(state: RdProgramState, source: JSONRecor
       requiredNextStep: "review_cost_model_or_predeclare_cost_reduction",
     })]
   }
+  if (requiresDifferentResearchSurface(action)) {
+    return [blockedFollowup(state, source, failureSourceId(blockers[0], failureSource), action, failureSummary, failureSource, {
+      blockedReason: "previous result requires a different research surface before consuming more single-asset loop budget",
+      requiredNextStep: "move_to_panel_or_expand_independent_validation",
+    })]
+  }
+  if (isDiagnosticHypothesis(source)) {
+    return [blockedFollowup(state, source, failureSourceId(blockers[0], failureSource), action, failureSummary, failureSource, {
+      blockedReason: "diagnostic follow-up already ran; predeclare a new mechanism or research surface before consuming more trial budget",
+      requiredNextStep: "predeclare_new_mechanism_or_research_surface",
+    })]
+  }
   return [learningFollowup(state, source, failureSourceId(blockers[0], failureSource), action, {
     source: failureSource,
     previous_failure_summary: failureSummary || {},
@@ -337,7 +349,7 @@ function blockedFollowup(
 
 function blockerAction(blocker: JSONRecord | undefined): string {
   const checkId = stringField(blocker?.check_id)
-  if (checkId === "RND-NULL-NOT-BEATEN") return "Redesign the mechanism so it beats side-flip and entry-lag null controls before validation."
+  if (checkId === "RND-NEGATIVE-CONTROL-NOT-BEATEN") return "Redesign the mechanism so it beats side-flip and entry-lag negative controls before validation."
   if (checkId === "RND-COST-DRAG") return "Reduce churn and retest only cost-robust variants of the mechanism."
   if (checkId === "RND-STAT-PBO") return "Reduce selection complexity and retest a simpler mechanism with lower parameter pressure."
   return ""
@@ -359,11 +371,22 @@ function requiresPredeclaredRevision(action: string): boolean {
   return normalized.includes("redesign") || normalized.includes("rewrite") || normalized.includes("predeclare")
 }
 
+function requiresDifferentResearchSurface(action: string): boolean {
+  const normalized = action.toLowerCase()
+  return normalized.includes("move this hypothesis to panel") ||
+    normalized.includes("expand independent validation") ||
+    normalized.includes("stop candidate selection") ||
+    normalized.includes("stop this hypothesis batch")
+}
+
+function isDiagnosticHypothesis(source: JSONRecord): boolean {
+  return source.diagnostic_mode === true || asRecord(source.generated_from).diagnostic_mode === true
+}
+
 function isRepeatedCostDiagnostic(source: JSONRecord, failureSummary: JSONRecord | null, action: string): boolean {
   const primary = stringField(asRecord(failureSummary).primary_failure_area)
   const normalizedAction = action.toLowerCase()
-  const sourceWasDiagnostic = source.diagnostic_mode === true || asRecord(source.generated_from).diagnostic_mode === true
-  return sourceWasDiagnostic && (
+  return isDiagnosticHypothesis(source) && (
     primary === "execution_cost" ||
     normalizedAction.includes("audit turnover") ||
     normalizedAction.includes("fee tier") ||
@@ -459,7 +482,7 @@ function universeLessonsFromCampaign(report: JSONRecord): JSONRecord[] {
 function campaignNextActions(stopReason: string): string[] {
   if (stopReason === "calibration_failed") return ["Fix calibration blockers before running more R&D trials."]
   if (stopReason === "hypothesis_certificate_failed") return ["Rewrite the hypothesis certificate before consuming trial budget."]
-  if (stopReason === "panel_null_failed") return ["Inspect panel null failure before drafting strategy policy."]
+  if (stopReason === "panel_negative_control_failed") return ["Inspect panel negative control failure before drafting strategy policy."]
   if (stopReason === "locked_holdout_failed") return ["Reject the frozen mechanism and open a new hypothesis with a fresh holdout."]
   if (stopReason === "trial_budget_exhausted") return ["Stop campaign; review rejected mechanisms before allocating a new budget."]
   return ["Review campaign stop reason before scheduling the next hypothesis."]

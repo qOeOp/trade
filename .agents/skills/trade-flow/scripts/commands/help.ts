@@ -88,6 +88,7 @@ Key flags:
   --strategy-review       Build one strategy iteration report from catalog evidence and optional DB reviews
   --strategy-promote      Dry-run or apply strategy status transition
   --strategy-cycle        Sync DB reviews into shadow evidence, review, then optional promotion dry-run/apply
+  --funding-carry-governance Check exact funding event coverage before funding_carry_v1 trials
   --chain-id <chain_id>    Flow id for recovery / reconcile
   --yes                    Required for --run-live-small / --apply-reconcile
   --strategy <path>        Strategy markdown path for iteration commands

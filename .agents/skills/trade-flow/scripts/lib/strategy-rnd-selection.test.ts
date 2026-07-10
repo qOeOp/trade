@@ -35,15 +35,15 @@ test("strategy R&D selection chooses strongest accepted candidate when stable", 
 test("strategy R&D failure summary keeps blocker counts and next action deterministic", () => {
   const candidates = [
     candidateReport("sample", false, [0, 0, 0, 0], {}, ["RND-OOS-SAMPLE", "RND-OOS-EXPECTANCY"]),
-    candidateReport("null", false, [0, 0, 0, 0], {}, ["RND-OOS-SAMPLE", "RND-NULL-NOT-BEATEN"]),
+    candidateReport("negative-control", false, [0, 0, 0, 0], {}, ["RND-OOS-SAMPLE", "RND-NEGATIVE-CONTROL-NOT-BEATEN"]),
     candidateReport("accepted", true, [1, 1, 1, 1]),
   ]
   assert.deepEqual(summarizeCandidateBlockers(candidates), [
     { check_id: "RND-OOS-SAMPLE", count: 2 },
-    { check_id: "RND-NULL-NOT-BEATEN", count: 1 },
+    { check_id: "RND-NEGATIVE-CONTROL-NOT-BEATEN", count: 1 },
     { check_id: "RND-OOS-EXPECTANCY", count: 1 },
   ])
-  assert.equal(failureAreaForCheck("RND-NULL-NOT-BEATEN"), "negative_control")
+  assert.equal(failureAreaForCheck("RND-NEGATIVE-CONTROL-NOT-BEATEN"), "negative_control")
   const summary = buildFailureSummary(candidates, stableAudit())
   assert.equal(summary.rejected_candidate_count, 2)
   assert.equal(summary.accepted_candidate_count, 1)
@@ -136,8 +136,10 @@ function candidateReport(
     parameter_count: 1,
     params: {},
     replay: replayFixture(id, foldRValues, totalR, avgR, score.oos_total_r ?? totalR),
-    null_controls: {
+    negative_controls: {
       method: "side_flip_and_entry_lag",
+      observed_sample_count: foldRValues.length * 5,
+      observed_avg_r: avgR,
       observed_total_r: totalR,
       controls: [],
       blocked_by: [],

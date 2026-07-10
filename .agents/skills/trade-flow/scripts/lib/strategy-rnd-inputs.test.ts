@@ -45,7 +45,7 @@ test("strategy R&D campaign parser reads canonical discovery manifest field", ()
         invalidation: "breaks when pullbacks fail trend support",
         cost_sensitivity: "must survive fee and slippage stress",
         candidate_universe: "trend pullback candidates with fixed role budget",
-        null_controls: ["side_flip", "entry_lag"],
+        negative_controls: ["side_flip", "entry_lag"],
       },
       discovery_manifest_path: "/tmp/discovery.json",
       validation_manifest_path: "/tmp/validation.json",
@@ -57,7 +57,7 @@ test("strategy R&D campaign parser reads canonical discovery manifest field", ()
   assert.equal(input.panelReportPath, "/tmp/panel.json")
   assert.equal(input.hypotheses[0].hypothesisId, "h1")
   assert.equal(input.hypotheses[0].thesisCertificate?.edgeType, "structural trend continuation")
-  assert.deepEqual(input.hypotheses[0].thesisCertificate?.nullControls, ["side_flip", "entry_lag"])
+  assert.deepEqual(input.hypotheses[0].thesisCertificate?.negativeControls, ["side_flip", "entry_lag"])
   assert.equal(input.hypotheses[0].manifestPath, "/tmp/discovery.json")
   assert.equal(input.hypotheses[0].validationManifestPath, "/tmp/validation.json")
 })

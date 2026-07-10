@@ -76,7 +76,7 @@
 | `.agents/skills/trade-flow/scripts/main.ts` | ~1500 | command router + 业务逻辑混合 | 拆 `commands/*` |
 | `.agents/skills/trade-flow/scripts/main.test.ts` | ~1375 | 大集成测试难定位 | 按 domain fixture 拆 |
 | `.agents/skills/trade-flow/scripts/lib/strategy-rnd.ts` | ~1245 | R&D 输入、搜索、评估、报告混合 | 拆 `research/rnd/*` |
-| `.agents/skills/trade-flow/scripts/lib/strategy-benchmark.ts` | ~876 | benchmark / calibration / null 混合 | 拆 `research/calibration/*` |
+| `.agents/skills/trade-flow/scripts/lib/strategy-benchmark.ts` | ~876 | benchmark / calibration / negative control 混合 | 拆 `research/calibration/*` |
 | `.agents/skills/trade-flow/scripts/lib/replay-core.ts` | ~746 | loader / indicators / matching / gate 混合 | 拆 `research/replay/*` |
 | `.agents/skills/trade-flow/scripts/lib/strategy-iteration.ts` | ~613 | evidence / review / promote 混合 | 拆 `evidence/*` |
 | `.agents/skills/binance-order-place/scripts/main.ts` | ~1021 | 执行入口复杂，安全关键 | contract-first + normalized event |

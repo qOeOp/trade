@@ -146,8 +146,8 @@ test("strategy R&D batch runs bounded predeclared candidates", () => {
     assert.deepEqual(report.statistical_report.trial_universe.candidate_ids, ["C-LONG-EMA50"])
     assert.equal(report.candidates.length, 1)
     assert.equal(report.candidates[0].replay.strategy_id, "C-LONG-EMA50")
-    assert.equal(report.candidates[0].null_controls.method, "side_flip_and_entry_lag")
-    assert.deepEqual(report.candidates[0].null_controls.controls.map((item) => item.control_id), ["side_flip", "entry_lag_3"])
+    assert.equal(report.candidates[0].negative_controls.method, "side_flip_and_entry_lag")
+    assert.deepEqual(report.candidates[0].negative_controls.controls.map((item) => item.control_id), ["side_flip", "entry_lag_3"])
     assert.equal((report.candidates[0].replay.assumptions.anti_overfit as { trial_count: number }).trial_count, 7)
     assert.ok(["candidate_found", "no_promote"].includes(report.outcome))
   } finally {
@@ -662,7 +662,9 @@ test("strategy R&D loop writes artifact and catalog ledger", () => {
     assert.equal(record.run_id, "rnd-loop-test")
     assert.equal(record.artifact_ref, report.artifact_ref)
     assert.equal(record.trial_count, report.batch.trial_count)
-    const artifact = JSON.parse(readFileSync(resolveRepoPath(report.artifact_ref), "utf8")) as { stop_reason: string }
+    const artifact = JSON.parse(readFileSync(resolveRepoPath(report.artifact_ref), "utf8")) as { artifact_ref: string; ledger_ref: string; stop_reason: string }
+    assert.equal(artifact.artifact_ref, report.artifact_ref)
+    assert.equal(artifact.ledger_ref, report.ledger_ref)
     assert.equal(artifact.stop_reason, report.stop_reason)
     const catalog = new Database(join(artifactRoot, "data_catalog.db"))
     try {
@@ -830,7 +832,7 @@ test("strategy R&D campaign stops before search when calibration fails", () => {
         calibrated: false,
         failure_analysis: {
           findings: [
-            { check_id: "CAL-NULL-NOT-BEATEN", severity: "blocker" },
+            { check_id: "CAL-NEGATIVE-CONTROL-NOT-BEATEN", severity: "blocker" },
             { check_id: "CAL-PANEL-BREADTH", severity: "warning" },
           ],
         },
@@ -922,7 +924,7 @@ function thesisCertificate() {
     invalidation: "fails when pullbacks no longer hold above trend support",
     costSensitivity: "edge must survive fee, slippage, and funding stress",
     candidateUniverse: "trend pullback family with fixed long side parameters",
-    nullControls: ["side_flip", "entry_lag"],
+    negativeControls: ["side_flip", "entry_lag"],
   }
 }
 

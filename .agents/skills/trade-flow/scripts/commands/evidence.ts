@@ -157,10 +157,10 @@ function evidenceCatalogDbPath(config: CommandConfig): string | undefined {
 function readQualification(input: JSONRecord): EvidenceQualification | undefined {
   const qualification = asRecord(input.qualification)
   const funding = asRecord(input.funding_event_coverage ?? qualification.funding_event_coverage)
-  const panel = asRecord(input.panel_null_gate ?? qualification.panel_null_gate)
+  const panel = asRecord(input.panel_negative_control_gate ?? qualification.panel_negative_control_gate)
   const result = {
     ...(Object.keys(funding).length > 0 ? { funding_event_coverage: funding } : {}),
-    ...(Object.keys(panel).length > 0 ? { panel_null_gate: panel } : {}),
+    ...(Object.keys(panel).length > 0 ? { panel_negative_control_gate: panel } : {}),
   }
   return Object.keys(result).length > 0 ? result : undefined
 }

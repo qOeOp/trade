@@ -154,7 +154,7 @@ export function simulate(panel: { timestamps: number[]; closes: number[][] }, sc
   }
 }
 
-export function nullControlDiagnostics(panel: { timestamps: number[]; closes: number[][] }, weights: number[][], warmup: number, rebalanceBars: number, costModel: CostModel, timeframe: string, randomTrials: number, observedSharpe: number, seedOffset: number): JSONRecord {
+export function negativeControlDiagnostics(panel: { timestamps: number[]; closes: number[][] }, weights: number[][], warmup: number, rebalanceBars: number, costModel: CostModel, timeframe: string, randomTrials: number, observedSharpe: number, seedOffset: number): JSONRecord {
   const timeShiftSharpes = Array.from({ length: randomTrials }, (_, trial) => simulate(panel, circularShift(weights, trial + seedOffset), warmup, rebalanceBars, costModel, 0, timeframe).stats.sharpe)
   const assetShuffleSharpes = Array.from({ length: randomTrials }, (_, trial) => simulate(panel, assetLabelShuffle(weights, panel.closes.length, trial + seedOffset + 101), warmup, rebalanceBars, costModel, 0, timeframe).stats.sharpe)
   const sideFlip = simulate(panel, weights.map((row) => row.map((value) => -value)), warmup, rebalanceBars, costModel, 0, timeframe).stats

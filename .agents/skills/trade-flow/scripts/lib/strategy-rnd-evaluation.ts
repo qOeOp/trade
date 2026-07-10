@@ -25,15 +25,17 @@ export interface StrategyRndCandidateReport {
   parameter_count: number
   params: JSONRecord
   replay: ReplayResult
-  null_controls: CandidateNullControlReport
+  negative_controls: CandidateNegativeControlReport
   gate: {
     accepted: boolean
     blocked_by: Array<{ check_id: string; reason: string }>
   }
 }
 
-export interface CandidateNullControlReport {
+export interface CandidateNegativeControlReport {
   method: "side_flip_and_entry_lag"
+  observed_sample_count: number
+  observed_avg_r: number
   observed_total_r: number
   controls: Array<{
     control_id: string
@@ -42,7 +44,7 @@ export interface CandidateNullControlReport {
     total_r: number
     profit_factor: number
   }>
-  blocked_by: Array<{ check_id: string; reason: string }>
+  blocked_by: Array<{ check_id: string; reason: string; evidence?: JSONRecord }>
 }
 
 export function runCandidate(input: StrategyRndBatchInput, candidate: StrategyRndCandidateInput, featureStore: FactorFeatureStore): StrategyRndCandidateReport {
@@ -74,9 +76,9 @@ export function runCandidate(input: StrategyRndBatchInput, candidate: StrategyRn
     : evaluateParameterStability(input, candidate, featureStore)
   replay.assumptions.robustness = robustness
   replay.provenance.assumptions_hash = hashCanonical(replay.assumptions)
-  const nullControls = input.diagnosticMode
-    ? diagnosticNullControls(replay)
-    : buildCandidateNullControls(input, candidate, configured, featureStore, replay)
+  const negativeControls = input.diagnosticMode
+    ? diagnosticNegativeControls(replay)
+    : buildCandidateNegativeControls(input, candidate, configured, featureStore, replay)
   return {
     candidate_id: candidate.candidateId,
     description: candidate.description || "",
@@ -84,50 +86,86 @@ export function runCandidate(input: StrategyRndBatchInput, candidate: StrategyRn
     parameter_count: parameterCount,
     params: configured.params,
     replay,
-    null_controls: nullControls,
-    gate: evaluateRndCandidate(replay, parameterCount, nullControls.blocked_by),
+    negative_controls: negativeControls,
+    gate: evaluateRndCandidate(replay, parameterCount, negativeControls.blocked_by),
   }
 }
 
-function diagnosticNullControls(observed: ReplayResult): CandidateNullControlReport {
+function diagnosticNegativeControls(observed: ReplayResult): CandidateNegativeControlReport {
   return {
     method: "side_flip_and_entry_lag",
+    observed_sample_count: observed.sample_count,
+    observed_avg_r: observed.avg_r,
     observed_total_r: observed.total_r,
     controls: [],
     blocked_by: [],
   }
 }
 
-export function buildCandidateNullControls(
+export function buildCandidateNegativeControls(
   input: StrategyRndBatchInput,
   candidate: StrategyRndCandidateInput,
   configured: RndFamilyConfigured,
   featureStore: FactorFeatureStore,
   observed: ReplayResult,
-): CandidateNullControlReport {
+): CandidateNegativeControlReport {
   const parameterCount = candidate.parameterCount ?? countActiveParameters(candidate.params || {})
-  const controls: CandidateNullControlReport["controls"] = []
+  const controls: CandidateNegativeControlReport["controls"] = []
   const sideFlipped = flippedSideParams(candidate.params || {})
   if (sideFlipped) {
-    const flipped = getRndFamily(candidate.family || "trend_pullback_v1").configure(`${candidate.candidateId}-null-side-flip`, sideFlipped, featureStore)
-    controls.push(summarizeNullControl("side_flip", runConfiguredReplay(input, flipped, countActiveParameters(sideFlipped))))
+    const flipped = getRndFamily(candidate.family || "trend_pullback_v1").configure(`${candidate.candidateId}-negative-control-side-flip`, sideFlipped, featureStore)
+    controls.push(summarizeNegativeControl("side_flip", runConfiguredReplay(input, flipped, countActiveParameters(sideFlipped))))
   }
-  controls.push(summarizeNullControl(
+  controls.push(summarizeNegativeControl(
     "entry_lag_3",
     runConfiguredReplay(input, { ...configured, strategy: laggedEntryStrategy(configured.strategy, 3) }, parameterCount),
   ))
-  const eligible = controls.filter((control) => control.sample_count >= 10)
-  const blocked = observed.total_r > 0
-    && observed.avg_r > 0
-    && eligible.some((control) => control.total_r >= observed.total_r || control.avg_r >= observed.avg_r)
+  const blockedBy = buildNegativeControlBlocks(observed, controls)
   return {
     method: "side_flip_and_entry_lag",
+    observed_sample_count: observed.sample_count,
+    observed_avg_r: observed.avg_r,
     observed_total_r: observed.total_r,
     controls,
-    blocked_by: blocked
-      ? [{ check_id: "RND-NULL-NOT-BEATEN", reason: "candidate does not beat side-flip or delayed-entry null control" }]
-      : [],
+    blocked_by: blockedBy,
   }
+}
+
+function buildNegativeControlBlocks(
+  observed: ReplayResult,
+  controls: CandidateNegativeControlReport["controls"],
+): CandidateNegativeControlReport["blocked_by"] {
+  if (observed.total_r <= 0 || observed.avg_r <= 0) return []
+  return controls
+    .filter((control) => control.sample_count >= 10)
+    .map((control) => {
+      const triggeredMetrics = [
+        ...(control.total_r >= observed.total_r ? ["total_r"] : []),
+        ...(control.avg_r >= observed.avg_r ? ["avg_r"] : []),
+      ]
+      if (triggeredMetrics.length === 0) return null
+      return {
+        check_id: "RND-NEGATIVE-CONTROL-NOT-BEATEN",
+        reason: `${control.control_id} negative control is not beaten on ${triggeredMetrics.join(" and ")}`,
+        evidence: {
+          control_id: control.control_id,
+          comparison_policy: "eligible_null_sample_count_ge_10_and_total_r_or_avg_r_not_beaten",
+          triggered_metrics: triggeredMetrics,
+          observed: {
+            sample_count: observed.sample_count,
+            avg_r: observed.avg_r,
+            total_r: observed.total_r,
+          },
+          control: {
+            sample_count: control.sample_count,
+            avg_r: control.avg_r,
+            total_r: control.total_r,
+            profit_factor: control.profit_factor,
+          },
+        },
+      }
+    })
+    .filter((item): item is NonNullable<typeof item> => item !== null)
 }
 
 export function runConfiguredReplay(input: StrategyRndBatchInput, configured: RndFamilyConfigured, parameterCount: number): ReplayResult {
@@ -148,7 +186,7 @@ export function runConfiguredReplay(input: StrategyRndBatchInput, configured: Rn
   })
 }
 
-export function summarizeNullControl(controlId: string, replay: ReplayResult): CandidateNullControlReport["controls"][number] {
+export function summarizeNegativeControl(controlId: string, replay: ReplayResult): CandidateNegativeControlReport["controls"][number] {
   return {
     control_id: controlId,
     sample_count: replay.sample_count,
@@ -168,11 +206,19 @@ export function flippedSideParams(params: JSONRecord): JSONRecord | null {
 export function laggedEntryStrategy(strategy: ReplayStrategy, lagBars: number): ReplayStrategy {
   return {
     ...strategy,
-    strategy_id: `${strategy.strategy_id}-null-entry-lag-${lagBars}`,
+    strategy_id: `${strategy.strategy_id}-negative-control-entry-lag-${lagBars}`,
     generateSignal(input) {
       const sourceIndex = input.index - lagBars
       if (sourceIndex < strategy.warmup_bars) return null
-      const original = strategy.generateSignal({ ...input, index: sourceIndex })
+      const sourceEntryIndex = sourceIndex + 1
+      const sourceEntryPrice = input.candles[sourceEntryIndex]?.open
+      if (!Number.isFinite(sourceEntryPrice)) return null
+      const original = strategy.generateSignal({
+        ...input,
+        index: sourceIndex,
+        entryIndex: sourceEntryIndex,
+        entryPrice: sourceEntryPrice,
+      })
       return original ? rebuildSignalAtEntry(original, input.index, input.entryIndex, input.entryPrice) : null
     },
   }
@@ -190,7 +236,7 @@ export function rebuildSignalAtEntry(signal: ReplaySignal, signalIndex: number, 
     entry_index: entryIndex,
     entry,
     target: signal.side === "long" ? entry + risk * rewardRisk : entry - risk * rewardRisk,
-    reason: `${signal.reason} null entry lag`,
+    reason: `${signal.reason} negative control entry lag`,
   }
 }
 
@@ -246,7 +292,7 @@ function replaySupplementalDataRefs(indicatorReportPath: string | undefined, con
 export function evaluateRndCandidate(
   replay: ReplayResult,
   parameterCount: number,
-  nullBlocks: Array<{ check_id: string; reason: string }> = [],
+  negativeBlocks: Array<{ check_id: string; reason: string }> = [],
 ): StrategyRndCandidateReport["gate"] {
   const blockedBy = [...replay.gate.blocked_by]
   const proof = replay.assumptions.anti_overfit as { oos_stats?: { sample_count: number; avg_r: number; total_r: number; max_drawdown_r: number; profit_factor: number }; trial_count?: number; parameter_count?: number } | undefined
@@ -277,7 +323,7 @@ export function evaluateRndCandidate(
     blockedBy.push({ check_id: "RND-PARAM-COUNT", reason: `parameter_count ${parameterCount} exceeds 8` })
   }
   blockedBy.push(...evaluateRndRobustness(replay))
-  blockedBy.push(...nullBlocks)
+  blockedBy.push(...negativeBlocks)
   return {
     accepted: blockedBy.length === 0,
     blocked_by: blockedBy,
