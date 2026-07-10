@@ -91,6 +91,10 @@ test("strategy R&D full-trial report records universe and unresolved samples", (
   assert.equal(unresolved.status, "statistically_unresolved")
   assert.equal(unresolved.trial_universe.winner_candidate_id, null)
   assert.equal(unresolved.blocked_by[0].check_id, "RND-STAT-EFFECTIVE-SAMPLE")
+
+  const noWinner = buildFullTrialStatisticalReport([rejected], stableAudit(), null)
+  assert.equal(noWinner.status, "blocked")
+  assert.equal(noWinner.blocked_by.some((item) => item.check_id === "RND-STAT-CANDIDATE-RND-OOS-EXPECTANCY"), true)
 })
 
 test("strategy R&D full-trial report blocks high PBO selection risk", () => {

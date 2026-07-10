@@ -473,6 +473,99 @@ test("rd program state blocks instead of rerunning a rejected mechanism", () => 
   assert.equal(asArray(followup.candidates).length, 0)
 })
 
+test("rd program state blocks negative-control rejects instead of rerunning the same mechanism", () => {
+  const state = createRdProgramState({
+    programId: "rd-null-reject",
+    objective: "do not rerun mechanisms that only show mild null-dominated edge",
+    now: "2026-07-09T12:00:00Z",
+    budget: { max_hypotheses: 4, max_trials_total: 12, max_locked_holdout_uses: 1 },
+    nextHypothesisQueue: [{
+      hypothesis_id: "h1",
+      hypothesis: "structure breakout retest has edge",
+      manifest_path: "data/discovery/manifest.json",
+      timeframe: "4h",
+      search_trial_count: 4,
+      candidates: [{ candidate_id: "C1", family: "structure_breakout_retest_v1", params: { side: "long" } }],
+    }],
+  })
+
+  const updated = updateRdProgramStateFromResearchResult(state, {
+    run_id: "run-1",
+    created_at: "2026-07-09T13:00:00Z",
+    artifact_ref: "tmp/artifacts/strategy-rnd/run-1.json",
+    batch: {
+      batch_id: "rd-null-reject-h1",
+      hypothesis: "structure breakout retest has edge",
+      outcome: "no_promote",
+      candidate_source: "provided",
+      trial_count: 4,
+      accepted_count: 0,
+      winner: null,
+      failure_summary: {
+        primary_failure_area: "negative_control",
+        top_blockers: [{ check_id: "RND-NULL-NOT-BEATEN", count: 3 }],
+        next_system_actions: ["Reject mild positive edge until it beats side-flip and delayed-entry null controls."],
+      },
+      reliability_gate: { status: "blocked", decision: "reject_hypothesis" },
+    },
+    ledger_record: {},
+  })
+
+  const followup = asRecord(updated.next_hypothesis_queue[0])
+  assert.equal(followup.ready, false)
+  assert.match(String(followup.blocked_reason), /distinct predeclared market edge/)
+  assert.equal(asRecord(followup.generated_from).required_next_step, "predeclare_distinct_market_edge")
+  assert.equal(asArray(followup.candidates).length, 0)
+})
+
+test("rd program state blocks redesign actions instead of rerunning stale candidates", () => {
+  const state = createRdProgramState({
+    programId: "rd-redesign",
+    objective: "do not rerun stale candidates when geometry must change",
+    now: "2026-07-09T12:00:00Z",
+    budget: { max_hypotheses: 4, max_trials_total: 12, max_locked_holdout_uses: 1 },
+    nextHypothesisQueue: [{
+      hypothesis_id: "h1",
+      hypothesis: "time-series momentum has edge",
+      manifest_path: "data/discovery/manifest.json",
+      timeframe: "4h",
+      search_trial_count: 4,
+      candidates: [
+        { candidate_id: "C1", family: "time_series_momentum_v1", params: { side: "long", stop_atr: 1, reward_risk: 2 } },
+        { candidate_id: "C2", family: "time_series_momentum_v1", params: { side: "short", stop_atr: 1, reward_risk: 2 } },
+      ],
+    }],
+  })
+
+  const updated = updateRdProgramStateFromResearchResult(state, {
+    run_id: "run-1",
+    created_at: "2026-07-09T13:00:00Z",
+    artifact_ref: "tmp/artifacts/strategy-rnd/run-1.json",
+    batch: {
+      batch_id: "rd-redesign-h1",
+      hypothesis: "time-series momentum has edge",
+      outcome: "no_promote",
+      candidate_source: "provided",
+      trial_count: 2,
+      accepted_count: 0,
+      winner: null,
+      failure_summary: {
+        primary_failure_area: "risk_shape",
+        top_blockers: [{ check_id: "R-DRAWDOWN", count: 2 }],
+        next_system_actions: ["Redesign stop/target geometry before adding confirmation factors."],
+      },
+      reliability_gate: { status: "blocked", decision: "reject_hypothesis" },
+    },
+    ledger_record: {},
+  })
+
+  const followup = asRecord(updated.next_hypothesis_queue[0])
+  assert.equal(followup.ready, false)
+  assert.match(String(followup.blocked_reason), /predeclared candidate revision/)
+  assert.equal(asRecord(followup.generated_from).required_next_step, "predeclare_candidate_revision")
+  assert.equal(asArray(followup.candidates).length, 0)
+})
+
 test("rd program state consumes campaign discovery failure before scheduling follow-up", () => {
   const state = createRdProgramState({
     programId: "rd-campaign-failure",
@@ -518,6 +611,51 @@ test("rd program state consumes campaign discovery failure before scheduling fol
   assert.equal(followup.ready, false)
   assert.equal(asArray(followup.candidates).length, 0)
   assert.match(String(followup.blocked_reason), /distinct predeclared market edge/)
+})
+
+test("rd program state blocks repeated cost diagnostics after one diagnostic loop", () => {
+  const state = createRdProgramState({
+    programId: "rd-cost-loop",
+    objective: "do not repeat the same cost diagnostic indefinitely",
+    now: "2026-07-09T12:00:00Z",
+    budget: { max_hypotheses: 4, max_trials_total: 12, max_locked_holdout_uses: 1 },
+    nextHypothesisQueue: [{
+      hypothesis_id: "h-cost",
+      hypothesis: "audit turnover and cost assumptions",
+      manifest_path: "data/discovery/manifest.json",
+      timeframe: "4h",
+      diagnostic_mode: true,
+      search_trial_count: 2,
+      candidates: [{ candidate_id: "C1", family: "time_series_momentum_v1", params: { side: "long" } }],
+    }],
+  })
+
+  const updated = updateRdProgramStateFromResearchResult(state, {
+    run_id: "run-cost",
+    created_at: "2026-07-09T13:00:00Z",
+    artifact_ref: "tmp/artifacts/strategy-rnd/run-cost.json",
+    batch: {
+      batch_id: "rd-cost-loop-h-cost",
+      hypothesis: "audit turnover and cost assumptions",
+      outcome: "no_promote",
+      candidate_source: "provided",
+      trial_count: 2,
+      accepted_count: 0,
+      winner: null,
+      failure_summary: {
+        primary_failure_area: "execution_cost",
+        top_blockers: [{ check_id: "RND-ROBUSTNESS-COST", count: 2 }],
+        next_system_actions: ["Audit turnover, marketability, and fee tier assumptions before promoting any high-turnover variant."],
+      },
+      reliability_gate: { status: "blocked", decision: "fix_cost_model" },
+    },
+    ledger_record: {},
+  })
+
+  const followup = asRecord(updated.next_hypothesis_queue[0])
+  assert.equal(followup.ready, false)
+  assert.match(String(followup.blocked_reason), /cost diagnostic already ran/)
+  assert.equal(asRecord(followup.generated_from).required_next_step, "review_cost_model_or_predeclare_cost_reduction")
 })
 
 function readSchema(name: string): JSONRecord {

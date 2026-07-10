@@ -178,6 +178,14 @@ export function buildFullTrialStatisticalReport(
   if (candidates.length === 0) {
     blockedBy.push({ check_id: "RND-STAT-EMPTY-UNIVERSE", reason: "no candidate trials were evaluated" })
   }
+  if (!winner && candidates.length > 0) {
+    for (const blocker of summarizeCandidateBlockers(candidates)) {
+      blockedBy.push({
+        check_id: `RND-STAT-CANDIDATE-${blocker.check_id}`,
+        reason: `${blocker.count} rejected candidate(s) blocked by ${blocker.check_id}`,
+      })
+    }
+  }
   if (winner && effectiveOosSampleCount(bestStats?.sample_count ?? 0, selectionAudit.declared_trials) < MIN_STAT_EFFECTIVE_OOS_SAMPLE_COUNT) {
     blockedBy.push({
       check_id: "RND-STAT-EFFECTIVE-SAMPLE",
