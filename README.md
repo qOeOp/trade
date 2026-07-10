@@ -2,79 +2,179 @@
 
 agent-native 加密交易工作仓库。目标是让 agent 在可审计事实、权限边界、执行契约、交易所回读和研究记忆之上，推进 Binance USDM 4H+ swing 的观察、研发、验证、执行、恢复和复盘。
 
-先看图，再看表。README 是全局地图；细节契约看 `docs/`。
+先看图，再看表。README 只保留一张全局结构图；细节契约看 `docs/`。
 
 ## 1. 全局架构
 
 ```mermaid
-flowchart TD
-  subgraph L0["External control"]
+flowchart TB
+  subgraph CHIP["Crypto Trade Workspace - single automation chip"]
+    direction TB
+
+  subgraph PINS["00 External input pins"]
     direction LR
     USER["user takeover"]
     CRON["automation wakeup"]
     RECOVERY["manual recovery"]
   end
 
-  subgraph L1["Single entry and supervisor"]
+  subgraph CORE["01 Supervisor core"]
     direction TB
     ENTRY["single automation entry<br/>trade-flow --automation-cycle"]
-    SUP["supervisor<br/>plan jobs + merge results"]
-    GATE["cadence / lock / concurrency<br/>permission gate"]
-    DISPATCH["subagent fan-out<br/>isolated job contracts"]
+    SUP["supervisor planner<br/>plan jobs + merge results"]
+    CLOCK["cadence gate<br/>slow / fast / R&D / hygiene"]
+    LOCK["lock + concurrency matrix<br/>trade-db serial / research isolated"]
+    PERM["permission gate<br/>dry-run by default / --yes for writes"]
+    DISPATCH["subagent fan-out bus<br/>job id + role + allowed refs"]
   end
 
-  subgraph L2["Job layer"]
+  subgraph JOBS["02 Job lanes"]
     direction LR
-    FAST["fast_track_guard<br/>active flow guard"]
-    SLOW["slow_track_market_watch<br/>live opportunity watch"]
-    SHADOW["shadow / forward validation<br/>paper sample tracker"]
-    RD["new strategy R&D<br/>hypothesis loop"]
-    REVIEW["closed-flow review<br/>post trade learning"]
-    HYGIENE["catalog / artifact hygiene<br/>stale scan + GC"]
+
+    subgraph ONLINE["A Online trade lane"]
+      direction TB
+      SLOW["slow_track_market_watch<br/>full observe + thesis"]
+      FAST["fast_track_guard<br/>active flow guard"]
+      ACTIVE["active flow state<br/>one lane owner"]
+      RECON["recovery / reconcile<br/>exchange facts override local"]
+    end
+
+    subgraph RESEARCH["B Research lane"]
+      direction TB
+      RD["new strategy R&D<br/>autonomous hypothesis loop"]
+      SCOUT["R&D scout subagents<br/>history / data / edge"]
+      SHADOW["shadow / forward validation<br/>paper sample tracker"]
+      PANEL["panel + null control<br/>breadth sanity check"]
+    end
+
+    subgraph LEARNING["C Learning lane"]
+      direction TB
+      REVIEW["closed-flow review<br/>post-trade attribution"]
+      PROMO["strategy promotion<br/>draft -> shadow -> live-small -> paused"]
+      LESSON["lessons / blocked hypotheses<br/>next constraints"]
+    end
+
+    subgraph OPS["D Ops hygiene lane"]
+      direction TB
+      HYGIENE["catalog / artifact hygiene<br/>stale scan + GC"]
+      NOTIFY_JOB["notify dispatch<br/>operator alerts"]
+      QUALITY["quality check<br/>tests / typecheck / contracts"]
+    end
   end
 
-  subgraph L3["Capability layer"]
+  subgraph CAP["03 Capability banks"]
     direction LR
-    MARKET["observe skills<br/>market scan / symbol / aggTrades / zones"]
-    ACCOUNT["account snapshot<br/>position / orders / history"]
-    PREFLIGHT["plan-preflight<br/>risk gates / decision card"]
-    EXEC["execution skills<br/>preview / place / protect / adjust / cancel"]
-    IND["data + indicators<br/>ohlcv-fetch / tech-indicators"]
-    RDTOOLS["R&D engines<br/>loop / campaign / panel / split"]
-    PROMOTE["strategy governance<br/>evidence / promote / pause"]
-    NOTIFY["notify dispatch<br/>operator alerts"]
+
+    subgraph OBSERVE_BANK["Observe bank"]
+      direction TB
+      MARKET["binance-market-scan"]
+      SYMBOL["binance-symbol-snapshot"]
+      AGG["binance-aggtrades-fetch"]
+      ZONES["binance-liquidation-zones"]
+      ACCOUNT["binance-account-snapshot"]
+    end
+
+    subgraph DATA_BANK["Data + indicator bank"]
+      direction TB
+      OHLCV_FETCH["ohlcv-fetch"]
+      TECH["tech-indicators<br/>feature series / support / beta"]
+      SPLIT["strategy-data-split<br/>discovery / validation / holdout"]
+    end
+
+    subgraph RD_BANK["R&D bank"]
+      direction TB
+      RD_STATE["rd-program-state<br/>plan_next / writeback"]
+      RD_LOOP["strategy-rnd-loop"]
+      RD_CAMP["strategy-rnd-campaign"]
+      RD_PANEL["strategy-panel-rnd"]
+    end
+
+    subgraph EXEC_BANK["Execution bank"]
+      direction TB
+      PREVIEW["binance-order-preview"]
+      PREFLIGHT["plan-preflight<br/>hard guards + decision card"]
+      PLACE["binance-order-place"]
+      PROTECT["binance-position-protect"]
+      ADJUST["binance-position-adjust"]
+      CANCEL["binance-order-cancel"]
+    end
+
+    subgraph GOV_BANK["Governance bank"]
+      direction TB
+      EVIDENCE["strategy evidence"]
+      REPLAY["replay / backtest"]
+      REVIEW_TOOL["review reducers"]
+      CATALOG_TOOL["catalog query / stale / gc"]
+    end
   end
 
-  subgraph L4["Durable facts and files"]
+  subgraph SAFETY["04 Permission and isolation walls"]
     direction LR
-    TRADEDB[("data/trade.db<br/>plan_event stream")]
-    CATDB[("data/data_catalog.db<br/>artifact registry")]
-    OHLCV["data/ohlcv<br/>manifest + candles"]
-    ART["tmp/artifacts<br/>research / run outputs"]
-    RDSTATE["state/rd<br/>program memory"]
-    STRAT["strategies<br/>Trade Contract + status"]
+    NO_WRITE["real Binance write<br/>requires explicit --yes"]
+    RD_WALL["R&D wall<br/>no trade.db writes / no Binance writes"]
+    SUB_WALL["subagent wall<br/>allowed commands + refs only"]
+    SERIAL_DB["trade-db serial zone<br/>fast / slow / review"]
+    PIN_RULE["artifact retention<br/>.pin + referenced assets survive"]
+  end
+
+  subgraph STORE["05 Durable fact stores and object model"]
+    direction LR
+
+    subgraph TRADE_STORE["Trade facts"]
+      direction TB
+      TRADEDB[("data/trade.db")]
+      PLAN_EVENT["plan_event stream"]
+      OBS["observe"]
+      FILL["order_fill"]
+      REVIEW_EVENT["review"]
+      TRADEDB --> PLAN_EVENT --> OBS
+      PLAN_EVENT --> FILL
+      PLAN_EVENT --> REVIEW_EVENT
+    end
+
+    subgraph RESEARCH_STORE["Research facts"]
+      direction TB
+      CATDB[("data/data_catalog.db")]
+      OHLCV["data/ohlcv<br/>manifest + candles"]
+      ART["tmp/artifacts<br/>research / run outputs"]
+      RDSTATE["state/rd<br/>program memory"]
+      STRAT["strategies/*.md<br/>Trade Contract + status"]
+      TMP["tmp<br/>cache / panels / market snapshots"]
+    end
+
+    subgraph OBJECTS["Trading object chain"]
+      direction TB
+      STRATEGY["strategy"]
+      SETUP["setup"]
+      LANE["lane<br/>strategy + symbol + side"]
+      FLOW["flow<br/>one exposure lifecycle"]
+      EVENT_CHAIN["plan_event chain"]
+      STRATEGY --> SETUP --> LANE --> FLOW --> EVENT_CHAIN
+    end
+
     PROFILE["profile<br/>trading / notify config"]
-    TMP["tmp<br/>cache / panels / market snapshots"]
   end
 
-  subgraph L5["External exchange facts"]
+  subgraph EXCHANGE["06 Exchange IO"]
     direction LR
     BINREAD["Binance read APIs<br/>prices / klines / account"]
     BINWRITE["Binance write APIs<br/>orders / protection / cancel"]
   end
 
-  subgraph L6["Feedback and learning"]
+  subgraph FEEDBACK["07 Feedback buses"]
     direction LR
     SUMMARY["supervisor summary"]
-    LESSONS["lessons / blocked hypotheses"]
-    PROMOTION["draft -> shadow -> live-small -> paused"]
-    NEXT["next wakeup constraints"]
+    EVIDENCE_BUS["promotion evidence<br/>replay + shadow + attribution"]
+    REVIEW_BUS["strategy diagnostics<br/>closed-flow review"]
+    RD_BUS["R&D writeback<br/>failure summary + next hypothesis"]
+    NEXT["next wakeup constraints<br/>what to run / what to avoid"]
+  end
   end
 
   USER --> ENTRY
   CRON --> ENTRY
   RECOVERY --> ENTRY
-  ENTRY --> SUP --> GATE --> DISPATCH
+  ENTRY --> SUP --> CLOCK --> LOCK --> PERM --> DISPATCH
 
   DISPATCH --> FAST
   DISPATCH --> SLOW
@@ -82,114 +182,151 @@ flowchart TD
   DISPATCH --> RD
   DISPATCH --> REVIEW
   DISPATCH --> HYGIENE
+  DISPATCH --> NOTIFY_JOB
+  DISPATCH --> QUALITY
 
+  FAST --> ACTIVE
+  FAST --> RECON
   FAST --> ACCOUNT
   FAST --> PREFLIGHT
-  FAST --> EXEC
+  FAST --> PREVIEW
+  FAST --> CANCEL
+  FAST --> PROTECT
   SLOW --> MARKET
+  SLOW --> SYMBOL
+  SLOW --> AGG
+  SLOW --> ZONES
   SLOW --> ACCOUNT
   SLOW --> PREFLIGHT
-  SHADOW --> IND
-  SHADOW --> RDTOOLS
-  RD --> IND
-  RD --> RDTOOLS
-  REVIEW --> PROMOTE
-  REVIEW --> IND
+  SLOW --> ACTIVE
+
+  RD --> SCOUT
+  RD --> RD_STATE
+  RD --> RD_LOOP
+  RD --> RD_CAMP
+  RD --> TECH
+  RD --> OHLCV_FETCH
+  RD --> PANEL
+  SCOUT --> SPLIT
+  SHADOW --> REPLAY
+  SHADOW --> TECH
+  SHADOW --> OHLCV_FETCH
+  PANEL --> RD_PANEL
+  REVIEW --> REVIEW_TOOL
+  REVIEW --> EVIDENCE
+  PROMO --> EVIDENCE
+  PROMO --> REPLAY
+  LESSON --> RD_STATE
   HYGIENE --> CATDB
   HYGIENE --> ART
+  HYGIENE --> CATALOG_TOOL
+  NOTIFY_JOB --> TMP
 
   MARKET --> BINREAD
+  SYMBOL --> BINREAD
+  AGG --> BINREAD
+  ZONES --> BINREAD
   ACCOUNT --> BINREAD
-  IND --> BINREAD
-  EXEC --> BINWRITE
+  OHLCV_FETCH --> BINREAD
+  TECH --> OHLCV
+  PREVIEW --> BINREAD
+  PLACE --> BINWRITE
+  PROTECT --> BINWRITE
+  ADJUST --> BINWRITE
+  CANCEL --> BINWRITE
 
+  PREFLIGHT --> NO_WRITE
+  PLACE --> NO_WRITE
+  PROTECT --> NO_WRITE
+  ADJUST --> NO_WRITE
+  CANCEL --> NO_WRITE
+  RD --> RD_WALL
+  SCOUT --> SUB_WALL
+  DISPATCH --> SUB_WALL
+  FAST --> SERIAL_DB
+  SLOW --> SERIAL_DB
+  REVIEW --> SERIAL_DB
+  HYGIENE --> PIN_RULE
+
+  ACTIVE --> FLOW
+  FLOW --> PLAN_EVENT
   MARKET --> TRADEDB
+  SYMBOL --> TRADEDB
   ACCOUNT --> TRADEDB
   PREFLIGHT --> TRADEDB
-  EXEC --> TRADEDB
-  RDTOOLS --> CATDB
-  RDTOOLS --> ART
-  RDTOOLS --> RDSTATE
-  IND --> OHLCV
-  IND --> ART
-  PROMOTE --> STRAT
-  PROMOTE --> CATDB
-  NOTIFY --> TMP
+  PREVIEW --> TRADEDB
+  PLACE --> TRADEDB
+  PROTECT --> TRADEDB
+  ADJUST --> TRADEDB
+  CANCEL --> TRADEDB
+  RECON --> TRADEDB
+  RD_STATE --> RDSTATE
+  RD_LOOP --> CATDB
+  RD_LOOP --> ART
+  RD_CAMP --> CATDB
+  RD_CAMP --> ART
+  RD_PANEL --> CATDB
+  RD_PANEL --> ART
+  OHLCV_FETCH --> OHLCV
+  TECH --> ART
+  SPLIT --> ART
+  REPLAY --> ART
+  EVIDENCE --> CATDB
+  EVIDENCE --> STRAT
+  CATALOG_TOOL --> CATDB
 
   PROFILE --> ENTRY
   STRAT --> SLOW
   STRAT --> SHADOW
   STRAT --> RD
-  OHLCV --> IND
+  STRAT --> STRATEGY
+  EVENT_CHAIN --> PLAN_EVENT
+  OHLCV --> TECH
   CATDB --> HYGIENE
   TRADEDB --> REVIEW
-  RDSTATE --> RD
+  TRADEDB --> FAST
+  RDSTATE --> RD_STATE
 
   TRADEDB --> SUMMARY
   CATDB --> SUMMARY
   ART --> SUMMARY
-  RDSTATE --> LESSONS
-  STRAT --> PROMOTION
+  FILL --> REVIEW_BUS
+  REVIEW_EVENT --> REVIEW_BUS
+  REVIEW_BUS --> LESSON
+  ART --> EVIDENCE_BUS
+  EVIDENCE_BUS --> PROMO
+  RDSTATE --> RD_BUS
+  RD_BUS --> LESSON
   SUMMARY --> NEXT
-  LESSONS --> NEXT
-  PROMOTION --> NEXT
+  LESSON --> NEXT
+  PROMO --> NEXT
   NEXT --> SUP
+
+  classDef pin fill:#eef6ff,stroke:#6aa3d8,color:#111;
+  classDef core fill:#f6f0ff,stroke:#9467bd,color:#111;
+  classDef job fill:#fff7e8,stroke:#d9902f,color:#111;
+  classDef cap fill:#edf9f0,stroke:#4c9a5f,color:#111;
+  classDef wall fill:#fff0f0,stroke:#cc4b4b,color:#111;
+  classDef store fill:#f7f7f7,stroke:#777,color:#111;
+  classDef io fill:#eefafc,stroke:#3b95a3,color:#111;
+  classDef fb fill:#f5f7ff,stroke:#5968c9,color:#111;
+  class USER,CRON,RECOVERY pin;
+  class ENTRY,SUP,CLOCK,LOCK,PERM,DISPATCH core;
+  class FAST,SLOW,ACTIVE,RECON,RD,SCOUT,SHADOW,PANEL,REVIEW,PROMO,LESSON,HYGIENE,NOTIFY_JOB,QUALITY job;
+  class MARKET,SYMBOL,AGG,ZONES,ACCOUNT,OHLCV_FETCH,TECH,SPLIT,RD_STATE,RD_LOOP,RD_CAMP,RD_PANEL,PREVIEW,PREFLIGHT,PLACE,PROTECT,ADJUST,CANCEL,EVIDENCE,REPLAY,REVIEW_TOOL,CATALOG_TOOL cap;
+  class NO_WRITE,RD_WALL,SUB_WALL,SERIAL_DB,PIN_RULE wall;
+  class TRADEDB,PLAN_EVENT,OBS,FILL,REVIEW_EVENT,CATDB,OHLCV,ART,RDSTATE,STRAT,TMP,STRATEGY,SETUP,LANE,FLOW,EVENT_CHAIN,PROFILE store;
+  class BINREAD,BINWRITE io;
+  class SUMMARY,EVIDENCE_BUS,REVIEW_BUS,RD_BUS,NEXT fb;
 ```
 
 一句话：外部只有一个长期入口；入口只生成任务图和权限边界；具体工作交给隔离 subagent；长期事实必须落到 DB、artifact、catalog、strategy 文件或 R&D state。
 
 ## 2. 两条主链
 
-```mermaid
-flowchart LR
-  subgraph Online["在线交易链"]
-    O["OBSERVE"] --> P["PLAN + preflight"]
-    P --> E["EXECUTE"]
-    E --> W["order_fill / reconcile"]
-    W --> RV["REVIEW"]
-  end
-
-  subgraph Research["离线验证链"]
-    RD["research / review"] --> RP["replay / backtest"]
-    RP --> SH["shadow / forward"]
-    SH --> LS["live-small / paused"]
-    LS --> RV2["review"]
-    RV2 --> RD
-  end
-
-  RP -. "promotion evidence" .-> LS
-  RV -. "strategy diagnostics" .-> RD
-```
-
 在线链只处理真实机会和交易事实；研究链只处理 edge 发现、验证和准入。研究链不能直接写 `trade.db`，也不能触发 Binance 写接口。
 
 ## 3. 单入口怎么分发
-
-```mermaid
-flowchart TD
-  A["automation wakeup"] --> B["--automation-cycle"]
-  B --> C{"cadence due?"}
-  C -->|fast always considered| F["fast_track_guard"]
-  C -->|slow due| S["slow_track_market_watch"]
-  C -->|R&D due + state active| R["rd_strategy_supervisor"]
-  C -->|tracker due| T["rd_forward_shadow_trackers"]
-  C -->|catalog due| G["catalog_hygiene_scan"]
-  C -->|closed flow found| V["closed_flow_review_sweep"]
-
-  F --> CG1["concurrency group: trade-db"]
-  S --> CG1
-  V --> CG1
-
-  R --> CG2["concurrency group: research-rd"]
-  T --> CG3["isolated artifact job"]
-  G --> CG4["isolated catalog job"]
-
-  CG1 --> OUT["JSON result + DB refs"]
-  CG2 --> OUT
-  CG3 --> OUT
-  CG4 --> OUT
-  OUT --> SUM["supervisor summary"]
-```
 
 固定执行顺序：
 
@@ -207,46 +344,6 @@ flowchart TD
 
 ## 4. 数据怎么存
 
-```mermaid
-flowchart TD
-  subgraph TradeFacts["在线交易事实"]
-    DB[("data/trade.db")]
-    PE["plan_event"]
-    OBS["observe"]
-    OF["order_fill"]
-    REV["review"]
-    DB --> PE
-    PE --> OBS
-    PE --> OF
-    PE --> REV
-  end
-
-  subgraph ResearchFacts["研究与准入事实"]
-    CAT[("data/data_catalog.db")]
-    STRAT["strategies/*.md<br/>Trade Contract"]
-    OHLCV["OHLCV manifest"]
-    FEAT["feature report"]
-    ART["research artifacts"]
-    EVD["strategy evidence"]
-    STATE["rd_program_state"]
-    CAT --> OHLCV
-    CAT --> ART
-    CAT --> EVD
-    STRAT --> EVD
-    STATE --> ART
-  end
-
-  subgraph External["外部事实"]
-    BIN["Binance exchange facts"]
-  end
-
-  BIN --> DB
-  BIN --> OHLCV
-  OBS --> OF
-  REV --> EVD
-  EVD --> STRAT
-```
-
 事实优先级：
 
 ```text
@@ -259,43 +356,9 @@ Binance exchange facts
 
 ## 5. 核心对象关系
 
-```mermaid
-flowchart TD
-  STR["strategy<br/>规则模板"] --> SETUP["setup<br/>可验证交易机会"]
-  SETUP --> LANE["lane<br/>strategy_ref + symbol + side"]
-  LANE --> FLOW["flow<br/>一笔机会 / 暴露生命周期"]
-  FLOW --> EV["plan_event chain"]
-  EV --> OBS["observe"]
-  EV --> OF["order_fill"]
-  EV --> REV["review"]
-```
-
 同一 lane 同时最多一个 active flow。新理由、新结构、新加一段都并回当前 active flow，不并行开多个风险拥有者。
 
 ## 6. 慢轨和快轨怎么交互
-
-```mermaid
-sequenceDiagram
-  participant Slow as slow_track_market_watch
-  participant DB as trade.db / plan_event
-  participant Fast as fast_track_guard
-  participant Pre as preflight / guards
-  participant Exe as execution skills
-  participant Binance as Binance
-
-  Slow->>DB: write full observe<br/>thesis + risk + action_intent + trigger_condition
-  Fast->>DB: read latest slow observe
-  Fast->>Pre: check trigger / current orders / current position / hard guards
-  alt trigger and guards pass
-    Fast->>Exe: execute allowed action
-    Exe->>Binance: write only with permission
-    Binance-->>Exe: exchange result
-    Fast->>DB: write light observe + order_fill
-  else blocked or stale
-    Fast->>DB: write light observe when useful, otherwise skip
-  end
-  Slow->>DB: later reads fast facts and continues flow
-```
 
 | 维度 | 慢轨 | 快轨 |
 | --- | --- | --- |
@@ -305,25 +368,6 @@ sequenceDiagram
 | 判断 | 可做 setup / thesis 判断 | 不做质性市场判断 |
 
 ## 7. 在线交易 Flow
-
-```mermaid
-flowchart TD
-  A["market scan / symbol snapshot / account snapshot"] --> B["build observe"]
-  B --> C["append observe"]
-  C --> D["latest observe.action_intent"]
-  D --> E{"trigger_condition hit?"}
-  E -->|no| SKIP["skip"]
-  E -->|yes| F["preflight hard guards"]
-  F -->|blocked / abstain| BO["record blocked or skip"]
-  F -->|armable| G["execution_contract_snapshot"]
-  G --> H["order preview"]
-  H --> I["execution skill"]
-  I --> J["exchange result"]
-  J --> K["append order_fill"]
-  K --> L["flow closed?"]
-  L -->|yes| M["append review"]
-  L -->|no| C
-```
 
 真钱执行写口：
 
@@ -338,40 +382,9 @@ flowchart TD
 
 ## 8. Recovery / Reconcile Flow
 
-```mermaid
-flowchart TD
-  A["read local plan_event"] --> B["reduce current flow state"]
-  B --> C["account snapshot with symbol history"]
-  C --> D{"facts match local state?"}
-  D -->|yes| E["continue"]
-  D -->|clear gap| F["reconcile draft"]
-  F --> G{"can_reconcile + --yes?"}
-  G -->|yes| H["append source=reconcile order_fill"]
-  G -->|no| I["return draft only"]
-  D -->|unmatched| X["abort / needs_review"]
-```
-
 交易所事实覆盖本地乐观状态。无法可靠归属的订单 / 仓位差异必须停，不继续执行。
 
 ## 9. R&D 学习飞轮
-
-```mermaid
-flowchart TD
-  STATE["rd_program_state<br/>objective / budget / lessons / queue"] --> PLAN["plan_next"]
-  PLAN --> RUN{"next command"}
-  RUN -->|loop| LOOP["--strategy-rnd-loop"]
-  RUN -->|campaign| CAMP["--strategy-rnd-campaign"]
-  LOOP --> ART["artifact + catalog + R&D ledger"]
-  CAMP --> ART
-  ART --> FB["failure_summary / reliability_gate / validated_candidate"]
-  FB --> UP["state writeback"]
-  UP --> DECIDE{"terminal?"}
-  DECIDE -->|shadow candidate| DONE["shadow_candidate_found"]
-  DECIDE -->|budget exhausted| BUD["budget_exhausted"]
-  DECIDE -->|blocked| BLK["data_or_tool_blocked"]
-  DECIDE -->|still active| NEXT["generate constrained next hypothesis"]
-  NEXT --> STATE
-```
 
 高阶入口：
 
@@ -393,17 +406,6 @@ bun .agents/skills/trade-flow/scripts/main.ts --rd-supervisor-run --state ./stat
 
 ## 10. Strategy 升格状态机
 
-```mermaid
-stateDiagram-v2
-  [*] --> draft
-  draft --> shadow: fresh replay + locked holdout + robustness gate
-  shadow --> live_small: fresh replay + fresh shadow + execution attribution
-  live_small --> paused: decay / review blocker / risk policy
-  shadow --> paused: review blocker
-  paused --> draft: rewrite policy
-  draft --> draft: R&D / replay only
-```
-
 升格规则：
 
 - `draft` 只能研究。
@@ -413,16 +415,6 @@ stateDiagram-v2
 - `strategy-promote` 默认 dry-run；改 status 必须显式 `--yes`。
 
 ## 11. Catalog / Artifact Hygiene
-
-```mermaid
-flowchart LR
-  A["artifact produced"] --> B["register data_catalog.db"]
-  B --> C["referenced by run / evidence / rd_program_state"]
-  C --> D["catalog query / stale report"]
-  D --> E{"catalog-gc --yes?"}
-  E -->|yes| F["delete stale unreferenced only"]
-  E -->|no| G["report only"]
-```
 
 `.pin`、被引用资产、durable store 必须保留。普通 artifact GC 是文件扫描式；catalog GC 是 catalog-aware。
 
@@ -441,19 +433,6 @@ flowchart LR
 | 配置 | `profile/` | trading config、通知配置；凭证来自环境变量 |
 
 ## 13. Master / Subagent 信息交换
-
-```mermaid
-sequenceDiagram
-  participant M as supervisor
-  participant A as subagent
-  participant DB as DB / artifact / catalog / state
-
-  M->>A: job id + role + permission + allowed commands + input refs
-  A->>DB: read/write only allowed assets
-  DB-->>A: machine-readable facts
-  A-->>M: JSON result + refs + skipped/blocked reason + warnings
-  M->>M: merge summaries and decide next dispatch
-```
 
 禁止：
 
