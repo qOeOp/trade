@@ -1,8 +1,9 @@
-import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
+import { Database } from "bun:sqlite"
 import { run } from "../main"
 import { loadCandlesFromManifest, loadManifest } from "./replay-core"
 import { resolveRepoPath } from "./paths"
@@ -35,6 +36,52 @@ test("strategy data split writes discovery validation and locked holdout manifes
     assert.equal(holdoutCandles.length, segments[2].rows)
     assert.equal(holdoutManifest.closed_candles_only, true)
     assert.equal(asRecord(holdoutManifest.split).segment, "locked_holdout")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("strategy data split can persist and catalog the split report", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-data-split-report-"))
+  try {
+    const manifestPath = writeManifest(join(dir, "source"), "ALTUSDT", 300)
+    const reportPath = join(dir, "artifacts", "split-report.json")
+    const catalogDbPath = join(dir, "catalog.db")
+    const report = runStrategyDataSplit({
+      splitId: "split-report",
+      hypothesisId: "h-report",
+      timeframe: "4h",
+      outputRoot: join(dir, "splits"),
+      reportPath,
+      catalogDbPath,
+      maxHoldBars: 12,
+      minSegmentRows: 30,
+      datasets: [{ datasetId: "ALTUSDT", manifestPath }],
+    })
+
+    assert.equal(report.report_path?.endsWith("split-report.json"), true)
+    assert.equal(report.catalog_db_path?.endsWith("catalog.db"), true)
+    assert.ok(report.artifact_id)
+    assert.equal(existsSync(reportPath), true)
+    const saved = JSON.parse(readFileSync(reportPath, "utf8")) as { schema_version: string; report_path: string }
+    assert.equal(saved.schema_version, "trade-flow.strategy-data-split.v1")
+    assert.equal(saved.report_path.endsWith("split-report.json"), true)
+
+    const db = new Database(catalogDbPath)
+    try {
+      const ref = db.query("SELECT referrer_type, referrer_id, role FROM artifact_ref").get() as {
+        referrer_type: string
+        referrer_id: string
+        role: string
+      }
+      assert.deepEqual(ref, {
+        referrer_type: "strategy_data_split",
+        referrer_id: "split-report",
+        role: "report",
+      })
+    } finally {
+      db.close()
+    }
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

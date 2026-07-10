@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto"
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
+import { defaultCatalogDbPathForGeneratedPath, registerCatalogArtifact } from "./data-catalog"
 import { displayPath, resolveReadablePath } from "./paths"
 import type { JSONRecord } from "./json"
 
@@ -23,6 +24,8 @@ interface StrategyDataSplitInput {
   featureLookbackBars?: number
   fundingIntervalBars?: number
   minSegmentRows?: number
+  reportPath?: string
+  catalogDbPath?: string
   now?: string
   datasets: StrategyDataSplitDatasetInput[]
 }
@@ -68,6 +71,9 @@ interface StrategyDataSplitReport {
     locked_holdout_reserved: true
     next_action: string
   }
+  report_path?: string
+  catalog_db_path?: string
+  artifact_id?: string
 }
 
 interface CsvRow {
@@ -96,7 +102,7 @@ function runStrategyDataSplit(input: StrategyDataSplitInput): StrategyDataSplitR
     minSegmentRows: input.minSegmentRows ?? 100,
     generatedAt,
   }))
-  return {
+  const report: StrategyDataSplitReport = {
     schema_version: "trade-flow.strategy-data-split.v1",
     split_id: splitId,
     hypothesis_id: input.hypothesisId || "",
@@ -120,6 +126,25 @@ function runStrategyDataSplit(input: StrategyDataSplitInput): StrategyDataSplitR
       next_action: "Use discovery manifests for search, validation manifests for candidate filtering, and locked_holdout manifests only once after the Trade Contract is frozen.",
     },
   }
+  if (input.reportPath) {
+    mkdirSync(dirname(input.reportPath), { recursive: true })
+    const reportWithPath = { ...report, report_path: displayPath(input.reportPath) }
+    writeFileSync(input.reportPath, JSON.stringify(reportWithPath, null, 2) + "\n")
+    const registered = registerCatalogArtifact({
+      catalogDbPath: input.catalogDbPath || defaultCatalogDbPathForGeneratedPath(input.reportPath),
+      path: input.reportPath,
+      now: generatedAt,
+      referrerType: "strategy_data_split",
+      referrerID: splitId,
+      role: "report",
+    })
+    return {
+      ...reportWithPath,
+      catalog_db_path: registered.catalog_db_path,
+      artifact_id: registered.artifact_id,
+    }
+  }
+  return report
 }
 
 function strategyDataSplitInputFromJson(value: JSONRecord): StrategyDataSplitInput {
@@ -135,6 +160,8 @@ function strategyDataSplitInputFromJson(value: JSONRecord): StrategyDataSplitInp
     featureLookbackBars: optionalNumber(value.feature_lookback_bars),
     fundingIntervalBars: optionalNumber(value.funding_interval_bars),
     minSegmentRows: optionalNumber(value.min_segment_rows),
+    reportPath: stringField(value.report_path) || undefined,
+    catalogDbPath: stringField(value.catalog_db_path) || undefined,
     now: stringField(value.now) || undefined,
     datasets: array(value.datasets).map((raw) => {
       const item = asRecord(raw)

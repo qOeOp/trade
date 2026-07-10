@@ -28,7 +28,10 @@
     "embargo": { "type": "object" },
     "dataset_count": { "type": "integer", "minimum": 1 },
     "datasets": { "type": "array", "minItems": 1 },
-    "guardrails": { "type": "object" }
+    "guardrails": { "type": "object" },
+    "report_path": { "type": "string", "minLength": 1 },
+    "catalog_db_path": { "type": "string", "minLength": 1 },
+    "artifact_id": { "type": "string", "minLength": 1 }
   },
   "additionalProperties": false
 }
