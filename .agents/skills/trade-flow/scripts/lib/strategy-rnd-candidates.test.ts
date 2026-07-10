@@ -53,6 +53,43 @@ test("strategy R&D candidates preserve scientific factor discovery source", () =
   assert.equal((resolved.candidates[0].params?.factor_conditions as Array<{ factor_id: string }>)[0].factor_id, "edge.factor")
 })
 
+test("strategy R&D candidates cap resolved candidates to declared trial count", () => {
+  const provided = resolveRndCandidates({
+    ...baseInput(),
+    searchTrialCount: 1,
+    candidates: [
+      { candidateId: "A", parameterCount: 6, params: { side: "long" } },
+      { candidateId: "B", parameterCount: 6, params: { side: "short" } },
+    ],
+  }, null)
+  assert.deepEqual(provided.candidates.map((candidate) => candidate.candidateId), ["A"])
+
+  const composed = resolveRndCandidates({
+    ...baseInput(),
+    searchTrialCount: 1,
+    factorCompose: true,
+    factorSeeds: [
+      {
+        factorId: "stc.value",
+        role: "timing",
+        transform: "percentile",
+        lookback: 20,
+        op: "gt",
+        value: 0.7,
+      },
+      {
+        factorId: "vfi.value",
+        role: "confirmation",
+        transform: "percentile",
+        lookback: 20,
+        op: "gt",
+        value: 0.7,
+      },
+    ],
+  }, null)
+  assert.equal(composed.candidates.length, 1)
+})
+
 test("strategy R&D candidates keep campaign candidate counting and discovery constraints explicit", () => {
   assert.throws(() => resolveCandidateCount({ ...baseInput(), candidates: [] }), /requires at least one candidate/)
   assert.equal(resolveCandidateCount({ ...baseInput(), factorDiscover: true, candidates: [] }), 0)

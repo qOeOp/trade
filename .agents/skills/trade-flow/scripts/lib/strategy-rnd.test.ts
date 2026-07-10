@@ -9,6 +9,7 @@ import { replayDataHash } from "./replay-core"
 import { createRdProgramState, readRdProgramState, writeRdProgramState } from "./rd-program-state"
 import { evaluateRndSignal, runStrategyRndBatch, runStrategyRndCampaign, runStrategyRndLoop, strategyRndBatchInputFromJson } from "./strategy-rnd"
 import { loadRndLedger } from "./strategy-rnd-ledger"
+import { resolveRepoPath } from "./paths"
 
 test("strategy R&D parser normalizes factor discovery options", () => {
   const input = strategyRndBatchInputFromJson({
@@ -654,14 +655,14 @@ test("strategy R&D loop writes artifact and catalog ledger", () => {
 
     assert.equal(report.run_id, "rnd-loop-test")
     assert.equal(report.ledger_ref, join(artifactRoot, "data_catalog.db"))
-    assert.equal(existsSync(report.artifact_ref), true)
+    assert.equal(existsSync(resolveRepoPath(report.artifact_ref)), true)
     const ledgerRecords = loadRndLedger({ catalogDbPath: report.ledger_ref })
     assert.equal(ledgerRecords.length, 1)
     const record = ledgerRecords[0] as { run_id: string; artifact_ref: string; trial_count: number }
     assert.equal(record.run_id, "rnd-loop-test")
     assert.equal(record.artifact_ref, report.artifact_ref)
     assert.equal(record.trial_count, report.batch.trial_count)
-    const artifact = JSON.parse(readFileSync(report.artifact_ref, "utf8")) as { stop_reason: string }
+    const artifact = JSON.parse(readFileSync(resolveRepoPath(report.artifact_ref), "utf8")) as { stop_reason: string }
     assert.equal(artifact.stop_reason, report.stop_reason)
     const catalog = new Database(join(artifactRoot, "data_catalog.db"))
     try {
@@ -805,7 +806,7 @@ test("strategy R&D campaign continues after a failed hypothesis", () => {
     assert.equal(report.runs.every((run) => run.discovery_outcome === "no_promote"), true)
     assert.equal(report.runs.every((run) => Boolean(run.discovery_failure_summary)), true)
     assert.equal(loadRndLedger({ catalogDbPath: report.ledger_ref }).length, 2)
-    assert.equal(existsSync(report.artifact_ref), true)
+    assert.equal(existsSync(resolveRepoPath(report.artifact_ref)), true)
     assert.equal(report.rd_program_state?.state.usage.hypotheses_run, 2)
     assert.equal(report.rd_program_state?.state.usage.trials_used, 2)
     assert.equal(readRdProgramState(statePath).latest_failure_summary?.primary_failure_area !== undefined, true)
@@ -855,7 +856,7 @@ test("strategy R&D campaign stops before search when calibration fails", () => {
     assert.equal((report.calibration_gate as { blocked: boolean; blocker_count: number }).blocked, true)
     assert.equal((report.calibration_gate as { blocker_count: number }).blocker_count, 1)
     assert.equal(existsSync(ledgerPath), false)
-    assert.equal(existsSync(report.artifact_ref), true)
+    assert.equal(existsSync(resolveRepoPath(report.artifact_ref)), true)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

@@ -45,7 +45,7 @@ test("automation cycle plan isolates trade db work from R&D artifact jobs", () =
     assert.equal(review.trigger_mode, "event_or_fallback_sweep")
     assert.equal(review.command, undefined)
     assert.deepEqual(review.candidate_chain_ids, ["flow-cycle-1"])
-    assert.equal(jobs.find((job) => job.job_id === "catalog_hygiene_scan")?.command, "bun .agents/skills/trade-flow/scripts/main.ts --catalog-scan --catalog-db ./data/data_catalog.db --catalog-root ./data --catalog-root ./tmp")
+    assert.equal(jobs.find((job) => job.job_id === "catalog_hygiene_scan")?.command, "bun .agents/skills/trade-flow/scripts/main.ts --catalog-scan --catalog-db data/data_catalog.db --catalog-root ./data --catalog-root ./tmp")
     assert.deepEqual(asArray(result.dispatch_order).map((stage) => asRecord(stage).stage), [
       "serial_trade_db_guard",
       "parallel_isolated_work",
@@ -115,6 +115,14 @@ test("automation cycle plan can dispatch a learning strategy R&D supervisor", ()
     assert.deepEqual(sidecars.map((sidecar) => sidecar.role), ["rd-history-scout", "rd-data-scout", "rd-edge-scout"])
     assert.equal(sidecars.every((sidecar) => sidecar.may_write_state === false), true)
     assert.match(String(contract.single_writer_rule), /only strategy-rd-supervisor/)
+    assert.equal(rd.command, undefined)
+    assert.deepEqual(asArray(asRecord(rd.init_command_spec).argv).slice(0, 5), [
+      "bun",
+      ".agents/skills/trade-flow/scripts/main.ts",
+      "--rd-program-state",
+      "--state",
+      "./state/rd/program.json",
+    ])
     const parallel = asRecord(asArray(result.dispatch_order).find((stage) => asRecord(stage).stage === "parallel_isolated_work"))
     assert.ok(asArray(parallel.job_ids).includes("rd_strategy_supervisor"))
   } finally {
@@ -156,6 +164,16 @@ test("automation cycle plan can drive R&D supervisor from durable program state"
     assert.equal(asRecord(activeRd.goal).objective, "find a shadow-eligible 4H swing strategy")
     assert.equal(activeRd.program_state_status, "active")
     assert.ok(String(activeRd.program_state_ref).endsWith("state.json"))
+    assert.match(String(activeRd.command), /--rd-supervisor-run/)
+    const commandSpec = asRecord(activeRd.command_spec)
+    assert.equal(commandSpec.executable, true)
+    assert.deepEqual(asArray(commandSpec.argv).slice(0, 5), [
+      "bun",
+      ".agents/skills/trade-flow/scripts/main.ts",
+      "--rd-supervisor-run",
+      "--state",
+      String(activeRd.program_state_ref),
+    ])
     const contract = asRecord(activeRd.research_loop_contract)
     assert.equal(asRecord(contract.budget).max_trials_total, 8)
     assert.equal(asRecord(contract.learning_memory).read_ref, statePath)

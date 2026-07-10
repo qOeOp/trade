@@ -8,11 +8,13 @@ tmp/
 $CODEX_HOME/
 
 # Local runtime state and generated trading/research data.
+state/rd/
 data/outline_audit/
 data/ohlcv/
 
 # Legacy generated data paths retained so older local commands do not leak data.
 data/artifacts/
+data/rd/
 data/calibration-panel-*/
 data/validation-panel-*/
 data/external-panel-*/

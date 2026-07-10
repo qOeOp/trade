@@ -1,5 +1,5 @@
-import { existsSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
+import { existsSync, mkdirSync, writeFileSync } from "node:fs"
+import { dirname, join } from "node:path"
 import { Database } from "bun:sqlite"
 import { listActiveFlows } from "./flow-state"
 import { asRecord, numberField, stringField, type JSONRecord } from "./json"
@@ -84,7 +84,8 @@ export async function runSlowTrackWorkflowDryRun(input: SlowTrackWorkflowInput):
       "cron_log",
     ],
   }
-  const artifactPath = join(input.dataDir, `slow-track-${input.runId}.json`)
+  const artifactPath = join(input.repoRoot, "tmp", "artifacts", "trade-flow", `slow-track-${input.runId}.json`)
+  mkdirSync(dirname(artifactPath), { recursive: true })
   writeFileSync(artifactPath, `${JSON.stringify(report, null, 2)}\n`)
   registerCatalogArtifact({
     catalogDbPath: join(input.dataDir, "data_catalog.db"),
@@ -118,7 +119,7 @@ async function runTechnicalAnalysis(
   symbol: string,
 ): Promise<SkillCallResult> {
   const ohlcvSkillDir = join(input.repoRoot, ".agents/skills/ohlcv-fetch")
-  const ohlcvOutputDir = join("..", "trade-flow", "data", "market", input.runId, symbol)
+  const ohlcvOutputDir = join(input.repoRoot, "tmp", "market", input.runId, symbol)
   const ohlcv = await callSkill(
     runner,
     ["bun", "scripts/main.ts", "--symbol", symbol, "--timeframes", "1d,4h,1h", "--output-dir", ohlcvOutputDir],

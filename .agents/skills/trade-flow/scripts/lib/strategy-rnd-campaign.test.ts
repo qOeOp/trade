@@ -11,6 +11,7 @@ import {
   runStrategyRndCampaignWithDeps,
   type StrategyRndCampaignDeps,
 } from "./strategy-rnd-campaign"
+import { resolveRepoPath } from "./paths"
 
 test("strategy R&D campaign gate reads calibration blockers", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-campaign-gate-"))
@@ -189,8 +190,8 @@ test("strategy R&D campaign orchestrates discovery then locked validation", () =
     assert.equal(report.validated_candidate?.candidate_id, "candidate-1-external-validation")
     assert.deepEqual(report.runs[0].discovery_failure_summary, { primary_failure_area: "none" })
     assert.deepEqual(report.runs[0].discovery_reliability_gate, { status: "candidate_ready" })
-    assert.equal(existsSync(report.artifact_ref), true)
-    const artifact = JSON.parse(readFileSync(report.artifact_ref, "utf8")) as { campaign_id: string }
+    assert.equal(existsSync(resolveRepoPath(report.artifact_ref)), true)
+    const artifact = JSON.parse(readFileSync(resolveRepoPath(report.artifact_ref), "utf8")) as { campaign_id: string }
     assert.equal(artifact.campaign_id, "campaign-fixture")
   } finally {
     rmSync(dir, { recursive: true, force: true })

@@ -5,6 +5,7 @@ import { runFastTrackWorkflowDryRun } from "./fast-track-workflow"
 import { findActiveLaneConflicts, listActiveFlows } from "./flow-state"
 import { ensureSchema } from "./plan-events"
 import { runSlowTrackWorkflowDryRun } from "./slow-track-workflow"
+import { repoRoot } from "./paths"
 import type { TrackMode } from "../commands/types"
 
 export const TRACK_DRY_RUN_TRACKS = ["slow", "fast"] as const
@@ -39,7 +40,7 @@ export async function runTrackDryRunAtPath(dbPath: string, track: Exclude<TrackM
       ensureSchema(db)
       if (track === "slow") {
         return await runSlowTrackWorkflowDryRun({
-          repoRoot: process.cwd(),
+          repoRoot: repoRoot(),
           dataDir,
           runId: lock.lock.run_id,
           db,
@@ -47,7 +48,7 @@ export async function runTrackDryRunAtPath(dbPath: string, track: Exclude<TrackM
       }
       if (track === "fast") {
         return await runFastTrackWorkflowDryRun({
-          repoRoot: process.cwd(),
+          repoRoot: repoRoot(),
           dataDir,
           runId: lock.lock.run_id,
           db,

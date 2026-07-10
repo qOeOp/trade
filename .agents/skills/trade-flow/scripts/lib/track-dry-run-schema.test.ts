@@ -7,6 +7,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { acquireCronLock, releaseCronLock } from "./cron-runtime"
 import { ensureSchema } from "./plan-events"
+import { resolveRepoPath } from "./paths"
 import { runTrackDryRun, TRACK_DRY_RUN_MODES, TRACK_DRY_RUN_TRACKS } from "./track-runner"
 
 type JSONRecord = Record<string, unknown>
@@ -35,7 +36,7 @@ test("track dry-run summary schema matches stable cron result envelope", () => {
     assert.equal(Array.isArray(completed.lane_conflicts), true)
     assert.equal(Array.isArray(completed.active_flows), true)
     assert.equal(Array.isArray(completed.planned_steps), true)
-    assert.equal(existsSync(String(completed.cron_log_path)), true)
+    assert.equal(existsSync(resolveRepoPath(String(completed.cron_log_path))), true)
     assert.equal(isAbsolute(String(completed.cron_log_path)), false)
 
     const lock = acquireCronLock({
@@ -55,7 +56,7 @@ test("track dry-run summary schema matches stable cron result envelope", () => {
       assert.equal(skipped.skipped, true)
       assert.equal(skipped.skip_reason, "active_lock")
       assert.equal(asRecord(skipped.active_lock).track, "slow")
-      assert.equal(existsSync(String(skipped.cron_log_path)), true)
+      assert.equal(existsSync(resolveRepoPath(String(skipped.cron_log_path))), true)
       assert.equal(isAbsolute(String(skipped.cron_log_path)), false)
     } finally {
       releaseCronLock(lock)

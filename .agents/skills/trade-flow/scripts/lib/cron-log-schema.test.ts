@@ -4,6 +4,7 @@ import { join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
 import { appendCronLog, CRON_LOG_STATUSES, CRON_LOG_TRACKS } from "./cron-runtime"
+import { resolveRepoPath } from "./paths"
 
 type JSONRecord = Record<string, unknown>
 
@@ -37,7 +38,7 @@ test("cron log entry schema matches append-only audit log shape", () => {
       errors: [],
       next_cron_at: "2026-07-08T16:00:00Z",
     })
-    const entry = JSON.parse(readFileSync(logPath, "utf8").trim()) as JSONRecord
+    const entry = JSON.parse(readFileSync(resolveRepoPath(logPath), "utf8").trim()) as JSONRecord
     for (const field of asArray(schema.required)) {
       assert.ok(String(field) in entry, `missing required field ${String(field)}`)
     }

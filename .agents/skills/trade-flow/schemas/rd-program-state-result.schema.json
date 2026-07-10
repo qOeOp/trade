@@ -37,7 +37,7 @@
     "goal": { "type": "object" },
     "next_plan": {
       "type": "object",
-      "required": ["schema_version", "plan_id", "created_at", "status", "reason", "command", "payload", "selected_hypothesis", "budget_remaining", "guardrails"],
+      "required": ["schema_version", "plan_id", "created_at", "status", "reason", "command", "payload", "selected_hypothesis", "scout_subagent_plan", "budget_remaining", "guardrails"],
       "properties": {
         "schema_version": { "const": "trade-flow.rd-supervisor-next-plan.v1" },
         "plan_id": { "type": "string", "minLength": 1 },
@@ -47,6 +47,37 @@
         "command": { "type": ["string", "null"] },
         "payload": { "type": ["object", "null"] },
         "selected_hypothesis": { "type": ["object", "null"] },
+        "scout_subagent_plan": {
+          "type": "object",
+          "required": ["schema_version", "enabled", "dispatch_timing", "execution_model", "state_ref", "selected_hypothesis_id", "single_writer_rule", "scouts"],
+          "properties": {
+            "schema_version": { "const": "trade-flow.rd-scout-subagent-plan.v1" },
+            "enabled": { "type": "boolean" },
+            "dispatch_timing": { "const": "before_research_command" },
+            "execution_model": { "type": "string", "minLength": 1 },
+            "state_ref": { "type": "string", "minLength": 1 },
+            "selected_hypothesis_id": { "type": ["string", "null"] },
+            "single_writer_rule": { "type": "string", "minLength": 1 },
+            "scouts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["role", "agent_type", "purpose", "inputs", "required_output", "may_write_files", "may_write_state"],
+                "properties": {
+                  "role": { "type": "string", "minLength": 1 },
+                  "agent_type": { "type": "string", "minLength": 1 },
+                  "purpose": { "type": "string", "minLength": 1 },
+                  "inputs": { "type": "array" },
+                  "required_output": { "type": "string", "minLength": 1 },
+                  "may_write_files": { "const": false },
+                  "may_write_state": { "const": false }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
         "budget_remaining": { "type": "object" },
         "guardrails": {
           "type": "object",

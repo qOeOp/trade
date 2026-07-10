@@ -1,10 +1,10 @@
-import { mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { ensureFeatureReport, type TechIndicatorRunner } from "./feature-report"
+import { ensureFeatureReport, runTechIndicators, type TechIndicatorRunner } from "./feature-report"
 
 test("feature report helper reuses valid cached feature series", () => {
   const dir = mkdtempSync(join(tmpdir(), "feature-report-"))
@@ -60,6 +60,40 @@ test("feature report helper runs tech-indicators from the skill directory when c
     assert.equal(calls[0].featureSeries, true)
     assert.match(calls[0].cwd, /tech-indicators$/)
     assert.equal(JSON.parse(readFileSync(outputPath, "utf8")).ok, true)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("feature report runner handles large feature-series output", () => {
+  const dir = mkdtempSync(join(tmpdir(), "feature-report-large-"))
+  try {
+    const manifestPath = join(dir, "manifest.json")
+    const rows = Array.from({ length: 2_400 }, (_, index) => {
+      const timestamp = 1_700_000_000_000 + index * 4 * 60 * 60 * 1000
+      const close = 100 + Math.sin(index / 13) * 7 + index * 0.01
+      const open = close - Math.sin(index / 5)
+      return [new Date(timestamp).toISOString(), timestamp, open, Math.max(open, close) + 1, Math.min(open, close) - 1, close, 1_000 + index].join(",")
+    })
+    writeFileSync(join(dir, "4h.csv"), ["date,timestamp,open,high,low,close,volume", ...rows].join("\n"))
+    writeFileSync(manifestPath, JSON.stringify({
+      schema_version: 2,
+      symbol: "TESTUSDT",
+      exchange: "test",
+      closed_candles_only: true,
+      timeframes: { "4h": { file: "4h.csv", rows: rows.length } },
+    }))
+
+    const run = runTechIndicators({
+      cwd: new URL("../../../tech-indicators", import.meta.url).pathname,
+      manifestPath,
+      indicators: "stc,vfi",
+      featureSeries: true,
+    })
+
+    assert.equal(run.status, 0)
+    assert.equal(JSON.parse(run.stdout).ok, true)
+    assert.ok(run.stdout.length > 1024 * 1024)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
