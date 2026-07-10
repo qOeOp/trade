@@ -3,6 +3,7 @@ type PositionSide = "BOTH" | "LONG" | "SHORT"
 type MarginMode = "isolated" | "crossed"
 type EntryRole = "entry" | "add"
 type EntryType = "MARKET" | "LIMIT" | "STOP" | "STOP_MARKET" | "TAKE_PROFIT" | "TAKE_PROFIT_MARKET"
+type EntryIntent = "entry_at" | "entry_market"
 type ProtectionType = "STOP" | "STOP_MARKET" | "TAKE_PROFIT" | "TAKE_PROFIT_MARKET"
 
 interface AccountSnapshot {
@@ -26,7 +27,8 @@ interface ExchangeRules {
 
 interface EntryDraft {
   role?: EntryRole
-  type: EntryType
+  type?: EntryType
+  intent?: EntryIntent
   price?: number
   stop_price?: number
   reference_price?: number
@@ -34,6 +36,7 @@ interface EntryDraft {
   margin_usdt?: number
   notional_usdt?: number
   client_order_id?: string
+  marketable_tolerance_bps?: number
 }
 
 interface ProtectionPlan {
@@ -71,8 +74,10 @@ interface CompiledEntry {
   type: EntryType
   price?: number
   stop_price?: number
+  reference_price?: number
   quantity: number
   client_order_id: string
+  resolver_snapshot: EntryResolverSnapshot
 }
 
 interface ExecutionContract extends Omit<ExecutionContractInput, "entries" | "exchange_rules"> {
@@ -86,6 +91,21 @@ interface ExecutionContract extends Omit<ExecutionContractInput, "entries" | "ex
 interface ValidationResult {
   ok: boolean
   errors: string[]
+}
+
+interface ResolvedEntryDraft extends EntryDraft {
+  type: EntryType
+  resolver_snapshot: EntryResolverSnapshot
+}
+
+interface EntryResolverSnapshot {
+  resolver: "explicit_type_v1" | "entry_at_v1" | "entry_market_v1"
+  input_intent: EntryIntent | "explicit_type"
+  side: Side
+  requested_price?: number
+  reference_price?: number
+  marketable_tolerance_bps?: number
+  route_reason: string
 }
 
 function compileExecutionContract(input: ExecutionContractInput): ExecutionContract {
@@ -181,29 +201,143 @@ function validateExecutionContract(value: unknown): ValidationResult {
 }
 
 function compileEntry(input: ExecutionContractInput, entry: EntryDraft, index: number): CompiledEntry {
+  const resolved = resolveEntryDraft(input, entry, index)
   const quantity = entry.quantity ?? compileQuantity({
     marginUsdt: entry.margin_usdt,
     notionalUsdt: entry.notional_usdt,
     leverage: input.target_leverage,
-    referencePrice: entry.reference_price ?? entry.price ?? entry.stop_price,
+    referencePrice: resolved.price ?? resolved.stop_price ?? resolved.reference_price,
     quantityStepSize: input.exchange_rules?.quantity_step_size,
     minQty: input.exchange_rules?.min_qty,
   })
   const minNotional = parseOptionalPositive(input.exchange_rules?.min_notional)
-  const referencePrice = entry.reference_price ?? entry.price ?? entry.stop_price
+  const referencePrice = resolved.price ?? resolved.stop_price ?? resolved.reference_price
 
   if (minNotional != null && referencePrice != null && quantity * referencePrice < minNotional) {
     throw new Error(`entries[${index}] notional ${formatNumber(quantity * referencePrice)} is below min_notional ${minNotional}`)
   }
 
   return {
-    role: entry.role ?? "entry",
-    type: entry.type,
-    ...(entry.price != null ? { price: entry.price } : {}),
-    ...(entry.stop_price != null ? { stop_price: entry.stop_price } : {}),
+    role: resolved.role ?? "entry",
+    type: resolved.type,
+    ...(resolved.price != null ? { price: resolved.price } : {}),
+    ...(resolved.stop_price != null ? { stop_price: resolved.stop_price } : {}),
+    ...(resolved.reference_price != null ? { reference_price: resolved.reference_price } : {}),
     quantity,
     client_order_id: entry.client_order_id || `${input.chain_id}-${index + 1}-${entry.role ?? "entry"}`,
+    resolver_snapshot: resolved.resolver_snapshot,
   }
+}
+
+function resolveEntryDraft(input: ExecutionContractInput, entry: EntryDraft, index: number): ResolvedEntryDraft {
+  const side = input.side
+  if (entry.type) {
+    return {
+      ...entry,
+      type: entry.type,
+      resolver_snapshot: {
+        resolver: "explicit_type_v1",
+        input_intent: "explicit_type",
+        side,
+        ...(entry.price != null ? { requested_price: entry.price } : {}),
+        ...(entry.reference_price != null ? { reference_price: entry.reference_price } : {}),
+        route_reason: "entry type was provided explicitly by upstream contract",
+      },
+    }
+  }
+
+  const intent = entry.intent
+  if (intent === "entry_market") {
+    const referencePrice = requireEntryReferencePrice(entry, index)
+    return {
+      ...entry,
+      type: "MARKET",
+      reference_price: referencePrice,
+      resolver_snapshot: {
+        resolver: "entry_market_v1",
+        input_intent: intent,
+        side,
+        reference_price: referencePrice,
+        route_reason: "entry_market compiles to MARKET with reference price used only for quantity sizing",
+      },
+    }
+  }
+  if (intent === "entry_at") {
+    const requestedPrice = requireEntryPrice(entry, index)
+    const referencePrice = requireEntryReferencePrice(entry, index)
+    const toleranceBps = entry.marketable_tolerance_bps ?? 1
+    if (!Number.isFinite(toleranceBps) || toleranceBps < 0) {
+      throw new Error(`entries[${index}].marketable_tolerance_bps must be non-negative`)
+    }
+    const deltaBps = Math.abs(requestedPrice - referencePrice) / referencePrice * 10_000
+    if (deltaBps <= toleranceBps) {
+      return {
+        ...entry,
+        type: "MARKET",
+        reference_price: referencePrice,
+        resolver_snapshot: {
+          resolver: "entry_at_v1",
+          input_intent: intent,
+          side,
+          requested_price: requestedPrice,
+          reference_price: referencePrice,
+          marketable_tolerance_bps: toleranceBps,
+          route_reason: "requested entry is marketable within tolerance",
+        },
+      }
+    }
+    const isLimit = side === "long" ? requestedPrice < referencePrice : requestedPrice > referencePrice
+    if (isLimit) {
+      return {
+        ...entry,
+        type: "LIMIT",
+        price: requestedPrice,
+        reference_price: referencePrice,
+        resolver_snapshot: {
+          resolver: "entry_at_v1",
+          input_intent: intent,
+          side,
+          requested_price: requestedPrice,
+          reference_price: referencePrice,
+          marketable_tolerance_bps: toleranceBps,
+          route_reason: side === "long" ? "long entry below mark compiles to LIMIT buy" : "short entry above mark compiles to LIMIT sell",
+        },
+      }
+    }
+    return {
+      ...entry,
+      type: "STOP_MARKET",
+      stop_price: requestedPrice,
+      reference_price: referencePrice,
+      resolver_snapshot: {
+        resolver: "entry_at_v1",
+        input_intent: intent,
+        side,
+        requested_price: requestedPrice,
+        reference_price: referencePrice,
+        marketable_tolerance_bps: toleranceBps,
+        route_reason: side === "long" ? "long entry above mark compiles to STOP_MARKET breakout" : "short entry below mark compiles to STOP_MARKET breakdown",
+      },
+    }
+  }
+
+  throw new Error(`entries[${index}] requires either type or intent`)
+}
+
+function requireEntryPrice(entry: EntryDraft, index: number): number {
+  const price = entry.price ?? entry.stop_price
+  if (!Number.isFinite(price) || Number(price) <= 0) {
+    throw new Error(`entries[${index}].price must be positive for entry_at`)
+  }
+  return Number(price)
+}
+
+function requireEntryReferencePrice(entry: EntryDraft, index: number): number {
+  const referencePrice = entry.reference_price ?? entry.price ?? entry.stop_price
+  if (!Number.isFinite(referencePrice) || Number(referencePrice) <= 0) {
+    throw new Error(`entries[${index}].reference_price must be positive for semantic entry intent`)
+  }
+  return Number(referencePrice)
 }
 
 function compileQuantity(input: {
@@ -240,11 +374,17 @@ function validateContractInput(input: ExecutionContractInput): string[] {
     ...input,
     entries: input.entries.map((entry, index) => ({
       role: entry.role ?? "entry",
-      type: entry.type,
+      type: entry.type ?? "MARKET",
       quantity: entry.quantity ?? 1,
       client_order_id: entry.client_order_id || `${input.chain_id}-${index + 1}-${entry.role ?? "entry"}`,
       ...(entry.price != null ? { price: entry.price } : {}),
       ...(entry.stop_price != null ? { stop_price: entry.stop_price } : {}),
+      resolver_snapshot: {
+        resolver: entry.type ? "explicit_type_v1" : "entry_at_v1",
+        input_intent: entry.type ? "explicit_type" : entry.intent,
+        side: input.side,
+        route_reason: "validation placeholder",
+      },
     })),
     verify_policy: {
       read_after_submit: true,
@@ -258,6 +398,9 @@ function validateContractInput(input: ExecutionContractInput): string[] {
   input.entries.forEach((entry, index) => {
     if (entry.quantity == null && entry.notional_usdt == null && entry.margin_usdt == null) {
       errors.push(`entries[${index}] requires quantity, notional_usdt, or margin_usdt`)
+    }
+    if (!entry.type && entry.intent !== "entry_at" && entry.intent !== "entry_market") {
+      errors.push(`entries[${index}] requires type or semantic intent`)
     }
   })
   return errors
@@ -323,6 +466,7 @@ function asRecord(value: unknown): Record<string, unknown> {
 export {
   compileExecutionContract,
   compileQuantity,
+  resolveEntryDraft,
   validateExecutionContract,
   type ExecutionContract,
   type ExecutionContractInput,
