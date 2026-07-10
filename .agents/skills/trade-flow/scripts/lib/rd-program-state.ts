@@ -89,6 +89,7 @@ interface RdSupervisorNextPlan {
   command: string | null
   payload: JSONRecord | null
   selected_hypothesis: JSONRecord | null
+  scout_subagent_plan: JSONRecord
   budget_remaining: RdProgramBudget
   guardrails: {
     read_only_plan: true
@@ -232,6 +233,7 @@ function buildRdSupervisorNextPlan(state: RdProgramState, statePath: string, inp
     plan_id: stringField(input.plan_id) || `rd-next-${state.program_id}-${now.replace(/[^0-9]/g, "").slice(0, 14)}`,
     created_at: now,
     selected_hypothesis: null,
+    scout_subagent_plan: buildScoutSubagentPlan(state, statePath, null),
     budget_remaining: remaining,
     guardrails: {
       read_only_plan: true as const,
@@ -269,6 +271,49 @@ function buildRdSupervisorNextPlan(state: RdProgramState, statePath: string, inp
     command: useLoop ? "--strategy-rnd-loop" : "--strategy-rnd-campaign",
     payload,
     selected_hypothesis: hypothesis,
+    scout_subagent_plan: buildScoutSubagentPlan(state, statePath, hypothesis),
+  }
+}
+
+function buildScoutSubagentPlan(state: RdProgramState, statePath: string, hypothesis: JSONRecord | null): JSONRecord {
+  const hypothesisId = hypothesis ? hypothesisID(hypothesis) : ""
+  return {
+    schema_version: "trade-flow.rd-scout-subagent-plan.v1",
+    enabled: state.status === "active" && hypothesis !== null,
+    dispatch_timing: "before_research_command",
+    execution_model: "supervisor_fanout_readonly_scouts_then_single_writer_research_run",
+    state_ref: statePath,
+    selected_hypothesis_id: hypothesisId || null,
+    single_writer_rule: "Scouts are read-only. Only strategy-rd-supervisor may execute the R&D command or write rd_program_state.",
+    scouts: [
+      {
+        role: "rd-history-scout",
+        agent_type: "explorer",
+        purpose: "Summarize rejected mechanisms, latest blockers, artifact refs, and avoid-list before spending new trials.",
+        inputs: ["rd_program_state.rejected_mechanisms", "rd_program_state.latest_failure_summary", "rd_program_state.artifact_refs"],
+        required_output: "history_constraints",
+        may_write_files: false,
+        may_write_state: false,
+      },
+      {
+        role: "rd-data-scout",
+        agent_type: "explorer",
+        purpose: "Verify manifests, feature reports, split boundaries, indicator factor availability, and catalog references.",
+        inputs: ["selected_hypothesis.manifest_path", "selected_hypothesis.validation_manifest_path", "selected_hypothesis.indicator_report_path", "catalog_db_path"],
+        required_output: "data_readiness_report",
+        may_write_files: false,
+        may_write_state: false,
+      },
+      {
+        role: "rd-edge-scout",
+        agent_type: "explorer",
+        purpose: "Challenge the behavioral edge, propose falsification checks, and suggest distinct follow-up edge directions if this one fails.",
+        inputs: ["selected_hypothesis.hypothesis", "selected_hypothesis.thesis_certificate", "rd_program_state.universe_lessons"],
+        required_output: "edge_review",
+        may_write_files: false,
+        may_write_state: false,
+      },
+    ],
   }
 }
 

@@ -104,8 +104,9 @@ export function buildAutomationCyclePlan(db: Database, dbPath: string, input: Au
   const rdStrategyGoal = rdProgramState ? rdProgramGoalFromState(rdProgramState) : asRecord(input.rd_strategy_goal)
   const rdStrategyConfigured = Object.keys(rdStrategyGoal).length > 0
   const rdStrategyCanRun = rdStrategyConfigured && (!rdProgramState || rdProgramState.status === "active")
-  const catalogRoots = asArray(input.catalog_roots).map(String).filter(Boolean)
-  const catalogDb = stringField(input.catalog_db) || DEFAULT_CATALOG_DB
+  const configuredCatalogRoots = asArray(input.catalog_roots).map(String).filter(Boolean)
+  const catalogRoots = configuredCatalogRoots.length > 0 ? configuredCatalogRoots : ["./data", "./tmp", "./state"]
+  const catalogDb = displayPath(stringField(input.catalog_db) || DEFAULT_CATALOG_DB)
   const tradeWorkDue = (activeFlowCount > 0 && cadence.fast_track_guard.due) || cadence.slow_track_market_watch.due
 
   const jobs = [
@@ -139,6 +140,7 @@ export function buildAutomationCyclePlan(db: Database, dbPath: string, input: Au
       learningMemoryRef: stringField(input.rd_learning_memory_ref) || rdProgramStatePath || "data_catalog.db + docs/rd-audit.md",
       programStateRef: rdProgramStatePath,
       programStateStatus: rdProgramState?.status,
+      catalogDb,
     }),
     artifactJob({
       job_id: "rd_forward_shadow_trackers",
@@ -263,8 +265,39 @@ function rdStrategySupervisorJob(input: {
   learningMemoryRef: string
   programStateRef?: string
   programStateStatus?: string
+  catalogDb: string
 }): JSONRecord {
   const budget = asRecord(input.goal.budget)
+  const programStateRef = input.programStateRef ? displayPath(input.programStateRef) : ""
+  const supervisorPayload = {
+    max_iterations: 10,
+    artifact_root: "./tmp/artifacts/strategy-rnd",
+    catalog_db_path: input.catalogDb,
+  }
+  const commandArgv = programStateRef
+    ? [
+      "bun",
+      ".agents/skills/trade-flow/scripts/main.ts",
+      "--rd-supervisor-run",
+      "--state",
+      programStateRef,
+      "--catalog-db",
+      input.catalogDb,
+      "--json",
+      JSON.stringify(supervisorPayload),
+    ]
+    : []
+  const initArgv = [
+    "bun",
+    ".agents/skills/trade-flow/scripts/main.ts",
+    "--rd-program-state",
+    "--state",
+    "./state/rd/program.json",
+    "--catalog-db",
+    input.catalogDb,
+    "--json",
+    JSON.stringify({ action: "init", objective: stringField(input.goal.objective) || "find a shadow-eligible 4H swing strategy" }),
+  ]
   return {
     ...baseJob(input),
     subagent_role: "strategy-rd-supervisor",
@@ -274,8 +307,22 @@ function rdStrategySupervisorJob(input: {
     may_call_binance_write: false,
     cadence: input.cadence,
     goal: input.goal,
-    ...(input.programStateRef ? { program_state_ref: displayPath(input.programStateRef) } : {}),
+    ...(programStateRef ? { program_state_ref: programStateRef } : {}),
     ...(input.programStateStatus ? { program_state_status: input.programStateStatus } : {}),
+    ...(commandArgv.length > 0 ? {
+      command: shellCommand(commandArgv),
+      command_spec: {
+        executable: input.active,
+        argv: commandArgv,
+        writes: ["tmp/artifacts/strategy-rnd", input.catalogDb, programStateRef],
+      },
+    } : {
+      init_command_spec: {
+        executable: false,
+        argv: initArgv,
+        writes: ["state/rd", input.catalogDb],
+      },
+    }),
     entrypoint: "read rd_program_state, request action=plan_next, then explicitly run the returned R&D loop/campaign payload and write learning-memory updates until a stop condition is reached",
     research_loop_contract: {
       loop_until: ["shadow_candidate_found", "budget_exhausted", "data_or_tool_blocked"],
@@ -331,6 +378,14 @@ function rdStrategySupervisorJob(input: {
       single_writer_rule: "Sidecar subagents are read-only scouts; only strategy-rd-supervisor may write rd_program_state through --rd-program-state or payload writeback.",
     },
   }
+}
+
+function shellCommand(argv: string[]): string {
+  return argv.map(shellQuote).join(" ")
+}
+
+function shellQuote(value: string): string {
+  return /^[a-zA-Z0-9_./:=@-]+$/.test(value) ? value : `'${value.replace(/'/g, "'\\''")}'`
 }
 
 function reviewJob(input: {

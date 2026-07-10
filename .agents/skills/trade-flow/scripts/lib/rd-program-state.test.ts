@@ -191,6 +191,11 @@ test("rd program state command plans the next campaign from the hypothesis queue
     assert.equal(planned.next_plan?.status, "ready")
     assert.equal(planned.next_plan?.command, "--strategy-rnd-campaign")
     assert.equal(planned.next_plan?.guardrails.read_only_plan, true)
+    const scoutPlan = asRecord(planned.next_plan?.scout_subagent_plan)
+    assert.equal(scoutPlan.enabled, true)
+    assert.equal(scoutPlan.dispatch_timing, "before_research_command")
+    assert.deepEqual(asArray(scoutPlan.scouts).map((scout) => asRecord(scout).role), ["rd-history-scout", "rd-data-scout", "rd-edge-scout"])
+    assert.equal(asArray(scoutPlan.scouts).every((scout) => asRecord(scout).may_write_state === false), true)
     const payload = planned.next_plan?.payload as JSONRecord
     assert.equal(payload.rd_program_state_path, path)
     assert.equal(payload.max_total_trials, 5)
