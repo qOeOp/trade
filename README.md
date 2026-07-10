@@ -8,34 +8,132 @@ agent-native 加密交易工作仓库。目标是让 agent 在可审计事实、
 
 ```mermaid
 flowchart TD
-  A["single automation entry<br/>或 user takeover"] --> B["trade-flow supervisor"]
-  B --> C["cadence / lock / concurrency / permission gate"]
-  C --> D["subagent fan-out"]
+  subgraph L0["External control"]
+    direction LR
+    USER["user takeover"]
+    CRON["automation wakeup"]
+    RECOVERY["manual recovery"]
+  end
 
-  D --> F["fast_track_guard<br/>active flow 守护"]
-  D --> S["slow_track_market_watch<br/>live 策略盯市"]
-  D --> R["rd_strategy_supervisor<br/>新策略 R&D"]
-  D --> T["rd_forward_shadow_trackers<br/>forward / paper 样本跟踪"]
-  D --> V["closed_flow_review_sweep<br/>闭合交易复盘"]
-  D --> G["catalog_hygiene_scan<br/>artifact / catalog 保洁"]
+  subgraph L1["Single entry and supervisor"]
+    direction TB
+    ENTRY["single automation entry<br/>trade-flow --automation-cycle"]
+    SUP["supervisor<br/>plan jobs + merge results"]
+    GATE["cadence / lock / concurrency<br/>permission gate"]
+    DISPATCH["subagent fan-out<br/>isolated job contracts"]
+  end
 
-  F --> DB[("trade.db<br/>plan_event")]
-  S --> DB
-  V --> DB
+  subgraph L2["Job layer"]
+    direction LR
+    FAST["fast_track_guard<br/>active flow guard"]
+    SLOW["slow_track_market_watch<br/>live opportunity watch"]
+    SHADOW["shadow / forward validation<br/>paper sample tracker"]
+    RD["new strategy R&D<br/>hypothesis loop"]
+    REVIEW["closed-flow review<br/>post trade learning"]
+    HYGIENE["catalog / artifact hygiene<br/>stale scan + GC"]
+  end
 
-  R --> ART["research artifacts"]
-  R --> CAT[("data_catalog.db")]
-  R --> STATE["rd_program_state"]
-  T --> ART
-  T --> CAT
-  G --> CAT
+  subgraph L3["Capability layer"]
+    direction LR
+    MARKET["observe skills<br/>market scan / symbol / aggTrades / zones"]
+    ACCOUNT["account snapshot<br/>position / orders / history"]
+    PREFLIGHT["plan-preflight<br/>risk gates / decision card"]
+    EXEC["execution skills<br/>preview / place / protect / adjust / cancel"]
+    IND["data + indicators<br/>ohlcv-fetch / tech-indicators"]
+    RDTOOLS["R&D engines<br/>loop / campaign / panel / split"]
+    PROMOTE["strategy governance<br/>evidence / promote / pause"]
+    NOTIFY["notify dispatch<br/>operator alerts"]
+  end
 
-  DB --> B
-  CAT --> B
-  STATE --> B
-  ART --> B
+  subgraph L4["Durable facts and files"]
+    direction LR
+    TRADEDB[("data/trade.db<br/>plan_event stream")]
+    CATDB[("data/data_catalog.db<br/>artifact registry")]
+    OHLCV["data/ohlcv<br/>manifest + candles"]
+    ART["tmp/artifacts<br/>research / run outputs"]
+    RDSTATE["state/rd<br/>program memory"]
+    STRAT["strategies<br/>Trade Contract + status"]
+    PROFILE["profile<br/>trading / notify config"]
+    TMP["tmp<br/>cache / panels / market snapshots"]
+  end
 
-  B --> Z["supervisor summary"]
+  subgraph L5["External exchange facts"]
+    direction LR
+    BINREAD["Binance read APIs<br/>prices / klines / account"]
+    BINWRITE["Binance write APIs<br/>orders / protection / cancel"]
+  end
+
+  subgraph L6["Feedback and learning"]
+    direction LR
+    SUMMARY["supervisor summary"]
+    LESSONS["lessons / blocked hypotheses"]
+    PROMOTION["draft -> shadow -> live-small -> paused"]
+    NEXT["next wakeup constraints"]
+  end
+
+  USER --> ENTRY
+  CRON --> ENTRY
+  RECOVERY --> ENTRY
+  ENTRY --> SUP --> GATE --> DISPATCH
+
+  DISPATCH --> FAST
+  DISPATCH --> SLOW
+  DISPATCH --> SHADOW
+  DISPATCH --> RD
+  DISPATCH --> REVIEW
+  DISPATCH --> HYGIENE
+
+  FAST --> ACCOUNT
+  FAST --> PREFLIGHT
+  FAST --> EXEC
+  SLOW --> MARKET
+  SLOW --> ACCOUNT
+  SLOW --> PREFLIGHT
+  SHADOW --> IND
+  SHADOW --> RDTOOLS
+  RD --> IND
+  RD --> RDTOOLS
+  REVIEW --> PROMOTE
+  REVIEW --> IND
+  HYGIENE --> CATDB
+  HYGIENE --> ART
+
+  MARKET --> BINREAD
+  ACCOUNT --> BINREAD
+  IND --> BINREAD
+  EXEC --> BINWRITE
+
+  MARKET --> TRADEDB
+  ACCOUNT --> TRADEDB
+  PREFLIGHT --> TRADEDB
+  EXEC --> TRADEDB
+  RDTOOLS --> CATDB
+  RDTOOLS --> ART
+  RDTOOLS --> RDSTATE
+  IND --> OHLCV
+  IND --> ART
+  PROMOTE --> STRAT
+  PROMOTE --> CATDB
+  NOTIFY --> TMP
+
+  PROFILE --> ENTRY
+  STRAT --> SLOW
+  STRAT --> SHADOW
+  STRAT --> RD
+  OHLCV --> IND
+  CATDB --> HYGIENE
+  TRADEDB --> REVIEW
+  RDSTATE --> RD
+
+  TRADEDB --> SUMMARY
+  CATDB --> SUMMARY
+  ART --> SUMMARY
+  RDSTATE --> LESSONS
+  STRAT --> PROMOTION
+  SUMMARY --> NEXT
+  LESSONS --> NEXT
+  PROMOTION --> NEXT
+  NEXT --> SUP
 ```
 
 一句话：外部只有一个长期入口；入口只生成任务图和权限边界；具体工作交给隔离 subagent；长期事实必须落到 DB、artifact、catalog、strategy 文件或 R&D state。
