@@ -22,13 +22,13 @@ flowchart TB
   subgraph BOARD["supervisor-controlled pipeline board"]
     direction TB
 
-    subgraph ROW1[""]
+    subgraph ROW1["primary pipelines"]
       direction LR
       TRADING["Trading pipeline<br/>live watch -> active guard -> execute -> reconcile"]
       RESEARCH["Research pipeline<br/>R&D -> replay / panel / split -> shadow / forward"]
     end
 
-    subgraph ROW2[""]
+    subgraph ROW2["governance + ops pipelines"]
       direction LR
       GOVERNANCE["Governance pipeline<br/>closed-flow review -> promotion -> diagnostics"]
       OPS["Ops pipeline<br/>catalog hygiene -> notify -> quality"]
