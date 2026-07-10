@@ -1,4 +1,5 @@
 import { runArtifactGc } from "../lib/artifact-hygiene"
+import { assertProjectRuntimePath } from "../lib/paths"
 import { runRdProgramStateCommand } from "../lib/rd-program-state"
 import { runRdSupervisorLoop } from "../lib/rd-supervisor-runner"
 import { candidateFromStrategyContract, compileStrategyContract, lintStrategyContract } from "../lib/strategy-contract"
@@ -48,16 +49,22 @@ export function handleResearchCommand(config: CommandConfig): ScriptResponse | n
     return successResponse(runStrategyRndBatch(strategyRndBatchInputFromJson(config.input)))
   }
   if (config.strategyRndLoop) {
-    return successResponse(runStrategyRndLoop(strategyRndLoopInputFromJson(config.input)))
+    const input = strategyRndLoopInputFromJson(config.input)
+    assertRuntimeOutputPaths(input.artifactRoot, input.ledgerPath, input.catalogDbPath, input.rdProgramStatePath)
+    return successResponse(runStrategyRndLoop(input))
   }
   if (config.strategyRndCampaign) {
-    return successResponse(runStrategyRndCampaign(strategyRndCampaignInputFromJson(config.input)))
+    const input = strategyRndCampaignInputFromJson(config.input)
+    assertRuntimeOutputPaths(input.artifactRoot, input.ledgerPath, input.catalogDbPath, input.rdProgramStatePath)
+    return successResponse(runStrategyRndCampaign(input))
   }
   if (config.strategyPanelRnd) {
     return successResponse(runStrategyPanelRnd(strategyPanelRndInputFromJson(config.input)))
   }
   if (config.strategyDataSplit) {
-    return successResponse(runStrategyDataSplit(strategyDataSplitInputFromJson(config.input)))
+    const input = strategyDataSplitInputFromJson(config.input)
+    assertRuntimeOutputPaths(input.outputRoot)
+    return successResponse(runStrategyDataSplit(input))
   }
   if (config.rdProgramState) {
     return successResponse(runRdProgramStateCommand({
@@ -112,6 +119,12 @@ export function handleResearchCommand(config: CommandConfig): ScriptResponse | n
       }))
   }
   return null
+}
+
+function assertRuntimeOutputPaths(...paths: Array<string | undefined>): void {
+  for (const path of paths) {
+    if (path) assertProjectRuntimePath(path)
+  }
 }
 
 function readStringArray(value: unknown): string[] {

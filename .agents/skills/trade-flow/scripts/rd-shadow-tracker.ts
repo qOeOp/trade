@@ -10,6 +10,7 @@ import {
 } from "./lib/rd-shadow-tracker"
 import { defaultCatalogDbPathForGeneratedPath, registerCatalogArtifact } from "./lib/data-catalog"
 import type { JSONRecord } from "./lib/json"
+import { assertProjectRuntimePath } from "./lib/paths"
 
 function main(): void {
   const argv = process.argv.slice(2)
@@ -17,8 +18,15 @@ function main(): void {
   const statePath = readFlag(argv, "--state")
   const manifestMap = readFlag(argv, "--manifest-map")
   const output = readFlag(argv, "--output")
+  const catalogDbPath = readFlag(argv, "--catalog-db")
   if (!forwardResult && !statePath) {
     throw new Error("--forward-result or --state is required")
+  }
+  if (output) {
+    assertProjectRuntimePath(output)
+  }
+  if (catalogDbPath) {
+    assertProjectRuntimePath(catalogDbPath)
   }
   const options: RdShadowTrackerOptions = {
     now: readFlag(argv, "--now") || undefined,
@@ -35,7 +43,7 @@ function main(): void {
   if (output) {
     writeFileSync(output, text)
     registerCatalogArtifact({
-      catalogDbPath: readFlag(argv, "--catalog-db") || defaultCatalogDbPathForGeneratedPath(output),
+      catalogDbPath: catalogDbPath || defaultCatalogDbPathForGeneratedPath(output),
       path: output,
       now: state.updated_at,
       referrerType: "run",

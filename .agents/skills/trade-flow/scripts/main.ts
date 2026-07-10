@@ -23,7 +23,7 @@ import { applyReconcileDrafts, findActiveLaneConflicts, laneKeyFromObserve, late
 import { runLiveSmall, runShadowFromSkills } from "./lib/live-execution"
 import { buildAutomationCyclePlan } from "./lib/automation-cycle"
 import { loadRuntime, observeFromSkills, observeFromSkillsWithRunner } from "./lib/observe-flow"
-import { resolveRepoPath } from "./lib/paths"
+import { assertProjectRuntimePath, resolveRepoPath } from "./lib/paths"
 import {
   appendPlanEvent,
   buildOrderFillEvent,
@@ -108,6 +108,9 @@ async function run(argv: string[]): Promise<ScriptResponse> {
 }
 
 function normalizeCommandPaths(config: CommandConfig): CommandConfig {
+  for (const path of runtimeOutputPaths(config)) {
+    assertProjectRuntimePath(path)
+  }
   return {
     ...config,
     dbPath: resolveRepoPath(config.dbPath),
@@ -122,6 +125,17 @@ function normalizeCommandPaths(config: CommandConfig): CommandConfig {
     ledgerPath: config.ledgerPath ? resolveRepoPath(config.ledgerPath) : config.ledgerPath,
     statePath: config.statePath ? resolveRepoPath(config.statePath) : config.statePath,
   }
+}
+
+function runtimeOutputPaths(config: CommandConfig): string[] {
+  return [
+    config.dbPath,
+    config.artifactRoot,
+    config.catalogDbPath,
+    ...config.catalogRoots,
+    config.ledgerPath,
+    config.statePath,
+  ].filter(Boolean)
 }
 
 export {

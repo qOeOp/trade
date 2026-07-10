@@ -10,7 +10,7 @@ import type { Runner } from "./observe-adapter"
 
 test("fast track workflow checks active flow and appends fast observe", async () => {
   const repoRoot = mkdtempSync(join(tmpdir(), "trade-flow-fast-workflow-"))
-  const dataDir = join(repoRoot, ".agents/skills/trade-flow/data")
+  const dataDir = join(repoRoot, "data")
   mkdirSync(dataDir, { recursive: true })
   const db = new Database(":memory:")
   ensureSchema(db)
@@ -100,7 +100,7 @@ test("fast track workflow checks active flow and appends fast observe", async ()
 
 test("fast track workflow with no active flows does not call snapshot skills", async () => {
   const repoRoot = mkdtempSync(join(tmpdir(), "trade-flow-fast-empty-"))
-  const dataDir = join(repoRoot, ".agents/skills/trade-flow/data")
+  const dataDir = join(repoRoot, "data")
   mkdirSync(dataDir, { recursive: true })
   const db = new Database(":memory:")
   ensureSchema(db)

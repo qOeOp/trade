@@ -50,6 +50,14 @@ export function resolveReadablePath(path: string, base = repoRoot()): string {
   return fallback && existsSync(fallback) ? fallback : direct
 }
 
+export function assertProjectRuntimePath(path: string): void {
+  if (!path) return
+  const rel = relative(repoRoot(), resolvePathFrom(path, repoRoot())).split(/[\\/]/).filter(Boolean)
+  if (rel[0] !== "data" && rel[0] !== "tmp") {
+    throw new Error(`runtime output must stay under project data/ or tmp/: ${path}`)
+  }
+}
+
 function panelTmpFallbackPath(path: string, base: string): string {
   const resolved = resolvePathFrom(path, base)
   const rel = relative(repoRoot(), resolved).split(/[\\/]/)

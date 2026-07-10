@@ -5,6 +5,7 @@ import { join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
 import { run } from "../main"
+import { resolveRepoPath } from "./paths"
 import { runCalibrationSuite, runTrendBenchmark, strategyBenchmarkInputFromJson } from "./strategy-benchmark"
 
 test("fixed trend benchmark beats shuffled timing and CLI does not create trade DB", async () => {
@@ -43,7 +44,7 @@ test("fixed trend benchmark beats shuffled timing and CLI does not create trade 
     assert.ok(report.regime_attribution.buckets.every((item) => item.sample_count >= 0))
     assert.equal(report.harness_hash, expectedBenchmarkHarnessHash())
 
-    const dbPath = join(dir, "trade.db")
+    const dbPath = join(makeRuntimeDir("strategy-benchmark-cli-"), "trade.db")
     const cli = await run(["--db", dbPath, "--strategy-benchmark", "--json", JSON.stringify({
       datasets: datasets.map((item) => ({ dataset_id: item.datasetId, manifest_path: item.manifestPath })),
       horizon_bars: [12, 24, 48], volatility_bars: 12, rebalance_bars: 3,
@@ -125,7 +126,7 @@ test("calibration suite reports fixed baselines and CLI stays read-only", async 
     assert.equal(compared.previous_run_comparison.harness_changed, false)
     assert.equal(compared.previous_run_comparison.data_panel_changed, false)
 
-    const dbPath = join(dir, "trade.db")
+    const dbPath = join(makeRuntimeDir("strategy-calibration-cli-"), "trade.db")
     const cli = await run(["--db", dbPath, "--strategy-calibration-suite", "--json", JSON.stringify({
       datasets: datasets.map((item) => ({ dataset_id: item.datasetId, manifest_path: item.manifestPath, indicator_report_path: item.indicatorReportPath })),
       fee_bps: 1, slippage_bps: 0, funding_bps_per_8h: 0, random_trials: 20,
@@ -143,6 +144,12 @@ function validDatasets() {
     { datasetId: "ETH", manifestPath: "/tmp/eth.json" },
     { datasetId: "SOL", manifestPath: "/tmp/sol.json" },
   ]
+}
+
+function makeRuntimeDir(prefix: string): string {
+  const root = resolveRepoPath("tmp/test-runs")
+  mkdirSync(root, { recursive: true })
+  return mkdtempSync(join(root, prefix))
 }
 
 test("calibration suite flags partial funding coverage instead of using it", () => {

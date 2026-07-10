@@ -42,9 +42,10 @@ test("strategy data split writes discovery validation and locked holdout manifes
 
 test("strategy data split CLI stays read-only to trade DB and returns stable shell", async () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-data-split-cli-"))
+  const runtimeDir = makeRuntimeDir("strategy-data-split-cli-")
   try {
     const manifestPath = writeManifest(join(dir, "source"), "ALTUSDT", 240)
-    const dbPath = join(dir, "should-not-exist", "trade.db")
+    const dbPath = join(runtimeDir, "should-not-exist", "trade.db")
     const result = await run([
       "--db",
       dbPath,
@@ -53,7 +54,7 @@ test("strategy data split CLI stays read-only to trade DB and returns stable she
       JSON.stringify({
         split_id: "split-cli",
         timeframe: "4h",
-        output_root: join(dir, "splits"),
+        output_root: join(runtimeDir, "splits"),
         max_hold_bars: 8,
         min_segment_rows: 20,
         datasets: [{ dataset_id: "ALTUSDT", manifest_path: manifestPath }],
@@ -114,6 +115,12 @@ function writeManifest(dir: string, symbol: string, rows: number): string {
     },
   }))
   return manifestPath
+}
+
+function makeRuntimeDir(prefix: string): string {
+  const root = resolveRepoPath("tmp/test-runs")
+  mkdirSync(root, { recursive: true })
+  return mkdtempSync(join(root, prefix))
 }
 
 function asRecord(value: unknown): Record<string, unknown> {

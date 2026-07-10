@@ -8,7 +8,6 @@ tmp/
 $CODEX_HOME/
 
 # Local runtime state and generated trading/research data.
-state/rd/
 data/outline_audit/
 data/ohlcv/
 
@@ -27,7 +26,6 @@ data/system_state.json
 data/.trade-flow.lock
 data/*.db
 data/*.sqlite*
-.agents/skills/trade-flow/data/
 
 # Local operator config; keep examples/templates in repo instead.
 profile/account_config.json

@@ -1,4 +1,5 @@
 import { initDataCatalog, listStaleCatalogArtifacts, queryDataCatalog, scanDataCatalog } from "../lib/data-catalog"
+import { assertProjectRuntimePath } from "../lib/paths"
 import { successResponse } from "./response"
 import type { CommandConfig, ScriptResponse } from "./types"
 
@@ -39,7 +40,11 @@ export function handleCatalogCommand(config: CommandConfig): ScriptResponse | nu
 
 function catalogRoots(config: CommandConfig): string[] {
   const roots = config.catalogRoots.length > 0 ? config.catalogRoots : readStringArray(config.input.roots)
-  return roots.length > 0 ? roots : ["./data"]
+  const resolved = roots.length > 0 ? roots : ["./data"]
+  for (const root of resolved) {
+    assertProjectRuntimePath(root)
+  }
+  return resolved
 }
 
 function readStringArray(value: unknown): string[] {

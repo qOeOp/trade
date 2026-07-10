@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { ensureFeatureReport } from "./lib/feature-report"
+import { assertProjectRuntimePath } from "./lib/paths"
 
 function main(): void {
   const argv = process.argv.slice(2)
@@ -9,6 +10,11 @@ function main(): void {
   if (!manifestPath || !outputPath) {
     throw new Error("--manifest and --output are required")
   }
+  assertProjectRuntimePath(outputPath)
+  const catalogDbPath = readFlag(argv, "--catalog-db") || undefined
+  if (catalogDbPath) {
+    assertProjectRuntimePath(catalogDbPath)
+  }
   const result = ensureFeatureReport({
     manifestPath,
     outputPath,
@@ -16,7 +22,7 @@ function main(): void {
     featureSeries: !argv.includes("--no-feature-series"),
     force: argv.includes("--force"),
     techIndicatorsDir: readFlag(argv, "--tech-indicators-dir") || undefined,
-    catalogDbPath: readFlag(argv, "--catalog-db") || undefined,
+    catalogDbPath,
   })
   process.stdout.write(`${JSON.stringify({ ok: true, data: result }, null, 2)}\n`)
 }

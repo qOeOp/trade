@@ -105,7 +105,7 @@ export function buildAutomationCyclePlan(db: Database, dbPath: string, input: Au
   const rdStrategyConfigured = Object.keys(rdStrategyGoal).length > 0
   const rdStrategyCanRun = rdStrategyConfigured && (!rdProgramState || rdProgramState.status === "active")
   const configuredCatalogRoots = asArray(input.catalog_roots).map(String).filter(Boolean)
-  const catalogRoots = configuredCatalogRoots.length > 0 ? configuredCatalogRoots : ["./data", "./tmp", "./state"]
+  const catalogRoots = configuredCatalogRoots.length > 0 ? configuredCatalogRoots : ["./data", "./tmp"]
   const catalogDb = displayPath(stringField(input.catalog_db) || DEFAULT_CATALOG_DB)
   const tradeWorkDue = (activeFlowCount > 0 && cadence.fast_track_guard.due) || cadence.slow_track_market_watch.due
 
@@ -292,7 +292,7 @@ function rdStrategySupervisorJob(input: {
     ".agents/skills/trade-flow/scripts/main.ts",
     "--rd-program-state",
     "--state",
-    "./state/rd/program.json",
+    "./data/rd/program.json",
     "--catalog-db",
     input.catalogDb,
     "--json",
@@ -320,7 +320,7 @@ function rdStrategySupervisorJob(input: {
       init_command_spec: {
         executable: false,
         argv: initArgv,
-        writes: ["state/rd", input.catalogDb],
+        writes: ["data/rd", input.catalogDb],
       },
     }),
     entrypoint: "read rd_program_state, request action=plan_next, then explicitly run the returned R&D loop/campaign payload and write learning-memory updates until a stop condition is reached",

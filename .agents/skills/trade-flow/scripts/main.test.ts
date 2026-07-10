@@ -1,5 +1,4 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, utimesSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
 import { join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
@@ -19,7 +18,7 @@ test("validateOrderFill requires audit fields for trade_flow source", () => {
 })
 
 test("run initializes schema and appends audited order_fill", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "trade-flow-"))
+  const dir = makeRuntimeDir("trade-flow-")
   const dbPath = join(dir, "trade.db")
   try {
     const init = await run(["--db", dbPath, "--init"])
@@ -59,8 +58,19 @@ test("run initializes schema and appends audited order_fill", async () => {
   }
 })
 
+test("run rejects runtime output paths outside project data or tmp", async () => {
+  const result = await run([
+    "--db",
+    "profile/trade.db",
+    "--init",
+  ])
+
+  assert.equal(result.ok, false)
+  assert.match(String(result.error), /runtime output must stay under project data\/ or tmp\//)
+})
+
 test("run initializes R&D program state through the CLI path", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "trade-flow-rd-state-cli-"))
+  const dir = makeRuntimeDir("trade-flow-rd-state-cli-")
   try {
     const statePath = join(dir, "state.json")
     const catalogDb = join(dir, "catalog.db")
@@ -89,7 +99,7 @@ test("run initializes R&D program state through the CLI path", async () => {
 })
 
 test("run executes R&D supervisor runner through the CLI path", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "trade-flow-rd-supervisor-cli-"))
+  const dir = makeRuntimeDir("trade-flow-rd-supervisor-cli-")
   try {
     const statePath = join(dir, "state.json")
     const catalogDb = join(dir, "catalog.db")
@@ -171,7 +181,7 @@ test("buildRecordedExecutionEvent refuses blocked preflight", () => {
 })
 
 test("run records execution into plan_event", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "trade-flow-record-"))
+  const dir = makeRuntimeDir("trade-flow-record-")
   const dbPath = join(dir, "trade.db")
   try {
     const result = await run([
@@ -223,7 +233,7 @@ test("run records execution into plan_event", async () => {
 })
 
 test("run dry-run completes preflight contract mock execution and reducer readback", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "trade-flow-e2e-"))
+  const dir = makeRuntimeDir("trade-flow-e2e-")
   const dbPath = join(dir, "trade.db")
   try {
     const result = await run([
@@ -246,7 +256,7 @@ test("run dry-run completes preflight contract mock execution and reducer readba
 })
 
 test("dry-run example payload executes successfully", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "trade-flow-example-"))
+  const dir = makeRuntimeDir("trade-flow-example-")
   const dbPath = join(dir, "trade.db")
   try {
     const example = readFileSync(new URL("../examples/dry-run-input.example.json", import.meta.url), "utf8")
@@ -268,7 +278,7 @@ test("dry-run example payload executes successfully", async () => {
 })
 
 test("run dry-run records blocked preflight as observe without order_fill", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "trade-flow-blocked-"))
+  const dir = makeRuntimeDir("trade-flow-blocked-")
   const dbPath = join(dir, "trade.db")
   try {
     const result = await run([
@@ -309,7 +319,7 @@ test("run dry-run records blocked preflight as observe without order_fill", asyn
 })
 
 test("run dry-run skips when trigger condition is not hit", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "trade-flow-trigger-skip-"))
+  const dir = makeRuntimeDir("trade-flow-trigger-skip-")
   const dbPath = join(dir, "trade.db")
   try {
     const result = await run([
@@ -359,7 +369,7 @@ test("run dry-run skips when trigger condition is not hit", async () => {
 })
 
 test("run dry-run skips when source observe was already recorded", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "trade-flow-idempotent-"))
+  const dir = makeRuntimeDir("trade-flow-idempotent-")
   const dbPath = join(dir, "trade.db")
   const db = new Database(dbPath)
   let closed = false
@@ -425,7 +435,7 @@ test("run dry-run skips when source observe was already recorded", async () => {
 })
 
 test("run dry-run fast track skip inherits latest slow observe strategy fields", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "trade-flow-fast-inherit-"))
+  const dir = makeRuntimeDir("trade-flow-fast-inherit-")
   const dbPath = join(dir, "trade.db")
   const db = new Database(dbPath)
   let closed = false
@@ -515,7 +525,7 @@ test("run dry-run fast track skip inherits latest slow observe strategy fields",
 })
 
 test("run shadow records shadow execution without live exchange result", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "trade-flow-shadow-"))
+  const dir = makeRuntimeDir("trade-flow-shadow-")
   const dbPath = join(dir, "trade.db")
   try {
     const result = await run([
@@ -549,7 +559,7 @@ test("run shadow records shadow execution without live exchange result", async (
 })
 
 test("run loads runtime account config and strategy files", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "trade-flow-runtime-"))
+  const dir = makeRuntimeDir("trade-flow-runtime-")
   const configPath = join(dir, "account_config.json")
   const strategiesDir = join(dir, "strategies")
   try {
@@ -577,7 +587,7 @@ test("run loads runtime account config and strategy files", async () => {
 })
 
 test("run builds observe event from projections", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "trade-flow-no-db-observe-"))
+  const dir = makeRuntimeDir("trade-flow-no-db-observe-")
   const dbPath = join(dir, "should-not-exist", "trade.db")
   try {
     const result = await run([
@@ -623,7 +633,7 @@ test("run builds observe event from projections", async () => {
 })
 
 test("run replays strategy from manifest without creating DB", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "trade-flow-replay-cli-"))
+  const dir = makeRuntimeDir("trade-flow-replay-cli-")
   const dbPath = join(dir, "should-not-exist", "trade.db")
   try {
     writeFileSync(join(dir, "4h.csv"), [
@@ -676,7 +686,7 @@ test("run replays strategy from manifest without creating DB", async () => {
 })
 
 test("run strategy R&D batch without creating DB", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "trade-flow-rnd-cli-"))
+  const dir = makeRuntimeDir("trade-flow-rnd-cli-")
   const dbPath = join(dir, "should-not-exist", "trade.db")
   try {
     writeFileSync(join(dir, "4h.csv"), [
@@ -814,10 +824,11 @@ proof:
 })
 
 test("run strategy R&D loop writes ledger without creating DB", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "trade-flow-rnd-loop-cli-"))
+  const dir = makeRuntimeDir("trade-flow-rnd-loop-cli-")
   const dbPath = join(dir, "should-not-exist", "trade.db")
   const artifactRoot = join(dir, "artifacts")
   const ledgerPath = join(dir, "strategy-rnd-ledger.jsonl")
+  const catalogDbPath = join(dir, "data_catalog.db")
   try {
     writeFileSync(join(dir, "4h.csv"), [
       "date,timestamp,open,high,low,close,volume",
@@ -878,6 +889,7 @@ test("run strategy R&D loop writes ledger without creating DB", async () => {
         indicator_report_path: indicatorReportPath,
         artifact_root: artifactRoot,
         ledger_path: ledgerPath,
+        catalog_db_path: catalogDbPath,
         candidates: [{ candidate_id: "C-CLI-LOOP", parameter_count: 1, params: { side: "long" } }],
       }),
     ])
@@ -894,7 +906,7 @@ test("run strategy R&D loop writes ledger without creating DB", async () => {
 })
 
 test("run artifact gc reports candidates without creating DB", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "trade-flow-artifact-gc-"))
+  const dir = makeRuntimeDir("trade-flow-artifact-gc-")
   const dbPath = join(dir, "trade.db")
   const root = join(dir, "artifacts")
   const artifact = join(root, "stale.json")
@@ -927,10 +939,11 @@ test("run artifact gc reports candidates without creating DB", async () => {
 })
 
 test("run strategy iteration commands do not create DB unless DB exists", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "trade-flow-strategy-iteration-cli-"))
+  const dir = makeRuntimeDir("trade-flow-strategy-iteration-cli-")
   const dbPath = join(dir, "trade.db")
   const strategyPath = join(dir, "s-test.md")
   const ledgerPath = join(dir, "strategy-evidence.jsonl")
+  const catalogDbPath = join(dir, "data_catalog.db")
   try {
     writeFileSync(strategyPath, "---\nstrategy_id: S-TEST\nname: Test\nstatus: draft\ntags: [test]\n---\n\n# Test\n\nRule v1\n")
     const manifestPath = join(dir, "manifest.json")
@@ -971,6 +984,8 @@ test("run strategy iteration commands do not create DB unless DB exists", async 
       strategyPath,
       "--ledger",
       ledgerPath,
+      "--catalog-db",
+      catalogDbPath,
       "--json",
       JSON.stringify({
         replay_result: {
@@ -1008,6 +1023,8 @@ test("run strategy iteration commands do not create DB unless DB exists", async 
       strategyPath,
       "--ledger",
       ledgerPath,
+      "--catalog-db",
+      catalogDbPath,
     ])
     assert.equal(reviewResult.ok, true)
     const review = (reviewResult as { ok: true; data: { gate: { shadow_candidate: boolean } } }).data
@@ -1021,6 +1038,8 @@ test("run strategy iteration commands do not create DB unless DB exists", async 
       strategyPath,
       "--ledger",
       ledgerPath,
+      "--catalog-db",
+      catalogDbPath,
       "--to",
       "shadow",
     ])
@@ -1034,10 +1053,11 @@ test("run strategy iteration commands do not create DB unless DB exists", async 
 })
 
 test("run appends review then derives shadow evidence from DB", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "trade-flow-review-evidence-"))
+  const dir = makeRuntimeDir("trade-flow-review-evidence-")
   const dbPath = join(dir, "trade.db")
   const strategyPath = join(dir, "s-test.md")
   const ledgerPath = join(dir, "strategy-evidence.jsonl")
+  const catalogDbPath = join(dir, "data_catalog.db")
   try {
     writeFileSync(strategyPath, "---\nstrategy_id: S-TEST\nname: Test Strategy\nstatus: shadow\ntags: [test]\n---\n\n# Test Strategy\n\nRule v1\n")
 
@@ -1074,6 +1094,8 @@ test("run appends review then derives shadow evidence from DB", async () => {
       strategyPath,
       "--ledger",
       ledgerPath,
+      "--catalog-db",
+      catalogDbPath,
       "--json",
       JSON.stringify({
         kind: "shadow",
@@ -1091,6 +1113,8 @@ test("run appends review then derives shadow evidence from DB", async () => {
       strategyPath,
       "--ledger",
       ledgerPath,
+      "--catalog-db",
+      catalogDbPath,
     ])
     assert.equal(reviewResult.ok, true)
     const review = (reviewResult as { ok: true; data: { latest: { shadow: { kind: string; execution_attribution: { total_cost_drag: number } } | null } } }).data
@@ -1102,10 +1126,11 @@ test("run appends review then derives shadow evidence from DB", async () => {
 })
 
 test("run strategy-cycle syncs review evidence without duplicate ledger rows", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "trade-flow-strategy-cycle-"))
+  const dir = makeRuntimeDir("trade-flow-strategy-cycle-")
   const dbPath = join(dir, "trade.db")
   const strategyPath = join(dir, "s-test.md")
   const ledgerPath = join(dir, "strategy-evidence.jsonl")
+  const catalogDbPath = join(dir, "data_catalog.db")
   try {
     writeFileSync(strategyPath, "---\nstrategy_id: S-TEST\nname: Test Strategy\nstatus: shadow\ntags: [test]\n---\n\n# Test Strategy\n\nRule v1\n")
     const appendReview = await run([
@@ -1140,6 +1165,8 @@ test("run strategy-cycle syncs review evidence without duplicate ledger rows", a
       strategyPath,
       "--ledger",
       ledgerPath,
+      "--catalog-db",
+      catalogDbPath,
     ])
     assert.equal(firstCycle.ok, true)
     assert.equal((firstCycle as { ok: true; data: { shadow_evidence: { status: string } } }).data.shadow_evidence.status, "created")
@@ -1152,17 +1179,19 @@ test("run strategy-cycle syncs review evidence without duplicate ledger rows", a
       strategyPath,
       "--ledger",
       ledgerPath,
+      "--catalog-db",
+      catalogDbPath,
     ])
     assert.equal(secondCycle.ok, true)
     assert.equal((secondCycle as { ok: true; data: { shadow_evidence: { status: string } } }).data.shadow_evidence.status, "reused")
-    assert.equal(loadEvidenceLedger(ledgerPath).length, 1)
+    assert.equal(loadEvidenceLedger({ ledgerPath, catalogDbPath }).length, 1)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
 })
 
 test("run rejects unsupported replay strategy id", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "trade-flow-replay-unknown-"))
+  const dir = makeRuntimeDir("trade-flow-replay-unknown-")
   try {
     writeFileSync(join(dir, "4h.csv"), [
       "date,timestamp,open,high,low,close,volume",
@@ -1198,7 +1227,7 @@ test("run rejects unsupported replay strategy id", async () => {
 })
 
 test("runShadowFromSkills builds real-observe shadow chain with fake read-only skills", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "trade-flow-shadow-skills-"))
+  const dir = makeRuntimeDir("trade-flow-shadow-skills-")
   const dbPath = join(dir, "trade.db")
   const db = new Database(dbPath)
   ensureSchema(db)
@@ -1272,7 +1301,7 @@ test("runLiveSmall requires explicit yes", async () => {
 })
 
 test("runLiveSmall calls order-place and records audited order_fill", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "trade-flow-live-small-"))
+  const dir = makeRuntimeDir("trade-flow-live-small-")
   const db = new Database(join(dir, "trade.db"))
   ensureSchema(db)
   let capturedCommand: string[] = []
@@ -1458,7 +1487,7 @@ test("reduceFlowState detects unexecuted latest action intent", () => {
 })
 
 test("run recovers one flow from local plan_event history", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "trade-flow-recover-"))
+  const dir = makeRuntimeDir("trade-flow-recover-")
   const dbPath = join(dir, "trade.db")
   const db = new Database(dbPath)
   ensureSchema(db)
@@ -1498,7 +1527,7 @@ test("run recovers one flow from local plan_event history", async () => {
 })
 
 test("run reconciles one flow against supplied account snapshot", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "trade-flow-reconcile-"))
+  const dir = makeRuntimeDir("trade-flow-reconcile-")
   const dbPath = join(dir, "trade.db")
   const db = new Database(dbPath)
   ensureSchema(db)
@@ -1559,7 +1588,7 @@ test("run reconciles one flow against supplied account snapshot", async () => {
 })
 
 test("run applies reconcile drafts only with explicit yes", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "trade-flow-apply-reconcile-"))
+  const dir = makeRuntimeDir("trade-flow-apply-reconcile-")
   const dbPath = join(dir, "trade.db")
   const payload = {
     can_reconcile: true,
@@ -1620,7 +1649,7 @@ test("run applies reconcile drafts only with explicit yes", async () => {
 })
 
 test("reconcileFromSkills calls read-only account snapshot with history", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "trade-flow-reconcile-skills-"))
+  const dir = makeRuntimeDir("trade-flow-reconcile-skills-")
   const db = new Database(join(dir, "trade.db"))
   ensureSchema(db)
   appendPlanEvent(db, {
@@ -1686,7 +1715,7 @@ test("reconcileFromSkills calls read-only account snapshot with history", async 
 })
 
 test("cronRecoverFromSkills returns draft until explicit local apply", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "trade-flow-cron-recover-"))
+  const dir = makeRuntimeDir("trade-flow-cron-recover-")
   const db = new Database(join(dir, "trade.db"))
   ensureSchema(db)
   appendPlanEvent(db, {
@@ -1934,4 +1963,10 @@ function buildReplayCandles(): Array<{ open: number; high: number; low: number; 
     })
   }
   return candles
+}
+
+function makeRuntimeDir(prefix: string): string {
+  const root = resolveRepoPath("tmp/test-runs")
+  mkdirSync(root, { recursive: true })
+  return mkdtempSync(join(root, prefix))
 }

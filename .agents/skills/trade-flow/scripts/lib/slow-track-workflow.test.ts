@@ -10,7 +10,7 @@ import type { Runner } from "./observe-adapter"
 
 test("slow track workflow dry-run builds real watchlist without live action", async () => {
   const repoRoot = mkdtempSync(join(tmpdir(), "trade-flow-slow-workflow-"))
-  const dataDir = join(repoRoot, ".agents/skills/trade-flow/data")
+  const dataDir = join(repoRoot, "data")
   mkdirSync(join(repoRoot, "profile"), { recursive: true })
   mkdirSync(join(repoRoot, "strategies"), { recursive: true })
   mkdirSync(dataDir, { recursive: true })
@@ -139,7 +139,7 @@ test("slow track workflow dry-run builds real watchlist without live action", as
 
 test("slow track workflow reports account snapshot unavailable without inventing action", async () => {
   const repoRoot = mkdtempSync(join(tmpdir(), "trade-flow-slow-no-account-"))
-  const dataDir = join(repoRoot, ".agents/skills/trade-flow/data")
+  const dataDir = join(repoRoot, "data")
   mkdirSync(join(repoRoot, "profile"), { recursive: true })
   mkdirSync(join(repoRoot, "strategies"), { recursive: true })
   mkdirSync(dataDir, { recursive: true })
@@ -176,7 +176,7 @@ test("slow track workflow reports account snapshot unavailable without inventing
 
 test("slow track workflow analyzes every default watchlist candidate", async () => {
   const repoRoot = mkdtempSync(join(tmpdir(), "trade-flow-slow-full-analysis-"))
-  const dataDir = join(repoRoot, ".agents/skills/trade-flow/data")
+  const dataDir = join(repoRoot, "data")
   mkdirSync(join(repoRoot, "profile"), { recursive: true })
   mkdirSync(join(repoRoot, "strategies"), { recursive: true })
   mkdirSync(dataDir, { recursive: true })

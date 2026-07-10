@@ -15,7 +15,7 @@
 | strategy policy | 是 | `strategies/*.md` |
 | trade runtime DB | 否 | `data/trade.db`, `data/*.sqlite*` |
 | cron / lock / system state | 否 | `data/cron.log`, `data/.trade-flow.lock`, `data/system_state.json` |
-| strategy evidence / R&D ledger | 否 | `data/data_catalog.db` |
+| strategy evidence / R&D ledger / R&D state | 否 | `data/data_catalog.db`, `data/rd/` |
 | 临时 replay / R&D / calibration / validation / forward holdout artifact | 否 | `tmp/artifacts/`, `tmp/panels/` |
 | OHLCV / market data | 否 | `data/ohlcv/` |
 | local operator config | 否 | `profile/account_config.json`, `profile/notify_config.json` |
@@ -49,7 +49,7 @@
 
 - `data/ohlcv/`
 - `data/artifacts/`（legacy / durable archive）
-- `data/rd/`（legacy R&D state；新 state 写 `state/rd/`）
+- `data/rd/`
 - `data/calibration-panel-*/`
 - `data/validation-panel-*/`
 - `data/external-panel-*/`
@@ -61,8 +61,6 @@
 - `data/system_state.json`
 - `data/.trade-flow.lock`
 - `data/*.db`, `data/*.sqlite*`
-- `state/rd/`
-- `.agents/skills/trade-flow/data/`
 - `tmp/`
 - `profile/account_config.json`, `profile/notify_config.json`
 
@@ -91,10 +89,10 @@ tmp/
   market/                   # automation / slow-track 市场候选 cache
 ```
 
-本地 learning memory 放 `state/`：
+本地 learning memory 放 `data/rd/`：
 
 ```text
-state/
+data/
   rd/                       # rd_program_state；research memory，不是 strategy evidence
 ```
 
@@ -108,7 +106,6 @@ state/
 | --- | ---: | ---: | --- |
 | `data/` | 4 | 1.9M | 已收敛目标：durable 状态 + OHLCV |
 | `tmp/` | 177 | 179M | 已 ignore；承接研究中间产物 |
-| `.agents/skills/trade-flow/data/` | 202 | 4.6M | legacy ignored cache；新运行不再写入 |
 | `.codex/automations/` | 2 | 7.5K | 已 ignore；通过 automation memory path helper 访问 |
 
 主要占用：
@@ -120,15 +117,15 @@ state/
 数据库现状：
 
 - `data/trade.db`：24K，仅 `plan_event` 表；当前 1 条 `observe`。
-- `.agents/skills/trade-flow/data/trade.db`：24K，空库。
 - `data/data_catalog.db.strategy_rnd_run`：5 条 R&D 防重复审计记录，完整 record 存 `record_json`。
 - `data/data_catalog.db.strategy_evidence`：2 条策略准入证据记录，完整 record 存 `record_json`。
 
 ## 7. 当前治理状态
 
 - DB 没有膨胀；大 payload 仍在文件系统，`data_catalog.db` 只索引元数据、hash、summary、引用关系与 retention。
-- `data/`、`tmp/`、`state/rd/` 均可通过 catalog scan 纳入统一视图；`.agents/skills/trade-flow/data/` 只作为 legacy cache 看待。
-- `--catalog-stale` 已覆盖 `tmp/`、panel data、skill-local runtime data；默认只报告候选、保留原因与引用状态。
+- 运行态输出只允许落在项目根 `data/` 或 `tmp/`；其他目录一律不是管线落点。
+- `data/`、`tmp/` 均可通过 catalog scan 纳入统一视图；旧路径输入必须在入口失败。
+- `--catalog-stale` 已覆盖 `tmp/` 与 panel data；默认只报告候选、保留原因与引用状态。
 - `--catalog-gc --yes` 只删除 catalog 判定为 stale 的候选；`.pin`、引用、durable / evidence retention class 会保护文件。
 - `tmp/artifacts/strategy-rnd/`、R&D ledger、strategy evidence、cron log、track output、feature report、panel / calibration / campaign / shadow tracker 已有结构化索引。
 - `tmp/market/` 与根 `data/ohlcv/` 按职责分层：前者是 automation / slow-track 可删 cache，后者是项目级可复算数据。
@@ -137,7 +134,7 @@ state/
 
 - catalog 是本地 SQLite 索引层；扫描 / 清理按顺序执行，不做并发写。
 - 大型 feature series 不整体进 DB；只保存 source manifest、指标集合、coverage 与摘要。
-- 历史文件不会被自动迁移目录；catalog 负责可发现、可追踪、可删判断。
+- 历史文件不会被自动清理；legacy skill-local 运行路径不再兼容，已有错位文件可按引用关系迁移后删除。
 - 真删除仍必须显式 `--catalog-gc --yes`；本轮只做 dry-run 和索引刷新。
 
 ## 9. 生成数据管道评估

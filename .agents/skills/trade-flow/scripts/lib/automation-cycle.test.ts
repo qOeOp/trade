@@ -27,7 +27,7 @@ test("automation cycle plan isolates trade db work from R&D artifact jobs", () =
       },
     })
 
-    const result = buildAutomationCyclePlan(db, ".agents/skills/trade-flow/data/trade.db", {
+    const result = buildAutomationCyclePlan(db, "data/trade.db", {
       cycle_id: "cycle-test-1",
       now: "2026-07-09T12:15:00Z",
       rd_trackers: [{ tracker_id: "high-beta-alt-be-fresh", artifact_scope: "data/artifacts/strategy-rnd" }],
@@ -60,7 +60,7 @@ test("automation cycle plan can disable optional jobs", () => {
   const db = new Database(":memory:")
   try {
     ensureSchema(db)
-    const result = buildAutomationCyclePlan(db, ".agents/skills/trade-flow/data/trade.db", {
+    const result = buildAutomationCyclePlan(db, "data/trade.db", {
       now: "2026-07-09T12:15:00Z",
       include_rd_strategy_supervisor: false,
       include_rd_trackers: false,
@@ -81,7 +81,7 @@ test("automation cycle plan can dispatch a learning strategy R&D supervisor", ()
   const db = new Database(":memory:")
   try {
     ensureSchema(db)
-    const result = buildAutomationCyclePlan(db, ".agents/skills/trade-flow/data/trade.db", {
+    const result = buildAutomationCyclePlan(db, "data/trade.db", {
       cycle_id: "cycle-rd-supervisor",
       now: "2026-07-09T12:15:00Z",
       rd_learning_memory_ref: "docs/rd-audit.md",
@@ -121,7 +121,7 @@ test("automation cycle plan can dispatch a learning strategy R&D supervisor", ()
       ".agents/skills/trade-flow/scripts/main.ts",
       "--rd-program-state",
       "--state",
-      "./state/rd/program.json",
+      "./data/rd/program.json",
     ])
     const parallel = asRecord(asArray(result.dispatch_order).find((stage) => asRecord(stage).stage === "parallel_isolated_work"))
     assert.ok(asArray(parallel.job_ids).includes("rd_strategy_supervisor"))
@@ -149,7 +149,7 @@ test("automation cycle plan can drive R&D supervisor from durable program state"
     })
     writeRdProgramState(statePath, state, catalogDb)
 
-    const activeResult = buildAutomationCyclePlan(db, ".agents/skills/trade-flow/data/trade.db", {
+    const activeResult = buildAutomationCyclePlan(db, "data/trade.db", {
       cycle_id: "cycle-rd-state-active",
       now: "2026-07-09T12:15:00Z",
       rd_program_state_path: statePath,
@@ -189,7 +189,7 @@ test("automation cycle plan can drive R&D supervisor from durable program state"
       }),
       catalogDb,
     )
-    const stoppedResult = buildAutomationCyclePlan(db, ".agents/skills/trade-flow/data/trade.db", {
+    const stoppedResult = buildAutomationCyclePlan(db, "data/trade.db", {
       cycle_id: "cycle-rd-state-stopped",
       now: "2026-07-09T13:15:00Z",
       force_jobs: ["rd_strategy_supervisor"],
@@ -224,7 +224,7 @@ test("automation cycle plan skips slow jobs on fast cadence until due", () => {
       },
     })
 
-    const result = buildAutomationCyclePlan(db, ".agents/skills/trade-flow/data/trade.db", {
+    const result = buildAutomationCyclePlan(db, "data/trade.db", {
       now: "2026-07-09T12:15:00Z",
       last_runs: {
         fast: "2026-07-09T11:59:00Z",
