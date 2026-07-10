@@ -128,6 +128,8 @@ test("strategy R&D campaign orchestrates discovery then locked validation", () =
             batch: {
               outcome: "candidate_found",
               trial_count: 1,
+              failure_summary: { primary_failure_area: "none" },
+              reliability_gate: { status: "candidate_ready" },
               winner: {
                 candidate_id: "candidate-1",
                 description: "candidate",
@@ -185,6 +187,8 @@ test("strategy R&D campaign orchestrates discovery then locked validation", () =
     assert.equal(report.outcome, "validated_candidate_found")
     assert.equal(report.holdout_evaluations, 1)
     assert.equal(report.validated_candidate?.candidate_id, "candidate-1-external-validation")
+    assert.deepEqual(report.runs[0].discovery_failure_summary, { primary_failure_area: "none" })
+    assert.deepEqual(report.runs[0].discovery_reliability_gate, { status: "candidate_ready" })
     assert.equal(existsSync(report.artifact_ref), true)
     const artifact = JSON.parse(readFileSync(report.artifact_ref, "utf8")) as { campaign_id: string }
     assert.equal(artifact.campaign_id, "campaign-fixture")

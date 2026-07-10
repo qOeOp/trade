@@ -803,11 +803,12 @@ test("strategy R&D campaign continues after a failed hypothesis", () => {
     assert.equal(report.hypotheses_run, 2)
     assert.equal(report.trials_used, 2)
     assert.equal(report.runs.every((run) => run.discovery_outcome === "no_promote"), true)
+    assert.equal(report.runs.every((run) => Boolean(run.discovery_failure_summary)), true)
     assert.equal(loadRndLedger({ catalogDbPath: report.ledger_ref }).length, 2)
     assert.equal(existsSync(report.artifact_ref), true)
     assert.equal(report.rd_program_state?.state.usage.hypotheses_run, 2)
     assert.equal(report.rd_program_state?.state.usage.trials_used, 2)
-    assert.equal(readRdProgramState(statePath).latest_failure_summary?.stop_reason, "hypothesis_queue_exhausted")
+    assert.equal(readRdProgramState(statePath).latest_failure_summary?.primary_failure_area !== undefined, true)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

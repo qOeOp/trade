@@ -8,6 +8,7 @@ import {
   buildPositionProtectCommand,
   buildRecordedActionEvents,
 } from "./execution-flow"
+import { compileExecutionContract } from "../../../_shared/execution-contract"
 import { reduceFlowState } from "./flow-state"
 import { appendPlanEvent, ensureSchema } from "./plan-events"
 
@@ -34,6 +35,61 @@ test("execution command spec routes place_entry to order-place with compiled con
   assert.ok(spec.command.includes("--new-client-order-id"))
   assert.ok(spec.command.includes("flow-route-1-1-entry"))
   assert.ok(spec.command.includes("--yes"))
+})
+
+test("execution command spec resolves semantic entry intent before routing order-place", () => {
+  const spec = buildExecutionCommandSpec({
+    repoRoot: "/repo",
+    target_action: "place_entry",
+    execution_contract_input: {
+      ...contractInput(),
+      entries: [{
+        intent: "entry_at",
+        price: 66000,
+        reference_price: 65000,
+        margin_usdt: 100,
+      }],
+    },
+  })
+
+  assert.deepEqual(spec.command.slice(0, 12), [
+    "bun",
+    "scripts/main.ts",
+    "--symbol",
+    "BTCUSDT",
+    "--side",
+    "BUY",
+    "--type",
+    "STOP_MARKET",
+    "--quantity",
+    "0.003",
+    "--position-side",
+    "BOTH",
+  ])
+  assert.ok(spec.command.includes("--stop-price"))
+  assert.ok(spec.command.includes("66000"))
+})
+
+test("execution command spec keeps dry-run and live-small compiled contract parity", () => {
+  const input = {
+    repoRoot: "/repo",
+    target_action: "place_entry",
+    execution_contract_input: {
+      ...contractInput(),
+      entries: [{
+        intent: "entry_at",
+        price: 66000,
+        reference_price: 65000,
+        margin_usdt: 100,
+      }],
+    },
+  }
+  const dryRunSpec = buildExecutionCommandSpec(input)
+  const precompiled = compileExecutionContract(input.execution_contract_input as unknown as Parameters<typeof compileExecutionContract>[0])
+  const liveSmallSpec = buildExecutionCommandSpec(input, precompiled)
+
+  assert.deepEqual(liveSmallSpec.command, dryRunSpec.command)
+  assert.equal(precompiled.entries[0].resolver_snapshot.route_reason.includes("breakout"), true)
 })
 
 test("execution command spec routes cancel_order to order-cancel", () => {

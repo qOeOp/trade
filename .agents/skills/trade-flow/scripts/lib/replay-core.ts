@@ -6,6 +6,9 @@ import { resolveReadablePath } from "./paths"
 type Side = "long" | "short"
 type JSONRecord = Record<string, unknown>
 type ExitReason = "target" | "stop" | "time_exit"
+type SimulatedOrderSide = "BUY" | "SELL"
+type SimulatedOrderKind = "market" | "limit" | "stop_market"
+type SimulatedOrderRole = "entry" | "take_profit" | "stop"
 
 interface Candle {
   date: string
@@ -53,6 +56,39 @@ interface ReplayTrade {
   bars_held: number
   regime: string
   meta?: JSONRecord
+  fill_model?: JSONRecord
+  r_multiple_initial?: number
+  r_multiple_max_live_risk?: number
+}
+
+interface SimulatedLaneOrder {
+  id: string
+  role: SimulatedOrderRole
+  side: SimulatedOrderSide
+  kind: SimulatedOrderKind
+  quantity: number
+  price?: number
+  stop_price?: number
+  reduce_only?: boolean
+}
+
+interface SimulatedLaneFill {
+  order_id: string
+  role: SimulatedOrderRole
+  side: SimulatedOrderSide
+  quantity: number
+  requested_quantity: number
+  price: number
+  candle_time: string
+  reduced_only_cap_applied: boolean
+}
+
+interface SimulatedLaneResult {
+  fills: SimulatedLaneFill[]
+  final_position_qty: number
+  realized_r_multiple_initial: number
+  realized_r_multiple_max_live_risk: number
+  assumptions: JSONRecord
 }
 
 interface ReplayStrategy {
@@ -104,6 +140,7 @@ interface ReplayResult {
     blocked_by: Array<{ check_id: string; reason: string }>
   }
   trades: ReplayTrade[]
+  diagnostics?: JSONRecord
   assumptions: JSONRecord
   provenance: ReplayProvenance
   notes: string[]
@@ -196,6 +233,7 @@ function replayStrategy(strategy: ReplayStrategy, options: ReplayOptions): Repla
     funding_event_coverage: fundingCoverage,
     stop_gap_policy: "next_open_if_worse",
     same_candle_policy: "stop_first",
+    intrabar_order_sort: "stop_reduce_only_then_take_profit_then_entry_by_id",
     protective_stop_policy: "optional_break_even_stop_activates_next_bar",
     overlapping_positions: false,
   }
@@ -358,6 +396,80 @@ function resolveTrade(
   return buildTrade({ ...signal, stop: activeStop }, initialStop, candles[signal.signal_index], candles[signal.entry_index], candles[end], "time_exit", options, end - signal.entry_index)
 }
 
+function simulateReplayOrderLane(input: {
+  candles: Candle[]
+  orders: SimulatedLaneOrder[]
+  initial_position_qty?: number
+  initial_entry_price?: number
+  initial_risk_per_unit?: number
+  max_live_risk_per_unit?: number
+}): SimulatedLaneResult {
+  let positionQty = input.initial_position_qty ?? 0
+  let averageEntry = input.initial_entry_price ?? 0
+  const initialRisk = positiveOrDefault(input.initial_risk_per_unit, 1)
+  let maxLiveRisk = Math.max(positiveOrDefault(input.max_live_risk_per_unit, initialRisk), Math.abs(positionQty) * initialRisk)
+  let realizedPnl = 0
+  const fills: SimulatedLaneFill[] = []
+  const openOrders = [...input.orders]
+
+  for (const candle of input.candles) {
+    const triggered = openOrders
+      .filter((order) => orderTriggers(order, candle))
+      .sort(compareSimulatedOrders)
+    for (const order of triggered) {
+      const openIndex = openOrders.findIndex((item) => item.id === order.id)
+      if (openIndex >= 0) openOrders.splice(openIndex, 1)
+      const requestedQty = Math.max(0, order.quantity)
+      if (requestedQty <= 0) continue
+      const signedBefore = positionQty
+      const closingQty = order.reduce_only ? Math.min(requestedQty, Math.abs(positionQty)) : requestedQty
+      if (closingQty <= 0) continue
+      const price = simulatedFillPrice(order, candle)
+      const signedFill = order.side === "BUY" ? closingQty : -closingQty
+      const reducesPosition = Math.sign(signedBefore) !== 0 && Math.sign(signedBefore) !== Math.sign(signedFill)
+      if (reducesPosition) {
+        const pnl = signedBefore > 0 ? price - averageEntry : averageEntry - price
+        realizedPnl += pnl * closingQty
+        maxLiveRisk = Math.max(maxLiveRisk, Math.abs(signedBefore) * initialRisk)
+        positionQty += signedFill
+        if (Math.sign(signedBefore) !== Math.sign(positionQty)) {
+          averageEntry = positionQty === 0 ? 0 : price
+        }
+      } else {
+        const oldAbs = Math.abs(positionQty)
+        const newAbs = oldAbs + closingQty
+        averageEntry = newAbs > 0 ? ((averageEntry * oldAbs) + (price * closingQty)) / newAbs : 0
+        positionQty += signedFill
+        maxLiveRisk = Math.max(maxLiveRisk, Math.abs(positionQty) * initialRisk)
+      }
+      fills.push({
+        order_id: order.id,
+        role: order.role,
+        side: order.side,
+        quantity: round(closingQty),
+        requested_quantity: round(requestedQty),
+        price: round(price),
+        candle_time: candle.date,
+        reduced_only_cap_applied: closingQty < requestedQty,
+      })
+    }
+  }
+
+  const initialRiskBasis = Math.max(initialRisk * Math.max(1, Math.abs(input.initial_position_qty ?? 0)), initialRisk)
+  return {
+    fills,
+    final_position_qty: round(positionQty),
+    realized_r_multiple_initial: round(realizedPnl / initialRiskBasis),
+    realized_r_multiple_max_live_risk: round(realizedPnl / Math.max(maxLiveRisk, initialRisk)),
+    assumptions: {
+      model: "ohlcv_lane_simulator_v1",
+      intrabar_order_sort: "stop_reduce_only_then_take_profit_then_entry_by_id",
+      reduce_only_cap: "cap_to_remaining_position_qty",
+      same_candle_policy: "stop_first",
+    },
+  }
+}
+
 function nextProtectiveStop(signal: ReplaySignal, activeStop: number, candle: Candle): number {
   const triggerR = signal.break_even_after_r
   if (!Number.isFinite(triggerR) || Number(triggerR) <= 0) {
@@ -398,6 +510,7 @@ function buildTrade(
     ? (exit - signal.entry) / risk
     : (signal.entry - exit) / risk
   const costs = estimateCostR(signal.side, signal.entry, exit, risk, barsHeld, entryCandle.timestamp, exitCandle.timestamp + (outcome === "time_exit" ? timeframeMilliseconds(options.timeframe || "4h") : 0), options)
+  const netR = round(grossR - costs.total)
   return {
     side: signal.side,
     signal_time: signalCandle.date,
@@ -407,13 +520,36 @@ function buildTrade(
     exit: round(exit),
     stop: round(signal.stop),
     target: round(signal.target),
-    r: round(grossR - costs.total),
+    r: netR,
     funding_r: round(costs.funding),
     outcome,
     reason: signal.reason,
     bars_held: barsHeld,
     regime: "unknown",
+    fill_model: buildTradeFillModel(signal, exitCandle, outcome, exit),
+    r_multiple_initial: netR,
+    r_multiple_max_live_risk: netR,
     ...(signal.meta ? { meta: signal.meta } : {}),
+  }
+}
+
+function buildTradeFillModel(signal: ReplaySignal, exitCandle: Candle, outcome: ExitReason, exit: number): JSONRecord {
+  const triggerPrice = outcome === "target" ? signal.target : outcome === "stop" ? signal.stop : exitCandle.close
+  return {
+    model: "ohlcv_intrabar_conservative_v1",
+    entry_fill: { policy: "next_open", price: round(signal.entry) },
+    exit_fill: {
+      outcome,
+      trigger_price: round(triggerPrice),
+      fill_price: round(exit),
+      candle_open: round(exitCandle.open),
+      gap_adjusted: outcome === "stop" && exit !== signal.stop,
+    },
+    policies: {
+      same_candle_policy: "stop_first",
+      stop_gap_policy: "next_open_if_worse",
+      protective_stop_policy: "optional_break_even_stop_activates_next_bar",
+    },
   }
 }
 
@@ -442,6 +578,7 @@ function summarizeReplay(input: {
   assumptions: JSONRecord
 }): ReplayResult {
   const stats = summarizeTrades(input.trades)
+  const diagnostics = buildReplayDiagnostics(input.trades)
   return {
     strategy_id: input.strategy_id,
     symbol: input.symbol,
@@ -450,6 +587,7 @@ function summarizeReplay(input: {
     expectancy_r: stats.avg_r,
     gate: evaluateReplayGate(stats),
     trades: input.trades,
+    diagnostics,
     assumptions: input.assumptions,
     provenance: {
       harness_hash: "",
@@ -464,10 +602,118 @@ function summarizeReplay(input: {
     },
     notes: [
       "Replay is mechanical and conservative: if stop and target hit in the same candle, stop wins.",
+      "Replay diagnostics are diagnostic-only and cannot authorize promotion by themselves.",
       "Replay enforces one active position per strategy lane.",
       "This is evidence for draft/shadow gating, not permission for live-small by itself.",
     ],
   }
+}
+
+function buildReplayDiagnostics(trades: ReplayTrade[]): JSONRecord {
+  const rValues = trades.map((trade) => trade.r)
+  return {
+    schema_version: "trade-flow.replay-diagnostics.v1",
+    promotion_effect: "diagnostic_only_cannot_authorize",
+    metrics: {
+      sample_count: trades.length,
+      r_multiple_initial: summarizeRValues(trades.map((trade) => trade.r_multiple_initial ?? trade.r)),
+      r_multiple_max_live_risk: summarizeRValues(trades.map((trade) => trade.r_multiple_max_live_risk ?? trade.r)),
+    },
+    monte_carlo: {
+      method: "deterministic_trade_order_shuffle_and_r_perturbation_v1",
+      trade_order_shuffle: tradeOrderShuffleDiagnostics(rValues),
+      candle_perturbation: candlePerturbationDiagnostics(rValues),
+    },
+  }
+}
+
+function orderTriggers(order: SimulatedLaneOrder, candle: Candle): boolean {
+  if (order.kind === "market") return true
+  const trigger = order.kind === "stop_market" ? order.stop_price : order.price
+  if (!Number.isFinite(trigger)) return false
+  if (order.side === "BUY") return candle.high >= Number(trigger)
+  return candle.low <= Number(trigger)
+}
+
+function compareSimulatedOrders(a: SimulatedLaneOrder, b: SimulatedLaneOrder): number {
+  const rank = (order: SimulatedLaneOrder): number => {
+    if (order.reduce_only && order.role === "stop") return 0
+    if (order.reduce_only && order.role === "take_profit") return 1
+    if (order.role === "stop") return 2
+    if (order.role === "take_profit") return 3
+    return 4
+  }
+  return rank(a) - rank(b) || a.id.localeCompare(b.id)
+}
+
+function simulatedFillPrice(order: SimulatedLaneOrder, candle: Candle): number {
+  if (order.kind === "market") return candle.open
+  if (order.kind === "limit") return Number(order.price)
+  const stop = Number(order.stop_price)
+  if (order.side === "SELL") return Math.min(stop, candle.open)
+  return Math.max(stop, candle.open)
+}
+
+function positiveOrDefault(value: unknown, fallback: number): number {
+  const number = Number(value)
+  return Number.isFinite(number) && number > 0 ? number : fallback
+}
+
+function summarizeRValues(values: number[]): JSONRecord {
+  const finite = values.filter(Number.isFinite)
+  const total = finite.reduce((sum, value) => sum + value, 0)
+  return {
+    sample_count: finite.length,
+    avg_r: finite.length > 0 ? round(total / finite.length) : 0,
+    total_r: round(total),
+    max_drawdown_r: round(maxDrawdown(finite)),
+    p10_r: finite.length > 0 ? round(quantile([...finite].sort((a, b) => a - b), 0.1)) : 0,
+  }
+}
+
+function tradeOrderShuffleDiagnostics(values: number[]): JSONRecord {
+  if (values.length === 0) return { status: "empty", trial_count: 0 }
+  const trials = [
+    values,
+    [...values].reverse(),
+    rotate(values, Math.max(1, Math.floor(values.length / 3))),
+    rotate(values, Math.max(1, Math.floor(values.length / 2))),
+  ]
+  const drawdowns = trials.map((trial) => maxDrawdown(trial))
+  return {
+    status: "evaluated",
+    trial_count: trials.length,
+    observed_max_drawdown_r: round(maxDrawdown(values)),
+    worst_shuffle_drawdown_r: round(Math.max(...drawdowns)),
+    p75_shuffle_drawdown_r: round(quantile([...drawdowns].sort((a, b) => a - b), 0.75)),
+  }
+}
+
+function candlePerturbationDiagnostics(values: number[]): JSONRecord {
+  if (values.length === 0) return { status: "empty", trial_count: 0 }
+  const variants = [0.05, 0.1, 0.15].map((drag) => values.map((value) => round(value - drag)))
+  const stats = variants.map(summarizeRValues)
+  return {
+    status: "evaluated",
+    method: "adverse_r_drag_proxy",
+    trial_count: variants.length,
+    worst_total_r: round(Math.min(...stats.map((item) => Number(item.total_r)))),
+    worst_avg_r: round(Math.min(...stats.map((item) => Number(item.avg_r)))),
+  }
+}
+
+function rotate(values: number[], offset: number): number[] {
+  const normalized = values.length > 0 ? offset % values.length : 0
+  return values.slice(normalized).concat(values.slice(0, normalized))
+}
+
+function quantile(sorted: number[], q: number): number {
+  if (sorted.length === 0) return 0
+  const position = (sorted.length - 1) * q
+  const lower = Math.floor(position)
+  const upper = Math.ceil(position)
+  if (lower === upper) return sorted[lower]
+  return sorted[lower] + (sorted[upper] - sorted[lower]) * (position - lower)
 }
 
 function buildAntiOverfitProof(trades: ReplayTrade[], options: ReplayOptions): JSONRecord | null {
@@ -953,6 +1199,7 @@ export {
   loadCandlesFromManifest,
   parseCsvCandles,
   replayStrategy,
+  simulateReplayOrderLane,
   replayDataHash,
   replayContentHash,
   replayHarnessHash,
@@ -970,4 +1217,7 @@ export {
   type ReplaySignal,
   type ReplayStrategy,
   type ReplayTrade,
+  type SimulatedLaneFill,
+  type SimulatedLaneOrder,
+  type SimulatedLaneResult,
 }

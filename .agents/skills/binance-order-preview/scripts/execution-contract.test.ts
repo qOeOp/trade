@@ -65,6 +65,76 @@ test("compileExecutionContract produces auditable entry contract", () => {
   })
 })
 
+test("compileExecutionContract resolves semantic long breakout entry to stop market", () => {
+  const contract = compileExecutionContract({
+    ...baseInput,
+    entries: [{
+      intent: "entry_at",
+      price: 66000,
+      reference_price: 65000,
+      margin_usdt: 100,
+    }],
+  })
+
+  assert.equal(contract.entries[0].type, "STOP_MARKET")
+  assert.equal(contract.entries[0].stop_price, 66000)
+  assert.equal(contract.entries[0].quantity, 0.004)
+  assert.equal(contract.entries[0].resolver_snapshot.resolver, "entry_at_v1")
+  assert.match(contract.entries[0].resolver_snapshot.route_reason, /breakout/)
+})
+
+test("compileExecutionContract resolves semantic pullback entry to limit", () => {
+  const contract = compileExecutionContract({
+    ...baseInput,
+    entries: [{
+      intent: "entry_at",
+      price: 64000,
+      reference_price: 65000,
+      margin_usdt: 100,
+    }],
+  })
+
+  assert.equal(contract.entries[0].type, "LIMIT")
+  assert.equal(contract.entries[0].price, 64000)
+  assert.equal(contract.entries[0].quantity, 0.004)
+  assert.match(contract.entries[0].resolver_snapshot.route_reason, /LIMIT buy/)
+})
+
+test("compileExecutionContract resolves semantic short bounce entry to limit", () => {
+  const contract = compileExecutionContract({
+    ...baseInput,
+    side: "short",
+    entries: [{
+      intent: "entry_at",
+      price: 66000,
+      reference_price: 65000,
+      margin_usdt: 100,
+    }],
+  })
+
+  assert.equal(contract.entries[0].type, "LIMIT")
+  assert.equal(contract.entries[0].price, 66000)
+  assert.match(contract.entries[0].resolver_snapshot.route_reason, /LIMIT sell/)
+})
+
+test("compileExecutionContract resolves marketable semantic entry to market", () => {
+  const contract = compileExecutionContract({
+    ...baseInput,
+    entries: [{
+      intent: "entry_at",
+      price: 65000.5,
+      reference_price: 65000,
+      marketable_tolerance_bps: 1,
+      margin_usdt: 100,
+    }],
+  })
+
+  assert.equal(contract.entries[0].type, "MARKET")
+  assert.equal(contract.entries[0].price, undefined)
+  assert.equal(contract.entries[0].reference_price, 65000)
+  assert.match(contract.entries[0].resolver_snapshot.route_reason, /marketable/)
+})
+
 test("validateExecutionContract rejects missing source observe key", () => {
   const contract = compileExecutionContract(baseInput) as unknown as Record<string, unknown>
   delete contract.source_observe_event_key
@@ -86,5 +156,15 @@ test("compileExecutionContract rejects entries below min notional", () => {
       },
     }),
     /below min_notional/,
+  )
+})
+
+test("compileExecutionContract rejects semantic entry without reference price", () => {
+  assert.throws(
+    () => compileExecutionContract({
+      ...baseInput,
+      entries: [{ intent: "entry_at", price: 66000, margin_usdt: 100 }],
+    }),
+    /reference_price must be positive/,
   )
 })

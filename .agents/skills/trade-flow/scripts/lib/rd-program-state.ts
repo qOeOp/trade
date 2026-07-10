@@ -355,6 +355,7 @@ function updateInputFromCampaignReport(state: RdProgramState, report: JSONRecord
   const candidate = asRecord(report.validated_candidate)
   const foundCandidate = Object.keys(candidate).length > 0
   const completedHypothesisIds = completedHypothesisIdsFromCampaign(report)
+  const failureSummary = campaignFailureSummary(report)
   return {
     now: now || stringField(report.created_at) || undefined,
     status: foundCandidate || stopReason === "validated_candidate_found" ? "shadow_candidate_found" : undefined,
@@ -363,7 +364,7 @@ function updateInputFromCampaignReport(state: RdProgramState, report: JSONRecord
       trials_used: nonNegativeInteger(report.trials_used),
       locked_holdout_uses: nonNegativeInteger(report.holdout_evaluations),
     },
-    latestFailureSummary: foundCandidate ? null : {
+    latestFailureSummary: foundCandidate ? null : failureSummary || {
       primary_failure_area: stopReason || "campaign_stopped",
       stop_reason: stopReason,
       next_system_actions: campaignNextActions(stopReason),
@@ -376,7 +377,7 @@ function updateInputFromCampaignReport(state: RdProgramState, report: JSONRecord
     rejectedMechanisms: rejectedMechanismsFromCampaign(report),
     universeLessons: universeLessonsFromCampaign(report),
     completedHypothesisIds,
-    followupHypotheses: foundCandidate ? [] : followupHypothesesFromCampaign(state, report, completedHypothesisIds),
+    followupHypotheses: foundCandidate ? [] : followupHypothesesFromCampaign(state, report, completedHypothesisIds, failureSummary),
     artifactRefs: [
       stringField(report.artifact_ref),
       ...array(report.runs).map(asRecord).flatMap((run) => [
@@ -585,7 +586,7 @@ function followupHypothesesFromLoop(state: RdProgramState, report: JSONRecord, c
   return diagnosticFollowupsFromFailure(state, source, nullableRecord(batch.failure_summary), "strategy_rnd_loop")
 }
 
-function followupHypothesesFromCampaign(state: RdProgramState, report: JSONRecord, completedIds: string[]): JSONRecord[] {
+function followupHypothesesFromCampaign(state: RdProgramState, report: JSONRecord, completedIds: string[], failureSummary: JSONRecord | null): JSONRecord[] {
   const source = sourceHypothesis(state, completedIds)
   if (!source) return []
   const stopReason = stringField(report.stop_reason)
@@ -605,7 +606,7 @@ function followupHypothesesFromCampaign(state: RdProgramState, report: JSONRecor
       diagnostic_mode: true,
     })]
   }
-  return diagnosticFollowupsFromFailure(state, source, nullableRecord(asRecord(report).latest_failure_summary), "strategy_rnd_campaign")
+  return diagnosticFollowupsFromFailure(state, source, failureSummary || nullableRecord(asRecord(report).latest_failure_summary), "strategy_rnd_campaign")
 }
 
 function validationFollowupFromWinner(state: RdProgramState, source: JSONRecord, winner: JSONRecord): JSONRecord[] {
@@ -648,6 +649,9 @@ function diagnosticFollowupsFromFailure(state: RdProgramState, source: JSONRecor
   const actions = array(asRecord(failureSummary).next_system_actions).map(String).filter(Boolean)
   const blockers = array(asRecord(failureSummary).top_blockers).map(asRecord)
   const action = actions[0] || blockerAction(blockers[0]) || "Open a constrained diagnostic hypothesis from the latest failed mechanism."
+  if (requiresDifferentMechanism(action)) {
+    return [blockedDifferentMechanismFollowup(state, source, failureSourceId(blockers[0], failureSource), action, failureSummary, failureSource)]
+  }
   return [learningFollowup(state, source, failureSourceId(blockers[0], failureSource), action, {
     source: failureSource,
     previous_failure_summary: failureSummary || {},
@@ -678,6 +682,26 @@ function learningFollowup(state: RdProgramState, source: JSONRecord, suffix: str
   })
 }
 
+function blockedDifferentMechanismFollowup(state: RdProgramState, source: JSONRecord, suffix: string, hypothesis: string, failureSummary: JSONRecord | null, failureSource: string): JSONRecord {
+  const predecessorId = hypothesisID(source)
+  return compactRecord({
+    hypothesis_id: `${predecessorId}-${safeID(suffix)}-needs-new-mechanism`,
+    predecessor_hypothesis_id: predecessorId,
+    source: "rd_learning_memory",
+    ready: false,
+    blocked_reason: "previous result rejected this setup mechanism; provide a distinct predeclared market edge before consuming more trial budget",
+    hypothesis,
+    generated_from: {
+      program_id: state.program_id,
+      predecessor_hypothesis_id: predecessorId,
+      source: failureSource,
+      previous_failure_summary: failureSummary || {},
+      required_next_step: "predeclare_distinct_market_edge",
+    },
+    previous_failure_summary: failureSummary || {},
+  })
+}
+
 function blockerAction(blocker: JSONRecord | undefined): string {
   const checkId = stringField(blocker?.check_id)
   if (checkId === "RND-NULL-NOT-BEATEN") return "Redesign the mechanism so it beats side-flip and entry-lag null controls before validation."
@@ -690,9 +714,23 @@ function failureSourceId(blocker: JSONRecord | undefined, fallback: string): str
   return stringField(blocker?.check_id) || fallback
 }
 
+function requiresDifferentMechanism(action: string): boolean {
+  const normalized = action.toLowerCase()
+  return normalized.includes("reject this setup mechanism") || normalized.includes("predeclare a different market edge")
+}
+
 function sourceHypothesis(state: RdProgramState, completedIds: string[]): JSONRecord | null {
   const completed = new Set(completedIds.map(safeID).filter(Boolean))
   return state.next_hypothesis_queue.map(asRecord).find((item) => hypothesisMatchesAny(item, completed)) || null
+}
+
+function campaignFailureSummary(report: JSONRecord): JSONRecord | null {
+  const runs = array(report.runs).map(asRecord).reverse()
+  for (const run of runs) {
+    const summary = nullableRecord(run.discovery_failure_summary)
+    if (summary && Object.keys(summary).length > 0) return summary
+  }
+  return null
 }
 
 function plannedLoopBatchId(state: RdProgramState, hypothesis: JSONRecord): string {

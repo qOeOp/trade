@@ -1,0 +1,349 @@
+{
+  "schema_version": "trade-flow.rd-program-state.v1",
+  "program_id": "rd-supervisor-live-smoke-2026-07-10",
+  "objective": "Run the updated autonomous R&D supervisor on BTC 4H and learn toward a shadow-eligible strategy without touching trade.db or Binance.",
+  "status": "budget_exhausted",
+  "created_at": "2026-07-10T02:00:00.000Z",
+  "updated_at": "2026-07-10T02:05:01.000Z",
+  "budget": {
+    "max_hypotheses": 3,
+    "max_trials_total": 12,
+    "max_locked_holdout_uses": 1
+  },
+  "usage": {
+    "hypotheses_run": 2,
+    "trials_used": 12,
+    "locked_holdout_uses": 0
+  },
+  "stop_conditions": [
+    "shadow_candidate_found",
+    "budget_exhausted",
+    "data_or_tool_blocked"
+  ],
+  "latest_failure_summary": {
+    "rejected_candidate_count": 6,
+    "accepted_candidate_count": 0,
+    "top_blockers": [
+      {
+        "check_id": "R-PROFIT-FACTOR",
+        "count": 6
+      },
+      {
+        "check_id": "RND-OOS-EFFECTIVE-SAMPLE",
+        "count": 6
+      },
+      {
+        "check_id": "RND-ROBUSTNESS-PARAM",
+        "count": 6
+      },
+      {
+        "check_id": "R-EXPECTANCY",
+        "count": 5
+      },
+      {
+        "check_id": "RND-OOS-EDGE-MARGIN",
+        "count": 5
+      }
+    ],
+    "selection_blocked": false,
+    "primary_failure_area": "edge_expectancy",
+    "next_system_actions": [
+      "Reject this setup mechanism; predeclare a different market edge instead of adding filters."
+    ]
+  },
+  "latest_reliability_gate": {
+    "status": "blocked",
+    "decision": "reject_hypothesis",
+    "more_trials_allowed": false,
+    "reason": "the market mechanism did not survive expectancy, risk-shape, or negative-control checks",
+    "sample_profile": {
+      "candidate_count": 6,
+      "total_trade_count": 259,
+      "min_sample_count": 30,
+      "median_sample_count": 39,
+      "min_oos_sample_count": 9
+    },
+    "layer_counts": [
+      {
+        "area": "edge_expectancy",
+        "count": 16
+      },
+      {
+        "area": "parameter_fragility",
+        "count": 6
+      },
+      {
+        "area": "sample_efficiency",
+        "count": 6
+      }
+    ]
+  },
+  "rejected_mechanisms": [
+    {
+      "source": "strategy_rnd_campaign",
+      "stop_reason": "hypothesis_queue_exhausted",
+      "outcome": "no_validated_candidate"
+    },
+    {
+      "source": "strategy_rnd_loop",
+      "check_id": "R-PROFIT-FACTOR",
+      "count": 6,
+      "primary_failure_area": "edge_expectancy"
+    },
+    {
+      "source": "strategy_rnd_loop",
+      "check_id": "RND-OOS-EFFECTIVE-SAMPLE",
+      "count": 6,
+      "primary_failure_area": "edge_expectancy"
+    },
+    {
+      "source": "strategy_rnd_loop",
+      "check_id": "RND-ROBUSTNESS-PARAM",
+      "count": 6,
+      "primary_failure_area": "edge_expectancy"
+    },
+    {
+      "source": "strategy_rnd_loop",
+      "check_id": "R-EXPECTANCY",
+      "count": 5,
+      "primary_failure_area": "edge_expectancy"
+    },
+    {
+      "source": "strategy_rnd_loop",
+      "check_id": "RND-OOS-EDGE-MARGIN",
+      "count": 5,
+      "primary_failure_area": "edge_expectancy"
+    }
+  ],
+  "universe_lessons": [
+    {
+      "source": "strategy_rnd_campaign",
+      "campaign_id": "rd-supervisor-live-smoke-2026-07-10-h-btc-4h-vcb-live-smoke-001-20260710020500",
+      "outcome": "no_validated_candidate",
+      "stop_reason": "hypothesis_queue_exhausted",
+      "trial_budget": 6,
+      "trials_used": 6,
+      "hypotheses_run": 1,
+      "holdout_evaluations": 0
+    },
+    {
+      "source": "strategy_rnd_loop",
+      "batch_id": "rd-supervisor-live-smoke-2026-07-10-h-btc-4h-vcb-live-smoke-001-strategy_rnd_campaign",
+      "hypothesis": "Open a constrained diagnostic hypothesis from the latest failed mechanism.",
+      "outcome": "no_promote",
+      "candidate_source": "provided",
+      "trial_count": 6,
+      "accepted_count": 0,
+      "next_action": "Reject this setup mechanism; predeclare a different market edge instead of adding filters."
+    }
+  ],
+  "next_hypothesis_queue": [
+    {
+      "hypothesis_id": "h-btc-4h-vcb-live-smoke-001-strategy_rnd_campaign-r-profit-factor",
+      "mode": "loop",
+      "hypothesis": "Reject this setup mechanism; predeclare a different market edge instead of adding filters.",
+      "discovery_manifest_path": "tmp/panels/strategy-data-splits/btc-4h-vcb-rd-2026-07-10-a/btcusdt/discovery/manifest.json",
+      "timeframe": "4h",
+      "max_hold_bars": 18,
+      "fee_bps": 5,
+      "slippage_bps": 5,
+      "funding_bps_per_8h": 2,
+      "oos_split": 0.3,
+      "search_trial_count": 6,
+      "thesis_certificate": {
+        "edge_type": "structural breakout continuation after volatility contraction",
+        "behavioral_hypothesis": "BTC volatility compression can delay positioning; a decisive close beyond the prior range may force trend-following and short-cover demand over the next several 4H bars.",
+        "market_participants": "trend followers, breakout systems, short hedgers, discretionary momentum traders",
+        "regime": "liquid BTC perpetual market, 4H bars, closed candles only, no news filter",
+        "invalidation": "If discovery winner cannot stay positive after costs, OOS split, side-flip and entry-lag null controls, the mechanism is treated as noise.",
+        "cost_sensitivity": "Moderate; entries are next-open 4H market-like fills with 5 bps fee and 5 bps slippage per side plus adverse funding stress.",
+        "candidate_universe": {
+          "symbol": "BTCUSDT",
+          "timeframe": "4h",
+          "family": "volatility_compression_breakout_v1",
+          "side": "long",
+          "trial_count": 6
+        },
+        "null_controls": [
+          "side_flip",
+          "entry_lag",
+          "chronological_oos"
+        ]
+      },
+      "candidates": [
+        {
+          "candidate_id": "VCB-L-20-80-P20-R2-SMOKE",
+          "description": "20-bar breakout after 80-bar ATR compression, stricter compression, 2R",
+          "family": "volatility_compression_breakout_v1",
+          "parameter_count": 6,
+          "params": {
+            "side": "long",
+            "breakout_bars": 20,
+            "compression_bars": 80,
+            "compression_percentile": 0.2,
+            "stop_atr": 0.75,
+            "max_risk_atr": 2.5,
+            "reward_risk": 2
+          }
+        },
+        {
+          "candidate_id": "VCB-L-40-120-P25-R2-SMOKE",
+          "description": "40-bar breakout after 120-bar ATR compression, 2R",
+          "family": "volatility_compression_breakout_v1",
+          "parameter_count": 6,
+          "params": {
+            "side": "long",
+            "breakout_bars": 40,
+            "compression_bars": 120,
+            "compression_percentile": 0.25,
+            "stop_atr": 0.75,
+            "max_risk_atr": 2.5,
+            "reward_risk": 2
+          }
+        },
+        {
+          "candidate_id": "VCB-L-60-160-P25-R2-SMOKE",
+          "description": "60-bar breakout after 160-bar ATR compression, 2R",
+          "family": "volatility_compression_breakout_v1",
+          "parameter_count": 6,
+          "params": {
+            "side": "long",
+            "breakout_bars": 60,
+            "compression_bars": 160,
+            "compression_percentile": 0.25,
+            "stop_atr": 0.75,
+            "max_risk_atr": 2.5,
+            "reward_risk": 2
+          }
+        },
+        {
+          "candidate_id": "VCB-L-40-120-P20-R25-SMOKE",
+          "description": "40/120 compression breakout with 2.5R target",
+          "family": "volatility_compression_breakout_v1",
+          "parameter_count": 6,
+          "params": {
+            "side": "long",
+            "breakout_bars": 40,
+            "compression_bars": 120,
+            "compression_percentile": 0.2,
+            "stop_atr": 0.75,
+            "max_risk_atr": 2.5,
+            "reward_risk": 2.5
+          }
+        },
+        {
+          "candidate_id": "VCB-L-30-100-P30-R18-SMOKE",
+          "description": "More permissive 30/100 compression breakout with 1.8R target",
+          "family": "volatility_compression_breakout_v1",
+          "parameter_count": 6,
+          "params": {
+            "side": "long",
+            "breakout_bars": 30,
+            "compression_bars": 100,
+            "compression_percentile": 0.3,
+            "stop_atr": 0.75,
+            "max_risk_atr": 2.5,
+            "reward_risk": 1.8
+          }
+        },
+        {
+          "candidate_id": "VCB-L-80-200-P25-R2-SMOKE",
+          "description": "Longer 80-bar breakout after 200-bar compression",
+          "family": "volatility_compression_breakout_v1",
+          "parameter_count": 6,
+          "params": {
+            "side": "long",
+            "breakout_bars": 80,
+            "compression_bars": 200,
+            "compression_percentile": 0.25,
+            "stop_atr": 0.75,
+            "max_risk_atr": 2.5,
+            "reward_risk": 2
+          }
+        }
+      ],
+      "predecessor_hypothesis_id": "h-btc-4h-vcb-live-smoke-001-strategy_rnd_campaign",
+      "generated_from": {
+        "program_id": "rd-supervisor-live-smoke-2026-07-10",
+        "predecessor_hypothesis_id": "h-btc-4h-vcb-live-smoke-001-strategy_rnd_campaign",
+        "source": "strategy_rnd_loop",
+        "previous_failure_summary": {
+          "rejected_candidate_count": 6,
+          "accepted_candidate_count": 0,
+          "top_blockers": [
+            {
+              "check_id": "R-PROFIT-FACTOR",
+              "count": 6
+            },
+            {
+              "check_id": "RND-OOS-EFFECTIVE-SAMPLE",
+              "count": 6
+            },
+            {
+              "check_id": "RND-ROBUSTNESS-PARAM",
+              "count": 6
+            },
+            {
+              "check_id": "R-EXPECTANCY",
+              "count": 5
+            },
+            {
+              "check_id": "RND-OOS-EDGE-MARGIN",
+              "count": 5
+            }
+          ],
+          "selection_blocked": false,
+          "primary_failure_area": "edge_expectancy",
+          "next_system_actions": [
+            "Reject this setup mechanism; predeclare a different market edge instead of adding filters."
+          ]
+        },
+        "mode": "loop",
+        "diagnostic_mode": true
+      },
+      "source": "rd_learning_memory",
+      "diagnostic_mode": true,
+      "previous_failure_summary": {
+        "rejected_candidate_count": 6,
+        "accepted_candidate_count": 0,
+        "top_blockers": [
+          {
+            "check_id": "R-PROFIT-FACTOR",
+            "count": 6
+          },
+          {
+            "check_id": "RND-OOS-EFFECTIVE-SAMPLE",
+            "count": 6
+          },
+          {
+            "check_id": "RND-ROBUSTNESS-PARAM",
+            "count": 6
+          },
+          {
+            "check_id": "R-EXPECTANCY",
+            "count": 5
+          },
+          {
+            "check_id": "RND-OOS-EDGE-MARGIN",
+            "count": 5
+          }
+        ],
+        "selection_blocked": false,
+        "primary_failure_area": "edge_expectancy",
+        "next_system_actions": [
+          "Reject this setup mechanism; predeclare a different market edge instead of adding filters."
+        ]
+      }
+    }
+  ],
+  "artifact_refs": [
+    "tmp/artifacts/strategy-rnd/rd-supervisor-live-smoke-2026-07-10-h-btc-4h-vcb-live-smoke-001-20260710020500-h-btc-4h-vcb-live-smoke-001-discovery.json",
+    "tmp/artifacts/strategy-rnd/rd-supervisor-live-smoke-2026-07-10-h-btc-4h-vcb-live-smoke-001-20260710020500.campaign.json",
+    "tmp/artifacts/strategy-rnd/rd-supervisor-live-smoke-2026-07-10-h-btc-4h-vcb-live-smoke-001-strategy_rnd_campaign-20260710020501.json"
+  ],
+  "guardrails": {
+    "may_write_trade_db": false,
+    "may_call_binance_write": false,
+    "evidence_status": "research_memory_not_strategy_evidence"
+  }
+}

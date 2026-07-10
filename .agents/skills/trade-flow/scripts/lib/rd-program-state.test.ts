@@ -380,6 +380,99 @@ test("rd program state converts discovery winners into validation campaign work"
   assert.equal(asArray(followup.candidates).length, 1)
 })
 
+test("rd program state blocks instead of rerunning a rejected mechanism", () => {
+  const state = createRdProgramState({
+    programId: "rd-reject-mechanism",
+    objective: "do not spend budget on rejected mechanisms",
+    now: "2026-07-09T12:00:00Z",
+    budget: { max_hypotheses: 4, max_trials_total: 12, max_locked_holdout_uses: 1 },
+    nextHypothesisQueue: [{
+      hypothesis_id: "h1",
+      hypothesis: "compression breakout has edge",
+      manifest_path: "data/discovery/manifest.json",
+      timeframe: "4h",
+      search_trial_count: 3,
+      candidates: [{ candidate_id: "C1", family: "volatility_compression_breakout_v1", params: { side: "long" } }],
+    }],
+  })
+
+  const updated = updateRdProgramStateFromResearchResult(state, {
+    run_id: "run-1",
+    created_at: "2026-07-09T13:00:00Z",
+    artifact_ref: "tmp/artifacts/strategy-rnd/run-1.json",
+    batch: {
+      batch_id: "rd-reject-mechanism-h1",
+      hypothesis: "compression breakout has edge",
+      outcome: "no_promote",
+      candidate_source: "provided",
+      trial_count: 3,
+      accepted_count: 0,
+      winner: null,
+      failure_summary: {
+        primary_failure_area: "edge_expectancy",
+        top_blockers: [{ check_id: "R-PROFIT-FACTOR", count: 3 }],
+        next_system_actions: ["Reject this setup mechanism; predeclare a different market edge instead of adding filters."],
+      },
+      reliability_gate: { status: "blocked", decision: "reject_hypothesis" },
+    },
+    ledger_record: {},
+  })
+
+  assert.equal(updated.next_hypothesis_queue.length, 1)
+  const followup = asRecord(updated.next_hypothesis_queue[0])
+  assert.equal(followup.ready, false)
+  assert.equal(followup.source, "rd_learning_memory")
+  assert.match(String(followup.blocked_reason), /distinct predeclared market edge/)
+  assert.equal(asArray(followup.candidates).length, 0)
+})
+
+test("rd program state consumes campaign discovery failure before scheduling follow-up", () => {
+  const state = createRdProgramState({
+    programId: "rd-campaign-failure",
+    objective: "campaign failures should carry discovery diagnostics",
+    now: "2026-07-09T12:00:00Z",
+    budget: { max_hypotheses: 4, max_trials_total: 12, max_locked_holdout_uses: 1 },
+    nextHypothesisQueue: [{
+      hypothesis_id: "h1",
+      hypothesis: "compression breakout has edge",
+      discovery_manifest_path: "data/discovery/manifest.json",
+      validation_manifest_path: "data/validation/manifest.json",
+      candidates: [{ candidate_id: "C1", family: "volatility_compression_breakout_v1", params: { side: "long" } }],
+    }],
+  })
+
+  const updated = updateRdProgramStateFromResearchResult(state, {
+    campaign_id: "campaign-1",
+    created_at: "2026-07-09T13:00:00Z",
+    artifact_ref: "tmp/artifacts/strategy-rnd/campaign-1.json",
+    outcome: "no_validated_candidate",
+    stop_reason: "hypothesis_queue_exhausted",
+    trials_used: 3,
+    hypotheses_run: 1,
+    holdout_evaluations: 0,
+    validated_candidate: null,
+    runs: [{
+      hypothesis_id: "h1",
+      discovery_run_ref: "tmp/discovery.json",
+      discovery_outcome: "no_promote",
+      discovery_failure_summary: {
+        primary_failure_area: "edge_expectancy",
+        top_blockers: [{ check_id: "R-PROFIT-FACTOR", count: 3 }],
+        next_system_actions: ["Reject this setup mechanism; predeclare a different market edge instead of adding filters."],
+      },
+      discovery_reliability_gate: { status: "blocked" },
+      validation_run_ref: null,
+      validation_outcome: null,
+    }],
+  })
+
+  assert.equal(updated.latest_failure_summary?.primary_failure_area, "edge_expectancy")
+  const followup = asRecord(updated.next_hypothesis_queue[0])
+  assert.equal(followup.ready, false)
+  assert.equal(asArray(followup.candidates).length, 0)
+  assert.match(String(followup.blocked_reason), /distinct predeclared market edge/)
+})
+
 function readSchema(name: string): JSONRecord {
   return JSON.parse(readFileSync(new URL(`../../schemas/${name}.schema.json`, import.meta.url), "utf8")) as JSONRecord
 }

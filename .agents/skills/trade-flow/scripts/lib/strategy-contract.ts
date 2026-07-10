@@ -32,6 +32,7 @@ interface StrategyContractCompiled {
   cost_model: JSONRecord
   universe: JSONRecord
   execution: JSONRecord
+  lifecycle: JSONRecord
   proof: JSONRecord
 }
 
@@ -68,6 +69,7 @@ function compileStrategyContract(path: string, candidateParamOverrides: JSONReco
   const costModel = asRecord(contract.cost_model)
   const universe = asRecord(contract.universe)
   const execution = asRecord(contract.execution)
+  const lifecycle = compileLifecycle(contract, engine, family)
   const proof = asRecord(contract.proof)
   const candidate = engine === "rnd_family_v1"
     ? buildRndCandidate(strategyId, setupId, family, contract, risk, candidateParamOverrides)
@@ -100,6 +102,7 @@ function compileStrategyContract(path: string, candidateParamOverrides: JSONReco
     cost_model: costModel,
     universe,
     execution,
+    lifecycle,
     proof,
   }
 }
@@ -114,6 +117,7 @@ function lintStrategyContract(path: string): StrategyContractLintResult {
     const strategyId = stringField(frontmatter.strategy_id) || stringField(frontmatter.id)
     const engine = stringField(contract.engine)
     const proof = asRecord(contract.proof)
+    const lifecycle = asRecord(contract.lifecycle)
 
     requireField(errors, "frontmatter.strategy_id", strategyId)
     requireField(errors, "frontmatter.name", stringField(frontmatter.name))
@@ -147,6 +151,13 @@ function lintStrategyContract(path: string): StrategyContractLintResult {
     } else if (stringField(contract.family)) {
       warnings.push("manual_policy_v1 ignores contract.family")
     }
+    if (Object.keys(lifecycle).length > 0) {
+      for (const field of lifecycleFields()) {
+        requireField(errors, `contract.lifecycle.${field}`, stringField(lifecycle[field]))
+      }
+    } else if (engine === "manual_policy_v1") {
+      warnings.push("manual_policy_v1 without lifecycle is legacy-compatible only and is not promotion-lifecycle eligible")
+    }
 
     const compiled = errors.length === 0 ? compileStrategyContract(path) : undefined
     return { strategy_id: strategyId, path, valid: errors.length === 0, errors, warnings, ...(compiled ? { contract: compiled } : {}) }
@@ -159,6 +170,49 @@ function lintStrategyContract(path: string): StrategyContractLintResult {
       warnings,
     }
   }
+}
+
+function compileLifecycle(contract: JSONRecord, engine: StrategyContractEngine, family: string): JSONRecord {
+  const declared = asRecord(contract.lifecycle)
+  if (Object.keys(declared).length > 0) {
+    return compact({
+      source: "declared_lifecycle_v1",
+      promotion_eligible: lifecycleFields().every((field) => stringField(declared[field])),
+      signal_rule: stringField(declared.signal_rule),
+      entry_builder: stringField(declared.entry_builder),
+      protection_builder: stringField(declared.protection_builder),
+      position_update_rule: stringField(declared.position_update_rule),
+      exit_rule: stringField(declared.exit_rule),
+      review_attribution: stringField(declared.review_attribution),
+    })
+  }
+  if (engine === "rnd_family_v1") {
+    return {
+      source: "generated_rnd_family_v1",
+      promotion_eligible: true,
+      signal_rule: `family:${family || "unknown"} closed-candle signal`,
+      entry_builder: "next_open_entry_from_signal_or_live_entry_reference",
+      protection_builder: "initial_stop_target_from_risk_contract",
+      position_update_rule: "one_active_lane_optional_break_even_next_bar",
+      exit_rule: "protective_stop_target_or_time_exit",
+      review_attribution: "compare_replay_shadow_live_by_setup_id_and_r_multiple",
+    }
+  }
+  return {
+    source: "legacy_compatibility_v1",
+    promotion_eligible: false,
+  }
+}
+
+function lifecycleFields(): string[] {
+  return [
+    "signal_rule",
+    "entry_builder",
+    "protection_builder",
+    "position_update_rule",
+    "exit_rule",
+    "review_attribution",
+  ]
 }
 
 function candidateFromStrategyContract(path: string, candidateParamOverrides: JSONRecord = {}): StrategyRndCandidateInput {

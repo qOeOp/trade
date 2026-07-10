@@ -4,7 +4,7 @@ import { join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { evaluateReplayGate, parseCsvCandles, replayStrategy, replayTrendPullback, type ReplayStrategy } from "./strategy-replay"
+import { evaluateLatestSignal, evaluateReplayGate, parseCsvCandles, replayStrategy, replayTrendPullback, simulateReplayOrderLane, type ReplayStrategy } from "./strategy-replay"
 
 test("parseCsvCandles reads OHLCV rows", () => {
   const candles = parseCsvCandles([
@@ -125,6 +125,8 @@ test("replayStrategy charges adverse funding and fills a stop gap at the worse o
       fundingEvents: [{ timestamp: "2026-01-01T12:00:00Z", value: 0.01 }],
     })
     assert.equal(result.trades[0].exit, 95)
+    assert.equal(result.trades[0].fill_model?.model, "ohlcv_intrabar_conservative_v1")
+    assert.equal((result.trades[0].fill_model?.exit_fill as { gap_adjusted?: boolean }).gap_adjusted, true)
     assert.ok(result.trades[0].r < -3)
     assert.ok(Number(result.trades[0].funding_r) > 0.5)
     assert.equal(result.assumptions.funding_model, "historical_events_entry_notional")
@@ -133,6 +135,82 @@ test("replayStrategy charges adverse funding and fills a stop gap at the worse o
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test("replayStrategy exposes conservative same-bar stop-first fill policy", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-replay-same-bar-"))
+  try {
+    writeFileSync(join(dir, "4h.csv"), [
+      "date,timestamp,open,high,low,close,volume",
+      "2026-01-01T00:00:00Z,1767225600000,100,101,99,100,10",
+      "2026-01-01T04:00:00Z,1767240000000,100,101,99,100,10",
+      "2026-01-01T08:00:00Z,1767254400000,100,103,97,101,10",
+      "2026-01-01T12:00:00Z,1767268800000,101,102,100,101,10",
+    ].join("\n"))
+    writeFileSync(join(dir, "manifest.json"), JSON.stringify({ symbol: "BTCUSDT", timeframes: { "4h": { file: "4h.csv" } } }))
+    const strategy: ReplayStrategy = {
+      strategy_id: "S-SAME-BAR",
+      default_timeframe: "4h",
+      warmup_bars: 1,
+      generateSignal({ index }) {
+        return index === 1 ? { side: "long", signal_index: 1, entry_index: 2, entry: 100, stop: 98, target: 102, reason: "same bar" } : null
+      },
+    }
+    const result = replayStrategy(strategy, { manifestPath: join(dir, "manifest.json"), maxHoldBars: 1 })
+    assert.equal(result.trades[0].outcome, "stop")
+    assert.equal(result.assumptions.same_candle_policy, "stop_first")
+    assert.equal((result.trades[0].fill_model?.policies as { same_candle_policy?: string }).same_candle_policy, "stop_first")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("simulateReplayOrderLane applies stop-first ordering and caps oversized reduce-only stop", () => {
+  const candles = parseCsvCandles([
+    "date,timestamp,open,high,low,close,volume",
+    "2026-01-01T00:00:00Z,1,100,111,89,100,10",
+  ].join("\n"))
+  const result = simulateReplayOrderLane({
+    candles,
+    initial_position_qty: 1,
+    initial_entry_price: 100,
+    initial_risk_per_unit: 10,
+    orders: [
+      { id: "tp-1", role: "take_profit", side: "SELL", kind: "limit", price: 110, quantity: 0.4, reduce_only: true },
+      { id: "stop-1", role: "stop", side: "SELL", kind: "stop_market", stop_price: 90, quantity: 2, reduce_only: true },
+    ],
+  })
+
+  assert.deepEqual(result.fills.map((fill) => fill.order_id), ["stop-1"])
+  assert.equal(result.fills[0].quantity, 1)
+  assert.equal(result.fills[0].requested_quantity, 2)
+  assert.equal(result.fills[0].reduced_only_cap_applied, true)
+  assert.equal(result.final_position_qty, 0)
+  assert.equal(result.assumptions.intrabar_order_sort, "stop_reduce_only_then_take_profit_then_entry_by_id")
+})
+
+test("simulateReplayOrderLane handles partial take profit before later oversized stop", () => {
+  const candles = parseCsvCandles([
+    "date,timestamp,open,high,low,close,volume",
+    "2026-01-01T00:00:00Z,1,100,111,99,108,10",
+    "2026-01-01T04:00:00Z,2,108,109,89,92,10",
+  ].join("\n"))
+  const result = simulateReplayOrderLane({
+    candles,
+    initial_position_qty: 1,
+    initial_entry_price: 100,
+    initial_risk_per_unit: 10,
+    orders: [
+      { id: "tp-1", role: "take_profit", side: "SELL", kind: "limit", price: 110, quantity: 0.4, reduce_only: true },
+      { id: "stop-1", role: "stop", side: "SELL", kind: "stop_market", stop_price: 90, quantity: 2, reduce_only: true },
+    ],
+  })
+
+  assert.deepEqual(result.fills.map((fill) => [fill.order_id, fill.quantity]), [["tp-1", 0.4], ["stop-1", 0.6]])
+  assert.equal(result.fills[1].reduced_only_cap_applied, true)
+  assert.equal(result.final_position_qty, 0)
+  assert.equal(result.realized_r_multiple_initial, -0.2)
+  assert.equal(result.realized_r_multiple_max_live_risk, -0.2)
 })
 
 test("replayStrategy applies break-even protection only after a completed trigger bar", () => {
@@ -177,6 +255,30 @@ test("replayStrategy applies break-even protection only after a completed trigge
     assert.equal(result.trades[0].stop, 100)
     assert.equal(result.trades[0].r, 0)
     assert.equal(result.assumptions.protective_stop_policy, "optional_break_even_stop_activates_next_bar")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("replayStrategy emits diagnostic-only monte carlo metrics", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-replay-diagnostics-"))
+  try {
+    writeMultiReplayFixture(dir)
+    const strategy: ReplayStrategy = {
+      strategy_id: "S-DIAGNOSTICS",
+      default_timeframe: "4h",
+      warmup_bars: 1,
+      generateSignal({ candles, index }) {
+        if (index !== 1 && index !== 3) return null
+        return { side: "long", signal_index: index, entry_index: index + 1, entry: candles[index + 1].open, stop: candles[index + 1].open - 1, target: candles[index + 1].open + 2, reason: "diagnostic" }
+      },
+    }
+    const result = replayStrategy(strategy, { manifestPath: join(dir, "manifest.json"), maxHoldBars: 2 })
+    const diagnostics = result.diagnostics as { schema_version: string; promotion_effect: string; monte_carlo: { trade_order_shuffle: { status: string } } }
+    assert.equal(diagnostics.schema_version, "trade-flow.replay-diagnostics.v1")
+    assert.equal(diagnostics.promotion_effect, "diagnostic_only_cannot_authorize")
+    assert.equal(diagnostics.monte_carlo.trade_order_shuffle.status, "evaluated")
+    assert.match(result.notes.join("\n"), /diagnostic-only/)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -281,6 +383,39 @@ test("external validation evaluates the complete dataset without claiming holdou
     const proof = result.assumptions.anti_overfit as { stage: string; oos_stats: { sample_count: number } }
     assert.equal(proof.stage, "external_validation")
     assert.equal(proof.oos_stats.sample_count, result.sample_count)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("evaluateLatestSignal uses the latest closed candle and external entry reference", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-latest-signal-parity-"))
+  try {
+    writeReplayFixture(dir)
+    const strategy: ReplayStrategy = {
+      strategy_id: "S-LATEST",
+      default_timeframe: "4h",
+      warmup_bars: 1,
+      generateSignal({ candles, index, entryPrice, entryIndex }) {
+        return {
+          side: "long",
+          signal_index: index,
+          entry_index: entryIndex,
+          entry: entryPrice,
+          stop: entryPrice - 1,
+          target: entryPrice + 2,
+          reason: `latest:${candles[index].date}`,
+        }
+      },
+    }
+    const result = evaluateLatestSignal(strategy, {
+      manifestPath: join(dir, "manifest.json"),
+    }, 105, { now: "2026-01-01T16:01:00Z", maxAgeBars: 1 })
+
+    assert.equal(result.signal_time, "2026-01-01T12:00:00Z")
+    assert.equal(result.entry_reference, 105)
+    assert.equal(result.signal?.entry, 105)
+    assert.equal(result.signal?.entry_index, 4)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

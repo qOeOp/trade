@@ -33,6 +33,8 @@ export interface StrategyRndCampaignReport {
     hypothesis_id: string
     discovery_run_ref: string
     discovery_outcome: "candidate_found" | "no_promote"
+    discovery_failure_summary: JSONRecord | null
+    discovery_reliability_gate: JSONRecord | null
     panel_null_gate: JSONRecord | null
     validation_run_ref: string | null
     validation_outcome: "candidate_found" | "no_promote" | null
@@ -49,12 +51,14 @@ export interface HypothesisCertificateGate {
 
 export interface StrategyRndCampaignLoopResult {
   artifact_ref: string
-  batch: {
-    outcome: "candidate_found" | "no_promote"
-    trial_count: number
-    winner: {
-      candidate_id: string
-      description: string
+    batch: {
+      outcome: "candidate_found" | "no_promote"
+      trial_count: number
+      failure_summary?: unknown
+      reliability_gate?: unknown
+      winner: {
+        candidate_id: string
+        description: string
       family: string
       parameter_count: number
       params: JSONRecord
@@ -131,6 +135,8 @@ export function runStrategyRndCampaignWithDeps(
       hypothesis_id: hypothesis.hypothesisId,
       discovery_run_ref: discovery.artifact_ref,
       discovery_outcome: discovery.batch.outcome,
+      discovery_failure_summary: asNullableRecord(discovery.batch.failure_summary),
+      discovery_reliability_gate: asNullableRecord(discovery.batch.reliability_gate),
       panel_null_gate: null,
       validation_run_ref: null,
       validation_outcome: null,
@@ -381,6 +387,11 @@ function readManifestRange(manifestPath: string, timeframe: string): { first: nu
 
 function asRecord(value: unknown): JSONRecord {
   return value && typeof value === "object" && !Array.isArray(value) ? value as JSONRecord : {}
+}
+
+function asNullableRecord(value: unknown): JSONRecord | null {
+  const record = asRecord(value)
+  return Object.keys(record).length > 0 ? record : null
 }
 
 function array(value: unknown): unknown[] {

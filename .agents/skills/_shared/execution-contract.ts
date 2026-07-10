@@ -274,6 +274,8 @@ function resolveEntryDraft(input: ExecutionContractInput, entry: EntryDraft, ind
       return {
         ...entry,
         type: "MARKET",
+        price: undefined,
+        stop_price: undefined,
         reference_price: referencePrice,
         resolver_snapshot: {
           resolver: "entry_at_v1",
@@ -333,7 +335,7 @@ function requireEntryPrice(entry: EntryDraft, index: number): number {
 }
 
 function requireEntryReferencePrice(entry: EntryDraft, index: number): number {
-  const referencePrice = entry.reference_price ?? entry.price ?? entry.stop_price
+  const referencePrice = entry.reference_price
   if (!Number.isFinite(referencePrice) || Number(referencePrice) <= 0) {
     throw new Error(`entries[${index}].reference_price must be positive for semantic entry intent`)
   }

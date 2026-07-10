@@ -850,11 +850,18 @@ Jesse 调研后的补充要求：
 
 | Priority | 内容 | 先后 |
 | --- | --- | --- |
-| P0 | J1 订单语义归一 | 先做，直接降低真钱路径歧义 |
-| P1 | J2 replay 撮合硬化 | 紧随 J1，决定 evidence 是否可信 |
-| P2 | J4 parity fixture | 与 J2 并行，先覆盖最小 fixtures |
-| P3 | J3 lifecycle contract | 在 replay 内核稳定后扩展 strategy contract |
-| P4 | J5 metrics / Monte Carlo | 只做诊断增强，不进入准入捷径 |
+| P0 | J1 订单语义归一 | 已落地：`entry_at / entry_market` 编译为 Binance order type，并保留 resolver snapshot |
+| P1 | J2 replay 撮合硬化 | 已落地：trade fill audit + lane-level simulator + reduce-only cap fixture |
+| P2 | J4 parity fixture | 已落地：semantic contract dry-run / live-small command parity + latest closed-candle signal fixture |
+| P3 | J3 lifecycle contract | 已落地：strategy contract lifecycle 编译、R&D 自动生成、manual 完整性 lint |
+| P4 | J5 metrics / Monte Carlo | 已落地：diagnostic-only trade-order shuffle / adverse R drag metrics |
+
+### 当前实施状态（2026-07-10）
+
+- J1-J5 均已按本项目边界完成第一版吸收；实现位置以 `_shared/execution-contract.ts`、`trade-flow/scripts/lib/replay-core.ts`、`strategy-contract.ts`、对应 fixtures 为准。
+- 吸收方式是重写内核纪律，不引入 Jesse runtime、策略继承、UI、多交易所、优化平台或 ML pipeline。
+- replay 仍保持旧输出外壳兼容；新增 `fill_model`、`diagnostics`、`lifecycle` 均为扩展字段。
+- Monte Carlo 与 diagnostics 只允许阻断或提示复核，不能单独放行 shadow / live-small。
 
 红线：
 
