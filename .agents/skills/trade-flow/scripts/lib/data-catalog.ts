@@ -837,7 +837,7 @@ function upsertDatasetsFromManifest(db: Database, path: string, json: JSONRecord
     count += 1
   }
 
-  const panelDatasets = asArray(json.datasets)
+  const panelDatasets = json.schema_version === "trade-flow.strategy-data-split.v1" ? [] : asArray(json.datasets)
   if (panelDatasets.length > 0) {
     upsertDataset(db, {
       dataset_id: stableID("dataset", `${relPath}:panel`),
@@ -859,6 +859,7 @@ function upsertDatasetsFromManifest(db: Database, path: string, json: JSONRecord
 
 function upsertPanelFromJson(db: Database, artifactID: string, path: string, json: JSONRecord | null, now: Date): { panels: number; members: number } {
   if (!json) return { panels: 0, members: 0 }
+  if (json.schema_version === "trade-flow.strategy-data-split.v1") return { panels: 0, members: 0 }
   const datasets = asArray(json.datasets).map(asRecord)
   if (datasets.length === 0) return { panels: 0, members: 0 }
 
@@ -988,6 +989,21 @@ function researchReportSummary(path: string, data: JSONRecord, now: Date): {
   generated_at: string
   summary: JSONRecord
 } | null {
+  if (data.schema_version === "trade-flow.strategy-data-split.v1") {
+    return {
+      report_kind: "strategy_data_split",
+      report_id: stringField(data.split_id),
+      status: "generated",
+      generated_at: stringField(data.generated_at) || now.toISOString(),
+      summary: {
+        hypothesis_id: nullableString(data.hypothesis_id),
+        timeframe: nullableString(data.timeframe),
+        output_root: nullableString(data.output_root),
+        dataset_count: nullableNumber(data.dataset_count),
+        embargo: asRecord(data.embargo),
+      },
+    }
+  }
   if (stringField(data.campaign_id)) {
     return {
       report_kind: "strategy_rnd_campaign",
