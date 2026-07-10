@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { dirname, resolve } from "node:path"
 import { spawnSync } from "node:child_process"
 import { defaultCatalogDbPathForGeneratedPath, registerCatalogArtifact } from "./data-catalog"
+import { resolveRepoPath } from "./paths"
 
 type JSONRecord = Record<string, unknown>
 
@@ -40,8 +41,8 @@ type TechIndicatorRunner = (input: {
 }) => TechIndicatorRun
 
 function ensureFeatureReport(options: FeatureReportOptions): FeatureReportResult {
-  const manifestPath = resolve(options.manifestPath)
-  const outputPath = resolve(options.outputPath)
+  const manifestPath = resolveRepoPath(options.manifestPath)
+  const outputPath = resolveRepoPath(options.outputPath)
   const featureSeries = options.featureSeries !== false
 
   if (!options.force && existsSync(outputPath)) {
@@ -100,7 +101,7 @@ function runTechIndicators(input: {
   if (input.featureSeries) {
     args.push("--feature-series")
   }
-  const run = spawnSync("go", args, { cwd: input.cwd, encoding: "utf8" })
+  const run = spawnSync("go", args, { cwd: input.cwd, encoding: "utf8", maxBuffer: 64 * 1024 * 1024 })
   return {
     stdout: run.stdout || "",
     stderr: run.stderr || "",

@@ -28,9 +28,10 @@ export function resolveRndCandidates(
   factorResearch: FactorResearchReport | null,
 ): { candidates: StrategyRndCandidateInput[]; source: CandidateSource } {
   const bases = input.candidates
+  const trialLimit = Number.isInteger(input.searchTrialCount) && Number(input.searchTrialCount) > 0 ? Number(input.searchTrialCount) : undefined
   if (!input.factorCompose) {
     return {
-      candidates: bases,
+      candidates: trialLimit ? bases.slice(0, trialLimit) : bases,
       source: "provided",
     }
   }
@@ -40,7 +41,7 @@ export function resolveRndCandidates(
     maxFactorsPerCandidate: input.maxFactorsPerCandidate,
     maxParameterCount: 8,
   }) as StrategyRndCandidateInput[]
-  return { candidates, source: factorResearch ? "scientific_factor_discovery" : "bounded_factor_composition" }
+  return { candidates: trialLimit ? candidates.slice(0, trialLimit) : candidates, source: factorResearch ? "scientific_factor_discovery" : "bounded_factor_composition" }
 }
 
 export function resolveCandidateCount(input: StrategyRndBatchInput): number {
