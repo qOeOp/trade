@@ -45,6 +45,17 @@ check_module_contracts() {
     printf 'quality: strategy research must be registered as strategy-rd, not trade-flow.research\n' >&2
     exit 1
   fi
+  if rg -n '"id": "trade-flow\.artifact"' toolset.json >/dev/null; then
+    printf 'quality: artifact/catalog work must be registered as artifact-catalog, not trade-flow.artifact\n' >&2
+    exit 1
+  fi
+  find modules \( -name package.json -o -name go.mod -o -name requirements.txt \) -type f | sort | while IFS= read -r marker; do
+    module_dir="$(dirname "$marker")"
+    if [ ! -f "$module_dir/CONTRACT.md" ]; then
+      printf 'quality: missing module contract: %s/CONTRACT.md\n' "$module_dir" >&2
+      exit 1
+    fi
+  done
   find modules/trade-flow/src/domain -mindepth 1 -maxdepth 1 -type d | sort | while IFS= read -r domain_dir; do
     if [ ! -f "$domain_dir/CONTRACT.md" ]; then
       printf 'quality: missing domain contract: %s/CONTRACT.md\n' "$domain_dir" >&2

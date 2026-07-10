@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade-flow.artifact-gc-result.v1",
+  "title": "trade-flow artifact GC result",
+  "description": "Stable outer shape for artifact GC reports. File reasons are diagnostic strings and intentionally not enumerated here.",
+  "type": "object",
+  "required": [
+    "root",
+    "retention_hours",
+    "ephemeral_retention_hours",
+    "mode",
+    "candidates",
+    "deleted",
+    "kept"
+  ],
+  "properties": {
+    "root": {
+      "type": "string",
+      "minLength": 1
+    },
+    "retention_hours": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "ephemeral_retention_hours": {
+      "type": "number",
+      "exclusiveMinimum": 0
+    },
+    "mode": {
+      "enum": ["dry-run", "delete"]
+    },
+    "candidates": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/artifact_file"
+      }
+    },
+    "deleted": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/artifact_file"
+      }
+    },
+    "kept": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/artifact_file"
+      }
+    }
+  },
+  "additionalProperties": false,
+  "$defs": {
+    "artifact_file": {
+      "type": "object",
+      "required": ["path", "age_hours", "reason"],
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "age_hours": {
+          "type": "number",
+          "minimum": 0
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "additionalProperties": false
+    }
+  }
+}

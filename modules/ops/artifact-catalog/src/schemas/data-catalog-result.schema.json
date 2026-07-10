@@ -1,0 +1,107 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade-flow.data-catalog-result.v1",
+  "title": "trade-flow data catalog result",
+  "type": "object",
+  "oneOf": [
+    {
+      "required": ["initialized", "catalog_db_path"],
+      "properties": {
+        "initialized": { "const": true },
+        "catalog_db_path": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": true
+    },
+    {
+      "required": [
+        "catalog_db_path",
+        "roots",
+        "scanned_files",
+        "artifacts_upserted",
+        "datasets_upserted",
+        "runs_upserted",
+        "artifact_refs_upserted",
+        "strategy_rnd_runs_upserted",
+        "strategy_evidence_upserted",
+        "panels_upserted",
+        "panel_members_upserted",
+        "feature_reports_upserted",
+        "research_reports_upserted",
+        "cron_runs_upserted"
+      ],
+      "properties": {
+        "catalog_db_path": { "type": "string", "minLength": 1 },
+        "roots": { "type": "array", "items": { "type": "string" } },
+        "scanned_files": { "type": "integer", "minimum": 0 },
+        "artifacts_upserted": { "type": "integer", "minimum": 0 },
+        "datasets_upserted": { "type": "integer", "minimum": 0 },
+        "runs_upserted": { "type": "integer", "minimum": 0 },
+        "artifact_refs_upserted": { "type": "integer", "minimum": 0 },
+        "strategy_rnd_runs_upserted": { "type": "integer", "minimum": 0 },
+        "strategy_evidence_upserted": { "type": "integer", "minimum": 0 },
+        "panels_upserted": { "type": "integer", "minimum": 0 },
+        "panel_members_upserted": { "type": "integer", "minimum": 0 },
+        "feature_reports_upserted": { "type": "integer", "minimum": 0 },
+        "research_reports_upserted": { "type": "integer", "minimum": 0 },
+        "cron_runs_upserted": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": true
+    },
+    {
+      "required": [
+        "catalog_db_path",
+        "query",
+        "artifacts",
+        "datasets",
+        "feature_reports",
+        "research_reports",
+        "panels",
+        "refs",
+        "strategy_evidence"
+      ],
+      "properties": {
+        "catalog_db_path": { "type": "string", "minLength": 1 },
+        "query": { "type": "object" },
+        "artifacts": { "type": "array", "items": { "type": "object" } },
+        "datasets": { "type": "array", "items": { "type": "object" } },
+        "feature_reports": { "type": "array", "items": { "type": "object" } },
+        "research_reports": { "type": "array", "items": { "type": "object" } },
+        "panels": { "type": "array", "items": { "type": "object" } },
+        "refs": { "type": "array", "items": { "type": "object" } },
+        "strategy_evidence": { "type": "array", "items": { "type": "object" } }
+      },
+      "additionalProperties": true
+    },
+    {
+      "required": [
+        "catalog_db_path",
+        "mode",
+        "roots",
+        "retention_hours",
+        "ephemeral_retention_hours",
+        "limit",
+        "candidate_count",
+        "kept_count",
+        "deleted_count",
+        "candidates",
+        "kept",
+        "deleted"
+      ],
+      "properties": {
+        "catalog_db_path": { "type": "string", "minLength": 1 },
+        "mode": { "enum": ["dry-run", "delete"] },
+        "roots": { "type": "array", "items": { "type": "string" } },
+        "retention_hours": { "type": "number", "exclusiveMinimum": 0 },
+        "ephemeral_retention_hours": { "type": "number", "exclusiveMinimum": 0 },
+        "limit": { "type": "integer", "minimum": 1 },
+        "candidate_count": { "type": "integer", "minimum": 0 },
+        "kept_count": { "type": "integer", "minimum": 0 },
+        "deleted_count": { "type": "integer", "minimum": 0 },
+        "candidates": { "type": "array", "items": { "type": "object" } },
+        "kept": { "type": "array", "items": { "type": "object" } },
+        "deleted": { "type": "array", "items": { "type": "object" } }
+      },
+      "additionalProperties": true
+    }
+  ]
+}

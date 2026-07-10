@@ -17,6 +17,7 @@
 | --- | --- | --- | --- | --- |
 | `trade-flow` | strategy markdown、trading config、`trade.db`、tool JSON 输出、review/evidence input | `plan_event`、promotion result、automation jobs、recovery drafts | 编排、执行流、恢复、review、准入、事件流 | Binance endpoint 细节、市场数据接入实现、R&D 实验实现 |
 | `research/strategy-rd` | OHLCV manifest、market feature artifact、candidate JSON、strategy contract、R&D state | replay / R&D / panel / benchmark / calibration report、R&D state update、gated draft candidate、catalog metadata | 策略研发、回放、panel、benchmark、calibration、forward holdout、R&D learning memory | 写 `trade.db`、触发 Binance、策略升格 |
+| `ops/artifact-catalog` | catalog DB、`data/` / `tmp/` roots、artifact refs、retention 设置 | catalog query、stale report、GC report、artifact metadata、feature report refs | 数据资产索引、artifact hygiene、catalog-aware GC | 写 `trade.db`、策略判断、交易所 API |
 | `ohlcv-fetch` | Binance market symbol、timeframes、Vision/funding/panel 请求参数 | CSV/manifest、funding events、market feature panel、calibration inputs | 数据采集与因果对齐 | 策略判断、升格、交易事实 |
 | `binance/account-snapshot` | symbol、history 参数、Binance read credentials | balance / position / open-order / protective-order / history JSON | 账户事实读取 | 写 `trade.db`、下单、策略观点 |
 | `binance/symbol-snapshot` | symbol、pulse / recent-kline 参数 | ticker、mark、funding、OI、轻量 K 线 JSON | 单标的市场事实读取 | 候选排名、live action |
@@ -34,7 +35,7 @@
 
 ## Trade-Flow Domains
 
-`trade-flow` 是编排模块，但内部不能再是大平层。当前仍保留 `research` 兼容 domain，真实 RD owner 是 `modules/research/strategy-rd`。
+`trade-flow` 是编排模块，但内部不能再是大平层。当前仍保留 `research` / `artifact` 兼容 domain；真实 RD owner 是 `modules/research/strategy-rd`，真实 artifact/catalog owner 是 `modules/ops/artifact-catalog`。
 
 | Domain | Contract | 负责 |
 | --- | --- | --- |
@@ -44,7 +45,7 @@
 | `recovery` | `modules/trade-flow/src/domain/recovery/CONTRACT.md` | reduce、reconcile、safe local apply、needs_review |
 | `observe` | `modules/trade-flow/src/domain/observe/CONTRACT.md` | runtime load、snapshot projection、observe event build |
 | `runtime` | `modules/trade-flow/src/domain/runtime/CONTRACT.md` | event store、flow projection、cron、automation plan |
-| `artifact` | `modules/trade-flow/src/domain/artifact/CONTRACT.md` | catalog、artifact GC、feature report registration |
+| `artifact` | `modules/trade-flow/src/domain/artifact/CONTRACT.md` | 兼容旧 CLI；新代码不得在此新增 catalog / GC 实现 |
 
 ## Rules
 

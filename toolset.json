@@ -80,13 +80,13 @@
       "notes": ["Binance writes require --run-live-small plus --yes and preflight/contract gates."]
     },
     {
-      "id": "trade-flow.artifact",
-      "domain": "artifact",
+      "id": "artifact-catalog",
+      "domain": "ops",
       "intent": ["catalog", "artifact-gc", "hygiene"],
       "capability_class": ["A", "V"],
-      "path": "modules/trade-flow",
+      "path": "modules/ops/artifact-catalog",
       "purpose": "Index data and artifacts, report stale refs, and delete stale unreferenced files only when explicitly authorized.",
-      "command": { "cwd": "modules/trade-flow", "argv": ["bun", "src/scripts/main.ts", "<catalog-flag>"] },
+      "command": { "cwd": "modules/ops/artifact-catalog", "argv": ["bun", "src/scripts/main.ts", "<catalog-flag>"] },
       "writes": { "trade_db": false, "catalog": true, "artifacts": true, "binance": false, "config": false },
       "notes": ["GC is dry-run unless --yes is present."]
     },
