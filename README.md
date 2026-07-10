@@ -2,206 +2,80 @@
 
 agent-native 加密交易工作仓库。目标是让 agent 在可审计事实、权限边界、执行契约、交易所回读和研究记忆之上，推进 Binance USDM 4H+ swing 的观察、研发、验证、执行、恢复和复盘。
 
-先看图，再看表。README 只保留一张全局结构图；细节契约看 `docs/`。
+先看总览，再按模块看分区图。README 是全局地图；细节契约看 `docs/`。
 
 ## 1. 全局架构
 
 ```mermaid
 flowchart LR
-  ENTRY["00 Single automation entry<br/><b>trade-flow --automation-cycle</b><br/>automation wakeup / user takeover / recovery"]
+  ENTRY["single automation entry<br/>or user takeover"] --> SUP["trade-flow supervisor"]
+  SUP --> JOBS["job lanes<br/>live / R&D / review / hygiene"]
+  JOBS --> CAP["capability banks<br/>observe / data / execute / governance"]
+  CAP --> FACTS["durable facts<br/>DB / catalog / artifact / strategy / state"]
+  FACTS --> SUMMARY["supervisor summary<br/>next constraints"]
+  SUMMARY --> SUP
 
-  subgraph C1["01 Supervisor Core"]
-    direction TB
-    PLAN["plan jobs<br/>read config + current facts"]
-    GATE["cadence / lock / concurrency / permission gate"]
-    FANOUT["subagent fan-out<br/>job contract = role + refs + allowed commands"]
-    MERGE["merge JSON results<br/>summary + next wakeup constraints"]
-    PLAN --> GATE --> FANOUT --> MERGE
-  end
-
-  subgraph C2["02 Job Lanes"]
-    direction TB
-    JOB_BUS["job dispatch bus"]
-
-    subgraph LIVE["Live Opportunity + Active Flow"]
-      direction TB
-      SLOW["slow_track_market_watch<br/>full observe / thesis / trigger"]
-      FAST["fast_track_guard<br/>active flow guard / light observe"]
-      RECON["recovery + reconcile<br/>exchange facts override local"]
-    end
-    subgraph RND["Research + Validation"]
-      direction TB
-      RD["new strategy R&D<br/>hypothesis loop until shadow candidate or blocked"]
-      SCOUT["R&D scout subagents<br/>history / data / edge, read-only"]
-      SHADOW["shadow / forward validation<br/>paper samples"]
-      PANEL["panel / null control<br/>cross-symbol sanity"]
-    end
-    subgraph REVIEW_LANE["Review + Promotion"]
-      direction TB
-      REVIEW["closed-flow review<br/>post-trade attribution"]
-      PROMOTE["strategy governance<br/>draft -> shadow -> live-small -> paused"]
-      LESSONS["lessons / blocked hypotheses<br/>feed next research and live policy"]
-    end
-    subgraph OPS["Ops Hygiene"]
-      direction TB
-      CATALOG["catalog / artifact hygiene<br/>stale scan + GC"]
-      NOTIFY["notify dispatch<br/>operator alerts"]
-      QUALITY["quality check<br/>tests / typecheck / contracts"]
-    end
-
-    JOB_BUS --> SLOW
-    JOB_BUS --> RD
-    JOB_BUS --> REVIEW
-    JOB_BUS --> CATALOG
-  end
-
-  subgraph C3["03 Capability Banks"]
-    direction TB
-    CAP_BUS["capability bus"]
-    OBSERVE["Observe bank<br/>market-scan / symbol-snapshot<br/>aggTrades / liquidation-zones<br/>account-snapshot"]
-    DATA["Data + indicator bank<br/>ohlcv-fetch / tech-indicators<br/>feature series / split / beta"]
-    RDENG["R&D engines<br/>rd-program-state / rnd-loop<br/>campaign / panel-rnd"]
-    EXECUTE["Execution bank<br/>order-preview / plan-preflight<br/>place / protect / adjust / cancel"]
-    GOVERN["Governance bank<br/>replay / evidence / review reducers<br/>catalog query / stale / gc"]
-    CAP_BUS --> OBSERVE
-    CAP_BUS --> DATA
-    CAP_BUS --> RDENG
-    CAP_BUS --> EXECUTE
-    CAP_BUS --> GOVERN
-  end
-
-  subgraph C4["04 Guard Rails"]
-    direction TB
-    GUARD_BUS["guard rail bus"]
-    WRITE_GATE["real Binance writes require --yes"]
-    RD_WALL["R&D cannot write trade.db or Binance"]
-    SUB_WALL["subagents cannot expand refs or permissions"]
-    SERIAL["trade-db writers are serialized"]
-    PIN[".pin and referenced artifacts survive GC"]
-    GUARD_BUS --> WRITE_GATE
-    GUARD_BUS --> RD_WALL
-    GUARD_BUS --> SUB_WALL
-    GUARD_BUS --> SERIAL
-    GUARD_BUS --> PIN
-  end
-
-  subgraph C5["05 Durable Stores + Object Model"]
-    direction TB
-    STORE_BUS["fact bus"]
-    TRADEDB[("data/trade.db<br/>plan_event: observe / order_fill / review")]
-    CATDB[("data/data_catalog.db<br/>artifact registry / stale index")]
-    OHLCV["data/ohlcv<br/>manifest + candles"]
-    ART["tmp/artifacts<br/>research + run outputs"]
-    RDSTATE["state/rd<br/>program memory"]
-    STRAT["strategies/*.md<br/>Trade Contract + status"]
-    OBJECTS["strategy -> setup -> lane -> flow -> plan_event chain"]
-    PROFILE["profile<br/>trading + notify config"]
-    STORE_BUS --> TRADEDB
-    STORE_BUS --> CATDB
-    STORE_BUS --> OHLCV
-    STORE_BUS --> ART
-    STORE_BUS --> RDSTATE
-    STORE_BUS --> STRAT
-    STORE_BUS --> OBJECTS
-    STORE_BUS --> PROFILE
-  end
-
-  subgraph C6["06 Exchange IO"]
-    direction TB
-    READ["Binance read APIs<br/>prices / klines / account / orders"]
-    WRITE["Binance write APIs<br/>orders / protection / cancel"]
-  end
-
-  subgraph C7["07 Feedback + Learning"]
-    direction TB
-    SUMMARY["supervisor summary"]
-    EVIDENCE["promotion evidence<br/>replay + shadow + attribution"]
-    DIAG["strategy diagnostics<br/>closed-flow review"]
-    NEXT["next wakeup constraints<br/>what to run / what to avoid"]
-  end
-
-  ENTRY --> PLAN
-  MERGE --> JOB_BUS
-  JOB_BUS --> CAP_BUS
-  CAP_BUS --> GUARD_BUS
-  GUARD_BUS --> STORE_BUS
-  CAP_BUS --> READ
-  CAP_BUS --> WRITE
-  READ --> STORE_BUS
-  WRITE --> STORE_BUS
-  STORE_BUS --> SUMMARY
-
-  ENTRY -. "reads config" .-> PROFILE
-  JOB_BUS -. "uses strategy contracts" .-> STRAT
-
-  SLOW --> OBSERVE
-  FAST --> EXECUTE
-  RECON --> OBSERVE
-  RD --> RDENG
-  SCOUT --> DATA
-  SHADOW --> DATA
-  PANEL --> RDENG
-  REVIEW --> GOVERN
-  PROMOTE --> GOVERN
-  CATALOG --> GOVERN
-  QUALITY --> GOVERN
-
-  OBSERVE --> READ
-  DATA --> READ
-  EXECUTE --> READ
-  EXECUTE --> WRITE
-
-  OBSERVE --> TRADEDB
-  EXECUTE --> TRADEDB
-  DATA --> OHLCV
-  DATA --> ART
-  RDENG --> RDSTATE
-  RDENG --> CATDB
-  RDENG --> ART
-  GOVERN --> STRAT
-  GOVERN --> CATDB
-  GOVERN --> ART
-
-  WRITE --> WRITE_GATE
-  RDENG --> RD_WALL
-  FANOUT --> SUB_WALL
-  SLOW --> SERIAL
-  FAST --> SERIAL
-  REVIEW --> SERIAL
-  CATALOG --> PIN
-
-  TRADEDB --> DIAG
-  CATDB --> SUMMARY
-  ART --> EVIDENCE
-  RDSTATE --> NEXT
-  STRAT --> EVIDENCE
-  SUMMARY --> NEXT
+  CAP --> EX["Binance IO<br/>read APIs / gated write APIs"]
+  EX --> FACTS
 
   classDef entry fill:#102a43,stroke:#102a43,color:#fff;
-  classDef core fill:#efe7ff,stroke:#7a55c7,color:#111;
-  classDef lane fill:#fff3d8,stroke:#d9902f,color:#111;
-  classDef cap fill:#e8f7ee,stroke:#45925b,color:#111;
-  classDef guard fill:#ffecec,stroke:#cc4b4b,color:#111;
-  classDef store fill:#f4f4f4,stroke:#686868,color:#111;
+  classDef block fill:#f7f7f7,stroke:#666,color:#111;
   classDef io fill:#e8f8fb,stroke:#358b9a,color:#111;
-  classDef fb fill:#edf0ff,stroke:#5968c9,color:#111;
   class ENTRY entry;
-  class PLAN,GATE,FANOUT,MERGE core;
-  class JOB_BUS,SLOW,FAST,RECON,RD,SCOUT,SHADOW,PANEL,REVIEW,PROMOTE,LESSONS,CATALOG,NOTIFY,QUALITY lane;
-  class CAP_BUS,OBSERVE,DATA,RDENG,EXECUTE,GOVERN cap;
-  class GUARD_BUS,WRITE_GATE,RD_WALL,SUB_WALL,SERIAL,PIN guard;
-  class STORE_BUS,TRADEDB,CATDB,OHLCV,ART,RDSTATE,STRAT,OBJECTS,PROFILE store;
-  class READ,WRITE io;
-  class SUMMARY,EVIDENCE,DIAG,NEXT fb;
+  class SUP,JOBS,CAP,FACTS,SUMMARY block;
+  class EX io;
 ```
 
 一句话：外部只有一个长期入口；入口只生成任务图和权限边界；具体工作交给隔离 subagent；长期事实必须落到 DB、artifact、catalog、strategy 文件或 R&D state。
 
 ## 2. 两条主链
 
+```mermaid
+flowchart LR
+  subgraph Online["在线交易链"]
+    O["OBSERVE"] --> P["PLAN + preflight"]
+    P --> E["EXECUTE"]
+    E --> W["order_fill / reconcile"]
+    W --> RV["REVIEW"]
+  end
+
+  subgraph Research["离线验证链"]
+    RD["research / review"] --> RP["replay / backtest"]
+    RP --> SH["shadow / forward"]
+    SH --> LS["live-small / paused"]
+    LS --> RV2["review"]
+    RV2 --> RD
+  end
+
+  RP -. "promotion evidence" .-> LS
+  RV -. "strategy diagnostics" .-> RD
+```
+
 在线链只处理真实机会和交易事实；研究链只处理 edge 发现、验证和准入。研究链不能直接写 `trade.db`，也不能触发 Binance 写接口。
 
 ## 3. 单入口怎么分发
+
+```mermaid
+flowchart TD
+  A["automation wakeup / user takeover"] --> B["--automation-cycle"]
+  B --> C["supervisor plan"]
+  C --> D["cadence / lock / concurrency / permission gate"]
+
+  D --> F["fast_track_guard<br/>serial trade-db guard"]
+  D --> S["slow_track_market_watch"]
+  D --> R["new strategy R&D"]
+  D --> T["shadow / forward trackers"]
+  D --> V["closed-flow review"]
+  D --> G["catalog / artifact hygiene"]
+
+  F --> OUT["JSON result + refs"]
+  S --> OUT
+  R --> OUT
+  T --> OUT
+  V --> OUT
+  G --> OUT
+  OUT --> SUM["supervisor summary + next constraints"]
+```
 
 固定执行顺序：
 
@@ -219,6 +93,42 @@ flowchart LR
 
 ## 4. 数据怎么存
 
+```mermaid
+flowchart LR
+  subgraph Exchange["交易所事实"]
+    BIN["Binance read / write result"]
+  end
+
+  subgraph Trade["在线交易事实"]
+    DB[("data/trade.db")]
+    PE["plan_event"]
+    OBS["observe"]
+    FILL["order_fill"]
+    REV["review"]
+    DB --> PE
+    PE --> OBS
+    PE --> FILL
+    PE --> REV
+  end
+
+  subgraph Research["研究与准入事实"]
+    CAT[("data/data_catalog.db")]
+    OHLCV["data/ohlcv"]
+    ART["tmp/artifacts"]
+    STATE["state/rd"]
+    STRAT["strategies/*.md"]
+    CAT --> OHLCV
+    CAT --> ART
+    STATE --> ART
+    ART --> STRAT
+  end
+
+  BIN --> DB
+  BIN --> OHLCV
+  REV --> ART
+  STRAT --> DB
+```
+
 事实优先级：
 
 ```text
@@ -231,9 +141,42 @@ Binance exchange facts
 
 ## 5. 核心对象关系
 
+```mermaid
+flowchart TD
+  STR["strategy<br/>规则模板"] --> SETUP["setup<br/>可验证交易机会"]
+  SETUP --> LANE["lane<br/>strategy_ref + symbol + side"]
+  LANE --> FLOW["flow<br/>一笔机会 / 暴露生命周期"]
+  FLOW --> EV["plan_event chain"]
+  EV --> OBS["observe"]
+  EV --> FILL["order_fill"]
+  EV --> REV["review"]
+```
+
 同一 lane 同时最多一个 active flow。新理由、新结构、新加一段都并回当前 active flow，不并行开多个风险拥有者。
 
 ## 6. 慢轨和快轨怎么交互
+
+```mermaid
+sequenceDiagram
+  participant Slow as slow_track_market_watch
+  participant DB as trade.db
+  participant Fast as fast_track_guard
+  participant Pre as preflight
+  participant Exe as execution skills
+  participant Binance as Binance
+
+  Slow->>DB: full observe + thesis + trigger_condition
+  Fast->>DB: read latest active flow
+  Fast->>Pre: check trigger / orders / position / hard guards
+  alt trigger hit and guards pass
+    Fast->>Exe: allowed action only
+    Exe->>Binance: write only with --yes
+    Binance-->>Exe: exchange result
+    Fast->>DB: light observe + order_fill
+  else blocked or stale
+    Fast->>DB: light observe or skip
+  end
+```
 
 | 维度 | 慢轨 | 快轨 |
 | --- | --- | --- |
@@ -261,6 +204,27 @@ Binance exchange facts
 
 ## 9. R&D 学习飞轮
 
+```mermaid
+flowchart TD
+  STATE["rd_program_state<br/>objective / budget / lessons / queue"] --> PLAN["plan_next"]
+  PLAN --> SCOUT["read-only scout subagents<br/>history / data / edge"]
+  SCOUT --> RUN{"next research command"}
+  RUN -->|loop| LOOP["--strategy-rnd-loop"]
+  RUN -->|campaign| CAMP["--strategy-rnd-campaign"]
+  RUN -->|panel| PANEL["--strategy-panel-rnd"]
+  LOOP --> ART["artifact + catalog ledger"]
+  CAMP --> ART
+  PANEL --> ART
+  ART --> FB["failure summary / reliability gate / candidate"]
+  FB --> UP["state writeback"]
+  UP --> DECIDE{"terminal?"}
+  DECIDE -->|shadow candidate| DONE["shadow_candidate_found"]
+  DECIDE -->|budget exhausted| BUD["budget_exhausted"]
+  DECIDE -->|blocked| BLK["data_or_tool_blocked"]
+  DECIDE -->|still active| NEXT["constrained next hypothesis"]
+  NEXT --> STATE
+```
+
 高阶入口：
 
 ```bash
@@ -280,6 +244,17 @@ bun .agents/skills/trade-flow/scripts/main.ts --rd-supervisor-run --state ./stat
 `rd_program_state` 是 research memory，不是 strategy evidence。
 
 ## 10. Strategy 升格状态机
+
+```mermaid
+stateDiagram-v2
+  [*] --> draft
+  draft --> shadow: replay + locked holdout + robustness gate
+  shadow --> live_small: fresh shadow + execution attribution
+  live_small --> paused: decay / review blocker / risk policy
+  shadow --> paused: review blocker
+  paused --> draft: rewrite policy
+  draft --> draft: R&D / replay only
+```
 
 升格规则：
 
@@ -308,6 +283,19 @@ bun .agents/skills/trade-flow/scripts/main.ts --rd-supervisor-run --state ./stat
 | 配置 | `profile/` | trading config、通知配置；凭证来自环境变量 |
 
 ## 13. Master / Subagent 信息交换
+
+```mermaid
+sequenceDiagram
+  participant M as supervisor
+  participant A as subagent
+  participant S as store
+
+  M->>A: job id + role + permission + allowed commands + input refs
+  A->>S: read/write allowed assets only
+  S-->>A: machine-readable facts
+  A-->>M: JSON result + refs + blocked/skipped reason + warnings
+  M->>M: merge results and plan next dispatch
+```
 
 禁止：
 
