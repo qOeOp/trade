@@ -21,6 +21,8 @@ const EXPECTED_COMMAND_DATA = [
   "--strategy-rnd-campaign",
   "--strategy-panel-rnd",
   "--strategy-data-split",
+  "--rd-program-state",
+  "--rd-supervisor-run",
   "--strategy-benchmark",
   "--strategy-calibration-suite",
   "--strategy-signal",

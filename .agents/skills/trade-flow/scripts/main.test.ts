@@ -58,6 +58,75 @@ test("run initializes schema and appends audited order_fill", async () => {
   }
 })
 
+test("run initializes R&D program state through the CLI path", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "trade-flow-rd-state-cli-"))
+  try {
+    const statePath = join(dir, "state.json")
+    const catalogDb = join(dir, "catalog.db")
+    const result = await run([
+      "--rd-program-state",
+      "--state",
+      statePath,
+      "--catalog-db",
+      catalogDb,
+      "--json",
+      JSON.stringify({
+        action: "init",
+        program_id: "rd-cli",
+        objective: "initialize durable R&D learning memory",
+        now: "2026-07-09T12:00:00Z",
+      }),
+    ])
+    assert.equal(result.ok, true)
+    const data = result.ok ? result.data as { action: string; state: { program_id: string } } : null
+    assert.equal(data?.action, "init")
+    assert.equal(data?.state.program_id, "rd-cli")
+    assert.equal(existsSync(statePath), true)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("run executes R&D supervisor runner through the CLI path", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "trade-flow-rd-supervisor-cli-"))
+  try {
+    const statePath = join(dir, "state.json")
+    const catalogDb = join(dir, "catalog.db")
+    await run([
+      "--rd-program-state",
+      "--state",
+      statePath,
+      "--catalog-db",
+      catalogDb,
+      "--json",
+      JSON.stringify({
+        action: "init",
+        program_id: "rd-cli-supervisor",
+        objective: "block cleanly when no queue is available",
+        now: "2026-07-09T12:00:00Z",
+      }),
+    ])
+
+    const result = await run([
+      "--rd-supervisor-run",
+      "--state",
+      statePath,
+      "--catalog-db",
+      catalogDb,
+      "--json",
+      JSON.stringify({ now: "2026-07-09T13:00:00Z", max_iterations: 3 }),
+    ])
+
+    assert.equal(result.ok, true)
+    const data = result.ok ? result.data as { status: string; iterations: unknown[]; final_state: { status: string } } : null
+    assert.equal(data?.status, "data_or_tool_blocked")
+    assert.equal(data?.iterations.length, 1)
+    assert.equal(data?.final_state.status, "data_or_tool_blocked")
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("buildRecordedExecutionEvent compiles contract and writes audit snapshot", () => {
   const event = buildRecordedExecutionEvent({
     preflight_result: {

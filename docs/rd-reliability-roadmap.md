@@ -43,11 +43,15 @@ title: R&D Reliability Roadmap
 
 ## 6. R&D 搜索层
 
-- 目标：只有 calibration 过关后才搜索；搜索失败回到系统诊断，不盲目换假设。
+- 目标：只有 calibration 过关后才搜索；搜索失败进入学习记忆并生成下一条更受约束的 hypothesis，不盲目换参数。
 - 当前：`--strategy-rnd-campaign` 可读取 `calibration_report_path`；未校准或含 blocker 时零 trial 停止；candidate batch 已输出 `failure_summary` 与 `reliability_gate`，把样本画像、失败层和继续 trial 权限机器化。
 - 当前：strategy review 已输出 `diagnostics.qualification` 与 `diagnostics.failure_attribution`，能直接暴露 funding / panel null / anti-overfit / robustness / shadow attribution 阻断层。
-- 下一块：从真实 shadow order/event 自动汇总 execution attribution，减少人工填报。
-- 完成信号：pipeline 能自动拒绝在未校准环境下扩大 trial budget。
+- 当前：`--automation-cycle` 已能生成 `rd_strategy_supervisor` job；该 job 由 subagent 在 artifact/catalog scope 内循环到 `shadow_candidate_found / budget_exhausted / data_or_tool_blocked`，并把 `failure_summary / reliability_gate / rejected_mechanisms / universe_lessons / next_hypothesis_queue` 写回学习记忆。
+- 当前：learning memory 已有机器可读 `rd_program_state` artifact；总控可通过 `rd_program_state_path` 读取 objective / budget / usage / lessons / queue，并在 state 非 `active` 时停止 R&D supervisor。
+- 当前：`--rd-program-state` 可 init/read/update；`--strategy-rnd-loop` / `--strategy-rnd-campaign` 可显式写回 usage、failure、reliability 与 artifact refs；`--strategy-review` 可把 execution attribution、cost feedback 与 replay-to-shadow/live decay 写回 state。
+- 当前：`--rd-program-state action=plan_next` 可只读消费 `next_hypothesis_queue`，生成下一轮 `--strategy-rnd-loop` / `--strategy-rnd-campaign` payload 草案；`--rd-supervisor-run` 已把 plan、执行、写回、再规划串成自主 loop。
+- 下一块：从 failure / review feedback 自动生成更受约束的 `next_hypothesis_queue`，减少人工补 hypothesis。
+- 完成信号：pipeline 能在预算内自主连续迭代 hypothesis，同时自动拒绝在未校准环境下扩大 trial budget。
 
 ## 7. Evidence 层
 

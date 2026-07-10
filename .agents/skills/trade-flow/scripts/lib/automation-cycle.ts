@@ -3,6 +3,7 @@ import { dirname, join } from "node:path"
 import { Database } from "bun:sqlite"
 import { findActiveLaneConflicts, listActiveFlows } from "./flow-state"
 import { displayPath } from "./paths"
+import { rdProgramGoalFromState, readRdProgramState } from "./rd-program-state"
 
 type JSONRecord = Record<string, unknown>
 
@@ -22,16 +23,21 @@ export interface AutomationCycleInput {
   now?: string
   include_fast_track?: boolean
   include_slow_track?: boolean
+  include_rd_strategy_supervisor?: boolean
   include_rd_trackers?: boolean
   include_closed_flow_review?: boolean
   include_catalog_hygiene?: boolean
   fast_interval_minutes?: number
   slow_interval_minutes?: number
+  rd_supervisor_interval_minutes?: number
   rd_interval_minutes?: number
   review_interval_minutes?: number
   catalog_interval_minutes?: number
   force_jobs?: string[]
   last_runs?: JSONRecord
+  rd_program_state_path?: string
+  rd_strategy_goal?: JSONRecord
+  rd_learning_memory_ref?: string
   rd_trackers?: JSONRecord[]
   catalog_db?: string
   catalog_roots?: string[]
@@ -63,6 +69,13 @@ export function buildAutomationCyclePlan(db: Database, dbPath: string, input: Au
       lastRunAt: stringField(lastRuns.slow_track_market_watch) || stringField(lastRuns.slow),
       forceJobs,
     }),
+    rd_strategy_supervisor: dueState({
+      jobId: "rd_strategy_supervisor",
+      now: generatedAt,
+      intervalMinutes: positiveNumber(input.rd_supervisor_interval_minutes) || 720,
+      lastRunAt: stringField(lastRuns.rd_strategy_supervisor),
+      forceJobs,
+    }),
     rd_forward_shadow_trackers: dueState({
       jobId: "rd_forward_shadow_trackers",
       now: generatedAt,
@@ -86,6 +99,11 @@ export function buildAutomationCyclePlan(db: Database, dbPath: string, input: Au
     }),
   }
   const rdTrackers = asArray(input.rd_trackers).map(asRecord).filter((item) => stringField(item.tracker_id))
+  const rdProgramStatePath = stringField(input.rd_program_state_path)
+  const rdProgramState = rdProgramStatePath ? readRdProgramState(rdProgramStatePath) : null
+  const rdStrategyGoal = rdProgramState ? rdProgramGoalFromState(rdProgramState) : asRecord(input.rd_strategy_goal)
+  const rdStrategyConfigured = Object.keys(rdStrategyGoal).length > 0
+  const rdStrategyCanRun = rdStrategyConfigured && (!rdProgramState || rdProgramState.status === "active")
   const catalogRoots = asArray(input.catalog_roots).map(String).filter(Boolean)
   const catalogDb = stringField(input.catalog_db) || DEFAULT_CATALOG_DB
   const tradeWorkDue = (activeFlowCount > 0 && cadence.fast_track_guard.due) || cadence.slow_track_market_watch.due
@@ -106,6 +124,21 @@ export function buildAutomationCyclePlan(db: Database, dbPath: string, input: Au
       command: `${TRADE_FLOW_MAIN} --db ${tradeDbPath} --track slow`,
       reason: "slow track owns market watch and strategic observe",
       cadence: cadence.slow_track_market_watch,
+    }),
+    rdStrategySupervisorJob({
+      job_id: "rd_strategy_supervisor",
+      enabled: input.include_rd_strategy_supervisor !== false,
+      active: rdStrategyCanRun && cadence.rd_strategy_supervisor.due,
+      reason: rdProgramState && rdProgramState.status !== "active"
+        ? `rd_program_state status is ${rdProgramState.status}; supervisor loop is stopped`
+        : rdStrategyConfigured
+        ? "strategy R&D goal is configured; continue the learning loop until shadow candidate, budget exhaustion, or blocker"
+        : "no rd_strategy_goal configured",
+      cadence: cadence.rd_strategy_supervisor,
+      goal: rdStrategyGoal,
+      learningMemoryRef: stringField(input.rd_learning_memory_ref) || rdProgramStatePath || "data_catalog.db + docs/rd-audit.md",
+      programStateRef: rdProgramStatePath,
+      programStateStatus: rdProgramState?.status,
     }),
     artifactJob({
       job_id: "rd_forward_shadow_trackers",
@@ -157,8 +190,8 @@ export function buildAutomationCyclePlan(db: Database, dbPath: string, input: Au
       },
       {
         stage: "parallel_isolated_work",
-        job_ids: ["slow_track_market_watch", "rd_forward_shadow_trackers", "catalog_hygiene_scan"],
-        why: "Only slow_track_market_watch may touch trade.db; R&D and catalog jobs are artifact/catalog scoped.",
+        job_ids: ["slow_track_market_watch", "rd_strategy_supervisor", "rd_forward_shadow_trackers", "catalog_hygiene_scan"],
+        why: "Only slow_track_market_watch may touch trade.db; strategy R&D, forward trackers, and catalog jobs are artifact/catalog scoped.",
       },
       {
         stage: "serial_review_closeout",
@@ -170,6 +203,8 @@ export function buildAutomationCyclePlan(db: Database, dbPath: string, input: Au
       "The supervisor and subagents must never call --run-live-small or execution Binance skills unless a separate live-small request is explicitly authorized.",
       "At most one job in a cycle may write trade.db at a time; existing cron lock remains the final local guard.",
       "Slow/R&D/catalog jobs must pass cadence due checks when the single external automation runs at fast-track frequency; review is event-first with cadence fallback.",
+      "R&D strategy supervisor must stop at shadow_candidate_found, budget_exhausted, or data_or_tool_blocked; it must not keep searching until something merely looks good.",
+      "R&D strategy supervisor learns from prior failure_summary/reliability_gate records and must carry rejected mechanisms, universe lessons, and next hypothesis constraints forward.",
       "R&D forward trackers write artifacts only and cannot create strategy evidence or promotion by themselves.",
       "Closed-flow review is event-first: dispatch after trade/reconcile reports a newly closed unreviewed flow; the review cadence is only a fallback sweep.",
     ],
@@ -215,6 +250,62 @@ function artifactJob(input: {
     cadence: input.cadence,
     ...(input.command ? { command: input.command } : {}),
     ...(input.trackers ? { trackers: input.trackers } : {}),
+  }
+}
+
+function rdStrategySupervisorJob(input: {
+  job_id: string
+  enabled: boolean
+  active: boolean
+  reason: string
+  cadence: CadenceState
+  goal: JSONRecord
+  learningMemoryRef: string
+  programStateRef?: string
+  programStateStatus?: string
+}): JSONRecord {
+  const budget = asRecord(input.goal.budget)
+  return {
+    ...baseJob(input),
+    subagent_role: "strategy-rd-supervisor",
+    write_scope: ["research artifacts", "catalog metadata", "strategy drafts only after gated candidate"],
+    concurrency_group: "research-rd",
+    may_write_trade_db: false,
+    may_call_binance_write: false,
+    cadence: input.cadence,
+    goal: input.goal,
+    ...(input.programStateRef ? { program_state_ref: displayPath(input.programStateRef) } : {}),
+    ...(input.programStateStatus ? { program_state_status: input.programStateStatus } : {}),
+    entrypoint: "read rd_program_state, request action=plan_next, then explicitly run the returned R&D loop/campaign payload and write learning-memory updates until a stop condition is reached",
+    research_loop_contract: {
+      loop_until: ["shadow_candidate_found", "budget_exhausted", "data_or_tool_blocked"],
+      stop_without_user: true,
+      allowed_actions: [
+        "--rd-program-state action=plan_next",
+        "--strategy-data-split",
+        "--strategy-rnd-campaign",
+        "--strategy-panel-rnd",
+        "forward-holdout",
+        "rd-shadow-tracker",
+        "--strategy-review dry-run",
+        "draft strategy policy after gated candidate only",
+      ],
+      forbidden_actions: [
+        "write trade.db",
+        "call Binance write APIs",
+        "promote strategy without explicit strategy-promote gate",
+        "reuse failed locked holdout after modifying parameters",
+      ],
+      budget: {
+        max_hypotheses: positiveNumber(budget.max_hypotheses) || 5,
+        max_trials_total: positiveNumber(budget.max_trials_total) || 30,
+        max_locked_holdout_uses: positiveNumber(budget.max_locked_holdout_uses) || 1,
+      },
+      learning_memory: {
+        read_ref: input.learningMemoryRef,
+        write_back: ["failure_summary", "reliability_gate", "rejected_mechanisms", "universe_lessons", "next_hypothesis_queue"],
+      },
+    },
   }
 }
 

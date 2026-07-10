@@ -30,6 +30,8 @@ export interface CommandConfig {
   strategyRndCampaign: boolean
   strategyPanelRnd: boolean
   strategyDataSplit: boolean
+  rdProgramState: boolean
+  rdSupervisorRun: boolean
   automationCycle: boolean
   strategyBenchmark: boolean
   strategyCalibrationSuite: boolean
@@ -79,6 +81,7 @@ export interface CommandConfig {
   ephemeralRetentionHours?: number
   strategyPath: string
   ledgerPath: string
+  statePath: string
   promoteTo: StrategyStatus
   input: JSONRecord
 }

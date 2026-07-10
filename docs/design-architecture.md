@@ -40,6 +40,29 @@ trade-flow cron 分两条轨道：
 
 subagent 只负责上下文隔离和并行：交易事实仍只能通过 trade-flow CLI、`trade.db`、cron lock 与 preflight 进入。R&D tracker 子任务不得写 `trade.db`，不得生成 strategy evidence；closed-flow review 优先由本轮“已闭合且未 review”事件触发，必须在交易 / 对账子任务之后串行收尾。review cadence 只做漏单兜底，不把 review 变成第四条长期 automation。
 
+总控输出的 job line 是产品级边界：
+
+| job_id | 所属线 | subagent 角色 | 并发组 | 写权限 |
+| --- | --- | --- | --- | --- |
+| `fast_track_guard` | active flow 守护 | `trade-flow-operator` | `trade-db` | `trade.db` |
+| `slow_track_market_watch` | live 策略盯市 / 计划 | `trade-flow-operator` | `trade-db` | `trade.db` |
+| `rd_strategy_supervisor` | 新策略研发学习 loop | `strategy-rd-supervisor` | `research-rd` | research artifact / catalog / gated draft |
+| `rd_forward_shadow_trackers` | 已冻结候选 / shadow 样本延续验证 | `research-artifact-operator` | job 自身 | R&D tracker artifact / catalog |
+| `closed_flow_review_sweep` | 已闭合交易复盘 | `closed-flow-reviewer` | `trade-db` | `trade.db` review |
+| `catalog_hygiene_scan` | artifact / catalog 保洁 | `research-artifact-operator` | job 自身 | `data_catalog.db` |
+
+`rd_strategy_supervisor` 和 `rd_forward_shadow_trackers` 必须分开：前者负责提出新 hypothesis、消费失败经验、控制搜索预算；后者只接着观察已冻结候选或 paper/shadow 样本。前者可以产出 gated draft strategy，后者只能产出 review 输入。两者都不能把研究事实写进 `trade.db`，也不能触发 Binance。
+
+`rd_strategy_supervisor` 的 durable memory 是 `rd_program_state` artifact。`--automation-cycle` 收到 `rd_program_state_path` 时，以 state 中的 objective / budget / usage / lessons / queue 作为研发线事实源，并把该路径作为 learning memory ref；state 非 `active` 时，即使 cadence due 或被 force，也不继续派发研发 loop。临时 `rd_strategy_goal` 只用于尚未建立 state 的启动兼容。
+
+state 写入是显式边界：`--rd-program-state` 可 init/read/update/plan_next；`plan_next` 只读 state，把 queue 中的下一条 hypothesis 编译为 R&D loop/campaign payload 草案。`--rd-supervisor-run` 是高阶执行器，串起 `plan_next -> loop/campaign -> state writeback`，直到候选、预算耗尽、数据/工具阻断或 max_iterations。R&D loop / campaign 只有 payload 带 `rd_program_state_path` 才把 usage、failure、reliability、artifact refs 写回；strategy review 只有 payload 带 `rd_program_state_path` 才把 execution attribution、cost feedback、decay diagnostics 写回。总控不隐式制造研发事实，只分发显式 job。
+
+调度顺序固定三段：
+
+1. `serial_trade_db_guard`：先跑 fast guard，恢复 / 防御 active flow。
+2. `parallel_isolated_work`：slow 盯市、strategy R&D、R&D tracker、catalog 保洁可并行；只有 slow 可能进入 `trade-db` 写区。
+3. `serial_review_closeout`：上游报告新闭合 flow 后，再串行 review 封口；fallback sweep 只补漏。
+
 不要求严格 cron 对齐（如 :05 / :20 / :35 / :50）：实际触发时间可能漂移，"两轨不同时驱动 Binance API + LLM 推理"这个真需求由 supervisor cadence + skill 入口 lock file + 幂等执行兜底（见 §失败兜底 → 慢/快轨重叠），而不是靠错开 wall-clock 分钟。
 
 ### 共同 executor

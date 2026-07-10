@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade-flow.rd-program-state-result.v1",
+  "title": "trade-flow R&D program state result",
+  "description": "Stable outer shape for reading or mutating the durable R&D learning memory artifact. State internals remain intentionally open.",
+  "type": "object",
+  "required": ["schema_version", "action", "state_ref", "state", "goal"],
+  "properties": {
+    "schema_version": { "const": "trade-flow.rd-program-state-result.v1" },
+    "action": { "enum": ["init", "read", "update", "plan_next"] },
+    "state_ref": { "type": "string", "minLength": 1 },
+    "catalog_db_path": { "type": "string", "minLength": 1 },
+    "artifact_id": { "type": "string", "minLength": 1 },
+    "state": {
+      "type": "object",
+      "required": ["schema_version", "program_id", "objective", "status", "budget", "usage", "guardrails"],
+      "properties": {
+        "schema_version": { "const": "trade-flow.rd-program-state.v1" },
+        "program_id": { "type": "string", "minLength": 1 },
+        "objective": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["active", "shadow_candidate_found", "budget_exhausted", "data_or_tool_blocked", "paused"] },
+        "budget": { "type": "object" },
+        "usage": { "type": "object" },
+        "guardrails": {
+          "type": "object",
+          "required": ["may_write_trade_db", "may_call_binance_write", "evidence_status"],
+          "properties": {
+            "may_write_trade_db": { "const": false },
+            "may_call_binance_write": { "const": false },
+            "evidence_status": { "const": "research_memory_not_strategy_evidence" }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "goal": { "type": "object" },
+    "next_plan": {
+      "type": "object",
+      "required": ["schema_version", "plan_id", "created_at", "status", "reason", "command", "payload", "selected_hypothesis", "budget_remaining", "guardrails"],
+      "properties": {
+        "schema_version": { "const": "trade-flow.rd-supervisor-next-plan.v1" },
+        "plan_id": { "type": "string", "minLength": 1 },
+        "created_at": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["ready", "blocked", "stopped"] },
+        "reason": { "type": "string", "minLength": 1 },
+        "command": { "type": ["string", "null"] },
+        "payload": { "type": ["object", "null"] },
+        "selected_hypothesis": { "type": ["object", "null"] },
+        "budget_remaining": { "type": "object" },
+        "guardrails": {
+          "type": "object",
+          "required": ["read_only_plan", "may_write_trade_db", "may_call_binance_write", "requires_explicit_execution"],
+          "properties": {
+            "read_only_plan": { "const": true },
+            "may_write_trade_db": { "const": false },
+            "may_call_binance_write": { "const": false },
+            "requires_explicit_execution": { "const": true }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

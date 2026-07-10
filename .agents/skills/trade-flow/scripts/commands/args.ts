@@ -18,6 +18,8 @@ export function parseArgs(argv: string[]): CommandConfig {
   let strategyRndCampaign = false
   let strategyPanelRnd = false
   let strategyDataSplit = false
+  let rdProgramState = false
+  let rdSupervisorRun = false
   let automationCycle = false
   let strategyBenchmark = false
   let strategyCalibrationSuite = false
@@ -66,6 +68,7 @@ export function parseArgs(argv: string[]): CommandConfig {
   let ephemeralRetentionHours: number | undefined
   let strategyPath = ""
   let ledgerPath = ""
+  let statePath = ""
   let promoteTo: StrategyStatus = "shadow"
   let promoteToExplicit = false
   let raw = ""
@@ -120,6 +123,12 @@ export function parseArgs(argv: string[]): CommandConfig {
         break
       case "--strategy-data-split":
         strategyDataSplit = true
+        break
+      case "--rd-program-state":
+        rdProgramState = true
+        break
+      case "--rd-supervisor-run":
+        rdSupervisorRun = true
         break
       case "--automation-cycle":
         automationCycle = true
@@ -265,6 +274,9 @@ export function parseArgs(argv: string[]): CommandConfig {
       case "--ledger":
         ledgerPath = readFlagValue(argv, ++index, arg)
         break
+      case "--state":
+        statePath = readFlagValue(argv, ++index, arg)
+        break
       case "--to":
         promoteTo = readStrategyStatus(readFlagValue(argv, ++index, arg))
         promoteToExplicit = true
@@ -297,6 +309,8 @@ export function parseArgs(argv: string[]): CommandConfig {
     strategyRndCampaign,
     strategyPanelRnd,
     strategyDataSplit,
+    rdProgramState,
+    rdSupervisorRun,
     automationCycle,
     strategyBenchmark,
     strategyCalibrationSuite,
@@ -346,6 +360,7 @@ export function parseArgs(argv: string[]): CommandConfig {
     ephemeralRetentionHours,
     strategyPath,
     ledgerPath,
+    statePath,
     promoteTo,
     input: raw ? JSON.parse(raw) as JSONRecord : {},
   }

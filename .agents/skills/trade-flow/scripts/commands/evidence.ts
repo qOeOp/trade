@@ -1,5 +1,6 @@
 import { existsSync } from "node:fs"
 import { Database } from "bun:sqlite"
+import { readRdProgramState, updateRdProgramStateFromStrategyReview, writeRdProgramState } from "../lib/rd-program-state"
 import type { ReplayResult } from "../lib/replay-core"
 import {
   appendReplayEvidence,
@@ -21,12 +22,15 @@ export function handleEvidenceCommand(config: CommandConfig): ScriptResponse | n
     return successResponse(appendStrategyEvidenceFromInput(config))
   }
   if (config.strategyReview) {
-    return successResponse(withExistingDb(config.dbPath, (db) => reviewStrategy({
-      strategyPath: config.strategyPath,
-      ledgerPath: config.ledgerPath,
-      catalogDbPath: evidenceCatalogDbPath(config),
-      db,
-    })))
+    return successResponse(withExistingDb(config.dbPath, (db) => {
+      const report = reviewStrategy({
+        strategyPath: config.strategyPath,
+        ledgerPath: config.ledgerPath,
+        catalogDbPath: evidenceCatalogDbPath(config),
+        db,
+      })
+      return withRdReviewFeedback(config, report as unknown as JSONRecord)
+    }))
   }
   if (config.strategyPromote) {
     return successResponse(withExistingDb(config.dbPath, (db) => promoteStrategy({
@@ -51,6 +55,40 @@ export function handleEvidenceCommand(config: CommandConfig): ScriptResponse | n
     })))
   }
   return null
+}
+
+function withRdReviewFeedback(config: CommandConfig, report: JSONRecord): JSONRecord {
+  const statePath = stringField(config.input.rd_program_state_path)
+  if (!statePath) {
+    return report
+  }
+  const state = readRdProgramState(statePath)
+  const updated = updateRdProgramStateFromStrategyReview(state, report, stringField(config.input.now) || undefined)
+  const written = writeRdProgramState(statePath, updated, evidenceCatalogDbPath(config))
+  return {
+    ...report,
+    rd_program_state: {
+      schema_version: "trade-flow.rd-program-state-result.v1",
+      action: "update",
+      state_ref: written.path,
+      catalog_db_path: written.catalog_db_path,
+      artifact_id: written.artifact_id,
+      state: updated,
+      goal: {
+        objective: updated.objective,
+        status: updated.status,
+        budget: updated.budget,
+        usage: updated.usage,
+        stop_conditions: updated.stop_conditions,
+        latest_failure_summary: updated.latest_failure_summary,
+        latest_reliability_gate: updated.latest_reliability_gate,
+        rejected_mechanisms: updated.rejected_mechanisms,
+        universe_lessons: updated.universe_lessons,
+        next_hypothesis_queue: updated.next_hypothesis_queue,
+        artifact_refs: updated.artifact_refs,
+      },
+    },
+  }
 }
 
 function appendStrategyEvidenceFromInput(config: CommandConfig): unknown {

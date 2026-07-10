@@ -2,6 +2,12 @@ import { randomUUID } from "node:crypto"
 import { join } from "node:path"
 import { defaultCatalogDbPathForGeneratedPath, registerCatalogArtifact } from "./data-catalog"
 import {
+  readRdProgramState,
+  updateRdProgramStateFromResearchResult,
+  writeRdProgramState,
+  type RdProgramStateCommandResult,
+} from "./rd-program-state"
+import {
   hashCanonical,
   evaluateLatestSignal,
   replayDataHash,
@@ -90,6 +96,7 @@ interface StrategyRndLoopReport {
   batch: StrategyRndBatchReport
   ledger_record: StrategyRndLedgerRecord
   stop_reason: "candidate_found" | "no_promote"
+  rd_program_state?: RdProgramStateCommandResult
 }
 
 function evaluateRndSignal(input: StrategyRndSignalInput): JSONRecord {
@@ -208,7 +215,7 @@ function runStrategyRndLoop(input: StrategyRndLoopInput): StrategyRndLoopReport 
   })
   appendRndLedgerRecord({ catalogDbPath, ledgerPath: input.ledgerPath }, ledgerRecord)
 
-  return {
+  const report: StrategyRndLoopReport = {
     run_id: runId,
     created_at,
     artifact_ref: artifactRef,
@@ -217,13 +224,47 @@ function runStrategyRndLoop(input: StrategyRndLoopInput): StrategyRndLoopReport 
     ledger_record: ledgerRecord,
     stop_reason: batch.outcome,
   }
+  const rdProgramState = maybeUpdateRdProgramState(input.rdProgramStatePath, catalogDbPath, report as unknown as JSONRecord, created_at)
+  return rdProgramState ? { ...report, rd_program_state: rdProgramState } : report
 }
 
 function runStrategyRndCampaign(input: StrategyRndCampaignInput): StrategyRndCampaignReport {
-  return runStrategyRndCampaignWithDeps(input, {
+  const report = runStrategyRndCampaignWithDeps(input, {
     runLoop: runStrategyRndLoop,
     resolveCandidateCount,
   })
+  const rdProgramState = maybeUpdateRdProgramState(input.rdProgramStatePath, input.catalogDbPath || defaultCatalogDbPathForGeneratedPath(report.artifact_ref), report as unknown as JSONRecord, report.created_at)
+  return rdProgramState ? { ...report, rd_program_state: rdProgramState } : report
+}
+
+function maybeUpdateRdProgramState(path: string | undefined, catalogDbPath: string, result: JSONRecord, now: string): RdProgramStateCommandResult | undefined {
+  if (!path) {
+    return undefined
+  }
+  const state = readRdProgramState(path)
+  const updated = updateRdProgramStateFromResearchResult(state, result, now)
+  const written = writeRdProgramState(path, updated, catalogDbPath)
+  return {
+    schema_version: "trade-flow.rd-program-state-result.v1",
+    action: "update",
+    state_ref: written.path,
+    catalog_db_path: written.catalog_db_path,
+    artifact_id: written.artifact_id,
+    state: updated,
+    goal: {
+      objective: updated.objective,
+      status: updated.status,
+      budget: updated.budget,
+      usage: updated.usage,
+      stop_conditions: updated.stop_conditions,
+      latest_failure_summary: updated.latest_failure_summary,
+      latest_reliability_gate: updated.latest_reliability_gate,
+      rejected_mechanisms: updated.rejected_mechanisms,
+      universe_lessons: updated.universe_lessons,
+      next_hypothesis_queue: updated.next_hypothesis_queue,
+      artifact_refs: updated.artifact_refs,
+    },
+  }
 }
 
 export {

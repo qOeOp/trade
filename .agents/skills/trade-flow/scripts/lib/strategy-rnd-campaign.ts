@@ -5,6 +5,7 @@ import { defaultCatalogDbPathForGeneratedPath, registerCatalogArtifact } from ".
 import { resolveReadablePath } from "./paths"
 import { assertHoldoutUnused, holdoutKeyForInput, safeFileName, writeJsonFile } from "./strategy-rnd-ledger"
 import type { JSONRecord } from "./json"
+import type { RdProgramStateCommandResult } from "./rd-program-state"
 import type { StrategyRndCampaignHypothesisInput, StrategyRndCampaignInput, StrategyRndLoopInput } from "./strategy-rnd-inputs"
 
 export interface StrategyRndCampaignReport {
@@ -36,6 +37,7 @@ export interface StrategyRndCampaignReport {
     validation_run_ref: string | null
     validation_outcome: "candidate_found" | "no_promote" | null
   }>
+  rd_program_state?: RdProgramStateCommandResult
 }
 
 export interface HypothesisCertificateGate {

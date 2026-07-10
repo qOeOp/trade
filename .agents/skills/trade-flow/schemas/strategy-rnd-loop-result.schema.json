@@ -12,7 +12,8 @@
     "ledger_ref": { "type": "string", "minLength": 1 },
     "batch": { "$ref": "strategy-rnd-batch-result.schema.json" },
     "ledger_record": { "type": "object" },
-    "stop_reason": { "enum": ["candidate_found", "no_promote"] }
+    "stop_reason": { "enum": ["candidate_found", "no_promote"] },
+    "rd_program_state": { "$ref": "rd-program-state-result.schema.json" }
   },
   "additionalProperties": false
 }

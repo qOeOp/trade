@@ -16,6 +16,9 @@ export const HELP_TEXT = `Usage:
   ./scripts/main.ts --strategy-rnd-campaign --json '{"campaign_id":"...","max_total_trials":10,"hypotheses":[...]}'
   ./scripts/main.ts --strategy-panel-rnd --json '{"datasets":[...],"candidates":[...]}'
   ./scripts/main.ts --strategy-data-split --json '{"split_id":"...","datasets":[...],"timeframe":"4h"}'
+  ./scripts/main.ts --rd-program-state --state ./data/rd/program.json --json '{"action":"init","objective":"find a shadow-eligible 4H swing strategy"}'
+  ./scripts/main.ts --rd-program-state --state ./data/rd/program.json --json '{"action":"plan_next"}'
+  ./scripts/main.ts --rd-supervisor-run --state ./data/rd/program.json --json '{"max_iterations":10,"artifact_root":"./tmp/artifacts/strategy-rnd"}'
   ./scripts/main.ts --db ./data/trade.db --automation-cycle --json '{"slow_interval_minutes":240,"rd_trackers":[...]}'
   ./scripts/main.ts --strategy-benchmark --json '{"datasets":[...]}'
   ./scripts/main.ts --strategy-calibration-suite --json '{"datasets":[...]}'
@@ -60,6 +63,8 @@ Key flags:
   --strategy-rnd-campaign  Run bounded hypotheses through discovery and non-overlapping external validation
   --strategy-panel-rnd     Evaluate fixed candidates across at least three assets
   --strategy-data-split    Split OHLCV manifests into discovery, validation, and locked_holdout manifests before R&D
+  --rd-program-state       Init/read/update/plan_next durable R&D learning memory; R&D loop/campaign can write back via rd_program_state_path
+  --rd-supervisor-run      Run plan_next -> R&D loop/campaign -> state writeback until terminal status or max_iterations
   --automation-cycle       Build a single-entry automation supervisor plan with subagent fanout and cadence gates
   --strategy-benchmark     Calibrate the R&D pipeline with one fixed multi-asset trend benchmark
   --strategy-calibration-suite Run fixed known-edge calibration baselines; never auto-promotes
@@ -87,6 +92,7 @@ Key flags:
   --yes                    Required for --run-live-small / --apply-reconcile
   --strategy <path>        Strategy markdown path for iteration commands
   --ledger <path>          Deprecated legacy JSONL path; use --catalog-db for current storage
+  --state <path>           R&D program state artifact path for --rd-program-state / --rd-supervisor-run
   --to <status>            Target status for --strategy-promote
   --artifact-root <path>   Artifact root for explicit GC or R&D output; R&D defaults to ./tmp/artifacts/strategy-rnd
   --catalog-db <path>      SQLite data catalog path. Default: ./data/data_catalog.db

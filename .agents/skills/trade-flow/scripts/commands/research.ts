@@ -1,4 +1,6 @@
 import { runArtifactGc } from "../lib/artifact-hygiene"
+import { runRdProgramStateCommand } from "../lib/rd-program-state"
+import { runRdSupervisorLoop } from "../lib/rd-supervisor-runner"
 import { candidateFromStrategyContract, compileStrategyContract, lintStrategyContract } from "../lib/strategy-contract"
 import { runStrategyDataSplit, strategyDataSplitInputFromJson } from "../lib/strategy-data-split"
 import { replayRegisteredStrategy } from "../lib/strategy-replay"
@@ -56,6 +58,20 @@ export function handleResearchCommand(config: CommandConfig): ScriptResponse | n
   }
   if (config.strategyDataSplit) {
     return successResponse(runStrategyDataSplit(strategyDataSplitInputFromJson(config.input)))
+  }
+  if (config.rdProgramState) {
+    return successResponse(runRdProgramStateCommand({
+      path: config.statePath,
+      input: config.input,
+      catalogDbPath: config.catalogDbPath,
+    }))
+  }
+  if (config.rdSupervisorRun) {
+    return successResponse(runRdSupervisorLoop({
+      path: config.statePath,
+      input: config.input,
+      catalogDbPath: config.catalogDbPath,
+    }))
   }
   if (config.strategyBenchmark) {
     return successResponse(runTrendBenchmark(strategyBenchmarkInputFromJson(config.input)))

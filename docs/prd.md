@@ -25,7 +25,36 @@ research / review
   -> live-small / paused
 ```
 
-外部调度只保留一条 automation supervisor。它按快轨频率唤醒，通过 `--automation-cycle` 生成任务图，再用 subagent 隔离并行盯市、慢轨、R&D 与 artifact 检查；任意时刻最多一个 worker 写 `trade.db`。平仓 review 优先由本轮闭合事件触发，并在交易 / 对账之后串行执行；低频 sweep 只负责补漏。
+外部调度只保留一条 automation supervisor。它按快轨频率唤醒，通过 `--automation-cycle` 生成任务图，再用 subagent 隔离并行盯市、慢轨、strategy R&D supervisor、R&D forward tracker 与 artifact 检查；任意时刻最多一个 worker 写 `trade.db`。平仓 review 优先由本轮闭合事件触发，并在交易 / 对账之后串行执行；低频 sweep 只负责补漏。
+
+产品形态不是多条长期 automation，而是一个总控入口管理多条 job line：
+
+```text
+single automation entry
+  -> supervisor plan
+  -> cadence / lock / concurrency / permission gate
+  -> subagent fan-out
+     -> live opportunity watch
+     -> active flow guard
+     -> shadow / forward validation
+     -> new strategy R&D
+     -> closed-flow review
+     -> catalog / artifact hygiene
+  -> supervisor summary
+```
+
+总控只负责调度、隔离、权限与收口，不替代各 job 的专业判断。subagent 是上下文隔离和并行机制，不是新的事实源；所有事实仍必须落到 `trade.db`、research artifact、catalog DB 或 strategy 文件这些可审计资产里。
+
+| Job line | 目标 | 可写入 | 不允许 |
+| --- | --- | --- | --- |
+| `fast_track_guard` | 守护 active flow、触发慢轨已授权动作、同步保护与对账 | `trade.db` light observe / order_fill | 新建 thesis、扩大风险、改策略 |
+| `slow_track_market_watch` | 用 live-small 策略寻找和管理真钱机会 | `trade.db` full observe / order_fill | 绕过 preflight / execution contract |
+| `rd_forward_shadow_trackers` | 接着验证已冻结 / 已触发的 paper 或 shadow 样本 | R&D tracker artifact / catalog | 生成 strategy evidence、触发 Binance |
+| `rd_strategy_supervisor` | 自主研发新策略，失败经验进入下一轮 hypothesis | research artifact / catalog / gated draft strategy | 写 `trade.db`、调用 Binance、无界搜索 |
+| `closed_flow_review_sweep` | 对已闭合 flow 做复盘并推动策略迭代 | `trade.db` review / review artifact | 与交易写入并行封口 |
+| `catalog_hygiene_scan` | 维护 artifact 可见性、引用、过期候选 | `data_catalog.db` | 删除未确认资产、影响交易事实 |
+
+优雅点在于：总控每次只生成“本轮该跑什么”的任务图；各 job line 自己有 cadence、权限和停止条件。真钱交易、shadow 验证、新策略研发、复盘迭代可以并行思考，但写事实时仍被 concurrency group 串行化。
 
 ## 2. 固定术语
 
@@ -100,6 +129,22 @@ tags: []
 
 这条链路只回答一个问题：setup 有没有资格动真钱。
 
+Strategy R&D 不是单次实验交互，而是受预算约束的学习 loop：
+
+```text
+上轮 failure_summary / reliability_gate / universe_lesson
+  -> 下一条 hypothesis
+  -> data split / campaign / panel / validation
+  -> 若通过 gate，冻结 contract 并进入 forward / shadow
+  -> 若失败，沉淀 rejected mechanism 与下一轮约束
+```
+
+停止条件固定为：`shadow_candidate_found / budget_exhausted / data_or_tool_blocked`。R&D supervisor 可以由 automation 分发给 subagent，但只允许写 research artifact、catalog metadata 与 gated strategy draft；不得写 `trade.db`、不得调用 Binance 写接口、不得把失败后调参继续伪装成同一 hypothesis。
+
+持续 R&D 的事实源是机器可读 `rd_program_state` artifact，而不是临时对话记忆。它保存 objective、budget、usage、stop status、失败摘要、reliability gate、被拒机制、universe lesson、下一轮 hypothesis queue 与 artifact refs；状态为 `active` 时总控才继续派发 `rd_strategy_supervisor`，进入 `shadow_candidate_found / budget_exhausted / data_or_tool_blocked` 后自动停线。该 state 只属于 research memory，不是 strategy evidence。
+
+`rd_program_state` 的写入必须显式：`--rd-program-state` 负责 init/read/update/plan_next；`plan_next` 只读 state，把 `next_hypothesis_queue` 编译为下一轮 `--strategy-rnd-loop` 或 `--strategy-rnd-campaign` payload 草案。`--rd-supervisor-run` 串起 `plan_next -> loop/campaign -> state writeback`，让 R&D 进入后自主循环到候选、预算耗尽或数据/工具阻断。`--strategy-rnd-loop` / `--strategy-rnd-campaign` 只有在 payload 传入 `rd_program_state_path` 时才把本轮 artifact、usage、失败机制或 validated candidate 写回；`--strategy-review` 只有在 payload 传入 `rd_program_state_path` 时才把 review diagnostics、成本反馈和 replay-to-shadow/live decay 写回。
+
 最小输入：
 
 - `setup_id`
@@ -130,10 +175,12 @@ Replay / shadow / live 对齐要求：
 - `replay-strategies`：`strategy_id -> ReplayStrategy` registry；新增策略只补 strategy definition，不改 core
 - `--replay-strategy`：只读文件，不写 DB，不触发 Binance
 - `--strategy-rnd-batch`：最多 10 个候选；可先在 discovery 数据上筛 factor，再按角色、数量与参数预算组合到预声明 base family；统一 replay/OOS、candidate null controls 和失败归因，不自动升格
-- `--strategy-rnd-loop`：包装一轮 R&D batch，写 artifact JSON 与 `data_catalog.db.strategy_rnd_run`；R&D 审计不作为 promote evidence
-- `--strategy-rnd-campaign`：在全局最多 10 次 discovery trial 内运行 hypothesis queue；每个 hypothesis 必须带 `thesis_certificate`，缺 edge 类型、行为假设、参与者、regime、失效条件、成本敏感度、候选 universe 或 null controls 时零 trial 停止；可选 `calibration_report_path` 未过则零 trial 停止；没有 winner 才继续，首个 winner 冻结后只查看一次不重叠 locked holdout，失败即结束 campaign
+- `--strategy-rnd-loop`：包装一轮 R&D batch，写 artifact JSON 与 `data_catalog.db.strategy_rnd_run`；R&D 审计不作为 promote evidence；可显式写回 `rd_program_state`
+- `--strategy-rnd-campaign`：在全局最多 10 次 discovery trial 内运行 hypothesis queue；每个 hypothesis 必须带 `thesis_certificate`，缺 edge 类型、行为假设、参与者、regime、失效条件、成本敏感度、候选 universe 或 null controls 时零 trial 停止；可选 `calibration_report_path` 未过则零 trial 停止；没有 winner 才继续，首个 winner 冻结后只查看一次不重叠 locked holdout，失败即结束 campaign；可显式写回 `rd_program_state`
 - `--strategy-panel-rnd`：同一候选跨至少 3 个资产评估，保留逐资产证据，并检查 pooled sample、广度、OOS、成本与灾难损失
 - `--strategy-data-split`：新 hypothesis 开研前把历史 manifest 先切成 discovery / validation / locked_holdout 三个独立 manifest，并自动留 embargo；避免 draft 后才发现所有历史都已被研发污染
+- `--rd-program-state`：初始化、读取、更新或 `plan_next` R&D learning memory artifact；`plan_next` 只生成下一轮 R&D payload，不写 `trade.db`，不产生 strategy evidence
+- `--rd-supervisor-run`：执行自主 R&D supervisor loop；每轮先从 state 规划下一条 hypothesis，再运行 loop/campaign，并依赖写回结果推进 queue、usage 与 stop status
 - `--automation-cycle`：单一 automation 入口的 supervisor plan；外部 Codex automation 可按任务图用 subagent 分发 fast / slow / R&D / review / catalog，慢轨、R&D 与 review 由 cadence gate 控制，不随快频入口每轮运行
 - `--strategy-benchmark`：用固定多资产趋势规则、15% 目标波动、成本/资金费压力和组合权重循环移位负对照标定 R&D 管线；不写 DB、不产生准入证据
 - `--strategy-calibration-suite`：固定跑 buy-and-hold / cash baseline、趋势基准、横截面强弱基准，可消费 dataset `indicator_report_path` 中的 exact funding events 与 `symbol_status`，并输出 report hash、可选 previous-run comparison、data_panel、survivor-only 标记、beta、fee/slippage 成本拆分、funding、换手、暴露、时间/趋势/波动 regime 稳定性、time-shift / side-flip / asset-shuffle 负对照与数据广度归因；只暴露系统问题，不产生准入证据

@@ -20,7 +20,8 @@
     "hypotheses_run": { "type": "integer", "minimum": 0 },
     "holdout_evaluations": { "type": "integer", "minimum": 0 },
     "validated_candidate": { "type": ["object", "null"] },
-    "runs": { "type": "array" }
+    "runs": { "type": "array" },
+    "rd_program_state": { "$ref": "rd-program-state-result.schema.json" }
   },
   "additionalProperties": false
 }

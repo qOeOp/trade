@@ -48,7 +48,18 @@ agent 负责判断，skill 负责事实，脚本负责硬约束，交易所事�
 
 ## 运行方式
 
-一条高频 automation supervisor 是唯一外部入口：先生成本轮任务图，再把盯市、慢轨判断、R&D tracker、artifact 保洁分发给上下文隔离的 subagent；平仓 review 在交易与对账完成后按事件串行收尾。慢轨、R&D 和保洁仍由各自 cadence gate 控制，不因入口高频唤醒而高频运行。
+一条高频 automation supervisor 是唯一外部入口：先生成本轮任务图，再把盯市、慢轨判断、strategy R&D supervisor、R&D forward tracker、artifact 保洁分发给上下文隔离的 subagent；平仓 review 在交易与对账完成后按事件串行收尾。慢轨、R&D 和保洁仍由各自 cadence gate 控制，不因入口高频唤醒而高频运行。
+
+产品运行像一个小型投研交易台，而不是一个单线程聊天机器人：
+
+- 总控：列出本轮 job、检查 cadence / lock / concurrency / permission，最后收口摘要。
+- live 线：用 `live-small` 策略盯市、管理 active flow、触发经过 preflight 的执行。
+- shadow 线：继续跟踪已冻结候选和 paper / shadow 样本，累积执行前证据。
+- R&D 线：研发新策略，失败经验进入下一轮 hypothesis，直到 shadow 候选、预算耗尽或阻断。
+- review 线：复盘已闭合交易，把执行、成本、regime、策略条款问题写回迭代链。
+- hygiene 线：维护 artifact / catalog，保证证据可找、可删、可复读。
+
+strategy R&D supervisor 的产品语义是“学习型研究员”，不是单次实验按钮：它在预算内读取上一轮 `failure_summary / reliability_gate / universe_lessons`，生成下一条更受约束的 hypothesis，循环到 `shadow_candidate_found / budget_exhausted / data_or_tool_blocked` 才停。它只能写研究 artifact、catalog metadata 与 gated strategy draft，不能写 `trade.db` 或触发 Binance。
 
 subagent 是运行时并行与上下文卫生机制，不是新的事实源或权限主体。读重任务可以并行；`trade.db` 写入、交易动作和 review 封口必须按 concurrency group 串行，并继续经过 CLI、cron lock、preflight 与交易所事实回读。
 

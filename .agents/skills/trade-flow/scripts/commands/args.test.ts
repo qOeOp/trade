@@ -22,6 +22,8 @@ test("parseArgs keeps core execution and evidence flags stable", () => {
     "--strategy-compile",
     "--strategy-lint",
     "--strategy-data-split",
+    "--rd-program-state",
+    "--rd-supervisor-run",
     "--automation-cycle",
     "--trading-config",
     "profile/trading-config.json",
@@ -30,6 +32,8 @@ test("parseArgs keeps core execution and evidence flags stable", () => {
     "strategy.md",
     "--ledger",
     "ledger.jsonl",
+    "--state",
+    "rd-state.json",
     "--to",
     "live-small",
     "--artifact-root",
@@ -66,12 +70,15 @@ test("parseArgs keeps core execution and evidence flags stable", () => {
   assert.equal(config.strategyCompile, true)
   assert.equal(config.strategyLint, true)
   assert.equal(config.strategyDataSplit, true)
+  assert.equal(config.rdProgramState, true)
+  assert.equal(config.rdSupervisorRun, true)
   assert.equal(config.automationCycle, true)
   assert.equal(config.tradingConfigPath, "profile/trading-config.json")
   assert.equal(config.strategiesDir, "./strategies")
   assert.equal(config.strategyCycle, true)
   assert.equal(config.strategyPath, "strategy.md")
   assert.equal(config.ledgerPath, "ledger.jsonl")
+  assert.equal(config.statePath, "rd-state.json")
   assert.equal(config.promoteTo, "live-small")
   assert.equal(config.promoteToExplicit, true)
   assert.equal(config.artifactRoot, "/tmp/artifacts")

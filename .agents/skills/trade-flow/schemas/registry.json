@@ -91,6 +91,18 @@
       "covers": ["--reconcile-flow data", "--reconcile-from-skills data"]
     },
     {
+      "file": "rd-program-state-result.schema.json",
+      "id": "trade-flow.rd-program-state-result.v1",
+      "owner": "scripts/lib/rd-program-state.ts",
+      "covers": ["--rd-program-state data", "nested R&D program state writeback"]
+    },
+    {
+      "file": "rd-supervisor-run-result.schema.json",
+      "id": "trade-flow.rd-supervisor-run-result.v1",
+      "owner": "scripts/lib/rd-supervisor-runner.ts",
+      "covers": ["--rd-supervisor-run data"]
+    },
+    {
       "file": "run-step-result.schema.json",
       "id": "trade-flow.run-step-result.v1",
       "owner": "scripts/lib/execution-flow.ts",
@@ -279,6 +291,16 @@
       "command": "--strategy-data-split",
       "status": "covered",
       "schemas": ["script-response.schema.json", "strategy-data-split-result.schema.json"]
+    },
+    {
+      "command": "--rd-program-state",
+      "status": "covered",
+      "schemas": ["script-response.schema.json", "rd-program-state-result.schema.json"]
+    },
+    {
+      "command": "--rd-supervisor-run",
+      "status": "covered",
+      "schemas": ["script-response.schema.json", "rd-supervisor-run-result.schema.json"]
     },
     {
       "command": "--strategy-benchmark",

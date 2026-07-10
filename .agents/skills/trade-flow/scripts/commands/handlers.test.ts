@@ -11,6 +11,7 @@ import { handleRecoveryCommand } from "./recovery"
 import { handleRuntimeCommand } from "./runtime"
 import type { CommandConfig, JSONRecord } from "./types"
 import { appendPlanEvent, ensureSchema, readFlowEvents } from "../lib/plan-events"
+import { createRdProgramState, readRdProgramState, writeRdProgramState } from "../lib/rd-program-state"
 import { loadEvidenceLedger } from "../lib/strategy-iteration"
 
 test("observe command handler builds observe events without opening trade DB", async () => {
@@ -277,6 +278,59 @@ test("evidence command handler can append shadow evidence from DB reviews", () =
   }
 })
 
+test("strategy review command can feed diagnostics back into R&D program state", () => {
+  const dir = mkdtempSync(join(tmpdir(), "trade-flow-review-rd-state-"))
+  const strategyPath = join(dir, "s-test.md")
+  const catalogDbPath = join(dir, "data_catalog.db")
+  const statePath = join(dir, "rd-state.json")
+  try {
+    writeFileSync(strategyPath, "---\nstrategy_id: S-TEST\nname: Test\nstatus: shadow\ntags: [test]\n---\n\n# Test\n\nRule v1\n")
+    writeRdProgramState(statePath, createRdProgramState({
+      programId: "review-feedback",
+      objective: "learn from strategy review diagnostics",
+      now: "2026-07-08T12:00:00Z",
+    }), catalogDbPath)
+    const evidence = handleEvidenceCommand(baseConfig({
+      appendStrategyEvidence: true,
+      strategyPath,
+      catalogDbPath,
+      input: {
+        kind: "replay",
+        source_ref: "tmp/replay.json",
+        now: "2026-07-08T12:01:00Z",
+        stats: { sample_count: 12, avg_r: 0.2, total_r: 2.4, profit_factor: 1.4 },
+        anti_overfit: {
+          method: "out_of_sample",
+          stage: "locked_holdout",
+          oos_stats: { sample_count: 12, avg_r: 0.2, total_r: 2.4, profit_factor: 1.4 },
+          trial_count: 1,
+          parameter_count: 2,
+        },
+      },
+    }))
+    assert.equal(evidence?.ok, true)
+
+    const response = handleEvidenceCommand(baseConfig({
+      strategyReview: true,
+      strategyPath,
+      catalogDbPath,
+      input: {
+        now: "2026-07-08T12:02:00Z",
+        rd_program_state_path: statePath,
+      },
+    }))
+
+    assert.equal(response?.ok, true)
+    const report = response?.data as { rd_program_state?: { state: { latest_reliability_gate: JSONRecord } } }
+    assert.equal(report.rd_program_state?.state.latest_reliability_gate.source, "strategy_review")
+    const state = readRdProgramState(statePath)
+    assert.equal(state.latest_reliability_gate?.source, "strategy_review")
+    assert.equal(state.universe_lessons.some((lesson) => lesson.source === "strategy_review"), true)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 function baseConfig(overrides: Partial<CommandConfig>): CommandConfig {
   return {
     dbPath: "./data/trade.db",
@@ -295,6 +349,8 @@ function baseConfig(overrides: Partial<CommandConfig>): CommandConfig {
     strategyRndCampaign: false,
     strategyPanelRnd: false,
     strategyDataSplit: false,
+    rdProgramState: false,
+    rdSupervisorRun: false,
     automationCycle: false,
     strategyBenchmark: false,
     strategyCalibrationSuite: false,
@@ -333,6 +389,7 @@ function baseConfig(overrides: Partial<CommandConfig>): CommandConfig {
     catalogRoots: [],
     strategyPath: "",
     ledgerPath: "./data/strategy-evidence.jsonl",
+    statePath: "",
     promoteTo: "shadow",
     input: {},
     ...overrides,

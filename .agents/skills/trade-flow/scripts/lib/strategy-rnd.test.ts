@@ -6,6 +6,7 @@ import test from "node:test"
 import { Database } from "bun:sqlite"
 
 import { replayDataHash } from "./replay-core"
+import { createRdProgramState, readRdProgramState, writeRdProgramState } from "./rd-program-state"
 import { evaluateRndSignal, runStrategyRndBatch, runStrategyRndCampaign, runStrategyRndLoop, strategyRndBatchInputFromJson } from "./strategy-rnd"
 import { loadRndLedger } from "./strategy-rnd-ledger"
 
@@ -692,6 +693,41 @@ test("strategy R&D loop rejects duplicate run ids", () => {
   }
 })
 
+test("strategy R&D loop can write back durable R&D program state", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-loop-state-"))
+  try {
+    const artifactRoot = join(dir, "artifacts")
+    const statePath = join(dir, "rd-state.json")
+    const catalogDbPath = join(artifactRoot, "data_catalog.db")
+    writeRdProgramState(statePath, createRdProgramState({
+      programId: "rd-loop-state",
+      objective: "learn from loop output",
+      now: "2026-07-07T00:00:00.000Z",
+      budget: { max_hypotheses: 3, max_trials_total: 9 },
+    }), catalogDbPath)
+
+    const report = runStrategyRndLoop({
+      runId: "rnd-loop-state",
+      batchId: "batch-loop-state",
+      manifestPath: writeManifest(dir),
+      artifactRoot,
+      catalogDbPath,
+      rdProgramStatePath: statePath,
+      candidates: [{ candidateId: "C-STATE", parameterCount: 1, params: { side: "long" } }],
+      now: "2026-07-07T01:00:00.000Z",
+    })
+
+    assert.equal(report.rd_program_state?.action, "update")
+    assert.equal(report.rd_program_state?.state.usage.hypotheses_run, 1)
+    assert.equal(report.rd_program_state?.state.usage.trials_used, report.batch.trial_count)
+    const state = readRdProgramState(statePath)
+    assert.equal(state.artifact_refs.includes(report.artifact_ref), true)
+    assert.equal(state.latest_failure_summary?.primary_failure_area !== undefined, true)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("strategy R&D loop permits one evaluation per locked holdout", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-holdout-once-"))
   try {
@@ -724,6 +760,14 @@ test("strategy R&D campaign continues after a failed hypothesis", () => {
     const discoveryManifest = writeManifest(discoveryDir, 1_700_000_000_000)
     const validationManifest = writeManifest(validationDir, 1_600_000_000_000)
     const ledgerPath = join(dir, "strategy-rnd-ledger.jsonl")
+    const artifactRoot = join(dir, "artifacts")
+    const statePath = join(dir, "rd-state.json")
+    writeRdProgramState(statePath, createRdProgramState({
+      programId: "rd-campaign-state",
+      objective: "learn from campaign output",
+      now: "2026-07-07T00:00:00.000Z",
+      budget: { max_hypotheses: 5, max_trials_total: 10 },
+    }), join(artifactRoot, "data_catalog.db"))
     const candidate = {
       candidateId: "C-LONG",
       parameterCount: 7,
@@ -740,8 +784,9 @@ test("strategy R&D campaign continues after a failed hypothesis", () => {
     const report = runStrategyRndCampaign({
       campaignId: "campaign-test",
       maxTotalTrials: 2,
-      artifactRoot: join(dir, "artifacts"),
+      artifactRoot,
       ledgerPath,
+      rdProgramStatePath: statePath,
       now: "2026-07-07T00:00:00.000Z",
       hypotheses: ["h1", "h2"].map((hypothesisId) => ({
         hypothesisId,
@@ -760,6 +805,9 @@ test("strategy R&D campaign continues after a failed hypothesis", () => {
     assert.equal(report.runs.every((run) => run.discovery_outcome === "no_promote"), true)
     assert.equal(loadRndLedger({ catalogDbPath: report.ledger_ref }).length, 2)
     assert.equal(existsSync(report.artifact_ref), true)
+    assert.equal(report.rd_program_state?.state.usage.hypotheses_run, 2)
+    assert.equal(report.rd_program_state?.state.usage.trials_used, 2)
+    assert.equal(readRdProgramState(statePath).latest_failure_summary?.stop_reason, "hypothesis_queue_exhausted")
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

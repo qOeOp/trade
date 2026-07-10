@@ -89,6 +89,8 @@ latest_observe.action_intent.request
 - replay result 外壳 schema：`./schemas/replay-result.schema.json`
 - strategy R&D batch / loop / campaign / panel result 外壳 schema：`./schemas/strategy-rnd-batch-result.schema.json` / `./schemas/strategy-rnd-loop-result.schema.json` / `./schemas/strategy-rnd-campaign-result.schema.json` / `./schemas/strategy-panel-rnd-result.schema.json`
 - strategy data split result 外壳 schema：`./schemas/strategy-data-split-result.schema.json`
+- R&D program state result 外壳 schema：`./schemas/rd-program-state-result.schema.json`
+- R&D supervisor run result 外壳 schema：`./schemas/rd-supervisor-run-result.schema.json`
 - automation cycle plan 外壳 schema：`./schemas/automation-cycle-plan.schema.json`
 - strategy benchmark / calibration result 外壳 schema：`./schemas/strategy-benchmark-result.schema.json` / `./schemas/strategy-calibration-result.schema.json`
 - strategy signal result 外壳 schema：`./schemas/strategy-signal-result.schema.json`
@@ -104,11 +106,13 @@ latest_observe.action_intent.request
   - `--observe-from-skills --json <payload>`：调用只读 `binance-account-snapshot` / `binance-symbol-snapshot` 后构建 observe event
   - `--replay-strategy --manifest <manifest> --strategy-id <id>`：读取 OHLCV manifest，通过 replay registry 机械回放策略，并输出统计与 gate
   - `--strategy-rnd-batch --json <payload>`：运行最多 10 个候选；`factor_discover=true + factor_compose=true` 时先做因子统计筛选，再按角色与参数预算组合到预声明 base family；统一 replay/OOS、candidate null controls 和失败归因，不自动升格
-  - `--strategy-rnd-loop --json <payload>`：运行一轮 R&D loop，写 artifact JSON 和 `data_catalog.db.strategy_rnd_run`；不写 `trade.db`，不自动升格
-  - `--strategy-rnd-campaign --json <payload>`：依次运行 hypothesis queue；可选 `calibration_report_path` 未过则零 trial 停止；未产生 discovery winner 才继续下一假设；首个 winner 冻结后只查看一次不重叠 locked holdout，通过即返回，失败即结束 campaign
+  - `--strategy-rnd-loop --json <payload>`：运行一轮 R&D loop，写 artifact JSON 和 `data_catalog.db.strategy_rnd_run`；payload 带 `rd_program_state_path` 时把 `failure_summary / reliability_gate / artifact_ref` 写回 learning memory；不写 `trade.db`，不自动升格
+  - `--strategy-rnd-campaign --json <payload>`：依次运行 hypothesis queue；可选 `calibration_report_path` 未过则零 trial 停止；未产生 discovery winner 才继续下一假设；首个 winner 冻结后只查看一次不重叠 locked holdout，通过即返回，失败即结束 campaign；payload 带 `rd_program_state_path` 时把 campaign usage、stop reason、validated candidate 或失败机制写回 learning memory
   - `--strategy-panel-rnd --json <payload>`：同一候选在至少三个资产上复用统一 replay，保留逐资产证据并执行样本、广度、OOS、成本与灾难损失门槛
   - `--strategy-data-split --json <payload>`：在研发新 hypothesis 前把 OHLCV manifest 切成 discovery / validation / locked_holdout 三段独立 manifest，并在两段之间留 embargo；locked_holdout 只允许在 Trade Contract 冻结后使用
-  - `--automation-cycle --json <payload>`：生成单一自动化入口的 supervisor plan；外部 automation 可按该 plan 用 subagent 分发 slow / fast / R&D / review / catalog job。closed-flow review 由上游闭合事件触发并在交易写入后串行执行，cadence 只补漏。该命令只产出任务图，`executable=false`，不执行交易
+  - `--rd-program-state --state <path> --json <payload>`：初始化、读取、更新或规划机器可读 R&D learning memory；`action=init|read|update|plan_next`。`plan_next` 只读 state，返回下一轮 loop/campaign payload 草案
+  - `--rd-supervisor-run --state <path> --json <payload>`：执行 `plan_next -> strategy-rnd-loop/campaign -> state writeback` 的自主 R&D supervisor loop，直到 `shadow_candidate_found / budget_exhausted / data_or_tool_blocked`、`max_iterations` 或非 active state；只写 R&D artifact / catalog / `rd_program_state`
+  - `--automation-cycle --json <payload>`：生成单一自动化入口的 supervisor plan；外部 automation 可按该 plan 用 subagent 分发 slow / fast / strategy R&D supervisor / R&D forward tracker / review / catalog job。可传 `rd_program_state_path` 让研发线读取机器可读 learning memory；state 非 `active` 时研发 supervisor 停线。strategy R&D supervisor 负责在预算内持续迭代 hypothesis，直到 `shadow_candidate_found / budget_exhausted / data_or_tool_blocked`；closed-flow review 由上游闭合事件触发并在交易写入后串行执行，cadence 只补漏。该命令只产出任务图，`executable=false`，不执行交易
   - `--strategy-benchmark --json <payload>`：运行固定 30/90/180 日、15% 目标波动的多资产趋势基准、成本/资金费压力、时间折和组合权重循环移位负对照；只标定研究管线
   - `--strategy-calibration-suite --json <payload>`：运行 buy-and-hold / cash baseline、固定趋势基准、固定横截面强弱基准，并可消费 dataset `indicator_report_path` 中的 exact funding events，输出 report hash、可选 previous-run comparison、data_panel、beta、fee/slippage 成本拆分、funding、换手、暴露、时间/趋势/波动 regime 稳定性、time-shift / side-flip / asset-shuffle 负对照与数据广度诊断；只回答 R&D 管线该先修哪里
   - `--strategy-signal --json <payload>`：用最新闭合 K 线与传入 `entry_price` 评估 candidate，并返回稳定 candidate hash；只返回 `entry / no_action`，不写 DB、不执行
@@ -144,6 +148,7 @@ latest_observe.action_intent.request
 - `--strategy-rnd-batch` 必须输出 `reliability_gate`，把失败归因、样本画像和是否允许继续 trial 机器化；当前通过与失败都不允许无理由追加 trial
 - 新 hypothesis 开始前应先跑 `--strategy-data-split` 并保留 split report；discovery 用于搜索，validation 用于候选过滤，locked_holdout 不得在策略合约冻结前打开
 - `--strategy-rnd-loop` 只包装 batch、artifact 和 R&D ledger；R&D ledger 是研究审计，不是策略准入 evidence
+- `--strategy-rnd-loop / --strategy-rnd-campaign` 只有在 payload 显式传 `rd_program_state_path` 时才写回 learning memory；没有该字段时保持旧的 artifact / ledger 行为
 - `--strategy-rnd-campaign` 的总 discovery trial budget 最多 10；只接受预声明 hypothesis queue，validation manifest 必须与 discovery manifest 时间不重叠；locked holdout 只允许看一次，失败即结束 campaign
 - `--strategy-rnd-campaign` 若传入 `calibration_report_path`，必须先通过 calibration gate；`calibrated=false` 或存在 blocker finding 时停止，不能消耗 trial budget
 - discovery winner 含 indicator filter 时必须提供独立 `validation_indicator_report_path`，不得拿 discovery feature series 验证
@@ -193,6 +198,8 @@ latest_observe.action_intent.request
 - `--reconcile-flow / --reconcile-from-skills` 只生成草案；遇到无法可靠归属的订单 / 仓位差异必须放进 `unmatched`
 - `--apply-reconcile` 只写本地 DB，不调用 Binance；没有 `--yes`、`can_reconcile!=true` 或 draft 不是 `order_fill(source=reconcile)` 都必须拒绝
 - `--cron-recover-from-skills` 是 cron 入口恢复胶水；对账不能可靠归属时只返回 abort，不继续 EXECUTE
-- automation 是一个高频单入口：入口先跑 `--automation-cycle`，再按 `jobs[].active` 与动态触发条件分发子任务；慢轨 / R&D / catalog 必须通过 cadence gate，closed-flow review 在上游报告闭合后串行执行，review cadence 只做补漏
+- automation 是一个高频单入口：入口先跑 `--automation-cycle`，再按 `jobs[].active` 与动态触发条件分发子任务；慢轨 / strategy R&D supervisor / R&D forward tracker / catalog 必须通过 cadence gate，closed-flow review 在上游报告闭合后串行执行，review cadence 只做补漏
+- strategy R&D supervisor 是学习型研究 job，不是执行 job：它读 `failure_summary / reliability_gate / rejected_mechanisms / universe_lessons`，生成下一轮 hypothesis；只能写 research artifact、catalog metadata 与 gated strategy draft，不能写 `trade.db`、不能调用 Binance 写接口、不能绕过 promotion gate
+- `rd_program_state` 是 research memory artifact，不是 strategy evidence；`--automation-cycle` 读到 `rd_program_state_path` 后以它覆盖临时 `rd_strategy_goal`，并在 status 非 `active` 时不派发 R&D supervisor；R&D supervisor 可调用 `--rd-supervisor-run --state <path>` 自主循环，也可先调用 `--rd-program-state --state <path> --json '{"action":"plan_next"}'` 获取下一轮 payload 后显式执行返回的 loop/campaign 命令；`--strategy-review --json '{"rd_program_state_path":"..."}` 可把 review diagnostics / cost feedback / decay feedback 写回该 state
 - 子 skill 调用必须返回 JSON；非零退出或非 JSON 输出直接视为失败
 - 插入使用 SQLite 主键天然幂等；重复 `event_key` 会被拒绝
