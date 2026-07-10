@@ -24,6 +24,7 @@ function main(): void {
     now: readFlag(argv, "--now") || undefined,
     sourceRef: forwardResult || undefined,
     maxHoldBars: optionalNumber(readFlag(argv, "--max-hold-bars")),
+    forwardReport: statePath && forwardResult ? readJsonFile(forwardResult) : undefined,
     manifestRefs: manifestMap ? manifestRefsFromJson(readJsonFile(manifestMap)) : undefined,
   }
   const state = statePath

@@ -311,7 +311,7 @@ function appendShadowEvidenceFromReviews(input: {
     ledgerPath: input.ledgerPath,
     catalogDbPath: input.catalogDbPath,
     reviews: snapshot.reviews,
-    setupId: input.setupId,
+    setupId: input.setupId || inferSingleReviewSetupId(snapshot.reviews),
     sourceRef: input.sourceRef || snapshot.source_ref,
     now: input.now,
   })
@@ -370,7 +370,7 @@ function syncShadowEvidenceFromReviews(input: {
     ledgerPath: input.ledgerPath,
     catalogDbPath: input.catalogDbPath,
     reviews: snapshot.reviews,
-    setupId: input.setupId,
+    setupId: input.setupId || inferSingleReviewSetupId(snapshot.reviews),
     sourceRef: snapshot.source_ref,
     now: input.now,
   })
@@ -617,11 +617,11 @@ function policyHashForFile(path: string): string {
 }
 
 function policyBodyForHash(body: string): string {
-  const setupStart = body.indexOf("\n## Setup Certificate")
+  const setupStart = body.indexOf("\n## Trade Contract")
   if (setupStart >= 0) {
     return body.slice(setupStart + 1).trim()
   }
-  if (body.startsWith("## Setup Certificate")) {
+  if (body.startsWith("## Trade Contract")) {
     return body.trim()
   }
   return body.trim()
@@ -672,6 +672,11 @@ function readDbReviewSnapshot(db: Database, strategyId: string, setupId?: string
 
 function reviewSetupId(review: JSONRecord): string {
   return stringField(review.setup_id) || DEFAULT_SETUP_ID
+}
+
+function inferSingleReviewSetupId(reviews: JSONRecord[]): string | undefined {
+  const setupIds = new Set(reviews.map(reviewSetupId))
+  return setupIds.size === 1 ? [...setupIds][0] : undefined
 }
 
 function evidenceStatsFromReviews(reviews: JSONRecord[]): EvidenceStats {

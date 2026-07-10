@@ -25,6 +25,8 @@ research / review
   -> live-small / paused
 ```
 
+外部调度只保留一条 automation supervisor。它按快轨频率唤醒，通过 `--automation-cycle` 生成任务图，再用 subagent 隔离并行盯市、慢轨、R&D 与 artifact 检查；任意时刻最多一个 worker 写 `trade.db`。平仓 review 优先由本轮闭合事件触发，并在交易 / 对账之后串行执行；低频 sweep 只负责补漏。
+
 ## 2. 固定术语
 
 | 术语 | 定义 |
@@ -131,11 +133,14 @@ Replay / shadow / live 对齐要求：
 - `--strategy-rnd-loop`：包装一轮 R&D batch，写 artifact JSON 与 `data_catalog.db.strategy_rnd_run`；R&D 审计不作为 promote evidence
 - `--strategy-rnd-campaign`：在全局最多 10 次 discovery trial 内运行 hypothesis queue；每个 hypothesis 必须带 `thesis_certificate`，缺 edge 类型、行为假设、参与者、regime、失效条件、成本敏感度、候选 universe 或 null controls 时零 trial 停止；可选 `calibration_report_path` 未过则零 trial 停止；没有 winner 才继续，首个 winner 冻结后只查看一次不重叠 locked holdout，失败即结束 campaign
 - `--strategy-panel-rnd`：同一候选跨至少 3 个资产评估，保留逐资产证据，并检查 pooled sample、广度、OOS、成本与灾难损失
+- `--strategy-data-split`：新 hypothesis 开研前把历史 manifest 先切成 discovery / validation / locked_holdout 三个独立 manifest，并自动留 embargo；避免 draft 后才发现所有历史都已被研发污染
+- `--automation-cycle`：单一 automation 入口的 supervisor plan；外部 Codex automation 可按任务图用 subagent 分发 fast / slow / R&D / review / catalog，慢轨、R&D 与 review 由 cadence gate 控制，不随快频入口每轮运行
 - `--strategy-benchmark`：用固定多资产趋势规则、15% 目标波动、成本/资金费压力和组合权重循环移位负对照标定 R&D 管线；不写 DB、不产生准入证据
 - `--strategy-calibration-suite`：固定跑 buy-and-hold / cash baseline、趋势基准、横截面强弱基准，可消费 dataset `indicator_report_path` 中的 exact funding events 与 `symbol_status`，并输出 report hash、可选 previous-run comparison、data_panel、survivor-only 标记、beta、fee/slippage 成本拆分、funding、换手、暴露、时间/趋势/波动 regime 稳定性、time-shift / side-flip / asset-shuffle 负对照与数据广度归因；只暴露系统问题，不产生准入证据
-- `--strategy-signal`：candidate 在最新闭合 K 线上复用 replay family并返回稳定 hash；entry reference 由在线报价注入，只返回信号，不执行、不落交易事实
+- `--strategy-signal`：candidate 可由 JSON 输入或 strategy `## Trade Contract` 编译；在最新闭合 K 线上复用 replay family 并返回稳定 hash；entry reference 由在线报价注入，只返回信号，不执行、不落交易事实
 - `scripts/forward-holdout.ts`：对已冻结 candidate 做只读 forward holdout 验收；主数据与 benchmark / supplemental 数据都必须晚于机器可读 `frozen_at`，输出 `status / next_action / frozen_candidate hash`，只作为 shadow/review 前置观察，不直接产生 promotion evidence；缺 `frozen_at` 的“frozen”描述一律不验收
-- `scripts/rd-shadow-tracker.ts`：把 forward entry 信号转成 R&D 纸面持仓，用后续闭合 K 线判定 stop / target / time_exit 并生成 review draft；不写 DB、不执行、不等同 strategy shadow evidence
+- `scripts/rd-shadow-tracker.ts`：把 forward entry 信号转成 R&D schema v2 行为事件链，用 `open_setup -> observe_setup[] -> close_setup -> review_setup` 记录纸面样本，并由 projection 判定 stop / target / time_exit；不写 DB、不执行、不等同 strategy shadow evidence
+- R&D tracker 事件链设计见 [rd-event-chain-design.md](rd-event-chain-design.md)；该链只存在于 R&D artifact，不进入 `trade.db.plan_event`
 - replay 只能给 `shadow_candidate`；`live-small` 必须另有 shadow 样本、execution attribution 与人工确认
 - strategy review 固定输出 replay -> shadow -> live-small decay diagnostics 与 `cost_model_feedback`；shadow 相对 replay 的 avg_r 保留率过低时阻断 live-small，真实 fee / slippage / funding drag 会反灌为下一轮 replay cost stress 输入，而不是靠叙事解释
 - candidate family 只承载少量可检验市场机制，不做形态百科；只有通过样本外、成本和稳定性门槛的版本才可沉淀为策略 asset

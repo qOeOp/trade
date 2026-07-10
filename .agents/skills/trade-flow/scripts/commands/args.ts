@@ -17,9 +17,13 @@ export function parseArgs(argv: string[]): CommandConfig {
   let strategyRndLoop = false
   let strategyRndCampaign = false
   let strategyPanelRnd = false
+  let strategyDataSplit = false
+  let automationCycle = false
   let strategyBenchmark = false
   let strategyCalibrationSuite = false
   let strategySignal = false
+  let strategyCompile = false
+  let strategyLint = false
   let artifactGc = false
   let catalogInit = false
   let catalogScan = false
@@ -114,6 +118,12 @@ export function parseArgs(argv: string[]): CommandConfig {
       case "--strategy-panel-rnd":
         strategyPanelRnd = true
         break
+      case "--strategy-data-split":
+        strategyDataSplit = true
+        break
+      case "--automation-cycle":
+        automationCycle = true
+        break
       case "--strategy-benchmark":
         strategyBenchmark = true
         break
@@ -122,6 +132,12 @@ export function parseArgs(argv: string[]): CommandConfig {
         break
       case "--strategy-signal":
         strategySignal = true
+        break
+      case "--strategy-compile":
+        strategyCompile = true
+        break
+      case "--strategy-lint":
+        strategyLint = true
         break
       case "--artifact-gc":
         artifactGc = true
@@ -280,9 +296,13 @@ export function parseArgs(argv: string[]): CommandConfig {
     strategyRndLoop,
     strategyRndCampaign,
     strategyPanelRnd,
+    strategyDataSplit,
+    automationCycle,
     strategyBenchmark,
     strategyCalibrationSuite,
     strategySignal,
+    strategyCompile,
+    strategyLint,
     artifactGc,
     catalogInit,
     catalogScan,

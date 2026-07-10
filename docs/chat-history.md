@@ -220,6 +220,16 @@ RAVE skill 降级链路：build-skills.sh 打包失败 → 复用已编好的 bi
 - replay feedback 不能只看总体收益；至少补 regime 分桶、成本压力和预声明参数扰动，避免单一市场阶段带来的控制感错觉。
 - 2026-07-07 真实 BTC 4H R&D：趋势回撤 long 的表面 winner 在 2025+ external validation 上因样本、成本、regime 与参数稳定性失败；加入按 horizon 折减有效样本的 5% FDR 后，41 个 factor 全部不显著，原 VFI winner 被判定为多重检验假阳性。long / short 无因子基线同样为负，未冻结策略、未降低 gate。
 
+## 十二、单 automation supervisor 与 subagent 调度
+
+**核心发现（2026-07-10）**
+
+- 多条 fast / slow / R&D / review automation 会把调度、状态和故障入口分散；外部只保留一条高频 supervisor 更适合单人项目。
+- subagent 的价值是并行读重任务与隔离盯市、投研、日志噪音，主上下文只保留需求、决策和摘要；它不应成为交易事实源或绕过权限的新入口。
+- 并行边界按写入冲突划分：R&D / catalog / 只读观察可并行；`trade.db` 写入、交易动作和 review 封口必须串行。
+- 平仓 review 是事件驱动的收尾阶段：等待交易与对账完成后，发现“已闭合且未 review”才分发 reviewer；低频 sweep 仅补漏，不单独占一条长期 automation。
+- supervisor 高频唤醒不等于所有任务高频运行；slow / R&D / catalog 继续由 cadence gate 控制，避免 token 与 API 浪费。
+
 ---
 
 ## 附录：关键交互事件索引

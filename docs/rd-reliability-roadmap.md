@@ -60,6 +60,6 @@ title: R&D Reliability Roadmap
 ## 8. Shadow 层
 
 - 目标：locked holdout 后仍必须用真实 shadow 样本证明执行链不吃掉 edge。
-- 当前：`shadow -> live-small` 要求 shadow evidence 带 cost / slippage / funding attribution；review 会输出 cost feedback 给下一轮 replay。R&D shadow tracker 已能把 forward 信号转成纸面持仓并等待 stop / target / time_exit，但其输出仍只是 review 输入。
-- 下一块：补 missed-fill、订单规模与流动性分桶，减少 replay cost model 的假设空间。
+- 当前：`shadow -> live-small` 要求 shadow evidence 带 cost / slippage / funding attribution；review 会输出 cost feedback 给下一轮 replay。R&D shadow tracker 已升级为 schema v2 行为事件链，输出仍只是 review 输入；R&D event chain 设计见 [rd-event-chain-design.md](rd-event-chain-design.md)。
+- 下一块：补 15m fast paper monitor、missed-fill、订单规模与流动性分桶。
 - 完成信号：`shadow -> live-small` 不只看胜率，还看真实执行损耗是否在 replay 假设内，并能转成下一轮成本压力参数。

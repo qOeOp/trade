@@ -19,6 +19,12 @@
       "covers": ["--artifact-gc data"]
     },
     {
+      "file": "automation-cycle-plan.schema.json",
+      "id": "trade-flow.automation-cycle-plan.v1",
+      "owner": "scripts/lib/automation-cycle.ts",
+      "covers": ["--automation-cycle data"]
+    },
+    {
       "file": "cron-log-entry.schema.json",
       "id": "trade-flow.cron-log-entry.v1",
       "owner": "scripts/lib/cron-runtime.ts",
@@ -133,6 +139,12 @@
       "covers": ["--append-strategy-evidence data", "strategy-evidence JSONL entry"]
     },
     {
+      "file": "strategy-data-split-result.schema.json",
+      "id": "trade-flow.strategy-data-split-result.v1",
+      "owner": "scripts/lib/strategy-data-split.ts",
+      "covers": ["--strategy-data-split data"]
+    },
+    {
       "file": "strategy-panel-rnd-result.schema.json",
       "id": "trade-flow.strategy-panel-rnd-result.v1",
       "owner": "scripts/lib/strategy-panel-rnd.ts",
@@ -199,6 +211,11 @@
       "schemas": ["script-response.schema.json", "track-dry-run-summary.schema.json"]
     },
     {
+      "command": "--automation-cycle",
+      "status": "covered",
+      "schemas": ["script-response.schema.json", "automation-cycle-plan.schema.json"]
+    },
+    {
       "command": "--append-order-fill",
       "status": "covered",
       "schemas": ["script-response.schema.json", "plan-event.schema.json"]
@@ -257,6 +274,11 @@
       "command": "--strategy-panel-rnd",
       "status": "covered",
       "schemas": ["script-response.schema.json", "strategy-panel-rnd-result.schema.json"]
+    },
+    {
+      "command": "--strategy-data-split",
+      "status": "covered",
+      "schemas": ["script-response.schema.json", "strategy-data-split-result.schema.json"]
     },
     {
       "command": "--strategy-benchmark",

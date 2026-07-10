@@ -725,7 +725,7 @@ CREATE INDEX idx_research_report_kind ON research_report(report_kind, generated_
 
 | 内容 | 介质 | 位置 |
 | --- | --- | --- |
-| Strategy policy | Markdown 文件（一文件一 strategy，含 frontmatter） | `strategies/*.md` |
+| Strategy policy | Markdown 文件（一文件一 strategy，frontmatter + `## Trade Contract`） | `strategies/*.md` |
 | Strategy evidence ledger | SQLite record + catalog 索引 | `./data/data_catalog.db` → `strategy_evidence` |
 | Trading config | JSON | `./profile/trading-config.json` |
 | Account config | JSON | `./profile/account_config.json`（兼容输入，后续由 trading config 取代） |
@@ -738,11 +738,12 @@ Git 边界与 data 留存规则见 [data-hygiene.md](data-hygiene.md)。
 
 统一交易配置设计见 [trading-config.md](trading-config.md)。执行、preflight、R&D 后续应消费编译后的 `runtime_policy`，不再各自散读 `account_config` 字段。
 
-Strategy 文件 frontmatter shape：
+Strategy 文件 shape：
 
-```yaml
+~~~text
 ---
 strategy_id: S-GENERIC-TREND
+contract_schema_version: 1
 name: 通用趋势跟随
 status: draft | shadow | live-small | paused
 tags: [directional, technical]
@@ -750,10 +751,44 @@ tags: [directional, technical]
 
 # S-GENERIC-TREND
 
-policy markdown（setup / 失效 / EV / regime / catalyst / 持仓 / size policy）...
-```
+研究 refs / replay refs / 迭代备注...
 
-trade-flow 启动时遍历 `strategies/*.md`，按 frontmatter 索引到内存 map；不入 DB。
+## Trade Contract
+
+```yaml
+setup_id: generic-trend
+engine: rnd_family_v1 | manual_policy_v1
+hypothesis: ...
+timeframe: 4h
+family: trend_pullback_v1
+candidate:
+  side: long | short | both
+risk:
+  stop_atr: 1
+  max_risk_atr: 2.5
+  reward_risk: 2
+  max_hold_bars: 12
+cost_model:
+  fee_bps: 2
+  slippage_bps: 1
+  adverse_funding_bps_per_8h: 1
+universe:
+  include: [...]
+execution:
+  entry_rule: ...
+proof:
+  live_permission: draft_only
+  next_required_proof: ...
+```
+~~~
+
+trade-flow 启动时遍历 `strategies/*.md`，按 frontmatter 索引到内存 map；不入 DB。R&D / 在线信号只消费 `## Trade Contract` 编译结果；`manual_policy_v1` 可进入人工策略池但不能直接作为 R&D family signal。
+
+R&D 数据切分：
+
+- 新 hypothesis 开始前先运行 `--strategy-data-split`，产出 discovery / validation / locked_holdout 三段独立 manifest。
+- split 命令在 discovery -> validation、validation -> locked_holdout 之间自动留 embargo，默认取 `max(max_hold_bars, feature_lookback_bars, funding_interval_bars)`。
+- discovery 可搜索；validation 只过滤冻结前候选；locked_holdout 只能在 Trade Contract 冻结后使用一次，不能参与参数选择。
 
 Strategy evidence ledger 规则：
 

@@ -5,8 +5,9 @@
 - 本工程是一台 **4H+ swing 双轨 cron 自动化执行器**：
   - **慢轨**（1H / 4H 整点）：完整战略层 cron——拉数据、LLM 分析、写意图、跑 preflight、执行、阶段性 review
   - **快轨**（5m / 15m 偏移点，如 :05/:20/:35/:50）：执行层守卫——读慢轨写的 action_intent，在 trigger_condition 命中时执行；处理慢轨窗口内出现的瞬时机会和防御触发
-  - 两轨挂在同一个 Claude routines / Codex schedule 上，用 `--track slow|fast` 区分；共用同一个 `./data/trade.db`
-- 用户的角色：上线前配置（`account_config.json` / watchlist / strategy 文件 / `notify_config.json` / 双轨 cron 调度）→ 上线后只在异常通知或复盘窗口介入 → 累积一段周期后回看是否要改 strategy 或少数 hard guard。
+  - 一条 Codex automation 单入口：先跑 `--automation-cycle`，再按 supervisor plan 用 subagent 分发 slow / fast / R&D / review；底层仍共用同一个 `./data/trade.db`
+- 单入口按快轨尺度唤醒；慢轨、R&D、review 只有 cadence due 时才 active。慢轨大多数快频轮次被跳过是预期行为，不是漏跑。
+- 用户的角色：上线前配置（`account_config.json` / watchlist / strategy 文件 / `notify_config.json` / 单入口 automation）→ 上线后只在异常通知或复盘窗口介入 → 累积一段周期后回看是否要改 strategy 或少数 hard guard。
 - 故事只覆盖真实会发生的高频与高风险路径，不追求列尽。
 - 文中的 `lane` 指 `strategy_ref + symbol + side` 这个运行槽位；同一 lane 同时最多只有 1 条 active flow。**这是产品层硬约束**：同 lane 不允许并行多条 thesis / 多个风险拥有者。事件驱动加一段、结构重建后二次进攻、临时新增理由，只要旧 flow 未闭合，都必须并回当前 active flow 管理。跨 symbol / 跨 side 并行属于不同 lane。
 - 文中的 cron 周期阶段：
@@ -193,11 +194,9 @@
 - 用户行为：
   - 创建 `./profile/account_config.json`：必填 `max_open_risk_pct / max_day_loss_pct / max_single_position_leverage`
   - 创建 `./profile/notify_config.json`：通知通道（Telegram / 邮件 / Push 任选）
-  - 在 `strategies/` 放 MVP 种子文件（`S-GENERIC-TREND.md` / `S-GENERIC-MEANREVERT.md`，frontmatter + policy markdown）；可加自有策略
-  - 配置**两条**外部 cron 调度（Claude routines / Codex schedule）：
-    - 慢轨：1H 或 4H 整点调起 `trade-flow --track slow`
-    - 快轨：5m 或 15m 偏移点（如 :05/:20/:35/:50）调起 `trade-flow --track fast`
-- 验证：手动跑一次 `trade-flow --track slow --dry-run`：读账户快照 → 写 observe → preflight → 不真发单。检查 DECISION_CARD 渲染是否完整。再手动跑一次 `--track fast --dry-run` 验证快轨链路。
+  - 在 `strategies/` 放 MVP 种子文件（frontmatter + `## Trade Contract`）；可加自有策略
+  - 配置**一条**外部 automation：按 15m 唤醒 supervisor，先跑 `trade-flow --automation-cycle`，再按任务图分发 fast / slow / R&D / catalog，并在出现已闭合未复盘 flow 时串行补 review
+- 验证：先手动跑一次 `trade-flow --automation-cycle` 检查 cadence、并发组和 review 条件；再分别 dry-run 任务图中的 slow / fast 工作单元。不得把底层工作单元重新暴露成多条长期 automation。
 
 ### US-12 调整风险底线
 
@@ -211,7 +210,7 @@
 
 - 触发：累积一批 review 后发现共性，或外部信源提示新模式。
 - 用户行为：
-  - 新 strategy：在 `strategies/` 加一个 markdown 文件（frontmatter `strategy_id / name / status / tags` + policy 正文）
+  - 新 strategy：在 `strategies/` 加一个 markdown 文件（frontmatter `strategy_id / contract_schema_version / name / status / tags` + `## Trade Contract`）
   - 若要从 `draft` 升 `shadow`，先写入 fingerprint fresh replay evidence；普通 selection split 不够，必须带 locked holdout / walk-forward、regime / cost / parameter robustness proof
   - 调整 hard guard：只在“确定性、全局重要、可脚本化”的前提下修改对应 guard 代码或脚本
 - 验证：下一轮 cron 跑会自动加载，无需 schema 迁移、无需改代码。

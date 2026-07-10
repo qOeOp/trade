@@ -15,9 +15,14 @@ export const HELP_TEXT = `Usage:
   ./scripts/main.ts --strategy-rnd-loop --json '{"manifest_path":"./data/ohlcv/BTCUSDT/manifest.json","indicator_report_path":"...","factor_discover":true,"factor_compose":true,"candidates":[...]}'
   ./scripts/main.ts --strategy-rnd-campaign --json '{"campaign_id":"...","max_total_trials":10,"hypotheses":[...]}'
   ./scripts/main.ts --strategy-panel-rnd --json '{"datasets":[...],"candidates":[...]}'
+  ./scripts/main.ts --strategy-data-split --json '{"split_id":"...","datasets":[...],"timeframe":"4h"}'
+  ./scripts/main.ts --db ./data/trade.db --automation-cycle --json '{"slow_interval_minutes":240,"rd_trackers":[...]}'
   ./scripts/main.ts --strategy-benchmark --json '{"datasets":[...]}'
   ./scripts/main.ts --strategy-calibration-suite --json '{"datasets":[...]}'
   ./scripts/main.ts --strategy-signal --json '{"manifest_path":"...","entry_price":60000,"candidate":{...}}'
+  ./scripts/main.ts --strategy-signal --strategy ./strategies/s-example.md --json '{"manifest_path":"...","entry_price":60000,"benchmark_manifest_path":"..."}'
+  ./scripts/main.ts --strategy-compile --strategy ./strategies/s-example.md
+  ./scripts/main.ts --strategy-lint --strategy ./strategies/s-example.md
   ./scripts/main.ts --catalog-init --catalog-db ./data/data_catalog.db
   ./scripts/main.ts --catalog-scan --catalog-db ./data/data_catalog.db --catalog-root ./data --catalog-root ./tmp
   ./scripts/main.ts --catalog-query --catalog-db ./data/data_catalog.db --json '{"symbol":"BTCUSDT","limit":20}'
@@ -54,9 +59,13 @@ Key flags:
   --strategy-rnd-loop      Run one R&D loop iteration, writing artifact + catalog DB ledger; never auto-promotes
   --strategy-rnd-campaign  Run bounded hypotheses through discovery and non-overlapping external validation
   --strategy-panel-rnd     Evaluate fixed candidates across at least three assets
+  --strategy-data-split    Split OHLCV manifests into discovery, validation, and locked_holdout manifests before R&D
+  --automation-cycle       Build a single-entry automation supervisor plan with subagent fanout and cadence gates
   --strategy-benchmark     Calibrate the R&D pipeline with one fixed multi-asset trend benchmark
   --strategy-calibration-suite Run fixed known-edge calibration baselines; never auto-promotes
   --strategy-signal        Evaluate one R&D candidate on the latest closed candle; never executes
+  --strategy-compile       Compile a strategy markdown Trade Contract into engine-facing JSON
+  --strategy-lint          Validate a strategy markdown Trade Contract
   --catalog-init           Initialize data_catalog.db schema
   --catalog-scan           Index run, dataset, artifact, R&D, and evidence metadata without moving payload files
   --catalog-query          Query catalog metadata by path, artifact_id, symbol, or strategy_id

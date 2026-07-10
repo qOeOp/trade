@@ -1,0 +1,53 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade-flow.automation-cycle-plan.v1",
+  "title": "trade-flow automation cycle plan",
+  "description": "Stable outer shape for the single automation supervisor plan. Job internals and diagnostics remain open.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "cycle_id",
+    "generated_at",
+    "mode",
+    "executable",
+    "dispatch_model",
+    "trade_db_path",
+    "active_flow_count",
+    "cadence",
+    "jobs",
+    "dispatch_order",
+    "guardrails"
+  ],
+  "properties": {
+    "schema_version": { "const": "trade-flow.automation-cycle-plan.v1" },
+    "cycle_id": { "type": "string", "minLength": 1 },
+    "generated_at": { "type": "string", "minLength": 1 },
+    "mode": { "const": "supervisor_plan" },
+    "executable": { "type": "boolean" },
+    "dispatch_model": { "type": "object" },
+    "trade_db_path": { "type": "string", "minLength": 1 },
+    "active_flow_count": { "type": "integer", "minimum": 0 },
+    "lane_conflicts": { "type": "array" },
+    "cadence": { "type": "object" },
+    "jobs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["job_id", "enabled", "active", "may_write_trade_db", "may_call_binance_write"],
+        "properties": {
+          "job_id": { "type": "string", "minLength": 1 },
+          "enabled": { "type": "boolean" },
+          "active": { "type": "boolean" },
+          "may_write_trade_db": { "type": "boolean" },
+          "may_call_binance_write": { "type": "boolean" }
+        }
+      }
+    },
+    "dispatch_order": { "type": "array" },
+    "guardrails": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1 }
+    }
+  },
+  "additionalProperties": false
+}

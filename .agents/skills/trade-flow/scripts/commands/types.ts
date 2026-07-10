@@ -29,9 +29,13 @@ export interface CommandConfig {
   strategyRndLoop: boolean
   strategyRndCampaign: boolean
   strategyPanelRnd: boolean
+  strategyDataSplit: boolean
+  automationCycle: boolean
   strategyBenchmark: boolean
   strategyCalibrationSuite: boolean
   strategySignal: boolean
+  strategyCompile: boolean
+  strategyLint: boolean
   artifactGc: boolean
   catalogInit: boolean
   catalogScan: boolean

@@ -94,7 +94,7 @@ test("forward holdout blocks candles that closed before strategy freeze", () => 
     assert.equal(record.eligible, false)
     assert.equal(record.blocked_by.some((item) => item.check_id === "HOLDOUT-NOT-FORWARD"), true)
     assert.equal(result.status, "blocked")
-    assert.equal(result.next_action, "Fix forward holdout data coverage before interpreting the frozen candidate.")
+    assert.equal(result.next_action, "Wait for the next closed candle after frozen_at, then re-run forward holdout with refreshed asset and benchmark manifests.")
     assert.equal(result.eligible_count, 0)
   } finally {
     rmSync(dir, { recursive: true, force: true })

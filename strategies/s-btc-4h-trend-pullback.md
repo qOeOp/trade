@@ -1,5 +1,6 @@
 ---
 strategy_id: S-BTC-4H-TREND-PULLBACK
+contract_schema_version: 1
 name: BTC 4H Volatility-Managed Trend Pullback
 status: draft
 tags: [btc, usdm, 4h, swing, momentum, pullback, volatility-managed]
@@ -48,18 +49,34 @@ Replay refs:
 - 2026-07-08 replay-flow audit added a positive-control path: a mechanically replayed strong synthetic strategy can pass `draft -> shadow` replay gates. Re-running this BTC strategy with `anti_overfit_stage=locked_holdout` still failed on expectancy, profit factor, drawdown, regime stability, cost stress, and +/-10% parameter stability.
 - Result: not promotable. Keep `status=draft`; do not loosen gates or promote filter-mined variants.
 
-## Setup Certificate
+## Trade Contract
 
 ```yaml
 setup_id: btc-4h-trend-pullback
+engine: manual_policy_v1
 hypothesis: BTC continuation trades have better expectancy when trend, structure, volatility, and positioning agree; pullback entry improves stop distance versus chasing.
-regime: 1D and 4H are not in conflict; 4H structure has a clear support/resistance zone within 0.5-1.5 ATR from current price.
-entry_rule: enter only at the pullback/retest zone in the trend direction; use LIMIT or STOP_LIMIT, never MARKET for new risk.
-stop_rule: stop beyond structure invalidation plus 0.25-0.5 * 4H ATR buffer; invalidation must be visible before sizing.
-no_trade_conditions: mid-range price, 1D/4H conflict, stale observe, extreme funding against the trade, spread abnormal, RR < 2, or no nearby structural invalidation.
-size_policy: risk_budget_usdt <= min(0.5% equity, account_config cap); initial live-small candidate must use <= 0.25-0.5% equity.
-evidence_ref: draft only; requires replay plus shadow before live-small.
-live_permission: draft
+timeframe: 4h
+risk:
+  reward_risk: 2
+  max_hold_bars: 18
+  size_policy: risk_budget_usdt <= min(0.5% equity, account_config cap); initial live-small candidate must use <= 0.25-0.5% equity.
+cost_model:
+  fee_bps: 2
+  slippage_bps: 1
+  adverse_funding_bps_per_8h: 1
+universe:
+  include: [BTCUSDT]
+execution:
+  regime_rule: 1D and 4H are not in conflict; 4H structure has a clear support/resistance zone within 0.5-1.5 ATR from current price.
+  entry_rule: enter only at the pullback/retest zone in the trend direction; use LIMIT or STOP_LIMIT, never MARKET for new risk.
+  stop_rule: stop beyond structure invalidation plus 0.25-0.5 * 4H ATR buffer; invalidation must be visible before sizing.
+  target_rule: structure-first ladder with minimum expected RR_net 2.0.
+  no_trade_conditions: mid-range price, 1D/4H conflict, stale observe, extreme funding against the trade, spread abnormal, RR < 2, or no nearby structural invalidation.
+proof:
+  evidence_ref: draft only; requires replay plus shadow before live-small.
+  blocked_by: mechanical replay has negative expectancy across current tests.
+  live_permission: draft_only
+  next_required_proof: replay-positive mechanical or shadow-measurable variant before any live-small promotion.
 ```
 
 ## Required Inputs

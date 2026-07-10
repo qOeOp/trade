@@ -1,4 +1,6 @@
 import { runArtifactGc } from "../lib/artifact-hygiene"
+import { candidateFromStrategyContract, compileStrategyContract, lintStrategyContract } from "../lib/strategy-contract"
+import { runStrategyDataSplit, strategyDataSplitInputFromJson } from "../lib/strategy-data-split"
 import { replayRegisteredStrategy } from "../lib/strategy-replay"
 import { runStrategyPanelRnd, strategyPanelRndInputFromJson } from "../lib/strategy-panel-rnd"
 import {
@@ -52,14 +54,33 @@ export function handleResearchCommand(config: CommandConfig): ScriptResponse | n
   if (config.strategyPanelRnd) {
     return successResponse(runStrategyPanelRnd(strategyPanelRndInputFromJson(config.input)))
   }
+  if (config.strategyDataSplit) {
+    return successResponse(runStrategyDataSplit(strategyDataSplitInputFromJson(config.input)))
+  }
   if (config.strategyBenchmark) {
     return successResponse(runTrendBenchmark(strategyBenchmarkInputFromJson(config.input)))
   }
   if (config.strategyCalibrationSuite) {
     return successResponse(runCalibrationSuite(strategyCalibrationInputFromJson(config.input)))
   }
+  if (config.strategyCompile) {
+    if (!config.strategyPath) {
+      throw new Error("--strategy-compile requires --strategy")
+    }
+    return successResponse(compileStrategyContract(config.strategyPath, asRecord(config.input.candidate_param_overrides)))
+  }
+  if (config.strategyLint) {
+    if (!config.strategyPath) {
+      throw new Error("--strategy-lint requires --strategy")
+    }
+    return successResponse(lintStrategyContract(config.strategyPath))
+  }
   if (config.strategySignal) {
-    return successResponse(evaluateRndSignal(strategyRndSignalInputFromJson(config.input)))
+    const parsed = strategyRndSignalInputFromJson(config.input)
+    const input = config.strategyPath && !config.input.candidate
+      ? { ...parsed, candidate: candidateFromStrategyContract(config.strategyPath, signalCandidateOverrides(config.input)) }
+      : parsed
+    return successResponse(evaluateRndSignal(input))
   }
   if (config.artifactGc) {
     if (!config.artifactRoot) {
@@ -86,4 +107,19 @@ function readStringArray(value: unknown): string[] {
 
 function stringField(value: unknown): string {
   return typeof value === "string" ? value.trim() : ""
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function signalCandidateOverrides(input: Record<string, unknown>): Record<string, unknown> {
+  const overrides = asRecord(input.candidate_param_overrides)
+  for (const key of ["benchmark_manifest_path", "benchmark_timeframe"]) {
+    const value = stringField(input[key])
+    if (value) {
+      overrides[key] = value
+    }
+  }
+  return overrides
 }

@@ -1060,7 +1060,7 @@ function researchReportSummary(path: string, data: JSONRecord, now: Date): {
       },
     }
   }
-  if (stringField(data.tracker_id) && asArray(data.paper_positions).length >= 0 && data.schema_version === 1) {
+  if (stringField(data.tracker_id) && Array.isArray(data.paper_positions) && data.schema_version === 2) {
     return {
       report_kind: "rd_shadow_tracker",
       report_id: stringField(data.tracker_id),
@@ -1069,6 +1069,7 @@ function researchReportSummary(path: string, data: JSONRecord, now: Date): {
       summary: {
         source_forward_holdout_result_ref: nullableString(data.source_forward_holdout_result_ref),
         summary: asRecord(data.summary),
+        event_count: nullableNumber(asRecord(data.summary).event_count),
       },
     }
   }

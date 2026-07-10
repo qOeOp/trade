@@ -7,6 +7,7 @@ type JSONRecord = Record<string, unknown>
 const EXPECTED_COMMAND_DATA = [
   "--init",
   "--track",
+  "--automation-cycle",
   "--append-order-fill",
   "--append-review",
   "--record-execution",
@@ -19,6 +20,7 @@ const EXPECTED_COMMAND_DATA = [
   "--strategy-rnd-loop",
   "--strategy-rnd-campaign",
   "--strategy-panel-rnd",
+  "--strategy-data-split",
   "--strategy-benchmark",
   "--strategy-calibration-suite",
   "--strategy-signal",

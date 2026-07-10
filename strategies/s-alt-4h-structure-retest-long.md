@@ -1,5 +1,6 @@
 ---
 strategy_id: S-ALT-4H-STRUCTURE-RETEST-LONG
+contract_schema_version: 1
 name: Alt 4H Structure Breakout Retest Long
 status: draft
 tags: [alt, usdm, 4h, swing, structure, breakout, retest, continuation]
@@ -16,25 +17,39 @@ Research refs:
 - 2026-07-09 unseen liquid-alt validation basket `AVAX/NEAR/DOT/LTC/BCH/TRX/ATOM/UNI` rejected the frozen same-rule candidate: pooled `sample_count=628`, `avg_r=-0.235952`, `total_r=-148.178097`, only 1/8 assets positive, blocked by breadth, OOS, cost, and catastrophic-loss gates.
 - Result: rejected as a general liquid-alt strategy. Keep `status=draft`; do not promote to `shadow`. The original five-symbol result is not sufficient evidence because it failed to generalize to unseen liquid alts.
 
-## Setup Certificate
+## Trade Contract
 
 ```yaml
 setup_id: alt-4h-structure-retest-long
+engine: rnd_family_v1
 hypothesis: Liquid alt continuation trades may have conditional positive expectancy after a prior 4H structure breakout and causal retest, but the current rule failed unseen liquid-alt validation.
-symbols: [BNBUSDT, SOLUSDT, XRPUSDT, ADAUSDT, DOGEUSDT]
 timeframe: 4h
 family: structure_breakout_retest_v1
-side: long
-lookback_bars: 80
-breakout_buffer_atr: 0.1
-retest_tolerance_atr: 0.5
-stop_atr: 0.5
-max_risk_atr: 1.5
-reward_risk: 2
-entry_rule: previous candle closes above prior 80-bar resistance plus 0.1 ATR; current candle retests that level within 0.5 ATR and closes back above it; enter next open or equivalent executable quote only.
-stop_rule: below min(retest low, breakout level) minus 0.5 ATR.
-target_rule: fixed 2R first research version; no discretionary target relocation.
-no_trade_conditions: symbol outside declared basket, stale closed 4H data, risk wider than 1.5 ATR, funding or spread abnormal, unresolved existing lane exposure, or retest level not causally available before entry.
-evidence_ref: draft only; external liquid-alt validation failed on 2026-07-09.
-live_permission: draft
+candidate:
+  side: long
+  lookback_bars: 80
+  breakout_buffer_atr: 0.1
+  retest_tolerance_atr: 0.5
+risk:
+  stop_atr: 0.5
+  max_risk_atr: 1.5
+  reward_risk: 2
+  max_hold_bars: 12
+cost_model:
+  fee_bps: 2
+  slippage_bps: 1
+  adverse_funding_bps_per_8h: 1
+universe:
+  include: [BNBUSDT, SOLUSDT, XRPUSDT, ADAUSDT, DOGEUSDT]
+  failed_external: [AVAXUSDT, NEARUSDT, DOTUSDT, LTCUSDT, BCHUSDT, TRXUSDT, ATOMUSDT, UNIUSDT]
+execution:
+  entry_rule: previous candle closes above prior 80-bar resistance plus 0.1 ATR; current candle retests that level within 0.5 ATR and closes back above it; enter next open or equivalent executable quote only.
+  stop_rule: below min(retest low, breakout level) minus 0.5 ATR.
+  target_rule: fixed 2R first research version; no discretionary target relocation.
+  no_trade_conditions: symbol outside declared basket, stale closed 4H data, risk wider than 1.5 ATR, funding or spread abnormal, unresolved existing lane exposure, or retest level not causally available before entry.
+proof:
+  evidence_ref: draft only; external liquid-alt validation failed on 2026-07-09.
+  blocked_by: external liquid-alt validation failed on breadth, OOS, cost, and catastrophic-loss gates
+  live_permission: draft_only
+  next_required_proof: new mechanism required; do not promote this general liquid-alt version.
 ```

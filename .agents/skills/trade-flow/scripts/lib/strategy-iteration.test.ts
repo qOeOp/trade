@@ -389,14 +389,14 @@ test("strategy review blocks live-small when replay edge decays in shadow", () =
 
 test("strategy policy hash ignores pre-certificate research and replay notes", () => {
   const dir = makeDir()
-  const policy = "## Setup Certificate\n\nentry_rule: same\n\n## Signal Stack\n\nUse rule A."
+  const policy = "## Trade Contract\n\nentry_rule: same\n\n## Signal Stack\n\nUse rule A."
   const strategyPath = writeStrategy(dir, "draft", `Research refs v1\n\n${policy}`)
   const firstHash = policyHashForFile(strategyPath)
 
   writeStrategy(dir, "draft", `Research refs v2\nReplay refs changed.\n\n${policy}`)
   assert.equal(policyHashForFile(strategyPath), firstHash)
 
-  writeStrategy(dir, "draft", `Research refs v2\n\n## Setup Certificate\n\nentry_rule: changed\n\n## Signal Stack\n\nUse rule A.`)
+  writeStrategy(dir, "draft", `Research refs v2\n\n## Trade Contract\n\nentry_rule: changed\n\n## Signal Stack\n\nUse rule A.`)
   assert.notEqual(policyHashForFile(strategyPath), firstHash)
 })
 
@@ -511,6 +511,41 @@ test("shadow evidence can be derived from DB review attribution", () => {
     const ledgerRecord = loadEvidenceLedger(ledgerPath)[0] as { kind: string; execution_attribution: { total_cost_drag: number } }
     assert.equal(ledgerRecord.kind, "shadow")
     assert.equal(ledgerRecord.execution_attribution.total_cost_drag, 0.095)
+  } finally {
+    db.close()
+  }
+})
+
+test("review-derived shadow evidence preserves a single reviewed setup id", () => {
+  const dir = makeDir()
+  const strategyPath = writeStrategy(dir, "shadow", "Rule v1")
+  const ledgerPath = join(dir, "strategy-evidence.jsonl")
+  const db = new Database(join(dir, "trade.db"))
+  try {
+    ensureSchema(db)
+    appendPlanEvent(db, {
+      event_key: "review-setup-a-1",
+      chain_id: "flow-setup-a-1",
+      kind: "review",
+      created_at: "2026-01-01T00:00:00.000Z",
+      body_json: {
+        strategy_ref: "S-TEST",
+        setup_id: "setup-a",
+        outcome: "win",
+        pnl_r: 1,
+        fee_r: 0.01,
+        slippage_r: 0.02,
+        funding_r: 0,
+        thesis_held: true,
+        key_lesson: "setup attribution carried",
+        promote_to_strategy: false,
+      },
+    })
+
+    const record = appendShadowEvidenceFromReviews({ strategyPath, ledgerPath, db })
+
+    assert.equal(record.setup_id, "setup-a")
+    assert.equal(loadEvidenceLedger(ledgerPath)[0]?.setup_id, "setup-a")
   } finally {
     db.close()
   }

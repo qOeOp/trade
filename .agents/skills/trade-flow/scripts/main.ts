@@ -21,6 +21,7 @@ import {
 } from "./lib/execution-flow"
 import { applyReconcileDrafts, findActiveLaneConflicts, laneKeyFromObserve, latestSlowObserve, listActiveFlows, reduceFlowState } from "./lib/flow-state"
 import { runLiveSmall, runShadowFromSkills } from "./lib/live-execution"
+import { buildAutomationCyclePlan } from "./lib/automation-cycle"
 import { loadRuntime, observeFromSkills, observeFromSkillsWithRunner } from "./lib/observe-flow"
 import {
   appendPlanEvent,
@@ -80,6 +81,9 @@ async function run(argv: string[]): Promise<ScriptResponse> {
     const db = new Database(config.dbPath)
     try {
       ensureSchema(db)
+      if (config.automationCycle) {
+        return successResponse(buildAutomationCyclePlan(db, config.dbPath, config.input))
+      }
       const runtimeResponse = handleRuntimeCommand(db, config)
       if (runtimeResponse) {
         return runtimeResponse
@@ -92,7 +96,7 @@ async function run(argv: string[]): Promise<ScriptResponse> {
       if (recoveryResponse) {
         return recoveryResponse
       }
-      throw new Error("provide --init, --track, --catalog-init, --catalog-scan, --catalog-query, --catalog-stale, --catalog-gc, --append-order-fill, --append-review, --record-execution, --run, --load-runtime, --build-observe, --observe-from-skills, --replay-strategy, --strategy-rnd-batch, --strategy-rnd-loop, --strategy-rnd-campaign, --strategy-panel-rnd, --strategy-benchmark, --strategy-calibration-suite, --strategy-signal, --artifact-gc, --append-strategy-evidence, --strategy-review, --strategy-promote, --strategy-cycle, --run-shadow-from-skills, --run-live-small, --recover-flow, --reconcile-flow, --reconcile-from-skills, --apply-reconcile, or --cron-recover-from-skills")
+      throw new Error("provide --init, --track, --automation-cycle, --catalog-init, --catalog-scan, --catalog-query, --catalog-stale, --catalog-gc, --append-order-fill, --append-review, --record-execution, --run, --load-runtime, --build-observe, --observe-from-skills, --replay-strategy, --strategy-rnd-batch, --strategy-rnd-loop, --strategy-rnd-campaign, --strategy-panel-rnd, --strategy-data-split, --strategy-benchmark, --strategy-calibration-suite, --strategy-signal, --strategy-compile, --strategy-lint, --artifact-gc, --append-strategy-evidence, --strategy-review, --strategy-promote, --strategy-cycle, --run-shadow-from-skills, --run-live-small, --recover-flow, --reconcile-flow, --reconcile-from-skills, --apply-reconcile, or --cron-recover-from-skills")
     } finally {
       db.close()
     }
@@ -109,6 +113,7 @@ export {
   buildRecordedExecutionEvent,
   buildMockExecutionResult,
   buildTrackDryRunSummary,
+  buildAutomationCyclePlan,
   cronRecoverFromSkills,
   ensureSchema,
   readFlowEvents,

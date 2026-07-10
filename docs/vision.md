@@ -48,7 +48,11 @@ agent 负责判断，skill 负责事实，脚本负责硬约束，交易所事�
 
 ## 运行方式
 
-cron 是主轨：每轮先拉账户事实并对账，再刷新 active flow，随后 PLAN/preflight 决定是否允许动作。用户消息只是接管轨，复用同一套事件流、preflight 和 hard guards。
+一条高频 automation supervisor 是唯一外部入口：先生成本轮任务图，再把盯市、慢轨判断、R&D tracker、artifact 保洁分发给上下文隔离的 subagent；平仓 review 在交易与对账完成后按事件串行收尾。慢轨、R&D 和保洁仍由各自 cadence gate 控制，不因入口高频唤醒而高频运行。
+
+subagent 是运行时并行与上下文卫生机制，不是新的事实源或权限主体。读重任务可以并行；`trade.db` 写入、交易动作和 review 封口必须按 concurrency group 串行，并继续经过 CLI、cron lock、preflight 与交易所事实回读。
+
+用户消息只是接管轨，复用同一套事件流、preflight 和 hard guards。
 
 每次真钱动作必须经过：
 

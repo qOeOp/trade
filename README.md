@@ -16,7 +16,7 @@
 | 计划收敛 | order preview、execution contract 编译、preflight hard guards、decision card |
 | 执行动作 | USDM 主单、保护腿、减仓 / 全平、撤单；真实写接口均需显式授权 |
 | 事件流 | `trade.db`、`plan_event`、observe / order_fill / review、reconcile、flow state |
-| 双轨运行 | slow track / fast track dry-run、cron runtime、shadow / live-small 相关契约 |
+| 调度运行 | 单 automation supervisor、subagent fan-out、slow / fast dry-run、cron runtime、shadow / live-small 相关契约 |
 | 策略研发 | replay、benchmark、calibration suite、strategy R&D campaign、evidence ledger、promotion gate |
 | 运维通知 | notify dispatch 配置、cron log fallback、helper scripts、项目级 quality check |
 
@@ -25,7 +25,7 @@
 | 路径 | 作用 |
 | --- | --- |
 | `.agents/skills/` | agent 可调用能力。每个 skill 自带 `SKILL.md`、脚本、测试与本地依赖 |
-| `strategies/` | 项目级 strategy policy，一文件一策略，进 Git、可 review、可 diff |
+| `strategies/` | 项目级 strategy policy；frontmatter + `## Trade Contract`，进 Git、可 review、可 diff |
 | `docs/` | vision / PRD / 架构 / 技术契约 / 检查契约 / R&D 记录 |
 | `data/` | 可审计运行数据，如 trade DB、strategy evidence、R&D ledger、OHLCV |
 | `profile/` | 本地交易配置、账户/通知兼容配置；凭证通过环境变量进入 |
@@ -74,7 +74,7 @@ OBSERVE
   -> order_fill / reconcile / review
 ```
 
-慢轨负责战略判断、完整 observe、thesis、risk、action_intent。快轨负责执行层守护、轻量对账、条件触发、防御动作与确定性 guards。两轨通过 `plan_event` 通信，不共享隐藏状态。
+一条外部 automation 先生成 supervisor task graph，再用 subagent 隔离分发慢轨、快轨、R&D 与保洁任务。慢轨负责战略判断、完整 observe、thesis、risk、action_intent；快轨负责执行层守护、轻量对账、条件触发、防御动作与确定性 guards。平仓 review 在交易 / 对账之后串行收尾。各 worker 通过 `plan_event` 与 artifact 通信，不共享隐藏状态。
 
 真实交易所事实优先级高于本地事件、artifact、memory 和自然语言摘要。
 

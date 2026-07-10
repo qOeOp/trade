@@ -164,7 +164,7 @@ function buildPanelAssetShuffleNull(candidates: PanelCandidateReport[]): JSONRec
       status: "not_applicable",
       reason: "requires at least two candidates and three assets",
       observed_total_r: candidate.pooled.total_r,
-      passed: true,
+      passed: false,
     }))
   }
   const trials = Math.min(30, Math.max(10, candidateCount * assetCount))

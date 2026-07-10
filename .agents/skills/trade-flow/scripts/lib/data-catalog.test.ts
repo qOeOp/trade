@@ -102,6 +102,26 @@ test("data catalog initializes schema and scans datasets, runs, artifacts, and l
       holdout_evaluations: 1,
       validated_candidate: null,
     }))
+    writeFileSync(join(root, "rd-shadow-tracker.json"), JSON.stringify({
+      schema_version: 2,
+      tracker_id: "tracker-1",
+      created_at: "2026-01-03T13:00:00.000Z",
+      updated_at: "2026-01-03T14:00:00.000Z",
+      status: "open",
+      summary: {
+        position_count: 1,
+        open_count: 1,
+        closed_count: 0,
+        event_count: 2,
+      },
+      paper_positions: [{
+        position_id: "pos-1",
+        events: [
+          { behavior: "open_setup", backend: "rd_artifact" },
+          { behavior: "observe_setup", backend: "rd_artifact" },
+        ],
+      }],
+    }))
     touchTree(root, new Date("2026-01-01T00:00:00.000Z"))
 
     const init = initDataCatalog(catalogDbPath)
@@ -120,12 +140,12 @@ test("data catalog initializes schema and scans datasets, runs, artifacts, and l
     assert.equal(result.panels_upserted, 1)
     assert.equal(result.panel_members_upserted, 1)
     assert.equal(result.feature_reports_upserted, 1)
-    assert.equal(result.research_reports_upserted, 1)
+    assert.equal(result.research_reports_upserted, 2)
     assert.equal(result.cron_runs_upserted, 1)
 
     const db = new Database(catalogDbPath)
     try {
-      assert.equal(count(db, "artifact"), 9)
+      assert.equal(count(db, "artifact"), 10)
       assert.equal(count(db, "dataset"), 2)
       assert.equal(count(db, "run"), 3)
       assert.equal(count(db, "strategy_rnd_run"), 1)
@@ -134,7 +154,7 @@ test("data catalog initializes schema and scans datasets, runs, artifacts, and l
       assert.equal(count(db, "panel"), 1)
       assert.equal(count(db, "panel_member"), 1)
       assert.equal(count(db, "feature_report"), 1)
-      assert.equal(count(db, "research_report"), 1)
+      assert.equal(count(db, "research_report"), 2)
       assert.equal((db.query("SELECT version FROM schema_migration WHERE component='data_catalog'").get() as { version: number }).version, 3)
       const dataset = db.query("SELECT symbol, timeframe, rows, content_hash FROM dataset WHERE kind = 'ohlcv'").get() as {
         symbol: string
@@ -196,6 +216,12 @@ test("data catalog initializes schema and scans datasets, runs, artifacts, and l
     assert.equal(reportKindQuery.datasets.length, 0)
     assert.equal(reportKindQuery.feature_reports.length, 0)
     assert.equal(reportKindQuery.panels.length, 0)
+    const trackerQuery = queryDataCatalog({
+      catalogDbPath,
+      reportKind: "rd_shadow_tracker",
+      limit: 10,
+    })
+    assert.ok(trackerQuery.research_reports.some((item) => item.report_kind === "rd_shadow_tracker"))
 
     const stale = listStaleCatalogArtifacts({
       catalogDbPath,

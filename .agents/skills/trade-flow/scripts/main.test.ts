@@ -680,6 +680,64 @@ test("run strategy R&D batch without creating DB", async () => {
     assert.equal(signalResult.ok, true)
     assert.equal((signalResult as { ok: true; data: { action: string } }).data.action, "entry")
     assert.equal(existsSync(dbPath), false)
+
+    const strategyPath = join(dir, "s-signal.md")
+    writeFileSync(strategyPath, `---
+strategy_id: S-SIGNAL
+contract_schema_version: 1
+name: Signal Strategy
+status: draft
+tags: [test]
+---
+
+# Signal Strategy
+
+## Trade Contract
+
+\`\`\`yaml
+setup_id: signal-trend-pullback
+engine: rnd_family_v1
+hypothesis: signal contract test
+timeframe: 4h
+family: trend_pullback_v1
+candidate:
+  side: both
+  pullback_atr: 10
+risk:
+  stop_atr: 0.5
+  max_risk_atr: 20
+  reward_risk: 2
+  max_hold_bars: 12
+cost_model:
+  fee_bps: 2
+  slippage_bps: 1
+  adverse_funding_bps_per_8h: 1
+universe:
+  include: [BTCUSDT]
+execution:
+  entry_rule: closed candle only
+proof:
+  live_permission: draft_only
+\`\`\`
+`)
+    const compiled = await run(["--strategy-compile", "--strategy", strategyPath])
+    assert.equal(compiled.ok, true)
+    assert.equal((compiled as { ok: true; data: { candidate: { family: string } } }).data.candidate.family, "trend_pullback_v1")
+
+    const contractSignalResult = await run([
+      "--strategy-signal",
+      "--strategy",
+      strategyPath,
+      "--json",
+      JSON.stringify({
+        manifest_path: manifestPath,
+        entry_price: buildReplayCandles().at(-1)!.close,
+        now: new Date(1_700_000_000_000 + buildReplayCandles().length * 4 * 60 * 60 * 1000).toISOString(),
+      }),
+    ])
+    assert.equal(contractSignalResult.ok, true)
+    assert.equal((contractSignalResult as { ok: true; data: { action: string } }).data.action, "entry")
+    assert.equal(existsSync(dbPath), false)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

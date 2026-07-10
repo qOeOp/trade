@@ -1,5 +1,6 @@
 ---
 strategy_id: S-ALT-4H-HIGH-BETA-SHORT-MOMENTUM
+contract_schema_version: 1
 name: Alt 4H High Beta Short Momentum
 status: draft
 tags: [alt, usdm, 4h, swing, high-beta, momentum, short, stc]
@@ -20,30 +21,43 @@ Research refs:
 - 2026-07-09 fresh unseen basket `FIL/AAVE/ETC/LDO/ORDI/1000PEPE` rejected the repaired `break_even_after_r=0.5` candidate: pooled `sample_count=1120`, `avg_r=-0.029309`, `total_r=-32.826083`, only 2/6 assets positive, blocked by breadth, OOS, cost, and catastrophic gates. Zero-cost control still failed with `total_r=-9.301431`.
 - Result: rejected as a general high-beta alt short-momentum strategy. Stop this hypothesis; do not spend more trials tuning STC / break-even variants without a new market mechanism.
 
-## Setup Certificate
+## Trade Contract
 
 ```yaml
 setup_id: alt-4h-high-beta-short-momentum
+engine: rnd_family_v1
 hypothesis: High-beta alt downside momentum with STC bearish filter and 0.5R break-even protection failed fresh unseen validation.
-symbols_discovery: [OPUSDT, ARBUSDT, SUIUSDT, INJUSDT, SEIUSDT]
-symbols_seen_validation: [APTUSDT, RUNEUSDT, TIAUSDT, JUPUSDT, WIFUSDT]
-symbols_fresh_validation: [FILUSDT, AAVEUSDT, ETCUSDT, LDOUSDT, ORDIUSDT, 1000PEPEUSDT]
 timeframe: 4h
 family: time_series_momentum_v1
-side: short
-lookback_bars: 120
-threshold_atr: 3
-stop_atr: 1
-max_risk_atr: 2.5
-reward_risk: 2
-max_hold_bars: 12
-filter: stc.value < 50
-diagnostic_risk_repair: break_even_after_r=0.5 removed catastrophic veto on already-seen validation data, but did not solve OOS instability.
-fresh_validation: failed; total_r=-32.826083, positive_assets=2/6, zero_cost_total_r=-9.301431.
-entry_rule: when 120-bar downside momentum is at least 3 ATR and STC is below 50 on a closed 4H candle; enter next open or equivalent executable quote only.
-stop_rule: signal candle high plus 1 ATR.
-target_rule: fixed 2R; no discretionary target relocation.
-no_trade_conditions: symbol outside declared research baskets, stale closed 4H data, missing STC feature, risk wider than 2.5 ATR, funding or spread abnormal, unresolved existing lane exposure, or setup not causally available before entry.
-evidence_ref: discovery passed, seen validation failed, risk-repair diagnostic improved drawdown, fresh validation failed on 2026-07-09.
-live_permission: draft
+candidate:
+  side: short
+  lookback_bars: 120
+  threshold_atr: 3
+  break_even_after_r: 0.5
+  factor_filter_note: stc.value < 50
+risk:
+  stop_atr: 1
+  max_risk_atr: 2.5
+  reward_risk: 2
+  max_hold_bars: 12
+cost_model:
+  fee_bps: 2
+  slippage_bps: 1
+  adverse_funding_bps_per_8h: 1
+universe:
+  discovery: [OPUSDT, ARBUSDT, SUIUSDT, INJUSDT, SEIUSDT]
+  seen_validation: [APTUSDT, RUNEUSDT, TIAUSDT, JUPUSDT, WIFUSDT]
+  fresh_validation: [FILUSDT, AAVEUSDT, ETCUSDT, LDOUSDT, ORDIUSDT, 1000PEPEUSDT]
+execution:
+  entry_rule: when 120-bar downside momentum is at least 3 ATR and STC is below 50 on a closed 4H candle; enter next open or equivalent executable quote only.
+  stop_rule: signal candle high plus 1 ATR.
+  target_rule: fixed 2R; no discretionary target relocation.
+  no_trade_conditions: symbol outside declared research baskets, stale closed 4H data, missing STC feature, risk wider than 2.5 ATR, funding or spread abnormal, unresolved existing lane exposure, or setup not causally available before entry.
+proof:
+  diagnostic_risk_repair: break_even_after_r=0.5 removed catastrophic veto on already-seen validation data, but did not solve OOS instability.
+  fresh_validation: failed; total_r=-32.826083, positive_assets=2/6, zero_cost_total_r=-9.301431.
+  evidence_ref: discovery passed, seen validation failed, risk-repair diagnostic improved drawdown, fresh validation failed on 2026-07-09.
+  blocked_by: PANEL-OOS and fresh validation negative expectancy
+  live_permission: draft_only
+  next_required_proof: stop this hypothesis unless a new causal mechanism is defined before new trials.
 ```

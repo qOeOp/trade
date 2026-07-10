@@ -1,18 +1,18 @@
 #!/usr/bin/env bun
 
-import { summarizeStrategyPanelRnd, readJsonArtifact } from "./lib/rnd-artifact"
+import { summarizeRndArtifact, readJsonArtifact } from "./lib/rnd-artifact"
 
 function main(): void {
   const argv = process.argv.slice(2)
   const input = readFlag(argv, "--input")
-  const mode = readFlag(argv, "--mode") || "panel-summary"
+  const mode = readFlag(argv, "--mode") || "summary"
   if (!input) {
     throw new Error("--input is required")
   }
-  if (mode !== "panel-summary") {
-    throw new Error("--mode must be panel-summary")
+  if (mode !== "summary" && mode !== "panel-summary") {
+    throw new Error("--mode must be summary")
   }
-  process.stdout.write(`${JSON.stringify(summarizeStrategyPanelRnd(readJsonArtifact(input)), null, 2)}\n`)
+  process.stdout.write(`${JSON.stringify(summarizeRndArtifact(readJsonArtifact(input)), null, 2)}\n`)
 }
 
 function readFlag(argv: string[], flag: string): string {

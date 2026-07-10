@@ -10,7 +10,7 @@
 
 - `profile/account_config.json` 已承载账户风险阈值。
 - `profile/notify_config.json` 已承载通知策略。
-- strategy markdown frontmatter / setup certificate 承载策略规则。
+- strategy markdown frontmatter 承载身份索引，`## Trade Contract` 承载策略规则。
 - R&D / benchmark / campaign payload 各自携带 fee、slippage、funding、trial budget。
 - `plan-preflight` 只消费了账户配置的一部分，文档中已有的 leverage / gross exposure / beta / funding guard 尚未完全合流。
 

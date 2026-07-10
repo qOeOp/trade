@@ -25,7 +25,7 @@
 ## 2. 放置规则
 
 - 原始 OHLCV：写 `data/ohlcv/`
-- 策略 policy：写 `strategies/*.md`；这是项目资产，不是 skill 源码，也不是运行数据
+- 策略 policy：写 `strategies/*.md`；frontmatter 做身份索引，`## Trade Contract` 做机器契约；这是项目资产，不是 skill 源码，也不是运行数据
 - calibration / validation / external / forward holdout panel：默认写 `tmp/panels/<kind>-<name>-<date>/`
 - replay / R&D / calibration 普通报告：默认写 `tmp/artifacts/<domain>/`
 - 已被策略准入、复盘或人工 review 明确引用的 durable artifact：才显式归档到 `data/artifacts/<domain>/`

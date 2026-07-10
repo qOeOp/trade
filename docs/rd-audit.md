@@ -1,6 +1,6 @@
 ---
 title: R&D Module Audit
-updated_at: 2026-07-09 20:35 CST
+updated_at: 2026-07-10 09:40 CST
 ---
 
 # R&D Module Audit
@@ -20,6 +20,10 @@ updated_at: 2026-07-09 20:35 CST
 - 已补：forward holdout 测试版输出冻结候选 hash、状态和下一步动作；主数据与 benchmark / supplemental 数据都必须是机器可读 `frozen_at` 之后的闭合样本，缺 `frozen_at` 的真实 artifact 会被拒绝。
 - 已补：calibration panel 明示 `survivor_only`，并支持通过外部归档 manifest 合入 inactive / delisted symbol；没有可靠归档输入时仍不得声称 survivorship robust。
 - 已补：R&D replay / panel / campaign / forward holdout / shadow tracker 读取 manifest 时支持把迁移前 `data/*-panel-*` 路径安全解析到当前 `tmp/panels/*`，并加回归测试；旧 artifact 可复读，但新产物仍应写 repo 相对 `tmp/panels/...`。
+- 已补：panel R&D 单候选时 `cross_candidate_asset_shuffle_v1` 不再显示 `passed=true`；状态仍是 `not_applicable`，避免误读成 panel-level null 通过。
+- 已补：forward holdout 在全部阻塞原因只是主数据 / benchmark 尚未晚于 `frozen_at` 时，`next_action` 改为等待下一根闭合 K 线并刷新 manifest，而不是误报“修数据覆盖”。
+- 已补：新增 `--strategy-data-split`。新 hypothesis 开研前可把 OHLCV manifest 物理切成 discovery / validation / locked_holdout 三个独立 manifest，并自动按 max hold / feature lookback / funding interval 留 embargo；locked holdout 在策略合约冻结前不再需要靠人脑“记得别看”。
+- 已补：`rnd-artifact.ts` 可自动识别普通 R&D loop 与 panel R&D artifact；普通 loop 摘要会暴露 `failure_summary`、`reliability_gate`、候选 R/OOS 指标与 blocker，避免 no-promote 被误读为空结果。
 - 未补：按订单 notional / ADV / depth 的 capacity 与 market impact 分桶、White Reality Check / Hansen SPA 完整实现、可靠 delisted 历史数据源。
 
 ## 当前测试状态
@@ -35,6 +39,15 @@ updated_at: 2026-07-09 20:35 CST
 - 2026-07-09 20:35 CST，完成两条后续诊断：
   - 路径 fallback 修复验证：旧 `alt-panel-competition-input-2026-07-08.json` 仍含 `data/calibration-panel-*` 路径，修复后可直接复跑并得到原始 panel summary。
   - BTC 弱势相对赢家 short 风险修复诊断：0.5R BE 仍被 TRX catastrophic veto，1R BE 更差；非 TRX 外部 panel 上原始候选通过当前 gate（`total_r=7.844068`，4/5 资产正），但 SOL 为负且 panel 已被看过，只能作为机制支持。
+- 2026-07-09 22:10 CST，BTC 强势相对赢家 short draft 做冻结候选外部检查：
+  - `relative-reversion-btc-strong-fresh-check-2026-07-09`：`BCH/LTC/ATOM/NEAR/APT`，固定 `RRV-S-BTCSTRONG-NONMEME-120-1R-RC-FROZEN`，`sample_count=399`、`avg_r=0.063149`、`total_r=25.196466`、4/5 资产正、无 panel gate blocker。
+  - `ATOMUSDT` 为负（`total_r=-5.157863`），OOS 与 cost stress 均为 false；单候选 panel asset-shuffle 不适用，不能把这轮解释成 panel null 通过。
+  - forward holdout 以 `frozen_at=2026-07-09T14:00:00Z` 运行，全部被 `HOLDOUT-NOT-FORWARD / HOLDOUT-SUPPLEMENTAL-NOT-FORWARD` 阻塞；最新闭合 K 线是 `2026-07-09T12:00:00Z`，下一步是等下一根冻结后 4H 闭合 K 线并刷新资产与 BTC benchmark manifest。
+- 2026-07-10 09:05 CST，开研 BTC 4H volatility compression breakout long：
+  - 先跑 `--strategy-data-split`：discovery `2019-09-08 -> 2023-09-04`，validation `2023-10-07 -> 2025-06-05`，locked holdout `2025-07-09 -> 2026-07-08`，embargo `200` 根 4H；locked holdout 未打开。
+  - campaign `btc-4h-vcb-rd-2026-07-10-a` 预声明 6 个 long VCB candidate；discovery 结果 `accepted_count=0`、`outcome=no_promote`，未消耗 validation。
+  - 主要 blocker：`R-PROFIT-FACTOR` 6/6、`RND-OOS-EFFECTIVE-SAMPLE` 6/6、`R-EXPECTANCY` 5/6；`reliability_gate.decision=reject_hypothesis`，下一步不是加过滤器，而是换新市场机制。
+  - artifact：`tmp/artifacts/strategy-rnd/btc-4h-vcb-rd-2026-07-10-a.campaign.json` 与 `tmp/artifacts/strategy-rnd/btc-4h-vcb-rd-2026-07-10-a-H-BTC-4H-VCB-LONG-001-discovery.json`；R&D ledger 已登记到 `data/data_catalog.db`。
 
 ## 外部校准
 
@@ -83,6 +96,7 @@ updated_at: 2026-07-09 20:35 CST
 - 把 locked holdout 通过者送入 shadow，禁止直接 live-small。
 - 用 forward holdout 测试版验证冻结候选在 `frozen_at` 后真实闭合样本上的信号表现；结果只能进入 shadow/review 判断。
 - 用 R&D shadow tracker 持续跟踪 forward 信号；关闭后生成 review draft，再决定是否整理为正式 strategy evidence。
+- R&D tracker 需按 [rd-event-chain-design.md](rd-event-chain-design.md) 补 entry / observation / exit / review_draft 事件链；否则 review 只能看终点，无法区分 entry、exit、regime、execution 归因。
 - 用失败 ledger 指导回到数据、成本、regime、样本或假设层，不继续加 trial。
 
 暂不应投入使用的范围：

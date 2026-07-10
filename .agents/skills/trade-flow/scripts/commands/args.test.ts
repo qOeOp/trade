@@ -19,6 +19,10 @@ test("parseArgs keeps core execution and evidence flags stable", () => {
     "--mode",
     "shadow",
     "--strategy-promote",
+    "--strategy-compile",
+    "--strategy-lint",
+    "--strategy-data-split",
+    "--automation-cycle",
     "--trading-config",
     "profile/trading-config.json",
     "--strategy-cycle",
@@ -59,6 +63,10 @@ test("parseArgs keeps core execution and evidence flags stable", () => {
   assert.equal(config.chainId, "flow-1")
   assert.equal(config.mode, "shadow")
   assert.equal(config.strategyPromote, true)
+  assert.equal(config.strategyCompile, true)
+  assert.equal(config.strategyLint, true)
+  assert.equal(config.strategyDataSplit, true)
+  assert.equal(config.automationCycle, true)
   assert.equal(config.tradingConfigPath, "profile/trading-config.json")
   assert.equal(config.strategiesDir, "./strategies")
   assert.equal(config.strategyCycle, true)

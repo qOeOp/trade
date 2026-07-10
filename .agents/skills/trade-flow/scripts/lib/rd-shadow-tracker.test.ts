@@ -15,8 +15,13 @@ test("rd shadow tracker keeps a fresh forward signal open until post-entry candl
       maxHoldBars: 3,
     })
     assert.equal(state.status, "open")
+    assert.equal(state.schema_version, 2)
     assert.equal(state.summary.open_count, 1)
+    assert.equal(state.summary.event_count, 1)
     assert.equal(state.paper_positions[0].last_evaluated_index, 0)
+    assert.equal(state.paper_positions[0].events[0].behavior, "open_setup")
+    assert.equal(state.paper_positions[0].events[0].backend, "rd_artifact")
+    assert.equal(state.paper_positions[0].projection.status, "open")
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -38,7 +43,14 @@ test("rd shadow tracker closes short target and emits review draft", () => {
     assert.equal(position.status, "closed")
     assert.equal(position.outcome, "target")
     assert.equal(position.r, 2)
+    assert.deepEqual(position.events.map((event) => event.behavior), ["open_setup", "observe_setup", "close_setup", "review_setup"])
+    assert.equal(position.projection.status, "closed")
+    assert.equal(position.projection.mfe_r, 2.2)
+    assert.equal(position.projection.mae_r, -0.2)
+    assert.equal(position.projection.close_r, 1)
+    assert.equal(position.projection.exit_reason, "target")
     assert.equal(position.review_draft?.execution_attribution_required, true)
+    assert.equal(position.review_draft?.can_be_strategy_evidence, false)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -84,6 +96,10 @@ test("rd shadow tracker can update an existing open state and carry break-even s
     assert.equal(position.outcome, "stop")
     assert.equal(position.r, 0)
     assert.equal(position.stop, 100)
+    assert.equal(position.projection.break_even_armed, true)
+    assert.equal(position.projection.mfe_r, 0.8)
+    assert.equal(position.projection.mae_r, -0.2)
+    assert.deepEqual(position.events.map((event) => event.behavior), ["open_setup", "observe_setup", "observe_setup", "close_setup", "review_setup"])
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -107,6 +123,42 @@ test("rd shadow tracker update accepts script response wrapped state", () => {
     })
     assert.equal(updated.paper_positions[0].status, "closed")
     assert.equal(updated.paper_positions[0].outcome, "target")
+    assert.equal(updated.schema_version, 2)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("rd shadow tracker state update merges new forward entries idempotently", () => {
+  const dir = mkdtempSync(join(tmpdir(), "rd-shadow-tracker-"))
+  try {
+    const manifestPath = writeManifest(dir, [
+      [100, 101, 99, 100],
+      [100, 101, 99, 100],
+    ])
+    const state = createRdShadowTrackerFromForwardHoldout(report(manifestPath), {
+      now: "2026-07-09T04:10:00.000Z",
+      maxHoldBars: 3,
+    })
+    const same = updateRdShadowTracker(state, {
+      now: "2026-07-09T08:10:00.000Z",
+      forwardReport: report(manifestPath),
+    })
+    assert.equal(same.summary.position_count, 1)
+
+    const merged = updateRdShadowTracker(same, {
+      now: "2026-07-09T08:12:00.000Z",
+      forwardReport: shiftedReport(manifestPath),
+    })
+    assert.equal(merged.summary.position_count, 2)
+    assert.equal(merged.paper_positions[1].events[0].behavior, "open_setup")
+    assert.equal(merged.paper_positions[1].entry_index, 2)
+
+    const repeated = updateRdShadowTracker(merged, {
+      now: "2026-07-09T08:13:00.000Z",
+      forwardReport: shiftedReport(manifestPath),
+    })
+    assert.equal(repeated.summary.position_count, 2)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -154,6 +206,17 @@ function report(manifestPath: string) {
       }],
     },
   }
+}
+
+function shiftedReport(manifestPath: string) {
+  const raw = report(manifestPath)
+  const record = raw.data.records[0]
+  record.latest_candle_open = "2026-07-09T04:00:00.000Z"
+  record.latest_candle_closed_at = "2026-07-09T08:00:00.000Z"
+  record.signal.signal_time = "2026-07-09T04:00:00.000Z"
+  record.signal.signal.signal_index = 1
+  record.signal.signal.entry_index = 2
+  return raw
 }
 
 function writeManifest(dir: string, ohlc: Array<[number, number, number, number]>): string {

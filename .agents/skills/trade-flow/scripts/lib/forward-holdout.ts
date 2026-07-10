@@ -88,7 +88,7 @@ function runForwardHoldout(input: ForwardHoldoutInput): ForwardHoldoutReport {
     now: input.now || new Date().toISOString(),
     timeframe: input.timeframe || "4h",
     status,
-    next_action: nextAction(status),
+    next_action: nextAction(status, records),
     frozen_candidate: {
       candidate_id: input.candidate.candidateId,
       family: input.candidate.family || "trend_pullback_v1",
@@ -316,15 +316,25 @@ function optionalNumber(value: unknown): number | undefined {
   return Number.isFinite(number) ? number : undefined
 }
 
-function nextAction(status: ForwardHoldoutReport["status"]): string {
+function nextAction(status: ForwardHoldoutReport["status"], records: ForwardHoldoutRecord[]): string {
   switch (status) {
     case "signal_found":
       return "Route any entry signal to shadow/paper review only; do not promote from forward holdout alone."
     case "waiting_for_signal":
       return "Hold the frozen candidate and re-run on the next closed forward candle."
     default:
+      if (isWaitingForForwardData(records)) {
+        return "Wait for the next closed candle after frozen_at, then re-run forward holdout with refreshed asset and benchmark manifests."
+      }
       return "Fix forward holdout data coverage before interpreting the frozen candidate."
   }
+}
+
+function isWaitingForForwardData(records: ForwardHoldoutRecord[]): boolean {
+  return records.length > 0 && records.every((record) => (
+    record.blocked_by.length > 0
+    && record.blocked_by.every((block) => block.check_id === "HOLDOUT-NOT-FORWARD" || block.check_id === "HOLDOUT-SUPPLEMENTAL-NOT-FORWARD")
+  ))
 }
 
 function countActiveParameters(params: JSONRecord): number {

@@ -20,7 +20,7 @@ trade-flow cron 分两条轨道：
 | | 慢轨 | 快轨 |
 |---|---|---|
 | 频率 | 1H / 4H | 5m / 15m |
-| 触发时机 | 独立 automation，1H / 4H 间隔 | 独立 automation，5m / 15m 间隔 |
+| 触发时机 | 单入口 supervisor 判定 slow due 后分发 | 单入口 supervisor 高频唤醒时优先分发 |
 | LLM 角色 | **战略层**：读 plan + market + strategy.policy + flow semantics 做 thesis / action_intent 判断 | **orchestrator only**：按 prompt 模板顺序调 tool（reduce flow / 拉 depth / 跑 guards / 调 executor / 调 notify），把 tool 结果总结成 decision_summary。**不做任何质性判断**（不评估"诱多诱空"、不重读 thesis、不重设 invalidation） |
 | 写 `observe` | 完整 observe（含 thesis / action_intent / 全部硬字段） | light observe（thesis 段继承慢轨；execution context 自采） |
 | 写 `order_fill` | 是 | 是 |
@@ -34,9 +34,13 @@ trade-flow cron 分两条轨道：
 
 ### 调度归属
 
-cron 调度本身**不在 skill 内部**，由用户的 agent runtime（首要平台 Codex automation；亦可 launchd / system cron）在 skill 之外触发。两轨用独立 automation，**通过 prompt 区分轨道**（如 prompt = "run trade-flow slow track" / "run trade-flow fast track"），skill 入口直接读 prompt 决定走慢轨或快轨分支，不依赖 wall-clock 分钟对齐。
+系统由一条外部 automation 高频唤醒，先跑 `--automation-cycle` 生成 supervisor plan，再按 `jobs[].active` 分发 slow / fast / R&D / review / catalog 子任务。`--track slow|fast` 是底层工作单元，不作为长期 automation 入口暴露。
 
-不要求严格 cron 对齐（如 :05 / :20 / :35 / :50）：实际触发时间可能漂移，"两轨不同时驱动 Binance API + LLM 推理"这个真需求由 skill 入口的 lock file + 幂等执行兜底（见 §失败兜底 → 慢/快轨重叠），而不是靠错开 wall-clock 分钟。
+单入口按快轨尺度唤醒；慢轨、R&D、catalog 通过 cadence gate 决定是否 due。默认口径：fast 15m、slow 240m、R&D 240m、catalog 1440m。也就是说，入口 15m 醒一次不等于慢轨或 R&D 15m 跑一次。
+
+subagent 只负责上下文隔离和并行：交易事实仍只能通过 trade-flow CLI、`trade.db`、cron lock 与 preflight 进入。R&D tracker 子任务不得写 `trade.db`，不得生成 strategy evidence；closed-flow review 优先由本轮“已闭合且未 review”事件触发，必须在交易 / 对账子任务之后串行收尾。review cadence 只做漏单兜底，不把 review 变成第四条长期 automation。
+
+不要求严格 cron 对齐（如 :05 / :20 / :35 / :50）：实际触发时间可能漂移，"两轨不同时驱动 Binance API + LLM 推理"这个真需求由 supervisor cadence + skill 入口 lock file + 幂等执行兜底（见 §失败兜底 → 慢/快轨重叠），而不是靠错开 wall-clock 分钟。
 
 ### 共同 executor
 
@@ -327,7 +331,7 @@ CREATE INDEX idx_beta_symbol_date ON beta_cache(symbol, computed_date DESC);
 | --- | --- | --- |
 | 事件流 | SQLite | `./data/trade.db` → `plan_event` |
 | β 缓存 | SQLite | `./data/trade.db` → `beta_cache` |
-| Strategy policy | Markdown（一文件一 strategy） | `strategies/*.md` |
+| Strategy policy | Markdown（一文件一 strategy，frontmatter + `## Trade Contract`） | `strategies/*.md` |
 | Account config | JSON 文件 | `./profile/account_config.json` |
 | Notify config | JSON 文件 | `./profile/notify_config.json` |
 | System state | JSON 文件 | `./data/system_state.json`（熔断状态） |
@@ -795,7 +799,7 @@ review 阶段按 `blocked_by[].check_id` group by，自然得到"哪项 hard gua
 
 ## Strategy 池
 
-Strategy 是 `observe.body.strategy_ref` 指向的对象。strategy 是规则模板，不是 flow 身份。一个 strategy 可以在不同 symbol / side 上展开多个 lane；MVP lane 先用 `strategy_ref + symbol + side` 读时定位。每个 lane 同时最多 1 条 active flow；同一 lane 的旧 flow 闭合后，后续再出现新机会时新开 flow。这里不是"暂不支持同 lane 多重重入"，而是**当前产品层明确禁止**：同 lane 的新理由、新结构、新加一段都并回当前 flow 管理，不开并行 flow。是否支持同 symbol 双向同时并行，等真实需求出现再单独设计。完整 strategy policy 落 [strategies/](../strategies/)。schema 见 [tech-spec.md](tech-spec.md)。
+Strategy 是 `observe.body.strategy_ref` 指向的对象。strategy 是规则模板，不是 flow 身份。一个 strategy 可以在不同 symbol / side 上展开多个 lane；MVP lane 先用 `strategy_ref + symbol + side` 读时定位。每个 lane 同时最多 1 条 active flow；同一 lane 的旧 flow 闭合后，后续再出现新机会时新开 flow。这里不是"暂不支持同 lane 多重重入"，而是**当前产品层明确禁止**：同 lane 的新理由、新结构、新加一段都并回当前 flow 管理，不开并行 flow。是否支持同 symbol 双向同时并行，等真实需求出现再单独设计。完整 strategy policy 落 [strategies/](../strategies/)；frontmatter 只做身份索引，`## Trade Contract` 才是 R&D / signal / evidence hash 的机器契约。schema 见 [tech-spec.md](tech-spec.md)。
 
 Strategy evidence 写 `data_catalog.db.strategy_evidence`，不入 `plan_event`。`draft -> shadow` 必须有 fresh replay 正收益，并带 `anti_overfit.method=out_of_sample|walk_forward`；OOS 样本至少 10 且表现为正，`trial_count > 10` 或 `parameter_count > 8` 直接拒绝升格。
 

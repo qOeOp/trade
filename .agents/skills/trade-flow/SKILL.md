@@ -61,7 +61,7 @@ latest_observe.action_intent.request
 - R&D artifact 摘要：`./scripts/rnd-artifact.ts --input <result.json>`，自动 unwrap `{ok,data}` 外壳，避免手写 jq 误读结果结构
 - R&D feature report 缓存：`./scripts/feature-report.ts --manifest <manifest.json> --output <features.json> [--indicators stc,vfi]`，固定从 `tech-indicators` skill 目录调用 Go，并复用已匹配 manifest 的 feature-series artifact
 - Forward locked holdout 守门：`bun ./scripts/forward-holdout.ts --input <input.json>`；也可用 `--panel-input <panel-input.json> --plan <plan.json> --frozen-at <iso>` 从 panel artifact 构造。必须有机器可读 `frozen_at`；只评估策略冻结后新闭合的 K 线，冻结点及之前的数据一律拒绝，避免把已看过样本伪装成 promotion evidence
-- R&D shadow tracker：`bun ./scripts/rd-shadow-tracker.ts --forward-result <forward-result.json> --output <tracker.json> [--state <tracker.json>] [--manifest-map <map.json>] [--max-hold-bars 18]`；把 forward entry 信号变成纸面持仓，用后续闭合 K 线判定 stop / target / time_exit，只产 review draft，不写 DB、不触发 Binance、不提供 promotion evidence
+- R&D shadow tracker：`bun ./scripts/rd-shadow-tracker.ts --forward-result <forward-result.json> --output <tracker.json> [--state <tracker.json>] [--manifest-map <map.json>] [--max-hold-bars 18]`；输出 schema v2 行为事件链，把 forward entry 信号变成 `open_setup -> observe_setup[] -> close_setup -> review_setup` 纸面样本；不写 DB、不触发 Binance、不提供 promotion evidence
 - 示例输入：`./examples/*.example.json`
 - 项目级检查契约：`../../../docs/check-contract.md`
 - 执行 skill 输出契约：`../../../docs/execution-skill-contract.md`
@@ -88,6 +88,8 @@ latest_observe.action_intent.request
 - strategy cycle result 外壳 schema：`./schemas/strategy-cycle-result.schema.json`
 - replay result 外壳 schema：`./schemas/replay-result.schema.json`
 - strategy R&D batch / loop / campaign / panel result 外壳 schema：`./schemas/strategy-rnd-batch-result.schema.json` / `./schemas/strategy-rnd-loop-result.schema.json` / `./schemas/strategy-rnd-campaign-result.schema.json` / `./schemas/strategy-panel-rnd-result.schema.json`
+- strategy data split result 外壳 schema：`./schemas/strategy-data-split-result.schema.json`
+- automation cycle plan 外壳 schema：`./schemas/automation-cycle-plan.schema.json`
 - strategy benchmark / calibration result 外壳 schema：`./schemas/strategy-benchmark-result.schema.json` / `./schemas/strategy-calibration-result.schema.json`
 - strategy signal result 外壳 schema：`./schemas/strategy-signal-result.schema.json`
 - 支持动作：
@@ -105,9 +107,14 @@ latest_observe.action_intent.request
   - `--strategy-rnd-loop --json <payload>`：运行一轮 R&D loop，写 artifact JSON 和 `data_catalog.db.strategy_rnd_run`；不写 `trade.db`，不自动升格
   - `--strategy-rnd-campaign --json <payload>`：依次运行 hypothesis queue；可选 `calibration_report_path` 未过则零 trial 停止；未产生 discovery winner 才继续下一假设；首个 winner 冻结后只查看一次不重叠 locked holdout，通过即返回，失败即结束 campaign
   - `--strategy-panel-rnd --json <payload>`：同一候选在至少三个资产上复用统一 replay，保留逐资产证据并执行样本、广度、OOS、成本与灾难损失门槛
+  - `--strategy-data-split --json <payload>`：在研发新 hypothesis 前把 OHLCV manifest 切成 discovery / validation / locked_holdout 三段独立 manifest，并在两段之间留 embargo；locked_holdout 只允许在 Trade Contract 冻结后使用
+  - `--automation-cycle --json <payload>`：生成单一自动化入口的 supervisor plan；外部 automation 可按该 plan 用 subagent 分发 slow / fast / R&D / review / catalog job。closed-flow review 由上游闭合事件触发并在交易写入后串行执行，cadence 只补漏。该命令只产出任务图，`executable=false`，不执行交易
   - `--strategy-benchmark --json <payload>`：运行固定 30/90/180 日、15% 目标波动的多资产趋势基准、成本/资金费压力、时间折和组合权重循环移位负对照；只标定研究管线
   - `--strategy-calibration-suite --json <payload>`：运行 buy-and-hold / cash baseline、固定趋势基准、固定横截面强弱基准，并可消费 dataset `indicator_report_path` 中的 exact funding events，输出 report hash、可选 previous-run comparison、data_panel、beta、fee/slippage 成本拆分、funding、换手、暴露、时间/趋势/波动 regime 稳定性、time-shift / side-flip / asset-shuffle 负对照与数据广度诊断；只回答 R&D 管线该先修哪里
   - `--strategy-signal --json <payload>`：用最新闭合 K 线与传入 `entry_price` 评估 candidate，并返回稳定 candidate hash；只返回 `entry / no_action`，不写 DB、不执行
+  - `--strategy-signal --strategy <path> --json <payload>`：从 strategy markdown 的 `## Trade Contract` 编译 candidate；运行时路径如 `benchmark_manifest_path` 从 payload 注入
+  - `--strategy-compile --strategy <path>`：把 strategy markdown 编译成 engine-facing contract JSON
+  - `--strategy-lint --strategy <path>`：校验 strategy markdown 的 frontmatter 与 `## Trade Contract`
   - `--append-strategy-evidence --strategy <path> --catalog-db <path> --json <payload>`：把 replay / shadow / live-small / review_batch 证据写入 catalog DB
   - `--strategy-review --strategy <path> --catalog-db <path> [--db <path>]`：读取 strategy、catalog evidence 和可选 DB review，生成迭代报告
   - `--strategy-promote --strategy <path> --catalog-db <path> --to <status> [--yes]`：按 gate dry-run 或更新 strategy frontmatter status
@@ -135,6 +142,7 @@ latest_observe.action_intent.request
 - `--strategy-rnd-batch` 只读 OHLCV / factor report，不写 DB，不触发 Binance；base family 与搜索预算必须预声明，最多 10 个 trial，单候选参数数最多 8
 - `--strategy-rnd-batch` 失败时必须输出 `failure_summary`，把 blocker、selection instability 与下一步系统动作说清楚；不得只返回 no_promote
 - `--strategy-rnd-batch` 必须输出 `reliability_gate`，把失败归因、样本画像和是否允许继续 trial 机器化；当前通过与失败都不允许无理由追加 trial
+- 新 hypothesis 开始前应先跑 `--strategy-data-split` 并保留 split report；discovery 用于搜索，validation 用于候选过滤，locked_holdout 不得在策略合约冻结前打开
 - `--strategy-rnd-loop` 只包装 batch、artifact 和 R&D ledger；R&D ledger 是研究审计，不是策略准入 evidence
 - `--strategy-rnd-campaign` 的总 discovery trial budget 最多 10；只接受预声明 hypothesis queue，validation manifest 必须与 discovery manifest 时间不重叠；locked holdout 只允许看一次，失败即结束 campaign
 - `--strategy-rnd-campaign` 若传入 `calibration_report_path`，必须先通过 calibration gate；`calibrated=false` 或存在 blocker finding 时停止，不能消耗 trial budget
@@ -150,6 +158,7 @@ latest_observe.action_intent.request
 - factor 发现、目录、解释和计算由 `tech-indicators` descriptor 提供；trade-flow 只消费稳定 `factor_id` 与 feature series，不硬编码 indicator 名称
 - R&D 需要 feature-series 时优先用 `scripts/feature-report.ts` 生成或命中缓存；不得在仓库根目录直接 `go run .agents/skills/tech-indicators/scripts`，也不得重复计算已匹配 manifest 的 feature artifact
 - strategy policy 的 canonical 目录是仓库根 `strategies/`；skill 内 `.agents/skills/trade-flow/strategies` 只作为 legacy fallback，不再新增项目策略
+- strategy markdown 的机器契约统一放在 `## Trade Contract` fenced YAML；frontmatter 只承载 `strategy_id / contract_schema_version / name / status / tags`
 - 读取旧 R&D / panel artifact 时，`data/*-panel-*` manifest 路径会兼容解析到当前 `tmp/panels/*`；这是迁移兼容，不是新产物位置规范，新 panel 仍应写 `tmp/panels/` 且使用 repo 相对路径
 - factor condition 通用支持 `level / delta / slope / zscore / percentile` 与 `gt / lt / between`；旧 `indicator_filters` 自动映射为 `level`，仅用于兼容
 - bounded composer 最多组合 3 个不同角色 factor、最多输出 10 个 candidate，并把 threshold 与 transform lookback 计入 8 参数上限；不做无界笛卡尔积
@@ -167,7 +176,7 @@ latest_observe.action_intent.request
 - strategy iteration 使用 `data_catalog.db.strategy_evidence`；不扩大 `plan_event.kind`，不把策略准入证据混进 `trade.db`
 - replay evidence 绑定 `policy_hash + harness_hash + data_hash + assumptions_hash`；OHLCV 与实际消费的 factor report 同属 data hash，任一变化、数据不可用或 checksum 不符即 stale
 - promotion 只接受 `schema_version>=2`、`closed_candles_only=true` 且 checksum 可核验的数据；旧 manifest 可研究，不可准入
-- `policy_hash` 只覆盖可交易策略定义；strategy markdown 中 `## Setup Certificate` 之前的研究引用、replay refs、迭代日志不应让 evidence stale
+- `policy_hash` 只覆盖可交易策略定义；strategy markdown 中 `## Trade Contract` 之前的研究引用、replay refs、迭代日志不应让 evidence stale
 - 普通 chronological tail split 只算 `selection_validation`，不能授权 shadow；`draft -> shadow` 必须带 `stage=locked_holdout` 的 OOS / walk-forward proof
 - `external_validation` 使用完整不重叠区间，但只做研究确认；已被项目查看过的数据不能冒充 locked holdout，也不能授权 shadow
 - anti-overfit proof 的 `oos_stats.sample_count` 至少 10，且 OOS 表现必须为正；`trial_count > 10` 或 `parameter_count > 8` 会被拒绝
@@ -184,5 +193,6 @@ latest_observe.action_intent.request
 - `--reconcile-flow / --reconcile-from-skills` 只生成草案；遇到无法可靠归属的订单 / 仓位差异必须放进 `unmatched`
 - `--apply-reconcile` 只写本地 DB，不调用 Binance；没有 `--yes`、`can_reconcile!=true` 或 draft 不是 `order_fill(source=reconcile)` 都必须拒绝
 - `--cron-recover-from-skills` 是 cron 入口恢复胶水；对账不能可靠归属时只返回 abort，不继续 EXECUTE
+- automation 是一个高频单入口：入口先跑 `--automation-cycle`，再按 `jobs[].active` 与动态触发条件分发子任务；慢轨 / R&D / catalog 必须通过 cadence gate，closed-flow review 在上游报告闭合后串行执行，review cadence 只做补漏
 - 子 skill 调用必须返回 JSON；非零退出或非 JSON 输出直接视为失败
 - 插入使用 SQLite 主键天然幂等；重复 `event_key` 会被拒绝
