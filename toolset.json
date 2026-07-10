@@ -47,15 +47,15 @@
       "notes": ["Owns research execution. It cannot write trade.db or trigger Binance writes."]
     },
     {
-      "id": "trade-flow.review",
-      "domain": "review",
+      "id": "strategy-review",
+      "domain": "governance",
       "intent": ["evidence", "review", "promotion", "strategy-cycle"],
       "capability_class": ["E", "V"],
-      "path": "modules/trade-flow",
+      "path": "modules/governance/strategy-review",
       "purpose": "Append strategy evidence, build review reports, and gate strategy status transitions.",
-      "command": { "cwd": "modules/trade-flow", "argv": ["bun", "src/scripts/main.ts", "<evidence-flag>", "--strategy", "<strategy.md>"] },
-      "writes": { "trade_db": true, "catalog": true, "artifacts": false, "binance": false, "config": false },
-      "notes": ["Promotion applies only with explicit --yes where required."]
+      "command": { "cwd": "modules/governance/strategy-review", "argv": ["bun", "src/scripts/main.ts", "<review-flag>", "--strategy", "<strategy.md>"] },
+      "writes": { "trade_db": false, "catalog": true, "artifacts": false, "binance": false, "config": true },
+      "notes": ["Reads trade.db only when --db is provided. Promotion can update strategy markdown only with explicit --yes where required."]
     },
     {
       "id": "trade-flow.recovery",

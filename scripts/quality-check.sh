@@ -49,6 +49,10 @@ check_module_contracts() {
     printf 'quality: artifact/catalog work must be registered as artifact-catalog, not trade-flow.artifact\n' >&2
     exit 1
   fi
+  if rg -n '"id": "trade-flow\.review"' toolset.json >/dev/null; then
+    printf 'quality: strategy review must be registered as strategy-review, not trade-flow.review\n' >&2
+    exit 1
+  fi
   find modules \( -name package.json -o -name go.mod -o -name requirements.txt \) -type f | sort | while IFS= read -r marker; do
     module_dir="$(dirname "$marker")"
     if [ ! -f "$module_dir/CONTRACT.md" ]; then

@@ -5,11 +5,12 @@
 - Local `trade.db` event flow and projections
 - Observe, dry-run, shadow, live-small orchestration
 - Recovery and reconcile event drafts
-- Strategy review, evidence sync, promotion gates, and automation planning
+- Automation planning
 
 ## Delegates
 
 - Strategy R&D, replay, panel, and benchmark work to `modules/research/strategy-rd`
+- Strategy evidence, review, and promotion gates to `modules/governance/strategy-review`
 - Artifact catalog, query, stale scan, and GC work to `modules/ops/artifact-catalog`
 - Exchange reads/writes to atomic `modules/binance/*` tools
 - Deterministic hard guards to `modules/guards/plan-preflight`
@@ -18,4 +19,5 @@
 
 - Owning Binance endpoint details
 - Owning new R&D experiment logic
+- Owning strategy review / promotion implementation
 - Owning catalog / GC implementation

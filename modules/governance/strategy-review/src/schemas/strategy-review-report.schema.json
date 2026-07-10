@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "strategy-review.strategy-review-report.v1",
+  "title": "trade-flow strategy review report",
+  "description": "Stable outer shape for strategy review reports. Evidence records and diagnostics internals remain shallow so promotion logic can evolve.",
+  "type": "object",
+  "required": [
+    "strategy_id",
+    "strategy_path",
+    "status",
+    "policy_hash",
+    "evidence",
+    "latest",
+    "db_review_stats",
+    "diagnostics",
+    "gate"
+  ],
+  "properties": {
+    "strategy_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "strategy_path": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "minLength": 1
+    },
+    "policy_hash": {
+      "type": "string",
+      "minLength": 1
+    },
+    "evidence": {
+      "type": "object",
+      "required": ["fresh", "stale", "stale_reasons"],
+      "properties": {
+        "fresh": {
+          "type": "array"
+        },
+        "stale": {
+          "type": "array"
+        },
+        "stale_reasons": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["evidence_id", "check_ids"],
+            "properties": {
+              "evidence_id": {
+                "type": "string"
+              },
+              "check_ids": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "latest": {
+      "type": "object",
+      "required": ["replay", "shadow", "live_small", "review_batch"],
+      "properties": {
+        "replay": {},
+        "shadow": {},
+        "live_small": {},
+        "review_batch": {}
+      },
+      "additionalProperties": false
+    },
+    "db_review_stats": {},
+    "diagnostics": {
+      "type": "object"
+    },
+    "gate": {
+      "type": "object",
+      "required": ["shadow_candidate", "live_small_candidate", "blocked_by"],
+      "properties": {
+        "shadow_candidate": {
+          "type": "boolean"
+        },
+        "live_small_candidate": {
+          "type": "boolean"
+        },
+        "blocked_by": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["check_id", "reason"],
+            "properties": {
+              "check_id": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "rd_program_state": { "$ref": "rd-program-state-result.schema.json" }
+  },
+  "additionalProperties": false
+}

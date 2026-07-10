@@ -2,29 +2,19 @@
 
 ## 输入
 
-- strategy markdown
-- catalog evidence
-- optional closed-flow `trade.db` reviews
-- R&D program state path when feedback should enter research memory
+- legacy strategy review CLI input
 
 ## 输出
 
-- strategy review report
-- strategy evidence records
-- strategy status transition result
-- optional R&D memory feedback
+- legacy strategy review CLI output
 
 ## 负责
 
-- evidence freshness and policy hash checks
-- `draft -> shadow -> live-small -> paused` promotion gates
-- replay / shadow / live-small attribution review
-- strategy-cycle aggregation from DB reviews into evidence
+- 兼容旧 `trade-flow` CLI 调用。
+- 新代码应使用 `modules/governance/strategy-review`。
 
 ## 禁止
 
 - 触发 Binance write tools
-- 伪造 replay / shadow / live evidence
-- 用 conversation memory 替代 catalog evidence
-- 直接改 R&D candidate mechanics
-
+- 新增 evidence / review / promotion 实现
+- 写 RD program memory

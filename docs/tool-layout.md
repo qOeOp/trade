@@ -15,8 +15,9 @@
 
 | 路径 | Owner | 负责 | 不负责 |
 | --- | --- | --- | --- |
-| `modules/trade-flow/` | flow domain orchestrator | 事件流、automation plan、observe、review、promotion、reconcile、execution orchestration | Binance 数据接入实现、交易所写接口细节、R&D 实验实现 |
+| `modules/trade-flow/` | flow domain orchestrator | 事件流、automation plan、observe、reconcile、execution orchestration | Binance 数据接入实现、交易所写接口细节、R&D 实验实现、策略复核 owner |
 | `modules/research/strategy-rd/` | strategy research | replay、R&D loop、panel、benchmark、calibration、forward holdout、R&D memory | `trade.db`、Binance 写接口、strategy promotion |
+| `modules/governance/strategy-review/` | strategy governance | evidence ledger、strategy review、promotion gate、strategy-cycle | R&D 实验、交易执行、写 `trade.db`、写 RD memory |
 | `modules/ops/artifact-catalog/` | artifact governance | catalog DB、artifact index/query/stale/gc、feature report refs | `trade.db`、策略判断、交易所 API |
 | `modules/ohlcv-fetch/` | market data acquisition | OHLCV、funding、market features、calibration panel、manifest | 策略升格、live 执行判断 |
 | `modules/binance/` | exchange atomic tools | Binance 只读事实、市场扫描、下单、撤单、保护、减仓 | R&D planning、strategy promotion、长期状态 |
@@ -46,17 +47,18 @@
 | observe / runtime load | `modules/trade-flow/src/domain/observe` + `trade-flow.observe` |
 | 事件流 / track dry-run | `modules/trade-flow/src/domain/runtime` + `trade-flow.runtime` |
 | 研究 / 回放 / panel / benchmark | `modules/research/strategy-rd` + `strategy-rd` |
-| review / evidence / promotion | `modules/trade-flow/src/domain/review` + `trade-flow.review` |
+| review / evidence / promotion | `modules/governance/strategy-review` + `strategy-review` |
 | 执行编排 / shadow / live-small | `modules/trade-flow/src/domain/execution` + `trade-flow.execution` |
 | recovery / reconcile | `modules/trade-flow/src/domain/recovery` + `trade-flow.recovery` |
 | catalog / artifact hygiene | `modules/ops/artifact-catalog` + `artifact-catalog` |
 
 ## 边界规则
 
-- `modules/trade-flow` 可以调用工具 CLI，但不拥有 Binance endpoint 细节，也不新增 R&D 实验实现。
+- `modules/trade-flow` 可以调用工具 CLI，但不拥有 Binance endpoint 细节，也不新增 R&D 实验实现或 strategy review 实现。
 - Binance 写工具只做单一交易动作；不得产出策略观点或修改 `trade.db`。
 - market scan 只能回答“先看谁”；不能直接生成 live action。
 - R&D / replay / panel 由 `strategy-rd` 拥有，只能写 research artifact、catalog、gated draft；不得触发 Binance 写接口或写 `trade.db`。
+- strategy evidence / review / promotion 由 `strategy-review` 拥有；只读消费 `trade.db`，不得写 RD memory 或触发执行。
 - catalog / artifact hygiene 由 `artifact-catalog` 拥有；trade-flow 只消费可审计 artifact / catalog 结果。
 - `plan-preflight` 只给 deterministic verdict；不得补写事件或解释行情方向。
 - artifact 必须有 owner、referrer、retention 语义；垃圾数据堆在源码目录视为 bug。

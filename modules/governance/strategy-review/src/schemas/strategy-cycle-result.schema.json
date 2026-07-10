@@ -1,0 +1,36 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "strategy-review.strategy-cycle-result.v1",
+  "title": "trade-flow strategy cycle result",
+  "description": "Stable outer shape for one strategy cycle: optional shadow evidence sync, review report, and optional promotion result.",
+  "type": "object",
+  "required": ["shadow_evidence", "report"],
+  "properties": {
+    "shadow_evidence": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": {
+          "enum": ["created", "reused", "skipped"]
+        },
+        "source_ref": {
+          "type": "string"
+        },
+        "evidence": {
+          "$ref": "strategy-evidence-record.schema.json"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    },
+    "report": {
+      "$ref": "strategy-review-report.schema.json"
+    },
+    "promotion": {
+      "$ref": "strategy-promote-result.schema.json"
+    }
+  },
+  "additionalProperties": false
+}
