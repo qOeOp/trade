@@ -68,9 +68,9 @@
 
 不要求每轮都拉全量数据。缺什么补什么。
 
-## Skill 边界
+## Tool 边界
 
-| Skill | 职责 |
+| Tool | 职责 |
 | --- | --- |
 | `ohlcv-fetch` | 多周期 K 线 |
 | `binance-symbol-snapshot` | 单标的当前市场状态 |
@@ -86,7 +86,7 @@
 - OHLCV 继续使用 CSV + manifest；项目级读取通过 `data_catalog.db.dataset` 建索引，不靠目录扫描。
 - 微结构、aggTrades、depth、liquidation-like 输出默认只作为 refs。
 - 不新增 market snapshot 表。
-- replay / shadow 需要的数据由对应 skill 输出引用，不进入 `trade.db`。
+- replay / shadow 需要的数据由对应 tool 输出引用，不进入 `trade.db`。
 - 未被 refs / evidence / review / `.pin` 引用的市场 artifact 不长期保留；默认先用 `trade-flow --catalog-stale` 看 catalog 候选，删除走 `--catalog-gc --yes` 或旧 `--artifact-gc` 显式清理。
 - Vision ZIP 只在进程内校验、解压、聚合，不落长期缓存；factor report 是唯一持久结果。
 - 大型 factor report 不整体入库；只把 source manifest、hash、bytes、summary metrics、artifact ref 写入 catalog。
@@ -94,7 +94,7 @@
 
 ## 禁止项
 
-- 不为每类数据新增一个 skill。
+- 不为每类数据新增一个 tool。
 - 不把市场解释写进接入脚本。
 - 不把全市场扫描结果直接交给 LLM 做 live action。
 - 不为了“可能有用”长期落盘微结构数据。

@@ -312,7 +312,7 @@ latest_observe.action_intent.request
 request
   -> preview
   -> execution_contract_snapshot
-  -> execute skill
+  -> execute tool
   -> order_fill(source=trade_flow)
 ```
 
@@ -365,7 +365,7 @@ plan_event(event_key, chain_id, kind, body_json, created_at)
 - `order_fill`
 - `review`
 
-strategy policy 走 markdown；account / notify config 走 JSON；市场原始数据留在各 skill 输出或 refs，不塞进 `observe`。
+strategy policy 走 markdown；account / notify config 走 JSON；市场原始数据留在各 tool 输出或 refs，不塞进 `observe`。
 
 产物生命周期：
 

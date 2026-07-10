@@ -19,7 +19,7 @@ scripts/quality-check.sh
 - Git diff 空白检查：冲突标记、尾随空格、空白错误
 - Shell：`scripts/*.sh` 语法检查
 - Helper：`CODEX_HOME`、automation memory、Python command fallback smoke
-- TypeScript：根目录 Bun install surface 统一安装依赖；禁止 skill-local `bun.lock`；skill 依赖版本必须与根 `package.json` 一致；禁止 skill 之间直接 import / re-export，复用只走 `_shared`，协作走 CLI JSON contract；所有带 `package.json` 且含 `check` script 的 skill 执行 `bun run check`
+- TypeScript：根目录 Bun install surface 统一安装依赖；禁止 tool-local `bun.lock`；tool 依赖版本必须与根 `package.json` 一致；禁止 tool 之间直接 import / re-export，复用只走 `modules/common/src`，协作走 CLI JSON contract；所有带 `package.json` 且含 `check` script 的 tool 执行 `bun run check`
 - Go：`gofmt -l` 必须为空，随后 `go test ./...` 与 `go vet ./...`
 - Python：`compileall` + `python -W error -m unittest discover`
 - Hygiene：项目文件不得泄漏本机绝对路径
@@ -44,4 +44,4 @@ scripts/quality-check.sh
 
 ## 4. 不伪装的缺口
 
-当前没有引入统一 formatter / linter 配置仓库级管理 TS 与 Python 风格；先用各 skill 已有 `check`、Go 原生命令和 Python warning-as-error 兜底。后续若代码量继续增长，再引入统一 formatter，而不是现在为工具化而工具化。
+当前没有引入统一 formatter / linter 配置仓库级管理 TS 与 Python 风格；先用各 tool 已有 `check`、Go 原生命令和 Python warning-as-error 兜底。后续若代码量继续增长，再引入统一 formatter，而不是现在为工具化而工具化。

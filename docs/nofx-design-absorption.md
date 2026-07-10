@@ -129,13 +129,13 @@ source_commit: d84e22ab82643fd50f0ad4706697fcb07fae52c4
 
 落点：
 
-- 写 skill 输出仍使用 `ok / data / error` 外壳。
+- 写 tool 输出仍使用 `ok / data / error` 外壳。
 - `trade-flow` 只在 `ok=true` 且最低字段满足时写 `order_fill`。
 - 非 JSON、缺字段、解析异常统一记录为 blocked / no_action artifact，不补本地成功事件。
 
 验收：
 
-- contract tests 覆盖 malformed JSON、ok=false、缺最低字段、执行 skill 成功但 normalized event 缺失。
+- contract tests 覆盖 malformed JSON、ok=false、缺最低字段、执行 tool 成功但 normalized event 缺失。
 
 ## 4. 执行顺序
 

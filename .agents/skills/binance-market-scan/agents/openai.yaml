@@ -1,4 +1,0 @@
-interface:
-  display_name: "Binance Market Scan"
-  short_description: "在 OBSERVE 阶段从 Binance 全市场生成候选"
-  default_prompt: "当前若还没确定 symbol，就先用 $binance-market-scan 从 Binance 公共市场数据里做全市场初筛，生成 long / short shortlist；它只负责回答先看谁，不做单标的深判。"

@@ -28,9 +28,7 @@ updated_at: 2026-07-10 10:20 CST
 
 ## 当前测试状态
 
-- 2026-07-09 12:03 CST，`high-beta-alt-be-fresh` 冻结候选完成冻结点后第一根闭合 4H forward-holdout：冻结点 `2026-07-09T01:15:07Z`，最新闭合样本 `2026-07-09T04:00:00Z`，6/6 数据集 eligible，0 blocked。
-- 结果：`status=signal_found`，仅 `1000PEPEUSDT` 触发 short entry；`FILUSDT / AAVEUSDT / ETCUSDT / LDOUSDT / ORDIUSDT` 均为 `no_action`。该结果只能进入 shadow/paper review，不提供 promotion evidence。
-- 已生成 R&D shadow tracker：`status=open`，纸面 short entry `0.0025843`，stop `0.0026845145`，target `0.0023838710`，等待后续 4H 闭合 K 线判定；artifact：`tmp/artifacts/strategy-rnd/rd-shadow-tracker-high-beta-be-fresh-2026-07-09-1215-cst.json`。
+- 2026-07-10 19:31 CST，`S-ALT-4H-HIGH-BETA-SHORT-MOMENTUM` 按现行 `--strategy-data-split` 重跑 validation：10 资产、validation 段、固定 STC short momentum candidate；结果 `outcome=no_promote`，pooled `sample_count=364`、`avg_r=0.021334`、`total_r=7.765575`、positive assets `5/10`，blocked by `PANEL-BREADTH / PANEL-COST`。Locked holdout 未打开；策略保持 `draft`。
 - 2026-07-09 19:45 CST，新增三条 liquid-alt 机制检查：
   - `vol-compression-alt-validation-2026-07-09`：VCB long 三变体全部 `no_promote`；原始 `VCB-L-30-120` 在 8 资产 panel 上 `total_r=-32.522326`、3/8 资产正， blocked by breadth / cost / catastrophic / asset-shuffle。
   - `relative-capitulation-reversion-long-2026-07-09`：BTC 弱势里做相对输家多头回归失败；三变体全部 pooled negative，最差 `RRV-L-BTCWEAK-180-1R-RC` 为 `total_r=-199.35362`、0/8 资产正。

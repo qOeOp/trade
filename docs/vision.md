@@ -2,7 +2,7 @@
 
 ## 当前定位
 
-本项目是一组运行在 agent 工作区里的交易 skill 和规则文档，用来让 agent 在 cron 自动巡航下推进 Binance USDM 永续的 4H+ swing 交易。
+本项目是一组运行在 agent 工作区里的交易 tool 和规则文档，用来让 agent 在 cron 自动巡航下推进 Binance USDM 永续的 4H+ swing 交易。
 
 它不是交易 SaaS、不是全市场研究平台、不是 UI 产品。当前目标是让 agent 在事实新鲜、风险明确、setup 已验证、执行可审计的前提下，小资金推进少量实盘机会。
 
@@ -22,7 +22,7 @@
 - No stop, no trade
 - No reconciliation, no trade
 
-agent 负责判断，skill 负责事实，脚本负责硬约束，交易所事实最终覆盖本地事件流。
+agent 负责判断，tool 负责事实，脚本负责硬约束，交易所事实最终覆盖本地事件流。
 
 ## 产品边界
 
@@ -71,7 +71,7 @@ subagent 是运行时并行与上下文卫生机制，不是新的事实源或�
 latest_observe.action_intent.request
   -> preflight
   -> execution_contract_snapshot
-  -> execute skill
+  -> execute tool
   -> order_fill
 ```
 

@@ -2,7 +2,7 @@
 
 快照时间：2026-07-08（Asia/Shanghai）
 
-用途：作为 `architecture-cleanup-plan.md` 的 P0 基线。本文记录当前 skill、command、权限 class、代码热点与测试入口；后续每轮整理按此 diff。
+用途：作为 `architecture-cleanup-plan.md` 的 P0 基线。本文记录当前 tool、command、权限 class、代码热点与测试入口；后续每轮整理按此 diff。
 
 ## 1. 权限 class
 
@@ -15,13 +15,13 @@
 | `T` | 触发 Binance 写接口 |
 | `C` | 读写敏感配置 / 凭证 |
 
-## 2. Skill inventory
+## 2. Tool inventory
 
-| Skill | Class | 当前职责 | 写入面 | 整理动作 |
+| Tool | Class | 当前职责 | 写入面 | 整理动作 |
 | --- | --- | --- | --- | --- |
 | `binance-account-snapshot` | `R` | 账户、持仓、挂单、历史订单快照 | none | 保持只读；输出字段进入 account fact contract |
 | `binance-symbol-snapshot` | `R` | 单标的价格、funding、OI、轻量 K 线 | none | 保持只读；不得输出 action intent |
-| `binance-aggtrades-fetch` | `R/A` | aggTrades 原材料 | artifact/stdout | 保持数据 skill；不进入 trade.db |
+| `binance-aggtrades-fetch` | `R/A` | aggTrades 原材料 | artifact/stdout | 保持数据 tool；不进入 trade.db |
 | `binance-liquidation-zones` | `A` | liquidation-like zone 推断 | artifact/stdout | 输出 refs；不得变成裸信号 |
 | `binance-market-scan` | `A` | 全市场候选粗筛 | stdout/artifact | 只能回答“先看谁”；不得触发 live action |
 | `ohlcv-fetch` | `R/A` | OHLCV / Binance Vision / calibration 数据 | CSV/manifest/artifact | 只产数据，不做 replay gate |
@@ -48,7 +48,7 @@
 | `--run --mode shadow` | `V/E` | shadow order_fill | `execution/evidence` |
 | `--load-runtime` | `R/C` | 读取 trading config、编译 runtime policy、兼容读取 account config / strategy | `runtime/config` |
 | `--build-observe` | `V` | 构建 observe event | `observe` |
-| `--observe-from-skills` | `R/V` | 调只读 skill + observe | `observe` |
+| `--observe-from-tools` | `R/V` | 调只读 tool + observe | `observe` |
 | `--replay-strategy` | `A` | 单 strategy replay | `research/replay` |
 | `--strategy-rnd-batch` | `A` | 候选 batch | `research/rnd` |
 | `--strategy-rnd-loop` | `A/E` | R&D artifact + ledger | `research/rnd` |
@@ -61,26 +61,26 @@
 | `--strategy-review` | `E` | evidence + DB review gate | `evidence` |
 | `--strategy-promote` | `E/V` | strategy frontmatter status | `evidence` |
 | `--artifact-gc` | `A/V` | artifact dry-run / delete | `artifacts` |
-| `--run-shadow-from-skills` | `R/V/E` | 只读 facts + shadow 链 | `observe/execution` |
+| `--run-shadow-from-tools` | `R/V/E` | 只读 facts + shadow 链 | `observe/execution` |
 | `--run-live-small` | `T` | Binance 主单执行 + audited order_fill | `execution` |
 | `--recover-flow` | `R` | 本地 reduce | `recovery/runtime` |
 | `--reconcile-flow` | `R/A` | snapshot -> reconcile drafts | `recovery` |
-| `--reconcile-from-skills` | `R/A` | account snapshot + drafts | `recovery` |
+| `--reconcile-from-tools` | `R/A` | account snapshot + drafts | `recovery` |
 | `--apply-reconcile` | `V` | apply safe reconcile drafts | `recovery/runtime` |
-| `--cron-recover-from-skills` | `R/V` | cron 入口恢复胶水 | `recovery` |
+| `--cron-recover-from-tools` | `R/V` | cron 入口恢复胶水 | `recovery` |
 
 ## 4. 当前代码热点
 
 | 文件 | 行数级别 | 风险 | 目标 |
 | --- | ---: | --- | --- |
-| `.agents/skills/trade-flow/scripts/main.ts` | ~1500 | command router + 业务逻辑混合 | 拆 `commands/*` |
-| `.agents/skills/trade-flow/scripts/main.test.ts` | ~1375 | 大集成测试难定位 | 按 domain fixture 拆 |
-| `.agents/skills/trade-flow/scripts/lib/strategy-rnd.ts` | ~1245 | R&D 输入、搜索、评估、报告混合 | 拆 `research/rnd/*` |
-| `.agents/skills/trade-flow/scripts/lib/strategy-benchmark.ts` | ~876 | benchmark / calibration / negative control 混合 | 拆 `research/calibration/*` |
-| `.agents/skills/trade-flow/scripts/lib/replay-core.ts` | ~746 | loader / indicators / matching / gate 混合 | 拆 `research/replay/*` |
-| `.agents/skills/trade-flow/scripts/lib/strategy-iteration.ts` | ~613 | evidence / review / promote 混合 | 拆 `evidence/*` |
-| `.agents/skills/binance-order-place/scripts/main.ts` | ~1021 | 执行入口复杂，安全关键 | contract-first + normalized event |
-| `.agents/skills/tech-indicators/scripts/structure.go` | ~1204 | 指标/结构算法集中 | 后续按 indicator/domain 拆 |
+| `modules/trade-flow/src/scripts/main.ts` | ~1500 | command router + 业务逻辑混合 | 拆 `commands/*` |
+| `modules/trade-flow/src/scripts/main.test.ts` | ~1375 | 大集成测试难定位 | 按 domain fixture 拆 |
+| `modules/trade-flow/src/scripts/lib/strategy-rnd.ts` | ~1245 | R&D 输入、搜索、评估、报告混合 | 拆 `research/rnd/*` |
+| `modules/trade-flow/src/scripts/lib/strategy-benchmark.ts` | ~876 | benchmark / calibration / negative control 混合 | 拆 `research/calibration/*` |
+| `modules/trade-flow/src/scripts/lib/replay-core.ts` | ~746 | loader / indicators / matching / gate 混合 | 拆 `research/replay/*` |
+| `modules/trade-flow/src/scripts/lib/strategy-iteration.ts` | ~613 | evidence / review / promote 混合 | 拆 `evidence/*` |
+| `modules/binance/order-place/src/scripts/main.ts` | ~1021 | 执行入口复杂，安全关键 | contract-first + normalized event |
+| `modules/analytics/tech-indicators/src/scripts/structure.go` | ~1204 | 指标/结构算法集中 | 后续按 indicator/domain 拆 |
 
 ## 5. 测试入口基线
 
@@ -88,10 +88,10 @@
 
 | Area | 当前入口 |
 | --- | --- |
-| TS skill | 各 skill `bun run check` |
-| `trade-flow` | `.agents/skills/trade-flow`: `bun run check` |
-| `plan-preflight` | `.agents/skills/plan-preflight`: `bun run check` |
-| Binance TS skills | 各 skill `bun run check`; live/test endpoint 默认关闭 |
+| TS tool | 各 tool `bun run check` |
+| `trade-flow` | `modules/trade-flow`: `bun run check` |
+| `plan-preflight` | `modules/guards/plan-preflight`: `bun run check` |
+| Binance TS tools | 各 tool `bun run check`; live/test endpoint 默认关闭 |
 | `tech-indicators` | Go tests：`go test ./...` |
 | liquidation zones | Python tests：`pytest` 或脚本自带测试 |
 

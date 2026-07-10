@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade-flow.strategy-signal-result.v1",
+  "title": "trade-flow strategy signal result",
+  "description": "Stable outer shape for latest-candle R&D candidate signal evaluation.",
+  "type": "object",
+  "required": ["candidate_id", "family", "params", "candidate_hash", "data_hash", "action"],
+  "properties": {
+    "candidate_id": { "type": "string", "minLength": 1 },
+    "family": { "type": "string", "minLength": 1 },
+    "params": { "type": "object" },
+    "candidate_hash": { "type": "string", "minLength": 1 },
+    "data_hash": { "type": "string", "minLength": 1 },
+    "action": { "enum": ["entry", "no_action"] },
+    "entry_reference": { "type": "number" },
+    "signal": { "type": ["object", "null"] },
+    "reason": { "type": "string" }
+  }
+}

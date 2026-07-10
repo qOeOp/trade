@@ -1,0 +1,33 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade-flow.execution-command-spec.v1",
+  "title": "trade-flow execution command spec",
+  "description": "Stable outer shape for executable tool command routing. Command arguments remain tool-specific argv tokens.",
+  "type": "object",
+  "required": ["target_action", "tool", "cwd", "command"],
+  "properties": {
+    "target_action": {
+      "enum": ["place_entry", "cancel_order", "sync_protection", "adjust_position"]
+    },
+    "tool": {
+      "enum": [
+        "binance-order-place",
+        "binance-order-cancel",
+        "binance-position-protect",
+        "binance-position-adjust"
+      ]
+    },
+    "cwd": {
+      "type": "string",
+      "minLength": 1
+    },
+    "command": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false
+}

@@ -35,7 +35,7 @@ flowchart TB
     end
   end
 
-  subgraph SHARED["shared substrate"]
+  subgraph COMMON["common substrate"]
     direction LR
     CAP["capability banks<br/>observe / data / execute / governance"]
     FACTS["durable facts<br/>trade.db / catalog / artifact / strategy / state"]
@@ -221,7 +221,7 @@ sequenceDiagram
   participant DB as trade.db
   participant Fast as fast_track_guard
   participant Pre as preflight
-  participant Exe as execution skills
+  participant Exe as execution tools
   participant Binance as Binance
 
   Slow->>DB: full observe + thesis + trigger_condition
@@ -248,7 +248,7 @@ sequenceDiagram
 
 真钱执行写口：
 
-| 动作 | Skill |
+| 动作 | Tool |
 | --- | --- |
 | 主单开仓 / 加仓 | `binance-order-place` |
 | 止损 / 止盈 / trailing | `binance-position-protect` |
@@ -287,7 +287,7 @@ flowchart TD
 高阶入口：
 
 ```bash
-bun .agents/skills/trade-flow/scripts/main.ts --rd-supervisor-run --state ./data/rd/program.json --json '{"max_iterations":10}'
+bun modules/trade-flow/src/scripts/main.ts --rd-supervisor-run --state ./data/rd/program.json --json '{"max_iterations":10}'
 ```
 
 低阶入口：
@@ -329,14 +329,14 @@ stateDiagram-v2
 
 ## 12. 模块速查
 
-| 层 | 路径 / skill | 作用 |
+| 层 | 路径 / tool | 作用 |
 | --- | --- | --- |
 | 产品契约 | `docs/` | vision、PRD、架构、技术契约、检查契约 |
-| 主流程 | `.agents/skills/trade-flow/` | event stream、automation、R&D、replay、review、promotion、reconcile |
-| 市场观察 | `binance-market-scan` / `binance-symbol-snapshot` / `binance-aggtrades-fetch` / `binance-liquidation-zones` | 候选、单标的事实、成交材料、清算区 |
-| 账户恢复 | `binance-account-snapshot` | 余额、持仓、挂单、保护单、订单历史 |
-| 数据与指标 | `ohlcv-fetch` / `tech-indicators` | OHLCV、manifest、feature series、BTC beta |
-| 执行 | `binance-order-preview` / `plan-preflight` / order skills | preview、hard guards、下单、保护、减仓、撤单 |
+| 主流程 | `modules/trade-flow/` | event stream、automation、R&D、replay、review、promotion、reconcile |
+| 市场观察 | `modules/binance/market-scan` / `modules/binance/symbol-snapshot` / `modules/binance/aggtrades-fetch` / `modules/binance/liquidation-zones` | 候选、单标的事实、成交材料、清算区 |
+| 账户恢复 | `modules/binance/account-snapshot` | 余额、持仓、挂单、保护单、订单历史 |
+| 数据与指标 | `modules/ohlcv-fetch` / `modules/analytics/tech-indicators` | OHLCV、manifest、feature series、BTC beta |
+| 执行 | `modules/binance/order-preview` / `modules/guards/plan-preflight` / Binance write modules | preview、hard guards、下单、保护、减仓、撤单 |
 | 策略资产 | `strategies/` | strategy policy + `## Trade Contract` |
 | 运行数据 | `data/` / `tmp/` | DB、catalog、OHLCV、artifact、cache |
 | 配置 | `profile/` | trading config、通知配置；凭证来自环境变量 |
@@ -370,17 +370,17 @@ sequenceDiagram
 scripts/quality-check.sh
 
 # trade-flow help
-bun .agents/skills/trade-flow/scripts/main.ts --help
+bun modules/trade-flow/src/scripts/main.ts --help
 
 # 初始化在线事件库
-bun .agents/skills/trade-flow/scripts/main.ts --db ./data/trade.db --init
+bun modules/trade-flow/src/scripts/main.ts --db ./data/trade.db --init
 
 # 生成单入口 supervisor plan
-bun .agents/skills/trade-flow/scripts/main.ts --db ./data/trade.db --automation-cycle --json '{"slow_interval_minutes":240,"rd_program_state_path":"./data/rd/program.json"}'
+bun modules/trade-flow/src/scripts/main.ts --db ./data/trade.db --automation-cycle --json '{"slow_interval_minutes":240,"rd_program_state_path":"./data/rd/program.json"}'
 
 # 初始化并运行 R&D supervisor
-bun .agents/skills/trade-flow/scripts/main.ts --rd-program-state --state ./data/rd/program.json --json '{"action":"init","objective":"find a shadow-eligible 4H swing strategy"}'
-bun .agents/skills/trade-flow/scripts/main.ts --rd-supervisor-run --state ./data/rd/program.json --json '{"max_iterations":10}'
+bun modules/trade-flow/src/scripts/main.ts --rd-program-state --state ./data/rd/program.json --json '{"action":"init","objective":"find a shadow-eligible 4H swing strategy"}'
+bun modules/trade-flow/src/scripts/main.ts --rd-supervisor-run --state ./data/rd/program.json --json '{"max_iterations":10}'
 ```
 
 ## 15. 安全边界
@@ -409,7 +409,7 @@ bun .agents/skills/trade-flow/scripts/main.ts --rd-supervisor-run --state ./data
 
 已经具备：
 
-- Binance USDM observe / account recovery / execution skills
+- Binance USDM observe / account recovery / execution tools
 - trade-flow event stream、dry-run、shadow、live-small、reconcile
 - single automation entry + supervisor plan + subagent fan-out 契约
 - slow / fast 双轨口径

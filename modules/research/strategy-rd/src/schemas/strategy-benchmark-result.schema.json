@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade-flow.strategy-benchmark-result.v1",
+  "title": "trade-flow strategy benchmark result",
+  "description": "Stable outer shape for fixed benchmark calibration reports.",
+  "type": "object",
+  "required": ["benchmark_id", "harness_hash", "purpose", "calibrated", "blocked_by", "datasets", "period", "assumptions", "observed", "execution_attribution", "chronological_folds", "regime_attribution", "cost_stress", "cost_stress_attribution", "funding_stress", "funding_stress_attribution", "funding_event_coverage", "historical_funding", "historical_funding_attribution", "negative_control"],
+  "properties": {
+    "benchmark_id": { "type": "string", "minLength": 1 },
+    "harness_hash": { "type": "string", "minLength": 1 },
+    "purpose": { "const": "rd_pipeline_calibration_only" },
+    "calibrated": { "type": "boolean" },
+    "blocked_by": { "type": "array" },
+    "datasets": { "type": "array" },
+    "period": { "type": "object" },
+    "assumptions": { "type": "object" },
+    "observed": { "type": "object" },
+    "execution_attribution": { "type": "object" },
+    "chronological_folds": { "type": "array" },
+    "regime_attribution": { "type": "object" },
+    "cost_stress": { "type": "object" },
+    "cost_stress_attribution": { "type": "object" },
+    "funding_stress": { "type": "object" },
+    "funding_stress_attribution": { "type": "object" },
+    "funding_event_coverage": { "type": "object" },
+    "historical_funding": {},
+    "historical_funding_attribution": {},
+    "negative_control": { "type": "object" },
+    "notes": { "type": "array" }
+  },
+  "additionalProperties": false
+}

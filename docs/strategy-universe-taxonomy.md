@@ -9,7 +9,7 @@ p0_certificates: data/rd/p0-family-certificates.json
 
 结论：当前可跑 family 只是项目策略语言的最小子集，不是市场策略宇宙。RD 的起点必须从“收益来源、组合形态、数据面、执行语义”出发，而不是从几个 K 线形态里反复调参。
 
-本文件是 source-backed 研究地图。它负责决定“应该研究什么、缺什么、先补什么”；`data/rd/family-backlog.json` 是机器可读版本，`data/rd/p0-family-certificates.json` 固化 P0 family 的 hypothesis / data contract / null controls / fixture plan，供 planner / scout / learning memory 消费。分类不是 strategy promotion gate，任何 family 进入 shadow 前仍必须通过 replay / OOS / negative controls / cost / regime / locked holdout / shadow evidence。
+本文件是 source-backed 研究地图。它负责决定“应该研究什么、缺什么、先补什么”；`data/rd/family-backlog.json` 是机器可读版本，`data/rd/p0-family-certificates.json` 固化 P0 family 的 hypothesis / data contract / negative controls / fixture plan，供 planner / scout / learning memory 消费。分类不是 strategy promotion gate，任何 family 进入 shadow 前仍必须通过 replay / OOS / negative controls / cost / regime / locked holdout / shadow evidence。
 
 ## 1. 外部分类锚点
 
@@ -59,9 +59,9 @@ p0_certificates: data/rd/p0-family-certificates.json
 | OHLCV | closed candles | 已有 | closed-only、checksum、manifest、coverage |
 | Derived TA features | feature report / factor series | 已有 | causal alignment、缓存命中、跨 split 隔离 |
 | Panel OHLCV | 多资产同周期 candles | 已有 | row coverage、时间对齐、survivorship |
-| Funding / premium / OI | fundingRate、premiumIndex、openInterest | 部分可抓 | 长历史、结算时间、缺口 >9h 标记 |
-| Taker / aggTrades | taker buy/sell、aggTrades、volume burst | 部分 skill | 压缩到 causal bars、长历史成本 |
-| Liquidation-like | force orders 或 inferred zones | 部分 skill | 真实来源、缺口、事件可得性 |
+| Funding / premium / OI | fundingRate、premiumIndex、openInterest | fundingRate 已封装 | premium / OI 长历史、结算时间、缺口 >9h 标记 |
+| Taker / aggTrades | taker buy/sell、aggTrades、volume burst | 部分 tool | 压缩到 causal bars、长历史成本 |
+| Liquidation-like | force orders 或 inferred zones | 部分 tool | 真实来源、缺口、事件可得性 |
 | L2 / depth | bid/ask、depth、spread、imbalance | 短窗为主 | 历史深度、队列、maker fill |
 | Spot / dated futures | spot price、dated futures、borrow / margin | 缺失 | basis / hedge 成本和交易限制 |
 | Options / vol | IV、skew、term structure、OI、gamma | 缺失 | 数据源、合约 survivorship、执行模型 |
@@ -73,7 +73,7 @@ p0_certificates: data/rd/p0-family-certificates.json
 | --- | --- | --- | --- | --- |
 | Directional trend / momentum | `time_series_momentum_v1`, `trend_pullback_v1`, `structure_breakout_retest_v1`, `volatility_compression_breakout_v1`, `relative_weakness_momentum_v1` | single-asset replay | implemented_single_asset_replay | 若同机制已被 null / OOS / regime 拒绝，必须换机制或数据面 |
 | Cross-sectional ranking | `cross_sectional_momentum_v1`, `cross_sectional_reversal_v1` | `strategy-panel-rnd` | implemented_panel_research | 需 rank-shift / asset-shuffle 负对照和 marketability gate |
-| Carry / funding / basis | `funding_carry_v1`, `basis_relative_value_v1` | data governance first | data_blocked | funding / premium / OI 长历史和 cashflow 语义未齐，不消耗 trial |
+| Carry / funding / basis | `funding_carry_v1`, `basis_relative_value_v1` | funding-aware replay first | mixed | `funding_carry_v1` 可研究但本轮未过成本/灾难亏损；basis 仍缺 spot / futures 数据 |
 | Relative value / spread | `pairs_relative_value_v1` | family design | design_backlog | 未有双腿 replay、pair selection ledger、hedged cost model |
 | Liquidity / marketability | `marketability_score_v1` | `strategy-panel-rnd` | implemented_panel_scorer | 只能过滤 universe，不能单独 promotion |
 | Forced flow / liquidation | `liquidation_sweep_reversal_v1` | data governance first | data_blocked | force-order / aggTrades 质量与 causal aggregation 未齐 |
@@ -103,7 +103,7 @@ p0_certificates: data/rd/p0-family-certificates.json
 | --- | --- | --- | --- | --- |
 | `cross_sectional_momentum_v1` | 多资产 winner continuation | panel OHLCV + marketability | rank N 日收益 / trend quality，做 top vs cash 或 top/bottom | implemented_panel_research |
 | `cross_sectional_reversal_v1` | 多资产过度偏离后的回归 | panel OHLCV + volatility / liquidity filters | rank relative underperformance / overextension，测试 reversion | implemented_panel_research |
-| `funding_carry_v1` | funding / premium 相关 carry | funding history、premiumIndex、OI、cost | 先做 directional funding-aware research；hedged carry 后置 | data_backlog |
+| `funding_carry_v1` | funding / premium 相关 carry | funding history、premiumIndex、OI、cost | directional funding-aware replay；hedged carry 后置 | implemented_single_asset_replay |
 | `marketability_score_v1` | 容量、换手、滑点韧性 | volume、range、impact proxy、coverage | universe gate / scorer，不直接升策略 | implemented_panel_scorer |
 | `regime_router_v1` | 决定哪些 family 在哪些 regime 可运行 | realized vol、trend、breadth、funding、beta | no-trade / allow-list router | design_backlog |
 
@@ -156,7 +156,8 @@ P0 family 的当前证书已落在 `data/rd/p0-family-certificates.json`。`cert
 - 这两个 family 还不是单资产 replay family，也不直接生成可 promotion 的 strategy policy；若后续要进入 shadow，需要补 portfolio construction contract、position sizing、组合持仓冲突、资金占用与多腿执行语义。
 - `marketability_score_v1` 已进入 `strategy-panel-rnd` 的 panel-level scorer / gate：用 OHLCV 的 median quote volume、range、impact proxy 和 row coverage 诊断资产是否适合作为策略候选 universe。它不是 standalone trading family；通过也只能授权“继续研究”，不能授权 strategy promotion。
 - 当前学习记忆显示：BTC 单资产 VCB / TSM / trend pullback / structure retest 已多轮失败；继续同类调参不是新 hypothesis，除非引入不同 return driver 或不同数据 surface。
-- 下一条高价值主线是：先把 marketability gate 接到 universe selection，再用 filtered universe 跑 cross-sectional momentum / reversal；并行补 `funding_carry_v1` 的数据治理。
+- `funding_carry_v1` 已接入 exact funding events：`ohlcv-fetch` 生成 funding-aware market feature report，`--funding-carry-governance` 先验检查覆盖，replay 按实际 funding settlement 计现金流，panel artifact 保存逐资产 coverage/count/hash。2026-07-10 的 8 资产实跑未产出策略，主要被成本韧性与单资产灾难亏损拦住。
+- 下一条高价值主线是：补 funding-specific time-shift null 和成本/灾难亏损诊断；若 funding carry 仍失败，再转入新的 return driver，而不是继续调同一阈值。
 
 ## 9. Sources
 

@@ -10,8 +10,8 @@
 
 | 类型 | 默认进 Git | 位置 |
 | --- | --- | --- |
-| docs / skill source / schema / tests | 是 | `docs/`, `.agents/skills/**/scripts`, `.agents/skills/**/schemas` |
-| 示例输入 / 模板 | 是 | `.agents/skills/**/examples` |
+| docs / tool source / schema / tests | 是 | `docs/`, `modules/**/src/scripts`, `modules/**/src/schemas` |
+| 示例输入 / 模板 | 是 | `modules/**/examples` |
 | strategy policy | 是 | `strategies/*.md` |
 | trade runtime DB | 否 | `data/trade.db`, `data/*.sqlite*` |
 | cron / lock / system state | 否 | `data/cron.log`, `data/.trade-flow.lock`, `data/system_state.json` |
@@ -25,15 +25,15 @@
 ## 2. 放置规则
 
 - 原始 OHLCV：写 `data/ohlcv/`
-- 策略 policy：写 `strategies/*.md`；frontmatter 做身份索引，`## Trade Contract` 做机器契约；这是项目资产，不是 skill 源码，也不是运行数据
+- 策略 policy：写 `strategies/*.md`；frontmatter 做身份索引，`## Trade Contract` 做机器契约；这是项目资产，不是 tool 源码，也不是运行数据
 - calibration / validation / external / forward holdout panel：默认写 `tmp/panels/<kind>-<name>-<date>/`
 - replay / R&D / calibration 普通报告：默认写 `tmp/artifacts/<domain>/`
 - 已被策略准入、复盘或人工 review 明确引用的 durable artifact：才显式归档到 `data/artifacts/<domain>/`
 - 策略准入证据：写 `data/data_catalog.db.strategy_evidence`
 - R&D 审计：写 `data/data_catalog.db.strategy_rnd_run`
 - cron 运维日志：写 `data/cron.log`
-- manifest / report 中保存路径优先 repo 相对路径；跨 skill 执行时才解析为实际文件路径
-- 可提交的最小 fixture：放 skill 自己的 `examples/` 或测试 fixture，不放 `data/`
+- manifest / report 中保存路径优先 repo 相对路径；跨 tool 执行时才解析为实际文件路径
+- 可提交的最小 fixture：放 tool 自己的 `examples/` 或测试 fixture，不放 `data/`
 
 ## 3. 清理规则
 
@@ -112,7 +112,7 @@ data/
 
 - `tmp/artifacts/strategy-rnd/`：约 154M；其中 10 个 `*-features-*.json` 约 152M。
 - `tmp/panels/`：约 25M；承接 calibration / validation / external / forward holdout panel。
-- `.agents/` 总体仍包含 skill 源码与 runtime cache；依赖已集中到根 `node_modules/`，不是运行产物。
+- `.agents/` 总体仍包含 tool 源码与 runtime cache；依赖已集中到根 `node_modules/`，不是运行产物。
 
 数据库现状：
 
@@ -134,7 +134,7 @@ data/
 
 - catalog 是本地 SQLite 索引层；扫描 / 清理按顺序执行，不做并发写。
 - 大型 feature series 不整体进 DB；只保存 source manifest、指标集合、coverage 与摘要。
-- 历史文件不会被自动清理；legacy skill-local 运行路径不再兼容，已有错位文件可按引用关系迁移后删除。
+- 历史文件不会被自动清理；legacy tool-local 运行路径不再兼容，已有错位文件可按引用关系迁移后删除。
 - 真删除仍必须显式 `--catalog-gc --yes`；本轮只做 dry-run 和索引刷新。
 
 ## 9. 生成数据管道评估

@@ -20,7 +20,7 @@
 ## Current Rule
 
 - 不预先设计我们还没决定的结构
-- 不预先固定 skill 数量、skill 职责、记录模型、策略流程
+- 不预先固定 tool 数量、tool 职责、记录模型、策略流程
 - 不把临时想法写成长期 memory
 
 ## Path Convention

@@ -1,6 +1,6 @@
 # Design Architecture
 
-trade-flow 是套件 skill 的总入口（功能 skill 拓扑见 [skill-layout.md](skill-layout.md)）。本文是它在 plan / cron / preflight 层面的设计与 MVP 范围。
+trade-flow 是套件 tool 的总入口（功能 tool 拓扑见 [tool-layout.md](tool-layout.md)）。本文是它在 plan / cron / preflight 层面的设计与 MVP 范围。
 
 ## 设计哲学
 
@@ -77,7 +77,7 @@ state 写入是显式边界：`--rd-program-state` 可 init/read/update/plan_nex
 2. `parallel_isolated_work`：slow 盯市、strategy R&D、R&D tracker、catalog 保洁可并行；只有 slow 可能进入 `trade-db` 写区。
 3. `serial_review_closeout`：上游报告新闭合 flow 后，再串行 review 封口；fallback sweep 只补漏。
 
-不要求严格 cron 对齐（如 :05 / :20 / :35 / :50）：实际触发时间可能漂移，"两轨不同时驱动 Binance API + LLM 推理"这个真需求由 supervisor cadence + skill 入口 lock file + 幂等执行兜底（见 §失败兜底 → 慢/快轨重叠），而不是靠错开 wall-clock 分钟。
+不要求严格 cron 对齐（如 :05 / :20 / :35 / :50）：实际触发时间可能漂移，"两轨不同时驱动 Binance API + LLM 推理"这个真需求由 supervisor cadence + tool 入口 lock file + 幂等执行兜底（见 §失败兜底 → 慢/快轨重叠），而不是靠错开 wall-clock 分钟。
 
 ### 共同 executor
 
@@ -319,7 +319,7 @@ source: trade_flow | reconcile      # 主动执行 vs 对账补录
 
 - `plan` 是持续演化的判断，不是执行票据
 - EXECUTE 只读 `latest_observe.action_intent`（含 `trigger_condition + request`），不再回头读自然语言 plan
-- `preview` 是唯一执行路由器：解析 request → 选 execute skill → 生成最终交易所请求
+- `preview` 是唯一执行路由器：解析 request → 选 execute tool → 生成最终交易所请求
 - 慢轨/快轨共用同一个 executor 路径（见 §双轨 → 共同 executor）
 
 `trigger_condition` 的存在让 action_intent 既能表达"立刻执行"（窄 range + 短窗口），也能表达"等条件入场"（目标 range + 长窗口），路径完全一致。慢轨写完后立刻调一次 executor；mark 跑出 range 时自然 skip，等快轨追。
@@ -1101,7 +1101,7 @@ sequenceDiagram
 
 ## DECISION_CARD
 
-慢轨每轮输出 6 行扫读视图，从 `current_plan + latest_observe + strategy` 实时渲染，不存库。ASCII 模板见 [.agents/skills/trade-flow/SKILL.md](../.agents/skills/trade-flow/SKILL.md)。
+慢轨每轮输出 6 行扫读视图，从 `current_plan + latest_observe + strategy` 实时渲染，不存库。工具集边界见 [modules/README.md](../modules/README.md)。
 
 快轨默认不渲染完整 DECISION_CARD（频率太高、噪音多）；仅在快轨触发执行或防御动作时输出一条精简 fast-track summary（包含 source / target_action / trigger 命中信息 / preflight 结果）。
 
@@ -1349,7 +1349,7 @@ lock 不替代爆仓护栏 / 对账：它只解决"两个 cron 进程同时跑"�
 
 触发阈值：`consecutive_aborts >= 3`（慢轨连续 3 次 abort）。每次慢轨成功完成（走到 DECISION_CARD 输出）时 `consecutive_aborts` 归零。`state=suspended` 期间，慢轨入口在全量对账成功后自动恢复 `normal`，不需要人工干预；若对账依然失败则维持 suspended 并通知。`system_state.json` 缺失时视为 `normal`，不阻断。
 
-**异常通知**走 [`notify-dispatch`](../.agents/skills/notify-dispatch/SKILL.md) 统一接口（配置在 `./profile/notify_config.json`，凭证只走环境变量；通道缺失或失败均 fallback 到 cron.log，永不阻塞 cron 主流程）：
+**异常通知**预留统一 dispatch 工具接口（配置在 `./profile/notify_config.json`，凭证只走环境变量；通道缺失或失败均 fallback 到 cron.log，永不阻塞 cron 主流程）：
 
 | event_type | 触发条件 | 缺省 level |
 |---|---|---|
@@ -1363,13 +1363,13 @@ lock 不替代爆仓护栏 / 对账：它只解决"两个 cron 进程同时跑"�
 | `binance_api_failure` | Binance API 持续失败（cron 周期内重试均失败） | warn |
 | `strategy_audit_generated` | strategy degradation watch 触发，已写 audit markdown 到 `data/strategy_audits/` | warn |
 
-通道映射 / 级别过滤 / 凭证读取规则见 notify-dispatch SKILL.md。
+通道映射 / 级别过滤 / 凭证读取规则进入后续 `modules/ops/notify-dispatch` 实现；当前不得引用不存在的工具入口。
 
 ---
 
 ## 执行层
 
-读写分离：`binance-account-snapshot` 只读；下单走 trade-flow → preview → 执行 skill 的单一路径。详细约束（主单 / algo 单 / 预检 / clientOrderId 规则）见 [tech-spec.md](tech-spec.md)。
+读写分离：`binance-account-snapshot` 只读；下单走 trade-flow → preview → 执行 tool 的单一路径。详细约束（主单 / algo 单 / 预检 / clientOrderId 规则）见 [tech-spec.md](tech-spec.md)。
 
 ---
 
@@ -1377,7 +1377,7 @@ lock 不替代爆仓护栏 / 对账：它只解决"两个 cron 进程同时跑"�
 
 详细设计见 [market-data-design.md](market-data-design.md)。三层（接入 / 快照-特征 / 分析）：
 
-| Skill | 回答什么 |
+| Tool | 回答什么 |
 | --- | --- |
 | `ohlcv-fetch` | 多周期 K 线 |
 | `binance-symbol-snapshot` | 当前状态 |

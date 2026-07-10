@@ -1,0 +1,112 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade-flow.rd-program-state-result.v1",
+  "title": "trade-flow R&D program state result",
+  "description": "Stable outer shape for reading or mutating the durable R&D learning memory artifact. State internals remain intentionally open.",
+  "type": "object",
+  "required": ["schema_version", "action", "state_ref", "state", "goal"],
+  "properties": {
+    "schema_version": { "const": "trade-flow.rd-program-state-result.v1" },
+    "action": { "enum": ["init", "read", "update", "plan_next"] },
+    "state_ref": { "type": "string", "minLength": 1 },
+    "catalog_db_path": { "type": "string", "minLength": 1 },
+    "artifact_id": { "type": "string", "minLength": 1 },
+    "state": {
+      "type": "object",
+      "required": ["schema_version", "program_id", "objective", "status", "budget", "usage", "guardrails"],
+      "properties": {
+        "schema_version": { "const": "trade-flow.rd-program-state.v1" },
+        "program_id": { "type": "string", "minLength": 1 },
+        "objective": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["active", "shadow_candidate_found", "budget_exhausted", "data_or_tool_blocked", "paused"] },
+        "budget": { "type": "object" },
+        "usage": { "type": "object" },
+        "guardrails": {
+          "type": "object",
+          "required": ["may_write_trade_db", "may_call_binance_write", "evidence_status"],
+          "properties": {
+            "may_write_trade_db": { "const": false },
+            "may_call_binance_write": { "const": false },
+            "evidence_status": { "const": "research_memory_not_strategy_evidence" }
+          },
+          "additionalProperties": true
+        }
+      },
+      "additionalProperties": true
+    },
+    "goal": { "type": "object" },
+    "next_plan": {
+      "type": "object",
+      "required": ["schema_version", "plan_id", "created_at", "status", "reason", "command", "payload", "selected_hypothesis", "queue_seed_recommendation", "scout_subagent_plan", "strategy_universe_backlog", "budget_remaining", "guardrails"],
+      "properties": {
+        "schema_version": { "const": "trade-flow.rd-supervisor-next-plan.v1" },
+        "plan_id": { "type": "string", "minLength": 1 },
+        "created_at": { "type": "string", "minLength": 1 },
+        "status": { "enum": ["ready", "blocked", "stopped"] },
+        "reason": { "type": "string", "minLength": 1 },
+        "command": { "type": ["string", "null"] },
+        "payload": { "type": ["object", "null"] },
+        "selected_hypothesis": { "type": ["object", "null"] },
+        "queue_seed_recommendation": { "type": ["object", "null"] },
+        "scout_subagent_plan": {
+          "type": "object",
+          "required": ["schema_version", "enabled", "dispatch_timing", "execution_model", "state_ref", "selected_hypothesis_id", "single_writer_rule", "scouts"],
+          "properties": {
+            "schema_version": { "const": "trade-flow.rd-scout-subagent-plan.v1" },
+            "enabled": { "type": "boolean" },
+            "dispatch_timing": { "const": "before_research_command" },
+            "execution_model": { "type": "string", "minLength": 1 },
+            "state_ref": { "type": "string", "minLength": 1 },
+            "selected_hypothesis_id": { "type": ["string", "null"] },
+            "single_writer_rule": { "type": "string", "minLength": 1 },
+            "scouts": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["role", "agent_type", "purpose", "inputs", "required_output", "may_write_files", "may_write_state"],
+                "properties": {
+                  "role": { "type": "string", "minLength": 1 },
+                  "agent_type": { "type": "string", "minLength": 1 },
+                  "purpose": { "type": "string", "minLength": 1 },
+                  "inputs": { "type": "array" },
+                  "required_output": { "type": "string", "minLength": 1 },
+                  "may_write_files": { "const": false },
+                  "may_write_state": { "const": false }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "strategy_universe_backlog": {
+          "type": "object",
+          "required": ["doc_ref", "purpose", "coverage_axes", "implemented_families", "priority_family_backlog", "planning_rules"],
+          "properties": {
+            "doc_ref": { "type": "string", "minLength": 1 },
+            "purpose": { "type": "string", "minLength": 1 },
+            "coverage_axes": { "type": "array", "items": { "type": "string" } },
+            "implemented_families": { "type": "array", "items": { "type": "string" } },
+            "priority_family_backlog": { "type": "object" },
+            "planning_rules": { "type": "array", "items": { "type": "string" } }
+          },
+          "additionalProperties": true
+        },
+        "budget_remaining": { "type": "object" },
+        "guardrails": {
+          "type": "object",
+          "required": ["read_only_plan", "may_write_trade_db", "may_call_binance_write", "requires_explicit_execution"],
+          "properties": {
+            "read_only_plan": { "const": true },
+            "may_write_trade_db": { "const": false },
+            "may_call_binance_write": { "const": false },
+            "requires_explicit_execution": { "const": true }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

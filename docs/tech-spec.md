@@ -4,7 +4,7 @@
 
 - 本文件只讨论 `Binance USDM` 执行层 + `trade.db` 持久化。
 - 项目层固定：只做 USDM 永续 4H+ swing；外部 cron（Claude routines / Codex schedule）双轨触发：**慢轨** 1H / 4H 整点跑战略层全流程；**快轨** 5m / 15m 偏移点（如 :05/:20/:35/:50）守护执行层。设计细节见 [design-architecture.md §双轨](design-architecture.md)。
-- 当前重点是 `合约开仓`，但为避免后续接口命名漂移，仍把相关 skill 一并列清。
+- 当前重点是 `合约开仓`，但为避免后续接口命名漂移，仍把相关 tool 一并列清。
 - 慢轨链路：`OBSERVE → 按启用 lane 决策 → 写 action_intent（含 trigger_condition）→ 当 mark 在 range 内时 EXECUTE → 某条 flow 闭合时即时 REVIEW`
 - 快轨链路：`reduce flow → 轻量对账 → 检查 trigger_condition → 确定性 gate（G-SPREAD-CAP / G-MARKETABLE-DEPTH-CAP / G-FUNDING-RATE-SPIKE，仅加暴露立即执行）→ 快轨 preflight 子集 → EXECUTE`。快轨 LLM 仅作为 orchestrator 按 prompt 模板顺序调 tool，不做质性判断（不评估"诱多诱空"、不重读 thesis、不重设 invalidation）
 - 即使用户已经明确给出 `标的 / 方向 / 笔数 / 杠杆 / 保证金额`，也仍先 append `observe`（含意图段），再执行。
@@ -39,7 +39,7 @@
 - `action_intent`
   定义：本轮收敛的可执行动作。`target_action != no_action` 时必须同时给出 `trigger_condition` 和 `request`
   - `trigger_condition`：硬字段，含 `price_in_range: [low, high]`（当前 mark 必须落在此区间，executor 才会执行）+ `valid_until_at`（action_intent 自身的过期时间，与 observe 顶层的 `setup_valid_until_at` 不同）
-  - `request`：结构化执行参数，shape 由 `target_action` 决定，preview 解析后路由到执行 skill
+  - `request`：结构化执行参数，shape 由 `target_action` 决定，preview 解析后路由到执行 tool
 - `execution_contract`
   定义：提交前由 `current_plan + execute 前刚刷新的账户 / 挂单 / 当前 mark + 交易所规格` 编译出的执行快照；是交易所 payload 的唯一真相
 - `order_lifecycle`
@@ -114,7 +114,7 @@
 - 产出：
   - `request`
   - `execution.method`
-  - `execution.skill`
+  - `execution.tool`
   - `marketContext`
   - `warnings`
 
@@ -122,10 +122,10 @@
 
 - 若识别到 `USDM 保护语境`：
   - 路由到 `futuresCreateAlgoOrder`
-  - skill 指向 `binance-position-protect`
+  - tool 指向 `binance-position-protect`
 - 否则：
   - 路由到 `futuresOrder`
-  - skill 指向 `binance-order-place`
+  - tool 指向 `binance-order-place`
 
 ### 4.4 当前边界
 
@@ -142,7 +142,7 @@
 - 没有统一输出”这版 plan 需要几张主单、几张保护单”。
 - 还没有把 `保证金额 / 杠杆 / 笔数` 编译进来；第一版编译器至少要覆盖 `max_single_position_leverage` 的单持仓约束，不做账户级 gross exposure reservation。
 
-写 skill 成功输出到 `trade-flow` 记账的最低契约见 [execution-skill-contract.md](execution-skill-contract.md)。
+写 tool 成功输出到 `trade-flow` 记账的最低契约见 [execution-tool-contract.md](execution-tool-contract.md)。
 
 ## 5. `binance-order-place`
 
@@ -374,7 +374,7 @@
 - 还没有统一的“从 entry plan 演化成 adjust plan”的桥。
 - 还没有和编排执行阶段约定统一的“动作后保护检查”协议。
 
-### 8.5 与保护 skill 的边界
+### 8.5 与保护 tool 的边界
 
 - `binance-position-adjust`
   - 只改仓位数量

@@ -28,7 +28,7 @@ review draft         = 对 event chain 的结构化总结
 | 层 | 作用 | 示例 |
 | --- | --- | --- |
 | `setup_template` | 定义这类机会应满足什么 | momentum short、entry filter、stop/target、no-trade 条件 |
-| `rd_setup_instance` | 一次具体触发 | `1000PEPEUSDT` 在某根 4H close 后触发 short |
+| `rd_setup_instance` | 一次具体触发 | 某 high-beta alt 在某根 4H close 后触发 short |
 | `rd_event_chain` | 触发后每次观测 | bar high/low/close、MFE/MAE、stop/target 是否触发、证据是否衰减 |
 | `review_draft` | 样本闭合后的复盘输入 | 成败归因、执行偏差、是否可整理为 shadow evidence |
 

@@ -1,0 +1,27 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade-flow.strategy-rnd-campaign-result.v1",
+  "title": "trade-flow strategy R&D campaign result",
+  "description": "Stable outer shape for a bounded hypothesis campaign.",
+  "type": "object",
+  "required": ["campaign_id", "created_at", "artifact_ref", "ledger_ref", "outcome", "stop_reason", "calibration_gate", "hypothesis_certificates", "panel_report_ref", "trial_budget", "trials_used", "hypotheses_run", "holdout_evaluations", "validated_candidate", "runs"],
+  "properties": {
+    "campaign_id": { "type": "string", "minLength": 1 },
+    "created_at": { "type": "string", "minLength": 1 },
+    "artifact_ref": { "type": "string", "minLength": 1 },
+    "ledger_ref": { "type": "string", "minLength": 1 },
+    "outcome": { "enum": ["validated_candidate_found", "no_validated_candidate"] },
+    "stop_reason": { "enum": ["validated_candidate_found", "hypothesis_queue_exhausted", "trial_budget_exhausted", "locked_holdout_failed", "calibration_failed", "hypothesis_certificate_failed", "panel_negative_control_failed"] },
+    "calibration_gate": { "type": ["object", "null"] },
+    "hypothesis_certificates": { "type": "array" },
+    "panel_report_ref": { "type": ["string", "null"] },
+    "trial_budget": { "type": "integer", "minimum": 1, "maximum": 10 },
+    "trials_used": { "type": "integer", "minimum": 0 },
+    "hypotheses_run": { "type": "integer", "minimum": 0 },
+    "holdout_evaluations": { "type": "integer", "minimum": 0 },
+    "validated_candidate": { "type": ["object", "null"] },
+    "runs": { "type": "array" },
+    "rd_program_state": { "$ref": "rd-program-state-result.schema.json" }
+  },
+  "additionalProperties": false
+}

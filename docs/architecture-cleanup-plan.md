@@ -14,15 +14,15 @@ QuantDinger 可借鉴的是工程组织，不是产品范围：
 
 | QuantDinger 做法 | 本项目吸收方式 |
 | --- | --- |
-| 文档契约 / 命令契约 / API-MCP 契约分层 | 改为：docs 契约 / skill CLI 契约 / event-evidence 契约 |
+| 文档契约 / 命令契约 / API-MCP 契约分层 | 改为：docs 契约 / tool CLI 契约 / event-evidence 契约 |
 | Human API 与 Agent Gateway 分面 | 改为：用户接管 / cron 慢轨 / cron 快轨共用 executor，但入口权限分级 |
 | capability scope：R/W/B/C/T | 改为本地动作权限分级，不做 token 系统 |
 | paper-only default + live 双重解锁 | 改为项目账户默认允许 `live-small` 路径，但 setup lifecycle + runtime health + preflight 三重准入 |
 | order intent / fill / runtime event 分离 | 在 `plan_event` 单表内补足 lifecycle 语义，不提前多表化 |
 | concurrency model：idempotency / lock / claim-before-work | 改为 cron lock、flow/lane 单写入者、clientOrderId 幂等、执行前 claim |
-| module boundaries / extension guide | 改为 skill 与脚本 ownership rules，防止 `trade-flow` 继续膨胀 |
+| module boundaries / extension guide | 改为 tool 与脚本 ownership rules，防止 `trade-flow` 继续膨胀 |
 | signal execution standard | 改为 replay / shadow / live 对齐契约：信号时刻、成交时刻、退出负责人 |
-| agent audit / redaction / payload bounds | 改为 skill 输出 schema、敏感字段红线、artifact retention |
+| agent audit / redaction / payload bounds | 改为 tool 输出 schema、敏感字段红线、artifact retention |
 
 Jesse 可借鉴的是交易内核，不是产品形态：
 
@@ -52,18 +52,18 @@ NOFX 可借鉴的是 runtime discipline，不是产品形态；详细计划见 [
 - vision / prd / design 已把产品边界压住。
 - `plan_event`、`execution_contract_snapshot`、preflight、reconcile、evidence fingerprint 已形成安全骨架。
 - R&D gate 已有 locked holdout、negative controls、calibration suite、artifact ledger。
-- 功能 skill 多数单一职责，且大多已有测试入口。
+- 功能 tool 多数单一职责，且大多已有测试入口。
 
 主要风险：
 
 - `trade-flow` 已混合 online flow、recovery、execution recording、replay、R&D、calibration、evidence、artifact GC。
-- `trade-flow/scripts/main.ts` 与 `SKILL.md` 变成命令总线，新增能力容易继续往里塞。
-- 没有项目级命令契约；各 skill 有各自 `check`，但没有统一“改了什么跑什么”。
+- `modules/trade-flow/src/scripts/main.ts` 与 `tool README` 变成命令总线，新增能力容易继续往里塞。
+- 没有项目级命令契约；各 tool 有各自 `check`，但没有统一“改了什么跑什么”。
 - 动作权限没有机器可读边界；只读、写 evidence、写 `trade.db`、真实下单都靠文档和人工识别。
 - 交易配置缺少统一 runtime policy compiler；账户风险、通知、R&D 成本模型、strategy/lane 权限仍分散在多个文件和 payload。
 - order lifecycle 仍偏事件描述，缺少统一状态机词表。
 - recovery 已有方向，但还不是独立算法契约。
-- R&D 代码和在线交易 glue 共处一个 skill，容易让“研究失败样本”与“交易事实”在心智上混杂。
+- R&D 代码和在线交易 glue 共处一个 tool，容易让“研究失败样本”与“交易事实”在心智上混杂。
 - artifact / tmp / data 的保留、pin、引用关系需要更硬的运行约定。
 
 ## 3. 目标架构
@@ -80,7 +80,7 @@ NOFX 可借鉴的是 runtime discipline，不是产品形态；详细计划见 [
 
 ### 3.2 动作权限分级
 
-本项目不做 agent token，但每个 skill / command 必须归类：
+本项目不做 agent token，但每个 tool / command 必须归类：
 
 | Class | 名称 | 允许 | 例子 |
 | --- | --- | --- | --- |
@@ -117,58 +117,58 @@ NOFX 可借鉴的是 runtime discipline，不是产品形态；详细计划见 [
 
 ## 4. 目标目录形态
 
-先整理模块，不先决定 skill 数量。
+先整理模块，不先决定 tool 数量。
 
 ```text
-.agents/skills/trade-flow/
-├─ SKILL.md                  # 只保留 router、权限分级、红线、命令索引
+modules/trade-flow/
+├─ tool README                  # 只保留 router、权限分级、红线、命令索引
 ├─ stages/                   # observe / plan / execute / review 的人读流程
 ├─ scripts/
 │  ├─ main.ts                # thin router，禁止承载业务逻辑
 │  ├─ commands/              # 每个 CLI command 一个薄入口
 │  └─ lib/
 │     ├─ runtime/            # plan_event repo、projection、flow/lane reducer
-│     ├─ observe/            # observe builder / skill adapter
+│     ├─ observe/            # observe builder / tool adapter
 │     ├─ execution/          # execution contract wrapper、order lifecycle recorder
 │     ├─ recovery/           # reconcile / unknown / needs_review
 │     ├─ research/           # replay / R&D / benchmark / calibration
 │     ├─ evidence/           # strategy evidence / review / promote
 │     ├─ artifacts/          # GC / pin / refs
-│     └─ shared/             # json, hash, time, schema helpers
+│     └─ common/             # json, hash, time, schema helpers
 └─ strategies/               # project-level strategy policy assets
 ```
 
-功能 skill 保持平铺；只有满足以下条件才迁入 suite 内部 tools：
+功能 tool 保持平铺；只有满足以下条件才迁入 suite 内部 tools：
 
 - 只服务 `trade-flow`；
 - 裸调用会产生安全绕行；
-- 已验证 agent runtime 对嵌套 skill 的扫描行为；
+- 已验证 agent runtime 对嵌套 tool 的扫描行为；
 - 已有等价 command contract 和测试。
 
-## 4.1 Skill 设计调整
+## 4.1 Tool 设计调整
 
-当前 skill 的主要问题不是数量，而是“可被裸调用的能力”和“必须走流程的能力”边界不够硬。
+当前 tool 的主要问题不是数量，而是“可被裸调用的能力”和“必须走流程的能力”边界不够硬。
 
 调整方向：
 
-| Skill 类型 | 目标形态 | 调整 |
+| Tool 类型 | 目标形态 | 调整 |
 | --- | --- | --- |
-| Suite skill | 编排流程、读写事件、调用功能 skill | `trade-flow` 只保留在线链 glue；R&D 虽可暂留同 skill，但代码 owner 独立 |
-| Read skill | 只读事实，输出稳定 JSON | `binance-account-snapshot`、`binance-symbol-snapshot`、`ohlcv-fetch` 标为 `R/A`，不得写 `trade.db` |
-| Execute skill | 只做单一交易动作 | `binance-order-place/protect/adjust/cancel` 标为 `T`，必须由 executor 调用，不作为 plan 入口 |
-| Guard skill | 确定性阻断 | `plan-preflight` 保持独立，输出固定 blocked/warnings，不写事件 |
-| Analysis skill | 计算与研究 | `tech-indicators`、R&D 相关命令不得 import Binance 写接口 |
-| Notify skill | 运维通知 | `notify-dispatch` 只做 dispatch，不改变 flow 状态 |
+| Suite tool | 编排流程、读写事件、调用功能 tool | `trade-flow` 只保留在线链 glue；R&D 虽可暂留同 tool，但代码 owner 独立 |
+| Read tool | 只读事实，输出稳定 JSON | `binance-account-snapshot`、`binance-symbol-snapshot`、`ohlcv-fetch` 标为 `R/A`，不得写 `trade.db` |
+| Execute tool | 只做单一交易动作 | `binance-order-place/protect/adjust/cancel` 标为 `T`，必须由 executor 调用，不作为 plan 入口 |
+| Guard tool | 确定性阻断 | `plan-preflight` 保持独立，输出固定 blocked/warnings，不写事件 |
+| Analysis tool | 计算与研究 | `tech-indicators`、R&D 相关命令不得 import Binance 写接口 |
+| Notify tool | 运维通知 | `notify-dispatch` 只做 dispatch，不改变 flow 状态 |
 
-SKILL.md 调整规则：
+tool README 调整规则：
 
 - `< 300 行`，只写用途、权限 class、输入输出、红线、命令索引。
 - 长流程下沉到 `stages/*/STAGE.md` 或 `references/*.md`。
 - 每个命令标明 `R/A/E/V/T/C`。
 - 每个 `T` 命令必须写“不能被直接用于策略判断”。
-- 每个调用其他 skill 的命令必须说明被调用 skill 的权限 class。
+- 每个调用其他 tool 的命令必须说明被调用 tool 的权限 class。
 
-需要新增的 skill 元数据字段：
+需要新增的 tool 元数据字段：
 
 ```yaml
 capability_class: R | A | E | V | T | C
@@ -190,10 +190,10 @@ requires_preflight: false
 
 当前大文件风险：
 
-- `scripts/main.ts` 同时承担 parse、dispatch、DB、execution、research、evidence、recovery。
-- `scripts/lib/strategy-rnd.ts` 同时承担输入解析、候选生成、replay、selection audit、ledger record。
-- `scripts/lib/replay-core.ts` 同时承担数据读取、指标、撮合、gate、provenance。
-- `scripts/lib/strategy-benchmark.ts` 同时承担 calibration、benchmark、负对照、report。
+- `src/scripts/main.ts` 同时承担 parse、dispatch、DB、execution、research、evidence、recovery。
+- `src/scripts/lib/strategy-rnd.ts` 同时承担输入解析、候选生成、replay、selection audit、ledger record。
+- `src/scripts/lib/replay-core.ts` 同时承担数据读取、指标、撮合、gate、provenance。
+- `src/scripts/lib/strategy-benchmark.ts` 同时承担 calibration、benchmark、负对照、report。
 
 目标拆分：
 
@@ -202,7 +202,7 @@ scripts/
 ├─ main.ts                         # parse + dispatch only
 ├─ commands/
 │  ├─ runtime.ts                    # init / append / recover-flow
-│  ├─ observe.ts                    # build-observe / observe-from-skills
+│  ├─ observe.ts                    # build-observe / observe-from-tools
 │  ├─ execution.ts                  # record-execution / dry-run / shadow / live-small
 │  ├─ recovery.ts                   # reconcile / apply / cron-recover
 │  ├─ research.ts                   # replay / rnd / benchmark / calibration / signal
@@ -220,7 +220,7 @@ scripts/
    │  └─ families/
    ├─ evidence/
    ├─ artifacts/
-   └─ shared/
+   └─ common/
 ```
 
 拆分顺序：
@@ -228,37 +228,37 @@ scripts/
 1. 只移动代码，不改行为。
 2. 先抽 command wrapper，再抽 lib。
 3. 每步保留旧 CLI 参数。
-4. 每步跑当前 skill test。
+4. 每步跑当前 tool test。
 
-### Binance execute skills
+### Binance execute tools
 
-执行 skill 需要统一 contract 姿势：
+执行 tool 需要统一 contract 姿势：
 
-- 所有写 Binance 的 skill 都接受 `client_order_id` 或明确说明交易所不支持。
-- 所有写 Binance 的 skill 输出统一 envelope：`ok / request / exchange_response / normalized_event / warnings`。
+- 所有写 Binance 的 tool 都接受 `client_order_id` 或明确说明交易所不支持。
+- 所有写 Binance 的 tool 输出统一 envelope：`ok / request / exchange_response / normalized_event / warnings`。
 - `binance-order-place` 不再成为“参数自由入口”；executor 编译后的 contract 才是推荐输入。
 - protect / adjust / cancel 同样输出可直接变成 `order_fill` 的 normalized event。
 
-### Market / analysis skills
+### Market / analysis tools
 
-- market skill 只给事实，不给交易建议。
+- market tool 只给事实，不给交易建议。
 - `binance-market-scan` 输出必须保持 candidate list，不得输出 action_intent。
 - `tech-indicators` 输出 factor descriptor 与 feature series；不得知道 R&D candidate family 的业务含义。
 - `ohlcv-fetch` 只负责数据与 manifest，不负责 replay gate。
 
-### Shared code
+### Common code
 
-当前每个 TS skill 自带 package / node_modules。先不做 monorepo 迁移，但要形成共享代码边界：
+当前每个 TS tool 自带 package / node_modules。先不做 monorepo 迁移，但要形成共享代码边界：
 
 - 短期：复制少量工具可以接受，但 schema / hash / time / envelope 不能继续分叉。
-- 中期：建立 `.agents/shared/ts/` 或 `scripts/shared/`，由各 skill import。
+- 中期：建立 `modules/common/src/`，由各 tool import。
 - 迁移前先确认 agent runtime 与相对 import / package resolution 是否稳定。
 
 禁止项：
 
 - 不为“去重复”引入过重 build system。
-- 不把所有 skill 合成一个巨型包。
-- 不让共享库反向依赖具体 skill。
+- 不把所有 tool 合成一个巨型包。
+- 不让共享库反向依赖具体 tool。
 
 ## 4.3 测试架构调整
 
@@ -278,20 +278,20 @@ scripts/
 
 ## 4.4 依赖与仓库卫生
 
-当前多个 skill 目录含 `node_modules`，会放大仓库噪声与审查成本。
+当前多个 tool 目录含 `node_modules`，会放大仓库噪声与审查成本。
 
 调整：
 
 - 明确 `node_modules` 是否应进入 Git；若不应进入，统一 `.gitignore` 与 install/check 文档。
-- 每个 skill 保留 lockfile，但不把依赖源码当项目资产审查。
-- 建立“skill dependency install / check”命令契约。
-- Python / Go / TS skill 分别列清运行时要求。
+- 每个 tool 保留 lockfile，但不把依赖源码当项目资产审查。
+- 建立“tool dependency install / check”命令契约。
+- Python / Go / TS tool 分别列清运行时要求。
 
 验收：
 
 - `rg --files` 不被依赖源码淹没。
 - 代码 review 默认只看项目源文件。
-- 新 skill 不复制旧 skill 的完整依赖树进 Git。
+- 新 tool 不复制旧 tool 的完整依赖树进 Git。
 
 ## 5. Order / flow lifecycle 统一词表
 
@@ -372,13 +372,13 @@ Jesse 调研后的补充要求：
 
 ## 8. 命令契约
 
-新增项目级命令文档前，先按现有 skill 保留入口；后续统一到 `scripts/` 或 `justfile` 时再实施。
+新增项目级命令文档前，先按现有 tool 保留入口；后续统一到 `scripts/` 或 `justfile` 时再实施。
 
 最低命令集：
 
 | Intent | Command contract |
 | --- | --- |
-| 检查全部安全域 | run all skill checks that changed |
+| 检查全部安全域 | run all tool checks that changed |
 | 检查在线链 | trade-flow + plan-preflight + binance preview/place/protect/adjust tests |
 | 检查 R&D 链 | ohlcv-fetch + tech-indicators + trade-flow research tests |
 | 检查 docs 契约 | docs link / required sections / forbidden stale terms |
@@ -402,8 +402,8 @@ Jesse 调研后的补充要求：
 | `vision.md` | 产品北极星与边界 |
 | `prd.md` | 当前产品契约 |
 | `design-architecture.md` | 在线链与事件语义 |
-| `tech-spec.md` | 执行层、schema、skill 细节 |
-| `skill-layout.md` | skill 拓扑与 ownership |
+| `tech-spec.md` | 执行层、schema、tool 细节 |
+| `tool-layout.md` | tool 拓扑与 ownership |
 | `market-data-design.md` | 数据来源与合法落点 |
 | `rd-reliability-roadmap.md` | R&D 可靠性 |
 | `architecture-cleanup-plan.md` | 本次整理施工图 |
@@ -411,7 +411,7 @@ Jesse 调研后的补充要求：
 规则：
 
 - 新功能先找 owner doc；找不到先补 ownership，不直接写实现。
-- `SKILL.md` 只放 router 和红线；长流程下沉到 stage / reference。
+- `tool README` 只放 router 和红线；长流程下沉到 stage / reference。
 - 文档不得把未实现结构写成已完成事实。
 - R&D 失败结论不写进长期 memory；只进 R&D ledger / artifact。
 
@@ -423,7 +423,7 @@ Jesse 调研后的补充要求：
 
 任务：
 
-- 输出 skill / command / class 清单。
+- 输出 tool / command / class 清单。
 - 标出每个命令的 `R/A/E/V/T/C`。
 - 记录现有测试基线与失败项。
 - 标出大文件、跨 domain import、裸 Binance 写入口。
@@ -439,7 +439,7 @@ Jesse 调研后的补充要求：
 
 任务：
 
-- 在 `skill-layout.md` 增加动作权限分级。
+- 在 `tool-layout.md` 增加动作权限分级。
 - 在 `design-architecture.md` 增加 order lifecycle / recovery 契约。
 - 在 `prd.md` 增加 replay-live 对齐契约。
 - 在 `tech-spec.md` 对齐 `unknown / needs_review / partial_fill`。
@@ -490,7 +490,7 @@ Jesse 调研后的补充要求：
 任务：
 
 - 增加恢复 fixture：缺本地 fill、保护腿漂移、未知挂单、部分成交。
-- `cron-recover-from-skills` 输出固定分类。
+- `cron-recover-from-tools` 输出固定分类。
 - reconcile apply 只接受安全草案。
 
 验收：
@@ -512,7 +512,7 @@ Jesse 调研后的补充要求：
 
 验收：
 
-- R&D 代码不依赖 Binance 写 skill。
+- R&D 代码不依赖 Binance 写 tool。
 - research 失败只进 R&D ledger / artifact。
 - promotion 仍需 fresh evidence gate。
 
@@ -599,9 +599,9 @@ Jesse 调研后的补充要求：
 
 已完成：
 
-- P0 inventory：新增 `docs/architecture-inventory.md`，记录 skill、command、热点文件、测试基线。
-- 权限分级：16 个本地 skill 的 `SKILL.md` 已补 `capability_class / writes / requires_preflight` 元数据。
-- 文档骨架：`skill-layout / prd / design-architecture / tech-spec` 已补 live gate、execution alignment、order lifecycle、recovery priority。
+- P0 inventory：新增 `docs/architecture-inventory.md`，记录 tool、command、热点文件、测试基线。
+- 权限分级：16 个本地 tool 的 `tool README` 已补 `capability_class / writes / requires_preflight` 元数据。
+- 文档骨架：`tool-layout / prd / design-architecture / tech-spec` 已补 live gate、execution alignment、order lifecycle、recovery priority。
 - `trade-flow` 第一轮瘦身：
   - `commands/args.ts`：CLI 参数解析独立。
   - `commands/help.ts`：CLI help 独立。
@@ -612,14 +612,14 @@ Jesse 调研后的补充要求：
   - `lib/execution-flow.ts`：execution event、dry-run/shadow step、order-place command 构造独立。
   - `lib/json.ts`、`lib/run-mode.ts`：共享基础类型与字段读取独立。
 - `trade-flow` 第二轮瘦身：
-  - `commands/observe.ts`：load runtime / build observe / observe-from-skills 路由独立。
+  - `commands/observe.ts`：load runtime / build observe / observe-from-tools 路由独立。
   - `commands/runtime.ts`：init / append order_fill 路由独立。
   - `commands/execution.ts`：record execution / dry-run / shadow / live-small 路由独立。
   - `commands/recovery.ts`：recover / reconcile / apply / cron recover 路由独立。
-  - `lib/observe-flow.ts`：runtime load 与 observe-from-skills 独立。
-  - `lib/live-execution.ts`：shadow-from-skills 与 live-small 执行独立。
-  - `lib/recovery-flow.ts`：reconcile-from-skills 与 cron recover 独立。
-  - `scripts/main.ts` 降为 thin router。
+  - `lib/observe-flow.ts`：runtime load 与 observe-from-tools 独立。
+  - `lib/live-execution.ts`：shadow-from-tools 与 live-small 执行独立。
+  - `lib/recovery-flow.ts`：reconcile-from-tools 与 cron recover 独立。
+  - `src/scripts/main.ts` 降为 thin router。
 - 命令层回归测试：
   - `commands/args.test.ts` 锁定核心 flag、JSON 文件输入、非法 enum / unknown flag 错误路径。
   - `commands/handlers.test.ts` 锁定 observe / runtime / execution / recovery handler 的代表性无外部依赖路径。
@@ -644,7 +644,7 @@ Jesse 调研后的补充要求：
 - 研究侧 candidate source 拆分：
   - `lib/strategy-rnd-candidates.ts`：feature store load、candidate id 校验、provided / bounded composition / scientific discovery 候选来源、campaign candidate count、setup-conditioned factor research 独立。
   - `lib/strategy-rnd-candidates.test.ts`：锁定 duplicate/empty candidate id、候选来源分类、factor condition 注入、campaign 计数与 discovery 约束。
-- 外部 skill runner fixture：
+- 外部 tool runner fixture：
   - `lib/live-execution.test.ts`：锁定 live-small 调用 `binance-order-place` 的 cwd、命令参数、失败不写 `order_fill`。
   - `lib/recovery-flow.test.ts`：锁定 reconcile 调用 `binance-account-snapshot` 的 cwd、history 参数、snapshot 失败不 apply。
 - 执行生命周期硬化：
@@ -653,15 +653,15 @@ Jesse 调研后的补充要求：
   - `unknown / needs_review` 进入 `risk_lock`，`live-small` 在风险锁下拒绝继续加风险。
   - `lib/flow-state.test.ts` 锁定 rejected/expired/cancelled 不改仓位、filled/reconciled 改仓位、unknown/review 形成风险锁。
 - Recovery drill 硬化：
-  - `cronRecoverFromSkills` 遇到 unmatched reconcile 写入 `review(status=needs_review)`。
+  - `cronRecoverFromTools` 遇到 unmatched reconcile 写入 `review(status=needs_review)`。
   - recovery 后 `reduceFlowState` 可读到持久 `risk_lock`，避免异常后下一轮继续加风险。
   - `lib/recovery-flow.test.ts` 增加 unmatched → needs_review fixture。
 - Recovery fixture 补齐：
   - `reconcile` 对缺本地 fill / partial fill 先生成补录 draft，再按 projected position 判断仓位差异，避免可解释成交被误判 unmatched。
   - `reconcile` 对保护腿漂移输出 `protective_drift`，不生成普通 submit draft，不把保护腿异常冒充为账本恢复。
   - `lib/reconcile.test.ts` 增加缺本地 fill、partial fill 历史补录、protective drift 三个 fixture。
-- 执行 skill contract 收口：
-  - `docs/execution-skill-contract.md` 落地 Binance 写 skill 成功输出到 `trade-flow` 记账的最低契约。
+- 执行 tool contract 收口：
+  - `docs/execution-tool-contract.md` 落地 Binance 写 tool 成功输出到 `trade-flow` 记账的最低契约。
   - `trade-flow` 在写 `order_fill` 前校验 `place_entry / cancel_order / sync_protection / adjust_position` 的最低 `execution_result` 字段，缺字段直接拒绝，不静默记账。
   - `binance-position-protect` / `binance-position-adjust` 成功输出补齐 `method` 字段，与 `binance-order-place` / `binance-order-cancel` 对齐。
   - `binance-order-place` / `binance-order-cancel` 增加成功输出 contract 测试，分别锁定 `method / request / result` 与 `method / result` 不漂移。
@@ -679,7 +679,7 @@ Jesse 调研后的补充要求：
   - `lib/artifact-hygiene.test.ts` 锁定 dry-run、引用保护、目录 pin、durable 保护、ephemeral 短保留期、显式删除路径。
   - `docs/data-hygiene.md` 落地 Git 边界与 data 留存规则；`data/ohlcv/`、`tmp/panels/`、`tmp/artifacts/`、runtime DB/log/lock/system state、ledger、artifact 与本地 profile config 默认不进 Git。
   - `.gitignore` 补齐生成行情、calibration panel、strategy audits、cron/system runtime 与本地 operator config，避免 R&D / cron 产物污染源码 review。
-  - `ohlcv-fetch` / calibration panel / calibration market-features / trade-flow track dry-run 输出收敛为 repo 可迁移相对路径；跨 skill 执行仍用解析后的实际路径，避免本机绝对路径写入 manifest / report。
+  - `ohlcv-fetch` / calibration panel / calibration market-features / trade-flow track dry-run 输出收敛为 repo 可迁移相对路径；跨 tool 执行仍用解析后的实际路径，避免本机绝对路径写入 manifest / report。
 - P8 机器契约开口：
   - `commands/response.ts`：失败输出保留 `error`，新增 `code / retriable / details`。
   - 成功与失败输出统一带 `schema_version=trade-flow.script-response.v1`；业务 `data` 暂不提前冻结。
@@ -687,7 +687,7 @@ Jesse 调研后的补充要求：
   - `schemas/script-response.schema.json` 落地外层响应 JSON Schema，只约束 envelope，不约束 command-specific `data`。
   - `schemas/plan-event.schema.json` 落地 `plan_event` 外壳 JSON Schema，只约束事件行外层，不约束各 `kind.body_json`。
   - `schemas/reconcile-result.schema.json` 落地对账结果外壳 JSON Schema；`drafts` 复用 `plan_event` 外壳，`unmatched` 内部诊断不提前冻结。
-  - `schemas/execution-command-spec.schema.json` 落地执行 skill 路由外壳 JSON Schema；只约束 action / skill / cwd / argv，不冻结各执行 skill 参数语义。
+  - `schemas/execution-command-spec.schema.json` 落地执行 tool 路由外壳 JSON Schema；只约束 action / tool / cwd / argv，不冻结各执行 tool 参数语义。
   - `schemas/artifact-gc-result.schema.json` 落地 artifact GC 结果外壳 JSON Schema；只约束 root / retention / mode / file arrays，不冻结诊断 reason 枚举。
   - `schemas/strategy-evidence-record.schema.json` 落地 strategy evidence JSONL record 外壳 JSON Schema；只约束 record / stats 外层，不冻结 proof payload。
   - `schemas/strategy-review-report.schema.json` 落地 strategy review report 外壳 JSON Schema；只约束 evidence / latest / diagnostics / gate 外层，不冻结 promotion 诊断细节。
@@ -700,15 +700,15 @@ Jesse 调研后的补充要求：
   - `schemas/strategy-cycle-result.schema.json` 落地 strategy cycle 外壳契约；shadow evidence sync / review / optional promotion 分层复用既有 schema。
   - `schemas/init-result.schema.json` 落地 init 结果外壳契约。
   - `schemas/replay-result.schema.json` / `schemas/strategy-rnd-batch-result.schema.json` / `schemas/strategy-rnd-loop-result.schema.json` / `schemas/strategy-rnd-campaign-result.schema.json` / `schemas/strategy-panel-rnd-result.schema.json` / `schemas/strategy-benchmark-result.schema.json` / `schemas/strategy-calibration-result.schema.json` / `schemas/strategy-signal-result.schema.json` 落地研究侧稳定输出外壳；只锁外层报告字段，不冻结候选诊断细节。
-  - `schemas/live-small-result.schema.json` 落地 live-small 稳定输出外壳；只锁本项目 preflight / gate / recorded 边界，不冻结外部 Binance 执行 skill 的 `execution_result` 内部。
+  - `schemas/live-small-result.schema.json` 落地 live-small 稳定输出外壳；只锁本项目 preflight / gate / recorded 边界，不冻结外部 Binance 执行 tool 的 `execution_result` 内部。
   - `schemas/registry.json` 落地 schema registry / command coverage map；当前所有已登记 command data 输出均为 covered，防止新增 schema 或命令输出无人认领。
   - `ScriptResponse` 明确 `INVALID_ARGUMENT / PRECONDITION_FAILED / EXTERNAL_FAILURE / INTERNAL_ERROR`。
   - `response.test.ts` 锁定 response schema 与 builder 不漂移；`plan-events-schema.test.ts` / `reconcile-schema.test.ts` / `execution-command-spec-schema.test.ts` / `artifact-gc-schema.test.ts` / `strategy-evidence-schema.test.ts` / `strategy-review-schema.test.ts` / `strategy-promote-schema.test.ts` / `track-dry-run-schema.test.ts` / `cron-log-schema.test.ts` / `core-data-schemas.test.ts` / `research-output-schemas.test.ts` / `schema-registry.test.ts` 锁定核心 data schema 不漂移。
   - `main.test.ts` 锁定成功、invalid argument、precondition 三类外层 envelope。
 - P6 命令与测试契约：
-  - `docs/check-contract.md` 落地项目级检查契约，按 docs / CLI / schema / runtime / execution / recovery / observe / research / artifact / cron / 外部 skill 改动域给出最小检查命令。
+  - `docs/check-contract.md` 落地项目级检查契约，按 docs / CLI / schema / runtime / execution / recovery / observe / research / artifact / cron / 外部 tool 改动域给出最小检查命令。
   - `docs/architecture-inventory.md` 的测试入口基线改为指向 `check-contract.md`，避免 P0 盘点与当前执行契约分叉。
-  - `trade-flow/SKILL.md` 增加项目级检查契约索引，后续改 skill 时可直接定位“改了哪里跑什么”。
+  - `trade-flow/tool README` 增加项目级检查契约索引，后续改 tool 时可直接定位“改了哪里跑什么”。
 
 ### 2026-07-09
 
@@ -717,16 +717,16 @@ Jesse 调研后的补充要求：
 | 分期 | 判定 | 说明 |
 | --- | --- | --- |
 | P0 inventory | 完成 | inventory 与 check contract 分工明确，P0 不再作为测试真源 |
-| P1 契约补齐 | 完成 | skill capability、order lifecycle、replay-live、recovery 语义已进 owner docs |
+| P1 契约补齐 | 完成 | tool capability、order lifecycle、replay-live、recovery 语义已进 owner docs |
 | P2 路由瘦身 | 完成 | `main.ts` 已是 thin router；当前不再为目录形态强行搬迁 |
-| P3 执行生命周期 | 完成 | lifecycle / risk_lock / execution skill output contract 已有测试 |
+| P3 执行生命周期 | 完成 | lifecycle / risk_lock / execution tool output contract 已有测试 |
 | P4 Recovery drill | 完成 | missing fill、partial fill、protective drift、unmatched → `needs_review` 已有 fixture |
 | P5 R&D 边界 | 完成 | R&D / benchmark / calibration 有独立输入、ledger、schema、gate；不写 Binance |
 | P6 检查契约 | 完成 | `docs/check-contract.md` 已覆盖 helper scripts 与各改动域 |
 | P7 Artifact / data hygiene | 完成 | durable / ephemeral / pinned、validation panel、repo 相对路径已收口 |
 | P8 机器契约 | 完成 | response envelope、schema registry、核心 data output schema 已有漂移测试 |
 
-本次整理不继续强制把 `scripts/lib/*.ts` 迁入多层目录。当前收益主要来自 domain ownership、薄 command router、schema registry、targeted tests 与 helper 边界；纯目录搬迁会制造兼容风险，等下一次确有新增 domain 压力时再做。
+本次整理不继续强制把 `src/scripts/lib/*.ts` 迁入多层目录。当前收益主要来自 domain ownership、薄 command router、schema registry、targeted tests 与 helper 边界；纯目录搬迁会制造兼容风险，等下一次确有新增 domain 压力时再做。
 
 新增 helper：
 
@@ -742,9 +742,9 @@ Jesse 调研后的补充要求：
 
 验证：
 
-- `.agents/skills/ohlcv-fetch`: `bun run check`，31 pass / 0 fail
-- `.agents/skills/trade-flow`: `bun run typecheck`
-- `.agents/skills/trade-flow`: `bun run test`，206 pass / 0 fail
+- `modules/ohlcv-fetch`: `bun run check`，31 pass / 0 fail
+- `modules/trade-flow`: `bun run typecheck`
+- `modules/trade-flow`: `bun run test`，206 pass / 0 fail
 - repo root: `git diff --check`
 - repo root: `helper-scripts-smoke`
 - repo root: `scripts/quality-check.sh`
@@ -868,7 +868,7 @@ Jesse 调研后的补充要求：
 
 ### 当前实施状态（2026-07-10）
 
-- J1-J5 均已按本项目边界完成第一版吸收；实现位置以 `_shared/execution-contract.ts`、`trade-flow/scripts/lib/replay-core.ts`、`strategy-contract.ts`、对应 fixtures 为准。
+- J1-J5 均已按本项目边界完成第一版吸收；实现位置以 `modules/common/src/execution-contract.ts`、`modules/trade-flow/src/scripts/lib/replay-core.ts`、`strategy-contract.ts`、对应 fixtures 为准。
 - 吸收方式是重写内核纪律，不引入 Jesse runtime、策略继承、UI、多交易所、优化平台或 ML pipeline。
 - replay 仍保持旧输出外壳兼容；新增 `fill_model`、`diagnostics`、`lifecycle` 均为扩展字段。
 - Monte Carlo 与 diagnostics 只允许阻断或提示复核，不能单独放行 shadow / live-small。

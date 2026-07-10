@@ -8,25 +8,20 @@ tags: [alt, usdm, 4h, swing, high-beta, momentum, short, stc]
 
 # Alt 4H High Beta Short Momentum
 
-只研究高 beta alt USDM 永续的 4H 空头动量延续，不做单币点位预测，不允许直接 shadow。
+只研究高 beta alt USDM 永续的 4H 空头动量延续；当前为 validation 未通过的 draft contract。
 
 Research refs:
 
-- 2026-07-09 predeclared discovery basket: `OP/ARB/SUI/INJ/SEI`; validation basket: `APT/RUNE/TIA/JUP/WIF`.
-- Initial discovery killed long-side continuation and unfiltered short variants due to breadth or catastrophic-loss gates.
-- Risk-capped discovery found one survivor: `TSM-S-HB-120-3R-H12-STC-BEAR`, pooled `sample_count=797`, `avg_r=0.072409`, `total_r=57.709633`, 5/5 assets positive, blocked only by diagnostic marker.
-- Full discovery accepted the same frozen candidate: 5/5 assets positive, per-asset null passed 5/5 required 3, no blocked gates.
-- 2026-07-09 unseen validation rejected the frozen candidate: pooled `sample_count=755`, `avg_r=0.059392`, `total_r=44.840722`, 4/5 assets positive, per-asset null passed 4/5, but blocked by `PANEL-OOS` and `PANEL-CATASTROPHIC`; APT max drawdown was `18.127905R`, above the 15R veto.
-- 2026-07-09 post-failure diagnostic after adding executable break-even protection showed `break_even_after_r=0.5` removed the catastrophic veto on the already-seen validation basket: pooled `sample_count=902`, `avg_r=0.060957`, `total_r=54.983484`, 5/5 assets positive; still blocked by `PANEL-OOS`. This is contaminated diagnostic evidence only, not validation.
-- 2026-07-09 fresh unseen basket `FIL/AAVE/ETC/LDO/ORDI/1000PEPE` rejected the repaired `break_even_after_r=0.5` candidate: pooled `sample_count=1120`, `avg_r=-0.029309`, `total_r=-32.826083`, only 2/6 assets positive, blocked by breadth, OOS, cost, and catastrophic gates. Zero-cost control still failed with `total_r=-9.301431`.
-- Result: rejected as a general high-beta alt short-momentum strategy. Stop this hypothesis; do not spend more trials tuning STC / break-even variants without a new market mechanism.
+- Candidate mechanism: high-beta alt downside momentum continuation with STC bearish filter and executable break-even protection.
+- 2026-07-10 split validation: fixed candidate rerun after `--strategy-data-split`; validation outcome `no_promote`, pooled `sample_count=364`, `avg_r=0.021334`, `total_r=7.765575`, positive assets `5/10`; blocked by breadth and cost stress. Locked holdout remains unopened.
+- Promotion state: `draft` only; no paper sample from this contract is formal shadow evidence until the strategy itself is promoted to `shadow`.
 
 ## Trade Contract
 
 ```yaml
 setup_id: alt-4h-high-beta-short-momentum
 engine: rnd_family_v1
-hypothesis: High-beta alt downside momentum with STC bearish filter and 0.5R break-even protection failed fresh unseen validation.
+hypothesis: High-beta alt downside momentum with STC bearish filter and 0.5R break-even protection may persist after large downside impulse.
 timeframe: 4h
 family: time_series_momentum_v1
 candidate:
@@ -45,19 +40,17 @@ cost_model:
   slippage_bps: 1
   adverse_funding_bps_per_8h: 1
 universe:
-  discovery: [OPUSDT, ARBUSDT, SUIUSDT, INJUSDT, SEIUSDT]
-  seen_validation: [APTUSDT, RUNEUSDT, TIAUSDT, JUPUSDT, WIFUSDT]
-  fresh_validation: [FILUSDT, AAVEUSDT, ETCUSDT, LDOUSDT, ORDIUSDT, 1000PEPEUSDT]
+  scope: high-beta liquid alt USDM perpetuals
+  split_policy: use strategy-data-split before any validation claim
 execution:
   entry_rule: when 120-bar downside momentum is at least 3 ATR and STC is below 50 on a closed 4H candle; enter next open or equivalent executable quote only.
   stop_rule: signal candle high plus 1 ATR.
   target_rule: fixed 2R; no discretionary target relocation.
-  no_trade_conditions: symbol outside declared research baskets, stale closed 4H data, missing STC feature, risk wider than 2.5 ATR, funding or spread abnormal, unresolved existing lane exposure, or setup not causally available before entry.
+  no_trade_conditions: symbol outside the current split universe, stale closed 4H data, missing STC feature, risk wider than 2.5 ATR, funding or spread abnormal, unresolved existing lane exposure, or setup not causally available before entry.
 proof:
-  diagnostic_risk_repair: break_even_after_r=0.5 removed catastrophic veto on already-seen validation data, but did not solve OOS instability.
-  fresh_validation: failed; total_r=-32.826083, positive_assets=2/6, zero_cost_total_r=-9.301431.
-  evidence_ref: discovery passed, seen validation failed, risk-repair diagnostic improved drawdown, fresh validation failed on 2026-07-09.
-  blocked_by: PANEL-OOS and fresh validation negative expectancy
+  current_split_validation: no_promote; sample_count=364; avg_r=0.021334; total_r=7.765575; positive_assets=5/10
+  evidence_ref: tmp/artifacts/strategy-rnd/alt-4h-high-beta-short-momentum-validation-2026-07-10-a.json
+  blocked_by: PANEL-BREADTH and PANEL-COST
   live_permission: draft_only
-  next_required_proof: stop this hypothesis unless a new causal mechanism is defined before new trials.
+  next_required_proof: do not open locked holdout or shadow; only a newly predeclared mechanism may restart from strategy-data-split.
 ```
