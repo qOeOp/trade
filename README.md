@@ -19,48 +19,19 @@ flowchart TB
     SP --> GT --> FO --> MG
   end
 
-  subgraph MATRIX["supervisor-controlled parallel pipelines"]
+  subgraph BOARD["supervisor-controlled pipeline board"]
     direction TB
 
-    subgraph TRADING["Trading pipeline"]
+    subgraph ROW1[""]
       direction LR
-      TIN["fan-out"]
-      T1["live opportunity watch<br/>slow_track_market_watch"]
-      T2["active flow guard<br/>fast_track_guard"]
-      T3["plan / preflight / execute<br/>preview + order skills"]
-      T4["recovery / reconcile<br/>exchange overrides local"]
-      TOUT["result"]
-      TIN --> T1 --> T2 --> T3 --> T4 --> TOUT
+      TRADING["Trading pipeline<br/>live watch -> active guard -> execute -> reconcile"]
+      RESEARCH["Research pipeline<br/>R&D -> replay / panel / split -> shadow / forward"]
     end
 
-    subgraph RESEARCH["Research pipeline"]
+    subgraph ROW2[""]
       direction LR
-      RIN["fan-out"]
-      R1["new strategy R&D<br/>rd supervisor + scouts"]
-      R2["replay / panel / data split<br/>anti-overfit evidence"]
-      R3["shadow / forward validation<br/>paper sample tracker"]
-      ROUT["result"]
-      RIN --> R1 --> R2 --> R3 --> ROUT
-    end
-
-    subgraph GOVERNANCE["Governance pipeline"]
-      direction LR
-      GIN["fan-out"]
-      G1["closed-flow review<br/>post-trade attribution"]
-      G2["strategy promotion<br/>draft -> shadow -> live-small -> paused"]
-      G3["strategy diagnostics<br/>lessons + blockers"]
-      GOUT["result"]
-      GIN --> G1 --> G2 --> G3 --> GOUT
-    end
-
-    subgraph OPS["Ops pipeline"]
-      direction LR
-      OIN["fan-out"]
-      O1["catalog / artifact hygiene<br/>register / stale / GC"]
-      O2["notify dispatch<br/>operator alerts"]
-      O3["quality checks<br/>tests / contracts"]
-      OOUT["result"]
-      OIN --> O1 --> O2 --> O3 --> OOUT
+      GOVERNANCE["Governance pipeline<br/>closed-flow review -> promotion -> diagnostics"]
+      OPS["Ops pipeline<br/>catalog hygiene -> notify -> quality"]
     end
   end
 
@@ -76,14 +47,14 @@ flowchart TB
   end
 
   ENTRY --> SP
-  FO --> TIN
-  FO --> RIN
-  FO --> GIN
-  FO --> OIN
-  TOUT --> CAP
-  ROUT --> CAP
-  GOUT --> CAP
-  OOUT --> CAP
+  FO --> TRADING
+  FO --> RESEARCH
+  FO --> GOVERNANCE
+  FO --> OPS
+  TRADING --> CAP
+  RESEARCH --> CAP
+  GOVERNANCE --> CAP
+  OPS --> CAP
   SUMMARY -. "next wakeup constraints" .-> MG
 
   classDef entry fill:#102a43,stroke:#102a43,color:#fff;
@@ -93,8 +64,7 @@ flowchart TB
   classDef io fill:#e8f8fb,stroke:#358b9a,color:#111;
   class ENTRY entry;
   class SP,GT,FO,MG sup;
-  class T1,T2,T3,T4,R1,R2,R3,G1,G2,G3,O1,O2,O3 flow;
-  class TIN,RIN,GIN,OIN,TOUT,ROUT,GOUT,OOUT block;
+  class TRADING,RESEARCH,GOVERNANCE,OPS flow;
   class CAP,FACTS,SUMMARY block;
   class EX io;
 ```
