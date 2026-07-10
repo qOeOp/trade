@@ -35,6 +35,16 @@ Jesse 可借鉴的是交易内核，不是产品形态：
 | reduce-only、partial fill、oversized exit 的行为测试 | 改为 execution / recovery / replay 三域 fixture，不让部分成交被当成完整仓位 |
 | metrics / Monte Carlo / optimization | 只吸收为可靠性诊断；不得绕过 locked holdout、shadow attribution 与 live-small gate |
 
+NOFX 可借鉴的是 runtime discipline，不是产品形态；详细计划见 [nofx-design-absorption.md](nofx-design-absorption.md)。
+
+| NOFX 做法 | 本项目吸收方式 |
+| --- | --- |
+| config normalize / clamp | 强化 `trading-config -> runtime_policy` 的归一化、限幅、hash 与测试 |
+| runtime hard limits | 收进 `plan-preflight` 与 execution contract，不靠 prompt 自觉 |
+| trade throttle | 增加最短持仓、再入冷却、单位时间开仓上限等 churn guards |
+| safe mode / runtime health | 连续 AI / API / reconcile 失败后只允许防御动作 |
+| memory layers | 区分 conversation context、research memory、execution projection |
+
 ## 2. 当前诊断
 
 已有强项：

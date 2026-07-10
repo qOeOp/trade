@@ -7,6 +7,7 @@ import {
   buildPositionAdjustCommand,
   buildPositionProtectCommand,
   buildRecordedActionEvents,
+  unwrapSkillResponse,
 } from "./execution-flow"
 import { compileExecutionContract } from "../../../_shared/execution-contract"
 import { reduceFlowState } from "./flow-state"
@@ -415,6 +416,20 @@ test("recorded adjust action event reduces local position", () => {
 test("recorded action events reject incomplete execution skill results", () => {
   assert.throws(
     () => buildRecordedActionEvents({
+      target_action: "place_entry",
+      chain_id: "flow-incomplete-entry",
+      source_observe_event_key: "obs-incomplete-entry",
+      preflight_result: { verdict: "armable" },
+      execution_contract_input: contractInput(),
+      execution_result: {
+        method: "futuresOrder",
+        result: { clientOrderId: "flow-incomplete-entry" },
+      },
+    }),
+    /place_entry execution_result\.request must be an object/,
+  )
+  assert.throws(
+    () => buildRecordedActionEvents({
       target_action: "cancel_order",
       chain_id: "flow-incomplete-cancel",
       source_observe_event_key: "obs-incomplete-cancel",
@@ -450,6 +465,13 @@ test("recorded action events reject incomplete execution skill results", () => {
       },
     }),
     /adjust_position execution_result\.remainingPosition is required/,
+  )
+})
+
+test("unwrapSkillResponse rejects failed skill envelopes", () => {
+  assert.throws(
+    () => unwrapSkillResponse({ ok: false, error: "binance rejected order" }),
+    /binance rejected order/,
   )
 })
 

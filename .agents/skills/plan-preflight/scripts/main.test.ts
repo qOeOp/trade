@@ -193,3 +193,154 @@ test("evaluatePreflight blocks small-account notional and leverage caps", () => 
   assert.ok(result.blocked_by.some((item) => item.check_id === "G-MAX-ENTRY-NOTIONAL"))
   assert.ok(result.blocked_by.some((item) => item.check_id === "G-SINGLE-POSITION-LEVERAGE-CAP"))
 })
+
+test("evaluatePreflight blocks excessive new-risk actions per cycle", () => {
+  const result = evaluatePreflight({
+    ...baseInput,
+    runtime_policy: {
+      effective_limits: {
+        max_open_actions_per_cycle: 2,
+      },
+    },
+    aggregate_view: {
+      ...baseInput.aggregate_view,
+      open_actions_this_cycle: 2,
+    },
+  })
+
+  assert.equal(result.verdict, "blocked")
+  assert.ok(result.blocked_by.some((item) => item.check_id === "G-OPEN-RATE-CAP"))
+})
+
+test("evaluatePreflight blocks reentry before cooldown expires", () => {
+  const result = evaluatePreflight({
+    ...baseInput,
+    runtime_policy: {
+      effective_limits: {
+        reentry_cooldown_minutes: 60,
+      },
+    },
+    aggregate_view: {
+      ...baseInput.aggregate_view,
+      minutes_since_last_close: 15,
+    },
+  })
+
+  assert.equal(result.verdict, "blocked")
+  assert.ok(result.blocked_by.some((item) => item.check_id === "G-REENTRY-COOLDOWN"))
+})
+
+test("evaluatePreflight blocks opposite-side new risk in the same lane", () => {
+  const result = evaluatePreflight({
+    ...baseInput,
+    plan: {
+      ...baseInput.plan,
+      side: "short",
+    },
+    observe: {
+      ...baseInput.observe,
+      side: "short",
+    },
+    aggregate_view: {
+      ...baseInput.aggregate_view,
+      current_lane_position_state: "long",
+    },
+  })
+
+  assert.equal(result.verdict, "blocked")
+  assert.ok(result.blocked_by.some((item) => item.check_id === "G-SAME-LANE-OPPOSITE-OPEN-CAP"))
+})
+
+test("evaluatePreflight blocks early noise reduction but allows hard-stop reduction", () => {
+  const noise = evaluatePreflight({
+    ...baseInput,
+    target_action: "adjust_position",
+    request: {
+      direction: "reduce",
+      qty_ratio: 0.5,
+      exit_reason: "noise",
+    },
+    runtime_policy: {
+      effective_limits: {
+        min_hold_minutes_before_noise_close: 30,
+      },
+    },
+    aggregate_view: {
+      ...baseInput.aggregate_view,
+      position_age_minutes: 5,
+    },
+  })
+
+  assert.equal(noise.verdict, "blocked")
+  assert.ok(noise.blocked_by.some((item) => item.check_id === "G-MIN-HOLD-BEFORE-NOISE-CLOSE"))
+
+  const hardStop = evaluatePreflight({
+    ...baseInput,
+    target_action: "adjust_position",
+    request: {
+      direction: "reduce",
+      qty_ratio: 0.5,
+      exit_reason: "stop",
+    },
+    runtime_policy: {
+      effective_limits: {
+        min_hold_minutes_before_noise_close: 30,
+      },
+    },
+    aggregate_view: {
+      ...baseInput.aggregate_view,
+      position_age_minutes: 5,
+    },
+  })
+
+  assert.equal(hardStop.verdict, "armable")
+
+  const takeProfit = evaluatePreflight({
+    ...baseInput,
+    target_action: "adjust_position",
+    request: {
+      direction: "reduce",
+      qty_ratio: 0.5,
+      exit_reason: "take_profit",
+    },
+    runtime_policy: {
+      effective_limits: {
+        min_hold_minutes_before_noise_close: 30,
+      },
+    },
+    aggregate_view: {
+      ...baseInput.aggregate_view,
+      position_age_minutes: 5,
+    },
+  })
+
+  assert.equal(takeProfit.verdict, "armable")
+})
+
+test("evaluatePreflight safe mode blocks new risk but allows defensive reduction", () => {
+  const blocked = evaluatePreflight({
+    ...baseInput,
+    runtime_health: {
+      safe_mode_active: true,
+      safe_mode_reason: "ai parser failures",
+    },
+  })
+
+  assert.equal(blocked.verdict, "blocked")
+  assert.ok(blocked.blocked_by.some((item) => item.check_id === "G-KILL-SWITCH"))
+
+  const defensive = evaluatePreflight({
+    ...baseInput,
+    target_action: "adjust_position",
+    request: {
+      direction: "reduce",
+      qty_ratio: 0.5,
+    },
+    runtime_health: {
+      safe_mode_active: true,
+      safe_mode_reason: "ai parser failures",
+    },
+  })
+
+  assert.equal(defensive.verdict, "armable")
+})

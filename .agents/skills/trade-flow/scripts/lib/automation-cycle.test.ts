@@ -111,6 +111,10 @@ test("automation cycle plan can dispatch a learning strategy R&D supervisor", ()
       "universe_lessons",
       "next_hypothesis_queue",
     ])
+    const sidecars = asArray(contract.sidecar_subagents).map(asRecord)
+    assert.deepEqual(sidecars.map((sidecar) => sidecar.role), ["rd-history-scout", "rd-data-scout", "rd-edge-scout"])
+    assert.equal(sidecars.every((sidecar) => sidecar.may_write_state === false), true)
+    assert.match(String(contract.single_writer_rule), /only strategy-rd-supervisor/)
     const parallel = asRecord(asArray(result.dispatch_order).find((stage) => asRecord(stage).stage === "parallel_isolated_work"))
     assert.ok(asArray(parallel.job_ids).includes("rd_strategy_supervisor"))
   } finally {

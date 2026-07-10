@@ -58,9 +58,10 @@ function evaluatePreflight(input: PreflightInput): PreflightOutput {
   checkPlanIntent(plan, blockedBy)
   checkPlanVerdict(plan, blockedBy)
   checkSetupLivePermission(input, targetAction, blockedBy)
-  checkKillSwitch(input.runtime_health, blockedBy)
+  checkKillSwitch(input.runtime_health, blockedBy, isNewRiskAction(targetAction, input.request))
   checkLadders(plan, blockedBy)
   checkRiskLimits(input, targetAction, blockedBy)
+  checkChurnGuards(input, targetAction, blockedBy)
   checkRequest(input.request, targetAction, blockedBy)
 
   const verdict: Verdict = blockedBy.length > 0 ? "blocked" : "armable"
@@ -127,7 +128,7 @@ function checkSetupLivePermission(input: PreflightInput, targetAction: TargetAct
   }
 }
 
-function checkKillSwitch(runtimeHealth: JSONRecord | undefined, blockedBy: CheckResult[]): void {
+function checkKillSwitch(runtimeHealth: JSONRecord | undefined, blockedBy: CheckResult[], blocksNewRisk: boolean): void {
   if (!runtimeHealth) {
     return
   }
@@ -142,6 +143,23 @@ function checkKillSwitch(runtimeHealth: JSONRecord | undefined, blockedBy: Check
   for (const [key, reason] of reasons) {
     const value = runtimeHealth[key]
     if (value === true || (typeof value === "number" && value >= 3)) {
+      blockedBy.push({ check_id: "G-KILL-SWITCH", reason })
+    }
+  }
+  if (!blocksNewRisk) {
+    return
+  }
+  const safeModeReason = firstString(runtimeHealth.safe_mode_reason, runtimeHealth.reason)
+  if (runtimeHealth.safe_mode_active === true) {
+    blockedBy.push({ check_id: "G-KILL-SWITCH", reason: `safe mode active${safeModeReason ? `: ${safeModeReason}` : ""}` })
+  }
+  const streakReasons = [
+    ["ai_failures_streak", "AI failure streak reached safe-mode threshold"],
+    ["binance_api_failures_streak", "Binance API failure streak reached safe-mode threshold"],
+    ["reconcile_mismatch_streak", "reconciliation mismatch streak reached safe-mode threshold"],
+  ] as const
+  for (const [key, reason] of streakReasons) {
+    if (numeric(runtimeHealth[key]) >= 3) {
       blockedBy.push({ check_id: "G-KILL-SWITCH", reason })
     }
   }
@@ -238,6 +256,54 @@ function checkRiskLimits(input: PreflightInput, targetAction: TargetAction, bloc
   }
 }
 
+function checkChurnGuards(input: PreflightInput, targetAction: TargetAction, blockedBy: CheckResult[]): void {
+  const request = input.request ?? asRecord(asRecord(input.observe.action_intent).request)
+  const accountConfig = input.account_config ?? {}
+  const effectiveLimits = asRecord(input.runtime_policy?.effective_limits)
+  const aggregate = input.aggregate_view ?? {}
+
+  if (isNewRiskAction(targetAction, request)) {
+    const cycleCap = firstPositive(effectiveLimits.max_open_actions_per_cycle, accountConfig.max_open_actions_per_cycle)
+    const cycleCount = firstNumber(aggregate.open_actions_this_cycle, aggregate.new_risk_actions_this_cycle)
+    if (cycleCap > 0 && cycleCount != null && cycleCount >= cycleCap) {
+      blockedBy.push({ check_id: "G-OPEN-RATE-CAP", reason: `open actions this cycle ${cycleCount} meets cap ${cycleCap}` })
+    }
+
+    const hourlyCap = firstPositive(effectiveLimits.max_open_actions_per_hour, accountConfig.max_open_actions_per_hour)
+    const hourlyCount = firstNumber(aggregate.recent_open_actions_1h, aggregate.open_actions_last_hour, aggregate.new_risk_actions_last_hour)
+    if (hourlyCap > 0 && hourlyCount != null && hourlyCount >= hourlyCap) {
+      blockedBy.push({ check_id: "G-OPEN-RATE-CAP", reason: `open actions in 1h ${hourlyCount} meets cap ${hourlyCap}` })
+    }
+
+    const cooldown = firstPositive(effectiveLimits.reentry_cooldown_minutes, accountConfig.reentry_cooldown_minutes)
+    const lastCloseAge = firstNumber(aggregate.minutes_since_last_close, aggregate.last_close_age_minutes, request.minutes_since_last_close)
+    if (cooldown > 0 && lastCloseAge != null && lastCloseAge < cooldown) {
+      blockedBy.push({ check_id: "G-REENTRY-COOLDOWN", reason: `last close age ${lastCloseAge}m is below cooldown ${cooldown}m` })
+    }
+
+    const currentSide = normalizeSide(firstString(
+      aggregate.current_lane_position_state,
+      aggregate.current_lane_side,
+      aggregate.current_position_side,
+    ))
+    const actionSide = normalizeSide(firstString(request.side, input.plan.side, input.observe.side, request.direction))
+    if (currentSide && actionSide && currentSide !== actionSide) {
+      blockedBy.push({ check_id: "G-SAME-LANE-OPPOSITE-OPEN-CAP", reason: `current lane is ${currentSide}; new risk side is ${actionSide}` })
+    }
+    return
+  }
+
+  if (!isReduceOrExitAction(targetAction, request)) {
+    return
+  }
+  const minHold = firstPositive(effectiveLimits.min_hold_minutes_before_noise_close, accountConfig.min_hold_minutes_before_noise_close)
+  const positionAge = firstNumber(aggregate.position_age_minutes, aggregate.current_position_age_minutes, request.position_age_minutes)
+  const reason = firstString(request.exit_reason, request.reduce_reason, aggregate.exit_reason)
+  if (minHold > 0 && positionAge != null && positionAge < minHold && !isHardExitReason(reason)) {
+    blockedBy.push({ check_id: "G-MIN-HOLD-BEFORE-NOISE-CLOSE", reason: `position age ${positionAge}m is below minimum hold ${minHold}m` })
+  }
+}
+
 function checkNotionalCaps(
   effectiveLimits: JSONRecord,
   accountConfig: JSONRecord,
@@ -326,6 +392,35 @@ function isNewRiskAction(targetAction: TargetAction, request: JSONRecord | undef
   return NEW_RISK_ACTIONS.has(targetAction)
 }
 
+function isReduceOrExitAction(targetAction: TargetAction, request: JSONRecord | undefined): boolean {
+  if (targetAction !== "adjust_position") {
+    return false
+  }
+  const direction = String(request?.direction ?? "").toLowerCase()
+  return direction === "reduce" || direction === "close" || request?.close_all === true
+}
+
+function normalizeSide(value: string): "long" | "short" | "" {
+  const normalized = value.trim().toLowerCase()
+  if (normalized === "buy" || normalized === "long" || normalized === "多") return "long"
+  if (normalized === "sell" || normalized === "short" || normalized === "空") return "short"
+  return ""
+}
+
+function isHardExitReason(value: string): boolean {
+  const normalized = value.trim().toLowerCase()
+  return [
+    "hard_stop",
+    "invalidation",
+    "protection",
+    "risk_reduction",
+    "stop",
+    "stop_loss",
+    "take_profit",
+    "tp",
+  ].includes(normalized)
+}
+
 function firstString(...values: unknown[]): string {
   for (const value of values) {
     if (isNonEmptyString(value)) {
@@ -354,6 +449,15 @@ function firstPositive(...values: unknown[]): number {
     if (number > 0) return number
   }
   return 0
+}
+
+function firstNumber(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    if (value === undefined || value === null || value === "") continue
+    const number = numeric(value)
+    if (Number.isFinite(number)) return number
+  }
+  return undefined
 }
 
 function round(value: number): number {

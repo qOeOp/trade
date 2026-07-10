@@ -479,6 +479,7 @@ function campaignPayloadFromHypothesis(state: RdProgramState, statePath: string,
 }
 
 function sharedRndPayloadFields(hypothesis: JSONRecord, input: JSONRecord, remaining: RdProgramBudget): JSONRecord {
+  const searchTrialCount = boundedTrials(hypothesis.search_trial_count ?? input.search_trial_count, remaining.max_trials_total)
   return compactRecord({
     timeframe: stringField(hypothesis.timeframe) || stringField(input.timeframe),
     max_hold_bars: optionalPositiveNumber(hypothesis.max_hold_bars ?? input.max_hold_bars),
@@ -495,8 +496,8 @@ function sharedRndPayloadFields(hypothesis: JSONRecord, input: JSONRecord, remai
     diagnostic_mode: optionalBoolean(hypothesis.diagnostic_mode ?? input.diagnostic_mode),
     anti_overfit_stage: stringField(hypothesis.anti_overfit_stage) || stringField(input.anti_overfit_stage),
     parameter_stability: optionalRecord(hypothesis.parameter_stability),
-    search_trial_count: boundedTrials(hypothesis.search_trial_count ?? input.search_trial_count, remaining.max_trials_total),
-    candidates: array(hypothesis.candidates).map(asRecord),
+    search_trial_count: searchTrialCount,
+    candidates: array(hypothesis.candidates).map(asRecord).slice(0, searchTrialCount),
   })
 }
 

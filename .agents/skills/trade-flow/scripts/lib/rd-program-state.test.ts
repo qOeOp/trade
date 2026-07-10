@@ -227,6 +227,48 @@ test("rd program state next plan blocks when no active queue can run", () => {
   }
 })
 
+test("rd program state caps planned candidates to remaining trial budget", () => {
+  const dir = mkdtempSync(join(tmpdir(), "rd-program-state-budget-cap-"))
+  try {
+    const path = join(dir, "state.json")
+    const catalogDb = join(dir, "catalog.db")
+    const state = createRdProgramState({
+      programId: "rd-budget-cap",
+      objective: "never plan more candidates than remaining trial budget",
+      now: "2026-07-09T12:00:00Z",
+      budget: { max_hypotheses: 4, max_trials_total: 6, max_locked_holdout_uses: 1 },
+      nextHypothesisQueue: [{
+        hypothesis_id: "h1",
+        hypothesis: "test capped candidates",
+        manifest_path: "data/discovery/manifest.json",
+        mode: "loop",
+        search_trial_count: 4,
+        candidates: [
+          { candidate_id: "C1", family: "time_series_momentum_v1", params: { side: "long" } },
+          { candidate_id: "C2", family: "time_series_momentum_v1", params: { side: "short" } },
+          { candidate_id: "C3", family: "time_series_momentum_v1", params: { side: "long" } },
+          { candidate_id: "C4", family: "time_series_momentum_v1", params: { side: "short" } },
+        ],
+      }],
+    })
+    writeRdProgramState(path, updateRdProgramState(state, {
+      now: "2026-07-09T12:30:00Z",
+      usageDelta: { trials_used: 4 },
+    }), catalogDb)
+
+    const planned = runRdProgramStateCommand({
+      path,
+      input: { action: "plan_next", now: "2026-07-09T13:00:00Z" },
+    })
+
+    const payload = asRecord(planned.next_plan?.payload)
+    assert.equal(payload.search_trial_count, 2)
+    assert.deepEqual(asArray(payload.candidates).map((candidate) => asRecord(candidate).candidate_id), ["C1", "C2"])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("rd program state can ingest loop and campaign research results", () => {
   const state = createRdProgramState({
     programId: "rd-ingest",

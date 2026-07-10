@@ -40,6 +40,18 @@ trade-flow cron 分两条轨道：
 
 subagent 只负责上下文隔离和并行：交易事实仍只能通过 trade-flow CLI、`trade.db`、cron lock 与 preflight 进入。R&D tracker 子任务不得写 `trade.db`，不得生成 strategy evidence；closed-flow review 优先由本轮“已闭合且未 review”事件触发，必须在交易 / 对账子任务之后串行收尾。review cadence 只做漏单兜底，不把 review 变成第四条长期 automation。
 
+### Memory Boundary
+
+系统只承认三类记忆，互不替代：
+
+| 层 | 内容 | 禁止 |
+| --- | --- | --- |
+| `conversation_context` | 用户偏好、`chat-history`、设计讨论 | 直接作为行情事实、策略证据或真钱动作依据 |
+| `research_memory` | `rd_program_state`、R&D artifact、catalog | 写 `trade.db`、触发 Binance、冒充 live evidence |
+| `execution_projection` | `plan_event` reducer、active flow、runtime health、fresh exchange snapshot | 被旧聊天或研究假设覆盖 |
+
+真钱动作只可消费 `execution_projection + fresh exchange facts + strategy evidence + runtime_policy`。`runtime_health.safe_mode` 是运行态投影，不写成长记忆；解除必须来自新的健康检查 / 对账结果，而不是对话承诺。
+
 总控输出的 job line 是产品级边界：
 
 | job_id | 所属线 | subagent 角色 | 并发组 | 写权限 |
@@ -52,6 +64,8 @@ subagent 只负责上下文隔离和并行：交易事实仍只能通过 trade-f
 | `catalog_hygiene_scan` | artifact / catalog 保洁 | `research-artifact-operator` | job 自身 | `data_catalog.db` |
 
 `rd_strategy_supervisor` 和 `rd_forward_shadow_trackers` 必须分开：前者负责提出新 hypothesis、消费失败经验、控制搜索预算；后者只接着观察已冻结候选或 paper/shadow 样本。前者可以产出 gated draft strategy，后者只能产出 review 输入。两者都不能把研究事实写进 `trade.db`，也不能触发 Binance。
+
+R&D 内部允许再 fan-out read-only scout subagent，但只作为旁路输入：`rd-history-scout` 查历史失败与禁试机制，`rd-data-scout` 查 manifest / split / family 约束，`rd-edge-scout` 草拟不同 market edge。三者都不能写 `rd_program_state`、不能消耗 trial budget、不能打开 holdout；只有 `strategy-rd-supervisor` 是 R&D state 单写者，负责把 scout proposal 编译成显式 `next_hypothesis_queue` 后再执行。
 
 `rd_strategy_supervisor` 的 durable memory 是 `rd_program_state` artifact。`--automation-cycle` 收到 `rd_program_state_path` 时，以 state 中的 objective / budget / usage / lessons / queue 作为研发线事实源，并把该路径作为 learning memory ref；state 非 `active` 时，即使 cadence due 或被 force，也不继续派发研发 loop。临时 `rd_strategy_goal` 只用于尚未建立 state 的启动兼容。
 

@@ -1,0 +1,337 @@
+{
+  "schema_version": "trade-flow.rd-program-state.v1",
+  "program_id": "rd-supervisor-live-smoke-fixed-2026-07-10",
+  "objective": "Verify the updated R&D supervisor blocks rejected mechanisms instead of rerunning the same candidates.",
+  "status": "budget_exhausted",
+  "created_at": "2026-07-10T02:20:00.000Z",
+  "updated_at": "2026-07-10T02:48:01.000Z",
+  "budget": {
+    "max_hypotheses": 3,
+    "max_trials_total": 12,
+    "max_locked_holdout_uses": 1
+  },
+  "usage": {
+    "hypotheses_run": 3,
+    "trials_used": 14,
+    "locked_holdout_uses": 0
+  },
+  "stop_conditions": [
+    "shadow_candidate_found",
+    "budget_exhausted",
+    "data_or_tool_blocked"
+  ],
+  "latest_failure_summary": {
+    "rejected_candidate_count": 4,
+    "accepted_candidate_count": 0,
+    "top_blockers": [
+      {
+        "check_id": "R-DRAWDOWN",
+        "count": 4
+      },
+      {
+        "check_id": "RND-OOS-DRAWDOWN",
+        "count": 4
+      },
+      {
+        "check_id": "RND-OOS-EDGE-MARGIN",
+        "count": 4
+      },
+      {
+        "check_id": "RND-OOS-EXPECTANCY",
+        "count": 4
+      },
+      {
+        "check_id": "RND-OOS-PROFIT-FACTOR",
+        "count": 4
+      }
+    ],
+    "selection_blocked": false,
+    "primary_failure_area": "risk_shape",
+    "next_system_actions": [
+      "Redesign stop/target geometry before adding confirmation factors."
+    ]
+  },
+  "latest_reliability_gate": {
+    "status": "blocked",
+    "decision": "reject_hypothesis",
+    "more_trials_allowed": false,
+    "reason": "the market mechanism did not survive expectancy, risk-shape, or negative-control checks",
+    "sample_profile": {
+      "candidate_count": 4,
+      "total_trade_count": 1231,
+      "min_sample_count": 276,
+      "median_sample_count": 307,
+      "min_oos_sample_count": 83
+    },
+    "layer_counts": [
+      {
+        "area": "edge_expectancy",
+        "count": 12
+      },
+      {
+        "area": "risk_shape",
+        "count": 8
+      }
+    ]
+  },
+  "rejected_mechanisms": [
+    {
+      "source": "strategy_rnd_campaign",
+      "stop_reason": "hypothesis_queue_exhausted",
+      "outcome": "no_validated_candidate"
+    },
+    {
+      "source": "strategy_rnd_loop",
+      "check_id": "R-DRAWDOWN",
+      "count": 4,
+      "primary_failure_area": "risk_shape"
+    },
+    {
+      "source": "strategy_rnd_loop",
+      "check_id": "RND-OOS-DRAWDOWN",
+      "count": 4,
+      "primary_failure_area": "risk_shape"
+    },
+    {
+      "source": "strategy_rnd_loop",
+      "check_id": "RND-OOS-EDGE-MARGIN",
+      "count": 4,
+      "primary_failure_area": "risk_shape"
+    },
+    {
+      "source": "strategy_rnd_loop",
+      "check_id": "RND-OOS-EXPECTANCY",
+      "count": 4,
+      "primary_failure_area": "risk_shape"
+    },
+    {
+      "source": "strategy_rnd_loop",
+      "check_id": "RND-OOS-PROFIT-FACTOR",
+      "count": 4,
+      "primary_failure_area": "risk_shape"
+    }
+  ],
+  "universe_lessons": [
+    {
+      "source": "strategy_rnd_campaign",
+      "campaign_id": "rd-supervisor-live-smoke-fixed-2026-07-10-h-btc-4h-vcb-fixed-001-20260710022500",
+      "outcome": "no_validated_candidate",
+      "stop_reason": "hypothesis_queue_exhausted",
+      "trial_budget": 6,
+      "trials_used": 6,
+      "hypotheses_run": 1,
+      "holdout_evaluations": 0
+    },
+    {
+      "source": "strategy_rnd_campaign",
+      "campaign_id": "rd-supervisor-live-smoke-fixed-2026-07-10-h-btc-4h-tsm-cont-001-20260710024800",
+      "outcome": "no_validated_candidate",
+      "stop_reason": "hypothesis_queue_exhausted",
+      "trial_budget": 4,
+      "trials_used": 4,
+      "hypotheses_run": 1,
+      "holdout_evaluations": 0
+    },
+    {
+      "source": "strategy_rnd_loop",
+      "batch_id": "rd-supervisor-live-smoke-fixed-2026-07-10-h-btc-4h-tsm-cont-001-r-drawdown",
+      "hypothesis": "Redesign stop/target geometry before adding confirmation factors.",
+      "outcome": "no_promote",
+      "candidate_source": "provided",
+      "trial_count": 4,
+      "accepted_count": 0,
+      "next_action": "Redesign stop/target geometry before adding confirmation factors."
+    }
+  ],
+  "next_hypothesis_queue": [
+    {
+      "hypothesis_id": "h-btc-4h-tsm-cont-001-r-drawdown-r-drawdown",
+      "predecessor_hypothesis_id": "h-btc-4h-tsm-cont-001-r-drawdown",
+      "source": "rd_learning_memory",
+      "mode": "loop",
+      "ready": true,
+      "hypothesis": "Redesign stop/target geometry before adding confirmation factors.",
+      "discovery_manifest_path": "tmp/panels/strategy-data-splits/btc-4h-tsm-rd-2026-07-10-a/btcusdt/discovery/manifest.json",
+      "timeframe": "4h",
+      "max_hold_bars": 18,
+      "fee_bps": 2,
+      "slippage_bps": 1,
+      "funding_bps_per_8h": 1,
+      "oos_split": 0.3,
+      "search_trial_count": 2,
+      "artifact_root": "tmp/artifacts/strategy-rnd",
+      "catalog_db_path": "data/data_catalog.db",
+      "thesis_certificate": {
+        "edge_type": "time_series_momentum_continuation",
+        "behavioral_hypothesis": "After a large 60 or 120 bar directional move, trend followers and forced risk reducers continue to trade in the same direction for several 4H candles.",
+        "market_participants": "trend followers, momentum funds, late hedgers, and forced deleveraging flows",
+        "regime": "BTCUSDT 4H liquid perpetual market with directional persistence after large closed-candle moves",
+        "invalidation": "Reject if OOS expectancy or profit factor is weak, if side-flip or entry-lag null controls match the result, or if cost stress removes the edge.",
+        "cost_sensitivity": "Low to medium turnover swing trades must remain positive after 2 bps fee, 1 bps slippage, and adverse funding stress.",
+        "candidate_universe": {
+          "symbol": "BTCUSDT",
+          "family": "time_series_momentum_v1",
+          "sides": [
+            "long",
+            "short"
+          ],
+          "lookback_bars": [
+            60,
+            120
+          ],
+          "threshold_atr": [
+            2,
+            3
+          ],
+          "trial_count": 4
+        },
+        "null_controls": [
+          "side_flip",
+          "entry_lag_3"
+        ]
+      },
+      "candidates": [
+        {
+          "candidate_id": "TSM-L-BTC-60-2R",
+          "family": "time_series_momentum_v1",
+          "parameter_count": 6,
+          "description": "BTC long continuation after 60-bar positive move above 2 ATR",
+          "params": {
+            "side": "long",
+            "lookback_bars": 60,
+            "threshold_atr": 2,
+            "stop_atr": 1,
+            "max_risk_atr": 2.5,
+            "reward_risk": 2
+          }
+        },
+        {
+          "candidate_id": "TSM-L-BTC-120-3R",
+          "family": "time_series_momentum_v1",
+          "parameter_count": 6,
+          "description": "BTC long continuation after 120-bar positive move above 3 ATR",
+          "params": {
+            "side": "long",
+            "lookback_bars": 120,
+            "threshold_atr": 3,
+            "stop_atr": 1,
+            "max_risk_atr": 2.5,
+            "reward_risk": 2
+          }
+        },
+        {
+          "candidate_id": "TSM-S-BTC-60-2R",
+          "family": "time_series_momentum_v1",
+          "parameter_count": 6,
+          "description": "BTC short continuation after 60-bar negative move below -2 ATR",
+          "params": {
+            "side": "short",
+            "lookback_bars": 60,
+            "threshold_atr": 2,
+            "stop_atr": 1,
+            "max_risk_atr": 2.5,
+            "reward_risk": 2
+          }
+        },
+        {
+          "candidate_id": "TSM-S-BTC-120-3R",
+          "family": "time_series_momentum_v1",
+          "parameter_count": 6,
+          "description": "BTC short continuation after 120-bar negative move below -3 ATR",
+          "params": {
+            "side": "short",
+            "lookback_bars": 120,
+            "threshold_atr": 3,
+            "stop_atr": 1,
+            "max_risk_atr": 2.5,
+            "reward_risk": 2
+          }
+        }
+      ],
+      "generated_from": {
+        "program_id": "rd-supervisor-live-smoke-fixed-2026-07-10",
+        "predecessor_hypothesis_id": "h-btc-4h-tsm-cont-001-r-drawdown",
+        "source": "strategy_rnd_loop",
+        "previous_failure_summary": {
+          "rejected_candidate_count": 4,
+          "accepted_candidate_count": 0,
+          "top_blockers": [
+            {
+              "check_id": "R-DRAWDOWN",
+              "count": 4
+            },
+            {
+              "check_id": "RND-OOS-DRAWDOWN",
+              "count": 4
+            },
+            {
+              "check_id": "RND-OOS-EDGE-MARGIN",
+              "count": 4
+            },
+            {
+              "check_id": "RND-OOS-EXPECTANCY",
+              "count": 4
+            },
+            {
+              "check_id": "RND-OOS-PROFIT-FACTOR",
+              "count": 4
+            }
+          ],
+          "selection_blocked": false,
+          "primary_failure_area": "risk_shape",
+          "next_system_actions": [
+            "Redesign stop/target geometry before adding confirmation factors."
+          ]
+        },
+        "mode": "loop",
+        "diagnostic_mode": true
+      },
+      "previous_failure_summary": {
+        "rejected_candidate_count": 4,
+        "accepted_candidate_count": 0,
+        "top_blockers": [
+          {
+            "check_id": "R-DRAWDOWN",
+            "count": 4
+          },
+          {
+            "check_id": "RND-OOS-DRAWDOWN",
+            "count": 4
+          },
+          {
+            "check_id": "RND-OOS-EDGE-MARGIN",
+            "count": 4
+          },
+          {
+            "check_id": "RND-OOS-EXPECTANCY",
+            "count": 4
+          },
+          {
+            "check_id": "RND-OOS-PROFIT-FACTOR",
+            "count": 4
+          }
+        ],
+        "selection_blocked": false,
+        "primary_failure_area": "risk_shape",
+        "next_system_actions": [
+          "Redesign stop/target geometry before adding confirmation factors."
+        ]
+      },
+      "diagnostic_mode": true
+    }
+  ],
+  "artifact_refs": [
+    "tmp/artifacts/strategy-rnd/rd-supervisor-live-smoke-fixed-2026-07-10-h-btc-4h-tsm-cont-001-20260710024800-h-btc-4h-tsm-cont-001-discovery.json",
+    "tmp/artifacts/strategy-rnd/rd-supervisor-live-smoke-fixed-2026-07-10-h-btc-4h-tsm-cont-001-20260710024800.campaign.json",
+    "tmp/artifacts/strategy-rnd/rd-supervisor-live-smoke-fixed-2026-07-10-h-btc-4h-tsm-cont-001-r-drawdown-20260710024801.json",
+    "tmp/artifacts/strategy-rnd/rd-supervisor-live-smoke-fixed-2026-07-10-h-btc-4h-vcb-fixed-001-20260710022500-h-btc-4h-vcb-fixed-001-discovery.json",
+    "tmp/artifacts/strategy-rnd/rd-supervisor-live-smoke-fixed-2026-07-10-h-btc-4h-vcb-fixed-001-20260710022500.campaign.json",
+    "tmp/panels/strategy-data-splits/btc-4h-tsm-rd-2026-07-10-a/btcusdt/discovery/manifest.json",
+    "tmp/panels/strategy-data-splits/btc-4h-tsm-rd-2026-07-10-a/btcusdt/validation/manifest.json"
+  ],
+  "guardrails": {
+    "may_write_trade_db": false,
+    "may_call_binance_write": false,
+    "evidence_status": "research_memory_not_strategy_evidence"
+  }
+}

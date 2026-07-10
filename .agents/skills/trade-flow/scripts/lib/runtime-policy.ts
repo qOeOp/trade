@@ -5,6 +5,32 @@ import { asRecord, numberField, stringField, type JSONRecord } from "./json"
 
 type PermissionStage = "observe_only" | "paper_shadow" | "live-small"
 
+const HARD_LIMITS = {
+  max_single_trade_risk_usdt: 1000,
+  max_open_risk_usdt: 5000,
+  max_day_loss_usdt: 5000,
+  max_open_risk_pct: 0.2,
+  max_day_loss_pct: 0.2,
+  max_concurrent_risk_flows: 20,
+  max_entry_notional_usdt: 100000,
+  max_symbol_notional_usdt: 200000,
+  max_gross_notional_usdt: 500000,
+  max_single_position_leverage: 10,
+  max_gross_exposure: 10,
+  max_btc_equiv_net_risk_pct: 0.5,
+  max_btc_equiv_gross_risk_pct: 1,
+  max_funding_rate_pct: 0.01,
+  max_funding_erosion_ratio: 1,
+  max_open_actions_per_cycle: 5,
+  max_open_actions_per_hour: 20,
+  reentry_cooldown_minutes: 240,
+  min_hold_minutes_before_noise_close: 240,
+  default_fee_bps: 50,
+  default_slippage_bps: 100,
+  default_adverse_funding_bps_per_8h: 100,
+  slippage_buffer_pct: 0.05,
+} as const
+
 interface RuntimePolicyLoadInput {
   tradingConfigPath?: string
   accountConfigPath?: string
@@ -38,24 +64,28 @@ function loadRuntimePolicy(input: RuntimePolicyLoadInput): { trading_config: JSO
     warnings,
     now: input.now,
   })
-  return { trading_config: tradingConfig, runtime_policy: runtimePolicy }
+  return { trading_config: normalizeTradingConfig(tradingConfig, []), runtime_policy: runtimePolicy }
 }
 
 function compileRuntimePolicy(config: JSONRecord, options: { sourceRef?: string; warnings?: string[]; now?: string } = {}): RuntimePolicy {
-  const risk = asRecord(config.risk)
-  const exposure = asRecord(config.exposure)
-  const execution = asRecord(config.execution)
-  const research = asRecord(config.research)
-  const permissions = asRecord(config.permissions)
+  const warnings = [...(options.warnings || [])]
+  const normalized = normalizeTradingConfig(config, warnings)
+  const risk = asRecord(normalized.risk)
+  const exposure = asRecord(normalized.exposure)
+  const execution = asRecord(normalized.execution)
+  const research = asRecord(normalized.research)
+  const permissions = asRecord(normalized.permissions)
   const maxOpenRiskPct = positiveNumber(risk.max_open_risk_pct)
   const maxDayLossPct = positiveNumber(risk.max_day_loss_pct)
   const defaultBtcNetRiskPct = maxOpenRiskPct != null ? round(maxOpenRiskPct * 1.5) : undefined
   const defaultBtcGrossRiskPct = maxOpenRiskPct != null ? round(maxOpenRiskPct * 2) : undefined
+  const mode = stringField(normalized.mode) || "dry_run"
+  const maxStage = readPermissionStage(permissions.max_stage)
   return {
     schema_version: "runtime-policy.v1",
-    profile_id: stringField(config.profile_id) || "default",
-    mode: stringField(config.mode) || "dry_run",
-    source_hash: `sha256:${hashCanonical(config)}`,
+    profile_id: stringField(normalized.profile_id) || "default",
+    mode,
+    source_hash: `sha256:${hashCanonical(normalized)}`,
     compiled_at: options.now || new Date().toISOString(),
     effective_limits: removeUndefined({
       max_single_trade_risk_usdt: positiveNumber(risk.max_single_trade_risk_usdt),
@@ -73,6 +103,10 @@ function compileRuntimePolicy(config: JSONRecord, options: { sourceRef?: string;
       max_btc_equiv_gross_risk_pct: positiveNumber(exposure.max_btc_equiv_gross_risk_pct) || defaultBtcGrossRiskPct,
       max_funding_rate_pct: positiveNumber(execution.max_funding_rate_pct),
       max_funding_erosion_ratio: positiveNumber(execution.max_funding_erosion_ratio),
+      max_open_actions_per_cycle: positiveInteger(execution.max_open_actions_per_cycle),
+      max_open_actions_per_hour: positiveInteger(execution.max_open_actions_per_hour),
+      reentry_cooldown_minutes: positiveInteger(execution.reentry_cooldown_minutes),
+      min_hold_minutes_before_noise_close: positiveInteger(execution.min_hold_minutes_before_noise_close),
     }),
     cost_model: removeUndefined({
       fee_bps: nonNegativeNumber(research.default_fee_bps),
@@ -82,13 +116,106 @@ function compileRuntimePolicy(config: JSONRecord, options: { sourceRef?: string;
     }),
     permissions: {
       can_observe: true,
-      can_shadow: stageAllowsShadow(stringField(permissions.max_stage)),
-      can_live_small: permissions.live_small_enabled === true && stringField(config.mode) === "live" && stringField(permissions.max_stage) === "live-small",
-      max_stage: readPermissionStage(permissions.max_stage),
+      can_shadow: stageAllowsShadow(maxStage),
+      can_live_small: permissions.live_small_enabled === true && mode === "live" && maxStage === "live-small",
+      max_stage: maxStage,
     },
     applied_overrides: options.sourceRef ? [`config:${options.sourceRef}`] : [],
-    warnings: options.warnings || [],
+    warnings,
   }
+}
+
+function normalizeTradingConfig(config: JSONRecord, warnings: string[]): JSONRecord {
+  return removeUndefined({
+    ...config,
+    profile_id: stringField(config.profile_id) || "default",
+    mode: normalizeMode(config.mode, warnings),
+    permissions: normalizePermissions(asRecord(config.permissions), warnings),
+    risk: normalizeRisk(asRecord(config.risk), warnings),
+    exposure: normalizeExposure(asRecord(config.exposure), warnings),
+    execution: normalizeExecution(asRecord(config.execution), warnings),
+    research: normalizeResearch(asRecord(config.research), warnings),
+    lanes: normalizeLanes(config.lanes, warnings),
+  })
+}
+
+function normalizeMode(value: unknown, warnings: string[]): string {
+  const raw = stringField(value).toLowerCase()
+  if (!raw || raw === "dry-run") return "dry_run"
+  if (raw === "live" || raw === "dry_run" || raw === "shadow") return raw
+  warnings.push(`normalized mode ${String(value)} to dry_run`)
+  return "dry_run"
+}
+
+function normalizePermissions(permissions: JSONRecord, warnings: string[]): JSONRecord {
+  return removeUndefined({
+    ...permissions,
+    live_small_enabled: permissions.live_small_enabled === true,
+    max_stage: readPermissionStage(permissions.max_stage, warnings),
+  })
+}
+
+function normalizeRisk(risk: JSONRecord, warnings: string[]): JSONRecord {
+  return removeUndefined({
+    ...risk,
+    max_single_trade_risk_usdt: clampPositive(risk.max_single_trade_risk_usdt, "risk.max_single_trade_risk_usdt", HARD_LIMITS.max_single_trade_risk_usdt, warnings),
+    max_open_risk_usdt: clampPositive(risk.max_open_risk_usdt, "risk.max_open_risk_usdt", HARD_LIMITS.max_open_risk_usdt, warnings),
+    max_day_loss_usdt: clampPositive(risk.max_day_loss_usdt, "risk.max_day_loss_usdt", HARD_LIMITS.max_day_loss_usdt, warnings),
+    max_open_risk_pct: clampPositive(risk.max_open_risk_pct, "risk.max_open_risk_pct", HARD_LIMITS.max_open_risk_pct, warnings),
+    max_day_loss_pct: clampPositive(risk.max_day_loss_pct, "risk.max_day_loss_pct", HARD_LIMITS.max_day_loss_pct, warnings),
+    max_concurrent_risk_flows: clampPositiveInteger(risk.max_concurrent_risk_flows, "risk.max_concurrent_risk_flows", HARD_LIMITS.max_concurrent_risk_flows, warnings),
+  })
+}
+
+function normalizeExposure(exposure: JSONRecord, warnings: string[]): JSONRecord {
+  return removeUndefined({
+    ...exposure,
+    max_entry_notional_usdt: clampPositive(exposure.max_entry_notional_usdt, "exposure.max_entry_notional_usdt", HARD_LIMITS.max_entry_notional_usdt, warnings),
+    max_symbol_notional_usdt: clampPositive(exposure.max_symbol_notional_usdt, "exposure.max_symbol_notional_usdt", HARD_LIMITS.max_symbol_notional_usdt, warnings),
+    max_gross_notional_usdt: clampPositive(exposure.max_gross_notional_usdt, "exposure.max_gross_notional_usdt", HARD_LIMITS.max_gross_notional_usdt, warnings),
+    max_single_position_leverage: clampPositive(exposure.max_single_position_leverage, "exposure.max_single_position_leverage", HARD_LIMITS.max_single_position_leverage, warnings),
+    max_gross_exposure: clampPositive(exposure.max_gross_exposure, "exposure.max_gross_exposure", HARD_LIMITS.max_gross_exposure, warnings),
+    max_btc_equiv_net_risk_pct: clampPositive(exposure.max_btc_equiv_net_risk_pct, "exposure.max_btc_equiv_net_risk_pct", HARD_LIMITS.max_btc_equiv_net_risk_pct, warnings),
+    max_btc_equiv_gross_risk_pct: clampPositive(exposure.max_btc_equiv_gross_risk_pct, "exposure.max_btc_equiv_gross_risk_pct", HARD_LIMITS.max_btc_equiv_gross_risk_pct, warnings),
+  })
+}
+
+function normalizeExecution(execution: JSONRecord, warnings: string[]): JSONRecord {
+  return removeUndefined({
+    ...execution,
+    max_funding_rate_pct: clampPositive(execution.max_funding_rate_pct, "execution.max_funding_rate_pct", HARD_LIMITS.max_funding_rate_pct, warnings),
+    max_funding_erosion_ratio: clampPositive(execution.max_funding_erosion_ratio, "execution.max_funding_erosion_ratio", HARD_LIMITS.max_funding_erosion_ratio, warnings),
+    max_open_actions_per_cycle: clampPositiveInteger(execution.max_open_actions_per_cycle, "execution.max_open_actions_per_cycle", HARD_LIMITS.max_open_actions_per_cycle, warnings),
+    max_open_actions_per_hour: clampPositiveInteger(execution.max_open_actions_per_hour, "execution.max_open_actions_per_hour", HARD_LIMITS.max_open_actions_per_hour, warnings),
+    reentry_cooldown_minutes: clampPositiveInteger(execution.reentry_cooldown_minutes, "execution.reentry_cooldown_minutes", HARD_LIMITS.reentry_cooldown_minutes, warnings),
+    min_hold_minutes_before_noise_close: clampPositiveInteger(execution.min_hold_minutes_before_noise_close, "execution.min_hold_minutes_before_noise_close", HARD_LIMITS.min_hold_minutes_before_noise_close, warnings),
+    slippage_buffer_pct: clampNonNegative(execution.slippage_buffer_pct, "execution.slippage_buffer_pct", HARD_LIMITS.slippage_buffer_pct, warnings),
+  })
+}
+
+function normalizeResearch(research: JSONRecord, warnings: string[]): JSONRecord {
+  return removeUndefined({
+    ...research,
+    default_fee_bps: clampNonNegative(research.default_fee_bps, "research.default_fee_bps", HARD_LIMITS.default_fee_bps, warnings),
+    default_slippage_bps: clampNonNegative(research.default_slippage_bps, "research.default_slippage_bps", HARD_LIMITS.default_slippage_bps, warnings),
+    default_adverse_funding_bps_per_8h: clampNonNegative(research.default_adverse_funding_bps_per_8h, "research.default_adverse_funding_bps_per_8h", HARD_LIMITS.default_adverse_funding_bps_per_8h, warnings),
+  })
+}
+
+function normalizeLanes(value: unknown, warnings: string[]): JSONRecord[] {
+  if (!Array.isArray(value)) return []
+  return value.filter((lane) => lane && typeof lane === "object").map((lane, index) => {
+    const record = lane as JSONRecord
+    const side = stringField(record.side).toLowerCase()
+    return removeUndefined({
+      ...record,
+      lane_id: stringField(record.lane_id) || stringField(record.id) || `lane-${index + 1}`,
+      enabled: record.enabled !== false,
+      side: side === "long" || side === "short" ? side : undefined,
+      max_entry_notional_usdt: clampPositive(record.max_entry_notional_usdt, `lanes[${index}].max_entry_notional_usdt`, HARD_LIMITS.max_entry_notional_usdt, warnings),
+      max_single_trade_risk_usdt: clampPositive(record.max_single_trade_risk_usdt, `lanes[${index}].max_single_trade_risk_usdt`, HARD_LIMITS.max_single_trade_risk_usdt, warnings),
+    })
+  })
 }
 
 function compactPolicySnapshot(policy: RuntimePolicy): JSONRecord {
@@ -155,9 +282,15 @@ function readJsonFile(path: string): JSONRecord {
   return JSON.parse(readFileSync(path, "utf8")) as JSONRecord
 }
 
-function readPermissionStage(value: unknown): PermissionStage {
-  const stage = stringField(value)
-  if (stage === "observe_only" || stage === "paper_shadow" || stage === "live-small") return stage
+function readPermissionStage(value: unknown, warnings?: string[]): PermissionStage {
+  const raw = stringField(value)
+  const stage = raw.replace("_", "-")
+  if (raw === "observe_only" || raw === "paper_shadow" || raw === "live-small") return raw
+  if (stage === "paper-shadow") return "paper_shadow"
+  if (stage === "live-small") return "live-small"
+  if (value !== undefined && value !== null && value !== "" && warnings) {
+    warnings.push(`normalized permissions.max_stage ${String(value)} to observe_only`)
+  }
   return "observe_only"
 }
 
@@ -179,6 +312,46 @@ function nonNegativeNumber(value: unknown): number | undefined {
 function positiveInteger(value: unknown): number | undefined {
   const number = positiveNumber(value)
   return number != null ? Math.floor(number) : undefined
+}
+
+function clampPositive(value: unknown, path: string, max: number, warnings: string[]): number | undefined {
+  return clampNumber(value, path, max, warnings, true, false)
+}
+
+function clampNonNegative(value: unknown, path: string, max: number, warnings: string[]): number | undefined {
+  return clampNumber(value, path, max, warnings, false, false)
+}
+
+function clampPositiveInteger(value: unknown, path: string, max: number, warnings: string[]): number | undefined {
+  const clamped = clampNumber(value, path, max, warnings, true, true)
+  return clamped == null ? undefined : Math.floor(clamped)
+}
+
+function clampNumber(
+  value: unknown,
+  path: string,
+  max: number,
+  warnings: string[],
+  positiveOnly: boolean,
+  integerOnly: boolean,
+): number | undefined {
+  if (value === undefined || value === null || value === "") return undefined
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed)) {
+    warnings.push(`ignored invalid ${path}: ${String(value)}`)
+    return undefined
+  }
+  const min = positiveOnly ? Number.MIN_VALUE : 0
+  if (parsed < min || (positiveOnly && parsed === 0)) {
+    warnings.push(`ignored non-positive ${path}: ${parsed}`)
+    return undefined
+  }
+  const capped = Math.min(parsed, max)
+  const normalized = integerOnly ? Math.floor(capped) : round(capped)
+  if (normalized !== parsed) {
+    warnings.push(`clamped ${path} from ${parsed} to ${normalized}`)
+  }
+  return normalized
 }
 
 function removeUndefined(record: JSONRecord): JSONRecord {

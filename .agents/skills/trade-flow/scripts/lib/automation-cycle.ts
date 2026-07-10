@@ -305,6 +305,30 @@ function rdStrategySupervisorJob(input: {
         read_ref: input.learningMemoryRef,
         write_back: ["failure_summary", "reliability_gate", "rejected_mechanisms", "universe_lessons", "next_hypothesis_queue"],
       },
+      sidecar_subagents: [
+        {
+          role: "rd-history-scout",
+          write_scope: [],
+          may_write_state: false,
+          purpose: "Read prior R&D artifacts, rejected mechanisms, and docs to identify mechanisms that must not be retried.",
+          output: "bounded proposal: avoid_list + candidate market edge + supporting refs",
+        },
+        {
+          role: "rd-data-scout",
+          write_scope: [],
+          may_write_state: false,
+          purpose: "Inspect available manifests, split coverage, and family requirements before the supervisor spends trial budget.",
+          output: "bounded proposal: usable datasets + required splits + blocker risks",
+        },
+        {
+          role: "rd-edge-scout",
+          write_scope: [],
+          may_write_state: false,
+          purpose: "Draft distinct predeclared market edges when learning memory is blocked on a new mechanism.",
+          output: "bounded proposal: thesis certificate fields + candidate universe sketch",
+        },
+      ],
+      single_writer_rule: "Sidecar subagents are read-only scouts; only strategy-rd-supervisor may write rd_program_state through --rd-program-state or payload writeback.",
     },
   }
 }

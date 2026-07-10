@@ -53,6 +53,7 @@ export async function runLiveSmall(
     observe: asRecord(input.observe),
     strategy: asRecord(input.strategy),
     account_config: asRecord(input.account_config),
+    runtime_policy: asRecord(input.runtime_policy),
     target_action: readTargetAction(input.target_action),
     request: asRecord(input.request),
     aggregate_view: asRecord(input.aggregate_view),
