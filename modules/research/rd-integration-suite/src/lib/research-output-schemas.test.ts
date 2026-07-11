@@ -137,7 +137,7 @@ function thesisCertificate() {
 
 function readSchema(name: string): JSONRecord {
   if (name === "replay-result") {
-    return JSON.parse(readFileSync(new URL("../../../replay-runner/src/schemas/replay-result.schema.json", import.meta.url), "utf8")) as JSONRecord
+    return JSON.parse(readFileSync(new URL("../../../../contracts/replay-contract/src/schemas/replay-result.schema.json", import.meta.url), "utf8")) as JSONRecord
   }
   if (name === "strategy-rnd-batch-result") {
     return JSON.parse(readFileSync(new URL("../../../candidate-batch/src/schemas/strategy-rnd-batch-result.schema.json", import.meta.url), "utf8")) as JSONRecord

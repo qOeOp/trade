@@ -3,8 +3,8 @@
 import { existsSync, readFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { Database } from "bun:sqlite"
+import type { ReplayResult } from "../../../../contracts/replay-contract/src/replay-contract"
 import { displayPath, repoRoot } from "../lib/paths"
-import type { ReplayResult } from "../lib/replay-core"
 import {
   appendReplayEvidence,
   appendStrategyEvidence,

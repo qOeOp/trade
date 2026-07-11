@@ -25,3 +25,4 @@ atomic module
 - Does not write files, catalog, `trade.db`, or exchange state.
 - Does not run R&D search, panel evaluation, benchmark, or promotion.
 - Uses `research/replay-engine` for replay semantics.
+- Uses `contracts/replay-contract` for the stable output shell.

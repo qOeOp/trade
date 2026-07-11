@@ -14,7 +14,8 @@ import {
   promoteStrategy,
   reviewStrategy,
 } from "./strategy-iteration"
-import { hashCanonical, replayContentHash, replayDataHash, replayHarnessHash, replayStrategy, type ReplayResult, type ReplayStrategy } from "./replay-core"
+import type { ReplayResult } from "../../../../contracts/replay-contract/src/replay-contract"
+import { hashCanonical, replayContentHash, replayDataHash, replayHarnessHash, replayStrategy, type ReplayStrategy } from "../../../../research/replay-engine/src/lib/replay-core"
 
 test("strategy review separates fresh and stale evidence by policy hash", () => {
   const dir = makeDir()

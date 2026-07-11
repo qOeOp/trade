@@ -2,7 +2,8 @@ import { createHash, randomUUID } from "node:crypto"
 import { readFileSync, writeFileSync } from "node:fs"
 import type { Database } from "bun:sqlite"
 import { loadStrategyFile, parseFrontmatter } from "../../../../contracts/strategy-policy/src/strategy-policy"
-import { hashCanonical, replayDataHash, replayHarnessHash, type ReplayProvenance, type ReplayResult } from "./replay-core"
+import type { ReplayProvenance, ReplayResult } from "../../../../contracts/replay-contract/src/replay-contract"
+import { hashCanonical, replayDataHash, replayHarnessHash } from "../../../../research/replay-engine/src/lib/replay-core"
 import { defaultCatalogDbPathForGeneratedPath, listCatalogStrategyEvidence, upsertCatalogStrategyEvidence } from "./data-catalog"
 
 type JSONRecord = Record<string, unknown>

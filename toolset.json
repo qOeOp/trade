@@ -180,7 +180,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research/replay-runner/src/schemas/replay-result.schema.json"
+        "output_schema": "modules/contracts/replay-contract/src/schemas/replay-result.schema.json"
       }
     },
     {
