@@ -369,6 +369,55 @@
       }
     },
     {
+      "id": "research.rd-supervisor",
+      "domain": "research",
+      "intent": [
+        "rd-supervisor",
+        "rd-loop-supervisor",
+        "rd-autonomous-loop"
+      ],
+      "capability_class": [
+        "A",
+        "E"
+      ],
+      "path": "modules/research/rd-supervisor",
+      "purpose": "Run the autonomous R&D supervisor loop from durable RD state.",
+      "command": {
+        "cwd": "modules/research/rd-supervisor",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--state",
+          "<state-path>",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": true,
+        "artifacts": true,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Orchestrates plan_next, loop/campaign execution, explicit RD state writeback, and optional draft strategy policy creation. Transitional direct dependency on strategy-rd loop/campaign remains until those runners are split."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "research.rd-supervisor",
+      "requires_preflight": false,
+      "concurrency_group": "rd-state",
+      "forbidden_callers": [
+        "execution",
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": "modules/research/rd-supervisor/src/schemas/rd-supervisor-run-result.schema.json"
+      }
+    },
+    {
       "id": "strategy-rd",
       "domain": "research",
       "intent": [
@@ -379,7 +428,7 @@
         "E"
       ],
       "path": "modules/research/strategy-rd",
-      "purpose": "Run R&D loops, campaigns, supervisor loops, and forward holdout trackers.",
+      "purpose": "Run R&D loops, campaigns, and forward holdout trackers.",
       "command": {
         "cwd": "modules/research/strategy-rd",
         "argv": [
@@ -398,7 +447,7 @@
         "config": false
       },
       "notes": [
-        "Owns research execution except atomic replay-runner, signal-evaluator, panel-evaluator, rd-program-state, data-split, benchmark, calibration, funding-governance, and strategy-contract tools. It cannot write trade.db, trigger Binance writes, or expose RD state as a local flag."
+        "Owns research execution except atomic replay-runner, signal-evaluator, panel-evaluator, rd-program-state, rd-supervisor, data-split, benchmark, calibration, funding-governance, and strategy-contract tools. It cannot write trade.db, trigger Binance writes, or expose RD state/supervisor as local flags."
       ],
       "module_type": "suite",
       "owner_scope": "research.strategy-rd",

@@ -33,6 +33,7 @@
 | `strategy-contract-compile-check` | `modules/research/strategy-contract-compile` | `bun run check` | strategy contract compile CLI |
 | `strategy-contract-lint-check` | `modules/research/strategy-contract-lint` | `bun run check` | strategy contract lint CLI |
 | `rd-program-state-smoke` | repo root | `bun modules/research/rd-program-state/src/scripts/main.ts --state ./tmp/check/rd-program-state.json --json '{"action":"init","objective":"smoke"}'` | RD memory CLI envelope and write path |
+| `rd-supervisor-integration` | `modules/research/strategy-rd` | `bun test ./src/lib/rd-supervisor-runner.test.ts` | RD supervisor orchestration while loop/campaign remain transitional dependencies |
 | `strategy-rd-check` | `modules/research/strategy-rd` | `bun run check` | R&D / forward holdout / supervisor integration |
 | `strategy-review-check` | `modules/governance/strategy-review` | `bun run check` | evidence / review / promotion |
 | `artifact-catalog-check` | `modules/ops/artifact-catalog` | `bun run check` | catalog / artifact GC / feature refs |
@@ -62,6 +63,7 @@
 | research funding governance | `modules/research/funding-governance/src/**` | `funding-governance-check` |
 | strategy contract compile/lint | `modules/contracts/strategy-contract/src/**`, `modules/research/strategy-contract-*/src/**` | `strategy-contract-compile-check` + `strategy-contract-lint-check` + `strategy-rd-check` if RD consumes compiled candidates |
 | research RD memory | `modules/research/rd-program-state/src/**` | `rd-program-state-smoke` + `strategy-rd-check` while supervisor/loop still consume the shared state implementation |
+| research RD supervisor | `modules/research/rd-supervisor/src/**` | `rd-supervisor-integration` + `strategy-rd-check` while loop/campaign remain in strategy-rd |
 | research R&D / forward holdout | `modules/research/strategy-rd/src/**` | `strategy-rd-check` |
 | strategy evidence / review / promotion | `modules/governance/strategy-review/src/**` | `strategy-review-check` |
 | artifact hygiene / catalog | `modules/ops/artifact-catalog/src/**` | `artifact-catalog-check` |

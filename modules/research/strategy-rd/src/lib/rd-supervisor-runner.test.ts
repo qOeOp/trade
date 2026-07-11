@@ -9,7 +9,7 @@ import {
   updateRdProgramStateFromResearchResult,
   writeRdProgramState,
 } from "../../../rd-program-state/src/lib/rd-program-state"
-import { runRdSupervisorLoopWithDeps } from "./rd-supervisor-runner"
+import { runRdSupervisorLoopWithDeps } from "../../../rd-supervisor/src/lib/rd-supervisor-runner"
 import { resolveRepoPath } from "./paths"
 import { lintStrategyContract } from "./strategy-contract"
 import type { JSONRecord } from "./json"
@@ -215,6 +215,9 @@ test("rd supervisor runner marks empty active queue as data/tool blocked", () =>
 })
 
 function readSchema(name: string): JSONRecord {
+  if (name === "rd-supervisor-run-result") {
+    return JSON.parse(readFileSync(new URL("../../../rd-supervisor/src/schemas/rd-supervisor-run-result.schema.json", import.meta.url), "utf8")) as JSONRecord
+  }
   return JSON.parse(readFileSync(new URL(`../schemas/${name}.schema.json`, import.meta.url), "utf8")) as JSONRecord
 }
 

@@ -4,7 +4,6 @@
 
 - Bounded R&D batch / loop / campaign
 - Forward holdout helpers
-- R&D supervisor runner
 
 ## Inputs
 
@@ -17,7 +16,7 @@
 ## Outputs
 
 - R&D reports and ledgers
-- Program state updates only through R&D loop / campaign writeback or supervisor orchestration
+- Program state updates only through R&D loop / campaign writeback
 - Gated draft strategy candidates
 - Catalog metadata for generated research artifacts
 
@@ -27,4 +26,4 @@
 - Calling Binance write tools
 - Deciding live execution
 - Owning strategy promotion or post-trade review
-- Owning RD state init/read/update/plan_next, single-strategy replay, latest signal, panel evaluation, data split, benchmark, calibration, funding governance, or strategy contract compile/lint CLIs
+- Owning RD state init/read/update/plan_next, RD supervisor, single-strategy replay, latest signal, panel evaluation, data split, benchmark, calibration, funding governance, or strategy contract compile/lint CLIs

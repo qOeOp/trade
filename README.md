@@ -287,7 +287,7 @@ flowchart TD
 高阶入口：
 
 ```bash
-bun modules/research/strategy-rd/src/scripts/main.ts --rd-supervisor-run --state ./data/rd/program.json --json '{"max_iterations":10}'
+bun modules/research/rd-supervisor/src/scripts/main.ts --state ./data/rd/program.json --json '{"max_iterations":10}'
 ```
 
 低阶入口：
@@ -384,7 +384,7 @@ bun modules/trade-flow/src/scripts/main.ts --db ./data/trade.db --automation-cyc
 
 # 初始化并运行 R&D supervisor
 bun modules/research/rd-program-state/src/scripts/main.ts --state ./data/rd/program.json --json '{"action":"init","objective":"find a shadow-eligible 4H swing strategy"}'
-bun modules/research/strategy-rd/src/scripts/main.ts --rd-supervisor-run --state ./data/rd/program.json --json '{"max_iterations":10}'
+bun modules/research/rd-supervisor/src/scripts/main.ts --state ./data/rd/program.json --json '{"max_iterations":10}'
 ```
 
 ## 15. 安全边界

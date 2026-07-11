@@ -11,7 +11,6 @@ import {
   updateRdShadowTracker,
   type RdShadowTrackerOptions,
 } from "../lib/rd-shadow-tracker"
-import { runRdSupervisorLoop } from "../lib/rd-supervisor-runner"
 import {
   runStrategyRndBatch,
   runStrategyRndCampaign,
@@ -27,7 +26,6 @@ interface Config {
   strategyRndBatch: boolean
   strategyRndLoop: boolean
   strategyRndCampaign: boolean
-  rdSupervisorRun: boolean
   rdShadowTracker: boolean
   forwardResultPath: string
   manifestMapPath: string
@@ -69,7 +67,6 @@ function runConfig(config: Config): unknown {
     assertRuntimeOutputPaths(input.artifactRoot, input.ledgerPath, input.catalogDbPath, input.rdProgramStatePath)
     return runStrategyRndCampaign(input)
   }
-  if (config.rdSupervisorRun) return runRdSupervisorLoop({ path: config.statePath, input: config.input, catalogDbPath: config.catalogDbPath })
   if (config.rdShadowTracker) return runRdShadowTracker(config)
   throw new Error("provide a strategy RD command flag")
 }
@@ -79,7 +76,6 @@ function parseArgs(argv: string[]): Config {
     strategyRndBatch: false,
     strategyRndLoop: false,
     strategyRndCampaign: false,
-    rdSupervisorRun: false,
     rdShadowTracker: false,
     forwardResultPath: "",
     manifestMapPath: "",
@@ -95,7 +91,6 @@ function parseArgs(argv: string[]): Config {
       case "--strategy-rnd-batch": config.strategyRndBatch = true; break
       case "--strategy-rnd-loop": config.strategyRndLoop = true; break
       case "--strategy-rnd-campaign": config.strategyRndCampaign = true; break
-      case "--rd-supervisor-run": config.rdSupervisorRun = true; break
       case "--rd-shadow-tracker": config.rdShadowTracker = true; break
       case "--max-hold-bars": config.maxHoldBars = Number(readValue(argv, ++index, arg)); break
       case "--state": config.statePath = readValue(argv, ++index, arg); break
@@ -186,7 +181,6 @@ function printHelp(): void {
   bun src/scripts/main.ts --strategy-rnd-batch --json '{"manifest_path":"...","candidates":[...]}'
   bun src/scripts/main.ts --strategy-rnd-loop --json '{"manifest_path":"...","candidates":[...]}'
   bun src/scripts/main.ts --strategy-rnd-campaign --json '{"campaign_id":"...","hypotheses":[...]}'
-  bun src/scripts/main.ts --rd-supervisor-run --state ./data/rd/program.json --json '{"max_iterations":10}'
   bun src/scripts/main.ts --rd-shadow-tracker --forward-result ./tmp/forward.json --output ./tmp/artifacts/strategy-rnd/shadow.json
 `)
 }

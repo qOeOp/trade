@@ -7,16 +7,15 @@ import {
   writeRdProgramState,
   type RdProgramState,
 } from "../../../rd-program-state/src/lib/rd-program-state"
-import { displayPath, resolveRepoPath } from "./paths"
-import { lintStrategyContract } from "./strategy-contract"
-import { safeFileName } from "./strategy-rnd-ledger"
+import { displayPath, resolveRepoPath } from "../../../../contracts/runtime-core/src/paths"
+import { lintStrategyContract } from "../../../../contracts/strategy-contract/src/strategy-contract"
 import {
   runStrategyRndCampaign,
   runStrategyRndLoop,
   strategyRndCampaignInputFromJson,
   strategyRndLoopInputFromJson,
-} from "./strategy-rnd"
-import type { JSONRecord } from "./json"
+} from "../../../strategy-rd/src/lib/strategy-rnd"
+import type { JSONRecord } from "../../../rd-program-state/src/lib/json"
 
 interface RdSupervisorRunInput {
   path: string
@@ -68,7 +67,7 @@ function runRdSupervisorLoop(input: RdSupervisorRunInput): RdSupervisorRunResult
 
 function runRdSupervisorLoopWithDeps(input: RdSupervisorRunInput, deps: RdSupervisorRunDeps): RdSupervisorRunResult {
   if (!input.path) {
-    throw new Error("--rd-supervisor-run requires --state")
+    throw new Error("rd-supervisor requires --state")
   }
   const request = input.input || {}
   const startedAt = normalizeDate(stringField(request.now) || undefined)
@@ -348,6 +347,10 @@ function titleFromSlug(slug: string): string {
 
 function safeID(value: string): string {
   return safeFileName(value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "")) || "rd-strategy"
+}
+
+function safeFileName(value: string): string {
+  return value.replace(/[^a-zA-Z0-9._-]/g, "-")
 }
 
 function asRecord(value: unknown): JSONRecord {
