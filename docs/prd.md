@@ -145,7 +145,7 @@ R&D supervisor 可以临时分发 read-only scout subagent 来做历史失败审
 
 持续 R&D 的事实源是机器可读 `rd_program_state` artifact，而不是临时对话记忆。它保存 objective、budget、usage、stop status、失败摘要、reliability gate、被拒机制、universe lesson、下一轮 hypothesis queue 与 artifact refs；状态为 `active` 时总控才继续派发 `rd_strategy_supervisor`，进入 `shadow_candidate_found / budget_exhausted / data_or_tool_blocked` 后自动停线。该 state 只属于 research memory，不是 strategy evidence。
 
-`rd_program_state` 的写入必须显式：`research.rd-program-state` 负责 init/read/update/plan_next；`plan_next` 只读 state，把 `next_hypothesis_queue` 编译为下一轮 `research.rd-loop-runner` 或 `--strategy-rnd-campaign` payload 草案。`research.rd-supervisor` 串起 `plan_next -> loop/campaign -> state writeback`，让 R&D 进入后自主循环到候选、预算耗尽或数据/工具阻断。`research.rd-loop-runner` / `--strategy-rnd-campaign` 只有在 payload 传入 `rd_program_state_path` 时才把本轮 artifact、usage、失败机制或 validated candidate 写回；`strategy-review` 只输出 execution attribution、成本反馈和 replay-to-shadow/live decay 诊断，不直接写 RD memory，后续由 R&D supervisor 显式消费。
+`rd_program_state` 的写入必须显式：`research.rd-program-state` 负责 init/read/update/plan_next；`plan_next` 只读 state，把 `next_hypothesis_queue` 编译为下一轮 `research.rd-loop-runner` 或 `research.rd-campaign-runner` payload 草案。`research.rd-supervisor` 串起 `plan_next -> loop/campaign -> state writeback`，让 R&D 进入后自主循环到候选、预算耗尽或数据/工具阻断。`research.rd-loop-runner` / `research.rd-campaign-runner` 只有在 payload 传入 `rd_program_state_path` 时才把本轮 artifact、usage、失败机制或 validated candidate 写回；`strategy-review` 只输出 execution attribution、成本反馈和 replay-to-shadow/live decay 诊断，不直接写 RD memory，后续由 R&D supervisor 显式消费。
 
 最小输入：
 
@@ -177,7 +177,7 @@ Replay / shadow / live 对齐要求：
 - `research.replay-runner`：只读文件，不写 DB，不触发 Binance
 - `research.candidate-batch`：最多 10 个候选；可先在 discovery 数据上筛 factor，再按角色、数量与参数预算组合到预声明 base family；统一 replay/OOS、candidate negative controls 和失败归因，不自动升格、不写 artifact
 - `research.rd-loop-runner`：包装一轮 R&D batch，写 artifact JSON 与 `data_catalog.db.strategy_rnd_run`；R&D 审计不作为 promote evidence；可显式写回 `rd_program_state`
-- `--strategy-rnd-campaign`：在全局最多 10 次 discovery trial 内运行 hypothesis queue；每个 hypothesis 必须带 `thesis_certificate`，缺 edge 类型、行为假设、参与者、regime、失效条件、成本敏感度、候选 universe 或 negative controls 时零 trial 停止；可选 `calibration_report_path` 未过则零 trial 停止；没有 winner 才继续，首个 winner 冻结后只查看一次不重叠 locked holdout，失败即结束 campaign；可显式写回 `rd_program_state`
+- `research.rd-campaign-runner`：在全局最多 10 次 discovery trial 内运行 hypothesis queue；每个 hypothesis 必须带 `thesis_certificate`，缺 edge 类型、行为假设、参与者、regime、失效条件、成本敏感度、候选 universe 或 negative controls 时零 trial 停止；可选 `calibration_report_path` 未过则零 trial 停止；没有 winner 才继续，首个 winner 冻结后只查看一次不重叠 locked holdout，失败即结束 campaign；可显式写回 `rd_program_state`
 - `research.panel-evaluator`：同一候选跨至少 3 个资产评估，保留逐资产证据，并检查 pooled sample、广度、OOS、成本与灾难损失
 - `research.data-split`：新 hypothesis 开研前把历史 manifest 先切成 discovery / validation / locked_holdout 三个独立 manifest，并自动留 embargo；避免 draft 后才发现所有历史都已被研发污染
 - `research.rd-program-state`：初始化、读取、更新或 `plan_next` R&D learning memory artifact；`plan_next` 只生成下一轮 R&D payload，不写 `trade.db`，不产生 strategy evidence

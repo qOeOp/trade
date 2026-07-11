@@ -10,8 +10,8 @@ import {
   readPanelNegativeControlGate,
   runStrategyRndCampaignWithDeps,
   type StrategyRndCampaignDeps,
-} from "./strategy-rnd-campaign"
-import { resolveRepoPath } from "./paths"
+} from "../../../rd-campaign-runner/src/lib/rd-campaign-runner"
+import { resolveRepoPath } from "../../../../contracts/runtime-core/src/paths"
 
 test("strategy R&D campaign gate reads calibration blockers", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-campaign-gate-"))
@@ -74,6 +74,34 @@ test("strategy R&D campaign rejects validation without locked holdout embargo", 
         },
       }),
       /holdout embargo/,
+    )
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("strategy R&D campaign reports missing discovery manifest explicitly", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-campaign-missing-discovery-"))
+  try {
+    const validation = writeManifest(join(dir, "validation"), 300_000_000, 320_000_000)
+    assert.throws(
+      () => runStrategyRndCampaignWithDeps({
+        campaignId: "campaign-missing-discovery",
+        artifactRoot: join(dir, "artifacts"),
+        hypotheses: [{
+          hypothesisId: "h1",
+          thesisCertificate: thesisCertificate(),
+          manifestPath: "",
+          validationManifestPath: validation,
+          candidates: [{ candidateId: "candidate-1" }],
+        }],
+      }, {
+        resolveCandidateCount: () => 1,
+        runLoop: () => {
+          throw new Error("should not run")
+        },
+      }),
+      /requires discovery_manifest_path/,
     )
   } finally {
     rmSync(dir, { recursive: true, force: true })

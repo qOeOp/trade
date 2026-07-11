@@ -12,11 +12,13 @@ import { lintStrategyContract } from "../../../../contracts/strategy-contract/sr
 import {
   runStrategyRndLoop,
 } from "../../../rd-loop-runner/src/lib/rd-loop-runner"
-import { strategyRndLoopInputFromJson } from "../../../candidate-batch-engine/src/lib/strategy-rnd-inputs"
 import {
   runStrategyRndCampaign,
+} from "../../../rd-campaign-runner/src/lib/rd-campaign-runner"
+import {
   strategyRndCampaignInputFromJson,
-} from "../../../strategy-rd/src/lib/strategy-rnd"
+  strategyRndLoopInputFromJson,
+} from "../../../candidate-batch-engine/src/lib/strategy-rnd-inputs"
 import type { JSONRecord } from "../../../rd-program-state/src/lib/json"
 
 interface RdSupervisorRunInput {
@@ -150,7 +152,7 @@ function runRdSupervisorLoopWithDeps(input: RdSupervisorRunInput, deps: RdSuperv
 
 function executePlannedResearch(command: string, payload: JSONRecord, deps: RdSupervisorRunDeps): JSONRecord {
   if (command === "research.rd-loop-runner") return deps.runLoop(payload)
-  if (command === "--strategy-rnd-campaign") return deps.runCampaign(payload)
+  if (command === "research.rd-campaign-runner") return deps.runCampaign(payload)
   throw new Error(`rd supervisor cannot execute command: ${command}`)
 }
 

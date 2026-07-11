@@ -70,7 +70,7 @@ updated_at: 2026-07-10 10:20 CST
 ## P0 缺口
 
 1. **Holdout 只查不重叠，缺 embargo。**（已补）
-   `strategy-rnd-campaign.ts` 只要求 discovery / validation manifest 时间范围不重叠；若 validation 紧贴 discovery，仍可能泄漏持仓标签、indicator lookback、funding/market state。  
+   `rd-campaign-runner` 只要求 discovery / validation manifest 时间范围不重叠；若 validation 紧贴 discovery，仍可能泄漏持仓标签、indicator lookback、funding/market state。
    整改：新增 `RND-HOLDOUT-EMBARGO`，要求两段之间至少隔开 `max(max_hold_bars, max_feature_lookback, funding_interval)` 对应时间；带 factor report 时 embargo 还要覆盖 factor lookback。
 
 2. **升 shadow 的统计门槛偏低。**（已补基础门槛）

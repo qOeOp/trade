@@ -38,7 +38,8 @@
 | `research/funding-governance` | panel manifests、funding feature reports | funding coverage governance report | funding carry 研究前数据覆盖检查 | R&D search、replay、review、`trade.db` |
 | `research/strategy-contract-compile` | strategy markdown、candidate override JSON | compiled strategy contract | strategy contract 编译 | R&D search、replay、review、catalog 写入 |
 | `research/strategy-contract-lint` | strategy markdown | lint result、optional compiled contract | strategy contract 完整性 lint | R&D search、replay、review、catalog 写入 |
-| `research/strategy-rd` | OHLCV manifest、market feature artifact、candidate JSON、strategy contract、R&D state path | campaign report、optional R&D state writeback、gated draft candidate、catalog metadata | campaign artifact writeback | 写 `trade.db`、触发 Binance、策略升格、R&D loop、candidate batch、forward tracker、RD state init/read/update/plan_next、supervisor CLI、单策略 replay CLI、latest signal CLI、panel CLI、data split CLI、benchmark/calibration/funding governance CLI、strategy contract compile/lint CLI |
+| `research/rd-campaign-runner` | hypothesis queue、discovery/validation manifests、optional calibration/panel reports、explicit RD state path | campaign report、optional RD state writeback、catalog metadata | bounded R&D campaign orchestration | 写 `trade.db`、触发 Binance、策略升格、单轮 loop 实现、candidate batch evaluation、forward tracker、RD supervisor |
+| `research/strategy-rd` | OHLCV manifest、market feature artifact、candidate JSON、strategy contract | library helper results | transitional research core helpers | agent-facing tool entrypoint、写 `trade.db`、触发 Binance、策略升格、R&D loop/campaign、candidate batch、forward tracker、RD state init/read/update/plan_next、supervisor CLI、单策略 replay CLI、latest signal CLI、panel CLI、data split CLI、benchmark/calibration/funding governance CLI、strategy contract compile/lint CLI |
 | `research/rd-loop-runner` | candidate batch payload、artifact/ledger/catalog paths、optional RD state path | loop report、artifact、ledger、catalog ref、optional RD state update | single R&D loop artifact writeback | campaign orchestration、strategy evidence、`trade.db`、Binance 写接口 |
 | `research/rd-program-state` | state path、JSON state command、optional catalog DB | RD state command result、state artifact catalog ref | durable R&D learning memory init/read/update/plan_next | R&D trial execution、strategy evidence、`trade.db`、Binance 写接口 |
 | `research/rd-supervisor` | RD state path、supervisor payload、optional catalog DB | supervisor run result、research artifacts、optional draft strategy | autonomous R&D supervisor loop | `trade.db`、Binance 写接口、strategy review、promotion |
@@ -66,7 +67,7 @@
 
 ## Trade-Flow Domains
 
-`trade-flow` 是编排模块，但内部不能再是大平层。旧 `research` / `review` / `artifact` domain 已移除；真实 RD owner 是 `modules/research/strategy-rd`，真实 review owner 是 `modules/governance/strategy-review`，真实 artifact/catalog owner 是 `modules/ops/artifact-catalog`。
+`trade-flow` 是编排模块，但内部不能再是大平层。旧 `research` / `review` / `artifact` domain 已移除；真实 RD owner 已拆为 `modules/research/rd-*` 与 research atoms，真实 review owner 是 `modules/governance/strategy-review`，真实 artifact/catalog owner 是 `modules/ops/artifact-catalog`。
 
 | Domain | Contract | 负责 |
 | --- | --- | --- |

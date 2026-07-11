@@ -1,4 +1,3 @@
-import { defaultCatalogDbPathForGeneratedPath } from "./data-catalog"
 import {
   runStrategyRndBatch,
   type StrategyRndBatchReport,
@@ -13,26 +12,13 @@ import {
   type StrategyRndLoopInput,
 } from "../../../candidate-batch-engine/src/lib/strategy-rnd-inputs"
 import {
-  runStrategyRndCampaignWithDeps,
+  runStrategyRndCampaign,
   type StrategyRndCampaignReport,
-} from "./strategy-rnd-campaign"
-import { resolveCandidateCount } from "../../../candidate-batch-engine/src/lib/strategy-rnd-candidates"
+} from "../../../rd-campaign-runner/src/lib/rd-campaign-runner"
 import {
-  maybeUpdateRdProgramState,
   runStrategyRndLoop,
   type StrategyRndLoopReport,
 } from "../../../rd-loop-runner/src/lib/rd-loop-runner"
-
-type JSONRecord = Record<string, unknown>
-
-function runStrategyRndCampaign(input: StrategyRndCampaignInput): StrategyRndCampaignReport {
-  const report = runStrategyRndCampaignWithDeps(input, {
-    runLoop: runStrategyRndLoop,
-    resolveCandidateCount,
-  })
-  const rdProgramState = maybeUpdateRdProgramState(input.rdProgramStatePath, input.catalogDbPath || defaultCatalogDbPathForGeneratedPath(report.artifact_ref), report as unknown as JSONRecord, report.created_at)
-  return rdProgramState ? { ...report, rd_program_state: rdProgramState } : report
-}
 
 export {
   runStrategyRndBatch,

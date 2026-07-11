@@ -116,10 +116,9 @@ test("automation cycle plan can dispatch a learning strategy R&D supervisor", ()
     assert.equal(sidecars.every((sidecar) => sidecar.may_write_state === false), true)
     assert.match(String(contract.single_writer_rule), /only strategy-rd-supervisor/)
     assert.equal(rd.command, undefined)
-    assert.deepEqual(asArray(asRecord(rd.init_command_spec).argv).slice(0, 5), [
+    assert.deepEqual(asArray(asRecord(rd.init_command_spec).argv).slice(0, 4), [
       "bun",
-      "modules/research/strategy-rd/src/scripts/main.ts",
-      "--rd-program-state",
+      "modules/research/rd-program-state/src/scripts/main.ts",
       "--state",
       "./data/rd/program.json",
     ])
@@ -166,20 +165,19 @@ test("automation cycle plan can drive R&D supervisor from durable program state"
     assert.equal(asRecord(activeRd.goal).objective, "find a shadow-eligible 4H swing strategy")
     assert.equal(activeRd.program_state_status, "active")
     assert.ok(String(activeRd.program_state_ref).endsWith("state.json"))
-    assert.match(String(activeRd.command), /--rd-supervisor-run/)
+    assert.match(String(activeRd.command), /modules\/research\/rd-supervisor\/src\/scripts\/main.ts/)
     const commandSpec = asRecord(activeRd.command_spec)
     assert.equal(commandSpec.executable, true)
-    assert.deepEqual(asArray(commandSpec.argv).slice(0, 5), [
+    assert.deepEqual(asArray(commandSpec.argv).slice(0, 4), [
       "bun",
-      "modules/research/strategy-rd/src/scripts/main.ts",
-      "--rd-supervisor-run",
+      "modules/research/rd-supervisor/src/scripts/main.ts",
       "--state",
       String(activeRd.program_state_ref),
     ])
     const contract = asRecord(activeRd.research_loop_contract)
     assert.equal(asRecord(contract.budget).max_trials_total, 8)
     assert.equal(asRecord(contract.learning_memory).read_ref, statePath)
-    assert.ok(asArray(contract.allowed_actions).includes("--rd-program-state action=plan_next"))
+    assert.ok(asArray(contract.allowed_actions).includes("research.rd-program-state action=plan_next"))
     const supervisorPayload = JSON.parse(String(asArray(commandSpec.argv).at(-1))) as { max_iterations: number }
     assert.equal(supervisorPayload.max_iterations, 20)
 

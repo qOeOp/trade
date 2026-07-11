@@ -1,1 +1,1 @@
-export { run } from "./scripts/main"
+export {}

@@ -36,7 +36,8 @@
 | `research.strategy-contract-lint` | `V` | strategy contract lint | none | 保持只做契约校验，不跑 R&D |
 | `research.candidate-batch` | `E/V` | bounded candidate batch、negative controls、failure summary | batch report | 不写 artifact / catalog / RD memory / `trade.db` |
 | `research.rd-loop-runner` | `A/E` | single R&D loop artifact writeback | artifact / catalog metadata / ledger / optional RD state writeback | 不写 `trade.db`，不触发 Binance，不编排 campaign |
-| `strategy-rd` | `A/E` | R&D campaign artifact writeback | research artifact / catalog metadata / strategy draft / optional RD state writeback | 保持不写 `trade.db`、不触发 Binance；不再拥有 loop、candidate batch、RD memory command、supervisor、forward tracker、单策略 replay 或 contract compile/lint CLI |
+| `research.rd-campaign-runner` | `A/E` | bounded R&D campaign orchestration | campaign artifact / catalog metadata / optional RD state writeback | 保持不写 `trade.db`、不触发 Binance；不拥有 loop、candidate batch、RD memory command、supervisor、forward tracker、单策略 replay 或 contract compile/lint CLI |
+| `strategy-rd` | internal | transitional research core helpers | library helper results | 不再作为 agent-facing tool entrypoint |
 | `research.rd-program-state` | `A` | RD memory init/read/update/plan_next | RD state artifact / catalog ref | 不执行 research trial，不产生 strategy evidence |
 | `research.rd-supervisor` | `A/E` | plan_next -> loop/campaign -> state writeback | RD state / research artifacts / optional draft strategy | 不写 `trade.db`，不触发 Binance，不做 promotion |
 | `research.rd-shadow-tracker` | `A/E` | forward setup event chain tracker | R&D tracker artifact / review draft input | 不写 `trade.db`，不等同 strategy shadow evidence |
@@ -87,7 +88,7 @@
 | `research.panel-evaluator` | `E/V` | `modules/research/panel-evaluator` |
 | `research.candidate-batch` | `E/V` | `modules/research/candidate-batch` |
 | `research.rd-loop-runner` | `A/E` | `modules/research/rd-loop-runner` |
-| `--strategy-rnd-campaign` | `A/E` | `modules/research/strategy-rd` |
+| `research.rd-campaign-runner` | `A/E` | `modules/research/rd-campaign-runner` |
 | `research.rd-program-state` | `A` | `modules/research/rd-program-state` |
 | `research.rd-supervisor` | `A/E` | `modules/research/rd-supervisor` |
 | `research.rd-shadow-tracker` | `A/E` | `modules/research/rd-shadow-tracker` |

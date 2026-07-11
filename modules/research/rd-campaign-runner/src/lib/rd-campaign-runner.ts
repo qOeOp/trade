@@ -1,12 +1,15 @@
 import { randomUUID } from "node:crypto"
 import { readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
-import { defaultCatalogDbPathForGeneratedPath, registerCatalogArtifact } from "./data-catalog"
-import { displayPath, resolveReadablePath, resolveRepoPath } from "./paths"
-import { assertHoldoutUnused, holdoutKeyForInput, safeFileName, writeJsonFile } from "./strategy-rnd-ledger"
-import type { JSONRecord } from "./json"
+import { defaultCatalogDbPathForGeneratedPath, registerCatalogArtifact } from "../../../../contracts/catalog-contract/src/catalog-client"
+import { displayPath, resolveReadablePath, resolveRepoPath } from "../../../../contracts/runtime-core/src/paths"
+import { resolveCandidateCount } from "../../../candidate-batch-engine/src/lib/strategy-rnd-candidates"
 import type { RdProgramStateCommandResult } from "../../../rd-program-state/src/lib/rd-program-state"
 import type { StrategyRndCampaignHypothesisInput, StrategyRndCampaignInput, StrategyRndLoopInput } from "../../../candidate-batch-engine/src/lib/strategy-rnd-inputs"
+import { maybeUpdateRdProgramState, runStrategyRndLoop } from "../../../rd-loop-runner/src/lib/rd-loop-runner"
+import { assertHoldoutUnused, holdoutKeyForInput, safeFileName, writeJsonFile } from "../../../strategy-rd/src/lib/strategy-rnd-ledger"
+
+type JSONRecord = Record<string, unknown>
 
 export interface StrategyRndCampaignReport {
   campaign_id: string
@@ -72,6 +75,20 @@ export interface StrategyRndCampaignDeps {
   resolveCandidateCount: (input: StrategyRndLoopInput) => number
 }
 
+export function runStrategyRndCampaign(input: StrategyRndCampaignInput): StrategyRndCampaignReport {
+  const report = runStrategyRndCampaignWithDeps(input, {
+    runLoop: runStrategyRndLoop,
+    resolveCandidateCount,
+  })
+  const rdProgramState = maybeUpdateRdProgramState(
+    input.rdProgramStatePath,
+    input.catalogDbPath || defaultCatalogDbPathForGeneratedPath(report.artifact_ref),
+    report as unknown as JSONRecord,
+    report.created_at,
+  )
+  return rdProgramState ? { ...report, rd_program_state: rdProgramState } : report
+}
+
 export function runStrategyRndCampaignWithDeps(
   input: StrategyRndCampaignInput,
   deps: StrategyRndCampaignDeps,
@@ -105,6 +122,9 @@ export function runStrategyRndCampaignWithDeps(
   for (const hypothesis of calibrationGate?.blocked === true || certificateBlocked ? [] : input.hypotheses) {
     if (!hypothesis.hypothesisId) {
       throw new Error("strategy R&D campaign hypothesis_id is required")
+    }
+    if (!hypothesis.manifestPath) {
+      throw new Error(`strategy R&D campaign ${hypothesis.hypothesisId} requires discovery_manifest_path`)
     }
     if (!hypothesis.validationManifestPath) {
       throw new Error(`strategy R&D campaign ${hypothesis.hypothesisId} requires validation_manifest_path`)

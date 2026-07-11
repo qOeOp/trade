@@ -401,7 +401,7 @@
         "config": false
       },
       "notes": [
-        "Orchestrates plan_next, loop/campaign execution, explicit RD state writeback, and optional draft strategy policy creation. Transitional direct dependency on strategy-rd loop/campaign remains until those runners are split."
+        "Orchestrates plan_next, rd-loop-runner / rd-campaign-runner execution, explicit RD state writeback, and optional draft strategy policy creation."
       ],
       "module_type": "atomic",
       "owner_scope": "research.rd-supervisor",
@@ -561,23 +561,24 @@
       }
     },
     {
-      "id": "strategy-rd",
+      "id": "research.rd-campaign-runner",
       "domain": "research",
       "intent": [
-        "rd"
+        "rd-campaign",
+        "strategy-rnd-campaign",
+        "rd-validation-campaign"
       ],
       "capability_class": [
         "A",
         "E"
       ],
-      "path": "modules/research/strategy-rd",
-      "purpose": "Run R&D campaign artifact writers.",
+      "path": "modules/research/rd-campaign-runner",
+      "purpose": "Run one bounded R&D campaign over a hypothesis queue with discovery, locked validation, artifact writeback, and optional RD state update.",
       "command": {
-        "cwd": "modules/research/strategy-rd",
+        "cwd": "modules/research/rd-campaign-runner",
         "argv": [
           "bun",
           "src/scripts/main.ts",
-          "<research-flag>",
           "--json",
           "<payload>"
         ]
@@ -590,10 +591,10 @@
         "config": false
       },
       "notes": [
-        "Owns campaign artifact writeback except atomic rd-loop-runner, candidate-batch, replay-runner, signal-evaluator, panel-evaluator, rd-program-state, rd-supervisor, rd-shadow-tracker, data-split, benchmark, calibration, funding-governance, and strategy-contract tools. It cannot write trade.db, trigger Binance writes, or expose loop/batch/state/supervisor/tracker as local flags."
+        "Owns campaign-level gates and orchestration only. It calls rd-loop-runner for discovery/validation loops and candidate-batch-engine for trial counting."
       ],
-      "module_type": "suite",
-      "owner_scope": "research.strategy-rd",
+      "module_type": "atomic",
+      "owner_scope": "research.rd-campaign-runner",
       "requires_preflight": false,
       "concurrency_group": "rd-state",
       "forbidden_callers": [
@@ -603,7 +604,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": ""
+        "output_schema": "modules/research/rd-campaign-runner/src/schemas/strategy-rnd-campaign-result.schema.json"
       }
     },
     {

@@ -269,7 +269,7 @@ flowchart TD
   PLAN --> SCOUT["read-only scout subagents<br/>history / data / edge"]
   SCOUT --> RUN{"next research command"}
   RUN -->|loop| LOOP["research.rd-loop-runner"]
-  RUN -->|campaign| CAMP["--strategy-rnd-campaign"]
+  RUN -->|campaign| CAMP["research.rd-campaign-runner"]
   RUN -->|panel| PANEL["research.panel-evaluator"]
   LOOP --> ART["artifact + catalog ledger"]
   CAMP --> ART
@@ -297,7 +297,7 @@ bun modules/research/rd-supervisor/src/scripts/main.ts --state ./data/rd/program
 | `research.rd-program-state` | init / read / update / plan_next durable learning memory |
 | `research.candidate-batch` | bounded candidate evaluation + negative controls |
 | `research.rd-loop-runner` | 一轮 batch + artifact + catalog ledger |
-| `--strategy-rnd-campaign` | 多 hypothesis discovery + non-overlapping validation |
+| `research.rd-campaign-runner` | 多 hypothesis discovery + non-overlapping validation |
 | `research.data-split` | 切 discovery / validation / locked_holdout |
 | `research.panel-evaluator` | 跨资产广度和 negative control |
 | `research.rd-shadow-tracker` | forward / paper setup event chain tracker |
@@ -335,7 +335,7 @@ stateDiagram-v2
 | --- | --- | --- |
 | 产品契约 | `docs/` | vision、PRD、架构、技术契约、检查契约 |
 | 主流程 | `modules/trade-flow/` | event stream、automation、observe、execution、reconcile |
-| 研究 | `modules/research/strategy-rd/` + `modules/research/rd-program-state/` + `modules/research/rd-shadow-tracker/` + `modules/research/replay-runner/` + `modules/research/data-split/` + `modules/research/benchmark-runner/` + `modules/research/calibration-suite/` | R&D、RD memory、panel、benchmark、calibration、forward tracker、单策略 replay、holdout split |
+| 研究 | `modules/research/rd-loop-runner/` + `modules/research/rd-campaign-runner/` + `modules/research/rd-program-state/` + `modules/research/rd-shadow-tracker/` + `modules/research/replay-runner/` + `modules/research/data-split/` + `modules/research/benchmark-runner/` + `modules/research/calibration-suite/` | R&D loop/campaign、RD memory、panel、benchmark、calibration、forward tracker、单策略 replay、holdout split |
 | 策略契约 | `modules/contracts/strategy-contract/` + `modules/research/strategy-contract-*` | strategy contract 解析、compile、lint |
 | 治理 | `modules/governance/strategy-review/` | evidence、review、promotion |
 | 资产治理 | `modules/ops/artifact-catalog/` | catalog、artifact stale scan、GC |

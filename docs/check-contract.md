@@ -34,9 +34,10 @@
 | `strategy-contract-compile-check` | `modules/research/strategy-contract-compile` | `bun run check` | strategy contract compile CLI |
 | `strategy-contract-lint-check` | `modules/research/strategy-contract-lint` | `bun run check` | strategy contract lint CLI |
 | `rd-program-state-smoke` | repo root | `bun modules/research/rd-program-state/src/scripts/main.ts --state ./tmp/check/rd-program-state.json --json '{"action":"init","objective":"smoke"}'` | RD memory CLI envelope and write path |
-| `rd-supervisor-integration` | `modules/research/strategy-rd` | `bun test ./src/lib/rd-supervisor-runner.test.ts` | RD supervisor orchestration while loop/campaign remain transitional dependencies |
+| `rd-supervisor-integration` | `modules/research/strategy-rd` | `bun test ./src/lib/rd-supervisor-runner.test.ts` | RD supervisor orchestration over loop/campaign runners |
 | `rd-shadow-tracker-integration` | `modules/research/strategy-rd` | `bun test ./src/lib/rd-shadow-tracker.test.ts ./src/lib/setup-event-chain.test.ts` | R&D paper tracker and setup event chain |
 | `rd-loop-runner-integration` | `modules/research/strategy-rd` | `bun test ./src/lib/strategy-rnd.test.ts ./src/lib/research-output-schemas.test.ts` | R&D loop artifact/catalog/ledger/state writeback |
+| `rd-campaign-runner-integration` | `modules/research/strategy-rd` | `bun test ./src/lib/strategy-rnd-campaign.test.ts ./src/lib/strategy-rnd.test.ts ./src/lib/research-output-schemas.test.ts` | R&D campaign gates/orchestration/artifact writeback |
 | `strategy-rd-check` | `modules/research/strategy-rd` | `bun run check` | R&D / forward holdout / supervisor integration |
 | `strategy-review-check` | `modules/governance/strategy-review` | `bun run check` | evidence / review / promotion |
 | `artifact-catalog-check` | `modules/ops/artifact-catalog` | `bun run check` | catalog / artifact GC / feature refs |
@@ -61,15 +62,16 @@
 | research replay runner | `modules/research/replay-runner/src/**`, `modules/research/replay-engine/src/**` | `replay-runner-check` + `strategy-rd-check` if shared replay semantics changed |
 | research data split | `modules/research/data-split/src/**` | `data-split-check` |
 | research signal | `modules/research/signal-engine/src/**`, `modules/research/signal-evaluator/src/**`, `modules/research/strategy-family-engine/src/**` | `signal-evaluator-check` + `strategy-rd-check` if forward holdout or candidate family semantics changed |
-| research candidate batch | `modules/research/candidate-batch/src/**`, `modules/research/candidate-batch-engine/src/**` | `candidate-batch-integration` + `strategy-rd-check` while loop/campaign consume batch engine |
+| research candidate batch | `modules/research/candidate-batch/src/**`, `modules/research/candidate-batch-engine/src/**` | `candidate-batch-integration` + `strategy-rd-check` while loop/campaign runners consume batch engine |
 | research panel | `modules/research/panel-evaluator/src/**`, `modules/research/candidate-batch-engine/src/**` | `panel-evaluator-check` + `strategy-rd-check` if shared candidate batch semantics changed |
 | research benchmark / calibration | `modules/research/benchmark-engine/src/**`, `modules/research/benchmark-runner/src/**`, `modules/research/calibration-suite/src/**` | `benchmark-runner-check` + `calibration-suite-check` + `strategy-rd-check` if funding governance consumes benchmark data helpers |
 | research funding governance | `modules/research/funding-governance/src/**` | `funding-governance-check` |
 | strategy contract compile/lint | `modules/contracts/strategy-contract/src/**`, `modules/research/strategy-contract-*/src/**` | `strategy-contract-compile-check` + `strategy-contract-lint-check` + `strategy-rd-check` if RD consumes compiled candidates |
 | research RD memory | `modules/research/rd-program-state/src/**` | `rd-program-state-smoke` + `strategy-rd-check` while supervisor/loop still consume the shared state implementation |
-| research RD supervisor | `modules/research/rd-supervisor/src/**` | `rd-supervisor-integration` + `strategy-rd-check` while loop/campaign remain in strategy-rd |
+| research RD supervisor | `modules/research/rd-supervisor/src/**` | `rd-supervisor-integration` + `strategy-rd-check` while supervisor consumes loop/campaign runners |
 | research RD shadow tracker | `modules/research/rd-shadow-tracker/src/**` | `rd-shadow-tracker-integration` + `strategy-rd-check` |
 | research RD loop | `modules/research/rd-loop-runner/src/**` | `rd-loop-runner-integration` + `strategy-rd-check` while campaign consumes loop runner |
+| research RD campaign | `modules/research/rd-campaign-runner/src/**` | `rd-campaign-runner-integration` + `strategy-rd-check` |
 | research R&D / forward holdout | `modules/research/strategy-rd/src/**` | `strategy-rd-check` |
 | strategy evidence / review / promotion | `modules/governance/strategy-review/src/**` | `strategy-review-check` |
 | artifact hygiene / catalog | `modules/ops/artifact-catalog/src/**` | `artifact-catalog-check` |

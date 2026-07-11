@@ -46,7 +46,8 @@
 | `modules/research/funding-governance/` | funding governance | funding carry research 前 exact funding event coverage 检查 | R&D search、replay、review、`trade.db` |
 | `modules/research/strategy-contract-compile/` | strategy contract compile | strategy markdown contract 编译 | R&D search、replay、review、catalog 写入 |
 | `modules/research/strategy-contract-lint/` | strategy contract lint | strategy markdown contract 完整性 lint | R&D search、replay、review、catalog 写入 |
-| `modules/research/strategy-rd/` | strategy research suite | R&D campaign | `trade.db`、Binance 写接口、strategy promotion、R&D loop、forward tracker、RD state init/read/update/plan_next、supervisor CLI、单策略 replay CLI、latest signal CLI、panel CLI、data split CLI、benchmark/calibration/funding governance CLI、contract compile/lint CLI |
+| `modules/research/rd-campaign-runner/` | research atom | R&D campaign | `trade.db`、Binance 写接口、strategy promotion、R&D loop 实现、forward tracker、RD state init/read/update/plan_next、supervisor CLI、单策略 replay CLI、latest signal CLI、panel CLI、data split CLI、benchmark/calibration/funding governance CLI、contract compile/lint CLI |
+| `modules/research/strategy-rd/` | transitional research core | helper libraries awaiting extraction | agent-facing tool entrypoint、`trade.db`、Binance 写接口、strategy promotion、R&D loop/campaign、forward tracker、RD state init/read/update/plan_next、supervisor CLI、单策略 replay CLI、latest signal CLI、panel CLI、data split CLI、benchmark/calibration/funding governance CLI、contract compile/lint CLI |
 | `modules/research/rd-loop-runner/` | RD loop runner | 单轮 R&D artifact、catalog、ledger、optional state writeback | campaign orchestration、strategy evidence、`trade.db`、Binance 写接口 |
 | `modules/research/rd-program-state/` | RD memory state | init/read/update/plan_next durable R&D state | R&D trial execution、strategy evidence、`trade.db`、Binance 写接口 |
 | `modules/research/rd-supervisor/` | RD supervisor | plan_next -> loop/campaign -> state writeback | `trade.db`、Binance 写接口、strategy review、promotion |
@@ -91,7 +92,7 @@
 | funding governance | `modules/research/funding-governance` + `research.funding-governance` |
 | strategy contract compile | `modules/research/strategy-contract-compile` + `research.strategy-contract-compile` |
 | strategy contract lint | `modules/research/strategy-contract-lint` + `research.strategy-contract-lint` |
-| R&D / forward holdout | `modules/research/strategy-rd` + `strategy-rd` |
+| R&D campaign / forward holdout | `modules/research/rd-campaign-runner` + `research.rd-campaign-runner`; forward holdout helpers remain in `modules/research/strategy-rd` until split |
 | RD memory | `modules/research/rd-program-state` + `research.rd-program-state` |
 | RD supervisor | `modules/research/rd-supervisor` + `research.rd-supervisor` |
 | RD shadow tracker | `modules/research/rd-shadow-tracker` + `research.rd-shadow-tracker` |
@@ -121,7 +122,7 @@
 - `modules/trade-flow` 可以调用工具 CLI，但不拥有 Binance endpoint 细节，也不新增 R&D 实验实现或 strategy review 实现。
 - Binance 写工具只做单一交易动作；不得产出策略观点或修改 `trade.db`。
 - market scan 只能回答“先看谁”；不能直接生成 live action。
-- R&D campaign artifact writeback 由 `strategy-rd` 拥有，只能写 research artifact、catalog、gated draft；不得触发 Binance 写接口或写 `trade.db`；RD loop、candidate batch、RD memory、RD supervisor、RD shadow tracker、panel、单策略 replay、data split、benchmark、calibration、funding governance 与 strategy contract compile/lint 已拆为独立原子工具。
+- R&D campaign artifact writeback 由 `research.rd-campaign-runner` 拥有，只能写 research artifact、catalog 和显式 RD state；不得触发 Binance 写接口或写 `trade.db`；RD loop、candidate batch、RD memory、RD supervisor、RD shadow tracker、panel、单策略 replay、data split、benchmark、calibration、funding governance 与 strategy contract compile/lint 已拆为独立原子工具。
 - strategy evidence / review / promotion 由 `strategy-review` 拥有；只读消费 `trade.db`，不得写 RD memory 或触发执行。
 - catalog / artifact hygiene 由 `artifact-catalog` 拥有；trade-flow 只消费可审计 artifact / catalog 结果。
 - `plan-preflight` 只给 deterministic verdict；不得补写事件或解释行情方向。

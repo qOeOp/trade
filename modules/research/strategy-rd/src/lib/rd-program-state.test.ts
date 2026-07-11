@@ -191,7 +191,7 @@ test("rd program state command plans the next campaign from the hypothesis queue
     assertSchemaRequired(readSchema("rd-program-state-result"), planned as unknown as JSONRecord)
     assert.equal(planned.action, "plan_next")
     assert.equal(planned.next_plan?.status, "ready")
-    assert.equal(planned.next_plan?.command, "--strategy-rnd-campaign")
+    assert.equal(planned.next_plan?.command, "research.rd-campaign-runner")
     assert.equal(planned.next_plan?.guardrails.read_only_plan, true)
     const scoutPlan = asRecord(planned.next_plan?.scout_subagent_plan)
     assert.equal(scoutPlan.enabled, true)

@@ -277,8 +277,7 @@ function rdStrategySupervisorJob(input: {
   const commandArgv = programStateRef
     ? [
       "bun",
-      "modules/research/strategy-rd/src/scripts/main.ts",
-      "--rd-supervisor-run",
+      "modules/research/rd-supervisor/src/scripts/main.ts",
       "--state",
       programStateRef,
       "--catalog-db",
@@ -289,8 +288,7 @@ function rdStrategySupervisorJob(input: {
     : []
   const initArgv = [
     "bun",
-    "modules/research/strategy-rd/src/scripts/main.ts",
-    "--rd-program-state",
+    "modules/research/rd-program-state/src/scripts/main.ts",
     "--state",
     "./data/rd/program.json",
     "--catalog-db",
@@ -336,9 +334,10 @@ function rdStrategySupervisorJob(input: {
       loop_until: ["strategy_draft_created", "budget_exhausted", "data_or_tool_blocked"],
       stop_without_user: true,
       allowed_actions: [
-        "--rd-program-state action=plan_next",
+        "research.rd-program-state action=plan_next",
         "--strategy-data-split",
-        "--strategy-rnd-campaign",
+        "research.rd-loop-runner",
+        "research.rd-campaign-runner",
         "research.panel-evaluator",
         "forward-holdout",
         "rd-shadow-tracker",
@@ -383,7 +382,7 @@ function rdStrategySupervisorJob(input: {
           output: "bounded proposal: thesis certificate fields + candidate universe sketch",
         },
       ],
-      single_writer_rule: "Sidecar subagents are read-only scouts; only strategy-rd-supervisor may write rd_program_state through --rd-program-state or payload writeback.",
+      single_writer_rule: "Sidecar subagents are read-only scouts; only strategy-rd-supervisor may write rd_program_state through research.rd-program-state or payload writeback.",
     },
   }
 }

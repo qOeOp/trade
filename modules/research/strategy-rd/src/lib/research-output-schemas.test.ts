@@ -5,7 +5,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { replayRegisteredStrategy } from "./strategy-replay"
 import { runStrategyRndBatch, runStrategyRndLoop } from "./strategy-rnd"
-import { runStrategyRndCampaignWithDeps } from "./strategy-rnd-campaign"
+import { runStrategyRndCampaignWithDeps } from "../../../rd-campaign-runner/src/lib/rd-campaign-runner"
 import type { JSONRecord } from "./json"
 
 test("replay result schema matches mechanical replay outer report", () => {
@@ -140,6 +140,9 @@ function readSchema(name: string): JSONRecord {
   }
   if (name === "strategy-rnd-loop-result") {
     return JSON.parse(readFileSync(new URL("../../../rd-loop-runner/src/schemas/strategy-rnd-loop-result.schema.json", import.meta.url), "utf8")) as JSONRecord
+  }
+  if (name === "strategy-rnd-campaign-result") {
+    return JSON.parse(readFileSync(new URL("../../../rd-campaign-runner/src/schemas/strategy-rnd-campaign-result.schema.json", import.meta.url), "utf8")) as JSONRecord
   }
   return JSON.parse(readFileSync(new URL(`../schemas/${name}.schema.json`, import.meta.url), "utf8")) as JSONRecord
 }
