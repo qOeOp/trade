@@ -2,13 +2,14 @@ import { existsSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { Database } from "bun:sqlite"
 import { findActiveLaneConflicts, listActiveFlows } from "./flow-state"
-import { displayPath } from "./paths"
+import { displayPath, repoRoot } from "./paths"
 
 type JSONRecord = Record<string, unknown>
 
 const DEFAULT_CATALOG_DB = "./data/data_catalog.db"
 const TRADE_FLOW_MAIN = "bun modules/trade-flow/src/scripts/main.ts"
 const ARTIFACT_CATALOG_MAIN = "bun modules/ops/artifact-catalog/src/scripts/main.ts"
+const TOOLSET_PATH = "toolset.json"
 
 interface CadenceState {
   due: boolean
@@ -16,6 +17,20 @@ interface CadenceState {
   interval_minutes: number
   last_run_at: string | null
   next_due_at: string
+}
+
+interface ToolsetEntry {
+  id: string
+  module_type: string
+  capability_class: string[]
+  command: {
+    cwd: string
+    argv: string[]
+  }
+  writes: JSONRecord
+  entry_contract: JSONRecord
+  requires_preflight: boolean
+  concurrency_group: string
 }
 
 export interface AutomationCycleInput {
@@ -115,6 +130,13 @@ export function buildAutomationCyclePlan(db: Database, dbPath: string, input: Au
       enabled: input.include_fast_track !== false,
       active: activeFlowCount > 0 && cadence.fast_track_guard.due,
       command: `${TRADE_FLOW_MAIN} --db ${tradeDbPath} --track fast`,
+      toolJob: resolveToolJob({
+        jobId: "fast_track_guard",
+        toolId: "trade-flow.runtime",
+        executable: activeFlowCount > 0 && cadence.fast_track_guard.due,
+        payload: { db_path: tradeDbPath, track: "fast" },
+        argv: ["bun", "src/scripts/main.ts", "--db", tradeDbPath, "--track", "fast"],
+      }),
       reason: activeFlowCount > 0 ? "active flows need trigger, protection, and reconcile checks" : "no active flow needs fast guard",
       cadence: cadence.fast_track_guard,
     }),
@@ -123,6 +145,13 @@ export function buildAutomationCyclePlan(db: Database, dbPath: string, input: Au
       enabled: input.include_slow_track !== false,
       active: cadence.slow_track_market_watch.due,
       command: `${TRADE_FLOW_MAIN} --db ${tradeDbPath} --track slow`,
+      toolJob: resolveToolJob({
+        jobId: "slow_track_market_watch",
+        toolId: "trade-flow.runtime",
+        executable: cadence.slow_track_market_watch.due,
+        payload: { db_path: tradeDbPath, track: "slow" },
+        argv: ["bun", "src/scripts/main.ts", "--db", tradeDbPath, "--track", "slow"],
+      }),
       reason: "slow track owns market watch and strategic observe",
       cadence: cadence.slow_track_market_watch,
     }),
@@ -164,6 +193,13 @@ export function buildAutomationCyclePlan(db: Database, dbPath: string, input: Au
       active: cadence.catalog_hygiene_scan.due,
       reason: "artifact visibility can run outside trade.db mutation path",
       command: `${ARTIFACT_CATALOG_MAIN} --catalog-scan --catalog-db ${catalogDb}${catalogRoots.map((root) => ` --catalog-root ${root}`).join("")}`,
+      toolJob: resolveToolJob({
+        jobId: "catalog_hygiene_scan",
+        toolId: "artifact-catalog",
+        executable: cadence.catalog_hygiene_scan.due,
+        payload: { action: "catalog_scan", catalog_db: catalogDb, catalog_roots: catalogRoots },
+        argv: ["bun", "src/scripts/main.ts", "--catalog-scan", "--catalog-db", catalogDb, ...catalogRoots.flatMap((root) => ["--catalog-root", root])],
+      }),
       cadence: cadence.catalog_hygiene_scan,
     }),
   ]
@@ -218,6 +254,7 @@ function tradeJob(input: {
   enabled: boolean
   active: boolean
   command: string
+  toolJob: JSONRecord
   reason: string
   cadence: CadenceState
 }): JSONRecord {
@@ -229,6 +266,7 @@ function tradeJob(input: {
     may_write_trade_db: true,
     may_call_binance_write: false,
     command: input.command,
+    tool_job: input.toolJob,
     cadence: input.cadence,
   }
 }
@@ -240,6 +278,7 @@ function artifactJob(input: {
   reason: string
   cadence: CadenceState
   command?: string
+  toolJob?: JSONRecord
   trackers?: JSONRecord[]
 }): JSONRecord {
   return {
@@ -251,6 +290,7 @@ function artifactJob(input: {
     may_call_binance_write: false,
     cadence: input.cadence,
     ...(input.command ? { command: input.command } : {}),
+    ...(input.toolJob ? { tool_job: input.toolJob } : {}),
     ...(input.trackers ? { trackers: input.trackers } : {}),
   }
 }
@@ -274,6 +314,15 @@ function rdStrategySupervisorJob(input: {
     artifact_root: "./tmp/artifacts/strategy-rnd",
     catalog_db_path: input.catalogDb,
   }
+  const initPayload = {
+    action: "init",
+    objective: stringField(input.goal.objective) || "find a shadow-eligible 4H swing strategy",
+    budget: {
+      max_hypotheses: positiveNumber(budget.max_hypotheses) || 20,
+      max_trials_total: positiveNumber(budget.max_trials_total) || 80,
+      max_locked_holdout_uses: positiveNumber(budget.max_locked_holdout_uses) || 1,
+    },
+  }
   const commandArgv = programStateRef
     ? [
       "bun",
@@ -286,6 +335,15 @@ function rdStrategySupervisorJob(input: {
       JSON.stringify(supervisorPayload),
     ]
     : []
+  const supervisorToolJob = programStateRef
+    ? resolveToolJob({
+      jobId: "rd_strategy_supervisor",
+      toolId: "research.rd-supervisor",
+      executable: input.active,
+      payload: { state: programStateRef, catalog_db: input.catalogDb, json: supervisorPayload },
+      argv: commandArgv,
+    })
+    : null
   const initArgv = [
     "bun",
     "modules/research/rd-program-state/src/scripts/main.ts",
@@ -294,16 +352,15 @@ function rdStrategySupervisorJob(input: {
     "--catalog-db",
     input.catalogDb,
     "--json",
-    JSON.stringify({
-      action: "init",
-      objective: stringField(input.goal.objective) || "find a shadow-eligible 4H swing strategy",
-      budget: {
-        max_hypotheses: positiveNumber(budget.max_hypotheses) || 20,
-        max_trials_total: positiveNumber(budget.max_trials_total) || 80,
-        max_locked_holdout_uses: positiveNumber(budget.max_locked_holdout_uses) || 1,
-      },
-    }),
+    JSON.stringify(initPayload),
   ]
+  const initToolJob = resolveToolJob({
+    jobId: "rd_strategy_supervisor.init",
+    toolId: "research.rd-program-state",
+    executable: false,
+    payload: { state: "./data/rd/program.json", catalog_db: input.catalogDb, json: initPayload },
+    argv: initArgv,
+  })
   return {
     ...baseJob(input),
     subagent_role: "rd-supervisor",
@@ -317,12 +374,14 @@ function rdStrategySupervisorJob(input: {
     ...(input.programStateStatus ? { program_state_status: input.programStateStatus } : {}),
     ...(commandArgv.length > 0 ? {
       command: shellCommand(commandArgv),
+      tool_job: supervisorToolJob,
       command_spec: {
         executable: input.active,
         argv: commandArgv,
         writes: ["tmp/artifacts/strategy-rnd", input.catalogDb, programStateRef],
       },
     } : {
+      tool_job: initToolJob,
       init_command_spec: {
         executable: false,
         argv: initArgv,
@@ -425,6 +484,60 @@ function baseJob(input: { job_id: string; enabled: boolean; active: boolean; rea
     active: input.enabled && input.active,
     reason: input.reason,
   }
+}
+
+function resolveToolJob(input: {
+  jobId: string
+  toolId: string
+  executable: boolean
+  payload: JSONRecord
+  argv: string[]
+}): JSONRecord {
+  const tool = readToolsetEntry(input.toolId)
+  return {
+    job_id: input.jobId,
+    tool_id: tool.id,
+    module_type: tool.module_type,
+    capability_class: tool.capability_class,
+    writes: tool.writes,
+    concurrency_group: tool.concurrency_group,
+    requires_preflight: tool.requires_preflight,
+    payload: input.payload,
+    entry_contract: tool.entry_contract,
+    command_spec: {
+      executable: input.executable,
+      cwd: tool.command.cwd,
+      argv: normalizeToolArgv(tool, input.argv),
+    },
+  }
+}
+
+function readToolsetEntry(toolId: string): ToolsetEntry {
+  const manifest = JSON.parse(readFileSync(join(repoRoot(), TOOLSET_PATH), "utf8")) as { tools?: unknown[] }
+  const tools = Array.isArray(manifest.tools) ? manifest.tools.map(asRecord) : []
+  const raw = tools.find((entry) => stringField(entry.id) === toolId)
+  if (!raw) {
+    throw new Error(`toolset entry not found: ${toolId}`)
+  }
+  const command = asRecord(raw.command)
+  return {
+    id: stringField(raw.id),
+    module_type: stringField(raw.module_type),
+    capability_class: asArray(raw.capability_class).map(String).filter(Boolean),
+    command: {
+      cwd: stringField(command.cwd),
+      argv: asArray(command.argv).map(String),
+    },
+    writes: asRecord(raw.writes),
+    entry_contract: asRecord(raw.entry_contract),
+    requires_preflight: raw.requires_preflight === true,
+    concurrency_group: stringField(raw.concurrency_group),
+  }
+}
+
+function normalizeToolArgv(tool: ToolsetEntry, argv: string[]): string[] {
+  const prefix = `${tool.command.cwd}/`
+  return argv.map((part, index) => index === 1 && part.startsWith(prefix) ? part.slice(prefix.length) : part)
 }
 
 function readRdProgramStateSummary(path: string): JSONRecord | null {

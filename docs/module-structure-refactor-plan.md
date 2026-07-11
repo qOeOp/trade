@@ -259,10 +259,11 @@ modules/
 - `scripts/toolset.ts --validate` 已校验上述字段和可选 schema 路径。
 - `schemas/tool-job.schema.json` 已定义编排 job 的稳定 shell。
 - `docs/tool-layout.md` 与 `modules/README.md` 已区分 current layout、target topology、suite / atomic / contract module。
+- `automation-cycle` 已为 trade / RD / catalog dispatch 输出 registry-backed `tool_job`，包含 `tool_id + payload + entry_contract + writes + command_spec`。
 
 尚未完成：
 
-- registry resolver 仍未替换 `trade-flow` 内部裸路径编排。
+- slow / fast / recovery / execution runner 内部仍有直接 tool argv；后续随 `flow/*` 原子拆分迁入 resolver。
 
 ### Phase 1：去重最高风险实现
 
@@ -292,7 +293,7 @@ modules/
 尚未完成：
 
 - `contracts/replay-contract` 仍未单独拆 type/schema shell；governance 当前仍有本地 replay re-export 适配。
-- registry resolver 仍未替换 `trade-flow` 内部裸路径编排。
+- automation-cycle 已输出 registry-backed `tool_job`；slow / fast / recovery / execution runner 内部仍有直接 tool argv，后续随 `flow/*` 原子拆分迁入 resolver。
 
 ### Phase 2：明确 contract 层
 
