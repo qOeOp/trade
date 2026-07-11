@@ -98,6 +98,11 @@ function isAllowedCrossToolImport(sourceTool: string, targetTool: string): boole
     "modules/live-execution-control/live-small-runner -> modules/live-execution-control/execution-recorder",
     "modules/live-execution-control/live-small-runner -> modules/live-decision-planning/observe-runner",
     "modules/live-execution-control/live-small-runner -> modules/portfolio-execution-state/event-store",
+    "modules/orchestration-ops/runtime-health-guard -> modules/orchestration-ops/ops-runtime-store",
+    "modules/orchestration-ops/ops-notify-dispatch -> modules/orchestration-ops/ops-runtime-store",
+    "modules/governance-review-compliance/closed-flow-review-sweep -> modules/governance-review-compliance/governance-ledger",
+    "modules/governance-review-compliance/closed-flow-review-sweep -> modules/portfolio-execution-state/event-store",
+    "modules/governance-review-compliance/closed-flow-review-sweep -> modules/portfolio-execution-state/flow-projector",
   ])
   return allowed.has(`${sourceTool} -> ${targetTool}`)
 }

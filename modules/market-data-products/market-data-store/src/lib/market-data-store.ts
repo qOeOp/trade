@@ -1,0 +1,401 @@
+import { Database } from "bun:sqlite"
+import { asRecord, numberField, stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
+
+export interface MarketManifest {
+  manifest_id: string
+  dataset_kind: string
+  source: string
+  exchange: string
+  symbol?: string
+  timeframe?: string
+  first_ts?: number
+  last_ts?: number
+  rows?: number
+  content_hash: string
+  manifest_path: string
+  created_at: string
+  freshness_json?: JSONRecord
+}
+
+export interface CanonicalCandle {
+  manifest_id: string
+  exchange: string
+  symbol: string
+  timeframe: string
+  open_time: number
+  close_time: number
+  open: number
+  high: number
+  low: number
+  close: number
+  volume?: number
+  quote_volume?: number
+}
+
+export interface FundingEvent {
+  manifest_id: string
+  exchange: string
+  symbol: string
+  funding_time: number
+  funding_rate: number
+  mark_price?: number
+}
+
+export interface FeatureManifest {
+  feature_manifest_id: string
+  source_manifest_id: string
+  feature_set_id: string
+  symbol?: string
+  timeframe?: string
+  content_hash: string
+  manifest_path: string
+  generated_at: string
+}
+
+export function ensureMarketDataSchema(db: Database): void {
+  db.run(`
+    CREATE TABLE IF NOT EXISTS market_manifest (
+      manifest_id     TEXT PRIMARY KEY,
+      dataset_kind    TEXT NOT NULL,
+      source          TEXT NOT NULL,
+      exchange        TEXT NOT NULL,
+      symbol          TEXT,
+      timeframe       TEXT,
+      first_ts        BIGINT,
+      last_ts         BIGINT,
+      rows            BIGINT,
+      content_hash    TEXT NOT NULL,
+      manifest_path   TEXT NOT NULL,
+      created_at      TEXT NOT NULL,
+      freshness_json  TEXT CHECK(freshness_json IS NULL OR json_valid(freshness_json))
+    )
+  `)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS canonical_candle (
+      manifest_id TEXT NOT NULL,
+      exchange    TEXT NOT NULL,
+      symbol      TEXT NOT NULL,
+      timeframe   TEXT NOT NULL,
+      open_time   BIGINT NOT NULL,
+      close_time  BIGINT NOT NULL,
+      open        DOUBLE NOT NULL,
+      high        DOUBLE NOT NULL,
+      low         DOUBLE NOT NULL,
+      close       DOUBLE NOT NULL,
+      volume      DOUBLE,
+      quote_volume DOUBLE,
+      PRIMARY KEY (exchange, symbol, timeframe, open_time)
+    )
+  `)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS funding_event (
+      manifest_id  TEXT NOT NULL,
+      exchange     TEXT NOT NULL,
+      symbol       TEXT NOT NULL,
+      funding_time BIGINT NOT NULL,
+      funding_rate DOUBLE NOT NULL,
+      mark_price   DOUBLE,
+      PRIMARY KEY (exchange, symbol, funding_time)
+    )
+  `)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS feature_manifest (
+      feature_manifest_id TEXT PRIMARY KEY,
+      source_manifest_id  TEXT NOT NULL,
+      feature_set_id      TEXT NOT NULL,
+      symbol              TEXT,
+      timeframe           TEXT,
+      content_hash        TEXT NOT NULL,
+      manifest_path       TEXT NOT NULL,
+      generated_at        TEXT NOT NULL
+    )
+  `)
+}
+
+export function upsertMarketManifest(db: Database, manifest: MarketManifest): void {
+  validateMarketManifest(manifest)
+  db.query(`
+    INSERT INTO market_manifest(
+      manifest_id, dataset_kind, source, exchange, symbol, timeframe,
+      first_ts, last_ts, rows, content_hash, manifest_path, created_at, freshness_json
+    )
+    VALUES (
+      $manifest_id, $dataset_kind, $source, $exchange, $symbol, $timeframe,
+      $first_ts, $last_ts, $rows, $content_hash, $manifest_path, $created_at, $freshness_json
+    )
+    ON CONFLICT(manifest_id) DO UPDATE SET
+      dataset_kind = excluded.dataset_kind,
+      source = excluded.source,
+      exchange = excluded.exchange,
+      symbol = excluded.symbol,
+      timeframe = excluded.timeframe,
+      first_ts = excluded.first_ts,
+      last_ts = excluded.last_ts,
+      rows = excluded.rows,
+      content_hash = excluded.content_hash,
+      manifest_path = excluded.manifest_path,
+      created_at = excluded.created_at,
+      freshness_json = excluded.freshness_json
+  `).run({
+    $manifest_id: manifest.manifest_id,
+    $dataset_kind: manifest.dataset_kind,
+    $source: manifest.source,
+    $exchange: manifest.exchange,
+    $symbol: manifest.symbol ?? null,
+    $timeframe: manifest.timeframe ?? null,
+    $first_ts: manifest.first_ts ?? null,
+    $last_ts: manifest.last_ts ?? null,
+    $rows: manifest.rows ?? null,
+    $content_hash: manifest.content_hash,
+    $manifest_path: manifest.manifest_path,
+    $created_at: manifest.created_at,
+    $freshness_json: manifest.freshness_json ? JSON.stringify(manifest.freshness_json) : null,
+  })
+}
+
+export function upsertCanonicalCandles(db: Database, candles: CanonicalCandle[]): number {
+  const insert = db.query(`
+    INSERT INTO canonical_candle(
+      manifest_id, exchange, symbol, timeframe, open_time, close_time,
+      open, high, low, close, volume, quote_volume
+    )
+    VALUES (
+      $manifest_id, $exchange, $symbol, $timeframe, $open_time, $close_time,
+      $open, $high, $low, $close, $volume, $quote_volume
+    )
+    ON CONFLICT(exchange, symbol, timeframe, open_time) DO UPDATE SET
+      manifest_id = excluded.manifest_id,
+      close_time = excluded.close_time,
+      open = excluded.open,
+      high = excluded.high,
+      low = excluded.low,
+      close = excluded.close,
+      volume = excluded.volume,
+      quote_volume = excluded.quote_volume
+  `)
+  let count = 0
+  db.transaction(() => {
+    for (const candle of candles) {
+      validateCanonicalCandle(candle)
+      insert.run({
+        $manifest_id: candle.manifest_id,
+        $exchange: candle.exchange,
+        $symbol: candle.symbol,
+        $timeframe: candle.timeframe,
+        $open_time: candle.open_time,
+        $close_time: candle.close_time,
+        $open: candle.open,
+        $high: candle.high,
+        $low: candle.low,
+        $close: candle.close,
+        $volume: candle.volume ?? null,
+        $quote_volume: candle.quote_volume ?? null,
+      })
+      count += 1
+    }
+  })()
+  return count
+}
+
+export function upsertFundingEvents(db: Database, events: FundingEvent[]): number {
+  const insert = db.query(`
+    INSERT INTO funding_event(manifest_id, exchange, symbol, funding_time, funding_rate, mark_price)
+    VALUES ($manifest_id, $exchange, $symbol, $funding_time, $funding_rate, $mark_price)
+    ON CONFLICT(exchange, symbol, funding_time) DO UPDATE SET
+      manifest_id = excluded.manifest_id,
+      funding_rate = excluded.funding_rate,
+      mark_price = excluded.mark_price
+  `)
+  let count = 0
+  db.transaction(() => {
+    for (const event of events) {
+      validateFundingEvent(event)
+      insert.run({
+        $manifest_id: event.manifest_id,
+        $exchange: event.exchange,
+        $symbol: event.symbol,
+        $funding_time: event.funding_time,
+        $funding_rate: event.funding_rate,
+        $mark_price: event.mark_price ?? null,
+      })
+      count += 1
+    }
+  })()
+  return count
+}
+
+export function upsertFeatureManifest(db: Database, manifest: FeatureManifest): void {
+  validateFeatureManifest(manifest)
+  db.query(`
+    INSERT INTO feature_manifest(
+      feature_manifest_id, source_manifest_id, feature_set_id, symbol, timeframe,
+      content_hash, manifest_path, generated_at
+    )
+    VALUES (
+      $feature_manifest_id, $source_manifest_id, $feature_set_id, $symbol, $timeframe,
+      $content_hash, $manifest_path, $generated_at
+    )
+    ON CONFLICT(feature_manifest_id) DO UPDATE SET
+      source_manifest_id = excluded.source_manifest_id,
+      feature_set_id = excluded.feature_set_id,
+      symbol = excluded.symbol,
+      timeframe = excluded.timeframe,
+      content_hash = excluded.content_hash,
+      manifest_path = excluded.manifest_path,
+      generated_at = excluded.generated_at
+  `).run({
+    $feature_manifest_id: manifest.feature_manifest_id,
+    $source_manifest_id: manifest.source_manifest_id,
+    $feature_set_id: manifest.feature_set_id,
+    $symbol: manifest.symbol ?? null,
+    $timeframe: manifest.timeframe ?? null,
+    $content_hash: manifest.content_hash,
+    $manifest_path: manifest.manifest_path,
+    $generated_at: manifest.generated_at,
+  })
+}
+
+export function readMarketManifest(db: Database, manifestId: string): MarketManifest | null {
+  const row = db.query(`
+    SELECT manifest_id, dataset_kind, source, exchange, symbol, timeframe,
+      first_ts, last_ts, rows, content_hash, manifest_path, created_at, freshness_json
+    FROM market_manifest
+    WHERE manifest_id = $manifest_id
+  `).get({ $manifest_id: manifestId }) as MarketManifestRow | null
+  return row ? manifestFromRow(row) : null
+}
+
+export function buildMarketManifest(input: JSONRecord): MarketManifest {
+  const now = stringField(input.created_at) || stringField(input.now) || new Date().toISOString()
+  return {
+    manifest_id: stringField(input.manifest_id),
+    dataset_kind: stringField(input.dataset_kind),
+    source: stringField(input.source),
+    exchange: stringField(input.exchange) || "binance_usdm",
+    symbol: stringField(input.symbol) || undefined,
+    timeframe: stringField(input.timeframe) || undefined,
+    first_ts: optionalNumber(input.first_ts),
+    last_ts: optionalNumber(input.last_ts),
+    rows: optionalNumber(input.rows),
+    content_hash: stringField(input.content_hash),
+    manifest_path: stringField(input.manifest_path),
+    created_at: now,
+    freshness_json: optionalRecord(input.freshness_json ?? input.freshness),
+  }
+}
+
+export function buildCanonicalCandles(value: unknown): CanonicalCandle[] {
+  return Array.isArray(value) ? value.map(asRecord).map((row) => ({
+    manifest_id: stringField(row.manifest_id),
+    exchange: stringField(row.exchange) || "binance_usdm",
+    symbol: stringField(row.symbol),
+    timeframe: stringField(row.timeframe),
+    open_time: numberField(row.open_time),
+    close_time: numberField(row.close_time),
+    open: numberField(row.open),
+    high: numberField(row.high),
+    low: numberField(row.low),
+    close: numberField(row.close),
+    volume: optionalNumber(row.volume),
+    quote_volume: optionalNumber(row.quote_volume),
+  })) : []
+}
+
+export function buildFundingEvents(value: unknown): FundingEvent[] {
+  return Array.isArray(value) ? value.map(asRecord).map((row) => ({
+    manifest_id: stringField(row.manifest_id),
+    exchange: stringField(row.exchange) || "binance_usdm",
+    symbol: stringField(row.symbol),
+    funding_time: numberField(row.funding_time),
+    funding_rate: numberField(row.funding_rate),
+    mark_price: optionalNumber(row.mark_price),
+  })) : []
+}
+
+export function buildFeatureManifest(input: JSONRecord): FeatureManifest {
+  const now = stringField(input.generated_at) || stringField(input.now) || new Date().toISOString()
+  return {
+    feature_manifest_id: stringField(input.feature_manifest_id),
+    source_manifest_id: stringField(input.source_manifest_id),
+    feature_set_id: stringField(input.feature_set_id),
+    symbol: stringField(input.symbol) || undefined,
+    timeframe: stringField(input.timeframe) || undefined,
+    content_hash: stringField(input.content_hash),
+    manifest_path: stringField(input.manifest_path),
+    generated_at: now,
+  }
+}
+
+function validateMarketManifest(manifest: MarketManifest): void {
+  if (!manifest.manifest_id || !manifest.dataset_kind || !manifest.source || !manifest.exchange || !manifest.content_hash || !manifest.manifest_path || !manifest.created_at) {
+    throw new Error("manifest_id, dataset_kind, source, exchange, content_hash, manifest_path, and created_at are required")
+  }
+}
+
+function validateCanonicalCandle(candle: CanonicalCandle): void {
+  if (!candle.manifest_id || !candle.exchange || !candle.symbol || !candle.timeframe || !Number.isFinite(candle.open_time) || !Number.isFinite(candle.close_time)) {
+    throw new Error("canonical candle identity fields are required")
+  }
+  for (const field of ["open", "high", "low", "close"] as const) {
+    if (!Number.isFinite(candle[field])) {
+      throw new Error(`canonical candle ${field} is required`)
+    }
+  }
+}
+
+function validateFundingEvent(event: FundingEvent): void {
+  if (!event.manifest_id || !event.exchange || !event.symbol || !Number.isFinite(event.funding_time) || !Number.isFinite(event.funding_rate)) {
+    throw new Error("funding event identity fields and funding_rate are required")
+  }
+}
+
+function validateFeatureManifest(manifest: FeatureManifest): void {
+  if (!manifest.feature_manifest_id || !manifest.source_manifest_id || !manifest.feature_set_id || !manifest.content_hash || !manifest.manifest_path || !manifest.generated_at) {
+    throw new Error("feature_manifest_id, source_manifest_id, feature_set_id, content_hash, manifest_path, and generated_at are required")
+  }
+}
+
+function optionalNumber(value: unknown): number | undefined {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : undefined
+}
+
+function optionalRecord(value: unknown): JSONRecord | undefined {
+  const record = asRecord(value)
+  return Object.keys(record).length > 0 ? record : undefined
+}
+
+interface MarketManifestRow {
+  manifest_id: string
+  dataset_kind: string
+  source: string
+  exchange: string
+  symbol: string | null
+  timeframe: string | null
+  first_ts: number | null
+  last_ts: number | null
+  rows: number | null
+  content_hash: string
+  manifest_path: string
+  created_at: string
+  freshness_json: string | null
+}
+
+function manifestFromRow(row: MarketManifestRow): MarketManifest {
+  return {
+    manifest_id: row.manifest_id,
+    dataset_kind: row.dataset_kind,
+    source: row.source,
+    exchange: row.exchange,
+    symbol: row.symbol ?? undefined,
+    timeframe: row.timeframe ?? undefined,
+    first_ts: row.first_ts ?? undefined,
+    last_ts: row.last_ts ?? undefined,
+    rows: row.rows ?? undefined,
+    content_hash: row.content_hash,
+    manifest_path: row.manifest_path,
+    created_at: row.created_at,
+    freshness_json: row.freshness_json ? JSON.parse(row.freshness_json) as JSONRecord : undefined,
+  }
+}
+

@@ -31,6 +31,8 @@ const PROTOCOL_SCHEMA_IDS = {
   exchangeCommandRef: "trade.protocol.exchange-command-ref.v1",
   policySnapshot: "trade.protocol.policy-snapshot.v1",
   logicalStoreRef: "trade.protocol.logical-store-ref.v1",
+  domainInboxEnvelope: "trade.protocol.domain-inbox-envelope.v1",
+  domainOutboxEnvelope: "trade.protocol.domain-outbox-envelope.v1",
 } as const
 
 type TopLevelDomain = typeof TOP_LEVEL_DOMAINS[number]
@@ -67,6 +69,17 @@ interface BuildJobTicketInput {
   stop_conditions?: string[]
   handoff_summary?: string
   output_contract?: JSONRecord
+}
+
+interface BuildDomainEnvelopeInput {
+  direction: "inbox" | "outbox"
+  message_id: string
+  source_domain?: TopLevelDomain | string
+  target_domain?: TopLevelDomain | string
+  rail: string
+  payload_ref: string
+  idempotency_key?: string
+  created_at: string
 }
 
 function buildJobTicket(input: BuildJobTicketInput): JSONRecord {
@@ -106,6 +119,19 @@ function normalizeToolArgv(tool: ProtocolToolsetEntry, argv: string[]): string[]
   return argv.map((part, index) => index === 1 && part.startsWith(prefix) ? part.slice(prefix.length) : part)
 }
 
+function buildDomainEnvelope(input: BuildDomainEnvelopeInput): JSONRecord {
+  return removeUndefined({
+    schema_id: input.direction === "inbox" ? PROTOCOL_SCHEMA_IDS.domainInboxEnvelope : PROTOCOL_SCHEMA_IDS.domainOutboxEnvelope,
+    message_id: input.message_id,
+    source_domain: input.source_domain,
+    target_domain: input.target_domain,
+    rail: input.rail,
+    payload_ref: input.payload_ref,
+    idempotency_key: input.idempotency_key,
+    created_at: input.created_at,
+  })
+}
+
 function removeUndefined<T extends JSONRecord>(value: T): T {
   for (const key of Object.keys(value)) {
     if (value[key] === undefined) {
@@ -120,9 +146,11 @@ export {
   LOGICAL_STORES,
   TOP_LEVEL_DOMAINS,
   buildCommandSpec,
+  buildDomainEnvelope,
   buildJobTicket,
   normalizeToolArgv,
   type BuildJobTicketInput,
+  type BuildDomainEnvelopeInput,
   type LogicalStore,
   type ProtocolSchemaId,
   type ProtocolToolsetEntry,

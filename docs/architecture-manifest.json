@@ -4,14 +4,22 @@
     {
       "id": "orchestration-ops",
       "status": "implemented",
-      "modules": ["modules/orchestration-ops/trade-flow"],
+      "modules": [
+        "modules/orchestration-ops/trade-flow",
+        "modules/orchestration-ops/ops-runtime-store",
+        "modules/orchestration-ops/runtime-health-guard",
+        "modules/orchestration-ops/ops-notify-dispatch"
+      ],
       "owns_jobs": ["J01", "J09"],
       "owns_stores": ["ops_runtime_store"]
     },
     {
       "id": "policy-risk",
       "status": "implemented",
-      "modules": ["modules/policy-risk/runtime-policy-compiler"],
+      "modules": [
+        "modules/policy-risk/runtime-policy-compiler",
+        "modules/policy-risk/policy-registry"
+      ],
       "owns_stores": ["policy_registry"]
     },
     {
@@ -32,7 +40,8 @@
         "modules/market-data-products/binance-read/market-scan",
         "modules/market-data-products/binance-read/symbol-snapshot",
         "modules/market-data-products/binance-read/aggtrades-fetch",
-        "modules/market-data-products/liquidation-zones"
+        "modules/market-data-products/liquidation-zones",
+        "modules/market-data-products/market-data-store"
       ],
       "owns_stores": ["market_data_store"]
     },
@@ -45,7 +54,8 @@
         "modules/exchange-gateway/binance-write/order-cancel",
         "modules/exchange-gateway/binance-write/order-preview",
         "modules/exchange-gateway/binance-write/position-protect",
-        "modules/exchange-gateway/binance-write/position-adjust"
+        "modules/exchange-gateway/binance-write/position-adjust",
+        "modules/exchange-gateway/exchange-runtime-store"
       ],
       "owns_stores": ["exchange_runtime_store"]
     },
@@ -92,7 +102,8 @@
         "modules/research-strategy-development/rd-campaign-runner",
         "modules/research-strategy-development/rd-ledger",
         "modules/research-strategy-development/rd-artifact-summary",
-        "modules/research-strategy-development/rd-integration-suite"
+        "modules/research-strategy-development/rd-integration-suite",
+        "modules/research-strategy-development/research-state-store"
       ],
       "owns_jobs": ["J05", "J06"],
       "owns_stores": ["research_state_store"]
@@ -100,7 +111,11 @@
     {
       "id": "governance-review-compliance",
       "status": "implemented",
-      "modules": ["modules/governance-review-compliance/strategy-review"],
+      "modules": [
+        "modules/governance-review-compliance/strategy-review",
+        "modules/governance-review-compliance/governance-ledger",
+        "modules/governance-review-compliance/closed-flow-review-sweep"
+      ],
       "owns_jobs": ["J08"],
       "owns_stores": ["governance_ledger"]
     },
@@ -117,10 +132,9 @@
       "ticket_no": "J01",
       "job_id": "runtime_health_guard",
       "target_domain": "orchestration-ops",
-      "status": "planned",
-      "owner_module": "modules/orchestration-ops/trade-flow",
-      "writes": ["ops_runtime_store"],
-      "reason": "health checker boundary exists in architecture; standalone runtime owner is not yet implemented"
+      "status": "implemented",
+      "owner_module": "modules/orchestration-ops/runtime-health-guard",
+      "writes": ["ops_runtime_store"]
     },
     {
       "ticket_no": "J02",
@@ -174,19 +188,17 @@
       "ticket_no": "J08",
       "job_id": "closed_flow_review_sweep",
       "target_domain": "governance-review-compliance",
-      "status": "planned",
-      "owner_module": "modules/governance-review-compliance/strategy-review",
-      "writes": ["trade_event_store", "governance_ledger"],
-      "reason": "strategy-review exists; closed-flow sweep runner is still planned"
+      "status": "implemented",
+      "owner_module": "modules/governance-review-compliance/closed-flow-review-sweep",
+      "writes": ["governance_ledger"]
     },
     {
       "ticket_no": "J09",
       "job_id": "ops_notify_dispatch",
       "target_domain": "orchestration-ops",
-      "status": "planned",
-      "owner_module": "modules/orchestration-ops/trade-flow",
-      "writes": ["ops_runtime_store"],
-      "reason": "notify boundary exists in architecture; standalone dispatcher is not yet implemented"
+      "status": "implemented",
+      "owner_module": "modules/orchestration-ops/ops-notify-dispatch",
+      "writes": ["ops_runtime_store"]
     }
   ],
   "stores": [
@@ -210,18 +222,18 @@
     },
     {
       "id": "market_data_store",
-      "status": "planned",
+      "status": "implemented",
       "owner_domain": "market-data-products",
-      "owner_module": "modules/market-data-products/ohlcv-fetch",
+      "owner_module": "modules/market-data-products/market-data-store",
       "physical": { "kind": "duckdb", "path": "data/market_data.duckdb", "tables": ["market_manifest", "canonical_candle", "funding_event", "feature_manifest"] },
       "schema": "docs/storage-schema/market-data-store.sql",
       "write_contract": "append-or-upsert-by-manifest"
     },
     {
       "id": "exchange_runtime_store",
-      "status": "planned",
+      "status": "implemented",
       "owner_domain": "exchange-gateway",
-      "owner_module": "modules/exchange-gateway/binance-write/order-place",
+      "owner_module": "modules/exchange-gateway/exchange-runtime-store",
       "physical": { "kind": "sqlite", "path": "data/exchange_runtime.db", "tables": ["exchange_command", "exchange_result", "exchange_snapshot_ref"] },
       "schema": "docs/storage-schema/exchange-runtime-store.sql",
       "write_contract": "append-only"
@@ -237,36 +249,36 @@
     },
     {
       "id": "research_state_store",
-      "status": "planned",
+      "status": "implemented",
       "owner_domain": "research-strategy-development",
-      "owner_module": "modules/research-strategy-development/rd-program-state",
+      "owner_module": "modules/research-strategy-development/research-state-store",
       "physical": { "kind": "sqlite", "path": "data/rd_state.db", "tables": ["rd_program", "rd_hypothesis", "rd_trial", "rd_holdout_use", "rd_lesson"] },
       "schema": "docs/storage-schema/research-state-store.sql",
       "write_contract": "append-ledger-and-upsert-state"
     },
     {
       "id": "governance_ledger",
-      "status": "planned",
+      "status": "implemented",
       "owner_domain": "governance-review-compliance",
-      "owner_module": "modules/governance-review-compliance/strategy-review",
+      "owner_module": "modules/governance-review-compliance/governance-ledger",
       "physical": { "kind": "sqlite", "path": "data/governance.db", "tables": ["governance_evidence", "promotion_decision", "closed_flow_review", "review_batch"] },
       "schema": "docs/storage-schema/governance-ledger.sql",
       "write_contract": "append-only"
     },
     {
       "id": "policy_registry",
-      "status": "planned",
+      "status": "implemented",
       "owner_domain": "policy-risk",
-      "owner_module": "modules/policy-risk/runtime-policy-compiler",
+      "owner_module": "modules/policy-risk/policy-registry",
       "physical": { "kind": "sqlite", "path": "data/policy_registry.db", "tables": ["policy_snapshot", "approved_strategy_ref"] },
       "schema": "docs/storage-schema/policy-registry.sql",
       "write_contract": "append-snapshot"
     },
     {
       "id": "ops_runtime_store",
-      "status": "planned",
+      "status": "implemented",
       "owner_domain": "orchestration-ops",
-      "owner_module": "modules/orchestration-ops/trade-flow",
+      "owner_module": "modules/orchestration-ops/ops-runtime-store",
       "physical": { "kind": "sqlite", "path": "data/ops_runtime.db", "tables": ["cycle_run", "job_run", "runtime_health", "notify_attempt", "ops_lock"] },
       "schema": "docs/storage-schema/ops-runtime-store.sql",
       "write_contract": "append-observability"
@@ -279,6 +291,8 @@
     { "id": "market_data_rail", "status": "implemented", "contract": "modules/contracts/protocol-fabric/src/schemas/market-data-manifest.schema.json" },
     { "id": "exchange_rail", "status": "implemented", "contract": "modules/contracts/protocol-fabric/src/schemas/exchange-command-ref.schema.json" },
     { "id": "policy_rail", "status": "implemented", "contract": "modules/contracts/protocol-fabric/src/schemas/policy-snapshot.schema.json" },
-    { "id": "store_rail", "status": "implemented", "contract": "modules/contracts/protocol-fabric/src/schemas/logical-store-ref.schema.json" }
+    { "id": "store_rail", "status": "implemented", "contract": "modules/contracts/protocol-fabric/src/schemas/logical-store-ref.schema.json" },
+    { "id": "domain_inbox_rail", "status": "implemented", "contract": "modules/contracts/protocol-fabric/src/schemas/domain-inbox-envelope.schema.json" },
+    { "id": "domain_outbox_rail", "status": "implemented", "contract": "modules/contracts/protocol-fabric/src/schemas/domain-outbox-envelope.schema.json" }
   ]
 }

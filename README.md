@@ -32,15 +32,15 @@ agent-native 加密交易工作仓库。目标是让 agent 在可审计事实、
 
 | Job | 业务含义 | 状态 |
 | --- | --- | --- |
-| `J01 runtime health` | 配置、API、DB、lock、safe mode 检查 | planned |
+| `J01 runtime health` | 配置、API、DB、lock、safe mode 检查 | implemented |
 | `J02 account reconcile` | 交易所事实对账，修复本地风险状态 | implemented |
 | `J03 fast guard` | active flow 快轨守护、触发、防御、轻量执行 | implemented |
 | `J04 slow watch` | 慢轨盯市、机会生成、watchlist / intent | implemented |
 | `J05 R&D loop` | 策略研发假设循环和实验 | implemented |
 | `J06 shadow tracking` | shadow / forward 样本跟踪 | implemented |
 | `J07 catalog hygiene` | artifact catalog stale / GC / retention | implemented |
-| `J08 closed-flow review` | 已闭合交易复盘和 promotion evidence | planned |
-| `J09 ops notify` | 异常汇总、人工接管提醒、cycle summary | planned |
+| `J08 closed-flow review` | 已闭合交易复盘和 promotion evidence | implemented |
+| `J09 ops notify` | 异常汇总、人工接管提醒、cycle summary | implemented |
 
 ## 2. 两条主链
 
@@ -397,13 +397,13 @@ bun modules/research-strategy-development/rd-supervisor/src/scripts/main.ts --st
 
 | 优先级 | 任务 | 目标完成状态 |
 | --- | --- | --- |
-| P0 | 实现 `ops_runtime_store`、`J01 runtime_health_guard`、`J09 ops_notify_dispatch` | cycle/job/health/notify 有独立库表和 owner module |
-| P0 | 把 automation cycle 从裸路径继续收敛到 `tool_id + command_spec + protocol-fabric` | 调度中心只发协议，不读下游实现 |
-| P1 | 实现 `exchange_runtime_store` | Binance write request/result/client_order_id/idempotency 有独立审计账本 |
-| P1 | 实现 `market_data_store` | raw/canonical/feature/dataset manifest 由市场数据域单写管理 |
-| P1 | 实现 `policy_registry` | approved strategy refs、runtime policy hash、风险快照可追溯 |
-| P2 | 实现 `research_state_store` | RD hypothesis、budget、trial、holdout use 不再散落在 artifact/state 文件 |
-| P2 | 实现 `governance_ledger` 与 `J08 closed-flow review sweep` | review/promotion evidence 有独立 ledger 和串行 closeout job |
-| P2 | 收敛域间调用到 inbox/outbox + rail envelope | 域内 handler 不再被其他域直接 import 或直接写库 |
-| P3 | 为每个 logical store 增加 migration/init/check CLI | 库表可独立初始化、升级、验证 |
+| P0 | 实现 `ops_runtime_store`、`J01 runtime_health_guard`、`J09 ops_notify_dispatch` | done：cycle/job/health/notify 有独立库表和 owner module |
+| P0 | 把 automation cycle 从裸路径继续收敛到 `tool_id + command_spec + protocol-fabric` | done：J01/J03/J04/J05/J07/J08/J09 均输出 tool ticket + command_spec |
+| P1 | 实现 `exchange_runtime_store` | done：Binance write request/result/client_order_id/idempotency 有独立审计账本 |
+| P1 | 实现 `market_data_store` | done：raw/canonical/feature/dataset manifest 由市场数据域单写管理 |
+| P1 | 实现 `policy_registry` | done：approved strategy refs、runtime policy hash、风险快照可追溯 |
+| P2 | 实现 `research_state_store` | done：RD hypothesis、budget、trial、holdout use 有独立 owner store |
+| P2 | 实现 `governance_ledger` 与 `J08 closed-flow review sweep` | done：review/promotion evidence 有独立 ledger 和串行 closeout job |
+| P2 | 收敛域间调用到 inbox/outbox + rail envelope | done：protocol-fabric 已定义 domain inbox/outbox envelope，源码边界由 checker 管控 |
+| P3 | 为每个 logical store 增加 migration/init/check CLI | done：`bun scripts/logical-store.ts --action init/check --store all` |
 | P3 | 继续拆 `trade-flow` 剩余 suite 逻辑 | `orchestration-ops/trade-flow` 只保留 cycle orchestration 和 summary |

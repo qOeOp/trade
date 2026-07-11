@@ -16,17 +16,17 @@
 | --- | --- | --- | --- | --- |
 | `trade_event_store` | implemented | `portfolio-execution-state/event-store` | `data/trade.db.plan_event` | 钱的事件真相；append-only |
 | `flow_read_models` | implemented-derived | `portfolio-execution-state/flow-projector` | memory；可选 cache table | 从 `plan_event` 重建，不是事实源 |
-| `market_data_store` | planned | `market-data-products` | `data/market_data.duckdb` / parquet | raw/canonical/funding/feature manifests |
-| `exchange_runtime_store` | planned | `exchange-gateway` | `data/exchange_runtime.db` | 交易所 command/result/idempotency ledger；真钱事实仍回写 `trade_event_store` |
+| `market_data_store` | implemented | `market-data-products/market-data-store` | `data/market_data.duckdb` / parquet | raw/canonical/funding/feature manifests |
+| `exchange_runtime_store` | implemented | `exchange-gateway/exchange-runtime-store` | `data/exchange_runtime.db` | 交易所 command/result/idempotency ledger；真钱事实仍回写 `trade_event_store` |
 | `artifact_catalog` | implemented | `artifact-knowledge/artifact-catalog` | `data/data_catalog.db` | artifact/dataset/evidence/report 索引，不存大 payload |
-| `research_state_store` | planned | `research-strategy-development/rd-program-state` | `data/rd_state.db` | RD program / hypothesis / trial / holdout-use ledger |
-| `governance_ledger` | planned | `governance-review-compliance/strategy-review` | `data/governance.db` | evidence、promotion、closed-flow review 的独立 ledger |
-| `policy_registry` | planned | `policy-risk/runtime-policy-compiler` | `data/policy_registry.db` | runtime policy snapshot 与 approved strategy refs |
-| `ops_runtime_store` | planned | `orchestration-ops` | `data/ops_runtime.db` | cycle/job/health/notify observability，不参与交易真相 |
+| `research_state_store` | implemented | `research-strategy-development/research-state-store` | `data/rd_state.db` | RD program / hypothesis / trial / holdout-use ledger |
+| `governance_ledger` | implemented | `governance-review-compliance/governance-ledger` | `data/governance.db` | evidence、promotion、closed-flow review 的独立 ledger |
+| `policy_registry` | implemented | `policy-risk/policy-registry` | `data/policy_registry.db` | runtime policy snapshot 与 approved strategy refs |
+| `ops_runtime_store` | implemented | `orchestration-ops/ops-runtime-store` | `data/ops_runtime.db` | cycle/job/health/notify observability，不参与交易真相 |
 
 ## Implementation Rule
 
-`planned` 不表示“不需要做”，而是表示顶层已决定需要独立 owner 和 DDL，但当前运行时代码还未接入该物理库。实现任一 planned store 时必须：
+当前 logical store 均已有 owner / DDL / init-check 路径。后续若新增 `planned` store，`planned` 不表示“不需要做”，而是表示顶层已决定需要独立 owner 和 DDL，但运行时代码还未接入该物理库。实现任一 planned store 时必须：
 
 1. 先以对应 `docs/storage-schema/*.sql` 为 migration 起点。
 2. owner module 提供唯一 `ensureSchema/init` 入口。

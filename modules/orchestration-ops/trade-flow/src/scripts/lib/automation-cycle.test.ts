@@ -38,6 +38,12 @@ test("automation cycle plan isolates trade db work from R&D artifact jobs", () =
     assert.equal(result.executable, false)
     assert.equal(result.active_flow_count, 1)
     const jobs = asArray(result.jobs).map(asRecord)
+    const health = asRecord(jobs.find((job) => job.job_id === "runtime_health_guard"))
+    assert.equal(health.active, true)
+    assert.equal(health.subagent_role, "ops-runtime-operator")
+    assert.equal(asRecord(health.tool_job).tool_id, "ops.runtime-health-guard")
+    assert.equal(asRecord(health.tool_job).ticket_no, "J01")
+    assert.equal(asRecord(asRecord(health.tool_job).command_spec).cwd, "modules/orchestration-ops/runtime-health-guard")
     assert.equal(jobs.find((job) => job.job_id === "fast_track_guard")?.active, true)
     const fastToolJob = asRecord(asRecord(jobs.find((job) => job.job_id === "fast_track_guard")).tool_job)
     assert.equal(fastToolJob.tool_id, "trade-flow.runtime")
@@ -48,7 +54,10 @@ test("automation cycle plan isolates trade db work from R&D artifact jobs", () =
     assert.equal(jobs.find((job) => job.job_id === "rd_forward_shadow_trackers")?.may_write_trade_db, false)
     const review = asRecord(jobs.find((job) => job.job_id === "closed_flow_review_sweep"))
     assert.equal(review.trigger_mode, "event_or_fallback_sweep")
-    assert.equal(review.command, undefined)
+    assert.equal(asRecord(review.tool_job).tool_id, "governance.closed-flow-review-sweep")
+    assert.equal(asRecord(review.tool_job).ticket_no, "J08")
+    assert.equal(asRecord(review.command_spec).cwd, "modules/governance-review-compliance/closed-flow-review-sweep")
+    assert.equal(review.may_write_trade_db, false)
     assert.deepEqual(review.candidate_chain_ids, ["flow-cycle-1"])
     assert.equal(jobs.find((job) => job.job_id === "catalog_hygiene_scan")?.command, "bun modules/artifact-knowledge/artifact-catalog/src/scripts/main.ts --catalog-scan --catalog-db data/data_catalog.db --catalog-root ./data --catalog-root ./tmp")
     const catalogToolJob = asRecord(asRecord(jobs.find((job) => job.job_id === "catalog_hygiene_scan")).tool_job)
@@ -57,10 +66,16 @@ test("automation cycle plan isolates trade db work from R&D artifact jobs", () =
     assert.equal(catalogToolJob.target_domain, "artifact-knowledge")
     assert.equal(asRecord(catalogToolJob.writes).catalog, true)
     assert.deepEqual(asArray(asRecord(catalogToolJob.payload).catalog_roots), ["./data", "./tmp"])
+    const notify = asRecord(jobs.find((job) => job.job_id === "ops_notify_dispatch"))
+    assert.equal(notify.active, true)
+    assert.equal(asRecord(notify.tool_job).tool_id, "ops.notify-dispatch")
+    assert.equal(asRecord(notify.tool_job).ticket_no, "J09")
     assert.deepEqual(asArray(result.dispatch_order).map((stage) => asRecord(stage).stage), [
+      "serial_runtime_guard",
       "serial_trade_db_guard",
       "parallel_isolated_work",
       "serial_review_closeout",
+      "serial_ops_closeout",
     ])
   } finally {
     db.close()
@@ -80,6 +95,8 @@ test("automation cycle plan can disable optional jobs", () => {
 
     const jobs = asArray(result.jobs).map(asRecord)
     assert.equal(jobs.find((job) => job.job_id === "fast_track_guard")?.active, false)
+    assert.equal(jobs.find((job) => job.job_id === "runtime_health_guard")?.enabled, true)
+    assert.equal(jobs.find((job) => job.job_id === "ops_notify_dispatch")?.enabled, true)
     assert.equal(jobs.find((job) => job.job_id === "rd_strategy_supervisor")?.enabled, false)
     assert.equal(jobs.find((job) => job.job_id === "rd_forward_shadow_trackers")?.enabled, false)
     assert.equal(jobs.find((job) => job.job_id === "catalog_hygiene_scan")?.enabled, false)
@@ -136,7 +153,7 @@ test("automation cycle plan can dispatch a learning strategy R&D supervisor", ()
     assert.equal(asRecord(asRecord(initToolJob.payload).json).action, "init")
     assert.deepEqual(asArray(asRecord(rd.init_command_spec).argv).slice(0, 4), [
       "bun",
-      "modules/research-strategy-development/rd-program-state/src/scripts/main.ts",
+      "src/scripts/main.ts",
       "--state",
       "./data/rd/program.json",
     ])
@@ -194,7 +211,7 @@ test("automation cycle plan can drive R&D supervisor from durable program state"
     assert.equal(commandSpec.executable, true)
     assert.deepEqual(asArray(commandSpec.argv).slice(0, 4), [
       "bun",
-      "modules/research-strategy-development/rd-supervisor/src/scripts/main.ts",
+      "src/scripts/main.ts",
       "--state",
       String(activeRd.program_state_ref),
     ])

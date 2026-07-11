@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import assert from "node:assert/strict"
 import test from "node:test"
-import { buildJobTicket, LOGICAL_STORES, PROTOCOL_SCHEMA_IDS, TOP_LEVEL_DOMAINS, type ProtocolToolsetEntry } from "./protocol-fabric"
+import { buildDomainEnvelope, buildJobTicket, LOGICAL_STORES, PROTOCOL_SCHEMA_IDS, TOP_LEVEL_DOMAINS, type ProtocolToolsetEntry } from "./protocol-fabric"
 
 test("top-level domains match the architecture boundary set", () => {
   assert.deepEqual(TOP_LEVEL_DOMAINS, [
@@ -35,9 +35,39 @@ test("schema registry exposes all rail envelope ids", () => {
     readSchema("logical-store-ref.schema.json").$id,
     readSchema("market-data-manifest.schema.json").$id,
     readSchema("policy-snapshot.schema.json").$id,
+    readSchema("domain-inbox-envelope.schema.json").$id,
+    readSchema("domain-outbox-envelope.schema.json").$id,
   ].sort()
 
   assert.deepEqual(actual, expected)
+})
+
+test("domain port envelopes carry inbox and outbox schema ids", () => {
+  assert.deepEqual(buildDomainEnvelope({
+    direction: "inbox",
+    message_id: "msg-1",
+    source_domain: "orchestration-ops",
+    target_domain: "live-execution-control",
+    rail: "command_rail",
+    payload_ref: "job:J03",
+    created_at: "2026-07-11T00:00:00Z",
+  }), {
+    schema_id: PROTOCOL_SCHEMA_IDS.domainInboxEnvelope,
+    message_id: "msg-1",
+    source_domain: "orchestration-ops",
+    target_domain: "live-execution-control",
+    rail: "command_rail",
+    payload_ref: "job:J03",
+    created_at: "2026-07-11T00:00:00Z",
+  })
+  assert.equal(buildDomainEnvelope({
+    direction: "outbox",
+    message_id: "msg-2",
+    source_domain: "live-execution-control",
+    rail: "fact_rail",
+    payload_ref: "event:order_fill",
+    created_at: "2026-07-11T00:00:01Z",
+  }).schema_id, PROTOCOL_SCHEMA_IDS.domainOutboxEnvelope)
 })
 
 test("logical store ref schema lists the architecture store owners", () => {
