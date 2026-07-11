@@ -1,5 +1,5 @@
 {
-  "name": "strategy-rd",
+  "name": "rd-artifact-summary",
   "private": true,
   "type": "module",
   "devDependencies": {

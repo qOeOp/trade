@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
-import { candidateFromStrategyContract, compileStrategyContract, lintStrategyContract, parseYamlSubset } from "./strategy-contract"
+import { candidateFromStrategyContract, compileStrategyContract, lintStrategyContract, parseYamlSubset } from "../../../../contracts/strategy-contract/src/strategy-contract"
 
 test("parseYamlSubset reads nested maps and lists", () => {
   assert.deepEqual(parseYamlSubset([

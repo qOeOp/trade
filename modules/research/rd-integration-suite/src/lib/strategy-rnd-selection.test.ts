@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import type { ReplayResult } from "./replay-core"
+import type { ReplayResult } from "../../../replay-engine/src/lib/replay-core"
 import type { StrategyRndCandidateReport } from "../../../candidate-batch-engine/src/lib/strategy-rnd-evaluation"
 import {
   buildFailureSummary,

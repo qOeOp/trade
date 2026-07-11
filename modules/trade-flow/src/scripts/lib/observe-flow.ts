@@ -1,6 +1,6 @@
 import { asRecord, stringField, type JSONRecord } from "./json"
 import { fetchObserveProjections, type Runner } from "./observe-adapter"
-import { loadJsonFile, loadStrategies } from "./loaders"
+import { loadJsonFile, loadStrategies } from "../../../../contracts/strategy-policy/src/strategy-policy"
 import { buildObserveEvent, type ObserveEvent } from "./observe-builder"
 import { loadRuntimePolicy } from "./runtime-policy"
 

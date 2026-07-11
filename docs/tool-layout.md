@@ -49,7 +49,8 @@
 | `modules/research/forward-holdout/` | research atom | frozen candidate forward-only signal check | R&D search、strategy evidence、promotion、`trade.db`、Binance 写接口 |
 | `modules/research/rd-campaign-runner/` | research atom | R&D campaign | `trade.db`、Binance 写接口、strategy promotion、R&D loop 实现、forward tracker、RD state init/read/update/plan_next、supervisor CLI、单策略 replay CLI、latest signal CLI、panel CLI、data split CLI、benchmark/calibration/funding governance CLI、contract compile/lint CLI |
 | `modules/research/rd-ledger/` | research atom | R&D run ledger / holdout idempotence | candidate evaluation、campaign orchestration、RD state writeback、`trade.db`、Binance 写接口 |
-| `modules/research/strategy-rd/` | transitional research core | helper libraries awaiting extraction | agent-facing tool entrypoint、`trade.db`、Binance 写接口、strategy promotion、R&D loop/campaign、forward tracker、RD state init/read/update/plan_next、supervisor CLI、单策略 replay CLI、latest signal CLI、panel CLI、data split CLI、benchmark/calibration/funding governance CLI、contract compile/lint CLI |
+| `modules/research/rd-artifact-summary/` | research atom | R&D artifact summary | replay、candidate evaluation、artifact/catalog/ledger 写入、RD memory、`trade.db` |
+| `modules/research/rd-integration-suite/` | test suite | research atoms integration regression | production RD logic、agent-facing tool、持久写入 |
 | `modules/research/rd-loop-runner/` | RD loop runner | 单轮 R&D artifact、catalog、ledger、optional state writeback | campaign orchestration、strategy evidence、`trade.db`、Binance 写接口 |
 | `modules/research/rd-program-state/` | RD memory state | init/read/update/plan_next durable R&D state | R&D trial execution、strategy evidence、`trade.db`、Binance 写接口 |
 | `modules/research/rd-supervisor/` | RD supervisor | plan_next -> loop/campaign -> state writeback | `trade.db`、Binance 写接口、strategy review、promotion |

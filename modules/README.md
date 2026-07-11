@@ -41,7 +41,8 @@
 | `research/forward-holdout` | frozen candidate、explicit frozen_at、forward dataset manifests | forward holdout report | frozen candidate forward-only signal check | R&D search、strategy evidence、promotion、`trade.db`、Binance |
 | `research/rd-campaign-runner` | hypothesis queue、discovery/validation manifests、optional calibration/panel reports、explicit RD state path | campaign report、optional RD state writeback、catalog metadata | bounded R&D campaign orchestration | 写 `trade.db`、触发 Binance、策略升格、单轮 loop 实现、candidate batch evaluation、forward tracker、RD supervisor |
 | `research/rd-ledger` | R&D loop input、batch summary、catalog/ledger path | R&D ledger record、idempotence checks、holdout key、redacted artifact input | R&D run ledger and holdout idempotence | candidate evaluation、campaign orchestration、RD state writeback、`trade.db`、Binance |
-| `research/strategy-rd` | OHLCV manifest、market feature artifact、candidate JSON、strategy contract | library helper results | transitional research core helpers | agent-facing tool entrypoint、写 `trade.db`、触发 Binance、策略升格、R&D loop/campaign、candidate batch、forward holdout/tracker、RD state init/read/update/plan_next、supervisor CLI、单策略 replay CLI、latest signal CLI、panel CLI、data split CLI、benchmark/calibration/funding governance CLI、strategy contract compile/lint CLI |
+| `research/rd-artifact-summary` | R&D artifact JSON | deterministic summary records | R&D loop / panel artifact 摘要 | replay、candidate evaluation、artifact/catalog/ledger 写入、RD memory、`trade.db` |
+| `research/rd-integration-suite` | test fixtures、owner module imports | test pass/fail | 跨 research atoms 的集成回归 | 生产 RD 逻辑、agent-facing tool、任何持久写入 |
 | `research/rd-loop-runner` | candidate batch payload、artifact/ledger/catalog paths、optional RD state path | loop report、artifact、ledger、catalog ref、optional RD state update | single R&D loop artifact writeback | campaign orchestration、strategy evidence、`trade.db`、Binance 写接口 |
 | `research/rd-program-state` | state path、JSON state command、optional catalog DB | RD state command result、state artifact catalog ref | durable R&D learning memory init/read/update/plan_next | R&D trial execution、strategy evidence、`trade.db`、Binance 写接口 |
 | `research/rd-supervisor` | RD state path、supervisor payload、optional catalog DB | supervisor run result、research artifacts、optional draft strategy | autonomous R&D supervisor loop | `trade.db`、Binance 写接口、strategy review、promotion |
@@ -66,6 +67,7 @@
 | `contracts/preflight-contract` | plan / observe / strategy / account config | deterministic verdict、blocked reasons、warnings | hard guard contract、target action parsing | 交易所写入、市场观点 |
 | `contracts/catalog-contract` | catalog command payload | artifact / evidence / R&D run catalog result | catalog CLI client contract | catalog DB schema / scan / GC 实现 |
 | `contracts/strategy-contract` | strategy markdown、contract YAML subset | compiled/lint contract types and pure helpers | strategy contract 解析、编译、lint 语义 | agent-facing CLI、R&D execution、review/promotion |
+| `contracts/strategy-policy` | strategy markdown、optional JSON path | lightweight strategy policy metadata | frontmatter / strategy file / strategy directory 读取契约 | full Trade Contract compile/lint、fallback discovery、写文件 |
 
 ## Trade-Flow Domains
 

@@ -4,7 +4,7 @@ import { join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { loadStrategies, loadStrategyFile, parseSimpleYaml } from "./loaders"
+import { loadStrategies, loadStrategyFile, parseSimpleYaml } from "./strategy-policy"
 
 test("parseSimpleYaml handles scalar and array values", () => {
   assert.deepEqual(parseSimpleYaml("strategy_id: S-1\nstatus: live-small\ntags: [trend, swing]"), {

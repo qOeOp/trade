@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { summarizeRndArtifact, summarizeStrategyPanelRnd, summarizeStrategyRndLoop, unwrapScriptData } from "./rnd-artifact"
+import { summarizeRndArtifact, summarizeStrategyPanelRnd, summarizeStrategyRndLoop, unwrapScriptData } from "./rd-artifact-summary"
 
 test("R&D artifact helpers unwrap script response envelopes", () => {
   assert.deepEqual(unwrapScriptData({ ok: true, data: { outcome: "candidate_found" } }), { outcome: "candidate_found" })

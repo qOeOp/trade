@@ -68,7 +68,7 @@ function buildScoutSubagentPlan(state: RdProgramState, statePath: string, hypoth
     execution_model: "supervisor_fanout_readonly_scouts_then_single_writer_research_run",
     state_ref: statePath,
     selected_hypothesis_id: hypothesisId || null,
-    single_writer_rule: "Scouts are read-only. Only strategy-rd-supervisor may execute the R&D command or write rd_program_state.",
+    single_writer_rule: "Scouts are read-only. Only rd-supervisor may execute the R&D command or write rd_program_state.",
     scouts: [
       {
         role: "rd-taxonomy-scout",

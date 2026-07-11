@@ -26,4 +26,4 @@ atomic module
 - May write only research artifacts, catalog metadata, R&D ledger, and explicit RD state writeback.
 - Does not run campaigns, supervise loops, review evidence, promote strategies, write `trade.db`, or call exchange APIs.
 - Uses `research/candidate-batch-engine` for candidate evaluation.
-- Remaining direct dependency on `strategy-rd` ledger helpers is transitional until ledger ownership is split or moved to a shared research contract.
+- Uses `research/rd-ledger` for ledger and holdout idempotence helpers.

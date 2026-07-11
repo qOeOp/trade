@@ -5,11 +5,14 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { Database } from "bun:sqlite"
 
-import { replayDataHash } from "./replay-core"
+import { replayDataHash } from "../../../replay-engine/src/lib/replay-core"
 import { createRdProgramState, readRdProgramState, writeRdProgramState } from "../../../rd-program-state/src/lib/rd-program-state"
-import { runStrategyRndBatch, runStrategyRndCampaign, runStrategyRndLoop, strategyRndBatchInputFromJson } from "./strategy-rnd"
+import { runStrategyRndBatch } from "../../../candidate-batch-engine/src/lib/strategy-rnd-batch"
+import { strategyRndBatchInputFromJson } from "../../../candidate-batch-engine/src/lib/strategy-rnd-inputs"
+import { runStrategyRndCampaign } from "../../../rd-campaign-runner/src/lib/rd-campaign-runner"
+import { runStrategyRndLoop } from "../../../rd-loop-runner/src/lib/rd-loop-runner"
 import { loadRndLedger } from "../../../rd-ledger/src/lib/rd-ledger"
-import { resolveRepoPath } from "./paths"
+import { resolveRepoPath } from "../../../../contracts/runtime-core/src/paths"
 
 test("strategy R&D parser normalizes factor discovery options", () => {
   const input = strategyRndBatchInputFromJson({

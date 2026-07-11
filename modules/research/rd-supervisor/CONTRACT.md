@@ -27,4 +27,4 @@ atomic orchestration module
 - May call research loop/campaign execution and RD state commands.
 - May write only research artifacts, catalog refs, RD state, and draft strategy policy files.
 - Does not write `trade.db`, call exchange APIs, review strategy evidence, promote, or execute trades.
-- Remaining direct dependency on `strategy-rd` campaign is transitional until `rd-campaign-runner` is split.
+- Uses `research/rd-campaign-runner` for campaign orchestration.

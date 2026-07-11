@@ -59,7 +59,7 @@
 
 ### 1.2 RD 当前拆解诊断
 
-`strategy-rd` 当前已不再是 agent-facing 总入口。Forward holdout、RD loop、RD campaign、candidate batch、RD program state、RD supervisor、RD shadow tracker、单策略 replay、latest signal、panel、data split、benchmark、calibration、funding governance、strategy contract compile/lint 已拆为独立 atomic module；剩余风险集中在 replay/family 等核心库继续抽原子边界。
+原 `strategy-rd` 已不再是 agent-facing 总入口，也不再承载生产 helper。Forward holdout、RD loop、RD campaign、candidate batch、RD program state、RD supervisor、RD shadow tracker、单策略 replay、latest signal、panel、data split、benchmark、calibration、funding governance、strategy contract compile/lint、artifact summary 已拆为独立 atomic / contract / engine module；跨模块回归集中到 `research/rd-integration-suite`。
 
 | 当前 flag | 真实行为 | 目标 atomic module | primary write |
 | --- | --- | --- | --- |
@@ -79,7 +79,7 @@
 | `research.calibration-suite` | calibration suite / pipeline diagnosis | `research/calibration-suite` | report |
 | `research.funding-governance` | funding coverage governance check | `research/funding-governance` | report |
 
-拆分后的 `strategy-rd` 只能作为 suite 目录或迁移期源码目录名，不再作为 agent-facing 单一工具。
+拆分后的旧 `strategy-rd` 目录已删除；跨模块回归只保留在 `research/rd-integration-suite`，不作为 agent-facing 单一工具。
 
 ### 1.3 trade-flow 当前设计审计
 
@@ -87,7 +87,7 @@
 
 | 当前文件 / 能力 | 真实行为 | 问题 | 目标 |
 | --- | --- | --- | --- |
-| `automation-cycle.ts` | 生成 cadence / job graph，并硬编码 downstream command path | 有编排意图，但未通过 registry 解析工具；仍引用 `strategy-rd` 大总线 | `flow/automation-plan` 只输出 tool id + payload + write scope |
+| `automation-cycle.ts` | 生成 cadence / job graph，并硬编码 downstream command path | 有编排意图，但仍需继续减少裸路径依赖 | `flow/automation-plan` 只输出 tool id + payload + write scope |
 | `slow-track-workflow.ts` | 调 account snapshot、market scan、symbol snapshot、OHLCV、tech indicators，并产出 watchlist artifact | slow track 变成小型流程引擎；data / analytics 调用硬编码在 trade-flow | 拆为 `flow/slow-track-plan`，只编排 read / data / analytics atomic tools |
 | `fast-track-workflow.ts` | active flow 快轨检查、轻量 snapshot、trigger guard | 与 observe / recovery / execution gate 混合 | 拆为 `flow/fast-track-plan`，只编排 active-flow projection + observe + gate |
 | `execution-flow.ts` | preflight、trigger、idempotency、contract compile、mock execution、record events、execution command spec | 执行链核心逻辑过多，不是单一原子能力 | 拆为 gate / route / record 三个 atomic modules |
@@ -194,12 +194,12 @@ modules/
 | `flow/slow-track-plan` | atomic | slow cadence read/data/analytics job plan，不内联 market workflow | `slow-track-workflow.ts` |
 | `flow/fast-track-plan` | atomic | active flow fast guard job plan，不内联 execution logic | `fast-track-workflow.ts` |
 | `flow/automation-plan` | atomic | cadence plan、job graph、write-scope / concurrency declaration | `automation-cycle.ts` |
-| `research/replay-engine` | contract/internal engine | replay core、fill model、closed-candle parity；被 runner 使用，不作为大总线 | `strategy-rd` replay files |
+| `research/replay-engine` | contract/internal engine | replay core、fill model、closed-candle parity；被 runner 使用，不作为大总线 | old replay files |
 | `research/replay-runner` | atomic | 单次 replay 执行与 replay report 输出 | `research.replay-runner` |
 | `research/signal-evaluator` | atomic | 最新闭合 K 线信号评估，不执行、不写状态 | `research.signal-evaluator` |
 | `research/strategy-contract-compile` | atomic | strategy markdown contract 编译为 candidate / lifecycle contract | migrated |
 | `research/strategy-contract-lint` | atomic | strategy lifecycle contract 完整性 lint | migrated |
-| `research/strategy-families` | atomic | family registry、family modules、candidate compile source | `strategy-rd/src/lib/rnd-families` |
+| `research/strategy-family-engine` | internal engine | family registry、family modules、candidate compile source | old R&D family files |
 | `research/forward-holdout` | atomic | frozen candidate forward-only signal check | `research.forward-holdout` |
 | `research/data-split` | atomic | discovery / validation / locked holdout manifest 切分 | migrated |
 | `research/candidate-batch` | atomic | bounded candidate 批量评估、negative controls、failure summary | migrated |
@@ -278,7 +278,7 @@ modules/
 验收：
 
 - 仓库内不存在内容 hash 完全相同的 catalog / replay 大实现复制。
-- `strategy-rd`、`strategy-review`、`artifact-catalog` check 全通过。
+- `rd-integration-suite`、`strategy-review`、`artifact-catalog` check 全通过。
 - `scripts/quality-check.sh` 通过。
 
 当前落地：
@@ -318,7 +318,7 @@ modules/
 - `scripts/check-ts-tool-boundaries.ts` 已只放行 `modules/contracts/*`。
 - 旧共享目录已删除。
 
-### Phase 3：拆 `strategy-rd`
+### Phase 3：拆旧 R&D 大包
 
 目标：把 research suite 拆成和 Binance write tools 同级别的 research atomic modules。
 
@@ -352,7 +352,7 @@ modules/
 
 验收：
 
-- `strategy-rd` 不再是多业务 flag 大总线；agent-facing registry 不再指向 `strategy-rd` 作为单一工具。
+- 旧 R&D 大包不再是多业务 flag 大总线；agent-facing registry 不再指向单一总工具。
 - 每个 RD atomic module 的主入口只有一个业务动作。
 - replay、signal、data split、candidate batch、loop、campaign、panel、RD state、supervisor、shadow tracker、benchmark、calibration 都可独立运行测试。
 - R&D 不 import Binance write，不写 `trade.db`。
@@ -361,18 +361,21 @@ modules/
 当前落地：
 
 - `research/replay-runner` 已成为 agent-facing atomic module，拥有 `CONTRACT.md`、独立 package、CLI、schema、测试和 `toolset.json` entry。
-- `strategy-rd` 已删除单策略 replay 总线入口，`toolset.json` 的 replay intent 只命中 `research.replay-runner`。
-- `strategy-replay` façade 与 registered replay strategy 已迁到 `research/replay-engine`；`strategy-rd` 旧本地路径仅保留测试/内部 re-export。
-- `strategy-rd` 已删除 strategy contract compile/lint 总线入口，`toolset.json` 的 contract compile/lint intent 分别命中 `research.strategy-contract-compile` 和 `research.strategy-contract-lint`。
+- 旧 R&D 大包已删除单策略 replay 总线入口，`toolset.json` 的 replay intent 只命中 `research.replay-runner`。
+- `strategy-replay` façade 与 registered replay strategy 已迁到 `research/replay-engine`；旧本地 façade 已删除。
+- 旧 R&D 大包已删除 strategy contract compile/lint 总线入口，`toolset.json` 的 contract compile/lint intent 分别命中 `research.strategy-contract-compile` 和 `research.strategy-contract-lint`。
 - strategy contract 解析、编译、lint 语义已迁到 `modules/contracts/strategy-contract`；research 原子 CLI 只负责参数与 response envelope。
-- `research.rd-program-state` 已成为 agent-facing atomic module，承接 durable RD memory init/read/update/plan_next；`strategy-rd` 不再暴露 RD memory CLI。
-- `research.rd-supervisor` 已成为 agent-facing atomic module，承接 plan_next -> loop/campaign -> state writeback；`strategy-rd` 不再暴露 RD supervisor CLI。
-- `research.rd-shadow-tracker` 已成为 agent-facing atomic module，承接 forward paper setup event chain；`strategy-rd` 不再暴露 `--rd-shadow-tracker`。
-- `research.candidate-batch` 已成为 agent-facing atomic module，承接 bounded candidate batch evaluation；`strategy-rd` 不再暴露 `--strategy-rnd-batch`。
-- `research.rd-loop-runner` 已成为 agent-facing atomic module，承接 single R&D loop artifact writeback；`strategy-rd` 不再暴露 `--strategy-rnd-loop`。
-- `research.rd-campaign-runner` 已成为 agent-facing atomic module，承接 bounded R&D campaign orchestration；`strategy-rd` 不再暴露 campaign CLI。
-- `research.rd-ledger` 已成为 internal atomic module，承接 R&D run ledger、holdout idempotence 与 redacted loop artifact input；loop/campaign 不再从 `strategy-rd` 读取 ledger helper。
-- `research.forward-holdout` 已成为 agent-facing atomic module，承接 frozen candidate forward-only signal check；`strategy-rd` 不再拥有 forward holdout helper。
+- `research.rd-program-state` 已成为 agent-facing atomic module，承接 durable RD memory init/read/update/plan_next；旧大包不再暴露 RD memory CLI。
+- `research.rd-supervisor` 已成为 agent-facing atomic module，承接 plan_next -> loop/campaign -> state writeback；旧大包不再暴露 RD supervisor CLI。
+- `research.rd-shadow-tracker` 已成为 agent-facing atomic module，承接 forward paper setup event chain；旧大包不再暴露 `--rd-shadow-tracker`。
+- `research.candidate-batch` 已成为 agent-facing atomic module，承接 bounded candidate batch evaluation；旧大包不再暴露 `--strategy-rnd-batch`。
+- `research.rd-loop-runner` 已成为 agent-facing atomic module，承接 single R&D loop artifact writeback；旧大包不再暴露 `--strategy-rnd-loop`。
+- `research.rd-campaign-runner` 已成为 agent-facing atomic module，承接 bounded R&D campaign orchestration；旧大包不再暴露 campaign CLI。
+- `research.rd-ledger` 已成为 internal atomic module，承接 R&D run ledger、holdout idempotence 与 redacted loop artifact input；loop/campaign 不再读取旧本地 ledger helper。
+- `research.forward-holdout` 已成为 agent-facing atomic module，承接 frozen candidate forward-only signal check；旧大包不再拥有 forward holdout helper。
+- `research.rd-artifact-summary` 已成为 internal atomic module，承接 R&D artifact 摘要；旧大包不再拥有 artifact summary helper。
+- `contracts.strategy-policy` 已成为 contract module，承接 strategy markdown frontmatter / policy loader；`trade-flow` 与 `strategy-review` 不再复制 loader。
+- `research.rd-integration-suite` 已成为 test module，承接跨 research atoms 回归；旧 `strategy-rd` 目录已删除。
 
 ### Phase 4：拆 `trade-flow`
 

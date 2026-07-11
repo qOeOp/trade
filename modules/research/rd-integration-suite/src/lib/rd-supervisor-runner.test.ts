@@ -10,9 +10,9 @@ import {
   writeRdProgramState,
 } from "../../../rd-program-state/src/lib/rd-program-state"
 import { runRdSupervisorLoopWithDeps } from "../../../rd-supervisor/src/lib/rd-supervisor-runner"
-import { resolveRepoPath } from "./paths"
-import { lintStrategyContract } from "./strategy-contract"
-import type { JSONRecord } from "./json"
+import { resolveRepoPath } from "../../../../contracts/runtime-core/src/paths"
+import { lintStrategyContract } from "../../../../contracts/strategy-contract/src/strategy-contract"
+import type { JSONRecord } from "../../../../contracts/runtime-core/src/json"
 
 test("rd supervisor runner loops plan execution and state writeback until budget exhaustion", () => {
   const dir = mkdtempSync(join(tmpdir(), "rd-supervisor-run-"))

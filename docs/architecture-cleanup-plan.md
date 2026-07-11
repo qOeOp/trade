@@ -804,7 +804,7 @@ Jesse 调研后的补充要求：
 验收：
 
 - replay fixture 覆盖：multiple entry、partial takeprofit 后 stop、oversized reduce-only stop、same-bar stop/target、gap worse open。
-- replay 输出外壳由 `strategy-rd` schema registry 约束；新增字段只扩展稳定外壳，不破坏 owner schema。
+- replay 输出外壳由 `research/replay-runner` owner schema 约束；新增字段只扩展稳定外壳，不破坏 owner schema。
 
 ### J3：Strategy lifecycle contract
 

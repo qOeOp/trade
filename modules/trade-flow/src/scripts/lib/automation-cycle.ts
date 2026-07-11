@@ -306,7 +306,7 @@ function rdStrategySupervisorJob(input: {
   ]
   return {
     ...baseJob(input),
-    subagent_role: "strategy-rd-supervisor",
+    subagent_role: "rd-supervisor",
     write_scope: ["research artifacts", "catalog metadata", "strategy drafts only after gated candidate"],
     concurrency_group: "research-rd",
     may_write_trade_db: false,
@@ -382,7 +382,7 @@ function rdStrategySupervisorJob(input: {
           output: "bounded proposal: thesis certificate fields + candidate universe sketch",
         },
       ],
-      single_writer_rule: "Sidecar subagents are read-only scouts; only strategy-rd-supervisor may write rd_program_state through research.rd-program-state or payload writeback.",
+      single_writer_rule: "Sidecar subagents are read-only scouts; only rd-supervisor may write rd_program_state through research.rd-program-state or payload writeback.",
     },
   }
 }

@@ -1,7 +1,7 @@
 import { createHash, randomUUID } from "node:crypto"
 import { readFileSync, writeFileSync } from "node:fs"
 import type { Database } from "bun:sqlite"
-import { loadStrategyFile, parseFrontmatter } from "./loaders"
+import { loadStrategyFile, parseFrontmatter } from "../../../../contracts/strategy-policy/src/strategy-policy"
 import { hashCanonical, replayDataHash, replayHarnessHash, type ReplayProvenance, type ReplayResult } from "./replay-core"
 import { defaultCatalogDbPathForGeneratedPath, listCatalogStrategyEvidence, upsertCatalogStrategyEvidence } from "./data-catalog"
 

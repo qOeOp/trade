@@ -10,7 +10,7 @@ import {
   rebuildSignalAtEntry,
   summarizeNegativeControl,
 } from "../../../candidate-batch-engine/src/lib/strategy-rnd-evaluation"
-import type { ReplayResult, ReplaySignal, ReplayStrategy } from "./replay-core"
+import type { ReplayResult, ReplaySignal, ReplayStrategy } from "../../../replay-engine/src/lib/replay-core"
 
 test("strategy R&D evaluation counts active parameters and flips side params", () => {
   assert.equal(countActiveParameters({

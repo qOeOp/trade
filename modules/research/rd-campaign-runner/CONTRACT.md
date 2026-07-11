@@ -31,4 +31,4 @@ Run one bounded R&D campaign from a hypothesis queue. The module owns campaign-l
 
 ## Current Notes
 
-- Ledger helper ownership is still transitional and remains in `strategy-rd` until the research ledger is split into its own atom.
+- Uses `research/rd-ledger` for ledger and holdout idempotence helpers.

@@ -3,10 +3,11 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
-import { replayRegisteredStrategy } from "./strategy-replay"
-import { runStrategyRndBatch, runStrategyRndLoop } from "./strategy-rnd"
+import { replayRegisteredStrategy } from "../../../replay-engine/src/lib/strategy-replay"
+import { runStrategyRndBatch } from "../../../candidate-batch-engine/src/lib/strategy-rnd-batch"
+import { runStrategyRndLoop } from "../../../rd-loop-runner/src/lib/rd-loop-runner"
 import { runStrategyRndCampaignWithDeps } from "../../../rd-campaign-runner/src/lib/rd-campaign-runner"
-import type { JSONRecord } from "./json"
+import type { JSONRecord } from "../../../../contracts/runtime-core/src/json"
 
 test("replay result schema matches mechanical replay outer report", () => {
   const schema = readSchema("replay-result")
@@ -135,6 +136,9 @@ function thesisCertificate() {
 }
 
 function readSchema(name: string): JSONRecord {
+  if (name === "replay-result") {
+    return JSON.parse(readFileSync(new URL("../../../replay-runner/src/schemas/replay-result.schema.json", import.meta.url), "utf8")) as JSONRecord
+  }
   if (name === "strategy-rnd-batch-result") {
     return JSON.parse(readFileSync(new URL("../../../candidate-batch/src/schemas/strategy-rnd-batch-result.schema.json", import.meta.url), "utf8")) as JSONRecord
   }
@@ -144,7 +148,7 @@ function readSchema(name: string): JSONRecord {
   if (name === "strategy-rnd-campaign-result") {
     return JSON.parse(readFileSync(new URL("../../../rd-campaign-runner/src/schemas/strategy-rnd-campaign-result.schema.json", import.meta.url), "utf8")) as JSONRecord
   }
-  return JSON.parse(readFileSync(new URL(`../schemas/${name}.schema.json`, import.meta.url), "utf8")) as JSONRecord
+  throw new Error(`unknown research schema: ${name}`)
 }
 
 function assertSchemaRequired(schema: JSONRecord, value: JSONRecord): void {

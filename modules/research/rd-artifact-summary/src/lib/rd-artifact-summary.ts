@@ -53,10 +53,7 @@ function summarizeStrategyPanelRnd(value: JSONRecord): JSONRecord {
       return {
         candidate_id: stringField(candidate.candidate_id),
         pooled: asRecord(candidate.pooled),
-        blocked_by: array(asRecord(candidate.gate).blocked_by)
-          .map(asRecord)
-          .map((block) => stringField(block.check_id))
-          .filter(Boolean),
+        blocked_by: candidateBlockedBy(candidate),
       }
     }),
   }

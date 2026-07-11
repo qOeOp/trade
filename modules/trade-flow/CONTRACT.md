@@ -9,7 +9,7 @@
 
 ## Delegates
 
-- Strategy R&D, replay, panel, and benchmark work to `modules/research/strategy-rd`
+- Strategy R&D, replay, panel, benchmark, and RD memory work to atomic `modules/research/*` tools
 - Strategy evidence, review, and promotion gates to `modules/governance/strategy-review`
 - Artifact catalog, query, stale scan, and GC work to `modules/ops/artifact-catalog`
 - Exchange reads/writes to atomic `modules/binance/*` tools

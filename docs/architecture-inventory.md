@@ -39,7 +39,8 @@
 | `research.rd-loop-runner` | `A/E` | single R&D loop artifact writeback | artifact / catalog metadata / ledger / optional RD state writeback | 不写 `trade.db`，不触发 Binance，不编排 campaign |
 | `research.rd-campaign-runner` | `A/E` | bounded R&D campaign orchestration | campaign artifact / catalog metadata / optional RD state writeback | 保持不写 `trade.db`、不触发 Binance；不拥有 loop、candidate batch、RD memory command、supervisor、forward tracker、单策略 replay 或 contract compile/lint CLI |
 | `research.rd-ledger` | internal | R&D run ledger / holdout idempotence | strategy_rnd_run catalog rows / holdout keys / redacted loop inputs | 不运行 evaluation/campaign，不写 RD state、`trade.db` 或 Binance |
-| `strategy-rd` | internal | transitional research core helpers | library helper results | 不再作为 agent-facing tool entrypoint |
+| `research.rd-artifact-summary` | internal | R&D artifact summary | loop / panel summary records | 不运行 research，不写 artifact/catalog/ledger |
+| `research.rd-integration-suite` | test | research atoms integration regression | test pass/fail | 不拥有生产逻辑或持久写入 |
 | `research.rd-program-state` | `A` | RD memory init/read/update/plan_next | RD state artifact / catalog ref | 不执行 research trial，不产生 strategy evidence |
 | `research.rd-supervisor` | `A/E` | plan_next -> loop/campaign -> state writeback | RD state / research artifacts / optional draft strategy | 不写 `trade.db`，不触发 Binance，不做 promotion |
 | `research.rd-shadow-tracker` | `A/E` | forward setup event chain tracker | R&D tracker artifact / review draft input | 不写 `trade.db`，不等同 strategy shadow evidence |
@@ -103,7 +104,7 @@
 | --- | ---: | --- | --- |
 | `modules/trade-flow/src/scripts/main.ts` | ~1500 | command router + 业务逻辑混合 | 拆 `commands/*` |
 | `modules/trade-flow/src/scripts/main.test.ts` | ~1375 | 大集成测试难定位 | 按 domain fixture 拆 |
-| `modules/research/strategy-rd/src/lib/strategy-rnd.ts` | 已迁移 | R&D glue 仍偏重 | 继续按 candidate / evaluation / selection 收敛 |
+| `modules/research/rd-integration-suite/src/lib/*.test.ts` | 已迁移 | research atoms 跨模块回归 | 只保留测试，不承载生产 helper |
 | `modules/research/benchmark-engine/src/lib/strategy-benchmark.ts` | 已迁移 | benchmark / calibration engine | 被 benchmark-runner 与 calibration-suite 复用 |
 | `modules/research/replay-engine/src/lib/strategy-replay.ts` | 已迁移 | replay engine owner | 继续保持只读 research 边界 |
 | `modules/governance/strategy-review/src/lib/strategy-iteration.ts` | 已迁移 | evidence / review / promote owner | 继续强化 catalog-backed evidence |
@@ -126,5 +127,5 @@
 ## 6. P0 结论
 
 - `node_modules` 当前未被 Git 跟踪，`.gitignore` 已覆盖依赖目录。
-- 原最大整理风险曾集中在 `trade-flow`：online + research + recovery + evidence 混合命令总线已拆为 `trade-flow` / `strategy-rd` / `strategy-review` / `artifact-catalog`。
+- 原最大整理风险曾集中在 `trade-flow`：online + research + recovery + evidence 混合命令总线已拆为 `trade-flow` / research atoms / `strategy-review` / `artifact-catalog`。
 - 第一批迁移已改为全迁移原则：移动与分包后删除旧 CLI 入口，以 owner 模块 contract 和质量检查作为硬验收。

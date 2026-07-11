@@ -23,7 +23,7 @@ updated_at: 2026-07-10 10:20 CST
 - 已补：panel R&D 单候选时 `cross_candidate_asset_shuffle_v1` 不再显示 `passed=true`；状态仍是 `not_applicable`，避免误读成 panel-level negative control 通过。
 - 已补：forward holdout 在全部阻塞原因只是主数据 / benchmark 尚未晚于 `frozen_at` 时，`next_action` 改为等待下一根闭合 K 线并刷新 manifest，而不是误报“修数据覆盖”。
 - 已补：新增 `research.data-split`。新 hypothesis 开研前可把 OHLCV manifest 物理切成 discovery / validation / locked_holdout 三个独立 manifest，并自动按 max hold / feature lookback / funding interval 留 embargo；locked holdout 在策略合约冻结前不再需要靠人脑“记得别看”。
-- 已补：`rnd-artifact.ts` 可自动识别普通 R&D loop 与 panel R&D artifact；普通 loop 摘要会暴露 `failure_summary`、`reliability_gate`、候选 R/OOS 指标与 blocker，避免 no-promote 被误读为空结果。
+- 已补：`research/rd-artifact-summary` 可自动识别普通 R&D loop 与 panel R&D artifact；普通 loop 摘要会暴露 `failure_summary`、`reliability_gate`、候选 R/OOS 指标与 blocker，避免 no-promote 被误读为空结果。
 - 未补：按订单 notional / ADV / depth 的 capacity 与 market impact 分桶、White Reality Check / Hansen SPA 完整实现、可靠 delisted 历史数据源。
 
 ## 当前测试状态
