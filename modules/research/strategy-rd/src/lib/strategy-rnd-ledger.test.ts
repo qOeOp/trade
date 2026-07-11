@@ -15,7 +15,7 @@ import {
   summarizeRejectedReasons,
   writeJsonFile,
   type StrategyRndLedgerBatchView,
-} from "./strategy-rnd-ledger"
+} from "../../../rd-ledger/src/lib/rd-ledger"
 
 test("strategy R&D ledger summarizes rejected reasons deterministically", () => {
   const summary = summarizeRejectedReasons(batchView())

@@ -1,10 +1,11 @@
 import { mkdirSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"
-import { defaultCatalogDbPathForGeneratedPath, listCatalogStrategyRndRuns, upsertCatalogStrategyRndRun } from "./data-catalog"
+import { defaultCatalogDbPathForGeneratedPath, listCatalogStrategyRndRuns, upsertCatalogStrategyRndRun } from "../../../../contracts/catalog-contract/src/catalog-client"
 import { factorConditionsToJson } from "../../../strategy-family-engine/src/lib/factor-engine"
-import { hashCanonical, replayDataHash } from "./replay-core"
-import type { JSONRecord } from "./json"
+import { hashCanonical, replayDataHash } from "../../../replay-engine/src/lib/replay-core"
 import type { CandidateSource, StrategyRndLoopInput } from "../../../candidate-batch-engine/src/lib/strategy-rnd-inputs"
+
+type JSONRecord = Record<string, unknown>
 
 export interface StrategyRndLedgerBatchView {
   batch_id: string

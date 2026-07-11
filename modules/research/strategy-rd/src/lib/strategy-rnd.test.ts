@@ -8,7 +8,7 @@ import { Database } from "bun:sqlite"
 import { replayDataHash } from "./replay-core"
 import { createRdProgramState, readRdProgramState, writeRdProgramState } from "../../../rd-program-state/src/lib/rd-program-state"
 import { runStrategyRndBatch, runStrategyRndCampaign, runStrategyRndLoop, strategyRndBatchInputFromJson } from "./strategy-rnd"
-import { loadRndLedger } from "./strategy-rnd-ledger"
+import { loadRndLedger } from "../../../rd-ledger/src/lib/rd-ledger"
 import { resolveRepoPath } from "./paths"
 
 test("strategy R&D parser normalizes factor discovery options", () => {

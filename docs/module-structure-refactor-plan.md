@@ -204,6 +204,7 @@ modules/
 | `research/candidate-batch` | atomic | bounded candidate 批量评估、negative controls、failure summary | migrated |
 | `research/rd-loop-runner` | atomic | 单轮 R&D loop、artifact、ledger、optional state writeback | migrated |
 | `research/rd-campaign-runner` | atomic | hypothesis campaign、validation budget、zero-trial gates | `research.rd-campaign-runner` |
+| `research/rd-ledger` | internal atomic | R&D run ledger、holdout idempotence、redacted loop artifact input | loop/campaign runners |
 | `research/panel-evaluator` | atomic | 多资产 panel、cross-candidate negative control、marketability | migrated |
 | `research/rd-program-state` | atomic | durable RD memory init/read/update/plan_next | migrated |
 | `research/rd-supervisor` | atomic | plan_next -> execute -> writeback loop runner | migrated |
@@ -369,6 +370,7 @@ modules/
 - `research.candidate-batch` 已成为 agent-facing atomic module，承接 bounded candidate batch evaluation；`strategy-rd` 不再暴露 `--strategy-rnd-batch`。
 - `research.rd-loop-runner` 已成为 agent-facing atomic module，承接 single R&D loop artifact writeback；`strategy-rd` 不再暴露 `--strategy-rnd-loop`。
 - `research.rd-campaign-runner` 已成为 agent-facing atomic module，承接 bounded R&D campaign orchestration；`strategy-rd` 不再暴露 campaign CLI。
+- `research.rd-ledger` 已成为 internal atomic module，承接 R&D run ledger、holdout idempotence 与 redacted loop artifact input；loop/campaign 不再从 `strategy-rd` 读取 ledger helper。
 
 ### Phase 4：拆 `trade-flow`
 

@@ -37,6 +37,7 @@
 | `research.candidate-batch` | `E/V` | bounded candidate batch、negative controls、failure summary | batch report | 不写 artifact / catalog / RD memory / `trade.db` |
 | `research.rd-loop-runner` | `A/E` | single R&D loop artifact writeback | artifact / catalog metadata / ledger / optional RD state writeback | 不写 `trade.db`，不触发 Binance，不编排 campaign |
 | `research.rd-campaign-runner` | `A/E` | bounded R&D campaign orchestration | campaign artifact / catalog metadata / optional RD state writeback | 保持不写 `trade.db`、不触发 Binance；不拥有 loop、candidate batch、RD memory command、supervisor、forward tracker、单策略 replay 或 contract compile/lint CLI |
+| `research.rd-ledger` | internal | R&D run ledger / holdout idempotence | strategy_rnd_run catalog rows / holdout keys / redacted loop inputs | 不运行 evaluation/campaign，不写 RD state、`trade.db` 或 Binance |
 | `strategy-rd` | internal | transitional research core helpers | library helper results | 不再作为 agent-facing tool entrypoint |
 | `research.rd-program-state` | `A` | RD memory init/read/update/plan_next | RD state artifact / catalog ref | 不执行 research trial，不产生 strategy evidence |
 | `research.rd-supervisor` | `A/E` | plan_next -> loop/campaign -> state writeback | RD state / research artifacts / optional draft strategy | 不写 `trade.db`，不触发 Binance，不做 promotion |

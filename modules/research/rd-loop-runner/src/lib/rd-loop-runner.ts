@@ -23,7 +23,7 @@ import {
   safeFileName,
   writeJsonFile,
   type StrategyRndLedgerRecord,
-} from "../../../strategy-rd/src/lib/strategy-rnd-ledger"
+} from "../../../rd-ledger/src/lib/rd-ledger"
 
 type JSONRecord = Record<string, unknown>
 

@@ -7,7 +7,7 @@ import { resolveCandidateCount } from "../../../candidate-batch-engine/src/lib/s
 import type { RdProgramStateCommandResult } from "../../../rd-program-state/src/lib/rd-program-state"
 import type { StrategyRndCampaignHypothesisInput, StrategyRndCampaignInput, StrategyRndLoopInput } from "../../../candidate-batch-engine/src/lib/strategy-rnd-inputs"
 import { maybeUpdateRdProgramState, runStrategyRndLoop } from "../../../rd-loop-runner/src/lib/rd-loop-runner"
-import { assertHoldoutUnused, holdoutKeyForInput, safeFileName, writeJsonFile } from "../../../strategy-rd/src/lib/strategy-rnd-ledger"
+import { assertHoldoutUnused, holdoutKeyForInput, safeFileName, writeJsonFile } from "../../../rd-ledger/src/lib/rd-ledger"
 
 type JSONRecord = Record<string, unknown>
 

@@ -629,7 +629,7 @@ Jesse 调研后的补充要求：
   - `lib/strategy-benchmark-inputs.ts`：benchmark / calibration suite 输入类型与 JSON parser 独立。
   - `lib/strategy-benchmark-inputs.test.ts`：锁定 benchmark public definition、funding report alias、calibration-only 字段。
 - 研究侧 ledger 拆分：
-  - `lib/strategy-rnd-ledger.ts`：R&D ledger record、artifact redaction、JSONL 读写、run_id / holdout 幂等独立。
+  - `rd-ledger/src/lib/rd-ledger.ts`：R&D ledger record、artifact redaction、catalog ledger writeback、run_id / holdout 幂等独立。
   - `lib/strategy-rnd-ledger.test.ts`：锁定 rejected reason 汇总、locked holdout key、idempotence、artifact redaction。
 - 研究侧 campaign 拆分：
   - `rd-campaign-runner/src/lib/rd-campaign-runner.ts`：R&D campaign orchestration、calibration gate、discovery/validation non-overlap、locked validation 调度独立。

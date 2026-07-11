@@ -72,6 +72,7 @@
 | research RD shadow tracker | `modules/research/rd-shadow-tracker/src/**` | `rd-shadow-tracker-integration` + `strategy-rd-check` |
 | research RD loop | `modules/research/rd-loop-runner/src/**` | `rd-loop-runner-integration` + `strategy-rd-check` while campaign consumes loop runner |
 | research RD campaign | `modules/research/rd-campaign-runner/src/**` | `rd-campaign-runner-integration` + `strategy-rd-check` |
+| research RD ledger | `modules/research/rd-ledger/src/**` | `strategy-rd-check` |
 | research R&D / forward holdout | `modules/research/strategy-rd/src/**` | `strategy-rd-check` |
 | strategy evidence / review / promotion | `modules/governance/strategy-review/src/**` | `strategy-review-check` |
 | artifact hygiene / catalog | `modules/ops/artifact-catalog/src/**` | `artifact-catalog-check` |
