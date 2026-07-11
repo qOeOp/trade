@@ -2,7 +2,7 @@
 
 import { readFileSync } from "node:fs"
 
-import { evaluatePreflight, type PreflightInput, type PreflightOutput } from "../../../../common/src/preflight"
+import { evaluatePreflight, type PreflightInput, type PreflightOutput } from "../../../../contracts/preflight-contract/src/preflight"
 
 const HELP_TEXT = `Usage:
   bun src/scripts/main.ts --input preflight-input.json

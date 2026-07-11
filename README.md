@@ -35,7 +35,7 @@ flowchart TB
     end
   end
 
-  subgraph COMMON["common substrate"]
+  subgraph CONTRACTS["contract substrate"]
     direction LR
     CAP["capability banks<br/>observe / data / execute / governance"]
     FACTS["durable facts<br/>trade.db / catalog / artifact / strategy / state"]

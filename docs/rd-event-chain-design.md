@@ -56,7 +56,7 @@ live 一套 entry/observe/exit/review
 
 ```text
 behavior command
-  -> validate common contract
+  -> validate shared contract
   -> project current setup state
   -> choose backend
        rd artifact backend

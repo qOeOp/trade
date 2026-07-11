@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
 import Binance, { type BinanceRest } from "binance-api-node"
-import { nowIsoUTC } from "../../../../common/src/time"
+import { nowIsoUTC } from "../../../../contracts/runtime-core/src/time"
 
 interface Config {
   direction: "both" | "long" | "short"

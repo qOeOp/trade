@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite"
-import { compileExecutionContract, type ExecutionContractInput } from "../../../../common/src/execution-contract"
-import { evaluatePreflight } from "../../../../common/src/preflight"
+import { compileExecutionContract, type ExecutionContractInput } from "../../../../contracts/execution-contract/src/execution-contract"
+import { evaluatePreflight } from "../../../../contracts/preflight-contract/src/preflight"
 import {
   appendExecutionObserve,
   buildExecutionCommandSpec,

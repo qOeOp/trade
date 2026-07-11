@@ -1,1 +1,1 @@
-export * from "../../../../common/src/paths"
+export * from "../../../../contracts/runtime-core/src/paths"

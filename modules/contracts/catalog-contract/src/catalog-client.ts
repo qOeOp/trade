@@ -1,6 +1,6 @@
 import { spawnSync } from "node:child_process"
 import { dirname, join } from "node:path"
-import { displayPath, repoRoot, resolveRepoPath } from "../../../common/src/paths"
+import { displayPath, repoRoot, resolveRepoPath } from "../../runtime-core/src/paths"
 
 type JSONRecord = Record<string, unknown>
 

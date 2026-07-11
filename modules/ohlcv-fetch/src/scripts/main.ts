@@ -5,7 +5,7 @@ import { createHash } from "node:crypto"
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join, relative, resolve } from "node:path"
-import { nowIsoUTC } from "../../../common/src/time"
+import { nowIsoUTC } from "../../../contracts/runtime-core/src/time"
 
 export interface Config {
   symbol: string

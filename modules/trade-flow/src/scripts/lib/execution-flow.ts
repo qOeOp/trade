@@ -3,16 +3,16 @@ import {
   compileExecutionContract,
   type ExecutionContract,
   type ExecutionContractInput,
-} from "../../../../common/src/execution-contract"
-import { evaluatePreflight } from "../../../../common/src/preflight"
-import { readTargetAction, TARGET_ACTIONS, type ExecutableTargetAction } from "../../../../common/src/target-action"
+} from "../../../../contracts/execution-contract/src/execution-contract"
+import { evaluatePreflight } from "../../../../contracts/preflight-contract/src/preflight"
+import { readTargetAction, TARGET_ACTIONS, type ExecutableTargetAction } from "../../../../contracts/preflight-contract/src/target-action"
 import { asRecord, compactRecord, numberOrUndefined, removeUndefined, stringField, type JSONRecord } from "./json"
 import { latestSlowObserve, reduceFlowState } from "./flow-state"
 import { appendPlanEvent, readFlowEvents, readLatestOrderFill, type PlanEvent } from "./plan-events"
 import type { RunMode } from "./run-mode"
 
-export type { TargetAction } from "../../../../common/src/target-action"
-export { readTargetAction } from "../../../../common/src/target-action"
+export type { TargetAction } from "../../../../contracts/preflight-contract/src/target-action"
+export { readTargetAction } from "../../../../contracts/preflight-contract/src/target-action"
 export const EXECUTABLE_TARGET_ACTIONS = TARGET_ACTIONS.filter((action): action is ExecutableTargetAction => action !== "no_action")
 export interface ExecutionCommandSpec {
   target_action: ExecutableTargetAction

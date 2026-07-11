@@ -9,7 +9,7 @@ import {
   buildRecordedActionEvents,
   unwrapToolResponse,
 } from "./execution-flow"
-import { compileExecutionContract } from "../../../../common/src/execution-contract"
+import { compileExecutionContract } from "../../../../contracts/execution-contract/src/execution-contract"
 import { reduceFlowState } from "./flow-state"
 import { appendPlanEvent, ensureSchema } from "./plan-events"
 

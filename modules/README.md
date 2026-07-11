@@ -9,7 +9,6 @@
 | `toolset.json` | agent-facing 工具索引：按 intent / capability / writes / module_type 找工具 |
 | `modules/<domain>/<module>/` | 模块根：package / go.mod / requirements / reference / 模块说明 |
 | `modules/<domain>/<module>/src/` | 模块实现：scripts、schemas、tests、内部 helper |
-| `modules/common/src/` | 当前 legacy 跨模块确定性契约层；迁移目标是 `modules/contracts/*` |
 | `modules/contracts/<contract>/src/` | 新跨模块 contract / client 层；业务模块只能依赖这里或 CLI contract |
 
 ## Module Types
@@ -43,7 +42,10 @@
 | `binance/position-adjust` | position side、reduce / close 参数 | reduce / close result | 减仓或平仓写接口 | 加仓、新开风险 |
 | `guards/plan-preflight` | plan、observe、strategy、account config、runtime policy | deterministic verdict、blocked reasons、warnings | hard guard / decision card | 市场观点、事件写入 |
 | `analytics/tech-indicators` | local OHLCV manifest、indicator config | indicator report、structure、feature series、beta | 指标与结构计算 | 交易执行、数据获取 |
-| `common` | 无运行输入；被源码 import | types、pure functions、contract helpers | target action、preflight、execution contract、time | 调用外部 API、读写数据 |
+| `contracts/runtime-core` | 无运行输入；被源码 import | JSON、path、time helper | 跨模块 runtime core contract | 领域编排、外部 API |
+| `contracts/execution-contract` | execution contract input | compiled execution contract、validation result | 执行契约编译和校验 | 下单、preflight verdict |
+| `contracts/preflight-contract` | plan / observe / strategy / account config | deterministic verdict、blocked reasons、warnings | hard guard contract、target action parsing | 交易所写入、市场观点 |
+| `contracts/catalog-contract` | catalog command payload | artifact / evidence / R&D run catalog result | catalog CLI client contract | catalog DB schema / scan / GC 实现 |
 
 ## Trade-Flow Domains
 
@@ -58,7 +60,7 @@
 
 ## Rules
 
-- 模块之间通过 CLI JSON contract 协作；当前源码 import 只允许指向 `modules/common/src` 或 `modules/contracts/*`，迁移完成后只允许指向 `modules/contracts/*`。
+- 模块之间通过 CLI JSON contract 协作；源码跨模块 import 只允许指向 `modules/contracts/*`。
 - `trade-flow/src/domain/*/index.ts` 是 trade-flow 编排边界；新增原子能力优先落独立 `modules/<domain>/<module>`，不要继续塞进 trade-flow。
 - 模块运行产物只落 `data/` 或 `tmp/`；模块目录不保存运行快照、cache、研究垃圾。
 - `T` 类 Binance 写模块不得被 R&D / replay / market scan 直接调用。

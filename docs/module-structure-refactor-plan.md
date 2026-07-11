@@ -29,7 +29,7 @@
 | --- | --- | --- |
 | `strategy-rd` 过胖 | 同时拥有 replay、R&D loop、campaign、panel、benchmark、calibration、data split、RD memory、shadow tracker、strategy contract | 研发循环、回放内核、状态机难以独立演进 |
 | `trade-flow` 仍是流程 suite | automation、runtime event store、observe、execution orchestration、recovery 仍在一个 package | 在线链变化容易互相影响 |
-| `common` 名不准 | `execution-contract`、`preflight`、`target-action` 是交易领域契约，不是通用 helper | common 变成隐性业务层 |
+| legacy contract layer 名不准 | `execution-contract`、`preflight`、`target-action` 是交易领域契约，不是通用 helper | 容易变成隐性业务层 |
 | catalog 实现复制 | `data-catalog.ts` 在 `strategy-rd` / `strategy-review` / `artifact-catalog` 三份完全重复 | schema 或 bug 修复容易漏同步 |
 | replay 实现复制 | `replay-core.ts` 在 `strategy-rd` / `strategy-review` 两份完全重复 | review 与 research 对同一 replay 语义可能漂移 |
 | registry 粒度偏粗 | `toolset.json` 多数 entry 指向 suite，而不是原子行为 | agent 查找工具时仍需知道能力藏在哪 |
@@ -174,9 +174,9 @@ modules/
 
 | 目标模块 | 类型 | 负责 | 当前来源 |
 | --- | --- | --- | --- |
-| `contracts/runtime-core` | contract | JSON、path、time、script envelope、runtime path guard | `modules/common/src/json.ts`、`paths.ts`、`time.ts` |
-| `contracts/execution-contract` | contract | execution contract type、compile / validate pure logic | `modules/common/src/execution-contract.ts` |
-| `contracts/preflight-contract` | contract | preflight input/output、target action、guard result type | `modules/common/src/preflight.ts`、`target-action.ts` |
+| `contracts/runtime-core` | contract | JSON、path、time、script envelope、runtime path guard | 已迁入 `modules/contracts/runtime-core` |
+| `contracts/execution-contract` | contract | execution contract type、compile / validate pure logic | 已迁入 `modules/contracts/execution-contract` |
+| `contracts/preflight-contract` | contract | preflight input/output、target action、guard result type | 已迁入 `modules/contracts/preflight-contract` |
 | `contracts/catalog-contract` | contract | catalog record/schema/client shape，不拥有扫描和 GC | duplicated `data-catalog.ts` 的稳定类型层 |
 | `contracts/replay-contract` | contract | replay result、trade sample、qualification shell | duplicated `replay-core.ts` 的输出契约层 |
 | `flow/event-store` | atomic | `trade.db` schema、plan_event append/read；唯一 event write owner | `plan-events.ts` |
@@ -260,7 +260,6 @@ modules/
 尚未完成：
 
 - registry resolver 仍未替换 `trade-flow` 内部裸路径编排。
-- `scripts/check-ts-tool-boundaries.ts` 当前仍以 `modules/common/src` 为允许 import 层；Phase 2 迁移后切到 `modules/contracts/*`。
 
 ### Phase 1：去重最高风险实现
 
@@ -291,23 +290,30 @@ modules/
 - `research/replay-engine` 仍是内部 engine owner，尚未拆出 agent-facing `research/replay-runner`。
 - `contracts/replay-contract` 仍未单独拆 type/schema shell；governance 当前通过 re-export 使用 replay engine 类型和测试 helper。
 
-### Phase 2：拆 `common`
+### Phase 2：明确 contract 层
 
-目标：把“通用”改成明确 contract 层。
+目标：把旧共享层改成明确 contract 层。
 
 任务：
 
-- `modules/common/src/json.ts`、`paths.ts`、`time.ts` → `modules/contracts/runtime-core`。
+- runtime JSON、paths、time → `modules/contracts/runtime-core`。
 - `execution-contract.ts` → `modules/contracts/execution-contract`。
 - `preflight.ts`、`target-action.ts` → `modules/contracts/preflight-contract`。
 - 更新所有 import。
-- 删除 `modules/common`。
+- 删除旧共享目录。
 
 验收：
 
 - 业务源码跨模块 import 只出现 `modules/contracts/*`。
-- `common` 不再存在。
+- 旧共享目录不再存在。
 - Binance、preflight、trade-flow check 全通过。
+
+当前落地：
+
+- `modules/contracts/runtime-core`、`execution-contract`、`preflight-contract` 已建立并补 `CONTRACT.md`。
+- 所有源码 import 已切到 `modules/contracts/*`。
+- `scripts/check-ts-tool-boundaries.ts` 已只放行 `modules/contracts/*`。
+- 旧共享目录已删除。
 
 ### Phase 3：拆 `strategy-rd`
 
@@ -445,7 +451,7 @@ modules/
 | 优先级 | 内容 | 原因 |
 | --- | --- | --- |
 | P0 | Phase 0 + Phase 1 | 先建立地图，再修真实重复实现风险 |
-| P1 | Phase 2 | `common` 名不准会持续污染边界 |
+| P1 | Phase 2 | 旧共享层名不准会持续污染边界 |
 | P2 | Phase 3 | R&D 是当前增长最快的模块，最需要原子化 |
 | P3 | Phase 4 | 在线链安全重要，但已比 R&D 更稳定 |
 | P4 | Phase 5 + Phase 6 | 命名与 registry 体验优化，放在边界稳定后 |

@@ -8,7 +8,7 @@
 
 - 目录按行为和责任切分：采集、分析、编排、守卫、执行、资产治理分开。
 - agent / automation / human 通过 CLI + JSON contract 调工具；跨域不得直接 import 业务实现。
-- 当前 legacy 可复用确定性契约在 `modules/common/src/`；新跨域契约落点是 `modules/contracts/*`。
+- 跨域源码复用只走 `modules/contracts/*`；领域判断留在 owner 模块。
 - 运行产物只落 `data/` 或 `tmp/`；源码目录不堆 artifact、cache、运行快照。
 - strategy policy 的唯一源码位置是 `strategies/`。
 - negative control 命名是唯一口径。
@@ -40,8 +40,7 @@
 | `modules/binance/` | exchange atomic tools | Binance 只读事实、市场扫描、下单、撤单、保护、减仓 | R&D planning、strategy promotion、长期状态 |
 | `modules/guards/` | deterministic guard | preflight、hard guards、decision card validation | 市场观点、交易所写接口 |
 | `modules/analytics/` | market analytics | indicators、structure、beta、feature report | live execution |
-| `modules/common/src/` | common contracts | target action、preflight、execution contract、time helpers | 领域编排 |
-| `modules/contracts/` | cross-module contracts | catalog client、后续 runtime / replay / preflight contract | 业务实现 owner |
+| `modules/contracts/` | cross-module contracts | runtime core、execution contract、preflight contract、catalog client | 业务实现 owner |
 | `strategies/` | strategy assets | policy markdown、frontmatter、`## Trade Contract` | 运行日志、临时候选 |
 | `data/` | durable local state | `trade.db`、catalog、OHLCV、RD memory、持久 evidence refs | scratch cache |
 | `tmp/` | ephemeral artifacts | R&D reports、scan outputs、临时 market data、GC 候选 | 长期策略资产 |
@@ -97,7 +96,7 @@
 - `plan-preflight` 只给 deterministic verdict；不得补写事件或解释行情方向。
 - artifact 必须有 owner、referrer、retention 语义；垃圾数据堆在源码目录视为 bug。
 - 任何新 agent-facing 能力都必须优先作为 `atomic` entry 进入 `toolset.json`；只有明确是过渡路由或目录归类时才能标为 `suite`。
-- 源码跨模块 import 当前只允许指向 `modules/common/src` 或 `modules/contracts/*`；业务模块之间不得横向 import 实现。
+- 源码跨模块 import 只允许指向 `modules/contracts/*`；业务模块之间不得横向 import 实现。
 
 ## 检查入口
 
