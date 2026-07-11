@@ -187,7 +187,7 @@ Replay / shadow / live 对齐要求：
 - `research.calibration-suite`：固定跑 buy-and-hold / cash baseline、趋势基准、横截面强弱基准，可消费 dataset `indicator_report_path` 中的 exact funding events 与 `symbol_status`，并输出 report hash、可选 previous-run comparison、data_panel、survivor-only 标记、beta、fee/slippage 成本拆分、funding、换手、暴露、时间/趋势/波动 regime 稳定性、time-shift / side-flip / asset-shuffle 负对照与数据广度归因；只暴露系统问题，不产生准入证据
 - `research.signal-evaluator`：candidate 可由 JSON 输入或 strategy `## Trade Contract` 编译；在最新闭合 K 线上复用 replay family 并返回稳定 hash；entry reference 由在线报价注入，只返回信号，不执行、不落交易事实
 - `strategy-rd` forward holdout：对已冻结 candidate 做只读 forward holdout 验收；主数据与 benchmark / supplemental 数据都必须晚于机器可读 `frozen_at`，输出 `status / next_action / frozen_candidate hash`，只作为 shadow/review 前置观察，不直接产生 promotion evidence；缺 `frozen_at` 的“frozen”描述一律不验收
-- `strategy-rd --rd-shadow-tracker`：把 forward entry 信号转成 R&D schema v2 行为事件链，用 `open_setup -> observe_setup[] -> close_setup -> review_setup` 记录纸面样本，并由 projection 判定 stop / target / time_exit；不写 DB、不执行、不等同 strategy shadow evidence
+- `research.rd-shadow-tracker`：把 forward entry 信号转成 R&D schema v2 行为事件链，用 `open_setup -> observe_setup[] -> close_setup -> review_setup` 记录纸面样本，并由 projection 判定 stop / target / time_exit；不写 DB、不执行、不等同 strategy shadow evidence
 - R&D tracker 事件链设计见 [rd-event-chain-design.md](rd-event-chain-design.md)；该链只存在于 R&D artifact，不进入 `trade.db.plan_event`
 - replay 只能给 `shadow_candidate`；`live-small` 必须另有 shadow 样本、execution attribution 与人工确认
 - strategy review 固定输出 replay -> shadow -> live-small decay diagnostics 与 `cost_model_feedback`；shadow 相对 replay 的 avg_r 保留率过低时阻断 live-small，真实 fee / slippage / funding drag 会反灌为下一轮 replay cost stress 输入，而不是靠叙事解释

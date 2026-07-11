@@ -4,7 +4,7 @@ import { join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { createRdShadowTrackerFromForwardHoldout, updateRdShadowTracker } from "./rd-shadow-tracker"
+import { createRdShadowTrackerFromForwardHoldout, updateRdShadowTracker } from "../../../rd-shadow-tracker/src/lib/rd-shadow-tracker"
 
 test("rd shadow tracker keeps a fresh forward signal open until post-entry candles exist", () => {
   const dir = mkdtempSync(join(tmpdir(), "rd-shadow-tracker-"))

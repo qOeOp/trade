@@ -1,16 +1,7 @@
 #!/usr/bin/env bun
 
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
-import { dirname } from "node:path"
+import { readFileSync } from "node:fs"
 import { assertProjectRuntimePath, repoRoot } from "../lib/paths"
-import { defaultCatalogDbPathForGeneratedPath, registerCatalogArtifact } from "../lib/data-catalog"
-import {
-  createRdShadowTrackerFromForwardHoldout,
-  manifestRefsFromJson,
-  readJsonFile as readTrackerJsonFile,
-  updateRdShadowTracker,
-  type RdShadowTrackerOptions,
-} from "../lib/rd-shadow-tracker"
 import {
   runStrategyRndBatch,
   runStrategyRndCampaign,
@@ -26,13 +17,6 @@ interface Config {
   strategyRndBatch: boolean
   strategyRndLoop: boolean
   strategyRndCampaign: boolean
-  rdShadowTracker: boolean
-  forwardResultPath: string
-  manifestMapPath: string
-  outputPath: string
-  now: string
-  maxHoldBars?: number
-  statePath: string
   catalogDbPath: string
   input: JSONRecord
 }
@@ -67,7 +51,6 @@ function runConfig(config: Config): unknown {
     assertRuntimeOutputPaths(input.artifactRoot, input.ledgerPath, input.catalogDbPath, input.rdProgramStatePath)
     return runStrategyRndCampaign(input)
   }
-  if (config.rdShadowTracker) return runRdShadowTracker(config)
   throw new Error("provide a strategy RD command flag")
 }
 
@@ -76,12 +59,6 @@ function parseArgs(argv: string[]): Config {
     strategyRndBatch: false,
     strategyRndLoop: false,
     strategyRndCampaign: false,
-    rdShadowTracker: false,
-    forwardResultPath: "",
-    manifestMapPath: "",
-    outputPath: "",
-    now: "",
-    statePath: "",
     catalogDbPath: "./data/data_catalog.db",
     input: {},
   }
@@ -91,14 +68,7 @@ function parseArgs(argv: string[]): Config {
       case "--strategy-rnd-batch": config.strategyRndBatch = true; break
       case "--strategy-rnd-loop": config.strategyRndLoop = true; break
       case "--strategy-rnd-campaign": config.strategyRndCampaign = true; break
-      case "--rd-shadow-tracker": config.rdShadowTracker = true; break
-      case "--max-hold-bars": config.maxHoldBars = Number(readValue(argv, ++index, arg)); break
-      case "--state": config.statePath = readValue(argv, ++index, arg); break
-      case "--forward-result": config.forwardResultPath = readValue(argv, ++index, arg); break
-      case "--manifest-map": config.manifestMapPath = readValue(argv, ++index, arg); break
-      case "--output": config.outputPath = readValue(argv, ++index, arg); break
       case "--catalog-db": config.catalogDbPath = readValue(argv, ++index, arg); break
-      case "--now": config.now = readValue(argv, ++index, arg); break
       case "--db": ++index; break
       case "--input": config.input = readJsonFile(readValue(argv, ++index, arg)); break
       case "--json": config.input = readJson(readValue(argv, ++index, arg)); break
@@ -131,42 +101,6 @@ function assertRuntimeOutputPaths(...paths: Array<string | undefined>): void {
   }
 }
 
-function runRdShadowTracker(config: Config): unknown {
-  if (!config.forwardResultPath && !config.statePath) {
-    throw new Error("--rd-shadow-tracker requires --forward-result or --state")
-  }
-  assertRuntimeOutputPaths(config.outputPath, config.catalogDbPath)
-  const options: RdShadowTrackerOptions = {
-    now: config.now || undefined,
-    sourceRef: config.forwardResultPath || undefined,
-    maxHoldBars: config.maxHoldBars,
-    forwardReport: config.statePath && config.forwardResultPath ? readTrackerJsonFile(config.forwardResultPath) : undefined,
-    manifestRefs: config.manifestMapPath ? manifestRefsFromJson(readTrackerJsonFile(config.manifestMapPath)) : undefined,
-  }
-  const state = config.statePath
-    ? updateRdShadowTracker(readTrackerJsonFile(config.statePath), options)
-    : createRdShadowTrackerFromForwardHoldout(readTrackerJsonFile(config.forwardResultPath), options)
-  if (!config.outputPath) {
-    return state
-  }
-  mkdirSync(dirname(config.outputPath), { recursive: true })
-  writeFileSync(config.outputPath, `${JSON.stringify({ ok: true, data: state }, null, 2)}\n`)
-  const catalogDbPath = config.catalogDbPath || defaultCatalogDbPathForGeneratedPath(config.outputPath)
-  registerCatalogArtifact({
-    catalogDbPath,
-    path: config.outputPath,
-    now: state.updated_at,
-    referrerType: "run",
-    referrerID: state.tracker_id,
-    role: "output",
-  })
-  return {
-    ...state,
-    output_ref: config.outputPath,
-    catalog_db_path: catalogDbPath,
-  }
-}
-
 function successResponse(data: unknown): JSONRecord {
   return { ok: true, schema_version: "strategy-rd.script-response.v1", data }
 }
@@ -181,7 +115,6 @@ function printHelp(): void {
   bun src/scripts/main.ts --strategy-rnd-batch --json '{"manifest_path":"...","candidates":[...]}'
   bun src/scripts/main.ts --strategy-rnd-loop --json '{"manifest_path":"...","candidates":[...]}'
   bun src/scripts/main.ts --strategy-rnd-campaign --json '{"campaign_id":"...","hypotheses":[...]}'
-  bun src/scripts/main.ts --rd-shadow-tracker --forward-result ./tmp/forward.json --output ./tmp/artifacts/strategy-rnd/shadow.json
 `)
 }
 

@@ -59,7 +59,7 @@
 
 ### 1.2 RD 当前拆解诊断
 
-`strategy-rd` 当前实际是 research suite，总入口仍包含 batch、loop、campaign、shadow tracker。RD program state、RD supervisor、单策略 replay、latest signal、panel、data split、benchmark、calibration、funding governance、strategy contract compile/lint 已拆为独立 atomic module；剩余 flag 继续按 Binance 原子性标尺拆分。
+`strategy-rd` 当前实际是 research suite，总入口仍包含 batch、loop、campaign。RD program state、RD supervisor、RD shadow tracker、单策略 replay、latest signal、panel、data split、benchmark、calibration、funding governance、strategy contract compile/lint 已拆为独立 atomic module；剩余 flag 继续按 Binance 原子性标尺拆分。
 
 | 当前 flag | 真实行为 | 目标 atomic module | primary write |
 | --- | --- | --- | --- |
@@ -74,7 +74,7 @@
 | `research.panel-evaluator` | 多资产 panel / cross-candidate negative control | `research/panel-evaluator` | report |
 | `research.rd-program-state` | durable RD memory init/read/update/plan_next | `research/rd-program-state` | RD state + catalog |
 | `research.rd-supervisor` | plan_next -> execute -> writeback loop | `research/rd-supervisor` | RD state + artifacts |
-| `--rd-shadow-tracker` | forward signal 纸面 setup event chain | `research/rd-shadow-tracker` | artifact |
+| `research.rd-shadow-tracker` | forward signal 纸面 setup event chain | `research/rd-shadow-tracker` | artifact |
 | `research.benchmark-runner` | 固定 benchmark 仿真 | `research/benchmark-runner` | report |
 | `research.calibration-suite` | calibration suite / pipeline diagnosis | `research/calibration-suite` | report |
 | `research.funding-governance` | funding coverage governance check | `research/funding-governance` | report |
@@ -207,7 +207,7 @@ modules/
 | `research/panel-evaluator` | atomic | 多资产 panel、cross-candidate negative control、marketability | migrated |
 | `research/rd-program-state` | atomic | durable RD memory init/read/update/plan_next | migrated |
 | `research/rd-supervisor` | atomic | plan_next -> execute -> writeback loop runner | migrated |
-| `research/rd-shadow-tracker` | atomic | forward paper setup event chain | `rd-shadow-tracker.ts`、`setup-event-chain.ts` |
+| `research/rd-shadow-tracker` | atomic | forward paper setup event chain | migrated |
 | `research/benchmark-runner` | atomic | fixed benchmark simulation and report | migrated |
 | `research/calibration-suite` | atomic | calibration suite、pipeline diagnostics、data breadth attribution | migrated |
 | `research/funding-governance` | atomic | funding coverage / carry governance read-only check | migrated |
@@ -334,7 +334,7 @@ modules/
 10. `research/panel-evaluator`：已承接 panel evaluation。
 11. `research/rd-program-state`：已承接 RD memory init/read/update/plan_next。
 12. `research/rd-supervisor`：已承接 autonomous RD supervisor loop。
-13. `research/rd-shadow-tracker`：承接 `--rd-shadow-tracker`。
+13. `research/rd-shadow-tracker`：已承接 forward paper setup event chain tracker。
 14. `research/benchmark-runner`：已承接 fixed benchmark。
 15. `research/calibration-suite`：已承接 calibration diagnostics。
 16. `research/funding-governance`：已承接 funding coverage governance。
@@ -365,6 +365,7 @@ modules/
 - strategy contract 解析、编译、lint 语义已迁到 `modules/contracts/strategy-contract`；research 原子 CLI 只负责参数与 response envelope。
 - `research.rd-program-state` 已成为 agent-facing atomic module，承接 durable RD memory init/read/update/plan_next；`strategy-rd` 不再暴露 `--rd-program-state`。
 - `research.rd-supervisor` 已成为 agent-facing atomic module，承接 plan_next -> loop/campaign -> state writeback；`strategy-rd` 不再暴露 `--rd-supervisor-run`。
+- `research.rd-shadow-tracker` 已成为 agent-facing atomic module，承接 forward paper setup event chain；`strategy-rd` 不再暴露 `--rd-shadow-tracker`。
 
 ### Phase 4：拆 `trade-flow`
 
