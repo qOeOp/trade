@@ -51,6 +51,8 @@ test("live-small uses injected runner with stable order-place command contract",
     assert.ok(calls[0].command.includes("--new-client-order-id"))
     assert.ok(calls[0].command.includes("flow-live-fixture-1-entry"))
     assert.ok(calls[0].command.includes("--yes"))
+    assertFlagValue(calls[0].command, "--exchange-runtime-db", "/repo/data/exchange_runtime.db")
+    assertFlagValue(calls[0].command, "--requested-by-ref", "evt-live-fixture-1")
   } finally {
     db.close()
   }
@@ -279,4 +281,10 @@ function liveSmallInput() {
       },
     },
   }
+}
+
+function assertFlagValue(command: string[], flag: string, value: string): void {
+  const index = command.indexOf(flag)
+  assert.notEqual(index, -1)
+  assert.equal(command[index + 1], value)
 }

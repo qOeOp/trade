@@ -45,6 +45,24 @@ CREATE TABLE IF NOT EXISTS notify_attempt (
   FOREIGN KEY (cycle_id) REFERENCES cycle_run(cycle_id)
 );
 
+CREATE TABLE IF NOT EXISTS domain_message (
+  message_id       TEXT PRIMARY KEY,
+  cycle_id         TEXT,
+  job_id           TEXT,
+  direction        TEXT NOT NULL CHECK(direction IN ('inbox', 'outbox')),
+  source_domain    TEXT,
+  target_domain    TEXT,
+  rail             TEXT NOT NULL,
+  payload_ref      TEXT NOT NULL,
+  idempotency_key  TEXT,
+  status           TEXT NOT NULL CHECK(status IN ('queued', 'published', 'consumed', 'failed')),
+  envelope_json    TEXT NOT NULL CHECK(json_valid(envelope_json)),
+  created_at       TEXT NOT NULL,
+  processed_at     TEXT,
+  error_json       TEXT CHECK(error_json IS NULL OR json_valid(error_json)),
+  FOREIGN KEY (cycle_id) REFERENCES cycle_run(cycle_id)
+);
+
 CREATE TABLE IF NOT EXISTS ops_lock (
   lock_key      TEXT PRIMARY KEY,
   holder_id     TEXT NOT NULL,
@@ -54,3 +72,5 @@ CREATE TABLE IF NOT EXISTS ops_lock (
 
 CREATE INDEX IF NOT EXISTS idx_job_run_cycle ON job_run(cycle_id, ticket_no);
 CREATE INDEX IF NOT EXISTS idx_runtime_health_time ON runtime_health(observed_at DESC);
+CREATE INDEX IF NOT EXISTS idx_domain_message_cycle ON domain_message(cycle_id, job_id, direction);
+CREATE INDEX IF NOT EXISTS idx_domain_message_target ON domain_message(target_domain, status, created_at);

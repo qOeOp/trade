@@ -126,6 +126,8 @@ test("slow track workflow dry-run builds real watchlist without live action", as
     assert.equal(ohlcv.manifest_path, "tmp/market/run-slow-test/BTCUSDT/manifest.json")
     assert.equal(ohlcv.output_dir, "tmp/market/run-slow-test/BTCUSDT")
     assert.equal(isAbsolute(ohlcv.manifest_path), false)
+    const ohlcvCall = calls.find((call) => call.cwd?.endsWith("ohlcv-fetch") && call.command.includes("--market-data-db"))
+    assert.equal(ohlcvCall?.command[ohlcvCall.command.indexOf("--market-data-db") + 1], join(dataDir, "market_data.duckdb"))
     const indicatorCall = calls.find((call) => call.cwd?.endsWith("market-data-products/tech-indicators") && call.command.includes("--manifest"))
     assert.equal(indicatorCall?.command[indicatorCall.command.indexOf("--manifest") + 1], join(repoRoot, "tmp/market/run-slow-test/BTCUSDT/manifest.json"))
     assert.equal((result.watchlist as Array<{ operator_suggestion: { action: string } }>)[0].operator_suggestion.action, "watch_long_setup")

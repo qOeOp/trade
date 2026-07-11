@@ -47,6 +47,55 @@
       }
     },
     {
+      "id": "ops.runtime-store",
+      "domain": "orchestration-ops",
+      "intent": [
+        "ops-ledger",
+        "cycle-summary",
+        "job-observability",
+        "attention-summary"
+      ],
+      "capability_class": [
+        "A"
+      ],
+      "path": "modules/orchestration-ops/ops-runtime-store",
+      "purpose": "Record and summarize cycle/job/health/notify/domain-message observability in ops_runtime_store.",
+      "command": {
+        "cwd": "modules/orchestration-ops/ops-runtime-store",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--db",
+          "./data/ops_runtime.db",
+          "--action",
+          "summary",
+          "--json",
+          "{\"cycle_id\":\"<cycle-id>\"}"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "The summary action is read-only and returns ops_summary with stage, domain, message, and attention aggregates.",
+        "Record actions write only ops_runtime_store and never change trade facts."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "orchestration-ops.ops-runtime-store",
+      "requires_preflight": false,
+      "concurrency_group": "ops-runtime",
+      "forbidden_callers": [],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
+    },
+    {
       "id": "ops.runtime-health-guard",
       "domain": "orchestration-ops",
       "intent": [
@@ -1222,6 +1271,54 @@
       }
     },
     {
+      "id": "ops.domain-bus",
+      "domain": "orchestration-ops",
+      "intent": [
+        "domain-message",
+        "logical-bus",
+        "inbox",
+        "outbox"
+      ],
+      "capability_class": [
+        "A"
+      ],
+      "path": "modules/orchestration-ops/domain-bus",
+      "purpose": "Publish and query logical domain inbox/outbox envelopes in ops_runtime_store.",
+      "command": {
+        "cwd": "modules/orchestration-ops/domain-bus",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--db",
+          "./data/ops_runtime.db",
+          "--action",
+          "publish",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Writes logical bus message rows in ops_runtime_store; payloads remain refs owned by their source domains."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "orchestration-ops.domain-bus",
+      "requires_preflight": false,
+      "concurrency_group": "ops-runtime",
+      "forbidden_callers": [],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "modules/contracts/protocol-fabric/src/schemas/domain-inbox-envelope.schema.json",
+        "output_schema": ""
+      }
+    },
+    {
       "id": "strategy-review",
       "domain": "governance-review-compliance",
       "intent": [
@@ -1433,7 +1530,9 @@
           "--symbol",
           "<symbol>",
           "--timeframes",
-          "1d,4h,1h"
+          "1d,4h,1h",
+          "--market-data-db",
+          "./data/market_data.duckdb"
         ]
       },
       "writes": {
@@ -1444,7 +1543,8 @@
         "config": false
       },
       "notes": [
-        "Writes data files and manifests, not strategy decisions."
+        "Writes data files and manifests, not strategy decisions.",
+        "When --market-data-db is present, upserts market_manifest and canonical_candle rows in market_data_store."
       ],
       "module_type": "suite",
       "owner_scope": "market-data-products.ohlcv-fetch",
@@ -1848,6 +1948,10 @@
           "<BUY|SELL>",
           "--type",
           "<type>",
+          "--exchange-runtime-db",
+          "./data/exchange_runtime.db",
+          "--requested-by-ref",
+          "<upstream-ref>",
           "--yes"
         ]
       },
@@ -1859,7 +1963,8 @@
         "config": false
       },
       "notes": [
-        "Must be called through trade-flow execution for live strategy use."
+        "Must be called through trade-flow execution for live strategy use.",
+        "When --exchange-runtime-db is present, records command/result refs in exchange_runtime_store; money truth remains in trade_event_store."
       ],
       "module_type": "atomic",
       "owner_scope": "exchange-gateway.order-place",
@@ -1897,6 +2002,10 @@
           "--symbol",
           "<symbol>",
           "<cancel-target>",
+          "--exchange-runtime-db",
+          "./data/exchange_runtime.db",
+          "--requested-by-ref",
+          "<upstream-ref>",
           "--yes"
         ]
       },
@@ -1908,7 +2017,8 @@
         "config": false
       },
       "notes": [
-        "Exchange write; local state is recorded by trade-flow."
+        "Exchange write; local money state is recorded by trade-flow.",
+        "When --exchange-runtime-db is present, records command/result refs in exchange_runtime_store."
       ],
       "module_type": "atomic",
       "owner_scope": "exchange-gateway.order-cancel",
@@ -1948,6 +2058,10 @@
           "<symbol>",
           "--position-side",
           "<side>",
+          "--exchange-runtime-db",
+          "./data/exchange_runtime.db",
+          "--requested-by-ref",
+          "<upstream-ref>",
           "--yes"
         ]
       },
@@ -1959,7 +2073,8 @@
         "config": false
       },
       "notes": [
-        "Exchange write; does not decide whether protection is strategically correct."
+        "Exchange write; does not decide whether protection is strategically correct.",
+        "When --exchange-runtime-db is present, records command/result refs in exchange_runtime_store."
       ],
       "module_type": "atomic",
       "owner_scope": "exchange-gateway.position-protect",
@@ -1999,6 +2114,10 @@
           "<symbol>",
           "--position-side",
           "<side>",
+          "--exchange-runtime-db",
+          "./data/exchange_runtime.db",
+          "--requested-by-ref",
+          "<upstream-ref>",
           "--yes"
         ]
       },
@@ -2010,7 +2129,8 @@
         "config": false
       },
       "notes": [
-        "No add-risk path; add risk belongs to order-place through trade-flow."
+        "No add-risk path; add risk belongs to order-place through trade-flow.",
+        "When --exchange-runtime-db is present, records command/result refs in exchange_runtime_store."
       ],
       "module_type": "atomic",
       "owner_scope": "exchange-gateway.position-adjust",

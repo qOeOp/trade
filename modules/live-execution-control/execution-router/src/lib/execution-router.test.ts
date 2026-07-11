@@ -32,6 +32,8 @@ test("execution command spec routes place_entry to order-place with compiled con
   assert.ok(spec.command.includes("--new-client-order-id"))
   assert.ok(spec.command.includes("flow-route-1-1-entry"))
   assert.ok(spec.command.includes("--yes"))
+  assertFlagValue(spec.command, "--exchange-runtime-db", "/repo/data/exchange_runtime.db")
+  assertFlagValue(spec.command, "--requested-by-ref", "execution:flow-route-1:obs-route-1")
 })
 
 test("execution command spec resolves semantic entry intent before routing order-place", () => {
@@ -109,6 +111,10 @@ test("execution command spec routes cancel_order to order-cancel", () => {
     "--orig-client-order-id",
     "flow-route-1-1-entry",
     "--yes",
+    "--exchange-runtime-db",
+    "/repo/data/exchange_runtime.db",
+    "--requested-by-ref",
+    "execution:BTCUSDT:cancel_order:flow-route-1-1-entry",
   ])
 })
 
@@ -185,6 +191,24 @@ test("position adjust command only maps reduce or close", () => {
   )
 })
 
+test("execution command spec routes adjust_position with exchange audit flags", () => {
+  const spec = buildExecutionCommandSpec({
+    repoRoot: "/repo",
+    target_action: "adjust_position",
+    request: {
+      symbol: "SOLUSDT",
+      position_side: "LONG",
+      direction: "reduce",
+      reduce_quantity: 1.25,
+    },
+  })
+
+  assert.equal(spec.tool, "binance-position-adjust")
+  assert.equal(spec.cwd, "/repo/modules/exchange-gateway/binance-write/position-adjust")
+  assertFlagValue(spec.command, "--exchange-runtime-db", "/repo/data/exchange_runtime.db")
+  assertFlagValue(spec.command, "--requested-by-ref", "execution:SOLUSDT:adjust_position")
+})
+
 test("position protect command maps stop take-profit and trailing legs", () => {
   const command = buildPositionProtectCommand({
     target_action: "sync_protection",
@@ -226,6 +250,27 @@ test("position protect command maps stop take-profit and trailing legs", () => {
     "false",
     "--yes",
   ])
+})
+
+test("execution command spec routes sync_protection with exchange audit flags", () => {
+  const spec = buildExecutionCommandSpec({
+    repoRoot: "/repo",
+    target_action: "sync_protection",
+    plan: {
+      symbol: "BTCUSDT",
+      stop_price: 64000,
+    },
+    request: {
+      position_side: "LONG",
+      quantity: "0.01",
+      stop_loss_trigger: 64000,
+    },
+  })
+
+  assert.equal(spec.tool, "binance-position-protect")
+  assert.equal(spec.cwd, "/repo/modules/exchange-gateway/binance-write/position-protect")
+  assertFlagValue(spec.command, "--exchange-runtime-db", "/repo/data/exchange_runtime.db")
+  assertFlagValue(spec.command, "--requested-by-ref", "execution:BTCUSDT:sync_protection")
 })
 
 test("no_action has no executable command spec", () => {
@@ -271,4 +316,10 @@ function contractInput() {
       min_qty: "0.001",
     },
   }
+}
+
+function assertFlagValue(command: string[], flag: string, value: string): void {
+  const index = command.indexOf(flag)
+  assert.notEqual(index, -1)
+  assert.equal(command[index + 1], value)
 }

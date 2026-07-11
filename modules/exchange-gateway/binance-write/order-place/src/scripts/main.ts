@@ -1,7 +1,17 @@
 #!/usr/bin/env bun
 
 import { createHmac } from "node:crypto"
+import { mkdirSync } from "node:fs"
+import { dirname } from "node:path"
+import { Database } from "bun:sqlite"
 import Binance, { type BinanceRest } from "binance-api-node"
+import {
+  buildExchangeCommand,
+  buildExchangeResult,
+  ensureExchangeRuntimeSchema,
+  recordExchangeCommand,
+  recordExchangeResult,
+} from "../../../../exchange-runtime-store/src/lib/exchange-runtime-store"
 
 interface Config {
   symbol: string
@@ -22,6 +32,8 @@ interface Config {
   test: boolean
   dryJson: boolean
   checkEnv: boolean
+  exchangeRuntimeDb: string
+  requestedByRef: string
 }
 
 interface EnvStatus {
@@ -119,6 +131,8 @@ Key flags:
   --test                             POST /fapi/v1/order/test
   --dry-json                         Print the final Binance request payload without sending
   --check-env                        Only validate BINANCE_API_KEY / BINANCE_API_SECRET
+  --exchange-runtime-db <path>       Optional audit DB for exchange_runtime_store
+  --requested-by-ref <ref>           Optional upstream job / flow ref for exchange audit
   --yes                              Required for live orders
   --help                             Show this help
 `
@@ -157,7 +171,9 @@ async function run(argv: string[]): Promise<ScriptResponse> {
 
     const client = createClient(config.timeout)
     await assertOrderWouldPassBasicSymbolRules(config, client)
-    return { ok: true, data: await executeOrder(config, client) }
+    const data = await executeOrder(config, client)
+    recordExchangeAuditIfEnabled(config, data)
+    return { ok: true, data }
   } catch (error) {
     return { ok: false, error: formatError(error) }
   }
@@ -183,6 +199,8 @@ function parseArgs(argv: string[]): Config {
     test: false,
     dryJson: false,
     checkEnv: false,
+    exchangeRuntimeDb: "",
+    requestedByRef: "",
   }
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -242,6 +260,12 @@ function parseArgs(argv: string[]): Config {
         break
       case "--check-env":
         config.checkEnv = true
+        break
+      case "--exchange-runtime-db":
+        config.exchangeRuntimeDb = readFlagValue(argv, ++index, arg)
+        break
+      case "--requested-by-ref":
+        config.requestedByRef = readFlagValue(argv, ++index, arg)
         break
       default:
         throw new Error(`unknown flag: ${arg}`)
@@ -322,6 +346,53 @@ function buildDryRun(config: Config) {
     request: isUsdmAlgoEntryOrder(config)
       ? buildFuturesAlgoOrderRequest(config)
       : buildFuturesOrderRequest(config),
+  }
+}
+
+function recordExchangeAuditIfEnabled(config: Config, execution: unknown): void {
+  if (!config.exchangeRuntimeDb) {
+    return
+  }
+  const executionRecord = asRecord(execution) ?? {}
+  const request = asRecord(executionRecord.request) ?? asRecord(buildDryRun(config).request) ?? {}
+  const result = asRecord(executionRecord.result) ?? {}
+  const confirmed = asRecord(executionRecord.confirmedResult)
+  const clientOrderId = readClientOrderId(request, result, confirmed)
+  const exchangeRef = readExchangeRef(result, confirmed)
+  const commandType = readStringField(executionRecord, "method") || "binance_order_place"
+  const requestedByRef = config.requestedByRef || clientOrderId || `manual:binance-order-place:${config.symbol}`
+  const idempotencyKey = [
+    "binance_order_place",
+    config.symbol,
+    clientOrderId || exchangeRef || requestedByRef,
+  ].join(":")
+  const commandId = `exchange-command-${sanitizeId(idempotencyKey)}`
+  mkdirSync(dirname(config.exchangeRuntimeDb), { recursive: true })
+  const db = new Database(config.exchangeRuntimeDb)
+  try {
+    ensureExchangeRuntimeSchema(db)
+    recordExchangeCommand(db, buildExchangeCommand({
+      command_id: commandId,
+      idempotency_key: idempotencyKey,
+      market: "binance_usdm",
+      symbol: config.symbol,
+      command_type: commandType,
+      client_order_id: clientOrderId,
+      requested_by_ref: requestedByRef,
+      request_json: request,
+      status: confirmed ? "confirmed" : "submitted",
+      created_at: new Date().toISOString(),
+    }))
+    recordExchangeResult(db, buildExchangeResult({
+      result_id: `${commandId}:result`,
+      command_id: commandId,
+      exchange_ref: exchangeRef,
+      result_json: result,
+      confirmed_json: confirmed,
+      received_at: new Date().toISOString(),
+    }))
+  } finally {
+    db.close()
   }
 }
 
@@ -942,6 +1013,32 @@ function readNumberField(value: unknown, field: string): number | null {
   return Number.isFinite(raw) ? raw : null
 }
 
+function readClientOrderId(...values: Array<Record<string, unknown> | undefined>): string {
+  for (const value of values) {
+    const id = readStringField(value, "clientOrderId")
+      || readStringField(value, "newClientOrderId")
+      || readStringField(value, "clientAlgoId")
+    if (id) {
+      return id
+    }
+  }
+  return ""
+}
+
+function readExchangeRef(...values: Array<Record<string, unknown> | undefined>): string {
+  for (const value of values) {
+    const id = readNumberField(value, "orderId") ?? readNumberField(value, "algoId")
+    if (id != null) {
+      return String(id)
+    }
+  }
+  return ""
+}
+
+function sanitizeId(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_.:-]+/g, "-").slice(0, 160)
+}
+
 function asRecord(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" ? value as Record<string, unknown> : undefined
 }
@@ -1012,6 +1109,7 @@ export {
   readRelevantPositionAmt,
   readCurrentLeverage,
   parseArgs,
+  recordExchangeAuditIfEnabled,
   run,
   wouldReduceOrFlip,
 }

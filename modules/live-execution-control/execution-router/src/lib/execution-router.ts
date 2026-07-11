@@ -16,9 +16,15 @@ interface ExecutionCommandSpec {
   command: string[]
 }
 
+interface ExchangeAuditOptions {
+  exchangeRuntimeDb: string
+  requestedByRef: string
+}
+
 function buildExecutionCommandSpec(input: JSONRecord, contract?: ExecutionContract): ExecutionCommandSpec {
   const targetAction = readTargetAction(input.target_action)
   const repoRoot = stringField(input.repoRoot) || process.cwd()
+  const exchangeAudit = buildExchangeAuditOptions(input, repoRoot)
   if (targetAction === "place_entry") {
     const compiled = contract
       ?? compileExecutionContract(asRecord(input.execution_contract_input) as unknown as ExecutionContractInput)
@@ -26,7 +32,10 @@ function buildExecutionCommandSpec(input: JSONRecord, contract?: ExecutionContra
       target_action: targetAction,
       tool: "binance-order-place",
       cwd: `${repoRoot}/modules/exchange-gateway/binance-write/order-place`,
-      command: buildOrderPlaceCommand(compiled),
+      command: buildOrderPlaceCommand(compiled, {
+        ...exchangeAudit,
+        requestedByRef: exchangeAudit.requestedByRef || `execution:${compiled.chain_id}:${compiled.source_observe_event_key}`,
+      }),
     }
   }
   if (targetAction === "cancel_order") {
@@ -34,7 +43,10 @@ function buildExecutionCommandSpec(input: JSONRecord, contract?: ExecutionContra
       target_action: targetAction,
       tool: "binance-order-cancel",
       cwd: `${repoRoot}/modules/exchange-gateway/binance-write/order-cancel`,
-      command: buildOrderCancelCommand(input),
+      command: buildOrderCancelCommand(input, {
+        ...exchangeAudit,
+        requestedByRef: exchangeAudit.requestedByRef || buildCancelRequestedByRef(input),
+      }),
     }
   }
   if (targetAction === "adjust_position") {
@@ -42,7 +54,10 @@ function buildExecutionCommandSpec(input: JSONRecord, contract?: ExecutionContra
       target_action: targetAction,
       tool: "binance-position-adjust",
       cwd: `${repoRoot}/modules/exchange-gateway/binance-write/position-adjust`,
-      command: buildPositionAdjustCommand(input),
+      command: buildPositionAdjustCommand(input, {
+        ...exchangeAudit,
+        requestedByRef: exchangeAudit.requestedByRef || buildActionRequestedByRef(input, targetAction),
+      }),
     }
   }
   if (targetAction === "sync_protection") {
@@ -50,13 +65,16 @@ function buildExecutionCommandSpec(input: JSONRecord, contract?: ExecutionContra
       target_action: targetAction,
       tool: "binance-position-protect",
       cwd: `${repoRoot}/modules/exchange-gateway/binance-write/position-protect`,
-      command: buildPositionProtectCommand(input),
+      command: buildPositionProtectCommand(input, {
+        ...exchangeAudit,
+        requestedByRef: exchangeAudit.requestedByRef || buildActionRequestedByRef(input, targetAction),
+      }),
     }
   }
   throw new Error("no_action has no executable tool command")
 }
 
-function buildOrderPlaceCommand(contract: ExecutionContract): string[] {
+function buildOrderPlaceCommand(contract: ExecutionContract, exchangeAudit?: ExchangeAuditOptions): string[] {
   const entry = contract.entries[0]
   const command = [
     "bun",
@@ -83,10 +101,11 @@ function buildOrderPlaceCommand(contract: ExecutionContract): string[] {
   if (entry.stop_price != null) {
     command.push("--stop-price", String(entry.stop_price))
   }
+  appendExchangeAuditFlags(command, exchangeAudit)
   return command
 }
 
-function buildOrderCancelCommand(input: JSONRecord): string[] {
+function buildOrderCancelCommand(input: JSONRecord, exchangeAudit?: ExchangeAuditOptions): string[] {
   const request = asRecord(input.request)
   const command = ["bun", "src/scripts/main.ts", "--symbol", readRequiredSymbol(input)]
   const all = readBoolean(firstValue(request.all, request.cancel_all, request.scope === "all"))
@@ -112,10 +131,11 @@ function buildOrderCancelCommand(input: JSONRecord): string[] {
     ))
   }
   command.push("--yes")
+  appendExchangeAuditFlags(command, exchangeAudit)
   return command
 }
 
-function buildPositionAdjustCommand(input: JSONRecord): string[] {
+function buildPositionAdjustCommand(input: JSONRecord, exchangeAudit?: ExchangeAuditOptions): string[] {
   const request = asRecord(input.request)
   const direction = firstString(request.direction, request.adjustment)
   if (direction === "add") {
@@ -148,10 +168,11 @@ function buildPositionAdjustCommand(input: JSONRecord): string[] {
     ]))
   }
   command.push("--yes")
+  appendExchangeAuditFlags(command, exchangeAudit)
   return command
 }
 
-function buildPositionProtectCommand(input: JSONRecord): string[] {
+function buildPositionProtectCommand(input: JSONRecord, exchangeAudit?: ExchangeAuditOptions): string[] {
   const request = asRecord(input.request)
   const command = [
     "bun",
@@ -202,6 +223,7 @@ function buildPositionProtectCommand(input: JSONRecord): string[] {
     command.push("--price-protect", String(readBoolean(firstValue(request.price_protect, request.priceProtect))))
   }
   command.push("--yes")
+  appendExchangeAuditFlags(command, exchangeAudit)
   return command
 }
 
@@ -238,6 +260,43 @@ function readRequiredQuantity(input: JSONRecord, candidates: unknown[]): string 
     throw new Error(`${readTargetAction(input.target_action)} command requires quantity unless close-position is true`)
   }
   return quantity
+}
+
+function buildExchangeAuditOptions(input: JSONRecord, repoRoot: string): ExchangeAuditOptions {
+  return {
+    exchangeRuntimeDb: firstString(input.exchange_runtime_db, input.exchangeRuntimeDb)
+      || `${repoRoot}/data/exchange_runtime.db`,
+    requestedByRef: firstString(input.requested_by_ref, input.requestedByRef, input.event_key),
+  }
+}
+
+function appendExchangeAuditFlags(command: string[], exchangeAudit?: ExchangeAuditOptions): void {
+  if (!exchangeAudit) {
+    return
+  }
+  pushFlag(command, "--exchange-runtime-db", exchangeAudit.exchangeRuntimeDb)
+  pushFlag(command, "--requested-by-ref", exchangeAudit.requestedByRef)
+}
+
+function buildCancelRequestedByRef(input: JSONRecord): string {
+  const request = asRecord(input.request)
+  const orderRef = firstString(
+    request.orig_client_order_id,
+    request.origClientOrderId,
+    request.client_order_id,
+    request.clientOrderId,
+    request.order_id,
+    request.orderId,
+    request.client_algo_id,
+    request.clientAlgoId,
+    request.algo_id,
+    request.algoId,
+  )
+  return `execution:${readRequiredSymbol(input)}:cancel_order:${orderRef || "all"}`
+}
+
+function buildActionRequestedByRef(input: JSONRecord, targetAction: ExecutableTargetAction): string {
+  return `execution:${readRequiredSymbol(input)}:${targetAction}`
 }
 
 function readBoolean(value: unknown): boolean {

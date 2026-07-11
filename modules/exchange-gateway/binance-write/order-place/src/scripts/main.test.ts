@@ -1,5 +1,9 @@
 import assert from "node:assert/strict"
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import test from "node:test"
+import { Database } from "bun:sqlite"
 
 import {
   assertOrderWouldPassBasicSymbolRules,
@@ -8,9 +12,11 @@ import {
   ensureUsdmLeverage,
   executeOrder,
   parseArgs,
+  recordExchangeAuditIfEnabled,
   run,
   submitUsdmTestOrder,
 } from "./main"
+import { readExchangeCommandByIdempotencyKey, readExchangeResultsForCommand } from "../../../../exchange-runtime-store/src/lib/exchange-runtime-store"
 
 test("parseArgs accepts standard usdm stop order", () => {
   const config = parseArgs([
@@ -414,6 +420,55 @@ test("executeOrder returns stable method request result for algo entry", async (
   })
 })
 
+test("order-place can record exchange runtime audit", () => {
+  const dir = mkdtempSync(join(tmpdir(), "order-place-audit-"))
+  const dbPath = join(dir, "exchange.db")
+  try {
+    const config = parseArgs([
+      "--symbol",
+      "BTCUSDT",
+      "--side",
+      "BUY",
+      "--type",
+      "STOP_MARKET",
+      "--quantity",
+      "0.01",
+      "--stop-price",
+      "66000",
+      "--new-client-order-id",
+      "flow-1-1-entry",
+      "--exchange-runtime-db",
+      dbPath,
+      "--requested-by-ref",
+      "job:J03",
+    ])
+
+    recordExchangeAuditIfEnabled(config, {
+      mode: "live",
+      method: "futuresCreateAlgoOrder",
+      request: buildDryRun(config).request,
+      result: { algoId: 9001, clientAlgoId: "flow-1-1-entry" },
+      confirmedResult: { algoId: 9001, clientAlgoId: "flow-1-1-entry", status: "NEW" },
+    })
+
+    const db = new Database(dbPath)
+    try {
+      const command = readExchangeCommandByIdempotencyKey(db, "binance_order_place:BTCUSDT:flow-1-1-entry")
+      assert.equal(command?.command_type, "futuresCreateAlgoOrder")
+      assert.equal(command?.client_order_id, "flow-1-1-entry")
+      assert.equal(command?.requested_by_ref, "job:J03")
+      assert.equal(command?.status, "confirmed")
+      const results = readExchangeResultsForCommand(db, command?.command_id ?? "")
+      assert.equal(results.length, 1)
+      assert.equal(results[0].exchange_ref, "9001")
+    } finally {
+      db.close()
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("submitUsdmTestOrder signs and posts to Binance futures test order endpoint", async () => {
   let capturedUrl = ""
   let capturedInit: RequestInit | undefined
@@ -432,14 +487,14 @@ test("submitUsdmTestOrder signs and posts to Binance futures test order endpoint
       apiKey: "test-key",
       apiSecret: "test-secret",
       timeout: 1_000,
-      fetchImpl: async (input, init) => {
+      fetchImpl: (async (input, init) => {
         capturedUrl = String(input)
-        capturedInit = init
+        capturedInit = init as RequestInit | undefined
         return new Response(JSON.stringify({ ok: true }), {
           status: 200,
           headers: { "content-type": "application/json" },
         })
-      },
+      }) as typeof fetch,
       httpBase: "https://example.com",
     },
   )

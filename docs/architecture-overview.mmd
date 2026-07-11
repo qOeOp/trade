@@ -8,15 +8,21 @@ flowchart LR
     OIN["domain inbox<br/>J01 / J09"]
     CYCLE["cycle planner<br/>生成本轮协议"]
     GRAPH["job graph protocol<br/>scope / contract / idempotency"]
+    RUNNER["job graph runner<br/>stage order / dry-run / execute audit"]
+    BUS["domain bus adapter<br/>inbox / outbox envelope audit"]
     HEALTH["runtime health checker<br/>配置 / API / DB / lock / safe mode"]
     NOTIFY["notify dispatcher<br/>异常汇总 / 人工接管提醒"]
-    OPSLOG[("ops runtime store<br/>lock / health / cycle summary")]
+    OPSLOG[("ops runtime store<br/>lock / health / job / domain messages")]
     OOUT["domain outbox<br/>cycle health summary"]
     ORTITLE ~~~ OPAD
     OPAD ~~~ CYCLE
     CYCLE --> GRAPH
+    GRAPH --> RUNNER
+    RUNNER --> BUS
     OIN --> HEALTH
     OIN --> NOTIFY
+    BUS --> OPSLOG
+    RUNNER --> OPSLOG
     HEALTH --> OPSLOG
     NOTIFY --> OPSLOG
     OPSLOG --> OOUT
@@ -240,6 +246,7 @@ flowchart LR
   end
 
   GRAPH --> COMMAND
+  RUNNER --> COMMAND
   OOUT --> COMMAND
 
   COMMAND --> J01
@@ -308,7 +315,7 @@ flowchart LR
   classDef spacer fill:transparent,stroke:transparent,color:transparent;
   classDef domainTitle fill:transparent,stroke:transparent,color:#1f2937,stroke-width:0px;
 
-  class ENTRY,CYCLE,GRAPH,RP,TCFG,STRAT center;
+  class ENTRY,CYCLE,GRAPH,RUNNER,BUS,RP,TCFG,STRAT center;
   class COMMAND,FACT,POLICYRAIL,MARKETRAIL,EXCHANGERAIL,DATARAIL,ARTIFACTRAIL,GOVRAIL,SCHEMAS rail;
   class OIN,OOUT,PIN,POUT,SIN,SOUT,MDIN,MDOUT,XIN,XOUT,DIN,DOUT,CIN,COUT,RIN,ROUT,GIN,GOUT,AIN,AOUT port;
   class HEALTH,NOTIFY handler;

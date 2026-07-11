@@ -4,6 +4,8 @@ import { tmpdir } from "node:os"
 import { basename, isAbsolute, join } from "node:path"
 import test from "node:test"
 import type { BinanceRest } from "binance-api-node"
+import { Database } from "bun:sqlite"
+import { readMarketManifest } from "../../../market-data-store/src/lib/market-data-store"
 
 import {
   candleCloseTimestamp,
@@ -256,4 +258,56 @@ test("run normalizes absolute output paths in response and manifest", async () =
   }
   assert.equal(isAbsolute(manifest.output_dir), false)
   assert.equal(isAbsolute(manifest.manifest_path), false)
+})
+
+test("run can upsert fetched candles into market data store", async () => {
+  const outputDir = mkdtempSync(join(tmpdir(), "ohlcv-fetch-store-output-"))
+  const storeDir = mkdtempSync(join(tmpdir(), "ohlcv-fetch-store-"))
+  const dbPath = join(storeDir, "market_data.db")
+  const rows = [1, 2, 3].map((index) => ({
+    openTime: index * 14_400_000,
+    open: String(index),
+    high: String(index + 1),
+    low: String(index - 0.5),
+    close: String(index + 0.25),
+    volume: String(index * 10),
+  }))
+  const client = {
+    futuresExchangeInfo: async () => ({ symbols: [{ symbol: "BTCUSDT", status: "TRADING" }] }),
+    futuresCandles: async () => rows,
+  } as unknown as BinanceRest
+
+  const result = await run([
+    "--symbol",
+    "BTCUSDT",
+    "--timeframes",
+    "4h",
+    "--output-dir",
+    outputDir,
+    "--market-data-db",
+    dbPath,
+  ], client)
+
+  assert.equal(result.ok, true)
+  if (!result.ok) return
+  assert.equal(result.data.market_data_store?.manifests.length, 1)
+  assert.equal(result.data.market_data_store?.candles_upserted, 3)
+  assert.equal(isAbsolute(result.data.market_data_store?.db ?? ""), false)
+
+  const manifestId = result.data.market_data_store?.manifests[0].manifest_id ?? ""
+  const db = new Database(dbPath)
+  try {
+    const manifest = readMarketManifest(db, manifestId)
+    assert.equal(manifest?.dataset_kind, "ohlcv")
+    assert.equal(manifest?.source, "binance_klines")
+    assert.equal(manifest?.symbol, "BTCUSDT")
+    assert.equal(manifest?.timeframe, "4h")
+    assert.equal(manifest?.rows, 3)
+    assert.equal(manifest?.freshness_json?.closed_candles_only, true)
+    const candleRow = db.query("SELECT COUNT(*) AS count, MAX(close) AS max_close FROM canonical_candle WHERE symbol='BTCUSDT' AND timeframe='4h'").get() as { count: number; max_close: number }
+    assert.equal(candleRow.count, 3)
+    assert.equal(candleRow.max_close, 3.25)
+  } finally {
+    db.close()
+  }
 })

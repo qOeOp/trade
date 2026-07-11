@@ -669,7 +669,7 @@ function stageForJob(jobId: string): string {
     return "serial_trade_db_guard"
   }
   if (jobId === "closed_flow_review_sweep") {
-    return "serial_closeout"
+    return "serial_review_closeout"
   }
   if (jobId === "ops_notify_dispatch") {
     return "serial_ops_closeout"

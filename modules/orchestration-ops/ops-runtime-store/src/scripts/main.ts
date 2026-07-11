@@ -2,7 +2,7 @@
 
 import { Database } from "bun:sqlite"
 import { readFileSync } from "node:fs"
-import { buildCycleRun, buildJobRun, ensureOpsRuntimeSchema, readCycleSummary, upsertCycleRun, upsertJobRun } from "../lib/ops-runtime-store"
+import { buildCycleRun, buildDomainMessage, buildJobRun, ensureOpsRuntimeSchema, readCycleSummary, readDomainMessages, upsertCycleRun, upsertDomainMessage, upsertJobRun } from "../lib/ops-runtime-store"
 import { stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
 
 interface Args {
@@ -52,6 +52,14 @@ export function run(args: Args): JSONRecord {
       upsertJobRun(db, job)
       return { ok: true, action: args.action, job }
     }
+    if (args.action === "record_message") {
+      const message = buildDomainMessage(args.json)
+      upsertDomainMessage(db, message)
+      return { ok: true, action: args.action, message }
+    }
+    if (args.action === "list_messages") {
+      return { ok: true, action: args.action, messages: readDomainMessages(db, args.json) }
+    }
     if (args.action === "summary") {
       const cycleId = stringField(args.json.cycle_id)
       return { ok: true, action: args.action, summary: readCycleSummary(db, cycleId) }
@@ -65,7 +73,7 @@ export function run(args: Args): JSONRecord {
 function printHelp(): void {
   console.log([
     "usage: bun src/scripts/main.ts --db data/ops_runtime.db --action init",
-    "actions: init | record_cycle | record_job | summary",
+    "actions: init | record_cycle | record_job | record_message | list_messages | summary",
   ].join("\n"))
 }
 

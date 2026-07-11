@@ -4,8 +4,15 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { Database } from "bun:sqlite"
 
-import { appendPlanEvent, buildRecordedExecutionEvent, cronRecoverFromTools, ensureSchema, reconcileFromTools, reduceFlowState, run, runLiveSmall, runShadowFromTools, validateOrderFill } from "./main"
+import { buildRecordedExecutionEvent } from "../../../../live-execution-control/execution-recorder/src/lib/execution-recorder"
+import { runLiveSmall } from "../../../../live-execution-control/live-small-runner/src/lib/live-small-runner"
+import { cronRecoverFromTools, reconcileFromTools } from "../../../../live-execution-control/recovery-runner/src/lib/recovery-runner"
+import { readCycleSummary } from "../../../ops-runtime-store/src/lib/ops-runtime-store"
+import { appendPlanEvent, ensureSchema, validateOrderFill } from "../../../../portfolio-execution-state/event-store/src/lib/event-store"
+import { reduceFlowState } from "../../../../portfolio-execution-state/flow-projector/src/lib/flow-projector"
 import { type Runner } from "../../../../live-decision-planning/observe-runner/src/lib/observe-runner"
+import { runShadowFromTools } from "./lib/live-execution"
+import { run } from "./main"
 import { resolveRepoPath } from "./lib/paths"
 
 test("validateOrderFill requires audit fields for trade_flow source", () => {
@@ -65,6 +72,48 @@ test("run rejects runtime output paths outside project data or tmp", async () =>
 
   assert.equal(result.ok, false)
   assert.match(String(result.error), /runtime output must stay under project data\/ or tmp\//)
+})
+
+test("run records job graph lifecycle through ops runtime store", async () => {
+  const dir = makeRuntimeDir("trade-flow-job-graph-")
+  const dbPath = join(dir, "trade.db")
+  const opsDbPath = join(dir, "ops_runtime.db")
+  try {
+    const result = await run([
+      "--db",
+      dbPath,
+      "--run-job-graph",
+      "--json",
+      JSON.stringify({
+        cycle_id: "cycle-main-job-graph",
+        now: "2026-07-11T00:15:00Z",
+        ops_runtime_db: opsDbPath,
+        execute_jobs: false,
+        include_fast_track: false,
+        include_slow_track: false,
+        include_rd_strategy_supervisor: false,
+        include_rd_trackers: false,
+        include_closed_flow_review: false,
+        include_catalog_hygiene: false,
+      }),
+    ])
+    assert.equal(result.ok, true)
+    const data = result.ok ? result.data as { mode: string; summary: { skipped: number } } : null
+    assert.equal(data?.mode, "dry_run")
+    assert.equal(data?.summary.skipped, 8)
+
+    const opsDb = new Database(opsDbPath)
+    try {
+      const summary = readCycleSummary(opsDb, "cycle-main-job-graph") as { jobs: Array<{ job_id: string; status: string }> }
+      assert.equal(summary.jobs.length, 8)
+      assert.equal(summary.jobs.some((job) => job.job_id === "runtime_health_guard" && job.status === "skipped"), true)
+      assert.equal(summary.jobs.some((job) => job.job_id === "ops_notify_dispatch" && job.status === "skipped"), true)
+    } finally {
+      opsDb.close()
+    }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 test("buildRecordedExecutionEvent compiles contract and writes audit snapshot", () => {

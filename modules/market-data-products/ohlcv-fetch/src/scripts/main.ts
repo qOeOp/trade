@@ -1,11 +1,19 @@
 #!/usr/bin/env bun
 
 import Binance, { type BinanceRest } from "binance-api-node"
+import { Database } from "bun:sqlite"
 import { createHash } from "node:crypto"
 import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join, relative, resolve } from "node:path"
+import { dirname, join, relative, resolve } from "node:path"
 import { nowIsoUTC } from "../../../../contracts/runtime-core/src/time"
+import {
+  ensureMarketDataSchema,
+  upsertCanonicalCandles,
+  upsertMarketManifest,
+  type CanonicalCandle,
+  type MarketManifest,
+} from "../../../market-data-store/src/lib/market-data-store"
 
 export interface Config {
   symbol: string
@@ -14,6 +22,7 @@ export interface Config {
   outputDir: string
   limit: number
   sinceTS: number
+  marketDataDb: string
 }
 
 export interface SymbolSpec {
@@ -61,7 +70,14 @@ interface FetchResponse {
   columns: string[]
   dedupe_key: string
   requested_since_ts?: number
+  market_data_store?: MarketDataStoreWriteSummary
   timeframes: Record<string, TimeframeEntry>
+}
+
+interface MarketDataStoreWriteSummary {
+  db: string
+  manifests: Array<{ timeframe: string; manifest_id: string; rows: number }>
+  candles_upserted: number
 }
 
 interface OutputPaths {
@@ -105,6 +121,7 @@ Key flags:
   --output-dir <path>           Optional output directory
   --limit <count>               Optional fixed limit for all timeframes
   --since-ts <ms>               Optional inclusive start timestamp in ms
+  --market-data-db <path>       Optional market_data_store DB for manifest/candle upsert
   --help                        Show this help
 `
 
@@ -178,6 +195,11 @@ export async function run(
     }
 
     writeFileSync(join(outputPaths.fsDir, "manifest.json"), `${JSON.stringify(response, null, 2)}\n`)
+    const storeWrite = recordMarketDataStoreIfEnabled(config, fetchCfg, response, candleSets)
+    if (storeWrite) {
+      response.market_data_store = storeWrite
+      writeFileSync(join(outputPaths.fsDir, "manifest.json"), `${JSON.stringify(response, null, 2)}\n`)
+    }
     return { ok: true, data: response }
   } catch (error) {
     return {
@@ -195,6 +217,7 @@ export function parseArgs(argv: string[]): Config {
     outputDir: "",
     limit: 0,
     sinceTS: 0,
+    marketDataDb: "",
   }
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -228,6 +251,9 @@ export function parseArgs(argv: string[]): Config {
         config.sinceTS = value
         break
       }
+      case "--market-data-db":
+        config.marketDataDb = readFlagValue(argv, ++i, arg)
+        break
       default:
         throw new Error(`unknown flag: ${arg}`)
     }
@@ -240,6 +266,104 @@ export function parseArgs(argv: string[]): Config {
     throw new Error(`--limit above ${MAX_KLINE_PAGE_SIZE} requires --since-ts`)
   }
   return config
+}
+
+function recordMarketDataStoreIfEnabled(
+  config: Config,
+  fetchCfg: FetchConfig,
+  response: FetchResponse,
+  candleSets: Record<string, CandleSet>,
+): MarketDataStoreWriteSummary | null {
+  if (!config.marketDataDb) {
+    return null
+  }
+  const dbPath = resolve(config.marketDataDb)
+  mkdirSync(dirname(dbPath), { recursive: true })
+  const db = new Database(dbPath)
+  try {
+    ensureMarketDataSchema(db)
+    const manifests: MarketDataStoreWriteSummary["manifests"] = []
+    let candlesUpserted = 0
+    for (const timeframe of config.timeframes) {
+      const entry = response.timeframes[timeframe]
+      const set = candleSets[timeframe]
+      if (!entry || !set) {
+        continue
+      }
+      const manifest = buildStoreManifest(response, fetchCfg, timeframe, entry)
+      upsertMarketManifest(db, manifest)
+      candlesUpserted += upsertCanonicalCandles(db, buildStoreCandles(manifest, fetchCfg, timeframe, set.candles))
+      manifests.push({
+        timeframe,
+        manifest_id: manifest.manifest_id,
+        rows: entry.rows,
+      })
+    }
+    return {
+      db: displayPath(dbPath),
+      manifests,
+      candles_upserted: candlesUpserted,
+    }
+  } finally {
+    db.close()
+  }
+}
+
+function buildStoreManifest(
+  response: FetchResponse,
+  fetchCfg: FetchConfig,
+  timeframe: string,
+  entry: TimeframeEntry,
+): MarketManifest {
+  const manifestId = [
+    "ohlcv",
+    fetchCfg.exchangeID,
+    fetchCfg.symbol.api,
+    timeframe,
+    entry.content_sha256.slice(0, 16),
+  ].join(":")
+  return {
+    manifest_id: manifestId,
+    dataset_kind: "ohlcv",
+    source: "binance_klines",
+    exchange: fetchCfg.exchangeID,
+    symbol: fetchCfg.symbol.api,
+    timeframe,
+    first_ts: entry.first_open_ts,
+    last_ts: entry.last_open_ts,
+    rows: entry.rows,
+    content_hash: entry.content_sha256,
+    manifest_path: response.manifest_path,
+    created_at: response.generated_at,
+    freshness_json: {
+      closed_candles_only: response.closed_candles_only,
+      append_only: entry.append_only,
+      ascending_ts: entry.ascending_ts,
+      display_symbol: response.symbol,
+      requested_symbol: response.requested_symbol,
+    },
+  }
+}
+
+function buildStoreCandles(
+  manifest: MarketManifest,
+  fetchCfg: FetchConfig,
+  timeframe: string,
+  candles: Candle[],
+): CanonicalCandle[] {
+  return candles.map((candle) => ({
+    manifest_id: manifest.manifest_id,
+    exchange: fetchCfg.exchangeID,
+    symbol: fetchCfg.symbol.api,
+    timeframe,
+    open_time: candle.timestamp,
+    close_time: candleCloseTimestamp(candle.timestamp, timeframe),
+    open: Number(candle.open),
+    high: Number(candle.high),
+    low: Number(candle.low),
+    close: Number(candle.close),
+    volume: Number(candle.volume),
+  }))
 }
 
 function readFlagValue(argv: string[], index: number, name: string): string {

@@ -10,13 +10,13 @@ agent-native 加密交易工作仓库。目标是让 agent 在可审计事实、
 
 完整 Mermaid 源文件固定在 [docs/architecture-overview.mmd](docs/architecture-overview.mmd)，渲染产物在 [docs/assets/architecture-overview.svg](docs/assets/architecture-overview.svg) / [docs/assets/architecture-overview.png](docs/assets/architecture-overview.png)。以后改顶层设计，先改这份源文件，再同步 README 图、[docs/design-architecture.md](docs/design-architecture.md)、[docs/architecture-manifest.json](docs/architecture-manifest.json) 和 [docs/storage-architecture.md](docs/storage-architecture.md)。
 
-一句话：外部只有一个 automation 入口；`orchestration-ops` 只生成本轮 job graph protocol，不直接解释交易、研究或治理结果；跨域通信走 `protocol-fabric / logical bus`，各责任域通过 inbox / outbox、logical store ref 和 rail envelope 解耦。
+一句话：外部只有一个 automation 入口；`orchestration-ops` 生成本轮 job graph protocol，并用 job graph runner 推进 stage lifecycle / ops audit，不直接解释交易、研究或治理结果；跨域通信走 `protocol-fabric / logical bus`，各责任域通过 inbox / outbox、logical store ref 和 rail envelope 解耦。
 
 顶层责任域：
 
 | 域 | 责任 |
 | --- | --- |
-| `orchestration-ops` | cycle planner、job graph、runtime health、notify、ops runtime |
+| `orchestration-ops` | cycle planner、job graph、domain-bus、runtime health、notify、ops runtime |
 | `contracts/protocol-fabric` | job ticket、command_spec、event/ref/store envelope、logical rails |
 | `policy-risk` | runtime policy、approved strategy snapshot、风险和权限边界 |
 | `portfolio-execution-state` | `trade.db` event store、flow projection、真钱状态读模型 |
@@ -210,6 +210,8 @@ sequenceDiagram
 | 减仓 / 全平 | `binance-position-adjust` |
 | 撤单 | `binance-order-cancel` |
 
+`execution-router` 生成的 Binance 写命令默认携带 `exchange_runtime_store` 审计参数；Binance command/result/idempotency 归 `exchange_runtime_store`，真钱事件真相仍回写 `trade_event_store`。
+
 任何新增风险动作都必须有 fresh facts、stop / invalidation / risk budget、preflight、execution contract 和 reconcile。
 
 ## 8. Recovery / Reconcile Flow
@@ -296,7 +298,7 @@ stateDiagram-v2
 | 资产治理 | `modules/artifact-knowledge/artifact-catalog/` | catalog、artifact stale scan、GC |
 | 市场观察 | `modules/market-data-products/binance-read/market-scan` / `modules/market-data-products/binance-read/symbol-snapshot` / `modules/market-data-products/binance-read/aggtrades-fetch` / `modules/market-data-products/liquidation-zones` | 候选、单标的事实、成交材料、清算区 |
 | 账户恢复 | `modules/exchange-gateway/binance-read/account-snapshot` | 余额、持仓、挂单、保护单、订单历史 |
-| 数据与指标 | `modules/market-data-products/ohlcv-fetch` / `modules/market-data-products/tech-indicators` | OHLCV、manifest、feature series、BTC beta |
+| 数据与指标 | `modules/market-data-products/ohlcv-fetch` / `modules/market-data-products/market-data-store` / `modules/market-data-products/tech-indicators` | OHLCV、canonical candles、manifest、feature series、BTC beta |
 | 执行 | `modules/exchange-gateway/binance-write/order-preview` / `modules/live-execution-control/plan-preflight` / Binance write modules | preview、hard guards、下单、保护、减仓、撤单 |
 | 策略资产 | `strategies/` | strategy policy + `## Trade Contract` |
 | 运行数据 | `data/` / `tmp/` | DB、catalog、OHLCV、artifact、cache |
@@ -339,6 +341,12 @@ bun modules/orchestration-ops/trade-flow/src/scripts/main.ts --db ./data/trade.d
 # 生成单入口 supervisor plan
 bun modules/orchestration-ops/trade-flow/src/scripts/main.ts --db ./data/trade.db --automation-cycle --json '{"slow_interval_minutes":240,"rd_program_state_path":"./data/rd/program.json"}'
 
+# 运行 job graph lifecycle，默认 dry-run 只写 ops runtime audit
+bun modules/orchestration-ops/trade-flow/src/scripts/main.ts --db ./data/trade.db --run-job-graph --json '{"ops_runtime_db":"./data/ops_runtime.db","execute_jobs":false}'
+
+# 查询 logical bus inbox/outbox envelope
+bun modules/orchestration-ops/domain-bus/src/scripts/main.ts --db ./data/ops_runtime.db --action list --json '{"cycle_id":"..."}'
+
 # 初始化并运行 R&D supervisor
 bun modules/research-strategy-development/rd-program-state/src/scripts/main.ts --state ./data/rd/program.json --json '{"action":"init","objective":"find a shadow-eligible 4H swing strategy"}'
 bun modules/research-strategy-development/rd-supervisor/src/scripts/main.ts --state ./data/rd/program.json --json '{"max_iterations":10}'
@@ -377,6 +385,8 @@ bun modules/research-strategy-development/rd-supervisor/src/scripts/main.ts --st
 - domain-first 目录、协议层、job ticket / command_spec、logical-store-ref
 - portfolio event-store / flow-projector、dry-run、shadow、live-small、reconcile
 - single automation entry + job graph protocol + subagent fan-out 契约
+- job graph runner：按 dispatch_order 推进 dry-run / execute lifecycle，并把 cycle/job 状态写入 ops runtime store
+- domain-bus：把 inbox/outbox envelope 和 payload refs 写入 ops runtime store，跨域 payload 仍由 owner store 持有
 - slow / fast 双轨口径
 - replay、strategy evidence、review、promotion gate
 - R&D campaign、panel、calibration、learning memory、autonomous R&D supervisor loop
@@ -397,13 +407,16 @@ bun modules/research-strategy-development/rd-supervisor/src/scripts/main.ts --st
 
 | 优先级 | 任务 | 目标完成状态 |
 | --- | --- | --- |
-| P0 | 实现 `ops_runtime_store`、`J01 runtime_health_guard`、`J09 ops_notify_dispatch` | done：cycle/job/health/notify 有独立库表和 owner module |
+| P0 | 实现 `ops_runtime_store`、`J01 runtime_health_guard`、`J09 ops_notify_dispatch` | done：cycle/job/health/notify 有独立库表和 owner module；`summary` 读口返回 stage/domain/attention 聚合 |
 | P0 | 把 automation cycle 从裸路径继续收敛到 `tool_id + command_spec + protocol-fabric` | done：J01/J03/J04/J05/J07/J08/J09 均输出 tool ticket + command_spec |
+| P0 | 实现 job graph runner | done：`--run-job-graph` 可按 dispatch_order 记录 planned/running/completed/skipped/failed；默认 dry-run，`execute_jobs=true` 才调用 command_spec；响应带 `ops_summary` |
+| P0 | 实现 logical domain-bus | done：`orchestration-ops/domain-bus` 写入 `ops_runtime_store.domain_message`，runner 为每个 job 记录 inbox/outbox envelope |
 | P1 | 实现 `exchange_runtime_store` | done：Binance write request/result/client_order_id/idempotency 有独立审计账本 |
-| P1 | 实现 `market_data_store` | done：raw/canonical/feature/dataset manifest 由市场数据域单写管理 |
+| P1 | 实现 `market_data_store` | done：raw/canonical/feature/dataset manifest 由市场数据域单写管理；`ohlcv-fetch` 与慢轨盯市已接入 canonical candle upsert |
 | P1 | 实现 `policy_registry` | done：approved strategy refs、runtime policy hash、风险快照可追溯 |
 | P2 | 实现 `research_state_store` | done：RD hypothesis、budget、trial、holdout use 有独立 owner store |
 | P2 | 实现 `governance_ledger` 与 `J08 closed-flow review sweep` | done：review/promotion evidence 有独立 ledger 和串行 closeout job |
 | P2 | 收敛域间调用到 inbox/outbox + rail envelope | done：protocol-fabric 已定义 domain inbox/outbox envelope，源码边界由 checker 管控 |
+| P2 | 强化 `trade-flow` 边界检查 | done：移除未使用 `src/domain/*` façade；checker 取消 trade-flow 泛化跨域豁免，改为生产文件级白名单 |
 | P3 | 为每个 logical store 增加 migration/init/check CLI | done：`bun scripts/logical-store.ts --action init/check --store all` |
-| P3 | 继续拆 `trade-flow` 剩余 suite 逻辑 | `orchestration-ops/trade-flow` 只保留 cycle orchestration 和 summary |
+| P3 | 继续拆 `trade-flow` 剩余 suite 逻辑 | done：`main.ts` 已收缩为 CLI router，只导出 `run`；历史命令保留为 legacy adapter，业务能力由各 owner module 直接承接 |

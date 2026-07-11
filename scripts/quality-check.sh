@@ -58,6 +58,7 @@ check_module_contracts() {
     exit 1
   fi
   for retired in \
+    modules/orchestration-ops/trade-flow/src/domain \
     modules/orchestration-ops/trade-flow/src/domain/research \
     modules/orchestration-ops/trade-flow/src/domain/review \
     modules/orchestration-ops/trade-flow/src/domain/artifact \
@@ -84,16 +85,6 @@ check_module_contracts() {
     module_dir="$(dirname "$marker")"
     if [ ! -f "$module_dir/CONTRACT.md" ]; then
       printf 'quality: missing module contract: %s/CONTRACT.md\n' "$module_dir" >&2
-      exit 1
-    fi
-  done
-  find modules/orchestration-ops/trade-flow/src/domain -mindepth 1 -maxdepth 1 -type d | sort | while IFS= read -r domain_dir; do
-    if [ ! -f "$domain_dir/CONTRACT.md" ]; then
-      printf 'quality: missing domain contract: %s/CONTRACT.md\n' "$domain_dir" >&2
-      exit 1
-    fi
-    if [ ! -f "$domain_dir/index.ts" ]; then
-      printf 'quality: missing domain index: %s/index.ts\n' "$domain_dir" >&2
       exit 1
     fi
   done

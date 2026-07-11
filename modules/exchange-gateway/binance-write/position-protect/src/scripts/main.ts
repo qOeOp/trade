@@ -1,6 +1,16 @@
 #!/usr/bin/env bun
 
+import { mkdirSync } from "node:fs"
+import { dirname } from "node:path"
+import { Database } from "bun:sqlite"
 import Binance, { type BinanceRest } from "binance-api-node"
+import {
+  buildExchangeCommand,
+  buildExchangeResult,
+  ensureExchangeRuntimeSchema,
+  recordExchangeCommand,
+  recordExchangeResult,
+} from "../../../../exchange-runtime-store/src/lib/exchange-runtime-store"
 
 interface Config {
   symbol: string
@@ -17,6 +27,8 @@ interface Config {
   workingType: "MARK_PRICE" | "CONTRACT_PRICE"
   priceProtect: boolean
   timeout: number
+  exchangeRuntimeDb: string
+  requestedByRef: string
   yes: boolean
   dryJson: boolean
   checkEnv: boolean
@@ -67,6 +79,8 @@ Key flags:
   --working-type <MARK_PRICE|CONTRACT_PRICE>
   --price-protect <true|false>
   --timeout <ms>                         Default: 10000
+  --exchange-runtime-db <path>           Optional audit DB for exchange_runtime_store
+  --requested-by-ref <ref>               Optional upstream job / flow ref for exchange audit
   --dry-json                            Print the final Binance algo requests without sending
   --check-env                            Only validate BINANCE_API_KEY / BINANCE_API_SECRET
   --yes                                  Required for live protection orders
@@ -103,7 +117,9 @@ async function run(argv: string[]): Promise<ScriptResponse> {
 
     requireConfirmation(config.yes)
     const client = createClient(config.timeout)
-    return { ok: true, data: await executeProtection(config, client) }
+    const execution = await executeProtection(config, client)
+    recordExchangeAuditIfEnabled(config, execution)
+    return { ok: true, data: execution }
   } catch (error) {
     return { ok: false, error: formatError(error) }
   }
@@ -125,6 +141,8 @@ function parseArgs(argv: string[]): Config {
     workingType: "CONTRACT_PRICE",
     priceProtect: true,
     timeout: 10_000,
+    exchangeRuntimeDb: "",
+    requestedByRef: "",
     yes: false,
     dryJson: false,
     checkEnv: false,
@@ -175,6 +193,12 @@ function parseArgs(argv: string[]): Config {
       case "--timeout":
         config.timeout = Number(readFlagValue(argv, ++index, arg))
         break
+      case "--exchange-runtime-db":
+        config.exchangeRuntimeDb = readFlagValue(argv, ++index, arg)
+        break
+      case "--requested-by-ref":
+        config.requestedByRef = readFlagValue(argv, ++index, arg)
+        break
       case "--yes":
         config.yes = true
         break
@@ -216,6 +240,53 @@ async function executeProtection(config: Config, client: BinanceRest) {
     symbol: config.symbol,
     positionSide: config.positionSide,
     created,
+  }
+}
+
+function recordExchangeAuditIfEnabled(config: Config, execution: unknown): void {
+  if (!config.exchangeRuntimeDb) {
+    return
+  }
+  const executionRecord = asRecord(execution)
+  const dryRun = buildDryRun(config)
+  const created = Array.isArray(executionRecord.created) ? executionRecord.created : []
+  const clientOrderId = readClientOrderId(...created.map((item) => asRecord(asRecord(item).result)))
+  const exchangeRef = readExchangeRef(...created.map((item) => asRecord(asRecord(item).result)))
+  const commandType = readStringField(executionRecord, "method") || "binance_position_protect"
+  const requestedByRef = config.requestedByRef || clientOrderId || `manual:binance-position-protect:${config.symbol}`
+  const idempotencyKey = [
+    "binance_position_protect",
+    config.symbol,
+    config.positionSide,
+    clientOrderId || exchangeRef || created.map((item) => readStringField(item, "leg")).join("-") || "legs",
+    requestedByRef,
+  ].join(":")
+  const commandId = `exchange-command-${sanitizeId(idempotencyKey)}`
+  mkdirSync(dirname(config.exchangeRuntimeDb), { recursive: true })
+  const db = new Database(config.exchangeRuntimeDb)
+  try {
+    ensureExchangeRuntimeSchema(db)
+    recordExchangeCommand(db, buildExchangeCommand({
+      command_id: commandId,
+      idempotency_key: idempotencyKey,
+      market: "binance_usdm",
+      symbol: config.symbol,
+      command_type: commandType,
+      client_order_id: clientOrderId,
+      requested_by_ref: requestedByRef,
+      request_json: dryRun,
+      status: "confirmed",
+      created_at: new Date().toISOString(),
+    }))
+    recordExchangeResult(db, buildExchangeResult({
+      result_id: `${commandId}:result`,
+      command_id: commandId,
+      exchange_ref: exchangeRef,
+      result_json: executionRecord,
+      received_at: new Date().toISOString(),
+    }))
+  } finally {
+    db.close()
   }
 }
 
@@ -363,23 +434,67 @@ function readRelevantPositionAmt(
 }
 
 function asPositionSide(value: unknown): string {
-  if (!value || typeof value !== "object") {
+  const candidate = asRecord(value)
+  if (!candidate) {
     return ""
   }
-  const candidate = value as { positionSide?: unknown }
   return typeof candidate.positionSide === "string" ? candidate.positionSide.toUpperCase() : ""
 }
 
 function asPositionAmt(value: unknown): number {
-  if (!value || typeof value !== "object") {
+  const candidate = asRecord(value)
+  if (!candidate) {
     return 0
   }
-  const candidate = value as { positionAmt?: unknown }
   const raw =
     typeof candidate.positionAmt === "string" || typeof candidate.positionAmt === "number"
       ? Number(candidate.positionAmt)
       : NaN
   return Number.isFinite(raw) ? raw : 0
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function readStringField(value: unknown, key: string): string {
+  const record = asRecord(value)
+  const candidate = record[key]
+  if (typeof candidate === "string") {
+    return candidate
+  }
+  if (typeof candidate === "number") {
+    return String(candidate)
+  }
+  return ""
+}
+
+function readClientOrderId(...values: unknown[]): string {
+  for (const value of values) {
+    const clientAlgoId = readStringField(value, "clientAlgoId") || readStringField(value, "client_algo_id")
+    const clientOrderId = readStringField(value, "clientOrderId") || readStringField(value, "client_order_id")
+    if (clientAlgoId || clientOrderId) {
+      return clientAlgoId || clientOrderId
+    }
+  }
+  return ""
+}
+
+function readExchangeRef(...values: unknown[]): string {
+  const refs: string[] = []
+  for (const value of values) {
+    const algoId = readStringField(value, "algoId") || readStringField(value, "algo_id")
+    const orderId = readStringField(value, "orderId") || readStringField(value, "order_id")
+    const ref = algoId || orderId
+    if (ref) {
+      refs.push(ref)
+    }
+  }
+  return refs.join(",")
+}
+
+function sanitizeId(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 180) || "unknown"
 }
 
 function checkEnv(): EnvStatus {
@@ -516,6 +631,7 @@ export {
   cleanRequest,
   executeProtection,
   parseArgs,
+  recordExchangeAuditIfEnabled,
   readRelevantPositionAmt,
   resolveProtectiveSide,
   run,

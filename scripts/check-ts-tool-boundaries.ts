@@ -60,10 +60,10 @@ for (const file of walkTsFiles("modules")) {
       return
     }
     const targetTool = owningToolRoot(resolved)
-    if (isAllowedCrossToolImport(sourceTool, targetTool)) {
+    if (isAllowedCrossToolImport(file, sourceTool, targetTool)) {
       return
     }
-    if (sourceTool === "modules/orchestration-ops/trade-flow" && targetTool.startsWith("modules/")) {
+    if (isAllowedTradeFlowLegacyAdapterImport(file, sourceTool, targetTool)) {
       return
     }
     if (targetTool && sourceTool && targetTool !== sourceTool) {
@@ -72,7 +72,7 @@ for (const file of walkTsFiles("modules")) {
   })
 }
 
-function isAllowedCrossToolImport(sourceTool: string, targetTool: string): boolean {
+function isAllowedCrossToolImport(file: string, sourceTool: string, targetTool: string): boolean {
   const allowed = new Set([
     "modules/portfolio-execution-state/flow-projector -> modules/portfolio-execution-state/event-store",
     "modules/live-decision-planning/slow-track-plan -> modules/policy-risk/runtime-policy-compiler",
@@ -98,13 +98,79 @@ function isAllowedCrossToolImport(sourceTool: string, targetTool: string): boole
     "modules/live-execution-control/live-small-runner -> modules/live-execution-control/execution-recorder",
     "modules/live-execution-control/live-small-runner -> modules/live-decision-planning/observe-runner",
     "modules/live-execution-control/live-small-runner -> modules/portfolio-execution-state/event-store",
+    "modules/market-data-products/ohlcv-fetch -> modules/market-data-products/market-data-store",
+    "modules/exchange-gateway/binance-write/order-place -> modules/exchange-gateway/exchange-runtime-store",
+    "modules/exchange-gateway/binance-write/order-cancel -> modules/exchange-gateway/exchange-runtime-store",
+    "modules/exchange-gateway/binance-write/position-adjust -> modules/exchange-gateway/exchange-runtime-store",
+    "modules/exchange-gateway/binance-write/position-protect -> modules/exchange-gateway/exchange-runtime-store",
     "modules/orchestration-ops/runtime-health-guard -> modules/orchestration-ops/ops-runtime-store",
     "modules/orchestration-ops/ops-notify-dispatch -> modules/orchestration-ops/ops-runtime-store",
+    "modules/orchestration-ops/domain-bus -> modules/orchestration-ops/ops-runtime-store",
+    "modules/orchestration-ops/trade-flow -> modules/orchestration-ops/ops-runtime-store",
     "modules/governance-review-compliance/closed-flow-review-sweep -> modules/governance-review-compliance/governance-ledger",
     "modules/governance-review-compliance/closed-flow-review-sweep -> modules/portfolio-execution-state/event-store",
     "modules/governance-review-compliance/closed-flow-review-sweep -> modules/portfolio-execution-state/flow-projector",
   ])
-  return allowed.has(`${sourceTool} -> ${targetTool}`)
+  return allowed.has(`${sourceTool} -> ${targetTool}`) && !isTradeFlowProductionFile(file, sourceTool)
+}
+
+function isAllowedTradeFlowLegacyAdapterImport(file: string, sourceTool: string, targetTool: string): boolean {
+  if (sourceTool !== "modules/orchestration-ops/trade-flow" || !targetTool.startsWith("modules/")) {
+    return false
+  }
+  if (file.endsWith(".test.ts")) {
+    return true
+  }
+  const allowedByFile: Record<string, Set<string>> = {
+    "modules/orchestration-ops/trade-flow/src/scripts/main.ts": new Set([
+      "modules/portfolio-execution-state/event-store",
+    ]),
+    "modules/orchestration-ops/trade-flow/src/scripts/commands/execution.ts": new Set([
+      "modules/live-execution-control/execution-flow-runner",
+      "modules/live-execution-control/execution-recorder",
+      "modules/live-execution-control/live-small-runner",
+      "modules/portfolio-execution-state/event-store",
+    ]),
+    "modules/orchestration-ops/trade-flow/src/scripts/commands/recovery.ts": new Set([
+      "modules/live-execution-control/reconcile-drafts",
+      "modules/live-execution-control/recovery-runner",
+      "modules/portfolio-execution-state/event-store",
+      "modules/portfolio-execution-state/flow-projector",
+    ]),
+    "modules/orchestration-ops/trade-flow/src/scripts/commands/runtime.ts": new Set([
+      "modules/portfolio-execution-state/event-store",
+    ]),
+    "modules/orchestration-ops/trade-flow/src/scripts/commands/observe.ts": new Set([
+      "modules/live-decision-planning/observe-builder",
+    ]),
+    "modules/orchestration-ops/trade-flow/src/scripts/lib/automation-cycle.ts": new Set([
+      "modules/portfolio-execution-state/flow-projector",
+    ]),
+    "modules/orchestration-ops/trade-flow/src/scripts/lib/job-graph-runner.ts": new Set([
+      "modules/orchestration-ops/domain-bus",
+      "modules/orchestration-ops/ops-runtime-store",
+    ]),
+    "modules/orchestration-ops/trade-flow/src/scripts/lib/live-execution.ts": new Set([
+      "modules/live-decision-planning/observe-runner",
+      "modules/live-execution-control/execution-flow-runner",
+    ]),
+    "modules/orchestration-ops/trade-flow/src/scripts/lib/observe-flow.ts": new Set([
+      "modules/live-decision-planning/observe-builder",
+      "modules/live-decision-planning/observe-runner",
+      "modules/policy-risk/runtime-policy-compiler",
+    ]),
+    "modules/orchestration-ops/trade-flow/src/scripts/lib/track-runner.ts": new Set([
+      "modules/live-decision-planning/fast-track-plan",
+      "modules/live-decision-planning/slow-track-plan",
+      "modules/portfolio-execution-state/event-store",
+      "modules/portfolio-execution-state/flow-projector",
+    ]),
+  }
+  return allowedByFile[file]?.has(targetTool) === true
+}
+
+function isTradeFlowProductionFile(file: string, sourceTool: string): boolean {
+  return sourceTool === "modules/orchestration-ops/trade-flow" && !file.endsWith(".test.ts")
 }
 
 if (issues.length > 0) {

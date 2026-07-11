@@ -11,6 +11,7 @@ export const HELP_TEXT = `Usage:
   bun src/scripts/main.ts --build-observe --json '{"chain_id":"...","symbol":"BTCUSDT",...}'
   bun src/scripts/main.ts --observe-from-tools --json '{"repoRoot":"/repo","chain_id":"...","symbol":"BTCUSDT",...}'
   bun src/scripts/main.ts --db ./data/trade.db --automation-cycle --json '{"slow_interval_minutes":240,"rd_trackers":[...]}'
+  bun src/scripts/main.ts --db ./data/trade.db --run-job-graph --json '{"ops_runtime_db":"./data/ops_runtime.db","execute_jobs":false}'
   bun src/scripts/main.ts --run-shadow-from-tools --json '{"repoRoot":"/repo","chain_id":"...","symbol":"BTCUSDT",...}'
   bun src/scripts/main.ts --run-live-small --yes --json '{"repoRoot":"/repo","plan":{...},"observe":{...},"execution_contract_input":{...}}'
   bun src/scripts/main.ts --db ./data/trade.db --recover-flow --chain-id <chain_id>
@@ -33,6 +34,7 @@ Key flags:
   --build-observe          Build an observe event from account / market projections
   --observe-from-tools    Call read-only snapshot tools and build an observe event
   --automation-cycle       Build a single-entry automation supervisor plan with subagent fanout and cadence gates
+  --run-job-graph          Build the automation plan and record job lifecycle into ops_runtime_store; dry-run unless JSON execute_jobs=true
   --run-shadow-from-tools Call read-only snapshot tools, build observe, then record shadow execution
   --run-live-small         Execute one live-small main entry through binance-order-place
   --recover-flow           Reduce local plan_event history for one flow

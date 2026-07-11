@@ -1,7 +1,17 @@
 #!/usr/bin/env bun
 
+import { mkdirSync } from "node:fs"
+import { dirname } from "node:path"
+import { Database } from "bun:sqlite"
 import Binance, { type BinanceRest } from "binance-api-node"
 import { nowIsoUTC } from "../../../../../contracts/runtime-core/src/time"
+import {
+  buildExchangeCommand,
+  buildExchangeResult,
+  ensureExchangeRuntimeSchema,
+  recordExchangeCommand,
+  recordExchangeResult,
+} from "../../../../exchange-runtime-store/src/lib/exchange-runtime-store"
 
 type PositionSide = "BOTH" | "LONG" | "SHORT"
 type OrderSide = "BUY" | "SELL"
@@ -13,6 +23,8 @@ interface Config {
   closePosition: boolean
   timeout: number
   recvWindow: number
+  exchangeRuntimeDb: string
+  requestedByRef: string
   yes: boolean
   plan: boolean
   checkEnv: boolean
@@ -69,6 +81,8 @@ Key flags:
   --close-position <true|false>          Fully close the selected live position
   --timeout <ms>                         Default: 10000
   --recv-window <ms>                     Default: 60000
+  --exchange-runtime-db <path>           Optional audit DB for exchange_runtime_store
+  --requested-by-ref <ref>               Optional upstream job / flow ref for exchange audit
   --plan                                 Build live adjustment plan without mutating Binance state
   --check-env                            Only validate BINANCE_API_KEY / BINANCE_API_SECRET
   --yes                                  Required for live execution
@@ -109,7 +123,9 @@ async function run(argv: string[]): Promise<ScriptResponse> {
     }
 
     requireConfirmation(config.yes)
-    return { ok: true, data: await executeAdjustment(config, plan, client) }
+    const execution = await executeAdjustment(config, plan, client)
+    recordExchangeAuditIfEnabled(config, plan, execution)
+    return { ok: true, data: execution }
   } catch (error) {
     return { ok: false, error: formatError(error) }
   }
@@ -123,6 +139,8 @@ function parseArgs(argv: string[]): Config {
     closePosition: false,
     timeout: 10_000,
     recvWindow: 60_000,
+    exchangeRuntimeDb: "",
+    requestedByRef: "",
     yes: false,
     plan: false,
     checkEnv: false,
@@ -148,6 +166,12 @@ function parseArgs(argv: string[]): Config {
         break
       case "--recv-window":
         config.recvWindow = Number(readFlagValue(argv, ++index, arg))
+        break
+      case "--exchange-runtime-db":
+        config.exchangeRuntimeDb = readFlagValue(argv, ++index, arg)
+        break
+      case "--requested-by-ref":
+        config.requestedByRef = readFlagValue(argv, ++index, arg)
         break
       case "--yes":
         config.yes = true
@@ -238,6 +262,52 @@ async function executeAdjustment(config: Config, plan: AdjustmentPlan, client: B
     symbol: config.symbol,
     reduced,
     remainingPosition: refreshedPosition,
+  }
+}
+
+function recordExchangeAuditIfEnabled(config: Config, plan: AdjustmentPlan, execution: unknown): void {
+  if (!config.exchangeRuntimeDb) {
+    return
+  }
+  const executionRecord = asRecord(execution)
+  const reduced = asRecord(executionRecord.reduced)
+  const clientOrderId = readClientOrderId(plan.reduceOrder, reduced)
+  const exchangeRef = readExchangeRef(reduced)
+  const commandType = readStringField(executionRecord, "method") || "binance_position_adjust"
+  const requestedByRef = config.requestedByRef || clientOrderId || `manual:binance-position-adjust:${config.symbol}`
+  const idempotencyKey = [
+    "binance_position_adjust",
+    config.symbol,
+    config.positionSide,
+    clientOrderId || exchangeRef || plan.reduction.reduceQuantity,
+    requestedByRef,
+  ].join(":")
+  const commandId = `exchange-command-${sanitizeId(idempotencyKey)}`
+  mkdirSync(dirname(config.exchangeRuntimeDb), { recursive: true })
+  const db = new Database(config.exchangeRuntimeDb)
+  try {
+    ensureExchangeRuntimeSchema(db)
+    recordExchangeCommand(db, buildExchangeCommand({
+      command_id: commandId,
+      idempotency_key: idempotencyKey,
+      market: "binance_usdm",
+      symbol: config.symbol,
+      command_type: commandType,
+      client_order_id: clientOrderId,
+      requested_by_ref: requestedByRef,
+      request_json: plan.reduceOrder,
+      status: "confirmed",
+      created_at: new Date().toISOString(),
+    }))
+    recordExchangeResult(db, buildExchangeResult({
+      result_id: `${commandId}:result`,
+      command_id: commandId,
+      exchange_ref: exchangeRef,
+      result_json: executionRecord,
+      received_at: new Date().toISOString(),
+    }))
+  } finally {
+    db.close()
   }
 }
 
@@ -430,10 +500,11 @@ function requireConfirmation(confirmed: boolean, flag: string = "--yes"): void {
 }
 
 function readStringField(value: unknown, key: string): string {
-  if (!isRecord(value)) {
+  const record = asRecord(value)
+  if (!record) {
     return ""
   }
-  const candidate = value[key]
+  const candidate = record[key]
   if (typeof candidate === "string") {
     return candidate
   }
@@ -443,8 +514,38 @@ function readStringField(value: unknown, key: string): string {
   return ""
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object"
+}
+
+function readClientOrderId(...values: unknown[]): string {
+  for (const value of values) {
+    const record = asRecord(value)
+    const clientOrderId = readStringField(record, "clientOrderId") || readStringField(record, "client_order_id")
+    if (clientOrderId) {
+      return clientOrderId
+    }
+  }
+  return ""
+}
+
+function readExchangeRef(...values: unknown[]): string {
+  for (const value of values) {
+    const record = asRecord(value)
+    const orderId = readStringField(record, "orderId") || readStringField(record, "order_id")
+    if (orderId) {
+      return orderId
+    }
+  }
+  return ""
+}
+
+function sanitizeId(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 180) || "unknown"
 }
 
 function formatError(error: unknown): string {
@@ -461,6 +562,7 @@ export {
   buildPlan,
   executeAdjustment,
   parseArgs,
+  recordExchangeAuditIfEnabled,
   resolveLivePosition,
   run,
 }

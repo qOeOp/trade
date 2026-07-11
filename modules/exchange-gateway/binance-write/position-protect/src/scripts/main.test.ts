@@ -1,6 +1,11 @@
 import assert from "node:assert/strict"
+import { mkdtempSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import test from "node:test"
+import { Database } from "bun:sqlite"
 
+import { readExchangeCommandByIdempotencyKey, readExchangeResultsForCommand } from "../../../../exchange-runtime-store/src/lib/exchange-runtime-store"
 import {
   assertProtectionMatchesPosition,
   buildDryRun,
@@ -8,6 +13,7 @@ import {
   cleanRequest,
   executeProtection,
   parseArgs,
+  recordExchangeAuditIfEnabled,
   resolveProtectiveSide,
   run,
 } from "./main"
@@ -108,6 +114,61 @@ test("executeProtection returns stable method and created legs", async () => {
   assert.equal(result.method, "futuresCreateAlgoOrder")
   assert.equal(result.created.length, 1)
   assert.equal(result.created[0].result.algoId, 9001)
+})
+
+test("position-protect can record exchange runtime audit", () => {
+  const dir = mkdtempSync(join(tmpdir(), "position-protect-audit-"))
+  const dbPath = join(dir, "exchange_runtime.db")
+  const config = parseArgs([
+    "--symbol",
+    "CLUSDT",
+    "--position-side",
+    "LONG",
+    "--quantity",
+    "14.85",
+    "--stop-loss-trigger",
+    "79.10",
+    "--take-profit-trigger",
+    "84.50",
+    "--exchange-runtime-db",
+    dbPath,
+    "--requested-by-ref",
+    "job-protect-1",
+    "--yes",
+  ])
+
+  recordExchangeAuditIfEnabled(config, {
+    market: "usdm",
+    method: "futuresCreateAlgoOrder",
+    symbol: "CLUSDT",
+    positionSide: "LONG",
+    created: [
+      {
+        leg: "stopLoss",
+        request: { symbol: "CLUSDT" },
+        result: { algoId: 9001, clientAlgoId: "protect-stop-1" },
+      },
+      {
+        leg: "takeProfit",
+        request: { symbol: "CLUSDT" },
+        result: { algoId: 9002, clientAlgoId: "protect-tp-1" },
+      },
+    ],
+  })
+
+  const db = new Database(dbPath)
+  try {
+    const command = readExchangeCommandByIdempotencyKey(db, "binance_position_protect:CLUSDT:LONG:protect-stop-1:job-protect-1")
+    assert.equal(command?.command_type, "futuresCreateAlgoOrder")
+    assert.equal(command?.client_order_id, "protect-stop-1")
+    assert.equal(command?.requested_by_ref, "job-protect-1")
+    assert.equal(command?.status, "confirmed")
+    const results = readExchangeResultsForCommand(db, command?.command_id ?? "")
+    assert.equal(results.length, 1)
+    assert.equal(results[0].exchange_ref, "9001,9002")
+  } finally {
+    db.close()
+  }
 })
 
 test("assertProtectionMatchesPosition allows planned quantity protection without live hedge leg", async () => {

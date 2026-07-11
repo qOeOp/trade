@@ -1,6 +1,16 @@
 #!/usr/bin/env bun
 
+import { mkdirSync } from "node:fs"
+import { dirname } from "node:path"
+import { Database } from "bun:sqlite"
 import Binance, { type BinanceRest } from "binance-api-node"
+import {
+  buildExchangeCommand,
+  buildExchangeResult,
+  ensureExchangeRuntimeSchema,
+  recordExchangeCommand,
+  recordExchangeResult,
+} from "../../../../exchange-runtime-store/src/lib/exchange-runtime-store"
 
 interface Config {
   symbol: string
@@ -13,6 +23,8 @@ interface Config {
   yes: boolean
   timeout: number
   checkEnv: boolean
+  exchangeRuntimeDb: string
+  requestedByRef: string
 }
 
 interface EnvStatus {
@@ -38,6 +50,8 @@ Key flags:
   --algo                             Use futures algo cancel endpoints
   --timeout <ms>                     Default: 10000
   --check-env                        Only validate BINANCE_API_KEY / BINANCE_API_SECRET
+  --exchange-runtime-db <path>       Optional audit DB for exchange_runtime_store
+  --requested-by-ref <ref>           Optional upstream job / flow ref for exchange audit
   --yes                              Required for live cancellation
   --help                             Show this help
 `
@@ -69,7 +83,9 @@ async function run(argv: string[]): Promise<ScriptResponse> {
 
     requireConfirmation(config.yes)
     const client = createClient(config.timeout)
-    return { ok: true, data: await executeCancel(config, client) }
+    const data = await executeCancel(config, client)
+    recordExchangeAuditIfEnabled(config, data)
+    return { ok: true, data }
   } catch (error) {
     return { ok: false, error: formatError(error) }
   }
@@ -87,6 +103,8 @@ function parseArgs(argv: string[]): Config {
     yes: false,
     timeout: 10_000,
     checkEnv: false,
+    exchangeRuntimeDb: "",
+    requestedByRef: "",
   }
 
   for (let index = 0; index < argv.length; index += 1) {
@@ -121,6 +139,12 @@ function parseArgs(argv: string[]): Config {
         break
       case "--check-env":
         config.checkEnv = true
+        break
+      case "--exchange-runtime-db":
+        config.exchangeRuntimeDb = readFlagValue(argv, ++index, arg)
+        break
+      case "--requested-by-ref":
+        config.requestedByRef = readFlagValue(argv, ++index, arg)
         break
       case "--close-position":
         parseBoolean(readFlagValue(argv, ++index, arg), "--close-position")
@@ -174,6 +198,69 @@ async function executeCancel(config: Config, client: BinanceRest) {
   return {
     method: "futuresCancelOrder",
     result,
+  }
+}
+
+function recordExchangeAuditIfEnabled(config: Config, execution: unknown): void {
+  if (!config.exchangeRuntimeDb) {
+    return
+  }
+  const executionRecord = asRecord(execution)
+  const result = asRecord(executionRecord.result)
+  const request = buildCancelAuditRequest(config)
+  const clientOrderId = readClientOrderId(request, result)
+  const exchangeRef = readExchangeRef(result) || readExchangeRef(request)
+  const commandType = readStringField(executionRecord, "method") || "binance_order_cancel"
+  const requestedByRef = config.requestedByRef || clientOrderId || `manual:binance-order-cancel:${config.symbol}`
+  const idempotencyKey = [
+    "binance_order_cancel",
+    config.symbol,
+    clientOrderId || exchangeRef || commandType,
+    requestedByRef,
+  ].join(":")
+  const commandId = `exchange-command-${sanitizeId(idempotencyKey)}`
+  mkdirSync(dirname(config.exchangeRuntimeDb), { recursive: true })
+  const db = new Database(config.exchangeRuntimeDb)
+  try {
+    ensureExchangeRuntimeSchema(db)
+    recordExchangeCommand(db, buildExchangeCommand({
+      command_id: commandId,
+      idempotency_key: idempotencyKey,
+      market: "binance_usdm",
+      symbol: config.symbol,
+      command_type: commandType,
+      client_order_id: clientOrderId,
+      requested_by_ref: requestedByRef,
+      request_json: request,
+      status: "cancelled",
+      created_at: new Date().toISOString(),
+    }))
+    recordExchangeResult(db, buildExchangeResult({
+      result_id: `${commandId}:result`,
+      command_id: commandId,
+      exchange_ref: exchangeRef,
+      result_json: result,
+      received_at: new Date().toISOString(),
+    }))
+  } finally {
+    db.close()
+  }
+}
+
+function buildCancelAuditRequest(config: Config): Record<string, unknown> {
+  if (config.algo || config.algoId != null || config.clientAlgoId) {
+    return {
+      symbol: config.symbol,
+      ...(config.all ? { all: true } : {}),
+      ...(config.algoId != null ? { algoId: config.algoId } : {}),
+      ...(config.clientAlgoId ? { clientAlgoId: config.clientAlgoId } : {}),
+    }
+  }
+  return {
+    symbol: config.symbol,
+    ...(config.all ? { all: true } : {}),
+    ...(config.orderId != null ? { orderId: config.orderId } : {}),
+    ...(config.origClientOrderId ? { origClientOrderId: config.origClientOrderId } : {}),
   }
 }
 
@@ -233,6 +320,49 @@ function printJSON(value: unknown): void {
   process.stdout.write(`${JSON.stringify(value, null, 2)}\n`)
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" ? value as Record<string, unknown> : {}
+}
+
+function readStringField(value: unknown, field: string): string {
+  const candidate = asRecord(value)
+  return typeof candidate[field] === "string" ? candidate[field] : ""
+}
+
+function readNumberField(value: unknown, field: string): number | null {
+  const candidate = asRecord(value)
+  const raw = typeof candidate[field] === "string" || typeof candidate[field] === "number"
+    ? Number(candidate[field])
+    : NaN
+  return Number.isFinite(raw) ? raw : null
+}
+
+function readClientOrderId(...values: Record<string, unknown>[]): string {
+  for (const value of values) {
+    const id = readStringField(value, "origClientOrderId")
+      || readStringField(value, "clientOrderId")
+      || readStringField(value, "clientAlgoId")
+    if (id) {
+      return id
+    }
+  }
+  return ""
+}
+
+function readExchangeRef(...values: Record<string, unknown>[]): string {
+  for (const value of values) {
+    const id = readNumberField(value, "orderId") ?? readNumberField(value, "algoId")
+    if (id != null) {
+      return String(id)
+    }
+  }
+  return ""
+}
+
+function sanitizeId(value: string): string {
+  return value.replace(/[^a-zA-Z0-9_.:-]+/g, "-").slice(0, 160)
+}
+
 function readFlagValue(argv: string[], index: number, name: string): string {
   const value = argv[index]
   if (!value || value.startsWith("--")) {
@@ -260,6 +390,7 @@ function formatError(error: unknown): string {
 export {
   executeCancel,
   parseArgs,
+  recordExchangeAuditIfEnabled,
   run,
 }
 

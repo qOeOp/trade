@@ -127,9 +127,21 @@ async function runTechnicalAnalysis(
 ): Promise<ToolCallResult> {
   const ohlcvToolDir = join(input.repoRoot, "modules/market-data-products/ohlcv-fetch")
   const ohlcvOutputDir = join(input.repoRoot, "tmp", "market", input.runId, symbol)
+  const marketDataDb = join(input.dataDir, "market_data.duckdb")
   const ohlcv = await callTool(
     runner,
-    ["bun", "src/scripts/main.ts", "--symbol", symbol, "--timeframes", "1d,4h,1h", "--output-dir", ohlcvOutputDir],
+    [
+      "bun",
+      "src/scripts/main.ts",
+      "--symbol",
+      symbol,
+      "--timeframes",
+      "1d,4h,1h",
+      "--output-dir",
+      ohlcvOutputDir,
+      "--market-data-db",
+      marketDataDb,
+    ],
     ohlcvToolDir,
   )
   if (!ohlcv.ok) {

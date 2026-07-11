@@ -13,6 +13,12 @@ export type HealthStatus = typeof HEALTH_STATUSES[number]
 export const NOTIFY_STATUSES = ["planned", "sent", "failed", "skipped"] as const
 export type NotifyStatus = typeof NOTIFY_STATUSES[number]
 
+export const DOMAIN_MESSAGE_STATUSES = ["queued", "published", "consumed", "failed"] as const
+export type DomainMessageStatus = typeof DOMAIN_MESSAGE_STATUSES[number]
+
+export const DOMAIN_MESSAGE_DIRECTIONS = ["inbox", "outbox"] as const
+export type DomainMessageDirection = typeof DOMAIN_MESSAGE_DIRECTIONS[number]
+
 export interface CycleRun {
   cycle_id: string
   triggered_at: string
@@ -58,6 +64,23 @@ export interface OpsLock {
   holder_id: string
   acquired_at: string
   expires_at: string
+}
+
+export interface DomainMessage {
+  message_id: string
+  cycle_id?: string
+  job_id?: string
+  direction: DomainMessageDirection
+  source_domain?: string
+  target_domain?: string
+  rail: string
+  payload_ref: string
+  idempotency_key?: string
+  status: DomainMessageStatus
+  envelope_json: JSONRecord
+  created_at: string
+  processed_at?: string
+  error_json?: JSONRecord
 }
 
 export function ensureOpsRuntimeSchema(db: Database): void {
@@ -109,6 +132,25 @@ export function ensureOpsRuntimeSchema(db: Database): void {
     )
   `)
   db.run(`
+    CREATE TABLE IF NOT EXISTS domain_message (
+      message_id       TEXT PRIMARY KEY,
+      cycle_id         TEXT,
+      job_id           TEXT,
+      direction        TEXT NOT NULL CHECK(direction IN ('inbox', 'outbox')),
+      source_domain    TEXT,
+      target_domain    TEXT,
+      rail             TEXT NOT NULL,
+      payload_ref      TEXT NOT NULL,
+      idempotency_key  TEXT,
+      status           TEXT NOT NULL CHECK(status IN ('queued', 'published', 'consumed', 'failed')),
+      envelope_json    TEXT NOT NULL CHECK(json_valid(envelope_json)),
+      created_at       TEXT NOT NULL,
+      processed_at     TEXT,
+      error_json       TEXT CHECK(error_json IS NULL OR json_valid(error_json)),
+      FOREIGN KEY (cycle_id) REFERENCES cycle_run(cycle_id)
+    )
+  `)
+  db.run(`
     CREATE TABLE IF NOT EXISTS ops_lock (
       lock_key      TEXT PRIMARY KEY,
       holder_id     TEXT NOT NULL,
@@ -118,6 +160,8 @@ export function ensureOpsRuntimeSchema(db: Database): void {
   `)
   db.run("CREATE INDEX IF NOT EXISTS idx_job_run_cycle ON job_run(cycle_id, ticket_no)")
   db.run("CREATE INDEX IF NOT EXISTS idx_runtime_health_time ON runtime_health(observed_at DESC)")
+  db.run("CREATE INDEX IF NOT EXISTS idx_domain_message_cycle ON domain_message(cycle_id, job_id, direction)")
+  db.run("CREATE INDEX IF NOT EXISTS idx_domain_message_target ON domain_message(target_domain, status, created_at)")
 }
 
 export function upsertCycleRun(db: Database, run: CycleRun): void {
@@ -225,6 +269,95 @@ export function upsertOpsLock(db: Database, lock: OpsLock): void {
   })
 }
 
+export function upsertDomainMessage(db: Database, message: DomainMessage): void {
+  validateDomainMessage(message)
+  db.query(`
+    INSERT INTO domain_message(
+      message_id, cycle_id, job_id, direction, source_domain, target_domain,
+      rail, payload_ref, idempotency_key, status, envelope_json,
+      created_at, processed_at, error_json
+    )
+    VALUES (
+      $message_id, $cycle_id, $job_id, $direction, $source_domain, $target_domain,
+      $rail, $payload_ref, $idempotency_key, $status, $envelope_json,
+      $created_at, $processed_at, $error_json
+    )
+    ON CONFLICT(message_id) DO UPDATE SET
+      cycle_id = excluded.cycle_id,
+      job_id = excluded.job_id,
+      direction = excluded.direction,
+      source_domain = excluded.source_domain,
+      target_domain = excluded.target_domain,
+      rail = excluded.rail,
+      payload_ref = excluded.payload_ref,
+      idempotency_key = excluded.idempotency_key,
+      status = excluded.status,
+      envelope_json = excluded.envelope_json,
+      created_at = excluded.created_at,
+      processed_at = excluded.processed_at,
+      error_json = excluded.error_json
+  `).run({
+    $message_id: message.message_id,
+    $cycle_id: message.cycle_id ?? null,
+    $job_id: message.job_id ?? null,
+    $direction: message.direction,
+    $source_domain: message.source_domain ?? null,
+    $target_domain: message.target_domain ?? null,
+    $rail: message.rail,
+    $payload_ref: message.payload_ref,
+    $idempotency_key: message.idempotency_key ?? null,
+    $status: message.status,
+    $envelope_json: JSON.stringify(message.envelope_json),
+    $created_at: message.created_at,
+    $processed_at: message.processed_at ?? null,
+    $error_json: message.error_json ? JSON.stringify(message.error_json) : null,
+  })
+}
+
+export function buildDomainMessage(input: JSONRecord): DomainMessage {
+  const envelope = asRecord(input.envelope_json ?? input.envelope)
+  const now = stringField(input.created_at) || new Date().toISOString()
+  const direction = parseDomainMessageDirection(input.direction) || parseDomainMessageDirection(envelopeDirectionFromSchemaId(stringField(envelope.schema_id))) || "outbox"
+  const messageId = stringField(input.message_id) || stringField(envelope.message_id)
+  return {
+    message_id: messageId,
+    cycle_id: stringField(input.cycle_id) || undefined,
+    job_id: stringField(input.job_id) || undefined,
+    direction,
+    source_domain: stringField(input.source_domain) || stringField(envelope.source_domain) || undefined,
+    target_domain: stringField(input.target_domain) || stringField(envelope.target_domain) || undefined,
+    rail: stringField(input.rail) || stringField(envelope.rail),
+    payload_ref: stringField(input.payload_ref) || stringField(envelope.payload_ref),
+    idempotency_key: stringField(input.idempotency_key) || stringField(envelope.idempotency_key) || undefined,
+    status: parseDomainMessageStatus(input.status) || "published",
+    envelope_json: Object.keys(envelope).length > 0 ? envelope : asRecord(input),
+    created_at: now,
+    processed_at: stringField(input.processed_at) || undefined,
+    error_json: asOptionalRecord(input.error_json ?? input.error),
+  }
+}
+
+export function readDomainMessages(db: Database, filter: JSONRecord = {}): DomainMessage[] {
+  const cycleId = stringField(filter.cycle_id)
+  const targetDomain = stringField(filter.target_domain)
+  const status = stringField(filter.status)
+  const rows = db.query(`
+    SELECT message_id, cycle_id, job_id, direction, source_domain, target_domain,
+      rail, payload_ref, idempotency_key, status, envelope_json,
+      created_at, processed_at, error_json
+    FROM domain_message
+    WHERE ($cycle_id = '' OR cycle_id = $cycle_id)
+      AND ($target_domain = '' OR target_domain = $target_domain)
+      AND ($status = '' OR status = $status)
+    ORDER BY created_at ASC, rowid ASC
+  `).all({
+    $cycle_id: cycleId,
+    $target_domain: targetDomain,
+    $status: status,
+  }) as DomainMessageRow[]
+  return rows.map(domainMessageFromRow)
+}
+
 export function readLatestRuntimeHealth(db: Database): RuntimeHealth | null {
   const row = db.query(`
     SELECT health_id, cycle_id, status, checks_json, observed_at
@@ -245,7 +378,7 @@ export function readCycleSummary(db: Database, cycleId: string): JSONRecord {
     WHERE cycle_id = $cycle_id
   `).get({ $cycle_id: cycleId }) as CycleRunRow | null
   const jobs = db.query(`
-    SELECT ticket_no, job_id, target_domain, status, result_ref, error_json
+    SELECT ticket_no, job_id, target_domain, status, command_ref, result_ref, error_json
     FROM job_run
     WHERE cycle_id = $cycle_id
     ORDER BY ticket_no ASC, rowid ASC
@@ -257,10 +390,76 @@ export function readCycleSummary(db: Database, cycleId: string): JSONRecord {
     ORDER BY observed_at DESC, rowid DESC
     LIMIT 1
   `).get({ $cycle_id: cycleId }) as RuntimeHealthRow | null
+  const messages = readDomainMessages(db, { cycle_id: cycleId })
+  const cycleRecord = cycle ? cycleRunFromRow(cycle) : null
+  const latestHealth = health ? runtimeHealthFromRow(health) : null
+  const jobRecords = jobs.map(jobRunSummaryFromRow)
   return {
-    cycle: cycle ? cycleRunFromRow(cycle) : null,
-    latest_health: health ? runtimeHealthFromRow(health) : null,
-    jobs: jobs.map(jobRunSummaryFromRow),
+    cycle: cycleRecord,
+    latest_health: latestHealth,
+    jobs: jobRecords,
+    messages,
+    ops_summary: buildOpsCycleSummary(cycleRecord, latestHealth, jobRecords, messages),
+  }
+}
+
+export function buildOpsCycleSummary(
+  cycle: CycleRun | null,
+  latestHealth: RuntimeHealth | null,
+  jobs: JSONRecord[],
+  messages: DomainMessage[],
+): JSONRecord {
+  const counts = countStatuses(jobs)
+  const failedJobs = jobs.filter((job) => stringField(job.status) === "failed")
+  const blockedJobs = jobs.filter((job) => stringField(job.status) === "blocked")
+  const failedMessages = messages.filter((message) => message.status === "failed")
+  const healthStatus = latestHealth?.status
+  const criticalReasons = [
+    ...failedJobs.map((job) => `job_failed:${stringField(job.ticket_no) || stringField(job.job_id)}`),
+    ...blockedJobs.map((job) => `job_blocked:${stringField(job.ticket_no) || stringField(job.job_id)}`),
+    ...failedMessages.map((message) => `message_failed:${message.message_id}`),
+  ]
+  if (healthStatus === "blocked" || healthStatus === "safe_mode") {
+    criticalReasons.push(`runtime_health:${healthStatus}`)
+  }
+  const warningReasons = healthStatus === "degraded" ? [`runtime_health:${healthStatus}`] : []
+  const severity = criticalReasons.length > 0 ? "critical" : warningReasons.length > 0 ? "warning" : "none"
+
+  return {
+    cycle_id: cycle?.cycle_id,
+    status: cycle?.status ?? "missing",
+    mode: stringField(cycle?.summary_json?.mode),
+    counts,
+    stages: summarizeBy(jobs, "stage"),
+    domains: summarizeBy(jobs, "target_domain"),
+    messages: {
+      total: messages.length,
+      inbox: messages.filter((message) => message.direction === "inbox").length,
+      outbox: messages.filter((message) => message.direction === "outbox").length,
+      published: messages.filter((message) => message.status === "published").length,
+      failed: failedMessages.length,
+    },
+    attention: {
+      needs_human: criticalReasons.length > 0,
+      severity,
+      reasons: [...criticalReasons, ...warningReasons],
+      failed_jobs: failedJobs.map(jobAttentionRef),
+      blocked_jobs: blockedJobs.map(jobAttentionRef),
+      failed_messages: failedMessages.map((message) => ({
+        message_id: message.message_id,
+        job_id: message.job_id,
+        target_domain: message.target_domain,
+        payload_ref: message.payload_ref,
+      })),
+      latest_health_status: healthStatus,
+    },
+    result_refs: jobs
+      .filter((job) => stringField(job.result_ref))
+      .map((job) => ({
+        ticket_no: stringField(job.ticket_no),
+        job_id: stringField(job.job_id),
+        result_ref: stringField(job.result_ref),
+      })),
   }
 }
 
@@ -329,6 +528,18 @@ function validateNotifyAttempt(attempt: NotifyAttempt): void {
   }
 }
 
+function validateDomainMessage(message: DomainMessage): void {
+  if (!message.message_id || !message.rail || !message.payload_ref || !message.created_at) {
+    throw new Error("message_id, rail, payload_ref, and created_at are required")
+  }
+  if (!DOMAIN_MESSAGE_DIRECTIONS.includes(message.direction)) {
+    throw new Error(`unsupported domain message direction: ${message.direction}`)
+  }
+  if (!DOMAIN_MESSAGE_STATUSES.includes(message.status)) {
+    throw new Error(`unsupported domain message status: ${message.status}`)
+  }
+}
+
 function parseCycleStatus(value: unknown): CycleStatus | "" {
   const status = stringField(value)
   return CYCLE_STATUSES.includes(status as CycleStatus) ? status as CycleStatus : ""
@@ -337,6 +548,26 @@ function parseCycleStatus(value: unknown): CycleStatus | "" {
 function parseJobStatus(value: unknown): JobStatus | "" {
   const status = stringField(value)
   return JOB_STATUSES.includes(status as JobStatus) ? status as JobStatus : ""
+}
+
+function parseDomainMessageStatus(value: unknown): DomainMessageStatus | "" {
+  const status = stringField(value)
+  return DOMAIN_MESSAGE_STATUSES.includes(status as DomainMessageStatus) ? status as DomainMessageStatus : ""
+}
+
+function parseDomainMessageDirection(value: unknown): DomainMessageDirection | "" {
+  const direction = stringField(value)
+  return DOMAIN_MESSAGE_DIRECTIONS.includes(direction as DomainMessageDirection) ? direction as DomainMessageDirection : ""
+}
+
+function envelopeDirectionFromSchemaId(schemaId: string): string {
+  if (schemaId.endsWith("domain-inbox-envelope.v1")) {
+    return "inbox"
+  }
+  if (schemaId.endsWith("domain-outbox-envelope.v1")) {
+    return "outbox"
+  }
+  return ""
 }
 
 function asOptionalRecord(value: unknown): JSONRecord | undefined {
@@ -365,7 +596,25 @@ interface JobRunSummaryRow {
   job_id: string
   target_domain: string
   status: JobStatus
+  command_ref: string | null
   result_ref: string | null
+  error_json: string | null
+}
+
+interface DomainMessageRow {
+  message_id: string
+  cycle_id: string | null
+  job_id: string | null
+  direction: DomainMessageDirection
+  source_domain: string | null
+  target_domain: string | null
+  rail: string
+  payload_ref: string
+  idempotency_key: string | null
+  status: DomainMessageStatus
+  envelope_json: string
+  created_at: string
+  processed_at: string | null
   error_json: string | null
 }
 
@@ -395,8 +644,80 @@ function jobRunSummaryFromRow(row: JobRunSummaryRow): JSONRecord {
     job_id: row.job_id,
     target_domain: row.target_domain,
     status: row.status,
+    command_ref: row.command_ref ?? undefined,
+    stage: stageFromCommandRef(row.command_ref, row.job_id),
     result_ref: row.result_ref ?? undefined,
     error_json: row.error_json ? JSON.parse(row.error_json) as JSONRecord : undefined,
   }
 }
 
+function stageFromCommandRef(commandRef: string | null, jobId: string): string {
+  if (!commandRef || !commandRef.endsWith(`:${jobId}`)) {
+    return "unspecified"
+  }
+  return commandRef.slice(0, -jobId.length - 1) || "unspecified"
+}
+
+function countStatuses(jobs: JSONRecord[]): JSONRecord {
+  return {
+    total: jobs.length,
+    completed: countJobsByStatus(jobs, "completed"),
+    skipped: countJobsByStatus(jobs, "skipped"),
+    failed: countJobsByStatus(jobs, "failed"),
+    blocked: countJobsByStatus(jobs, "blocked"),
+    running: countJobsByStatus(jobs, "running"),
+    planned: countJobsByStatus(jobs, "planned"),
+  }
+}
+
+function countJobsByStatus(jobs: JSONRecord[], status: string): number {
+  return jobs.filter((job) => stringField(job.status) === status).length
+}
+
+function summarizeBy(jobs: JSONRecord[], field: string): JSONRecord[] {
+  const groups = new Map<string, JSONRecord[]>()
+  for (const job of jobs) {
+    const key = stringField(job[field]) || "unspecified"
+    groups.set(key, [...(groups.get(key) ?? []), job])
+  }
+  return Array.from(groups.entries())
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([key, group]) => ({
+      [field]: key,
+      ...countStatuses(group),
+      jobs: group.map((job) => ({
+        ticket_no: stringField(job.ticket_no),
+        job_id: stringField(job.job_id),
+        status: stringField(job.status),
+      })),
+    }))
+}
+
+function jobAttentionRef(job: JSONRecord): JSONRecord {
+  return {
+    ticket_no: stringField(job.ticket_no),
+    job_id: stringField(job.job_id),
+    target_domain: stringField(job.target_domain),
+    result_ref: stringField(job.result_ref) || undefined,
+    error: asOptionalRecord(job.error_json),
+  }
+}
+
+function domainMessageFromRow(row: DomainMessageRow): DomainMessage {
+  return {
+    message_id: row.message_id,
+    cycle_id: row.cycle_id ?? undefined,
+    job_id: row.job_id ?? undefined,
+    direction: row.direction,
+    source_domain: row.source_domain ?? undefined,
+    target_domain: row.target_domain ?? undefined,
+    rail: row.rail,
+    payload_ref: row.payload_ref,
+    idempotency_key: row.idempotency_key ?? undefined,
+    status: row.status,
+    envelope_json: JSON.parse(row.envelope_json) as JSONRecord,
+    created_at: row.created_at,
+    processed_at: row.processed_at ?? undefined,
+    error_json: row.error_json ? JSON.parse(row.error_json) as JSONRecord : undefined,
+  }
+}

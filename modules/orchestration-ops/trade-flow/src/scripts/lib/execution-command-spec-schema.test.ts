@@ -42,6 +42,10 @@ test("execution command spec schema matches executable routing contract", () => 
     "--orig-client-order-id",
     "flow-command-schema-1-entry",
     "--yes",
+    "--exchange-runtime-db",
+    "/repo/data/exchange_runtime.db",
+    "--requested-by-ref",
+    "execution:BTCUSDT:cancel_order:flow-command-schema-1-entry",
   ])
 })
 

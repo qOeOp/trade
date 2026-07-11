@@ -13,6 +13,7 @@ export function parseArgs(argv: string[]): CommandConfig {
   let buildObserve = false
   let observeFromToolsEnabled = false
   let automationCycle = false
+  let runJobGraph = false
   let runShadowFromToolsEnabled = false
   let runLiveSmallEnabled = false
   let recoverFlow = false
@@ -63,6 +64,9 @@ export function parseArgs(argv: string[]): CommandConfig {
         break
       case "--automation-cycle":
         automationCycle = true
+        break
+      case "--run-job-graph":
+        runJobGraph = true
         break
       case "--run-shadow-from-tools":
         runShadowFromToolsEnabled = true
@@ -126,6 +130,7 @@ export function parseArgs(argv: string[]): CommandConfig {
     buildObserve,
     observeFromTools: observeFromToolsEnabled,
     automationCycle,
+    runJobGraph,
     runShadowFromTools: runShadowFromToolsEnabled,
     runLiveSmall: runLiveSmallEnabled,
     recoverFlow,
