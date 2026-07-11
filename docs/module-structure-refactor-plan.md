@@ -286,12 +286,13 @@ modules/
 - `data-catalog.ts` 的 DB/schema/scan 实现已收敛到 `modules/ops/artifact-catalog/src/lib/data-catalog.ts`。
 - `modules/contracts/catalog-contract/src/catalog-client.ts` 提供跨模块 catalog client；research / governance 旧本地路径只保留 re-export 适配。
 - artifact-catalog CLI 已新增 direct register / upsert / list 命令，并有 `catalog-cli.test.ts` 覆盖。
-- `replay-core.ts` 实现已收敛到 `modules/research/replay-engine/src/lib/replay-core.ts`；research / governance 旧本地路径只保留 re-export 适配。
+- `replay-core.ts` 实现已收敛到 `modules/research/replay-engine/src/lib/replay-core.ts`。
+- `research/replay-runner` 已成为 agent-facing replay atomic module。
 
 尚未完成：
 
-- `research/replay-engine` 仍是内部 engine owner，尚未拆出 agent-facing `research/replay-runner`。
-- `contracts/replay-contract` 仍未单独拆 type/schema shell；governance 当前通过 re-export 使用 replay engine 类型和测试 helper。
+- `contracts/replay-contract` 仍未单独拆 type/schema shell；governance 当前仍有本地 replay re-export 适配。
+- registry resolver 仍未替换 `trade-flow` 内部裸路径编排。
 
 ### Phase 2：明确 contract 层
 
