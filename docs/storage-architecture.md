@@ -26,6 +26,8 @@
 
 `market_data_store` 的 owner 读口已覆盖 `read_manifest`、`read_funding`、`read_feature_manifest`、`list_feature_manifests`。后续 R&D / governance 迁移消费 funding 或 feature refs 时，应优先走 owner CLI / protocol ref，而不是跨域直读 JSON artifact 或 SQL 表。
 
+`calibration-market-features --market-data-db` 会在 calibration suite input 的 dataset 上同时保留旧 `indicator_report_path` 与新 `market_data_db / funding_events_ref / feature_manifest_ref`。当前 benchmark input、data hash 与 panel diagnostics 已识别这些 refs；实际 funding 数值读取仍兼容旧 JSON report，后续可在不改输入契约的前提下切换到 owner 读口。
+
 ## Implementation Rule
 
 当前 logical store 均已有 owner / DDL / init-check 路径。后续若新增 `planned` store，`planned` 不表示“不需要做”，而是表示顶层已决定需要独立 owner 和 DDL，但运行时代码还未接入该物理库。实现任一 planned store 时必须：

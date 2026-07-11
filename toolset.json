@@ -1545,7 +1545,8 @@
       },
       "notes": [
         "Writes data files and manifests, not strategy decisions.",
-        "When --market-data-db is present, OHLCV fetch upserts market_manifest and canonical_candle rows; calibration-market-features upserts funding_event and feature_manifest refs in market_data_store."
+        "When --market-data-db is present, OHLCV fetch upserts market_manifest and canonical_candle rows; calibration-market-features upserts funding_event and feature_manifest refs in market_data_store.",
+        "Calibration suite input carries market_data_db, funding_events_ref, and feature_manifest_ref alongside indicator_report_path for backward-compatible R&D migration."
       ],
       "module_type": "suite",
       "owner_scope": "market-data-products.ohlcv-fetch",

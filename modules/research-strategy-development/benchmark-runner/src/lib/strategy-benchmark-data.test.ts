@@ -16,7 +16,13 @@ test("benchmark data builds aligned panel diagnostics over common timestamps", (
   const dir = mkdtempSync(join(tmpdir(), "strategy-benchmark-data-panel-"))
   try {
     const datasets = [
-      { datasetId: "A", manifestPath: writeManifest(dir, "A", 0, 5) },
+      {
+        datasetId: "A",
+        manifestPath: writeManifest(dir, "A", 0, 5),
+        marketDataDb: "data/market_data.duckdb",
+        fundingEventsRef: "funding:binanceusdm:A:4h:abc",
+        featureManifestRef: "market-features:binanceusdm:A:4h:def",
+      },
       { datasetId: "B", manifestPath: writeManifest(dir, "B", 2, 3) },
     ]
     const panel = alignedPanel(datasets, "4h")
@@ -29,6 +35,9 @@ test("benchmark data builds aligned panel diagnostics over common timestamps", (
     assert.equal(panel.diagnostics.min_aligned_ratio, 1)
     assert.equal(panel.diagnostics.schema_version_ok, true)
     assert.equal(panel.diagnostics.closed_candles_only, true)
+    assert.equal(panel.diagnostics.datasets[0].market_data_db_ref, "data/market_data.duckdb")
+    assert.equal(panel.diagnostics.datasets[0].funding_events_ref, "funding:binanceusdm:A:4h:abc")
+    assert.equal(panel.diagnostics.datasets[0].feature_manifest_ref, "market-features:binanceusdm:A:4h:def")
     assert.match(datasetDataHash(datasets[0], "4h"), /^[a-f0-9]{64}$/)
   } finally {
     rmSync(dir, { recursive: true, force: true })

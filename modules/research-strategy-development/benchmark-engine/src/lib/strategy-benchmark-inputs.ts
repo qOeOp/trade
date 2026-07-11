@@ -4,6 +4,9 @@ export interface BenchmarkDataset {
   datasetId: string
   manifestPath: string
   indicatorReportPath?: string
+  marketDataDb?: string
+  fundingEventsRef?: string
+  featureManifestRef?: string
   symbolStatus?: string
 }
 
@@ -45,6 +48,9 @@ export function strategyBenchmarkInputFromJson(value: JSONRecord): TrendBenchmar
         datasetId: stringField(item.dataset_id),
         manifestPath: stringField(item.manifest_path),
         indicatorReportPath: stringField(item.indicator_report_path) || undefined,
+        marketDataDb: stringField(item.market_data_db) || undefined,
+        fundingEventsRef: stringField(item.funding_events_ref) || undefined,
+        featureManifestRef: stringField(item.feature_manifest_ref) || undefined,
         symbolStatus: stringField(item.symbol_status) || undefined,
       }
     }),

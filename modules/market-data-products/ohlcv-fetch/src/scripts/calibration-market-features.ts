@@ -104,6 +104,8 @@ async function runCalibrationMarketFeatures(argv: string[], analyzer: Analyzer =
       process.stderr.write(`[calibration-market-features] ${datasetID} ${status} funding_events=${fundingCount}${error ? ` error=${error.slice(0, 160)}` : ""}\n`)
     }
 
+    const marketDataStore = recordMarketDataStoreIfEnabled(config, reports)
+    if (marketDataStore) enrichSuiteDatasetsWithStoreRefs(suiteDatasets, marketDataStore)
     const suiteInput = {
       datasets: suiteDatasets,
       timeframe: config.timeframe,
@@ -125,7 +127,6 @@ async function runCalibrationMarketFeatures(argv: string[], analyzer: Analyzer =
       reports,
     }
     writeFileSync(manifestPath, `${JSON.stringify(panelFeatureManifest, null, 2)}\n`)
-    const marketDataStore = recordMarketDataStoreIfEnabled(config, reports)
     return {
       ok: true,
       data: {
@@ -171,6 +172,19 @@ function parseArgs(argv: string[]): Config {
     marketTimeoutMs: numberValue(values.get("--market-timeout-ms"), 45_000, "--market-timeout-ms"),
     force: values.get("--force") === "true",
     marketDataDb: values.get("--market-data-db") || "",
+  }
+}
+
+function enrichSuiteDatasetsWithStoreRefs(suiteDatasets: JSONRecord[], store: MarketDataStoreWriteSummary): void {
+  const fundingByDataset = new Map(store.funding_manifests.map((item) => [item.dataset_id, item.manifest_id]))
+  const featureByDataset = new Map(store.feature_manifests.map((item) => [item.dataset_id, item.feature_manifest_id]))
+  for (const dataset of suiteDatasets) {
+    const datasetID = stringField(dataset.dataset_id)
+    const fundingRef = fundingByDataset.get(datasetID)
+    const featureRef = featureByDataset.get(datasetID)
+    if (fundingRef) dataset.funding_events_ref = fundingRef
+    if (featureRef) dataset.feature_manifest_ref = featureRef
+    dataset.market_data_db = store.db
   }
 }
 

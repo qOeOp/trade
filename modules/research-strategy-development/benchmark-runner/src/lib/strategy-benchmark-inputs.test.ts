@@ -18,6 +18,9 @@ test("strategy benchmark input parser keeps public benchmark definition fixed", 
       dataset_id: "BTC",
       manifest_path: "/tmp/btc.json",
       indicator_report_path: "/tmp/funding.json",
+      market_data_db: "data/market_data.duckdb",
+      funding_events_ref: "funding:binanceusdm:BTCUSDT:4h:abc",
+      feature_manifest_ref: "market-features:binanceusdm:BTCUSDT:4h:def",
       symbol_status: "delisted",
     }],
   })
@@ -31,6 +34,9 @@ test("strategy benchmark input parser keeps public benchmark definition fixed", 
   assert.equal(input.fundingBpsPer8h, 0.1)
   assert.equal(input.datasets[0].datasetId, "BTC")
   assert.equal(input.datasets[0].indicatorReportPath, "/tmp/funding.json")
+  assert.equal(input.datasets[0].marketDataDb, "data/market_data.duckdb")
+  assert.equal(input.datasets[0].fundingEventsRef, "funding:binanceusdm:BTCUSDT:4h:abc")
+  assert.equal(input.datasets[0].featureManifestRef, "market-features:binanceusdm:BTCUSDT:4h:def")
   assert.equal(input.datasets[0].symbolStatus, "delisted")
 })
 
@@ -46,6 +52,9 @@ test("strategy benchmark input parser ignores camel-case aliases", () => {
   assert.equal(input.datasets[0].datasetId, "")
   assert.equal(input.datasets[0].manifestPath, "")
   assert.equal(input.datasets[0].indicatorReportPath, undefined)
+  assert.equal(input.datasets[0].marketDataDb, undefined)
+  assert.equal(input.datasets[0].fundingEventsRef, undefined)
+  assert.equal(input.datasets[0].featureManifestRef, undefined)
   assert.equal(input.datasets[0].symbolStatus, undefined)
 })
 

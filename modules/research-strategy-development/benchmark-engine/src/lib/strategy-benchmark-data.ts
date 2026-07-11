@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs"
-import { loadCandlesFromManifest, loadManifest, replayDataHash, type Candle } from "../../../replay-engine/src/lib/replay-core"
+import { hashCanonical, loadCandlesFromManifest, loadManifest, replayDataHash, type Candle } from "../../../replay-engine/src/lib/replay-core"
 import { resolveReadablePath } from "../../../replay-engine/src/lib/paths"
 import type { BenchmarkDataset } from "./strategy-benchmark-inputs"
 
@@ -44,6 +44,9 @@ export interface PanelDiagnostics {
     dataset_id: string
     manifest_ref: string
     indicator_report_ref?: string
+    market_data_db_ref?: string
+    funding_events_ref?: string
+    feature_manifest_ref?: string
     raw_rows: number
     aligned_rows: number
     aligned_ratio: number
@@ -86,7 +89,10 @@ export function alignedPanel(datasets: BenchmarkDataset[], timeframe: string): A
 }
 
 export function datasetDataHash(dataset: BenchmarkDataset, timeframe: string): string {
-  return replayDataHash(dataset.manifestPath, timeframe, dataset.indicatorReportPath ? [dataset.indicatorReportPath] : [])
+  const fileRefs = dataset.indicatorReportPath ? [dataset.indicatorReportPath] : []
+  const baseHash = replayDataHash(dataset.manifestPath, timeframe, fileRefs)
+  const storeRefs = datasetStoreRefs(dataset)
+  return storeRefs.length === 0 ? baseHash : hashCanonical({ base_data_hash: baseHash, store_refs: storeRefs.sort() })
 }
 
 export function panelFundingEvents(datasets: BenchmarkDataset[], firstTimestamp: number, lastTimestamp: number): { coverage: FundingCoverage; eventsByAsset: FundingEvent[][] } {
@@ -162,6 +168,9 @@ function panelDiagnostics(loaded: Array<{ dataset: BenchmarkDataset; manifest: J
       dataset_id: item.dataset.datasetId,
       manifest_ref: item.dataset.manifestPath,
       ...(item.dataset.indicatorReportPath ? { indicator_report_ref: item.dataset.indicatorReportPath } : {}),
+      ...(item.dataset.marketDataDb ? { market_data_db_ref: item.dataset.marketDataDb } : {}),
+      ...(item.dataset.fundingEventsRef ? { funding_events_ref: item.dataset.fundingEventsRef } : {}),
+      ...(item.dataset.featureManifestRef ? { feature_manifest_ref: item.dataset.featureManifestRef } : {}),
       raw_rows: item.candles.length,
       aligned_rows: timestamps.length,
       aligned_ratio: round(timestamps.length / Math.max(1, rowsInAlignedWindow)),
@@ -221,6 +230,14 @@ function loadFundingEvents(path?: string): FundingEvent[] {
     const record = asRecord(item)
     return { timestamp: stringField(record.timestamp), value: Number(record.value) }
   }).filter((item) => item.timestamp && Number.isFinite(item.value)).sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp))
+}
+
+function datasetStoreRefs(dataset: BenchmarkDataset): string[] {
+  return [
+    dataset.marketDataDb,
+    dataset.fundingEventsRef,
+    dataset.featureManifestRef,
+  ].filter((value): value is string => Boolean(value))
 }
 
 function maxFundingGapHours(eventsByAsset: FundingEvent[][]): number {

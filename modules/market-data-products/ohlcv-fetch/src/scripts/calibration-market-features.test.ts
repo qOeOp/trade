@@ -167,6 +167,13 @@ test("calibration market features upserts funding and feature refs into market d
   assert.equal(store.funding_manifests[0].events, 2)
   assert.match(store.feature_manifests[0].feature_manifest_id, /^market-features:binanceusdm:BTCUSDT:4h:/)
 
+  const suite = JSON.parse(readFileSync(String(result.data.suite_input_path), "utf8")) as {
+    datasets: Array<{ market_data_db: string; funding_events_ref: string; feature_manifest_ref: string }>
+  }
+  assert.equal(isAbsolute(suite.datasets[0].market_data_db), false)
+  assert.equal(suite.datasets[0].funding_events_ref, store.funding_manifests[0].manifest_id)
+  assert.equal(suite.datasets[0].feature_manifest_ref, store.feature_manifests[0].feature_manifest_id)
+
   const db = new Database(dbPath, { readonly: true })
   try {
     const fundingCount = db.query("SELECT COUNT(*) AS count FROM funding_event WHERE symbol = 'BTCUSDT'").get() as { count: number }
