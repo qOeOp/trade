@@ -250,6 +250,18 @@ modules/
 - 文档能回答：一个新能力应该落在哪、能否被 import、写入面是什么。
 - registry 能按 intent 找到工具，不要求 agent 记父模块。
 
+当前落地：
+
+- `toolset.json` 已新增 `module_type`、`owner_scope`、`entry_contract`、`requires_preflight`、`concurrency_group`、`forbidden_callers`。
+- `scripts/toolset.ts --validate` 已校验上述字段和可选 schema 路径。
+- `schemas/tool-job.schema.json` 已定义编排 job 的稳定 shell。
+- `docs/tool-layout.md` 与 `modules/README.md` 已区分 current layout、target topology、suite / atomic / contract module。
+
+尚未完成：
+
+- registry resolver 仍未替换 `trade-flow` 内部裸路径编排。
+- `scripts/check-ts-tool-boundaries.ts` 当前仍以 `modules/common/src` 为允许 import 层；Phase 2 迁移后切到 `modules/contracts/*`。
+
 ### Phase 1：去重最高风险实现
 
 目标：消灭完全重复的大文件。

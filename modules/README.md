@@ -6,10 +6,20 @@
 
 | 层 | 职责 |
 | --- | --- |
-| `toolset.json` | agent-facing 工具索引：按 intent / capability / writes 找工具 |
+| `toolset.json` | agent-facing 工具索引：按 intent / capability / writes / module_type 找工具 |
 | `modules/<domain>/<module>/` | 模块根：package / go.mod / requirements / reference / 模块说明 |
 | `modules/<domain>/<module>/src/` | 模块实现：scripts、schemas、tests、内部 helper |
-| `modules/common/src/` | 跨模块确定性契约；只放无领域编排的 helper |
+| `modules/common/src/` | 当前跨模块确定性契约层；迁移目标是 `modules/contracts/*` |
+
+## Module Types
+
+| 类型 | 负责 | 禁止 |
+| --- | --- | --- |
+| `suite` | 归类、迁移期路由、把一组原子能力暴露给 agent | 继续扩张成业务大总线 |
+| `atomic` | 一个主动词 + 一个对象；单一 CLI、单一主写入面、独立 contract / check | 混合多个生命周期阶段或多个 owner |
+| `contract` | 可被源码跨模块 import 的 type、schema、pure helper | 读写文件、调用外部 API、拥有流程 |
+
+`toolset.json` 每个 entry 必须声明 `module_type`、`owner_scope`、`entry_contract`、`requires_preflight`、`concurrency_group` 和 `forbidden_callers`。编排器后续只应输出 `tool_id + payload + entry_contract`，不输出裸路径命令；裸路径 command 只保留在 registry resolver 层。
 
 ## Module Contracts
 
@@ -47,7 +57,7 @@
 
 ## Rules
 
-- 模块之间通过 CLI JSON contract 协作；源码 import 只允许指向 `modules/common/src`。
+- 模块之间通过 CLI JSON contract 协作；当前源码 import 只允许指向 `modules/common/src`，迁移完成后只允许指向 `modules/contracts/*`。
 - `trade-flow/src/domain/*/index.ts` 是 trade-flow 编排边界；新增原子能力优先落独立 `modules/<domain>/<module>`，不要继续塞进 trade-flow。
 - 模块运行产物只落 `data/` 或 `tmp/`；模块目录不保存运行快照、cache、研究垃圾。
 - `T` 类 Binance 写模块不得被 R&D / replay / market scan 直接调用。

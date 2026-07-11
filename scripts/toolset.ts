@@ -8,6 +8,8 @@ type JSONRecord = Record<string, unknown>
 interface ToolEntry {
   id: string
   domain: string
+  module_type: string
+  owner_scope: string
   intent: string[]
   capability_class: string[]
   path: string
@@ -17,6 +19,14 @@ interface ToolEntry {
     argv: string[]
   }
   writes: Record<string, boolean>
+  entry_contract: {
+    kind: string
+    input_schema: string
+    output_schema: string
+  }
+  requires_preflight: boolean
+  concurrency_group: string
+  forbidden_callers: string[]
   notes?: string[]
 }
 
@@ -29,6 +39,8 @@ interface ToolManifest {
 const MANIFEST_PATH = "toolset.json"
 const VALID_CAPABILITIES = new Set(["R", "A", "E", "V", "T", "C"])
 const VALID_WRITES = ["trade_db", "catalog", "artifacts", "binance", "config"]
+const VALID_MODULE_TYPES = new Set(["suite", "atomic", "contract"])
+const VALID_ENTRY_CONTRACT_KINDS = new Set(["cli-json"])
 
 function main(argv: string[]): void {
   const args = parseArgs(argv)
@@ -111,6 +123,8 @@ function validateManifest(manifest: ToolManifest): string[] {
     const prefix = `tools[${index}]`
     validateString(tool.id, `${prefix}.id`, issues)
     validateString(tool.domain, `${prefix}.domain`, issues)
+    validateModuleType(tool, prefix, issues)
+    validateString(tool.owner_scope, `${prefix}.owner_scope`, issues)
     validateString(tool.path, `${prefix}.path`, issues)
     validateString(tool.purpose, `${prefix}.purpose`, issues)
     if (tool.id) {
@@ -136,8 +150,19 @@ function validateManifest(manifest: ToolManifest): string[] {
     }
     validateCommand(tool, prefix, issues)
     validateWrites(tool, prefix, issues)
+    validateEntryContract(tool, prefix, issues)
+    validateBoolean(tool.requires_preflight, `${prefix}.requires_preflight`, issues)
+    validateString(tool.concurrency_group, `${prefix}.concurrency_group`, issues)
+    validateStringArray(tool.forbidden_callers, `${prefix}.forbidden_callers`, issues)
   }
   return issues
+}
+
+function validateModuleType(tool: ToolEntry, prefix: string, issues: string[]): void {
+  validateString(tool.module_type, `${prefix}.module_type`, issues)
+  if (tool.module_type && !VALID_MODULE_TYPES.has(tool.module_type)) {
+    issues.push(`${prefix}.module_type has invalid value: ${tool.module_type}`)
+  }
 }
 
 function validateCommand(tool: ToolEntry, prefix: string, issues: string[]): void {
@@ -182,6 +207,47 @@ function validateWrites(tool: ToolEntry, prefix: string, issues: string[]): void
   }
 }
 
+function validateEntryContract(tool: ToolEntry, prefix: string, issues: string[]): void {
+  if (!tool.entry_contract || typeof tool.entry_contract !== "object" || Array.isArray(tool.entry_contract)) {
+    issues.push(`${prefix}.entry_contract is required`)
+    return
+  }
+  validateString(tool.entry_contract.kind, `${prefix}.entry_contract.kind`, issues)
+  if (tool.entry_contract.kind && !VALID_ENTRY_CONTRACT_KINDS.has(tool.entry_contract.kind)) {
+    issues.push(`${prefix}.entry_contract.kind has invalid value: ${tool.entry_contract.kind}`)
+  }
+  validateOptionalSchemaPath(tool.entry_contract.input_schema, `${prefix}.entry_contract.input_schema`, issues)
+  validateOptionalSchemaPath(tool.entry_contract.output_schema, `${prefix}.entry_contract.output_schema`, issues)
+}
+
+function validateOptionalSchemaPath(value: unknown, field: string, issues: string[]): void {
+  if (typeof value !== "string") {
+    issues.push(`${field} must be a string`)
+    return
+  }
+  if (value !== "" && !existsSync(value)) {
+    issues.push(`${field} does not exist: ${value}`)
+  }
+}
+
+function validateBoolean(value: unknown, field: string, issues: string[]): void {
+  if (typeof value !== "boolean") {
+    issues.push(`${field} must be boolean`)
+  }
+}
+
+function validateStringArray(value: unknown, field: string, issues: string[]): void {
+  if (!Array.isArray(value)) {
+    issues.push(`${field} must be an array`)
+    return
+  }
+  for (const [index, item] of value.entries()) {
+    if (typeof item !== "string" || item.trim() === "") {
+      issues.push(`${field}[${index}] must be a non-empty string`)
+    }
+  }
+}
+
 function validateString(value: unknown, field: string, issues: string[]): void {
   if (typeof value !== "string" || value.trim() === "") {
     issues.push(`${field} must be a non-empty string`)
@@ -215,8 +281,9 @@ function printList(tools: ToolEntry[]): void {
     console.log(`${tool.id} [${tool.capability_class.join("/")}] ${tool.domain}`)
     console.log(`  ${tool.purpose}`)
     console.log(`  path=${tool.path}`)
+    console.log(`  module_type=${tool.module_type} owner_scope=${tool.owner_scope}`)
     console.log(`  command=(cd ${tool.command.cwd} && ${tool.command.argv.join(" ")})`)
-    console.log(`  writes=${writes}`)
+    console.log(`  writes=${writes} concurrency_group=${tool.concurrency_group}`)
   }
 }
 

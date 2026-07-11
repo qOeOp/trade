@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade.tool-job.v1",
+  "title": "Tool Job Contract",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "job_id",
+    "tool_id",
+    "module_type",
+    "capability_class",
+    "writes",
+    "concurrency_group",
+    "payload",
+    "entry_contract"
+  ],
+  "properties": {
+    "job_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tool_id": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Must match an entry in toolset.json."
+    },
+    "module_type": {
+      "type": "string",
+      "enum": ["suite", "atomic", "contract"]
+    },
+    "capability_class": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "string",
+        "enum": ["R", "A", "E", "V", "T", "C"]
+      }
+    },
+    "writes": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["trade_db", "catalog", "artifacts", "binance", "config"],
+      "properties": {
+        "trade_db": { "type": "boolean" },
+        "catalog": { "type": "boolean" },
+        "artifacts": { "type": "boolean" },
+        "binance": { "type": "boolean" },
+        "config": { "type": "boolean" }
+      }
+    },
+    "concurrency_group": {
+      "type": "string",
+      "minLength": 1
+    },
+    "requires_preflight": {
+      "type": "boolean",
+      "default": false
+    },
+    "requires": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["tool_id", "result_ref"],
+        "properties": {
+          "tool_id": { "type": "string", "minLength": 1 },
+          "result_ref": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "payload": {
+      "description": "Inline payload or resolver-specific payload reference consumed by the target tool.",
+      "oneOf": [
+        { "type": "object" },
+        { "type": "string", "minLength": 1 }
+      ]
+    },
+    "entry_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["kind", "input_schema", "output_schema"],
+      "properties": {
+        "kind": { "type": "string", "enum": ["cli-json"] },
+        "input_schema": { "type": "string" },
+        "output_schema": { "type": "string" }
+      }
+    }
+  }
+}

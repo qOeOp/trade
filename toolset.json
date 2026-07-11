@@ -5,233 +5,994 @@
     {
       "id": "trade-flow.automation",
       "domain": "orchestration",
-      "intent": ["automation", "supervision", "cadence"],
-      "capability_class": ["A"],
+      "intent": [
+        "automation",
+        "supervision",
+        "cadence"
+      ],
+      "capability_class": [
+        "A"
+      ],
       "path": "modules/trade-flow",
       "purpose": "Build the single-entry automation plan and isolate trade, research, review, and catalog jobs.",
-      "command": { "cwd": "modules/trade-flow", "argv": ["bun", "src/scripts/main.ts", "--automation-cycle", "--json", "<payload>"] },
-      "writes": { "trade_db": false, "catalog": false, "artifacts": false, "binance": false, "config": false },
-      "notes": ["Planner only; downstream jobs perform their own writes."]
+      "command": {
+        "cwd": "modules/trade-flow",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--automation-cycle",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Planner only; downstream jobs perform their own writes."
+      ],
+      "module_type": "suite",
+      "owner_scope": "flow.automation",
+      "requires_preflight": false,
+      "concurrency_group": "flow-plan",
+      "forbidden_callers": [],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": "modules/trade-flow/src/schemas/automation-cycle-plan.schema.json"
+      }
     },
     {
       "id": "trade-flow.runtime",
       "domain": "runtime",
-      "intent": ["event-store", "state", "track-dry-run"],
-      "capability_class": ["R", "V"],
+      "intent": [
+        "event-store",
+        "state",
+        "track-dry-run"
+      ],
+      "capability_class": [
+        "R",
+        "V"
+      ],
       "path": "modules/trade-flow",
       "purpose": "Initialize and append local plan_event records, reduce flow state, and dry-run slow or fast tracks.",
-      "command": { "cwd": "modules/trade-flow", "argv": ["bun", "src/scripts/main.ts", "--db", "./data/trade.db", "<runtime-flag>"] },
-      "writes": { "trade_db": true, "catalog": false, "artifacts": false, "binance": false, "config": false },
-      "notes": ["Use --track for dry-run only; append commands write local events."]
+      "command": {
+        "cwd": "modules/trade-flow",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--db",
+          "./data/trade.db",
+          "<runtime-flag>"
+        ]
+      },
+      "writes": {
+        "trade_db": true,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Use --track for dry-run only; append commands write local events."
+      ],
+      "module_type": "suite",
+      "owner_scope": "flow.runtime-event-store",
+      "requires_preflight": false,
+      "concurrency_group": "trade-db",
+      "forbidden_callers": [],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
     },
     {
       "id": "trade-flow.observe",
       "domain": "observe",
-      "intent": ["observe", "runtime-load", "snapshot-projection"],
-      "capability_class": ["R", "A"],
+      "intent": [
+        "observe",
+        "runtime-load",
+        "snapshot-projection"
+      ],
+      "capability_class": [
+        "R",
+        "A"
+      ],
       "path": "modules/trade-flow",
       "purpose": "Load runtime inputs, call read-only snapshot tools, and build normalized observe events.",
-      "command": { "cwd": "modules/trade-flow", "argv": ["bun", "src/scripts/main.ts", "<observe-flag>", "--json", "<payload>"] },
-      "writes": { "trade_db": false, "catalog": false, "artifacts": false, "binance": false, "config": false },
-      "notes": ["Observation builds facts for downstream flow steps; it does not decide or execute actions."]
+      "command": {
+        "cwd": "modules/trade-flow",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "<observe-flag>",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Observation builds facts for downstream flow steps; it does not decide or execute actions."
+      ],
+      "module_type": "suite",
+      "owner_scope": "flow.observe",
+      "requires_preflight": false,
+      "concurrency_group": "observe-read",
+      "forbidden_callers": [],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": "modules/trade-flow/src/schemas/observe-event.schema.json"
+      }
     },
     {
       "id": "strategy-rd",
       "domain": "research",
-      "intent": ["rd", "replay", "panel", "benchmark", "calibration", "signal", "rd-program"],
-      "capability_class": ["A", "E"],
+      "intent": [
+        "rd",
+        "replay",
+        "panel",
+        "benchmark",
+        "calibration",
+        "signal",
+        "rd-program"
+      ],
+      "capability_class": [
+        "A",
+        "E"
+      ],
       "path": "modules/research/strategy-rd",
       "purpose": "Run strategy replay, R&D loops, panel evaluation, calibration, benchmark, latest-signal checks, and R&D program memory.",
-      "command": { "cwd": "modules/research/strategy-rd", "argv": ["bun", "src/scripts/main.ts", "<research-flag>", "--json", "<payload>"] },
-      "writes": { "trade_db": false, "catalog": true, "artifacts": true, "binance": false, "config": false },
-      "notes": ["Owns research execution. It cannot write trade.db or trigger Binance writes."]
+      "command": {
+        "cwd": "modules/research/strategy-rd",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "<research-flag>",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": true,
+        "artifacts": true,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Owns research execution. It cannot write trade.db or trigger Binance writes."
+      ],
+      "module_type": "suite",
+      "owner_scope": "research.strategy-rd",
+      "requires_preflight": false,
+      "concurrency_group": "rd-state",
+      "forbidden_callers": [
+        "execution",
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
     },
     {
       "id": "strategy-review",
       "domain": "governance",
-      "intent": ["evidence", "review", "promotion", "strategy-cycle"],
-      "capability_class": ["E", "V"],
+      "intent": [
+        "evidence",
+        "review",
+        "promotion",
+        "strategy-cycle"
+      ],
+      "capability_class": [
+        "E",
+        "V"
+      ],
       "path": "modules/governance/strategy-review",
       "purpose": "Append strategy evidence, build review reports, and gate strategy status transitions.",
-      "command": { "cwd": "modules/governance/strategy-review", "argv": ["bun", "src/scripts/main.ts", "<review-flag>", "--strategy", "<strategy.md>"] },
-      "writes": { "trade_db": false, "catalog": true, "artifacts": false, "binance": false, "config": true },
-      "notes": ["Reads trade.db only when --db is provided. Promotion can update strategy markdown only with explicit --yes where required."]
+      "command": {
+        "cwd": "modules/governance/strategy-review",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "<review-flag>",
+          "--strategy",
+          "<strategy.md>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": true,
+        "artifacts": false,
+        "binance": false,
+        "config": true
+      },
+      "notes": [
+        "Reads trade.db only when --db is provided. Promotion can update strategy markdown only with explicit --yes where required."
+      ],
+      "module_type": "suite",
+      "owner_scope": "governance.strategy-review",
+      "requires_preflight": false,
+      "concurrency_group": "strategy-config",
+      "forbidden_callers": [
+        "execution",
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
     },
     {
       "id": "trade-flow.recovery",
       "domain": "recovery",
-      "intent": ["recover", "reconcile"],
-      "capability_class": ["R", "A", "V"],
+      "intent": [
+        "recover",
+        "reconcile"
+      ],
+      "capability_class": [
+        "R",
+        "A",
+        "V"
+      ],
       "path": "modules/trade-flow",
       "purpose": "Reduce local flow state, reconcile against account snapshots, and optionally apply safe local drafts.",
-      "command": { "cwd": "modules/trade-flow", "argv": ["bun", "src/scripts/main.ts", "--db", "./data/trade.db", "<recovery-flag>", "--chain-id", "<chain_id>"] },
-      "writes": { "trade_db": true, "catalog": false, "artifacts": false, "binance": false, "config": false },
-      "notes": ["Does not call Binance write endpoints."]
+      "command": {
+        "cwd": "modules/trade-flow",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--db",
+          "./data/trade.db",
+          "<recovery-flag>",
+          "--chain-id",
+          "<chain_id>"
+        ]
+      },
+      "writes": {
+        "trade_db": true,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Does not call Binance write endpoints."
+      ],
+      "module_type": "suite",
+      "owner_scope": "flow.recovery",
+      "requires_preflight": false,
+      "concurrency_group": "trade-db",
+      "forbidden_callers": [],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": "modules/trade-flow/src/schemas/reconcile-result.schema.json"
+      }
     },
     {
       "id": "trade-flow.execution",
       "domain": "execution",
-      "intent": ["dry-run", "shadow", "live-small", "record-execution"],
-      "capability_class": ["V", "T"],
+      "intent": [
+        "dry-run",
+        "shadow",
+        "live-small",
+        "record-execution"
+      ],
+      "capability_class": [
+        "V",
+        "T"
+      ],
       "path": "modules/trade-flow",
       "purpose": "Run the audited execution path, record order_fill events, shadow execution, or explicitly authorized live-small entry.",
-      "command": { "cwd": "modules/trade-flow", "argv": ["bun", "src/scripts/main.ts", "<execution-flag>", "--json", "<payload>"] },
-      "writes": { "trade_db": true, "catalog": false, "artifacts": false, "binance": true, "config": false },
-      "notes": ["Binance writes require --run-live-small plus --yes and preflight/contract gates."]
+      "command": {
+        "cwd": "modules/trade-flow",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "<execution-flag>",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": true,
+        "catalog": false,
+        "artifacts": false,
+        "binance": true,
+        "config": false
+      },
+      "notes": [
+        "Binance writes require --run-live-small plus --yes and preflight/contract gates."
+      ],
+      "module_type": "suite",
+      "owner_scope": "flow.execution",
+      "requires_preflight": true,
+      "concurrency_group": "binance-write",
+      "forbidden_callers": [
+        "research",
+        "market-scan",
+        "analytics"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "modules/trade-flow/src/schemas/execution-command-spec.schema.json",
+        "output_schema": "modules/trade-flow/src/schemas/live-small-result.schema.json"
+      }
     },
     {
       "id": "artifact-catalog",
       "domain": "ops",
-      "intent": ["catalog", "artifact-gc", "hygiene"],
-      "capability_class": ["A", "V"],
+      "intent": [
+        "catalog",
+        "artifact-gc",
+        "hygiene"
+      ],
+      "capability_class": [
+        "A",
+        "V"
+      ],
       "path": "modules/ops/artifact-catalog",
       "purpose": "Index data and artifacts, report stale refs, and delete stale unreferenced files only when explicitly authorized.",
-      "command": { "cwd": "modules/ops/artifact-catalog", "argv": ["bun", "src/scripts/main.ts", "<catalog-flag>"] },
-      "writes": { "trade_db": false, "catalog": true, "artifacts": true, "binance": false, "config": false },
-      "notes": ["GC is dry-run unless --yes is present."]
+      "command": {
+        "cwd": "modules/ops/artifact-catalog",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "<catalog-flag>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": true,
+        "artifacts": true,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "GC is dry-run unless --yes is present."
+      ],
+      "module_type": "suite",
+      "owner_scope": "ops.artifact-catalog",
+      "requires_preflight": false,
+      "concurrency_group": "artifact-catalog",
+      "forbidden_callers": [],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
     },
     {
       "id": "ohlcv-fetch",
       "domain": "data",
-      "intent": ["ohlcv", "funding", "market-features", "panel-data"],
-      "capability_class": ["R", "A"],
+      "intent": [
+        "ohlcv",
+        "funding",
+        "market-features",
+        "panel-data"
+      ],
+      "capability_class": [
+        "R",
+        "A"
+      ],
       "path": "modules/ohlcv-fetch",
       "purpose": "Fetch candles, funding, calibration panels, and market feature inputs into manifest-backed files.",
-      "command": { "cwd": "modules/ohlcv-fetch", "argv": ["bun", "src/scripts/main.ts", "--symbol", "<symbol>", "--timeframes", "1d,4h,1h"] },
-      "writes": { "trade_db": false, "catalog": false, "artifacts": true, "binance": false, "config": false },
-      "notes": ["Writes data files and manifests, not strategy decisions."]
+      "command": {
+        "cwd": "modules/ohlcv-fetch",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--symbol",
+          "<symbol>",
+          "--timeframes",
+          "1d,4h,1h"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": true,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Writes data files and manifests, not strategy decisions."
+      ],
+      "module_type": "suite",
+      "owner_scope": "data.ohlcv-fetch",
+      "requires_preflight": false,
+      "concurrency_group": "market-data",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
     },
     {
       "id": "tech-indicators",
       "domain": "analytics",
-      "intent": ["indicator", "structure", "beta", "feature-report"],
-      "capability_class": ["A"],
+      "intent": [
+        "indicator",
+        "structure",
+        "beta",
+        "feature-report"
+      ],
+      "capability_class": [
+        "A"
+      ],
       "path": "modules/analytics/tech-indicators",
       "purpose": "Compute indicators, structure, BTC beta, and feature series from local OHLCV manifests.",
-      "command": { "cwd": "modules/analytics/tech-indicators", "argv": ["go", "run", "./src/scripts", "--manifest", "<manifest>"] },
-      "writes": { "trade_db": false, "catalog": false, "artifacts": true, "binance": false, "config": false },
-      "notes": ["Pure analytics; no exchange access."]
+      "command": {
+        "cwd": "modules/analytics/tech-indicators",
+        "argv": [
+          "go",
+          "run",
+          "./src/scripts",
+          "--manifest",
+          "<manifest>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": true,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Pure analytics; no exchange access."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "analytics.tech-indicators",
+      "requires_preflight": false,
+      "concurrency_group": "analytics",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
     },
     {
       "id": "plan-preflight",
       "domain": "guard",
-      "intent": ["preflight", "hard-guard", "decision-card"],
-      "capability_class": ["A"],
+      "intent": [
+        "preflight",
+        "hard-guard",
+        "decision-card"
+      ],
+      "capability_class": [
+        "A"
+      ],
       "path": "modules/guards/plan-preflight",
       "purpose": "Evaluate deterministic hard guards and render/validate decision cards.",
-      "command": { "cwd": "modules/guards/plan-preflight", "argv": ["bun", "src/scripts/main.ts", "--json", "<payload>"] },
-      "writes": { "trade_db": false, "catalog": false, "artifacts": false, "binance": false, "config": false },
-      "notes": ["Verdict only; does not write events."]
+      "command": {
+        "cwd": "modules/guards/plan-preflight",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Verdict only; does not write events."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "guards.plan-preflight",
+      "requires_preflight": false,
+      "concurrency_group": "guard",
+      "forbidden_callers": [],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
     },
     {
       "id": "binance.account-snapshot",
       "domain": "exchange-read",
-      "intent": ["account", "position", "orders", "reconcile-facts"],
-      "capability_class": ["R"],
+      "intent": [
+        "account",
+        "position",
+        "orders",
+        "reconcile-facts"
+      ],
+      "capability_class": [
+        "R"
+      ],
       "path": "modules/binance/account-snapshot",
       "purpose": "Read balances, positions, open orders, protective orders, and optional symbol history.",
-      "command": { "cwd": "modules/binance/account-snapshot", "argv": ["bun", "src/scripts/main.ts", "--symbol", "<symbol>"] },
-      "writes": { "trade_db": false, "catalog": false, "artifacts": false, "binance": false, "config": false },
-      "notes": ["Read-only Binance API."]
+      "command": {
+        "cwd": "modules/binance/account-snapshot",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--symbol",
+          "<symbol>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Read-only Binance API."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "exchange.binance-read.account-snapshot",
+      "requires_preflight": false,
+      "concurrency_group": "binance-read",
+      "forbidden_callers": [],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
     },
     {
       "id": "binance.symbol-snapshot",
       "domain": "exchange-read",
-      "intent": ["symbol", "mark-price", "funding", "open-interest", "pulse"],
-      "capability_class": ["R"],
+      "intent": [
+        "symbol",
+        "mark-price",
+        "funding",
+        "open-interest",
+        "pulse"
+      ],
+      "capability_class": [
+        "R"
+      ],
       "path": "modules/binance/symbol-snapshot",
       "purpose": "Read one symbol's ticker, mark price, funding, open interest, and optional recent klines.",
-      "command": { "cwd": "modules/binance/symbol-snapshot", "argv": ["bun", "src/scripts/main.ts", "--symbol", "<symbol>", "--pulse"] },
-      "writes": { "trade_db": false, "catalog": false, "artifacts": false, "binance": false, "config": false },
-      "notes": ["Read-only Binance API."]
+      "command": {
+        "cwd": "modules/binance/symbol-snapshot",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--symbol",
+          "<symbol>",
+          "--pulse"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Read-only Binance API."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "exchange.binance-read.symbol-snapshot",
+      "requires_preflight": false,
+      "concurrency_group": "binance-read",
+      "forbidden_callers": [],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
     },
     {
       "id": "binance.market-scan",
       "domain": "exchange-read",
-      "intent": ["market-scan", "candidate-discovery"],
-      "capability_class": ["A"],
+      "intent": [
+        "market-scan",
+        "candidate-discovery"
+      ],
+      "capability_class": [
+        "A"
+      ],
       "path": "modules/binance/market-scan",
       "purpose": "Rank broad market candidates for follow-up inspection.",
-      "command": { "cwd": "modules/binance/market-scan", "argv": ["bun", "src/scripts/main.ts", "--direction", "both", "--limit-per-side", "5"] },
-      "writes": { "trade_db": false, "catalog": false, "artifacts": false, "binance": false, "config": false },
-      "notes": ["Only answers which symbols to inspect next; never live action."]
+      "command": {
+        "cwd": "modules/binance/market-scan",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--direction",
+          "both",
+          "--limit-per-side",
+          "5"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Only answers which symbols to inspect next; never live action."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "exchange.binance-read.market-scan",
+      "requires_preflight": false,
+      "concurrency_group": "binance-read",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
     },
     {
       "id": "binance.aggtrades-fetch",
       "domain": "exchange-read",
-      "intent": ["aggtrades", "microstructure"],
-      "capability_class": ["R", "A"],
+      "intent": [
+        "aggtrades",
+        "microstructure"
+      ],
+      "capability_class": [
+        "R",
+        "A"
+      ],
       "path": "modules/binance/aggtrades-fetch",
       "purpose": "Fetch recent aggregate trades for microstructure analysis.",
-      "command": { "cwd": "modules/binance/aggtrades-fetch", "argv": ["bun", "src/scripts/main.ts", "--symbol", "<symbol>"] },
-      "writes": { "trade_db": false, "catalog": false, "artifacts": true, "binance": false, "config": false },
-      "notes": ["Can write raw-data artifacts; no trade facts."]
+      "command": {
+        "cwd": "modules/binance/aggtrades-fetch",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--symbol",
+          "<symbol>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": true,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Can write raw-data artifacts; no trade facts."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "exchange.binance-read.aggtrades-fetch",
+      "requires_preflight": false,
+      "concurrency_group": "market-data",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
     },
     {
       "id": "binance.liquidation-zones",
       "domain": "analytics",
-      "intent": ["liquidation", "zones", "microstructure"],
-      "capability_class": ["A"],
+      "intent": [
+        "liquidation",
+        "zones",
+        "microstructure"
+      ],
+      "capability_class": [
+        "A"
+      ],
       "path": "modules/binance/liquidation-zones",
       "purpose": "Infer liquidation-like zones from market data inputs.",
-      "command": { "cwd": "modules/binance/liquidation-zones", "argv": ["python3", "src/scripts/main.py", "--input", "<payload.json>"] },
-      "writes": { "trade_db": false, "catalog": false, "artifacts": true, "binance": false, "config": false },
-      "notes": ["Analysis refs only; not a trading signal."]
+      "command": {
+        "cwd": "modules/binance/liquidation-zones",
+        "argv": [
+          "python3",
+          "src/scripts/main.py",
+          "--input",
+          "<payload.json>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": true,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Analysis refs only; not a trading signal."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "analytics.liquidation-zones",
+      "requires_preflight": false,
+      "concurrency_group": "analytics",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
     },
     {
       "id": "binance.order-preview",
       "domain": "execution-preview",
-      "intent": ["preview", "compile-order", "route-execution"],
-      "capability_class": ["A"],
+      "intent": [
+        "preview",
+        "compile-order",
+        "route-execution"
+      ],
+      "capability_class": [
+        "A"
+      ],
       "path": "modules/binance/order-preview",
       "purpose": "Preview and route USDM order intent without placing an order.",
-      "command": { "cwd": "modules/binance/order-preview", "argv": ["bun", "src/scripts/main.ts", "--symbol", "<symbol>", "--side", "<BUY|SELL>", "--type", "<type>"] },
-      "writes": { "trade_db": false, "catalog": false, "artifacts": false, "binance": false, "config": false },
-      "notes": ["No exchange write."]
+      "command": {
+        "cwd": "modules/binance/order-preview",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--symbol",
+          "<symbol>",
+          "--side",
+          "<BUY|SELL>",
+          "--type",
+          "<type>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "No exchange write."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "exchange.binance-write.order-preview",
+      "requires_preflight": false,
+      "concurrency_group": "execution-preview",
+      "forbidden_callers": [
+        "research",
+        "market-scan"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
     },
     {
       "id": "binance.order-place",
       "domain": "exchange-write",
-      "intent": ["place-entry", "add-position"],
-      "capability_class": ["T"],
+      "intent": [
+        "place-entry",
+        "add-position"
+      ],
+      "capability_class": [
+        "T"
+      ],
       "path": "modules/binance/order-place",
       "purpose": "Place a USDM main entry or add-risk order after execution gates.",
-      "command": { "cwd": "modules/binance/order-place", "argv": ["bun", "src/scripts/main.ts", "--symbol", "<symbol>", "--side", "<BUY|SELL>", "--type", "<type>", "--yes"] },
-      "writes": { "trade_db": false, "catalog": false, "artifacts": false, "binance": true, "config": false },
-      "notes": ["Must be called through trade-flow execution for live strategy use."]
+      "command": {
+        "cwd": "modules/binance/order-place",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--symbol",
+          "<symbol>",
+          "--side",
+          "<BUY|SELL>",
+          "--type",
+          "<type>",
+          "--yes"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": true,
+        "config": false
+      },
+      "notes": [
+        "Must be called through trade-flow execution for live strategy use."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "exchange.binance-write.order-place",
+      "requires_preflight": true,
+      "concurrency_group": "binance-write",
+      "forbidden_callers": [
+        "research",
+        "market-scan",
+        "analytics",
+        "automation"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
     },
     {
       "id": "binance.order-cancel",
       "domain": "exchange-write",
-      "intent": ["cancel-order", "defensive-action"],
-      "capability_class": ["T"],
+      "intent": [
+        "cancel-order",
+        "defensive-action"
+      ],
+      "capability_class": [
+        "T"
+      ],
       "path": "modules/binance/order-cancel",
       "purpose": "Cancel regular or algo orders.",
-      "command": { "cwd": "modules/binance/order-cancel", "argv": ["bun", "src/scripts/main.ts", "--symbol", "<symbol>", "<cancel-target>", "--yes"] },
-      "writes": { "trade_db": false, "catalog": false, "artifacts": false, "binance": true, "config": false },
-      "notes": ["Exchange write; local state is recorded by trade-flow."]
+      "command": {
+        "cwd": "modules/binance/order-cancel",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--symbol",
+          "<symbol>",
+          "<cancel-target>",
+          "--yes"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": true,
+        "config": false
+      },
+      "notes": [
+        "Exchange write; local state is recorded by trade-flow."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "exchange.binance-write.order-cancel",
+      "requires_preflight": false,
+      "concurrency_group": "binance-write",
+      "forbidden_callers": [
+        "research",
+        "market-scan",
+        "analytics"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
     },
     {
       "id": "binance.position-protect",
       "domain": "exchange-write",
-      "intent": ["stop-loss", "take-profit", "trailing-stop", "sync-protection"],
-      "capability_class": ["T"],
+      "intent": [
+        "stop-loss",
+        "take-profit",
+        "trailing-stop",
+        "sync-protection"
+      ],
+      "capability_class": [
+        "T"
+      ],
       "path": "modules/binance/position-protect",
       "purpose": "Create stop, take-profit, or trailing protective legs.",
-      "command": { "cwd": "modules/binance/position-protect", "argv": ["bun", "src/scripts/main.ts", "--symbol", "<symbol>", "--position-side", "<side>", "--yes"] },
-      "writes": { "trade_db": false, "catalog": false, "artifacts": false, "binance": true, "config": false },
-      "notes": ["Exchange write; does not decide whether protection is strategically correct."]
+      "command": {
+        "cwd": "modules/binance/position-protect",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--symbol",
+          "<symbol>",
+          "--position-side",
+          "<side>",
+          "--yes"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": true,
+        "config": false
+      },
+      "notes": [
+        "Exchange write; does not decide whether protection is strategically correct."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "exchange.binance-write.position-protect",
+      "requires_preflight": true,
+      "concurrency_group": "binance-write",
+      "forbidden_callers": [
+        "research",
+        "market-scan",
+        "analytics",
+        "automation"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
     },
     {
       "id": "binance.position-adjust",
       "domain": "exchange-write",
-      "intent": ["reduce-position", "close-position", "defensive-action"],
-      "capability_class": ["T"],
+      "intent": [
+        "reduce-position",
+        "close-position",
+        "defensive-action"
+      ],
+      "capability_class": [
+        "T"
+      ],
       "path": "modules/binance/position-adjust",
       "purpose": "Reduce or close an existing USDM position.",
-      "command": { "cwd": "modules/binance/position-adjust", "argv": ["bun", "src/scripts/main.ts", "--symbol", "<symbol>", "--position-side", "<side>", "--yes"] },
-      "writes": { "trade_db": false, "catalog": false, "artifacts": false, "binance": true, "config": false },
-      "notes": ["No add-risk path; add risk belongs to order-place through trade-flow."]
+      "command": {
+        "cwd": "modules/binance/position-adjust",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--symbol",
+          "<symbol>",
+          "--position-side",
+          "<side>",
+          "--yes"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": true,
+        "config": false
+      },
+      "notes": [
+        "No add-risk path; add risk belongs to order-place through trade-flow."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "exchange.binance-write.position-adjust",
+      "requires_preflight": false,
+      "concurrency_group": "binance-write",
+      "forbidden_callers": [
+        "research",
+        "market-scan",
+        "analytics"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
     }
   ]
 }

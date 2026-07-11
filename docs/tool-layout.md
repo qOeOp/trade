@@ -8,10 +8,25 @@
 
 - 目录按行为和责任切分：采集、分析、编排、守卫、执行、资产治理分开。
 - agent / automation / human 通过 CLI + JSON contract 调工具；跨域不得直接 import 业务实现。
-- 可复用确定性契约进入 `modules/common/src/`；领域判断留在 owner 模块。
+- 当前可复用确定性契约在 `modules/common/src/`；新跨域契约目标落点是 `modules/contracts/*`。
 - 运行产物只落 `data/` 或 `tmp/`；源码目录不堆 artifact、cache、运行快照。
 - strategy policy 的唯一源码位置是 `strategies/`。
 - negative control 命名是唯一口径。
+
+## Registry Contract
+
+`toolset.json` 是 agent 调工具的唯一发现入口。每个 entry 必须声明：
+
+| 字段 | 含义 |
+| --- | --- |
+| `module_type` | `suite`、`atomic` 或 `contract`；暴露当前粒度，不把胖模块伪装成原子能力 |
+| `owner_scope` | 行为 owner，使用 `domain.module` 口径，不等同目录历史 |
+| `entry_contract` | CLI JSON 入口类型和可选 input / output schema |
+| `requires_preflight` | 该工具是否需要前置 preflight 才能被执行链调用 |
+| `concurrency_group` | 调度互斥组，例如 `trade-db`、`binance-write`、`artifact-catalog` |
+| `forbidden_callers` | 禁止直接调用的上游类型，例如 research 不能直接调 exchange write |
+
+编排输出目标是 `schemas/tool-job.schema.json`：一个 job 只绑定一个 `tool_id`，并携带 payload、写入面、并发组和契约信息。编排层不得把 `modules/.../src/scripts/main.ts` 这种裸路径写进 job graph；裸路径只允许由 registry resolver 在执行前解析。
 
 ## Canonical Directories
 
@@ -54,6 +69,22 @@
 | recovery / reconcile | `modules/trade-flow/src/domain/recovery` + `trade-flow.recovery` |
 | catalog / artifact hygiene | `modules/ops/artifact-catalog` + `artifact-catalog` |
 
+## 目标拓扑
+
+当前目录仍是迁移中间态；目标拓扑以行为 owner 分组：
+
+| 目标路径 | 角色 |
+| --- | --- |
+| `modules/contracts/*` | 唯一可跨模块源码 import 的 contract module |
+| `modules/exchange/binance-read/*` | Binance read atomic tools |
+| `modules/exchange/binance-write/*` | Binance write atomic tools |
+| `modules/data/*` | 数据采集、panel、market feature 数据构造 |
+| `modules/analytics/*` | 指标、结构、微观结构分析 |
+| `modules/research/*` | replay、signal、candidate batch、R&D loop、RD memory |
+| `modules/governance/*` | evidence、review、promotion gate |
+| `modules/flow/*` | event-store、projector、observe、execution、recovery、automation plan |
+| `modules/ops/*` | artifact catalog、GC、数据治理 |
+
 ## 边界规则
 
 - `modules/trade-flow` 可以调用工具 CLI，但不拥有 Binance endpoint 细节，也不新增 R&D 实验实现或 strategy review 实现。
@@ -64,6 +95,7 @@
 - catalog / artifact hygiene 由 `artifact-catalog` 拥有；trade-flow 只消费可审计 artifact / catalog 结果。
 - `plan-preflight` 只给 deterministic verdict；不得补写事件或解释行情方向。
 - artifact 必须有 owner、referrer、retention 语义；垃圾数据堆在源码目录视为 bug。
+- 任何新 agent-facing 能力都必须优先作为 `atomic` entry 进入 `toolset.json`；只有明确是过渡路由或目录归类时才能标为 `suite`。
 
 ## 检查入口
 
