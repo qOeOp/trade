@@ -20,7 +20,7 @@ source_commit: d84e22ab82643fd50f0ad4706697fcb07fae52c4
 
 | NOFX 设计 | 本项目吸收方式 | 优先级 |
 | --- | --- | --- |
-| Strategy config normalize + clamp | 强化 `trading-config -> runtime_policy`：输入归一化、数值限幅、hash、compat adapter、测试 | P0 |
+| Strategy config normalize + clamp | 强化 `trading-config -> runtime_policy`：输入归一化、数值限幅、hash、deprecated input adapter、测试 | P0 |
 | Runtime hard risk limits | 继续把 notional / leverage / exposure / funding / freshness 收进 `plan-preflight`，不靠 prompt 自觉 | P0 |
 | Trade throttle | 新增 churn guards：最短持仓、噪音平仓窗口、同 lane / symbol 再入冷却、单位时间开仓上限 | P0 |
 | Safe mode / runtime health | 连续 AI / Binance / reconcile 失败只允许减风险；safe mode 状态进入 preflight | P1 |
@@ -53,7 +53,7 @@ source_commit: d84e22ab82643fd50f0ad4706697fcb07fae52c4
 
 验收：
 
-- 缺 `trading-config.json` 时 legacy fallback 仍不可 live-small。
+- 缺 `trading-config.json` 时 deprecated fallback 仍不可 live-small。
 - 超范围 leverage / notional / risk / candidate 参数被 clamp 或 warning。
 - `source_hash` 对 canonical config 稳定。
 

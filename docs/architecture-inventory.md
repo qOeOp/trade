@@ -27,7 +27,10 @@
 | `ohlcv-fetch` | `R/A` | OHLCV / Binance Vision / calibration 数据 | CSV/manifest/artifact | 只产数据，不做 replay gate |
 | `tech-indicators` | `A` | 指标、结构、factor descriptor、beta | report/artifact | 不知道交易动作；只输出 feature/report |
 | `plan-preflight` | `A` | hard guards、decision card | stdout | 保持独立 guard；不写事件 |
-| `trade-flow` | `E/V/T` | 在线链 glue、event、execution recording、recovery、R&D、evidence | trade.db / ledger / artifact / optional Binance | 拆 domain owner；入口瘦身 |
+| `trade-flow` | `E/V/T` | 在线链 glue、event、execution recording、recovery、automation | trade.db / track artifact / optional Binance | 已移除 R&D / review / artifact 旧入口；继续保持入口瘦身 |
+| `strategy-rd` | `A/E` | replay、R&D、panel、benchmark、calibration、forward tracker、RD memory | research artifact / catalog metadata / strategy draft | 保持不写 `trade.db`、不触发 Binance |
+| `strategy-review` | `E/V` | evidence、review、promotion gate | catalog evidence / strategy markdown | 不写 RD memory、不触发执行 |
+| `artifact-catalog` | `A/V` | catalog、stale scan、artifact GC、feature refs | data_catalog.db / selected file deletion | 不做策略判断、不写 `trade.db` |
 | `runtime-policy` | `C/A` | 目标模块：统一交易配置读取、校验、合成、hash | stdout / observe policy snapshot | 设计见 `docs/trading-config.md`；尚未实现为独立命令 |
 | `binance-order-preview` | `A` | 执行预演、方法路由、contract compile | stdout | 统一 contract output；不发单 |
 | `binance-order-place` | `T` | USDM 主单开仓 / 加仓 | Binance | 只接受 executor 编译后的 contract 作为推荐路径 |
@@ -37,30 +40,20 @@
 | `position-monitor` | `A/V?` | 持仓监控 orchestration | 视调用而定 | 需要明确是否只建议还是会调用执行 |
 | `notify-dispatch` | `V` | 通知派发 + cron.log fallback | cron.log / external channel | 不改变 flow 状态 |
 
-## 3. `trade-flow` command inventory
+## 3. Current Command Ownership
 
-| Command | Class | 当前作用 | 整理 owner |
+### `trade-flow`
+
+| Command | Class | 当前作用 | Owner |
 | --- | --- | --- | --- |
 | `--init` | `V` | 初始化 `plan_event` | `runtime` |
 | `--append-order-fill` | `V` | 追加本地 order_fill | `runtime/execution` |
 | `--record-execution` | `V` | contract + execution result -> audited order_fill | `execution` |
 | `--run --mode dry-run` | `V` | mock 链路落库 | `execution` |
 | `--run --mode shadow` | `V/E` | shadow order_fill | `execution/evidence` |
-| `--load-runtime` | `R/C` | 读取 trading config、编译 runtime policy、兼容读取 account config / strategy | `runtime/config` |
+| `--load-runtime` | `R/C` | 读取 trading config、编译 runtime policy、适配 deprecated account config / strategy | `runtime/config` |
 | `--build-observe` | `V` | 构建 observe event | `observe` |
 | `--observe-from-tools` | `R/V` | 调只读 tool + observe | `observe` |
-| `--replay-strategy` | `A` | 单 strategy replay | `research/replay` |
-| `--strategy-rnd-batch` | `A` | 候选 batch | `research/rnd` |
-| `--strategy-rnd-loop` | `A/E` | R&D artifact + ledger | `research/rnd` |
-| `--strategy-rnd-campaign` | `A/E` | hypothesis campaign | `research/rnd` |
-| `--strategy-panel-rnd` | `A` | 多资产候选评估 | `research/rnd` |
-| `--strategy-benchmark` | `A` | 固定 benchmark | `research/calibration` |
-| `--strategy-calibration-suite` | `A` | calibration suite | `research/calibration` |
-| `--strategy-signal` | `A` | 最新闭合 K 候选信号 | `research/signal` |
-| `--append-strategy-evidence` | `E` | strategy evidence ledger | `evidence` |
-| `--strategy-review` | `E` | evidence + DB review gate | `evidence` |
-| `--strategy-promote` | `E/V` | strategy frontmatter status | `evidence` |
-| `--artifact-gc` | `A/V` | artifact dry-run / delete | `artifacts` |
 | `--run-shadow-from-tools` | `R/V/E` | 只读 facts + shadow 链 | `observe/execution` |
 | `--run-live-small` | `T` | Binance 主单执行 + audited order_fill | `execution` |
 | `--recover-flow` | `R` | 本地 reduce | `recovery/runtime` |
@@ -68,6 +61,14 @@
 | `--reconcile-from-tools` | `R/A` | account snapshot + drafts | `recovery` |
 | `--apply-reconcile` | `V` | apply safe reconcile drafts | `recovery/runtime` |
 | `--cron-recover-from-tools` | `R/V` | cron 入口恢复胶水 | `recovery` |
+
+### Migrated owner commands
+
+| Command | Class | 当前 owner |
+| --- | --- | --- |
+| `--replay-strategy`, `--strategy-rnd-*`, `--strategy-panel-rnd`, `--strategy-data-split`, `--strategy-benchmark`, `--strategy-calibration-suite`, `--strategy-signal`, `--rd-program-state`, `--rd-supervisor-run`, `--rd-shadow-tracker` | `A/E` | `modules/research/strategy-rd` |
+| `--append-strategy-evidence`, `--strategy-review`, `--strategy-promote`, `--strategy-cycle` | `E/V` | `modules/governance/strategy-review` |
+| `--catalog-*`, `--artifact-gc` | `A/V` | `modules/ops/artifact-catalog` |
 
 ## 4. 当前代码热点
 
@@ -98,5 +99,5 @@
 ## 6. P0 结论
 
 - `node_modules` 当前未被 Git 跟踪，`.gitignore` 已覆盖依赖目录。
-- 最大整理风险集中在 `trade-flow`：它已成为 online + research + recovery + evidence 的混合命令总线。
-- 第一批迁移已改为全迁移原则：移动与分包后删除旧 CLI 兼容入口，以 owner 模块 contract 和质量检查作为硬验收。
+- 原最大整理风险曾集中在 `trade-flow`：online + research + recovery + evidence 混合命令总线已拆为 `trade-flow` / `strategy-rd` / `strategy-review` / `artifact-catalog`。
+- 第一批迁移已改为全迁移原则：移动与分包后删除旧 CLI 入口，以 owner 模块 contract 和质量检查作为硬验收。

@@ -24,7 +24,7 @@
 - `开仓函数`
   当前只指 `USDM 主单落地`，不包含保护、减仓、撤单。
 - `live equity`
-  定义：最近一条 `observe` 事件里 `account.equity_usdt` 的值；风险护栏（`G-RISK-OPEN-CAP` / `G-RISK-DAY-FLOOR` / `G-BTC-BETA-DIRECTION-CAP` / `G-SINGLE-POSITION-LEVERAGE-CAP` / `G-GROSS-EXPOSURE-CAP`）的实时计算基准，不落 `account_config`
+  定义：最近一条 `observe` 事件里 `account.equity_usdt` 的值；风险护栏（`G-RISK-OPEN-CAP` / `G-RISK-DAY-FLOOR` / `G-BTC-BETA-DIRECTION-CAP` / `G-SINGLE-POSITION-LEVERAGE-CAP` / `G-GROSS-EXPOSURE-CAP`）的实时计算基准，不落配置文件
 - `current_plan`
   定义：当前 flow 最近一条 `observe.body` 的"意图段"
   - 必填：source / symbol / side / stop_price / risk_budget_usdt / strategy_ref / thesis / entry_intent / exit_intent / invalidation / expected_rr_net / expected_holding_hours
@@ -485,7 +485,7 @@ cron 自动化模式必须保证：
 2. **幂等**：每次 EXECUTE 动作前先 reduce `order_fill` + 拉 Binance 实时挂单核对，重复请求不下重单。`clientOrderId` 用 `<chain_id>-<seq>-<action>` 前缀，Binance 侧自动去重，cron 重跑安全。慢轨/快轨用同一套 clientOrderId 规则；快轨 `seq` 自增基于本 flow 已有 order_fill 计数。
 3. **abort 偏保守**：cron agent 任意阶段失败 → 只 append 已写入的 observe，不补做后续。下次 cron 重跑读最新事件流决定动作；不确定就 `no_action`。快轨遇到 `reconcile mismatch` 时不补账；若只是保护腿漂移，或 live position 能明确归属且需要先补保护，可先 `sync_protection`，其余缺失事件等下次慢轨入口的全量对账。
 4. **本地运维日志**：每次 cron 跑追加一行到 `./data/cron.log`，承载 `run_id / track (slow|fast) / triggered_at / duration_ms / chains_processed / actions_taken / errors / next_cron_at`。文本日志，不入 DB；分析需求出现时再升 SQLite。
-5. **异常通知**（通道由 `./profile/notify_config.json` 配置；缺则只写本地日志）：
+5. **异常通知**（通道由 `./profile/trading-config.json` 的 notifications 段配置；缺则只写本地日志）：
    - 爆仓护栏（`G-RISK-*`）拒新动作
    - cron / preflight / Binance API 持续失败（含慢轨对账恢复失败、快轨连续 N 轮 reconcile mismatch）
    - 重大 PnL 事件（接近 `max_day_loss_pct`）
@@ -728,8 +728,8 @@ CREATE INDEX idx_research_report_kind ON research_report(report_kind, generated_
 | Strategy policy | Markdown 文件（一文件一 strategy，frontmatter + `## Trade Contract`） | `strategies/*.md` |
 | Strategy evidence ledger | SQLite record + catalog 索引 | `./data/data_catalog.db` → `strategy_evidence` |
 | Trading config | JSON | `./profile/trading-config.json` |
-| Account config | JSON | `./profile/account_config.json`（兼容输入，后续由 trading config 取代） |
-| Notify config | JSON | `./profile/notify_config.json`（兼容输入，后续迁入 trading config；凭证仍只走环境变量） |
+| Account config | JSON | `./profile/account_config.json`（deprecated 输入，后续由 trading config 取代） |
+| Notify config | JSON | `./profile/notify_config.json`（deprecated 输入，后续迁入 trading config；凭证仍只走环境变量） |
 | Cron 运维日志 | JSONL 原始记录 + catalog 索引 | `./data/cron.log` |
 | OHLCV / 市场数据 | CSV + manifest + catalog 索引 | `./data/ohlcv/` |
 | 大型 feature / replay / campaign report | 文件 payload + catalog 索引 | 默认 `./tmp/artifacts/`；准入 / 复盘证据才归档 `./data/artifacts/` |

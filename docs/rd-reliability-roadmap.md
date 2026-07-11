@@ -48,7 +48,7 @@ title: R&D Reliability Roadmap
 - 当前：strategy review 已输出 `diagnostics.qualification` 与 `diagnostics.failure_attribution`，能直接暴露 funding / panel negative control / anti-overfit / robustness / shadow attribution 阻断层。
 - 当前：`--automation-cycle` 已能生成 `rd_strategy_supervisor` job；该 job 由 subagent 在 artifact/catalog scope 内循环到 `shadow_candidate_found / budget_exhausted / data_or_tool_blocked`，并把 `failure_summary / reliability_gate / rejected_mechanisms / universe_lessons / next_hypothesis_queue` 写回学习记忆。
 - 当前：learning memory 已有机器可读 `rd_program_state` artifact；总控可通过 `rd_program_state_path` 读取 objective / budget / usage / lessons / queue，并在 state 非 `active` 时停止 R&D supervisor。
-- 当前：`--rd-program-state` 可 init/read/update；`--strategy-rnd-loop` / `--strategy-rnd-campaign` 可显式写回 usage、failure、reliability 与 artifact refs；`--strategy-review` 可把 execution attribution、cost feedback 与 replay-to-shadow/live decay 写回 state。
+- 当前：`--rd-program-state` 可 init/read/update；`--strategy-rnd-loop` / `--strategy-rnd-campaign` 可显式写回 usage、failure、reliability 与 artifact refs；`strategy-review` 产出 execution attribution、cost feedback 与 replay-to-shadow/live decay 诊断，由 R&D supervisor 显式消费，不直接写 state。
 - 当前：`--rd-program-state action=plan_next` 可只读消费 `next_hypothesis_queue`，生成下一轮 `--strategy-rnd-loop` / `--strategy-rnd-campaign` payload 草案；`--rd-supervisor-run` 已把 plan、执行、写回、再规划串成自主 loop。
 - 下一块：从 failure / review feedback 自动生成更受约束的 `next_hypothesis_queue`，减少人工补 hypothesis。
 - 完成信号：pipeline 能在预算内自主连续迭代 hypothesis，同时自动拒绝在未校准环境下扩大 trial budget。

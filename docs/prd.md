@@ -145,7 +145,7 @@ R&D supervisor 可以临时分发 read-only scout subagent 来做历史失败审
 
 持续 R&D 的事实源是机器可读 `rd_program_state` artifact，而不是临时对话记忆。它保存 objective、budget、usage、stop status、失败摘要、reliability gate、被拒机制、universe lesson、下一轮 hypothesis queue 与 artifact refs；状态为 `active` 时总控才继续派发 `rd_strategy_supervisor`，进入 `shadow_candidate_found / budget_exhausted / data_or_tool_blocked` 后自动停线。该 state 只属于 research memory，不是 strategy evidence。
 
-`rd_program_state` 的写入必须显式：`--rd-program-state` 负责 init/read/update/plan_next；`plan_next` 只读 state，把 `next_hypothesis_queue` 编译为下一轮 `--strategy-rnd-loop` 或 `--strategy-rnd-campaign` payload 草案。`--rd-supervisor-run` 串起 `plan_next -> loop/campaign -> state writeback`，让 R&D 进入后自主循环到候选、预算耗尽或数据/工具阻断。`--strategy-rnd-loop` / `--strategy-rnd-campaign` 只有在 payload 传入 `rd_program_state_path` 时才把本轮 artifact、usage、失败机制或 validated candidate 写回；`--strategy-review` 只有在 payload 传入 `rd_program_state_path` 时才把 review diagnostics、成本反馈和 replay-to-shadow/live decay 写回。
+`rd_program_state` 的写入必须显式：`--rd-program-state` 负责 init/read/update/plan_next；`plan_next` 只读 state，把 `next_hypothesis_queue` 编译为下一轮 `--strategy-rnd-loop` 或 `--strategy-rnd-campaign` payload 草案。`--rd-supervisor-run` 串起 `plan_next -> loop/campaign -> state writeback`，让 R&D 进入后自主循环到候选、预算耗尽或数据/工具阻断。`--strategy-rnd-loop` / `--strategy-rnd-campaign` 只有在 payload 传入 `rd_program_state_path` 时才把本轮 artifact、usage、失败机制或 validated candidate 写回；`strategy-review` 只输出 execution attribution、成本反馈和 replay-to-shadow/live decay 诊断，不直接写 RD memory，后续由 R&D supervisor 显式消费。
 
 最小输入：
 
@@ -173,8 +173,7 @@ Replay / shadow / live 对齐要求：
 
 当前实现映射：
 
-- `replay-core`：OHLCV manifest loader / 指标缓存 / 单 lane 撮合 / R 统计 / fee + slippage / replay gate
-- `replay-strategies`：`strategy_id -> ReplayStrategy` registry；新增策略只补 strategy definition，不改 core
+- `strategy-replay`：OHLCV manifest loader / 指标缓存 / 单 lane 撮合 / R 统计 / fee + slippage / replay gate / strategy definition
 - `--replay-strategy`：只读文件，不写 DB，不触发 Binance
 - `--strategy-rnd-batch`：最多 10 个候选；可先在 discovery 数据上筛 factor，再按角色、数量与参数预算组合到预声明 base family；统一 replay/OOS、candidate negative controls 和失败归因，不自动升格
 - `--strategy-rnd-loop`：包装一轮 R&D batch，写 artifact JSON 与 `data_catalog.db.strategy_rnd_run`；R&D 审计不作为 promote evidence；可显式写回 `rd_program_state`
@@ -187,8 +186,8 @@ Replay / shadow / live 对齐要求：
 - `--strategy-benchmark`：用固定多资产趋势规则、15% 目标波动、成本/资金费压力和组合权重循环移位负对照标定 R&D 管线；不写 DB、不产生准入证据
 - `--strategy-calibration-suite`：固定跑 buy-and-hold / cash baseline、趋势基准、横截面强弱基准，可消费 dataset `indicator_report_path` 中的 exact funding events 与 `symbol_status`，并输出 report hash、可选 previous-run comparison、data_panel、survivor-only 标记、beta、fee/slippage 成本拆分、funding、换手、暴露、时间/趋势/波动 regime 稳定性、time-shift / side-flip / asset-shuffle 负对照与数据广度归因；只暴露系统问题，不产生准入证据
 - `--strategy-signal`：candidate 可由 JSON 输入或 strategy `## Trade Contract` 编译；在最新闭合 K 线上复用 replay family 并返回稳定 hash；entry reference 由在线报价注入，只返回信号，不执行、不落交易事实
-- `scripts/forward-holdout.ts`：对已冻结 candidate 做只读 forward holdout 验收；主数据与 benchmark / supplemental 数据都必须晚于机器可读 `frozen_at`，输出 `status / next_action / frozen_candidate hash`，只作为 shadow/review 前置观察，不直接产生 promotion evidence；缺 `frozen_at` 的“frozen”描述一律不验收
-- `scripts/rd-shadow-tracker.ts`：把 forward entry 信号转成 R&D schema v2 行为事件链，用 `open_setup -> observe_setup[] -> close_setup -> review_setup` 记录纸面样本，并由 projection 判定 stop / target / time_exit；不写 DB、不执行、不等同 strategy shadow evidence
+- `strategy-rd` forward holdout：对已冻结 candidate 做只读 forward holdout 验收；主数据与 benchmark / supplemental 数据都必须晚于机器可读 `frozen_at`，输出 `status / next_action / frozen_candidate hash`，只作为 shadow/review 前置观察，不直接产生 promotion evidence；缺 `frozen_at` 的“frozen”描述一律不验收
+- `strategy-rd --rd-shadow-tracker`：把 forward entry 信号转成 R&D schema v2 行为事件链，用 `open_setup -> observe_setup[] -> close_setup -> review_setup` 记录纸面样本，并由 projection 判定 stop / target / time_exit；不写 DB、不执行、不等同 strategy shadow evidence
 - R&D tracker 事件链设计见 [rd-event-chain-design.md](rd-event-chain-design.md)；该链只存在于 R&D artifact，不进入 `trade.db.plan_event`
 - replay 只能给 `shadow_candidate`；`live-small` 必须另有 shadow 样本、execution attribution 与人工确认
 - strategy review 固定输出 replay -> shadow -> live-small decay diagnostics 与 `cost_model_feedback`；shadow 相对 replay 的 avg_r 保留率过低时阻断 live-small，真实 fee / slippage / funding drag 会反灌为下一轮 replay cost stress 输入，而不是靠叙事解释

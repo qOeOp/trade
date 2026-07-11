@@ -67,9 +67,9 @@ subagent 只负责上下文隔离和并行：交易事实仍只能通过 trade-f
 
 R&D 内部允许再 fan-out read-only scout subagent，但只作为旁路输入：`rd-history-scout` 查历史失败与禁试机制，`rd-data-scout` 查 manifest / split / family 约束，`rd-edge-scout` 草拟不同 market edge。三者都不能写 `rd_program_state`、不能消耗 trial budget、不能打开 holdout；只有 `strategy-rd-supervisor` 是 R&D state 单写者，负责把 scout proposal 编译成显式 `next_hypothesis_queue` 后再执行。
 
-`rd_strategy_supervisor` 的 durable memory 是 `rd_program_state` artifact。`--automation-cycle` 收到 `rd_program_state_path` 时，以 state 中的 objective / budget / usage / lessons / queue 作为研发线事实源，并把该路径作为 learning memory ref；state 非 `active` 时，即使 cadence due 或被 force，也不继续派发研发 loop。临时 `rd_strategy_goal` 只用于尚未建立 state 的启动兼容。
+`rd_strategy_supervisor` 的 durable memory 是 `rd_program_state` artifact。`--automation-cycle` 收到 `rd_program_state_path` 时，以 state 中的 objective / budget / usage / lessons / queue 作为研发线事实源，并把该路径作为 learning memory ref；state 非 `active` 时，即使 cadence due 或被 force，也不继续派发研发 loop。临时 `rd_strategy_goal` 只用于尚未建立 state 的启动引导。
 
-state 写入是显式边界：`--rd-program-state` 可 init/read/update/plan_next；`plan_next` 只读 state，把 queue 中的下一条 hypothesis 编译为 R&D loop/campaign payload 草案。`--rd-supervisor-run` 是高阶执行器，串起 `plan_next -> loop/campaign -> state writeback`，直到候选、预算耗尽、数据/工具阻断或 max_iterations。R&D loop / campaign 只有 payload 带 `rd_program_state_path` 才把 usage、failure、reliability、artifact refs 写回；strategy review 只有 payload 带 `rd_program_state_path` 才把 execution attribution、cost feedback、decay diagnostics 写回。总控不隐式制造研发事实，只分发显式 job。
+state 写入是显式边界：`--rd-program-state` 可 init/read/update/plan_next；`plan_next` 只读 state，把 queue 中的下一条 hypothesis 编译为 R&D loop/campaign payload 草案。`--rd-supervisor-run` 是高阶执行器，串起 `plan_next -> loop/campaign -> state writeback`，直到候选、预算耗尽、数据/工具阻断或 max_iterations。R&D loop / campaign 只有 payload 带 `rd_program_state_path` 才把 usage、failure、reliability、artifact refs 写回；strategy review 只产出 execution attribution、cost feedback、decay diagnostics，不直接写 RD memory。总控不隐式制造研发事实，只分发显式 job。
 
 调度顺序固定三段：
 
@@ -369,8 +369,8 @@ CREATE INDEX idx_beta_symbol_date ON beta_cache(symbol, computed_date DESC);
 | 事件流 | SQLite | `./data/trade.db` → `plan_event` |
 | β 缓存 | SQLite | `./data/trade.db` → `beta_cache` |
 | Strategy policy | Markdown（一文件一 strategy，frontmatter + `## Trade Contract`） | `strategies/*.md` |
-| Account config | JSON 文件 | `./profile/account_config.json` |
-| Notify config | JSON 文件 | `./profile/notify_config.json` |
+| Trading config | JSON 文件 | `./profile/trading-config.json` |
+| Deprecated config input | JSON 文件 | `./profile/account_config.json` / `./profile/notify_config.json` |
 | System state | JSON 文件 | `./data/system_state.json`（熔断状态） |
 | Cron log | 文本日志 | `./data/cron.log` |
 | OHLCV / 市场数据 | CSV + manifest（后期切 SQLite） | `./data/ohlcv/` |
@@ -383,7 +383,7 @@ Git 边界与 data 留存规则见 [data-hygiene.md](data-hygiene.md)。
 - **SQLite（关系列 + JSON body）**：事件流 —— 需要按 chain_id / kind / time 索引和聚合，且每种 kind 自带 shape 不需 schema migration
 - **Markdown**：strategy policy —— 人编辑 + LLM 直读
 - **代码 / script**：hard guards —— 只承载确定性、必须严格遵守的校验
-- **JSON 文件**：account_config / notify_config —— 静态单对象
+- **JSON 文件**：trading-config —— 静态人工配置入口；deprecated account / notify 输入仅用于过渡读取
 - **CSV / log**：OHLCV / cron 运维 —— 追加型时间序列
 
 不引入 MongoDB / 文档库：单进程 cron + MVP 体量（< 10k events/月）下 SQLite JSON1 扩展完全够用，多一套服务的运维成本不值。具体 schema / 索引 / JSON 查询模式见 [tech-spec.md](tech-spec.md)。
@@ -622,7 +622,7 @@ stop_distance_pct = abs(entry_ref - stop_price) / entry_ref
 spread_to_stop_ratio = spread_pct / stop_distance_pct
 ```
 
-MVP 先固定两条代码默认阈值，不进 `account_config`：
+MVP 先固定两条代码默认阈值，不进 `trading-config`：
 
 - `spread_bps <= 15`
 - `spread_to_stop_ratio <= 0.10`
@@ -673,7 +673,7 @@ slippage_to_stop_ratio = (expected_slippage_bps / 10_000) / stop_distance_pct
 
 `my_qty` 由 executor 已算出（`risk_budget × risk_ratio / |entry - stop|` + slippage_buffer），depth check 在 qty 已确定但 submit 前发生。
 
-#### 阈值（hardcode，不进 account_config）
+#### 阈值（hardcode，不进 trading-config）
 
 | 条件 | 阈值 | reason 标签 |
 |---|---|---|
@@ -813,15 +813,15 @@ review 阶段按 `blocked_by[].check_id` group by，自然得到"哪项 hard gua
 
 ---
 
-## ACCOUNT_CONFIG
+## TRADING_CONFIG
 
-唯一硬配置：`./profile/account_config.json`
+唯一人工维护配置入口：`./profile/trading-config.json`
 
 | 字段 | 必填 | 说明 |
 | --- | --- | --- |
-| `max_open_risk_pct` | 是 | G-RISK-OPEN-CAP 公式分母 |
-| `max_day_loss_pct` | 是 | G-RISK-DAY-FLOOR 公式分母 |
-| `max_single_position_leverage` | 是 | G-SINGLE-POSITION-LEVERAGE-CAP 公式分母；限制单 lane / 单持仓最大名义暴露 |
+| `risk.max_open_risk_pct` | 是 | G-RISK-OPEN-CAP 公式分母 |
+| `risk.max_day_loss_pct` | 是 | G-RISK-DAY-FLOOR 公式分母 |
+| `risk.max_single_position_leverage` | 是 | G-SINGLE-POSITION-LEVERAGE-CAP 公式分母；限制单 lane / 单持仓最大名义暴露 |
 | `max_gross_exposure` | 否（缺省 `3.0`） | G-GROSS-EXPOSURE-CAP 公式分母；所有 active lane 名义总暴露之和不得超过 `equity_live × max_gross_exposure`。多 lane 同向跑时应显式收紧 |
 | `max_funding_rate_pct` | 否（缺省 `0.001`） | G-FUNDING-RATE-SPIKE 阈值；`abs(current_funding_rate) ≥` 此值时拦截快轨加暴露的立即执行。0.001 对应 0.1%/8h（Binance 标准上限的 1/3） |
 | `max_btc_equiv_net_risk_pct` | 否（缺省 = `max_open_risk_pct × 1.5`） | G-BTC-BETA-DIRECTION-CAP 净敞口阈值。`abs(long β-equiv risk - short β-equiv risk)` 不得超过 `equity_live × 此值`。缺省故意宽松，先观察；review 数据显示 β 折算后真实暴露常压上限再收紧 |
@@ -960,7 +960,7 @@ degradation watch 与 review 是**单向消费关系**：
 
 - **零自动战略层修改**：所有触发均输出告警 + 准备假设，**任何对 strategy.policy / strategy.status 的修改都人工执行**
 - **零新 schema**：复用 plan_event review 数据 + 复用 notify-dispatch + 复用 DECISION_CARD + 复用 strategy.status frontmatter；只新增一个 markdown 落盘目录
-- **零新配置**：阈值写死代码；通道复用现有 notify_config
+- **零新增散配置**：阈值写死代码；通知通道走 `trading-config.notifications`，旧 `notify_config` 仅作为 deprecated 输入
 - **观察 vs 控制 边界清晰**：watch 是观察工具，G-RISK-OPEN-CAP / G-RISK-DAY-FLOOR / system_state.suspend 才是控制器；watch 失效不会放大账户风险，最多让某个该死的 strategy 多跑几天
 
 ---
@@ -1349,7 +1349,7 @@ lock 不替代爆仓护栏 / 对账：它只解决"两个 cron 进程同时跑"�
 
 触发阈值：`consecutive_aborts >= 3`（慢轨连续 3 次 abort）。每次慢轨成功完成（走到 DECISION_CARD 输出）时 `consecutive_aborts` 归零。`state=suspended` 期间，慢轨入口在全量对账成功后自动恢复 `normal`，不需要人工干预；若对账依然失败则维持 suspended 并通知。`system_state.json` 缺失时视为 `normal`，不阻断。
 
-**异常通知**预留统一 dispatch 工具接口（配置在 `./profile/notify_config.json`，凭证只走环境变量；通道缺失或失败均 fallback 到 cron.log，永不阻塞 cron 主流程）：
+**异常通知**预留统一 dispatch 工具接口（配置在 `./profile/trading-config.json` 的 notifications 段，凭证只走环境变量；通道缺失或失败均 fallback 到 cron.log，永不阻塞 cron 主流程）：
 
 | event_type | 触发条件 | 缺省 level |
 |---|---|---|

@@ -36,7 +36,7 @@
 
 ## Trade-Flow Domains
 
-`trade-flow` 是编排模块，但内部不能再是大平层。`research` / `review` / `artifact` 兼容 domain 已移除；真实 RD owner 是 `modules/research/strategy-rd`，真实 review owner 是 `modules/governance/strategy-review`，真实 artifact/catalog owner 是 `modules/ops/artifact-catalog`。
+`trade-flow` 是编排模块，但内部不能再是大平层。旧 `research` / `review` / `artifact` domain 已移除；真实 RD owner 是 `modules/research/strategy-rd`，真实 review owner 是 `modules/governance/strategy-review`，真实 artifact/catalog owner 是 `modules/ops/artifact-catalog`。
 
 | Domain | Contract | 负责 |
 | --- | --- | --- |

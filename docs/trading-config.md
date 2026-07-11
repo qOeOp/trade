@@ -24,10 +24,10 @@
 profile/trading-config.json
 ```
 
-旧文件迁移规则：
+Deprecated 输入规则：
 
-- `profile/account_config.json`：保留为兼容输入；新 loader 优先读 `trading-config.json`，缺失时从旧文件适配。
-- `profile/notify_config.json`：保留为兼容输入；后续迁入 `notifications` 段，但凭证仍只走环境变量。
+- `profile/account_config.json`：仅作为 deprecated 输入；loader 优先读 `trading-config.json`，缺失时从旧文件适配并输出 warning。
+- `profile/notify_config.json`：仅作为 deprecated 输入；后续迁入 `notifications` 段，凭证仍只走环境变量。
 - strategy markdown：继续独立存在；统一配置只管理启用、权限、风险覆盖，不复制 strategy 规则。
 
 ## 3. What Config Is Not
@@ -186,13 +186,13 @@ global trading config
 
 ## 9. Migration Plan
 
-1. 新增 `runtime-policy` loader：读取 `trading-config.json`，缺失时适配旧 `account_config.json / notify_config.json`。
+1. 新增 `runtime-policy` loader：读取 `trading-config.json`，缺失时适配 deprecated `account_config.json / notify_config.json` 并输出 warning。
 2. 给 `trading-config.json` 建 schema 与 hash，输出 `runtime-policy.v1`。
 3. `plan-preflight` 改为消费 `runtime_policy.effective_limits`，补齐 notional / leverage / concurrent flow guards。
 4. execution contract compiler 用 runtime policy 编译 target leverage、notional cap、slippage buffer。
 5. R&D / benchmark 默认成本模型来自 runtime policy，payload 只能更保守覆盖。
 6. slow / fast observe 写入 compact `policy_snapshot`。
-7. 旧 `account_config.json` 降级为兼容输入，文档标记 deprecated。
+7. 旧 `account_config.json` 降级为 deprecated 输入，文档标记 deprecated。
 
 ## 10. Non Goals
 

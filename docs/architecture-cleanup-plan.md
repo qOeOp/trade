@@ -56,15 +56,15 @@ NOFX 可借鉴的是 runtime discipline，不是产品形态；详细计划见 [
 
 主要风险：
 
-- `trade-flow` 已混合 online flow、recovery、execution recording、replay、R&D、calibration、evidence、artifact GC。
-- `modules/trade-flow/src/scripts/main.ts` 与 `tool README` 变成命令总线，新增能力容易继续往里塞。
+- `trade-flow` 曾混合 online flow、recovery、execution recording、replay、R&D、calibration、evidence、artifact GC；当前 R&D / review / artifact 已迁到独立 owner。
+- `modules/trade-flow/src/scripts/main.ts` 已从全平台命令总线收缩为交易流程入口；后续新增原子能力必须先落 owner 模块。
 - 没有项目级命令契约；各 tool 有各自 `check`，但没有统一“改了什么跑什么”。
 - 动作权限没有机器可读边界；只读、写 evidence、写 `trade.db`、真实下单都靠文档和人工识别。
 - 交易配置缺少统一 runtime policy compiler；账户风险、通知、R&D 成本模型、strategy/lane 权限仍分散在多个文件和 payload。
 - order lifecycle 仍偏事件描述，缺少统一状态机词表。
 - recovery 已有方向，但还不是独立算法契约。
-- R&D 代码和在线交易 glue 共处一个 tool，容易让“研究失败样本”与“交易事实”在心智上混杂。
-- artifact / tmp / data 的保留、pin、引用关系需要更硬的运行约定。
+- R&D 代码已迁出 online 交易 glue；剩余风险是自动化编排不得重新把研究事实写回 `trade.db`。
+- artifact / tmp / data 的保留、pin、引用关系已由 `artifact-catalog` 承接，仍需持续用质量门禁防止源码目录堆运行产物。
 
 ## 3. 目标架构
 
@@ -227,8 +227,8 @@ scripts/
 
 1. 只移动代码，不改行为。
 2. 先抽 command wrapper，再抽 lib。
-3. 每步保留旧 CLI 参数。
-4. 每步跑当前 tool test。
+3. 全迁移后删除旧 CLI 入口。
+4. 每步跑 owner tool test 与仓库质量门禁。
 
 ### Binance execute tools
 
@@ -457,14 +457,14 @@ Jesse 调研后的补充要求：
 
 - `main.ts` 拆为 `commands/*`。
 - DB / projection 归 `runtime/`。
-- observe / reconcile / execution / research / evidence 分目录。
-- 保留所有 CLI 参数兼容。
+- observe / reconcile / execution 分目录。
+- research / evidence / artifact 迁出后删除旧 CLI 参数。
 
 验收：
 
-- 旧命令仍可运行。
+- 旧迁移命令在 `trade-flow` 下不可运行，必须走 owner 模块。
 - `main.ts` 只负责 parse + dispatch + response。
-- 测试按旧入口通过。
+- 测试按 owner 模块入口通过。
 
 ### P3：执行生命周期硬化
 
@@ -574,7 +574,7 @@ Jesse 调研后的补充要求：
 - 不新增 UI / SaaS / 多账户 / 多交易所目标。
 - 不把 QuantDinger 的 Postgres/Redis/Agent Gateway/MCP 照搬进当前阶段。
 - 不用重构顺手改策略规则。
-- 不移动代码而不保留 CLI 兼容。
+- 不移动代码后继续保留旧入口。
 - 不让 R&D 代码 import Binance 写接口。
 - 不让快轨产生战略判断。
 - 不把临时研究结论写成长期制度。
@@ -726,7 +726,7 @@ Jesse 调研后的补充要求：
 | P7 Artifact / data hygiene | 完成 | durable / ephemeral / pinned、validation panel、repo 相对路径已收口 |
 | P8 机器契约 | 完成 | response envelope、schema registry、核心 data output schema 已有漂移测试 |
 
-本次整理不继续强制把 `src/scripts/lib/*.ts` 迁入多层目录。当前收益主要来自 domain ownership、薄 command router、schema registry、targeted tests 与 helper 边界；纯目录搬迁会制造兼容风险，等下一次确有新增 domain 压力时再做。
+本次整理不继续强制把 `src/scripts/lib/*.ts` 迁入多层目录。当前收益主要来自 domain ownership、薄 command router、schema registry、targeted tests 与 helper 边界；纯目录搬迁会制造路径与测试风险，等下一次确有新增 domain 压力时再做。
 
 新增 helper：
 
@@ -804,7 +804,7 @@ Jesse 调研后的补充要求：
 验收：
 
 - replay fixture 覆盖：multiple entry、partial takeprofit 后 stop、oversized reduce-only stop、same-bar stop/target、gap worse open。
-- 旧 replay 输出外壳兼容；新增字段只扩展，不破坏 schema registry。
+- replay 输出外壳由 `strategy-rd` schema registry 约束；新增字段只扩展稳定外壳，不破坏 owner schema。
 
 ### J3：Strategy lifecycle contract
 
@@ -825,7 +825,7 @@ Jesse 调研后的补充要求：
 验收：
 
 - 同一 frozen strategy contract 能驱动 replay latest signal 与 shadow tracker open/observe/close。
-- 缺 lifecycle 的 legacy strategy 只能按当前兼容路径研究，不能新增 promotion 能力。
+- 缺 lifecycle 的 legacy strategy 只能按 research-only 路径研究，不能新增 promotion 能力。
 
 ### J4：Parity fixture
 
@@ -870,7 +870,7 @@ Jesse 调研后的补充要求：
 
 - J1-J5 均已按本项目边界完成第一版吸收；实现位置以 `modules/common/src/execution-contract.ts`、`modules/research/strategy-rd/src/lib/strategy-replay.ts`、`modules/research/strategy-rd/src/lib/strategy-contract.ts`、对应 fixtures 为准。
 - 吸收方式是重写内核纪律，不引入 Jesse runtime、策略继承、UI、多交易所、优化平台或 ML pipeline。
-- replay 仍保持旧输出外壳兼容；新增 `fill_model`、`diagnostics`、`lifecycle` 均为扩展字段。
+- replay 仍保持稳定输出外壳；新增 `fill_model`、`diagnostics`、`lifecycle` 均为扩展字段。
 - Monte Carlo 与 diagnostics 只允许阻断或提示复核，不能单独放行 shadow / live-small。
 
 红线：

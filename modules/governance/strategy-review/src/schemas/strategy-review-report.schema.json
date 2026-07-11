@@ -107,8 +107,7 @@
         }
       },
       "additionalProperties": false
-    },
-    "rd_program_state": { "$ref": "rd-program-state-result.schema.json" }
+    }
   },
   "additionalProperties": false
 }
