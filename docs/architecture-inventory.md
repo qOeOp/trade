@@ -34,7 +34,8 @@
 | `research.calibration-suite` | `A/V` | pipeline calibration diagnostics | none | 保持只诊断，不产生准入证据 |
 | `research.strategy-contract-compile` | `A` | strategy contract compile | none | 保持只做契约编译，不跑 R&D |
 | `research.strategy-contract-lint` | `V` | strategy contract lint | none | 保持只做契约校验，不跑 R&D |
-| `strategy-rd` | `A/E` | R&D、panel、benchmark、calibration、forward tracker、RD memory | research artifact / catalog metadata / strategy draft | 保持不写 `trade.db`、不触发 Binance；不再拥有单策略 replay 或 contract compile/lint CLI |
+| `strategy-rd` | `A/E` | R&D loop、campaign、supervisor、forward tracker | research artifact / catalog metadata / strategy draft / optional RD state writeback | 保持不写 `trade.db`、不触发 Binance；不再拥有 RD memory command、单策略 replay 或 contract compile/lint CLI |
+| `research.rd-program-state` | `A` | RD memory init/read/update/plan_next | RD state artifact / catalog ref | 不执行 research trial，不产生 strategy evidence |
 | `strategy-review` | `E/V` | evidence、review、promotion gate | catalog evidence / strategy markdown | 不写 RD memory、不触发执行 |
 | `artifact-catalog` | `A/V` | catalog、stale scan、artifact GC、feature refs | data_catalog.db / selected file deletion | 不做策略判断、不写 `trade.db` |
 | `runtime-policy` | `C/A` | 目标模块：统一交易配置读取、校验、合成、hash | stdout / observe policy snapshot | 设计见 `docs/trading-config.md`；尚未实现为独立命令 |
@@ -80,7 +81,8 @@
 | `research.strategy-contract-lint` | `V` | `modules/research/strategy-contract-lint` |
 | `research.signal-evaluator` | `E` | `modules/research/signal-evaluator` |
 | `research.panel-evaluator` | `E/V` | `modules/research/panel-evaluator` |
-| `--strategy-rnd-*`, `--rd-program-state`, `--rd-supervisor-run`, `--rd-shadow-tracker` | `A/E` | `modules/research/strategy-rd` |
+| `--strategy-rnd-*`, `--rd-supervisor-run`, `--rd-shadow-tracker` | `A/E` | `modules/research/strategy-rd` |
+| `research.rd-program-state` | `A` | `modules/research/rd-program-state` |
 | `--append-strategy-evidence`, `--strategy-review`, `--strategy-promote`, `--strategy-cycle` | `E/V` | `modules/governance/strategy-review` |
 | `--catalog-*`, `--artifact-gc` | `A/V` | `modules/ops/artifact-catalog` |
 

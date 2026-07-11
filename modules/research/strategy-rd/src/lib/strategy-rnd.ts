@@ -7,7 +7,7 @@ import {
   updateRdProgramStateFromResearchResult,
   writeRdProgramState,
   type RdProgramStateCommandResult,
-} from "./rd-program-state"
+} from "../../../rd-program-state/src/lib/rd-program-state"
 import {
   runStrategyRndBatch,
   type StrategyRndBatchReport,

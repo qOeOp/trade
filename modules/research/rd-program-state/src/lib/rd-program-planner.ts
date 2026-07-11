@@ -1,6 +1,6 @@
 import { existsSync, readFileSync } from "node:fs"
 import type { JSONRecord } from "./json"
-import { resolveReadablePath } from "./paths"
+import { resolveReadablePath } from "../../../../contracts/runtime-core/src/paths"
 import type { RdProgramBudget, RdProgramState, RdSupervisorNextPlan } from "./rd-program-types"
 
 function buildRdSupervisorNextPlan(state: RdProgramState, statePath: string, input: JSONRecord = {}): RdSupervisorNextPlan {

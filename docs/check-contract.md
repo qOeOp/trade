@@ -32,7 +32,8 @@
 | `funding-governance-check` | `modules/research/funding-governance` | `bun run check` | funding coverage governance |
 | `strategy-contract-compile-check` | `modules/research/strategy-contract-compile` | `bun run check` | strategy contract compile CLI |
 | `strategy-contract-lint-check` | `modules/research/strategy-contract-lint` | `bun run check` | strategy contract lint CLI |
-| `strategy-rd-check` | `modules/research/strategy-rd` | `bun run check` | R&D / forward holdout / RD memory |
+| `rd-program-state-smoke` | repo root | `bun modules/research/rd-program-state/src/scripts/main.ts --state ./tmp/check/rd-program-state.json --json '{"action":"init","objective":"smoke"}'` | RD memory CLI envelope and write path |
+| `strategy-rd-check` | `modules/research/strategy-rd` | `bun run check` | R&D / forward holdout / supervisor integration |
 | `strategy-review-check` | `modules/governance/strategy-review` | `bun run check` | evidence / review / promotion |
 | `artifact-catalog-check` | `modules/ops/artifact-catalog` | `bun run check` | catalog / artifact GC / feature refs |
 | `plan-preflight-check` | `modules/guards/plan-preflight` | `bun run check` | hard guards / decision card |
@@ -60,6 +61,7 @@
 | research benchmark / calibration | `modules/research/benchmark-engine/src/**`, `modules/research/benchmark-runner/src/**`, `modules/research/calibration-suite/src/**` | `benchmark-runner-check` + `calibration-suite-check` + `strategy-rd-check` if funding governance consumes benchmark data helpers |
 | research funding governance | `modules/research/funding-governance/src/**` | `funding-governance-check` |
 | strategy contract compile/lint | `modules/contracts/strategy-contract/src/**`, `modules/research/strategy-contract-*/src/**` | `strategy-contract-compile-check` + `strategy-contract-lint-check` + `strategy-rd-check` if RD consumes compiled candidates |
+| research RD memory | `modules/research/rd-program-state/src/**` | `rd-program-state-smoke` + `strategy-rd-check` while supervisor/loop still consume the shared state implementation |
 | research R&D / forward holdout | `modules/research/strategy-rd/src/**` | `strategy-rd-check` |
 | strategy evidence / review / promotion | `modules/governance/strategy-review/src/**` | `strategy-review-check` |
 | artifact hygiene / catalog | `modules/ops/artifact-catalog/src/**` | `artifact-catalog-check` |

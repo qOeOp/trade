@@ -69,7 +69,7 @@ R&D 内部允许再 fan-out read-only scout subagent，但只作为旁路输入�
 
 `rd_strategy_supervisor` 的 durable memory 是 `rd_program_state` artifact。`--automation-cycle` 收到 `rd_program_state_path` 时，以 state 中的 objective / budget / usage / lessons / queue 作为研发线事实源，并把该路径作为 learning memory ref；state 非 `active` 时，即使 cadence due 或被 force，也不继续派发研发 loop。临时 `rd_strategy_goal` 只用于尚未建立 state 的启动引导。
 
-state 写入是显式边界：`--rd-program-state` 可 init/read/update/plan_next；`plan_next` 只读 state，把 queue 中的下一条 hypothesis 编译为 R&D loop/campaign payload 草案。`--rd-supervisor-run` 是高阶执行器，串起 `plan_next -> loop/campaign -> state writeback`，直到候选、预算耗尽、数据/工具阻断或 max_iterations。R&D loop / campaign 只有 payload 带 `rd_program_state_path` 才把 usage、failure、reliability、artifact refs 写回；strategy review 只产出 execution attribution、cost feedback、decay diagnostics，不直接写 RD memory。总控不隐式制造研发事实，只分发显式 job。
+state 写入是显式边界：`research.rd-program-state` 可 init/read/update/plan_next；`plan_next` 只读 state，把 queue 中的下一条 hypothesis 编译为 R&D loop/campaign payload 草案。`--rd-supervisor-run` 是高阶执行器，串起 `plan_next -> loop/campaign -> state writeback`，直到候选、预算耗尽、数据/工具阻断或 max_iterations。R&D loop / campaign 只有 payload 带 `rd_program_state_path` 才把 usage、failure、reliability、artifact refs 写回；strategy review 只产出 execution attribution、cost feedback、decay diagnostics，不直接写 RD memory。总控不隐式制造研发事实，只分发显式 job。
 
 调度顺序固定三段：
 

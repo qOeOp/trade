@@ -294,7 +294,7 @@ bun modules/research/strategy-rd/src/scripts/main.ts --rd-supervisor-run --state
 
 | 命令 | 作用 |
 | --- | --- |
-| `--rd-program-state` | init / read / update / plan_next durable learning memory |
+| `research.rd-program-state` | init / read / update / plan_next durable learning memory |
 | `--strategy-rnd-loop` | 一轮 batch + artifact + catalog ledger |
 | `--strategy-rnd-campaign` | 多 hypothesis discovery + non-overlapping validation |
 | `research.data-split` | 切 discovery / validation / locked_holdout |
@@ -333,7 +333,7 @@ stateDiagram-v2
 | --- | --- | --- |
 | 产品契约 | `docs/` | vision、PRD、架构、技术契约、检查契约 |
 | 主流程 | `modules/trade-flow/` | event stream、automation、observe、execution、reconcile |
-| 研究 | `modules/research/strategy-rd/` + `modules/research/replay-runner/` + `modules/research/data-split/` + `modules/research/benchmark-runner/` + `modules/research/calibration-suite/` | R&D、panel、benchmark、calibration、forward tracker、单策略 replay、holdout split |
+| 研究 | `modules/research/strategy-rd/` + `modules/research/rd-program-state/` + `modules/research/replay-runner/` + `modules/research/data-split/` + `modules/research/benchmark-runner/` + `modules/research/calibration-suite/` | R&D、RD memory、panel、benchmark、calibration、forward tracker、单策略 replay、holdout split |
 | 策略契约 | `modules/contracts/strategy-contract/` + `modules/research/strategy-contract-*` | strategy contract 解析、compile、lint |
 | 治理 | `modules/governance/strategy-review/` | evidence、review、promotion |
 | 资产治理 | `modules/ops/artifact-catalog/` | catalog、artifact stale scan、GC |
@@ -383,7 +383,7 @@ bun modules/trade-flow/src/scripts/main.ts --db ./data/trade.db --init
 bun modules/trade-flow/src/scripts/main.ts --db ./data/trade.db --automation-cycle --json '{"slow_interval_minutes":240,"rd_program_state_path":"./data/rd/program.json"}'
 
 # 初始化并运行 R&D supervisor
-bun modules/research/strategy-rd/src/scripts/main.ts --rd-program-state --state ./data/rd/program.json --json '{"action":"init","objective":"find a shadow-eligible 4H swing strategy"}'
+bun modules/research/rd-program-state/src/scripts/main.ts --state ./data/rd/program.json --json '{"action":"init","objective":"find a shadow-eligible 4H swing strategy"}'
 bun modules/research/strategy-rd/src/scripts/main.ts --rd-supervisor-run --state ./data/rd/program.json --json '{"max_iterations":10}'
 ```
 

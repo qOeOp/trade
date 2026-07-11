@@ -141,11 +141,11 @@ Strategy R&D 不是单次实验交互，而是受预算约束的学习 loop：
 
 停止条件固定为：`shadow_candidate_found / budget_exhausted / data_or_tool_blocked`。R&D supervisor 可以由 automation 分发给 subagent，但只允许写 research artifact、catalog metadata 与 gated strategy draft；不得写 `trade.db`、不得调用 Binance 写接口、不得把失败后调参继续伪装成同一 hypothesis。
 
-R&D supervisor 可以临时分发 read-only scout subagent 来做历史失败审计、数据可用性盘点和新 edge 草拟；这些 scout 只产出 proposal，不写 `rd_program_state`、不消耗 trial、不打开 holdout。R&D 只有一个 state writer：`strategy-rd-supervisor` 通过 `--rd-program-state` / R&D payload writeback 更新 queue、usage 与 stop status。
+R&D supervisor 可以临时分发 read-only scout subagent 来做历史失败审计、数据可用性盘点和新 edge 草拟；这些 scout 只产出 proposal，不写 `rd_program_state`、不消耗 trial、不打开 holdout。R&D 只有一个 state writer 边界：`research.rd-program-state` 负责显式 state command，`strategy-rd-supervisor` 只通过该边界 / R&D payload writeback 更新 queue、usage 与 stop status。
 
 持续 R&D 的事实源是机器可读 `rd_program_state` artifact，而不是临时对话记忆。它保存 objective、budget、usage、stop status、失败摘要、reliability gate、被拒机制、universe lesson、下一轮 hypothesis queue 与 artifact refs；状态为 `active` 时总控才继续派发 `rd_strategy_supervisor`，进入 `shadow_candidate_found / budget_exhausted / data_or_tool_blocked` 后自动停线。该 state 只属于 research memory，不是 strategy evidence。
 
-`rd_program_state` 的写入必须显式：`--rd-program-state` 负责 init/read/update/plan_next；`plan_next` 只读 state，把 `next_hypothesis_queue` 编译为下一轮 `--strategy-rnd-loop` 或 `--strategy-rnd-campaign` payload 草案。`--rd-supervisor-run` 串起 `plan_next -> loop/campaign -> state writeback`，让 R&D 进入后自主循环到候选、预算耗尽或数据/工具阻断。`--strategy-rnd-loop` / `--strategy-rnd-campaign` 只有在 payload 传入 `rd_program_state_path` 时才把本轮 artifact、usage、失败机制或 validated candidate 写回；`strategy-review` 只输出 execution attribution、成本反馈和 replay-to-shadow/live decay 诊断，不直接写 RD memory，后续由 R&D supervisor 显式消费。
+`rd_program_state` 的写入必须显式：`research.rd-program-state` 负责 init/read/update/plan_next；`plan_next` 只读 state，把 `next_hypothesis_queue` 编译为下一轮 `--strategy-rnd-loop` 或 `--strategy-rnd-campaign` payload 草案。`--rd-supervisor-run` 串起 `plan_next -> loop/campaign -> state writeback`，让 R&D 进入后自主循环到候选、预算耗尽或数据/工具阻断。`--strategy-rnd-loop` / `--strategy-rnd-campaign` 只有在 payload 传入 `rd_program_state_path` 时才把本轮 artifact、usage、失败机制或 validated candidate 写回；`strategy-review` 只输出 execution attribution、成本反馈和 replay-to-shadow/live decay 诊断，不直接写 RD memory，后续由 R&D supervisor 显式消费。
 
 最小输入：
 
@@ -180,7 +180,7 @@ Replay / shadow / live 对齐要求：
 - `--strategy-rnd-campaign`：在全局最多 10 次 discovery trial 内运行 hypothesis queue；每个 hypothesis 必须带 `thesis_certificate`，缺 edge 类型、行为假设、参与者、regime、失效条件、成本敏感度、候选 universe 或 negative controls 时零 trial 停止；可选 `calibration_report_path` 未过则零 trial 停止；没有 winner 才继续，首个 winner 冻结后只查看一次不重叠 locked holdout，失败即结束 campaign；可显式写回 `rd_program_state`
 - `research.panel-evaluator`：同一候选跨至少 3 个资产评估，保留逐资产证据，并检查 pooled sample、广度、OOS、成本与灾难损失
 - `research.data-split`：新 hypothesis 开研前把历史 manifest 先切成 discovery / validation / locked_holdout 三个独立 manifest，并自动留 embargo；避免 draft 后才发现所有历史都已被研发污染
-- `--rd-program-state`：初始化、读取、更新或 `plan_next` R&D learning memory artifact；`plan_next` 只生成下一轮 R&D payload，不写 `trade.db`，不产生 strategy evidence
+- `research.rd-program-state`：初始化、读取、更新或 `plan_next` R&D learning memory artifact；`plan_next` 只生成下一轮 R&D payload，不写 `trade.db`，不产生 strategy evidence
 - `--rd-supervisor-run`：执行自主 R&D supervisor loop；每轮先从 state 规划下一条 hypothesis，再运行 loop/campaign，并依赖写回结果推进 queue、usage 与 stop status
 - `--automation-cycle`：单一 automation 入口的 supervisor plan；外部 Codex automation 可按任务图用 subagent 分发 fast / slow / R&D / review / catalog，慢轨、R&D 与 review 由 cadence gate 控制，不随快频入口每轮运行
 - `research.benchmark-runner`：用固定多资产趋势规则、15% 目标波动、成本/资金费压力和组合权重循环移位负对照标定 R&D 管线；不写 DB、不产生准入证据

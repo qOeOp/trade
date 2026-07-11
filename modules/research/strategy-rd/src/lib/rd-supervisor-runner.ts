@@ -6,7 +6,7 @@ import {
   updateRdProgramState,
   writeRdProgramState,
   type RdProgramState,
-} from "./rd-program-state"
+} from "../../../rd-program-state/src/lib/rd-program-state"
 import { displayPath, resolveRepoPath } from "./paths"
 import { lintStrategyContract } from "./strategy-contract"
 import { safeFileName } from "./strategy-rnd-ledger"

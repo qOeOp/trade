@@ -12,7 +12,7 @@ import {
   updateRdProgramState,
   updateRdProgramStateFromResearchResult,
   writeRdProgramState,
-} from "./rd-program-state"
+} from "../../../rd-program-state/src/lib/rd-program-state"
 
 type JSONRecord = Record<string, unknown>
 
@@ -769,6 +769,9 @@ test("rd program state blocks actions that require panel or independent validati
 })
 
 function readSchema(name: string): JSONRecord {
+  if (name === "rd-program-state-result") {
+    return JSON.parse(readFileSync(new URL("../../../rd-program-state/src/schemas/rd-program-state-result.schema.json", import.meta.url), "utf8")) as JSONRecord
+  }
   return JSON.parse(readFileSync(new URL(`../schemas/${name}.schema.json`, import.meta.url), "utf8")) as JSONRecord
 }
 

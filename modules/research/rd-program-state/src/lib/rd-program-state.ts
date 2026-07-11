@@ -1,9 +1,9 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"
-import { defaultCatalogDbPathForGeneratedPath, registerCatalogArtifact } from "./data-catalog"
+import { defaultCatalogDbPathForGeneratedPath, registerCatalogArtifact } from "../../../../contracts/catalog-contract/src/catalog-client"
 import { advanceHypothesisQueue, updateInputFromResearchResult, updateInputFromStrategyReview } from "./rd-program-learning"
 import { buildRdSupervisorNextPlan } from "./rd-program-planner"
-import { displayPath, resolveReadablePath } from "./paths"
+import { displayPath, resolveReadablePath } from "../../../../contracts/runtime-core/src/paths"
 import type { JSONRecord } from "./json"
 import type { RdProgramBudget, RdProgramState, RdProgramStateCommandResult, RdProgramStateUpdateInput, RdProgramStatus, RdProgramUsage } from "./rd-program-types"
 
@@ -118,7 +118,7 @@ function writeRdProgramState(path: string, state: RdProgramState, catalogDbPath?
 function runRdProgramStateCommand(input: RdProgramStateCommandInput): RdProgramStateCommandResult {
   const action = readAction(input.input.action)
   if (!input.path) {
-    throw new Error("--rd-program-state requires --state")
+    throw new Error("rd-program-state requires --state")
   }
   if (action === "init") {
     const state = createRdProgramState({

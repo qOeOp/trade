@@ -8,7 +8,7 @@ import {
   readRdProgramState,
   updateRdProgramStateFromResearchResult,
   writeRdProgramState,
-} from "./rd-program-state"
+} from "../../../rd-program-state/src/lib/rd-program-state"
 import { runRdSupervisorLoopWithDeps } from "./rd-supervisor-runner"
 import { resolveRepoPath } from "./paths"
 import { lintStrategyContract } from "./strategy-contract"

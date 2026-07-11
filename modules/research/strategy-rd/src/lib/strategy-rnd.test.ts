@@ -6,7 +6,7 @@ import test from "node:test"
 import { Database } from "bun:sqlite"
 
 import { replayDataHash } from "./replay-core"
-import { createRdProgramState, readRdProgramState, writeRdProgramState } from "./rd-program-state"
+import { createRdProgramState, readRdProgramState, writeRdProgramState } from "../../../rd-program-state/src/lib/rd-program-state"
 import { runStrategyRndBatch, runStrategyRndCampaign, runStrategyRndLoop, strategyRndBatchInputFromJson } from "./strategy-rnd"
 import { loadRndLedger } from "./strategy-rnd-ledger"
 import { resolveRepoPath } from "./paths"

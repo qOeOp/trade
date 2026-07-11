@@ -5,7 +5,7 @@ import { defaultCatalogDbPathForGeneratedPath, registerCatalogArtifact } from ".
 import { displayPath, resolveReadablePath, resolveRepoPath } from "./paths"
 import { assertHoldoutUnused, holdoutKeyForInput, safeFileName, writeJsonFile } from "./strategy-rnd-ledger"
 import type { JSONRecord } from "./json"
-import type { RdProgramStateCommandResult } from "./rd-program-state"
+import type { RdProgramStateCommandResult } from "../../../rd-program-state/src/lib/rd-program-state"
 import type { StrategyRndCampaignHypothesisInput, StrategyRndCampaignInput, StrategyRndLoopInput } from "../../../candidate-batch-engine/src/lib/strategy-rnd-inputs"
 
 export interface StrategyRndCampaignReport {
