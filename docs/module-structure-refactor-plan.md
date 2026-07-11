@@ -59,14 +59,14 @@
 
 ### 1.2 RD 当前拆解诊断
 
-`strategy-rd` 当前实际是 research suite，总入口包含 replay、batch、loop、campaign、panel、data split、program state、supervisor、shadow tracker、benchmark、calibration、funding governance、signal、compile、lint。按 Binance 原子性标尺，它不应该继续作为一个 agent-facing atomic tool。
+`strategy-rd` 当前实际是 research suite，总入口仍包含 batch、loop、campaign、panel、data split、program state、supervisor、shadow tracker、benchmark、calibration、funding governance、signal。单策略 replay、strategy contract compile/lint 已拆为独立 atomic module；剩余 flag 继续按 Binance 原子性标尺拆分。
 
 | 当前 flag | 真实行为 | 目标 atomic module | primary write |
 | --- | --- | --- | --- |
 | `research.replay-runner` | 对单个 strategy / candidate 回放 | `research/replay-runner` | none / report |
 | `--strategy-signal` | 最新闭合 K 线信号评估 | `research/signal-evaluator` | none |
-| `--strategy-compile` | strategy markdown contract 编译 | `research/strategy-contract-compile` | none |
-| `--strategy-lint` | strategy lifecycle contract lint | `research/strategy-contract-lint` | none |
+| `research.strategy-contract-compile` | strategy markdown contract 编译 | `research/strategy-contract-compile` | none |
+| `research.strategy-contract-lint` | strategy lifecycle contract lint | `research/strategy-contract-lint` | none |
 | `--strategy-data-split` | discovery / validation / holdout manifest 切分 | `research/data-split` | artifact + catalog |
 | `--strategy-rnd-batch` | bounded candidate 批量评估 | `research/candidate-batch` | report |
 | `--strategy-rnd-loop` | 一轮 R&D，写 artifact / ledger / optional RD state | `research/rd-loop-runner` | artifact + catalog + optional state |
@@ -196,8 +196,8 @@ modules/
 | `research/replay-engine` | contract/internal engine | replay core、fill model、closed-candle parity；被 runner 使用，不作为大总线 | `strategy-rd` replay files |
 | `research/replay-runner` | atomic | 单次 replay 执行与 replay report 输出 | `research.replay-runner` |
 | `research/signal-evaluator` | atomic | 最新闭合 K 线信号评估，不执行、不写状态 | `--strategy-signal` |
-| `research/strategy-contract-compile` | atomic | strategy markdown contract 编译为 candidate / lifecycle contract | `--strategy-compile` |
-| `research/strategy-contract-lint` | atomic | strategy lifecycle contract 完整性 lint | `--strategy-lint` |
+| `research/strategy-contract-compile` | atomic | strategy markdown contract 编译为 candidate / lifecycle contract | migrated |
+| `research/strategy-contract-lint` | atomic | strategy lifecycle contract 完整性 lint | migrated |
 | `research/strategy-families` | atomic | family registry、family modules、candidate compile source | `strategy-rd/src/lib/rnd-families` |
 | `research/data-split` | atomic | discovery / validation / locked holdout manifest 切分 | `--strategy-data-split` |
 | `research/candidate-batch` | atomic | bounded candidate 批量评估、negative controls、failure summary | `--strategy-rnd-batch` |
@@ -360,6 +360,8 @@ modules/
 - `research/replay-runner` 已成为 agent-facing atomic module，拥有 `CONTRACT.md`、独立 package、CLI、schema、测试和 `toolset.json` entry。
 - `strategy-rd` 已删除单策略 replay 总线入口，`toolset.json` 的 replay intent 只命中 `research.replay-runner`。
 - `strategy-replay` façade 与 registered replay strategy 已迁到 `research/replay-engine`；`strategy-rd` 旧本地路径仅保留测试/内部 re-export。
+- `strategy-rd` 已删除 strategy contract compile/lint 总线入口，`toolset.json` 的 contract compile/lint intent 分别命中 `research.strategy-contract-compile` 和 `research.strategy-contract-lint`。
+- strategy contract 解析、编译、lint 语义已迁到 `modules/contracts/strategy-contract`；research 原子 CLI 只负责参数与 response envelope。
 
 ### Phase 4：拆 `trade-flow`
 

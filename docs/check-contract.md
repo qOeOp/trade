@@ -23,7 +23,10 @@
 | `trade-flow-typecheck` | `modules/trade-flow` | `bun run typecheck` | TS 类型与未使用变量 |
 | `trade-flow-test` | `modules/trade-flow` | `bun run test` | 当前全部 trade-flow 单测 / 契约测 |
 | `trade-flow-check` | `modules/trade-flow` | `bun run check` | typecheck + test |
-| `strategy-rd-check` | `modules/research/strategy-rd` | `bun run check` | replay / R&D / panel / benchmark / calibration / RD memory |
+| `replay-runner-check` | `modules/research/replay-runner` | `bun run check` | 单策略机械 replay |
+| `strategy-contract-compile-check` | `modules/research/strategy-contract-compile` | `bun run check` | strategy contract compile CLI |
+| `strategy-contract-lint-check` | `modules/research/strategy-contract-lint` | `bun run check` | strategy contract lint CLI |
+| `strategy-rd-check` | `modules/research/strategy-rd` | `bun run check` | R&D / panel / benchmark / calibration / RD memory |
 | `strategy-review-check` | `modules/governance/strategy-review` | `bun run check` | evidence / review / promotion |
 | `artifact-catalog-check` | `modules/ops/artifact-catalog` | `bun run check` | catalog / artifact GC / feature refs |
 | `plan-preflight-check` | `modules/guards/plan-preflight` | `bun run check` | hard guards / decision card |
@@ -44,7 +47,9 @@
 | execution dry/shadow/live-small glue | `src/scripts/lib/execution-flow.ts`, `src/scripts/lib/live-execution.ts`, `src/scripts/commands/execution.ts` | `trade-flow-typecheck` + `bun test ./src/scripts/lib/execution-flow.test.ts ./src/scripts/lib/live-execution.test.ts ./src/scripts/lib/live-small-result-schema.test.ts ./src/scripts/main.test.ts` |
 | recovery / reconcile | `src/scripts/lib/reconcile.ts`, `src/scripts/lib/recovery-flow.ts`, `src/scripts/commands/recovery.ts` | `trade-flow-typecheck` + `bun test ./src/scripts/lib/reconcile.test.ts ./src/scripts/lib/recovery-flow.test.ts ./src/scripts/lib/reconcile-schema.test.ts ./src/scripts/main.test.ts` |
 | observe / runtime load | `src/scripts/lib/observe-*`, `src/scripts/commands/observe.ts` | `trade-flow-typecheck` + `bun test ./src/scripts/lib/observe-*.test.ts ./src/scripts/commands/handlers.test.ts` |
-| research replay / R&D / benchmark / forward holdout | `modules/research/strategy-rd/src/**` | `strategy-rd-check` |
+| research replay runner | `modules/research/replay-runner/src/**`, `modules/research/replay-engine/src/**` | `replay-runner-check` + `strategy-rd-check` if shared replay semantics changed |
+| strategy contract compile/lint | `modules/contracts/strategy-contract/src/**`, `modules/research/strategy-contract-*/src/**` | `strategy-contract-compile-check` + `strategy-contract-lint-check` + `strategy-rd-check` if RD consumes compiled candidates |
+| research R&D / benchmark / forward holdout | `modules/research/strategy-rd/src/**` | `strategy-rd-check` |
 | strategy evidence / review / promotion | `modules/governance/strategy-review/src/**` | `strategy-review-check` |
 | artifact hygiene / catalog | `modules/ops/artifact-catalog/src/**` | `artifact-catalog-check` |
 | cron slow/fast track | `src/scripts/lib/*track*`, `src/scripts/lib/cron-runtime.ts` | `trade-flow-typecheck` + `bun test ./src/scripts/lib/slow-track-workflow.test.ts ./src/scripts/lib/fast-track-workflow.test.ts ./src/scripts/lib/cron-runtime.test.ts ./src/scripts/lib/track-dry-run-schema.test.ts` |

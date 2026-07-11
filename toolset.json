@@ -218,7 +218,7 @@
         "config": false
       },
       "notes": [
-        "Owns research execution except atomic replay-runner. It cannot write trade.db or trigger Binance writes."
+        "Owns research execution except atomic replay-runner and strategy-contract tools. It cannot write trade.db or trigger Binance writes."
       ],
       "module_type": "suite",
       "owner_scope": "research.strategy-rd",
@@ -226,6 +226,96 @@
       "concurrency_group": "rd-state",
       "forbidden_callers": [
         "execution",
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
+    },
+    {
+      "id": "research.strategy-contract-compile",
+      "domain": "research",
+      "intent": [
+        "strategy-contract",
+        "contract-compile",
+        "compile"
+      ],
+      "capability_class": [
+        "A"
+      ],
+      "path": "modules/research/strategy-contract-compile",
+      "purpose": "Compile one strategy markdown contract into normalized strategy contract output.",
+      "command": {
+        "cwd": "modules/research/strategy-contract-compile",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--strategy",
+          "<strategy.md>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Pure contract compile command; no research search, replay, review, catalog, or exchange access."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "research.strategy-contract-compile",
+      "requires_preflight": false,
+      "concurrency_group": "research-contract",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
+    },
+    {
+      "id": "research.strategy-contract-lint",
+      "domain": "research",
+      "intent": [
+        "strategy-contract",
+        "contract-lint",
+        "lint"
+      ],
+      "capability_class": [
+        "V"
+      ],
+      "path": "modules/research/strategy-contract-lint",
+      "purpose": "Lint one strategy markdown contract for lifecycle and R&D readiness.",
+      "command": {
+        "cwd": "modules/research/strategy-contract-lint",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--strategy",
+          "<strategy.md>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Pure contract lint command; no research search, replay, review, catalog, or exchange access."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "research.strategy-contract-lint",
+      "requires_preflight": false,
+      "concurrency_group": "research-contract",
+      "forbidden_callers": [
         "exchange-write"
       ],
       "entry_contract": {

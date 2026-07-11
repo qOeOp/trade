@@ -27,7 +27,9 @@
 | --- | --- | --- | --- | --- |
 | `trade-flow` | strategy markdown、trading config、`trade.db`、tool JSON 输出 | `plan_event`、automation jobs、recovery drafts | 编排、执行流、恢复、准入、事件流 | Binance endpoint 细节、市场数据接入实现、R&D 实验实现、策略复核 owner |
 | `research/replay-runner` | OHLCV manifest、strategy id、replay parameters | replay result | 单策略机械 replay | 写文件、写 catalog、R&D search、策略升格 |
-| `research/strategy-rd` | OHLCV manifest、market feature artifact、candidate JSON、strategy contract、R&D state | R&D / panel / benchmark / calibration report、R&D state update、gated draft candidate、catalog metadata | 策略研发、panel、benchmark、calibration、forward holdout、R&D learning memory | 写 `trade.db`、触发 Binance、策略升格、单策略 replay CLI |
+| `research/strategy-contract-compile` | strategy markdown、candidate override JSON | compiled strategy contract | strategy contract 编译 | R&D search、replay、review、catalog 写入 |
+| `research/strategy-contract-lint` | strategy markdown | lint result、optional compiled contract | strategy contract 完整性 lint | R&D search、replay、review、catalog 写入 |
+| `research/strategy-rd` | OHLCV manifest、market feature artifact、candidate JSON、strategy contract、R&D state | R&D / panel / benchmark / calibration report、R&D state update、gated draft candidate、catalog metadata | 策略研发、panel、benchmark、calibration、forward holdout、R&D learning memory | 写 `trade.db`、触发 Binance、策略升格、单策略 replay CLI、strategy contract compile/lint CLI |
 | `governance/strategy-review` | strategy markdown、evidence input、catalog evidence、optional read-only `trade.db` | evidence record、review report、promotion result、strategy status update | 策略证据、复核、升格门禁 | R&D 实验、交易执行、写 `trade.db`、写 RD memory |
 | `ops/artifact-catalog` | catalog DB、`data/` / `tmp/` roots、artifact refs、retention 设置 | catalog query、stale report、GC report、artifact metadata、feature report refs | 数据资产索引、artifact hygiene、catalog-aware GC | 写 `trade.db`、策略判断、交易所 API |
 | `ohlcv-fetch` | Binance market symbol、timeframes、Vision/funding/panel 请求参数 | CSV/manifest、funding events、market feature panel、calibration inputs | 数据采集与因果对齐 | 策略判断、升格、交易事实 |
@@ -47,6 +49,7 @@
 | `contracts/execution-contract` | execution contract input | compiled execution contract、validation result | 执行契约编译和校验 | 下单、preflight verdict |
 | `contracts/preflight-contract` | plan / observe / strategy / account config | deterministic verdict、blocked reasons、warnings | hard guard contract、target action parsing | 交易所写入、市场观点 |
 | `contracts/catalog-contract` | catalog command payload | artifact / evidence / R&D run catalog result | catalog CLI client contract | catalog DB schema / scan / GC 实现 |
+| `contracts/strategy-contract` | strategy markdown、contract YAML subset | compiled/lint contract types and pure helpers | strategy contract 解析、编译、lint 语义 | agent-facing CLI、R&D execution、review/promotion |
 
 ## Trade-Flow Domains
 

@@ -108,7 +108,7 @@ NOFX 可借鉴的是 runtime discipline，不是产品形态；详细计划见 [
 | `execution` | contract compile、preview、submit、protect、fill 归档 | 策略资格判断 |
 | `recovery` | reduce、exchange reconcile、unknown / needs_review | 新开风险 |
 | `review` | flow 闭合样本、归因、policy feedback | 自动升格 |
-| `research` | replay、R&D、calibration、benchmark、candidate signal | 写 `trade.db`、触发 Binance |
+| `research` | replay runner、R&D、calibration、benchmark、candidate signal、strategy contract compile/lint | 写 `trade.db`、触发 Binance |
 | `evidence` | fingerprint、strategy status gate、ledger | 交易事实替代品 |
 | `artifact` | refs、pin、retention、GC | 业务判断 |
 | `config` | trading config、runtime policy compiler、policy snapshot hash | live 账户事实、strategy 规则正文、凭证 |
@@ -868,7 +868,7 @@ Jesse 调研后的补充要求：
 
 ### 当前实施状态（2026-07-10）
 
-- J1-J5 均已按本项目边界完成第一版吸收；实现位置以 `modules/contracts/execution-contract/src/execution-contract.ts`、`modules/research/strategy-rd/src/lib/strategy-replay.ts`、`modules/research/strategy-rd/src/lib/strategy-contract.ts`、对应 fixtures 为准。
+- J1-J5 均已按本项目边界完成第一版吸收；实现位置以 `modules/contracts/execution-contract/src/execution-contract.ts`、`modules/research/replay-engine/src/lib/strategy-replay.ts`、`modules/contracts/strategy-contract/src/strategy-contract.ts`、对应 fixtures 为准。
 - 吸收方式是重写内核纪律，不引入 Jesse runtime、策略继承、UI、多交易所、优化平台或 ML pipeline。
 - replay 仍保持稳定输出外壳；新增 `fill_model`、`diagnostics`、`lifecycle` 均为扩展字段。
 - Monte Carlo 与 diagnostics 只允许阻断或提示复核，不能单独放行 shadow / live-small。

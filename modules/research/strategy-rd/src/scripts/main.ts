@@ -14,7 +14,7 @@ import {
 } from "../lib/rd-shadow-tracker"
 import { runRdProgramStateCommand } from "../lib/rd-program-state"
 import { runRdSupervisorLoop } from "../lib/rd-supervisor-runner"
-import { candidateFromStrategyContract, compileStrategyContract, lintStrategyContract } from "../lib/strategy-contract"
+import { candidateFromStrategyContract } from "../lib/strategy-contract"
 import { runStrategyDataSplit, strategyDataSplitInputFromJson } from "../lib/strategy-data-split"
 import { runStrategyPanelRnd, strategyPanelRndInputFromJson } from "../lib/strategy-panel-rnd"
 import {
@@ -49,8 +49,6 @@ interface Config {
   strategyCalibrationSuite: boolean
   fundingCarryGovernance: boolean
   strategySignal: boolean
-  strategyCompile: boolean
-  strategyLint: boolean
   forwardResultPath: string
   manifestMapPath: string
   outputPath: string
@@ -104,14 +102,6 @@ function runConfig(config: Config): unknown {
   if (config.strategyBenchmark) return runTrendBenchmark(strategyBenchmarkInputFromJson(config.input))
   if (config.strategyCalibrationSuite) return runCalibrationSuite(strategyCalibrationInputFromJson(config.input))
   if (config.fundingCarryGovernance) return runFundingCarryGovernance(fundingCarryGovernanceInputFromJson(config.input))
-  if (config.strategyCompile) {
-    if (!config.strategyPath) throw new Error("--strategy-compile requires --strategy")
-    return compileStrategyContract(config.strategyPath, asRecord(config.input.candidate_param_overrides))
-  }
-  if (config.strategyLint) {
-    if (!config.strategyPath) throw new Error("--strategy-lint requires --strategy")
-    return lintStrategyContract(config.strategyPath)
-  }
   if (config.strategySignal) {
     const parsed = strategyRndSignalInputFromJson(config.input)
     const input = config.strategyPath && !config.input.candidate
@@ -136,8 +126,6 @@ function parseArgs(argv: string[]): Config {
     strategyCalibrationSuite: false,
     fundingCarryGovernance: false,
     strategySignal: false,
-    strategyCompile: false,
-    strategyLint: false,
     forwardResultPath: "",
     manifestMapPath: "",
     outputPath: "",
@@ -162,8 +150,6 @@ function parseArgs(argv: string[]): Config {
       case "--strategy-calibration-suite": config.strategyCalibrationSuite = true; break
       case "--funding-carry-governance": config.fundingCarryGovernance = true; break
       case "--strategy-signal": config.strategySignal = true; break
-      case "--strategy-compile": config.strategyCompile = true; break
-      case "--strategy-lint": config.strategyLint = true; break
       case "--max-hold-bars": config.maxHoldBars = Number(readValue(argv, ++index, arg)); break
       case "--strategy": config.strategyPath = readValue(argv, ++index, arg); break
       case "--state": config.statePath = readValue(argv, ++index, arg); break

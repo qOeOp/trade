@@ -28,7 +28,10 @@
 | `tech-indicators` | `A` | 指标、结构、factor descriptor、beta | report/artifact | 不知道交易动作；只输出 feature/report |
 | `plan-preflight` | `A` | hard guards、decision card | stdout | 保持独立 guard；不写事件 |
 | `trade-flow` | `E/V/T` | 在线链 glue、event、execution recording、recovery、automation | trade.db / track artifact / optional Binance | 已移除 R&D / review / artifact 旧入口；继续保持入口瘦身 |
-| `strategy-rd` | `A/E` | replay、R&D、panel、benchmark、calibration、forward tracker、RD memory | research artifact / catalog metadata / strategy draft | 保持不写 `trade.db`、不触发 Binance |
+| `research.replay-runner` | `E` | 单策略机械 replay | none | 保持不写文件、不写 catalog、不触发 Binance |
+| `research.strategy-contract-compile` | `A` | strategy contract compile | none | 保持只做契约编译，不跑 R&D |
+| `research.strategy-contract-lint` | `V` | strategy contract lint | none | 保持只做契约校验，不跑 R&D |
+| `strategy-rd` | `A/E` | R&D、panel、benchmark、calibration、forward tracker、RD memory | research artifact / catalog metadata / strategy draft | 保持不写 `trade.db`、不触发 Binance；不再拥有单策略 replay 或 contract compile/lint CLI |
 | `strategy-review` | `E/V` | evidence、review、promotion gate | catalog evidence / strategy markdown | 不写 RD memory、不触发执行 |
 | `artifact-catalog` | `A/V` | catalog、stale scan、artifact GC、feature refs | data_catalog.db / selected file deletion | 不做策略判断、不写 `trade.db` |
 | `runtime-policy` | `C/A` | 目标模块：统一交易配置读取、校验、合成、hash | stdout / observe policy snapshot | 设计见 `docs/trading-config.md`；尚未实现为独立命令 |
@@ -67,6 +70,8 @@
 | Command | Class | 当前 owner |
 | --- | --- | --- |
 | `research.replay-runner` | `E` | `modules/research/replay-runner` |
+| `research.strategy-contract-compile` | `A` | `modules/research/strategy-contract-compile` |
+| `research.strategy-contract-lint` | `V` | `modules/research/strategy-contract-lint` |
 | `--strategy-rnd-*`, `--strategy-panel-rnd`, `--strategy-data-split`, `--strategy-benchmark`, `--strategy-calibration-suite`, `--strategy-signal`, `--rd-program-state`, `--rd-supervisor-run`, `--rd-shadow-tracker` | `A/E` | `modules/research/strategy-rd` |
 | `--append-strategy-evidence`, `--strategy-review`, `--strategy-promote`, `--strategy-cycle` | `E/V` | `modules/governance/strategy-review` |
 | `--catalog-*`, `--artifact-gc` | `A/V` | `modules/ops/artifact-catalog` |
@@ -79,7 +84,7 @@
 | `modules/trade-flow/src/scripts/main.test.ts` | ~1375 | 大集成测试难定位 | 按 domain fixture 拆 |
 | `modules/research/strategy-rd/src/lib/strategy-rnd.ts` | 已迁移 | R&D glue 仍偏重 | 继续按 candidate / evaluation / selection 收敛 |
 | `modules/research/strategy-rd/src/lib/strategy-benchmark.ts` | 已迁移 | benchmark / calibration glue | 后续按 data / simulation / report 收敛 |
-| `modules/research/strategy-rd/src/lib/strategy-replay.ts` | 已迁移 | replay contract owner | 继续保持只读 research 边界 |
+| `modules/research/replay-engine/src/lib/strategy-replay.ts` | 已迁移 | replay engine owner | 继续保持只读 research 边界 |
 | `modules/governance/strategy-review/src/lib/strategy-iteration.ts` | 已迁移 | evidence / review / promote owner | 继续强化 catalog-backed evidence |
 | `modules/binance/order-place/src/scripts/main.ts` | ~1021 | 执行入口复杂，安全关键 | contract-first + normalized event |
 | `modules/analytics/tech-indicators/src/scripts/structure.go` | ~1204 | 指标/结构算法集中 | 后续按 indicator/domain 拆 |
