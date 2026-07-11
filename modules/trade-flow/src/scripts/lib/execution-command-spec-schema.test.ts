@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs"
 import assert from "node:assert/strict"
 import test from "node:test"
-import { buildExecutionCommandSpec, EXECUTABLE_TARGET_ACTIONS } from "./execution-flow"
+import { buildExecutionCommandSpec, EXECUTABLE_TARGET_ACTIONS } from "../../../../flow/execution-router/src/lib/execution-router"
 
 type JSONRecord = Record<string, unknown>
 

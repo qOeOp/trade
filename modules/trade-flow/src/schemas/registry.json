@@ -41,7 +41,7 @@
     {
       "file": "execution-command-spec.schema.json",
       "id": "trade-flow.execution-command-spec.v1",
-      "owner": "scripts/lib/execution-flow.ts",
+      "owner": "modules/flow/execution-router/src/lib/execution-router.ts",
       "covers": [
         "execution tool routing contract"
       ]

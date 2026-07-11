@@ -186,7 +186,7 @@ modules/
 | `flow/observe-builder` | atomic | supplied snapshots -> normalized observe event body | 已迁入 |
 | `flow/observe-runner` | atomic | 调 account/symbol read tools，产出 observe projection；不写 DB | 已迁入 |
 | `flow/execution-gate` | atomic | preflight result + trigger condition + idempotency gate | `execution-flow.ts` gate 部分 |
-| `flow/execution-router` | atomic | target_action -> exchange write command spec | `execution-flow.ts` command spec 部分 |
+| `flow/execution-router` | atomic | target_action -> exchange write command spec | 已迁入 |
 | `flow/execution-recorder` | atomic | exchange result -> audited local `order_fill` draft | `execution-flow.ts` record 部分 |
 | `flow/live-small-runner` | atomic | 执行 approved command spec，并交给 recorder；不重新做策略判断 | `live-execution.ts` |
 | `flow/reconcile-drafts` | atomic | local flow + account snapshot -> reconcile drafts / unmatched | `reconcile.ts` |
@@ -262,6 +262,7 @@ modules/
 - `automation-cycle` 已为 trade / RD / catalog dispatch 输出 registry-backed `tool_job`，包含 `tool_id + payload + entry_contract + writes + command_spec`。
 - `flow/observe-builder` 已独立拥有 supplied projections -> observe event body；`trade-flow` 只消费 event candidate。
 - `flow/observe-runner` 已独立拥有 account/symbol read tool projection 调用；`trade-flow` 只消费 projection 构建 observe event。
+- `flow/execution-router` 已独立拥有 target_action -> Binance write-tool command spec；`trade-flow` 只消费 command spec 执行和记录。
 
 尚未完成：
 
@@ -393,7 +394,7 @@ modules/
 4. `flow/observe-builder`（已迁入）
 5. `flow/observe-runner`（已迁入）
 6. `flow/execution-gate`
-7. `flow/execution-router`
+7. `flow/execution-router`（已迁入）
 8. `flow/execution-recorder`
 9. `flow/live-small-runner`
 10. `flow/reconcile-drafts`

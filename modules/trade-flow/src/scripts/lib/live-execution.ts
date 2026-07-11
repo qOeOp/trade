@@ -3,7 +3,6 @@ import { compileExecutionContract, type ExecutionContractInput } from "../../../
 import { evaluatePreflight } from "../../../../contracts/preflight-contract/src/preflight"
 import {
   appendExecutionObserve,
-  buildExecutionCommandSpec,
   buildRecordedExecutionEvent,
   evaluateIdempotency,
   evaluateTriggerCondition,
@@ -11,6 +10,7 @@ import {
   runOneFlowStep,
   unwrapToolResponse,
 } from "./execution-flow"
+import { buildExecutionCommandSpec } from "../../../../flow/execution-router/src/lib/execution-router"
 import { asRecord, stringField, type JSONRecord } from "./json"
 import { observeFromToolsWithRunner } from "./observe-flow"
 import { appendPlanEvent, readLatestOrderFill } from "./plan-events"
