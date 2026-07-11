@@ -2,6 +2,8 @@
 
 本文定义当前项目的代码归位规则。项目形态是 agent-operated toolset，不是单入口常驻程序，也不再使用本地 tool 壳作为源码组织方式。
 
+下一轮模块原子化和目录重构计划见 [module-structure-refactor-plan.md](module-structure-refactor-plan.md)。本文描述当前有效布局；重构计划描述目标拓扑和迁移顺序。
+
 ## 核心原则
 
 - 目录按行为和责任切分：采集、分析、编排、守卫、执行、资产治理分开。
