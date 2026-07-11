@@ -24,6 +24,7 @@
 | `trade-flow-test` | `modules/trade-flow` | `bun run test` | 当前全部 trade-flow 单测 / 契约测 |
 | `trade-flow-check` | `modules/trade-flow` | `bun run check` | typecheck + test |
 | `runtime-policy-compiler-check` | `modules/flow/runtime-policy-compiler` | `bun run check` | trading config normalize / clamp / hash |
+| `observe-builder-check` | `modules/flow/observe-builder` | `bun run check` | supplied projections -> observe event body |
 | `observe-runner-check` | `modules/flow/observe-runner` | `bun run check` | account/symbol read tool projection runner |
 | `replay-runner-check` | `modules/research/replay-runner` | `bun run check` | 单策略机械 replay |
 | `data-split-check` | `modules/research/data-split` | `bun run check` | discovery / validation / locked holdout split |
@@ -62,7 +63,7 @@
 | runtime event store | `src/scripts/lib/plan-events.ts`, `src/scripts/lib/flow-state.ts` | `trade-flow-typecheck` + `bun test ./src/scripts/lib/plan-events-schema.test.ts ./src/scripts/lib/flow-state.test.ts ./src/scripts/lib/core-data-schemas.test.ts` |
 | execution dry/shadow/live-small glue | `src/scripts/lib/execution-flow.ts`, `src/scripts/lib/live-execution.ts`, `src/scripts/commands/execution.ts` | `trade-flow-typecheck` + `bun test ./src/scripts/lib/execution-flow.test.ts ./src/scripts/lib/live-execution.test.ts ./src/scripts/lib/live-small-result-schema.test.ts ./src/scripts/main.test.ts` |
 | recovery / reconcile | `src/scripts/lib/reconcile.ts`, `src/scripts/lib/recovery-flow.ts`, `src/scripts/commands/recovery.ts` | `trade-flow-typecheck` + `bun test ./src/scripts/lib/reconcile.test.ts ./src/scripts/lib/recovery-flow.test.ts ./src/scripts/lib/reconcile-schema.test.ts ./src/scripts/main.test.ts` |
-| observe / runtime load | `src/scripts/lib/observe-*`, `src/scripts/commands/observe.ts`, `modules/flow/observe-runner/src/**` | `observe-runner-check` + `trade-flow-typecheck` + `bun test ./src/scripts/lib/observe-*.test.ts ./src/scripts/commands/handlers.test.ts` |
+| observe / runtime load | `src/scripts/lib/observe-*`, `src/scripts/commands/observe.ts`, `modules/flow/observe-builder/src/**`, `modules/flow/observe-runner/src/**` | `observe-builder-check` + `observe-runner-check` + `trade-flow-typecheck` + `bun test ./src/scripts/commands/handlers.test.ts ./src/scripts/lib/core-data-schemas.test.ts` |
 | runtime policy compiler | `modules/flow/runtime-policy-compiler/src/**` | `runtime-policy-compiler-check` + `trade-flow-check` |
 | research replay runner | `modules/research/replay-runner/src/**`, `modules/research/replay-engine/src/**` | `replay-runner-check` + `rd-integration-suite-check` if shared replay semantics changed |
 | research data split | `modules/research/data-split/src/**` | `data-split-check` |

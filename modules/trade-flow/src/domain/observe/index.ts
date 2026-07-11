@@ -1,7 +1,7 @@
 export {
   buildAccountProjection,
   buildObserveEvent,
-} from "../../scripts/lib/observe-builder"
+} from "../../../../flow/observe-builder/src/lib/observe-builder"
 export {
   loadRuntime,
   observeFromTools,

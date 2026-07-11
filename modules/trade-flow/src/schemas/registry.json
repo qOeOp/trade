@@ -74,7 +74,7 @@
     {
       "file": "observe-event.schema.json",
       "id": "trade-flow.observe-event.v1",
-      "owner": "scripts/lib/observe-builder.ts",
+      "owner": "modules/flow/observe-builder/src/lib/observe-builder.ts",
       "covers": [
         "--build-observe data",
         "--observe-from-tools data",

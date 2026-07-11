@@ -29,6 +29,7 @@
 | --- | --- | --- | --- | --- |
 | `trade-flow` | strategy markdown、trading config、`trade.db`、tool JSON 输出 | `plan_event`、automation jobs、recovery drafts | 编排、执行流、恢复、准入、事件流 | Binance endpoint 细节、市场数据接入实现、R&D 实验实现、策略复核 owner |
 | `flow/runtime-policy-compiler` | trading config、legacy account / notify config | normalized config、`runtime-policy.v1`、compact snapshot | trading config normalize / clamp / hash | preflight、execution、review、R&D 决策、`trade.db`、Binance |
+| `flow/observe-builder` | account / market projection、plan seed、policy snapshot | observe event candidate、account projection summary | supplied snapshots -> normalized observe event body | exchange/tool 调用、`trade.db`、execution、review、R&D |
 | `flow/observe-runner` | repo root、symbol、optional timeout / runner | account snapshot、market snapshot、market refs | 调 account/symbol read tools 并产出 observe projection | `plan_event`、execution、review、R&D、`trade.db`、Binance 写接口 |
 | `research/replay-runner` | OHLCV manifest、strategy id、replay parameters | replay result | 单策略机械 replay | 写文件、写 catalog、R&D search、策略升格 |
 | `research/data-split` | source OHLCV manifests、split ratios、embargo parameters | discovery / validation / locked holdout manifests、split report、optional catalog ref | 数据切分与 holdout 隔离 | R&D search、replay、review、`trade.db` |

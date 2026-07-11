@@ -183,7 +183,7 @@ modules/
 | `flow/event-store` | atomic | `trade.db` schema、plan_event append/read；唯一 event write owner | `plan-events.ts` |
 | `flow/flow-projector` | atomic | flow state、lane conflicts、active flows projection | `flow-state.ts` |
 | `flow/runtime-policy-compiler` | atomic | trading config normalize / clamp / hash / compact snapshot | 已迁入 |
-| `flow/observe-builder` | atomic | supplied snapshots -> normalized observe event body | `observe-builder.ts` |
+| `flow/observe-builder` | atomic | supplied snapshots -> normalized observe event body | 已迁入 |
 | `flow/observe-runner` | atomic | 调 account/symbol read tools，产出 observe projection；不写 DB | 已迁入 |
 | `flow/execution-gate` | atomic | preflight result + trigger condition + idempotency gate | `execution-flow.ts` gate 部分 |
 | `flow/execution-router` | atomic | target_action -> exchange write command spec | `execution-flow.ts` command spec 部分 |
@@ -260,6 +260,7 @@ modules/
 - `schemas/tool-job.schema.json` 已定义编排 job 的稳定 shell。
 - `docs/tool-layout.md` 与 `modules/README.md` 已区分 current layout、target topology、suite / atomic / contract module。
 - `automation-cycle` 已为 trade / RD / catalog dispatch 输出 registry-backed `tool_job`，包含 `tool_id + payload + entry_contract + writes + command_spec`。
+- `flow/observe-builder` 已独立拥有 supplied projections -> observe event body；`trade-flow` 只消费 event candidate。
 - `flow/observe-runner` 已独立拥有 account/symbol read tool projection 调用；`trade-flow` 只消费 projection 构建 observe event。
 
 尚未完成：
@@ -389,7 +390,7 @@ modules/
 1. `flow/event-store`
 2. `flow/flow-projector`
 3. `flow/runtime-policy-compiler`
-4. `flow/observe-builder`
+4. `flow/observe-builder`（已迁入）
 5. `flow/observe-runner`（已迁入）
 6. `flow/execution-gate`
 7. `flow/execution-router`

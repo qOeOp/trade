@@ -1,4 +1,4 @@
-import { buildObserveEvent, type ObserveInput } from "../lib/observe-builder"
+import { buildObserveEvent, type ObserveInput } from "../../../../flow/observe-builder/src/lib/observe-builder"
 import { loadRuntime, observeFromTools } from "../lib/observe-flow"
 import { successResponse } from "./response"
 import type { CommandConfig, ScriptResponse } from "./types"
