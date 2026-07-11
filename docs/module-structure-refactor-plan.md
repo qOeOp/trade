@@ -77,7 +77,7 @@
 | `--rd-shadow-tracker` | forward signal 纸面 setup event chain | `research/rd-shadow-tracker` | artifact |
 | `research.benchmark-runner` | 固定 benchmark 仿真 | `research/benchmark-runner` | report |
 | `research.calibration-suite` | calibration suite / pipeline diagnosis | `research/calibration-suite` | report |
-| `--funding-carry-governance` | funding coverage governance check | `research/funding-governance` | report |
+| `research.funding-governance` | funding coverage governance check | `research/funding-governance` | report |
 
 拆分后的 `strategy-rd` 只能作为 suite 目录或迁移期源码目录名，不再作为 agent-facing 单一工具。
 
@@ -209,7 +209,7 @@ modules/
 | `research/rd-shadow-tracker` | atomic | forward paper setup event chain | `rd-shadow-tracker.ts`、`setup-event-chain.ts` |
 | `research/benchmark-runner` | atomic | fixed benchmark simulation and report | migrated |
 | `research/calibration-suite` | atomic | calibration suite、pipeline diagnostics、data breadth attribution | migrated |
-| `research/funding-governance` | atomic | funding coverage / carry governance read-only check | `--funding-carry-governance` |
+| `research/funding-governance` | atomic | funding coverage / carry governance read-only check | migrated |
 | `governance/evidence-ledger` | atomic | append evidence、fingerprint、catalog evidence refs | `strategy-review` evidence helpers |
 | `governance/strategy-review` | atomic | review report、failure attribution、promotion read model | current `strategy-review` minus evidence append |
 | `governance/promotion-gate` | atomic | status transition and `--yes` guarded strategy markdown update | current promote path |
@@ -336,7 +336,7 @@ modules/
 13. `research/rd-shadow-tracker`：承接 `--rd-shadow-tracker`。
 14. `research/benchmark-runner`：已承接 fixed benchmark。
 15. `research/calibration-suite`：已承接 calibration diagnostics。
-16. `research/funding-governance`：承接 `--funding-carry-governance`。
+16. `research/funding-governance`：已承接 funding coverage governance。
 
 每个子模块必须有：
 

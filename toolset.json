@@ -261,7 +261,7 @@
         "config": false
       },
       "notes": [
-        "Owns research execution except atomic replay-runner, data-split, benchmark, calibration, and strategy-contract tools. It cannot write trade.db or trigger Binance writes."
+        "Owns research execution except atomic replay-runner, data-split, benchmark, calibration, funding-governance, and strategy-contract tools. It cannot write trade.db or trigger Binance writes."
       ],
       "module_type": "suite",
       "owner_scope": "research.strategy-rd",
@@ -269,6 +269,51 @@
       "concurrency_group": "rd-state",
       "forbidden_callers": [
         "execution",
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
+    },
+    {
+      "id": "research.funding-governance",
+      "domain": "research",
+      "intent": [
+        "funding-governance",
+        "funding-carry-governance",
+        "funding-coverage"
+      ],
+      "capability_class": [
+        "V"
+      ],
+      "path": "modules/research/funding-governance",
+      "purpose": "Check exact funding event coverage before funding-carry research trials.",
+      "command": {
+        "cwd": "modules/research/funding-governance",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Read-only data governance check; no R&D search, replay, trade DB writes, or exchange access."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "research.funding-governance",
+      "requires_preflight": false,
+      "concurrency_group": "research-benchmark",
+      "forbidden_callers": [
         "exchange-write"
       ],
       "entry_contract": {

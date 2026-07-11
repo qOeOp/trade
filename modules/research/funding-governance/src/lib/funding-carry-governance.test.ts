@@ -3,9 +3,9 @@ import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
-import { run } from "../main"
+import { run } from "../scripts/main"
 import { fundingCarryGovernanceInputFromJson, runFundingCarryGovernance } from "./funding-carry-governance"
-import { resolveRepoPath } from "./paths"
+import { resolveRepoPath } from "../../../../contracts/runtime-core/src/paths"
 
 test("funding carry governance allows research only with full funding coverage", () => {
   const dir = mkdtempSync(join(tmpdir(), "funding-carry-governance-"))
@@ -57,7 +57,7 @@ test("funding carry governance CLI stays read-only", async () => {
   try {
     rmSync(runtimeDir, { recursive: true, force: true })
     const dbPath = join(runtimeDir, "trade.db")
-    const result = await run(["--db", dbPath, "--funding-carry-governance", "--json", JSON.stringify({
+    const result = run(["--json", JSON.stringify({
       datasets: [{
         dataset_id: "BTCUSDT",
         manifest_path: writeManifest(dir, "BTCUSDT", Date.UTC(2024, 0, 1), 40),
@@ -65,7 +65,6 @@ test("funding carry governance CLI stays read-only", async () => {
     })])
 
     assert.equal(result.ok, true)
-    if (!result.ok) return
     assert.equal((result.data as { status: string }).status, "blocked")
     assert.equal(existsSync(dbPath), false)
   } finally {

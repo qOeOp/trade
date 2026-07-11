@@ -4,7 +4,6 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"
 import { assertProjectRuntimePath, repoRoot } from "../lib/paths"
 import { defaultCatalogDbPathForGeneratedPath, registerCatalogArtifact } from "../lib/data-catalog"
-import { fundingCarryGovernanceInputFromJson, runFundingCarryGovernance } from "../lib/funding-carry-governance"
 import {
   createRdShadowTrackerFromForwardHoldout,
   manifestRefsFromJson,
@@ -37,7 +36,6 @@ interface Config {
   rdProgramState: boolean
   rdSupervisorRun: boolean
   rdShadowTracker: boolean
-  fundingCarryGovernance: boolean
   strategySignal: boolean
   forwardResultPath: string
   manifestMapPath: string
@@ -84,7 +82,6 @@ function runConfig(config: Config): unknown {
   if (config.rdProgramState) return runRdProgramStateCommand({ path: config.statePath, input: config.input, catalogDbPath: config.catalogDbPath })
   if (config.rdSupervisorRun) return runRdSupervisorLoop({ path: config.statePath, input: config.input, catalogDbPath: config.catalogDbPath })
   if (config.rdShadowTracker) return runRdShadowTracker(config)
-  if (config.fundingCarryGovernance) return runFundingCarryGovernance(fundingCarryGovernanceInputFromJson(config.input))
   if (config.strategySignal) {
     const parsed = strategyRndSignalInputFromJson(config.input)
     const input = config.strategyPath && !config.input.candidate
@@ -104,7 +101,6 @@ function parseArgs(argv: string[]): Config {
     rdProgramState: false,
     rdSupervisorRun: false,
     rdShadowTracker: false,
-    fundingCarryGovernance: false,
     strategySignal: false,
     forwardResultPath: "",
     manifestMapPath: "",
@@ -125,7 +121,6 @@ function parseArgs(argv: string[]): Config {
       case "--rd-program-state": config.rdProgramState = true; break
       case "--rd-supervisor-run": config.rdSupervisorRun = true; break
       case "--rd-shadow-tracker": config.rdShadowTracker = true; break
-      case "--funding-carry-governance": config.fundingCarryGovernance = true; break
       case "--strategy-signal": config.strategySignal = true; break
       case "--max-hold-bars": config.maxHoldBars = Number(readValue(argv, ++index, arg)); break
       case "--strategy": config.strategyPath = readValue(argv, ++index, arg); break

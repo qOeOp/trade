@@ -37,9 +37,10 @@
 | `modules/research/data-split/` | strategy data split | discovery / validation / locked holdout manifest 切分 | R&D search、replay、review、`trade.db` |
 | `modules/research/benchmark-runner/` | strategy benchmark | 固定 benchmark 仿真、成本/资金费压力、负对照 | R&D search、strategy promotion、`trade.db` |
 | `modules/research/calibration-suite/` | strategy calibration | calibration diagnostics、data breadth、funding/cost attribution | R&D search、strategy promotion、`trade.db` |
+| `modules/research/funding-governance/` | funding governance | funding carry research 前 exact funding event coverage 检查 | R&D search、replay、review、`trade.db` |
 | `modules/research/strategy-contract-compile/` | strategy contract compile | strategy markdown contract 编译 | R&D search、replay、review、catalog 写入 |
 | `modules/research/strategy-contract-lint/` | strategy contract lint | strategy markdown contract 完整性 lint | R&D search、replay、review、catalog 写入 |
-| `modules/research/strategy-rd/` | strategy research suite | R&D loop、panel、forward holdout、R&D memory | `trade.db`、Binance 写接口、strategy promotion、单策略 replay CLI、data split CLI、benchmark/calibration CLI、contract compile/lint CLI |
+| `modules/research/strategy-rd/` | strategy research suite | R&D loop、panel、forward holdout、R&D memory | `trade.db`、Binance 写接口、strategy promotion、单策略 replay CLI、data split CLI、benchmark/calibration/funding governance CLI、contract compile/lint CLI |
 | `modules/governance/strategy-review/` | strategy governance | evidence ledger、strategy review、promotion gate、strategy-cycle | R&D 实验、交易执行、写 `trade.db`、写 RD memory |
 | `modules/ops/artifact-catalog/` | artifact governance | catalog DB、artifact index/query/stale/gc、feature report refs | `trade.db`、策略判断、交易所 API |
 | `modules/ohlcv-fetch/` | market data acquisition | OHLCV、funding、market features、calibration panel、manifest | 策略升格、live 执行判断 |
@@ -73,6 +74,7 @@
 | data split / holdout isolation | `modules/research/data-split` + `research.data-split` |
 | benchmark | `modules/research/benchmark-runner` + `research.benchmark-runner` |
 | calibration suite | `modules/research/calibration-suite` + `research.calibration-suite` |
+| funding governance | `modules/research/funding-governance` + `research.funding-governance` |
 | strategy contract compile | `modules/research/strategy-contract-compile` + `research.strategy-contract-compile` |
 | strategy contract lint | `modules/research/strategy-contract-lint` + `research.strategy-contract-lint` |
 | 研究 / panel / benchmark | `modules/research/strategy-rd` + `strategy-rd` |
@@ -102,7 +104,7 @@
 - `modules/trade-flow` 可以调用工具 CLI，但不拥有 Binance endpoint 细节，也不新增 R&D 实验实现或 strategy review 实现。
 - Binance 写工具只做单一交易动作；不得产出策略观点或修改 `trade.db`。
 - market scan 只能回答“先看谁”；不能直接生成 live action。
-- R&D / panel 由 `strategy-rd` 拥有，只能写 research artifact、catalog、gated draft；不得触发 Binance 写接口或写 `trade.db`；单策略 replay、data split、benchmark、calibration 与 strategy contract compile/lint 已拆为独立原子工具。
+- R&D / panel 由 `strategy-rd` 拥有，只能写 research artifact、catalog、gated draft；不得触发 Binance 写接口或写 `trade.db`；单策略 replay、data split、benchmark、calibration、funding governance 与 strategy contract compile/lint 已拆为独立原子工具。
 - strategy evidence / review / promotion 由 `strategy-review` 拥有；只读消费 `trade.db`，不得写 RD memory 或触发执行。
 - catalog / artifact hygiene 由 `artifact-catalog` 拥有；trade-flow 只消费可审计 artifact / catalog 结果。
 - `plan-preflight` 只给 deterministic verdict；不得补写事件或解释行情方向。

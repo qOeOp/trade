@@ -156,7 +156,7 @@ P0 family 的当前证书已落在 `data/rd/p0-family-certificates.json`。`cert
 - 这两个 family 还不是单资产 replay family，也不直接生成可 promotion 的 strategy policy；若后续要进入 shadow，需要补 portfolio construction contract、position sizing、组合持仓冲突、资金占用与多腿执行语义。
 - `marketability_score_v1` 已进入 `strategy-panel-rnd` 的 panel-level scorer / gate：用 OHLCV 的 median quote volume、range、impact proxy 和 row coverage 诊断资产是否适合作为策略候选 universe。它不是 standalone trading family；通过也只能授权“继续研究”，不能授权 strategy promotion。
 - 当前学习记忆显示：BTC 单资产 VCB / TSM / trend pullback / structure retest 已多轮失败；继续同类调参不是新 hypothesis，除非引入不同 return driver 或不同数据 surface。
-- `funding_carry_v1` 已接入 exact funding events：`ohlcv-fetch` 生成 funding-aware market feature report，`--funding-carry-governance` 先验检查覆盖，replay 按实际 funding settlement 计现金流，panel artifact 保存逐资产 coverage/count/hash。2026-07-10 的 8 资产实跑未产出策略，主要被成本韧性与单资产灾难亏损拦住。
+- `funding_carry_v1` 已接入 exact funding events：`ohlcv-fetch` 生成 funding-aware market feature report，`research.funding-governance` 先验检查覆盖，replay 按实际 funding settlement 计现金流，panel artifact 保存逐资产 coverage/count/hash。2026-07-10 的 8 资产实跑未产出策略，主要被成本韧性与单资产灾难亏损拦住。
 - 下一条高价值主线是：补 funding-specific time-shift null 和成本/灾难亏损诊断；若 funding carry 仍失败，再转入新的 return driver，而不是继续调同一阈值。
 
 ## 9. Sources
