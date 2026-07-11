@@ -418,6 +418,52 @@
       }
     },
     {
+      "id": "research.forward-holdout",
+      "domain": "research",
+      "intent": [
+        "forward-holdout",
+        "frozen-candidate-forward-check",
+        "rd-forward-signal"
+      ],
+      "capability_class": [
+        "V"
+      ],
+      "path": "modules/research/forward-holdout",
+      "purpose": "Evaluate a frozen R&D candidate on forward-only closed candles without writing strategy evidence or trade state.",
+      "command": {
+        "cwd": "modules/research/forward-holdout",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Read-only forward evaluation. Output may feed rd-shadow-tracker but is not strategy evidence or promotion proof by itself."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "research.forward-holdout",
+      "requires_preflight": false,
+      "concurrency_group": "research-eval",
+      "forbidden_callers": [
+        "execution",
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": "modules/research/forward-holdout/src/schemas/forward-holdout-result.schema.json"
+      }
+    },
+    {
       "id": "research.rd-shadow-tracker",
       "domain": "research",
       "intent": [

@@ -34,6 +34,7 @@
 | `research.calibration-suite` | `A/V` | pipeline calibration diagnostics | none | 保持只诊断，不产生准入证据 |
 | `research.strategy-contract-compile` | `A` | strategy contract compile | none | 保持只做契约编译，不跑 R&D |
 | `research.strategy-contract-lint` | `V` | strategy contract lint | none | 保持只做契约校验，不跑 R&D |
+| `research.forward-holdout` | `V` | frozen candidate forward-only signal check | forward holdout report | 不跑 R&D search，不写 strategy evidence / `trade.db` / Binance |
 | `research.candidate-batch` | `E/V` | bounded candidate batch、negative controls、failure summary | batch report | 不写 artifact / catalog / RD memory / `trade.db` |
 | `research.rd-loop-runner` | `A/E` | single R&D loop artifact writeback | artifact / catalog metadata / ledger / optional RD state writeback | 不写 `trade.db`，不触发 Binance，不编排 campaign |
 | `research.rd-campaign-runner` | `A/E` | bounded R&D campaign orchestration | campaign artifact / catalog metadata / optional RD state writeback | 保持不写 `trade.db`、不触发 Binance；不拥有 loop、candidate batch、RD memory command、supervisor、forward tracker、单策略 replay 或 contract compile/lint CLI |

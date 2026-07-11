@@ -38,7 +38,7 @@
 | `rd-shadow-tracker-integration` | `modules/research/strategy-rd` | `bun test ./src/lib/rd-shadow-tracker.test.ts ./src/lib/setup-event-chain.test.ts` | R&D paper tracker and setup event chain |
 | `rd-loop-runner-integration` | `modules/research/strategy-rd` | `bun test ./src/lib/strategy-rnd.test.ts ./src/lib/research-output-schemas.test.ts` | R&D loop artifact/catalog/ledger/state writeback |
 | `rd-campaign-runner-integration` | `modules/research/strategy-rd` | `bun test ./src/lib/strategy-rnd-campaign.test.ts ./src/lib/strategy-rnd.test.ts ./src/lib/research-output-schemas.test.ts` | R&D campaign gates/orchestration/artifact writeback |
-| `strategy-rd-check` | `modules/research/strategy-rd` | `bun run check` | R&D / forward holdout / supervisor integration |
+| `strategy-rd-check` | `modules/research/strategy-rd` | `bun run check` | R&D integration tests while remaining research core helpers are split |
 | `strategy-review-check` | `modules/governance/strategy-review` | `bun run check` | evidence / review / promotion |
 | `artifact-catalog-check` | `modules/ops/artifact-catalog` | `bun run check` | catalog / artifact GC / feature refs |
 | `plan-preflight-check` | `modules/guards/plan-preflight` | `bun run check` | hard guards / decision card |
@@ -73,7 +73,8 @@
 | research RD loop | `modules/research/rd-loop-runner/src/**` | `rd-loop-runner-integration` + `strategy-rd-check` while campaign consumes loop runner |
 | research RD campaign | `modules/research/rd-campaign-runner/src/**` | `rd-campaign-runner-integration` + `strategy-rd-check` |
 | research RD ledger | `modules/research/rd-ledger/src/**` | `strategy-rd-check` |
-| research R&D / forward holdout | `modules/research/strategy-rd/src/**` | `strategy-rd-check` |
+| research forward holdout | `modules/research/forward-holdout/src/**` | `strategy-rd-check` |
+| research R&D core helpers | `modules/research/strategy-rd/src/**` | `strategy-rd-check` |
 | strategy evidence / review / promotion | `modules/governance/strategy-review/src/**` | `strategy-review-check` |
 | artifact hygiene / catalog | `modules/ops/artifact-catalog/src/**` | `artifact-catalog-check` |
 | cron slow/fast track | `src/scripts/lib/*track*`, `src/scripts/lib/cron-runtime.ts` | `trade-flow-typecheck` + `bun test ./src/scripts/lib/slow-track-workflow.test.ts ./src/scripts/lib/fast-track-workflow.test.ts ./src/scripts/lib/cron-runtime.test.ts ./src/scripts/lib/track-dry-run-schema.test.ts` |

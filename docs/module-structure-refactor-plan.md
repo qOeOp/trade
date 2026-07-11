@@ -59,7 +59,7 @@
 
 ### 1.2 RD 当前拆解诊断
 
-`strategy-rd` 当前已不再是 agent-facing 总入口。RD loop、RD campaign、candidate batch、RD program state、RD supervisor、RD shadow tracker、单策略 replay、latest signal、panel、data split、benchmark、calibration、funding governance、strategy contract compile/lint 已拆为独立 atomic module；剩余风险集中在 replay/family/ledger/forward-holdout 等核心库继续抽原子边界。
+`strategy-rd` 当前已不再是 agent-facing 总入口。Forward holdout、RD loop、RD campaign、candidate batch、RD program state、RD supervisor、RD shadow tracker、单策略 replay、latest signal、panel、data split、benchmark、calibration、funding governance、strategy contract compile/lint 已拆为独立 atomic module；剩余风险集中在 replay/family 等核心库继续抽原子边界。
 
 | 当前 flag | 真实行为 | 目标 atomic module | primary write |
 | --- | --- | --- | --- |
@@ -200,6 +200,7 @@ modules/
 | `research/strategy-contract-compile` | atomic | strategy markdown contract 编译为 candidate / lifecycle contract | migrated |
 | `research/strategy-contract-lint` | atomic | strategy lifecycle contract 完整性 lint | migrated |
 | `research/strategy-families` | atomic | family registry、family modules、candidate compile source | `strategy-rd/src/lib/rnd-families` |
+| `research/forward-holdout` | atomic | frozen candidate forward-only signal check | `research.forward-holdout` |
 | `research/data-split` | atomic | discovery / validation / locked holdout manifest 切分 | migrated |
 | `research/candidate-batch` | atomic | bounded candidate 批量评估、negative controls、failure summary | migrated |
 | `research/rd-loop-runner` | atomic | 单轮 R&D loop、artifact、ledger、optional state writeback | migrated |
@@ -371,6 +372,7 @@ modules/
 - `research.rd-loop-runner` 已成为 agent-facing atomic module，承接 single R&D loop artifact writeback；`strategy-rd` 不再暴露 `--strategy-rnd-loop`。
 - `research.rd-campaign-runner` 已成为 agent-facing atomic module，承接 bounded R&D campaign orchestration；`strategy-rd` 不再暴露 campaign CLI。
 - `research.rd-ledger` 已成为 internal atomic module，承接 R&D run ledger、holdout idempotence 与 redacted loop artifact input；loop/campaign 不再从 `strategy-rd` 读取 ledger helper。
+- `research.forward-holdout` 已成为 agent-facing atomic module，承接 frozen candidate forward-only signal check；`strategy-rd` 不再拥有 forward holdout helper。
 
 ### Phase 4：拆 `trade-flow`
 
