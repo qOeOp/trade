@@ -6,7 +6,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { runFastTrackWorkflowDryRun } from "./fast-track-workflow"
 import { appendPlanEvent, ensureSchema } from "./plan-events"
-import type { Runner } from "./observe-adapter"
+import type { Runner } from "../../../../flow/observe-runner/src/lib/observe-runner"
 
 test("fast track workflow checks active flow and appends fast observe", async () => {
   const repoRoot = mkdtempSync(join(tmpdir(), "trade-flow-fast-workflow-"))

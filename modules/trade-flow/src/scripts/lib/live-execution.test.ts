@@ -3,7 +3,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { runLiveSmall } from "./live-execution"
 import { appendPlanEvent, ensureSchema } from "./plan-events"
-import type { Runner } from "./observe-adapter"
+import type { Runner } from "../../../../flow/observe-runner/src/lib/observe-runner"
 
 test("live-small uses injected runner with stable order-place command contract", async () => {
   const db = new Database(":memory:")

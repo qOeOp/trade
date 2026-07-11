@@ -6,7 +6,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { runSlowTrackWorkflowDryRun } from "./slow-track-workflow"
 import { ensureSchema } from "./plan-events"
-import type { Runner } from "./observe-adapter"
+import type { Runner } from "../../../../flow/observe-runner/src/lib/observe-runner"
 
 test("slow track workflow dry-run builds real watchlist without live action", async () => {
   const repoRoot = mkdtempSync(join(tmpdir(), "trade-flow-slow-workflow-"))

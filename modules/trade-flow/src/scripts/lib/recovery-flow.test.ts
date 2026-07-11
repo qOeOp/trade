@@ -1,9 +1,9 @@
 import { Database } from "bun:sqlite"
 import assert from "node:assert/strict"
 import test from "node:test"
-import type { Runner } from "./observe-adapter"
 import { ensureSchema, appendPlanEvent } from "./plan-events"
 import { cronRecoverFromTools, reconcileFromTools } from "./recovery-flow"
+import type { Runner } from "../../../../flow/observe-runner/src/lib/observe-runner"
 
 test("reconcile-from-tools uses injected runner with stable account snapshot command contract", async () => {
   const db = new Database(":memory:")

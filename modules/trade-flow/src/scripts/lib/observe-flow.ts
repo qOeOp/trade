@@ -1,8 +1,8 @@
 import { asRecord, stringField, type JSONRecord } from "./json"
-import { fetchObserveProjections, type Runner } from "./observe-adapter"
 import { loadJsonFile, loadStrategies } from "../../../../contracts/strategy-policy/src/strategy-policy"
 import { buildObserveEvent, type ObserveEvent } from "./observe-builder"
 import { loadRuntimePolicy } from "../../../../flow/runtime-policy-compiler/src/lib/runtime-policy"
+import { fetchObserveProjections, type Runner } from "../../../../flow/observe-runner/src/lib/observe-runner"
 
 export function loadRuntime(accountConfigPath: string, strategiesDir: string): JSONRecord
 export function loadRuntime(input: { tradingConfigPath?: string; accountConfigPath: string; strategiesDir: string }): JSONRecord

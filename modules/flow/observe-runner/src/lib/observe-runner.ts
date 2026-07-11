@@ -1,26 +1,40 @@
 import { join } from "node:path"
 
-import { type CommandFailure, type CommandResult, runJsonCommand } from "./tool-runner"
-
 type JSONRecord = Record<string, unknown>
+
+interface CommandResult {
+  ok: true
+  data: unknown
+  stdout: string
+  stderr: string
+}
+
+interface CommandFailure {
+  ok: false
+  error: string
+  stdout: string
+  stderr: string
+  exitCode: number | null
+}
+
 type Runner = (command: string[], options?: { cwd?: string }) => Promise<CommandResult | CommandFailure>
 
-interface ObserveAdapterInput {
+interface ObserveRunnerInput {
   repoRoot: string
   symbol: string
   timeoutMs?: number
 }
 
-interface ObserveAdapterOutput {
+interface ObserveRunnerOutput {
   account_snapshot: JSONRecord
   market_snapshot: JSONRecord
   market_refs: string[]
 }
 
 async function fetchObserveProjections(
-  input: ObserveAdapterInput,
+  input: ObserveRunnerInput,
   runner: Runner = runJsonCommand,
-): Promise<ObserveAdapterOutput> {
+): Promise<ObserveRunnerOutput> {
   const accountToolDir = join(input.repoRoot, "modules/binance/account-snapshot")
   const symbolToolDir = join(input.repoRoot, "modules/binance/symbol-snapshot")
   const timeout = String(input.timeoutMs ?? 10_000)
@@ -47,13 +61,56 @@ async function fetchObserveProjections(
   }
 }
 
+async function runJsonCommand(command: string[], options: { cwd?: string } = {}): Promise<CommandResult | CommandFailure> {
+  const proc = Bun.spawn(command, {
+    cwd: options.cwd,
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  const [stdout, stderr, exitCode] = await Promise.all([
+    new Response(proc.stdout).text(),
+    new Response(proc.stderr).text(),
+    proc.exited,
+  ])
+
+  if (exitCode !== 0) {
+    return {
+      ok: false,
+      error: `command failed with exit code ${exitCode}`,
+      stdout,
+      stderr,
+      exitCode,
+    }
+  }
+
+  try {
+    return {
+      ok: true,
+      data: JSON.parse(stdout) as unknown,
+      stdout,
+      stderr,
+    }
+  } catch (error) {
+    return {
+      ok: false,
+      error: `command did not return JSON: ${error instanceof Error ? error.message : String(error)}`,
+      stdout,
+      stderr,
+      exitCode,
+    }
+  }
+}
+
 function asRecord(value: unknown): JSONRecord {
   return value && typeof value === "object" ? value as JSONRecord : {}
 }
 
 export {
   fetchObserveProjections,
-  type ObserveAdapterInput,
-  type ObserveAdapterOutput,
+  runJsonCommand,
+  type CommandFailure,
+  type CommandResult,
+  type ObserveRunnerInput,
+  type ObserveRunnerOutput,
   type Runner,
 }

@@ -12,10 +12,10 @@ import {
   unwrapToolResponse,
 } from "./execution-flow"
 import { asRecord, stringField, type JSONRecord } from "./json"
-import type { Runner } from "./observe-adapter"
 import { observeFromToolsWithRunner } from "./observe-flow"
 import { appendPlanEvent, readLatestOrderFill } from "./plan-events"
 import { runJsonCommand } from "./tool-runner"
+import type { Runner } from "../../../../flow/observe-runner/src/lib/observe-runner"
 
 export async function runShadowFromTools(
   db: Database,

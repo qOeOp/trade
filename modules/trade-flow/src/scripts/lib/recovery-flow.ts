@@ -1,11 +1,11 @@
 import { Database } from "bun:sqlite"
 import { applyReconcileDrafts, reduceFlowState } from "./flow-state"
 import { asRecord, stringField, type JSONRecord } from "./json"
-import type { Runner } from "./observe-adapter"
 import { appendPlanEvent, readFlowEvents, type PlanEvent } from "./plan-events"
 import { buildReconcileDrafts } from "./reconcile"
 import { runJsonCommand } from "./tool-runner"
 import { unwrapToolResponse } from "./execution-flow"
+import type { Runner } from "../../../../flow/observe-runner/src/lib/observe-runner"
 
 export const CRON_RECOVER_STATUSES = ["abort_unmatched_reconcile", "recovered_noop", "recovered_applied", "reconcile_draft_ready"] as const
 export type CronRecoverStatus = typeof CRON_RECOVER_STATUSES[number]

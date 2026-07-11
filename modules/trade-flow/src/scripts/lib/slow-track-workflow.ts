@@ -4,9 +4,9 @@ import { Database } from "bun:sqlite"
 import { listActiveFlows } from "./flow-state"
 import { asRecord, numberField, stringField, type JSONRecord } from "./json"
 import { loadRuntime } from "./observe-flow"
-import { type Runner } from "./observe-adapter"
 import { runJsonCommand } from "./tool-runner"
 import { displayPath, displayPathFrom, resolvePathFrom } from "./paths"
+import { type Runner } from "../../../../flow/observe-runner/src/lib/observe-runner"
 
 interface SlowTrackWorkflowInput {
   repoRoot: string

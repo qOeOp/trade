@@ -184,7 +184,7 @@ modules/
 | `flow/flow-projector` | atomic | flow state、lane conflicts、active flows projection | `flow-state.ts` |
 | `flow/runtime-policy-compiler` | atomic | trading config normalize / clamp / hash / compact snapshot | 已迁入 |
 | `flow/observe-builder` | atomic | supplied snapshots -> normalized observe event body | `observe-builder.ts` |
-| `flow/observe-runner` | atomic | 调 account/symbol read tools，产出 observe event candidate；不写 DB | `observe-flow.ts`、`observe-adapter.ts` |
+| `flow/observe-runner` | atomic | 调 account/symbol read tools，产出 observe projection；不写 DB | 已迁入 |
 | `flow/execution-gate` | atomic | preflight result + trigger condition + idempotency gate | `execution-flow.ts` gate 部分 |
 | `flow/execution-router` | atomic | target_action -> exchange write command spec | `execution-flow.ts` command spec 部分 |
 | `flow/execution-recorder` | atomic | exchange result -> audited local `order_fill` draft | `execution-flow.ts` record 部分 |
@@ -260,6 +260,7 @@ modules/
 - `schemas/tool-job.schema.json` 已定义编排 job 的稳定 shell。
 - `docs/tool-layout.md` 与 `modules/README.md` 已区分 current layout、target topology、suite / atomic / contract module。
 - `automation-cycle` 已为 trade / RD / catalog dispatch 输出 registry-backed `tool_job`，包含 `tool_id + payload + entry_contract + writes + command_spec`。
+- `flow/observe-runner` 已独立拥有 account/symbol read tool projection 调用；`trade-flow` 只消费 projection 构建 observe event。
 
 尚未完成：
 
@@ -292,7 +293,7 @@ modules/
 
 尚未完成：
 
-- `contracts/replay-contract` 仍未单独拆 type/schema shell；governance 当前仍有本地 replay re-export 适配。
+- `contracts/replay-contract` 已单独拆出 replay result type/schema shell；governance 不再拥有本地 replay result re-export。
 - automation-cycle 已输出 registry-backed `tool_job`；slow / fast / recovery / execution runner 内部仍有直接 tool argv，后续随 `flow/*` 原子拆分迁入 resolver。
 
 ### Phase 2：明确 contract 层
@@ -389,7 +390,7 @@ modules/
 2. `flow/flow-projector`
 3. `flow/runtime-policy-compiler`
 4. `flow/observe-builder`
-5. `flow/observe-runner`
+5. `flow/observe-runner`（已迁入）
 6. `flow/execution-gate`
 7. `flow/execution-router`
 8. `flow/execution-recorder`

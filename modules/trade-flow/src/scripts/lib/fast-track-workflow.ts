@@ -4,10 +4,10 @@ import { Database } from "bun:sqlite"
 import { latestSlowObserve, listActiveFlows, reduceFlowState } from "./flow-state"
 import { evaluateTriggerCondition } from "./execution-flow"
 import { asRecord, numberField, removeUndefined, stringField, type JSONRecord } from "./json"
-import { type Runner } from "./observe-adapter"
 import { appendPlanEvent, readFlowEvents, type PlanEvent } from "./plan-events"
 import { runJsonCommand } from "./tool-runner"
 import { displayPath } from "./paths"
+import { type Runner } from "../../../../flow/observe-runner/src/lib/observe-runner"
 
 interface FastTrackWorkflowInput {
   repoRoot: string

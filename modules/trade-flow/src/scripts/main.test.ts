@@ -5,7 +5,7 @@ import test from "node:test"
 import { Database } from "bun:sqlite"
 
 import { appendPlanEvent, buildRecordedExecutionEvent, cronRecoverFromTools, ensureSchema, reconcileFromTools, reduceFlowState, run, runLiveSmall, runShadowFromTools, validateOrderFill } from "./main"
-import { type Runner } from "./lib/observe-adapter"
+import { type Runner } from "../../../flow/observe-runner/src/lib/observe-runner"
 import { resolveRepoPath } from "./lib/paths"
 
 test("validateOrderFill requires audit fields for trade_flow source", () => {
