@@ -1,0 +1,284 @@
+{
+  "schema_version": "trade.architecture-manifest.v1",
+  "domains": [
+    {
+      "id": "orchestration-ops",
+      "status": "implemented",
+      "modules": ["modules/orchestration-ops/trade-flow"],
+      "owns_jobs": ["J01", "J09"],
+      "owns_stores": ["ops_runtime_store"]
+    },
+    {
+      "id": "policy-risk",
+      "status": "implemented",
+      "modules": ["modules/policy-risk/runtime-policy-compiler"],
+      "owns_stores": ["policy_registry"]
+    },
+    {
+      "id": "portfolio-execution-state",
+      "status": "implemented",
+      "modules": [
+        "modules/portfolio-execution-state/event-store",
+        "modules/portfolio-execution-state/flow-projector"
+      ],
+      "owns_stores": ["trade_event_store", "flow_read_models"]
+    },
+    {
+      "id": "market-data-products",
+      "status": "implemented",
+      "modules": [
+        "modules/market-data-products/ohlcv-fetch",
+        "modules/market-data-products/tech-indicators",
+        "modules/market-data-products/binance-read/market-scan",
+        "modules/market-data-products/binance-read/symbol-snapshot",
+        "modules/market-data-products/binance-read/aggtrades-fetch",
+        "modules/market-data-products/liquidation-zones"
+      ],
+      "owns_stores": ["market_data_store"]
+    },
+    {
+      "id": "exchange-gateway",
+      "status": "implemented",
+      "modules": [
+        "modules/exchange-gateway/binance-read/account-snapshot",
+        "modules/exchange-gateway/binance-write/order-place",
+        "modules/exchange-gateway/binance-write/order-cancel",
+        "modules/exchange-gateway/binance-write/order-preview",
+        "modules/exchange-gateway/binance-write/position-protect",
+        "modules/exchange-gateway/binance-write/position-adjust"
+      ],
+      "owns_stores": ["exchange_runtime_store"]
+    },
+    {
+      "id": "live-decision-planning",
+      "status": "implemented",
+      "modules": [
+        "modules/live-decision-planning/observe-builder",
+        "modules/live-decision-planning/observe-runner",
+        "modules/live-decision-planning/slow-track-plan",
+        "modules/live-decision-planning/fast-track-plan"
+      ]
+    },
+    {
+      "id": "live-execution-control",
+      "status": "implemented",
+      "modules": [
+        "modules/live-execution-control/execution-gate",
+        "modules/live-execution-control/execution-flow-runner",
+        "modules/live-execution-control/execution-router",
+        "modules/live-execution-control/execution-recorder",
+        "modules/live-execution-control/live-small-runner",
+        "modules/live-execution-control/reconcile-drafts",
+        "modules/live-execution-control/recovery-runner",
+        "modules/live-execution-control/plan-preflight"
+      ],
+      "owns_jobs": ["J02", "J03"]
+    },
+    {
+      "id": "research-strategy-development",
+      "status": "implemented",
+      "modules": [
+        "modules/research-strategy-development/replay-runner",
+        "modules/research-strategy-development/data-split",
+        "modules/research-strategy-development/signal-evaluator",
+        "modules/research-strategy-development/panel-evaluator",
+        "modules/research-strategy-development/benchmark-runner",
+        "modules/research-strategy-development/calibration-suite",
+        "modules/research-strategy-development/funding-governance",
+        "modules/research-strategy-development/rd-program-state",
+        "modules/research-strategy-development/rd-supervisor",
+        "modules/research-strategy-development/rd-shadow-tracker",
+        "modules/research-strategy-development/rd-loop-runner",
+        "modules/research-strategy-development/rd-campaign-runner",
+        "modules/research-strategy-development/rd-ledger",
+        "modules/research-strategy-development/rd-artifact-summary",
+        "modules/research-strategy-development/rd-integration-suite"
+      ],
+      "owns_jobs": ["J05", "J06"],
+      "owns_stores": ["research_state_store"]
+    },
+    {
+      "id": "governance-review-compliance",
+      "status": "implemented",
+      "modules": ["modules/governance-review-compliance/strategy-review"],
+      "owns_jobs": ["J08"],
+      "owns_stores": ["governance_ledger"]
+    },
+    {
+      "id": "artifact-knowledge",
+      "status": "implemented",
+      "modules": ["modules/artifact-knowledge/artifact-catalog"],
+      "owns_jobs": ["J07"],
+      "owns_stores": ["artifact_catalog"]
+    }
+  ],
+  "jobs": [
+    {
+      "ticket_no": "J01",
+      "job_id": "runtime_health_guard",
+      "target_domain": "orchestration-ops",
+      "status": "planned",
+      "owner_module": "modules/orchestration-ops/trade-flow",
+      "writes": ["ops_runtime_store"],
+      "reason": "health checker boundary exists in architecture; standalone runtime owner is not yet implemented"
+    },
+    {
+      "ticket_no": "J02",
+      "job_id": "account_reconcile_guard",
+      "target_domain": "live-execution-control",
+      "status": "implemented",
+      "owner_module": "modules/live-execution-control/recovery-runner",
+      "writes": ["trade_event_store"]
+    },
+    {
+      "ticket_no": "J03",
+      "job_id": "fast_track_guard",
+      "target_domain": "live-execution-control",
+      "status": "implemented",
+      "owner_module": "modules/live-decision-planning/fast-track-plan",
+      "writes": ["trade_event_store"]
+    },
+    {
+      "ticket_no": "J04",
+      "job_id": "slow_track_market_watch",
+      "target_domain": "live-decision-planning",
+      "status": "implemented",
+      "owner_module": "modules/live-decision-planning/slow-track-plan",
+      "writes": ["trade_event_store", "artifact_catalog"]
+    },
+    {
+      "ticket_no": "J05",
+      "job_id": "rd_strategy_supervisor",
+      "target_domain": "research-strategy-development",
+      "status": "implemented",
+      "owner_module": "modules/research-strategy-development/rd-supervisor",
+      "writes": ["research_state_store", "artifact_catalog"]
+    },
+    {
+      "ticket_no": "J06",
+      "job_id": "rd_forward_shadow_trackers",
+      "target_domain": "research-strategy-development",
+      "status": "implemented",
+      "owner_module": "modules/research-strategy-development/rd-shadow-tracker",
+      "writes": ["artifact_catalog"]
+    },
+    {
+      "ticket_no": "J07",
+      "job_id": "catalog_hygiene_scan",
+      "target_domain": "artifact-knowledge",
+      "status": "implemented",
+      "owner_module": "modules/artifact-knowledge/artifact-catalog",
+      "writes": ["artifact_catalog"]
+    },
+    {
+      "ticket_no": "J08",
+      "job_id": "closed_flow_review_sweep",
+      "target_domain": "governance-review-compliance",
+      "status": "planned",
+      "owner_module": "modules/governance-review-compliance/strategy-review",
+      "writes": ["trade_event_store", "governance_ledger"],
+      "reason": "strategy-review exists; closed-flow sweep runner is still planned"
+    },
+    {
+      "ticket_no": "J09",
+      "job_id": "ops_notify_dispatch",
+      "target_domain": "orchestration-ops",
+      "status": "planned",
+      "owner_module": "modules/orchestration-ops/trade-flow",
+      "writes": ["ops_runtime_store"],
+      "reason": "notify boundary exists in architecture; standalone dispatcher is not yet implemented"
+    }
+  ],
+  "stores": [
+    {
+      "id": "trade_event_store",
+      "status": "implemented",
+      "owner_domain": "portfolio-execution-state",
+      "owner_module": "modules/portfolio-execution-state/event-store",
+      "physical": { "kind": "sqlite", "path": "data/trade.db", "tables": ["plan_event"] },
+      "schema": "docs/storage-schema/trade-event-store.sql",
+      "write_contract": "append-only"
+    },
+    {
+      "id": "flow_read_models",
+      "status": "implemented-derived",
+      "owner_domain": "portfolio-execution-state",
+      "owner_module": "modules/portfolio-execution-state/flow-projector",
+      "physical": { "kind": "memory", "path": "", "tables": [] },
+      "schema": "docs/storage-schema/flow-read-models.sql",
+      "write_contract": "derived"
+    },
+    {
+      "id": "market_data_store",
+      "status": "planned",
+      "owner_domain": "market-data-products",
+      "owner_module": "modules/market-data-products/ohlcv-fetch",
+      "physical": { "kind": "duckdb", "path": "data/market_data.duckdb", "tables": ["market_manifest", "canonical_candle", "funding_event", "feature_manifest"] },
+      "schema": "docs/storage-schema/market-data-store.sql",
+      "write_contract": "append-or-upsert-by-manifest"
+    },
+    {
+      "id": "exchange_runtime_store",
+      "status": "planned",
+      "owner_domain": "exchange-gateway",
+      "owner_module": "modules/exchange-gateway/binance-write/order-place",
+      "physical": { "kind": "sqlite", "path": "data/exchange_runtime.db", "tables": ["exchange_command", "exchange_result", "exchange_snapshot_ref"] },
+      "schema": "docs/storage-schema/exchange-runtime-store.sql",
+      "write_contract": "append-only"
+    },
+    {
+      "id": "artifact_catalog",
+      "status": "implemented",
+      "owner_domain": "artifact-knowledge",
+      "owner_module": "modules/artifact-knowledge/artifact-catalog",
+      "physical": { "kind": "sqlite", "path": "data/data_catalog.db", "tables": ["schema_migration", "run", "dataset", "artifact", "artifact_ref", "strategy_rnd_run", "strategy_evidence", "panel", "panel_member", "feature_report", "research_report"] },
+      "schema": "docs/storage-schema/artifact-catalog.sql",
+      "write_contract": "upsert-index-only"
+    },
+    {
+      "id": "research_state_store",
+      "status": "planned",
+      "owner_domain": "research-strategy-development",
+      "owner_module": "modules/research-strategy-development/rd-program-state",
+      "physical": { "kind": "sqlite", "path": "data/rd_state.db", "tables": ["rd_program", "rd_hypothesis", "rd_trial", "rd_holdout_use", "rd_lesson"] },
+      "schema": "docs/storage-schema/research-state-store.sql",
+      "write_contract": "append-ledger-and-upsert-state"
+    },
+    {
+      "id": "governance_ledger",
+      "status": "planned",
+      "owner_domain": "governance-review-compliance",
+      "owner_module": "modules/governance-review-compliance/strategy-review",
+      "physical": { "kind": "sqlite", "path": "data/governance.db", "tables": ["governance_evidence", "promotion_decision", "closed_flow_review", "review_batch"] },
+      "schema": "docs/storage-schema/governance-ledger.sql",
+      "write_contract": "append-only"
+    },
+    {
+      "id": "policy_registry",
+      "status": "planned",
+      "owner_domain": "policy-risk",
+      "owner_module": "modules/policy-risk/runtime-policy-compiler",
+      "physical": { "kind": "sqlite", "path": "data/policy_registry.db", "tables": ["policy_snapshot", "approved_strategy_ref"] },
+      "schema": "docs/storage-schema/policy-registry.sql",
+      "write_contract": "append-snapshot"
+    },
+    {
+      "id": "ops_runtime_store",
+      "status": "planned",
+      "owner_domain": "orchestration-ops",
+      "owner_module": "modules/orchestration-ops/trade-flow",
+      "physical": { "kind": "sqlite", "path": "data/ops_runtime.db", "tables": ["cycle_run", "job_run", "runtime_health", "notify_attempt", "ops_lock"] },
+      "schema": "docs/storage-schema/ops-runtime-store.sql",
+      "write_contract": "append-observability"
+    }
+  ],
+  "rails": [
+    { "id": "command_rail", "status": "implemented", "contract": "modules/contracts/protocol-fabric/src/schemas/job-ticket.schema.json" },
+    { "id": "fact_rail", "status": "implemented", "contract": "modules/contracts/protocol-fabric/src/schemas/event-write-envelope.schema.json" },
+    { "id": "artifact_rail", "status": "implemented", "contract": "modules/contracts/protocol-fabric/src/schemas/artifact-ref.schema.json" },
+    { "id": "market_data_rail", "status": "implemented", "contract": "modules/contracts/protocol-fabric/src/schemas/market-data-manifest.schema.json" },
+    { "id": "exchange_rail", "status": "implemented", "contract": "modules/contracts/protocol-fabric/src/schemas/exchange-command-ref.schema.json" },
+    { "id": "policy_rail", "status": "implemented", "contract": "modules/contracts/protocol-fabric/src/schemas/policy-snapshot.schema.json" },
+    { "id": "store_rail", "status": "implemented", "contract": "modules/contracts/protocol-fabric/src/schemas/logical-store-ref.schema.json" }
+  ]
+}

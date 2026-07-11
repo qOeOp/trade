@@ -187,6 +187,8 @@ automation-plan
 
 `modules/contracts/protocol-fabric/src/schemas/logical-store-ref.schema.json` 是 logical store 的共享身份协议；它记录 `store / owner_domain / owner_module / physical_locator / write_contract / ref`。后续从 `data_catalog.db`、文件 manifest 或 JSONL 拆到 DuckDB / 独立 SQLite 时，先迁 `physical_locator` 和 owner module，不改跨域引用语义。
 
+存储落地表见 [storage-architecture.md](storage-architecture.md)。新增或拆分任何 store 时，必须同步 [architecture-manifest.json](architecture-manifest.json)、`docs/storage-schema/*.sql` 和 owner module check。
+
 每个 domain module 需要显式 inbox / outbox contract。跨 domain 只允许依赖这些 contract schema 和 refs；域内 handler、store、helper 不作为外部调用入口。
 
 数据管线按 data product pipeline 推进，而不是把市场数据产品、研究实验和证据复核的中间文件互相直连：

@@ -6,86 +6,41 @@ agent-native 加密交易工作仓库。目标是让 agent 在可审计事实、
 
 ## 1. 全局架构
 
-```mermaid
-flowchart TB
-  ENTRY["single automation entry<br/>automation wakeup / user takeover"]
+![architecture overview](docs/assets/architecture-overview.svg)
 
-  subgraph SUP["trade-flow supervisor"]
-    direction LR
-    SP["supervisor plan<br/>read config + current facts"]
-    GT["cadence / lock / concurrency<br/>permission gate"]
-    FO["subagent fan-out<br/>isolated job contracts"]
-    MG["merge results<br/>summary + next constraints"]
-    SP --> GT --> FO --> MG
-  end
+完整 Mermaid 源文件固定在 [docs/architecture-overview.mmd](docs/architecture-overview.mmd)，渲染产物在 [docs/assets/architecture-overview.svg](docs/assets/architecture-overview.svg) / [docs/assets/architecture-overview.png](docs/assets/architecture-overview.png)。以后改顶层设计，先改这份源文件，再同步 README 图、[docs/design-architecture.md](docs/design-architecture.md)、[docs/architecture-manifest.json](docs/architecture-manifest.json) 和 [docs/storage-architecture.md](docs/storage-architecture.md)。
 
-  subgraph BOARD["supervisor-controlled pipeline board"]
-    direction TB
+一句话：外部只有一个 automation 入口；`orchestration-ops` 只生成本轮 job graph protocol，不直接解释交易、研究或治理结果；跨域通信走 `protocol-fabric / logical bus`，各责任域通过 inbox / outbox、logical store ref 和 rail envelope 解耦。
 
-    subgraph ROW1["primary pipelines"]
-      direction LR
-      TRADING["Trading pipeline<br/>live watch -> active guard -> execute -> reconcile"]
-      RESEARCH["Research pipeline<br/>R&D -> replay / panel / split -> shadow / forward"]
-    end
+顶层责任域：
 
-    subgraph ROW2["governance + ops pipelines"]
-      direction LR
-      GOVERNANCE["Governance pipeline<br/>closed-flow review -> promotion -> diagnostics"]
-      OPS["Ops pipeline<br/>catalog hygiene -> notify -> quality"]
-    end
-  end
+| 域 | 责任 |
+| --- | --- |
+| `orchestration-ops` | cycle planner、job graph、runtime health、notify、ops runtime |
+| `contracts/protocol-fabric` | job ticket、command_spec、event/ref/store envelope、logical rails |
+| `policy-risk` | runtime policy、approved strategy snapshot、风险和权限边界 |
+| `portfolio-execution-state` | `trade.db` event store、flow projection、真钱状态读模型 |
+| `market-data-products` | raw/canonical market data、feature、dataset manifest |
+| `exchange-gateway` | 交易所 account/order/fill facts、authorized write adapter、command ledger |
+| `live-decision-planning` | slow watch、thesis、watchlist、action intent |
+| `live-execution-control` | recovery、fast guard、preflight、execution、recorder |
+| `research-strategy-development` | hypothesis loop、experiment runners、shadow tracker、RD state |
+| `governance-review-compliance` | closed-flow review、promotion gate、evidence ledger |
+| `artifact-knowledge` | artifact catalog、retention、lineage、GC |
 
-  subgraph CONTRACTS["contract substrate"]
-    direction LR
-    CAP["capability banks<br/>observe / data / execute / governance"]
-    FACTS["durable facts<br/>trade.db / catalog / artifact / strategy / state"]
-    EX["Binance IO<br/>read APIs / gated write APIs"]
-    SUMMARY["supervisor summary<br/>next constraints"]
-    CAP --> FACTS
-    CAP --> EX --> FACTS
-    FACTS --> SUMMARY
-  end
+本轮 automation fork 出的 job：
 
-  ENTRY --> SP
-  FO --> TRADING
-  FO --> RESEARCH
-  FO --> GOVERNANCE
-  FO --> OPS
-  TRADING --> CAP
-  RESEARCH --> CAP
-  GOVERNANCE --> CAP
-  OPS --> CAP
-  SUMMARY -. "next wakeup constraints" .-> MG
-
-  classDef entry fill:#102a43,stroke:#102a43,color:#fff;
-  classDef sup fill:#efe7ff,stroke:#7a55c7,color:#111;
-  classDef flow fill:#fff3d8,stroke:#d9902f,color:#111;
-  classDef block fill:#f7f7f7,stroke:#666,color:#111;
-  classDef io fill:#e8f8fb,stroke:#358b9a,color:#111;
-  class ENTRY entry;
-  class SP,GT,FO,MG sup;
-  class TRADING,RESEARCH,GOVERNANCE,OPS flow;
-  class CAP,FACTS,SUMMARY block;
-  class EX io;
-```
-
-一句话：外部只有一个长期入口；`trade-flow supervisor` 负责生成任务图、执行节奏/锁/权限闸、分发隔离 subagent、合并结果并写回下一轮约束；具体 flow 只通过能力层和持久事实层交换信息。
-
-全局 flow 清单：
-
-| Flow | 归属 | 作用 |
+| Job | 业务含义 | 状态 |
 | --- | --- | --- |
-| `live opportunity watch` | 交易 | 慢轨盯市，生成 full observe、thesis、trigger |
-| `active flow guard` | 交易 | 快轨守护 active flow，处理触发、防御、轻量对账 |
-| `plan / preflight / execute` | 交易 | 预演、hard guards、真实下单写口 |
-| `recovery / reconcile` | 交易 | 用交易所事实修正本地状态 |
-| `new strategy R&D` | 研究 | 自主提假设、scout、验证，直到 shadow candidate / blocked / budget exhausted |
-| `shadow / forward validation` | 研究 | 影子交易和 forward 样本跟踪 |
-| `replay / panel / data split` | 研究 | 回放、切分、跨标的 panel、anti-overfit evidence |
-| `closed-flow review` | 治理 | 闭合交易复盘，生成 attribution 与诊断 |
-| `strategy promotion` | 治理 | `draft -> shadow -> live-small -> paused` 准入 |
-| `catalog / artifact hygiene` | 运维 | artifact 注册、stale scan、GC |
-| `notify + quality` | 运维 | 通知 fallback、测试、typecheck、契约检查 |
+| `J01 runtime health` | 配置、API、DB、lock、safe mode 检查 | planned |
+| `J02 account reconcile` | 交易所事实对账，修复本地风险状态 | implemented |
+| `J03 fast guard` | active flow 快轨守护、触发、防御、轻量执行 | implemented |
+| `J04 slow watch` | 慢轨盯市、机会生成、watchlist / intent | implemented |
+| `J05 R&D loop` | 策略研发假设循环和实验 | implemented |
+| `J06 shadow tracking` | shadow / forward 样本跟踪 | implemented |
+| `J07 catalog hygiene` | artifact catalog stale / GC / retention | implemented |
+| `J08 closed-flow review` | 已闭合交易复盘和 promotion evidence | planned |
+| `J09 ops notify` | 异常汇总、人工接管提醒、cycle summary | planned |
 
 ## 2. 两条主链
 
@@ -403,7 +358,10 @@ bun modules/research-strategy-development/rd-supervisor/src/scripts/main.ts --st
 
 - [docs/vision.md](docs/vision.md)：为什么做
 - [docs/prd.md](docs/prd.md)：做什么、边界和产品口径
+- [docs/architecture-overview.mmd](docs/architecture-overview.mmd)：README 顶层 Mermaid 源
 - [docs/design-architecture.md](docs/design-architecture.md)：单入口、双轨、subagent、数据模型和调度设计
+- [docs/architecture-manifest.json](docs/architecture-manifest.json)：域、job、store、rail 的机器可检清单
+- [docs/storage-architecture.md](docs/storage-architecture.md)：logical store、DDL 和落地状态
 - [docs/tech-spec.md](docs/tech-spec.md)：实现口径和 schema
 - [docs/trading-config.md](docs/trading-config.md)：统一交易配置与 runtime policy
 - [docs/check-contract.md](docs/check-contract.md)：改动后的最小检查
@@ -416,12 +374,14 @@ bun modules/research-strategy-development/rd-supervisor/src/scripts/main.ts --st
 已经具备：
 
 - Binance USDM observe / account recovery / execution tools
-- trade-flow event stream、dry-run、shadow、live-small、reconcile
-- single automation entry + supervisor plan + subagent fan-out 契约
+- domain-first 目录、协议层、job ticket / command_spec、logical-store-ref
+- portfolio event-store / flow-projector、dry-run、shadow、live-small、reconcile
+- single automation entry + job graph protocol + subagent fan-out 契约
 - slow / fast 双轨口径
 - replay、strategy evidence、review、promotion gate
 - R&D campaign、panel、calibration、learning memory、autonomous R&D supervisor loop
 - artifact catalog、GC、quality check、通知 fallback
+- storage DDL、architecture manifest、manifest / storage schema quality checks
 
 仍保持克制：
 
@@ -430,3 +390,20 @@ bun modules/research-strategy-development/rd-supervisor/src/scripts/main.ts --st
 - 不把 R&D artifact 当交易事实
 - 不把单段漂亮回测直接升实盘
 - 不让快轨 LLM 做不可复现的质性市场判断
+
+## 18. 后续重构任务
+
+下一阶段不是重新画图，而是把 `planned` store / job 逐个接进 runtime。每完成一项都必须同步 `docs/architecture-overview.mmd`、`docs/architecture-manifest.json`、`docs/storage-architecture.md`、owner module check 和 `scripts/quality-check.sh`。
+
+| 优先级 | 任务 | 目标完成状态 |
+| --- | --- | --- |
+| P0 | 实现 `ops_runtime_store`、`J01 runtime_health_guard`、`J09 ops_notify_dispatch` | cycle/job/health/notify 有独立库表和 owner module |
+| P0 | 把 automation cycle 从裸路径继续收敛到 `tool_id + command_spec + protocol-fabric` | 调度中心只发协议，不读下游实现 |
+| P1 | 实现 `exchange_runtime_store` | Binance write request/result/client_order_id/idempotency 有独立审计账本 |
+| P1 | 实现 `market_data_store` | raw/canonical/feature/dataset manifest 由市场数据域单写管理 |
+| P1 | 实现 `policy_registry` | approved strategy refs、runtime policy hash、风险快照可追溯 |
+| P2 | 实现 `research_state_store` | RD hypothesis、budget、trial、holdout use 不再散落在 artifact/state 文件 |
+| P2 | 实现 `governance_ledger` 与 `J08 closed-flow review sweep` | review/promotion evidence 有独立 ledger 和串行 closeout job |
+| P2 | 收敛域间调用到 inbox/outbox + rail envelope | 域内 handler 不再被其他域直接 import 或直接写库 |
+| P3 | 为每个 logical store 增加 migration/init/check CLI | 库表可独立初始化、升级、验证 |
+| P3 | 继续拆 `trade-flow` 剩余 suite 逻辑 | `orchestration-ops/trade-flow` 只保留 cycle orchestration 和 summary |

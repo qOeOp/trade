@@ -20,6 +20,8 @@
 | --- | --- | --- | --- |
 | `repo-whitespace` | repo root | `git diff --check` | 空白、冲突标记、尾随空格 |
 | `project-quality` | repo root | `scripts/quality-check.sh` | 提交前 TS / Go / Python / shell / hygiene 总闸 |
+| `architecture-manifest-check` | repo root | `bun scripts/check-architecture-manifest.ts` | 顶层域 / job / store / rail 与真实目录、DDL、protocol schema 对齐 |
+| `storage-schema-check` | repo root | `bun scripts/check-storage-schemas.ts` | logical store DDL 可执行，且 manifest 声明表真实创建 |
 | `trade-flow-typecheck` | `modules/orchestration-ops/trade-flow` | `bun run typecheck` | TS 类型与未使用变量 |
 | `trade-flow-test` | `modules/orchestration-ops/trade-flow` | `bun run test` | 当前全部 trade-flow 单测 / 契约测 |
 | `trade-flow-check` | `modules/orchestration-ops/trade-flow` | `bun run check` | typecheck + test |

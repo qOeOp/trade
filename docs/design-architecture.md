@@ -92,6 +92,8 @@ trade-flow 是套件 tool 的总入口（功能 tool 拓扑见 [tool-layout.md](
 
 跨域传递 store 身份时使用 `protocol-fabric.logical-store-ref`：`store / owner_domain / owner_module / physical_locator / write_contract / ref`。物理库未来可以从 SQLite / 文件 manifest 迁到 DuckDB、parquet 或独立 ledger，但外部域仍只消费 ref 和 contract，不直接依赖表结构。
 
+落地状态以 [storage-architecture.md](storage-architecture.md) 和 [architecture-manifest.json](architecture-manifest.json) 为准。`implemented` 表示已有 owner module 和运行时代码；`planned` 表示顶层已决定独立库表与 DDL，但 runtime 尚未接入，不能在 Mermaid 或文档里伪装成已完成。
+
 | Logical store | Owner | 当前物理落点 | 目标物理化 | 写入口 | 读模型 / 消费面 |
 | --- | --- | --- | --- | --- | --- |
 | `trade_event_store` | `portfolio-execution-state` | `trade.db.plan_event` | 保持独立 SQLite；只 append 事件 | event-store / execution recorder / review writer | flow projector |

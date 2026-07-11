@@ -37,6 +37,8 @@ check_toolset_manifest() {
   require_cmd bun
   log "toolset manifest"
   bun scripts/toolset.ts --validate >/dev/null
+  bun scripts/check-architecture-manifest.ts >/dev/null
+  bun scripts/check-storage-schemas.ts >/dev/null
 }
 
 check_module_contracts() {
