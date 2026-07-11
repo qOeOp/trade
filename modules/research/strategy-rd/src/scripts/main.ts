@@ -15,7 +15,6 @@ import {
 import { runRdProgramStateCommand } from "../lib/rd-program-state"
 import { runRdSupervisorLoop } from "../lib/rd-supervisor-runner"
 import { candidateFromStrategyContract } from "../lib/strategy-contract"
-import { runStrategyDataSplit, strategyDataSplitInputFromJson } from "../lib/strategy-data-split"
 import { runStrategyPanelRnd, strategyPanelRndInputFromJson } from "../lib/strategy-panel-rnd"
 import {
   runCalibrationSuite,
@@ -41,7 +40,6 @@ interface Config {
   strategyRndLoop: boolean
   strategyRndCampaign: boolean
   strategyPanelRnd: boolean
-  strategyDataSplit: boolean
   rdProgramState: boolean
   rdSupervisorRun: boolean
   rdShadowTracker: boolean
@@ -91,11 +89,6 @@ function runConfig(config: Config): unknown {
     return runStrategyRndCampaign(input)
   }
   if (config.strategyPanelRnd) return runStrategyPanelRnd(strategyPanelRndInputFromJson(config.input))
-  if (config.strategyDataSplit) {
-    const input = strategyDataSplitInputFromJson(config.input)
-    assertRuntimeOutputPaths(input.outputRoot)
-    return runStrategyDataSplit(input)
-  }
   if (config.rdProgramState) return runRdProgramStateCommand({ path: config.statePath, input: config.input, catalogDbPath: config.catalogDbPath })
   if (config.rdSupervisorRun) return runRdSupervisorLoop({ path: config.statePath, input: config.input, catalogDbPath: config.catalogDbPath })
   if (config.rdShadowTracker) return runRdShadowTracker(config)
@@ -118,7 +111,6 @@ function parseArgs(argv: string[]): Config {
     strategyRndLoop: false,
     strategyRndCampaign: false,
     strategyPanelRnd: false,
-    strategyDataSplit: false,
     rdProgramState: false,
     rdSupervisorRun: false,
     rdShadowTracker: false,
@@ -142,7 +134,6 @@ function parseArgs(argv: string[]): Config {
       case "--strategy-rnd-loop": config.strategyRndLoop = true; break
       case "--strategy-rnd-campaign": config.strategyRndCampaign = true; break
       case "--strategy-panel-rnd": config.strategyPanelRnd = true; break
-      case "--strategy-data-split": config.strategyDataSplit = true; break
       case "--rd-program-state": config.rdProgramState = true; break
       case "--rd-supervisor-run": config.rdSupervisorRun = true; break
       case "--rd-shadow-tracker": config.rdShadowTracker = true; break

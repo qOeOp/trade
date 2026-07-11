@@ -1,9 +1,12 @@
 import { createHash } from "node:crypto"
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
-import { defaultCatalogDbPathForGeneratedPath, registerCatalogArtifact } from "./data-catalog"
-import { displayPath, resolveReadablePath } from "./paths"
-import type { JSONRecord } from "./json"
+import {
+  defaultCatalogDbPathForGeneratedPath,
+  registerCatalogArtifact,
+} from "../../../../contracts/catalog-contract/src/catalog-client"
+import { displayPath, resolveReadablePath } from "../../../../contracts/runtime-core/src/paths"
+import type { JSONRecord } from "../../../../contracts/runtime-core/src/json"
 
 type SplitSegmentName = "discovery" | "validation" | "locked_holdout"
 

@@ -29,6 +29,7 @@
 | `plan-preflight` | `A` | hard guards、decision card | stdout | 保持独立 guard；不写事件 |
 | `trade-flow` | `E/V/T` | 在线链 glue、event、execution recording、recovery、automation | trade.db / track artifact / optional Binance | 已移除 R&D / review / artifact 旧入口；继续保持入口瘦身 |
 | `research.replay-runner` | `E` | 单策略机械 replay | none | 保持不写文件、不写 catalog、不触发 Binance |
+| `research.data-split` | `A` | discovery / validation / locked holdout manifest split | split artifacts / optional catalog ref | 保持不跑 R&D、不打开 holdout、不触发 Binance |
 | `research.strategy-contract-compile` | `A` | strategy contract compile | none | 保持只做契约编译，不跑 R&D |
 | `research.strategy-contract-lint` | `V` | strategy contract lint | none | 保持只做契约校验，不跑 R&D |
 | `strategy-rd` | `A/E` | R&D、panel、benchmark、calibration、forward tracker、RD memory | research artifact / catalog metadata / strategy draft | 保持不写 `trade.db`、不触发 Binance；不再拥有单策略 replay 或 contract compile/lint CLI |
@@ -70,9 +71,10 @@
 | Command | Class | 当前 owner |
 | --- | --- | --- |
 | `research.replay-runner` | `E` | `modules/research/replay-runner` |
+| `research.data-split` | `A` | `modules/research/data-split` |
 | `research.strategy-contract-compile` | `A` | `modules/research/strategy-contract-compile` |
 | `research.strategy-contract-lint` | `V` | `modules/research/strategy-contract-lint` |
-| `--strategy-rnd-*`, `--strategy-panel-rnd`, `--strategy-data-split`, `--strategy-benchmark`, `--strategy-calibration-suite`, `--strategy-signal`, `--rd-program-state`, `--rd-supervisor-run`, `--rd-shadow-tracker` | `A/E` | `modules/research/strategy-rd` |
+| `--strategy-rnd-*`, `--strategy-panel-rnd`, `--strategy-benchmark`, `--strategy-calibration-suite`, `--strategy-signal`, `--rd-program-state`, `--rd-supervisor-run`, `--rd-shadow-tracker` | `A/E` | `modules/research/strategy-rd` |
 | `--append-strategy-evidence`, `--strategy-review`, `--strategy-promote`, `--strategy-cycle` | `E/V` | `modules/governance/strategy-review` |
 | `--catalog-*`, `--artifact-gc` | `A/V` | `modules/ops/artifact-catalog` |
 

@@ -786,7 +786,7 @@ trade-flow 启动时遍历 `strategies/*.md`，按 frontmatter 索引到内存 m
 
 R&D 数据切分：
 
-- 新 hypothesis 开始前先运行 `--strategy-data-split`，产出 discovery / validation / locked_holdout 三段独立 manifest。
+- 新 hypothesis 开始前先运行 `research.data-split`，产出 discovery / validation / locked_holdout 三段独立 manifest。
 - split 命令在 discovery -> validation、validation -> locked_holdout 之间自动留 embargo，默认取 `max(max_hold_bars, feature_lookback_bars, funding_interval_bars)`。
 - discovery 可搜索；validation 只过滤冻结前候选；locked_holdout 只能在 Trade Contract 冻结后使用一次，不能参与参数选择。
 

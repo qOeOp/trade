@@ -59,7 +59,7 @@
 
 ### 1.2 RD 当前拆解诊断
 
-`strategy-rd` 当前实际是 research suite，总入口仍包含 batch、loop、campaign、panel、data split、program state、supervisor、shadow tracker、benchmark、calibration、funding governance、signal。单策略 replay、strategy contract compile/lint 已拆为独立 atomic module；剩余 flag 继续按 Binance 原子性标尺拆分。
+`strategy-rd` 当前实际是 research suite，总入口仍包含 batch、loop、campaign、panel、program state、supervisor、shadow tracker、benchmark、calibration、funding governance、signal。单策略 replay、data split、strategy contract compile/lint 已拆为独立 atomic module；剩余 flag 继续按 Binance 原子性标尺拆分。
 
 | 当前 flag | 真实行为 | 目标 atomic module | primary write |
 | --- | --- | --- | --- |
@@ -67,7 +67,7 @@
 | `--strategy-signal` | 最新闭合 K 线信号评估 | `research/signal-evaluator` | none |
 | `research.strategy-contract-compile` | strategy markdown contract 编译 | `research/strategy-contract-compile` | none |
 | `research.strategy-contract-lint` | strategy lifecycle contract lint | `research/strategy-contract-lint` | none |
-| `--strategy-data-split` | discovery / validation / holdout manifest 切分 | `research/data-split` | artifact + catalog |
+| `research.data-split` | discovery / validation / holdout manifest 切分 | `research/data-split` | artifact + catalog |
 | `--strategy-rnd-batch` | bounded candidate 批量评估 | `research/candidate-batch` | report |
 | `--strategy-rnd-loop` | 一轮 R&D，写 artifact / ledger / optional RD state | `research/rd-loop-runner` | artifact + catalog + optional state |
 | `--strategy-rnd-campaign` | hypothesis queue / validation campaign | `research/rd-campaign-runner` | artifact + catalog + optional state |
@@ -199,7 +199,7 @@ modules/
 | `research/strategy-contract-compile` | atomic | strategy markdown contract 编译为 candidate / lifecycle contract | migrated |
 | `research/strategy-contract-lint` | atomic | strategy lifecycle contract 完整性 lint | migrated |
 | `research/strategy-families` | atomic | family registry、family modules、candidate compile source | `strategy-rd/src/lib/rnd-families` |
-| `research/data-split` | atomic | discovery / validation / locked holdout manifest 切分 | `--strategy-data-split` |
+| `research/data-split` | atomic | discovery / validation / locked holdout manifest 切分 | migrated |
 | `research/candidate-batch` | atomic | bounded candidate 批量评估、negative controls、failure summary | `--strategy-rnd-batch` |
 | `research/rd-loop-runner` | atomic | 单轮 R&D loop、artifact、ledger、optional state writeback | `--strategy-rnd-loop` |
 | `research/rd-campaign-runner` | atomic | hypothesis campaign、validation budget、zero-trial gates | `--strategy-rnd-campaign` |
@@ -325,7 +325,7 @@ modules/
 2. `research/replay-runner`：承接单策略 replay。
 3. `research/signal-evaluator`：承接 `--strategy-signal`。
 4. `research/strategy-contract-compile` 与 `research/strategy-contract-lint`：承接 compile / lint。
-5. `research/data-split`：承接 `--strategy-data-split`。
+5. `research/data-split`：已承接 discovery / validation / locked holdout manifest 切分。
 6. `research/strategy-families`：只拥有 family registry 和 family modules。
 7. `research/candidate-batch`：承接 `--strategy-rnd-batch`。
 8. `research/rd-loop-runner`：承接 `--strategy-rnd-loop`。

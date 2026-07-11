@@ -7,7 +7,6 @@ import { replayRegisteredStrategy } from "./strategy-replay"
 import { evaluateRndSignal, runStrategyRndBatch, runStrategyRndLoop } from "./strategy-rnd"
 import { runStrategyRndCampaignWithDeps } from "./strategy-rnd-campaign"
 import { runStrategyPanelRnd } from "./strategy-panel-rnd"
-import { runStrategyDataSplit } from "./strategy-data-split"
 import type { JSONRecord } from "./json"
 
 test("replay result schema matches mechanical replay outer report", () => {
@@ -31,13 +30,11 @@ test("strategy R&D batch loop campaign panel and signal schemas match shallow re
   const loopSchema = readSchema("strategy-rnd-loop-result")
   const campaignSchema = readSchema("strategy-rnd-campaign-result")
   const panelSchema = readSchema("strategy-panel-rnd-result")
-  const splitSchema = readSchema("strategy-data-split-result")
   const signalSchema = readSchema("strategy-signal-result")
   assert.equal(batchSchema.$id, "trade-flow.strategy-rnd-batch-result.v1")
   assert.equal(loopSchema.$id, "trade-flow.strategy-rnd-loop-result.v1")
   assert.equal(campaignSchema.$id, "trade-flow.strategy-rnd-campaign-result.v1")
   assert.equal(panelSchema.$id, "trade-flow.strategy-panel-rnd-result.v1")
-  assert.equal(splitSchema.$id, "trade-flow.strategy-data-split-result.v1")
   assert.equal(signalSchema.$id, "trade-flow.strategy-signal-result.v1")
 
     const dir = mkdtempSync(join(tmpdir(), "research-schema-"))
@@ -107,17 +104,6 @@ test("strategy R&D batch loop campaign panel and signal schemas match shallow re
     assertSchemaRequired(panelSchema, panel)
     assert.equal(panel.panel_id, "panel-schema")
     assert.equal(panel.dataset_count, 3)
-
-    const split = runStrategyDataSplit({
-      splitId: "split-schema",
-      outputRoot: join(dir, "split-output"),
-      maxHoldBars: 4,
-      minSegmentRows: 20,
-      datasets: [{ datasetId: "BTC", manifestPath }],
-    }) as unknown as JSONRecord
-    assertSchemaRequired(splitSchema, split)
-    assert.equal(split.schema_version, "trade-flow.strategy-data-split.v1")
-    assert.equal(split.dataset_count, 1)
 
     const signal = evaluateRndSignal({
       manifestPath,

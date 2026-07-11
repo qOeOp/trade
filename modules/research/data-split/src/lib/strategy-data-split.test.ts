@@ -1,12 +1,11 @@
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
 import { Database } from "bun:sqlite"
-import { run } from "../main"
-import { loadCandlesFromManifest, loadManifest } from "./replay-core"
-import { resolveRepoPath } from "./paths"
+import { run } from "../scripts/main"
+import { resolveRepoPath } from "../../../../contracts/runtime-core/src/paths"
 import { runStrategyDataSplit, strategyDataSplitInputFromJson } from "./strategy-data-split"
 
 test("strategy data split writes discovery validation and locked holdout manifests with embargo gaps", () => {
@@ -31,8 +30,9 @@ test("strategy data split writes discovery validation and locked holdout manifes
     assert.ok(segments[1].first_open_ts - segments[0].last_open_ts > report.embargo.milliseconds)
     assert.ok(segments[2].first_open_ts - segments[1].last_open_ts > report.embargo.milliseconds)
 
-    const holdoutManifest = loadManifest(segments[2].manifest_path)
-    const holdoutCandles = loadCandlesFromManifest(segments[2].manifest_path, holdoutManifest, "4h")
+    const holdoutManifest = readJsonFile(segments[2].manifest_path)
+    const holdoutCsv = readFileSync(join(dirname(resolveRepoPath(segments[2].manifest_path)), "4h.csv"), "utf8")
+    const holdoutCandles = holdoutCsv.trim().split(/\r?\n/).slice(1)
     assert.equal(holdoutCandles.length, segments[2].rows)
     assert.equal(holdoutManifest.closed_candles_only, true)
     assert.equal(asRecord(holdoutManifest.split).segment, "locked_holdout")
@@ -94,9 +94,6 @@ test("strategy data split CLI stays read-only to trade DB and returns stable she
     const manifestPath = writeManifest(join(dir, "source"), "ALTUSDT", 240)
     const dbPath = join(runtimeDir, "should-not-exist", "trade.db")
     const result = await run([
-      "--db",
-      dbPath,
-      "--strategy-data-split",
       "--json",
       JSON.stringify({
         split_id: "split-cli",
@@ -112,6 +109,27 @@ test("strategy data split CLI stays read-only to trade DB and returns stable she
     assert.equal(data.schema_version, "trade-flow.strategy-data-split.v1")
     assert.equal(data.dataset_count, 1)
     assert.equal(existsSync(dbPath), false)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("strategy data split output schema matches stable report shell", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-data-split-schema-"))
+  try {
+    const manifestPath = writeManifest(join(dir, "source"), "ALTUSDT", 240)
+    const report = runStrategyDataSplit({
+      splitId: "split-schema",
+      outputRoot: join(dir, "split-output"),
+      maxHoldBars: 4,
+      minSegmentRows: 20,
+      datasets: [{ datasetId: "ALTUSDT", manifestPath }],
+    }) as unknown as Record<string, unknown>
+    const schema = readJsonFile("modules/research/data-split/src/schemas/strategy-data-split-result.schema.json")
+    assert.equal(schema.$id, "trade-flow.strategy-data-split-result.v1")
+    assert.equal(report.schema_version, "trade-flow.strategy-data-split.v1")
+    assert.equal(report.dataset_count, 1)
+    assertSchemaRequired(schema, report)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -172,4 +190,18 @@ function makeRuntimeDir(prefix: string): string {
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function readJsonFile(path: string): Record<string, unknown> {
+  return JSON.parse(readFileSync(resolveRepoPath(path), "utf8")) as Record<string, unknown>
+}
+
+function assertSchemaRequired(schema: Record<string, unknown>, value: Record<string, unknown>): void {
+  for (const field of asArray(schema.required)) {
+    assert.ok(Object.prototype.hasOwnProperty.call(value, field), `missing ${field}`)
+  }
+}
+
+function asArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String) : []
 }

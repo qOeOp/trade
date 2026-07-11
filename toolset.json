@@ -184,6 +184,51 @@
       }
     },
     {
+      "id": "research.data-split",
+      "domain": "research",
+      "intent": [
+        "data-split",
+        "holdout-split",
+        "manifest-split"
+      ],
+      "capability_class": [
+        "A"
+      ],
+      "path": "modules/research/data-split",
+      "purpose": "Split source OHLCV manifests into discovery, validation, and locked holdout manifests with embargo.",
+      "command": {
+        "cwd": "modules/research/data-split",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": true,
+        "artifacts": true,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Pure data governance split; no R&D search, replay, review, trade DB writes, or exchange access."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "research.data-split",
+      "requires_preflight": false,
+      "concurrency_group": "research-artifact",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": "modules/research/data-split/src/schemas/strategy-data-split-result.schema.json"
+      }
+    },
+    {
       "id": "strategy-rd",
       "domain": "research",
       "intent": [
@@ -218,7 +263,7 @@
         "config": false
       },
       "notes": [
-        "Owns research execution except atomic replay-runner and strategy-contract tools. It cannot write trade.db or trigger Binance writes."
+        "Owns research execution except atomic replay-runner, data-split, and strategy-contract tools. It cannot write trade.db or trigger Binance writes."
       ],
       "module_type": "suite",
       "owner_scope": "research.strategy-rd",

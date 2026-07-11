@@ -22,13 +22,13 @@ updated_at: 2026-07-10 10:20 CST
 - 已补：R&D replay / panel / campaign / forward holdout / shadow tracker 读取 manifest 时支持把迁移前 `data/*-panel-*` 路径安全解析到当前 `tmp/panels/*`，并加回归测试；旧 artifact 可复读，但新产物仍应写 repo 相对 `tmp/panels/...`。
 - 已补：panel R&D 单候选时 `cross_candidate_asset_shuffle_v1` 不再显示 `passed=true`；状态仍是 `not_applicable`，避免误读成 panel-level negative control 通过。
 - 已补：forward holdout 在全部阻塞原因只是主数据 / benchmark 尚未晚于 `frozen_at` 时，`next_action` 改为等待下一根闭合 K 线并刷新 manifest，而不是误报“修数据覆盖”。
-- 已补：新增 `--strategy-data-split`。新 hypothesis 开研前可把 OHLCV manifest 物理切成 discovery / validation / locked_holdout 三个独立 manifest，并自动按 max hold / feature lookback / funding interval 留 embargo；locked holdout 在策略合约冻结前不再需要靠人脑“记得别看”。
+- 已补：新增 `research.data-split`。新 hypothesis 开研前可把 OHLCV manifest 物理切成 discovery / validation / locked_holdout 三个独立 manifest，并自动按 max hold / feature lookback / funding interval 留 embargo；locked holdout 在策略合约冻结前不再需要靠人脑“记得别看”。
 - 已补：`rnd-artifact.ts` 可自动识别普通 R&D loop 与 panel R&D artifact；普通 loop 摘要会暴露 `failure_summary`、`reliability_gate`、候选 R/OOS 指标与 blocker，避免 no-promote 被误读为空结果。
 - 未补：按订单 notional / ADV / depth 的 capacity 与 market impact 分桶、White Reality Check / Hansen SPA 完整实现、可靠 delisted 历史数据源。
 
 ## 当前测试状态
 
-- 2026-07-10 19:31 CST，`S-ALT-4H-HIGH-BETA-SHORT-MOMENTUM` 按现行 `--strategy-data-split` 重跑 validation：10 资产、validation 段、固定 STC short momentum candidate；结果 `outcome=no_promote`，pooled `sample_count=364`、`avg_r=0.021334`、`total_r=7.765575`、positive assets `5/10`，blocked by `PANEL-BREADTH / PANEL-COST`。Locked holdout 未打开；策略保持 `draft`。
+- 2026-07-10 19:31 CST，`S-ALT-4H-HIGH-BETA-SHORT-MOMENTUM` 按现行 `research.data-split` 重跑 validation：10 资产、validation 段、固定 STC short momentum candidate；结果 `outcome=no_promote`，pooled `sample_count=364`、`avg_r=0.021334`、`total_r=7.765575`、positive assets `5/10`，blocked by `PANEL-BREADTH / PANEL-COST`。Locked holdout 未打开；策略保持 `draft`。
 - 2026-07-09 19:45 CST，新增三条 liquid-alt 机制检查：
   - `vol-compression-alt-validation-2026-07-09`：VCB long 三变体全部 `no_promote`；原始 `VCB-L-30-120` 在 8 资产 panel 上 `total_r=-32.522326`、3/8 资产正， blocked by breadth / cost / catastrophic / asset-shuffle。
   - `relative-capitulation-reversion-long-2026-07-09`：BTC 弱势里做相对输家多头回归失败；三变体全部 pooled negative，最差 `RRV-L-BTCWEAK-180-1R-RC` 为 `total_r=-199.35362`、0/8 资产正。
@@ -42,7 +42,7 @@ updated_at: 2026-07-10 10:20 CST
   - `ATOMUSDT` 为负（`total_r=-5.157863`），OOS 与 cost stress 均为 false；单候选 panel asset-shuffle 不适用，不能把这轮解释成 panel negative control 通过。
   - forward holdout 以 `frozen_at=2026-07-09T14:00:00Z` 运行，全部被 `HOLDOUT-NOT-FORWARD / HOLDOUT-SUPPLEMENTAL-NOT-FORWARD` 阻塞；最新闭合 K 线是 `2026-07-09T12:00:00Z`，下一步是等下一根冻结后 4H 闭合 K 线并刷新资产与 BTC benchmark manifest。
 - 2026-07-10 09:05 CST，开研 BTC 4H volatility compression breakout long：
-  - 先跑 `--strategy-data-split`：discovery `2019-09-08 -> 2023-09-04`，validation `2023-10-07 -> 2025-06-05`，locked holdout `2025-07-09 -> 2026-07-08`，embargo `200` 根 4H；locked holdout 未打开。
+  - 先跑 `research.data-split`：discovery `2019-09-08 -> 2023-09-04`，validation `2023-10-07 -> 2025-06-05`，locked holdout `2025-07-09 -> 2026-07-08`，embargo `200` 根 4H；locked holdout 未打开。
   - campaign `btc-4h-vcb-rd-2026-07-10-a` 预声明 6 个 long VCB candidate；discovery 结果 `accepted_count=0`、`outcome=no_promote`，未消耗 validation。
   - 主要 blocker：`R-PROFIT-FACTOR` 6/6、`RND-OOS-EFFECTIVE-SAMPLE` 6/6、`R-EXPECTANCY` 5/6；`reliability_gate.decision=reject_hypothesis`，下一步不是加过滤器，而是换新市场机制。
   - artifact：`tmp/artifacts/strategy-rnd/btc-4h-vcb-rd-2026-07-10-a.campaign.json` 与 `tmp/artifacts/strategy-rnd/btc-4h-vcb-rd-2026-07-10-a-H-BTC-4H-VCB-LONG-001-discovery.json`；R&D ledger 已登记到 `data/data_catalog.db`。
