@@ -81,6 +81,64 @@
 
 拆分后的 `strategy-rd` 只能作为 suite 目录或迁移期源码目录名，不再作为 agent-facing 单一工具。
 
+### 1.3 trade-flow 当前设计审计
+
+`trade-flow` 的方向是对的：它已经把 R&D / review / artifact owner 迁出，并且 automation plan 能输出 job graph。但它现在仍不够像“清爽 orchestrator”，原因是它还直接拥有多类原子能力实现。
+
+| 当前文件 / 能力 | 真实行为 | 问题 | 目标 |
+| --- | --- | --- | --- |
+| `automation-cycle.ts` | 生成 cadence / job graph，并硬编码 downstream command path | 有编排意图，但未通过 registry 解析工具；仍引用 `strategy-rd` 大总线 | `flow/automation-plan` 只输出 tool id + payload + write scope |
+| `slow-track-workflow.ts` | 调 account snapshot、market scan、symbol snapshot、OHLCV、tech indicators，并产出 watchlist artifact | slow track 变成小型流程引擎；data / analytics 调用硬编码在 trade-flow | 拆为 `flow/slow-track-plan`，只编排 read / data / analytics atomic tools |
+| `fast-track-workflow.ts` | active flow 快轨检查、轻量 snapshot、trigger guard | 与 observe / recovery / execution gate 混合 | 拆为 `flow/fast-track-plan`，只编排 active-flow projection + observe + gate |
+| `execution-flow.ts` | preflight、trigger、idempotency、contract compile、mock execution、record events、execution command spec | 执行链核心逻辑过多，不是单一原子能力 | 拆为 gate / route / record 三个 atomic modules |
+| `live-execution.ts` | 调 exchange write tool 并记录本地事件 | 编排和记录合理，但必须只消费 execution command spec | `flow/live-small-runner` 只允许执行 spec，不重新判断策略 |
+| `reconcile.ts` | 本地事件与 account snapshot 对账算法 | 是原子能力，但藏在 recovery suite 内 | `flow/reconcile-drafts` 独立 |
+| `recovery-flow.ts` | 调 account snapshot、构建 reconcile、写 needs_review / apply drafts | 组合了 read / reconcile / write 三段 | 拆为 `flow/recovery-runner` 编排 |
+| `runtime-policy.ts` | trading config normalize / clamp / hash | 不是 flow orchestration，而是 config contract/compiler | `contracts/runtime-policy` 或 `flow/runtime-policy-compiler` |
+| `plan-events.ts` / `flow-state.ts` | `trade.db` event store 与 projection | 这是强 owner，应该独立且单写 | `flow/event-store` + `flow/flow-projector` |
+
+结论：
+
+- `trade-flow` 不应该消失，但它应该降级为 `flow` suite / orchestrator。
+- 它可以决定“调用哪个原子能力、按什么顺序、以什么 write scope”，但不应继续内联实现 market scan workflow、reconcile algorithm、execution gate、runtime policy compiler。
+- `trade-flow` 调原子模块时必须是 1:1 contract：一个 job 调一个 tool id，一个 tool id 对一个 owner，一个 owner 对一个 primary write surface。
+
+### 1.4 1:1 编排约束
+
+目标编排模型：
+
+```text
+automation-plan
+  -> job(tool_id, payload_ref, capability_class, write_scope, concurrency_group)
+  -> atomic tool validates input schema
+  -> atomic tool returns output schema
+  -> orchestrator may persist only its own event/ref
+```
+
+约束：
+
+| 约束 | 含义 |
+| --- | --- |
+| `job.tool_id` 必须来自 `toolset.json` | 不在源码里硬编码 `modules/.../src/scripts/main.ts` |
+| 一个 job 只调用一个 atomic tool | 复杂流程必须拆成多个 job |
+| job 必须声明 `capability_class` / `writes` / `concurrency_group` | 调度前先知道写入面 |
+| orchestrator 不得解释子工具业务结果 | 只检查 schema、status、refs、blocked reason |
+| `T` 类 job 必须由 execution orchestrator 串 preflight + contract + explicit authorization | automation plan 不能直接产生 live write |
+| `V` 类 job 只能通过 event-store 写 `trade.db` | 其他模块不得自己写 event DB |
+| `A/E` 类 job 只能写 artifact / catalog / evidence owner | 不得顺手写 trade event |
+| 子工具失败不得自动升级权限 | `R/A/E/V` 失败不能触发 `T` 补救 |
+
+需要新增的 registry / schema 能力：
+
+| 能力 | 说明 |
+| --- | --- |
+| `tool_id` | 稳定工具 id，不等于目录路径 |
+| `entry_schema` / `output_schema` | 编排器只认 schema，不读实现 |
+| `writes` | `trade_db / catalog / artifacts / evidence / binance / config` |
+| `concurrency_group` | `trade-db / binance-write / artifact-catalog / rd-state:<id>` |
+| `requires` | 前置 tool result，如 preflight verdict、execution contract、runtime policy |
+| `forbidden_callers` | 如 exchange write 禁止 research / market scan 直接调用 |
+
 ## 2. 目标拓扑
 
 目标目录采用 **suite / atomic module / contract module** 三层。
@@ -121,11 +179,20 @@ modules/
 | `contracts/preflight-contract` | contract | preflight input/output、target action、guard result type | `modules/common/src/preflight.ts`、`target-action.ts` |
 | `contracts/catalog-contract` | contract | catalog record/schema/client shape，不拥有扫描和 GC | duplicated `data-catalog.ts` 的稳定类型层 |
 | `contracts/replay-contract` | contract | replay result、trade sample、qualification shell | duplicated `replay-core.ts` 的输出契约层 |
-| `flow/event-store` | atomic | `trade.db` schema、plan_event append/read、projection reducer | `trade-flow/src/scripts/lib/plan-events.ts`、`flow-state.ts` |
-| `flow/observe` | atomic | runtime load、snapshot adapter、observe body build | `trade-flow` observe domain |
-| `flow/execution-orchestrator` | atomic | dry-run、shadow、live-small orchestration、order_fill audit | `trade-flow` execution domain |
-| `flow/recovery` | atomic | reduce、reconcile、needs_review、safe local apply | `trade-flow` recovery domain |
-| `flow/automation` | atomic | cadence plan、job graph、slow/fast/R&D/review/catalog dispatch plan | `trade-flow` automation-cycle |
+| `flow/event-store` | atomic | `trade.db` schema、plan_event append/read；唯一 event write owner | `plan-events.ts` |
+| `flow/flow-projector` | atomic | flow state、lane conflicts、active flows projection | `flow-state.ts` |
+| `flow/runtime-policy-compiler` | atomic / contract candidate | trading config normalize / clamp / hash / compact snapshot | `runtime-policy.ts` |
+| `flow/observe-builder` | atomic | supplied snapshots -> normalized observe event body | `observe-builder.ts` |
+| `flow/observe-runner` | atomic | 调 account/symbol read tools，产出 observe event candidate；不写 DB | `observe-flow.ts`、`observe-adapter.ts` |
+| `flow/execution-gate` | atomic | preflight result + trigger condition + idempotency gate | `execution-flow.ts` gate 部分 |
+| `flow/execution-router` | atomic | target_action -> exchange write command spec | `execution-flow.ts` command spec 部分 |
+| `flow/execution-recorder` | atomic | exchange result -> audited local `order_fill` draft | `execution-flow.ts` record 部分 |
+| `flow/live-small-runner` | atomic | 执行 approved command spec，并交给 recorder；不重新做策略判断 | `live-execution.ts` |
+| `flow/reconcile-drafts` | atomic | local flow + account snapshot -> reconcile drafts / unmatched | `reconcile.ts` |
+| `flow/recovery-runner` | atomic | account snapshot read -> reconcile -> optional safe apply / needs_review | `recovery-flow.ts` |
+| `flow/slow-track-plan` | atomic | slow cadence read/data/analytics job plan，不内联 market workflow | `slow-track-workflow.ts` |
+| `flow/fast-track-plan` | atomic | active flow fast guard job plan，不内联 execution logic | `fast-track-workflow.ts` |
+| `flow/automation-plan` | atomic | cadence plan、job graph、write-scope / concurrency declaration | `automation-cycle.ts` |
 | `research/replay-engine` | contract/internal engine | replay core、fill model、closed-candle parity；被 runner 使用，不作为大总线 | `strategy-rd` replay files |
 | `research/replay-runner` | atomic | 单次 replay 执行与 replay report 输出 | `--replay-strategy` |
 | `research/signal-evaluator` | atomic | 最新闭合 K 线信号评估，不执行、不写状态 | `--strategy-signal` |
@@ -175,6 +242,7 @@ modules/
 - 更新 `docs/tool-layout.md`：区分 current layout 与 target topology。
 - 更新 `modules/README.md`：定义 suite / atomic / contract module。
 - 更新 `toolset.json`：新增 `module_type`、`owner_scope`、`entry_contract` 字段。
+- 新增 `job contract` / registry resolver 设计：orchestrator 输出 `tool_id + payload + schema`，不输出裸路径 command。
 - 新增边界检查设计：跨模块 import 只能指向 `modules/contracts/*`。
 
 验收：
@@ -259,25 +327,40 @@ modules/
 
 ### Phase 4：拆 `trade-flow`
 
-目标：把在线链从胖 suite 拆成 flow atomic modules。
+目标：把在线链从胖 suite 拆成 flow atomic modules，并让 orchestrator 只通过 1:1 job contract 调用原子能力。
 
 顺序：
 
 1. `flow/event-store`
-2. `flow/observe`
-3. `flow/recovery`
-4. `flow/execution-orchestrator`
-5. `flow/automation`
+2. `flow/flow-projector`
+3. `flow/runtime-policy-compiler`
+4. `flow/observe-builder`
+5. `flow/observe-runner`
+6. `flow/execution-gate`
+7. `flow/execution-router`
+8. `flow/execution-recorder`
+9. `flow/live-small-runner`
+10. `flow/reconcile-drafts`
+11. `flow/recovery-runner`
+12. `flow/slow-track-plan`
+13. `flow/fast-track-plan`
+14. `flow/automation-plan`
 
 迁移后 `trade-flow` 只允许作为 suite alias 或完全删除。
 
 验收：
 
 - event-store 是 `trade.db` 单写 owner。
-- observe 不写交易事件。
-- execution-orchestrator 是唯一可编排 `T` 工具的 flow 模块。
-- recovery 不开新风险、不调用 Binance write。
-- automation 只产 job graph，不直接写 research / review / catalog artifact。
+- projector 只读 `trade.db` 并输出 flow projection。
+- observe-builder / observe-runner 不写交易事件。
+- execution-gate 不调用 exchange write，不写 DB。
+- execution-router 只产 command spec，不执行。
+- execution-recorder 只把 approved result 转为 event draft / event-store write request。
+- live-small-runner 是唯一可执行 `T` command spec 的 flow 模块。
+- reconcile-drafts 不写 DB；recovery-runner 才能通过 event-store 安全 apply。
+- slow / fast track plan 只产 job graph；不得硬编码多工具 workflow 实现。
+- automation-plan job 中不得出现裸路径 command；必须使用 `tool_id + payload + schema`。
+- automation-plan 不直接写 research / review / catalog artifact。
 
 ### Phase 5：整理 data / analytics / exchange 命名
 
@@ -317,7 +400,7 @@ modules/
 验收：
 
 - 按 `intent=rd-memory` 能直接找到 `research/rd-program`。
-- 按 `intent=reconcile` 能直接找到 `flow/recovery`。
+- 按 `intent=reconcile-drafts` 能直接找到 `flow/reconcile-drafts`；按 `intent=recovery-runner` 能直接找到 `flow/recovery-runner`。
 - 按 `writes.binance=true` 只出现 exchange write 和 execution orchestrator。
 
 ## 6. 停机检查清单
