@@ -2,7 +2,7 @@
 
 ## Owns
 
-- Bounded R&D loop / campaign artifact writers
+- Bounded R&D campaign artifact writer
 - Forward holdout helpers
 
 ## Inputs
@@ -16,7 +16,7 @@
 ## Outputs
 
 - R&D reports and ledgers
-- Program state updates only through R&D loop / campaign writeback
+- Program state updates only through R&D campaign writeback
 - Gated draft strategy candidates
 - Catalog metadata for generated research artifacts
 
@@ -26,4 +26,4 @@
 - Calling Binance write tools
 - Deciding live execution
 - Owning strategy promotion or post-trade review
-- Owning candidate batch evaluation, RD state init/read/update/plan_next, RD supervisor, single-strategy replay, latest signal, panel evaluation, data split, benchmark, calibration, funding governance, or strategy contract compile/lint CLIs
+- Owning R&D loop, candidate batch evaluation, RD state init/read/update/plan_next, RD supervisor, single-strategy replay, latest signal, panel evaluation, data split, benchmark, calibration, funding governance, or strategy contract compile/lint CLIs

@@ -138,6 +138,9 @@ function readSchema(name: string): JSONRecord {
   if (name === "strategy-rnd-batch-result") {
     return JSON.parse(readFileSync(new URL("../../../candidate-batch/src/schemas/strategy-rnd-batch-result.schema.json", import.meta.url), "utf8")) as JSONRecord
   }
+  if (name === "strategy-rnd-loop-result") {
+    return JSON.parse(readFileSync(new URL("../../../rd-loop-runner/src/schemas/strategy-rnd-loop-result.schema.json", import.meta.url), "utf8")) as JSONRecord
+  }
   return JSON.parse(readFileSync(new URL(`../schemas/${name}.schema.json`, import.meta.url), "utf8")) as JSONRecord
 }
 

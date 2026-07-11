@@ -59,7 +59,7 @@
 
 ### 1.2 RD 当前拆解诊断
 
-`strategy-rd` 当前实际是 research suite，总入口仍包含 loop、campaign。candidate batch、RD program state、RD supervisor、RD shadow tracker、单策略 replay、latest signal、panel、data split、benchmark、calibration、funding governance、strategy contract compile/lint 已拆为独立 atomic module；剩余 flag 继续按 Binance 原子性标尺拆分。
+`strategy-rd` 当前实际是 research suite，总入口仍包含 campaign。RD loop、candidate batch、RD program state、RD supervisor、RD shadow tracker、单策略 replay、latest signal、panel、data split、benchmark、calibration、funding governance、strategy contract compile/lint 已拆为独立 atomic module；剩余 flag 继续按 Binance 原子性标尺拆分。
 
 | 当前 flag | 真实行为 | 目标 atomic module | primary write |
 | --- | --- | --- | --- |
@@ -69,7 +69,7 @@
 | `research.strategy-contract-lint` | strategy lifecycle contract lint | `research/strategy-contract-lint` | none |
 | `research.data-split` | discovery / validation / holdout manifest 切分 | `research/data-split` | artifact + catalog |
 | `research.candidate-batch` | bounded candidate 批量评估 | `research/candidate-batch` | report |
-| `--strategy-rnd-loop` | 一轮 R&D，写 artifact / ledger / optional RD state | `research/rd-loop-runner` | artifact + catalog + optional state |
+| `research.rd-loop-runner` | 一轮 R&D，写 artifact / ledger / optional RD state | `research/rd-loop-runner` | artifact + catalog + optional state |
 | `--strategy-rnd-campaign` | hypothesis queue / validation campaign | `research/rd-campaign-runner` | artifact + catalog + optional state |
 | `research.panel-evaluator` | 多资产 panel / cross-candidate negative control | `research/panel-evaluator` | report |
 | `research.rd-program-state` | durable RD memory init/read/update/plan_next | `research/rd-program-state` | RD state + catalog |
@@ -202,7 +202,7 @@ modules/
 | `research/strategy-families` | atomic | family registry、family modules、candidate compile source | `strategy-rd/src/lib/rnd-families` |
 | `research/data-split` | atomic | discovery / validation / locked holdout manifest 切分 | migrated |
 | `research/candidate-batch` | atomic | bounded candidate 批量评估、negative controls、failure summary | migrated |
-| `research/rd-loop-runner` | atomic | 单轮 R&D loop、artifact、ledger、optional state writeback | `--strategy-rnd-loop` |
+| `research/rd-loop-runner` | atomic | 单轮 R&D loop、artifact、ledger、optional state writeback | migrated |
 | `research/rd-campaign-runner` | atomic | hypothesis campaign、validation budget、zero-trial gates | `--strategy-rnd-campaign` |
 | `research/panel-evaluator` | atomic | 多资产 panel、cross-candidate negative control、marketability | migrated |
 | `research/rd-program-state` | atomic | durable RD memory init/read/update/plan_next | migrated |
@@ -329,7 +329,7 @@ modules/
 5. `research/data-split`：已承接 discovery / validation / locked holdout manifest 切分。
 6. `research/strategy-families`：只拥有 family registry 和 family modules。
 7. `research/candidate-batch`：已承接 bounded candidate batch evaluation。
-8. `research/rd-loop-runner`：承接 `--strategy-rnd-loop`。
+8. `research/rd-loop-runner`：已承接 single R&D loop artifact writeback。
 9. `research/rd-campaign-runner`：承接 `--strategy-rnd-campaign`。
 10. `research/panel-evaluator`：已承接 panel evaluation。
 11. `research/rd-program-state`：已承接 RD memory init/read/update/plan_next。
@@ -367,6 +367,7 @@ modules/
 - `research.rd-supervisor` 已成为 agent-facing atomic module，承接 plan_next -> loop/campaign -> state writeback；`strategy-rd` 不再暴露 `--rd-supervisor-run`。
 - `research.rd-shadow-tracker` 已成为 agent-facing atomic module，承接 forward paper setup event chain；`strategy-rd` 不再暴露 `--rd-shadow-tracker`。
 - `research.candidate-batch` 已成为 agent-facing atomic module，承接 bounded candidate batch evaluation；`strategy-rd` 不再暴露 `--strategy-rnd-batch`。
+- `research.rd-loop-runner` 已成为 agent-facing atomic module，承接 single R&D loop artifact writeback；`strategy-rd` 不再暴露 `--strategy-rnd-loop`。
 
 ### Phase 4：拆 `trade-flow`
 

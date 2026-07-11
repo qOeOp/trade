@@ -268,7 +268,7 @@ flowchart TD
   STATE["rd_program_state<br/>objective / budget / lessons / queue"] --> PLAN["plan_next"]
   PLAN --> SCOUT["read-only scout subagents<br/>history / data / edge"]
   SCOUT --> RUN{"next research command"}
-  RUN -->|loop| LOOP["--strategy-rnd-loop"]
+  RUN -->|loop| LOOP["research.rd-loop-runner"]
   RUN -->|campaign| CAMP["--strategy-rnd-campaign"]
   RUN -->|panel| PANEL["research.panel-evaluator"]
   LOOP --> ART["artifact + catalog ledger"]
@@ -296,7 +296,7 @@ bun modules/research/rd-supervisor/src/scripts/main.ts --state ./data/rd/program
 | --- | --- |
 | `research.rd-program-state` | init / read / update / plan_next durable learning memory |
 | `research.candidate-batch` | bounded candidate evaluation + negative controls |
-| `--strategy-rnd-loop` | 一轮 batch + artifact + catalog ledger |
+| `research.rd-loop-runner` | 一轮 batch + artifact + catalog ledger |
 | `--strategy-rnd-campaign` | 多 hypothesis discovery + non-overlapping validation |
 | `research.data-split` | 切 discovery / validation / locked_holdout |
 | `research.panel-evaluator` | 跨资产广度和 negative control |

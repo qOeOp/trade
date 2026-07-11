@@ -51,7 +51,7 @@ function buildRdSupervisorNextPlan(state: RdProgramState, statePath: string, inp
     ...base,
     status: "ready",
     reason: useLoop ? "next hypothesis can run as one R&D loop" : "next hypothesis can run as one R&D campaign",
-    command: useLoop ? "--strategy-rnd-loop" : "--strategy-rnd-campaign",
+    command: useLoop ? "research.rd-loop-runner" : "--strategy-rnd-campaign",
     payload,
     selected_hypothesis: hypothesis,
     queue_seed_recommendation: null,

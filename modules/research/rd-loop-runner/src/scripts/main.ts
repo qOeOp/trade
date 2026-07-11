@@ -1,17 +1,13 @@
 #!/usr/bin/env bun
 
 import { readFileSync } from "node:fs"
-import { assertProjectRuntimePath, repoRoot } from "../lib/paths"
-import {
-  runStrategyRndCampaign,
-  strategyRndCampaignInputFromJson,
-} from "../lib/strategy-rnd"
+import { assertProjectRuntimePath, repoRoot } from "../../../../contracts/runtime-core/src/paths"
+import { strategyRndLoopInputFromJson } from "../../../candidate-batch-engine/src/lib/strategy-rnd-inputs"
+import { runStrategyRndLoop } from "../lib/rd-loop-runner"
 
 type JSONRecord = Record<string, unknown>
 
 interface Config {
-  strategyRndCampaign: boolean
-  catalogDbPath: string
   input: JSONRecord
 }
 
@@ -25,7 +21,10 @@ export function run(argv: string[]): JSONRecord {
   const previousCwd = process.cwd()
   try {
     process.chdir(repoRoot())
-    return successResponse(runConfig(parseArgs(argv)))
+    const config = parseArgs(argv)
+    const input = strategyRndLoopInputFromJson(config.input)
+    assertRuntimeOutputPaths(input.artifactRoot, input.ledgerPath, input.catalogDbPath, input.rdProgramStatePath)
+    return successResponse(runStrategyRndLoop(input))
   } catch (error) {
     return errorResponse(error)
   } finally {
@@ -33,27 +32,11 @@ export function run(argv: string[]): JSONRecord {
   }
 }
 
-function runConfig(config: Config): unknown {
-  if (config.strategyRndCampaign) {
-    const input = strategyRndCampaignInputFromJson(config.input)
-    assertRuntimeOutputPaths(input.artifactRoot, input.ledgerPath, input.catalogDbPath, input.rdProgramStatePath)
-    return runStrategyRndCampaign(input)
-  }
-  throw new Error("provide a strategy RD command flag")
-}
-
 function parseArgs(argv: string[]): Config {
-  const config: Config = {
-    strategyRndCampaign: false,
-    catalogDbPath: "./data/data_catalog.db",
-    input: {},
-  }
+  const config: Config = { input: {} }
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     switch (arg) {
-      case "--strategy-rnd-campaign": config.strategyRndCampaign = true; break
-      case "--catalog-db": config.catalogDbPath = readValue(argv, ++index, arg); break
-      case "--db": ++index; break
       case "--input": config.input = readJsonFile(readValue(argv, ++index, arg)); break
       case "--json": config.input = readJson(readValue(argv, ++index, arg)); break
       case "--help": printHelp(); process.exit(0)
@@ -61,6 +44,12 @@ function parseArgs(argv: string[]): Config {
     }
   }
   return config
+}
+
+function assertRuntimeOutputPaths(...paths: Array<string | undefined>): void {
+  for (const path of paths) {
+    if (path) assertProjectRuntimePath(path)
+  }
 }
 
 function readValue(argv: string[], index: number, name: string): string {
@@ -79,32 +68,21 @@ function readJson(raw: string): JSONRecord {
   return parsed as JSONRecord
 }
 
-function assertRuntimeOutputPaths(...paths: Array<string | undefined>): void {
-  for (const path of paths) {
-    if (path) assertProjectRuntimePath(path)
-  }
-}
-
 function successResponse(data: unknown): JSONRecord {
-  return { ok: true, schema_version: "strategy-rd.script-response.v1", data }
+  return { ok: true, schema_version: "rd-loop-runner.script-response.v1", data }
 }
 
 function errorResponse(error: unknown): JSONRecord {
   const message = error instanceof Error ? error.message : String(error)
-  return { ok: false, schema_version: "strategy-rd.script-response.v1", error: message }
+  return { ok: false, schema_version: "rd-loop-runner.script-response.v1", error: message }
 }
 
 function printHelp(): void {
   console.log(`Usage:
-  bun src/scripts/main.ts --strategy-rnd-campaign --json '{"campaign_id":"...","hypotheses":[...]}'
+  bun src/scripts/main.ts --json '{"manifest_path":"...","candidates":[...]}'
 `)
 }
 
 if (import.meta.main) {
-  try {
-    main(process.argv.slice(2))
-  } catch (error) {
-    console.log(JSON.stringify(errorResponse(error), null, 2))
-    process.exit(1)
-  }
+  main(process.argv.slice(2))
 }
