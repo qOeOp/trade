@@ -60,6 +60,9 @@ for (const file of walkTsFiles("modules")) {
       return
     }
     const targetTool = owningToolRoot(resolved)
+    if (sourceTool === "modules/trade-flow" && targetTool.startsWith("modules/flow/")) {
+      return
+    }
     if (targetTool && sourceTool && targetTool !== sourceTool) {
       issues.push(`${file}: ${specifier} -> ${targetTool}`)
     }

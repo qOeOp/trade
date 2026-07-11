@@ -186,8 +186,8 @@ global trading config
 
 ## 9. Migration Plan
 
-1. 新增 `runtime-policy` loader：读取 `trading-config.json`，缺失时适配 deprecated `account_config.json / notify_config.json` 并输出 warning。
-2. 给 `trading-config.json` 建 schema 与 hash，输出 `runtime-policy.v1`。
+1. 已新增 `flow/runtime-policy-compiler`：读取 `trading-config.json`，缺失时适配 deprecated `account_config.json / notify_config.json` 并输出 warning。
+2. 已给 `trading-config.json` 建 runtime hash，输出 `runtime-policy.v1`。
 3. `plan-preflight` 改为消费 `runtime_policy.effective_limits`，补齐 notional / leverage / concurrent flow guards。
 4. execution contract compiler 用 runtime policy 编译 target leverage、notional cap、slippage buffer。
 5. R&D / benchmark 默认成本模型来自 runtime policy，payload 只能更保守覆盖。

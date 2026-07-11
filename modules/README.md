@@ -28,6 +28,7 @@
 | 模块 | 输入 | 输出 | 负责 | 禁止 |
 | --- | --- | --- | --- | --- |
 | `trade-flow` | strategy markdown、trading config、`trade.db`、tool JSON 输出 | `plan_event`、automation jobs、recovery drafts | 编排、执行流、恢复、准入、事件流 | Binance endpoint 细节、市场数据接入实现、R&D 实验实现、策略复核 owner |
+| `flow/runtime-policy-compiler` | trading config、legacy account / notify config | normalized config、`runtime-policy.v1`、compact snapshot | trading config normalize / clamp / hash | preflight、execution、review、R&D 决策、`trade.db`、Binance |
 | `research/replay-runner` | OHLCV manifest、strategy id、replay parameters | replay result | 单策略机械 replay | 写文件、写 catalog、R&D search、策略升格 |
 | `research/data-split` | source OHLCV manifests、split ratios、embargo parameters | discovery / validation / locked holdout manifests、split report、optional catalog ref | 数据切分与 holdout 隔离 | R&D search、replay、review、`trade.db` |
 | `research/signal-evaluator` | OHLCV manifest、entry reference、candidate 或 strategy contract | latest closed-candle signal result | 最新信号评估 | R&D search、replay batch、catalog 写入、`trade.db` |
@@ -66,6 +67,7 @@
 | `contracts/execution-contract` | execution contract input | compiled execution contract、validation result | 执行契约编译和校验 | 下单、preflight verdict |
 | `contracts/preflight-contract` | plan / observe / strategy / account config | deterministic verdict、blocked reasons、warnings | hard guard contract、target action parsing | 交易所写入、市场观点 |
 | `contracts/catalog-contract` | catalog command payload | artifact / evidence / R&D run catalog result | catalog CLI client contract | catalog DB schema / scan / GC 实现 |
+| `contracts/replay-contract` | replay result records | replay result type/schema shell | replay result read model contract | replay execution、manifest/data/hash 读取、gate 计算 |
 | `contracts/strategy-contract` | strategy markdown、contract YAML subset | compiled/lint contract types and pure helpers | strategy contract 解析、编译、lint 语义 | agent-facing CLI、R&D execution、review/promotion |
 | `contracts/strategy-policy` | strategy markdown、optional JSON path | lightweight strategy policy metadata | frontmatter / strategy file / strategy directory 读取契约 | full Trade Contract compile/lint、fallback discovery、写文件 |
 
@@ -82,7 +84,7 @@
 
 ## Rules
 
-- agent-facing 模块之间通过 CLI JSON contract 协作；源码跨模块 import 只允许指向 `modules/contracts/*` 或同 domain 的无 package internal engine。
+- agent-facing 模块之间通过 CLI JSON contract 协作；源码跨模块 import 只允许指向 `modules/contracts/*`、同 domain 的无 package internal engine，或 `trade-flow` 编排层调用 `modules/flow/*` 原子能力。
 - `trade-flow/src/domain/*/index.ts` 是 trade-flow 编排边界；新增原子能力优先落独立 `modules/<domain>/<module>`，不要继续塞进 trade-flow。
 - 模块运行产物只落 `data/` 或 `tmp/`；模块目录不保存运行快照、cache、研究垃圾。
 - `T` 类 Binance 写模块不得被 R&D / replay / market scan 直接调用。

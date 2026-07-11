@@ -46,7 +46,7 @@
 | `research.rd-shadow-tracker` | `A/E` | forward setup event chain tracker | R&D tracker artifact / review draft input | 不写 `trade.db`，不等同 strategy shadow evidence |
 | `strategy-review` | `E/V` | evidence、review、promotion gate | catalog evidence / strategy markdown | 不写 RD memory、不触发执行 |
 | `artifact-catalog` | `A/V` | catalog、stale scan、artifact GC、feature refs | data_catalog.db / selected file deletion | 不做策略判断、不写 `trade.db` |
-| `runtime-policy` | `C/A` | 目标模块：统一交易配置读取、校验、合成、hash | stdout / observe policy snapshot | 设计见 `docs/trading-config.md`；尚未实现为独立命令 |
+| `flow.runtime-policy-compiler` | `A` | 统一交易配置读取、校验、合成、hash | runtime-policy.v1 / observe policy snapshot | 不做 preflight、execution、review、R&D 决策 |
 | `binance-order-preview` | `A` | 执行预演、方法路由、contract compile | stdout | 统一 contract output；不发单 |
 | `binance-order-place` | `T` | USDM 主单开仓 / 加仓 | Binance | 只接受 executor 编译后的 contract 作为推荐路径 |
 | `binance-position-protect` | `T` | 止损、止盈、trailing 保护腿 | Binance | 输出 normalized event |

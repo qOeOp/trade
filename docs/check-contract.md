@@ -23,6 +23,7 @@
 | `trade-flow-typecheck` | `modules/trade-flow` | `bun run typecheck` | TS 类型与未使用变量 |
 | `trade-flow-test` | `modules/trade-flow` | `bun run test` | 当前全部 trade-flow 单测 / 契约测 |
 | `trade-flow-check` | `modules/trade-flow` | `bun run check` | typecheck + test |
+| `runtime-policy-compiler-check` | `modules/flow/runtime-policy-compiler` | `bun run check` | trading config normalize / clamp / hash |
 | `replay-runner-check` | `modules/research/replay-runner` | `bun run check` | 单策略机械 replay |
 | `data-split-check` | `modules/research/data-split` | `bun run check` | discovery / validation / locked holdout split |
 | `signal-evaluator-check` | `modules/research/signal-evaluator` | `bun run check` | latest closed-candle signal |
@@ -61,6 +62,7 @@
 | execution dry/shadow/live-small glue | `src/scripts/lib/execution-flow.ts`, `src/scripts/lib/live-execution.ts`, `src/scripts/commands/execution.ts` | `trade-flow-typecheck` + `bun test ./src/scripts/lib/execution-flow.test.ts ./src/scripts/lib/live-execution.test.ts ./src/scripts/lib/live-small-result-schema.test.ts ./src/scripts/main.test.ts` |
 | recovery / reconcile | `src/scripts/lib/reconcile.ts`, `src/scripts/lib/recovery-flow.ts`, `src/scripts/commands/recovery.ts` | `trade-flow-typecheck` + `bun test ./src/scripts/lib/reconcile.test.ts ./src/scripts/lib/recovery-flow.test.ts ./src/scripts/lib/reconcile-schema.test.ts ./src/scripts/main.test.ts` |
 | observe / runtime load | `src/scripts/lib/observe-*`, `src/scripts/commands/observe.ts` | `trade-flow-typecheck` + `bun test ./src/scripts/lib/observe-*.test.ts ./src/scripts/commands/handlers.test.ts` |
+| runtime policy compiler | `modules/flow/runtime-policy-compiler/src/**` | `runtime-policy-compiler-check` + `trade-flow-check` |
 | research replay runner | `modules/research/replay-runner/src/**`, `modules/research/replay-engine/src/**` | `replay-runner-check` + `rd-integration-suite-check` if shared replay semantics changed |
 | research data split | `modules/research/data-split/src/**` | `data-split-check` |
 | research signal | `modules/research/signal-engine/src/**`, `modules/research/signal-evaluator/src/**`, `modules/research/strategy-family-engine/src/**` | `signal-evaluator-check` + `rd-integration-suite-check` if forward holdout or candidate family semantics changed |

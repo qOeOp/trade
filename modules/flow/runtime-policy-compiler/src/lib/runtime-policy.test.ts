@@ -4,7 +4,7 @@ import { join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
 import { compileRuntimePolicy, loadRuntimePolicy } from "./runtime-policy"
-import { asRecord } from "./json"
+import { asRecord } from "../../../../contracts/runtime-core/src/json"
 
 test("compileRuntimePolicy allows live-small when the project profile permits it", () => {
   const policy = compileRuntimePolicy({

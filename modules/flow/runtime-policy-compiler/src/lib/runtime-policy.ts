@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
 import { existsSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
-import { asRecord, numberField, stringField, type JSONRecord } from "./json"
+import { asRecord, numberField, stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
 
 type PermissionStage = "observe_only" | "paper_shadow" | "live-small"
 

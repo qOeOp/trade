@@ -21,7 +21,7 @@ export {
 export {
   compileRuntimePolicy,
   loadRuntimePolicy,
-} from "../../scripts/lib/runtime-policy"
+} from "../../../../flow/runtime-policy-compiler/src/lib/runtime-policy"
 export {
   buildTrackDryRunSummary,
   runTrackDryRun,

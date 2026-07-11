@@ -94,7 +94,7 @@
 | `live-execution.ts` | 调 exchange write tool 并记录本地事件 | 编排和记录合理，但必须只消费 execution command spec | `flow/live-small-runner` 只允许执行 spec，不重新判断策略 |
 | `reconcile.ts` | 本地事件与 account snapshot 对账算法 | 是原子能力，但藏在 recovery suite 内 | `flow/reconcile-drafts` 独立 |
 | `recovery-flow.ts` | 调 account snapshot、构建 reconcile、写 needs_review / apply drafts | 组合了 read / reconcile / write 三段 | 拆为 `flow/recovery-runner` 编排 |
-| `runtime-policy.ts` | trading config normalize / clamp / hash | 不是 flow orchestration，而是 config contract/compiler | `contracts/runtime-policy` 或 `flow/runtime-policy-compiler` |
+| `runtime-policy.ts` | trading config normalize / clamp / hash | 不是 flow orchestration，而是 config contract/compiler | 已迁入 `flow/runtime-policy-compiler` |
 | `plan-events.ts` / `flow-state.ts` | `trade.db` event store 与 projection | 这是强 owner，应该独立且单写 | `flow/event-store` + `flow/flow-projector` |
 
 结论：
@@ -182,7 +182,7 @@ modules/
 | `contracts/replay-contract` | contract | replay result、trade sample、qualification shell | duplicated `replay-core.ts` 的输出契约层 |
 | `flow/event-store` | atomic | `trade.db` schema、plan_event append/read；唯一 event write owner | `plan-events.ts` |
 | `flow/flow-projector` | atomic | flow state、lane conflicts、active flows projection | `flow-state.ts` |
-| `flow/runtime-policy-compiler` | atomic / contract candidate | trading config normalize / clamp / hash / compact snapshot | `runtime-policy.ts` |
+| `flow/runtime-policy-compiler` | atomic | trading config normalize / clamp / hash / compact snapshot | 已迁入 |
 | `flow/observe-builder` | atomic | supplied snapshots -> normalized observe event body | `observe-builder.ts` |
 | `flow/observe-runner` | atomic | 调 account/symbol read tools，产出 observe event candidate；不写 DB | `observe-flow.ts`、`observe-adapter.ts` |
 | `flow/execution-gate` | atomic | preflight result + trigger condition + idempotency gate | `execution-flow.ts` gate 部分 |

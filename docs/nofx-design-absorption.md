@@ -47,7 +47,7 @@ source_commit: d84e22ab82643fd50f0ad4706697fcb07fae52c4
 落点：
 
 - `profile/trading-config.json` 仍是唯一人工维护入口。
-- `runtime-policy.ts` 增加 normalize / clamp：mode、permission、risk、exposure、execution、research、lanes。
+- `flow/runtime-policy-compiler` 增加 normalize / clamp：mode、permission、risk、exposure、execution、research、lanes。
 - lane override 合成时 explicit deny wins，数值 cap most restrictive wins，成本假设 more conservative wins。
 - `compactPolicySnapshot` 写入 observe，review 可追溯当时底线。
 
