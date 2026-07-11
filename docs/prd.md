@@ -183,8 +183,8 @@ Replay / shadow / live 对齐要求：
 - `--rd-program-state`：初始化、读取、更新或 `plan_next` R&D learning memory artifact；`plan_next` 只生成下一轮 R&D payload，不写 `trade.db`，不产生 strategy evidence
 - `--rd-supervisor-run`：执行自主 R&D supervisor loop；每轮先从 state 规划下一条 hypothesis，再运行 loop/campaign，并依赖写回结果推进 queue、usage 与 stop status
 - `--automation-cycle`：单一 automation 入口的 supervisor plan；外部 Codex automation 可按任务图用 subagent 分发 fast / slow / R&D / review / catalog，慢轨、R&D 与 review 由 cadence gate 控制，不随快频入口每轮运行
-- `--strategy-benchmark`：用固定多资产趋势规则、15% 目标波动、成本/资金费压力和组合权重循环移位负对照标定 R&D 管线；不写 DB、不产生准入证据
-- `--strategy-calibration-suite`：固定跑 buy-and-hold / cash baseline、趋势基准、横截面强弱基准，可消费 dataset `indicator_report_path` 中的 exact funding events 与 `symbol_status`，并输出 report hash、可选 previous-run comparison、data_panel、survivor-only 标记、beta、fee/slippage 成本拆分、funding、换手、暴露、时间/趋势/波动 regime 稳定性、time-shift / side-flip / asset-shuffle 负对照与数据广度归因；只暴露系统问题，不产生准入证据
+- `research.benchmark-runner`：用固定多资产趋势规则、15% 目标波动、成本/资金费压力和组合权重循环移位负对照标定 R&D 管线；不写 DB、不产生准入证据
+- `research.calibration-suite`：固定跑 buy-and-hold / cash baseline、趋势基准、横截面强弱基准，可消费 dataset `indicator_report_path` 中的 exact funding events 与 `symbol_status`，并输出 report hash、可选 previous-run comparison、data_panel、survivor-only 标记、beta、fee/slippage 成本拆分、funding、换手、暴露、时间/趋势/波动 regime 稳定性、time-shift / side-flip / asset-shuffle 负对照与数据广度归因；只暴露系统问题，不产生准入证据
 - `--strategy-signal`：candidate 可由 JSON 输入或 strategy `## Trade Contract` 编译；在最新闭合 K 线上复用 replay family 并返回稳定 hash；entry reference 由在线报价注入，只返回信号，不执行、不落交易事实
 - `strategy-rd` forward holdout：对已冻结 candidate 做只读 forward holdout 验收；主数据与 benchmark / supplemental 数据都必须晚于机器可读 `frozen_at`，输出 `status / next_action / frozen_candidate hash`，只作为 shadow/review 前置观察，不直接产生 promotion evidence；缺 `frozen_at` 的“frozen”描述一律不验收
 - `strategy-rd --rd-shadow-tracker`：把 forward entry 信号转成 R&D schema v2 行为事件链，用 `open_setup -> observe_setup[] -> close_setup -> review_setup` 记录纸面样本，并由 projection 判定 stop / target / time_exit；不写 DB、不执行、不等同 strategy shadow evidence

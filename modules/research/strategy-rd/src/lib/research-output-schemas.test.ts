@@ -119,15 +119,6 @@ test("strategy R&D batch loop campaign panel and signal schemas match shallow re
   }
 })
 
-test("benchmark and calibration schemas lock only the stable report shell", () => {
-  const benchmarkSchema = readSchema("strategy-benchmark-result")
-  const calibrationSchema = readSchema("strategy-calibration-result")
-  assert.equal(benchmarkSchema.$id, "trade-flow.strategy-benchmark-result.v1")
-  assert.deepEqual(asArray(benchmarkSchema.required), ["benchmark_id", "harness_hash", "purpose", "calibrated", "blocked_by", "datasets", "period", "assumptions", "observed", "execution_attribution", "chronological_folds", "regime_attribution", "cost_stress", "cost_stress_attribution", "funding_stress", "funding_stress_attribution", "funding_event_coverage", "historical_funding", "historical_funding_attribution", "negative_control"])
-  assert.equal(calibrationSchema.$id, "trade-flow.strategy-calibration-result.v1")
-  assert.deepEqual(asArray(calibrationSchema.required), ["calibration_suite_id", "purpose", "harness_hash", "report_hash", "previous_run_comparison", "calibrated", "blocked_by", "data_panel", "components", "diagnostics", "failure_analysis", "notes"])
-})
-
 function writeManifest(dir: string, stem = "4h", startIndex = 0): string {
   let close = 100
   const rows = Array.from({ length: 280 }, (_, index) => {

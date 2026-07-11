@@ -3,7 +3,7 @@ import test from "node:test"
 import {
   strategyBenchmarkInputFromJson,
   strategyCalibrationInputFromJson,
-} from "./strategy-benchmark-inputs"
+} from "../../../benchmark-engine/src/lib/strategy-benchmark-inputs"
 
 test("strategy benchmark input parser keeps public benchmark definition fixed", () => {
   const input = strategyBenchmarkInputFromJson({

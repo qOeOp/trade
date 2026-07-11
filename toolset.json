@@ -234,8 +234,6 @@
       "intent": [
         "rd",
         "panel",
-        "benchmark",
-        "calibration",
         "signal",
         "rd-program"
       ],
@@ -244,7 +242,7 @@
         "E"
       ],
       "path": "modules/research/strategy-rd",
-      "purpose": "Run R&D loops, panel evaluation, calibration, benchmark, latest-signal checks, and R&D program memory.",
+      "purpose": "Run R&D loops, panel evaluation, latest-signal checks, and R&D program memory.",
       "command": {
         "cwd": "modules/research/strategy-rd",
         "argv": [
@@ -263,7 +261,7 @@
         "config": false
       },
       "notes": [
-        "Owns research execution except atomic replay-runner, data-split, and strategy-contract tools. It cannot write trade.db or trigger Binance writes."
+        "Owns research execution except atomic replay-runner, data-split, benchmark, calibration, and strategy-contract tools. It cannot write trade.db or trigger Binance writes."
       ],
       "module_type": "suite",
       "owner_scope": "research.strategy-rd",
@@ -277,6 +275,97 @@
         "kind": "cli-json",
         "input_schema": "",
         "output_schema": ""
+      }
+    },
+    {
+      "id": "research.benchmark-runner",
+      "domain": "research",
+      "intent": [
+        "benchmark",
+        "fixed-benchmark",
+        "trend-benchmark"
+      ],
+      "capability_class": [
+        "E"
+      ],
+      "path": "modules/research/benchmark-runner",
+      "purpose": "Run one fixed multi-asset trend benchmark for R&D pipeline calibration.",
+      "command": {
+        "cwd": "modules/research/benchmark-runner",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Calibration-only benchmark; no strategy promotion, R&D search, trade DB writes, or exchange access."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "research.benchmark-runner",
+      "requires_preflight": false,
+      "concurrency_group": "research-benchmark",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": "modules/research/benchmark-runner/src/schemas/strategy-benchmark-result.schema.json"
+      }
+    },
+    {
+      "id": "research.calibration-suite",
+      "domain": "research",
+      "intent": [
+        "calibration",
+        "calibration-suite",
+        "pipeline-diagnostics"
+      ],
+      "capability_class": [
+        "A",
+        "V"
+      ],
+      "path": "modules/research/calibration-suite",
+      "purpose": "Run fixed calibration diagnostics across buy-hold, trend, and relative-strength baselines.",
+      "command": {
+        "cwd": "modules/research/calibration-suite",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Diagnostic calibration only; no strategy promotion, R&D search, trade DB writes, or exchange access."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "research.calibration-suite",
+      "requires_preflight": false,
+      "concurrency_group": "research-benchmark",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": "modules/research/calibration-suite/src/schemas/strategy-calibration-result.schema.json"
       }
     },
     {

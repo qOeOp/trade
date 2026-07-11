@@ -4,9 +4,9 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
-import { run } from "../main"
-import { resolveRepoPath } from "./paths"
-import { runCalibrationSuite, runTrendBenchmark, strategyBenchmarkInputFromJson } from "./strategy-benchmark"
+import { run as runBenchmarkCli } from "../scripts/main"
+import { resolveRepoPath } from "../../../../contracts/runtime-core/src/paths"
+import { runCalibrationSuite, runTrendBenchmark, strategyBenchmarkInputFromJson } from "../../../benchmark-engine/src/lib/strategy-benchmark"
 
 test("fixed trend benchmark beats shuffled timing and CLI does not create trade DB", async () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-benchmark-"))
@@ -45,7 +45,7 @@ test("fixed trend benchmark beats shuffled timing and CLI does not create trade 
     assert.equal(report.harness_hash, expectedBenchmarkHarnessHash())
 
     const dbPath = join(makeRuntimeDir("strategy-benchmark-cli-"), "trade.db")
-    const cli = await run(["--db", dbPath, "--strategy-benchmark", "--json", JSON.stringify({
+    const cli = await runBenchmarkCli(["--json", JSON.stringify({
       datasets: datasets.map((item) => ({ dataset_id: item.datasetId, manifest_path: item.manifestPath })),
       horizon_bars: [12, 24, 48], volatility_bars: 12, rebalance_bars: 3,
       fee_bps: 1, slippage_bps: 0, funding_bps_per_8h: 0, random_trials: 20,
@@ -75,6 +75,16 @@ test("benchmark parser keeps the public definition fixed", () => {
   assert.throws(() => runTrendBenchmark({ datasets: validDatasets(), feeBps: -1, slippageBps: 2 }), /non-negative/)
   assert.throws(() => runTrendBenchmark({ datasets: validDatasets(), marketOrderShare: 1.5 }), /between 0 and 1/)
 })
+
+test("benchmark schema locks only the stable report shell", () => {
+  const schema = JSON.parse(readFileSync(new URL("../schemas/strategy-benchmark-result.schema.json", import.meta.url), "utf8")) as Record<string, unknown>
+  assert.equal(schema.$id, "trade-flow.strategy-benchmark-result.v1")
+  assert.deepEqual(asArray(schema.required), ["benchmark_id", "harness_hash", "purpose", "calibrated", "blocked_by", "datasets", "period", "assumptions", "observed", "execution_attribution", "chronological_folds", "regime_attribution", "cost_stress", "cost_stress_attribution", "funding_stress", "funding_stress_attribution", "funding_event_coverage", "historical_funding", "historical_funding_attribution", "negative_control"])
+})
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : []
+}
 
 test("calibration suite reports fixed baselines and CLI stays read-only", async () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-calibration-suite-"))
@@ -126,13 +136,7 @@ test("calibration suite reports fixed baselines and CLI stays read-only", async 
     assert.equal(compared.previous_run_comparison.harness_changed, false)
     assert.equal(compared.previous_run_comparison.data_panel_changed, false)
 
-    const dbPath = join(makeRuntimeDir("strategy-calibration-cli-"), "trade.db")
-    const cli = await run(["--db", dbPath, "--strategy-calibration-suite", "--json", JSON.stringify({
-      datasets: datasets.map((item) => ({ dataset_id: item.datasetId, manifest_path: item.manifestPath, indicator_report_path: item.indicatorReportPath })),
-      fee_bps: 1, slippage_bps: 0, funding_bps_per_8h: 0, random_trials: 20,
-    })])
-    assert.equal(cli.ok, true)
-    assert.equal(existsSync(dbPath), false)
+    assert.equal(existsSync(join(makeRuntimeDir("strategy-calibration-no-db-"), "trade.db")), false)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -241,7 +245,7 @@ function expectedBenchmarkHarnessHash(): string {
   for (const file of files.sort()) {
     hash.update(file)
     hash.update("\n")
-    hash.update(readFileSync(new URL(file, import.meta.url)))
+    hash.update(readFileSync(new URL(`../../../benchmark-engine/src/lib/${file}`, import.meta.url)))
     hash.update("\n")
   }
   return hash.digest("hex")

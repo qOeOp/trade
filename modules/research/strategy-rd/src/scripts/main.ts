@@ -17,12 +17,6 @@ import { runRdSupervisorLoop } from "../lib/rd-supervisor-runner"
 import { candidateFromStrategyContract } from "../lib/strategy-contract"
 import { runStrategyPanelRnd, strategyPanelRndInputFromJson } from "../lib/strategy-panel-rnd"
 import {
-  runCalibrationSuite,
-  runTrendBenchmark,
-  strategyBenchmarkInputFromJson,
-  strategyCalibrationInputFromJson,
-} from "../lib/strategy-benchmark"
-import {
   evaluateRndSignal,
   runStrategyRndBatch,
   runStrategyRndCampaign,
@@ -43,8 +37,6 @@ interface Config {
   rdProgramState: boolean
   rdSupervisorRun: boolean
   rdShadowTracker: boolean
-  strategyBenchmark: boolean
-  strategyCalibrationSuite: boolean
   fundingCarryGovernance: boolean
   strategySignal: boolean
   forwardResultPath: string
@@ -92,8 +84,6 @@ function runConfig(config: Config): unknown {
   if (config.rdProgramState) return runRdProgramStateCommand({ path: config.statePath, input: config.input, catalogDbPath: config.catalogDbPath })
   if (config.rdSupervisorRun) return runRdSupervisorLoop({ path: config.statePath, input: config.input, catalogDbPath: config.catalogDbPath })
   if (config.rdShadowTracker) return runRdShadowTracker(config)
-  if (config.strategyBenchmark) return runTrendBenchmark(strategyBenchmarkInputFromJson(config.input))
-  if (config.strategyCalibrationSuite) return runCalibrationSuite(strategyCalibrationInputFromJson(config.input))
   if (config.fundingCarryGovernance) return runFundingCarryGovernance(fundingCarryGovernanceInputFromJson(config.input))
   if (config.strategySignal) {
     const parsed = strategyRndSignalInputFromJson(config.input)
@@ -114,8 +104,6 @@ function parseArgs(argv: string[]): Config {
     rdProgramState: false,
     rdSupervisorRun: false,
     rdShadowTracker: false,
-    strategyBenchmark: false,
-    strategyCalibrationSuite: false,
     fundingCarryGovernance: false,
     strategySignal: false,
     forwardResultPath: "",
@@ -137,8 +125,6 @@ function parseArgs(argv: string[]): Config {
       case "--rd-program-state": config.rdProgramState = true; break
       case "--rd-supervisor-run": config.rdSupervisorRun = true; break
       case "--rd-shadow-tracker": config.rdShadowTracker = true; break
-      case "--strategy-benchmark": config.strategyBenchmark = true; break
-      case "--strategy-calibration-suite": config.strategyCalibrationSuite = true; break
       case "--funding-carry-governance": config.fundingCarryGovernance = true; break
       case "--strategy-signal": config.strategySignal = true; break
       case "--max-hold-bars": config.maxHoldBars = Number(readValue(argv, ++index, arg)); break

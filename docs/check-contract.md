@@ -25,6 +25,8 @@
 | `trade-flow-check` | `modules/trade-flow` | `bun run check` | typecheck + test |
 | `replay-runner-check` | `modules/research/replay-runner` | `bun run check` | 单策略机械 replay |
 | `data-split-check` | `modules/research/data-split` | `bun run check` | discovery / validation / locked holdout split |
+| `benchmark-runner-check` | `modules/research/benchmark-runner` | `bun run check` | fixed benchmark / benchmark engine |
+| `calibration-suite-check` | `modules/research/calibration-suite` | `bun run check` | calibration suite CLI |
 | `strategy-contract-compile-check` | `modules/research/strategy-contract-compile` | `bun run check` | strategy contract compile CLI |
 | `strategy-contract-lint-check` | `modules/research/strategy-contract-lint` | `bun run check` | strategy contract lint CLI |
 | `strategy-rd-check` | `modules/research/strategy-rd` | `bun run check` | R&D / panel / benchmark / calibration / RD memory |
@@ -50,6 +52,7 @@
 | observe / runtime load | `src/scripts/lib/observe-*`, `src/scripts/commands/observe.ts` | `trade-flow-typecheck` + `bun test ./src/scripts/lib/observe-*.test.ts ./src/scripts/commands/handlers.test.ts` |
 | research replay runner | `modules/research/replay-runner/src/**`, `modules/research/replay-engine/src/**` | `replay-runner-check` + `strategy-rd-check` if shared replay semantics changed |
 | research data split | `modules/research/data-split/src/**` | `data-split-check` |
+| research benchmark / calibration | `modules/research/benchmark-engine/src/**`, `modules/research/benchmark-runner/src/**`, `modules/research/calibration-suite/src/**` | `benchmark-runner-check` + `calibration-suite-check` + `strategy-rd-check` if funding governance consumes benchmark data helpers |
 | strategy contract compile/lint | `modules/contracts/strategy-contract/src/**`, `modules/research/strategy-contract-*/src/**` | `strategy-contract-compile-check` + `strategy-contract-lint-check` + `strategy-rd-check` if RD consumes compiled candidates |
 | research R&D / benchmark / forward holdout | `modules/research/strategy-rd/src/**` | `strategy-rd-check` |
 | strategy evidence / review / promotion | `modules/governance/strategy-review/src/**` | `strategy-review-check` |

@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs"
-import { loadCandlesFromManifest, loadManifest, replayDataHash, type Candle } from "./replay-core"
-import { resolveReadablePath } from "./paths"
+import { loadCandlesFromManifest, loadManifest, replayDataHash, type Candle } from "../../../replay-engine/src/lib/replay-core"
+import { resolveReadablePath } from "../../../replay-engine/src/lib/paths"
 import type { BenchmarkDataset } from "./strategy-benchmark-inputs"
 
 type JSONRecord = Record<string, unknown>

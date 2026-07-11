@@ -9,14 +9,14 @@ title: R&D Reliability Roadmap
 ## 1. 数据层
 
 - 目标：20+ 可交易资产，减少 current-symbol survivorship bias。
-- 当前：`--strategy-calibration-suite` 已输出 `data_panel`、`survivor_only` 与 symbol status 分布；`ohlcv-fetch/scripts/calibration-panel.ts` 已生成 20 symbol panel，并可通过外部归档 manifest 合入 inactive / delisted symbol。
+- 当前：`research.calibration-suite` 已输出 `data_panel`、`survivor_only` 与 symbol status 分布；`ohlcv-fetch/scripts/calibration-panel.ts` 已生成 20 symbol panel，并可通过外部归档 manifest 合入 inactive / delisted symbol。
 - 下一块：接入可靠 delisted / 下架历史数据源，形成 listing-age-aware universe。
 - 完成信号：calibration suite 不再触发 `CAL-PANEL-BREADTH / CAL-PANEL-SCHEMA / CAL-PANEL-ALIGNMENT`。
 
 ## 2. Funding 层
 
 - 目标：calibration / replay / R&D 统一使用 exact funding events；覆盖不足时只诊断，不准入。
-- 当前：`--strategy-calibration-suite` 已消费 dataset `indicator_report_path` 的 `market_events.funding`；`ohlcv-fetch/scripts/calibration-market-features.ts` 已实跑完整 panel，失败缓存可重试，最终输出 full funding coverage；strategy evidence 已继承 replay `funding_event_coverage`，partial / invalid 时阻断升 `shadow`。
+- 当前：`research.calibration-suite` 已消费 dataset `indicator_report_path` 的 `market_events.funding`；`ohlcv-fetch/scripts/calibration-market-features.ts` 已实跑完整 panel，失败缓存可重试，最终输出 full funding coverage；strategy evidence 已继承 replay `funding_event_coverage`，partial / invalid 时阻断升 `shadow`。
 - 下一块：把 exact funding coverage 继续接入 shadow / live-small execution attribution 的自动汇总。
 - 完成信号：输出 `funding_event_coverage.status=full` 与 `historical_funding_attribution`。
 

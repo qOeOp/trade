@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import { readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fileURLToPath } from "node:url"
-import { replayDataHash } from "./replay-core"
+import { replayDataHash } from "../../../replay-engine/src/lib/replay-core"
 import { buildCalibrationSuiteReport } from "./strategy-calibration-report"
 import {
   strategyBenchmarkInputFromJson,

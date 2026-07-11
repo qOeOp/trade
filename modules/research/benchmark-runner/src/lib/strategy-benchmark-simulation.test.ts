@@ -8,7 +8,7 @@ import {
   regimeAttribution,
   simulate,
   stressCostModel,
-} from "./strategy-benchmark-simulation"
+} from "../../../benchmark-engine/src/lib/strategy-benchmark-simulation"
 
 test("benchmark simulation normalizes costs and records attribution", () => {
   const cost = buildCostModel({

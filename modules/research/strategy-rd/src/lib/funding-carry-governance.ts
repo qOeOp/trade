@@ -1,6 +1,6 @@
 import { loadCandlesFromManifest, loadManifest } from "./replay-core"
-import { panelFundingEvents } from "./strategy-benchmark-data"
-import { strategyBenchmarkInputFromJson, type BenchmarkDataset } from "./strategy-benchmark-inputs"
+import { panelFundingEvents } from "../../../benchmark-engine/src/lib/strategy-benchmark-data"
+import { strategyBenchmarkInputFromJson, type BenchmarkDataset } from "../../../benchmark-engine/src/lib/strategy-benchmark-inputs"
 import type { JSONRecord } from "./json"
 
 interface FundingCarryGovernanceInput {

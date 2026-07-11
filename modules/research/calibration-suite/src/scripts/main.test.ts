@@ -1,0 +1,102 @@
+import { createHash } from "node:crypto"
+import assert from "node:assert/strict"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import test from "node:test"
+import { run } from "./main"
+
+type JSONRecord = Record<string, unknown>
+
+test("calibration suite CLI runs without trade DB writes", () => {
+  const dir = mkdtempSync(join(tmpdir(), "calibration-suite-cli-"))
+  try {
+    const datasets = [0, 17, 41].map((offset, index) => ({
+      dataset_id: ["BTC", "ETH", "SOL"][index],
+      manifest_path: writeRegimeManifest(dir, index, offset),
+      indicator_report_path: writeFundingReport(dir, index, -0.00001 + index * 0.00001),
+    }))
+    const dbPath = join(dir, "trade.db")
+    const result = run(["--json", JSON.stringify({
+      datasets,
+      fee_bps: 1,
+      slippage_bps: 0,
+      funding_bps_per_8h: 0,
+      random_trials: 20,
+    })])
+
+    assert.equal(result.ok, true)
+    assert.equal(result.schema_version, "calibration-suite.script-response.v1")
+    assert.equal(existsSync(dbPath), false)
+    const data = asRecord(result.data)
+    assert.equal(data.purpose, "rd_pipeline_calibration_only")
+    assert.match(String(data.report_hash), /^[a-f0-9]{64}$/)
+    assertSchemaRequired(readSchema(), data)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("calibration suite CLI rejects invalid payloads", () => {
+  const result = run(["--json", JSON.stringify({ datasets: [] })])
+  assert.equal(result.ok, false)
+  assert.match(String(result.error), /at least three datasets/)
+})
+
+function writeRegimeManifest(root: string, asset: number, phase: number, startIndex = 0, length = 1_500): string {
+  const dir = join(root, String(asset))
+  mkdirSync(dir, { recursive: true })
+  let close = 100 + asset * 20
+  const rows = Array.from({ length }, (_, index) => {
+    const actualIndex = startIndex + index
+    const regime = Math.floor((actualIndex + phase) / 120) % 2 === 0 ? 1 : -1
+    const previous = close
+    close *= 1 + regime * (0.0015 + asset * 0.0001)
+    const timestamp = 1_600_000_000_000 + actualIndex * 14_400_000
+    return [new Date(timestamp).toISOString(), timestamp, previous, Math.max(previous, close), Math.min(previous, close), close, 1000].join(",")
+  })
+  const csv = ["date,timestamp,open,high,low,close,volume", ...rows].join("\n")
+  writeFileSync(join(dir, "4h.csv"), csv)
+  const manifestPath = join(dir, "manifest.json")
+  writeFileSync(manifestPath, JSON.stringify({
+    schema_version: 2,
+    source: { provider: "test", market: "synthetic" },
+    closed_candles_only: true,
+    symbol: `ASSET${asset}`,
+    timeframes: { "4h": { file: "4h.csv", content_sha256: createHash("sha256").update(csv).digest("hex") } },
+  }))
+  return manifestPath
+}
+
+function writeFundingReport(root: string, asset: number, rate: number, count = 750): string {
+  const dir = join(root, String(asset))
+  mkdirSync(dir, { recursive: true })
+  const events = Array.from({ length: count }, (_, index) => ({
+    timestamp: new Date(1_600_000_000_000 + index * 28_800_000).toISOString(),
+    value: rate,
+  }))
+  const path = join(dir, "factors.json")
+  writeFileSync(path, JSON.stringify({ data: { market_events: { funding: events } } }))
+  return path
+}
+
+function readSchema(): JSONRecord {
+  const schema = JSON.parse(readFileSync(new URL("../schemas/strategy-calibration-result.schema.json", import.meta.url), "utf8")) as JSONRecord
+  assert.equal(schema.$id, "trade-flow.strategy-calibration-result.v1")
+  assert.deepEqual(asArray(schema.required), ["calibration_suite_id", "purpose", "harness_hash", "report_hash", "previous_run_comparison", "calibrated", "blocked_by", "data_panel", "components", "diagnostics", "failure_analysis", "notes"])
+  return schema
+}
+
+function assertSchemaRequired(schema: JSONRecord, value: JSONRecord): void {
+  for (const field of asArray(schema.required)) {
+    assert.ok(Object.prototype.hasOwnProperty.call(value, String(field)), `missing ${String(field)}`)
+  }
+}
+
+function asRecord(value: unknown): JSONRecord {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as JSONRecord : {}
+}
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : []
+}
