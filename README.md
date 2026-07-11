@@ -287,7 +287,7 @@ flowchart TD
 高阶入口：
 
 ```bash
-bun modules/research/rd-supervisor/src/scripts/main.ts --state ./data/rd/program.json --json '{"max_iterations":10}'
+bun modules/research-strategy-development/rd-supervisor/src/scripts/main.ts --state ./data/rd/program.json --json '{"max_iterations":10}'
 ```
 
 低阶入口：
@@ -334,15 +334,15 @@ stateDiagram-v2
 | 层 | 路径 / tool | 作用 |
 | --- | --- | --- |
 | 产品契约 | `docs/` | vision、PRD、架构、技术契约、检查契约 |
-| 主流程 | `modules/trade-flow/` | event stream、automation、observe、execution、reconcile |
-| 研究 | `modules/research/rd-loop-runner/` + `modules/research/rd-campaign-runner/` + `modules/research/rd-program-state/` + `modules/research/rd-shadow-tracker/` + `modules/research/replay-runner/` + `modules/research/data-split/` + `modules/research/benchmark-runner/` + `modules/research/calibration-suite/` | R&D loop/campaign、RD memory、panel、benchmark、calibration、forward tracker、单策略 replay、holdout split |
-| 策略契约 | `modules/contracts/strategy-contract/` + `modules/research/strategy-contract-*` | strategy contract 解析、compile、lint |
-| 治理 | `modules/governance/strategy-review/` | evidence、review、promotion |
-| 资产治理 | `modules/ops/artifact-catalog/` | catalog、artifact stale scan、GC |
-| 市场观察 | `modules/binance/market-scan` / `modules/binance/symbol-snapshot` / `modules/binance/aggtrades-fetch` / `modules/binance/liquidation-zones` | 候选、单标的事实、成交材料、清算区 |
-| 账户恢复 | `modules/binance/account-snapshot` | 余额、持仓、挂单、保护单、订单历史 |
-| 数据与指标 | `modules/ohlcv-fetch` / `modules/analytics/tech-indicators` | OHLCV、manifest、feature series、BTC beta |
-| 执行 | `modules/binance/order-preview` / `modules/guards/plan-preflight` / Binance write modules | preview、hard guards、下单、保护、减仓、撤单 |
+| 主流程 | `modules/orchestration-ops/trade-flow/` | event stream、automation、observe、execution、reconcile |
+| 研究 | `modules/research-strategy-development/rd-loop-runner/` + `modules/research-strategy-development/rd-campaign-runner/` + `modules/research-strategy-development/rd-program-state/` + `modules/research-strategy-development/rd-shadow-tracker/` + `modules/research-strategy-development/replay-runner/` + `modules/research-strategy-development/data-split/` + `modules/research-strategy-development/benchmark-runner/` + `modules/research-strategy-development/calibration-suite/` | R&D loop/campaign、RD memory、panel、benchmark、calibration、forward tracker、单策略 replay、holdout split |
+| 策略契约 | `modules/contracts/strategy-contract/` + `modules/research-strategy-development/strategy-contract-*` | strategy contract 解析、compile、lint |
+| 治理 | `modules/governance-review-compliance/strategy-review/` | evidence、review、promotion |
+| 资产治理 | `modules/artifact-knowledge/artifact-catalog/` | catalog、artifact stale scan、GC |
+| 市场观察 | `modules/market-data-products/binance-read/market-scan` / `modules/market-data-products/binance-read/symbol-snapshot` / `modules/market-data-products/binance-read/aggtrades-fetch` / `modules/market-data-products/liquidation-zones` | 候选、单标的事实、成交材料、清算区 |
+| 账户恢复 | `modules/exchange-gateway/binance-read/account-snapshot` | 余额、持仓、挂单、保护单、订单历史 |
+| 数据与指标 | `modules/market-data-products/ohlcv-fetch` / `modules/market-data-products/tech-indicators` | OHLCV、manifest、feature series、BTC beta |
+| 执行 | `modules/exchange-gateway/binance-write/order-preview` / `modules/live-execution-control/plan-preflight` / Binance write modules | preview、hard guards、下单、保护、减仓、撤单 |
 | 策略资产 | `strategies/` | strategy policy + `## Trade Contract` |
 | 运行数据 | `data/` / `tmp/` | DB、catalog、OHLCV、artifact、cache |
 | 配置 | `profile/` | trading config、通知配置；凭证来自环境变量 |
@@ -376,17 +376,17 @@ sequenceDiagram
 scripts/quality-check.sh
 
 # trade-flow help
-bun modules/trade-flow/src/scripts/main.ts --help
+bun modules/orchestration-ops/trade-flow/src/scripts/main.ts --help
 
 # 初始化在线事件库
-bun modules/trade-flow/src/scripts/main.ts --db ./data/trade.db --init
+bun modules/orchestration-ops/trade-flow/src/scripts/main.ts --db ./data/trade.db --init
 
 # 生成单入口 supervisor plan
-bun modules/trade-flow/src/scripts/main.ts --db ./data/trade.db --automation-cycle --json '{"slow_interval_minutes":240,"rd_program_state_path":"./data/rd/program.json"}'
+bun modules/orchestration-ops/trade-flow/src/scripts/main.ts --db ./data/trade.db --automation-cycle --json '{"slow_interval_minutes":240,"rd_program_state_path":"./data/rd/program.json"}'
 
 # 初始化并运行 R&D supervisor
-bun modules/research/rd-program-state/src/scripts/main.ts --state ./data/rd/program.json --json '{"action":"init","objective":"find a shadow-eligible 4H swing strategy"}'
-bun modules/research/rd-supervisor/src/scripts/main.ts --state ./data/rd/program.json --json '{"max_iterations":10}'
+bun modules/research-strategy-development/rd-program-state/src/scripts/main.ts --state ./data/rd/program.json --json '{"action":"init","objective":"find a shadow-eligible 4H swing strategy"}'
+bun modules/research-strategy-development/rd-supervisor/src/scripts/main.ts --state ./data/rd/program.json --json '{"max_iterations":10}'
 ```
 
 ## 15. 安全边界

@@ -85,35 +85,35 @@
 
 | Command | Class | 当前 owner |
 | --- | --- | --- |
-| `research.replay-runner` | `E` | `modules/research/replay-runner` |
-| `research.data-split` | `A` | `modules/research/data-split` |
-| `research.benchmark-runner` | `E` | `modules/research/benchmark-runner` |
-| `research.calibration-suite` | `A/V` | `modules/research/calibration-suite` |
-| `research.strategy-contract-compile` | `A` | `modules/research/strategy-contract-compile` |
-| `research.strategy-contract-lint` | `V` | `modules/research/strategy-contract-lint` |
-| `research.signal-evaluator` | `E` | `modules/research/signal-evaluator` |
-| `research.panel-evaluator` | `E/V` | `modules/research/panel-evaluator` |
-| `research.candidate-batch` | `E/V` | `modules/research/candidate-batch` |
-| `research.rd-loop-runner` | `A/E` | `modules/research/rd-loop-runner` |
-| `research.rd-campaign-runner` | `A/E` | `modules/research/rd-campaign-runner` |
-| `research.rd-program-state` | `A` | `modules/research/rd-program-state` |
-| `research.rd-supervisor` | `A/E` | `modules/research/rd-supervisor` |
-| `research.rd-shadow-tracker` | `A/E` | `modules/research/rd-shadow-tracker` |
-| `--append-strategy-evidence`, `--strategy-review`, `--strategy-promote`, `--strategy-cycle` | `E/V` | `modules/governance/strategy-review` |
-| `--catalog-*`, `--artifact-gc` | `A/V` | `modules/ops/artifact-catalog` |
+| `research.replay-runner` | `E` | `modules/research-strategy-development/replay-runner` |
+| `research.data-split` | `A` | `modules/research-strategy-development/data-split` |
+| `research.benchmark-runner` | `E` | `modules/research-strategy-development/benchmark-runner` |
+| `research.calibration-suite` | `A/V` | `modules/research-strategy-development/calibration-suite` |
+| `research.strategy-contract-compile` | `A` | `modules/research-strategy-development/strategy-contract-compile` |
+| `research.strategy-contract-lint` | `V` | `modules/research-strategy-development/strategy-contract-lint` |
+| `research.signal-evaluator` | `E` | `modules/research-strategy-development/signal-evaluator` |
+| `research.panel-evaluator` | `E/V` | `modules/research-strategy-development/panel-evaluator` |
+| `research.candidate-batch` | `E/V` | `modules/research-strategy-development/candidate-batch` |
+| `research.rd-loop-runner` | `A/E` | `modules/research-strategy-development/rd-loop-runner` |
+| `research.rd-campaign-runner` | `A/E` | `modules/research-strategy-development/rd-campaign-runner` |
+| `research.rd-program-state` | `A` | `modules/research-strategy-development/rd-program-state` |
+| `research.rd-supervisor` | `A/E` | `modules/research-strategy-development/rd-supervisor` |
+| `research.rd-shadow-tracker` | `A/E` | `modules/research-strategy-development/rd-shadow-tracker` |
+| `--append-strategy-evidence`, `--strategy-review`, `--strategy-promote`, `--strategy-cycle` | `E/V` | `modules/governance-review-compliance/strategy-review` |
+| `--catalog-*`, `--artifact-gc` | `A/V` | `modules/artifact-knowledge/artifact-catalog` |
 
 ## 4. 当前代码热点
 
 | 文件 | 行数级别 | 风险 | 目标 |
 | --- | ---: | --- | --- |
-| `modules/trade-flow/src/scripts/main.ts` | ~1500 | command router + 业务逻辑混合 | 拆 `commands/*` |
-| `modules/trade-flow/src/scripts/main.test.ts` | ~1375 | 大集成测试难定位 | 按 domain fixture 拆 |
-| `modules/research/rd-integration-suite/src/lib/*.test.ts` | 已迁移 | research atoms 跨模块回归 | 只保留测试，不承载生产 helper |
-| `modules/research/benchmark-engine/src/lib/strategy-benchmark.ts` | 已迁移 | benchmark / calibration engine | 被 benchmark-runner 与 calibration-suite 复用 |
-| `modules/research/replay-engine/src/lib/strategy-replay.ts` | 已迁移 | replay engine owner | 继续保持只读 research 边界 |
-| `modules/governance/strategy-review/src/lib/strategy-iteration.ts` | 已迁移 | evidence / review / promote owner | 继续强化 catalog-backed evidence |
-| `modules/binance/order-place/src/scripts/main.ts` | ~1021 | 执行入口复杂，安全关键 | contract-first + normalized event |
-| `modules/analytics/tech-indicators/src/scripts/structure.go` | ~1204 | 指标/结构算法集中 | 后续按 indicator/domain 拆 |
+| `modules/orchestration-ops/trade-flow/src/scripts/main.ts` | ~1500 | command router + 业务逻辑混合 | 拆 `commands/*` |
+| `modules/orchestration-ops/trade-flow/src/scripts/main.test.ts` | ~1375 | 大集成测试难定位 | 按 domain fixture 拆 |
+| `modules/research-strategy-development/rd-integration-suite/src/lib/*.test.ts` | 已迁移 | research atoms 跨模块回归 | 只保留测试，不承载生产 helper |
+| `modules/research-strategy-development/benchmark-engine/src/lib/strategy-benchmark.ts` | 已迁移 | benchmark / calibration engine | 被 benchmark-runner 与 calibration-suite 复用 |
+| `modules/research-strategy-development/replay-engine/src/lib/strategy-replay.ts` | 已迁移 | replay engine owner | 继续保持只读 research 边界 |
+| `modules/governance-review-compliance/strategy-review/src/lib/strategy-iteration.ts` | 已迁移 | evidence / review / promote owner | 继续强化 catalog-backed evidence |
+| `modules/exchange-gateway/binance-write/order-place/src/scripts/main.ts` | ~1021 | 执行入口复杂，安全关键 | contract-first + normalized event |
+| `modules/market-data-products/tech-indicators/src/scripts/structure.go` | ~1204 | 指标/结构算法集中 | 后续按 indicator/domain 拆 |
 
 ## 5. 测试入口基线
 
@@ -122,8 +122,8 @@
 | Area | 当前入口 |
 | --- | --- |
 | TS tool | 各 tool `bun run check` |
-| `trade-flow` | `modules/trade-flow`: `bun run check` |
-| `plan-preflight` | `modules/guards/plan-preflight`: `bun run check` |
+| `trade-flow` | `modules/orchestration-ops/trade-flow`: `bun run check` |
+| `plan-preflight` | `modules/live-execution-control/plan-preflight`: `bun run check` |
 | Binance TS tools | 各 tool `bun run check`; live/test endpoint 默认关闭 |
 | `tech-indicators` | Go tests：`go test ./...` |
 | liquidation zones | Python tests：`pytest` 或脚本自带测试 |

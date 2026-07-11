@@ -87,7 +87,7 @@
 - 微结构、aggTrades、depth、liquidation-like 输出默认只作为 refs。
 - 不新增 market snapshot 表。
 - replay / shadow 需要的数据由对应 tool 输出引用，不进入 `trade.db`。
-- 未被 refs / evidence / review / `.pin` 引用的市场 artifact 不长期保留；默认先用 `modules/ops/artifact-catalog --catalog-stale` 看 catalog 候选，删除走 `--catalog-gc --yes` 或 `--artifact-gc` 显式清理。
+- 未被 refs / evidence / review / `.pin` 引用的市场 artifact 不长期保留；默认先用 `modules/artifact-knowledge/artifact-catalog --catalog-stale` 看 catalog 候选，删除走 `--catalog-gc --yes` 或 `--artifact-gc` 显式清理。
 - Vision ZIP 只在进程内校验、解压、聚合，不落长期缓存；factor report 是唯一持久结果。
 - 大型 factor report 不整体入库；只把 source manifest、hash、bytes、summary metrics、artifact ref 写入 catalog。
 - 完整 L2 queue、真实 liquidation、带地址标签的 exchange netflow 与完整历史 option surface 以 `capability_gaps` 明示。

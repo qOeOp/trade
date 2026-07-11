@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade.protocol.logical-store-ref.v1",
+  "title": "protocol fabric logical store ref",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["store", "owner_domain", "owner_module", "write_contract", "ref"],
+  "properties": {
+    "store": {
+      "type": "string",
+      "enum": [
+        "trade_event_store",
+        "flow_read_models",
+        "market_data_store",
+        "exchange_runtime_store",
+        "artifact_catalog",
+        "research_state_store",
+        "governance_ledger",
+        "policy_registry",
+        "ops_runtime_store"
+      ]
+    },
+    "owner_domain": {
+      "type": "string",
+      "enum": [
+        "orchestration-ops",
+        "policy-risk",
+        "portfolio-execution-state",
+        "market-data-products",
+        "exchange-gateway",
+        "live-decision-planning",
+        "live-execution-control",
+        "research-strategy-development",
+        "governance-review-compliance",
+        "artifact-knowledge"
+      ]
+    },
+    "owner_module": { "type": "string", "minLength": 1 },
+    "physical_locator": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "type": "string", "enum": ["sqlite", "duckdb", "parquet", "file", "artifact", "jsonl", "memory"] },
+        "path": { "type": "string" },
+        "table": { "type": "string" }
+      }
+    },
+    "write_contract": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["entrypoint", "mode"],
+      "properties": {
+        "entrypoint": { "type": "string", "minLength": 1 },
+        "mode": { "type": "string", "enum": ["append-only", "upsert", "derived", "read-only", "external-side-effect"] }
+      }
+    },
+    "ref": { "type": "string", "minLength": 1 },
+    "schema_id": { "type": "string" },
+    "idempotency_key": { "type": "string" },
+    "freshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "as_of": { "type": "string" },
+        "max_age_seconds": { "type": "number", "minimum": 0 }
+      }
+    }
+  }
+}

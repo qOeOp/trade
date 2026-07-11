@@ -57,7 +57,7 @@ NOFX 可借鉴的是 runtime discipline，不是产品形态；详细计划见 [
 主要风险：
 
 - `trade-flow` 曾混合 online flow、recovery、execution recording、replay、R&D、calibration、evidence、artifact GC；当前 R&D / review / artifact 已迁到独立 owner。
-- `modules/trade-flow/src/scripts/main.ts` 已从全平台命令总线收缩为交易流程入口；后续新增原子能力必须先落 owner 模块。
+- `modules/orchestration-ops/trade-flow/src/scripts/main.ts` 已从全平台命令总线收缩为交易流程入口；后续新增原子能力必须先落 owner 模块。
 - 没有项目级命令契约；各 tool 有各自 `check`，但没有统一“改了什么跑什么”。
 - 动作权限没有机器可读边界；只读、写 evidence、写 `trade.db`、真实下单都靠文档和人工识别。
 - 交易配置缺少统一 runtime policy compiler；账户风险、通知、R&D 成本模型、strategy/lane 权限仍分散在多个文件和 payload。
@@ -120,7 +120,7 @@ NOFX 可借鉴的是 runtime discipline，不是产品形态；详细计划见 [
 先整理模块，不先决定 tool 数量。
 
 ```text
-modules/trade-flow/
+modules/orchestration-ops/trade-flow/
 ├─ tool README                  # 只保留 router、权限分级、红线、命令索引
 ├─ stages/                   # observe / plan / execute / review 的人读流程
 ├─ scripts/
@@ -607,8 +607,8 @@ Jesse 调研后的补充要求：
   - `commands/help.ts`：CLI help 独立。
   - `commands/research.ts`：replay / R&D / benchmark / calibration / signal / artifact GC 路由独立。
   - `commands/evidence.ts`：append evidence / review / promote 路由独立。
-  - `lib/plan-events.ts`：`plan_event` schema、append、read、validate 独立。
-  - `lib/flow-state.ts`：flow reducer 与 reconcile apply 独立。
+  - `portfolio-execution-state/event-store`：`plan_event` schema、append、read、validate 已从 trade-flow 抽出。
+  - `portfolio-execution-state/flow-projector`：flow reducer 与 reconcile apply 已从 trade-flow 抽出。
   - `lib/execution-flow.ts`：execution event、dry-run/shadow step、order-place command 构造独立。
   - `lib/json.ts`、`lib/run-mode.ts`：共享基础类型与字段读取独立。
 - `trade-flow` 第二轮瘦身：
@@ -742,9 +742,9 @@ Jesse 调研后的补充要求：
 
 验证：
 
-- `modules/ohlcv-fetch`: `bun run check`，31 pass / 0 fail
-- `modules/trade-flow`: `bun run typecheck`
-- `modules/trade-flow`: `bun run test`，206 pass / 0 fail
+- `modules/market-data-products/ohlcv-fetch`: `bun run check`，31 pass / 0 fail
+- `modules/orchestration-ops/trade-flow`: `bun run typecheck`
+- `modules/orchestration-ops/trade-flow`: `bun run test`，206 pass / 0 fail
 - repo root: `git diff --check`
 - repo root: `helper-scripts-smoke`
 - repo root: `scripts/quality-check.sh`
@@ -868,7 +868,7 @@ Jesse 调研后的补充要求：
 
 ### 当前实施状态（2026-07-10）
 
-- J1-J5 均已按本项目边界完成第一版吸收；实现位置以 `modules/contracts/execution-contract/src/execution-contract.ts`、`modules/research/replay-engine/src/lib/strategy-replay.ts`、`modules/contracts/strategy-contract/src/strategy-contract.ts`、对应 fixtures 为准。
+- J1-J5 均已按本项目边界完成第一版吸收；实现位置以 `modules/contracts/execution-contract/src/execution-contract.ts`、`modules/research-strategy-development/replay-engine/src/lib/strategy-replay.ts`、`modules/contracts/strategy-contract/src/strategy-contract.ts`、对应 fixtures 为准。
 - 吸收方式是重写内核纪律，不引入 Jesse runtime、策略继承、UI、多交易所、优化平台或 ML pipeline。
 - replay 仍保持稳定输出外壳；新增 `fill_model`、`diagnostics`、`lifecycle` 均为扩展字段。
 - Monte Carlo 与 diagnostics 只允许阻断或提示复核，不能单独放行 shadow / live-small。

@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade.protocol.market-data-manifest.v1",
+  "title": "protocol fabric market data manifest",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "manifest_ref", "layer", "symbol_scope", "time_window", "content_hash", "freshness"],
+  "properties": {
+    "schema_version": { "const": "trade.protocol.market-data-manifest.v1" },
+    "manifest_ref": { "type": "string", "minLength": 1 },
+    "layer": { "type": "string", "enum": ["raw_capture", "canonical_facts", "features", "dataset"] },
+    "symbol_scope": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "time_window": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start_at", "end_at"],
+      "properties": {
+        "start_at": { "type": "string", "minLength": 1 },
+        "end_at": { "type": "string", "minLength": 1 },
+        "availability_at": { "type": "string" },
+        "lookback_start": { "type": "string" },
+        "label_end": { "type": "string" }
+      }
+    },
+    "content_hash": { "type": "string", "minLength": 1 },
+    "freshness": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["as_of", "max_age_seconds"],
+      "properties": {
+        "as_of": { "type": "string", "minLength": 1 },
+        "max_age_seconds": { "type": "number", "minimum": 0 }
+      }
+    },
+    "input_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "feature_hash": { "type": "string" },
+    "dataset_split": { "type": "string" }
+  }
+}

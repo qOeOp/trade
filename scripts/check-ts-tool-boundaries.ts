@@ -60,13 +60,46 @@ for (const file of walkTsFiles("modules")) {
       return
     }
     const targetTool = owningToolRoot(resolved)
-    if (sourceTool === "modules/trade-flow" && targetTool.startsWith("modules/flow/")) {
+    if (isAllowedCrossToolImport(sourceTool, targetTool)) {
+      return
+    }
+    if (sourceTool === "modules/orchestration-ops/trade-flow" && targetTool.startsWith("modules/")) {
       return
     }
     if (targetTool && sourceTool && targetTool !== sourceTool) {
       issues.push(`${file}: ${specifier} -> ${targetTool}`)
     }
   })
+}
+
+function isAllowedCrossToolImport(sourceTool: string, targetTool: string): boolean {
+  const allowed = new Set([
+    "modules/portfolio-execution-state/flow-projector -> modules/portfolio-execution-state/event-store",
+    "modules/live-decision-planning/slow-track-plan -> modules/policy-risk/runtime-policy-compiler",
+    "modules/live-decision-planning/slow-track-plan -> modules/portfolio-execution-state/event-store",
+    "modules/live-decision-planning/slow-track-plan -> modules/portfolio-execution-state/flow-projector",
+    "modules/live-decision-planning/slow-track-plan -> modules/live-decision-planning/observe-runner",
+    "modules/live-decision-planning/fast-track-plan -> modules/live-execution-control/execution-gate",
+    "modules/live-decision-planning/fast-track-plan -> modules/portfolio-execution-state/event-store",
+    "modules/live-decision-planning/fast-track-plan -> modules/portfolio-execution-state/flow-projector",
+    "modules/live-decision-planning/fast-track-plan -> modules/live-decision-planning/observe-runner",
+    "modules/live-execution-control/recovery-runner -> modules/live-decision-planning/observe-runner",
+    "modules/live-execution-control/recovery-runner -> modules/live-execution-control/execution-recorder",
+    "modules/live-execution-control/recovery-runner -> modules/live-execution-control/reconcile-drafts",
+    "modules/live-execution-control/recovery-runner -> modules/portfolio-execution-state/event-store",
+    "modules/live-execution-control/recovery-runner -> modules/portfolio-execution-state/flow-projector",
+    "modules/live-execution-control/execution-flow-runner -> modules/live-execution-control/execution-recorder",
+    "modules/live-execution-control/execution-flow-runner -> modules/live-execution-control/execution-gate",
+    "modules/live-execution-control/execution-flow-runner -> modules/portfolio-execution-state/event-store",
+    "modules/live-execution-control/execution-flow-runner -> modules/portfolio-execution-state/flow-projector",
+    "modules/live-execution-control/live-small-runner -> modules/live-execution-control/execution-flow-runner",
+    "modules/live-execution-control/live-small-runner -> modules/live-execution-control/execution-gate",
+    "modules/live-execution-control/live-small-runner -> modules/live-execution-control/execution-router",
+    "modules/live-execution-control/live-small-runner -> modules/live-execution-control/execution-recorder",
+    "modules/live-execution-control/live-small-runner -> modules/live-decision-planning/observe-runner",
+    "modules/live-execution-control/live-small-runner -> modules/portfolio-execution-state/event-store",
+  ])
+  return allowed.has(`${sourceTool} -> ${targetTool}`)
 }
 
 if (issues.length > 0) {

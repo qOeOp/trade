@@ -32,35 +32,36 @@
 
 | 路径 | Owner | 负责 | 不负责 |
 | --- | --- | --- | --- |
-| `modules/trade-flow/` | flow domain orchestrator | 事件流、automation plan、observe、reconcile、execution orchestration | Binance 数据接入实现、交易所写接口细节、R&D 实验实现、策略复核 owner |
-| `modules/research/replay-runner/` | strategy replay | 单策略机械 replay | R&D search、catalog 写入、strategy promotion |
-| `modules/research/data-split/` | strategy data split | discovery / validation / locked holdout manifest 切分 | R&D search、replay、review、`trade.db` |
-| `modules/research/signal-evaluator/` | latest strategy signal | 最新闭合 K 线信号评估 | R&D search、catalog 写入、strategy promotion、交易执行 |
-| `modules/research/panel-evaluator/` | panel evaluator | 多资产 panel、marketability、panel negative controls | R&D loop artifact、RD memory、strategy promotion、`trade.db` |
-| `modules/research/candidate-batch/` | candidate batch evaluator | 单批候选评估、negative controls、统计报告 | artifact 写入、RD memory、strategy promotion、`trade.db` |
-| `modules/research/signal-engine/` | signal internal engine | 最新信号输入解析与 family signal 计算 | agent-facing CLI、状态写入 |
-| `modules/research/candidate-batch-engine/` | candidate batch internal engine | 单批候选评估、negative controls、统计报告 | agent-facing CLI、artifact 写入、RD memory |
-| `modules/research/strategy-family-engine/` | strategy family internal engine | family registry、factor transform、factor research、feature store | agent-facing CLI、状态写入 |
-| `modules/research/benchmark-runner/` | strategy benchmark | 固定 benchmark 仿真、成本/资金费压力、负对照 | R&D search、strategy promotion、`trade.db` |
-| `modules/research/calibration-suite/` | strategy calibration | calibration diagnostics、data breadth、funding/cost attribution | R&D search、strategy promotion、`trade.db` |
-| `modules/research/funding-governance/` | funding governance | funding carry research 前 exact funding event coverage 检查 | R&D search、replay、review、`trade.db` |
-| `modules/research/strategy-contract-compile/` | strategy contract compile | strategy markdown contract 编译 | R&D search、replay、review、catalog 写入 |
-| `modules/research/strategy-contract-lint/` | strategy contract lint | strategy markdown contract 完整性 lint | R&D search、replay、review、catalog 写入 |
-| `modules/research/forward-holdout/` | research atom | frozen candidate forward-only signal check | R&D search、strategy evidence、promotion、`trade.db`、Binance 写接口 |
-| `modules/research/rd-campaign-runner/` | research atom | R&D campaign | `trade.db`、Binance 写接口、strategy promotion、R&D loop 实现、forward tracker、RD state init/read/update/plan_next、supervisor CLI、单策略 replay CLI、latest signal CLI、panel CLI、data split CLI、benchmark/calibration/funding governance CLI、contract compile/lint CLI |
-| `modules/research/rd-ledger/` | research atom | R&D run ledger / holdout idempotence | candidate evaluation、campaign orchestration、RD state writeback、`trade.db`、Binance 写接口 |
-| `modules/research/rd-artifact-summary/` | research atom | R&D artifact summary | replay、candidate evaluation、artifact/catalog/ledger 写入、RD memory、`trade.db` |
-| `modules/research/rd-integration-suite/` | test suite | research atoms integration regression | production RD logic、agent-facing tool、持久写入 |
-| `modules/research/rd-loop-runner/` | RD loop runner | 单轮 R&D artifact、catalog、ledger、optional state writeback | campaign orchestration、strategy evidence、`trade.db`、Binance 写接口 |
-| `modules/research/rd-program-state/` | RD memory state | init/read/update/plan_next durable R&D state | R&D trial execution、strategy evidence、`trade.db`、Binance 写接口 |
-| `modules/research/rd-supervisor/` | RD supervisor | plan_next -> loop/campaign -> state writeback | `trade.db`、Binance 写接口、strategy review、promotion |
-| `modules/research/rd-shadow-tracker/` | RD paper tracker | forward setup event chain and review draft input | R&D search、strategy evidence、`trade.db`、Binance 写接口 |
-| `modules/governance/strategy-review/` | strategy governance | evidence ledger、strategy review、promotion gate、strategy-cycle | R&D 实验、交易执行、写 `trade.db`、写 RD memory |
-| `modules/ops/artifact-catalog/` | artifact governance | catalog DB、artifact index/query/stale/gc、feature report refs | `trade.db`、策略判断、交易所 API |
-| `modules/ohlcv-fetch/` | market data acquisition | OHLCV、funding、market features、calibration panel、manifest | 策略升格、live 执行判断 |
-| `modules/binance/` | exchange atomic tools | Binance 只读事实、市场扫描、下单、撤单、保护、减仓 | R&D planning、strategy promotion、长期状态 |
-| `modules/guards/` | deterministic guard | preflight、hard guards、decision card validation | 市场观点、交易所写接口 |
-| `modules/analytics/` | market analytics | indicators、structure、beta、feature report | live execution |
+| `modules/orchestration-ops/trade-flow/` | flow domain orchestrator | 事件流、automation plan、observe、reconcile、execution orchestration | Binance 数据接入实现、交易所写接口细节、R&D 实验实现、策略复核 owner |
+| `modules/research-strategy-development/replay-runner/` | strategy replay | 单策略机械 replay | R&D search、catalog 写入、strategy promotion |
+| `modules/research-strategy-development/data-split/` | strategy data split | discovery / validation / locked holdout manifest 切分 | R&D search、replay、review、`trade.db` |
+| `modules/research-strategy-development/signal-evaluator/` | latest strategy signal | 最新闭合 K 线信号评估 | R&D search、catalog 写入、strategy promotion、交易执行 |
+| `modules/research-strategy-development/panel-evaluator/` | panel evaluator | 多资产 panel、marketability、panel negative controls | R&D loop artifact、RD memory、strategy promotion、`trade.db` |
+| `modules/research-strategy-development/candidate-batch/` | candidate batch evaluator | 单批候选评估、negative controls、统计报告 | artifact 写入、RD memory、strategy promotion、`trade.db` |
+| `modules/research-strategy-development/signal-engine/` | signal internal engine | 最新信号输入解析与 family signal 计算 | agent-facing CLI、状态写入 |
+| `modules/research-strategy-development/candidate-batch-engine/` | candidate batch internal engine | 单批候选评估、negative controls、统计报告 | agent-facing CLI、artifact 写入、RD memory |
+| `modules/research-strategy-development/strategy-family-engine/` | strategy family internal engine | family registry、factor transform、factor research、feature store | agent-facing CLI、状态写入 |
+| `modules/research-strategy-development/benchmark-runner/` | strategy benchmark | 固定 benchmark 仿真、成本/资金费压力、负对照 | R&D search、strategy promotion、`trade.db` |
+| `modules/research-strategy-development/calibration-suite/` | strategy calibration | calibration diagnostics、data breadth、funding/cost attribution | R&D search、strategy promotion、`trade.db` |
+| `modules/research-strategy-development/funding-governance/` | funding governance | funding carry research 前 exact funding event coverage 检查 | R&D search、replay、review、`trade.db` |
+| `modules/research-strategy-development/strategy-contract-compile/` | strategy contract compile | strategy markdown contract 编译 | R&D search、replay、review、catalog 写入 |
+| `modules/research-strategy-development/strategy-contract-lint/` | strategy contract lint | strategy markdown contract 完整性 lint | R&D search、replay、review、catalog 写入 |
+| `modules/research-strategy-development/forward-holdout/` | research atom | frozen candidate forward-only signal check | R&D search、strategy evidence、promotion、`trade.db`、Binance 写接口 |
+| `modules/research-strategy-development/rd-campaign-runner/` | research atom | R&D campaign | `trade.db`、Binance 写接口、strategy promotion、R&D loop 实现、forward tracker、RD state init/read/update/plan_next、supervisor CLI、单策略 replay CLI、latest signal CLI、panel CLI、data split CLI、benchmark/calibration/funding governance CLI、contract compile/lint CLI |
+| `modules/research-strategy-development/rd-ledger/` | research atom | R&D run ledger / holdout idempotence | candidate evaluation、campaign orchestration、RD state writeback、`trade.db`、Binance 写接口 |
+| `modules/research-strategy-development/rd-artifact-summary/` | research atom | R&D artifact summary | replay、candidate evaluation、artifact/catalog/ledger 写入、RD memory、`trade.db` |
+| `modules/research-strategy-development/rd-integration-suite/` | test suite | research atoms integration regression | production RD logic、agent-facing tool、持久写入 |
+| `modules/research-strategy-development/rd-loop-runner/` | RD loop runner | 单轮 R&D artifact、catalog、ledger、optional state writeback | campaign orchestration、strategy evidence、`trade.db`、Binance 写接口 |
+| `modules/research-strategy-development/rd-program-state/` | RD memory state | init/read/update/plan_next durable R&D state | R&D trial execution、strategy evidence、`trade.db`、Binance 写接口 |
+| `modules/research-strategy-development/rd-supervisor/` | RD supervisor | plan_next -> loop/campaign -> state writeback | `trade.db`、Binance 写接口、strategy review、promotion |
+| `modules/research-strategy-development/rd-shadow-tracker/` | RD paper tracker | forward setup event chain and review draft input | R&D search、strategy evidence、`trade.db`、Binance 写接口 |
+| `modules/governance-review-compliance/strategy-review/` | strategy governance | evidence ledger、strategy review、promotion gate、strategy-cycle | R&D 实验、交易执行、写 `trade.db`、写 RD memory |
+| `modules/artifact-knowledge/artifact-catalog/` | artifact governance | catalog DB、artifact index/query/stale/gc、feature report refs | `trade.db`、策略判断、交易所 API |
+| `modules/market-data-products/ohlcv-fetch/` | market data acquisition | OHLCV、funding、market features、calibration panel、manifest | 策略升格、live 执行判断 |
+| `modules/exchange-gateway/` | exchange gateway tools | Binance 账户/订单读取、下单、撤单、保护、减仓 | R&D planning、strategy promotion、长期状态 |
+| `modules/market-data-products/` | market data product tools | Binance public market facts、OHLCV、features、liquidity scan、microstructure refs | 账户私有状态、交易所写 side effect |
+| `modules/live-execution-control/` | deterministic guard | preflight、hard guards、decision card validation | 市场观点、交易所写接口 |
+| `modules/market-data-products/` | market analytics | indicators、structure、beta、feature report | live execution |
 | `modules/contracts/` | cross-module contracts | runtime core、execution contract、preflight contract、catalog client | 业务实现 owner |
 | `strategies/` | strategy assets | policy markdown、frontmatter、`## Trade Contract` | 运行日志、临时候选 |
 | `data/` | durable local state | `trade.db`、catalog、OHLCV、RD memory、持久 evidence refs | scratch cache |
@@ -71,38 +72,38 @@
 
 | 行为 | 工具 |
 | --- | --- |
-| 账户事实 | `modules/binance/account-snapshot` |
-| 市场粗筛 | `modules/binance/market-scan` |
-| 单标的事实 | `modules/binance/symbol-snapshot` |
-| 成交原材料 | `modules/binance/aggtrades-fetch` |
-| liquidation-like refs | `modules/binance/liquidation-zones` |
-| OHLCV / funding / panel | `modules/ohlcv-fetch` |
-| 技术结构与 feature | `modules/analytics/tech-indicators` |
-| preflight / hard guard | `modules/guards/plan-preflight` |
-| 执行预演 | `modules/binance/order-preview` |
-| 主单 / 撤单 / 保护 / 减仓 | `modules/binance/order-place`, `order-cancel`, `position-protect`, `position-adjust` |
-| automation plan | `modules/trade-flow/src/domain/runtime` + `trade-flow.automation` |
-| observe / runtime load | `modules/trade-flow/src/domain/observe` + `trade-flow.observe` |
-| 事件流 / track dry-run | `modules/trade-flow/src/domain/runtime` + `trade-flow.runtime` |
-| 单策略 replay | `modules/research/replay-runner` + `research.replay-runner` |
-| data split / holdout isolation | `modules/research/data-split` + `research.data-split` |
-| latest signal | `modules/research/signal-evaluator` + `research.signal-evaluator` |
-| panel evaluation | `modules/research/panel-evaluator` + `research.panel-evaluator` |
-| candidate batch | `modules/research/candidate-batch` + `research.candidate-batch` |
-| RD loop | `modules/research/rd-loop-runner` + `research.rd-loop-runner` |
-| benchmark | `modules/research/benchmark-runner` + `research.benchmark-runner` |
-| calibration suite | `modules/research/calibration-suite` + `research.calibration-suite` |
-| funding governance | `modules/research/funding-governance` + `research.funding-governance` |
-| strategy contract compile | `modules/research/strategy-contract-compile` + `research.strategy-contract-compile` |
-| strategy contract lint | `modules/research/strategy-contract-lint` + `research.strategy-contract-lint` |
-| R&D campaign / forward holdout | `modules/research/rd-campaign-runner` + `research.rd-campaign-runner`; `modules/research/forward-holdout` + `research.forward-holdout` |
-| RD memory | `modules/research/rd-program-state` + `research.rd-program-state` |
-| RD supervisor | `modules/research/rd-supervisor` + `research.rd-supervisor` |
-| RD shadow tracker | `modules/research/rd-shadow-tracker` + `research.rd-shadow-tracker` |
-| review / evidence / promotion | `modules/governance/strategy-review` + `strategy-review` |
-| 执行编排 / shadow / live-small | `modules/trade-flow/src/domain/execution` + `trade-flow.execution` |
-| recovery / reconcile | `modules/trade-flow/src/domain/recovery` + `trade-flow.recovery` |
-| catalog / artifact hygiene | `modules/ops/artifact-catalog` + `artifact-catalog` |
+| 账户事实 | `modules/exchange-gateway/binance-read/account-snapshot` |
+| 市场粗筛 | `modules/market-data-products/binance-read/market-scan` |
+| 单标的事实 | `modules/market-data-products/binance-read/symbol-snapshot` |
+| 成交原材料 | `modules/market-data-products/binance-read/aggtrades-fetch` |
+| liquidation-like refs | `modules/market-data-products/liquidation-zones` |
+| OHLCV / funding / panel | `modules/market-data-products/ohlcv-fetch` |
+| 技术结构与 feature | `modules/market-data-products/tech-indicators` |
+| preflight / hard guard | `modules/live-execution-control/plan-preflight` |
+| 执行预演 | `modules/exchange-gateway/binance-write/order-preview` |
+| 主单 / 撤单 / 保护 / 减仓 | `modules/exchange-gateway/binance-write/order-place`, `order-cancel`, `position-protect`, `position-adjust` |
+| automation plan | `modules/orchestration-ops/trade-flow/src/domain/runtime` + `trade-flow.automation` |
+| observe / runtime load | `modules/orchestration-ops/trade-flow/src/domain/observe` + `trade-flow.observe` |
+| 事件流 / track dry-run | `modules/orchestration-ops/trade-flow/src/domain/runtime` + `trade-flow.runtime` |
+| 单策略 replay | `modules/research-strategy-development/replay-runner` + `research.replay-runner` |
+| data split / holdout isolation | `modules/research-strategy-development/data-split` + `research.data-split` |
+| latest signal | `modules/research-strategy-development/signal-evaluator` + `research.signal-evaluator` |
+| panel evaluation | `modules/research-strategy-development/panel-evaluator` + `research.panel-evaluator` |
+| candidate batch | `modules/research-strategy-development/candidate-batch` + `research.candidate-batch` |
+| RD loop | `modules/research-strategy-development/rd-loop-runner` + `research.rd-loop-runner` |
+| benchmark | `modules/research-strategy-development/benchmark-runner` + `research.benchmark-runner` |
+| calibration suite | `modules/research-strategy-development/calibration-suite` + `research.calibration-suite` |
+| funding governance | `modules/research-strategy-development/funding-governance` + `research.funding-governance` |
+| strategy contract compile | `modules/research-strategy-development/strategy-contract-compile` + `research.strategy-contract-compile` |
+| strategy contract lint | `modules/research-strategy-development/strategy-contract-lint` + `research.strategy-contract-lint` |
+| R&D campaign / forward holdout | `modules/research-strategy-development/rd-campaign-runner` + `research.rd-campaign-runner`; `modules/research-strategy-development/forward-holdout` + `research.forward-holdout` |
+| RD memory | `modules/research-strategy-development/rd-program-state` + `research.rd-program-state` |
+| RD supervisor | `modules/research-strategy-development/rd-supervisor` + `research.rd-supervisor` |
+| RD shadow tracker | `modules/research-strategy-development/rd-shadow-tracker` + `research.rd-shadow-tracker` |
+| review / evidence / promotion | `modules/governance-review-compliance/strategy-review` + `strategy-review` |
+| 执行编排 / shadow / live-small | `modules/orchestration-ops/trade-flow/src/domain/execution` + `trade-flow.execution` |
+| recovery / reconcile | `modules/orchestration-ops/trade-flow/src/domain/recovery` + `trade-flow.recovery` |
+| catalog / artifact hygiene | `modules/artifact-knowledge/artifact-catalog` + `artifact-catalog` |
 
 ## 目标拓扑
 
@@ -111,18 +112,18 @@
 | 目标路径 | 角色 |
 | --- | --- |
 | `modules/contracts/*` | 唯一可跨模块源码 import 的 contract module |
-| `modules/exchange/binance-read/*` | Binance read atomic tools |
-| `modules/exchange/binance-write/*` | Binance write atomic tools |
-| `modules/data/*` | 数据采集、panel、market feature 数据构造 |
-| `modules/analytics/*` | 指标、结构、微观结构分析 |
-| `modules/research/*` | replay、signal、candidate batch、R&D loop、RD memory |
-| `modules/governance/*` | evidence、review、promotion gate |
-| `modules/flow/*` | event-store、projector、observe、execution、recovery、automation plan |
-| `modules/ops/*` | artifact catalog、GC、数据治理 |
+| `modules/exchange-gateway/binance-read/*` | Binance read atomic tools |
+| `modules/exchange-gateway/binance-write/*` | Binance write atomic tools |
+| `modules/market-data-products/*` | 数据采集、panel、market feature 数据构造 |
+| `modules/market-data-products/*` | 指标、结构、微观结构分析 |
+| `modules/research-strategy-development/*` | replay、signal、candidate batch、R&D loop、RD memory |
+| `modules/governance-review-compliance/*` | evidence、review、promotion gate |
+| `modules/*` | event-store、projector、observe、execution、recovery、automation plan |
+| `modules/artifact-knowledge/*` | artifact catalog、GC、数据治理 |
 
 ## 边界规则
 
-- `modules/trade-flow` 可以调用工具 CLI，但不拥有 Binance endpoint 细节，也不新增 R&D 实验实现或 strategy review 实现。
+- `modules/orchestration-ops/trade-flow` 可以调用工具 CLI，但不拥有 Binance endpoint 细节，也不新增 R&D 实验实现或 strategy review 实现。
 - Binance 写工具只做单一交易动作；不得产出策略观点或修改 `trade.db`。
 - market scan 只能回答“先看谁”；不能直接生成 live action。
 - R&D campaign artifact writeback 由 `research.rd-campaign-runner` 拥有，只能写 research artifact、catalog 和显式 RD state；不得触发 Binance 写接口或写 `trade.db`；forward holdout、RD ledger、RD loop、candidate batch、RD memory、RD supervisor、RD shadow tracker、panel、单策略 replay、data split、benchmark、calibration、funding governance 与 strategy contract compile/lint 已拆为独立原子工具。

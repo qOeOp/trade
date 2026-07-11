@@ -59,27 +59,27 @@
 
 ### 1.2 RD 当前拆解诊断
 
-原 `strategy-rd` 已不再是 agent-facing 总入口，也不再承载生产 helper。Forward holdout、RD loop、RD campaign、candidate batch、RD program state、RD supervisor、RD shadow tracker、单策略 replay、latest signal、panel、data split、benchmark、calibration、funding governance、strategy contract compile/lint、artifact summary 已拆为独立 atomic / contract / engine module；跨模块回归集中到 `research/rd-integration-suite`。
+原 `strategy-rd` 已不再是 agent-facing 总入口，也不再承载生产 helper。Forward holdout、RD loop、RD campaign、candidate batch、RD program state、RD supervisor、RD shadow tracker、单策略 replay、latest signal、panel、data split、benchmark、calibration、funding governance、strategy contract compile/lint、artifact summary 已拆为独立 atomic / contract / engine module；跨模块回归集中到 `research-strategy-development/rd-integration-suite`。
 
 | 当前 flag | 真实行为 | 目标 atomic module | primary write |
 | --- | --- | --- | --- |
-| `research.replay-runner` | 对单个 strategy / candidate 回放 | `research/replay-runner` | none / report |
-| `research.signal-evaluator` | 最新闭合 K 线信号评估 | `research/signal-evaluator` | none |
-| `research.strategy-contract-compile` | strategy markdown contract 编译 | `research/strategy-contract-compile` | none |
-| `research.strategy-contract-lint` | strategy lifecycle contract lint | `research/strategy-contract-lint` | none |
-| `research.data-split` | discovery / validation / holdout manifest 切分 | `research/data-split` | artifact + catalog |
-| `research.candidate-batch` | bounded candidate 批量评估 | `research/candidate-batch` | report |
-| `research.rd-loop-runner` | 一轮 R&D，写 artifact / ledger / optional RD state | `research/rd-loop-runner` | artifact + catalog + optional state |
-| `research.rd-campaign-runner` | hypothesis queue / validation campaign | `research/rd-campaign-runner` | artifact + catalog + optional state |
-| `research.panel-evaluator` | 多资产 panel / cross-candidate negative control | `research/panel-evaluator` | report |
-| `research.rd-program-state` | durable RD memory init/read/update/plan_next | `research/rd-program-state` | RD state + catalog |
-| `research.rd-supervisor` | plan_next -> execute -> writeback loop | `research/rd-supervisor` | RD state + artifacts |
-| `research.rd-shadow-tracker` | forward signal 纸面 setup event chain | `research/rd-shadow-tracker` | artifact |
-| `research.benchmark-runner` | 固定 benchmark 仿真 | `research/benchmark-runner` | report |
-| `research.calibration-suite` | calibration suite / pipeline diagnosis | `research/calibration-suite` | report |
-| `research.funding-governance` | funding coverage governance check | `research/funding-governance` | report |
+| `research.replay-runner` | 对单个 strategy / candidate 回放 | `research-strategy-development/replay-runner` | none / report |
+| `research.signal-evaluator` | 最新闭合 K 线信号评估 | `research-strategy-development/signal-evaluator` | none |
+| `research.strategy-contract-compile` | strategy markdown contract 编译 | `research-strategy-development/strategy-contract-compile` | none |
+| `research.strategy-contract-lint` | strategy lifecycle contract lint | `research-strategy-development/strategy-contract-lint` | none |
+| `research.data-split` | discovery / validation / holdout manifest 切分 | `research-strategy-development/data-split` | artifact + catalog |
+| `research.candidate-batch` | bounded candidate 批量评估 | `research-strategy-development/candidate-batch` | report |
+| `research.rd-loop-runner` | 一轮 R&D，写 artifact / ledger / optional RD state | `research-strategy-development/rd-loop-runner` | artifact + catalog + optional state |
+| `research.rd-campaign-runner` | hypothesis queue / validation campaign | `research-strategy-development/rd-campaign-runner` | artifact + catalog + optional state |
+| `research.panel-evaluator` | 多资产 panel / cross-candidate negative control | `research-strategy-development/panel-evaluator` | report |
+| `research.rd-program-state` | durable RD memory init/read/update/plan_next | `research-strategy-development/rd-program-state` | RD state + catalog |
+| `research.rd-supervisor` | plan_next -> execute -> writeback loop | `research-strategy-development/rd-supervisor` | RD state + artifacts |
+| `research.rd-shadow-tracker` | forward signal 纸面 setup event chain | `research-strategy-development/rd-shadow-tracker` | artifact |
+| `research.benchmark-runner` | 固定 benchmark 仿真 | `research-strategy-development/benchmark-runner` | report |
+| `research.calibration-suite` | calibration suite / pipeline diagnosis | `research-strategy-development/calibration-suite` | report |
+| `research.funding-governance` | funding coverage governance check | `research-strategy-development/funding-governance` | report |
 
-拆分后的旧 `strategy-rd` 目录已删除；跨模块回归只保留在 `research/rd-integration-suite`，不作为 agent-facing 单一工具。
+拆分后的旧 `strategy-rd` 目录已删除；跨模块回归只保留在 `research-strategy-development/rd-integration-suite`，不作为 agent-facing 单一工具。
 
 ### 1.3 trade-flow 当前设计审计
 
@@ -87,15 +87,15 @@
 
 | 当前文件 / 能力 | 真实行为 | 问题 | 目标 |
 | --- | --- | --- | --- |
-| `automation-cycle.ts` | 生成 cadence / job graph，并硬编码 downstream command path | 有编排意图，但仍需继续减少裸路径依赖 | `flow/automation-plan` 只输出 tool id + payload + write scope |
-| `slow-track-workflow.ts` | 调 account snapshot、market scan、symbol snapshot、OHLCV、tech indicators，并产出 watchlist artifact | slow track 变成小型流程引擎；data / analytics 调用硬编码在 trade-flow | 拆为 `flow/slow-track-plan`，只编排 read / data / analytics atomic tools |
-| `fast-track-workflow.ts` | active flow 快轨检查、轻量 snapshot、trigger guard | 与 observe / recovery / execution gate 混合 | 拆为 `flow/fast-track-plan`，只编排 active-flow projection + observe + gate |
+| `automation-cycle.ts` | 生成 cadence / job graph，并硬编码 downstream command path | 有编排意图，但仍需继续减少裸路径依赖 | `orchestration-ops/automation-plan` 只输出 tool id + payload + write scope |
+| `live-decision-planning/slow-track-plan` | 调 account snapshot、market scan、symbol snapshot、OHLCV、tech indicators，并产出 watchlist artifact | 已从 `trade-flow` 抽出，仍需接入 registry resolver | slow cadence read/data/analytics atomic plan |
+| `live-decision-planning/fast-track-plan` | active flow 快轨检查、轻量 snapshot、trigger guard | 已从 `trade-flow` 抽出，仍需接入 registry resolver | active-flow projection + observe + gate |
 | `execution-flow.ts` | preflight、trigger、idempotency、contract compile、mock execution、record events、execution command spec | 执行链核心逻辑过多，不是单一原子能力 | 拆为 gate / route / record 三个 atomic modules |
-| `live-execution.ts` | 调 exchange write tool 并记录本地事件 | 编排和记录合理，但必须只消费 execution command spec | `flow/live-small-runner` 只允许执行 spec，不重新判断策略 |
-| `reconcile.ts` | 本地事件与 account snapshot 对账算法 | 是原子能力，但藏在 recovery suite 内 | `flow/reconcile-drafts` 独立 |
-| `recovery-flow.ts` | 调 account snapshot、构建 reconcile、写 needs_review / apply drafts | 组合了 read / reconcile / write 三段 | 拆为 `flow/recovery-runner` 编排 |
-| `runtime-policy.ts` | trading config normalize / clamp / hash | 不是 flow orchestration，而是 config contract/compiler | 已迁入 `flow/runtime-policy-compiler` |
-| `plan-events.ts` / `flow-state.ts` | `trade.db` event store 与 projection | 这是强 owner，应该独立且单写 | `flow/event-store` + `flow/flow-projector` |
+| `live-execution.ts` | 调 exchange write tool 并记录本地事件 | 编排和记录合理，但必须只消费 execution command spec | `live-execution-control/live-small-runner` 只允许执行 spec，不重新判断策略 |
+| `reconcile.ts` | 本地事件与 account snapshot 对账算法 | 是原子能力，但藏在 recovery suite 内 | `live-execution-control/reconcile-drafts` 独立 |
+| `recovery-flow.ts` | 调 account snapshot、构建 reconcile、写 needs_review / apply drafts | 组合了 read / reconcile / write 三段 | 拆为 `live-execution-control/recovery-runner` 编排 |
+| `runtime-policy.ts` | trading config normalize / clamp / hash | 不是 flow orchestration，而是 config contract/compiler | 已迁入 `policy-risk/runtime-policy-compiler` |
+| `portfolio-execution-state/event-store` / `portfolio-execution-state/flow-projector` | `trade.db` event store 与 projection | 已从 `trade-flow` 抽出，仍需继续收敛 schema 归属 | 单写 owner + 可重建 projection |
 
 结论：
 
@@ -133,26 +133,90 @@ automation-plan
 | 能力 | 说明 |
 | --- | --- |
 | `tool_id` | 稳定工具 id，不等于目录路径 |
-| `entry_schema` / `output_schema` | 编排器只认 schema，不读实现 |
+| `ticket_no` | 架构图和人工阅读用编号，如 `J01...J09`；用于快速数清本轮 fork 出几个 job |
+| `stage` | 调度阶段，例如 `serial_runtime_guard / serial_trade_db_guard / parallel_isolated_work / serial_closeout`；只表达串并行波次，不表达业务域 |
+| `target_domain` | 责任域归属；job ticket 必须指向一个 domain，而不是混成 job line 大块 |
+| `handler_tool_id` | 具体处理入口；suite / dispatcher 与 atomic handler 可分开表达 |
+| `entry_contract` / `output_contract` | 编排器只认 contract，不读实现 |
+| `command_spec` | 由 `protocol-fabric` resolver 从 `toolset` entry + job argv 生成；包含 `executable / cwd / argv` |
 | `writes` | `trade_db / catalog / artifacts / evidence / binance / config` |
 | `concurrency_group` | `trade-db / binance-write / artifact-catalog / rd-state:<id>` |
 | `requires` | 前置 tool result，如 preflight verdict、execution contract、runtime policy |
+| `input_refs` | 本 job 被授权读取的事实、event、projection 或 artifact 引用 |
+| `stop_conditions` | 预算耗尽、safe mode、data stale、needs_review 等停止条件 |
 | `forbidden_callers` | 如 exchange write 禁止 research / market scan 直接调用 |
+
+所有 rail 的 envelope schema 必须沉到 `modules/contracts/*` 或等价 contract schema registry。重构时先稳定 job ticket、event write envelope、artifact ref、market manifest、exchange command/result ref、policy snapshot 的 JSON schema，再拆具体 handler；否则会把“漂亮的域图”退化成目录之间互相调用。
 
 ## 2. 目标拓扑
 
 目标目录采用 **suite / atomic module / contract module** 三层。
 
+顶层责任域以 [design-architecture.md](design-architecture.md) 为准；目录只是实现承载，不反向定义域边界。
+
+| 顶层责任域 | 主要承载目录 / 模块 | 重构含义 |
+| --- | --- | --- |
+| `orchestration-ops` | `orchestration-ops/automation-plan`、cron runtime、notify dispatch | 只产 job graph / health / summary；不解释交易或研究结果 |
+| `policy-risk` | `policy-risk/runtime-policy-compiler`、strategy contract compile/lint、preflight contract | policy/risk 是一等域，不只是 config helper |
+| `portfolio-execution-state` | `portfolio-execution-state/event-store`、`portfolio-execution-state/flow-projector` | `trade.db` 与投影是单写 owner，不能被 research / catalog 覆盖 |
+| `market-data-products` | `market-data-products/ohlcv-fetch`、`market-data-products/tech-indicators`、`market-data-products/binance-read/*` | raw / canonical / feature / dataset 是数据产品链路，不拥有账户私有状态和交易所写动作 |
+| `exchange-gateway` | `exchange-gateway/binance-read/account-snapshot`、`exchange-gateway/binance-write/*` | account/order/fill facts 与 exchange write adapter 是外部连接 owner，不拥有策略判断和数据集构造 |
+| `live-decision-planning` | `live-decision-planning/slow-track-plan`、observe/action-intent builder、watchlist artifact producer | 生成 live plan / slow observe / action_intent；不提交订单 |
+| `live-execution-control` | `live-execution-control/execution-*`、`live-execution-control/live-small-runner`、`live-execution-control/reconcile-drafts`、`live-execution-control/recovery-runner` | executor / recovery / reconcile 是受控动作域，不承载 thesis |
+| `research-strategy-development` | `research-strategy-development/*` | 产候选、失败经验和 shadow candidate；不写 `trade.db` / 不触发 Binance |
+| `governance-review-compliance` | `governance-review-compliance/*` | 判交易复盘、evidence、promotion；不做原始 R&D 搜索 |
+| `artifact-knowledge` | `artifact-knowledge/artifact-catalog`、`artifact-knowledge/artifact-gc`、catalog contract | 管 artifact refs / retention / stale，不替代真钱事实 |
+
+任何目标模块若无法归入一个责任域，先回到架构文档补设计，不直接新建 tool。
+
+数据拆分按 logical store owner 推进，不按当前物理 DB 文件倒推：
+
+| Logical store | Owner module direction | 当前落点 | 拆分目标 |
+| --- | --- | --- | --- |
+| `trade_event_store` | `portfolio-execution-state/event-store` | `trade.db.plan_event` | 保持真钱事件单写；只 append |
+| `flow_read_models` | `portfolio-execution-state/flow-projector` | runtime projector | 可重建 projection/cache table |
+| `market_data_store` | `market-data-products/*` | manifest / CSV / JSON | `ohlcv.duckdb` / parquet / feature manifests |
+| `exchange_runtime_store` | `exchange-gateway/*` | client order id、exchange request/result refs、account snapshots | 外部 side effect 审计；真钱事实仍落 `trade_event_store` |
+| `artifact_catalog` | `artifact-knowledge/artifact-catalog` | `data_catalog.db` | 索引、refs、retention，不存大 payload |
+| `research_state_store` | `research-strategy-development/rd-program-state` | state artifact + catalog | `rd_state.db` 或等价 ledger；预算和 holdout 幂等 |
+| `governance_ledger` | `governance-review-compliance/*` | catalog strategy evidence tables | 独立 evidence / promotion schema owner |
+| `policy_registry` | policy compiler + approved strategy files | markdown/config hash | approved status / policy hash snapshot |
+| `ops_runtime_store` | cron runtime / notify dispatch | lock / JSONL log | health、cycle summary、notify attempts |
+
+通信拆分按 protocol rails 推进，不按“域之间互相 import / 互相调 CLI”推进。当前目标是先稳定 job ticket envelope、event/ref envelope、policy snapshot、market manifest、artifact ref、logical store ref 与 idempotency key；只有 ack/retry/dead-letter、异步多订阅、消费位点或跨进程实时推送成为硬需求时，才把某条 rail 升级为队列 / stream / service bus。
+
+`modules/contracts/protocol-fabric/src/schemas/logical-store-ref.schema.json` 是 logical store 的共享身份协议；它记录 `store / owner_domain / owner_module / physical_locator / write_contract / ref`。后续从 `data_catalog.db`、文件 manifest 或 JSONL 拆到 DuckDB / 独立 SQLite 时，先迁 `physical_locator` 和 owner module，不改跨域引用语义。
+
+每个 domain module 需要显式 inbox / outbox contract。跨 domain 只允许依赖这些 contract schema 和 refs；域内 handler、store、helper 不作为外部调用入口。
+
+数据管线按 data product pipeline 推进，而不是把市场数据产品、研究实验和证据复核的中间文件互相直连：
+
+```text
+raw capture
+  -> canonical facts
+  -> feature manifests
+  -> dataset manifests
+  -> experiment artifacts
+  -> evidence refs
+  -> policy/live consumption
+  -> review feedback
+```
+
+每层只消费上一层 manifest/ref，产出新的 manifest/ref/hash/schema/freshness；大 payload 留在文件或后续列式 store，跨域 rail 只传引用和可校验身份。`market-data-products` 是 raw/canonical/feature/dataset owner，`artifact-knowledge` 是引用、保留和可发现性 owner，`research-strategy-development` 只消费数据产品做实验，不能把实验中间态写回上游数据层。
+
 ```text
 modules/
   contracts/        # 跨模块源码 import 的唯一合法层：类型、schema、pure helpers
-  exchange/         # 交易所原子工具：Binance read/write
-  data/             # 市场数据采集与数据集构造
-  analytics/        # 指标、结构、微观结构分析
-  research/         # replay、families、R&D loop、RD memory、benchmark
-  governance/       # strategy evidence、review、promotion
-  flow/             # event-store、observe、execution orchestrator、recovery、automation
-  ops/              # artifact catalog、GC、data hygiene、quality helpers
+  orchestration-ops/
+  policy-risk/
+  portfolio-execution-state/
+  market-data-products/
+  exchange-gateway/
+  live-decision-planning/
+  live-execution-control/
+  research-strategy-development/
+  governance-review-compliance/
+  artifact-knowledge/
 ```
 
 ### 2.1 模块类型
@@ -180,50 +244,51 @@ modules/
 | `contracts/preflight-contract` | contract | preflight input/output、target action、guard result type | 已迁入 `modules/contracts/preflight-contract` |
 | `contracts/catalog-contract` | contract | catalog record/schema/client shape，不拥有扫描和 GC | duplicated `data-catalog.ts` 的稳定类型层 |
 | `contracts/replay-contract` | contract | replay result、trade sample、qualification shell | duplicated `replay-core.ts` 的输出契约层 |
-| `flow/event-store` | atomic | `trade.db` schema、plan_event append/read；唯一 event write owner | `plan-events.ts` |
-| `flow/flow-projector` | atomic | flow state、lane conflicts、active flows projection | `flow-state.ts` |
-| `flow/runtime-policy-compiler` | atomic | trading config normalize / clamp / hash / compact snapshot | 已迁入 |
-| `flow/observe-builder` | atomic | supplied snapshots -> normalized observe event body | 已迁入 |
-| `flow/observe-runner` | atomic | 调 account/symbol read tools，产出 observe projection；不写 DB | 已迁入 |
-| `flow/execution-gate` | atomic | preflight result + trigger condition + idempotency gate | `execution-flow.ts` gate 部分 |
-| `flow/execution-router` | atomic | target_action -> exchange write command spec | 已迁入 |
-| `flow/execution-recorder` | atomic | exchange result -> audited local `order_fill` draft | 已迁入 |
-| `flow/live-small-runner` | atomic | 执行 approved command spec，并交给 recorder；不重新做策略判断 | `live-execution.ts` |
-| `flow/reconcile-drafts` | atomic | local flow + account snapshot -> reconcile drafts / unmatched | `reconcile.ts` |
-| `flow/recovery-runner` | atomic | account snapshot read -> reconcile -> optional safe apply / needs_review | `recovery-flow.ts` |
-| `flow/slow-track-plan` | atomic | slow cadence read/data/analytics job plan，不内联 market workflow | `slow-track-workflow.ts` |
-| `flow/fast-track-plan` | atomic | active flow fast guard job plan，不内联 execution logic | `fast-track-workflow.ts` |
-| `flow/automation-plan` | atomic | cadence plan、job graph、write-scope / concurrency declaration | `automation-cycle.ts` |
-| `research/replay-engine` | contract/internal engine | replay core、fill model、closed-candle parity；被 runner 使用，不作为大总线 | old replay files |
-| `research/replay-runner` | atomic | 单次 replay 执行与 replay report 输出 | `research.replay-runner` |
-| `research/signal-evaluator` | atomic | 最新闭合 K 线信号评估，不执行、不写状态 | `research.signal-evaluator` |
-| `research/strategy-contract-compile` | atomic | strategy markdown contract 编译为 candidate / lifecycle contract | migrated |
-| `research/strategy-contract-lint` | atomic | strategy lifecycle contract 完整性 lint | migrated |
-| `research/strategy-family-engine` | internal engine | family registry、family modules、candidate compile source | old R&D family files |
-| `research/forward-holdout` | atomic | frozen candidate forward-only signal check | `research.forward-holdout` |
-| `research/data-split` | atomic | discovery / validation / locked holdout manifest 切分 | migrated |
-| `research/candidate-batch` | atomic | bounded candidate 批量评估、negative controls、failure summary | migrated |
-| `research/rd-loop-runner` | atomic | 单轮 R&D loop、artifact、ledger、optional state writeback | migrated |
-| `research/rd-campaign-runner` | atomic | hypothesis campaign、validation budget、zero-trial gates | `research.rd-campaign-runner` |
-| `research/rd-ledger` | internal atomic | R&D run ledger、holdout idempotence、redacted loop artifact input | loop/campaign runners |
-| `research/panel-evaluator` | atomic | 多资产 panel、cross-candidate negative control、marketability | migrated |
-| `research/rd-program-state` | atomic | durable RD memory init/read/update/plan_next | migrated |
-| `research/rd-supervisor` | atomic | plan_next -> execute -> writeback loop runner | migrated |
-| `research/rd-shadow-tracker` | atomic | forward paper setup event chain | migrated |
-| `research/benchmark-runner` | atomic | fixed benchmark simulation and report | migrated |
-| `research/calibration-suite` | atomic | calibration suite、pipeline diagnostics、data breadth attribution | migrated |
-| `research/funding-governance` | atomic | funding coverage / carry governance read-only check | migrated |
-| `governance/evidence-ledger` | atomic | append evidence、fingerprint、catalog evidence refs | `strategy-review` evidence helpers |
-| `governance/strategy-review` | atomic | review report、failure attribution、promotion read model | current `strategy-review` minus evidence append |
-| `governance/promotion-gate` | atomic | status transition and `--yes` guarded strategy markdown update | current promote path |
-| `ops/artifact-catalog` | atomic | catalog DB init/query/scan/stale | current artifact-catalog |
-| `ops/artifact-gc` | atomic | filesystem GC、retention、pin/ref guard | current artifact hygiene |
-| `data/ohlcv-fetch` | atomic | OHLCV manifest fetch | current `ohlcv-fetch` main |
-| `data/market-features` | atomic | funding / market feature / panel construction | `ohlcv-fetch` feature scripts |
-| `analytics/tech-indicators` | atomic | indicators、structure、beta、feature series | current tech-indicators |
-| `analytics/liquidation-zones` | atomic | liquidation-like refs from supplied input | current binance/liquidation-zones |
-| `exchange/binance-read/*` | atomic | account snapshot、symbol snapshot、market scan、aggtrades | current Binance read modules |
-| `exchange/binance-write/*` | atomic | place、cancel、protect、adjust | current Binance write modules |
+| `portfolio-execution-state/event-store` | atomic | `trade.db` schema、plan_event append/read；唯一 event write owner | `plan-events.ts` |
+| `portfolio-execution-state/flow-projector` | atomic | flow state、lane conflicts、active flows projection | `flow-state.ts` |
+| `policy-risk/runtime-policy-compiler` | atomic | trading config normalize / clamp / hash / compact snapshot | 已迁入 |
+| `live-decision-planning/observe-builder` | atomic | supplied snapshots -> normalized observe event body | 已迁入 |
+| `live-decision-planning/observe-runner` | atomic | 调 account/symbol read tools，产出 observe projection；不写 DB | 已迁入 |
+| `live-execution-control/execution-gate` | atomic | preflight result + trigger condition + idempotency gate | `execution-flow.ts` gate 部分 |
+| `live-execution-control/execution-flow-runner` | atomic | dry-run / shadow execution flow、skip observe、idempotency gate、mock execution | `execution-flow.ts` |
+| `live-execution-control/execution-router` | atomic | target_action -> exchange write command spec | 已迁入 |
+| `live-execution-control/execution-recorder` | atomic | exchange result -> audited local `order_fill` draft | 已迁入 |
+| `live-execution-control/live-small-runner` | atomic | 执行 approved command spec，并交给 recorder；不重新做策略判断 | `live-execution.ts` |
+| `live-execution-control/reconcile-drafts` | atomic | local flow + account snapshot -> reconcile drafts / unmatched | `reconcile.ts` |
+| `live-execution-control/recovery-runner` | atomic | account snapshot read -> reconcile -> optional safe apply / needs_review | `recovery-flow.ts` |
+| `live-decision-planning/slow-track-plan` | atomic | slow cadence read/data/analytics job plan，不内联 market workflow | `slow-track-workflow.ts` |
+| `live-decision-planning/fast-track-plan` | atomic | active flow fast guard job plan，不内联 execution logic | `fast-track-workflow.ts` |
+| `orchestration-ops/automation-plan` | atomic | cadence plan、job graph、write-scope / concurrency declaration | `automation-cycle.ts` |
+| `research-strategy-development/replay-engine` | contract/internal engine | replay core、fill model、closed-candle parity；被 runner 使用，不作为大总线 | old replay files |
+| `research-strategy-development/replay-runner` | atomic | 单次 replay 执行与 replay report 输出 | `research.replay-runner` |
+| `research-strategy-development/signal-evaluator` | atomic | 最新闭合 K 线信号评估，不执行、不写状态 | `research.signal-evaluator` |
+| `research-strategy-development/strategy-contract-compile` | atomic | strategy markdown contract 编译为 candidate / lifecycle contract | migrated |
+| `research-strategy-development/strategy-contract-lint` | atomic | strategy lifecycle contract 完整性 lint | migrated |
+| `research-strategy-development/strategy-family-engine` | internal engine | family registry、family modules、candidate compile source | old R&D family files |
+| `research-strategy-development/forward-holdout` | atomic | frozen candidate forward-only signal check | `research.forward-holdout` |
+| `research-strategy-development/data-split` | atomic | discovery / validation / locked holdout manifest 切分 | migrated |
+| `research-strategy-development/candidate-batch` | atomic | bounded candidate 批量评估、negative controls、failure summary | migrated |
+| `research-strategy-development/rd-loop-runner` | atomic | 单轮 R&D loop、artifact、ledger、optional state writeback | migrated |
+| `research-strategy-development/rd-campaign-runner` | atomic | hypothesis campaign、validation budget、zero-trial gates | `research.rd-campaign-runner` |
+| `research-strategy-development/rd-ledger` | internal atomic | R&D run ledger、holdout idempotence、redacted loop artifact input | loop/campaign runners |
+| `research-strategy-development/panel-evaluator` | atomic | 多资产 panel、cross-candidate negative control、marketability | migrated |
+| `research-strategy-development/rd-program-state` | atomic | durable RD memory init/read/update/plan_next | migrated |
+| `research-strategy-development/rd-supervisor` | atomic | plan_next -> execute -> writeback loop runner | migrated |
+| `research-strategy-development/rd-shadow-tracker` | atomic | forward paper setup event chain | migrated |
+| `research-strategy-development/benchmark-runner` | atomic | fixed benchmark simulation and report | migrated |
+| `research-strategy-development/calibration-suite` | atomic | calibration suite、pipeline diagnostics、data breadth attribution | migrated |
+| `research-strategy-development/funding-governance` | atomic | funding coverage / carry governance read-only check | migrated |
+| `governance-review-compliance/evidence-ledger` | atomic | append evidence、fingerprint、catalog evidence refs | `strategy-review` evidence helpers |
+| `governance-review-compliance/strategy-review` | atomic | review report、failure attribution、promotion read model | current `strategy-review` minus evidence append |
+| `governance-review-compliance/promotion-gate` | atomic | status transition and `--yes` guarded strategy markdown update | current promote path |
+| `artifact-knowledge/artifact-catalog` | atomic | catalog DB init/query/scan/stale | current artifact-catalog |
+| `artifact-knowledge/artifact-gc` | atomic | filesystem GC、retention、pin/ref guard | current artifact hygiene |
+| `market-data-products/ohlcv-fetch` | atomic | OHLCV manifest fetch | current `ohlcv-fetch` main |
+| `market-data-products/market-features` | atomic | funding / market feature / panel construction | `ohlcv-fetch` feature scripts |
+| `market-data-products/tech-indicators` | atomic | indicators、structure、beta、feature series | current tech-indicators |
+| `market-data-products/liquidation-zones` | atomic | liquidation-like refs from supplied input | current binance/liquidation-zones |
+| `exchange-gateway/binance-read/*` + `market-data-products/binance-read/*` | atomic | account snapshot、symbol snapshot、market scan、aggtrades | current Binance read modules |
+| `exchange-gateway/binance-write/*` | atomic | place、cancel、protect、adjust | current Binance write modules |
 
 ## 4. 迁移原则
 
@@ -260,14 +325,22 @@ modules/
 - `schemas/tool-job.schema.json` 已定义编排 job 的稳定 shell。
 - `docs/tool-layout.md` 与 `modules/README.md` 已区分 current layout、target topology、suite / atomic / contract module。
 - `automation-cycle` 已为 trade / RD / catalog dispatch 输出 registry-backed `tool_job`，包含 `tool_id + payload + entry_contract + writes + command_spec`。
-- `flow/observe-builder` 已独立拥有 supplied projections -> observe event body；`trade-flow` 只消费 event candidate。
-- `flow/observe-runner` 已独立拥有 account/symbol read tool projection 调用；`trade-flow` 只消费 projection 构建 observe event。
-- `flow/execution-router` 已独立拥有 target_action -> Binance write-tool command spec；`trade-flow` 只消费 command spec 执行和记录。
-- `flow/execution-recorder` 已独立拥有 execution result -> audited `order_fill` event draft；`trade-flow` 只负责 append 到 event store。
+- `live-decision-planning/observe-builder` 已独立拥有 supplied projections -> observe event body；`trade-flow` 只消费 event candidate。
+- `live-decision-planning/observe-runner` 已独立拥有 account/symbol read tool projection 调用；`trade-flow` 只消费 projection 构建 observe event。
+- `live-execution-control/execution-router` 已独立拥有 target_action -> Binance write-tool command spec；`trade-flow` 只消费 command spec 执行和记录。
+- `live-execution-control/execution-recorder` 已独立拥有 execution result -> audited `order_fill` event draft；`trade-flow` 只负责 append 到 event store。
+- `live-execution-control/execution-gate` 已独立拥有 trigger condition readiness gate。
+- `live-execution-control/execution-flow-runner` 已独立拥有 dry-run / shadow 执行流、skip observe 和 idempotency gate。
+- `live-execution-control/live-small-runner` 已独立拥有 explicit yes 小额实盘执行与 confirmed result 记录。
+- `live-execution-control/reconcile-drafts` 与 `live-execution-control/recovery-runner` 已独立拥有对账草案与安全恢复 runner。
+- `live-decision-planning/slow-track-plan` 已独立拥有 slow watchlist / analysis-only plan。
+- `live-decision-planning/fast-track-plan` 已独立拥有 active-flow fast guard / fast observe plan。
+- `portfolio-execution-state/event-store` 已独立拥有 `trade.db.plan_event` schema、append/read 与 event validation。
+- `portfolio-execution-state/flow-projector` 已独立拥有 flow reducer、active flows、lane conflicts 与 reconcile draft apply。
 
 尚未完成：
 
-- slow / fast / recovery / execution runner 内部仍有直接 tool argv；后续随 `flow/*` 原子拆分迁入 resolver。
+- slow / fast / recovery / execution runner 内部仍有直接 tool argv；后续随各责任域 atomic module 拆分迁入 resolver。
 
 ### Phase 1：去重最高风险实现
 
@@ -277,7 +350,7 @@ modules/
 
 - 把三份重复 `data-catalog.ts` 收敛为单 owner。
 - 抽出 `contracts/catalog-contract`；业务模块只通过 contract 或 CLI 使用 catalog。
-- 把两份重复 `replay-core.ts` 收敛到 `research/replay-engine`。
+- 把两份重复 `replay-core.ts` 收敛到 `research-strategy-development/replay-engine`。
 - 抽出 `contracts/replay-contract`；governance 只读 replay result，不拥有 replay implementation。
 
 验收：
@@ -288,16 +361,17 @@ modules/
 
 当前落地：
 
-- `data-catalog.ts` 的 DB/schema/scan 实现已收敛到 `modules/ops/artifact-catalog/src/lib/data-catalog.ts`。
+- `data-catalog.ts` 的 DB/schema/scan 实现已收敛到 `modules/artifact-knowledge/artifact-catalog/src/lib/data-catalog.ts`。
 - `modules/contracts/catalog-contract/src/catalog-client.ts` 提供跨模块 catalog client；research / governance 旧本地路径只保留 re-export 适配。
 - artifact-catalog CLI 已新增 direct register / upsert / list 命令，并有 `catalog-cli.test.ts` 覆盖。
-- `replay-core.ts` 实现已收敛到 `modules/research/replay-engine/src/lib/replay-core.ts`。
-- `research/replay-runner` 已成为 agent-facing replay atomic module。
+- `replay-core.ts` 实现已收敛到 `modules/research-strategy-development/replay-engine/src/lib/replay-core.ts`。
+- `research-strategy-development/replay-runner` 已成为 agent-facing replay atomic module。
 
 尚未完成：
 
 - `contracts/replay-contract` 已单独拆出 replay result type/schema shell；governance 不再拥有本地 replay result re-export。
-- automation-cycle 已输出 registry-backed `tool_job`；slow / fast / recovery / execution runner 内部仍有直接 tool argv，后续随 `flow/*` 原子拆分迁入 resolver。
+- automation-cycle 已通过 `contracts/protocol-fabric` 生成 registry-backed `tool_job`；job ticket 已包含共享 `command_spec`。
+- slow / fast / recovery / execution runner 内部仍有直接 tool argv，后续随各责任域 atomic module 拆分迁入 resolver。
 
 ### Phase 2：明确 contract 层
 
@@ -330,22 +404,22 @@ modules/
 
 顺序：
 
-1. `research/replay-engine`：先作为内部 engine / contract owner，消灭 duplicated replay core。
-2. `research/replay-runner`：承接单策略 replay。
-3. `research/signal-evaluator`：承接 latest signal。
-4. `research/strategy-contract-compile` 与 `research/strategy-contract-lint`：承接 compile / lint。
-5. `research/data-split`：已承接 discovery / validation / locked holdout manifest 切分。
-6. `research/strategy-families`：只拥有 family registry 和 family modules。
-7. `research/candidate-batch`：已承接 bounded candidate batch evaluation。
-8. `research/rd-loop-runner`：已承接 single R&D loop artifact writeback。
-9. `research/rd-campaign-runner`：承接 hypothesis campaign、validation budget、zero-trial gates、campaign artifact writeback。
-10. `research/panel-evaluator`：已承接 panel evaluation。
-11. `research/rd-program-state`：已承接 RD memory init/read/update/plan_next。
-12. `research/rd-supervisor`：已承接 autonomous RD supervisor loop。
-13. `research/rd-shadow-tracker`：已承接 forward paper setup event chain tracker。
-14. `research/benchmark-runner`：已承接 fixed benchmark。
-15. `research/calibration-suite`：已承接 calibration diagnostics。
-16. `research/funding-governance`：已承接 funding coverage governance。
+1. `research-strategy-development/replay-engine`：先作为内部 engine / contract owner，消灭 duplicated replay core。
+2. `research-strategy-development/replay-runner`：承接单策略 replay。
+3. `research-strategy-development/signal-evaluator`：承接 latest signal。
+4. `research-strategy-development/strategy-contract-compile` 与 `research-strategy-development/strategy-contract-lint`：承接 compile / lint。
+5. `research-strategy-development/data-split`：已承接 discovery / validation / locked holdout manifest 切分。
+6. `research-strategy-development/strategy-families`：只拥有 family registry 和 family modules。
+7. `research-strategy-development/candidate-batch`：已承接 bounded candidate batch evaluation。
+8. `research-strategy-development/rd-loop-runner`：已承接 single R&D loop artifact writeback。
+9. `research-strategy-development/rd-campaign-runner`：承接 hypothesis campaign、validation budget、zero-trial gates、campaign artifact writeback。
+10. `research-strategy-development/panel-evaluator`：已承接 panel evaluation。
+11. `research-strategy-development/rd-program-state`：已承接 RD memory init/read/update/plan_next。
+12. `research-strategy-development/rd-supervisor`：已承接 autonomous RD supervisor loop。
+13. `research-strategy-development/rd-shadow-tracker`：已承接 forward paper setup event chain tracker。
+14. `research-strategy-development/benchmark-runner`：已承接 fixed benchmark。
+15. `research-strategy-development/calibration-suite`：已承接 calibration diagnostics。
+16. `research-strategy-development/funding-governance`：已承接 funding coverage governance。
 
 每个子模块必须有：
 
@@ -366,9 +440,9 @@ modules/
 
 当前落地：
 
-- `research/replay-runner` 已成为 agent-facing atomic module，拥有 `CONTRACT.md`、独立 package、CLI、schema、测试和 `toolset.json` entry。
+- `research-strategy-development/replay-runner` 已成为 agent-facing atomic module，拥有 `CONTRACT.md`、独立 package、CLI、schema、测试和 `toolset.json` entry。
 - 旧 R&D 大包已删除单策略 replay 总线入口，`toolset.json` 的 replay intent 只命中 `research.replay-runner`。
-- `strategy-replay` façade 与 registered replay strategy 已迁到 `research/replay-engine`；旧本地 façade 已删除。
+- `strategy-replay` façade 与 registered replay strategy 已迁到 `research-strategy-development/replay-engine`；旧本地 façade 已删除。
 - 旧 R&D 大包已删除 strategy contract compile/lint 总线入口，`toolset.json` 的 contract compile/lint intent 分别命中 `research.strategy-contract-compile` 和 `research.strategy-contract-lint`。
 - strategy contract 解析、编译、lint 语义已迁到 `modules/contracts/strategy-contract`；research 原子 CLI 只负责参数与 response envelope。
 - `research.rd-program-state` 已成为 agent-facing atomic module，承接 durable RD memory init/read/update/plan_next；旧大包不再暴露 RD memory CLI。
@@ -389,20 +463,21 @@ modules/
 
 顺序：
 
-1. `flow/event-store`
-2. `flow/flow-projector`
-3. `flow/runtime-policy-compiler`
-4. `flow/observe-builder`（已迁入）
-5. `flow/observe-runner`（已迁入）
-6. `flow/execution-gate`
-7. `flow/execution-router`（已迁入）
-8. `flow/execution-recorder`（已迁入）
-9. `flow/live-small-runner`
-10. `flow/reconcile-drafts`
-11. `flow/recovery-runner`
-12. `flow/slow-track-plan`
-13. `flow/fast-track-plan`
-14. `flow/automation-plan`
+1. `portfolio-execution-state/event-store`
+2. `portfolio-execution-state/flow-projector`
+3. `policy-risk/runtime-policy-compiler`
+4. `live-decision-planning/observe-builder`（已迁入）
+5. `live-decision-planning/observe-runner`（已迁入）
+6. `live-execution-control/execution-gate`
+7. `live-execution-control/execution-flow-runner`（已迁入）
+8. `live-execution-control/execution-router`（已迁入）
+9. `live-execution-control/execution-recorder`（已迁入）
+10. `live-execution-control/live-small-runner`（已迁入）
+11. `live-execution-control/reconcile-drafts`（已迁入）
+12. `live-execution-control/recovery-runner`（已迁入）
+12. `live-decision-planning/slow-track-plan`
+13. `live-decision-planning/fast-track-plan`
+14. `orchestration-ops/automation-plan`
 
 迁移后 `trade-flow` 只允许作为 suite alias 或完全删除。
 
@@ -420,21 +495,21 @@ modules/
 - automation-plan job 中不得出现裸路径 command；必须使用 `tool_id + payload + schema`。
 - automation-plan 不直接写 research / review / catalog artifact。
 
-### Phase 5：整理 data / analytics / exchange 命名
+### Phase 5：整理 market data / exchange 命名
 
 目标：目录语义和行为一致。
 
 任务：
 
-- `modules/binance` 拆为 `modules/exchange/binance-read` 与 `modules/exchange/binance-write`。
-- `modules/ohlcv-fetch` 迁到 `modules/data/ohlcv-fetch`。
+- 旧 `modules/binance` 已拆为 `modules/market-data-products/binance-read`、`modules/market-data-products/liquidation-zones`、`modules/exchange-gateway/binance-read` 与 `modules/exchange-gateway/binance-write`。
+- `modules/ohlcv-fetch` 已迁到 `modules/market-data-products/ohlcv-fetch`。
 - `ohlcv-fetch` 内部的 market features / calibration panel 升为独立 data atomic module。
-- `liquidation-zones` 从 binance 目录迁到 analytics，除非它直接负责 Binance fetch。
+- `liquidation-zones` 已迁到 `modules/market-data-products/liquidation-zones`，按市场数据产品而不是交易所写接口治理。
 
 验收：
 
-- read / write exchange 工具目录分离。
-- data acquisition 与 analytics 不混名。
+- market read / exchange account read / exchange write 工具目录分离。
+- market data product 与 live exchange gateway 不混名。
 - registry 中 `writes.binance` 与目录语义一致。
 
 ### Phase 6：registry 行为化
@@ -458,7 +533,7 @@ modules/
 验收：
 
 - 按 `intent=rd-memory` 能直接找到 `research.rd-program-state`。
-- 按 `intent=reconcile-drafts` 能直接找到 `flow/reconcile-drafts`；按 `intent=recovery-runner` 能直接找到 `flow/recovery-runner`。
+- 按 `intent=reconcile-drafts` 能直接找到 `live-execution-control/reconcile-drafts`；按 `intent=recovery-runner` 能直接找到 `live-execution-control/recovery-runner`。
 - 按 `writes.binance=true` 只出现 exchange write 和 execution orchestrator。
 
 ## 6. 停机检查清单

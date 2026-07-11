@@ -4,7 +4,7 @@
   "tools": [
     {
       "id": "trade-flow.automation",
-      "domain": "orchestration",
+      "domain": "orchestration-ops",
       "intent": [
         "automation",
         "supervision",
@@ -13,10 +13,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/trade-flow",
+      "path": "modules/orchestration-ops/trade-flow",
       "purpose": "Build the single-entry automation plan and isolate trade, research, review, and catalog jobs.",
       "command": {
-        "cwd": "modules/trade-flow",
+        "cwd": "modules/orchestration-ops/trade-flow",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -36,19 +36,19 @@
         "Planner only; downstream jobs perform their own writes."
       ],
       "module_type": "suite",
-      "owner_scope": "flow.automation",
+      "owner_scope": "orchestration-ops.automation-cycle",
       "requires_preflight": false,
       "concurrency_group": "flow-plan",
       "forbidden_callers": [],
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/trade-flow/src/schemas/automation-cycle-plan.schema.json"
+        "output_schema": "modules/orchestration-ops/trade-flow/src/schemas/automation-cycle-plan.schema.json"
       }
     },
     {
       "id": "trade-flow.runtime",
-      "domain": "runtime",
+      "domain": "portfolio-execution-state",
       "intent": [
         "event-store",
         "state",
@@ -58,10 +58,10 @@
         "R",
         "V"
       ],
-      "path": "modules/trade-flow",
+      "path": "modules/orchestration-ops/trade-flow",
       "purpose": "Initialize and append local plan_event records, reduce flow state, and dry-run slow or fast tracks.",
       "command": {
-        "cwd": "modules/trade-flow",
+        "cwd": "modules/orchestration-ops/trade-flow",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -81,7 +81,7 @@
         "Use --track for dry-run only; append commands write local events."
       ],
       "module_type": "suite",
-      "owner_scope": "flow.runtime-event-store",
+      "owner_scope": "portfolio-execution-state.runtime-event-store",
       "requires_preflight": false,
       "concurrency_group": "trade-db",
       "forbidden_callers": [],
@@ -93,7 +93,7 @@
     },
     {
       "id": "trade-flow.observe",
-      "domain": "observe",
+      "domain": "live-decision-planning",
       "intent": [
         "observe",
         "runtime-load",
@@ -103,10 +103,10 @@
         "R",
         "A"
       ],
-      "path": "modules/trade-flow",
+      "path": "modules/orchestration-ops/trade-flow",
       "purpose": "Load runtime inputs, call read-only snapshot tools, and build normalized observe events.",
       "command": {
-        "cwd": "modules/trade-flow",
+        "cwd": "modules/orchestration-ops/trade-flow",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -126,19 +126,19 @@
         "Observation builds facts for downstream flow steps; it does not decide or execute actions."
       ],
       "module_type": "suite",
-      "owner_scope": "flow.observe",
+      "owner_scope": "live-decision-planning.observe",
       "requires_preflight": false,
       "concurrency_group": "observe-read",
       "forbidden_callers": [],
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/trade-flow/src/schemas/observe-event.schema.json"
+        "output_schema": "modules/orchestration-ops/trade-flow/src/schemas/observe-event.schema.json"
       }
     },
     {
       "id": "research.replay-runner",
-      "domain": "research",
+      "domain": "research-strategy-development",
       "intent": [
         "replay",
         "single-strategy-replay",
@@ -147,10 +147,10 @@
       "capability_class": [
         "E"
       ],
-      "path": "modules/research/replay-runner",
+      "path": "modules/research-strategy-development/replay-runner",
       "purpose": "Run one registered strategy replay against a local OHLCV manifest.",
       "command": {
-        "cwd": "modules/research/replay-runner",
+        "cwd": "modules/research-strategy-development/replay-runner",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -185,7 +185,7 @@
     },
     {
       "id": "research.data-split",
-      "domain": "research",
+      "domain": "research-strategy-development",
       "intent": [
         "data-split",
         "holdout-split",
@@ -194,10 +194,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/research/data-split",
+      "path": "modules/research-strategy-development/data-split",
       "purpose": "Split source OHLCV manifests into discovery, validation, and locked holdout manifests with embargo.",
       "command": {
-        "cwd": "modules/research/data-split",
+        "cwd": "modules/research-strategy-development/data-split",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -225,12 +225,12 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research/data-split/src/schemas/strategy-data-split-result.schema.json"
+        "output_schema": "modules/research-strategy-development/data-split/src/schemas/strategy-data-split-result.schema.json"
       }
     },
     {
       "id": "research.signal-evaluator",
-      "domain": "research",
+      "domain": "research-strategy-development",
       "intent": [
         "signal",
         "latest-signal",
@@ -239,10 +239,10 @@
       "capability_class": [
         "E"
       ],
-      "path": "modules/research/signal-evaluator",
+      "path": "modules/research-strategy-development/signal-evaluator",
       "purpose": "Evaluate the latest closed-candle signal for one R&D family candidate or compiled strategy contract.",
       "command": {
-        "cwd": "modules/research/signal-evaluator",
+        "cwd": "modules/research-strategy-development/signal-evaluator",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -270,12 +270,12 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research/signal-evaluator/src/schemas/strategy-signal-result.schema.json"
+        "output_schema": "modules/research-strategy-development/signal-evaluator/src/schemas/strategy-signal-result.schema.json"
       }
     },
     {
       "id": "research.panel-evaluator",
-      "domain": "research",
+      "domain": "research-strategy-development",
       "intent": [
         "panel",
         "panel-evaluation",
@@ -286,10 +286,10 @@
         "E",
         "V"
       ],
-      "path": "modules/research/panel-evaluator",
+      "path": "modules/research-strategy-development/panel-evaluator",
       "purpose": "Evaluate one candidate set across a multi-asset panel with panel negative controls and marketability gates.",
       "command": {
-        "cwd": "modules/research/panel-evaluator",
+        "cwd": "modules/research-strategy-development/panel-evaluator",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -317,12 +317,12 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research/panel-evaluator/src/schemas/strategy-panel-rnd-result.schema.json"
+        "output_schema": "modules/research-strategy-development/panel-evaluator/src/schemas/strategy-panel-rnd-result.schema.json"
       }
     },
     {
       "id": "research.rd-program-state",
-      "domain": "research",
+      "domain": "research-strategy-development",
       "intent": [
         "rd-memory",
         "rd-program-state",
@@ -331,10 +331,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/research/rd-program-state",
+      "path": "modules/research-strategy-development/rd-program-state",
       "purpose": "Initialize, read, update, or plan_next durable R&D learning memory.",
       "command": {
-        "cwd": "modules/research/rd-program-state",
+        "cwd": "modules/research-strategy-development/rd-program-state",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -365,12 +365,12 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research/rd-program-state/src/schemas/rd-program-state-result.schema.json"
+        "output_schema": "modules/research-strategy-development/rd-program-state/src/schemas/rd-program-state-result.schema.json"
       }
     },
     {
       "id": "research.rd-supervisor",
-      "domain": "research",
+      "domain": "research-strategy-development",
       "intent": [
         "rd-supervisor",
         "rd-loop-supervisor",
@@ -380,10 +380,10 @@
         "A",
         "E"
       ],
-      "path": "modules/research/rd-supervisor",
+      "path": "modules/research-strategy-development/rd-supervisor",
       "purpose": "Run the autonomous R&D supervisor loop from durable RD state.",
       "command": {
-        "cwd": "modules/research/rd-supervisor",
+        "cwd": "modules/research-strategy-development/rd-supervisor",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -414,12 +414,12 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research/rd-supervisor/src/schemas/rd-supervisor-run-result.schema.json"
+        "output_schema": "modules/research-strategy-development/rd-supervisor/src/schemas/rd-supervisor-run-result.schema.json"
       }
     },
     {
       "id": "research.forward-holdout",
-      "domain": "research",
+      "domain": "research-strategy-development",
       "intent": [
         "forward-holdout",
         "frozen-candidate-forward-check",
@@ -428,10 +428,10 @@
       "capability_class": [
         "V"
       ],
-      "path": "modules/research/forward-holdout",
+      "path": "modules/research-strategy-development/forward-holdout",
       "purpose": "Evaluate a frozen R&D candidate on forward-only closed candles without writing strategy evidence or trade state.",
       "command": {
-        "cwd": "modules/research/forward-holdout",
+        "cwd": "modules/research-strategy-development/forward-holdout",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -460,12 +460,12 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research/forward-holdout/src/schemas/forward-holdout-result.schema.json"
+        "output_schema": "modules/research-strategy-development/forward-holdout/src/schemas/forward-holdout-result.schema.json"
       }
     },
     {
       "id": "research.rd-shadow-tracker",
-      "domain": "research",
+      "domain": "research-strategy-development",
       "intent": [
         "rd-shadow-tracker",
         "rd-forward-paper-tracker",
@@ -475,10 +475,10 @@
         "A",
         "E"
       ],
-      "path": "modules/research/rd-shadow-tracker",
+      "path": "modules/research-strategy-development/rd-shadow-tracker",
       "purpose": "Track forward holdout entry signals as R&D paper setup event chains.",
       "command": {
-        "cwd": "modules/research/rd-shadow-tracker",
+        "cwd": "modules/research-strategy-development/rd-shadow-tracker",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -514,7 +514,7 @@
     },
     {
       "id": "research.candidate-batch",
-      "domain": "research",
+      "domain": "research-strategy-development",
       "intent": [
         "candidate-batch",
         "strategy-rnd-batch",
@@ -524,10 +524,10 @@
         "E",
         "V"
       ],
-      "path": "modules/research/candidate-batch",
+      "path": "modules/research-strategy-development/candidate-batch",
       "purpose": "Evaluate one bounded candidate batch with candidate negative controls and reliability gates.",
       "command": {
-        "cwd": "modules/research/candidate-batch",
+        "cwd": "modules/research-strategy-development/candidate-batch",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -556,12 +556,12 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research/candidate-batch/src/schemas/strategy-rnd-batch-result.schema.json"
+        "output_schema": "modules/research-strategy-development/candidate-batch/src/schemas/strategy-rnd-batch-result.schema.json"
       }
     },
     {
       "id": "research.rd-loop-runner",
-      "domain": "research",
+      "domain": "research-strategy-development",
       "intent": [
         "rd-loop",
         "strategy-rnd-loop",
@@ -571,10 +571,10 @@
         "A",
         "E"
       ],
-      "path": "modules/research/rd-loop-runner",
+      "path": "modules/research-strategy-development/rd-loop-runner",
       "purpose": "Run one auditable R&D loop iteration with artifact, catalog, ledger, and optional RD state writeback.",
       "command": {
-        "cwd": "modules/research/rd-loop-runner",
+        "cwd": "modules/research-strategy-development/rd-loop-runner",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -603,12 +603,12 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research/rd-loop-runner/src/schemas/strategy-rnd-loop-result.schema.json"
+        "output_schema": "modules/research-strategy-development/rd-loop-runner/src/schemas/strategy-rnd-loop-result.schema.json"
       }
     },
     {
       "id": "research.rd-campaign-runner",
-      "domain": "research",
+      "domain": "research-strategy-development",
       "intent": [
         "rd-campaign",
         "strategy-rnd-campaign",
@@ -618,10 +618,10 @@
         "A",
         "E"
       ],
-      "path": "modules/research/rd-campaign-runner",
+      "path": "modules/research-strategy-development/rd-campaign-runner",
       "purpose": "Run one bounded R&D campaign over a hypothesis queue with discovery, locked validation, artifact writeback, and optional RD state update.",
       "command": {
-        "cwd": "modules/research/rd-campaign-runner",
+        "cwd": "modules/research-strategy-development/rd-campaign-runner",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -650,12 +650,12 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research/rd-campaign-runner/src/schemas/strategy-rnd-campaign-result.schema.json"
+        "output_schema": "modules/research-strategy-development/rd-campaign-runner/src/schemas/strategy-rnd-campaign-result.schema.json"
       }
     },
     {
       "id": "research.funding-governance",
-      "domain": "research",
+      "domain": "research-strategy-development",
       "intent": [
         "funding-governance",
         "funding-carry-governance",
@@ -664,10 +664,10 @@
       "capability_class": [
         "V"
       ],
-      "path": "modules/research/funding-governance",
+      "path": "modules/research-strategy-development/funding-governance",
       "purpose": "Check exact funding event coverage before funding-carry research trials.",
       "command": {
-        "cwd": "modules/research/funding-governance",
+        "cwd": "modules/research-strategy-development/funding-governance",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -700,7 +700,7 @@
     },
     {
       "id": "research.benchmark-runner",
-      "domain": "research",
+      "domain": "research-strategy-development",
       "intent": [
         "benchmark",
         "fixed-benchmark",
@@ -709,10 +709,10 @@
       "capability_class": [
         "E"
       ],
-      "path": "modules/research/benchmark-runner",
+      "path": "modules/research-strategy-development/benchmark-runner",
       "purpose": "Run one fixed multi-asset trend benchmark for R&D pipeline calibration.",
       "command": {
-        "cwd": "modules/research/benchmark-runner",
+        "cwd": "modules/research-strategy-development/benchmark-runner",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -740,12 +740,12 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research/benchmark-runner/src/schemas/strategy-benchmark-result.schema.json"
+        "output_schema": "modules/research-strategy-development/benchmark-runner/src/schemas/strategy-benchmark-result.schema.json"
       }
     },
     {
       "id": "research.calibration-suite",
-      "domain": "research",
+      "domain": "research-strategy-development",
       "intent": [
         "calibration",
         "calibration-suite",
@@ -755,10 +755,10 @@
         "A",
         "V"
       ],
-      "path": "modules/research/calibration-suite",
+      "path": "modules/research-strategy-development/calibration-suite",
       "purpose": "Run fixed calibration diagnostics across buy-hold, trend, and relative-strength baselines.",
       "command": {
-        "cwd": "modules/research/calibration-suite",
+        "cwd": "modules/research-strategy-development/calibration-suite",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -786,12 +786,12 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research/calibration-suite/src/schemas/strategy-calibration-result.schema.json"
+        "output_schema": "modules/research-strategy-development/calibration-suite/src/schemas/strategy-calibration-result.schema.json"
       }
     },
     {
       "id": "research.strategy-contract-compile",
-      "domain": "research",
+      "domain": "research-strategy-development",
       "intent": [
         "strategy-contract",
         "contract-compile",
@@ -800,10 +800,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/research/strategy-contract-compile",
+      "path": "modules/research-strategy-development/strategy-contract-compile",
       "purpose": "Compile one strategy markdown contract into normalized strategy contract output.",
       "command": {
-        "cwd": "modules/research/strategy-contract-compile",
+        "cwd": "modules/research-strategy-development/strategy-contract-compile",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -836,7 +836,7 @@
     },
     {
       "id": "research.strategy-contract-lint",
-      "domain": "research",
+      "domain": "research-strategy-development",
       "intent": [
         "strategy-contract",
         "contract-lint",
@@ -845,10 +845,10 @@
       "capability_class": [
         "V"
       ],
-      "path": "modules/research/strategy-contract-lint",
+      "path": "modules/research-strategy-development/strategy-contract-lint",
       "purpose": "Lint one strategy markdown contract for lifecycle and R&D readiness.",
       "command": {
-        "cwd": "modules/research/strategy-contract-lint",
+        "cwd": "modules/research-strategy-development/strategy-contract-lint",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -881,7 +881,7 @@
     },
     {
       "id": "strategy-review",
-      "domain": "governance",
+      "domain": "governance-review-compliance",
       "intent": [
         "evidence",
         "review",
@@ -892,10 +892,10 @@
         "E",
         "V"
       ],
-      "path": "modules/governance/strategy-review",
+      "path": "modules/governance-review-compliance/strategy-review",
       "purpose": "Append strategy evidence, build review reports, and gate strategy status transitions.",
       "command": {
-        "cwd": "modules/governance/strategy-review",
+        "cwd": "modules/governance-review-compliance/strategy-review",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -915,7 +915,7 @@
         "Reads trade.db only when --db is provided. Promotion can update strategy markdown only with explicit --yes where required."
       ],
       "module_type": "suite",
-      "owner_scope": "governance.strategy-review",
+      "owner_scope": "governance-review-compliance.strategy-review",
       "requires_preflight": false,
       "concurrency_group": "strategy-config",
       "forbidden_callers": [
@@ -930,7 +930,7 @@
     },
     {
       "id": "trade-flow.recovery",
-      "domain": "recovery",
+      "domain": "live-execution-control",
       "intent": [
         "recover",
         "reconcile"
@@ -940,10 +940,10 @@
         "A",
         "V"
       ],
-      "path": "modules/trade-flow",
+      "path": "modules/orchestration-ops/trade-flow",
       "purpose": "Reduce local flow state, reconcile against account snapshots, and optionally apply safe local drafts.",
       "command": {
-        "cwd": "modules/trade-flow",
+        "cwd": "modules/orchestration-ops/trade-flow",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -965,19 +965,19 @@
         "Does not call Binance write endpoints."
       ],
       "module_type": "suite",
-      "owner_scope": "flow.recovery",
+      "owner_scope": "live-execution-control.recovery",
       "requires_preflight": false,
       "concurrency_group": "trade-db",
       "forbidden_callers": [],
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/trade-flow/src/schemas/reconcile-result.schema.json"
+        "output_schema": "modules/orchestration-ops/trade-flow/src/schemas/reconcile-result.schema.json"
       }
     },
     {
       "id": "trade-flow.execution",
-      "domain": "execution",
+      "domain": "live-execution-control",
       "intent": [
         "dry-run",
         "shadow",
@@ -988,10 +988,10 @@
         "V",
         "T"
       ],
-      "path": "modules/trade-flow",
+      "path": "modules/orchestration-ops/trade-flow",
       "purpose": "Run the audited execution path, record order_fill events, shadow execution, or explicitly authorized live-small entry.",
       "command": {
-        "cwd": "modules/trade-flow",
+        "cwd": "modules/orchestration-ops/trade-flow",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1011,7 +1011,7 @@
         "Binance writes require --run-live-small plus --yes and preflight/contract gates."
       ],
       "module_type": "suite",
-      "owner_scope": "flow.execution",
+      "owner_scope": "live-execution-control.execution",
       "requires_preflight": true,
       "concurrency_group": "binance-write",
       "forbidden_callers": [
@@ -1021,13 +1021,13 @@
       ],
       "entry_contract": {
         "kind": "cli-json",
-        "input_schema": "modules/trade-flow/src/schemas/execution-command-spec.schema.json",
-        "output_schema": "modules/trade-flow/src/schemas/live-small-result.schema.json"
+        "input_schema": "modules/orchestration-ops/trade-flow/src/schemas/execution-command-spec.schema.json",
+        "output_schema": "modules/orchestration-ops/trade-flow/src/schemas/live-small-result.schema.json"
       }
     },
     {
       "id": "artifact-catalog",
-      "domain": "ops",
+      "domain": "artifact-knowledge",
       "intent": [
         "catalog",
         "artifact-gc",
@@ -1037,10 +1037,10 @@
         "A",
         "V"
       ],
-      "path": "modules/ops/artifact-catalog",
+      "path": "modules/artifact-knowledge/artifact-catalog",
       "purpose": "Index data and artifacts, report stale refs, and delete stale unreferenced files only when explicitly authorized.",
       "command": {
-        "cwd": "modules/ops/artifact-catalog",
+        "cwd": "modules/artifact-knowledge/artifact-catalog",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1058,7 +1058,7 @@
         "GC is dry-run unless --yes is present."
       ],
       "module_type": "suite",
-      "owner_scope": "ops.artifact-catalog",
+      "owner_scope": "artifact-knowledge.catalog",
       "requires_preflight": false,
       "concurrency_group": "artifact-catalog",
       "forbidden_callers": [],
@@ -1070,7 +1070,7 @@
     },
     {
       "id": "ohlcv-fetch",
-      "domain": "data",
+      "domain": "market-data-products",
       "intent": [
         "ohlcv",
         "funding",
@@ -1081,10 +1081,10 @@
         "R",
         "A"
       ],
-      "path": "modules/ohlcv-fetch",
+      "path": "modules/market-data-products/ohlcv-fetch",
       "purpose": "Fetch candles, funding, calibration panels, and market feature inputs into manifest-backed files.",
       "command": {
-        "cwd": "modules/ohlcv-fetch",
+        "cwd": "modules/market-data-products/ohlcv-fetch",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1105,7 +1105,7 @@
         "Writes data files and manifests, not strategy decisions."
       ],
       "module_type": "suite",
-      "owner_scope": "data.ohlcv-fetch",
+      "owner_scope": "market-data-products.ohlcv-fetch",
       "requires_preflight": false,
       "concurrency_group": "market-data",
       "forbidden_callers": [
@@ -1119,7 +1119,7 @@
     },
     {
       "id": "tech-indicators",
-      "domain": "analytics",
+      "domain": "market-data-products",
       "intent": [
         "indicator",
         "structure",
@@ -1129,10 +1129,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/analytics/tech-indicators",
+      "path": "modules/market-data-products/tech-indicators",
       "purpose": "Compute indicators, structure, BTC beta, and feature series from local OHLCV manifests.",
       "command": {
-        "cwd": "modules/analytics/tech-indicators",
+        "cwd": "modules/market-data-products/tech-indicators",
         "argv": [
           "go",
           "run",
@@ -1152,7 +1152,7 @@
         "Pure analytics; no exchange access."
       ],
       "module_type": "atomic",
-      "owner_scope": "analytics.tech-indicators",
+      "owner_scope": "market-data-products.tech-indicators",
       "requires_preflight": false,
       "concurrency_group": "analytics",
       "forbidden_callers": [
@@ -1166,7 +1166,7 @@
     },
     {
       "id": "plan-preflight",
-      "domain": "guard",
+      "domain": "live-execution-control",
       "intent": [
         "preflight",
         "hard-guard",
@@ -1175,10 +1175,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/guards/plan-preflight",
+      "path": "modules/live-execution-control/plan-preflight",
       "purpose": "Evaluate deterministic hard guards and render/validate decision cards.",
       "command": {
-        "cwd": "modules/guards/plan-preflight",
+        "cwd": "modules/live-execution-control/plan-preflight",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1197,9 +1197,9 @@
         "Verdict only; does not write events."
       ],
       "module_type": "atomic",
-      "owner_scope": "guards.plan-preflight",
+      "owner_scope": "live-execution-control.plan-preflight",
       "requires_preflight": false,
-      "concurrency_group": "guard",
+      "concurrency_group": "preflight-guard",
       "forbidden_callers": [],
       "entry_contract": {
         "kind": "cli-json",
@@ -1209,7 +1209,7 @@
     },
     {
       "id": "binance.account-snapshot",
-      "domain": "exchange-read",
+      "domain": "exchange-gateway",
       "intent": [
         "account",
         "position",
@@ -1219,10 +1219,10 @@
       "capability_class": [
         "R"
       ],
-      "path": "modules/binance/account-snapshot",
+      "path": "modules/exchange-gateway/binance-read/account-snapshot",
       "purpose": "Read balances, positions, open orders, protective orders, and optional symbol history.",
       "command": {
-        "cwd": "modules/binance/account-snapshot",
+        "cwd": "modules/exchange-gateway/binance-read/account-snapshot",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1241,7 +1241,7 @@
         "Read-only Binance API."
       ],
       "module_type": "atomic",
-      "owner_scope": "exchange.binance-read.account-snapshot",
+      "owner_scope": "exchange-gateway.account-snapshot",
       "requires_preflight": false,
       "concurrency_group": "binance-read",
       "forbidden_callers": [],
@@ -1253,7 +1253,7 @@
     },
     {
       "id": "binance.symbol-snapshot",
-      "domain": "exchange-read",
+      "domain": "market-data-products",
       "intent": [
         "symbol",
         "mark-price",
@@ -1264,10 +1264,10 @@
       "capability_class": [
         "R"
       ],
-      "path": "modules/binance/symbol-snapshot",
+      "path": "modules/market-data-products/binance-read/symbol-snapshot",
       "purpose": "Read one symbol's ticker, mark price, funding, open interest, and optional recent klines.",
       "command": {
-        "cwd": "modules/binance/symbol-snapshot",
+        "cwd": "modules/market-data-products/binance-read/symbol-snapshot",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1287,7 +1287,7 @@
         "Read-only Binance API."
       ],
       "module_type": "atomic",
-      "owner_scope": "exchange.binance-read.symbol-snapshot",
+      "owner_scope": "market-data-products.symbol-snapshot",
       "requires_preflight": false,
       "concurrency_group": "binance-read",
       "forbidden_callers": [],
@@ -1299,7 +1299,7 @@
     },
     {
       "id": "binance.market-scan",
-      "domain": "exchange-read",
+      "domain": "market-data-products",
       "intent": [
         "market-scan",
         "candidate-discovery"
@@ -1307,10 +1307,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/binance/market-scan",
+      "path": "modules/market-data-products/binance-read/market-scan",
       "purpose": "Rank broad market candidates for follow-up inspection.",
       "command": {
-        "cwd": "modules/binance/market-scan",
+        "cwd": "modules/market-data-products/binance-read/market-scan",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1331,7 +1331,7 @@
         "Only answers which symbols to inspect next; never live action."
       ],
       "module_type": "atomic",
-      "owner_scope": "exchange.binance-read.market-scan",
+      "owner_scope": "market-data-products.universe-liquidity-scan",
       "requires_preflight": false,
       "concurrency_group": "binance-read",
       "forbidden_callers": [
@@ -1345,7 +1345,7 @@
     },
     {
       "id": "binance.aggtrades-fetch",
-      "domain": "exchange-read",
+      "domain": "market-data-products",
       "intent": [
         "aggtrades",
         "microstructure"
@@ -1354,10 +1354,10 @@
         "R",
         "A"
       ],
-      "path": "modules/binance/aggtrades-fetch",
+      "path": "modules/market-data-products/binance-read/aggtrades-fetch",
       "purpose": "Fetch recent aggregate trades for microstructure analysis.",
       "command": {
-        "cwd": "modules/binance/aggtrades-fetch",
+        "cwd": "modules/market-data-products/binance-read/aggtrades-fetch",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1376,7 +1376,7 @@
         "Can write raw-data artifacts; no trade facts."
       ],
       "module_type": "atomic",
-      "owner_scope": "exchange.binance-read.aggtrades-fetch",
+      "owner_scope": "market-data-products.aggtrades-fetch",
       "requires_preflight": false,
       "concurrency_group": "market-data",
       "forbidden_callers": [
@@ -1390,7 +1390,7 @@
     },
     {
       "id": "binance.liquidation-zones",
-      "domain": "analytics",
+      "domain": "market-data-products",
       "intent": [
         "liquidation",
         "zones",
@@ -1399,10 +1399,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/binance/liquidation-zones",
+      "path": "modules/market-data-products/liquidation-zones",
       "purpose": "Infer liquidation-like zones from market data inputs.",
       "command": {
-        "cwd": "modules/binance/liquidation-zones",
+        "cwd": "modules/market-data-products/liquidation-zones",
         "argv": [
           "python3",
           "src/scripts/main.py",
@@ -1421,7 +1421,7 @@
         "Analysis refs only; not a trading signal."
       ],
       "module_type": "atomic",
-      "owner_scope": "analytics.liquidation-zones",
+      "owner_scope": "market-data-products.liquidation-zones",
       "requires_preflight": false,
       "concurrency_group": "analytics",
       "forbidden_callers": [
@@ -1435,7 +1435,7 @@
     },
     {
       "id": "binance.order-preview",
-      "domain": "execution-preview",
+      "domain": "exchange-gateway",
       "intent": [
         "preview",
         "compile-order",
@@ -1444,10 +1444,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/binance/order-preview",
+      "path": "modules/exchange-gateway/binance-write/order-preview",
       "purpose": "Preview and route USDM order intent without placing an order.",
       "command": {
-        "cwd": "modules/binance/order-preview",
+        "cwd": "modules/exchange-gateway/binance-write/order-preview",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1470,7 +1470,7 @@
         "No exchange write."
       ],
       "module_type": "atomic",
-      "owner_scope": "exchange.binance-write.order-preview",
+      "owner_scope": "exchange-gateway.order-preview",
       "requires_preflight": false,
       "concurrency_group": "execution-preview",
       "forbidden_callers": [
@@ -1485,7 +1485,7 @@
     },
     {
       "id": "binance.order-place",
-      "domain": "exchange-write",
+      "domain": "exchange-gateway",
       "intent": [
         "place-entry",
         "add-position"
@@ -1493,10 +1493,10 @@
       "capability_class": [
         "T"
       ],
-      "path": "modules/binance/order-place",
+      "path": "modules/exchange-gateway/binance-write/order-place",
       "purpose": "Place a USDM main entry or add-risk order after execution gates.",
       "command": {
-        "cwd": "modules/binance/order-place",
+        "cwd": "modules/exchange-gateway/binance-write/order-place",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1520,7 +1520,7 @@
         "Must be called through trade-flow execution for live strategy use."
       ],
       "module_type": "atomic",
-      "owner_scope": "exchange.binance-write.order-place",
+      "owner_scope": "exchange-gateway.order-place",
       "requires_preflight": true,
       "concurrency_group": "binance-write",
       "forbidden_callers": [
@@ -1537,7 +1537,7 @@
     },
     {
       "id": "binance.order-cancel",
-      "domain": "exchange-write",
+      "domain": "exchange-gateway",
       "intent": [
         "cancel-order",
         "defensive-action"
@@ -1545,10 +1545,10 @@
       "capability_class": [
         "T"
       ],
-      "path": "modules/binance/order-cancel",
+      "path": "modules/exchange-gateway/binance-write/order-cancel",
       "purpose": "Cancel regular or algo orders.",
       "command": {
-        "cwd": "modules/binance/order-cancel",
+        "cwd": "modules/exchange-gateway/binance-write/order-cancel",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1569,7 +1569,7 @@
         "Exchange write; local state is recorded by trade-flow."
       ],
       "module_type": "atomic",
-      "owner_scope": "exchange.binance-write.order-cancel",
+      "owner_scope": "exchange-gateway.order-cancel",
       "requires_preflight": false,
       "concurrency_group": "binance-write",
       "forbidden_callers": [
@@ -1585,7 +1585,7 @@
     },
     {
       "id": "binance.position-protect",
-      "domain": "exchange-write",
+      "domain": "exchange-gateway",
       "intent": [
         "stop-loss",
         "take-profit",
@@ -1595,10 +1595,10 @@
       "capability_class": [
         "T"
       ],
-      "path": "modules/binance/position-protect",
+      "path": "modules/exchange-gateway/binance-write/position-protect",
       "purpose": "Create stop, take-profit, or trailing protective legs.",
       "command": {
-        "cwd": "modules/binance/position-protect",
+        "cwd": "modules/exchange-gateway/binance-write/position-protect",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1620,7 +1620,7 @@
         "Exchange write; does not decide whether protection is strategically correct."
       ],
       "module_type": "atomic",
-      "owner_scope": "exchange.binance-write.position-protect",
+      "owner_scope": "exchange-gateway.position-protect",
       "requires_preflight": true,
       "concurrency_group": "binance-write",
       "forbidden_callers": [
@@ -1637,7 +1637,7 @@
     },
     {
       "id": "binance.position-adjust",
-      "domain": "exchange-write",
+      "domain": "exchange-gateway",
       "intent": [
         "reduce-position",
         "close-position",
@@ -1646,10 +1646,10 @@
       "capability_class": [
         "T"
       ],
-      "path": "modules/binance/position-adjust",
+      "path": "modules/exchange-gateway/binance-write/position-adjust",
       "purpose": "Reduce or close an existing USDM position.",
       "command": {
-        "cwd": "modules/binance/position-adjust",
+        "cwd": "modules/exchange-gateway/binance-write/position-adjust",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1671,7 +1671,7 @@
         "No add-risk path; add risk belongs to order-place through trade-flow."
       ],
       "module_type": "atomic",
-      "owner_scope": "exchange.binance-write.position-adjust",
+      "owner_scope": "exchange-gateway.position-adjust",
       "requires_preflight": false,
       "concurrency_group": "binance-write",
       "forbidden_callers": [

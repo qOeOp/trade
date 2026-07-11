@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade.protocol.event-write-envelope.v1",
+  "title": "protocol fabric event write envelope",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "event_ref", "owner_store", "event_kind", "idempotency_key", "body_ref"],
+  "properties": {
+    "schema_version": { "const": "trade.protocol.event-write-envelope.v1" },
+    "event_ref": { "type": "string", "minLength": 1 },
+    "owner_store": { "const": "trade_event_store" },
+    "event_kind": { "type": "string", "enum": ["observe", "order_fill", "review", "needs_review", "reconcile"] },
+    "flow_id": { "type": "string" },
+    "lane_id": { "type": "string" },
+    "source_job_id": { "type": "string" },
+    "idempotency_key": { "type": "string", "minLength": 1 },
+    "body_ref": { "type": "string", "minLength": 1 },
+    "input_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } }
+  }
+}

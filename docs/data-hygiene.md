@@ -39,7 +39,7 @@
 
 - 删除必须显式；默认只 dry-run。
 - `tmp/artifacts/` / `tmp/panels/` 下被 `.pin`、evidence ref、ledger ref 或 durable 目录保护的文件不得删。
-- 未引用、未 pin、超过 retention 的 artifact 由 `modules/ops/artifact-catalog` 的 `--artifact-gc` 或 `--catalog-gc` 报告 / 清理。
+- 未引用、未 pin、超过 retention 的 artifact 由 `modules/artifact-knowledge/artifact-catalog` 的 `--artifact-gc` 或 `--catalog-gc` 报告 / 清理。
 - `data/ohlcv/` 是可再生市场数据；清理前只需确认没有被当前 evidence / report 引用。
 - `tmp/panels/` 是可再生研究输入；默认可按 retention 清理，除非已被 ledger / evidence / `.pin` 引用。
 

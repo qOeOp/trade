@@ -78,7 +78,7 @@ function defaultCatalogDbPathForGeneratedPath(path: string): string {
 }
 
 function runArtifactCatalog(flag: string, payload: JSONRecord): unknown {
-  const result = spawnSync("bun", ["modules/ops/artifact-catalog/src/scripts/main.ts", flag, "--json", JSON.stringify(clean(payload))], {
+  const result = spawnSync("bun", ["modules/artifact-knowledge/artifact-catalog/src/scripts/main.ts", flag, "--json", JSON.stringify(clean(payload))], {
     cwd: repoRoot(),
     encoding: "utf8",
   })

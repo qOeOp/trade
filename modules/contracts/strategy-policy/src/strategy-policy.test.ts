@@ -48,7 +48,7 @@ test("loadStrategies reads markdown strategies from directory", () => {
 test("loadStrategies does not fall back outside the requested project strategies directory", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategies-fallback-"))
   try {
-    const toolDir = join(dir, "modules/trade-flow/strategies")
+    const toolDir = join(dir, "modules/orchestration-ops/trade-flow/strategies")
     mkdirSync(toolDir, { recursive: true })
     writeFileSync(join(toolDir, "s-tool.md"), "---\nstrategy_id: S-TOOL\n---\ntool")
 

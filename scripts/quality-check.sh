@@ -54,25 +54,25 @@ check_module_contracts() {
     exit 1
   fi
   for retired in \
-    modules/trade-flow/src/domain/research \
-    modules/trade-flow/src/domain/review \
-    modules/trade-flow/src/domain/artifact \
-    modules/trade-flow/src/scripts/commands/research.ts \
-    modules/trade-flow/src/scripts/commands/evidence.ts \
-    modules/trade-flow/src/scripts/commands/catalog.ts \
-    modules/trade-flow/src/scripts/lib/data-catalog.ts \
-    modules/trade-flow/src/scripts/lib/strategy-iteration.ts \
-    modules/trade-flow/src/scripts/lib/replay-core.ts \
-    modules/trade-flow/src/scripts/lib/rd-program-state.ts \
-    modules/trade-flow/src/scripts/lib/strategy-rnd.ts
+    modules/orchestration-ops/trade-flow/src/domain/research \
+    modules/orchestration-ops/trade-flow/src/domain/review \
+    modules/orchestration-ops/trade-flow/src/domain/artifact \
+    modules/orchestration-ops/trade-flow/src/scripts/commands/research.ts \
+    modules/orchestration-ops/trade-flow/src/scripts/commands/evidence.ts \
+    modules/orchestration-ops/trade-flow/src/scripts/commands/catalog.ts \
+    modules/orchestration-ops/trade-flow/src/scripts/lib/data-catalog.ts \
+    modules/orchestration-ops/trade-flow/src/scripts/lib/strategy-iteration.ts \
+    modules/orchestration-ops/trade-flow/src/scripts/lib/replay-core.ts \
+    modules/orchestration-ops/trade-flow/src/scripts/lib/rd-program-state.ts \
+    modules/orchestration-ops/trade-flow/src/scripts/lib/strategy-rnd.ts
   do
     if [ -e "$retired" ]; then
       printf 'quality: retired trade-flow compatibility path must not exist: %s\n' "$retired" >&2
       exit 1
     fi
   done
-  if rg -n 'handle(Catalog|Evidence|Research)Command|from "\./commands/(catalog|evidence|research)"|from "\./lib/(data-catalog|strategy-iteration|replay-core|rd-program-state|strategy-rnd)"' modules/trade-flow/src >/dev/null; then
-    rg -n 'handle(Catalog|Evidence|Research)Command|from "\./commands/(catalog|evidence|research)"|from "\./lib/(data-catalog|strategy-iteration|replay-core|rd-program-state|strategy-rnd)"' modules/trade-flow/src >&2
+  if rg -n 'handle(Catalog|Evidence|Research)Command|from "\./commands/(catalog|evidence|research)"|from "\./lib/(data-catalog|strategy-iteration|replay-core|rd-program-state|strategy-rnd)"' modules/orchestration-ops/trade-flow/src >/dev/null; then
+    rg -n 'handle(Catalog|Evidence|Research)Command|from "\./commands/(catalog|evidence|research)"|from "\./lib/(data-catalog|strategy-iteration|replay-core|rd-program-state|strategy-rnd)"' modules/orchestration-ops/trade-flow/src >&2
     printf 'quality: migrated research/review/catalog code must not be re-imported by trade-flow\n' >&2
     exit 1
   fi
@@ -83,7 +83,7 @@ check_module_contracts() {
       exit 1
     fi
   done
-  find modules/trade-flow/src/domain -mindepth 1 -maxdepth 1 -type d | sort | while IFS= read -r domain_dir; do
+  find modules/orchestration-ops/trade-flow/src/domain -mindepth 1 -maxdepth 1 -type d | sort | while IFS= read -r domain_dir; do
     if [ ! -f "$domain_dir/CONTRACT.md" ]; then
       printf 'quality: missing domain contract: %s/CONTRACT.md\n' "$domain_dir" >&2
       exit 1
