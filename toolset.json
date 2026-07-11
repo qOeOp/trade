@@ -467,6 +467,53 @@
       }
     },
     {
+      "id": "research.candidate-batch",
+      "domain": "research",
+      "intent": [
+        "candidate-batch",
+        "strategy-rnd-batch",
+        "candidate-negative-controls"
+      ],
+      "capability_class": [
+        "E",
+        "V"
+      ],
+      "path": "modules/research/candidate-batch",
+      "purpose": "Evaluate one bounded candidate batch with candidate negative controls and reliability gates.",
+      "command": {
+        "cwd": "modules/research/candidate-batch",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Read-only candidate evaluation. It does not write R&D artifacts, RD memory, catalog, strategy evidence, trade DB, or exchange state."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "research.candidate-batch",
+      "requires_preflight": false,
+      "concurrency_group": "research-eval",
+      "forbidden_callers": [
+        "execution",
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": "modules/research/candidate-batch/src/schemas/strategy-rnd-batch-result.schema.json"
+      }
+    },
+    {
       "id": "strategy-rd",
       "domain": "research",
       "intent": [
@@ -477,7 +524,7 @@
         "E"
       ],
       "path": "modules/research/strategy-rd",
-      "purpose": "Run R&D loops and campaigns.",
+      "purpose": "Run R&D loop and campaign artifact writers.",
       "command": {
         "cwd": "modules/research/strategy-rd",
         "argv": [
@@ -496,7 +543,7 @@
         "config": false
       },
       "notes": [
-        "Owns research execution except atomic replay-runner, signal-evaluator, panel-evaluator, rd-program-state, rd-supervisor, rd-shadow-tracker, data-split, benchmark, calibration, funding-governance, and strategy-contract tools. It cannot write trade.db, trigger Binance writes, or expose RD state/supervisor/tracker as local flags."
+        "Owns research artifact writeback except atomic candidate-batch, replay-runner, signal-evaluator, panel-evaluator, rd-program-state, rd-supervisor, rd-shadow-tracker, data-split, benchmark, calibration, funding-governance, and strategy-contract tools. It cannot write trade.db, trigger Binance writes, or expose batch/state/supervisor/tracker as local flags."
       ],
       "module_type": "suite",
       "owner_scope": "research.strategy-rd",

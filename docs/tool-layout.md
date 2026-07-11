@@ -37,6 +37,7 @@
 | `modules/research/data-split/` | strategy data split | discovery / validation / locked holdout manifest 切分 | R&D search、replay、review、`trade.db` |
 | `modules/research/signal-evaluator/` | latest strategy signal | 最新闭合 K 线信号评估 | R&D search、catalog 写入、strategy promotion、交易执行 |
 | `modules/research/panel-evaluator/` | panel evaluator | 多资产 panel、marketability、panel negative controls | R&D loop artifact、RD memory、strategy promotion、`trade.db` |
+| `modules/research/candidate-batch/` | candidate batch evaluator | 单批候选评估、negative controls、统计报告 | artifact 写入、RD memory、strategy promotion、`trade.db` |
 | `modules/research/signal-engine/` | signal internal engine | 最新信号输入解析与 family signal 计算 | agent-facing CLI、状态写入 |
 | `modules/research/candidate-batch-engine/` | candidate batch internal engine | 单批候选评估、negative controls、统计报告 | agent-facing CLI、artifact 写入、RD memory |
 | `modules/research/strategy-family-engine/` | strategy family internal engine | family registry、factor transform、factor research、feature store | agent-facing CLI、状态写入 |
@@ -82,6 +83,7 @@
 | data split / holdout isolation | `modules/research/data-split` + `research.data-split` |
 | latest signal | `modules/research/signal-evaluator` + `research.signal-evaluator` |
 | panel evaluation | `modules/research/panel-evaluator` + `research.panel-evaluator` |
+| candidate batch | `modules/research/candidate-batch` + `research.candidate-batch` |
 | benchmark | `modules/research/benchmark-runner` + `research.benchmark-runner` |
 | calibration suite | `modules/research/calibration-suite` + `research.calibration-suite` |
 | funding governance | `modules/research/funding-governance` + `research.funding-governance` |
@@ -117,7 +119,7 @@
 - `modules/trade-flow` 可以调用工具 CLI，但不拥有 Binance endpoint 细节，也不新增 R&D 实验实现或 strategy review 实现。
 - Binance 写工具只做单一交易动作；不得产出策略观点或修改 `trade.db`。
 - market scan 只能回答“先看谁”；不能直接生成 live action。
-- R&D execution 由 `strategy-rd` 拥有，只能写 research artifact、catalog、gated draft；不得触发 Binance 写接口或写 `trade.db`；RD memory、RD supervisor、RD shadow tracker、panel、单策略 replay、data split、benchmark、calibration、funding governance 与 strategy contract compile/lint 已拆为独立原子工具。
+- R&D loop/campaign artifact writeback 由 `strategy-rd` 拥有，只能写 research artifact、catalog、gated draft；不得触发 Binance 写接口或写 `trade.db`；candidate batch、RD memory、RD supervisor、RD shadow tracker、panel、单策略 replay、data split、benchmark、calibration、funding governance 与 strategy contract compile/lint 已拆为独立原子工具。
 - strategy evidence / review / promotion 由 `strategy-review` 拥有；只读消费 `trade.db`，不得写 RD memory 或触发执行。
 - catalog / artifact hygiene 由 `artifact-catalog` 拥有；trade-flow 只消费可审计 artifact / catalog 结果。
 - `plan-preflight` 只给 deterministic verdict；不得补写事件或解释行情方向。

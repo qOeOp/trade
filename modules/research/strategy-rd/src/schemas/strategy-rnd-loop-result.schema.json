@@ -10,7 +10,7 @@
     "created_at": { "type": "string", "minLength": 1 },
     "artifact_ref": { "type": "string", "minLength": 1 },
     "ledger_ref": { "type": "string", "minLength": 1 },
-    "batch": { "$ref": "strategy-rnd-batch-result.schema.json" },
+    "batch": { "$ref": "../../../candidate-batch/src/schemas/strategy-rnd-batch-result.schema.json" },
     "ledger_record": { "type": "object" },
     "stop_reason": { "enum": ["candidate_found", "no_promote"] },
     "rd_program_state": { "$ref": "../../../rd-program-state/src/schemas/rd-program-state-result.schema.json" }

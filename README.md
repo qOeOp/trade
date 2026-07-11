@@ -295,6 +295,7 @@ bun modules/research/rd-supervisor/src/scripts/main.ts --state ./data/rd/program
 | 命令 | 作用 |
 | --- | --- |
 | `research.rd-program-state` | init / read / update / plan_next durable learning memory |
+| `research.candidate-batch` | bounded candidate evaluation + negative controls |
 | `--strategy-rnd-loop` | 一轮 batch + artifact + catalog ledger |
 | `--strategy-rnd-campaign` | 多 hypothesis discovery + non-overlapping validation |
 | `research.data-split` | 切 discovery / validation / locked_holdout |

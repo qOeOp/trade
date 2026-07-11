@@ -34,7 +34,8 @@
 | `research.calibration-suite` | `A/V` | pipeline calibration diagnostics | none | 保持只诊断，不产生准入证据 |
 | `research.strategy-contract-compile` | `A` | strategy contract compile | none | 保持只做契约编译，不跑 R&D |
 | `research.strategy-contract-lint` | `V` | strategy contract lint | none | 保持只做契约校验，不跑 R&D |
-| `strategy-rd` | `A/E` | R&D loop、campaign | research artifact / catalog metadata / strategy draft / optional RD state writeback | 保持不写 `trade.db`、不触发 Binance；不再拥有 RD memory command、supervisor、forward tracker、单策略 replay 或 contract compile/lint CLI |
+| `research.candidate-batch` | `E/V` | bounded candidate batch、negative controls、failure summary | batch report | 不写 artifact / catalog / RD memory / `trade.db` |
+| `strategy-rd` | `A/E` | R&D loop、campaign artifact writeback | research artifact / catalog metadata / strategy draft / optional RD state writeback | 保持不写 `trade.db`、不触发 Binance；不再拥有 candidate batch、RD memory command、supervisor、forward tracker、单策略 replay 或 contract compile/lint CLI |
 | `research.rd-program-state` | `A` | RD memory init/read/update/plan_next | RD state artifact / catalog ref | 不执行 research trial，不产生 strategy evidence |
 | `research.rd-supervisor` | `A/E` | plan_next -> loop/campaign -> state writeback | RD state / research artifacts / optional draft strategy | 不写 `trade.db`，不触发 Binance，不做 promotion |
 | `research.rd-shadow-tracker` | `A/E` | forward setup event chain tracker | R&D tracker artifact / review draft input | 不写 `trade.db`，不等同 strategy shadow evidence |
@@ -83,6 +84,7 @@
 | `research.strategy-contract-lint` | `V` | `modules/research/strategy-contract-lint` |
 | `research.signal-evaluator` | `E` | `modules/research/signal-evaluator` |
 | `research.panel-evaluator` | `E/V` | `modules/research/panel-evaluator` |
+| `research.candidate-batch` | `E/V` | `modules/research/candidate-batch` |
 | `--strategy-rnd-*` | `A/E` | `modules/research/strategy-rd` |
 | `research.rd-program-state` | `A` | `modules/research/rd-program-state` |
 | `research.rd-supervisor` | `A/E` | `modules/research/rd-supervisor` |

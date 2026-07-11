@@ -3,10 +3,8 @@
 import { readFileSync } from "node:fs"
 import { assertProjectRuntimePath, repoRoot } from "../lib/paths"
 import {
-  runStrategyRndBatch,
   runStrategyRndCampaign,
   runStrategyRndLoop,
-  strategyRndBatchInputFromJson,
   strategyRndCampaignInputFromJson,
   strategyRndLoopInputFromJson,
 } from "../lib/strategy-rnd"
@@ -14,7 +12,6 @@ import {
 type JSONRecord = Record<string, unknown>
 
 interface Config {
-  strategyRndBatch: boolean
   strategyRndLoop: boolean
   strategyRndCampaign: boolean
   catalogDbPath: string
@@ -40,7 +37,6 @@ export function run(argv: string[]): JSONRecord {
 }
 
 function runConfig(config: Config): unknown {
-  if (config.strategyRndBatch) return runStrategyRndBatch(strategyRndBatchInputFromJson(config.input))
   if (config.strategyRndLoop) {
     const input = strategyRndLoopInputFromJson(config.input)
     assertRuntimeOutputPaths(input.artifactRoot, input.ledgerPath, input.catalogDbPath, input.rdProgramStatePath)
@@ -56,7 +52,6 @@ function runConfig(config: Config): unknown {
 
 function parseArgs(argv: string[]): Config {
   const config: Config = {
-    strategyRndBatch: false,
     strategyRndLoop: false,
     strategyRndCampaign: false,
     catalogDbPath: "./data/data_catalog.db",
@@ -65,7 +60,6 @@ function parseArgs(argv: string[]): Config {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     switch (arg) {
-      case "--strategy-rnd-batch": config.strategyRndBatch = true; break
       case "--strategy-rnd-loop": config.strategyRndLoop = true; break
       case "--strategy-rnd-campaign": config.strategyRndCampaign = true; break
       case "--catalog-db": config.catalogDbPath = readValue(argv, ++index, arg); break
@@ -112,7 +106,6 @@ function errorResponse(error: unknown): JSONRecord {
 
 function printHelp(): void {
   console.log(`Usage:
-  bun src/scripts/main.ts --strategy-rnd-batch --json '{"manifest_path":"...","candidates":[...]}'
   bun src/scripts/main.ts --strategy-rnd-loop --json '{"manifest_path":"...","candidates":[...]}'
   bun src/scripts/main.ts --strategy-rnd-campaign --json '{"campaign_id":"...","hypotheses":[...]}'
 `)

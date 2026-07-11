@@ -27,6 +27,7 @@
 | `data-split-check` | `modules/research/data-split` | `bun run check` | discovery / validation / locked holdout split |
 | `signal-evaluator-check` | `modules/research/signal-evaluator` | `bun run check` | latest closed-candle signal |
 | `panel-evaluator-check` | `modules/research/panel-evaluator` | `bun run check` | multi-asset panel evaluation |
+| `candidate-batch-integration` | `modules/research/strategy-rd` | `bun test ./src/lib/strategy-rnd.test.ts ./src/lib/strategy-rnd-inputs.test.ts` | candidate batch parser/evaluation while tests remain integration-owned |
 | `benchmark-runner-check` | `modules/research/benchmark-runner` | `bun run check` | fixed benchmark / benchmark engine |
 | `calibration-suite-check` | `modules/research/calibration-suite` | `bun run check` | calibration suite CLI |
 | `funding-governance-check` | `modules/research/funding-governance` | `bun run check` | funding coverage governance |
@@ -59,6 +60,7 @@
 | research replay runner | `modules/research/replay-runner/src/**`, `modules/research/replay-engine/src/**` | `replay-runner-check` + `strategy-rd-check` if shared replay semantics changed |
 | research data split | `modules/research/data-split/src/**` | `data-split-check` |
 | research signal | `modules/research/signal-engine/src/**`, `modules/research/signal-evaluator/src/**`, `modules/research/strategy-family-engine/src/**` | `signal-evaluator-check` + `strategy-rd-check` if forward holdout or candidate family semantics changed |
+| research candidate batch | `modules/research/candidate-batch/src/**`, `modules/research/candidate-batch-engine/src/**` | `candidate-batch-integration` + `strategy-rd-check` while loop/campaign consume batch engine |
 | research panel | `modules/research/panel-evaluator/src/**`, `modules/research/candidate-batch-engine/src/**` | `panel-evaluator-check` + `strategy-rd-check` if shared candidate batch semantics changed |
 | research benchmark / calibration | `modules/research/benchmark-engine/src/**`, `modules/research/benchmark-runner/src/**`, `modules/research/calibration-suite/src/**` | `benchmark-runner-check` + `calibration-suite-check` + `strategy-rd-check` if funding governance consumes benchmark data helpers |
 | research funding governance | `modules/research/funding-governance/src/**` | `funding-governance-check` |

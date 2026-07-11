@@ -2,7 +2,7 @@
 
 ## Owns
 
-- Bounded R&D batch / loop / campaign
+- Bounded R&D loop / campaign artifact writers
 - Forward holdout helpers
 
 ## Inputs
@@ -26,4 +26,4 @@
 - Calling Binance write tools
 - Deciding live execution
 - Owning strategy promotion or post-trade review
-- Owning RD state init/read/update/plan_next, RD supervisor, single-strategy replay, latest signal, panel evaluation, data split, benchmark, calibration, funding governance, or strategy contract compile/lint CLIs
+- Owning candidate batch evaluation, RD state init/read/update/plan_next, RD supervisor, single-strategy replay, latest signal, panel evaluation, data split, benchmark, calibration, funding governance, or strategy contract compile/lint CLIs
