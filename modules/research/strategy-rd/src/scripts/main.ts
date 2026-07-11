@@ -16,7 +16,6 @@ import { runRdProgramStateCommand } from "../lib/rd-program-state"
 import { runRdSupervisorLoop } from "../lib/rd-supervisor-runner"
 import { candidateFromStrategyContract, compileStrategyContract, lintStrategyContract } from "../lib/strategy-contract"
 import { runStrategyDataSplit, strategyDataSplitInputFromJson } from "../lib/strategy-data-split"
-import { replayRegisteredStrategy } from "../lib/strategy-replay"
 import { runStrategyPanelRnd, strategyPanelRndInputFromJson } from "../lib/strategy-panel-rnd"
 import {
   runCalibrationSuite,
@@ -38,7 +37,6 @@ import {
 type JSONRecord = Record<string, unknown>
 
 interface Config {
-  replayStrategy: boolean
   strategyRndBatch: boolean
   strategyRndLoop: boolean
   strategyRndCampaign: boolean
@@ -57,18 +55,7 @@ interface Config {
   manifestMapPath: string
   outputPath: string
   now: string
-  manifestPath: string
-  strategyId: string
-  timeframe: string
   maxHoldBars?: number
-  rewardRisk?: number
-  feeBps?: number
-  slippageBps?: number
-  fundingBpsPer8h?: number
-  oosSplitRatio?: number
-  trialCount?: number
-  parameterCount?: number
-  antiOverfitStage?: "selection_validation" | "external_validation" | "locked_holdout"
   strategyPath: string
   statePath: string
   catalogDbPath: string
@@ -94,23 +81,6 @@ export function run(argv: string[]): JSONRecord {
 }
 
 function runConfig(config: Config): unknown {
-  if (config.replayStrategy) {
-    if (!config.manifestPath) throw new Error("--replay-strategy requires --manifest")
-    return replayRegisteredStrategy({
-      manifestPath: config.manifestPath,
-      strategyId: config.strategyId,
-      timeframe: config.timeframe,
-      maxHoldBars: config.maxHoldBars,
-      rewardRisk: config.rewardRisk,
-      feeBps: config.feeBps,
-      slippageBps: config.slippageBps,
-      fundingBpsPer8h: config.fundingBpsPer8h,
-      oosSplitRatio: config.oosSplitRatio,
-      trialCount: config.trialCount,
-      parameterCount: config.parameterCount,
-      antiOverfitStage: config.antiOverfitStage,
-    })
-  }
   if (config.strategyRndBatch) return runStrategyRndBatch(strategyRndBatchInputFromJson(config.input))
   if (config.strategyRndLoop) {
     const input = strategyRndLoopInputFromJson(config.input)
@@ -154,7 +124,6 @@ function runConfig(config: Config): unknown {
 
 function parseArgs(argv: string[]): Config {
   const config: Config = {
-    replayStrategy: false,
     strategyRndBatch: false,
     strategyRndLoop: false,
     strategyRndCampaign: false,
@@ -173,9 +142,6 @@ function parseArgs(argv: string[]): Config {
     manifestMapPath: "",
     outputPath: "",
     now: "",
-    manifestPath: "",
-    strategyId: "S-BTC-4H-TREND-PULLBACK",
-    timeframe: "",
     strategyPath: "",
     statePath: "",
     catalogDbPath: "./data/data_catalog.db",
@@ -184,7 +150,6 @@ function parseArgs(argv: string[]): Config {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     switch (arg) {
-      case "--replay-strategy": config.replayStrategy = true; break
       case "--strategy-rnd-batch": config.strategyRndBatch = true; break
       case "--strategy-rnd-loop": config.strategyRndLoop = true; break
       case "--strategy-rnd-campaign": config.strategyRndCampaign = true; break
@@ -199,18 +164,7 @@ function parseArgs(argv: string[]): Config {
       case "--strategy-signal": config.strategySignal = true; break
       case "--strategy-compile": config.strategyCompile = true; break
       case "--strategy-lint": config.strategyLint = true; break
-      case "--manifest": config.manifestPath = readValue(argv, ++index, arg); break
-      case "--strategy-id": config.strategyId = readValue(argv, ++index, arg); break
-      case "--timeframe": config.timeframe = readValue(argv, ++index, arg); break
       case "--max-hold-bars": config.maxHoldBars = Number(readValue(argv, ++index, arg)); break
-      case "--reward-risk": config.rewardRisk = Number(readValue(argv, ++index, arg)); break
-      case "--fee-bps": config.feeBps = Number(readValue(argv, ++index, arg)); break
-      case "--slippage-bps": config.slippageBps = Number(readValue(argv, ++index, arg)); break
-      case "--funding-bps-per-8h": config.fundingBpsPer8h = Number(readValue(argv, ++index, arg)); break
-      case "--oos-split": config.oosSplitRatio = Number(readValue(argv, ++index, arg)); break
-      case "--trial-count": config.trialCount = Number(readValue(argv, ++index, arg)); break
-      case "--parameter-count": config.parameterCount = Number(readValue(argv, ++index, arg)); break
-      case "--anti-overfit-stage": config.antiOverfitStage = readAntiOverfitStage(readValue(argv, ++index, arg)); break
       case "--strategy": config.strategyPath = readValue(argv, ++index, arg); break
       case "--state": config.statePath = readValue(argv, ++index, arg); break
       case "--forward-result": config.forwardResultPath = readValue(argv, ++index, arg); break
@@ -242,11 +196,6 @@ function readJson(raw: string): JSONRecord {
   const parsed = JSON.parse(raw)
   if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("input JSON must be an object")
   return parsed as JSONRecord
-}
-
-function readAntiOverfitStage(value: string): Config["antiOverfitStage"] {
-  if (value === "selection_validation" || value === "external_validation" || value === "locked_holdout") return value
-  throw new Error("--anti-overfit-stage must be selection_validation, external_validation, or locked_holdout")
 }
 
 function assertRuntimeOutputPaths(...paths: Array<string | undefined>): void {

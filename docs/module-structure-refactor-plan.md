@@ -63,7 +63,7 @@
 
 | 当前 flag | 真实行为 | 目标 atomic module | primary write |
 | --- | --- | --- | --- |
-| `--replay-strategy` | 对单个 strategy / candidate 回放 | `research/replay-runner` | none / report |
+| `research.replay-runner` | 对单个 strategy / candidate 回放 | `research/replay-runner` | none / report |
 | `--strategy-signal` | 最新闭合 K 线信号评估 | `research/signal-evaluator` | none |
 | `--strategy-compile` | strategy markdown contract 编译 | `research/strategy-contract-compile` | none |
 | `--strategy-lint` | strategy lifecycle contract lint | `research/strategy-contract-lint` | none |
@@ -194,7 +194,7 @@ modules/
 | `flow/fast-track-plan` | atomic | active flow fast guard job plan，不内联 execution logic | `fast-track-workflow.ts` |
 | `flow/automation-plan` | atomic | cadence plan、job graph、write-scope / concurrency declaration | `automation-cycle.ts` |
 | `research/replay-engine` | contract/internal engine | replay core、fill model、closed-candle parity；被 runner 使用，不作为大总线 | `strategy-rd` replay files |
-| `research/replay-runner` | atomic | 单次 replay 执行与 replay report 输出 | `--replay-strategy` |
+| `research/replay-runner` | atomic | 单次 replay 执行与 replay report 输出 | `research.replay-runner` |
 | `research/signal-evaluator` | atomic | 最新闭合 K 线信号评估，不执行、不写状态 | `--strategy-signal` |
 | `research/strategy-contract-compile` | atomic | strategy markdown contract 编译为 candidate / lifecycle contract | `--strategy-compile` |
 | `research/strategy-contract-lint` | atomic | strategy lifecycle contract 完整性 lint | `--strategy-lint` |
@@ -322,7 +322,7 @@ modules/
 顺序：
 
 1. `research/replay-engine`：先作为内部 engine / contract owner，消灭 duplicated replay core。
-2. `research/replay-runner`：承接 `--replay-strategy`。
+2. `research/replay-runner`：承接单策略 replay。
 3. `research/signal-evaluator`：承接 `--strategy-signal`。
 4. `research/strategy-contract-compile` 与 `research/strategy-contract-lint`：承接 compile / lint。
 5. `research/data-split`：承接 `--strategy-data-split`。
@@ -354,6 +354,12 @@ modules/
 - replay、signal、data split、candidate batch、loop、campaign、panel、RD state、supervisor、shadow tracker、benchmark、calibration 都可独立运行测试。
 - R&D 不 import Binance write，不写 `trade.db`。
 - R&D supervisor 只能调用 research atomic tools 和 catalog / state contract，不能内联实现 batch / campaign / panel 逻辑。
+
+当前落地：
+
+- `research/replay-runner` 已成为 agent-facing atomic module，拥有 `CONTRACT.md`、独立 package、CLI、schema、测试和 `toolset.json` entry。
+- `strategy-rd` 已删除单策略 replay 总线入口，`toolset.json` 的 replay intent 只命中 `research.replay-runner`。
+- `strategy-replay` façade 与 registered replay strategy 已迁到 `research/replay-engine`；`strategy-rd` 旧本地路径仅保留测试/内部 re-export。
 
 ### Phase 4：拆 `trade-flow`
 

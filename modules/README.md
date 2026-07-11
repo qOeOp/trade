@@ -26,7 +26,8 @@
 | 模块 | 输入 | 输出 | 负责 | 禁止 |
 | --- | --- | --- | --- | --- |
 | `trade-flow` | strategy markdown、trading config、`trade.db`、tool JSON 输出 | `plan_event`、automation jobs、recovery drafts | 编排、执行流、恢复、准入、事件流 | Binance endpoint 细节、市场数据接入实现、R&D 实验实现、策略复核 owner |
-| `research/strategy-rd` | OHLCV manifest、market feature artifact、candidate JSON、strategy contract、R&D state | replay / R&D / panel / benchmark / calibration report、R&D state update、gated draft candidate、catalog metadata | 策略研发、回放、panel、benchmark、calibration、forward holdout、R&D learning memory | 写 `trade.db`、触发 Binance、策略升格 |
+| `research/replay-runner` | OHLCV manifest、strategy id、replay parameters | replay result | 单策略机械 replay | 写文件、写 catalog、R&D search、策略升格 |
+| `research/strategy-rd` | OHLCV manifest、market feature artifact、candidate JSON、strategy contract、R&D state | R&D / panel / benchmark / calibration report、R&D state update、gated draft candidate、catalog metadata | 策略研发、panel、benchmark、calibration、forward holdout、R&D learning memory | 写 `trade.db`、触发 Binance、策略升格、单策略 replay CLI |
 | `governance/strategy-review` | strategy markdown、evidence input、catalog evidence、optional read-only `trade.db` | evidence record、review report、promotion result、strategy status update | 策略证据、复核、升格门禁 | R&D 实验、交易执行、写 `trade.db`、写 RD memory |
 | `ops/artifact-catalog` | catalog DB、`data/` / `tmp/` roots、artifact refs、retention 设置 | catalog query、stale report、GC report、artifact metadata、feature report refs | 数据资产索引、artifact hygiene、catalog-aware GC | 写 `trade.db`、策略判断、交易所 API |
 | `ohlcv-fetch` | Binance market symbol、timeframes、Vision/funding/panel 请求参数 | CSV/manifest、funding events、market feature panel、calibration inputs | 数据采集与因果对齐 | 策略判断、升格、交易事实 |

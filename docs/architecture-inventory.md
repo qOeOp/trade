@@ -66,7 +66,8 @@
 
 | Command | Class | 当前 owner |
 | --- | --- | --- |
-| `--replay-strategy`, `--strategy-rnd-*`, `--strategy-panel-rnd`, `--strategy-data-split`, `--strategy-benchmark`, `--strategy-calibration-suite`, `--strategy-signal`, `--rd-program-state`, `--rd-supervisor-run`, `--rd-shadow-tracker` | `A/E` | `modules/research/strategy-rd` |
+| `research.replay-runner` | `E` | `modules/research/replay-runner` |
+| `--strategy-rnd-*`, `--strategy-panel-rnd`, `--strategy-data-split`, `--strategy-benchmark`, `--strategy-calibration-suite`, `--strategy-signal`, `--rd-program-state`, `--rd-supervisor-run`, `--rd-shadow-tracker` | `A/E` | `modules/research/strategy-rd` |
 | `--append-strategy-evidence`, `--strategy-review`, `--strategy-promote`, `--strategy-cycle` | `E/V` | `modules/governance/strategy-review` |
 | `--catalog-*`, `--artifact-gc` | `A/V` | `modules/ops/artifact-catalog` |
 

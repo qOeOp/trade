@@ -137,11 +137,57 @@
       }
     },
     {
+      "id": "research.replay-runner",
+      "domain": "research",
+      "intent": [
+        "replay",
+        "single-strategy-replay",
+        "mechanical-backtest"
+      ],
+      "capability_class": [
+        "E"
+      ],
+      "path": "modules/research/replay-runner",
+      "purpose": "Run one registered strategy replay against a local OHLCV manifest.",
+      "command": {
+        "cwd": "modules/research/replay-runner",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--manifest",
+          "<manifest>",
+          "--strategy-id",
+          "<strategy-id>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Pure replay runner; no R&D search, catalog write, promotion, or exchange access."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "research.replay-runner",
+      "requires_preflight": false,
+      "concurrency_group": "research-replay",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": "modules/research/replay-runner/src/schemas/replay-result.schema.json"
+      }
+    },
+    {
       "id": "strategy-rd",
       "domain": "research",
       "intent": [
         "rd",
-        "replay",
         "panel",
         "benchmark",
         "calibration",
@@ -153,7 +199,7 @@
         "E"
       ],
       "path": "modules/research/strategy-rd",
-      "purpose": "Run strategy replay, R&D loops, panel evaluation, calibration, benchmark, latest-signal checks, and R&D program memory.",
+      "purpose": "Run R&D loops, panel evaluation, calibration, benchmark, latest-signal checks, and R&D program memory.",
       "command": {
         "cwd": "modules/research/strategy-rd",
         "argv": [
@@ -172,7 +218,7 @@
         "config": false
       },
       "notes": [
-        "Owns research execution. It cannot write trade.db or trigger Binance writes."
+        "Owns research execution except atomic replay-runner. It cannot write trade.db or trigger Binance writes."
       ],
       "module_type": "suite",
       "owner_scope": "research.strategy-rd",

@@ -820,7 +820,7 @@ Jesse 调研后的补充要求：
   - `exit_rule`
   - `review_attribution`
 - `rnd_family_v1` 自动生成这些段；`manual_policy_v1` 允许人工声明但必须 lint。
-- `--strategy-signal`、`--replay-strategy`、R&D shadow tracker 共用编译后的 lifecycle contract。
+- `--strategy-signal`、`research.replay-runner`、R&D shadow tracker 共用编译后的 lifecycle contract。
 
 验收：
 

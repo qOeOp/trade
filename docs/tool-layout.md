@@ -63,7 +63,8 @@
 | automation plan | `modules/trade-flow/src/domain/runtime` + `trade-flow.automation` |
 | observe / runtime load | `modules/trade-flow/src/domain/observe` + `trade-flow.observe` |
 | 事件流 / track dry-run | `modules/trade-flow/src/domain/runtime` + `trade-flow.runtime` |
-| 研究 / 回放 / panel / benchmark | `modules/research/strategy-rd` + `strategy-rd` |
+| 单策略 replay | `modules/research/replay-runner` + `research.replay-runner` |
+| 研究 / panel / benchmark | `modules/research/strategy-rd` + `strategy-rd` |
 | review / evidence / promotion | `modules/governance/strategy-review` + `strategy-review` |
 | 执行编排 / shadow / live-small | `modules/trade-flow/src/domain/execution` + `trade-flow.execution` |
 | recovery / reconcile | `modules/trade-flow/src/domain/recovery` + `trade-flow.recovery` |
