@@ -52,7 +52,33 @@ subagent 只负责上下文隔离和并行：交易事实仍只能通过 trade-f
 
 真钱动作只可消费 `execution_projection + fresh exchange facts + strategy evidence + runtime_policy`。`runtime_health.safe_mode` 是运行态投影，不写成长记忆；解除必须来自新的健康检查 / 对账结果，而不是对话承诺。
 
-总控输出的 job line 是产品级边界：
+### Automation Cycle Job Topology
+
+`automation-cycle` 的核心不是“跑哪些脚本”，而是把一次外部唤醒切成一组互不越权的交易运营职责。job 是产品级责任边界；实现上可以合并或拆成多个 atomic tool，但不能让职责互相冒充。
+
+目标 job family：
+
+| job family | 业务职责 | 必须在谁之前 | 写权限 |
+| --- | --- | --- | --- |
+| `runtime_health_guard` | 开跑前确认系统能不能交易：配置 hash、数据新鲜度、Binance/API 可用性、DB/lock、safe mode、日内风险状态 | 所有真钱相关 job | runtime health projection / cron log；不写 `trade.db` 交易事件 |
+| `account_reconcile_guard` | 先把本地执行投影和交易所事实对齐；能可靠归属则补 `source=reconcile`，不能归属则锁风险 / needs_review | fast / slow / executor | `trade.db` reconcile event / needs_review |
+| `fast_track_guard` | 守护已有 active flow：触发慢轨授权动作、同步保护、处理防御动作、记录轻量执行上下文 | slow 之前优先运行；也可在慢轨间隔中单独运行 | `trade.db` light observe / order_fill |
+| `slow_track_market_watch` | 慢轨盯市与计划生成：扫描市场、补证据、读策略池、生成或更新 slow observe / action_intent | R&D 可并行；执行仍必须走 executor | `trade.db` full observe / order_fill；watchlist artifact |
+| `rd_strategy_supervisor` | 新策略研发学习 loop：消费失败经验、推进 hypothesis、控制预算、产出 gated draft / shadow candidate | 与 live trade-db 写入隔离 | research artifact / catalog / strategy draft；不写 `trade.db` |
+| `rd_forward_shadow_trackers` | 已冻结候选 / paper / shadow 样本延续跟踪 | 与真钱链路隔离 | tracker artifact / catalog；不写 `trade.db` |
+| `closed_flow_review_sweep` | 对“已闭合且未 review”的 flow 做终局复盘；review cadence 只补漏 | trade / reconcile 之后 | `trade.db` review event / review artifact |
+| `catalog_hygiene_scan` | 管 artifact 可见性、引用、stale / GC candidate | 可与 research 并行 | `data_catalog.db` / artifact report；不写 `trade.db` |
+| `ops_notify_dispatch` | 汇总本轮异常和需要人工接管的事件：safe mode、reconcile abort、保护腿缺失、API 连续失败、候选待确认 | 所有 job 之后，或 critical 事件即时触发 | notify side effect；不改变 flow 状态 |
+
+当前实现已经有 `fast_track_guard / slow_track_market_watch / rd_strategy_supervisor / rd_forward_shadow_trackers / closed_flow_review_sweep / catalog_hygiene_scan` 的 job graph。缺口不是又多几个脚本，而是三类交易运营职责必须成为总控的一等边界：`runtime_health_guard`、`account_reconcile_guard`、`ops_notify_dispatch`。
+
+`fast_track_guard` 和 `slow_track_market_watch` 可以继续作为粗粒度工作单元，但语义必须收紧：
+
+- `fast_track_guard` 是执行层巡检，不是快频策略判断；它内部只允许 trigger watch、protection watch、risk lock、light reconcile、defensive action。
+- `slow_track_market_watch` 是战略观察与计划生成，不是慢速下单器；它可以写 `action_intent`，但执行仍走 shared executor。
+- `closed_flow_review_sweep` 的扫描对象是“closed but unreviewed flow”，不是 active flow；flow 退出 active 集合后才最需要 review。
+
+当前总控输出的 job line：
 
 | job_id | 所属线 | subagent 角色 | 并发组 | 写权限 |
 | --- | --- | --- | --- | --- |
@@ -71,11 +97,12 @@ R&D 内部允许再 fan-out read-only scout subagent，但只作为旁路输入�
 
 state 写入是显式边界：`research.rd-program-state` 可 init/read/update/plan_next；`plan_next` 只读 state，把 queue 中的下一条 hypothesis 编译为 R&D loop/campaign payload 草案。`research.rd-supervisor` 是高阶执行器，串起 `plan_next -> loop/campaign -> state writeback`，直到候选、预算耗尽、数据/工具阻断或 max_iterations。R&D loop / campaign 只有 payload 带 `rd_program_state_path` 才把 usage、failure、reliability、artifact refs 写回；strategy review 只产出 execution attribution、cost feedback、decay diagnostics，不直接写 RD memory。总控不隐式制造研发事实，只分发显式 job。
 
-调度顺序固定三段：
+目标调度顺序固定四段：
 
-1. `serial_trade_db_guard`：先跑 fast guard，恢复 / 防御 active flow。
-2. `parallel_isolated_work`：slow 盯市、strategy R&D、R&D tracker、catalog 保洁可并行；只有 slow 可能进入 `trade-db` 写区。
-3. `serial_review_closeout`：上游报告新闭合 flow 后，再串行 review 封口；fallback sweep 只补漏。
+1. `serial_runtime_guard`：先跑 runtime health；不健康则只允许恢复、防御、通知。
+2. `serial_trade_db_guard`：先跑 account reconcile，再跑 fast guard；已有风险和账本事实优先于新机会。
+3. `parallel_isolated_work`：slow 盯市、strategy R&D、R&D tracker、catalog 保洁可并行；只有 slow 可能进入 `trade-db` 写区。
+4. `serial_closeout`：先 review closed-but-unreviewed flow，再 dispatch ops notification；fallback sweep 只补漏。
 
 不要求严格 cron 对齐（如 :05 / :20 / :35 / :50）：实际触发时间可能漂移，"两轨不同时驱动 Binance API + LLM 推理"这个真需求由 supervisor cadence + tool 入口 lock file + 幂等执行兜底（见 §失败兜底 → 慢/快轨重叠），而不是靠错开 wall-clock 分钟。
 

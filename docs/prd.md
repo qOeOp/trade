@@ -25,7 +25,7 @@ research / review
   -> live-small / paused
 ```
 
-外部调度只保留一条 automation supervisor。它按快轨频率唤醒，通过 `--automation-cycle` 生成任务图，再用 subagent 隔离并行盯市、慢轨、strategy R&D supervisor、R&D forward tracker 与 artifact 检查；任意时刻最多一个 worker 写 `trade.db`。平仓 review 优先由本轮闭合事件触发，并在交易 / 对账之后串行执行；低频 sweep 只负责补漏。
+外部调度只保留一条 automation supervisor。它按快轨频率唤醒，通过 `--automation-cycle` 生成任务图，再用 subagent 隔离运行健康、账户对账、快轨守护、慢轨盯市、strategy R&D supervisor、R&D forward tracker、artifact 检查、closed-flow review 与通知收口；任意时刻最多一个 worker 写 `trade.db`。平仓 review 优先由“已闭合且未 review”的 flow 触发，并在交易 / 对账之后串行执行；低频 sweep 只负责补漏。
 
 产品形态不是多条长期 automation，而是一个总控入口管理多条 job line：
 
@@ -34,12 +34,15 @@ single automation entry
   -> supervisor plan
   -> cadence / lock / concurrency / permission gate
   -> subagent fan-out
+     -> runtime health guard
+     -> account reconcile guard
      -> live opportunity watch
      -> active flow guard
      -> shadow / forward validation
      -> new strategy R&D
      -> closed-flow review
      -> catalog / artifact hygiene
+     -> ops notification
   -> supervisor summary
 ```
 
@@ -47,12 +50,15 @@ single automation entry
 
 | Job line | 目标 | 可写入 | 不允许 |
 | --- | --- | --- | --- |
+| `runtime_health_guard` | 开跑前确认配置、数据、API、DB/lock、safe mode 与风险状态允许继续 | runtime health / cron log | 生成交易计划、写交易事件 |
+| `account_reconcile_guard` | 先把本地投影和交易所事实对齐，无法归属则锁风险 / needs_review | `trade.db` reconcile event / needs_review | 新开风险、替代策略判断 |
 | `fast_track_guard` | 守护 active flow、触发慢轨已授权动作、同步保护与对账 | `trade.db` light observe / order_fill | 新建 thesis、扩大风险、改策略 |
 | `slow_track_market_watch` | 用 live-small 策略寻找和管理真钱机会 | `trade.db` full observe / order_fill | 绕过 preflight / execution contract |
 | `rd_forward_shadow_trackers` | 接着验证已冻结 / 已触发的 paper 或 shadow 样本 | R&D tracker artifact / catalog | 生成 strategy evidence、触发 Binance |
 | `rd_strategy_supervisor` | 自主研发新策略，失败经验进入下一轮 hypothesis | research artifact / catalog / gated draft strategy | 写 `trade.db`、调用 Binance、无界搜索 |
 | `closed_flow_review_sweep` | 对已闭合 flow 做复盘并推动策略迭代 | `trade.db` review / review artifact | 与交易写入并行封口 |
 | `catalog_hygiene_scan` | 维护 artifact 可见性、引用、过期候选 | `data_catalog.db` | 删除未确认资产、影响交易事实 |
+| `ops_notify_dispatch` | 汇总异常、人工接管点和候选确认事项 | notify side effect | 改 flow 状态、补交易事实 |
 
 优雅点在于：总控每次只生成“本轮该跑什么”的任务图；各 job line 自己有 cadence、权限和停止条件。真钱交易、shadow 验证、新策略研发、复盘迭代可以并行思考，但写事实时仍被 concurrency group 串行化。
 
