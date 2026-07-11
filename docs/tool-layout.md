@@ -57,7 +57,7 @@
 | `modules/research-strategy-development/rd-shadow-tracker/` | RD paper tracker | forward setup event chain and review draft input | R&D search、strategy evidence、`trade.db`、Binance 写接口 |
 | `modules/governance-review-compliance/strategy-review/` | strategy governance | evidence ledger、strategy review、promotion gate、strategy-cycle | R&D 实验、交易执行、写 `trade.db`、写 RD memory |
 | `modules/artifact-knowledge/artifact-catalog/` | artifact governance | catalog DB、artifact index/query/stale/gc、feature report refs | `trade.db`、策略判断、交易所 API |
-| `modules/market-data-products/ohlcv-fetch/` | market data acquisition | OHLCV、funding、market features、calibration panel、manifest | 策略升格、live 执行判断 |
+| `modules/market-data-products/ohlcv-fetch/` | market data acquisition | OHLCV、funding、market features、calibration panel、manifest；可同步 market_data_store | 策略升格、live 执行判断 |
 | `modules/exchange-gateway/` | exchange gateway tools | Binance 账户/订单读取、下单、撤单、保护、减仓 | R&D planning、strategy promotion、长期状态 |
 | `modules/market-data-products/` | market data product tools | Binance public market facts、OHLCV、features、liquidity scan、microstructure refs | 账户私有状态、交易所写 side effect |
 | `modules/live-execution-control/` | deterministic guard | preflight、hard guards、decision card validation | 市场观点、交易所写接口 |

@@ -52,6 +52,21 @@ export interface FeatureManifest {
   generated_at: string
 }
 
+export interface FundingEventQuery {
+  exchange?: string
+  symbol?: string
+  since_ts?: number
+  until_ts?: number
+  limit?: number
+}
+
+export interface FeatureManifestQuery {
+  symbol?: string
+  timeframe?: string
+  feature_set_id?: string
+  limit?: number
+}
+
 export function ensureMarketDataSchema(db: Database): void {
   db.run(`
     CREATE TABLE IF NOT EXISTS market_manifest (
@@ -265,6 +280,57 @@ export function readMarketManifest(db: Database, manifestId: string): MarketMani
   return row ? manifestFromRow(row) : null
 }
 
+export function readFundingEvents(db: Database, query: FundingEventQuery): FundingEvent[] {
+  const limit = boundedLimit(query.limit, 1000)
+  const rows = db.query(`
+    SELECT manifest_id, exchange, symbol, funding_time, funding_rate, mark_price
+    FROM funding_event
+    WHERE ($exchange IS NULL OR exchange = $exchange)
+      AND ($symbol IS NULL OR symbol = $symbol)
+      AND ($since_ts IS NULL OR funding_time >= $since_ts)
+      AND ($until_ts IS NULL OR funding_time <= $until_ts)
+    ORDER BY funding_time ASC
+    LIMIT $limit
+  `).all({
+    $exchange: query.exchange || null,
+    $symbol: query.symbol || null,
+    $since_ts: query.since_ts ?? null,
+    $until_ts: query.until_ts ?? null,
+    $limit: limit,
+  }) as FundingEventRow[]
+  return rows.map(fundingEventFromRow)
+}
+
+export function readFeatureManifest(db: Database, featureManifestId: string): FeatureManifest | null {
+  const row = db.query(`
+    SELECT feature_manifest_id, source_manifest_id, feature_set_id, symbol, timeframe,
+      content_hash, manifest_path, generated_at
+    FROM feature_manifest
+    WHERE feature_manifest_id = $feature_manifest_id
+  `).get({ $feature_manifest_id: featureManifestId }) as FeatureManifestRow | null
+  return row ? featureManifestFromRow(row) : null
+}
+
+export function listFeatureManifests(db: Database, query: FeatureManifestQuery): FeatureManifest[] {
+  const limit = boundedLimit(query.limit, 100)
+  const rows = db.query(`
+    SELECT feature_manifest_id, source_manifest_id, feature_set_id, symbol, timeframe,
+      content_hash, manifest_path, generated_at
+    FROM feature_manifest
+    WHERE ($symbol IS NULL OR symbol = $symbol)
+      AND ($timeframe IS NULL OR timeframe = $timeframe)
+      AND ($feature_set_id IS NULL OR feature_set_id = $feature_set_id)
+    ORDER BY generated_at DESC, feature_manifest_id ASC
+    LIMIT $limit
+  `).all({
+    $symbol: query.symbol || null,
+    $timeframe: query.timeframe || null,
+    $feature_set_id: query.feature_set_id || null,
+    $limit: limit,
+  }) as FeatureManifestRow[]
+  return rows.map(featureManifestFromRow)
+}
+
 export function buildMarketManifest(input: JSONRecord): MarketManifest {
   const now = stringField(input.created_at) || stringField(input.now) || new Date().toISOString()
   return {
@@ -365,6 +431,12 @@ function optionalRecord(value: unknown): JSONRecord | undefined {
   return Object.keys(record).length > 0 ? record : undefined
 }
 
+function boundedLimit(value: unknown, fallback: number): number {
+  const parsed = Number(value)
+  if (!Number.isFinite(parsed) || parsed <= 0) return fallback
+  return Math.min(Math.floor(parsed), 10_000)
+}
+
 interface MarketManifestRow {
   manifest_id: string
   dataset_kind: string
@@ -379,6 +451,26 @@ interface MarketManifestRow {
   manifest_path: string
   created_at: string
   freshness_json: string | null
+}
+
+interface FundingEventRow {
+  manifest_id: string
+  exchange: string
+  symbol: string
+  funding_time: number
+  funding_rate: number
+  mark_price: number | null
+}
+
+interface FeatureManifestRow {
+  feature_manifest_id: string
+  source_manifest_id: string
+  feature_set_id: string
+  symbol: string | null
+  timeframe: string | null
+  content_hash: string
+  manifest_path: string
+  generated_at: string
 }
 
 function manifestFromRow(row: MarketManifestRow): MarketManifest {
@@ -399,3 +491,26 @@ function manifestFromRow(row: MarketManifestRow): MarketManifest {
   }
 }
 
+function fundingEventFromRow(row: FundingEventRow): FundingEvent {
+  return {
+    manifest_id: row.manifest_id,
+    exchange: row.exchange,
+    symbol: row.symbol,
+    funding_time: row.funding_time,
+    funding_rate: row.funding_rate,
+    mark_price: row.mark_price ?? undefined,
+  }
+}
+
+function featureManifestFromRow(row: FeatureManifestRow): FeatureManifest {
+  return {
+    feature_manifest_id: row.feature_manifest_id,
+    source_manifest_id: row.source_manifest_id,
+    feature_set_id: row.feature_set_id,
+    symbol: row.symbol ?? undefined,
+    timeframe: row.timeframe ?? undefined,
+    content_hash: row.content_hash,
+    manifest_path: row.manifest_path,
+    generated_at: row.generated_at,
+  }
+}

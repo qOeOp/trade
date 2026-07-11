@@ -16,13 +16,15 @@
 | --- | --- | --- | --- | --- |
 | `trade_event_store` | implemented | `portfolio-execution-state/event-store` | `data/trade.db.plan_event` | 钱的事件真相；append-only |
 | `flow_read_models` | implemented-derived | `portfolio-execution-state/flow-projector` | memory；可选 cache table | 从 `plan_event` 重建，不是事实源 |
-| `market_data_store` | implemented | `market-data-products/market-data-store` | `data/market_data.duckdb` / parquet | raw/canonical/funding/feature manifests；`ohlcv-fetch --market-data-db` 和慢轨盯市默认同步 canonical candles |
+| `market_data_store` | implemented | `market-data-products/market-data-store` | `data/market_data.duckdb` / parquet | raw/canonical/funding/feature manifests；`ohlcv-fetch --market-data-db` 同步 canonical candles，`calibration-market-features --market-data-db` 同步 funding events 与 feature refs |
 | `exchange_runtime_store` | implemented | `exchange-gateway/exchange-runtime-store` | `data/exchange_runtime.db` | 交易所 command/result/idempotency ledger；Binance 写工具与 `execution-router` 默认接入；真钱事实仍回写 `trade_event_store` |
 | `artifact_catalog` | implemented | `artifact-knowledge/artifact-catalog` | `data/data_catalog.db` | artifact/dataset/evidence/report 索引，不存大 payload |
 | `research_state_store` | implemented | `research-strategy-development/research-state-store` | `data/rd_state.db` | RD program / hypothesis / trial / holdout-use ledger |
 | `governance_ledger` | implemented | `governance-review-compliance/governance-ledger` | `data/governance.db` | evidence、promotion、closed-flow review 的独立 ledger |
 | `policy_registry` | implemented | `policy-risk/policy-registry` | `data/policy_registry.db` | runtime policy snapshot 与 approved strategy refs |
 | `ops_runtime_store` | implemented | `orchestration-ops/ops-runtime-store` | `data/ops_runtime.db` | cycle/job/health/notify/domain_message observability；`summary` 读口派生 stage/domain/attention 聚合；domain-bus 只存 envelope/ref，不参与交易真相 |
+
+`market_data_store` 的 owner 读口已覆盖 `read_manifest`、`read_funding`、`read_feature_manifest`、`list_feature_manifests`。后续 R&D / governance 迁移消费 funding 或 feature refs 时，应优先走 owner CLI / protocol ref，而不是跨域直读 JSON artifact 或 SQL 表。
 
 ## Implementation Rule
 

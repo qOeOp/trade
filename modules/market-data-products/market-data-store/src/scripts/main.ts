@@ -8,6 +8,9 @@ import {
   buildFundingEvents,
   buildMarketManifest,
   ensureMarketDataSchema,
+  listFeatureManifests,
+  readFeatureManifest,
+  readFundingEvents,
   readMarketManifest,
   upsertCanonicalCandles,
   upsertFeatureManifest,
@@ -78,6 +81,38 @@ export function run(args: Args): JSONRecord {
         manifest: readMarketManifest(db, stringField(args.json.manifest_id)),
       }
     }
+    if (args.action === "read_funding") {
+      return {
+        ok: true,
+        action: args.action,
+        events: readFundingEvents(db, {
+          exchange: stringField(args.json.exchange) || undefined,
+          symbol: stringField(args.json.symbol) || undefined,
+          since_ts: optionalNumber(args.json.since_ts),
+          until_ts: optionalNumber(args.json.until_ts),
+          limit: optionalNumber(args.json.limit),
+        }),
+      }
+    }
+    if (args.action === "read_feature_manifest") {
+      return {
+        ok: true,
+        action: args.action,
+        manifest: readFeatureManifest(db, stringField(args.json.feature_manifest_id)),
+      }
+    }
+    if (args.action === "list_feature_manifests") {
+      return {
+        ok: true,
+        action: args.action,
+        manifests: listFeatureManifests(db, {
+          symbol: stringField(args.json.symbol) || undefined,
+          timeframe: stringField(args.json.timeframe) || undefined,
+          feature_set_id: stringField(args.json.feature_set_id) || undefined,
+          limit: optionalNumber(args.json.limit),
+        }),
+      }
+    }
     throw new Error(`unsupported action: ${args.action}`)
   } finally {
     db.close()
@@ -87,8 +122,13 @@ export function run(args: Args): JSONRecord {
 function printHelp(): void {
   console.log([
     "usage: bun src/scripts/main.ts --db data/market_data.duckdb --action init",
-    "actions: init | upsert_manifest | upsert_candles | upsert_funding | upsert_feature_manifest | read_manifest",
+    "actions: init | upsert_manifest | upsert_candles | upsert_funding | upsert_feature_manifest | read_manifest | read_funding | read_feature_manifest | list_feature_manifests",
   ].join("\n"))
+}
+
+function optionalNumber(value: unknown): number | undefined {
+  const parsed = Number(value)
+  return Number.isFinite(parsed) ? parsed : undefined
 }
 
 if (import.meta.main) {
@@ -99,4 +139,3 @@ if (import.meta.main) {
     process.exit(1)
   }
 }
-

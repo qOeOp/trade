@@ -298,7 +298,7 @@ stateDiagram-v2
 | 资产治理 | `modules/artifact-knowledge/artifact-catalog/` | catalog、artifact stale scan、GC |
 | 市场观察 | `modules/market-data-products/binance-read/market-scan` / `modules/market-data-products/binance-read/symbol-snapshot` / `modules/market-data-products/binance-read/aggtrades-fetch` / `modules/market-data-products/liquidation-zones` | 候选、单标的事实、成交材料、清算区 |
 | 账户恢复 | `modules/exchange-gateway/binance-read/account-snapshot` | 余额、持仓、挂单、保护单、订单历史 |
-| 数据与指标 | `modules/market-data-products/ohlcv-fetch` / `modules/market-data-products/market-data-store` / `modules/market-data-products/tech-indicators` | OHLCV、canonical candles、manifest、feature series、BTC beta |
+| 数据与指标 | `modules/market-data-products/ohlcv-fetch` / `modules/market-data-products/market-data-store` / `modules/market-data-products/tech-indicators` | OHLCV、canonical candles、funding events、feature manifest、owner read refs、BTC beta |
 | 执行 | `modules/exchange-gateway/binance-write/order-preview` / `modules/live-execution-control/plan-preflight` / Binance write modules | preview、hard guards、下单、保护、减仓、撤单 |
 | 策略资产 | `strategies/` | strategy policy + `## Trade Contract` |
 | 运行数据 | `data/` / `tmp/` | DB、catalog、OHLCV、artifact、cache |
@@ -412,7 +412,7 @@ bun modules/research-strategy-development/rd-supervisor/src/scripts/main.ts --st
 | P0 | 实现 job graph runner | done：`--run-job-graph` 可按 dispatch_order 记录 planned/running/completed/skipped/failed；默认 dry-run，`execute_jobs=true` 才调用 command_spec；响应带 `ops_summary` |
 | P0 | 实现 logical domain-bus | done：`orchestration-ops/domain-bus` 写入 `ops_runtime_store.domain_message`，runner 为每个 job 记录 inbox/outbox envelope |
 | P1 | 实现 `exchange_runtime_store` | done：Binance write request/result/client_order_id/idempotency 有独立审计账本 |
-| P1 | 实现 `market_data_store` | done：raw/canonical/feature/dataset manifest 由市场数据域单写管理；`ohlcv-fetch` 与慢轨盯市已接入 canonical candle upsert |
+| P1 | 实现 `market_data_store` | done：raw/canonical/funding/feature/dataset manifest 由市场数据域单写管理；`ohlcv-fetch` 与慢轨盯市已接入 canonical candle upsert；calibration market features 已接入 funding events 与 feature refs |
 | P1 | 实现 `policy_registry` | done：approved strategy refs、runtime policy hash、风险快照可追溯 |
 | P2 | 实现 `research_state_store` | done：RD hypothesis、budget、trial、holdout use 有独立 owner store |
 | P2 | 实现 `governance_ledger` 与 `J08 closed-flow review sweep` | done：review/promotion evidence 有独立 ledger 和串行 closeout job |

@@ -1,10 +1,21 @@
 #!/usr/bin/env bun
 
 import { execFileSync } from "node:child_process"
+import { createHash } from "node:crypto"
+import { Database } from "bun:sqlite"
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, isAbsolute, join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import { runMarketFeatures } from "./market-features"
+import {
+  ensureMarketDataSchema,
+  upsertFeatureManifest,
+  upsertFundingEvents,
+  upsertMarketManifest,
+  type FeatureManifest,
+  type FundingEvent,
+  type MarketManifest,
+} from "../../../market-data-store/src/lib/market-data-store"
 
 type JSONRecord = Record<string, unknown>
 type Analyzer = (manifestPath: string) => JSONRecord
@@ -22,6 +33,14 @@ interface Config {
   analyzerTimeoutMs: number
   marketTimeoutMs: number
   force: boolean
+  marketDataDb: string
+}
+
+interface MarketDataStoreWriteSummary {
+  db: string
+  funding_manifests: Array<{ dataset_id: string; manifest_id: string; events: number }>
+  feature_manifests: Array<{ dataset_id: string; feature_manifest_id: string }>
+  funding_events_upserted: number
 }
 
 async function runCalibrationMarketFeatures(argv: string[], analyzer: Analyzer = defaultAnalyzer, marketRunner: MarketRunner = runMarketFeatures): Promise<{ ok: true; data: JSONRecord } | { ok: false; error: string }> {
@@ -93,7 +112,7 @@ async function runCalibrationMarketFeatures(argv: string[], analyzer: Analyzer =
     const suiteInputPath = join(outputRoot, "calibration-suite-input-with-funding.json")
     const manifestPath = join(outputRoot, "market-features-panel-manifest.json")
     writeFileSync(suiteInputPath, `${JSON.stringify(suiteInput, null, 2)}\n`)
-    writeFileSync(manifestPath, `${JSON.stringify({
+    const panelFeatureManifest = {
       schema_version: 1,
       generated_at: new Date().toISOString(),
       purpose: "trade_flow_calibration_market_features",
@@ -104,7 +123,9 @@ async function runCalibrationMarketFeatures(argv: string[], analyzer: Analyzer =
       microstructure_days: config.microstructureDays,
       external: config.external,
       reports,
-    }, null, 2)}\n`)
+    }
+    writeFileSync(manifestPath, `${JSON.stringify(panelFeatureManifest, null, 2)}\n`)
+    const marketDataStore = recordMarketDataStoreIfEnabled(config, reports)
     return {
       ok: true,
       data: {
@@ -112,6 +133,7 @@ async function runCalibrationMarketFeatures(argv: string[], analyzer: Analyzer =
         suite_input_path: displayPath(suiteInputPath),
         panel_manifest_path: displayPath(manifestPath),
         dataset_count: suiteDatasets.length,
+        ...(marketDataStore ? { market_data_store: marketDataStore } : {}),
       },
     }
   } catch (error) {
@@ -148,7 +170,102 @@ function parseArgs(argv: string[]): Config {
     analyzerTimeoutMs: numberValue(values.get("--analyzer-timeout-ms"), 60_000, "--analyzer-timeout-ms"),
     marketTimeoutMs: numberValue(values.get("--market-timeout-ms"), 45_000, "--market-timeout-ms"),
     force: values.get("--force") === "true",
+    marketDataDb: values.get("--market-data-db") || "",
   }
+}
+
+function recordMarketDataStoreIfEnabled(config: Config, reports: JSONRecord[]): MarketDataStoreWriteSummary | null {
+  if (!config.marketDataDb) return null
+  const dbPath = resolve(config.marketDataDb)
+  mkdirSync(dirname(dbPath), { recursive: true })
+  const db = new Database(dbPath)
+  try {
+    ensureMarketDataSchema(db)
+    const summary: MarketDataStoreWriteSummary = {
+      db: displayPath(dbPath),
+      funding_manifests: [],
+      feature_manifests: [],
+      funding_events_upserted: 0,
+    }
+    for (const report of reports) {
+      const datasetID = stringField(report.dataset_id)
+      const symbol = stringField(report.symbol) || datasetID
+      const marketFeaturesPath = resolveInputPath(stringField(report.market_features_path), process.cwd())
+      if (!datasetID || !symbol || !existsSync(marketFeaturesPath)) continue
+      const enriched = JSON.parse(readFileSync(marketFeaturesPath, "utf8")) as JSONRecord
+      const fundingPoints = array(asRecord(asRecord(enriched.data).market_events).funding).map(asRecord)
+      const contentHash = sha256(readFileSync(marketFeaturesPath, "utf8"))
+      const fundingManifest = buildFundingManifest(config, report, symbol, contentHash, fundingPoints)
+      upsertMarketManifest(db, fundingManifest)
+      const fundingEvents = buildStoreFundingEvents(fundingManifest, symbol, fundingPoints)
+      summary.funding_events_upserted += upsertFundingEvents(db, fundingEvents)
+      const featureManifest = buildStoreFeatureManifest(config, report, fundingManifest, contentHash)
+      upsertFeatureManifest(db, featureManifest)
+      summary.funding_manifests.push({ dataset_id: datasetID, manifest_id: fundingManifest.manifest_id, events: fundingEvents.length })
+      summary.feature_manifests.push({ dataset_id: datasetID, feature_manifest_id: featureManifest.feature_manifest_id })
+    }
+    return summary
+  } finally {
+    db.close()
+  }
+}
+
+function buildFundingManifest(
+  config: Config,
+  report: JSONRecord,
+  symbol: string,
+  contentHash: string,
+  fundingPoints: JSONRecord[],
+): MarketManifest {
+  const datasetID = stringField(report.dataset_id)
+  const fundingTimes = fundingPoints.map((point) => Date.parse(stringField(point.timestamp))).filter(Number.isFinite)
+  return {
+    manifest_id: ["funding", "binanceusdm", symbol, config.timeframe, contentHash.slice(0, 16)].join(":"),
+    dataset_kind: "funding_events",
+    source: "binance_funding_rate",
+    exchange: "binanceusdm",
+    symbol,
+    timeframe: config.timeframe,
+    first_ts: fundingTimes.length ? Math.min(...fundingTimes) : undefined,
+    last_ts: fundingTimes.length ? Math.max(...fundingTimes) : undefined,
+    rows: fundingPoints.length,
+    content_hash: contentHash,
+    manifest_path: stringField(report.market_features_path),
+    created_at: new Date().toISOString(),
+    freshness_json: {
+      dataset_id: datasetID,
+      metrics_source: config.metricsSource,
+      external: config.external,
+    },
+  }
+}
+
+function buildStoreFundingEvents(manifest: MarketManifest, symbol: string, fundingPoints: JSONRecord[]): FundingEvent[] {
+  return fundingPoints.map((point) => ({
+    manifest_id: manifest.manifest_id,
+    exchange: manifest.exchange,
+    symbol,
+    funding_time: Date.parse(stringField(point.timestamp)),
+    funding_rate: Number(point.value),
+  })).filter((event) => Number.isFinite(event.funding_time) && Number.isFinite(event.funding_rate))
+}
+
+function buildStoreFeatureManifest(config: Config, report: JSONRecord, sourceManifest: MarketManifest, contentHash: string): FeatureManifest {
+  const datasetID = stringField(report.dataset_id)
+  return {
+    feature_manifest_id: ["market-features", sourceManifest.exchange, sourceManifest.symbol || datasetID, config.timeframe, contentHash.slice(0, 16)].join(":"),
+    source_manifest_id: sourceManifest.manifest_id,
+    feature_set_id: "crypto-market-features.v1",
+    symbol: sourceManifest.symbol,
+    timeframe: config.timeframe,
+    content_hash: contentHash,
+    manifest_path: stringField(report.market_features_path),
+    generated_at: new Date().toISOString(),
+  }
+}
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex")
 }
 
 function withTimeout<T>(task: Promise<T>, ms: number, message: string): Promise<T> {

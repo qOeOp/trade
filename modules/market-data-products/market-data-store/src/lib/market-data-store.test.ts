@@ -7,6 +7,9 @@ import {
   buildFundingEvents,
   buildMarketManifest,
   ensureMarketDataSchema,
+  listFeatureManifests,
+  readFeatureManifest,
+  readFundingEvents,
   readMarketManifest,
   upsertCanonicalCandles,
   upsertFeatureManifest,
@@ -80,8 +83,13 @@ test("market data store records funding events and feature manifests", () => {
     assert.equal(funding.funding_rate, 0.0001)
     const feature = db.query("SELECT feature_set_id FROM feature_manifest WHERE feature_manifest_id='features-btc-4h'").get() as { feature_set_id: string }
     assert.equal(feature.feature_set_id, "trend-v1")
+
+    const events = readFundingEvents(db, { symbol: "BTCUSDT", since_ts: 50, until_ts: 150 })
+    assert.equal(events.length, 1)
+    assert.equal(events[0].mark_price, 65000)
+    assert.equal(readFeatureManifest(db, "features-btc-4h")?.manifest_path, "data/features/BTCUSDT-4h-trend-v1.json")
+    assert.equal(listFeatureManifests(db, { symbol: "BTCUSDT", timeframe: "4h" }).length, 1)
   } finally {
     db.close()
   }
 })
-

@@ -1,5 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
+import { Database } from "bun:sqlite"
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { isAbsolute, join } from "node:path"
@@ -112,4 +113,69 @@ test("calibration market features records per-symbol failures and continues", as
   const retriedManifest = JSON.parse(readFileSync(String(retried.data.panel_manifest_path), "utf8")) as { reports: Array<{ status: string; funding_event_count: number }> }
   assert.equal(retriedManifest.reports[0].status, "ok")
   assert.equal(retriedManifest.reports[0].funding_event_count, 1)
+})
+
+test("calibration market features upserts funding and feature refs into market data store", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "calibration-market-features-store-"))
+  const panelManifestPath = join(dir, "panel-manifest.json")
+  const btcDir = join(dir, "btcusdt")
+  const dbPath = join(dir, "market_data.db")
+  mkdirSync(btcDir, { recursive: true })
+  writeFileSync(join(btcDir, "manifest.json"), JSON.stringify({ symbol: "BTCUSDT", timeframes: { "4h": { file: "4h.csv" } } }))
+  writeFileSync(panelManifestPath, JSON.stringify({
+    datasets: [{ dataset_id: "BTCUSDT", symbol: "BTCUSDT", manifest_path: join(btcDir, "manifest.json") }],
+  }))
+
+  const result = await runCalibrationMarketFeatures([
+    "--panel-manifest", panelManifestPath,
+    "--output-root", join(dir, "features"),
+    "--market-data-db", dbPath,
+  ], () => ({
+    ok: true,
+    data: {
+      timeframes: {
+        "4h": {
+          features: {
+            "price.close": { values: [{ timestamp: "2021-01-01T00:00:00.000Z", value: 1 }] },
+          },
+        },
+      },
+    },
+  }), async () => ({
+    ok: true,
+    data: {
+      market_events: {
+        funding: [
+          { timestamp: "2021-01-01T00:00:00.000Z", value: 0.0001 },
+          { timestamp: "2021-01-01T08:00:00.000Z", value: -0.0002 },
+        ],
+      },
+      timeframes: { "4h": { features: {} } },
+    },
+  }))
+
+  assert.equal(result.ok, true)
+  if (!result.ok) return
+  const store = result.data.market_data_store as {
+    db: string
+    funding_events_upserted: number
+    funding_manifests: Array<{ manifest_id: string; events: number }>
+    feature_manifests: Array<{ feature_manifest_id: string }>
+  }
+  assert.equal(isAbsolute(store.db), false)
+  assert.equal(store.funding_events_upserted, 2)
+  assert.equal(store.funding_manifests[0].events, 2)
+  assert.match(store.feature_manifests[0].feature_manifest_id, /^market-features:binanceusdm:BTCUSDT:4h:/)
+
+  const db = new Database(dbPath, { readonly: true })
+  try {
+    const fundingCount = db.query("SELECT COUNT(*) AS count FROM funding_event WHERE symbol = 'BTCUSDT'").get() as { count: number }
+    const manifestCount = db.query("SELECT COUNT(*) AS count FROM market_manifest WHERE dataset_kind = 'funding_events'").get() as { count: number }
+    const featureCount = db.query("SELECT COUNT(*) AS count FROM feature_manifest WHERE feature_set_id = 'crypto-market-features.v1'").get() as { count: number }
+    assert.equal(fundingCount.count, 2)
+    assert.equal(manifestCount.count, 1)
+    assert.equal(featureCount.count, 1)
+  } finally {
+    db.close()
+  }
 })

@@ -7,17 +7,23 @@ flowchart LR
     OPAD[" "]
     OIN["domain inbox<br/>wakeup / job result refs"]
     CYCLE["cycle planner<br/>生成本轮 job plan"]
+    HOOKS["lifecycle hooks<br/>pre_cycle / pre_dispatch / post_job / post_cycle"]
     GRAPH["job graph protocol<br/>scope / contract / idempotency / write owner"]
-    HEALTH["runtime health collector<br/>配置 / API / DB / lock / safe mode facts"]
+    HEALTH["runtime health guard<br/>配置 / API / DB / lock / safe mode facts"]
+    POST["result post-processor<br/>envelope / outbox / write-scope / incident refs"]
     NOTIFY["notify dispatcher<br/>cycle 异常 / 人工接管提醒"]
-    OPSLOG[("ops runtime store<br/>lock / health / cycle summary")]
-    OOUT["domain outbox<br/>job graph / health facts / cycle summary"]
+    OPSLOG[("ops runtime store<br/>lock / health / job results / cycle summary")]
+    OOUT["domain outbox<br/>job graph / health facts / incidents / cycle summary"]
     ORTITLE ~~~ OPAD
     OPAD ~~~ CYCLE
-    CYCLE --> GRAPH
-    OIN --> HEALTH
-    OIN --> NOTIFY
-    HEALTH --> OPSLOG
+    CYCLE --> HOOKS
+    HOOKS --> GRAPH
+    HOOKS --> HEALTH
+    OIN --> HOOKS
+    OIN --> POST
+    HEALTH --> POST
+    POST --> NOTIFY
+    POST --> OPSLOG
     NOTIFY --> OPSLOG
     OPSLOG --> OOUT
   end
@@ -44,17 +50,15 @@ flowchart LR
 
   subgraph JOBS[" "]
     direction TB
-    JTITLE["本轮 job tickets<br/>cycle fork"]
+    JTITLE["本轮 domain job tickets<br/>cycle fork"]
     JSPAD[" "]
-    J01["J01<br/>runtime health"]
-    J02["J02<br/>account reconcile"]
-    J03["J03<br/>fast guard"]
-    J04["J04<br/>slow watch"]
-    J05["J05<br/>R&D loop"]
-    J06["J06<br/>shadow tracking"]
-    J07["J07<br/>catalog hygiene"]
-    J08["J08<br/>closed-flow review"]
-    J09["J09<br/>ops notify"]
+    J01["J01<br/>account reconcile"]
+    J02["J02<br/>fast guard"]
+    J03["J03<br/>slow watch"]
+    J04["J04<br/>R&D loop"]
+    J05["J05<br/>shadow tracking"]
+    J06["J06<br/>catalog hygiene"]
+    J07["J07<br/>closed-flow review"]
     JTITLE ~~~ JSPAD
     JSPAD ~~~ J01
   end
@@ -150,7 +154,7 @@ flowchart LR
     direction TB
     DTITLE["现场决策域<br/>live-decision-planning"]
     DPAD[" "]
-    DIN["domain inbox<br/>J04 + input refs"]
+    DIN["domain inbox<br/>J03 + input refs"]
     WATCH["opportunity planner<br/>watchlist / thesis / no_action"]
     ALLOC["sizing / risk-budget planner<br/>entry / stop / action_intent"]
     DOUT["domain outbox<br/>intent / watchlist refs"]
@@ -165,7 +169,7 @@ flowchart LR
     direction TB
     CTITLE["受控执行域<br/>live-execution-control"]
     CPAD[" "]
-    CIN["domain inbox<br/>J02 / J03 + executable intents"]
+    CIN["domain inbox<br/>J01 / J02 + executable intents"]
     REC["recovery-runner / reconcile-drafts<br/>恢复与对账"]
     FAST["execution-flow-runner<br/>fast guard / dry-run / shadow"]
     EXEC["live-small-runner<br/>explicit yes / command_spec execution"]
@@ -189,7 +193,7 @@ flowchart LR
     direction TB
     RDTITLE["策略研发域<br/>research-strategy-development"]
     RPAD[" "]
-    RIN["domain inbox<br/>J05 / J06 + research refs"]
+    RIN["domain inbox<br/>J04 / J05 + research refs"]
     RDSUP["research supervisor<br/>hypothesis loop"]
     RDTOOLS["experiment runners<br/>split / replay / panel / candidate / benchmark"]
     SIGEVAL["signal evaluator<br/>latest signal / candidate check"]
@@ -213,7 +217,7 @@ flowchart LR
     direction TB
     GTITLE["治理复盘域<br/>governance-review-compliance"]
     GPAD[" "]
-    GIN["domain inbox<br/>J08 + evidence refs"]
+    GIN["domain inbox<br/>J07 + evidence refs"]
     REVIEW["closed-flow reviewer<br/>交易复盘 / 资格反馈"]
     PROMO["promotion gate<br/>资格判定 / evidence"]
     GOVLEDGER[("governance ledger<br/>evidence / promotion decisions")]
@@ -256,18 +260,14 @@ flowchart LR
   COMMAND --> J05
   COMMAND --> J06
   COMMAND --> J07
-  COMMAND --> J08
-  COMMAND --> J09
 
-  J01 --> OIN
-  J09 --> OIN
+  J01 --> CIN
   J02 --> CIN
-  J03 --> CIN
-  J04 --> DIN
+  J03 --> DIN
+  J04 --> RIN
   J05 --> RIN
-  J06 --> RIN
-  J07 --> AIN
-  J08 --> GIN
+  J06 --> AIN
+  J07 --> GIN
 
   FACT -. "job input refs" .-> COMMAND
   POLICYRAIL -. "job input refs" .-> COMMAND
@@ -321,8 +321,8 @@ flowchart LR
   class ENTRY,CYCLE,GRAPH,RP,TCFG,STRAT,RISKAUTH center;
   class COMMAND,FACT,POLICYRAIL,MARKETRAIL,EXCHANGERAIL,DATARAIL,ARTIFACTRAIL,GOVRAIL,SCHEMAS rail;
   class OIN,OOUT,PIN,POUT,SIN,SOUT,MDIN,MDOUT,XIN,XOUT,DIN,DOUT,CIN,COUT,RIN,ROUT,GIN,GOUT,AIN,AOUT port;
-  class HEALTH,NOTIFY handler;
-  class J01,J02,J03,J04,J05,J06,J07,J08,J09 ticket;
+  class HOOKS,HEALTH,POST,NOTIFY handler;
+  class J01,J02,J03,J04,J05,J06,J07 ticket;
   class TDB,PROJ,FLOWIDX,OPSLOG,POLSTORE,INCIDENT,XLEDGER state;
   class WATCH,ALLOC,EXEC,PREF,REC,FAST,EXECREC trade;
   class RDSTATE,RDTOOLS,RDSUP,SIGEVAL,SHADOW research;

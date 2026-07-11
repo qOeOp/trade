@@ -361,7 +361,8 @@
         "config": false
       },
       "notes": [
-        "Owns logical market_data_store refs; current implementation uses the SQL-compatible store contract while the target physical locator remains DuckDB/parquet."
+        "Owns logical market_data_store refs; current implementation uses the SQL-compatible store contract while the target physical locator remains DuckDB/parquet.",
+        "Read actions include read_manifest, read_funding, read_feature_manifest, and list_feature_manifests so other domains can consume owner refs without direct table access."
       ],
       "module_type": "atomic",
       "owner_scope": "market-data-products.market-data-store",
@@ -1544,7 +1545,7 @@
       },
       "notes": [
         "Writes data files and manifests, not strategy decisions.",
-        "When --market-data-db is present, upserts market_manifest and canonical_candle rows in market_data_store."
+        "When --market-data-db is present, OHLCV fetch upserts market_manifest and canonical_candle rows; calibration-market-features upserts funding_event and feature_manifest refs in market_data_store."
       ],
       "module_type": "suite",
       "owner_scope": "market-data-products.ohlcv-fetch",
