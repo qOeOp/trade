@@ -6,8 +6,8 @@ import {
   type ReplaySignal,
   type ReplayStrategy,
 } from "./replay-core"
-import { type FactorFeatureStore } from "./factor-engine"
-import { getRndFamily, type RndFamilyConfigured } from "./rnd-family"
+import { type FactorFeatureStore } from "../../../strategy-family-engine/src/lib/factor-engine"
+import { getRndFamily, type RndFamilyConfigured } from "../../../strategy-family-engine/src/lib/rnd-family"
 import type { JSONRecord } from "./json"
 import type { StrategyRndBatchInput, StrategyRndCandidateInput } from "./strategy-rnd-inputs"
 
@@ -378,20 +378,6 @@ export function evaluateRndRobustness(replay: ReplayResult): Array<{ check_id: s
     blocked.push({ check_id: "RND-ROBUSTNESS-PARAM", reason: "fixed +/-10% parameter perturbations are not stable" })
   }
   return blocked
-}
-
-export function emptyFeatureStore(): FactorFeatureStore {
-  return {
-    definitions() {
-      return []
-    },
-    series() {
-      return undefined
-    },
-    read() {
-      return undefined
-    },
-  }
 }
 
 export function compareCandidates(a: StrategyRndCandidateReport, b: StrategyRndCandidateReport): number {

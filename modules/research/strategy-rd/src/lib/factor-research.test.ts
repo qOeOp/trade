@@ -4,8 +4,8 @@ import { join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { loadFactorFeatureStore } from "./factor-engine"
-import { researchFactorSeeds } from "./factor-research"
+import { loadFactorFeatureStore } from "../../../strategy-family-engine/src/lib/factor-engine"
+import { researchFactorSeeds } from "../../../strategy-family-engine/src/lib/factor-research"
 import type { Candle } from "./replay-core"
 
 test("factor research keeps stable predictive factors and prunes correlated copies", () => {

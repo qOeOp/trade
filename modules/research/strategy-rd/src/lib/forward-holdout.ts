@@ -1,5 +1,6 @@
 import { hashCanonical, loadCandlesFromManifest, loadManifest, type Candle } from "./replay-core"
-import { evaluateRndSignal, type StrategyRndCandidateInput } from "./strategy-rnd"
+import { evaluateStrategySignal } from "../../../signal-engine/src/lib/strategy-signal"
+import type { StrategyRndCandidateInput } from "./strategy-rnd-inputs"
 import type { JSONRecord } from "./json"
 
 interface ForwardHoldoutDataset {
@@ -206,7 +207,7 @@ function evaluateDataset(input: ForwardHoldoutInput, dataset: ForwardHoldoutData
     return recordFor(dataset, manifest, latest, timeframe, false, blockedBy)
   }
   try {
-    const signal = evaluateRndSignal({
+    const signal = evaluateStrategySignal({
       manifestPath: dataset.manifestPath,
       indicatorReportPath: dataset.indicatorReportPath,
       timeframe,

@@ -78,7 +78,8 @@
 | `research.calibration-suite` | `A/V` | `modules/research/calibration-suite` |
 | `research.strategy-contract-compile` | `A` | `modules/research/strategy-contract-compile` |
 | `research.strategy-contract-lint` | `V` | `modules/research/strategy-contract-lint` |
-| `--strategy-rnd-*`, `--strategy-panel-rnd`, `--strategy-signal`, `--rd-program-state`, `--rd-supervisor-run`, `--rd-shadow-tracker` | `A/E` | `modules/research/strategy-rd` |
+| `research.signal-evaluator` | `E` | `modules/research/signal-evaluator` |
+| `--strategy-rnd-*`, `--strategy-panel-rnd`, `--rd-program-state`, `--rd-supervisor-run`, `--rd-shadow-tracker` | `A/E` | `modules/research/strategy-rd` |
 | `--append-strategy-evidence`, `--strategy-review`, `--strategy-promote`, `--strategy-cycle` | `E/V` | `modules/governance/strategy-review` |
 | `--catalog-*`, `--artifact-gc` | `A/V` | `modules/ops/artifact-catalog` |
 

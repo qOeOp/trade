@@ -1,7 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"
 import { defaultCatalogDbPathForGeneratedPath, listCatalogStrategyRndRuns, upsertCatalogStrategyRndRun } from "./data-catalog"
-import { factorConditionsToJson } from "./factor-engine"
+import { factorConditionsToJson } from "../../../strategy-family-engine/src/lib/factor-engine"
 import { hashCanonical, replayDataHash } from "./replay-core"
 import type { JSONRecord } from "./json"
 import type { CandidateSource, StrategyRndLoopInput } from "./strategy-rnd-inputs"

@@ -2,19 +2,17 @@
 
 ## Owns
 
-- Strategy replay and latest-signal evaluation
 - Bounded R&D batch / loop / campaign
 - Multi-asset panel R&D
-- Strategy data split and locked holdout helpers
+- Forward holdout helpers
 - R&D program state, planner, and supervisor runner
-- R&D family discovery and candidate generation
-- Calibration / benchmark reports
+- Candidate generation and bounded factor research
 
 ## Inputs
 
 - OHLCV manifests and market feature artifacts
 - Candidate JSON payloads
-- Strategy markdown contracts for compile / lint / signal
+- Strategy markdown contracts consumed by R&D flows
 - R&D program state JSON
 - Catalog DB path for research metadata
 
@@ -23,7 +21,6 @@
 - R&D reports and ledgers
 - Program state updates
 - Gated draft strategy candidates
-- Replay / benchmark / calibration reports
 - Catalog metadata for generated research artifacts
 
 ## Forbidden
@@ -32,3 +29,4 @@
 - Calling Binance write tools
 - Deciding live execution
 - Owning strategy promotion or post-trade review
+- Owning single-strategy replay, latest signal, data split, benchmark, calibration, funding governance, or strategy contract compile/lint CLIs

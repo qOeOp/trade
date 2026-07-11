@@ -1,5 +1,5 @@
-import { readFactorConditions, type FactorCondition } from "./factor-engine"
-import type { FactorResearchOptions } from "./factor-research"
+import { readFactorConditions, type FactorCondition } from "../../../strategy-family-engine/src/lib/factor-engine"
+import type { FactorResearchOptions } from "../../../strategy-family-engine/src/lib/factor-research"
 import type { JSONRecord } from "./json"
 
 export type CandidateSource = "provided" | "bounded_factor_composition" | "scientific_factor_discovery"
@@ -34,16 +34,6 @@ export interface StrategyRndLoopInput extends StrategyRndBatchInput {
   catalogDbPath?: string
   rdProgramStatePath?: string
   now?: string
-}
-
-export interface StrategyRndSignalInput {
-  manifestPath: string
-  indicatorReportPath?: string
-  timeframe?: string
-  entryPrice: number
-  now?: string
-  maxSignalAgeBars?: number
-  candidate: StrategyRndCandidateInput
 }
 
 export interface StrategyRndCampaignHypothesisInput extends StrategyRndBatchInput {
@@ -163,18 +153,6 @@ function hypothesisCertificateFromJson(value: unknown): StrategyRndHypothesisCer
     costSensitivity: stringField(input.cost_sensitivity) || undefined,
     candidateUniverse: input.candidate_universe,
     negativeControls: array(input.negative_controls).map(stringField).filter(Boolean),
-  }
-}
-
-export function strategyRndSignalInputFromJson(input: JSONRecord): StrategyRndSignalInput {
-  return {
-    manifestPath: stringField(input.manifest_path),
-    indicatorReportPath: stringField(input.indicator_report_path) || undefined,
-    timeframe: stringField(input.timeframe) || undefined,
-    entryPrice: Number(input.entry_price),
-    now: stringField(input.now) || undefined,
-    maxSignalAgeBars: optionalNumber(input.max_signal_age_bars),
-    candidate: candidateFromJson(asRecord(input.candidate)),
   }
 }
 

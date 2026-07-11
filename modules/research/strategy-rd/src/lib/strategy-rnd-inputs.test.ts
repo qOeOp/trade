@@ -3,7 +3,6 @@ import test from "node:test"
 import {
   strategyRndBatchInputFromJson,
   strategyRndCampaignInputFromJson,
-  strategyRndSignalInputFromJson,
 } from "./strategy-rnd-inputs"
 
 test("strategy R&D input parser keeps factor research option aliases", () => {
@@ -78,32 +77,4 @@ test("strategy R&D input parser ignores camel-case contract fields", () => {
   assert.equal(batch.candidates[0].candidateId, "")
   assert.equal(batch.candidates[0].parameterCount, undefined)
 
-  const signal = strategyRndSignalInputFromJson({
-    manifestPath: "/tmp/manifest.json",
-    entryPrice: 65000,
-    maxSignalAgeBars: 2,
-    candidate: { candidateId: "candidate-1" },
-  })
-
-  assert.equal(signal.manifestPath, "")
-  assert.equal(Number.isNaN(signal.entryPrice), true)
-  assert.equal(signal.maxSignalAgeBars, undefined)
-  assert.equal(signal.candidate.candidateId, "")
-})
-
-test("strategy R&D signal parser normalizes candidate input", () => {
-  const input = strategyRndSignalInputFromJson({
-    manifest_path: "/tmp/manifest.json",
-    entry_price: 65000,
-    max_signal_age_bars: 2,
-    candidate: {
-      candidate_id: "candidate-1",
-      family: "trend_pullback_v1",
-    },
-  })
-
-  assert.equal(input.manifestPath, "/tmp/manifest.json")
-  assert.equal(input.entryPrice, 65000)
-  assert.equal(input.maxSignalAgeBars, 2)
-  assert.equal(input.candidate.candidateId, "candidate-1")
 })

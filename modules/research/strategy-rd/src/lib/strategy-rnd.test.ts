@@ -7,7 +7,7 @@ import { Database } from "bun:sqlite"
 
 import { replayDataHash } from "./replay-core"
 import { createRdProgramState, readRdProgramState, writeRdProgramState } from "./rd-program-state"
-import { evaluateRndSignal, runStrategyRndBatch, runStrategyRndCampaign, runStrategyRndLoop, strategyRndBatchInputFromJson } from "./strategy-rnd"
+import { runStrategyRndBatch, runStrategyRndCampaign, runStrategyRndLoop, strategyRndBatchInputFromJson } from "./strategy-rnd"
 import { loadRndLedger } from "./strategy-rnd-ledger"
 import { resolveRepoPath } from "./paths"
 
@@ -27,43 +27,6 @@ test("strategy R&D parser normalizes factor discovery options", () => {
   assert.equal(input.factorResearchOptions?.horizonBars, 8)
   assert.equal(input.factorResearchOptions?.minSamples, 500)
   assert.equal(input.factorResearchOptions?.maxCorrelation, 0.8)
-})
-
-test("latest strategy signal injects a live entry reference into the replay family", () => {
-  const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-signal-"))
-  try {
-    const entryPrice = buildReplayCandles().at(-1)!.close
-    const result = evaluateRndSignal({
-      manifestPath: writeManifest(dir),
-      entryPrice,
-      now: new Date(1_700_000_000_000 + 280 * 4 * 60 * 60 * 1000).toISOString(),
-      candidate: {
-        candidateId: "C-LIVE-SIGNAL",
-        family: "trend_pullback_v1",
-        params: { side: "both", fast_ema: 50, slow_ema: 200, pullback_atr: 10, stop_atr: 0.5, max_risk_atr: 20, reward_risk: 2 },
-      },
-    })
-    assert.equal(result.entry_reference, entryPrice)
-    assert.equal(result.action, "entry")
-    assert.equal((result.signal as { entry: number }).entry, entryPrice)
-    assert.equal(typeof result.candidate_hash, "string")
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
-  }
-})
-
-test("latest strategy signal rejects stale candles", () => {
-  const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-stale-signal-"))
-  try {
-    assert.throws(() => evaluateRndSignal({
-      manifestPath: writeManifest(dir),
-      entryPrice: 100,
-      now: "2026-01-01T00:00:00.000Z",
-      candidate: { candidateId: "C-STALE", params: { side: "both" } },
-    }), /latest closed candle is stale/)
-  } finally {
-    rmSync(dir, { recursive: true, force: true })
-  }
 })
 
 test("strategy R&D batch runs bounded predeclared candidates", () => {

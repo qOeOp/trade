@@ -25,12 +25,13 @@
 | `trade-flow-check` | `modules/trade-flow` | `bun run check` | typecheck + test |
 | `replay-runner-check` | `modules/research/replay-runner` | `bun run check` | 单策略机械 replay |
 | `data-split-check` | `modules/research/data-split` | `bun run check` | discovery / validation / locked holdout split |
+| `signal-evaluator-check` | `modules/research/signal-evaluator` | `bun run check` | latest closed-candle signal |
 | `benchmark-runner-check` | `modules/research/benchmark-runner` | `bun run check` | fixed benchmark / benchmark engine |
 | `calibration-suite-check` | `modules/research/calibration-suite` | `bun run check` | calibration suite CLI |
 | `funding-governance-check` | `modules/research/funding-governance` | `bun run check` | funding coverage governance |
 | `strategy-contract-compile-check` | `modules/research/strategy-contract-compile` | `bun run check` | strategy contract compile CLI |
 | `strategy-contract-lint-check` | `modules/research/strategy-contract-lint` | `bun run check` | strategy contract lint CLI |
-| `strategy-rd-check` | `modules/research/strategy-rd` | `bun run check` | R&D / panel / benchmark / calibration / RD memory |
+| `strategy-rd-check` | `modules/research/strategy-rd` | `bun run check` | R&D / panel / forward holdout / RD memory |
 | `strategy-review-check` | `modules/governance/strategy-review` | `bun run check` | evidence / review / promotion |
 | `artifact-catalog-check` | `modules/ops/artifact-catalog` | `bun run check` | catalog / artifact GC / feature refs |
 | `plan-preflight-check` | `modules/guards/plan-preflight` | `bun run check` | hard guards / decision card |
@@ -53,10 +54,11 @@
 | observe / runtime load | `src/scripts/lib/observe-*`, `src/scripts/commands/observe.ts` | `trade-flow-typecheck` + `bun test ./src/scripts/lib/observe-*.test.ts ./src/scripts/commands/handlers.test.ts` |
 | research replay runner | `modules/research/replay-runner/src/**`, `modules/research/replay-engine/src/**` | `replay-runner-check` + `strategy-rd-check` if shared replay semantics changed |
 | research data split | `modules/research/data-split/src/**` | `data-split-check` |
+| research signal | `modules/research/signal-engine/src/**`, `modules/research/signal-evaluator/src/**`, `modules/research/strategy-family-engine/src/**` | `signal-evaluator-check` + `strategy-rd-check` if forward holdout or candidate family semantics changed |
 | research benchmark / calibration | `modules/research/benchmark-engine/src/**`, `modules/research/benchmark-runner/src/**`, `modules/research/calibration-suite/src/**` | `benchmark-runner-check` + `calibration-suite-check` + `strategy-rd-check` if funding governance consumes benchmark data helpers |
 | research funding governance | `modules/research/funding-governance/src/**` | `funding-governance-check` |
 | strategy contract compile/lint | `modules/contracts/strategy-contract/src/**`, `modules/research/strategy-contract-*/src/**` | `strategy-contract-compile-check` + `strategy-contract-lint-check` + `strategy-rd-check` if RD consumes compiled candidates |
-| research R&D / benchmark / forward holdout | `modules/research/strategy-rd/src/**` | `strategy-rd-check` |
+| research R&D / forward holdout | `modules/research/strategy-rd/src/**` | `strategy-rd-check` |
 | strategy evidence / review / promotion | `modules/governance/strategy-review/src/**` | `strategy-review-check` |
 | artifact hygiene / catalog | `modules/ops/artifact-catalog/src/**` | `artifact-catalog-check` |
 | cron slow/fast track | `src/scripts/lib/*track*`, `src/scripts/lib/cron-runtime.ts` | `trade-flow-typecheck` + `bun test ./src/scripts/lib/slow-track-workflow.test.ts ./src/scripts/lib/fast-track-workflow.test.ts ./src/scripts/lib/cron-runtime.test.ts ./src/scripts/lib/track-dry-run-schema.test.ts` |

@@ -1,16 +1,16 @@
 import { loadCandlesFromManifest, loadManifest, replayStrategy } from "./replay-core"
 import {
   composeFactorCandidates,
-  loadFactorFeatureStore,
   type FactorFeatureStore,
-} from "./factor-engine"
-import { researchFactorSeeds, type FactorResearchReport } from "./factor-research"
-import { getRndFamily } from "./rnd-family"
-import { emptyFeatureStore, loadFundingEvents } from "./strategy-rnd-evaluation"
+} from "../../../strategy-family-engine/src/lib/factor-engine"
+import { researchFactorSeeds, type FactorResearchReport } from "../../../strategy-family-engine/src/lib/factor-research"
+import { getRndFamily } from "../../../strategy-family-engine/src/lib/rnd-family"
+import { loadStrategyFeatureStore } from "../../../strategy-family-engine/src/lib/strategy-feature-store"
+import { loadFundingEvents } from "./strategy-rnd-evaluation"
 import type { CandidateSource, StrategyRndBatchInput, StrategyRndCandidateInput } from "./strategy-rnd-inputs"
 
 export function loadStrategyRndFeatureStore(indicatorReportPath?: string): FactorFeatureStore {
-  return indicatorReportPath ? loadFactorFeatureStore(indicatorReportPath) : emptyFeatureStore()
+  return loadStrategyFeatureStore(indicatorReportPath)
 }
 
 export function assertUniqueCandidateIds(candidates: StrategyRndCandidateInput[]): void {

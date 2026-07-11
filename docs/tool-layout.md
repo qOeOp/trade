@@ -8,7 +8,7 @@
 
 - 目录按行为和责任切分：采集、分析、编排、守卫、执行、资产治理分开。
 - agent / automation / human 通过 CLI + JSON contract 调工具；跨域不得直接 import 业务实现。
-- 跨域源码复用只走 `modules/contracts/*`；领域判断留在 owner 模块。
+- 跨域源码复用只走 `modules/contracts/*`；同 domain 原子工具共享公式可走无 package internal engine；领域判断留在 owner 模块。
 - 运行产物只落 `data/` 或 `tmp/`；源码目录不堆 artifact、cache、运行快照。
 - strategy policy 的唯一源码位置是 `strategies/`。
 - negative control 命名是唯一口径。
@@ -35,12 +35,15 @@
 | `modules/trade-flow/` | flow domain orchestrator | 事件流、automation plan、observe、reconcile、execution orchestration | Binance 数据接入实现、交易所写接口细节、R&D 实验实现、策略复核 owner |
 | `modules/research/replay-runner/` | strategy replay | 单策略机械 replay | R&D search、catalog 写入、strategy promotion |
 | `modules/research/data-split/` | strategy data split | discovery / validation / locked holdout manifest 切分 | R&D search、replay、review、`trade.db` |
+| `modules/research/signal-evaluator/` | latest strategy signal | 最新闭合 K 线信号评估 | R&D search、catalog 写入、strategy promotion、交易执行 |
+| `modules/research/signal-engine/` | signal internal engine | 最新信号输入解析与 family signal 计算 | agent-facing CLI、状态写入 |
+| `modules/research/strategy-family-engine/` | strategy family internal engine | family registry、factor transform、factor research、feature store | agent-facing CLI、状态写入 |
 | `modules/research/benchmark-runner/` | strategy benchmark | 固定 benchmark 仿真、成本/资金费压力、负对照 | R&D search、strategy promotion、`trade.db` |
 | `modules/research/calibration-suite/` | strategy calibration | calibration diagnostics、data breadth、funding/cost attribution | R&D search、strategy promotion、`trade.db` |
 | `modules/research/funding-governance/` | funding governance | funding carry research 前 exact funding event coverage 检查 | R&D search、replay、review、`trade.db` |
 | `modules/research/strategy-contract-compile/` | strategy contract compile | strategy markdown contract 编译 | R&D search、replay、review、catalog 写入 |
 | `modules/research/strategy-contract-lint/` | strategy contract lint | strategy markdown contract 完整性 lint | R&D search、replay、review、catalog 写入 |
-| `modules/research/strategy-rd/` | strategy research suite | R&D loop、panel、forward holdout、R&D memory | `trade.db`、Binance 写接口、strategy promotion、单策略 replay CLI、data split CLI、benchmark/calibration/funding governance CLI、contract compile/lint CLI |
+| `modules/research/strategy-rd/` | strategy research suite | R&D loop、panel、forward holdout、R&D memory | `trade.db`、Binance 写接口、strategy promotion、单策略 replay CLI、latest signal CLI、data split CLI、benchmark/calibration/funding governance CLI、contract compile/lint CLI |
 | `modules/governance/strategy-review/` | strategy governance | evidence ledger、strategy review、promotion gate、strategy-cycle | R&D 实验、交易执行、写 `trade.db`、写 RD memory |
 | `modules/ops/artifact-catalog/` | artifact governance | catalog DB、artifact index/query/stale/gc、feature report refs | `trade.db`、策略判断、交易所 API |
 | `modules/ohlcv-fetch/` | market data acquisition | OHLCV、funding、market features、calibration panel、manifest | 策略升格、live 执行判断 |
@@ -72,12 +75,13 @@
 | 事件流 / track dry-run | `modules/trade-flow/src/domain/runtime` + `trade-flow.runtime` |
 | 单策略 replay | `modules/research/replay-runner` + `research.replay-runner` |
 | data split / holdout isolation | `modules/research/data-split` + `research.data-split` |
+| latest signal | `modules/research/signal-evaluator` + `research.signal-evaluator` |
 | benchmark | `modules/research/benchmark-runner` + `research.benchmark-runner` |
 | calibration suite | `modules/research/calibration-suite` + `research.calibration-suite` |
 | funding governance | `modules/research/funding-governance` + `research.funding-governance` |
 | strategy contract compile | `modules/research/strategy-contract-compile` + `research.strategy-contract-compile` |
 | strategy contract lint | `modules/research/strategy-contract-lint` + `research.strategy-contract-lint` |
-| 研究 / panel / benchmark | `modules/research/strategy-rd` + `strategy-rd` |
+| R&D / panel / forward holdout / R&D memory | `modules/research/strategy-rd` + `strategy-rd` |
 | review / evidence / promotion | `modules/governance/strategy-review` + `strategy-review` |
 | 执行编排 / shadow / live-small | `modules/trade-flow/src/domain/execution` + `trade-flow.execution` |
 | recovery / reconcile | `modules/trade-flow/src/domain/recovery` + `trade-flow.recovery` |
@@ -110,7 +114,7 @@
 - `plan-preflight` 只给 deterministic verdict；不得补写事件或解释行情方向。
 - artifact 必须有 owner、referrer、retention 语义；垃圾数据堆在源码目录视为 bug。
 - 任何新 agent-facing 能力都必须优先作为 `atomic` entry 进入 `toolset.json`；只有明确是过渡路由或目录归类时才能标为 `suite`。
-- 源码跨模块 import 只允许指向 `modules/contracts/*`；业务模块之间不得横向 import 实现。
+- 源码跨模块 import 只允许指向 `modules/contracts/*` 或同 domain 的无 package internal engine；业务工具之间不得横向 import agent-facing 实现。
 
 ## 检查入口
 

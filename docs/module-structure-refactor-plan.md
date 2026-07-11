@@ -59,12 +59,12 @@
 
 ### 1.2 RD 当前拆解诊断
 
-`strategy-rd` 当前实际是 research suite，总入口仍包含 batch、loop、campaign、panel、program state、supervisor、shadow tracker、benchmark、calibration、funding governance、signal。单策略 replay、data split、strategy contract compile/lint 已拆为独立 atomic module；剩余 flag 继续按 Binance 原子性标尺拆分。
+`strategy-rd` 当前实际是 research suite，总入口仍包含 batch、loop、campaign、panel、program state、supervisor、shadow tracker。单策略 replay、latest signal、data split、benchmark、calibration、funding governance、strategy contract compile/lint 已拆为独立 atomic module；剩余 flag 继续按 Binance 原子性标尺拆分。
 
 | 当前 flag | 真实行为 | 目标 atomic module | primary write |
 | --- | --- | --- | --- |
 | `research.replay-runner` | 对单个 strategy / candidate 回放 | `research/replay-runner` | none / report |
-| `--strategy-signal` | 最新闭合 K 线信号评估 | `research/signal-evaluator` | none |
+| `research.signal-evaluator` | 最新闭合 K 线信号评估 | `research/signal-evaluator` | none |
 | `research.strategy-contract-compile` | strategy markdown contract 编译 | `research/strategy-contract-compile` | none |
 | `research.strategy-contract-lint` | strategy lifecycle contract lint | `research/strategy-contract-lint` | none |
 | `research.data-split` | discovery / validation / holdout manifest 切分 | `research/data-split` | artifact + catalog |
@@ -160,14 +160,15 @@ modules/
 | 类型 | 允许 | 禁止 |
 | --- | --- | --- |
 | `contract module` | 被业务源码 import；只放 type/schema/pure helper | 读写文件、调用外部 API、拥有业务流程 |
+| `internal engine` | 同 domain 原子工具共享纯计算、公式、registry、parser | agent-facing CLI、状态写入、跨 domain 编排 |
 | `atomic module` | 独立 CLI、schema、test、contract；负责一个行为 | 吞多个生命周期阶段 |
 | `suite` | 目录归类和少量路由；帮助 agent 发现相关工具 | 承载业务逻辑大总线 |
 
 ### 2.2 import 规则
 
-- 跨模块源码 import 只允许指向 `modules/contracts/*`。
+- 跨模块源码 import 只允许指向 `modules/contracts/*` 或同 domain 无 package internal engine。
 - 业务模块之间通过 CLI JSON contract 协作。
-- suite 内部可以 import 自己的 atomic module，但不得反向依赖。
+- suite 内部可以 import 同 domain internal engine；调用 atomic module 应优先走 CLI / contract，确需源码复用时必须先抽 internal engine。
 - `T` 类 exchange write module 不允许被 research / replay / market scan 直接调用。
 
 ## 3. 目标模块表
@@ -195,7 +196,7 @@ modules/
 | `flow/automation-plan` | atomic | cadence plan、job graph、write-scope / concurrency declaration | `automation-cycle.ts` |
 | `research/replay-engine` | contract/internal engine | replay core、fill model、closed-candle parity；被 runner 使用，不作为大总线 | `strategy-rd` replay files |
 | `research/replay-runner` | atomic | 单次 replay 执行与 replay report 输出 | `research.replay-runner` |
-| `research/signal-evaluator` | atomic | 最新闭合 K 线信号评估，不执行、不写状态 | `--strategy-signal` |
+| `research/signal-evaluator` | atomic | 最新闭合 K 线信号评估，不执行、不写状态 | `research.signal-evaluator` |
 | `research/strategy-contract-compile` | atomic | strategy markdown contract 编译为 candidate / lifecycle contract | migrated |
 | `research/strategy-contract-lint` | atomic | strategy lifecycle contract 完整性 lint | migrated |
 | `research/strategy-families` | atomic | family registry、family modules、candidate compile source | `strategy-rd/src/lib/rnd-families` |
@@ -304,7 +305,7 @@ modules/
 
 验收：
 
-- 业务源码跨模块 import 只出现 `modules/contracts/*`。
+- 业务源码跨模块 import 只出现 `modules/contracts/*` 或同 domain 无 package internal engine。
 - 旧共享目录不再存在。
 - Binance、preflight、trade-flow check 全通过。
 
@@ -323,7 +324,7 @@ modules/
 
 1. `research/replay-engine`：先作为内部 engine / contract owner，消灭 duplicated replay core。
 2. `research/replay-runner`：承接单策略 replay。
-3. `research/signal-evaluator`：承接 `--strategy-signal`。
+3. `research/signal-evaluator`：承接 latest signal。
 4. `research/strategy-contract-compile` 与 `research/strategy-contract-lint`：承接 compile / lint。
 5. `research/data-split`：已承接 discovery / validation / locked holdout manifest 切分。
 6. `research/strategy-families`：只拥有 family registry 和 family modules。

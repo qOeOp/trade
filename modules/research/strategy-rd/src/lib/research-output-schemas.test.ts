@@ -4,7 +4,7 @@ import { join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
 import { replayRegisteredStrategy } from "./strategy-replay"
-import { evaluateRndSignal, runStrategyRndBatch, runStrategyRndLoop } from "./strategy-rnd"
+import { runStrategyRndBatch, runStrategyRndLoop } from "./strategy-rnd"
 import { runStrategyRndCampaignWithDeps } from "./strategy-rnd-campaign"
 import { runStrategyPanelRnd } from "./strategy-panel-rnd"
 import type { JSONRecord } from "./json"
@@ -25,19 +25,17 @@ test("replay result schema matches mechanical replay outer report", () => {
   }
 })
 
-test("strategy R&D batch loop campaign panel and signal schemas match shallow research reports", () => {
+test("strategy R&D batch loop campaign and panel schemas match shallow research reports", () => {
   const batchSchema = readSchema("strategy-rnd-batch-result")
   const loopSchema = readSchema("strategy-rnd-loop-result")
   const campaignSchema = readSchema("strategy-rnd-campaign-result")
   const panelSchema = readSchema("strategy-panel-rnd-result")
-  const signalSchema = readSchema("strategy-signal-result")
   assert.equal(batchSchema.$id, "trade-flow.strategy-rnd-batch-result.v1")
   assert.equal(loopSchema.$id, "trade-flow.strategy-rnd-loop-result.v1")
   assert.equal(campaignSchema.$id, "trade-flow.strategy-rnd-campaign-result.v1")
   assert.equal(panelSchema.$id, "trade-flow.strategy-panel-rnd-result.v1")
-  assert.equal(signalSchema.$id, "trade-flow.strategy-signal-result.v1")
 
-    const dir = mkdtempSync(join(tmpdir(), "research-schema-"))
+  const dir = mkdtempSync(join(tmpdir(), "research-schema-"))
   try {
     const manifestPath = writeManifest(dir)
     const validationManifestPath = writeManifest(dir, "validation", 400)
@@ -105,15 +103,6 @@ test("strategy R&D batch loop campaign panel and signal schemas match shallow re
     assert.equal(panel.panel_id, "panel-schema")
     assert.equal(panel.dataset_count, 3)
 
-    const signal = evaluateRndSignal({
-      manifestPath,
-      entryPrice: 120,
-      now: new Date(1_700_000_000_000 + 280 * 4 * 60 * 60 * 1000).toISOString(),
-      candidate,
-    }) as JSONRecord
-    assertSchemaRequired(signalSchema, signal)
-    assert.equal(signal.candidate_id, "C-SCHEMA-LONG")
-    assert.ok(["entry", "no_action"].includes(String(signal.action)))
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

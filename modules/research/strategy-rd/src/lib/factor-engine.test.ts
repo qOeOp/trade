@@ -10,7 +10,7 @@ import {
   passesFactorConditions,
   readFactorConditions,
   transformFactor,
-} from "./factor-engine"
+} from "../../../strategy-family-engine/src/lib/factor-engine"
 
 test("factor transforms are causal and bounded to available history", () => {
   const values = [1, 2, 3, 4, 5]

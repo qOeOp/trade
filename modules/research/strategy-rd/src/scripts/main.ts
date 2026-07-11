@@ -13,17 +13,14 @@ import {
 } from "../lib/rd-shadow-tracker"
 import { runRdProgramStateCommand } from "../lib/rd-program-state"
 import { runRdSupervisorLoop } from "../lib/rd-supervisor-runner"
-import { candidateFromStrategyContract } from "../lib/strategy-contract"
 import { runStrategyPanelRnd, strategyPanelRndInputFromJson } from "../lib/strategy-panel-rnd"
 import {
-  evaluateRndSignal,
   runStrategyRndBatch,
   runStrategyRndCampaign,
   runStrategyRndLoop,
   strategyRndBatchInputFromJson,
   strategyRndCampaignInputFromJson,
   strategyRndLoopInputFromJson,
-  strategyRndSignalInputFromJson,
 } from "../lib/strategy-rnd"
 
 type JSONRecord = Record<string, unknown>
@@ -36,13 +33,11 @@ interface Config {
   rdProgramState: boolean
   rdSupervisorRun: boolean
   rdShadowTracker: boolean
-  strategySignal: boolean
   forwardResultPath: string
   manifestMapPath: string
   outputPath: string
   now: string
   maxHoldBars?: number
-  strategyPath: string
   statePath: string
   catalogDbPath: string
   input: JSONRecord
@@ -82,13 +77,6 @@ function runConfig(config: Config): unknown {
   if (config.rdProgramState) return runRdProgramStateCommand({ path: config.statePath, input: config.input, catalogDbPath: config.catalogDbPath })
   if (config.rdSupervisorRun) return runRdSupervisorLoop({ path: config.statePath, input: config.input, catalogDbPath: config.catalogDbPath })
   if (config.rdShadowTracker) return runRdShadowTracker(config)
-  if (config.strategySignal) {
-    const parsed = strategyRndSignalInputFromJson(config.input)
-    const input = config.strategyPath && !config.input.candidate
-      ? { ...parsed, candidate: candidateFromStrategyContract(config.strategyPath, signalCandidateOverrides(config.input)) }
-      : parsed
-    return evaluateRndSignal(input)
-  }
   throw new Error("provide a strategy RD command flag")
 }
 
@@ -101,12 +89,10 @@ function parseArgs(argv: string[]): Config {
     rdProgramState: false,
     rdSupervisorRun: false,
     rdShadowTracker: false,
-    strategySignal: false,
     forwardResultPath: "",
     manifestMapPath: "",
     outputPath: "",
     now: "",
-    strategyPath: "",
     statePath: "",
     catalogDbPath: "./data/data_catalog.db",
     input: {},
@@ -121,9 +107,7 @@ function parseArgs(argv: string[]): Config {
       case "--rd-program-state": config.rdProgramState = true; break
       case "--rd-supervisor-run": config.rdSupervisorRun = true; break
       case "--rd-shadow-tracker": config.rdShadowTracker = true; break
-      case "--strategy-signal": config.strategySignal = true; break
       case "--max-hold-bars": config.maxHoldBars = Number(readValue(argv, ++index, arg)); break
-      case "--strategy": config.strategyPath = readValue(argv, ++index, arg); break
       case "--state": config.statePath = readValue(argv, ++index, arg); break
       case "--forward-result": config.forwardResultPath = readValue(argv, ++index, arg); break
       case "--manifest-map": config.manifestMapPath = readValue(argv, ++index, arg); break
@@ -196,23 +180,6 @@ function runRdShadowTracker(config: Config): unknown {
     output_ref: config.outputPath,
     catalog_db_path: catalogDbPath,
   }
-}
-
-function asRecord(value: unknown): JSONRecord {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as JSONRecord : {}
-}
-
-function stringField(value: unknown): string {
-  return typeof value === "string" ? value.trim() : ""
-}
-
-function signalCandidateOverrides(input: JSONRecord): JSONRecord {
-  const overrides = asRecord(input.candidate_param_overrides)
-  for (const key of ["benchmark_manifest_path", "benchmark_timeframe"]) {
-    const value = stringField(input[key])
-    if (value) overrides[key] = value
-  }
-  return overrides
 }
 
 function successResponse(data: unknown): JSONRecord {

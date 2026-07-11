@@ -8,24 +8,16 @@ import {
   writeRdProgramState,
   type RdProgramStateCommandResult,
 } from "./rd-program-state"
-import {
-  hashCanonical,
-  evaluateLatestSignal,
-  replayDataHash,
-} from "./replay-core"
-import type { FactorResearchReport } from "./factor-research"
-import { getRndFamily } from "./rnd-family"
+import type { FactorResearchReport } from "../../../strategy-family-engine/src/lib/factor-research"
 import {
   strategyRndBatchInputFromJson,
   strategyRndCampaignInputFromJson,
   strategyRndLoopInputFromJson,
-  strategyRndSignalInputFromJson,
   type CandidateSource,
   type StrategyRndBatchInput,
   type StrategyRndCandidateInput,
   type StrategyRndCampaignInput,
   type StrategyRndLoopInput,
-  type StrategyRndSignalInput,
 } from "./strategy-rnd-inputs"
 import {
   appendRndLedgerRecord,
@@ -98,32 +90,6 @@ interface StrategyRndLoopReport {
   ledger_record: StrategyRndLedgerRecord
   stop_reason: "candidate_found" | "no_promote"
   rd_program_state?: RdProgramStateCommandResult
-}
-
-function evaluateRndSignal(input: StrategyRndSignalInput): JSONRecord {
-  if (!input.manifestPath || !input.candidate.candidateId) {
-    throw new Error("strategy signal requires manifestPath and candidate")
-  }
-  const family = input.candidate.family || "trend_pullback_v1"
-  const store = loadStrategyRndFeatureStore(input.indicatorReportPath)
-  const configured = getRndFamily(family).configure(input.candidate.candidateId, input.candidate.params || {}, store)
-  const supplementalDataRefs = [
-    ...(input.indicatorReportPath ? [input.indicatorReportPath] : []),
-    ...(configured.supplementalDataRefs || []),
-  ]
-  return {
-    candidate_id: input.candidate.candidateId,
-    family,
-    params: configured.params,
-    candidate_hash: hashCanonical({ family, params: configured.params }),
-    data_hash: replayDataHash(input.manifestPath, input.timeframe || configured.strategy.default_timeframe, supplementalDataRefs),
-    ...evaluateLatestSignal(
-      configured.strategy,
-      { manifestPath: input.manifestPath, timeframe: input.timeframe },
-      input.entryPrice,
-      { now: input.now, maxAgeBars: input.maxSignalAgeBars },
-    ),
-  }
 }
 
 function runStrategyRndBatch(input: StrategyRndBatchInput): StrategyRndBatchReport {
@@ -272,14 +238,12 @@ function maybeUpdateRdProgramState(path: string | undefined, catalogDbPath: stri
 }
 
 export {
-  evaluateRndSignal,
   runStrategyRndBatch,
   runStrategyRndCampaign,
   runStrategyRndLoop,
   strategyRndBatchInputFromJson,
   strategyRndCampaignInputFromJson,
   strategyRndLoopInputFromJson,
-  strategyRndSignalInputFromJson,
   type StrategyRndBatchInput,
   type StrategyRndBatchReport,
   type StrategyRndCandidateInput,
@@ -287,5 +251,4 @@ export {
   type StrategyRndCampaignReport,
   type StrategyRndLoopInput,
   type StrategyRndLoopReport,
-  type StrategyRndSignalInput,
 }

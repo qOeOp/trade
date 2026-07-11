@@ -7,7 +7,7 @@ import {
   resolveCandidateCount,
   resolveRndCandidates,
 } from "./strategy-rnd-candidates"
-import type { FactorResearchReport } from "./factor-research"
+import type { FactorResearchReport } from "../../../strategy-family-engine/src/lib/factor-research"
 import type { StrategyRndBatchInput } from "./strategy-rnd-inputs"
 
 test("strategy R&D candidates reject duplicate or empty candidate ids", () => {

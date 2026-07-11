@@ -9,7 +9,8 @@
 | `toolset.json` | agent-facing 工具索引：按 intent / capability / writes / module_type 找工具 |
 | `modules/<domain>/<module>/` | 模块根：package / go.mod / requirements / reference / 模块说明 |
 | `modules/<domain>/<module>/src/` | 模块实现：scripts、schemas、tests、内部 helper |
-| `modules/contracts/<contract>/src/` | 新跨模块 contract / client 层；业务模块只能依赖这里或 CLI contract |
+| `modules/contracts/<contract>/src/` | 新跨模块 contract / client 层；业务模块优先依赖这里或 CLI contract |
+| `modules/<domain>/<internal-engine>/src/` | 无 package / 无 agent entry 的领域内计算内核；只承载共享公式、schema-adjacent parser 或纯计算 |
 
 ## Module Types
 
@@ -18,6 +19,7 @@
 | `suite` | 归类、迁移期路由、把一组原子能力暴露给 agent | 继续扩张成业务大总线 |
 | `atomic` | 一个主动词 + 一个对象；单一 CLI、单一主写入面、独立 contract / check | 混合多个生命周期阶段或多个 owner |
 | `contract` | 可被源码跨模块 import 的 type、schema、pure helper | 读写文件、调用外部 API、拥有流程 |
+| `internal-engine` | 同一 domain 下原子工具共享的纯计算实现，如 replay / signal / benchmark / family engine | agent-facing CLI、状态写入、跨 domain 编排 |
 
 `toolset.json` 每个 entry 必须声明 `module_type`、`owner_scope`、`entry_contract`、`requires_preflight`、`concurrency_group` 和 `forbidden_callers`。编排器后续只应输出 `tool_id + payload + entry_contract`，不输出裸路径命令；裸路径 command 只保留在 registry resolver 层。
 
@@ -28,12 +30,13 @@
 | `trade-flow` | strategy markdown、trading config、`trade.db`、tool JSON 输出 | `plan_event`、automation jobs、recovery drafts | 编排、执行流、恢复、准入、事件流 | Binance endpoint 细节、市场数据接入实现、R&D 实验实现、策略复核 owner |
 | `research/replay-runner` | OHLCV manifest、strategy id、replay parameters | replay result | 单策略机械 replay | 写文件、写 catalog、R&D search、策略升格 |
 | `research/data-split` | source OHLCV manifests、split ratios、embargo parameters | discovery / validation / locked holdout manifests、split report、optional catalog ref | 数据切分与 holdout 隔离 | R&D search、replay、review、`trade.db` |
+| `research/signal-evaluator` | OHLCV manifest、entry reference、candidate 或 strategy contract | latest closed-candle signal result | 最新信号评估 | R&D search、replay batch、catalog 写入、`trade.db` |
 | `research/benchmark-runner` | panel manifests、benchmark cost / funding assumptions | fixed benchmark report | 固定 benchmark 仿真与负对照 | R&D search、calibration suite、review、`trade.db` |
 | `research/calibration-suite` | panel manifests、optional previous calibration report | calibration diagnostic report | pipeline calibration、data breadth/funding/cost diagnostics | R&D search、strategy evidence、review、`trade.db` |
 | `research/funding-governance` | panel manifests、funding feature reports | funding coverage governance report | funding carry 研究前数据覆盖检查 | R&D search、replay、review、`trade.db` |
 | `research/strategy-contract-compile` | strategy markdown、candidate override JSON | compiled strategy contract | strategy contract 编译 | R&D search、replay、review、catalog 写入 |
 | `research/strategy-contract-lint` | strategy markdown | lint result、optional compiled contract | strategy contract 完整性 lint | R&D search、replay、review、catalog 写入 |
-| `research/strategy-rd` | OHLCV manifest、market feature artifact、candidate JSON、strategy contract、R&D state | R&D / panel report、R&D state update、gated draft candidate、catalog metadata | 策略研发、panel、forward holdout、R&D learning memory | 写 `trade.db`、触发 Binance、策略升格、单策略 replay CLI、data split CLI、benchmark/calibration/funding governance CLI、strategy contract compile/lint CLI |
+| `research/strategy-rd` | OHLCV manifest、market feature artifact、candidate JSON、strategy contract、R&D state | R&D / panel report、R&D state update、gated draft candidate、catalog metadata | 策略研发、panel、forward holdout、R&D learning memory | 写 `trade.db`、触发 Binance、策略升格、单策略 replay CLI、latest signal CLI、data split CLI、benchmark/calibration/funding governance CLI、strategy contract compile/lint CLI |
 | `governance/strategy-review` | strategy markdown、evidence input、catalog evidence、optional read-only `trade.db` | evidence record、review report、promotion result、strategy status update | 策略证据、复核、升格门禁 | R&D 实验、交易执行、写 `trade.db`、写 RD memory |
 | `ops/artifact-catalog` | catalog DB、`data/` / `tmp/` roots、artifact refs、retention 设置 | catalog query、stale report、GC report、artifact metadata、feature report refs | 数据资产索引、artifact hygiene、catalog-aware GC | 写 `trade.db`、策略判断、交易所 API |
 | `ohlcv-fetch` | Binance market symbol、timeframes、Vision/funding/panel 请求参数 | CSV/manifest、funding events、market feature panel、calibration inputs | 数据采集与因果对齐 | 策略判断、升格、交易事实 |
@@ -68,7 +71,7 @@
 
 ## Rules
 
-- 模块之间通过 CLI JSON contract 协作；源码跨模块 import 只允许指向 `modules/contracts/*`。
+- agent-facing 模块之间通过 CLI JSON contract 协作；源码跨模块 import 只允许指向 `modules/contracts/*` 或同 domain 的无 package internal engine。
 - `trade-flow/src/domain/*/index.ts` 是 trade-flow 编排边界；新增原子能力优先落独立 `modules/<domain>/<module>`，不要继续塞进 trade-flow。
 - 模块运行产物只落 `data/` 或 `tmp/`；模块目录不保存运行快照、cache、研究垃圾。
 - `T` 类 Binance 写模块不得被 R&D / replay / market scan 直接调用。
