@@ -4,7 +4,7 @@ import { asRecord, stringField, type JSONRecord } from "./json"
 import { appendPlanEvent, readFlowEvents, type PlanEvent } from "./plan-events"
 import { buildReconcileDrafts } from "./reconcile"
 import { runJsonCommand } from "./tool-runner"
-import { unwrapToolResponse } from "./execution-flow"
+import { unwrapToolResponse } from "../../../../flow/execution-recorder/src/lib/execution-recorder"
 import type { Runner } from "../../../../flow/observe-runner/src/lib/observe-runner"
 
 export const CRON_RECOVER_STATUSES = ["abort_unmatched_reconcile", "recovered_noop", "recovered_applied", "reconcile_draft_ready"] as const

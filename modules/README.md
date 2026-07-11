@@ -32,6 +32,7 @@
 | `flow/observe-builder` | account / market projection、plan seed、policy snapshot | observe event candidate、account projection summary | supplied snapshots -> normalized observe event body | exchange/tool 调用、`trade.db`、execution、review、R&D |
 | `flow/observe-runner` | repo root、symbol、optional timeout / runner | account snapshot、market snapshot、market refs | 调 account/symbol read tools 并产出 observe projection | `plan_event`、execution、review、R&D、`trade.db`、Binance 写接口 |
 | `flow/execution-router` | target action、repo root、execution contract / request | execution command spec | target_action -> Binance write-tool argv | 命令执行、preflight/idempotency、order event recording、`trade.db` |
+| `flow/execution-recorder` | execution result、target action、contract/request context | `order_fill` plan-event drafts | exchange result -> audited local event draft | `trade.db` append、preflight/idempotency、exchange command routing |
 | `research/replay-runner` | OHLCV manifest、strategy id、replay parameters | replay result | 单策略机械 replay | 写文件、写 catalog、R&D search、策略升格 |
 | `research/data-split` | source OHLCV manifests、split ratios、embargo parameters | discovery / validation / locked holdout manifests、split report、optional catalog ref | 数据切分与 holdout 隔离 | R&D search、replay、review、`trade.db` |
 | `research/signal-evaluator` | OHLCV manifest、entry reference、candidate 或 strategy contract | latest closed-candle signal result | 最新信号评估 | R&D search、replay batch、catalog 写入、`trade.db` |

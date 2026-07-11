@@ -3,14 +3,13 @@ import { compileExecutionContract, type ExecutionContractInput } from "../../../
 import { evaluatePreflight } from "../../../../contracts/preflight-contract/src/preflight"
 import {
   appendExecutionObserve,
-  buildRecordedExecutionEvent,
   evaluateIdempotency,
   evaluateTriggerCondition,
   readTargetAction,
   runOneFlowStep,
-  unwrapToolResponse,
 } from "./execution-flow"
 import { buildExecutionCommandSpec } from "../../../../flow/execution-router/src/lib/execution-router"
+import { buildRecordedExecutionEvent, unwrapToolResponse } from "../../../../flow/execution-recorder/src/lib/execution-recorder"
 import { asRecord, stringField, type JSONRecord } from "./json"
 import { observeFromToolsWithRunner } from "./observe-flow"
 import { appendPlanEvent, readLatestOrderFill } from "./plan-events"

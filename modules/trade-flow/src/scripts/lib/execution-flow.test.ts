@@ -4,7 +4,7 @@ import test from "node:test"
 import {
   buildRecordedActionEvents,
   unwrapToolResponse,
-} from "./execution-flow"
+} from "../../../../flow/execution-recorder/src/lib/execution-recorder"
 import { reduceFlowState } from "./flow-state"
 import { appendPlanEvent, ensureSchema } from "./plan-events"
 

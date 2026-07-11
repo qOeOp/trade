@@ -13,9 +13,9 @@ import { handleRuntimeCommand } from "./commands/runtime"
 import type { ScriptResponse } from "./commands/types"
 import {
   buildMockExecutionResult,
-  buildRecordedExecutionEvent,
   runOneFlowStep,
 } from "./lib/execution-flow"
+import { buildRecordedExecutionEvent } from "../../../flow/execution-recorder/src/lib/execution-recorder"
 import { applyReconcileDrafts, findActiveLaneConflicts, laneKeyFromObserve, latestSlowObserve, listActiveFlows, reduceFlowState } from "./lib/flow-state"
 import { runLiveSmall, runShadowFromTools } from "./lib/live-execution"
 import { buildAutomationCyclePlan } from "./lib/automation-cycle"

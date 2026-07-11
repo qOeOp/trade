@@ -1,8 +1,8 @@
 import { Database } from "bun:sqlite"
 import {
-  buildRecordedExecutionEvent,
   runOneFlowStep,
 } from "../lib/execution-flow"
+import { buildRecordedExecutionEvent } from "../../../../flow/execution-recorder/src/lib/execution-recorder"
 import {
   runLiveSmall,
   runShadowFromTools,

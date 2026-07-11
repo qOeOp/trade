@@ -50,6 +50,7 @@
 | `flow.observe-builder` | `A` | supplied projections -> observe event body | observe event candidate / account projection summary | 不调用工具、不写 `trade.db`、不做执行判断 |
 | `flow.observe-runner` | `A` | 调 account/symbol 只读工具，生成 observe projection | account snapshot / market snapshot / market refs | 不写 `trade.db`、不编译执行、不做策略判断 |
 | `flow.execution-router` | `A` | target_action -> Binance write-tool command spec | execution-command-spec.v1 | 不执行命令、不做 preflight/idempotency、不写 `trade.db` |
+| `flow.execution-recorder` | `A` | execution result -> audited local event draft | `order_fill` plan-event draft | 不 append DB、不做 preflight/idempotency、不路由命令 |
 | `binance-order-preview` | `A` | 执行预演、方法路由、contract compile | stdout | 统一 contract output；不发单 |
 | `binance-order-place` | `T` | USDM 主单开仓 / 加仓 | Binance | 只接受 executor 编译后的 contract 作为推荐路径 |
 | `binance-position-protect` | `T` | 止损、止盈、trailing 保护腿 | Binance | 输出 normalized event |
