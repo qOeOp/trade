@@ -339,7 +339,7 @@ function rdStrategySupervisorJob(input: {
         "--rd-program-state action=plan_next",
         "--strategy-data-split",
         "--strategy-rnd-campaign",
-        "--strategy-panel-rnd",
+        "research.panel-evaluator",
         "forward-holdout",
         "rd-shadow-tracker",
         "strategy-review dry-run",

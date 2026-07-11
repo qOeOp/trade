@@ -1,6 +1,6 @@
 import { hashCanonical, loadCandlesFromManifest, loadManifest, type Candle } from "./replay-core"
 import { evaluateStrategySignal } from "../../../signal-engine/src/lib/strategy-signal"
-import type { StrategyRndCandidateInput } from "./strategy-rnd-inputs"
+import type { StrategyRndCandidateInput } from "../../../candidate-batch-engine/src/lib/strategy-rnd-inputs"
 import type { JSONRecord } from "./json"
 
 interface ForwardHoldoutDataset {

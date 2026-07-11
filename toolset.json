@@ -274,11 +274,57 @@
       }
     },
     {
+      "id": "research.panel-evaluator",
+      "domain": "research",
+      "intent": [
+        "panel",
+        "panel-evaluation",
+        "multi-asset-rd",
+        "marketability"
+      ],
+      "capability_class": [
+        "E",
+        "V"
+      ],
+      "path": "modules/research/panel-evaluator",
+      "purpose": "Evaluate one candidate set across a multi-asset panel with panel negative controls and marketability gates.",
+      "command": {
+        "cwd": "modules/research/panel-evaluator",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Read-only panel evaluation; no R&D loop artifact write, RD memory write, strategy promotion, trade DB write, or exchange access."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "research.panel-evaluator",
+      "requires_preflight": false,
+      "concurrency_group": "research-panel",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": "modules/research/panel-evaluator/src/schemas/strategy-panel-rnd-result.schema.json"
+      }
+    },
+    {
       "id": "strategy-rd",
       "domain": "research",
       "intent": [
         "rd",
-        "panel",
         "rd-program"
       ],
       "capability_class": [
@@ -286,7 +332,7 @@
         "E"
       ],
       "path": "modules/research/strategy-rd",
-      "purpose": "Run R&D loops, panel evaluation, forward holdout checks, and R&D program memory.",
+      "purpose": "Run R&D loops, forward holdout checks, and R&D program memory.",
       "command": {
         "cwd": "modules/research/strategy-rd",
         "argv": [
@@ -305,7 +351,7 @@
         "config": false
       },
       "notes": [
-        "Owns research execution except atomic replay-runner, signal-evaluator, data-split, benchmark, calibration, funding-governance, and strategy-contract tools. It cannot write trade.db or trigger Binance writes."
+        "Owns research execution except atomic replay-runner, signal-evaluator, panel-evaluator, data-split, benchmark, calibration, funding-governance, and strategy-contract tools. It cannot write trade.db or trigger Binance writes."
       ],
       "module_type": "suite",
       "owner_scope": "research.strategy-rd",

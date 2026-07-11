@@ -13,7 +13,6 @@ import {
 } from "../lib/rd-shadow-tracker"
 import { runRdProgramStateCommand } from "../lib/rd-program-state"
 import { runRdSupervisorLoop } from "../lib/rd-supervisor-runner"
-import { runStrategyPanelRnd, strategyPanelRndInputFromJson } from "../lib/strategy-panel-rnd"
 import {
   runStrategyRndBatch,
   runStrategyRndCampaign,
@@ -29,7 +28,6 @@ interface Config {
   strategyRndBatch: boolean
   strategyRndLoop: boolean
   strategyRndCampaign: boolean
-  strategyPanelRnd: boolean
   rdProgramState: boolean
   rdSupervisorRun: boolean
   rdShadowTracker: boolean
@@ -73,7 +71,6 @@ function runConfig(config: Config): unknown {
     assertRuntimeOutputPaths(input.artifactRoot, input.ledgerPath, input.catalogDbPath, input.rdProgramStatePath)
     return runStrategyRndCampaign(input)
   }
-  if (config.strategyPanelRnd) return runStrategyPanelRnd(strategyPanelRndInputFromJson(config.input))
   if (config.rdProgramState) return runRdProgramStateCommand({ path: config.statePath, input: config.input, catalogDbPath: config.catalogDbPath })
   if (config.rdSupervisorRun) return runRdSupervisorLoop({ path: config.statePath, input: config.input, catalogDbPath: config.catalogDbPath })
   if (config.rdShadowTracker) return runRdShadowTracker(config)
@@ -85,7 +82,6 @@ function parseArgs(argv: string[]): Config {
     strategyRndBatch: false,
     strategyRndLoop: false,
     strategyRndCampaign: false,
-    strategyPanelRnd: false,
     rdProgramState: false,
     rdSupervisorRun: false,
     rdShadowTracker: false,
@@ -103,7 +99,6 @@ function parseArgs(argv: string[]): Config {
       case "--strategy-rnd-batch": config.strategyRndBatch = true; break
       case "--strategy-rnd-loop": config.strategyRndLoop = true; break
       case "--strategy-rnd-campaign": config.strategyRndCampaign = true; break
-      case "--strategy-panel-rnd": config.strategyPanelRnd = true; break
       case "--rd-program-state": config.rdProgramState = true; break
       case "--rd-supervisor-run": config.rdSupervisorRun = true; break
       case "--rd-shadow-tracker": config.rdShadowTracker = true; break
@@ -196,7 +191,6 @@ function printHelp(): void {
   bun src/scripts/main.ts --strategy-rnd-batch --json '{"manifest_path":"...","candidates":[...]}'
   bun src/scripts/main.ts --strategy-rnd-loop --json '{"manifest_path":"...","candidates":[...]}'
   bun src/scripts/main.ts --strategy-rnd-campaign --json '{"campaign_id":"...","hypotheses":[...]}'
-  bun src/scripts/main.ts --strategy-panel-rnd --json '{"datasets":[...],"candidates":[...]}'
   bun src/scripts/main.ts --rd-program-state --state ./data/rd/program.json --json '{"action":"plan_next"}'
   bun src/scripts/main.ts --rd-shadow-tracker --forward-result ./tmp/forward.json --output ./tmp/artifacts/strategy-rnd/shadow.json
 `)

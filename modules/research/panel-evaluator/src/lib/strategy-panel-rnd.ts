@@ -1,5 +1,6 @@
-import { runStrategyRndBatch, type StrategyRndCandidateInput } from "./strategy-rnd"
-import { loadCandlesFromManifest, loadManifest, type Candle } from "./replay-core"
+import { runStrategyRndBatch } from "../../../candidate-batch-engine/src/lib/strategy-rnd-batch"
+import type { StrategyRndCandidateInput } from "../../../candidate-batch-engine/src/lib/strategy-rnd-inputs"
+import { loadCandlesFromManifest, loadManifest, type Candle } from "../../../replay-engine/src/lib/replay-core"
 
 type JSONRecord = Record<string, unknown>
 

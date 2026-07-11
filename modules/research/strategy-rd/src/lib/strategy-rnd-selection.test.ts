@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 import type { ReplayResult } from "./replay-core"
-import type { StrategyRndCandidateReport } from "./strategy-rnd-evaluation"
+import type { StrategyRndCandidateReport } from "../../../candidate-batch-engine/src/lib/strategy-rnd-evaluation"
 import {
   buildFailureSummary,
   buildFullTrialStatisticalReport,
@@ -12,7 +12,7 @@ import {
   summarizeCandidateBlockers,
   summarizeFailureLayers,
   type SelectionAudit,
-} from "./strategy-rnd-selection"
+} from "../../../candidate-batch-engine/src/lib/strategy-rnd-selection"
 
 test("strategy R&D selection blocks unstable rank reversal", () => {
   const candidateA = candidateReport("a", true, [3, 3, -10, -10])

@@ -59,7 +59,7 @@
 
 ### 1.2 RD 当前拆解诊断
 
-`strategy-rd` 当前实际是 research suite，总入口仍包含 batch、loop、campaign、panel、program state、supervisor、shadow tracker。单策略 replay、latest signal、data split、benchmark、calibration、funding governance、strategy contract compile/lint 已拆为独立 atomic module；剩余 flag 继续按 Binance 原子性标尺拆分。
+`strategy-rd` 当前实际是 research suite，总入口仍包含 batch、loop、campaign、program state、supervisor、shadow tracker。单策略 replay、latest signal、panel、data split、benchmark、calibration、funding governance、strategy contract compile/lint 已拆为独立 atomic module；剩余 flag 继续按 Binance 原子性标尺拆分。
 
 | 当前 flag | 真实行为 | 目标 atomic module | primary write |
 | --- | --- | --- | --- |
@@ -71,7 +71,7 @@
 | `--strategy-rnd-batch` | bounded candidate 批量评估 | `research/candidate-batch` | report |
 | `--strategy-rnd-loop` | 一轮 R&D，写 artifact / ledger / optional RD state | `research/rd-loop-runner` | artifact + catalog + optional state |
 | `--strategy-rnd-campaign` | hypothesis queue / validation campaign | `research/rd-campaign-runner` | artifact + catalog + optional state |
-| `--strategy-panel-rnd` | 多资产 panel / cross-candidate negative control | `research/panel-evaluator` | report |
+| `research.panel-evaluator` | 多资产 panel / cross-candidate negative control | `research/panel-evaluator` | report |
 | `--rd-program-state` | durable RD memory init/read/update/plan_next | `research/rd-program-state` | RD state + catalog |
 | `--rd-supervisor-run` | plan_next -> execute -> writeback loop | `research/rd-supervisor` | RD state + artifacts |
 | `--rd-shadow-tracker` | forward signal 纸面 setup event chain | `research/rd-shadow-tracker` | artifact |
@@ -204,7 +204,7 @@ modules/
 | `research/candidate-batch` | atomic | bounded candidate 批量评估、negative controls、failure summary | `--strategy-rnd-batch` |
 | `research/rd-loop-runner` | atomic | 单轮 R&D loop、artifact、ledger、optional state writeback | `--strategy-rnd-loop` |
 | `research/rd-campaign-runner` | atomic | hypothesis campaign、validation budget、zero-trial gates | `--strategy-rnd-campaign` |
-| `research/panel-evaluator` | atomic | 多资产 panel、cross-candidate negative control、marketability | `--strategy-panel-rnd` |
+| `research/panel-evaluator` | atomic | 多资产 panel、cross-candidate negative control、marketability | migrated |
 | `research/rd-program-state` | atomic | durable RD memory init/read/update/plan_next | `--rd-program-state` |
 | `research/rd-supervisor` | atomic | plan_next -> execute -> writeback loop runner | `--rd-supervisor-run` |
 | `research/rd-shadow-tracker` | atomic | forward paper setup event chain | `rd-shadow-tracker.ts`、`setup-event-chain.ts` |
@@ -331,7 +331,7 @@ modules/
 7. `research/candidate-batch`：承接 `--strategy-rnd-batch`。
 8. `research/rd-loop-runner`：承接 `--strategy-rnd-loop`。
 9. `research/rd-campaign-runner`：承接 `--strategy-rnd-campaign`。
-10. `research/panel-evaluator`：承接 `--strategy-panel-rnd`。
+10. `research/panel-evaluator`：已承接 panel evaluation。
 11. `research/rd-program-state`：承接 `--rd-program-state`。
 12. `research/rd-supervisor`：承接 `--rd-supervisor-run`。
 13. `research/rd-shadow-tracker`：承接 `--rd-shadow-tracker`。

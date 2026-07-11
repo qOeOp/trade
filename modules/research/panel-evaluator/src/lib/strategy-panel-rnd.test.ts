@@ -1,10 +1,10 @@
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
 import { catastrophicAssetsFrom, runStrategyPanelRnd, strategyPanelRndInputFromJson } from "./strategy-panel-rnd"
-import { resolveRepoPath } from "./paths"
+import { resolveRepoPath } from "../../../../contracts/runtime-core/src/paths"
 
 test("panel R&D pools samples but keeps per-asset evidence", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-panel-rnd-"))
@@ -31,6 +31,27 @@ test("panel R&D pools samples but keeps per-asset evidence", () => {
     assert.equal(candidate.assets.every((asset) => asset.funding_event_coverage.status === "none"), true)
     assert.equal(candidate.assets.every((asset) => asset.funding_event_count === 0), true)
     assert.equal(candidate.assets.every((asset) => asset.funding_events_hash === null), true)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("panel R&D result schema matches shallow report shell", () => {
+  const schema = JSON.parse(readFileSync(new URL("../schemas/strategy-panel-rnd-result.schema.json", import.meta.url), "utf8")) as Record<string, unknown>
+  assert.equal(schema.$id, "trade-flow.strategy-panel-rnd-result.v1")
+  const dir = mkdtempSync(join(tmpdir(), "strategy-panel-rnd-schema-"))
+  try {
+    const manifestPath = writeManifest(dir)
+    const report = runStrategyPanelRnd({
+      panelId: "panel-schema",
+      datasets: ["BTC", "ETH", "SOL"].map((datasetId) => ({ datasetId, manifestPath })),
+      candidates: [{ candidateId: "PANEL-LONG", params: { side: "long" } }],
+    }) as Record<string, unknown>
+    for (const field of asArray(schema.required)) {
+      assert.ok(String(field) in report, `missing required field ${String(field)}`)
+    }
+    assert.equal(report.panel_id, "panel-schema")
+    assert.equal(report.dataset_count, 3)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -330,6 +351,10 @@ test("panel parser ignores camel-case contract fields", () => {
   assert.equal(input.candidates[0].candidateId, "")
   assert.equal(input.candidates[0].parameterCount, undefined)
 })
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : []
+}
 
 function writeManifest(dir: string): string {
   mkdirSync(dir, { recursive: true })

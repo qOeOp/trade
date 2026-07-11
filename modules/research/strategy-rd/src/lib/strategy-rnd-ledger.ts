@@ -4,7 +4,7 @@ import { defaultCatalogDbPathForGeneratedPath, listCatalogStrategyRndRuns, upser
 import { factorConditionsToJson } from "../../../strategy-family-engine/src/lib/factor-engine"
 import { hashCanonical, replayDataHash } from "./replay-core"
 import type { JSONRecord } from "./json"
-import type { CandidateSource, StrategyRndLoopInput } from "./strategy-rnd-inputs"
+import type { CandidateSource, StrategyRndLoopInput } from "../../../candidate-batch-engine/src/lib/strategy-rnd-inputs"
 
 export interface StrategyRndLedgerBatchView {
   batch_id: string

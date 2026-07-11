@@ -6,9 +6,9 @@ import {
   loadStrategyRndFeatureStore,
   resolveCandidateCount,
   resolveRndCandidates,
-} from "./strategy-rnd-candidates"
+} from "../../../candidate-batch-engine/src/lib/strategy-rnd-candidates"
 import type { FactorResearchReport } from "../../../strategy-family-engine/src/lib/factor-research"
-import type { StrategyRndBatchInput } from "./strategy-rnd-inputs"
+import type { StrategyRndBatchInput } from "../../../candidate-batch-engine/src/lib/strategy-rnd-inputs"
 
 test("strategy R&D candidates reject duplicate or empty candidate ids", () => {
   assert.throws(() => assertUniqueCandidateIds([

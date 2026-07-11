@@ -36,14 +36,16 @@
 | `modules/research/replay-runner/` | strategy replay | 单策略机械 replay | R&D search、catalog 写入、strategy promotion |
 | `modules/research/data-split/` | strategy data split | discovery / validation / locked holdout manifest 切分 | R&D search、replay、review、`trade.db` |
 | `modules/research/signal-evaluator/` | latest strategy signal | 最新闭合 K 线信号评估 | R&D search、catalog 写入、strategy promotion、交易执行 |
+| `modules/research/panel-evaluator/` | panel evaluator | 多资产 panel、marketability、panel negative controls | R&D loop artifact、RD memory、strategy promotion、`trade.db` |
 | `modules/research/signal-engine/` | signal internal engine | 最新信号输入解析与 family signal 计算 | agent-facing CLI、状态写入 |
+| `modules/research/candidate-batch-engine/` | candidate batch internal engine | 单批候选评估、negative controls、统计报告 | agent-facing CLI、artifact 写入、RD memory |
 | `modules/research/strategy-family-engine/` | strategy family internal engine | family registry、factor transform、factor research、feature store | agent-facing CLI、状态写入 |
 | `modules/research/benchmark-runner/` | strategy benchmark | 固定 benchmark 仿真、成本/资金费压力、负对照 | R&D search、strategy promotion、`trade.db` |
 | `modules/research/calibration-suite/` | strategy calibration | calibration diagnostics、data breadth、funding/cost attribution | R&D search、strategy promotion、`trade.db` |
 | `modules/research/funding-governance/` | funding governance | funding carry research 前 exact funding event coverage 检查 | R&D search、replay、review、`trade.db` |
 | `modules/research/strategy-contract-compile/` | strategy contract compile | strategy markdown contract 编译 | R&D search、replay、review、catalog 写入 |
 | `modules/research/strategy-contract-lint/` | strategy contract lint | strategy markdown contract 完整性 lint | R&D search、replay、review、catalog 写入 |
-| `modules/research/strategy-rd/` | strategy research suite | R&D loop、panel、forward holdout、R&D memory | `trade.db`、Binance 写接口、strategy promotion、单策略 replay CLI、latest signal CLI、data split CLI、benchmark/calibration/funding governance CLI、contract compile/lint CLI |
+| `modules/research/strategy-rd/` | strategy research suite | R&D loop、forward holdout、R&D memory | `trade.db`、Binance 写接口、strategy promotion、单策略 replay CLI、latest signal CLI、panel CLI、data split CLI、benchmark/calibration/funding governance CLI、contract compile/lint CLI |
 | `modules/governance/strategy-review/` | strategy governance | evidence ledger、strategy review、promotion gate、strategy-cycle | R&D 实验、交易执行、写 `trade.db`、写 RD memory |
 | `modules/ops/artifact-catalog/` | artifact governance | catalog DB、artifact index/query/stale/gc、feature report refs | `trade.db`、策略判断、交易所 API |
 | `modules/ohlcv-fetch/` | market data acquisition | OHLCV、funding、market features、calibration panel、manifest | 策略升格、live 执行判断 |
@@ -76,12 +78,13 @@
 | 单策略 replay | `modules/research/replay-runner` + `research.replay-runner` |
 | data split / holdout isolation | `modules/research/data-split` + `research.data-split` |
 | latest signal | `modules/research/signal-evaluator` + `research.signal-evaluator` |
+| panel evaluation | `modules/research/panel-evaluator` + `research.panel-evaluator` |
 | benchmark | `modules/research/benchmark-runner` + `research.benchmark-runner` |
 | calibration suite | `modules/research/calibration-suite` + `research.calibration-suite` |
 | funding governance | `modules/research/funding-governance` + `research.funding-governance` |
 | strategy contract compile | `modules/research/strategy-contract-compile` + `research.strategy-contract-compile` |
 | strategy contract lint | `modules/research/strategy-contract-lint` + `research.strategy-contract-lint` |
-| R&D / panel / forward holdout / R&D memory | `modules/research/strategy-rd` + `strategy-rd` |
+| R&D / forward holdout / R&D memory | `modules/research/strategy-rd` + `strategy-rd` |
 | review / evidence / promotion | `modules/governance/strategy-review` + `strategy-review` |
 | 执行编排 / shadow / live-small | `modules/trade-flow/src/domain/execution` + `trade-flow.execution` |
 | recovery / reconcile | `modules/trade-flow/src/domain/recovery` + `trade-flow.recovery` |

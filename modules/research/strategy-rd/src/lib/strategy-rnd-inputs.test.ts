@@ -3,7 +3,7 @@ import test from "node:test"
 import {
   strategyRndBatchInputFromJson,
   strategyRndCampaignInputFromJson,
-} from "./strategy-rnd-inputs"
+} from "../../../candidate-batch-engine/src/lib/strategy-rnd-inputs"
 
 test("strategy R&D input parser keeps factor research option aliases", () => {
   const input = strategyRndBatchInputFromJson({

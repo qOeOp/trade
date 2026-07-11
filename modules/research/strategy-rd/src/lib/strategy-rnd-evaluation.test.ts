@@ -9,7 +9,7 @@ import {
   laggedEntryStrategy,
   rebuildSignalAtEntry,
   summarizeNegativeControl,
-} from "./strategy-rnd-evaluation"
+} from "../../../candidate-batch-engine/src/lib/strategy-rnd-evaluation"
 import type { ReplayResult, ReplaySignal, ReplayStrategy } from "./replay-core"
 
 test("strategy R&D evaluation counts active parameters and flips side params", () => {

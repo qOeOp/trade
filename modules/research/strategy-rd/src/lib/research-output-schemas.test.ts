@@ -6,7 +6,6 @@ import test from "node:test"
 import { replayRegisteredStrategy } from "./strategy-replay"
 import { runStrategyRndBatch, runStrategyRndLoop } from "./strategy-rnd"
 import { runStrategyRndCampaignWithDeps } from "./strategy-rnd-campaign"
-import { runStrategyPanelRnd } from "./strategy-panel-rnd"
 import type { JSONRecord } from "./json"
 
 test("replay result schema matches mechanical replay outer report", () => {
@@ -25,15 +24,13 @@ test("replay result schema matches mechanical replay outer report", () => {
   }
 })
 
-test("strategy R&D batch loop campaign and panel schemas match shallow research reports", () => {
+test("strategy R&D batch loop and campaign schemas match shallow research reports", () => {
   const batchSchema = readSchema("strategy-rnd-batch-result")
   const loopSchema = readSchema("strategy-rnd-loop-result")
   const campaignSchema = readSchema("strategy-rnd-campaign-result")
-  const panelSchema = readSchema("strategy-panel-rnd-result")
   assert.equal(batchSchema.$id, "trade-flow.strategy-rnd-batch-result.v1")
   assert.equal(loopSchema.$id, "trade-flow.strategy-rnd-loop-result.v1")
   assert.equal(campaignSchema.$id, "trade-flow.strategy-rnd-campaign-result.v1")
-  assert.equal(panelSchema.$id, "trade-flow.strategy-panel-rnd-result.v1")
 
   const dir = mkdtempSync(join(tmpdir(), "research-schema-"))
   try {
@@ -93,15 +90,6 @@ test("strategy R&D batch loop campaign and panel schemas match shallow research 
     assertSchemaRequired(campaignSchema, campaign)
     assert.equal(campaign.campaign_id, "rnd-schema-campaign")
     assert.equal(campaign.trial_budget, 1)
-
-    const panel = runStrategyPanelRnd({
-      panelId: "panel-schema",
-      datasets: ["BTC", "ETH", "SOL"].map((datasetId) => ({ datasetId, manifestPath })),
-      candidates: [candidate],
-    }) as JSONRecord
-    assertSchemaRequired(panelSchema, panel)
-    assert.equal(panel.panel_id, "panel-schema")
-    assert.equal(panel.dataset_count, 3)
 
   } finally {
     rmSync(dir, { recursive: true, force: true })

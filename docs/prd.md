@@ -178,7 +178,7 @@ Replay / shadow / live 对齐要求：
 - `--strategy-rnd-batch`：最多 10 个候选；可先在 discovery 数据上筛 factor，再按角色、数量与参数预算组合到预声明 base family；统一 replay/OOS、candidate negative controls 和失败归因，不自动升格
 - `--strategy-rnd-loop`：包装一轮 R&D batch，写 artifact JSON 与 `data_catalog.db.strategy_rnd_run`；R&D 审计不作为 promote evidence；可显式写回 `rd_program_state`
 - `--strategy-rnd-campaign`：在全局最多 10 次 discovery trial 内运行 hypothesis queue；每个 hypothesis 必须带 `thesis_certificate`，缺 edge 类型、行为假设、参与者、regime、失效条件、成本敏感度、候选 universe 或 negative controls 时零 trial 停止；可选 `calibration_report_path` 未过则零 trial 停止；没有 winner 才继续，首个 winner 冻结后只查看一次不重叠 locked holdout，失败即结束 campaign；可显式写回 `rd_program_state`
-- `--strategy-panel-rnd`：同一候选跨至少 3 个资产评估，保留逐资产证据，并检查 pooled sample、广度、OOS、成本与灾难损失
+- `research.panel-evaluator`：同一候选跨至少 3 个资产评估，保留逐资产证据，并检查 pooled sample、广度、OOS、成本与灾难损失
 - `research.data-split`：新 hypothesis 开研前把历史 manifest 先切成 discovery / validation / locked_holdout 三个独立 manifest，并自动留 embargo；避免 draft 后才发现所有历史都已被研发污染
 - `--rd-program-state`：初始化、读取、更新或 `plan_next` R&D learning memory artifact；`plan_next` 只生成下一轮 R&D payload，不写 `trade.db`，不产生 strategy evidence
 - `--rd-supervisor-run`：执行自主 R&D supervisor loop；每轮先从 state 规划下一条 hypothesis，再运行 loop/campaign，并依赖写回结果推进 queue、usage 与 stop status
