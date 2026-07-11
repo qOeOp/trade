@@ -35,6 +35,52 @@
 | registry 粒度偏粗 | `toolset.json` 多数 entry 指向 suite，而不是原子行为 | agent 查找工具时仍需知道能力藏在哪 |
 | docs 与目标态混杂 | `tool-layout.md` 描述当前结构，但没有明确下一轮目标 topology | 容易把迁移中间态误写成长期制度 |
 
+### 1.1 原子性标尺
+
+本项目的原子模块标尺以 Binance 写工具为准：`order-place`、`order-cancel`、`position-protect`、`position-adjust` 都是单一动作、单一写入面、单一 contract、单独测试入口。
+
+一个模块只有同时满足以下条件，才算 atomic module：
+
+| 维度 | 原子标准 | 反例 |
+| --- | --- | --- |
+| 行为 | 一个主动词 + 一个对象，例如 place order / cancel order / protect position | 一个入口靠 10+ 个互斥 flag 分派 |
+| 写入面 | 至多一个 primary write surface，例如 Binance / artifact / catalog / strategy markdown / trade.db | 同时写 artifact、catalog、state、strategy 文档 |
+| 输入契约 | 一个稳定 input schema 或一组同形 payload | 同一 CLI flag 集合混合 replay、campaign、state、lint |
+| 输出契约 | 一个稳定 output schema shell | 不同子命令返回互不相干对象 |
+| 测试入口 | 独立 `check` 能覆盖该行为 | 只能跑父 suite 的全量测试才知道是否坏 |
+| agent 发现 | `toolset.json` 可按 intent 直接命中 | agent 必须知道能力藏在 `strategy-rd` 的某个 flag |
+| 依赖方向 | 只依赖 contracts 或同模块内部 helper | 横向 import 其他业务模块实现 |
+
+判定规则：
+
+- `main.ts` 出现多个互斥业务 flag，不自动算错；但它代表 suite router，不代表 atomic module。
+- atomic module 可以有内部 helper，但 helper 不应成为另一个业务行为的隐式 owner。
+- 如果一个能力会被 agent 单独请求、单独失败、单独修复、单独回归测试，它就应该是 atomic module。
+
+### 1.2 RD 当前拆解诊断
+
+`strategy-rd` 当前实际是 research suite，总入口包含 replay、batch、loop、campaign、panel、data split、program state、supervisor、shadow tracker、benchmark、calibration、funding governance、signal、compile、lint。按 Binance 原子性标尺，它不应该继续作为一个 agent-facing atomic tool。
+
+| 当前 flag | 真实行为 | 目标 atomic module | primary write |
+| --- | --- | --- | --- |
+| `--replay-strategy` | 对单个 strategy / candidate 回放 | `research/replay-runner` | none / report |
+| `--strategy-signal` | 最新闭合 K 线信号评估 | `research/signal-evaluator` | none |
+| `--strategy-compile` | strategy markdown contract 编译 | `research/strategy-contract-compile` | none |
+| `--strategy-lint` | strategy lifecycle contract lint | `research/strategy-contract-lint` | none |
+| `--strategy-data-split` | discovery / validation / holdout manifest 切分 | `research/data-split` | artifact + catalog |
+| `--strategy-rnd-batch` | bounded candidate 批量评估 | `research/candidate-batch` | report |
+| `--strategy-rnd-loop` | 一轮 R&D，写 artifact / ledger / optional RD state | `research/rd-loop-runner` | artifact + catalog + optional state |
+| `--strategy-rnd-campaign` | hypothesis queue / validation campaign | `research/rd-campaign-runner` | artifact + catalog + optional state |
+| `--strategy-panel-rnd` | 多资产 panel / cross-candidate negative control | `research/panel-evaluator` | report |
+| `--rd-program-state` | durable RD memory init/read/update/plan_next | `research/rd-program-state` | RD state + catalog |
+| `--rd-supervisor-run` | plan_next -> execute -> writeback loop | `research/rd-supervisor` | RD state + artifacts |
+| `--rd-shadow-tracker` | forward signal 纸面 setup event chain | `research/rd-shadow-tracker` | artifact |
+| `--strategy-benchmark` | 固定 benchmark 仿真 | `research/benchmark-runner` | report |
+| `--strategy-calibration-suite` | calibration suite / pipeline diagnosis | `research/calibration-suite` | report |
+| `--funding-carry-governance` | funding coverage governance check | `research/funding-governance` | report |
+
+拆分后的 `strategy-rd` 只能作为 suite 目录或迁移期源码目录名，不再作为 agent-facing 单一工具。
+
 ## 2. 目标拓扑
 
 目标目录采用 **suite / atomic module / contract module** 三层。
@@ -80,12 +126,23 @@ modules/
 | `flow/execution-orchestrator` | atomic | dry-run、shadow、live-small orchestration、order_fill audit | `trade-flow` execution domain |
 | `flow/recovery` | atomic | reduce、reconcile、needs_review、safe local apply | `trade-flow` recovery domain |
 | `flow/automation` | atomic | cadence plan、job graph、slow/fast/R&D/review/catalog dispatch plan | `trade-flow` automation-cycle |
-| `research/replay-engine` | atomic | replay core、strategy signal、closed-candle parity | `strategy-rd` replay files |
-| `research/strategy-families` | atomic | family registry、family modules、candidate compile | `strategy-rd/src/lib/rnd-families` |
-| `research/rd-loop` | atomic | batch、loop、campaign、selection、negative control diagnostics | `strategy-rd` R&D files |
-| `research/rd-program` | atomic | durable RD memory、planner、supervisor runner | `rd-program-*`、`rd-supervisor-runner.ts` |
+| `research/replay-engine` | contract/internal engine | replay core、fill model、closed-candle parity；被 runner 使用，不作为大总线 | `strategy-rd` replay files |
+| `research/replay-runner` | atomic | 单次 replay 执行与 replay report 输出 | `--replay-strategy` |
+| `research/signal-evaluator` | atomic | 最新闭合 K 线信号评估，不执行、不写状态 | `--strategy-signal` |
+| `research/strategy-contract-compile` | atomic | strategy markdown contract 编译为 candidate / lifecycle contract | `--strategy-compile` |
+| `research/strategy-contract-lint` | atomic | strategy lifecycle contract 完整性 lint | `--strategy-lint` |
+| `research/strategy-families` | atomic | family registry、family modules、candidate compile source | `strategy-rd/src/lib/rnd-families` |
+| `research/data-split` | atomic | discovery / validation / locked holdout manifest 切分 | `--strategy-data-split` |
+| `research/candidate-batch` | atomic | bounded candidate 批量评估、negative controls、failure summary | `--strategy-rnd-batch` |
+| `research/rd-loop-runner` | atomic | 单轮 R&D loop、artifact、ledger、optional state writeback | `--strategy-rnd-loop` |
+| `research/rd-campaign-runner` | atomic | hypothesis campaign、validation budget、zero-trial gates | `--strategy-rnd-campaign` |
+| `research/panel-evaluator` | atomic | 多资产 panel、cross-candidate negative control、marketability | `--strategy-panel-rnd` |
+| `research/rd-program-state` | atomic | durable RD memory init/read/update/plan_next | `--rd-program-state` |
+| `research/rd-supervisor` | atomic | plan_next -> execute -> writeback loop runner | `--rd-supervisor-run` |
 | `research/rd-shadow-tracker` | atomic | forward paper setup event chain | `rd-shadow-tracker.ts`、`setup-event-chain.ts` |
-| `research/benchmark-calibration` | atomic | benchmark、calibration suite、marketability diagnostics | `strategy-benchmark*`、calibration files |
+| `research/benchmark-runner` | atomic | fixed benchmark simulation and report | `--strategy-benchmark` |
+| `research/calibration-suite` | atomic | calibration suite、pipeline diagnostics、data breadth attribution | `--strategy-calibration-suite` |
+| `research/funding-governance` | atomic | funding coverage / carry governance read-only check | `--funding-carry-governance` |
 | `governance/evidence-ledger` | atomic | append evidence、fingerprint、catalog evidence refs | `strategy-review` evidence helpers |
 | `governance/strategy-review` | atomic | review report、failure attribution、promotion read model | current `strategy-review` minus evidence append |
 | `governance/promotion-gate` | atomic | status transition and `--yes` guarded strategy markdown update | current promote path |
@@ -162,16 +219,26 @@ modules/
 
 ### Phase 3：拆 `strategy-rd`
 
-目标：把 research suite 拆成可独立维护的 research atomic modules。
+目标：把 research suite 拆成和 Binance write tools 同级别的 research atomic modules。
 
 顺序：
 
-1. `research/replay-engine`
-2. `research/strategy-families`
-3. `research/rd-loop`
-4. `research/rd-program`
-5. `research/rd-shadow-tracker`
-6. `research/benchmark-calibration`
+1. `research/replay-engine`：先作为内部 engine / contract owner，消灭 duplicated replay core。
+2. `research/replay-runner`：承接 `--replay-strategy`。
+3. `research/signal-evaluator`：承接 `--strategy-signal`。
+4. `research/strategy-contract-compile` 与 `research/strategy-contract-lint`：承接 compile / lint。
+5. `research/data-split`：承接 `--strategy-data-split`。
+6. `research/strategy-families`：只拥有 family registry 和 family modules。
+7. `research/candidate-batch`：承接 `--strategy-rnd-batch`。
+8. `research/rd-loop-runner`：承接 `--strategy-rnd-loop`。
+9. `research/rd-campaign-runner`：承接 `--strategy-rnd-campaign`。
+10. `research/panel-evaluator`：承接 `--strategy-panel-rnd`。
+11. `research/rd-program-state`：承接 `--rd-program-state`。
+12. `research/rd-supervisor`：承接 `--rd-supervisor-run`。
+13. `research/rd-shadow-tracker`：承接 `--rd-shadow-tracker`。
+14. `research/benchmark-runner`：承接 `--strategy-benchmark`。
+15. `research/calibration-suite`：承接 `--strategy-calibration-suite`。
+16. `research/funding-governance`：承接 `--funding-carry-governance`。
 
 每个子模块必须有：
 
@@ -184,9 +251,11 @@ modules/
 
 验收：
 
-- `strategy-rd` 不再是 13 个命令的大总线。
-- replay、RD loop、RD memory 可独立运行测试。
+- `strategy-rd` 不再是多业务 flag 大总线；agent-facing registry 不再指向 `strategy-rd` 作为单一工具。
+- 每个 RD atomic module 的主入口只有一个业务动作。
+- replay、signal、data split、candidate batch、loop、campaign、panel、RD state、supervisor、shadow tracker、benchmark、calibration 都可独立运行测试。
 - R&D 不 import Binance write，不写 `trade.db`。
+- R&D supervisor 只能调用 research atomic tools 和 catalog / state contract，不能内联实现 batch / campaign / panel 逻辑。
 
 ### Phase 4：拆 `trade-flow`
 
