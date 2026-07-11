@@ -9,7 +9,8 @@
 | `toolset.json` | agent-facing 工具索引：按 intent / capability / writes / module_type 找工具 |
 | `modules/<domain>/<module>/` | 模块根：package / go.mod / requirements / reference / 模块说明 |
 | `modules/<domain>/<module>/src/` | 模块实现：scripts、schemas、tests、内部 helper |
-| `modules/common/src/` | 当前跨模块确定性契约层；迁移目标是 `modules/contracts/*` |
+| `modules/common/src/` | 当前 legacy 跨模块确定性契约层；迁移目标是 `modules/contracts/*` |
+| `modules/contracts/<contract>/src/` | 新跨模块 contract / client 层；业务模块只能依赖这里或 CLI contract |
 
 ## Module Types
 
@@ -57,7 +58,7 @@
 
 ## Rules
 
-- 模块之间通过 CLI JSON contract 协作；当前源码 import 只允许指向 `modules/common/src`，迁移完成后只允许指向 `modules/contracts/*`。
+- 模块之间通过 CLI JSON contract 协作；当前源码 import 只允许指向 `modules/common/src` 或 `modules/contracts/*`，迁移完成后只允许指向 `modules/contracts/*`。
 - `trade-flow/src/domain/*/index.ts` 是 trade-flow 编排边界；新增原子能力优先落独立 `modules/<domain>/<module>`，不要继续塞进 trade-flow。
 - 模块运行产物只落 `data/` 或 `tmp/`；模块目录不保存运行快照、cache、研究垃圾。
 - `T` 类 Binance 写模块不得被 R&D / replay / market scan 直接调用。

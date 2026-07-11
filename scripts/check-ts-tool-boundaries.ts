@@ -56,7 +56,7 @@ for (const file of walkTsFiles("modules")) {
     if (parts[0] !== "modules") {
       return
     }
-    if (parts[1] === "common") {
+    if (parts[1] === "common" || parts[1] === "contracts") {
       return
     }
     const targetTool = owningToolRoot(resolved)

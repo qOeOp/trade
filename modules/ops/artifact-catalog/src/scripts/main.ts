@@ -4,9 +4,14 @@ import { readFileSync } from "node:fs"
 import { runArtifactGc } from "../lib/artifact-hygiene"
 import {
   initDataCatalog,
+  listCatalogStrategyEvidence,
+  listCatalogStrategyRndRuns,
   listStaleCatalogArtifacts,
   queryDataCatalog,
+  registerCatalogArtifact,
   scanDataCatalog,
+  upsertCatalogStrategyEvidence,
+  upsertCatalogStrategyRndRun,
 } from "../lib/data-catalog"
 import { assertProjectRuntimePath, repoRoot } from "../lib/paths"
 
@@ -16,6 +21,11 @@ interface Config {
   catalogInit: boolean
   catalogScan: boolean
   catalogQuery: boolean
+  catalogRegisterArtifact: boolean
+  catalogUpsertStrategyEvidence: boolean
+  catalogListStrategyEvidence: boolean
+  catalogUpsertStrategyRndRun: boolean
+  catalogListStrategyRndRuns: boolean
   catalogStale: boolean
   catalogGc: boolean
   artifactGc: boolean
@@ -65,6 +75,44 @@ function runConfig(config: Config): unknown {
       limit: numberField(config.input.limit),
     })
   }
+  if (config.catalogRegisterArtifact) {
+    return registerCatalogArtifact({
+      catalogDbPath: optionalCatalogDbPath(config),
+      path: requiredString(config.input.path, "path"),
+      now: stringField(config.input.now),
+      maxHashBytes: numberField(config.input.max_hash_bytes ?? config.input.maxHashBytes),
+      referrerType: stringField(config.input.referrer_type ?? config.input.referrerType),
+      referrerID: stringField(config.input.referrer_id ?? config.input.referrerID),
+      role: stringField(config.input.role),
+    })
+  }
+  if (config.catalogUpsertStrategyEvidence) {
+    return upsertCatalogStrategyEvidence({
+      catalogDbPath: requiredCatalogDbPath(config),
+      record: recordField(config.input.record),
+      now: stringField(config.input.now),
+    })
+  }
+  if (config.catalogListStrategyEvidence) {
+    return listCatalogStrategyEvidence({
+      catalogDbPath: requiredCatalogDbPath(config),
+      strategyID: stringField(config.input.strategy_id ?? config.input.strategyID),
+      limit: numberField(config.input.limit),
+    })
+  }
+  if (config.catalogUpsertStrategyRndRun) {
+    return upsertCatalogStrategyRndRun({
+      catalogDbPath: requiredCatalogDbPath(config),
+      record: recordField(config.input.record),
+      now: stringField(config.input.now),
+    })
+  }
+  if (config.catalogListStrategyRndRuns) {
+    return listCatalogStrategyRndRuns({
+      catalogDbPath: requiredCatalogDbPath(config),
+      limit: numberField(config.input.limit),
+    })
+  }
   if (config.catalogStale || config.catalogGc) {
     return listStaleCatalogArtifacts({
       catalogDbPath: config.catalogDbPath,
@@ -95,6 +143,11 @@ function parseArgs(argv: string[]): Config {
     catalogInit: false,
     catalogScan: false,
     catalogQuery: false,
+    catalogRegisterArtifact: false,
+    catalogUpsertStrategyEvidence: false,
+    catalogListStrategyEvidence: false,
+    catalogUpsertStrategyRndRun: false,
+    catalogListStrategyRndRuns: false,
     catalogStale: false,
     catalogGc: false,
     artifactGc: false,
@@ -110,6 +163,11 @@ function parseArgs(argv: string[]): Config {
       case "--catalog-init": config.catalogInit = true; break
       case "--catalog-scan": config.catalogScan = true; break
       case "--catalog-query": config.catalogQuery = true; break
+      case "--catalog-register-artifact": config.catalogRegisterArtifact = true; break
+      case "--catalog-upsert-strategy-evidence": config.catalogUpsertStrategyEvidence = true; break
+      case "--catalog-list-strategy-evidence": config.catalogListStrategyEvidence = true; break
+      case "--catalog-upsert-strategy-rnd-run": config.catalogUpsertStrategyRndRun = true; break
+      case "--catalog-list-strategy-rnd-runs": config.catalogListStrategyRndRuns = true; break
       case "--catalog-stale": config.catalogStale = true; break
       case "--catalog-gc": config.catalogGc = true; break
       case "--artifact-gc": config.artifactGc = true; break
@@ -133,6 +191,14 @@ function catalogRoots(config: Config): string[] {
   const resolved = roots.length > 0 ? roots : ["./data"]
   for (const root of resolved) assertProjectRuntimePath(root)
   return resolved
+}
+
+function optionalCatalogDbPath(config: Config): string | undefined {
+  return stringField(config.input.catalog_db_path ?? config.input.catalogDbPath) || config.catalogDbPath
+}
+
+function requiredCatalogDbPath(config: Config): string {
+  return optionalCatalogDbPath(config) || "./data/data_catalog.db"
 }
 
 function readValue(argv: string[], index: number, name: string): string {
@@ -159,6 +225,19 @@ function stringField(value: unknown): string | undefined {
   return typeof value === "string" && value.trim().length > 0 ? value.trim() : undefined
 }
 
+function requiredString(value: unknown, field: string): string {
+  const result = stringField(value)
+  if (!result) throw new Error(`${field} is required`)
+  return result
+}
+
+function recordField(value: unknown): JSONRecord {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("record must be an object")
+  }
+  return value as JSONRecord
+}
+
 function numberField(value: unknown): number | undefined {
   const number = Number(value)
   return Number.isFinite(number) ? number : undefined
@@ -178,6 +257,11 @@ function printHelp(): void {
   bun src/scripts/main.ts --catalog-init --catalog-db ./data/data_catalog.db
   bun src/scripts/main.ts --catalog-scan --catalog-root ./data --catalog-root ./tmp
   bun src/scripts/main.ts --catalog-query --json '{"symbol":"BTCUSDT"}'
+  bun src/scripts/main.ts --catalog-register-artifact --json '{"path":"./tmp/report.json"}'
+  bun src/scripts/main.ts --catalog-upsert-strategy-evidence --json '{"catalog_db_path":"./data/data_catalog.db","record":{}}'
+  bun src/scripts/main.ts --catalog-list-strategy-evidence --json '{"strategy_id":"demo"}'
+  bun src/scripts/main.ts --catalog-upsert-strategy-rnd-run --json '{"catalog_db_path":"./data/data_catalog.db","record":{}}'
+  bun src/scripts/main.ts --catalog-list-strategy-rnd-runs --json '{"limit":100}'
   bun src/scripts/main.ts --catalog-stale --catalog-root ./tmp
   bun src/scripts/main.ts --catalog-gc --catalog-root ./tmp --yes
   bun src/scripts/main.ts --artifact-gc --artifact-root ./tmp/artifacts

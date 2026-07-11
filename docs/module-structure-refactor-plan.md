@@ -279,6 +279,18 @@ modules/
 - `strategy-rd`、`strategy-review`、`artifact-catalog` check 全通过。
 - `scripts/quality-check.sh` 通过。
 
+当前落地：
+
+- `data-catalog.ts` 的 DB/schema/scan 实现已收敛到 `modules/ops/artifact-catalog/src/lib/data-catalog.ts`。
+- `modules/contracts/catalog-contract/src/catalog-client.ts` 提供跨模块 catalog client；research / governance 旧本地路径只保留 re-export 适配。
+- artifact-catalog CLI 已新增 direct register / upsert / list 命令，并有 `catalog-cli.test.ts` 覆盖。
+- `replay-core.ts` 实现已收敛到 `modules/research/replay-engine/src/lib/replay-core.ts`；research / governance 旧本地路径只保留 re-export 适配。
+
+尚未完成：
+
+- `research/replay-engine` 仍是内部 engine owner，尚未拆出 agent-facing `research/replay-runner`。
+- `contracts/replay-contract` 仍未单独拆 type/schema shell；governance 当前通过 re-export 使用 replay engine 类型和测试 helper。
+
 ### Phase 2：拆 `common`
 
 目标：把“通用”改成明确 contract 层。
