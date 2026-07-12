@@ -1,5 +1,5 @@
 flowchart LR
-  ENTRY["外部 automation<br/>单一唤醒入口"] --> CYCLE
+  ENTRY["外部 automation / user takeover<br/>单一唤醒入口"] --> OIN
 
   subgraph ORCH[" "]
     direction TB
@@ -7,11 +7,14 @@ flowchart LR
     OPAD[" "]
     OIN["domain inbox<br/>wakeup / job result refs"]
     CYCLE["cycle planner<br/>生成本轮 job plan"]
-    HOOKS["lifecycle hooks<br/>pre_cycle / pre_dispatch / post_job / post_cycle"]
+    HOOKS["lifecycle hooks + processors<br/>pre_cycle / pre_job / post_job / post_cycle"]
     GRAPH["job graph protocol<br/>scope / contract / idempotency / write owner"]
     HEALTH["runtime health guard<br/>配置 / API / DB / lock / safe mode facts"]
-    POST["result post-processor<br/>envelope / outbox / write-scope / incident refs"]
+    POST["result post-processor<br/>envelope / outbox / write-scope / failure analyzer / incident refs"]
+    IMGR["incident manager<br/>classify / ack / resolve / next-cycle constraints"]
+    CREVIEW["control effectiveness review<br/>incidents / overrides / repeated failures"]
     NOTIFY["notify dispatcher<br/>cycle 异常 / 人工接管提醒"]
+    INCIDENTSTORE[("incident store<br/>system problems / ack / resolution")]
     OPSLOG[("ops runtime store<br/>lock / health / job results / cycle summary")]
     OOUT["domain outbox<br/>job graph / health facts / incidents / cycle summary"]
     ORTITLE ~~~ OPAD
@@ -22,7 +25,12 @@ flowchart LR
     OIN --> HOOKS
     OIN --> POST
     HEALTH --> POST
-    POST --> NOTIFY
+    POST --> IMGR
+    GRAPH --> OPSLOG
+    IMGR --> NOTIFY
+    IMGR --> INCIDENTSTORE
+    INCIDENTSTORE --> CREVIEW
+    CREVIEW --> OPSLOG
     POST --> OPSLOG
     NOTIFY --> OPSLOG
     OPSLOG --> OOUT
@@ -33,9 +41,11 @@ flowchart LR
     FTITLE["通信协议层<br/>protocol fabric / logical bus"]
     FSPAD[" "]
     SCHEMAS["contract schema registry<br/>job / command / event / ref / store envelopes"]
+    DOMAINRT["domain runtime contract<br/>hooks / result envelope / failure classes"]
     COMMAND["command rail<br/>job tickets / command_spec / retry key"]
+    OPSRAIL["ops rail<br/>health facts / incident refs / cycle summary"]
     FACT["fact rail<br/>event write envelopes / read model refs"]
-    POLICYRAIL["policy rail<br/>approved snapshot / runtime policy / trading mode"]
+    POLICYRAIL["policy rail<br/>approved snapshot / runtime policy / trading profile-mode"]
     MARKETRAIL["market data rail<br/>fresh facts / feature refs"]
     EXCHANGERAIL["exchange rail<br/>account/order facts / write requests"]
     STORERAIL["store rail<br/>logical-store-ref / owner write contract"]
@@ -44,21 +54,31 @@ flowchart LR
     GOVRAIL["governance rail<br/>evidence / promotion decision refs"]
     FTITLE ~~~ FSPAD
     FSPAD ~~~ SCHEMAS
-    SCHEMAS ~~~ COMMAND
-    SCHEMAS ~~~ STORERAIL
+    SCHEMAS -. "schema governs" .-> DOMAINRT
+    SCHEMAS -. "schema governs" .-> COMMAND
+    SCHEMAS -. "schema governs" .-> OPSRAIL
+    SCHEMAS -. "schema governs" .-> FACT
+    SCHEMAS -. "schema governs" .-> POLICYRAIL
+    SCHEMAS -. "schema governs" .-> MARKETRAIL
+    SCHEMAS -. "schema governs" .-> EXCHANGERAIL
+    SCHEMAS -. "schema governs" .-> STORERAIL
+    SCHEMAS -. "schema governs" .-> DATARAIL
+    SCHEMAS -. "schema governs" .-> ARTIFACTRAIL
+    SCHEMAS -. "schema governs" .-> GOVRAIL
+    DOMAINRT -. "lifecycle envelope" .-> COMMAND
   end
 
   subgraph JOBS[" "]
     direction TB
     JTITLE["本轮 domain job tickets<br/>cycle fork"]
     JSPAD[" "]
-    J01["J01<br/>account reconcile"]
-    J02["J02<br/>fast guard"]
-    J03["J03<br/>slow watch"]
-    J04["J04<br/>R&D loop"]
-    J05["J05<br/>shadow tracking"]
-    J06["J06<br/>catalog hygiene"]
-    J07["J07<br/>closed-flow review"]
+    J01["J01 account reconcile<br/>交易所事实对账<br/>write: reconcile / needs_review"]
+    J02["J02 fast guard<br/>active flow 执行守卫<br/>write: light observe / order_fill"]
+    J03["J03 slow watch<br/>慢轨机会与计划<br/>write: full observe / action_intent"]
+    J04["J04 R&D loop<br/>假设迭代与候选冻结<br/>write: research state / artifacts"]
+    J05["J05 shadow tracking<br/>forward / paper 样本跟踪<br/>write: shadow artifacts"]
+    J06["J06 catalog hygiene<br/>证据索引与保留清理<br/>write: catalog metadata"]
+    J07["J07 closed-flow review<br/>闭合 flow 复盘与反馈<br/>write: review / governance evidence"]
     JTITLE ~~~ JSPAD
     JSPAD ~~~ J01
   end
@@ -71,7 +91,7 @@ flowchart LR
     TCFG["trading config<br/>项目级交易配置"]
     STRAT["approved strategy contracts<br/>策略池 / Trade Contract"]
     RP["runtime policy<br/>权限 / 风险 / 成本模型"]
-    RISKAUTH["risk authority<br/>trading mode / kill switch / reduce-only"]
+    RISKAUTH["risk authority<br/>trading profile-mode / kill switch / reduce-only"]
     INCIDENT[("incident / override registry<br/>pause / reduce-only / manual approval")]
     POLSTORE[("policy snapshot registry<br/>policy hash / approved status / mode")]
     POUT["domain outbox<br/>runtime policy + trading mode snapshot"]
@@ -249,9 +269,8 @@ flowchart LR
     ART --> AOUT
   end
 
-  GRAPH --> COMMAND
   OOUT --> COMMAND
-  OOUT --> POLICYRAIL
+  OOUT --> OPSRAIL
 
   COMMAND --> J01
   COMMAND --> J02
@@ -269,6 +288,14 @@ flowchart LR
   J06 --> AIN
   J07 --> GIN
 
+  J01 -. "job result refs" .-> OIN
+  J02 -. "job result refs" .-> OIN
+  J03 -. "job result refs" .-> OIN
+  J04 -. "job result refs" .-> OIN
+  J05 -. "job result refs" .-> OIN
+  J06 -. "job result refs" .-> OIN
+  J07 -. "job result refs" .-> OIN
+
   FACT -. "job input refs" .-> COMMAND
   POLICYRAIL -. "job input refs" .-> COMMAND
   MARKETRAIL -. "job input refs" .-> COMMAND
@@ -276,9 +303,20 @@ flowchart LR
   DATARAIL -. "job input refs" .-> COMMAND
   ARTIFACTRAIL -. "job input refs" .-> COMMAND
   GOVRAIL -. "job input refs" .-> COMMAND
+  STORERAIL -. "owner write contracts" .-> DOMAINRT
+  OPSRAIL -. "health / incident refs" .-> PIN
   POLICYRAIL -. "trading mode gates" .-> DIN
   POLICYRAIL -. "trading mode gates" .-> CIN
   POLICYRAIL -. "authorized write mode" .-> XIN
+  DOMAINRT -. "domain lifecycle gates" .-> PIN
+  DOMAINRT -. "domain lifecycle gates" .-> SIN
+  DOMAINRT -. "domain lifecycle gates" .-> MDIN
+  DOMAINRT -. "domain lifecycle gates" .-> XIN
+  DOMAINRT -. "domain lifecycle gates" .-> DIN
+  DOMAINRT -. "domain lifecycle gates" .-> CIN
+  DOMAINRT -. "domain lifecycle gates" .-> RIN
+  DOMAINRT -. "domain lifecycle gates" .-> GIN
+  DOMAINRT -. "domain lifecycle gates" .-> AIN
 
   POUT --> POLICYRAIL
   SOUT --> FACT
@@ -319,11 +357,11 @@ flowchart LR
   classDef domainTitle fill:transparent,stroke:transparent,color:#1f2937,stroke-width:0px;
 
   class ENTRY,CYCLE,GRAPH,RP,TCFG,STRAT,RISKAUTH center;
-  class COMMAND,FACT,POLICYRAIL,MARKETRAIL,EXCHANGERAIL,DATARAIL,ARTIFACTRAIL,GOVRAIL,SCHEMAS rail;
+  class COMMAND,OPSRAIL,FACT,POLICYRAIL,MARKETRAIL,EXCHANGERAIL,DATARAIL,ARTIFACTRAIL,GOVRAIL,SCHEMAS,DOMAINRT rail;
   class OIN,OOUT,PIN,POUT,SIN,SOUT,MDIN,MDOUT,XIN,XOUT,DIN,DOUT,CIN,COUT,RIN,ROUT,GIN,GOUT,AIN,AOUT port;
-  class HOOKS,HEALTH,POST,NOTIFY handler;
+  class HOOKS,HEALTH,POST,IMGR,CREVIEW,NOTIFY handler;
   class J01,J02,J03,J04,J05,J06,J07 ticket;
-  class TDB,PROJ,FLOWIDX,OPSLOG,POLSTORE,INCIDENT,XLEDGER state;
+  class TDB,PROJ,FLOWIDX,OPSLOG,INCIDENTSTORE,POLSTORE,INCIDENT,XLEDGER state;
   class WATCH,ALLOC,EXEC,PREF,REC,FAST,EXECREC trade;
   class RDSTATE,RDTOOLS,RDSUP,SIGEVAL,SHADOW research;
   class SCAN,SNAP,RAWMD,TECH,DSETS,MSTORE market;

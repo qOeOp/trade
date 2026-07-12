@@ -68,9 +68,54 @@ trade-flow 是套件 tool 的总入口（功能 tool 拓扑见 [tool-layout.md](
 - 跨域图和跨域实现只允许连 inbox / outbox；不得从外部直接连到域内 handler、store 或 helper。
 - 域内 handler 可以很多，但它们属于内部实现，不增加域对外入口数量。
 
+### Domain Runtime
+
+跨域协议只规定“传什么”；`domain-runtime` 规定“每个域如何安全处理一次 job”。
+
+它不是业务框架，也不是消息总线。它是一套共享生命周期契约，详见 [domain-runtime-design.md](domain-runtime-design.md)：
+
+```text
+domain inbox
+  -> pre_accept
+  -> pre_handle
+  -> handler
+  -> post_handle
+  -> post_commit
+  -> domain outbox
+```
+
+顶层 runtime 分两级：
+
+| Runtime | Owner | 作用 |
+| --- | --- | --- |
+| `control tower runtime` | `orchestration-ops` | 管 cycle 生命周期：`pre_cycle / pre_job / post_job / post_cycle` |
+| `domain runtime` | `contracts/domain-runtime` | 管单个域 job 生命周期：`pre_accept / pre_handle / post_handle / post_commit / on_error` |
+
+`domain-runtime` 只承载横切约束：
+
+- inbox / outbox envelope validation
+- idempotency key
+- permission / write-scope check
+- trading mode gate
+- owner store commit boundary
+- result envelope validation
+- failure classification
+- incident refs
+
+它不生成 thesis、不判断策略资格、不计算 risk budget、不调用 Binance、不写任何 owner store。
+
+每个域接入前必须声明 inbox contract、handler capability、owner store、allowed write surface、outbox contract、failure classes 和 idempotency key。hook 可以阻断不合规结果，但不能替 handler 补造业务事实。
+
+当前 agent/subagent 运行形态下，job result 不单独抽成 rail：subagent 汇报给主 agent 后，由 `control tower runtime` 的 `post_job / post_cycle` processor 统一验收。若未来升级为独立 worker / queue / ack-retry 模式，再抽出 `job result rail`。
+
+控制塔只通过 `ops rail` 输出 health facts、incident refs、cycle summary 和 next-cycle constraints；`policy rail` 只由 `policy-risk / risk authority` 输出 runtime policy 与 trading profile-mode。控制塔报案，risk authority 判定 trading mode。
+
+系统问题进入 `incident store`，用于 ack / resolve / reviewed 生命周期与后续 `control effectiveness review`。该 review 复盘控制系统本身，不替代 closed-flow trading review。
+
 | Surface | Owner | 允许消费者 | 规则 |
 | --- | --- | --- | --- |
 | `runtime policy` | `policy-risk` | orchestration、live decision、preflight | policy 只定义可做什么；不读写实时仓位事实 |
+| ops facts / incident refs | `orchestration-ops` | policy-risk、orchestration | 只报告 health、cycle、incident 和 next-cycle constraints；不发布 policy |
 | `flow projector` | `portfolio-execution-state` | orchestration、decision、execution、governance | 任何真钱状态先落 `trade.db`，再通过 projector 被读取 |
 | market facts | `market-data-products` | health、decision、research、governance | 只提供 fresh facts / feature refs，不生成交易判断 |
 | exchange facts / write result refs | `exchange-gateway` | reconcile、fast guard、execution recorder、health | 只提供账户/订单事实和授权写结果，不生成交易判断 |
