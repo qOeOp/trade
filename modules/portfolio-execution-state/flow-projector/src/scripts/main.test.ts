@@ -14,7 +14,7 @@ test("flow projector CLI returns structured errors", () => {
 })
 
 test("flow projector CLI exposes latest slow observe as owner read surface", () => {
-  const dbPath = join(repoRoot(), "data", "test", `flow-projector-cli-${crypto.randomUUID()}.db`)
+  const dbPath = join(repoRoot(), "tmp", "test", `flow-projector-cli-${crypto.randomUUID()}.db`)
   mkdirSync(dirname(dbPath), { recursive: true })
   const db = new Database(dbPath)
   let closed = false
@@ -60,7 +60,7 @@ test("flow projector CLI exposes latest slow observe as owner read surface", () 
 })
 
 test("flow projector CLI returns read model refs for derived projections", () => {
-  const dbPath = join(repoRoot(), "data", "test", `flow-projector-ref-${crypto.randomUUID()}.db`)
+  const dbPath = join(repoRoot(), "tmp", "test", `flow-projector-ref-${crypto.randomUUID()}.db`)
   mkdirSync(dirname(dbPath), { recursive: true })
   const db = new Database(dbPath)
   let closed = false

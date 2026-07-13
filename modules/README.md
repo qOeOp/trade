@@ -99,6 +99,6 @@
 
 - agent-facing 模块之间通过 CLI JSON contract 协作；源码跨模块 import 只允许指向 `modules/contracts/*`、同 domain 的无 package internal engine，或 `orchestration-ops/trade-flow` 编排层调用 `modules/*` 原子能力。
 - `modules/orchestration-ops/trade-flow/src/domain/*/index.ts` 是 trade-flow 编排边界；新增原子能力优先落独立 `modules/<domain>/<module>`，不要继续塞进 trade-flow。
-- 模块运行产物只落 `data/` 或 `tmp/`；模块目录不保存运行快照、cache、研究垃圾。
+- 模块 durable 运行事实只落 `data/*.db`；临时工作产物只落 `tmp/`；模块目录不保存运行快照、cache、研究垃圾。
 - `T` 类 Binance 写模块不得被 R&D / replay / market scan 直接调用。
 - `negative_control` 是唯一命名口径。

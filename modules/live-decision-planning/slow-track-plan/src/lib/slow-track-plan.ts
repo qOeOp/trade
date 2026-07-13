@@ -135,6 +135,7 @@ async function runTechnicalAnalysis(
   const ohlcvToolDir = join(input.repoRoot, "modules/market-data-products/ohlcv-fetch")
   const ohlcvOutputDir = join(input.repoRoot, "tmp", "market", input.runId, symbol)
   const marketDataDb = join(input.dataDir, "market_data.db")
+  const ohlcvDb = join(input.dataDir, "ohlcv.db")
   const ohlcv = await callTool(
     runner,
     [
@@ -148,6 +149,8 @@ async function runTechnicalAnalysis(
       ohlcvOutputDir,
       "--market-data-db",
       marketDataDb,
+      "--ohlcv-db",
+      ohlcvDb,
     ],
     ohlcvToolDir,
   )

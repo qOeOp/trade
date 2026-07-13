@@ -9,7 +9,7 @@
 - 目录按行为和责任切分：采集、分析、编排、守卫、执行、资产治理分开。
 - agent / automation / human 通过 CLI + JSON contract 调工具；跨域不得直接 import 业务实现。
 - 跨域源码复用只走 `modules/contracts/*`；同 domain 原子工具共享公式可走无 package internal engine；领域判断留在 owner 模块。
-- 运行产物只落 `data/` 或 `tmp/`；源码目录不堆 artifact、cache、运行快照。
+- Durable 运行事实只落 `data/*.db`；临时工作产物只落 `tmp/`；源码目录不堆 artifact、cache、运行快照。
 - strategy policy 的唯一源码位置是 `strategies/`。
 - negative control 命名是唯一口径。
 

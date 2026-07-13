@@ -1,13 +1,15 @@
 #!/usr/bin/env bun
 
 import { Database } from "bun:sqlite"
-import { readFileSync } from "node:fs"
+import { mkdirSync, readFileSync } from "node:fs"
+import { dirname } from "node:path"
 import {
   buildCanonicalCandles,
   buildFeatureManifest,
   buildFundingEvents,
   buildMarketManifest,
   ensureMarketDataSchema,
+  ensureOhlcvSchema,
   listFeatureManifests,
   readCanonicalCandles,
   readFeatureManifest,
@@ -23,18 +25,22 @@ import { stringField, type JSONRecord } from "../../../../contracts/runtime-core
 
 interface Args {
   dbPath: string
+  ohlcvDbPath: string
   action: string
   json: JSONRecord
 }
 
 export function parseArgs(argv: string[]): Args {
   let dbPath = "data/market_data.db"
+  let ohlcvDbPath = "data/ohlcv.db"
   let action = "init"
   let json: JSONRecord = {}
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     if (arg === "--db") {
       dbPath = argv[++index] ?? dbPath
+    } else if (arg === "--ohlcv-db") {
+      ohlcvDbPath = argv[++index] ?? ohlcvDbPath
     } else if (arg === "--action") {
       action = argv[++index] ?? action
     } else if (arg === "--json") {
@@ -48,15 +54,17 @@ export function parseArgs(argv: string[]): Args {
       throw new Error(`unknown argument: ${arg}`)
     }
   }
-  return { dbPath, action, json }
+  return { dbPath, ohlcvDbPath, action, json }
 }
 
 export function run(args: Args): JSONRecord {
+  mkdirSync(dirname(args.dbPath), { recursive: true })
   const db = new Database(args.dbPath)
   try {
     ensureMarketDataSchema(db)
     if (args.action === "init") {
-      return { ok: true, action: "init", db: args.dbPath }
+      withOhlcvDb(args.ohlcvDbPath, () => null)
+      return { ok: true, action: "init", db: args.dbPath, ohlcv_db: args.ohlcvDbPath }
     }
     if (args.action === "upsert_manifest") {
       const manifest = buildMarketManifest(args.json)
@@ -64,8 +72,11 @@ export function run(args: Args): JSONRecord {
       return { ok: true, action: args.action, manifest }
     }
     if (args.action === "upsert_candles") {
-      const count = upsertCanonicalCandles(db, buildCanonicalCandles(args.json.candles))
-      return { ok: true, action: args.action, count }
+      return withOhlcvDb(args.ohlcvDbPath, (ohlcvDb) => ({
+        ok: true,
+        action: args.action,
+        count: upsertCanonicalCandles(ohlcvDb, buildCanonicalCandles(args.json.candles)),
+      }))
     }
     if (args.action === "upsert_funding") {
       const count = upsertFundingEvents(db, buildFundingEvents(args.json.events))
@@ -97,21 +108,21 @@ export function run(args: Args): JSONRecord {
       }
     }
     if (args.action === "read_latest_candle") {
-      return {
+      return withOhlcvDb(args.ohlcvDbPath, (ohlcvDb) => ({
         ok: true,
         action: args.action,
-        open_time: readLatestCandleOpenTime(db, {
+        open_time: readLatestCandleOpenTime(ohlcvDb, {
           exchange: stringField(args.json.exchange) || undefined,
           symbol: stringField(args.json.symbol),
           timeframe: stringField(args.json.timeframe),
         }),
-      }
+      }))
     }
     if (args.action === "read_candles") {
-      return {
+      return withOhlcvDb(args.ohlcvDbPath, (ohlcvDb) => ({
         ok: true,
         action: args.action,
-        candles: readCanonicalCandles(db, {
+        candles: readCanonicalCandles(ohlcvDb, {
           exchange: stringField(args.json.exchange) || undefined,
           symbol: stringField(args.json.symbol),
           timeframe: stringField(args.json.timeframe),
@@ -119,7 +130,7 @@ export function run(args: Args): JSONRecord {
           until_ts: optionalNumber(args.json.until_ts),
           limit: optionalNumber(args.json.limit),
         }),
-      }
+      }))
     }
     if (args.action === "read_feature_manifest") {
       return {
@@ -148,9 +159,20 @@ export function run(args: Args): JSONRecord {
 
 function printHelp(): void {
   console.log([
-    "usage: bun src/scripts/main.ts --db data/market_data.db --action init",
+    "usage: bun src/scripts/main.ts --db data/market_data.db --ohlcv-db data/ohlcv.db --action init",
     "actions: init | upsert_manifest | upsert_candles | upsert_funding | upsert_feature_manifest | read_manifest | read_funding | read_latest_candle | read_candles | read_feature_manifest | list_feature_manifests",
   ].join("\n"))
+}
+
+function withOhlcvDb<T>(dbPath: string, fn: (db: Database) => T): T {
+  mkdirSync(dirname(dbPath), { recursive: true })
+  const db = new Database(dbPath)
+  try {
+    ensureOhlcvSchema(db)
+    return fn(db)
+  } finally {
+    db.close()
+  }
 }
 
 function optionalNumber(value: unknown): number | undefined {

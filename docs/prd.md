@@ -65,7 +65,7 @@ artifact-knowledge
 
 产品边界按责任域裁剪：总控只调度，policy/risk 只定义允许范围，execution state 只记录真钱事实，market-data 只生产可复读数据产品，exchange-gateway 只提供账户/订单事实和授权外部 side effect，live decision 只生成计划和 `action_intent`，live execution 只负责受控动作，research 只产候选，governance 才判资格，artifact-knowledge 只管材料和引用。
 
-域之间默认不做双向模块调用：job 消费 `runtime policy / flow read models / market facts / exchange facts / artifact refs / approved strategy contracts` 这些 owner-owned surfaces，并把结果写回对应 owner store。逻辑 store 至少分为 `trade_event_store / flow_read_models / market_data_store / exchange_runtime_store / artifact_catalog / research_state_store / governance_ledger / policy_registry / ops_runtime_store`；当前物理上可先落在 `trade.db`、`data_catalog.db` 与文件资产，但跨 store 只传 `logical-store-ref` / artifact ref / manifest ref，不互写表。
+域之间默认不做双向模块调用：job 消费 `runtime policy / flow read models / market facts / exchange facts / artifact refs / approved strategy contracts` 这些 owner-owned surfaces，并把结果写回对应 owner store。逻辑 store 至少分为 `trade_event_store / flow_read_models / market_data_store / ohlcv_store / exchange_runtime_store / artifact_catalog / research_state_store / governance_ledger / policy_registry / ops_runtime_store`；当前物理上只落数据库 owner store，跨 store 只传 `logical-store-ref` / artifact ref / manifest ref，不互写表。
 
 产品上先做 protocol fabric / rails，不做平台级 middleware：图上可以画 logical bus layer 来降低理解成本，但运行时先由 job ticket、contract schema registry、`trade.db`/read model、catalog/artifact ref、approved strategy / policy snapshot、market manifests / fresh snapshot 承担通信协议。只有当多 worker ack/retry、异步订阅、消费位点或跨进程实时推送成为硬需求时，才升级为队列或消息总线。
 
@@ -402,7 +402,7 @@ strategy policy 走 markdown；account / notify config 走 JSON；市场原始�
 - `trade.db` 只存事件、摘要和 refs，不存原始 OHLCV / aggTrades / replay 大对象
 - 未被 strategy evidence、review、active observe 或 `.pin` 引用的文件型 artifact 必须可清理
 - strategy evidence ledger 独立为 JSONL；它是策略准入证据，不是交易事实源
-- ad-hoc 分析优先写 `./tmp/artifacts` / `./tmp/panels`；只有会影响策略准入或复盘的结果才归档到 `./data/artifacts` 类目录
+- ad-hoc 分析优先写 `./tmp/artifacts` / `./tmp/panels`；会影响策略准入或复盘的结果必须写入对应 DB summary/ref，不归档到 `data/` 目录
 - 清理必须默认 dry-run；只有显式确认才删除
 - Git 边界与 data 留存规则见 [data-hygiene.md](data-hygiene.md)
 

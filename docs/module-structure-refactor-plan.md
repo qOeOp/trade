@@ -175,17 +175,18 @@ automation-plan
 | --- | --- | --- | --- |
 | `trade_event_store` | `portfolio-execution-state/event-store` | `trade.db.plan_event` | 保持真钱事件单写；只 append |
 | `flow_read_models` | `portfolio-execution-state/flow-projector` | runtime projector | 可重建 projection/cache table |
-| `market_data_store` | `market-data-products/*` | manifest / CSV / JSON | `ohlcv.duckdb` / parquet / feature manifests |
+| `market_data_store` | `market-data-products/*` | `data/market_data.db` | database owner store for market manifests / funding / feature refs |
+| `ohlcv_store` | `market-data-products/*` | `data/ohlcv.db` | database owner store for multi-symbol / multi-timeframe canonical candles |
 | `exchange_runtime_store` | `exchange-gateway/*` | client order id、exchange request/result refs、account snapshots | 外部 side effect 审计；真钱事实仍落 `trade_event_store` |
 | `artifact_catalog` | `artifact-knowledge/artifact-catalog` | `data_catalog.db` | 索引、refs、retention，不存大 payload |
-| `research_state_store` | `research-strategy-development/rd-program-state` | state artifact + catalog | `rd_state.db` 或等价 ledger；预算和 holdout 幂等 |
+| `research_state_store` | `research-strategy-development/rd-program-state` | `data/rd_state.db` | 预算和 holdout 幂等事实只走数据库 |
 | `governance_ledger` | `governance-review-compliance/*` | catalog strategy evidence tables | 独立 evidence / promotion schema owner |
 | `policy_registry` | policy compiler + approved strategy files | markdown/config hash | approved status / policy hash snapshot |
-| `ops_runtime_store` | cron runtime / notify dispatch | lock / JSONL log | health、cycle summary、notify attempts |
+| `ops_runtime_store` | cron runtime / notify dispatch | `data/ops_runtime.db` | health、cycle summary、notify attempts |
 
 通信拆分按 protocol rails 推进，不按“域之间互相 import / 互相调 CLI”推进。当前目标是先稳定 job ticket envelope、event/ref envelope、policy snapshot、market manifest、artifact ref、logical store ref 与 idempotency key；只有 ack/retry/dead-letter、异步多订阅、消费位点或跨进程实时推送成为硬需求时，才把某条 rail 升级为队列 / stream / service bus。
 
-`modules/contracts/protocol-fabric/src/schemas/logical-store-ref.schema.json` 是 logical store 的共享身份协议；它记录 `store / owner_domain / owner_module / physical_locator / write_contract / ref`。后续从 `data_catalog.db`、文件 manifest 或 JSONL 拆到 DuckDB / 独立 SQLite 时，先迁 `physical_locator` 和 owner module，不改跨域引用语义。
+`modules/contracts/protocol-fabric/src/schemas/logical-store-ref.schema.json` 是 logical store 的共享身份协议；它记录 `store / owner_domain / owner_module / physical_locator / write_contract / ref`。后续从当前 SQLite 拆到 DuckDB / 独立 SQLite 时，先迁 `physical_locator` 和 owner module，不改跨域引用语义；不能退回文件 manifest 或 JSONL 作为 durable store。
 
 存储落地表见 [storage-architecture.md](storage-architecture.md)。新增或拆分任何 store 时，必须同步 [architecture-manifest.json](architecture-manifest.json)、`docs/storage-schema/*.sql` 和 owner module check。
 

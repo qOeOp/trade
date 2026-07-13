@@ -146,9 +146,10 @@ flowchart LR
     MDROUTE["market request router<br/>refresh / query / dataset build"]
     SCAN["universe / liquidity scan<br/>可交易性粗筛"]
     SNAP["symbol snapshot<br/>mark / funding / OI"]
-    RAWMD["raw market capture<br/>OHLCV / funding / aggtrades"]
+    RAWMD["market capture<br/>OHLCV / funding / aggtrades"]
     MDQUAL["data quality gate<br/>closed candle / gaps / checksum / freshness"]
-    MSTORE[("canonical market store<br/>closed candles / funding / checksums")]
+    OSTORE[("ohlcv_store<br/>data/ohlcv.db<br/>multi-symbol / multi-timeframe candles")]
+    MSTORE[("market_data_store<br/>data/market_data.db<br/>manifests / funding / feature refs")]
     TECH["feature engine<br/>indicator / structure / regime"]
     DSETS["dataset manifests<br/>panel / split / feature refs"]
     MDPUB["market fact publisher<br/>freshness / time window / refs"]
@@ -160,7 +161,9 @@ flowchart LR
     MDROUTE --> SCAN
     MDROUTE --> SNAP
     RAWMD --> MDQUAL
-    MDQUAL --> MSTORE
+    MDQUAL --> OSTORE
+    RAWMD --> MSTORE
+    OSTORE --> TECH
     MSTORE --> TECH
     TECH --> DSETS
     SCAN --> MDPUB
@@ -335,14 +338,12 @@ flowchart LR
     direction TB
     LDTITLE["本地数据平面<br/>local data plane"]
     LDPAD[" "]
-    SQLITE[("SQLite logical stores<br/>data/*.db<br/>facts / ledgers / refs / summaries<br/>market_data_store / research_state_store")]
-    FILES[("durable file payloads<br/>data/artifacts / raw archives<br/>large bodies only, not owner state")]
-    TMPFILES[("ephemeral workspace payloads<br/>tmp/artifacts / tmp/panels / tmp/market<br/>可再生中间产物")]
-    CATIDX["catalog index contract<br/>DB stores refs / hash / lineage / retention<br/>files store large bodies"]
+    SQLITE[("SQLite logical stores only<br/>data/*.db<br/>facts / ledgers / refs / summaries<br/>ohlcv_store / market_data_store / research_state_store")]
+    TMPFILES[("ephemeral workspace payloads only<br/>tmp/artifacts / tmp/panels / tmp/market<br/>可再生中间产物，不是 durable storage")]
+    CATIDX["catalog index contract<br/>DB stores refs / hash / lineage / retention<br/>durable facts stay in SQLite"]
     LDTITLE ~~~ LDPAD
     LDPAD ~~~ SQLITE
     SQLITE --> CATIDX
-    FILES --> CATIDX
     TMPFILES --> CATIDX
   end
 
@@ -417,17 +418,18 @@ flowchart LR
   OPSLOG -. "physical store" .-> SQLITE
   INCIDENTSTORE -. "physical store" .-> SQLITE
   TDB -. "physical store" .-> SQLITE
+  OSTORE -. "physical store" .-> SQLITE
   MSTORE -. "physical store + refs" .-> SQLITE
-  MSTORE -. "large payload refs" .-> FILES
+  MSTORE -. "transient workspace refs" .-> TMPFILES
   XLEDGER -. "physical store" .-> SQLITE
   POLSTORE -. "physical store" .-> SQLITE
   MODESTORE -. "physical store" .-> SQLITE
   RDSTATE -. "physical store" .-> SQLITE
   RDSTATE -. "artifact refs only" .-> ART
-  SHADOWLEDGER -. "shadow artifact refs" .-> FILES
+  SHADOWLEDGER -. "shadow artifact refs" .-> TMPFILES
   GOVLEDGER -. "physical store" .-> SQLITE
   ART -. "catalog DB" .-> SQLITE
-  ART -. "artifact files" .-> FILES
+  ART -. "workspace artifacts" .-> TMPFILES
 
   FACT --> SIN
   MARKETRAIL --> MDIN
@@ -458,10 +460,10 @@ flowchart LR
   class TDB,PROJ,FLOWIDX,OPSLOG,INCIDENTSTORE,POLSTORE,OVERRIDE,MODESTORE,XLEDGER state;
   class DASM,WATCH,PLAN,ALLOC,DPUB,EXEC,EGATE,PREF,CMDCOMP,EROUTE,REC,FAST,EXECREC,APPEND,PUBLISH trade;
   class RDSTATE,RDTOOLS,RDSUP,RDDESIGN,SIGEVAL,FREEZE,SHADOW,SHADOWLEDGER,RDPUB research;
-  class MDROUTE,SCAN,SNAP,RAWMD,MDQUAL,TECH,DSETS,MSTORE,MDPUB market;
+  class MDROUTE,SCAN,SNAP,RAWMD,MDQUAL,TECH,DSETS,OSTORE,MSTORE,MDPUB market;
   class ACC,WRITEPRE,WRITE,CONFIRM,XROUTE market;
   class EVGATE,REVIEW,PROMO,POLFB,GOVLEDGER gov;
   class AREG,CAT,LINEAGE,RETAIN,ART,APUB artifact;
-  class SQLITE,FILES,TMPFILES,CATIDX dataPlane;
+  class SQLITE,TMPFILES,CATIDX dataPlane;
   class OPAD,FSPAD,JSPAD,PPAD,SPAD,MDPAD,XPAD,DPAD,CPAD,RPAD,GPAD,APAD,LDPAD spacer;
   class ORTITLE,FTITLE,JTITLE,PTITLE,STITLE,MDTITLE,XTITLE,DTITLE,CTITLE,RDTITLE,GTITLE,ATITLE,LDTITLE domainTitle;

@@ -15,6 +15,7 @@ const LOGICAL_STORES = [
   "trade_event_store",
   "flow_read_models",
   "market_data_store",
+  "ohlcv_store",
   "exchange_runtime_store",
   "artifact_catalog",
   "research_state_store",

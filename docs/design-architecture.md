@@ -448,7 +448,7 @@ domain inbox
 
 分库分表的原则是“一个事实源，一个 owner，一个写入口”；跨库不做强外键，使用 event key / artifact ref / manifest ref / strategy ref 连接。当前物理上只有 `trade.db` 与 `data_catalog.db` 不等于架构上只有两个数据域；MVP 可以先少库，但逻辑 store 必须先分清。
 
-跨域传递 store 身份时使用 `protocol-fabric.logical-store-ref`：`store / owner_domain / owner_module / physical_locator / write_contract / ref`。物理库未来可以从 SQLite / 文件 manifest 迁到 DuckDB、parquet 或独立 ledger，但外部域仍只消费 ref 和 contract，不直接依赖表结构。
+跨域传递 store 身份时使用 `protocol-fabric.logical-store-ref`：`store / owner_domain / owner_module / physical_locator / write_contract / ref`。物理库未来可以从 SQLite 迁到 DuckDB 或独立数据库 ledger，但不能退回目录文件；外部域仍只消费 ref 和 contract，不直接依赖表结构。
 
 落地状态以 [storage-architecture.md](storage-architecture.md) 和 [architecture-manifest.json](architecture-manifest.json) 为准。`implemented` 表示已有 owner module 和运行时代码；`planned` 表示顶层已决定独立库表与 DDL，但 runtime 尚未接入，不能在 Mermaid 或文档里伪装成已完成。
 
@@ -456,18 +456,19 @@ domain inbox
 | --- | --- | --- | --- | --- | --- |
 | `trade_event_store` | `portfolio-execution-state` | `trade.db.plan_event` | 保持独立 SQLite；只 append 事件 | event-store / execution recorder / review writer | flow projector |
 | `flow_read_models` | `portfolio-execution-state` | 运行时 projector 计算 | 可落 `trade.db` 派生表或独立 cache 表；可重建 | projector rebuild | active flows、open exposure、review queue |
-| `market_data_store` | `market-data-products` | OHLCV / funding manifest + CSV/JSON artifacts | 数据量上来后拆 `ohlcv.duckdb` / parquet；manifest 仍进 catalog | market/data tools | fresh market facts、indicator inputs |
+| `market_data_store` | `market-data-products` | `data/market_data.db` | market manifests / funding / feature refs 只走数据库 owner store | market/data tools | market metadata、indicator inputs |
+| `ohlcv_store` | `market-data-products` | `data/ohlcv.db` | 多标的 / 多周期 canonical candles 只走数据库 owner store | ohlcv-fetch / market-data-store | fresh candles、replay / benchmark inputs |
 | `exchange_runtime_store` | `exchange-gateway` | client order id、exchange request/result artifact、account snapshots | 如需审计外部 side effect，可拆 `exchange_runtime.db`；真钱事实仍写入 `trade_event_store` | exchange adapters | account/order facts、exchange result refs |
-| `artifact_catalog` | `artifact-knowledge` | `data_catalog.db` + 文件 payload | 保持独立；只存索引、hash、refs、retention，不存大 payload | catalog service | catalog summary refs、stale / GC |
-| `research_state_store` | `research-strategy-development` | `rd_program_state` artifact + catalog record | 研发循环稳定后可拆 `rd_state.db`；trial ledger / holdout use 要幂等 | research supervisor / shadow tracker | research state summary、next hypothesis refs |
+| `artifact_catalog` | `artifact-knowledge` | `data_catalog.db` | 保持独立；存索引、hash、refs、retention 与必要 summary，不把文件目录当 durable store | catalog service | catalog summary refs、stale / GC |
+| `research_state_store` | `research-strategy-development` | `data/rd_state.db` | RD program / trial ledger / holdout use 幂等事实只走数据库 | research supervisor / shadow tracker | research state summary、next hypothesis refs |
 | `governance_ledger` | `governance-review-compliance` | strategy evidence / promotion records in `data_catalog.db` | 资格判定稳定后可拆 `governance.db`，或保留 catalog 表但独立 schema owner | review writer / promotion gate | approved decision refs、evidence freshness |
 | `policy_registry` | `policy-risk` | approved strategy markdown + config hash | 可拆 policy snapshot table；必须记录 policy hash / approved status | governance promotion gate / policy compiler | runtime policy |
-| `ops_runtime_store` | `orchestration-ops` | cron log / lock / health JSONL | 可拆 `ops_runtime.db`；低价值日志可继续 JSONL | health checker / notify dispatcher | orchestration summary |
+| `ops_runtime_store` | `orchestration-ops` | `data/ops_runtime.db` | cycle / job / health / notify / incident 只走数据库；临时 lock 不作为 durable state | health checker / notify dispatcher | orchestration summary |
 
 拆库触发条件：
 
 - `trade.db` 不拆出交易事件；最多增加可重建 read-model 表，避免真钱事实分裂。
-- OHLCV / funding / feature 数据一旦需要批量 scan、join、回测复读，应从文件 manifest 升级成 `market_data_store`，不进入 `trade.db`。
+- OHLCV 数据一律进入 `ohlcv_store`；funding / feature metadata 一律进入 `market_data_store`；不以文件 manifest 作为事实源，也不进入 `trade.db`。
 - `data_catalog.db` 只做索引层；若 governance evidence 查询和 promotion 决策变复杂，应拆 `governance_ledger`，不要把 catalog 变成万能业务库。
 - R&D state 从“单程序状态 artifact”升级为多 hypothesis / 多 campaign 并发时，应拆 `research_state_store`，并对 trial budget / holdout use 做幂等约束。
 - ops runtime store 只服务调度可观测性，不反向影响 policy、flow 或 strategy evidence。
@@ -942,9 +943,9 @@ CREATE INDEX idx_beta_symbol_date ON beta_cache(symbol, computed_date DESC);
 | Strategy policy | Markdown（一文件一 strategy，frontmatter + `## Trade Contract`） | `strategies/*.md` |
 | Trading config | JSON 文件 | `./profile/trading-config.json` |
 | Deprecated config input | JSON 文件 | `./profile/account_config.json` / `./profile/notify_config.json` |
-| System state | JSON 文件 | `./data/system_state.json`（熔断状态） |
-| Cron log | 文本日志 | `./data/cron.log` |
-| OHLCV / 市场数据 | SQLite owner store + raw/import archive refs | `./data/market_data.db`；`./data/ohlcv/` 仅 legacy/raw archive |
+| System state | SQLite owner store | `./data/ops_runtime.db` |
+| Cron log | SQLite owner store | `./data/ops_runtime.db` |
+| OHLCV / 市场数据 | SQLite owner store | `./data/ohlcv.db` |
 | Strategy degradation audits | Markdown（一文件一次触发） | `./data/strategy_audits/<strategy_ref>/<ISO8601_utc>.md` |
 
 Git 边界与 data 留存规则见 [data-hygiene.md](data-hygiene.md)。
@@ -1899,13 +1900,13 @@ def primary_mistake(outcome, thesis_held, plan_adherence, execution_quality):
 
 **慢/快轨重叠**：两轨独立调度（见 §双轨 → 调度归属）可能在同一时刻被 agent runtime 触发，或因慢轨 LLM 推理跑超 5min 撞上下一次快轨触发。trade-flow 入口持进程级 lock（`./data/.trade-flow.lock`，写入 PID + start_time + track）：
 
-- 后到者读到活 lock 即 exit 0，写一行 cron.log 记录跳过原因，不写 plan_event
+- 后到者读到活 lock 即 exit 0，写一条 ops runtime 记录说明跳过原因，不写 plan_event
 - stale lock（start_time 超过 10min）由后到者强制清理后取走 lock
 - 配合 `clientOrderId` 派生（`<chain_id>-<seq>-<action>`）+ 入场前 reduce `current_orders / current_position` 检查，重叠最坏后果是后到者 exit，不会重复下单
 
 lock 不替代爆仓护栏 / 对账：它只解决"两个 cron 进程同时跑"这一类调度噪音；交易所一致性仍由幂等执行 + 全量对账兜底。
 
-**系统级熔断**：连续 N 次慢轨周期均以 abort 结束（Binance API 持续失败 / 全量对账无法恢复），系统进入全局 suspend 模式：拒绝所有加暴露动作（`place_entry` / `adjust_position add`），只允许 `cancel_order` / `sync_protection` / `adjust_position reduce`。状态持久化在 `./data/system_state.json`：
+**系统级熔断**：连续 N 次慢轨周期均以 abort 结束（Binance API 持续失败 / 全量对账无法恢复），系统进入全局 suspend 模式：拒绝所有加暴露动作（`place_entry` / `adjust_position add`），只允许 `cancel_order` / `sync_protection` / `adjust_position reduce`。状态持久化在 `./data/ops_runtime.db`：
 
 ```json
 {
@@ -1918,9 +1919,9 @@ lock 不替代爆仓护栏 / 对账：它只解决"两个 cron 进程同时跑"�
 }
 ```
 
-触发阈值：`consecutive_aborts >= 3`（慢轨连续 3 次 abort）。每次慢轨成功完成（走到 DECISION_CARD 输出）时 `consecutive_aborts` 归零。`state=suspended` 期间，慢轨入口在全量对账成功后自动恢复 `normal`，不需要人工干预；若对账依然失败则维持 suspended 并通知。`system_state.json` 缺失时视为 `normal`，不阻断。
+触发阈值：`consecutive_aborts >= 3`（慢轨连续 3 次 abort）。每次慢轨成功完成（走到 DECISION_CARD 输出）时 `consecutive_aborts` 归零。`state=suspended` 期间，慢轨入口在全量对账成功后自动恢复 `normal`，不需要人工干预；若对账依然失败则维持 suspended 并通知。ops runtime store 无熔断记录时视为 `normal`，不阻断。
 
-**异常通知**预留统一 dispatch 工具接口（配置在 `./profile/trading-config.json` 的 notifications 段，凭证只走环境变量；通道缺失或失败均 fallback 到 cron.log，永不阻塞 cron 主流程）：
+**异常通知**预留统一 dispatch 工具接口（配置在 `./profile/trading-config.json` 的 notifications 段，凭证只走环境变量；通道缺失或失败均 fallback 到 ops runtime store，永不阻塞 cron 主流程）：
 
 | event_type | 触发条件 | 缺省 level |
 |---|---|---|

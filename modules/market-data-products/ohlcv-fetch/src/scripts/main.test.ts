@@ -218,6 +218,7 @@ test("run preserves relative output paths in response and manifest", async () =>
       "--timeframes", "4h",
       "--output-dir", relativeOutputDir,
       "--market-data-db", join(tempParent, "market_data.db"),
+      "--ohlcv-db", join(tempParent, "ohlcv.db"),
     ], client)
     assert.equal(result.ok, true)
     if (!result.ok) return
@@ -256,6 +257,7 @@ test("run normalizes absolute output paths in response and manifest", async () =
     "--timeframes", "4h",
     "--output-dir", outputDir,
     "--market-data-db", join(outputDir, "market_data.db"),
+    "--ohlcv-db", join(outputDir, "ohlcv.db"),
   ], client)
   assert.equal(result.ok, true)
   if (!result.ok) return
@@ -274,6 +276,7 @@ test("run can upsert fetched candles into market data store", async () => {
   const outputDir = mkdtempSync(join(tmpdir(), "ohlcv-fetch-store-output-"))
   const storeDir = mkdtempSync(join(tmpdir(), "ohlcv-fetch-store-"))
   const dbPath = join(storeDir, "market_data.db")
+  const ohlcvDbPath = join(storeDir, "ohlcv.db")
   const rows = [1, 2, 3].map((index) => ({
     openTime: index * 14_400_000,
     open: String(index),
@@ -296,6 +299,8 @@ test("run can upsert fetched candles into market data store", async () => {
     outputDir,
     "--market-data-db",
     dbPath,
+    "--ohlcv-db",
+    ohlcvDbPath,
   ], client)
 
   assert.equal(result.ok, true)
@@ -303,6 +308,7 @@ test("run can upsert fetched candles into market data store", async () => {
   assert.equal(result.data.market_data_store?.manifests.length, 1)
   assert.equal(result.data.market_data_store?.candles_upserted, 3)
   assert.equal(isAbsolute(result.data.market_data_store?.db ?? ""), false)
+  assert.equal(isAbsolute(result.data.market_data_store?.ohlcv_db ?? ""), false)
 
   const manifestId = result.data.market_data_store?.manifests[0].manifest_id ?? ""
   const db = new Database(dbPath)
@@ -314,10 +320,16 @@ test("run can upsert fetched candles into market data store", async () => {
     assert.equal(manifest?.timeframe, "4h")
     assert.equal(manifest?.rows, 3)
     assert.equal(manifest?.freshness_json?.closed_candles_only, true)
-    const candleRow = db.query("SELECT COUNT(*) AS count, MAX(close) AS max_close FROM canonical_candle WHERE symbol='BTCUSDT' AND timeframe='4h'").get() as { count: number; max_close: number }
+  } finally {
+    db.close()
+  }
+
+  const ohlcvDb = new Database(ohlcvDbPath)
+  try {
+    const candleRow = ohlcvDb.query("SELECT COUNT(*) AS count, MAX(close) AS max_close FROM canonical_candle WHERE symbol='BTCUSDT' AND timeframe='4h'").get() as { count: number; max_close: number }
     assert.equal(candleRow.count, 3)
     assert.equal(candleRow.max_close, 3.25)
   } finally {
-    db.close()
+    ohlcvDb.close()
   }
 })

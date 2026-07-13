@@ -936,7 +936,7 @@
         "A"
       ],
       "path": "modules/market-data-products/market-data-store",
-      "purpose": "Record market manifests, canonical candles, funding events, and feature manifests in market_data_store.",
+      "purpose": "Record market manifests, funding events, and feature manifests in market_data_store, and canonical candles in ohlcv_store.",
       "command": {
         "cwd": "modules/market-data-products/market-data-store",
         "argv": [
@@ -944,6 +944,8 @@
           "src/scripts/main.ts",
           "--db",
           "./data/market_data.db",
+          "--ohlcv-db",
+          "./data/ohlcv.db",
           "--action",
           "<action>",
           "--json",
@@ -958,7 +960,7 @@
         "config": false
       },
       "notes": [
-        "Owns logical market_data_store refs; current implementation uses the SQL-compatible store contract while the target physical locator remains DuckDB/parquet.",
+        "Owns logical market_data_store refs and ohlcv_store refs; durable market data uses database owner-store contracts, not file directories.",
         "Read actions include read_manifest, read_funding, read_feature_manifest, and list_feature_manifests so other domains can consume owner refs without direct table access."
       ],
       "module_type": "atomic",
@@ -2742,7 +2744,7 @@
         "A"
       ],
       "path": "modules/market-data-products/ohlcv-fetch",
-      "purpose": "Fetch candles, funding, calibration panels, and market feature inputs into market_data_store plus manifest-backed artifacts.",
+      "purpose": "Fetch candles into ohlcv_store and market manifests into market_data_store; also supports funding, calibration panels, and market feature inputs.",
       "command": {
         "cwd": "modules/market-data-products/ohlcv-fetch",
         "argv": [
@@ -2753,7 +2755,9 @@
           "--timeframes",
           "1d,4h,1h",
           "--market-data-db",
-          "./data/market_data.db"
+          "./data/market_data.db",
+          "--ohlcv-db",
+          "./data/ohlcv.db"
         ]
       },
       "writes": {
@@ -2765,7 +2769,7 @@
       },
       "notes": [
         "Writes market data products and manifests, not strategy decisions.",
-        "OHLCV fetch defaults to data/market_data.db, reads latest canonical candle per timeframe, and incrementally upserts market_manifest and canonical_candle rows.",
+        "OHLCV fetch defaults to data/market_data.db for manifests and data/ohlcv.db for canonical candles; it reads latest canonical candle per timeframe from ohlcv_store and incrementally upserts candle rows there.",
         "Calibration suite input carries market_data_db, funding_events_ref, and feature_manifest_ref alongside indicator_report_path while downstream readers finish moving to owner read ports."
       ],
       "module_type": "suite",

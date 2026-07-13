@@ -14,52 +14,39 @@
 | 示例输入 / 模板 | 是 | `modules/**/examples` |
 | strategy policy | 是 | `strategies/*.md` |
 | trade runtime DB | 否 | `data/trade.db`, `data/*.sqlite*` |
-| cron / lock / system state | 否 | `data/cron.log`, `data/.trade-flow.lock`, `data/system_state.json` |
+| ops / lock / system state | 否 | `data/ops_runtime.db`；临时 lock 只能放 `tmp/` |
 | strategy evidence / R&D ledger / R&D state | 否 | `data/data_catalog.db`, `data/rd_state.db` |
-| 临时 replay / R&D / calibration / validation / forward holdout artifact | 否 | `tmp/artifacts/`, `tmp/panels/` |
-| OHLCV / market data | 否 | `data/market_data.db`；`data/ohlcv/` 仅作 raw/import archive |
+| 临时 replay / R&D / calibration / validation / forward holdout artifact | 否 | `tmp/artifacts/`, `tmp/panels/`；不是 durable storage |
+| OHLCV / market data | 否 | `data/ohlcv.db`, `data/market_data.db` |
 | local operator config | 否 | `profile/account_config.json`, `profile/notify_config.json` |
 
-需要长期保留但不进 Git 的产物，才显式放入 `data/` 或由 ledger / DB 引用；普通研究中间产物默认放 `tmp/`，必要时用 `.pin` 或 evidence / ledger ref 保护。
+需要长期保留但不进 Git 的事实，只能进入 `data/*.db`。普通研究中间产物默认放 `tmp/`，必要时由 DB ref / evidence / ledger 引用；引用不改变其非 durable 身份。
 
 ## 2. 放置规则
 
-- OHLCV canonical candles：写 `data/market_data.db.canonical_candle`；raw/import archive 才写 `data/ohlcv/`
+- OHLCV canonical candles：写 `data/ohlcv.db.canonical_candle`
 - 策略 policy：写 `strategies/*.md`；frontmatter 做身份索引，`## Trade Contract` 做机器契约；这是项目资产，不是 tool 源码，也不是运行数据
 - calibration / validation / external / forward holdout panel：默认写 `tmp/panels/<kind>-<name>-<date>/`
 - replay / R&D / calibration 普通报告：默认写 `tmp/artifacts/<domain>/`
-- 已被策略准入、复盘或人工 review 明确引用的 durable artifact：才显式归档到 `data/artifacts/<domain>/`
+- 已被策略准入、复盘或人工 review 明确引用的报告：仍留在 `tmp/` 工作区，由 `data/data_catalog.db` 记录 ref / hash / summary；不搬入 `data/` 目录
 - 策略准入证据：写 `data/data_catalog.db.strategy_evidence`
 - R&D 审计：写 `data/data_catalog.db.strategy_rnd_run`
-- cron 运维日志：写 `data/cron.log`
+- cron / health / incident / notify 运维事实：写 `data/ops_runtime.db`
 - manifest / report 中保存路径优先 repo 相对路径；跨 tool 执行时才解析为实际文件路径
 - 可提交的最小 fixture：放 tool 自己的 `examples/` 或测试 fixture，不放 `data/`
 
 ## 3. 清理规则
 
 - 删除必须显式；默认只 dry-run。
-- `tmp/artifacts/` / `tmp/panels/` 下被 `.pin`、evidence ref、ledger ref 或 durable 目录保护的文件不得删。
+- `tmp/artifacts/` / `tmp/panels/` 下被 `.pin`、evidence ref 或 ledger ref 保护的文件不得删。
 - 未引用、未 pin、超过 retention 的 artifact 由 `modules/artifact-knowledge/artifact-catalog` 的 `--artifact-gc` 或 `--catalog-gc` 报告 / 清理。
-- `data/ohlcv/` 只是可再生 raw/import archive；清理前确认没有被当前 evidence / report 引用。canonical candles 以 `data/market_data.db` 为准。
+- `tmp/` 下文件是可再生工作产物；清理前确认没有被当前 evidence / report 引用。canonical candles 以 `data/ohlcv.db` 为准。
 - `tmp/panels/` 是可再生研究输入；默认可按 retention 清理，除非已被 ledger / evidence / `.pin` 引用。
 
 ## 4. 当前 `.gitignore` 约定
 
-`.gitignore` 已覆盖当前目录与 legacy 生成目录：
+`.gitignore` 已覆盖当前 DB、`tmp/`、profile 本地配置与历史生成目录。当前架构不把任何 `data/` 子目录视为有效落点。
 
-- `data/ohlcv/`
-- `data/artifacts/`（legacy / durable archive）
-- `data/rd/`（legacy import / old local output）
-- `data/calibration-panel-*/`
-- `data/validation-panel-*/`
-- `data/external-panel-*/`
-- `data/forward-holdout-*/`
-- `data/strategy_audits/`
-- `data/strategy-evidence.jsonl`（legacy import / old local output）
-- `data/strategy-rnd-ledger.jsonl`（legacy import / old local output）
-- `data/cron.log`
-- `data/system_state.json`
-- `data/.trade-flow.lock`
 - `data/*.db`, `data/*.sqlite*`
 - `tmp/`
 - `profile/account_config.json`, `profile/notify_config.json`
@@ -68,16 +55,19 @@
 
 ## 5. 目录口径
 
-目标是让 `data/` 一眼只承载 durable 本地状态：
+目标是让 `data/` 一眼只承载 SQLite durable 本地状态：
 
 ```text
 data/
-  market_data.db            # market_data_store：canonical candles / funding / feature refs
+  ohlcv.db                  # ohlcv_store：canonical candles
+  market_data.db            # market_data_store：manifest / funding / feature refs
   rd_state.db               # research_state_store：RD program memory
   trade.db                  # 在线交易事实
   data_catalog.db           # 本地数据资产索引 + strategy evidence / R&D ledger
-  cron.log                  # 运维 fallback 日志
-  system_state.json         # 熔断 / runtime 状态
+  ops_runtime.db            # cycle / job / health / notify / incident
+  exchange_runtime.db       # exchange request / result / idempotency ledger
+  governance.db             # governance ledger
+  policy_registry.db        # runtime policy snapshots
 ```
 
 普通中间产物放 `tmp/`：
@@ -97,7 +87,7 @@ data/
   rd_state.db               # rd_program_state；research memory，不是 strategy evidence
 ```
 
-规则很简单：默认先临时，只有会影响策略准入、复盘或运行恢复的事实，才进入 `data/`。
+规则很简单：默认先临时，只有会影响策略准入、复盘或运行恢复的事实，才进入 `data/*.db`。
 
 ## 6. 当前产物面快照
 
@@ -105,7 +95,7 @@ data/
 
 | 区域 | 文件数 | 体量 | 管理状态 |
 | --- | ---: | ---: | --- |
-| `data/` | 4 | 1.9M | 已收敛目标：durable 状态 + OHLCV |
+| `data/` | SQLite DB only | 本机实际状态 | 已收敛目标：durable 状态只能是数据库 |
 | `tmp/` | 177 | 179M | 已 ignore；承接研究中间产物 |
 | `.codex/automations/` | 2 | 7.5K | 已 ignore；通过 automation memory path helper 访问 |
 
@@ -123,13 +113,13 @@ data/
 
 ## 7. 当前治理状态
 
-- DB 没有膨胀；大 payload 仍在文件系统，`data_catalog.db` 只索引元数据、hash、summary、引用关系与 retention。
-- 运行态输出只允许落在项目根 `data/` 或 `tmp/`；其他目录一律不是管线落点。
-- `data/`、`tmp/` 均可通过 catalog scan 纳入统一视图；旧路径输入必须在入口失败。
+- DB 没有膨胀；`data_catalog.db` 只索引元数据、hash、summary、引用关系与 retention。
+- 运行态 durable 输出只允许落在项目根 `data/*.db`；工作区产物只允许落在 `tmp/`。
+- `data/` 只通过 owner DB 读写；`tmp/` 只能通过 catalog ref 被解释；旧路径输入必须在入口失败。
 - `--catalog-stale` 已覆盖 `tmp/` 与 panel data；默认只报告候选、保留原因与引用状态。
 - `--catalog-gc --yes` 只删除 catalog 判定为 stale 的候选；`.pin`、引用、durable / evidence retention class 会保护文件。
 - `tmp/artifacts/strategy-rnd/`、R&D ledger、strategy evidence、cron log、track output、feature report、panel / calibration / campaign / shadow tracker 已有结构化索引。
-- `tmp/market/` 与根 `data/ohlcv/` 按职责分层：前者是 automation / slow-track 可删 cache，后者是项目级可复算数据。
+- `tmp/market/` 是 automation / slow-track 可删 cache；项目级 canonical OHLCV 只在 `data/ohlcv.db`。
 
 ## 8. 剩余边界
 
@@ -143,16 +133,16 @@ data/
 | 管道 | 当前落地 | 结构化程度 | 判断 |
 | --- | --- | --- | --- |
 | online flow event | `data/trade.db.plan_event` | 中：SQLite + JSON body + 少量校验 | 方向正确；查询投影不足 |
-| cron / track run | `data/cron.log` JSONL、`tmp/artifacts/trade-flow/*.json` | 中：有 schema registry，但读取仍靠文件扫描 | artifact 进 catalog；cron log 保留为恢复日志 |
-| OHLCV | CSV + `manifest.json` | 中：manifest 有 hash / closed candle 口径 | 文件可保留；需要 dataset catalog |
-| tech feature report | 大 JSON feature series | 低到中：有 source manifest，但无统一索引 | 不宜全进 DB；需要摘要表 + artifact ref |
-| R&D loop / campaign | `tmp/artifacts/strategy-rnd/*.json` + `data_catalog.db.strategy_rnd_run` | 中：DB 防重复，artifact 大而散 | 保持完整 record_json + summary columns；准入证据再归档到 `data/artifacts` |
+| cron / track run | `data/ops_runtime.db` + `tmp/artifacts/trade-flow/*.json` | 中：DB 记录 runtime 事实，tmp 只放工作区报告 | runtime fact 进 ops DB；报告只可由 catalog ref 解释 |
+| OHLCV | `data/ohlcv.db.canonical_candle` | 高：owner DB + closed candle 口径 | 不再使用 CSV / manifest 作为事实源 |
+| tech feature report | summary / refs 入 DB，临时大 payload 在 `tmp/` | 中：DB 摘要 + workspace report | 不把完整 series 当 durable storage；需要时补摘要表 |
+| R&D loop / campaign | `data_catalog.db.strategy_rnd_run` + `tmp/artifacts/strategy-rnd/*.json` | 中：DB 防重复，tmp report 可清理 | 保持 DB record_json + summary columns；报告只作可再生工作产物 |
 | strategy evidence | `data_catalog.db.strategy_evidence` | 中：DB canonical，shape 有 schema | 不进 `trade.db`；review / promote 直接读 catalog |
-| calibration / validation panel | 目录 + per-symbol manifest + suite input | 中：可复算，但 panel 元数据散落 | 需要 panel catalog |
+| calibration / validation panel | DB refs + `tmp/panels/` workspace | 中：可复算，需 DB 摘要 | 需要 panel catalog / owner read port |
 | automation memory | `.codex/automations/*/memory.md` | 低：人类摘要 | 不入业务 DB；只保留路径访问规范 |
 | market candidate cache | `tmp/market/*` | 低到中：runtime cache | 可删 cache，不作为事实源 |
 
-核心问题不是“用了文件”本身，而是缺一层可查询 catalog：文件承载大 payload，DB 承载 run / dataset / artifact / reference / retention 元数据。
+核心规则：数据库承载 durable fact；文件只允许作为 `tmp/` 工作区材料，不能成为长期状态或 canonical 数据。
 
 ## 10. 数据库边界
 
@@ -182,6 +172,6 @@ data/
 
 不建议入 catalog DB 的内容：
 
-- 完整 OHLCV candle 明细不进 `artifact_catalog`；canonical candles 由 `market_data_store` owner DB 管理。
+- 完整 OHLCV candle 明细不进 `artifact_catalog`；canonical candles 由 `ohlcv_store` owner DB 管理。
 - 完整 feature time series；只入 feature summary、hash、source manifest。
 - 人读的 strategy Markdown 与 automation memory。

@@ -7,6 +7,7 @@ import {
   buildFundingEvents,
   buildMarketManifest,
   ensureMarketDataSchema,
+  ensureOhlcvSchema,
   listFeatureManifests,
   readFeatureManifest,
   readFundingEvents,
@@ -20,6 +21,7 @@ import {
 test("market data store records manifests and canonical rows", () => {
   const db = new Database(":memory:")
   ensureMarketDataSchema(db)
+  ensureOhlcvSchema(db)
   try {
     upsertMarketManifest(db, buildMarketManifest({
       manifest_id: "ohlcv-btc-4h",
@@ -29,7 +31,7 @@ test("market data store records manifests and canonical rows", () => {
       timeframe: "4h",
       rows: 2,
       content_hash: "sha256:abc",
-      manifest_path: "data/ohlcv/BTCUSDT-4h.manifest.json",
+      manifest_path: "tmp/market/BTCUSDT-4h.manifest.json",
       freshness: { status: "fresh" },
     }))
     const inserted = upsertCanonicalCandles(db, buildCanonicalCandles([
@@ -77,7 +79,7 @@ test("market data store records funding events and feature manifests", () => {
       symbol: "BTCUSDT",
       timeframe: "4h",
       content_hash: "sha256:def",
-      manifest_path: "data/features/BTCUSDT-4h-trend-v1.json",
+      manifest_path: "tmp/features/BTCUSDT-4h-trend-v1.json",
     }))
     const funding = db.query("SELECT funding_rate FROM funding_event WHERE symbol='BTCUSDT'").get() as { funding_rate: number }
     assert.equal(funding.funding_rate, 0.0001)
@@ -87,7 +89,7 @@ test("market data store records funding events and feature manifests", () => {
     const events = readFundingEvents(db, { symbol: "BTCUSDT", since_ts: 50, until_ts: 150 })
     assert.equal(events.length, 1)
     assert.equal(events[0].mark_price, 65000)
-    assert.equal(readFeatureManifest(db, "features-btc-4h")?.manifest_path, "data/features/BTCUSDT-4h-trend-v1.json")
+    assert.equal(readFeatureManifest(db, "features-btc-4h")?.manifest_path, "tmp/features/BTCUSDT-4h-trend-v1.json")
     assert.equal(listFeatureManifests(db, { symbol: "BTCUSDT", timeframe: "4h" }).length, 1)
   } finally {
     db.close()

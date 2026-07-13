@@ -17,7 +17,7 @@
 | `orchestration-ops` | 6 | 6 | ops_runtime_store | - |
 | `policy-risk` | 2 | 2 | policy_registry | - |
 | `portfolio-execution-state` | 2 | 2 | trade_event_store, flow_read_models | - |
-| `market-data-products` | 9 | 7 | market_data_store | - |
+| `market-data-products` | 9 | 7 | market_data_store, ohlcv_store | - |
 | `exchange-gateway` | 10 | 10 | exchange_runtime_store | - |
 | `live-decision-planning` | 6 | 6 | - | J03:slow_track_market_watch |
 | `live-execution-control` | 9 | 9 | - | J01:account_reconcile_guard, J02:fast_track_guard |

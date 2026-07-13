@@ -182,8 +182,8 @@ check_project_hygiene() {
     exit 1
   fi
   retired_negative_control_pattern='n''ull[_ -]?control|n''ullControl|N''ULL[_ -]?CONTROL'
-  if rg -n "$retired_negative_control_pattern" README.md AGENTS.md docs scripts modules toolset.json data/rd >/dev/null; then
-    rg -n "$retired_negative_control_pattern" README.md AGENTS.md docs scripts modules toolset.json data/rd >&2
+  if rg -n "$retired_negative_control_pattern" README.md AGENTS.md docs scripts modules toolset.json >/dev/null; then
+    rg -n "$retired_negative_control_pattern" README.md AGENTS.md docs scripts modules toolset.json >&2
     printf 'quality: use negative_control naming only\n' >&2
     exit 1
   fi

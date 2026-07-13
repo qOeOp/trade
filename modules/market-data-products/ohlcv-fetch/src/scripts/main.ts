@@ -9,6 +9,7 @@ import { dirname, join, relative, resolve } from "node:path"
 import { nowIsoUTC } from "../../../../contracts/runtime-core/src/time"
 import {
   ensureMarketDataSchema,
+  ensureOhlcvSchema,
   readLatestCandleOpenTime,
   upsertCanonicalCandles,
   upsertMarketManifest,
@@ -24,6 +25,7 @@ export interface Config {
   limit: number
   sinceTS: number
   marketDataDb: string
+  ohlcvDb: string
 }
 
 export interface SymbolSpec {
@@ -78,6 +80,7 @@ interface FetchResponse {
 
 interface MarketDataStoreWriteSummary {
   db: string
+  ohlcv_db: string
   manifests: Array<{ timeframe: string; manifest_id: string; rows: number }>
   candles_upserted: number
 }
@@ -123,7 +126,8 @@ Key flags:
   --output-dir <path>           Optional output directory
   --limit <count>               Optional fixed limit for all timeframes
   --since-ts <ms>               Optional inclusive start timestamp in ms
-  --market-data-db <path>       market_data_store DB for manifest/candle upsert. Default: data/market_data.db
+  --market-data-db <path>       market_data_store DB for manifests. Default: data/market_data.db
+  --ohlcv-db <path>             ohlcv_store DB for canonical candles. Default: data/ohlcv.db
   --help                        Show this help
 `
 
@@ -221,6 +225,7 @@ export function parseArgs(argv: string[]): Config {
     limit: 0,
     sinceTS: 0,
     marketDataDb: "data/market_data.db",
+    ohlcvDb: "data/ohlcv.db",
   }
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -257,6 +262,9 @@ export function parseArgs(argv: string[]): Config {
       case "--market-data-db":
         config.marketDataDb = readFlagValue(argv, ++i, arg)
         break
+      case "--ohlcv-db":
+        config.ohlcvDb = readFlagValue(argv, ++i, arg)
+        break
       default:
         throw new Error(`unknown flag: ${arg}`)
     }
@@ -280,11 +288,15 @@ function recordMarketDataStoreIfEnabled(
   if (!config.marketDataDb) {
     return null
   }
-  const dbPath = resolve(config.marketDataDb)
-  mkdirSync(dirname(dbPath), { recursive: true })
-  const db = new Database(dbPath)
+  const marketDbPath = resolve(config.marketDataDb)
+  const ohlcvDbPath = resolve(config.ohlcvDb)
+  mkdirSync(dirname(marketDbPath), { recursive: true })
+  mkdirSync(dirname(ohlcvDbPath), { recursive: true })
+  const marketDb = new Database(marketDbPath)
+  const ohlcvDb = new Database(ohlcvDbPath)
   try {
-    ensureMarketDataSchema(db)
+    ensureMarketDataSchema(marketDb)
+    ensureOhlcvSchema(ohlcvDb)
     const manifests: MarketDataStoreWriteSummary["manifests"] = []
     let candlesUpserted = 0
     for (const timeframe of config.timeframes) {
@@ -294,8 +306,8 @@ function recordMarketDataStoreIfEnabled(
         continue
       }
       const manifest = buildStoreManifest(response, fetchCfg, timeframe, entry)
-      upsertMarketManifest(db, manifest)
-      candlesUpserted += upsertCanonicalCandles(db, buildStoreCandles(manifest, fetchCfg, timeframe, set.candles))
+      upsertMarketManifest(marketDb, manifest)
+      candlesUpserted += upsertCanonicalCandles(ohlcvDb, buildStoreCandles(manifest, fetchCfg, timeframe, set.candles))
       manifests.push({
         timeframe,
         manifest_id: manifest.manifest_id,
@@ -303,12 +315,14 @@ function recordMarketDataStoreIfEnabled(
       })
     }
     return {
-      db: displayPath(dbPath),
+      db: displayPath(marketDbPath),
+      ohlcv_db: displayPath(ohlcvDbPath),
       manifests,
       candles_upserted: candlesUpserted,
     }
   } finally {
-    db.close()
+    marketDb.close()
+    ohlcvDb.close()
   }
 }
 
@@ -458,7 +472,7 @@ async function fetchAllTimeframes(
   cfg: FetchConfig,
   config: Config,
 ): Promise<Record<string, CandleSet>> {
-  const latestOpenTimes = readLatestOpenTimes(config.marketDataDb, cfg, config.timeframes)
+  const latestOpenTimes = readLatestOpenTimes(config.ohlcvDb, cfg, config.timeframes)
   const tasks = config.timeframes.map(async (timeframe) => {
     const limit = config.limit > 0 ? config.limit : (DEFAULT_LIMITS[timeframe] ?? 300)
     const sinceTS = config.sinceTS > 0 ? config.sinceTS : nextOpenAfter(latestOpenTimes[timeframe] ?? null)
@@ -474,7 +488,7 @@ function readLatestOpenTimes(dbPath: string, cfg: FetchConfig, timeframes: strin
   mkdirSync(dirname(resolved), { recursive: true })
   const db = new Database(resolved)
   try {
-    ensureMarketDataSchema(db)
+    ensureOhlcvSchema(db)
     return Object.fromEntries(timeframes.map((timeframe) => [
       timeframe,
       readLatestCandleOpenTime(db, {

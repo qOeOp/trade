@@ -484,7 +484,7 @@ cron 自动化模式必须保证：
 1. **双轨调度**：慢轨在整点跑（`0 */1 * * *` / `0 */4 * * *`）；快轨在偏移点跑（如 `5,20,35,50 * * * *`），避开慢轨 LLM 推理窗口。两轨独立 routine / scheduled-task，共用 `./data/trade.db`。
 2. **幂等**：每次 EXECUTE 动作前先 reduce `order_fill` + 拉 Binance 实时挂单核对，重复请求不下重单。`clientOrderId` 用 `<chain_id>-<seq>-<action>` 前缀，Binance 侧自动去重，cron 重跑安全。慢轨/快轨用同一套 clientOrderId 规则；快轨 `seq` 自增基于本 flow 已有 order_fill 计数。
 3. **abort 偏保守**：cron agent 任意阶段失败 → 只 append 已写入的 observe，不补做后续。下次 cron 重跑读最新事件流决定动作；不确定就 `no_action`。快轨遇到 `reconcile mismatch` 时不补账；若只是保护腿漂移，或 live position 能明确归属且需要先补保护，可先 `sync_protection`，其余缺失事件等下次慢轨入口的全量对账。
-4. **本地运维日志**：每次 cron 跑追加一行到 `./data/cron.log`，承载 `run_id / track (slow|fast) / triggered_at / duration_ms / chains_processed / actions_taken / errors / next_cron_at`。文本日志，不入 DB；分析需求出现时再升 SQLite。
+4. **本地运维日志**：每次 cron / automation cycle 写入 `./data/ops_runtime.db`，承载 `run_id / track (slow|fast) / triggered_at / duration_ms / chains_processed / actions_taken / errors / next_cron_at`。文本日志只作为 legacy import，不再作为新运行事实。
 5. **异常通知**（通道由 `./profile/trading-config.json` 的 notifications 段配置；缺则只写本地日志）：
    - 爆仓护栏（`G-RISK-*`）拒新动作
    - cron / preflight / Binance API 持续失败（含慢轨对账恢复失败、快轨连续 N 轮 reconcile mismatch）
@@ -507,7 +507,7 @@ cron 自动化模式必须保证：
 - 本节回答 `trade.db` 里到底落什么、怎么读、哪些东西不落库
 - 在线主线只写 `./data/trade.db`，当前实现只有一张事件表
 - 研究 / calibration / feature / artifact 资产不进 `trade.db`；需要结构化读取时走独立 catalog DB
-- OHLCV / replay / backtest 的行情库后续单独走 `./data/ohlcv.db`
+- OHLCV / replay / backtest 的行情统一走 `./data/ohlcv.db` 的 owner read surface；如未来拆库，也必须是数据库 owner store，不回退到目录文件。
 
 ### 12.2 `trade.db` 表结构
 
@@ -711,11 +711,11 @@ CREATE INDEX idx_research_report_kind ON research_report(report_kind, generated_
 
 迁移策略：
 
-- 已落地 catalog schema / scanner / query / stale dry-run / catalog-gc / generation-time writer，不改变现有文件 payload。
+- 已落地 catalog schema / scanner / query / stale dry-run / catalog-gc / generation-time writer；新运行事实不写入 `data/` 文件目录。
 - legacy JSONL ledger 仅作为导入兼容；catalog 表保存完整 `record_json`，是 strategy evidence / R&D ledger 的当前存储。
 - `schema_migration(component='data_catalog')` 记录当前 catalog schema 版本。
-- `cron.log` 不单独建表；JSONL 行归一化进 `run`，原文件作为 `artifact_ref(role=log)`。
-- `research_report` 只保存报告摘要；完整 replay / campaign / calibration / panel / tracker payload 仍在文件系统。
+- cron / health / notify / incident 统一进入 `ops_runtime.db`；legacy JSONL 只允许一次性导入。
+- `research_report` 保存报告摘要、hash 与必要 record_json；完整 replay / campaign / calibration / panel / tracker payload 只可作为 `tmp/` 工作区材料。
 - `--catalog-query` 按 path / artifact / symbol / strategy 查结构化索引；`--catalog-stale` 只报告候选。
 - `--catalog-gc --yes` 只删除 catalog 判定为 stale 的候选；默认仍是 dry-run。
 
@@ -730,9 +730,9 @@ CREATE INDEX idx_research_report_kind ON research_report(report_kind, generated_
 | Trading config | JSON | `./profile/trading-config.json` |
 | Account config | JSON | `./profile/account_config.json`（deprecated 输入，后续由 trading config 取代） |
 | Notify config | JSON | `./profile/notify_config.json`（deprecated 输入，后续迁入 trading config；凭证仍只走环境变量） |
-| Cron 运维日志 | JSONL 原始记录 + catalog 索引 | `./data/cron.log` |
-| OHLCV / 市场数据 | SQLite owner store + raw/import archive refs | `./data/market_data.db`；`./data/ohlcv/` 仅 legacy/raw archive |
-| 大型 feature / replay / campaign report | 文件 payload + catalog 索引 | 默认 `./tmp/artifacts/`；准入 / 复盘证据才归档 `./data/artifacts/` |
+| Cron / health / incident 运维事实 | SQLite owner store | `./data/ops_runtime.db` |
+| OHLCV / 市场数据 | SQLite owner store | `./data/ohlcv.db` |
+| 大型 feature / replay / campaign report | DB summary/ref + ephemeral workspace report | 默认 `./tmp/artifacts/`；不归档到 `data/` 目录 |
 
 Git 边界与 data 留存规则见 [data-hygiene.md](data-hygiene.md)。
 

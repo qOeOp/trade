@@ -542,7 +542,7 @@ Jesse 调研后的补充要求：
 - 定义 artifact durable / ephemeral / pinned。
 - GC dry-run 默认输出引用原因。
 - `.pin`、evidence ref、ledger ref 三类保护统一。
-- tmp 与 data/artifacts 的迁移/清理规则落地。
+- tmp 工作区与数据库 durable state 的迁移/清理规则落地。
 - 建立 `data_catalog.db` 最小索引层：run、dataset、artifact、artifact_ref、R&D run、strategy evidence、panel、feature report、research report、schema migration。
 - 提供 catalog query、stale dry-run 与 `--catalog-gc --yes`；删除只消费 catalog 候选和保护原因。
 - R&D loop / campaign、feature report、track artifact、cron log、strategy evidence ledger、rd-shadow-tracker 输出生成时登记 catalog。
@@ -677,7 +677,7 @@ Jesse 调研后的补充要求：
   - `.jsonl`、`durable/`、`ledger/`、`ledgers/` 默认不被 GC 删除；`tmp/`、`temp/`、`cache/`、`scratch/`、`ephemeral/` 可走更短保留期。
   - `--ephemeral-retention-hours` 接入 CLI，用于独立控制临时目录清理阈值。
   - `lib/artifact-hygiene.test.ts` 锁定 dry-run、引用保护、目录 pin、durable 保护、ephemeral 短保留期、显式删除路径。
-  - `docs/data-hygiene.md` 落地 Git 边界与 data 留存规则；`data/ohlcv/`、`tmp/panels/`、`tmp/artifacts/`、runtime DB/log/lock/system state、ledger、artifact 与本地 profile config 默认不进 Git。
+  - `docs/data-hygiene.md` 落地 Git 边界与 data 留存规则；`data/*.db`、`tmp/panels/`、`tmp/artifacts/`、runtime DB、ledger、artifact 与本地 profile config 默认不进 Git。
   - `.gitignore` 补齐生成行情、calibration panel、strategy audits、cron/system runtime 与本地 operator config，避免 R&D / cron 产物污染源码 review。
   - `ohlcv-fetch` / calibration panel / calibration market-features / trade-flow track dry-run 输出收敛为 repo 可迁移相对路径；跨 tool 执行仍用解析后的实际路径，避免本机绝对路径写入 manifest / report。
 - P8 机器契约开口：

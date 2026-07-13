@@ -12,7 +12,7 @@ test("event store CLI returns structured errors", () => {
 })
 
 test("event store CLI exposes latest order fill as owner read surface", () => {
-  const dbPath = join(repoRoot(), "data", "test", `event-store-cli-${crypto.randomUUID()}.db`)
+  const dbPath = join(repoRoot(), "tmp", "test", `event-store-cli-${crypto.randomUUID()}.db`)
   try {
     const event = {
       event_key: "fill-cli-1",
@@ -43,7 +43,7 @@ test("event store CLI exposes latest order fill as owner read surface", () => {
 })
 
 test("event store CLI appends event write envelopes", () => {
-  const dbPath = join(repoRoot(), "data", "test", `event-store-envelope-${crypto.randomUUID()}.db`)
+  const dbPath = join(repoRoot(), "tmp", "test", `event-store-envelope-${crypto.randomUUID()}.db`)
   try {
     const event = {
       event_key: "observe-envelope-1",
@@ -84,7 +84,7 @@ test("event store CLI appends event write envelopes", () => {
 })
 
 test("event store CLI lists chain ids for owner-side scans", () => {
-  const dbPath = join(repoRoot(), "data", "test", `event-store-chain-list-${crypto.randomUUID()}.db`)
+  const dbPath = join(repoRoot(), "tmp", "test", `event-store-chain-list-${crypto.randomUUID()}.db`)
   try {
     for (const chainId of ["flow-b", "flow-a"]) {
       const append = run(["--append-event", "--db", dbPath, "--json", JSON.stringify({

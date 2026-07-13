@@ -7,20 +7,19 @@
 - 一个事实源，一个 owner，一个写入口。
 - 物理库可以少，logical store 必须先分清。
 - 跨 store 不做强外键，只传 `event_key / artifact_ref / manifest_ref / strategy_ref / logical-store-ref`。
-- 大 payload 留在文件、parquet 或 artifact；DB 只存索引、ledger、ref、hash、summary。
+- Durable fact 只进入数据库；大 payload 若存在，只能作为 `tmp/` 工作区材料，并由 DB 记录 summary/ref/hash。
 - `scripts/check-architecture-manifest.ts` 会校验 manifest、目录、rail schema 和 SQL 表名一致。
 
 ## Local Data Plane
 
-`data/` 不是“只允许数据库”的目录，而是本机 durable state 平面：
+`data/` 只允许数据库文件。它是本机 durable state 平面，不承载目录型 payload、raw archive 或 research memory 文件。
 
 | 层 | 当前落点 | 责任 |
 | --- | --- | --- |
-| SQLite logical stores | `data/*.db` | 事实、ledger、owner write contract、refs、hash、summary |
-| durable file payloads | `data/artifacts/`, raw/import archives | 大 payload、可复读材料本体；不拥有 market / research owner state；默认不进 Git |
-| ephemeral payloads | `tmp/artifacts/`, `tmp/panels/`, `tmp/market/` | 可再生中间产物；需 evidence / ledger / `.pin` 才长期保留 |
+| SQLite logical stores | `data/*.db` | 唯一 durable 存储方式：事实、ledger、owner write contract、refs、hash、summary |
+| ephemeral payloads | `tmp/artifacts/`, `tmp/panels/`, `tmp/market/` | 可再生工作区产物；不是 durable storage，需 DB ref 才能被长期解释 |
 
-判断口径：logical store 是事实边界，文件是可复读材料本体。OHLCV canonical candles 由 `market_data_store` 增量 upsert，RD memory 由 `research_state_store` 持久化；跨域只传 ref，不传本机路径所有权。
+判断口径：SQLite logical store 是唯一事实边界。OHLCV canonical candles 由 `ohlcv_store` 增量 upsert，market metadata / funding / feature refs 由 `market_data_store` 持久化，RD memory 由 `research_state_store` 持久化；跨域只传 logical-store ref，不传本机目录所有权。
 
 ## Logical Stores
 
@@ -28,7 +27,8 @@
 | --- | --- | --- | --- | --- |
 | `trade_event_store` | implemented | `portfolio-execution-state/event-store` | `data/trade.db.plan_event` | 钱的事件真相；append-only |
 | `flow_read_models` | implemented-derived | `portfolio-execution-state/flow-projector` | memory；可选 cache table | 从 `plan_event` 重建，不是事实源 |
-| `market_data_store` | implemented | `market-data-products/market-data-store` | `data/market_data.db` / parquet | canonical candles / funding / feature manifests；`ohlcv-fetch` 默认写 `data/market_data.db` 并按 latest candle 增量抓取，`calibration-market-features --market-data-db` 同步 funding events 与 feature refs |
+| `market_data_store` | implemented | `market-data-products/market-data-store` | `data/market_data.db` | market manifests / funding / feature manifests；`calibration-market-features --market-data-db` 同步 funding events 与 feature refs |
+| `ohlcv_store` | implemented | `market-data-products/market-data-store` | `data/ohlcv.db` | canonical candles；`ohlcv-fetch --ohlcv-db` 按 latest candle 增量抓取并 upsert 多标的 / 多周期 OHLCV |
 | `exchange_runtime_store` | implemented | `exchange-gateway/exchange-runtime-store` | `data/exchange_runtime.db` | 交易所 command/result/idempotency ledger；Binance 写工具与 `execution-router` 默认接入；真钱事实仍回写 `trade_event_store` |
 | `artifact_catalog` | implemented | `artifact-knowledge/artifact-catalog` | `data/data_catalog.db` | artifact/dataset/evidence/report 索引，不存大 payload |
 | `research_state_store` | implemented | `research-strategy-development/research-state-store` | `data/rd_state.db` | RD program / hypothesis / trial / holdout-use ledger |
@@ -36,7 +36,7 @@
 | `policy_registry` | implemented | `policy-risk/policy-registry` | `data/policy_registry.db` | runtime policy snapshot 与 approved strategy refs |
 | `ops_runtime_store` | implemented | `orchestration-ops/ops-runtime-store` | `data/ops_runtime.db` | cycle/job/health/notify/domain_message observability；`summary` 读口派生 stage/domain/attention 聚合；domain-bus 只存 envelope/ref，不参与交易真相 |
 
-`market_data_store` 的 owner 读口已覆盖 `read_manifest`、`read_funding`、`read_feature_manifest`、`list_feature_manifests`。后续 R&D / governance 迁移消费 funding 或 feature refs 时，应优先走 owner CLI / protocol ref，而不是跨域直读 JSON artifact 或 SQL 表。
+`market_data_store` 的 owner 读口已覆盖 `read_manifest`、`read_funding`、`read_feature_manifest`、`list_feature_manifests`；`ohlcv_store` 的 owner 读口覆盖 `read_latest_candle` 与 `read_candles`。后续 R&D / governance 迁移消费 candles、funding 或 feature refs 时，应优先走 owner CLI / protocol ref，而不是跨域直读 SQL 表。
 
 `calibration-market-features --market-data-db` 会在 calibration suite input 的 dataset 上同时保留旧 `indicator_report_path` 与新 `market_data_db / funding_events_ref / feature_manifest_ref`。当前 benchmark input、data hash 与 panel diagnostics 已识别这些 refs；实际 funding 数值读取仍兼容旧 JSON report，后续可在不改输入契约的前提下切换到 owner 读口。
 

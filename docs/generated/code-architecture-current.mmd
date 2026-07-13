@@ -119,6 +119,8 @@ flowchart LR
   domain_portfolio_execution_state -- "owns store" --> store_flow_read_models
   store_market_data_store[("market_data_store")]
   domain_market_data_products -- "owns store" --> store_market_data_store
+  store_ohlcv_store[("ohlcv_store")]
+  domain_market_data_products -- "owns store" --> store_ohlcv_store
   store_exchange_runtime_store[("exchange_runtime_store")]
   domain_exchange_gateway -- "owns store" --> store_exchange_runtime_store
   store_artifact_catalog[("artifact_catalog")]

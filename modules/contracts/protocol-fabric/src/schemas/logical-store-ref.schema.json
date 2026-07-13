@@ -12,6 +12,7 @@
         "trade_event_store",
         "flow_read_models",
         "market_data_store",
+        "ohlcv_store",
         "exchange_runtime_store",
         "artifact_catalog",
         "research_state_store",
@@ -40,7 +41,7 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "kind": { "type": "string", "enum": ["sqlite", "duckdb", "parquet", "file", "artifact", "jsonl", "memory"] },
+        "kind": { "type": "string", "enum": ["sqlite", "duckdb", "memory"] },
         "path": { "type": "string" },
         "table": { "type": "string" }
       }
