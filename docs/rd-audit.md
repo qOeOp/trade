@@ -1,6 +1,6 @@
 ---
 title: R&D Module Audit
-updated_at: 2026-07-10 10:20 CST
+updated_at: 2026-07-13 23:30 CST
 ---
 
 # R&D Module Audit
@@ -28,6 +28,14 @@ updated_at: 2026-07-10 10:20 CST
 
 ## 当前测试状态
 
+- 2026-07-13 23:20 CST，手动跑一次 J04 R&D supervisor：
+  - 初始入口：`rd-supervisor --supervisor-job` 可自动初始化 `data/rd_state.db`，但空 `next_hypothesis_queue` 立即停止为 `data_or_tool_blocked`，只给出 `marketability_score_v1` queue seed 建议，未自动落 queue。
+  - 为完整验证链路，手动用 `research.data-split` 把 `.cache/outline-audit/btc-usdm-20260423/manifest.json` 切为 discovery / validation / locked_holdout：216 / 72 / 72 根 4H，embargo 30 根；locked holdout 未打开。复盘修正：这里不应为适配 420 根缓存而降低 `min_segment_rows`，正确动作是先用 `ohlcv-fetch` 补足 OHLCV，再按默认门槛切分。
+  - 手动生成并 validate `btc-4h-tsm-manual-2026-07-14` hypothesis contract，转成 ready queue item 后跑 supervisor；产物 `tmp/artifacts/strategy-rnd/rd-program-btc-4h-tsm-manual-2026-07-14-20260713162000.json`。
+  - 策略质量：`time_series_momentum_v1` 单候选，`trial_count=1`、`accepted_count=0`、`sample_count=3`、`avg_r=-0.586246`、`total_r=-1.758737`、`PF=0.120632`、`maxDD=2R`；blocked by `R-SAMPLE-SIZE / R-EXPECTANCY / R-PROFIT-FACTOR`，结论是 `no_promote`，不得进入 validation / shadow。该结果首先说明本次数据准备不合格，其次才说明该粗糙 TSM 假说没有 edge。
+  - 流程问题统计 6 个：缺 DB 时 read 报底层 `unable to open database file`；空 queue 只推荐不补队列；标准位置缺可直接研发的 manifest，需从 `.cache` 找且源 manifest 含本机绝对路径；为跑通流程降低 `min_segment_rows`，而不是先补 K 线；designer contract -> queue -> state 仍需人工桥接；queue item 默认 `mode=loop` 时即使带 `validation_manifest_path` 也只跑 discovery loop。
+  - 优化点统计 6 个：read 缺库错误应分层；supervisor 可在空 queue 时自动调用 designer 或明确输出可执行 patch；准备一组 repo-relative smoke-test manifests；数据不足时先用 `ohlcv-fetch` / `ohlcv_store` 补足再切分，禁止降低研究门槛；designer `queue_item` 可支持直接生成 state update patch；带 validation manifest 的 ready item 默认走 campaign，除非显式 `mode=loop` 且说明会忽略 validation。
+  - 开发过程复盘：系统成功把失败写回 `rejected_mechanisms / universe_lessons / artifact_refs`，但第二轮又因“无 ready hypothesis”把总状态置为 `data_or_tool_blocked`；这适合暴露问题，不适合无人值守连续开发。下一轮应先生成一条全新的市场机制假说，而不是给本次 TSM 加过滤器。
 - 2026-07-10 19:31 CST，`S-ALT-4H-HIGH-BETA-SHORT-MOMENTUM` 按现行 `research.data-split` 重跑 validation：10 资产、validation 段、固定 STC short momentum candidate；结果 `outcome=no_promote`，pooled `sample_count=364`、`avg_r=0.021334`、`total_r=7.765575`、positive assets `5/10`，blocked by `PANEL-BREADTH / PANEL-COST`。Locked holdout 未打开；策略保持 `draft`。
 - 2026-07-09 19:45 CST，新增三条 liquid-alt 机制检查：
   - `vol-compression-alt-validation-2026-07-09`：VCB long 三变体全部 `no_promote`；原始 `VCB-L-30-120` 在 8 资产 panel 上 `total_r=-32.522326`、3/8 资产正， blocked by breadth / cost / catastrophic / asset-shuffle。

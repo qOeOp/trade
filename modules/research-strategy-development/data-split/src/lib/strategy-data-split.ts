@@ -11,6 +11,8 @@ import type { JSONRecord } from "../../../../contracts/runtime-core/src/json"
 
 type SplitSegmentName = "discovery" | "validation" | "locked_holdout"
 
+const DEFAULT_MIN_SEGMENT_ROWS = 100
+
 interface StrategyDataSplitDatasetInput {
   datasetId: string
   manifestPath?: string
@@ -111,6 +113,7 @@ function runStrategyDataSplit(input: StrategyDataSplitInput): StrategyDataSplitR
   const ratios = normalizeRatios(input)
   const intervalMs = timeframeMilliseconds(timeframe)
   const embargoBars = embargoBarsFor(input, timeframe)
+  const minSegmentRows = normalizeMinSegmentRows(input.minSegmentRows)
   const generatedAt = input.now || new Date().toISOString()
   const datasets = input.datasets.map((dataset) => splitDataset(dataset, {
     splitId,
@@ -119,7 +122,7 @@ function runStrategyDataSplit(input: StrategyDataSplitInput): StrategyDataSplitR
     ratios,
     embargoBars,
     intervalMs,
-    minSegmentRows: input.minSegmentRows ?? 100,
+    minSegmentRows,
     generatedAt,
   }))
   const report: StrategyDataSplitReport = {
@@ -222,13 +225,14 @@ function splitDataset(
   const { header, rows, sourceManifestRef, sourceManifest, symbol } = source
   const usableRows = rows.length - options.embargoBars * 2
   if (usableRows < options.minSegmentRows * 3) {
-    throw new Error(`dataset ${dataset.datasetId} has ${rows.length} rows; not enough after embargo for three ${options.minSegmentRows}-row segments`)
+    throw new Error(notEnoughRowsMessage(dataset.datasetId, rows.length, options.minSegmentRows, options.embargoBars, 3))
   }
   const discoveryRows = Math.floor(usableRows * options.ratios.discovery)
   const validationRows = Math.floor(usableRows * options.ratios.validation)
   const holdoutRows = usableRows - discoveryRows - validationRows
   if (Math.min(discoveryRows, validationRows, holdoutRows) < options.minSegmentRows) {
-    throw new Error(`dataset ${dataset.datasetId} split creates a segment below min_segment_rows=${options.minSegmentRows}`)
+    const minRatio = Math.min(options.ratios.discovery, options.ratios.validation, options.ratios.locked_holdout)
+    throw new Error(notEnoughRowsMessage(dataset.datasetId, rows.length, options.minSegmentRows, options.embargoBars, Math.ceil(1 / minRatio)))
   }
   const discoveryStart = 0
   const validationStart = discoveryStart + discoveryRows + options.embargoBars
@@ -478,6 +482,20 @@ function normalizeRatios(input: StrategyDataSplitInput): { discovery: number; va
     throw new Error("discovery_ratio + validation_ratio + locked_holdout_ratio must be positive and sum to 1")
   }
   return { discovery, validation, locked_holdout: locked }
+}
+
+function normalizeMinSegmentRows(value: unknown): number {
+  if (value === undefined) return DEFAULT_MIN_SEGMENT_ROWS
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed < DEFAULT_MIN_SEGMENT_ROWS) {
+    throw new Error(`DATA-SPLIT-SAMPLE-FLOOR: min_segment_rows must be at least ${DEFAULT_MIN_SEGMENT_ROWS}. Do not lower the research sample floor to make a run pass; fetch more OHLCV with modules/market-data-products/ohlcv-fetch or split from data/ohlcv.db.canonical_candle.`)
+  }
+  return parsed
+}
+
+function notEnoughRowsMessage(datasetId: string, rows: number, minSegmentRows: number, embargoBars: number, segmentMultiplier: number): string {
+  const requiredRows = minSegmentRows * segmentMultiplier + embargoBars * 2
+  return `DATA-SPLIT-INSUFFICIENT-OHLCV: dataset ${datasetId} has ${rows} rows; need at least ${requiredRows} rows for min_segment_rows=${minSegmentRows} with embargo_bars=${embargoBars}. Fetch more OHLCV with modules/market-data-products/ohlcv-fetch, or provide ohlcv_db_path so research.data-split can read data/ohlcv.db.canonical_candle. Do not lower min_segment_rows to make the split pass.`
 }
 
 function embargoBarsFor(input: StrategyDataSplitInput, timeframe: string): number {

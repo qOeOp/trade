@@ -11,14 +11,13 @@ import { runStrategyDataSplit, strategyDataSplitInputFromJson } from "./strategy
 test("strategy data split writes discovery validation and locked holdout manifests with embargo gaps", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-data-split-"))
   try {
-    const manifestPath = writeManifest(join(dir, "source"), "ALTUSDT", 300)
+    const manifestPath = writeManifest(join(dir, "source"), "ALTUSDT", 600)
     const report = runStrategyDataSplit({
       splitId: "split-test",
       hypothesisId: "h-test",
       timeframe: "4h",
       outputRoot: join(dir, "splits"),
       maxHoldBars: 12,
-      minSegmentRows: 30,
       datasets: [{ datasetId: "ALTUSDT", manifestPath }],
     })
     assert.equal(report.schema_version, "trade-flow.strategy-data-split.v1")
@@ -44,7 +43,7 @@ test("strategy data split writes discovery validation and locked holdout manifes
 test("strategy data split can persist and catalog the split report", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-data-split-report-"))
   try {
-    const manifestPath = writeManifest(join(dir, "source"), "ALTUSDT", 300)
+    const manifestPath = writeManifest(join(dir, "source"), "ALTUSDT", 600)
     const reportPath = join(dir, "artifacts", "split-report.json")
     const catalogDbPath = join(dir, "catalog.db")
     const report = runStrategyDataSplit({
@@ -55,7 +54,6 @@ test("strategy data split can persist and catalog the split report", () => {
       reportPath,
       catalogDbPath,
       maxHoldBars: 12,
-      minSegmentRows: 30,
       datasets: [{ datasetId: "ALTUSDT", manifestPath }],
     })
 
@@ -100,7 +98,7 @@ test("strategy data split can read OHLCV directly from the database", () => {
         )
         VALUES ($manifest_id, $exchange, $symbol, $timeframe, $open_time, $close_time, $open, $high, $low, $close, $volume)
       `)
-      for (const item of Array.from({ length: 300 }, (_, index) => {
+      for (const item of Array.from({ length: 600 }, (_, index) => {
         const openTime = 1_700_000_000_000 + index * 4 * 60 * 60 * 1000
         return {
           $manifest_id: "ohlcv-db-test",
@@ -127,7 +125,6 @@ test("strategy data split can read OHLCV directly from the database", () => {
       timeframe: "4h",
       outputRoot: join(dir, "splits"),
       maxHoldBars: 12,
-      minSegmentRows: 30,
       datasets: [{
         datasetId: "ALTUSDT",
         ohlcvDbPath,
@@ -137,7 +134,7 @@ test("strategy data split can read OHLCV directly from the database", () => {
     })
 
     assert.equal(report.datasets[0].source_manifest_path, "ohlcv_store:canonical_candle/binanceusdm/ALTUSDT/4h")
-    assert.equal(report.datasets[0].source_rows, 300)
+    assert.equal(report.datasets[0].source_rows, 600)
     assert.equal(report.datasets[0].segments.every((segment) => existsSync(resolveRepoPath(segment.manifest_path))), true)
   } finally {
     rmSync(dir, { recursive: true, force: true })
@@ -160,7 +157,6 @@ test("strategy data split rejects mismatched dataset and split timeframes", () =
       timeframe: "4h",
       outputRoot: join(dir, "splits"),
       maxHoldBars: 1,
-      minSegmentRows: 2,
       datasets: [{
         datasetId: "ALTUSDT",
         ohlcvDbPath,
@@ -186,7 +182,6 @@ test("strategy data split reports missing OHLCV schema as a domain error", () =>
       timeframe: "4h",
       outputRoot: join(dir, "splits"),
       maxHoldBars: 1,
-      minSegmentRows: 2,
       datasets: [{
         datasetId: "ALTUSDT",
         ohlcvDbPath,
@@ -203,7 +198,7 @@ test("strategy data split CLI stays read-only to trade DB and returns stable she
   const dir = mkdtempSync(join(tmpdir(), "strategy-data-split-cli-"))
   const runtimeDir = makeRuntimeDir("strategy-data-split-cli-")
   try {
-    const manifestPath = writeManifest(join(dir, "source"), "ALTUSDT", 240)
+    const manifestPath = writeManifest(join(dir, "source"), "ALTUSDT", 600)
     const dbPath = join(runtimeDir, "should-not-exist", "trade.db")
     const result = await run([
       "--json",
@@ -212,7 +207,6 @@ test("strategy data split CLI stays read-only to trade DB and returns stable she
         timeframe: "4h",
         output_root: join(runtimeDir, "splits"),
         max_hold_bars: 8,
-        min_segment_rows: 20,
         datasets: [{ dataset_id: "ALTUSDT", manifest_path: manifestPath }],
       }),
     ])
@@ -229,12 +223,11 @@ test("strategy data split CLI stays read-only to trade DB and returns stable she
 test("strategy data split output schema matches stable report shell", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-data-split-schema-"))
   try {
-    const manifestPath = writeManifest(join(dir, "source"), "ALTUSDT", 240)
+    const manifestPath = writeManifest(join(dir, "source"), "ALTUSDT", 600)
     const report = runStrategyDataSplit({
       splitId: "split-schema",
       outputRoot: join(dir, "split-output"),
       maxHoldBars: 4,
-      minSegmentRows: 20,
       datasets: [{ datasetId: "ALTUSDT", manifestPath }],
     }) as unknown as Record<string, unknown>
     const schema = readJsonFile("modules/research-strategy-development/data-split/src/schemas/strategy-data-split-result.schema.json")
@@ -242,6 +235,21 @@ test("strategy data split output schema matches stable report shell", () => {
     assert.equal(report.schema_version, "trade-flow.strategy-data-split.v1")
     assert.equal(report.dataset_count, 1)
     assertSchemaRequired(schema, report)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("strategy data split rejects lowering the research sample floor", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-data-split-floor-"))
+  try {
+    const manifestPath = writeManifest(join(dir, "source"), "ALTUSDT", 600)
+    assert.throws(() => runStrategyDataSplit({
+      splitId: "split-floor",
+      outputRoot: join(dir, "split-output"),
+      minSegmentRows: 60,
+      datasets: [{ datasetId: "ALTUSDT", manifestPath }],
+    }), /DATA-SPLIT-SAMPLE-FLOOR/)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
