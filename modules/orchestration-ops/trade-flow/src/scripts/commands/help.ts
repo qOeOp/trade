@@ -30,7 +30,7 @@ Key flags:
   --record-execution       Compile contract and append audited order_fill from an execute-tool result
   --run                    Run one orchestrated flow step
   --mode <dry-run|shadow>  Execution mode for --run
-  --load-runtime           Load trading config, runtime policy, account config compatibility, and strategy files
+  --load-runtime           Load trading config, runtime policy, account config, and strategy files
   --build-observe          Build an observe event from account / market projections
   --observe-from-tools    Call read-only snapshot tools and build an observe event
   --automation-cycle       Build a single-entry automation supervisor plan with subagent fanout and cadence gates
@@ -45,7 +45,7 @@ Key flags:
   --chain-id <chain_id>    Flow id for recovery / reconcile
   --yes                    Required for --run-live-small / --apply-reconcile
   --trading-config <path>  JSON trading config path. Default: ./profile/trading-config.json
-  --account-config <path>  Legacy JSON account config path used as fallback compatibility input
+  --account-config <path>  JSON account config path used for account context
   --strategies-dir <path>  Strategy markdown directory
   --input <path>           JSON event input
   --json <json>            Inline JSON event input

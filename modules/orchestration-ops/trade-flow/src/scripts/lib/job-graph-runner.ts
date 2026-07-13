@@ -14,7 +14,7 @@ import {
 import { publishDomainMessage } from "../../../../domain-bus/src/lib/domain-bus"
 import { buildDomainJobResult, validateDomainJobResult } from "../../../../../contracts/domain-runtime/src/domain-runtime"
 import { buildAutomationCyclePlan, type AutomationCycleInput } from "./automation-cycle"
-import { repoRoot } from "./paths"
+import { repoRoot } from "../../../../../contracts/runtime-core/src/paths"
 
 type JSONRecord = Record<string, unknown>
 

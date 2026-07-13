@@ -2,7 +2,7 @@
 
 import { assertProjectRuntimePath, repoRoot } from "../../../../contracts/runtime-core/src/paths"
 import { runOneFlowStep } from "../lib/execution-flow-runner"
-import type { RunMode } from "../lib/run-mode"
+import type { RunMode } from "../../../../contracts/runtime-core/src/run-mode"
 
 type JSONRecord = Record<string, unknown>
 
@@ -42,7 +42,7 @@ function parseArgs(argv: string[]): Config {
       case "--db": config.dbPath = readValue(argv, ++index, arg); break
       case "--mode": config.mode = readMode(readValue(argv, ++index, arg)); break
       case "--json": config.input = readJson(readValue(argv, ++index, arg)); break
-      case "--help": printHelp(); process.exit(0)
+      case "--help": printHelp(); return process.exit(0)
       default: throw new Error(`unknown flag: ${arg}`)
     }
   }

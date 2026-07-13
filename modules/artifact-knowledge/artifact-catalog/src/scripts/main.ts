@@ -14,7 +14,7 @@ import {
   upsertCatalogStrategyEvidence,
   upsertCatalogStrategyRndRun,
 } from "../lib/data-catalog"
-import { assertProjectRuntimePath, repoRoot } from "../lib/paths"
+import { assertProjectRuntimePath, repoRoot } from "../../../../contracts/runtime-core/src/paths"
 
 type JSONRecord = Record<string, unknown>
 
@@ -194,7 +194,7 @@ function parseArgs(argv: string[]): Config {
       case "--ephemeral-retention-hours": config.ephemeralRetentionHours = Number(readValue(argv, ++index, arg)); break
       case "--input": config.input = readJsonFile(readValue(argv, ++index, arg)); break
       case "--json": config.input = readJson(readValue(argv, ++index, arg)); break
-      case "--help": printHelp(); process.exit(0)
+      case "--help": printHelp(); return process.exit(0)
       default: throw new Error(`unknown flag: ${arg}`)
     }
   }

@@ -1,4 +1,4 @@
-import type { JSONRecord } from "./json"
+import type { JSONRecord } from "../../../../contracts/runtime-core/src/json"
 
 type RdProgramStatus = "active" | "shadow_candidate_found" | "budget_exhausted" | "data_or_tool_blocked" | "paused"
 
@@ -55,8 +55,7 @@ interface RdProgramStateCommandResult {
   schema_version: "trade-flow.rd-program-state-result.v1"
   action: "init" | "read" | "update" | "plan_next"
   state_ref: string
-  catalog_db_path?: string
-  artifact_id?: string
+  db_path?: string
   state: RdProgramState
   goal: JSONRecord
   next_plan?: RdSupervisorNextPlan

@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from "node:fs"
 import type { Database } from "bun:sqlite"
 import { loadStrategyFile, parseFrontmatter } from "../../../../contracts/strategy-policy/src/strategy-policy"
 import type { ReplayProvenance, ReplayResult } from "../../../../contracts/replay-contract/src/replay-contract"
-import { defaultCatalogDbPathForGeneratedPath, listCatalogStrategyEvidence, upsertCatalogStrategyEvidence } from "./data-catalog"
+import { defaultCatalogDbPathForGeneratedPath, listCatalogStrategyEvidence, upsertCatalogStrategyEvidence } from "../../../../contracts/catalog-contract/src/catalog-client"
 import { hashCanonical, replayDataHash, replayHarnessHash } from "./replay-fingerprint-client"
 
 type JSONRecord = Record<string, unknown>
@@ -656,7 +656,7 @@ function readDbReviewSnapshot(db: Database, strategyId: string, setupId?: string
     SELECT event_key, created_at, body_json FROM plan_event
     WHERE kind='review'
       AND json_extract(body_json, '$.strategy_ref') = $strategy_id
-    ORDER BY created_at ASC
+    ORDER BY created_at
   `).all({ $strategy_id: strategyId }) as Array<{ event_key: string; created_at: string; body_json: string }>
   const filtered = rows
     .map((row) => ({ ...row, body: JSON.parse(row.body_json) as JSONRecord }))

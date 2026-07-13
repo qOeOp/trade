@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync, appendFileSync } from "node:fs"
 import { join } from "node:path"
 import type { TrackMode } from "../commands/types"
-import { displayPath } from "./paths"
+import { displayPath } from "../../../../../contracts/runtime-core/src/paths"
 
 export const CRON_LOG_TRACKS = ["slow", "fast"] as const
 export const CRON_LOG_STATUSES = ["completed", "skipped_lock", "failed"] as const

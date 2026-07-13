@@ -14,7 +14,7 @@ import type { ScriptResponse } from "./commands/types"
 import { buildAutomationCyclePlan } from "./lib/automation-cycle"
 import { initEventStore } from "./lib/event-store-client"
 import { runAutomationJobGraph } from "./lib/job-graph-runner"
-import { assertProjectRuntimePath, resolveRepoPath } from "./lib/paths"
+import { assertProjectRuntimePath, resolveRepoPath } from "../../../../contracts/runtime-core/src/paths"
 import { runTrackDryRunAtPath } from "./lib/track-runner"
 import type { CommandConfig } from "./commands/types"
 

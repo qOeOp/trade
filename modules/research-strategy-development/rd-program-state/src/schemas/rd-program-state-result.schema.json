@@ -2,15 +2,14 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "trade-flow.rd-program-state-result.v1",
   "title": "trade-flow R&D program state result",
-  "description": "Stable outer shape for reading or mutating the durable R&D learning memory artifact. State internals remain intentionally open.",
+  "description": "Stable outer shape for reading or mutating the durable R&D learning memory store. State internals remain intentionally open.",
   "type": "object",
   "required": ["schema_version", "action", "state_ref", "state", "goal"],
   "properties": {
     "schema_version": { "const": "trade-flow.rd-program-state-result.v1" },
     "action": { "enum": ["init", "read", "update", "plan_next"] },
     "state_ref": { "type": "string", "minLength": 1 },
-    "catalog_db_path": { "type": "string", "minLength": 1 },
-    "artifact_id": { "type": "string", "minLength": 1 },
+    "db_path": { "type": "string", "minLength": 1 },
     "state": {
       "type": "object",
       "required": ["schema_version", "program_id", "objective", "status", "budget", "usage", "guardrails"],

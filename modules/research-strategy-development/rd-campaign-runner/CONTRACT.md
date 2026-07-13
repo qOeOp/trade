@@ -10,7 +10,7 @@ Run one bounded R&D campaign from a hypothesis queue. The module owns campaign-l
 - Discovery and validation manifests for every runnable hypothesis
 - Optional calibration report
 - Optional panel negative-control report
-- Optional explicit `rd_program_state_path`
+- Optional explicit `rd_program_ref` plus `rd_state_db` for durable research-state writeback
 
 ## Outputs
 

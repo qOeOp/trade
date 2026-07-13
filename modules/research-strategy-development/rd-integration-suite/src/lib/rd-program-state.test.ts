@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs"
+import { mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
@@ -57,40 +57,34 @@ test("rd program state carries learning forward and stops on budget exhaustion",
   assert.deepEqual(goal.stop_conditions, ["shadow_candidate_found", "budget_exhausted", "data_or_tool_blocked"])
 })
 
-test("rd program state can be persisted and registered in the data catalog", () => {
+test("rd program state persists in research_state_store", () => {
   const dir = mkdtempSync(join(tmpdir(), "rd-program-state-"))
   try {
-    const path = join(dir, "state.json")
-    const catalogDb = join(dir, "catalog.db")
+    const dbPath = join(dir, "rd_state.db")
+    const stateRef = rdProgramRef("rd-learning-loop")
     const state = createRdProgramState({
       programId: "rd-learning-loop",
       objective: "continue R&D until a shadow candidate or blocker",
       now: "2026-07-09T12:00:00Z",
     })
 
-    const result = writeRdProgramState(path, state, catalogDb)
-    assert.ok(result.path.endsWith("state.json"))
-    assert.ok(result.catalog_db_path.endsWith("catalog.db"))
-    assert.ok(existsSync(path))
+    const result = writeRdProgramState(stateRef, state, undefined, dbPath)
+    assert.equal(result.ref, stateRef)
+    assert.equal(result.db_path, dbPath)
 
-    const restored = readRdProgramState(path)
+    const restored = readRdProgramState(stateRef, dbPath)
     assert.equal(restored.program_id, "rd-learning-loop")
     assert.equal(restored.status, "active")
     assert.equal(restored.budget.max_hypotheses, 20)
     assert.equal(restored.budget.max_trials_total, 80)
 
-    const db = new Database(catalogDb)
+    const db = new Database(dbPath)
     try {
-      const ref = db.query("SELECT referrer_type, referrer_id, role FROM artifact_ref").get() as {
-        referrer_type: string
-        referrer_id: string
-        role: string
+      const row = db.query("SELECT program_id, status FROM rd_program WHERE program_id='rd-learning-loop'").get() as {
+        program_id: string
+        status: string
       }
-      assert.deepEqual(ref, {
-        referrer_type: "rd_program",
-        referrer_id: "rd-learning-loop",
-        role: "state",
-      })
+      assert.deepEqual(row, { program_id: "rd-learning-loop", status: "active" })
     } finally {
       db.close()
     }
@@ -102,14 +96,12 @@ test("rd program state can be persisted and registered in the data catalog", () 
 test("rd program state command initializes reads and updates the durable state", () => {
   const dir = mkdtempSync(join(tmpdir(), "rd-program-state-command-"))
   try {
-    const path = join(dir, "state.json")
-    const catalogDb = join(dir, "catalog.db")
+    const dbPath = join(dir, "rd_state.db")
     const init = runRdProgramStateCommand({
-      path,
-      catalogDbPath: catalogDb,
+      dbPath,
+      programId: "rd-command",
       input: {
         action: "init",
-        program_id: "rd-command",
         objective: "learn from R&D failures",
         now: "2026-07-09T12:00:00Z",
         budget: { max_hypotheses: 3, max_trials_total: 9 },
@@ -120,8 +112,8 @@ test("rd program state command initializes reads and updates the durable state",
     assert.equal(init.state.program_id, "rd-command")
 
     const update = runRdProgramStateCommand({
-      path,
-      catalogDbPath: catalogDb,
+      dbPath,
+      programId: "rd-command",
       input: {
         action: "update",
         now: "2026-07-09T13:00:00Z",
@@ -134,7 +126,7 @@ test("rd program state command initializes reads and updates the durable state",
     assert.equal(update.state.usage.trials_used, 2)
     assert.equal(update.state.rejected_mechanisms.length, 1)
 
-    const read = runRdProgramStateCommand({ path, input: { action: "read" } })
+    const read = runRdProgramStateCommand({ dbPath, programId: "rd-command", input: { action: "read" } })
     assert.equal(read.action, "read")
     assert.equal(read.state.usage.hypotheses_run, 1)
   } finally {
@@ -145,11 +137,11 @@ test("rd program state command initializes reads and updates the durable state",
 test("rd program state command plans the next campaign from the hypothesis queue", () => {
   const dir = mkdtempSync(join(tmpdir(), "rd-program-state-plan-"))
   try {
-    const path = join(dir, "state.json")
-    const catalogDb = join(dir, "catalog.db")
+    const dbPath = join(dir, "rd_state.db")
+    const stateRef = rdProgramRef("rd-plan")
     runRdProgramStateCommand({
-      path,
-      catalogDbPath: catalogDb,
+      dbPath,
+      programId: "rd-plan",
       input: {
         action: "init",
         program_id: "rd-plan",
@@ -179,7 +171,8 @@ test("rd program state command plans the next campaign from the hypothesis queue
     })
 
     const planned = runRdProgramStateCommand({
-      path,
+      dbPath,
+      programId: "rd-plan",
       input: {
         action: "plan_next",
         now: "2026-07-09T13:00:00Z",
@@ -200,8 +193,8 @@ test("rd program state command plans the next campaign from the hypothesis queue
     assert.equal(asArray(scoutPlan.scouts).every((scout) => asRecord(scout).may_write_state === false), true)
     const backlog = asRecord(planned.next_plan?.strategy_universe_backlog)
     assert.equal(backlog.doc_ref, "docs/strategy-universe-taxonomy.md")
-    assert.equal(backlog.machine_backlog_ref, "data/rd/family-backlog.json")
-    assert.equal(backlog.p0_certificate_ref, "data/rd/p0-family-certificates.json")
+    assert.equal(backlog.machine_backlog_ref, "docs/strategy-universe-family-backlog.json")
+    assert.equal(backlog.p0_certificate_ref, "docs/strategy-universe-p0-family-certificates.json")
     assert.equal(backlog.machine_backlog_status, "loaded")
     assert.ok(asArray(backlog.implemented_families).includes("time_series_momentum_v1"))
     assert.ok(asArray(backlog.implemented_families).includes("marketability_score_v1"))
@@ -211,7 +204,8 @@ test("rd program state command plans the next campaign from the hypothesis queue
     assert.equal(familyStatuses.find((family) => family.family_id === "funding_carry_v1")?.status, "implemented_single_asset_replay")
     assert.equal(familyStatuses.find((family) => family.family_id === "cross_sectional_momentum_v1")?.status, "implemented_panel_research")
     const payload = planned.next_plan?.payload as JSONRecord
-    assert.equal(payload.rd_program_state_path, path)
+    assert.equal(payload.rd_program_ref, stateRef)
+    assert.equal(payload.rd_state_db, dbPath)
     assert.equal(payload.max_total_trials, 5)
     const hypothesis = asRecord(asArray(payload.hypotheses)[0])
     assert.equal(hypothesis.hypothesis_id, "breakout-1")
@@ -231,9 +225,10 @@ test("rd program state next plan blocks when no active queue can run", () => {
   })
   const dir = mkdtempSync(join(tmpdir(), "rd-program-state-empty-plan-"))
   try {
-    const path = join(dir, "state.json")
-    writeRdProgramState(path, state, join(dir, "catalog.db"))
-    const blocked = runRdProgramStateCommand({ path, input: { action: "plan_next", now: "2026-07-09T13:00:00Z" } })
+    const dbPath = join(dir, "rd_state.db")
+    const stateRef = rdProgramRef("rd-empty-plan")
+    writeRdProgramState(stateRef, state, undefined, dbPath)
+    const blocked = runRdProgramStateCommand({ dbPath, programId: "rd-empty-plan", input: { action: "plan_next", now: "2026-07-09T13:00:00Z" } })
     assert.equal(blocked.next_plan?.status, "blocked")
     assert.equal(blocked.next_plan?.command, null)
     assert.match(blocked.next_plan?.reason || "", /queue seed recommendation/)
@@ -244,8 +239,8 @@ test("rd program state next plan blocks when no active queue can run", () => {
     assert.equal(queueSeed.required_action, "universe_gate_run")
     assert.equal(queueSeed.ready_for_strategy_trials, false)
 
-    writeRdProgramState(path, updateRdProgramState(state, { status: "paused", now: "2026-07-09T13:30:00Z" }), join(dir, "catalog.db"))
-    const stopped = runRdProgramStateCommand({ path, input: { action: "plan_next", now: "2026-07-09T14:00:00Z" } })
+    writeRdProgramState(stateRef, updateRdProgramState(state, { status: "paused", now: "2026-07-09T13:30:00Z" }), undefined, dbPath)
+    const stopped = runRdProgramStateCommand({ dbPath, programId: "rd-empty-plan", input: { action: "plan_next", now: "2026-07-09T14:00:00Z" } })
     assert.equal(stopped.next_plan?.status, "stopped")
     assert.match(stopped.next_plan?.reason || "", /paused/)
   } finally {
@@ -256,8 +251,8 @@ test("rd program state next plan blocks when no active queue can run", () => {
 test("rd program state caps planned candidates to remaining trial budget", () => {
   const dir = mkdtempSync(join(tmpdir(), "rd-program-state-budget-cap-"))
   try {
-    const path = join(dir, "state.json")
-    const catalogDb = join(dir, "catalog.db")
+    const dbPath = join(dir, "rd_state.db")
+    const stateRef = rdProgramRef("rd-budget-cap")
     const state = createRdProgramState({
       programId: "rd-budget-cap",
       objective: "never plan more candidates than remaining trial budget",
@@ -277,13 +272,14 @@ test("rd program state caps planned candidates to remaining trial budget", () =>
         ],
       }],
     })
-    writeRdProgramState(path, updateRdProgramState(state, {
+    writeRdProgramState(stateRef, updateRdProgramState(state, {
       now: "2026-07-09T12:30:00Z",
       usageDelta: { trials_used: 4 },
-    }), catalogDb)
+    }), undefined, dbPath)
 
     const planned = runRdProgramStateCommand({
-      path,
+      dbPath,
+      programId: "rd-budget-cap",
       input: { action: "plan_next", now: "2026-07-09T13:00:00Z" },
     })
 
@@ -779,6 +775,10 @@ function assertSchemaRequired(schema: JSONRecord, result: JSONRecord): void {
   for (const field of asArray(schema.required).map(String)) {
     assert.ok(result[field] !== undefined, `missing ${field}`)
   }
+}
+
+function rdProgramRef(programId: string): string {
+  return `research_state_store:rd_program/${programId}`
 }
 
 function asArray(value: unknown): unknown[] {

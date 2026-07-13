@@ -232,7 +232,7 @@
       "status": "implemented",
       "owner_domain": "market-data-products",
       "owner_module": "modules/market-data-products/market-data-store",
-      "physical": { "kind": "duckdb", "path": "data/market_data.duckdb", "tables": ["market_manifest", "canonical_candle", "funding_event", "feature_manifest"] },
+      "physical": { "kind": "sqlite", "path": "data/market_data.db", "tables": ["market_manifest", "canonical_candle", "funding_event", "feature_manifest"] },
       "schema": "docs/storage-schema/market-data-store.sql",
       "write_contract": "append-or-upsert-by-manifest"
     },

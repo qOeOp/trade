@@ -4,7 +4,7 @@ import { join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
 import { appendCronLog, CRON_LOG_STATUSES, CRON_LOG_TRACKS } from "./cron-runtime"
-import { resolveRepoPath } from "./paths"
+import { resolveRepoPath } from "../../../../../contracts/runtime-core/src/paths"
 
 type JSONRecord = Record<string, unknown>
 

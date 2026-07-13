@@ -17,9 +17,10 @@ import type { JSONRecord } from "../../../../contracts/runtime-core/src/json"
 test("rd supervisor runner loops plan execution and state writeback until budget exhaustion", () => {
   const dir = mkdtempSync(join(tmpdir(), "rd-supervisor-run-"))
   try {
-    const path = join(dir, "state.json")
+    const dbPath = join(dir, "rd_state.db")
+    const stateRef = rdProgramRef("rd-loop")
     const catalogDb = join(dir, "catalog.db")
-    writeRdProgramState(path, createRdProgramState({
+    writeRdProgramState(stateRef, createRdProgramState({
       programId: "rd-loop",
       objective: "loop until terminal R&D state",
       now: "2026-07-09T12:00:00Z",
@@ -30,11 +31,12 @@ test("rd supervisor runner loops plan execution and state writeback until budget
         manifest_path: "data/discovery/manifest.json",
         candidates: [{ candidate_id: "C1", family: "trend_pullback_v1", params: { side: "long" } }],
       }],
-    }), catalogDb)
+    }), undefined, dbPath)
 
     let loopCalls = 0
     const result = runRdSupervisorLoopWithDeps({
-      path,
+      path: stateRef,
+      dbPath,
       catalogDbPath: catalogDb,
       input: { now: "2026-07-09T13:00:00Z", max_iterations: 5 },
     }, {
@@ -63,9 +65,10 @@ test("rd supervisor runner loops plan execution and state writeback until budget
           ledger_record: {},
         }
         writeRdProgramState(
-          String(payload.rd_program_state_path),
-          updateRdProgramStateFromResearchResult(readRdProgramState(String(payload.rd_program_state_path)), report, String(payload.now)),
-          catalogDb,
+          String(payload.rd_program_ref),
+          updateRdProgramStateFromResearchResult(readRdProgramState(String(payload.rd_program_ref), String(payload.rd_state_db)), report, String(payload.now)),
+          undefined,
+          String(payload.rd_state_db),
         )
         return report
       },
@@ -87,10 +90,11 @@ test("rd supervisor runner loops plan execution and state writeback until budget
 test("rd supervisor runner writes a draft strategy after a validated campaign candidate", () => {
   const dir = mkdtempSync(join(tmpdir(), "rd-supervisor-draft-"))
   try {
-    const path = join(dir, "state.json")
+    const dbPath = join(dir, "rd_state.db")
+    const stateRef = rdProgramRef("rd-draft")
     const catalogDb = join(dir, "catalog.db")
     const strategyRoot = join(dir, "strategies")
-    writeRdProgramState(path, createRdProgramState({
+    writeRdProgramState(stateRef, createRdProgramState({
       programId: "rd-draft",
       objective: "validate a candidate before landing a strategy draft",
       now: "2026-07-09T12:00:00Z",
@@ -118,10 +122,11 @@ test("rd supervisor runner writes a draft strategy after a validated campaign ca
           },
         }],
       }],
-    }), catalogDb)
+    }), undefined, dbPath)
 
     const result = runRdSupervisorLoopWithDeps({
-      path,
+      path: stateRef,
+      dbPath,
       catalogDbPath: catalogDb,
       input: { now: "2026-07-09T13:00:00Z", max_iterations: 5, strategy_root: strategyRoot },
     }, {
@@ -158,9 +163,10 @@ test("rd supervisor runner writes a draft strategy after a validated campaign ca
           }],
         }
         writeRdProgramState(
-          String(payload.rd_program_state_path),
-          updateRdProgramStateFromResearchResult(readRdProgramState(String(payload.rd_program_state_path)), report, String(payload.now)),
-          catalogDb,
+          String(payload.rd_program_ref),
+          updateRdProgramStateFromResearchResult(readRdProgramState(String(payload.rd_program_ref), String(payload.rd_state_db)), report, String(payload.now)),
+          undefined,
+          String(payload.rd_state_db),
         )
         return report
       },
@@ -183,15 +189,17 @@ test("rd supervisor runner writes a draft strategy after a validated campaign ca
 test("rd supervisor runner marks empty active queue as data/tool blocked", () => {
   const dir = mkdtempSync(join(tmpdir(), "rd-supervisor-empty-"))
   try {
-    const path = join(dir, "state.json")
-    writeRdProgramState(path, createRdProgramState({
+    const dbPath = join(dir, "rd_state.db")
+    const stateRef = rdProgramRef("rd-empty")
+    writeRdProgramState(stateRef, createRdProgramState({
       programId: "rd-empty",
       objective: "needs a runnable queue",
       now: "2026-07-09T12:00:00Z",
-    }), join(dir, "catalog.db"))
+    }), undefined, dbPath)
 
     const result = runRdSupervisorLoopWithDeps({
-      path,
+      path: stateRef,
+      dbPath,
       input: { now: "2026-07-09T13:00:00Z" },
     }, {
       runLoop: () => {
@@ -233,4 +241,8 @@ function asArray(value: unknown): unknown[] {
 
 function asRecord(value: unknown): JSONRecord {
   return value && typeof value === "object" && !Array.isArray(value) ? value as JSONRecord : {}
+}
+
+function rdProgramRef(programId: string): string {
+  return `research_state_store:rd_program/${programId}`
 }

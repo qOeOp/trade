@@ -13,7 +13,7 @@ async function runMarketFeatures(argv: string[], fetchJSON: FetchJSON = defaultF
   const config = parseArgs(argv)
   const report = JSON.parse(readFileSync(config.baseReport, "utf8")) as JSONRecord
   const grid = featureGrid(report, config.timeframe)
-  const endTS = Date.parse(grid.at(-1) || "")
+  const endTS = Date.parse(grid[grid.length - 1] || "")
   if (!Number.isFinite(endTS)) throw new Error("base report has no valid feature timestamps")
   const recentStart = Math.max(config.sinceTS, endTS - 29 * 86_400_000)
   const currency = config.symbol.replace(/USDT$/, "")
@@ -136,7 +136,7 @@ async function fetchPaged(base: string, fixed: Record<string, string>, since: nu
     const page = await fetchOnce(base, { ...fixed, startTime: String(cursor), limit: String(limit) }, fetchJSON)
     rows.push(...page)
     if (page.length < limit) return rows
-    const last = rowTime(page.at(-1), timeKey)
+    const last = rowTime(page[page.length - 1], timeKey)
     if (!Number.isFinite(last) || last < cursor) throw new Error(`market feature pagination did not advance: ${base}`)
     cursor = last + 1
   }

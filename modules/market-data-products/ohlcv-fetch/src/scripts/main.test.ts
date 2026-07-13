@@ -169,7 +169,7 @@ test("fetchKlines paginates above the Binance page limit", async () => {
   assert.deepEqual(calls.map((call) => call.limit), [1500, 3])
   assert.equal(calls[1].startTime, rows[1499].openTime + 1)
   assert.equal(candles[0].timestamp, start)
-  assert.equal(candles.at(-1)?.timestamp, rows.at(-1)?.openTime)
+  assert.equal(candles[candles.length - 1]?.timestamp, rows[rows.length - 1]?.openTime)
 })
 
 test("fetchKlines keeps the latest closed candles when no start time is given", async () => {
@@ -213,7 +213,12 @@ test("run preserves relative output paths in response and manifest", async () =>
   const previousCwd = process.cwd()
   process.chdir(tmpdir())
   try {
-    const result = await run(["--symbol", "BTCUSDT", "--timeframes", "4h", "--output-dir", relativeOutputDir], client)
+    const result = await run([
+      "--symbol", "BTCUSDT",
+      "--timeframes", "4h",
+      "--output-dir", relativeOutputDir,
+      "--market-data-db", join(tempParent, "market_data.db"),
+    ], client)
     assert.equal(result.ok, true)
     if (!result.ok) return
 
@@ -246,7 +251,12 @@ test("run normalizes absolute output paths in response and manifest", async () =
     futuresCandles: async () => rows,
   } as unknown as BinanceRest
 
-  const result = await run(["--symbol", "BTCUSDT", "--timeframes", "4h", "--output-dir", outputDir], client)
+  const result = await run([
+    "--symbol", "BTCUSDT",
+    "--timeframes", "4h",
+    "--output-dir", outputDir,
+    "--market-data-db", join(outputDir, "market_data.db"),
+  ], client)
   assert.equal(result.ok, true)
   if (!result.ok) return
 

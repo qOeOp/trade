@@ -731,7 +731,7 @@ CREATE INDEX idx_research_report_kind ON research_report(report_kind, generated_
 | Account config | JSON | `./profile/account_config.json`（deprecated 输入，后续由 trading config 取代） |
 | Notify config | JSON | `./profile/notify_config.json`（deprecated 输入，后续迁入 trading config；凭证仍只走环境变量） |
 | Cron 运维日志 | JSONL 原始记录 + catalog 索引 | `./data/cron.log` |
-| OHLCV / 市场数据 | CSV + manifest + catalog 索引 | `./data/ohlcv/` |
+| OHLCV / 市场数据 | SQLite owner store + raw/import archive refs | `./data/market_data.db`；`./data/ohlcv/` 仅 legacy/raw archive |
 | 大型 feature / replay / campaign report | 文件 payload + catalog 索引 | 默认 `./tmp/artifacts/`；准入 / 复盘证据才归档 `./data/artifacts/` |
 
 Git 边界与 data 留存规则见 [data-hygiene.md](data-hygiene.md)。

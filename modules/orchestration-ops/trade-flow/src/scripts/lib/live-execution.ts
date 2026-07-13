@@ -1,6 +1,6 @@
-import { asRecord, stringField, type JSONRecord } from "./json"
+import { asRecord, stringField, type JSONRecord } from "../../../../../contracts/runtime-core/src/json"
 import { resolveRegisteredOwnerTool } from "../../../../../contracts/runtime-core/src/owner-tool-registry"
-import { runJsonCommand } from "./tool-runner"
+import { runJsonCommand } from "../../../../../contracts/runtime-core/src/tool-runner"
 
 export async function runShadowFromTools(
   input: JSONRecord,

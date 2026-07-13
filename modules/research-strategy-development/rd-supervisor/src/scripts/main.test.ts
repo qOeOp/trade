@@ -14,12 +14,16 @@ test("rd supervisor CLI exposes native J04 init job result", () => {
   rmSync(absoluteDir, { recursive: true, force: true })
   mkdirSync(absoluteDir, { recursive: true })
   try {
-    const statePath = `${dir}/program.json`
+    const dbPath = `${dir}/rd_state.db`
+    const programId = "rd-supervisor-init"
+    const stateRef = `research_state_store:rd_program/${programId}`
     const catalogDbPath = `${dir}/catalog.db`
     const result = run([
       "--supervisor-job",
-      "--state",
-      statePath,
+      "--db",
+      dbPath,
+      "--program-id",
+      programId,
       "--catalog-db",
       catalogDbPath,
       "--json",
@@ -42,7 +46,7 @@ test("rd supervisor CLI exposes native J04 init job result", () => {
     assert.equal(runtimeResult.job_id, "rd_strategy_supervisor")
     assert.equal(runtimeResult.status, "ok")
     assert.deepEqual(runtimeResult.writes, { research_state_store: true, artifact_catalog: true })
-    assert.deepEqual(runtimeResult.output_refs, [statePath])
+    assert.deepEqual(runtimeResult.output_refs, [stateRef])
   } finally {
     rmSync(absoluteDir, { recursive: true, force: true })
   }
@@ -54,12 +58,16 @@ test("rd supervisor CLI exposes native J04 blocked job result from owner loop", 
   rmSync(absoluteDir, { recursive: true, force: true })
   mkdirSync(absoluteDir, { recursive: true })
   try {
-    const statePath = `${dir}/program.json`
+    const dbPath = `${dir}/rd_state.db`
+    const programId = "rd-supervisor-blocked"
+    const stateRef = `research_state_store:rd_program/${programId}`
     const catalogDbPath = `${dir}/catalog.db`
     const init = run([
       "--supervisor-job",
-      "--state",
-      statePath,
+      "--db",
+      dbPath,
+      "--program-id",
+      programId,
       "--catalog-db",
       catalogDbPath,
       "--json",
@@ -76,8 +84,10 @@ test("rd supervisor CLI exposes native J04 blocked job result from owner loop", 
 
     const result = run([
       "--supervisor-job",
-      "--state",
-      statePath,
+      "--db",
+      dbPath,
+      "--program-id",
+      programId,
       "--catalog-db",
       catalogDbPath,
       "--json",
@@ -96,7 +106,7 @@ test("rd supervisor CLI exposes native J04 blocked job result from owner loop", 
     assert.equal(runtimeResult.job_id, "rd_strategy_supervisor")
     assert.equal(runtimeResult.status, "blocked")
     assert.deepEqual(runtimeResult.writes, { research_state_store: true, artifact_catalog: true })
-    assert.deepEqual(runtimeResult.output_refs, [statePath])
+    assert.deepEqual(runtimeResult.output_refs, [stateRef])
     assert.equal(asRecord(asRecord(data.result).final_state).status, "data_or_tool_blocked")
   } finally {
     rmSync(absoluteDir, { recursive: true, force: true })

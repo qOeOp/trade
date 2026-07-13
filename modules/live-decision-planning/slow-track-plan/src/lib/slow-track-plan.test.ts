@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { isAbsolute, join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
-import type { Runner } from "../../../observe-runner/src/lib/observe-runner"
+import type { Runner } from "../../../../contracts/runtime-core/src/tool-runner"
 import { runSlowTrackWorkflowDryRun } from "./slow-track-plan"
 
 test("slow track workflow dry-run builds real watchlist without live action", async () => {
@@ -16,6 +16,7 @@ test("slow track workflow dry-run builds real watchlist without live action", as
     max_open_risk_pct: 0.03,
     max_day_loss_pct: 0.05,
   }))
+  writeTradingConfig(repoRoot)
   writeFileSync(
     join(repoRoot, "strategies/s-btc.md"),
     "---\nstrategy_id: S-BTC\nname: BTC Live\nstatus: live-small\ntags: [btc, usdm]\n---\nbody\n",
@@ -124,7 +125,7 @@ test("slow track workflow dry-run builds real watchlist without live action", as
     assert.equal(ohlcv.output_dir, "tmp/market/run-slow-test/BTCUSDT")
     assert.equal(isAbsolute(ohlcv.manifest_path), false)
     const ohlcvCall = calls.find((call) => call.cwd?.endsWith("ohlcv-fetch") && call.command.includes("--market-data-db"))
-    assert.equal(ohlcvCall?.command[ohlcvCall.command.indexOf("--market-data-db") + 1], join(dataDir, "market_data.duckdb"))
+    assert.equal(ohlcvCall?.command[ohlcvCall.command.indexOf("--market-data-db") + 1], join(dataDir, "market_data.db"))
     const indicatorCall = calls.find((call) => call.cwd?.endsWith("market-data-products/tech-indicators") && call.command.includes("--manifest"))
     assert.equal(indicatorCall?.command[indicatorCall.command.indexOf("--manifest") + 1], join(repoRoot, "tmp/market/run-slow-test/BTCUSDT/manifest.json"))
     assert.equal((result.watchlist as Array<{ operator_suggestion: { action: string } }>)[0].operator_suggestion.action, "watch_long_setup")
@@ -142,6 +143,7 @@ test("slow track workflow reports account snapshot unavailable without inventing
   mkdirSync(join(repoRoot, "strategies"), { recursive: true })
   mkdirSync(dataDir, { recursive: true })
   writeFileSync(join(repoRoot, "profile/account_config.json"), "{}")
+  writeTradingConfig(repoRoot)
   writeFileSync(join(repoRoot, "strategies/s-draft.md"), "---\nstrategy_id: S-DRAFT\nstatus: draft\n---\n")
   const runner: Runner = async (_command, options) => {
     if (options?.cwd?.endsWith("exchange-gateway/binance-read/account-snapshot")) {
@@ -177,6 +179,7 @@ test("slow track workflow analyzes every default watchlist candidate", async () 
   mkdirSync(join(repoRoot, "strategies"), { recursive: true })
   mkdirSync(dataDir, { recursive: true })
   writeFileSync(join(repoRoot, "profile/account_config.json"), "{}")
+  writeTradingConfig(repoRoot)
   writeFileSync(join(repoRoot, "strategies/s-draft.md"), "---\nstrategy_id: S-DRAFT\nstatus: draft\n---\n")
   const analyzedSymbols: string[] = []
   const runner: Runner = async (command, options) => {
@@ -260,4 +263,17 @@ function jsonOk(data: unknown) {
     stdout: "{}",
     stderr: "",
   }
+}
+
+function writeTradingConfig(repoRoot: string): void {
+  writeFileSync(join(repoRoot, "profile/trading-config.json"), JSON.stringify({
+    schema_version: 1,
+    profile_id: "slow-track-test",
+    mode: "dry_run",
+    permissions: { live_small_enabled: false, max_stage: "paper_shadow" },
+    risk: {},
+    exposure: {},
+    execution: {},
+    research: {},
+  }))
 }

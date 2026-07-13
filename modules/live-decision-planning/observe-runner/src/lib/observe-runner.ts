@@ -1,24 +1,11 @@
 import { join } from "node:path"
 import { buildObserveEvent } from "../../../observe-builder/src/lib/observe-builder"
+import {
+  runJsonCommand,
+  type Runner,
+} from "../../../../contracts/runtime-core/src/tool-runner"
 
 type JSONRecord = Record<string, unknown>
-
-interface CommandResult {
-  ok: true
-  data: unknown
-  stdout: string
-  stderr: string
-}
-
-interface CommandFailure {
-  ok: false
-  error: string
-  stdout: string
-  stderr: string
-  exitCode: number | null
-}
-
-type Runner = (command: string[], options?: { cwd?: string }) => Promise<CommandResult | CommandFailure>
 
 interface ObserveRunnerInput {
   repoRoot: string
@@ -88,46 +75,6 @@ async function fetchObserveProjections(
   }
 }
 
-async function runJsonCommand(command: string[], options: { cwd?: string } = {}): Promise<CommandResult | CommandFailure> {
-  const proc = Bun.spawn(command, {
-    cwd: options.cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-  })
-  const [stdout, stderr, exitCode] = await Promise.all([
-    new Response(proc.stdout).text(),
-    new Response(proc.stderr).text(),
-    proc.exited,
-  ])
-
-  if (exitCode !== 0) {
-    return {
-      ok: false,
-      error: `command failed with exit code ${exitCode}`,
-      stdout,
-      stderr,
-      exitCode,
-    }
-  }
-
-  try {
-    return {
-      ok: true,
-      data: JSON.parse(stdout) as unknown,
-      stdout,
-      stderr,
-    }
-  } catch (error) {
-    return {
-      ok: false,
-      error: `command did not return JSON: ${error instanceof Error ? error.message : String(error)}`,
-      stdout,
-      stderr,
-      exitCode,
-    }
-  }
-}
-
 function asRecord(value: unknown): JSONRecord {
   return value && typeof value === "object" ? value as JSONRecord : {}
 }
@@ -153,10 +100,6 @@ function readSide(value: unknown): "long" | "short" {
 export {
   fetchObserveProjections,
   observeFromTools,
-  runJsonCommand,
-  type CommandFailure,
-  type CommandResult,
   type ObserveRunnerInput,
   type ObserveRunnerOutput,
-  type Runner,
 }

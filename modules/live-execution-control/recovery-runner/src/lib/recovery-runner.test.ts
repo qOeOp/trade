@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite"
 import assert from "node:assert/strict"
 import test from "node:test"
-import type { Runner } from "./tool-runner"
+import type { Runner } from "../../../../contracts/runtime-core/src/tool-runner"
 import { appendPlanEvent, ensureSchema, readFlowEvents } from "../../../../portfolio-execution-state/event-store/src/lib/event-store"
 import { applyReconcileDrafts, reduceFlowState } from "../../../../portfolio-execution-state/flow-projector/src/lib/flow-projector"
 import { cronRecoverFromTools, reconcileFromTools } from "./recovery-runner"

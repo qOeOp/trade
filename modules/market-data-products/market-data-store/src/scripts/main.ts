@@ -9,8 +9,10 @@ import {
   buildMarketManifest,
   ensureMarketDataSchema,
   listFeatureManifests,
+  readCanonicalCandles,
   readFeatureManifest,
   readFundingEvents,
+  readLatestCandleOpenTime,
   readMarketManifest,
   upsertCanonicalCandles,
   upsertFeatureManifest,
@@ -26,7 +28,7 @@ interface Args {
 }
 
 export function parseArgs(argv: string[]): Args {
-  let dbPath = "data/market_data.duckdb"
+  let dbPath = "data/market_data.db"
   let action = "init"
   let json: JSONRecord = {}
   for (let index = 0; index < argv.length; index += 1) {
@@ -94,6 +96,31 @@ export function run(args: Args): JSONRecord {
         }),
       }
     }
+    if (args.action === "read_latest_candle") {
+      return {
+        ok: true,
+        action: args.action,
+        open_time: readLatestCandleOpenTime(db, {
+          exchange: stringField(args.json.exchange) || undefined,
+          symbol: stringField(args.json.symbol),
+          timeframe: stringField(args.json.timeframe),
+        }),
+      }
+    }
+    if (args.action === "read_candles") {
+      return {
+        ok: true,
+        action: args.action,
+        candles: readCanonicalCandles(db, {
+          exchange: stringField(args.json.exchange) || undefined,
+          symbol: stringField(args.json.symbol),
+          timeframe: stringField(args.json.timeframe),
+          since_ts: optionalNumber(args.json.since_ts),
+          until_ts: optionalNumber(args.json.until_ts),
+          limit: optionalNumber(args.json.limit),
+        }),
+      }
+    }
     if (args.action === "read_feature_manifest") {
       return {
         ok: true,
@@ -121,8 +148,8 @@ export function run(args: Args): JSONRecord {
 
 function printHelp(): void {
   console.log([
-    "usage: bun src/scripts/main.ts --db data/market_data.duckdb --action init",
-    "actions: init | upsert_manifest | upsert_candles | upsert_funding | upsert_feature_manifest | read_manifest | read_funding | read_feature_manifest | list_feature_manifests",
+    "usage: bun src/scripts/main.ts --db data/market_data.db --action init",
+    "actions: init | upsert_manifest | upsert_candles | upsert_funding | upsert_feature_manifest | read_manifest | read_funding | read_latest_candle | read_candles | read_feature_manifest | list_feature_manifests",
   ].join("\n"))
 }
 

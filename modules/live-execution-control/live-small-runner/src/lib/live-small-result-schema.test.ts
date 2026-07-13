@@ -6,7 +6,7 @@ import { runLiveSmall } from "./live-small-runner"
 import { appendPlanEvent, ensureSchema, readFlowEvents, readLatestOrderFill } from "../../../../portfolio-execution-state/event-store/src/lib/event-store"
 import type { JSONRecord } from "../../../../contracts/runtime-core/src/json"
 import type { ExecutionStateRuntime } from "../../../execution-flow-runner/src/lib/execution-flow-runner"
-import type { Runner } from "./tool-runner"
+import type { Runner } from "../../../../contracts/runtime-core/src/tool-runner"
 
 const TEST_DB_PATH = "test://trade.db"
 

@@ -1,4 +1,4 @@
-import { resolveRegisteredOwnerTool } from "../../../../contracts/runtime-core/src/owner-tool-registry"
+import { runOwnerToolRecordSync } from "../../../../contracts/runtime-core/src/owner-tool-client"
 
 type JSONRecord = Record<string, unknown>
 
@@ -18,28 +18,5 @@ export function applyReconcile(dbPath: string, input: JSONRecord, yes: boolean):
 }
 
 function runFlowProjectorSync(args: string[]): JSONRecord {
-  const command = resolveRegisteredOwnerTool("state.flow-projector", args)
-  const proc = Bun.spawnSync(command.argv, {
-    cwd: command.cwd,
-    stdout: "pipe",
-    stderr: "pipe",
-  })
-  const stdout = new TextDecoder().decode(proc.stdout)
-  const stderr = new TextDecoder().decode(proc.stderr)
-  const response = parseJsonRecord(stdout)
-  if (!proc.success) {
-    if (response.ok === false && typeof response.error === "string") throw new Error(response.error)
-    throw new Error(`flow projector owner tool failed: exit=${proc.exitCode}${stderr ? `; ${stderr.trim()}` : ""}`)
-  }
-  if (response.ok === false) throw new Error(typeof response.error === "string" ? response.error : "flow projector owner tool returned ok=false")
-  return response.data && typeof response.data === "object" ? response.data as JSONRecord : response
-}
-
-function parseJsonRecord(raw: string): JSONRecord {
-  try {
-    const parsed = JSON.parse(raw)
-    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as JSONRecord : {}
-  } catch {
-    return {}
-  }
+  return runOwnerToolRecordSync("state.flow-projector", args, "flow projector")
 }

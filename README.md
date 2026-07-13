@@ -6,9 +6,7 @@ agent-native 加密交易工作仓库。目标是让 agent 在可审计事实、
 
 ## 1. 全局架构
 
-![architecture overview](docs/assets/architecture-overview.svg)
-
-完整 Mermaid 源文件固定在 [docs/architecture-overview.mmd](docs/architecture-overview.mmd)，渲染产物在 [docs/assets/architecture-overview.svg](docs/assets/architecture-overview.svg) / [docs/assets/architecture-overview.png](docs/assets/architecture-overview.png)。以后改顶层设计，先改这份源文件，再同步 README 图、[docs/design-architecture.md](docs/design-architecture.md)、[docs/architecture-manifest.json](docs/architecture-manifest.json) 和 [docs/storage-architecture.md](docs/storage-architecture.md)。
+当前顶层蓝图固定在 [docs/architecture-overview-v2.mmd](docs/architecture-overview-v2.mmd)，当前代码投影固定在 [docs/generated/code-architecture-current.mmd](docs/generated/code-architecture-current.mmd)，漂移报告固定在 [docs/generated/architecture-drift-report.md](docs/generated/architecture-drift-report.md)。以后改顶层设计，先改 v2 蓝图，再同步 [docs/design-architecture.md](docs/design-architecture.md)、[docs/architecture-manifest.json](docs/architecture-manifest.json)、drift report 和 owner module check。`docs/architecture-overview.mmd` 与 `docs/assets/architecture-overview.*` 只作为 v1 历史图保留，不再作为当前约束。
 
 一句话：外部只有一个 automation 入口；`orchestration-ops` 生成本轮 job graph protocol，并用 job graph runner 推进 stage lifecycle / ops audit，不直接解释交易、研究或治理结果；跨域通信走 `protocol-fabric / logical bus`，各责任域通过 inbox / outbox、logical store ref 和 rail envelope 解耦。
 
@@ -32,15 +30,15 @@ agent-native 加密交易工作仓库。目标是让 agent 在可审计事实、
 
 | Job | 业务含义 | 状态 |
 | --- | --- | --- |
-| `J01 runtime health` | 配置、API、DB、lock、safe mode 检查 | implemented |
-| `J02 account reconcile` | 交易所事实对账，修复本地风险状态 | implemented |
-| `J03 fast guard` | active flow 快轨守护、触发、防御、轻量执行 | implemented |
-| `J04 slow watch` | 慢轨盯市、机会生成、watchlist / intent | implemented |
-| `J05 R&D loop` | 策略研发假设循环和实验 | implemented |
-| `J06 shadow tracking` | shadow / forward 样本跟踪 | implemented |
-| `J07 catalog hygiene` | artifact catalog stale / GC / retention | implemented |
-| `J08 closed-flow review` | 已闭合交易复盘和 promotion evidence | implemented |
-| `J09 ops notify` | 异常汇总、人工接管提醒、cycle summary | implemented |
+| `J01 account reconcile` | 交易所事实对账，修复本地风险状态 | implemented |
+| `J02 fast guard` | active flow 快轨守护、触发、防御、轻量执行 | implemented |
+| `J03 slow watch` | 慢轨盯市、机会生成、watchlist / intent | implemented |
+| `J04 R&D loop` | 策略研发假设循环和实验 | implemented |
+| `J05 shadow tracking` | shadow / forward 样本跟踪 | implemented |
+| `J06 catalog hygiene` | artifact catalog stale / GC / retention | implemented |
+| `J07 closed-flow review` | 已闭合交易复盘和 promotion evidence | implemented |
+
+runtime health、notify、incident manager、control effectiveness review 是 control tower lifecycle processors，不占 domain job 编号。
 
 ## 2. 两条主链
 
@@ -244,7 +242,7 @@ flowchart TD
 高阶入口：
 
 ```bash
-bun modules/research-strategy-development/rd-supervisor/src/scripts/main.ts --state ./data/rd/program.json --json '{"max_iterations":10}'
+bun modules/research-strategy-development/rd-supervisor/src/scripts/main.ts --db ./data/rd_state.db --program-id rd-program --json '{"max_iterations":10}'
 ```
 
 低阶入口：
@@ -339,7 +337,7 @@ bun modules/orchestration-ops/trade-flow/src/scripts/main.ts --help
 bun modules/orchestration-ops/trade-flow/src/scripts/main.ts --db ./data/trade.db --init
 
 # 生成单入口 supervisor plan
-bun modules/orchestration-ops/trade-flow/src/scripts/main.ts --db ./data/trade.db --automation-cycle --json '{"slow_interval_minutes":240,"rd_program_state_path":"./data/rd/program.json"}'
+bun modules/orchestration-ops/trade-flow/src/scripts/main.ts --db ./data/trade.db --automation-cycle --json '{"slow_interval_minutes":240,"rd_state_db":"./data/rd_state.db","rd_program_id":"rd-program"}'
 
 # 运行 job graph lifecycle，默认 dry-run 只写 ops runtime audit
 bun modules/orchestration-ops/trade-flow/src/scripts/main.ts --db ./data/trade.db --run-job-graph --json '{"ops_runtime_db":"./data/ops_runtime.db","execute_jobs":false}'
@@ -348,8 +346,8 @@ bun modules/orchestration-ops/trade-flow/src/scripts/main.ts --db ./data/trade.d
 bun modules/orchestration-ops/domain-bus/src/scripts/main.ts --db ./data/ops_runtime.db --action list --json '{"cycle_id":"..."}'
 
 # 初始化并运行 R&D supervisor
-bun modules/research-strategy-development/rd-program-state/src/scripts/main.ts --state ./data/rd/program.json --json '{"action":"init","objective":"find a shadow-eligible 4H swing strategy"}'
-bun modules/research-strategy-development/rd-supervisor/src/scripts/main.ts --state ./data/rd/program.json --json '{"max_iterations":10}'
+bun modules/research-strategy-development/rd-program-state/src/scripts/main.ts --db ./data/rd_state.db --program-id rd-program --json '{"action":"init","objective":"find a shadow-eligible 4H swing strategy"}'
+bun modules/research-strategy-development/rd-supervisor/src/scripts/main.ts --db ./data/rd_state.db --program-id rd-program --json '{"max_iterations":10}'
 ```
 
 ## 15. 安全边界
@@ -366,7 +364,8 @@ bun modules/research-strategy-development/rd-supervisor/src/scripts/main.ts --st
 
 - [docs/vision.md](docs/vision.md)：为什么做
 - [docs/prd.md](docs/prd.md)：做什么、边界和产品口径
-- [docs/architecture-overview.mmd](docs/architecture-overview.mmd)：README 顶层 Mermaid 源
+- [docs/architecture-overview-v2.mmd](docs/architecture-overview-v2.mmd)：当前顶层 Mermaid 蓝图
+- [docs/generated/architecture-drift-report.md](docs/generated/architecture-drift-report.md)：蓝图与代码投影漂移报告
 - [docs/design-architecture.md](docs/design-architecture.md)：单入口、双轨、subagent、数据模型和调度设计
 - [docs/architecture-manifest.json](docs/architecture-manifest.json)：域、job、store、rail 的机器可检清单
 - [docs/storage-architecture.md](docs/storage-architecture.md)：logical store、DDL 和落地状态
@@ -403,20 +402,20 @@ bun modules/research-strategy-development/rd-supervisor/src/scripts/main.ts --st
 
 ## 18. 后续重构任务
 
-下一阶段不是重新画图，而是把 `planned` store / job 逐个接进 runtime。每完成一项都必须同步 `docs/architecture-overview.mmd`、`docs/architecture-manifest.json`、`docs/storage-architecture.md`、owner module check 和 `scripts/quality-check.sh`。
+下一阶段不是重新画图，而是把 v2 蓝图里的 owner port 和 runtime contract 逐个接进真实流水线。每完成一项都必须同步 `docs/architecture-overview-v2.mmd`、`docs/architecture-manifest.json`、生成的 drift report、owner module check 和 `scripts/quality-check.sh`。
 
 | 优先级 | 任务 | 目标完成状态 |
 | --- | --- | --- |
-| P0 | 实现 `ops_runtime_store`、`J01 runtime_health_guard`、`J09 ops_notify_dispatch` | done：cycle/job/health/notify 有独立库表和 owner module；`summary` 读口返回 stage/domain/attention 聚合 |
-| P0 | 把 automation cycle 从裸路径继续收敛到 `tool_id + command_spec + protocol-fabric` | done：J01/J03/J04/J05/J07/J08/J09 均输出 tool ticket + command_spec |
+| P0 | 实现 `ops_runtime_store`、runtime health processor、ops notify processor | done：cycle/job/health/notify/incident/control_review 有独立库表和 owner module；`summary` 读口返回 stage/domain/attention 聚合 |
+| P0 | 把 automation cycle 从裸路径继续收敛到 `tool_id + command_spec + protocol-fabric` | done：J01-J07 均输出 tool ticket + command_spec；health/notify/control review 作为 lifecycle processors，不占 job 编号 |
 | P0 | 实现 job graph runner | done：`--run-job-graph` 可按 dispatch_order 记录 planned/running/completed/skipped/failed；默认 dry-run，`execute_jobs=true` 才调用 command_spec；响应带 `ops_summary` |
 | P0 | 实现 logical domain-bus | done：`orchestration-ops/domain-bus` 写入 `ops_runtime_store.domain_message`，runner 为每个 job 记录 inbox/outbox envelope |
 | P1 | 实现 `exchange_runtime_store` | done：Binance write request/result/client_order_id/idempotency 有独立审计账本 |
 | P1 | 实现 `market_data_store` | done：raw/canonical/funding/feature/dataset manifest 由市场数据域单写管理；`ohlcv-fetch` 与慢轨盯市已接入 canonical candle upsert；calibration market features 已接入 funding events 与 feature refs，R&D benchmark input/diagnostics 已识别 store refs |
 | P1 | 实现 `policy_registry` | done：approved strategy refs、runtime policy hash、风险快照可追溯 |
 | P2 | 实现 `research_state_store` | done：RD hypothesis、budget、trial、holdout use 有独立 owner store |
-| P2 | 实现 `governance_ledger` 与 `J08 closed-flow review sweep` | done：review/promotion evidence 有独立 ledger 和串行 closeout job |
+| P2 | 实现 `governance_ledger` 与 `J07 closed-flow review sweep` | done：review/promotion evidence 有独立 ledger 和串行 closeout job |
 | P2 | 收敛域间调用到 inbox/outbox + rail envelope | done：protocol-fabric 已定义 domain inbox/outbox envelope，源码边界由 checker 管控 |
 | P2 | 强化 `trade-flow` 边界检查 | done：移除未使用 `src/domain/*` façade；checker 取消 trade-flow 泛化跨域豁免，改为生产文件级白名单 |
 | P3 | 为每个 logical store 增加 migration/init/check CLI | done：`bun scripts/logical-store.ts --action init/check --store all` |
-| P3 | 继续拆 `trade-flow` 剩余 suite 逻辑 | done：`main.ts` 已收缩为 CLI router，只导出 `run`；历史命令保留为 legacy adapter，业务能力由各 owner module 直接承接 |
+| P3 | 继续拆 `trade-flow` 剩余 suite 逻辑 | done：`main.ts` 已收缩为 control tower CLI router，只导出 `run`；业务能力由各 owner module 直接承接 |

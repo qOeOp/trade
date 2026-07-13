@@ -693,19 +693,13 @@ func buildWalkForwardStructureValidation(timeframe string, data *series) map[str
 	sampleStep := maxInt(1, windowBars/2)
 	minBars := maxInt(120, pivotWindows[timeframe]*20)
 	result := map[string]structureValidationAggregate{
-		"support":                   {WindowBars: windowBars, SampleStepBars: sampleStep},
-		"resistance":                {WindowBars: windowBars, SampleStepBars: sampleStep},
-		"support_trendline_overall": {WindowBars: windowBars, SampleStepBars: sampleStep},
-		"resistance_trendline_overall": {
-			WindowBars:     windowBars,
-			SampleStepBars: sampleStep,
-		},
+		"support":                      newStructureValidationAggregate(windowBars, sampleStep),
+		"resistance":                   newStructureValidationAggregate(windowBars, sampleStep),
+		"support_trendline_overall":    newStructureValidationAggregate(windowBars, sampleStep),
+		"resistance_trendline_overall": newStructureValidationAggregate(windowBars, sampleStep),
 	}
 	for _, variant := range trendlineValidationVariants() {
-		result[trendlineVariantValidationKey(variant.kind, variant.basis, variant.scale)] = structureValidationAggregate{
-			WindowBars:     windowBars,
-			SampleStepBars: sampleStep,
-		}
+		result[trendlineVariantValidationKey(variant.kind, variant.basis, variant.scale)] = newStructureValidationAggregate(windowBars, sampleStep)
 	}
 	if len(data.Close) < minBars+windowBars+1 {
 		note := fmt.Sprintf("not enough bars for walk-forward validation, need at least %d", minBars+windowBars+1)
@@ -795,6 +789,13 @@ func buildWalkForwardStructureValidation(timeframe string, data *series) map[str
 	}
 
 	return result
+}
+
+func newStructureValidationAggregate(windowBars int, sampleStepBars int) structureValidationAggregate {
+	return structureValidationAggregate{
+		structureValidationStats: structureValidationStats{WindowBars: windowBars},
+		SampleStepBars:           sampleStepBars,
+	}
 }
 
 func trendlineValidationVariants() []struct {
@@ -1088,7 +1089,7 @@ func validateHorizontalLevel(data *series, atr []float64, level priceLevel, kind
 	if windowBars == 0 {
 		windowBars = 8
 	}
-	check := structureCheck{WindowBars: windowBars}
+	check := structureCheck{structureValidationStats: structureValidationStats{WindowBars: windowBars}}
 	if len(touches) == 0 {
 		check.Note = "no historical touches available"
 		return check
@@ -1132,7 +1133,7 @@ func validateTrendline(
 	if windowBars == 0 {
 		windowBars = 8
 	}
-	check := structureCheck{WindowBars: windowBars}
+	check := structureCheck{structureValidationStats: structureValidationStats{WindowBars: windowBars}}
 	if len(touches) == 0 {
 		check.Note = "no historical trendline touches available"
 		return check

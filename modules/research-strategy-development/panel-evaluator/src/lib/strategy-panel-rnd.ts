@@ -219,7 +219,7 @@ function buildUniverseSelection(input: StrategyPanelRndInput): UniverseSelection
       maxImpactProxyBps,
       minScore,
     })
-    return { dataset, index, symbol, marketability, selectionLastOpen: selectionCandles.at(-1)?.timestamp || null }
+    return { dataset, index, symbol, marketability, selectionLastOpen: selectionCandles[selectionCandles.length - 1]?.timestamp || null }
   })
   const passed = scored
     .filter((item) => asRecord(item.marketability).passed === true)

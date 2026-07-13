@@ -4,6 +4,10 @@ export function stringField(value: unknown): string {
   return typeof value === "string" ? value.trim() : ""
 }
 
+export function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(stringField).filter(Boolean) : []
+}
+
 export function asRecord(value: unknown): JSONRecord {
   return value && typeof value === "object" ? value as JSONRecord : {}
 }
@@ -33,4 +37,8 @@ export function removeUndefined(record: JSONRecord): void {
 export function compactRecord(record: JSONRecord): JSONRecord {
   removeUndefined(record)
   return record
+}
+
+export function withoutUndefined(record: JSONRecord): JSONRecord {
+  return Object.fromEntries(Object.entries(record).filter(([, value]) => value !== undefined))
 }

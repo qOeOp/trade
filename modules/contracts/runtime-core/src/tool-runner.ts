@@ -1,11 +1,11 @@
-interface CommandResult {
+export interface CommandResult {
   ok: true
   data: unknown
   stdout: string
   stderr: string
 }
 
-interface CommandFailure {
+export interface CommandFailure {
   ok: false
   error: string
   stdout: string
@@ -13,7 +13,9 @@ interface CommandFailure {
   exitCode: number | null
 }
 
-async function runJsonCommand(command: string[], options: { cwd?: string } = {}): Promise<CommandResult | CommandFailure> {
+export type Runner = (command: string[], options?: { cwd?: string }) => Promise<CommandResult | CommandFailure>
+
+export async function runJsonCommand(command: string[], options: { cwd?: string } = {}): Promise<CommandResult | CommandFailure> {
   const proc = Bun.spawn(command, {
     cwd: options.cwd,
     stdout: "pipe",
@@ -51,10 +53,4 @@ async function runJsonCommand(command: string[], options: { cwd?: string } = {})
       exitCode,
     }
   }
-}
-
-export {
-  runJsonCommand,
-  type CommandFailure,
-  type CommandResult,
 }

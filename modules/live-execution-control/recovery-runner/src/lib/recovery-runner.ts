@@ -3,7 +3,7 @@ import { unwrapToolResponse } from "../../../execution-recorder/src/lib/executio
 import { buildReconcileDrafts } from "../../../reconcile-drafts/src/lib/reconcile-drafts"
 import { appendEvent, readFlowEvents } from "./event-store-client"
 import { applyReconcile, reduceFlow } from "./flow-projector-client"
-import { runJsonCommand, type Runner } from "./tool-runner"
+import { runJsonCommand, type Runner } from "../../../../contracts/runtime-core/src/tool-runner"
 
 type PlanEvent = {
   event_key: string

@@ -10,10 +10,10 @@ import { cronRecoverFromTools, reconcileFromTools } from "../../../../live-execu
 import { readCycleSummary } from "../../../ops-runtime-store/src/lib/ops-runtime-store"
 import { appendPlanEvent, ensureSchema, readFlowEvents, readLatestOrderFill, validateOrderFill, type PlanEvent } from "../../../../portfolio-execution-state/event-store/src/lib/event-store"
 import { applyReconcileDrafts, latestSlowObserve, reduceFlowState } from "../../../../portfolio-execution-state/flow-projector/src/lib/flow-projector"
-import { type Runner } from "../../../../live-decision-planning/observe-runner/src/lib/observe-runner"
+import { type Runner } from "../../../../contracts/runtime-core/src/tool-runner"
 import { runShadowFromTools } from "./lib/live-execution"
 import { run } from "./main"
-import { resolveRepoPath } from "./lib/paths"
+import { resolveRepoPath } from "../../../../contracts/runtime-core/src/paths"
 
 test("validateOrderFill requires audit fields for trade_flow source", () => {
   assert.throws(

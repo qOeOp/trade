@@ -12,7 +12,7 @@ atomic orchestration module
 
 ## Inputs
 
-- `--state` path for durable R&D memory.
+- `--db` research state DB path and `--program-id` for durable R&D memory.
 - `--supervisor-job` J04 entrypoint for native domain-runtime job execution.
 - JSON supervisor payload, including optional `max_iterations`, `now`, and `strategy_root`.
 - Optional J04 goal payload used to initialize missing durable R&D memory.

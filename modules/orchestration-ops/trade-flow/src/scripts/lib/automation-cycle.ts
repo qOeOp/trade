@@ -1,16 +1,18 @@
 import { existsSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
-import type { Database } from "bun:sqlite"
+import { Database } from "bun:sqlite"
 import { buildJobTicket, type ProtocolToolsetEntry } from "../../../../../contracts/protocol-fabric/src/protocol-fabric"
 import { buildLifecycleProcessorRecord, buildLifecycleProcessorSpec } from "../../../../../contracts/runtime-core/src/lifecycle"
 import { activeFlows as readActiveFlows } from "./flow-projector-client"
-import { displayPath, repoRoot } from "./paths"
+import { displayPath, repoRoot } from "../../../../../contracts/runtime-core/src/paths"
 
 type JSONRecord = Record<string, unknown>
 
 const DEFAULT_CATALOG_DB = "./data/data_catalog.db"
 const DEFAULT_OPS_RUNTIME_DB = "./data/ops_runtime.db"
 const DEFAULT_GOVERNANCE_DB = "./data/governance.db"
+const DEFAULT_RD_STATE_DB = "./data/rd_state.db"
+const DEFAULT_RD_PROGRAM_ID = "rd-program"
 const TOOLSET_PATH = "toolset.json"
 
 interface CadenceState {
@@ -42,7 +44,8 @@ export interface AutomationCycleInput {
   catalog_interval_minutes?: number
   force_jobs?: string[]
   last_runs?: JSONRecord
-  rd_program_state_path?: string
+  rd_state_db?: string
+  rd_program_id?: string
   rd_strategy_goal?: JSONRecord
   rd_learning_memory_ref?: string
   rd_trackers?: JSONRecord[]
@@ -113,8 +116,10 @@ export function buildAutomationCyclePlan(_db: Database, dbPath: string, input: A
     }),
   }
   const rdTrackers = asArray(input.rd_trackers).map(asRecord).filter((item) => stringField(item.tracker_id))
-  const rdProgramStatePath = stringField(input.rd_program_state_path)
-  const rdProgramState = rdProgramStatePath ? readRdProgramStateSummary(rdProgramStatePath) : null
+  const rdStateDb = stringField(input.rd_state_db) || DEFAULT_RD_STATE_DB
+  const rdProgramId = safeID(stringField(input.rd_program_id) || DEFAULT_RD_PROGRAM_ID)
+  const rdProgramStateRef = rdProgramRef(rdProgramId)
+  const rdProgramState = readRdProgramStateSummary(rdStateDb, rdProgramId)
   const rdStrategyGoal = rdProgramState ? rdProgramGoalFromSummary(rdProgramState) : asRecord(input.rd_strategy_goal)
   const rdStrategyConfigured = Object.keys(rdStrategyGoal).length > 0
   const rdStrategyCanRun = rdStrategyConfigured && (!rdProgramState || rdProgramState.status === "active")
@@ -283,9 +288,11 @@ export function buildAutomationCyclePlan(_db: Database, dbPath: string, input: A
         : "no rd_strategy_goal configured",
       cadence: cadence.rd_strategy_supervisor,
       goal: rdStrategyGoal,
-      learningMemoryRef: stringField(input.rd_learning_memory_ref) || rdProgramStatePath || "data_catalog.db + docs/rd-audit.md",
-      programStateRef: rdProgramStatePath,
+      learningMemoryRef: stringField(input.rd_learning_memory_ref) || rdProgramStateRef,
+      programStateRef: rdProgramStateRef,
       programStateStatus: rdProgramState ? stringField(rdProgramState.status) : undefined,
+      rdStateDb,
+      rdProgramId,
       catalogDb,
       cycleId,
       now: generatedAt,
@@ -557,12 +564,14 @@ function rdStrategySupervisorJob(input: {
   learningMemoryRef: string
   programStateRef?: string
   programStateStatus?: string
+  rdStateDb: string
+  rdProgramId: string
   catalogDb: string
   cycleId: string
   now: string
 }): JSONRecord {
   const budget = asRecord(input.goal.budget)
-  const programStateRef = input.programStateRef ? displayPath(input.programStateRef) : "./data/rd/program.json"
+  const programStateRef = input.programStateRef || rdProgramRef(input.rdProgramId)
   const supervisorPayload: JSONRecord = {
     max_iterations: 20,
     artifact_root: "./tmp/artifacts/strategy-rnd",
@@ -573,7 +582,8 @@ function rdStrategySupervisorJob(input: {
     ticket_no: "J04",
     job_id: "rd_strategy_supervisor",
     now: input.now,
-    state_path: programStateRef,
+    db_path: input.rdStateDb,
+    program_id: input.rdProgramId,
     catalog_db_path: input.catalogDb,
     goal: {
       objective: stringField(input.goal.objective) || "find a shadow-eligible 4H swing strategy",
@@ -590,8 +600,10 @@ function rdStrategySupervisorJob(input: {
     "bun",
     "src/scripts/main.ts",
     "--supervisor-job",
-    "--state",
-    programStateRef,
+    "--db",
+    input.rdStateDb,
+    "--program-id",
+    input.rdProgramId,
     "--catalog-db",
     input.catalogDb,
     "--json",
@@ -601,7 +613,7 @@ function rdStrategySupervisorJob(input: {
     jobId: "rd_strategy_supervisor",
     toolId: "research.rd-supervisor",
     executable: input.active,
-    payload: { state: programStateRef, catalog_db: input.catalogDb, json: jobPayload },
+    payload: { state_ref: programStateRef, db_path: input.rdStateDb, program_id: input.rdProgramId, catalog_db: input.catalogDb, json: jobPayload },
     argv: commandArgv,
   })
   return {
@@ -885,12 +897,27 @@ function readToolsetEntry(toolId: string): ProtocolToolsetEntry {
   }
 }
 
-function readRdProgramStateSummary(path: string): JSONRecord | null {
+function readRdProgramStateSummary(dbPath: string, programId: string): JSONRecord | null {
   try {
-    return asRecord(JSON.parse(readFileSync(path, "utf8")))
+    const db = new Database(dbPath, { readonly: true })
+    try {
+      const row = db.query("SELECT state_json FROM rd_program WHERE program_id=$program_id")
+        .get({ $program_id: programId }) as { state_json: string } | null
+      return row ? asRecord(JSON.parse(row.state_json)) : null
+    } finally {
+      db.close()
+    }
   } catch {
     return null
   }
+}
+
+function rdProgramRef(programId: string): string {
+  return `research_state_store:rd_program/${programId}`
+}
+
+function safeID(value: string): string {
+  return value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || DEFAULT_RD_PROGRAM_ID
 }
 
 function rdProgramGoalFromSummary(state: JSONRecord): JSONRecord {

@@ -1,7 +1,7 @@
 import { readdirSync } from "node:fs"
 import { createRequire } from "node:module"
 import { join } from "node:path"
-import type { ReplayStrategy } from "./replay-core"
+import type { ReplayStrategy } from "../../../replay-engine/src/lib/replay-core"
 import type { FactorFeatureStore } from "./factor-engine"
 
 type JSONRecord = Record<string, unknown>

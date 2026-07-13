@@ -1,5 +1,5 @@
-import type { Candle, ReplaySignal, ReplayStrategy } from "../replay-core"
-import { trailingFundingAverage } from "../funding-events"
+import type { Candle, ReplaySignal, ReplayStrategy } from "../../../../replay-engine/src/lib/replay-core"
+import { trailingFundingAverage } from "../../../../replay-engine/src/lib/funding-events"
 import type { RndFamilyModule } from "../rnd-family"
 import { readNonNegativeNumber, readPositiveInteger, readPositiveNumber, readSide, round, type JSONRecord, type SideFilter } from "../rnd-family-helpers"
 

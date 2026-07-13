@@ -175,7 +175,7 @@ export function readFlowEvents(db: Database, chainId: string): PlanEvent[] {
     SELECT event_key, chain_id, kind, body_json, created_at
     FROM plan_event
     WHERE chain_id = $chain_id
-    ORDER BY created_at ASC, rowid ASC
+    ORDER BY created_at, rowid
   `).all({ $chain_id: chainId }) as Array<{
     event_key: string
     chain_id: string
@@ -197,7 +197,7 @@ export function listChainIds(db: Database): string[] {
   const rows = db.query(`
     SELECT DISTINCT chain_id
     FROM plan_event
-    ORDER BY chain_id ASC
+    ORDER BY chain_id
   `).all() as Array<{ chain_id: string }>
   return rows.map((row) => row.chain_id)
 }

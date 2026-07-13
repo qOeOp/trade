@@ -104,7 +104,7 @@ export function listApprovedStrategyRefs(db: Database, status = "live-small"): A
     SELECT strategy_ref, strategy_id, policy_hash, status, source_path, source_hash, approved_at, updated_at
     FROM approved_strategy_ref
     WHERE status = $status
-    ORDER BY updated_at DESC, strategy_ref ASC
+    ORDER BY updated_at DESC, strategy_ref
   `).all({ $status: status }) as ApprovedStrategyRefRow[]
   return rows.map(approvedStrategyRefFromRow)
 }
@@ -190,4 +190,3 @@ function approvedStrategyRefFromRow(row: ApprovedStrategyRefRow): ApprovedStrate
     updated_at: row.updated_at,
   }
 }
-

@@ -2,7 +2,7 @@ import { dirname } from "node:path"
 import { appendCronLog, acquireCronLock, releaseCronLock } from "./cron-runtime"
 import { activeFlows as readActiveFlows } from "./flow-projector-client"
 import { resolveRegisteredOwnerTool } from "../../../../../contracts/runtime-core/src/owner-tool-registry"
-import { runJsonCommand } from "./tool-runner"
+import { runJsonCommand } from "../../../../../contracts/runtime-core/src/tool-runner"
 import type { TrackMode } from "../commands/types"
 
 export const TRACK_DRY_RUN_TRACKS = ["slow", "fast"] as const

@@ -1,6 +1,5 @@
 import { createHash } from "node:crypto"
-import { existsSync, readFileSync } from "node:fs"
-import { dirname, join } from "node:path"
+import { readFileSync } from "node:fs"
 import { asRecord, numberField, stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
 
 type PermissionStage = "observe_only" | "paper_shadow" | "live-small"
@@ -33,8 +32,6 @@ const HARD_LIMITS = {
 
 interface RuntimePolicyLoadInput {
   tradingConfigPath?: string
-  accountConfigPath?: string
-  notifyConfigPath?: string
   now?: string
 }
 
@@ -58,16 +55,10 @@ interface RuntimePolicyLoadResult {
 }
 
 function loadRuntimePolicy(input: RuntimePolicyLoadInput): RuntimePolicyLoadResult {
-  const tradingConfigPath = resolveTradingConfigPath(input)
-  const accountConfigPath = input.accountConfigPath || "./profile/account_config.json"
-  const notifyConfigPath = input.notifyConfigPath || join(dirname(accountConfigPath), "notify_config.json")
-  const warnings: string[] = []
-  const tradingConfig = existsSync(tradingConfigPath)
-    ? readJsonFile(tradingConfigPath)
-    : tradingConfigFromLegacy(accountConfigPath, notifyConfigPath, warnings)
+  const tradingConfigPath = input.tradingConfigPath || "./profile/trading-config.json"
+  const tradingConfig = readJsonFile(tradingConfigPath)
   const runtimePolicy = compileRuntimePolicy(tradingConfig, {
-    sourceRef: existsSync(tradingConfigPath) ? tradingConfigPath : accountConfigPath,
-    warnings,
+    sourceRef: tradingConfigPath,
     now: input.now,
   })
   return {
@@ -252,53 +243,6 @@ function compactPolicySnapshot(policy: RuntimePolicy): JSONRecord {
     cost_model: policy.cost_model,
     permissions: policy.permissions,
     warnings: policy.warnings,
-  }
-}
-
-function resolveTradingConfigPath(input: RuntimePolicyLoadInput): string {
-  if (input.tradingConfigPath) return input.tradingConfigPath
-  if (input.accountConfigPath) return join(dirname(input.accountConfigPath), "trading-config.json")
-  return "./profile/trading-config.json"
-}
-
-function tradingConfigFromLegacy(accountConfigPath: string, notifyConfigPath: string, warnings: string[]): JSONRecord {
-  warnings.push("trading-config missing; adapted legacy account_config/notify_config")
-  const accountConfig = existsSync(accountConfigPath) ? readJsonFile(accountConfigPath) : {}
-  const notifyConfig = existsSync(notifyConfigPath) ? readJsonFile(notifyConfigPath) : {}
-  return {
-    schema_version: 1,
-    profile_id: "legacy-account-config",
-    mode: "dry_run",
-    permissions: { live_small_enabled: false, max_stage: "paper_shadow" },
-    risk: {
-      equity_source: "live_exchange_snapshot",
-      max_open_risk_pct: positiveNumber(accountConfig.max_open_risk_pct),
-      max_day_loss_pct: positiveNumber(accountConfig.max_day_loss_pct),
-    },
-    exposure: {
-      max_single_position_leverage: positiveNumber(accountConfig.max_single_position_leverage),
-      max_gross_exposure: positiveNumber(accountConfig.max_gross_exposure),
-      max_btc_equiv_net_risk_pct: positiveNumber(accountConfig.max_btc_equiv_net_risk_pct),
-      max_btc_equiv_gross_risk_pct: positiveNumber(accountConfig.max_btc_equiv_gross_risk_pct),
-    },
-    execution: {
-      market: "usdm",
-      default_margin_mode: "isolated",
-      slippage_buffer_pct: nonNegativeNumber(accountConfig.slippage_buffer_pct),
-      max_funding_rate_pct: positiveNumber(accountConfig.max_funding_rate_pct),
-      max_funding_erosion_ratio: positiveNumber(accountConfig.max_funding_erosion_ratio),
-      stop_price_protect: accountConfig.stop_price_protect === true,
-    },
-    research: {
-      max_trials_per_campaign: 10,
-      max_parameters_per_candidate: 8,
-      default_fee_bps: 2,
-      default_slippage_bps: 1,
-      default_adverse_funding_bps_per_8h: 1,
-      allow_auto_promote: false,
-    },
-    lanes: [],
-    notifications: notifyConfig,
   }
 }
 

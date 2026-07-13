@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import { readdirSync, readFileSync, statSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fundingEventRangeSum, indexFundingEvents, type FundingEvent } from "./funding-events"
-import { resolveReadablePath } from "./paths"
+import { resolveReadablePath } from "../../../../contracts/runtime-core/src/paths"
 
 type Side = "long" | "short"
 type JSONRecord = Record<string, unknown>
@@ -268,10 +268,11 @@ function analyzeFundingCoverage(candles: Candle[], events: FundingEvent[]): JSON
   const timestamps = indexFundingEvents(events).timestamps
   if (timestamps.length === 0) return { status: "invalid", event_count: events.length }
   const first = timestamps[0]
-  const last = timestamps.at(-1) || first
+  const last = timestamps[timestamps.length - 1] || first
   const maxGap = timestamps.slice(1).reduce((gap, timestamp, index) => Math.max(gap, timestamp - timestamps[index]), 0)
   const tolerance = 9 * 3_600_000
-  const complete = first <= candles[0].timestamp + tolerance && last >= candles.at(-1)!.timestamp - tolerance && maxGap <= tolerance
+  const latestCandle = candles[candles.length - 1]!
+  const complete = first <= candles[0].timestamp + tolerance && last >= latestCandle.timestamp - tolerance && maxGap <= tolerance
   return { status: complete ? "complete" : "partial", event_count: timestamps.length, first: new Date(first).toISOString(), last: new Date(last).toISOString(), max_gap_hours: round(maxGap / 3_600_000) }
 }
 
@@ -892,7 +893,7 @@ function buildTemporalContract(
 ): ReplayTemporalContract {
   const interval = timeframeMilliseconds(timeframe)
   const first = candles[0]
-  const last = candles.at(-1)
+  const last = candles[candles.length - 1]
   const referenceAt = last ? new Date(last.timestamp).toISOString() : null
   const availabilityAt = last ? new Date(last.timestamp + interval).toISOString() : null
   const latestTradeExit = trades

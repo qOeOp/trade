@@ -162,7 +162,7 @@ function readAllChainIds(db: Database): string[] {
   const rows = db.query(`
     SELECT DISTINCT chain_id
     FROM plan_event
-    ORDER BY chain_id ASC
+    ORDER BY chain_id
   `).all() as Array<{ chain_id: string }>
   return rows.map((row) => row.chain_id)
 }

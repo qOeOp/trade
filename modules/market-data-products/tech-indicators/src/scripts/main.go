@@ -135,7 +135,7 @@ type trendline struct {
 	Validation           structureCheck `json:"validation"`
 }
 
-type structureCheck struct {
+type structureValidationStats struct {
 	WindowBars           int     `json:"window_bars"`
 	SampleCount          int     `json:"sample_count"`
 	Respected            int     `json:"respected"`
@@ -154,25 +154,14 @@ type structureCheck struct {
 	Note                 string  `json:"note,omitempty"`
 }
 
+type structureCheck struct {
+	structureValidationStats
+}
+
 type structureValidationAggregate struct {
-	WindowBars              int     `json:"window_bars"`
+	structureValidationStats
 	SampleStepBars          int     `json:"sample_step_bars"`
-	SampleCount             int     `json:"sample_count"`
-	Respected               int     `json:"respected"`
-	Broken                  int     `json:"broken"`
-	Unresolved              int     `json:"unresolved"`
-	RespectRate             float64 `json:"respect_rate"`
-	BreakRate               float64 `json:"break_rate"`
-	BreakoutSamples         int     `json:"breakout_samples"`
-	RejectedBreakouts       int     `json:"rejected_breakouts"`
-	AcceptedBreakouts       int     `json:"accepted_breakouts"`
-	AvgBarsOutsideZone      float64 `json:"avg_bars_outside_zone,omitempty"`
-	AvgOutsideCloseCount    float64 `json:"avg_outside_close_count,omitempty"`
-	AvgMaxExcursionPct      float64 `json:"avg_max_excursion_pct,omitempty"`
-	AvgReturnToZoneBars     float64 `json:"avg_return_to_zone_bars,omitempty"`
 	AvgDistanceFromPricePct float64 `json:"avg_distance_from_price_pct"`
-	LastSampleTime          string  `json:"last_sample_time,omitempty"`
-	Note                    string  `json:"note,omitempty"`
 }
 
 type timeframeResult struct {

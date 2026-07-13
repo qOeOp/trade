@@ -48,6 +48,18 @@ func rmaSeries(values []float64, period int) []float64 {
 }
 
 func smaSeries(values []float64, period int) []float64 {
+	return rollingWindow(values, period, func(sum float64) float64 {
+		return sum / float64(period)
+	})
+}
+
+func rollingSum(values []float64, period int) []float64 {
+	return rollingWindow(values, period, func(sum float64) float64 {
+		return sum
+	})
+}
+
+func rollingWindow(values []float64, period int, emit func(sum float64) float64) []float64 {
 	out := make([]float64, len(values))
 	sum := 0.0
 	count := 0
@@ -62,28 +74,6 @@ func smaSeries(values []float64, period int) []float64 {
 		}
 		if i >= period-1 && count == period {
 			out[i] = sum / float64(period)
-		} else {
-			out[i] = math.NaN()
-		}
-	}
-	return out
-}
-
-func rollingSum(values []float64, period int) []float64 {
-	out := make([]float64, len(values))
-	sum := 0.0
-	count := 0
-	for i, value := range values {
-		if isFinite(value) {
-			sum += value
-			count++
-		}
-		if i >= period && isFinite(values[i-period]) {
-			sum -= values[i-period]
-			count--
-		}
-		if i >= period-1 && count == period {
-			out[i] = sum
 		} else {
 			out[i] = math.NaN()
 		}

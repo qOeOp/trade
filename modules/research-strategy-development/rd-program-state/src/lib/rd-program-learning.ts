@@ -1,4 +1,4 @@
-import type { JSONRecord } from "./json"
+import type { JSONRecord } from "../../../../contracts/runtime-core/src/json"
 import type { RdProgramState, RdProgramStateUpdateInput } from "./rd-program-types"
 
 function advanceHypothesisQueue(existing: JSONRecord[], completedIds: string[], followups: JSONRecord[]): JSONRecord[] {

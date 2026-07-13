@@ -3,7 +3,7 @@ import { dirname, join } from "node:path"
 import { loadJsonFile, loadStrategies } from "../../../../contracts/strategy-policy/src/strategy-policy"
 import { asRecord, numberField, stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
 import { displayPath, displayPathFrom, resolvePathFrom } from "../../../../contracts/runtime-core/src/paths"
-import { runJsonCommand, type Runner } from "../../../observe-runner/src/lib/observe-runner"
+import { runJsonCommand, type Runner } from "../../../../contracts/runtime-core/src/tool-runner"
 import { activeFlows } from "./flow-projector-client"
 import { loadRuntimePolicyFromOwner } from "./runtime-policy-client"
 
@@ -25,11 +25,11 @@ interface ToolCallResult {
   error?: string
 }
 
-function loadRuntime(accountConfigPath: string, strategiesDir: string): JSONRecord {
+function loadRuntime(accountConfigPath: string, tradingConfigPath: string, strategiesDir: string): JSONRecord {
   const accountConfig = loadJsonFile(accountConfigPath)
   const strategies = loadStrategies(strategiesDir)
   const { trading_config, runtime_policy } = loadRuntimePolicyFromOwner({
-    accountConfigPath,
+    tradingConfigPath,
   })
   return {
     trading_config,
@@ -46,8 +46,9 @@ export async function runSlowTrackWorkflowDryRun(input: SlowTrackWorkflowInput):
   const snapshotLimit = input.symbolSnapshotLimitPerSide ?? 3
   const technicalLimit = input.technicalAnalysisLimitPerSide ?? snapshotLimit
   const accountConfigPath = join(input.repoRoot, "profile/account_config.json")
+  const tradingConfigPath = join(input.repoRoot, "profile/trading-config.json")
   const strategiesDir = join(input.repoRoot, "strategies")
-  const runtime = loadRuntime(accountConfigPath, strategiesDir)
+  const runtime = loadRuntime(accountConfigPath, tradingConfigPath, strategiesDir)
 
   const [accountSnapshot, marketScan] = await Promise.all([
     callTool(runner, ["bun", "src/scripts/main.ts", "--timeout", "10"], join(input.repoRoot, "modules/exchange-gateway/binance-read/account-snapshot")),
@@ -133,7 +134,7 @@ async function runTechnicalAnalysis(
 ): Promise<ToolCallResult> {
   const ohlcvToolDir = join(input.repoRoot, "modules/market-data-products/ohlcv-fetch")
   const ohlcvOutputDir = join(input.repoRoot, "tmp", "market", input.runId, symbol)
-  const marketDataDb = join(input.dataDir, "market_data.duckdb")
+  const marketDataDb = join(input.dataDir, "market_data.db")
   const ohlcv = await callTool(
     runner,
     [

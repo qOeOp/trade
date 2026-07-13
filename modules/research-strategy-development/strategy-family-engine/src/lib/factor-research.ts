@@ -1,4 +1,4 @@
-import { buildIndicators, type Candle } from "./replay-core"
+import { buildIndicators, type Candle } from "../../../replay-engine/src/lib/replay-core"
 import {
   transformFactor,
   type FactorCondition,

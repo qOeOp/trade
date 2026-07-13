@@ -89,6 +89,19 @@ check_module_contracts() {
       exit 1
     fi
   done
+  find modules -name CONTRACT.md -type f | sort | while IFS= read -r contract; do
+    module_dir="$(dirname "$contract")"
+    if find "$module_dir/src" -name '*.ts' -type f 2>/dev/null | grep -q .; then
+      if [ ! -f "$module_dir/tsconfig.json" ]; then
+        printf 'quality: TypeScript module is missing tsconfig: %s\n' "$module_dir" >&2
+        exit 1
+      fi
+      if [ ! -f "$module_dir/package.json" ]; then
+        printf 'quality: TypeScript module is missing package check entry: %s\n' "$module_dir" >&2
+        exit 1
+      fi
+    fi
+  done
 }
 
 check_typescript_tools() {
@@ -108,6 +121,12 @@ check_typescript_tools() {
       (cd "$dir" && bun run check)
     fi
   done
+}
+
+check_duplication() {
+  require_cmd bun
+  log "duplicated code"
+  bun scripts/check-duplication.ts
 }
 
 check_go_tools() {
@@ -175,6 +194,7 @@ check_shell
 check_helpers
 check_toolset_manifest
 check_module_contracts
+check_duplication
 check_typescript_tools
 check_go_tools
 check_python_tools

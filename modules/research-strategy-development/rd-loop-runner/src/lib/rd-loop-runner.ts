@@ -88,23 +88,22 @@ function runStrategyRndLoop(input: StrategyRndLoopInput): StrategyRndLoopReport 
     ledger_record: ledgerRecord,
     stop_reason: batch.outcome,
   }
-  const rdProgramState = maybeUpdateRdProgramState(input.rdProgramStatePath, catalogDbPath, report as unknown as JSONRecord, created_at)
+  const rdProgramState = maybeUpdateRdProgramState(input.rdProgramRef, input.rdStateDb, catalogDbPath, report as unknown as JSONRecord, created_at)
   return rdProgramState ? { ...report, rd_program_state: rdProgramState } : report
 }
 
-function maybeUpdateRdProgramState(path: string | undefined, catalogDbPath: string, result: JSONRecord, now: string): RdProgramStateCommandResult | undefined {
-  if (!path) {
+function maybeUpdateRdProgramState(programRef: string | undefined, dbPath: string | undefined, catalogDbPath: string, result: JSONRecord, now: string): RdProgramStateCommandResult | undefined {
+  if (!programRef) {
     return undefined
   }
-  const state = readRdProgramState(path)
+  const state = readRdProgramState(programRef, dbPath)
   const updated = updateRdProgramStateFromResearchResult(state, result, now)
-  const written = writeRdProgramState(path, updated, catalogDbPath)
+  const written = writeRdProgramState(programRef, updated, catalogDbPath, dbPath)
   return {
     schema_version: "trade-flow.rd-program-state-result.v1",
     action: "update",
-    state_ref: written.path,
-    catalog_db_path: written.catalog_db_path,
-    artifact_id: written.artifact_id,
+    state_ref: written.ref,
+    db_path: written.db_path,
     state: updated,
     goal: {
       objective: updated.objective,

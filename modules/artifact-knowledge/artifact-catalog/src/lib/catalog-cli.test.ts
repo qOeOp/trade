@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
 import { run } from "../scripts/main"
-import { repoRoot } from "./paths"
+import { repoRoot } from "../../../../contracts/runtime-core/src/paths"
 
 type JSONRecord = Record<string, unknown>
 

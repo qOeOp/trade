@@ -3,15 +3,15 @@ import { evaluatePreflight } from "../../../../contracts/preflight-contract/src/
 import {
   appendExecutionObserve,
   evaluateIdempotency,
-  readTargetAction,
   type ExecutionStateRuntime,
 } from "../../../execution-flow-runner/src/lib/execution-flow-runner"
+import { readTargetAction } from "../../../../contracts/preflight-contract/src/target-action"
 import { evaluateTriggerCondition } from "../../../execution-gate/src/lib/execution-gate"
 import { buildExecutionCommandSpec } from "../../../execution-router/src/lib/execution-router"
 import { buildRecordedExecutionEvent, unwrapToolResponse } from "../../../execution-recorder/src/lib/execution-recorder"
 import { asRecord, stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
 import { appendEvent, readLatestOrderFill } from "../../../execution-flow-runner/src/lib/event-store-client"
-import { runJsonCommand, type Runner } from "./tool-runner"
+import { runJsonCommand, type Runner } from "../../../../contracts/runtime-core/src/tool-runner"
 
 export async function runLiveSmall(
   dbPath: string,

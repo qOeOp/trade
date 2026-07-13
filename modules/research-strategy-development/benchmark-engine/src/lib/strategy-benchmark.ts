@@ -29,6 +29,8 @@ import {
 } from "./strategy-benchmark-simulation"
 
 type JSONRecord = Record<string, unknown>
+type BenchmarkPanel = ReturnType<typeof alignedPanel>
+type CostModel = ReturnType<typeof buildCostModel>
 
 function runTrendBenchmark(input: TrendBenchmarkInput): JSONRecord {
   if (input.datasets.length < 3) throw new Error("trend benchmark requires at least three datasets")
@@ -50,41 +52,45 @@ function runTrendBenchmark(input: TrendBenchmarkInput): JSONRecord {
   const panel = alignedPanel(input.datasets, timeframe)
   const warmup = Math.max(volatilityBars, ...horizons)
   if (panel.timestamps.length <= warmup + rebalanceBars) throw new Error("trend benchmark has insufficient aligned history")
-  const fundingEvents = panelFundingEvents(input.datasets, panel.timestamps[warmup], panel.timestamps.at(-1)!)
   const weights = buildWeightSchedule(panel.closes, warmup, horizons, volatilityBars, rebalanceBars, timeframe)
-  const observed = simulate(panel, weights, warmup, rebalanceBars, costModel, 0, timeframe)
-  const stressed = simulate(panel, weights, warmup, rebalanceBars, stressCostModel(costModel, 5), 0, timeframe)
-  const fundingStressed = simulate(panel, weights, warmup, rebalanceBars, costModel, fundingStressBps, timeframe)
-  const historicalFunding = fundingEvents.coverage.status === "full" ? simulate(panel, weights, warmup, rebalanceBars, costModel, 0, timeframe, fundingEvents.eventsByAsset) : null
-  const negativeControl = negativeControlDiagnostics(panel, weights, warmup, rebalanceBars, costModel, timeframe, randomTrials, observed.stats.sharpe, 1)
-  const empiricalP = numberField(negativeControl.empirical_p_value)
-  const folds = chronologicalFolds(observed.returns, 3, timeframe)
+  const diagnostics = benchmarkDiagnostics({
+    datasets: input.datasets,
+    panel,
+    weights,
+    warmup,
+    rebalanceBars,
+    costModel,
+    fundingStressBps,
+    timeframe,
+    randomTrials,
+    negativeControlSeed: 1,
+  })
   const blockedBy: Array<{ check_id: string; reason: string }> = []
-  if (observed.stats.total_return <= 0 || observed.stats.sharpe < 0.5) blockedBy.push({ check_id: "BENCHMARK-EDGE", reason: "trend benchmark is not positive with Sharpe >= 0.5" })
-  if (folds.filter((fold) => fold.total_return > 0).length < 2) blockedBy.push({ check_id: "BENCHMARK-TIME", reason: "fewer than two of three chronological folds are positive" })
-  if (stressed.stats.total_return <= 0) blockedBy.push({ check_id: "BENCHMARK-COST", reason: "trend benchmark fails extra 5 bps turnover stress" })
-  if (empiricalP > 0.05) blockedBy.push({ check_id: "BENCHMARK-NEGATIVE-CONTROL", reason: `empirical p-value ${round(empiricalP)} exceeds 0.05` })
+  if (diagnostics.observed.stats.total_return <= 0 || diagnostics.observed.stats.sharpe < 0.5) blockedBy.push({ check_id: "BENCHMARK-EDGE", reason: "trend benchmark is not positive with Sharpe >= 0.5" })
+  if (diagnostics.folds.filter((fold) => fold.total_return > 0).length < 2) blockedBy.push({ check_id: "BENCHMARK-TIME", reason: "fewer than two of three chronological folds are positive" })
+  if (diagnostics.stressed.stats.total_return <= 0) blockedBy.push({ check_id: "BENCHMARK-COST", reason: "trend benchmark fails extra 5 bps turnover stress" })
+  if (diagnostics.empiricalP > 0.05) blockedBy.push({ check_id: "BENCHMARK-NEGATIVE-CONTROL", reason: `empirical p-value ${round(diagnostics.empiricalP)} exceeds 0.05` })
   return {
     benchmark_id: input.benchmarkId || "multi_asset_time_series_trend_v1",
     harness_hash: benchmarkHarnessHash(),
     purpose: "rd_pipeline_calibration_only",
     calibrated: blockedBy.length === 0,
     blocked_by: blockedBy,
-    datasets: input.datasets.map((item, index) => ({ dataset_id: item.datasetId, manifest_ref: item.manifestPath, data_hash: datasetDataHash(item, timeframe), aligned_rows: panel.closes[index].length })),
-    period: { first: new Date(panel.timestamps[warmup]).toISOString(), last: new Date(panel.timestamps.at(-1)!).toISOString() },
+    datasets: benchmarkDatasetSummaries(input.datasets, panel, timeframe),
+    period: benchmarkPeriod(panel, warmup),
     assumptions: { timeframe, horizon_bars: horizons, volatility_bars: volatilityBars, rebalance_bars: rebalanceBars, inverse_volatility_weighting: true, target_annual_volatility: 0.15, max_gross_exposure: 1, execution_cost_model: costModel, adverse_funding_stress_bps_per_8h: fundingStressBps, parameter_search: false },
-    observed: observed.stats,
-    execution_attribution: observed.attribution,
-    chronological_folds: folds,
-    regime_attribution: regimeAttribution(panel, observed.returns, warmup, timeframe),
-    cost_stress: stressed.stats,
-    cost_stress_attribution: stressed.attribution,
-    funding_stress: fundingStressed.stats,
-    funding_stress_attribution: fundingStressed.attribution,
-    funding_event_coverage: fundingEvents.coverage,
-    historical_funding: historicalFunding?.stats ?? null,
-    historical_funding_attribution: historicalFunding?.attribution ?? null,
-    negative_control: negativeControl,
+    observed: diagnostics.observed.stats,
+    execution_attribution: diagnostics.observed.attribution,
+    chronological_folds: diagnostics.folds,
+    regime_attribution: regimeAttribution(panel, diagnostics.observed.returns, warmup, timeframe),
+    cost_stress: diagnostics.stressed.stats,
+    cost_stress_attribution: diagnostics.stressed.attribution,
+    funding_stress: diagnostics.fundingStressed.stats,
+    funding_stress_attribution: diagnostics.fundingStressed.attribution,
+    funding_event_coverage: diagnostics.fundingEvents.coverage,
+    historical_funding: diagnostics.historicalFunding?.stats ?? null,
+    historical_funding_attribution: diagnostics.historicalFunding?.attribution ?? null,
+    negative_control: diagnostics.negativeControl,
     notes: ["Calibration does not authorize strategy promotion or live trading.", "Current-symbol panels carry survivorship bias and are insufficient as final strategy evidence."],
   }
 }
@@ -120,41 +126,45 @@ function runRelativeStrengthBenchmark(input: TrendBenchmarkInput): JSONRecord {
   const panel = alignedPanel(input.datasets, timeframe)
   const warmup = Math.max(lookbackBars, volatilityBars)
   if (panel.timestamps.length <= warmup + rebalanceBars) throw new Error("relative strength benchmark has insufficient aligned history")
-  const fundingEvents = panelFundingEvents(input.datasets, panel.timestamps[warmup], panel.timestamps.at(-1)!)
   const weights = buildRelativeStrengthSchedule(panel.closes, warmup, lookbackBars, volatilityBars, rebalanceBars, timeframe)
-  const observed = simulate(panel, weights, warmup, rebalanceBars, costModel, 0, timeframe)
-  const stressed = simulate(panel, weights, warmup, rebalanceBars, stressCostModel(costModel, 5), 0, timeframe)
-  const fundingStressed = simulate(panel, weights, warmup, rebalanceBars, costModel, fundingStressBps, timeframe)
-  const historicalFunding = fundingEvents.coverage.status === "full" ? simulate(panel, weights, warmup, rebalanceBars, costModel, 0, timeframe, fundingEvents.eventsByAsset) : null
-  const negativeControl = negativeControlDiagnostics(panel, weights, warmup, rebalanceBars, costModel, timeframe, randomTrials, observed.stats.sharpe, 17)
-  const empiricalP = numberField(negativeControl.empirical_p_value)
-  const folds = chronologicalFolds(observed.returns, 3, timeframe)
+  const diagnostics = benchmarkDiagnostics({
+    datasets: input.datasets,
+    panel,
+    weights,
+    warmup,
+    rebalanceBars,
+    costModel,
+    fundingStressBps,
+    timeframe,
+    randomTrials,
+    negativeControlSeed: 17,
+  })
   const blockedBy: Array<{ check_id: string; reason: string }> = []
-  if (observed.stats.total_return <= 0 || observed.stats.sharpe < 0.5) blockedBy.push({ check_id: "XSEC-EDGE", reason: "relative strength benchmark is not positive with Sharpe >= 0.5" })
-  if (folds.filter((fold) => fold.total_return > 0).length < 2) blockedBy.push({ check_id: "XSEC-TIME", reason: "fewer than two of three chronological folds are positive" })
-  if (stressed.stats.total_return <= 0) blockedBy.push({ check_id: "XSEC-COST", reason: "relative strength benchmark fails extra 5 bps turnover stress" })
-  if (empiricalP > 0.05) blockedBy.push({ check_id: "XSEC-NEGATIVE-CONTROL", reason: `empirical p-value ${round(empiricalP)} exceeds 0.05` })
+  if (diagnostics.observed.stats.total_return <= 0 || diagnostics.observed.stats.sharpe < 0.5) blockedBy.push({ check_id: "XSEC-EDGE", reason: "relative strength benchmark is not positive with Sharpe >= 0.5" })
+  if (diagnostics.folds.filter((fold) => fold.total_return > 0).length < 2) blockedBy.push({ check_id: "XSEC-TIME", reason: "fewer than two of three chronological folds are positive" })
+  if (diagnostics.stressed.stats.total_return <= 0) blockedBy.push({ check_id: "XSEC-COST", reason: "relative strength benchmark fails extra 5 bps turnover stress" })
+  if (diagnostics.empiricalP > 0.05) blockedBy.push({ check_id: "XSEC-NEGATIVE-CONTROL", reason: `empirical p-value ${round(diagnostics.empiricalP)} exceeds 0.05` })
   return {
     benchmark_id: "cross_sectional_relative_strength_v1",
     harness_hash: benchmarkHarnessHash(),
     purpose: "rd_pipeline_calibration_only",
     calibrated: blockedBy.length === 0,
     blocked_by: blockedBy,
-    datasets: input.datasets.map((item, index) => ({ dataset_id: item.datasetId, manifest_ref: item.manifestPath, data_hash: datasetDataHash(item, timeframe), aligned_rows: panel.closes[index].length })),
-    period: { first: new Date(panel.timestamps[warmup]).toISOString(), last: new Date(panel.timestamps.at(-1)!).toISOString() },
+    datasets: benchmarkDatasetSummaries(input.datasets, panel, timeframe),
+    period: benchmarkPeriod(panel, warmup),
     assumptions: { timeframe, lookback_bars: lookbackBars, volatility_bars: volatilityBars, rebalance_bars: rebalanceBars, long_top_fraction: 1 / 3, short_bottom_fraction: 1 / 3, target_annual_volatility: 0.15, max_gross_exposure: 1, execution_cost_model: costModel, adverse_funding_stress_bps_per_8h: fundingStressBps, parameter_search: false },
-    observed: observed.stats,
-    execution_attribution: observed.attribution,
-    chronological_folds: folds,
-    regime_attribution: regimeAttribution(panel, observed.returns, warmup, timeframe),
-    cost_stress: stressed.stats,
-    cost_stress_attribution: stressed.attribution,
-    funding_stress: fundingStressed.stats,
-    funding_stress_attribution: fundingStressed.attribution,
-    funding_event_coverage: fundingEvents.coverage,
-    historical_funding: historicalFunding?.stats ?? null,
-    historical_funding_attribution: historicalFunding?.attribution ?? null,
-    negative_control: negativeControl,
+    observed: diagnostics.observed.stats,
+    execution_attribution: diagnostics.observed.attribution,
+    chronological_folds: diagnostics.folds,
+    regime_attribution: regimeAttribution(panel, diagnostics.observed.returns, warmup, timeframe),
+    cost_stress: diagnostics.stressed.stats,
+    cost_stress_attribution: diagnostics.stressed.attribution,
+    funding_stress: diagnostics.fundingStressed.stats,
+    funding_stress_attribution: diagnostics.fundingStressed.attribution,
+    funding_event_coverage: diagnostics.fundingEvents.coverage,
+    historical_funding: diagnostics.historicalFunding?.stats ?? null,
+    historical_funding_attribution: diagnostics.historicalFunding?.attribution ?? null,
+    negative_control: diagnostics.negativeControl,
   }
 }
 
@@ -167,10 +177,64 @@ function buyAndHoldBaseline(panel: { timestamps: number[]; closes: number[][] },
     dataset_id: dataset.datasetId,
     manifest_ref: dataset.manifestPath,
     data_hash: replayDataHash(dataset.manifestPath, timeframe),
-    period: { first: new Date(panel.timestamps[warmup]).toISOString(), last: new Date(panel.timestamps.at(-1)!).toISOString() },
+    period: benchmarkPeriod(panel, warmup),
     assumptions: { timeframe, transaction_costs: false, parameter_search: false },
     observed: portfolioStats(returns, timeframe),
   }
+}
+
+function benchmarkDiagnostics(input: {
+  datasets: BenchmarkDataset[]
+  panel: BenchmarkPanel
+  weights: number[][]
+  warmup: number
+  rebalanceBars: number
+  costModel: CostModel
+  fundingStressBps: number
+  timeframe: string
+  randomTrials: number
+  negativeControlSeed: number
+}) {
+  const fundingEvents = panelFundingEvents(input.datasets, input.panel.timestamps[input.warmup], lastNumber(input.panel.timestamps))
+  const observed = simulate(input.panel, input.weights, input.warmup, input.rebalanceBars, input.costModel, 0, input.timeframe)
+  const stressed = simulate(input.panel, input.weights, input.warmup, input.rebalanceBars, stressCostModel(input.costModel, 5), 0, input.timeframe)
+  const fundingStressed = simulate(input.panel, input.weights, input.warmup, input.rebalanceBars, input.costModel, input.fundingStressBps, input.timeframe)
+  const historicalFunding = fundingEvents.coverage.status === "full"
+    ? simulate(input.panel, input.weights, input.warmup, input.rebalanceBars, input.costModel, 0, input.timeframe, fundingEvents.eventsByAsset)
+    : null
+  const negativeControl = negativeControlDiagnostics(input.panel, input.weights, input.warmup, input.rebalanceBars, input.costModel, input.timeframe, input.randomTrials, observed.stats.sharpe, input.negativeControlSeed)
+  return {
+    fundingEvents,
+    observed,
+    stressed,
+    fundingStressed,
+    historicalFunding,
+    negativeControl,
+    empiricalP: numberField(negativeControl.empirical_p_value),
+    folds: chronologicalFolds(observed.returns, 3, input.timeframe),
+  }
+}
+
+function benchmarkDatasetSummaries(datasets: BenchmarkDataset[], panel: BenchmarkPanel, timeframe: string): JSONRecord[] {
+  return datasets.map((item, index) => ({
+    dataset_id: item.datasetId,
+    manifest_ref: item.manifestPath,
+    data_hash: datasetDataHash(item, timeframe),
+    aligned_rows: panel.closes[index].length,
+  }))
+}
+
+function benchmarkPeriod(panel: { timestamps: number[] }, warmup: number): JSONRecord {
+  return {
+    first: new Date(panel.timestamps[warmup]).toISOString(),
+    last: new Date(lastNumber(panel.timestamps)).toISOString(),
+  }
+}
+
+function lastNumber(values: number[]): number {
+  const value = values[values.length - 1]
+  if (typeof value !== "number") throw new Error("expected non-empty numeric series")
+  return value
 }
 
 const BENCHMARK_HARNESS_FILES = [

@@ -707,14 +707,14 @@ test("strategy R&D loop can write back durable R&D program state", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-loop-state-"))
   try {
     const artifactRoot = join(dir, "artifacts")
-    const statePath = join(dir, "rd-state.json")
+    const stateRef = rdProgramRef("rd-loop-state")
     const catalogDbPath = join(artifactRoot, "data_catalog.db")
-    writeRdProgramState(statePath, createRdProgramState({
+    writeRdProgramState(stateRef, createRdProgramState({
       programId: "rd-loop-state",
       objective: "learn from loop output",
       now: "2026-07-07T00:00:00.000Z",
       budget: { max_hypotheses: 3, max_trials_total: 9 },
-    }), catalogDbPath)
+    }))
 
     const report = runStrategyRndLoop({
       runId: "rnd-loop-state",
@@ -722,7 +722,7 @@ test("strategy R&D loop can write back durable R&D program state", () => {
       manifestPath: writeManifest(dir),
       artifactRoot,
       catalogDbPath,
-      rdProgramStatePath: statePath,
+      rdProgramRef: stateRef,
       candidates: [{ candidateId: "C-STATE", parameterCount: 1, params: { side: "long" } }],
       now: "2026-07-07T01:00:00.000Z",
     })
@@ -730,7 +730,7 @@ test("strategy R&D loop can write back durable R&D program state", () => {
     assert.equal(report.rd_program_state?.action, "update")
     assert.equal(report.rd_program_state?.state.usage.hypotheses_run, 1)
     assert.equal(report.rd_program_state?.state.usage.trials_used, report.batch.trial_count)
-    const state = readRdProgramState(statePath)
+    const state = readRdProgramState(stateRef)
     assert.equal(state.artifact_refs.includes(report.artifact_ref), true)
     assert.equal(state.latest_failure_summary?.primary_failure_area !== undefined, true)
   } finally {
@@ -771,13 +771,13 @@ test("strategy R&D campaign continues after a failed hypothesis", () => {
     const validationManifest = writeManifest(validationDir, 1_600_000_000_000)
     const ledgerPath = join(dir, "strategy-rnd-ledger.jsonl")
     const artifactRoot = join(dir, "artifacts")
-    const statePath = join(dir, "rd-state.json")
-    writeRdProgramState(statePath, createRdProgramState({
+    const stateRef = rdProgramRef("rd-campaign-state")
+    writeRdProgramState(stateRef, createRdProgramState({
       programId: "rd-campaign-state",
       objective: "learn from campaign output",
       now: "2026-07-07T00:00:00.000Z",
       budget: { max_hypotheses: 5, max_trials_total: 10 },
-    }), join(artifactRoot, "data_catalog.db"))
+    }))
     const candidate = {
       candidateId: "C-LONG",
       parameterCount: 7,
@@ -796,7 +796,7 @@ test("strategy R&D campaign continues after a failed hypothesis", () => {
       maxTotalTrials: 2,
       artifactRoot,
       ledgerPath,
-      rdProgramStatePath: statePath,
+      rdProgramRef: stateRef,
       now: "2026-07-07T00:00:00.000Z",
       hypotheses: ["h1", "h2"].map((hypothesisId) => ({
         hypothesisId,
@@ -818,7 +818,7 @@ test("strategy R&D campaign continues after a failed hypothesis", () => {
     assert.equal(existsSync(resolveRepoPath(report.artifact_ref)), true)
     assert.equal(report.rd_program_state?.state.usage.hypotheses_run, 2)
     assert.equal(report.rd_program_state?.state.usage.trials_used, 2)
-    assert.equal(readRdProgramState(statePath).latest_failure_summary?.primary_failure_area !== undefined, true)
+    assert.equal(readRdProgramState(stateRef).latest_failure_summary?.primary_failure_area !== undefined, true)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -1054,4 +1054,8 @@ function buildReplayCandles(): Array<{ open: number; high: number; low: number; 
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function rdProgramRef(programId: string): string {
+  return `research_state_store:rd_program/${programId}`
 }

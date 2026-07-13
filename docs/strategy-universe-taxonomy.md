@@ -1,15 +1,15 @@
 ---
 title: Strategy Universe Taxonomy
 updated_at: 2026-07-10 CST
-machine_backlog: data/rd/family-backlog.json
-p0_certificates: data/rd/p0-family-certificates.json
+machine_backlog: docs/strategy-universe-family-backlog.json
+p0_certificates: docs/strategy-universe-p0-family-certificates.json
 ---
 
 # Strategy Universe Taxonomy
 
 结论：当前可跑 family 只是项目策略语言的最小子集，不是市场策略宇宙。RD 的起点必须从“收益来源、组合形态、数据面、执行语义”出发，而不是从几个 K 线形态里反复调参。
 
-本文件是 source-backed 研究地图。它负责决定“应该研究什么、缺什么、先补什么”；`data/rd/family-backlog.json` 是机器可读版本，`data/rd/p0-family-certificates.json` 固化 P0 family 的 hypothesis / data contract / negative controls / fixture plan，供 planner / scout / learning memory 消费。分类不是 strategy promotion gate，任何 family 进入 shadow 前仍必须通过 replay / OOS / negative controls / cost / regime / locked holdout / shadow evidence。
+本文件是 source-backed 研究地图。它负责决定“应该研究什么、缺什么、先补什么”；`docs/strategy-universe-family-backlog.json` 是机器可读版本，`docs/strategy-universe-p0-family-certificates.json` 固化 P0 family 的 hypothesis / data contract / negative controls / fixture plan，供 planner / scout / learning memory 消费。分类不是 strategy promotion gate，任何 family 进入 shadow 前仍必须通过 replay / OOS / negative controls / cost / regime / locked holdout / shadow evidence。
 
 ## 1. 外部分类锚点
 
@@ -139,7 +139,7 @@ p0_certificates: data/rd/p0-family-certificates.json
 
 没有这些，family backlog 只能停在文档和机器 backlog 层，不能变成可跑策略模板。
 
-P0 family 的当前证书已落在 `data/rd/p0-family-certificates.json`。`certificate_status=data_blocked` 或 `design_blocked` 的 family 不消耗策略 trial；`ready_for_panel_research` 仍只允许 research artifact，不允许直接落 `strategies/` policy。
+P0 family 的当前证书已落在 `docs/strategy-universe-p0-family-certificates.json`。`certificate_status=data_blocked` 或 `design_blocked` 的 family 不消耗策略 trial；`ready_for_panel_research` 仍只允许 research artifact，不允许直接落 `strategies/` policy。
 
 ## 7. 实现准则
 

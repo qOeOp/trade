@@ -73,9 +73,9 @@ export function buildWeightSchedule(closes: number[][], warmup: number, horizons
 }
 
 export function buildCostModel(input: TrendBenchmarkInput): CostModel {
-  const legacyFee = input.feeBps ?? 5
-  const makerFee = input.makerFeeBps ?? legacyFee
-  const takerFee = input.takerFeeBps ?? legacyFee
+  const defaultFee = input.feeBps ?? 5
+  const makerFee = input.makerFeeBps ?? defaultFee
+  const takerFee = input.takerFeeBps ?? defaultFee
   const marketShare = input.marketOrderShare ?? 1
   const slippage = input.slippageBps ?? 2
   if (makerFee < 0 || takerFee < 0 || slippage < 0) throw new Error("benchmark costs must be non-negative")

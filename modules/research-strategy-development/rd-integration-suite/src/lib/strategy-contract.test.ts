@@ -86,7 +86,7 @@ proof:
   }
 })
 
-test("lintStrategyContract validates manual and rnd modes", () => {
+test("lintStrategyContract rejects manual policies without lifecycle", () => {
   const dir = mkdtempSync(join(tmpdir(), "trade-flow-strategy-lint-"))
   try {
     const manualPath = join(dir, "s-manual.md")
@@ -107,12 +107,9 @@ proof:
   live_permission: draft_only
 `))
     const manual = lintStrategyContract(manualPath)
-    assert.equal(manual.valid, true)
-    assert.equal(manual.contract?.engine, "manual_policy_v1")
-    assert.equal(manual.contract?.candidate, undefined)
-    assert.equal(manual.contract?.lifecycle.source, "legacy_compatibility_v1")
-    assert.equal(manual.contract?.lifecycle.promotion_eligible, false)
-    assert.match(manual.warnings.join("\n"), /legacy-compatible/)
+    assert.equal(manual.valid, false)
+    assert.equal(manual.contract, undefined)
+    assert.match(manual.errors.join("\n"), /contract.lifecycle is required/)
 
     const brokenPath = join(dir, "s-broken.md")
     writeFileSync(brokenPath, "---\nstrategy_id: S-BROKEN\nname: Broken\nstatus: draft\n---\n\n# Broken\n")
@@ -176,6 +173,13 @@ setup_id: btc-manual
 engine: manual_policy_v1
 hypothesis: manual policy
 timeframe: 4h
+lifecycle:
+  signal_rule: closed candle setup
+  entry_builder: semantic entry_at
+  protection_builder: stop and target ladder
+  position_update_rule: update after fills
+  exit_rule: protective or invalidation
+  review_attribution: setup id and r multiple
 proof:
   live_permission: draft_only
 `))

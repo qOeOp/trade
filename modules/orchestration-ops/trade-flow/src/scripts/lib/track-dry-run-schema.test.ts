@@ -6,7 +6,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { acquireCronLock, releaseCronLock } from "./cron-runtime"
 import { ensureSchema } from "../../../../../portfolio-execution-state/event-store/src/lib/event-store"
-import { resolveRepoPath } from "./paths"
+import { resolveRepoPath } from "../../../../../contracts/runtime-core/src/paths"
 import { runTrackDryRun, TRACK_DRY_RUN_MODES, TRACK_DRY_RUN_TRACKS } from "./track-runner"
 
 type JSONRecord = Record<string, unknown>

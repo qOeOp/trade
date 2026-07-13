@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import test from "node:test"
 import { Database } from "bun:sqlite"
@@ -189,10 +189,11 @@ test("automation cycle plan can dispatch a learning strategy R&D supervisor", ()
       "bun",
       "src/scripts/main.ts",
       "--supervisor-job",
-      "--state",
-      "./data/rd/program.json"
+      "--db",
+      "./data/rd_state.db"
     ])
-    const jobPayload = JSON.parse(String(asArray(commandSpec.argv).at(-1))) as { goal: { budget: { max_hypotheses: number; max_trials_total: number } } }
+    const argv = asArray(commandSpec.argv)
+    const jobPayload = JSON.parse(String(argv[argv.length - 1])) as { goal: { budget: { max_hypotheses: number; max_trials_total: number } } }
     assert.equal(jobPayload.goal.budget.max_hypotheses, 3)
     assert.equal(jobPayload.goal.budget.max_trials_total, 18)
     const parallel = asRecord(asArray(result.dispatch_order).find((stage) => asRecord(stage).stage === "parallel_isolated_work"))
@@ -209,9 +210,11 @@ test("automation cycle plan can drive R&D supervisor from durable program state"
   try {
     ensureSchema(db)
     db.close()
-    const statePath = join(dir, "state.json")
+    const rdStateDb = join(dir, "rd_state.db")
+    const rdProgramId = "rd-program-main"
+    const rdProgramRef = `research_state_store:rd_program/${rdProgramId}`
     const state = rdProgramStateFixture({
-      program_id: "rd-program-main",
+      program_id: rdProgramId,
       objective: "find a shadow-eligible 4H swing strategy",
       updated_at: "2026-07-09T12:00:00Z",
       budget: {
@@ -220,12 +223,13 @@ test("automation cycle plan can drive R&D supervisor from durable program state"
         max_locked_holdout_uses: 1,
       },
     })
-    writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`)
+    upsertRdProgramState(rdStateDb, rdProgramId, state)
 
     const activeResult = buildAutomationCyclePlan(db, dbPath, {
       cycle_id: "cycle-rd-state-active",
       now: "2026-07-09T12:15:00Z",
-      rd_program_state_path: statePath,
+      rd_state_db: rdStateDb,
+      rd_program_id: rdProgramId,
       rd_strategy_goal: {
         objective: "ignored because durable state is the source of truth",
       },
@@ -236,14 +240,15 @@ test("automation cycle plan can drive R&D supervisor from durable program state"
     assert.equal(activeRd.active, true)
     assert.equal(asRecord(activeRd.goal).objective, "find a shadow-eligible 4H swing strategy")
     assert.equal(activeRd.program_state_status, "active")
-    assert.ok(String(activeRd.program_state_ref).endsWith("state.json"))
+    assert.equal(activeRd.program_state_ref, rdProgramRef)
     assert.match(String(activeRd.command), /modules\/research-strategy-development\/rd-supervisor\/src\/scripts\/main.ts/)
     const rdToolJob = asRecord(activeRd.tool_job)
     assert.equal(rdToolJob.tool_id, "research.rd-supervisor")
     assert.equal(rdToolJob.ticket_no, "J04")
     assert.equal(rdToolJob.target_domain, "research-strategy-development")
     assert.equal(asRecord(rdToolJob.command_spec).cwd, "modules/research-strategy-development/rd-supervisor")
-    assert.equal(asRecord(rdToolJob.payload).state, String(activeRd.program_state_ref))
+    assert.equal(asRecord(rdToolJob.payload).state_ref, String(activeRd.program_state_ref))
+    assert.equal(asRecord(rdToolJob.payload).db_path, rdStateDb)
     assert.deepEqual(activeRd.allowed_runtime_writes, ["research_state_store", "artifact_catalog"])
     const commandSpec = asRecord(activeRd.command_spec)
     assert.equal(commandSpec.executable, true)
@@ -251,17 +256,18 @@ test("automation cycle plan can drive R&D supervisor from durable program state"
       "bun",
       "src/scripts/main.ts",
       "--supervisor-job",
-      "--state",
-      String(activeRd.program_state_ref)
+      "--db",
+      rdStateDb,
     ])
     const contract = asRecord(activeRd.research_loop_contract)
     assert.equal(asRecord(contract.budget).max_trials_total, 8)
-    assert.equal(asRecord(contract.learning_memory).read_ref, statePath)
+    assert.equal(asRecord(contract.learning_memory).read_ref, rdProgramRef)
     assert.ok(asArray(contract.allowed_actions).includes("research.rd-program-state action=plan_next"))
-    const supervisorPayload = JSON.parse(String(asArray(commandSpec.argv).at(-1))) as { supervisor: { max_iterations: number } }
+    const argv = asArray(commandSpec.argv)
+    const supervisorPayload = JSON.parse(String(argv[argv.length - 1])) as { supervisor: { max_iterations: number } }
     assert.equal(supervisorPayload.supervisor.max_iterations, 20)
 
-    writeFileSync(statePath, `${JSON.stringify({
+    upsertRdProgramState(rdStateDb, rdProgramId, {
       ...state,
       status: "budget_exhausted",
       updated_at: "2026-07-09T13:00:00Z",
@@ -269,12 +275,13 @@ test("automation cycle plan can drive R&D supervisor from durable program state"
         ...asRecord(state.usage),
         hypotheses_run: 2,
       },
-    }, null, 2)}\n`)
+    })
     const stoppedResult = buildAutomationCyclePlan(db, dbPath, {
       cycle_id: "cycle-rd-state-stopped",
       now: "2026-07-09T13:15:00Z",
       force_jobs: ["rd_strategy_supervisor"],
-      rd_program_state_path: statePath,
+      rd_state_db: rdStateDb,
+      rd_program_id: rdProgramId,
     })
 
     const stoppedJobs = asArray(stoppedResult.jobs).map(asRecord)
@@ -339,6 +346,38 @@ function asArray(value: unknown): unknown[] {
 
 function asRecord(value: unknown): JSONRecord {
   return value && typeof value === "object" && !Array.isArray(value) ? value as JSONRecord : {}
+}
+
+function upsertRdProgramState(dbPath: string, programId: string, state: JSONRecord): void {
+  const db = new Database(dbPath)
+  try {
+    db.run(`
+      CREATE TABLE IF NOT EXISTS rd_program (
+        program_id TEXT PRIMARY KEY,
+        objective TEXT NOT NULL,
+        status TEXT NOT NULL,
+        state_json TEXT NOT NULL CHECK(json_valid(state_json)),
+        updated_at TEXT NOT NULL
+      )
+    `)
+    db.query(`
+      INSERT INTO rd_program(program_id, objective, status, state_json, updated_at)
+      VALUES ($program_id, $objective, $status, $state_json, $updated_at)
+      ON CONFLICT(program_id) DO UPDATE SET
+        objective = excluded.objective,
+        status = excluded.status,
+        state_json = excluded.state_json,
+        updated_at = excluded.updated_at
+    `).run({
+      $program_id: programId,
+      $objective: String(state.objective || ""),
+      $status: String(state.status || "active"),
+      $state_json: JSON.stringify(state),
+      $updated_at: String(state.updated_at || new Date(0).toISOString()),
+    })
+  } finally {
+    db.close()
+  }
 }
 
 function rdProgramStateFixture(overrides: JSONRecord): JSONRecord {

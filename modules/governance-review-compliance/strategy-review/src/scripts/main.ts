@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from "node:fs"
 import { dirname, resolve } from "node:path"
 import { Database } from "bun:sqlite"
 import type { ReplayResult } from "../../../../contracts/replay-contract/src/replay-contract"
-import { displayPath, repoRoot } from "../lib/paths"
+import { displayPath, repoRoot } from "../../../../contracts/runtime-core/src/paths"
 import {
   appendReplayEvidence,
   appendStrategyEvidence,
@@ -174,7 +174,7 @@ function parseArgs(argv: string[], invocationCwd: string, root: string): Config 
         break
       case "--input": config.input = readJsonFile(readValue(argv, ++index, arg), invocationCwd, root); break
       case "--json": config.input = readJson(readValue(argv, ++index, arg)); break
-      case "--help": printHelp(); process.exit(0)
+      case "--help": printHelp(); return process.exit(0)
       default: throw new Error(`unknown flag: ${arg}`)
     }
   }

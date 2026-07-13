@@ -108,7 +108,7 @@ function parseArgs(argv: string[]): Config {
       case "--db": config.dbPath = readValue(argv, ++index, arg); break
       case "--chain-id": config.chainId = readValue(argv, ++index, arg); break
       case "--json": config.input = readJson(readValue(argv, ++index, arg)); break
-      case "--help": printHelp(); process.exit(0)
+      case "--help": printHelp(); return process.exit(0)
       default: throw new Error(`unknown flag: ${arg}`)
     }
   }

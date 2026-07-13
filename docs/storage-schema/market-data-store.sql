@@ -1,5 +1,5 @@
 -- owner: market-data-products
--- physical target: data/market_data.duckdb or parquet-backed tables
+-- physical target: data/market_data.db or parquet-backed tables
 -- mode: append-or-upsert by manifest/content hash
 
 CREATE TABLE IF NOT EXISTS market_manifest (

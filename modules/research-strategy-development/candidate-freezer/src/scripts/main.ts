@@ -1,13 +1,14 @@
 #!/usr/bin/env bun
 
 import { buildFrozenCandidateRef } from "../../../../contracts/protocol-fabric/src/protocol-fabric"
+import { stringArray, stringField } from "../../../../contracts/runtime-core/src/json"
+import { errorResponse, printScriptResult, readJsonObjectFlag, successResponse } from "../../../../contracts/runtime-core/src/script-json"
+import type { JSONRecord } from "../../../../contracts/runtime-core/src/json"
 
-type JSONRecord = Record<string, unknown>
+const SCHEMA_VERSION = "candidate-freezer.result.v1"
 
 function main(argv: string[]): void {
-  const result = run(argv)
-  console.log(JSON.stringify(result, null, 2))
-  if (!result.ok) process.exit(1)
+  printScriptResult(run(argv))
 }
 
 export function run(argv: string[]): JSONRecord {
@@ -25,10 +26,7 @@ export function run(argv: string[]): JSONRecord {
     if (sourceEvidenceRefs.length === 0) throw new Error("source_evidence_refs must be non-empty")
     if (!["draft", "validated", "shadow_ready", "rejected"].includes(promotionStatus)) throw new Error("promotion_status is unsupported")
     if (!contentHash) throw new Error("content_hash is required")
-    return {
-      ok: true,
-      schema_version: "candidate-freezer.result.v1",
-      data: buildFrozenCandidateRef({
+    return successResponse(SCHEMA_VERSION, buildFrozenCandidateRef({
         candidate_ref: candidateRef,
         strategy_id: strategyId,
         frozen_at: frozenAt,
@@ -37,44 +35,14 @@ export function run(argv: string[]): JSONRecord {
         limit_refs: optionalStringArray(input.limit_refs),
         promotion_status: promotionStatus as "draft" | "validated" | "shadow_ready" | "rejected",
         content_hash: contentHash,
-      }),
-    }
+      }))
   } catch (error) {
-    return { ok: false, schema_version: "candidate-freezer.result.v1", error: error instanceof Error ? error.message : String(error) }
+    return errorResponse(SCHEMA_VERSION, error)
   }
 }
 
 function parseArgs(argv: string[]): JSONRecord {
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index]
-    if (arg === "--json") return readJson(readValue(argv, ++index, arg))
-    if (arg === "--help") {
-      printHelp()
-      process.exit(0)
-    }
-    throw new Error(`unknown flag: ${arg}`)
-  }
-  return {}
-}
-
-function readValue(argv: string[], index: number, name: string): string {
-  const value = argv[index]
-  if (!value || value.startsWith("--")) throw new Error(`${name} requires a value`)
-  return value
-}
-
-function readJson(raw: string): JSONRecord {
-  const parsed = JSON.parse(raw)
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("input JSON must be an object")
-  return parsed as JSONRecord
-}
-
-function stringField(value: unknown): string {
-  return typeof value === "string" ? value.trim() : ""
-}
-
-function stringArray(value: unknown): string[] {
-  return Array.isArray(value) ? value.map(stringField).filter(Boolean) : []
+  return readJsonObjectFlag(argv, printHelp)
 }
 
 function optionalStringArray(value: unknown): string[] | undefined {

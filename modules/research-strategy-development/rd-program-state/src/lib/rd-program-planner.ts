@@ -1,5 +1,5 @@
 import { existsSync, readFileSync } from "node:fs"
-import type { JSONRecord } from "./json"
+import type { JSONRecord } from "../../../../contracts/runtime-core/src/json"
 import { resolveReadablePath } from "../../../../contracts/runtime-core/src/paths"
 import type { RdProgramBudget, RdProgramState, RdSupervisorNextPlan } from "./rd-program-types"
 
@@ -112,7 +112,7 @@ function buildScoutSubagentPlan(state: RdProgramState, statePath: string, hypoth
 
 function buildStrategyUniverseBacklog(): JSONRecord {
   const docRef = "docs/strategy-universe-taxonomy.md"
-  const machineBacklogRef = "data/rd/family-backlog.json"
+  const machineBacklogRef = "docs/strategy-universe-family-backlog.json"
   const machineBacklog = readStrategyFamilyBacklog(machineBacklogRef)
   const machineFamilies = array(machineBacklog.families).map(asRecord)
   const derivedPriorityBacklog = machineFamilies.length > 0
@@ -316,7 +316,8 @@ function loopPayloadFromHypothesis(state: RdProgramState, statePath: string, hyp
     batch_id: stringField(hypothesis.batch_id) || `${state.program_id}-${hypothesisId}`,
     hypothesis: stringField(hypothesis.hypothesis) || state.objective,
     manifest_path: stringField(hypothesis.manifest_path) || stringField(hypothesis.discovery_manifest_path),
-    rd_program_state_path: statePath,
+    rd_program_ref: statePath,
+    rd_state_db: stringField(input.rd_state_db),
     now,
     max_total_trials: undefined,
     ...commonRndPayloadFields(hypothesis, input, remaining),
@@ -333,7 +334,8 @@ function campaignPayloadFromHypothesis(state: RdProgramState, statePath: string,
     catalog_db_path: stringField(hypothesis.catalog_db_path) || stringField(input.catalog_db_path),
     calibration_report_path: stringField(hypothesis.calibration_report_path) || stringField(input.calibration_report_path),
     panel_report_path: stringField(hypothesis.panel_report_path) || stringField(input.panel_report_path),
-    rd_program_state_path: statePath,
+    rd_program_ref: statePath,
+    rd_state_db: stringField(input.rd_state_db),
     now,
     hypotheses: [compactRecord({
       hypothesis_id: hypothesisId,

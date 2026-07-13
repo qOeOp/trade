@@ -19,10 +19,11 @@ import {
   strategyRndCampaignInputFromJson,
   strategyRndLoopInputFromJson,
 } from "../../../candidate-batch-engine/src/lib/strategy-rnd-inputs"
-import type { JSONRecord } from "../../../rd-program-state/src/lib/json"
+import type { JSONRecord } from "../../../../contracts/runtime-core/src/json"
 
 interface RdSupervisorRunInput {
   path: string
+  dbPath?: string
   input?: JSONRecord
   catalogDbPath?: string
 }
@@ -71,7 +72,7 @@ function runRdSupervisorLoop(input: RdSupervisorRunInput): RdSupervisorRunResult
 
 function runRdSupervisorLoopWithDeps(input: RdSupervisorRunInput, deps: RdSupervisorRunDeps): RdSupervisorRunResult {
   if (!input.path) {
-    throw new Error("rd-supervisor requires --state")
+    throw new Error("rd-supervisor requires a research_state_store program ref")
   }
   const request = input.input || {}
   const startedAt = normalizeDate(stringField(request.now) || undefined)
@@ -81,16 +82,17 @@ function runRdSupervisorLoopWithDeps(input: RdSupervisorRunInput, deps: RdSuperv
   for (let index = 0; index < maxIterations; index += 1) {
     const planned = runRdProgramStateCommand({
       path: input.path,
-      input: { ...request, action: "plan_next", now: iterationNow(startedAt, index) },
+      dbPath: input.dbPath,
+      input: { ...request, action: "plan_next", now: iterationNow(startedAt, index), rd_state_db: input.dbPath },
       catalogDbPath: input.catalogDbPath,
     })
     const plan = planned.next_plan
     if (!plan) {
-      return finish(input.path, startedAt, iterations, "data_or_tool_blocked", "rd supervisor did not receive a next_plan")
+      return finish(input.path, startedAt, iterations, "data_or_tool_blocked", "rd supervisor did not receive a next_plan", undefined, input.dbPath)
     }
     if (plan.status !== "ready" || !plan.command || !plan.payload) {
       if (plan.status === "blocked") {
-        markSupervisorBlocked(input.path, input.catalogDbPath, plan.reason, plan.created_at, asRecord(plan.queue_seed_recommendation))
+        markSupervisorBlocked(input.path, input.catalogDbPath, plan.reason, plan.created_at, asRecord(plan.queue_seed_recommendation), input.dbPath)
       }
       iterations.push({
         iteration: index + 1,
@@ -99,14 +101,15 @@ function runRdSupervisorLoopWithDeps(input: RdSupervisorRunInput, deps: RdSuperv
         command: plan.command,
         reason: plan.reason,
         queue_seed_recommendation: plan.queue_seed_recommendation,
-        state_status: readRdProgramState(input.path).status,
+        state_status: readRdProgramState(input.path, input.dbPath).status,
       })
-      return finish(input.path, startedAt, iterations, readRdProgramState(input.path).status === "active" ? "stopped" : readRdProgramState(input.path).status, plan.reason)
+      const state = readRdProgramState(input.path, input.dbPath)
+      return finish(input.path, startedAt, iterations, state.status === "active" ? "stopped" : state.status, plan.reason, undefined, input.dbPath)
     }
 
     try {
       const result = executePlannedResearch(plan.command, plan.payload, deps)
-      const state = readRdProgramState(input.path)
+      const state = readRdProgramState(input.path, input.dbPath)
       iterations.push({
         iteration: index + 1,
         plan_id: plan.plan_id,
@@ -119,7 +122,7 @@ function runRdSupervisorLoopWithDeps(input: RdSupervisorRunInput, deps: RdSuperv
       })
       if (state.status !== "active") {
         const strategyRef = state.status === "shadow_candidate_found"
-          ? draftStrategyFromValidatedCandidate(input.path, input.catalogDbPath, iterationNow(startedAt, index + 1), stringField(request.strategy_root))
+          ? draftStrategyFromValidatedCandidate(input.path, input.catalogDbPath, iterationNow(startedAt, index + 1), stringField(request.strategy_root), input.dbPath)
           : undefined
         return finish(
           input.path,
@@ -128,12 +131,13 @@ function runRdSupervisorLoopWithDeps(input: RdSupervisorRunInput, deps: RdSuperv
           strategyRef ? "strategy_draft_created" : state.status,
           strategyRef ? "validated candidate was written as a draft strategy policy" : `rd program state reached ${state.status}`,
           strategyRef,
+          input.dbPath,
         )
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error)
-      markSupervisorBlocked(input.path, input.catalogDbPath, message, iterationNow(startedAt, index))
-      const state = readRdProgramState(input.path)
+      markSupervisorBlocked(input.path, input.catalogDbPath, message, iterationNow(startedAt, index), {}, input.dbPath)
+      const state = readRdProgramState(input.path, input.dbPath)
       iterations.push({
         iteration: index + 1,
         plan_id: plan.plan_id,
@@ -143,11 +147,11 @@ function runRdSupervisorLoopWithDeps(input: RdSupervisorRunInput, deps: RdSuperv
         state_status: state.status,
         error: message,
       })
-      return finish(input.path, startedAt, iterations, "data_or_tool_blocked", message)
+      return finish(input.path, startedAt, iterations, "data_or_tool_blocked", message, undefined, input.dbPath)
     }
   }
 
-  return finish(input.path, startedAt, iterations, "iteration_limit_reached", "rd supervisor max_iterations reached")
+  return finish(input.path, startedAt, iterations, "iteration_limit_reached", "rd supervisor max_iterations reached", undefined, input.dbPath)
 }
 
 function executePlannedResearch(command: string, payload: JSONRecord, deps: RdSupervisorRunDeps): JSONRecord {
@@ -156,11 +160,11 @@ function executePlannedResearch(command: string, payload: JSONRecord, deps: RdSu
   throw new Error(`rd supervisor cannot execute command: ${command}`)
 }
 
-function markSupervisorBlocked(path: string, catalogDbPath: string | undefined, reason: string, now: string, queueSeedRecommendation: JSONRecord = {}): void {
+function markSupervisorBlocked(path: string, catalogDbPath: string | undefined, reason: string, now: string, queueSeedRecommendation: JSONRecord = {}, dbPath?: string): void {
   const nextActions = asArray(queueSeedRecommendation.next_actions).map(String).filter(Boolean)
   const familyID = stringField(queueSeedRecommendation.family_id)
   const requiredAction = stringField(queueSeedRecommendation.required_action)
-  const updated = updateRdProgramState(readRdProgramState(path), {
+  const updated = updateRdProgramState(readRdProgramState(path, dbPath), {
     now,
     status: "data_or_tool_blocked",
     latestFailureSummary: {
@@ -178,7 +182,7 @@ function markSupervisorBlocked(path: string, catalogDbPath: string | undefined, 
       queue_seed_recommendation: Object.keys(queueSeedRecommendation).length > 0 ? queueSeedRecommendation : undefined,
     },
   })
-  writeRdProgramState(path, updated, catalogDbPath)
+  writeRdProgramState(path, updated, catalogDbPath, dbPath)
 }
 
 function finish(
@@ -188,8 +192,9 @@ function finish(
   status: RdSupervisorRunResult["status"] | RdProgramState["status"],
   stopReason: string,
   strategyRef?: string,
+  dbPath?: string,
 ): RdSupervisorRunResult {
-  const finalState = readRdProgramState(path)
+  const finalState = readRdProgramState(path, dbPath)
   const stoppedAt = iterations.length > 0 ? iterationNow(startedAt, iterations.length) : startedAt
   return {
     schema_version: "trade-flow.rd-supervisor-run-result.v1",
@@ -216,8 +221,8 @@ function normalizeRunStatus(status: RdSupervisorRunResult["status"] | RdProgramS
   return "stopped"
 }
 
-function draftStrategyFromValidatedCandidate(path: string, catalogDbPath: string | undefined, now: string, strategyRoot = "strategies"): string | undefined {
-  const state = readRdProgramState(path)
+function draftStrategyFromValidatedCandidate(path: string, catalogDbPath: string | undefined, now: string, strategyRoot = "strategies", dbPath?: string): string | undefined {
+  const state = readRdProgramState(path, dbPath)
   const candidate = asRecord(asRecord(state.latest_reliability_gate).validated_candidate)
   const candidateID = stringField(candidate.candidate_id)
   const family = stringField(candidate.family)
@@ -246,6 +251,7 @@ function draftStrategyFromValidatedCandidate(path: string, catalogDbPath: string
       artifactRefs: [strategyRef],
     }),
     catalogDbPath,
+    dbPath,
   )
   return strategyRef
 }

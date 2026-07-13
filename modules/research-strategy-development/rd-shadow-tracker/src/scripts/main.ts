@@ -5,6 +5,8 @@ import { dirname } from "node:path"
 import { defaultCatalogDbPathForGeneratedPath, registerCatalogArtifact } from "../../../../contracts/catalog-contract/src/catalog-client"
 import { buildDomainJobResult, validateDomainJobResult } from "../../../../contracts/domain-runtime/src/domain-runtime"
 import { assertProjectRuntimePath, repoRoot } from "../../../../contracts/runtime-core/src/paths"
+import { errorResponse, printScriptResult, readFlagValue, successResponse } from "../../../../contracts/runtime-core/src/script-json"
+import type { JSONRecord } from "../../../../contracts/runtime-core/src/json"
 import {
   createRdShadowTrackerFromForwardHoldout,
   manifestRefsFromJson,
@@ -12,8 +14,6 @@ import {
   updateRdShadowTracker,
   type RdShadowTrackerOptions,
 } from "../lib/rd-shadow-tracker"
-
-type JSONRecord = Record<string, unknown>
 
 interface Config {
   forwardResultPath: string
@@ -37,10 +37,10 @@ interface ShadowTrackerJobInput {
   trackers?: JSONRecord[]
 }
 
+const SCHEMA_VERSION = "rd-shadow-tracker.script-response.v1"
+
 function main(argv: string[]): void {
-  const result = run(argv)
-  console.log(JSON.stringify(result, null, 2))
-  if (!result.ok) process.exit(1)
+  printScriptResult(run(argv))
 }
 
 export function run(argv: string[]): JSONRecord {
@@ -49,9 +49,9 @@ export function run(argv: string[]): JSONRecord {
     process.chdir(repoRoot())
     const config = parseArgs(argv)
     assertRuntimeOutputPaths(config.outputPath, config.catalogDbPath)
-    return successResponse(runRdShadowTracker(config))
+    return successResponse(SCHEMA_VERSION, runRdShadowTracker(config))
   } catch (error) {
-    return errorResponse(error)
+    return errorResponse(SCHEMA_VERSION, error)
   } finally {
     process.chdir(previousCwd)
   }
@@ -71,16 +71,16 @@ function parseArgs(argv: string[]): Config {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     switch (arg) {
-      case "--max-hold-bars": config.maxHoldBars = Number(readValue(argv, ++index, arg)); break
-      case "--state": config.statePath = readValue(argv, ++index, arg); break
-      case "--forward-result": config.forwardResultPath = readValue(argv, ++index, arg); break
-      case "--manifest-map": config.manifestMapPath = readValue(argv, ++index, arg); break
-      case "--output": config.outputPath = readValue(argv, ++index, arg); break
-      case "--catalog-db": config.catalogDbPath = readValue(argv, ++index, arg); break
-      case "--now": config.now = readValue(argv, ++index, arg); break
+      case "--max-hold-bars": config.maxHoldBars = Number(readFlagValue(argv, ++index, arg)); break
+      case "--state": config.statePath = readFlagValue(argv, ++index, arg); break
+      case "--forward-result": config.forwardResultPath = readFlagValue(argv, ++index, arg); break
+      case "--manifest-map": config.manifestMapPath = readFlagValue(argv, ++index, arg); break
+      case "--output": config.outputPath = readFlagValue(argv, ++index, arg); break
+      case "--catalog-db": config.catalogDbPath = readFlagValue(argv, ++index, arg); break
+      case "--now": config.now = readFlagValue(argv, ++index, arg); break
       case "--shadow-tracker-job": config.shadowTrackerJob = true; break
-      case "--json": config.jsonPayload = readValue(argv, ++index, arg); break
-      case "--help": printHelp(); process.exit(0)
+      case "--json": config.jsonPayload = readFlagValue(argv, ++index, arg); break
+      case "--help": printHelp(); return process.exit(0)
       default: throw new Error(`unknown flag: ${arg}`)
     }
   }
@@ -221,12 +221,6 @@ function assertRuntimeOutputPaths(...paths: string[]): void {
   }
 }
 
-function readValue(argv: string[], index: number, name: string): string {
-  const value = argv[index]
-  if (!value || value.startsWith("--")) throw new Error(`${name} requires a value`)
-  return value
-}
-
 function asRecord(value: unknown): JSONRecord {
   return value && typeof value === "object" && !Array.isArray(value) ? value as JSONRecord : {}
 }
@@ -238,15 +232,6 @@ function stringField(value: unknown): string {
 function positiveNumber(value: unknown): number | undefined {
   const number = typeof value === "number" ? value : Number(value)
   return Number.isFinite(number) && number > 0 ? number : undefined
-}
-
-function successResponse(data: unknown): JSONRecord {
-  return { ok: true, schema_version: "rd-shadow-tracker.script-response.v1", data }
-}
-
-function errorResponse(error: unknown): JSONRecord {
-  const message = error instanceof Error ? error.message : String(error)
-  return { ok: false, schema_version: "rd-shadow-tracker.script-response.v1", error: message }
 }
 
 function printHelp(): void {

@@ -281,8 +281,8 @@ test("job graph runner accepts native J04 domain runtime result from research su
             domain: "research-strategy-development",
             job_id: "rd_strategy_supervisor",
             idempotency_key: "cycle-job-graph-j04:J04",
-            input_refs: ["research_state_store:program/./data/rd/program.json"],
-            output_refs: ["./data/rd/program.json"],
+            input_refs: ["research_state_store:rd_program/rd-program"],
+            output_refs: ["research_state_store:rd_program/rd-program"],
             writes: { research_state_store: true, artifact_catalog: true },
             incidents: [],
             audit: { cycle_id: "cycle-job-graph-j04", ticket_no: "J04" },
@@ -295,7 +295,7 @@ test("job graph runner accepts native J04 domain runtime result from research su
     const jobs = result.jobs as Array<{ job_id: string; status: string; result_ref: string; runtime_result: { writes: Record<string, boolean> } }>
     const rd = jobs.find((job) => job.job_id === "rd_strategy_supervisor")
     assert.equal(rd?.status, "completed")
-    assert.equal(rd?.result_ref, "./data/rd/program.json")
+    assert.equal(rd?.result_ref, "research_state_store:rd_program/rd-program")
     assert.deepEqual(rd?.runtime_result.writes, { research_state_store: true, artifact_catalog: true })
   } finally {
     tradeDb.close()

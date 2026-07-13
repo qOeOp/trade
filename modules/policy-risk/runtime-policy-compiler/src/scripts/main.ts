@@ -7,8 +7,6 @@ type JSONRecord = Record<string, unknown>
 
 interface Config {
   tradingConfigPath?: string
-  accountConfigPath?: string
-  notifyConfigPath?: string
   now?: string
 }
 
@@ -37,10 +35,8 @@ function parseArgs(argv: string[]): Config {
     const arg = argv[index]
     switch (arg) {
       case "--trading-config": config.tradingConfigPath = readValue(argv, ++index, arg); break
-      case "--account-config": config.accountConfigPath = readValue(argv, ++index, arg); break
-      case "--notify-config": config.notifyConfigPath = readValue(argv, ++index, arg); break
       case "--now": config.now = readValue(argv, ++index, arg); break
-      case "--help": printHelp(); process.exit(0)
+      case "--help": printHelp(); return process.exit(0)
       default: throw new Error(`unknown flag: ${arg}`)
     }
   }
@@ -64,7 +60,7 @@ function errorResponse(error: unknown): JSONRecord {
 
 function printHelp(): void {
   console.log(`Usage:
-  bun src/scripts/main.ts --trading-config ./profile/trading-config.json --account-config ./profile/account_config.json
+  bun src/scripts/main.ts --trading-config ./profile/trading-config.json
 `)
 }
 

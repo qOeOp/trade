@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs"
 import { dirname, extname, join, resolve } from "node:path"
 import { Database } from "bun:sqlite"
-import { displayPath, resolveRepoPath } from "./paths"
+import { displayPath, resolveRepoPath } from "../../../../contracts/runtime-core/src/paths"
 
 type JSONRecord = Record<string, unknown>
 type SQLiteBindingValue = string | number | boolean | null
@@ -255,13 +255,13 @@ function listCatalogStrategyEvidence(input: { catalogDbPath: string; strategyID?
         SELECT evidence_id, strategy_id, kind, source_ref, artifact_id, created_at, summary_json, record_json
         FROM strategy_evidence
         WHERE strategy_id = $strategy_id
-        ORDER BY created_at ASC
+        ORDER BY created_at
         LIMIT $limit
       `).all({ $strategy_id: input.strategyID, $limit: limit }) as JSONRecord[]
       : db.query(`
         SELECT evidence_id, strategy_id, kind, source_ref, artifact_id, created_at, summary_json, record_json
         FROM strategy_evidence
-        ORDER BY created_at ASC
+        ORDER BY created_at
         LIMIT $limit
       `).all({ $limit: limit }) as JSONRecord[]
     return rows.map(recordFromStoredRow)
@@ -298,7 +298,7 @@ function listCatalogStrategyRndRuns(input: { catalogDbPath: string; limit?: numb
       SELECT sr.run_id, sr.strategy_id, sr.candidate_id, sr.family, sr.stage, sr.accepted, sr.holdout_key, sr.artifact_id, run.started_at AS created_at, run.summary_json, sr.record_json
       FROM strategy_rnd_run sr
       JOIN run ON run.run_id = sr.run_id
-      ORDER BY run.started_at ASC
+      ORDER BY run.started_at
       LIMIT $limit
     `).all({ $limit: limit }) as JSONRecord[]
     return rows.map(recordFromStoredRow)
@@ -418,7 +418,7 @@ function listStaleCatalogArtifacts(input: CatalogStaleInput): CatalogStaleResult
       FROM artifact a
       LEFT JOIN artifact_ref r ON r.artifact_id = a.artifact_id
       GROUP BY a.artifact_id
-      ORDER BY a.created_at ASC
+      ORDER BY a.created_at
     `).all() as JSONRecord[]
 
     for (const row of rows) {

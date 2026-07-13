@@ -15,16 +15,16 @@
 | strategy policy | 是 | `strategies/*.md` |
 | trade runtime DB | 否 | `data/trade.db`, `data/*.sqlite*` |
 | cron / lock / system state | 否 | `data/cron.log`, `data/.trade-flow.lock`, `data/system_state.json` |
-| strategy evidence / R&D ledger / R&D state | 否 | `data/data_catalog.db`, `data/rd/` |
+| strategy evidence / R&D ledger / R&D state | 否 | `data/data_catalog.db`, `data/rd_state.db` |
 | 临时 replay / R&D / calibration / validation / forward holdout artifact | 否 | `tmp/artifacts/`, `tmp/panels/` |
-| OHLCV / market data | 否 | `data/ohlcv/` |
+| OHLCV / market data | 否 | `data/market_data.db`；`data/ohlcv/` 仅作 raw/import archive |
 | local operator config | 否 | `profile/account_config.json`, `profile/notify_config.json` |
 
 需要长期保留但不进 Git 的产物，才显式放入 `data/` 或由 ledger / DB 引用；普通研究中间产物默认放 `tmp/`，必要时用 `.pin` 或 evidence / ledger ref 保护。
 
 ## 2. 放置规则
 
-- 原始 OHLCV：写 `data/ohlcv/`
+- OHLCV canonical candles：写 `data/market_data.db.canonical_candle`；raw/import archive 才写 `data/ohlcv/`
 - 策略 policy：写 `strategies/*.md`；frontmatter 做身份索引，`## Trade Contract` 做机器契约；这是项目资产，不是 tool 源码，也不是运行数据
 - calibration / validation / external / forward holdout panel：默认写 `tmp/panels/<kind>-<name>-<date>/`
 - replay / R&D / calibration 普通报告：默认写 `tmp/artifacts/<domain>/`
@@ -40,7 +40,7 @@
 - 删除必须显式；默认只 dry-run。
 - `tmp/artifacts/` / `tmp/panels/` 下被 `.pin`、evidence ref、ledger ref 或 durable 目录保护的文件不得删。
 - 未引用、未 pin、超过 retention 的 artifact 由 `modules/artifact-knowledge/artifact-catalog` 的 `--artifact-gc` 或 `--catalog-gc` 报告 / 清理。
-- `data/ohlcv/` 是可再生市场数据；清理前只需确认没有被当前 evidence / report 引用。
+- `data/ohlcv/` 只是可再生 raw/import archive；清理前确认没有被当前 evidence / report 引用。canonical candles 以 `data/market_data.db` 为准。
 - `tmp/panels/` 是可再生研究输入；默认可按 retention 清理，除非已被 ledger / evidence / `.pin` 引用。
 
 ## 4. 当前 `.gitignore` 约定
@@ -49,7 +49,7 @@
 
 - `data/ohlcv/`
 - `data/artifacts/`（legacy / durable archive）
-- `data/rd/`
+- `data/rd/`（legacy import / old local output）
 - `data/calibration-panel-*/`
 - `data/validation-panel-*/`
 - `data/external-panel-*/`
@@ -72,7 +72,8 @@
 
 ```text
 data/
-  ohlcv/                    # 可复算行情数据
+  market_data.db            # market_data_store：canonical candles / funding / feature refs
+  rd_state.db               # research_state_store：RD program memory
   trade.db                  # 在线交易事实
   data_catalog.db           # 本地数据资产索引 + strategy evidence / R&D ledger
   cron.log                  # 运维 fallback 日志
@@ -89,11 +90,11 @@ tmp/
   market/                   # automation / slow-track 市场候选 cache
 ```
 
-本地 learning memory 放 `data/rd/`：
+本地 learning memory 放 `data/rd_state.db`：
 
 ```text
 data/
-  rd/                       # rd_program_state；research memory，不是 strategy evidence
+  rd_state.db               # rd_program_state；research memory，不是 strategy evidence
 ```
 
 规则很简单：默认先临时，只有会影响策略准入、复盘或运行恢复的事实，才进入 `data/`。
@@ -179,8 +180,8 @@ data/
 | `research_report` | R&D loop / campaign / benchmark / calibration / panel / shadow tracker 的摘要索引 |
 | `schema_migration` | catalog schema 版本 |
 
-不建议入 DB 的内容：
+不建议入 catalog DB 的内容：
 
-- 完整 OHLCV candle 明细，除非进入高频查询 / backtest engine；届时单独 `ohlcv.db`。
+- 完整 OHLCV candle 明细不进 `artifact_catalog`；canonical candles 由 `market_data_store` owner DB 管理。
 - 完整 feature time series；只入 feature summary、hash、source manifest。
 - 人读的 strategy Markdown 与 automation memory。

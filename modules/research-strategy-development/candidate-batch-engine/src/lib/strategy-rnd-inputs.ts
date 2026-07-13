@@ -1,6 +1,6 @@
 import { readFactorConditions, type FactorCondition } from "../../../strategy-family-engine/src/lib/factor-engine"
 import type { FactorResearchOptions } from "../../../strategy-family-engine/src/lib/factor-research"
-import type { JSONRecord } from "./json"
+import type { JSONRecord } from "../../../../contracts/runtime-core/src/json"
 
 export type CandidateSource = "provided" | "bounded_factor_composition" | "scientific_factor_discovery"
 
@@ -32,7 +32,8 @@ export interface StrategyRndLoopInput extends StrategyRndBatchInput {
   artifactRoot?: string
   ledgerPath?: string
   catalogDbPath?: string
-  rdProgramStatePath?: string
+  rdProgramRef?: string
+  rdStateDb?: string
   now?: string
 }
 
@@ -63,7 +64,8 @@ export interface StrategyRndCampaignInput {
   artifactRoot?: string
   ledgerPath?: string
   catalogDbPath?: string
-  rdProgramStatePath?: string
+  rdProgramRef?: string
+  rdStateDb?: string
   now?: string
 }
 
@@ -107,7 +109,8 @@ export function strategyRndLoopInputFromJson(input: JSONRecord): StrategyRndLoop
     artifactRoot: stringField(input.artifact_root) || undefined,
     ledgerPath: stringField(input.ledger_path) || undefined,
     catalogDbPath: stringField(input.catalog_db_path) || undefined,
-    rdProgramStatePath: stringField(input.rd_program_state_path) || undefined,
+    rdProgramRef: stringField(input.rd_program_ref) || undefined,
+    rdStateDb: stringField(input.rd_state_db) || undefined,
     now: stringField(input.now) || undefined,
   }
 }
@@ -121,7 +124,8 @@ export function strategyRndCampaignInputFromJson(input: JSONRecord): StrategyRnd
     artifactRoot: stringField(input.artifact_root) || undefined,
     ledgerPath: stringField(input.ledger_path) || undefined,
     catalogDbPath: stringField(input.catalog_db_path) || undefined,
-    rdProgramStatePath: stringField(input.rd_program_state_path) || undefined,
+    rdProgramRef: stringField(input.rd_program_ref) || undefined,
+    rdStateDb: stringField(input.rd_state_db) || undefined,
     now: stringField(input.now) || undefined,
     hypotheses: array(input.hypotheses).map((raw) => {
       const hypothesis = asRecord(raw)

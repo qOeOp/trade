@@ -152,9 +152,10 @@ test("rd shadow tracker suppresses repeated same-side entries while a matching p
     })
     assert.equal(merged.summary.position_count, 1)
     assert.equal(merged.summary.open_count, 1)
-    assert.equal(merged.paper_positions[0].events.at(-1)?.behavior, "observe_setup")
-    assert.equal(merged.paper_positions[0].events.at(-1)?.payload.event_type, "rd_reinforce_signal")
-    assert.equal(merged.paper_positions[0].events.at(-1)?.payload.suppression_reason, "open_same_symbol_candidate_side")
+    const latestMergedEvent = merged.paper_positions[0].events[merged.paper_positions[0].events.length - 1]
+    assert.equal(latestMergedEvent?.behavior, "observe_setup")
+    assert.equal(latestMergedEvent?.payload.event_type, "rd_reinforce_signal")
+    assert.equal(latestMergedEvent?.payload.suppression_reason, "open_same_symbol_candidate_side")
 
     const repeated = updateRdShadowTracker(merged, {
       now: "2026-07-09T08:13:00.000Z",
@@ -225,8 +226,9 @@ test("rd shadow tracker normalizes legacy duplicate open positions", () => {
 
     assert.equal(normalized.summary.position_count, 1)
     assert.equal(normalized.summary.open_count, 1)
-    assert.equal(normalized.paper_positions[0].events.at(-1)?.payload.event_type, "rd_reinforce_signal")
-    assert.equal(normalized.paper_positions[0].events.at(-1)?.payload.suppressed_position_id, "legacy-duplicate-position")
+    const latestNormalizedEvent = normalized.paper_positions[0].events[normalized.paper_positions[0].events.length - 1]
+    assert.equal(latestNormalizedEvent?.payload.event_type, "rd_reinforce_signal")
+    assert.equal(latestNormalizedEvent?.payload.suppressed_position_id, "legacy-duplicate-position")
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

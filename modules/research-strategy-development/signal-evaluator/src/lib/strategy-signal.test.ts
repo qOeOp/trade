@@ -41,7 +41,8 @@ test("strategy signal parser ignores camel-case contract fields", () => {
 test("latest strategy signal injects a live entry reference into the replay family", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-signal-"))
   try {
-    const entryPrice = buildReplayCandles().at(-1)!.close
+    const replayCandles = buildReplayCandles()
+    const entryPrice = replayCandles[replayCandles.length - 1]!.close
     const result = evaluateStrategySignal({
       manifestPath: writeManifest(dir),
       entryPrice,

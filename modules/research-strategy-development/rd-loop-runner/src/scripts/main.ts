@@ -1,80 +1,36 @@
 #!/usr/bin/env bun
 
-import { readFileSync } from "node:fs"
 import { assertProjectRuntimePath, repoRoot } from "../../../../contracts/runtime-core/src/paths"
+import { errorResponse, printScriptResult, readJsonInputArgs, successResponse } from "../../../../contracts/runtime-core/src/script-json"
+import type { JSONRecord } from "../../../../contracts/runtime-core/src/json"
 import { strategyRndLoopInputFromJson } from "../../../candidate-batch-engine/src/lib/strategy-rnd-inputs"
 import { runStrategyRndLoop } from "../lib/rd-loop-runner"
 
-type JSONRecord = Record<string, unknown>
-
-interface Config {
-  input: JSONRecord
-}
+const SCHEMA_VERSION = "rd-loop-runner.script-response.v1"
 
 function main(argv: string[]): void {
-  const result = run(argv)
-  console.log(JSON.stringify(result, null, 2))
-  if (!result.ok) process.exit(1)
+  printScriptResult(run(argv))
 }
 
 export function run(argv: string[]): JSONRecord {
   const previousCwd = process.cwd()
   try {
     process.chdir(repoRoot())
-    const config = parseArgs(argv)
+    const config = readJsonInputArgs(argv, printHelp)
     const input = strategyRndLoopInputFromJson(config.input)
-    assertRuntimeOutputPaths(input.artifactRoot, input.ledgerPath, input.catalogDbPath, input.rdProgramStatePath)
-    return successResponse(runStrategyRndLoop(input))
+    assertRuntimeOutputPaths(input.artifactRoot, input.ledgerPath, input.catalogDbPath, input.rdStateDb)
+    return successResponse(SCHEMA_VERSION, runStrategyRndLoop(input))
   } catch (error) {
-    return errorResponse(error)
+    return errorResponse(SCHEMA_VERSION, error)
   } finally {
     process.chdir(previousCwd)
   }
-}
-
-function parseArgs(argv: string[]): Config {
-  const config: Config = { input: {} }
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index]
-    switch (arg) {
-      case "--input": config.input = readJsonFile(readValue(argv, ++index, arg)); break
-      case "--json": config.input = readJson(readValue(argv, ++index, arg)); break
-      case "--help": printHelp(); process.exit(0)
-      default: throw new Error(`unknown flag: ${arg}`)
-    }
-  }
-  return config
 }
 
 function assertRuntimeOutputPaths(...paths: Array<string | undefined>): void {
   for (const path of paths) {
     if (path) assertProjectRuntimePath(path)
   }
-}
-
-function readValue(argv: string[], index: number, name: string): string {
-  const value = argv[index]
-  if (!value || value.startsWith("--")) throw new Error(`${name} requires a value`)
-  return value
-}
-
-function readJsonFile(path: string): JSONRecord {
-  return readJson(readFileSync(path, "utf8"))
-}
-
-function readJson(raw: string): JSONRecord {
-  const parsed = JSON.parse(raw)
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("input JSON must be an object")
-  return parsed as JSONRecord
-}
-
-function successResponse(data: unknown): JSONRecord {
-  return { ok: true, schema_version: "rd-loop-runner.script-response.v1", data }
-}
-
-function errorResponse(error: unknown): JSONRecord {
-  const message = error instanceof Error ? error.message : String(error)
-  return { ok: false, schema_version: "rd-loop-runner.script-response.v1", error: message }
 }
 
 function printHelp(): void {

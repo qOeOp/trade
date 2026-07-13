@@ -1,7 +1,8 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { fetchObserveProjections, runJsonCommand, type Runner } from "./observe-runner"
+import { runJsonCommand, type Runner } from "../../../../contracts/runtime-core/src/tool-runner"
+import { fetchObserveProjections } from "./observe-runner"
 
 test("fetchObserveProjections calls account and symbol snapshot tools", async () => {
   const calls: Array<{ command: string[]; cwd?: string }> = []

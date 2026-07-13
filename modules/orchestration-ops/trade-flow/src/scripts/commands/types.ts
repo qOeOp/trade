@@ -1,5 +1,5 @@
-import type { JSONRecord } from "../lib/json"
-import type { RunMode } from "../lib/run-mode"
+import type { JSONRecord } from "../../../../../contracts/runtime-core/src/json"
+import type { RunMode } from "../../../../../contracts/runtime-core/src/run-mode"
 
 export type { JSONRecord }
 export type { RunMode }

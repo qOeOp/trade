@@ -1,6 +1,6 @@
 import { buildEventWriteEnvelope } from "../../../../../contracts/protocol-fabric/src/protocol-fabric"
 import { resolveRegisteredOwnerTool } from "../../../../../contracts/runtime-core/src/owner-tool-registry"
-import { runJsonCommand } from "./tool-runner"
+import { runJsonCommand } from "../../../../../contracts/runtime-core/src/tool-runner"
 
 type JSONRecord = Record<string, unknown>
 type EventWritePlanEvent = {

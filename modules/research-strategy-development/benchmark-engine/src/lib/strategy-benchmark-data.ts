@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs"
 import { hashCanonical, loadCandlesFromManifest, loadManifest, replayDataHash, type Candle } from "../../../replay-engine/src/lib/replay-core"
-import { resolveReadablePath } from "../../../replay-engine/src/lib/paths"
+import { resolveReadablePath } from "../../../../contracts/runtime-core/src/paths"
 import type { BenchmarkDataset } from "./strategy-benchmark-inputs"
 
 type JSONRecord = Record<string, unknown>
@@ -102,7 +102,7 @@ export function panelFundingEvents(datasets: BenchmarkDataset[], firstTimestamp:
   const allEvents = eventsByAsset.flat().map((event) => Date.parse(event.timestamp)).filter(Number.isFinite).sort((a, b) => a - b)
   const maxGapHours = maxFundingGapHours(eventsByAsset)
   const firstEvent = allEvents[0]
-  const lastEvent = allEvents.at(-1)
+  const lastEvent = allEvents[allEvents.length - 1]
   const incomplete = missing.length > 0 || !firstEvent || !lastEvent || firstEvent > firstTimestamp + 9 * 3_600_000 || lastEvent < lastTimestamp - 9 * 3_600_000 || maxGapHours > 9
   return { eventsByAsset, coverage: fundingCoverage(incomplete ? "partial" : "full", datasets, eventsByAsset, missing, maxGapHours, firstEvent, lastEvent) }
 }
@@ -159,7 +159,7 @@ function alignCloses(candles: Candle[], timestamps: number[]): number[] {
 
 function panelDiagnostics(loaded: Array<{ dataset: BenchmarkDataset; manifest: JSONRecord; candles: Candle[] }>, timestamps: number[], timeframe: string): PanelDiagnostics {
   const alignedStart = timestamps[0] ?? 0
-  const alignedEnd = timestamps.at(-1) ?? 0
+  const alignedEnd = timestamps[timestamps.length - 1] ?? 0
   const datasetDiagnostics = loaded.map((item) => {
     const timeframeEntry = asRecord(asRecord(item.manifest.timeframes)[timeframe])
     const source = asRecord(item.manifest.source)
@@ -175,7 +175,7 @@ function panelDiagnostics(loaded: Array<{ dataset: BenchmarkDataset; manifest: J
       aligned_rows: timestamps.length,
       aligned_ratio: round(timestamps.length / Math.max(1, rowsInAlignedWindow)),
       first_open: item.candles[0] ? new Date(item.candles[0].timestamp).toISOString() : null,
-      last_open: item.candles.at(-1) ? new Date(item.candles.at(-1)!.timestamp).toISOString() : null,
+      last_open: item.candles[item.candles.length - 1] ? new Date(item.candles[item.candles.length - 1]!.timestamp).toISOString() : null,
       schema_version: numberField(item.manifest.schema_version),
       closed_candles_only: item.manifest.closed_candles_only === true,
       source_provider: stringField(source.provider),
@@ -201,7 +201,7 @@ function panelDiagnostics(loaded: Array<{ dataset: BenchmarkDataset; manifest: J
     timeframe,
     aligned_rows: timestamps.length,
     aligned_start: timestamps[0] ? new Date(timestamps[0]).toISOString() : null,
-    aligned_end: timestamps.at(-1) ? new Date(timestamps.at(-1)!).toISOString() : null,
+    aligned_end: timestamps[timestamps.length - 1] ? new Date(timestamps[timestamps.length - 1]!).toISOString() : null,
     min_raw_rows: Math.min(...datasetDiagnostics.map((item) => item.raw_rows)),
     min_aligned_ratio: round(Math.min(...datasetDiagnostics.map((item) => item.aligned_ratio))),
     schema_version_ok: datasetDiagnostics.every((item) => item.schema_version >= 2 && item.content_sha256_present),

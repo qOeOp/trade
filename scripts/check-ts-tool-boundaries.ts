@@ -63,6 +63,9 @@ for (const file of walkTsFiles("modules")) {
     if (isAllowedCrossToolImport(file, sourceTool, targetTool)) {
       return
     }
+    if (isAllowedResearchStrategyDevelopmentImport(sourceTool, targetTool)) {
+      return
+    }
     if (isAllowedSameDomainIntegrationTestImport(file, sourceTool, targetTool)) {
       return
     }
@@ -121,6 +124,50 @@ function isAllowedCrossToolImport(file: string, sourceTool: string, targetTool: 
   const edge = `${sourceTool} -> ${targetTool}`
   return alwaysAllowed.has(edge)
     || (file.endsWith(".test.ts") && testOnlyAllowed.has(edge))
+}
+
+function isAllowedResearchStrategyDevelopmentImport(sourceTool: string, targetTool: string): boolean {
+  if (!sourceTool.startsWith("modules/research-strategy-development/")
+    || !targetTool.startsWith("modules/research-strategy-development/")) {
+    return false
+  }
+  const allowedDomainDag = new Set([
+    "modules/research-strategy-development/benchmark-engine -> modules/research-strategy-development/replay-engine",
+    "modules/research-strategy-development/benchmark-runner -> modules/research-strategy-development/benchmark-engine",
+    "modules/research-strategy-development/calibration-suite -> modules/research-strategy-development/benchmark-engine",
+    "modules/research-strategy-development/candidate-batch -> modules/research-strategy-development/candidate-batch-engine",
+    "modules/research-strategy-development/candidate-batch-engine -> modules/research-strategy-development/replay-engine",
+    "modules/research-strategy-development/candidate-batch-engine -> modules/research-strategy-development/strategy-family-engine",
+    "modules/research-strategy-development/forward-holdout -> modules/research-strategy-development/candidate-batch-engine",
+    "modules/research-strategy-development/forward-holdout -> modules/research-strategy-development/replay-engine",
+    "modules/research-strategy-development/forward-holdout -> modules/research-strategy-development/signal-engine",
+    "modules/research-strategy-development/funding-governance -> modules/research-strategy-development/benchmark-engine",
+    "modules/research-strategy-development/funding-governance -> modules/research-strategy-development/replay-engine",
+    "modules/research-strategy-development/panel-evaluator -> modules/research-strategy-development/candidate-batch-engine",
+    "modules/research-strategy-development/panel-evaluator -> modules/research-strategy-development/replay-engine",
+    "modules/research-strategy-development/rd-campaign-runner -> modules/research-strategy-development/candidate-batch-engine",
+    "modules/research-strategy-development/rd-campaign-runner -> modules/research-strategy-development/rd-ledger",
+    "modules/research-strategy-development/rd-campaign-runner -> modules/research-strategy-development/rd-loop-runner",
+    "modules/research-strategy-development/rd-campaign-runner -> modules/research-strategy-development/rd-program-state",
+    "modules/research-strategy-development/rd-ledger -> modules/research-strategy-development/candidate-batch-engine",
+    "modules/research-strategy-development/rd-ledger -> modules/research-strategy-development/replay-engine",
+    "modules/research-strategy-development/rd-ledger -> modules/research-strategy-development/strategy-family-engine",
+    "modules/research-strategy-development/rd-loop-runner -> modules/research-strategy-development/candidate-batch-engine",
+    "modules/research-strategy-development/rd-loop-runner -> modules/research-strategy-development/rd-ledger",
+    "modules/research-strategy-development/rd-loop-runner -> modules/research-strategy-development/rd-program-state",
+    "modules/research-strategy-development/rd-program-state -> modules/research-strategy-development/research-state-store",
+    "modules/research-strategy-development/rd-shadow-tracker -> modules/research-strategy-development/replay-engine",
+    "modules/research-strategy-development/rd-supervisor -> modules/research-strategy-development/candidate-batch-engine",
+    "modules/research-strategy-development/rd-supervisor -> modules/research-strategy-development/rd-campaign-runner",
+    "modules/research-strategy-development/rd-supervisor -> modules/research-strategy-development/rd-loop-runner",
+    "modules/research-strategy-development/rd-supervisor -> modules/research-strategy-development/rd-program-state",
+    "modules/research-strategy-development/replay-runner -> modules/research-strategy-development/replay-engine",
+    "modules/research-strategy-development/signal-engine -> modules/research-strategy-development/replay-engine",
+    "modules/research-strategy-development/signal-engine -> modules/research-strategy-development/strategy-family-engine",
+    "modules/research-strategy-development/signal-evaluator -> modules/research-strategy-development/signal-engine",
+    "modules/research-strategy-development/strategy-family-engine -> modules/research-strategy-development/replay-engine",
+  ])
+  return allowedDomainDag.has(`${sourceTool} -> ${targetTool}`)
 }
 
 function isAllowedSameDomainIntegrationTestImport(file: string, sourceTool: string, targetTool: string): boolean {

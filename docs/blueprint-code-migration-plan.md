@@ -210,7 +210,7 @@ v2 蓝图的长期边界：
 | `strategy-family-engine` / `signal-engine` | `research-strategy-development / internal-engine` | 只给 R&D/signal evaluator 用 |
 | `liquidation-zones` | `market-data-products / feature engine` | feature ref，不是交易信号 |
 | `domain-bus` | `protocol fabric` 的当前物理化入口 | 可保留，但必须由 rail ownership registry 约束 |
-| `trade-flow.runtime` | legacy facade | 长期应降级为 control tower / compatibility shell |
+| `trade-flow.runtime` | control tower facade | 只保留编排 / handoff / owner tool resolver，不承接业务域逻辑 |
 
 ## 6. 目标框架壳
 

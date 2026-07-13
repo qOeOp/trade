@@ -10,8 +10,8 @@ import { appendPlanEvent, ensureSchema, readFlowEvents, readLatestOrderFill, REV
 import { applyReconcileDrafts, FLOW_POSITION_STATES, latestSlowObserve, reduceFlowState } from "../../../../../portfolio-execution-state/flow-projector/src/lib/flow-projector"
 import { cronRecoverFromTools, CRON_RECOVER_STATUSES } from "../../../../../live-execution-control/recovery-runner/src/lib/recovery-runner"
 import { runOneFlowStep } from "../../../../../live-execution-control/execution-flow-runner/src/lib/execution-flow-runner"
-import { RUN_MODES } from "./run-mode"
-import type { JSONRecord } from "./json"
+import { RUN_MODES } from "../../../../../contracts/runtime-core/src/run-mode"
+import type { JSONRecord } from "../../../../../contracts/runtime-core/src/json"
 
 test("flow state result schema matches reducer output", () => {
   const schema = readSchema("flow-state-result")
@@ -105,9 +105,20 @@ test("runtime load result schema matches runtime loader output", () => {
 
   const dir = mkdtempSync(join(tmpdir(), "runtime-load-schema-"))
   try {
+    const tradingConfigPath = join(dir, "trading-config.json")
     const accountConfigPath = join(dir, "account-config.json")
     const strategiesDir = join(dir, "strategies")
     mkdirSync(strategiesDir, { recursive: true })
+    writeFileSync(tradingConfigPath, JSON.stringify({
+      schema_version: 1,
+      profile_id: "test-runtime",
+      mode: "dry_run",
+      permissions: { live_small_enabled: false, max_stage: "paper_shadow" },
+      risk: {},
+      exposure: {},
+      execution: {},
+      research: {},
+    }))
     writeFileSync(accountConfigPath, JSON.stringify({ max_open_risk_pct: 0.1 }))
   } catch {
     rmSync(dir, { recursive: true, force: true })
@@ -116,7 +127,11 @@ test("runtime load result schema matches runtime loader output", () => {
   try {
     const strategiesDir = join(dir, "strategies")
     writeFileSync(join(strategiesDir, "s-test.md"), "---\nstrategy_id: S-RUNTIME\nname: Runtime\nstatus: draft\ntags: [schema]\n---\n\n# Runtime\n")
-    const result = loadRuntime(join(dir, "account-config.json"), strategiesDir) as JSONRecord
+    const result = loadRuntime({
+      tradingConfigPath: join(dir, "trading-config.json"),
+      accountConfigPath: join(dir, "account-config.json"),
+      strategiesDir,
+    }) as JSONRecord
     assertSchemaRequired(schema, result)
     assert.equal(asRecord(result.runtime_policy).schema_version, "runtime-policy.v1")
     assert.equal(typeof asRecord(result.runtime_policy).source_hash, "string")
@@ -128,8 +143,8 @@ test("runtime load result schema matches runtime loader output", () => {
   }
 })
 
-test("runtime load result does not require legacy account config when trading config exists", () => {
-  const dir = mkdtempSync(join(tmpdir(), "runtime-load-no-legacy-"))
+test("runtime load result keeps trading policy and account context separate", () => {
+  const dir = mkdtempSync(join(tmpdir(), "runtime-load-policy-account-"))
   try {
     const tradingConfigPath = join(dir, "trading-config.json")
     const accountConfigPath = join(dir, "account-config.json")

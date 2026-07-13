@@ -44,7 +44,7 @@
 | `funding-governance-check` | `modules/research-strategy-development/funding-governance` | `bun run check` | funding coverage governance |
 | `strategy-contract-compile-check` | `modules/research-strategy-development/strategy-contract-compile` | `bun run check` | strategy contract compile CLI |
 | `strategy-contract-lint-check` | `modules/research-strategy-development/strategy-contract-lint` | `bun run check` | strategy contract lint CLI |
-| `rd-program-state-smoke` | repo root | `bun modules/research-strategy-development/rd-program-state/src/scripts/main.ts --state ./tmp/check/rd-program-state.json --json '{"action":"init","objective":"smoke"}'` | RD memory CLI envelope and write path |
+| `rd-program-state-smoke` | repo root | `bun modules/research-strategy-development/rd-program-state/src/scripts/main.ts --db ./tmp/check/rd_state.db --program-id smoke --json '{"action":"init","objective":"smoke"}'` | RD memory CLI envelope and research_state_store write path |
 | `rd-supervisor-integration` | `modules/research-strategy-development/rd-integration-suite` | `bun test ./src/lib/rd-supervisor-runner.test.ts` | RD supervisor orchestration over loop/campaign runners |
 | `rd-shadow-tracker-integration` | `modules/research-strategy-development/rd-integration-suite` | `bun test ./src/lib/rd-shadow-tracker.test.ts ./src/lib/setup-event-chain.test.ts` | R&D paper tracker and setup event chain |
 | `rd-loop-runner-integration` | `modules/research-strategy-development/rd-integration-suite` | `bun test ./src/lib/strategy-rnd.test.ts ./src/lib/research-output-schemas.test.ts` | R&D loop artifact/catalog/ledger/state writeback |

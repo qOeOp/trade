@@ -331,6 +331,21 @@ flowchart LR
     APUB --> AOUT
   end
 
+  subgraph DATAPLANE[" "]
+    direction TB
+    LDTITLE["本地数据平面<br/>local data plane"]
+    LDPAD[" "]
+    SQLITE[("SQLite logical stores<br/>data/*.db<br/>facts / ledgers / refs / summaries<br/>market_data_store / research_state_store")]
+    FILES[("durable file payloads<br/>data/artifacts / raw archives<br/>large bodies only, not owner state")]
+    TMPFILES[("ephemeral workspace payloads<br/>tmp/artifacts / tmp/panels / tmp/market<br/>可再生中间产物")]
+    CATIDX["catalog index contract<br/>DB stores refs / hash / lineage / retention<br/>files store large bodies"]
+    LDTITLE ~~~ LDPAD
+    LDPAD ~~~ SQLITE
+    SQLITE --> CATIDX
+    FILES --> CATIDX
+    TMPFILES --> CATIDX
+  end
+
   OOUT --> COMMAND
   OOUT --> OPSRAIL
 
@@ -399,6 +414,21 @@ flowchart LR
   AOUT --> ARTIFACTRAIL
   AOUT --> DATARAIL
 
+  OPSLOG -. "physical store" .-> SQLITE
+  INCIDENTSTORE -. "physical store" .-> SQLITE
+  TDB -. "physical store" .-> SQLITE
+  MSTORE -. "physical store + refs" .-> SQLITE
+  MSTORE -. "large payload refs" .-> FILES
+  XLEDGER -. "physical store" .-> SQLITE
+  POLSTORE -. "physical store" .-> SQLITE
+  MODESTORE -. "physical store" .-> SQLITE
+  RDSTATE -. "physical store" .-> SQLITE
+  RDSTATE -. "artifact refs only" .-> ART
+  SHADOWLEDGER -. "shadow artifact refs" .-> FILES
+  GOVLEDGER -. "physical store" .-> SQLITE
+  ART -. "catalog DB" .-> SQLITE
+  ART -. "artifact files" .-> FILES
+
   FACT --> SIN
   MARKETRAIL --> MDIN
   EXCHANGERAIL --> XIN
@@ -413,6 +443,7 @@ flowchart LR
   classDef market fill:#fff0f0,stroke:#b83a3a,color:#471010,stroke-width:1px;
   classDef gov fill:#f0f7f7,stroke:#448080,color:#143838,stroke-width:1px;
   classDef artifact fill:#eef8ff,stroke:#3b82a0,color:#12333f,stroke-width:1px;
+  classDef dataPlane fill:#f4fbf7,stroke:#3f8f5f,color:#14351f,stroke-width:1px,stroke-dasharray:3 2;
   classDef handler fill:#f3f4f6,stroke:#6b7280,color:#111827,stroke-width:1px;
   classDef rail fill:#f8fafc,stroke:#64748b,color:#334155,stroke-width:1px,stroke-dasharray:4 3;
   classDef port fill:#f9fafb,stroke:#6b7280,color:#111827,stroke-width:1px,stroke-dasharray:3 2;
@@ -431,5 +462,6 @@ flowchart LR
   class ACC,WRITEPRE,WRITE,CONFIRM,XROUTE market;
   class EVGATE,REVIEW,PROMO,POLFB,GOVLEDGER gov;
   class AREG,CAT,LINEAGE,RETAIN,ART,APUB artifact;
-  class OPAD,FSPAD,JSPAD,PPAD,SPAD,MDPAD,XPAD,DPAD,CPAD,RPAD,GPAD,APAD spacer;
-  class ORTITLE,FTITLE,JTITLE,PTITLE,STITLE,MDTITLE,XTITLE,DTITLE,CTITLE,RDTITLE,GTITLE,ATITLE domainTitle;
+  class SQLITE,FILES,TMPFILES,CATIDX dataPlane;
+  class OPAD,FSPAD,JSPAD,PPAD,SPAD,MDPAD,XPAD,DPAD,CPAD,RPAD,GPAD,APAD,LDPAD spacer;
+  class ORTITLE,FTITLE,JTITLE,PTITLE,STITLE,MDTITLE,XTITLE,DTITLE,CTITLE,RDTITLE,GTITLE,ATITLE,LDTITLE domainTitle;

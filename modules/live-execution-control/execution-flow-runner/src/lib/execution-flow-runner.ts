@@ -16,10 +16,7 @@ import {
 import { asRecord, removeUndefined, stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
 import { appendEvent, readFlowEvents, readLatestOrderFill } from "./event-store-client"
 import { readLatestSlowObserve, reduceFlow } from "./flow-projector-client"
-import type { RunMode } from "./run-mode"
-
-export type { TargetAction } from "../../../../contracts/preflight-contract/src/target-action"
-export { readTargetAction } from "../../../../contracts/preflight-contract/src/target-action"
+import type { RunMode } from "../../../../contracts/runtime-core/src/run-mode"
 
 export type PlanEvent = JSONRecord & {
   event_key: string

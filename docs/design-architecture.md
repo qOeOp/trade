@@ -637,9 +637,9 @@ runtime health 与 notify 不再作为普通 job 编号出现：前者是 contro
 
 R&D 内部允许再 fan-out read-only scout subagent，但只作为旁路输入：`rd-history-scout` 查历史失败与禁试机制，`rd-data-scout` 查 manifest / split / family 约束，`rd-edge-scout` 草拟不同 market edge。三者都不能写 `rd_program_state`、不能消耗 trial budget、不能打开 holdout；只有 `research.rd-supervisor` 通过显式 state writer 边界推进 R&D state，负责把 scout proposal 编译成显式 `next_hypothesis_queue` 后再执行。
 
-`rd_strategy_supervisor` 的 durable memory 是 `rd_program_state` artifact。`--automation-cycle` 收到 `rd_program_state_path` 时，以 state 中的 objective / budget / usage / lessons / queue 作为研发线事实源，并把该路径作为 learning memory ref；state 非 `active` 时，即使 cadence due 或被 force，也不继续派发研发 loop。临时 `rd_strategy_goal` 只用于尚未建立 state 的启动引导。
+`rd_strategy_supervisor` 的 durable memory 是 `research_state_store.rd_program`。`--automation-cycle` 通过 `rd_state_db + rd_program_id` 定位 state，以 objective / budget / usage / lessons / queue 作为研发线事实源，并把 `research_state_store:rd_program/<id>` 作为 learning memory ref；state 非 `active` 时，即使 cadence due 或被 force，也不继续派发研发 loop。临时 `rd_strategy_goal` 只用于尚未建立 state 的启动引导。
 
-state 写入是显式边界：`research.rd-program-state` 可 init/read/update/plan_next；`plan_next` 只读 state，把 queue 中的下一条 hypothesis 编译为 R&D loop/campaign payload 草案。`research.rd-supervisor` 是高阶执行器，串起 `plan_next -> loop/campaign -> state writeback`，直到候选、预算耗尽、数据/工具阻断或 max_iterations。R&D loop / campaign 只有 payload 带 `rd_program_state_path` 才把 usage、failure、reliability、artifact refs 写回；strategy review 只产出 execution attribution、cost feedback、decay diagnostics，不直接写 RD memory。总控不隐式制造研发事实，只分发显式 job。
+state 写入是显式边界：`research.rd-program-state` 可 init/read/update/plan_next；`plan_next` 只读 state，把 queue 中的下一条 hypothesis 编译为携带 `rd_program_ref + rd_state_db` 的 R&D loop/campaign payload 草案。`research.rd-supervisor` 是高阶执行器，串起 `plan_next -> loop/campaign -> state writeback`，直到候选、预算耗尽、数据/工具阻断或 max_iterations。R&D loop / campaign 只有 payload 带 `rd_program_ref` 才把 usage、failure、reliability、artifact refs 写回；strategy review 只产出 execution attribution、cost feedback、decay diagnostics，不直接写 RD memory。总控不隐式制造研发事实，只分发显式 job。
 
 目标调度顺序固定四段：
 
@@ -944,7 +944,7 @@ CREATE INDEX idx_beta_symbol_date ON beta_cache(symbol, computed_date DESC);
 | Deprecated config input | JSON 文件 | `./profile/account_config.json` / `./profile/notify_config.json` |
 | System state | JSON 文件 | `./data/system_state.json`（熔断状态） |
 | Cron log | 文本日志 | `./data/cron.log` |
-| OHLCV / 市场数据 | CSV + manifest（后期切 SQLite） | `./data/ohlcv/` |
+| OHLCV / 市场数据 | SQLite owner store + raw/import archive refs | `./data/market_data.db`；`./data/ohlcv/` 仅 legacy/raw archive |
 | Strategy degradation audits | Markdown（一文件一次触发） | `./data/strategy_audits/<strategy_ref>/<ISO8601_utc>.md` |
 
 Git 边界与 data 留存规则见 [data-hygiene.md](data-hygiene.md)。

@@ -9,6 +9,7 @@ import { dirname, join, relative, resolve } from "node:path"
 import { nowIsoUTC } from "../../../../contracts/runtime-core/src/time"
 import {
   ensureMarketDataSchema,
+  readLatestCandleOpenTime,
   upsertCanonicalCandles,
   upsertMarketManifest,
   type CanonicalCandle,
@@ -48,6 +49,7 @@ interface Candle {
 interface TimeframeEntry {
   file: string
   limit: number
+  requested_since_ts: number
   first_open_ts: number
   last_open_ts: number
   rows: number
@@ -121,7 +123,7 @@ Key flags:
   --output-dir <path>           Optional output directory
   --limit <count>               Optional fixed limit for all timeframes
   --since-ts <ms>               Optional inclusive start timestamp in ms
-  --market-data-db <path>       Optional market_data_store DB for manifest/candle upsert
+  --market-data-db <path>       market_data_store DB for manifest/candle upsert. Default: data/market_data.db
   --help                        Show this help
 `
 
@@ -156,7 +158,7 @@ export async function run(
     }
 
     const outputPaths = resolveOutputPaths(config.outputDir)
-    const candleSets = await fetchAllTimeframes(client, fetchCfg, config.timeframes, config.limit, config.sinceTS)
+    const candleSets = await fetchAllTimeframes(client, fetchCfg, config)
 
     const response: FetchResponse = {
       schema_version: 2,
@@ -183,6 +185,7 @@ export async function run(
       const entry: TimeframeEntry = {
         file: fileName,
         limit: set.limit,
+        requested_since_ts: set.requested_since_ts,
         rows: set.candles.length,
         first_open_ts: set.candles.length > 0 ? set.candles[0].timestamp : 0,
         last_open_ts: set.candles.length > 0 ? set.candles[set.candles.length - 1].timestamp : 0,
@@ -217,7 +220,7 @@ export function parseArgs(argv: string[]): Config {
     outputDir: "",
     limit: 0,
     sinceTS: 0,
-    marketDataDb: "",
+    marketDataDb: "data/market_data.db",
   }
 
   for (let i = 0; i < argv.length; i += 1) {
@@ -447,22 +450,46 @@ export function ensureSymbolSupported(
 interface CandleSet {
   candles: Candle[]
   limit: number
+  requested_since_ts: number
 }
 
 async function fetchAllTimeframes(
   client: BinanceRest,
   cfg: FetchConfig,
-  timeframes: string[],
-  limitOverride: number,
-  sinceTS: number,
+  config: Config,
 ): Promise<Record<string, CandleSet>> {
-  const tasks = timeframes.map(async (timeframe) => {
-    const limit = limitOverride > 0 ? limitOverride : (DEFAULT_LIMITS[timeframe] ?? 300)
+  const latestOpenTimes = readLatestOpenTimes(config.marketDataDb, cfg, config.timeframes)
+  const tasks = config.timeframes.map(async (timeframe) => {
+    const limit = config.limit > 0 ? config.limit : (DEFAULT_LIMITS[timeframe] ?? 300)
+    const sinceTS = config.sinceTS > 0 ? config.sinceTS : nextOpenAfter(latestOpenTimes[timeframe] ?? null)
     const candles = await fetchKlines(client, cfg, timeframe, limit, sinceTS)
-    return [timeframe, { candles, limit }] as const
+    return [timeframe, { candles, limit, requested_since_ts: sinceTS }] as const
   })
   const results = await Promise.all(tasks)
   return Object.fromEntries(results)
+}
+
+function readLatestOpenTimes(dbPath: string, cfg: FetchConfig, timeframes: string[]): Record<string, number | null> {
+  const resolved = resolve(dbPath)
+  mkdirSync(dirname(resolved), { recursive: true })
+  const db = new Database(resolved)
+  try {
+    ensureMarketDataSchema(db)
+    return Object.fromEntries(timeframes.map((timeframe) => [
+      timeframe,
+      readLatestCandleOpenTime(db, {
+        exchange: cfg.exchangeID,
+        symbol: cfg.symbol.api,
+        timeframe,
+      }),
+    ]))
+  } finally {
+    db.close()
+  }
+}
+
+function nextOpenAfter(openTime: number | null): number {
+  return typeof openTime === "number" && Number.isFinite(openTime) ? openTime + 1 : 0
 }
 
 export async function fetchKlines(

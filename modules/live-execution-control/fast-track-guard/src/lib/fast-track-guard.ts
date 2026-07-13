@@ -6,7 +6,7 @@ import { buildDomainJobResult, validateDomainJobResult } from "../../../../contr
 import { evaluateTriggerCondition } from "../../../execution-gate/src/lib/execution-gate"
 import { appendEvent } from "./event-store-client"
 import { activeFlows as readActiveFlows, reduceFlow } from "./flow-projector-client"
-import { runJsonCommand, type Runner } from "./tool-runner"
+import { runJsonCommand, type Runner } from "../../../../contracts/runtime-core/src/tool-runner"
 
 type PlanEvent = {
   event_key: string

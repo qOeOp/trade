@@ -162,7 +162,7 @@ function lintStrategyContract(path: string): StrategyContractLintResult {
         requireField(errors, `contract.lifecycle.${field}`, stringField(lifecycle[field]))
       }
     } else if (engine === "manual_policy_v1") {
-      warnings.push("manual_policy_v1 without lifecycle is legacy-compatible only and is not promotion-lifecycle eligible")
+      errors.push("contract.lifecycle is required for manual_policy_v1")
     }
 
     const compiled = errors.length === 0 ? compileStrategyContract(path) : undefined
@@ -204,10 +204,7 @@ function compileLifecycle(contract: JSONRecord, engine: StrategyContractEngine, 
       review_attribution: "compare_replay_shadow_live_by_setup_id_and_r_multiple",
     }
   }
-  return {
-    source: "legacy_compatibility_v1",
-    promotion_eligible: false,
-  }
+  throw new Error("contract.lifecycle is required for manual_policy_v1")
 }
 
 function lifecycleFields(): string[] {

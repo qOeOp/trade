@@ -943,7 +943,7 @@
           "bun",
           "src/scripts/main.ts",
           "--db",
-          "./data/market_data.duckdb",
+          "./data/market_data.db",
           "--action",
           "<action>",
           "--json",
@@ -1645,14 +1645,16 @@
         "A"
       ],
       "path": "modules/research-strategy-development/rd-program-state",
-      "purpose": "Initialize, read, update, or plan_next durable R&D learning memory.",
+      "purpose": "Initialize, read, update, or plan_next durable R&D learning memory in research_state_store.",
       "command": {
         "cwd": "modules/research-strategy-development/rd-program-state",
         "argv": [
           "bun",
           "src/scripts/main.ts",
-          "--state",
-          "<state-path>",
+          "--db",
+          "./data/rd_state.db",
+          "--program-id",
+          "<program-id>",
           "--json",
           "<payload>"
         ]
@@ -1665,7 +1667,7 @@
         "config": false
       },
       "notes": [
-        "Only writes the explicit RD state JSON and catalog artifact registration. plan_next is read-only planning output and does not execute research."
+        "Writes the explicit research_state_store rd_program row. plan_next is read-only planning output and does not execute research."
       ],
       "module_type": "atomic",
       "owner_scope": "research.rd-program-state",
@@ -1701,8 +1703,10 @@
           "bun",
           "src/scripts/main.ts",
           "--supervisor-job",
-          "--state",
-          "<state-path>",
+          "--db",
+          "./data/rd_state.db",
+          "--program-id",
+          "<program-id>",
           "--catalog-db",
           "./data/data_catalog.db",
           "--json",
@@ -1909,7 +1913,7 @@
         "config": false
       },
       "notes": [
-        "Owns one loop artifact writeback. It uses candidate-batch for evaluation and may update RD memory only when rd_program_state_path is explicit."
+        "Owns one loop artifact writeback. It uses candidate-batch for evaluation and may update RD memory only when rd_program_ref is explicit."
       ],
       "module_type": "atomic",
       "owner_scope": "research.rd-loop-runner",
@@ -2738,7 +2742,7 @@
         "A"
       ],
       "path": "modules/market-data-products/ohlcv-fetch",
-      "purpose": "Fetch candles, funding, calibration panels, and market feature inputs into manifest-backed files.",
+      "purpose": "Fetch candles, funding, calibration panels, and market feature inputs into market_data_store plus manifest-backed artifacts.",
       "command": {
         "cwd": "modules/market-data-products/ohlcv-fetch",
         "argv": [
@@ -2749,7 +2753,7 @@
           "--timeframes",
           "1d,4h,1h",
           "--market-data-db",
-          "./data/market_data.duckdb"
+          "./data/market_data.db"
         ]
       },
       "writes": {
@@ -2760,9 +2764,9 @@
         "config": false
       },
       "notes": [
-        "Writes data files and manifests, not strategy decisions.",
-        "When --market-data-db is present, OHLCV fetch upserts market_manifest and canonical_candle rows; calibration-market-features upserts funding_event and feature_manifest refs in market_data_store.",
-        "Calibration suite input carries market_data_db, funding_events_ref, and feature_manifest_ref alongside indicator_report_path for backward-compatible R&D migration."
+        "Writes market data products and manifests, not strategy decisions.",
+        "OHLCV fetch defaults to data/market_data.db, reads latest canonical candle per timeframe, and incrementally upserts market_manifest and canonical_candle rows.",
+        "Calibration suite input carries market_data_db, funding_events_ref, and feature_manifest_ref alongside indicator_report_path while downstream readers finish moving to owner read ports."
       ],
       "module_type": "suite",
       "owner_scope": "market-data-products.ohlcv-fetch",

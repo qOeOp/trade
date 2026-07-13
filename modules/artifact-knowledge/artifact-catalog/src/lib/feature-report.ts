@@ -3,7 +3,7 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { dirname, resolve } from "node:path"
 import { spawnSync } from "node:child_process"
 import { defaultCatalogDbPathForGeneratedPath, registerCatalogArtifact } from "./data-catalog"
-import { resolveRepoPath } from "./paths"
+import { resolveRepoPath } from "../../../../contracts/runtime-core/src/paths"
 
 type JSONRecord = Record<string, unknown>
 

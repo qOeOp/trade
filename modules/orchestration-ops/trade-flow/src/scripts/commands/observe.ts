@@ -1,6 +1,6 @@
 import { loadRuntime } from "../lib/observe-flow"
 import { resolveRegisteredOwnerTool } from "../../../../../contracts/runtime-core/src/owner-tool-registry"
-import { runJsonCommand } from "../lib/tool-runner"
+import { runJsonCommand } from "../../../../../contracts/runtime-core/src/tool-runner"
 import { successResponse } from "./response"
 import type { CommandConfig, ScriptResponse } from "./types"
 

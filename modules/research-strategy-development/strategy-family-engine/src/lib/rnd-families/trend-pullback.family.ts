@@ -1,5 +1,5 @@
 import { factorConditionsToJson, passesFactorConditions, readFactorConditions, type FactorCondition } from "../factor-engine"
-import type { Candle, IndicatorSet, ReplaySignal, ReplayStrategy } from "../replay-core"
+import type { Candle, IndicatorSet, ReplaySignal, ReplayStrategy } from "../../../../replay-engine/src/lib/replay-core"
 import type { RndFamilyModule } from "../rnd-family"
 import {
   readBoolean,

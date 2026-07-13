@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { runJsonCommand } from "./tool-runner"
+import { runJsonCommand } from "../../../../../contracts/runtime-core/src/tool-runner"
 
 test("runJsonCommand parses JSON stdout", async () => {
   const result = await runJsonCommand(["bun", "-e", "console.log(JSON.stringify({ ok: true, value: 1 }))"])

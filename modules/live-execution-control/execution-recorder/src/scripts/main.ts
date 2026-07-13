@@ -38,7 +38,7 @@ function parseArgs(argv: string[]): Config {
       case "--record-execution": config.mode = "record-execution"; break
       case "--record-action": config.mode = "record-action"; break
       case "--json": config.input = readJson(readValue(argv, ++index, arg)); break
-      case "--help": printHelp(); process.exit(0)
+      case "--help": printHelp(); return process.exit(0)
       default: throw new Error(`unknown flag: ${arg}`)
     }
   }

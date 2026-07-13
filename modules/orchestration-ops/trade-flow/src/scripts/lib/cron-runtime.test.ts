@@ -7,7 +7,7 @@ import test from "node:test"
 import { acquireCronLock, appendCronLog, releaseCronLock } from "./cron-runtime"
 import { runTrackDryRun } from "./track-runner"
 import { ensureSchema } from "../../../../../portfolio-execution-state/event-store/src/lib/event-store"
-import { resolveRepoPath } from "./paths"
+import { resolveRepoPath } from "../../../../../contracts/runtime-core/src/paths"
 
 test("cron lock skips active lock and releases acquired lock", () => {
   const dir = mkdtempSync(join(tmpdir(), "trade-flow-lock-"))

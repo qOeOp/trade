@@ -27,7 +27,7 @@
 
 | 模块 | 输入 | 输出 | 负责 | 禁止 |
 | --- | --- | --- | --- | --- |
-| `orchestration-ops/trade-flow` | strategy markdown、trading config、`trade.db`、tool JSON 输出 | CLI response、automation jobs、shadow observe glue | 编排入口、command routing、automation cycle、legacy compatibility shell | Binance endpoint 细节、市场数据接入实现、执行流 owner、恢复 owner、R&D 实验实现、策略复核 owner |
+| `orchestration-ops/trade-flow` | strategy markdown、trading config、`trade.db`、tool JSON 输出 | CLI response、automation jobs、shadow observe glue | control tower CLI、command routing、automation cycle、owner tool handoff | Binance endpoint 细节、市场数据接入实现、执行流 owner、恢复 owner、R&D 实验实现、策略复核 owner |
 | `portfolio-execution-state/event-store` | `trade.db` handle、plan event payload | validated `plan_event` rows、ordered event reads | `trade.db.plan_event` schema、append/read、event validation | flow projection、交易所调用、策略判断、artifact catalog |
 | `portfolio-execution-state/flow-projector` | event-store reads、reconcile drafts | flow state、active flows、lane conflicts、approved reconcile apply result | 可重建 flow projection、风险锁、open action gap、reconcile draft apply | event schema ownership、交易所调用、策略判断 |
 | `policy-risk/runtime-policy-compiler` | trading config、legacy account / notify config | normalized config、`runtime-policy.v1`、compact snapshot | trading config normalize / clamp / hash | preflight、execution、review、R&D 决策、`trade.db`、Binance |

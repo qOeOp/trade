@@ -238,7 +238,7 @@ function splitDataset(
     const manifestPath = join(segmentDir, "manifest.json")
     const contentSha256 = createHash("sha256").update(csv).digest("hex")
     const first = segmentRows[0]
-    const last = segmentRows.at(-1)
+    const last = segmentRows[segmentRows.length - 1]
     if (!first || !last) {
       throw new Error(`empty ${segment} segment for ${dataset.datasetId}`)
     }

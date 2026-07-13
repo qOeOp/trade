@@ -168,7 +168,7 @@ export function readExchangeResultsForCommand(db: Database, commandId: string): 
     SELECT result_id, command_id, exchange_ref, result_json, confirmed_json, received_at
     FROM exchange_result
     WHERE command_id = $command_id
-    ORDER BY received_at ASC, rowid ASC
+    ORDER BY received_at, rowid
   `).all({ $command_id: commandId }) as ExchangeResultRow[]
   return rows.map(resultFromRow)
 }

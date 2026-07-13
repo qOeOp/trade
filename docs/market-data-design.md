@@ -83,7 +83,7 @@
 
 ## 存储
 
-- OHLCV 继续使用 CSV + manifest；项目级读取通过 `data_catalog.db.dataset` 建索引，不靠目录扫描。
+- OHLCV canonical candles 写入 `market_data_store.canonical_candle`，由 `ohlcv-fetch` 按 latest candle 增量 upsert；CSV / manifest 只作为 raw/import archive 或 artifact ref。
 - 微结构、aggTrades、depth、liquidation-like 输出默认只作为 refs。
 - 不新增 market snapshot 表。
 - replay / shadow 需要的数据由对应 tool 输出引用，不进入 `trade.db`。

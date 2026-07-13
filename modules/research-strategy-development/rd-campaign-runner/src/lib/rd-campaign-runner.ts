@@ -81,7 +81,8 @@ export function runStrategyRndCampaign(input: StrategyRndCampaignInput): Strateg
     resolveCandidateCount,
   })
   const rdProgramState = maybeUpdateRdProgramState(
-    input.rdProgramStatePath,
+    input.rdProgramRef,
+    input.rdStateDb,
     input.catalogDbPath || defaultCatalogDbPathForGeneratedPath(report.artifact_ref),
     report as unknown as JSONRecord,
     report.created_at,

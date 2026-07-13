@@ -19,7 +19,7 @@ function runFundingCarryGovernance(input: FundingCarryGovernanceInput): JSONReco
     return { dataset, manifest, candles }
   })
   const firstTimestamp = Math.min(...loaded.map((item) => item.candles[0]!.timestamp))
-  const lastTimestamp = Math.max(...loaded.map((item) => item.candles.at(-1)!.timestamp))
+  const lastTimestamp = Math.max(...loaded.map((item) => item.candles[item.candles.length - 1]!.timestamp))
   const funding = panelFundingEvents(input.datasets, firstTimestamp, lastTimestamp)
   const status = funding.coverage.status === "full" ? "ready_for_research" : "blocked"
   return {
@@ -42,7 +42,7 @@ function runFundingCarryGovernance(input: FundingCarryGovernanceInput): JSONReco
       candle_rows: item.candles.length,
       funding_event_count: funding.eventsByAsset[index]?.length || 0,
       first_open: new Date(item.candles[0]!.timestamp).toISOString(),
-      last_open: new Date(item.candles.at(-1)!.timestamp).toISOString(),
+      last_open: new Date(item.candles[item.candles.length - 1]!.timestamp).toISOString(),
     })),
     required_data_contract: [
       "funding_event_timestamp",

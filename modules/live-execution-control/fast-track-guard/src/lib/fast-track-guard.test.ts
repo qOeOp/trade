@@ -5,7 +5,7 @@ import { Database } from "bun:sqlite"
 import assert from "node:assert/strict"
 import test from "node:test"
 import { appendPlanEvent, ensureSchema } from "../../../../portfolio-execution-state/event-store/src/lib/event-store"
-import type { Runner } from "./tool-runner"
+import type { Runner } from "../../../../contracts/runtime-core/src/tool-runner"
 import { runFastTrackGuardJob, runFastTrackWorkflowDryRun } from "./fast-track-guard"
 
 test("fast track workflow checks active flow and appends fast observe", async () => {

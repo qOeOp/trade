@@ -588,7 +588,7 @@ export function readDomainMessages(db: Database, filter: JSONRecord = {}): Domai
     WHERE ($cycle_id = '' OR cycle_id = $cycle_id)
       AND ($target_domain = '' OR target_domain = $target_domain)
       AND ($status = '' OR status = $status)
-    ORDER BY created_at ASC, rowid ASC
+    ORDER BY created_at, rowid
   `).all({
     $cycle_id: cycleId,
     $target_domain: targetDomain,
@@ -610,7 +610,7 @@ export function readIncidents(db: Database, filter: JSONRecord = {}): Incident[]
       AND ($incident_id = '' OR incident_id = $incident_id)
       AND ($status = '' OR status = $status)
       AND ($severity = '' OR severity = $severity)
-    ORDER BY first_seen_at ASC, rowid ASC
+    ORDER BY first_seen_at, rowid
   `).all({
     $cycle_id: cycleId,
     $incident_id: incidentId,
@@ -626,7 +626,7 @@ export function readIncidentEvents(db: Database, filter: JSONRecord = {}): Incid
     SELECT event_id, incident_id, action, status_after, actor, note, detail_json, created_at
     FROM incident_event
     WHERE ($incident_id = '' OR incident_id = $incident_id)
-    ORDER BY created_at ASC, rowid ASC
+    ORDER BY created_at, rowid
   `).all({
     $incident_id: incidentId,
   }) as IncidentEventRow[]
@@ -641,7 +641,7 @@ export function readNotifyAttempts(db: Database, filter: JSONRecord = {}): Notif
     FROM notify_attempt
     WHERE ($cycle_id = '' OR cycle_id = $cycle_id)
       AND ($status = '' OR status = $status)
-    ORDER BY attempted_at ASC, rowid ASC
+    ORDER BY attempted_at, rowid
   `).all({
     $cycle_id: cycleId,
     $status: status,
@@ -658,7 +658,7 @@ export function readJobRuns(db: Database, filter: JSONRecord = {}): JobRun[] {
     FROM job_run
     WHERE ($cycle_id = '' OR cycle_id = $cycle_id)
       AND ($status = '' OR status = $status)
-    ORDER BY started_at ASC, rowid ASC
+    ORDER BY started_at, rowid
   `).all({
     $cycle_id: cycleId,
     $status: status,
@@ -672,7 +672,7 @@ export function readControlReviews(db: Database, filter: JSONRecord = {}): Contr
     SELECT review_id, cycle_id, status, summary_json, items_json, constraints_json, created_at
     FROM control_review
     WHERE ($cycle_id = '' OR cycle_id = $cycle_id)
-    ORDER BY created_at ASC, rowid ASC
+    ORDER BY created_at, rowid
   `).all({
     $cycle_id: cycleId,
   }) as ControlReviewRow[]
@@ -702,7 +702,7 @@ export function readCycleSummary(db: Database, cycleId: string): JSONRecord {
     SELECT ticket_no, job_id, target_domain, status, command_ref, result_ref, error_json
     FROM job_run
     WHERE cycle_id = $cycle_id
-    ORDER BY ticket_no ASC, rowid ASC
+    ORDER BY ticket_no, rowid
   `).all({ $cycle_id: cycleId }) as JobRunSummaryRow[]
   const health = db.query(`
     SELECT health_id, cycle_id, status, checks_json, observed_at

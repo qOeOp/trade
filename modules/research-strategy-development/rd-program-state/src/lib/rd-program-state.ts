@@ -1,10 +1,10 @@
-import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { Database } from "bun:sqlite"
+import { mkdirSync } from "node:fs"
 import { dirname } from "node:path"
-import { defaultCatalogDbPathForGeneratedPath, registerCatalogArtifact } from "../../../../contracts/catalog-contract/src/catalog-client"
 import { advanceHypothesisQueue, updateInputFromResearchResult, updateInputFromStrategyReview } from "./rd-program-learning"
 import { buildRdSupervisorNextPlan } from "./rd-program-planner"
-import { displayPath, resolveReadablePath } from "../../../../contracts/runtime-core/src/paths"
-import type { JSONRecord } from "./json"
+import type { JSONRecord } from "../../../../contracts/runtime-core/src/json"
+import { buildRdProgram, ensureResearchStateSchema, readRdProgram, upsertRdProgram } from "../../../research-state-store/src/lib/research-state-store"
 import type { RdProgramBudget, RdProgramState, RdProgramStateCommandResult, RdProgramStateUpdateInput, RdProgramStatus, RdProgramUsage } from "./rd-program-types"
 
 interface CreateRdProgramStateInput {
@@ -16,10 +16,14 @@ interface CreateRdProgramStateInput {
 }
 
 interface RdProgramStateCommandInput {
-  path: string
+  path?: string
+  dbPath?: string
+  programId?: string
   input: JSONRecord
   catalogDbPath?: string
 }
+
+const DEFAULT_RD_STATE_DB = "data/rd_state.db"
 
 function createRdProgramState(input: CreateRdProgramStateInput): RdProgramState {
   const now = normalizeDate(input.now)
@@ -93,58 +97,68 @@ function rdProgramGoalFromState(state: RdProgramState): JSONRecord {
   }
 }
 
-function readRdProgramState(path: string): RdProgramState {
-  return normalizeRdProgramState(JSON.parse(readFileSync(resolveReadablePath(path), "utf8")))
+function readRdProgramState(locator: string, dbPath = DEFAULT_RD_STATE_DB): RdProgramState {
+  const programId = programIdFromLocator(locator)
+  const db = new Database(dbPath, { readonly: true })
+  try {
+    const row = readRdProgram(db, programId)
+    if (!row) {
+      throw new Error(`rd program not found: ${programId}`)
+    }
+    return normalizeRdProgramState(row.state_json)
+  } finally {
+    db.close()
+  }
 }
 
-function writeRdProgramState(path: string, state: RdProgramState, catalogDbPath?: string): { path: string; catalog_db_path: string; artifact_id: string } {
-  mkdirSync(dirname(path), { recursive: true })
-  writeFileSync(path, `${JSON.stringify(state, null, 2)}\n`)
-  const registered = registerCatalogArtifact({
-    catalogDbPath: catalogDbPath || defaultCatalogDbPathForGeneratedPath(path),
-    path,
-    now: state.updated_at,
-    referrerType: "rd_program",
-    referrerID: state.program_id,
-    role: "state",
-  })
-  return {
-    path: displayPath(path),
-    catalog_db_path: registered.catalog_db_path,
-    artifact_id: registered.artifact_id,
+function writeRdProgramState(locator: string, state: RdProgramState, _catalogDbPath?: string, dbPath = DEFAULT_RD_STATE_DB): { ref: string; db_path: string } {
+  mkdirSync(dirname(dbPath), { recursive: true })
+  const db = new Database(dbPath)
+  try {
+    ensureResearchStateSchema(db)
+    upsertRdProgram(db, buildRdProgram({
+      program_id: state.program_id || programIdFromLocator(locator),
+      objective: state.objective,
+      status: state.status,
+      state_json: state,
+      updated_at: state.updated_at,
+    }))
+    return { ref: rdProgramRef(state.program_id), db_path: dbPath }
+  } finally {
+    db.close()
   }
 }
 
 function runRdProgramStateCommand(input: RdProgramStateCommandInput): RdProgramStateCommandResult {
   const action = readAction(input.input.action)
-  if (!input.path) {
-    throw new Error("rd-program-state requires --state")
-  }
+  const programId = safeID(input.programId || stringField(input.input.program_id) || programIdFromLocator(input.path || "rd-program"))
+  const dbPath = input.dbPath || DEFAULT_RD_STATE_DB
+  const stateRef = rdProgramRef(programId)
   if (action === "init") {
     const state = createRdProgramState({
-      programId: stringField(input.input.program_id) || undefined,
+      programId,
       objective: requiredText(input.input.objective, "rd program init requires objective"),
       now: stringField(input.input.now) || undefined,
       budget: asRecord(input.input.budget),
       nextHypothesisQueue: array(input.input.next_hypothesis_queue).map(asRecord),
     })
-    const write = writeRdProgramState(input.path, state, input.catalogDbPath)
-    return commandResult("init", write.path, state, write)
+    const write = writeRdProgramState(stateRef, state, input.catalogDbPath, dbPath)
+    return commandResult("init", write.ref, state, write)
   }
   if (action === "read") {
-    const state = readRdProgramState(input.path)
-    return commandResult("read", displayPath(input.path), state)
+    const state = readRdProgramState(stateRef, dbPath)
+    return commandResult("read", stateRef, state)
   }
   if (action === "plan_next") {
-    const state = readRdProgramState(input.path)
+    const state = readRdProgramState(stateRef, dbPath)
     return {
-      ...commandResult("plan_next", displayPath(input.path), state),
-      next_plan: buildRdSupervisorNextPlan(state, input.path, input.input),
+      ...commandResult("plan_next", stateRef, state),
+      next_plan: buildRdSupervisorNextPlan(state, stateRef, { ...input.input, rd_state_db: dbPath }),
     }
   }
-  const state = updateRdProgramState(readRdProgramState(input.path), updateInputFromJson(input.input))
-  const write = writeRdProgramState(input.path, state, input.catalogDbPath)
-  return commandResult("update", write.path, state, write)
+  const state = updateRdProgramState(readRdProgramState(stateRef, dbPath), updateInputFromJson(input.input))
+  const write = writeRdProgramState(stateRef, state, input.catalogDbPath, dbPath)
+  return commandResult("update", write.ref, state, write)
 }
 
 function updateRdProgramStateFromResearchResult(state: RdProgramState, result: JSONRecord, now?: string): RdProgramState {
@@ -203,16 +217,28 @@ function commandResult(
   action: RdProgramStateCommandResult["action"],
   stateRef: string,
   state: RdProgramState,
-  write?: { catalog_db_path: string; artifact_id: string },
+  write?: { db_path: string },
 ): RdProgramStateCommandResult {
   return {
     schema_version: "trade-flow.rd-program-state-result.v1",
     action,
     state_ref: stateRef,
-    ...(write ? { catalog_db_path: write.catalog_db_path, artifact_id: write.artifact_id } : {}),
+    ...(write ? { db_path: write.db_path } : {}),
     state,
     goal: rdProgramGoalFromState(state),
   }
+}
+
+function rdProgramRef(programId: string): string {
+  return `research_state_store:rd_program/${safeID(programId)}`
+}
+
+function programIdFromLocator(locator: string): string {
+  const value = stringField(locator)
+  if (!value) return "rd-program"
+  const prefix = "research_state_store:rd_program/"
+  if (value.startsWith(prefix)) return safeID(value.slice(prefix.length))
+  return safeID(value.replace(/^.*\//, "").replace(/\.[a-z0-9]+$/i, ""))
 }
 
 function updateInputFromJson(input: JSONRecord): RdProgramStateUpdateInput {

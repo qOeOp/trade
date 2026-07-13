@@ -67,6 +67,15 @@ export interface FeatureManifestQuery {
   limit?: number
 }
 
+export interface CandleSeriesQuery {
+  exchange?: string
+  symbol: string
+  timeframe: string
+  since_ts?: number
+  until_ts?: number
+  limit?: number
+}
+
 export function ensureMarketDataSchema(db: Database): void {
   db.run(`
     CREATE TABLE IF NOT EXISTS market_manifest (
@@ -289,7 +298,7 @@ export function readFundingEvents(db: Database, query: FundingEventQuery): Fundi
       AND ($symbol IS NULL OR symbol = $symbol)
       AND ($since_ts IS NULL OR funding_time >= $since_ts)
       AND ($until_ts IS NULL OR funding_time <= $until_ts)
-    ORDER BY funding_time ASC
+    ORDER BY funding_time
     LIMIT $limit
   `).all({
     $exchange: query.exchange || null,
@@ -299,6 +308,45 @@ export function readFundingEvents(db: Database, query: FundingEventQuery): Fundi
     $limit: limit,
   }) as FundingEventRow[]
   return rows.map(fundingEventFromRow)
+}
+
+export function readLatestCandleOpenTime(db: Database, query: { exchange?: string; symbol: string; timeframe: string }): number | null {
+  const row = db.query(`
+    SELECT MAX(open_time) AS open_time
+    FROM canonical_candle
+    WHERE ($exchange IS NULL OR exchange = $exchange)
+      AND symbol = $symbol
+      AND timeframe = $timeframe
+  `).get({
+    $exchange: query.exchange || null,
+    $symbol: query.symbol,
+    $timeframe: query.timeframe,
+  }) as { open_time: number | null } | null
+  return typeof row?.open_time === "number" ? row.open_time : null
+}
+
+export function readCanonicalCandles(db: Database, query: CandleSeriesQuery): CanonicalCandle[] {
+  const limit = boundedLimit(query.limit, 5000)
+  const rows = db.query(`
+    SELECT manifest_id, exchange, symbol, timeframe, open_time, close_time,
+      open, high, low, close, volume, quote_volume
+    FROM canonical_candle
+    WHERE ($exchange IS NULL OR exchange = $exchange)
+      AND symbol = $symbol
+      AND timeframe = $timeframe
+      AND ($since_ts IS NULL OR open_time >= $since_ts)
+      AND ($until_ts IS NULL OR open_time <= $until_ts)
+    ORDER BY open_time
+    LIMIT $limit
+  `).all({
+    $exchange: query.exchange || null,
+    $symbol: query.symbol,
+    $timeframe: query.timeframe,
+    $since_ts: query.since_ts ?? null,
+    $until_ts: query.until_ts ?? null,
+    $limit: limit,
+  }) as CanonicalCandleRow[]
+  return rows.map(canonicalCandleFromRow)
 }
 
 export function readFeatureManifest(db: Database, featureManifestId: string): FeatureManifest | null {
@@ -320,7 +368,7 @@ export function listFeatureManifests(db: Database, query: FeatureManifestQuery):
     WHERE ($symbol IS NULL OR symbol = $symbol)
       AND ($timeframe IS NULL OR timeframe = $timeframe)
       AND ($feature_set_id IS NULL OR feature_set_id = $feature_set_id)
-    ORDER BY generated_at DESC, feature_manifest_id ASC
+    ORDER BY generated_at DESC, feature_manifest_id
     LIMIT $limit
   `).all({
     $symbol: query.symbol || null,
@@ -462,6 +510,21 @@ interface FundingEventRow {
   mark_price: number | null
 }
 
+interface CanonicalCandleRow {
+  manifest_id: string
+  exchange: string
+  symbol: string
+  timeframe: string
+  open_time: number
+  close_time: number
+  open: number
+  high: number
+  low: number
+  close: number
+  volume: number | null
+  quote_volume: number | null
+}
+
 interface FeatureManifestRow {
   feature_manifest_id: string
   source_manifest_id: string
@@ -499,6 +562,23 @@ function fundingEventFromRow(row: FundingEventRow): FundingEvent {
     funding_time: row.funding_time,
     funding_rate: row.funding_rate,
     mark_price: row.mark_price ?? undefined,
+  }
+}
+
+function canonicalCandleFromRow(row: CanonicalCandleRow): CanonicalCandle {
+  return {
+    manifest_id: row.manifest_id,
+    exchange: row.exchange,
+    symbol: row.symbol,
+    timeframe: row.timeframe,
+    open_time: row.open_time,
+    close_time: row.close_time,
+    open: row.open,
+    high: row.high,
+    low: row.low,
+    close: row.close,
+    volume: row.volume ?? undefined,
+    quote_volume: row.quote_volume ?? undefined,
   }
 }
 

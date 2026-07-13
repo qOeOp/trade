@@ -10,13 +10,25 @@
 - 大 payload 留在文件、parquet 或 artifact；DB 只存索引、ledger、ref、hash、summary。
 - `scripts/check-architecture-manifest.ts` 会校验 manifest、目录、rail schema 和 SQL 表名一致。
 
+## Local Data Plane
+
+`data/` 不是“只允许数据库”的目录，而是本机 durable state 平面：
+
+| 层 | 当前落点 | 责任 |
+| --- | --- | --- |
+| SQLite logical stores | `data/*.db` | 事实、ledger、owner write contract、refs、hash、summary |
+| durable file payloads | `data/artifacts/`, raw/import archives | 大 payload、可复读材料本体；不拥有 market / research owner state；默认不进 Git |
+| ephemeral payloads | `tmp/artifacts/`, `tmp/panels/`, `tmp/market/` | 可再生中间产物；需 evidence / ledger / `.pin` 才长期保留 |
+
+判断口径：logical store 是事实边界，文件是可复读材料本体。OHLCV canonical candles 由 `market_data_store` 增量 upsert，RD memory 由 `research_state_store` 持久化；跨域只传 ref，不传本机路径所有权。
+
 ## Logical Stores
 
 | Store | 状态 | Owner | 当前 / 目标物理落点 | 说明 |
 | --- | --- | --- | --- | --- |
 | `trade_event_store` | implemented | `portfolio-execution-state/event-store` | `data/trade.db.plan_event` | 钱的事件真相；append-only |
 | `flow_read_models` | implemented-derived | `portfolio-execution-state/flow-projector` | memory；可选 cache table | 从 `plan_event` 重建，不是事实源 |
-| `market_data_store` | implemented | `market-data-products/market-data-store` | `data/market_data.duckdb` / parquet | raw/canonical/funding/feature manifests；`ohlcv-fetch --market-data-db` 同步 canonical candles，`calibration-market-features --market-data-db` 同步 funding events 与 feature refs |
+| `market_data_store` | implemented | `market-data-products/market-data-store` | `data/market_data.db` / parquet | canonical candles / funding / feature manifests；`ohlcv-fetch` 默认写 `data/market_data.db` 并按 latest candle 增量抓取，`calibration-market-features --market-data-db` 同步 funding events 与 feature refs |
 | `exchange_runtime_store` | implemented | `exchange-gateway/exchange-runtime-store` | `data/exchange_runtime.db` | 交易所 command/result/idempotency ledger；Binance 写工具与 `execution-router` 默认接入；真钱事实仍回写 `trade_event_store` |
 | `artifact_catalog` | implemented | `artifact-knowledge/artifact-catalog` | `data/data_catalog.db` | artifact/dataset/evidence/report 索引，不存大 payload |
 | `research_state_store` | implemented | `research-strategy-development/research-state-store` | `data/rd_state.db` | RD program / hypothesis / trial / holdout-use ledger |

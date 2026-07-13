@@ -194,7 +194,7 @@ function evaluateDataset(input: ForwardHoldoutInput, dataset: ForwardHoldoutData
   const manifest = loadManifest(dataset.manifestPath)
   const timeframe = input.timeframe || "4h"
   const candles = loadCandlesFromManifest(dataset.manifestPath, manifest, timeframe)
-  const latest = candles.at(-1)
+  const latest = candles[candles.length - 1]
   if (!latest) {
     return blockedRecord(dataset, manifest, { date: "", timestamp: 0, open: 0, high: 0, low: 0, close: 0, volume: 0 }, timeframe, "HOLDOUT-DATA-EMPTY", "dataset has no candles")
   }
@@ -248,7 +248,7 @@ function supplementalManifestGuards(input: ForwardHoldoutInput, frozenAtMs: numb
         reason: `${ref}: ${item.reason}`,
       })))
       const candles = loadCandlesFromManifest(ref, manifest, timeframe)
-      const latest = candles.at(-1)
+      const latest = candles[candles.length - 1]
       if (!latest) {
         blockedBy.push({ check_id: "HOLDOUT-SUPPLEMENTAL-DATA-EMPTY", reason: `${ref}: supplemental dataset has no candles` })
         continue

@@ -32,22 +32,31 @@ test("compileRuntimePolicy allows live-small when the project profile permits it
   assert.equal(asRecord(policy.effective_limits).max_entry_notional_usdt, 1000)
 })
 
-test("loadRuntimePolicy keeps legacy fallback out of live-small by default", () => {
-  const dir = mkdtempSync(join(tmpdir(), "runtime-policy-legacy-"))
+test("loadRuntimePolicy reads trading config as the only policy source", () => {
+  const dir = mkdtempSync(join(tmpdir(), "runtime-policy-trading-config-"))
   try {
     const profileDir = join(dir, "profile")
     mkdirSync(profileDir, { recursive: true })
-    const accountConfigPath = join(profileDir, "account_config.json")
-    writeFileSync(accountConfigPath, JSON.stringify({ max_open_risk_pct: 0.01 }))
+    const tradingConfigPath = join(profileDir, "trading-config.json")
+    writeFileSync(tradingConfigPath, JSON.stringify({
+      schema_version: 1,
+      profile_id: "runtime-test",
+      mode: "live",
+      permissions: { live_small_enabled: true, max_stage: "live-small" },
+      risk: { max_open_risk_pct: 0.01 },
+      exposure: {},
+      execution: {},
+      research: {},
+    }))
 
     const { runtime_policy } = loadRuntimePolicy({
-      accountConfigPath,
+      tradingConfigPath,
       now: "2026-07-09T00:00:00.000Z",
     })
 
-    assert.equal(runtime_policy.mode, "dry_run")
-    assert.equal(asRecord(runtime_policy.permissions).can_live_small, false)
-    assert.match(String(runtime_policy.warnings[0]), /trading-config missing/)
+    assert.equal(runtime_policy.mode, "live")
+    assert.equal(asRecord(runtime_policy.permissions).can_live_small, true)
+    assert.deepEqual(runtime_policy.warnings, [])
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
