@@ -89,7 +89,7 @@
 | --- | --- | --- | --- |
 | `automation-cycle.ts` | 生成 cadence / job graph，并硬编码 downstream command path | 有编排意图，但仍需继续减少裸路径依赖 | `orchestration-ops/automation-plan` 只输出 tool id + payload + write scope |
 | `live-decision-planning/slow-track-plan` | 调 account snapshot、market scan、symbol snapshot、OHLCV、tech indicators，并产出 watchlist artifact | 已从 `trade-flow` 抽出，仍需接入 registry resolver | slow cadence read/data/analytics atomic plan |
-| `live-decision-planning/fast-track-plan` | active flow 快轨检查、轻量 snapshot、trigger guard | 已从 `trade-flow` 抽出，仍需接入 registry resolver | active-flow projection + observe + gate |
+| `live-execution-control/fast-track-guard` | active flow 快轨检查、轻量 snapshot、trigger guard、J02 runtime result | 已迁入执行控制域，仍需接入 registry resolver | active-flow projection + observe + gate |
 | `execution-flow.ts` | preflight、trigger、idempotency、contract compile、mock execution、record events、execution command spec | 执行链核心逻辑过多，不是单一原子能力 | 拆为 gate / route / record 三个 atomic modules |
 | `live-execution.ts` | 调 exchange write tool 并记录本地事件 | 编排和记录合理，但必须只消费 execution command spec | `live-execution-control/live-small-runner` 只允许执行 spec，不重新判断策略 |
 | `reconcile.ts` | 本地事件与 account snapshot 对账算法 | 是原子能力，但藏在 recovery suite 内 | `live-execution-control/reconcile-drafts` 独立 |
@@ -133,7 +133,7 @@ automation-plan
 | 能力 | 说明 |
 | --- | --- |
 | `tool_id` | 稳定工具 id，不等于目录路径 |
-| `ticket_no` | 架构图和人工阅读用编号，如 `J01...J09`；用于快速数清本轮 fork 出几个 job |
+| `ticket_no` | 架构图和人工阅读用编号，如 `J01...J07`；用于快速数清本轮 fork 出几个 domain job |
 | `stage` | 调度阶段，例如 `serial_runtime_guard / serial_trade_db_guard / parallel_isolated_work / serial_closeout`；只表达串并行波次，不表达业务域 |
 | `target_domain` | 责任域归属；job ticket 必须指向一个 domain，而不是混成 job line 大块 |
 | `handler_tool_id` | 具体处理入口；suite / dispatcher 与 atomic handler 可分开表达 |
@@ -259,7 +259,7 @@ modules/
 | `live-execution-control/reconcile-drafts` | atomic | local flow + account snapshot -> reconcile drafts / unmatched | `reconcile.ts` |
 | `live-execution-control/recovery-runner` | atomic | account snapshot read -> reconcile -> optional safe apply / needs_review | `recovery-flow.ts` |
 | `live-decision-planning/slow-track-plan` | atomic | slow cadence read/data/analytics job plan，不内联 market workflow | `slow-track-workflow.ts` |
-| `live-decision-planning/fast-track-plan` | atomic | active flow fast guard job plan，不内联 execution logic | `fast-track-workflow.ts` |
+| `live-execution-control/fast-track-guard` | atomic | active flow fast guard job plan，原生产出 J02 runtime result | `fast-track-guard.ts` |
 | `orchestration-ops/automation-plan` | atomic | cadence plan、job graph、write-scope / concurrency declaration | `automation-cycle.ts` |
 | `research-strategy-development/replay-engine` | contract/internal engine | replay core、fill model、closed-candle parity；被 runner 使用，不作为大总线 | old replay files |
 | `research-strategy-development/replay-runner` | atomic | 单次 replay 执行与 replay report 输出 | `research.replay-runner` |
@@ -336,7 +336,7 @@ modules/
 - `live-execution-control/live-small-runner` 已独立拥有 explicit yes 小额实盘执行与 confirmed result 记录。
 - `live-execution-control/reconcile-drafts` 与 `live-execution-control/recovery-runner` 已独立拥有对账草案与安全恢复 runner。
 - `live-decision-planning/slow-track-plan` 已独立拥有 slow watchlist / analysis-only plan。
-- `live-decision-planning/fast-track-plan` 已独立拥有 active-flow fast guard / fast observe plan。
+- `live-execution-control/fast-track-guard` 已独立拥有 active-flow fast guard / fast observe plan，并原生产出 J02 runtime result。
 - `portfolio-execution-state/event-store` 已独立拥有 `trade.db.plan_event` schema、append/read 与 event validation。
 - `portfolio-execution-state/flow-projector` 已独立拥有 flow reducer、active flows、lane conflicts 与 reconcile draft apply。
 
@@ -478,7 +478,7 @@ modules/
 11. `live-execution-control/reconcile-drafts`（已迁入）
 12. `live-execution-control/recovery-runner`（已迁入）
 12. `live-decision-planning/slow-track-plan`
-13. `live-decision-planning/fast-track-plan`
+13. `live-execution-control/fast-track-guard`
 14. `orchestration-ops/automation-plan`
 
 迁移后 `trade-flow` 只允许作为 suite alias 或完全删除。

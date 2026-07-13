@@ -14,6 +14,7 @@ contract module
 ## Inputs
 
 - Job ticket / command envelope refs from `protocol-fabric`.
+- Rail envelope headers and ownership metadata from `protocol-fabric`.
 - Domain inbox envelope.
 - Runtime policy / trading mode snapshot refs.
 - Owner store refs declared by the target domain.
@@ -32,6 +33,7 @@ contract module
 - Does not perform strategy, market, execution, promotion, or risk-budget decisions.
 - Does not auto-register plugins or scan modules.
 - Does not replace `protocol-fabric`; it consumes protocol envelopes and defines lifecycle semantics around domain handling.
+- Does not decide rail ownership; it enforces already declared rail ownership and write scope.
 
 ## Hook Order
 

@@ -4,7 +4,12 @@
   "title": "protocol fabric event write envelope",
   "type": "object",
   "additionalProperties": false,
-  "required": ["schema_version", "event_ref", "owner_store", "event_kind", "idempotency_key", "body_ref"],
+  "required": ["schema_version", "event_ref", "owner_store", "event_kind", "idempotency_key"],
+  "anyOf": [
+    { "required": ["body_ref"] },
+    { "required": ["body_inline"] },
+    { "required": ["event_inline"] }
+  ],
   "properties": {
     "schema_version": { "const": "trade.protocol.event-write-envelope.v1" },
     "event_ref": { "type": "string", "minLength": 1 },
@@ -15,6 +20,22 @@
     "source_job_id": { "type": "string" },
     "idempotency_key": { "type": "string", "minLength": 1 },
     "body_ref": { "type": "string", "minLength": 1 },
+    "body_inline": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "event_inline": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["event_key", "chain_id", "kind", "body_json", "created_at"],
+      "properties": {
+        "event_key": { "type": "string", "minLength": 1 },
+        "chain_id": { "type": "string", "minLength": 1 },
+        "kind": { "type": "string", "enum": ["observe", "order_fill", "review"] },
+        "body_json": { "type": "object", "additionalProperties": true },
+        "created_at": { "type": "string", "minLength": 1 }
+      }
+    },
     "input_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } }
   }
 }

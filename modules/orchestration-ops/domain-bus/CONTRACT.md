@@ -13,6 +13,7 @@ atomic ops module
 
 - `direction`, source / target domain, rail, payload ref, optional cycle/job refs.
 - Existing `ops_runtime_store` SQLite path.
+- Rail ownership registry from `protocol-fabric`.
 
 ## Outputs
 
@@ -25,3 +26,4 @@ atomic ops module
 - Does not interpret trade, research, governance, market, exchange, or policy payloads.
 - Does not write owner domain stores except `ops_runtime_store`.
 - Does not replace domain owner CLIs; it only records handoff envelopes and refs.
+- Does not decide rail ownership; it enforces the `protocol-fabric` registry before persisting a message.

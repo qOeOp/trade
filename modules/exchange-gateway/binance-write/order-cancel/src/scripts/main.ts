@@ -4,6 +4,7 @@ import { mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 import { Database } from "bun:sqlite"
 import Binance, { type BinanceRest } from "binance-api-node"
+import { buildExchangeCommandRef } from "../../../../../contracts/protocol-fabric/src/protocol-fabric"
 import {
   buildExchangeCommand,
   buildExchangeResult,
@@ -85,9 +86,40 @@ async function run(argv: string[]): Promise<ScriptResponse> {
     const client = createClient(config.timeout)
     const data = await executeCancel(config, client)
     recordExchangeAuditIfEnabled(config, data)
-    return { ok: true, data }
+    return { ok: true, data: withExchangeCommandRef(config, data) }
   } catch (error) {
     return { ok: false, error: formatError(error) }
+  }
+}
+
+function withExchangeCommandRef(config: Config, execution: unknown): Record<string, unknown> {
+  const executionRecord = asRecord(execution)
+  const result = asRecord(executionRecord.result)
+  const request = buildCancelAuditRequest(config)
+  const clientOrderId = readClientOrderId(request, result) || `manual:${config.symbol}:cancel`
+  const exchangeRef = readExchangeRef(result) || readExchangeRef(request)
+  const commandType = readStringField(executionRecord, "method") || "binance_order_cancel"
+  const requestedByRef = config.requestedByRef || clientOrderId || `manual:binance-order-cancel:${config.symbol}`
+  const idempotencyKey = [
+    "binance_order_cancel",
+    config.symbol,
+    clientOrderId || exchangeRef || commandType,
+    requestedByRef,
+  ].join(":")
+  const commandRef = `exchange_runtime_store:command/exchange-command-${sanitizeId(idempotencyKey)}`
+  return {
+    ...executionRecord,
+    exchange_command_ref: buildExchangeCommandRef({
+      command_ref: commandRef,
+      client_order_id: clientOrderId,
+      action: "cancel_order",
+      status: "confirmed",
+      idempotency_key: idempotencyKey,
+      request_ref: `${commandRef}:request`,
+      result_ref: `${commandRef}:result`,
+      exchange_order_ids: exchangeRef ? [exchangeRef] : [],
+      source_intent_ref: requestedByRef,
+    }),
   }
 }
 

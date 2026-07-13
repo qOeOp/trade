@@ -8,8 +8,8 @@ import { buildRecordedExecutionEvent } from "../../../../live-execution-control/
 import { runLiveSmall } from "../../../../live-execution-control/live-small-runner/src/lib/live-small-runner"
 import { cronRecoverFromTools, reconcileFromTools } from "../../../../live-execution-control/recovery-runner/src/lib/recovery-runner"
 import { readCycleSummary } from "../../../ops-runtime-store/src/lib/ops-runtime-store"
-import { appendPlanEvent, ensureSchema, validateOrderFill } from "../../../../portfolio-execution-state/event-store/src/lib/event-store"
-import { reduceFlowState } from "../../../../portfolio-execution-state/flow-projector/src/lib/flow-projector"
+import { appendPlanEvent, ensureSchema, readFlowEvents, readLatestOrderFill, validateOrderFill, type PlanEvent } from "../../../../portfolio-execution-state/event-store/src/lib/event-store"
+import { applyReconcileDrafts, latestSlowObserve, reduceFlowState } from "../../../../portfolio-execution-state/flow-projector/src/lib/flow-projector"
 import { type Runner } from "../../../../live-decision-planning/observe-runner/src/lib/observe-runner"
 import { runShadowFromTools } from "./lib/live-execution"
 import { run } from "./main"
@@ -100,14 +100,14 @@ test("run records job graph lifecycle through ops runtime store", async () => {
     assert.equal(result.ok, true)
     const data = result.ok ? result.data as { mode: string; summary: { skipped: number } } : null
     assert.equal(data?.mode, "dry_run")
-    assert.equal(data?.summary.skipped, 8)
+    assert.equal(data?.summary.skipped, 7)
 
     const opsDb = new Database(opsDbPath)
     try {
       const summary = readCycleSummary(opsDb, "cycle-main-job-graph") as { jobs: Array<{ job_id: string; status: string }> }
-      assert.equal(summary.jobs.length, 8)
-      assert.equal(summary.jobs.some((job) => job.job_id === "runtime_health_guard" && job.status === "skipped"), true)
-      assert.equal(summary.jobs.some((job) => job.job_id === "ops_notify_dispatch" && job.status === "skipped"), true)
+      assert.equal(summary.jobs.length, 7)
+      assert.equal(summary.jobs.some((job) => job.job_id === "runtime_health_guard"), false)
+      assert.equal(summary.jobs.some((job) => job.job_id === "ops_notify_dispatch"), false)
     } finally {
       opsDb.close()
     }
@@ -615,51 +615,19 @@ test("runShadowFromTools builds real-observe shadow chain with fake read-only to
   const dbPath = join(dir, "trade.db")
   const db = new Database(dbPath)
   ensureSchema(db)
-  const runner: Runner = async (command) => {
-    if (command.includes("--symbol") && command.includes("BTCUSDT")) {
-      if (String(command.join(" ")).includes("src/scripts/main.ts")) {
-        return {
-          ok: true,
-          data: {
-            data: {
-              account: {
-                totalMarginBalance: "1000",
-                availableBalance: "900",
-              },
-              positions: [],
-              openOrders: {
-                regular: [],
-                protective: [],
-              },
-              symbol: "BTCUSDT",
-              markPrice: "65000",
-            },
-          },
-          stdout: "{}",
-          stderr: "",
-        }
-      }
-    }
-    return {
-      ok: false,
-      error: "unexpected command",
-      stdout: "",
-      stderr: "",
-      exitCode: 1,
-    }
-  }
 
   try {
-    const result = await runShadowFromTools(db, {
-      ...dryRunInput(),
-      repoRoot: "/repo",
-      chain_id: "flow-1",
-      symbol: "BTCUSDT",
-      side: "long",
-      strategy_ref: "S-TREND",
-      setup_id: "trend-breakout",
-      created_at: "2026-07-06T12:00:00+08:00",
-    }, runner)
+    const input = dryRunInput()
+    const result = await runShadowFromTools({
+      ...input,
+      observe_event: {
+        event_key: "obs-shadow-tools-1",
+        chain_id: "flow-1",
+        kind: "observe",
+        body_json: input.observe,
+        created_at: "2026-07-06T12:00:00+08:00",
+      },
+    }, dbPath)
 
     assert.equal(result.recorded, true)
     assert.equal((result.execution_result as { mode: string }).mode, "shadow")
@@ -676,7 +644,7 @@ test("runLiveSmall requires explicit yes", async () => {
   ensureSchema(db)
   try {
     await assert.rejects(
-      () => runLiveSmall(db, dryRunInput(), false),
+      () => runLiveSmall("test://trade.db", dryRunInput(), false, undefined, recoveryTestRuntime(db)),
       /requires --yes/,
     )
   } finally {
@@ -722,11 +690,11 @@ test("runLiveSmall calls order-place and records audited order_fill", async () =
   }
 
   try {
-    const result = await runLiveSmall(db, {
+    const result = await runLiveSmall("test://trade.db", {
       ...dryRunInput(),
       repoRoot: "/repo",
       event_key: "evt-live-small-1",
-    }, true, runner)
+    }, true, runner, recoveryTestRuntime(db))
 
     assert.equal(result.recorded, true)
     assert.ok(capturedCommand.includes("--yes"))
@@ -757,14 +725,14 @@ test("runLiveSmall skips before calling order-place when trigger is not hit", as
   }
 
   try {
-    const result = await runLiveSmall(db, {
+    const result = await runLiveSmall("test://trade.db", {
       ...dryRunInput(),
       current_mark: 66500,
       trigger_condition: {
         price_in_range: [65900, 66100],
         valid_until_at: "2026-07-06T12:05:00+08:00",
       },
-    }, true, runner) as {
+    }, true, runner, recoveryTestRuntime(db)) as {
       recorded: boolean
       execution_gate: { status: string; reason: string }
     }
@@ -1034,7 +1002,8 @@ test("run applies reconcile drafts only with explicit yes", async () => {
 
 test("reconcileFromTools calls read-only account snapshot with history", async () => {
   const dir = makeRuntimeDir("trade-flow-reconcile-tools-")
-  const db = new Database(join(dir, "trade.db"))
+  const dbPath = join(dir, "trade.db")
+  const db = new Database(dbPath)
   ensureSchema(db)
   appendPlanEvent(db, {
     event_key: "obs-tool-reconcile-1",
@@ -1082,10 +1051,10 @@ test("reconcileFromTools calls read-only account snapshot with history", async (
   }
 
   try {
-    const result = await reconcileFromTools(db, "flow-tool-reconcile-1", {
+    const result = await reconcileFromTools(dbPath, "flow-tool-reconcile-1", {
       repoRoot: "/repo",
       historyLimit: 25,
-    }, runner) as { drafts: Array<{ body_json: Record<string, unknown> }> }
+    }, runner, recoveryTestRuntime(db)) as { drafts: Array<{ body_json: Record<string, unknown> }> }
 
     assert.ok(capturedCommand.includes("--include-history"))
     assert.ok(capturedCommand.includes("--history-limit"))
@@ -1100,7 +1069,8 @@ test("reconcileFromTools calls read-only account snapshot with history", async (
 
 test("cronRecoverFromTools returns draft until explicit local apply", async () => {
   const dir = makeRuntimeDir("trade-flow-cron-recover-")
-  const db = new Database(join(dir, "trade.db"))
+  const dbPath = join(dir, "trade.db")
+  const db = new Database(dbPath)
   ensureSchema(db)
   appendPlanEvent(db, {
     event_key: "obs-cron-recover-1",
@@ -1143,16 +1113,16 @@ test("cronRecoverFromTools returns draft until explicit local apply", async () =
   })
 
   try {
-    const draftOnly = await cronRecoverFromTools(db, "flow-cron-recover-1", {
+    const draftOnly = await cronRecoverFromTools(dbPath, "flow-cron-recover-1", {
       repoRoot: "/repo",
-    }, false, runner) as { status: string; after: { current_orders: unknown[] } }
+    }, false, runner, recoveryTestRuntime(db)) as { status: string; after: { current_orders: unknown[] } }
     assert.equal(draftOnly.status, "reconcile_draft_ready")
     assert.equal(draftOnly.after.current_orders.length, 0)
 
-    const applied = await cronRecoverFromTools(db, "flow-cron-recover-1", {
+    const applied = await cronRecoverFromTools(dbPath, "flow-cron-recover-1", {
       repoRoot: "/repo",
       apply_reconcile: true,
-    }, true, runner) as { status: string; after: { current_orders: unknown[] } }
+    }, true, runner, recoveryTestRuntime(db)) as { status: string; after: { current_orders: unknown[] } }
     assert.equal(applied.status, "recovered_applied")
     assert.equal(applied.after.current_orders.length, 1)
   } finally {
@@ -1316,4 +1286,19 @@ function makeRuntimeDir(prefix: string): string {
   const root = resolveRepoPath("tmp/test-runs")
   mkdirSync(root, { recursive: true })
   return mkdtempSync(join(root, prefix))
+}
+
+function recoveryTestRuntime(db: Database) {
+  return {
+    eventReader: (_dbPath: string, chainId: string) => readFlowEvents(db, chainId) as unknown as Record<string, unknown>[],
+    stateReader: (_dbPath: string, chainId: string) => reduceFlowState(db, chainId) as Record<string, unknown>,
+    flowStateReader: (_dbPath: string, chainId: string) => reduceFlowState(db, chainId) as Record<string, unknown>,
+    latestOrderFillReader: (_dbPath: string, chainId: string) => readLatestOrderFill(db, chainId) as Record<string, unknown> | null,
+    latestSlowObserveReader: (_dbPath: string, chainId: string) => latestSlowObserve(readFlowEvents(db, chainId)) as unknown as Record<string, unknown> | null,
+    eventAppender: (_dbPath: string, event: Record<string, unknown>) => {
+      appendPlanEvent(db, event as unknown as PlanEvent)
+      return event
+    },
+    reconcileApplier: (_dbPath: string, reconcile: Record<string, unknown>, yes: boolean) => applyReconcileDrafts(db, reconcile, yes) as Record<string, unknown>,
+  }
 }

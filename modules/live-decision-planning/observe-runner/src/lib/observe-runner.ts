@@ -1,4 +1,5 @@
 import { join } from "node:path"
+import { buildObserveEvent } from "../../../observe-builder/src/lib/observe-builder"
 
 type JSONRecord = Record<string, unknown>
 
@@ -29,6 +30,32 @@ interface ObserveRunnerOutput {
   account_snapshot: JSONRecord
   market_snapshot: JSONRecord
   market_refs: string[]
+}
+
+async function observeFromTools(input: JSONRecord, runner: Runner = runJsonCommand): Promise<JSONRecord> {
+  const symbol = stringField(input.symbol)
+  const repoRoot = stringField(input.repoRoot) || process.cwd()
+  if (!symbol) {
+    throw new Error("symbol is required")
+  }
+  const projections = await fetchObserveProjections({
+    repoRoot,
+    symbol,
+    timeoutMs: Number(input.timeoutMs) || undefined,
+  }, runner)
+  return buildObserveEvent({
+    chain_id: stringField(input.chain_id),
+    symbol,
+    side: readSide(input.side),
+    strategy_ref: stringField(input.strategy_ref),
+    setup_id: stringField(input.setup_id) || undefined,
+    account_snapshot: projections.account_snapshot,
+    market_snapshot: projections.market_snapshot,
+    market_refs: projections.market_refs,
+    plan_seed: asRecord(input.plan_seed ?? input.plan),
+    policy_snapshot: asRecord(input.policy_snapshot),
+    created_at: stringField(input.created_at) || undefined,
+  }) as unknown as JSONRecord
 }
 
 async function fetchObserveProjections(
@@ -105,8 +132,27 @@ function asRecord(value: unknown): JSONRecord {
   return value && typeof value === "object" ? value as JSONRecord : {}
 }
 
+function stringField(value: unknown): string {
+  if (typeof value === "string") {
+    return value.trim()
+  }
+  if (typeof value === "number") {
+    return String(value)
+  }
+  return ""
+}
+
+function readSide(value: unknown): "long" | "short" {
+  const side = stringField(value)
+  if (side === "long" || side === "short") {
+    return side
+  }
+  throw new Error("side must be long or short")
+}
+
 export {
   fetchObserveProjections,
+  observeFromTools,
   runJsonCommand,
   type CommandFailure,
   type CommandResult,

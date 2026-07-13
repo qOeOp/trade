@@ -11,8 +11,8 @@ export interface HealthCheck {
 
 export interface RuntimeHealthResult {
   ok: boolean
-  ticket_no: "J01"
-  job_id: "runtime_health_guard"
+  processor_id: "runtime_health_guard"
+  lifecycle_phase: "pre_cycle"
   status: HealthStatus
   health_ref: string
   health: RuntimeHealth
@@ -36,8 +36,8 @@ export function runRuntimeHealthGuard(db: Database, input: JSONRecord, env: Reco
   recordRuntimeHealth(db, health)
   return {
     ok: status === "ok",
-    ticket_no: "J01",
-    job_id: "runtime_health_guard",
+    processor_id: "runtime_health_guard",
+    lifecycle_phase: "pre_cycle",
     status,
     health_ref: `ops_runtime_store:runtime_health/${health.health_id}`,
     health,
@@ -117,4 +117,3 @@ function stringList(value: unknown): string[] {
 function recordList(value: unknown): JSONRecord[] {
   return Array.isArray(value) ? value.map(asRecord) : []
 }
-

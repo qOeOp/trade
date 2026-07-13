@@ -9,8 +9,8 @@ export interface NotifyChannel {
 
 export interface NotifyDispatchResult {
   ok: boolean
-  ticket_no: "J09"
-  job_id: "ops_notify_dispatch"
+  processor_id: "ops_notify_dispatch"
+  lifecycle_phase: "post_cycle"
   attempts: NotifyAttempt[]
   refs: string[]
 }
@@ -60,8 +60,8 @@ export async function runOpsNotifyDispatch(
 
   return {
     ok: attempts.every((attempt) => attempt.status === "sent" || attempt.status === "skipped"),
-    ticket_no: "J09",
-    job_id: "ops_notify_dispatch",
+    processor_id: "ops_notify_dispatch",
+    lifecycle_phase: "post_cycle",
     attempts,
     refs,
   }
@@ -106,4 +106,3 @@ function buildNotifyAttempt(input: JSONRecord, channel: string, attemptedAt: str
 function notifyRef(attempt: NotifyAttempt): string {
   return `ops_runtime_store:notify_attempt/${attempt.notify_id}`
 }
-

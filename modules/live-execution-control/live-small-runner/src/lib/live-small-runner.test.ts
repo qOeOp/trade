@@ -2,8 +2,11 @@ import { Database } from "bun:sqlite"
 import assert from "node:assert/strict"
 import test from "node:test"
 import { runLiveSmall } from "./live-small-runner"
-import { appendPlanEvent, ensureSchema } from "../../../../portfolio-execution-state/event-store/src/lib/event-store"
-import type { Runner } from "../../../../live-decision-planning/observe-runner/src/lib/observe-runner"
+import { appendPlanEvent, ensureSchema, readFlowEvents, readLatestOrderFill } from "../../../../portfolio-execution-state/event-store/src/lib/event-store"
+import type { ExecutionStateRuntime } from "../../../execution-flow-runner/src/lib/execution-flow-runner"
+import type { Runner } from "./tool-runner"
+
+const TEST_DB_PATH = "test://trade.db"
 
 test("live-small uses injected runner with stable order-place command contract", async () => {
   const db = new Database(":memory:")
@@ -34,7 +37,7 @@ test("live-small uses injected runner with stable order-place command contract",
   }
 
   try {
-    const result = await runLiveSmall(db, liveSmallInput(), true, runner)
+    const result = await runLiveSmall(TEST_DB_PATH, liveSmallInput(), true, runner, stateRuntime(db))
     assert.equal(result.recorded, true)
     assert.equal(calls.length, 1)
     assert.equal(calls[0].cwd, "/repo/modules/exchange-gateway/binance-write/order-place")
@@ -71,7 +74,7 @@ test("live-small runner failure does not record order_fill", async () => {
 
   try {
     await assert.rejects(
-      () => runLiveSmall(db, liveSmallInput(), true, runner),
+      () => runLiveSmall(TEST_DB_PATH, liveSmallInput(), true, runner, stateRuntime(db)),
       /live-small execution failed/,
     )
     const row = db.query("SELECT COUNT(*) AS count FROM plan_event WHERE kind='order_fill'").get() as { count: number }
@@ -97,14 +100,14 @@ test("live-small skips non-place actions before order-place routing", async () =
   }
 
   try {
-    const result = await runLiveSmall(db, {
+    const result = await runLiveSmall(TEST_DB_PATH, {
       ...liveSmallInput(),
       target_action: "cancel_order",
       request: {
         symbol: "BTCUSDT",
         orig_client_order_id: "flow-live-fixture-1-entry",
       },
-    }, true, runner) as {
+    }, true, runner, stateRuntime(db)) as {
       recorded: boolean
       execution_gate: { status: string; reason: string; evidence: { target_action: string } }
     }
@@ -144,7 +147,7 @@ test("live-small treats missing target_action as no_action", async () => {
   try {
     const input = liveSmallInput()
     delete (input as { target_action?: string }).target_action
-    const result = await runLiveSmall(db, input, true, runner) as {
+    const result = await runLiveSmall(TEST_DB_PATH, input, true, runner, stateRuntime(db)) as {
       recorded: boolean
       execution_gate: { status: string; reason: string }
     }
@@ -185,7 +188,7 @@ test("live-small refuses to add risk while flow is locked by unknown lifecycle",
   }
 
   try {
-    const result = await runLiveSmall(db, liveSmallInput(), true, runner) as {
+    const result = await runLiveSmall(TEST_DB_PATH, liveSmallInput(), true, runner, stateRuntime(db)) as {
       recorded: boolean
       execution_gate: { status: string; reason: string; evidence: { locked: boolean } }
     }
@@ -207,6 +210,39 @@ test("live-small refuses to add risk while flow is locked by unknown lifecycle",
     db.close()
   }
 })
+
+function stateRuntime(db: Database): ExecutionStateRuntime {
+  return {
+    eventReader: (_dbPath, chainId) => readFlowEvents(db, chainId) as unknown as Record<string, unknown>[],
+    eventAppender: (_dbPath, event) => {
+      appendPlanEvent(db, event as unknown as Parameters<typeof appendPlanEvent>[1])
+      return event
+    },
+    latestOrderFillReader: (_dbPath, chainId) => readLatestOrderFill(db, chainId),
+    flowStateReader: (_dbPath, chainId) => testFlowState(db, chainId),
+    latestSlowObserveReader: () => null,
+  }
+}
+
+function testFlowState(db: Database, chainId: string): Record<string, unknown> {
+  const events = readFlowEvents(db, chainId)
+  const riskEvent = events.find((event) => {
+    const body = event.body_json
+    return event.kind === "order_fill" && (body.lifecycle_status === "unknown" || body.sub_kind === "unknown")
+  })
+  return {
+    current_orders: [],
+    current_position: { state: "flat" },
+    risk_lock: riskEvent
+      ? {
+        locked: true,
+        reason: "unknown_order_state",
+        event_key: riskEvent.event_key,
+        client_order_id: riskEvent.body_json.client_order_id,
+      }
+      : { locked: false },
+  }
+}
 
 function liveSmallInput() {
   return {

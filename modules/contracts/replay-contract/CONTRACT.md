@@ -8,6 +8,8 @@ contract module
 
 - Stable replay result type shell.
 - Stable replay result JSON schema.
+- Stable replay fingerprint type shell.
+- Stable replay fingerprint JSON schema.
 
 ## Inputs
 
@@ -17,6 +19,8 @@ contract module
 
 - `ReplayResult` and related read-model types.
 - `replay-result.schema.json`.
+- `ReplayFingerprint`.
+- `replay-fingerprint.schema.json`.
 
 ## Boundaries
 

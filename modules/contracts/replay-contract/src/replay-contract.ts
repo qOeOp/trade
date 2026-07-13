@@ -58,6 +58,12 @@ interface ReplayProvenance {
   supplemental_data?: Array<{ ref: string; content_sha256: string }>
 }
 
+interface ReplayFingerprint {
+  harness_hash: string
+  data_hash?: string
+  assumptions_hash?: string
+}
+
 type ReplayGate = JSONRecord & {
   shadow_candidate: boolean
   live_small_candidate: false
@@ -84,6 +90,7 @@ interface ReplayResult {
 }
 
 export {
+  type ReplayFingerprint,
   type ReplayGate,
   type ReplayProvenance,
   type ReplayResult,

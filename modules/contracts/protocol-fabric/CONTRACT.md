@@ -7,9 +7,12 @@ contract module
 ## Owns
 
 - Stable cross-domain envelope schema registry.
+- Rail envelope header contract: `rail`, `event_type`, `source_domain`, `target_domain`, `schema_id`, `cycle_id`, `job_id`, `idempotency_key`, and `payload_ref`.
+- Rail ownership registry vocabulary for allowed publishers, consumers, schemas, retention, and replay expectations.
 - Job ticket schema and resolver helpers for command rail.
+- Ops rail shell for health facts, incident refs, cycle summary, and next-cycle constraints.
 - Event write envelope schema for fact rail.
-- Artifact ref, market manifest, exchange command/result ref, policy snapshot, and logical store ref shells.
+- Artifact ref, market manifest, frozen candidate ref, research evidence ref, action intent ref, exchange command/result ref, policy snapshot, and logical store ref shells.
 
 ## Inputs
 
@@ -18,8 +21,9 @@ contract module
 ## Outputs
 
 - JSON schema files under `src/schemas`.
-- Lightweight TypeScript constants for schema ids and top-level domain slugs.
+- Lightweight TypeScript constants for schema ids, top-level domain slugs, rail ids, and rail ownership registry.
 - Pure job-ticket helpers that resolve `toolset` entry metadata into shared `command_spec`.
+- Pure rail route validator for publisher / consumer ownership checks.
 
 ## Boundaries
 

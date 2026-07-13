@@ -108,7 +108,7 @@
         "A"
       ],
       "path": "modules/orchestration-ops/runtime-health-guard",
-      "purpose": "Run J01 runtime health checks and record the observation in ops_runtime_store.",
+      "purpose": "Run control tower pre_cycle/pre_job runtime health checks and record the observation in ops_runtime_store.",
       "command": {
         "cwd": "modules/orchestration-ops/runtime-health-guard",
         "argv": [
@@ -128,6 +128,7 @@
         "config": false
       },
       "notes": [
+        "Lifecycle processor for control tower readiness; not a domain job ticket.",
         "Writes logical store ops_runtime_store; toolset legacy writes fields do not yet model ops stores."
       ],
       "module_type": "atomic",
@@ -154,7 +155,7 @@
         "A"
       ],
       "path": "modules/orchestration-ops/ops-notify-dispatch",
-      "purpose": "Run J09 ops notification dispatch and record notify_attempt rows in ops_runtime_store.",
+      "purpose": "Run control tower post_job/post_cycle notification dispatch and record notify_attempt rows in ops_runtime_store.",
       "command": {
         "cwd": "modules/orchestration-ops/ops-notify-dispatch",
         "argv": [
@@ -174,10 +175,58 @@
         "config": false
       },
       "notes": [
+        "Lifecycle processor for control tower closeout; not a domain job ticket.",
         "Writes logical store ops_runtime_store; dry-run and stdout channels are deterministic local adapters."
       ],
       "module_type": "atomic",
       "owner_scope": "orchestration-ops.ops-notify-dispatch",
+      "requires_preflight": false,
+      "concurrency_group": "ops-runtime",
+      "forbidden_callers": [],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
+    },
+    {
+      "id": "ops.control-effectiveness-review",
+      "domain": "orchestration-ops",
+      "intent": [
+        "control-review",
+        "incident-review",
+        "process-improvement",
+        "next-cycle-constraints"
+      ],
+      "capability_class": [
+        "A"
+      ],
+      "path": "modules/orchestration-ops/control-effectiveness-review",
+      "purpose": "Run post_cycle control-system effectiveness review over incidents, job failures, and notify failures; persist improvement items in ops_runtime_store.",
+      "command": {
+        "cwd": "modules/orchestration-ops/control-effectiveness-review",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--db",
+          "./data/ops_runtime.db",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Lifecycle processor for control tower closeout; it diagnoses control-system failures but does not modify code, config, or trade facts.",
+        "Writes logical store ops_runtime_store.control_review only."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "orchestration-ops.control-effectiveness-review",
       "requires_preflight": false,
       "concurrency_group": "ops-runtime",
       "forbidden_callers": [],
@@ -233,6 +282,144 @@
       }
     },
     {
+      "id": "state.event-store",
+      "domain": "portfolio-execution-state",
+      "intent": [
+        "event-store",
+        "append-event",
+        "read-flow-events",
+        "order-fill-ledger"
+      ],
+      "capability_class": [
+        "R",
+        "A"
+      ],
+      "path": "modules/portfolio-execution-state/event-store",
+      "purpose": "Own local trade event schema, append semantics, chain scans, and latest order-fill reads.",
+      "command": {
+        "cwd": "modules/portfolio-execution-state/event-store",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "<event-store-flag>"
+        ]
+      },
+      "writes": {
+        "trade_db": true,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Only owner of plan_event append semantics; outside-domain callers must use this owner CLI or protocol bus."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "portfolio-execution-state.event-store",
+      "requires_preflight": false,
+      "concurrency_group": "trade-db",
+      "forbidden_callers": [],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
+    },
+    {
+      "id": "state.flow-projector",
+      "domain": "portfolio-execution-state",
+      "intent": [
+        "flow-projection",
+        "active-flows",
+        "reconcile-draft",
+        "latest-slow-observe"
+      ],
+      "capability_class": [
+        "R",
+        "V"
+      ],
+      "path": "modules/portfolio-execution-state/flow-projector",
+      "purpose": "Own rebuildable execution-state projections derived from plan_event.",
+      "command": {
+        "cwd": "modules/portfolio-execution-state/flow-projector",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "<flow-projector-flag>"
+        ]
+      },
+      "writes": {
+        "trade_db": true,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Projection reads are rebuildable; approved reconcile writes still go through event-store append semantics."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "portfolio-execution-state.flow-projector",
+      "requires_preflight": false,
+      "concurrency_group": "trade-db",
+      "forbidden_callers": [],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
+    },
+    {
+      "id": "execution.fast-track-guard",
+      "domain": "live-execution-control",
+      "intent": [
+        "fast-track-guard",
+        "active-flow-guard",
+        "trigger-readiness"
+      ],
+      "capability_class": [
+        "A",
+        "V"
+      ],
+      "path": "modules/live-execution-control/fast-track-guard",
+      "purpose": "Run native J02 fast_track_guard over active flows and return a domain-runtime job result.",
+      "command": {
+        "cwd": "modules/live-execution-control/fast-track-guard",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--fast-guard-job",
+          "--db",
+          "./data/trade.db",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": true,
+        "catalog": false,
+        "artifacts": true,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "J02 owner handler. Writes fast observe facts and fast-track artifact only; never calls exchange write tools.",
+        "Returns a domain-runtime job result owned by live-execution-control."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "live-execution-control.fast-track-guard",
+      "requires_preflight": false,
+      "concurrency_group": "trade-db",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
+    },
+    {
       "id": "trade-flow.observe",
       "domain": "live-decision-planning",
       "intent": [
@@ -275,6 +462,283 @@
         "kind": "cli-json",
         "input_schema": "",
         "output_schema": "modules/orchestration-ops/trade-flow/src/schemas/observe-event.schema.json"
+      }
+    },
+    {
+      "id": "decision.observe-runner",
+      "domain": "live-decision-planning",
+      "intent": [
+        "observe",
+        "read-only-snapshots",
+        "snapshot-projection"
+      ],
+      "capability_class": [
+        "R",
+        "A"
+      ],
+      "path": "modules/live-decision-planning/observe-runner",
+      "purpose": "Call read-only exchange projection tools and normalize account/market responses for observe candidates.",
+      "command": {
+        "cwd": "modules/live-decision-planning/observe-runner",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "<observe-runner-flag>",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Read-only snapshot projection; no trade DB, execution, or exchange write ownership."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "live-decision-planning.observe-runner",
+      "requires_preflight": false,
+      "concurrency_group": "observe-read",
+      "forbidden_callers": [],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
+    },
+    {
+      "id": "decision.observe-builder",
+      "domain": "live-decision-planning",
+      "intent": [
+        "observe",
+        "event-candidate",
+        "policy-snapshot-bind"
+      ],
+      "capability_class": [
+        "A",
+        "V"
+      ],
+      "path": "modules/live-decision-planning/observe-builder",
+      "purpose": "Build normalized observe event candidates from supplied account, market, plan, and policy projections.",
+      "command": {
+        "cwd": "modules/live-decision-planning/observe-builder",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "<observe-builder-flag>",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Builds an observe candidate only; persistence and execution gating remain outside this owner."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "live-decision-planning.observe-builder",
+      "requires_preflight": false,
+      "concurrency_group": "observe-build",
+      "forbidden_callers": [],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": "modules/orchestration-ops/trade-flow/src/schemas/observe-event.schema.json"
+      }
+    },
+    {
+      "id": "decision.slow-track-plan",
+      "domain": "live-decision-planning",
+      "intent": [
+        "slow-track",
+        "market-watch",
+        "workflow-dry-run"
+      ],
+      "capability_class": [
+        "R",
+        "A",
+        "V"
+      ],
+      "path": "modules/live-decision-planning/slow-track-plan",
+      "purpose": "Own slow-track workflow dry-run planning over market and policy inputs without live execution.",
+      "command": {
+        "cwd": "modules/live-decision-planning/slow-track-plan",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--db",
+          "./data/trade.db",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": true,
+        "catalog": false,
+        "artifacts": true,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Writes observe facts/artifacts through explicit owner surfaces; it does not place exchange orders."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "live-decision-planning.slow-track-plan",
+      "requires_preflight": false,
+      "concurrency_group": "trade-db",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
+    },
+    {
+      "id": "decision.input-assembler",
+      "domain": "live-decision-planning",
+      "intent": [
+        "decision-input-assembler",
+        "policy-market-flow-evidence-refs",
+        "decision-input-bundle"
+      ],
+      "capability_class": [
+        "A",
+        "V"
+      ],
+      "path": "modules/live-decision-planning/decision-input-assembler",
+      "purpose": "Assemble policy, market, flow, account, and research refs into one explicit planning input bundle.",
+      "command": {
+        "cwd": "modules/live-decision-planning/decision-input-assembler",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Input assembly only; it does not decide, size, execute, or write event facts."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "live-decision-planning.decision-input-assembler",
+      "requires_preflight": false,
+      "concurrency_group": "decision-planning",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
+    },
+    {
+      "id": "decision.trade-plan-builder",
+      "domain": "live-decision-planning",
+      "intent": [
+        "trade-plan-builder",
+        "entry-stop-invalidation-trigger",
+        "risk-budget-plan"
+      ],
+      "capability_class": [
+        "A",
+        "V"
+      ],
+      "path": "modules/live-decision-planning/trade-plan-builder",
+      "purpose": "Build non-executable trade-plan drafts from assembled decision inputs.",
+      "command": {
+        "cwd": "modules/live-decision-planning/trade-plan-builder",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Draft planner only; executable authorization starts in live-execution-control."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "live-decision-planning.trade-plan-builder",
+      "requires_preflight": false,
+      "concurrency_group": "decision-planning",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
+    },
+    {
+      "id": "decision.action-intent-publisher",
+      "domain": "live-decision-planning",
+      "intent": [
+        "action-intent-publisher",
+        "action-intent-ref",
+        "no-action-reason",
+        "watchlist-ref"
+      ],
+      "capability_class": [
+        "A"
+      ],
+      "path": "modules/live-decision-planning/action-intent-publisher",
+      "purpose": "Publish trade-plan, watchlist, or no-action decisions as protocol action intent refs.",
+      "command": {
+        "cwd": "modules/live-decision-planning/action-intent-publisher",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Decision outbox only; it does not execute or record trade facts."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "live-decision-planning.action-intent-publisher",
+      "requires_preflight": false,
+      "concurrency_group": "decision-planning",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": "modules/contracts/protocol-fabric/src/schemas/action-intent-ref.schema.json"
       }
     },
     {
@@ -323,6 +787,139 @@
         "kind": "cli-json",
         "input_schema": "",
         "output_schema": ""
+      }
+    },
+    {
+      "id": "exchange.request-router",
+      "domain": "exchange-gateway",
+      "intent": [
+        "exchange-request-router",
+        "read-write-route",
+        "exchange-rail"
+      ],
+      "capability_class": [
+        "A",
+        "V"
+      ],
+      "path": "modules/exchange-gateway/exchange-request-router",
+      "purpose": "Classify exchange requests into read routes or write-gate routes before adapter-specific handling.",
+      "command": {
+        "cwd": "modules/exchange-gateway/exchange-request-router",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Routes only; it does not call Binance, approve risk, or persist exchange runtime state."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "exchange-gateway.exchange-request-router",
+      "requires_preflight": false,
+      "concurrency_group": "exchange-runtime",
+      "forbidden_callers": [],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
+    },
+    {
+      "id": "exchange.write-pre-adapter-gate",
+      "domain": "exchange-gateway",
+      "intent": [
+        "write-pre-adapter-gate",
+        "authorized-mode",
+        "idempotency",
+        "exchange-rules"
+      ],
+      "capability_class": [
+        "V"
+      ],
+      "path": "modules/exchange-gateway/write-pre-adapter-gate",
+      "purpose": "Validate authorized exchange write requests before adapter tools receive them.",
+      "command": {
+        "cwd": "modules/exchange-gateway/write-pre-adapter-gate",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Gate only; runtime policy approval remains policy-risk and execution preflight remains live-execution-control."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "exchange-gateway.write-pre-adapter-gate",
+      "requires_preflight": false,
+      "concurrency_group": "exchange-write-gate",
+      "forbidden_callers": [],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
+    },
+    {
+      "id": "exchange.post-write-confirmation",
+      "domain": "exchange-gateway",
+      "intent": [
+        "post-write-confirmation",
+        "exchange-command-ref",
+        "exchange-result-ref",
+        "account-order-reread"
+      ],
+      "capability_class": [
+        "A",
+        "V"
+      ],
+      "path": "modules/exchange-gateway/post-write-confirmation",
+      "purpose": "Normalize write result and reread confirmation facts into exchange command refs.",
+      "command": {
+        "cwd": "modules/exchange-gateway/post-write-confirmation",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Produces exchange command/result refs only; event append remains portfolio-execution-state ownership."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "exchange-gateway.post-write-confirmation",
+      "requires_preflight": false,
+      "concurrency_group": "exchange-runtime",
+      "forbidden_callers": [],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": "modules/contracts/protocol-fabric/src/schemas/exchange-command-ref.schema.json"
       }
     },
     {
@@ -378,6 +975,98 @@
       }
     },
     {
+      "id": "market.data-quality-gate",
+      "domain": "market-data-products",
+      "intent": [
+        "market-data-quality",
+        "freshness-gate",
+        "checksum-gate",
+        "manifest-validation"
+      ],
+      "capability_class": [
+        "V"
+      ],
+      "path": "modules/market-data-products/data-quality-gate",
+      "purpose": "Validate market data manifests before they are consumed by research, decision, or execution domains.",
+      "command": {
+        "cwd": "modules/market-data-products/data-quality-gate",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Gate only; it does not fetch data, compute signals, or write durable market facts."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "market-data-products.data-quality-gate",
+      "requires_preflight": false,
+      "concurrency_group": "market-data-quality",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "modules/contracts/protocol-fabric/src/schemas/market-data-manifest.schema.json",
+        "output_schema": ""
+      }
+    },
+    {
+      "id": "market.fact-publisher",
+      "domain": "market-data-products",
+      "intent": [
+        "market-fact-publisher",
+        "market-data-manifest",
+        "fact-ref",
+        "outbox-payload"
+      ],
+      "capability_class": [
+        "A"
+      ],
+      "path": "modules/market-data-products/market-fact-publisher",
+      "purpose": "Publish market data products as manifest-backed refs for protocol-fabric/event-bus consumption.",
+      "command": {
+        "cwd": "modules/market-data-products/market-fact-publisher",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Produces market-data manifest refs; durable storage remains owned by market-data.store."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "market-data-products.market-fact-publisher",
+      "requires_preflight": false,
+      "concurrency_group": "market-data-rail",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": "modules/contracts/protocol-fabric/src/schemas/market-data-manifest.schema.json"
+      }
+    },
+    {
       "id": "policy.registry",
       "domain": "policy-risk",
       "intent": [
@@ -418,6 +1107,50 @@
       "owner_scope": "policy-risk.policy-registry",
       "requires_preflight": false,
       "concurrency_group": "policy-registry",
+      "forbidden_callers": [],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
+    },
+    {
+      "id": "policy.runtime-policy-compiler",
+      "domain": "policy-risk",
+      "intent": [
+        "runtime-policy",
+        "policy-snapshot",
+        "config-normalization",
+        "policy-hash"
+      ],
+      "capability_class": [
+        "R",
+        "V"
+      ],
+      "path": "modules/policy-risk/runtime-policy-compiler",
+      "purpose": "Compile explicit runtime trading config into normalized policy snapshots without durable writes.",
+      "command": {
+        "cwd": "modules/policy-risk/runtime-policy-compiler",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "<policy-input-flags>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Pure compiler; policy-registry owns durable runtime policy snapshots and approved strategy refs."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "policy-risk.runtime-policy-compiler",
+      "requires_preflight": false,
+      "concurrency_group": "policy-runtime",
       "forbidden_callers": [],
       "entry_contract": {
         "kind": "cli-json",
@@ -478,6 +1211,99 @@
       }
     },
     {
+      "id": "research.candidate-freezer",
+      "domain": "research-strategy-development",
+      "intent": [
+        "candidate-freezer",
+        "frozen-candidate-ref",
+        "research-promotion-input",
+        "assumption-limit-snapshot"
+      ],
+      "capability_class": [
+        "A",
+        "V"
+      ],
+      "path": "modules/research-strategy-development/candidate-freezer",
+      "purpose": "Freeze validated research candidates as protocol refs with explicit evidence, assumptions, limits, timestamp, and content hash.",
+      "command": {
+        "cwd": "modules/research-strategy-development/candidate-freezer",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Refs-only freeze boundary; promotion and live policy approval remain outside research-strategy-development."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "research-strategy-development.candidate-freezer",
+      "requires_preflight": false,
+      "concurrency_group": "research-evidence",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": "modules/contracts/protocol-fabric/src/schemas/frozen-candidate-ref.schema.json"
+      }
+    },
+    {
+      "id": "research.evidence-publisher",
+      "domain": "research-strategy-development",
+      "intent": [
+        "research-evidence-publisher",
+        "research-evidence-ref",
+        "artifact-ref",
+        "candidate-ref"
+      ],
+      "capability_class": [
+        "A"
+      ],
+      "path": "modules/research-strategy-development/research-evidence-publisher",
+      "purpose": "Publish research, validation, shadow, candidate, and lesson outputs as protocol evidence refs.",
+      "command": {
+        "cwd": "modules/research-strategy-development/research-evidence-publisher",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Refs-only research outbox boundary; durable artifacts remain owned by artifact catalog modules."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "research-strategy-development.research-evidence-publisher",
+      "requires_preflight": false,
+      "concurrency_group": "research-evidence",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": "modules/contracts/protocol-fabric/src/schemas/research-evidence-ref.schema.json"
+      }
+    },
+    {
       "id": "governance.closed-flow-review-sweep",
       "domain": "governance-review-compliance",
       "intent": [
@@ -491,7 +1317,7 @@
         "V"
       ],
       "path": "modules/governance-review-compliance/closed-flow-review-sweep",
-      "purpose": "Run J08 closed-flow review sweep and record review batch refs in governance_ledger.",
+      "purpose": "Run native J07 closed_flow_review_sweep and record review batch refs in governance_ledger.",
       "command": {
         "cwd": "modules/governance-review-compliance/closed-flow-review-sweep",
         "argv": [
@@ -513,6 +1339,7 @@
         "config": false
       },
       "notes": [
+        "Returns a domain-runtime job result owned by governance-review-compliance.",
         "Reads trade_event_store and writes governance_ledger review_batch rows; subjective review and trade.db review events remain separate."
       ],
       "module_type": "atomic",
@@ -526,6 +1353,100 @@
         "kind": "cli-json",
         "input_schema": "",
         "output_schema": ""
+      }
+    },
+    {
+      "id": "governance.evidence-intake-gate",
+      "domain": "governance-review-compliance",
+      "intent": [
+        "evidence-intake-gate",
+        "freshness",
+        "data-hash",
+        "policy-hash",
+        "evidence-verdict"
+      ],
+      "capability_class": [
+        "V"
+      ],
+      "path": "modules/governance-review-compliance/evidence-intake-gate",
+      "purpose": "Validate governance evidence refs for freshness, data hash, policy hash, and source refs before review or promotion.",
+      "command": {
+        "cwd": "modules/governance-review-compliance/evidence-intake-gate",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Gate only; accepted or blocked evidence is represented as a governance ref and can be persisted by governance ledger owners."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "governance-review-compliance.evidence-intake-gate",
+      "requires_preflight": false,
+      "concurrency_group": "governance-ledger",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": "modules/contracts/protocol-fabric/src/schemas/governance-ref.schema.json"
+      }
+    },
+    {
+      "id": "governance.policy-feedback-compiler",
+      "domain": "governance-review-compliance",
+      "intent": [
+        "policy-feedback-compiler",
+        "risk-limit-feedback",
+        "deprecation-feedback",
+        "policy-feedback-ref"
+      ],
+      "capability_class": [
+        "A",
+        "V"
+      ],
+      "path": "modules/governance-review-compliance/policy-feedback-compiler",
+      "purpose": "Compile review findings into policy feedback refs for policy-risk consumers.",
+      "command": {
+        "cwd": "modules/governance-review-compliance/policy-feedback-compiler",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Produces policy feedback refs only; runtime policy changes remain owned by policy-risk."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "governance-review-compliance.policy-feedback-compiler",
+      "requires_preflight": false,
+      "concurrency_group": "governance-ledger",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": "modules/contracts/protocol-fabric/src/schemas/governance-ref.schema.json"
       }
     },
     {
@@ -773,14 +1694,17 @@
         "E"
       ],
       "path": "modules/research-strategy-development/rd-supervisor",
-      "purpose": "Run the autonomous R&D supervisor loop from durable RD state.",
+      "purpose": "Run native J04 rd_strategy_supervisor from durable RD state or initialize the supervised R&D program state.",
       "command": {
         "cwd": "modules/research-strategy-development/rd-supervisor",
         "argv": [
           "bun",
           "src/scripts/main.ts",
+          "--supervisor-job",
           "--state",
           "<state-path>",
+          "--catalog-db",
+          "./data/data_catalog.db",
           "--json",
           "<payload>"
         ]
@@ -793,7 +1717,8 @@
         "config": false
       },
       "notes": [
-        "Orchestrates plan_next, rd-loop-runner / rd-campaign-runner execution, explicit RD state writeback, and optional draft strategy policy creation."
+        "Orchestrates plan_next, rd-loop-runner / rd-campaign-runner execution, explicit RD state writeback, and optional draft strategy policy creation.",
+        "Returns a domain-runtime job result owned by research-strategy-development for J04."
       ],
       "module_type": "atomic",
       "owner_scope": "research.rd-supervisor",
@@ -868,16 +1793,17 @@
         "E"
       ],
       "path": "modules/research-strategy-development/rd-shadow-tracker",
-      "purpose": "Track forward holdout entry signals as R&D paper setup event chains.",
+      "purpose": "Run native J05 rd_forward_shadow_trackers or track forward holdout entry signals as R&D paper setup event chains.",
       "command": {
         "cwd": "modules/research-strategy-development/rd-shadow-tracker",
         "argv": [
           "bun",
           "src/scripts/main.ts",
-          "--forward-result",
-          "<forward-result-path>",
-          "--output",
-          "<output-path>"
+          "--shadow-tracker-job",
+          "--catalog-db",
+          "./data/data_catalog.db",
+          "--json",
+          "<payload>"
         ]
       },
       "writes": {
@@ -888,7 +1814,8 @@
         "config": false
       },
       "notes": [
-        "Tracker output is review input only, not strategy evidence. It writes explicit tracker artifacts and catalog refs, never trade.db or exchange state."
+        "Tracker output is review input only, not strategy evidence. It writes explicit tracker artifacts and catalog refs, never trade.db or exchange state.",
+        "Returns a domain-runtime job result owned by research-strategy-development for J05."
       ],
       "module_type": "atomic",
       "owner_scope": "research.rd-shadow-tracker",
@@ -1466,6 +2393,294 @@
       }
     },
     {
+      "id": "execution.recovery-runner",
+      "domain": "live-execution-control",
+      "intent": [
+        "recover",
+        "reconcile",
+        "account-readback"
+      ],
+      "capability_class": [
+        "R",
+        "A",
+        "V"
+      ],
+      "path": "modules/live-execution-control/recovery-runner",
+      "purpose": "Own safe recovery orchestration for a single local flow without exchange writes.",
+      "command": {
+        "cwd": "modules/live-execution-control/recovery-runner",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "<recovery-flag>",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": true,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Recovery may append local needs_review/reconcile facts through state owner surfaces; it never places exchange orders."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "live-execution-control.recovery-runner",
+      "requires_preflight": false,
+      "concurrency_group": "trade-db",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": "modules/orchestration-ops/trade-flow/src/schemas/reconcile-result.schema.json"
+      }
+    },
+    {
+      "id": "execution.action-router",
+      "domain": "live-execution-control",
+      "intent": [
+        "execution-action-router",
+        "target-action",
+        "command-spec",
+        "exchange-tool-route"
+      ],
+      "capability_class": [
+        "A",
+        "V"
+      ],
+      "path": "modules/live-execution-control/execution-router",
+      "purpose": "Route approved executable target actions to exchange command specs without executing them.",
+      "command": {
+        "cwd": "modules/live-execution-control/execution-router",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Implements the blueprint execution action router and command compiler boundary; it returns command specs only."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "live-execution-control.execution-router",
+      "requires_preflight": false,
+      "concurrency_group": "execution-plan",
+      "forbidden_callers": [
+        "research",
+        "market-scan"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": "modules/orchestration-ops/trade-flow/src/schemas/execution-command-spec.schema.json"
+      }
+    },
+    {
+      "id": "execution.gate",
+      "domain": "live-execution-control",
+      "intent": [
+        "execution-gate",
+        "trigger-readiness",
+        "idempotency-scope",
+        "mode-scope"
+      ],
+      "capability_class": [
+        "V"
+      ],
+      "path": "modules/live-execution-control/execution-gate",
+      "purpose": "Evaluate deterministic trigger readiness before an approved action continues toward preflight and command compilation.",
+      "command": {
+        "cwd": "modules/live-execution-control/execution-gate",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Gate only; preflight policy checks and exchange execution are separate owner boundaries."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "live-execution-control.execution-gate",
+      "requires_preflight": false,
+      "concurrency_group": "execution-gate",
+      "forbidden_callers": [
+        "research",
+        "market-scan"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
+    },
+    {
+      "id": "execution.flow-runner",
+      "domain": "live-execution-control",
+      "intent": [
+        "dry-run",
+        "shadow",
+        "execution-state-transition",
+        "idempotency"
+      ],
+      "capability_class": [
+        "V"
+      ],
+      "path": "modules/live-execution-control/execution-flow-runner",
+      "purpose": "Own dry-run and shadow execution flow transitions, skipped observes, and idempotency gates.",
+      "command": {
+        "cwd": "modules/live-execution-control/execution-flow-runner",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "<execution-flow-flag>",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": true,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Does not perform live exchange writes; state access goes through portfolio-execution-state owner tools."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "live-execution-control.execution-flow-runner",
+      "requires_preflight": false,
+      "concurrency_group": "trade-db",
+      "forbidden_callers": [
+        "research",
+        "market-scan"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "modules/orchestration-ops/trade-flow/src/schemas/execution-command-spec.schema.json",
+        "output_schema": ""
+      }
+    },
+    {
+      "id": "execution.recorder",
+      "domain": "live-execution-control",
+      "intent": [
+        "record-execution",
+        "order-fill-draft",
+        "audit-shape"
+      ],
+      "capability_class": [
+        "A",
+        "V"
+      ],
+      "path": "modules/live-execution-control/execution-recorder",
+      "purpose": "Convert execution tool results into auditable order_fill event drafts without appending them.",
+      "command": {
+        "cwd": "modules/live-execution-control/execution-recorder",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "<record-flag>",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Returns event drafts only; persistence belongs to state owner append semantics."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "live-execution-control.execution-recorder",
+      "requires_preflight": false,
+      "concurrency_group": "execution-record",
+      "forbidden_callers": [
+        "research",
+        "market-scan"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
+    },
+    {
+      "id": "execution.live-small-runner",
+      "domain": "live-execution-control",
+      "intent": [
+        "live-small",
+        "preflight",
+        "exchange-write",
+        "audited-fill"
+      ],
+      "capability_class": [
+        "T"
+      ],
+      "path": "modules/live-execution-control/live-small-runner",
+      "purpose": "Own explicitly authorized live-small execution, preflight gate, exchange write command execution, and audited fill append.",
+      "command": {
+        "cwd": "modules/live-execution-control/live-small-runner",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--run-live-small",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": true,
+        "catalog": false,
+        "artifacts": false,
+        "binance": true,
+        "config": false
+      },
+      "notes": [
+        "Requires explicit --yes and preflight gates before live exchange writes."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "live-execution-control.live-small-runner",
+      "requires_preflight": true,
+      "concurrency_group": "binance-write",
+      "forbidden_callers": [
+        "research",
+        "market-scan",
+        "analytics"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "modules/orchestration-ops/trade-flow/src/schemas/execution-command-spec.schema.json",
+        "output_schema": "modules/orchestration-ops/trade-flow/src/schemas/live-small-result.schema.json"
+      }
+    },
+    {
       "id": "artifact-catalog",
       "domain": "artifact-knowledge",
       "intent": [
@@ -1478,7 +2693,7 @@
         "V"
       ],
       "path": "modules/artifact-knowledge/artifact-catalog",
-      "purpose": "Index data and artifacts, report stale refs, and delete stale unreferenced files only when explicitly authorized.",
+      "purpose": "Own artifact catalog surfaces, including the native J06 catalog_hygiene_scan domain job, catalog indexing, stale-ref reports, and explicitly authorized GC.",
       "command": {
         "cwd": "modules/artifact-knowledge/artifact-catalog",
         "argv": [
@@ -1495,6 +2710,7 @@
         "config": false
       },
       "notes": [
+        "J06 uses --catalog-hygiene-job and returns a domain-runtime job result owned by artifact-knowledge.",
         "GC is dry-run unless --yes is present."
       ],
       "module_type": "suite",

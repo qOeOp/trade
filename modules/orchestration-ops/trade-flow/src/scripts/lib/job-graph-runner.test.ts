@@ -1,15 +1,14 @@
 import assert from "node:assert/strict"
-import { mkdtempSync, rmSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import test from "node:test"
 import { Database } from "bun:sqlite"
-import { readCycleSummary } from "../../../../ops-runtime-store/src/lib/ops-runtime-store"
+import { readCycleSummary, readIncidents } from "../../../../ops-runtime-store/src/lib/ops-runtime-store"
 import { appendPlanEvent, ensureSchema } from "../../../../../portfolio-execution-state/event-store/src/lib/event-store"
 import { runAutomationJobGraph, type CommandExecutionResult } from "./job-graph-runner"
 
 test("job graph runner records dry-run lifecycle into ops runtime store", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "job-graph-runner-"))
+  const dir = makeCheckDir("job-graph-runner-")
   const tradeDbPath = join(dir, "trade.db")
   const opsDbPath = join(dir, "ops_runtime.db")
   const tradeDb = new Database(tradeDbPath)
@@ -46,16 +45,21 @@ test("job graph runner records dry-run lifecycle into ops runtime store", async 
       messages: { inbox: number; outbox: number }
       attention: { needs_human: boolean; severity: string }
     }
-    const jobs = result.jobs as Array<{ job_id: string; status: string; reason: string }>
+    const jobs = result.jobs as Array<{ job_id: string; status: string; reason: string; runtime_result?: Record<string, unknown> }>
+    const processors = result.lifecycle_processors as Array<{ processor_id: string; status: string; reason: string }>
     assert.equal(opsSummary.counts.total, jobs.length)
     assert.equal(opsSummary.counts.skipped, jobs.length)
-    assert.equal(opsSummary.stages.some((stage) => stage.stage === "serial_runtime_guard" && stage.skipped > 0), true)
+    assert.equal(opsSummary.stages.some((stage) => stage.stage === "serial_account_reconcile" && stage.skipped > 0), true)
     assert.equal(opsSummary.messages.inbox, jobs.length)
     assert.equal(opsSummary.messages.outbox, jobs.length)
     assert.equal(opsSummary.attention.needs_human, false)
     assert.equal(opsSummary.attention.severity, "none")
-    assert.equal(jobs.some((job) => job.job_id === "runtime_health_guard" && job.status === "skipped" && /dry-run/.test(job.reason)), true)
-    assert.equal(jobs.some((job) => job.job_id === "ops_notify_dispatch" && job.status === "skipped"), true)
+    assert.equal(processors.some((processor) => processor.processor_id === "runtime_health_guard" && processor.status === "skipped" && /dry-run/.test(processor.reason)), true)
+    assert.equal(processors.some((processor) => processor.processor_id === "ops_notify_dispatch" && processor.status === "skipped"), true)
+    const reconcileResult = jobs.find((job) => job.job_id === "account_reconcile_guard")?.runtime_result
+    assert.equal(reconcileResult?.schema_id, "trade.domain-runtime.domain-job-result.v1")
+    assert.equal(reconcileResult?.domain, "live-execution-control")
+    assert.equal(reconcileResult?.status, "skipped")
 
     const opsDb = new Database(opsDbPath)
     try {
@@ -70,7 +74,7 @@ test("job graph runner records dry-run lifecycle into ops runtime store", async 
       assert.equal(summary.ops_summary.counts.total, jobs.length)
       assert.equal(summary.ops_summary.attention.needs_human, false)
       assert.equal(summary.jobs.length, jobs.length)
-      assert.equal(summary.jobs.some((job) => job.job_id === "runtime_health_guard"), true)
+      assert.equal(summary.jobs.some((job) => job.job_id === "runtime_health_guard"), false)
       assert.equal(summary.messages.length, jobs.length * 2)
       assert.equal(summary.messages.filter((message) => message.direction === "inbox").length, jobs.length)
       assert.equal(summary.messages.filter((message) => message.direction === "outbox").length, jobs.length)
@@ -84,7 +88,7 @@ test("job graph runner records dry-run lifecycle into ops runtime store", async 
 })
 
 test("job graph runner executes command specs through injected executor", async () => {
-  const dir = mkdtempSync(join(tmpdir(), "job-graph-runner-exec-"))
+  const dir = makeCheckDir("job-graph-runner-exec-")
   const tradeDbPath = join(dir, "trade.db")
   const opsDbPath = join(dir, "ops_runtime.db")
   const tradeDb = new Database(tradeDbPath)
@@ -110,13 +114,371 @@ test("job graph runner executes command specs through injected executor", async 
     assert.equal(result.ok, true)
     assert.deepEqual(executed.map((command) => command.split(":")[0]), [
       "modules/orchestration-ops/runtime-health-guard",
+      "modules/orchestration-ops/control-effectiveness-review",
       "modules/orchestration-ops/ops-notify-dispatch",
     ])
-    const jobs = result.jobs as Array<{ job_id: string; status: string; exit_code?: number }>
-    assert.equal(jobs.find((job) => job.job_id === "runtime_health_guard")?.status, "completed")
-    assert.equal(jobs.find((job) => job.job_id === "ops_notify_dispatch")?.exit_code, 0)
+    const processors = result.lifecycle_processors as Array<{ processor_id: string; status: string; exit_code?: number }>
+    assert.equal(processors.find((processor) => processor.processor_id === "runtime_health_guard")?.status, "completed")
+    assert.equal(processors.find((processor) => processor.processor_id === "control_effectiveness_review")?.exit_code, 0)
+    assert.equal(processors.find((processor) => processor.processor_id === "ops_notify_dispatch")?.exit_code, 0)
   } finally {
     tradeDb.close()
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test("job graph runner accepts native J02 domain runtime result from fast-track guard", async () => {
+  const dir = makeCheckDir("job-graph-runner-j02-")
+  const tradeDbPath = join(dir, "trade.db")
+  const opsDbPath = join(dir, "ops_runtime.db")
+  const tradeDb = new Database(tradeDbPath)
+  try {
+    ensureSchema(tradeDb)
+    appendPlanEvent(tradeDb, {
+      event_key: "obs-j02",
+      chain_id: "flow-j02",
+      kind: "observe",
+      created_at: "2026-07-11T00:00:00Z",
+      body_json: { source: "slow_track", symbol: "BTCUSDT", side: "long" },
+    })
+    const result = await runAutomationJobGraph(tradeDb, tradeDbPath, {
+      cycle_id: "cycle-job-graph-j02",
+      now: "2026-07-11T00:15:00Z",
+      ops_runtime_db: opsDbPath,
+      execute_jobs: true,
+      include_runtime_health: false,
+      include_account_reconcile: false,
+      include_fast_track: true,
+      include_slow_track: false,
+      include_rd_strategy_supervisor: false,
+      include_rd_trackers: false,
+      include_catalog_hygiene: false,
+      include_closed_flow_review: false,
+      include_control_effectiveness_review: false,
+      include_ops_notify: false,
+    }, async (): Promise<CommandExecutionResult> => ({
+      exit_code: 0,
+      stdout: JSON.stringify({
+        ok: true,
+        data: {
+          runtime_result: {
+            schema_id: "trade.domain-runtime.domain-job-result.v1",
+            ok: true,
+            status: "ok",
+            domain: "live-execution-control",
+            job_id: "fast_track_guard",
+            idempotency_key: "cycle-job-graph-j02:J02",
+            input_refs: ["trade_event_store:chain/flow-j02"],
+            output_refs: ["tmp/artifacts/trade-flow/fast-track-cycle-job-graph-j02-J02.json"],
+            writes: { trade_event_store: true },
+            incidents: [],
+            audit: { cycle_id: "cycle-job-graph-j02", ticket_no: "J02" },
+          },
+        },
+      }),
+      stderr: "",
+    }))
+
+    const jobs = result.jobs as Array<{ job_id: string; status: string; result_ref: string; runtime_result: { writes: Record<string, boolean> } }>
+    const fast = jobs.find((job) => job.job_id === "fast_track_guard")
+    assert.equal(fast?.status, "completed")
+    assert.equal(fast?.result_ref, "tmp/artifacts/trade-flow/fast-track-cycle-job-graph-j02-J02.json")
+    assert.deepEqual(fast?.runtime_result.writes, { trade_event_store: true })
+  } finally {
+    tradeDb.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("job graph runner accepts native J06 domain runtime result from artifact-knowledge", async () => {
+  const dir = makeCheckDir("job-graph-runner-j06-")
+  const tradeDbPath = join(dir, "trade.db")
+  const opsDbPath = join(dir, "ops_runtime.db")
+  const tradeDb = new Database(tradeDbPath)
+  try {
+    ensureSchema(tradeDb)
+    const result = await runAutomationJobGraph(tradeDb, tradeDbPath, {
+      cycle_id: "cycle-job-graph-j06",
+      now: "2026-07-11T00:15:00Z",
+      ops_runtime_db: opsDbPath,
+      execute_jobs: true,
+      include_runtime_health: false,
+      include_account_reconcile: false,
+      include_fast_track: false,
+      include_slow_track: false,
+      include_rd_strategy_supervisor: false,
+      include_rd_trackers: false,
+      include_closed_flow_review: false,
+      include_control_effectiveness_review: false,
+      include_ops_notify: false,
+      include_catalog_hygiene: true,
+    }, async (): Promise<CommandExecutionResult> => ({
+      exit_code: 0,
+      stdout: JSON.stringify({
+        ok: true,
+        data: {
+          runtime_result: {
+            schema_id: "trade.domain-runtime.domain-job-result.v1",
+            ok: true,
+            status: "ok",
+            domain: "artifact-knowledge",
+            job_id: "catalog_hygiene_scan",
+            idempotency_key: "cycle-job-graph-j06:J06",
+            input_refs: ["artifact-root:tmp"],
+            output_refs: ["artifact_catalog:scan/cycle-job-graph-j06"],
+            writes: { artifact_catalog: true },
+            incidents: [],
+            audit: { cycle_id: "cycle-job-graph-j06", ticket_no: "J06" },
+          },
+        },
+      }),
+      stderr: "",
+    }))
+
+    const jobs = result.jobs as Array<{ job_id: string; status: string; result_ref: string; runtime_result: { writes: Record<string, boolean> } }>
+    const catalog = jobs.find((job) => job.job_id === "catalog_hygiene_scan")
+    assert.equal(catalog?.status, "completed")
+    assert.equal(catalog?.result_ref, "artifact_catalog:scan/cycle-job-graph-j06")
+    assert.deepEqual(catalog?.runtime_result.writes, { artifact_catalog: true })
+  } finally {
+    tradeDb.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("job graph runner accepts native J04 domain runtime result from research supervisor", async () => {
+  const dir = makeCheckDir("job-graph-runner-j04-")
+  const tradeDbPath = join(dir, "trade.db")
+  const opsDbPath = join(dir, "ops_runtime.db")
+  const tradeDb = new Database(tradeDbPath)
+  try {
+    ensureSchema(tradeDb)
+    const result = await runAutomationJobGraph(tradeDb, tradeDbPath, {
+      cycle_id: "cycle-job-graph-j04",
+      now: "2026-07-11T00:15:00Z",
+      ops_runtime_db: opsDbPath,
+      execute_jobs: true,
+      include_runtime_health: false,
+      include_account_reconcile: false,
+      include_fast_track: false,
+      include_slow_track: false,
+      include_rd_strategy_supervisor: true,
+      include_rd_trackers: false,
+      include_catalog_hygiene: false,
+      include_closed_flow_review: false,
+      include_control_effectiveness_review: false,
+      include_ops_notify: false,
+      rd_strategy_goal: { objective: "find a shadow-eligible 4H swing strategy" },
+    }, async (): Promise<CommandExecutionResult> => ({
+      exit_code: 0,
+      stdout: JSON.stringify({
+        ok: true,
+        data: {
+          runtime_result: {
+            schema_id: "trade.domain-runtime.domain-job-result.v1",
+            ok: true,
+            status: "ok",
+            domain: "research-strategy-development",
+            job_id: "rd_strategy_supervisor",
+            idempotency_key: "cycle-job-graph-j04:J04",
+            input_refs: ["research_state_store:program/./data/rd/program.json"],
+            output_refs: ["./data/rd/program.json"],
+            writes: { research_state_store: true, artifact_catalog: true },
+            incidents: [],
+            audit: { cycle_id: "cycle-job-graph-j04", ticket_no: "J04" },
+          },
+        },
+      }),
+      stderr: "",
+    }))
+
+    const jobs = result.jobs as Array<{ job_id: string; status: string; result_ref: string; runtime_result: { writes: Record<string, boolean> } }>
+    const rd = jobs.find((job) => job.job_id === "rd_strategy_supervisor")
+    assert.equal(rd?.status, "completed")
+    assert.equal(rd?.result_ref, "./data/rd/program.json")
+    assert.deepEqual(rd?.runtime_result.writes, { research_state_store: true, artifact_catalog: true })
+  } finally {
+    tradeDb.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("job graph runner accepts native J05 domain runtime result from research", async () => {
+  const dir = makeCheckDir("job-graph-runner-j05-")
+  const tradeDbPath = join(dir, "trade.db")
+  const opsDbPath = join(dir, "ops_runtime.db")
+  const tradeDb = new Database(tradeDbPath)
+  try {
+    ensureSchema(tradeDb)
+    const result = await runAutomationJobGraph(tradeDb, tradeDbPath, {
+      cycle_id: "cycle-job-graph-j05",
+      now: "2026-07-11T00:15:00Z",
+      ops_runtime_db: opsDbPath,
+      execute_jobs: true,
+      include_runtime_health: false,
+      include_account_reconcile: false,
+      include_fast_track: false,
+      include_slow_track: false,
+      include_rd_strategy_supervisor: false,
+      include_rd_trackers: true,
+      include_catalog_hygiene: false,
+      include_closed_flow_review: false,
+      include_control_effectiveness_review: false,
+      include_ops_notify: false,
+      rd_trackers: [{ tracker_id: "alt-shadow", forward_result_path: "tmp/forward.json" }],
+    }, async (): Promise<CommandExecutionResult> => ({
+      exit_code: 0,
+      stdout: JSON.stringify({
+        ok: true,
+        data: {
+          runtime_result: {
+            schema_id: "trade.domain-runtime.domain-job-result.v1",
+            ok: true,
+            status: "ok",
+            domain: "research-strategy-development",
+            job_id: "rd_forward_shadow_trackers",
+            idempotency_key: "cycle-job-graph-j05:J05",
+            input_refs: ["artifact:tmp/forward.json"],
+            output_refs: ["tmp/artifacts/strategy-rnd/alt-shadow.shadow-tracker.json"],
+            writes: { artifact_catalog: true },
+            incidents: [],
+            audit: { cycle_id: "cycle-job-graph-j05", ticket_no: "J05" },
+          },
+        },
+      }),
+      stderr: "",
+    }))
+
+    const jobs = result.jobs as Array<{ job_id: string; status: string; result_ref: string; runtime_result: { writes: Record<string, boolean> } }>
+    const shadow = jobs.find((job) => job.job_id === "rd_forward_shadow_trackers")
+    assert.equal(shadow?.status, "completed")
+    assert.equal(shadow?.result_ref, "tmp/artifacts/strategy-rnd/alt-shadow.shadow-tracker.json")
+    assert.deepEqual(shadow?.runtime_result.writes, { artifact_catalog: true })
+  } finally {
+    tradeDb.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("job graph runner accepts native J07 domain runtime result from governance", async () => {
+  const dir = makeCheckDir("job-graph-runner-j07-")
+  const tradeDbPath = join(dir, "trade.db")
+  const opsDbPath = join(dir, "ops_runtime.db")
+  const tradeDb = new Database(tradeDbPath)
+  try {
+    ensureSchema(tradeDb)
+    appendPlanEvent(tradeDb, {
+      event_key: "obs-j07",
+      chain_id: "flow-j07",
+      kind: "observe",
+      created_at: "2026-07-10T00:00:00Z",
+      body_json: { source: "slow_track", symbol: "BTCUSDT", side: "long" },
+    })
+    const result = await runAutomationJobGraph(tradeDb, tradeDbPath, {
+      cycle_id: "cycle-job-graph-j07",
+      now: "2026-07-11T00:15:00Z",
+      ops_runtime_db: opsDbPath,
+      execute_jobs: true,
+      include_runtime_health: false,
+      include_account_reconcile: false,
+      include_fast_track: false,
+      include_slow_track: false,
+      include_rd_strategy_supervisor: false,
+      include_rd_trackers: false,
+      include_catalog_hygiene: false,
+      include_control_effectiveness_review: false,
+      include_ops_notify: false,
+      include_closed_flow_review: true,
+      force_jobs: ["closed_flow_review_sweep"],
+    }, async (): Promise<CommandExecutionResult> => ({
+      exit_code: 0,
+      stdout: JSON.stringify({
+        ok: true,
+        runtime_result: {
+          schema_id: "trade.domain-runtime.domain-job-result.v1",
+          ok: true,
+          status: "ok",
+          domain: "governance-review-compliance",
+          job_id: "closed_flow_review_sweep",
+          idempotency_key: "cycle-job-graph-j07:J07",
+          input_refs: ["trade_event_store:chain/flow-j07"],
+          output_refs: ["governance_ledger:review_batch/batch-j07"],
+          writes: { governance_ledger: true },
+          incidents: [],
+          audit: { cycle_id: "cycle-job-graph-j07", ticket_no: "J07" },
+        },
+      }),
+      stderr: "",
+    }))
+
+    const jobs = result.jobs as Array<{ job_id: string; status: string; result_ref: string; runtime_result: { writes: Record<string, boolean> } }>
+    const review = jobs.find((job) => job.job_id === "closed_flow_review_sweep")
+    assert.equal(review?.status, "completed")
+    assert.equal(review?.result_ref, "governance_ledger:review_batch/batch-j07")
+    assert.deepEqual(review?.runtime_result.writes, { governance_ledger: true })
+  } finally {
+    tradeDb.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("job graph runner records incidents for failed domain jobs", async () => {
+  const dir = makeCheckDir("job-graph-runner-fail-")
+  const tradeDbPath = join(dir, "trade.db")
+  const opsDbPath = join(dir, "ops_runtime.db")
+  const tradeDb = new Database(tradeDbPath)
+  try {
+    ensureSchema(tradeDb)
+    appendPlanEvent(tradeDb, {
+      event_key: "obs-job-graph-fail-1",
+      chain_id: "flow-job-graph-fail-1",
+      kind: "observe",
+      created_at: "2026-07-11T00:00:00Z",
+      body_json: {
+        source: "slow_track",
+        symbol: "BTCUSDT",
+        side: "long",
+      },
+    })
+    const result = await runAutomationJobGraph(tradeDb, tradeDbPath, {
+      cycle_id: "cycle-job-graph-fail",
+      now: "2026-07-11T00:15:00Z",
+      ops_runtime_db: opsDbPath,
+      execute_jobs: true,
+      include_runtime_health: false,
+      include_fast_track: false,
+      include_slow_track: false,
+      include_rd_strategy_supervisor: false,
+      include_rd_trackers: false,
+      include_closed_flow_review: false,
+      include_catalog_hygiene: false,
+      include_ops_notify: false,
+    }, async (): Promise<CommandExecutionResult> => {
+      return { exit_code: 7, stdout: "", stderr: "synthetic failure" }
+    })
+
+    assert.equal(result.ok, false)
+    const opsDb = new Database(opsDbPath)
+    try {
+      const incidents = readIncidents(opsDb, { cycle_id: "cycle-job-graph-fail" })
+      assert.equal(incidents.some((incident) => incident.source === "job_run" && incident.severity === "critical"), true)
+      const summary = readCycleSummary(opsDb, "cycle-job-graph-fail") as {
+        ops_summary: { incidents: { open: number }; attention: { needs_human: boolean; reasons: string[] } }
+      }
+      assert.equal(summary.ops_summary.incidents.open > 0, true)
+      assert.equal(summary.ops_summary.attention.needs_human, true)
+      assert.equal(summary.ops_summary.attention.reasons.some((reason) => reason.startsWith("incident:")), true)
+    } finally {
+      opsDb.close()
+    }
+  } finally {
+    tradeDb.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+function makeCheckDir(prefix: string): string {
+  const checkRoot = join(process.cwd(), "../../..", "tmp/check")
+  mkdirSync(checkRoot, { recursive: true })
+  return mkdtempSync(join(checkRoot, prefix))
+}

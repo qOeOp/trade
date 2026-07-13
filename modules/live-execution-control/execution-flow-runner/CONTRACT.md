@@ -15,7 +15,9 @@
 
 ## Stable entrypoints
 
-- `runOneFlowStep(db, input, mode)`
-- `appendExecutionObserve(db, input, preflightResult, executionGate)`
-- `evaluateIdempotency(db, contract)`
+- `runOneFlowStep(dbPath, input, mode, runtime?)`
+- `appendExecutionObserve(dbPath, input, preflightResult, executionGate, runtime?)`
+- `evaluateIdempotency(dbPath, contract, runtime?)`
 - `buildMockExecutionResult(contract, mode)`
+
+State access goes through portfolio-execution-state owner tools by default. Tests may inject `ExecutionStateRuntime` as a behavior anchor.

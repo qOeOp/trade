@@ -39,6 +39,7 @@ check_toolset_manifest() {
   bun scripts/toolset.ts --validate >/dev/null
   bun scripts/check-architecture-manifest.ts >/dev/null
   bun scripts/check-storage-schemas.ts >/dev/null
+  bun scripts/architecture-drift-audit.ts --check >/dev/null
   bun scripts/logical-store.ts --action init --store all --base-dir tmp/check/logical-store >/dev/null
   bun scripts/logical-store.ts --action check --store all --base-dir tmp/check/logical-store >/dev/null
 }

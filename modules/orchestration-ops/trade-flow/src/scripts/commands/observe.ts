@@ -1,5 +1,6 @@
-import { buildObserveEvent, type ObserveInput } from "../../../../../live-decision-planning/observe-builder/src/lib/observe-builder"
-import { loadRuntime, observeFromTools } from "../lib/observe-flow"
+import { loadRuntime } from "../lib/observe-flow"
+import { resolveRegisteredOwnerTool } from "../../../../../contracts/runtime-core/src/owner-tool-registry"
+import { runJsonCommand } from "../lib/tool-runner"
 import { successResponse } from "./response"
 import type { CommandConfig, ScriptResponse } from "./types"
 
@@ -12,10 +13,46 @@ export async function handleObserveCommand(config: CommandConfig): Promise<Scrip
     }))
   }
   if (config.buildObserve) {
-    return successResponse(buildObserveEvent(config.input as unknown as ObserveInput))
+    return successResponse(await runObserveBuilder(config.input))
   }
   if (config.observeFromTools) {
-    return successResponse(await observeFromTools(config.input))
+    return successResponse(await runObserveFromTools(config.input))
   }
   return null
+}
+
+async function runObserveFromTools(input: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const command = resolveRegisteredOwnerTool("decision.observe-runner", [
+    "--observe-from-tools",
+    "--json",
+    JSON.stringify(input),
+  ])
+  const result = await runJsonCommand(command.argv, { cwd: command.cwd })
+  if (!result.ok) {
+    throw new Error(`observe runner owner tool failed: ${result.error}${result.stderr ? `; ${result.stderr.trim()}` : ""}`)
+  }
+  const response = result.data && typeof result.data === "object" ? result.data as Record<string, unknown> : {}
+  if (response.ok === false) {
+    throw new Error(typeof response.error === "string" ? response.error : "observe runner owner tool returned ok=false")
+  }
+  const data = response.data && typeof response.data === "object" ? response.data as Record<string, unknown> : response
+  return data
+}
+
+async function runObserveBuilder(input: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const command = resolveRegisteredOwnerTool("decision.observe-builder", [
+    "--build-observe",
+    "--json",
+    JSON.stringify(input),
+  ])
+  const result = await runJsonCommand(command.argv, { cwd: command.cwd })
+  if (!result.ok) {
+    throw new Error(`observe builder owner tool failed: ${result.error}${result.stderr ? `; ${result.stderr.trim()}` : ""}`)
+  }
+  const response = result.data && typeof result.data === "object" ? result.data as Record<string, unknown> : {}
+  if (response.ok === false) {
+    throw new Error(typeof response.error === "string" ? response.error : "observe builder owner tool returned ok=false")
+  }
+  const data = response.data && typeof response.data === "object" ? response.data as Record<string, unknown> : response
+  return data
 }

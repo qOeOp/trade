@@ -1,6 +1,8 @@
 # Runtime Health Guard Contract
 
-Owns J01 `runtime_health_guard` for orchestration runtime readiness checks.
+Owns control tower `pre_cycle / pre_job` runtime readiness checks.
+
+`runtime_health_guard` is a lifecycle processor, not a domain job ticket.
 
 ## Responsibilities
 
@@ -16,4 +18,3 @@ Owns J01 `runtime_health_guard` for orchestration runtime readiness checks.
 - Does not mutate trading state.
 - Does not decide whether a strategy or trade is valid.
 - Emits only health status, check details, and an ops store reference.
-

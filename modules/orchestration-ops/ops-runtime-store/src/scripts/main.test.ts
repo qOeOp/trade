@@ -56,6 +56,51 @@ test("ops runtime store CLI initializes and returns cycle summary", () => {
       JSON.stringify({ status: "published" }),
     ])) as { messages: Array<{ message_id: string }> }
     assert.deepEqual(listed.messages.map((message) => message.message_id), ["msg-cli"])
+
+    const incident = run(parseArgs([
+      "--db",
+      dbPath,
+      "--action",
+      "record_incident",
+      "--json",
+      JSON.stringify({
+        incident_id: "incident-cli",
+        cycle_id: "cycle-cli",
+        source: "manual",
+        severity: "warning",
+        title: "operator note",
+        first_seen_at: "2026-07-11T00:00:02Z",
+      }),
+    ])) as { incident: { incident_id: string; status: string } }
+    assert.equal(incident.incident.incident_id, "incident-cli")
+    assert.equal(incident.incident.status, "open")
+
+    const updated = run(parseArgs([
+      "--db",
+      dbPath,
+      "--action",
+      "update_incident",
+      "--json",
+      JSON.stringify({
+        incident_id: "incident-cli",
+        action: "acknowledge",
+        actor: "cli-test",
+        note: "accepted",
+        created_at: "2026-07-11T00:00:03Z",
+      }),
+    ])) as { incident: { status: string }; events: Array<{ action: string }> }
+    assert.equal(updated.incident.status, "acknowledged")
+    assert.deepEqual(updated.events.map((event) => event.action), ["acknowledge"])
+
+    const incidents = run(parseArgs([
+      "--db",
+      dbPath,
+      "--action",
+      "list_incidents",
+      "--json",
+      JSON.stringify({ status: "acknowledged" }),
+    ])) as { incidents: Array<{ incident_id: string }> }
+    assert.deepEqual(incidents.incidents.map((item) => item.incident_id), ["incident-cli"])
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

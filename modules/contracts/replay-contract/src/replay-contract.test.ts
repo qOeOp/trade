@@ -24,3 +24,17 @@ test("replay result schema exposes the stable outer shell", () => {
     "notes",
   ])
 })
+
+test("replay fingerprint schema exposes the owner fingerprint contract", () => {
+  const schema = JSON.parse(readFileSync(new URL("./schemas/replay-fingerprint.schema.json", import.meta.url), "utf8")) as {
+    $id?: string
+    required?: unknown
+    properties?: Record<string, { pattern?: string }>
+  }
+
+  assert.equal(schema.$id, "trade-flow.replay-fingerprint.v1")
+  assert.deepEqual(schema.required, ["harness_hash"])
+  assert.equal(schema.properties?.harness_hash?.pattern, "^[a-f0-9]{64}$")
+  assert.equal(schema.properties?.data_hash?.pattern, "^[a-f0-9]{64}$")
+  assert.equal(schema.properties?.assumptions_hash?.pattern, "^[a-f0-9]{64}$")
+})

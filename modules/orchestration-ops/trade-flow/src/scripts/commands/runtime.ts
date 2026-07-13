@@ -1,26 +1,22 @@
-import { Database } from "bun:sqlite"
+import type { Database } from "bun:sqlite"
 import { dirname } from "node:path"
 import { runTrackDryRun } from "../lib/track-runner"
-import { appendPlanEvent, buildOrderFillEvent, buildReviewEvent } from "../../../../../portfolio-execution-state/event-store/src/lib/event-store"
+import { appendOrderFill, appendReview } from "../lib/event-store-client"
 import { successResponse } from "./response"
 import type { CommandConfig, ScriptResponse } from "./types"
 
-export function handleRuntimeCommand(db: Database, config: CommandConfig): ScriptResponse | null {
+export async function handleRuntimeCommand(_db: Database, config: CommandConfig): Promise<ScriptResponse | null> {
   if (config.track) {
-    return successResponse(runTrackDryRun(db, config.track, dirname(config.dbPath)))
+    return successResponse(runTrackDryRun(config.dbPath, config.track, dirname(config.dbPath)))
   }
   if (config.init) {
     return successResponse({ initialized: true, dbPath: config.dbPath })
   }
   if (config.appendOrderFill) {
-    const event = buildOrderFillEvent(config.input)
-    appendPlanEvent(db, event)
-    return successResponse(event)
+    return successResponse(await appendOrderFill(config.dbPath, config.input))
   }
   if (config.appendReview) {
-    const event = buildReviewEvent(config.input)
-    appendPlanEvent(db, event)
-    return successResponse(event)
+    return successResponse(await appendReview(config.dbPath, config.input))
   }
   return null
 }

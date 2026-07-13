@@ -36,12 +36,10 @@ export function parseArgs(argv: string[]): Args {
 }
 
 export function run(args: Args): JSONRecord {
-  const tradeDb = new Database(args.tradeDbPath)
   const governanceDb = new Database(args.governanceDbPath)
   try {
-    return runClosedFlowReviewSweep(tradeDb, governanceDb, args.json) as unknown as JSONRecord
+    return runClosedFlowReviewSweep(args.tradeDbPath, governanceDb, args.json) as unknown as JSONRecord
   } finally {
-    tradeDb.close()
     governanceDb.close()
   }
 }
@@ -58,4 +56,3 @@ if (import.meta.main) {
     process.exit(1)
   }
 }
-

@@ -3,9 +3,12 @@ import { readFileSync } from "node:fs"
 import assert from "node:assert/strict"
 import test from "node:test"
 import { runLiveSmall } from "./live-small-runner"
-import { ensureSchema } from "../../../../portfolio-execution-state/event-store/src/lib/event-store"
+import { appendPlanEvent, ensureSchema, readFlowEvents, readLatestOrderFill } from "../../../../portfolio-execution-state/event-store/src/lib/event-store"
 import type { JSONRecord } from "../../../../contracts/runtime-core/src/json"
-import type { Runner } from "../../../../live-decision-planning/observe-runner/src/lib/observe-runner"
+import type { ExecutionStateRuntime } from "../../../execution-flow-runner/src/lib/execution-flow-runner"
+import type { Runner } from "./tool-runner"
+
+const TEST_DB_PATH = "test://trade.db"
 
 test("live-small result schema locks only the stable outer execution shell", async () => {
   const schema = readSchema("live-small-result")
@@ -35,20 +38,20 @@ test("live-small result schema locks only the stable outer execution shell", asy
   })
 
   try {
-    const skipped = await runLiveSmall(db, {
+    const skipped = await runLiveSmall(TEST_DB_PATH, {
       ...liveSmallInput(),
       target_action: "cancel_order",
       request: {
         symbol: "BTCUSDT",
         orig_client_order_id: "flow-live-fixture-1-entry",
       },
-    }, true, runner)
+    }, true, runner, stateRuntime(db))
     assertSchemaRequired(schema, skipped)
     assert.equal(skipped.mode, "live-small")
     assert.equal(asRecord(skipped.execution_gate).status, "skipped")
     assert.equal(skipped.recorded, false)
 
-    const recorded = await runLiveSmall(db, liveSmallInput(), true, runner)
+    const recorded = await runLiveSmall(TEST_DB_PATH, liveSmallInput(), true, runner, stateRuntime(db))
     assertSchemaRequired(schema, recorded)
     assert.equal(recorded.mode, "live-small")
     assert.equal(asRecord(recorded.execution_gate).status, "ready")
@@ -57,6 +60,28 @@ test("live-small result schema locks only the stable outer execution shell", asy
     db.close()
   }
 })
+
+function stateRuntime(db: Database): ExecutionStateRuntime {
+  return {
+    eventReader: (_dbPath, chainId) => readFlowEvents(db, chainId) as unknown as Record<string, unknown>[],
+    eventAppender: (_dbPath, event) => {
+      appendPlanEvent(db, event as unknown as Parameters<typeof appendPlanEvent>[1])
+      return event
+    },
+    latestOrderFillReader: (_dbPath, chainId) => readLatestOrderFill(db, chainId),
+    flowStateReader: (_dbPath, chainId) => testFlowState(db, chainId),
+    latestSlowObserveReader: () => null,
+  }
+}
+
+function testFlowState(db: Database, chainId: string): JSONRecord {
+  return {
+    current_orders: [],
+    current_position: { state: "flat" },
+    latest_order_fill: readLatestOrderFill(db, chainId),
+    risk_lock: { locked: false },
+  }
+}
 
 function liveSmallInput(): JSONRecord {
   return {

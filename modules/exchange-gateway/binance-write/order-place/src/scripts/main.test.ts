@@ -137,7 +137,7 @@ test("run returns final request for --dry-json without env access", async () => 
   ])
 
   assert.equal(result.ok, true)
-  assert.deepEqual("data" in result ? result.data : null, buildDryRun(parseArgs([
+  const expected = buildDryRun(parseArgs([
     "--symbol",
     "BTCUSDT",
     "--side",
@@ -151,7 +151,12 @@ test("run returns final request for --dry-json without env access", async () => 
     "--price",
     "65010",
     "--dry-json",
-  ])))
+  ]))
+  const data = "data" in result ? result.data as { request: unknown; exchange_command_ref: { status: string; action: string; command_ref: string } } : null
+  assert.deepEqual(data?.request, expected.request)
+  assert.equal(data?.exchange_command_ref.status, "planned")
+  assert.equal(data?.exchange_command_ref.action, "place_entry")
+  assert.match(data?.exchange_command_ref.command_ref || "", /^exchange_runtime_store:command\//)
 })
 
 test("buildDryRun uses futuresOrderTest for usdm test mode", () => {

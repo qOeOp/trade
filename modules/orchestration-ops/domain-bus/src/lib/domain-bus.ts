@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite"
-import { buildDomainEnvelope } from "../../../../contracts/protocol-fabric/src/protocol-fabric"
+import { buildDomainEnvelope, validateRailRoute } from "../../../../contracts/protocol-fabric/src/protocol-fabric"
 import { asRecord, stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
-import { buildDomainMessage, readDomainMessages, upsertDomainMessage, type DomainMessage } from "../../../ops-runtime-store/src/lib/ops-runtime-store"
+import { buildDomainMessage, buildIncident, readDomainMessages, recordIncident, upsertDomainMessage, type DomainMessage } from "../../../ops-runtime-store/src/lib/ops-runtime-store"
 
 export interface PublishDomainMessageInput extends JSONRecord {
   direction: "inbox" | "outbox"
@@ -10,12 +10,39 @@ export interface PublishDomainMessageInput extends JSONRecord {
 export function publishDomainMessage(db: Database, input: PublishDomainMessageInput): DomainMessage {
   const createdAt = stringField(input.created_at) || new Date().toISOString()
   const messageId = stringField(input.message_id) || buildMessageId(input, createdAt)
+  const rail = requiredString(input.rail, "rail")
+  try {
+    validateRailRoute({
+      rail,
+      source_domain: stringField(input.source_domain) || undefined,
+      target_domain: stringField(input.target_domain) || undefined,
+    })
+  } catch (error) {
+    recordIncident(db, buildIncident({
+      incident_id: `incident-${messageId}-rail-rejected`,
+      cycle_id: stringField(input.cycle_id) || undefined,
+      source: "domain_bus",
+      severity: "critical",
+      title: "domain bus rail route rejected",
+      refs: [stringField(input.payload_ref) || messageId],
+      detail: {
+        message_id: messageId,
+        direction: input.direction,
+        rail,
+        source_domain: stringField(input.source_domain),
+        target_domain: stringField(input.target_domain),
+        error: error instanceof Error ? error.message : String(error),
+      },
+      first_seen_at: createdAt,
+    }))
+    throw error
+  }
   const envelope = buildDomainEnvelope({
     direction: input.direction,
     message_id: messageId,
     source_domain: stringField(input.source_domain) || undefined,
     target_domain: stringField(input.target_domain) || undefined,
-    rail: requiredString(input.rail, "rail"),
+    rail,
     payload_ref: requiredString(input.payload_ref, "payload_ref"),
     idempotency_key: stringField(input.idempotency_key) || undefined,
     created_at: createdAt,

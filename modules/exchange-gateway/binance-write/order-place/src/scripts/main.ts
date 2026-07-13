@@ -5,6 +5,7 @@ import { mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 import { Database } from "bun:sqlite"
 import Binance, { type BinanceRest } from "binance-api-node"
+import { buildExchangeCommandRef } from "../../../../../contracts/protocol-fabric/src/protocol-fabric"
 import {
   buildExchangeCommand,
   buildExchangeResult,
@@ -155,7 +156,7 @@ async function run(argv: string[]): Promise<ScriptResponse> {
   try {
     const config = parseArgs(argv)
     if (config.dryJson) {
-      return { ok: true, data: buildDryRun(config) }
+      return { ok: true, data: withExchangeCommandRef(config, buildDryRun(config), "planned") }
     }
     const envStatus = checkEnv()
     if (config.checkEnv) {
@@ -173,9 +174,39 @@ async function run(argv: string[]): Promise<ScriptResponse> {
     await assertOrderWouldPassBasicSymbolRules(config, client)
     const data = await executeOrder(config, client)
     recordExchangeAuditIfEnabled(config, data)
-    return { ok: true, data }
+    return { ok: true, data: withExchangeCommandRef(config, data) }
   } catch (error) {
     return { ok: false, error: formatError(error) }
+  }
+}
+
+function withExchangeCommandRef(config: Config, execution: unknown, explicitStatus?: "planned" | "submitted" | "confirmed" | "unknown"): Record<string, unknown> {
+  const executionRecord = asRecord(execution) ?? {}
+  const request = asRecord(executionRecord.request) ?? asRecord(buildDryRun(config).request) ?? {}
+  const result = asRecord(executionRecord.result) ?? {}
+  const confirmed = asRecord(executionRecord.confirmedResult)
+  const clientOrderId = readClientOrderId(request, result, confirmed) || config.newClientOrderId || `manual:${config.symbol}`
+  const exchangeRef = readExchangeRef(result, confirmed)
+  const requestedByRef = config.requestedByRef || clientOrderId || `manual:binance-order-place:${config.symbol}`
+  const idempotencyKey = [
+    "binance_order_place",
+    config.symbol,
+    clientOrderId || exchangeRef || requestedByRef,
+  ].join(":")
+  const commandRef = `exchange_runtime_store:command/exchange-command-${sanitizeId(idempotencyKey)}`
+  return {
+    ...executionRecord,
+    exchange_command_ref: buildExchangeCommandRef({
+      command_ref: commandRef,
+      client_order_id: clientOrderId,
+      action: "place_entry",
+      status: explicitStatus || (confirmed ? "confirmed" : "submitted"),
+      idempotency_key: idempotencyKey,
+      request_ref: `${commandRef}:request`,
+      result_ref: `${commandRef}:result`,
+      exchange_order_ids: exchangeRef ? [exchangeRef] : [],
+      source_intent_ref: requestedByRef,
+    }),
   }
 }
 

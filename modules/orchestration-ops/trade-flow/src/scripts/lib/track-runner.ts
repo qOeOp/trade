@@ -1,19 +1,17 @@
-import { Database } from "bun:sqlite"
 import { dirname } from "node:path"
 import { appendCronLog, acquireCronLock, releaseCronLock } from "./cron-runtime"
-import { runFastTrackWorkflowDryRun } from "../../../../../live-decision-planning/fast-track-plan/src/lib/fast-track-plan"
-import { findActiveLaneConflicts, listActiveFlows } from "../../../../../portfolio-execution-state/flow-projector/src/lib/flow-projector"
-import { ensureSchema } from "../../../../../portfolio-execution-state/event-store/src/lib/event-store"
-import { runSlowTrackWorkflowDryRun } from "../../../../../live-decision-planning/slow-track-plan/src/lib/slow-track-plan"
-import { repoRoot } from "./paths"
+import { activeFlows as readActiveFlows } from "./flow-projector-client"
+import { resolveRegisteredOwnerTool } from "../../../../../contracts/runtime-core/src/owner-tool-registry"
+import { runJsonCommand } from "./tool-runner"
 import type { TrackMode } from "../commands/types"
 
 export const TRACK_DRY_RUN_TRACKS = ["slow", "fast"] as const
 export const TRACK_DRY_RUN_MODES = ["dry-run", "analysis-only", "workflow-dry-run"] as const
 
-export function buildTrackDryRunSummary(db: Database, track: Exclude<TrackMode, "">): Record<string, unknown> {
-  const activeFlows = listActiveFlows(db)
-  const laneConflicts = findActiveLaneConflicts(activeFlows)
+export function buildTrackDryRunSummary(dbPath: string, track: Exclude<TrackMode, "">): Record<string, unknown> {
+  const projection = readActiveFlows(dbPath)
+  const activeFlows = Array.isArray(projection.active_flows) ? projection.active_flows : []
+  const laneConflicts = Array.isArray(projection.lane_conflicts) ? projection.lane_conflicts : []
   return {
     track,
     mode: "dry-run",
@@ -25,9 +23,9 @@ export function buildTrackDryRunSummary(db: Database, track: Exclude<TrackMode, 
   }
 }
 
-export function runTrackDryRun(db: Database, track: Exclude<TrackMode, "">, dataDir: string): Record<string, unknown> {
+export function runTrackDryRun(dbPath: string, track: Exclude<TrackMode, "">, dataDir: string): Record<string, unknown> {
   return runTrackDryRunWithLock(track, dataDir, (lock) => ({
-    ...buildTrackDryRunSummary(db, track),
+    ...buildTrackDryRunSummary(dbPath, track),
     run_id: lock.lock.run_id,
   }))
 }
@@ -35,33 +33,29 @@ export function runTrackDryRun(db: Database, track: Exclude<TrackMode, "">, data
 export async function runTrackDryRunAtPath(dbPath: string, track: Exclude<TrackMode, "">): Promise<Record<string, unknown>> {
   const dataDir = dirname(dbPath)
   return runTrackDryRunWithLockAsync(track, dataDir, async (lock) => {
-    const db = new Database(dbPath)
-    try {
-      ensureSchema(db)
-      if (track === "slow") {
-        return await runSlowTrackWorkflowDryRun({
-          repoRoot: repoRoot(),
-          dataDir,
-          runId: lock.lock.run_id,
-          db,
-        })
-      }
-      if (track === "fast") {
-        return await runFastTrackWorkflowDryRun({
-          repoRoot: repoRoot(),
-          dataDir,
-          runId: lock.lock.run_id,
-          db,
-        })
-      }
-      return {
-        ...buildTrackDryRunSummary(db, track),
-        run_id: lock.lock.run_id,
-      }
-    } finally {
-      db.close()
+    if (track === "slow" || track === "fast") {
+      return await runOwnerTrackTool(track, dbPath, lock.lock.run_id)
+    }
+    return {
+      ...buildTrackDryRunSummary(dbPath, track),
+      run_id: lock.lock.run_id,
     }
   })
+}
+
+async function runOwnerTrackTool(track: "slow" | "fast", dbPath: string, runId: string): Promise<Record<string, unknown>> {
+  const toolId = track === "slow" ? "decision.slow-track-plan" : "execution.fast-track-guard"
+  const command = resolveRegisteredOwnerTool(toolId, ["--db", dbPath, "--json", JSON.stringify({ run_id: runId })])
+  const result = await runJsonCommand(command.argv, { cwd: command.cwd })
+  if (!result.ok) {
+    throw new Error(`${track} track owner tool failed: ${result.error}${result.stderr ? `; ${result.stderr.trim()}` : ""}`)
+  }
+  const response = result.data && typeof result.data === "object" ? result.data as Record<string, unknown> : {}
+  if (response.ok === false) {
+    throw new Error(`${track} track owner tool returned ok=false: ${typeof response.error === "string" ? response.error : "unknown error"}`)
+  }
+  const data = response.data && typeof response.data === "object" ? response.data as Record<string, unknown> : response
+  return data
 }
 
 async function runTrackDryRunWithLockAsync(

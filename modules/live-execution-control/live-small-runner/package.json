@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "typecheck": "tsc --noEmit",
-    "test": "bun test ./src/lib/*.test.ts",
+    "test": "bun test ./src/lib/*.test.ts ./src/scripts/*.test.ts",
     "lint": "bun run typecheck",
     "check": "bun run lint && bun run test"
   }

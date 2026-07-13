@@ -193,6 +193,15 @@ export function readFlowEvents(db: Database, chainId: string): PlanEvent[] {
   }))
 }
 
+export function listChainIds(db: Database): string[] {
+  const rows = db.query(`
+    SELECT DISTINCT chain_id
+    FROM plan_event
+    ORDER BY chain_id ASC
+  `).all() as Array<{ chain_id: string }>
+  return rows.map((row) => row.chain_id)
+}
+
 export function readLatestOrderFill(db: Database, chainId: string): JSONRecord | null {
   const row = db.query(`
     SELECT event_key, chain_id, kind, body_json, created_at

@@ -1,22 +1,37 @@
-import { Database } from "bun:sqlite"
 import { asRecord, stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
-import { runJsonCommand, type Runner } from "../../../../live-decision-planning/observe-runner/src/lib/observe-runner"
 import { unwrapToolResponse } from "../../../execution-recorder/src/lib/execution-recorder"
 import { buildReconcileDrafts } from "../../../reconcile-drafts/src/lib/reconcile-drafts"
-import { appendPlanEvent, readFlowEvents, type PlanEvent } from "../../../../portfolio-execution-state/event-store/src/lib/event-store"
-import { applyReconcileDrafts, reduceFlowState } from "../../../../portfolio-execution-state/flow-projector/src/lib/flow-projector"
+import { appendEvent, readFlowEvents } from "./event-store-client"
+import { applyReconcile, reduceFlow } from "./flow-projector-client"
+import { runJsonCommand, type Runner } from "./tool-runner"
+
+type PlanEvent = {
+  event_key: string
+  chain_id: string
+  kind: string
+  created_at: string
+  body_json: JSONRecord
+}
+
+interface RecoveryRuntime {
+  eventReader?: (dbPath: string, chainId: string) => JSONRecord[]
+  stateReader?: (dbPath: string, chainId: string) => JSONRecord
+  eventAppender?: (dbPath: string, event: JSONRecord) => JSONRecord
+  reconcileApplier?: (dbPath: string, reconcile: JSONRecord, yes: boolean) => JSONRecord
+}
 
 export const CRON_RECOVER_STATUSES = ["abort_unmatched_reconcile", "recovered_noop", "recovered_applied", "reconcile_draft_ready"] as const
 export type CronRecoverStatus = typeof CRON_RECOVER_STATUSES[number]
 
 export async function reconcileFromTools(
-  db: Database,
+  dbPath: string,
   chainId: string,
   input: JSONRecord,
   runner: Runner = runJsonCommand,
+  runtime: RecoveryRuntime = {},
 ): Promise<JSONRecord> {
-  const localEvents = readFlowEvents(db, chainId)
-  const localState = reduceFlowState(db, chainId)
+  const localEvents = (runtime.eventReader ?? readFlowEvents)(dbPath, chainId)
+  const localState = (runtime.stateReader ?? reduceFlow)(dbPath, chainId)
   const symbol = stringField(input.symbol) || inferFlowSymbol(localEvents, localState)
   if (!symbol) {
     throw new Error("symbol is required")
@@ -40,30 +55,41 @@ export async function reconcileFromTools(
   const accountSnapshot = unwrapToolResponse(snapshot.data)
   return buildReconcileDrafts({
     chain_id: chainId,
-    local_events: localEvents,
+    local_events: localEvents as unknown as Parameters<typeof buildReconcileDrafts>[0]["local_events"],
     local_state: localState,
     account_snapshot: accountSnapshot,
   }) as unknown as JSONRecord
 }
 
+export function reconcileLocalFlow(dbPath: string, chainId: string, accountSnapshot: JSONRecord, runtime: RecoveryRuntime = {}): JSONRecord {
+  const localEvents = (runtime.eventReader ?? readFlowEvents)(dbPath, chainId)
+  return buildReconcileDrafts({
+    chain_id: chainId,
+    local_events: localEvents as unknown as Parameters<typeof buildReconcileDrafts>[0]["local_events"],
+    local_state: (runtime.stateReader ?? reduceFlow)(dbPath, chainId),
+    account_snapshot: accountSnapshot,
+  }) as unknown as JSONRecord
+}
+
 export async function cronRecoverFromTools(
-  db: Database,
+  dbPath: string,
   chainId: string,
   input: JSONRecord,
   yes: boolean,
   runner: Runner = runJsonCommand,
+  runtime: RecoveryRuntime = {},
 ): Promise<JSONRecord> {
-  const before = reduceFlowState(db, chainId)
-  const reconcile = await reconcileFromTools(db, chainId, input, runner)
+  const before = (runtime.stateReader ?? reduceFlow)(dbPath, chainId)
+  const reconcile = await reconcileFromTools(dbPath, chainId, input, runner, runtime)
   if (Array.isArray(reconcile.unmatched) && reconcile.unmatched.length > 0) {
     const reviewEvent = buildNeedsReviewEvent(chainId, reconcile, input)
-    appendPlanEvent(db, reviewEvent)
+    ;(runtime.eventAppender ?? appendEvent)(dbPath, reviewEvent as unknown as JSONRecord)
     return {
       status: "abort_unmatched_reconcile",
       before,
       reconcile,
       review_event: reviewEvent,
-      after: reduceFlowState(db, chainId),
+      after: (runtime.stateReader ?? reduceFlow)(dbPath, chainId),
     }
   }
   const drafts = Array.isArray(reconcile.drafts) ? reconcile.drafts : []
@@ -76,13 +102,13 @@ export async function cronRecoverFromTools(
     }
   }
   if (input.apply_reconcile === true) {
-    const apply_result = applyReconcileDrafts(db, reconcile, yes)
+    const apply_result = (runtime.reconcileApplier ?? applyReconcile)(dbPath, reconcile, yes)
     return {
       status: "recovered_applied",
       before,
       reconcile,
       apply_result,
-      after: reduceFlowState(db, chainId),
+      after: (runtime.stateReader ?? reduceFlow)(dbPath, chainId),
     }
   }
   return {
@@ -110,9 +136,9 @@ function buildNeedsReviewEvent(chainId: string, reconcile: JSONRecord, input: JS
   }
 }
 
-function inferFlowSymbol(events: PlanEvent[], localState: JSONRecord): string {
+function inferFlowSymbol(events: JSONRecord[], localState: JSONRecord): string {
   for (let index = events.length - 1; index >= 0; index -= 1) {
-    const symbol = stringField(events[index].body_json.symbol)
+    const symbol = stringField(asRecord(events[index].body_json).symbol)
     if (symbol) {
       return symbol
     }

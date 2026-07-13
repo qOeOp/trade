@@ -1,8 +1,9 @@
 import { Database } from "bun:sqlite"
+import { buildDomainJobResult, validateDomainJobResult } from "../../../../contracts/domain-runtime/src/domain-runtime"
 import { asRecord, stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
-import { readFlowEvents } from "../../../../portfolio-execution-state/event-store/src/lib/event-store"
-import { reduceFlowState } from "../../../../portfolio-execution-state/flow-projector/src/lib/flow-projector"
 import { ensureGovernanceLedgerSchema, recordReviewBatch } from "../../../governance-ledger/src/lib/governance-ledger"
+import { listChainIds, readFlowEvents } from "./event-store-client"
+import { reduceFlow } from "./flow-projector-client"
 
 export interface ReviewCandidate {
   chain_id: string
@@ -16,21 +17,34 @@ export interface ReviewCandidate {
 
 export interface ClosedFlowReviewSweepResult {
   ok: boolean
-  ticket_no: "J08"
+  ticket_no: "J07"
   job_id: "closed_flow_review_sweep"
   batch_ref: string
   candidates: ReviewCandidate[]
+  runtime_result: JSONRecord
 }
 
-export function runClosedFlowReviewSweep(tradeDb: Database, governanceDb: Database, input: JSONRecord): ClosedFlowReviewSweepResult {
+export interface ClosedFlowReviewRuntime {
+  chainLister?: (dbPath: string) => string[]
+  eventReader?: (dbPath: string, chainId: string) => JSONRecord[]
+  flowStateReader?: (dbPath: string, chainId: string) => JSONRecord
+}
+
+export function runClosedFlowReviewSweep(
+  tradeDbPath: string,
+  governanceDb: Database,
+  input: JSONRecord,
+  runtime: ClosedFlowReviewRuntime = {},
+): ClosedFlowReviewSweepResult {
   ensureGovernanceLedgerSchema(governanceDb)
   const now = stringField(input.now) || new Date().toISOString()
   const candidateChainIds = stringList(input.candidate_chain_ids)
-  const chainIds = candidateChainIds.length > 0 ? candidateChainIds : readAllChainIds(tradeDb)
+  const chainIds = candidateChainIds.length > 0 ? candidateChainIds : readChainIds(tradeDbPath, runtime)
   const candidates = chainIds
-    .map((chainId) => reviewCandidateForChain(tradeDb, chainId))
+    .map((chainId) => reviewCandidateForChain(tradeDbPath, chainId, runtime))
     .filter((candidate): candidate is ReviewCandidate => candidate != null)
   const batchId = stringField(input.batch_id) || `review-batch-${now.replace(/[^0-9]/g, "") || crypto.randomUUID()}`
+  const batchRef = `governance_ledger:review_batch/${batchId}`
   recordReviewBatch(governanceDb, {
     batch_id: batchId,
     status: candidates.length > 0 ? "planned" : "skipped",
@@ -41,21 +55,44 @@ export function runClosedFlowReviewSweep(tradeDb: Database, governanceDb: Databa
     },
     created_at: now,
   })
+  const runtimeResult = buildDomainJobResult({
+    domain: "governance-review-compliance",
+    job_id: "closed_flow_review_sweep",
+    idempotency_key: stringField(input.idempotency_key) || `${stringField(input.cycle_id) || batchId}:J07`,
+    status: "ok",
+    input_refs: candidates.length > 0 ? candidates.map((candidate) => candidate.input_ref) : chainIds.map((chainId) => `trade_event_store:chain/${chainId}`),
+    output_refs: [batchRef],
+    writes: { governance_ledger: true },
+    incidents: [],
+    audit: {
+      cycle_id: stringField(input.cycle_id) || undefined,
+      ticket_no: "J07",
+      batch_id: batchId,
+      candidate_count: candidates.length,
+      scanned_chain_count: chainIds.length,
+    },
+  })
+  validateDomainJobResult(runtimeResult, ["governance_ledger"])
   return {
     ok: true,
-    ticket_no: "J08",
+    ticket_no: "J07",
     job_id: "closed_flow_review_sweep",
-    batch_ref: `governance_ledger:review_batch/${batchId}`,
+    batch_ref: batchRef,
     candidates,
+    runtime_result: runtimeResult,
   }
 }
 
-export function reviewCandidateForChain(db: Database, chainId: string): ReviewCandidate | null {
-  const events = readFlowEvents(db, chainId)
-  if (events.length === 0 || events.some((event) => event.kind === "review")) {
+export function reviewCandidateForChain(
+  tradeDbPath: string,
+  chainId: string,
+  runtime: ClosedFlowReviewRuntime = {},
+): ReviewCandidate | null {
+  const events = readStateEvents(tradeDbPath, chainId, runtime)
+  if (events.length === 0 || events.some((event) => stringField(event.kind) === "review")) {
     return null
   }
-  const state = reduceFlowState(db, chainId)
+  const state = readFlowState(tradeDbPath, chainId, runtime)
   const position = asRecord(state.current_position)
   const latestOrderFill = asRecord(state.latest_order_fill)
   if (stringField(position.state) !== "flat" || !stringField(latestOrderFill.event_key)) {
@@ -75,12 +112,18 @@ export function reviewCandidateForChain(db: Database, chainId: string): ReviewCa
   }
 }
 
-function readAllChainIds(db: Database): string[] {
-  const rows = db.query("SELECT DISTINCT chain_id FROM plan_event ORDER BY chain_id ASC").all() as Array<{ chain_id: string }>
-  return rows.map((row) => row.chain_id)
+function readChainIds(tradeDbPath: string, runtime: ClosedFlowReviewRuntime): string[] {
+  return (runtime.chainLister ?? listChainIds)(tradeDbPath)
+}
+
+function readStateEvents(tradeDbPath: string, chainId: string, runtime: ClosedFlowReviewRuntime): JSONRecord[] {
+  return (runtime.eventReader ?? readFlowEvents)(tradeDbPath, chainId)
+}
+
+function readFlowState(tradeDbPath: string, chainId: string, runtime: ClosedFlowReviewRuntime): JSONRecord {
+  return (runtime.flowStateReader ?? reduceFlow)(tradeDbPath, chainId)
 }
 
 function stringList(value: unknown): string[] {
   return Array.isArray(value) ? value.map(stringField).filter(Boolean) : []
 }
-

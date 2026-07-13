@@ -73,19 +73,17 @@ artifact-knowledge
 
 顶层域不继续按工具数量膨胀，但 `market-exchange-connectivity` 拆为 `market-data-products` 与 `exchange-gateway`：前者是数据产品 owner，后者是外部连接和 side effect owner。其他粗域内部用 capability lane 表达已实现功能。数据管线必须作为 data product pipeline 管理：`raw capture -> canonical facts -> features -> datasets -> experiments -> evidence -> policy/live -> review feedback`。每层只产 manifest/ref/hash/schema/freshness，不把大 payload 或临时实验状态直接塞进跨域通信。
 
-`automation-cycle` 输出的不是松散任务列表，而是一份 job graph 协议。每个 job ticket 必须声明编号、阶段、目标责任域、处理入口、输入引用、写入面、并发组、前置条件、输出契约和停止条件；subagent 只能按 ticket 授权工作，不能把总结当事实源，也不能扩大权限。`stage` 是串并行执行波次，不是业务域名；产品图优先展示 `J01...J09`，让本轮 fork 出多少 job 一眼可见。
+`automation-cycle` 输出的不是松散任务列表，而是一份 job graph 协议。每个 job ticket 必须声明编号、阶段、目标责任域、处理入口、输入引用、写入面、并发组、前置条件、输出契约和停止条件；subagent 只能按 ticket 授权工作，不能把总结当事实源，也不能扩大权限。`stage` 是串并行执行波次，不是业务域名；产品图优先展示 `J01...J07`，让本轮 fork 出多少 domain job 一眼可见。runtime health 与 notify 是 control tower lifecycle processors，不占 domain job 编号。
 
 | 编号 | Job ticket | 目标 | 可写入 | 不允许 |
 | --- | --- | --- | --- | --- |
-| `J01` | `runtime_health_guard` | 开跑前确认配置、数据、API、DB/lock、safe mode 与风险状态允许继续 | runtime health / cron log | 生成交易计划、写交易事件 |
-| `J02` | `account_reconcile_guard` | 先把本地投影和交易所事实对齐，无法归属则锁风险 / needs_review | `trade.db` reconcile event / needs_review | 新开风险、替代策略判断 |
-| `J03` | `fast_track_guard` | 守护 active flow、触发慢轨已授权动作、同步保护与对账 | `trade.db` light observe / order_fill | 新建 thesis、扩大风险、改策略 |
-| `J04` | `slow_track_market_watch` | 用 approved live-small 策略寻找和管理真钱机会 | `trade.db` full observe / action_intent；watchlist artifact | 绕过 preflight / execution contract、直接写 `order_fill` |
-| `J05` | `rd_strategy_supervisor` | 自主研发新策略，失败经验进入下一轮 hypothesis | research artifact / catalog / candidate draft refs | 写 `trade.db`、调用 Binance、无界搜索、直接进策略池 |
-| `J06` | `rd_forward_shadow_trackers` | 接着验证已冻结 / 已触发的 paper 或 shadow 样本 | R&D tracker artifact / catalog | 生成 strategy evidence、触发 Binance |
-| `J07` | `catalog_hygiene_scan` | 维护 artifact 可见性、引用、过期候选 | `data_catalog.db` | 删除未确认资产、影响交易事实 |
-| `J08` | `closed_flow_review_sweep` | 对已闭合 flow 做复盘并推动策略迭代 | `trade.db` review / review artifact | 与交易写入并行封口 |
-| `J09` | `ops_notify_dispatch` | 汇总异常、人工接管点和候选确认事项 | notify side effect | 改 flow 状态、补交易事实 |
+| `J01` | `account_reconcile_guard` | 先把本地投影和交易所事实对齐，无法归属则锁风险 / needs_review | reconcile / needs_review event draft | 新开风险、替代策略判断 |
+| `J02` | `fast_track_guard` | 守护 active flow、触发慢轨已授权动作、同步保护与对账 | light observe / order_fill event draft | 新建 thesis、扩大风险、改策略 |
+| `J03` | `slow_track_market_watch` | 用 approved live-small 策略寻找和管理真钱机会 | full observe / action_intent；watchlist artifact | 绕过 preflight / execution contract、直接写 `order_fill` |
+| `J04` | `rd_strategy_supervisor` | 自主研发新策略，失败经验进入下一轮 hypothesis | research artifact / catalog / candidate draft refs | 写 `trade.db`、调用 Binance、无界搜索、直接进策略池 |
+| `J05` | `rd_forward_shadow_trackers` | 接着验证已冻结 / 已触发的 paper 或 shadow 样本 | R&D tracker artifact / catalog | 生成 strategy evidence、触发 Binance |
+| `J06` | `catalog_hygiene_scan` | 维护 artifact 可见性、引用、过期候选 | `data_catalog.db` | 删除未确认资产、影响交易事实 |
+| `J07` | `closed_flow_review_sweep` | 对已闭合 flow 做复盘并推动策略迭代 | review / governance evidence | 与交易写入并行封口 |
 
 优雅点在于：总控每次只生成“本轮该跑什么”的协议票据；各 job ticket 自己有 cadence、权限和停止条件。真钱交易、shadow 验证、新策略研发、复盘迭代可以并行思考，但写事实时仍被 concurrency group 串行化。
 

@@ -1,22 +1,22 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
-import { Database } from "bun:sqlite"
 import { loadJsonFile, loadStrategies } from "../../../../contracts/strategy-policy/src/strategy-policy"
 import { asRecord, numberField, stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
 import { displayPath, displayPathFrom, resolvePathFrom } from "../../../../contracts/runtime-core/src/paths"
-import { loadRuntimePolicy } from "../../../../policy-risk/runtime-policy-compiler/src/lib/runtime-policy"
-import { listActiveFlows } from "../../../../portfolio-execution-state/flow-projector/src/lib/flow-projector"
 import { runJsonCommand, type Runner } from "../../../observe-runner/src/lib/observe-runner"
+import { activeFlows } from "./flow-projector-client"
+import { loadRuntimePolicyFromOwner } from "./runtime-policy-client"
 
 interface SlowTrackWorkflowInput {
   repoRoot: string
   dataDir: string
   runId: string
-  db: Database
+  dbPath: string
   candidateLimitPerSide?: number
   symbolSnapshotLimitPerSide?: number
   technicalAnalysisLimitPerSide?: number
   runner?: Runner
+  activeFlowCountReader?: (dbPath: string) => number
 }
 
 interface ToolCallResult {
@@ -28,7 +28,7 @@ interface ToolCallResult {
 function loadRuntime(accountConfigPath: string, strategiesDir: string): JSONRecord {
   const accountConfig = loadJsonFile(accountConfigPath)
   const strategies = loadStrategies(strategiesDir)
-  const { trading_config, runtime_policy } = loadRuntimePolicy({
+  const { trading_config, runtime_policy } = loadRuntimePolicyFromOwner({
     accountConfigPath,
   })
   return {
@@ -71,7 +71,7 @@ export async function runSlowTrackWorkflowDryRun(input: SlowTrackWorkflowInput):
     live_execution_allowed: false,
     run_id: input.runId,
     generated_at: new Date().toISOString(),
-    active_flow_count: listActiveFlows(input.db).length,
+    active_flow_count: readActiveFlowCount(input),
     strategy_pool: strategyPool,
     account_state: accountState,
     market_scan: {
@@ -105,6 +105,12 @@ export async function runSlowTrackWorkflowDryRun(input: SlowTrackWorkflowInput):
     ...report,
     artifact_path: displayPath(artifactPath, input.repoRoot),
   }
+}
+
+function readActiveFlowCount(input: SlowTrackWorkflowInput): number {
+  if (input.activeFlowCountReader) return input.activeFlowCountReader(input.dbPath)
+  const projection = activeFlows(input.dbPath)
+  return numberField(projection.active_flow_count) ?? readArray(projection.active_flows).length
 }
 
 async function fetchTechnicalAnalyses(

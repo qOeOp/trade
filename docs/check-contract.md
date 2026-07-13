@@ -93,7 +93,7 @@
 | research R&D artifact summary | `modules/research-strategy-development/rd-artifact-summary/src/**` | `rd-artifact-summary-check` |
 | strategy evidence / review / promotion | `modules/governance-review-compliance/strategy-review/src/**` | `strategy-review-check` |
 | artifact hygiene / catalog | `modules/artifact-knowledge/artifact-catalog/src/**` | `artifact-catalog-check` |
-| cron slow/fast track | `modules/live-decision-planning/slow-track-plan/src/**`, `modules/live-decision-planning/fast-track-plan/src/**`, `src/scripts/lib/track-runner.ts`, `src/scripts/lib/cron-runtime.ts` | `slow-track-plan-check` + `fast-track-plan-check` + `trade-flow-typecheck` + `bun test ./src/scripts/lib/cron-runtime.test.ts ./src/scripts/lib/track-dry-run-schema.test.ts` |
+| cron slow/fast track | `modules/live-decision-planning/slow-track-plan/src/**`, `modules/live-execution-control/fast-track-guard/src/**`, `src/scripts/lib/track-runner.ts`, `src/scripts/lib/cron-runtime.ts` | `slow-track-plan-check` + `fast-track-guard-check` + `trade-flow-typecheck` + `bun test ./src/scripts/lib/cron-runtime.test.ts ./src/scripts/lib/track-dry-run-schema.test.ts` |
 | preflight hard guard | `modules/live-execution-control/plan-preflight/**` | `plan-preflight-check` + trade-flow execution/recovery targeted tests if guard output shape changed |
 | Binance execute tool | `modules/exchange-gateway/binance-write/*` | corresponding `binance-ts-check` + trade-flow execution targeted tests；输出边界见 [execution-tool-contract.md](execution-tool-contract.md) |
 | market / account read tool | `modules/market-data-products/binance-read/*`, `modules/exchange-gateway/binance-read/account-snapshot` | corresponding `binance-ts-check` + observe/recovery targeted tests if consumed by trade-flow |

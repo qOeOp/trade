@@ -14,6 +14,7 @@ const rails = arrayOfRecords(manifest.rails)
 
 const domainIds = new Set(domains.map((domain) => stringField(domain.id)))
 const storeIds = new Set(stores.map((store) => stringField(store.id)))
+const railIds = new Set(rails.map((rail) => stringField(rail.id)))
 const jobTickets = new Set<string>()
 
 for (const domain of domains) {
@@ -52,7 +53,7 @@ for (const job of jobs) {
   }
 }
 
-for (const expected of ["J01", "J02", "J03", "J04", "J05", "J06", "J07", "J08", "J09"]) {
+for (const expected of expectedJobTickets(jobs.length)) {
   if (!jobTickets.has(expected)) {
     issues.push(`missing job ticket ${expected}`)
   }
@@ -91,6 +92,19 @@ for (const rail of rails) {
   requireField(rail, "id", "rail")
   checkStatus(rail, "rail")
   requirePath(stringField(rail.contract), `rail ${stringField(rail.id)} contract`)
+}
+
+const railRegistry = readJson("modules/contracts/protocol-fabric/src/schemas/rail-ownership-registry.schema.json")
+const schemaRails = arrayOfStrings(asRecord(asRecord(asRecord(railRegistry.items).properties).id).enum)
+for (const railId of schemaRails) {
+  if (!railIds.has(railId)) {
+    issues.push(`architecture manifest is missing rail ${railId}`)
+  }
+}
+for (const railId of railIds) {
+  if (!schemaRails.includes(railId)) {
+    issues.push(`architecture manifest has rail not in protocol registry ${railId}`)
+  }
 }
 
 const protocol = readJson("modules/contracts/protocol-fabric/src/schemas/logical-store-ref.schema.json")
@@ -154,6 +168,10 @@ function stringField(value: unknown): string {
 function ddlIncludesTable(ddl: string, table: string): boolean {
   const pattern = new RegExp(`CREATE\\s+TABLE\\s+(?:IF\\s+NOT\\s+EXISTS\\s+)?${escapeRegExp(table)}\\b`, "i")
   return pattern.test(ddl)
+}
+
+function expectedJobTickets(count: number): string[] {
+  return Array.from({ length: count }, (_, index) => `J${String(index + 1).padStart(2, "0")}`)
 }
 
 function escapeRegExp(value: string): string {

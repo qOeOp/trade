@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { repoRoot } from "../../../../contracts/runtime-core/src/paths"
+import { hashCanonical, replayDataHash, replayHarnessHash } from "../../../replay-engine/src/lib/replay-core"
 import { replayRegisteredStrategy } from "../../../replay-engine/src/lib/strategy-replay"
 
 type JSONRecord = Record<string, unknown>
@@ -18,6 +19,7 @@ interface Config {
   trialCount?: number
   parameterCount?: number
   antiOverfitStage?: "selection_validation" | "external_validation" | "locked_holdout"
+  fingerprint: boolean
   input: JSONRecord
 }
 
@@ -40,6 +42,9 @@ export function run(argv: string[]): JSONRecord {
 }
 
 function runConfig(config: Config): unknown {
+  if (config.fingerprint) {
+    return buildReplayFingerprint(config)
+  }
   const input = config.input
   const manifestPath = stringField(input.manifest_path) || stringField(input.manifestPath) || config.manifestPath
   if (!manifestPath) throw new Error("replay-runner requires --manifest or input.manifest_path")
@@ -64,6 +69,7 @@ function parseArgs(argv: string[]): Config {
     manifestPath: "",
     strategyId: "S-BTC-4H-TREND-PULLBACK",
     timeframe: "",
+    fingerprint: false,
     input: {},
   }
   for (let index = 0; index < argv.length; index += 1) {
@@ -81,12 +87,31 @@ function parseArgs(argv: string[]): Config {
       case "--trial-count": config.trialCount = Number(readValue(argv, ++index, arg)); break
       case "--parameter-count": config.parameterCount = Number(readValue(argv, ++index, arg)); break
       case "--anti-overfit-stage": config.antiOverfitStage = requiredAntiOverfitStage(readValue(argv, ++index, arg)); break
+      case "--fingerprint": config.fingerprint = true; break
       case "--json": config.input = readJson(readValue(argv, ++index, arg)); break
       case "--help": printHelp(); process.exit(0)
       default: throw new Error(`unknown flag: ${arg}`)
     }
   }
   return config
+}
+
+function buildReplayFingerprint(config: Config): JSONRecord {
+  const input = config.input
+  const manifestPath = stringField(input.manifest_path) || stringField(input.manifestPath) || config.manifestPath
+  const timeframe = stringField(input.timeframe) || config.timeframe
+  const supplementalDataRefs = stringArray(input.supplemental_data_refs ?? input.supplementalDataRefs)
+  const assumptions = asRecord(input.assumptions)
+  const result: JSONRecord = {
+    harness_hash: replayHarnessHash(),
+  }
+  if (manifestPath && timeframe) {
+    result.data_hash = replayDataHash(manifestPath, timeframe, supplementalDataRefs)
+  }
+  if (Object.keys(assumptions).length > 0) {
+    result.assumptions_hash = hashCanonical(assumptions)
+  }
+  return result
 }
 
 function readValue(argv: string[], index: number, name: string): string {
@@ -108,6 +133,14 @@ function stringField(value: unknown): string {
 function numberField(value: unknown): number | undefined {
   const number = Number(value)
   return Number.isFinite(number) ? number : undefined
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(stringField).filter(Boolean) : []
+}
+
+function asRecord(value: unknown): JSONRecord {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as JSONRecord : {}
 }
 
 function requiredAntiOverfitStage(value: string): Config["antiOverfitStage"] {
@@ -134,6 +167,7 @@ function errorResponse(error: unknown): JSONRecord {
 function printHelp(): void {
   console.log(`Usage:
   bun src/scripts/main.ts --manifest ./data/ohlcv/BTCUSDT/manifest.json --strategy-id S-BTC-4H-TREND-PULLBACK
+  bun src/scripts/main.ts --fingerprint --json '{"manifest_path":"./data/ohlcv/BTCUSDT/manifest.json","timeframe":"4h"}'
   bun src/scripts/main.ts --json '{"manifest_path":"./data/ohlcv/BTCUSDT/manifest.json"}'
 `)
 }

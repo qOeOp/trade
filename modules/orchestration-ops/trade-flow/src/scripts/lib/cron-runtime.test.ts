@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Database } from "bun:sqlite"
@@ -61,10 +61,12 @@ test("cron lock replaces stale lock", () => {
 })
 
 test("cron log writes json lines and track dry-run releases lock", () => {
-  const dir = mkdtempSync(join(tmpdir(), "trade-flow-cron-log-"))
-  const db = new Database(":memory:")
+  const dir = makeCheckDir("trade-flow-cron-log-")
+  const dbPath = join(dir, "trade.db")
+  const db = new Database(dbPath)
   try {
     ensureSchema(db)
+    db.close()
     const logPath = appendCronLog(dir, {
       run_id: "run-log-1",
       track: "slow",
@@ -77,13 +79,18 @@ test("cron log writes json lines and track dry-run releases lock", () => {
     })
     assert.equal(JSON.parse(readFileSync(resolveRepoPath(logPath), "utf8").trim()).run_id, "run-log-1")
 
-    const result = runTrackDryRun(db, "fast", dir) as { status?: string; cron_log_path: string }
+    const result = runTrackDryRun(dbPath, "fast", dir) as { status?: string; cron_log_path: string }
     assert.equal(result.status, undefined)
     assert.equal(existsSync(join(dir, ".trade-flow.lock")), false)
     const lines = readFileSync(resolveRepoPath(result.cron_log_path), "utf8").trim().split("\n")
     assert.equal(lines.length, 2)
   } finally {
-    db.close()
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+function makeCheckDir(prefix: string): string {
+  const checkRoot = join(process.cwd(), "../../..", "tmp/check")
+  mkdirSync(checkRoot, { recursive: true })
+  return mkdtempSync(join(checkRoot, prefix))
+}

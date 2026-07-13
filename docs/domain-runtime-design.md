@@ -2,7 +2,7 @@
 
 ## 定位
 
-`domain-runtime` 是各责任域共享的生命周期契约，不是业务框架，也不是消息中间件。
+`domain-runtime` 是全系统唯一的底层责任域生命周期契约，所有责任域共用；它不是某个业务域的私有 runtime，也不是消息中间件。
 
 它吸收 Spring Boot 里 lifecycle / interceptor / health / validation / failure analyzer 的优点，但在交易系统里必须显式、可审计、少魔法：
 
@@ -16,16 +16,16 @@ domain inbox
   -> domain outbox
 ```
 
-## 两级 Runtime
+## System Runtime 与 Control Tower Lifecycle
 
-顶层只有两级 runtime：
+系统只有一套底层 `domain-runtime`。`control tower lifecycle` 是 `orchestration-ops` 基于这套底层 runtime 做出的 cycle 编排特化，不是第二套平行 runtime。
 
-| Runtime | Owner | 作用 |
+| 层 | Owner | 作用 |
 | --- | --- | --- |
-| `control tower runtime` | `orchestration-ops` | 管 cycle 生命周期：`pre_cycle / pre_job / post_job / post_cycle` |
-| `domain runtime` | `contracts/domain-runtime` | 管单个域 job 生命周期：`pre_accept / pre_handle / post_handle / post_commit / on_error` |
+| `system domain-runtime` | `contracts/domain-runtime` | 所有责任域共享：`pre_accept / pre_handle / post_handle / post_commit / on_error` |
+| `control tower lifecycle` | `orchestration-ops` | 使用 system domain-runtime 管 cycle 生命周期：`pre_cycle / pre_job / post_job / post_cycle` |
 
-`control tower runtime` 负责本轮怎么跑；`domain runtime` 负责每个域如何安全接收、处理、提交和输出。
+`control tower lifecycle` 负责本轮怎么跑；`system domain-runtime` 负责任意责任域如何安全接收、处理、提交和输出。
 
 `pre_job` 是 job 出塔前的派发前处理：读取 health facts、trading profile-mode、cadence、lock、concurrency group、write owner 和 permission scope，过滤或标注 job ticket。它不判断行情、不改业务事实、不替代 domain preflight。
 
@@ -106,9 +106,11 @@ incident 生命周期：
 ```text
 open
   -> acknowledged
-  -> mitigated
   -> resolved
-  -> reviewed
+  -> reopened
+
+open / acknowledged
+  -> ignored
 ```
 
 `control effectiveness review` 消费 incident store、cycle summary、overrides 与 repeated failures，输出系统控制改进项。它复盘的是控制塔和 runtime 是否有效，不复盘单笔交易盈亏。

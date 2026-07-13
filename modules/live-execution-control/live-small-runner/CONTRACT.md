@@ -17,4 +17,6 @@
 
 ## Stable entrypoints
 
-- `runLiveSmall(db, input, yes, runner?)`
+- `runLiveSmall(dbPath, input, yes, runner?, runtime?)`
+
+State access goes through execution-flow-runner's state runtime and portfolio-execution-state owner tools by default. Tests may inject runtime readers/appender as behavior anchors.

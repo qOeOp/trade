@@ -1,9 +1,12 @@
 import { Database } from "bun:sqlite"
 import assert from "node:assert/strict"
 import test from "node:test"
-import { appendPlanEvent, ensureSchema } from "../../../../portfolio-execution-state/event-store/src/lib/event-store"
+import { appendPlanEvent, ensureSchema, listChainIds, readFlowEvents } from "../../../../portfolio-execution-state/event-store/src/lib/event-store"
+import { reduceFlowState } from "../../../../portfolio-execution-state/flow-projector/src/lib/flow-projector"
 import { ensureGovernanceLedgerSchema } from "../../../governance-ledger/src/lib/governance-ledger"
-import { reviewCandidateForChain, runClosedFlowReviewSweep } from "./closed-flow-review-sweep"
+import { reviewCandidateForChain, runClosedFlowReviewSweep, type ClosedFlowReviewRuntime } from "./closed-flow-review-sweep"
+
+const TEST_TRADE_DB_PATH = "test://trade.db"
 
 test("closed flow review sweep records candidates for flat unreviewed flows", () => {
   const tradeDb = new Database(":memory:")
@@ -12,15 +15,21 @@ test("closed flow review sweep records candidates for flat unreviewed flows", ()
   ensureGovernanceLedgerSchema(govDb)
   try {
     seedClosedFlow(tradeDb, "flow-closed")
-    const result = runClosedFlowReviewSweep(tradeDb, govDb, {
+    const result = runClosedFlowReviewSweep(TEST_TRADE_DB_PATH, govDb, {
       batch_id: "batch-closed",
       candidate_chain_ids: ["flow-closed"],
+      cycle_id: "cycle-j07-lib",
       now: "2026-07-11T00:00:00Z",
-    })
+    }, testRuntime(tradeDb))
     assert.equal(result.ok, true)
     assert.equal(result.candidates.length, 1)
     assert.equal(result.candidates[0].chain_id, "flow-closed")
     assert.equal(result.batch_ref, "governance_ledger:review_batch/batch-closed")
+    assert.equal(result.runtime_result.schema_id, "trade.domain-runtime.domain-job-result.v1")
+    assert.equal(result.runtime_result.domain, "governance-review-compliance")
+    assert.equal(result.runtime_result.job_id, "closed_flow_review_sweep")
+    assert.deepEqual(result.runtime_result.writes, { governance_ledger: true })
+    assert.deepEqual(result.runtime_result.output_refs, ["governance_ledger:review_batch/batch-closed"])
     const row = govDb.query("SELECT status, summary_json FROM review_batch WHERE batch_id='batch-closed'").get() as { status: string; summary_json: string }
     assert.equal(row.status, "planned")
     assert.equal(JSON.parse(row.summary_json).candidate_count, 1)
@@ -49,11 +58,19 @@ test("closed flow review sweep skips already reviewed and still-open flows", () 
         promote_to_strategy: false,
       },
     })
-    assert.equal(reviewCandidateForChain(tradeDb, "flow-reviewed"), null)
+    assert.equal(reviewCandidateForChain(TEST_TRADE_DB_PATH, "flow-reviewed", testRuntime(tradeDb)), null)
   } finally {
     tradeDb.close()
   }
 })
+
+function testRuntime(db: Database): ClosedFlowReviewRuntime {
+  return {
+    chainLister: () => listChainIds(db),
+    eventReader: (_dbPath, chainId) => readFlowEvents(db, chainId) as unknown as Record<string, unknown>[],
+    flowStateReader: (_dbPath, chainId) => reduceFlowState(db, chainId),
+  }
+}
 
 function seedClosedFlow(db: Database, chainId: string): void {
   appendPlanEvent(db, {
@@ -105,4 +122,3 @@ function seedClosedFlow(db: Database, chainId: string): void {
     },
   })
 }
-

@@ -1,10 +1,8 @@
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { isAbsolute, join } from "node:path"
-import { Database } from "bun:sqlite"
 import assert from "node:assert/strict"
 import test from "node:test"
-import { ensureSchema } from "../../../../portfolio-execution-state/event-store/src/lib/event-store"
 import type { Runner } from "../../../observe-runner/src/lib/observe-runner"
 import { runSlowTrackWorkflowDryRun } from "./slow-track-plan"
 
@@ -22,8 +20,6 @@ test("slow track workflow dry-run builds real watchlist without live action", as
     join(repoRoot, "strategies/s-btc.md"),
     "---\nstrategy_id: S-BTC\nname: BTC Live\nstatus: live-small\ntags: [btc, usdm]\n---\nbody\n",
   )
-  const db = new Database(":memory:")
-  ensureSchema(db)
   const calls: Array<{ command: string[]; cwd?: string }> = []
   const runner: Runner = async (command, options) => {
     calls.push({ command, cwd: options?.cwd })
@@ -112,7 +108,8 @@ test("slow track workflow dry-run builds real watchlist without live action", as
       repoRoot,
       dataDir,
       runId: "run-slow-test",
-      db,
+      dbPath: join(dataDir, "trade.db"),
+      activeFlowCountReader: () => 0,
       runner,
     })
     assert.equal(result.mode, "analysis-only")
@@ -134,7 +131,6 @@ test("slow track workflow dry-run builds real watchlist without live action", as
     assert.match(readFileSync(join(repoRoot, String(result.artifact_path)), "utf8"), /BTCUSDT/)
     assert.equal(calls.some((call) => call.command.includes("--run-live-small")), false)
   } finally {
-    db.close()
     rmSync(repoRoot, { recursive: true, force: true })
   }
 })
@@ -147,8 +143,6 @@ test("slow track workflow reports account snapshot unavailable without inventing
   mkdirSync(dataDir, { recursive: true })
   writeFileSync(join(repoRoot, "profile/account_config.json"), "{}")
   writeFileSync(join(repoRoot, "strategies/s-draft.md"), "---\nstrategy_id: S-DRAFT\nstatus: draft\n---\n")
-  const db = new Database(":memory:")
-  ensureSchema(db)
   const runner: Runner = async (_command, options) => {
     if (options?.cwd?.endsWith("exchange-gateway/binance-read/account-snapshot")) {
       return { ok: false, error: "missing env", stdout: "", stderr: "", exitCode: 1 }
@@ -164,14 +158,14 @@ test("slow track workflow reports account snapshot unavailable without inventing
       repoRoot,
       dataDir,
       runId: "run-no-account",
-      db,
+      dbPath: join(dataDir, "trade.db"),
+      activeFlowCountReader: () => 0,
       runner,
     })
     assert.equal(isAbsolute(String(result.artifact_path)), false)
     assert.equal((result.account_state as { ok: boolean }).ok, false)
     assert.equal((result.trade_decision as { reason: string }).reason, "account_snapshot_unavailable")
   } finally {
-    db.close()
     rmSync(repoRoot, { recursive: true, force: true })
   }
 })
@@ -184,8 +178,6 @@ test("slow track workflow analyzes every default watchlist candidate", async () 
   mkdirSync(dataDir, { recursive: true })
   writeFileSync(join(repoRoot, "profile/account_config.json"), "{}")
   writeFileSync(join(repoRoot, "strategies/s-draft.md"), "---\nstrategy_id: S-DRAFT\nstatus: draft\n---\n")
-  const db = new Database(":memory:")
-  ensureSchema(db)
   const analyzedSymbols: string[] = []
   const runner: Runner = async (command, options) => {
     if (options?.cwd?.endsWith("exchange-gateway/binance-read/account-snapshot")) {
@@ -249,14 +241,14 @@ test("slow track workflow analyzes every default watchlist candidate", async () 
       repoRoot,
       dataDir,
       runId: "run-full-analysis",
-      db,
+      dbPath: join(dataDir, "trade.db"),
+      activeFlowCountReader: () => 0,
       runner,
     })
     assert.equal(isAbsolute(String(result.artifact_path)), false)
     assert.deepEqual(analyzedSymbols, ["AAAUSDT", "BBBUSDT", "CCCUSDT"])
     assert.equal((result.watchlist as Array<{ technical_analysis: { indicators?: { ok?: boolean } } }>)[2].technical_analysis.indicators?.ok, true)
   } finally {
-    db.close()
     rmSync(repoRoot, { recursive: true, force: true })
   }
 })

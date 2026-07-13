@@ -2,8 +2,8 @@ import { Database } from "bun:sqlite"
 import assert from "node:assert/strict"
 import test from "node:test"
 import { compileExecutionContract, type ExecutionContractInput } from "../../../../contracts/execution-contract/src/execution-contract"
-import { appendPlanEvent, ensureSchema } from "../../../../portfolio-execution-state/event-store/src/lib/event-store"
-import { buildMockExecutionResult, evaluateIdempotency } from "./execution-flow-runner"
+import { appendPlanEvent, ensureSchema, readFlowEvents } from "../../../../portfolio-execution-state/event-store/src/lib/event-store"
+import { buildMockExecutionResult, evaluateIdempotency, type ExecutionStateRuntime } from "./execution-flow-runner"
 
 test("mock execution result is deterministic for one contract entry", () => {
   const result = buildMockExecutionResult(contract(), "shadow")
@@ -36,13 +36,19 @@ test("idempotency gate skips an already recorded source observe", () => {
       },
     })
 
-    const gate = evaluateIdempotency(db, contract()) as { status: string; reason?: string }
+    const gate = evaluateIdempotency("test://trade.db", contract(), stateRuntime(db)) as { status: string; reason?: string }
     assert.equal(gate.status, "skipped")
     assert.equal(gate.reason, "source_observe_already_recorded")
   } finally {
     db.close()
   }
 })
+
+function stateRuntime(db: Database): ExecutionStateRuntime {
+  return {
+    eventReader: (_dbPath, chainId) => readFlowEvents(db, chainId) as unknown as Record<string, unknown>[],
+  }
+}
 
 function contract() {
   return compileExecutionContract({

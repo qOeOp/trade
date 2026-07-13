@@ -41,6 +41,8 @@ flowchart LR
     FTITLE["通信协议层<br/>protocol fabric / logical bus"]
     FSPAD[" "]
     SCHEMAS["contract schema registry<br/>job / command / event / ref / store envelopes"]
+    RAILHDR["rail envelope header<br/>rail / source / target / schema / idempotency / refs"]
+    RAILACL["rail ownership registry<br/>publishers / consumers / retention"]
     DOMAINRT["domain runtime contract<br/>hooks / result envelope / failure classes"]
     COMMAND["command rail<br/>job tickets / command_spec / retry key"]
     OPSRAIL["ops rail<br/>health facts / incident refs / cycle summary"]
@@ -54,6 +56,9 @@ flowchart LR
     GOVRAIL["governance rail<br/>evidence / promotion decision refs"]
     FTITLE ~~~ FSPAD
     FSPAD ~~~ SCHEMAS
+    SCHEMAS -. "schema governs" .-> RAILHDR
+    RAILHDR -. "rail route + refs" .-> RAILACL
+    RAILACL -. "allowed pub/sub" .-> DOMAINRT
     SCHEMAS -. "schema governs" .-> DOMAINRT
     SCHEMAS -. "schema governs" .-> COMMAND
     SCHEMAS -. "schema governs" .-> OPSRAIL
@@ -87,14 +92,15 @@ flowchart LR
     direction TB
     PTITLE["政策与风险域<br/>policy-risk"]
     PPAD[" "]
-    PIN["domain inbox<br/>config / health / evidence refs"]
+    PIN["domain inbox<br/>config / ops / governance refs"]
     TCFG["trading config<br/>项目级交易配置"]
-    STRAT["approved strategy contracts<br/>策略池 / Trade Contract"]
-    RP["runtime policy<br/>权限 / 风险 / 成本模型"]
-    RISKAUTH["risk authority<br/>trading profile-mode / kill switch / reduce-only"]
-    INCIDENT[("incident / override registry<br/>pause / reduce-only / manual approval")]
-    POLSTORE[("policy snapshot registry<br/>policy hash / approved status / mode")]
-    POUT["domain outbox<br/>runtime policy + trading mode snapshot"]
+    STRAT["approved strategy contracts<br/>governance-approved Trade Contract"]
+    RP["runtime policy compiler<br/>权限 / 风险上限 / 成本模型"]
+    RISKAUTH["trading mode authority<br/>mode state machine / kill switch / reduce-only"]
+    OVERRIDE[("mode override ledger<br/>manual override / downgrade reason refs")]
+    POLSTORE[("policy snapshot registry<br/>policy hash / approved refs")]
+    MODESTORE[("mode decision ledger<br/>profile-mode / reason refs / expiry")]
+    POUT["domain outbox<br/>runtime policy + mode snapshot refs"]
     PTITLE ~~~ PPAD
     PPAD ~~~ PIN
     PIN --> STRAT
@@ -103,10 +109,12 @@ flowchart LR
     STRAT --> POLSTORE
     PIN --> RISKAUTH
     RP --> RISKAUTH
-    RISKAUTH --> INCIDENT
-    INCIDENT --> POLSTORE
-    RISKAUTH --> POLSTORE
+    RISKAUTH --> OVERRIDE
+    OVERRIDE --> MODESTORE
+    RISKAUTH --> MODESTORE
+    RP --> POLSTORE
     POLSTORE --> POUT
+    MODESTORE --> POUT
   end
 
   subgraph STATE[" "]
@@ -114,16 +122,20 @@ flowchart LR
     STITLE["组合与执行状态域<br/>portfolio-execution-state"]
     SPAD[" "]
     SIN["domain inbox<br/>event write envelopes"]
-    TDB[("trade.db<br/>plan_event<br/>observe / order_fill / review")]
-    PROJ["flow projector<br/>active flows / open risk<br/>closed-unreviewed flows"]
+    APPEND["event owner tools<br/>append / read / latest fill / chain scan"]
+    TDB[("trade_event_store<br/>append-only plan_event<br/>observe / order_fill / review")]
+    PROJ["flow projector<br/>active flows / open risk<br/>latest slow observe"]
     FLOWIDX[("flow read models<br/>active / exposure / review queue")]
-    SOUT["domain outbox<br/>read model refs"]
+    PUBLISH["read-model publisher<br/>projection refs / freshness / rebuildable"]
+    SOUT["domain outbox<br/>flow read model refs"]
     STITLE ~~~ SPAD
     SPAD ~~~ SIN
-    SIN --> TDB
+    SIN --> APPEND
+    APPEND --> TDB
     TDB --> PROJ
     PROJ --> FLOWIDX
-    FLOWIDX --> SOUT
+    FLOWIDX --> PUBLISH
+    PUBLISH --> SOUT
   end
 
   subgraph MARKETDATA[" "]
@@ -131,42 +143,57 @@ flowchart LR
     MDTITLE["市场数据产品域<br/>market-data-products"]
     MDPAD[" "]
     MDIN["domain inbox<br/>market refresh / query refs"]
+    MDROUTE["market request router<br/>refresh / query / dataset build"]
     SCAN["universe / liquidity scan<br/>可交易性粗筛"]
     SNAP["symbol snapshot<br/>mark / funding / OI"]
     RAWMD["raw market capture<br/>OHLCV / funding / aggtrades"]
+    MDQUAL["data quality gate<br/>closed candle / gaps / checksum / freshness"]
     MSTORE[("canonical market store<br/>closed candles / funding / checksums")]
     TECH["feature engine<br/>indicator / structure / regime"]
     DSETS["dataset manifests<br/>panel / split / feature refs"]
+    MDPUB["market fact publisher<br/>freshness / time window / refs"]
     MDOUT["domain outbox<br/>market facts / dataset refs"]
     MDTITLE ~~~ MDPAD
     MDPAD ~~~ MDIN
-    MDIN --> RAWMD
-    MDIN --> SCAN
-    MDIN --> SNAP
-    RAWMD --> MSTORE
+    MDIN --> MDROUTE
+    MDROUTE --> RAWMD
+    MDROUTE --> SCAN
+    MDROUTE --> SNAP
+    RAWMD --> MDQUAL
+    MDQUAL --> MSTORE
     MSTORE --> TECH
     TECH --> DSETS
-    SCAN --> MDOUT
-    SNAP --> MDOUT
-    TECH --> MDOUT
-    DSETS --> MDOUT
+    SCAN --> MDPUB
+    SNAP --> MDPUB
+    TECH --> MDPUB
+    DSETS --> MDPUB
+    MDPUB --> MDOUT
   end
 
   subgraph EXCHANGE[" "]
     direction TB
     XTITLE["交易所网关域<br/>exchange-gateway"]
     XPAD[" "]
-    XIN["domain inbox<br/>account read / authorized write requests"]
-    ACC["account / order snapshot<br/>账户 / 仓位 / 挂单 / fills"]
+    XIN["domain inbox<br/>read requests / authorized write requests"]
+    XROUTE["exchange request router<br/>read vs write / mode / idempotency"]
+    ACC["account fact reader<br/>账户 / 仓位 / 挂单 / fills"]
+    WRITEPRE["write pre-adapter gate<br/>authorized mode / client id / exchange rules"]
     WRITE["exchange write adapter<br/>下单 / 撤单 / 保护 / 减仓"]
-    XLEDGER[("exchange command ledger<br/>client order id / request-result refs")]
-    XOUT["domain outbox<br/>account facts / write result refs"]
+    CONFIRM["post-write confirmation<br/>result normalize / account-order reread"]
+    XLEDGER[("exchange command ledger<br/>command / request / result / confirmation refs")]
+    XOUT["domain outbox<br/>account facts / write result / confirmation refs"]
     XTITLE ~~~ XPAD
     XPAD ~~~ XIN
-    XIN --> ACC
-    XIN --> WRITE
+    XIN --> XROUTE
+    XROUTE --> ACC
+    XROUTE --> WRITEPRE
+    WRITEPRE --> XLEDGER
+    WRITEPRE --> WRITE
+    WRITE --> CONFIRM
+    CONFIRM --> XLEDGER
+    ACC --> XLEDGER
     ACC --> XOUT
-    WRITE --> XLEDGER
+    WRITE -->|"submit result"| XLEDGER
     XLEDGER --> XOUT
   end
 
@@ -174,38 +201,52 @@ flowchart LR
     direction TB
     DTITLE["现场决策域<br/>live-decision-planning"]
     DPAD[" "]
-    DIN["domain inbox<br/>J03 + input refs"]
+    DIN["domain inbox<br/>J03 + policy / market / flow refs"]
+    DASM["decision input assembler<br/>policy + market + flow + evidence refs"]
     WATCH["opportunity planner<br/>watchlist / thesis / no_action"]
-    ALLOC["sizing / risk-budget planner<br/>entry / stop / action_intent"]
+    PLAN["trade plan builder<br/>entry / stop / invalidation / trigger"]
+    ALLOC["sizing / risk-budget planner<br/>size / exposure budget / expiry"]
+    DPUB["action intent publisher<br/>intent refs / no_action reason"]
     DOUT["domain outbox<br/>intent / watchlist refs"]
     DTITLE ~~~ DPAD
     DPAD ~~~ DIN
-    DIN --> WATCH
-    WATCH --> ALLOC
-    ALLOC --> DOUT
+    DIN --> DASM
+    DASM --> WATCH
+    WATCH --> PLAN
+    WATCH -->|"no_action"| DPUB
+    PLAN --> ALLOC
+    ALLOC --> DPUB
+    DPUB --> DOUT
   end
 
   subgraph CONTROL[" "]
     direction TB
     CTITLE["受控执行域<br/>live-execution-control"]
     CPAD[" "]
-    CIN["domain inbox<br/>J01 / J02 + executable intents"]
-    REC["recovery-runner / reconcile-drafts<br/>恢复与对账"]
-    FAST["execution-flow-runner<br/>fast guard / dry-run / shadow"]
-    EXEC["live-small-runner<br/>explicit yes / command_spec execution"]
-    PREF["preflight / hard guards<br/>确定性风控"]
-    EXECREC["execution recorder<br/>order_fill / blocked observe"]
+    CIN["domain inbox<br/>J01 / J02 + executable intents / exchange result refs"]
+    EROUTE["execution action router<br/>reconcile / fast / live-small / record"]
+    REC["recovery runner<br/>reconcile drafts / needs_review"]
+    FAST["fast guard<br/>trigger / protection / defense"]
+    EXEC["live-small runner<br/>explicit yes / live command"]
+    EGATE["execution gate<br/>trigger / idempotency / mode scope"]
+    PREF["preflight / hard guards<br/>policy + flow + exchange + market facts"]
+    CMDCOMP["execution command compiler<br/>command_spec / contract snapshot"]
+    EXECREC["execution recorder<br/>exchange result -> order_fill draft<br/>blocked -> observe draft"]
     COUT["domain outbox<br/>event drafts / exchange command refs"]
     CTITLE ~~~ CPAD
     CPAD ~~~ CIN
-    CIN --> REC
-    CIN --> FAST
-    CIN --> EXEC
-    EXEC --> PREF
-    PREF -->|"pass"| COUT
+    CIN --> EROUTE
+    EROUTE --> REC
+    EROUTE --> FAST
+    EROUTE --> EXEC
+    EROUTE --> EXECREC
+    REC --> EXECREC
+    FAST --> EGATE
+    EXEC --> EGATE
+    EGATE --> PREF
+    PREF -->|"pass"| CMDCOMP
     PREF -->|"blocked"| EXECREC
-    REC --> COUT
-    FAST --> COUT
+    CMDCOMP --> COUT
     EXECREC --> COUT
   end
 
@@ -213,24 +254,33 @@ flowchart LR
     direction TB
     RDTITLE["策略研发域<br/>research-strategy-development"]
     RPAD[" "]
-    RIN["domain inbox<br/>J04 / J05 + research refs"]
-    RDSUP["research supervisor<br/>hypothesis loop"]
-    RDTOOLS["experiment runners<br/>split / replay / panel / candidate / benchmark"]
-    SIGEVAL["signal evaluator<br/>latest signal / candidate check"]
+    RIN["domain inbox<br/>J04 / J05 + research / data refs"]
+    RDSUP["research supervisor<br/>hypothesis queue / budget / lessons"]
+    RDDESIGN["experiment design gate<br/>dataset manifest / split / leakage / budget"]
+    RDTOOLS["experiment runners<br/>replay / panel / candidate / benchmark"]
+    SIGEVAL["signal evaluator<br/>performance / robustness / failure reason"]
+    FREEZE["candidate freezer<br/>gated draft / assumptions / limits"]
     SHADOW["shadow tracker<br/>forward / paper samples"]
-    RDSTATE[("rd state store<br/>hypothesis / budget / lessons")]
-    ROUT["domain outbox<br/>research / shadow refs"]
+    SHADOWLEDGER[("shadow ledger<br/>paper fills / sample health / drift")]
+    RDSTATE[("rd state store<br/>hypothesis / budget / lessons / queue")]
+    RDPUB["research evidence publisher<br/>artifact refs / candidate refs"]
+    ROUT["domain outbox<br/>research / shadow / candidate refs"]
     RDTITLE ~~~ RPAD
     RPAD ~~~ RIN
     RIN --> RDSUP
     RIN --> SHADOW
-    RDSUP --> RDTOOLS
+    RDSUP --> RDDESIGN
+    RDDESIGN --> RDTOOLS
     RDTOOLS --> SIGEVAL
     RDTOOLS -->|"实验结果 / lessons"| RDSTATE
+    SIGEVAL --> FREEZE
+    SIGEVAL -->|"failure / calibration lessons"| RDSTATE
     RDSTATE -->|"next hypothesis refs"| RDSUP
-    RDSUP --> ROUT
-    SHADOW --> ROUT
-    RDSTATE --> ROUT
+    FREEZE --> RDPUB
+    SHADOW --> SHADOWLEDGER
+    SHADOWLEDGER --> RDPUB
+    RDSTATE --> RDPUB
+    RDPUB --> ROUT
   end
 
   subgraph GOV[" "]
@@ -238,17 +288,22 @@ flowchart LR
     GTITLE["治理复盘域<br/>governance-review-compliance"]
     GPAD[" "]
     GIN["domain inbox<br/>J07 + evidence refs"]
-    REVIEW["closed-flow reviewer<br/>交易复盘 / 资格反馈"]
-    PROMO["promotion gate<br/>资格判定 / evidence"]
-    GOVLEDGER[("governance ledger<br/>evidence / promotion decisions")]
+    EVGATE["evidence intake gate<br/>freshness / data hash / policy hash"]
+    REVIEW["closed-flow reviewer<br/>execution attribution / cost / slippage"]
+    PROMO["promotion gate<br/>candidate qualification / expiry"]
+    POLFB["policy feedback compiler<br/>risk limits / deprecation suggestions"]
+    GOVLEDGER[("governance ledger<br/>review / promotion / feedback decisions")]
     GOUT["domain outbox<br/>review / promotion refs"]
     GTITLE ~~~ GPAD
     GPAD ~~~ GIN
-    GIN --> REVIEW
-    GIN --> PROMO
+    GIN --> EVGATE
+    EVGATE --> REVIEW
+    EVGATE --> PROMO
     REVIEW --> PROMO
+    REVIEW --> POLFB
     REVIEW --> GOVLEDGER
     PROMO --> GOVLEDGER
+    POLFB --> GOVLEDGER
     GOVLEDGER --> GOUT
   end
 
@@ -257,16 +312,23 @@ flowchart LR
     ATITLE["知识资产域<br/>artifact-knowledge"]
     APAD[" "]
     AIN["domain inbox<br/>artifact register / query / GC"]
-    CAT["catalog service<br/>索引 / stale / GC"]
-    RETAIN["retention / pin / lineage<br/>保留 / 引用 / 血缘"]
+    AREG["artifact intake gate<br/>schema / hash / owner / refs"]
+    CAT["catalog service<br/>index / stale / discoverability"]
+    LINEAGE["lineage indexer<br/>source refs / derived refs / backlinks"]
+    RETAIN["retention / pin / GC planner<br/>保留 / 引用 / 清理候选"]
     ART[("data_catalog.db + artifacts<br/>研究 / 盯市 / 复盘资产")]
-    AOUT["domain outbox<br/>catalog summary refs"]
+    APUB["catalog summary publisher<br/>query result / stale candidate refs"]
+    AOUT["domain outbox<br/>catalog summary / lineage refs"]
     ATITLE ~~~ APAD
     APAD ~~~ AIN
-    AIN --> CAT
-    CAT --> RETAIN
+    AIN --> AREG
+    AIN --> APUB
+    AREG --> CAT
+    CAT --> LINEAGE
+    LINEAGE --> RETAIN
     RETAIN --> ART
-    ART --> AOUT
+    ART --> APUB
+    APUB --> AOUT
   end
 
   OOUT --> COMMAND
@@ -280,13 +342,13 @@ flowchart LR
   COMMAND --> J06
   COMMAND --> J07
 
-  J01 --> CIN
-  J02 --> CIN
-  J03 --> DIN
-  J04 --> RIN
-  J05 --> RIN
-  J06 --> AIN
-  J07 --> GIN
+  J01 -. "command ticket" .-> CIN
+  J02 -. "command ticket" .-> CIN
+  J03 -. "command ticket" .-> DIN
+  J04 -. "command ticket" .-> RIN
+  J05 -. "command ticket" .-> RIN
+  J06 -. "command ticket" .-> AIN
+  J07 -. "command ticket" .-> GIN
 
   J01 -. "job result refs" .-> OIN
   J02 -. "job result refs" .-> OIN
@@ -308,6 +370,7 @@ flowchart LR
   POLICYRAIL -. "trading mode gates" .-> DIN
   POLICYRAIL -. "trading mode gates" .-> CIN
   POLICYRAIL -. "authorized write mode" .-> XIN
+  EXCHANGERAIL -. "result / account refs" .-> CIN
   DOMAINRT -. "domain lifecycle gates" .-> PIN
   DOMAINRT -. "domain lifecycle gates" .-> SIN
   DOMAINRT -. "domain lifecycle gates" .-> MDIN
@@ -357,16 +420,16 @@ flowchart LR
   classDef domainTitle fill:transparent,stroke:transparent,color:#1f2937,stroke-width:0px;
 
   class ENTRY,CYCLE,GRAPH,RP,TCFG,STRAT,RISKAUTH center;
-  class COMMAND,OPSRAIL,FACT,POLICYRAIL,MARKETRAIL,EXCHANGERAIL,DATARAIL,ARTIFACTRAIL,GOVRAIL,SCHEMAS,DOMAINRT rail;
+  class COMMAND,OPSRAIL,FACT,POLICYRAIL,MARKETRAIL,EXCHANGERAIL,DATARAIL,ARTIFACTRAIL,GOVRAIL,SCHEMAS,RAILHDR,RAILACL,DOMAINRT rail;
   class OIN,OOUT,PIN,POUT,SIN,SOUT,MDIN,MDOUT,XIN,XOUT,DIN,DOUT,CIN,COUT,RIN,ROUT,GIN,GOUT,AIN,AOUT port;
   class HOOKS,HEALTH,POST,IMGR,CREVIEW,NOTIFY handler;
   class J01,J02,J03,J04,J05,J06,J07 ticket;
-  class TDB,PROJ,FLOWIDX,OPSLOG,INCIDENTSTORE,POLSTORE,INCIDENT,XLEDGER state;
-  class WATCH,ALLOC,EXEC,PREF,REC,FAST,EXECREC trade;
-  class RDSTATE,RDTOOLS,RDSUP,SIGEVAL,SHADOW research;
-  class SCAN,SNAP,RAWMD,TECH,DSETS,MSTORE market;
-  class ACC,WRITE market;
-  class REVIEW,PROMO,GOVLEDGER gov;
-  class CAT,RETAIN,ART artifact;
+  class TDB,PROJ,FLOWIDX,OPSLOG,INCIDENTSTORE,POLSTORE,OVERRIDE,MODESTORE,XLEDGER state;
+  class DASM,WATCH,PLAN,ALLOC,DPUB,EXEC,EGATE,PREF,CMDCOMP,EROUTE,REC,FAST,EXECREC,APPEND,PUBLISH trade;
+  class RDSTATE,RDTOOLS,RDSUP,RDDESIGN,SIGEVAL,FREEZE,SHADOW,SHADOWLEDGER,RDPUB research;
+  class MDROUTE,SCAN,SNAP,RAWMD,MDQUAL,TECH,DSETS,MSTORE,MDPUB market;
+  class ACC,WRITEPRE,WRITE,CONFIRM,XROUTE market;
+  class EVGATE,REVIEW,PROMO,POLFB,GOVLEDGER gov;
+  class AREG,CAT,LINEAGE,RETAIN,ART,APUB artifact;
   class OPAD,FSPAD,JSPAD,PPAD,SPAD,MDPAD,XPAD,DPAD,CPAD,RPAD,GPAD,APAD spacer;
   class ORTITLE,FTITLE,JTITLE,PTITLE,STITLE,MDTITLE,XTITLE,DTITLE,CTITLE,RDTITLE,GTITLE,ATITLE domainTitle;

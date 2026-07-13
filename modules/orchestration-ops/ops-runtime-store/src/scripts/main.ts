@@ -2,7 +2,22 @@
 
 import { Database } from "bun:sqlite"
 import { readFileSync } from "node:fs"
-import { buildCycleRun, buildDomainMessage, buildJobRun, ensureOpsRuntimeSchema, readCycleSummary, readDomainMessages, upsertCycleRun, upsertDomainMessage, upsertJobRun } from "../lib/ops-runtime-store"
+import {
+  buildCycleRun,
+  buildDomainMessage,
+  buildIncident,
+  buildJobRun,
+  ensureOpsRuntimeSchema,
+  readCycleSummary,
+  readDomainMessages,
+  readIncidentEvents,
+  readIncidents,
+  recordIncident,
+  updateIncidentStatus,
+  upsertCycleRun,
+  upsertDomainMessage,
+  upsertJobRun,
+} from "../lib/ops-runtime-store"
 import { stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
 
 interface Args {
@@ -57,8 +72,23 @@ export function run(args: Args): JSONRecord {
       upsertDomainMessage(db, message)
       return { ok: true, action: args.action, message }
     }
+    if (args.action === "record_incident") {
+      const incident = buildIncident(args.json)
+      recordIncident(db, incident)
+      return { ok: true, action: args.action, incident }
+    }
     if (args.action === "list_messages") {
       return { ok: true, action: args.action, messages: readDomainMessages(db, args.json) }
+    }
+    if (args.action === "list_incidents") {
+      return { ok: true, action: args.action, incidents: readIncidents(db, args.json) }
+    }
+    if (args.action === "list_incident_events") {
+      return { ok: true, action: args.action, events: readIncidentEvents(db, args.json) }
+    }
+    if (args.action === "update_incident") {
+      const incident = updateIncidentStatus(db, args.json)
+      return { ok: true, action: args.action, incident, events: readIncidentEvents(db, { incident_id: incident.incident_id }) }
     }
     if (args.action === "summary") {
       const cycleId = stringField(args.json.cycle_id)
@@ -73,7 +103,7 @@ export function run(args: Args): JSONRecord {
 function printHelp(): void {
   console.log([
     "usage: bun src/scripts/main.ts --db data/ops_runtime.db --action init",
-    "actions: init | record_cycle | record_job | record_message | list_messages | summary",
+    "actions: init | record_cycle | record_job | record_message | list_messages | record_incident | list_incidents | update_incident | list_incident_events | summary",
   ].join("\n"))
 }
 

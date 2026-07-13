@@ -1,0 +1,133 @@
+flowchart LR
+  blueprint["Blueprint: architecture-overview-v2.mmd"]
+  generated["Generated from code + manifest"]
+  blueprint -. compare .- generated
+  subgraph domain_orchestration_ops["orchestration-ops"]
+    module_modules_orchestration_ops_trade_flow["orchestration-ops/trade-flow"]
+    module_modules_orchestration_ops_domain_bus["orchestration-ops/domain-bus"]
+    module_modules_orchestration_ops_ops_runtime_store["orchestration-ops/ops-runtime-store"]
+    module_modules_orchestration_ops_runtime_health_guard["orchestration-ops/runtime-health-guard"]
+    module_modules_orchestration_ops_ops_notify_dispatch["orchestration-ops/ops-notify-dispatch"]
+    module_modules_orchestration_ops_control_effectiveness_review["orchestration-ops/control-effectiveness-review"]
+  end
+  subgraph domain_policy_risk["policy-risk"]
+    module_modules_policy_risk_runtime_policy_compiler["policy-risk/runtime-policy-compiler"]
+    module_modules_policy_risk_policy_registry["policy-risk/policy-registry"]
+  end
+  subgraph domain_portfolio_execution_state["portfolio-execution-state"]
+    module_modules_portfolio_execution_state_event_store["portfolio-execution-state/event-store"]
+    module_modules_portfolio_execution_state_flow_projector["portfolio-execution-state/flow-projector"]
+  end
+  subgraph domain_market_data_products["market-data-products"]
+    module_modules_market_data_products_ohlcv_fetch["market-data-products/ohlcv-fetch"]
+    module_modules_market_data_products_tech_indicators["market-data-products/tech-indicators"]
+    module_modules_market_data_products_binance_read_market_scan["market-data-products/binance-read/market-scan"]
+    module_modules_market_data_products_binance_read_symbol_snapshot["market-data-products/binance-read/symbol-snapshot"]
+    module_modules_market_data_products_binance_read_aggtrades_fetch["market-data-products/binance-read/aggtrades-fetch"]
+    module_modules_market_data_products_liquidation_zones["market-data-products/liquidation-zones"]
+    module_modules_market_data_products_market_data_store["market-data-products/market-data-store"]
+    module_modules_market_data_products_data_quality_gate["market-data-products/data-quality-gate"]
+    module_modules_market_data_products_market_fact_publisher["market-data-products/market-fact-publisher"]
+  end
+  subgraph domain_exchange_gateway["exchange-gateway"]
+    module_modules_exchange_gateway_binance_read_account_snapshot["exchange-gateway/binance-read/account-snapshot"]
+    module_modules_exchange_gateway_binance_write_order_place["exchange-gateway/binance-write/order-place"]
+    module_modules_exchange_gateway_binance_write_order_cancel["exchange-gateway/binance-write/order-cancel"]
+    module_modules_exchange_gateway_binance_write_order_preview["exchange-gateway/binance-write/order-preview"]
+    module_modules_exchange_gateway_binance_write_position_protect["exchange-gateway/binance-write/position-protect"]
+    module_modules_exchange_gateway_binance_write_position_adjust["exchange-gateway/binance-write/position-adjust"]
+    module_modules_exchange_gateway_exchange_runtime_store["exchange-gateway/exchange-runtime-store"]
+    module_modules_exchange_gateway_exchange_request_router["exchange-gateway/exchange-request-router"]
+    module_modules_exchange_gateway_write_pre_adapter_gate["exchange-gateway/write-pre-adapter-gate"]
+    module_modules_exchange_gateway_post_write_confirmation["exchange-gateway/post-write-confirmation"]
+  end
+  subgraph domain_live_decision_planning["live-decision-planning"]
+    module_modules_live_decision_planning_observe_builder["live-decision-planning/observe-builder"]
+    module_modules_live_decision_planning_observe_runner["live-decision-planning/observe-runner"]
+    module_modules_live_decision_planning_slow_track_plan["live-decision-planning/slow-track-plan"]
+    module_modules_live_decision_planning_decision_input_assembler["live-decision-planning/decision-input-assembler"]
+    module_modules_live_decision_planning_trade_plan_builder["live-decision-planning/trade-plan-builder"]
+    module_modules_live_decision_planning_action_intent_publisher["live-decision-planning/action-intent-publisher"]
+  end
+  subgraph domain_live_execution_control["live-execution-control"]
+    module_modules_live_execution_control_execution_gate["live-execution-control/execution-gate"]
+    module_modules_live_execution_control_execution_flow_runner["live-execution-control/execution-flow-runner"]
+    module_modules_live_execution_control_execution_router["live-execution-control/execution-router"]
+    module_modules_live_execution_control_execution_recorder["live-execution-control/execution-recorder"]
+    module_modules_live_execution_control_fast_track_guard["live-execution-control/fast-track-guard"]
+    module_modules_live_execution_control_live_small_runner["live-execution-control/live-small-runner"]
+    module_modules_live_execution_control_reconcile_drafts["live-execution-control/reconcile-drafts"]
+    module_modules_live_execution_control_recovery_runner["live-execution-control/recovery-runner"]
+    module_modules_live_execution_control_plan_preflight["live-execution-control/plan-preflight"]
+  end
+  subgraph domain_research_strategy_development["research-strategy-development"]
+    module_modules_research_strategy_development_replay_runner["research-strategy-development/replay-runner"]
+    module_modules_research_strategy_development_replay_engine["research-strategy-development/replay-engine"]
+    module_modules_research_strategy_development_data_split["research-strategy-development/data-split"]
+    module_modules_research_strategy_development_signal_evaluator["research-strategy-development/signal-evaluator"]
+    module_modules_research_strategy_development_signal_engine["research-strategy-development/signal-engine"]
+    module_modules_research_strategy_development_panel_evaluator["research-strategy-development/panel-evaluator"]
+    module_modules_research_strategy_development_benchmark_runner["research-strategy-development/benchmark-runner"]
+    module_modules_research_strategy_development_benchmark_engine["research-strategy-development/benchmark-engine"]
+    module_modules_research_strategy_development_calibration_suite["research-strategy-development/calibration-suite"]
+    module_modules_research_strategy_development_funding_governance["research-strategy-development/funding-governance"]
+    module_modules_research_strategy_development_candidate_batch["research-strategy-development/candidate-batch"]
+    module_modules_research_strategy_development_candidate_batch_engine["research-strategy-development/candidate-batch-engine"]
+    module_modules_research_strategy_development_forward_holdout["research-strategy-development/forward-holdout"]
+    module_modules_research_strategy_development_rd_program_state["research-strategy-development/rd-program-state"]
+    module_modules_research_strategy_development_rd_supervisor["research-strategy-development/rd-supervisor"]
+    module_modules_research_strategy_development_rd_shadow_tracker["research-strategy-development/rd-shadow-tracker"]
+    module_modules_research_strategy_development_rd_loop_runner["research-strategy-development/rd-loop-runner"]
+    module_modules_research_strategy_development_rd_campaign_runner["research-strategy-development/rd-campaign-runner"]
+    module_modules_research_strategy_development_rd_ledger["research-strategy-development/rd-ledger"]
+    module_modules_research_strategy_development_rd_artifact_summary["research-strategy-development/rd-artifact-summary"]
+    module_modules_research_strategy_development_rd_integration_suite["research-strategy-development/rd-integration-suite"]
+    module_modules_research_strategy_development_research_state_store["research-strategy-development/research-state-store"]
+    module_modules_research_strategy_development_candidate_freezer["research-strategy-development/candidate-freezer"]
+    module_modules_research_strategy_development_research_evidence_publisher["research-strategy-development/research-evidence-publisher"]
+    module_modules_research_strategy_development_strategy_contract_compile["research-strategy-development/strategy-contract-compile"]
+    module_modules_research_strategy_development_strategy_contract_lint["research-strategy-development/strategy-contract-lint"]
+    module_modules_research_strategy_development_strategy_family_engine["research-strategy-development/strategy-family-engine"]
+  end
+  subgraph domain_governance_review_compliance["governance-review-compliance"]
+    module_modules_governance_review_compliance_strategy_review["governance-review-compliance/strategy-review"]
+    module_modules_governance_review_compliance_governance_ledger["governance-review-compliance/governance-ledger"]
+    module_modules_governance_review_compliance_closed_flow_review_sweep["governance-review-compliance/closed-flow-review-sweep"]
+    module_modules_governance_review_compliance_evidence_intake_gate["governance-review-compliance/evidence-intake-gate"]
+    module_modules_governance_review_compliance_policy_feedback_compiler["governance-review-compliance/policy-feedback-compiler"]
+  end
+  subgraph domain_artifact_knowledge["artifact-knowledge"]
+    module_modules_artifact_knowledge_artifact_catalog["artifact-knowledge/artifact-catalog"]
+  end
+  generated -- "J01 account_reconcile_guard" --> domain_live_execution_control
+  module_modules_live_execution_control_recovery_runner -. "owner" .-> domain_live_execution_control
+  generated -- "J02 fast_track_guard" --> domain_live_execution_control
+  module_modules_live_execution_control_fast_track_guard -. "owner" .-> domain_live_execution_control
+  generated -- "J03 slow_track_market_watch" --> domain_live_decision_planning
+  module_modules_live_decision_planning_slow_track_plan -. "owner" .-> domain_live_decision_planning
+  generated -- "J04 rd_strategy_supervisor" --> domain_research_strategy_development
+  module_modules_research_strategy_development_rd_supervisor -. "owner" .-> domain_research_strategy_development
+  generated -- "J05 rd_forward_shadow_trackers" --> domain_research_strategy_development
+  module_modules_research_strategy_development_rd_shadow_tracker -. "owner" .-> domain_research_strategy_development
+  generated -- "J06 catalog_hygiene_scan" --> domain_artifact_knowledge
+  module_modules_artifact_knowledge_artifact_catalog -. "owner" .-> domain_artifact_knowledge
+  generated -- "J07 closed_flow_review_sweep" --> domain_governance_review_compliance
+  module_modules_governance_review_compliance_closed_flow_review_sweep -. "owner" .-> domain_governance_review_compliance
+  store_trade_event_store[("trade_event_store")]
+  domain_portfolio_execution_state -- "owns store" --> store_trade_event_store
+  store_flow_read_models[("flow_read_models")]
+  domain_portfolio_execution_state -- "owns store" --> store_flow_read_models
+  store_market_data_store[("market_data_store")]
+  domain_market_data_products -- "owns store" --> store_market_data_store
+  store_exchange_runtime_store[("exchange_runtime_store")]
+  domain_exchange_gateway -- "owns store" --> store_exchange_runtime_store
+  store_artifact_catalog[("artifact_catalog")]
+  domain_artifact_knowledge -- "owns store" --> store_artifact_catalog
+  store_research_state_store[("research_state_store")]
+  domain_research_strategy_development -- "owns store" --> store_research_state_store
+  store_governance_ledger[("governance_ledger")]
+  domain_governance_review_compliance -- "owns store" --> store_governance_ledger
+  store_policy_registry[("policy_registry")]
+  domain_policy_risk -- "owns store" --> store_policy_registry
+  store_ops_runtime_store[("ops_runtime_store")]
+  domain_orchestration_ops -- "owns store" --> store_ops_runtime_store

@@ -83,8 +83,17 @@ test("run returns protective legs for --dry-json without env access", async () =
   const config = parseArgs(argv)
 
   assert.equal(result.ok, true)
-  assert.deepEqual("data" in result ? result.data : null, buildDryRun(config))
-  assert.equal((result.data as { method: string }).method, "futuresCreateAlgoOrder")
+  const expected = buildDryRun(config)
+  const data = result.data as {
+    method: string
+    legs: unknown[]
+    exchange_command_ref: { action: string; status: string; command_ref: string }
+  }
+  assert.deepEqual(data.legs, expected.legs)
+  assert.equal(data.method, "futuresCreateAlgoOrder")
+  assert.equal(data.exchange_command_ref.action, "sync_protection")
+  assert.equal(data.exchange_command_ref.status, "planned")
+  assert.match(data.exchange_command_ref.command_ref, /^exchange_runtime_store:command\//)
   assert.equal(resolveProtectiveSide(config), "SELL")
 })
 

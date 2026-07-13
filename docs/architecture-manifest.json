@@ -9,9 +9,9 @@
         "modules/orchestration-ops/domain-bus",
         "modules/orchestration-ops/ops-runtime-store",
         "modules/orchestration-ops/runtime-health-guard",
-        "modules/orchestration-ops/ops-notify-dispatch"
+        "modules/orchestration-ops/ops-notify-dispatch",
+        "modules/orchestration-ops/control-effectiveness-review"
       ],
-      "owns_jobs": ["J01", "J09"],
       "owns_stores": ["ops_runtime_store"]
     },
     {
@@ -42,7 +42,9 @@
         "modules/market-data-products/binance-read/symbol-snapshot",
         "modules/market-data-products/binance-read/aggtrades-fetch",
         "modules/market-data-products/liquidation-zones",
-        "modules/market-data-products/market-data-store"
+        "modules/market-data-products/market-data-store",
+        "modules/market-data-products/data-quality-gate",
+        "modules/market-data-products/market-fact-publisher"
       ],
       "owns_stores": ["market_data_store"]
     },
@@ -56,7 +58,10 @@
         "modules/exchange-gateway/binance-write/order-preview",
         "modules/exchange-gateway/binance-write/position-protect",
         "modules/exchange-gateway/binance-write/position-adjust",
-        "modules/exchange-gateway/exchange-runtime-store"
+        "modules/exchange-gateway/exchange-runtime-store",
+        "modules/exchange-gateway/exchange-request-router",
+        "modules/exchange-gateway/write-pre-adapter-gate",
+        "modules/exchange-gateway/post-write-confirmation"
       ],
       "owns_stores": ["exchange_runtime_store"]
     },
@@ -67,8 +72,11 @@
         "modules/live-decision-planning/observe-builder",
         "modules/live-decision-planning/observe-runner",
         "modules/live-decision-planning/slow-track-plan",
-        "modules/live-decision-planning/fast-track-plan"
-      ]
+        "modules/live-decision-planning/decision-input-assembler",
+        "modules/live-decision-planning/trade-plan-builder",
+        "modules/live-decision-planning/action-intent-publisher"
+      ],
+      "owns_jobs": ["J03"]
     },
     {
       "id": "live-execution-control",
@@ -78,24 +86,31 @@
         "modules/live-execution-control/execution-flow-runner",
         "modules/live-execution-control/execution-router",
         "modules/live-execution-control/execution-recorder",
+        "modules/live-execution-control/fast-track-guard",
         "modules/live-execution-control/live-small-runner",
         "modules/live-execution-control/reconcile-drafts",
         "modules/live-execution-control/recovery-runner",
         "modules/live-execution-control/plan-preflight"
       ],
-      "owns_jobs": ["J02", "J03"]
+      "owns_jobs": ["J01", "J02"]
     },
     {
       "id": "research-strategy-development",
       "status": "implemented",
       "modules": [
         "modules/research-strategy-development/replay-runner",
+        "modules/research-strategy-development/replay-engine",
         "modules/research-strategy-development/data-split",
         "modules/research-strategy-development/signal-evaluator",
+        "modules/research-strategy-development/signal-engine",
         "modules/research-strategy-development/panel-evaluator",
         "modules/research-strategy-development/benchmark-runner",
+        "modules/research-strategy-development/benchmark-engine",
         "modules/research-strategy-development/calibration-suite",
         "modules/research-strategy-development/funding-governance",
+        "modules/research-strategy-development/candidate-batch",
+        "modules/research-strategy-development/candidate-batch-engine",
+        "modules/research-strategy-development/forward-holdout",
         "modules/research-strategy-development/rd-program-state",
         "modules/research-strategy-development/rd-supervisor",
         "modules/research-strategy-development/rd-shadow-tracker",
@@ -104,9 +119,14 @@
         "modules/research-strategy-development/rd-ledger",
         "modules/research-strategy-development/rd-artifact-summary",
         "modules/research-strategy-development/rd-integration-suite",
-        "modules/research-strategy-development/research-state-store"
+        "modules/research-strategy-development/research-state-store",
+        "modules/research-strategy-development/candidate-freezer",
+        "modules/research-strategy-development/research-evidence-publisher",
+        "modules/research-strategy-development/strategy-contract-compile",
+        "modules/research-strategy-development/strategy-contract-lint",
+        "modules/research-strategy-development/strategy-family-engine"
       ],
-      "owns_jobs": ["J05", "J06"],
+      "owns_jobs": ["J04", "J05"],
       "owns_stores": ["research_state_store"]
     },
     {
@@ -115,30 +135,24 @@
       "modules": [
         "modules/governance-review-compliance/strategy-review",
         "modules/governance-review-compliance/governance-ledger",
-        "modules/governance-review-compliance/closed-flow-review-sweep"
+        "modules/governance-review-compliance/closed-flow-review-sweep",
+        "modules/governance-review-compliance/evidence-intake-gate",
+        "modules/governance-review-compliance/policy-feedback-compiler"
       ],
-      "owns_jobs": ["J08"],
+      "owns_jobs": ["J07"],
       "owns_stores": ["governance_ledger"]
     },
     {
       "id": "artifact-knowledge",
       "status": "implemented",
       "modules": ["modules/artifact-knowledge/artifact-catalog"],
-      "owns_jobs": ["J07"],
+      "owns_jobs": ["J06"],
       "owns_stores": ["artifact_catalog"]
     }
   ],
   "jobs": [
     {
       "ticket_no": "J01",
-      "job_id": "runtime_health_guard",
-      "target_domain": "orchestration-ops",
-      "status": "implemented",
-      "owner_module": "modules/orchestration-ops/runtime-health-guard",
-      "writes": ["ops_runtime_store"]
-    },
-    {
-      "ticket_no": "J02",
       "job_id": "account_reconcile_guard",
       "target_domain": "live-execution-control",
       "status": "implemented",
@@ -146,15 +160,15 @@
       "writes": ["trade_event_store"]
     },
     {
-      "ticket_no": "J03",
+      "ticket_no": "J02",
       "job_id": "fast_track_guard",
       "target_domain": "live-execution-control",
       "status": "implemented",
-      "owner_module": "modules/live-decision-planning/fast-track-plan",
+      "owner_module": "modules/live-execution-control/fast-track-guard",
       "writes": ["trade_event_store"]
     },
     {
-      "ticket_no": "J04",
+      "ticket_no": "J03",
       "job_id": "slow_track_market_watch",
       "target_domain": "live-decision-planning",
       "status": "implemented",
@@ -162,7 +176,7 @@
       "writes": ["trade_event_store", "artifact_catalog"]
     },
     {
-      "ticket_no": "J05",
+      "ticket_no": "J04",
       "job_id": "rd_strategy_supervisor",
       "target_domain": "research-strategy-development",
       "status": "implemented",
@@ -170,7 +184,7 @@
       "writes": ["research_state_store", "artifact_catalog"]
     },
     {
-      "ticket_no": "J06",
+      "ticket_no": "J05",
       "job_id": "rd_forward_shadow_trackers",
       "target_domain": "research-strategy-development",
       "status": "implemented",
@@ -178,7 +192,7 @@
       "writes": ["artifact_catalog"]
     },
     {
-      "ticket_no": "J07",
+      "ticket_no": "J06",
       "job_id": "catalog_hygiene_scan",
       "target_domain": "artifact-knowledge",
       "status": "implemented",
@@ -186,20 +200,12 @@
       "writes": ["artifact_catalog"]
     },
     {
-      "ticket_no": "J08",
+      "ticket_no": "J07",
       "job_id": "closed_flow_review_sweep",
       "target_domain": "governance-review-compliance",
       "status": "implemented",
       "owner_module": "modules/governance-review-compliance/closed-flow-review-sweep",
       "writes": ["governance_ledger"]
-    },
-    {
-      "ticket_no": "J09",
-      "job_id": "ops_notify_dispatch",
-      "target_domain": "orchestration-ops",
-      "status": "implemented",
-      "owner_module": "modules/orchestration-ops/ops-notify-dispatch",
-      "writes": ["ops_runtime_store"]
     }
   ],
   "stores": [
@@ -280,20 +286,21 @@
       "status": "implemented",
       "owner_domain": "orchestration-ops",
       "owner_module": "modules/orchestration-ops/ops-runtime-store",
-      "physical": { "kind": "sqlite", "path": "data/ops_runtime.db", "tables": ["cycle_run", "job_run", "runtime_health", "notify_attempt", "domain_message", "ops_lock"] },
+      "physical": { "kind": "sqlite", "path": "data/ops_runtime.db", "tables": ["cycle_run", "job_run", "runtime_health", "notify_attempt", "domain_message", "ops_lock", "incident", "incident_event", "control_review"] },
       "schema": "docs/storage-schema/ops-runtime-store.sql",
       "write_contract": "append-observability"
     }
   ],
   "rails": [
     { "id": "command_rail", "status": "implemented", "contract": "modules/contracts/protocol-fabric/src/schemas/job-ticket.schema.json" },
+    { "id": "ops_rail", "status": "implemented", "contract": "modules/contracts/protocol-fabric/src/schemas/ops-ref.schema.json" },
     { "id": "fact_rail", "status": "implemented", "contract": "modules/contracts/protocol-fabric/src/schemas/event-write-envelope.schema.json" },
-    { "id": "artifact_rail", "status": "implemented", "contract": "modules/contracts/protocol-fabric/src/schemas/artifact-ref.schema.json" },
+    { "id": "policy_rail", "status": "implemented", "contract": "modules/contracts/protocol-fabric/src/schemas/policy-snapshot.schema.json" },
     { "id": "market_data_rail", "status": "implemented", "contract": "modules/contracts/protocol-fabric/src/schemas/market-data-manifest.schema.json" },
     { "id": "exchange_rail", "status": "implemented", "contract": "modules/contracts/protocol-fabric/src/schemas/exchange-command-ref.schema.json" },
-    { "id": "policy_rail", "status": "implemented", "contract": "modules/contracts/protocol-fabric/src/schemas/policy-snapshot.schema.json" },
     { "id": "store_rail", "status": "implemented", "contract": "modules/contracts/protocol-fabric/src/schemas/logical-store-ref.schema.json" },
-    { "id": "domain_inbox_rail", "status": "implemented", "contract": "modules/contracts/protocol-fabric/src/schemas/domain-inbox-envelope.schema.json" },
-    { "id": "domain_outbox_rail", "status": "implemented", "contract": "modules/contracts/protocol-fabric/src/schemas/domain-outbox-envelope.schema.json" }
+    { "id": "data_lineage_rail", "status": "implemented", "contract": "modules/contracts/protocol-fabric/src/schemas/data-lineage-ref.schema.json" },
+    { "id": "artifact_rail", "status": "implemented", "contract": "modules/contracts/protocol-fabric/src/schemas/artifact-ref.schema.json" },
+    { "id": "governance_rail", "status": "implemented", "contract": "modules/contracts/protocol-fabric/src/schemas/governance-ref.schema.json" }
   ]
 }

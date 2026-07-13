@@ -1,23 +1,24 @@
-import { Database } from "bun:sqlite"
 import { compileExecutionContract, type ExecutionContractInput } from "../../../../contracts/execution-contract/src/execution-contract"
 import { evaluatePreflight } from "../../../../contracts/preflight-contract/src/preflight"
 import {
   appendExecutionObserve,
   evaluateIdempotency,
   readTargetAction,
+  type ExecutionStateRuntime,
 } from "../../../execution-flow-runner/src/lib/execution-flow-runner"
 import { evaluateTriggerCondition } from "../../../execution-gate/src/lib/execution-gate"
 import { buildExecutionCommandSpec } from "../../../execution-router/src/lib/execution-router"
 import { buildRecordedExecutionEvent, unwrapToolResponse } from "../../../execution-recorder/src/lib/execution-recorder"
 import { asRecord, stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
-import { appendPlanEvent, readLatestOrderFill } from "../../../../portfolio-execution-state/event-store/src/lib/event-store"
-import { runJsonCommand, type Runner } from "../../../../live-decision-planning/observe-runner/src/lib/observe-runner"
+import { appendEvent, readLatestOrderFill } from "../../../execution-flow-runner/src/lib/event-store-client"
+import { runJsonCommand, type Runner } from "./tool-runner"
 
 export async function runLiveSmall(
-  db: Database,
+  dbPath: string,
   input: JSONRecord,
   yes: boolean,
   runner: Runner = runJsonCommand,
+  runtime: ExecutionStateRuntime = {},
 ): Promise<JSONRecord> {
   if (!yes) {
     throw new Error("--run-live-small requires --yes")
@@ -37,7 +38,7 @@ export async function runLiveSmall(
   })
   if (preflightResult.verdict !== "armable") {
     const executionGate = { status: "skipped" as const, reason: "preflight_not_armable" }
-    const observeEvent = appendExecutionObserve(db, input, preflightResult, executionGate)
+    const observeEvent = appendExecutionObserve(dbPath, input, preflightResult, executionGate, runtime)
     return {
       mode: "live-small",
       preflight_result: preflightResult,
@@ -54,7 +55,7 @@ export async function runLiveSmall(
       reason: "unsupported_live_small_target_action",
       evidence: { target_action: targetAction },
     }
-    const observeEvent = appendExecutionObserve(db, input, preflightResult, executionGate)
+    const observeEvent = appendExecutionObserve(dbPath, input, preflightResult, executionGate, runtime)
     return {
       mode: "live-small",
       preflight_result: preflightResult,
@@ -66,7 +67,7 @@ export async function runLiveSmall(
 
   const triggerGate = evaluateTriggerCondition(input)
   if (triggerGate.status === "skipped") {
-    const observeEvent = appendExecutionObserve(db, input, preflightResult, triggerGate)
+    const observeEvent = appendExecutionObserve(dbPath, input, preflightResult, triggerGate, runtime)
     return {
       mode: "live-small",
       preflight_result: preflightResult,
@@ -77,16 +78,16 @@ export async function runLiveSmall(
   }
 
   const contract = compileExecutionContract(asRecord(input.execution_contract_input) as unknown as ExecutionContractInput)
-  const idempotencyGate = evaluateIdempotency(db, contract)
+  const idempotencyGate = evaluateIdempotency(dbPath, contract, runtime)
   if (idempotencyGate.status === "skipped") {
-    const observeEvent = appendExecutionObserve(db, input, preflightResult, idempotencyGate)
+    const observeEvent = appendExecutionObserve(dbPath, input, preflightResult, idempotencyGate, runtime)
     return {
       mode: "live-small",
       preflight_result: preflightResult,
       execution_gate: idempotencyGate,
       execution_contract: contract,
       observe_event: observeEvent,
-      latest_order_fill: readLatestOrderFill(db, contract.chain_id),
+      latest_order_fill: latestOrderFill(dbPath, contract.chain_id, runtime),
       recorded: false,
     }
   }
@@ -106,7 +107,7 @@ export async function runLiveSmall(
     execution_contract_input: input.execution_contract_input,
     execution_result: executionResult,
   })
-  appendPlanEvent(db, event)
+  appendStateEvent(dbPath, event, runtime)
   return {
     mode: "live-small",
     preflight_result: preflightResult,
@@ -114,7 +115,15 @@ export async function runLiveSmall(
     execution_contract: contract,
     execution_result: executionResult,
     order_fill_event: event,
-    latest_order_fill: readLatestOrderFill(db, contract.chain_id),
+    latest_order_fill: latestOrderFill(dbPath, contract.chain_id, runtime),
     recorded: true,
   }
+}
+
+function appendStateEvent(dbPath: string, event: unknown, runtime: ExecutionStateRuntime): JSONRecord {
+  return (runtime.eventAppender ?? appendEvent)(dbPath, asRecord(event))
+}
+
+function latestOrderFill(dbPath: string, chainId: string, runtime: ExecutionStateRuntime): JSONRecord | null {
+  return (runtime.latestOrderFillReader ?? readLatestOrderFill)(dbPath, chainId)
 }

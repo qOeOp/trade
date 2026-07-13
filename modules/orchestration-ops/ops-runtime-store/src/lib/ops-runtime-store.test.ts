@@ -4,13 +4,18 @@ import test from "node:test"
 import {
   buildCycleRun,
   buildDomainMessage,
+  buildIncident,
   buildJobRun,
   ensureOpsRuntimeSchema,
   readCycleSummary,
   readDomainMessages,
+  readIncidentEvents,
+  readIncidents,
   readLatestRuntimeHealth,
+  recordIncident,
   recordNotifyAttempt,
   recordRuntimeHealth,
+  updateIncidentStatus,
   upsertCycleRun,
   upsertDomainMessage,
   upsertJobRun,
@@ -73,6 +78,92 @@ test("ops runtime store creates schema and records cycle/job observability", () 
     assert.equal(summary.ops_summary.attention.severity, "critical")
     assert.equal(summary.ops_summary.attention.reasons.includes("job_blocked:J03"), true)
     assert.equal(summary.ops_summary.attention.blocked_jobs[0].job_id, "fast_track_guard")
+  } finally {
+    db.close()
+  }
+})
+
+test("ops runtime store records incidents and exposes them in cycle summary", () => {
+  const db = new Database(":memory:")
+  ensureOpsRuntimeSchema(db)
+  try {
+    upsertCycleRun(db, buildCycleRun({ cycle_id: "cycle-incident-1", now: "2026-07-11T00:00:00Z" }))
+    recordIncident(db, buildIncident({
+      incident_id: "incident-job-blocked",
+      cycle_id: "cycle-incident-1",
+      source: "job_run",
+      severity: "critical",
+      title: "fast guard blocked",
+      refs: ["ops-runtime://cycle/cycle-incident-1/job/J02"],
+      detail: { job_id: "fast_track_guard", reason: "safe_mode" },
+      first_seen_at: "2026-07-11T00:00:01Z",
+    }))
+
+    const incidents = readIncidents(db, { cycle_id: "cycle-incident-1" })
+    assert.equal(incidents.length, 1)
+    assert.equal(incidents[0].incident_id, "incident-job-blocked")
+    assert.equal(incidents[0].severity, "critical")
+    assert.deepEqual(incidents[0].refs_json, ["ops-runtime://cycle/cycle-incident-1/job/J02"])
+
+    const summary = readCycleSummary(db, "cycle-incident-1") as {
+      incidents: Array<{ incident_id: string }>
+      ops_summary: { incidents: { open: number; critical: number }; attention: { needs_human: boolean; reasons: string[] } }
+    }
+    assert.equal(summary.incidents.length, 1)
+    assert.equal(summary.ops_summary.incidents.open, 1)
+    assert.equal(summary.ops_summary.incidents.critical, 1)
+    assert.equal(summary.ops_summary.attention.needs_human, true)
+    assert.equal(summary.ops_summary.attention.reasons.includes("incident:incident-job-blocked"), true)
+  } finally {
+    db.close()
+  }
+})
+
+test("ops runtime store tracks incident lifecycle events", () => {
+  const db = new Database(":memory:")
+  ensureOpsRuntimeSchema(db)
+  try {
+    upsertCycleRun(db, buildCycleRun({ cycle_id: "cycle-incident-2", now: "2026-07-11T00:00:00Z" }))
+    recordIncident(db, buildIncident({
+      incident_id: "incident-lifecycle",
+      cycle_id: "cycle-incident-2",
+      source: "domain_bus",
+      severity: "critical",
+      title: "rail rejected",
+      first_seen_at: "2026-07-11T00:00:01Z",
+    }))
+
+    const acknowledged = updateIncidentStatus(db, {
+      incident_id: "incident-lifecycle",
+      action: "acknowledge",
+      actor: "operator",
+      note: "triaged",
+      created_at: "2026-07-11T00:01:00Z",
+    })
+    assert.equal(acknowledged.status, "acknowledged")
+
+    const resolved = updateIncidentStatus(db, {
+      incident_id: "incident-lifecycle",
+      action: "resolve",
+      actor: "operator",
+      note: "fixed registry",
+      created_at: "2026-07-11T00:02:00Z",
+    })
+    assert.equal(resolved.status, "resolved")
+
+    const events = readIncidentEvents(db, { incident_id: "incident-lifecycle" })
+    assert.deepEqual(events.map((event) => event.action), ["acknowledge", "resolve"])
+    assert.equal(events[0].status_after, "acknowledged")
+    assert.equal(events[1].status_after, "resolved")
+
+    const summary = readCycleSummary(db, "cycle-incident-2") as {
+      ops_summary: { incidents: { open: number; acknowledged: number; active: number }; attention: { needs_human: boolean; active_incidents: unknown[] } }
+    }
+    assert.equal(summary.ops_summary.incidents.open, 0)
+    assert.equal(summary.ops_summary.incidents.acknowledged, 0)
+    assert.equal(summary.ops_summary.incidents.active, 0)
+    assert.equal(summary.ops_summary.attention.needs_human, false)
+    assert.equal(summary.ops_summary.attention.active_incidents.length, 0)
   } finally {
     db.close()
   }

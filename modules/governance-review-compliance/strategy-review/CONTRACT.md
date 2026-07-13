@@ -11,6 +11,7 @@
 - 证据 ledger：`--ledger <path>`，缺省由策略路径推导。
 - 可选 data catalog：`--catalog-db <path>`。
 - 可选本地交易事件库：`--db <path>`，只读用于从 review 事件生成 shadow evidence 或辅助 live-small 门禁。
+- Replay fingerprint：通过 `research-strategy-development/replay-runner --fingerprint` owner surface 获取。
 - JSON payload：`--json <payload>` 或 `--input <file>`。
 
 ## 输出
@@ -25,6 +26,7 @@
 - 可以写 strategy evidence ledger、data catalog、策略文档状态。
 - 不写 `trade.db`；只读消费 `trade.db`。
 - 不调用 Binance，不触发订单，不运行 R&D。
+- 不直接 import 研发域 replay engine；只消费 replay owner fingerprint 与稳定 evidence。
 - 不直接写 RD program memory；RD 模块应自行消费 review report。
 
 ## 测试

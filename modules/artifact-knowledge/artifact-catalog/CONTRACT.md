@@ -7,6 +7,7 @@
 - Catalog query and stale artifact listing
 - Catalog-aware GC and file-system artifact GC
 - Feature report artifact registration
+- Native `J06 catalog_hygiene_scan` domain job result for artifact-knowledge
 
 ## Inputs
 
@@ -21,6 +22,7 @@
 - Stale / kept / deleted artifact reports
 - Registered artifact metadata
 - Feature report artifact refs
+- Domain-runtime job result with `artifact_catalog` write surface for J06
 
 ## Forbidden
 

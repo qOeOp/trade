@@ -6,8 +6,8 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { buildObserveEvent, OBSERVE_SIDES } from "../../../../../live-decision-planning/observe-builder/src/lib/observe-builder"
 import { loadRuntime } from "./observe-flow"
-import { ensureSchema, REVIEW_OUTCOMES, validateReview, type PlanEvent } from "../../../../../portfolio-execution-state/event-store/src/lib/event-store"
-import { applyReconcileDrafts, FLOW_POSITION_STATES, reduceFlowState } from "../../../../../portfolio-execution-state/flow-projector/src/lib/flow-projector"
+import { appendPlanEvent, ensureSchema, readFlowEvents, readLatestOrderFill, REVIEW_OUTCOMES, validateReview, type PlanEvent } from "../../../../../portfolio-execution-state/event-store/src/lib/event-store"
+import { applyReconcileDrafts, FLOW_POSITION_STATES, latestSlowObserve, reduceFlowState } from "../../../../../portfolio-execution-state/flow-projector/src/lib/flow-projector"
 import { cronRecoverFromTools, CRON_RECOVER_STATUSES } from "../../../../../live-execution-control/recovery-runner/src/lib/recovery-runner"
 import { runOneFlowStep } from "../../../../../live-execution-control/execution-flow-runner/src/lib/execution-flow-runner"
 import { RUN_MODES } from "./run-mode"
@@ -77,7 +77,7 @@ test("cron recover result schema matches recovery statuses and noop output", asy
   const db = new Database(":memory:")
   try {
     ensureSchema(db)
-    const result = await cronRecoverFromTools(db, "flow-cron-schema-1", {
+    const result = await cronRecoverFromTools(":memory:", "flow-cron-schema-1", {
       symbol: "BTCUSDT",
     }, false, async () => ({
       ok: true,
@@ -88,7 +88,7 @@ test("cron recover result schema matches recovery statuses and noop output", asy
         orderHistory: { regular: [], protective: [] },
         positions: [],
       },
-    })) as JSONRecord
+    }), recoveryTestRuntime(db)) as JSONRecord
     assertSchemaRequired(schema, result)
     assert.equal(result.status, "recovered_noop")
     assert.equal(asRecord(result.before).chain_id, "flow-cron-schema-1")
@@ -200,7 +200,7 @@ test("run step result schema matches dry-run execution step output", () => {
   const db = new Database(":memory:")
   try {
     ensureSchema(db)
-    const result = runOneFlowStep(db, dryRunInput(), "dry-run") as JSONRecord
+    const result = runOneFlowStep("test://trade.db", dryRunInput(), "dry-run", recoveryTestRuntime(db)) as JSONRecord
     assertSchemaRequired(schema, result)
     assert.equal(result.mode, "dry-run")
     assert.equal(result.recorded, true)
@@ -350,4 +350,19 @@ function asRecord(value: unknown): JSONRecord {
 
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : []
+}
+
+function recoveryTestRuntime(db: Database) {
+  return {
+    eventReader: (_dbPath: string, chainId: string) => readFlowEvents(db, chainId) as unknown as JSONRecord[],
+    stateReader: (_dbPath: string, chainId: string) => reduceFlowState(db, chainId) as JSONRecord,
+    flowStateReader: (_dbPath: string, chainId: string) => reduceFlowState(db, chainId) as JSONRecord,
+    latestOrderFillReader: (_dbPath: string, chainId: string) => readLatestOrderFill(db, chainId) as JSONRecord | null,
+    latestSlowObserveReader: (_dbPath: string, chainId: string) => latestSlowObserve(readFlowEvents(db, chainId)) as unknown as JSONRecord | null,
+    eventAppender: (_dbPath: string, event: JSONRecord) => {
+      appendPlanEvent(db, event as unknown as PlanEvent)
+      return event
+    },
+    reconcileApplier: (_dbPath: string, reconcile: JSONRecord, yes: boolean) => applyReconcileDrafts(db, reconcile, yes) as JSONRecord,
+  }
 }

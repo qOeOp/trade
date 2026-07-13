@@ -51,7 +51,13 @@ interface RuntimePolicy {
   warnings: string[]
 }
 
-function loadRuntimePolicy(input: RuntimePolicyLoadInput): { trading_config: JSONRecord; runtime_policy: RuntimePolicy } {
+interface RuntimePolicyLoadResult {
+  trading_config: JSONRecord
+  runtime_policy: RuntimePolicy
+  policy_snapshot_ref: JSONRecord
+}
+
+function loadRuntimePolicy(input: RuntimePolicyLoadInput): RuntimePolicyLoadResult {
   const tradingConfigPath = resolveTradingConfigPath(input)
   const accountConfigPath = input.accountConfigPath || "./profile/account_config.json"
   const notifyConfigPath = input.notifyConfigPath || join(dirname(accountConfigPath), "notify_config.json")
@@ -64,7 +70,11 @@ function loadRuntimePolicy(input: RuntimePolicyLoadInput): { trading_config: JSO
     warnings,
     now: input.now,
   })
-  return { trading_config: normalizeTradingConfig(tradingConfig, []), runtime_policy: runtimePolicy }
+  return {
+    trading_config: normalizeTradingConfig(tradingConfig, []),
+    runtime_policy: runtimePolicy,
+    policy_snapshot_ref: buildPolicySnapshotRef(runtimePolicy),
+  }
 }
 
 function compileRuntimePolicy(config: JSONRecord, options: { sourceRef?: string; warnings?: string[]; now?: string } = {}): RuntimePolicy {
@@ -122,6 +132,20 @@ function compileRuntimePolicy(config: JSONRecord, options: { sourceRef?: string;
     },
     applied_overrides: options.sourceRef ? [`config:${options.sourceRef}`] : [],
     warnings,
+  }
+}
+
+function buildPolicySnapshotRef(policy: RuntimePolicy): JSONRecord {
+  const suffix = policy.source_hash.replace(/^sha256:/, "")
+  return {
+    schema_version: "trade.protocol.policy-snapshot.v1",
+    policy_ref: `policy_registry:runtime_policy/${policy.profile_id}/${suffix}`,
+    policy_hash: policy.source_hash,
+    generated_at: policy.compiled_at,
+    approved_strategy_refs: [],
+    risk_limits_ref: `policy_registry:risk_limits/${policy.profile_id}/${suffix}`,
+    cost_model_ref: `policy_registry:cost_model/${policy.profile_id}/${suffix}`,
+    input_refs: policy.applied_overrides,
   }
 }
 
@@ -377,5 +401,6 @@ export {
   compactPolicySnapshot,
   compileRuntimePolicy,
   loadRuntimePolicy,
+  type RuntimePolicyLoadResult,
   type RuntimePolicy,
 }

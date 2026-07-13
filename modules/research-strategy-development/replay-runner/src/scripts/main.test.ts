@@ -13,6 +13,16 @@ test("replay runner requires a manifest", () => {
   assert.match(String(result.error), /requires --manifest/)
 })
 
+test("replay runner exposes owner fingerprint surface", () => {
+  const result = run(["--fingerprint"]) as {
+    ok: boolean
+    data: { harness_hash: string }
+  }
+  assert.equal(result.ok, true)
+  assert.equal(typeof result.data.harness_hash, "string")
+  assert.equal(result.data.harness_hash.length, 64)
+})
+
 test("replay runner executes registered strategy", () => {
   const dir = mkdtempSync(join(tmpdir(), "replay-runner-"))
   const csvPath = join(dir, "BTCUSDT-4h.csv")

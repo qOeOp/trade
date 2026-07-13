@@ -21,9 +21,11 @@ atomic module
 - R&D tracker state artifact.
 - Optional catalog artifact registration.
 - Review draft records embedded in closed paper positions.
+- Native `domain-runtime.domain-job-result.v1` for J05 `rd_forward_shadow_trackers`, with `artifact_catalog` as the only logical write surface.
 
 ## Boundaries
 
 - Writes only explicit tracker artifact output and catalog refs.
 - Does not write `trade.db`, call exchange APIs, promote strategy evidence, or run R&D search.
 - Tracker output is review input only; it is not strategy evidence by itself.
+- Placeholder tracker configs without `forward_result_path` or `state_path` return an auditable skipped J05 result; they do not invent artifact refs.

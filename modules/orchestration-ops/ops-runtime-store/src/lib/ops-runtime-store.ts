@@ -19,6 +19,18 @@ export type DomainMessageStatus = typeof DOMAIN_MESSAGE_STATUSES[number]
 export const DOMAIN_MESSAGE_DIRECTIONS = ["inbox", "outbox"] as const
 export type DomainMessageDirection = typeof DOMAIN_MESSAGE_DIRECTIONS[number]
 
+export const INCIDENT_SEVERITIES = ["info", "warning", "critical"] as const
+export type IncidentSeverity = typeof INCIDENT_SEVERITIES[number]
+
+export const INCIDENT_STATUSES = ["open", "acknowledged", "resolved", "ignored"] as const
+export type IncidentStatus = typeof INCIDENT_STATUSES[number]
+
+export const INCIDENT_SOURCES = ["runtime_health", "job_run", "domain_bus", "lifecycle_processor", "post_processor", "manual"] as const
+export type IncidentSource = typeof INCIDENT_SOURCES[number]
+
+export const INCIDENT_ACTIONS = ["acknowledge", "resolve", "ignore", "reopen"] as const
+export type IncidentAction = typeof INCIDENT_ACTIONS[number]
+
 export interface CycleRun {
   cycle_id: string
   triggered_at: string
@@ -81,6 +93,40 @@ export interface DomainMessage {
   created_at: string
   processed_at?: string
   error_json?: JSONRecord
+}
+
+export interface Incident {
+  incident_id: string
+  cycle_id?: string
+  source: IncidentSource
+  severity: IncidentSeverity
+  status: IncidentStatus
+  title: string
+  detail_json?: JSONRecord
+  refs_json?: string[]
+  first_seen_at: string
+  last_seen_at: string
+}
+
+export interface IncidentEvent {
+  event_id: string
+  incident_id: string
+  action: IncidentAction
+  status_after: IncidentStatus
+  actor?: string
+  note?: string
+  detail_json?: JSONRecord
+  created_at: string
+}
+
+export interface ControlReview {
+  review_id: string
+  cycle_id?: string
+  status: "ok" | "needs_attention"
+  summary_json: JSONRecord
+  items_json: JSONRecord[]
+  constraints_json: JSONRecord[]
+  created_at: string
 }
 
 export function ensureOpsRuntimeSchema(db: Database): void {
@@ -158,10 +204,53 @@ export function ensureOpsRuntimeSchema(db: Database): void {
       expires_at    TEXT NOT NULL
     )
   `)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS incident (
+      incident_id   TEXT PRIMARY KEY,
+      cycle_id      TEXT,
+      source        TEXT NOT NULL CHECK(source IN ('runtime_health', 'job_run', 'domain_bus', 'lifecycle_processor', 'post_processor', 'manual')),
+      severity      TEXT NOT NULL CHECK(severity IN ('info', 'warning', 'critical')),
+      status        TEXT NOT NULL CHECK(status IN ('open', 'acknowledged', 'resolved', 'ignored')),
+      title         TEXT NOT NULL,
+      detail_json   TEXT CHECK(detail_json IS NULL OR json_valid(detail_json)),
+      refs_json     TEXT CHECK(refs_json IS NULL OR json_valid(refs_json)),
+      first_seen_at TEXT NOT NULL,
+      last_seen_at  TEXT NOT NULL,
+      FOREIGN KEY (cycle_id) REFERENCES cycle_run(cycle_id)
+    )
+  `)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS incident_event (
+      event_id      TEXT PRIMARY KEY,
+      incident_id   TEXT NOT NULL,
+      action        TEXT NOT NULL CHECK(action IN ('acknowledge', 'resolve', 'ignore', 'reopen')),
+      status_after  TEXT NOT NULL CHECK(status_after IN ('open', 'acknowledged', 'resolved', 'ignored')),
+      actor         TEXT,
+      note          TEXT,
+      detail_json   TEXT CHECK(detail_json IS NULL OR json_valid(detail_json)),
+      created_at    TEXT NOT NULL,
+      FOREIGN KEY (incident_id) REFERENCES incident(incident_id)
+    )
+  `)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS control_review (
+      review_id        TEXT PRIMARY KEY,
+      cycle_id         TEXT,
+      status           TEXT NOT NULL CHECK(status IN ('ok', 'needs_attention')),
+      summary_json     TEXT NOT NULL CHECK(json_valid(summary_json)),
+      items_json       TEXT NOT NULL CHECK(json_valid(items_json)),
+      constraints_json TEXT NOT NULL CHECK(json_valid(constraints_json)),
+      created_at       TEXT NOT NULL,
+      FOREIGN KEY (cycle_id) REFERENCES cycle_run(cycle_id)
+    )
+  `)
   db.run("CREATE INDEX IF NOT EXISTS idx_job_run_cycle ON job_run(cycle_id, ticket_no)")
   db.run("CREATE INDEX IF NOT EXISTS idx_runtime_health_time ON runtime_health(observed_at DESC)")
   db.run("CREATE INDEX IF NOT EXISTS idx_domain_message_cycle ON domain_message(cycle_id, job_id, direction)")
   db.run("CREATE INDEX IF NOT EXISTS idx_domain_message_target ON domain_message(target_domain, status, created_at)")
+  db.run("CREATE INDEX IF NOT EXISTS idx_incident_cycle ON incident(cycle_id, status, severity)")
+  db.run("CREATE INDEX IF NOT EXISTS idx_incident_event_incident ON incident_event(incident_id, created_at)")
+  db.run("CREATE INDEX IF NOT EXISTS idx_control_review_cycle ON control_review(cycle_id, created_at)")
 }
 
 export function upsertCycleRun(db: Database, run: CycleRun): void {
@@ -314,6 +403,137 @@ export function upsertDomainMessage(db: Database, message: DomainMessage): void 
   })
 }
 
+export function recordIncident(db: Database, incident: Incident): void {
+  validateIncident(incident)
+  db.query(`
+    INSERT INTO incident(
+      incident_id, cycle_id, source, severity, status, title,
+      detail_json, refs_json, first_seen_at, last_seen_at
+    )
+    VALUES (
+      $incident_id, $cycle_id, $source, $severity, $status, $title,
+      $detail_json, $refs_json, $first_seen_at, $last_seen_at
+    )
+    ON CONFLICT(incident_id) DO UPDATE SET
+      cycle_id = excluded.cycle_id,
+      source = excluded.source,
+      severity = excluded.severity,
+      status = CASE
+        WHEN incident.status IN ('acknowledged', 'resolved', 'ignored') AND excluded.status = 'open'
+          THEN incident.status
+        ELSE excluded.status
+      END,
+      title = excluded.title,
+      detail_json = excluded.detail_json,
+      refs_json = excluded.refs_json,
+      last_seen_at = excluded.last_seen_at
+  `).run({
+    $incident_id: incident.incident_id,
+    $cycle_id: incident.cycle_id ?? null,
+    $source: incident.source,
+    $severity: incident.severity,
+    $status: incident.status,
+    $title: incident.title,
+    $detail_json: incident.detail_json ? JSON.stringify(incident.detail_json) : null,
+    $refs_json: incident.refs_json ? JSON.stringify(incident.refs_json) : null,
+    $first_seen_at: incident.first_seen_at,
+    $last_seen_at: incident.last_seen_at,
+  })
+}
+
+export function updateIncidentStatus(db: Database, input: JSONRecord): Incident {
+  const incidentId = stringField(input.incident_id)
+  const action = parseIncidentAction(input.action)
+  if (!incidentId || !action) {
+    throw new Error("incident_id and supported action are required")
+  }
+  const existing = readIncidents(db, { incident_id: incidentId })[0]
+  if (!existing) {
+    throw new Error(`incident not found: ${incidentId}`)
+  }
+  const statusAfter = statusAfterAction(existing.status, action)
+  const now = stringField(input.created_at) || new Date().toISOString()
+  const actor = stringField(input.actor) || undefined
+  const note = stringField(input.note) || undefined
+  const detail = asOptionalRecord(input.detail_json ?? input.detail)
+  const event: IncidentEvent = {
+    event_id: stringField(input.event_id) || incidentEventIdFrom(incidentId, action, now),
+    incident_id: incidentId,
+    action,
+    status_after: statusAfter,
+    actor,
+    note,
+    detail_json: detail,
+    created_at: now,
+  }
+  recordIncidentEvent(db, event)
+  db.query(`
+    UPDATE incident
+    SET status = $status, last_seen_at = $last_seen_at
+    WHERE incident_id = $incident_id
+  `).run({
+    $incident_id: incidentId,
+    $status: statusAfter,
+    $last_seen_at: now,
+  })
+  return readIncidents(db, { incident_id: incidentId })[0]
+}
+
+export function recordIncidentEvent(db: Database, event: IncidentEvent): void {
+  validateIncidentEvent(event)
+  db.query(`
+    INSERT INTO incident_event(
+      event_id, incident_id, action, status_after, actor, note, detail_json, created_at
+    )
+    VALUES (
+      $event_id, $incident_id, $action, $status_after, $actor, $note, $detail_json, $created_at
+    )
+    ON CONFLICT(event_id) DO UPDATE SET
+      action = excluded.action,
+      status_after = excluded.status_after,
+      actor = excluded.actor,
+      note = excluded.note,
+      detail_json = excluded.detail_json,
+      created_at = excluded.created_at
+  `).run({
+    $event_id: event.event_id,
+    $incident_id: event.incident_id,
+    $action: event.action,
+    $status_after: event.status_after,
+    $actor: event.actor ?? null,
+    $note: event.note ?? null,
+    $detail_json: event.detail_json ? JSON.stringify(event.detail_json) : null,
+    $created_at: event.created_at,
+  })
+}
+
+export function recordControlReview(db: Database, review: ControlReview): void {
+  validateControlReview(review)
+  db.query(`
+    INSERT INTO control_review(
+      review_id, cycle_id, status, summary_json, items_json, constraints_json, created_at
+    )
+    VALUES (
+      $review_id, $cycle_id, $status, $summary_json, $items_json, $constraints_json, $created_at
+    )
+    ON CONFLICT(review_id) DO UPDATE SET
+      cycle_id = excluded.cycle_id,
+      status = excluded.status,
+      summary_json = excluded.summary_json,
+      items_json = excluded.items_json,
+      constraints_json = excluded.constraints_json,
+      created_at = excluded.created_at
+  `).run({
+    $review_id: review.review_id,
+    $cycle_id: review.cycle_id ?? null,
+    $status: review.status,
+    $summary_json: JSON.stringify(review.summary_json),
+    $items_json: JSON.stringify(review.items_json),
+    $constraints_json: JSON.stringify(review.constraints_json),
+    $created_at: review.created_at,
+  })
+}
+
 export function buildDomainMessage(input: JSONRecord): DomainMessage {
   const envelope = asRecord(input.envelope_json ?? input.envelope)
   const now = stringField(input.created_at) || new Date().toISOString()
@@ -337,6 +557,25 @@ export function buildDomainMessage(input: JSONRecord): DomainMessage {
   }
 }
 
+export function buildIncident(input: JSONRecord): Incident {
+  const now = stringField(input.now) || stringField(input.first_seen_at) || new Date().toISOString()
+  const source = parseIncidentSource(input.source) || "manual"
+  const severity = parseIncidentSeverity(input.severity) || "warning"
+  const title = stringField(input.title) || `${source}:${severity}`
+  return {
+    incident_id: stringField(input.incident_id) || incidentIdFrom(input, source, title, now),
+    cycle_id: stringField(input.cycle_id) || undefined,
+    source,
+    severity,
+    status: parseIncidentStatus(input.status) || "open",
+    title,
+    detail_json: asOptionalRecord(input.detail_json ?? input.detail),
+    refs_json: stringArray(input.refs_json ?? input.refs),
+    first_seen_at: now,
+    last_seen_at: stringField(input.last_seen_at) || now,
+  }
+}
+
 export function readDomainMessages(db: Database, filter: JSONRecord = {}): DomainMessage[] {
   const cycleId = stringField(filter.cycle_id)
   const targetDomain = stringField(filter.target_domain)
@@ -356,6 +595,88 @@ export function readDomainMessages(db: Database, filter: JSONRecord = {}): Domai
     $status: status,
   }) as DomainMessageRow[]
   return rows.map(domainMessageFromRow)
+}
+
+export function readIncidents(db: Database, filter: JSONRecord = {}): Incident[] {
+  const cycleId = stringField(filter.cycle_id)
+  const incidentId = stringField(filter.incident_id)
+  const status = stringField(filter.status)
+  const severity = stringField(filter.severity)
+  const rows = db.query(`
+    SELECT incident_id, cycle_id, source, severity, status, title,
+      detail_json, refs_json, first_seen_at, last_seen_at
+    FROM incident
+    WHERE ($cycle_id = '' OR cycle_id = $cycle_id)
+      AND ($incident_id = '' OR incident_id = $incident_id)
+      AND ($status = '' OR status = $status)
+      AND ($severity = '' OR severity = $severity)
+    ORDER BY first_seen_at ASC, rowid ASC
+  `).all({
+    $cycle_id: cycleId,
+    $incident_id: incidentId,
+    $status: status,
+    $severity: severity,
+  }) as IncidentRow[]
+  return rows.map(incidentFromRow)
+}
+
+export function readIncidentEvents(db: Database, filter: JSONRecord = {}): IncidentEvent[] {
+  const incidentId = stringField(filter.incident_id)
+  const rows = db.query(`
+    SELECT event_id, incident_id, action, status_after, actor, note, detail_json, created_at
+    FROM incident_event
+    WHERE ($incident_id = '' OR incident_id = $incident_id)
+    ORDER BY created_at ASC, rowid ASC
+  `).all({
+    $incident_id: incidentId,
+  }) as IncidentEventRow[]
+  return rows.map(incidentEventFromRow)
+}
+
+export function readNotifyAttempts(db: Database, filter: JSONRecord = {}): NotifyAttempt[] {
+  const cycleId = stringField(filter.cycle_id)
+  const status = stringField(filter.status)
+  const rows = db.query(`
+    SELECT notify_id, cycle_id, channel, status, payload_ref, result_json, attempted_at
+    FROM notify_attempt
+    WHERE ($cycle_id = '' OR cycle_id = $cycle_id)
+      AND ($status = '' OR status = $status)
+    ORDER BY attempted_at ASC, rowid ASC
+  `).all({
+    $cycle_id: cycleId,
+    $status: status,
+  }) as NotifyAttemptRow[]
+  return rows.map(notifyAttemptFromRow)
+}
+
+export function readJobRuns(db: Database, filter: JSONRecord = {}): JobRun[] {
+  const cycleId = stringField(filter.cycle_id)
+  const status = stringField(filter.status)
+  const rows = db.query(`
+    SELECT job_run_id, cycle_id, ticket_no, job_id, target_domain, status,
+      command_ref, started_at, completed_at, result_ref, error_json
+    FROM job_run
+    WHERE ($cycle_id = '' OR cycle_id = $cycle_id)
+      AND ($status = '' OR status = $status)
+    ORDER BY started_at ASC, rowid ASC
+  `).all({
+    $cycle_id: cycleId,
+    $status: status,
+  }) as JobRunRow[]
+  return rows.map(jobRunFromRow)
+}
+
+export function readControlReviews(db: Database, filter: JSONRecord = {}): ControlReview[] {
+  const cycleId = stringField(filter.cycle_id)
+  const rows = db.query(`
+    SELECT review_id, cycle_id, status, summary_json, items_json, constraints_json, created_at
+    FROM control_review
+    WHERE ($cycle_id = '' OR cycle_id = $cycle_id)
+    ORDER BY created_at ASC, rowid ASC
+  `).all({
+    $cycle_id: cycleId,
+  }) as ControlReviewRow[]
+  return rows.map(controlReviewFromRow)
 }
 
 export function readLatestRuntimeHealth(db: Database): RuntimeHealth | null {
@@ -391,6 +712,7 @@ export function readCycleSummary(db: Database, cycleId: string): JSONRecord {
     LIMIT 1
   `).get({ $cycle_id: cycleId }) as RuntimeHealthRow | null
   const messages = readDomainMessages(db, { cycle_id: cycleId })
+  const incidents = readIncidents(db, { cycle_id: cycleId })
   const cycleRecord = cycle ? cycleRunFromRow(cycle) : null
   const latestHealth = health ? runtimeHealthFromRow(health) : null
   const jobRecords = jobs.map(jobRunSummaryFromRow)
@@ -399,7 +721,8 @@ export function readCycleSummary(db: Database, cycleId: string): JSONRecord {
     latest_health: latestHealth,
     jobs: jobRecords,
     messages,
-    ops_summary: buildOpsCycleSummary(cycleRecord, latestHealth, jobRecords, messages),
+    incidents,
+    ops_summary: buildOpsCycleSummary(cycleRecord, latestHealth, jobRecords, messages, incidents),
   }
 }
 
@@ -408,21 +731,31 @@ export function buildOpsCycleSummary(
   latestHealth: RuntimeHealth | null,
   jobs: JSONRecord[],
   messages: DomainMessage[],
+  incidents: Incident[] = [],
 ): JSONRecord {
   const counts = countStatuses(jobs)
   const failedJobs = jobs.filter((job) => stringField(job.status) === "failed")
   const blockedJobs = jobs.filter((job) => stringField(job.status) === "blocked")
   const failedMessages = messages.filter((message) => message.status === "failed")
+  const openIncidents = incidents.filter((incident) => incident.status === "open")
+  const acknowledgedIncidents = incidents.filter((incident) => incident.status === "acknowledged")
+  const activeIncidents = [...openIncidents, ...acknowledgedIncidents]
+  const criticalIncidents = activeIncidents.filter((incident) => incident.severity === "critical")
+  const warningIncidents = activeIncidents.filter((incident) => incident.severity === "warning")
   const healthStatus = latestHealth?.status
   const criticalReasons = [
     ...failedJobs.map((job) => `job_failed:${stringField(job.ticket_no) || stringField(job.job_id)}`),
     ...blockedJobs.map((job) => `job_blocked:${stringField(job.ticket_no) || stringField(job.job_id)}`),
     ...failedMessages.map((message) => `message_failed:${message.message_id}`),
+    ...criticalIncidents.map((incident) => `incident:${incident.incident_id}`),
   ]
   if (healthStatus === "blocked" || healthStatus === "safe_mode") {
     criticalReasons.push(`runtime_health:${healthStatus}`)
   }
-  const warningReasons = healthStatus === "degraded" ? [`runtime_health:${healthStatus}`] : []
+  const warningReasons = [
+    ...(healthStatus === "degraded" ? [`runtime_health:${healthStatus}`] : []),
+    ...warningIncidents.map((incident) => `incident:${incident.incident_id}`),
+  ]
   const severity = criticalReasons.length > 0 ? "critical" : warningReasons.length > 0 ? "warning" : "none"
 
   return {
@@ -439,6 +772,14 @@ export function buildOpsCycleSummary(
       published: messages.filter((message) => message.status === "published").length,
       failed: failedMessages.length,
     },
+    incidents: {
+      total: incidents.length,
+      open: openIncidents.length,
+      acknowledged: acknowledgedIncidents.length,
+      active: activeIncidents.length,
+      critical: criticalIncidents.length,
+      warning: warningIncidents.length,
+    },
     attention: {
       needs_human: criticalReasons.length > 0,
       severity,
@@ -451,6 +792,8 @@ export function buildOpsCycleSummary(
         target_domain: message.target_domain,
         payload_ref: message.payload_ref,
       })),
+      open_incidents: openIncidents.map(incidentAttentionRef),
+      active_incidents: activeIncidents.map(incidentAttentionRef),
       latest_health_status: healthStatus,
     },
     result_refs: jobs
@@ -490,6 +833,43 @@ export function buildJobRun(input: JSONRecord): JobRun {
     result_ref: stringField(input.result_ref) || undefined,
     error_json: asOptionalRecord(input.error_json ?? input.error),
   }
+}
+
+function incidentIdFrom(input: JSONRecord, source: string, title: string, now: string): string {
+  const cycle = stringField(input.cycle_id) || "cycle"
+  const ref = stringField(input.ref) || stringField(input.job_id) || stringField(input.message_id) || title
+  const suffix = `${cycle}:${source}:${ref}:${now}`.replace(/[^A-Za-z0-9_.:-]+/g, "-")
+  return `incident-${suffix || crypto.randomUUID()}`
+}
+
+function incidentEventIdFrom(incidentId: string, action: IncidentAction, now: string): string {
+  const suffix = `${incidentId}:${action}:${now}`.replace(/[^A-Za-z0-9_.:-]+/g, "-")
+  return `incident-event-${suffix || crypto.randomUUID()}`
+}
+
+function statusAfterAction(current: IncidentStatus, action: IncidentAction): IncidentStatus {
+  if (action === "acknowledge") {
+    if (current !== "open") {
+      throw new Error(`incident action acknowledge requires open status, got ${current}`)
+    }
+    return "acknowledged"
+  }
+  if (action === "resolve") {
+    if (current !== "open" && current !== "acknowledged") {
+      throw new Error(`incident action resolve requires open or acknowledged status, got ${current}`)
+    }
+    return "resolved"
+  }
+  if (action === "ignore") {
+    if (current !== "open" && current !== "acknowledged") {
+      throw new Error(`incident action ignore requires open or acknowledged status, got ${current}`)
+    }
+    return "ignored"
+  }
+  if (current === "open") {
+    throw new Error("incident action reopen requires acknowledged, resolved, or ignored status")
+  }
+  return "open"
 }
 
 function validateCycleRun(run: CycleRun): void {
@@ -540,6 +920,45 @@ function validateDomainMessage(message: DomainMessage): void {
   }
 }
 
+function validateIncident(incident: Incident): void {
+  if (!incident.incident_id || !incident.title || !incident.first_seen_at || !incident.last_seen_at) {
+    throw new Error("incident_id, title, first_seen_at, and last_seen_at are required")
+  }
+  if (!INCIDENT_SOURCES.includes(incident.source)) {
+    throw new Error(`unsupported incident source: ${incident.source}`)
+  }
+  if (!INCIDENT_SEVERITIES.includes(incident.severity)) {
+    throw new Error(`unsupported incident severity: ${incident.severity}`)
+  }
+  if (!INCIDENT_STATUSES.includes(incident.status)) {
+    throw new Error(`unsupported incident status: ${incident.status}`)
+  }
+}
+
+function validateIncidentEvent(event: IncidentEvent): void {
+  if (!event.event_id || !event.incident_id || !event.created_at) {
+    throw new Error("event_id, incident_id, and created_at are required")
+  }
+  if (!INCIDENT_ACTIONS.includes(event.action)) {
+    throw new Error(`unsupported incident action: ${event.action}`)
+  }
+  if (!INCIDENT_STATUSES.includes(event.status_after)) {
+    throw new Error(`unsupported incident status_after: ${event.status_after}`)
+  }
+}
+
+function validateControlReview(review: ControlReview): void {
+  if (!review.review_id || !review.created_at) {
+    throw new Error("review_id and created_at are required")
+  }
+  if (review.status !== "ok" && review.status !== "needs_attention") {
+    throw new Error(`unsupported control review status: ${review.status}`)
+  }
+  if (!Array.isArray(review.items_json) || !Array.isArray(review.constraints_json)) {
+    throw new Error("items_json and constraints_json must be arrays")
+  }
+}
+
 function parseCycleStatus(value: unknown): CycleStatus | "" {
   const status = stringField(value)
   return CYCLE_STATUSES.includes(status as CycleStatus) ? status as CycleStatus : ""
@@ -558,6 +977,26 @@ function parseDomainMessageStatus(value: unknown): DomainMessageStatus | "" {
 function parseDomainMessageDirection(value: unknown): DomainMessageDirection | "" {
   const direction = stringField(value)
   return DOMAIN_MESSAGE_DIRECTIONS.includes(direction as DomainMessageDirection) ? direction as DomainMessageDirection : ""
+}
+
+function parseIncidentSource(value: unknown): IncidentSource | "" {
+  const source = stringField(value)
+  return INCIDENT_SOURCES.includes(source as IncidentSource) ? source as IncidentSource : ""
+}
+
+function parseIncidentSeverity(value: unknown): IncidentSeverity | "" {
+  const severity = stringField(value)
+  return INCIDENT_SEVERITIES.includes(severity as IncidentSeverity) ? severity as IncidentSeverity : ""
+}
+
+function parseIncidentStatus(value: unknown): IncidentStatus | "" {
+  const status = stringField(value)
+  return INCIDENT_STATUSES.includes(status as IncidentStatus) ? status as IncidentStatus : ""
+}
+
+function parseIncidentAction(value: unknown): IncidentAction | "" {
+  const action = stringField(value)
+  return INCIDENT_ACTIONS.includes(action as IncidentAction) ? action as IncidentAction : ""
 }
 
 function envelopeDirectionFromSchemaId(schemaId: string): string {
@@ -601,6 +1040,23 @@ interface JobRunSummaryRow {
   error_json: string | null
 }
 
+interface JobRunRow extends JobRunSummaryRow {
+  job_run_id: string
+  cycle_id: string
+  started_at: string | null
+  completed_at: string | null
+}
+
+interface NotifyAttemptRow {
+  notify_id: string
+  cycle_id: string | null
+  channel: string
+  status: NotifyStatus
+  payload_ref: string | null
+  result_json: string | null
+  attempted_at: string
+}
+
 interface DomainMessageRow {
   message_id: string
   cycle_id: string | null
@@ -618,6 +1074,40 @@ interface DomainMessageRow {
   error_json: string | null
 }
 
+interface IncidentRow {
+  incident_id: string
+  cycle_id: string | null
+  source: IncidentSource
+  severity: IncidentSeverity
+  status: IncidentStatus
+  title: string
+  detail_json: string | null
+  refs_json: string | null
+  first_seen_at: string
+  last_seen_at: string
+}
+
+interface IncidentEventRow {
+  event_id: string
+  incident_id: string
+  action: IncidentAction
+  status_after: IncidentStatus
+  actor: string | null
+  note: string | null
+  detail_json: string | null
+  created_at: string
+}
+
+interface ControlReviewRow {
+  review_id: string
+  cycle_id: string | null
+  status: "ok" | "needs_attention"
+  summary_json: string
+  items_json: string
+  constraints_json: string
+  created_at: string
+}
+
 function runtimeHealthFromRow(row: RuntimeHealthRow): RuntimeHealth {
   return {
     health_id: row.health_id,
@@ -625,6 +1115,34 @@ function runtimeHealthFromRow(row: RuntimeHealthRow): RuntimeHealth {
     status: row.status,
     checks_json: JSON.parse(row.checks_json) as JSONRecord,
     observed_at: row.observed_at,
+  }
+}
+
+function notifyAttemptFromRow(row: NotifyAttemptRow): NotifyAttempt {
+  return {
+    notify_id: row.notify_id,
+    cycle_id: row.cycle_id ?? undefined,
+    channel: row.channel,
+    status: row.status,
+    payload_ref: row.payload_ref ?? undefined,
+    result_json: row.result_json ? JSON.parse(row.result_json) as JSONRecord : undefined,
+    attempted_at: row.attempted_at,
+  }
+}
+
+function jobRunFromRow(row: JobRunRow): JobRun {
+  return {
+    job_run_id: row.job_run_id,
+    cycle_id: row.cycle_id,
+    ticket_no: row.ticket_no,
+    job_id: row.job_id,
+    target_domain: row.target_domain,
+    status: row.status,
+    command_ref: row.command_ref ?? undefined,
+    started_at: row.started_at ?? undefined,
+    completed_at: row.completed_at ?? undefined,
+    result_ref: row.result_ref ?? undefined,
+    error_json: row.error_json ? JSON.parse(row.error_json) as JSONRecord : undefined,
   }
 }
 
@@ -703,6 +1221,16 @@ function jobAttentionRef(job: JSONRecord): JSONRecord {
   }
 }
 
+function incidentAttentionRef(incident: Incident): JSONRecord {
+  return {
+    incident_id: incident.incident_id,
+    source: incident.source,
+    severity: incident.severity,
+    title: incident.title,
+    refs: incident.refs_json ?? [],
+  }
+}
+
 function domainMessageFromRow(row: DomainMessageRow): DomainMessage {
   return {
     message_id: row.message_id,
@@ -720,4 +1248,48 @@ function domainMessageFromRow(row: DomainMessageRow): DomainMessage {
     processed_at: row.processed_at ?? undefined,
     error_json: row.error_json ? JSON.parse(row.error_json) as JSONRecord : undefined,
   }
+}
+
+function incidentFromRow(row: IncidentRow): Incident {
+  return {
+    incident_id: row.incident_id,
+    cycle_id: row.cycle_id ?? undefined,
+    source: row.source,
+    severity: row.severity,
+    status: row.status,
+    title: row.title,
+    detail_json: row.detail_json ? JSON.parse(row.detail_json) as JSONRecord : undefined,
+    refs_json: row.refs_json ? JSON.parse(row.refs_json) as string[] : undefined,
+    first_seen_at: row.first_seen_at,
+    last_seen_at: row.last_seen_at,
+  }
+}
+
+function incidentEventFromRow(row: IncidentEventRow): IncidentEvent {
+  return {
+    event_id: row.event_id,
+    incident_id: row.incident_id,
+    action: row.action,
+    status_after: row.status_after,
+    actor: row.actor ?? undefined,
+    note: row.note ?? undefined,
+    detail_json: row.detail_json ? JSON.parse(row.detail_json) as JSONRecord : undefined,
+    created_at: row.created_at,
+  }
+}
+
+function controlReviewFromRow(row: ControlReviewRow): ControlReview {
+  return {
+    review_id: row.review_id,
+    cycle_id: row.cycle_id ?? undefined,
+    status: row.status,
+    summary_json: JSON.parse(row.summary_json) as JSONRecord,
+    items_json: JSON.parse(row.items_json) as JSONRecord[],
+    constraints_json: JSON.parse(row.constraints_json) as JSONRecord[],
+    created_at: row.created_at,
+  }
+}
+
+function stringArray(value: unknown): string[] {
+  return Array.isArray(value) ? value.map(String).filter(Boolean) : []
 }

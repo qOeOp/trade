@@ -1,4 +1,3 @@
-import { Database } from "bun:sqlite"
 import {
   compileExecutionContract,
   type ExecutionContract,
@@ -15,14 +14,35 @@ import {
   type SkippedExecutionGateResult,
 } from "../../../execution-gate/src/lib/execution-gate"
 import { asRecord, removeUndefined, stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
-import { latestSlowObserve, reduceFlowState } from "../../../../portfolio-execution-state/flow-projector/src/lib/flow-projector"
-import { appendPlanEvent, readFlowEvents, readLatestOrderFill, type PlanEvent } from "../../../../portfolio-execution-state/event-store/src/lib/event-store"
+import { appendEvent, readFlowEvents, readLatestOrderFill } from "./event-store-client"
+import { readLatestSlowObserve, reduceFlow } from "./flow-projector-client"
 import type { RunMode } from "./run-mode"
 
 export type { TargetAction } from "../../../../contracts/preflight-contract/src/target-action"
 export { readTargetAction } from "../../../../contracts/preflight-contract/src/target-action"
 
-export function runOneFlowStep(db: Database, input: JSONRecord, mode: RunMode): JSONRecord {
+export type PlanEvent = JSONRecord & {
+  event_key: string
+  chain_id: string
+  kind: "observe" | "order_fill" | "review"
+  body_json: JSONRecord
+  created_at: string
+}
+
+export interface ExecutionStateRuntime {
+  eventReader?: (dbPath: string, chainId: string) => JSONRecord[]
+  eventAppender?: (dbPath: string, event: JSONRecord) => JSONRecord
+  latestOrderFillReader?: (dbPath: string, chainId: string) => JSONRecord | null
+  flowStateReader?: (dbPath: string, chainId: string) => JSONRecord
+  latestSlowObserveReader?: (dbPath: string, chainId: string) => JSONRecord | null
+}
+
+export function runOneFlowStep(
+  dbPath: string,
+  input: JSONRecord,
+  mode: RunMode,
+  runtime: ExecutionStateRuntime = {},
+): JSONRecord {
   if (mode !== "dry-run" && mode !== "shadow") {
     throw new Error(`unsupported run mode: ${mode}`)
   }
@@ -42,7 +62,7 @@ export function runOneFlowStep(db: Database, input: JSONRecord, mode: RunMode): 
 
   if (preflightResult.verdict !== "armable") {
     const executionGate: ExecutionGateResult = { status: "skipped", reason: "preflight_not_armable" }
-    const observeEvent = appendExecutionObserve(db, input, preflightResult, executionGate)
+    const observeEvent = appendExecutionObserve(dbPath, input, preflightResult, executionGate, runtime)
     return {
       mode,
       preflight_result: preflightResult,
@@ -54,7 +74,7 @@ export function runOneFlowStep(db: Database, input: JSONRecord, mode: RunMode): 
 
   const triggerGate = evaluateTriggerCondition(input)
   if (triggerGate.status === "skipped") {
-    const observeEvent = appendExecutionObserve(db, input, preflightResult, triggerGate)
+    const observeEvent = appendExecutionObserve(dbPath, input, preflightResult, triggerGate, runtime)
     return {
       mode,
       preflight_result: preflightResult,
@@ -65,16 +85,16 @@ export function runOneFlowStep(db: Database, input: JSONRecord, mode: RunMode): 
   }
 
   const contract = compileExecutionContract(asRecord(input.execution_contract_input) as unknown as ExecutionContractInput)
-  const idempotencyGate = evaluateIdempotency(db, contract)
+  const idempotencyGate = evaluateIdempotency(dbPath, contract, runtime)
   if (idempotencyGate.status === "skipped") {
-    const observeEvent = appendExecutionObserve(db, input, preflightResult, idempotencyGate)
+    const observeEvent = appendExecutionObserve(dbPath, input, preflightResult, idempotencyGate, runtime)
     return {
       mode,
       preflight_result: preflightResult,
       execution_gate: idempotencyGate,
       execution_contract: contract,
       observe_event: observeEvent,
-      latest_order_fill: readLatestOrderFill(db, contract.chain_id),
+      latest_order_fill: latestOrderFill(dbPath, contract.chain_id, runtime),
       recorded: false,
     }
   }
@@ -87,7 +107,7 @@ export function runOneFlowStep(db: Database, input: JSONRecord, mode: RunMode): 
     execution_contract_input: input.execution_contract_input,
     execution_result: executionResult,
   })
-  appendPlanEvent(db, event)
+  appendStateEvent(dbPath, event, runtime)
 
   return {
     mode,
@@ -96,7 +116,7 @@ export function runOneFlowStep(db: Database, input: JSONRecord, mode: RunMode): 
     execution_contract: contract,
     execution_result: executionResult,
     order_fill_event: event,
-    latest_order_fill: readLatestOrderFill(db, contract.chain_id),
+    latest_order_fill: latestOrderFill(dbPath, contract.chain_id, runtime),
     recorded: true,
   }
 }
@@ -144,21 +164,26 @@ export function buildExecutionObserveEvent(
 }
 
 export function appendExecutionObserve(
-  db: Database,
+  dbPath: string,
   input: JSONRecord,
   preflightResult: unknown,
   executionGate: SkippedExecutionGateResult,
+  runtime: ExecutionStateRuntime = {},
 ): PlanEvent {
-  const event = buildExecutionObserveEvent(inheritLatestSlowObserveForFastTrack(db, input), preflightResult, executionGate)
-  appendPlanEvent(db, event)
+  const event = buildExecutionObserveEvent(inheritLatestSlowObserveForFastTrack(dbPath, input, runtime), preflightResult, executionGate)
+  appendStateEvent(dbPath, event, runtime)
   return event
 }
 
-export function evaluateIdempotency(db: Database, contract: ExecutionContract): ExecutionGateResult {
-  const events = readFlowEvents(db, contract.chain_id)
+export function evaluateIdempotency(
+  dbPath: string,
+  contract: ExecutionContract,
+  runtime: ExecutionStateRuntime = {},
+): ExecutionGateResult {
+  const events = readStateEvents(dbPath, contract.chain_id, runtime)
   const matchingEvent = events.find((event) => (
-    event.kind === "order_fill"
-    && stringField(event.body_json.source_observe_event_key) === contract.source_observe_event_key
+    stringField(event.kind) === "order_fill"
+    && stringField(asRecord(event.body_json).source_observe_event_key) === contract.source_observe_event_key
   ))
   if (matchingEvent) {
     return {
@@ -171,7 +196,7 @@ export function evaluateIdempotency(db: Database, contract: ExecutionContract): 
     }
   }
 
-  const state = reduceFlowState(db, contract.chain_id)
+  const state = readFlowState(dbPath, contract.chain_id, runtime)
   const riskLock = asRecord(state.risk_lock)
   if (riskLock.locked === true) {
     return {
@@ -260,7 +285,11 @@ function buildObserveActionIntent(
   return actionIntent
 }
 
-function inheritLatestSlowObserveForFastTrack(db: Database, input: JSONRecord): JSONRecord {
+function inheritLatestSlowObserveForFastTrack(
+  dbPath: string,
+  input: JSONRecord,
+  runtime: ExecutionStateRuntime,
+): JSONRecord {
   const observe = asRecord(input.observe)
   if (readTrackSource(input, observe) !== "fast_track") {
     return input
@@ -270,7 +299,7 @@ function inheritLatestSlowObserveForFastTrack(db: Database, input: JSONRecord): 
   if (!chainId) {
     return input
   }
-  const slowObserve = latestSlowObserve(readFlowEvents(db, chainId))
+  const slowObserve = latestSlowObserve(dbPath, chainId, runtime)
   if (!slowObserve) {
     return input
   }
@@ -290,6 +319,26 @@ function inheritLatestSlowObserveForFastTrack(db: Database, input: JSONRecord): 
     ...input,
     observe: inheritedObserve,
   }
+}
+
+function readStateEvents(dbPath: string, chainId: string, runtime: ExecutionStateRuntime): JSONRecord[] {
+  return (runtime.eventReader ?? readFlowEvents)(dbPath, chainId)
+}
+
+function readFlowState(dbPath: string, chainId: string, runtime: ExecutionStateRuntime): JSONRecord {
+  return (runtime.flowStateReader ?? reduceFlow)(dbPath, chainId)
+}
+
+function appendStateEvent(dbPath: string, event: unknown, runtime: ExecutionStateRuntime): JSONRecord {
+  return (runtime.eventAppender ?? appendEvent)(dbPath, asRecord(event))
+}
+
+function latestOrderFill(dbPath: string, chainId: string, runtime: ExecutionStateRuntime): JSONRecord | null {
+  return (runtime.latestOrderFillReader ?? readLatestOrderFill)(dbPath, chainId)
+}
+
+function latestSlowObserve(dbPath: string, chainId: string, runtime: ExecutionStateRuntime): JSONRecord | null {
+  return (runtime.latestSlowObserveReader ?? readLatestSlowObserve)(dbPath, chainId)
 }
 
 const FAST_TRACK_INHERITED_KEYS = [

@@ -1,7 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { mkdtempSync, rmSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { mkdirSync, mkdtempSync, rmSync } from "node:fs"
 import { join } from "node:path"
 import { Database } from "bun:sqlite"
 import { handleExecutionCommand } from "./execution"
@@ -24,14 +23,17 @@ test("observe command handler builds observe events without opening trade DB", a
   assert.equal((event.body_json.account as { equity_usdt: number }).equity_usdt, 1000)
 })
 
-test("runtime command handler initializes schema and appends local order_fill", () => {
-  const db = new Database(":memory:")
+test("runtime command handler initializes schema and appends local order_fill", async () => {
+  const dir = makeCheckDir("trade-flow-runtime-handler-")
+  const dbPath = join(dir, "trade.db")
+  const db = new Database(dbPath)
   try {
     ensureSchema(db)
-    const init = handleRuntimeCommand(db, baseConfig({ init: true, dbPath: ":memory:" }))
+    const init = await handleRuntimeCommand(db, baseConfig({ init: true, dbPath }))
     assert.equal(init?.ok, true)
 
-    const append = handleRuntimeCommand(db, baseConfig({
+    const append = await handleRuntimeCommand(db, baseConfig({
+      dbPath,
       appendOrderFill: true,
       input: {
         event_key: "evt-runtime-append-1",
@@ -51,14 +53,18 @@ test("runtime command handler initializes schema and appends local order_fill", 
     assert.equal(readFlowEvents(db, "flow-runtime-1").length, 1)
   } finally {
     db.close()
+    rmSync(dir, { recursive: true, force: true })
   }
 })
 
-test("runtime command handler appends validated strategy review", () => {
-  const db = new Database(":memory:")
+test("runtime command handler appends validated strategy review", async () => {
+  const dir = makeCheckDir("trade-flow-review-handler-")
+  const dbPath = join(dir, "trade.db")
+  const db = new Database(dbPath)
   try {
     ensureSchema(db)
-    const response = handleRuntimeCommand(db, baseConfig({
+    const response = await handleRuntimeCommand(db, baseConfig({
+      dbPath,
       appendReview: true,
       input: {
         event_key: "review-handler-valid-1",
@@ -82,8 +88,9 @@ test("runtime command handler appends validated strategy review", () => {
     assert.equal(event.kind, "review")
     assert.equal(event.body_json.strategy_ref, "S-TREND")
 
-    assert.throws(
+    await assert.rejects(
       () => handleRuntimeCommand(db, baseConfig({
+        dbPath,
         appendReview: true,
         input: {
           event_key: "review-handler-invalid-1",
@@ -99,12 +106,14 @@ test("runtime command handler appends validated strategy review", () => {
     )
   } finally {
     db.close()
+    rmSync(dir, { recursive: true, force: true })
   }
 })
 
-test("runtime command handler returns track dry-run summary with lane conflicts", () => {
-  const dir = mkdtempSync(join(tmpdir(), "trade-flow-track-handler-"))
-  const db = new Database(":memory:")
+test("runtime command handler returns track dry-run summary with lane conflicts", async () => {
+  const dir = makeCheckDir("trade-flow-track-handler-")
+  const dbPath = join(dir, "trade.db")
+  const db = new Database(dbPath)
   try {
     ensureSchema(db)
     appendObserve(db, "obs-track-1", "flow-track-1", "2026-07-08T12:00:00Z")
@@ -117,8 +126,9 @@ test("runtime command handler returns track dry-run summary with lane conflicts"
       body_json: {},
       created_at: "2026-07-08T12:03:00Z",
     })
+    db.close()
 
-    const response = handleRuntimeCommand(db, baseConfig({ track: "slow", dbPath: join(dir, "trade.db") }))
+    const response = await handleRuntimeCommand(db, baseConfig({ track: "slow", dbPath }))
     assert.equal(response?.ok, true)
     const data = response?.data as {
       track: string
@@ -136,16 +146,23 @@ test("runtime command handler returns track dry-run summary with lane conflicts"
       chain_ids: ["flow-track-1", "flow-track-2"],
     }])
   } finally {
-    db.close()
     rmSync(dir, { recursive: true, force: true })
   }
 })
 
 test("execution command handler records execution and dry-run flow through execution domain", async () => {
+  const checkRoot = join(process.cwd(), "../../..", "tmp/check")
+  mkdirSync(checkRoot, { recursive: true })
+  const dir = mkdtempSync(join(checkRoot, "trade-flow-execution-handler-"))
+  const recordDbPath = join(dir, "record.db")
   const db = new Database(":memory:")
   try {
     ensureSchema(db)
+    const recordDb = new Database(recordDbPath)
+    ensureSchema(recordDb)
+    recordDb.close()
     const record = await handleExecutionCommand(db, baseConfig({
+      dbPath: recordDbPath,
       recordExecution: true,
       input: {
         preflight_result: { verdict: "armable" },
@@ -165,9 +182,19 @@ test("execution command handler records execution and dry-run flow through execu
       },
     }))
     assert.equal(record?.ok, true)
-    assert.equal(readFlowEvents(db, "flow-handler-1").length, 1)
+    const writtenDb = new Database(recordDbPath)
+    try {
+      assert.equal(readFlowEvents(writtenDb, "flow-handler-1").length, 1)
+    } finally {
+      writtenDb.close()
+    }
 
+    const dbPath = join(dir, "trade.db")
+    const fileDb = new Database(dbPath)
+    ensureSchema(fileDb)
+    fileDb.close()
     const dryRun = await handleExecutionCommand(db, baseConfig({
+      dbPath,
       run: true,
       mode: "dry-run",
       input: dryRunInput(),
@@ -176,10 +203,14 @@ test("execution command handler records execution and dry-run flow through execu
     assert.equal((dryRun?.data as { recorded: boolean }).recorded, true)
   } finally {
     db.close()
+    rmSync(dir, { recursive: true, force: true })
   }
 })
 
 test("recovery command handler reduces local state and returns reconcile drafts", async () => {
+  const checkRoot = join(process.cwd(), "../../..", "tmp/check")
+  mkdirSync(checkRoot, { recursive: true })
+  const dir = mkdtempSync(join(checkRoot, "trade-flow-recovery-handler-"))
   const db = new Database(":memory:")
   try {
     ensureSchema(db)
@@ -190,7 +221,12 @@ test("recovery command handler reduces local state and returns reconcile drafts"
     assert.equal(recover?.ok, true)
     assert.equal((recover?.data as { event_count: number }).event_count, 0)
 
+    const dbPath = join(dir, "trade.db")
+    const fileDb = new Database(dbPath)
+    ensureSchema(fileDb)
+    fileDb.close()
     const reconcile = await handleRecoveryCommand(db, baseConfig({
+      dbPath,
       reconcileFlow: true,
       chainId: "flow-recovery-1",
       input: {
@@ -220,6 +256,7 @@ test("recovery command handler reduces local state and returns reconcile drafts"
     assert.equal(data.drafts[0].body_json.source, "reconcile")
   } finally {
     db.close()
+    rmSync(dir, { recursive: true, force: true })
   }
 })
 
@@ -253,6 +290,12 @@ function baseConfig(overrides: Partial<CommandConfig>): CommandConfig {
     input: {},
     ...overrides,
   }
+}
+
+function makeCheckDir(prefix: string): string {
+  const checkRoot = join(process.cwd(), "../../..", "tmp/check")
+  mkdirSync(checkRoot, { recursive: true })
+  return mkdtempSync(join(checkRoot, prefix))
 }
 
 function observeInput(): JSONRecord {

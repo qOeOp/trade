@@ -1,9 +1,10 @@
 import assert from "node:assert/strict"
-import { mkdtempSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
 import { run } from "../scripts/main"
+import { repoRoot } from "./paths"
 
 type JSONRecord = Record<string, unknown>
 
@@ -80,6 +81,42 @@ test("artifact catalog CLI exposes direct register and stored record commands", 
   assert.equal(rndList.ok, true)
   assert.equal(asArray(rndList.data).length, 1)
   assert.equal(asRecord(asArray(rndList.data)[0]).run_id, "rnd-cli-1")
+})
+
+test("artifact catalog CLI exposes native J06 catalog hygiene job result", () => {
+  const root = join(repoRoot(), "tmp", `artifact-catalog-j06-${Date.now()}`)
+  const catalogDbPath = join(root, "data_catalog.db")
+  try {
+    mkdirSync(root, { recursive: true })
+    writeFileSync(join(root, "sample-report.json"), JSON.stringify({ report_kind: "j06_contract", created_at: "2026-07-11T00:00:00.000Z" }))
+
+    const result = run([
+      "--catalog-hygiene-job",
+      "--catalog-db",
+      catalogDbPath,
+      "--catalog-root",
+      root,
+      "--json",
+      JSON.stringify({
+        cycle_id: "cycle-j06-cli",
+        ticket_no: "J06",
+        job_id: "catalog_hygiene_scan",
+        now: "2026-07-11T00:00:00.000Z",
+      }),
+    ])
+
+    assert.equal(result.ok, true)
+    const data = asRecord(result.data)
+    const runtimeResult = asRecord(data.runtime_result)
+    assert.equal(runtimeResult.schema_id, "trade.domain-runtime.domain-job-result.v1")
+    assert.equal(runtimeResult.domain, "artifact-knowledge")
+    assert.equal(runtimeResult.job_id, "catalog_hygiene_scan")
+    assert.equal(runtimeResult.status, "ok")
+    assert.deepEqual(runtimeResult.writes, { artifact_catalog: true })
+    assert.equal(asRecord(data.scan).artifacts_upserted, 1)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
 })
 
 function asRecord(value: unknown): JSONRecord {

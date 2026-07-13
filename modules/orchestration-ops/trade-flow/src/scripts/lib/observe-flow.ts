@@ -1,8 +1,6 @@
-import { asRecord, stringField, type JSONRecord } from "./json"
+import { type JSONRecord } from "./json"
 import { loadJsonFile, loadStrategies } from "../../../../../contracts/strategy-policy/src/strategy-policy"
-import { buildObserveEvent, type ObserveEvent } from "../../../../../live-decision-planning/observe-builder/src/lib/observe-builder"
-import { loadRuntimePolicy } from "../../../../../policy-risk/runtime-policy-compiler/src/lib/runtime-policy"
-import { fetchObserveProjections, type Runner } from "../../../../../live-decision-planning/observe-runner/src/lib/observe-runner"
+import { loadRuntimePolicyFromOwner } from "./runtime-policy-client"
 
 export function loadRuntime(accountConfigPath: string, strategiesDir: string): JSONRecord
 export function loadRuntime(input: { tradingConfigPath?: string; accountConfigPath: string; strategiesDir: string }): JSONRecord
@@ -11,7 +9,7 @@ export function loadRuntime(input: string | { tradingConfigPath?: string; accoun
   const strategiesDir = typeof input === "string" ? legacyStrategiesDir || "" : input.strategiesDir
   const accountConfig = loadJsonFile(accountConfigPath)
   const strategies = loadStrategies(strategiesDir)
-  const { trading_config, runtime_policy } = loadRuntimePolicy({
+  const { trading_config, runtime_policy } = loadRuntimePolicyFromOwner({
     tradingConfigPath: typeof input === "string" ? undefined : input.tradingConfigPath,
     accountConfigPath,
   })
@@ -22,64 +20,4 @@ export function loadRuntime(input: string | { tradingConfigPath?: string; accoun
     strategies,
     loaded_at: new Date().toISOString(),
   }
-}
-
-export async function observeFromTools(input: JSONRecord): Promise<ObserveEvent> {
-  const symbol = stringField(input.symbol)
-  const repoRoot = stringField(input.repoRoot) || process.cwd()
-  if (!symbol) {
-    throw new Error("symbol is required")
-  }
-  const projections = await fetchObserveProjections({
-    repoRoot,
-    symbol,
-    timeoutMs: Number(input.timeoutMs) || undefined,
-  })
-  return buildObserveEvent({
-    chain_id: stringField(input.chain_id),
-    symbol,
-    side: readSide(input.side),
-    strategy_ref: stringField(input.strategy_ref),
-    setup_id: stringField(input.setup_id) || undefined,
-    account_snapshot: projections.account_snapshot,
-    market_snapshot: projections.market_snapshot,
-    market_refs: projections.market_refs,
-    plan_seed: asRecord(input.plan_seed),
-    policy_snapshot: asRecord(input.policy_snapshot),
-    created_at: stringField(input.created_at) || undefined,
-  })
-}
-
-export async function observeFromToolsWithRunner(input: JSONRecord, runner?: Runner): Promise<ObserveEvent> {
-  const symbol = stringField(input.symbol)
-  const repoRoot = stringField(input.repoRoot) || process.cwd()
-  if (!symbol) {
-    throw new Error("symbol is required")
-  }
-  const projections = await fetchObserveProjections({
-    repoRoot,
-    symbol,
-    timeoutMs: Number(input.timeoutMs) || undefined,
-  }, runner)
-  return buildObserveEvent({
-    chain_id: stringField(input.chain_id),
-    symbol,
-    side: readSide(input.side),
-    strategy_ref: stringField(input.strategy_ref),
-    setup_id: stringField(input.setup_id) || undefined,
-    account_snapshot: projections.account_snapshot,
-    market_snapshot: projections.market_snapshot,
-    market_refs: projections.market_refs,
-    plan_seed: asRecord(input.plan),
-    policy_snapshot: asRecord(input.policy_snapshot),
-    created_at: stringField(input.created_at) || undefined,
-  })
-}
-
-function readSide(value: unknown): "long" | "short" {
-  const side = stringField(value)
-  if (side === "long" || side === "short") {
-    return side
-  }
-  throw new Error("side must be long or short")
 }

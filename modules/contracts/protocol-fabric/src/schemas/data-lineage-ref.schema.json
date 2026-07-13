@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade.protocol.data-lineage-ref.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ref", "kind"],
+  "properties": {
+    "ref": { "type": "string", "minLength": 1 },
+    "kind": {
+      "type": "string",
+      "enum": ["raw_capture", "canonical_dataset", "feature_manifest", "research_dataset", "evidence_dataset"]
+    },
+    "source_refs": { "type": "array", "items": { "type": "string" } },
+    "hash": { "type": "string" },
+    "schema_id": { "type": "string" },
+    "time_window": { "type": "object", "additionalProperties": true }
+  }
+}

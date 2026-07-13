@@ -1,0 +1,19 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade.protocol.frozen-candidate-ref.v1",
+  "title": "protocol fabric frozen candidate ref",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "candidate_ref", "strategy_id", "frozen_at", "source_evidence_refs", "promotion_status", "content_hash"],
+  "properties": {
+    "schema_version": { "const": "trade.protocol.frozen-candidate-ref.v1" },
+    "candidate_ref": { "type": "string", "minLength": 1 },
+    "strategy_id": { "type": "string", "minLength": 1 },
+    "frozen_at": { "type": "string", "minLength": 1 },
+    "source_evidence_refs": { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } },
+    "assumption_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "limit_refs": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "promotion_status": { "type": "string", "enum": ["draft", "validated", "shadow_ready", "rejected"] },
+    "content_hash": { "type": "string", "minLength": 1 }
+  }
+}

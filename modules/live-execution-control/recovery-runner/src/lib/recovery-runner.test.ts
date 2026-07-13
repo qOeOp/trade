@@ -1,8 +1,9 @@
 import { Database } from "bun:sqlite"
 import assert from "node:assert/strict"
 import test from "node:test"
-import type { Runner } from "../../../../live-decision-planning/observe-runner/src/lib/observe-runner"
-import { appendPlanEvent, ensureSchema } from "../../../../portfolio-execution-state/event-store/src/lib/event-store"
+import type { Runner } from "./tool-runner"
+import { appendPlanEvent, ensureSchema, readFlowEvents } from "../../../../portfolio-execution-state/event-store/src/lib/event-store"
+import { applyReconcileDrafts, reduceFlowState } from "../../../../portfolio-execution-state/flow-projector/src/lib/flow-projector"
 import { cronRecoverFromTools, reconcileFromTools } from "./recovery-runner"
 
 test("reconcile-from-tools uses injected runner with stable account snapshot command contract", async () => {
@@ -16,10 +17,10 @@ test("reconcile-from-tools uses injected runner with stable account snapshot com
   }
 
   try {
-    const result = await reconcileFromTools(db, "flow-reconcile-fixture", {
+    const result = await reconcileFromTools(":memory:", "flow-reconcile-fixture", {
       repoRoot: "/repo",
       historyLimit: 25,
-    }, runner) as { drafts: unknown[] }
+    }, runner, testRuntime(db)) as { drafts: unknown[] }
     assert.equal(result.drafts.length, 1)
     assert.equal(calls.length, 1)
     assert.equal(calls[0].cwd, "/repo/modules/exchange-gateway/binance-read/account-snapshot")
@@ -51,10 +52,10 @@ test("cron recover runner failure does not apply reconcile drafts", async () => 
 
   try {
     await assert.rejects(
-      () => cronRecoverFromTools(db, "flow-recover-failure", {
+      () => cronRecoverFromTools(":memory:", "flow-recover-failure", {
         repoRoot: "/repo",
         apply_reconcile: true,
-      }, true, runner),
+      }, true, runner, testRuntime(db)),
       /reconcile snapshot failed/,
     )
     const row = db.query("SELECT COUNT(*) AS count FROM plan_event WHERE kind='order_fill'").get() as { count: number }
@@ -97,10 +98,10 @@ test("cron recover writes needs_review event when reconcile has unmatched facts"
   })
 
   try {
-    const result = await cronRecoverFromTools(db, "flow-unmatched-recover", {
+    const result = await cronRecoverFromTools(":memory:", "flow-unmatched-recover", {
       repoRoot: "/repo",
       needs_review_event_key: "needs-review-fixture",
-    }, true, runner) as {
+    }, true, runner, testRuntime(db)) as {
       status: string
       review_event: { kind: string; body_json: { status: string; reason: string } }
       after: { risk_lock: { locked: boolean; reason: string } }
@@ -130,6 +131,18 @@ function seedObserve(db: Database, chainId: string): void {
       action_intent: { target_action: "no_action" },
     },
   })
+}
+
+function testRuntime(db: Database) {
+  return {
+    eventReader: (_dbPath: string, chainId: string) => readFlowEvents(db, chainId) as unknown as Record<string, unknown>[],
+    stateReader: (_dbPath: string, chainId: string) => reduceFlowState(db, chainId),
+    eventAppender: (_dbPath: string, event: Record<string, unknown>) => {
+      appendPlanEvent(db, event as unknown as Parameters<typeof appendPlanEvent>[1])
+      return event
+    },
+    reconcileApplier: (_dbPath: string, reconcile: Record<string, unknown>, yes: boolean) => applyReconcileDrafts(db, reconcile, yes),
+  }
 }
 
 function accountSnapshotResponse() {

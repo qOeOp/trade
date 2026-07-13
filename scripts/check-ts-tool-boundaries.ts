@@ -63,7 +63,10 @@ for (const file of walkTsFiles("modules")) {
     if (isAllowedCrossToolImport(file, sourceTool, targetTool)) {
       return
     }
-    if (isAllowedTradeFlowLegacyAdapterImport(file, sourceTool, targetTool)) {
+    if (isAllowedSameDomainIntegrationTestImport(file, sourceTool, targetTool)) {
+      return
+    }
+    if (isAllowedTradeFlowOrchestratorImport(file, sourceTool, targetTool)) {
       return
     }
     if (targetTool && sourceTool && targetTool !== sourceTool) {
@@ -73,31 +76,19 @@ for (const file of walkTsFiles("modules")) {
 }
 
 function isAllowedCrossToolImport(file: string, sourceTool: string, targetTool: string): boolean {
-  const allowed = new Set([
+  const alwaysAllowed = new Set([
     "modules/portfolio-execution-state/flow-projector -> modules/portfolio-execution-state/event-store",
-    "modules/live-decision-planning/slow-track-plan -> modules/policy-risk/runtime-policy-compiler",
-    "modules/live-decision-planning/slow-track-plan -> modules/portfolio-execution-state/event-store",
-    "modules/live-decision-planning/slow-track-plan -> modules/portfolio-execution-state/flow-projector",
     "modules/live-decision-planning/slow-track-plan -> modules/live-decision-planning/observe-runner",
-    "modules/live-decision-planning/fast-track-plan -> modules/live-execution-control/execution-gate",
-    "modules/live-decision-planning/fast-track-plan -> modules/portfolio-execution-state/event-store",
-    "modules/live-decision-planning/fast-track-plan -> modules/portfolio-execution-state/flow-projector",
-    "modules/live-decision-planning/fast-track-plan -> modules/live-decision-planning/observe-runner",
-    "modules/live-execution-control/recovery-runner -> modules/live-decision-planning/observe-runner",
+    "modules/live-decision-planning/observe-runner -> modules/live-decision-planning/observe-builder",
+    "modules/live-execution-control/fast-track-guard -> modules/live-execution-control/execution-gate",
     "modules/live-execution-control/recovery-runner -> modules/live-execution-control/execution-recorder",
     "modules/live-execution-control/recovery-runner -> modules/live-execution-control/reconcile-drafts",
-    "modules/live-execution-control/recovery-runner -> modules/portfolio-execution-state/event-store",
-    "modules/live-execution-control/recovery-runner -> modules/portfolio-execution-state/flow-projector",
     "modules/live-execution-control/execution-flow-runner -> modules/live-execution-control/execution-recorder",
     "modules/live-execution-control/execution-flow-runner -> modules/live-execution-control/execution-gate",
-    "modules/live-execution-control/execution-flow-runner -> modules/portfolio-execution-state/event-store",
-    "modules/live-execution-control/execution-flow-runner -> modules/portfolio-execution-state/flow-projector",
     "modules/live-execution-control/live-small-runner -> modules/live-execution-control/execution-flow-runner",
     "modules/live-execution-control/live-small-runner -> modules/live-execution-control/execution-gate",
     "modules/live-execution-control/live-small-runner -> modules/live-execution-control/execution-router",
     "modules/live-execution-control/live-small-runner -> modules/live-execution-control/execution-recorder",
-    "modules/live-execution-control/live-small-runner -> modules/live-decision-planning/observe-runner",
-    "modules/live-execution-control/live-small-runner -> modules/portfolio-execution-state/event-store",
     "modules/market-data-products/ohlcv-fetch -> modules/market-data-products/market-data-store",
     "modules/exchange-gateway/binance-write/order-place -> modules/exchange-gateway/exchange-runtime-store",
     "modules/exchange-gateway/binance-write/order-cancel -> modules/exchange-gateway/exchange-runtime-store",
@@ -105,16 +96,40 @@ function isAllowedCrossToolImport(file: string, sourceTool: string, targetTool: 
     "modules/exchange-gateway/binance-write/position-protect -> modules/exchange-gateway/exchange-runtime-store",
     "modules/orchestration-ops/runtime-health-guard -> modules/orchestration-ops/ops-runtime-store",
     "modules/orchestration-ops/ops-notify-dispatch -> modules/orchestration-ops/ops-runtime-store",
+    "modules/orchestration-ops/control-effectiveness-review -> modules/orchestration-ops/ops-runtime-store",
     "modules/orchestration-ops/domain-bus -> modules/orchestration-ops/ops-runtime-store",
     "modules/orchestration-ops/trade-flow -> modules/orchestration-ops/ops-runtime-store",
     "modules/governance-review-compliance/closed-flow-review-sweep -> modules/governance-review-compliance/governance-ledger",
+  ])
+  const testOnlyAllowed = new Set([
+    "modules/live-decision-planning/slow-track-plan -> modules/policy-risk/runtime-policy-compiler",
+    "modules/live-decision-planning/slow-track-plan -> modules/portfolio-execution-state/event-store",
+    "modules/live-decision-planning/slow-track-plan -> modules/portfolio-execution-state/flow-projector",
+    "modules/live-execution-control/fast-track-guard -> modules/live-decision-planning/observe-runner",
+    "modules/live-execution-control/fast-track-guard -> modules/portfolio-execution-state/event-store",
+    "modules/live-execution-control/fast-track-guard -> modules/portfolio-execution-state/flow-projector",
+    "modules/live-execution-control/recovery-runner -> modules/live-decision-planning/observe-runner",
+    "modules/live-execution-control/recovery-runner -> modules/portfolio-execution-state/event-store",
+    "modules/live-execution-control/recovery-runner -> modules/portfolio-execution-state/flow-projector",
+    "modules/live-execution-control/execution-flow-runner -> modules/portfolio-execution-state/event-store",
+    "modules/live-execution-control/execution-flow-runner -> modules/portfolio-execution-state/flow-projector",
+    "modules/live-execution-control/live-small-runner -> modules/live-decision-planning/observe-runner",
+    "modules/live-execution-control/live-small-runner -> modules/portfolio-execution-state/event-store",
     "modules/governance-review-compliance/closed-flow-review-sweep -> modules/portfolio-execution-state/event-store",
     "modules/governance-review-compliance/closed-flow-review-sweep -> modules/portfolio-execution-state/flow-projector",
   ])
-  return allowed.has(`${sourceTool} -> ${targetTool}`) && !isTradeFlowProductionFile(file, sourceTool)
+  const edge = `${sourceTool} -> ${targetTool}`
+  return alwaysAllowed.has(edge)
+    || (file.endsWith(".test.ts") && testOnlyAllowed.has(edge))
 }
 
-function isAllowedTradeFlowLegacyAdapterImport(file: string, sourceTool: string, targetTool: string): boolean {
+function isAllowedSameDomainIntegrationTestImport(file: string, sourceTool: string, targetTool: string): boolean {
+  return file.endsWith(".test.ts")
+    && sourceTool === "modules/research-strategy-development/rd-integration-suite"
+    && targetTool.startsWith("modules/research-strategy-development/")
+}
+
+function isAllowedTradeFlowOrchestratorImport(file: string, sourceTool: string, targetTool: string): boolean {
   if (sourceTool !== "modules/orchestration-ops/trade-flow" || !targetTool.startsWith("modules/")) {
     return false
   }
@@ -122,55 +137,12 @@ function isAllowedTradeFlowLegacyAdapterImport(file: string, sourceTool: string,
     return true
   }
   const allowedByFile: Record<string, Set<string>> = {
-    "modules/orchestration-ops/trade-flow/src/scripts/main.ts": new Set([
-      "modules/portfolio-execution-state/event-store",
-    ]),
-    "modules/orchestration-ops/trade-flow/src/scripts/commands/execution.ts": new Set([
-      "modules/live-execution-control/execution-flow-runner",
-      "modules/live-execution-control/execution-recorder",
-      "modules/live-execution-control/live-small-runner",
-      "modules/portfolio-execution-state/event-store",
-    ]),
-    "modules/orchestration-ops/trade-flow/src/scripts/commands/recovery.ts": new Set([
-      "modules/live-execution-control/reconcile-drafts",
-      "modules/live-execution-control/recovery-runner",
-      "modules/portfolio-execution-state/event-store",
-      "modules/portfolio-execution-state/flow-projector",
-    ]),
-    "modules/orchestration-ops/trade-flow/src/scripts/commands/runtime.ts": new Set([
-      "modules/portfolio-execution-state/event-store",
-    ]),
-    "modules/orchestration-ops/trade-flow/src/scripts/commands/observe.ts": new Set([
-      "modules/live-decision-planning/observe-builder",
-    ]),
-    "modules/orchestration-ops/trade-flow/src/scripts/lib/automation-cycle.ts": new Set([
-      "modules/portfolio-execution-state/flow-projector",
-    ]),
     "modules/orchestration-ops/trade-flow/src/scripts/lib/job-graph-runner.ts": new Set([
       "modules/orchestration-ops/domain-bus",
       "modules/orchestration-ops/ops-runtime-store",
     ]),
-    "modules/orchestration-ops/trade-flow/src/scripts/lib/live-execution.ts": new Set([
-      "modules/live-decision-planning/observe-runner",
-      "modules/live-execution-control/execution-flow-runner",
-    ]),
-    "modules/orchestration-ops/trade-flow/src/scripts/lib/observe-flow.ts": new Set([
-      "modules/live-decision-planning/observe-builder",
-      "modules/live-decision-planning/observe-runner",
-      "modules/policy-risk/runtime-policy-compiler",
-    ]),
-    "modules/orchestration-ops/trade-flow/src/scripts/lib/track-runner.ts": new Set([
-      "modules/live-decision-planning/fast-track-plan",
-      "modules/live-decision-planning/slow-track-plan",
-      "modules/portfolio-execution-state/event-store",
-      "modules/portfolio-execution-state/flow-projector",
-    ]),
   }
   return allowedByFile[file]?.has(targetTool) === true
-}
-
-function isTradeFlowProductionFile(file: string, sourceTool: string): boolean {
-  return sourceTool === "modules/orchestration-ops/trade-flow" && !file.endsWith(".test.ts")
 }
 
 if (issues.length > 0) {

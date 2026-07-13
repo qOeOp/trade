@@ -1,6 +1,5 @@
-import { existsSync, mkdtempSync, rmSync } from "node:fs"
+import { existsSync, mkdirSync, mkdtempSync, rmSync } from "node:fs"
 import { readFileSync } from "node:fs"
-import { tmpdir } from "node:os"
 import { isAbsolute, join } from "node:path"
 import { Database } from "bun:sqlite"
 import assert from "node:assert/strict"
@@ -20,11 +19,13 @@ test("track dry-run summary schema matches stable cron result envelope", () => {
   assert.deepEqual(asArray(asRecord(asRecord(schema.properties).mode).enum), [...TRACK_DRY_RUN_MODES])
   assert.deepEqual(asArray(asRecord(asRecord(schema.properties).lane_conflicts).items && asRecord(asRecord(asRecord(schema.properties).lane_conflicts).items).required), ["lane_key", "chain_ids"])
 
-  const dir = mkdtempSync(join(tmpdir(), "track-dry-run-schema-"))
-  const db = new Database(":memory:")
+  const dir = makeCheckDir("track-dry-run-schema-")
+  const dbPath = join(dir, "trade.db")
+  const db = new Database(dbPath)
   try {
     ensureSchema(db)
-    const completed = runTrackDryRun(db, "slow", dir) as JSONRecord
+    db.close()
+    const completed = runTrackDryRun(dbPath, "slow", dir) as JSONRecord
     for (const field of asArray(schema.required)) {
       assert.ok(String(field) in completed, `missing required field ${String(field)}`)
     }
@@ -46,7 +47,7 @@ test("track dry-run summary schema matches stable cron result envelope", () => {
       runId: "track-schema-active-lock",
     })
     try {
-      const skipped = runTrackDryRun(db, "fast", dir) as JSONRecord
+      const skipped = runTrackDryRun(dbPath, "fast", dir) as JSONRecord
       for (const field of asArray(schema.required)) {
         assert.ok(String(field) in skipped, `missing required field ${String(field)}`)
       }
@@ -62,10 +63,15 @@ test("track dry-run summary schema matches stable cron result envelope", () => {
       releaseCronLock(lock)
     }
   } finally {
-    db.close()
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+function makeCheckDir(prefix: string): string {
+  const checkRoot = join(process.cwd(), "../../..", "tmp/check")
+  mkdirSync(checkRoot, { recursive: true })
+  return mkdtempSync(join(checkRoot, prefix))
+}
 
 function readSchema(): JSONRecord {
   return JSON.parse(readFileSync(new URL("../../schemas/track-dry-run-summary.schema.json", import.meta.url), "utf8")) as JSONRecord

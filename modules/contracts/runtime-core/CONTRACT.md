@@ -8,10 +8,13 @@ contract module
 
 - JSON record helpers.
 - Repository-relative path resolution and runtime path guard.
+- Lifecycle processor spec / record helpers shared by control tower and domain runtime integrations.
+- Owner tool registry resolver for `toolset.json` entries.
 - UTC timestamp helper.
 
 ## Boundaries
 
 - No domain workflow.
+- No cycle scheduling or job graph ownership.
 - No exchange access.
 - No strategy research or execution decisions.

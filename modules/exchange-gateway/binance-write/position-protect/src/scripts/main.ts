@@ -4,6 +4,7 @@ import { mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 import { Database } from "bun:sqlite"
 import Binance, { type BinanceRest } from "binance-api-node"
+import { buildExchangeCommandRef } from "../../../../../contracts/protocol-fabric/src/protocol-fabric"
 import {
   buildExchangeCommand,
   buildExchangeResult,
@@ -105,7 +106,7 @@ async function run(argv: string[]): Promise<ScriptResponse> {
   try {
     const config = parseArgs(argv)
     if (config.dryJson) {
-      return { ok: true, data: buildDryRun(config) }
+      return { ok: true, data: withExchangeCommandRef(config, buildDryRun(config), "planned") }
     }
     const envStatus = checkEnv()
     if (config.checkEnv) {
@@ -119,9 +120,44 @@ async function run(argv: string[]): Promise<ScriptResponse> {
     const client = createClient(config.timeout)
     const execution = await executeProtection(config, client)
     recordExchangeAuditIfEnabled(config, execution)
-    return { ok: true, data: execution }
+    return { ok: true, data: withExchangeCommandRef(config, execution, "confirmed") }
   } catch (error) {
     return { ok: false, error: formatError(error) }
+  }
+}
+
+function withExchangeCommandRef(config: Config, execution: unknown, status: "planned" | "confirmed"): Record<string, unknown> {
+  const executionRecord = asRecord(execution)
+  const dryRun = buildDryRun(config)
+  const created = Array.isArray(executionRecord.created) ? executionRecord.created : []
+  const plannedLegs = Array.isArray(executionRecord.legs) ? executionRecord.legs : Array.isArray(dryRun.legs) ? dryRun.legs : []
+  const resultRecords = created.map((item) => asRecord(asRecord(item).result))
+  const requestRecords = plannedLegs.map((item) => asRecord(asRecord(item).request))
+  const clientOrderId = readClientOrderId(...resultRecords, ...requestRecords) || `manual:${config.symbol}:protect`
+  const exchangeRef = readExchangeRef(...resultRecords)
+  const legNames = (created.length > 0 ? created : plannedLegs).map((item) => readStringField(item, "leg") || readStringField(item, "name")).filter(Boolean)
+  const requestedByRef = config.requestedByRef || clientOrderId || `manual:binance-position-protect:${config.symbol}`
+  const idempotencyKey = [
+    "binance_position_protect",
+    config.symbol,
+    config.positionSide,
+    clientOrderId || exchangeRef || legNames.join("-") || "legs",
+    requestedByRef,
+  ].join(":")
+  const commandRef = `exchange_runtime_store:command/exchange-command-${sanitizeId(idempotencyKey)}`
+  return {
+    ...executionRecord,
+    exchange_command_ref: buildExchangeCommandRef({
+      command_ref: commandRef,
+      client_order_id: clientOrderId,
+      action: "sync_protection",
+      status,
+      idempotency_key: idempotencyKey,
+      request_ref: `${commandRef}:request`,
+      result_ref: `${commandRef}:result`,
+      exchange_order_ids: exchangeRef ? exchangeRef.split(",").filter(Boolean) : [],
+      source_intent_ref: requestedByRef,
+    }),
   }
 }
 

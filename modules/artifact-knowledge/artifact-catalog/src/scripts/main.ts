@@ -2,6 +2,7 @@
 
 import { readFileSync } from "node:fs"
 import { runArtifactGc } from "../lib/artifact-hygiene"
+import { runCatalogHygieneJob } from "../lib/catalog-hygiene-job"
 import {
   initDataCatalog,
   listCatalogStrategyEvidence,
@@ -19,6 +20,7 @@ type JSONRecord = Record<string, unknown>
 
 interface Config {
   catalogInit: boolean
+  catalogHygieneJob: boolean
   catalogScan: boolean
   catalogQuery: boolean
   catalogRegisterArtifact: boolean
@@ -58,6 +60,17 @@ export function run(argv: string[]): JSONRecord {
 
 function runConfig(config: Config): unknown {
   if (config.catalogInit) return initDataCatalog(config.catalogDbPath)
+  if (config.catalogHygieneJob) {
+    return runCatalogHygieneJob({
+      cycle_id: requiredString(config.input.cycle_id, "cycle_id"),
+      ticket_no: stringField(config.input.ticket_no),
+      job_id: stringField(config.input.job_id),
+      idempotency_key: stringField(config.input.idempotency_key),
+      catalog_db_path: stringField(config.input.catalog_db_path ?? config.input.catalogDbPath) || config.catalogDbPath,
+      roots: catalogRoots(config),
+      now: stringField(config.input.now),
+    })
+  }
   if (config.catalogScan) {
     return scanDataCatalog({
       catalogDbPath: config.catalogDbPath,
@@ -141,6 +154,7 @@ function runConfig(config: Config): unknown {
 function parseArgs(argv: string[]): Config {
   const config: Config = {
     catalogInit: false,
+    catalogHygieneJob: false,
     catalogScan: false,
     catalogQuery: false,
     catalogRegisterArtifact: false,
@@ -161,6 +175,7 @@ function parseArgs(argv: string[]): Config {
     const arg = argv[index]
     switch (arg) {
       case "--catalog-init": config.catalogInit = true; break
+      case "--catalog-hygiene-job": config.catalogHygieneJob = true; break
       case "--catalog-scan": config.catalogScan = true; break
       case "--catalog-query": config.catalogQuery = true; break
       case "--catalog-register-artifact": config.catalogRegisterArtifact = true; break
@@ -255,6 +270,7 @@ function errorResponse(error: unknown): JSONRecord {
 function printHelp(): void {
   console.log(`Usage:
   bun src/scripts/main.ts --catalog-init --catalog-db ./data/data_catalog.db
+  bun src/scripts/main.ts --catalog-hygiene-job --catalog-root ./data --json '{"cycle_id":"cycle-1"}'
   bun src/scripts/main.ts --catalog-scan --catalog-root ./data --catalog-root ./tmp
   bun src/scripts/main.ts --catalog-query --json '{"symbol":"BTCUSDT"}'
   bun src/scripts/main.ts --catalog-register-artifact --json '{"path":"./tmp/report.json"}'

@@ -1,6 +1,8 @@
 # Ops Notify Dispatch Contract
 
-Owns J09 `ops_notify_dispatch` for orchestration notifications and takeover prompts.
+Owns control tower `post_job / post_cycle` notification dispatch and takeover prompts.
+
+`ops_notify_dispatch` is a lifecycle processor, not a domain job ticket.
 
 ## Responsibilities
 
@@ -15,4 +17,3 @@ Owns J09 `ops_notify_dispatch` for orchestration notifications and takeover prom
 - Does not mutate trading truth.
 - Does not call exchange APIs.
 - Does not own channel credentials; external channel adapters must remain explicit and optional.
-

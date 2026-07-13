@@ -12,9 +12,9 @@ import { errorResponse, successResponse } from "./commands/response"
 import { handleRuntimeCommand } from "./commands/runtime"
 import type { ScriptResponse } from "./commands/types"
 import { buildAutomationCyclePlan } from "./lib/automation-cycle"
+import { initEventStore } from "./lib/event-store-client"
 import { runAutomationJobGraph } from "./lib/job-graph-runner"
 import { assertProjectRuntimePath, resolveRepoPath } from "./lib/paths"
-import { ensureSchema } from "../../../../portfolio-execution-state/event-store/src/lib/event-store"
 import { runTrackDryRunAtPath } from "./lib/track-runner"
 import type { CommandConfig } from "./commands/types"
 
@@ -46,16 +46,16 @@ async function run(argv: string[]): Promise<ScriptResponse> {
     }
 
     mkdirSync(dirname(config.dbPath), { recursive: true })
+    await initEventStore(config.dbPath)
     const db = new Database(config.dbPath)
     try {
-      ensureSchema(db)
       if (config.automationCycle) {
         return successResponse(buildAutomationCyclePlan(db, config.dbPath, config.input))
       }
       if (config.runJobGraph) {
         return successResponse(await runAutomationJobGraph(db, config.dbPath, config.input))
       }
-      const runtimeResponse = handleRuntimeCommand(db, config)
+      const runtimeResponse = await handleRuntimeCommand(db, config)
       if (runtimeResponse) {
         return runtimeResponse
       }

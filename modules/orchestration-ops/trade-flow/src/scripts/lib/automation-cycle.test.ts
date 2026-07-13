@@ -1,6 +1,5 @@
 import assert from "node:assert/strict"
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import test from "node:test"
 import { Database } from "bun:sqlite"
@@ -10,7 +9,9 @@ import { appendPlanEvent, ensureSchema } from "../../../../../portfolio-executio
 type JSONRecord = Record<string, unknown>
 
 test("automation cycle plan isolates trade db work from R&D artifact jobs", () => {
-  const db = new Database(":memory:")
+  const dir = makeCheckDir("automation-cycle-")
+  const dbPath = join(dir, "trade.db")
+  const db = new Database(dbPath)
   try {
     ensureSchema(db)
     appendPlanEvent(db, {
@@ -25,8 +26,9 @@ test("automation cycle plan isolates trade db work from R&D artifact jobs", () =
         strategy_ref: "S-BTC",
       },
     })
+    db.close()
 
-    const result = buildAutomationCyclePlan(db, "data/trade.db", {
+    const result = buildAutomationCyclePlan(db, dbPath, {
       cycle_id: "cycle-test-1",
       now: "2026-07-09T12:15:00Z",
       rd_trackers: [{ tracker_id: "high-beta-alt-be-fresh", artifact_scope: "data/artifacts/strategy-rnd" }],
@@ -38,55 +40,81 @@ test("automation cycle plan isolates trade db work from R&D artifact jobs", () =
     assert.equal(result.executable, false)
     assert.equal(result.active_flow_count, 1)
     const jobs = asArray(result.jobs).map(asRecord)
-    const health = asRecord(jobs.find((job) => job.job_id === "runtime_health_guard"))
+    const processors = asArray(result.lifecycle_processors).map(asRecord)
+    const health = asRecord(processors.find((processor) => processor.processor_id === "runtime_health_guard"))
     assert.equal(health.active, true)
     assert.equal(health.subagent_role, "ops-runtime-operator")
-    assert.equal(asRecord(health.tool_job).tool_id, "ops.runtime-health-guard")
-    assert.equal(asRecord(health.tool_job).ticket_no, "J01")
-    assert.equal(asRecord(asRecord(health.tool_job).command_spec).cwd, "modules/orchestration-ops/runtime-health-guard")
+    assert.equal(asRecord(health.processor_spec).tool_id, "ops.runtime-health-guard")
+    assert.equal(asRecord(asRecord(health.processor_spec).command_spec).cwd, "modules/orchestration-ops/runtime-health-guard")
+    const reconcileToolJob = asRecord(asRecord(jobs.find((job) => job.job_id === "account_reconcile_guard")).tool_job)
+    assert.equal(reconcileToolJob.tool_id, "trade-flow.recovery")
+    assert.equal(reconcileToolJob.ticket_no, "J01")
+    assert.equal(reconcileToolJob.target_domain, "live-execution-control")
     assert.equal(jobs.find((job) => job.job_id === "fast_track_guard")?.active, true)
-    const fastToolJob = asRecord(asRecord(jobs.find((job) => job.job_id === "fast_track_guard")).tool_job)
-    assert.equal(fastToolJob.tool_id, "trade-flow.runtime")
-    assert.equal(fastToolJob.ticket_no, "J03")
+    const fast = asRecord(jobs.find((job) => job.job_id === "fast_track_guard"))
+    const fastToolJob = asRecord(fast.tool_job)
+    assert.equal(fastToolJob.tool_id, "execution.fast-track-guard")
+    assert.equal(fastToolJob.ticket_no, "J02")
     assert.equal(fastToolJob.target_domain, "live-execution-control")
     assert.equal(asRecord(fastToolJob.writes).trade_db, true)
-    assert.deepEqual(asArray(asRecord(fastToolJob.command_spec).argv).slice(0, 6), ["bun", "src/scripts/main.ts", "--db", "data/trade.db", "--track", "fast"])
-    assert.equal(jobs.find((job) => job.job_id === "rd_forward_shadow_trackers")?.may_write_trade_db, false)
+    assert.deepEqual(fast.allowed_runtime_writes, ["trade_event_store"])
+    assert.equal(asRecord(fastToolJob.command_spec).cwd, "modules/live-execution-control/fast-track-guard")
+    assert.deepEqual(asArray(asRecord(fastToolJob.command_spec).argv).slice(0, 5), ["bun", "src/scripts/main.ts", "--fast-guard-job", "--db", String(result.trade_db_path)])
+    const shadow = asRecord(jobs.find((job) => job.job_id === "rd_forward_shadow_trackers"))
+    assert.equal(shadow.may_write_trade_db, false)
+    assert.match(String(shadow.command), /--shadow-tracker-job/)
+    assert.deepEqual(shadow.allowed_runtime_writes, ["artifact_catalog"])
+    const shadowToolJob = asRecord(shadow.tool_job)
+    assert.equal(shadowToolJob.tool_id, "research.rd-shadow-tracker")
+    assert.equal(shadowToolJob.ticket_no, "J05")
+    assert.equal(shadowToolJob.target_domain, "research-strategy-development")
+    assert.equal(asRecord(shadow.command_spec).cwd, "modules/research-strategy-development/rd-shadow-tracker")
+    assert.deepEqual(asArray(asRecord(shadow.command_spec).argv).slice(0, 4), ["bun", "src/scripts/main.ts", "--shadow-tracker-job", "--catalog-db"])
     const review = asRecord(jobs.find((job) => job.job_id === "closed_flow_review_sweep"))
     assert.equal(review.trigger_mode, "event_or_fallback_sweep")
     assert.equal(asRecord(review.tool_job).tool_id, "governance.closed-flow-review-sweep")
-    assert.equal(asRecord(review.tool_job).ticket_no, "J08")
+    assert.equal(asRecord(review.tool_job).ticket_no, "J07")
     assert.equal(asRecord(review.command_spec).cwd, "modules/governance-review-compliance/closed-flow-review-sweep")
+    assert.deepEqual(review.allowed_runtime_writes, ["governance_ledger"])
     assert.equal(review.may_write_trade_db, false)
     assert.deepEqual(review.candidate_chain_ids, ["flow-cycle-1"])
-    assert.equal(jobs.find((job) => job.job_id === "catalog_hygiene_scan")?.command, "bun modules/artifact-knowledge/artifact-catalog/src/scripts/main.ts --catalog-scan --catalog-db data/data_catalog.db --catalog-root ./data --catalog-root ./tmp")
+    assert.match(String(jobs.find((job) => job.job_id === "catalog_hygiene_scan")?.command), /--catalog-hygiene-job/)
     const catalogToolJob = asRecord(asRecord(jobs.find((job) => job.job_id === "catalog_hygiene_scan")).tool_job)
     assert.equal(catalogToolJob.tool_id, "artifact-catalog")
-    assert.equal(catalogToolJob.ticket_no, "J07")
+    assert.equal(catalogToolJob.ticket_no, "J06")
     assert.equal(catalogToolJob.target_domain, "artifact-knowledge")
     assert.equal(asRecord(catalogToolJob.writes).catalog, true)
+    assert.deepEqual(asArray(asRecord(catalogToolJob.command_spec).argv).slice(0, 4), ["bun", "src/scripts/main.ts", "--catalog-hygiene-job", "--catalog-db"])
     assert.deepEqual(asArray(asRecord(catalogToolJob.payload).catalog_roots), ["./data", "./tmp"])
-    const notify = asRecord(jobs.find((job) => job.job_id === "ops_notify_dispatch"))
+    assert.deepEqual(jobs.find((job) => job.job_id === "catalog_hygiene_scan")?.allowed_runtime_writes, ["artifact_catalog"])
+    const notify = asRecord(processors.find((processor) => processor.processor_id === "ops_notify_dispatch"))
     assert.equal(notify.active, true)
-    assert.equal(asRecord(notify.tool_job).tool_id, "ops.notify-dispatch")
-    assert.equal(asRecord(notify.tool_job).ticket_no, "J09")
+    assert.equal(asRecord(notify.processor_spec).tool_id, "ops.notify-dispatch")
+    const controlReview = asRecord(processors.find((processor) => processor.processor_id === "control_effectiveness_review"))
+    assert.equal(controlReview.active, true)
+    assert.equal(asRecord(controlReview.processor_spec).tool_id, "ops.control-effectiveness-review")
     assert.deepEqual(asArray(result.dispatch_order).map((stage) => asRecord(stage).stage), [
-      "serial_runtime_guard",
-      "serial_trade_db_guard",
+      "pre_cycle",
+      "serial_account_reconcile",
+      "serial_fast_guard",
       "parallel_isolated_work",
       "serial_review_closeout",
-      "serial_ops_closeout",
+      "post_cycle_review",
+      "post_cycle_notify",
     ])
   } finally {
-    db.close()
+    rmSync(dir, { recursive: true, force: true })
   }
 })
 
 test("automation cycle plan can disable optional jobs", () => {
-  const db = new Database(":memory:")
+  const dir = makeCheckDir("automation-cycle-disable-")
+  const dbPath = join(dir, "trade.db")
+  const db = new Database(dbPath)
   try {
     ensureSchema(db)
-    const result = buildAutomationCyclePlan(db, "data/trade.db", {
+    db.close()
+    const result = buildAutomationCyclePlan(db, dbPath, {
       now: "2026-07-09T12:15:00Z",
       include_rd_strategy_supervisor: false,
       include_rd_trackers: false,
@@ -94,22 +122,27 @@ test("automation cycle plan can disable optional jobs", () => {
     })
 
     const jobs = asArray(result.jobs).map(asRecord)
+    const processors = asArray(result.lifecycle_processors).map(asRecord)
     assert.equal(jobs.find((job) => job.job_id === "fast_track_guard")?.active, false)
-    assert.equal(jobs.find((job) => job.job_id === "runtime_health_guard")?.enabled, true)
-    assert.equal(jobs.find((job) => job.job_id === "ops_notify_dispatch")?.enabled, true)
+    assert.equal(processors.find((processor) => processor.processor_id === "runtime_health_guard")?.enabled, true)
+    assert.equal(processors.find((processor) => processor.processor_id === "control_effectiveness_review")?.enabled, true)
+    assert.equal(processors.find((processor) => processor.processor_id === "ops_notify_dispatch")?.enabled, true)
     assert.equal(jobs.find((job) => job.job_id === "rd_strategy_supervisor")?.enabled, false)
     assert.equal(jobs.find((job) => job.job_id === "rd_forward_shadow_trackers")?.enabled, false)
     assert.equal(jobs.find((job) => job.job_id === "catalog_hygiene_scan")?.enabled, false)
   } finally {
-    db.close()
+    rmSync(dir, { recursive: true, force: true })
   }
 })
 
 test("automation cycle plan can dispatch a learning strategy R&D supervisor", () => {
-  const db = new Database(":memory:")
+  const dir = makeCheckDir("automation-cycle-rd-")
+  const dbPath = join(dir, "trade.db")
+  const db = new Database(dbPath)
   try {
     ensureSchema(db)
-    const result = buildAutomationCyclePlan(db, "data/trade.db", {
+    db.close()
+    const result = buildAutomationCyclePlan(db, dbPath, {
       cycle_id: "cycle-rd-supervisor",
       now: "2026-07-09T12:15:00Z",
       rd_learning_memory_ref: "docs/rd-audit.md",
@@ -144,34 +177,38 @@ test("automation cycle plan can dispatch a learning strategy R&D supervisor", ()
     assert.deepEqual(sidecars.map((sidecar) => sidecar.role), ["rd-history-scout", "rd-data-scout", "rd-edge-scout"])
     assert.equal(sidecars.every((sidecar) => sidecar.may_write_state === false), true)
     assert.match(String(contract.single_writer_rule), /only rd-supervisor/)
-    assert.equal(rd.command, undefined)
-    const initToolJob = asRecord(rd.tool_job)
-    assert.equal(initToolJob.tool_id, "research.rd-program-state")
-    assert.equal(initToolJob.ticket_no, "J05")
-    assert.equal(initToolJob.target_domain, "research-strategy-development")
-    assert.equal(asRecord(initToolJob.command_spec).cwd, "modules/research-strategy-development/rd-program-state")
-    assert.equal(asRecord(asRecord(initToolJob.payload).json).action, "init")
-    assert.deepEqual(asArray(asRecord(rd.init_command_spec).argv).slice(0, 4), [
+    assert.match(String(rd.command), /--supervisor-job/)
+    assert.deepEqual(rd.allowed_runtime_writes, ["research_state_store", "artifact_catalog"])
+    const rdToolJob = asRecord(rd.tool_job)
+    assert.equal(rdToolJob.tool_id, "research.rd-supervisor")
+    assert.equal(rdToolJob.ticket_no, "J04")
+    assert.equal(rdToolJob.target_domain, "research-strategy-development")
+    assert.equal(asRecord(rdToolJob.command_spec).cwd, "modules/research-strategy-development/rd-supervisor")
+    const commandSpec = asRecord(rd.command_spec)
+    assert.deepEqual(asArray(commandSpec.argv).slice(0, 5), [
       "bun",
       "src/scripts/main.ts",
+      "--supervisor-job",
       "--state",
-      "./data/rd/program.json",
+      "./data/rd/program.json"
     ])
-    const initPayload = JSON.parse(String(asArray(asRecord(rd.init_command_spec).argv).at(-1))) as { budget: { max_hypotheses: number; max_trials_total: number } }
-    assert.equal(initPayload.budget.max_hypotheses, 3)
-    assert.equal(initPayload.budget.max_trials_total, 18)
+    const jobPayload = JSON.parse(String(asArray(commandSpec.argv).at(-1))) as { goal: { budget: { max_hypotheses: number; max_trials_total: number } } }
+    assert.equal(jobPayload.goal.budget.max_hypotheses, 3)
+    assert.equal(jobPayload.goal.budget.max_trials_total, 18)
     const parallel = asRecord(asArray(result.dispatch_order).find((stage) => asRecord(stage).stage === "parallel_isolated_work"))
     assert.ok(asArray(parallel.job_ids).includes("rd_strategy_supervisor"))
   } finally {
-    db.close()
+    rmSync(dir, { recursive: true, force: true })
   }
 })
 
 test("automation cycle plan can drive R&D supervisor from durable program state", () => {
-  const dir = mkdtempSync(join(tmpdir(), "automation-rd-state-"))
-  const db = new Database(":memory:")
+  const dir = makeCheckDir("automation-rd-state-")
+  const dbPath = join(dir, "trade.db")
+  const db = new Database(dbPath)
   try {
     ensureSchema(db)
+    db.close()
     const statePath = join(dir, "state.json")
     const state = rdProgramStateFixture({
       program_id: "rd-program-main",
@@ -185,7 +222,7 @@ test("automation cycle plan can drive R&D supervisor from durable program state"
     })
     writeFileSync(statePath, `${JSON.stringify(state, null, 2)}\n`)
 
-    const activeResult = buildAutomationCyclePlan(db, "data/trade.db", {
+    const activeResult = buildAutomationCyclePlan(db, dbPath, {
       cycle_id: "cycle-rd-state-active",
       now: "2026-07-09T12:15:00Z",
       rd_program_state_path: statePath,
@@ -203,24 +240,26 @@ test("automation cycle plan can drive R&D supervisor from durable program state"
     assert.match(String(activeRd.command), /modules\/research-strategy-development\/rd-supervisor\/src\/scripts\/main.ts/)
     const rdToolJob = asRecord(activeRd.tool_job)
     assert.equal(rdToolJob.tool_id, "research.rd-supervisor")
-    assert.equal(rdToolJob.ticket_no, "J05")
+    assert.equal(rdToolJob.ticket_no, "J04")
     assert.equal(rdToolJob.target_domain, "research-strategy-development")
     assert.equal(asRecord(rdToolJob.command_spec).cwd, "modules/research-strategy-development/rd-supervisor")
     assert.equal(asRecord(rdToolJob.payload).state, String(activeRd.program_state_ref))
+    assert.deepEqual(activeRd.allowed_runtime_writes, ["research_state_store", "artifact_catalog"])
     const commandSpec = asRecord(activeRd.command_spec)
     assert.equal(commandSpec.executable, true)
-    assert.deepEqual(asArray(commandSpec.argv).slice(0, 4), [
+    assert.deepEqual(asArray(commandSpec.argv).slice(0, 5), [
       "bun",
       "src/scripts/main.ts",
+      "--supervisor-job",
       "--state",
-      String(activeRd.program_state_ref),
+      String(activeRd.program_state_ref)
     ])
     const contract = asRecord(activeRd.research_loop_contract)
     assert.equal(asRecord(contract.budget).max_trials_total, 8)
     assert.equal(asRecord(contract.learning_memory).read_ref, statePath)
     assert.ok(asArray(contract.allowed_actions).includes("research.rd-program-state action=plan_next"))
-    const supervisorPayload = JSON.parse(String(asArray(commandSpec.argv).at(-1))) as { max_iterations: number }
-    assert.equal(supervisorPayload.max_iterations, 20)
+    const supervisorPayload = JSON.parse(String(asArray(commandSpec.argv).at(-1))) as { supervisor: { max_iterations: number } }
+    assert.equal(supervisorPayload.supervisor.max_iterations, 20)
 
     writeFileSync(statePath, `${JSON.stringify({
       ...state,
@@ -231,7 +270,7 @@ test("automation cycle plan can drive R&D supervisor from durable program state"
         hypotheses_run: 2,
       },
     }, null, 2)}\n`)
-    const stoppedResult = buildAutomationCyclePlan(db, "data/trade.db", {
+    const stoppedResult = buildAutomationCyclePlan(db, dbPath, {
       cycle_id: "cycle-rd-state-stopped",
       now: "2026-07-09T13:15:00Z",
       force_jobs: ["rd_strategy_supervisor"],
@@ -244,13 +283,14 @@ test("automation cycle plan can drive R&D supervisor from durable program state"
     assert.equal(stoppedRd.program_state_status, "budget_exhausted")
     assert.match(String(stoppedRd.reason), /budget_exhausted/)
   } finally {
-    db.close()
     rmSync(dir, { recursive: true, force: true })
   }
 })
 
 test("automation cycle plan skips slow jobs on fast cadence until due", () => {
-  const db = new Database(":memory:")
+  const dir = makeCheckDir("automation-cycle-cadence-")
+  const dbPath = join(dir, "trade.db")
+  const db = new Database(dbPath)
   try {
     ensureSchema(db)
     appendPlanEvent(db, {
@@ -265,8 +305,9 @@ test("automation cycle plan skips slow jobs on fast cadence until due", () => {
         strategy_ref: "S-BTC",
       },
     })
+    db.close()
 
-    const result = buildAutomationCyclePlan(db, "data/trade.db", {
+    const result = buildAutomationCyclePlan(db, dbPath, {
       now: "2026-07-09T12:15:00Z",
       last_runs: {
         fast: "2026-07-09T11:59:00Z",
@@ -282,9 +323,15 @@ test("automation cycle plan skips slow jobs on fast cadence until due", () => {
     assert.equal(slow.active, false)
     assert.equal(asRecord(slow.cadence).reason, "cadence_not_due")
   } finally {
-    db.close()
+    rmSync(dir, { recursive: true, force: true })
   }
 })
+
+function makeCheckDir(prefix: string): string {
+  const checkRoot = join(process.cwd(), "../../..", "tmp/check")
+  mkdirSync(checkRoot, { recursive: true })
+  return mkdtempSync(join(checkRoot, prefix))
+}
 
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : []

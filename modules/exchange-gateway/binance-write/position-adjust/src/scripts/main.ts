@@ -4,6 +4,7 @@ import { mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 import { Database } from "bun:sqlite"
 import Binance, { type BinanceRest } from "binance-api-node"
+import { buildExchangeCommandRef } from "../../../../../contracts/protocol-fabric/src/protocol-fabric"
 import { nowIsoUTC } from "../../../../../contracts/runtime-core/src/time"
 import {
   buildExchangeCommand,
@@ -119,15 +120,50 @@ async function run(argv: string[]): Promise<ScriptResponse> {
     const plan = await buildPlan(config, client)
 
     if (config.plan) {
-      return { ok: true, data: plan }
+      return { ok: true, data: withExchangeCommandRef(config, plan, plan, "planned") }
     }
 
     requireConfirmation(config.yes)
     const execution = await executeAdjustment(config, plan, client)
     recordExchangeAuditIfEnabled(config, plan, execution)
-    return { ok: true, data: execution }
+    return { ok: true, data: withExchangeCommandRef(config, plan, execution, "confirmed") }
   } catch (error) {
     return { ok: false, error: formatError(error) }
+  }
+}
+
+function withExchangeCommandRef(
+  config: Config,
+  plan: AdjustmentPlan,
+  execution: unknown,
+  status: "planned" | "confirmed",
+): Record<string, unknown> {
+  const executionRecord = asRecord(execution)
+  const reduced = asRecord(executionRecord.reduced)
+  const clientOrderId = readClientOrderId(plan.reduceOrder, reduced) || `manual:${config.symbol}:adjust`
+  const exchangeRef = readExchangeRef(reduced)
+  const requestedByRef = config.requestedByRef || clientOrderId || `manual:binance-position-adjust:${config.symbol}`
+  const idempotencyKey = [
+    "binance_position_adjust",
+    config.symbol,
+    config.positionSide,
+    clientOrderId || exchangeRef || plan.reduction.reduceQuantity,
+    requestedByRef,
+  ].join(":")
+  const commandRef = `exchange_runtime_store:command/exchange-command-${sanitizeId(idempotencyKey)}`
+  return {
+    ...executionRecord,
+    exchange_command_ref: buildExchangeCommandRef({
+      command_ref: commandRef,
+      client_order_id: clientOrderId,
+      action: plan.reduction.remainingQuantity === "0" ? "close_position" : "reduce_position",
+      status,
+      idempotency_key: idempotencyKey,
+      request_ref: `${commandRef}:request`,
+      result_ref: `${commandRef}:result`,
+      exchange_order_ids: exchangeRef ? [exchangeRef] : [],
+      source_intent_ref: requestedByRef,
+    }),
   }
 }
 

@@ -1,8 +1,9 @@
 import { existsSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
-import { Database } from "bun:sqlite"
+import type { Database } from "bun:sqlite"
 import { buildJobTicket, type ProtocolToolsetEntry } from "../../../../../contracts/protocol-fabric/src/protocol-fabric"
-import { findActiveLaneConflicts, listActiveFlows } from "../../../../../portfolio-execution-state/flow-projector/src/lib/flow-projector"
+import { buildLifecycleProcessorRecord, buildLifecycleProcessorSpec } from "../../../../../contracts/runtime-core/src/lifecycle"
+import { activeFlows as readActiveFlows } from "./flow-projector-client"
 import { displayPath, repoRoot } from "./paths"
 
 type JSONRecord = Record<string, unknown>
@@ -10,8 +11,6 @@ type JSONRecord = Record<string, unknown>
 const DEFAULT_CATALOG_DB = "./data/data_catalog.db"
 const DEFAULT_OPS_RUNTIME_DB = "./data/ops_runtime.db"
 const DEFAULT_GOVERNANCE_DB = "./data/governance.db"
-const TRADE_FLOW_MAIN = "bun modules/orchestration-ops/trade-flow/src/scripts/main.ts"
-const ARTIFACT_CATALOG_MAIN = "bun modules/artifact-knowledge/artifact-catalog/src/scripts/main.ts"
 const TOOLSET_PATH = "toolset.json"
 
 interface CadenceState {
@@ -25,6 +24,7 @@ interface CadenceState {
 export interface AutomationCycleInput {
   cycle_id?: string
   now?: string
+  include_account_reconcile?: boolean
   include_fast_track?: boolean
   include_runtime_health?: boolean
   include_slow_track?: boolean
@@ -32,6 +32,7 @@ export interface AutomationCycleInput {
   include_rd_trackers?: boolean
   include_closed_flow_review?: boolean
   include_catalog_hygiene?: boolean
+  include_control_effectiveness_review?: boolean
   include_ops_notify?: boolean
   fast_interval_minutes?: number
   slow_interval_minutes?: number
@@ -50,13 +51,16 @@ export interface AutomationCycleInput {
   ops_runtime_db?: string
   governance_db?: string
   runtime_health?: JSONRecord
+  control_effectiveness_review?: JSONRecord
   ops_notify?: JSONRecord
 }
 
-export function buildAutomationCyclePlan(db: Database, dbPath: string, input: AutomationCycleInput = {}): JSONRecord {
+export function buildAutomationCyclePlan(_db: Database, dbPath: string, input: AutomationCycleInput = {}): JSONRecord {
   const generatedAt = normalizeNow(input.now)
   const tradeDbPath = displayPath(dbPath)
-  const activeFlows = listActiveFlows(db)
+  const activeProjection = readActiveFlows(dbPath)
+  const activeFlows = asArray(activeProjection.active_flows).map(asRecord)
+  const laneConflicts = asArray(activeProjection.lane_conflicts).map(asRecord)
   const activeFlowCount = activeFlows.length
   const dataDir = dirname(dbPath)
   const lastRuns = {
@@ -119,58 +123,145 @@ export function buildAutomationCyclePlan(db: Database, dbPath: string, input: Au
   const catalogDb = displayPath(stringField(input.catalog_db) || DEFAULT_CATALOG_DB)
   const opsRuntimeDb = displayPath(stringField(input.ops_runtime_db) || DEFAULT_OPS_RUNTIME_DB)
   const governanceDb = displayPath(stringField(input.governance_db) || DEFAULT_GOVERNANCE_DB)
+  const cycleId = input.cycle_id || `automation-cycle-${generatedAt.replace(/[:.]/g, "-")}`
+  const activeChainIds = activeFlows.map((flow) => stringField(flow.chain_id)).filter(Boolean)
   const tradeWorkDue = (activeFlowCount > 0 && cadence.fast_track_guard.due) || cadence.slow_track_market_watch.due
 
-  const jobs = [
-    opsJob({
-      job_id: "runtime_health_guard",
+  const lifecycleProcessors = [
+    opsLifecycleProcessor({
+      processor_id: "runtime_health_guard",
+      lifecycle_phase: "pre_cycle",
       enabled: input.include_runtime_health !== false,
       active: true,
       reason: "runtime health runs before any trade, research, or governance job consumes local state",
-      command: `bun modules/orchestration-ops/runtime-health-guard/src/scripts/main.ts --db ${opsRuntimeDb} --json ${shellQuote(JSON.stringify({
-        cycle_id: input.cycle_id || `automation-cycle-${generatedAt.replace(/[:.]/g, "-")}`,
-        now: generatedAt,
-        ...asRecord(input.runtime_health),
-      }))}`,
-      toolJob: resolveToolJob({
-        jobId: "runtime_health_guard",
+      processorSpec: resolveLifecycleProcessor({
+        processorId: "runtime_health_guard",
+        lifecyclePhase: "pre_cycle",
         toolId: "ops.runtime-health-guard",
         executable: true,
         payload: {
           db_path: opsRuntimeDb,
           json: {
-            cycle_id: input.cycle_id || `automation-cycle-${generatedAt.replace(/[:.]/g, "-")}`,
+            cycle_id: cycleId,
             now: generatedAt,
             ...asRecord(input.runtime_health),
           },
         },
         argv: ["bun", "src/scripts/main.ts", "--db", opsRuntimeDb, "--json", JSON.stringify({
-          cycle_id: input.cycle_id || `automation-cycle-${generatedAt.replace(/[:.]/g, "-")}`,
+          cycle_id: cycleId,
           now: generatedAt,
           ...asRecord(input.runtime_health),
         })],
       }),
     }),
+    opsLifecycleProcessor({
+      processor_id: "ops_notify_dispatch",
+      lifecycle_phase: "post_cycle",
+      enabled: input.include_ops_notify !== false,
+      active: true,
+      reason: "ops notify closes the cycle with health, skipped, blocked, and takeover refs",
+      processorSpec: resolveLifecycleProcessor({
+        processorId: "ops_notify_dispatch",
+        lifecyclePhase: "post_cycle",
+        toolId: "ops.notify-dispatch",
+        executable: true,
+        payload: {
+          db_path: opsRuntimeDb,
+          json: {
+            cycle_id: cycleId,
+            now: generatedAt,
+            dry_run: true,
+            payload: {
+              message: "automation cycle summary ready",
+              generated_at: generatedAt,
+            },
+            ...asRecord(input.ops_notify),
+          },
+        },
+        argv: ["bun", "src/scripts/main.ts", "--db", opsRuntimeDb, "--json", JSON.stringify({
+          cycle_id: cycleId,
+          now: generatedAt,
+          dry_run: true,
+          payload: {
+            message: "automation cycle summary ready",
+            generated_at: generatedAt,
+          },
+          ...asRecord(input.ops_notify),
+        })],
+      }),
+    }),
+    opsLifecycleProcessor({
+      processor_id: "control_effectiveness_review",
+      lifecycle_phase: "post_cycle",
+      enabled: input.include_control_effectiveness_review !== false,
+      active: true,
+      reason: "control effectiveness review diagnoses repeated incidents, failed jobs, and notify failures before final notification",
+      processorSpec: resolveLifecycleProcessor({
+        processorId: "control_effectiveness_review",
+        lifecyclePhase: "post_cycle",
+        toolId: "ops.control-effectiveness-review",
+        executable: true,
+        payload: {
+          db_path: opsRuntimeDb,
+          json: {
+            cycle_id: cycleId,
+            now: generatedAt,
+            ...asRecord(input.control_effectiveness_review),
+          },
+        },
+        argv: ["bun", "src/scripts/main.ts", "--db", opsRuntimeDb, "--json", JSON.stringify({
+          cycle_id: cycleId,
+          now: generatedAt,
+          ...asRecord(input.control_effectiveness_review),
+        })],
+      }),
+    }),
+  ]
+
+  const jobs = [
+    accountReconcileJob({
+      job_id: "account_reconcile_guard",
+      enabled: input.include_account_reconcile !== false,
+      active: activeFlowCount > 0,
+      reason: activeFlowCount > 0 ? "active flows need account snapshot reconciliation before fast guard decisions" : "no active flow needs account reconcile",
+      candidateChainIds: activeChainIds,
+      tradeDbPath,
+      now: generatedAt,
+    }),
     tradeJob({
       job_id: "fast_track_guard",
       enabled: input.include_fast_track !== false,
       active: activeFlowCount > 0 && cadence.fast_track_guard.due,
-      command: `${TRADE_FLOW_MAIN} --db ${tradeDbPath} --track fast`,
       toolJob: resolveToolJob({
         jobId: "fast_track_guard",
-        toolId: "trade-flow.runtime",
+        toolId: "execution.fast-track-guard",
         executable: activeFlowCount > 0 && cadence.fast_track_guard.due,
-        payload: { db_path: tradeDbPath, track: "fast" },
-        argv: ["bun", "src/scripts/main.ts", "--db", tradeDbPath, "--track", "fast"],
+        payload: {
+          db_path: tradeDbPath,
+          json: {
+            cycle_id: cycleId,
+            ticket_no: "J02",
+            job_id: "fast_track_guard",
+            now: generatedAt,
+            run_id: `${cycleId}-J02`,
+          },
+        },
+        argv: ["bun", "src/scripts/main.ts", "--fast-guard-job", "--db", tradeDbPath, "--json", JSON.stringify({
+          cycle_id: cycleId,
+          ticket_no: "J02",
+          job_id: "fast_track_guard",
+          now: generatedAt,
+          run_id: `${cycleId}-J02`,
+        })],
       }),
       reason: activeFlowCount > 0 ? "active flows need trigger, protection, and reconcile checks" : "no active flow needs fast guard",
       cadence: cadence.fast_track_guard,
+      allowedRuntimeWrites: ["trade_event_store"],
     }),
     tradeJob({
       job_id: "slow_track_market_watch",
       enabled: input.include_slow_track !== false,
       active: cadence.slow_track_market_watch.due,
-      command: `${TRADE_FLOW_MAIN} --db ${tradeDbPath} --track slow`,
       toolJob: resolveToolJob({
         jobId: "slow_track_market_watch",
         toolId: "trade-flow.runtime",
@@ -196,6 +287,8 @@ export function buildAutomationCyclePlan(db: Database, dbPath: string, input: Au
       programStateRef: rdProgramStatePath,
       programStateStatus: rdProgramState ? stringField(rdProgramState.status) : undefined,
       catalogDb,
+      cycleId,
+      now: generatedAt,
     }),
     artifactJob({
       job_id: "rd_forward_shadow_trackers",
@@ -204,6 +297,32 @@ export function buildAutomationCyclePlan(db: Database, dbPath: string, input: Au
       reason: rdTrackers.length > 0 ? "configured R&D forward trackers can run without trade.db writes" : "no rd_trackers configured",
       trackers: rdTrackers,
       cadence: cadence.rd_forward_shadow_trackers,
+      toolJob: resolveToolJob({
+        jobId: "rd_forward_shadow_trackers",
+        toolId: "research.rd-shadow-tracker",
+        executable: rdTrackers.length > 0 && cadence.rd_forward_shadow_trackers.due,
+        payload: {
+          action: "shadow_tracker_job",
+          catalog_db: catalogDb,
+          json: {
+            cycle_id: cycleId,
+            ticket_no: "J05",
+            job_id: "rd_forward_shadow_trackers",
+            now: generatedAt,
+            catalog_db_path: catalogDb,
+            trackers: rdTrackers,
+          },
+        },
+        argv: ["bun", "src/scripts/main.ts", "--shadow-tracker-job", "--catalog-db", catalogDb, "--json", JSON.stringify({
+          cycle_id: cycleId,
+          ticket_no: "J05",
+          job_id: "rd_forward_shadow_trackers",
+          now: generatedAt,
+          catalog_db_path: catalogDb,
+          trackers: rdTrackers,
+        })],
+      }),
+      allowedRuntimeWrites: ["artifact_catalog"],
     }),
     reviewJob({
       job_id: "closed_flow_review_sweep",
@@ -211,74 +330,47 @@ export function buildAutomationCyclePlan(db: Database, dbPath: string, input: Au
       active: activeFlowCount > 0 && (tradeWorkDue || cadence.closed_flow_review_sweep.due),
       reason: "review is conditionally dispatched after upstream work reports a newly closed flow; cadence is only a missed-review fallback",
       cadence: cadence.closed_flow_review_sweep,
-      candidateChainIds: activeFlows.map((flow) => flow.chain_id),
+      candidateChainIds: activeChainIds,
       tradeDbPath,
       governanceDb,
+      cycleId,
+      now: generatedAt,
     }),
     artifactJob({
       job_id: "catalog_hygiene_scan",
       enabled: input.include_catalog_hygiene !== false,
       active: cadence.catalog_hygiene_scan.due,
       reason: "artifact visibility can run outside trade.db mutation path",
-      command: `${ARTIFACT_CATALOG_MAIN} --catalog-scan --catalog-db ${catalogDb}${catalogRoots.map((root) => ` --catalog-root ${root}`).join("")}`,
       toolJob: resolveToolJob({
         jobId: "catalog_hygiene_scan",
         toolId: "artifact-catalog",
         executable: cadence.catalog_hygiene_scan.due,
-        payload: { action: "catalog_scan", catalog_db: catalogDb, catalog_roots: catalogRoots },
-        argv: ["bun", "src/scripts/main.ts", "--catalog-scan", "--catalog-db", catalogDb, ...catalogRoots.flatMap((root) => ["--catalog-root", root])],
-      }),
-      cadence: cadence.catalog_hygiene_scan,
-    }),
-    opsJob({
-      job_id: "ops_notify_dispatch",
-      enabled: input.include_ops_notify !== false,
-      active: true,
-      reason: "ops notify closes the cycle with health, skipped, blocked, and takeover refs",
-      command: `bun modules/orchestration-ops/ops-notify-dispatch/src/scripts/main.ts --db ${opsRuntimeDb} --json ${shellQuote(JSON.stringify({
-        cycle_id: input.cycle_id || `automation-cycle-${generatedAt.replace(/[:.]/g, "-")}`,
-        now: generatedAt,
-        dry_run: true,
         payload: {
-          message: "automation cycle summary ready",
-          generated_at: generatedAt,
-        },
-        ...asRecord(input.ops_notify),
-      }))}`,
-      toolJob: resolveToolJob({
-        jobId: "ops_notify_dispatch",
-        toolId: "ops.notify-dispatch",
-        executable: true,
-        payload: {
-          db_path: opsRuntimeDb,
+          action: "catalog_hygiene_job",
+          catalog_db: catalogDb,
+          catalog_roots: catalogRoots,
           json: {
-            cycle_id: input.cycle_id || `automation-cycle-${generatedAt.replace(/[:.]/g, "-")}`,
+            cycle_id: cycleId,
+            ticket_no: "J06",
+            job_id: "catalog_hygiene_scan",
             now: generatedAt,
-            dry_run: true,
-            payload: {
-              message: "automation cycle summary ready",
-              generated_at: generatedAt,
-            },
-            ...asRecord(input.ops_notify),
           },
         },
-        argv: ["bun", "src/scripts/main.ts", "--db", opsRuntimeDb, "--json", JSON.stringify({
-          cycle_id: input.cycle_id || `automation-cycle-${generatedAt.replace(/[:.]/g, "-")}`,
+        argv: ["bun", "src/scripts/main.ts", "--catalog-hygiene-job", "--catalog-db", catalogDb, ...catalogRoots.flatMap((root) => ["--catalog-root", root]), "--json", JSON.stringify({
+          cycle_id: cycleId,
+          ticket_no: "J06",
+          job_id: "catalog_hygiene_scan",
           now: generatedAt,
-          dry_run: true,
-          payload: {
-            message: "automation cycle summary ready",
-            generated_at: generatedAt,
-          },
-          ...asRecord(input.ops_notify),
         })],
       }),
+      cadence: cadence.catalog_hygiene_scan,
+      allowedRuntimeWrites: ["artifact_catalog"],
     }),
   ]
 
   return {
     schema_version: "trade-flow.automation-cycle-plan.v1",
-    cycle_id: input.cycle_id || `automation-cycle-${generatedAt.replace(/[:.]/g, "-")}`,
+    cycle_id: cycleId,
     generated_at: generatedAt,
     mode: "supervisor_plan",
     executable: false,
@@ -289,19 +381,25 @@ export function buildAutomationCyclePlan(db: Database, dbPath: string, input: Au
     },
     trade_db_path: tradeDbPath,
     active_flow_count: activeFlowCount,
-    lane_conflicts: findActiveLaneConflicts(activeFlows),
+    lane_conflicts: laneConflicts,
     cadence,
+    lifecycle_processors: lifecycleProcessors,
     jobs,
     dispatch_order: [
       {
-        stage: "serial_runtime_guard",
-        job_ids: ["runtime_health_guard"],
+        stage: "pre_cycle",
+        processor_ids: ["runtime_health_guard"],
         why: "Runtime health, safe mode, lock, and store readiness are checked before downstream jobs consume refs.",
       },
       {
-        stage: "serial_trade_db_guard",
+        stage: "serial_account_reconcile",
+        job_ids: ["account_reconcile_guard"],
+        why: "Account snapshot reconciliation runs before fast guard decisions so local state drift is surfaced early.",
+      },
+      {
+        stage: "serial_fast_guard",
         job_ids: ["fast_track_guard"],
-        why: "Existing flow safety and reconcile checks run before broad market or research work.",
+        why: "Existing flow safety checks run before broad market or research work.",
       },
       {
         stage: "parallel_isolated_work",
@@ -314,9 +412,14 @@ export function buildAutomationCyclePlan(db: Database, dbPath: string, input: Au
         why: "Conditionally dispatch review only after upstream work reports a newly closed flow; fallback cadence may scan missed reviews.",
       },
       {
-        stage: "serial_ops_closeout",
-        job_ids: ["ops_notify_dispatch"],
-        why: "Notify dispatch summarizes blocked/skipped/failed refs and does not mutate trade state.",
+        stage: "post_cycle_review",
+        processor_ids: ["control_effectiveness_review"],
+        why: "Control effectiveness review records code/process improvement items before final notification.",
+      },
+      {
+        stage: "post_cycle_notify",
+        processor_ids: ["ops_notify_dispatch"],
+        why: "Notify dispatch summarizes blocked/skipped/failed refs, incidents, and control-review refs without mutating trade state.",
       },
     ],
     guardrails: [
@@ -335,10 +438,10 @@ function tradeJob(input: {
   job_id: string
   enabled: boolean
   active: boolean
-  command: string
   toolJob: JSONRecord
   reason: string
   cadence: CadenceState
+  allowedRuntimeWrites?: string[]
 }): JSONRecord {
   return {
     ...baseJob(input),
@@ -347,10 +450,11 @@ function tradeJob(input: {
     concurrency_group: "trade-db",
     may_write_trade_db: true,
     may_call_binance_write: false,
-    command: input.command,
+    command: commandFromToolJob(input.toolJob),
     tool_job: input.toolJob,
     command_spec: asRecord(input.toolJob.command_spec),
     cadence: input.cadence,
+    ...(input.allowedRuntimeWrites ? { allowed_runtime_writes: input.allowedRuntimeWrites } : {}),
   }
 }
 
@@ -360,9 +464,9 @@ function artifactJob(input: {
   active: boolean
   reason: string
   cadence: CadenceState
-  command?: string
   toolJob?: JSONRecord
   trackers?: JSONRecord[]
+  allowedRuntimeWrites?: string[]
 }): JSONRecord {
   return {
     ...baseJob(input),
@@ -372,31 +476,75 @@ function artifactJob(input: {
     may_write_trade_db: false,
     may_call_binance_write: false,
     cadence: input.cadence,
-    ...(input.command ? { command: input.command } : {}),
-    ...(input.toolJob ? { tool_job: input.toolJob, command_spec: asRecord(input.toolJob.command_spec) } : {}),
+    ...(input.allowedRuntimeWrites ? { allowed_runtime_writes: input.allowedRuntimeWrites } : {}),
+    ...(input.toolJob ? { command: commandFromToolJob(input.toolJob), tool_job: input.toolJob, command_spec: asRecord(input.toolJob.command_spec) } : {}),
     ...(input.trackers ? { trackers: input.trackers } : {}),
   }
 }
 
-function opsJob(input: {
+function accountReconcileJob(input: {
   job_id: string
   enabled: boolean
   active: boolean
   reason: string
-  command: string
-  toolJob: JSONRecord
+  candidateChainIds: string[]
+  tradeDbPath: string
+  now: string
 }): JSONRecord {
+  const chainId = input.candidateChainIds[0] || ""
+  const payload = {
+    now: input.now,
+    apply_reconcile: false,
+  }
+  const argv = chainId
+    ? [
+      "bun",
+      "src/scripts/main.ts",
+      "--db",
+      input.tradeDbPath,
+      "--cron-recover-from-tools",
+      "--chain-id",
+      chainId,
+      "--json",
+      JSON.stringify(payload),
+    ]
+    : []
+  const toolJob = resolveToolJob({
+    jobId: "account_reconcile_guard",
+    toolId: "trade-flow.recovery",
+    executable: input.active && chainId.length > 0,
+    payload: {
+      db_path: input.tradeDbPath,
+      candidate_chain_ids: input.candidateChainIds,
+      json: payload,
+    },
+    argv,
+  })
   return {
     ...baseJob(input),
-    subagent_role: "ops-runtime-operator",
-    write_scope: ["ops_runtime_store"],
-    concurrency_group: "ops-runtime",
-    may_write_trade_db: false,
+    subagent_role: "account-reconcile-operator",
+    write_scope: ["trade.db reconcile drafts", "needs_review events"],
+    concurrency_group: "trade-db",
+    may_write_trade_db: true,
     may_call_binance_write: false,
-    command: input.command,
-    tool_job: input.toolJob,
-    command_spec: asRecord(input.toolJob.command_spec),
+    trigger_mode: "active_flow_guard",
+    candidate_chain_ids: input.candidateChainIds,
+    entrypoint: "read active flow refs, reconcile account snapshot facts, and only write local reconcile/needs_review facts",
+    tool_job: toolJob,
+    command_spec: asRecord(toolJob.command_spec),
+    ...(chainId ? { command: shellCommand(argv) } : {}),
   }
+}
+
+function opsLifecycleProcessor(input: {
+  processor_id: string
+  lifecycle_phase: string
+  enabled: boolean
+  active: boolean
+  reason: string
+  processorSpec: JSONRecord
+}): JSONRecord {
+  return buildLifecycleProcessorRecord(input)
 }
 
 function rdStrategySupervisorJob(input: {
@@ -410,60 +558,51 @@ function rdStrategySupervisorJob(input: {
   programStateRef?: string
   programStateStatus?: string
   catalogDb: string
+  cycleId: string
+  now: string
 }): JSONRecord {
   const budget = asRecord(input.goal.budget)
-  const programStateRef = input.programStateRef ? displayPath(input.programStateRef) : ""
-  const supervisorPayload = {
+  const programStateRef = input.programStateRef ? displayPath(input.programStateRef) : "./data/rd/program.json"
+  const supervisorPayload: JSONRecord = {
     max_iterations: 20,
     artifact_root: "./tmp/artifacts/strategy-rnd",
     catalog_db_path: input.catalogDb,
   }
-  const initPayload = {
-    action: "init",
-    objective: stringField(input.goal.objective) || "find a shadow-eligible 4H swing strategy",
-    budget: {
-      max_hypotheses: positiveNumber(budget.max_hypotheses) || 20,
-      max_trials_total: positiveNumber(budget.max_trials_total) || 80,
-      max_locked_holdout_uses: positiveNumber(budget.max_locked_holdout_uses) || 1,
+  const jobPayload = {
+    cycle_id: input.cycleId,
+    ticket_no: "J04",
+    job_id: "rd_strategy_supervisor",
+    now: input.now,
+    state_path: programStateRef,
+    catalog_db_path: input.catalogDb,
+    goal: {
+      objective: stringField(input.goal.objective) || "find a shadow-eligible 4H swing strategy",
+      budget: {
+        max_hypotheses: positiveNumber(budget.max_hypotheses) || 20,
+        max_trials_total: positiveNumber(budget.max_trials_total) || 80,
+        max_locked_holdout_uses: positiveNumber(budget.max_locked_holdout_uses) || 1,
+      },
+      next_hypothesis_queue: asArray(input.goal.next_hypothesis_queue).map(asRecord),
     },
+    supervisor: supervisorPayload,
   }
-  const commandArgv = programStateRef
-    ? [
-      "bun",
-      "modules/research-strategy-development/rd-supervisor/src/scripts/main.ts",
-      "--state",
-      programStateRef,
-      "--catalog-db",
-      input.catalogDb,
-      "--json",
-      JSON.stringify(supervisorPayload),
-    ]
-    : []
-  const supervisorToolJob = programStateRef
-    ? resolveToolJob({
-      jobId: "rd_strategy_supervisor",
-      toolId: "research.rd-supervisor",
-      executable: input.active,
-      payload: { state: programStateRef, catalog_db: input.catalogDb, json: supervisorPayload },
-      argv: commandArgv,
-    })
-    : null
-  const initArgv = [
+  const commandArgv = [
     "bun",
-    "modules/research-strategy-development/rd-program-state/src/scripts/main.ts",
+    "src/scripts/main.ts",
+    "--supervisor-job",
     "--state",
-    "./data/rd/program.json",
+    programStateRef,
     "--catalog-db",
     input.catalogDb,
     "--json",
-    JSON.stringify(initPayload),
+    JSON.stringify(jobPayload),
   ]
-  const initToolJob = resolveToolJob({
-    jobId: "rd_strategy_supervisor.init",
-    toolId: "research.rd-program-state",
-    executable: false,
-    payload: { state: "./data/rd/program.json", catalog_db: input.catalogDb, json: initPayload },
-    argv: initArgv,
+  const supervisorToolJob = resolveToolJob({
+    jobId: "rd_strategy_supervisor",
+    toolId: "research.rd-supervisor",
+    executable: input.active,
+    payload: { state: programStateRef, catalog_db: input.catalogDb, json: jobPayload },
+    argv: commandArgv,
   })
   return {
     ...baseJob(input),
@@ -476,14 +615,10 @@ function rdStrategySupervisorJob(input: {
     goal: input.goal,
     ...(programStateRef ? { program_state_ref: programStateRef } : {}),
     ...(input.programStateStatus ? { program_state_status: input.programStateStatus } : {}),
-    ...(commandArgv.length > 0 ? {
-      command: shellCommand(commandArgv),
-      tool_job: supervisorToolJob,
-      command_spec: asRecord(asRecord(supervisorToolJob).command_spec),
-    } : {
-      tool_job: initToolJob,
-      init_command_spec: asRecord(initToolJob.command_spec),
-    }),
+    allowed_runtime_writes: ["research_state_store", "artifact_catalog"],
+    command: commandFromToolJob(supervisorToolJob),
+    tool_job: supervisorToolJob,
+    command_spec: asRecord(supervisorToolJob.command_spec),
     entrypoint: "read rd_program_state, request action=plan_next, then explicitly run the returned R&D loop/campaign payload and write learning-memory updates until a stop condition is reached",
     research_loop_contract: {
       loop_until: ["strategy_draft_created", "budget_exhausted", "data_or_tool_blocked"],
@@ -546,6 +681,16 @@ function shellCommand(argv: string[]): string {
   return argv.map(shellQuote).join(" ")
 }
 
+function commandFromToolJob(toolJob: JSONRecord): string {
+  const commandSpec = asRecord(toolJob.command_spec)
+  const cwd = stringField(commandSpec.cwd)
+  const argv = asArray(commandSpec.argv).map(String)
+  if (cwd && argv.length >= 2 && !argv[1].startsWith(`${cwd}/`)) {
+    return shellCommand([argv[0], `${cwd}/${argv[1]}`, ...argv.slice(2)])
+  }
+  return shellCommand(argv)
+}
+
 function shellQuote(value: string): string {
   return /^[a-zA-Z0-9_./:=@-]+$/.test(value) ? value : `'${value.replace(/'/g, "'\\''")}'`
 }
@@ -559,9 +704,15 @@ function reviewJob(input: {
   candidateChainIds: string[]
   tradeDbPath: string
   governanceDb: string
+  cycleId: string
+  now: string
 }): JSONRecord {
   const payload = {
     candidate_chain_ids: input.candidateChainIds,
+    cycle_id: input.cycleId,
+    ticket_no: "J07",
+    job_id: "closed_flow_review_sweep",
+    now: input.now,
   }
   const argv = [
     "bun",
@@ -596,6 +747,7 @@ function reviewJob(input: {
     candidate_chain_ids: input.candidateChainIds,
     entrypoint: "scan closed unreviewed flow candidates and record a governance review batch; subjective review remains a separate strategy-review step",
     cadence: input.cadence,
+    allowed_runtime_writes: ["governance_ledger"],
     tool_job: toolJob,
     command_spec: asRecord(toolJob.command_spec),
   }
@@ -630,49 +782,59 @@ function resolveToolJob(input: {
   })
 }
 
+function resolveLifecycleProcessor(input: {
+  processorId: string
+  lifecyclePhase: string
+  toolId: string
+  executable: boolean
+  payload: JSONRecord
+  argv: string[]
+}): JSONRecord {
+  const tool = readToolsetEntry(input.toolId)
+  return buildLifecycleProcessorSpec({
+    processorId: input.processorId,
+    lifecyclePhase: input.lifecyclePhase,
+    tool,
+    executable: input.executable,
+    payload: input.payload,
+    argv: input.argv,
+  })
+}
+
 function ticketNoForJob(jobId: string): string | undefined {
-  if (jobId === "runtime_health_guard") {
+  if (jobId === "account_reconcile_guard") {
     return "J01"
   }
-  if (jobId === "account_reconcile_guard") {
+  if (jobId === "fast_track_guard") {
     return "J02"
   }
-  if (jobId === "fast_track_guard") {
+  if (jobId === "slow_track_market_watch") {
     return "J03"
   }
-  if (jobId === "slow_track_market_watch") {
+  if (jobId.startsWith("rd_strategy_supervisor")) {
     return "J04"
   }
-  if (jobId.startsWith("rd_strategy_supervisor")) {
+  if (jobId === "rd_forward_shadow_trackers") {
     return "J05"
   }
-  if (jobId === "rd_forward_shadow_trackers") {
+  if (jobId === "catalog_hygiene_scan") {
     return "J06"
   }
-  if (jobId === "catalog_hygiene_scan") {
-    return "J07"
-  }
   if (jobId === "closed_flow_review_sweep") {
-    return "J08"
-  }
-  if (jobId === "ops_notify_dispatch") {
-    return "J09"
+    return "J07"
   }
   return undefined
 }
 
 function stageForJob(jobId: string): string {
-  if (jobId === "runtime_health_guard") {
-    return "serial_runtime_guard"
+  if (jobId === "account_reconcile_guard") {
+    return "serial_account_reconcile"
   }
   if (jobId === "fast_track_guard") {
-    return "serial_trade_db_guard"
+    return "serial_fast_guard"
   }
   if (jobId === "closed_flow_review_sweep") {
     return "serial_review_closeout"
-  }
-  if (jobId === "ops_notify_dispatch") {
-    return "serial_ops_closeout"
   }
   if (jobId.startsWith("rd_strategy_supervisor") || jobId === "rd_forward_shadow_trackers" || jobId === "catalog_hygiene_scan" || jobId === "slow_track_market_watch") {
     return "parallel_isolated_work"
@@ -684,7 +846,7 @@ function targetDomainForJob(jobId: string): string {
   if (jobId === "slow_track_market_watch") {
     return "live-decision-planning"
   }
-  if (jobId === "fast_track_guard") {
+  if (jobId === "account_reconcile_guard" || jobId === "fast_track_guard") {
     return "live-execution-control"
   }
   if (jobId.startsWith("rd_strategy_supervisor") || jobId === "rd_forward_shadow_trackers") {
@@ -709,6 +871,7 @@ function readToolsetEntry(toolId: string): ProtocolToolsetEntry {
   const command = asRecord(raw.command)
   return {
     id: stringField(raw.id),
+    owner_scope: stringField(raw.owner_scope) || undefined,
     module_type: stringField(raw.module_type),
     capability_class: asArray(raw.capability_class).map(String).filter(Boolean),
     command: {

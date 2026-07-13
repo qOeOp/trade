@@ -1,26 +1,64 @@
-import { Database } from "bun:sqlite"
 import { asRecord, stringField, type JSONRecord } from "./json"
-import { observeFromToolsWithRunner } from "./observe-flow"
-import { runOneFlowStep } from "../../../../../live-execution-control/execution-flow-runner/src/lib/execution-flow-runner"
-import type { Runner } from "../../../../../live-decision-planning/observe-runner/src/lib/observe-runner"
+import { resolveRegisteredOwnerTool } from "../../../../../contracts/runtime-core/src/owner-tool-registry"
+import { runJsonCommand } from "./tool-runner"
 
 export async function runShadowFromTools(
-  db: Database,
   input: JSONRecord,
-  runner?: Runner,
+  dbPath: string,
 ): Promise<JSONRecord> {
-  const observe = await observeFromToolsWithRunner(input, runner)
+  const observe = Object.keys(asRecord(input.observe_event)).length > 0
+    ? asRecord(input.observe_event)
+    : await runObserveFromTools(input)
+  const observeBody = asRecord(observe.body_json)
   const contractInput = {
     ...asRecord(input.execution_contract_input),
     source_observe_event_key: observe.event_key,
     chain_id: observe.chain_id,
-    symbol: stringField(observe.body_json.symbol),
-    side: stringField(observe.body_json.side),
-    setup_id: stringField(observe.body_json.setup_id) || stringField(asRecord(input.execution_contract_input).setup_id),
+    symbol: stringField(observeBody.symbol),
+    side: stringField(observeBody.side),
+    setup_id: stringField(observeBody.setup_id) || stringField(asRecord(input.execution_contract_input).setup_id),
   }
-  return runOneFlowStep(db, {
+  return runExecutionOwnerTool({
     ...input,
-    observe: observe.body_json,
+    observe: observeBody,
     execution_contract_input: contractInput,
-  }, "shadow")
+  }, dbPath)
+}
+
+async function runObserveFromTools(input: JSONRecord): Promise<JSONRecord> {
+  const command = resolveRegisteredOwnerTool("decision.observe-runner", [
+    "--observe-from-tools",
+    "--json",
+    JSON.stringify(input),
+  ])
+  const result = await runJsonCommand(command.argv, { cwd: command.cwd })
+  if (!result.ok) {
+    throw new Error(`observe runner owner tool failed: ${result.error}${result.stderr ? `; ${result.stderr.trim()}` : ""}`)
+  }
+  const response = result.data && typeof result.data === "object" ? result.data as JSONRecord : {}
+  if (response.ok === false) {
+    throw new Error(typeof response.error === "string" ? response.error : "observe runner owner tool returned ok=false")
+  }
+  return response.data && typeof response.data === "object" ? response.data as JSONRecord : response
+}
+
+async function runExecutionOwnerTool(input: JSONRecord, dbPath: string): Promise<JSONRecord> {
+  const command = resolveRegisteredOwnerTool("execution.flow-runner", [
+    "--run",
+    "--db",
+    dbPath,
+    "--mode",
+    "shadow",
+    "--json",
+    JSON.stringify(input),
+  ])
+  const result = await runJsonCommand(command.argv, { cwd: command.cwd })
+  if (!result.ok) {
+    throw new Error(`execution owner tool failed: ${result.error}${result.stderr ? `; ${result.stderr.trim()}` : ""}`)
+  }
+  const response = result.data && typeof result.data === "object" ? result.data as JSONRecord : {}
+  if (response.ok === false) {
+    throw new Error(typeof response.error === "string" ? response.error : "execution owner tool returned ok=false")
+  }
+  return response.data && typeof response.data === "object" ? response.data as JSONRecord : response
 }

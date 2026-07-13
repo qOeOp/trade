@@ -9,6 +9,7 @@ atomic module
 - One registered strategy replay run.
 - CLI argument parsing for replay input.
 - Stable script response envelope for replay output.
+- Stable replay fingerprint owner surface.
 
 ## Inputs
 
@@ -19,6 +20,7 @@ atomic module
 ## Outputs
 
 - `ReplayResult`.
+- Replay fingerprint `{ harness_hash, data_hash?, assumptions_hash? }`.
 
 ## Boundaries
 

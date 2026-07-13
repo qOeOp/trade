@@ -111,6 +111,10 @@ export function latestSlowObserve(events: PlanEvent[]): PlanEvent | null {
   return null
 }
 
+export function readLatestSlowObserve(db: Database, chainId: string): PlanEvent | null {
+  return latestSlowObserve(readFlowEvents(db, chainId))
+}
+
 export function applyReconcileDrafts(db: Database, input: JSONRecord, yes: boolean): JSONRecord {
   if (!yes) {
     throw new Error("--apply-reconcile requires --yes")
