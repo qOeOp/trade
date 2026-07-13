@@ -32,6 +32,11 @@ interface FactorFeatureStore {
   read(timeframe: string, factorId: string, timestamp: string, transform?: FactorTransform, lookback?: number): number | undefined
 }
 
+interface FactorFeatureWindow {
+  firstTimestampMs: number
+  lastTimestampMs: number
+}
+
 interface FactorComposableCandidate {
   candidateId: string
   description?: string
@@ -127,6 +132,43 @@ function loadFactorFeatureStore(path: string): FactorFeatureStore {
       return transformFactor(item.values, index, transform, lookback)
     },
   }
+}
+
+function windowFactorFeatureStore(store: FactorFeatureStore, window: FactorFeatureWindow): FactorFeatureStore {
+  function boundedSeries(timeframe: string, factorId: string): { timestamps: string[]; values: number[] } | undefined {
+    const raw = store.series(timeframe, factorId)
+    if (!raw) return undefined
+    const timestamps: string[] = []
+    const values: number[] = []
+    raw.timestamps.forEach((timestamp, index) => {
+      if (timestampInWindow(timestamp, window)) {
+        timestamps.push(timestamp)
+        values.push(raw.values[index])
+      }
+    })
+    return { timestamps, values }
+  }
+  return {
+    definitions() {
+      return store.definitions()
+    },
+    series(timeframe, factorId) {
+      return boundedSeries(timeframe, factorId)
+    },
+    read(timeframe, factorId, timestamp, transform = "level", lookback = 1) {
+      if (!timestampInWindow(timestamp, window)) return undefined
+      const bounded = boundedSeries(timeframe, factorId)
+      if (!bounded) return undefined
+      const index = bounded.timestamps.indexOf(timestamp)
+      if (index < 0) return undefined
+      return transformFactor(bounded.values, index, transform, lookback)
+    },
+  }
+}
+
+function timestampInWindow(timestamp: string, window: FactorFeatureWindow): boolean {
+  const parsed = Date.parse(timestamp)
+  return Number.isFinite(parsed) && parsed >= window.firstTimestampMs && parsed <= window.lastTimestampMs
 }
 
 function transformFactor(values: number[], index: number, transform: FactorTransform, rawLookback: number): number | undefined {
@@ -379,9 +421,11 @@ export {
   passesFactorConditions,
   readFactorConditions,
   transformFactor,
+  windowFactorFeatureStore,
   type FactorComposableCandidate,
   type FactorCondition,
   type FactorFeatureStore,
+  type FactorFeatureWindow,
   type FactorSeriesDefinition,
   type FactorTransform,
 }

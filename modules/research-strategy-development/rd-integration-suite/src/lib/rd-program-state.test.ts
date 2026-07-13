@@ -189,7 +189,14 @@ test("rd program state command plans the next campaign from the hypothesis queue
     const scoutPlan = asRecord(planned.next_plan?.scout_subagent_plan)
     assert.equal(scoutPlan.enabled, true)
     assert.equal(scoutPlan.dispatch_timing, "before_research_command")
-    assert.deepEqual(asArray(scoutPlan.scouts).map((scout) => asRecord(scout).role), ["rd-taxonomy-scout", "rd-history-scout", "rd-data-scout", "rd-edge-scout"])
+    const scoutRoles = asArray(scoutPlan.scouts).map((scout) => asRecord(scout).role)
+    assert.ok(scoutRoles.includes("rd-taxonomy-scout"))
+    assert.ok(scoutRoles.includes("rd-history-scout"))
+    assert.ok(scoutRoles.includes("rd-data-scout"))
+    assert.ok(scoutRoles.includes("rd-edge-scout"))
+    assert.ok(scoutRoles.includes("rd-strategy-designer"))
+    assert.equal(asRecord(scoutPlan.strategy_designer_handoff).tool_id, "research.strategy-hypothesis-designer")
+    assert.equal(asRecord(scoutPlan.strategy_designer_handoff).output_contract_schema, "trade-flow.strategy-hypothesis-contract.v1")
     assert.equal(asArray(scoutPlan.scouts).every((scout) => asRecord(scout).may_write_state === false), true)
     const backlog = asRecord(planned.next_plan?.strategy_universe_backlog)
     assert.equal(backlog.doc_ref, "docs/strategy-universe-taxonomy.md")
@@ -291,6 +298,93 @@ test("rd program state caps planned candidates to remaining trial budget", () =>
   }
 })
 
+test("rd program state keeps discovery planning alive after locked holdout budget is consumed", () => {
+  const dir = mkdtempSync(join(tmpdir(), "rd-program-state-holdout-discovery-"))
+  try {
+    const dbPath = join(dir, "rd_state.db")
+    const stateRef = rdProgramRef("rd-holdout-discovery")
+    const state = createRdProgramState({
+      programId: "rd-holdout-discovery",
+      objective: "continue discovery without touching locked holdout",
+      now: "2026-07-09T12:00:00Z",
+      budget: { max_hypotheses: 4, max_trials_total: 8, max_locked_holdout_uses: 1 },
+      nextHypothesisQueue: [{
+        hypothesis_id: "h1",
+        hypothesis: "test a fresh discovery-only mechanism",
+        manifest_path: "data/discovery/manifest.json",
+        mode: "loop",
+        search_trial_count: 2,
+        candidates: [{ candidate_id: "C1", family: "time_series_momentum_v1", params: { side: "long" } }],
+      }],
+    })
+    writeRdProgramState(stateRef, updateRdProgramState(state, {
+      now: "2026-07-09T12:30:00Z",
+      usageDelta: { locked_holdout_uses: 1 },
+    }), undefined, dbPath)
+
+    const planned = runRdProgramStateCommand({
+      dbPath,
+      programId: "rd-holdout-discovery",
+      input: { action: "plan_next", now: "2026-07-09T13:00:00Z" },
+    })
+
+    assert.equal(planned.state.status, "active")
+    assert.equal(planned.next_plan?.status, "ready")
+    assert.equal(planned.next_plan?.command, "research.rd-loop-runner")
+    assert.equal(asRecord(planned.next_plan?.budget_remaining).max_locked_holdout_uses, 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("rd program state allows external validation campaign after locked holdout budget is consumed", () => {
+  const dir = mkdtempSync(join(tmpdir(), "rd-program-state-holdout-campaign-"))
+  try {
+    const dbPath = join(dir, "rd_state.db")
+    const stateRef = rdProgramRef("rd-holdout-campaign")
+    const state = createRdProgramState({
+      programId: "rd-holdout-campaign",
+      objective: "validate without touching locked holdout",
+      now: "2026-07-09T12:00:00Z",
+      budget: { max_hypotheses: 4, max_trials_total: 8, max_locked_holdout_uses: 1 },
+      nextHypothesisQueue: [{
+        hypothesis_id: "h1",
+        hypothesis: "validate a frozen winner",
+        discovery_manifest_path: "data/discovery/manifest.json",
+        validation_manifest_path: "data/validation/manifest.json",
+        thesis_certificate: {
+          edge_type: "momentum",
+          behavioral_hypothesis: "trend followers continue after breakout",
+          market_participants: "trend followers and forced covering",
+          regime: "directional volatility",
+          invalidation: "range reclaim",
+          cost_sensitivity: "avoid churn",
+          candidate_universe: { symbols: ["BTCUSDT"] },
+          negative_controls: ["side_flip"],
+        },
+        candidates: [{ candidate_id: "C1", family: "time_series_momentum_v1", params: { side: "long" } }],
+      }],
+    })
+    writeRdProgramState(stateRef, updateRdProgramState(state, {
+      now: "2026-07-09T12:30:00Z",
+      usageDelta: { locked_holdout_uses: 1 },
+    }), undefined, dbPath)
+
+    const planned = runRdProgramStateCommand({
+      dbPath,
+      programId: "rd-holdout-campaign",
+      input: { action: "plan_next", now: "2026-07-09T13:00:00Z" },
+    })
+
+    assert.equal(planned.state.status, "active")
+    assert.equal(planned.next_plan?.status, "ready")
+    assert.equal(planned.next_plan?.command, "research.rd-campaign-runner")
+    assert.equal(asRecord(planned.next_plan?.budget_remaining).max_locked_holdout_uses, 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("rd program state can ingest loop and campaign research results", () => {
   const state = createRdProgramState({
     programId: "rd-ingest",
@@ -327,16 +421,18 @@ test("rd program state can ingest loop and campaign research results", () => {
     campaign_id: "campaign-1",
     created_at: "2026-07-09T14:00:00Z",
     artifact_ref: "tmp/artifacts/strategy-rnd/campaign-1.json",
+    dossier_ref: "tmp/artifacts/strategy-rnd/campaign-1.dossier.md",
     outcome: "validated_candidate_found",
     stop_reason: "validated_candidate_found",
     trials_used: 1,
     hypotheses_run: 1,
-    holdout_evaluations: 1,
+    validation_evaluations: 1,
+    holdout_evaluations: 0,
     validated_candidate: { candidate_id: "candidate-1", family: "trend_pullback_v1" },
     runs: [{ discovery_run_ref: "tmp/discovery.json", validation_run_ref: "tmp/validation.json" }],
   })
   assert.equal(campaignUpdated.status, "shadow_candidate_found")
-  assert.equal(campaignUpdated.usage.locked_holdout_uses, 1)
+  assert.equal(campaignUpdated.usage.locked_holdout_uses, 0)
   assert.ok(campaignUpdated.artifact_refs.includes("tmp/validation.json"))
 })
 
@@ -602,10 +698,12 @@ test("rd program state consumes campaign discovery failure before scheduling fol
     campaign_id: "campaign-1",
     created_at: "2026-07-09T13:00:00Z",
     artifact_ref: "tmp/artifacts/strategy-rnd/campaign-1.json",
+    dossier_ref: "tmp/artifacts/strategy-rnd/campaign-1.dossier.md",
     outcome: "no_validated_candidate",
     stop_reason: "hypothesis_queue_exhausted",
     trials_used: 3,
     hypotheses_run: 1,
+    validation_evaluations: 0,
     holdout_evaluations: 0,
     validated_candidate: null,
     runs: [{
@@ -760,8 +858,81 @@ test("rd program state blocks actions that require panel or independent validati
 
   const followup = asRecord(updated.next_hypothesis_queue[0])
   assert.equal(followup.ready, false)
-  assert.match(String(followup.blocked_reason), /different research surface/)
-  assert.equal(asRecord(followup.generated_from).required_next_step, "move_to_panel_or_expand_independent_validation")
+  assert.match(String(followup.blocked_reason), /predeclared panel strategy hypothesis/)
+  assert.match(String(followup.blocked_reason), /not post-hoc panel refinement/)
+  assert.equal(asRecord(followup.generated_from).required_next_step, "predeclare_panel_strategy_hypothesis")
+  const request = asRecord(followup.strategy_hypothesis_request)
+  assert.equal(request.requested_surface, "panel_strategy_hypothesis")
+  assert.equal(request.framing, "filters_asset_selection_and_risk_rules_are_strategy_components")
+  assert.ok(asArray(request.required_candidate_components).includes("market_state_filters"))
+  assert.ok(asArray(request.required_candidate_components).includes("asset_selection_rule"))
+  assert.ok(asArray(request.prohibited_framing).includes("posthoc_filter_patch"))
+})
+
+test("rd program state hypothesis factory schedules a ready revision when explicitly enabled", () => {
+  const state = createRdProgramState({
+    programId: "rd-factory",
+    objective: "autonomously revise failed hypotheses within budget",
+    now: "2026-07-09T12:00:00Z",
+    budget: { max_hypotheses: 4, max_trials_total: 8, max_locked_holdout_uses: 1 },
+    nextHypothesisQueue: [{
+      hypothesis_id: "h-factory",
+      hypothesis: "BTC 1h structure retest has stable edge",
+      discovery_manifest_path: "data/discovery/manifest.json",
+      validation_manifest_path: "data/validation/manifest.json",
+      timeframe: "1h",
+      search_trial_count: 4,
+      hypothesis_factory: { enabled: true, trials_per_iteration: 2 },
+      candidates: [
+        { candidate_id: "C-STRUCT-LONG", family: "structure_breakout_retest_v1", parameter_count: 7, params: { side: "long", lookback_bars: 30, retest_tolerance_atr: 0.8, stop_atr: 1, reward_risk: 1.8 } },
+        { candidate_id: "C-STRUCT-SHORT", family: "structure_breakout_retest_v1", parameter_count: 7, params: { side: "short", lookback_bars: 30, retest_tolerance_atr: 0.8, stop_atr: 1, reward_risk: 1.8 } },
+      ],
+    }],
+  })
+
+  const updated = updateRdProgramStateFromResearchResult(state, {
+    campaign_id: "campaign-factory",
+    created_at: "2026-07-09T13:00:00Z",
+    artifact_ref: "tmp/artifacts/strategy-rnd/campaign-factory.json",
+    dossier_ref: "tmp/artifacts/strategy-rnd/campaign-factory.dossier.md",
+    outcome: "no_validated_candidate",
+    stop_reason: "hypothesis_queue_exhausted",
+    trials_used: 4,
+    hypotheses_run: 1,
+    validation_evaluations: 0,
+    holdout_evaluations: 0,
+    validated_candidate: null,
+    runs: [{
+      hypothesis_id: "h-factory",
+      discovery_run_ref: "tmp/discovery.json",
+      discovery_outcome: "no_promote",
+      discovery_failure_summary: {
+        primary_failure_area: "selection_instability",
+        top_blockers: [
+          { check_id: "RND-ROBUSTNESS-COST", count: 2 },
+          { check_id: "RND-ROBUSTNESS-PARAM", count: 2 },
+        ],
+        next_system_actions: ["Stop candidate selection; expand independent validation or reduce hypothesis overlap before more trials."],
+      },
+      discovery_reliability_gate: { status: "blocked", decision: "stop_selection" },
+      validation_run_ref: null,
+      validation_outcome: null,
+    }],
+  })
+
+  assert.equal(updated.status, "active")
+  assert.equal(updated.usage.trials_used, 4)
+  assert.equal(updated.next_hypothesis_queue.length, 1)
+  const followup = asRecord(updated.next_hypothesis_queue[0])
+  assert.equal(followup.ready, true)
+  assert.equal(followup.mode, "loop")
+  assert.equal(followup.validation_manifest_path, undefined)
+  assert.equal(followup.search_trial_count, 2)
+  assert.equal(asRecord(followup.generated_from).source, "rd_hypothesis_factory")
+  assert.equal(asArray(followup.candidates).length, 2)
+  const params = asRecord(asRecord(asArray(followup.candidates)[0]).params)
+  assert.equal(params.lookback_bars, 45)
+  assert.equal(params.retest_tolerance_atr, 0.68)
 })
 
 function readSchema(name: string): JSONRecord {

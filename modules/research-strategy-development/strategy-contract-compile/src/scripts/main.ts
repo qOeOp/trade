@@ -41,11 +41,19 @@ function parseArgs(argv: string[]): Config {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     switch (arg) {
-      case "--strategy": config.strategyPath = readFlagValue(argv, ++index, arg); break
-      case "--input": config.input = readJsonObjectFile(readFlagValue(argv, ++index, arg)); break
-      case "--json": config.input = readJsonObject(readFlagValue(argv, ++index, arg)); break
-      case "--help": printHelp(); return process.exit(0)
-      default: throw new Error(`unknown flag: ${arg}`)
+      case "--strategy":
+        config.strategyPath = readFlagValue(argv, ++index, arg)
+        break
+      case "--input":
+        config.input = readJsonObjectFile(readFlagValue(argv, ++index, arg))
+        break
+      case "--json":
+        config.input = readJsonObject(readFlagValue(argv, ++index, arg))
+        break
+      case "--help":
+        exitWithHelp()
+      default:
+        throw new Error(`unknown flag: ${arg}`)
     }
   }
   return config
@@ -60,6 +68,11 @@ function printHelp(): void {
   bun src/scripts/main.ts --strategy strategies/S-EXAMPLE.md
   bun src/scripts/main.ts --strategy strategies/S-EXAMPLE.md --json '{"candidate_param_overrides":{"benchmark_manifest_path":"tmp/panels/btc/manifest.json"}}'
 `)
+}
+
+function exitWithHelp(): never {
+  printHelp()
+  process.exit(0)
 }
 
 if (import.meta.main) {

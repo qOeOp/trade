@@ -49,7 +49,7 @@ function runStrategyRndBatch(input: StrategyRndBatchInput): StrategyRndBatchRepo
   if (!input.manifestPath) {
     throw new Error("strategy R&D batch requires manifestPath")
   }
-  const featureStore = loadStrategyRndFeatureStore(input.indicatorReportPath)
+  const featureStore = loadStrategyRndFeatureStore(input.indicatorReportPath, input.manifestPath, input.timeframe || "4h")
   const factorResearch = buildFactorResearch(input, featureStore)
   const resolved = resolveRndCandidates(input, factorResearch)
   const candidates = resolved.candidates

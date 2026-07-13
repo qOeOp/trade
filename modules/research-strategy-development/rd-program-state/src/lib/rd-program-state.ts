@@ -205,8 +205,7 @@ function normalizeRdProgramState(raw: unknown): RdProgramState {
 function statusAfterBudget(state: RdProgramState): RdProgramStatus {
   if (
     state.usage.hypotheses_run >= state.budget.max_hypotheses ||
-    state.usage.trials_used >= state.budget.max_trials_total ||
-    state.usage.locked_holdout_uses >= state.budget.max_locked_holdout_uses
+    state.usage.trials_used >= state.budget.max_trials_total
   ) {
     return "budget_exhausted"
   }
@@ -287,7 +286,7 @@ function normalizeBudget(input: Partial<RdProgramBudget> | JSONRecord | undefine
   return {
     max_hypotheses: positiveInteger(asRecord(input).max_hypotheses, 20),
     max_trials_total: positiveInteger(asRecord(input).max_trials_total, 80),
-    max_locked_holdout_uses: positiveInteger(asRecord(input).max_locked_holdout_uses, 1),
+    max_locked_holdout_uses: nonNegativeIntegerWithFallback(asRecord(input).max_locked_holdout_uses, 1),
   }
 }
 
@@ -345,6 +344,11 @@ function requiredText(value: unknown, message: string): string {
 function positiveInteger(value: unknown, fallback: number): number {
   const number = Number(value)
   return Number.isInteger(number) && number > 0 ? number : fallback
+}
+
+function nonNegativeIntegerWithFallback(value: unknown, fallback: number): number {
+  const number = Number(value)
+  return Number.isInteger(number) && number >= 0 ? number : fallback
 }
 
 function nonNegativeInteger(value: unknown): number {

@@ -2,15 +2,20 @@ import { loadCandlesFromManifest, loadManifest, replayStrategy } from "../../../
 import {
   composeFactorCandidates,
   type FactorFeatureStore,
+  windowFactorFeatureStore,
 } from "../../../strategy-family-engine/src/lib/factor-engine"
 import { researchFactorSeeds, type FactorResearchReport } from "../../../strategy-family-engine/src/lib/factor-research"
 import { getRndFamily } from "../../../strategy-family-engine/src/lib/rnd-family"
 import { loadStrategyFeatureStore } from "../../../strategy-family-engine/src/lib/strategy-feature-store"
 import { loadFundingEvents } from "./strategy-rnd-evaluation"
+import { manifestTimeWindow } from "./strategy-rnd-time-window"
 import type { CandidateSource, StrategyRndBatchInput, StrategyRndCandidateInput } from "./strategy-rnd-inputs"
 
-export function loadStrategyRndFeatureStore(indicatorReportPath?: string): FactorFeatureStore {
-  return loadStrategyFeatureStore(indicatorReportPath)
+export function loadStrategyRndFeatureStore(indicatorReportPath?: string, manifestPath?: string, timeframe = "4h"): FactorFeatureStore {
+  const store = loadStrategyFeatureStore(indicatorReportPath)
+  if (!indicatorReportPath) return store
+  const window = manifestPath ? manifestTimeWindow(manifestPath, timeframe) : undefined
+  return window ? windowFactorFeatureStore(store, window) : store
 }
 
 export function assertUniqueCandidateIds(candidates: StrategyRndCandidateInput[]): void {
@@ -45,7 +50,7 @@ export function resolveRndCandidates(
 }
 
 export function resolveCandidateCount(input: StrategyRndBatchInput): number {
-  const featureStore = loadStrategyRndFeatureStore(input.indicatorReportPath)
+  const featureStore = loadStrategyRndFeatureStore(input.indicatorReportPath, input.manifestPath, input.timeframe || "4h")
   const count = resolveRndCandidates(input, buildFactorResearch(input, featureStore)).candidates.length
   if (count === 0 && !input.factorDiscover) {
     throw new Error("strategy R&D campaign hypothesis requires at least one candidate")

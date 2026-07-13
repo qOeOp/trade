@@ -26,7 +26,7 @@ function buildRdSupervisorNextPlan(state: RdProgramState, statePath: string, inp
   if (state.status !== "active") {
     return { ...base, status: "stopped", reason: `rd_program_state status is ${state.status}`, command: null, payload: null }
   }
-  if (remaining.max_hypotheses <= 0 || remaining.max_trials_total <= 0 || remaining.max_locked_holdout_uses <= 0) {
+  if (remaining.max_hypotheses <= 0 || remaining.max_trials_total <= 0) {
     return { ...base, status: "stopped", reason: "rd program budget is exhausted", command: null, payload: null }
   }
   const hypothesis = state.next_hypothesis_queue.map(asRecord).find((item) => hypothesisReady(item))
@@ -63,12 +63,20 @@ function buildScoutSubagentPlan(state: RdProgramState, statePath: string, hypoth
   const hypothesisId = hypothesis ? hypothesisID(hypothesis) : ""
   return {
     schema_version: "trade-flow.rd-scout-subagent-plan.v1",
-    enabled: state.status === "active" && hypothesis !== null,
+    enabled: state.status === "active",
     dispatch_timing: "before_research_command",
     execution_model: "supervisor_fanout_readonly_scouts_then_single_writer_research_run",
     state_ref: statePath,
     selected_hypothesis_id: hypothesisId || null,
     single_writer_rule: "Scouts are read-only. Only rd-supervisor may execute the R&D command or write rd_program_state.",
+    strategy_designer_handoff: {
+      tool_id: "research.strategy-hypothesis-designer",
+      skill_ref: "docs/rd-strategy-designer.md",
+      output_contract_schema: "trade-flow.strategy-hypothesis-contract.v1",
+      purpose: "Convert taxonomy, failures, lessons, and existing strategy policies into one predeclared strategy hypothesis contract before spending trials.",
+      required_before_queue_seed: true,
+      next_step: "Render designer prompt, let the agent produce a contract, validate it, then project it into next_hypothesis_queue.",
+    },
     scouts: [
       {
         role: "rd-taxonomy-scout",
@@ -103,6 +111,15 @@ function buildScoutSubagentPlan(state: RdProgramState, statePath: string, hypoth
         purpose: "Challenge the behavioral edge, propose falsification checks, and suggest distinct follow-up edge directions if this one fails.",
         inputs: ["selected_hypothesis.hypothesis", "selected_hypothesis.thesis_certificate", "rd_program_state.universe_lessons"],
         required_output: "edge_review",
+        may_write_files: false,
+        may_write_state: false,
+      },
+      {
+        role: "rd-strategy-designer",
+        agent_type: "designer",
+        purpose: "Synthesize a real trader style strategy hypothesis from the scout findings; output a structured contract, not free-form prose or parameter tweaks.",
+        inputs: ["docs/rd-strategy-designer.md", "docs/strategy-universe-taxonomy.md", "strategies/*.md", "rd_program_state.latest_failure_summary", "rd_program_state.rejected_mechanisms", "rd_program_state.universe_lessons"],
+        required_output: "trade-flow.strategy-hypothesis-contract.v1",
         may_write_files: false,
         may_write_state: false,
       },
@@ -312,10 +329,14 @@ function budgetRemaining(state: RdProgramState): RdProgramBudget {
 function loopPayloadFromHypothesis(state: RdProgramState, statePath: string, hypothesis: JSONRecord, input: JSONRecord, now: string, remaining: RdProgramBudget): JSONRecord {
   const hypothesisId = hypothesisID(hypothesis)
   return compactRecord({
+    hypothesis_id: hypothesisId,
     run_id: stringField(hypothesis.run_id) || `${state.program_id}-${hypothesisId}-${now.replace(/[^0-9]/g, "").slice(0, 14)}`,
     batch_id: stringField(hypothesis.batch_id) || `${state.program_id}-${hypothesisId}`,
     hypothesis: stringField(hypothesis.hypothesis) || state.objective,
     manifest_path: stringField(hypothesis.manifest_path) || stringField(hypothesis.discovery_manifest_path),
+    artifact_root: stringField(hypothesis.artifact_root) || stringField(input.artifact_root),
+    ledger_path: stringField(hypothesis.ledger_path) || stringField(input.ledger_path),
+    catalog_db_path: stringField(hypothesis.catalog_db_path) || stringField(input.catalog_db_path),
     rd_program_ref: statePath,
     rd_state_db: stringField(input.rd_state_db),
     now,

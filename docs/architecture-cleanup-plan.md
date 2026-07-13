@@ -632,7 +632,7 @@ Jesse 调研后的补充要求：
   - `rd-ledger/src/lib/rd-ledger.ts`：R&D ledger record、artifact redaction、catalog ledger writeback、run_id / holdout 幂等独立。
   - `lib/strategy-rnd-ledger.test.ts`：锁定 rejected reason 汇总、locked holdout key、idempotence、artifact redaction。
 - 研究侧 campaign 拆分：
-  - `rd-campaign-runner/src/lib/rd-campaign-runner.ts`：R&D campaign orchestration、calibration gate、discovery/validation non-overlap、locked validation 调度独立。
+  - `rd-campaign-runner/src/lib/rd-campaign-runner.ts`：R&D campaign orchestration、calibration gate、discovery/external validation non-overlap；locked holdout 保持独立预算与独立证据语义。
   - `lib/strategy-rnd-campaign.test.ts`：锁定 calibration blocker 读取、overlap 拒绝、discovery→validation 调度、trial budget 阻断。
 - 研究侧 candidate evaluation 拆分：
   - `lib/strategy-rnd-evaluation.ts`：candidate replay、negative controls、parameter stability、R&D gate、funding events helper 独立。

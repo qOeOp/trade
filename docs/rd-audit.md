@@ -44,12 +44,12 @@ updated_at: 2026-07-10 10:20 CST
 - 2026-07-10 09:05 CST，开研 BTC 4H volatility compression breakout long：
   - 先跑 `research.data-split`：discovery `2019-09-08 -> 2023-09-04`，validation `2023-10-07 -> 2025-06-05`，locked holdout `2025-07-09 -> 2026-07-08`，embargo `200` 根 4H；locked holdout 未打开。
   - campaign `btc-4h-vcb-rd-2026-07-10-a` 预声明 6 个 long VCB candidate；discovery 结果 `accepted_count=0`、`outcome=no_promote`，未消耗 validation。
-  - 主要 blocker：`R-PROFIT-FACTOR` 6/6、`RND-OOS-EFFECTIVE-SAMPLE` 6/6、`R-EXPECTANCY` 5/6；`reliability_gate.decision=reject_hypothesis`，下一步不是加过滤器，而是换新市场机制。
+  - 主要 blocker：`R-PROFIT-FACTOR` 6/6、`RND-OOS-EFFECTIVE-SAMPLE` 6/6、`R-EXPECTANCY` 5/6；`reliability_gate.decision=reject_hypothesis`。下一步不能给旧候选事后外挂过滤器；若继续使用过滤 / 资产选择 / 风控改造，必须作为新市场机制或新 candidate strategy hypothesis 预声明。
   - artifact：`tmp/artifacts/strategy-rnd/btc-4h-vcb-rd-2026-07-10-a.campaign.json` 与 `tmp/artifacts/strategy-rnd/btc-4h-vcb-rd-2026-07-10-a-H-BTC-4H-VCB-LONG-001-discovery.json`；R&D ledger 已登记到 `data/data_catalog.db`。
 - 2026-07-10 10:10 CST，开研 BTC 弱势下 high-beta alt 相对弱者 short continuation：
   - `relative-loser-continuation-btc-weak-2026-07-10-a`：6 资产 high-beta panel，4 个候选全部 `no_promote`；`RWM-S-BTCWEAK-180-1R` 有局部苗头（`sample_count=1024`、`total_r=19.099307`、asset-shuffle 通过），但仅 2/6 资产正，blocked by breadth / cost / catastrophic。
   - `relative-loser-continuation-btc-weak-broad-2026-07-10-a`：8 资产 broad liquid-alt 泛化检查仍 `no_promote`；同一 `RWM-S-BTCWEAK-180-1R` pooled `total_r=58.744121`、5/8 资产正、asset-shuffle 通过，但 blocked by OOS / cost / catastrophic，`NEAR/LTC` 亏损与多资产 drawdown 过重。
-  - 结论：该机制不是“调参即可用”；若继续，必须作为新 hypothesis 明确 universe / risk owner，而不是排除亏损资产后复用同一 holdout。
+  - 结论：该机制不是“调参即可用”；若继续，必须作为新 hypothesis 明确 universe / risk owner / market-state filters，而不是排除亏损资产后复用同一 holdout。
 
 ## 外部校准
 

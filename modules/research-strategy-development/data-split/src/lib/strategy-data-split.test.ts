@@ -87,6 +87,118 @@ test("strategy data split can persist and catalog the split report", () => {
   }
 })
 
+test("strategy data split can read OHLCV directly from the database", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-data-split-db-"))
+  try {
+    const ohlcvDbPath = join(dir, "ohlcv.db")
+    const db = new Database(ohlcvDbPath)
+    try {
+      createOhlcvTestSchema(db)
+      const insert = db.query(`
+        INSERT INTO canonical_candle(
+          manifest_id, exchange, symbol, timeframe, open_time, close_time, open, high, low, close, volume
+        )
+        VALUES ($manifest_id, $exchange, $symbol, $timeframe, $open_time, $close_time, $open, $high, $low, $close, $volume)
+      `)
+      for (const item of Array.from({ length: 300 }, (_, index) => {
+        const openTime = 1_700_000_000_000 + index * 4 * 60 * 60 * 1000
+        return {
+          $manifest_id: "ohlcv-db-test",
+          $exchange: "binanceusdm",
+          $symbol: "ALTUSDT",
+          $timeframe: "4h",
+          $open_time: openTime,
+          $close_time: openTime + 4 * 60 * 60 * 1000,
+          $open: 100 + index,
+          $high: 102 + index,
+          $low: 98 + index,
+          $close: 101 + index,
+          $volume: 1000 + index,
+        }
+      })) {
+        insert.run(item)
+      }
+    } finally {
+      db.close()
+    }
+
+    const report = runStrategyDataSplit({
+      splitId: "split-db",
+      timeframe: "4h",
+      outputRoot: join(dir, "splits"),
+      maxHoldBars: 12,
+      minSegmentRows: 30,
+      datasets: [{
+        datasetId: "ALTUSDT",
+        ohlcvDbPath,
+        exchange: "binanceusdm",
+        symbol: "ALTUSDT",
+      }],
+    })
+
+    assert.equal(report.datasets[0].source_manifest_path, "ohlcv_store:canonical_candle/binanceusdm/ALTUSDT/4h")
+    assert.equal(report.datasets[0].source_rows, 300)
+    assert.equal(report.datasets[0].segments.every((segment) => existsSync(resolveRepoPath(segment.manifest_path))), true)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("strategy data split rejects mismatched dataset and split timeframes", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-data-split-timeframe-"))
+  try {
+    const ohlcvDbPath = join(dir, "ohlcv.db")
+    const db = new Database(ohlcvDbPath)
+    try {
+      createOhlcvTestSchema(db)
+    } finally {
+      db.close()
+    }
+
+    assert.throws(() => runStrategyDataSplit({
+      splitId: "split-timeframe-mismatch",
+      timeframe: "4h",
+      outputRoot: join(dir, "splits"),
+      maxHoldBars: 1,
+      minSegmentRows: 2,
+      datasets: [{
+        datasetId: "ALTUSDT",
+        ohlcvDbPath,
+        exchange: "binanceusdm",
+        symbol: "ALTUSDT",
+        timeframe: "1h",
+      }],
+    }), /does not match split timeframe/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("strategy data split reports missing OHLCV schema as a domain error", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-data-split-missing-schema-"))
+  try {
+    const ohlcvDbPath = join(dir, "ohlcv.db")
+    const db = new Database(ohlcvDbPath)
+    db.close()
+
+    assert.throws(() => runStrategyDataSplit({
+      splitId: "split-missing-schema",
+      timeframe: "4h",
+      outputRoot: join(dir, "splits"),
+      maxHoldBars: 1,
+      minSegmentRows: 2,
+      datasets: [{
+        datasetId: "ALTUSDT",
+        ohlcvDbPath,
+        exchange: "binanceusdm",
+        symbol: "ALTUSDT",
+      }],
+    }), /ohlcv store schema is missing canonical_candle/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("strategy data split CLI stays read-only to trade DB and returns stable shell", async () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-data-split-cli-"))
   const runtimeDir = makeRuntimeDir("strategy-data-split-cli-")
@@ -146,7 +258,7 @@ test("strategy data split parser ignores camel-case aliases", () => {
   assert.equal(input.outputRoot, undefined)
   assert.equal(input.maxHoldBars, undefined)
   assert.equal(input.datasets[0].datasetId, "")
-  assert.equal(input.datasets[0].manifestPath, "")
+  assert.equal(input.datasets[0].manifestPath, undefined)
 })
 
 function writeManifest(dir: string, symbol: string, rows: number): string {
@@ -180,6 +292,26 @@ function writeManifest(dir: string, symbol: string, rows: number): string {
     },
   }))
   return manifestPath
+}
+
+function createOhlcvTestSchema(db: Database): void {
+  db.run(`
+    CREATE TABLE canonical_candle (
+      manifest_id TEXT NOT NULL,
+      exchange    TEXT NOT NULL,
+      symbol      TEXT NOT NULL,
+      timeframe   TEXT NOT NULL,
+      open_time   BIGINT NOT NULL,
+      close_time  BIGINT NOT NULL,
+      open        DOUBLE NOT NULL,
+      high        DOUBLE NOT NULL,
+      low         DOUBLE NOT NULL,
+      close       DOUBLE NOT NULL,
+      volume      DOUBLE,
+      quote_volume DOUBLE,
+      PRIMARY KEY (exchange, symbol, timeframe, open_time)
+    )
+  `)
 }
 
 function makeRuntimeDir(prefix: string): string {

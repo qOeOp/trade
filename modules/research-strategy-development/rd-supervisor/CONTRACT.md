@@ -8,7 +8,7 @@ atomic orchestration module
 
 - Autonomous R&D supervisor loop.
 - `plan_next -> loop/campaign -> state writeback` orchestration.
-- Draft strategy policy creation after a validated candidate.
+- Draft strategy policy creation after a validated candidate, delegated to `research/strategy-policy-writer` for markdown shape.
 
 ## Inputs
 
@@ -22,7 +22,7 @@ atomic orchestration module
 
 - `rd-supervisor-run-result`.
 - Native `domain-runtime.domain-job-result.v1` for J04 `rd_strategy_supervisor`, with `research_state_store` and `artifact_catalog` as the only logical write surfaces.
-- Research artifacts and optional draft strategy markdown.
+- Research artifacts and optional draft strategy markdown rendered by `strategy-policy-writer`.
 - Explicit RD state writeback through the RD program state boundary.
 
 ## Boundaries
@@ -31,4 +31,5 @@ atomic orchestration module
 - May write only research artifacts, catalog refs, RD state, and draft strategy policy files.
 - Does not write `trade.db`, call exchange APIs, review strategy evidence, promote, or execute trades.
 - Uses `research-strategy-development/rd-campaign-runner` for campaign orchestration.
+- Uses `research-strategy-development/strategy-policy-writer` for deterministic `strategies/*.md` policy rendering and shape lint.
 - If durable state is missing, initializes supervised R&D memory itself; control tower must not bypass J04 owner by dispatching `rd-program-state` as the J04 job.

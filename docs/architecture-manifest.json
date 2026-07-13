@@ -118,6 +118,8 @@
         "modules/research-strategy-development/rd-campaign-runner",
         "modules/research-strategy-development/rd-ledger",
         "modules/research-strategy-development/rd-artifact-summary",
+        "modules/research-strategy-development/strategy-hypothesis-designer",
+        "modules/research-strategy-development/strategy-policy-writer",
         "modules/research-strategy-development/rd-integration-suite",
         "modules/research-strategy-development/research-state-store",
         "modules/research-strategy-development/candidate-freezer",

@@ -1,4 +1,7 @@
 import assert from "node:assert/strict"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import test from "node:test"
 import {
   assertUniqueCandidateIds,
@@ -103,6 +106,55 @@ test("strategy R&D candidates keep campaign candidate counting and discovery con
       { candidateId: "B", params: {} },
     ],
   }, loadStrategyRndFeatureStore()), /requires exactly one base candidate/)
+})
+
+test("strategy R&D feature store is bounded to the active manifest window", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-feature-window-"))
+  try {
+    const manifestPath = join(dir, "manifest.json")
+    writeFileSync(manifestPath, JSON.stringify({
+      schema_version: 2,
+      timeframes: {
+        "4h": {
+          file: "4h.csv",
+          first_open_ts: Date.parse("2026-01-02T00:00:00Z"),
+          last_open_ts: Date.parse("2026-01-03T00:00:00Z"),
+        },
+      },
+    }))
+    const reportPath = join(dir, "features.json")
+    writeFileSync(reportPath, JSON.stringify({
+      data: {
+        timeframes: {
+          "4h": {
+            features: {
+              "stc.value": {
+                status: "ok",
+                factor_id: "stc.value",
+                source_indicator: "stc",
+                output: "value",
+                category: "momentum",
+                roles: ["confirmation"],
+                values: [
+                  { timestamp: "2026-01-01T00:00:00Z", value: 10 },
+                  { timestamp: "2026-01-02T00:00:00Z", value: 20 },
+                  { timestamp: "2026-01-03T00:00:00Z", value: 30 },
+                  { timestamp: "2026-01-04T00:00:00Z", value: 40 },
+                ],
+              },
+            },
+          },
+        },
+      },
+    }))
+
+    const store = loadStrategyRndFeatureStore(reportPath, manifestPath, "4h")
+    assert.deepEqual(store.series("4h", "stc.value")?.timestamps, ["2026-01-02T00:00:00Z", "2026-01-03T00:00:00Z"])
+    assert.equal(store.read("4h", "stc.value", "2026-01-01T00:00:00Z"), undefined)
+    assert.equal(store.read("4h", "stc.value", "2026-01-03T00:00:00Z", "delta", 1), 10)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })
 
 function baseInput(): StrategyRndBatchInput {

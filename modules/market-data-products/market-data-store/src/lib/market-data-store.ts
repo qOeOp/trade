@@ -77,6 +77,7 @@ export interface CandleSeriesQuery {
 }
 
 export function ensureMarketDataSchema(db: Database): void {
+  configureSqliteConnection(db)
   db.run(`
     CREATE TABLE IF NOT EXISTS market_manifest (
       manifest_id     TEXT PRIMARY KEY,
@@ -120,6 +121,7 @@ export function ensureMarketDataSchema(db: Database): void {
 }
 
 export function ensureOhlcvSchema(db: Database): void {
+  configureSqliteConnection(db)
   db.run(`
     CREATE TABLE IF NOT EXISTS canonical_candle (
       manifest_id TEXT NOT NULL,
@@ -137,6 +139,12 @@ export function ensureOhlcvSchema(db: Database): void {
       PRIMARY KEY (exchange, symbol, timeframe, open_time)
     )
   `)
+}
+
+function configureSqliteConnection(db: Database): void {
+  db.run("PRAGMA busy_timeout = 5000")
+  db.run("PRAGMA journal_mode = WAL")
+  db.run("PRAGMA synchronous = NORMAL")
 }
 
 export function upsertMarketManifest(db: Database, manifest: MarketManifest): void {
@@ -180,7 +188,7 @@ export function upsertMarketManifest(db: Database, manifest: MarketManifest): vo
   })
 }
 
-export function upsertCanonicalCandles(db: Database, candles: CanonicalCandle[]): number {
+export function upsertCanonicalCandles(db: Database, candles: CanonicalCandle[], batchSize = 1000): number {
   const insert = db.query(`
     INSERT INTO canonical_candle(
       manifest_id, exchange, symbol, timeframe, open_time, close_time,
@@ -201,8 +209,8 @@ export function upsertCanonicalCandles(db: Database, candles: CanonicalCandle[])
       quote_volume = excluded.quote_volume
   `)
   let count = 0
-  db.transaction(() => {
-    for (const candle of candles) {
+  const writeBatch = db.transaction((items: CanonicalCandle[]) => {
+    for (const candle of items) {
       validateCanonicalCandle(candle)
       insert.run({
         $manifest_id: candle.manifest_id,
@@ -220,7 +228,11 @@ export function upsertCanonicalCandles(db: Database, candles: CanonicalCandle[])
       })
       count += 1
     }
-  })()
+  })
+  const size = Math.max(1, Math.floor(batchSize))
+  for (let index = 0; index < candles.length; index += size) {
+    writeBatch(candles.slice(index, index + size))
+  }
   return count
 }
 

@@ -14,6 +14,7 @@ export interface PlanEvent {
 }
 
 export function ensureSchema(db: Database): void {
+  configureEventStoreConnection(db)
   db.run(`
     CREATE TABLE IF NOT EXISTS plan_event (
       event_key   TEXT PRIMARY KEY,
@@ -26,6 +27,12 @@ export function ensureSchema(db: Database): void {
   db.run("CREATE INDEX IF NOT EXISTS idx_chain_time ON plan_event(chain_id, created_at)")
   db.run("CREATE INDEX IF NOT EXISTS idx_kind_chain ON plan_event(kind, chain_id)")
   db.run("CREATE INDEX IF NOT EXISTS idx_obs_symbol ON plan_event(json_extract(body_json, '$.symbol')) WHERE kind = 'observe'")
+}
+
+export function configureEventStoreConnection(db: Database): void {
+  db.run("PRAGMA busy_timeout = 5000")
+  db.run("PRAGMA journal_mode = WAL")
+  db.run("PRAGMA synchronous = NORMAL")
 }
 
 export function appendPlanEvent(db: Database, event: PlanEvent): void {

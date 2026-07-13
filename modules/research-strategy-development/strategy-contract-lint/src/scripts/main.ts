@@ -39,9 +39,13 @@ function parseArgs(argv: string[]): Config {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     switch (arg) {
-      case "--strategy": config.strategyPath = readFlagValue(argv, ++index, arg); break
-      case "--help": printHelp(); return process.exit(0)
-      default: throw new Error(`unknown flag: ${arg}`)
+      case "--strategy":
+        config.strategyPath = readFlagValue(argv, ++index, arg)
+        break
+      case "--help":
+        exitWithHelp()
+      default:
+        throw new Error(`unknown flag: ${arg}`)
     }
   }
   return config
@@ -51,6 +55,11 @@ function printHelp(): void {
   console.log(`Usage:
   bun src/scripts/main.ts --strategy strategies/S-EXAMPLE.md
 `)
+}
+
+function exitWithHelp(): never {
+  printHelp()
+  process.exit(0)
 }
 
 if (import.meta.main) {

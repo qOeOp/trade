@@ -71,17 +71,37 @@ function parseArgs(argv: string[]): Config {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     switch (arg) {
-      case "--max-hold-bars": config.maxHoldBars = Number(readFlagValue(argv, ++index, arg)); break
-      case "--state": config.statePath = readFlagValue(argv, ++index, arg); break
-      case "--forward-result": config.forwardResultPath = readFlagValue(argv, ++index, arg); break
-      case "--manifest-map": config.manifestMapPath = readFlagValue(argv, ++index, arg); break
-      case "--output": config.outputPath = readFlagValue(argv, ++index, arg); break
-      case "--catalog-db": config.catalogDbPath = readFlagValue(argv, ++index, arg); break
-      case "--now": config.now = readFlagValue(argv, ++index, arg); break
-      case "--shadow-tracker-job": config.shadowTrackerJob = true; break
-      case "--json": config.jsonPayload = readFlagValue(argv, ++index, arg); break
-      case "--help": printHelp(); return process.exit(0)
-      default: throw new Error(`unknown flag: ${arg}`)
+      case "--max-hold-bars":
+        config.maxHoldBars = Number(readFlagValue(argv, ++index, arg))
+        break
+      case "--state":
+        config.statePath = readFlagValue(argv, ++index, arg)
+        break
+      case "--forward-result":
+        config.forwardResultPath = readFlagValue(argv, ++index, arg)
+        break
+      case "--manifest-map":
+        config.manifestMapPath = readFlagValue(argv, ++index, arg)
+        break
+      case "--output":
+        config.outputPath = readFlagValue(argv, ++index, arg)
+        break
+      case "--catalog-db":
+        config.catalogDbPath = readFlagValue(argv, ++index, arg)
+        break
+      case "--now":
+        config.now = readFlagValue(argv, ++index, arg)
+        break
+      case "--shadow-tracker-job":
+        config.shadowTrackerJob = true
+        break
+      case "--json":
+        config.jsonPayload = readFlagValue(argv, ++index, arg)
+        break
+      case "--help":
+        exitWithHelp()
+      default:
+        throw new Error(`unknown flag: ${arg}`)
     }
   }
   return config
@@ -239,6 +259,11 @@ function printHelp(): void {
   bun src/scripts/main.ts --forward-result ./tmp/forward.json --output ./tmp/artifacts/strategy-rnd/shadow.json
   bun src/scripts/main.ts --state ./tmp/artifacts/strategy-rnd/shadow.json --manifest-map ./tmp/manifest-map.json --output ./tmp/artifacts/strategy-rnd/shadow-updated.json
 `)
+}
+
+function exitWithHelp(): never {
+  printHelp()
+  process.exit(0)
 }
 
 if (import.meta.main) {

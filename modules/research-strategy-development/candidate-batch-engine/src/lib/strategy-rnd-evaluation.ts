@@ -10,6 +10,7 @@ import { type FactorFeatureStore } from "../../../strategy-family-engine/src/lib
 import { getRndFamily, type RndFamilyConfigured } from "../../../strategy-family-engine/src/lib/rnd-family"
 import type { JSONRecord } from "../../../../contracts/runtime-core/src/json"
 import type { StrategyRndBatchInput, StrategyRndCandidateInput } from "./strategy-rnd-inputs"
+import { filterEventsToWindow, manifestTimeWindow } from "./strategy-rnd-time-window"
 
 const fundingEventCache = new Map<string, Array<{ timestamp: string; value: number }>>()
 const MIN_OOS_EFFECTIVE_SAMPLE_COUNT = 10
@@ -61,7 +62,7 @@ export function runCandidate(input: StrategyRndBatchInput, candidate: StrategyRn
     feeBps: input.feeBps,
     slippageBps: input.slippageBps,
     fundingBpsPer8h: input.fundingBpsPer8h,
-    fundingEvents: loadFundingEvents(input.indicatorReportPath),
+    fundingEvents: loadFundingEvents(input.indicatorReportPath, input.manifestPath, input.timeframe || "4h"),
     oosSplitRatio: input.oosSplitRatio ?? 0.3,
     trialCount: input.searchTrialCount ?? input.candidates.length,
     parameterCount,
@@ -177,7 +178,7 @@ export function runConfiguredReplay(input: StrategyRndBatchInput, configured: Rn
     feeBps: input.feeBps,
     slippageBps: input.slippageBps,
     fundingBpsPer8h: input.fundingBpsPer8h,
-    fundingEvents: loadFundingEvents(input.indicatorReportPath),
+    fundingEvents: loadFundingEvents(input.indicatorReportPath, input.manifestPath, input.timeframe || "4h"),
     oosSplitRatio: input.oosSplitRatio ?? 0.3,
     trialCount: input.searchTrialCount ?? input.candidates.length,
     parameterCount,
@@ -266,7 +267,7 @@ export function evaluateParameterStability(
         feeBps: input.feeBps,
         slippageBps: input.slippageBps,
         fundingBpsPer8h: input.fundingBpsPer8h,
-        fundingEvents: loadFundingEvents(input.indicatorReportPath),
+        fundingEvents: loadFundingEvents(input.indicatorReportPath, input.manifestPath, input.timeframe || "4h"),
         supplementalDataRefs: replaySupplementalDataRefs(input.indicatorReportPath, configured),
       })
       results.push({ parameter: key, multiplier, avg_r: replay.avg_r, total_r: replay.total_r })
@@ -396,10 +397,10 @@ export function countActiveParameters(params: JSONRecord): number {
   }, 0)
 }
 
-export function loadFundingEvents(path?: string): Array<{ timestamp: string; value: number }> {
+export function loadFundingEvents(path?: string, manifestPath?: string, timeframe = "4h"): Array<{ timestamp: string; value: number }> {
   if (!path) return []
   const cached = fundingEventCache.get(path)
-  if (cached) return cached
+  if (cached) return filterEventsToWindow(cached, manifestPath ? manifestTimeWindow(manifestPath, timeframe) : undefined)
   const report = asRecord(JSON.parse(readFileSync(path, "utf8")))
   const raw = asRecord(asRecord(report.data).market_events).funding
   const events = (Array.isArray(raw) ? raw : []).map((item) => {
@@ -407,7 +408,7 @@ export function loadFundingEvents(path?: string): Array<{ timestamp: string; val
     return { timestamp: stringField(value.timestamp), value: Number(value.value) }
   }).filter((item) => item.timestamp && Number.isFinite(item.value))
   fundingEventCache.set(path, events)
-  return events
+  return filterEventsToWindow(events, manifestPath ? manifestTimeWindow(manifestPath, timeframe) : undefined)
 }
 
 function asRecord(value: unknown): JSONRecord {

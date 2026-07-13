@@ -1,0 +1,31 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade-flow.strategy-policy-source.v1",
+  "type": "object",
+  "required": ["schema_version", "program_id", "objective", "candidate", "drafted_at"],
+  "properties": {
+    "schema_version": { "const": "trade-flow.strategy-policy-source.v1" },
+    "program_id": { "type": "string", "minLength": 1 },
+    "objective": { "type": "string", "minLength": 1 },
+    "drafted_at": { "type": "string", "minLength": 1 },
+    "strategy_ref": { "type": "string" },
+    "evidence_refs": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "candidate": {
+      "type": "object",
+      "required": ["candidate_id", "family", "params"],
+      "properties": {
+        "candidate_id": { "type": "string", "minLength": 1 },
+        "family": { "type": "string", "minLength": 1 },
+        "parameter_count": { "type": "number" },
+        "timeframe": { "type": "string" },
+        "validation_run_ref": { "type": "string" },
+        "params": { "type": "object" }
+      },
+      "additionalProperties": true
+    }
+  },
+  "additionalProperties": true
+}

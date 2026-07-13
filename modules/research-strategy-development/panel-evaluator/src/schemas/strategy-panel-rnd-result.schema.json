@@ -16,7 +16,10 @@
     "selected_dataset_count": { "type": "integer", "minimum": 0 },
     "universe_selection": { "type": "object" },
     "trial_count": { "type": "integer", "minimum": 1, "maximum": 10 },
+    "accepted_count": { "type": "integer", "minimum": 0 },
     "outcome": { "enum": ["candidate_found", "no_promote", "diagnostic_only"] },
+    "failure_summary": { "type": ["object", "null"] },
+    "next_strategy_hypothesis_request": { "type": ["object", "null"] },
     "candidates": { "type": "array" }
   },
   "additionalProperties": false

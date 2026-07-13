@@ -290,7 +290,7 @@ function withTimeout<T>(task: Promise<T>, ms: number, message: string): Promise<
 }
 
 function defaultTechIndicatorsDir(): string {
-  return resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "tech-indicators")
+  return resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "tech-indicators", "src")
 }
 
 function resolveInputPath(path: string, fallbackDir: string): string {

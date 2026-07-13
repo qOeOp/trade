@@ -4,6 +4,7 @@ import { buildDomainJobResult, validateDomainJobResult } from "../../../../contr
 import { assertProjectRuntimePath, repoRoot } from "../../../../contracts/runtime-core/src/paths"
 import { errorResponse, printScriptResult, readFlagValue, readJsonObject, readJsonObjectFile, successResponse } from "../../../../contracts/runtime-core/src/script-json"
 import type { JSONRecord } from "../../../../contracts/runtime-core/src/json"
+import { strategyHypothesisToQueueItem } from "../../../../contracts/strategy-hypothesis-contract/src/strategy-hypothesis-contract"
 import { runRdProgramStateCommand } from "../../../rd-program-state/src/lib/rd-program-state"
 import { runRdSupervisorLoop } from "../lib/rd-supervisor-runner"
 
@@ -26,6 +27,7 @@ interface SupervisorJobInput {
   catalog_db_path?: string
   goal?: JSONRecord
   supervisor?: JSONRecord
+  hypothesis_contract_path?: string
 }
 
 const SCHEMA_VERSION = "rd-supervisor.script-response.v1"
@@ -55,14 +57,28 @@ function parseArgs(argv: string[]): Config {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     switch (arg) {
-      case "--db": config.dbPath = readFlagValue(argv, ++index, arg); break
-      case "--program-id": config.programId = readFlagValue(argv, ++index, arg); break
-      case "--catalog-db": config.catalogDbPath = readFlagValue(argv, ++index, arg); break
-      case "--input": config.input = readJsonObjectFile(readFlagValue(argv, ++index, arg)); break
-      case "--json": config.input = readJsonObject(readFlagValue(argv, ++index, arg)); break
-      case "--supervisor-job": config.supervisorJob = true; break
-      case "--help": printHelp(); return process.exit(0)
-      default: throw new Error(`unknown flag: ${arg}`)
+      case "--db":
+        config.dbPath = readFlagValue(argv, ++index, arg)
+        break
+      case "--program-id":
+        config.programId = readFlagValue(argv, ++index, arg)
+        break
+      case "--catalog-db":
+        config.catalogDbPath = readFlagValue(argv, ++index, arg)
+        break
+      case "--input":
+        config.input = readJsonObjectFile(readFlagValue(argv, ++index, arg))
+        break
+      case "--json":
+        config.input = readJsonObject(readFlagValue(argv, ++index, arg))
+        break
+      case "--supervisor-job":
+        config.supervisorJob = true
+        break
+      case "--help":
+        exitWithHelp()
+      default:
+        throw new Error(`unknown flag: ${arg}`)
     }
   }
   return config
@@ -83,9 +99,7 @@ function runSupervisorJob(config: Config): JSONRecord {
     now: input.now || stringField(asRecord(input.supervisor).now) || undefined,
   }
   const inputRefs = [stateRef]
-  let data: JSONRecord
-  let domainStatus = "ok"
-  let outputRefs: string[] = []
+  let initResult: JSONRecord | undefined
 
   assertRuntimeOutputPaths(dbPath, catalogDbPath)
   if (!rdProgramExists(stateRef, dbPath)) {
@@ -98,28 +112,25 @@ function runSupervisorJob(config: Config): JSONRecord {
         now: input.now,
         objective: stringField(goal.objective) || "find a shadow-eligible 4H swing strategy",
         budget: asRecord(goal.budget),
-        next_hypothesis_queue: Array.isArray(goal.next_hypothesis_queue) ? goal.next_hypothesis_queue : [],
+        next_hypothesis_queue: initialHypothesisQueue(input, goal),
       },
     })
-    data = {
-      mode: "init",
-      init,
-    }
-    outputRefs = [stringField(init.state_ref) || stateRef]
-  } else {
-    const runResult = runRdSupervisorLoop({ path: stateRef, dbPath, input: supervisorInput, catalogDbPath }) as unknown as JSONRecord
-    data = {
-      mode: "loop",
-      result: runResult,
-    }
-    const status = stringField(runResult.status)
-    domainStatus = status === "data_or_tool_blocked" ? "blocked" : "ok"
-    outputRefs = [
-      stringField(runResult.state_ref),
-      stringField(runResult.strategy_ref),
-      ...iterationResultRefs(runResult),
-    ].filter(Boolean)
+    initResult = init as unknown as JSONRecord
   }
+  const runResult = runRdSupervisorLoop({ path: stateRef, dbPath, input: supervisorInput, catalogDbPath }) as unknown as JSONRecord
+  const data = {
+    mode: initResult ? "init_loop" : "loop",
+    ...(initResult ? { init: initResult } : {}),
+    result: runResult,
+  }
+  const status = stringField(runResult.status)
+  const domainStatus = status === "data_or_tool_blocked" ? "blocked" : "ok"
+  const outputRefs = uniqueStrings([
+    stringField(initResult?.state_ref),
+    stringField(runResult.state_ref),
+    stringField(runResult.strategy_ref),
+    ...iterationResultRefs(runResult),
+  ])
 
   const runtimeResult = buildDomainJobResult({
     domain: "research-strategy-development",
@@ -146,6 +157,21 @@ function runSupervisorJob(config: Config): JSONRecord {
   }
 }
 
+function initialHypothesisQueue(input: SupervisorJobInput, goal: JSONRecord): JSONRecord[] {
+  if (Array.isArray(goal.next_hypothesis_queue) && goal.next_hypothesis_queue.length > 0) {
+    return goal.next_hypothesis_queue.map(asRecord)
+  }
+  const contractPath = stringField(goal.hypothesis_contract_path) || stringField(input.hypothesis_contract_path)
+  if (contractPath) {
+    return [strategyHypothesisToQueueItem(readJsonObjectFile(contractPath))]
+  }
+  const contract = asRecord(goal.hypothesis_contract)
+  if (Object.keys(contract).length > 0) {
+    return [strategyHypothesisToQueueItem(contract)]
+  }
+  return []
+}
+
 function assertRuntimeOutputPaths(...paths: string[]): void {
   for (const path of paths) {
     if (path) assertProjectRuntimePath(path)
@@ -162,7 +188,16 @@ function stringField(value: unknown): string {
 
 function iterationResultRefs(value: JSONRecord): string[] {
   const iterations = Array.isArray(value.iterations) ? value.iterations.map(asRecord) : []
-  return iterations.map((iteration) => stringField(iteration.result_ref)).filter(Boolean)
+  const finalState = asRecord(value.final_state)
+  const artifactRefs = Array.isArray(finalState.artifact_refs) ? finalState.artifact_refs.map(stringField) : []
+  return [
+    ...iterations.map((iteration) => stringField(iteration.result_ref)),
+    ...artifactRefs,
+  ].filter(Boolean)
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values.filter(Boolean)))
 }
 
 function rdProgramRef(programId: string): string {
@@ -184,6 +219,11 @@ function printHelp(): void {
   bun src/scripts/main.ts --db ./data/rd_state.db --program-id rd-program --json '{"max_iterations":10}'
   bun src/scripts/main.ts --supervisor-job --db ./data/rd_state.db --program-id rd-program --json '{"cycle_id":"cycle","goal":{"objective":"find edge"}}'
 `)
+}
+
+function exitWithHelp(): never {
+  printHelp()
+  process.exit(0)
 }
 
 if (import.meta.main) {

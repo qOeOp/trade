@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto"
+import { Database } from "bun:sqlite"
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import {
@@ -12,7 +13,14 @@ type SplitSegmentName = "discovery" | "validation" | "locked_holdout"
 
 interface StrategyDataSplitDatasetInput {
   datasetId: string
-  manifestPath: string
+  manifestPath?: string
+  ohlcvDbPath?: string
+  exchange?: string
+  symbol?: string
+  timeframe?: string
+  sinceTs?: number
+  untilTs?: number
+  limit?: number
 }
 
 interface StrategyDataSplitInput {
@@ -82,6 +90,15 @@ interface StrategyDataSplitReport {
 interface CsvRow {
   raw: string
   timestamp: number
+}
+
+interface CanonicalCandleRow {
+  open_time: number
+  open: number
+  high: number
+  low: number
+  close: number
+  volume: number | null
 }
 
 function runStrategyDataSplit(input: StrategyDataSplitInput): StrategyDataSplitReport {
@@ -170,7 +187,14 @@ function strategyDataSplitInputFromJson(value: JSONRecord): StrategyDataSplitInp
       const item = asRecord(raw)
       return {
         datasetId: stringField(item.dataset_id),
-        manifestPath: stringField(item.manifest_path),
+        manifestPath: stringField(item.manifest_path) || undefined,
+        ohlcvDbPath: stringField(item.ohlcv_db_path) || stringField(value.ohlcv_db_path) || stringField(value.ohlcv_db) || undefined,
+        exchange: stringField(item.exchange) || undefined,
+        symbol: stringField(item.symbol) || stringField(item.dataset_id) || undefined,
+        timeframe: stringField(item.timeframe) || stringField(value.timeframe) || undefined,
+        sinceTs: optionalNumber(item.since_ts),
+        untilTs: optionalNumber(item.until_ts),
+        limit: optionalNumber(item.limit),
       }
     }),
   }
@@ -189,18 +213,13 @@ function splitDataset(
     generatedAt: string
   },
 ): StrategyDataSplitDatasetReport {
-  if (!dataset.datasetId || !dataset.manifestPath) {
-    throw new Error("strategy data split datasets require dataset_id and manifest_path")
+  if (!dataset.datasetId) {
+    throw new Error("strategy data split datasets require dataset_id")
   }
-  const sourceManifestPath = resolveReadablePath(dataset.manifestPath)
-  const sourceManifest = asRecord(JSON.parse(readFileSync(sourceManifestPath, "utf8")))
-  const timeframeEntry = asRecord(asRecord(sourceManifest.timeframes)[options.timeframe])
-  const file = stringField(timeframeEntry.file)
-  if (!file) {
-    throw new Error(`manifest ${dataset.manifestPath} missing timeframe ${options.timeframe}`)
-  }
-  const csvPath = join(dirname(sourceManifestPath), file)
-  const { header, rows } = readCsvRows(csvPath)
+  const source = dataset.manifestPath
+    ? readSourceFromManifest(dataset, options.timeframe)
+    : readSourceFromOhlcvStore(dataset, options.timeframe)
+  const { header, rows, sourceManifestRef, sourceManifest, symbol } = source
   const usableRows = rows.length - options.embargoBars * 2
   if (usableRows < options.minSegmentRows * 3) {
     throw new Error(`dataset ${dataset.datasetId} has ${rows.length} rows; not enough after embargo for three ${options.minSegmentRows}-row segments`)
@@ -214,7 +233,6 @@ function splitDataset(
   const discoveryStart = 0
   const validationStart = discoveryStart + discoveryRows + options.embargoBars
   const holdoutStart = validationStart + validationRows + options.embargoBars
-  const symbol = stringField(sourceManifest.symbol) || stringField(sourceManifest.requested_symbol) || dataset.datasetId
   const baseDir = join(options.outputRoot, safeId(dataset.datasetId))
   const segments = [
     writeSegment("discovery", rows.slice(discoveryStart, discoveryStart + discoveryRows)),
@@ -223,7 +241,7 @@ function splitDataset(
   ]
   return {
     dataset_id: dataset.datasetId,
-    source_manifest_path: displayPath(sourceManifestPath),
+    source_manifest_path: sourceManifestRef,
     symbol,
     source_rows: rows.length,
     segments,
@@ -257,7 +275,7 @@ function splitDataset(
       dedupe_key: stringField(sourceManifest.dedupe_key) || "timestamp",
       split: {
         split_id: options.splitId,
-        source_manifest_path: displayPath(sourceManifestPath),
+        source_manifest_path: sourceManifestRef,
         segment,
         embargo_bars: options.embargoBars,
       },
@@ -283,6 +301,161 @@ function splitDataset(
       last_open_at: new Date(last.timestamp).toISOString(),
     }
   }
+}
+
+function readSourceFromManifest(dataset: StrategyDataSplitDatasetInput, timeframe: string): {
+  header: string
+  rows: CsvRow[]
+  sourceManifestPath: string
+  sourceManifestRef: string
+  sourceManifest: JSONRecord
+  symbol: string
+} {
+  const sourceManifestPath = resolveReadablePath(dataset.manifestPath || "")
+  const sourceManifest = asRecord(JSON.parse(readFileSync(sourceManifestPath, "utf8")))
+  const timeframeEntry = asRecord(asRecord(sourceManifest.timeframes)[timeframe])
+  const file = stringField(timeframeEntry.file)
+  if (!file) {
+    throw new Error(`manifest ${dataset.manifestPath} missing timeframe ${timeframe}`)
+  }
+  const csvPath = join(dirname(sourceManifestPath), file)
+  const { header, rows } = readCsvRows(csvPath)
+  return {
+    header,
+    rows,
+    sourceManifestPath,
+    sourceManifestRef: displayPath(sourceManifestPath),
+    sourceManifest,
+    symbol: stringField(sourceManifest.symbol) || stringField(sourceManifest.requested_symbol) || dataset.datasetId,
+  }
+}
+
+function readSourceFromOhlcvStore(dataset: StrategyDataSplitDatasetInput, timeframe: string): {
+  header: string
+  rows: CsvRow[]
+  sourceManifestPath: string
+  sourceManifestRef: string
+  sourceManifest: JSONRecord
+  symbol: string
+} {
+  const dbPath = dataset.ohlcvDbPath || "data/ohlcv.db"
+  const symbol = stringField(dataset.symbol) || dataset.datasetId
+  const datasetTimeframe = stringField(dataset.timeframe)
+  if (datasetTimeframe && datasetTimeframe !== timeframe) {
+    throw new Error(`dataset ${dataset.datasetId} timeframe ${datasetTimeframe} does not match split timeframe ${timeframe}`)
+  }
+  const db = new Database(dbPath, { readonly: true })
+  try {
+    const candles = readOhlcvCandles(db, {
+      exchange: dataset.exchange,
+      symbol,
+      timeframe,
+      since_ts: dataset.sinceTs,
+      until_ts: dataset.untilTs,
+      limit: dataset.limit,
+    })
+    if (candles.length === 0) {
+      throw new Error(`ohlcv store has no candles for ${symbol} ${timeframe}`)
+    }
+    const rows = candles.map(candleToCsvRow)
+    const contentSha256 = createHash("sha256").update([csvHeader(), ...rows.map((row) => row.raw)].join("\n") + "\n").digest("hex")
+    const sourceRef = `ohlcv_store:canonical_candle/${dataset.exchange || "any"}/${symbol}/${timeframe}`
+    return {
+      header: csvHeader(),
+      rows,
+      sourceManifestPath: sourceRef,
+      sourceManifestRef: sourceRef,
+      symbol,
+      sourceManifest: {
+        schema_version: 2,
+        source: { provider: "ohlcv_store", db_path: displayPath(dbPath) },
+        closed_candles_only: true,
+        symbol,
+        requested_symbol: symbol,
+        exchange: dataset.exchange,
+        requested_exchange: dataset.exchange,
+        generated_at: new Date().toISOString(),
+        output_dir: "",
+        manifest_path: sourceRef,
+        columns: csvHeader().split(","),
+        dedupe_key: "timestamp",
+        timeframes: {
+          [timeframe]: {
+            rows: rows.length,
+            first_open_ts: rows[0]?.timestamp || 0,
+            last_open_ts: rows[rows.length - 1]?.timestamp || 0,
+            append_only: true,
+            ascending_ts: true,
+            content_sha256: contentSha256,
+          },
+        },
+      },
+    }
+  } finally {
+    db.close()
+  }
+}
+
+function readOhlcvCandles(
+  db: Database,
+  query: { exchange?: string; symbol: string; timeframe: string; since_ts?: number; until_ts?: number; limit?: number },
+): CanonicalCandleRow[] {
+  const limit = boundedLimit(query.limit, 50_000)
+  try {
+    return db.query(`
+      SELECT open_time, open, high, low, close, volume
+      FROM canonical_candle
+      WHERE ($exchange IS NULL OR exchange = $exchange)
+        AND symbol = $symbol
+        AND timeframe = $timeframe
+        AND ($since_ts IS NULL OR open_time >= $since_ts)
+        AND ($until_ts IS NULL OR open_time <= $until_ts)
+      ORDER BY open_time
+      LIMIT $limit
+    `).all({
+      $exchange: query.exchange || null,
+      $symbol: query.symbol,
+      $timeframe: query.timeframe,
+      $since_ts: query.since_ts ?? null,
+      $until_ts: query.until_ts ?? null,
+      $limit: limit,
+    }) as CanonicalCandleRow[]
+  } catch (error) {
+    if (isMissingCanonicalCandleTable(error)) {
+      throw new Error("ohlcv store schema is missing canonical_candle; initialize market_data_store before running strategy data split")
+    }
+    throw error
+  }
+}
+
+function boundedLimit(value: unknown, fallback: number): number {
+  const parsed = Number(value)
+  if (!Number.isInteger(parsed) || parsed <= 0) return fallback
+  return Math.min(parsed, 1_000_000)
+}
+
+function isMissingCanonicalCandleTable(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error)
+  return message.includes("canonical_candle") && message.includes("no such table")
+}
+
+function candleToCsvRow(candle: CanonicalCandleRow): CsvRow {
+  return {
+    timestamp: candle.open_time,
+    raw: [
+      new Date(candle.open_time).toISOString(),
+      candle.open_time,
+      candle.open,
+      candle.high,
+      candle.low,
+      candle.close,
+      candle.volume ?? "",
+    ].join(","),
+  }
+}
+
+function csvHeader(): string {
+  return "date,timestamp,open,high,low,close,volume"
 }
 
 function readCsvRows(path: string): { header: string; rows: CsvRow[] } {

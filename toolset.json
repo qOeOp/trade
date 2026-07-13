@@ -1636,6 +1636,57 @@
       }
     },
     {
+      "id": "research.strategy-hypothesis-designer",
+      "domain": "research-strategy-development",
+      "intent": [
+        "strategy-hypothesis-design",
+        "rd-designer",
+        "hypothesis-contract",
+        "rd-queue-seed"
+      ],
+      "capability_class": [
+        "A",
+        "E"
+      ],
+      "path": "modules/research-strategy-development/strategy-hypothesis-designer",
+      "purpose": "Render agent-native strategy design prompts, lint structured strategy hypothesis contracts, and project valid designs into RD queue seed items.",
+      "command": {
+        "cwd": "modules/research-strategy-development/strategy-hypothesis-designer",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--action",
+          "render_prompt",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "This is the agent-native strategy design layer before candidate-batch. It never runs replay or writes strategy policy.",
+        "Use --action validate for contract lint and --action queue_item to produce a next_hypothesis_queue seed."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "research.strategy-hypothesis-designer",
+      "requires_preflight": false,
+      "concurrency_group": "research-design",
+      "forbidden_callers": [
+        "execution",
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "modules/research-strategy-development/strategy-hypothesis-designer/src/schemas/strategy-hypothesis-contract.schema.json",
+        "output_schema": ""
+      }
+    },
+    {
       "id": "research.rd-program-state",
       "domain": "research-strategy-development",
       "intent": [

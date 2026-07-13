@@ -1,3 +1,4 @@
+import { factorConditionsToJson, passesFactorConditions, readFactorConditions, type FactorCondition, type FactorFeatureStore } from "../factor-engine"
 import type { Candle, ReplaySignal, ReplayStrategy } from "../../../../replay-engine/src/lib/replay-core"
 import { trailingFundingAverage } from "../../../../replay-engine/src/lib/funding-events"
 import type { RndFamilyModule } from "../rnd-family"
@@ -12,13 +13,14 @@ interface Params {
   rewardRisk: number
   breakEvenAfterR: number
   breakEvenOffsetR: number
+  factorConditions: FactorCondition[]
 }
 
 const family: RndFamilyModule = {
   id: "funding_carry_v1",
-  configure(strategyId, raw) {
+  configure(strategyId, raw, store) {
     const params = normalize(raw)
-    return { strategy: strategy(strategyId, params), rewardRisk: params.rewardRisk, params: json(params) }
+    return { strategy: strategy(strategyId, params, store), rewardRisk: params.rewardRisk, params: json(params) }
   },
 }
 
@@ -32,6 +34,7 @@ function normalize(raw: JSONRecord): Params {
     rewardRisk: readPositiveNumber(raw.reward_risk, 1.5),
     breakEvenAfterR: readNonNegativeNumber(raw.break_even_after_r, 0),
     breakEvenOffsetR: readNonNegativeNumber(raw.break_even_offset_r, 0),
+    factorConditions: readFactorConditions(raw.factor_conditions),
   }
 }
 
@@ -45,15 +48,18 @@ function json(params: Params): JSONRecord {
     reward_risk: params.rewardRisk,
     break_even_after_r: params.breakEvenAfterR,
     break_even_offset_r: params.breakEvenOffsetR,
+    factor_conditions: factorConditionsToJson(params.factorConditions),
   }
 }
 
-function strategy(id: string, params: Params): ReplayStrategy {
+function strategy(id: string, params: Params, store: FactorFeatureStore): ReplayStrategy {
   return {
     strategy_id: id,
     default_timeframe: "4h",
     warmup_bars: 200,
     generateSignal({ candles, indicators, index, entryIndex, entryPrice, options }) {
+      const candle = candles[index]
+      if (!passesFactorConditions(params.factorConditions, store, options.timeframe || "4h", candle.date)) return null
       const funding = trailingFundingAverage(options.fundingEvents || [], candles[index].timestamp, params.fundingLookbackEvents)
       if (!funding) return null
       const avgFundingRate = funding.average

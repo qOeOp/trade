@@ -636,6 +636,8 @@ runtime health 与 notify 不再作为普通 job 编号出现：前者是 contro
 
 `rd_strategy_supervisor` 和 `rd_forward_shadow_trackers` 必须分开：前者负责提出新 hypothesis、消费失败经验、控制搜索预算；后者只接着观察已冻结候选或 paper/shadow 样本。前者可以产出 gated draft strategy，后者只能产出 review 输入。两者都不能把研究事实写进 `trade.db`，也不能触发 Binance。
 
+R&D 失败后的下一步不是“panel 精炼”或“给旧候选外挂过滤器”。若 panel 暴露 cost / catastrophic / breadth / OOS 问题，下一轮必须预声明新的 strategy hypothesis；其中 market-state filters、asset selection、holding / exit rules、risk geometry、cost / funding assumptions 都属于候选策略定义本身，不能作为事后排除规则复用同一失败候选。
+
 R&D 内部允许再 fan-out read-only scout subagent，但只作为旁路输入：`rd-history-scout` 查历史失败与禁试机制，`rd-data-scout` 查 manifest / split / family 约束，`rd-edge-scout` 草拟不同 market edge。三者都不能写 `rd_program_state`、不能消耗 trial budget、不能打开 holdout；只有 `research.rd-supervisor` 通过显式 state writer 边界推进 R&D state，负责把 scout proposal 编译成显式 `next_hypothesis_queue` 后再执行。
 
 `rd_strategy_supervisor` 的 durable memory 是 `research_state_store.rd_program`。`--automation-cycle` 通过 `rd_state_db + rd_program_id` 定位 state，以 objective / budget / usage / lessons / queue 作为研发线事实源，并把 `research_state_store:rd_program/<id>` 作为 learning memory ref；state 非 `active` 时，即使 cadence due 或被 force，也不继续派发研发 loop。临时 `rd_strategy_goal` 只用于尚未建立 state 的启动引导。

@@ -36,6 +36,32 @@ test("panel R&D pools samples but keeps per-asset evidence", () => {
   }
 })
 
+test("panel R&D failure requests a new strategy hypothesis instead of post-hoc refinement", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-panel-rnd-hypothesis-request-"))
+  try {
+    const manifestPath = writeManifest(dir)
+    const report = runStrategyPanelRnd({
+      panelId: "panel-hypothesis-request",
+      datasets: ["BTC", "ETH", "SOL"].map((datasetId) => ({ datasetId, manifestPath })),
+      candidates: [{ candidateId: "PANEL-LONG", params: { side: "long" } }],
+    }) as Record<string, unknown>
+    assert.equal(report.outcome, "no_promote")
+    assert.equal(report.accepted_count, 0)
+    const failureSummary = asRecord(report.failure_summary)
+    assert.equal(failureSummary.primary_failure_area, "strategy_hypothesis_risk_design")
+    assert.match(String(asArray(failureSummary.next_system_actions)[0]), /candidate strategy definition/)
+    const request = asRecord(report.next_strategy_hypothesis_request)
+    assert.equal(request.requested_surface, "panel_strategy_hypothesis")
+    assert.equal(request.framing, "filters_asset_selection_and_risk_rules_are_strategy_components")
+    assert.ok(asArray(request.required_candidate_components).includes("market_state_filters"))
+    assert.ok(asArray(request.required_candidate_components).includes("asset_selection_rule"))
+    assert.ok(asArray(request.required_candidate_components).includes("risk_geometry"))
+    assert.ok(asArray(request.prohibited_framing).includes("posthoc_filter_patch"))
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("panel R&D result schema matches shallow report shell", () => {
   const schema = JSON.parse(readFileSync(new URL("../schemas/strategy-panel-rnd-result.schema.json", import.meta.url), "utf8")) as Record<string, unknown>
   assert.equal(schema.$id, "trade-flow.strategy-panel-rnd-result.v1")
@@ -354,6 +380,10 @@ test("panel parser ignores camel-case contract fields", () => {
 
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : []
+}
+
+function asRecord(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
 function writeManifest(dir: string): string {

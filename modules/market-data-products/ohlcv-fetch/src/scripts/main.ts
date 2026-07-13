@@ -3,8 +3,7 @@
 import Binance, { type BinanceRest } from "binance-api-node"
 import { Database } from "bun:sqlite"
 import { createHash } from "node:crypto"
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs"
-import { tmpdir } from "node:os"
+import { mkdirSync, writeFileSync } from "node:fs"
 import { dirname, join, relative, resolve } from "node:path"
 import { nowIsoUTC } from "../../../../contracts/runtime-core/src/time"
 import {
@@ -49,7 +48,7 @@ interface Candle {
 }
 
 interface TimeframeEntry {
-  file: string
+  file?: string
   limit: number
   requested_since_ts: number
   first_open_ts: number
@@ -69,8 +68,8 @@ interface FetchResponse {
   exchange: string
   requested_exchange: string
   generated_at: string
-  output_dir: string
-  manifest_path: string
+  output_dir?: string
+  manifest_path?: string
   columns: string[]
   dedupe_key: string
   requested_since_ts?: number
@@ -128,6 +127,7 @@ Key flags:
   --since-ts <ms>               Optional inclusive start timestamp in ms
   --market-data-db <path>       market_data_store DB for manifests. Default: data/market_data.db
   --ohlcv-db <path>             ohlcv_store DB for canonical candles. Default: data/ohlcv.db
+  --export-files                Export CSV + manifest files. Implied by --output-dir.
   --help                        Show this help
 `
 
@@ -161,7 +161,7 @@ export async function run(
       throw new Error("no timeframes to fetch")
     }
 
-    const outputPaths = resolveOutputPaths(config.outputDir)
+    const outputPaths = config.outputDir ? resolveOutputPaths(config.outputDir) : null
     const candleSets = await fetchAllTimeframes(client, fetchCfg, config)
 
     const response: FetchResponse = {
@@ -173,11 +173,13 @@ export async function run(
       exchange: fetchCfg.exchangeID,
       requested_exchange: config.exchange,
       generated_at: nowIsoUTC(),
-      output_dir: outputPaths.manifestDir,
-      manifest_path: join(outputPaths.manifestDir, "manifest.json"),
       columns: ["date", "timestamp", "open", "high", "low", "close", "volume"],
       dedupe_key: "timestamp",
       timeframes: {},
+    }
+    if (outputPaths) {
+      response.output_dir = outputPaths.manifestDir
+      response.manifest_path = join(outputPaths.manifestDir, "manifest.json")
     }
     if (config.sinceTS > 0) {
       response.requested_since_ts = config.sinceTS
@@ -185,9 +187,7 @@ export async function run(
 
     for (const timeframe of config.timeframes) {
       const set = candleSets[timeframe]
-      const fileName = `${timeframe}.csv`
       const entry: TimeframeEntry = {
-        file: fileName,
         limit: set.limit,
         requested_since_ts: set.requested_since_ts,
         rows: set.candles.length,
@@ -197,14 +197,19 @@ export async function run(
         ascending_ts: true,
         content_sha256: candleContentHash(set.candles),
       }
-      writeCandlesCSV(join(outputPaths.fsDir, fileName), set.candles)
+      if (outputPaths) {
+        const fileName = `${timeframe}.csv`
+        entry.file = fileName
+        writeCandlesCSV(join(outputPaths.fsDir, fileName), set.candles)
+      }
       response.timeframes[timeframe] = entry
     }
 
-    writeFileSync(join(outputPaths.fsDir, "manifest.json"), `${JSON.stringify(response, null, 2)}\n`)
     const storeWrite = recordMarketDataStoreIfEnabled(config, fetchCfg, response, candleSets)
     if (storeWrite) {
       response.market_data_store = storeWrite
+    }
+    if (outputPaths) {
       writeFileSync(join(outputPaths.fsDir, "manifest.json"), `${JSON.stringify(response, null, 2)}\n`)
     }
     return { ok: true, data: response }
@@ -242,6 +247,11 @@ export function parseArgs(argv: string[]): Config {
         break
       case "--output-dir":
         config.outputDir = readFlagValue(argv, ++i, arg)
+        break
+      case "--export-files":
+        if (!config.outputDir) {
+          throw new Error("--export-files requires --output-dir")
+        }
         break
       case "--limit": {
         const value = Number(readFlagValue(argv, ++i, arg))
@@ -350,7 +360,7 @@ function buildStoreManifest(
     last_ts: entry.last_open_ts,
     rows: entry.rows,
     content_hash: entry.content_sha256,
-    manifest_path: response.manifest_path,
+    manifest_path: response.manifest_path || logicalOhlcvManifestRef(fetchCfg, timeframe, entry),
     created_at: response.generated_at,
     freshness_json: {
       closed_candles_only: response.closed_candles_only,
@@ -358,8 +368,17 @@ function buildStoreManifest(
       ascending_ts: entry.ascending_ts,
       display_symbol: response.symbol,
       requested_symbol: response.requested_symbol,
+      store_ref: logicalOhlcvSeriesRef(fetchCfg, timeframe),
     },
   }
+}
+
+function logicalOhlcvManifestRef(fetchCfg: FetchConfig, timeframe: string, entry: TimeframeEntry): string {
+  return `${logicalOhlcvSeriesRef(fetchCfg, timeframe)}/manifest/${entry.content_sha256.slice(0, 16)}`
+}
+
+function logicalOhlcvSeriesRef(fetchCfg: FetchConfig, timeframe: string): string {
+  return `ohlcv_store:canonical_candle/${fetchCfg.exchangeID}/${fetchCfg.symbol.api}/${timeframe}`
 }
 
 function buildStoreCandles(
@@ -598,8 +617,7 @@ interface RawCandle {
 function resolveOutputPaths(raw: string): OutputPaths {
   const trimmed = raw.trim()
   if (!trimmed) {
-    const tempDir = mkdtempSync(join(tmpdir(), "ohlcv-fetch-"))
-    return { fsDir: tempDir, manifestDir: displayPath(tempDir) }
+    throw new Error("output directory is required for OHLCV file export")
   }
   const expanded = trimmed.replace(/\$([A-Z_][A-Z0-9_]*)/gi, (_, name: string) => process.env[name] ?? "")
   const fsDir = resolve(expanded)

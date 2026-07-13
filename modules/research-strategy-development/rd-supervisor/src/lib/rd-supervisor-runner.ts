@@ -19,6 +19,13 @@ import {
   strategyRndCampaignInputFromJson,
   strategyRndLoopInputFromJson,
 } from "../../../candidate-batch-engine/src/lib/strategy-rnd-inputs"
+import {
+  SOURCE_SCHEMA_VERSION,
+  lintStrategyPolicyShape,
+  renderStrategyPolicyMarkdown,
+  strategyPolicySlug,
+  type StrategyPolicySource,
+} from "../../../strategy-policy-writer/src/lib/strategy-policy-writer"
 import type { JSONRecord } from "../../../../contracts/runtime-core/src/json"
 
 interface RdSupervisorRunInput {
@@ -229,12 +236,17 @@ function draftStrategyFromValidatedCandidate(path: string, catalogDbPath: string
   if (!candidateID || !family) {
     return undefined
   }
-  const slug = safeID(candidateID)
+  const slug = strategyPolicySlug(candidateID)
   const strategyPath = resolveRepoPath(join(strategyRoot, `s-${slug}.md`))
   const strategyRef = displayPath(strategyPath)
   if (!existsSync(strategyPath)) {
+    const markdown = renderStrategyPolicyMarkdown(strategyPolicySourceFromState(state, candidate, strategyRef, now))
+    const shape = lintStrategyPolicyShape(markdown)
+    if (!shape.valid) {
+      throw new Error(`strategy policy shape failed lint: ${shape.errors.join("; ")}`)
+    }
     mkdirSync(dirname(strategyPath), { recursive: true })
-    writeFileSync(strategyPath, buildDraftStrategyMarkdown(state, candidate, strategyRef, now))
+    writeFileSync(strategyPath, markdown)
   }
   const lint = lintStrategyContract(strategyPath)
   if (!lint.valid) {
@@ -256,111 +268,24 @@ function draftStrategyFromValidatedCandidate(path: string, catalogDbPath: string
   return strategyRef
 }
 
-function buildDraftStrategyMarkdown(state: RdProgramState, candidate: JSONRecord, strategyRef: string, now: string): string {
-  const candidateID = stringField(candidate.candidate_id)
-  const family = stringField(candidate.family)
+function strategyPolicySourceFromState(state: RdProgramState, candidate: JSONRecord, strategyRef: string, now: string): StrategyPolicySource {
   const params = asRecord(candidate.params)
-  const slug = safeID(candidateID)
-  const strategyID = `S-${slug.toUpperCase()}`
-  const setupID = slug
-  const candidateParams = Object.entries(params)
-    .filter(([key, value]) => !riskParamKeys().has(key) && yamlScalarOrArray(value))
-  const risk = {
-    stop_atr: numberOrDefault(params.stop_atr, 1),
-    max_risk_atr: numberOrDefault(params.max_risk_atr, 2),
-    reward_risk: numberOrDefault(params.reward_risk, 2),
-    max_hold_bars: numberOrDefault(params.max_hold_bars, 18),
+  return {
+    schema_version: SOURCE_SCHEMA_VERSION,
+    program_id: state.program_id,
+    objective: state.objective,
+    drafted_at: now,
+    strategy_ref: strategyRef,
+    evidence_refs: state.artifact_refs,
+    candidate: {
+      candidate_id: stringField(candidate.candidate_id),
+      family: stringField(candidate.family),
+      ...(Number.isFinite(Number(candidate.parameter_count)) ? { parameter_count: Number(candidate.parameter_count) } : {}),
+      ...(stringField(candidate.timeframe) ? { timeframe: stringField(candidate.timeframe) } : {}),
+      ...(stringField(candidate.validation_run_ref) ? { validation_run_ref: stringField(candidate.validation_run_ref) } : {}),
+      params,
+    },
   }
-  const optionalRisk = ["break_even_after_r", "break_even_offset_r"]
-    .filter((key) => Number.isFinite(Number(params[key])))
-    .map((key) => `  ${key}: ${Number(params[key])}`)
-  return `---
-strategy_id: ${strategyID}
-contract_schema_version: 1
-name: ${titleFromSlug(slug)}
-status: draft
-tags: [rd, draft, 4h, swing]
----
-
-# ${titleFromSlug(slug)}
-
-Auto-drafted by the R&D supervisor after a validated candidate was found. This file is a draft strategy policy only; it is not promotion evidence and does not authorize shadow or live-small.
-
-Research refs:
-
-- Program: ${state.program_id}
-- Objective: ${state.objective}
-- Candidate: ${candidateID}
-- Family: ${family}
-- Validation run: ${stringField(candidate.validation_run_ref) || "not recorded"}
-- Drafted at: ${now}
-
-## Trade Contract
-
-\`\`\`yaml
-setup_id: ${setupID}
-engine: rnd_family_v1
-hypothesis: ${state.objective}
-timeframe: 4h
-family: ${family}
-candidate:
-${candidateParams.length > 0 ? candidateParams.map(([key, value]) => `  ${key}: ${yamlValue(value)}`).join("\n") : "  side: long"}
-risk:
-  stop_atr: ${risk.stop_atr}
-  max_risk_atr: ${risk.max_risk_atr}
-  reward_risk: ${risk.reward_risk}
-  max_hold_bars: ${risk.max_hold_bars}
-${optionalRisk.length > 0 ? `${optionalRisk.join("\n")}\n` : ""}cost_model:
-  fee_bps: 2
-  slippage_bps: 1
-  adverse_funding_bps_per_8h: 0
-universe:
-  source: rd_supervisor_validated_candidate
-execution:
-  entry_rule: generated from rnd_family_v1 closed-candle signal; enter next open or equivalent executable quote only.
-  stop_rule: generated from contract risk parameters.
-  target_rule: generated from fixed reward_risk.
-  no_trade_conditions: stale closed 4H data, missing required supplemental data, unresolved existing lane exposure, abnormal funding or spread, or setup not causally available before entry.
-proof:
-  evidence_ref: ${stringField(candidate.validation_run_ref) || strategyRef}
-  live_permission: draft_only
-  next_required_proof: append replay evidence and run strategy-review before any shadow promotion.
-\`\`\`
-`
-}
-
-function riskParamKeys(): Set<string> {
-  return new Set(["stop_atr", "max_risk_atr", "reward_risk", "max_hold_bars", "break_even_after_r", "break_even_offset_r"])
-}
-
-function yamlScalarOrArray(value: unknown): boolean {
-  return typeof value === "string"
-    || typeof value === "number"
-    || typeof value === "boolean"
-    || (Array.isArray(value) && value.every((item) => typeof item === "string" || typeof item === "number" || typeof item === "boolean"))
-}
-
-function yamlValue(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(yamlValue).join(", ")}]`
-  if (typeof value === "number" || typeof value === "boolean") return String(value)
-  return String(value).replace(/[:\n\r]/g, " ").trim() || "null"
-}
-
-function numberOrDefault(value: unknown, fallback: number): number {
-  const number = Number(value)
-  return Number.isFinite(number) ? number : fallback
-}
-
-function titleFromSlug(slug: string): string {
-  return slug.split("-").filter(Boolean).map((part) => part.slice(0, 1).toUpperCase() + part.slice(1)).join(" ")
-}
-
-function safeID(value: string): string {
-  return safeFileName(value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "")) || "rd-strategy"
-}
-
-function safeFileName(value: string): string {
-  return value.replace(/[^a-zA-Z0-9._-]/g, "-")
 }
 
 function asRecord(value: unknown): JSONRecord {

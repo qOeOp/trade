@@ -161,6 +161,7 @@ function isAllowedResearchStrategyDevelopmentImport(sourceTool: string, targetTo
     "modules/research-strategy-development/rd-supervisor -> modules/research-strategy-development/rd-campaign-runner",
     "modules/research-strategy-development/rd-supervisor -> modules/research-strategy-development/rd-loop-runner",
     "modules/research-strategy-development/rd-supervisor -> modules/research-strategy-development/rd-program-state",
+    "modules/research-strategy-development/rd-supervisor -> modules/research-strategy-development/strategy-policy-writer",
     "modules/research-strategy-development/replay-runner -> modules/research-strategy-development/replay-engine",
     "modules/research-strategy-development/signal-engine -> modules/research-strategy-development/replay-engine",
     "modules/research-strategy-development/signal-engine -> modules/research-strategy-development/strategy-family-engine",

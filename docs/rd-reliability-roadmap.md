@@ -50,7 +50,9 @@ title: R&D Reliability Roadmap
 - 当前：learning memory 已进入 `research_state_store.rd_program`；总控通过 `rd_state_db + rd_program_id` 读取 objective / budget / usage / lessons / queue，并在 state 非 `active` 时停止 R&D supervisor。
 - 当前：`research.rd-program-state` 可 init/read/update；`research.rd-loop-runner` / `research.rd-campaign-runner` 可显式写回 usage、failure、reliability 与 artifact refs；`strategy-review` 产出 execution attribution、cost feedback 与 replay-to-shadow/live decay 诊断，由 R&D supervisor 显式消费，不直接写 state。
 - 当前：`research.rd-program-state action=plan_next` 可只读消费 `next_hypothesis_queue`，生成下一轮 `research.rd-loop-runner` / `research.rd-campaign-runner` payload 草案；`research.rd-supervisor` 已把 plan、执行、写回、再规划串成自主 loop。
-- 下一块：从 failure / review feedback 自动生成更受约束的 `next_hypothesis_queue`，减少人工补 hypothesis。
+- 当前：panel / loop 失败后不得表述为“panel 精炼”或“外部过滤器补丁”；市场状态过滤、资产选择、持仓规则、风控几何和成本约束都必须作为下一代 candidate strategy hypothesis 的预声明组成部分。
+- 当前：新增 `research.strategy-hypothesis-designer`，把 agent-native 策略设计脑放在 candidate batch 前：先生成 `trade-flow.strategy-hypothesis-contract.v1`，再 validate / queue seed；缺数据、缺 family 或缺参数时阻断，不消耗 trial。
+- 下一块：让 R&D supervisor 自动调用 designer prompt，把 failure / review feedback 编译成更受约束的 `next_hypothesis_queue`；生成内容必须是新策略假说，不是对已失败候选做事后排除。
 - 完成信号：pipeline 能在预算内自主连续迭代 hypothesis，同时自动拒绝在未校准环境下扩大 trial budget。
 
 ## 7. Evidence 层

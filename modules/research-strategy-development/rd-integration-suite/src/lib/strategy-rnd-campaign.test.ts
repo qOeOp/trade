@@ -141,7 +141,7 @@ test("strategy R&D campaign stops with zero trials when thesis certificate is mi
   }
 })
 
-test("strategy R&D campaign orchestrates discovery then locked validation", () => {
+test("strategy R&D campaign orchestrates discovery then external validation", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-campaign-orchestration-"))
   try {
     const discovery = writeManifest(join(dir, "discovery"), 1_000_000, 2_000_000)
@@ -176,7 +176,7 @@ test("strategy R&D campaign orchestrates discovery then locked validation", () =
             },
           }
         }
-        assert.equal(input.antiOverfitStage, "locked_holdout")
+        assert.equal(input.antiOverfitStage, "external_validation")
         assert.equal(input.searchTrialCount, 1)
         assert.deepEqual(input.parameterStability, { method: "fixture" })
         return {
@@ -214,11 +214,13 @@ test("strategy R&D campaign orchestrates discovery then locked validation", () =
     assert.deepEqual(calls, ["campaign-fixture-h1-discovery", "campaign-fixture-h1-validation"])
     assert.equal(report.stop_reason, "validated_candidate_found")
     assert.equal(report.outcome, "validated_candidate_found")
-    assert.equal(report.holdout_evaluations, 1)
+    assert.equal(report.validation_evaluations, 1)
+    assert.equal(report.holdout_evaluations, 0)
     assert.equal(report.validated_candidate?.candidate_id, "candidate-1-external-validation")
     assert.deepEqual(report.runs[0].discovery_failure_summary, { primary_failure_area: "none" })
     assert.deepEqual(report.runs[0].discovery_reliability_gate, { status: "candidate_ready" })
     assert.equal(existsSync(resolveRepoPath(report.artifact_ref)), true)
+    assert.equal(existsSync(resolveRepoPath(report.dossier_ref)), true)
     const artifact = JSON.parse(readFileSync(resolveRepoPath(report.artifact_ref), "utf8")) as { campaign_id: string }
     assert.equal(artifact.campaign_id, "campaign-fixture")
   } finally {

@@ -302,6 +302,50 @@ test("funding carry family uses exact funding events with correct short carry di
   }
 })
 
+test("funding carry family treats factor filters as strategy hypothesis components", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-funding-carry-filter-"))
+  try {
+    const start = 1_700_000_000_000
+    const manifestPath = writeManifest(dir, start)
+    const indicatorReportPath = writeFundingEventsReportWithFeature(dir, start, start + 280 * 4 * 60 * 60 * 1000, 0.0002, -1)
+    const report = runStrategyRndBatch({
+      manifestPath,
+      indicatorReportPath,
+      timeframe: "4h",
+      maxHoldBars: 8,
+      fundingBpsPer8h: 0,
+      candidates: [{
+        candidateId: "C-FUNDING-CARRY-FILTERED",
+        family: "funding_carry_v1",
+        parameterCount: 7,
+        params: {
+          side: "short",
+          funding_lookback_events: 3,
+          min_abs_funding_rate: 0.0001,
+          stop_atr: 1,
+          max_risk_atr: 3,
+          reward_risk: 1.5,
+          factor_conditions: [{
+            factor_id: "vpci.value",
+            role: "filter",
+            transform: "level",
+            lookback: 1,
+            op: "gt",
+            value: 0,
+          }],
+        },
+      }],
+    })
+
+    const candidate = report.candidates[0]
+    const factorConditions = asArray(candidate.params.factor_conditions).map(asRecord)
+    assert.equal(factorConditions[0].factor_id, "vpci.value")
+    assert.equal(candidate.replay.sample_count, 0)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("relative weakness momentum family consumes benchmark data causally", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-relative-weakness-"))
   try {
@@ -932,6 +976,36 @@ function writeFundingEventsReport(dir: string, firstTimestamp: number, lastTimes
   return path
 }
 
+function writeFundingEventsReportWithFeature(dir: string, firstTimestamp: number, lastTimestamp: number, fundingValue: number, factorValue: number): string {
+  const events = []
+  for (let timestamp = firstTimestamp; timestamp <= lastTimestamp; timestamp += 8 * 60 * 60 * 1000) {
+    events.push({ timestamp: new Date(timestamp).toISOString(), value: fundingValue })
+  }
+  const path = join(dir, "market-features-with-factor.json")
+  writeFileSync(path, JSON.stringify({
+    data: {
+      market_events: { funding: events },
+      timeframes: {
+        "4h": {
+          features: {
+            "vpci.value": {
+              status: "ok",
+              factor_id: "vpci.value",
+              source_indicator: "vpci",
+              output: "value",
+              category: "volume",
+              roles: ["confirmation", "filter"],
+              allowed_transforms: ["level"],
+              values: buildFeaturePoints(280, factorValue),
+            },
+          },
+        },
+      },
+    },
+  }))
+  return path
+}
+
 function thesisCertificate() {
   return {
     edgeType: "structural trend continuation",
@@ -1054,6 +1128,10 @@ function buildReplayCandles(): Array<{ open: number; high: number; low: number; 
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}
+}
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : []
 }
 
 function rdProgramRef(programId: string): string {

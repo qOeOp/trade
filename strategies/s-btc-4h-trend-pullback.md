@@ -72,6 +72,13 @@ execution:
   stop_rule: stop beyond structure invalidation plus 0.25-0.5 * 4H ATR buffer; invalidation must be visible before sizing.
   target_rule: structure-first ladder with minimum expected RR_net 2.0.
   no_trade_conditions: mid-range price, 1D/4H conflict, stale observe, extreme funding against the trade, spread abnormal, RR < 2, or no nearby structural invalidation.
+lifecycle:
+  signal_rule: manual 1D/4H regime plus 4H pullback location and 1H confirmation.
+  entry_builder: build LIMIT or STOP_LIMIT entry only from a fresh observe with explicit structure stop.
+  protection_builder: initial stop beyond structure invalidation plus ATR buffer; targets require RR_net >= 2.
+  position_update_rule: hold, reduce, or exit only from fresh observe and current flow projection.
+  exit_rule: protective stop, structure invalidation, target ladder, stale thesis, or max_hold_bars timeout.
+  review_attribution: compare observed entry location, stop distance, funding, and R-multiple against this contract.
 proof:
   evidence_ref: draft only; requires replay plus shadow before live-small.
   blocked_by: mechanical replay has negative expectancy across current tests.

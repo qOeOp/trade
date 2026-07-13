@@ -174,6 +174,8 @@ function runStrategyPanelRnd(input: StrategyPanelRndInput): JSONRecord {
       candidate.gate.accepted = false
     }
   })
+  const acceptedCount = candidates.filter((candidate) => candidate.gate.accepted).length
+  const failureSummary = input.diagnosticMode || acceptedCount > 0 ? null : panelFailureSummary(candidates)
   return {
     panel_id: input.panelId || "strategy-panel-rnd",
     hypothesis: input.hypothesis || "",
@@ -182,8 +184,78 @@ function runStrategyPanelRnd(input: StrategyPanelRndInput): JSONRecord {
     selected_dataset_count: universeSelection.selectedDatasets.length,
     universe_selection: universeSelection.report,
     trial_count: input.candidates.length,
-    outcome: input.diagnosticMode ? "diagnostic_only" : candidates.some((candidate) => candidate.gate.accepted) ? "candidate_found" : "no_promote",
+    accepted_count: acceptedCount,
+    outcome: input.diagnosticMode ? "diagnostic_only" : acceptedCount > 0 ? "candidate_found" : "no_promote",
+    failure_summary: failureSummary,
+    next_strategy_hypothesis_request: failureSummary ? nextStrategyHypothesisRequest(input, candidates, failureSummary) : null,
     candidates,
+  }
+}
+
+function panelFailureSummary(candidates: PanelCandidateReport[]): JSONRecord {
+  const blockerCounts = new Map<string, number>()
+  for (const candidate of candidates) {
+    for (const blocker of candidate.gate.blocked_by) {
+      blockerCounts.set(blocker.check_id, (blockerCounts.get(blocker.check_id) || 0) + 1)
+    }
+  }
+  const topBlockers = Array.from(blockerCounts.entries())
+    .sort((left, right) => right[1] - left[1] || left[0].localeCompare(right[0]))
+    .map(([checkId, count]) => ({ check_id: checkId, count }))
+  return {
+    primary_failure_area: panelPrimaryFailureArea(topBlockers.map((item) => item.check_id)),
+    rejected_candidate_count: candidates.filter((candidate) => !candidate.gate.accepted).length,
+    accepted_candidate_count: candidates.filter((candidate) => candidate.gate.accepted).length,
+    top_blockers: topBlockers,
+    next_system_actions: [
+      "Design a new predeclared strategy hypothesis from the panel evidence; market-state filters, asset selection, holding rules, and risk geometry must be part of the candidate strategy definition, not post-hoc panel refinement.",
+    ],
+  }
+}
+
+function panelPrimaryFailureArea(blockerIds: string[]): string {
+  const ids = new Set(blockerIds)
+  if (ids.has("PANEL-CATASTROPHIC") || ids.has("PANEL-COST")) return "strategy_hypothesis_risk_design"
+  if (ids.has("PANEL-BREADTH") || ids.has("PANEL-OOS")) return "strategy_hypothesis_edge_design"
+  if (ids.has("PANEL-ASSET-SHUFFLE") || ids.has("PANEL-NEGATIVE-CONTROL")) return "negative_control"
+  if (ids.has("PANEL-SAMPLES")) return "sample_efficiency"
+  return "panel_strategy_hypothesis_design"
+}
+
+function nextStrategyHypothesisRequest(input: StrategyPanelRndInput, candidates: PanelCandidateReport[], failureSummary: JSONRecord): JSONRecord {
+  return {
+    schema_version: "trade-flow.next-strategy-hypothesis-request.v1",
+    source: "panel_evaluator",
+    panel_id: input.panelId || "strategy-panel-rnd",
+    requested_surface: "panel_strategy_hypothesis",
+    framing: "filters_asset_selection_and_risk_rules_are_strategy_components",
+    prohibited_framing: ["panel_refinement", "posthoc_filter_patch", "reuse_failed_candidate_with_exclusions_only"],
+    required_candidate_components: [
+      "return_driver",
+      "entry_conditions",
+      "market_state_filters",
+      "asset_selection_rule",
+      "holding_and_exit_rules",
+      "risk_geometry",
+      "cost_and_funding_assumptions",
+      "negative_controls",
+    ],
+    evidence_inputs: {
+      failure_summary: failureSummary,
+      candidate_evidence: candidates.map((candidate) => ({
+        candidate_id: candidate.candidate_id,
+        family: candidate.family,
+        pooled: candidate.pooled,
+        blockers: candidate.gate.blocked_by.map((blocker) => blocker.check_id),
+        catastrophic_assets: candidate.catastrophic_assets.map((asset) => ({
+          dataset_id: asset.dataset_id,
+          symbol: asset.symbol,
+          total_r: asset.total_r,
+          max_drawdown_r: asset.max_drawdown_r,
+          reasons: asset.reasons,
+        })),
+      })),
+    },
   }
 }
 

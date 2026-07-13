@@ -115,6 +115,7 @@ function updateInputFromCampaignReport(state: RdProgramState, report: JSONRecord
     followupHypotheses: foundCandidate ? [] : followupHypothesesFromCampaign(state, report, completedHypothesisIds, failureSummary),
     artifactRefs: [
       stringField(report.artifact_ref),
+      stringField(report.dossier_ref),
       ...array(report.runs).map(asRecord).flatMap((run) => [
         stringField(run.discovery_run_ref),
         stringField(run.validation_run_ref),
@@ -200,8 +201,8 @@ function followupHypothesesFromCampaign(state: RdProgramState, report: JSONRecor
   const source = sourceHypothesis(state, completedIds)
   if (!source) return []
   const stopReason = stringField(report.stop_reason)
-  if (stopReason === "locked_holdout_failed") {
-    return [learningFollowup(state, source, "fresh-holdout", "Reject the frozen mechanism; test a distinct mechanism on discovery data before any new locked holdout.", {
+  if (stopReason === "external_validation_failed" || stopReason === "locked_holdout_failed") {
+    return [learningFollowup(state, source, stopReason === "locked_holdout_failed" ? "fresh-holdout" : "fresh-external-validation", "Reject the frozen mechanism; test a distinct mechanism on discovery data before spending more validation budget.", {
       source: "strategy_rnd_campaign",
       previous_stop_reason: stopReason,
       mode: "loop",
@@ -259,6 +260,10 @@ function diagnosticFollowupsFromFailure(state: RdProgramState, source: JSONRecor
   const actions = array(asRecord(failureSummary).next_system_actions).map(String).filter(Boolean)
   const blockers = array(asRecord(failureSummary).top_blockers).map(asRecord)
   const action = actions[0] || blockerAction(blockers[0]) || "Open a constrained diagnostic hypothesis from the latest failed mechanism."
+  const factoryFollowup = hypothesisFactoryFollowup(state, source, failureSummary, failureSource, action)
+  if (factoryFollowup) {
+    return [factoryFollowup]
+  }
   if (requiresDifferentMechanism(action)) {
     return [blockedFollowup(state, source, failureSourceId(blockers[0], failureSource), action, failureSummary, failureSource, {
       blockedReason: "previous result rejected this setup mechanism; provide a distinct predeclared market edge before consuming more trial budget",
@@ -279,8 +284,9 @@ function diagnosticFollowupsFromFailure(state: RdProgramState, source: JSONRecor
   }
   if (requiresDifferentResearchSurface(action)) {
     return [blockedFollowup(state, source, failureSourceId(blockers[0], failureSource), action, failureSummary, failureSource, {
-      blockedReason: "previous result requires a different research surface before consuming more single-asset loop budget",
-      requiredNextStep: "move_to_panel_or_expand_independent_validation",
+      blockedReason: "previous result requires a newly predeclared panel strategy hypothesis; filters, asset selection, holding rules, and risk geometry must be candidate strategy components, not post-hoc panel refinement",
+      requiredNextStep: "predeclare_panel_strategy_hypothesis",
+      strategyHypothesisRequest: panelStrategyHypothesisRequest(source, failureSummary, action),
     })]
   }
   if (isDiagnosticHypothesis(source)) {
@@ -326,7 +332,7 @@ function blockedFollowup(
   hypothesis: string,
   failureSummary: JSONRecord | null,
   failureSource: string,
-  input: { blockedReason: string; requiredNextStep: string },
+  input: { blockedReason: string; requiredNextStep: string; strategyHypothesisRequest?: JSONRecord },
 ): JSONRecord {
   const predecessorId = hypothesisID(source)
   return compactRecord({
@@ -342,9 +348,179 @@ function blockedFollowup(
       source: failureSource,
       previous_failure_summary: failureSummary || {},
       required_next_step: input.requiredNextStep,
+      strategy_hypothesis_request: input.strategyHypothesisRequest,
     },
+    strategy_hypothesis_request: input.strategyHypothesisRequest,
     previous_failure_summary: failureSummary || {},
   })
+}
+
+function panelStrategyHypothesisRequest(source: JSONRecord, failureSummary: JSONRecord | null, action: string): JSONRecord {
+  return {
+    schema_version: "trade-flow.next-strategy-hypothesis-request.v1",
+    source: "rd_program_learning",
+    predecessor_hypothesis_id: hypothesisID(source),
+    requested_surface: "panel_strategy_hypothesis",
+    reason: action,
+    framing: "filters_asset_selection_and_risk_rules_are_strategy_components",
+    prohibited_framing: ["panel_refinement", "posthoc_filter_patch", "reuse_failed_candidate_with_exclusions_only"],
+    required_candidate_components: [
+      "return_driver",
+      "entry_conditions",
+      "market_state_filters",
+      "asset_selection_rule",
+      "holding_and_exit_rules",
+      "risk_geometry",
+      "cost_and_funding_assumptions",
+      "negative_controls",
+    ],
+    evidence_inputs: {
+      predecessor_hypothesis: stringField(source.hypothesis),
+      family: stringField(source.family) || stringField(asRecord(array(source.candidates)[0]).family),
+      failure_summary: failureSummary || {},
+    },
+  }
+}
+
+function hypothesisFactoryFollowup(
+  state: RdProgramState,
+  source: JSONRecord,
+  failureSummary: JSONRecord | null,
+  failureSource: string,
+  action: string,
+): JSONRecord | null {
+  if (!hypothesisFactoryEnabled(source)) return null
+  if (isDiagnosticHypothesis(source)) return null
+  const remainingTrials = state.budget.max_trials_total - state.usage.trials_used
+  if (remainingTrials <= 0) return null
+  const factory = asRecord(source.hypothesis_factory)
+  const trialCount = boundedTrials(factory.trials_per_iteration || source.search_trial_count, remainingTrials)
+  const candidates = factoryCandidatesFromFailure(source, failureSummary, trialCount)
+  if (candidates.length === 0) return null
+  const predecessorId = hypothesisID(source)
+  const suffix = factorySuffix(failureSummary, failureSource)
+  return compactRecord({
+    ...source,
+    hypothesis_id: `${predecessorId}-${suffix}`,
+    predecessor_hypothesis_id: predecessorId,
+    source: "rd_learning_memory",
+    mode: "loop",
+    ready: true,
+    validation_manifest_path: undefined,
+    validation_indicator_report_path: undefined,
+    max_total_trials: undefined,
+    search_trial_count: Math.min(trialCount, candidates.length),
+    hypothesis: factoryHypothesisText(source, failureSummary, action),
+    candidates,
+    generated_from: {
+      program_id: state.program_id,
+      predecessor_hypothesis_id: predecessorId,
+      source: "rd_hypothesis_factory",
+      failure_source: failureSource,
+      previous_failure_summary: failureSummary || {},
+      action,
+    },
+    hypothesis_factory: {
+      ...factory,
+      enabled: true,
+      generation: "failure_adaptive_candidate_revision_v1",
+    },
+  })
+}
+
+function hypothesisFactoryEnabled(source: JSONRecord): boolean {
+  const factory = asRecord(source.hypothesis_factory)
+  return factory.enabled === true || source.autonomous_hypothesis_factory === true
+}
+
+function factoryCandidatesFromFailure(source: JSONRecord, failureSummary: JSONRecord | null, trialCount: number): JSONRecord[] {
+  const candidates = array(source.candidates).map(asRecord)
+  const blockers = array(asRecord(failureSummary).top_blockers).map(asRecord)
+  const primary = stringField(asRecord(failureSummary).primary_failure_area)
+  const seen = new Set<string>()
+  const variants: JSONRecord[] = []
+  for (const candidate of candidates) {
+    const variant = reviseCandidateForFailure(candidate, primary, blockers)
+    const id = stringField(variant.candidate_id)
+    if (!id || seen.has(id)) continue
+    seen.add(id)
+    variants.push(variant)
+    if (variants.length >= trialCount) break
+  }
+  return variants
+}
+
+function reviseCandidateForFailure(candidate: JSONRecord, primary: string, blockers: JSONRecord[]): JSONRecord {
+  const originalId = stringField(candidate.candidate_id) || stringField(candidate.candidateId) || "candidate"
+  const params = reviseParamsForFailure(asRecord(candidate.params), primary, blockers)
+  return compactRecord({
+    ...candidate,
+    candidate_id: `${safeID(originalId)}-${revisionSuffix(primary, blockers)}`,
+    candidateId: undefined,
+    description: `Factory revision of ${originalId}`,
+    parameter_count: optionalPositiveNumber(candidate.parameter_count) || optionalPositiveNumber(candidate.parameterCount),
+    parameterCount: undefined,
+    params,
+  })
+}
+
+function reviseParamsForFailure(params: JSONRecord, primary: string, blockers: JSONRecord[]): JSONRecord {
+  const revised: JSONRecord = { ...params }
+  const blockerIds = new Set(blockers.map((item) => stringField(item.check_id)).filter(Boolean))
+  const costOrInstability = primary === "selection_instability" ||
+    primary === "execution_cost" ||
+    blockerIds.has("RND-ROBUSTNESS-COST") ||
+    blockerIds.has("RND-ROBUSTNESS-PARAM")
+  const riskShape = primary === "risk_shape" || blockerIds.has("R-DRAWDOWN") || blockerIds.has("RND-OOS-DRAWDOWN")
+  const sampleEfficiency = primary === "sample_efficiency" || blockerIds.has("RND-OOS-EFFECTIVE-SAMPLE")
+
+  if (costOrInstability || sampleEfficiency) {
+    multiplyNumberField(revised, "lookback_bars", 1.5)
+    multiplyNumberField(revised, "threshold_atr", 1.25)
+    multiplyNumberField(revised, "breakout_buffer_atr", 1.25)
+    multiplyNumberField(revised, "retest_tolerance_atr", 0.85)
+  }
+  if (riskShape) {
+    multiplyNumberField(revised, "stop_atr", 0.9)
+    multiplyNumberField(revised, "max_risk_atr", 0.85)
+    multiplyNumberField(revised, "reward_risk", 0.9)
+  }
+  if (costOrInstability && revised.reward_risk !== undefined) {
+    revised.reward_risk = roundNumber(Math.max(1.2, Number(revised.reward_risk)))
+  }
+  revised.factory_revision = revisionSuffix(primary, blockers)
+  return revised
+}
+
+function multiplyNumberField(record: JSONRecord, key: string, multiplier: number): void {
+  const value = Number(record[key])
+  if (!Number.isFinite(value) || value <= 0) return
+  record[key] = roundNumber(value * multiplier)
+}
+
+function roundNumber(value: number): number {
+  return Number(value.toFixed(6))
+}
+
+function revisionSuffix(primary: string, blockers: JSONRecord[]): string {
+  const top = stringField(blockers[0]?.check_id)
+  if (primary === "selection_instability") return "stable-revision"
+  if (primary === "execution_cost" || top === "RND-ROBUSTNESS-COST") return "cost-robust"
+  if (primary === "risk_shape" || top === "R-DRAWDOWN") return "risk-reshape"
+  if (primary === "sample_efficiency" || top === "RND-OOS-EFFECTIVE-SAMPLE") return "sample-efficient"
+  return "factory-revision"
+}
+
+function factorySuffix(failureSummary: JSONRecord | null, failureSource: string): string {
+  const primary = stringField(asRecord(failureSummary).primary_failure_area)
+  const blockers = array(asRecord(failureSummary).top_blockers).map(asRecord)
+  return `${safeID(revisionSuffix(primary, blockers))}-${safeID(failureSource)}`
+}
+
+function factoryHypothesisText(source: JSONRecord, failureSummary: JSONRecord | null, action: string): string {
+  const previous = stringField(source.hypothesis)
+  const primary = stringField(asRecord(failureSummary).primary_failure_area) || "latest failure"
+  return `Factory revision after ${primary}: ${action}${previous ? ` Previous hypothesis: ${previous}` : ""}`
 }
 
 function blockerAction(blocker: JSONRecord | undefined): string {
@@ -475,6 +651,7 @@ function universeLessonsFromCampaign(report: JSONRecord): JSONRecord[] {
     trial_budget: nonNegativeInteger(report.trial_budget),
     trials_used: nonNegativeInteger(report.trials_used),
     hypotheses_run: nonNegativeInteger(report.hypotheses_run),
+    validation_evaluations: nonNegativeInteger(report.validation_evaluations),
     holdout_evaluations: nonNegativeInteger(report.holdout_evaluations),
   }]
 }
@@ -483,6 +660,7 @@ function campaignNextActions(stopReason: string): string[] {
   if (stopReason === "calibration_failed") return ["Fix calibration blockers before running more R&D trials."]
   if (stopReason === "hypothesis_certificate_failed") return ["Rewrite the hypothesis certificate before consuming trial budget."]
   if (stopReason === "panel_negative_control_failed") return ["Inspect panel negative control failure before drafting strategy policy."]
+  if (stopReason === "external_validation_failed") return ["Reject the frozen mechanism and open a new predeclared hypothesis before spending more validation budget."]
   if (stopReason === "locked_holdout_failed") return ["Reject the frozen mechanism and open a new hypothesis with a fresh holdout."]
   if (stopReason === "trial_budget_exhausted") return ["Stop campaign; review rejected mechanisms before allocating a new budget."]
   return ["Review campaign stop reason before scheduling the next hypothesis."]

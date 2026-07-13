@@ -41,6 +41,7 @@
 | `modules/research-strategy-development/signal-engine/` | signal internal engine | 最新信号输入解析与 family signal 计算 | agent-facing CLI、状态写入 |
 | `modules/research-strategy-development/candidate-batch-engine/` | candidate batch internal engine | 单批候选评估、negative controls、统计报告 | agent-facing CLI、artifact 写入、RD memory |
 | `modules/research-strategy-development/strategy-family-engine/` | strategy family internal engine | family registry、factor transform、factor research、feature store | agent-facing CLI、状态写入 |
+| `modules/research-strategy-development/strategy-hypothesis-designer/` | research atom | agent-native strategy hypothesis prompt、contract lint、RD queue seed projection | replay、panel、campaign、strategy policy 写入、`trade.db`、Binance 写接口 |
 | `modules/research-strategy-development/benchmark-runner/` | strategy benchmark | 固定 benchmark 仿真、成本/资金费压力、负对照 | R&D search、strategy promotion、`trade.db` |
 | `modules/research-strategy-development/calibration-suite/` | strategy calibration | calibration diagnostics、data breadth、funding/cost attribution | R&D search、strategy promotion、`trade.db` |
 | `modules/research-strategy-development/funding-governance/` | funding governance | funding carry research 前 exact funding event coverage 检查 | R&D search、replay、review、`trade.db` |
@@ -50,10 +51,11 @@
 | `modules/research-strategy-development/rd-campaign-runner/` | research atom | R&D campaign | `trade.db`、Binance 写接口、strategy promotion、R&D loop 实现、forward tracker、RD state init/read/update/plan_next、supervisor CLI、单策略 replay CLI、latest signal CLI、panel CLI、data split CLI、benchmark/calibration/funding governance CLI、contract compile/lint CLI |
 | `modules/research-strategy-development/rd-ledger/` | research atom | R&D run ledger / holdout idempotence | candidate evaluation、campaign orchestration、RD state writeback、`trade.db`、Binance 写接口 |
 | `modules/research-strategy-development/rd-artifact-summary/` | research atom | R&D artifact summary | replay、candidate evaluation、artifact/catalog/ledger 写入、RD memory、`trade.db` |
+| `modules/research-strategy-development/strategy-policy-writer/` | research atom | validated candidate -> strategy policy markdown renderer + shape lint | R&D search、replay、promotion、`trade.db`、Binance 写接口 |
 | `modules/research-strategy-development/rd-integration-suite/` | test suite | research atoms integration regression | production RD logic、agent-facing tool、持久写入 |
 | `modules/research-strategy-development/rd-loop-runner/` | RD loop runner | 单轮 R&D artifact、catalog、ledger、optional state writeback | campaign orchestration、strategy evidence、`trade.db`、Binance 写接口 |
 | `modules/research-strategy-development/rd-program-state/` | RD memory state | init/read/update/plan_next durable R&D state | R&D trial execution、strategy evidence、`trade.db`、Binance 写接口 |
-| `modules/research-strategy-development/rd-supervisor/` | RD supervisor | plan_next -> loop/campaign -> state writeback | `trade.db`、Binance 写接口、strategy review、promotion |
+| `modules/research-strategy-development/rd-supervisor/` | RD supervisor | plan_next -> loop/campaign -> state writeback; delegates strategy markdown shape to policy writer | `trade.db`、Binance 写接口、strategy review、promotion |
 | `modules/research-strategy-development/rd-shadow-tracker/` | RD paper tracker | forward setup event chain and review draft input | R&D search、strategy evidence、`trade.db`、Binance 写接口 |
 | `modules/governance-review-compliance/strategy-review/` | strategy governance | evidence ledger、strategy review、promotion gate、strategy-cycle | R&D 实验、交易执行、写 `trade.db`、写 RD memory |
 | `modules/artifact-knowledge/artifact-catalog/` | artifact governance | catalog DB、artifact index/query/stale/gc、feature report refs | `trade.db`、策略判断、交易所 API |
@@ -90,12 +92,14 @@
 | latest signal | `modules/research-strategy-development/signal-evaluator` + `research.signal-evaluator` |
 | panel evaluation | `modules/research-strategy-development/panel-evaluator` + `research.panel-evaluator` |
 | candidate batch | `modules/research-strategy-development/candidate-batch` + `research.candidate-batch` |
+| strategy hypothesis designer | `modules/research-strategy-development/strategy-hypothesis-designer` + `research.strategy-hypothesis-designer` |
 | RD loop | `modules/research-strategy-development/rd-loop-runner` + `research.rd-loop-runner` |
 | benchmark | `modules/research-strategy-development/benchmark-runner` + `research.benchmark-runner` |
 | calibration suite | `modules/research-strategy-development/calibration-suite` + `research.calibration-suite` |
 | funding governance | `modules/research-strategy-development/funding-governance` + `research.funding-governance` |
 | strategy contract compile | `modules/research-strategy-development/strategy-contract-compile` + `research.strategy-contract-compile` |
 | strategy contract lint | `modules/research-strategy-development/strategy-contract-lint` + `research.strategy-contract-lint` |
+| strategy policy writer | `modules/research-strategy-development/strategy-policy-writer` |
 | R&D campaign / forward holdout | `modules/research-strategy-development/rd-campaign-runner` + `research.rd-campaign-runner`; `modules/research-strategy-development/forward-holdout` + `research.forward-holdout` |
 | RD memory | `modules/research-strategy-development/rd-program-state` + `research.rd-program-state` |
 | RD supervisor | `modules/research-strategy-development/rd-supervisor` + `research.rd-supervisor` |

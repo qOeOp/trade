@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto"
-import { readFileSync } from "node:fs"
+import { readFileSync, writeFileSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { defaultCatalogDbPathForGeneratedPath, registerCatalogArtifact } from "../../../../contracts/catalog-contract/src/catalog-client"
 import { displayPath, resolveReadablePath, resolveRepoPath } from "../../../../contracts/runtime-core/src/paths"
@@ -7,7 +7,7 @@ import { resolveCandidateCount } from "../../../candidate-batch-engine/src/lib/s
 import type { RdProgramStateCommandResult } from "../../../rd-program-state/src/lib/rd-program-state"
 import type { StrategyRndCampaignHypothesisInput, StrategyRndCampaignInput, StrategyRndLoopInput } from "../../../candidate-batch-engine/src/lib/strategy-rnd-inputs"
 import { maybeUpdateRdProgramState, runStrategyRndLoop } from "../../../rd-loop-runner/src/lib/rd-loop-runner"
-import { assertHoldoutUnused, holdoutKeyForInput, safeFileName, writeJsonFile } from "../../../rd-ledger/src/lib/rd-ledger"
+import { safeFileName, writeJsonFile } from "../../../rd-ledger/src/lib/rd-ledger"
 
 type JSONRecord = Record<string, unknown>
 
@@ -15,15 +15,17 @@ export interface StrategyRndCampaignReport {
   campaign_id: string
   created_at: string
   artifact_ref: string
+  dossier_ref: string
   ledger_ref: string
   outcome: "validated_candidate_found" | "no_validated_candidate"
-  stop_reason: "validated_candidate_found" | "hypothesis_queue_exhausted" | "trial_budget_exhausted" | "locked_holdout_failed" | "calibration_failed" | "hypothesis_certificate_failed" | "panel_negative_control_failed"
+  stop_reason: "validated_candidate_found" | "hypothesis_queue_exhausted" | "trial_budget_exhausted" | "external_validation_failed" | "locked_holdout_failed" | "calibration_failed" | "hypothesis_certificate_failed" | "panel_negative_control_failed"
   calibration_gate: JSONRecord | null
   hypothesis_certificates: HypothesisCertificateGate[]
   panel_report_ref: string | null
   trial_budget: number
   trials_used: number
   hypotheses_run: number
+  validation_evaluations: number
   holdout_evaluations: number
   validated_candidate: {
     candidate_id: string
@@ -119,6 +121,7 @@ export function runStrategyRndCampaignWithDeps(
       ? "hypothesis_certificate_failed"
       : "hypothesis_queue_exhausted"
   let holdoutEvaluations = 0
+  let validationEvaluations = 0
 
   for (const hypothesis of calibrationGate?.blocked === true || certificateBlocked ? [] : input.hypotheses) {
     if (!hypothesis.hypothesisId) {
@@ -178,12 +181,6 @@ export function runStrategyRndCampaignWithDeps(
     if (winnerFilters.length > 0 && !hypothesis.validationIndicatorReportPath) {
       throw new Error(`strategy R&D campaign ${hypothesis.hypothesisId} requires validation_indicator_report_path for frozen indicator filters`)
     }
-    assertHoldoutUnused({ catalogDbPath, ledgerPath: input.ledgerPath }, holdoutKeyForInput({
-      ...hypothesis,
-      manifestPath: hypothesis.validationManifestPath,
-      indicatorReportPath: hypothesis.validationIndicatorReportPath,
-      antiOverfitStage: "locked_holdout",
-    }))
     const validation = deps.runLoop({
       ...hypothesis,
       runId: `${campaignId}-${hypothesis.hypothesisId}-validation`,
@@ -198,7 +195,7 @@ export function runStrategyRndCampaignWithDeps(
         parameterCount: winner.parameter_count,
         params: winner.params,
       }],
-      antiOverfitStage: "locked_holdout",
+      antiOverfitStage: "external_validation",
       searchTrialCount: trialsUsed,
       parameterStability: asRecord(asRecord(asRecord(winner.replay).assumptions).robustness).parameter_stability as JSONRecord,
       artifactRoot,
@@ -206,7 +203,7 @@ export function runStrategyRndCampaignWithDeps(
       catalogDbPath,
       now: created_at,
     })
-    holdoutEvaluations += 1
+    validationEvaluations += 1
     runSummary.validation_run_ref = validation.artifact_ref
     runSummary.validation_outcome = validation.batch.outcome
     if (validation.batch.winner) {
@@ -220,16 +217,19 @@ export function runStrategyRndCampaignWithDeps(
       stopReason = "validated_candidate_found"
       break
     }
-    stopReason = "locked_holdout_failed"
+    stopReason = "external_validation_failed"
     break
   }
 
   const artifactPath = join(artifactRoot, `${safeFileName(campaignId)}.campaign.json`)
   const artifactRef = displayPath(artifactPath)
+  const dossierPath = join(artifactRoot, `${safeFileName(campaignId)}.dossier.md`)
+  const dossierRef = displayPath(dossierPath)
   const report: StrategyRndCampaignReport = {
     campaign_id: campaignId,
     created_at,
     artifact_ref: artifactRef,
+    dossier_ref: dossierRef,
     ledger_ref: ledgerRef,
     outcome: validatedCandidate ? "validated_candidate_found" : "no_validated_candidate",
     stop_reason: stopReason,
@@ -239,11 +239,13 @@ export function runStrategyRndCampaignWithDeps(
     trial_budget: trialBudget,
     trials_used: trialsUsed,
     hypotheses_run: runs.length,
+    validation_evaluations: validationEvaluations,
     holdout_evaluations: holdoutEvaluations,
     validated_candidate: validatedCandidate,
     runs,
   }
   writeJsonFile(artifactPath, report)
+  writeFileSync(dossierPath, renderCampaignDossier(report))
   registerCatalogArtifact({
     catalogDbPath,
     path: artifactRef,
@@ -252,7 +254,52 @@ export function runStrategyRndCampaignWithDeps(
     referrerID: campaignId,
     role: "output",
   })
+  registerCatalogArtifact({
+    catalogDbPath,
+    path: dossierRef,
+    now: created_at,
+    referrerType: "run",
+    referrerID: campaignId,
+    role: "report",
+  })
   return report
+}
+
+function renderCampaignDossier(report: StrategyRndCampaignReport): string {
+  const lines = [
+    `# R&D Campaign Dossier: ${report.campaign_id}`,
+    "",
+    `- Created: ${report.created_at}`,
+    `- Outcome: ${report.outcome}`,
+    `- Stop reason: ${report.stop_reason}`,
+    `- Trials used: ${report.trials_used}/${report.trial_budget}`,
+    `- Hypotheses run: ${report.hypotheses_run}`,
+    `- External validation evaluations: ${report.validation_evaluations}`,
+    `- Locked holdout evaluations: ${report.holdout_evaluations}`,
+    `- JSON artifact: ${report.artifact_ref}`,
+    "",
+    "## Hypothesis Gates",
+    ...report.hypothesis_certificates.map((gate) => `- ${gate.hypothesis_id}: ${gate.accepted ? "accepted" : `blocked (${gate.blocked_by.join(", ")})`}`),
+    "",
+    "## Runs",
+    ...report.runs.flatMap((run) => {
+      const failure = asNullableRecord(run.discovery_failure_summary)
+      const blockers = array(failure?.top_blockers).map(asRecord).map((item) => stringField(item.check_id)).filter(Boolean)
+      return [
+        `- ${run.hypothesis_id}`,
+        `  - Discovery: ${run.discovery_outcome} (${run.discovery_run_ref})`,
+        `  - Validation: ${run.validation_outcome || "not_run"}${run.validation_run_ref ? ` (${run.validation_run_ref})` : ""}`,
+        `  - Top blockers: ${blockers.length > 0 ? blockers.join(", ") : "none"}`,
+      ]
+    }),
+    "",
+    "## Decision",
+    report.validated_candidate
+      ? `Validated candidate found: ${report.validated_candidate.candidate_id}`
+      : "No validated candidate. Do not draft or promote a strategy from this campaign.",
+    "",
+  ]
+  return `${lines.join("\n")}\n`
 }
 
 export function readHypothesisCertificateGate(hypothesis: StrategyRndCampaignHypothesisInput): HypothesisCertificateGate {

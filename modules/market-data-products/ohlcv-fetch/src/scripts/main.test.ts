@@ -1,5 +1,5 @@
 import assert from "node:assert/strict"
-import { mkdtempSync, readFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { basename, isAbsolute, join } from "node:path"
 import test from "node:test"
@@ -262,6 +262,8 @@ test("run normalizes absolute output paths in response and manifest", async () =
   assert.equal(result.ok, true)
   if (!result.ok) return
 
+  assert.ok(result.data.output_dir)
+  assert.ok(result.data.manifest_path)
   assert.equal(isAbsolute(result.data.output_dir), false)
   assert.equal(isAbsolute(result.data.manifest_path), false)
   const manifest = JSON.parse(readFileSync(join(outputDir, "manifest.json"), "utf8")) as {
@@ -332,4 +334,41 @@ test("run can upsert fetched candles into market data store", async () => {
   } finally {
     ohlcvDb.close()
   }
+})
+
+test("run defaults to DB persistence without exporting OHLCV files", async () => {
+  const storeDir = mkdtempSync(join(tmpdir(), "ohlcv-fetch-persist-only-"))
+  const dbPath = join(storeDir, "market_data.db")
+  const ohlcvDbPath = join(storeDir, "ohlcv.db")
+  const rows = [1, 2, 3].map((index) => ({
+    openTime: index * 14_400_000,
+    open: String(index),
+    high: String(index + 1),
+    low: String(index - 0.5),
+    close: String(index + 0.25),
+    volume: String(index * 10),
+  }))
+  const client = {
+    futuresExchangeInfo: async () => ({ symbols: [{ symbol: "BTCUSDT", status: "TRADING" }] }),
+    futuresCandles: async () => rows,
+  } as unknown as BinanceRest
+
+  const result = await run([
+    "--symbol",
+    "BTCUSDT",
+    "--timeframes",
+    "4h",
+    "--market-data-db",
+    dbPath,
+    "--ohlcv-db",
+    ohlcvDbPath,
+  ], client)
+
+  assert.equal(result.ok, true)
+  if (!result.ok) return
+  assert.equal(result.data.output_dir, undefined)
+  assert.equal(result.data.manifest_path, undefined)
+  assert.equal(result.data.timeframes["4h"].file, undefined)
+  assert.equal(existsSync(join(storeDir, "manifest.json")), false)
+  assert.equal(result.data.market_data_store?.candles_upserted, 3)
 })

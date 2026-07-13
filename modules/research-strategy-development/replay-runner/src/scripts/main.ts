@@ -75,22 +75,52 @@ function parseArgs(argv: string[]): Config {
   for (let index = 0; index < argv.length; index += 1) {
     const arg = argv[index]
     switch (arg) {
-      case "--manifest": config.manifestPath = readFlagValue(argv, ++index, arg); break
-      case "--strategy-id": config.strategyId = readFlagValue(argv, ++index, arg); break
-      case "--timeframe": config.timeframe = readFlagValue(argv, ++index, arg); break
-      case "--max-hold-bars": config.maxHoldBars = Number(readFlagValue(argv, ++index, arg)); break
-      case "--reward-risk": config.rewardRisk = Number(readFlagValue(argv, ++index, arg)); break
-      case "--fee-bps": config.feeBps = Number(readFlagValue(argv, ++index, arg)); break
-      case "--slippage-bps": config.slippageBps = Number(readFlagValue(argv, ++index, arg)); break
-      case "--funding-bps-per-8h": config.fundingBpsPer8h = Number(readFlagValue(argv, ++index, arg)); break
-      case "--oos-split": config.oosSplitRatio = Number(readFlagValue(argv, ++index, arg)); break
-      case "--trial-count": config.trialCount = Number(readFlagValue(argv, ++index, arg)); break
-      case "--parameter-count": config.parameterCount = Number(readFlagValue(argv, ++index, arg)); break
-      case "--anti-overfit-stage": config.antiOverfitStage = requiredAntiOverfitStage(readFlagValue(argv, ++index, arg)); break
-      case "--fingerprint": config.fingerprint = true; break
-      case "--json": config.input = readJsonObject(readFlagValue(argv, ++index, arg)); break
-      case "--help": printHelp(); return process.exit(0)
-      default: throw new Error(`unknown flag: ${arg}`)
+      case "--manifest":
+        config.manifestPath = readFlagValue(argv, ++index, arg)
+        break
+      case "--strategy-id":
+        config.strategyId = readFlagValue(argv, ++index, arg)
+        break
+      case "--timeframe":
+        config.timeframe = readFlagValue(argv, ++index, arg)
+        break
+      case "--max-hold-bars":
+        config.maxHoldBars = Number(readFlagValue(argv, ++index, arg))
+        break
+      case "--reward-risk":
+        config.rewardRisk = Number(readFlagValue(argv, ++index, arg))
+        break
+      case "--fee-bps":
+        config.feeBps = Number(readFlagValue(argv, ++index, arg))
+        break
+      case "--slippage-bps":
+        config.slippageBps = Number(readFlagValue(argv, ++index, arg))
+        break
+      case "--funding-bps-per-8h":
+        config.fundingBpsPer8h = Number(readFlagValue(argv, ++index, arg))
+        break
+      case "--oos-split":
+        config.oosSplitRatio = Number(readFlagValue(argv, ++index, arg))
+        break
+      case "--trial-count":
+        config.trialCount = Number(readFlagValue(argv, ++index, arg))
+        break
+      case "--parameter-count":
+        config.parameterCount = Number(readFlagValue(argv, ++index, arg))
+        break
+      case "--anti-overfit-stage":
+        config.antiOverfitStage = requiredAntiOverfitStage(readFlagValue(argv, ++index, arg))
+        break
+      case "--fingerprint":
+        config.fingerprint = true
+        break
+      case "--json":
+        config.input = readJsonObject(readFlagValue(argv, ++index, arg))
+        break
+      case "--help":
+        exitWithHelp()
+      default:
+        throw new Error(`unknown flag: ${arg}`)
     }
   }
   return config
@@ -149,6 +179,11 @@ function printHelp(): void {
   bun src/scripts/main.ts --fingerprint --json '{"manifest_path":"./data/ohlcv/BTCUSDT/manifest.json","timeframe":"4h"}'
   bun src/scripts/main.ts --json '{"manifest_path":"./data/ohlcv/BTCUSDT/manifest.json"}'
 `)
+}
+
+function exitWithHelp(): never {
+  printHelp()
+  process.exit(0)
 }
 
 if (import.meta.main) {
