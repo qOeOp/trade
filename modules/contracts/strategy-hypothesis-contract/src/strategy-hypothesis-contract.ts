@@ -52,16 +52,17 @@ function strategyHypothesisToQueueItem(value: unknown): JSONRecord {
   const constraints = asRecord(contract.constraints)
   const targetFamily = stringField(compilation.target_family)
   const requiresNewFamily = compilation.requires_new_family === true
+  const mode = stringField(compilation.mode) || "loop"
   const manifestPath = stringField(dataBinding.manifest_path) || stringField(dataBinding.discovery_manifest_path)
   const candidateParams = asRecord(compilation.candidate_param_hints)
-  const blockedReason = queueBlockedReason(requiresNewFamily, targetFamily, manifestPath, candidateParams)
+  const blockedReason = queueBlockedReason(mode, requiresNewFamily, targetFamily, manifestPath, candidateParams)
   const hypothesisId = safeID(stringField(contract.hypothesis_id))
   return compactRecord({
     hypothesis_id: hypothesisId,
     source: DESIGNER_TOOL_ID,
     ready: blockedReason ? false : true,
     blocked_reason: blockedReason,
-    mode: stringField(compilation.mode) || "loop",
+    mode,
     hypothesis: stringField(asRecord(contract.thesis).behavioral_claim) || stringField(contract.title),
     return_driver: stringField(contract.return_driver),
     portfolio_shape: stringField(contract.portfolio_shape),
@@ -95,8 +96,9 @@ function strategyHypothesisToQueueItem(value: unknown): JSONRecord {
   })
 }
 
-function queueBlockedReason(requiresNewFamily: boolean, targetFamily: string, manifestPath: string, params: JSONRecord): string {
+function queueBlockedReason(mode: string, requiresNewFamily: boolean, targetFamily: string, manifestPath: string, params: JSONRecord): string {
   if (requiresNewFamily) return "family_design_required_before_strategy_trials"
+  if (mode === "panel_research") return "panel_research_requires_panel_evaluator_before_supervisor_strategy_trials"
   if (!targetFamily) return "target_family_required_before_strategy_trials"
   if (!manifestPath) return "manifest_path_required_before_strategy_trials"
   if (Object.keys(params).length === 0) return "candidate_param_hints_required_before_strategy_trials"

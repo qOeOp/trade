@@ -58,6 +58,12 @@ interface FactorSeries {
   indexByTimestamp: Map<string, number>
 }
 
+interface WindowedFactorSeries {
+  timestamps: string[]
+  values: number[]
+  indexByTimestamp: Map<string, number>
+}
+
 function loadFactorFeatureStore(path: string): FactorFeatureStore {
   const report = asRecord(JSON.parse(readFileSync(path, "utf8")))
   const timeframes = asRecord(asRecord(report.data).timeframes)
@@ -135,9 +141,18 @@ function loadFactorFeatureStore(path: string): FactorFeatureStore {
 }
 
 function windowFactorFeatureStore(store: FactorFeatureStore, window: FactorFeatureWindow): FactorFeatureStore {
-  function boundedSeries(timeframe: string, factorId: string): { timestamps: string[]; values: number[] } | undefined {
+  const cache = new Map<string, WindowedFactorSeries | null>()
+
+  function boundedSeries(timeframe: string, factorId: string): WindowedFactorSeries | undefined {
+    const key = `${timeframe}:${factorId}`
+    if (cache.has(key)) {
+      return cache.get(key) || undefined
+    }
     const raw = store.series(timeframe, factorId)
-    if (!raw) return undefined
+    if (!raw) {
+      cache.set(key, null)
+      return undefined
+    }
     const timestamps: string[] = []
     const values: number[] = []
     raw.timestamps.forEach((timestamp, index) => {
@@ -146,21 +161,24 @@ function windowFactorFeatureStore(store: FactorFeatureStore, window: FactorFeatu
         values.push(raw.values[index])
       }
     })
-    return { timestamps, values }
+    const bounded = { timestamps, values, indexByTimestamp: new Map(timestamps.map((timestamp, index) => [timestamp, index])) }
+    cache.set(key, bounded)
+    return bounded
   }
   return {
     definitions() {
       return store.definitions()
     },
     series(timeframe, factorId) {
-      return boundedSeries(timeframe, factorId)
+      const bounded = boundedSeries(timeframe, factorId)
+      return bounded ? { timestamps: [...bounded.timestamps], values: [...bounded.values] } : undefined
     },
     read(timeframe, factorId, timestamp, transform = "level", lookback = 1) {
       if (!timestampInWindow(timestamp, window)) return undefined
       const bounded = boundedSeries(timeframe, factorId)
       if (!bounded) return undefined
-      const index = bounded.timestamps.indexOf(timestamp)
-      if (index < 0) return undefined
+      const index = bounded.indexByTimestamp.get(timestamp)
+      if (index === undefined) return undefined
       return transformFactor(bounded.values, index, transform, lookback)
     },
   }

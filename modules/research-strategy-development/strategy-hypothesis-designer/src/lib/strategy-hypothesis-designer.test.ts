@@ -48,6 +48,26 @@ test("strategy hypothesis queue item blocks family design before trials", () => 
   assert.equal(item.candidates, undefined)
 })
 
+test("strategy hypothesis queue item blocks panel research before supervisor trials", () => {
+  const item = strategyHypothesisToQueueItem({
+    ...contract(),
+    hypothesis_id: "panel-research",
+    portfolio_shape: "panel_relative_reversion_research",
+    compilation: {
+      mode: "panel_research",
+      target_family: "relative_weakness_momentum_v1",
+      candidate_param_hints: {
+        side: "short",
+        signal_mode: "reversion",
+        benchmark_manifest_path: "tmp/panels/btcusdt/manifest.json",
+      },
+    },
+  })
+  assert.equal(item.ready, false)
+  assert.equal(item.blocked_reason, "panel_research_requires_panel_evaluator_before_supervisor_strategy_trials")
+  assert.equal(item.mode, "panel_research")
+})
+
 test("strategy designer prompt includes memory and requires structured JSON", () => {
   const context = buildStrategyHypothesisDesignContext({
     program_id: "rd-alt",

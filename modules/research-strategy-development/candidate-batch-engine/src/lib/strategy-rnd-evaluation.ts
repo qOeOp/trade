@@ -13,6 +13,7 @@ import type { StrategyRndBatchInput, StrategyRndCandidateInput } from "./strateg
 import { filterEventsToWindow, manifestTimeWindow } from "./strategy-rnd-time-window"
 
 const fundingEventCache = new Map<string, Array<{ timestamp: string; value: number }>>()
+const windowedFundingEventCache = new Map<string, Array<{ timestamp: string; value: number }>>()
 const MIN_OOS_EFFECTIVE_SAMPLE_COUNT = 10
 const MIN_OOS_RAW_SAMPLE_COUNT = 20
 const MIN_OOS_AVG_R_MARGIN = 0.05
@@ -399,16 +400,25 @@ export function countActiveParameters(params: JSONRecord): number {
 
 export function loadFundingEvents(path?: string, manifestPath?: string, timeframe = "4h"): Array<{ timestamp: string; value: number }> {
   if (!path) return []
+  const windowKey = `${path}:${manifestPath || ""}:${timeframe}`
+  if (windowedFundingEventCache.has(windowKey)) {
+    return windowedFundingEventCache.get(windowKey) || []
+  }
   const cached = fundingEventCache.get(path)
-  if (cached) return filterEventsToWindow(cached, manifestPath ? manifestTimeWindow(manifestPath, timeframe) : undefined)
+  const events = cached || readFundingEvents(path)
+  fundingEventCache.set(path, events)
+  const windowed = filterEventsToWindow(events, manifestPath ? manifestTimeWindow(manifestPath, timeframe) : undefined)
+  windowedFundingEventCache.set(windowKey, windowed)
+  return windowed
+}
+
+function readFundingEvents(path: string): Array<{ timestamp: string; value: number }> {
   const report = asRecord(JSON.parse(readFileSync(path, "utf8")))
   const raw = asRecord(asRecord(report.data).market_events).funding
-  const events = (Array.isArray(raw) ? raw : []).map((item) => {
+  return (Array.isArray(raw) ? raw : []).map((item) => {
     const value = asRecord(item)
     return { timestamp: stringField(value.timestamp), value: Number(value.value) }
   }).filter((item) => item.timestamp && Number.isFinite(item.value))
-  fundingEventCache.set(path, events)
-  return filterEventsToWindow(events, manifestPath ? manifestTimeWindow(manifestPath, timeframe) : undefined)
 }
 
 function asRecord(value: unknown): JSONRecord {

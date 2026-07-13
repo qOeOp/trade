@@ -301,6 +301,15 @@ function strategyFamilyProfile(family: string, params: JSONRecord): StrategyFami
         regimeRule: "Trade only when funding data coverage is complete and the position is not merely paying hidden adverse carry.",
         triggerRule: "Funding condition, price confirmation, and cost model must all pass before any entry is proposed.",
       }
+    case "funding_unwind_risk_guard_v1":
+      return {
+        tag: "funding-unwind-risk-guard",
+        edgeMechanism: "crowded perpetual positioning can unwind when funding is stretched, flow is weak, and risk guards prevent clustered entries into fresh squeeze pressure.",
+        entryRule: `closed-candle funding-unwind signal in the ${side} direction with funding history, VFI, chopiness, cooldown, adverse-move, and close-location guards available before entry.`,
+        stopRule: "ATR stop from the signal candle; reject the setup when family risk guards or max-risk ATR constraints fail.",
+        regimeRule: "Trade only when funding coverage is complete, VFI/chopiness state supports unwind risk, and the family cooldown is not suppressing the setup.",
+        triggerRule: "Funding, weak-flow/choppy-state filters, close-location guard, recent adverse-move guard, and cost model must all pass before any entry is proposed.",
+      }
     default:
       return {
         tag: strategyPolicySlug(family) || "rnd-family",

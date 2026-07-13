@@ -23,6 +23,8 @@ Research refs:
 - These panels are research confirmation only. They cannot authorize shadow because the candidate and universe were selected after inspecting the same historical period. Locked holdout must start after this strategy freeze.
 - 2026-07-09 frozen-candidate external check on `BCH/LTC/ATOM/NEAR/APT` remained positive but weaker: `sample_count=399`, `avg_r=0.063149`, `total_r=25.196466`, 4/5 assets positive, no panel gate blockers. `ATOMUSDT` was negative (`total_r=-5.157863`) with OOS and cost stress both false; panel-level asset shuffle was not applicable because only one candidate was evaluated.
 - 2026-07-09 forward holdout guard with `frozen_at=2026-07-09T14:00:00Z` blocked interpretation: latest asset and BTC benchmark closed candles were `2026-07-09T12:00:00Z`, so no post-freeze closed sample existed yet. Next action is to refresh asset + benchmark manifests after the next closed 4H candle and rerun forward holdout.
+- 2026-07-13 lifecycle correction: this strategy was already a `draft`; fresh candles must advance this draft's state, not an unlanded research candidate. A re-run on `BCH/LTC/ATOM/NEAR/APT` added an explicit momentum-side control candidate. The reversion candidate stayed accepted with `sample_count=399`, `avg_r=0.063149`, `total_r=25.196466`, 4/5 positive assets, no catastrophic assets, and panel asset-shuffle control passed (`observed_total_r=25.196466`, control median `7.835706`, empirical p-value `0.090909`). The momentum-side control failed breadth, cost, catastrophic, and asset-shuffle gates. Refs: `tmp/rd-new-strategy/rrv-btcstrong-panel-20260713/panel-result-with-control.json`.
+- 2026-07-13 forward-holdout correction: the ad hoc research freeze at `2026-07-13T11:27:24Z` is not a strategy lifecycle transition. Its holdout outputs are diagnostic only. The valid next state transition must be run from this draft policy's evidence state, with refreshed asset and BTC manifests after a closed candle that is after the relevant strategy-state checkpoint.
 
 ## Trade Contract
 
@@ -63,8 +65,10 @@ proof:
   diagnostic_refs:
     - tmp/artifacts/strategy-rnd/relative-reversion-btc-strong-fresh-check-2026-07-09.json
     - tmp/artifacts/strategy-rnd/forward-holdout-relative-reversion-btc-strong-2026-07-09.json
-  current_caveat: ATOMUSDT failed the frozen-candidate external check; single-candidate panel asset-shuffle null is not applicable.
+    - tmp/rd-new-strategy/rrv-btcstrong-panel-20260713/panel-result-with-control.json
+    - tmp/rd-new-strategy/rrv-btcstrong-panel-20260713/portfolio-construction-contract.json
+  current_caveat: ATOMUSDT failed the frozen-candidate external check; the 2026-07-13 control run fixed the prior single-candidate asset-shuffle gap, but forward holdout and shadow evidence are still missing.
   locked_holdout_start: after 2026-07-09 strategy freeze; previously viewed 2024-01-01 through 2026-07-09 data is contaminated for promotion.
   live_permission: draft_only
-  next_required_proof: refresh asset and BTC benchmark manifests after a post-freeze 4H close, rerun forward holdout, then only if forward samples are clean consider shadow evidence with execution attribution.
+  next_required_proof: rerun forward holdout as a draft-policy state transition after a closed 4H candle newer than the strategy-state checkpoint; then only if forward samples are clean consider shadow evidence with execution attribution.
 ```

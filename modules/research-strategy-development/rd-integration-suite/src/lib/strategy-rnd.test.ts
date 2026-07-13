@@ -346,6 +346,50 @@ test("funding carry family treats factor filters as strategy hypothesis componen
   }
 })
 
+test("funding unwind risk guard family requires weak flow and choppy state", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-funding-unwind-risk-guard-"))
+  try {
+    const start = 1_700_000_000_000
+    const manifestPath = writeManifest(dir, start)
+    const indicatorReportPath = writeFundingEventsReportWithVfiChop(dir, start, start + 280 * 4 * 60 * 60 * 1000, 0.0002, -0.1, 55)
+    const report = runStrategyRndBatch({
+      manifestPath,
+      indicatorReportPath,
+      timeframe: "4h",
+      maxHoldBars: 4,
+      fundingBpsPer8h: 0,
+      candidates: [{
+        candidateId: "C-FUNDING-UNWIND-RISK-GUARD",
+        family: "funding_unwind_risk_guard_v1",
+        parameterCount: 8,
+        params: {
+          side: "short",
+          funding_lookback_events: 3,
+          min_abs_funding_rate: 0.0001,
+          stop_atr: 0.85,
+          max_risk_atr: 3,
+          reward_risk: 1,
+          vfi_weak_max: 0,
+          chopiness_min: 50,
+          max_adverse_move_atr: 100,
+          max_short_close_location: 1,
+        },
+      }],
+    })
+
+    const candidate = report.candidates[0]
+    assert.equal(candidate.family, "funding_unwind_risk_guard_v1")
+    assert.equal(candidate.params.cooldown_bars, 12)
+    assert.ok(candidate.replay.sample_count > 0)
+    const trade = candidate.replay.trades[0]
+    assert.equal(trade.reason, "rnd funding unwind risk guard short")
+    assert.equal(asRecord(trade.meta).vfi, -0.1)
+    assert.equal(asRecord(trade.meta).chopiness, 55)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("relative weakness momentum family consumes benchmark data causally", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-relative-weakness-"))
   try {
@@ -997,6 +1041,46 @@ function writeFundingEventsReportWithFeature(dir: string, firstTimestamp: number
               roles: ["confirmation", "filter"],
               allowed_transforms: ["level"],
               values: buildFeaturePoints(280, factorValue),
+            },
+          },
+        },
+      },
+    },
+  }))
+  return path
+}
+
+function writeFundingEventsReportWithVfiChop(dir: string, firstTimestamp: number, lastTimestamp: number, fundingValue: number, vfiValue: number, chopinessValue: number): string {
+  const events = []
+  for (let timestamp = firstTimestamp; timestamp <= lastTimestamp; timestamp += 8 * 60 * 60 * 1000) {
+    events.push({ timestamp: new Date(timestamp).toISOString(), value: fundingValue })
+  }
+  const path = join(dir, "market-features-with-vfi-chop.json")
+  writeFileSync(path, JSON.stringify({
+    data: {
+      market_events: { funding: events },
+      timeframes: {
+        "4h": {
+          features: {
+            "vfi.value": {
+              status: "ok",
+              factor_id: "vfi.value",
+              source_indicator: "vfi",
+              output: "value",
+              category: "volume",
+              roles: ["confirmation", "filter"],
+              allowed_transforms: ["level"],
+              values: buildFeaturePoints(280, vfiValue),
+            },
+            "chopiness.value": {
+              status: "ok",
+              factor_id: "chopiness.value",
+              source_indicator: "chopiness",
+              output: "value",
+              category: "volatility",
+              roles: ["regime", "filter"],
+              allowed_transforms: ["level"],
+              values: buildFeaturePoints(280, chopinessValue),
             },
           },
         },

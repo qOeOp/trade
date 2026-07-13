@@ -8,22 +8,38 @@ interface RndTimeWindow {
   lastTimestampMs: number
 }
 
+const manifestTimeWindowCache = new Map<string, RndTimeWindow | undefined>()
+
 function manifestTimeWindow(manifestPath: string, timeframe = "4h"): RndTimeWindow | undefined {
   if (!manifestPath) return undefined
+  const cacheKey = `${manifestPath}:${timeframe}`
+  if (manifestTimeWindowCache.has(cacheKey)) {
+    return manifestTimeWindowCache.get(cacheKey)
+  }
   const resolved = resolveReadablePath(manifestPath)
   const manifest = asRecord(JSON.parse(readFileSync(resolved, "utf8")))
   const entry = asRecord(asRecord(manifest.timeframes)[timeframe])
   const first = Number(entry.first_open_ts)
   const last = Number(entry.last_open_ts)
   if (Number.isFinite(first) && Number.isFinite(last) && last >= first) {
-    return { firstTimestampMs: first, lastTimestampMs: last }
+    const window = { firstTimestampMs: first, lastTimestampMs: last }
+    manifestTimeWindowCache.set(cacheKey, window)
+    return window
   }
   const file = stringField(entry.file)
-  if (!file) return undefined
+  if (!file) {
+    manifestTimeWindowCache.set(cacheKey, undefined)
+    return undefined
+  }
   const rows = readFileSync(join(dirname(resolved), file), "utf8").trim().split(/\r?\n/).slice(1)
   const timestamps = rows.map((row) => Number(row.split(",")[1])).filter((value) => Number.isFinite(value))
-  if (timestamps.length === 0) return undefined
-  return { firstTimestampMs: Math.min(...timestamps), lastTimestampMs: Math.max(...timestamps) }
+  if (timestamps.length === 0) {
+    manifestTimeWindowCache.set(cacheKey, undefined)
+    return undefined
+  }
+  const window = { firstTimestampMs: Math.min(...timestamps), lastTimestampMs: Math.max(...timestamps) }
+  manifestTimeWindowCache.set(cacheKey, window)
+  return window
 }
 
 function filterEventsToWindow<T extends { timestamp: string }>(events: T[], window: RndTimeWindow | undefined): T[] {
