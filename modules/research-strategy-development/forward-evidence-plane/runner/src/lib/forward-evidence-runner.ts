@@ -4,11 +4,12 @@ import {
   type ForwardAdmissionRequest,
   type ForwardEvidenceResult,
 } from "../../../contracts/src/lib/forward-evidence-contracts"
-import type { ReplayFundingEvent, ReplayMarketBar } from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
+import type { ReplayDatasetManifest, ReplayFundingEvent, ReplayMarketBar } from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
 import { runReplayTrial } from "../../../../replay-execution-plane/runner/src/lib/replay-trial-runner"
 
 export interface ForwardEvidenceRunInput {
   admission: ForwardAdmissionRequest
+  dataset_manifest: ReplayDatasetManifest
   bars: ReplayMarketBar[]
   funding_events?: ReplayFundingEvent[]
   artifact_root?: string
@@ -46,6 +47,7 @@ export function runForwardEvidenceSession(input: ForwardEvidenceRunInput): Forwa
     }
     const outcome = runReplayTrial({
       request: admission.replay_request,
+      dataset_manifest: input.dataset_manifest,
       bars: input.bars,
       funding_events: input.funding_events,
       artifact_root: input.artifact_root,

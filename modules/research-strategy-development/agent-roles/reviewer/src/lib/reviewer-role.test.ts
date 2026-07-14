@@ -8,7 +8,7 @@ const identity = { schema_version: CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, experi
 const result: ReplayResult = {
   schema_version: REPLAY_RESULT_SCHEMA_VERSION, run_id: "run-1", status: "completed", started_at: "2026-07-14T04:00:00Z", completed_at: "2026-07-14T08:00:00Z", fills: [], ledger: [],
   metrics: { initial_cash: 1000, ending_equity: 1010, net_pnl: 10, return_fraction: 0.01, realized_pnl: 10, total_fees: 0, total_funding: 0, trade_count: 1 }, limitations: [],
-  fingerprint: { experiment_contract_hash: HASH, trial_group_hash: HASH, candidate_hash: HASH, identity_hash_policy_version: "identity-v1", dataset_hash: HASH, harness_hash: HASH, assumptions_hash: HASH, cost_policy_hash: HASH, simulator_policy_version: "sim-v1", request_hash: HASH, result_hash: HASH, random_seed: 1 },
+  fingerprint: { experiment_contract_hash: HASH, trial_group_hash: HASH, candidate_hash: HASH, identity_hash_policy_version: "identity-v1", dataset_manifest_hash: HASH, dataset_hash: HASH, harness_hash: HASH, assumptions_hash: HASH, cost_policy_hash: HASH, simulator_policy_version: "sim-v1", request_hash: HASH, result_hash: HASH, random_seed: 1 },
 }
 
 test("Reviewer produces authorization but does not write strategy or lifecycle", () => {

@@ -3,6 +3,7 @@ import { readdirSync, readFileSync, statSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { fundingEventRangeSum, indexFundingEvents, type FundingEvent } from "./funding-events"
 import { resolveReadablePath } from "../../../../../../contracts/runtime-core/src/paths"
+import { calculateFundingCashflow, calculateRoundTripLinearCost } from "../../../../accounting/src/lib/replay-accounting"
 
 type Side = "long" | "short"
 type JSONRecord = Record<string, unknown>
@@ -562,10 +563,12 @@ function estimateCostR(side: Side, entry: number, exit: number, risk: number, ba
   if (risk <= 0 || (feeBps <= 0 && slippageBps <= 0 && fundingBps <= 0 && !options.fundingEvents?.length)) {
     return { total: 0, funding: 0 }
   }
-  const tradingCost = (Math.abs(entry) + Math.abs(exit)) * (feeBps + slippageBps) / 10000
+  const tradingCost = calculateRoundTripLinearCost(entry, exit, 1, feeBps + slippageBps)
   const heldHours = (barsHeld + 1) * timeframeMilliseconds(options.timeframe || "4h") / 3_600_000
   const stressFunding = Math.abs(entry) * fundingBps * heldHours / 8 / 10000
-  const historicalFunding = Math.abs(entry) * (side === "long" ? 1 : -1) * fundingEventRangeSum(options.fundingEvents || [], entryTime, exitTime)
+  const historicalFunding = -calculateFundingCashflow(
+    Math.abs(entry), 1, fundingEventRangeSum(options.fundingEvents || [], entryTime, exitTime), side,
+  )
   const fundingR = (stressFunding + historicalFunding) / risk
   return { total: tradingCost / risk + fundingR, funding: fundingR }
 }

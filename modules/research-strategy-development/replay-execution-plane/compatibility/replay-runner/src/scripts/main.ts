@@ -5,7 +5,7 @@ import { errorResponse, printScriptResult, readFlagValue, readJsonObject, succes
 import type { JSONRecord } from "../../../../../../contracts/runtime-core/src/json"
 import { hashCanonical, replayDataHash, replayHarnessHash } from "../../../replay-engine/src/lib/replay-core"
 import { replayRegisteredStrategy } from "../../../replay-engine/src/lib/strategy-replay"
-import { REPLAY_REQUEST_SCHEMA_VERSION, type ReplayExecutionRequest, type ReplayFundingEvent, type ReplayMarketBar } from "../../../../contracts/src/lib/replay-contracts"
+import { REPLAY_REQUEST_SCHEMA_VERSION, type ReplayDatasetManifest, type ReplayExecutionRequest, type ReplayFundingEvent, type ReplayMarketBar } from "../../../../contracts/src/lib/replay-contracts"
 import { runReplayTrial } from "../../../../runner/src/lib/replay-trial-runner"
 
 interface Config {
@@ -52,6 +52,7 @@ function runConfig(config: Config): unknown {
   if (executionRequest.schema_version === REPLAY_REQUEST_SCHEMA_VERSION) {
     return runReplayTrial({
       request: executionRequest as unknown as ReplayExecutionRequest,
+      dataset_manifest: asRecord(input.dataset_manifest) as unknown as ReplayDatasetManifest,
       bars: asArray(input.bars) as ReplayMarketBar[],
       funding_events: asArray(input.funding_events) as ReplayFundingEvent[],
       artifact_root: stringField(input.artifact_root) || undefined,

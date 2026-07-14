@@ -1,37 +1,48 @@
 import {
   REPLAY_RESULT_SCHEMA_VERSION,
   assertReplayExecutionRequest,
-  assertReplayMarketBars,
   canonicalHash,
+  type ReplayDatasetManifest,
   type ReplayExecutionRequest,
   type ReplayFill,
   type ReplayFundingEvent,
-  type ReplayLedgerEntry,
   type ReplayMarketBar,
   type ReplayResult,
 } from "../../../contracts/src/lib/replay-contracts"
+import {
+  applyAdverseSlippage,
+  buildSinglePositionLedger,
+  calculateFundingCashflow,
+  calculateNotionalCharge,
+  roundReplayAmount,
+} from "../../../accounting/src/lib/replay-accounting"
+import { fundingEventsInWindow, prepareReplayInputData } from "../../../data-adapter/src/lib/replay-data-adapter"
+import { deriveReplayMetrics } from "../../../metrics/src/lib/replay-metrics"
 
 export interface ReplayKernelInput {
   request: ReplayExecutionRequest
+  dataset_manifest: ReplayDatasetManifest
   bars: ReplayMarketBar[]
   funding_events?: ReplayFundingEvent[]
 }
 
 export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
-  const { request, bars } = input
+  const { request } = input
   assertReplayExecutionRequest(request)
-  assertReplayMarketBars(bars)
-  if (bars.length === 0) throw new Error("Replay requires at least one closed bar")
-  const fundingEvents = validateFundingEvents(input.funding_events || [])
-  const entryIndex = bars.findIndex((bar) => Date.parse(bar.open_time) >= Date.parse(request.order.earliest_executable_time))
-  if (entryIndex < 0) throw new Error("dataset contains no bar at or after earliest executable time")
+  const prepared = prepareReplayInputData({
+    request,
+    dataset_manifest: input.dataset_manifest,
+    bars: input.bars,
+    funding_events: input.funding_events,
+  })
+  const { bars, funding_events: fundingEvents, entry_index: entryIndex } = prepared
 
   const entryBar = bars[entryIndex]
-  const entryPrice = adversePrice(entryBar.open, request.order.side === "long" ? "buy" : "sell", request.cost_policy.slippage_bps)
+  const entryPrice = applyAdverseSlippage(entryBar.open, request.order.side === "long" ? "buy" : "sell", request.cost_policy.slippage_bps)
   const entrySide = request.order.side === "long" ? "buy" : "sell"
   const exitSide = request.order.side === "long" ? "sell" : "buy"
-  const entryFee = fee(entryPrice, request.order.quantity, request.cost_policy.fee_bps)
-  const fills: ReplayFill[] = [{
+  const entryFee = calculateNotionalCharge(entryPrice, request.order.quantity, request.cost_policy.fee_bps)
+  const entryFill: ReplayFill = {
     fill_id: `${request.run_id}:fill:1`,
     order_role: "entry",
     timestamp: entryBar.open_time,
@@ -40,12 +51,13 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     price: entryPrice,
     fee: entryFee,
     reduce_only: false,
-  }]
-  const limitations: ReplayResult["limitations"] = []
+  }
+  const fills: ReplayFill[] = [entryFill]
+  const limitations: ReplayResult["limitations"] = [...prepared.limitations]
   const exit = resolveExit(request, bars, entryIndex, limitations)
-  const exitPrice = adversePrice(exit.rawPrice, exitSide, request.cost_policy.slippage_bps)
-  const exitFee = fee(exitPrice, request.order.quantity, request.cost_policy.fee_bps)
-  fills.push({
+  const exitPrice = applyAdverseSlippage(exit.rawPrice, exitSide, request.cost_policy.slippage_bps)
+  const exitFee = calculateNotionalCharge(exitPrice, request.order.quantity, request.cost_policy.fee_bps)
+  const exitFill: ReplayFill = {
     fill_id: `${request.run_id}:fill:2`,
     order_role: exit.role,
     timestamp: exit.timestamp,
@@ -54,30 +66,28 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     price: exitPrice,
     fee: exitFee,
     reduce_only: true,
-  })
-
-  const realizedPnl = roundMoney((request.order.side === "long" ? exitPrice - entryPrice : entryPrice - exitPrice) * request.order.quantity)
-  const appliedFunding = fundingEvents.filter((event) => {
-    const time = Date.parse(event.timestamp)
-    return time >= Date.parse(entryBar.open_time) && time <= Date.parse(exit.timestamp)
-  })
-  const fundingAmounts = appliedFunding.map((event) => roundMoney(
-    event.mark_price * request.order.quantity * event.rate * (request.order.side === "long" ? -1 : 1),
-  ))
-  const totalFunding = roundMoney(fundingAmounts.reduce((sum, amount) => sum + amount, 0))
-  const totalFees = roundMoney(entryFee + exitFee)
-  const endingEquity = roundMoney(request.initial_cash + realizedPnl + totalFunding - totalFees)
-  const ledger = buildLedger(request, entryBar.open_time, fills, appliedFunding, fundingAmounts, realizedPnl, endingEquity)
-  const metrics = {
-    initial_cash: request.initial_cash,
-    ending_equity: endingEquity,
-    net_pnl: roundMoney(endingEquity - request.initial_cash),
-    return_fraction: roundMoney((endingEquity - request.initial_cash) / request.initial_cash),
-    realized_pnl: realizedPnl,
-    total_fees: totalFees,
-    total_funding: totalFunding,
-    trade_count: 1,
   }
+  fills.push(exitFill)
+
+  const realizedPnl = roundReplayAmount((request.order.side === "long" ? exitPrice - entryPrice : entryPrice - exitPrice) * request.order.quantity)
+  const appliedFunding = fundingEventsInWindow(fundingEvents, entryBar.open_time, exit.timestamp)
+  const fundingAmounts = appliedFunding.map((event) => calculateFundingCashflow(
+    event.mark_price, request.order.quantity, event.rate, request.order.side,
+  ))
+  const totalFunding = roundReplayAmount(fundingAmounts.reduce((sum, amount) => sum + amount, 0))
+  const totalFees = roundReplayAmount(entryFee + exitFee)
+  const endingEquity = roundReplayAmount(request.initial_cash + realizedPnl + totalFunding - totalFees)
+  const ledger = buildSinglePositionLedger({
+    run_id: request.run_id,
+    initial_cash: request.initial_cash,
+    entry_time: entryBar.open_time,
+    fills: [entryFill, exitFill],
+    funding_events: appliedFunding,
+    funding_cashflows: fundingAmounts,
+    realized_pnl: realizedPnl,
+    ending_equity: endingEquity,
+  })
+  const metrics = deriveReplayMetrics({ initial_cash: request.initial_cash, fills, ledger })
   const resultBody = {
     schema_version: REPLAY_RESULT_SCHEMA_VERSION,
     run_id: request.run_id,
@@ -97,6 +107,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       trial_group_hash: request.trial_group_hash,
       candidate_hash: request.candidate_hash,
       identity_hash_policy_version: request.identity_hash_policy_version,
+      dataset_manifest_hash: prepared.dataset_manifest_hash,
       dataset_hash: request.dataset_hash,
       harness_hash: request.harness_hash,
       assumptions_hash: request.assumptions_hash,
@@ -143,65 +154,4 @@ function resolveExit(
     detail: "Open evidence position was marked closed at the final closed bar for finite Result accounting.",
   })
   return { role: "end_of_data", timestamp: last.close_time, rawPrice: last.close }
-}
-
-function buildLedger(
-  request: ReplayExecutionRequest,
-  entryTime: string,
-  fills: ReplayFill[],
-  fundingEvents: ReplayFundingEvent[],
-  fundingAmounts: number[],
-  realizedPnl: number,
-  endingEquity: number,
-): ReplayLedgerEntry[] {
-  let balance = request.initial_cash
-  const entries: ReplayLedgerEntry[] = [{
-    entry_id: `${request.run_id}:ledger:1`, timestamp: entryTime, kind: "initial_cash",
-    amount: request.initial_cash, balance_after: balance, ref: request.run_id,
-  }]
-  const append = (timestamp: string, kind: ReplayLedgerEntry["kind"], amount: number, ref: string): void => {
-    balance = roundMoney(balance + amount)
-    entries.push({ entry_id: `${request.run_id}:ledger:${entries.length + 1}`, timestamp, kind, amount, balance_after: balance, ref })
-  }
-  append(fills[0].timestamp, "fee", -fills[0].fee, fills[0].fill_id)
-  for (const [index, event] of fundingEvents.entries()) {
-    append(event.timestamp, "funding", fundingAmounts[index], `funding:${event.timestamp}`)
-  }
-  append(fills[1].timestamp, "realized_pnl", realizedPnl, fills[1].fill_id)
-  append(fills[1].timestamp, "fee", -fills[1].fee, fills[1].fill_id)
-  entries.push({
-    entry_id: `${request.run_id}:ledger:${entries.length + 1}`,
-    timestamp: fills[1].timestamp,
-    kind: "ending_equity",
-    amount: 0,
-    balance_after: endingEquity,
-    ref: request.run_id,
-  })
-  if (Math.abs(balance - endingEquity) > 1e-9) throw new Error("ledger conservation failed")
-  return entries
-}
-
-function validateFundingEvents(events: ReplayFundingEvent[]): ReplayFundingEvent[] {
-  let prior = Number.NEGATIVE_INFINITY
-  return [...events].map((event) => {
-    const timestamp = Date.parse(event.timestamp)
-    if (!Number.isFinite(timestamp) || timestamp < prior) throw new Error("funding events must be ordered ISO timestamps")
-    if (!Number.isFinite(event.rate)) throw new Error("funding rate must be finite")
-    if (!Number.isFinite(event.mark_price) || event.mark_price <= 0) throw new Error("funding mark_price must be positive")
-    prior = timestamp
-    return event
-  })
-}
-
-function adversePrice(price: number, side: "buy" | "sell", bps: number): number {
-  const multiplier = side === "buy" ? 1 + bps / 10_000 : 1 - bps / 10_000
-  return roundMoney(price * multiplier)
-}
-
-function fee(price: number, quantity: number, bps: number): number {
-  return roundMoney(price * quantity * bps / 10_000)
-}
-
-function roundMoney(value: number): number {
-  return Number(value.toFixed(12))
 }

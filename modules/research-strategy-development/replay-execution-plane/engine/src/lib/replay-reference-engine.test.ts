@@ -1,8 +1,12 @@
 import { expect, test } from "bun:test"
 import {
+  REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
   REPLAY_REQUEST_SCHEMA_VERSION,
   REPLAY_SIMULATOR_POLICY_VERSION,
+  replayDatasetHash,
+  type ReplayDatasetManifest,
   type ReplayExecutionRequest,
+  type ReplayFundingEvent,
   type ReplayMarketBar,
 } from "../../../contracts/src/lib/replay-contracts"
 import { executeReplayKernel } from "./replay-reference-engine"
@@ -55,46 +59,50 @@ function bar(openTime: string, closeTime: string, open: number, high: number, lo
   return { open_time: openTime, close_time: closeTime, open, high, low, close, volume: 100, closed: true }
 }
 
+function inputFor(requestValue: ReplayExecutionRequest, bars: ReplayMarketBar[], fundingEvents: ReplayFundingEvent[] = []) {
+  const dataHash = replayDatasetHash(bars, fundingEvents)
+  const boundRequest = { ...requestValue, dataset_hash: dataHash }
+  const datasetManifest: ReplayDatasetManifest = {
+    schema_version: REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
+    manifest_id: "manifest-fixture", manifest_ref: boundRequest.dataset_manifest_ref, data_hash: dataHash,
+    dataset_kind: "ohlcv", symbol: boundRequest.symbol, timeframe: boundRequest.timeframe, interval_ms: 14_400_000,
+    row_count: bars.length, first_open_time: bars[0].open_time, last_close_time: bars.at(-1)!.close_time,
+    observed_through: bars.at(-1)!.close_time, closed_candles_only: true,
+    bar_final_availability: "close_time", funding_availability: "event_time",
+    instrument: { listed_at: "2020-01-01T00:00:00Z", trading_enabled_at: "2020-01-01T00:00:00Z", delisted_at: null, status_history: "complete" },
+    universe: { selected_at: "2026-07-13T00:00:00Z", survivorship: "point_in_time" },
+  }
+  return { request: boundRequest, dataset_manifest: datasetManifest, bars, funding_events: fundingEvents }
+}
+
 test("closed-candle signal enters at next open and resolves same-bar collision stop first", () => {
-  const result = executeReplayKernel({
-    request: request(),
-    bars: [bar("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", 100, 111, 94, 105)],
-  })
+  const result = executeReplayKernel(inputFor(request(), [bar("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", 100, 111, 94, 105)]))
   expect(result.fills.map((fill) => fill.order_role)).toEqual(["entry", "stop"])
   expect(result.limitations[0]?.severity).toBe("resolution_limited")
   expect(result.metrics.ending_equity).toBeLessThan(10_000)
 })
 
 test("stop gap fills at the worse open and ledger conserves equity", () => {
-  const result = executeReplayKernel({
-    request: request(),
-    bars: [
+  const result = executeReplayKernel(inputFor(request(), [
       bar("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", 100, 102, 98, 101),
       bar("2026-07-14T08:00:00Z", "2026-07-14T12:00:00Z", 90, 93, 88, 91),
-    ],
-  })
+  ]))
   expect(result.fills[1].order_role).toBe("stop")
   expect(result.fills[1].price).toBeLessThan(95)
   expect(result.ledger.at(-1)?.balance_after).toBe(result.metrics.ending_equity)
 })
 
 test("exact funding event enters the unified evidence ledger", () => {
-  const result = executeReplayKernel({
-    request: request("short"),
-    bars: [
+  const fundingEvents = [{ timestamp: "2026-07-14T08:00:00Z", rate: 0.001, mark_price: 98 }]
+  const result = executeReplayKernel(inputFor(request("short"), [
       bar("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", 100, 102, 97, 98),
       bar("2026-07-14T08:00:00Z", "2026-07-14T12:00:00Z", 98, 100, 89, 90),
-    ],
-    funding_events: [{ timestamp: "2026-07-14T08:00:00Z", rate: 0.001, mark_price: 98 }],
-  })
+  ], fundingEvents))
   expect(result.metrics.total_funding).toBe(0.098)
   expect(result.ledger.some((entry) => entry.kind === "funding")).toBe(true)
 })
 
 test("rerunning the same request and data is byte-semantically deterministic", () => {
-  const input = {
-    request: request(),
-    bars: [bar("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", 100, 109, 98, 108)],
-  }
+  const input = inputFor(request(), [bar("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", 100, 109, 98, 108)])
   expect(executeReplayKernel(input)).toEqual(executeReplayKernel(input))
 })

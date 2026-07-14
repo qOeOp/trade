@@ -2,7 +2,7 @@
 
 import { errorResponse, printScriptResult, readFlagValue, readJsonObject, successResponse } from "../../../../../contracts/runtime-core/src/script-json"
 import type { JSONRecord } from "../../../../../contracts/runtime-core/src/json"
-import type { ReplayExecutionRequest, ReplayFundingEvent, ReplayMarketBar } from "../../../contracts/src/lib/replay-contracts"
+import type { ReplayDatasetManifest, ReplayExecutionRequest, ReplayFundingEvent, ReplayMarketBar } from "../../../contracts/src/lib/replay-contracts"
 import { runReplayTrial } from "../lib/replay-trial-runner"
 
 const SCHEMA_VERSION = "rd-replay-execution.script-response.v1"
@@ -12,6 +12,7 @@ export function run(argv: string[]): JSONRecord {
     const input = parse(argv)
     return successResponse(SCHEMA_VERSION, runReplayTrial({
       request: record(input.request) as unknown as ReplayExecutionRequest,
+      dataset_manifest: record(input.dataset_manifest) as unknown as ReplayDatasetManifest,
       bars: array(input.bars) as ReplayMarketBar[],
       funding_events: array(input.funding_events) as ReplayFundingEvent[],
       artifact_root: text(input.artifact_root) || undefined,

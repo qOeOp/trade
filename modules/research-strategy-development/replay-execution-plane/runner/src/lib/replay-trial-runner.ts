@@ -6,6 +6,7 @@ import {
   canonicalHash,
   canonicalJson,
   type ReplayArtifactManifest,
+  type ReplayDatasetManifest,
   type ReplayExecutionRequest,
   type ReplayFundingEvent,
   type ReplayMarketBar,
@@ -15,6 +16,7 @@ import { executeReplayKernel } from "../../../engine/src/lib/replay-reference-en
 
 export interface ReplayTrialRunInput {
   request: ReplayExecutionRequest
+  dataset_manifest: ReplayDatasetManifest
   bars: ReplayMarketBar[]
   funding_events?: ReplayFundingEvent[]
   artifact_root?: string
@@ -51,11 +53,11 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
       },
     }
   }
-  const committed = input.artifact_root ? readCommitted(input.artifact_root, input.request) : undefined
+  const committed = input.artifact_root ? readCommitted(input.artifact_root, input.request, input.dataset_manifest) : undefined
   if (committed) return { ...committed, idempotent_replay: true }
   try {
-    const result = executeReplayKernel({ request: input.request, bars: input.bars, funding_events: input.funding_events })
-    const artifactManifest = input.artifact_root ? commitArtifacts(input.artifact_root, input.request, result) : undefined
+    const result = executeReplayKernel({ request: input.request, dataset_manifest: input.dataset_manifest, bars: input.bars, funding_events: input.funding_events })
+    const artifactManifest = input.artifact_root ? commitArtifacts(input.artifact_root, input.request, input.dataset_manifest, result) : undefined
     return {
       schema_version: "trade.rd-replay-run-outcome.v1",
       run_id: input.request.run_id,
@@ -80,15 +82,17 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
   }
 }
 
-function commitArtifacts(root: string, request: ReplayExecutionRequest, result: ReplayResult): ReplayArtifactManifest {
+function commitArtifacts(root: string, request: ReplayExecutionRequest, datasetManifest: ReplayDatasetManifest, result: ReplayResult): ReplayArtifactManifest {
   const directory = runDirectory(root, request.idempotency_key)
   mkdirSync(directory, { recursive: true })
   const requestText = `${canonicalJson(request)}\n`
+  const datasetManifestText = `${canonicalJson(datasetManifest)}\n`
   const resultText = `${canonicalJson(result)}\n`
   const fillsText = result.fills.map((fill) => canonicalJson(fill)).join("\n") + "\n"
   const ledgerText = result.ledger.map((entry) => canonicalJson(entry)).join("\n") + "\n"
   const files = [
     writeAtomic(directory, "request.json", requestText, "request"),
+    writeAtomic(directory, "dataset-manifest.json", datasetManifestText, "dataset_manifest"),
     writeAtomic(directory, "result.json", resultText, "result"),
     writeAtomic(directory, "fills.jsonl", fillsText, "fills"),
     writeAtomic(directory, "ledger.jsonl", ledgerText, "ledger"),
@@ -105,15 +109,18 @@ function commitArtifacts(root: string, request: ReplayExecutionRequest, result: 
   return manifest
 }
 
-function readCommitted(root: string, request: ReplayExecutionRequest): ReplayTrialRunOutcome | undefined {
+function readCommitted(root: string, request: ReplayExecutionRequest, datasetManifest: ReplayDatasetManifest): ReplayTrialRunOutcome | undefined {
   const directory = runDirectory(root, request.idempotency_key)
   const manifestPath = join(directory, "artifact-manifest.json")
   const requestPath = join(directory, "request.json")
+  const datasetManifestPath = join(directory, "dataset-manifest.json")
   const resultPath = join(directory, "result.json")
   if (!existsSync(manifestPath)) return undefined
-  if (!existsSync(requestPath) || !existsSync(resultPath)) throw new Error("committed Replay manifest is missing required files")
+  if (!existsSync(requestPath) || !existsSync(datasetManifestPath) || !existsSync(resultPath)) throw new Error("committed Replay manifest is missing required files")
   const recordedRequest = JSON.parse(readFileSync(requestPath, "utf8")) as ReplayExecutionRequest
   if (canonicalHash(recordedRequest) !== canonicalHash(request)) throw new Error("Replay idempotency key was reused with a different request")
+  const recordedDatasetManifest = JSON.parse(readFileSync(datasetManifestPath, "utf8")) as ReplayDatasetManifest
+  if (canonicalHash(recordedDatasetManifest) !== canonicalHash(datasetManifest)) throw new Error("Replay idempotency key was reused with a different dataset manifest")
   const result = JSON.parse(readFileSync(resultPath, "utf8")) as ReplayResult
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as ReplayArtifactManifest
   if (canonicalHash({

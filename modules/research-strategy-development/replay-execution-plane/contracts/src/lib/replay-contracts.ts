@@ -4,6 +4,7 @@ export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.
 export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v1" as const
 export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v1" as const
 export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v1" as const
+export const REPLAY_DATASET_MANIFEST_SCHEMA_VERSION = "trade.rd-replay-dataset-manifest.v1" as const
 
 export interface ReplayExecutionRequest {
   schema_version: typeof REPLAY_REQUEST_SCHEMA_VERSION
@@ -68,6 +69,40 @@ export interface ReplayFundingEvent {
   mark_price: number
 }
 
+export interface ReplayDatasetManifest {
+  schema_version: typeof REPLAY_DATASET_MANIFEST_SCHEMA_VERSION
+  manifest_id: string
+  manifest_ref: string
+  data_hash: string
+  dataset_kind: "ohlcv"
+  symbol: string
+  timeframe: string
+  interval_ms: number
+  row_count: number
+  first_open_time: string
+  last_close_time: string
+  observed_through: string
+  closed_candles_only: true
+  bar_final_availability: "close_time"
+  funding_availability: "event_time"
+  instrument: {
+    listed_at: string
+    trading_enabled_at: string
+    delisted_at: string | null
+    status_history: "complete" | "current_snapshot_only"
+  }
+  universe: {
+    selected_at: string
+    survivorship: "point_in_time" | "survivor_only"
+  }
+}
+
+export interface ReplayLimitation {
+  code: string
+  severity: "info" | "resolution_limited" | "unsupported"
+  detail: string
+}
+
 export interface ReplayFill {
   fill_id: string
   order_role: "entry" | "stop" | "target" | "end_of_data"
@@ -93,6 +128,7 @@ export interface ReplayEvidenceFingerprint {
   trial_group_hash: string
   candidate_hash: string
   identity_hash_policy_version: string
+  dataset_manifest_hash: string
   dataset_hash: string
   harness_hash: string
   assumptions_hash: string
@@ -121,11 +157,7 @@ export interface ReplayResult {
     total_funding: number
     trade_count: number
   }
-  limitations: Array<{
-    code: string
-    severity: "info" | "resolution_limited" | "unsupported"
-    detail: string
-  }>
+  limitations: ReplayLimitation[]
   fingerprint: ReplayEvidenceFingerprint
 }
 
@@ -152,8 +184,8 @@ export function assertReplayExecutionRequest(value: ReplayExecutionRequest): voi
   requirePositive(value.order.quantity, "order.quantity")
   requirePositive(value.order.stop_price, "order.stop_price")
   requirePositive(value.order.target_price, "order.target_price")
-  requireTimestamp(value.order.signal_time, "order.signal_time")
-  requireTimestamp(value.order.earliest_executable_time, "order.earliest_executable_time")
+  requireUtcTimestamp(value.order.signal_time, "order.signal_time")
+  requireUtcTimestamp(value.order.earliest_executable_time, "order.earliest_executable_time")
   if (Date.parse(value.order.earliest_executable_time) <= Date.parse(value.order.signal_time)) {
     fail("earliest executable time must be after signal time")
   }
@@ -177,8 +209,8 @@ export function assertReplayExecutionRequest(value: ReplayExecutionRequest): voi
 export function assertReplayMarketBars(bars: ReplayMarketBar[]): void {
   let priorClose = Number.NEGATIVE_INFINITY
   for (const [index, bar] of bars.entries()) {
-    requireTimestamp(bar.open_time, `bars[${index}].open_time`)
-    requireTimestamp(bar.close_time, `bars[${index}].close_time`)
+    requireUtcTimestamp(bar.open_time, `bars[${index}].open_time`)
+    requireUtcTimestamp(bar.close_time, `bars[${index}].close_time`)
     const open = Date.parse(bar.open_time)
     const close = Date.parse(bar.close_time)
     if (open >= close || open < priorClose) fail("bars must be non-overlapping and chronologically ordered")
@@ -192,6 +224,54 @@ export function assertReplayMarketBars(bars: ReplayMarketBar[]): void {
       fail("invalid OHLC envelope")
     }
   }
+}
+
+export function assertReplayDatasetManifest(manifest: ReplayDatasetManifest): void {
+  if (manifest.schema_version !== REPLAY_DATASET_MANIFEST_SCHEMA_VERSION) fail("unsupported Replay dataset manifest schema")
+  for (const [field, value] of Object.entries({
+    manifest_id: manifest.manifest_id,
+    manifest_ref: manifest.manifest_ref,
+    symbol: manifest.symbol,
+    timeframe: manifest.timeframe,
+  })) requireText(value, field)
+  requireHash(manifest.data_hash, "manifest.data_hash")
+  if (manifest.dataset_kind !== "ohlcv") fail("certified Replay only accepts OHLCV manifests")
+  if (!Number.isSafeInteger(manifest.interval_ms) || manifest.interval_ms <= 0) fail("manifest.interval_ms must be a positive safe integer")
+  if (!Number.isSafeInteger(manifest.row_count) || manifest.row_count <= 0) fail("manifest.row_count must be a positive safe integer")
+  for (const [field, value] of Object.entries({
+    first_open_time: manifest.first_open_time,
+    last_close_time: manifest.last_close_time,
+    observed_through: manifest.observed_through,
+    listed_at: manifest.instrument.listed_at,
+    trading_enabled_at: manifest.instrument.trading_enabled_at,
+    selected_at: manifest.universe.selected_at,
+  })) requireUtcTimestamp(value, `manifest.${field}`)
+  if (manifest.instrument.delisted_at !== null) requireUtcTimestamp(manifest.instrument.delisted_at, "manifest.delisted_at")
+  if (manifest.instrument.status_history !== "complete" && manifest.instrument.status_history !== "current_snapshot_only") {
+    fail("unsupported instrument status history policy")
+  }
+  if (manifest.universe.survivorship !== "point_in_time" && manifest.universe.survivorship !== "survivor_only") {
+    fail("unsupported universe survivorship policy")
+  }
+  if (Date.parse(manifest.first_open_time) >= Date.parse(manifest.last_close_time)) fail("manifest window must have positive duration")
+  if (Date.parse(manifest.observed_through) < Date.parse(manifest.last_close_time)) fail("manifest observed_through must cover the final closed bar")
+  if (Date.parse(manifest.instrument.listed_at) > Date.parse(manifest.instrument.trading_enabled_at)) fail("instrument cannot trade before listing")
+  if (manifest.instrument.delisted_at !== null
+      && Date.parse(manifest.instrument.delisted_at) <= Date.parse(manifest.instrument.trading_enabled_at)) fail("instrument delisting must follow trading enablement")
+  if (manifest.universe.survivorship === "point_in_time"
+      && Date.parse(manifest.universe.selected_at) > Date.parse(manifest.first_open_time)) fail("point-in-time universe must be selected no later than the dataset window")
+  if (manifest.closed_candles_only !== true
+      || manifest.bar_final_availability !== "close_time"
+      || manifest.funding_availability !== "event_time") fail("unsupported Replay dataset availability policy")
+}
+
+export function replayDatasetHash(bars: ReplayMarketBar[], fundingEvents: ReplayFundingEvent[] = []): string {
+  return canonicalHash({ bars, funding_events: fundingEvents })
+}
+
+export function replayDatasetManifestHash(manifest: ReplayDatasetManifest): string {
+  assertReplayDatasetManifest(manifest)
+  return canonicalHash(manifest)
 }
 
 export function canonicalHash(value: unknown): string {
@@ -219,9 +299,11 @@ function requireHash(value: unknown, field: string): void {
   if (!/^[a-f0-9]{64}$/.test(text)) fail(`${field} must be a lowercase sha256 hex digest`)
 }
 
-function requireTimestamp(value: unknown, field: string): void {
+function requireUtcTimestamp(value: unknown, field: string): void {
   const text = requireText(value, field)
-  if (!Number.isFinite(Date.parse(text))) fail(`${field} must be an ISO timestamp`)
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(text) || !Number.isFinite(Date.parse(text))) {
+    fail(`${field} must be an RFC 3339 UTC timestamp`)
+  }
 }
 
 function requirePositive(value: unknown, field: string): void {

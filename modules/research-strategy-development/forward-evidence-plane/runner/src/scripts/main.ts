@@ -2,7 +2,7 @@
 
 import { errorResponse, printScriptResult, readFlagValue, readJsonObject, successResponse } from "../../../../../contracts/runtime-core/src/script-json"
 import type { JSONRecord } from "../../../../../contracts/runtime-core/src/json"
-import type { ReplayFundingEvent, ReplayMarketBar } from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
+import type { ReplayDatasetManifest, ReplayFundingEvent, ReplayMarketBar } from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
 import type { ForwardAdmissionRequest } from "../../../contracts/src/lib/forward-evidence-contracts"
 import { runForwardEvidenceSession } from "../lib/forward-evidence-runner"
 
@@ -13,6 +13,7 @@ export function run(argv: string[]): JSONRecord {
     const input = parse(argv)
     return successResponse(SCHEMA_VERSION, runForwardEvidenceSession({
       admission: record(input.admission) as unknown as ForwardAdmissionRequest,
+      dataset_manifest: record(input.dataset_manifest) as unknown as ReplayDatasetManifest,
       bars: array(input.bars) as ReplayMarketBar[],
       funding_events: array(input.funding_events) as ReplayFundingEvent[],
       artifact_root: text(input.artifact_root) || undefined,

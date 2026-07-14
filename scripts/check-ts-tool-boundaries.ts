@@ -133,6 +133,7 @@ function isAllowedResearchStrategyDevelopmentImport(sourceTool: string, targetTo
   }
   const allowedDomainDag = new Set([
     "modules/research-strategy-development/replay-execution-plane/compatibility/benchmark-engine -> modules/research-strategy-development/replay-execution-plane/compatibility/replay-engine",
+    "modules/research-strategy-development/replay-execution-plane/compatibility/replay-engine -> modules/research-strategy-development/replay-execution-plane/accounting",
     "modules/research-strategy-development/replay-execution-plane/compatibility/benchmark-runner -> modules/research-strategy-development/replay-execution-plane/compatibility/benchmark-engine",
     "modules/research-strategy-development/replay-execution-plane/certification/calibration-suite -> modules/research-strategy-development/replay-execution-plane/compatibility/benchmark-engine",
     "modules/research-strategy-development/agent-roles/developer/candidate-batch -> modules/research-strategy-development/agent-roles/developer/candidate-batch-engine",
@@ -169,6 +170,12 @@ function isAllowedResearchStrategyDevelopmentImport(sourceTool: string, targetTo
     "modules/research-strategy-development/research-control-plane/strategy-registry -> modules/research-strategy-development/research-control-plane/contracts",
     "modules/research-strategy-development/research-control-plane/strategy-registry -> modules/research-strategy-development/research-control-plane/strategy-policy-writer",
     "modules/research-strategy-development/replay-execution-plane/engine -> modules/research-strategy-development/replay-execution-plane/contracts",
+    "modules/research-strategy-development/replay-execution-plane/engine -> modules/research-strategy-development/replay-execution-plane/data-adapter",
+    "modules/research-strategy-development/replay-execution-plane/engine -> modules/research-strategy-development/replay-execution-plane/accounting",
+    "modules/research-strategy-development/replay-execution-plane/engine -> modules/research-strategy-development/replay-execution-plane/metrics",
+    "modules/research-strategy-development/replay-execution-plane/data-adapter -> modules/research-strategy-development/replay-execution-plane/contracts",
+    "modules/research-strategy-development/replay-execution-plane/accounting -> modules/research-strategy-development/replay-execution-plane/contracts",
+    "modules/research-strategy-development/replay-execution-plane/metrics -> modules/research-strategy-development/replay-execution-plane/contracts",
     "modules/research-strategy-development/replay-execution-plane/runner -> modules/research-strategy-development/replay-execution-plane/contracts",
     "modules/research-strategy-development/replay-execution-plane/runner -> modules/research-strategy-development/replay-execution-plane/engine",
     "modules/research-strategy-development/forward-evidence-plane/contracts -> modules/research-strategy-development/research-control-plane/contracts",
@@ -187,6 +194,7 @@ function isAllowedResearchStrategyDevelopmentImport(sourceTool: string, targetTo
     "modules/research-strategy-development/agent-roles/developer/strategy-family-engine -> modules/research-strategy-development/replay-execution-plane/compatibility/replay-engine",
   ])
   return sourceTool === "modules/research-strategy-development/research-control-plane/tests"
+    || sourceTool === "modules/research-strategy-development/replay-execution-plane/tests"
     || allowedDomainDag.has(`${sourceTool} -> ${targetTool}`)
 }
 

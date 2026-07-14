@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
 import { run } from "./main"
-import { REPLAY_REQUEST_SCHEMA_VERSION, REPLAY_SIMULATOR_POLICY_VERSION } from "../../../../contracts/src/lib/replay-contracts"
+import { REPLAY_DATASET_MANIFEST_SCHEMA_VERSION, REPLAY_REQUEST_SCHEMA_VERSION, REPLAY_SIMULATOR_POLICY_VERSION, replayDatasetHash } from "../../../../contracts/src/lib/replay-contracts"
 
 type JSONRecord = Record<string, unknown>
 
@@ -48,11 +48,13 @@ test("replay runner executes registered strategy", () => {
 
 test("legacy replay runner adapts Trial-bound requests to Replay Execution Plane", () => {
   const hash = "a".repeat(64)
+  const bars = [{ open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 100, high: 111, low: 99, close: 110, volume: 10, closed: true as const }]
+  const dataHash = replayDatasetHash(bars)
   const executionRequest = {
     schema_version: REPLAY_REQUEST_SCHEMA_VERSION,
     run_id: "adapter-run-1", idempotency_key: "adapter-key-1", experiment_id: "experiment-1",
     trial_group_id: "group-1", trial_group_hash: hash, trial_id: "trial-1", candidate_id: "candidate-1", candidate_hash: hash,
-    identity_hash_policy_version: "identity-v1", experiment_contract_hash: hash, dataset_manifest_ref: "dataset://fixture", dataset_hash: hash,
+    identity_hash_policy_version: "identity-v1", experiment_contract_hash: hash, dataset_manifest_ref: "dataset://fixture", dataset_hash: dataHash,
     harness_hash: hash, assumptions_hash: hash, symbol: "BTCUSDT", timeframe: "4h", initial_cash: 1000,
     order: { side: "long", quantity: 1, signal_time: "2026-07-14T00:00:00Z", earliest_executable_time: "2026-07-14T04:00:00Z", stop_price: 95, target_price: 110 },
     cost_policy: { policy_id: "fixture", version: "1", fee_bps: 0, slippage_bps: 0 },
@@ -60,7 +62,17 @@ test("legacy replay runner adapts Trial-bound requests to Replay Execution Plane
   }
   const result = run(["--json", JSON.stringify({
     execution_request: executionRequest,
-    bars: [{ open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 100, high: 111, low: 99, close: 110, volume: 10, closed: true }],
+    dataset_manifest: {
+      schema_version: REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
+      manifest_id: "manifest-1", manifest_ref: "dataset://fixture", data_hash: dataHash,
+      dataset_kind: "ohlcv", symbol: "BTCUSDT", timeframe: "4h", interval_ms: 14_400_000,
+      row_count: 1, first_open_time: bars[0].open_time, last_close_time: bars[0].close_time,
+      observed_through: bars[0].close_time, closed_candles_only: true,
+      bar_final_availability: "close_time", funding_availability: "event_time",
+      instrument: { listed_at: "2020-01-01T00:00:00Z", trading_enabled_at: "2020-01-01T00:00:00Z", delisted_at: null, status_history: "complete" },
+      universe: { selected_at: "2026-07-13T00:00:00Z", survivorship: "point_in_time" },
+    },
+    bars,
   })]) as { ok: boolean; data: { status: string } }
   assert.equal(result.ok, true)
   assert.equal(result.data.status, "completed")

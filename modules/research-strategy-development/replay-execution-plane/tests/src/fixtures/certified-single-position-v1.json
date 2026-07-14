@@ -1,0 +1,93 @@
+{
+  "request": {
+    "schema_version": "trade.rd-replay-execution-request.v1",
+    "run_id": "golden-run",
+    "idempotency_key": "golden-idempotency",
+    "experiment_id": "exp-golden",
+    "trial_group_id": "tg-golden",
+    "trial_group_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "trial_id": "trial-golden",
+    "candidate_id": "candidate-golden",
+    "candidate_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "identity_hash_policy_version": "rd-identity-v1",
+    "experiment_contract_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "dataset_manifest_ref": "dataset://golden",
+    "dataset_hash": "46bd914508b3a765b1a95c4f33aa5442e2afbc46e6a27dee042fd1035c695d2d",
+    "harness_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "assumptions_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "symbol": "BTCUSDT",
+    "timeframe": "4h",
+    "initial_cash": 1000,
+    "order": {
+      "side": "long",
+      "quantity": 1,
+      "signal_time": "2026-07-14T00:00:00Z",
+      "earliest_executable_time": "2026-07-14T04:00:00Z",
+      "stop_price": 90,
+      "target_price": 110
+    },
+    "cost_policy": {
+      "policy_id": "golden-cost",
+      "version": "v1",
+      "fee_bps": 10,
+      "slippage_bps": 5
+    },
+    "simulator_policy": {
+      "version": "rd-replay-simulator-v1",
+      "signal_visibility": "closed_candle",
+      "earliest_execution": "next_open",
+      "same_bar_policy": "stop_first",
+      "gap_fill_policy": "worse_open",
+      "position_accounting": "average_cost",
+      "funding_timing": "exact_event"
+    },
+    "random_seed": 7
+  },
+  "dataset_manifest": {
+    "schema_version": "trade.rd-replay-dataset-manifest.v1",
+    "manifest_id": "manifest-golden",
+    "manifest_ref": "dataset://golden",
+    "data_hash": "46bd914508b3a765b1a95c4f33aa5442e2afbc46e6a27dee042fd1035c695d2d",
+    "dataset_kind": "ohlcv",
+    "symbol": "BTCUSDT",
+    "timeframe": "4h",
+    "interval_ms": 14400000,
+    "row_count": 1,
+    "first_open_time": "2026-07-14T04:00:00Z",
+    "last_close_time": "2026-07-14T08:00:00Z",
+    "observed_through": "2026-07-14T08:00:00Z",
+    "closed_candles_only": true,
+    "bar_final_availability": "close_time",
+    "funding_availability": "event_time",
+    "instrument": {
+      "listed_at": "2020-01-01T00:00:00Z",
+      "trading_enabled_at": "2020-01-01T00:00:00Z",
+      "delisted_at": null,
+      "status_history": "complete"
+    },
+    "universe": {
+      "selected_at": "2026-07-13T00:00:00Z",
+      "survivorship": "point_in_time"
+    }
+  },
+  "bars": [
+    {
+      "open_time": "2026-07-14T04:00:00Z",
+      "close_time": "2026-07-14T08:00:00Z",
+      "open": 100,
+      "high": 111,
+      "low": 99,
+      "close": 109,
+      "volume": 10,
+      "closed": true
+    }
+  ],
+  "funding_events": [
+    {
+      "timestamp": "2026-07-14T06:00:00Z",
+      "rate": 0.001,
+      "mark_price": 105
+    }
+  ],
+  "expected_semantic_digest": "7841f5a4b82b9cf5776a2f223071221845af513837dfe25fea20125f81974683"
+}

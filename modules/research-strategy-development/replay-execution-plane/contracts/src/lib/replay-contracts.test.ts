@@ -1,8 +1,10 @@
 import { expect, test } from "bun:test"
 import {
+  REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
   REPLAY_REQUEST_SCHEMA_VERSION,
   REPLAY_SIMULATOR_POLICY_VERSION,
   assertReplayExecutionRequest,
+  assertReplayDatasetManifest,
   canonicalHash,
   type ReplayExecutionRequest,
 } from "./replay-contracts"
@@ -58,4 +60,19 @@ test("Replay request requires complete Trial and evidence identity", () => {
 
 test("canonical hash is independent of object key order", () => {
   expect(canonicalHash({ b: 2, a: 1 })).toBe(canonicalHash({ a: 1, b: 2 }))
+})
+
+test("Replay dataset manifest requires explicit UTC lifecycle and availability policy", () => {
+  const manifest = {
+    schema_version: REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
+    manifest_id: "manifest-1", manifest_ref: "dataset://btc-4h", data_hash: HASH,
+    dataset_kind: "ohlcv" as const, symbol: "BTCUSDT", timeframe: "4h", interval_ms: 14_400_000,
+    row_count: 1, first_open_time: "2026-07-14T04:00:00Z", last_close_time: "2026-07-14T08:00:00Z",
+    observed_through: "2026-07-14T08:00:00Z", closed_candles_only: true as const,
+    bar_final_availability: "close_time" as const, funding_availability: "event_time" as const,
+    instrument: { listed_at: "2020-01-01T00:00:00Z", trading_enabled_at: "2020-01-01T00:00:00Z", delisted_at: null, status_history: "complete" as const },
+    universe: { selected_at: "2026-07-14T00:00:00Z", survivorship: "point_in_time" as const },
+  }
+  expect(() => assertReplayDatasetManifest(manifest)).not.toThrow()
+  expect(() => assertReplayDatasetManifest({ ...manifest, observed_through: "2026-07-14T07:59:59+00:00" })).toThrow("RFC 3339 UTC")
 })
