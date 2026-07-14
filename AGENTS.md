@@ -40,9 +40,9 @@
 当用户要求“运行一次 RD 开发策略 / 跑一次策略研发 / J04 R&D”时，不要从 `package.json`、`toolset.json` 重新摸入口；直接按本节执行。
 
 - 标准入口是 `research.rd-supervisor`：
-  `bun modules/research-strategy-development/rd-supervisor/src/scripts/main.ts --supervisor-job --db ./data/rd_state.db --program-id rd-program --catalog-db ./data/data_catalog.db --json '<payload>'`
+  `bun modules/research-strategy-development/research-control-plane/program-supervisor/src/scripts/main.ts --supervisor-job --db ./data/rd_state.db --program-id rd-program --catalog-db ./data/data_catalog.db --json '<payload>'`
 - 若 `rd_program_state` 不存在，使用 `--supervisor-job` 让 supervisor 自行初始化；不要先手写 DB。
-- 若 supervisor 返回空队列或无 ready hypothesis，这不是一次有效策略开发。按 `docs/rd-strategy-designer.md` 生成一条结构化 hypothesis contract，执行：
+- 若 supervisor 返回空队列或无 ready hypothesis，这不是一次有效策略开发。按 `docs/rd-strategy-universe-design.md` 与 `modules/research-strategy-development/agent-roles/planner/strategy-hypothesis-designer/CONTRACT.md` 的边界生成结构化 hypothesis contract，执行：
   - `research.strategy-hypothesis-designer --action validate`
   - `research.strategy-hypothesis-designer --action queue_item`
   - `research.rd-program-state --json '{"action":"update", ...}'` 写入 `next_hypothesis_queue` 并恢复 `status=active`
