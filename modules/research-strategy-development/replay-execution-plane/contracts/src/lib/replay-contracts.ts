@@ -1,10 +1,14 @@
 import { createHash } from "node:crypto"
 
 export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v1" as const
-export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v1" as const
-export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v1" as const
-export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v1" as const
-export const REPLAY_DATASET_MANIFEST_SCHEMA_VERSION = "trade.rd-replay-dataset-manifest.v1" as const
+export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v7" as const
+export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v7" as const
+export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v2" as const
+export const REPLAY_NUMERIC_POLICY_VERSION = "rd-replay-number-v3" as const
+export const REPLAY_DERIVED_DECIMAL_INCREMENT = "0.000000000001" as const
+export const REPLAY_JOURNAL_POLICY_VERSION = "rd-replay-journal-v1" as const
+export const REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION = "rd-replay-instrument-accounting-v1" as const
+export const REPLAY_DATASET_MANIFEST_SCHEMA_VERSION = "trade.rd-replay-dataset-manifest.v2" as const
 
 export interface ReplayExecutionRequest {
   schema_version: typeof REPLAY_REQUEST_SCHEMA_VERSION
@@ -90,11 +94,24 @@ export interface ReplayDatasetManifest {
     trading_enabled_at: string
     delisted_at: string | null
     status_history: "complete" | "current_snapshot_only"
+    accounting: ReplayInstrumentAccountingSpec
   }
   universe: {
     selected_at: string
     survivorship: "point_in_time" | "survivor_only"
   }
+}
+
+export interface ReplayInstrumentAccountingSpec {
+  spec_version: typeof REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION
+  product_type: "linear_derivative"
+  base_asset: string
+  quote_asset: string
+  settlement_asset: string
+  contract_multiplier: string
+  price_increment: string
+  quantity_increment: string
+  settlement_increment: string
 }
 
 export interface ReplayLimitation {
@@ -103,11 +120,90 @@ export interface ReplayLimitation {
   detail: string
 }
 
+export type ReplayOrderSide = "buy" | "sell"
+export type ReplayOrderRole = "entry" | "stop" | "target" | "end_of_data"
+export type ReplayOrderType = "market" | "stop_market" | "take_profit_market"
+export type ReplayOrderStatus = "submitted" | "active" | "triggered" | "partially_filled" | "filled" | "cancelled" | "rejected"
+
+export type ReplayBoundaryPhase = 0 | 10 | 20 | 70 | 90 | 100
+
+export interface ReplayEventKey {
+  event_time: string
+  boundary_phase: ReplayBoundaryPhase
+  source_sequence: number
+  event_subphase: number
+  stable_event_id: string
+}
+
+export function compareReplayEventKeys(left: ReplayEventKey, right: ReplayEventKey): number {
+  assertReplayEventKey(left)
+  assertReplayEventKey(right)
+  const leftTime = Date.parse(left.event_time)
+  const rightTime = Date.parse(right.event_time)
+  if (leftTime !== rightTime) return leftTime < rightTime ? -1 : 1
+  for (const field of ["boundary_phase", "source_sequence", "event_subphase"] as const) {
+    if (left[field] !== right[field]) return left[field] < right[field] ? -1 : 1
+  }
+  if (left.stable_event_id === right.stable_event_id) return 0
+  return left.stable_event_id < right.stable_event_id ? -1 : 1
+}
+
+export function assertReplayEventKey(value: ReplayEventKey): void {
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(value.event_time)
+      || !Number.isFinite(Date.parse(value.event_time))) throw new Error("event key time must be RFC 3339 UTC")
+  if (![0, 10, 20, 70, 90, 100].includes(value.boundary_phase)) throw new Error("unsupported Replay boundary phase")
+  if (!Number.isSafeInteger(value.source_sequence) || value.source_sequence < 0) throw new Error("source_sequence must be a non-negative safe integer")
+  if (!Number.isSafeInteger(value.event_subphase) || value.event_subphase < 0) throw new Error("event_subphase must be a non-negative safe integer")
+  if (typeof value.stable_event_id !== "string" || value.stable_event_id.trim() === "") throw new Error("stable_event_id is required")
+}
+
+export interface ReplayOrder {
+  order_id: string
+  order_role: ReplayOrderRole
+  order_type: ReplayOrderType
+  side: ReplayOrderSide
+  quantity: number
+  filled_quantity: number
+  remaining_quantity: number
+  reduce_only: boolean
+  status: ReplayOrderStatus
+  submitted_at: string
+  active_at: string | null
+  trigger_price: number | null
+  last_event_sequence: number
+  last_event_key: ReplayEventKey
+}
+
+export interface ReplayOrderEvent {
+  event_id: string
+  order_id: string
+  sequence: number
+  event_key: ReplayEventKey
+  timestamp: string
+  kind: "submitted" | "activated" | "triggered" | "partially_filled" | "filled" | "cancelled" | "rejected"
+  status: ReplayOrderStatus
+  fill_quantity: number
+  remaining_quantity: number
+  signed_position_after: number
+  reason: string | null
+  trigger_source: "bar_open" | "bar_range" | null
+  trigger_observed_price: number | null
+}
+
+export interface ReplaySourceEvent {
+  source_event_id: string
+  kind: "instrument_delisted" | "bar_open" | "bar_range" | "funding"
+  source_index: number
+  event_key: ReplayEventKey
+}
+
 export interface ReplayFill {
   fill_id: string
-  order_role: "entry" | "stop" | "target" | "end_of_data"
+  order_id: string
+  order_role: ReplayOrderRole
+  event_key: ReplayEventKey
   timestamp: string
-  side: "buy" | "sell"
+  side: ReplayOrderSide
   quantity: number
   price: number
   fee: number
@@ -116,11 +212,78 @@ export interface ReplayFill {
 
 export interface ReplayLedgerEntry {
   entry_id: string
+  event_key: ReplayEventKey
   timestamp: string
   kind: "initial_cash" | "trade_cash" | "fee" | "funding" | "realized_pnl" | "ending_equity"
   amount: number
   balance_after: number
   ref: string
+}
+
+export type ReplayJournalAccount =
+  | "wallet_cash"
+  | "opening_equity"
+  | "realized_pnl_income"
+  | "realized_pnl_loss"
+  | "fee_expense"
+  | "funding_income"
+  | "funding_expense"
+
+export interface ReplayJournalLeg {
+  leg_id: string
+  account: ReplayJournalAccount
+  side: "debit" | "credit"
+  asset: string
+  amount: number
+}
+
+export interface ReplayJournalEntry {
+  journal_entry_id: string
+  event_key: ReplayEventKey
+  timestamp: string
+  kind: "opening_balance" | "fee" | "funding" | "realized_pnl"
+  ref: string
+  policy_version: typeof REPLAY_JOURNAL_POLICY_VERSION
+  legs: [ReplayJournalLeg, ReplayJournalLeg]
+}
+
+export interface ReplayJournalAccountBalance {
+  account: ReplayJournalAccount
+  debit_total: number
+  credit_total: number
+  net_debit: number
+}
+
+export interface ReplayTrialBalance {
+  policy_version: typeof REPLAY_JOURNAL_POLICY_VERSION
+  settlement_asset: string
+  debit_total: number
+  credit_total: number
+  account_balances: ReplayJournalAccountBalance[]
+  wallet_cash_balance: number
+  ending_equity: number
+  balanced: true
+}
+
+export interface ReplayPositionProjection {
+  position_event_id: string
+  position_id: string
+  sequence: number
+  event_key: ReplayEventKey
+  timestamp: string
+  cause_fill_id: string
+  symbol: string
+  accounting_method: "average_cost"
+  numeric_policy_version: typeof REPLAY_NUMERIC_POLICY_VERSION
+  state: "open" | "flat"
+  side: "long" | "short" | null
+  signed_quantity: number
+  average_entry_price: number | null
+  valuation_price: number
+  valuation_source: "fill_price"
+  realized_pnl_delta: number
+  realized_pnl_cumulative: number
+  unrealized_pnl: number
 }
 
 export interface ReplayEvidenceFingerprint {
@@ -134,6 +297,8 @@ export interface ReplayEvidenceFingerprint {
   assumptions_hash: string
   cost_policy_hash: string
   simulator_policy_version: string
+  numeric_policy_version: typeof REPLAY_NUMERIC_POLICY_VERSION
+  journal_policy_version: typeof REPLAY_JOURNAL_POLICY_VERSION
   request_hash: string
   result_hash: string
   random_seed: number
@@ -145,8 +310,13 @@ export interface ReplayResult {
   status: "completed" | "failed" | "cancelled"
   started_at: string
   completed_at: string
+  source_events: ReplaySourceEvent[]
+  order_events: ReplayOrderEvent[]
   fills: ReplayFill[]
+  positions: ReplayPositionProjection[]
   ledger: ReplayLedgerEntry[]
+  journal: ReplayJournalEntry[]
+  trial_balance: ReplayTrialBalance
   metrics: {
     initial_cash: number
     ending_equity: number
@@ -250,6 +420,7 @@ export function assertReplayDatasetManifest(manifest: ReplayDatasetManifest): vo
   if (manifest.instrument.status_history !== "complete" && manifest.instrument.status_history !== "current_snapshot_only") {
     fail("unsupported instrument status history policy")
   }
+  assertReplayInstrumentAccountingSpec(manifest.instrument.accounting)
   if (manifest.universe.survivorship !== "point_in_time" && manifest.universe.survivorship !== "survivor_only") {
     fail("unsupported universe survivorship policy")
   }
@@ -263,6 +434,35 @@ export function assertReplayDatasetManifest(manifest: ReplayDatasetManifest): vo
   if (manifest.closed_candles_only !== true
       || manifest.bar_final_availability !== "close_time"
       || manifest.funding_availability !== "event_time") fail("unsupported Replay dataset availability policy")
+}
+
+export function assertReplayInstrumentAccountingSpec(spec: ReplayInstrumentAccountingSpec): void {
+  if (spec.spec_version !== REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION) fail("unsupported instrument accounting spec")
+  if (spec.product_type !== "linear_derivative") fail("certified Replay only supports linear derivatives")
+  for (const [field, asset] of Object.entries({
+    base_asset: spec.base_asset,
+    quote_asset: spec.quote_asset,
+    settlement_asset: spec.settlement_asset,
+  })) {
+    const normalized = requireText(asset, `instrument.accounting.${field}`)
+    if (!/^[A-Z0-9]{2,16}$/.test(normalized)) fail(`instrument.accounting.${field} must be an uppercase asset id`)
+  }
+  if (spec.base_asset === spec.quote_asset) fail("instrument base and quote assets must differ")
+  if (spec.quote_asset !== spec.settlement_asset) fail("certified linear Replay requires quote-asset settlement")
+  if (spec.contract_multiplier !== "1") fail("certified Replay currently requires a unit contract multiplier")
+  for (const [field, value] of Object.entries({
+    contract_multiplier: spec.contract_multiplier,
+    price_increment: spec.price_increment,
+    quantity_increment: spec.quantity_increment,
+    settlement_increment: spec.settlement_increment,
+  })) requireCanonicalPositiveDecimal(value, `instrument.accounting.${field}`)
+  for (const [field, value] of Object.entries({
+    price_increment: spec.price_increment,
+    quantity_increment: spec.quantity_increment,
+    settlement_increment: spec.settlement_increment,
+  })) {
+    if ((value.split(".")[1]?.length ?? 0) > 12) fail(`instrument.accounting.${field} exceeds Numeric Policy v3 scale`)
+  }
 }
 
 export function replayDatasetHash(bars: ReplayMarketBar[], fundingEvents: ReplayFundingEvent[] = []): string {
@@ -317,6 +517,14 @@ function requireNonNegative(value: unknown, field: string): void {
 function requireText(value: unknown, field: string): string {
   if (typeof value !== "string" || value.trim() === "") fail(`${field} is required`)
   return value.trim()
+}
+
+function requireCanonicalPositiveDecimal(value: unknown, field: string): string {
+  const text = requireText(value, field)
+  if (!/^(?:0|[1-9]\d*)(?:\.\d*[1-9])?$/.test(text) || Number(text) <= 0 || !Number.isFinite(Number(text))) {
+    fail(`${field} must be a canonical positive decimal string`)
+  }
+  return text
 }
 
 function fail(message: string): never {

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
   REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
+  REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION,
   REPLAY_REQUEST_SCHEMA_VERSION,
   REPLAY_SIMULATOR_POLICY_VERSION,
   replayDatasetHash,
@@ -42,7 +43,10 @@ function datasetManifest(): ReplayDatasetManifest {
     row_count: 1, first_open_time: bars[0].open_time, last_close_time: bars[0].close_time,
     observed_through: bars[0].close_time, closed_candles_only: true,
     bar_final_availability: "close_time", funding_availability: "event_time",
-    instrument: { listed_at: "2020-01-01T00:00:00Z", trading_enabled_at: "2020-01-01T00:00:00Z", delisted_at: null, status_history: "complete" },
+    instrument: {
+      listed_at: "2020-01-01T00:00:00Z", trading_enabled_at: "2020-01-01T00:00:00Z", delisted_at: null, status_history: "complete",
+      accounting: { spec_version: REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, product_type: "linear_derivative", base_asset: "BTC", quote_asset: "USDT", settlement_asset: "USDT", contract_multiplier: "1", price_increment: "0.01", quantity_increment: "0.001", settlement_increment: "0.00000001" },
+    },
     universe: { selected_at: "2026-07-13T00:00:00Z", survivorship: "point_in_time" },
   }
 }
@@ -52,7 +56,7 @@ test("runner atomically commits artifacts and retries idempotently", () => {
   const first = runReplayTrial({ request: boundRequest(), dataset_manifest: datasetManifest(), bars, artifact_root: root })
   const second = runReplayTrial({ request: boundRequest(), dataset_manifest: datasetManifest(), bars, artifact_root: root })
   expect(first.status).toBe("completed")
-  expect(first.artifact_manifest?.files.map((file) => file.role)).toEqual(["request", "dataset_manifest", "result", "fills", "ledger"])
+  expect(first.artifact_manifest?.files.map((file) => file.role)).toEqual(["request", "dataset_manifest", "result", "source_events", "order_events", "fills", "positions", "ledger", "journal", "trial_balance"])
   expect(second.status).toBe("completed")
   expect(second.idempotent_replay).toBe(true)
 })
@@ -61,4 +65,18 @@ test("runner represents early cancellation without publishing partial evidence",
   const result = runReplayTrial({ request: boundRequest(), dataset_manifest: datasetManifest(), bars, cancel_requested: true })
   expect(result.status).toBe("cancelled")
   expect(result.failure?.partial_result_published).toBe(false)
+})
+
+test("runner refuses to invent a delisting settlement price for an open position", () => {
+  const manifest = datasetManifest()
+  const result = runReplayTrial({
+    request: boundRequest(),
+    dataset_manifest: { ...manifest, instrument: { ...manifest.instrument, delisted_at: bars[0].close_time } },
+    bars,
+  })
+  expect(result.status).toBe("failed")
+  expect(result.failure?.code).toBe("instrument-delisted-with-open-position")
+  expect(result.failure?.retryable).toBe(false)
+  expect(result.failure?.partial_result_published).toBe(false)
+  expect(result.failure?.event_key?.boundary_phase).toBe(0)
 })

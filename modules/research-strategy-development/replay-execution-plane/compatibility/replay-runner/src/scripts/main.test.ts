@@ -4,7 +4,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
 import { run } from "./main"
-import { REPLAY_DATASET_MANIFEST_SCHEMA_VERSION, REPLAY_REQUEST_SCHEMA_VERSION, REPLAY_SIMULATOR_POLICY_VERSION, replayDatasetHash } from "../../../../contracts/src/lib/replay-contracts"
+import { REPLAY_DATASET_MANIFEST_SCHEMA_VERSION, REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, REPLAY_REQUEST_SCHEMA_VERSION, REPLAY_SIMULATOR_POLICY_VERSION, replayDatasetHash } from "../../../../contracts/src/lib/replay-contracts"
 
 type JSONRecord = Record<string, unknown>
 
@@ -69,7 +69,10 @@ test("legacy replay runner adapts Trial-bound requests to Replay Execution Plane
       row_count: 1, first_open_time: bars[0].open_time, last_close_time: bars[0].close_time,
       observed_through: bars[0].close_time, closed_candles_only: true,
       bar_final_availability: "close_time", funding_availability: "event_time",
-      instrument: { listed_at: "2020-01-01T00:00:00Z", trading_enabled_at: "2020-01-01T00:00:00Z", delisted_at: null, status_history: "complete" },
+      instrument: {
+        listed_at: "2020-01-01T00:00:00Z", trading_enabled_at: "2020-01-01T00:00:00Z", delisted_at: null, status_history: "complete",
+        accounting: { spec_version: REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, product_type: "linear_derivative", base_asset: "BTC", quote_asset: "USDT", settlement_asset: "USDT", contract_multiplier: "1", price_increment: "0.01", quantity_increment: "0.001", settlement_increment: "0.00000001" },
+      },
       universe: { selected_at: "2026-07-13T00:00:00Z", survivorship: "point_in_time" },
     },
     bars,

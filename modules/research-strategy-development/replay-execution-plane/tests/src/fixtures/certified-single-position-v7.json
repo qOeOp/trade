@@ -33,7 +33,7 @@
       "slippage_bps": 5
     },
     "simulator_policy": {
-      "version": "rd-replay-simulator-v1",
+      "version": "rd-replay-simulator-v2",
       "signal_visibility": "closed_candle",
       "earliest_execution": "next_open",
       "same_bar_policy": "stop_first",
@@ -44,7 +44,7 @@
     "random_seed": 7
   },
   "dataset_manifest": {
-    "schema_version": "trade.rd-replay-dataset-manifest.v1",
+    "schema_version": "trade.rd-replay-dataset-manifest.v2",
     "manifest_id": "manifest-golden",
     "manifest_ref": "dataset://golden",
     "data_hash": "46bd914508b3a765b1a95c4f33aa5442e2afbc46e6a27dee042fd1035c695d2d",
@@ -63,7 +63,18 @@
       "listed_at": "2020-01-01T00:00:00Z",
       "trading_enabled_at": "2020-01-01T00:00:00Z",
       "delisted_at": null,
-      "status_history": "complete"
+      "status_history": "complete",
+      "accounting": {
+        "spec_version": "rd-replay-instrument-accounting-v1",
+        "product_type": "linear_derivative",
+        "base_asset": "BTC",
+        "quote_asset": "USDT",
+        "settlement_asset": "USDT",
+        "contract_multiplier": "1",
+        "price_increment": "0.01",
+        "quantity_increment": "0.001",
+        "settlement_increment": "0.00000001"
+      }
     },
     "universe": {
       "selected_at": "2026-07-13T00:00:00Z",
@@ -89,5 +100,5 @@
       "mark_price": 105
     }
   ],
-  "expected_semantic_digest": "7841f5a4b82b9cf5776a2f223071221845af513837dfe25fea20125f81974683"
+  "expected_semantic_digest": "7d6ad8336f0dd63a8c499edd777631a36fac74dfbd3e7c83f4f47cda4d6df4b3"
 }

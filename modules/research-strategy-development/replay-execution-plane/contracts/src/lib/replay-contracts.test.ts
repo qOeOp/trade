@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test"
 import {
   REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
+  REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION,
   REPLAY_REQUEST_SCHEMA_VERSION,
   REPLAY_SIMULATOR_POLICY_VERSION,
   assertReplayExecutionRequest,
@@ -70,9 +71,16 @@ test("Replay dataset manifest requires explicit UTC lifecycle and availability p
     row_count: 1, first_open_time: "2026-07-14T04:00:00Z", last_close_time: "2026-07-14T08:00:00Z",
     observed_through: "2026-07-14T08:00:00Z", closed_candles_only: true as const,
     bar_final_availability: "close_time" as const, funding_availability: "event_time" as const,
-    instrument: { listed_at: "2020-01-01T00:00:00Z", trading_enabled_at: "2020-01-01T00:00:00Z", delisted_at: null, status_history: "complete" as const },
+    instrument: {
+      listed_at: "2020-01-01T00:00:00Z", trading_enabled_at: "2020-01-01T00:00:00Z", delisted_at: null, status_history: "complete" as const,
+      accounting: { spec_version: REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, product_type: "linear_derivative" as const, base_asset: "BTC", quote_asset: "USDT", settlement_asset: "USDT", contract_multiplier: "1", price_increment: "0.01", quantity_increment: "0.001", settlement_increment: "0.00000001" },
+    },
     universe: { selected_at: "2026-07-14T00:00:00Z", survivorship: "point_in_time" as const },
   }
   expect(() => assertReplayDatasetManifest(manifest)).not.toThrow()
   expect(() => assertReplayDatasetManifest({ ...manifest, observed_through: "2026-07-14T07:59:59+00:00" })).toThrow("RFC 3339 UTC")
+  expect(() => assertReplayDatasetManifest({
+    ...manifest,
+    instrument: { ...manifest.instrument, accounting: { ...manifest.instrument.accounting, settlement_asset: "BTC" } },
+  })).toThrow("quote-asset settlement")
 })

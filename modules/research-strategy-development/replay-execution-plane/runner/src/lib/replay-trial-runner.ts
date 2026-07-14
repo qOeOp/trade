@@ -3,16 +3,19 @@ import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "
 import { join } from "node:path"
 import {
   REPLAY_ARTIFACT_SCHEMA_VERSION,
+  REPLAY_RESULT_SCHEMA_VERSION,
   canonicalHash,
   canonicalJson,
   type ReplayArtifactManifest,
   type ReplayDatasetManifest,
   type ReplayExecutionRequest,
+  type ReplayEventKey,
   type ReplayFundingEvent,
   type ReplayMarketBar,
   type ReplayResult,
 } from "../../../contracts/src/lib/replay-contracts"
 import { executeReplayKernel } from "../../../engine/src/lib/replay-reference-engine"
+import { ReplayInstrumentTerminalError } from "../../../engine/src/lib/replay-source-reducer"
 
 export interface ReplayTrialRunInput {
   request: ReplayExecutionRequest
@@ -31,10 +34,11 @@ export interface ReplayTrialRunOutcome {
   result?: ReplayResult
   artifact_manifest?: ReplayArtifactManifest
   failure?: {
-    code: "cancelled-before-start" | "replay-execution-failed"
+    code: "cancelled-before-start" | "instrument-delisted-with-open-position" | "replay-execution-failed"
     message: string
     retryable: boolean
     partial_result_published: false
+    event_key?: ReplayEventKey
   }
 }
 
@@ -67,16 +71,18 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
       artifact_manifest: artifactManifest,
     }
   } catch (error) {
+    const instrumentTerminal = error instanceof ReplayInstrumentTerminalError
     return {
       schema_version: "trade.rd-replay-run-outcome.v1",
       run_id: input.request.run_id,
       status: "failed",
       idempotent_replay: false,
       failure: {
-        code: "replay-execution-failed",
+        code: instrumentTerminal ? error.code : "replay-execution-failed",
         message: error instanceof Error ? error.message : String(error),
         retryable: false,
         partial_result_published: false,
+        ...(instrumentTerminal ? { event_key: error.terminal_event.event_key } : {}),
       },
     }
   }
@@ -88,14 +94,24 @@ function commitArtifacts(root: string, request: ReplayExecutionRequest, datasetM
   const requestText = `${canonicalJson(request)}\n`
   const datasetManifestText = `${canonicalJson(datasetManifest)}\n`
   const resultText = `${canonicalJson(result)}\n`
+  const sourceEventsText = result.source_events.map((event) => canonicalJson(event)).join("\n") + "\n"
+  const orderEventsText = result.order_events.map((event) => canonicalJson(event)).join("\n") + "\n"
   const fillsText = result.fills.map((fill) => canonicalJson(fill)).join("\n") + "\n"
+  const positionsText = result.positions.map((position) => canonicalJson(position)).join("\n") + "\n"
   const ledgerText = result.ledger.map((entry) => canonicalJson(entry)).join("\n") + "\n"
+  const journalText = result.journal.map((entry) => canonicalJson(entry)).join("\n") + "\n"
+  const trialBalanceText = `${canonicalJson(result.trial_balance)}\n`
   const files = [
     writeAtomic(directory, "request.json", requestText, "request"),
     writeAtomic(directory, "dataset-manifest.json", datasetManifestText, "dataset_manifest"),
     writeAtomic(directory, "result.json", resultText, "result"),
+    writeAtomic(directory, "source-events.jsonl", sourceEventsText, "source_events"),
+    writeAtomic(directory, "order-events.jsonl", orderEventsText, "order_events"),
     writeAtomic(directory, "fills.jsonl", fillsText, "fills"),
+    writeAtomic(directory, "positions.jsonl", positionsText, "positions"),
     writeAtomic(directory, "ledger.jsonl", ledgerText, "ledger"),
+    writeAtomic(directory, "journal.jsonl", journalText, "journal"),
+    writeAtomic(directory, "trial-balance.json", trialBalanceText, "trial_balance"),
   ]
   const manifest: ReplayArtifactManifest = {
     schema_version: REPLAY_ARTIFACT_SCHEMA_VERSION,
@@ -123,14 +139,21 @@ function readCommitted(root: string, request: ReplayExecutionRequest, datasetMan
   if (canonicalHash(recordedDatasetManifest) !== canonicalHash(datasetManifest)) throw new Error("Replay idempotency key was reused with a different dataset manifest")
   const result = JSON.parse(readFileSync(resultPath, "utf8")) as ReplayResult
   const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as ReplayArtifactManifest
+  if (result.schema_version !== REPLAY_RESULT_SCHEMA_VERSION) throw new Error("committed Replay result schema is not supported")
+  if (manifest.schema_version !== REPLAY_ARTIFACT_SCHEMA_VERSION) throw new Error("committed Replay artifact schema is not supported")
   if (canonicalHash({
     schema_version: result.schema_version,
     run_id: result.run_id,
     status: result.status,
     started_at: result.started_at,
     completed_at: result.completed_at,
+    source_events: result.source_events,
+    order_events: result.order_events,
     fills: result.fills,
+    positions: result.positions,
     ledger: result.ledger,
+    journal: result.journal,
+    trial_balance: result.trial_balance,
     metrics: result.metrics,
     limitations: result.limitations,
   }) !== manifest.result_hash) throw new Error("committed Replay result hash mismatch")

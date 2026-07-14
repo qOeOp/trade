@@ -10,7 +10,7 @@ status: implemented-vertical-slice
 
 Replay Execution Plane 是 **冻结实验的确定性执行与历史证据生产面**，不是研究决策面，也不是实盘执行面。它只做一件事：把 Research Control Plane 已冻结的 Trial，连同不可变 Experiment Contract、Candidate Identity、Dataset Manifest 与模拟政策，执行成可复读的事件链、统一账本和 Result Artifact。
 
-当前成熟度判断：**M2 / 5，已认证的受限纵切**。新 owner 已实现完整 Control Plane identity binding、manifest/ref/content-hash 三方校验、RFC 3339 UTC、instrument lifecycle、point-in-time/survivor-only 声明、expected grid gap limitation、closed-candle、next-open、简单 stop/target、stop-first resolution limitation、worse-open gap、fee/slippage/exact funding ledger、Result/Fingerprint、artifact 原子提交、幂等、取消和 Forward parity；并已把输入准入、金额账本与派生指标分别收敛到 `data-adapter`、`accounting`、`metrics`，由 Plane-local golden/property/metamorphic/component-parity tests 锁定。尚未形成 supplemental feature/revision PIT join、通用 order state machine、真实 partial fill、portfolio/margin/liquidation 与 step/fast parity。它可支持明确 capability 范围内的正式证据，不能外推到复杂执行 fidelity。
+当前成熟度判断：**M2 / 5，已认证的受限纵切**。新 owner 已实现完整 Control Plane identity binding、manifest/ref/content-hash 三方校验、RFC 3339 UTC、instrument lifecycle、point-in-time/survivor-only 声明、expected grid gap limitation、closed-candle、next-open、简单 stop/target、stop-first resolution limitation、stop/TP observed-open gap、fee/slippage、Result/Fingerprint、artifact 原子提交、幂等、取消和 Forward parity；Result v7 的 OrderEvent 与 `instrument_delisted|bar_open|bar_range|funding` SourceEvent 共用 EventKey 全序，Fill 绑定实际 filled OrderEvent key，每笔 Fill 生成同 key 的 post-fill Position Projection，fee/realized PnL 复用 Fill key，funding 复用 SourceEvent key，initial/ending snapshot 使用显式 checkpoint key。Dataset Manifest v2 冻结 linear derivative 的 base/quote/settlement asset、unit multiplier 与 increment；`rd-replay-number-v3` 将准入后的有限数值转为十进制系数，以 BigInt rational 完成 bps 调价、fee、funding、linear PnL、weighted average 与 return division，再执行 quantity floor、buy-ceil/sell-floor execution price、fee ceiling、signed cashflow floor、12 位派生值 half-away，并拒绝未对齐 stop/target、OHLC、Fill、Position、Ledger 与 Journal 事实；Bun/BigInt 与 Python Decimal 已通过共享语言中立向量。Accounting 同时认证 multi-Fill net average-cost、flat-terminal cash reducer 与 `rd-replay-journal-v1` 两腿平衡 journal/trial balance。signal-time submit 后由 eligible entry `bar_open` 同步驱动 entry activate/fill 与 bracket activation，随后同一 reducer 推进 `t-` funding 与 terminal exit-order lane；entry 同时间 funding 读取 flat position，同一 open gap 在保护单 active 后处理，source/order/fill/position/ledger/journal prefix 共用因果边界。manifest-bound delisting phase `00` 仍先于同时间 funding/market，并在开放仓位到达时 typed-fail。supplemental feature/revision PIT join、generic instrument status/market/command、多订单 matching、limit/amend/multi-entry/reversal、真实 liquidity partial、position-asset/portfolio/margin/liquidation 与 step/fast parity 尚未形成；因此成熟度仍为 M2，不能外推到复杂执行 fidelity。
 
 实现路径：`replay-execution-plane/contracts`、`data-adapter`、`engine`、`accounting`、`metrics`、`runner` 与 `tests` 已成为 certified slice 的新语义 owner；`replay-execution-plane/compatibility/replay-runner` 可转发 Trial-bound request，`compatibility/replay-engine` 仅复用稳定 accounting 原语并继续作为 parity/迁移来源，不再承接新语义扩展。RD 根已无旧 Replay package。
 
@@ -86,17 +86,19 @@ flowchart LR
 
 ### 3.2 已由测试锁定的语义
 
-验证快照：`2026-07-14` 定向运行 replay-contract、replay-runner、strategy-replay/campaign、data-split、benchmark/calibration、panel 测试，共 `64 pass / 0 fail`。通过只证明下表已有行为稳定，不证明尚无 fixture 的订单/账本 fidelity。
+验证快照：`2026-07-14` Replay Plane 与 Reviewer 定向测试 `98 pass / 0 fail`，Numeric Policy Python Decimal parity `1 pass / 0 fail`；仓库级 `scripts/quality-check.sh` 全通过，其中 legacy RD integration `123 pass / 0 fail`。通过只证明下表已有行为稳定，不证明尚无 fixture 的订单/账本 fidelity。
 
 | 状态 | 当前语义 | 证据与限制 |
 | --- | --- | --- |
 | 已正式实现并测试 | closed candle 产生 signal，默认下一根 open 入场 | Certified adapter 已验证 closed、UTC、OHLC、interval/grid、manifest window 与 content hash；legacy `strategy-replay` 仍主要依赖 manifest 声明 |
-| 已正式实现并测试 | 简单 bracket 同 bar 时 stop-first | 只覆盖单仓位、单 stop/target；不能外推到多 entry、多 stop ladder、cancel 或 liquidation |
-| 已正式实现并测试 | stop gap 按更差 open 成交 | long 用 `min(stop, open)`、short 用 `max(stop, open)` |
+| 已正式实现并测试 | 简单 bracket 同 bar 时 stop-first；终结单 fill 后取消 sibling | 只覆盖单仓位、单 stop/target；不能外推到多 entry、多 stop ladder、cancel race 或 liquidation |
+| 已正式实现并测试 | stop/TP gap 在 open 已越过 trigger 时绑定 observed open，再施加不利滑点 | stop 不得回填 trigger 以掩盖更差开盘；TP 也不得等到 close 后回填 target，long/short 均有 fixture |
 | 已正式实现并测试 | break-even 在触发 bar 完成后、下一 bar 生效 | 是当前兼容 policy，不是所有 trailing/protection 的长期唯一制度 |
-| 已正式实现并测试 | 双边 fee/slippage bps、exact funding event 与 adverse funding fallback | 当前按 entry notional 估算，不是逐 fill/逐时点 position notional 账本 |
+| 已正式实现并测试 | 双边 fee/slippage bps；funding 与 bar 共用 EventKey，entry/exit 同 timestamp 使用 `t-` position | 当前 certified lane 是恒定单仓数量；尚未证明加减仓后的逐时点 position notional，adverse fallback 仅属 compatibility |
 | 已正式实现并测试 | 主 replay 不允许 lane 内重叠持仓 | loop 跳到上笔 exit 后；不支持加减仓或 portfolio 并发 |
-| 已正式实现并测试 | lane helper 的 partial TP 后剩余 stop、oversized reduce-only quantity cap | helper 未接入主 replay，只能证明两个 fixture，不证明完整 order state machine |
+| 已正式实现并测试 | SourceEvent reducer 同步驱动 entry/exit order lanes；submit/activate/trigger/partial/full/cancel/reject、EventKey 全序、oversized cap 与 wrong-side reduce-only 由独立状态 owner 守恒 | entry open、funding、bracket activation、terminal source/fill/cancel 共用因果边界且 golden 输出未变；尚无 generic halt/resume/external-command、多订单 matching、真实 partial liquidity 或 limit queue |
+| 已正式实现并测试 | multi-Fill net average-cost Position、flat-terminal cash reducer 与 settlement-asset journal | add/partial-reduce/reversal、oversized reduce-only 拒绝；fee/realized/funding 按 EventKey 合并，journal 两腿平衡且 wallet cash 对账 ending equity，但 Runner 仍只开放一开一平闭包 |
+| 已正式实现并测试 | Numeric Policy v3 rational arithmetic | bps/rate/product/division 使用 BigInt rational；quantity floor；buy fill ceil/sell fill floor；fee ceil；signed funding/realized floor；weighted average/return 12 位 half-away；未对齐 trigger/OHLC/cash evidence 拒绝；Bun/Python 共享向量 parity |
 | 已正式实现并测试 | discovery/validation/locked holdout 物理分段与 embargo | 属于 research split 纪律，不等于 Replay data adapter 已防全部 PIT 泄漏 |
 | 已正式实现并测试 | 有限 temporal provenance、data/harness/assumptions hash 外形 | 未绑定 Control Plane identity；部分 hash 覆盖和 canonicalization 仍不足 |
 
@@ -113,11 +115,10 @@ flowchart LR
 | 隐含行为 | supplemental report 的生成时间同时充当 `availability_at` | 不可靠；生成、观测、发布、可用时间必须分开 |
 | 隐含行为 | manifest 缺 universe time 时回退 dataset start/generated time | 只能输出 limitation，不能据此声称 point-in-time universe |
 | 隐含行为 | 缺 bar 被时间压缩，holding bars 只按数组索引 | 必须检测 expected grid；缺口不能当作时间不存在 |
-| 尚未设计 | cancel/amend/TIF、真实 partial fill、wrong-side reduce-only、reversal | 进入目标 order contract |
+| 尚未设计 | amend/TIF、limit queue、真实 partial fill、cancel race、multi-entry/reversal | 进入后续 order/matching capability；不得从当前状态组件推断已支持 |
 | 尚未设计 | shared cash、margin、liquidation、borrow、market impact | 进入统一 accounting/portfolio contract |
 | 尚未设计 | step/fast semantic digest parity | fast mode 上线前硬门槛 |
 | 已知不可靠 | `simulateReplayOrderLane` 的 limit 触发按 BUY-high / SELL-low，实质混同 stop；wrong-side reduce-only 可加仓 | 不修补成长期 API；在新 order kernel 用 fixture 重建 |
-| 已知不可靠 | 非 reduce-only 穿仓翻向时，旧仓 realized qty 与新仓 cost basis 未正确拆分 | 新 position accounting 必须按 close leg + residual open leg 记账 |
 | 已知不可靠 | lane helper 与主 `replayStrategy` 脱节 | 主路径迁到同一 event kernel |
 | 已知不可靠 | benchmark、panel、replay 各算一套成本/收益 | 研究 gate 可不同，执行事实必须统一 |
 | 已知不可靠 | `replayHarnessHash()` 未覆盖实际 `strategy-family-engine` 全部源码；fingerprint schema 又允许缺 data/assumptions | 不能据当前 fingerprint 声称完整复现 |
@@ -126,7 +127,7 @@ flowchart LR
 ### 3.4 最危险的五个 fidelity 缺口
 
 1. **多个模拟器、无 parity**：同一 candidate 在 replay、benchmark、panel 可能得到不同资金、成本和时序语义。
-2. **主路径没有订单/仓位/账本状态机**：partial、reduce-only、加减仓、cancel、reversal 只在局部 helper 或完全缺失。
+2. **订单状态机仅覆盖窄纵切**：主路径已有 market/bracket lifecycle 与 reduce-only 守恒，但 limit/amend、cancel race、真实 partial、加减仓、reversal 仍无统一 matching/position 事实。
 3. **OHLC 路径不可知却未输出 resolution limitation**：stop/target 之外的多订单结果可能被任意实现顺序决定。
 4. **没有 portfolio/margin/liquidation 的统一资金事实**：多资产并发、funding、fee 和强平无法对 NAV 与 risk budget 守恒。
 5. **supplemental temporal identity 不完整**：主 OHLC/funding manifest 已绑定 availability/lifecycle/gap/survivorship，但 feature/OI/event revisions、source sequence、contract-spec history 与完整 code/policy hash 尚未共同绑定。
@@ -145,7 +146,7 @@ modules/research-strategy-development/
 │   ├── accounting/                 # double-entry ledger、PnL、fee/funding/borrow、margin/liquidation
 │   ├── data-adapter/               # manifest validation、PIT join、market-event normalization
 │   ├── metrics/                    # 只从 fills/ledger/NAV 派生指标
-│   ├── artifacts/                  # event/fill/ledger/result manifest；v1 暂由 runner 物化
+│   ├── artifacts/                  # event/fill/position/ledger/journal/result manifest；v6 暂由 runner 物化
 │   ├── runner/                     # Trial 编排、幂等、checkpoint、取消、artifact commit
 │   └── tests/                      # golden fixtures、property、metamorphic、parity certification
 ├── forward-evidence-plane/
@@ -168,7 +169,9 @@ modules/research-strategy-development/
 
 ## 5. Control Plane 输入/输出合同
 
-### 5.1 `ReplayExecutionRequest v1`
+当前 certified wire id 分别为 `trade.rd-replay-execution-request.v1`、`trade.rd-replay-dataset-manifest.v2`、`trade.rd-replay-result.v7`、`trade.rd-replay-artifact-manifest.v7`；Simulator Policy 为 `rd-replay-simulator-v2`，数值政策为 `rd-replay-number-v3`，journal policy 为 `rd-replay-journal-v1`。Result/Artifact、Dataset、Simulator、Numeric 与 Journal Policy 是独立版本轴：v7 将 v6 的 increment boundary 扩展为内部 rational arithmetic 并更新 golden；撮合、事件顺序与 bar ambiguity 语义未变，故 Simulator Policy 保持 v2。下列嵌套 envelope 是目标 Control Plane 边界，不等同于当前扁平 TypeScript wire schema；未完成 reservation snapshot、attempt/completeness 与 artifact ref 切换前不得声称二者兼容。
+
+### 5.1 目标 `ReplayExecutionRequest`
 
 ```json
 {
@@ -189,7 +192,7 @@ modules/research-strategy-development/
   "dataset": {"manifest_ref": "...", "data_hash": "sha256"},
   "executable_candidate": {"ref": "...", "code_hash": "sha256"},
   "policies": {
-    "simulator_policy_version": "replay-simulator.v1",
+    "simulator_policy_version": "rd-replay-simulator-v2",
     "assumptions_ref": "...",
     "assumptions_hash": "sha256",
     "cost_policy_ref": "...",
@@ -202,7 +205,7 @@ modules/research-strategy-development/
 
 Runner 必须在开始前原子验证 Control Plane 签发的不可变 reservation snapshot：Trial 状态为 `reserved`；Trial 属于 Experiment/Group/Candidate；四类 identity/hash 与 reservation 相等；candidate 属于冻结 search space；Dataset/assumptions/cost policy 内容 hash 可复算；engine capability 覆盖 Contract。Runner 自己分配 `attempt_id`，无权改 Control Plane Trial 行。任一失败返回 typed rejection，不消费市场事件，不写正式 Result。
 
-### 5.2 `ReplayExecutionResult v2`
+### 5.2 目标 `ReplayExecutionResult`
 
 ```json
 {
@@ -218,7 +221,7 @@ Runner 必须在开始前原子验证 Control Plane 签发的不可变 reservati
     "mode": "step",
     "engine_version": "...",
     "harness_hash": "sha256",
-    "simulator_policy_version": "replay-simulator.v1",
+    "simulator_policy_version": "rd-replay-simulator-v2",
     "determinism_class": "deterministic",
     "resolution": {"status": "exact", "limited_event_count": 0}
   },
@@ -247,7 +250,7 @@ Runner 必须在开始前原子验证 Control Plane 签发的不可变 reservati
 | Phase | 事件 | 权威语义 |
 | --- | --- | --- |
 | `00` | instrument status | listing/delisting、合约规格与交易状态先于本时点动作生效 |
-| `10` | funding settlement | 使用 `t-` 的 position snapshot；本 timestamp 新 fill 不参与本次 funding |
+| `10` | funding settlement | **当前单仓纵切已实现**：使用 EventKey 上 `t-` position；entry 同 timestamp 不计、exit 同 timestamp 仍计 |
 | `20.0` | market event | trade/quote/mark/index/bar-open 等外生事实按 source sequence 逐条推进 |
 | `20.1` | risk engine | 对当前 market event mark-to-market、检查 maintenance margin；触发 liquidation 时先于策略单 |
 | `20.2` | resting order trigger/match | 只处理当前 source event 到来前已 active 的订单 |
@@ -296,11 +299,15 @@ P1/P2 是 v1 的保守 envelope，不声称枚举真实 bar 内全部往返路�
 ### 8.1 Order 状态
 
 ```text
-created -> accepted -> active -> partially_filled -> filled
-                    \-> cancelled | expired | rejected
+submitted -> active -> filled                         # market
+                  \-> partially_filled -> filled
+                  \-> triggered -> filled             # stop/TP
+                              \-> partially_filled -> filled
+submitted | active | triggered | partially_filled -> cancelled
+triggered | partially_filled -> rejected              # reduce-only zero-fill
 ```
 
-每次 transition 是 append-only `OrderEvent`。`requested_qty / remaining_qty / filled_qty` 使用 instrument precision 的定点整数；价格、金额和费率采用版本化 decimal/rounding policy，不能依赖不同 runtime 的 binary float 舍入。
+当前 Simulator Policy v2 每次 transition 是 append-only `OrderEvent`，同时保存全局 EventKey 与展示用 audit sequence；EventKey 必须严格前进，不能靠调用顺序覆盖更早事件。conditional fill 必须先有 `triggered`，并记录 `trigger_source + trigger_observed_price`。当前 source vocabulary 是 manifest-derived `instrument_delisted`、OHLC `bar_open|bar_range` 与 `funding`；目标 exact-event mode 的 `halt|resume|contract_spec|mark|index|last` 及其交易所 source sequence 尚未接入，二者不得混写。`rd-replay-number-v3` 将准入 number 的规范十进制表示转成 BigInt rational；bps 调价、price×quantity×rate、price-difference×quantity、weighted-average 与 return division 不产生 binary64 中间乘除结果，只在政策边界量化一次。quantity floor 后才进入 Order；market fill 按 buy ceil/sell floor；fee expense ceil；signed funding、realized/unrealized cashflow floor toward negative infinity；weighted average 与 return 使用固定 `0.000000000001` increment、half-away-from-zero。stop/target 与 OHLC 必须预先 tick-aligned，禁止静默修正策略 trigger。Bun/BigInt 与 Python Decimal 独立消费共享字符串向量并得到相同结果；该认证证明所列算术政策的跨实现 parity，不扩张为任意 JSON parser、超出准入 scale 或无界精度 transport 的承诺。
 
 ### 8.2 类型合同
 
@@ -326,7 +333,7 @@ Market/Stop/Take-profit/Reduce-only 的目标语义参考 Binance USDⓈ-M 官�
 
 ## 9. 仓位、资金、成本与保证金账本
 
-### 9.1 统一账本
+### 9.1 目标统一账本
 
 所有 metrics 只从不可变 fills 与 double-entry ledger 派生。最小 account：
 
@@ -343,6 +350,10 @@ Market/Stop/Take-profit/Reduce-only 的目标语义参考 Binance USDⓈ-M 官�
 
 每条 Ledger Entry 绑定 `event_key / order_id / fill_id / instrument / asset / amount / currency / policy_version`，借贷平衡为硬 invariant。slippage/impact 主要进入 fill price，同时记 attribution，禁止又从 PnL 重复扣减。
 
+当前 Result v7 保留单 quote-cash ledger，并由它单向投影最小 double-entry journal：`initial_cash` 形成 `wallet_cash / opening_equity`，fee 形成 `fee_expense / wallet_cash`，正负 funding 与 realized PnL 分别进入 income/expense account 和 wallet cash；每条 journal 固定等额 debit/credit 两腿，零金额因果事实仍保留，trial balance 锁定总借贷相等、wallet cash 与 ending equity 相等。Ledger/Journal 金额与 running balance 必须 settlement-increment aligned，并使用 decimal coefficient 加总。该 journal 只证明 flat-terminal 单结算资产现金闭包，不含 position asset、unrealized mark、collateral、margin 或跨资产换算；因此不是完整 portfolio ledger。Engine 不再独立计算期末权益或 journal。
+
+Manifest v2 的 instrument-accounting spec 冻结 `base_asset / quote_asset / settlement_asset / contract_multiplier / price_increment / quantity_increment / settlement_increment`；当前 certified capability 只接受 unit-multiplier linear derivative、`quote_asset == settlement_asset` 与最多 12 位 increment scale。increment 已驱动 quantity、execution fill、fee、funding、Position cashflow、Ledger 与 Journal 的确定性舍入；但 spec 仍由 Dataset Manifest 提供，尚无 venue rule snapshot、effective-time spec change、maker fee asset 或 mark-price 独立 increment，故只能声称 manifest-bound precision，不声称完整 venue precision。
+
 ### 9.2 Position accounting
 
 v1 支持 `net` position mode：
@@ -352,6 +363,8 @@ v1 支持 `net` position mode：
 - reduce-only 禁止产生残余反向仓位。
 - unrealized PnL 使用 Contract 指定 mark source；close/last 不能静默替代 mark。
 - `R_initial` 的分母为初始已承诺风险；`R_max_live_risk` 的分母为路径中最大有效风险。partial/add/reduce 后两者都保留，禁止只报一套易看的 R。
+
+当前 certified Result v7 的 Runner 闭包仍是一笔 non-reduce entry Fill 后生成 `open` projection、一笔等量反向 reduce-only Fill 后生成 `flat` projection；每条 projection 复用 cause Fill 的 EventKey，记录 signed quantity、average entry、fill-price valuation、realized delta/cumulative 与 unrealized PnL。底层 accounting reducer 已独立认证严格 EventKey 顺序下的同向 add rational 加权均价、partial reduce 按关闭量确认 realized PnL、非 reduce-only reversal 先平旧侧再按残余量开新侧；已成交量超过 reducible qty 的 reduce-only Fill 属证据矛盾并拒绝。realized PnL、cash ledger 与 journal 均已支持多 Fill 与 increment-aligned 归约，reference engine 不再保留平行公式；但 matching 尚未产生多 Fill，funding 仍由 certified 恒定仓位 lane 形成显式金额事实，Runner 因而不开放该宽能力。
 
 ### 9.3 Funding、fee、borrow、margin、liquidation
 
@@ -389,7 +402,7 @@ Feature/funding/OI/event join 使用 `entity_key + event_time + availability_at 
 ### 11.2 Listing、delisting、survivorship
 
 - Universe 必须由 point-in-time selection rule 在每次选择时刻物化，不接受“今天仍可交易的 symbol 列表”回放过去。
-- `listed_at / trading_enabled_at / delisted_at / contract_spec_version` 是 instrument events；listing 前不生成 signal/order，delisting 后撤单并按冻结 policy close/expire。
+- `listed_at / trading_enabled_at / delisted_at / contract_spec_version` 是 instrument events；listing 前不生成 signal/order，delisting 后只能按冻结 settlement/expiry policy 处理。当前 Manifest 未绑定 settlement price，故开放仓位到达 `delisted_at` 直接 typed-fail，不把末根 close 伪造成可成交价格。
 - inactive/delisted 数据缺失时显式 `survivor_only=true`；该 run 不能声称 survivorship robust。
 - asset membership 与 selection score 都进入 Dataset/Contract hash，不只存 symbol 列表路径。
 
@@ -468,6 +481,7 @@ Fingerprint payload 使用与 Control Plane 一致的 `SHA-256(UTF-8(JCS(normali
 - `assumptions_hash`
 - `cost_policy_id/version/hash`
 - `simulator_policy_version`
+- `numeric_policy_version`
 - `data_adapter_version`
 - `metrics_policy_version`
 - `execution_mode`
@@ -516,6 +530,7 @@ requested -> accepted -> running -> completed
 | OHLC path | stop/target、gap、entry+bracket 同 bar | canonical 是 admissible path 且 limitation 完整 | bar 拆细后已 resolved 结果不变 | OHLC step 与 higher-res resolved subset |
 | orders | market/limit/stop/TP/cancel race | fill 不早于 active；filled+remaining=requested | price/qty scale 后经济量同比 | fast supported order subset |
 | reduce/position | multiple entry、partial TP、oversized/wrong-side reduce-only、reversal | reduce-only 不增仓/翻向；position qty 守恒 | 拆一笔 fill 为多笔同价 fill，终态相同 | legacy simple resolver compatibility |
+| numeric | bps price、fee、funding、linear PnL、weighted average、return vectors | 舍入方向不改善证据；所有现金事实 increment-aligned | price/cash 同比缩放后 return 与 scaled PnL 精确等价 | Bun/BigInt 与 Python Decimal 共享向量 |
 | ledger/cost | fee、funding、borrow、impact | 借贷平衡；NAV bridge 可解释 | zero-cost policy 恢复 gross PnL | step/fast ledger digest |
 | margin | isolated/cross、stop-liquidation collision | equity/margin 守恒；liquidation 后无未解释风险 | collateral 等比缩放 | 不允许 fast，断言 capability reject |
 | portfolio | 同时多资产信号、资金不足 | cash/exposure/risk cap 永不越界 | asset permutation 在对称 tie policy 下不变 | batch/stream step digest |
@@ -536,7 +551,7 @@ Property tests 的核心 invariants：订单 qty、position qty、cash/NAV bridg
 
 ### R0：冻结合同，不搬目录
 
-- 新增 request/result/fingerprint/artifact/simulator-policy v2 设计 schema。
+- 新增 request/result/fingerprint/artifact/simulator/numeric/journal-policy 版本化 schema；当前 Dataset Manifest 为 v2、Result/Artifact 为 v7，Simulator Policy 保持 v2，Numeric Policy 为 `rd-replay-number-v3`，Journal Policy 为 `rd-replay-journal-v1`。
 - 给 v1 输出标 `legacy_single_trade_resolver`；停止向 v1 增加 promotion 语义。
 - 建 current behavior fixture inventory，明确正式、临时、隐含和 known-bad。
 
@@ -546,7 +561,7 @@ Property tests 的核心 invariants：订单 qty、position qty、cash/NAV bridg
 
 这是建议的第一条纵切，因为它同时穿过 Control Plane binding、data adapter、event ordering、order/fill、position、ledger、metrics、artifact 和 determinism，却不先引入 shared portfolio 或复杂 maker queue。
 
-**当前状态：已完成 certified subset。** Trial identity、closed-candle/next-open、simple bracket、gap、fee/slippage/exact funding、ledger-derived metrics、artifact/fingerprint 已接通；golden digest 与 long/short stop/target 守恒已锁定。原计划中的通用 partial TP/order lifecycle 仍属于 R3，不能因 legacy helper 存在而标记完成。
+**当前状态：已完成 certified subset。** Trial identity、closed-candle/next-open、simple bracket、gap、fee/slippage/exact funding、ledger-derived metrics、artifact/fingerprint 已接通；golden digest 与 long/short stop/target 守恒已锁定。主路径已在 R3 子集上补齐 market/bracket order events，但通用 matching 仍不属于本阶段完成范围。
 
 ### R2：数据时序与身份硬化
 
@@ -561,12 +576,14 @@ Property tests 的核心 invariants：订单 qty、position qty、cash/NAV bridg
 - limit/stop/TP、cancel/amend、multi-entry、partial、wrong-side/oversized reduce-only、reversal。
 - 只有具备数据能力的 fill policy 才开放；maker queue 缺失继续 limitation/unsupported。
 
+**当前状态：完成第九子集，R3 未完成。** Simulator Policy 为 v2；signal-time entry submit 保持独立 command fact，SourceEvent reducer 消费 eligible `bar_open` 时同步调用 entry-order lane，依次完成 market activate/fill 与 stop/target submit+activate，再继续推进 manifest-delisting/funding/market 并同步调用 exit-order lane。由此 entry 同时间 phase `10` funding 在 fill 前读取 flat `t-` position，而同一 open 的 stop/TP gap 在 bracket active 后解析；long/short、funding boundary、terminal metamorphic 与既有 audit sequence 保持不变。该 reducer 只覆盖 certified 单仓闭包；halt/resume、contract-spec change、external command、多订单 matching、limit、amend/TIF、multi-entry/reversal 和真实 partial liquidity 尚未接入。
+
 ### R4：统一 accounting
 
 - 定点 decimal、double-entry ledger、逐 fill fee、exact funding、borrow 接口。
 - isolated/cross margin、maintenance tiers、liquidation 与 penalty fixtures。
 
-**当前状态：完成单仓位金额事实抽取，未完成统一组合账本。** slippage、双边线性成本、exact funding cashflow、realized PnL 与 ending equity bridge 已由独立 accounting owner 和守恒测试锁定；decimal、逐 fill position notional、borrow、margin/liquidation 仍未开始。
+**当前状态：完成第七子集，未完成统一组合账本。** Result/Artifact v7 与 `rd-replay-number-v3` 将 Manifest increment 和内部乘除统一为执行语义：bps/rate/product/division 使用 BigInt rational；quantity floor；buy execution ceil/sell floor；fee ceil；signed funding/realized/unrealized floor；weighted average/return 固定 12 位 half-away；initial cash、stop/target、OHLC、Fill、Position、Ledger、Journal alignment 均有拒绝路径。Position/Fingerprint 绑定 Numeric Policy v3；共享语言中立向量由 Bun/BigInt 与 Python Decimal 双实现锁定；price/cash scale metamorphic 已从近似比较收紧为结果精确相等。v7 golden semantic digest 为 `7d6ad8336f0dd63a8c499edd777631a36fac74dfbd3e7c83f4f47cda4d6df4b3`。Journal/trial balance 与 Artifact 原子提交继续保持，Runner 仍是一开一平闭包；position asset/unrealized mark account、collateral、borrow、margin/liquidation 与 shared portfolio 尚未开始。
 
 ### R5：Portfolio
 
@@ -576,12 +593,12 @@ Property tests 的核心 invariants：订单 qty、position qty、cash/NAV bridg
 ### R6：Fast parity 与消费者切换
 
 - 只实现受限 fast capability；逐 fixture semantic digest parity。
-- candidate batch、panel、benchmark adapter 改走 runner；Reviewer 消费 v2 Result。
+- candidate batch、panel、benchmark adapter 改走 runner；Reviewer 消费当前 Result schema。
 - 无调用者后淘汰 legacy resolver、重复 cost/PnL simulator 与 v1 promotion gate。
 
 **当前状态：只建立认证骨架。** 已有 golden、property、metamorphic 与 component parity；尚无 Fast kernel，因此不存在可宣称的 Step/Fast parity。兼容 engine 复用 accounting 纯原语并通过 legacy integration regression，只证明兼容行为未漂移，不证明 feature parity。
 
-迁移不是整体重写：每一步都以 v1/v2 双跑、golden digest、可回退 adapter 为边界；先替换事实内核，再移动目录。不得先搬模块后继续保留多套语义。
+迁移不是整体重写：每一步都以 legacy/new 双跑、golden digest、可回退 adapter 为边界；先替换事实内核，再移动目录。不得先搬模块后继续保留多套语义。
 
 ## 17. 明确不做
 
@@ -598,7 +615,7 @@ Property tests 的核心 invariants：订单 qty、position qty、cash/NAV bridg
 
 以下问题需要真实数据能力或 Control Plane 共同决策，本文不提前固定：
 
-1. v1 decimal 实现采用整数 tick/step、decimal library，还是二者组合；需先做跨 runtime golden。
+1. Numeric Policy v3 已冻结 certified arithmetic 与 Bun/Python parity；若未来把 wire number 改为 canonical decimal string，是否同时升级 Request、Dataset Manifest 与 Result，须以真实跨语言消费者需求决定，不能仅为形式上的任意精度提前破坏现有 wire。
 2. OHLC `touch` limit 的默认 queue policy是 zero-fill，还是基于可证明 cross-through 的 conservative fill；必须由数据 capability 与研究用途共同决定。
 3. shared portfolio 同时信号采用 pro-rata、预注册 priority 还是独立 allocator ref；不能由 symbol 排序代替。
 4. Binance maintenance tier、liquidation fee 与 mark history的历史快照来源和 retention owner。

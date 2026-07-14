@@ -46,7 +46,7 @@
   "remaining_semantic_blockers": [
     "J04 supervisor payload and observability parity",
     "J05 forward job migration without formal-shadow semantics",
-    "legacy replay feature parity beyond the certified single-asset slice",
+    "legacy replay feature parity beyond the certified market-and-simple-bracket order lifecycle",
     "supplemental feature revision and availability point-in-time joins",
     "portfolio accounting, margin-liquidation and fast-step certification"
   ]
