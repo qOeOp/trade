@@ -247,8 +247,8 @@ modules/market-data-products/market-fact-publisher/
 modules/live-decision-planning/decision-input-assembler/
 modules/live-decision-planning/trade-plan-builder/
 modules/live-decision-planning/action-intent-publisher/
-modules/research-strategy-development/candidate-freezer/
-modules/research-strategy-development/research-evidence-publisher/
+modules/research-strategy-development/research-control-plane/compatibility/candidate-freezer/
+modules/research-strategy-development/research-control-plane/evidence-registry/
 modules/governance-review-compliance/evidence-intake-gate/
 modules/governance-review-compliance/policy-feedback-compiler/
 modules/artifact-knowledge/lineage-indexer/

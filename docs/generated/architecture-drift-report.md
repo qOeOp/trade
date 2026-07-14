@@ -21,7 +21,7 @@
 | `exchange-gateway` | 10 | 10 | exchange_runtime_store | - |
 | `live-decision-planning` | 6 | 6 | - | J03:slow_track_market_watch |
 | `live-execution-control` | 9 | 9 | - | J01:account_reconcile_guard, J02:fast_track_guard |
-| `research-strategy-development` | 29 | 29 | research_state_store | J04:rd_strategy_supervisor, J05:rd_forward_shadow_trackers |
+| `research-strategy-development` | 40 | 40 | research_state_store | J04:rd_strategy_supervisor, J05:rd_forward_shadow_trackers |
 | `governance-review-compliance` | 5 | 5 | governance_ledger | J07:closed_flow_review_sweep |
 | `artifact-knowledge` | 1 | 1 | artifact_catalog | J06:catalog_hygiene_scan |
 
@@ -32,8 +32,8 @@
 | `J01` | `account_reconcile_guard` | `live-execution-control` | `modules/live-execution-control/recovery-runner` | `live-execution-control` | `trade_event_store` |
 | `J02` | `fast_track_guard` | `live-execution-control` | `modules/live-execution-control/fast-track-guard` | `live-execution-control` | `trade_event_store` |
 | `J03` | `slow_track_market_watch` | `live-decision-planning` | `modules/live-decision-planning/slow-track-plan` | `live-decision-planning` | `trade_event_store`, `artifact_catalog` |
-| `J04` | `rd_strategy_supervisor` | `research-strategy-development` | `modules/research-strategy-development/rd-supervisor` | `research-strategy-development` | `research_state_store`, `artifact_catalog` |
-| `J05` | `rd_forward_shadow_trackers` | `research-strategy-development` | `modules/research-strategy-development/rd-shadow-tracker` | `research-strategy-development` | `artifact_catalog` |
+| `J04` | `rd_strategy_supervisor` | `research-strategy-development` | `modules/research-strategy-development/research-control-plane/program-supervisor` | `research-strategy-development` | `research_state_store`, `artifact_catalog` |
+| `J05` | `rd_forward_shadow_trackers` | `research-strategy-development` | `modules/research-strategy-development/forward-evidence-plane/compatibility/rd-shadow-tracker` | `research-strategy-development` | `artifact_catalog` |
 | `J06` | `catalog_hygiene_scan` | `artifact-knowledge` | `modules/artifact-knowledge/artifact-catalog` | `artifact-knowledge` | `artifact_catalog` |
 | `J07` | `closed_flow_review_sweep` | `governance-review-compliance` | `modules/governance-review-compliance/closed-flow-review-sweep` | `governance-review-compliance` | `governance_ledger` |
 

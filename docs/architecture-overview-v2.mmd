@@ -80,8 +80,8 @@ flowchart LR
     J01["J01 account reconcile<br/>交易所事实对账<br/>write: reconcile / needs_review"]
     J02["J02 fast guard<br/>active flow 执行守卫<br/>write: light observe / order_fill"]
     J03["J03 slow watch<br/>慢轨机会与计划<br/>write: full observe / action_intent"]
-    J04["J04 R&D loop<br/>假设迭代与候选冻结<br/>write: research state / artifacts"]
-    J05["J05 shadow tracking<br/>forward / paper 样本跟踪<br/>write: shadow artifacts"]
+    J04["J04 R&D historical loop<br/>planner -> replay -> reviewer<br/>write: research state / evidence"]
+    J05["J05 R&D Forward Evidence<br/>冻结候选的 forward / paper 跟踪<br/>write: forward artifacts"]
     J06["J06 catalog hygiene<br/>证据索引与保留清理<br/>write: catalog metadata"]
     J07["J07 closed-flow review<br/>闭合 flow 复盘与反馈<br/>write: review / governance evidence"]
     JTITLE ~~~ JSPAD
@@ -258,30 +258,53 @@ flowchart LR
     RDTITLE["策略研发域<br/>research-strategy-development"]
     RPAD[" "]
     RIN["domain inbox<br/>J04 / J05 + research / data refs"]
-    RDSUP["research supervisor<br/>hypothesis queue / budget / lessons"]
-    RDDESIGN["experiment design gate<br/>dataset manifest / split / leakage / budget"]
-    RDTOOLS["experiment runners<br/>replay / panel / candidate / benchmark"]
-    SIGEVAL["signal evaluator<br/>performance / robustness / failure reason"]
-    FREEZE["candidate freezer<br/>gated draft / assumptions / limits"]
-    SHADOW["shadow tracker<br/>forward / paper samples"]
-    SHADOWLEDGER[("shadow ledger<br/>paper fills / sample health / drift")]
-    RDSTATE[("rd state store<br/>hypothesis / budget / lessons / queue")]
-    RDPUB["research evidence publisher<br/>artifact refs / candidate refs"]
-    ROUT["domain outbox<br/>research / shadow / candidate refs"]
+    RDSUP["RD program supervisor<br/>objective / queue / budget / stop status"]
+    UNIVERSE["Strategy Universe<br/>L0-L3 / scope / coverage / registries"]
+    PLANNER["Research Planner<br/>选研究空间 / hypothesis / proposal"]
+    CONTRACT["proposal + contract gate<br/>family backlog / Trial Group / immutable identity"]
+    DEVELOPER["Developer<br/>实现冻结实验链 / reserve Trial"]
+    HISTEXEC["historical evidence plane<br/>split / replay-backtest / panel / benchmark / controls"]
+    REVIEWER["Research Reviewer<br/>audit / staged decision / lifecycle transition"]
+    FREEZE["candidate freezer<br/>selected Trial + Candidate / frozen hash"]
+    STRATREG["strategy registry<br/>authorized render / lint / hash / register"]
+    DRAFTSTRAT[("strategies/*.md<br/>versioned Draft Strategy Source")]
+    FWDEXEC["Forward Evidence Plane<br/>locked holdout / post-freeze paper event chain"]
+    FORWARDLEDGER[("forward evidence ledger<br/>paper events / samples / health / drift")]
+    SHADOWCAND["shadow_candidate<br/>RD terminal recommendation"]
+    KG["Research Knowledge Graph<br/>result / decision / scoped lesson / lineage"]
+    RDSTATE[("research state store<br/>program + proposal + contract + trial + review + KG facts")]
+    RDPUB["research evidence publisher<br/>result / forward / candidate refs"]
+    ROUT["domain outbox<br/>research evidence / shadow_candidate refs"]
     RDTITLE ~~~ RPAD
     RPAD ~~~ RIN
     RIN --> RDSUP
-    RIN --> SHADOW
-    RDSUP --> RDDESIGN
-    RDDESIGN --> RDTOOLS
-    RDTOOLS --> SIGEVAL
-    RDTOOLS -->|"实验结果 / lessons"| RDSTATE
-    SIGEVAL --> FREEZE
-    SIGEVAL -->|"failure / calibration lessons"| RDSTATE
-    RDSTATE -->|"next hypothesis refs"| RDSUP
-    FREEZE --> RDPUB
-    SHADOW --> SHADOWLEDGER
-    SHADOWLEDGER --> RDPUB
+    RDSTATE -->|"queue / usage / lessons"| RDSUP
+    RDSUP --> PLANNER
+    UNIVERSE --> PLANNER
+    KG -->|"失败密度 / reusable lessons"| PLANNER
+    PLANNER --> CONTRACT
+    CONTRACT -->|"valid contract"| DEVELOPER
+    CONTRACT -->|"缺 data / family: zero Trial"| KG
+    DEVELOPER --> HISTEXEC
+    HISTEXEC -->|"append Result artifacts"| REVIEWER
+    REVIEWER -->|"reject / modify"| KG
+    REVIEWER -->|"accept_for_draft"| FREEZE
+    FREEZE --> STRATREG
+    STRATREG -->|"atomic materialization"| DRAFTSTRAT
+    REVIEWER -->|"accept_for_forward"| STRATREG
+    STRATREG -->|"strategy_ref + policy hash + freeze"| FWDEXEC
+    RIN -. "J05 forward tick" .-> FWDEXEC
+    FWDEXEC --> FORWARDLEDGER
+    FORWARDLEDGER -->|"append forward Result"| REVIEWER
+    REVIEWER -->|"accept_for_shadow_candidate"| SHADOWCAND
+    REVIEWER -->|"decision / lesson / lineage"| KG
+    CONTRACT --> RDSTATE
+    HISTEXEC --> RDSTATE
+    REVIEWER --> RDSTATE
+    STRATREG --> RDSTATE
+    KG --> RDSTATE
+    SHADOWCAND --> RDPUB
+    FORWARDLEDGER --> RDPUB
     RDSTATE --> RDPUB
     RDPUB --> ROUT
   end
@@ -409,6 +432,7 @@ flowchart LR
   COUT --> EXCHANGERAIL
   ROUT --> ARTIFACTRAIL
   ROUT --> DATARAIL
+  ROUT -->|"shadow_candidate / evidence refs"| GOVRAIL
   GOUT --> FACT
   GOUT --> ARTIFACTRAIL
   GOUT --> GOVRAIL
@@ -426,7 +450,7 @@ flowchart LR
   MODESTORE -. "physical store" .-> SQLITE
   RDSTATE -. "physical store" .-> SQLITE
   RDSTATE -. "artifact refs only" .-> ART
-  SHADOWLEDGER -. "shadow artifact refs" .-> TMPFILES
+  FORWARDLEDGER -. "forward artifact refs" .-> TMPFILES
   GOVLEDGER -. "physical store" .-> SQLITE
   ART -. "catalog DB" .-> SQLITE
   ART -. "workspace artifacts" .-> TMPFILES
@@ -435,6 +459,7 @@ flowchart LR
   MARKETRAIL --> MDIN
   EXCHANGERAIL --> XIN
   GOVRAIL --> PIN
+  GOVRAIL -->|"candidate intake"| GIN
   ARTIFACTRAIL --> AIN
 
   classDef center fill:#eaf4ff,stroke:#2f6fb0,color:#0b2540,stroke-width:1px;
@@ -459,7 +484,7 @@ flowchart LR
   class J01,J02,J03,J04,J05,J06,J07 ticket;
   class TDB,PROJ,FLOWIDX,OPSLOG,INCIDENTSTORE,POLSTORE,OVERRIDE,MODESTORE,XLEDGER state;
   class DASM,WATCH,PLAN,ALLOC,DPUB,EXEC,EGATE,PREF,CMDCOMP,EROUTE,REC,FAST,EXECREC,APPEND,PUBLISH trade;
-  class RDSTATE,RDTOOLS,RDSUP,RDDESIGN,SIGEVAL,FREEZE,SHADOW,SHADOWLEDGER,RDPUB research;
+  class RDSTATE,RDSUP,UNIVERSE,PLANNER,CONTRACT,DEVELOPER,HISTEXEC,REVIEWER,FREEZE,STRATREG,DRAFTSTRAT,FWDEXEC,FORWARDLEDGER,SHADOWCAND,KG,RDPUB research;
   class MDROUTE,SCAN,SNAP,RAWMD,MDQUAL,TECH,DSETS,OSTORE,MSTORE,MDPUB market;
   class ACC,WRITEPRE,WRITE,CONFIRM,XROUTE market;
   class EVGATE,REVIEW,PROMO,POLFB,GOVLEDGER gov;

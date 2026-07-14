@@ -868,7 +868,7 @@ Jesse 调研后的补充要求：
 
 ### 当前实施状态（2026-07-10）
 
-- J1-J5 均已按本项目边界完成第一版吸收；实现位置以 `modules/contracts/execution-contract/src/execution-contract.ts`、`modules/research-strategy-development/replay-engine/src/lib/strategy-replay.ts`、`modules/contracts/strategy-contract/src/strategy-contract.ts`、对应 fixtures 为准。
+- J1-J5 均已按本项目边界完成第一版吸收；实现位置以 `modules/contracts/execution-contract/src/execution-contract.ts`、`modules/research-strategy-development/replay-execution-plane/compatibility/replay-engine/src/lib/strategy-replay.ts`、`modules/contracts/strategy-contract/src/strategy-contract.ts`、对应 fixtures 为准。
 - 吸收方式是重写内核纪律，不引入 Jesse runtime、策略继承、UI、多交易所、优化平台或 ML pipeline。
 - replay 仍保持稳定输出外壳；新增 `fill_model`、`diagnostics`、`lifecycle` 均为扩展字段。
 - Monte Carlo 与 diagnostics 只允许阻断或提示复核，不能单独放行 shadow / live-small。

@@ -1,0 +1,52 @@
+{
+  "schema_version": "trade.rd-module-disposition.v2",
+  "updated_at": "2026-07-14T18:20:00+08:00",
+  "migration_status": "physical-root-converged",
+  "root_policy": "exactly-four-direct-children",
+  "target_roots": [
+    "research-control-plane",
+    "replay-execution-plane",
+    "forward-evidence-plane",
+    "agent-roles"
+  ],
+  "relocations": [
+    { "legacy_module": "research/research-state-store", "current_path": "research-control-plane/state-store", "semantic_status": "canonical", "retirement": "legacy-path-removed" },
+    { "legacy_module": "rd-program-state", "current_path": "research-control-plane/program-control", "semantic_status": "migration-source", "retirement": "split-program-memory-from-planning" },
+    { "legacy_module": "data-split", "current_path": "research-control-plane/dataset-governance/data-split", "semantic_status": "retained-governance", "retirement": "rename-contract-after-callers-cut-over" },
+    { "legacy_module": "candidate-freezer", "current_path": "research-control-plane/compatibility/candidate-freezer", "semantic_status": "compatibility", "retirement": "replace-with-strategy-registry-authorization" },
+    { "legacy_module": "strategy-policy-writer", "current_path": "research-control-plane/strategy-policy-writer", "semantic_status": "retained-renderer", "retirement": "absorb-behind-strategy-registry-api" },
+    { "legacy_module": "research-evidence-publisher", "current_path": "research-control-plane/evidence-registry", "semantic_status": "migration-source", "retirement": "split-result-intake" },
+    { "legacy_module": "rd-supervisor", "current_path": "research-control-plane/program-supervisor", "semantic_status": "legacy-job-shell", "retirement": "retire-after-j04-parity" },
+    { "legacy_module": "rd-ledger", "current_path": "research-control-plane/experiment-ledger", "semantic_status": "migration-source", "retirement": "replace-with-control-plane-result-registry" },
+    { "legacy_module": "strategy-contract-lint", "current_path": "research-control-plane/contract-lint", "semantic_status": "retained-adapter", "retirement": "absorb-behind-contract-api" },
+    { "legacy_module": "funding-governance", "current_path": "research-control-plane/dataset-governance/funding-governance", "semantic_status": "migration-source", "retirement": "split-data-admission-from-review" },
+    { "legacy_module": "rd-integration-suite", "current_path": "research-control-plane/certification/legacy-integration-suite", "semantic_status": "cross-plane-certification", "retirement": "decompose-after-plane-parity" },
+
+    { "legacy_module": "replay-engine", "current_path": "replay-execution-plane/compatibility/replay-engine", "semantic_status": "compatibility-kernel", "retirement": "retire-after-feature-parity" },
+    { "legacy_module": "replay-runner", "current_path": "replay-execution-plane/compatibility/replay-runner", "semantic_status": "compatibility-adapter", "retirement": "retire-after-consumer-cutover" },
+    { "legacy_module": "benchmark-engine", "current_path": "replay-execution-plane/compatibility/benchmark-engine", "semantic_status": "mixed-migration-source", "retirement": "split-metrics-from-review" },
+    { "legacy_module": "benchmark-runner", "current_path": "replay-execution-plane/compatibility/benchmark-runner", "semantic_status": "compatibility", "retirement": "replace-with-replay-mode-and-review" },
+    { "legacy_module": "calibration-suite", "current_path": "replay-execution-plane/certification/calibration-suite", "semantic_status": "certification-source", "retirement": "convert-to-plane-certification-fixtures" },
+    { "legacy_module": "panel-evaluator", "current_path": "replay-execution-plane/compatibility/panel-evaluator", "semantic_status": "mixed-migration-source", "retirement": "split-portfolio-execution-from-review" },
+
+    { "legacy_module": "forward-holdout", "current_path": "forward-evidence-plane/compatibility/forward-holdout", "semantic_status": "diagnostic-compatibility", "retirement": "replace-with-forward-session" },
+    { "legacy_module": "rd-shadow-tracker", "current_path": "forward-evidence-plane/compatibility/rd-shadow-tracker", "semantic_status": "legacy-job-shell", "retirement": "retire-after-j05-forward-cutover" },
+
+    { "legacy_module": "strategy-hypothesis-designer", "current_path": "agent-roles/planner/strategy-hypothesis-designer", "semantic_status": "planner-migration-source", "retirement": "adapt-to-proposal-only" },
+    { "legacy_module": "strategy-family-engine", "current_path": "agent-roles/developer/strategy-family-engine", "semantic_status": "developer-migration-source", "retirement": "remove-execution-semantics" },
+    { "legacy_module": "candidate-batch", "current_path": "agent-roles/developer/candidate-batch", "semantic_status": "developer-adapter", "retirement": "replace-with-trial-submission" },
+    { "legacy_module": "candidate-batch-engine", "current_path": "agent-roles/developer/candidate-batch-engine", "semantic_status": "mixed-migration-source", "retirement": "split-generation-from-review" },
+    { "legacy_module": "signal-engine", "current_path": "agent-roles/developer/signal-engine", "semantic_status": "developer-migration-source", "retirement": "separate-signal-generation-from-fill-semantics" },
+    { "legacy_module": "rd-campaign-runner", "current_path": "agent-roles/developer/rd-campaign-runner", "semantic_status": "developer-migration-source", "retirement": "move-program-authority-to-control-plane" },
+    { "legacy_module": "rd-loop-runner", "current_path": "agent-roles/developer/rd-loop-runner", "semantic_status": "developer-migration-source", "retirement": "replace-with-trial-bound-runner" },
+    { "legacy_module": "strategy-contract-compile", "current_path": "agent-roles/developer/strategy-contract-compile", "semantic_status": "developer-adapter", "retirement": "absorb-behind-developer-contract-api" },
+    { "legacy_module": "signal-evaluator", "current_path": "agent-roles/reviewer/signal-evaluator", "semantic_status": "reviewer-migration-source", "retirement": "emit-review-submission-only" },
+    { "legacy_module": "rd-artifact-summary", "current_path": "agent-roles/reviewer/rd-artifact-summary", "semantic_status": "reviewer-read-model", "retirement": "absorb-behind-result-reader" }
+  ],
+  "remaining_semantic_blockers": [
+    "J04 supervisor payload and observability parity",
+    "J05 forward job migration without formal-shadow semantics",
+    "legacy replay feature parity beyond the certified single-asset slice",
+    "accounting, portfolio, margin-liquidation and fast-step certification"
+  ]
+}

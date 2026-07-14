@@ -1,0 +1,34 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade-flow.rd-family-backlog-contract.v1",
+  "type": "object",
+  "required": [
+    "schema_version", "canonical_node_id", "hypothesis", "economic_rationale",
+    "required_data", "required_semantics", "expected_input_contract",
+    "expected_output_contract", "negative_controls", "fixture_requirements", "proposal_ref"
+  ],
+  "properties": {
+    "schema_version": { "const": "trade-flow.rd-family-backlog-contract.v1" },
+    "canonical_node_id": { "type": "string", "minLength": 1 },
+    "hypothesis": { "type": "string", "minLength": 1 },
+    "economic_rationale": { "type": "object" },
+    "required_data": { "type": "array", "items": { "type": "string", "minLength": 1 } },
+    "required_semantics": {
+      "type": "array",
+      "items": { "enum": ["feature", "forecast", "signal", "position", "portfolio", "risk", "execution"] },
+      "minItems": 1,
+      "uniqueItems": true
+    },
+    "expected_input_contract": { "type": "object" },
+    "expected_output_contract": { "type": "object" },
+    "negative_controls": { "type": "array", "items": { "type": "string", "minLength": 1 }, "uniqueItems": true },
+    "fixture_requirements": {
+      "type": "array",
+      "items": { "enum": ["positive", "no_signal", "obvious_failure"] },
+      "minItems": 3,
+      "uniqueItems": true
+    },
+    "proposal_ref": { "type": "string", "minLength": 1 }
+  },
+  "additionalProperties": false
+}

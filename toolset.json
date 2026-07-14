@@ -1174,10 +1174,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/research-strategy-development/research-state-store",
+      "path": "modules/research-strategy-development/research-control-plane/state-store",
       "purpose": "Record RD program, hypothesis, trial, holdout-use, and lesson rows in research_state_store.",
       "command": {
-        "cwd": "modules/research-strategy-development/research-state-store",
+        "cwd": "modules/research-strategy-development/research-control-plane/state-store",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1213,6 +1213,39 @@
       }
     },
     {
+      "id": "research.strategy-registry",
+      "domain": "research-strategy-development",
+      "intent": [
+        "accept-for-draft",
+        "strategy-draft-materialization",
+        "strategy-policy-registration"
+      ],
+      "capability_class": ["A", "V"],
+      "path": "modules/research-strategy-development/research-control-plane/strategy-registry",
+      "purpose": "Materialize and register one Review-authorized Draft Strategy with deterministic lint and content hash.",
+      "command": {
+        "cwd": "modules/research-strategy-development/research-control-plane/strategy-registry",
+        "argv": ["bun", "src/scripts/main.ts", "--db", "<rd-state-db>", "--strategy-root", "strategies", "--json", "<payload>"]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": true,
+        "binance": false,
+        "config": true
+      },
+      "notes": [
+        "Requires accept_for_draft authorization bound to one selected Trial, Candidate, and primary Result.",
+        "Does not review evidence or promote beyond draft."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "research-control-plane.strategy-registry",
+      "requires_preflight": false,
+      "concurrency_group": "research-state-store",
+      "forbidden_callers": ["execution", "exchange-write"],
+      "entry_contract": { "kind": "cli-json", "input_schema": "", "output_schema": "" }
+    },
+    {
       "id": "research.candidate-freezer",
       "domain": "research-strategy-development",
       "intent": [
@@ -1225,10 +1258,10 @@
         "A",
         "V"
       ],
-      "path": "modules/research-strategy-development/candidate-freezer",
+      "path": "modules/research-strategy-development/research-control-plane/compatibility/candidate-freezer",
       "purpose": "Freeze validated research candidates as protocol refs with explicit evidence, assumptions, limits, timestamp, and content hash.",
       "command": {
-        "cwd": "modules/research-strategy-development/candidate-freezer",
+        "cwd": "modules/research-strategy-development/research-control-plane/compatibility/candidate-freezer",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1271,10 +1304,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/research-strategy-development/research-evidence-publisher",
+      "path": "modules/research-strategy-development/research-control-plane/evidence-registry",
       "purpose": "Publish research, validation, shadow, candidate, and lesson outputs as protocol evidence refs.",
       "command": {
-        "cwd": "modules/research-strategy-development/research-evidence-publisher",
+        "cwd": "modules/research-strategy-development/research-control-plane/evidence-registry",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1462,10 +1495,10 @@
       "capability_class": [
         "E"
       ],
-      "path": "modules/research-strategy-development/replay-runner",
+      "path": "modules/research-strategy-development/replay-execution-plane/compatibility/replay-runner",
       "purpose": "Run one registered strategy replay against a local OHLCV manifest.",
       "command": {
-        "cwd": "modules/research-strategy-development/replay-runner",
+        "cwd": "modules/research-strategy-development/replay-execution-plane/compatibility/replay-runner",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1499,6 +1532,39 @@
       }
     },
     {
+      "id": "research.replay-execution",
+      "domain": "research-strategy-development",
+      "intent": [
+        "trial-replay",
+        "deterministic-historical-evidence",
+        "replay-result-artifact"
+      ],
+      "capability_class": ["E"],
+      "path": "modules/research-strategy-development/replay-execution-plane/runner",
+      "purpose": "Execute one immutable Trial-bound Replay request and atomically publish its Result Artifact.",
+      "command": {
+        "cwd": "modules/research-strategy-development/replay-execution-plane/runner",
+        "argv": ["bun", "src/scripts/main.ts", "--json", "<payload>"]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": true,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Certified v1 supports one isolated asset lane, next-open market entry, full reduce-only stop/target, exact funding events, and unified evidence ledger.",
+        "No Candidate generation, Review Decision, formal Shadow, or exchange access."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "replay-execution-plane.runner",
+      "requires_preflight": false,
+      "concurrency_group": "research-replay",
+      "forbidden_callers": ["exchange-write"],
+      "entry_contract": { "kind": "cli-json", "input_schema": "", "output_schema": "" }
+    },
+    {
       "id": "research.data-split",
       "domain": "research-strategy-development",
       "intent": [
@@ -1509,10 +1575,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/research-strategy-development/data-split",
+      "path": "modules/research-strategy-development/research-control-plane/dataset-governance/data-split",
       "purpose": "Split source OHLCV manifests into discovery, validation, and locked holdout manifests with embargo.",
       "command": {
-        "cwd": "modules/research-strategy-development/data-split",
+        "cwd": "modules/research-strategy-development/research-control-plane/dataset-governance/data-split",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1540,7 +1606,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research-strategy-development/data-split/src/schemas/strategy-data-split-result.schema.json"
+        "output_schema": "modules/research-strategy-development/research-control-plane/dataset-governance/data-split/src/schemas/strategy-data-split-result.schema.json"
       }
     },
     {
@@ -1554,10 +1620,10 @@
       "capability_class": [
         "E"
       ],
-      "path": "modules/research-strategy-development/signal-evaluator",
+      "path": "modules/research-strategy-development/agent-roles/reviewer/signal-evaluator",
       "purpose": "Evaluate the latest closed-candle signal for one R&D family candidate or compiled strategy contract.",
       "command": {
-        "cwd": "modules/research-strategy-development/signal-evaluator",
+        "cwd": "modules/research-strategy-development/agent-roles/reviewer/signal-evaluator",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1585,7 +1651,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research-strategy-development/signal-evaluator/src/schemas/strategy-signal-result.schema.json"
+        "output_schema": "modules/research-strategy-development/agent-roles/reviewer/signal-evaluator/src/schemas/strategy-signal-result.schema.json"
       }
     },
     {
@@ -1601,10 +1667,10 @@
         "E",
         "V"
       ],
-      "path": "modules/research-strategy-development/panel-evaluator",
+      "path": "modules/research-strategy-development/replay-execution-plane/compatibility/panel-evaluator",
       "purpose": "Evaluate one candidate set across a multi-asset panel with panel negative controls and marketability gates.",
       "command": {
-        "cwd": "modules/research-strategy-development/panel-evaluator",
+        "cwd": "modules/research-strategy-development/replay-execution-plane/compatibility/panel-evaluator",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1632,7 +1698,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research-strategy-development/panel-evaluator/src/schemas/strategy-panel-rnd-result.schema.json"
+        "output_schema": "modules/research-strategy-development/replay-execution-plane/compatibility/panel-evaluator/src/schemas/strategy-panel-rnd-result.schema.json"
       }
     },
     {
@@ -1648,10 +1714,10 @@
         "A",
         "E"
       ],
-      "path": "modules/research-strategy-development/strategy-hypothesis-designer",
+      "path": "modules/research-strategy-development/agent-roles/planner/strategy-hypothesis-designer",
       "purpose": "Render agent-native strategy design prompts, lint structured strategy hypothesis contracts, and project valid designs into RD queue seed items.",
       "command": {
-        "cwd": "modules/research-strategy-development/strategy-hypothesis-designer",
+        "cwd": "modules/research-strategy-development/agent-roles/planner/strategy-hypothesis-designer",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1682,7 +1748,7 @@
       ],
       "entry_contract": {
         "kind": "cli-json",
-        "input_schema": "modules/research-strategy-development/strategy-hypothesis-designer/src/schemas/strategy-hypothesis-contract.schema.json",
+        "input_schema": "modules/research-strategy-development/agent-roles/planner/strategy-hypothesis-designer/src/schemas/strategy-hypothesis-contract.schema.json",
         "output_schema": ""
       }
     },
@@ -1697,10 +1763,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/research-strategy-development/rd-program-state",
+      "path": "modules/research-strategy-development/research-control-plane/program-control",
       "purpose": "Initialize, read, update, or plan_next durable R&D learning memory in research_state_store.",
       "command": {
-        "cwd": "modules/research-strategy-development/rd-program-state",
+        "cwd": "modules/research-strategy-development/research-control-plane/program-control",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1733,7 +1799,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research-strategy-development/rd-program-state/src/schemas/rd-program-state-result.schema.json"
+        "output_schema": "modules/research-strategy-development/research-control-plane/program-control/src/schemas/rd-program-state-result.schema.json"
       }
     },
     {
@@ -1748,10 +1814,10 @@
         "A",
         "E"
       ],
-      "path": "modules/research-strategy-development/rd-supervisor",
+      "path": "modules/research-strategy-development/research-control-plane/program-supervisor",
       "purpose": "Run native J04 rd_strategy_supervisor from durable RD state or initialize the supervised R&D program state.",
       "command": {
-        "cwd": "modules/research-strategy-development/rd-supervisor",
+        "cwd": "modules/research-strategy-development/research-control-plane/program-supervisor",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1788,7 +1854,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research-strategy-development/rd-supervisor/src/schemas/rd-supervisor-run-result.schema.json"
+        "output_schema": "modules/research-strategy-development/research-control-plane/program-supervisor/src/schemas/rd-supervisor-run-result.schema.json"
       }
     },
     {
@@ -1802,10 +1868,10 @@
       "capability_class": [
         "V"
       ],
-      "path": "modules/research-strategy-development/forward-holdout",
+      "path": "modules/research-strategy-development/forward-evidence-plane/compatibility/forward-holdout",
       "purpose": "Evaluate a frozen R&D candidate on forward-only closed candles without writing strategy evidence or trade state.",
       "command": {
-        "cwd": "modules/research-strategy-development/forward-holdout",
+        "cwd": "modules/research-strategy-development/forward-evidence-plane/compatibility/forward-holdout",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1834,7 +1900,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research-strategy-development/forward-holdout/src/schemas/forward-holdout-result.schema.json"
+        "output_schema": "modules/research-strategy-development/forward-evidence-plane/compatibility/forward-holdout/src/schemas/forward-holdout-result.schema.json"
       }
     },
     {
@@ -1849,10 +1915,10 @@
         "A",
         "E"
       ],
-      "path": "modules/research-strategy-development/rd-shadow-tracker",
+      "path": "modules/research-strategy-development/forward-evidence-plane/compatibility/rd-shadow-tracker",
       "purpose": "Run native J05 rd_forward_shadow_trackers or track forward holdout entry signals as R&D paper setup event chains.",
       "command": {
-        "cwd": "modules/research-strategy-development/rd-shadow-tracker",
+        "cwd": "modules/research-strategy-development/forward-evidence-plane/compatibility/rd-shadow-tracker",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1889,6 +1955,39 @@
       }
     },
     {
+      "id": "research.forward-evidence",
+      "domain": "research-strategy-development",
+      "intent": [
+        "forward-evidence",
+        "post-freeze-session",
+        "paper-evidence"
+      ],
+      "capability_class": ["E", "V"],
+      "path": "modules/research-strategy-development/forward-evidence-plane/runner",
+      "purpose": "Run a no-backfill post-freeze evidence session for one ready Draft Strategy binding.",
+      "command": {
+        "cwd": "modules/research-strategy-development/forward-evidence-plane/runner",
+        "argv": ["bun", "src/scripts/main.ts", "--json", "<payload>"]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": true,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Requires strategy_ref, policy hash, Candidate freeze, watermark, and Forward reservation.",
+        "Output is RD forward evidence only, never formal Shadow or account execution evidence."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "forward-evidence-plane.runner",
+      "requires_preflight": false,
+      "concurrency_group": "research-artifact",
+      "forbidden_callers": ["execution", "exchange-write"],
+      "entry_contract": { "kind": "cli-json", "input_schema": "", "output_schema": "" }
+    },
+    {
       "id": "research.candidate-batch",
       "domain": "research-strategy-development",
       "intent": [
@@ -1900,10 +1999,10 @@
         "E",
         "V"
       ],
-      "path": "modules/research-strategy-development/candidate-batch",
+      "path": "modules/research-strategy-development/agent-roles/developer/candidate-batch",
       "purpose": "Evaluate one bounded candidate batch with candidate negative controls and reliability gates.",
       "command": {
-        "cwd": "modules/research-strategy-development/candidate-batch",
+        "cwd": "modules/research-strategy-development/agent-roles/developer/candidate-batch",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1932,7 +2031,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research-strategy-development/candidate-batch/src/schemas/strategy-rnd-batch-result.schema.json"
+        "output_schema": "modules/research-strategy-development/agent-roles/developer/candidate-batch/src/schemas/strategy-rnd-batch-result.schema.json"
       }
     },
     {
@@ -1947,10 +2046,10 @@
         "A",
         "E"
       ],
-      "path": "modules/research-strategy-development/rd-loop-runner",
+      "path": "modules/research-strategy-development/agent-roles/developer/rd-loop-runner",
       "purpose": "Run one auditable R&D loop iteration with artifact, catalog, ledger, and optional RD state writeback.",
       "command": {
-        "cwd": "modules/research-strategy-development/rd-loop-runner",
+        "cwd": "modules/research-strategy-development/agent-roles/developer/rd-loop-runner",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1979,7 +2078,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research-strategy-development/rd-loop-runner/src/schemas/strategy-rnd-loop-result.schema.json"
+        "output_schema": "modules/research-strategy-development/agent-roles/developer/rd-loop-runner/src/schemas/strategy-rnd-loop-result.schema.json"
       }
     },
     {
@@ -1994,10 +2093,10 @@
         "A",
         "E"
       ],
-      "path": "modules/research-strategy-development/rd-campaign-runner",
+      "path": "modules/research-strategy-development/agent-roles/developer/rd-campaign-runner",
       "purpose": "Run one bounded R&D campaign over a hypothesis queue with discovery, locked validation, artifact writeback, and optional RD state update.",
       "command": {
-        "cwd": "modules/research-strategy-development/rd-campaign-runner",
+        "cwd": "modules/research-strategy-development/agent-roles/developer/rd-campaign-runner",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -2026,7 +2125,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research-strategy-development/rd-campaign-runner/src/schemas/strategy-rnd-campaign-result.schema.json"
+        "output_schema": "modules/research-strategy-development/agent-roles/developer/rd-campaign-runner/src/schemas/strategy-rnd-campaign-result.schema.json"
       }
     },
     {
@@ -2040,10 +2139,10 @@
       "capability_class": [
         "V"
       ],
-      "path": "modules/research-strategy-development/funding-governance",
+      "path": "modules/research-strategy-development/research-control-plane/dataset-governance/funding-governance",
       "purpose": "Check exact funding event coverage before funding-carry research trials.",
       "command": {
-        "cwd": "modules/research-strategy-development/funding-governance",
+        "cwd": "modules/research-strategy-development/research-control-plane/dataset-governance/funding-governance",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -2085,10 +2184,10 @@
       "capability_class": [
         "E"
       ],
-      "path": "modules/research-strategy-development/benchmark-runner",
+      "path": "modules/research-strategy-development/replay-execution-plane/compatibility/benchmark-runner",
       "purpose": "Run one fixed multi-asset trend benchmark for R&D pipeline calibration.",
       "command": {
-        "cwd": "modules/research-strategy-development/benchmark-runner",
+        "cwd": "modules/research-strategy-development/replay-execution-plane/compatibility/benchmark-runner",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -2116,7 +2215,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research-strategy-development/benchmark-runner/src/schemas/strategy-benchmark-result.schema.json"
+        "output_schema": "modules/research-strategy-development/replay-execution-plane/compatibility/benchmark-runner/src/schemas/strategy-benchmark-result.schema.json"
       }
     },
     {
@@ -2131,10 +2230,10 @@
         "A",
         "V"
       ],
-      "path": "modules/research-strategy-development/calibration-suite",
+      "path": "modules/research-strategy-development/replay-execution-plane/certification/calibration-suite",
       "purpose": "Run fixed calibration diagnostics across buy-hold, trend, and relative-strength baselines.",
       "command": {
-        "cwd": "modules/research-strategy-development/calibration-suite",
+        "cwd": "modules/research-strategy-development/replay-execution-plane/certification/calibration-suite",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -2162,7 +2261,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research-strategy-development/calibration-suite/src/schemas/strategy-calibration-result.schema.json"
+        "output_schema": "modules/research-strategy-development/replay-execution-plane/certification/calibration-suite/src/schemas/strategy-calibration-result.schema.json"
       }
     },
     {
@@ -2176,10 +2275,10 @@
       "capability_class": [
         "A"
       ],
-      "path": "modules/research-strategy-development/strategy-contract-compile",
+      "path": "modules/research-strategy-development/agent-roles/developer/strategy-contract-compile",
       "purpose": "Compile one strategy markdown contract into normalized strategy contract output.",
       "command": {
-        "cwd": "modules/research-strategy-development/strategy-contract-compile",
+        "cwd": "modules/research-strategy-development/agent-roles/developer/strategy-contract-compile",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -2221,10 +2320,10 @@
       "capability_class": [
         "V"
       ],
-      "path": "modules/research-strategy-development/strategy-contract-lint",
+      "path": "modules/research-strategy-development/research-control-plane/contract-lint",
       "purpose": "Lint one strategy markdown contract for lifecycle and R&D readiness.",
       "command": {
-        "cwd": "modules/research-strategy-development/strategy-contract-lint",
+        "cwd": "modules/research-strategy-development/research-control-plane/contract-lint",
         "argv": [
           "bun",
           "src/scripts/main.ts",

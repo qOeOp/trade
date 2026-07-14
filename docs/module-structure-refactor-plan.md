@@ -367,7 +367,7 @@ modules/
 - `data-catalog.ts` 的 DB/schema/scan 实现已收敛到 `modules/artifact-knowledge/artifact-catalog/src/lib/data-catalog.ts`。
 - `modules/contracts/catalog-contract/src/catalog-client.ts` 提供跨模块 catalog client；research / governance 旧本地路径只保留 re-export 适配。
 - artifact-catalog CLI 已新增 direct register / upsert / list 命令，并有 `catalog-cli.test.ts` 覆盖。
-- `replay-core.ts` 实现已收敛到 `modules/research-strategy-development/replay-engine/src/lib/replay-core.ts`。
+- `replay-core.ts` 实现已收敛到 `modules/research-strategy-development/replay-execution-plane/compatibility/replay-engine/src/lib/replay-core.ts`。
 - `research-strategy-development/replay-runner` 已成为 agent-facing replay atomic module。
 
 尚未完成：

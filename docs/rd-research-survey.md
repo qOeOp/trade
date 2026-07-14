@@ -7,7 +7,7 @@ updated_at: 2026-07-10 CST
 
 结论：先进策略研发不是“搜索更大参数空间”，而是**约束搜索自由度、证明结果不是选择偏差、证明执行链吃不掉 edge**。当前项目方向正确，但若要接近专业研发流程，下一层不是加更多 family，而是补研究审计、统计校正、数据可用性证明与执行现实模型。
 
-策略宇宙与 family backlog 单独维护在 `docs/strategy-universe-taxonomy.md`。本文件回答“如何证明”；taxonomy 回答“应该研究哪些收益来源、组合形态和数据面”。两者必须同时成立：分类不完整会让 RD 错过大类机会，验证不严格会让 RD 把噪音落成策略。
+策略宇宙、research pipeline、agent 入口纪律与 family backlog 语义统一维护在 `docs/rd-strategy-universe-design.md`。本文件回答“如何证明”；主设计文档回答“应该研究哪些 edge、机制、数据面和执行语义”。两者必须同时成立：分类不完整会让 RD 错过大类机会，验证不严格会让 RD 把噪音落成策略。
 
 ## 1. 学术与机构方法
 

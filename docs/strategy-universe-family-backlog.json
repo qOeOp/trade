@@ -1,7 +1,7 @@
 {
   "schema_version": "trade-flow.strategy-family-backlog.v1",
   "updated_at": "2026-07-10T00:00:00+08:00",
-  "source_doc": "docs/strategy-universe-taxonomy.md",
+  "source_doc": "docs/rd-strategy-universe-design.md",
   "p0_certificate_ref": "docs/strategy-universe-p0-family-certificates.json",
   "purpose": "Keep strategy R&D from treating the current executable price-action families as the full strategy universe.",
   "coverage_axes": [

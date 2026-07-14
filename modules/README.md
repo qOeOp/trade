@@ -42,7 +42,11 @@
 | `live-execution-control/live-small-runner` | DB handle、approved live-small input、explicit yes、runner | live-small result shell、audited order_fill append | 小额实盘执行 gate、command spec 执行、confirmed result 记录 | strategy thesis、exchange API 细节、reconcile |
 | `live-execution-control/reconcile-drafts` | projected local flow、account snapshot | reconcile drafts、unmatched facts | local/exchange 对账建议 | account snapshot 调用、apply draft、needs_review 写入 |
 | `live-execution-control/recovery-runner` | repo root、flow id、DB handle、runner、apply flag | reconcile result、optional applied drafts / needs_review | account snapshot read -> reconcile -> safe local recovery | strategy thesis、exchange write、R&D |
-| `research-strategy-development/replay-runner` | OHLCV manifest、strategy id、replay parameters | replay result | 单策略机械 replay | 写文件、写 catalog、R&D search、策略升格 |
+| `research-strategy-development/research-control-plane/*` | Proposal/Contract/Trial/Result/Review、Draft authorization | 权威 RD facts、ready Draft Strategy binding | RD 单写者、策略物化与跨 Plane 认证 | Replay/Forward 执行、Agent 推理、正式 Shadow/Live |
+| `research-strategy-development/replay-execution-plane/*` | Trial-bound request、normalized closed bars、funding events | Result Artifact、ledger、metrics、fingerprint | certified historical evidence execution | Candidate 生成、Review、promotion |
+| `research-strategy-development/forward-evidence-plane/*` | ready Draft binding、freeze、watermark、Forward reservation | post-freeze Forward Result | no-backfill 前瞻证据 | 正式 Shadow、账户事实、promotion |
+| `research-strategy-development/agent-roles/*` | Control Plane context、identity、registered evidence | Proposal/Candidate request/Decision submission | Planner/Developer/Reviewer 可替换角色入口 | 权威事实和直接策略落盘 |
+| `research-strategy-development/replay-execution-plane/compatibility/replay-runner` | OHLCV manifest 或 Trial-bound execution request | legacy replay result 或新 Replay outcome | 迁移期兼容 adapter | 新语义 owner、R&D search、策略升格 |
 | `research-strategy-development/data-split` | source OHLCV manifests、split ratios、embargo parameters | discovery / validation / locked holdout manifests、split report、optional catalog ref | 数据切分与 holdout 隔离 | R&D search、replay、review、`trade.db` |
 | `research-strategy-development/signal-evaluator` | OHLCV manifest、entry reference、candidate 或 strategy contract | latest closed-candle signal result | 最新信号评估 | R&D search、replay batch、catalog 写入、`trade.db` |
 | `research-strategy-development/panel-evaluator` | panel manifests、candidate JSON、marketability gate | panel report | 多资产 panel 评估、marketability、panel negative controls | R&D loop artifact、RD memory、review、`trade.db` |
@@ -87,7 +91,7 @@
 
 ## Trade-Flow Domains
 
-`orchestration-ops/trade-flow` 是编排模块，但内部不能再是大平层。旧 `research` / `review` / `artifact` domain 已移除；真实 RD owner 已拆为 `modules/research-strategy-development/rd-*` 与 research atoms，真实 review owner 是 `modules/governance-review-compliance/strategy-review`，真实 artifact/catalog owner 是 `modules/artifact-knowledge/artifact-catalog`。
+`orchestration-ops/trade-flow` 是编排模块，但内部不能再是大平层。旧 `research` / `review` / `artifact` domain 已移除；RD 根已收敛为 `research-control-plane`、`replay-execution-plane`、`forward-evidence-plane`、`agent-roles` 四个直接责任子树，真实 review owner 是 `modules/governance-review-compliance/strategy-review`，真实 artifact/catalog owner 是 `modules/artifact-knowledge/artifact-catalog`。
 
 | Domain | Contract | 负责 |
 | --- | --- | --- |

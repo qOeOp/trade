@@ -242,7 +242,7 @@ flowchart TD
 高阶入口：
 
 ```bash
-bun modules/research-strategy-development/rd-supervisor/src/scripts/main.ts --db ./data/rd_state.db --program-id rd-program --json '{"max_iterations":10}'
+bun modules/research-strategy-development/research-control-plane/program-supervisor/src/scripts/main.ts --db ./data/rd_state.db --program-id rd-program --json '{"max_iterations":10}'
 ```
 
 低阶入口：
@@ -290,8 +290,8 @@ stateDiagram-v2
 | --- | --- | --- |
 | 产品契约 | `docs/` | vision、PRD、架构、技术契约、检查契约 |
 | 主流程 | `modules/orchestration-ops/trade-flow/` | event stream、automation、observe、execution、reconcile |
-| 研究 | `modules/research-strategy-development/rd-loop-runner/` + `modules/research-strategy-development/rd-campaign-runner/` + `modules/research-strategy-development/rd-program-state/` + `modules/research-strategy-development/rd-shadow-tracker/` + `modules/research-strategy-development/replay-runner/` + `modules/research-strategy-development/data-split/` + `modules/research-strategy-development/benchmark-runner/` + `modules/research-strategy-development/calibration-suite/` | R&D loop/campaign、RD memory、panel、benchmark、calibration、forward tracker、单策略 replay、holdout split |
-| 策略契约 | `modules/contracts/strategy-contract/` + `modules/research-strategy-development/strategy-contract-*` | strategy contract 解析、compile、lint |
+| 研究 | `modules/research-strategy-development/agent-roles/developer/rd-loop-runner/` + `modules/research-strategy-development/agent-roles/developer/rd-campaign-runner/` + `modules/research-strategy-development/research-control-plane/program-control/` + `modules/research-strategy-development/forward-evidence-plane/compatibility/rd-shadow-tracker/` + `modules/research-strategy-development/replay-execution-plane/compatibility/replay-runner/` + `modules/research-strategy-development/research-control-plane/dataset-governance/data-split/` + `modules/research-strategy-development/replay-execution-plane/compatibility/benchmark-runner/` + `modules/research-strategy-development/replay-execution-plane/certification/calibration-suite/` | R&D loop/campaign、RD memory、panel、benchmark、calibration、forward tracker、单策略 replay、holdout split |
+| 策略契约 | `modules/contracts/strategy-contract/` + `modules/research-strategy-development/research-control-plane/contract-lint/` + `modules/research-strategy-development/agent-roles/developer/strategy-contract-compile/` | strategy contract 解析、compile、lint |
 | 治理 | `modules/governance-review-compliance/strategy-review/` | evidence、review、promotion |
 | 资产治理 | `modules/artifact-knowledge/artifact-catalog/` | catalog、artifact stale scan、GC |
 | 市场观察 | `modules/market-data-products/binance-read/market-scan` / `modules/market-data-products/binance-read/symbol-snapshot` / `modules/market-data-products/binance-read/aggtrades-fetch` / `modules/market-data-products/liquidation-zones` | 候选、单标的事实、成交材料、清算区 |
@@ -346,8 +346,8 @@ bun modules/orchestration-ops/trade-flow/src/scripts/main.ts --db ./data/trade.d
 bun modules/orchestration-ops/domain-bus/src/scripts/main.ts --db ./data/ops_runtime.db --action list --json '{"cycle_id":"..."}'
 
 # 初始化并运行 R&D supervisor
-bun modules/research-strategy-development/rd-program-state/src/scripts/main.ts --db ./data/rd_state.db --program-id rd-program --json '{"action":"init","objective":"find a shadow-eligible 4H swing strategy"}'
-bun modules/research-strategy-development/rd-supervisor/src/scripts/main.ts --db ./data/rd_state.db --program-id rd-program --json '{"max_iterations":10}'
+bun modules/research-strategy-development/research-control-plane/program-control/src/scripts/main.ts --db ./data/rd_state.db --program-id rd-program --json '{"action":"init","objective":"find a shadow-eligible 4H swing strategy"}'
+bun modules/research-strategy-development/research-control-plane/program-supervisor/src/scripts/main.ts --db ./data/rd_state.db --program-id rd-program --json '{"max_iterations":10}'
 ```
 
 ## 15. 安全边界
