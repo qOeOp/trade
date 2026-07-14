@@ -59,10 +59,13 @@ agent-roles/
 | owner 建立 | 已完成 | RD 根仅剩四个目标直接子树；State Store 已迁至 `research-control-plane/state-store/`，旧目录与兼容链接均已删除 |
 | 合同冻结 | 已完成首版 | Control Plane、Replay、Forward、Draft Strategy binding 均有 typed contract 与测试 |
 | Replay 纵切 | 已完成受限认证 | single-asset、closed-candle、next-open、stop/target、fee/slippage/funding、ledger、fingerprint、artifact commit 已锁定；复杂订单/portfolio 不冒充已支持 |
+| Replay 稳定组件收敛 | 已完成首轮 | 输入准入、金额账本、派生指标已分别落入 `data-adapter`、`accounting`、`metrics`；certified engine 已消费这些 owner，compatibility engine 仅复用纯 accounting 原语 |
+| Replay 数据准入 | 已完成主数据子集 | Runner 强制消费结构化 Dataset Manifest；ref/content hash、UTC、OHLC/grid、observed-through、instrument lifecycle、survivorship limitation 与 artifact/fingerprint binding 已锁定；supplemental PIT revisions 仍待实现 |
+| Replay 认证矩阵 | 已完成首层 | golden semantic digest、long/short property、price/cash scale metamorphic、engine-to-component parity 已落地；尚无 Fast kernel，不能宣称 Step/Fast parity |
 | Draft 落盘 | 已完成 | `accept_for_draft -> render -> lint -> hash -> atomic write -> registry` 已由 Control Plane owner 实现 |
 | Forward 纵切 | 已完成受限认证 | 只消费 ready Draft，执行 post-freeze/no-backfill admission，并复用 Replay semantics |
 | Agent Role 边界 | 已完成首版 | Planner、Developer、Reviewer 只生成提交物，不取得 Plane 写权限 |
 | manifest/tool/test 切换 | 已完成物理路径切换 | tool、job、manifest、imports、tests 均引用四子树内路径；布局门禁拒绝任何第五个根节点 |
 | legacy retire | 根级路径已完成，语义淘汰继续 | J04/J05 的 legacy job shell 已迁入 Control/Forward 子树；Replay/benchmark/panel 等旧实现已进入 `compatibility/`，达到 parity 前保留但不得扩张权威语义 |
 
-因此 `physical-root-converged` 表示物理目录、注册表和调用路径已经收敛，不表示所有 legacy 语义已经被新内核替换，也不表示 Replay 的 order state machine、portfolio、margin/liquidation 或 fast parity 已完成。后续演进必须在四个目标子树内进行，并按 `docs/rd-module-disposition.json` 逐项消除 compatibility 实现。
+因此 `physical-root-converged` 表示物理目录、注册表和调用路径已经收敛；Replay 的首轮稳定组件抽取也已完成，但不表示所有 legacy 语义已经被新内核替换，也不表示 order state machine、portfolio、margin/liquidation 或 fast parity 已完成。后续演进必须在四个目标子树内进行，并按 `docs/rd-module-disposition.json` 逐项消除 compatibility 实现。

@@ -10,9 +10,9 @@ status: implemented-vertical-slice
 
 Replay Execution Plane 是 **冻结实验的确定性执行与历史证据生产面**，不是研究决策面，也不是实盘执行面。它只做一件事：把 Research Control Plane 已冻结的 Trial，连同不可变 Experiment Contract、Candidate Identity、Dataset Manifest 与模拟政策，执行成可复读的事件链、统一账本和 Result Artifact。
 
-当前成熟度判断：**M2 / 5，已认证的受限纵切**。新 owner 已实现完整 Control Plane identity binding、closed-candle、next-open、简单 stop/target、stop-first resolution limitation、worse-open gap、fee/slippage/exact funding ledger、Result/Fingerprint、artifact 原子提交、幂等、取消和 Forward parity；尚未形成通用 order state machine、partial fill、portfolio/margin/liquidation、data-adapter/PIT 全覆盖与 step/fast parity。它可支持明确 capability 范围内的正式证据，不能外推到复杂执行 fidelity。
+当前成熟度判断：**M2 / 5，已认证的受限纵切**。新 owner 已实现完整 Control Plane identity binding、manifest/ref/content-hash 三方校验、RFC 3339 UTC、instrument lifecycle、point-in-time/survivor-only 声明、expected grid gap limitation、closed-candle、next-open、简单 stop/target、stop-first resolution limitation、worse-open gap、fee/slippage/exact funding ledger、Result/Fingerprint、artifact 原子提交、幂等、取消和 Forward parity；并已把输入准入、金额账本与派生指标分别收敛到 `data-adapter`、`accounting`、`metrics`，由 Plane-local golden/property/metamorphic/component-parity tests 锁定。尚未形成 supplemental feature/revision PIT join、通用 order state machine、真实 partial fill、portfolio/margin/liquidation 与 step/fast parity。它可支持明确 capability 范围内的正式证据，不能外推到复杂执行 fidelity。
 
-实现路径：`replay-execution-plane/contracts`、`engine`、`runner` 已成为新语义 owner；`replay-execution-plane/compatibility/replay-runner` 可转发 Trial-bound request，`compatibility/replay-engine` 继续作为 parity/迁移来源，不再承接新语义扩展。RD 根已无旧 Replay package。
+实现路径：`replay-execution-plane/contracts`、`data-adapter`、`engine`、`accounting`、`metrics`、`runner` 与 `tests` 已成为 certified slice 的新语义 owner；`replay-execution-plane/compatibility/replay-runner` 可转发 Trial-bound request，`compatibility/replay-engine` 仅复用稳定 accounting 原语并继续作为 parity/迁移来源，不再承接新语义扩展。RD 根已无旧 Replay package。
 
 权威边界：
 
@@ -90,7 +90,7 @@ flowchart LR
 
 | 状态 | 当前语义 | 证据与限制 |
 | --- | --- | --- |
-| 已正式实现并测试 | closed candle 产生 signal，默认下一根 open 入场 | `strategy-replay.test.ts` 锁定 signal/entry time；manifest 的 `closed_candles_only` 主要是声明，loader 未完整验证闭合、连续性和 OHLC invariants |
+| 已正式实现并测试 | closed candle 产生 signal，默认下一根 open 入场 | Certified adapter 已验证 closed、UTC、OHLC、interval/grid、manifest window 与 content hash；legacy `strategy-replay` 仍主要依赖 manifest 声明 |
 | 已正式实现并测试 | 简单 bracket 同 bar 时 stop-first | 只覆盖单仓位、单 stop/target；不能外推到多 entry、多 stop ladder、cancel 或 liquidation |
 | 已正式实现并测试 | stop gap 按更差 open 成交 | long 用 `min(stop, open)`、short 用 `max(stop, open)` |
 | 已正式实现并测试 | break-even 在触发 bar 完成后、下一 bar 生效 | 是当前兼容 policy，不是所有 trailing/protection 的长期唯一制度 |
@@ -129,11 +129,11 @@ flowchart LR
 2. **主路径没有订单/仓位/账本状态机**：partial、reduce-only、加减仓、cancel、reversal 只在局部 helper 或完全缺失。
 3. **OHLC 路径不可知却未输出 resolution limitation**：stop/target 之外的多订单结果可能被任意实现顺序决定。
 4. **没有 portfolio/margin/liquidation 的统一资金事实**：多资产并发、funding、fee 和强平无法对 NAV 与 risk budget 守恒。
-5. **temporal identity 不完整**：availability、listing/delisting、缺口、survivorship、Control Plane ids 与完整 code/policy hash 未共同绑定。
+5. **supplemental temporal identity 不完整**：主 OHLC/funding manifest 已绑定 availability/lifecycle/gap/survivorship，但 feature/OI/event revisions、source sequence、contract-spec history 与完整 code/policy hash 尚未共同绑定。
 
 ## 4. 目标组件树
 
-目录按稳定责任和 owner boundary 划分，不按 tool 数量划分。目标根与首条纵切已经建立；下列 `accounting`、`data-adapter`、`metrics`、`artifacts`、Plane-local `tests` 仍表示待能力成熟后独立出的稳定 owner，不创建无实现空壳，也不把 runner 内的临时聚合误报为迁移完成。
+目录按稳定责任和 owner boundary 划分，不按 tool 数量划分。目标根与首条纵切已经建立；`data-adapter`、`accounting`、`metrics` 与 Plane-local `tests` 已有 certified single-position 实现，不再是空壳，但其 owner 范围只覆盖当前 capability。`artifacts` 仍是目标 owner，v1 暂由 runner 物化；不得把 runner 内的临时聚合误报为完整迁移。
 
 ```text
 modules/research-strategy-development/
@@ -401,6 +401,8 @@ Feature/funding/OI/event join 使用 `entity_key + event_time + availability_at 
 - 多 timeframe join 只使用已闭合且已 availability 的慢周期 bar；不能用未来 slow-bar close 填当前 fast row。
 - manifest 的 `closed_candles_only=true` 是声明，不是证明；adapter 必须用 close time、run cutoff、checksum 与行级 invariant 验证。
 
+Certified v1 已实现主 OHLC/funding 准入子集：Runner 强制接收结构化 Dataset Manifest；request ref/hash、manifest ref/hash 与实际 canonical bars/funding hash 必须一致；时间必须是 RFC 3339 UTC；symbol/timeframe/window/row count/interval、OHLC envelope、funding ordering、`observed_through`、`listed_at/trading_enabled_at/delisted_at` 均验证。pre/post lifecycle、future funding、hash drift、错位 grid 直接失败；整周期缺 bar、`current_snapshot_only`、`survivor_only` 保留 elapsed time 并写入 `resolution_limited`。尚未完成的是 supplemental facts 的逐记录 `availability_at + revision_id + source_sequence` PIT join，不得把当前子集表述为全数据面防泄漏。
+
 ## 12. Step/Event-driven 与 Fast/Vectorized
 
 Step 是权威 reference implementation。Fast 只是相同语义的优化后端，必须输出相同 normalized semantic digest：
@@ -435,6 +437,7 @@ Parity 不是“metrics 接近”，而是对同一 Request 的 semantic digest 
 ```text
 artifact-manifest.json
 ├── request.json
+├── dataset-manifest.json
 ├── normalized-market-events.*
 ├── order-events.*
 ├── fills.*
@@ -543,11 +546,15 @@ Property tests 的核心 invariants：订单 qty、position qty、cash/NAV bridg
 
 这是建议的第一条纵切，因为它同时穿过 Control Plane binding、data adapter、event ordering、order/fill、position、ledger、metrics、artifact 和 determinism，却不先引入 shared portfolio 或复杂 maker queue。
 
+**当前状态：已完成 certified subset。** Trial identity、closed-candle/next-open、simple bracket、gap、fee/slippage/exact funding、ledger-derived metrics、artifact/fingerprint 已接通；golden digest 与 long/short stop/target 守恒已锁定。原计划中的通用 partial TP/order lifecycle 仍属于 R3，不能因 legacy helper 存在而标记完成。
+
 ### R2：数据时序与身份硬化
 
 - manifest/candle/PIT/availability/listing/gap validator；删除 universe time 乐观 fallback。
 - 修正 code/harness/data/assumptions/cost hash 覆盖；Control Plane Trial reservation 原子校验。
 - runner 实现 idempotency、typed failure、cancel、checkpoint/atomic commit。
+
+**当前状态：完成主 OHLC/funding admission 子集，supplemental PIT 待完成。** request identity、manifest/ref/content-hash binding、UTC、closed-bar/OHLC、interval/grid、funding ordering/window、`observed_through`、instrument lifecycle、survivorship limitation、earliest executable window、idempotency、typed failure、cancel 与 atomic commit 已实现；manifest 与 request/result 一同进入 artifact/fingerprint。Feature/OI/event 的逐记录 availability/revision/source-sequence join、contract-spec history 与 Control Plane reservation 原子读取仍未完成。
 
 ### R3：订单状态机
 
@@ -559,6 +566,8 @@ Property tests 的核心 invariants：订单 qty、position qty、cash/NAV bridg
 - 定点 decimal、double-entry ledger、逐 fill fee、exact funding、borrow 接口。
 - isolated/cross margin、maintenance tiers、liquidation 与 penalty fixtures。
 
+**当前状态：完成单仓位金额事实抽取，未完成统一组合账本。** slippage、双边线性成本、exact funding cashflow、realized PnL 与 ending equity bridge 已由独立 accounting owner 和守恒测试锁定；decimal、逐 fill position notional、borrow、margin/liquidation 仍未开始。
+
 ### R5：Portfolio
 
 - independent lanes 与 shared portfolio 明确分开。
@@ -569,6 +578,8 @@ Property tests 的核心 invariants：订单 qty、position qty、cash/NAV bridg
 - 只实现受限 fast capability；逐 fixture semantic digest parity。
 - candidate batch、panel、benchmark adapter 改走 runner；Reviewer 消费 v2 Result。
 - 无调用者后淘汰 legacy resolver、重复 cost/PnL simulator 与 v1 promotion gate。
+
+**当前状态：只建立认证骨架。** 已有 golden、property、metamorphic 与 component parity；尚无 Fast kernel，因此不存在可宣称的 Step/Fast parity。兼容 engine 复用 accounting 纯原语并通过 legacy integration regression，只证明兼容行为未漂移，不证明 feature parity。
 
 迁移不是整体重写：每一步都以 v1/v2 双跑、golden digest、可回退 adapter 为边界；先替换事实内核，再移动目录。不得先搬模块后继续保留多套语义。
 
@@ -601,7 +612,7 @@ Property tests 的核心 invariants：订单 qty、position qty、cash/NAV bridg
 | 动作 | 模块/实现 |
 | --- | --- |
 | 保留 | `research-control-plane/dataset-governance/data-split` 的治理语义；`replay-execution-plane/certification/calibration-suite` 作为认证来源；`replay-execution-plane/compatibility/replay-runner` 暂作兼容入口 |
-| 重构 | 新 `replay-execution-plane` 已承接 reference kernel、Trial identity、ledger、artifact lifecycle；legacy engine 只补 parity adapter，不再 enrich |
+| 重构 | 新 `replay-execution-plane` 已承接 reference kernel、Trial identity、输入准入、金额账本、派生指标与 artifact lifecycle；legacy engine 只复用稳定原语、补 parity adapter，不再 enrich |
 | 拆分 | `replay-engine` 的 data/hash/cost/metrics；`panel-evaluator` 的 research gate 与 portfolio execution；`benchmark-engine` 的研究定义与可能的 fast primitive |
 | 迁往角色层 | `candidate-batch-engine`、`strategy-family-engine` 的生成能力进 Developer；evaluation gate 进 Reviewer；campaign/supervisor 拆 program-control 与角色编排 |
 | 淘汰 | parity/caller cutover 后淘汰 legacy single-trade resolver、脱节 lane helper、重复 panel/benchmark execution-cost semantics、Replay 内部 promotion gate |
