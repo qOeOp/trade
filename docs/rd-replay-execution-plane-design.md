@@ -10,9 +10,11 @@ status: implemented-vertical-slice
 
 Replay Execution Plane 是 **冻结实验的确定性执行与历史证据生产面**，不是研究决策面，也不是实盘执行面。它只做一件事：把 Research Control Plane 已冻结的 Trial，连同不可变 Experiment Contract、Candidate Identity、Dataset Manifest 与模拟政策，执行成可复读的事件链、统一账本和 Result Artifact。
 
-当前成熟度判断：**M2 / 5，已认证的受限纵切**。Control Plane authority、Attempt fencing、local durable Artifact、checkpoint resume、Dataset Manifest v7、supplemental PIT Snapshot、closed-candle/next-open、简单 bracket、EventKey、average-cost Position、Cash Ledger、Equity v1、Journal v4 与 isolated Margin v7 已贯通。Request v20 的 `Decision Schedule v4` 允许 pre-entry `no_action`、唯一 `authorized_initial_order`、position-open `no_action*`、至多一次 `authorized_protective_stop_replace`，以及至多一个末位 `authorized_reduce_only_exit`。止损替换只能把全仓 reduce-only stop-market 向有利方向收紧；在非终止 closed-bar 边界按 cancel old → submit new → activate new 执行，新 stop 已被当前 close 穿越则拒绝。R4.39 锁定 replacement stop、full strategy exit 与 exact liquidation 共用唯一 terminal owner；R4.40 锁定 long/short 价格镜像 parity，以及 replacement 后 stop/target 同 bar 双触发时的 stop-first + `resolution_limited` 保守结果。Checkpoint v13 保存 Timeline、当前保护单与 pending exit，clean/resume Result hash 一致且不重跑已提交 Harness。Result v29、Artifact v31、Run Outcome v26 不变：R4.39–R4.40 只增加组合/对称认证，没有新 wire capability。该纵切仍不支持动态 supplemental join、部分减仓、加仓/反转、通用 cancel/replace、止损放宽、target 改动、连续 trailing、通用 OHLC path resolver、多 strategy order、OS sandbox、remote adapter、cross/shared portfolio、tick/L2、generic matching 或 step/fast parity，因此不升到 M3。
+当前成熟度判断：**M2 / 5，已认证的受限纵切**。Control Plane authority、Attempt fencing、local durable Artifact、checkpoint resume、Dataset Manifest v7、supplemental PIT Snapshot、closed-candle/next-open、简单 bracket、EventKey、average-cost Position、Cash Ledger、Equity v1、Journal v4 与 isolated Margin v7 已贯通。Request v21 / Schedule v5 允许 pre-entry `no_action`、唯一 entry、position-open `no_action*`，并在互斥分支中选择至多一次 full-position stop tighten 或一次 fixed-quantity partial reduce；partial 后可追加一次末位 full exit。Simulator v8 在 eligible open 先让 exact risk/stop/target 取得优先权，再执行 partial Fill；同一 source boundary 随后取消旧 stop/target，以剩余绝对仓位和原 trigger 重建双保护。Result v30、Artifact v32、Run Outcome v27、Checkpoint v14 绑定 partial Order/Fill、Position/Ledger 与 protection generation，clean/resume 哈希一致。该纵切仍不支持 multiple partial、partial+stop-replace、真实 liquidity partial、加仓/反转、通用 cancel/amend、动态 supplemental join、OS sandbox、remote adapter、cross/shared portfolio、tick/L2、generic matching 或 step/fast parity，因此不升到 M3。
 
 R4.41 已将首条 partial reduce 边界收敛为**非可执行 draft**，但不改变上述成熟度。Draft 只允许一次小于初始仓位的 fixed-quantity market reduce-only；partial Fill 必须留下 open Position，然后在无 SourceEvent 插入的同一 boundary 取消当前 stop/target，按 `abs(post-fill position)` 保留原 trigger 价重建全量双保护。首版 draft 禁止与 stop replacement 组合，允许后续 final full exit。该 schema/capability 未进入 Request v20、Schedule v4 或 certified set；Runner 必须在 Engine 前拒绝它，故当前仍不得声称 partial strategy reduction 已实现。
+
+R4.42 已将该 seam 升为**可执行且受限认证**。Partial Reduce Intent v1 必须 opposite-side、market、reduce-only、increment-aligned fixed quantity，并严格留下 open Position；Schedule v5 只允许一次且拒绝与 stop replacement 组合。partial fee/realized PnL、剩余 unrealized PnL、事件时 Funding、Margin 和下一次 State Snapshot v3 共用同一 Position/Ledger；terminal owner 在 executable open 前发生时取消 pending partial。该能力是确定性全成 fixed quantity，不代表历史委托簿的 partial liquidity。
 
 实现路径：`replay-execution-plane/contracts`、`data-adapter`、`engine`、`accounting`、`metrics`、`runner` 与 `tests` 已成为 certified slice 的新语义 owner；`replay-execution-plane/compatibility/replay-runner` 可转发 Trial-bound request，`compatibility/replay-engine` 仅复用稳定 accounting 原语并继续作为 parity/迁移来源，不再承接新语义扩展。RD 根已无旧 Replay package。
 
@@ -177,7 +179,7 @@ modules/research-strategy-development/
 
 ## 5. Control Plane 输入/输出合同
 
-当前 certified wire id 为 Control Plane `trade-flow.rd-experiment-contract.v3`、Trial Reservation v5、Attempt Lease v1、Checkpoint Receipt v2、Resume Authorization v1，以及 Replay Request v20、Dataset Manifest v7、Supplemental Requirement Set v1、Decision Input/Market Snapshot v1、Decision State Snapshot v2、Reduce-only Exit Intent v1、Protective Stop Replace Intent v1、Decision Schedule v4、Decision Harness Context v5、Source Bundle v1、Build Attestation v2、Worker Protocol v6、Registry Capability v6、Harness Capability/Receipt v8、Decision Boundary v6、Decision Evidence Timeline v7、Result v29、Artifact v31、Artifact Store Capability v1、Engine Checkpoint v13、Diagnostic Commit v2、Run Outcome v26。Storage/Simulator/Numeric/Journal/Equity/Margin Policy 不变。Schedule 是 decision-time authority，Timeline 是逐 boundary evidence authority；Control Plane 只接受当前 fencing generation 的 terminal finalize。
+当前 certified wire id 为 Control Plane `trade-flow.rd-experiment-contract.v3`、Trial Reservation v5、Attempt Lease v1、Checkpoint Receipt v2、Resume Authorization v1，以及 Replay Request v21、Dataset Manifest v7、Supplemental Requirement Set v1、Decision Input/Market Snapshot v1、Decision State Snapshot v3、Partial Reduce Intent v1、Reduce-only Exit Intent v1、Protective Stop Replace Intent v1、Decision Schedule v5、Decision Harness Context v6、Source Bundle v1、Build Attestation v2、Worker Protocol v7、Registry Capability v7、Harness Capability/Receipt v9、Decision Boundary v7、Decision Evidence Timeline v8、Result v30、Artifact v32、Artifact Store Capability v1、Engine Checkpoint v14、Diagnostic Commit v2、Run Outcome v27。Simulator 为 v8；Storage/Numeric/Journal/Equity/Margin Policy 不变。Schedule 是 decision-time authority，Timeline 是逐 boundary evidence authority；Control Plane 只接受当前 fencing generation 的 terminal finalize。
 
 Trial Reservation v5 冻结授权准入窗口 `[issued_at, expires_at)`、两份规则 schedule hash、完整 supplemental revision stream hash 与 Requirement Set hash：两端均为 Control Plane 写入的 RFC 3339 UTC 时间，且必须满足 `issued_at < expires_at`。新 Attempt 的 `claimed_at` 必须落在该半开区间；等于 `expires_at` 即无权 claim，fresh retry 与 resume target 均不例外。Reservation 只回答“何时仍可创建执行权”，不充当运行 lease：合法 claim 后，即使墙钟越过 `expires_at`，运行、续租、checkpoint、取消和 terminal finalize 仍只由 Attempt lease/generation fencing 决定。Runner 消费端复核相同不变量及 Request/Reservation binding，越界或 hash 漂移返回不可重试的 `trial-reservation-expired/unsupported_contract`，不启动 Engine、不发布部分 Result。TTL 长度及延期/重签策略仍由 Control Plane policy 决定，Replay 不自行延长或重签。
 
@@ -185,7 +187,7 @@ Trial Reservation v5 冻结授权准入窗口 `[issued_at, expires_at)`、两份
 
 ```json
 {
-  "schema_version": "trade.rd-replay-execution-request.v20",
+  "schema_version": "trade.rd-replay-execution-request.v21",
   "run_id": "...",
   "idempotency_key": "...",
   "identity": {
@@ -251,7 +253,7 @@ Trial Reservation v5 冻结授权准入窗口 `[issued_at, expires_at)`、两份
 }
 ```
 
-当前受限实现已完成 reservation + attempt + receipt + resume authority 闭包：Control Plane 只从 `status=reserved` Trial 签发 v5 reservation，并在写 Attempt 前强制 `issued_at <= claimed_at < expires_at`；claim 还校验权威 Trial、规则 schedule、supplemental-facts 与 execution-spec binding，后者覆盖 Market Input Requirement 与 Decision Schedule/hash。active-attempt 唯一索引阻止双 worker；renew 必须在旧 lease 到期前推进 generation。Runner 通过 Artifact Store port 在 source-event 完整边界提交 immutable checkpoint，再交给外部控制回调登记 Receipt。Resume Authorization 只接受 source 最新 receipt；Runner 不接受裸 locator。cooperative cancel 返回 Run Outcome v26，不含 Result/Artifact；未认证 store 返回 typed failure，只有 completed 可携带权威 Result/Manifest/terminal completeness hash。
+当前受限实现已完成 reservation + attempt + receipt + resume authority 闭包：Control Plane 只从 `status=reserved` Trial 签发 v5 reservation，并在写 Attempt 前强制 `issued_at <= claimed_at < expires_at`；claim 还校验权威 Trial、规则 schedule、supplemental-facts 与 execution-spec binding，后者覆盖 Market Input Requirement 与 Decision Schedule/hash。active-attempt 唯一索引阻止双 worker；renew 必须在旧 lease 到期前推进 generation。Runner 通过 Artifact Store port 在 source-event 完整边界提交 immutable checkpoint，再交给外部控制回调登记 Receipt。Resume Authorization 只接受 source 最新 receipt；Runner 不接受裸 locator。cooperative cancel 返回 Run Outcome v27，不含 Result/Artifact；未认证 store 返回 typed failure，只有 completed 可携带权威 Result/Manifest/terminal completeness hash。
 
 ### 5.2 目标 `ReplayExecutionResult`
 
@@ -359,7 +361,7 @@ submitted | active | triggered | partially_filled -> cancelled
 triggered | partially_filled -> rejected              # reduce-only zero-fill
 ```
 
-当前 Simulator v7 的 transition 是 append-only `OrderEvent`；conditional strategy fill 必须先 `triggered`。source vocabulary 仍为 `instrument_delisted|funding|mark|bar_open|bar_range`。Mark 不触发 stop/TP；exact maintenance breach 才能创建 `order_role=liquidation` 的系统 market order。`authorized_protective_stop_replace` 只在非终止 closed-bar 决策边界执行：旧 active stop 以 event subphase 0 取消，新 stop 以 subphase 1/2 提交/激活；新 trigger 必须比旧 trigger 更保护、不穿越 target，且尚未被当前 close 触发。后续 source reducer 只读当前 active stop，不再回读 Request 初始价。`authorized_reduce_only_exit` 仍在决策后提交 `strategy_exit`，严格更晚 `bar_open` 才 fill；exact risk/stop/target 可抢占。EOD 取消当前 bracket 与 pending exit 并 mark open Position。OHLCV breach 只失败；exact breach forced close。`rd-replay-number-v3` 不变。
+当前 Simulator v8 的 transition 是 append-only `OrderEvent`；conditional strategy fill 必须先 `triggered`。source vocabulary 仍为 `instrument_delisted|funding|mark|bar_open|bar_range`。Mark 不触发 stop/TP；exact maintenance breach 才能创建 `liquidation`。`authorized_protective_stop_replace` 保持 tighten-only。`authorized_partial_reduce` 在决策边界提交 `strategy_partial_reduce`，仅在严格更晚 eligible `bar_open` 全成 fixed quantity；同刻 exact risk、stop gap、target gap 先执行。partial Fill 位于 phase 20，旧 stop/target cancel 与剩余仓位 protection submit/activate 位于同 source 的 phase 90；无 SourceEvent 可插入。后续 source、Funding、Margin、State Snapshot 与 terminal owner 只读当前 Position/protection。EOD 或更早 terminal 会取消 pending partial/final exit；`rd-replay-number-v3` 不变。
 
 ### 8.2 类型合同
 
@@ -406,7 +408,7 @@ Market/Stop/Take-profit/Reduce-only 的目标语义参考 Binance USDⓈ-M 官�
 
 每条 Ledger Entry 绑定 `event_key / order_id / fill_id / instrument / asset / amount / currency / policy_version`，借贷平衡为硬 invariant。slippage/impact 主要进入 fill price，同时记 attribution，禁止又从 PnL 重复扣减。
 
-当前 Result v29 延续单 settlement-asset Cash Ledger、Valuation/Equity v1，并以 Journal v4 记录 `liquidation_fee_expense`。Margin v7 冻结 isolated collateral、strict-below trigger、exact-risk execution 与 OHLCV failure fallback；Request 的 initial margin/tier/liquidation fee 必须匹配实际入场时生效的 venue-risk epoch，此后的每次 margin observation、funding 后风险检查与 liquidation 则按各自事件时间解析 active snapshot。snapshot 仍按 `isolated collateral + attributed fee/funding/realized/liquidation-fee cashflow + unrealized PnL` 计算，并携带实际规则 snapshot id/hash。exact breach Result 同时含 v3 trigger observation、forced Fill、独立交易费/事件时强平费、flat terminal 与 `trade.rd-replay-liquidation-execution.v2`；OHLCV breach Run Outcome v26 只携带 `execution_status=not_simulated` observation。零 headroom 仍 sufficient。负 collateral 返回 typed `liquidation-deficit-unsupported + remaining_collateral + trigger observation`，不发布 Result，不合成保险基金或坏账。
+当前 Result v30 延续单 settlement-asset Cash Ledger、Valuation/Equity v1 与 Journal v4。partial Fill 的手续费和 realized PnL 以同一 EventKey 入账；事件时 Funding 按该 SourceEvent 前已生效的 Position 数量计提，partial 后 Margin 使用剩余仓位及已结算 cashflow。Margin v7 的 isolated collateral、strict-below trigger、exact-risk execution 与 OHLCV failure fallback 不变；exact breach 仍输出 v3 observation + forced full-close，OHLCV breach以 Run Outcome v27 表达，负 collateral 仍拒绝 Result。
 
 Manifest v7 的 instrument-accounting spec 冻结 `base_asset / quote_asset / settlement_asset / contract_multiplier / price_increment / quantity_increment / settlement_increment`，并与 instrument-spec schedule 一起计算 Request-bound hash；Mark capability 仅接受 `none` 或覆盖 `[first_open_time,last_close_time]` 的 `complete_grid`，每条必须 `available_at == timestamp`、时间严格递增、source sequence 严格递增、价格 tick-aligned，count/interval/grid/content hash 全部一致；partial/stale/lagged Mark 流拒绝认证。当前只接受 unit-multiplier linear derivative、`quote_asset == settlement_asset` 与最多 12 位 increment scale。instrument-spec schedule 已提供事件时 provenance，但全窗口仍只允许一份不变的 accounting spec；会改变 tick、multiplier、settlement 等核算语义的 epoch、maker fee asset 与 mark-price 独立 increment 尚未认证，故只能声称 manifest-bound precision，不声称完整 venue precision。
 
@@ -420,7 +422,7 @@ v1 支持 `net` position mode：
 - unrealized PnL 使用 Contract 指定 mark source；close/last 不能静默替代 mark。
 - `R_initial` 的分母为初始已承诺风险；`R_max_live_risk` 的分母为路径中最大有效风险。partial/add/reduce 后两者都保留，禁止只报一套易看的 R。
 
-当前 certified Result v29 的 Runner 闭包是 pre-entry `no_action*`、一笔 non-reduce entry、position-open `no_action*`、可选的一次全仓止损收紧替换和末位 full reduce-only strategy exit，再由 exit、当前 stop/target full close、exact-risk liquidation full close 或 open-marked EOD 终结。State Snapshot v2 同时冻结 Position/Cash 与 active protection，防止 Harness 对旧 stop 或虚构 target 决策。strategy exit 只在严格更晚 open 全成；exact breach 生成 forced reduce-only market；OHLCV breach 没有 Result。该模型输出不是历史交易所 order reconstruction。
+当前 certified Result v30 的 Runner 闭包是 pre-entry `no_action*`、一笔 non-reduce entry、position-open `no_action*`，再选择“一次全仓止损收紧”或“一次 fixed partial + 可选 final full exit”。State Snapshot v3 冻结当下 Position/Cash 与 current protection；partial 后下一决策看到剩余数量与重建后的 order ids/trigger。stop/target/exact liquidation/EOD 都可成为唯一 terminal owner，并在必要时取消 pending partial/final exit。该模型输出是确定性假设证据，不是历史交易所 order reconstruction。
 
 ### 9.3 Funding、fee、borrow、margin、liquidation
 
@@ -500,6 +502,8 @@ R4.40 继续不新增 schema/version。以固定中心价映射 `p' = 2c - p` �
 
 R4.41 冻结 `trade.rd-replay-partial-reduce-intent-draft.v1`，但故意不推进 Request/Result/Artifact 版本。Draft Intent 绑定 opposite side、market、reduce-only、fixed quantity、closed-bar signal/next eligible open、`must_remain_open`，且 quantity 严格小于 initial quantity。`rd-replay-partial-reduce-protection-v1-draft` 绑定 partial Fill 后的同 source boundary 执行 old stop/target cancel → remaining-quantity stop/target submit/activate，价格保持当前 trigger，数量 authority 只能是 post-fill Position。组合范围仅为 one partial → optional final full exit，不与 stop replacement 并存。当前 Reference Engine 仍把 strategy exit 视为 terminal，certified Position Projection 仍拒绝 partial close，Checkpoint 也未有 protection generation；因此 draft capability 的 Reservation 必须 unsupported，没有 Result/Artifact。
 
+R4.42 将其正式化为 `trade.rd-replay-partial-reduce-intent.v1 / rd-replay-partial-reduce-protection-v1 / next-open-fixed-quantity-partial-reduce`。Request v21 / Schedule v5 增加 `authorized_partial_reduce`，Harness/Timeline/Boundary/State 分别推进到 Context v6、Worker v7、Registry v7、Capability/Receipt v9、Timeline v8、Boundary v7、State v3；Simulator v8 新增独立 non-terminal lane。测试锁定 long/short 数量对称、phase `20 fill -> 90 cancel/cancel/submit/activate/submit/activate`、partial+final 的三笔 Fill 投影、逐 Fill fee/realized PnL、post-partial Funding、next State protection、terminal preemption，以及 Checkpoint v14 clean/resume parity。Result v30、Artifact v32、Run Outcome v27 完成 wire epoch 推进。该认证只证明模型内 fixed quantity 全成，不证明 maker queue、成交概率或真实 partial liquidity。
+
 这一闭包证明 deterministic source-to-artifact closure、执行时 exact runtime binary、冻结 pre-entry/position-open schedule 的逐 boundary market/state PIT、一次 tighten-only stop replacement、一次 full reduce-only exit Intent parity、三类终止组合唯一 owner、方向镜像 parity 及单请求进程边界；它不证明第三方签名 provenance，不支持任意外部依赖/SBOM，也不是 OS sandbox。Result 使用 `decision-harness-os-sandbox-uncertified` info limitation。其他 effect-changing decision、动态 supplemental join 与完整 feature DAG trace 仍未认证；不得表述为任意 Candidate 安全执行闭包。
 
 ## 12. Step/Event-driven 与 Fast/Vectorized
@@ -531,7 +535,7 @@ Parity 不是“metrics 接近”，而是对同一 Request 的 semantic digest 
 
 每项 metric 必须声明 unit、currency/denominator、aggregation、missing policy 与 version。`profit_factor=999999` 之类 sentinel 不进入权威 schema；无 loss 时用 typed `null/+infinity-policy` 表达。研究 gate、DSR/PBO、winner selection 属于 Control Plane，不混进 execution metrics。
 
-当前 Result v29 认证基础 PnL/cost、observed margin 与独立 `total_liquidation_fees`，并持久化 Decision Schedule/Boundary/Timeline；每个 evaluated Entry 各自绑定 supplemental/market Snapshot、可空 State Snapshot v2、Bundle、Build、Receipt，state-hash vector 与 Timeline hash 覆盖 `no_action/not-reached/protective-stop-replace/reduce-only-exit`。止损替换不直接改变 PnL metric，其经济效果只能由后续 OrderEvent/Fill/Ledger 派生。exact breach Result 含 simulated liquidation execution；OHLCV breach 仍无正式 Result metrics。
+当前 Result v30 认证基础 PnL/cost、observed margin 与独立 `total_liquidation_fees`，并持久化 Schedule/Boundary/Timeline；state-hash vector 与 Timeline hash 覆盖 `no_action/not-reached/protective-stop-replace/partial-reduce/reduce-only-exit`。partial 的经济效果只能由 Fill → Position → Ledger → Equity/Metrics 派生：trade_count 仍按 entry 数，不把减仓误算为新交易。exact breach Result 含 simulated liquidation execution；OHLCV breach仍无正式 Result metrics。
 
 ### 13.2 Artifact Manifest
 
@@ -562,7 +566,7 @@ artifact-manifest.json
 └── diagnostic checkpoint commit v2 # immutable versioned marker + storage policy；登记 Receipt 后方可授权恢复
 ```
 
-当前 Artifact v31 通过 Artifact Store port 在 `logical idempotency key / attempt_id` Attempt namespace 中提交并持久绑定 storage policy；独立 market Snapshot artifact 保存唯一授权入场 Snapshot，完整 Market/State Snapshot、Receipt、stop-replace/authorized-exit/not-reached 由 `decision-evidence-timeline.json` 权威承载，实际 cancel/submitted/activated/filled 由 order/fill artifacts 承载。Boundary/Entry/Timeline 形成三层 hash binding，Request/Fingerprint 另绑定 schedule 与 state-hash vector。certified local adapter 仍以 `fsync + hard-link create-if-absent CAS + directory fsync` 发布；remote target 仍未认证。Engine Checkpoint v13 只在完整 source-event 及其 decision/order 副作用后产生，内嵌 Timeline、当前 protection 与 pending strategy-exit Order；恢复只接受 Control Plane 最新 Receipt 派生 Authorization。
+当前 Artifact v32 通过 Artifact Store port 在 `logical idempotency key / attempt_id` namespace 中提交并绑定 storage policy；Timeline 承载 partial decision/state/receipt，order/fill/position/ledger artifacts 承载实际非终止经济事实。Checkpoint v14 只在完整 source-event 及其 partial/protection 副作用后产生，内嵌 Timeline、pending/filled partial Order、partial Fill、current protection 与 pending final exit；恢复只接受 Control Plane 最新 Receipt 派生 Authorization。local CAS 已认证，remote target 仍未认证。
 
 ### 13.3 Evidence Fingerprint
 
@@ -626,7 +630,7 @@ claimed -> running -> completed
 - 跨 Attempt resume 不是 retry 的默认权利：source 必须 `cancelled/expired`，其最新 Checkpoint Receipt 必须由有效 producer lease 登记；不可变 Resume Authorization 再绑定 receipt 对应 commit、later target Attempt/worker、claimed identity 与 lease generation floor。一个 target Attempt 只能对应一份授权。
 - lease generation 是 fencing token：heartbeat 只能在旧 lease 有效时扩展 expiry 并 `generation+1`；旧 worker 可以产生 diagnostic 文件，但不能用旧 generation finalize authoritative Result。
 - completed finalize 强制 `result_hash + artifact_ref/hash + terminal_checkpoint_hash`；failed/cancelled/expired 强制 failure class 且禁止 authoritative Result 字段。terminal row 由 SQLite trigger 保持不可变。
-- engine 启动前 cancel 与 source-event boundary cooperative cancel 均已实现；边界只出现在该 source 的 risk/order/decision 副作用全部完成后。取消 outcome 携带 Engine Checkpoint v13（内嵌 Decision Timeline、State Snapshot v2、当前 stop/target、pending strategy-exit Order 与 source prefix）且禁止 Result/Artifact；resume 必须重验 Control Plane authorization、commit/payload hash、Timeline/member/order hash 与 source prefix，并由 parity test 证明与 clean run 等价且不重跑已提交 post-entry Harness。terminal completeness checkpoint 仍仅证明 Artifact 完整提交，二者禁止混用。
+- engine 启动前 cancel 与 source-event boundary cooperative cancel 均已实现；边界只出现在该 source 的 risk/order/decision/partial/protection 副作用全部完成后。取消 outcome 携带 Engine Checkpoint v14（Timeline、State Snapshot v3、partial Order/Fill、current stop/target、pending final exit 与 source prefix）且禁止 Result/Artifact；resume 必须重验 authority、commit/payload hash、Timeline/member/order hash 与 source prefix，并由 parity test 证明与 clean run 等价且不重放 partial Fill。terminal completeness checkpoint 仍仅证明 Artifact 完整提交，二者禁止混用。
 - `failure_class = input_invalid | unsupported_contract | data_integrity | deterministic_engine | resource | external_io` 与 `retryable` 是机器合同，日志文本不决定重试。
 
 ## 15. 测试与认证矩阵
@@ -636,7 +640,7 @@ claimed -> running -> completed
 | clock/visibility | close signal、next-open、funding boundary | 无事件可在 availability 前消费 | 全部时间平移不改相对结果 | step 与 replay chunking digest |
 | OHLC path | stop/target、gap、entry+bracket 同 bar | canonical 是 admissible path 且 limitation 完整 | bar 拆细后已 resolved 结果不变 | OHLC step 与 higher-res resolved subset |
 | orders | market/limit/stop/TP/cancel race | fill 不早于 active；filled+remaining=requested | price/qty scale 后经济量同比 | fast supported order subset |
-| reduce/position | multiple entry、partial TP、oversized/wrong-side reduce-only、reversal；partial-reduce draft 非终止数量/时序/保护 policy 非法输入 | reduce-only 不增仓/翻向；draft quantity 必须留 open Position；未认证 capability 在 Engine 前拒绝 | 拆一笔 fill 为多笔同价 fill，终态相同；未实现前不声称 bracket-resize parity | legacy simple resolver compatibility；后续需 partial clean/resume parity |
+| reduce/position | multiple entry、partial TP、oversized/wrong-side reduce-only、reversal；partial quantity/时序/组合/保护非法输入 | reduce-only 不增仓/翻向；fixed quantity 留 open Position；partial Fill 后 stop/target 数量等于剩余绝对仓位；terminal preemption 取消 pending partial | long/short 数量镜像；同价 Fill 拆分保持经济终态；clean/resume Result hash 相同 | legacy simple resolver compatibility；partial Position/Ledger/State/checkpoint parity |
 | numeric | bps price、fee、funding、linear PnL、weighted average、return vectors | 舍入方向不改善证据；所有现金事实 increment-aligned | price/cash 同比缩放后 return 与 scaled PnL 精确等价 | Bun/BigInt 与 Python Decimal 共享向量 |
 | ledger/cost | fee、funding、borrow、impact | 借贷平衡；NAV bridge 可解释 | zero-cost policy 恢复 gross PnL | step/fast ledger digest |
 | margin | isolated/cross、stop-liquidation collision | equity/margin 守恒；liquidation 后无未解释风险 | collateral 等比缩放 | 不允许 fast，断言 capability reject |
@@ -661,7 +665,7 @@ Property tests 的核心 invariants：订单 qty、position qty、cash/NAV bridg
 
 ### R0：冻结合同，不搬目录
 
-- 冻结版本化 authority/evidence schema：Trial Reservation v5、Attempt Lease v1、Checkpoint Receipt v2、Resume Authorization v1、Request v20、Dataset Manifest v7、Supplemental Requirement Set v1、Decision Input/Market Snapshot v1、Decision State Snapshot v2、Reduce-only Exit Intent v1、Protective Stop Replace Intent v1、Decision Schedule v4、Decision Harness Context v5、Source Bundle v1、Build Attestation v2/Worker Protocol v6、Registry Capability v6、Harness Capability/Receipt v8、Decision Boundary v6、Decision Evidence Timeline v7、Result v29、Artifact v31、Artifact Store Capability v1、Engine Checkpoint v13、Diagnostic Commit v2、Run Outcome v26；Storage/Simulator/Numeric/Journal/Equity/Margin Policy 不变。
+- 冻结版本化 authority/evidence schema：Trial Reservation v5、Attempt Lease v1、Checkpoint Receipt v2、Resume Authorization v1、Request v21、Dataset Manifest v7、Supplemental Requirement Set v1、Decision Input/Market Snapshot v1、Decision State Snapshot v3、Partial Reduce/Reduce-only Exit/Protective Stop Replace Intent v1、Decision Schedule v5、Harness Context v6、Source Bundle v1、Build Attestation v2/Worker Protocol v7、Registry Capability v7、Harness Capability/Receipt v9、Boundary v7、Timeline v8、Result v30、Artifact v32、Artifact Store Capability v1、Engine Checkpoint v14、Diagnostic Commit v2、Run Outcome v27；Simulator v8，Storage/Numeric/Journal/Equity/Margin Policy 不变。
 - 给 v1 输出标 `legacy_single_trade_resolver`；停止向 v1 增加 promotion 语义。
 - 建 current behavior fixture inventory，明确正式、临时、隐含和 known-bad。
 
@@ -686,14 +690,14 @@ Property tests 的核心 invariants：订单 qty、position qty、cash/NAV bridg
 - limit/stop/TP、cancel/amend、multi-entry、partial、wrong-side/oversized reduce-only、reversal。
 - 只有具备数据能力的 fill policy 才开放；maker queue 缺失继续 limitation/unsupported。
 
-**当前状态：完成第四十一子集，R3 未完成。** R4.41 只增加 partial-reduce draft schema/policy 与 pre-Engine capability rejection，没有接入 Simulator v7。已决定的最小语义是 one fixed partial → atomic remaining-position bracket rebuild → optional final full exit，并与 stop replacement 互斥。仍缺非终止 source reduction、partial Position Projection、逐 Fill ledger、protection generation、checkpoint/resume 和 terminal arbitration 认证；完成前 partial reduce 仍是 unsupported。
+**当前状态：完成第四十二子集，R3 未完成。** R4.42 已认证 one fixed partial → atomic remaining-position bracket rebuild → optional final full exit，并与 stop replacement 互斥；terminal preemption、long/short quantity symmetry、Position/Ledger/Funding/State 与 checkpoint parity 已锁定。仍缺 multiple partial、真实 historical liquidity partial、通用 cancel/amend、limit/TIF、add/reversal、partial liquidation 与 step/fast parity。
 
 ### R4：统一 accounting
 
 - 定点 decimal、double-entry ledger、逐 fill fee、exact funding、borrow 接口。
 - isolated/cross margin、maintenance tiers、liquidation 与 penalty fixtures。
 
-**当前状态：完成第四十一子集，未完成统一组合账本。** Request/Result 仍为 v20/v29，Artifact/Run Outcome 仍为 v31/v26；R4.41 没有改变经济证据 schema。average-cost reducer 虽已能计算 partial realized PnL，certified single-position projection/Runner 仍拒绝 partial close，故不得从底层原语推导出端到端能力。下一纵切必须证明 partial fee/realized PnL、remaining unrealized PnL、cash/equity bridge、margin 与双保护数量在 clean/resume 下同时守恒。
+**当前状态：完成第四十二子集，未完成统一组合账本。** Request/Result 为 v21/v30，Artifact/Run Outcome 为 v32/v27。partial fee/realized PnL、remaining unrealized PnL、事件时 Funding、cash/equity bridge、Margin 与双保护数量已在 clean/resume 下守恒；现有 certified lane 仍是单 settlement asset、单 isolated Position。borrow、cross/shared portfolio、partial liquidation、bankruptcy/insurance/ADL 与多资产组合尚未开始。
 
 ### R5：Portfolio
 
