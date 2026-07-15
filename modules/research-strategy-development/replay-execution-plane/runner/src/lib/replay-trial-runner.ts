@@ -18,6 +18,7 @@ import {
   REPLAY_RESULT_SCHEMA_VERSION,
   assertReplayDecisionEvidenceTimeline,
   assertReplayOhlcvResolutionEvidence,
+  assertReplayResultOhlcvResolutionBindings,
   canonicalHash,
   canonicalJson,
   createReplayDecisionEvidenceTimeline,
@@ -91,7 +92,7 @@ export interface ReplayTrialRunInput {
 }
 
 export interface ReplayTrialRunOutcome {
-  schema_version: "trade.rd-replay-run-outcome.v28"
+  schema_version: "trade.rd-replay-run-outcome.v29"
   run_id: string
   attempt_id: string
   lease_generation: number
@@ -161,7 +162,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     validateTrialReservation(input.request, input.trial_reservation)
   } catch (error) {
     return {
-      schema_version: "trade.rd-replay-run-outcome.v28",
+      schema_version: "trade.rd-replay-run-outcome.v29",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -184,7 +185,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     const expired = error instanceof ReplayAttemptLeaseExpiredError
     const reservationExpired = error instanceof ReplayTrialReservationExpiredError
     return {
-      schema_version: "trade.rd-replay-run-outcome.v28",
+      schema_version: "trade.rd-replay-run-outcome.v29",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -201,7 +202,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
   }
   if (input.cancel_requested) {
     return {
-      schema_version: "trade.rd-replay-run-outcome.v28",
+      schema_version: "trade.rd-replay-run-outcome.v29",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -247,7 +248,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     if (committed) {
       cleanupDiagnosticCheckpoint(activeArtifactNamespace!)
       return {
-        schema_version: "trade.rd-replay-run-outcome.v28",
+        schema_version: "trade.rd-replay-run-outcome.v29",
         run_id: input.request.run_id,
         attempt_id: input.attempt_lease.attempt_id,
         lease_generation: input.attempt_lease.lease_generation,
@@ -340,6 +341,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
           : undefined,
       },
     })
+    assertReplayResultOhlcvResolutionBindings(result, input.request)
     const committedArtifact = activeArtifactNamespace
       ? commitArtifacts(
         activeArtifactNamespace, input.request, input.trial_reservation, activeAttemptLease,
@@ -348,7 +350,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
       : undefined
     if (activeArtifactNamespace) cleanupDiagnosticCheckpoint(activeArtifactNamespace)
     return {
-      schema_version: "trade.rd-replay-run-outcome.v28",
+      schema_version: "trade.rd-replay-run-outcome.v29",
       run_id: input.request.run_id,
       attempt_id: activeAttemptLease.attempt_id,
       lease_generation: activeAttemptLease.lease_generation,
@@ -370,7 +372,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     const marginTerminal = error instanceof ReplayMarginTerminalError
     const liquidationDeficit = error instanceof ReplayLiquidationDeficitError
     return {
-      schema_version: "trade.rd-replay-run-outcome.v28",
+      schema_version: "trade.rd-replay-run-outcome.v29",
       run_id: input.request.run_id,
       attempt_id: activeAttemptLease.attempt_id,
       lease_generation: activeAttemptLease.lease_generation,
@@ -683,6 +685,7 @@ function readCommitted(
   }
   const result = JSON.parse(decode(namespace.read(ARTIFACT_FILE_NAMES.result).bytes)) as ReplayResult
   if (result.schema_version !== REPLAY_RESULT_SCHEMA_VERSION) throw new Error("committed Replay result schema is not supported")
+  assertReplayResultOhlcvResolutionBindings(result, request)
   if (manifest.run_id !== request.run_id || result.run_id !== request.run_id
       || manifest.result_hash !== result.fingerprint.result_hash) {
     throw new Error("committed Replay identity or Result hash binding mismatch")

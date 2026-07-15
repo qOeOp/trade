@@ -267,6 +267,10 @@ test("closed-candle signal enters at next open and resolves same-bar collision s
   expect(result.limitations.some((limitation) => limitation.severity === "resolution_limited")).toBe(true)
   expect(result.ohlcv_resolution_evidence[0]).toMatchObject({
     status: "resolution_limited", resolution_reason: "stop_target_order_ambiguous",
+    active_protection: {
+      protection_generation: 1, remaining_quantity: 1,
+      stop_order_id: `${result.run_id}:order:stop`, target_order_id: `${result.run_id}:order:target`,
+    },
     canonical: { path_id: "open_low_high_close", terminal_role: "stop" },
   })
   expect(result.ohlcv_resolution_evidence[0]!.paths.map((path) => path.first_terminal_role))

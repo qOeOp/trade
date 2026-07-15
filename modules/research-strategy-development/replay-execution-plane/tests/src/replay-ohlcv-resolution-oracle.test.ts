@@ -144,8 +144,11 @@ function evidenceFor(case_: OracleCase): ReplayOhlcvResolutionEvidence {
     source_event: source(case_, oracle.observation_kind),
     bar,
     position_side: case_.position_side,
-    active_stop_price: case_.active_stop_price,
-    active_target_price: case_.active_target_price,
+    active_protection: {
+      protection_generation: 1, remaining_quantity: 1,
+      stop_order_id: `oracle-${case_.case_id}:order:stop`, stop_trigger_price: case_.active_stop_price,
+      target_order_id: `oracle-${case_.case_id}:order:target`, target_trigger_price: case_.active_target_price,
+    },
     observation_kind: oracle.observation_kind,
     stop_touched: oracle.observation_kind === "bar_open_gap" ? oracle.role === "stop" : stopTouched,
     target_touched: oracle.observation_kind === "bar_open_gap" ? oracle.role === "target" : targetTouched,
@@ -163,8 +166,8 @@ function semanticEnvelope(evidence: ReplayOhlcvResolutionEvidence): unknown {
   return {
     bar: evidence.bar,
     position_side: evidence.position_side,
-    active_stop_price: evidence.active_stop_price,
-    active_target_price: evidence.active_target_price,
+    active_stop_price: evidence.active_protection.stop_trigger_price,
+    active_target_price: evidence.active_protection.target_trigger_price,
     observation_kind: evidence.observation_kind,
     status: evidence.status,
     resolution_reason: evidence.resolution_reason,
@@ -205,8 +208,8 @@ test("golden parity: ordered price oracle is contained by simple-bracket OHLC ev
     const canonicalTrigger = evidence.observation_kind === "bar_open_gap"
       ? evidence.bar.open
       : evidence.canonical.terminal_role === "stop"
-        ? evidence.active_stop_price
-        : evidence.active_target_price
+        ? evidence.active_protection.stop_trigger_price
+        : evidence.active_protection.target_trigger_price
     expect(rawTerminalPnl(case_.position_side, fixture.entry_price, canonicalTrigger))
       .toBeLessThanOrEqual(rawTerminalPnl(case_.position_side, fixture.entry_price, oracle.trigger_price))
   }

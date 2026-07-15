@@ -2,6 +2,14 @@ import { expect, test } from "bun:test"
 import { assertReplayOhlcvResolutionEvidence, canonicalHash, type ReplayMarketBar, type ReplaySourceEvent } from "../../../contracts/src/lib/replay-contracts"
 import { createReplaySimpleBracketOhlcvResolution } from "./replay-ohlcv-resolution"
 
+function protection(stop: number, target: number) {
+  return {
+    protection_generation: 1, remaining_quantity: 1,
+    stop_order_id: "run:order:stop", stop_trigger_price: stop,
+    target_order_id: "run:order:target", target_trigger_price: target,
+  }
+}
+
 const collisionBar: ReplayMarketBar = {
   open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z",
   open: 100, high: 111, low: 89, close: 101, volume: 10, closed: true,
@@ -23,8 +31,7 @@ test("OHLCV collision evidence exposes both admissible path owners and picks sto
   for (const side of ["long", "short"] as const) {
     const evidence = createReplaySimpleBracketOhlcvResolution({
       run_id: `collision-${side}`, source_event: source("bar_range"), bar: collisionBar,
-      position_side: side, active_stop_price: side === "long" ? 95 : 105,
-      active_target_price: side === "long" ? 105 : 95,
+      position_side: side, active_protection: protection(side === "long" ? 95 : 105, side === "long" ? 105 : 95),
       observation_kind: "bar_range_touch", stop_touched: true, target_touched: true,
       canonical_terminal_role: "stop",
     })
@@ -50,7 +57,7 @@ test("observed gaps and single terminal touches are exact under the two-path env
   const gapBar = { ...collisionBar, open: 90, high: 102, low: 88, close: 100 }
   const gap = createReplaySimpleBracketOhlcvResolution({
     run_id: "gap", source_event: { ...source("bar_open"), event_key: { ...source("bar_open").event_key }, source_index: 0 },
-    bar: gapBar, position_side: "long", active_stop_price: 95, active_target_price: 110,
+    bar: gapBar, position_side: "long", active_protection: protection(95, 110),
     observation_kind: "bar_open_gap", stop_touched: true, target_touched: false,
     canonical_terminal_role: "stop",
   })
@@ -61,7 +68,7 @@ test("observed gaps and single terminal touches are exact under the two-path env
   const single = createReplaySimpleBracketOhlcvResolution({
     run_id: "single", source_event: source("bar_range"),
     bar: { ...collisionBar, low: 99 }, position_side: "long",
-    active_stop_price: 95, active_target_price: 105,
+    active_protection: protection(95, 105),
     observation_kind: "bar_range_touch", stop_touched: false, target_touched: true,
     canonical_terminal_role: "target",
   })

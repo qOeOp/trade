@@ -80,8 +80,11 @@ test("source reducer stops at the terminal market event and keeps only in-positi
       }),
     }),
     get_entry_fill_event_key: (entry) => entry.fill_key,
-    get_active_stop_price: () => 95,
-    get_active_target_price: () => 110,
+    get_active_protection: () => ({
+      protection_generation: 1, remaining_quantity: 1,
+      stop_order_id: "run:order:stop", stop_trigger_price: 95,
+      target_order_id: "run:order:target", target_trigger_price: 110,
+    }),
     observe_exact_risk: () => null,
     apply_partial_reduce: () => {},
     observe_strategy_exit: () => null,

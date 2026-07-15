@@ -11,8 +11,8 @@ export {
 }
 
 export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v21" as const
-export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v31" as const
-export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v33" as const
+export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v32" as const
+export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v34" as const
 export const REPLAY_ARTIFACT_STORE_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-artifact-store-capability.v1" as const
 export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v8" as const
 export const REPLAY_NUMERIC_POLICY_VERSION = "rd-replay-number-v3" as const
@@ -22,7 +22,7 @@ export const REPLAY_EQUITY_POLICY_VERSION = "rd-replay-equity-v1" as const
 export const REPLAY_MARGIN_POLICY_VERSION = "rd-replay-isolated-margin-v7" as const
 export const REPLAY_MAINTENANCE_BREACH_SCHEMA_VERSION = "trade.rd-replay-maintenance-breach-observation.v3" as const
 export const REPLAY_LIQUIDATION_EXECUTION_SCHEMA_VERSION = "trade.rd-replay-liquidation-execution.v2" as const
-export const REPLAY_OHLCV_RESOLUTION_EVIDENCE_SCHEMA_VERSION = "trade.rd-replay-ohlcv-resolution-evidence.v1" as const
+export const REPLAY_OHLCV_RESOLUTION_EVIDENCE_SCHEMA_VERSION = "trade.rd-replay-ohlcv-resolution-evidence.v2" as const
 export const REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION = "rd-replay-instrument-accounting-v1" as const
 export const REPLAY_DATASET_MANIFEST_SCHEMA_VERSION = "trade.rd-replay-dataset-manifest.v7" as const
 export const REPLAY_SUPPLEMENTAL_FACT_SCHEMA_VERSION = "trade.rd-replay-supplemental-fact.v1" as const
@@ -762,6 +762,23 @@ export interface ReplayOhlcvResolutionPath {
   path_digest: string
 }
 
+export interface ReplayOhlcvActiveProtectionEvidence {
+  protection_generation: number
+  remaining_quantity: number
+  stop_order_id: string
+  stop_trigger_price: number
+  target_order_id: string
+  target_trigger_price: number
+  protection_hash: string
+}
+
+export function replayOhlcvActiveProtectionHash(
+  protection: Omit<ReplayOhlcvActiveProtectionEvidence, "protection_hash"> | ReplayOhlcvActiveProtectionEvidence,
+): string {
+  const { protection_hash: _protectionHash, ...body } = protection as ReplayOhlcvActiveProtectionEvidence
+  return canonicalHash(body)
+}
+
 export interface ReplayOhlcvResolutionEvidence {
   schema_version: typeof REPLAY_OHLCV_RESOLUTION_EVIDENCE_SCHEMA_VERSION
   resolution_id: string
@@ -770,8 +787,7 @@ export interface ReplayOhlcvResolutionEvidence {
   bar_index: number
   bar: Pick<ReplayMarketBar, "open_time" | "close_time" | "open" | "high" | "low" | "close">
   position_side: "long" | "short"
-  active_stop_price: number
-  active_target_price: number
+  active_protection: ReplayOhlcvActiveProtectionEvidence
   observation_kind: "bar_open_gap" | "bar_range_touch"
   status: "exact_under_ohlc" | "resolution_limited"
   resolution_reason: "open_gap_observed" | "single_terminal_touch" | "stop_target_order_ambiguous"
@@ -817,15 +833,29 @@ export function assertReplayOhlcvResolutionEvidence(evidence: ReplayOhlcvResolut
       || evidence.bar.low > evidence.bar.high) {
     fail("ohlcv resolution bar geometry is invalid")
   }
-  requirePositive(evidence.active_stop_price, "ohlcv_resolution.active_stop_price")
-  requirePositive(evidence.active_target_price, "ohlcv_resolution.active_target_price")
+  const protection = evidence.active_protection
+  if (!Number.isSafeInteger(protection.protection_generation) || protection.protection_generation < 1) {
+    fail("ohlcv resolution protection generation must be a positive safe integer")
+  }
+  requirePositive(protection.remaining_quantity, "ohlcv_resolution.active_protection.remaining_quantity")
+  requireText(protection.stop_order_id, "ohlcv_resolution.active_protection.stop_order_id")
+  requireText(protection.target_order_id, "ohlcv_resolution.active_protection.target_order_id")
+  if (protection.stop_order_id === protection.target_order_id) {
+    fail("ohlcv resolution protection Order ids must be distinct")
+  }
+  requirePositive(protection.stop_trigger_price, "ohlcv_resolution.active_protection.stop_trigger_price")
+  requirePositive(protection.target_trigger_price, "ohlcv_resolution.active_protection.target_trigger_price")
+  requireHash(protection.protection_hash, "ohlcv_resolution.active_protection.protection_hash")
+  if (replayOhlcvActiveProtectionHash(protection) !== protection.protection_hash) {
+    fail("ohlcv resolution active protection hash mismatch")
+  }
   if ((evidence.position_side !== "long" && evidence.position_side !== "short")
       || (evidence.observation_kind !== "bar_open_gap" && evidence.observation_kind !== "bar_range_touch")
       || (evidence.status !== "exact_under_ohlc" && evidence.status !== "resolution_limited")) {
     fail("ohlcv resolution enum value is invalid")
   }
-  if ((evidence.position_side === "long" && evidence.active_stop_price >= evidence.active_target_price)
-      || (evidence.position_side === "short" && evidence.active_stop_price <= evidence.active_target_price)) {
+  if ((evidence.position_side === "long" && protection.stop_trigger_price >= protection.target_trigger_price)
+      || (evidence.position_side === "short" && protection.stop_trigger_price <= protection.target_trigger_price)) {
     fail("ohlcv resolution active bracket is invalid")
   }
   const expectedTime = evidence.observation_kind === "bar_open_gap"
@@ -849,18 +879,18 @@ export function assertReplayOhlcvResolutionEvidence(evidence: ReplayOhlcvResolut
   const pathsEquivalent = highFirst.first_terminal_role === lowFirst.first_terminal_role
     && highFirst.trigger_price === lowFirst.trigger_price
   const stopTouched = evidence.position_side === "long"
-    ? evidence.bar.low <= evidence.active_stop_price
-    : evidence.bar.high >= evidence.active_stop_price
+    ? evidence.bar.low <= protection.stop_trigger_price
+    : evidence.bar.high >= protection.stop_trigger_price
   const targetTouched = evidence.position_side === "long"
-    ? evidence.bar.high >= evidence.active_target_price
-    : evidence.bar.low <= evidence.active_target_price
+    ? evidence.bar.high >= protection.target_trigger_price
+    : evidence.bar.low <= protection.target_trigger_price
   const expectedTrigger = (role: "stop" | "target"): number => role === "stop"
-    ? evidence.active_stop_price
-    : evidence.active_target_price
+    ? protection.stop_trigger_price
+    : protection.target_trigger_price
   if (evidence.observation_kind === "bar_open_gap") {
     const observedOpenRole = evidence.position_side === "long"
-      ? evidence.bar.open <= evidence.active_stop_price ? "stop" : evidence.bar.open >= evidence.active_target_price ? "target" : null
-      : evidence.bar.open >= evidence.active_stop_price ? "stop" : evidence.bar.open <= evidence.active_target_price ? "target" : null
+      ? evidence.bar.open <= protection.stop_trigger_price ? "stop" : evidence.bar.open >= protection.target_trigger_price ? "target" : null
+      : evidence.bar.open >= protection.stop_trigger_price ? "stop" : evidence.bar.open <= protection.target_trigger_price ? "target" : null
     if (evidence.status !== "exact_under_ohlc" || evidence.resolution_reason !== "open_gap_observed"
         || !observedOpenRole || !pathsEquivalent || highFirst.first_terminal_role !== observedOpenRole
         || highFirst.trigger_price !== evidence.bar.open) {
@@ -1263,6 +1293,90 @@ export interface ReplayResult {
   }
   limitations: ReplayLimitation[]
   fingerprint: ReplayEvidenceFingerprint
+}
+
+export function assertReplayResultOhlcvResolutionBindings(
+  result: ReplayResult,
+  request: ReplayExecutionRequest,
+): void {
+  if (result.run_id !== request.run_id) fail("Replay Result OHLCV resolution Request identity is invalid")
+  const terminalFills = result.fills.filter((fill) => fill.order_role === "stop" || fill.order_role === "target")
+  if (terminalFills.length !== result.ohlcv_resolution_evidence.length) {
+    fail("Replay Result OHLCV resolution evidence cardinality does not match terminal protection Fills")
+  }
+  for (const evidence of result.ohlcv_resolution_evidence) {
+    assertReplayOhlcvResolutionEvidence(evidence)
+    const protection = evidence.active_protection
+    const source = result.source_events.find((event) => event.source_event_id === evidence.source_event_id)
+    if (!source || canonicalHash(source.event_key) !== canonicalHash(evidence.source_event_key)) {
+      fail("Replay Result OHLCV resolution source binding is invalid")
+    }
+    const terminalOrderId = evidence.canonical.terminal_role === "stop"
+      ? protection.stop_order_id
+      : protection.target_order_id
+    const fill = terminalFills.find((candidate) => candidate.order_id === terminalOrderId)
+    if (!fill || fill.order_role !== evidence.canonical.terminal_role
+        || fill.quantity !== protection.remaining_quantity) {
+      fail("Replay Result OHLCV resolution terminal Fill binding is invalid")
+    }
+    for (const orderId of [protection.stop_order_id, protection.target_order_id]) {
+      const events = result.order_events.filter((event) => event.order_id === orderId)
+      const submitted = events.find((event) => event.kind === "submitted")
+      const activated = events.find((event) => event.kind === "activated")
+      if (!submitted || !activated
+          || submitted.remaining_quantity !== protection.remaining_quantity
+          || activated.remaining_quantity !== protection.remaining_quantity) {
+        fail("Replay Result OHLCV resolution active protection Order binding is invalid")
+      }
+    }
+    const triggered = result.order_events.find(
+      (event) => event.order_id === terminalOrderId && event.kind === "triggered",
+    )
+    const expectedTriggerSource = evidence.observation_kind === "bar_open_gap" ? "bar_open" : "bar_range"
+    const expectedObservedPrice = evidence.observation_kind === "bar_open_gap"
+      ? evidence.bar.open
+      : evidence.canonical.terminal_role === "stop"
+        ? protection.stop_trigger_price
+        : protection.target_trigger_price
+    if (!triggered || triggered.trigger_source !== expectedTriggerSource
+        || triggered.trigger_observed_price !== expectedObservedPrice) {
+      fail("Replay Result OHLCV resolution trigger binding is invalid")
+    }
+    const initialStop = `${result.run_id}:order:stop`
+    const initialTarget = `${result.run_id}:order:target`
+    const replacementSchedule = request.decision_schedule.entries.find(
+      (entry) => entry.expected_effect === "authorized_protective_stop_replace",
+    )
+    const replacementIntent = replacementSchedule?.authorized_protective_stop_replace
+    const replacementGeneration = protection.protection_generation === 2
+      && Boolean(replacementSchedule && replacementIntent)
+      && protection.stop_order_id === `${result.run_id}:order:stop-replacement:${replacementSchedule!.decision_sequence}`
+      && protection.target_order_id === initialTarget
+      && protection.stop_trigger_price === replacementIntent!.new_stop_price
+      && protection.target_trigger_price === request.order.target_price
+      && protection.remaining_quantity === request.order.quantity
+    const partialSchedule = request.decision_schedule.entries.find(
+      (entry) => entry.expected_effect === "authorized_partial_reduce",
+    )
+    const partialIntent = partialSchedule?.authorized_partial_reduce
+    const partialStopPrefix = `${result.run_id}:order:stop-after-partial:`
+    const partialGeneration = protection.protection_generation === 2
+      && Boolean(partialSchedule && partialIntent)
+      && protection.stop_order_id === `${partialStopPrefix}${partialSchedule!.decision_sequence}`
+      && protection.target_order_id === `${result.run_id}:order:target-after-partial:${partialSchedule!.decision_sequence}`
+      && protection.stop_trigger_price === request.order.stop_price
+      && protection.target_trigger_price === request.order.target_price
+      && protection.remaining_quantity === request.order.quantity - partialIntent!.quantity
+    const initialGeneration = protection.protection_generation === 1
+      && protection.stop_order_id === initialStop
+      && protection.target_order_id === initialTarget
+      && protection.stop_trigger_price === request.order.stop_price
+      && protection.target_trigger_price === request.order.target_price
+      && protection.remaining_quantity === request.order.quantity
+    if (!initialGeneration && !replacementGeneration && !partialGeneration) {
+      fail("Replay Result OHLCV resolution protection generation binding is invalid")
+    }
+  }
 }
 
 export interface ReplayArtifactManifest {

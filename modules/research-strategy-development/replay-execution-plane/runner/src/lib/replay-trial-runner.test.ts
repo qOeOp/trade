@@ -24,6 +24,7 @@ import {
   REPLAY_SUPPLEMENTAL_FACT_SCHEMA_VERSION,
   REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION,
   REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
+  assertReplayResultOhlcvResolutionBindings,
   canonicalHash,
   createReplaySingleDecisionSchedule,
   createReplayDecisionHarnessBuildAttestation,
@@ -31,6 +32,8 @@ import {
   createReplayDecisionMarketInputSnapshot,
   createReplayDecisionHarnessSourceBundle,
   replayDatasetHash,
+  replayOhlcvActiveProtectionHash,
+  replayOhlcvResolutionEvidenceHash,
   replayExecutionSpecHash,
   type ReplayDatasetManifest,
   type ReplayExecutionRequest,
@@ -1001,6 +1004,21 @@ test("runner partially reduces once, rebuilds full protection, then cleanly resu
     expect(terminal.result!.fills.map((fill) => [fill.order_role, fill.quantity]))
       .toEqual([["entry", 1], ["strategy_partial_reduce", 0.4], [owner, 0.6]])
     expect(terminal.result!.fills.at(-1)!.order_id).toContain(`${owner}-after-partial:2`)
+    expect(terminal.result!.ohlcv_resolution_evidence[0]!.active_protection).toMatchObject({
+      protection_generation: 2, remaining_quantity: 0.6,
+      stop_order_id: `${terminalRequest.run_id}:order:stop-after-partial:2`,
+      target_order_id: `${terminalRequest.run_id}:order:target-after-partial:2`,
+    })
+    expect(() => assertReplayResultOhlcvResolutionBindings(terminal.result!, terminalRequest)).not.toThrow()
+    const staleGeneration = structuredClone(terminal.result!)
+    const staleProtection = staleGeneration.ohlcv_resolution_evidence[0]!.active_protection
+    staleProtection.protection_generation = 1
+    staleProtection.protection_hash = replayOhlcvActiveProtectionHash(staleProtection)
+    staleGeneration.ohlcv_resolution_evidence[0]!.evidence_hash = replayOhlcvResolutionEvidenceHash(
+      staleGeneration.ohlcv_resolution_evidence[0]!,
+    )
+    expect(() => assertReplayResultOhlcvResolutionBindings(staleGeneration, terminalRequest))
+      .toThrow("protection generation binding is invalid")
     expect(terminal.result!.positions.at(-1)).toMatchObject({ state: "flat", signed_quantity: 0 })
     expect(terminal.result!.decision_evidence_timeline.entries[2]).toMatchObject({
       evaluation_status: "not_reached_terminal", execution_effect: "not_reached",
@@ -1133,6 +1151,13 @@ test("runner tightens one protective stop and resumes without replaying its Harn
     .map((event) => event.kind)).toEqual(["submitted", "activated", "triggered", "filled"])
   expect(completed.result!.order_events.find((event) => event.order_id.endsWith(":order:stop") && event.kind === "cancelled"))
     .toMatchObject({ reason: "protective-stop-replaced" })
+  expect(completed.result!.ohlcv_resolution_evidence[0]!.active_protection).toMatchObject({
+    protection_generation: 2, remaining_quantity: 1,
+    stop_order_id: `${requestValue.run_id}:order:stop-replacement:2`,
+    target_order_id: `${requestValue.run_id}:order:target`,
+    stop_trigger_price: 104, target_trigger_price: 120,
+  })
+  expect(() => assertReplayResultOhlcvResolutionBindings(completed.result!, requestValue)).not.toThrow()
 
   let registryResolutionCount = 0
   const countingRegistry: ReplayDecisionHarnessRegistry = {
@@ -1170,7 +1195,19 @@ test("runner tightens one protective stop and resumes without replaying its Harn
     execution_control: { resume_checkpoint: tampered },
   })
   expect(rejected.status).toBe("failed")
-  expect(rejected.failure?.message).toContain("checkpoint hash is invalid")
+  expect(rejected.failure?.message).toContain("replacement protection state is invalid")
+
+  const generationTampered = structuredClone(cancelled.resumable_checkpoint!)
+  generationTampered.entry_transition!.protection_generation = 1
+  const { checkpoint_hash: _generationHash, ...generationBody } = generationTampered
+  generationTampered.checkpoint_hash = canonicalHash(generationBody)
+  const generationRejected = runReplayTrial({
+    ...authority, attempt_lease: renewedLease, observed_at: "2026-07-14T00:02:00Z",
+    dataset_manifest: manifest, bars: marketBars, decision_harness_registry: registeredHarness.registry,
+    execution_control: { resume_checkpoint: generationTampered },
+  })
+  expect(generationRejected.status).toBe("failed")
+  expect(generationRejected.failure?.message).toContain("protection generation is invalid")
 
   const terminalBars = marketBars.map((bar, index) => index === 4 ? { ...bar, low: 94 } : bar)
   const terminalHash = replayDatasetHash(terminalBars)
@@ -1491,7 +1528,7 @@ test("runner enforces Reservation expiry only at Attempt claim admission", () =>
   expired.observed_at = "2026-07-14T00:01:30Z"
   const rejected = runReplayTrial({ ...expired, dataset_manifest: datasetManifest(), bars })
   expect(rejected).toMatchObject({
-    schema_version: "trade.rd-replay-run-outcome.v28",
+    schema_version: "trade.rd-replay-run-outcome.v29",
     status: "failed",
     failure: { code: "trial-reservation-expired", failure_class: "unsupported_contract", retryable: false, partial_result_published: false },
   })

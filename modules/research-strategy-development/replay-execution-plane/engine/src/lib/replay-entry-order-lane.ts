@@ -20,6 +20,7 @@ export interface ReplayEntryOrderExecution {
   entry_fill_event_key: ReplayEventKey
   stop_order: ReplayOrder
   target_order: ReplayOrder
+  protection_generation: number
 }
 
 export function completeReplayEntryOrderLane(input: {
@@ -92,5 +93,6 @@ export function completeReplayEntryOrderLane(input: {
     entry_fill_event_key: entryTransition.event.event_key,
     stop_order: stopOrder,
     target_order: targetOrder,
+    protection_generation: 1,
   }
 }

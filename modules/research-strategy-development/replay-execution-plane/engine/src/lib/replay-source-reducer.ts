@@ -34,6 +34,15 @@ export interface ReplaySourceBoundary<TEntry> {
   entry_transition: TEntry | null
 }
 
+export interface ReplayActiveProtection {
+  protection_generation: number
+  remaining_quantity: number
+  stop_order_id: string
+  stop_trigger_price: number
+  target_order_id: string
+  target_trigger_price: number
+}
+
 export class ReplayInstrumentTerminalError extends Error {
   readonly code = "instrument-delisted-with-open-position" as const
 
@@ -56,8 +65,7 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
   on_source_boundary?: (boundary: ReplaySourceBoundary<TEntry>) => void
   activate_entry: (source: ReplaySourceEvent) => TEntry
   get_entry_fill_event_key: (entry: TEntry) => ReplayEventKey
-  get_active_stop_price: (entry: TEntry) => number
-  get_active_target_price: (entry: TEntry) => number
+  get_active_protection: (entry: TEntry) => ReplayActiveProtection
   observe_exact_risk: (
     source: ReplaySourceEvent,
     entry: TEntry,
@@ -130,8 +138,9 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
     const bar = input.bars[source.source_index]
     if (!bar) throw new Error("Replay source event references a missing bar")
     const isLong = input.request.order.side === "long"
-    const activeStopPrice = input.get_active_stop_price(entryTransition)
-    const activeTargetPrice = input.get_active_target_price(entryTransition)
+    const activeProtection = input.get_active_protection(entryTransition)
+    const activeStopPrice = activeProtection.stop_trigger_price
+    const activeTargetPrice = activeProtection.target_trigger_price
 
     if (source.kind === "bar_open") {
       const stopGap = isLong ? bar.open <= activeStopPrice : bar.open >= activeStopPrice
@@ -140,7 +149,7 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
           role: "stop", timestamp: bar.open_time, rawPrice: bar.open, triggerSource: "bar_open", sourceSequence: source.source_index + 1,
           resolution_evidence: createReplaySimpleBracketOhlcvResolution({
             run_id: input.request.run_id, source_event: source, bar, position_side: input.request.order.side,
-            active_stop_price: activeStopPrice, active_target_price: activeTargetPrice,
+            active_protection: activeProtection,
             observation_kind: "bar_open_gap", stop_touched: true, target_touched: false,
             canonical_terminal_role: "stop",
           }),
@@ -156,7 +165,7 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
           role: "target", timestamp: bar.open_time, rawPrice: bar.open, triggerSource: "bar_open", sourceSequence: source.source_index + 1,
           resolution_evidence: createReplaySimpleBracketOhlcvResolution({
             run_id: input.request.run_id, source_event: source, bar, position_side: input.request.order.side,
-            active_stop_price: activeStopPrice, active_target_price: activeTargetPrice,
+            active_protection: activeProtection,
             observation_kind: "bar_open_gap", stop_touched: false, target_touched: true,
             canonical_terminal_role: "target",
           }),
@@ -192,7 +201,7 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
           role: "stop", timestamp: bar.close_time, rawPrice: activeStopPrice, triggerSource: "bar_range", sourceSequence: source.source_index + 1,
           resolution_evidence: createReplaySimpleBracketOhlcvResolution({
             run_id: input.request.run_id, source_event: source, bar, position_side: input.request.order.side,
-            active_stop_price: activeStopPrice, active_target_price: activeTargetPrice,
+            active_protection: activeProtection,
             observation_kind: "bar_range_touch", stop_touched: true, target_touched: true,
             canonical_terminal_role: "stop",
           }),
@@ -208,7 +217,7 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
         role: "stop", timestamp: bar.close_time, rawPrice: activeStopPrice, triggerSource: "bar_range", sourceSequence: source.source_index + 1,
         resolution_evidence: createReplaySimpleBracketOhlcvResolution({
           run_id: input.request.run_id, source_event: source, bar, position_side: input.request.order.side,
-          active_stop_price: activeStopPrice, active_target_price: activeTargetPrice,
+          active_protection: activeProtection,
           observation_kind: "bar_range_touch", stop_touched: true, target_touched: false,
           canonical_terminal_role: "stop",
         }),
@@ -223,7 +232,7 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
         role: "target", timestamp: bar.close_time, rawPrice: activeTargetPrice, triggerSource: "bar_range", sourceSequence: source.source_index + 1,
         resolution_evidence: createReplaySimpleBracketOhlcvResolution({
           run_id: input.request.run_id, source_event: source, bar, position_side: input.request.order.side,
-          active_stop_price: activeStopPrice, active_target_price: activeTargetPrice,
+          active_protection: activeProtection,
           observation_kind: "bar_range_touch", stop_touched: false, target_touched: true,
           canonical_terminal_role: "target",
         }),

@@ -66,7 +66,7 @@ import { completeReplayPartialReduceLane } from "./replay-partial-reduce-lane"
 import { ReplayLiquidationDeficitError, assertReplayPostEntryMargin, buildReplayMaintenanceBreachObservation, buildReplayPathMarginSnapshots } from "./replay-margin-path"
 import { reduceReplaySourceEvents } from "./replay-source-reducer"
 
-export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v15" as const
+export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v16" as const
 
 export interface ReplayEngineCheckpoint {
   schema_version: typeof REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION
@@ -517,6 +517,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
             next_stamp: nextStamp,
             capture,
           })
+          entry.protection_generation += 1
         }
         if (runtimeDecision.schedule_entry.expected_effect === "authorized_partial_reduce") {
           const partialIntent = runtimeDecision.schedule_entry.authorized_partial_reduce
@@ -600,17 +601,22 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       capture,
     }),
     get_entry_fill_event_key: (entry) => entry.entry_fill_event_key,
-    get_active_stop_price: (entry) => {
-      if (entry.stop_order.status !== "active" || entry.stop_order.trigger_price === null) {
-        throw new Error("Replay source boundary requires one active protective stop")
+    get_active_protection: (entry) => {
+      if (entry.stop_order.status !== "active" || entry.stop_order.trigger_price === null
+          || entry.target_order.status !== "active" || entry.target_order.trigger_price === null
+          || entry.stop_order.remaining_quantity <= 0
+          || entry.stop_order.remaining_quantity !== entry.target_order.remaining_quantity
+          || entry.stop_order.remaining_quantity !== Math.abs(entry.signed_position_after)) {
+        throw new Error("Replay source boundary requires one quantity-aligned active protection pair")
       }
-      return entry.stop_order.trigger_price
-    },
-    get_active_target_price: (entry) => {
-      if (entry.target_order.status !== "active" || entry.target_order.trigger_price === null) {
-        throw new Error("Replay source boundary requires one active take-profit target")
+      return {
+        protection_generation: entry.protection_generation,
+        remaining_quantity: entry.stop_order.remaining_quantity,
+        stop_order_id: entry.stop_order.order_id,
+        stop_trigger_price: entry.stop_order.trigger_price,
+        target_order_id: entry.target_order.order_id,
+        target_trigger_price: entry.target_order.trigger_price,
       }
-      return entry.target_order.trigger_price
     },
     observe_exact_risk: (source, entry, appliedFundingSources) => {
       const mark = source.kind === "mark"
@@ -723,6 +729,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       entry.signed_position_after = execution.signed_position_after
       entry.stop_order = execution.stop_order
       entry.target_order = execution.target_order
+      entry.protection_generation += 1
       const price = applyAdverseSlippageV3(
         executableBar.open,
         exitSide,
@@ -1279,6 +1286,39 @@ export function assertReplayEngineCheckpoint(
     assertOrderMatchesLastEvent(checkpoint.entry_transition.entry_order)
     assertOrderMatchesLastEvent(checkpoint.entry_transition.stop_order)
     assertOrderMatchesLastEvent(checkpoint.entry_transition.target_order)
+    const entry = checkpoint.entry_transition
+    const replacementSchedule = request.decision_schedule.entries.find(
+      (candidate) => candidate.expected_effect === "authorized_protective_stop_replace",
+    )
+    const replacementIntent = replacementSchedule?.authorized_protective_stop_replace
+    const replacementEvidence = checkpoint.decision_evidence_timeline.entries.find(
+      (candidate) => candidate.decision_sequence === replacementSchedule?.decision_sequence,
+    )
+    const replacementApplied = Boolean(replacementIntent && replacementSchedule
+      && replacementEvidence?.evaluation_status === "evaluated"
+      && replacementEvidence.execution_effect === "authorized_protective_stop_replace")
+    const partialApplied = checkpoint.partial_reduce_order?.status === "filled"
+    const expectedGeneration = replacementApplied || partialApplied ? 2 : 1
+    if (!Number.isSafeInteger(entry.protection_generation)
+        || entry.protection_generation !== expectedGeneration
+        || entry.stop_order.remaining_quantity !== entry.target_order.remaining_quantity
+        || entry.stop_order.remaining_quantity !== Math.abs(entry.signed_position_after)) {
+      throw new Error("Replay engine checkpoint protection generation is invalid")
+    }
+    if (replacementApplied && (!replacementIntent || !replacementSchedule
+        || entry.stop_order.order_id !== `${request.run_id}:order:stop-replacement:${replacementSchedule.decision_sequence}`
+        || entry.target_order.order_id !== `${request.run_id}:order:target`
+        || entry.stop_order.trigger_price !== replacementIntent.new_stop_price
+        || entry.target_order.trigger_price !== request.order.target_price)) {
+      throw new Error("Replay engine checkpoint replacement protection state is invalid")
+    }
+    if (!replacementApplied && !partialApplied
+        && (entry.stop_order.order_id !== `${request.run_id}:order:stop`
+          || entry.target_order.order_id !== `${request.run_id}:order:target`
+          || entry.stop_order.trigger_price !== request.order.stop_price
+          || entry.target_order.trigger_price !== request.order.target_price)) {
+      throw new Error("Replay engine checkpoint initial protection state is invalid")
+    }
   }
   if (checkpoint.partial_reduce_order) assertOrderMatchesLastEvent(checkpoint.partial_reduce_order)
   if (checkpoint.strategy_exit_order) assertOrderMatchesLastEvent(checkpoint.strategy_exit_order)

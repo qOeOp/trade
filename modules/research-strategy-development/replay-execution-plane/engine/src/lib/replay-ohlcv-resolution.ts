@@ -2,6 +2,7 @@ import {
   REPLAY_OHLCV_RESOLUTION_EVIDENCE_SCHEMA_VERSION,
   assertReplayOhlcvResolutionEvidence,
   canonicalHash,
+  replayOhlcvActiveProtectionHash,
   replayOhlcvResolutionEvidenceHash,
   type ReplayMarketBar,
   type ReplayOhlcvPathId,
@@ -15,8 +16,14 @@ export function createReplaySimpleBracketOhlcvResolution(input: {
   source_event: ReplaySourceEvent
   bar: ReplayMarketBar
   position_side: "long" | "short"
-  active_stop_price: number
-  active_target_price: number
+  active_protection: {
+    protection_generation: number
+    remaining_quantity: number
+    stop_order_id: string
+    stop_trigger_price: number
+    target_order_id: string
+    target_trigger_price: number
+  }
   observation_kind: "bar_open_gap" | "bar_range_touch"
   stop_touched: boolean
   target_touched: boolean
@@ -37,7 +44,7 @@ export function createReplaySimpleBracketOhlcvResolution(input: {
   }
   const triggerFor = (role: "stop" | "target"): number => input.observation_kind === "bar_open_gap"
     ? input.bar.open
-    : role === "stop" ? input.active_stop_price : input.active_target_price
+    : role === "stop" ? input.active_protection.stop_trigger_price : input.active_protection.target_trigger_price
   const pathFor = (pathId: ReplayOhlcvPathId): ReplayOhlcvResolutionPath => {
     const firstTerminalRole = roleFor(pathId)
     const body = {
@@ -48,6 +55,10 @@ export function createReplaySimpleBracketOhlcvResolution(input: {
     return { ...body, path_digest: canonicalHash(body) }
   }
   const paths = [pathFor("open_high_low_close"), pathFor("open_low_high_close")] as const
+  const activeProtection = {
+    ...input.active_protection,
+    protection_hash: replayOhlcvActiveProtectionHash(input.active_protection),
+  }
   const status = collision ? "resolution_limited" as const : "exact_under_ohlc" as const
   const canonicalPath = collision
     ? paths.find((path) => path.first_terminal_role === input.canonical_terminal_role)!
@@ -63,8 +74,7 @@ export function createReplaySimpleBracketOhlcvResolution(input: {
       open: input.bar.open, high: input.bar.high, low: input.bar.low, close: input.bar.close,
     },
     position_side: input.position_side,
-    active_stop_price: input.active_stop_price,
-    active_target_price: input.active_target_price,
+    active_protection: activeProtection,
     observation_kind: input.observation_kind,
     status,
     resolution_reason: input.observation_kind === "bar_open_gap"
