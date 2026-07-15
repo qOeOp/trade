@@ -10,7 +10,7 @@ status: implemented-vertical-slice
 
 Replay Execution Plane 是 **冻结实验的确定性执行与历史证据生产面**，不是研究决策面，也不是实盘执行面。它只做一件事：把 Research Control Plane 已冻结的 Trial，连同不可变 Experiment Contract、Candidate Identity、Dataset Manifest 与模拟政策，执行成可复读的事件链、统一账本和 Result Artifact。
 
-当前成熟度判断：**M2 / 5，已认证的受限纵切**。Control Plane authority、Attempt fencing、local durable Artifact、checkpoint resume、Dataset Manifest v9、supplemental PIT Snapshot、PIT instrument status/provenance、Market Data immutable status archive/provider、closed-candle/next-open、简单 bracket、EventKey、average-cost Position、Cash Ledger、Equity v1、Journal v4 与 isolated Margin v7 已贯通。Request v23 / Schedule v5 允许 pre-entry `no_action`、唯一 entry、position-open `no_action*`，并在互斥分支中选择至多一次 full-position stop tighten 或一次 fixed-quantity partial reduce；partial 后可追加一次末位 full exit。Simulator v10 在 eligible open 先让 exact risk/stop/target 取得优先权，再执行 partial Fill；同一 source boundary 随后取消旧 stop/target，以剩余绝对仓位和原 trigger 重建双保护，并将普通时间网格缺失、冻结停牌区间与 observed-open price gap 严格分开。Result v35、Artifact v37、Run Outcome v33、Checkpoint v17 与 OHLCV Resolution Evidence v3 分别绑定 active-protection、status schedule 与 status provenance identity；clean/resume 哈希一致。该纵切仍不支持 venue archive 自动采集/签名/外部穷尽审计、Control Plane provider registry admission、multiple partial、partial+stop-replace、真实 liquidity partial、加仓/反转、通用 cancel/amend、动态 supplemental join、OS sandbox、remote adapter、停牌结算、cross/shared portfolio、tick/L2、generic matching 或 step/fast parity，因此不升到 M3。
+当前成熟度判断：**M2 / 5，已认证的受限纵切**。Control Plane authority、provider certification registry、Attempt fencing、local durable Artifact、checkpoint resume、Dataset Manifest v10、supplemental PIT Snapshot、PIT instrument status/provenance、Market Data immutable status archive/provider、closed-candle/next-open、简单 bracket、EventKey、average-cost Position、Cash Ledger、Equity v1、Journal v4 与 isolated Margin v7 已贯通。Request v24 / Schedule v5 允许 pre-entry `no_action`、唯一 entry、position-open `no_action*`，并在互斥分支中选择至多一次 full-position stop tighten 或一次 fixed-quantity partial reduce；partial 后可追加一次末位 full exit。Result v36、Artifact v38、Run Outcome v34 与 Fingerprint 同时绑定 status schedule、provenance、provider capability 和 Control Plane certification receipt；clean/resume 哈希一致。该纵切仍不支持 venue archive 自动采集/签名/外部穷尽审计、认证撤销/轮换协议、multiple partial、真实 liquidity partial、通用 cancel/amend、OS sandbox、remote adapter、停牌结算、cross/shared portfolio、tick/L2、generic matching 或 step/fast parity，因此不升到 M3。
 
 R4.41 已将首条 partial reduce 边界收敛为**非可执行 draft**，但不改变上述成熟度。Draft 只允许一次小于初始仓位的 fixed-quantity market reduce-only；partial Fill 必须留下 open Position，然后在无 SourceEvent 插入的同一 boundary 取消当前 stop/target，按 `abs(post-fill position)` 保留原 trigger 价重建全量双保护。首版 draft 禁止与 stop replacement 组合，允许后续 final full exit。该 schema/capability 未进入 Request v20、Schedule v4 或 certified set；Runner 必须在 Engine 前拒绝它，故当前仍不得声称 partial strategy reduction 已实现。
 
@@ -37,6 +37,8 @@ R4.51 冻结**PIT instrument trading-status 与 halt/resume 协议**。新增 `I
 R4.52 冻结**instrument-status producer authority 与 completeness attestation**。`Instrument Status Provenance v1` 不是第三份状态真相，而是 Market Data Products 对 `status_epochs` 的生产证明：绑定 producer domain/id/version、source owner/kind、normalization policy、effective coverage、source-observed-through、produced-at、原始记录 count/ref/hash 与 derived schedule hash。Dataset Manifest v9 内嵌 attestation；Request v23、Trial Reservation v7、Result v35 Fingerprint 独立绑定 `instrument_status_provenance_hash`，因此替换 producer、raw source、coverage 或 normalization 即使导出相同 epochs 也属于不同证据。`complete_history` 只接受 `venue_status_event_archive` 且 coverage 必须包住 Replay window；`venue_current_snapshot` 与 `periodic_snapshot_series` 只能是 `current_snapshot_only`，连续轮询“全为 trading”不能证明采样间没有 halt。Replay 只验证不可变声明与闭包，不采集、不补全、不替 Market Data 证明外部 archive 真实穷尽；production provider、archive certification、halt/delisting settlement 均未实现。
 
 R4.53 落地 **Market Data immutable archive → Replay status evidence** 的生产接缝，不改变 Replay wire epoch 或 Simulator 经济语义。`market-data-store` 新增 Instrument Status Archive v1：原始 transition、coverage、finality watermark、source/content/archive hash 以 `BEGIN IMMEDIATE` create-or-identical CAS 原子提交，同一 id 不允许内容漂移。`market-data.instrument-status-provider` 只读该 archive，要求首个 coverage anchor、严格递增且交替的 `trading/halted` transition、`source_observed_through >= coverage_end` 与 requested-window containment，再按 hash-bound Normalization Policy v1 生成连续半开 epochs、Provenance v1、Provider Capability v1 与 self-hashed evidence。跨域 fixture 已证明输出可直接通过 Replay Request v23 / Dataset Manifest v9；但 archive 的 finality 是 source/import assertion，不是交易所签名或第三方穷尽证明，Control Plane 对 provider capability 的 registry admission 仍未冻结。
+
+R4.54 冻结 **Control Plane provider certification admission**。`Provider Certification v1` 是 Control Plane 单写、self-hashed、create-or-identical 的不可变快照，绑定 certifier/policy、`[certified_at, valid_until)`、provider capability/build、normalization 与允许的 source/completeness；Trial Reservation v8 只能嵌入注册且在 `issued_at` 有效的认证。Market Data Provider 必须消费认证 ref/hash 且 capability hash 与自身固定 capability 完全一致，无权自签或延期。Dataset Manifest v10 的 Provenance v2、Request v24、Reservation v8、Result v36 Fingerprint 与 Runner 必须指向同一 certification/capability；任一自报、替换、未知或过期认证均在 Engine 前拒绝。该收据证明的是 Control Plane 对仓库内实现能力的准入，不证明 venue archive 外部真实、完整、签名或 finality。
 
 实现路径：`replay-execution-plane/contracts`、`data-adapter`、`engine`、`accounting`、`metrics`、`runner` 与 `tests` 已成为 certified slice 的新语义 owner；`replay-execution-plane/compatibility/replay-runner` 可转发 Trial-bound request，`compatibility/replay-engine` 仅复用稳定 accounting 原语并继续作为 parity/迁移来源，不再承接新语义扩展。RD 根已无旧 Replay package。
 
@@ -128,7 +130,7 @@ flowchart LR
 | 已正式实现并测试 | 主 replay 不允许 lane 内重叠持仓 | 允许单仓一次 reduce-only partial，但不允许第二 entry、加仓、反转或 portfolio 并发 |
 | 已正式实现并测试 | SourceEvent reducer 同步驱动 entry/exit order lanes；submit/activate/trigger/partial/full/cancel/reject、EventKey 全序、oversized cap 与 wrong-side reduce-only 由独立状态 owner 守恒 | entry open、halt/resume、funding、bracket activation、terminal source/fill/cancel 共用因果边界；尚无 external-command、多订单 matching、真实 partial liquidity 或 limit queue |
 | 已正式实现并测试 | complete PIT `trading/halted` status epochs；停牌区间无 bar、Funding/Mark 继续、恢复首 open gap 与 checkpoint resume | 只接受冻结状态事实，不从缺 bar 推断 halt；停牌中 maintenance breach typed-fail；无 halt settlement、venue state collector 或 delisting settlement |
-| 已正式实现并测试 | instrument-status immutable archive、provider normalization 与 provenance binding | Store 以 immutable CAS 保存完整 transition/source/finality closure；Provider 只读生成连续 epochs/capability/provenance，输出通过 Replay Request/Manifest；当前/周期快照不能升级历史完整性。该闭包不等于 venue 签名、外部穷尽审计或 Control Plane provider registry admission |
+| 已正式实现并测试 | instrument-status immutable archive、provider normalization、Control Plane certification 与 provenance binding | Store 以 immutable CAS 保存 transition/source/finality closure；Provider 只读生成 certification-bound epochs/provenance；Control Plane 注册并在 Reservation issuance 校验 capability/有效期；Dataset/Request/Reservation/Fingerprint 四方绑定同一收据。该闭包不等于 venue 签名或外部穷尽审计 |
 | 已正式实现并测试 | multi-Fill average-cost、open/flat cash reducer、terminal valuation 与 settlement-asset journal | 一次 fixed-quantity partial 后的 stop/target/final exit/exact liquidation 全平及 EOD open-marked 已锁定；add/reversal/multiple partial、oversized reduce-only 仍拒绝；cash、position valuation、ending equity、journal/trial balance 对账 |
 | 已正式实现并测试 | frozen isolated margin source-prefix observation、exact-risk full liquidation 与 OHLCV terminal failure | exact Mark/funding-mark breach 先于同时间策略退出，forced reduce-only full close、独立 liquidation fee、flat reconciliation 与 typed execution evidence 已锁定；OHLCV breach 仍不执行，exact trigger 也不证明交易所真实成交价 |
 | 已正式实现并测试 | Numeric Policy v3 rational arithmetic | bps/rate/product/division 使用 BigInt rational；quantity floor；buy fill ceil/sell fill floor；fee ceil；signed funding/realized floor；weighted average/return 12 位 half-away；未对齐 trigger/OHLC/cash evidence 拒绝；Bun/Python 共享向量 parity |
@@ -203,15 +205,15 @@ modules/research-strategy-development/
 
 ## 5. Control Plane 输入/输出合同
 
-当前 certified wire id 为 Control Plane `trade-flow.rd-experiment-contract.v3`、Trial Reservation v7、Attempt Lease v1、Checkpoint Receipt v2、Resume Authorization v1，以及 Replay Request v23、Dataset Manifest v9、Instrument Status Snapshot/Provenance v1、Supplemental Requirement Set v1、Decision Input/Market Snapshot v1、Decision State Snapshot v3、Partial Reduce Intent v1、Reduce-only Exit Intent v1、Protective Stop Replace Intent v1、Decision Schedule v5、Decision Harness Context v6、Source Bundle v1、Build Attestation v2、Worker Protocol v7、Registry Capability v7、Harness Capability/Receipt v9、Decision Boundary v7、Decision Evidence Timeline v8、OHLCV Resolution Evidence v3、Data Gap Failure Evidence v1、Result v35、Artifact v37、Artifact Store Capability v1、Engine Checkpoint v17、Diagnostic Commit v2、Run Outcome v33。Simulator 为 v10；Storage/Numeric/Journal/Equity/Margin Policy 不变。Schedule 是 decision-time authority，Timeline 是逐 boundary evidence authority；Control Plane 只接受当前 fencing generation 的 terminal finalize。
+当前 certified wire id 为 Control Plane `trade-flow.rd-experiment-contract.v3`、Trial Reservation v8、Provider Certification v1、Attempt Lease v1、Checkpoint Receipt v2、Resume Authorization v1，以及 Replay Request v24、Dataset Manifest v10、Instrument Status Snapshot v1/Provenance v2、Supplemental Requirement Set v1、Decision Input/Market Snapshot v1、Decision State Snapshot v3、Partial Reduce Intent v1、Reduce-only Exit Intent v1、Protective Stop Replace Intent v1、Decision Schedule v5、Decision Harness Context v6、Source Bundle v1、Build Attestation v2、Worker Protocol v7、Registry Capability v7、Harness Capability/Receipt v9、Decision Boundary v7、Decision Evidence Timeline v8、OHLCV Resolution Evidence v3、Data Gap Failure Evidence v1、Result v36、Artifact v38、Artifact Store Capability v1、Engine Checkpoint v17、Diagnostic Commit v2、Run Outcome v34。Simulator 为 v10；Storage/Numeric/Journal/Equity/Margin Policy 不变。
 
-Trial Reservation v7 冻结授权准入窗口 `[issued_at, expires_at)`、risk/spec/status 三份 schedule hash、status provenance hash、完整 supplemental revision stream hash 与 Requirement Set hash：两端均为 Control Plane 写入的 RFC 3339 UTC 时间，且必须满足 `issued_at < expires_at`。新 Attempt 的 `claimed_at` 必须落在该半开区间；等于 `expires_at` 即无权 claim，fresh retry 与 resume target 均不例外。Reservation 只回答“何时仍可创建执行权”，不充当运行 lease：合法 claim 后，即使墙钟越过 `expires_at`，运行、续租、checkpoint、取消和 terminal finalize 仍只由 Attempt lease/generation fencing 决定。Runner 消费端复核相同不变量及 Request/Reservation binding，越界或 hash 漂移返回不可重试的 `trial-reservation-expired/unsupported_contract`，不启动 Engine、不发布部分 Result。TTL 长度及延期/重签策略仍由 Control Plane policy 决定，Replay 不自行延长或重签。
+Trial Reservation v8 冻结授权准入窗口 `[issued_at, expires_at)`、risk/spec/status 三份 schedule hash、status provenance/provider capability/provider certification hash、完整 supplemental revision stream hash 与 Requirement Set hash，并内嵌认证快照。发放时 Control Plane 从注册表按 certification hash 读取，不接受调用方内嵌对象；认证须处于 `certified_at <= issued_at < valid_until` 且 capability 与 binding 相等。Reservation TTL 仍只控制新 Attempt claim；已合法 claim 的运行权继续由 Attempt lease/generation fencing 决定。Replay 不查询注册表、不刷新或延长认证，只复核 Reservation、Request 与 Dataset 三方闭包。
 
 ### 5.1 目标 `ReplayExecutionRequest`
 
 ```json
 {
-  "schema_version": "trade.rd-replay-execution-request.v23",
+  "schema_version": "trade.rd-replay-execution-request.v24",
   "run_id": "...",
   "idempotency_key": "...",
   "identity": {
@@ -231,7 +233,11 @@ Trial Reservation v7 冻结授权准入窗口 `[issued_at, expires_at)`、risk/s
     "supplemental_facts_hash": "sha256",
     "supplemental_requirement_set_hash": "sha256",
     "venue_risk_policy_schedule_hash": "sha256",
-    "instrument_spec_schedule_hash": "sha256"
+    "instrument_spec_schedule_hash": "sha256",
+    "instrument_status_schedule_hash": "sha256",
+    "instrument_status_provenance_hash": "sha256",
+    "instrument_status_provider_capability_hash": "sha256",
+    "instrument_status_provider_certification_hash": "sha256"
   },
   "supplemental_requirement_set": {
     "schema_version": "trade.rd-replay-supplemental-requirement-set.v1",
@@ -627,7 +633,7 @@ artifact-manifest.json
 └── diagnostic checkpoint commit v2 # immutable versioned marker + storage policy；登记 Receipt 后方可授权恢复
 ```
 
-当前 Artifact v37 通过 Artifact Store port 在 `logical idempotency key / attempt_id` namespace 中提交并绑定 storage policy；独立 resolution artifact 承载 OHLCV two-path、active-protection 与 economic envelope，Fingerprint 分别绑定 status schedule 与 provenance hash。Runner 幂等复读逐项重验 evidence，并要求其数组等于 Result、collection hash 等于 Fingerprint、Order/Fill identity/generation/economics 与 Request/Dataset 一致。Checkpoint v17 通过 Request hash 间接冻结 provenance，恢复后 Engine 必须从相同冻结输入与 status/source prefix 重建同一 Result hash。local CAS 已认证，remote target 仍未认证。
+当前 Artifact v38 通过 Artifact Store port 在 `logical idempotency key / attempt_id` namespace 中提交并绑定 storage policy；Fingerprint 分别绑定 status schedule、Provenance v2、provider capability 与 Control Plane certification receipt hash。Runner 在执行和幂等复读时要求 Dataset certification ref/hash/capability 与 Reservation 内嵌快照、Request bindings 完全一致，再重验 Result/evidence。Checkpoint v17 通过 Request hash 间接冻结该认证闭包，恢复后必须重建同一 Result hash。local CAS 已认证，remote target 仍未认证。
 
 ### 13.3 Evidence Fingerprint
 
@@ -646,6 +652,7 @@ Fingerprint payload 使用与 Control Plane 一致的 `SHA-256(UTF-8(JCS(normali
 - `instrument_spec_schedule_hash`（覆盖有序 spec provenance epochs 与全窗口 accounting fields）
 - `instrument_status_schedule_hash`（覆盖 complete PIT `trading/halted` epochs；与 spec/accounting identity 独立）
 - `instrument_status_provenance_hash`（覆盖 producer/source/completeness/coverage/normalization/raw-source/derived-schedule attestation；与相同 epochs 的 schedule hash 独立）
+- `instrument_status_provider_capability_hash + instrument_status_provider_certification_hash`（认证收据本体由 Trial Reservation v8 内嵌；Dataset Provenance v2 同时给出相同 certification ref/hash）
 - `executable_candidate_code_hash`
 - `harness_hash`
 - `assumptions_hash`
@@ -730,7 +737,7 @@ Property tests 的核心 invariants：订单 qty、position qty、cash/NAV bridg
 
 ### R0：冻结合同，不搬目录
 
-- 冻结版本化 authority/evidence schema：Trial Reservation v7、Attempt Lease v1、Checkpoint Receipt v2、Resume Authorization v1、Request v23、Dataset Manifest v9、Instrument Status Snapshot/Provenance v1、Supplemental Requirement Set v1、Decision Input/Market Snapshot v1、Decision State Snapshot v3、Partial Reduce/Reduce-only Exit/Protective Stop Replace Intent v1、Decision Schedule v5、Harness Context v6、Source Bundle v1、Build Attestation v2/Worker Protocol v7、Registry Capability v7、Harness Capability/Receipt v9、Boundary v7、Timeline v8、OHLCV Resolution Evidence v3、Data Gap Failure Evidence v1、Result v35、Artifact v37、Artifact Store Capability v1、Engine Checkpoint v17、Diagnostic Commit v2、Run Outcome v33；Simulator v10，Storage/Numeric/Journal/Equity/Margin Policy 不变。
+- 冻结版本化 authority/evidence schema：Trial Reservation v8、Provider Certification v1、Attempt Lease v1、Checkpoint Receipt v2、Resume Authorization v1、Request v24、Dataset Manifest v10、Instrument Status Snapshot v1/Provenance v2、Supplemental Requirement Set v1、Decision Input/Market Snapshot v1、Decision State Snapshot v3、Partial Reduce/Reduce-only Exit/Protective Stop Replace Intent v1、Decision Schedule v5、Harness Context v6、Source Bundle v1、Build Attestation v2/Worker Protocol v7、Registry Capability v7、Harness Capability/Receipt v9、Boundary v7、Timeline v8、OHLCV Resolution Evidence v3、Data Gap Failure Evidence v1、Result v36、Artifact v38、Artifact Store Capability v1、Engine Checkpoint v17、Diagnostic Commit v2、Run Outcome v34；Simulator v10，Storage/Numeric/Journal/Equity/Margin Policy 不变。
 - 给 v1 输出标 `legacy_single_trade_resolver`；停止向 v1 增加 promotion 语义。
 - 建 current behavior fixture inventory，明确正式、临时、隐含和 known-bad。
 
@@ -748,21 +755,21 @@ Property tests 的核心 invariants：订单 qty、position qty、cash/NAV bridg
 - 修正 code/harness/data/assumptions/cost hash 覆盖；Control Plane Trial reservation 原子校验。
 - runner 实现 idempotency、typed failure、cancel、checkpoint/atomic commit。
 
-**当前状态：完成 authority/storage/data/Harness 的 pre-entry、position-open、一次止损收紧与一次全量退出闭包。** Control Plane 仍单写 Reservation/Attempt/Receipt/Resume Authorization，并通过 Request/Execution Spec 分别冻结 Decision Schedule、status schedule 与 status provenance hash；Runner 复核 claim window、lease generation、全部 dataset/policy binding。required lane 已推进到 deterministic Bun Build Attestation 与逐 boundary fresh stdio subprocess；每个 Market/State Snapshot 都由 Engine 从当前 Dataset/position/protection 重算，Checkpoint 保存已消费 Timeline、active protection、status/source prefix 与 pending strategy-exit Order。R4.50 已锁定 continuity fence，R4.51 已锁定 complete PIT halt/resume，R4.52 已锁定 archive/current/periodic completeness 与 producer binding，R4.53 已贯通 immutable imported archive/provider。OS sandbox、signed build provenance、任意依赖 SBOM、remote adapter/provider fault certification、venue archive 自动采集/签名/外部穷尽审计、Control Plane provider registry admission、halt settlement、会改变 accounting 的 spec epoch、其他 effect-changing decision 与动态 supplemental join 仍未完成。
+**当前状态：完成 authority/storage/data/Harness 的受限闭包。** Control Plane 单写 Provider Certification、Reservation、Attempt、Receipt 与 Resume Authorization；Request/Execution Spec 冻结 Decision Schedule、status schedule/provenance 与 provider certification。R4.53 已贯通 immutable imported archive/provider，R4.54 已贯通 registry admission 与 Dataset/Request/Reservation/Fingerprint 四方绑定。OS sandbox、signed build provenance、remote adapter/provider fault certification、venue archive 自动采集/签名/外部穷尽审计、认证撤销/轮换、halt settlement 与动态 supplemental join 仍未完成。
 
 ### R3：订单状态机
 
 - limit/stop/TP、cancel/amend、multi-entry、partial、wrong-side/oversized reduce-only、reversal。
 - 只有具备数据能力的 fill policy 才开放；maker queue 缺失继续 limitation/unsupported。
 
-**当前状态：完成第五十三子集，R3 未完成。** R4.43 已认证 partial 后 terminal owner 闭包；R4.44–R4.49 冻结 simple-bracket resolution/economics 与独立跨语言 oracle；R4.50 阻断 missing-grid 被误当 observed gap；R4.51 将 complete halt gap 与普通缺口分离；R4.52 阻断 current/periodic snapshot 被包装成 complete history；R4.53 增加 imported archive/provider 内容闭包。terminal preemption、long/short lane symmetry、economic-policy tamper rejection、status/provenance/continuity fence 与 clean/resume parity 已锁定。仍缺外部 venue completeness/registry authority、multiple partial、真实 historical liquidity partial、通用 cancel/amend、limit/TIF、add/reversal、partial liquidation、halt settlement、generic OHLC resolver 与 step/fast parity。
+**当前状态：完成第五十四子集，R3 未完成。** R4.43 已认证 partial 后 terminal owner 闭包；R4.44–R4.49 冻结 simple-bracket resolution/economics 与独立跨语言 oracle；R4.50 阻断 missing-grid 被误当 observed gap；R4.51 将 complete halt gap 与普通缺口分离；R4.52 阻断 current/periodic snapshot 被包装成 complete history；R4.53 增加 imported archive/provider 内容闭包。terminal preemption、long/short lane symmetry、economic-policy tamper rejection、status/provenance/continuity fence 与 clean/resume parity 已锁定。仍缺外部 venue completeness、认证撤销/轮换、multiple partial、真实 historical liquidity partial、通用 cancel/amend、limit/TIF、add/reversal、partial liquidation、halt settlement、generic OHLC resolver 与 step/fast parity。
 
 ### R4：统一 accounting
 
 - 定点 decimal、double-entry ledger、逐 fill fee、exact funding、borrow 接口。
 - isolated/cross margin、maintenance tiers、liquidation 与 penalty fixtures。
 
-**当前状态：完成第五十三子集，未完成统一组合账本。** Request/Result 为 v23/v35，Artifact/Run Outcome 为 v37/v33；Simulator v10 的 accounting 算术不变，但缺失执行区间不得产生任何后续账本事实。partial fee/realized PnL、Funding、cash/equity bridge、Margin、post-partial liquidation 与 EOD valuation 已守恒；R4.51 允许 exact Funding/Mark 在 frozen halt 内继续进入账本/风险观察，R4.52–R4.53 只增强这些状态事实的来源身份与生产闭包，不改变经济执行。现有 certified lane 仍是单 settlement asset、单 isolated Position。borrow、cross/shared portfolio、halt settlement、partial liquidation、bankruptcy/insurance/ADL 与多资产组合尚未开始。
+**当前状态：完成第五十四子集，未完成统一组合账本。** Request/Result 为 v24/v36，Artifact/Run Outcome 为 v38/v34；Simulator v10 的 accounting 算术不变，但缺失执行区间不得产生任何后续账本事实。partial fee/realized PnL、Funding、cash/equity bridge、Margin、post-partial liquidation 与 EOD valuation 已守恒；R4.51 允许 exact Funding/Mark 在 frozen halt 内继续进入账本/风险观察，R4.52–R4.53 只增强这些状态事实的来源身份与生产闭包，不改变经济执行。现有 certified lane 仍是单 settlement asset、单 isolated Position。borrow、cross/shared portfolio、halt settlement、partial liquidation、bankruptcy/insurance/ADL 与多资产组合尚未开始。
 
 ### R5：Portfolio
 
@@ -798,7 +805,7 @@ Property tests 的核心 invariants：订单 qty、position qty、cash/NAV bridg
 2. OHLC `touch` limit 的默认 queue policy是 zero-fill，还是基于可证明 cross-through 的 conservative fill；必须由数据 capability 与研究用途共同决定。
 3. shared portfolio 同时信号采用 pro-rata、预注册 priority 还是独立 allocator ref；不能由 symbol 排序代替。
 4. venue risk/instrument spec 历史快照，以及 instrument-status event archive 的自动采集、venue 签名、保留/纠错和外部 completeness audit owner；R4.53 已实现 immutable imported archive 与 deterministic provider，但 finality 仍是 source assertion，不能声称自动复原 Binance 历史规则/状态。
-5. Control Plane 应以 registry snapshot、签名 capability receipt 还是 deployment allowlist 准入 `instrument-status-provider` build/policy hash；在该 authority 冻结前，Replay 只能验证内容闭包，不能单独证明 producer 身份。
+5. Provider Certification v1 已冻结 registry snapshot 与 issuance-time 有效期；后续 build 轮换、提前撤销、双版本重叠窗口和签名 capability receipt 是否需要独立 append-only event，尚需结合部署与事故响应模型决定，不能用更新既有认证行替代。
 6. resolution limitation 的 materiality 只由 Reviewer stage policy决定，还是另有统一 quantitative threshold；Replay 本身不做晋级判断。
 7. Artifact 大事件流采用 JSONL、Arrow/Parquet 或 SQLite bundle；无论格式如何，manifest/hash/schema 合同不变。
 8. exact event mode 的 source sequence 在 aggTrades、mark、funding、instrument status 间如何映射；缺 exchange sequence 时必须保留 limitation。

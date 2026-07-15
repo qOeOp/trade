@@ -7,10 +7,12 @@ Owns the deterministic adapter from one immutable, finalized venue instrument-st
 - Read an archive committed by `market-data-store`; never collect or rewrite venue facts.
 - Require an anchor event, strictly ordered state transitions, full requested-window coverage, and a finality watermark at or beyond `coverage_end`.
 - Normalize `trading/halted` transitions into contiguous half-open epochs under one versioned, hash-bound policy.
-- Emit Replay status epochs, provenance, provider capability, and a self-hashed evidence envelope.
+- Consume a Control Plane-issued certification ref/hash that exactly binds this provider capability; the provider never self-certifies.
+- Emit Replay status epochs, certification-bound provenance, provider capability, and a self-hashed evidence envelope.
 
 ## Boundaries
 
 - Does not infer status from OHLCV gaps or periodic snapshots.
 - Does not certify that a venue archive omitted no external event; it certifies only the imported archive, declared finality, normalization, and content closure.
+- Does not create, extend, revoke, or validate the time window of Control Plane certification; Trial admission owns that check.
 - Does not choose datasets, reserve Trials, execute Replay, settle halts/delistings, or write strategy/review state.
