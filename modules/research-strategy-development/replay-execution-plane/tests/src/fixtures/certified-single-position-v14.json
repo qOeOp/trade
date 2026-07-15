@@ -1,6 +1,6 @@
 {
   "request": {
-    "schema_version": "trade.rd-replay-execution-request.v13",
+    "schema_version": "trade.rd-replay-execution-request.v14",
     "run_id": "golden-run",
     "idempotency_key": "golden-idempotency",
     "experiment_id": "exp-golden",

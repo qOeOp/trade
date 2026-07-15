@@ -10,9 +10,9 @@ export {
   REPLAY_OBJECT_ARTIFACT_STORAGE_POLICY_VERSION,
 }
 
-export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v13" as const
-export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v20" as const
-export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v22" as const
+export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v14" as const
+export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v21" as const
+export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v23" as const
 export const REPLAY_ARTIFACT_STORE_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-artifact-store-capability.v1" as const
 export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v7" as const
 export const REPLAY_NUMERIC_POLICY_VERSION = "rd-replay-number-v3" as const
@@ -27,8 +27,12 @@ export const REPLAY_DATASET_MANIFEST_SCHEMA_VERSION = "trade.rd-replay-dataset-m
 export const REPLAY_SUPPLEMENTAL_FACT_SCHEMA_VERSION = "trade.rd-replay-supplemental-fact.v1" as const
 export const REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION = "trade.rd-replay-supplemental-requirement-set.v1" as const
 export const REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION = "trade.rd-replay-decision-input-snapshot.v1" as const
-export const REPLAY_DECISION_HARNESS_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-decision-harness-capability.v1" as const
-export const REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION = "trade.rd-replay-decision-harness-receipt.v1" as const
+export const REPLAY_DECISION_HARNESS_SOURCE_BUNDLE_SCHEMA_VERSION = "trade.rd-replay-decision-harness-source-bundle.v1" as const
+export const REPLAY_DECISION_HARNESS_REGISTRY_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-decision-harness-registry-capability.v1" as const
+export const REPLAY_DECISION_HARNESS_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-decision-harness-capability.v2" as const
+export const REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION = "trade.rd-replay-decision-harness-receipt.v2" as const
+export const REPLAY_DECISION_HARNESS_REGISTRY_POLICY_VERSION = "rd-replay-decision-harness-registry-v1" as const
+export const REPLAY_DECISION_HARNESS_LOADER_POLICY_VERSION = "rd-replay-registered-entrypoint-loader-v1" as const
 export const REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION = "trade.rd-replay-venue-risk-policy-snapshot.v1" as const
 export const REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION = "trade.rd-replay-instrument-spec-snapshot.v1" as const
 export const REPLAY_CERTIFIED_CAPABILITIES = [
@@ -44,7 +48,7 @@ export const REPLAY_CERTIFIED_CAPABILITIES = [
   "stop-take-profit-market",
 ] as const
 export const REPLAY_REQUIRED_ARTIFACT_ROLES = [
-  "request", "trial_reservation", "attempt_lease", "dataset_manifest", "supplemental_facts", "decision_input_snapshot", "decision_harness_receipt", "result",
+  "request", "trial_reservation", "attempt_lease", "dataset_manifest", "supplemental_facts", "decision_harness_bundle", "decision_input_snapshot", "decision_harness_receipt", "result",
   "source_events", "order_events", "fills", "positions", "ledger",
   "valuation_snapshot", "equity_bridge", "margin_snapshots", "liquidation",
   "journal", "trial_balance",
@@ -270,10 +274,47 @@ export interface ReplayDecisionInputSnapshot {
 
 export type ReplayDecisionInputSnapshotBody = Omit<ReplayDecisionInputSnapshot, "snapshot_hash">
 
+export interface ReplayDecisionHarnessSourceFile {
+  path: string
+  content_utf8: string
+  sha256: string
+}
+
+export interface ReplayDecisionHarnessSourceBundle {
+  schema_version: typeof REPLAY_DECISION_HARNESS_SOURCE_BUNDLE_SCHEMA_VERSION
+  bundle_ref: string
+  format: "utf8_source_set"
+  entrypoint: { file_path: string; export_name: string }
+  files: ReplayDecisionHarnessSourceFile[]
+  bundle_hash: string
+}
+
+export interface ReplayDecisionHarnessRegistryCapability {
+  schema_version: typeof REPLAY_DECISION_HARNESS_REGISTRY_CAPABILITY_SCHEMA_VERSION
+  registry_policy_version: typeof REPLAY_DECISION_HARNESS_REGISTRY_POLICY_VERSION
+  loader_policy_version: typeof REPLAY_DECISION_HARNESS_LOADER_POLICY_VERSION
+  lookup_key: "bundle_hash"
+  registration_policy: "immutable_for_process_lifetime"
+  entrypoint_binding: "reviewed_static_registration"
+}
+
+export const REPLAY_DECISION_HARNESS_REGISTRY_CAPABILITY: ReplayDecisionHarnessRegistryCapability = Object.freeze({
+  schema_version: REPLAY_DECISION_HARNESS_REGISTRY_CAPABILITY_SCHEMA_VERSION,
+  registry_policy_version: REPLAY_DECISION_HARNESS_REGISTRY_POLICY_VERSION,
+  loader_policy_version: REPLAY_DECISION_HARNESS_LOADER_POLICY_VERSION,
+  lookup_key: "bundle_hash",
+  registration_policy: "immutable_for_process_lifetime",
+  entrypoint_binding: "reviewed_static_registration",
+})
+
 export interface ReplayDecisionHarnessCapability {
   schema_version: typeof REPLAY_DECISION_HARNESS_CAPABILITY_SCHEMA_VERSION
   harness_hash: string
-  execution_policy: "in_process_deterministic"
+  source_bundle_ref: string
+  source_bundle_hash: string
+  registry_policy_version: typeof REPLAY_DECISION_HARNESS_REGISTRY_POLICY_VERSION
+  loader_policy_version: typeof REPLAY_DECISION_HARNESS_LOADER_POLICY_VERSION
+  execution_policy: "registered_entrypoint_deterministic"
   input_schema_version: typeof REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION
   output_schema_version: typeof REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION
 }
@@ -282,7 +323,11 @@ export interface ReplayDecisionHarnessReceipt {
   schema_version: typeof REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION
   run_id: string
   harness_hash: string
-  execution_policy: "in_process_deterministic"
+  source_bundle_ref: string
+  source_bundle_hash: string
+  registry_policy_version: typeof REPLAY_DECISION_HARNESS_REGISTRY_POLICY_VERSION
+  loader_policy_version: typeof REPLAY_DECISION_HARNESS_LOADER_POLICY_VERSION
+  execution_policy: "registered_entrypoint_deterministic"
   decision_input_snapshot_hash: string
   derived_order: ReplayExecutionRequest["order"]
   trace: ReplaySupplementalValue
@@ -688,6 +733,9 @@ export interface ReplayEvidenceFingerprint {
   supplemental_requirement_set_hash: string
   decision_input_snapshot_hash: string
   decision_harness_receipt_hash: string | null
+  decision_harness_bundle_hash: string | null
+  decision_harness_registry_policy_version: typeof REPLAY_DECISION_HARNESS_REGISTRY_POLICY_VERSION | null
+  decision_harness_loader_policy_version: typeof REPLAY_DECISION_HARNESS_LOADER_POLICY_VERSION | null
   venue_risk_policy_schedule_hash: string
   instrument_spec_schedule_hash: string
   harness_hash: string
@@ -722,6 +770,7 @@ export interface ReplayResult {
   journal: ReplayJournalEntry[]
   trial_balance: ReplayTrialBalance
   supplemental_evidence: ReplaySupplementalEvidence
+  decision_harness_bundle: ReplayDecisionHarnessSourceBundle | null
   decision_input_snapshot: ReplayDecisionInputSnapshot
   decision_harness_receipt: ReplayDecisionHarnessReceipt | null
   metrics: {
@@ -1079,17 +1128,101 @@ export function assertReplayDecisionInputSnapshot(
   }
 }
 
+export function createReplayDecisionHarnessSourceBundle(input: {
+  bundle_ref: string
+  entrypoint: ReplayDecisionHarnessSourceBundle["entrypoint"]
+  files: Array<{ path: string; content_utf8: string }>
+}): ReplayDecisionHarnessSourceBundle {
+  const files = [...input.files]
+    .sort((left, right) => left.path < right.path ? -1 : left.path > right.path ? 1 : 0)
+    .map((file) => ({
+      path: file.path,
+      content_utf8: file.content_utf8,
+      sha256: createHash("sha256").update(file.content_utf8, "utf8").digest("hex"),
+    }))
+  const bundle = {
+    schema_version: REPLAY_DECISION_HARNESS_SOURCE_BUNDLE_SCHEMA_VERSION,
+    bundle_ref: input.bundle_ref,
+    format: "utf8_source_set" as const,
+    entrypoint: structuredClone(input.entrypoint),
+    files,
+    bundle_hash: "",
+  }
+  bundle.bundle_hash = replayDecisionHarnessBundleHash(bundle)
+  assertReplayDecisionHarnessSourceBundle(bundle)
+  return bundle
+}
+
+export function replayDecisionHarnessBundleHash(bundle: Omit<ReplayDecisionHarnessSourceBundle, "bundle_hash"> | ReplayDecisionHarnessSourceBundle): string {
+  return canonicalHash({
+    schema_version: bundle.schema_version,
+    format: bundle.format,
+    entrypoint: bundle.entrypoint,
+    files: bundle.files,
+  })
+}
+
+export function assertReplayDecisionHarnessSourceBundle(
+  bundle: ReplayDecisionHarnessSourceBundle,
+  request?: ReplayExecutionRequest,
+): void {
+  if (bundle.schema_version !== REPLAY_DECISION_HARNESS_SOURCE_BUNDLE_SCHEMA_VERSION
+      || bundle.format !== "utf8_source_set") fail("unsupported Replay decision harness source bundle")
+  requireText(bundle.bundle_ref, "decision_harness_bundle.bundle_ref")
+  requireText(bundle.entrypoint.file_path, "decision_harness_bundle.entrypoint.file_path")
+  const exportName = requireText(bundle.entrypoint.export_name, "decision_harness_bundle.entrypoint.export_name")
+  if (!/^[A-Za-z_$][A-Za-z0-9_$]{0,127}$/.test(exportName)) fail("decision harness export_name is invalid")
+  if (!Array.isArray(bundle.files) || bundle.files.length === 0) fail("decision harness bundle requires source files")
+  let priorPath = ""
+  for (const [index, file] of bundle.files.entries()) {
+    const path = requireText(file.path, `decision_harness_bundle.files[${index}].path`)
+    if (!/^[a-z0-9][a-z0-9._/-]*\.(?:cjs|js|mjs|ts)$/.test(path)
+        || path.startsWith("/") || path.split("/").includes("..") || path <= priorPath) {
+      fail("decision harness source paths must be unique, sorted, repo-relative ASCII paths")
+    }
+    priorPath = path
+    if (typeof file.content_utf8 !== "string" || file.content_utf8.length === 0) {
+      fail("decision harness source content must be non-empty UTF-8 text")
+    }
+    requireHash(file.sha256, `decision_harness_bundle.files[${index}].sha256`)
+    if (createHash("sha256").update(file.content_utf8, "utf8").digest("hex") !== file.sha256) {
+      fail("decision harness source file hash mismatch")
+    }
+  }
+  if (!bundle.files.some((file) => file.path === bundle.entrypoint.file_path)) {
+    fail("decision harness entrypoint file is not present in source bundle")
+  }
+  requireHash(bundle.bundle_hash, "decision_harness_bundle.bundle_hash")
+  if (replayDecisionHarnessBundleHash(bundle) !== bundle.bundle_hash) fail("decision harness bundle hash mismatch")
+  if (request && request.harness_hash !== bundle.bundle_hash) fail("decision harness bundle does not match Replay request")
+}
+
+export function assertReplayDecisionHarnessRegistryCapability(
+  capability: ReplayDecisionHarnessRegistryCapability,
+): void {
+  if (canonicalJson(capability) !== canonicalJson(REPLAY_DECISION_HARNESS_REGISTRY_CAPABILITY)) {
+    fail("Replay decision harness registry capability is not certified")
+  }
+}
+
 export function assertReplayDecisionHarnessCapability(
   capability: ReplayDecisionHarnessCapability,
   request?: ReplayExecutionRequest,
 ): void {
   if (capability.schema_version !== REPLAY_DECISION_HARNESS_CAPABILITY_SCHEMA_VERSION
-      || capability.execution_policy !== "in_process_deterministic"
+      || capability.execution_policy !== "registered_entrypoint_deterministic"
       || capability.input_schema_version !== REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION
       || capability.output_schema_version !== REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION) {
     fail("unsupported Replay decision harness capability")
   }
   requireHash(capability.harness_hash, "decision_harness_capability.harness_hash")
+  requireText(capability.source_bundle_ref, "decision_harness_capability.source_bundle_ref")
+  requireHash(capability.source_bundle_hash, "decision_harness_capability.source_bundle_hash")
+  if (capability.harness_hash !== capability.source_bundle_hash
+      || capability.registry_policy_version !== REPLAY_DECISION_HARNESS_REGISTRY_POLICY_VERSION
+      || capability.loader_policy_version !== REPLAY_DECISION_HARNESS_LOADER_POLICY_VERSION) {
+    fail("decision harness capability source/registry/loader binding is invalid")
+  }
   if (request && capability.harness_hash !== request.harness_hash) {
     fail("decision harness capability hash does not match Replay request")
   }
@@ -1098,16 +1231,28 @@ export function assertReplayDecisionHarnessCapability(
 export function createReplayDecisionHarnessReceipt(input: {
   request: ReplayExecutionRequest
   decision_input_snapshot: ReplayDecisionInputSnapshot
+  source_bundle: ReplayDecisionHarnessSourceBundle
+  capability: ReplayDecisionHarnessCapability
   derived_order: ReplayExecutionRequest["order"]
   trace: ReplaySupplementalValue
 }): ReplayDecisionHarnessReceipt {
   assertReplayDecisionInputSnapshot(input.decision_input_snapshot, input.request)
+  assertReplayDecisionHarnessSourceBundle(input.source_bundle, input.request)
+  assertReplayDecisionHarnessCapability(input.capability, input.request)
+  if (input.capability.source_bundle_ref !== input.source_bundle.bundle_ref
+      || input.capability.source_bundle_hash !== input.source_bundle.bundle_hash) {
+    fail("decision harness capability does not match source bundle")
+  }
   const trace = structuredClone(input.trace)
   const body: ReplayDecisionHarnessReceiptBody = {
     schema_version: REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION,
     run_id: input.request.run_id,
     harness_hash: input.request.harness_hash,
-    execution_policy: "in_process_deterministic",
+    source_bundle_ref: input.source_bundle.bundle_ref,
+    source_bundle_hash: input.source_bundle.bundle_hash,
+    registry_policy_version: input.capability.registry_policy_version,
+    loader_policy_version: input.capability.loader_policy_version,
+    execution_policy: "registered_entrypoint_deterministic",
     decision_input_snapshot_hash: input.decision_input_snapshot.snapshot_hash,
     derived_order: structuredClone(input.derived_order),
     trace,
@@ -1122,13 +1267,21 @@ export function assertReplayDecisionHarnessReceipt(
   receipt: ReplayDecisionHarnessReceipt,
   request?: ReplayExecutionRequest,
   snapshot?: ReplayDecisionInputSnapshot,
+  sourceBundle?: ReplayDecisionHarnessSourceBundle,
 ): void {
   if (receipt.schema_version !== REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION
-      || receipt.execution_policy !== "in_process_deterministic") {
+      || receipt.execution_policy !== "registered_entrypoint_deterministic") {
     fail("unsupported Replay decision harness receipt")
   }
   requireText(receipt.run_id, "decision_harness_receipt.run_id")
   requireHash(receipt.harness_hash, "decision_harness_receipt.harness_hash")
+  requireText(receipt.source_bundle_ref, "decision_harness_receipt.source_bundle_ref")
+  requireHash(receipt.source_bundle_hash, "decision_harness_receipt.source_bundle_hash")
+  if (receipt.registry_policy_version !== REPLAY_DECISION_HARNESS_REGISTRY_POLICY_VERSION
+      || receipt.loader_policy_version !== REPLAY_DECISION_HARNESS_LOADER_POLICY_VERSION
+      || receipt.harness_hash !== receipt.source_bundle_hash) {
+    fail("decision harness receipt source/registry/loader binding is invalid")
+  }
   requireHash(receipt.decision_input_snapshot_hash, "decision_harness_receipt.decision_input_snapshot_hash")
   requireHash(receipt.trace_hash, "decision_harness_receipt.trace_hash")
   requireHash(receipt.receipt_hash, "decision_harness_receipt.receipt_hash")
@@ -1143,6 +1296,10 @@ export function assertReplayDecisionHarnessReceipt(
   if (snapshot && receipt.decision_input_snapshot_hash !== snapshot.snapshot_hash) {
     fail("decision harness receipt does not match decision input snapshot")
   }
+  if (sourceBundle && (
+    receipt.source_bundle_ref !== sourceBundle.bundle_ref
+    || receipt.source_bundle_hash !== sourceBundle.bundle_hash
+  )) fail("decision harness receipt does not match source bundle")
 }
 
 export function assertReplayVenueRiskPolicySnapshot(snapshot: ReplayVenueRiskPolicySnapshot): void {

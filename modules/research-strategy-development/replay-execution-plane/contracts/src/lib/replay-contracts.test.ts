@@ -2,7 +2,9 @@ import { expect, test } from "bun:test"
 import {
   REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
   REPLAY_DECISION_HARNESS_CAPABILITY_SCHEMA_VERSION,
+  REPLAY_DECISION_HARNESS_LOADER_POLICY_VERSION,
   REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION,
+  REPLAY_DECISION_HARNESS_REGISTRY_POLICY_VERSION,
   REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION,
   REPLAY_LOCAL_ARTIFACT_STORE_CAPABILITY,
   REPLAY_OBJECT_ARTIFACT_STORE_REQUIRED_CAPABILITY,
@@ -20,11 +22,13 @@ import {
   assertReplayArtifactStoreCapability,
   assertReplayDecisionHarnessCapability,
   assertReplayDecisionHarnessReceipt,
+  assertReplayDecisionHarnessSourceBundle,
   assertReplayDecisionInputSnapshot,
   assertReplaySupplementalFact,
   assertReplaySupplementalRequirementSet,
   canonicalHash,
   createReplayDecisionHarnessReceipt,
+  createReplayDecisionHarnessSourceBundle,
   createReplayDecisionInputSnapshot,
   type ReplayExecutionRequest,
 } from "./replay-contracts"
@@ -131,6 +135,21 @@ test("supplemental fact freezes causal timestamps and canonical payload identity
 
 test("Decision Input Snapshot and Harness Receipt are self-hashed immutable evidence", () => {
   const requestValue = fixtureRequest()
+  const sourceBundle = createReplayDecisionHarnessSourceBundle({
+    bundle_ref: "harness://fixture/decision-v1",
+    entrypoint: { file_path: "src/decision.ts", export_name: "execute" },
+    files: [
+      { path: "src/decision.ts", content_utf8: "export function execute(input) { return input.request.order }\n" },
+      { path: "src/constants.ts", content_utf8: "export const version = 1\n" },
+    ],
+  })
+  requestValue.harness_hash = sourceBundle.bundle_hash
+  expect(sourceBundle.files.map((file) => file.path)).toEqual(["src/constants.ts", "src/decision.ts"])
+  expect(() => assertReplayDecisionHarnessSourceBundle(sourceBundle, requestValue)).not.toThrow()
+  expect(() => assertReplayDecisionHarnessSourceBundle({
+    ...sourceBundle,
+    files: [{ ...sourceBundle.files[0], content_utf8: `${sourceBundle.files[0].content_utf8}// tampered\n` }, sourceBundle.files[1]],
+  }, requestValue)).toThrow("source file hash mismatch")
   const snapshot = createReplayDecisionInputSnapshot(requestValue, [])
   expect(snapshot).toMatchObject({
     schema_version: REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION,
@@ -142,19 +161,25 @@ test("Decision Input Snapshot and Harness Receipt are self-hashed immutable evid
   const capability = {
     schema_version: REPLAY_DECISION_HARNESS_CAPABILITY_SCHEMA_VERSION,
     harness_hash: requestValue.harness_hash,
-    execution_policy: "in_process_deterministic" as const,
+    source_bundle_ref: sourceBundle.bundle_ref,
+    source_bundle_hash: sourceBundle.bundle_hash,
+    registry_policy_version: REPLAY_DECISION_HARNESS_REGISTRY_POLICY_VERSION,
+    loader_policy_version: REPLAY_DECISION_HARNESS_LOADER_POLICY_VERSION,
+    execution_policy: "registered_entrypoint_deterministic" as const,
     input_schema_version: REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION,
     output_schema_version: REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION,
   }
   expect(() => assertReplayDecisionHarnessCapability(capability, requestValue)).not.toThrow()
-  expect(() => assertReplayDecisionHarnessCapability({ ...capability, harness_hash: "b".repeat(64) }, requestValue)).toThrow("capability hash")
+  expect(() => assertReplayDecisionHarnessCapability({ ...capability, harness_hash: "b".repeat(64) }, requestValue)).toThrow("source/registry/loader binding")
   const receipt = createReplayDecisionHarnessReceipt({
     request: requestValue,
     decision_input_snapshot: snapshot,
+    source_bundle: sourceBundle,
+    capability,
     derived_order: requestValue.order,
     trace: { selected_records_hash: snapshot.selected_records_hash },
   })
-  expect(() => assertReplayDecisionHarnessReceipt(receipt, requestValue, snapshot)).not.toThrow()
+  expect(() => assertReplayDecisionHarnessReceipt(receipt, requestValue, snapshot, sourceBundle)).not.toThrow()
   expect(() => assertReplayDecisionHarnessReceipt({ ...receipt, trace: { tampered: true } }, requestValue, snapshot)).toThrow("trace hash")
 })
 

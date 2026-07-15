@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test"
 import {
   REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
+  REPLAY_DECISION_HARNESS_CAPABILITY_SCHEMA_VERSION,
+  REPLAY_DECISION_HARNESS_LOADER_POLICY_VERSION,
+  REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION,
+  REPLAY_DECISION_HARNESS_REGISTRY_POLICY_VERSION,
+  REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION,
   REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION,
   REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION,
   REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS,
@@ -12,6 +17,7 @@ import {
   REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
   canonicalHash,
   createReplayDecisionHarnessReceipt,
+  createReplayDecisionHarnessSourceBundle,
   replayDatasetHash,
   type ReplayDatasetManifest,
   type ReplayExecutionRequest,
@@ -122,12 +128,20 @@ function inputFor(
         maximum_latest_event_age_ms: Date.parse(requestValue.order.signal_time) - Date.parse(fact.event_time),
       })),
     }
+  const decisionHarnessBundle = supplementalFacts.length > 0
+    ? createReplayDecisionHarnessSourceBundle({
+      bundle_ref: "harness://fixture/engine-decision-v1",
+      entrypoint: { file_path: "src/decision.ts", export_name: "execute" },
+      files: [{ path: "src/decision.ts", content_utf8: "export function execute(input) { return input.request.order }\n" }],
+    })
+    : null
   const boundRequest = {
     ...requestValue,
     dataset_hash: dataHash,
     supplemental_facts_hash: canonicalHash(supplementalFacts),
     supplemental_requirement_set: supplementalRequirementSet,
     supplemental_requirement_set_hash: canonicalHash(supplementalRequirementSet),
+    harness_hash: decisionHarnessBundle?.bundle_hash ?? requestValue.harness_hash,
     venue_risk_policy_schedule_hash: canonicalHash([venueRiskPolicy]),
   }
   const datasetManifest: ReplayDatasetManifest = {
@@ -156,10 +170,23 @@ function inputFor(
   return {
     ...base,
     decision_input_snapshot: prepared.decision_input_snapshot,
+    decision_harness_bundle: decisionHarnessBundle,
     decision_harness_receipt: supplementalFacts.length > 0
       ? createReplayDecisionHarnessReceipt({
         request: boundRequest,
         decision_input_snapshot: prepared.decision_input_snapshot,
+        source_bundle: decisionHarnessBundle!,
+        capability: {
+          schema_version: REPLAY_DECISION_HARNESS_CAPABILITY_SCHEMA_VERSION,
+          harness_hash: decisionHarnessBundle!.bundle_hash,
+          source_bundle_ref: decisionHarnessBundle!.bundle_ref,
+          source_bundle_hash: decisionHarnessBundle!.bundle_hash,
+          registry_policy_version: REPLAY_DECISION_HARNESS_REGISTRY_POLICY_VERSION,
+          loader_policy_version: REPLAY_DECISION_HARNESS_LOADER_POLICY_VERSION,
+          execution_policy: "registered_entrypoint_deterministic",
+          input_schema_version: REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION,
+          output_schema_version: REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION,
+        },
         derived_order: boundRequest.order,
         trace: { fixture: "engine-harness-executed" },
       })
@@ -258,8 +285,11 @@ test("Result binds the deterministic signal-time supplemental revision view", ()
   expect(result.decision_harness_receipt?.derived_order).toEqual(replayInput.request.order)
   expect(result.fingerprint.decision_input_snapshot_hash).toBe(result.decision_input_snapshot.snapshot_hash)
   expect(result.fingerprint.decision_harness_receipt_hash).toBe(result.decision_harness_receipt?.receipt_hash ?? null)
-  expect(result.limitations.map((limitation) => limitation.code)).toContain("decision-harness-source-registry-uncertified")
-  expect(() => executeReplayKernel({ ...replayInput, decision_harness_receipt: null })).toThrow("requires a decision harness receipt")
+  expect(result.fingerprint.decision_harness_bundle_hash).toBe(result.decision_harness_bundle?.bundle_hash ?? null)
+  expect(result.fingerprint.decision_harness_loader_policy_version).toBe(REPLAY_DECISION_HARNESS_LOADER_POLICY_VERSION)
+  expect(result.limitations.map((limitation) => limitation.code)).toContain("decision-harness-build-attestation-uncertified")
+  expect(() => executeReplayKernel({ ...replayInput, decision_harness_receipt: null })).toThrow("requires a decision harness bundle and receipt")
+  expect(() => executeReplayKernel({ ...replayInput, decision_harness_bundle: null })).toThrow("requires a decision harness bundle and receipt")
   expect(() => executeReplayKernel({
     ...replayInput,
     decision_input_snapshot: { ...replayInput.decision_input_snapshot, selected_records: [] },

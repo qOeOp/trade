@@ -1,16 +1,25 @@
 import {
-  assertReplayDecisionHarnessCapability,
+  REPLAY_DECISION_HARNESS_CAPABILITY_SCHEMA_VERSION,
+  REPLAY_DECISION_HARNESS_LOADER_POLICY_VERSION,
+  REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION,
+  REPLAY_DECISION_HARNESS_REGISTRY_CAPABILITY,
+  REPLAY_DECISION_HARNESS_REGISTRY_POLICY_VERSION,
+  REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION,
+  assertReplayDecisionHarnessRegistryCapability,
+  assertReplayDecisionHarnessSourceBundle,
   canonicalJson,
   createReplayDecisionHarnessReceipt,
   type ReplayDecisionHarnessCapability,
   type ReplayDecisionHarnessReceipt,
+  type ReplayDecisionHarnessRegistryCapability,
+  type ReplayDecisionHarnessSourceBundle,
   type ReplayDecisionInputSnapshot,
   type ReplayExecutionRequest,
   type ReplaySupplementalValue,
 } from "../../../contracts/src/lib/replay-contracts"
 
-export interface ReplayDecisionHarness {
-  capability: ReplayDecisionHarnessCapability
+export interface ReplayRegisteredDecisionHarness {
+  source_bundle: ReplayDecisionHarnessSourceBundle
   execute(input: {
     request: ReplayExecutionRequest
     decision_input_snapshot: ReplayDecisionInputSnapshot
@@ -18,6 +27,16 @@ export interface ReplayDecisionHarness {
     derived_order: ReplayExecutionRequest["order"]
     trace: ReplaySupplementalValue
   }
+}
+
+export interface ReplayDecisionHarnessRegistry {
+  capability: ReplayDecisionHarnessRegistryCapability
+  resolve(bundleHash: string): ReplayRegisteredDecisionHarness | undefined
+}
+
+export interface ReplayDecisionHarnessAdmission {
+  source_bundle: ReplayDecisionHarnessSourceBundle | null
+  receipt: ReplayDecisionHarnessReceipt | null
 }
 
 export class ReplayDecisionHarnessError extends Error {
@@ -29,31 +48,75 @@ export class ReplayDecisionHarnessError extends Error {
   }
 }
 
+export function createReplayDecisionHarnessRegistry(
+  registrations: ReplayRegisteredDecisionHarness[],
+): ReplayDecisionHarnessRegistry {
+  const entries = new Map<string, ReplayRegisteredDecisionHarness>()
+  for (const registration of registrations) {
+    assertReplayDecisionHarnessSourceBundle(registration.source_bundle)
+    if (entries.has(registration.source_bundle.bundle_hash)) {
+      throw new ReplayDecisionHarnessError("Replay decision harness registry contains a duplicate bundle hash")
+    }
+    entries.set(registration.source_bundle.bundle_hash, {
+      source_bundle: structuredClone(registration.source_bundle),
+      execute: registration.execute,
+    })
+  }
+  return {
+    capability: structuredClone(REPLAY_DECISION_HARNESS_REGISTRY_CAPABILITY),
+    resolve: (bundleHash) => {
+      const registration = entries.get(bundleHash)
+      return registration && {
+        source_bundle: structuredClone(registration.source_bundle),
+        execute: registration.execute,
+      }
+    },
+  }
+}
+
 export function executeReplayDecisionHarness(input: {
-  harness: ReplayDecisionHarness | undefined
+  registry: ReplayDecisionHarnessRegistry | undefined
   request: ReplayExecutionRequest
   decision_input_snapshot: ReplayDecisionInputSnapshot
-}): ReplayDecisionHarnessReceipt | null {
+}): ReplayDecisionHarnessAdmission {
   if (input.request.supplemental_requirement_set.mode === "none") {
-    if (input.harness) throw new ReplayDecisionHarnessError("Replay lane without supplemental requirements cannot inject a decision harness")
-    return null
+    return { source_bundle: null, receipt: null }
   }
-  if (!input.harness) throw new ReplayDecisionHarnessError("Replay supplemental lane requires an injected decision harness capability")
+  if (!input.registry) throw new ReplayDecisionHarnessError("Replay supplemental lane requires a decision harness registry")
   try {
-    assertReplayDecisionHarnessCapability(input.harness.capability, input.request)
-    const output = input.harness.execute({
+    assertReplayDecisionHarnessRegistryCapability(input.registry.capability)
+    const registration = input.registry.resolve(input.request.harness_hash)
+    if (!registration) throw new Error("decision harness bundle hash is not registered")
+    assertReplayDecisionHarnessSourceBundle(registration.source_bundle, input.request)
+    const capability: ReplayDecisionHarnessCapability = {
+      schema_version: REPLAY_DECISION_HARNESS_CAPABILITY_SCHEMA_VERSION,
+      harness_hash: registration.source_bundle.bundle_hash,
+      source_bundle_ref: registration.source_bundle.bundle_ref,
+      source_bundle_hash: registration.source_bundle.bundle_hash,
+      registry_policy_version: REPLAY_DECISION_HARNESS_REGISTRY_POLICY_VERSION,
+      loader_policy_version: REPLAY_DECISION_HARNESS_LOADER_POLICY_VERSION,
+      execution_policy: "registered_entrypoint_deterministic",
+      input_schema_version: REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION,
+      output_schema_version: REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION,
+    }
+    const output = registration.execute({
       request: structuredClone(input.request),
       decision_input_snapshot: structuredClone(input.decision_input_snapshot),
     })
     if (!output || canonicalJson(output.derived_order) !== canonicalJson(input.request.order)) {
       throw new Error("decision harness derived Order does not match the authorized Replay request")
     }
-    return createReplayDecisionHarnessReceipt({
-      request: input.request,
-      decision_input_snapshot: input.decision_input_snapshot,
-      derived_order: output.derived_order,
-      trace: output.trace,
-    })
+    return {
+      source_bundle: structuredClone(registration.source_bundle),
+      receipt: createReplayDecisionHarnessReceipt({
+        request: input.request,
+        decision_input_snapshot: input.decision_input_snapshot,
+        source_bundle: registration.source_bundle,
+        capability,
+        derived_order: output.derived_order,
+        trace: output.trace,
+      }),
+    }
   } catch (error) {
     throw new ReplayDecisionHarnessError(error instanceof Error ? error.message : String(error))
   }
