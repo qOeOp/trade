@@ -5,17 +5,14 @@ import {
   REPLAY_MARGIN_POLICY_VERSION,
   REPLAY_LIQUIDATION_EXECUTION_SCHEMA_VERSION,
   REPLAY_RESULT_SCHEMA_VERSION,
-  assertReplayDecisionHarnessBuildAttestation,
-  assertReplayDecisionHarnessReceipt,
-  assertReplayDecisionHarnessSourceBundle,
+  assertReplayDecisionEvidenceTimeline,
   assertReplayDecisionInputSnapshot,
   assertReplayExecutionRequest,
   canonicalHash,
+  createReplayDecisionEvidenceTimeline,
   type ReplayBoundaryPhase,
   type ReplayDatasetManifest,
-  type ReplayDecisionHarnessBuildAttestation,
-  type ReplayDecisionHarnessReceipt,
-  type ReplayDecisionHarnessSourceBundle,
+  type ReplayDecisionEvidenceTimeline,
   type ReplayDecisionInputSnapshot,
   type ReplayExecutionRequest,
   type ReplayEventKey,
@@ -55,13 +52,14 @@ import { completeReplayLiquidationOrderLane } from "./replay-liquidation-order-l
 import { ReplayLiquidationDeficitError, assertReplayPostEntryMargin, buildReplayMaintenanceBreachObservation, buildReplayPathMarginSnapshots } from "./replay-margin-path"
 import { reduceReplaySourceEvents } from "./replay-source-reducer"
 
-export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v7" as const
+export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v8" as const
 
 export interface ReplayEngineCheckpoint {
   schema_version: typeof REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION
   run_id: string
   request_hash: string
   dataset_hash: string
+  decision_evidence_timeline_hash: string
   decision_input_snapshot_hash: string
   decision_harness_receipt_hash: string | null
   decision_harness_bundle_hash: string | null
@@ -105,10 +103,7 @@ export interface ReplayKernelInput {
   funding_events?: ReplayFundingEvent[]
   mark_events?: ReplayMarkEvent[]
   supplemental_facts?: ReplaySupplementalFact[]
-  decision_input_snapshot?: ReplayDecisionInputSnapshot
-  decision_harness_bundle?: ReplayDecisionHarnessSourceBundle | null
-  decision_harness_build?: ReplayDecisionHarnessBuildAttestation | null
-  decision_harness_receipt?: ReplayDecisionHarnessReceipt | null
+  decision_evidence_timeline?: ReplayDecisionEvidenceTimeline
   execution_control?: ReplayExecutionControl
 }
 
@@ -137,24 +132,24 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     mark_events: input.mark_events,
     supplemental_facts: input.supplemental_facts,
   })
-  const decisionInputSnapshot = input.decision_input_snapshot ?? prepared.decision_input_snapshot
+  const decisionEvidenceTimeline = input.decision_evidence_timeline ?? (
+    request.supplemental_requirement_set.mode === "none"
+      ? createReplayDecisionEvidenceTimeline({ request, decision_input_snapshot: prepared.decision_input_snapshot })
+      : undefined
+  )
+  if (!decisionEvidenceTimeline) {
+    throw new Error("Replay supplemental lane requires a Decision Evidence Timeline")
+  }
+  assertReplayDecisionEvidenceTimeline(decisionEvidenceTimeline, request)
+  const decisionEvidenceEntry = decisionEvidenceTimeline.entries[0]!
+  const decisionInputSnapshot = decisionEvidenceEntry.decision_input_snapshot
   assertReplayDecisionInputSnapshot(decisionInputSnapshot, request)
   if (canonicalHash(decisionInputSnapshot) !== canonicalHash(prepared.decision_input_snapshot)) {
     throw new Error("Replay decision input snapshot does not match prepared signal-time inputs")
   }
-  const decisionHarnessReceipt = input.decision_harness_receipt ?? null
-  const decisionHarnessBundle = input.decision_harness_bundle ?? null
-  const decisionHarnessBuild = input.decision_harness_build ?? null
-  if (request.supplemental_requirement_set.mode === "signal_time_complete") {
-    if (!decisionHarnessBundle || !decisionHarnessBuild || !decisionHarnessReceipt) {
-      throw new Error("Replay supplemental lane requires decision harness bundle, build attestation, and receipt")
-    }
-    assertReplayDecisionHarnessSourceBundle(decisionHarnessBundle, request)
-    assertReplayDecisionHarnessBuildAttestation(decisionHarnessBuild, decisionHarnessBundle)
-    assertReplayDecisionHarnessReceipt(decisionHarnessReceipt, request, decisionInputSnapshot, decisionHarnessBundle, decisionHarnessBuild)
-  } else if (decisionHarnessBundle || decisionHarnessBuild || decisionHarnessReceipt) {
-    throw new Error("Replay lane without supplemental requirements cannot claim decision harness evidence")
-  }
+  const decisionHarnessReceipt = decisionEvidenceEntry.decision_harness_receipt
+  const decisionHarnessBundle = decisionEvidenceEntry.decision_harness_bundle
+  const decisionHarnessBuild = decisionEvidenceEntry.decision_harness_build
   const { bars, funding_events: fundingEvents, mark_events: markEvents, entry_index: entryIndex } = prepared
   const exactMarkCoverage = input.dataset_manifest.mark_coverage === "complete_grid"
   const accountingSpec = input.dataset_manifest.instrument.accounting
@@ -182,7 +177,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
   if (resumeCheckpoint) {
     assertReplayEngineCheckpoint(
       resumeCheckpoint, request, input.dataset_manifest,
-      decisionInputSnapshot.snapshot_hash, decisionHarnessReceipt?.receipt_hash ?? null,
+      decisionEvidenceTimeline.timeline_hash, decisionInputSnapshot.snapshot_hash, decisionHarnessReceipt?.receipt_hash ?? null,
       decisionHarnessBundle?.bundle_hash ?? null, decisionHarnessReceipt?.loader_policy_version ?? null,
       decisionHarnessBuild?.attestation_hash ?? null, decisionHarnessReceipt?.worker_protocol_version ?? null,
     )
@@ -288,6 +283,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
         event_sequence: eventSequence,
         exact_risk_snapshots: exactRiskSnapshots,
         limitations,
+        decision_evidence_timeline_hash: decisionEvidenceTimeline.timeline_hash,
         decision_input_snapshot_hash: decisionInputSnapshot.snapshot_hash,
         decision_harness_receipt_hash: decisionHarnessReceipt?.receipt_hash ?? null,
         decision_harness_bundle_hash: decisionHarnessBundle?.bundle_hash ?? null,
@@ -655,10 +651,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     journal,
     trial_balance: trialBalance,
     supplemental_evidence: prepared.supplemental_evidence,
-    decision_harness_bundle: decisionHarnessBundle,
-    decision_harness_build: decisionHarnessBuild,
-    decision_input_snapshot: decisionInputSnapshot,
-    decision_harness_receipt: decisionHarnessReceipt,
+    decision_evidence_timeline: decisionEvidenceTimeline,
     metrics,
     limitations,
   }
@@ -675,6 +668,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       dataset_hash: request.dataset_hash,
       supplemental_facts_hash: request.supplemental_facts_hash,
       supplemental_requirement_set_hash: request.supplemental_requirement_set_hash,
+      decision_evidence_timeline_hash: decisionEvidenceTimeline.timeline_hash,
       decision_input_snapshot_hash: decisionInputSnapshot.snapshot_hash,
       decision_harness_receipt_hash: decisionHarnessReceipt?.receipt_hash ?? null,
       decision_harness_bundle_hash: decisionHarnessBundle?.bundle_hash ?? null,
@@ -716,6 +710,7 @@ function buildReplayEngineCheckpoint(input: {
   event_sequence: number
   exact_risk_snapshots: ReplayMarginSnapshot[]
   limitations: ReplayResult["limitations"]
+  decision_evidence_timeline_hash: string
   decision_input_snapshot_hash: string
   decision_harness_receipt_hash: string | null
   decision_harness_bundle_hash: string | null
@@ -730,6 +725,7 @@ function buildReplayEngineCheckpoint(input: {
     run_id: input.request.run_id,
     request_hash: canonicalHash(input.request),
     dataset_hash: input.dataset_manifest.data_hash,
+    decision_evidence_timeline_hash: input.decision_evidence_timeline_hash,
     decision_input_snapshot_hash: input.decision_input_snapshot_hash,
     decision_harness_receipt_hash: input.decision_harness_receipt_hash,
     decision_harness_bundle_hash: input.decision_harness_bundle_hash,
@@ -757,6 +753,7 @@ export function assertReplayEngineCheckpoint(
   checkpoint: ReplayEngineCheckpoint,
   request: ReplayExecutionRequest,
   datasetManifest: ReplayDatasetManifest,
+  decisionEvidenceTimelineHash?: string,
   decisionInputSnapshotHash?: string,
   decisionHarnessReceiptHash?: string | null,
   decisionHarnessBundleHash?: string | null,
@@ -768,6 +765,8 @@ export function assertReplayEngineCheckpoint(
   if (checkpoint.run_id !== request.run_id
       || checkpoint.request_hash !== canonicalHash(request)
       || checkpoint.dataset_hash !== datasetManifest.data_hash
+      || (decisionEvidenceTimelineHash !== undefined
+        && checkpoint.decision_evidence_timeline_hash !== decisionEvidenceTimelineHash)
       || (decisionInputSnapshotHash !== undefined && checkpoint.decision_input_snapshot_hash !== decisionInputSnapshotHash)
       || (decisionHarnessReceiptHash !== undefined && checkpoint.decision_harness_receipt_hash !== decisionHarnessReceiptHash)
       || (decisionHarnessBundleHash !== undefined && checkpoint.decision_harness_bundle_hash !== decisionHarnessBundleHash)
@@ -781,7 +780,8 @@ export function assertReplayEngineCheckpoint(
       || checkpoint.numeric_policy_version !== REPLAY_NUMERIC_POLICY_VERSION) {
     throw new Error("Replay engine checkpoint authority binding does not match execution input")
   }
-  if (!/^[a-f0-9]{64}$/.test(checkpoint.decision_input_snapshot_hash)
+  if (!/^[a-f0-9]{64}$/.test(checkpoint.decision_evidence_timeline_hash)
+      || !/^[a-f0-9]{64}$/.test(checkpoint.decision_input_snapshot_hash)
       || (checkpoint.decision_harness_receipt_hash !== null
         && !/^[a-f0-9]{64}$/.test(checkpoint.decision_harness_receipt_hash))
       || (checkpoint.decision_harness_bundle_hash !== null

@@ -23,6 +23,7 @@ import {
   createReplayDecisionHarnessBuildAttestation,
   createReplayDecisionHarnessReceipt,
   createReplayDecisionHarnessSourceBundle,
+  createReplayDecisionEvidenceTimeline,
   replayDatasetHash,
   type ReplayDatasetManifest,
   type ReplayExecutionRequest,
@@ -196,13 +197,8 @@ function inputFor(
     derived_order: boundRequest.order,
     trace: { fixture: "engine-harness-executed" },
   } : null
-  return {
-    ...base,
-    decision_input_snapshot: prepared.decision_input_snapshot,
-    decision_harness_bundle: decisionHarnessBundle,
-    decision_harness_build: decisionHarnessBuild,
-    decision_harness_receipt: supplementalFacts.length > 0
-      ? createReplayDecisionHarnessReceipt({
+  const decisionHarnessReceipt = supplementalFacts.length > 0
+    ? createReplayDecisionHarnessReceipt({
         request: boundRequest,
         decision_input_snapshot: prepared.decision_input_snapshot,
         source_bundle: decisionHarnessBundle!,
@@ -228,8 +224,17 @@ function inputFor(
         worker_verification_response: workerResponse!,
         derived_order: boundRequest.order,
         trace: { fixture: "engine-harness-executed" },
-      })
-      : null,
+    })
+    : null
+  return {
+    ...base,
+    decision_evidence_timeline: createReplayDecisionEvidenceTimeline({
+      request: boundRequest,
+      decision_input_snapshot: prepared.decision_input_snapshot,
+      decision_harness_bundle: decisionHarnessBundle,
+      decision_harness_build: decisionHarnessBuild,
+      decision_harness_receipt: decisionHarnessReceipt,
+    }),
   }
 }
 
@@ -325,22 +330,26 @@ test("Result binds the deterministic signal-time supplemental revision view", ()
   expect(result.supplemental_evidence.requirement_evaluations).toHaveLength(1)
   expect(result.fingerprint.supplemental_facts_hash).toBe(canonicalHash(facts))
   expect(result.fingerprint.supplemental_requirement_set_hash).toBe(replayInput.request.supplemental_requirement_set_hash)
-  expect(result.decision_harness_receipt?.derived_order).toEqual(replayInput.request.order)
-  expect(result.fingerprint.decision_input_snapshot_hash).toBe(result.decision_input_snapshot.snapshot_hash)
-  expect(result.fingerprint.decision_harness_receipt_hash).toBe(result.decision_harness_receipt?.receipt_hash ?? null)
-  expect(result.fingerprint.decision_harness_bundle_hash).toBe(result.decision_harness_bundle?.bundle_hash ?? null)
-  expect(result.fingerprint.decision_harness_build_attestation_hash).toBe(result.decision_harness_build?.attestation_hash ?? null)
+  const decisionEntry = result.decision_evidence_timeline.entries[0]!
+  expect(decisionEntry.decision_harness_receipt?.derived_order).toEqual(replayInput.request.order)
+  expect(result.fingerprint.decision_evidence_timeline_hash).toBe(result.decision_evidence_timeline.timeline_hash)
+  expect(result.fingerprint.decision_input_snapshot_hash).toBe(decisionEntry.decision_input_snapshot.snapshot_hash)
+  expect(result.fingerprint.decision_harness_receipt_hash).toBe(decisionEntry.decision_harness_receipt?.receipt_hash ?? null)
+  expect(result.fingerprint.decision_harness_bundle_hash).toBe(decisionEntry.decision_harness_bundle?.bundle_hash ?? null)
+  expect(result.fingerprint.decision_harness_build_attestation_hash).toBe(decisionEntry.decision_harness_build?.attestation_hash ?? null)
   expect(result.fingerprint.decision_harness_loader_policy_version).toBe(REPLAY_DECISION_HARNESS_LOADER_POLICY_VERSION)
-  expect(checkpoint?.decision_harness_build_attestation_hash).toBe(result.decision_harness_build?.attestation_hash ?? null)
-  expect(checkpoint?.decision_harness_worker_protocol_version).toBe(result.decision_harness_receipt?.worker_protocol_version ?? null)
+  expect(checkpoint?.decision_evidence_timeline_hash).toBe(result.decision_evidence_timeline.timeline_hash)
+  expect(checkpoint?.decision_harness_build_attestation_hash).toBe(decisionEntry.decision_harness_build?.attestation_hash ?? null)
+  expect(checkpoint?.decision_harness_worker_protocol_version).toBe(decisionEntry.decision_harness_receipt?.worker_protocol_version ?? null)
   expect(result.limitations.map((limitation) => limitation.code)).toContain("decision-harness-os-sandbox-uncertified")
-  expect(() => executeReplayKernel({ ...replayInput, decision_harness_receipt: null })).toThrow("requires decision harness bundle, build attestation, and receipt")
-  expect(() => executeReplayKernel({ ...replayInput, decision_harness_bundle: null })).toThrow("requires decision harness bundle, build attestation, and receipt")
-  expect(() => executeReplayKernel({ ...replayInput, decision_harness_build: null })).toThrow("requires decision harness bundle, build attestation, and receipt")
+  expect(() => executeReplayKernel({ ...replayInput, decision_evidence_timeline: undefined })).toThrow("requires a Decision Evidence Timeline")
   expect(() => executeReplayKernel({
     ...replayInput,
-    decision_input_snapshot: { ...replayInput.decision_input_snapshot, selected_records: [] },
-  })).toThrow("selected records hash mismatch")
+    decision_evidence_timeline: {
+      ...replayInput.decision_evidence_timeline,
+      entries: [{ ...replayInput.decision_evidence_timeline.entries[0]!, decision_sequence: 2 }],
+    },
+  })).toThrow("ordering or authority binding")
 })
 
 test("risk policy epochs switch before same-time source-event margin evaluation", () => {
@@ -447,6 +456,12 @@ test("checkpoint hash and source prefix fencing reject tampered resume state", (
       return "cancel"
     } },
   })).toThrow(ReplayExecutionInterruptedError)
+  const authorityTampered = structuredClone(checkpoint!)
+  authorityTampered.decision_evidence_timeline_hash = "b".repeat(64)
+  expect(() => executeReplayKernel({
+    ...replayInput,
+    execution_control: { resume_checkpoint: authorityTampered },
+  })).toThrow("authority binding")
   checkpoint!.source_events[0].source_event_id = "tampered"
   expect(() => executeReplayKernel({
     ...replayInput,

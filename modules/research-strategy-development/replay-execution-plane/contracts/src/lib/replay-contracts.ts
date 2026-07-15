@@ -11,8 +11,8 @@ export {
 }
 
 export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v15" as const
-export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v22" as const
-export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v24" as const
+export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v23" as const
+export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v25" as const
 export const REPLAY_ARTIFACT_STORE_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-artifact-store-capability.v1" as const
 export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v7" as const
 export const REPLAY_NUMERIC_POLICY_VERSION = "rd-replay-number-v3" as const
@@ -34,6 +34,7 @@ export const REPLAY_DECISION_HARNESS_WORKER_RESPONSE_SCHEMA_VERSION = "trade.rd-
 export const REPLAY_DECISION_HARNESS_REGISTRY_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-decision-harness-registry-capability.v2" as const
 export const REPLAY_DECISION_HARNESS_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-decision-harness-capability.v3" as const
 export const REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION = "trade.rd-replay-decision-harness-receipt.v3" as const
+export const REPLAY_DECISION_EVIDENCE_TIMELINE_SCHEMA_VERSION = "trade.rd-replay-decision-evidence-timeline.v1" as const
 export const REPLAY_DECISION_HARNESS_REGISTRY_POLICY_VERSION = "rd-replay-decision-harness-registry-v2" as const
 export const REPLAY_DECISION_HARNESS_BUILD_POLICY_VERSION = "rd-replay-bun-single-file-build-v1" as const
 export const REPLAY_DECISION_HARNESS_LOADER_POLICY_VERSION = "rd-replay-attested-fresh-subprocess-loader-v1" as const
@@ -60,7 +61,7 @@ export const REPLAY_CERTIFIED_CAPABILITIES = [
   "stop-take-profit-market",
 ] as const
 export const REPLAY_REQUIRED_ARTIFACT_ROLES = [
-  "request", "trial_reservation", "attempt_lease", "dataset_manifest", "supplemental_facts", "decision_harness_bundle", "decision_harness_build", "decision_input_snapshot", "decision_harness_receipt", "result",
+  "request", "trial_reservation", "attempt_lease", "dataset_manifest", "supplemental_facts", "decision_evidence_timeline", "result",
   "source_events", "order_events", "fills", "positions", "ledger",
   "valuation_snapshot", "equity_bridge", "margin_snapshots", "liquidation",
   "journal", "trial_balance",
@@ -415,6 +416,33 @@ export interface ReplayDecisionHarnessReceipt {
 }
 
 export type ReplayDecisionHarnessReceiptBody = Omit<ReplayDecisionHarnessReceipt, "receipt_hash">
+
+export interface ReplayDecisionEvidenceEntry {
+  decision_sequence: number
+  decision_time: string
+  decision_kind: "initial_order"
+  execution_effect: "authorized_order"
+  evidence_mode: "precomputed_order_compatibility" | "attested_harness"
+  authorized_order_hash: string
+  decision_input_snapshot: ReplayDecisionInputSnapshot
+  decision_harness_bundle: ReplayDecisionHarnessSourceBundle | null
+  decision_harness_build: ReplayDecisionHarnessBuildAttestation | null
+  decision_harness_receipt: ReplayDecisionHarnessReceipt | null
+  entry_hash: string
+}
+
+export type ReplayDecisionEvidenceEntryBody = Omit<ReplayDecisionEvidenceEntry, "entry_hash">
+
+export interface ReplayDecisionEvidenceTimeline {
+  schema_version: typeof REPLAY_DECISION_EVIDENCE_TIMELINE_SCHEMA_VERSION
+  run_id: string
+  ordering_policy: "decision_time_then_sequence"
+  cardinality_policy: "single_authorized_decision"
+  entries: ReplayDecisionEvidenceEntry[]
+  timeline_hash: string
+}
+
+export type ReplayDecisionEvidenceTimelineBody = Omit<ReplayDecisionEvidenceTimeline, "timeline_hash">
 
 export interface ReplaySupplementalEvidence {
   visibility_policy: "signal_time_snapshot"
@@ -810,6 +838,7 @@ export interface ReplayEvidenceFingerprint {
   dataset_hash: string
   supplemental_facts_hash: string
   supplemental_requirement_set_hash: string
+  decision_evidence_timeline_hash: string
   decision_input_snapshot_hash: string
   decision_harness_receipt_hash: string | null
   decision_harness_bundle_hash: string | null
@@ -853,10 +882,7 @@ export interface ReplayResult {
   journal: ReplayJournalEntry[]
   trial_balance: ReplayTrialBalance
   supplemental_evidence: ReplaySupplementalEvidence
-  decision_harness_bundle: ReplayDecisionHarnessSourceBundle | null
-  decision_harness_build: ReplayDecisionHarnessBuildAttestation | null
-  decision_input_snapshot: ReplayDecisionInputSnapshot
-  decision_harness_receipt: ReplayDecisionHarnessReceipt | null
+  decision_evidence_timeline: ReplayDecisionEvidenceTimeline
   metrics: {
     initial_cash: number
     ending_equity: number
@@ -1534,6 +1560,96 @@ export function assertReplayDecisionHarnessReceipt(
     || receipt.build_artifact_hash !== buildAttestation.artifact.sha256
     || receipt.runtime_executable_hash !== buildAttestation.runtime.executable_sha256
   )) fail("decision harness receipt does not match build attestation")
+}
+
+export function createReplayDecisionEvidenceTimeline(input: {
+  request: ReplayExecutionRequest
+  decision_input_snapshot: ReplayDecisionInputSnapshot
+  decision_harness_bundle?: ReplayDecisionHarnessSourceBundle | null
+  decision_harness_build?: ReplayDecisionHarnessBuildAttestation | null
+  decision_harness_receipt?: ReplayDecisionHarnessReceipt | null
+}): ReplayDecisionEvidenceTimeline {
+  const decisionHarnessBundle = input.decision_harness_bundle ?? null
+  const decisionHarnessBuild = input.decision_harness_build ?? null
+  const decisionHarnessReceipt = input.decision_harness_receipt ?? null
+  const entryBody: ReplayDecisionEvidenceEntryBody = {
+    decision_sequence: 1,
+    decision_time: input.request.order.signal_time,
+    decision_kind: "initial_order",
+    execution_effect: "authorized_order",
+    evidence_mode: input.request.supplemental_requirement_set.mode === "signal_time_complete"
+      ? "attested_harness"
+      : "precomputed_order_compatibility",
+    authorized_order_hash: canonicalHash(input.request.order),
+    decision_input_snapshot: structuredClone(input.decision_input_snapshot),
+    decision_harness_bundle: structuredClone(decisionHarnessBundle),
+    decision_harness_build: structuredClone(decisionHarnessBuild),
+    decision_harness_receipt: structuredClone(decisionHarnessReceipt),
+  }
+  const entry = { ...entryBody, entry_hash: canonicalHash(entryBody) }
+  const body: ReplayDecisionEvidenceTimelineBody = {
+    schema_version: REPLAY_DECISION_EVIDENCE_TIMELINE_SCHEMA_VERSION,
+    run_id: input.request.run_id,
+    ordering_policy: "decision_time_then_sequence",
+    cardinality_policy: "single_authorized_decision",
+    entries: [entry],
+  }
+  const timeline = { ...body, timeline_hash: canonicalHash(body) }
+  assertReplayDecisionEvidenceTimeline(timeline, input.request)
+  return timeline
+}
+
+export function assertReplayDecisionEvidenceTimeline(
+  timeline: ReplayDecisionEvidenceTimeline,
+  request: ReplayExecutionRequest,
+): void {
+  if (timeline.schema_version !== REPLAY_DECISION_EVIDENCE_TIMELINE_SCHEMA_VERSION
+      || timeline.ordering_policy !== "decision_time_then_sequence"
+      || timeline.cardinality_policy !== "single_authorized_decision") {
+    fail("unsupported Replay decision evidence timeline")
+  }
+  if (timeline.run_id !== request.run_id) fail("decision evidence timeline does not match Replay request")
+  if (timeline.entries.length !== 1) fail("decision evidence timeline requires exactly one authorized decision")
+  const entry = timeline.entries[0]
+  if (!entry || entry.decision_sequence !== 1
+      || entry.decision_time !== request.order.signal_time
+      || entry.decision_kind !== "initial_order"
+      || entry.execution_effect !== "authorized_order"
+      || entry.authorized_order_hash !== canonicalHash(request.order)) {
+    fail("decision evidence entry ordering or authority binding is invalid")
+  }
+  requireHash(entry.authorized_order_hash, "decision_evidence_entry.authorized_order_hash")
+  requireHash(entry.entry_hash, "decision_evidence_entry.entry_hash")
+  const { entry_hash: _entryHash, ...entryBody } = entry
+  if (canonicalHash(entryBody) !== entry.entry_hash) fail("decision evidence entry hash mismatch")
+  assertReplayDecisionInputSnapshot(entry.decision_input_snapshot, request)
+
+  const expectsAttestedHarness = request.supplemental_requirement_set.mode === "signal_time_complete"
+  if (expectsAttestedHarness) {
+    if (entry.evidence_mode !== "attested_harness"
+        || !entry.decision_harness_bundle
+        || !entry.decision_harness_build
+        || !entry.decision_harness_receipt) {
+      fail("Replay supplemental lane requires attested decision evidence")
+    }
+    assertReplayDecisionHarnessSourceBundle(entry.decision_harness_bundle, request)
+    assertReplayDecisionHarnessBuildAttestation(entry.decision_harness_build, entry.decision_harness_bundle)
+    assertReplayDecisionHarnessReceipt(
+      entry.decision_harness_receipt,
+      request,
+      entry.decision_input_snapshot,
+      entry.decision_harness_bundle,
+      entry.decision_harness_build,
+    )
+  } else if (entry.evidence_mode !== "precomputed_order_compatibility"
+      || entry.decision_harness_bundle
+      || entry.decision_harness_build
+      || entry.decision_harness_receipt) {
+    fail("Replay compatibility lane cannot claim attested decision evidence")
+  }
+  requireHash(timeline.timeline_hash, "decision_evidence_timeline.timeline_hash")
+  const { timeline_hash: _timelineHash, ...timelineBody } = timeline
+  if (canonicalHash(timelineBody) !== timeline.timeline_hash) fail("decision evidence timeline hash mismatch")
 }
 
 export function assertReplayVenueRiskPolicySnapshot(snapshot: ReplayVenueRiskPolicySnapshot): void {

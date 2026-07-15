@@ -28,6 +28,7 @@ import {
   assertReplayDecisionHarnessBuildAttestation,
   assertReplayDecisionHarnessReceipt,
   assertReplayDecisionHarnessSourceBundle,
+  assertReplayDecisionEvidenceTimeline,
   assertReplayDecisionInputSnapshot,
   assertReplaySupplementalFact,
   assertReplaySupplementalRequirementSet,
@@ -35,6 +36,7 @@ import {
   createReplayDecisionHarnessBuildAttestation,
   createReplayDecisionHarnessReceipt,
   createReplayDecisionHarnessSourceBundle,
+  createReplayDecisionEvidenceTimeline,
   createReplayDecisionInputSnapshot,
   type ReplayExecutionRequest,
 } from "./replay-contracts"
@@ -156,6 +158,13 @@ test("Decision Input Snapshot and Harness Receipt are self-hashed immutable evid
     ...sourceBundle,
     files: [{ ...sourceBundle.files[0], content_utf8: `${sourceBundle.files[0].content_utf8}// tampered\n` }, sourceBundle.files[1]],
   }, requestValue)).toThrow("source file hash mismatch")
+  requestValue.supplemental_requirement_set = {
+    schema_version: REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION,
+    mode: "signal_time_complete",
+    undeclared_input_policy: "reject",
+    requirements: [],
+  }
+  requestValue.supplemental_requirement_set_hash = canonicalHash(requestValue.supplemental_requirement_set)
   const snapshot = createReplayDecisionInputSnapshot(requestValue, [])
   expect(snapshot).toMatchObject({
     schema_version: REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION,
@@ -223,6 +232,25 @@ test("Decision Input Snapshot and Harness Receipt are self-hashed immutable evid
   })
   expect(() => assertReplayDecisionHarnessReceipt(receipt, requestValue, snapshot, sourceBundle, buildAttestation)).not.toThrow()
   expect(() => assertReplayDecisionHarnessReceipt({ ...receipt, trace: { tampered: true } }, requestValue, snapshot)).toThrow("trace hash")
+
+  const timeline = createReplayDecisionEvidenceTimeline({
+    request: requestValue,
+    decision_input_snapshot: snapshot,
+    decision_harness_bundle: sourceBundle,
+    decision_harness_build: buildAttestation,
+    decision_harness_receipt: receipt,
+  })
+  expect(timeline).toMatchObject({
+    cardinality_policy: "single_authorized_decision",
+    ordering_policy: "decision_time_then_sequence",
+    entries: [{ decision_sequence: 1, evidence_mode: "attested_harness" }],
+  })
+  expect(() => assertReplayDecisionEvidenceTimeline(timeline, requestValue)).not.toThrow()
+  expect(() => assertReplayDecisionEvidenceTimeline({ ...timeline, entries: [] }, requestValue)).toThrow("exactly one")
+  expect(() => assertReplayDecisionEvidenceTimeline({
+    ...timeline,
+    entries: [{ ...timeline.entries[0]!, decision_sequence: 2 }],
+  }, requestValue)).toThrow("ordering or authority binding")
 })
 
 test("supplemental requirement set freezes a non-overlapping closed input scope", () => {
