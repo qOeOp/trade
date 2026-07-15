@@ -1,6 +1,6 @@
 ---
 title: RD Architecture Migration Plan
-updated_at: 2026-07-14 CST
+updated_at: 2026-07-15 CST
 status: physical-root-converged
 ---
 
@@ -60,9 +60,10 @@ agent-roles/
 | 合同冻结 | 已完成首版 | Control Plane、Replay、Forward、Draft Strategy binding 均有 typed contract 与测试 |
 | Replay 纵切 | 已完成受限认证 | single-asset、closed-candle、next-open、stop/target、fee/slippage/funding、ledger、fingerprint、artifact commit 已锁定；复杂订单/portfolio 不冒充已支持 |
 | Replay 稳定组件收敛 | 已完成首轮 | 输入准入、Position/cash/journal accounting、派生指标已分别落入 `data-adapter`、`accounting`、`metrics`；certified engine 已消费这些 owner，compatibility engine 仅复用纯 accounting 原语 |
-| Replay 数据准入 | 已完成主数据子集 | Runner 强制消费 Dataset Manifest v2；ref/content hash、UTC、OHLC/grid、observed-through、instrument lifecycle、linear settlement/increment、survivorship limitation 与 artifact/fingerprint binding 已锁定；supplemental PIT revisions 仍待实现 |
-| Replay accounting | 已完成第七个受限子集 | multi-Fill average-cost、flat-terminal cash reducer、两腿 journal/trial balance 与 Numeric Policy v3 rational arithmetic 已认证；Result v7 的 wallet cash 对账 ending equity，Bun/BigInt 与 Python Decimal 共享向量一致。position asset、unrealized mark、collateral、borrow、margin/liquidation 与 shared portfolio 仍未实现 |
-| Replay 事件与订单生命周期 | 已完成第九个受限子集 | signal-time submit 保持独立命令事实；eligible entry `bar_open` 同步驱动 entry fill 与 bracket activation，随后同一 SourceEvent reducer 推进 funding/terminal exit lane；entry 同时间 funding 读取 flat `t-` position，同 open gap 在保护单 active 后处理；golden digest 保持；generic status/halt、external command、多订单 matching、limit queue、amend、multi-entry/reversal 和真实 partial 模型仍待实现 |
+| Replay 权威准入 | 已完成第十八个受限子集 | Trial Reservation Snapshot v1、Replay Attempt Lease v1 与 Engine Checkpoint v1 形成运行闭包；Control Plane 单写 claim/renew/expire/finalize。Runner 在完整 source-event 边界轮询并验证续租 lease，generation 不可回退；协作取消不发布 Result/Artifact，可由绑定 request/data/policy/source-prefix hash 的 checkpoint 恢复，clean/resume Result parity 已锁定。跨主机 checkpoint 持久化与 crash-atomic publication 仍待实现 |
+| Replay 数据准入 | 已完成第十七个受限子集 | Dataset Manifest v4 以单一 venue-risk 与 instrument-spec PIT snapshot 冻结风险和核算参数；Request v10/Fingerprint 绑定 canonical hash，半开有效期必须覆盖完整 Replay window，跨 epoch 或参数漂移在首个事件前失败。多 epoch、自动历史规则采集、supplemental PIT revisions 仍待实现 |
+| Replay accounting | 已完成第十七个受限子集 | Result v16 / Journal v4 / Margin v6 保持 frozen isolated collateral 与 exact-risk full liquidation；Attempt envelope 不进入经济 fingerprint。动态 collateral、partial liquidation、deficit/insurance/ADL、borrow、cross/shared portfolio 未实现 |
+| Replay 事件与订单生命周期 | 已完成第十一个受限子集 | Simulator 仍为 v4；source/order/fill 顺序与 Margin failure priority 未变，本轮没有扩张 matching。generic status/halt、external command、多订单 matching、limit queue、amend、multi-entry/reversal 和真实 partial 模型仍待实现 |
 | Replay 认证矩阵 | 已完成首层 | golden semantic digest、long/short property、price/cash scale metamorphic、engine-to-component parity 已落地；尚无 Fast kernel，不能宣称 Step/Fast parity |
 | Draft 落盘 | 已完成 | `accept_for_draft -> render -> lint -> hash -> atomic write -> registry` 已由 Control Plane owner 实现 |
 | Forward 纵切 | 已完成受限认证 | 只消费 ready Draft，执行 post-freeze/no-backfill admission，并复用 Replay semantics |
