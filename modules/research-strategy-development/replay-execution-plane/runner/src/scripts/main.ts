@@ -23,8 +23,15 @@ export function run(argv: string[]): JSONRecord {
       mark_events: array(input.mark_events) as ReplayMarkEvent[],
       artifact_root: text(input.artifact_root) || undefined,
       cancel_requested: input.cancel_requested === true,
-      execution_control: input.resume_checkpoint
-        ? { resume_checkpoint: record(input.resume_checkpoint) as unknown as ReplayEngineCheckpoint }
+      execution_control: input.resume_checkpoint || input.resume_checkpoint_commit
+        ? {
+          ...(input.resume_checkpoint
+            ? { resume_checkpoint: record(input.resume_checkpoint) as unknown as ReplayEngineCheckpoint }
+            : {}),
+          ...(input.resume_checkpoint_commit
+            ? { resume_checkpoint_commit: record(input.resume_checkpoint_commit) as unknown as { ref: string; sha256: string } }
+            : {}),
+        }
         : undefined,
     }))
   } catch (error) {

@@ -315,7 +315,15 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
     finalizeReplayAttempt(db, {
       attempt_id: "attempt-1", worker_id: "worker-1", expected_lease_generation: 2,
       status: "failed", finalized_at: "2026-07-14T04:03:00Z", failure_class: "deterministic_engine",
+      diagnostic_checkpoint_ref: "artifact://attempt-1/diagnostic-checkpoint-commit.json",
+      diagnostic_checkpoint_hash: "8".repeat(64),
     })
+    assert.throws(() => finalizeReplayAttempt(db, {
+      attempt_id: "attempt-1", worker_id: "worker-1", expected_lease_generation: 2,
+      status: "failed", finalized_at: "2026-07-14T04:03:00Z", failure_class: "deterministic_engine",
+      diagnostic_checkpoint_ref: "artifact://attempt-1/changed.json",
+      diagnostic_checkpoint_hash: "8".repeat(64),
+    }), /already terminal/)
     const second = claimReplayAttempt(db, {
       attempt_id: "attempt-2", worker_id: "worker-2", idempotency_key: "attempt-key-2",
       request_hash: "9".repeat(64), claimed_at: "2026-07-14T04:04:00Z", lease_expires_at: "2026-07-14T04:06:00Z",

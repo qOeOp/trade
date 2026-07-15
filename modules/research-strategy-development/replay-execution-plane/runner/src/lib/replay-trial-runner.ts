@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
-import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
+import { existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
+import { dirname, join, relative, resolve, sep } from "node:path"
 import {
   assertReplayAttemptLeaseSnapshot,
   assertTrialReservationSnapshot,
@@ -30,6 +30,7 @@ import {
 } from "../../../contracts/src/lib/replay-contracts"
 import {
   ReplayExecutionInterruptedError,
+  assertReplayEngineCheckpoint,
   executeReplayKernel,
   type ReplayEngineCheckpoint,
 } from "../../../engine/src/lib/replay-reference-engine"
@@ -49,6 +50,7 @@ export interface ReplayTrialRunInput {
   cancel_requested?: boolean
   execution_control?: {
     resume_checkpoint?: ReplayEngineCheckpoint
+    resume_checkpoint_commit?: { ref: string; sha256: string }
     on_checkpoint?: (checkpoint: ReplayEngineCheckpoint) => {
       command: "continue" | "cancel"
       attempt_lease: ReplayAttemptLeaseSnapshot
@@ -58,7 +60,7 @@ export interface ReplayTrialRunInput {
 }
 
 export interface ReplayTrialRunOutcome {
-  schema_version: "trade.rd-replay-run-outcome.v7"
+  schema_version: "trade.rd-replay-run-outcome.v8"
   run_id: string
   attempt_id: string
   lease_generation: number
@@ -69,6 +71,7 @@ export interface ReplayTrialRunOutcome {
   artifact_manifest?: ReplayArtifactManifest
   artifact_commit?: ReplayArtifactCommit
   resumable_checkpoint?: ReplayEngineCheckpoint
+  diagnostic_checkpoint_commit?: ReplayDiagnosticCheckpointCommitRef
   failure?: {
     code: "trial-reservation-rejected" | "attempt-lease-rejected" | "cancelled-before-start" | "execution-cancelled-at-checkpoint" | "instrument-delisted-with-open-position" | "initial-margin-deficit-without-resize" | "maintenance-margin-breach-without-liquidation" | "liquidation-deficit-unsupported" | "replay-execution-failed"
     failure_class: "input_invalid" | "unsupported_contract" | "data_integrity" | "deterministic_engine" | "resource" | "external_io"
@@ -89,12 +92,40 @@ export interface ReplayArtifactCommit {
   terminal_checkpoint_hash: string
 }
 
+export const REPLAY_DIAGNOSTIC_CHECKPOINT_COMMIT_SCHEMA_VERSION = "trade.rd-replay-diagnostic-checkpoint-commit.v1" as const
+
+export interface ReplayDiagnosticCheckpointCommitRef {
+  ref: string
+  sha256: string
+  checkpoint_ref: string
+  checkpoint_sha256: string
+  checkpoint_hash: string
+  producer_attempt_id: string
+  producer_lease_generation: number
+}
+
+interface ReplayDiagnosticCheckpointCommitRecord {
+  schema_version: typeof REPLAY_DIAGNOSTIC_CHECKPOINT_COMMIT_SCHEMA_VERSION
+  run_id: string
+  request_hash: string
+  dataset_hash: string
+  producer_attempt_id: string
+  producer_lease_generation: number
+  producer_attempt_lease_hash: string
+  checkpoint_ref: string
+  checkpoint_sha256: string
+  checkpoint_hash: string
+  next_source_offset: number
+  last_committed_event_key: ReplayEventKey
+  created_at: string
+}
+
 export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcome {
   try {
     validateTrialReservation(input.request, input.trial_reservation)
   } catch (error) {
     return {
-      schema_version: "trade.rd-replay-run-outcome.v7",
+      schema_version: "trade.rd-replay-run-outcome.v8",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -116,7 +147,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
   } catch (error) {
     const expired = error instanceof ReplayAttemptLeaseExpiredError
     return {
-      schema_version: "trade.rd-replay-run-outcome.v7",
+      schema_version: "trade.rd-replay-run-outcome.v8",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -133,7 +164,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
   }
   if (input.cancel_requested) {
     return {
-      schema_version: "trade.rd-replay-run-outcome.v7",
+      schema_version: "trade.rd-replay-run-outcome.v8",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -151,18 +182,28 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
   }
   let activeAttemptLease = input.attempt_lease
   let activeAttemptLeaseHash = attemptLeaseHash
+  let lastDiagnosticCheckpointCommit: ReplayDiagnosticCheckpointCommitRef | undefined
   try {
     const committed = input.artifact_root ? readCommitted(input.artifact_root, input.request, input.trial_reservation, input.attempt_lease, input.dataset_manifest) : undefined
-    if (committed) return {
-      schema_version: "trade.rd-replay-run-outcome.v7",
-      run_id: input.request.run_id,
-      attempt_id: input.attempt_lease.attempt_id,
-      lease_generation: input.attempt_lease.lease_generation,
-      attempt_lease_hash: attemptLeaseHash,
-      status: "completed",
-      idempotent_replay: true,
-      ...committed,
+    if (committed) {
+      cleanupDiagnosticCheckpoint(input.artifact_root!, input.request, input.attempt_lease.attempt_id)
+      return {
+        schema_version: "trade.rd-replay-run-outcome.v8",
+        run_id: input.request.run_id,
+        attempt_id: input.attempt_lease.attempt_id,
+        lease_generation: input.attempt_lease.lease_generation,
+        attempt_lease_hash: attemptLeaseHash,
+        status: "completed",
+        idempotent_replay: true,
+        ...committed,
+      }
     }
+    if (input.execution_control?.resume_checkpoint && input.execution_control.resume_checkpoint_commit) {
+      throw new Error("Replay resume must provide either an inline checkpoint or a durable checkpoint commit, not both")
+    }
+    const resumeCheckpoint = input.execution_control?.resume_checkpoint_commit
+      ? loadReplayDiagnosticCheckpoint(input.artifact_root, input.execution_control.resume_checkpoint_commit, input.request, input.dataset_manifest)
+      : input.execution_control?.resume_checkpoint
     const result = executeReplayKernel({
       request: input.request,
       dataset_manifest: input.dataset_manifest,
@@ -170,10 +211,16 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
       funding_events: input.funding_events,
       mark_events: input.mark_events,
       execution_control: {
-        resume_checkpoint: input.execution_control?.resume_checkpoint,
-        on_checkpoint: input.execution_control?.on_checkpoint
+        resume_checkpoint: resumeCheckpoint,
+        on_checkpoint: input.artifact_root || input.execution_control?.on_checkpoint
           ? (checkpoint) => {
-            const decision = input.execution_control!.on_checkpoint!(checkpoint)
+            if (input.artifact_root) {
+              lastDiagnosticCheckpointCommit = commitDiagnosticCheckpoint(
+                input.artifact_root, input.request, activeAttemptLease, checkpoint,
+              )
+            }
+            if (!input.execution_control?.on_checkpoint) return "continue"
+            const decision = input.execution_control.on_checkpoint(checkpoint)
             try {
               validateAttemptLease(input.request, input.trial_reservation, decision.attempt_lease, decision.observed_at)
               assertAttemptLeaseSuccessor(activeAttemptLease, decision.attempt_lease)
@@ -182,6 +229,11 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
             }
             activeAttemptLease = decision.attempt_lease
             activeAttemptLeaseHash = hashReplayAttemptLeaseSnapshot(activeAttemptLease)
+            if (input.artifact_root) {
+              lastDiagnosticCheckpointCommit = commitDiagnosticCheckpoint(
+                input.artifact_root, input.request, activeAttemptLease, checkpoint,
+              )
+            }
             return decision.command
           }
           : undefined,
@@ -190,8 +242,9 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     const committedArtifact = input.artifact_root
       ? commitArtifacts(input.artifact_root, input.request, input.trial_reservation, activeAttemptLease, input.dataset_manifest, result)
       : undefined
+    if (input.artifact_root) cleanupDiagnosticCheckpoint(input.artifact_root, input.request, activeAttemptLease.attempt_id)
     return {
-      schema_version: "trade.rd-replay-run-outcome.v7",
+      schema_version: "trade.rd-replay-run-outcome.v8",
       run_id: input.request.run_id,
       attempt_id: activeAttemptLease.attempt_id,
       lease_generation: activeAttemptLease.lease_generation,
@@ -209,7 +262,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     const marginTerminal = error instanceof ReplayMarginTerminalError
     const liquidationDeficit = error instanceof ReplayLiquidationDeficitError
     return {
-      schema_version: "trade.rd-replay-run-outcome.v7",
+      schema_version: "trade.rd-replay-run-outcome.v8",
       run_id: input.request.run_id,
       attempt_id: activeAttemptLease.attempt_id,
       lease_generation: activeAttemptLease.lease_generation,
@@ -217,6 +270,9 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
       status: interrupted ? "cancelled" : "failed",
       idempotent_replay: false,
       ...(interrupted ? { resumable_checkpoint: error.checkpoint } : {}),
+      ...(interrupted && lastDiagnosticCheckpointCommit
+        ? { diagnostic_checkpoint_commit: lastDiagnosticCheckpointCommit }
+        : {}),
       failure: {
         code: interrupted ? error.code : leaseRejected ? "attempt-lease-rejected" : instrumentTerminal || marginTerminal || liquidationDeficit ? error.code : "replay-execution-failed",
         failure_class: interrupted || leaseRejected ? "resource" : instrumentTerminal || marginTerminal || liquidationDeficit ? "deterministic_engine" : "data_integrity",
@@ -541,4 +597,116 @@ function writeAtomic(directory: string, name: string, content: string, role: str
 
 function runDirectory(root: string, idempotencyKey: string, attemptId: string): string {
   return join(root, canonicalHash(idempotencyKey).slice(0, 24), canonicalHash(attemptId).slice(0, 24))
+}
+
+function commitDiagnosticCheckpoint(
+  root: string,
+  request: ReplayExecutionRequest,
+  attemptLease: ReplayAttemptLeaseSnapshot,
+  checkpoint: ReplayEngineCheckpoint,
+): ReplayDiagnosticCheckpointCommitRef {
+  const directory = runDirectory(root, request.idempotency_key, attemptLease.attempt_id)
+  mkdirSync(directory, { recursive: true })
+  const checkpointFile = writeAtomic(
+    directory,
+    "diagnostic-checkpoint.json",
+    `${canonicalJson(checkpoint)}\n`,
+    "diagnostic_checkpoint",
+  )
+  const record: ReplayDiagnosticCheckpointCommitRecord = {
+    schema_version: REPLAY_DIAGNOSTIC_CHECKPOINT_COMMIT_SCHEMA_VERSION,
+    run_id: request.run_id,
+    request_hash: canonicalHash(request),
+    dataset_hash: checkpoint.dataset_hash,
+    producer_attempt_id: attemptLease.attempt_id,
+    producer_lease_generation: attemptLease.lease_generation,
+    producer_attempt_lease_hash: hashReplayAttemptLeaseSnapshot(attemptLease),
+    checkpoint_ref: checkpointFile.ref,
+    checkpoint_sha256: checkpointFile.sha256,
+    checkpoint_hash: checkpoint.checkpoint_hash,
+    next_source_offset: checkpoint.next_source_offset,
+    last_committed_event_key: checkpoint.last_committed_event_key,
+    created_at: checkpoint.last_committed_event_key.event_time,
+  }
+  const commitFile = writeAtomic(
+    directory,
+    "diagnostic-checkpoint-commit.json",
+    `${canonicalJson(record)}\n`,
+    "diagnostic_checkpoint_commit",
+  )
+  return {
+    ref: commitFile.ref,
+    sha256: commitFile.sha256,
+    checkpoint_ref: checkpointFile.ref,
+    checkpoint_sha256: checkpointFile.sha256,
+    checkpoint_hash: checkpoint.checkpoint_hash,
+    producer_attempt_id: attemptLease.attempt_id,
+    producer_lease_generation: attemptLease.lease_generation,
+  }
+}
+
+function loadReplayDiagnosticCheckpoint(
+  root: string | undefined,
+  locator: { ref: string; sha256: string },
+  request: ReplayExecutionRequest,
+  datasetManifest: ReplayDatasetManifest,
+): ReplayEngineCheckpoint {
+  if (!root) throw new Error("durable Replay checkpoint resume requires artifact_root")
+  requireHash(locator.sha256, "resume_checkpoint_commit.sha256")
+  const rootPath = resolve(root)
+  const commitPath = resolve(locator.ref)
+  const commitRelative = relative(rootPath, commitPath)
+  if (commitRelative === ".." || commitRelative.startsWith(`..${sep}`) || resolve(dirname(commitPath), "diagnostic-checkpoint-commit.json") !== commitPath) {
+    throw new Error("Replay diagnostic checkpoint commit ref is outside artifact_root or has an invalid name")
+  }
+  if (!existsSync(commitPath)) throw new Error("Replay diagnostic checkpoint commit does not exist")
+  const commitBytes = readFileSync(commitPath)
+  if (createHash("sha256").update(commitBytes).digest("hex") !== locator.sha256) {
+    throw new Error("Replay diagnostic checkpoint commit hash mismatch")
+  }
+  const record = JSON.parse(commitBytes.toString("utf8")) as ReplayDiagnosticCheckpointCommitRecord
+  if (record.schema_version !== REPLAY_DIAGNOSTIC_CHECKPOINT_COMMIT_SCHEMA_VERSION
+      || record.run_id !== request.run_id
+      || record.request_hash !== canonicalHash(request)
+      || record.dataset_hash !== datasetManifest.data_hash) {
+    throw new Error("Replay diagnostic checkpoint commit authority binding mismatch")
+  }
+  requireHash(record.producer_attempt_lease_hash, "diagnostic_checkpoint.producer_attempt_lease_hash")
+  requireHash(record.checkpoint_sha256, "diagnostic_checkpoint.checkpoint_sha256")
+  requireHash(record.checkpoint_hash, "diagnostic_checkpoint.checkpoint_hash")
+  if (!Number.isSafeInteger(record.producer_lease_generation) || record.producer_lease_generation < 1
+      || !Number.isSafeInteger(record.next_source_offset) || record.next_source_offset < 1) {
+    throw new Error("Replay diagnostic checkpoint commit sequence fields are invalid")
+  }
+  const checkpointPath = resolve(record.checkpoint_ref)
+  if (checkpointPath !== resolve(dirname(commitPath), "diagnostic-checkpoint.json")) {
+    throw new Error("Replay diagnostic checkpoint payload ref is not attempt-local")
+  }
+  if (!existsSync(checkpointPath)) throw new Error("Replay diagnostic checkpoint payload does not exist")
+  const checkpointBytes = readFileSync(checkpointPath)
+  if (createHash("sha256").update(checkpointBytes).digest("hex") !== record.checkpoint_sha256) {
+    throw new Error("Replay diagnostic checkpoint payload hash mismatch")
+  }
+  const checkpoint = JSON.parse(checkpointBytes.toString("utf8")) as ReplayEngineCheckpoint
+  if (checkpoint.checkpoint_hash !== record.checkpoint_hash
+      || checkpoint.next_source_offset !== record.next_source_offset
+      || canonicalJson(checkpoint.last_committed_event_key) !== canonicalJson(record.last_committed_event_key)) {
+    throw new Error("Replay diagnostic checkpoint commit does not match its payload")
+  }
+  assertReplayEngineCheckpoint(checkpoint, request, datasetManifest)
+  return checkpoint
+}
+
+function cleanupDiagnosticCheckpoint(root: string, request: ReplayExecutionRequest, attemptId: string): void {
+  const directory = runDirectory(root, request.idempotency_key, attemptId)
+  for (const name of ["diagnostic-checkpoint-commit.json", "diagnostic-checkpoint.json"]) {
+    const path = join(directory, name)
+    if (existsSync(path)) unlinkSync(path)
+  }
+}
+
+function requireHash(value: unknown, field: string): asserts value is string {
+  if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) {
+    throw new Error(`${field} must be a lowercase sha256 hex digest`)
+  }
 }

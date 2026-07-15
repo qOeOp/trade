@@ -1,11 +1,12 @@
-import type {
-  ReplayEventKey,
-  ReplayExecutionRequest,
-  ReplayFundingEvent,
-  ReplayLimitation,
-  ReplayMarkEvent,
-  ReplayMarketBar,
-  ReplaySourceEvent,
+import {
+  canonicalHash,
+  type ReplayEventKey,
+  type ReplayExecutionRequest,
+  type ReplayFundingEvent,
+  type ReplayLimitation,
+  type ReplayMarkEvent,
+  type ReplayMarketBar,
+  type ReplaySourceEvent,
 } from "../../../contracts/src/lib/replay-contracts"
 import { compareReplayEventKeys } from "./replay-event-key"
 import { buildReplaySourceEvents } from "./replay-source-events"
@@ -75,7 +76,7 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
     throw new Error("Replay resume source offset is outside the deterministic source stream")
   }
   const expectedPrefix = sourceEvents.slice(0, resumeOffset)
-  if (input.resume && JSON.stringify(input.resume.source_events) !== JSON.stringify(expectedPrefix)) {
+  if (input.resume && canonicalHash(input.resume.source_events) !== canonicalHash(expectedPrefix)) {
     throw new Error("Replay resume source prefix does not match the deterministic source stream")
   }
   const consumed: ReplaySourceEvent[] = [...(input.resume?.source_events ?? [])]

@@ -183,6 +183,8 @@ export function finalizeReplayAttempt(db: Database, input: FinalizeReplayAttempt
       && current.result_hash === (input.result_hash ?? null) && current.artifact_ref === (input.artifact_ref ?? null)
       && current.artifact_hash === (input.artifact_hash ?? null)
       && current.terminal_checkpoint_hash === (input.terminal_checkpoint_hash ?? null)
+      && current.diagnostic_checkpoint_ref === (input.diagnostic_checkpoint_ref ?? null)
+      && current.diagnostic_checkpoint_hash === (input.diagnostic_checkpoint_hash ?? null)
       && current.failure_class === (input.failure_class ?? null)) return
   if (current.worker_id !== input.worker_id || current.lease_generation !== input.expected_lease_generation) {
     throw new Error("Replay Attempt finalization fencing token mismatch")
@@ -215,7 +217,10 @@ export function finalizeReplayAttempt(db: Database, input: FinalizeReplayAttempt
 function validateTerminal(input: FinalizeReplayAttemptInput): void {
   const checkpointPair = (input.diagnostic_checkpoint_ref == null) === (input.diagnostic_checkpoint_hash == null)
   if (!checkpointPair) throw new Error("diagnostic checkpoint ref/hash must be supplied together")
-  if (input.diagnostic_checkpoint_hash) requireHash(input.diagnostic_checkpoint_hash, "diagnostic_checkpoint_hash")
+  if (input.diagnostic_checkpoint_hash) {
+    requireText(input.diagnostic_checkpoint_ref, "diagnostic_checkpoint_ref")
+    requireHash(input.diagnostic_checkpoint_hash, "diagnostic_checkpoint_hash")
+  }
   if (input.status === "completed") {
     requireHash(input.result_hash, "result_hash")
     requireText(input.artifact_ref, "artifact_ref")

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
-import { mkdtempSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION, TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION, hashTrialReservationSnapshot, type ReplayAttemptLeaseSnapshot, type TrialReservationSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
 import {
   REPLAY_CERTIFIED_CAPABILITIES,
@@ -225,8 +225,107 @@ test("runner renews the fenced Attempt at source boundaries and resumes cancelle
     bars: replayBars,
     execution_control: { resume_checkpoint: cancelled.resumable_checkpoint },
   })
+  expect(resumed.failure).toBeUndefined()
   expect(resumed.status).toBe("completed")
   expect(resumed.result).toEqual(clean.result)
+})
+
+test("runner atomically publishes an attempt-local checkpoint commit and resumes it across processes", () => {
+  const root = mkdtempSync(join(tmpdir(), "rd-replay-checkpoint-"))
+  const replayBars = [
+    { open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 100, high: 104, low: 98, close: 102, volume: 10, closed: true as const },
+    { open_time: "2026-07-14T08:00:00Z", close_time: "2026-07-14T12:00:00Z", open: 102, high: 106, low: 99, close: 104, volume: 10, closed: true as const },
+    { open_time: "2026-07-14T12:00:00Z", close_time: "2026-07-14T16:00:00Z", open: 104, high: 111, low: 103, close: 110, volume: 10, closed: true as const },
+  ]
+  const dataHash = replayDatasetHash(replayBars)
+  const requestValue = { ...boundRequest(), dataset_hash: dataHash }
+  const authority = authorized(requestValue)
+  const manifest = {
+    ...datasetManifest(), data_hash: dataHash, row_count: replayBars.length,
+    last_close_time: replayBars.at(-1)!.close_time, observed_through: replayBars.at(-1)!.close_time,
+  }
+  const clean = runReplayTrial({ ...authority, dataset_manifest: manifest, bars: replayBars })
+  const renewedLease = attemptLease(authority.request, authority.trial_reservation, {
+    lease_generation: 3,
+    heartbeat_at: "2026-07-14T00:01:30Z",
+    lease_expires_at: "2026-07-14T00:06:30Z",
+  })
+  const checkpointDirectory = join(
+    root,
+    canonicalHash(authority.request.idempotency_key).slice(0, 24),
+    canonicalHash(authority.attempt_lease.attempt_id).slice(0, 24),
+  )
+  let boundaryCount = 0
+  const cancelled = runReplayTrial({
+    ...authority,
+    artifact_root: root,
+    dataset_manifest: manifest,
+    bars: replayBars,
+    execution_control: {
+      on_checkpoint: () => {
+        boundaryCount += 1
+        expect(existsSync(join(checkpointDirectory, "diagnostic-checkpoint.json"))).toBe(true)
+        expect(existsSync(join(checkpointDirectory, "diagnostic-checkpoint-commit.json"))).toBe(true)
+        return { command: boundaryCount >= 2 ? "cancel" : "continue", attempt_lease: renewedLease, observed_at: "2026-07-14T00:02:00Z" }
+      },
+    },
+  })
+  const commit = cancelled.diagnostic_checkpoint_commit!
+  expect(cancelled.status).toBe("cancelled")
+  expect(commit.producer_attempt_id).toBe("attempt-1")
+  expect(commit.producer_lease_generation).toBe(3)
+  expect(existsSync(commit.ref)).toBe(true)
+  expect(existsSync(commit.checkpoint_ref)).toBe(true)
+  expect(cancelled.artifact_manifest).toBeUndefined()
+
+  const retryLease = attemptLease(authority.request, authority.trial_reservation, {
+    attempt_id: "attempt-2", attempt_ordinal: 2, worker_id: "worker-2", lease_generation: 1,
+  })
+  const resumed = runReplayTrial({
+    ...authority,
+    attempt_lease: retryLease,
+    artifact_root: root,
+    dataset_manifest: manifest,
+    bars: replayBars,
+    execution_control: { resume_checkpoint_commit: { ref: commit.ref, sha256: commit.sha256 } },
+  })
+  expect(resumed.failure).toBeUndefined()
+  expect(resumed.status).toBe("completed")
+  expect(resumed.result).toEqual(clean.result)
+  expect(existsSync(commit.ref)).toBe(true)
+  expect(existsSync(commit.checkpoint_ref)).toBe(true)
+  const resumedDirectory = dirname(resumed.artifact_commit!.ref)
+  expect(existsSync(join(resumedDirectory, "diagnostic-checkpoint-commit.json"))).toBe(false)
+  expect(resumed.artifact_manifest?.files.some((file) => file.role.includes("checkpoint"))).toBe(false)
+
+  const outsideRootRetry = runReplayTrial({
+    ...authority,
+    attempt_lease: attemptLease(authority.request, authority.trial_reservation, {
+      attempt_id: "attempt-3", attempt_ordinal: 3, worker_id: "worker-3", lease_generation: 1,
+    }),
+    artifact_root: join(root, "different-root"),
+    dataset_manifest: manifest,
+    bars: replayBars,
+    execution_control: { resume_checkpoint_commit: { ref: commit.ref, sha256: commit.sha256 } },
+  })
+  expect(outsideRootRetry.failure?.message).toContain("outside artifact_root")
+
+  writeFileSync(commit.checkpoint_ref, "tampered\n", "utf8")
+  const tamperedRetry = runReplayTrial({
+    ...authority,
+    attempt_lease: attemptLease(authority.request, authority.trial_reservation, {
+      attempt_id: "attempt-4", attempt_ordinal: 4, worker_id: "worker-4", lease_generation: 1,
+    }),
+    artifact_root: root,
+    dataset_manifest: manifest,
+    bars: replayBars,
+    execution_control: { resume_checkpoint_commit: { ref: commit.ref, sha256: commit.sha256 } },
+  })
+  expect(tamperedRetry).toMatchObject({
+    status: "failed",
+    failure: { code: "replay-execution-failed", failure_class: "data_integrity", partial_result_published: false },
+  })
+  expect(tamperedRetry.failure?.message).toContain("payload hash mismatch")
 })
 
 test("runner rejects a boundary lease generation rollback", () => {
