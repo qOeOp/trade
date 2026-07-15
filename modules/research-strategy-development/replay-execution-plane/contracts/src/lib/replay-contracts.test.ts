@@ -18,9 +18,9 @@ import {
   REPLAY_DECISION_STATE_SNAPSHOT_SCHEMA_VERSION,
   REPLAY_REDUCE_ONLY_EXIT_INTENT_SCHEMA_VERSION,
   REPLAY_PROTECTIVE_STOP_REPLACE_INTENT_SCHEMA_VERSION,
-  REPLAY_PARTIAL_REDUCE_INTENT_DRAFT_SCHEMA_VERSION,
-  REPLAY_PARTIAL_REDUCE_PROTECTION_POLICY_DRAFT_VERSION,
-  REPLAY_PARTIAL_REDUCE_DRAFT_CAPABILITY,
+  REPLAY_PARTIAL_REDUCE_INTENT_SCHEMA_VERSION,
+  REPLAY_PARTIAL_REDUCE_PROTECTION_POLICY_VERSION,
+  REPLAY_PARTIAL_REDUCE_CAPABILITY,
   REPLAY_CERTIFIED_CAPABILITIES,
   REPLAY_LOCAL_ARTIFACT_STORE_CAPABILITY,
   REPLAY_OBJECT_ARTIFACT_STORE_REQUIRED_CAPABILITY,
@@ -48,7 +48,7 @@ import {
   assertReplayDecisionMarketInputSnapshot,
   assertReplayDecisionStateSnapshot,
   assertReplayDecisionStateSnapshotSourcePrefix,
-  assertReplayPartialReduceIntentDraft,
+  assertReplayPartialReduceIntent,
   assertReplaySupplementalFact,
   assertReplaySupplementalRequirementSet,
   canonicalHash,
@@ -134,7 +134,7 @@ test("Replay request requires complete Trial and evidence identity", () => {
   unauthorizedSchedule.decision_schedule = {
     ...unauthorizedSchedule.decision_schedule,
     entries: [
-      { decision_sequence: 1, decision_time: "2026-07-13T20:00:00Z", expected_effect: "no_action", authorized_reduce_only_exit: null, authorized_protective_stop_replace: null, authorized_order_hash: null },
+      { decision_sequence: 1, decision_time: "2026-07-13T20:00:00Z", expected_effect: "no_action", authorized_reduce_only_exit: null, authorized_protective_stop_replace: null, authorized_partial_reduce: null, authorized_order_hash: null },
       { ...unauthorizedSchedule.decision_schedule.entries[0]!, decision_sequence: 2 },
     ],
   }
@@ -151,6 +151,7 @@ test("authorized initial decision lookup is semantic rather than positional", ()
     expected_effect: "no_action" as const,
     authorized_reduce_only_exit: null,
     authorized_protective_stop_replace: null,
+    authorized_partial_reduce: null,
     authorized_order_hash: null,
   }
   const nonPositionalRequest = {
@@ -215,6 +216,7 @@ test("decision schedule freezes one final full-position reduce-only market exit"
         expected_effect: "authorized_reduce_only_exit",
         authorized_reduce_only_exit: exitIntent,
         authorized_protective_stop_replace: null,
+        authorized_partial_reduce: null,
         authorized_order_hash: canonicalHash(exitIntent),
       },
     ],
@@ -237,6 +239,7 @@ test("decision schedule freezes one final full-position reduce-only market exit"
     expected_effect: "no_action",
     authorized_reduce_only_exit: null,
     authorized_protective_stop_replace: null,
+    authorized_partial_reduce: null,
     authorized_order_hash: null,
   })
   notFinal.decision_schedule_hash = canonicalHash(notFinal.decision_schedule)
@@ -272,6 +275,7 @@ test("decision schedule permits one full-position tighten-only protective stop r
         expected_effect: "authorized_protective_stop_replace",
         authorized_reduce_only_exit: null,
         authorized_protective_stop_replace: replaceIntent,
+        authorized_partial_reduce: null,
         authorized_order_hash: canonicalHash(replaceIntent),
       },
     ],
@@ -288,10 +292,10 @@ test("decision schedule permits one full-position tighten-only protective stop r
   expect(() => assertReplayExecutionRequest(loosened)).toThrow("must tighten")
 })
 
-test("partial-reduce draft freezes one non-terminal fixed quantity and remains uncertified", () => {
+test("decision schedule certifies one non-terminal fixed-quantity partial reduce", () => {
   const initialOrder = fixtureRequest().order
-  const draft = {
-    schema_version: REPLAY_PARTIAL_REDUCE_INTENT_DRAFT_SCHEMA_VERSION,
+  const partial = {
+    schema_version: REPLAY_PARTIAL_REDUCE_INTENT_SCHEMA_VERSION,
     side: "sell" as const,
     order_type: "market" as const,
     reduce_only: true as const,
@@ -301,27 +305,80 @@ test("partial-reduce draft freezes one non-terminal fixed quantity and remains u
     earliest_executable_time: "2026-07-14T12:00:00Z",
     post_fill_position_policy: "must_remain_open" as const,
     protection_resize_policy: "after_fill_cancel_both_then_replace_remaining_at_same_source_boundary" as const,
-    protection_policy_version: REPLAY_PARTIAL_REDUCE_PROTECTION_POLICY_DRAFT_VERSION,
+    protection_policy_version: REPLAY_PARTIAL_REDUCE_PROTECTION_POLICY_VERSION,
     replacement_trigger_policy: "preserve_current_stop_and_target_prices" as const,
     remaining_quantity_authority: "absolute_post_fill_position" as const,
     schedule_combination_policy: "one_partial_reduce_then_optional_final_full_exit_no_stop_replace" as const,
   }
-  expect(() => assertReplayPartialReduceIntentDraft(draft, initialOrder)).not.toThrow()
-  expect(REPLAY_CERTIFIED_CAPABILITIES).not.toContain(REPLAY_PARTIAL_REDUCE_DRAFT_CAPABILITY)
+  expect(() => assertReplayPartialReduceIntent(partial, initialOrder)).not.toThrow()
+  expect(REPLAY_CERTIFIED_CAPABILITIES).toContain(REPLAY_PARTIAL_REDUCE_CAPABILITY)
 
-  expect(() => assertReplayPartialReduceIntentDraft({ ...draft, quantity: initialOrder.quantity }, initialOrder))
+  const requestValue = fixtureRequest()
+  requestValue.decision_market_input_requirement = {
+    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
+    mode: "closed_bar_lookback", source_kind: "ohlcv",
+    fields: ["open", "high", "low", "close", "volume"], lookback_bars: 1,
+    visibility_policy: "close_time_at_or_before_decision_time",
+    terminal_bar_policy: "close_time_equals_decision_time",
+    continuity_policy: "strict_interval_grid", undeclared_input_policy: "reject",
+  }
+  requestValue.decision_market_input_requirement_hash = canonicalHash(requestValue.decision_market_input_requirement)
+  requestValue.decision_schedule = {
+    schema_version: REPLAY_DECISION_SCHEDULE_SCHEMA_VERSION,
+    schedule_policy: "frozen_closed_bar_schedule",
+    entries: [requestValue.decision_schedule.entries[0]!, {
+      decision_sequence: 2, decision_time: partial.signal_time,
+      expected_effect: "authorized_partial_reduce", authorized_reduce_only_exit: null,
+      authorized_protective_stop_replace: null, authorized_partial_reduce: partial,
+      authorized_order_hash: canonicalHash(partial),
+    }],
+  }
+  requestValue.decision_schedule_hash = canonicalHash(requestValue.decision_schedule)
+  expect(() => assertReplayExecutionRequest(requestValue)).not.toThrow()
+
+  const combinedWithStopReplace = structuredClone(requestValue)
+  const replace = {
+    schema_version: REPLAY_PROTECTIVE_STOP_REPLACE_INTENT_SCHEMA_VERSION,
+    side: "sell" as const, order_type: "stop_market" as const, reduce_only: true as const,
+    quantity_policy: "full_open_position" as const,
+    replace_policy: "tighten_only_cancel_then_submit" as const,
+    signal_time: "2026-07-14T12:00:00Z", previous_stop_price: 95, new_stop_price: 101,
+  }
+  combinedWithStopReplace.decision_schedule.entries.push({
+    decision_sequence: 3, decision_time: replace.signal_time,
+    expected_effect: "authorized_protective_stop_replace", authorized_reduce_only_exit: null,
+    authorized_protective_stop_replace: replace, authorized_partial_reduce: null,
+    authorized_order_hash: canonicalHash(replace),
+  })
+  combinedWithStopReplace.decision_schedule_hash = canonicalHash(combinedWithStopReplace.decision_schedule)
+  expect(() => assertReplayExecutionRequest(combinedWithStopReplace)).toThrow("cannot be combined")
+
+  const duplicate = structuredClone(requestValue)
+  const secondPartial = {
+    ...partial, signal_time: "2026-07-14T16:00:00Z", earliest_executable_time: "2026-07-14T20:00:00Z",
+  }
+  duplicate.decision_schedule.entries.push({
+    decision_sequence: 3, decision_time: secondPartial.signal_time,
+    expected_effect: "authorized_partial_reduce", authorized_reduce_only_exit: null,
+    authorized_protective_stop_replace: null, authorized_partial_reduce: secondPartial,
+    authorized_order_hash: canonicalHash(secondPartial),
+  })
+  duplicate.decision_schedule_hash = canonicalHash(duplicate.decision_schedule)
+  expect(() => assertReplayExecutionRequest(duplicate)).toThrow("at most one partial reduce")
+
+  expect(() => assertReplayPartialReduceIntent({ ...partial, quantity: initialOrder.quantity }, initialOrder))
     .toThrow("must leave an open position")
-  expect(() => assertReplayPartialReduceIntentDraft({ ...draft, side: "buy" }, initialOrder))
-    .toThrow("unsupported Replay partial-reduce draft")
-  expect(() => assertReplayPartialReduceIntentDraft({
-    ...draft, protection_resize_policy: "cancel_then_amend" as never,
-  }, initialOrder)).toThrow("unsupported Replay partial-reduce draft")
-  expect(() => assertReplayPartialReduceIntentDraft({
-    ...draft, earliest_executable_time: draft.signal_time,
+  expect(() => assertReplayPartialReduceIntent({ ...partial, side: "buy" }, initialOrder))
+    .toThrow("unsupported Replay partial-reduce")
+  expect(() => assertReplayPartialReduceIntent({
+    ...partial, protection_resize_policy: "cancel_then_amend" as never,
+  }, initialOrder)).toThrow("unsupported Replay partial-reduce")
+  expect(() => assertReplayPartialReduceIntent({
+    ...partial, earliest_executable_time: partial.signal_time,
   }, initialOrder)).toThrow("must follow signal time")
 
   const shortOrder = { ...initialOrder, side: "short" as const, stop_price: 105, target_price: 90 }
-  expect(() => assertReplayPartialReduceIntentDraft({ ...draft, side: "buy" }, shortOrder)).not.toThrow()
+  expect(() => assertReplayPartialReduceIntent({ ...partial, side: "buy" }, shortOrder)).not.toThrow()
 })
 
 test("position-open decision state snapshot is self-hashed monetary evidence", () => {

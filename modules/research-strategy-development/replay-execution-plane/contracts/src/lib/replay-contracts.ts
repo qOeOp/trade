@@ -10,11 +10,11 @@ export {
   REPLAY_OBJECT_ARTIFACT_STORAGE_POLICY_VERSION,
 }
 
-export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v20" as const
-export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v29" as const
-export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v31" as const
+export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v21" as const
+export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v30" as const
+export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v32" as const
 export const REPLAY_ARTIFACT_STORE_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-artifact-store-capability.v1" as const
-export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v7" as const
+export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v8" as const
 export const REPLAY_NUMERIC_POLICY_VERSION = "rd-replay-number-v3" as const
 export const REPLAY_DERIVED_DECIMAL_INCREMENT = "0.000000000001" as const
 export const REPLAY_JOURNAL_POLICY_VERSION = "rd-replay-journal-v4" as const
@@ -29,27 +29,27 @@ export const REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION = "trade.rd-repl
 export const REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION = "trade.rd-replay-decision-input-snapshot.v1" as const
 export const REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION = "trade.rd-replay-decision-market-input-requirement.v1" as const
 export const REPLAY_DECISION_MARKET_INPUT_SNAPSHOT_SCHEMA_VERSION = "trade.rd-replay-decision-market-input-snapshot.v1" as const
-export const REPLAY_DECISION_SCHEDULE_SCHEMA_VERSION = "trade.rd-replay-decision-schedule.v4" as const
+export const REPLAY_DECISION_SCHEDULE_SCHEMA_VERSION = "trade.rd-replay-decision-schedule.v5" as const
 export const REPLAY_REDUCE_ONLY_EXIT_INTENT_SCHEMA_VERSION = "trade.rd-replay-reduce-only-exit-intent.v1" as const
 export const REPLAY_PROTECTIVE_STOP_REPLACE_INTENT_SCHEMA_VERSION = "trade.rd-replay-protective-stop-replace-intent.v1" as const
-export const REPLAY_PARTIAL_REDUCE_INTENT_DRAFT_SCHEMA_VERSION = "trade.rd-replay-partial-reduce-intent-draft.v1" as const
-export const REPLAY_PARTIAL_REDUCE_PROTECTION_POLICY_DRAFT_VERSION = "rd-replay-partial-reduce-protection-v1-draft" as const
-export const REPLAY_PARTIAL_REDUCE_DRAFT_CAPABILITY = "partial-reduce-v1-draft" as const
-export const REPLAY_DECISION_STATE_SNAPSHOT_SCHEMA_VERSION = "trade.rd-replay-decision-state-snapshot.v2" as const
-export const REPLAY_DECISION_HARNESS_CONTEXT_SCHEMA_VERSION = "trade.rd-replay-decision-harness-context.v5" as const
+export const REPLAY_PARTIAL_REDUCE_INTENT_SCHEMA_VERSION = "trade.rd-replay-partial-reduce-intent.v1" as const
+export const REPLAY_PARTIAL_REDUCE_PROTECTION_POLICY_VERSION = "rd-replay-partial-reduce-protection-v1" as const
+export const REPLAY_PARTIAL_REDUCE_CAPABILITY = "next-open-fixed-quantity-partial-reduce" as const
+export const REPLAY_DECISION_STATE_SNAPSHOT_SCHEMA_VERSION = "trade.rd-replay-decision-state-snapshot.v3" as const
+export const REPLAY_DECISION_HARNESS_CONTEXT_SCHEMA_VERSION = "trade.rd-replay-decision-harness-context.v6" as const
 export const REPLAY_DECISION_HARNESS_SOURCE_BUNDLE_SCHEMA_VERSION = "trade.rd-replay-decision-harness-source-bundle.v1" as const
 export const REPLAY_DECISION_HARNESS_BUILD_ATTESTATION_SCHEMA_VERSION = "trade.rd-replay-decision-harness-build-attestation.v2" as const
-export const REPLAY_DECISION_HARNESS_WORKER_REQUEST_SCHEMA_VERSION = "trade.rd-replay-decision-harness-worker-request.v6" as const
-export const REPLAY_DECISION_HARNESS_WORKER_RESPONSE_SCHEMA_VERSION = "trade.rd-replay-decision-harness-worker-response.v6" as const
-export const REPLAY_DECISION_HARNESS_REGISTRY_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-decision-harness-registry-capability.v6" as const
-export const REPLAY_DECISION_HARNESS_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-decision-harness-capability.v8" as const
-export const REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION = "trade.rd-replay-decision-harness-receipt.v8" as const
-export const REPLAY_DECISION_BOUNDARY_SCHEMA_VERSION = "trade.rd-replay-decision-boundary.v6" as const
-export const REPLAY_DECISION_EVIDENCE_TIMELINE_SCHEMA_VERSION = "trade.rd-replay-decision-evidence-timeline.v7" as const
-export const REPLAY_DECISION_HARNESS_REGISTRY_POLICY_VERSION = "rd-replay-decision-harness-registry-v6" as const
+export const REPLAY_DECISION_HARNESS_WORKER_REQUEST_SCHEMA_VERSION = "trade.rd-replay-decision-harness-worker-request.v7" as const
+export const REPLAY_DECISION_HARNESS_WORKER_RESPONSE_SCHEMA_VERSION = "trade.rd-replay-decision-harness-worker-response.v7" as const
+export const REPLAY_DECISION_HARNESS_REGISTRY_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-decision-harness-registry-capability.v7" as const
+export const REPLAY_DECISION_HARNESS_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-decision-harness-capability.v9" as const
+export const REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION = "trade.rd-replay-decision-harness-receipt.v9" as const
+export const REPLAY_DECISION_BOUNDARY_SCHEMA_VERSION = "trade.rd-replay-decision-boundary.v7" as const
+export const REPLAY_DECISION_EVIDENCE_TIMELINE_SCHEMA_VERSION = "trade.rd-replay-decision-evidence-timeline.v8" as const
+export const REPLAY_DECISION_HARNESS_REGISTRY_POLICY_VERSION = "rd-replay-decision-harness-registry-v7" as const
 export const REPLAY_DECISION_HARNESS_BUILD_POLICY_VERSION = "rd-replay-bun-single-file-build-v2" as const
 export const REPLAY_DECISION_HARNESS_LOADER_POLICY_VERSION = "rd-replay-attested-fresh-subprocess-loader-v1" as const
-export const REPLAY_DECISION_HARNESS_WORKER_PROTOCOL_VERSION = "rd-replay-harness-worker-stdio-v6" as const
+export const REPLAY_DECISION_HARNESS_WORKER_PROTOCOL_VERSION = "rd-replay-harness-worker-stdio-v7" as const
 export const REPLAY_DECISION_HARNESS_BUILD_ARGUMENTS = [
   "--target=bun",
   "--format=esm",
@@ -66,6 +66,7 @@ export const REPLAY_CERTIFIED_CAPABILITIES = [
   "exact-mark-optional",
   "exact-risk-full-liquidation",
   "isolated-margin",
+  REPLAY_PARTIAL_REDUCE_CAPABILITY,
   "next-open-market-entry",
   "next-open-reduce-only-strategy-exit",
   "ohlcv",
@@ -328,9 +329,8 @@ export interface ReplayProtectiveStopReplaceIntent {
   new_stop_price: number
 }
 
-/** Design-only seam. It is intentionally absent from ReplayDecisionSchedule and certified capabilities. */
-export interface ReplayPartialReduceIntentDraft {
-  schema_version: typeof REPLAY_PARTIAL_REDUCE_INTENT_DRAFT_SCHEMA_VERSION
+export interface ReplayPartialReduceIntent {
+  schema_version: typeof REPLAY_PARTIAL_REDUCE_INTENT_SCHEMA_VERSION
   side: ReplayOrderSide
   order_type: "market"
   reduce_only: true
@@ -340,7 +340,7 @@ export interface ReplayPartialReduceIntentDraft {
   earliest_executable_time: string
   post_fill_position_policy: "must_remain_open"
   protection_resize_policy: "after_fill_cancel_both_then_replace_remaining_at_same_source_boundary"
-  protection_policy_version: typeof REPLAY_PARTIAL_REDUCE_PROTECTION_POLICY_DRAFT_VERSION
+  protection_policy_version: typeof REPLAY_PARTIAL_REDUCE_PROTECTION_POLICY_VERSION
   replacement_trigger_policy: "preserve_current_stop_and_target_prices"
   remaining_quantity_authority: "absolute_post_fill_position"
   schedule_combination_policy: "one_partial_reduce_then_optional_final_full_exit_no_stop_replace"
@@ -349,9 +349,10 @@ export interface ReplayPartialReduceIntentDraft {
 export interface ReplayDecisionScheduleEntry {
   decision_sequence: number
   decision_time: string
-  expected_effect: "no_action" | "authorized_initial_order" | "authorized_protective_stop_replace" | "authorized_reduce_only_exit"
+  expected_effect: "no_action" | "authorized_initial_order" | "authorized_protective_stop_replace" | "authorized_partial_reduce" | "authorized_reduce_only_exit"
   authorized_reduce_only_exit: ReplayReduceOnlyExitIntent | null
   authorized_protective_stop_replace: ReplayProtectiveStopReplaceIntent | null
+  authorized_partial_reduce: ReplayPartialReduceIntent | null
   authorized_order_hash: string | null
 }
 
@@ -363,6 +364,9 @@ export interface ReplayDecisionSchedule {
 
 export type ReplayDecisionOutput = {
   action: "no_action"
+} | {
+  action: "submit_partial_reduce"
+  order: ReplayPartialReduceIntent
 } | {
   action: "submit_initial_order"
   order: ReplayExecutionRequest["order"]
@@ -618,9 +622,9 @@ export type ReplayDecisionBoundaryBody = Omit<ReplayDecisionBoundary, "boundary_
 export interface ReplayDecisionEvidenceEntry {
   decision_sequence: number
   decision_time: string
-  decision_kind: "scheduled_evaluation" | "initial_order" | "protective_stop_replace" | "reduce_only_exit"
+  decision_kind: "scheduled_evaluation" | "initial_order" | "protective_stop_replace" | "partial_reduce" | "reduce_only_exit"
   evaluation_status: "evaluated" | "pending_runtime" | "not_reached_terminal"
-  execution_effect: "no_action" | "authorized_order" | "authorized_protective_stop_replace" | "authorized_reduce_only_exit" | "not_reached"
+  execution_effect: "no_action" | "authorized_order" | "authorized_protective_stop_replace" | "authorized_partial_reduce" | "authorized_reduce_only_exit" | "not_reached"
   evidence_mode: "precomputed_order_compatibility" | "attested_harness" | "pending_runtime" | "not_reached_terminal"
   authorized_order_hash: string | null
   decision_output_hash: string | null
@@ -749,7 +753,7 @@ export interface ReplayLimitation {
 }
 
 export type ReplayOrderSide = "buy" | "sell"
-export type ReplayOrderRole = "entry" | "stop" | "target" | "strategy_exit" | "liquidation" | "end_of_data"
+export type ReplayOrderRole = "entry" | "stop" | "target" | "strategy_partial_reduce" | "strategy_exit" | "liquidation" | "end_of_data"
 export type ReplayOrderType = "market" | "stop_market" | "take_profit_market"
 export type ReplayOrderStatus = "submitted" | "active" | "triggered" | "partially_filled" | "filled" | "cancelled" | "rejected"
 
@@ -1255,34 +1259,34 @@ export function assertReplayDecisionMarketInputRequirement(
   }
 }
 
-export function assertReplayPartialReduceIntentDraft(
-  intent: ReplayPartialReduceIntentDraft,
+export function assertReplayPartialReduceIntent(
+  intent: ReplayPartialReduceIntent,
   initialOrder: ReplayExecutionRequest["order"],
 ): void {
-  if (intent.schema_version !== REPLAY_PARTIAL_REDUCE_INTENT_DRAFT_SCHEMA_VERSION
+  if (intent.schema_version !== REPLAY_PARTIAL_REDUCE_INTENT_SCHEMA_VERSION
       || intent.side !== (initialOrder.side === "long" ? "sell" : "buy")
       || intent.order_type !== "market"
       || intent.reduce_only !== true
       || intent.quantity_policy !== "fixed_quantity"
       || intent.post_fill_position_policy !== "must_remain_open"
       || intent.protection_resize_policy !== "after_fill_cancel_both_then_replace_remaining_at_same_source_boundary"
-      || intent.protection_policy_version !== REPLAY_PARTIAL_REDUCE_PROTECTION_POLICY_DRAFT_VERSION
+      || intent.protection_policy_version !== REPLAY_PARTIAL_REDUCE_PROTECTION_POLICY_VERSION
       || intent.replacement_trigger_policy !== "preserve_current_stop_and_target_prices"
       || intent.remaining_quantity_authority !== "absolute_post_fill_position"
       || intent.schedule_combination_policy !== "one_partial_reduce_then_optional_final_full_exit_no_stop_replace") {
-    fail("unsupported Replay partial-reduce draft contract")
+    fail("unsupported Replay partial-reduce contract")
   }
   requirePositive(intent.quantity, "partial_reduce_intent.quantity")
   requireUtcTimestamp(intent.signal_time, "partial_reduce_intent.signal_time")
   requireUtcTimestamp(intent.earliest_executable_time, "partial_reduce_intent.earliest_executable_time")
   if (intent.quantity >= initialOrder.quantity) {
-    fail("partial-reduce draft quantity must leave an open position")
+    fail("partial-reduce quantity must leave an open position")
   }
   if (Date.parse(intent.signal_time) <= Date.parse(initialOrder.earliest_executable_time)) {
-    fail("partial-reduce draft signal must follow initial entry eligibility")
+    fail("partial-reduce signal must follow initial entry eligibility")
   }
   if (Date.parse(intent.earliest_executable_time) <= Date.parse(intent.signal_time)) {
-    fail("partial-reduce draft earliest executable time must follow signal time")
+    fail("partial-reduce earliest executable time must follow signal time")
   }
 }
 
@@ -1300,6 +1304,8 @@ export function assertReplayDecisionSchedule(
   let authorizedCount = 0
   let authorizedExitCount = 0
   let authorizedStopReplaceCount = 0
+  let authorizedPartialReduceCount = 0
+  let partialReduceIndex = -1
   for (const [index, entry] of schedule.entries.entries()) {
     if (entry.decision_sequence !== index + 1) fail("decision schedule sequence must be contiguous from one")
     requireUtcTimestamp(entry.decision_time, `decision_schedule.entries[${index}].decision_time`)
@@ -1308,7 +1314,7 @@ export function assertReplayDecisionSchedule(
     priorTime = decisionTime
     if (entry.expected_effect === "no_action") {
       if (entry.authorized_order_hash !== null || entry.authorized_reduce_only_exit !== null
-          || entry.authorized_protective_stop_replace !== null) {
+          || entry.authorized_protective_stop_replace !== null || entry.authorized_partial_reduce !== null) {
         fail("no-action decision cannot authorize an Order")
       }
       if (decisionTime > Date.parse(request.order.signal_time)
@@ -1319,6 +1325,7 @@ export function assertReplayDecisionSchedule(
     }
     if (entry.expected_effect === "authorized_initial_order") {
       if (entry.authorized_reduce_only_exit !== null || entry.authorized_protective_stop_replace !== null
+          || entry.authorized_partial_reduce !== null
           || entry.authorized_order_hash !== canonicalHash(request.order)
           || entry.decision_time !== request.order.signal_time) {
         fail("decision schedule authorized initial Order must match the frozen Order signal")
@@ -1328,7 +1335,7 @@ export function assertReplayDecisionSchedule(
     }
     if (entry.expected_effect === "authorized_protective_stop_replace") {
       const replace = entry.authorized_protective_stop_replace
-      if (!replace || entry.authorized_reduce_only_exit !== null
+      if (!replace || entry.authorized_reduce_only_exit !== null || entry.authorized_partial_reduce !== null
           || replace.schema_version !== REPLAY_PROTECTIVE_STOP_REPLACE_INTENT_SCHEMA_VERSION
           || replace.side !== (request.order.side === "long" ? "sell" : "buy")
           || replace.order_type !== "stop_market" || replace.reduce_only !== true
@@ -1351,11 +1358,24 @@ export function assertReplayDecisionSchedule(
       authorizedStopReplaceCount += 1
       continue
     }
+    if (entry.expected_effect === "authorized_partial_reduce") {
+      const partial = entry.authorized_partial_reduce
+      if (!partial || entry.authorized_reduce_only_exit !== null
+          || entry.authorized_protective_stop_replace !== null
+          || partial.signal_time !== entry.decision_time
+          || entry.authorized_order_hash !== canonicalHash(partial)) {
+        fail("authorized partial reduce must match its frozen fixed-quantity intent")
+      }
+      assertReplayPartialReduceIntent(partial, request.order)
+      authorizedPartialReduceCount += 1
+      partialReduceIndex = index
+      continue
+    }
     if (entry.expected_effect !== "authorized_reduce_only_exit" || !entry.authorized_reduce_only_exit) {
       fail("unsupported decision schedule effect")
     }
     const exit = entry.authorized_reduce_only_exit
-    if (entry.authorized_protective_stop_replace !== null
+    if (entry.authorized_protective_stop_replace !== null || entry.authorized_partial_reduce !== null
         || exit.schema_version !== REPLAY_REDUCE_ONLY_EXIT_INTENT_SCHEMA_VERSION
         || exit.order_type !== "market" || exit.reduce_only !== true
         || exit.quantity_policy !== "full_open_position"
@@ -1376,6 +1396,17 @@ export function assertReplayDecisionSchedule(
   if (authorizedCount !== 1) fail("decision schedule requires exactly one authorized initial Order")
   if (authorizedExitCount > 1) fail("decision schedule permits at most one authorized reduce-only exit")
   if (authorizedStopReplaceCount > 1) fail("decision schedule permits at most one protective stop replacement")
+  if (authorizedPartialReduceCount > 1) fail("decision schedule permits at most one partial reduce")
+  if (authorizedPartialReduceCount > 0 && authorizedStopReplaceCount > 0) {
+    fail("partial reduce cannot be combined with protective stop replacement")
+  }
+  if (partialReduceIndex >= 0) {
+    const partial = schedule.entries[partialReduceIndex]!.authorized_partial_reduce!
+    const nextDecision = schedule.entries[partialReduceIndex + 1]
+    if (nextDecision && Date.parse(partial.earliest_executable_time) >= Date.parse(nextDecision.decision_time)) {
+      fail("partial reduce must execute before the next frozen decision")
+    }
+  }
   if (schedule.entries.length > 1 && (
     request.supplemental_requirement_set.mode !== "none"
     || request.decision_market_input_requirement.mode !== "closed_bar_lookback"
@@ -1396,6 +1427,7 @@ export function createReplaySingleDecisionSchedule(
       expected_effect: "authorized_initial_order",
       authorized_reduce_only_exit: null,
       authorized_protective_stop_replace: null,
+      authorized_partial_reduce: null,
       authorized_order_hash: canonicalHash(order),
     }],
   }
@@ -1412,6 +1444,10 @@ export function replayDecisionOutputFor(
   if (scheduleEntry.expected_effect === "authorized_protective_stop_replace") {
     if (!scheduleEntry.authorized_protective_stop_replace) fail("authorized protective stop replacement intent is missing")
     return { action: "replace_protective_stop", order: structuredClone(scheduleEntry.authorized_protective_stop_replace) }
+  }
+  if (scheduleEntry.expected_effect === "authorized_partial_reduce") {
+    if (!scheduleEntry.authorized_partial_reduce) fail("authorized partial-reduce intent is missing")
+    return { action: "submit_partial_reduce", order: structuredClone(scheduleEntry.authorized_partial_reduce) }
   }
   if (!scheduleEntry.authorized_reduce_only_exit) fail("authorized reduce-only exit intent is missing")
   return { action: "submit_reduce_only_exit", order: structuredClone(scheduleEntry.authorized_reduce_only_exit) }
@@ -1442,6 +1478,10 @@ export function replayDecisionEarliestExecutableTimeFor(
   if (scheduleEntry.expected_effect === "authorized_reduce_only_exit") {
     if (!scheduleEntry.authorized_reduce_only_exit) fail("authorized reduce-only exit intent is missing")
     return scheduleEntry.authorized_reduce_only_exit.earliest_executable_time
+  }
+  if (scheduleEntry.expected_effect === "authorized_partial_reduce") {
+    if (!scheduleEntry.authorized_partial_reduce) fail("authorized partial-reduce intent is missing")
+    return scheduleEntry.authorized_partial_reduce.earliest_executable_time
   }
   return null
 }
@@ -2073,6 +2113,25 @@ export function assertReplayDecisionHarnessWorkerResponse(
   }
   if (workerResponse.decision_output.action === "submit_initial_order") {
     requirePositive(workerResponse.decision_output.order.quantity, "decision_harness_worker_response.decision_output.order.quantity")
+  } else if (workerResponse.decision_output.action === "submit_partial_reduce") {
+    const partial = workerResponse.decision_output.order
+    if (partial.schema_version !== REPLAY_PARTIAL_REDUCE_INTENT_SCHEMA_VERSION
+        || !["buy", "sell"].includes(partial.side) || partial.order_type !== "market"
+        || partial.reduce_only !== true || partial.quantity_policy !== "fixed_quantity"
+        || partial.post_fill_position_policy !== "must_remain_open"
+        || partial.protection_resize_policy !== "after_fill_cancel_both_then_replace_remaining_at_same_source_boundary"
+        || partial.protection_policy_version !== REPLAY_PARTIAL_REDUCE_PROTECTION_POLICY_VERSION
+        || partial.replacement_trigger_policy !== "preserve_current_stop_and_target_prices"
+        || partial.remaining_quantity_authority !== "absolute_post_fill_position"
+        || partial.schedule_combination_policy !== "one_partial_reduce_then_optional_final_full_exit_no_stop_replace") {
+      fail("unsupported partial-reduce decision output")
+    }
+    requirePositive(partial.quantity, "decision_harness_worker_response.decision_output.order.quantity")
+    requireUtcTimestamp(partial.signal_time, "decision_harness_worker_response.decision_output.order.signal_time")
+    requireUtcTimestamp(partial.earliest_executable_time, "decision_harness_worker_response.decision_output.order.earliest_executable_time")
+    if (Date.parse(partial.earliest_executable_time) <= Date.parse(partial.signal_time)) {
+      fail("partial-reduce decision output must execute after its signal")
+    }
   } else if (workerResponse.decision_output.action === "submit_reduce_only_exit") {
     const exit = workerResponse.decision_output.order
     if (exit.schema_version !== REPLAY_REDUCE_ONLY_EXIT_INTENT_SCHEMA_VERSION
@@ -2369,6 +2428,7 @@ export interface ReplayDecisionEvidenceInput {
 function replayDecisionKindFor(entry: ReplayDecisionScheduleEntry): ReplayDecisionEvidenceEntry["decision_kind"] {
   if (entry.expected_effect === "authorized_initial_order") return "initial_order"
   if (entry.expected_effect === "authorized_protective_stop_replace") return "protective_stop_replace"
+  if (entry.expected_effect === "authorized_partial_reduce") return "partial_reduce"
   if (entry.expected_effect === "authorized_reduce_only_exit") return "reduce_only_exit"
   return "scheduled_evaluation"
 }
@@ -2378,6 +2438,7 @@ function replayDecisionExecutionEffectFor(
 ): Exclude<ReplayDecisionEvidenceEntry["execution_effect"], "not_reached"> {
   if (entry.expected_effect === "authorized_initial_order") return "authorized_order"
   if (entry.expected_effect === "authorized_protective_stop_replace") return "authorized_protective_stop_replace"
+  if (entry.expected_effect === "authorized_partial_reduce") return "authorized_partial_reduce"
   if (entry.expected_effect === "authorized_reduce_only_exit") return "authorized_reduce_only_exit"
   return "no_action"
 }
