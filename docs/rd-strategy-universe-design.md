@@ -1078,12 +1078,13 @@ Planner 先路由 proposal：已有 family 才能生成完整 Experiment Contrac
 | `harness_commit_ref` | replay / panel / selector 实现版本 |
 | `data_snapshot_ref` | 数据快照版本 |
 | `assumptions_ref` | 撮合、成本、缺失值和 temporal contract 的冻结引用 |
+| `replay_execution_input` | Replay 必需 supplemental input 的 schema/hash；由 Contract 冻结，Developer 不得降级为空 |
 
 最小 JSON 形状：
 
 ```json
 {
-  "schema_version": "trade-flow.rd-experiment-contract.v2",
+  "schema_version": "trade-flow.rd-experiment-contract.v3",
   "canonical_node_id": "carry/funding-carry/crowded-funding-unwind",
   "code_family_id": "funding_carry_v1",
   "implementation_version": "v1",
@@ -1142,7 +1143,11 @@ Planner 先路由 proposal：已有 family 才能生成完整 Experiment Contrac
   "code_commit_ref": "...",
   "harness_commit_ref": "...",
   "data_snapshot_ref": "...",
-  "assumptions_ref": "..."
+  "assumptions_ref": "...",
+  "replay_execution_input": {
+    "supplemental_requirement_set_schema_version": "trade.rd-replay-supplemental-requirement-set.v1",
+    "supplemental_requirement_set_hash": "sha256"
+  }
 }
 ```
 
@@ -1269,7 +1274,7 @@ Strategy hypothesis designer 不是自由写策略，而是把 scout findings、
 2. 先过 scope gate，再选择 L1 Edge、L2 Mechanism Family、L3 Canonical Strategy；不得从参数、指标或随机公式开始。
 3. 判断缺的是新数据、新 family、组合语义，还是已有 family 可表达的候选。
 4. 默认只提出一条高质量 hypothesis；需要 ablation、有限网格或 operationalization 对照时，只能生成预注册的有限 candidate set。
-5. 已有 family 时输出 `trade-flow.rd-experiment-contract.v2` proposal；缺 family 时输出 `trade-flow.rd-family-backlog-contract.v1` proposal。不得输出自由散文、回测或 promotion 结论。
+5. 已有 family 时输出 `trade-flow.rd-experiment-contract.v3` proposal；缺 family 时输出 `trade-flow.rd-family-backlog-contract.v1` proposal。不得输出自由散文、回测或 promotion 结论。
 6. proposal 无效则在同一 proposal session 形成 revision；不创建 experiment、不进入 lineage、不消耗 trial。
 
 纪律：
