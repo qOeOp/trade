@@ -10,20 +10,20 @@ export {
   REPLAY_OBJECT_ARTIFACT_STORAGE_POLICY_VERSION,
 }
 
-export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v10" as const
-export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v16" as const
-export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v18" as const
+export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v11" as const
+export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v17" as const
+export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v19" as const
 export const REPLAY_ARTIFACT_STORE_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-artifact-store-capability.v1" as const
-export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v6" as const
+export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v7" as const
 export const REPLAY_NUMERIC_POLICY_VERSION = "rd-replay-number-v3" as const
 export const REPLAY_DERIVED_DECIMAL_INCREMENT = "0.000000000001" as const
 export const REPLAY_JOURNAL_POLICY_VERSION = "rd-replay-journal-v4" as const
 export const REPLAY_EQUITY_POLICY_VERSION = "rd-replay-equity-v1" as const
-export const REPLAY_MARGIN_POLICY_VERSION = "rd-replay-isolated-margin-v6" as const
-export const REPLAY_MAINTENANCE_BREACH_SCHEMA_VERSION = "trade.rd-replay-maintenance-breach-observation.v2" as const
-export const REPLAY_LIQUIDATION_EXECUTION_SCHEMA_VERSION = "trade.rd-replay-liquidation-execution.v1" as const
+export const REPLAY_MARGIN_POLICY_VERSION = "rd-replay-isolated-margin-v7" as const
+export const REPLAY_MAINTENANCE_BREACH_SCHEMA_VERSION = "trade.rd-replay-maintenance-breach-observation.v3" as const
+export const REPLAY_LIQUIDATION_EXECUTION_SCHEMA_VERSION = "trade.rd-replay-liquidation-execution.v2" as const
 export const REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION = "rd-replay-instrument-accounting-v1" as const
-export const REPLAY_DATASET_MANIFEST_SCHEMA_VERSION = "trade.rd-replay-dataset-manifest.v4" as const
+export const REPLAY_DATASET_MANIFEST_SCHEMA_VERSION = "trade.rd-replay-dataset-manifest.v5" as const
 export const REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION = "trade.rd-replay-venue-risk-policy-snapshot.v1" as const
 export const REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION = "trade.rd-replay-instrument-spec-snapshot.v1" as const
 export const REPLAY_CERTIFIED_CAPABILITIES = [
@@ -97,8 +97,8 @@ export interface ReplayExecutionRequest {
   trial_reservation_hash: string
   dataset_manifest_ref: string
   dataset_hash: string
-  venue_risk_policy_snapshot_hash: string
-  instrument_spec_snapshot_hash: string
+  venue_risk_policy_schedule_hash: string
+  instrument_spec_schedule_hash: string
   harness_hash: string
   assumptions_hash: string
   strategy_policy_hash?: string
@@ -212,13 +212,13 @@ export interface ReplayDatasetManifest {
   mark_coverage: "none" | "complete_grid"
   mark_interval_ms: number | null
   mark_event_count: number
-  venue_risk_policy: ReplayVenueRiskPolicySnapshot
+  venue_risk_policy_epochs: ReplayVenueRiskPolicySnapshot[]
   instrument: {
     listed_at: string
     trading_enabled_at: string
     delisted_at: string | null
     status_history: "complete" | "current_snapshot_only"
-    spec_snapshot: ReplayInstrumentSpecSnapshot
+    spec_epochs: ReplayInstrumentSpecSnapshot[]
     accounting: ReplayInstrumentAccountingSpec
   }
   universe: {
@@ -454,6 +454,8 @@ export interface ReplayEquityBridge {
 
 export interface ReplayMarginSnapshot {
   policy_version: typeof REPLAY_MARGIN_POLICY_VERSION
+  venue_risk_policy_snapshot_id: string
+  venue_risk_policy_snapshot_hash: string
   snapshot_id: string
   snapshot_sequence: number
   stage: "post_entry" | "path" | "terminal"
@@ -492,6 +494,8 @@ export interface ReplayMaintenanceBreachObservation {
   event_key: ReplayEventKey
   timestamp: string
   margin_snapshot_id: string
+  venue_risk_policy_snapshot_id: string
+  venue_risk_policy_snapshot_hash: string
   position_event_id: string
   mark_source_ref: string
   mark_source: ReplayMarginSnapshot["mark_source"]
@@ -511,6 +515,8 @@ export interface ReplayLiquidationExecution {
   liquidation_id: string
   simulator_policy_version: typeof REPLAY_SIMULATOR_POLICY_VERSION
   margin_policy_version: typeof REPLAY_MARGIN_POLICY_VERSION
+  venue_risk_policy_snapshot_id: string
+  venue_risk_policy_snapshot_hash: string
   cost_policy_id: string
   cost_policy_version: string
   trigger_observation: ReplayMaintenanceBreachObservation
@@ -558,8 +564,8 @@ export interface ReplayEvidenceFingerprint {
   trial_reservation_hash: string
   dataset_manifest_hash: string
   dataset_hash: string
-  venue_risk_policy_snapshot_hash: string
-  instrument_spec_snapshot_hash: string
+  venue_risk_policy_schedule_hash: string
+  instrument_spec_schedule_hash: string
   harness_hash: string
   assumptions_hash: string
   cost_policy_hash: string
@@ -637,7 +643,7 @@ export function assertReplayExecutionRequest(value: ReplayExecutionRequest): voi
   ] as const) requireText(value[field], field)
   for (const field of [
     "trial_group_hash", "candidate_hash", "experiment_contract_hash", "dataset_hash", "harness_hash", "assumptions_hash",
-    "trial_reservation_hash", "venue_risk_policy_snapshot_hash", "instrument_spec_snapshot_hash",
+    "trial_reservation_hash", "venue_risk_policy_schedule_hash", "instrument_spec_schedule_hash",
   ] as const) requireHash(value[field], field)
   if (value.strategy_policy_hash) requireHash(value.strategy_policy_hash, "strategy_policy_hash")
   requirePositive(value.initial_cash, "initial_cash")
@@ -741,8 +747,8 @@ export function assertReplayDatasetManifest(manifest: ReplayDatasetManifest): vo
   if (manifest.instrument.status_history !== "complete" && manifest.instrument.status_history !== "current_snapshot_only") {
     fail("unsupported instrument status history policy")
   }
-  assertReplayVenueRiskPolicySnapshot(manifest.venue_risk_policy)
-  assertReplayInstrumentSpecSnapshot(manifest.instrument.spec_snapshot)
+  assertReplaySnapshotSchedule(manifest.venue_risk_policy_epochs, assertReplayVenueRiskPolicySnapshot, "venue_risk_policy_epochs")
+  assertReplaySnapshotSchedule(manifest.instrument.spec_epochs, assertReplayInstrumentSpecSnapshot, "instrument.spec_epochs")
   assertReplayInstrumentAccountingSpec(manifest.instrument.accounting)
   if (manifest.universe.survivorship !== "point_in_time" && manifest.universe.survivorship !== "survivor_only") {
     fail("unsupported universe survivorship policy")
@@ -798,6 +804,22 @@ export function assertReplayInstrumentSpecSnapshot(snapshot: ReplayInstrumentSpe
   })) requireText(value, `instrument.spec_snapshot.${field}`)
   requireHash(snapshot.source_hash, "instrument.spec_snapshot.source_hash")
   assertReplaySnapshotInterval(snapshot, "instrument.spec_snapshot")
+}
+
+function assertReplaySnapshotSchedule<T extends { effective_at: string; valid_until: string | null }>(
+  snapshots: T[],
+  assertSnapshot: (snapshot: T) => void,
+  field: string,
+): void {
+  if (!Array.isArray(snapshots) || snapshots.length === 0) fail(`${field} must not be empty`)
+  for (const [index, snapshot] of snapshots.entries()) {
+    assertSnapshot(snapshot)
+    if (index === 0) continue
+    const previous = snapshots[index - 1]
+    if (previous.valid_until === null || previous.valid_until !== snapshot.effective_at) {
+      fail(`${field} must be ordered, non-overlapping, and contiguous`)
+    }
+  }
 }
 
 function assertReplaySnapshotInterval(

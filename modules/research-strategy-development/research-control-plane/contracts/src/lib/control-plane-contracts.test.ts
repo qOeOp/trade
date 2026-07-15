@@ -54,8 +54,8 @@ function reservation(): TrialReservationSnapshot {
     trial_accounting_policy_version: "count-all-v1", candidate_assignment_hash: HASH,
     bindings: {
       replay_idempotency_key: "replay-1", execution_spec_hash: HASH, dataset_manifest_ref: "dataset://fixture", dataset_hash: HASH,
-      venue_risk_policy_snapshot_hash: HASH, instrument_spec_snapshot_hash: HASH, harness_hash: HASH, assumptions_hash: HASH,
-      cost_policy_hash: HASH, margin_policy_hash: HASH, simulator_policy_version: "rd-replay-simulator-v6", execution_mode: "step",
+      venue_risk_policy_schedule_hash: HASH, instrument_spec_schedule_hash: HASH, harness_hash: HASH, assumptions_hash: HASH,
+      cost_policy_hash: HASH, margin_policy_hash: HASH, simulator_policy_version: "rd-replay-simulator-v7", execution_mode: "step",
     },
     required_capabilities: ["closed-candle", "step"],
   }

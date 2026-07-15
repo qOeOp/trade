@@ -236,8 +236,8 @@ test("metamorphic: scaling prices and cash preserves return fraction and exit ro
   const scaledInput = boundInput(request, bars, fundingEvents)
   scaledInput.dataset_manifest.instrument.accounting.price_increment = "0.03"
   scaledInput.dataset_manifest.instrument.accounting.settlement_increment = "0.00000003"
-  scaledInput.request.instrument_spec_snapshot_hash = canonicalHash({
-    snapshot: scaledInput.dataset_manifest.instrument.spec_snapshot,
+  scaledInput.request.instrument_spec_schedule_hash = canonicalHash({
+    epochs: scaledInput.dataset_manifest.instrument.spec_epochs,
     accounting: scaledInput.dataset_manifest.instrument.accounting,
   })
   const scaled = executeReplayKernel(scaledInput)

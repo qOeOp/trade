@@ -20,6 +20,7 @@ import {
   type ReplayOrderEvent,
   type ReplayResult,
   type ReplaySourceEvent,
+  type ReplayVenueRiskPolicySnapshot,
 } from "../../../contracts/src/lib/replay-contracts"
 import {
   applyAdverseSlippageV3,
@@ -32,7 +33,7 @@ import { buildReplayEquityProjection } from "../../../accounting/src/lib/replay-
 import { buildReplayJournal } from "../../../accounting/src/lib/replay-journal"
 import { buildReplayMarginSnapshot } from "../../../accounting/src/lib/replay-margin"
 import { addReplayDecimalValues, isReplayIncrementAligned, quantizeReplayDifferenceProduct, quantizeReplayQuantity } from "../../../contracts/src/lib/replay-decimal"
-import { prepareReplayInputData } from "../../../data-adapter/src/lib/replay-data-adapter"
+import { prepareReplayInputData, resolveReplayVenueRiskPolicyAt } from "../../../data-adapter/src/lib/replay-data-adapter"
 import { deriveReplayMetrics } from "../../../metrics/src/lib/replay-metrics"
 import {
   submitReplayOrder,
@@ -45,7 +46,7 @@ import { completeReplayLiquidationOrderLane } from "./replay-liquidation-order-l
 import { ReplayLiquidationDeficitError, assertReplayPostEntryMargin, buildReplayMaintenanceBreachObservation, buildReplayPathMarginSnapshots } from "./replay-margin-path"
 import { reduceReplaySourceEvents } from "./replay-source-reducer"
 
-export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v1" as const
+export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v2" as const
 
 export interface ReplayEngineCheckpoint {
   schema_version: typeof REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION
@@ -104,6 +105,14 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
   const { bars, funding_events: fundingEvents, mark_events: markEvents, entry_index: entryIndex } = prepared
   const exactMarkCoverage = input.dataset_manifest.mark_coverage === "complete_grid"
   const accountingSpec = input.dataset_manifest.instrument.accounting
+  const riskPolicyAt = (timestamp: string): ReplayVenueRiskPolicySnapshot => (
+    resolveReplayVenueRiskPolicyAt(input.dataset_manifest, timestamp)
+  )
+  const marginPolicyFor = (risk: ReplayVenueRiskPolicySnapshot) => ({
+    ...request.margin_policy,
+    initial_margin_rate: risk.initial_margin_rate,
+    maintenance_tier: structuredClone(risk.maintenance_tier),
+  })
   assertInstrumentAlignedInputs(request, bars, accountingSpec.price_increment, accountingSpec.settlement_increment)
   const executionQuantity = quantizeReplayQuantity(request.order.quantity, accountingSpec.quantity_increment)
 
@@ -289,7 +298,8 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
         stage: "path",
         snapshot_sequence: exactRiskSnapshots.length + 2,
         accounting_spec: accountingSpec,
-        margin_policy: request.margin_policy,
+        margin_policy: marginPolicyFor(riskPolicyAt(source.event_key.event_time)),
+        venue_risk_policy_snapshot: riskPolicyAt(source.event_key.event_time),
         position: preliminaryPosition,
         event_key: source.event_key,
         mark_source_ref: source.source_event_id,
@@ -334,6 +344,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       }),
   })
   const { exit, entry_transition: entryExecution, terminal_transition: exitExecution } = sourceReduction
+  const exitRiskPolicy = riskPolicyAt(exit.timestamp)
   const entryFill = entryFillFor(entryExecution)
   const fills: ReplayFill[] = [entryFill]
   const {
@@ -363,7 +374,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       ? calculateNotionalChargeV3(
         exitPrice,
         exitQuantity,
-        request.cost_policy.liquidation_fee_bps,
+        exitRiskPolicy.liquidation_fee_bps,
         accountingSpec.settlement_increment,
       )
       : undefined
@@ -465,7 +476,8 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     stage: "post_entry",
     snapshot_sequence: 1,
     accounting_spec: accountingSpec,
-    margin_policy: request.margin_policy,
+    margin_policy: marginPolicyFor(riskPolicyAt(entryFill.timestamp)),
+    venue_risk_policy_snapshot: riskPolicyAt(entryFill.timestamp),
     position: positions[0],
     event_key: entryFill.event_key,
     mark_source_ref: entryFill.fill_id,
@@ -480,6 +492,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     ? exactRiskSnapshots
     : buildReplayPathMarginSnapshots({
       request,
+      dataset_manifest: input.dataset_manifest,
       accounting_spec: accountingSpec,
       entry_position: positions[0],
       source_events: sourceEvents,
@@ -495,7 +508,8 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     stage: "terminal",
     snapshot_sequence: pathMarginSnapshots.length + 2,
     accounting_spec: accountingSpec,
-    margin_policy: request.margin_policy,
+    margin_policy: marginPolicyFor(exitRiskPolicy),
+    venue_risk_policy_snapshot: exitRiskPolicy,
     position: terminalPosition,
     event_key: endingLedgerEventKey,
     mark_source_ref: markSourceRef,
@@ -532,6 +546,8 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       liquidation_id: `${request.run_id}:liquidation:1`,
       simulator_policy_version: request.simulator_policy.version,
       margin_policy_version: request.margin_policy.version,
+      venue_risk_policy_snapshot_id: exitRiskPolicy.snapshot_id,
+      venue_risk_policy_snapshot_hash: canonicalHash(exitRiskPolicy),
       cost_policy_id: request.cost_policy.policy_id,
       cost_policy_version: request.cost_policy.version,
       trigger_observation: buildReplayMaintenanceBreachObservation(pathMarginSnapshots.at(-1)!, "simulated_full_close"),
@@ -545,7 +561,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       slippage_bps: request.cost_policy.slippage_bps,
       execution_price: exitFill.price,
       trading_fee: exitFill.fee,
-      liquidation_fee_bps: request.cost_policy.liquidation_fee_bps,
+      liquidation_fee_bps: exitRiskPolicy.liquidation_fee_bps,
       liquidation_fee: exitFill.liquidation_fee!,
       settlement_state: "flat_without_deficit" as const,
     }
@@ -581,8 +597,8 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       trial_reservation_hash: request.trial_reservation_hash,
       dataset_manifest_hash: prepared.dataset_manifest_hash,
       dataset_hash: request.dataset_hash,
-      venue_risk_policy_snapshot_hash: request.venue_risk_policy_snapshot_hash,
-      instrument_spec_snapshot_hash: request.instrument_spec_snapshot_hash,
+      venue_risk_policy_schedule_hash: request.venue_risk_policy_schedule_hash,
+      instrument_spec_schedule_hash: request.instrument_spec_schedule_hash,
       harness_hash: request.harness_hash,
       assumptions_hash: request.assumptions_hash,
       cost_policy_hash: canonicalHash(request.cost_policy),

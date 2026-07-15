@@ -61,12 +61,12 @@ test("legacy replay runner adapts Trial-bound requests to Replay Execution Plane
     trial_group_id: "group-1", trial_group_hash: hash, trial_id: "trial-1", candidate_id: "candidate-1", candidate_hash: hash,
     identity_hash_policy_version: "identity-v1", experiment_contract_hash: hash, dataset_manifest_ref: "dataset://fixture", dataset_hash: dataHash,
     trial_reservation_ref: "reservation://trial-1", trial_reservation_hash: hash,
-    venue_risk_policy_snapshot_hash: canonicalHash(riskSnapshot), instrument_spec_snapshot_hash: canonicalHash({ snapshot: specSnapshot, accounting }),
+    venue_risk_policy_schedule_hash: canonicalHash([riskSnapshot]), instrument_spec_schedule_hash: canonicalHash({ epochs: [specSnapshot], accounting }),
     harness_hash: hash, assumptions_hash: hash, symbol: "BTCUSDT", timeframe: "4h", initial_cash: 1000,
     order: { side: "long", quantity: 1, signal_time: "2026-07-14T00:00:00Z", earliest_executable_time: "2026-07-14T04:00:00Z", stop_price: 95, target_price: 110 },
     cost_policy: { policy_id: "fixture", version: "1", fee_bps: 0, slippage_bps: 0, liquidation_fee_bps: 50 },
     simulator_policy: { version: REPLAY_SIMULATOR_POLICY_VERSION, signal_visibility: "closed_candle", earliest_execution: "next_open", same_bar_policy: "stop_first", gap_fill_policy: "worse_open", position_accounting: "average_cost", funding_timing: "exact_event", end_of_data: "mark_open", margin_evaluation: "before_strategy_orders" },
-    margin_policy: { policy_id: "fixture", version: "rd-replay-isolated-margin-v6", mode: "isolated", collateral_asset: "USDT", isolated_collateral: 1000, initial_margin_rate: 0.1, maintenance_tier: maintenanceTier, cashflow_scope: "position_attributed", collateral_transfer: "reserve_at_entry_release_at_terminal_if_flat", settled_cashflow_account: "isolated_margin_collateral", observation_scope: "source_event_path", mark_source_policy: "complete_exact_mark_else_ohlcv_adverse", maintenance_trigger: "margin_balance_below_maintenance_requirement", breach_terminal_priority: "risk_before_strategy_exit", breach_evidence: "first_observed_source_event", maintenance_breach_action: "exact_observation_full_liquidation_else_terminal_failure", liquidation: "simulated_full_close", liquidation_trigger_sources: "mark_or_funding_mark", liquidation_execution_price: "trigger_mark_adverse_slippage", liquidation_quantity: "full_position", liquidation_order_priority: "cancel_strategy_exits_before_forced_fill", liquidation_deficit: "fail_without_result" }, random_seed: 1,
+    margin_policy: { policy_id: "fixture", version: "rd-replay-isolated-margin-v7", mode: "isolated", collateral_asset: "USDT", isolated_collateral: 1000, initial_margin_rate: 0.1, maintenance_tier: maintenanceTier, cashflow_scope: "position_attributed", collateral_transfer: "reserve_at_entry_release_at_terminal_if_flat", settled_cashflow_account: "isolated_margin_collateral", observation_scope: "source_event_path", mark_source_policy: "complete_exact_mark_else_ohlcv_adverse", maintenance_trigger: "margin_balance_below_maintenance_requirement", breach_terminal_priority: "risk_before_strategy_exit", breach_evidence: "first_observed_source_event", maintenance_breach_action: "exact_observation_full_liquidation_else_terminal_failure", liquidation: "simulated_full_close", liquidation_trigger_sources: "mark_or_funding_mark", liquidation_execution_price: "trigger_mark_adverse_slippage", liquidation_quantity: "full_position", liquidation_order_priority: "cancel_strategy_exits_before_forced_fill", liquidation_deficit: "fail_without_result" }, random_seed: 1,
   } as ReplayExecutionRequest
   const trialReservation = authorize(executionRequest)
   const attemptLease = authorizeAttempt(executionRequest, trialReservation)
@@ -83,10 +83,10 @@ test("legacy replay runner adapts Trial-bound requests to Replay Execution Plane
       observed_through: bars[0].close_time, closed_candles_only: true,
       bar_final_availability: "close_time", funding_availability: "event_time", mark_availability: "event_time",
       mark_coverage: "none", mark_interval_ms: null, mark_event_count: 0,
-      venue_risk_policy: riskSnapshot,
+      venue_risk_policy_epochs: [riskSnapshot],
       instrument: {
         listed_at: "2020-01-01T00:00:00Z", trading_enabled_at: "2020-01-01T00:00:00Z", delisted_at: null, status_history: "complete",
-        spec_snapshot: specSnapshot,
+        spec_epochs: [specSnapshot],
         accounting,
       },
       universe: { selected_at: "2026-07-13T00:00:00Z", survivorship: "point_in_time" },
@@ -102,7 +102,7 @@ function authorize(request: ReplayExecutionRequest): TrialReservationSnapshot {
     schema_version: TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION, reservation_id: "reservation-1", reservation_ref: request.trial_reservation_ref,
     issued_at: "2026-07-14T00:00:00Z", expires_at: "2026-07-15T00:00:00Z", status: "reserved", identity: { schema_version: CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, experiment_id: request.experiment_id, trial_group_id: request.trial_group_id, trial_group_hash: request.trial_group_hash, trial_id: request.trial_id, candidate_id: request.candidate_id, candidate_hash: request.candidate_hash, identity_hash_policy_version: request.identity_hash_policy_version, experiment_contract_hash: request.experiment_contract_hash },
     trial_ordinal: 1, run_id: request.run_id, counts_against_budget: true, trial_accounting_policy_version: "count-all-v1", candidate_assignment_hash: "a".repeat(64),
-    bindings: { replay_idempotency_key: request.idempotency_key, execution_spec_hash: replayExecutionSpecHash(request), dataset_manifest_ref: request.dataset_manifest_ref, dataset_hash: request.dataset_hash, venue_risk_policy_snapshot_hash: request.venue_risk_policy_snapshot_hash, instrument_spec_snapshot_hash: request.instrument_spec_snapshot_hash, harness_hash: request.harness_hash, assumptions_hash: request.assumptions_hash, cost_policy_hash: canonicalHash(request.cost_policy), margin_policy_hash: canonicalHash(request.margin_policy), simulator_policy_version: request.simulator_policy.version, execution_mode: "step" }, required_capabilities: [...REPLAY_CERTIFIED_CAPABILITIES],
+    bindings: { replay_idempotency_key: request.idempotency_key, execution_spec_hash: replayExecutionSpecHash(request), dataset_manifest_ref: request.dataset_manifest_ref, dataset_hash: request.dataset_hash, venue_risk_policy_schedule_hash: request.venue_risk_policy_schedule_hash, instrument_spec_schedule_hash: request.instrument_spec_schedule_hash, harness_hash: request.harness_hash, assumptions_hash: request.assumptions_hash, cost_policy_hash: canonicalHash(request.cost_policy), margin_policy_hash: canonicalHash(request.margin_policy), simulator_policy_version: request.simulator_policy.version, execution_mode: "step" }, required_capabilities: [...REPLAY_CERTIFIED_CAPABILITIES],
   }
   request.trial_reservation_hash = hashTrialReservationSnapshot(reservation)
   return reservation

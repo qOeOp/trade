@@ -2,6 +2,7 @@ import {
   REPLAY_MAINTENANCE_BREACH_SCHEMA_VERSION,
   compareReplayEventKeys,
   type ReplayExecutionRequest,
+  type ReplayDatasetManifest,
   type ReplayFundingEvent,
   type ReplayInstrumentAccountingSpec,
   type ReplayLedgerEntry,
@@ -14,6 +15,7 @@ import {
 } from "../../../contracts/src/lib/replay-contracts"
 import { quantizeReplayDifferenceProduct } from "../../../contracts/src/lib/replay-decimal"
 import { buildReplayMarginSnapshot } from "../../../accounting/src/lib/replay-margin"
+import { resolveReplayVenueRiskPolicyAt } from "../../../data-adapter/src/lib/replay-data-adapter"
 
 export class ReplayMarginTerminalError extends Error {
   readonly maintenance_breach: ReplayMaintenanceBreachObservation | undefined
@@ -62,6 +64,8 @@ export function buildReplayMaintenanceBreachObservation(
     event_key: snapshot.event_key,
     timestamp: snapshot.timestamp,
     margin_snapshot_id: snapshot.snapshot_id,
+    venue_risk_policy_snapshot_id: snapshot.venue_risk_policy_snapshot_id,
+    venue_risk_policy_snapshot_hash: snapshot.venue_risk_policy_snapshot_hash,
     position_event_id: snapshot.position_event_id,
     mark_source_ref: snapshot.mark_source_ref,
     mark_source: snapshot.mark_source,
@@ -89,6 +93,7 @@ export function assertReplayPostEntryMargin(snapshot: ReplayMarginSnapshot): voi
 
 export function buildReplayPathMarginSnapshots(input: {
   request: ReplayExecutionRequest
+  dataset_manifest: ReplayDatasetManifest
   accounting_spec: ReplayInstrumentAccountingSpec
   entry_position: ReplayPositionProjection
   source_events: ReplaySourceEvent[]
@@ -106,12 +111,18 @@ export function buildReplayPathMarginSnapshots(input: {
         || compareReplayEventKeys(source.event_key, input.entry_position.event_key) <= 0) continue
     if (input.exact_mark_coverage && (source.kind === "bar_open" || source.kind === "bar_range")) continue
     const observation = marginObservation(input.request, source, input.bars, input.funding_events, input.mark_events)
+    const riskPolicy = resolveReplayVenueRiskPolicyAt(input.dataset_manifest, source.event_key.event_time)
     const snapshot = buildReplayMarginSnapshot({
       run_id: input.request.run_id,
       stage: "path",
       snapshot_sequence: input.first_sequence + snapshots.length,
       accounting_spec: input.accounting_spec,
-      margin_policy: input.request.margin_policy,
+      margin_policy: {
+        ...input.request.margin_policy,
+        initial_margin_rate: riskPolicy.initial_margin_rate,
+        maintenance_tier: structuredClone(riskPolicy.maintenance_tier),
+      },
+      venue_risk_policy_snapshot: riskPolicy,
       position: input.entry_position,
       event_key: source.event_key,
       mark_source_ref: source.source_event_id,

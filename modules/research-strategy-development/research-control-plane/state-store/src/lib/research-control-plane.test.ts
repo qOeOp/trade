@@ -253,9 +253,9 @@ test("Control Plane atomically issues an immutable Replay Trial Reservation snap
       expires_at: "2026-07-14T04:08:00Z",
       bindings: {
         replay_idempotency_key: "replay-key", execution_spec_hash: "a".repeat(64), dataset_manifest_ref: "dataset://fixture", dataset_hash: "b".repeat(64),
-        venue_risk_policy_snapshot_hash: "c".repeat(64), instrument_spec_snapshot_hash: "d".repeat(64), harness_hash: "e".repeat(64),
+        venue_risk_policy_schedule_hash: "c".repeat(64), instrument_spec_schedule_hash: "d".repeat(64), harness_hash: "e".repeat(64),
         assumptions_hash: "f".repeat(64), cost_policy_hash: "1".repeat(64), margin_policy_hash: "2".repeat(64),
-        simulator_policy_version: "rd-replay-simulator-v6", execution_mode: "step",
+        simulator_policy_version: "rd-replay-simulator-v7", execution_mode: "step",
       },
       required_capabilities: ["closed-candle", "step"],
     })
@@ -290,9 +290,9 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
       expires_at: "2026-07-14T04:08:00Z",
       bindings: {
         replay_idempotency_key: "replay-attempt-key", execution_spec_hash: "a".repeat(64), dataset_manifest_ref: "dataset://fixture", dataset_hash: "b".repeat(64),
-        venue_risk_policy_snapshot_hash: "c".repeat(64), instrument_spec_snapshot_hash: "d".repeat(64), harness_hash: "e".repeat(64),
+        venue_risk_policy_schedule_hash: "c".repeat(64), instrument_spec_schedule_hash: "d".repeat(64), harness_hash: "e".repeat(64),
         assumptions_hash: "f".repeat(64), cost_policy_hash: "1".repeat(64), margin_policy_hash: "2".repeat(64),
-        simulator_policy_version: "rd-replay-simulator-v6", execution_mode: "step",
+        simulator_policy_version: "rd-replay-simulator-v7", execution_mode: "step",
       },
       required_capabilities: ["closed-candle", "step"],
     })

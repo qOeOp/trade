@@ -2,6 +2,7 @@ import { expect, test } from "bun:test"
 import {
   REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION,
   REPLAY_MARGIN_POLICY_VERSION,
+  REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
   type ReplayEventKey,
   type ReplayInstrumentAccountingSpec,
   type ReplayIsolatedMarginPolicy,
@@ -55,6 +56,21 @@ const policy: ReplayIsolatedMarginPolicy = {
   liquidation_deficit: "fail_without_result",
 }
 
+const riskSnapshot = {
+  schema_version: REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
+  snapshot_id: "risk-1",
+  venue_id: "binance-usdm",
+  symbol: "BTCUSDT",
+  effective_at: "2020-01-01T00:00:00Z",
+  valid_until: null,
+  observed_at: "2026-07-13T00:00:00Z",
+  source_ref: "fixture:risk-1",
+  source_hash: "b".repeat(64),
+  initial_margin_rate: policy.initial_margin_rate,
+  maintenance_tier: policy.maintenance_tier,
+  liquidation_fee_bps: 50,
+}
+
 function key(time: string, phase: 20 | 100, id: string): ReplayEventKey {
   return { event_time: time, boundary_phase: phase, source_sequence: 1, event_subphase: 0, stable_event_id: id }
 }
@@ -96,14 +112,14 @@ test("isolated margin snapshots include attributed cashflows and deterministic r
   const ending = key("2026-07-14T08:00:00Z", 100, "ending")
   const facts = ledger(entry, ending)
   const postEntry = buildReplayMarginSnapshot({
-    run_id: "run", snapshot_sequence: 1, stage: "post_entry", accounting_spec: spec, margin_policy: policy,
+    run_id: "run", snapshot_sequence: 1, stage: "post_entry", accounting_spec: spec, margin_policy: policy, venue_risk_policy_snapshot: riskSnapshot,
     position: position("open", entry), event_key: entry, mark_source_ref: "fill-open", mark_source: "fill_price",
     mark_price: 100, unrealized_pnl: 0, resolution: "exact", ledger: facts,
   })
   expect(postEntry).toMatchObject({ notional: 100, attributed_settled_cashflow: -1, margin_balance: 19, initial_margin_requirement: 10, maintenance_margin_requirement: 5, margin_ratio: 0.263157894737, maintenance_trigger: "margin_balance_below_maintenance_requirement", maintenance_breach_observed: false, breach_terminal_priority: "risk_before_strategy_exit", state: "healthy" })
 
   const terminal = buildReplayMarginSnapshot({
-    run_id: "run", snapshot_sequence: 2, stage: "terminal", accounting_spec: spec, margin_policy: policy,
+    run_id: "run", snapshot_sequence: 2, stage: "terminal", accounting_spec: spec, margin_policy: policy, venue_risk_policy_snapshot: riskSnapshot,
     position: position("open", entry), event_key: ending, mark_source_ref: "bar", mark_source: "bar_close",
     mark_price: 90, unrealized_pnl: -10, resolution: "exact", ledger: facts,
   })
@@ -115,7 +131,7 @@ test("flat terminal margin releases the observational allocation without inventi
   const exit = key("2026-07-14T08:00:00Z", 20, "exit")
   const ending = key("2026-07-14T08:00:00Z", 100, "ending")
   const snapshot = buildReplayMarginSnapshot({
-    run_id: "run", snapshot_sequence: 2, stage: "terminal", accounting_spec: spec, margin_policy: policy,
+    run_id: "run", snapshot_sequence: 2, stage: "terminal", accounting_spec: spec, margin_policy: policy, venue_risk_policy_snapshot: riskSnapshot,
     position: position("flat", exit), event_key: ending, mark_source_ref: "fill-flat", mark_source: "fill_price",
     mark_price: 110, unrealized_pnl: 0, resolution: "not_applicable_flat", ledger: ledger(entry, ending),
   })
@@ -126,7 +142,7 @@ test("margin observation exposes a maintenance breach but does not synthesize li
   const entry = key("2026-07-14T04:00:00Z", 20, "entry")
   const ending = key("2026-07-14T08:00:00Z", 100, "ending")
   const snapshot = buildReplayMarginSnapshot({
-    run_id: "run", snapshot_sequence: 2, stage: "terminal", accounting_spec: spec, margin_policy: policy,
+    run_id: "run", snapshot_sequence: 2, stage: "terminal", accounting_spec: spec, margin_policy: policy, venue_risk_policy_snapshot: riskSnapshot,
     position: position("open", entry), event_key: ending, mark_source_ref: "bar", mark_source: "bar_close",
     mark_price: 84, unrealized_pnl: -16, resolution: "exact", ledger: ledger(entry, ending),
   })

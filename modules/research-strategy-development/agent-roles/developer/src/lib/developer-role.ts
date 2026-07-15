@@ -13,8 +13,8 @@ export interface DeveloperReplayPlan {
   trial_reservation_hash: string
   dataset_manifest_ref: string
   dataset_hash: string
-  venue_risk_policy_snapshot_hash: string
-  instrument_spec_snapshot_hash: string
+  venue_risk_policy_schedule_hash: string
+  instrument_spec_schedule_hash: string
   harness_hash: string
   assumptions_hash: string
   symbol: string
@@ -44,8 +44,8 @@ export function buildDeveloperReplayRequest(plan: DeveloperReplayPlan): ReplayEx
     trial_reservation_hash: plan.trial_reservation_hash,
     dataset_manifest_ref: plan.dataset_manifest_ref,
     dataset_hash: plan.dataset_hash,
-    venue_risk_policy_snapshot_hash: plan.venue_risk_policy_snapshot_hash,
-    instrument_spec_snapshot_hash: plan.instrument_spec_snapshot_hash,
+    venue_risk_policy_schedule_hash: plan.venue_risk_policy_schedule_hash,
+    instrument_spec_schedule_hash: plan.instrument_spec_schedule_hash,
     harness_hash: plan.harness_hash,
     assumptions_hash: plan.assumptions_hash,
     symbol: plan.symbol,

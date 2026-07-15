@@ -14,7 +14,7 @@ import {
   type ReplayMarkEvent,
   type ReplayMarketBar,
 } from "../../../contracts/src/lib/replay-contracts"
-import { fundingEventsInWindow, prepareReplayInputData } from "./replay-data-adapter"
+import { fundingEventsInWindow, prepareReplayInputData, resolveReplayInstrumentSpecAt, resolveReplayVenueRiskPolicyAt } from "./replay-data-adapter"
 
 const HASH = "a".repeat(64)
 const MAINTENANCE_TIER = { tier_id: "tier-1", snapshot_ref: "fixture:margin-tier-1", snapshot_hash: HASH, notional_floor: 0, notional_cap: 50_000, maintenance_margin_rate: 0.005, maintenance_amount: 0 }
@@ -45,12 +45,12 @@ function request(dataHash = replayDatasetHash(bars, fundingEvents)): ReplayExecu
     candidate_id: "candidate-1", candidate_hash: HASH, identity_hash_policy_version: "identity-v1",
     experiment_contract_hash: HASH, dataset_manifest_ref: "dataset://fixture", dataset_hash: dataHash,
     trial_reservation_ref: "reservation://trial-1", trial_reservation_hash: HASH,
-    venue_risk_policy_snapshot_hash: canonicalHash(RISK_SNAPSHOT), instrument_spec_snapshot_hash: canonicalHash({ snapshot: SPEC_SNAPSHOT, accounting: ACCOUNTING }),
+    venue_risk_policy_schedule_hash: canonicalHash([RISK_SNAPSHOT]), instrument_spec_schedule_hash: canonicalHash({ epochs: [SPEC_SNAPSHOT], accounting: ACCOUNTING }),
     harness_hash: HASH, assumptions_hash: HASH, symbol: "BTCUSDT", timeframe: "4h", initial_cash: 1000,
     order: { side: "long", quantity: 1, signal_time: "2026-07-14T00:00:00Z", earliest_executable_time: "2026-07-14T04:00:00Z", stop_price: 95, target_price: 110 },
     cost_policy: { policy_id: "fixture", version: "1", fee_bps: 0, slippage_bps: 0, liquidation_fee_bps: 50 },
     simulator_policy: { version: REPLAY_SIMULATOR_POLICY_VERSION, signal_visibility: "closed_candle", earliest_execution: "next_open", same_bar_policy: "stop_first", gap_fill_policy: "worse_open", position_accounting: "average_cost", funding_timing: "exact_event", end_of_data: "mark_open", margin_evaluation: "before_strategy_orders" },
-    margin_policy: { policy_id: "fixture", version: "rd-replay-isolated-margin-v6", mode: "isolated", collateral_asset: "USDT", isolated_collateral: 1000, initial_margin_rate: 0.1, maintenance_tier: { ...MAINTENANCE_TIER }, cashflow_scope: "position_attributed", collateral_transfer: "reserve_at_entry_release_at_terminal_if_flat", settled_cashflow_account: "isolated_margin_collateral", observation_scope: "source_event_path", mark_source_policy: "complete_exact_mark_else_ohlcv_adverse", maintenance_trigger: "margin_balance_below_maintenance_requirement", breach_terminal_priority: "risk_before_strategy_exit", breach_evidence: "first_observed_source_event", maintenance_breach_action: "exact_observation_full_liquidation_else_terminal_failure", liquidation: "simulated_full_close", liquidation_trigger_sources: "mark_or_funding_mark", liquidation_execution_price: "trigger_mark_adverse_slippage", liquidation_quantity: "full_position", liquidation_order_priority: "cancel_strategy_exits_before_forced_fill", liquidation_deficit: "fail_without_result" },
+    margin_policy: { policy_id: "fixture", version: "rd-replay-isolated-margin-v7", mode: "isolated", collateral_asset: "USDT", isolated_collateral: 1000, initial_margin_rate: 0.1, maintenance_tier: { ...MAINTENANCE_TIER }, cashflow_scope: "position_attributed", collateral_transfer: "reserve_at_entry_release_at_terminal_if_flat", settled_cashflow_account: "isolated_margin_collateral", observation_scope: "source_event_path", mark_source_policy: "complete_exact_mark_else_ohlcv_adverse", maintenance_trigger: "margin_balance_below_maintenance_requirement", breach_terminal_priority: "risk_before_strategy_exit", breach_evidence: "first_observed_source_event", maintenance_breach_action: "exact_observation_full_liquidation_else_terminal_failure", liquidation: "simulated_full_close", liquidation_trigger_sources: "mark_or_funding_mark", liquidation_execution_price: "trigger_mark_adverse_slippage", liquidation_quantity: "full_position", liquidation_order_priority: "cancel_strategy_exits_before_forced_fill", liquidation_deficit: "fail_without_result" },
     random_seed: 1,
   }
 }
@@ -64,10 +64,10 @@ function manifest(dataHash = replayDatasetHash(bars, fundingEvents)): ReplayData
     observed_through: "2026-07-14T08:00:00Z", closed_candles_only: true,
     bar_final_availability: "close_time", funding_availability: "event_time", mark_availability: "event_time",
     mark_coverage: "none", mark_interval_ms: null, mark_event_count: 0,
-    venue_risk_policy: RISK_SNAPSHOT,
+    venue_risk_policy_epochs: [RISK_SNAPSHOT],
     instrument: {
       listed_at: "2020-01-01T00:00:00Z", trading_enabled_at: "2020-01-01T00:00:00Z", delisted_at: null, status_history: "complete",
-      spec_snapshot: SPEC_SNAPSHOT,
+      spec_epochs: [SPEC_SNAPSHOT],
       accounting: ACCOUNTING,
     },
     universe: { selected_at: "2026-07-13T00:00:00Z", survivorship: "point_in_time" },
@@ -95,8 +95,8 @@ test("data adapter rejects content hash drift and bars outside instrument lifecy
 
 test("data adapter rejects unbound or cross-epoch PIT policy snapshots before execution", () => {
   expect(() => prepareReplayInputData({
-    request: { ...request(), venue_risk_policy_snapshot_hash: HASH }, dataset_manifest: manifest(), bars, funding_events: fundingEvents,
-  })).toThrow("risk policy snapshot hash")
+    request: { ...request(), venue_risk_policy_schedule_hash: HASH }, dataset_manifest: manifest(), bars, funding_events: fundingEvents,
+  })).toThrow("risk policy schedule hash")
 
   const feeDrift = request()
   feeDrift.cost_policy = { ...feeDrift.cost_policy, liquidation_fee_bps: 49 }
@@ -104,15 +104,43 @@ test("data adapter rejects unbound or cross-epoch PIT policy snapshots before ex
     .toThrow("risk parameters")
 
   const crossing = manifest()
-  crossing.venue_risk_policy = { ...crossing.venue_risk_policy, valid_until: crossing.last_close_time }
-  const crossingRequest = { ...request(), venue_risk_policy_snapshot_hash: canonicalHash(crossing.venue_risk_policy) }
+  crossing.venue_risk_policy_epochs = [{ ...crossing.venue_risk_policy_epochs[0], valid_until: crossing.last_close_time }]
+  const crossingRequest = { ...request(), venue_risk_policy_schedule_hash: canonicalHash(crossing.venue_risk_policy_epochs) }
   expect(() => prepareReplayInputData({ request: crossingRequest, dataset_manifest: crossing, bars, funding_events: fundingEvents }))
     .toThrow("complete Replay window")
 
   const accountingDrift = manifest()
   accountingDrift.instrument.accounting = { ...accountingDrift.instrument.accounting, price_increment: "0.1" }
   expect(() => prepareReplayInputData({ request: request(), dataset_manifest: accountingDrift, bars, funding_events: fundingEvents }))
-    .toThrow("instrument spec snapshot hash")
+    .toThrow("instrument spec schedule hash")
+})
+
+test("data adapter admits contiguous policy schedules and switches on the half-open boundary", () => {
+  const riskBoundary = "2026-07-14T04:00:00Z"
+  const specBoundary = "2026-07-14T06:00:00Z"
+  const scheduled = manifest()
+  scheduled.venue_risk_policy_epochs = [
+    { ...RISK_SNAPSHOT, valid_until: riskBoundary },
+    { ...RISK_SNAPSHOT, snapshot_id: "risk-2", effective_at: riskBoundary, source_ref: "fixture:risk-2", source_hash: "b".repeat(64) },
+  ]
+  scheduled.instrument.spec_epochs = [
+    { ...SPEC_SNAPSHOT, valid_until: specBoundary },
+    { ...SPEC_SNAPSHOT, snapshot_id: "spec-2", effective_at: specBoundary, source_ref: "fixture:spec-2", source_hash: "b".repeat(64) },
+  ]
+  const scheduledRequest = {
+    ...request(),
+    venue_risk_policy_schedule_hash: canonicalHash(scheduled.venue_risk_policy_epochs),
+    instrument_spec_schedule_hash: canonicalHash({ epochs: scheduled.instrument.spec_epochs, accounting: scheduled.instrument.accounting }),
+  }
+  expect(() => prepareReplayInputData({ request: scheduledRequest, dataset_manifest: scheduled, bars, funding_events: fundingEvents })).not.toThrow()
+  expect(resolveReplayVenueRiskPolicyAt(scheduled, "2026-07-14T03:59:59Z").snapshot_id).toBe("risk-1")
+  expect(resolveReplayVenueRiskPolicyAt(scheduled, riskBoundary).snapshot_id).toBe("risk-2")
+  expect(resolveReplayInstrumentSpecAt(scheduled, specBoundary).snapshot_id).toBe("spec-2")
+
+  const gapped = structuredClone(scheduled)
+  gapped.venue_risk_policy_epochs[0].valid_until = "2026-07-14T03:00:00Z"
+  expect(() => prepareReplayInputData({ request: scheduledRequest, dataset_manifest: gapped, bars, funding_events: fundingEvents }))
+    .toThrow("ordered, non-overlapping, and contiguous")
 })
 
 test("data adapter preserves grid gaps and emits survivorship limitations", () => {

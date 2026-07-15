@@ -1,6 +1,6 @@
 {
   "request": {
-    "schema_version": "trade.rd-replay-execution-request.v10",
+    "schema_version": "trade.rd-replay-execution-request.v11",
     "run_id": "golden-run",
     "idempotency_key": "golden-idempotency",
     "experiment_id": "exp-golden",
@@ -15,8 +15,8 @@
     "trial_reservation_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "dataset_manifest_ref": "dataset://golden",
     "dataset_hash": "47223604386a42a5ce8a8041d5774fea522490fe6e517528b15934d01cc2023c",
-    "venue_risk_policy_snapshot_hash": "ac6beeb640178aaa6005edec07f9df0ad1b7d936a6c5dab44d5cb51589d8533d",
-    "instrument_spec_snapshot_hash": "bd1a741ab8104111d785d5817be660e9d82f7846d0d6f441e6edcb429596ee05",
+    "venue_risk_policy_schedule_hash": "bce56538f5e3d2b53aa1895edbe20809abe385a7f3e4af59ba576b03cbdb9f26",
+    "instrument_spec_schedule_hash": "3c8736f2a900c073924a9c1d6eb51bb105b859007eb39d470e361cd34e52c604",
     "harness_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
     "assumptions_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
     "symbol": "BTCUSDT",
@@ -38,7 +38,7 @@
       "liquidation_fee_bps": 10
     },
     "simulator_policy": {
-      "version": "rd-replay-simulator-v6",
+      "version": "rd-replay-simulator-v7",
       "signal_visibility": "closed_candle",
       "earliest_execution": "next_open",
       "same_bar_policy": "stop_first",
@@ -50,7 +50,7 @@
     },
     "margin_policy": {
       "policy_id": "certified-isolated-margin",
-      "version": "rd-replay-isolated-margin-v6",
+      "version": "rd-replay-isolated-margin-v7",
       "mode": "isolated",
       "collateral_asset": "USDT",
       "isolated_collateral": 1000,
@@ -83,7 +83,7 @@
     "random_seed": 7
   },
   "dataset_manifest": {
-    "schema_version": "trade.rd-replay-dataset-manifest.v4",
+    "schema_version": "trade.rd-replay-dataset-manifest.v5",
     "manifest_id": "manifest-golden",
     "manifest_ref": "dataset://golden",
     "data_hash": "47223604386a42a5ce8a8041d5774fea522490fe6e517528b15934d01cc2023c",
@@ -102,7 +102,7 @@
     "mark_coverage": "none",
     "mark_interval_ms": null,
     "mark_event_count": 0,
-    "venue_risk_policy": {
+    "venue_risk_policy_epochs": [{
       "schema_version": "trade.rd-replay-venue-risk-policy-snapshot.v1",
       "snapshot_id": "risk-golden",
       "venue_id": "binance-usdm",
@@ -123,13 +123,13 @@
         "maintenance_amount": 0
       },
       "liquidation_fee_bps": 10
-    },
+    }],
     "instrument": {
       "listed_at": "2020-01-01T00:00:00Z",
       "trading_enabled_at": "2020-01-01T00:00:00Z",
       "delisted_at": null,
       "status_history": "complete",
-      "spec_snapshot": {
+      "spec_epochs": [{
         "schema_version": "trade.rd-replay-instrument-spec-snapshot.v1",
         "snapshot_id": "spec-golden",
         "venue_id": "binance-usdm",
@@ -139,7 +139,7 @@
         "observed_at": "2026-07-13T00:00:00Z",
         "source_ref": "fixture:spec-golden",
         "source_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-      },
+      }],
       "accounting": {
         "spec_version": "rd-replay-instrument-accounting-v1",
         "product_type": "linear_derivative",
@@ -176,5 +176,5 @@
       "mark_price": 105
     }
   ],
-  "expected_semantic_digest": "8742f6ae60a72ff46c949cdb9b7e362bd9edde1de767530096f8f0464ec494e6"
+  "expected_semantic_digest": "c6834df3a9b3e1761da5800a1cbdfec2e343ff2746c0fef7f944183e2877558d"
 }

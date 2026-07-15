@@ -7,9 +7,11 @@ import {
   type ReplayDatasetManifest,
   type ReplayExecutionRequest,
   type ReplayFundingEvent,
+  type ReplayInstrumentSpecSnapshot,
   type ReplayLimitation,
   type ReplayMarkEvent,
   type ReplayMarketBar,
+  type ReplayVenueRiskPolicySnapshot,
 } from "../../../contracts/src/lib/replay-contracts"
 import { isReplayIncrementAligned } from "../../../contracts/src/lib/replay-decimal"
 
@@ -37,9 +39,9 @@ export function prepareReplayInputData(input: {
   if (!Number.isFinite(executableTime)) throw new Error("earliest executable time must be an ISO timestamp")
   const fundingEvents = validateReplayFundingEvents(input.funding_events || [])
   const markEvents = validateReplayMarkEvents(input.mark_events || [])
-  validateManifestBinding(request, manifest, input.bars, fundingEvents, markEvents)
   const entryIndex = input.bars.findIndex((bar) => Date.parse(bar.open_time) >= executableTime)
   if (entryIndex < 0) throw new Error("dataset contains no bar at or after earliest executable time")
+  validateManifestBinding(request, manifest, input.bars, fundingEvents, markEvents, input.bars[entryIndex].open_time)
   return {
     bars: input.bars,
     funding_events: fundingEvents,
@@ -56,6 +58,7 @@ function validateManifestBinding(
   bars: ReplayMarketBar[],
   fundingEvents: ReplayFundingEvent[],
   markEvents: ReplayMarkEvent[],
+  entryTime: string,
 ): void {
   if (manifest.manifest_ref !== request.dataset_manifest_ref) throw new Error("dataset manifest ref does not match Replay request")
   if (manifest.data_hash !== request.dataset_hash) throw new Error("dataset manifest hash binding does not match Replay request")
@@ -79,7 +82,7 @@ function validateManifestBinding(
     throw new Error("funding event falls outside the dataset manifest window")
   }
   validateMarkCoverage(manifest, markEvents, observedThrough, firstOpen, lastClose)
-  validatePointInTimePolicyBindings(request, manifest, firstOpen, lastClose)
+  validatePointInTimePolicyBindings(request, manifest, firstOpen, lastClose, entryTime, observedThrough)
   validateInstrumentWindow(request, manifest, bars)
   validateBarGrid(manifest, bars)
 }
@@ -89,39 +92,80 @@ function validatePointInTimePolicyBindings(
   manifest: ReplayDatasetManifest,
   firstOpen: number,
   lastClose: number,
+  entryTime: string,
+  observedThrough: number,
 ): void {
-  const risk = manifest.venue_risk_policy
-  const spec = manifest.instrument.spec_snapshot
-  if (risk.symbol !== manifest.symbol || spec.symbol !== manifest.symbol) {
-    throw new Error("policy snapshot symbol does not match dataset manifest")
+  const risks = manifest.venue_risk_policy_epochs
+  const specs = manifest.instrument.spec_epochs
+  validateSnapshotScheduleCoversWindow(risks, firstOpen, lastClose, observedThrough, "venue risk policy")
+  validateSnapshotScheduleCoversWindow(specs, firstOpen, lastClose, observedThrough, "instrument spec")
+  const venueId = risks[0].venue_id
+  if (risks.some((risk) => risk.symbol !== manifest.symbol || risk.venue_id !== venueId)
+      || specs.some((spec) => spec.symbol !== manifest.symbol || spec.venue_id !== venueId)) {
+    throw new Error("policy schedule symbol or venue does not match dataset manifest")
   }
-  if (risk.venue_id !== spec.venue_id) throw new Error("risk policy and instrument spec venue do not match")
-  validateSnapshotCoversWindow(risk, firstOpen, lastClose, "venue risk policy")
-  validateSnapshotCoversWindow(spec, firstOpen, lastClose, "instrument spec")
-  if (request.venue_risk_policy_snapshot_hash !== canonicalHash(risk)) {
-    throw new Error("venue risk policy snapshot hash does not match Replay request")
+  if (request.venue_risk_policy_schedule_hash !== canonicalHash(risks)) {
+    throw new Error("venue risk policy schedule hash does not match Replay request")
   }
-  const instrumentSpecHash = canonicalHash({ snapshot: spec, accounting: manifest.instrument.accounting })
-  if (request.instrument_spec_snapshot_hash !== instrumentSpecHash) {
-    throw new Error("instrument spec snapshot hash does not match Replay request")
+  const instrumentSpecHash = canonicalHash({ epochs: specs, accounting: manifest.instrument.accounting })
+  if (request.instrument_spec_schedule_hash !== instrumentSpecHash) {
+    throw new Error("instrument spec schedule hash does not match Replay request")
   }
-  if (request.margin_policy.initial_margin_rate !== risk.initial_margin_rate
-      || canonicalHash(request.margin_policy.maintenance_tier) !== canonicalHash(risk.maintenance_tier)
-      || request.cost_policy.liquidation_fee_bps !== risk.liquidation_fee_bps) {
-    throw new Error("Replay request risk parameters do not match venue risk policy snapshot")
+  const entryRisk = resolveReplayVenueRiskPolicyAt(manifest, entryTime)
+  if (request.margin_policy.initial_margin_rate !== entryRisk.initial_margin_rate
+      || canonicalHash(request.margin_policy.maintenance_tier) !== canonicalHash(entryRisk.maintenance_tier)
+      || request.cost_policy.liquidation_fee_bps !== entryRisk.liquidation_fee_bps) {
+    throw new Error("Replay request entry risk parameters do not match the active venue risk policy epoch")
   }
 }
 
-function validateSnapshotCoversWindow(
-  snapshot: { effective_at: string; valid_until: string | null },
+function validateSnapshotScheduleCoversWindow<T extends { effective_at: string; valid_until: string | null; observed_at: string }>(
+  snapshots: T[],
   firstOpen: number,
   lastClose: number,
+  observedThrough: number,
   field: string,
 ): void {
-  if (firstOpen < Date.parse(snapshot.effective_at)) throw new Error(`${field} snapshot becomes effective after the Replay window starts`)
-  if (snapshot.valid_until !== null && lastClose >= Date.parse(snapshot.valid_until)) {
-    throw new Error(`${field} snapshot does not cover the complete Replay window`)
+  const first = snapshots[0]
+  const last = snapshots.at(-1)!
+  if (firstOpen < Date.parse(first.effective_at)
+      || (first.valid_until !== null && firstOpen >= Date.parse(first.valid_until))) {
+    throw new Error(`${field} schedule does not start with the epoch active at the Replay window start`)
   }
+  if (lastClose < Date.parse(last.effective_at)
+      || (last.valid_until !== null && lastClose >= Date.parse(last.valid_until))) {
+    throw new Error(`${field} schedule does not cover the complete Replay window`)
+  }
+  if (snapshots.some((snapshot) => Date.parse(snapshot.observed_at) > observedThrough)) {
+    throw new Error(`${field} schedule contains an epoch unavailable by manifest observed_through`)
+  }
+}
+
+export function resolveReplayVenueRiskPolicyAt(
+  manifest: ReplayDatasetManifest,
+  timestamp: string,
+): ReplayVenueRiskPolicySnapshot {
+  return resolveReplaySnapshotAt(manifest.venue_risk_policy_epochs, timestamp, "venue risk policy")
+}
+
+export function resolveReplayInstrumentSpecAt(
+  manifest: ReplayDatasetManifest,
+  timestamp: string,
+): ReplayInstrumentSpecSnapshot {
+  return resolveReplaySnapshotAt(manifest.instrument.spec_epochs, timestamp, "instrument spec")
+}
+
+function resolveReplaySnapshotAt<T extends { effective_at: string; valid_until: string | null }>(
+  snapshots: T[],
+  timestamp: string,
+  field: string,
+): T {
+  const time = Date.parse(timestamp)
+  if (!Number.isFinite(time)) throw new Error(`${field} resolution requires an RFC 3339 timestamp`)
+  const snapshot = snapshots.find((candidate) => Date.parse(candidate.effective_at) <= time
+    && (candidate.valid_until === null || time < Date.parse(candidate.valid_until)))
+  if (!snapshot) throw new Error(`${field} schedule has no epoch at ${timestamp}`)
+  return snapshot
 }
 
 function validateMarkCoverage(

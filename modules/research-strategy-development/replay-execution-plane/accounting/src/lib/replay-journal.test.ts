@@ -77,7 +77,7 @@ function journalInput(facts: ReplayLedgerEntry[], unrealizedPnl = 0): ReplayJour
 function marginSnapshots(entryKey: ReplayEventKey, endingKey: ReplayEventKey, open: boolean, unrealizedPnl: number): ReplayMarginSnapshot[] {
   return [
     {
-      policy_version: REPLAY_MARGIN_POLICY_VERSION, snapshot_id: "margin-1", snapshot_sequence: 1, stage: "post_entry",
+      policy_version: REPLAY_MARGIN_POLICY_VERSION, venue_risk_policy_snapshot_id: "risk-1", venue_risk_policy_snapshot_hash: "a".repeat(64), snapshot_id: "margin-1", snapshot_sequence: 1, stage: "post_entry",
       event_key: entryKey, timestamp: entryKey.event_time, position_event_id: "position-1", mark_source_ref: "fill-1",
       mark_source: "fill_price", resolution: "exact", symbol: "BTCUSDT", collateral_asset: "USDT", signed_quantity: 1,
       mark_price: 100, notional: 100, isolated_collateral: 20, attributed_settled_cashflow: -1, unrealized_pnl: 0,
@@ -88,7 +88,7 @@ function marginSnapshots(entryKey: ReplayEventKey, endingKey: ReplayEventKey, op
       state: "healthy", liquidation_evaluated: false,
     },
     {
-      policy_version: REPLAY_MARGIN_POLICY_VERSION, snapshot_id: "margin-2", snapshot_sequence: 2, stage: "terminal",
+      policy_version: REPLAY_MARGIN_POLICY_VERSION, venue_risk_policy_snapshot_id: "risk-1", venue_risk_policy_snapshot_hash: "a".repeat(64), snapshot_id: "margin-2", snapshot_sequence: 2, stage: "terminal",
       event_key: endingKey, timestamp: endingKey.event_time, position_event_id: open ? "position-1" : "position-2",
       mark_source_ref: open ? "source:bar-range" : "fill-2", mark_source: open ? "bar_close" : "fill_price",
       resolution: open ? "exact" : "not_applicable_flat", symbol: "BTCUSDT", collateral_asset: "USDT",

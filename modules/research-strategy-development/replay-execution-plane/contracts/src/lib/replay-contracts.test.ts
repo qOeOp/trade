@@ -37,8 +37,8 @@ export function fixtureRequest(): ReplayExecutionRequest {
     trial_reservation_hash: HASH,
     dataset_manifest_ref: "dataset://btc-4h",
     dataset_hash: HASH,
-    venue_risk_policy_snapshot_hash: canonicalHash(RISK_SNAPSHOT),
-    instrument_spec_snapshot_hash: HASH,
+    venue_risk_policy_schedule_hash: canonicalHash([RISK_SNAPSHOT]),
+    instrument_spec_schedule_hash: HASH,
     harness_hash: HASH,
     assumptions_hash: HASH,
     symbol: "BTCUSDT",
@@ -64,7 +64,7 @@ export function fixtureRequest(): ReplayExecutionRequest {
       end_of_data: "mark_open",
       margin_evaluation: "before_strategy_orders",
     },
-    margin_policy: { policy_id: "fixture", version: "rd-replay-isolated-margin-v6", mode: "isolated", collateral_asset: "USDT", isolated_collateral: 1000, initial_margin_rate: 0.1, maintenance_tier: { ...MAINTENANCE_TIER }, cashflow_scope: "position_attributed", collateral_transfer: "reserve_at_entry_release_at_terminal_if_flat", settled_cashflow_account: "isolated_margin_collateral", observation_scope: "source_event_path", mark_source_policy: "complete_exact_mark_else_ohlcv_adverse", maintenance_trigger: "margin_balance_below_maintenance_requirement", breach_terminal_priority: "risk_before_strategy_exit", breach_evidence: "first_observed_source_event", maintenance_breach_action: "exact_observation_full_liquidation_else_terminal_failure", liquidation: "simulated_full_close", liquidation_trigger_sources: "mark_or_funding_mark", liquidation_execution_price: "trigger_mark_adverse_slippage", liquidation_quantity: "full_position", liquidation_order_priority: "cancel_strategy_exits_before_forced_fill", liquidation_deficit: "fail_without_result" },
+    margin_policy: { policy_id: "fixture", version: "rd-replay-isolated-margin-v7", mode: "isolated", collateral_asset: "USDT", isolated_collateral: 1000, initial_margin_rate: 0.1, maintenance_tier: { ...MAINTENANCE_TIER }, cashflow_scope: "position_attributed", collateral_transfer: "reserve_at_entry_release_at_terminal_if_flat", settled_cashflow_account: "isolated_margin_collateral", observation_scope: "source_event_path", mark_source_policy: "complete_exact_mark_else_ohlcv_adverse", maintenance_trigger: "margin_balance_below_maintenance_requirement", breach_terminal_priority: "risk_before_strategy_exit", breach_evidence: "first_observed_source_event", maintenance_breach_action: "exact_observation_full_liquidation_else_terminal_failure", liquidation: "simulated_full_close", liquidation_trigger_sources: "mark_or_funding_mark", liquidation_execution_price: "trigger_mark_adverse_slippage", liquidation_quantity: "full_position", liquidation_order_priority: "cancel_strategy_exits_before_forced_fill", liquidation_deficit: "fail_without_result" },
     random_seed: 7,
   }
 }
@@ -117,10 +117,10 @@ test("Replay dataset manifest requires explicit UTC lifecycle and availability p
     observed_through: "2026-07-14T08:00:00Z", closed_candles_only: true as const,
     bar_final_availability: "close_time" as const, funding_availability: "event_time" as const, mark_availability: "event_time" as const,
     mark_coverage: "none" as const, mark_interval_ms: null, mark_event_count: 0,
-    venue_risk_policy: RISK_SNAPSHOT,
+    venue_risk_policy_epochs: [RISK_SNAPSHOT],
     instrument: {
       listed_at: "2020-01-01T00:00:00Z", trading_enabled_at: "2020-01-01T00:00:00Z", delisted_at: null, status_history: "complete" as const,
-      spec_snapshot: SPEC_SNAPSHOT,
+      spec_epochs: [SPEC_SNAPSHOT],
       accounting: { spec_version: REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, product_type: "linear_derivative" as const, base_asset: "BTC", quote_asset: "USDT", settlement_asset: "USDT", contract_multiplier: "1", price_increment: "0.01", quantity_increment: "0.001", settlement_increment: "0.00000001" },
     },
     universe: { selected_at: "2026-07-14T00:00:00Z", survivorship: "point_in_time" as const },
@@ -131,4 +131,11 @@ test("Replay dataset manifest requires explicit UTC lifecycle and availability p
     ...manifest,
     instrument: { ...manifest.instrument, accounting: { ...manifest.instrument.accounting, settlement_asset: "BTC" } },
   })).toThrow("quote-asset settlement")
+  expect(() => assertReplayDatasetManifest({
+    ...manifest,
+    venue_risk_policy_epochs: [
+      { ...RISK_SNAPSHOT, valid_until: "2026-07-14T06:00:00Z" },
+      { ...RISK_SNAPSHOT, snapshot_id: "risk-2", effective_at: "2026-07-14T07:00:00Z" },
+    ],
+  })).toThrow("ordered, non-overlapping, and contiguous")
 })

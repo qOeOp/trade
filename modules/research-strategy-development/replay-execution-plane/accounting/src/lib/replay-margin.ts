@@ -2,6 +2,8 @@ import {
   REPLAY_MARGIN_POLICY_VERSION,
   assertReplayEventKey,
   assertReplayIsolatedMarginPolicy,
+  assertReplayVenueRiskPolicySnapshot,
+  canonicalHash,
   compareReplayEventKeys,
   type ReplayEventKey,
   type ReplayInstrumentAccountingSpec,
@@ -9,6 +11,7 @@ import {
   type ReplayLedgerEntry,
   type ReplayMarginSnapshot,
   type ReplayPositionProjection,
+  type ReplayVenueRiskPolicySnapshot,
 } from "../../../contracts/src/lib/replay-contracts"
 import {
   addReplayDecimalValues,
@@ -23,6 +26,7 @@ export interface ReplayMarginSnapshotInput {
   snapshot_sequence: number
   accounting_spec: ReplayInstrumentAccountingSpec
   margin_policy: ReplayIsolatedMarginPolicy
+  venue_risk_policy_snapshot: ReplayVenueRiskPolicySnapshot
   position: ReplayPositionProjection
   event_key: ReplayEventKey
   mark_source_ref: string
@@ -77,6 +81,8 @@ export function buildReplayMarginSnapshot(input: ReplayMarginSnapshotInput): Rep
 
   return {
     policy_version: REPLAY_MARGIN_POLICY_VERSION,
+    venue_risk_policy_snapshot_id: input.venue_risk_policy_snapshot.snapshot_id,
+    venue_risk_policy_snapshot_hash: canonicalHash(input.venue_risk_policy_snapshot),
     snapshot_id: `${input.run_id}:margin:${input.snapshot_sequence}`,
     snapshot_sequence: input.snapshot_sequence,
     stage: input.stage,
@@ -117,6 +123,8 @@ export function buildReplayMarginSnapshot(input: ReplayMarginSnapshotInput): Rep
 function flatSnapshot(input: ReplayMarginSnapshotInput): ReplayMarginSnapshot {
   return {
     policy_version: REPLAY_MARGIN_POLICY_VERSION,
+    venue_risk_policy_snapshot_id: input.venue_risk_policy_snapshot.snapshot_id,
+    venue_risk_policy_snapshot_hash: canonicalHash(input.venue_risk_policy_snapshot),
     snapshot_id: `${input.run_id}:margin:${input.snapshot_sequence}`,
     snapshot_sequence: input.snapshot_sequence,
     stage: input.stage,
@@ -159,6 +167,11 @@ function validateInput(input: ReplayMarginSnapshotInput): void {
     throw new Error("Replay margin snapshot_sequence must be a positive safe integer")
   }
   assertReplayIsolatedMarginPolicy(input.margin_policy)
+  assertReplayVenueRiskPolicySnapshot(input.venue_risk_policy_snapshot)
+  if (input.margin_policy.initial_margin_rate !== input.venue_risk_policy_snapshot.initial_margin_rate
+      || canonicalHash(input.margin_policy.maintenance_tier) !== canonicalHash(input.venue_risk_policy_snapshot.maintenance_tier)) {
+    throw new Error("Replay margin policy does not match its venue risk policy snapshot")
+  }
   if (input.margin_policy.collateral_asset !== input.accounting_spec.settlement_asset) {
     throw new Error("Replay isolated collateral must use the settlement asset")
   }

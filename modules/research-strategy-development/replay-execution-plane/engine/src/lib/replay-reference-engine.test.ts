@@ -43,8 +43,8 @@ function request(side: "long" | "short" = "long"): ReplayExecutionRequest {
     trial_reservation_hash: HASH,
     dataset_manifest_ref: "dataset://fixture",
     dataset_hash: HASH,
-    venue_risk_policy_snapshot_hash: canonicalHash(RISK_SNAPSHOT),
-    instrument_spec_snapshot_hash: canonicalHash({ snapshot: SPEC_SNAPSHOT, accounting: ACCOUNTING }),
+    venue_risk_policy_schedule_hash: canonicalHash([RISK_SNAPSHOT]),
+    instrument_spec_schedule_hash: canonicalHash({ epochs: [SPEC_SNAPSHOT], accounting: ACCOUNTING }),
     harness_hash: HASH,
     assumptions_hash: HASH,
     symbol: "BTCUSDT",
@@ -70,7 +70,7 @@ function request(side: "long" | "short" = "long"): ReplayExecutionRequest {
       end_of_data: "mark_open",
       margin_evaluation: "before_strategy_orders",
     },
-    margin_policy: { policy_id: "fixture", version: "rd-replay-isolated-margin-v6", mode: "isolated", collateral_asset: "USDT", isolated_collateral: 1000, initial_margin_rate: 0.1, maintenance_tier: { ...MAINTENANCE_TIER }, cashflow_scope: "position_attributed", collateral_transfer: "reserve_at_entry_release_at_terminal_if_flat", settled_cashflow_account: "isolated_margin_collateral", observation_scope: "source_event_path", mark_source_policy: "complete_exact_mark_else_ohlcv_adverse", maintenance_trigger: "margin_balance_below_maintenance_requirement", breach_terminal_priority: "risk_before_strategy_exit", breach_evidence: "first_observed_source_event", maintenance_breach_action: "exact_observation_full_liquidation_else_terminal_failure", liquidation: "simulated_full_close", liquidation_trigger_sources: "mark_or_funding_mark", liquidation_execution_price: "trigger_mark_adverse_slippage", liquidation_quantity: "full_position", liquidation_order_priority: "cancel_strategy_exits_before_forced_fill", liquidation_deficit: "fail_without_result" },
+    margin_policy: { policy_id: "fixture", version: "rd-replay-isolated-margin-v7", mode: "isolated", collateral_asset: "USDT", isolated_collateral: 1000, initial_margin_rate: 0.1, maintenance_tier: { ...MAINTENANCE_TIER }, cashflow_scope: "position_attributed", collateral_transfer: "reserve_at_entry_release_at_terminal_if_flat", settled_cashflow_account: "isolated_margin_collateral", observation_scope: "source_event_path", mark_source_policy: "complete_exact_mark_else_ohlcv_adverse", maintenance_trigger: "margin_balance_below_maintenance_requirement", breach_terminal_priority: "risk_before_strategy_exit", breach_evidence: "first_observed_source_event", maintenance_breach_action: "exact_observation_full_liquidation_else_terminal_failure", liquidation: "simulated_full_close", liquidation_trigger_sources: "mark_or_funding_mark", liquidation_execution_price: "trigger_mark_adverse_slippage", liquidation_quantity: "full_position", liquidation_order_priority: "cancel_strategy_exits_before_forced_fill", liquidation_deficit: "fail_without_result" },
     random_seed: 1,
   }
 }
@@ -92,7 +92,7 @@ function inputFor(
     maintenance_tier: structuredClone(requestValue.margin_policy.maintenance_tier),
     liquidation_fee_bps: requestValue.cost_policy.liquidation_fee_bps,
   }
-  const boundRequest = { ...requestValue, dataset_hash: dataHash, venue_risk_policy_snapshot_hash: canonicalHash(venueRiskPolicy) }
+  const boundRequest = { ...requestValue, dataset_hash: dataHash, venue_risk_policy_schedule_hash: canonicalHash([venueRiskPolicy]) }
   const datasetManifest: ReplayDatasetManifest = {
     schema_version: REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
     manifest_id: "manifest-fixture", manifest_ref: boundRequest.dataset_manifest_ref, data_hash: dataHash,
@@ -103,10 +103,10 @@ function inputFor(
     mark_coverage: markEvents.length > 0 ? "complete_grid" : "none",
     mark_interval_ms: markEvents.length > 0 ? 14_400_000 : null,
     mark_event_count: markEvents.length,
-    venue_risk_policy: venueRiskPolicy,
+    venue_risk_policy_epochs: [venueRiskPolicy],
     instrument: {
       listed_at: "2020-01-01T00:00:00Z", trading_enabled_at: "2020-01-01T00:00:00Z", delisted_at: null, status_history: "complete",
-      spec_snapshot: SPEC_SNAPSHOT,
+      spec_epochs: [SPEC_SNAPSHOT],
       accounting: ACCOUNTING,
     },
     universe: { selected_at: "2026-07-13T00:00:00Z", survivorship: "point_in_time" },
@@ -176,6 +176,30 @@ test("exact funding event enters the unified evidence ledger", () => {
   ], fundingEvents))
   expect(result.metrics.total_funding).toBe(0.098)
   expect(result.ledger.some((entry) => entry.kind === "funding")).toBe(true)
+})
+
+test("risk policy epochs switch before same-time source-event margin evaluation", () => {
+  const policyBoundary = "2026-07-14T08:00:00Z"
+  const boundedRequest = request()
+  boundedRequest.order.stop_price = 90
+  boundedRequest.order.target_price = 120
+  const replayInput = inputFor(boundedRequest, [
+    bar("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", 100, 105, 95, 101),
+    bar("2026-07-14T08:00:00Z", "2026-07-14T12:00:00Z", 101, 106, 96, 102),
+  ])
+  const secondTier = { ...MAINTENANCE_TIER, tier_id: "tier-2", snapshot_ref: "fixture:margin-tier-2", snapshot_hash: "b".repeat(64), maintenance_margin_rate: 0.01 }
+  replayInput.dataset_manifest.venue_risk_policy_epochs = [
+    { ...RISK_SNAPSHOT, valid_until: policyBoundary },
+    { ...RISK_SNAPSHOT, snapshot_id: "risk-2", effective_at: policyBoundary, source_ref: "fixture:risk-2", source_hash: "b".repeat(64), maintenance_tier: secondTier, liquidation_fee_bps: 75 },
+  ]
+  replayInput.request.venue_risk_policy_schedule_hash = canonicalHash(replayInput.dataset_manifest.venue_risk_policy_epochs)
+
+  const result = executeReplayKernel(replayInput)
+  expect(result.margin_snapshots[0].venue_risk_policy_snapshot_id).toBe("risk-1")
+  const boundarySnapshots = result.margin_snapshots.filter((snapshot) => snapshot.timestamp >= policyBoundary)
+  expect(boundarySnapshots.length).toBeGreaterThan(0)
+  expect(boundarySnapshots.every((snapshot) => snapshot.venue_risk_policy_snapshot_id === "risk-2")).toBe(true)
+  expect(boundarySnapshots.some((snapshot) => snapshot.maintenance_margin_requirement >= 1)).toBe(true)
 })
 
 test("funding uses the t-minus position at entry and exit boundaries", () => {
@@ -328,14 +352,14 @@ test("exact mark maintenance breach liquidates before same-time strategy exit", 
   expect(result.fills.at(-1)).toMatchObject({ order_role: "liquidation", reduce_only: true, price: 80.39 })
   expect(result.positions.at(-1)).toMatchObject({ state: "flat", signed_quantity: 0 })
   expect(result.liquidation).toMatchObject({
-    schema_version: "trade.rd-replay-liquidation-execution.v1",
+    schema_version: "trade.rd-replay-liquidation-execution.v2",
     execution_model: "trigger_mark_adverse_slippage_full_close",
     evidence_grade: "simulated_from_exact_risk_observation",
     strategy_order_action: "cancel_before_forced_order",
     trigger_mark_price: 80.4,
     settlement_state: "flat_without_deficit",
     trigger_observation: {
-      schema_version: "trade.rd-replay-maintenance-breach-observation.v2",
+      schema_version: "trade.rd-replay-maintenance-breach-observation.v3",
       mark_source: "mark_event",
       resolution: "exact",
       trigger: "margin_balance_below_maintenance_requirement",
