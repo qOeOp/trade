@@ -18,7 +18,7 @@ interface GoldenFixture {
 }
 
 const fixture = JSON.parse(readFileSync(
-  new URL("./fixtures/certified-single-position-v20.json", import.meta.url), "utf8",
+  new URL("./fixtures/certified-single-position-v21.json", import.meta.url), "utf8",
 )) as GoldenFixture
 const openPositionFixture = JSON.parse(readFileSync(
   new URL("./fixtures/certified-open-position-v1.json", import.meta.url), "utf8",

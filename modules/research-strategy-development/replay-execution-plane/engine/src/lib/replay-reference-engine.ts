@@ -10,6 +10,7 @@ import {
   assertReplayDecisionInputSnapshot,
   assertReplayExecutionRequest,
   canonicalHash,
+  compareReplayEventKeys,
   createReplayDecisionEvidenceTimeline,
   createReplayDecisionStateSnapshot,
   replayDecisionPhaseFor,
@@ -45,7 +46,7 @@ import {
   calculateFundingCashflowV3,
   calculateNotionalChargeV3,
 } from "../../../accounting/src/lib/replay-accounting"
-import { buildAverageCostPositionProjection, buildCertifiedSinglePositionProjection } from "../../../accounting/src/lib/replay-position-accounting"
+import { buildAverageCostPositionProjection } from "../../../accounting/src/lib/replay-position-accounting"
 import { buildReplayEquityProjection } from "../../../accounting/src/lib/replay-equity"
 import { buildReplayJournal } from "../../../accounting/src/lib/replay-journal"
 import { buildReplayMarginSnapshot } from "../../../accounting/src/lib/replay-margin"
@@ -61,10 +62,11 @@ import { completeReplayEntryOrderLane, type ReplayEntryOrderExecution } from "./
 import { completeReplayExitOrderLane, completeReplayStrategyExitOrderLane } from "./replay-exit-order-lane"
 import { completeReplayLiquidationOrderLane } from "./replay-liquidation-order-lane"
 import { replaceReplayProtectiveStop } from "./replay-protective-stop-lane"
+import { completeReplayPartialReduceLane } from "./replay-partial-reduce-lane"
 import { ReplayLiquidationDeficitError, assertReplayPostEntryMargin, buildReplayMaintenanceBreachObservation, buildReplayPathMarginSnapshots } from "./replay-margin-path"
 import { reduceReplaySourceEvents } from "./replay-source-reducer"
 
-export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v13" as const
+export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v14" as const
 
 export interface ReplayEngineCheckpoint {
   schema_version: typeof REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION
@@ -89,6 +91,8 @@ export interface ReplayEngineCheckpoint {
   applied_funding_sources: ReplaySourceEvent[]
   entry_order: ReplayOrder
   entry_transition: ReplayEntryOrderExecution | null
+  partial_reduce_order: ReplayOrder | null
+  partial_reduce_fills: ReplayFill[]
   strategy_exit_order: ReplayOrder | null
   order_events: ReplayOrderEvent[]
   event_sequence: number
@@ -220,7 +224,9 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     initial_margin_rate: risk.initial_margin_rate,
     maintenance_tier: structuredClone(risk.maintenance_tier),
   })
-  assertInstrumentAlignedInputs(request, bars, accountingSpec.price_increment, accountingSpec.settlement_increment)
+  assertInstrumentAlignedInputs(
+    request, bars, accountingSpec.price_increment, accountingSpec.quantity_increment, accountingSpec.settlement_increment,
+  )
   const executionQuantity = quantizeReplayQuantity(request.order.quantity, accountingSpec.quantity_increment)
 
   const entryBar = bars[entryIndex]
@@ -321,7 +327,23 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     reduce_only: false,
   })
   const exactRiskSnapshots: ReplayMarginSnapshot[] = structuredClone(resumeCheckpoint?.exact_risk_snapshots ?? [])
+  let partialReduceOrder: ReplayOrder | null = structuredClone(resumeCheckpoint?.partial_reduce_order ?? null)
+  const partialReduceFills: ReplayFill[] = structuredClone(resumeCheckpoint?.partial_reduce_fills ?? [])
   let strategyExitOrder: ReplayOrder | null = structuredClone(resumeCheckpoint?.strategy_exit_order ?? null)
+  const evidenceFills = (entry: ReplayEntryOrderExecution): ReplayFill[] => [entryFillFor(entry), ...partialReduceFills]
+  const positionAt = (entry: ReplayEntryOrderExecution, eventKey: ReplayEventKey) => {
+    const projections = buildAverageCostPositionProjection({
+      run_id: request.run_id,
+      symbol: request.symbol,
+      accounting_spec: accountingSpec,
+      fills: evidenceFills(entry),
+    })
+    const position = [...projections].reverse().find(
+      (candidate) => compareReplayEventKeys(candidate.event_key, eventKey) <= 0,
+    )
+    if (!position || position.state !== "open") throw new Error("Replay source requires an open evidence Position")
+    return position
+  }
   let timelineInputs: ReplayDecisionEvidenceInput[] = decisionEvidenceTimeline.entries.map((entry, index) => ({
     schedule_entry: structuredClone(request.decision_schedule.entries[index]!),
     decision_input_snapshot: structuredClone(entry.decision_input_snapshot),
@@ -349,20 +371,21 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     }
     const bar = bars[source.source_index]
     if (!bar) throw new Error("Replay runtime decision references a missing bar")
-    const entryFill = entryFillFor(entry)
-    const position = buildAverageCostPositionProjection({
+    const fills = evidenceFills(entry)
+    const positions = buildAverageCostPositionProjection({
       run_id: request.run_id,
       symbol: request.symbol,
       accounting_spec: accountingSpec,
-      fills: [entryFill],
-    })[0]!
+      fills,
+    })
+    const position = positions.at(-1)!
     const fundingFacts = boundary.applied_funding_sources.map((fundingSource) => {
       const event = fundingEvents[fundingSource.source_index]
       if (!event) throw new Error("Replay runtime decision references missing funding")
       return {
         event_key: fundingSource.event_key,
         amount: calculateFundingCashflowV3(
-          event.mark_price, entry.executed_quantity, event.rate, request.order.side,
+          event.mark_price, Math.abs(positionAt(entry, fundingSource.event_key).signed_quantity), event.rate, request.order.side,
           accountingSpec.settlement_increment,
         ),
         ref: fundingSource.source_event_id,
@@ -379,8 +402,8 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
         event_subphase: scheduleEntry.decision_sequence,
         stable_event_id: `${request.run_id}:decision:${scheduleEntry.decision_sequence}:state`,
       }),
-      fills: [entryFill],
-      positions: [position],
+      fills,
+      positions,
       funding_facts: fundingFacts,
       settlement_increment: accountingSpec.settlement_increment,
     })
@@ -495,6 +518,27 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
             capture,
           })
         }
+        if (runtimeDecision.schedule_entry.expected_effect === "authorized_partial_reduce") {
+          const partialIntent = runtimeDecision.schedule_entry.authorized_partial_reduce
+          const entry = boundary.entry_transition
+          if (!partialIntent || !entry || partialReduceOrder) {
+            throw new Error("Replay authorized partial reduce cannot create a unique pending Order")
+          }
+          partialReduceOrder = capture(submitReplayOrder({
+            order_id: `${request.run_id}:order:partial-reduce`,
+            order_role: "strategy_partial_reduce",
+            order_type: "market",
+            side: partialIntent.side,
+            quantity: partialIntent.quantity,
+            reduce_only: true,
+            submitted_at: partialIntent.signal_time,
+          }, nextStamp(
+            partialIntent.signal_time,
+            90,
+            source!.event_key.source_sequence,
+            runtimeDecision.schedule_entry.decision_sequence,
+          ), entry.signed_position_after)).order
+        }
         if (runtimeDecision.schedule_entry.expected_effect === "authorized_reduce_only_exit") {
           const exitIntent = runtimeDecision.schedule_entry.authorized_reduce_only_exit
           const entry = boundary.entry_transition
@@ -523,6 +567,8 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
         dataset_manifest: input.dataset_manifest,
         boundary,
         entry_order: boundary.entry_transition?.entry_order ?? entryOrder,
+        partial_reduce_order: partialReduceOrder,
+        partial_reduce_fills: partialReduceFills,
         strategy_exit_order: strategyExitOrder,
         order_events: orderEvents,
         event_sequence: eventSequence,
@@ -567,13 +613,14 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
           ? fundingEvents[source.source_index]?.mark_price
           : undefined
       if (mark === undefined) throw new Error("Replay exact risk source is missing its mark price")
-      const preliminaryEntryFill = entryFillFor(entry)
-      const preliminaryPosition = buildAverageCostPositionProjection({
+      const preliminaryFills = evidenceFills(entry)
+      const preliminaryPositions = buildAverageCostPositionProjection({
         run_id: request.run_id,
         symbol: request.symbol,
         accounting_spec: accountingSpec,
-        fills: [preliminaryEntryFill],
-      })[0]
+        fills: preliminaryFills,
+      })
+      const preliminaryPosition = preliminaryPositions.at(-1)!
       const preliminaryFundingFacts = appliedFundingSources.map((fundingSource) => {
         const event = fundingEvents[fundingSource.source_index]
         if (!event) throw new Error("Replay exact risk evaluation references missing funding")
@@ -581,7 +628,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
           event_key: fundingSource.event_key,
           amount: calculateFundingCashflowV3(
             event.mark_price,
-            entry.executed_quantity,
+            Math.abs(positionAt(entry, fundingSource.event_key).signed_quantity),
             event.rate,
             request.order.side,
             accountingSpec.settlement_increment,
@@ -600,8 +647,8 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
           event_subphase: 0,
           stable_event_id: `${request.run_id}:risk:${exactRiskSnapshots.length + 1}:checkpoint`,
         }),
-        fills: [preliminaryEntryFill],
-        positions: [preliminaryPosition],
+        fills: preliminaryFills,
+        positions: preliminaryPositions,
         funding_facts: preliminaryFundingFacts,
         settlement_increment: accountingSpec.settlement_increment,
       })
@@ -640,6 +687,60 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
         sourceSequence: source.event_key.source_sequence,
       }
     },
+    apply_partial_reduce: (source, entry) => {
+      if (!partialReduceOrder || partialReduceOrder.status === "filled" || source.kind !== "bar_open") return
+      const scheduleEntry = request.decision_schedule.entries.find(
+        (candidate) => candidate.expected_effect === "authorized_partial_reduce",
+      )
+      const intent = scheduleEntry?.authorized_partial_reduce
+      if (!intent || !scheduleEntry) throw new Error("Replay pending partial reduce lacks frozen schedule authority")
+      const sourceTime = Date.parse(source.event_key.event_time)
+      const executableTime = Date.parse(intent.earliest_executable_time)
+      if (sourceTime < executableTime) return
+      if (sourceTime > executableTime) throw new Error("Replay skipped the authorized partial-reduce executable boundary")
+      const executableBar = bars[source.source_index]
+      if (!executableBar) throw new Error("Replay partial reduce references a missing executable bar")
+      const execution = completeReplayPartialReduceLane({
+        run_id: request.run_id,
+        decision_sequence: scheduleEntry.decision_sequence,
+        event_time: executableBar.open_time,
+        source_sequence: source.source_index + 1,
+        signed_position: entry.signed_position_after,
+        partial_order: partialReduceOrder,
+        stop_order: entry.stop_order,
+        target_order: entry.target_order,
+        exit_side: exitSide,
+        next_stamp: nextStamp,
+        capture,
+      })
+      partialReduceOrder = execution.partial_order
+      entry.signed_position_after = execution.signed_position_after
+      entry.stop_order = execution.stop_order
+      entry.target_order = execution.target_order
+      const price = applyAdverseSlippageV3(
+        executableBar.open,
+        exitSide,
+        request.cost_policy.slippage_bps,
+        accountingSpec.price_increment,
+      )
+      partialReduceFills.push({
+        fill_id: `${request.run_id}:fill:${partialReduceFills.length + 2}`,
+        order_id: execution.partial_order_id,
+        order_role: "strategy_partial_reduce",
+        event_key: execution.partial_fill_event_key,
+        timestamp: executableBar.open_time,
+        side: exitSide,
+        quantity: execution.executed_quantity,
+        price,
+        fee: calculateNotionalChargeV3(
+          price,
+          execution.executed_quantity,
+          request.cost_policy.fee_bps,
+          accountingSpec.settlement_increment,
+        ),
+        reduce_only: true,
+      })
+    },
     observe_strategy_exit: (source) => {
       if (!strategyExitOrder || source.kind !== "bar_open") return null
       const scheduleEntry = request.decision_schedule.entries.find(
@@ -669,6 +770,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
         signed_position: entry.signed_position_after,
         stop_order: entry.stop_order,
         target_order: entry.target_order,
+        partial_reduce_order: partialReduceOrder,
         strategy_exit_order: strategyExitOrder,
         next_stamp: nextStamp,
         capture,
@@ -680,6 +782,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
           source_sequence: exit.sourceSequence,
           signed_position: entry.signed_position_after,
           strategy_exit_order: strategyExitOrder!,
+          partial_reduce_order: partialReduceOrder,
           stop_order: entry.stop_order,
           target_order: entry.target_order,
           next_stamp: nextStamp,
@@ -693,6 +796,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
         signed_position: entry.signed_position_after,
         stop_order: entry.stop_order,
         target_order: entry.target_order,
+        partial_reduce_order: partialReduceOrder,
         strategy_exit_order: strategyExitOrder,
         next_stamp: nextStamp,
         capture,
@@ -722,7 +826,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
   assertReplayDecisionEvidenceTimeline(decisionEvidenceTimeline, request, { source_events: sourceReduction.source_events })
   const exitRiskPolicy = riskPolicyAt(exit.timestamp)
   const entryFill = entryFillFor(entryExecution)
-  const fills: ReplayFill[] = [entryFill]
+  const fills: ReplayFill[] = [entryFill, ...partialReduceFills]
   const {
     exit_order_id: exitOrderId,
     exit_quantity: exitQuantity,
@@ -755,7 +859,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       )
       : undefined
     exitFill = {
-      fill_id: `${request.run_id}:fill:2`,
+      fill_id: `${request.run_id}:fill:${fills.length + 1}`,
       order_id: exitOrderId,
       order_role: exit.role,
       event_key: exitFillEventKey,
@@ -772,25 +876,21 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     throw new Error("certified open terminal evidence is inconsistent")
   }
 
-  const positions = exitFill
-    ? buildCertifiedSinglePositionProjection({
-      run_id: request.run_id,
-      symbol: request.symbol,
-      accounting_spec: accountingSpec,
-      fills: [entryFill, exitFill],
-    })
-    : buildAverageCostPositionProjection({
-      run_id: request.run_id,
-      symbol: request.symbol,
-      accounting_spec: accountingSpec,
-      fills: [entryFill],
-    })
+  const positions = buildAverageCostPositionProjection({
+    run_id: request.run_id,
+    symbol: request.symbol,
+    accounting_spec: accountingSpec,
+    fills,
+  })
+  if (exitFill && positions.at(-1)?.state !== "flat") {
+    throw new Error("certified terminal exit must produce a flat Position Projection")
+  }
   const sourceEvents = sourceReduction.source_events
   const appliedFundingSources = sourceReduction.applied_funding_sources
   const appliedFunding = appliedFundingSources.map((source) => fundingEvents[source.source_index])
-  const fundingAmounts = appliedFunding.map((event) => calculateFundingCashflowV3(
+  const fundingAmounts = appliedFunding.map((event, index) => calculateFundingCashflowV3(
     event.mark_price,
-    entryExecution.executed_quantity,
+    Math.abs(positionAt(entryExecution, appliedFundingSources[index]!.event_key).signed_quantity),
     event.rate,
     request.order.side,
     accountingSpec.settlement_increment,
@@ -870,7 +970,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       request,
       dataset_manifest: input.dataset_manifest,
       accounting_spec: accountingSpec,
-      entry_position: positions[0],
+      positions,
       source_events: sourceEvents,
       bars,
       funding_events: fundingEvents,
@@ -1022,6 +1122,8 @@ function buildReplayEngineCheckpoint(input: {
     entry_transition: ReplayEntryOrderExecution | null
   }
   entry_order: ReplayOrder
+  partial_reduce_order: ReplayOrder | null
+  partial_reduce_fills: ReplayFill[]
   strategy_exit_order: ReplayOrder | null
   order_events: ReplayOrderEvent[]
   event_sequence: number
@@ -1062,6 +1164,8 @@ function buildReplayEngineCheckpoint(input: {
     applied_funding_sources: structuredClone(input.boundary.applied_funding_sources),
     entry_order: structuredClone(input.entry_order),
     entry_transition: structuredClone(input.boundary.entry_transition),
+    partial_reduce_order: structuredClone(input.partial_reduce_order),
+    partial_reduce_fills: structuredClone(input.partial_reduce_fills),
     strategy_exit_order: structuredClone(input.strategy_exit_order),
     order_events: structuredClone(input.order_events),
     event_sequence: input.event_sequence,
@@ -1137,6 +1241,53 @@ export function assertReplayEngineCheckpoint(
   if (canonicalHash(checkpoint.source_events.at(-1)?.event_key) !== canonicalHash(checkpoint.last_committed_event_key)) {
     throw new Error("Replay engine checkpoint last committed event key is invalid")
   }
+  if (checkpoint.partial_reduce_order) {
+    const scheduleEntry = request.decision_schedule.entries.find(
+      (entry) => entry.expected_effect === "authorized_partial_reduce",
+    )
+    const intent = scheduleEntry?.authorized_partial_reduce
+    const evidence = checkpoint.decision_evidence_timeline.entries.find(
+      (entry) => entry.decision_sequence === scheduleEntry?.decision_sequence,
+    )
+    const order = checkpoint.partial_reduce_order
+    const fill = checkpoint.partial_reduce_fills[0]
+    if (!intent || evidence?.evaluation_status !== "evaluated"
+        || evidence.execution_effect !== "authorized_partial_reduce"
+        || order.order_role !== "strategy_partial_reduce"
+        || order.order_type !== "market"
+        || order.side !== intent.side
+        || order.quantity !== intent.quantity
+        || order.reduce_only !== true
+        || !["submitted", "filled"].includes(order.status)
+        || order.submitted_at !== intent.signal_time
+        || (order.status === "submitted" && (order.filled_quantity !== 0 || checkpoint.partial_reduce_fills.length !== 0))
+        || (order.status === "filled" && (
+          checkpoint.partial_reduce_fills.length !== 1
+          || !fill
+          || fill.order_id !== order.order_id
+          || fill.order_role !== "strategy_partial_reduce"
+          || fill.quantity !== intent.quantity
+          || fill.reduce_only !== true
+          || fill.timestamp !== intent.earliest_executable_time
+          || order.filled_quantity !== intent.quantity
+        ))) {
+      throw new Error("Replay engine checkpoint partial reduce is invalid")
+    }
+    if (order.status === "filled") {
+      const entry = checkpoint.entry_transition
+      const expectedSignedPosition = !entry ? 0 : request.order.side === "long"
+        ? entry.executed_quantity - intent.quantity
+        : -entry.executed_quantity + intent.quantity
+      if (!entry || entry.signed_position_after !== expectedSignedPosition
+          || entry.stop_order.status !== "active" || entry.target_order.status !== "active"
+          || entry.stop_order.remaining_quantity !== Math.abs(expectedSignedPosition)
+          || entry.target_order.remaining_quantity !== Math.abs(expectedSignedPosition)) {
+        throw new Error("Replay engine checkpoint partial-reduce protection state is invalid")
+      }
+    }
+  } else if (checkpoint.partial_reduce_fills.length !== 0) {
+    throw new Error("Replay engine checkpoint partial Fill lacks its Order")
+  }
   if (checkpoint.strategy_exit_order) {
     const scheduleEntry = request.decision_schedule.entries.find(
       (entry) => entry.expected_effect === "authorized_reduce_only_exit",
@@ -1165,6 +1316,7 @@ function assertInstrumentAlignedInputs(
   request: ReplayExecutionRequest,
   bars: ReplayMarketBar[],
   priceIncrement: string,
+  quantityIncrement: string,
   settlementIncrement: string,
 ): void {
   if (!isReplayIncrementAligned(request.initial_cash, settlementIncrement)) {
@@ -1180,6 +1332,11 @@ function assertInstrumentAlignedInputs(
     const replace = entry.authorized_protective_stop_replace
     if (replace && !isReplayIncrementAligned(replace.new_stop_price, priceIncrement)) {
       throw new Error("Replay replacement stop_price must align to price increment")
+    }
+    const partial = entry.authorized_partial_reduce
+    if (partial && (!isReplayIncrementAligned(partial.quantity, quantityIncrement)
+        || partial.quantity >= quantizeReplayQuantity(request.order.quantity, quantityIncrement))) {
+      throw new Error("Replay partial-reduce quantity must align and leave the executable position open")
     }
   }
   for (const [index, bar] of bars.entries()) {

@@ -28,6 +28,7 @@ export function completeReplayLiquidationOrderLane(input: {
   stop_order: ReplayOrder
   target_order: ReplayOrder
   strategy_exit_order?: ReplayOrder | null
+  partial_reduce_order?: ReplayOrder | null
   next_stamp: (
     eventTime: string,
     boundaryPhase: ReplayBoundaryPhase,
@@ -51,13 +52,25 @@ export function completeReplayLiquidationOrderLane(input: {
     input.signed_position,
     "maintenance-liquidation",
   ))
-  if (input.strategy_exit_order) input.capture(cancelReplayOrder(
-    input.strategy_exit_order,
-    input.next_stamp(input.event_time, 15, input.source_sequence, 3),
-    input.signed_position,
-    "maintenance-liquidation",
-  ))
-  const orderSubphase = input.strategy_exit_order ? 4 : 3
+  let orderSubphase = 3
+  if (input.strategy_exit_order) {
+    input.capture(cancelReplayOrder(
+      input.strategy_exit_order,
+      input.next_stamp(input.event_time, 15, input.source_sequence, orderSubphase),
+      input.signed_position,
+      "maintenance-liquidation",
+    ))
+    orderSubphase += 1
+  }
+  if (input.partial_reduce_order?.status === "submitted") {
+    input.capture(cancelReplayOrder(
+      input.partial_reduce_order,
+      input.next_stamp(input.event_time, 15, input.source_sequence, orderSubphase),
+      input.signed_position,
+      "maintenance-liquidation",
+    ))
+    orderSubphase += 1
+  }
   let order = input.capture(submitReplayOrder({
     order_id: `${input.run_id}:order:liquidation`,
     order_role: "liquidation",

@@ -61,6 +61,7 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
     appliedFundingSources: ReplaySourceEvent[],
   ) => ReplayReducedExit | null
   observe_strategy_exit: (source: ReplaySourceEvent, entry: TEntry) => ReplayReducedExit | null
+  apply_partial_reduce: (source: ReplaySourceEvent, entry: TEntry) => void
   complete_exit: (exit: ReplayReducedExit, entry: TEntry) => TTerminal
 }): ReplaySourceReduction<TEntry, TTerminal> {
   const entryBar = input.bars[input.entry_index]
@@ -145,6 +146,7 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
         entryTransition,
         input.complete_exit,
       )
+      input.apply_partial_reduce(source, entryTransition)
       const strategyExit = input.observe_strategy_exit(source, entryTransition)
       if (strategyExit) return reduction(
         strategyExit,

@@ -32,6 +32,7 @@ export function completeReplayExitOrderLane(input: {
   stop_order: ReplayOrder
   target_order: ReplayOrder
   strategy_exit_order?: ReplayOrder | null
+  partial_reduce_order?: ReplayOrder | null
   next_stamp: (
     eventTime: string,
     boundaryPhase: ReplayBoundaryPhase,
@@ -74,6 +75,12 @@ export function completeReplayExitOrderLane(input: {
       transition.signed_position_after,
       "sibling-exit-filled",
     ))
+    if (input.partial_reduce_order?.status === "submitted") input.capture(cancelReplayOrder(
+      input.partial_reduce_order,
+      input.next_stamp(exit.timestamp, 90, exit.sourceSequence, siblingCancelSubphase + 2),
+      transition.signed_position_after,
+      "sibling-exit-filled",
+    ))
     return execution("flat", stopOrder.order_id, transition.executed_quantity, transition.signed_position_after, transition.event.event_key)
   }
 
@@ -103,6 +110,12 @@ export function completeReplayExitOrderLane(input: {
       transition.signed_position_after,
       "sibling-exit-filled",
     ))
+    if (input.partial_reduce_order?.status === "submitted") input.capture(cancelReplayOrder(
+      input.partial_reduce_order,
+      input.next_stamp(exit.timestamp, 90, exit.sourceSequence, siblingCancelSubphase + 2),
+      transition.signed_position_after,
+      "sibling-exit-filled",
+    ))
     return execution("flat", targetOrder.order_id, transition.executed_quantity, transition.signed_position_after, transition.event.event_key)
   }
 
@@ -124,6 +137,12 @@ export function completeReplayExitOrderLane(input: {
     input.signed_position,
     "end-of-data",
   ))
+  if (input.partial_reduce_order?.status === "submitted") input.capture(cancelReplayOrder(
+    input.partial_reduce_order,
+    input.next_stamp(exit.timestamp, 90, exit.sourceSequence, 3),
+    input.signed_position,
+    "end-of-data",
+  ))
   return execution("open_marked", null, 0, input.signed_position, null)
 }
 
@@ -133,6 +152,7 @@ export function completeReplayStrategyExitOrderLane(input: {
   source_sequence: number
   signed_position: number
   strategy_exit_order: ReplayOrder
+  partial_reduce_order?: ReplayOrder | null
   stop_order: ReplayOrder
   target_order: ReplayOrder
   next_stamp: (
@@ -168,6 +188,12 @@ export function completeReplayStrategyExitOrderLane(input: {
   input.capture(cancelReplayOrder(
     input.target_order,
     input.next_stamp(input.event_time, 90, input.source_sequence, 1),
+    transition.signed_position_after,
+    "strategy-exit-filled",
+  ))
+  if (input.partial_reduce_order?.status === "submitted") input.capture(cancelReplayOrder(
+    input.partial_reduce_order,
+    input.next_stamp(input.event_time, 90, input.source_sequence, 2),
     transition.signed_position_after,
     "strategy-exit-filled",
   ))

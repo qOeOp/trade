@@ -95,7 +95,7 @@ export function buildReplayPathMarginSnapshots(input: {
   request: ReplayExecutionRequest
   dataset_manifest: ReplayDatasetManifest
   accounting_spec: ReplayInstrumentAccountingSpec
-  entry_position: ReplayPositionProjection
+  positions: ReplayPositionProjection[]
   source_events: ReplaySourceEvent[]
   bars: ReplayMarketBar[]
   funding_events: ReplayFundingEvent[]
@@ -104,13 +104,18 @@ export function buildReplayPathMarginSnapshots(input: {
   ledger: ReplayLedgerEntry[]
   first_sequence: number
 }): ReplayMarginSnapshot[] {
-  if (input.entry_position.state !== "open") throw new Error("Replay margin path requires an open entry Position")
+  const entryPosition = input.positions[0]
+  if (!entryPosition || entryPosition.state !== "open") throw new Error("Replay margin path requires an open entry Position")
   const snapshots: ReplayMarginSnapshot[] = []
   for (const source of input.source_events) {
     if (source.kind === "instrument_delisted"
-        || compareReplayEventKeys(source.event_key, input.entry_position.event_key) <= 0) continue
+        || compareReplayEventKeys(source.event_key, entryPosition.event_key) <= 0) continue
     if (input.exact_mark_coverage && (source.kind === "bar_open" || source.kind === "bar_range")) continue
     const observation = marginObservation(input.request, source, input.bars, input.funding_events, input.mark_events)
+    const position = [...input.positions].reverse().find(
+      (candidate) => compareReplayEventKeys(candidate.event_key, source.event_key) <= 0,
+    )
+    if (!position || position.state !== "open") continue
     const riskPolicy = resolveReplayVenueRiskPolicyAt(input.dataset_manifest, source.event_key.event_time)
     const snapshot = buildReplayMarginSnapshot({
       run_id: input.request.run_id,
@@ -123,13 +128,13 @@ export function buildReplayPathMarginSnapshots(input: {
         maintenance_tier: structuredClone(riskPolicy.maintenance_tier),
       },
       venue_risk_policy_snapshot: riskPolicy,
-      position: input.entry_position,
+      position,
       event_key: source.event_key,
       mark_source_ref: source.source_event_id,
       mark_source: observation.mark_source,
       resolution: observation.resolution,
       mark_price: observation.mark_price,
-      unrealized_pnl: unrealizedPnl(input.entry_position, observation.mark_price, input.accounting_spec.settlement_increment),
+      unrealized_pnl: unrealizedPnl(position, observation.mark_price, input.accounting_spec.settlement_increment),
       ledger: input.ledger,
     })
     snapshots.push(snapshot)
