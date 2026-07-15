@@ -4,7 +4,7 @@ import {
   type ForwardAdmissionRequest,
   type ForwardEvidenceResult,
 } from "../../../contracts/src/lib/forward-evidence-contracts"
-import type { ReplayDatasetManifest, ReplayFundingEvent, ReplayMarkEvent, ReplayMarketBar } from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
+import type { ReplayDatasetManifest, ReplayFundingEvent, ReplayMarkEvent, ReplayMarketBar, ReplaySupplementalFact } from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
 import { runReplayTrial } from "../../../../replay-execution-plane/runner/src/lib/replay-trial-runner"
 import type { ReplayAttemptLeaseSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
 
@@ -16,6 +16,7 @@ export interface ForwardEvidenceRunInput {
   bars: ReplayMarketBar[]
   funding_events?: ReplayFundingEvent[]
   mark_events?: ReplayMarkEvent[]
+  supplemental_facts?: ReplaySupplementalFact[]
   artifact_root?: string
   cancel_requested?: boolean
 }
@@ -58,6 +59,7 @@ export function runForwardEvidenceSession(input: ForwardEvidenceRunInput): Forwa
       bars: input.bars,
       funding_events: input.funding_events,
       mark_events: input.mark_events,
+      supplemental_facts: input.supplemental_facts,
       artifact_root: input.artifact_root,
       cancel_requested: input.cancel_requested,
     })

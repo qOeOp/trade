@@ -7,10 +7,12 @@ import {
   REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION,
   REPLAY_REQUEST_SCHEMA_VERSION,
   REPLAY_SIMULATOR_POLICY_VERSION,
+  REPLAY_SUPPLEMENTAL_FACT_SCHEMA_VERSION,
   REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
   assertReplayExecutionRequest,
   assertReplayDatasetManifest,
   assertReplayArtifactStoreCapability,
+  assertReplaySupplementalFact,
   canonicalHash,
   type ReplayExecutionRequest,
 } from "./replay-contracts"
@@ -37,6 +39,7 @@ export function fixtureRequest(): ReplayExecutionRequest {
     trial_reservation_hash: HASH,
     dataset_manifest_ref: "dataset://btc-4h",
     dataset_hash: HASH,
+    supplemental_facts_hash: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     venue_risk_policy_schedule_hash: canonicalHash([RISK_SNAPSHOT]),
     instrument_spec_schedule_hash: HASH,
     harness_hash: HASH,
@@ -99,6 +102,19 @@ test("canonical hash is independent of object key order", () => {
   expect(canonicalHash({ b: 2, a: 1 })).toBe(canonicalHash({ a: 1, b: 2 }))
 })
 
+test("supplemental fact freezes causal timestamps and canonical payload identity", () => {
+  const payload = { open_interest: "100" }
+  const fact = {
+    schema_version: REPLAY_SUPPLEMENTAL_FACT_SCHEMA_VERSION,
+    record_id: "oi-1", source_id: "binance-open-interest", entity_key: "BTCUSDT", fact_key: "open_interest",
+    event_time: "2026-07-13T20:00:00Z", availability_at: "2026-07-13T20:01:00Z", received_at: "2026-07-13T20:01:01Z",
+    revision_id: "v1", source_sequence: 1, payload, content_hash: canonicalHash(payload),
+  }
+  expect(() => assertReplaySupplementalFact(fact)).not.toThrow()
+  expect(() => assertReplaySupplementalFact({ ...fact, availability_at: "2026-07-13T19:59:59Z" })).toThrow("before its event time")
+  expect(() => assertReplaySupplementalFact({ ...fact, payload: { open_interest: "101" } })).toThrow("payload hash mismatch")
+})
+
 test("Artifact Store capability freezes local and remote immutable-create semantics", () => {
   expect(() => assertReplayArtifactStoreCapability(REPLAY_LOCAL_ARTIFACT_STORE_CAPABILITY)).not.toThrow()
   expect(() => assertReplayArtifactStoreCapability(REPLAY_OBJECT_ARTIFACT_STORE_REQUIRED_CAPABILITY)).not.toThrow()
@@ -116,7 +132,7 @@ test("Replay dataset manifest requires explicit UTC lifecycle and availability p
     row_count: 1, first_open_time: "2026-07-14T04:00:00Z", last_close_time: "2026-07-14T08:00:00Z",
     observed_through: "2026-07-14T08:00:00Z", closed_candles_only: true as const,
     bar_final_availability: "close_time" as const, funding_availability: "event_time" as const, mark_availability: "event_time" as const,
-    mark_coverage: "none" as const, mark_interval_ms: null, mark_event_count: 0,
+    mark_coverage: "none" as const, mark_interval_ms: null, mark_event_count: 0, supplemental_facts: { coverage: "none" as const, record_count: 0, source_ids: [], content_hash: canonicalHash([]) },
     venue_risk_policy_epochs: [RISK_SNAPSHOT],
     instrument: {
       listed_at: "2020-01-01T00:00:00Z", trading_enabled_at: "2020-01-01T00:00:00Z", delisted_at: null, status_history: "complete" as const,

@@ -20,6 +20,7 @@ import {
   type ReplayOrderEvent,
   type ReplayResult,
   type ReplaySourceEvent,
+  type ReplaySupplementalFact,
   type ReplayVenueRiskPolicySnapshot,
 } from "../../../contracts/src/lib/replay-contracts"
 import {
@@ -46,7 +47,7 @@ import { completeReplayLiquidationOrderLane } from "./replay-liquidation-order-l
 import { ReplayLiquidationDeficitError, assertReplayPostEntryMargin, buildReplayMaintenanceBreachObservation, buildReplayPathMarginSnapshots } from "./replay-margin-path"
 import { reduceReplaySourceEvents } from "./replay-source-reducer"
 
-export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v2" as const
+export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v3" as const
 
 export interface ReplayEngineCheckpoint {
   schema_version: typeof REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION
@@ -89,6 +90,7 @@ export interface ReplayKernelInput {
   bars: ReplayMarketBar[]
   funding_events?: ReplayFundingEvent[]
   mark_events?: ReplayMarkEvent[]
+  supplemental_facts?: ReplaySupplementalFact[]
   execution_control?: ReplayExecutionControl
 }
 
@@ -101,6 +103,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     bars: input.bars,
     funding_events: input.funding_events,
     mark_events: input.mark_events,
+    supplemental_facts: input.supplemental_facts,
   })
   const { bars, funding_events: fundingEvents, mark_events: markEvents, entry_index: entryIndex } = prepared
   const exactMarkCoverage = input.dataset_manifest.mark_coverage === "complete_grid"
@@ -583,6 +586,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     liquidation,
     journal,
     trial_balance: trialBalance,
+    supplemental_evidence: prepared.supplemental_evidence,
     metrics,
     limitations,
   }
@@ -597,6 +601,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       trial_reservation_hash: request.trial_reservation_hash,
       dataset_manifest_hash: prepared.dataset_manifest_hash,
       dataset_hash: request.dataset_hash,
+      supplemental_facts_hash: request.supplemental_facts_hash,
       venue_risk_policy_schedule_hash: request.venue_risk_policy_schedule_hash,
       instrument_spec_schedule_hash: request.instrument_spec_schedule_hash,
       harness_hash: request.harness_hash,

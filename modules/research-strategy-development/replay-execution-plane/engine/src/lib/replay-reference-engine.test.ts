@@ -5,6 +5,7 @@ import {
   REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION,
   REPLAY_REQUEST_SCHEMA_VERSION,
   REPLAY_SIMULATOR_POLICY_VERSION,
+  REPLAY_SUPPLEMENTAL_FACT_SCHEMA_VERSION,
   REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
   canonicalHash,
   replayDatasetHash,
@@ -13,6 +14,7 @@ import {
   type ReplayFundingEvent,
   type ReplayMarkEvent,
   type ReplayMarketBar,
+  type ReplaySupplementalFact,
 } from "../../../contracts/src/lib/replay-contracts"
 import {
   ReplayExecutionInterruptedError,
@@ -43,6 +45,7 @@ function request(side: "long" | "short" = "long"): ReplayExecutionRequest {
     trial_reservation_hash: HASH,
     dataset_manifest_ref: "dataset://fixture",
     dataset_hash: HASH,
+    supplemental_facts_hash: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     venue_risk_policy_schedule_hash: canonicalHash([RISK_SNAPSHOT]),
     instrument_spec_schedule_hash: canonicalHash({ epochs: [SPEC_SNAPSHOT], accounting: ACCOUNTING }),
     harness_hash: HASH,
@@ -84,15 +87,16 @@ function inputFor(
   bars: ReplayMarketBar[],
   fundingEvents: ReplayFundingEvent[] = [],
   markEvents: ReplayMarkEvent[] = [],
+  supplementalFacts: ReplaySupplementalFact[] = [],
 ) {
-  const dataHash = replayDatasetHash(bars, fundingEvents, markEvents)
+  const dataHash = replayDatasetHash(bars, fundingEvents, markEvents, supplementalFacts)
   const venueRiskPolicy = {
     ...RISK_SNAPSHOT,
     initial_margin_rate: requestValue.margin_policy.initial_margin_rate,
     maintenance_tier: structuredClone(requestValue.margin_policy.maintenance_tier),
     liquidation_fee_bps: requestValue.cost_policy.liquidation_fee_bps,
   }
-  const boundRequest = { ...requestValue, dataset_hash: dataHash, venue_risk_policy_schedule_hash: canonicalHash([venueRiskPolicy]) }
+  const boundRequest = { ...requestValue, dataset_hash: dataHash, supplemental_facts_hash: canonicalHash(supplementalFacts), venue_risk_policy_schedule_hash: canonicalHash([venueRiskPolicy]) }
   const datasetManifest: ReplayDatasetManifest = {
     schema_version: REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
     manifest_id: "manifest-fixture", manifest_ref: boundRequest.dataset_manifest_ref, data_hash: dataHash,
@@ -103,6 +107,9 @@ function inputFor(
     mark_coverage: markEvents.length > 0 ? "complete_grid" : "none",
     mark_interval_ms: markEvents.length > 0 ? 14_400_000 : null,
     mark_event_count: markEvents.length,
+    supplemental_facts: supplementalFacts.length === 0
+      ? { coverage: "none" as const, record_count: 0, source_ids: [], content_hash: canonicalHash([]) }
+      : { coverage: "signal_time_snapshot" as const, record_count: supplementalFacts.length, source_ids: [...new Set(supplementalFacts.map((fact) => fact.source_id))].sort(), content_hash: canonicalHash(supplementalFacts) },
     venue_risk_policy_epochs: [venueRiskPolicy],
     instrument: {
       listed_at: "2020-01-01T00:00:00Z", trading_enabled_at: "2020-01-01T00:00:00Z", delisted_at: null, status_history: "complete",
@@ -111,7 +118,7 @@ function inputFor(
     },
     universe: { selected_at: "2026-07-13T00:00:00Z", survivorship: "point_in_time" },
   }
-  return { request: boundRequest, dataset_manifest: datasetManifest, bars, funding_events: fundingEvents, mark_events: markEvents }
+  return { request: boundRequest, dataset_manifest: datasetManifest, bars, funding_events: fundingEvents, mark_events: markEvents, supplemental_facts: supplementalFacts }
 }
 
 test("closed-candle signal enters at next open and resolves same-bar collision stop first", () => {
@@ -176,6 +183,31 @@ test("exact funding event enters the unified evidence ledger", () => {
   ], fundingEvents))
   expect(result.metrics.total_funding).toBe(0.098)
   expect(result.ledger.some((entry) => entry.kind === "funding")).toBe(true)
+})
+
+test("Result binds the deterministic signal-time supplemental revision view", () => {
+  const facts: ReplaySupplementalFact[] = [
+    {
+      schema_version: REPLAY_SUPPLEMENTAL_FACT_SCHEMA_VERSION,
+      record_id: "feature-v1", source_id: "feature-store", entity_key: "BTCUSDT", fact_key: "momentum",
+      event_time: "2026-07-13T20:00:00Z", availability_at: "2026-07-13T20:01:00Z", received_at: "2026-07-13T20:01:01Z",
+      revision_id: "v1", source_sequence: 1, payload: { score: "0.5" }, content_hash: canonicalHash({ score: "0.5" }),
+    },
+    {
+      schema_version: REPLAY_SUPPLEMENTAL_FACT_SCHEMA_VERSION,
+      record_id: "feature-v2", source_id: "feature-store", entity_key: "BTCUSDT", fact_key: "momentum",
+      event_time: "2026-07-13T20:00:00Z", availability_at: "2026-07-14T02:00:00Z", received_at: "2026-07-14T02:00:01Z",
+      revision_id: "v2", source_sequence: 2, payload: { score: "0.7" }, content_hash: canonicalHash({ score: "0.7" }),
+    },
+  ]
+  const replayInput = inputFor(
+    request(), [bar("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", 100, 109, 98, 108)], [], [], facts,
+  )
+  const result = executeReplayKernel(replayInput)
+  expect(result.supplemental_evidence.selected_record_ids).toEqual(["feature-v1"])
+  expect(result.supplemental_evidence.future_revision_count).toBe(1)
+  expect(result.fingerprint.supplemental_facts_hash).toBe(canonicalHash(facts))
+  expect(result.limitations.map((limitation) => limitation.code)).toContain("supplemental-signal-derivation-harness-bound")
 })
 
 test("risk policy epochs switch before same-time source-event margin evaluation", () => {

@@ -1,6 +1,6 @@
 {
   "request": {
-    "schema_version": "trade.rd-replay-execution-request.v11",
+    "schema_version": "trade.rd-replay-execution-request.v12",
     "run_id": "golden-run",
     "idempotency_key": "golden-idempotency",
     "experiment_id": "exp-golden",
@@ -14,7 +14,8 @@
     "trial_reservation_ref": "reservation://trial-golden",
     "trial_reservation_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "dataset_manifest_ref": "dataset://golden",
-    "dataset_hash": "47223604386a42a5ce8a8041d5774fea522490fe6e517528b15934d01cc2023c",
+    "dataset_hash": "5050e0b6330030d2ee61cb40234b2a98300bab7b088c482e331a2b6a057608d0",
+    "supplemental_facts_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     "venue_risk_policy_schedule_hash": "bce56538f5e3d2b53aa1895edbe20809abe385a7f3e4af59ba576b03cbdb9f26",
     "instrument_spec_schedule_hash": "3c8736f2a900c073924a9c1d6eb51bb105b859007eb39d470e361cd34e52c604",
     "harness_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
@@ -83,10 +84,10 @@
     "random_seed": 7
   },
   "dataset_manifest": {
-    "schema_version": "trade.rd-replay-dataset-manifest.v5",
+    "schema_version": "trade.rd-replay-dataset-manifest.v6",
     "manifest_id": "manifest-golden",
     "manifest_ref": "dataset://golden",
-    "data_hash": "47223604386a42a5ce8a8041d5774fea522490fe6e517528b15934d01cc2023c",
+    "data_hash": "5050e0b6330030d2ee61cb40234b2a98300bab7b088c482e331a2b6a057608d0",
     "dataset_kind": "ohlcv",
     "symbol": "BTCUSDT",
     "timeframe": "4h",
@@ -102,6 +103,12 @@
     "mark_coverage": "none",
     "mark_interval_ms": null,
     "mark_event_count": 0,
+    "supplemental_facts": {
+      "coverage": "none",
+      "record_count": 0,
+      "source_ids": [],
+      "content_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945"
+    },
     "venue_risk_policy_epochs": [{
       "schema_version": "trade.rd-replay-venue-risk-policy-snapshot.v1",
       "snapshot_id": "risk-golden",

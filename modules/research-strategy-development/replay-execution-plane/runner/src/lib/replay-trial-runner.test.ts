@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { existsSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION, REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION, REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION, TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION, createReplayResumeAuthorizationSnapshot, hashReplayAttemptLeaseSnapshot, hashTrialReservationSnapshot, type ReplayAttemptLeaseSnapshot, type ReplayResumeAuthorizationSnapshot, type TrialReservationSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
@@ -11,12 +11,14 @@ import {
   REPLAY_OBJECT_ARTIFACT_STORE_REQUIRED_CAPABILITY,
   REPLAY_REQUEST_SCHEMA_VERSION,
   REPLAY_SIMULATOR_POLICY_VERSION,
+  REPLAY_SUPPLEMENTAL_FACT_SCHEMA_VERSION,
   REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
   canonicalHash,
   replayDatasetHash,
   replayExecutionSpecHash,
   type ReplayDatasetManifest,
   type ReplayExecutionRequest,
+  type ReplaySupplementalFact,
 } from "../../../contracts/src/lib/replay-contracts"
 import { runReplayTrial, type ReplayDiagnosticCheckpointCommitRef } from "./replay-trial-runner"
 import type { ReplayArtifactStore } from "./replay-artifact-store"
@@ -36,6 +38,7 @@ function request(): ReplayExecutionRequest {
     trial_group_id: "group-1", trial_group_hash: HASH, trial_id: "trial-1",
     candidate_id: "candidate-1", candidate_hash: HASH, identity_hash_policy_version: "identity-v1",
     experiment_contract_hash: HASH, dataset_manifest_ref: "dataset://fixture", dataset_hash: HASH,
+    supplemental_facts_hash: canonicalHash([]),
     trial_reservation_ref: "reservation://trial-1", trial_reservation_hash: HASH,
     venue_risk_policy_schedule_hash: canonicalHash([RISK_SNAPSHOT]), instrument_spec_schedule_hash: canonicalHash({ epochs: [SPEC_SNAPSHOT], accounting: ACCOUNTING }),
     harness_hash: HASH, assumptions_hash: HASH, symbol: "BTCUSDT", timeframe: "4h", initial_cash: 1000,
@@ -72,6 +75,7 @@ function authorize(requestValue: ReplayExecutionRequest): TrialReservationSnapsh
       replay_idempotency_key: requestValue.idempotency_key,
       execution_spec_hash: replayExecutionSpecHash(requestValue),
       dataset_manifest_ref: requestValue.dataset_manifest_ref, dataset_hash: requestValue.dataset_hash,
+      supplemental_facts_hash: requestValue.supplemental_facts_hash,
       venue_risk_policy_schedule_hash: requestValue.venue_risk_policy_schedule_hash,
       instrument_spec_schedule_hash: requestValue.instrument_spec_schedule_hash,
       harness_hash: requestValue.harness_hash, assumptions_hash: requestValue.assumptions_hash,
@@ -150,7 +154,7 @@ function datasetManifest(): ReplayDatasetManifest {
     row_count: 1, first_open_time: bars[0].open_time, last_close_time: bars[0].close_time,
     observed_through: bars[0].close_time, closed_candles_only: true,
     bar_final_availability: "close_time", funding_availability: "event_time", mark_availability: "event_time",
-    mark_coverage: "none", mark_interval_ms: null, mark_event_count: 0,
+    mark_coverage: "none", mark_interval_ms: null, mark_event_count: 0, supplemental_facts: { coverage: "none" as const, record_count: 0, source_ids: [], content_hash: canonicalHash([]) },
     venue_risk_policy_epochs: [RISK_SNAPSHOT],
     instrument: {
       listed_at: "2020-01-01T00:00:00Z", trading_enabled_at: "2020-01-01T00:00:00Z", delisted_at: null, status_history: "complete",
@@ -169,13 +173,37 @@ test("runner atomically commits artifacts and retries idempotently", () => {
     artifact_store: createReplayLocalArtifactStore(root),
   })
   expect(first.status).toBe("completed")
-  expect(first.artifact_manifest?.files.map((file) => file.role)).toEqual(["request", "trial_reservation", "attempt_lease", "dataset_manifest", "result", "source_events", "order_events", "fills", "positions", "ledger", "valuation_snapshot", "equity_bridge", "margin_snapshots", "liquidation", "journal", "trial_balance"])
+  expect(first.artifact_manifest?.files.map((file) => file.role)).toEqual(["request", "trial_reservation", "attempt_lease", "dataset_manifest", "supplemental_facts", "result", "source_events", "order_events", "fills", "positions", "ledger", "valuation_snapshot", "equity_bridge", "margin_snapshots", "liquidation", "journal", "trial_balance"])
   expect(first.artifact_manifest?.completeness.authoritative_result).toBe(true)
   expect(first.artifact_manifest?.storage_policy_version).toBe(REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION)
   expect(first.artifact_commit?.terminal_checkpoint_hash).toBe(first.artifact_manifest?.completeness.terminal_checkpoint_hash)
   expect(first.artifact_commit?.storage_policy_version).toBe(REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION)
   expect(second.status).toBe("completed")
   expect(second.idempotent_replay).toBe(true)
+})
+
+test("runner commits the complete supplemental revision stream as immutable evidence", () => {
+  const supplementalFacts: ReplaySupplementalFact[] = [{
+    schema_version: REPLAY_SUPPLEMENTAL_FACT_SCHEMA_VERSION,
+    record_id: "feature-1", source_id: "feature-store", entity_key: "BTCUSDT", fact_key: "momentum",
+    event_time: "2026-07-13T20:00:00Z", availability_at: "2026-07-13T20:01:00Z", received_at: "2026-07-13T20:01:01Z",
+    revision_id: "v1", source_sequence: 1, payload: { score: "0.5" }, content_hash: canonicalHash({ score: "0.5" }),
+  }]
+  const supplementalHash = canonicalHash(supplementalFacts)
+  const dataHash = replayDatasetHash(bars, [], [], supplementalFacts)
+  const requestValue = { ...boundRequest(), dataset_hash: dataHash, supplemental_facts_hash: supplementalHash }
+  const manifest: ReplayDatasetManifest = {
+    ...datasetManifest(), data_hash: dataHash,
+    supplemental_facts: { coverage: "signal_time_snapshot", record_count: 1, source_ids: ["feature-store"], content_hash: supplementalHash },
+  }
+  const root = mkdtempSync(join(tmpdir(), "rd-replay-runner-supplemental-"))
+  const completed = runReplayTrial({
+    ...authorized(requestValue), dataset_manifest: manifest, bars, supplemental_facts: supplementalFacts, artifact_root: root,
+  })
+  expect(completed.status).toBe("completed")
+  expect(completed.result?.supplemental_evidence.selected_record_ids).toEqual(["feature-1"])
+  const supplementalArtifact = completed.artifact_manifest?.files.find((file) => file.role === "supplemental_facts")
+  expect(JSON.parse(readFileSync(supplementalArtifact!.ref, "utf8"))).toEqual(supplementalFacts)
 })
 
 test("runner fences stale Attempt leases and verifies every committed artifact file", () => {
@@ -218,7 +246,7 @@ test("runner enforces Reservation expiry only at Attempt claim admission", () =>
   expired.observed_at = "2026-07-14T00:01:30Z"
   const rejected = runReplayTrial({ ...expired, dataset_manifest: datasetManifest(), bars })
   expect(rejected).toMatchObject({
-    schema_version: "trade.rd-replay-run-outcome.v14",
+    schema_version: "trade.rd-replay-run-outcome.v15",
     status: "failed",
     failure: { code: "trial-reservation-expired", failure_class: "unsupported_contract", retryable: false, partial_result_published: false },
   })
@@ -619,7 +647,7 @@ test("runner preserves typed liquidation deficit evidence without publishing a R
     venue_risk_policy_epochs: [{ ...RISK_SNAPSHOT, liquidation_fee_bps: 10 }],
     mark_coverage: "complete_grid" as const,
     mark_interval_ms: 14_400_000,
-    mark_event_count: marks.length,
+    mark_event_count: marks.length, supplemental_facts: { coverage: "none" as const, record_count: 0, source_ids: [], content_hash: canonicalHash([]) },
   }
   deficitRequest.venue_risk_policy_schedule_hash = canonicalHash(manifest.venue_risk_policy_epochs)
   const outcome = runReplayTrial({ ...authorized(deficitRequest), dataset_manifest: manifest, bars: deficitBars, mark_events: marks })

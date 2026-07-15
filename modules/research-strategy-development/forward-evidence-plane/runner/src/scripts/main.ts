@@ -2,7 +2,7 @@
 
 import { errorResponse, printScriptResult, readFlagValue, readJsonObject, successResponse } from "../../../../../contracts/runtime-core/src/script-json"
 import type { JSONRecord } from "../../../../../contracts/runtime-core/src/json"
-import type { ReplayDatasetManifest, ReplayFundingEvent, ReplayMarkEvent, ReplayMarketBar } from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
+import type { ReplayDatasetManifest, ReplayFundingEvent, ReplayMarkEvent, ReplayMarketBar, ReplaySupplementalFact } from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
 import type { ForwardAdmissionRequest } from "../../../contracts/src/lib/forward-evidence-contracts"
 import type { ReplayAttemptLeaseSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
 import { runForwardEvidenceSession } from "../lib/forward-evidence-runner"
@@ -20,6 +20,7 @@ export function run(argv: string[]): JSONRecord {
       bars: array(input.bars) as ReplayMarketBar[],
       funding_events: array(input.funding_events) as ReplayFundingEvent[],
       mark_events: array(input.mark_events) as ReplayMarkEvent[],
+      supplemental_facts: array(input.supplemental_facts) as ReplaySupplementalFact[],
       artifact_root: text(input.artifact_root) || undefined,
       cancel_requested: input.cancel_requested === true,
     }))

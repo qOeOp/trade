@@ -1,6 +1,7 @@
 import {
   assertReplayDatasetManifest,
   assertReplayMarketBars,
+  assertReplaySupplementalFact,
   canonicalHash,
   replayDatasetHash,
   replayDatasetManifestHash,
@@ -11,6 +12,8 @@ import {
   type ReplayLimitation,
   type ReplayMarkEvent,
   type ReplayMarketBar,
+  type ReplaySupplementalEvidence,
+  type ReplaySupplementalFact,
   type ReplayVenueRiskPolicySnapshot,
 } from "../../../contracts/src/lib/replay-contracts"
 import { isReplayIncrementAligned } from "../../../contracts/src/lib/replay-decimal"
@@ -19,6 +22,8 @@ export interface PreparedReplayInputData {
   bars: ReplayMarketBar[]
   funding_events: ReplayFundingEvent[]
   mark_events: ReplayMarkEvent[]
+  supplemental_facts: ReplaySupplementalFact[]
+  supplemental_evidence: ReplaySupplementalEvidence
   entry_index: number
   dataset_manifest_hash: string
   limitations: ReplayLimitation[]
@@ -30,6 +35,7 @@ export function prepareReplayInputData(input: {
   bars: ReplayMarketBar[]
   funding_events?: ReplayFundingEvent[]
   mark_events?: ReplayMarkEvent[]
+  supplemental_facts?: ReplaySupplementalFact[]
 }): PreparedReplayInputData {
   const { request, dataset_manifest: manifest } = input
   assertReplayDatasetManifest(manifest)
@@ -39,13 +45,18 @@ export function prepareReplayInputData(input: {
   if (!Number.isFinite(executableTime)) throw new Error("earliest executable time must be an ISO timestamp")
   const fundingEvents = validateReplayFundingEvents(input.funding_events || [])
   const markEvents = validateReplayMarkEvents(input.mark_events || [])
+  const supplementalFacts = validateReplaySupplementalFacts(input.supplemental_facts || [])
   const entryIndex = input.bars.findIndex((bar) => Date.parse(bar.open_time) >= executableTime)
   if (entryIndex < 0) throw new Error("dataset contains no bar at or after earliest executable time")
-  validateManifestBinding(request, manifest, input.bars, fundingEvents, markEvents, input.bars[entryIndex].open_time)
+  const supplementalEvidence = validateManifestBinding(
+    request, manifest, input.bars, fundingEvents, markEvents, supplementalFacts, input.bars[entryIndex].open_time,
+  )
   return {
     bars: input.bars,
     funding_events: fundingEvents,
     mark_events: markEvents,
+    supplemental_facts: supplementalFacts,
+    supplemental_evidence: supplementalEvidence,
     entry_index: entryIndex,
     dataset_manifest_hash: replayDatasetManifestHash(manifest),
     limitations: detectDatasetLimitations(manifest, input.bars),
@@ -58,11 +69,12 @@ function validateManifestBinding(
   bars: ReplayMarketBar[],
   fundingEvents: ReplayFundingEvent[],
   markEvents: ReplayMarkEvent[],
+  supplementalFacts: ReplaySupplementalFact[],
   entryTime: string,
-): void {
+): ReplaySupplementalEvidence {
   if (manifest.manifest_ref !== request.dataset_manifest_ref) throw new Error("dataset manifest ref does not match Replay request")
   if (manifest.data_hash !== request.dataset_hash) throw new Error("dataset manifest hash binding does not match Replay request")
-  const actualDataHash = replayDatasetHash(bars, fundingEvents, markEvents)
+  const actualDataHash = replayDatasetHash(bars, fundingEvents, markEvents, supplementalFacts)
   if (actualDataHash !== manifest.data_hash) throw new Error("Replay dataset content hash mismatch")
   if (manifest.symbol !== request.symbol || manifest.timeframe !== request.timeframe) throw new Error("dataset symbol/timeframe does not match Replay request")
   if (manifest.row_count !== bars.length) throw new Error("dataset row_count does not match supplied bars")
@@ -82,9 +94,94 @@ function validateManifestBinding(
     throw new Error("funding event falls outside the dataset manifest window")
   }
   validateMarkCoverage(manifest, markEvents, observedThrough, firstOpen, lastClose)
+  const supplementalEvidence = validateSupplementalBinding(request, manifest, supplementalFacts, observedThrough)
   validatePointInTimePolicyBindings(request, manifest, firstOpen, lastClose, entryTime, observedThrough)
   validateInstrumentWindow(request, manifest, bars)
   validateBarGrid(manifest, bars)
+  return supplementalEvidence
+}
+
+function validateSupplementalBinding(
+  request: ReplayExecutionRequest,
+  manifest: ReplayDatasetManifest,
+  facts: ReplaySupplementalFact[],
+  observedThrough: number,
+): ReplaySupplementalEvidence {
+  const declared = manifest.supplemental_facts
+  const contentHash = canonicalHash(facts)
+  if (declared.record_count !== facts.length) throw new Error("supplemental fact count does not match dataset manifest")
+  if (declared.content_hash !== contentHash || request.supplemental_facts_hash !== contentHash) {
+    throw new Error("supplemental facts hash does not match Replay request and dataset manifest")
+  }
+  const sourceIds = [...new Set(facts.map((fact) => fact.source_id))].sort()
+  if (canonicalHash(sourceIds) !== canonicalHash(declared.source_ids)) {
+    throw new Error("supplemental fact source ids do not match dataset manifest")
+  }
+  if (facts.some((fact) => Date.parse(fact.received_at) > observedThrough)) {
+    throw new Error("supplemental fact was received after manifest observed_through")
+  }
+  const selected = selectReplaySupplementalFactsAt(facts, request.order.signal_time)
+  return {
+    visibility_policy: "signal_time_snapshot",
+    decision_time: request.order.signal_time,
+    supplied_record_count: facts.length,
+    selected_record_ids: selected.map((fact) => fact.record_id),
+    selected_records_hash: canonicalHash(selected),
+    future_revision_count: facts.filter((fact) => Date.parse(fact.availability_at) > Date.parse(request.order.signal_time)).length,
+  }
+}
+
+export function validateReplaySupplementalFacts(facts: ReplaySupplementalFact[]): ReplaySupplementalFact[] {
+  const records = structuredClone(facts)
+  const recordIds = new Set<string>()
+  const revisionIds = new Set<string>()
+  const priorSequenceBySource = new Map<string, number>()
+  const priorAvailabilityByGroup = new Map<string, number>()
+  let priorCanonicalKey = ""
+  for (const fact of records) {
+    assertReplaySupplementalFact(fact)
+    const canonicalKey = `${fact.source_id}\u0000${String(fact.source_sequence).padStart(16, "0")}`
+    if (canonicalKey <= priorCanonicalKey) throw new Error("supplemental facts must be ordered by source_id and source_sequence")
+    priorCanonicalKey = canonicalKey
+    const priorSequence = priorSequenceBySource.get(fact.source_id)
+    if (priorSequence !== undefined && fact.source_sequence <= priorSequence) {
+      throw new Error("supplemental fact source_sequence must strictly increase within each source")
+    }
+    priorSequenceBySource.set(fact.source_id, fact.source_sequence)
+    if (recordIds.has(fact.record_id)) throw new Error("supplemental fact record_id must be unique")
+    recordIds.add(fact.record_id)
+    const group = supplementalFactGroupKey(fact)
+    const revisionKey = `${group}\u0000${fact.revision_id}`
+    if (revisionIds.has(revisionKey)) throw new Error("supplemental fact revision_id must be unique within one fact history")
+    revisionIds.add(revisionKey)
+    const availability = Date.parse(fact.availability_at)
+    const priorAvailability = priorAvailabilityByGroup.get(group)
+    if (priorAvailability !== undefined && availability <= priorAvailability) {
+      throw new Error("supplemental fact revisions must have strictly increasing availability_at")
+    }
+    priorAvailabilityByGroup.set(group, availability)
+  }
+  return records
+}
+
+export function selectReplaySupplementalFactsAt(
+  facts: ReplaySupplementalFact[],
+  decisionTime: string,
+): ReplaySupplementalFact[] {
+  const cutoff = Date.parse(decisionTime)
+  if (!Number.isFinite(cutoff)) throw new Error("supplemental fact selection requires an RFC 3339 decision time")
+  const selected = new Map<string, ReplaySupplementalFact>()
+  for (const fact of facts) {
+    if (Date.parse(fact.availability_at) > cutoff) continue
+    selected.set(supplementalFactGroupKey(fact), fact)
+  }
+  return [...selected.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([, fact]) => structuredClone(fact))
+}
+
+function supplementalFactGroupKey(fact: ReplaySupplementalFact): string {
+  return `${fact.source_id}\u0000${fact.entity_key}\u0000${fact.fact_key}\u0000${fact.event_time}`
 }
 
 function validatePointInTimePolicyBindings(
@@ -246,6 +343,11 @@ function detectDatasetLimitations(manifest: ReplayDatasetManifest, bars: ReplayM
     code: "survivor-only-universe",
     severity: "resolution_limited",
     detail: "Dataset universe excludes unavailable inactive/delisted history and cannot support survivorship-robust conclusions.",
+  })
+  if (manifest.supplemental_facts.coverage === "signal_time_snapshot") limitations.push({
+    code: "supplemental-signal-derivation-harness-bound",
+    severity: "info",
+    detail: "Replay certifies the signal-time supplemental view and lineage; the precomputed Signal derivation remains bound to the frozen harness rather than being recomputed by the engine.",
   })
   return limitations
 }
