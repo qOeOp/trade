@@ -6,6 +6,7 @@ import { CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, REPLAY_ATTEMPT_LEASE_SCHEMA_VERS
 import {
   REPLAY_CERTIFIED_CAPABILITIES,
   REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
+  REPLAY_DECISION_SCHEDULE_SCHEMA_VERSION,
   REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
   REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION,
   REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION,
@@ -20,6 +21,7 @@ import {
   REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION,
   REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
   canonicalHash,
+  createReplaySingleDecisionSchedule,
   createReplayDecisionHarnessBuildAttestation,
   createReplayDecisionInputSnapshot,
   createReplayDecisionMarketInputSnapshot,
@@ -48,6 +50,8 @@ const SPEC_SNAPSHOT = { schema_version: REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_V
 const ACCOUNTING = { spec_version: REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, product_type: "linear_derivative" as const, base_asset: "BTC", quote_asset: "USDT", settlement_asset: "USDT", contract_multiplier: "1", price_increment: "0.01", quantity_increment: "0.001", settlement_increment: "0.00000001" }
 
 function request(): ReplayExecutionRequest {
+  const order: ReplayExecutionRequest["order"] = { side: "long", quantity: 1, signal_time: "2026-07-14T00:00:00Z", earliest_executable_time: "2026-07-14T04:00:00Z", stop_price: 95, target_price: 110 }
+  const decisionSchedule = createReplaySingleDecisionSchedule(order)
   return {
     schema_version: REPLAY_REQUEST_SCHEMA_VERSION,
     run_id: "run-1", idempotency_key: "idem-1", experiment_id: "exp-1",
@@ -59,10 +63,11 @@ function request(): ReplayExecutionRequest {
     supplemental_requirement_set_hash: REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH,
     decision_market_input_requirement: structuredClone(REPLAY_NO_DECISION_MARKET_INPUT),
     decision_market_input_requirement_hash: REPLAY_NO_DECISION_MARKET_INPUT_HASH,
+    decision_schedule: decisionSchedule, decision_schedule_hash: canonicalHash(decisionSchedule),
     trial_reservation_ref: "reservation://trial-1", trial_reservation_hash: HASH,
     venue_risk_policy_schedule_hash: canonicalHash([RISK_SNAPSHOT]), instrument_spec_schedule_hash: canonicalHash({ epochs: [SPEC_SNAPSHOT], accounting: ACCOUNTING }),
     harness_hash: HASH, assumptions_hash: HASH, symbol: "BTCUSDT", timeframe: "4h", initial_cash: 1000,
-    order: { side: "long", quantity: 1, signal_time: "2026-07-14T00:00:00Z", earliest_executable_time: "2026-07-14T04:00:00Z", stop_price: 95, target_price: 110 },
+    order,
     cost_policy: { policy_id: "fixture", version: "1", fee_bps: 0, slippage_bps: 0, liquidation_fee_bps: 50 },
     simulator_policy: { version: REPLAY_SIMULATOR_POLICY_VERSION, signal_visibility: "closed_candle", earliest_execution: "next_open", same_bar_policy: "stop_first", gap_fill_policy: "worse_open", position_accounting: "average_cost", funding_timing: "exact_event", end_of_data: "mark_open", margin_evaluation: "before_strategy_orders" },
     margin_policy: { policy_id: "fixture", version: "rd-replay-isolated-margin-v7", mode: "isolated", collateral_asset: "USDT", isolated_collateral: 1000, initial_margin_rate: 0.1, maintenance_tier: { ...MAINTENANCE_TIER }, cashflow_scope: "position_attributed", collateral_transfer: "reserve_at_entry_release_at_terminal_if_flat", settled_cashflow_account: "isolated_margin_collateral", observation_scope: "source_event_path", mark_source_policy: "complete_exact_mark_else_ohlcv_adverse", maintenance_trigger: "margin_balance_below_maintenance_requirement", breach_terminal_priority: "risk_before_strategy_exit", breach_evidence: "first_observed_source_event", maintenance_breach_action: "exact_observation_full_liquidation_else_terminal_failure", liquidation: "simulated_full_close", liquidation_trigger_sources: "mark_or_funding_mark", liquidation_execution_price: "trigger_mark_adverse_slippage", liquidation_quantity: "full_position", liquidation_order_priority: "cancel_strategy_exits_before_forced_fill", liquidation_deficit: "fail_without_result" },
@@ -76,7 +81,7 @@ const DATA_HASH = replayDatasetHash(bars)
 function boundRequest(): ReplayExecutionRequest { return { ...request(), dataset_hash: DATA_HASH } }
 
 function decisionHarness(sourceContent = `export function execute({ request_context, decision_input_snapshot }) {
-  return { derived_order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: 95, target_price: 110 }, trace: { selected_records_hash: decision_input_snapshot.selected_records_hash } }
+  return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: 95, target_price: 110 } }, trace: { selected_records_hash: decision_input_snapshot.selected_records_hash } }
 }\n`): ReplayRegisteredDecisionHarness & { registry: ReturnType<typeof createReplayDecisionHarnessRegistry> } {
   const sourceBundle = createReplayDecisionHarnessSourceBundle({
     bundle_ref: "harness://fixture/runner-decision-v1",
@@ -93,16 +98,17 @@ function decisionHarness(sourceContent = `export function execute({ request_cont
 
 test("decision harness build is deterministic and each invocation uses a fresh subprocess", () => {
   const registration = decisionHarness(`export function execute({ request_context }) {
-    return { derived_order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: 95, target_price: 110 }, trace: { worker_pid: process.pid } }
+    return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: 95, target_price: 110 } }, trace: { worker_pid: process.pid } }
   }\n`)
   expect(buildReplayDecisionHarness(registration.source_bundle)).toEqual(registration.build_attestation)
   const requestValue = boundRequest()
   requestValue.harness_hash = registration.source_bundle.bundle_hash
   const snapshot = createReplayDecisionInputSnapshot(requestValue, [])
   const marketSnapshot = createReplayDecisionMarketInputSnapshot({ request: requestValue, interval_ms: 14_400_000, bars: [] })
-  const first = executeReplayDecisionHarnessWorker({ source_bundle: registration.source_bundle, build_attestation: registration.build_attestation, request: requestValue, decision_input_snapshot: snapshot, decision_market_input_snapshot: marketSnapshot })
-  const second = executeReplayDecisionHarnessWorker({ source_bundle: registration.source_bundle, build_attestation: registration.build_attestation, request: requestValue, decision_input_snapshot: snapshot, decision_market_input_snapshot: marketSnapshot })
-  expect(first.worker_response.derived_order).toEqual(requestValue.order)
+  const scheduleEntry = requestValue.decision_schedule.entries[0]!
+  const first = executeReplayDecisionHarnessWorker({ source_bundle: registration.source_bundle, build_attestation: registration.build_attestation, request: requestValue, schedule_entry: scheduleEntry, decision_input_snapshot: snapshot, decision_market_input_snapshot: marketSnapshot })
+  const second = executeReplayDecisionHarnessWorker({ source_bundle: registration.source_bundle, build_attestation: registration.build_attestation, request: requestValue, schedule_entry: scheduleEntry, decision_input_snapshot: snapshot, decision_market_input_snapshot: marketSnapshot })
+  expect(first.worker_response.decision_output).toEqual({ action: "submit_initial_order", order: requestValue.order })
   expect("order" in first.worker_request.request_context).toBe(false)
   expect((first.worker_response.trace as { worker_pid: number }).worker_pid).not.toBe(
     (second.worker_response.trace as { worker_pid: number }).worker_pid,
@@ -116,7 +122,7 @@ test("decision harness build rejects external dependencies and runtime drift", (
     files: [{
       path: "src/decision.ts",
       content_utf8: `import { readFileSync } from "node:fs"
-export function execute({ request }) { return { derived_order: request.order, trace: { bytes: readFileSync("/tmp/missing").length } } }
+export function execute({ request }) { return { decision_output: { action: "submit_initial_order", order: request.order }, trace: { bytes: readFileSync("/tmp/missing").length } } }
 `,
     }],
   })
@@ -145,6 +151,7 @@ export function execute({ request }) { return { derived_order: request.order, tr
     source_bundle: registration.source_bundle,
     build_attestation: driftedBuild,
     request: requestValue,
+    schedule_entry: requestValue.decision_schedule.entries[0]!,
     decision_input_snapshot: createReplayDecisionInputSnapshot(requestValue, []),
     decision_market_input_snapshot: createReplayDecisionMarketInputSnapshot({ request: requestValue, interval_ms: 14_400_000, bars: [] }),
   })).toThrow("runtime does not match build attestation")
@@ -322,7 +329,7 @@ test("runner commits the complete supplemental revision stream as immutable evid
   expect(completed.result?.fingerprint.decision_evidence_timeline_hash).toBe(decisionTimeline?.timeline_hash)
   expect(completed.result?.fingerprint.decision_boundary_hash).toBe(decisionEntry?.decision_boundary.boundary_hash)
   expect(decisionEntry?.decision_boundary).toMatchObject({
-    decision_origin: "attested_harness_verified_frozen_order",
+    decision_origin: "attested_harness_verified_schedule_effect",
     market_input_evidence: "not_required_compatibility",
     market_input_snapshot_hash: decisionEntry?.decision_market_input_snapshot.snapshot_hash,
   })
@@ -349,7 +356,7 @@ test("runner commits the complete supplemental revision stream as immutable evid
   })
   const unknownBundleRegistry = runReplayTrial({
     ...authorized(requestValue), dataset_manifest: manifest, bars, supplemental_facts: supplementalFacts,
-    decision_harness_registry: decisionHarness("export function execute({ request }) { return { derived_order: { ...request.order }, trace: {} } }\n").registry,
+    decision_harness_registry: decisionHarness("export function execute({ request }) { return { decision_output: { action: 'submit_initial_order', order: { ...request.order } }, trace: {} } }\n").registry,
   })
   expect(unknownBundleRegistry.failure).toMatchObject({ code: "decision-harness-rejected", partial_result_published: false })
   expect(unknownBundleRegistry.failure?.message).toContain("not registered")
@@ -365,11 +372,11 @@ test("runner commits the complete supplemental revision stream as immutable evid
   expect(loaderDrift.failure?.message).toContain("registry capability is not certified")
   const mismatchedOrder = runReplayTrial({
     ...authorized(requestValue), dataset_manifest: manifest, bars, supplemental_facts: supplementalFacts,
-    decision_harness_registry: decisionHarness("export function execute({ request }) { return { derived_order: { ...request.order, target_price: request.order.target_price + 1 }, trace: { fixture: 'mismatch' } } }\n").registry,
+    decision_harness_registry: decisionHarness("export function execute({ request }) { return { decision_output: { action: 'submit_initial_order', order: { ...request.order, target_price: request.order.target_price + 1 } }, trace: { fixture: 'mismatch' } } }\n").registry,
   })
   expect(mismatchedOrder.failure).toMatchObject({ code: "decision-harness-rejected", partial_result_published: false })
   const nondeterministicHarness = decisionHarness(`export function execute({ request_context }) {
-    return { derived_order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: 95, target_price: 110 }, trace: { worker_pid: process.pid } }
+    return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: 95, target_price: 110 } }, trace: { worker_pid: process.pid } }
   }\n`)
   const nondeterministicRequest = { ...requestValue, harness_hash: nondeterministicHarness.source_bundle.bundle_hash }
   const nondeterministicResult = runReplayTrial({
@@ -400,16 +407,20 @@ test("runner recomputes the frozen Order from a hash-bound closed-bar lookback w
   const registeredHarness = decisionHarness(`export function execute({ request_context, decision_market_input_snapshot }) {
     if ("order" in request_context) throw new Error("request context leaked order")
     const close = decision_market_input_snapshot.bars.at(-1).close
-    return { derived_order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: close - 6, target_price: close + 9 }, trace: { bars_hash: decision_market_input_snapshot.bars_hash } }
+    return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: close - 6, target_price: close + 9 } }, trace: { bars_hash: decision_market_input_snapshot.bars_hash } }
   }\n`)
   const dataHash = replayDatasetHash(marketBars)
+  const order: ReplayExecutionRequest["order"] = { side: "long", quantity: 1, signal_time: "2026-07-14T04:00:00Z", earliest_executable_time: "2026-07-14T08:00:00Z", stop_price: 95, target_price: 110 }
+  const decisionSchedule = createReplaySingleDecisionSchedule(order)
   const requestValue: ReplayExecutionRequest = {
     ...boundRequest(),
     dataset_hash: dataHash,
     harness_hash: registeredHarness.source_bundle.bundle_hash,
     decision_market_input_requirement: requirement,
     decision_market_input_requirement_hash: canonicalHash(requirement),
-    order: { side: "long", quantity: 1, signal_time: "2026-07-14T04:00:00Z", earliest_executable_time: "2026-07-14T08:00:00Z", stop_price: 95, target_price: 110 },
+    decision_schedule: decisionSchedule,
+    decision_schedule_hash: canonicalHash(decisionSchedule),
+    order,
   }
   const manifest: ReplayDatasetManifest = {
     ...datasetManifest(),
@@ -427,7 +438,7 @@ test("runner recomputes the frozen Order from a hash-bound closed-bar lookback w
   const entry = completed.result?.decision_evidence_timeline.entries[0]
   expect(entry?.decision_market_input_snapshot.bars).toEqual([marketBars[0]])
   expect(entry?.decision_boundary).toMatchObject({
-    decision_origin: "attested_harness_verified_frozen_order",
+    decision_origin: "attested_harness_verified_schedule_effect",
     market_input_evidence: "materialized_closed_bar_lookback",
     market_input_snapshot_hash: entry?.decision_market_input_snapshot.snapshot_hash,
   })
@@ -435,6 +446,67 @@ test("runner recomputes the frozen Order from a hash-bound closed-bar lookback w
   expect(completed.result?.fingerprint.decision_market_input_requirement_hash).toBe(canonicalHash(requirement))
   expect(completed.result?.fingerprint.decision_market_input_snapshot_hash).toBe(entry?.decision_market_input_snapshot.snapshot_hash)
   expect(completed.result?.limitations.map((limitation) => limitation.code)).not.toContain("decision-market-input-recomputation-uncertified")
+})
+
+test("runner evaluates every frozen closed-bar boundary before one authorized initial entry", () => {
+  const marketBars = [
+    { open_time: "2026-07-14T00:00:00Z", close_time: "2026-07-14T04:00:00Z", open: 99, high: 102, low: 98, close: 100, volume: 10, closed: true as const },
+    { open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 100, high: 104, low: 99, close: 102, volume: 11, closed: true as const },
+    { open_time: "2026-07-14T08:00:00Z", close_time: "2026-07-14T12:00:00Z", open: 102, high: 105, low: 101, close: 104, volume: 12, closed: true as const },
+    { open_time: "2026-07-14T12:00:00Z", close_time: "2026-07-14T16:00:00Z", open: 103, high: 111, low: 102, close: 110, volume: 13, closed: true as const },
+  ]
+  const requirement = {
+    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
+    mode: "closed_bar_lookback" as const, source_kind: "ohlcv" as const,
+    fields: ["open", "high", "low", "close", "volume"] as const, lookback_bars: 1,
+    visibility_policy: "close_time_at_or_before_decision_time" as const,
+    terminal_bar_policy: "close_time_equals_decision_time" as const,
+    continuity_policy: "strict_interval_grid" as const, undeclared_input_policy: "reject" as const,
+  }
+  const registeredHarness = decisionHarness(`export function execute({ request_context, decision_market_input_snapshot }) {
+    if (request_context.decision_sequence === 1) return { decision_output: { action: "no_action" }, trace: { close: decision_market_input_snapshot.bars.at(-1).close } }
+    const close = decision_market_input_snapshot.bars.at(-1).close
+    return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: close - 7, target_price: close + 8 } }, trace: { close } }
+  }\n`)
+  const order: ReplayExecutionRequest["order"] = {
+    side: "long", quantity: 1, signal_time: "2026-07-14T08:00:00Z",
+    earliest_executable_time: "2026-07-14T12:00:00Z", stop_price: 95, target_price: 110,
+  }
+  const decisionSchedule = {
+    schema_version: REPLAY_DECISION_SCHEDULE_SCHEMA_VERSION,
+    schedule_policy: "frozen_closed_bar_schedule" as const,
+    entries: [
+      { decision_sequence: 1, decision_time: "2026-07-14T04:00:00Z", expected_effect: "no_action" as const, authorized_order_hash: null },
+      { decision_sequence: 2, decision_time: order.signal_time, expected_effect: "authorized_initial_order" as const, authorized_order_hash: canonicalHash(order) },
+    ],
+  }
+  const dataHash = replayDatasetHash(marketBars)
+  const requestValue: ReplayExecutionRequest = {
+    ...boundRequest(), dataset_hash: dataHash, harness_hash: registeredHarness.source_bundle.bundle_hash,
+    decision_market_input_requirement: requirement,
+    decision_market_input_requirement_hash: canonicalHash(requirement),
+    decision_schedule: decisionSchedule, decision_schedule_hash: canonicalHash(decisionSchedule), order,
+  }
+  const manifest: ReplayDatasetManifest = {
+    ...datasetManifest(), data_hash: dataHash, row_count: marketBars.length,
+    first_open_time: marketBars[0].open_time, last_close_time: marketBars.at(-1)!.close_time,
+    observed_through: marketBars.at(-1)!.close_time,
+  }
+  const completed = runReplayTrial({
+    ...authorized(requestValue), dataset_manifest: manifest, bars: marketBars,
+    decision_harness_registry: registeredHarness.registry,
+  })
+  expect(completed.status).toBe("completed")
+  const timeline = completed.result!.decision_evidence_timeline
+  expect(timeline.entries.map((entry) => entry.execution_effect)).toEqual(["no_action", "authorized_order"])
+  expect(timeline.entries.map((entry) => entry.decision_market_input_snapshot.bars.at(-1)?.close_time)).toEqual([
+    "2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z",
+  ])
+  expect(timeline.entries[0]!.decision_harness_receipt?.decision_output).toEqual({ action: "no_action" })
+  expect(timeline.entries[1]!.decision_harness_receipt?.decision_output).toEqual({ action: "submit_initial_order", order })
+  expect(timeline.entries[0]!.decision_harness_receipt?.request_context_hash)
+    .not.toBe(timeline.entries[1]!.decision_harness_receipt?.request_context_hash)
+  expect(completed.result!.fingerprint.decision_schedule_hash).toBe(canonicalHash(decisionSchedule))
 })
 
 test("runner fences stale Attempt leases and verifies every committed artifact file", () => {
@@ -477,7 +549,7 @@ test("runner enforces Reservation expiry only at Attempt claim admission", () =>
   expired.observed_at = "2026-07-14T00:01:30Z"
   const rejected = runReplayTrial({ ...expired, dataset_manifest: datasetManifest(), bars })
   expect(rejected).toMatchObject({
-    schema_version: "trade.rd-replay-run-outcome.v22",
+    schema_version: "trade.rd-replay-run-outcome.v23",
     status: "failed",
     failure: { code: "trial-reservation-expired", failure_class: "unsupported_contract", retryable: false, partial_result_published: false },
   })

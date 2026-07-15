@@ -29,6 +29,7 @@ import {
   createReplayDecisionHarnessReceipt,
   createReplayDecisionHarnessSourceBundle,
   createReplayDecisionEvidenceTimeline,
+  createReplaySingleDecisionSchedule,
   replayDatasetHash,
   type ReplayDatasetManifest,
   type ReplayExecutionRequest,
@@ -51,6 +52,12 @@ const SPEC_SNAPSHOT = { schema_version: REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_V
 const ACCOUNTING = { spec_version: REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, product_type: "linear_derivative" as const, base_asset: "BTC", quote_asset: "USDT", settlement_asset: "USDT", contract_multiplier: "1", price_increment: "0.01", quantity_increment: "0.001", settlement_increment: "0.00000001" }
 
 function request(side: "long" | "short" = "long"): ReplayExecutionRequest {
+  const order: ReplayExecutionRequest["order"] = {
+    side, quantity: 1, signal_time: "2026-07-14T00:00:00Z",
+    earliest_executable_time: "2026-07-14T04:00:00Z",
+    stop_price: side === "long" ? 95 : 105, target_price: side === "long" ? 110 : 90,
+  }
+  const decisionSchedule = createReplaySingleDecisionSchedule(order)
   return {
     schema_version: REPLAY_REQUEST_SCHEMA_VERSION,
     run_id: `run-${side}`,
@@ -72,6 +79,8 @@ function request(side: "long" | "short" = "long"): ReplayExecutionRequest {
     supplemental_requirement_set_hash: REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH,
     decision_market_input_requirement: structuredClone(REPLAY_NO_DECISION_MARKET_INPUT),
     decision_market_input_requirement_hash: REPLAY_NO_DECISION_MARKET_INPUT_HASH,
+    decision_schedule: decisionSchedule,
+    decision_schedule_hash: canonicalHash(decisionSchedule),
     venue_risk_policy_schedule_hash: canonicalHash([RISK_SNAPSHOT]),
     instrument_spec_schedule_hash: canonicalHash({ epochs: [SPEC_SNAPSHOT], accounting: ACCOUNTING }),
     harness_hash: HASH,
@@ -79,14 +88,7 @@ function request(side: "long" | "short" = "long"): ReplayExecutionRequest {
     symbol: "BTCUSDT",
     timeframe: "4h",
     initial_cash: 10_000,
-    order: {
-      side,
-      quantity: 1,
-      signal_time: "2026-07-14T00:00:00Z",
-      earliest_executable_time: "2026-07-14T04:00:00Z",
-      stop_price: side === "long" ? 95 : 105,
-      target_price: side === "long" ? 110 : 90,
-    },
+    order,
     cost_policy: { policy_id: "fixture", version: "1", fee_bps: 2, slippage_bps: 1, liquidation_fee_bps: 50 },
     simulator_policy: {
       version: REPLAY_SIMULATOR_POLICY_VERSION,
@@ -202,7 +204,7 @@ function inputFor(
     invocation_id: HASH,
     source_bundle_hash: decisionHarnessBuild.source_bundle_hash,
     artifact_hash: decisionHarnessBuild.artifact.sha256,
-    derived_order: boundRequest.order,
+    decision_output: { action: "submit_initial_order" as const, order: boundRequest.order },
     trace: { fixture: "engine-harness-executed" },
   } : null
   const decisionHarnessReceipt = supplementalFacts.length > 0
@@ -233,19 +235,22 @@ function inputFor(
         worker_request: workerRequest!,
         worker_response: workerResponse!,
         worker_verification_response: workerResponse!,
-        derived_order: boundRequest.order,
+        decision_output: { action: "submit_initial_order", order: boundRequest.order },
         trace: { fixture: "engine-harness-executed" },
     })
     : null
   return {
     ...base,
     decision_evidence_timeline: createReplayDecisionEvidenceTimeline({
-        request: boundRequest,
+      request: boundRequest,
+      decisions: [{
+        schedule_entry: boundRequest.decision_schedule.entries[0]!,
         decision_input_snapshot: prepared.decision_input_snapshot,
         decision_market_input_snapshot: prepared.decision_market_input_snapshot,
-      decision_harness_bundle: decisionHarnessBundle,
-      decision_harness_build: decisionHarnessBuild,
-      decision_harness_receipt: decisionHarnessReceipt,
+        decision_harness_bundle: decisionHarnessBundle,
+        decision_harness_build: decisionHarnessBuild,
+        decision_harness_receipt: decisionHarnessReceipt,
+      }],
     }),
   }
 }
@@ -343,7 +348,7 @@ test("Result binds the deterministic signal-time supplemental revision view", ()
   expect(result.fingerprint.supplemental_facts_hash).toBe(canonicalHash(facts))
   expect(result.fingerprint.supplemental_requirement_set_hash).toBe(replayInput.request.supplemental_requirement_set_hash)
   const decisionEntry = result.decision_evidence_timeline.entries[0]!
-  expect(decisionEntry.decision_harness_receipt?.derived_order).toEqual(replayInput.request.order)
+  expect(decisionEntry.decision_harness_receipt?.decision_output).toEqual({ action: "submit_initial_order", order: replayInput.request.order })
   expect(result.fingerprint.decision_evidence_timeline_hash).toBe(result.decision_evidence_timeline.timeline_hash)
   expect(result.fingerprint.decision_boundary_hash).toBe(decisionEntry.decision_boundary.boundary_hash)
   expect(result.fingerprint.decision_input_snapshot_hash).toBe(decisionEntry.decision_input_snapshot.snapshot_hash)
@@ -364,7 +369,7 @@ test("Result binds the deterministic signal-time supplemental revision view", ()
       ...replayInput.decision_evidence_timeline,
       entries: [{ ...replayInput.decision_evidence_timeline.entries[0]!, decision_sequence: 2 }],
     },
-  })).toThrow("ordering or authority binding")
+  })).toThrow("frozen schedule authority")
   expect(() => executeReplayKernel({
     ...replayInput,
     decision_evidence_timeline: {
@@ -385,6 +390,8 @@ test("risk policy epochs switch before same-time source-event margin evaluation"
   const boundedRequest = request()
   boundedRequest.order.stop_price = 90
   boundedRequest.order.target_price = 120
+  boundedRequest.decision_schedule = createReplaySingleDecisionSchedule(boundedRequest.order)
+  boundedRequest.decision_schedule_hash = canonicalHash(boundedRequest.decision_schedule)
   const replayInput = inputFor(boundedRequest, [
     bar("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", 100, 105, 95, 101),
     bar("2026-07-14T08:00:00Z", "2026-07-14T12:00:00Z", 101, 106, 96, 102),
@@ -522,6 +529,8 @@ test("terminal source completion wins over a cancellation that cannot be observe
 test("Numeric Policy v3 rounds quantity down and rejects misaligned trigger prices", () => {
   const roundedRequest = request()
   roundedRequest.order.quantity = 1.0009
+  roundedRequest.decision_schedule = createReplaySingleDecisionSchedule(roundedRequest.order)
+  roundedRequest.decision_schedule_hash = canonicalHash(roundedRequest.decision_schedule)
   const bars = [bar("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", 100, 111, 99, 110)]
   const result = executeReplayKernel(inputFor(roundedRequest, bars))
   expect(result.fills.map((fill) => fill.quantity)).toEqual([1, 1])
@@ -529,6 +538,8 @@ test("Numeric Policy v3 rounds quantity down and rejects misaligned trigger pric
 
   const misalignedRequest = request()
   misalignedRequest.order.stop_price = 95.005
+  misalignedRequest.decision_schedule = createReplaySingleDecisionSchedule(misalignedRequest.order)
+  misalignedRequest.decision_schedule_hash = canonicalHash(misalignedRequest.decision_schedule)
   expect(() => executeReplayKernel(inputFor(misalignedRequest, bars))).toThrow("stop_price must align")
 })
 

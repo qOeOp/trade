@@ -49,6 +49,7 @@ import {
   createReplayDecisionEvidenceTimeline,
   createReplayDecisionInputSnapshot,
   createReplayDecisionMarketInputSnapshot,
+  createReplaySingleDecisionSchedule,
   type ReplayExecutionRequest,
 } from "./replay-contracts"
 
@@ -58,6 +59,11 @@ const RISK_SNAPSHOT = { schema_version: REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
 const SPEC_SNAPSHOT = { schema_version: REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION, snapshot_id: "spec-1", venue_id: "binance-usdm", symbol: "BTCUSDT", effective_at: "2020-01-01T00:00:00Z", valid_until: null, observed_at: "2026-07-13T00:00:00Z", source_ref: "fixture:spec-1", source_hash: HASH }
 
 export function fixtureRequest(): ReplayExecutionRequest {
+  const order: ReplayExecutionRequest["order"] = {
+    side: "long", quantity: 1, signal_time: "2026-07-14T00:00:00Z",
+    earliest_executable_time: "2026-07-14T04:00:00Z", stop_price: 95, target_price: 110,
+  }
+  const decisionSchedule = createReplaySingleDecisionSchedule(order)
   return {
     schema_version: REPLAY_REQUEST_SCHEMA_VERSION,
     run_id: "run-1",
@@ -79,6 +85,8 @@ export function fixtureRequest(): ReplayExecutionRequest {
     supplemental_requirement_set_hash: REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH,
     decision_market_input_requirement: structuredClone(REPLAY_NO_DECISION_MARKET_INPUT),
     decision_market_input_requirement_hash: REPLAY_NO_DECISION_MARKET_INPUT_HASH,
+    decision_schedule: decisionSchedule,
+    decision_schedule_hash: canonicalHash(decisionSchedule),
     venue_risk_policy_schedule_hash: canonicalHash([RISK_SNAPSHOT]),
     instrument_spec_schedule_hash: HASH,
     harness_hash: HASH,
@@ -86,14 +94,7 @@ export function fixtureRequest(): ReplayExecutionRequest {
     symbol: "BTCUSDT",
     timeframe: "4h",
     initial_cash: 10_000,
-    order: {
-      side: "long",
-      quantity: 1,
-      signal_time: "2026-07-14T00:00:00Z",
-      earliest_executable_time: "2026-07-14T04:00:00Z",
-      stop_price: 95,
-      target_price: 110,
-    },
+    order,
     cost_policy: { policy_id: "standard", version: "1", fee_bps: 2, slippage_bps: 1, liquidation_fee_bps: 50 },
     simulator_policy: {
       version: REPLAY_SIMULATOR_POLICY_VERSION,
@@ -114,6 +115,17 @@ export function fixtureRequest(): ReplayExecutionRequest {
 test("Replay request requires complete Trial and evidence identity", () => {
   expect(() => assertReplayExecutionRequest(fixtureRequest())).not.toThrow()
   expect(() => assertReplayExecutionRequest({ ...fixtureRequest(), dataset_hash: "weak" })).toThrow()
+  expect(() => assertReplayExecutionRequest({ ...fixtureRequest(), decision_schedule_hash: HASH })).toThrow("decision schedule hash mismatch")
+  const unauthorizedSchedule = fixtureRequest()
+  unauthorizedSchedule.decision_schedule = {
+    ...unauthorizedSchedule.decision_schedule,
+    entries: [
+      { decision_sequence: 1, decision_time: "2026-07-13T20:00:00Z", expected_effect: "no_action", authorized_order_hash: null },
+      { ...unauthorizedSchedule.decision_schedule.entries[0]!, decision_sequence: 2 },
+    ],
+  }
+  unauthorizedSchedule.decision_schedule_hash = canonicalHash(unauthorizedSchedule.decision_schedule)
+  expect(() => assertReplayExecutionRequest(unauthorizedSchedule)).toThrow("market-only closed-bar lookback")
 })
 
 test("Replay request freezes one bounded isolated maintenance tier", () => {
@@ -211,7 +223,7 @@ test("Decision Input Snapshot and Harness Receipt are self-hashed immutable evid
     invocation_id: HASH,
     source_bundle_hash: sourceBundle.bundle_hash,
     artifact_hash: buildAttestation.artifact.sha256,
-    derived_order: requestValue.order,
+    decision_output: { action: "submit_initial_order" as const, order: requestValue.order },
     trace: { selected_records_hash: snapshot.selected_records_hash },
   }
 
@@ -245,7 +257,7 @@ test("Decision Input Snapshot and Harness Receipt are self-hashed immutable evid
     worker_request: workerRequest,
     worker_response: workerResponse,
     worker_verification_response: workerResponse,
-    derived_order: requestValue.order,
+    decision_output: { action: "submit_initial_order", order: requestValue.order },
     trace: { selected_records_hash: snapshot.selected_records_hash },
   })
   expect(() => assertReplayDecisionHarnessReceipt(receipt, requestValue, snapshot, marketSnapshot, sourceBundle, buildAttestation)).not.toThrow()
@@ -253,21 +265,24 @@ test("Decision Input Snapshot and Harness Receipt are self-hashed immutable evid
 
   const timeline = createReplayDecisionEvidenceTimeline({
     request: requestValue,
-    decision_input_snapshot: snapshot,
-    decision_market_input_snapshot: marketSnapshot,
-    decision_harness_bundle: sourceBundle,
-    decision_harness_build: buildAttestation,
-    decision_harness_receipt: receipt,
+    decisions: [{
+      schedule_entry: requestValue.decision_schedule.entries[0]!,
+      decision_input_snapshot: snapshot,
+      decision_market_input_snapshot: marketSnapshot,
+      decision_harness_bundle: sourceBundle,
+      decision_harness_build: buildAttestation,
+      decision_harness_receipt: receipt,
+    }],
   })
   expect(timeline).toMatchObject({
-    cardinality_policy: "single_authorized_decision",
+    cardinality_policy: "frozen_decision_schedule",
     ordering_policy: "decision_time_then_sequence",
     entries: [{
       decision_sequence: 1,
       evidence_mode: "attested_harness",
       decision_boundary: {
         schema_version: REPLAY_DECISION_BOUNDARY_SCHEMA_VERSION,
-        decision_origin: "attested_harness_verified_frozen_order",
+        decision_origin: "attested_harness_verified_schedule_effect",
         market_input_evidence: "not_required_compatibility",
         market_input_snapshot_hash: marketSnapshot.snapshot_hash,
       },
@@ -284,11 +299,11 @@ test("Decision Input Snapshot and Harness Receipt are self-hashed immutable evid
     market_input_evidence: "recomputed" as never,
   }, requestValue)).toThrow("decision-input protocol")
   expect(() => assertReplayDecisionEvidenceTimeline(timeline, requestValue)).not.toThrow()
-  expect(() => assertReplayDecisionEvidenceTimeline({ ...timeline, entries: [] }, requestValue)).toThrow("exactly one")
+  expect(() => assertReplayDecisionEvidenceTimeline({ ...timeline, entries: [] }, requestValue)).toThrow("cardinality")
   expect(() => assertReplayDecisionEvidenceTimeline({
     ...timeline,
     entries: [{ ...timeline.entries[0]!, decision_sequence: 2 }],
-  }, requestValue)).toThrow("ordering or authority binding")
+  }, requestValue)).toThrow("frozen schedule authority")
 })
 
 test("Decision Market Input Snapshot admits only the frozen contiguous closed-bar lookback", () => {

@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs"
 import { buildSinglePositionLedger, calculateFundingCashflowV3 } from "../../accounting/src/lib/replay-accounting"
 import { buildReplayJournal } from "../../accounting/src/lib/replay-journal"
 import { buildCertifiedSinglePositionProjection } from "../../accounting/src/lib/replay-position-accounting"
-import { REPLAY_JOURNAL_POLICY_VERSION, canonicalHash, replayDatasetHash, type ReplayDatasetManifest, type ReplayExecutionRequest, type ReplayFundingEvent, type ReplayMarkEvent, type ReplayMarketBar } from "../../contracts/src/lib/replay-contracts"
+import { REPLAY_JOURNAL_POLICY_VERSION, canonicalHash, createReplaySingleDecisionSchedule, replayDatasetHash, type ReplayDatasetManifest, type ReplayExecutionRequest, type ReplayFundingEvent, type ReplayMarkEvent, type ReplayMarketBar } from "../../contracts/src/lib/replay-contracts"
 import { addReplayDecimalValues } from "../../contracts/src/lib/replay-decimal"
 import { executeReplayKernel } from "../../engine/src/lib/replay-reference-engine"
 import { compareReplayEventKeys } from "../../engine/src/lib/replay-event-key"
@@ -18,7 +18,7 @@ interface GoldenFixture {
 }
 
 const fixture = JSON.parse(readFileSync(
-  new URL("./fixtures/certified-single-position-v16.json", import.meta.url), "utf8",
+  new URL("./fixtures/certified-single-position-v17.json", import.meta.url), "utf8",
 )) as GoldenFixture
 const openPositionFixture = JSON.parse(readFileSync(
   new URL("./fixtures/certified-open-position-v1.json", import.meta.url), "utf8",
@@ -133,6 +133,8 @@ test("property: exact-risk liquidation is deterministic for long and short", () 
     request.order.side = side
     request.order.stop_price = side === "long" ? 90 : 110
     request.order.target_price = side === "long" ? 110 : 90
+    request.decision_schedule = createReplaySingleDecisionSchedule(request.order)
+    request.decision_schedule_hash = canonicalHash(request.decision_schedule)
     request.margin_policy.isolated_collateral = 20
     request.cost_policy.liquidation_fee_bps = 10
     const marks: ReplayMarkEvent[] = [
@@ -159,6 +161,8 @@ test("property: ledger and metric conservation holds across long and short exits
       request.order.side = side
       request.order.stop_price = side === "long" ? 90 : 110
       request.order.target_price = side === "long" ? 110 : 90
+      request.decision_schedule = createReplaySingleDecisionSchedule(request.order)
+      request.decision_schedule_hash = canonicalHash(request.decision_schedule)
       const bar = structuredClone(fixture.bars[0])
       bar.high = (side === "long" && exit === "target") || (side === "short" && exit === "stop") ? 111 : 105
       bar.low = (side === "long" && exit === "stop") || (side === "short" && exit === "target") ? 89 : 95
@@ -225,6 +229,8 @@ test("metamorphic: scaling prices and cash preserves return fraction and exit ro
   request.margin_policy.isolated_collateral *= scale
   request.order.stop_price *= scale
   request.order.target_price *= scale
+  request.decision_schedule = createReplaySingleDecisionSchedule(request.order)
+  request.decision_schedule_hash = canonicalHash(request.decision_schedule)
   const bars = fixture.bars.map((bar) => ({
     ...bar,
     open: bar.open * scale,

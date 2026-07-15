@@ -15,6 +15,7 @@ import {
   type ReplayDecisionEvidenceTimeline,
   type ReplayDecisionInputSnapshot,
   type ReplayDecisionMarketInputSnapshot,
+  type ReplayDecisionScheduleEntry,
   type ReplayExecutionRequest,
   type ReplayEventKey,
   type ReplayFill,
@@ -115,6 +116,11 @@ export function prepareReplayDecisionEvidenceInputs(
 ): {
   decision_input_snapshot: ReplayDecisionInputSnapshot
   decision_market_input_snapshot: ReplayDecisionMarketInputSnapshot
+  decisions: Array<{
+    schedule_entry: ReplayDecisionScheduleEntry
+    decision_input_snapshot: ReplayDecisionInputSnapshot
+    decision_market_input_snapshot: ReplayDecisionMarketInputSnapshot
+  }>
 } {
   assertReplayExecutionRequest(input.request)
   const prepared = prepareReplayInputData({
@@ -128,6 +134,7 @@ export function prepareReplayDecisionEvidenceInputs(
   return {
     decision_input_snapshot: prepared.decision_input_snapshot,
     decision_market_input_snapshot: prepared.decision_market_input_snapshot,
+    decisions: prepared.decision_evidence_inputs,
   }
 }
 
@@ -146,8 +153,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     request.supplemental_requirement_set.mode === "none"
       ? createReplayDecisionEvidenceTimeline({
         request,
-        decision_input_snapshot: prepared.decision_input_snapshot,
-        decision_market_input_snapshot: prepared.decision_market_input_snapshot,
+        decisions: prepared.decision_evidence_inputs,
       })
       : undefined
   )
@@ -155,7 +161,15 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     throw new Error("Replay supplemental lane requires a Decision Evidence Timeline")
   }
   assertReplayDecisionEvidenceTimeline(decisionEvidenceTimeline, request)
-  const decisionEvidenceEntry = decisionEvidenceTimeline.entries[0]!
+  for (const [index, decisionEvidence] of decisionEvidenceTimeline.entries.entries()) {
+    const preparedDecision = prepared.decision_evidence_inputs[index]
+    if (!preparedDecision
+        || canonicalHash(decisionEvidence.decision_input_snapshot) !== canonicalHash(preparedDecision.decision_input_snapshot)
+        || canonicalHash(decisionEvidence.decision_market_input_snapshot) !== canonicalHash(preparedDecision.decision_market_input_snapshot)) {
+      throw new Error("Replay scheduled decision evidence does not match prepared point-in-time inputs")
+    }
+  }
+  const decisionEvidenceEntry = decisionEvidenceTimeline.entries.at(-1)!
   const decisionInputSnapshot = decisionEvidenceEntry.decision_input_snapshot
   assertReplayDecisionInputSnapshot(decisionInputSnapshot, request)
   if (canonicalHash(decisionInputSnapshot) !== canonicalHash(prepared.decision_input_snapshot)) {
@@ -696,6 +710,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       supplemental_facts_hash: request.supplemental_facts_hash,
       supplemental_requirement_set_hash: request.supplemental_requirement_set_hash,
       decision_market_input_requirement_hash: request.decision_market_input_requirement_hash,
+      decision_schedule_hash: request.decision_schedule_hash,
       decision_market_input_snapshot_hash: decisionMarketInputSnapshot.snapshot_hash,
       decision_evidence_timeline_hash: decisionEvidenceTimeline.timeline_hash,
       decision_boundary_hash: decisionEvidenceEntry.decision_boundary.boundary_hash,

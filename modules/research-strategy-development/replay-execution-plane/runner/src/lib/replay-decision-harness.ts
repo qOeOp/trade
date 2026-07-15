@@ -14,6 +14,7 @@ import {
   assertReplayDecisionHarnessSourceBundle,
   canonicalJson,
   createReplayDecisionHarnessReceipt,
+  replayDecisionOutputFor,
   type ReplayDecisionHarnessBuildAttestation,
   type ReplayDecisionHarnessCapability,
   type ReplayDecisionHarnessReceipt,
@@ -21,6 +22,7 @@ import {
   type ReplayDecisionHarnessSourceBundle,
   type ReplayDecisionInputSnapshot,
   type ReplayDecisionMarketInputSnapshot,
+  type ReplayDecisionScheduleEntry,
   type ReplayExecutionRequest,
 } from "../../../contracts/src/lib/replay-contracts"
 import { buildReplayDecisionHarness, executeReplayDecisionHarnessWorker } from "./replay-decision-harness-build"
@@ -78,6 +80,7 @@ export function createReplayDecisionHarnessRegistry(
 export function executeReplayDecisionHarness(input: {
   registry: ReplayDecisionHarnessRegistry | undefined
   request: ReplayExecutionRequest
+  schedule_entry: ReplayDecisionScheduleEntry
   decision_input_snapshot: ReplayDecisionInputSnapshot
   decision_market_input_snapshot: ReplayDecisionMarketInputSnapshot
 }): ReplayDecisionHarnessAdmission {
@@ -114,6 +117,7 @@ export function executeReplayDecisionHarness(input: {
       source_bundle: registration.source_bundle,
       build_attestation: registration.build_attestation,
       request: input.request,
+      schedule_entry: input.schedule_entry,
       decision_input_snapshot: input.decision_input_snapshot,
       decision_market_input_snapshot: input.decision_market_input_snapshot,
     })
@@ -121,6 +125,7 @@ export function executeReplayDecisionHarness(input: {
       source_bundle: registration.source_bundle,
       build_attestation: registration.build_attestation,
       request: input.request,
+      schedule_entry: input.schedule_entry,
       decision_input_snapshot: input.decision_input_snapshot,
       decision_market_input_snapshot: input.decision_market_input_snapshot,
     })
@@ -128,8 +133,9 @@ export function executeReplayDecisionHarness(input: {
         || canonicalJson(execution.worker_response) !== canonicalJson(verificationExecution.worker_response)) {
       throw new Error("decision harness worker reproducibility parity failed")
     }
-    if (canonicalJson(execution.worker_response.derived_order) !== canonicalJson(input.request.order)) {
-      throw new Error("decision harness derived Order does not match the authorized Replay request")
+    const expectedOutput = replayDecisionOutputFor(input.request, input.schedule_entry)
+    if (canonicalJson(execution.worker_response.decision_output) !== canonicalJson(expectedOutput)) {
+      throw new Error("decision harness output does not match the frozen decision schedule")
     }
     return {
       source_bundle: structuredClone(registration.source_bundle),
@@ -144,7 +150,7 @@ export function executeReplayDecisionHarness(input: {
         worker_request: execution.worker_request,
         worker_response: execution.worker_response,
         worker_verification_response: verificationExecution.worker_response,
-        derived_order: execution.worker_response.derived_order,
+        decision_output: execution.worker_response.decision_output,
         trace: execution.worker_response.trace,
       }),
     }

@@ -22,6 +22,7 @@ import {
   type ReplayDecisionHarnessWorkerResponse,
   type ReplayDecisionInputSnapshot,
   type ReplayDecisionMarketInputSnapshot,
+  type ReplayDecisionScheduleEntry,
   type ReplayExecutionRequest,
 } from "../../../contracts/src/lib/replay-contracts"
 
@@ -85,6 +86,7 @@ export function executeReplayDecisionHarnessWorker(input: {
   source_bundle: ReplayDecisionHarnessSourceBundle
   build_attestation: ReplayDecisionHarnessBuildAttestation
   request: ReplayExecutionRequest
+  schedule_entry: ReplayDecisionScheduleEntry
   decision_input_snapshot: ReplayDecisionInputSnapshot
   decision_market_input_snapshot: ReplayDecisionMarketInputSnapshot
 }): ReplayDecisionHarnessWorkerExecution {
@@ -106,7 +108,7 @@ export function executeReplayDecisionHarnessWorker(input: {
     }),
     source_bundle_hash: input.source_bundle.bundle_hash,
     artifact_hash: input.build_attestation.artifact.sha256,
-    request_context: createReplayDecisionHarnessContext(input.request),
+    request_context: createReplayDecisionHarnessContext(input.request, input.schedule_entry),
     decision_input_snapshot: structuredClone(input.decision_input_snapshot),
     decision_market_input_snapshot: structuredClone(input.decision_market_input_snapshot),
   }
@@ -154,7 +156,7 @@ function workerEntrypointSource(sourceBundle: ReplayDecisionHarnessSourceBundle)
     `if (typeof execute !== "function") throw new Error("decision harness entrypoint export is not a function")`,
     "const input = JSON.parse(await Bun.stdin.text())",
     "const output = await execute({ request_context: input.request_context, decision_input_snapshot: input.decision_input_snapshot, decision_market_input_snapshot: input.decision_market_input_snapshot })",
-    `const response = { schema_version: ${JSON.stringify(REPLAY_DECISION_HARNESS_WORKER_RESPONSE_SCHEMA_VERSION)}, invocation_id: input.invocation_id, source_bundle_hash: ${JSON.stringify(sourceBundle.bundle_hash)}, artifact_hash: input.artifact_hash, derived_order: output?.derived_order, trace: output?.trace }`,
+    `const response = { schema_version: ${JSON.stringify(REPLAY_DECISION_HARNESS_WORKER_RESPONSE_SCHEMA_VERSION)}, invocation_id: input.invocation_id, source_bundle_hash: ${JSON.stringify(sourceBundle.bundle_hash)}, artifact_hash: input.artifact_hash, decision_output: output?.decision_output, trace: output?.trace }`,
     "process.stdout.write(JSON.stringify(response))",
     "",
   ].join("\n")

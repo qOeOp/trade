@@ -32,6 +32,11 @@ export interface PreparedReplayInputData {
   supplemental_evidence: ReplaySupplementalEvidence
   decision_input_snapshot: ReplayDecisionInputSnapshot
   decision_market_input_snapshot: ReplayDecisionMarketInputSnapshot
+  decision_evidence_inputs: Array<{
+    schedule_entry: ReplayExecutionRequest["decision_schedule"]["entries"][number]
+    decision_input_snapshot: ReplayDecisionInputSnapshot
+    decision_market_input_snapshot: ReplayDecisionMarketInputSnapshot
+  }>
   entry_index: number
   dataset_manifest_hash: string
   limitations: ReplayLimitation[]
@@ -59,15 +64,25 @@ export function prepareReplayInputData(input: {
   const supplementalAdmission = validateManifestBinding(
     request, manifest, input.bars, fundingEvents, markEvents, supplementalFacts, input.bars[entryIndex].open_time,
   )
-  const decisionMarketInputSnapshot = prepareDecisionMarketInputSnapshot(request, manifest, input.bars)
+  const decisionEvidenceInputs = request.decision_schedule.entries.map((scheduleEntry) => ({
+    schedule_entry: structuredClone(scheduleEntry),
+    decision_input_snapshot: scheduleEntry.decision_time === request.order.signal_time
+      ? supplementalAdmission.snapshot
+      : createReplayDecisionInputSnapshot(request, [], scheduleEntry.decision_time),
+    decision_market_input_snapshot: prepareDecisionMarketInputSnapshot(
+      request, manifest, input.bars, scheduleEntry.decision_time,
+    ),
+  }))
+  const authorizedDecisionInputs = decisionEvidenceInputs.at(-1)!
   return {
     bars: input.bars,
     funding_events: fundingEvents,
     mark_events: markEvents,
     supplemental_facts: supplementalFacts,
     supplemental_evidence: supplementalAdmission.evidence,
-    decision_input_snapshot: supplementalAdmission.snapshot,
-    decision_market_input_snapshot: decisionMarketInputSnapshot,
+    decision_input_snapshot: authorizedDecisionInputs.decision_input_snapshot,
+    decision_market_input_snapshot: authorizedDecisionInputs.decision_market_input_snapshot,
+    decision_evidence_inputs: decisionEvidenceInputs,
     entry_index: entryIndex,
     dataset_manifest_hash: replayDatasetManifestHash(manifest),
     limitations: detectDatasetLimitations(manifest, input.bars),
@@ -78,15 +93,16 @@ function prepareDecisionMarketInputSnapshot(
   request: ReplayExecutionRequest,
   manifest: ReplayDatasetManifest,
   bars: ReplayMarketBar[],
+  decisionTimeValue = request.order.signal_time,
 ): ReplayDecisionMarketInputSnapshot {
   const requirement = request.decision_market_input_requirement
   if (requirement.mode === "none") {
-    return createReplayDecisionMarketInputSnapshot({ request, interval_ms: manifest.interval_ms, bars: [] })
+    return createReplayDecisionMarketInputSnapshot({ request, decision_time: decisionTimeValue, interval_ms: manifest.interval_ms, bars: [] })
   }
-  const decisionTime = Date.parse(request.order.signal_time)
+  const decisionTime = Date.parse(decisionTimeValue)
   const visible = bars.filter((bar) => Date.parse(bar.close_time) <= decisionTime)
   const selected = visible.slice(-requirement.lookback_bars)
-  return createReplayDecisionMarketInputSnapshot({ request, interval_ms: manifest.interval_ms, bars: selected })
+  return createReplayDecisionMarketInputSnapshot({ request, decision_time: decisionTimeValue, interval_ms: manifest.interval_ms, bars: selected })
 }
 
 function validateManifestBinding(

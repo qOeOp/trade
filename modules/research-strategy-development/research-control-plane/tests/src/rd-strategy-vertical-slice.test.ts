@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { Database } from "bun:sqlite"
 import { CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION, TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION, hashTrialReservationSnapshot } from "../../contracts/src/lib/control-plane-contracts"
 import type { ReplayAttemptLeaseSnapshot, ResearchIdentityBinding, TrialReservationSnapshot } from "../../contracts/src/lib/control-plane-contracts"
-import { REPLAY_CERTIFIED_CAPABILITIES, REPLAY_DATASET_MANIFEST_SCHEMA_VERSION, REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION, REPLAY_NO_DECISION_MARKET_INPUT, REPLAY_NO_DECISION_MARKET_INPUT_HASH, REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS, REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH, REPLAY_SIMULATOR_POLICY_VERSION, REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION, canonicalHash, replayDatasetHash, replayExecutionSpecHash, type ReplayDatasetManifest, type ReplayExecutionRequest, type ReplayMarketBar } from "../../../replay-execution-plane/contracts/src/lib/replay-contracts"
+import { REPLAY_CERTIFIED_CAPABILITIES, REPLAY_DATASET_MANIFEST_SCHEMA_VERSION, REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION, REPLAY_NO_DECISION_MARKET_INPUT, REPLAY_NO_DECISION_MARKET_INPUT_HASH, REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS, REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH, REPLAY_SIMULATOR_POLICY_VERSION, REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION, canonicalHash, createReplaySingleDecisionSchedule, replayDatasetHash, replayExecutionSpecHash, type ReplayDatasetManifest, type ReplayExecutionRequest, type ReplayMarketBar } from "../../../replay-execution-plane/contracts/src/lib/replay-contracts"
 import { buildDeveloperReplayRequest } from "../../../agent-roles/developer/src/lib/developer-role"
 import { runReplayTrial } from "../../../replay-execution-plane/runner/src/lib/replay-trial-runner"
 import { buildDraftAuthorization } from "../../../agent-roles/reviewer/src/lib/reviewer-role"
@@ -29,13 +29,15 @@ test("Contract to Replay to Review to landed Draft to Forward is auditable", () 
     trial_id: "trial-1", candidate_id: "candidate-1", candidate_hash: HASH,
     identity_hash_policy_version: "identity-v1", experiment_contract_hash: HASH,
   }
+  const historicalOrder: ReplayExecutionRequest["order"] = { side: "long", quantity: 1, signal_time: "2026-07-14T00:00:00Z", earliest_executable_time: "2026-07-14T04:00:00Z", stop_price: 95, target_price: 110 }
+  const historicalDecisionSchedule = createReplaySingleDecisionSchedule(historicalOrder)
   const historicalRequest = buildDeveloperReplayRequest({
     run_id: "historical-run-1", idempotency_key: "historical-key-1", identity,
     trial_reservation_ref: "reservation://trial-1", trial_reservation_hash: HASH,
-    dataset_manifest_ref: "dataset://historical", dataset_hash: historicalDataHash, supplemental_facts_hash: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", supplemental_requirement_set: structuredClone(REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS), supplemental_requirement_set_hash: REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH, decision_market_input_requirement: structuredClone(REPLAY_NO_DECISION_MARKET_INPUT), decision_market_input_requirement_hash: REPLAY_NO_DECISION_MARKET_INPUT_HASH, harness_hash: HASH, assumptions_hash: HASH,
+    dataset_manifest_ref: "dataset://historical", dataset_hash: historicalDataHash, supplemental_facts_hash: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", supplemental_requirement_set: structuredClone(REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS), supplemental_requirement_set_hash: REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH, decision_market_input_requirement: structuredClone(REPLAY_NO_DECISION_MARKET_INPUT), decision_market_input_requirement_hash: REPLAY_NO_DECISION_MARKET_INPUT_HASH, decision_schedule: historicalDecisionSchedule, decision_schedule_hash: canonicalHash(historicalDecisionSchedule), harness_hash: HASH, assumptions_hash: HASH,
     venue_risk_policy_schedule_hash: canonicalHash([RISK_SNAPSHOT]), instrument_spec_schedule_hash: canonicalHash({ epochs: [SPEC_SNAPSHOT], accounting: ACCOUNTING }),
     symbol: "BTCUSDT", timeframe: "4h", initial_cash: 1000,
-    order: { side: "long", quantity: 1, signal_time: "2026-07-14T00:00:00Z", earliest_executable_time: "2026-07-14T04:00:00Z", stop_price: 95, target_price: 110 },
+    order: historicalOrder,
     cost_policy: { policy_id: "fixture", version: "1", fee_bps: 0, slippage_bps: 0, liquidation_fee_bps: 50 },
     simulator_policy: { version: REPLAY_SIMULATOR_POLICY_VERSION, signal_visibility: "closed_candle", earliest_execution: "next_open", same_bar_policy: "stop_first", gap_fill_policy: "worse_open", position_accounting: "average_cost", funding_timing: "exact_event", end_of_data: "mark_open", margin_evaluation: "before_strategy_orders" },
     margin_policy: { policy_id: "fixture", version: "rd-replay-isolated-margin-v7", mode: "isolated", collateral_asset: "USDT", isolated_collateral: 1000, initial_margin_rate: 0.1, maintenance_tier: { ...MAINTENANCE_TIER }, cashflow_scope: "position_attributed", collateral_transfer: "reserve_at_entry_release_at_terminal_if_flat", settled_cashflow_account: "isolated_margin_collateral", observation_scope: "source_event_path", mark_source_policy: "complete_exact_mark_else_ohlcv_adverse", maintenance_trigger: "margin_balance_below_maintenance_requirement", breach_terminal_priority: "risk_before_strategy_exit", breach_evidence: "first_observed_source_event", maintenance_breach_action: "exact_observation_full_liquidation_else_terminal_failure", liquidation: "simulated_full_close", liquidation_trigger_sources: "mark_or_funding_mark", liquidation_execution_price: "trigger_mark_adverse_slippage", liquidation_quantity: "full_position", liquidation_order_priority: "cancel_strategy_exits_before_forced_fill", liquidation_deficit: "fail_without_result" }, random_seed: 1,
@@ -70,12 +72,15 @@ test("Contract to Replay to Review to landed Draft to Forward is auditable", () 
 
   const forwardBars: ReplayMarketBar[] = [{ open_time: "2026-07-14T16:00:00Z", close_time: "2026-07-14T20:00:00Z", open: 100, high: 111, low: 99, close: 110, volume: 10, closed: true }]
   const forwardDataHash = replayDatasetHash(forwardBars)
+  const forwardOrder = { ...historicalRequest.order, signal_time: "2026-07-14T12:00:00Z", earliest_executable_time: "2026-07-14T16:00:00Z" }
+  const forwardDecisionSchedule = createReplaySingleDecisionSchedule(forwardOrder)
   const forwardRequest = {
     ...historicalRequest,
     run_id: "forward-run-1", idempotency_key: "forward-replay-key-1",
     trial_id: "forward-trial-1", trial_reservation_ref: "reservation://forward-trial-1", trial_reservation_hash: HASH,
     dataset_manifest_ref: "dataset://forward", dataset_hash: forwardDataHash, strategy_policy_hash: draft.strategy_policy_hash,
-    order: { ...historicalRequest.order, signal_time: "2026-07-14T12:00:00Z", earliest_executable_time: "2026-07-14T16:00:00Z" },
+    decision_schedule: forwardDecisionSchedule, decision_schedule_hash: canonicalHash(forwardDecisionSchedule),
+    order: forwardOrder,
   }
   const forwardReservation = authorize(forwardRequest, 2)
   const forward = runForwardEvidenceSession({

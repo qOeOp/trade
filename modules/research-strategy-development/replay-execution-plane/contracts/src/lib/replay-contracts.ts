@@ -10,9 +10,9 @@ export {
   REPLAY_OBJECT_ARTIFACT_STORAGE_POLICY_VERSION,
 }
 
-export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v16" as const
-export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v25" as const
-export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v27" as const
+export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v17" as const
+export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v26" as const
+export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v28" as const
 export const REPLAY_ARTIFACT_STORE_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-artifact-store-capability.v1" as const
 export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v7" as const
 export const REPLAY_NUMERIC_POLICY_VERSION = "rd-replay-number-v3" as const
@@ -29,20 +29,21 @@ export const REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION = "trade.rd-repl
 export const REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION = "trade.rd-replay-decision-input-snapshot.v1" as const
 export const REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION = "trade.rd-replay-decision-market-input-requirement.v1" as const
 export const REPLAY_DECISION_MARKET_INPUT_SNAPSHOT_SCHEMA_VERSION = "trade.rd-replay-decision-market-input-snapshot.v1" as const
-export const REPLAY_DECISION_HARNESS_CONTEXT_SCHEMA_VERSION = "trade.rd-replay-decision-harness-context.v1" as const
+export const REPLAY_DECISION_SCHEDULE_SCHEMA_VERSION = "trade.rd-replay-decision-schedule.v1" as const
+export const REPLAY_DECISION_HARNESS_CONTEXT_SCHEMA_VERSION = "trade.rd-replay-decision-harness-context.v2" as const
 export const REPLAY_DECISION_HARNESS_SOURCE_BUNDLE_SCHEMA_VERSION = "trade.rd-replay-decision-harness-source-bundle.v1" as const
 export const REPLAY_DECISION_HARNESS_BUILD_ATTESTATION_SCHEMA_VERSION = "trade.rd-replay-decision-harness-build-attestation.v2" as const
-export const REPLAY_DECISION_HARNESS_WORKER_REQUEST_SCHEMA_VERSION = "trade.rd-replay-decision-harness-worker-request.v2" as const
-export const REPLAY_DECISION_HARNESS_WORKER_RESPONSE_SCHEMA_VERSION = "trade.rd-replay-decision-harness-worker-response.v2" as const
+export const REPLAY_DECISION_HARNESS_WORKER_REQUEST_SCHEMA_VERSION = "trade.rd-replay-decision-harness-worker-request.v3" as const
+export const REPLAY_DECISION_HARNESS_WORKER_RESPONSE_SCHEMA_VERSION = "trade.rd-replay-decision-harness-worker-response.v3" as const
 export const REPLAY_DECISION_HARNESS_REGISTRY_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-decision-harness-registry-capability.v3" as const
-export const REPLAY_DECISION_HARNESS_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-decision-harness-capability.v4" as const
-export const REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION = "trade.rd-replay-decision-harness-receipt.v4" as const
-export const REPLAY_DECISION_BOUNDARY_SCHEMA_VERSION = "trade.rd-replay-decision-boundary.v2" as const
-export const REPLAY_DECISION_EVIDENCE_TIMELINE_SCHEMA_VERSION = "trade.rd-replay-decision-evidence-timeline.v3" as const
+export const REPLAY_DECISION_HARNESS_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-decision-harness-capability.v5" as const
+export const REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION = "trade.rd-replay-decision-harness-receipt.v5" as const
+export const REPLAY_DECISION_BOUNDARY_SCHEMA_VERSION = "trade.rd-replay-decision-boundary.v3" as const
+export const REPLAY_DECISION_EVIDENCE_TIMELINE_SCHEMA_VERSION = "trade.rd-replay-decision-evidence-timeline.v4" as const
 export const REPLAY_DECISION_HARNESS_REGISTRY_POLICY_VERSION = "rd-replay-decision-harness-registry-v3" as const
 export const REPLAY_DECISION_HARNESS_BUILD_POLICY_VERSION = "rd-replay-bun-single-file-build-v2" as const
 export const REPLAY_DECISION_HARNESS_LOADER_POLICY_VERSION = "rd-replay-attested-fresh-subprocess-loader-v1" as const
-export const REPLAY_DECISION_HARNESS_WORKER_PROTOCOL_VERSION = "rd-replay-harness-worker-stdio-v2" as const
+export const REPLAY_DECISION_HARNESS_WORKER_PROTOCOL_VERSION = "rd-replay-harness-worker-stdio-v3" as const
 export const REPLAY_DECISION_HARNESS_BUILD_ARGUMENTS = [
   "--target=bun",
   "--format=esm",
@@ -128,6 +129,8 @@ export interface ReplayExecutionRequest {
   supplemental_requirement_set_hash: string
   decision_market_input_requirement: ReplayDecisionMarketInputRequirement
   decision_market_input_requirement_hash: string
+  decision_schedule: ReplayDecisionSchedule
+  decision_schedule_hash: string
   venue_risk_policy_schedule_hash: string
   instrument_spec_schedule_hash: string
   harness_hash: string
@@ -295,6 +298,26 @@ export const REPLAY_NO_DECISION_MARKET_INPUT: ReplayDecisionMarketInputRequireme
 }
 export const REPLAY_NO_DECISION_MARKET_INPUT_HASH = canonicalHash(REPLAY_NO_DECISION_MARKET_INPUT)
 
+export interface ReplayDecisionScheduleEntry {
+  decision_sequence: number
+  decision_time: string
+  expected_effect: "no_action" | "authorized_initial_order"
+  authorized_order_hash: string | null
+}
+
+export interface ReplayDecisionSchedule {
+  schema_version: typeof REPLAY_DECISION_SCHEDULE_SCHEMA_VERSION
+  schedule_policy: "frozen_closed_bar_schedule"
+  entries: ReplayDecisionScheduleEntry[]
+}
+
+export type ReplayDecisionOutput = {
+  action: "no_action"
+} | {
+  action: "submit_initial_order"
+  order: ReplayExecutionRequest["order"]
+}
+
 export interface ReplayDecisionMarketInputSnapshot {
   schema_version: typeof REPLAY_DECISION_MARKET_INPUT_SNAPSHOT_SCHEMA_VERSION
   run_id: string
@@ -343,8 +366,9 @@ export interface ReplayDecisionHarnessContext {
   strategy_policy_hash: string | null
   symbol: string
   timeframe: string
+  decision_sequence: number
   decision_time: string
-  earliest_executable_time: string
+  earliest_executable_time: string | null
   random_seed: number
 }
 
@@ -400,7 +424,7 @@ export interface ReplayDecisionHarnessWorkerResponse {
   invocation_id: string
   source_bundle_hash: string
   artifact_hash: string
-  derived_order: ReplayExecutionRequest["order"]
+  decision_output: ReplayDecisionOutput
   trace: ReplaySupplementalValue
 }
 
@@ -475,7 +499,7 @@ export interface ReplayDecisionHarnessReceipt {
   worker_request_hash: string
   worker_response_hash: string
   worker_verification_response_hash: string
-  derived_order: ReplayExecutionRequest["order"]
+  decision_output: ReplayDecisionOutput
   trace: ReplaySupplementalValue
   trace_hash: string
   receipt_hash: string
@@ -486,12 +510,12 @@ export type ReplayDecisionHarnessReceiptBody = Omit<ReplayDecisionHarnessReceipt
 export interface ReplayDecisionBoundary {
   schema_version: typeof REPLAY_DECISION_BOUNDARY_SCHEMA_VERSION
   boundary_sequence: number
-  boundary_kind: "contract_frozen_initial_signal"
-  decision_origin: "frozen_request_order" | "attested_harness_verified_frozen_order"
+  boundary_kind: "frozen_decision_schedule_entry"
+  decision_origin: "frozen_request_order" | "attested_harness_verified_schedule_effect"
   evaluation_time: string
   market_data_cutoff: string
   supplemental_data_cutoff: string
-  earliest_executable_time: string
+  earliest_executable_time: string | null
   signal_visibility: "closed_candle"
   supplemental_visibility: "signal_time_snapshot"
   execution_policy: "next_open"
@@ -505,10 +529,11 @@ export type ReplayDecisionBoundaryBody = Omit<ReplayDecisionBoundary, "boundary_
 export interface ReplayDecisionEvidenceEntry {
   decision_sequence: number
   decision_time: string
-  decision_kind: "initial_order"
-  execution_effect: "authorized_order"
+  decision_kind: "scheduled_evaluation" | "initial_order"
+  execution_effect: "no_action" | "authorized_order"
   evidence_mode: "precomputed_order_compatibility" | "attested_harness"
-  authorized_order_hash: string
+  authorized_order_hash: string | null
+  decision_output_hash: string
   decision_boundary: ReplayDecisionBoundary
   decision_input_snapshot: ReplayDecisionInputSnapshot
   decision_market_input_snapshot: ReplayDecisionMarketInputSnapshot
@@ -524,7 +549,7 @@ export interface ReplayDecisionEvidenceTimeline {
   schema_version: typeof REPLAY_DECISION_EVIDENCE_TIMELINE_SCHEMA_VERSION
   run_id: string
   ordering_policy: "decision_time_then_sequence"
-  cardinality_policy: "single_authorized_decision"
+  cardinality_policy: "frozen_decision_schedule"
   entries: ReplayDecisionEvidenceEntry[]
   timeline_hash: string
 }
@@ -926,6 +951,7 @@ export interface ReplayEvidenceFingerprint {
   supplemental_facts_hash: string
   supplemental_requirement_set_hash: string
   decision_market_input_requirement_hash: string
+  decision_schedule_hash: string
   decision_market_input_snapshot_hash: string
   decision_evidence_timeline_hash: string
   decision_boundary_hash: string
@@ -1019,7 +1045,7 @@ export function assertReplayExecutionRequest(value: ReplayExecutionRequest): voi
   ] as const) requireText(value[field], field)
   for (const field of [
     "trial_group_hash", "candidate_hash", "experiment_contract_hash", "dataset_hash", "harness_hash", "assumptions_hash",
-    "trial_reservation_hash", "supplemental_facts_hash", "supplemental_requirement_set_hash", "decision_market_input_requirement_hash", "venue_risk_policy_schedule_hash", "instrument_spec_schedule_hash",
+    "trial_reservation_hash", "supplemental_facts_hash", "supplemental_requirement_set_hash", "decision_market_input_requirement_hash", "decision_schedule_hash", "venue_risk_policy_schedule_hash", "instrument_spec_schedule_hash",
   ] as const) requireHash(value[field], field)
   assertReplaySupplementalRequirementSet(value.supplemental_requirement_set, value.order.signal_time)
   if (canonicalHash(value.supplemental_requirement_set) !== value.supplemental_requirement_set_hash) {
@@ -1028,6 +1054,10 @@ export function assertReplayExecutionRequest(value: ReplayExecutionRequest): voi
   assertReplayDecisionMarketInputRequirement(value.decision_market_input_requirement)
   if (canonicalHash(value.decision_market_input_requirement) !== value.decision_market_input_requirement_hash) {
     fail("decision market input requirement hash mismatch")
+  }
+  assertReplayDecisionSchedule(value.decision_schedule, value)
+  if (canonicalHash(value.decision_schedule) !== value.decision_schedule_hash) {
+    fail("decision schedule hash mismatch")
   }
   if (value.strategy_policy_hash) requireHash(value.strategy_policy_hash, "strategy_policy_hash")
   requirePositive(value.initial_cash, "initial_cash")
@@ -1132,8 +1162,81 @@ export function assertReplayDecisionMarketInputRequirement(
   }
 }
 
+export function assertReplayDecisionSchedule(
+  schedule: ReplayDecisionSchedule,
+  request: Pick<ReplayExecutionRequest, "order" | "supplemental_requirement_set" | "decision_market_input_requirement">,
+): void {
+  if (schedule.schema_version !== REPLAY_DECISION_SCHEDULE_SCHEMA_VERSION
+      || schedule.schedule_policy !== "frozen_closed_bar_schedule"
+      || !Array.isArray(schedule.entries)
+      || schedule.entries.length === 0) {
+    fail("unsupported or empty Replay decision schedule")
+  }
+  let priorTime = Number.NEGATIVE_INFINITY
+  let authorizedCount = 0
+  for (const [index, entry] of schedule.entries.entries()) {
+    if (entry.decision_sequence !== index + 1) fail("decision schedule sequence must be contiguous from one")
+    requireUtcTimestamp(entry.decision_time, `decision_schedule.entries[${index}].decision_time`)
+    const decisionTime = Date.parse(entry.decision_time)
+    if (decisionTime <= priorTime) fail("decision schedule times must be strictly increasing")
+    priorTime = decisionTime
+    if (entry.expected_effect === "no_action") {
+      if (entry.authorized_order_hash !== null) fail("no-action decision cannot authorize an Order")
+      continue
+    }
+    if (entry.expected_effect !== "authorized_initial_order"
+        || entry.authorized_order_hash !== canonicalHash(request.order)
+        || entry.decision_time !== request.order.signal_time
+        || index !== schedule.entries.length - 1) {
+      fail("decision schedule authorized initial Order must be the final frozen entry")
+    }
+    authorizedCount += 1
+  }
+  if (authorizedCount !== 1) fail("decision schedule requires exactly one authorized initial Order")
+  if (schedule.entries.length > 1 && (
+    request.supplemental_requirement_set.mode !== "none"
+    || request.decision_market_input_requirement.mode !== "closed_bar_lookback"
+  )) {
+    fail("multi-decision schedule requires market-only closed-bar lookback inputs")
+  }
+}
+
+export function createReplaySingleDecisionSchedule(
+  order: ReplayExecutionRequest["order"],
+): ReplayDecisionSchedule {
+  return {
+    schema_version: REPLAY_DECISION_SCHEDULE_SCHEMA_VERSION,
+    schedule_policy: "frozen_closed_bar_schedule",
+    entries: [{
+      decision_sequence: 1,
+      decision_time: order.signal_time,
+      expected_effect: "authorized_initial_order",
+      authorized_order_hash: canonicalHash(order),
+    }],
+  }
+}
+
+export function replayDecisionOutputFor(
+  request: ReplayExecutionRequest,
+  scheduleEntry: ReplayDecisionScheduleEntry,
+): ReplayDecisionOutput {
+  return scheduleEntry.expected_effect === "no_action"
+    ? { action: "no_action" }
+    : { action: "submit_initial_order", order: structuredClone(request.order) }
+}
+
+export function replayDecisionScheduleEntryAt(
+  request: ReplayExecutionRequest,
+  decisionTime: string,
+): ReplayDecisionScheduleEntry {
+  const entry = request.decision_schedule.entries.find((candidate) => candidate.decision_time === decisionTime)
+  if (!entry) fail("decision time is not authorized by the frozen schedule")
+  return entry
+}
+
 export function createReplayDecisionMarketInputSnapshot(input: {
   request: ReplayExecutionRequest
+  decision_time?: string
   interval_ms: number
   bars: ReplayMarketBar[]
 }): ReplayDecisionMarketInputSnapshot {
@@ -1141,7 +1244,7 @@ export function createReplayDecisionMarketInputSnapshot(input: {
   const body: ReplayDecisionMarketInputSnapshotBody = {
     schema_version: REPLAY_DECISION_MARKET_INPUT_SNAPSHOT_SCHEMA_VERSION,
     run_id: input.request.run_id,
-    decision_time: input.request.order.signal_time,
+    decision_time: input.decision_time ?? input.request.order.signal_time,
     symbol: input.request.symbol,
     timeframe: input.request.timeframe,
     interval_ms: input.interval_ms,
@@ -1151,13 +1254,14 @@ export function createReplayDecisionMarketInputSnapshot(input: {
     bars_hash: canonicalHash(bars),
   }
   const snapshot = { ...body, snapshot_hash: canonicalHash(body) }
-  assertReplayDecisionMarketInputSnapshot(snapshot, input.request)
+  assertReplayDecisionMarketInputSnapshot(snapshot, input.request, body.decision_time)
   return snapshot
 }
 
 export function assertReplayDecisionMarketInputSnapshot(
   snapshot: ReplayDecisionMarketInputSnapshot,
   request?: ReplayExecutionRequest,
+  expectedDecisionTime?: string,
 ): void {
   if (snapshot.schema_version !== REPLAY_DECISION_MARKET_INPUT_SNAPSHOT_SCHEMA_VERSION
       || snapshot.visibility_policy !== "closed_candle") {
@@ -1179,7 +1283,7 @@ export function assertReplayDecisionMarketInputSnapshot(
   if (canonicalHash(body) !== snapshot.snapshot_hash) fail("decision market input snapshot hash mismatch")
   if (!request) return
   if (snapshot.run_id !== request.run_id
-      || snapshot.decision_time !== request.order.signal_time
+      || snapshot.decision_time !== (expectedDecisionTime ?? request.order.signal_time)
       || snapshot.symbol !== request.symbol
       || snapshot.timeframe !== request.timeframe
       || snapshot.requirement_hash !== request.decision_market_input_requirement_hash) {
@@ -1206,7 +1310,10 @@ export function assertReplayDecisionMarketInputSnapshot(
   }
 }
 
-export function createReplayDecisionHarnessContext(request: ReplayExecutionRequest): ReplayDecisionHarnessContext {
+export function createReplayDecisionHarnessContext(
+  request: ReplayExecutionRequest,
+  scheduleEntry: ReplayDecisionScheduleEntry = request.decision_schedule.entries.at(-1)!,
+): ReplayDecisionHarnessContext {
   return {
     schema_version: REPLAY_DECISION_HARNESS_CONTEXT_SCHEMA_VERSION,
     run_id: request.run_id,
@@ -1218,8 +1325,11 @@ export function createReplayDecisionHarnessContext(request: ReplayExecutionReque
     strategy_policy_hash: request.strategy_policy_hash ?? null,
     symbol: request.symbol,
     timeframe: request.timeframe,
-    decision_time: request.order.signal_time,
-    earliest_executable_time: request.order.earliest_executable_time,
+    decision_sequence: scheduleEntry.decision_sequence,
+    decision_time: scheduleEntry.decision_time,
+    earliest_executable_time: scheduleEntry.expected_effect === "authorized_initial_order"
+      ? request.order.earliest_executable_time
+      : null,
     random_seed: request.random_seed,
   }
 }
@@ -1394,26 +1504,28 @@ export function assertReplaySupplementalFact(fact: ReplaySupplementalFact): void
 export function createReplayDecisionInputSnapshot(
   request: ReplayExecutionRequest,
   selectedRecords: ReplaySupplementalFact[],
+  decisionTime = request.order.signal_time,
 ): ReplayDecisionInputSnapshot {
   const records = structuredClone(selectedRecords)
   records.forEach(assertReplaySupplementalFact)
   const body: ReplayDecisionInputSnapshotBody = {
     schema_version: REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION,
     run_id: request.run_id,
-    decision_time: request.order.signal_time,
+    decision_time: decisionTime,
     supplemental_requirement_set_hash: request.supplemental_requirement_set_hash,
     visibility_policy: "signal_time_snapshot",
     selected_records: records,
     selected_records_hash: canonicalHash(records),
   }
   const snapshot = { ...body, snapshot_hash: canonicalHash(body) }
-  assertReplayDecisionInputSnapshot(snapshot, request)
+  assertReplayDecisionInputSnapshot(snapshot, request, decisionTime)
   return snapshot
 }
 
 export function assertReplayDecisionInputSnapshot(
   snapshot: ReplayDecisionInputSnapshot,
   request?: ReplayExecutionRequest,
+  expectedDecisionTime?: string,
 ): void {
   if (snapshot.schema_version !== REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION) {
     fail("unsupported Replay decision input snapshot schema")
@@ -1441,7 +1553,7 @@ export function assertReplayDecisionInputSnapshot(
   if (canonicalHash(body) !== snapshot.snapshot_hash) fail("decision input snapshot hash mismatch")
   if (request && (
     snapshot.run_id !== request.run_id
-    || snapshot.decision_time !== request.order.signal_time
+    || snapshot.decision_time !== (expectedDecisionTime ?? request.order.signal_time)
     || snapshot.supplemental_requirement_set_hash !== request.supplemental_requirement_set_hash
   )) fail("decision input snapshot does not match Replay request")
   if (request?.supplemental_requirement_set.mode === "none" && snapshot.selected_records.length !== 0) {
@@ -1593,7 +1705,10 @@ export function assertReplayDecisionHarnessWorkerRequest(
   requireHash(workerRequest.invocation_id, "decision_harness_worker_request.invocation_id")
   requireHash(workerRequest.source_bundle_hash, "decision_harness_worker_request.source_bundle_hash")
   requireHash(workerRequest.artifact_hash, "decision_harness_worker_request.artifact_hash")
-  if (request && canonicalJson(workerRequest.request_context) !== canonicalJson(createReplayDecisionHarnessContext(request))) {
+  const scheduleEntry = request
+    ? replayDecisionScheduleEntryAt(request, workerRequest.decision_input_snapshot.decision_time)
+    : undefined
+  if (request && canonicalJson(workerRequest.request_context) !== canonicalJson(createReplayDecisionHarnessContext(request, scheduleEntry))) {
     fail("decision harness worker context does not match Replay request")
   }
   if (snapshot && canonicalJson(workerRequest.decision_input_snapshot) !== canonicalJson(snapshot)) {
@@ -1618,6 +1733,14 @@ export function assertReplayDecisionHarnessWorkerResponse(
   requireHash(workerResponse.invocation_id, "decision_harness_worker_response.invocation_id")
   requireHash(workerResponse.source_bundle_hash, "decision_harness_worker_response.source_bundle_hash")
   requireHash(workerResponse.artifact_hash, "decision_harness_worker_response.artifact_hash")
+  if (!workerResponse.decision_output || typeof workerResponse.decision_output !== "object") {
+    fail("decision harness worker response requires a decision output")
+  }
+  if (workerResponse.decision_output.action === "submit_initial_order") {
+    requirePositive(workerResponse.decision_output.order.quantity, "decision_harness_worker_response.decision_output.order.quantity")
+  } else if (workerResponse.decision_output.action !== "no_action") {
+    fail("unsupported decision harness output action")
+  }
   if (workerRequest && (
     workerResponse.invocation_id !== workerRequest.invocation_id
     || workerResponse.source_bundle_hash !== workerRequest.source_bundle_hash
@@ -1673,11 +1796,12 @@ export function createReplayDecisionHarnessReceipt(input: {
   worker_request: ReplayDecisionHarnessWorkerRequest
   worker_response: ReplayDecisionHarnessWorkerResponse
   worker_verification_response: ReplayDecisionHarnessWorkerResponse
-  derived_order: ReplayExecutionRequest["order"]
+  decision_output: ReplayDecisionOutput
   trace: ReplaySupplementalValue
 }): ReplayDecisionHarnessReceipt {
-  assertReplayDecisionInputSnapshot(input.decision_input_snapshot, input.request)
-  assertReplayDecisionMarketInputSnapshot(input.decision_market_input_snapshot, input.request)
+  const scheduleEntry = replayDecisionScheduleEntryAt(input.request, input.decision_input_snapshot.decision_time)
+  assertReplayDecisionInputSnapshot(input.decision_input_snapshot, input.request, scheduleEntry.decision_time)
+  assertReplayDecisionMarketInputSnapshot(input.decision_market_input_snapshot, input.request, scheduleEntry.decision_time)
   assertReplayDecisionHarnessSourceBundle(input.source_bundle, input.request)
   assertReplayDecisionHarnessBuildAttestation(input.build_attestation, input.source_bundle)
   assertReplayDecisionHarnessCapability(input.capability, input.request)
@@ -1689,7 +1813,7 @@ export function createReplayDecisionHarnessReceipt(input: {
   if (canonicalJson(input.worker_response) !== canonicalJson(input.worker_verification_response)) {
     fail("decision harness worker reproducibility parity failed")
   }
-  if (canonicalJson(input.worker_response.derived_order) !== canonicalJson(input.derived_order)
+  if (canonicalJson(input.worker_response.decision_output) !== canonicalJson(input.decision_output)
       || canonicalJson(input.worker_response.trace) !== canonicalJson(input.trace)) {
     fail("decision harness receipt output does not match worker response")
   }
@@ -1717,11 +1841,11 @@ export function createReplayDecisionHarnessReceipt(input: {
     execution_policy: "fresh_subprocess_stdio_reproducibility_pair",
     decision_input_snapshot_hash: input.decision_input_snapshot.snapshot_hash,
     decision_market_input_snapshot_hash: input.decision_market_input_snapshot.snapshot_hash,
-    request_context_hash: canonicalHash(createReplayDecisionHarnessContext(input.request)),
+    request_context_hash: canonicalHash(createReplayDecisionHarnessContext(input.request, scheduleEntry)),
     worker_request_hash: canonicalHash(input.worker_request),
     worker_response_hash: canonicalHash(input.worker_response),
     worker_verification_response_hash: canonicalHash(input.worker_verification_response),
-    derived_order: structuredClone(input.derived_order),
+    decision_output: structuredClone(input.decision_output),
     trace,
     trace_hash: canonicalHash(trace),
   }
@@ -1770,12 +1894,16 @@ export function assertReplayDecisionHarnessReceipt(
   if (canonicalHash(receipt.trace) !== receipt.trace_hash) fail("decision harness trace hash mismatch")
   const { receipt_hash: _receiptHash, ...body } = receipt
   if (canonicalHash(body) !== receipt.receipt_hash) fail("decision harness receipt hash mismatch")
-  if (request && (
-    receipt.run_id !== request.run_id
-    || receipt.harness_hash !== request.harness_hash
-    || receipt.request_context_hash !== canonicalHash(createReplayDecisionHarnessContext(request))
-    || canonicalJson(receipt.derived_order) !== canonicalJson(request.order)
-  )) fail("decision harness receipt does not match Replay request")
+  if (request) {
+    const decisionTime = snapshot?.decision_time ?? marketSnapshot?.decision_time ?? request.order.signal_time
+    const scheduleEntry = replayDecisionScheduleEntryAt(request, decisionTime)
+    if (receipt.run_id !== request.run_id
+        || receipt.harness_hash !== request.harness_hash
+        || receipt.request_context_hash !== canonicalHash(createReplayDecisionHarnessContext(request, scheduleEntry))
+        || canonicalJson(receipt.decision_output) !== canonicalJson(replayDecisionOutputFor(request, scheduleEntry))) {
+      fail("decision harness receipt does not match Replay request schedule")
+    }
+  }
   if (snapshot && receipt.decision_input_snapshot_hash !== snapshot.snapshot_hash) {
     fail("decision harness receipt does not match decision input snapshot")
   }
@@ -1796,18 +1924,21 @@ export function assertReplayDecisionHarnessReceipt(
 export function createReplayDecisionBoundary(
   request: ReplayExecutionRequest,
   marketSnapshot: ReplayDecisionMarketInputSnapshot,
+  scheduleEntry: ReplayDecisionScheduleEntry = replayDecisionScheduleEntryAt(request, marketSnapshot.decision_time),
 ): ReplayDecisionBoundary {
   const attestedHarness = request.supplemental_requirement_set.mode === "signal_time_complete"
     || request.decision_market_input_requirement.mode === "closed_bar_lookback"
   const body: ReplayDecisionBoundaryBody = {
     schema_version: REPLAY_DECISION_BOUNDARY_SCHEMA_VERSION,
-    boundary_sequence: 1,
-    boundary_kind: "contract_frozen_initial_signal",
-    decision_origin: attestedHarness ? "attested_harness_verified_frozen_order" : "frozen_request_order",
-    evaluation_time: request.order.signal_time,
-    market_data_cutoff: request.order.signal_time,
-    supplemental_data_cutoff: request.order.signal_time,
-    earliest_executable_time: request.order.earliest_executable_time,
+    boundary_sequence: scheduleEntry.decision_sequence,
+    boundary_kind: "frozen_decision_schedule_entry",
+    decision_origin: attestedHarness ? "attested_harness_verified_schedule_effect" : "frozen_request_order",
+    evaluation_time: scheduleEntry.decision_time,
+    market_data_cutoff: scheduleEntry.decision_time,
+    supplemental_data_cutoff: scheduleEntry.decision_time,
+    earliest_executable_time: scheduleEntry.expected_effect === "authorized_initial_order"
+      ? request.order.earliest_executable_time
+      : null,
     signal_visibility: request.simulator_policy.signal_visibility,
     supplemental_visibility: "signal_time_snapshot",
     execution_policy: request.simulator_policy.earliest_execution,
@@ -1817,7 +1948,7 @@ export function createReplayDecisionBoundary(
     market_input_snapshot_hash: marketSnapshot.snapshot_hash,
   }
   const boundary = { ...body, boundary_hash: canonicalHash(body) }
-  assertReplayDecisionBoundary(boundary, request, marketSnapshot)
+  assertReplayDecisionBoundary(boundary, request, marketSnapshot, scheduleEntry)
   return boundary
 }
 
@@ -1825,17 +1956,19 @@ export function assertReplayDecisionBoundary(
   boundary: ReplayDecisionBoundary,
   request: ReplayExecutionRequest,
   marketSnapshot?: ReplayDecisionMarketInputSnapshot,
+  scheduleEntry: ReplayDecisionScheduleEntry = replayDecisionScheduleEntryAt(request, boundary.evaluation_time),
 ): void {
   const attestedHarness = request.supplemental_requirement_set.mode === "signal_time_complete"
     || request.decision_market_input_requirement.mode === "closed_bar_lookback"
   if (boundary.schema_version !== REPLAY_DECISION_BOUNDARY_SCHEMA_VERSION
-      || boundary.boundary_sequence !== 1
-      || boundary.boundary_kind !== "contract_frozen_initial_signal"
-      || boundary.decision_origin !== (attestedHarness ? "attested_harness_verified_frozen_order" : "frozen_request_order")
-      || boundary.evaluation_time !== request.order.signal_time
-      || boundary.market_data_cutoff !== request.order.signal_time
-      || boundary.supplemental_data_cutoff !== request.order.signal_time
-      || boundary.earliest_executable_time !== request.order.earliest_executable_time
+      || boundary.boundary_sequence !== scheduleEntry.decision_sequence
+      || boundary.boundary_kind !== "frozen_decision_schedule_entry"
+      || boundary.decision_origin !== (attestedHarness ? "attested_harness_verified_schedule_effect" : "frozen_request_order")
+      || boundary.evaluation_time !== scheduleEntry.decision_time
+      || boundary.market_data_cutoff !== scheduleEntry.decision_time
+      || boundary.supplemental_data_cutoff !== scheduleEntry.decision_time
+      || boundary.earliest_executable_time !== (scheduleEntry.expected_effect === "authorized_initial_order"
+        ? request.order.earliest_executable_time : null)
       || boundary.signal_visibility !== request.simulator_policy.signal_visibility
       || boundary.supplemental_visibility !== "signal_time_snapshot"
       || boundary.execution_policy !== request.simulator_policy.earliest_execution
@@ -1854,39 +1987,44 @@ export function assertReplayDecisionBoundary(
 
 export function createReplayDecisionEvidenceTimeline(input: {
   request: ReplayExecutionRequest
-  decision_input_snapshot: ReplayDecisionInputSnapshot
-  decision_market_input_snapshot: ReplayDecisionMarketInputSnapshot
-  decision_harness_bundle?: ReplayDecisionHarnessSourceBundle | null
-  decision_harness_build?: ReplayDecisionHarnessBuildAttestation | null
-  decision_harness_receipt?: ReplayDecisionHarnessReceipt | null
+  decisions: Array<{
+    schedule_entry: ReplayDecisionScheduleEntry
+    decision_input_snapshot: ReplayDecisionInputSnapshot
+    decision_market_input_snapshot: ReplayDecisionMarketInputSnapshot
+    decision_harness_bundle?: ReplayDecisionHarnessSourceBundle | null
+    decision_harness_build?: ReplayDecisionHarnessBuildAttestation | null
+    decision_harness_receipt?: ReplayDecisionHarnessReceipt | null
+  }>
 }): ReplayDecisionEvidenceTimeline {
-  const decisionHarnessBundle = input.decision_harness_bundle ?? null
-  const decisionHarnessBuild = input.decision_harness_build ?? null
-  const decisionHarnessReceipt = input.decision_harness_receipt ?? null
-  const entryBody: ReplayDecisionEvidenceEntryBody = {
-    decision_sequence: 1,
-    decision_time: input.request.order.signal_time,
-    decision_kind: "initial_order",
-    execution_effect: "authorized_order",
-    evidence_mode: input.request.supplemental_requirement_set.mode === "signal_time_complete"
-        || input.request.decision_market_input_requirement.mode === "closed_bar_lookback"
-      ? "attested_harness"
-      : "precomputed_order_compatibility",
-    authorized_order_hash: canonicalHash(input.request.order),
-    decision_boundary: createReplayDecisionBoundary(input.request, input.decision_market_input_snapshot),
-    decision_input_snapshot: structuredClone(input.decision_input_snapshot),
-    decision_market_input_snapshot: structuredClone(input.decision_market_input_snapshot),
-    decision_harness_bundle: structuredClone(decisionHarnessBundle),
-    decision_harness_build: structuredClone(decisionHarnessBuild),
-    decision_harness_receipt: structuredClone(decisionHarnessReceipt),
-  }
-  const entry = { ...entryBody, entry_hash: canonicalHash(entryBody) }
+  const entries = input.decisions.map((decision): ReplayDecisionEvidenceEntry => {
+    const scheduleEntry = decision.schedule_entry
+    const decisionOutput = replayDecisionOutputFor(input.request, scheduleEntry)
+    const entryBody: ReplayDecisionEvidenceEntryBody = {
+      decision_sequence: scheduleEntry.decision_sequence,
+      decision_time: scheduleEntry.decision_time,
+      decision_kind: scheduleEntry.expected_effect === "no_action" ? "scheduled_evaluation" : "initial_order",
+      execution_effect: scheduleEntry.expected_effect === "no_action" ? "no_action" : "authorized_order",
+      evidence_mode: input.request.supplemental_requirement_set.mode === "signal_time_complete"
+          || input.request.decision_market_input_requirement.mode === "closed_bar_lookback"
+        ? "attested_harness"
+        : "precomputed_order_compatibility",
+      authorized_order_hash: scheduleEntry.authorized_order_hash,
+      decision_output_hash: canonicalHash(decisionOutput),
+      decision_boundary: createReplayDecisionBoundary(input.request, decision.decision_market_input_snapshot, scheduleEntry),
+      decision_input_snapshot: structuredClone(decision.decision_input_snapshot),
+      decision_market_input_snapshot: structuredClone(decision.decision_market_input_snapshot),
+      decision_harness_bundle: structuredClone(decision.decision_harness_bundle ?? null),
+      decision_harness_build: structuredClone(decision.decision_harness_build ?? null),
+      decision_harness_receipt: structuredClone(decision.decision_harness_receipt ?? null),
+    }
+    return { ...entryBody, entry_hash: canonicalHash(entryBody) }
+  })
   const body: ReplayDecisionEvidenceTimelineBody = {
     schema_version: REPLAY_DECISION_EVIDENCE_TIMELINE_SCHEMA_VERSION,
     run_id: input.request.run_id,
     ordering_policy: "decision_time_then_sequence",
-    cardinality_policy: "single_authorized_decision",
-    entries: [entry],
+    cardinality_policy: "frozen_decision_schedule",
+    entries,
   }
   const timeline = { ...body, timeline_hash: canonicalHash(body) }
   assertReplayDecisionEvidenceTimeline(timeline, input.request)
@@ -1899,55 +2037,49 @@ export function assertReplayDecisionEvidenceTimeline(
 ): void {
   if (timeline.schema_version !== REPLAY_DECISION_EVIDENCE_TIMELINE_SCHEMA_VERSION
       || timeline.ordering_policy !== "decision_time_then_sequence"
-      || timeline.cardinality_policy !== "single_authorized_decision") {
+      || timeline.cardinality_policy !== "frozen_decision_schedule") {
     fail("unsupported Replay decision evidence timeline")
   }
   if (timeline.run_id !== request.run_id) fail("decision evidence timeline does not match Replay request")
-  if (timeline.entries.length !== 1) fail("decision evidence timeline requires exactly one authorized decision")
-  const entry = timeline.entries[0]
-  if (!entry || entry.decision_sequence !== 1
-      || entry.decision_time !== request.order.signal_time
-      || entry.decision_kind !== "initial_order"
-      || entry.execution_effect !== "authorized_order"
-      || entry.authorized_order_hash !== canonicalHash(request.order)) {
-    fail("decision evidence entry ordering or authority binding is invalid")
+  if (timeline.entries.length !== request.decision_schedule.entries.length) {
+    fail("decision evidence timeline cardinality does not match frozen schedule")
   }
-  requireHash(entry.authorized_order_hash, "decision_evidence_entry.authorized_order_hash")
-  requireHash(entry.entry_hash, "decision_evidence_entry.entry_hash")
-  const { entry_hash: _entryHash, ...entryBody } = entry
-  if (canonicalHash(entryBody) !== entry.entry_hash) fail("decision evidence entry hash mismatch")
-  assertReplayDecisionBoundary(entry.decision_boundary, request, entry.decision_market_input_snapshot)
-  if (entry.decision_boundary.boundary_sequence !== entry.decision_sequence
-      || entry.decision_boundary.evaluation_time !== entry.decision_time) {
-    fail("decision evidence entry does not match its decision boundary")
-  }
-  assertReplayDecisionInputSnapshot(entry.decision_input_snapshot, request)
-  assertReplayDecisionMarketInputSnapshot(entry.decision_market_input_snapshot, request)
-
   const expectsAttestedHarness = request.supplemental_requirement_set.mode === "signal_time_complete"
     || request.decision_market_input_requirement.mode === "closed_bar_lookback"
-  if (expectsAttestedHarness) {
-    if (entry.evidence_mode !== "attested_harness"
-        || !entry.decision_harness_bundle
-        || !entry.decision_harness_build
-        || !entry.decision_harness_receipt) {
-      fail("Replay supplemental lane requires attested decision evidence")
+  for (const [index, entry] of timeline.entries.entries()) {
+    const scheduleEntry = request.decision_schedule.entries[index]!
+    const expectedOutput = replayDecisionOutputFor(request, scheduleEntry)
+    if (entry.decision_sequence !== scheduleEntry.decision_sequence
+        || entry.decision_time !== scheduleEntry.decision_time
+        || entry.decision_kind !== (scheduleEntry.expected_effect === "no_action" ? "scheduled_evaluation" : "initial_order")
+        || entry.execution_effect !== (scheduleEntry.expected_effect === "no_action" ? "no_action" : "authorized_order")
+        || entry.authorized_order_hash !== scheduleEntry.authorized_order_hash
+        || entry.decision_output_hash !== canonicalHash(expectedOutput)) {
+      fail("decision evidence entry does not match frozen schedule authority")
     }
-    assertReplayDecisionHarnessSourceBundle(entry.decision_harness_bundle, request)
-    assertReplayDecisionHarnessBuildAttestation(entry.decision_harness_build, entry.decision_harness_bundle)
-    assertReplayDecisionHarnessReceipt(
-      entry.decision_harness_receipt,
-      request,
-      entry.decision_input_snapshot,
-      entry.decision_market_input_snapshot,
-      entry.decision_harness_bundle,
-      entry.decision_harness_build,
-    )
-  } else if (entry.evidence_mode !== "precomputed_order_compatibility"
-      || entry.decision_harness_bundle
-      || entry.decision_harness_build
-      || entry.decision_harness_receipt) {
-    fail("Replay compatibility lane cannot claim attested decision evidence")
+    if (entry.authorized_order_hash !== null) requireHash(entry.authorized_order_hash, "decision_evidence_entry.authorized_order_hash")
+    requireHash(entry.decision_output_hash, "decision_evidence_entry.decision_output_hash")
+    requireHash(entry.entry_hash, "decision_evidence_entry.entry_hash")
+    const { entry_hash: _entryHash, ...entryBody } = entry
+    if (canonicalHash(entryBody) !== entry.entry_hash) fail("decision evidence entry hash mismatch")
+    assertReplayDecisionBoundary(entry.decision_boundary, request, entry.decision_market_input_snapshot, scheduleEntry)
+    assertReplayDecisionInputSnapshot(entry.decision_input_snapshot, request, scheduleEntry.decision_time)
+    assertReplayDecisionMarketInputSnapshot(entry.decision_market_input_snapshot, request, scheduleEntry.decision_time)
+    if (expectsAttestedHarness) {
+      if (entry.evidence_mode !== "attested_harness" || !entry.decision_harness_bundle
+          || !entry.decision_harness_build || !entry.decision_harness_receipt) {
+        fail("Replay scheduled decision lane requires attested decision evidence")
+      }
+      assertReplayDecisionHarnessSourceBundle(entry.decision_harness_bundle, request)
+      assertReplayDecisionHarnessBuildAttestation(entry.decision_harness_build, entry.decision_harness_bundle)
+      assertReplayDecisionHarnessReceipt(
+        entry.decision_harness_receipt, request, entry.decision_input_snapshot,
+        entry.decision_market_input_snapshot, entry.decision_harness_bundle, entry.decision_harness_build,
+      )
+    } else if (entry.evidence_mode !== "precomputed_order_compatibility"
+        || entry.decision_harness_bundle || entry.decision_harness_build || entry.decision_harness_receipt) {
+      fail("Replay compatibility lane cannot claim attested decision evidence")
+    }
   }
   requireHash(timeline.timeline_hash, "decision_evidence_timeline.timeline_hash")
   const { timeline_hash: _timelineHash, ...timelineBody } = timeline

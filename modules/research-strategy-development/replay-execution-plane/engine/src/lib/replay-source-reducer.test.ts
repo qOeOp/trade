@@ -6,6 +6,8 @@ import {
   REPLAY_NO_DECISION_MARKET_INPUT_HASH,
   REPLAY_REQUEST_SCHEMA_VERSION,
   REPLAY_SIMULATOR_POLICY_VERSION,
+  canonicalHash,
+  createReplaySingleDecisionSchedule,
   type ReplayExecutionRequest,
   type ReplayLimitation,
   type ReplayMarketBar,
@@ -16,6 +18,11 @@ import { reduceReplaySourceEvents } from "./replay-source-reducer"
 const HASH = "c".repeat(64)
 
 function request(): ReplayExecutionRequest {
+  const order: ReplayExecutionRequest["order"] = {
+    side: "long", quantity: 1, signal_time: "2026-07-14T00:00:00Z",
+    earliest_executable_time: "2026-07-14T04:00:00Z", stop_price: 95, target_price: 110,
+  }
+  const decisionSchedule = createReplaySingleDecisionSchedule(order)
   return {
     schema_version: REPLAY_REQUEST_SCHEMA_VERSION,
     run_id: "run-reducer", idempotency_key: "key-reducer", experiment_id: "experiment-1",
@@ -27,13 +34,11 @@ function request(): ReplayExecutionRequest {
     supplemental_requirement_set_hash: REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH,
     decision_market_input_requirement: structuredClone(REPLAY_NO_DECISION_MARKET_INPUT),
     decision_market_input_requirement_hash: REPLAY_NO_DECISION_MARKET_INPUT_HASH,
+    decision_schedule: decisionSchedule, decision_schedule_hash: canonicalHash(decisionSchedule),
     trial_reservation_ref: "reservation://trial-1", trial_reservation_hash: HASH,
     venue_risk_policy_schedule_hash: HASH, instrument_spec_schedule_hash: HASH,
     harness_hash: HASH, assumptions_hash: HASH, symbol: "BTCUSDT", timeframe: "4h", initial_cash: 10_000,
-    order: {
-      side: "long", quantity: 1, signal_time: "2026-07-14T00:00:00Z",
-      earliest_executable_time: "2026-07-14T04:00:00Z", stop_price: 95, target_price: 110,
-    },
+    order,
     cost_policy: { policy_id: "fixture", version: "1", fee_bps: 0, slippage_bps: 0, liquidation_fee_bps: 50 },
     simulator_policy: {
       version: REPLAY_SIMULATOR_POLICY_VERSION, signal_visibility: "closed_candle", earliest_execution: "next_open",
