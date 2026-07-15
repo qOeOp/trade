@@ -32,6 +32,9 @@ export const REPLAY_DECISION_MARKET_INPUT_SNAPSHOT_SCHEMA_VERSION = "trade.rd-re
 export const REPLAY_DECISION_SCHEDULE_SCHEMA_VERSION = "trade.rd-replay-decision-schedule.v4" as const
 export const REPLAY_REDUCE_ONLY_EXIT_INTENT_SCHEMA_VERSION = "trade.rd-replay-reduce-only-exit-intent.v1" as const
 export const REPLAY_PROTECTIVE_STOP_REPLACE_INTENT_SCHEMA_VERSION = "trade.rd-replay-protective-stop-replace-intent.v1" as const
+export const REPLAY_PARTIAL_REDUCE_INTENT_DRAFT_SCHEMA_VERSION = "trade.rd-replay-partial-reduce-intent-draft.v1" as const
+export const REPLAY_PARTIAL_REDUCE_PROTECTION_POLICY_DRAFT_VERSION = "rd-replay-partial-reduce-protection-v1-draft" as const
+export const REPLAY_PARTIAL_REDUCE_DRAFT_CAPABILITY = "partial-reduce-v1-draft" as const
 export const REPLAY_DECISION_STATE_SNAPSHOT_SCHEMA_VERSION = "trade.rd-replay-decision-state-snapshot.v2" as const
 export const REPLAY_DECISION_HARNESS_CONTEXT_SCHEMA_VERSION = "trade.rd-replay-decision-harness-context.v5" as const
 export const REPLAY_DECISION_HARNESS_SOURCE_BUNDLE_SCHEMA_VERSION = "trade.rd-replay-decision-harness-source-bundle.v1" as const
@@ -323,6 +326,24 @@ export interface ReplayProtectiveStopReplaceIntent {
   signal_time: string
   previous_stop_price: number
   new_stop_price: number
+}
+
+/** Design-only seam. It is intentionally absent from ReplayDecisionSchedule and certified capabilities. */
+export interface ReplayPartialReduceIntentDraft {
+  schema_version: typeof REPLAY_PARTIAL_REDUCE_INTENT_DRAFT_SCHEMA_VERSION
+  side: ReplayOrderSide
+  order_type: "market"
+  reduce_only: true
+  quantity_policy: "fixed_quantity"
+  quantity: number
+  signal_time: string
+  earliest_executable_time: string
+  post_fill_position_policy: "must_remain_open"
+  protection_resize_policy: "after_fill_cancel_both_then_replace_remaining_at_same_source_boundary"
+  protection_policy_version: typeof REPLAY_PARTIAL_REDUCE_PROTECTION_POLICY_DRAFT_VERSION
+  replacement_trigger_policy: "preserve_current_stop_and_target_prices"
+  remaining_quantity_authority: "absolute_post_fill_position"
+  schedule_combination_policy: "one_partial_reduce_then_optional_final_full_exit_no_stop_replace"
 }
 
 export interface ReplayDecisionScheduleEntry {
@@ -1231,6 +1252,37 @@ export function assertReplayDecisionMarketInputRequirement(
       || requirement.terminal_bar_policy !== "close_time_equals_decision_time"
       || requirement.continuity_policy !== "strict_interval_grid") {
     fail("unsupported closed-bar lookback requirement")
+  }
+}
+
+export function assertReplayPartialReduceIntentDraft(
+  intent: ReplayPartialReduceIntentDraft,
+  initialOrder: ReplayExecutionRequest["order"],
+): void {
+  if (intent.schema_version !== REPLAY_PARTIAL_REDUCE_INTENT_DRAFT_SCHEMA_VERSION
+      || intent.side !== (initialOrder.side === "long" ? "sell" : "buy")
+      || intent.order_type !== "market"
+      || intent.reduce_only !== true
+      || intent.quantity_policy !== "fixed_quantity"
+      || intent.post_fill_position_policy !== "must_remain_open"
+      || intent.protection_resize_policy !== "after_fill_cancel_both_then_replace_remaining_at_same_source_boundary"
+      || intent.protection_policy_version !== REPLAY_PARTIAL_REDUCE_PROTECTION_POLICY_DRAFT_VERSION
+      || intent.replacement_trigger_policy !== "preserve_current_stop_and_target_prices"
+      || intent.remaining_quantity_authority !== "absolute_post_fill_position"
+      || intent.schedule_combination_policy !== "one_partial_reduce_then_optional_final_full_exit_no_stop_replace") {
+    fail("unsupported Replay partial-reduce draft contract")
+  }
+  requirePositive(intent.quantity, "partial_reduce_intent.quantity")
+  requireUtcTimestamp(intent.signal_time, "partial_reduce_intent.signal_time")
+  requireUtcTimestamp(intent.earliest_executable_time, "partial_reduce_intent.earliest_executable_time")
+  if (intent.quantity >= initialOrder.quantity) {
+    fail("partial-reduce draft quantity must leave an open position")
+  }
+  if (Date.parse(intent.signal_time) <= Date.parse(initialOrder.earliest_executable_time)) {
+    fail("partial-reduce draft signal must follow initial entry eligibility")
+  }
+  if (Date.parse(intent.earliest_executable_time) <= Date.parse(intent.signal_time)) {
+    fail("partial-reduce draft earliest executable time must follow signal time")
   }
 }
 

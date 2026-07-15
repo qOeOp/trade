@@ -18,6 +18,10 @@ import {
   REPLAY_DECISION_STATE_SNAPSHOT_SCHEMA_VERSION,
   REPLAY_REDUCE_ONLY_EXIT_INTENT_SCHEMA_VERSION,
   REPLAY_PROTECTIVE_STOP_REPLACE_INTENT_SCHEMA_VERSION,
+  REPLAY_PARTIAL_REDUCE_INTENT_DRAFT_SCHEMA_VERSION,
+  REPLAY_PARTIAL_REDUCE_PROTECTION_POLICY_DRAFT_VERSION,
+  REPLAY_PARTIAL_REDUCE_DRAFT_CAPABILITY,
+  REPLAY_CERTIFIED_CAPABILITIES,
   REPLAY_LOCAL_ARTIFACT_STORE_CAPABILITY,
   REPLAY_OBJECT_ARTIFACT_STORE_REQUIRED_CAPABILITY,
   REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION,
@@ -44,6 +48,7 @@ import {
   assertReplayDecisionMarketInputSnapshot,
   assertReplayDecisionStateSnapshot,
   assertReplayDecisionStateSnapshotSourcePrefix,
+  assertReplayPartialReduceIntentDraft,
   assertReplaySupplementalFact,
   assertReplaySupplementalRequirementSet,
   canonicalHash,
@@ -281,6 +286,42 @@ test("decision schedule permits one full-position tighten-only protective stop r
   )
   loosened.decision_schedule_hash = canonicalHash(loosened.decision_schedule)
   expect(() => assertReplayExecutionRequest(loosened)).toThrow("must tighten")
+})
+
+test("partial-reduce draft freezes one non-terminal fixed quantity and remains uncertified", () => {
+  const initialOrder = fixtureRequest().order
+  const draft = {
+    schema_version: REPLAY_PARTIAL_REDUCE_INTENT_DRAFT_SCHEMA_VERSION,
+    side: "sell" as const,
+    order_type: "market" as const,
+    reduce_only: true as const,
+    quantity_policy: "fixed_quantity" as const,
+    quantity: 0.4,
+    signal_time: "2026-07-14T08:00:00Z",
+    earliest_executable_time: "2026-07-14T12:00:00Z",
+    post_fill_position_policy: "must_remain_open" as const,
+    protection_resize_policy: "after_fill_cancel_both_then_replace_remaining_at_same_source_boundary" as const,
+    protection_policy_version: REPLAY_PARTIAL_REDUCE_PROTECTION_POLICY_DRAFT_VERSION,
+    replacement_trigger_policy: "preserve_current_stop_and_target_prices" as const,
+    remaining_quantity_authority: "absolute_post_fill_position" as const,
+    schedule_combination_policy: "one_partial_reduce_then_optional_final_full_exit_no_stop_replace" as const,
+  }
+  expect(() => assertReplayPartialReduceIntentDraft(draft, initialOrder)).not.toThrow()
+  expect(REPLAY_CERTIFIED_CAPABILITIES).not.toContain(REPLAY_PARTIAL_REDUCE_DRAFT_CAPABILITY)
+
+  expect(() => assertReplayPartialReduceIntentDraft({ ...draft, quantity: initialOrder.quantity }, initialOrder))
+    .toThrow("must leave an open position")
+  expect(() => assertReplayPartialReduceIntentDraft({ ...draft, side: "buy" }, initialOrder))
+    .toThrow("unsupported Replay partial-reduce draft")
+  expect(() => assertReplayPartialReduceIntentDraft({
+    ...draft, protection_resize_policy: "cancel_then_amend" as never,
+  }, initialOrder)).toThrow("unsupported Replay partial-reduce draft")
+  expect(() => assertReplayPartialReduceIntentDraft({
+    ...draft, earliest_executable_time: draft.signal_time,
+  }, initialOrder)).toThrow("must follow signal time")
+
+  const shortOrder = { ...initialOrder, side: "short" as const, stop_price: 105, target_price: 90 }
+  expect(() => assertReplayPartialReduceIntentDraft({ ...draft, side: "buy" }, shortOrder)).not.toThrow()
 })
 
 test("position-open decision state snapshot is self-hashed monetary evidence", () => {

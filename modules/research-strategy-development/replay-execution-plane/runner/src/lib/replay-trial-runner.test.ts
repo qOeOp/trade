@@ -15,6 +15,7 @@ import {
   REPLAY_NO_DECISION_MARKET_INPUT,
   REPLAY_NO_DECISION_MARKET_INPUT_HASH,
   REPLAY_OBJECT_ARTIFACT_STORE_REQUIRED_CAPABILITY,
+  REPLAY_PARTIAL_REDUCE_DRAFT_CAPABILITY,
   REPLAY_REQUEST_SCHEMA_VERSION,
   REPLAY_REDUCE_ONLY_EXIT_INTENT_SCHEMA_VERSION,
   REPLAY_PROTECTIVE_STOP_REPLACE_INTENT_SCHEMA_VERSION,
@@ -1550,11 +1551,15 @@ test("runner rejects mutated bindings and unsupported capabilities before engine
 
   const unsupported = boundRequest()
   const unsupportedReservation = authorize(unsupported)
-  unsupportedReservation.required_capabilities = [...unsupportedReservation.required_capabilities, "tick-book"]
+  unsupportedReservation.required_capabilities = [
+    ...unsupportedReservation.required_capabilities, REPLAY_PARTIAL_REDUCE_DRAFT_CAPABILITY,
+  ].sort()
   unsupported.trial_reservation_hash = hashTrialReservationSnapshot(unsupportedReservation)
   const capabilityOutcome = runReplayTrial({ request: unsupported, trial_reservation: unsupportedReservation, attempt_lease: attemptLease(unsupported, unsupportedReservation), observed_at: OBSERVED_AT, dataset_manifest: datasetManifest(), bars })
   expect(capabilityOutcome.failure?.code).toBe("trial-reservation-rejected")
   expect(capabilityOutcome.failure?.message).toContain("unsupported Replay capability")
+  expect(capabilityOutcome.result).toBeUndefined()
+  expect(capabilityOutcome.artifact_manifest).toBeUndefined()
 })
 
 test("runner refuses to invent a delisting settlement price for an open position", () => {
