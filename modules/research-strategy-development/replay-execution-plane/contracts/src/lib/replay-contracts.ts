@@ -11,8 +11,8 @@ export {
 }
 
 export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v15" as const
-export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v23" as const
-export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v25" as const
+export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v24" as const
+export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v26" as const
 export const REPLAY_ARTIFACT_STORE_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-artifact-store-capability.v1" as const
 export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v7" as const
 export const REPLAY_NUMERIC_POLICY_VERSION = "rd-replay-number-v3" as const
@@ -34,7 +34,8 @@ export const REPLAY_DECISION_HARNESS_WORKER_RESPONSE_SCHEMA_VERSION = "trade.rd-
 export const REPLAY_DECISION_HARNESS_REGISTRY_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-decision-harness-registry-capability.v2" as const
 export const REPLAY_DECISION_HARNESS_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-decision-harness-capability.v3" as const
 export const REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION = "trade.rd-replay-decision-harness-receipt.v3" as const
-export const REPLAY_DECISION_EVIDENCE_TIMELINE_SCHEMA_VERSION = "trade.rd-replay-decision-evidence-timeline.v1" as const
+export const REPLAY_DECISION_BOUNDARY_SCHEMA_VERSION = "trade.rd-replay-decision-boundary.v1" as const
+export const REPLAY_DECISION_EVIDENCE_TIMELINE_SCHEMA_VERSION = "trade.rd-replay-decision-evidence-timeline.v2" as const
 export const REPLAY_DECISION_HARNESS_REGISTRY_POLICY_VERSION = "rd-replay-decision-harness-registry-v2" as const
 export const REPLAY_DECISION_HARNESS_BUILD_POLICY_VERSION = "rd-replay-bun-single-file-build-v1" as const
 export const REPLAY_DECISION_HARNESS_LOADER_POLICY_VERSION = "rd-replay-attested-fresh-subprocess-loader-v1" as const
@@ -417,6 +418,25 @@ export interface ReplayDecisionHarnessReceipt {
 
 export type ReplayDecisionHarnessReceiptBody = Omit<ReplayDecisionHarnessReceipt, "receipt_hash">
 
+export interface ReplayDecisionBoundary {
+  schema_version: typeof REPLAY_DECISION_BOUNDARY_SCHEMA_VERSION
+  boundary_sequence: number
+  boundary_kind: "contract_frozen_initial_signal"
+  decision_origin: "frozen_request_order"
+  evaluation_time: string
+  market_data_cutoff: string
+  supplemental_data_cutoff: string
+  earliest_executable_time: string
+  signal_visibility: "closed_candle"
+  supplemental_visibility: "signal_time_snapshot"
+  execution_policy: "next_open"
+  market_input_evidence: "declared_not_materialized_or_recomputed"
+  market_input_snapshot_hash: null
+  boundary_hash: string
+}
+
+export type ReplayDecisionBoundaryBody = Omit<ReplayDecisionBoundary, "boundary_hash">
+
 export interface ReplayDecisionEvidenceEntry {
   decision_sequence: number
   decision_time: string
@@ -424,6 +444,7 @@ export interface ReplayDecisionEvidenceEntry {
   execution_effect: "authorized_order"
   evidence_mode: "precomputed_order_compatibility" | "attested_harness"
   authorized_order_hash: string
+  decision_boundary: ReplayDecisionBoundary
   decision_input_snapshot: ReplayDecisionInputSnapshot
   decision_harness_bundle: ReplayDecisionHarnessSourceBundle | null
   decision_harness_build: ReplayDecisionHarnessBuildAttestation | null
@@ -839,6 +860,7 @@ export interface ReplayEvidenceFingerprint {
   supplemental_facts_hash: string
   supplemental_requirement_set_hash: string
   decision_evidence_timeline_hash: string
+  decision_boundary_hash: string
   decision_input_snapshot_hash: string
   decision_harness_receipt_hash: string | null
   decision_harness_bundle_hash: string | null
@@ -1562,6 +1584,51 @@ export function assertReplayDecisionHarnessReceipt(
   )) fail("decision harness receipt does not match build attestation")
 }
 
+export function createReplayDecisionBoundary(request: ReplayExecutionRequest): ReplayDecisionBoundary {
+  const body: ReplayDecisionBoundaryBody = {
+    schema_version: REPLAY_DECISION_BOUNDARY_SCHEMA_VERSION,
+    boundary_sequence: 1,
+    boundary_kind: "contract_frozen_initial_signal",
+    decision_origin: "frozen_request_order",
+    evaluation_time: request.order.signal_time,
+    market_data_cutoff: request.order.signal_time,
+    supplemental_data_cutoff: request.order.signal_time,
+    earliest_executable_time: request.order.earliest_executable_time,
+    signal_visibility: request.simulator_policy.signal_visibility,
+    supplemental_visibility: "signal_time_snapshot",
+    execution_policy: request.simulator_policy.earliest_execution,
+    market_input_evidence: "declared_not_materialized_or_recomputed",
+    market_input_snapshot_hash: null,
+  }
+  const boundary = { ...body, boundary_hash: canonicalHash(body) }
+  assertReplayDecisionBoundary(boundary, request)
+  return boundary
+}
+
+export function assertReplayDecisionBoundary(
+  boundary: ReplayDecisionBoundary,
+  request: ReplayExecutionRequest,
+): void {
+  if (boundary.schema_version !== REPLAY_DECISION_BOUNDARY_SCHEMA_VERSION
+      || boundary.boundary_sequence !== 1
+      || boundary.boundary_kind !== "contract_frozen_initial_signal"
+      || boundary.decision_origin !== "frozen_request_order"
+      || boundary.evaluation_time !== request.order.signal_time
+      || boundary.market_data_cutoff !== request.order.signal_time
+      || boundary.supplemental_data_cutoff !== request.order.signal_time
+      || boundary.earliest_executable_time !== request.order.earliest_executable_time
+      || boundary.signal_visibility !== request.simulator_policy.signal_visibility
+      || boundary.supplemental_visibility !== "signal_time_snapshot"
+      || boundary.execution_policy !== request.simulator_policy.earliest_execution
+      || boundary.market_input_evidence !== "declared_not_materialized_or_recomputed"
+      || boundary.market_input_snapshot_hash !== null) {
+    fail("decision boundary does not match the certified frozen-order protocol")
+  }
+  requireHash(boundary.boundary_hash, "decision_boundary.boundary_hash")
+  const { boundary_hash: _boundaryHash, ...body } = boundary
+  if (canonicalHash(body) !== boundary.boundary_hash) fail("decision boundary hash mismatch")
+}
+
 export function createReplayDecisionEvidenceTimeline(input: {
   request: ReplayExecutionRequest
   decision_input_snapshot: ReplayDecisionInputSnapshot
@@ -1581,6 +1648,7 @@ export function createReplayDecisionEvidenceTimeline(input: {
       ? "attested_harness"
       : "precomputed_order_compatibility",
     authorized_order_hash: canonicalHash(input.request.order),
+    decision_boundary: createReplayDecisionBoundary(input.request),
     decision_input_snapshot: structuredClone(input.decision_input_snapshot),
     decision_harness_bundle: structuredClone(decisionHarnessBundle),
     decision_harness_build: structuredClone(decisionHarnessBuild),
@@ -1622,6 +1690,11 @@ export function assertReplayDecisionEvidenceTimeline(
   requireHash(entry.entry_hash, "decision_evidence_entry.entry_hash")
   const { entry_hash: _entryHash, ...entryBody } = entry
   if (canonicalHash(entryBody) !== entry.entry_hash) fail("decision evidence entry hash mismatch")
+  assertReplayDecisionBoundary(entry.decision_boundary, request)
+  if (entry.decision_boundary.boundary_sequence !== entry.decision_sequence
+      || entry.decision_boundary.evaluation_time !== entry.decision_time) {
+    fail("decision evidence entry does not match its decision boundary")
+  }
   assertReplayDecisionInputSnapshot(entry.decision_input_snapshot, request)
 
   const expectsAttestedHarness = request.supplemental_requirement_set.mode === "signal_time_complete"

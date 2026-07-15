@@ -243,7 +243,7 @@ test("closed-candle signal enters at next open and resolves same-bar collision s
   expect(result.fills.map((fill) => fill.order_role)).toEqual(["entry", "stop"])
   expect(result.order_events.find((event) => event.kind === "triggered")?.trigger_source).toBe("bar_range")
   expect(result.order_events.find((event) => event.kind === "triggered")?.trigger_observed_price).toBe(95)
-  expect(result.limitations[0]?.severity).toBe("resolution_limited")
+  expect(result.limitations.some((limitation) => limitation.severity === "resolution_limited")).toBe(true)
   expect(result.metrics.ending_equity).toBeLessThan(10_000)
 })
 
@@ -333,15 +333,18 @@ test("Result binds the deterministic signal-time supplemental revision view", ()
   const decisionEntry = result.decision_evidence_timeline.entries[0]!
   expect(decisionEntry.decision_harness_receipt?.derived_order).toEqual(replayInput.request.order)
   expect(result.fingerprint.decision_evidence_timeline_hash).toBe(result.decision_evidence_timeline.timeline_hash)
+  expect(result.fingerprint.decision_boundary_hash).toBe(decisionEntry.decision_boundary.boundary_hash)
   expect(result.fingerprint.decision_input_snapshot_hash).toBe(decisionEntry.decision_input_snapshot.snapshot_hash)
   expect(result.fingerprint.decision_harness_receipt_hash).toBe(decisionEntry.decision_harness_receipt?.receipt_hash ?? null)
   expect(result.fingerprint.decision_harness_bundle_hash).toBe(decisionEntry.decision_harness_bundle?.bundle_hash ?? null)
   expect(result.fingerprint.decision_harness_build_attestation_hash).toBe(decisionEntry.decision_harness_build?.attestation_hash ?? null)
   expect(result.fingerprint.decision_harness_loader_policy_version).toBe(REPLAY_DECISION_HARNESS_LOADER_POLICY_VERSION)
   expect(checkpoint?.decision_evidence_timeline_hash).toBe(result.decision_evidence_timeline.timeline_hash)
+  expect(checkpoint?.decision_boundary_hash).toBe(decisionEntry.decision_boundary.boundary_hash)
   expect(checkpoint?.decision_harness_build_attestation_hash).toBe(decisionEntry.decision_harness_build?.attestation_hash ?? null)
   expect(checkpoint?.decision_harness_worker_protocol_version).toBe(decisionEntry.decision_harness_receipt?.worker_protocol_version ?? null)
   expect(result.limitations.map((limitation) => limitation.code)).toContain("decision-harness-os-sandbox-uncertified")
+  expect(result.limitations.map((limitation) => limitation.code)).toContain("decision-market-input-recomputation-uncertified")
   expect(() => executeReplayKernel({ ...replayInput, decision_evidence_timeline: undefined })).toThrow("requires a Decision Evidence Timeline")
   expect(() => executeReplayKernel({
     ...replayInput,
@@ -350,6 +353,19 @@ test("Result binds the deterministic signal-time supplemental revision view", ()
       entries: [{ ...replayInput.decision_evidence_timeline.entries[0]!, decision_sequence: 2 }],
     },
   })).toThrow("ordering or authority binding")
+  expect(() => executeReplayKernel({
+    ...replayInput,
+    decision_evidence_timeline: {
+      ...replayInput.decision_evidence_timeline,
+      entries: [{
+        ...replayInput.decision_evidence_timeline.entries[0]!,
+        decision_boundary: {
+          ...replayInput.decision_evidence_timeline.entries[0]!.decision_boundary,
+          market_input_evidence: "recomputed" as never,
+        },
+      }],
+    },
+  })).toThrow("entry hash mismatch")
 })
 
 test("risk policy epochs switch before same-time source-event margin evaluation", () => {
@@ -461,6 +477,12 @@ test("checkpoint hash and source prefix fencing reject tampered resume state", (
   expect(() => executeReplayKernel({
     ...replayInput,
     execution_control: { resume_checkpoint: authorityTampered },
+  })).toThrow("authority binding")
+  const boundaryTampered = structuredClone(checkpoint!)
+  boundaryTampered.decision_boundary_hash = "b".repeat(64)
+  expect(() => executeReplayKernel({
+    ...replayInput,
+    execution_control: { resume_checkpoint: boundaryTampered },
   })).toThrow("authority binding")
   checkpoint!.source_events[0].source_event_id = "tampered"
   expect(() => executeReplayKernel({

@@ -311,6 +311,12 @@ test("runner commits the complete supplemental revision stream as immutable evid
   const decisionEntry = decisionTimeline?.entries[0]
   expect(decisionEntry?.decision_harness_receipt?.decision_input_snapshot_hash).toBe(decisionEntry?.decision_input_snapshot.snapshot_hash)
   expect(completed.result?.fingerprint.decision_evidence_timeline_hash).toBe(decisionTimeline?.timeline_hash)
+  expect(completed.result?.fingerprint.decision_boundary_hash).toBe(decisionEntry?.decision_boundary.boundary_hash)
+  expect(decisionEntry?.decision_boundary).toMatchObject({
+    decision_origin: "frozen_request_order",
+    market_input_evidence: "declared_not_materialized_or_recomputed",
+    market_input_snapshot_hash: null,
+  })
   const supplementalArtifact = completed.artifact_manifest?.files.find((file) => file.role === "supplemental_facts")
   expect(JSON.parse(readFileSync(supplementalArtifact!.ref, "utf8"))).toEqual(supplementalFacts)
   const timelineArtifact = completed.artifact_manifest?.files.find((file) => file.role === "decision_evidence_timeline")
@@ -405,7 +411,7 @@ test("runner enforces Reservation expiry only at Attempt claim admission", () =>
   expired.observed_at = "2026-07-14T00:01:30Z"
   const rejected = runReplayTrial({ ...expired, dataset_manifest: datasetManifest(), bars })
   expect(rejected).toMatchObject({
-    schema_version: "trade.rd-replay-run-outcome.v20",
+    schema_version: "trade.rd-replay-run-outcome.v21",
     status: "failed",
     failure: { code: "trial-reservation-expired", failure_class: "unsupported_contract", retryable: false, partial_result_published: false },
   })

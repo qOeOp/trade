@@ -52,7 +52,7 @@ import { completeReplayLiquidationOrderLane } from "./replay-liquidation-order-l
 import { ReplayLiquidationDeficitError, assertReplayPostEntryMargin, buildReplayMaintenanceBreachObservation, buildReplayPathMarginSnapshots } from "./replay-margin-path"
 import { reduceReplaySourceEvents } from "./replay-source-reducer"
 
-export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v8" as const
+export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v9" as const
 
 export interface ReplayEngineCheckpoint {
   schema_version: typeof REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION
@@ -60,6 +60,7 @@ export interface ReplayEngineCheckpoint {
   request_hash: string
   dataset_hash: string
   decision_evidence_timeline_hash: string
+  decision_boundary_hash: string
   decision_input_snapshot_hash: string
   decision_harness_receipt_hash: string | null
   decision_harness_bundle_hash: string | null
@@ -177,7 +178,8 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
   if (resumeCheckpoint) {
     assertReplayEngineCheckpoint(
       resumeCheckpoint, request, input.dataset_manifest,
-      decisionEvidenceTimeline.timeline_hash, decisionInputSnapshot.snapshot_hash, decisionHarnessReceipt?.receipt_hash ?? null,
+      decisionEvidenceTimeline.timeline_hash, decisionEvidenceEntry.decision_boundary.boundary_hash,
+      decisionInputSnapshot.snapshot_hash, decisionHarnessReceipt?.receipt_hash ?? null,
       decisionHarnessBundle?.bundle_hash ?? null, decisionHarnessReceipt?.loader_policy_version ?? null,
       decisionHarnessBuild?.attestation_hash ?? null, decisionHarnessReceipt?.worker_protocol_version ?? null,
     )
@@ -235,6 +237,11 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     severity: "info",
     detail: "The receipt binds the frozen source set, exact Bun build artifact/runtime, and a matching fresh-subprocess reproducibility pair; this process boundary is not an OS sandbox and does not prove filesystem or network denial.",
   })
+  if (!resumeCheckpoint) limitations.push({
+    code: "decision-market-input-recomputation-uncertified",
+    severity: "info",
+    detail: "The Decision Boundary binds the frozen signal time, closed-candle declaration, and next-open delay, but this lane does not materialize or recompute a market-input snapshot; the authorized Order remains Control Plane-frozen evidence.",
+  })
   if (!resumeCheckpoint && executionQuantity !== request.order.quantity) {
     limitations.push({
       code: "quantity-rounded-down",
@@ -284,6 +291,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
         exact_risk_snapshots: exactRiskSnapshots,
         limitations,
         decision_evidence_timeline_hash: decisionEvidenceTimeline.timeline_hash,
+        decision_boundary_hash: decisionEvidenceEntry.decision_boundary.boundary_hash,
         decision_input_snapshot_hash: decisionInputSnapshot.snapshot_hash,
         decision_harness_receipt_hash: decisionHarnessReceipt?.receipt_hash ?? null,
         decision_harness_bundle_hash: decisionHarnessBundle?.bundle_hash ?? null,
@@ -669,6 +677,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       supplemental_facts_hash: request.supplemental_facts_hash,
       supplemental_requirement_set_hash: request.supplemental_requirement_set_hash,
       decision_evidence_timeline_hash: decisionEvidenceTimeline.timeline_hash,
+      decision_boundary_hash: decisionEvidenceEntry.decision_boundary.boundary_hash,
       decision_input_snapshot_hash: decisionInputSnapshot.snapshot_hash,
       decision_harness_receipt_hash: decisionHarnessReceipt?.receipt_hash ?? null,
       decision_harness_bundle_hash: decisionHarnessBundle?.bundle_hash ?? null,
@@ -711,6 +720,7 @@ function buildReplayEngineCheckpoint(input: {
   exact_risk_snapshots: ReplayMarginSnapshot[]
   limitations: ReplayResult["limitations"]
   decision_evidence_timeline_hash: string
+  decision_boundary_hash: string
   decision_input_snapshot_hash: string
   decision_harness_receipt_hash: string | null
   decision_harness_bundle_hash: string | null
@@ -726,6 +736,7 @@ function buildReplayEngineCheckpoint(input: {
     request_hash: canonicalHash(input.request),
     dataset_hash: input.dataset_manifest.data_hash,
     decision_evidence_timeline_hash: input.decision_evidence_timeline_hash,
+    decision_boundary_hash: input.decision_boundary_hash,
     decision_input_snapshot_hash: input.decision_input_snapshot_hash,
     decision_harness_receipt_hash: input.decision_harness_receipt_hash,
     decision_harness_bundle_hash: input.decision_harness_bundle_hash,
@@ -754,6 +765,7 @@ export function assertReplayEngineCheckpoint(
   request: ReplayExecutionRequest,
   datasetManifest: ReplayDatasetManifest,
   decisionEvidenceTimelineHash?: string,
+  decisionBoundaryHash?: string,
   decisionInputSnapshotHash?: string,
   decisionHarnessReceiptHash?: string | null,
   decisionHarnessBundleHash?: string | null,
@@ -767,6 +779,7 @@ export function assertReplayEngineCheckpoint(
       || checkpoint.dataset_hash !== datasetManifest.data_hash
       || (decisionEvidenceTimelineHash !== undefined
         && checkpoint.decision_evidence_timeline_hash !== decisionEvidenceTimelineHash)
+      || (decisionBoundaryHash !== undefined && checkpoint.decision_boundary_hash !== decisionBoundaryHash)
       || (decisionInputSnapshotHash !== undefined && checkpoint.decision_input_snapshot_hash !== decisionInputSnapshotHash)
       || (decisionHarnessReceiptHash !== undefined && checkpoint.decision_harness_receipt_hash !== decisionHarnessReceiptHash)
       || (decisionHarnessBundleHash !== undefined && checkpoint.decision_harness_bundle_hash !== decisionHarnessBundleHash)
@@ -781,6 +794,7 @@ export function assertReplayEngineCheckpoint(
     throw new Error("Replay engine checkpoint authority binding does not match execution input")
   }
   if (!/^[a-f0-9]{64}$/.test(checkpoint.decision_evidence_timeline_hash)
+      || !/^[a-f0-9]{64}$/.test(checkpoint.decision_boundary_hash)
       || !/^[a-f0-9]{64}$/.test(checkpoint.decision_input_snapshot_hash)
       || (checkpoint.decision_harness_receipt_hash !== null
         && !/^[a-f0-9]{64}$/.test(checkpoint.decision_harness_receipt_hash))

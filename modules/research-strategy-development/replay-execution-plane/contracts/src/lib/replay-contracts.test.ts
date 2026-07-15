@@ -9,6 +9,7 @@ import {
   REPLAY_DECISION_HARNESS_WORKER_PROTOCOL_VERSION,
   REPLAY_DECISION_HARNESS_WORKER_REQUEST_SCHEMA_VERSION,
   REPLAY_DECISION_HARNESS_WORKER_RESPONSE_SCHEMA_VERSION,
+  REPLAY_DECISION_BOUNDARY_SCHEMA_VERSION,
   REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION,
   REPLAY_LOCAL_ARTIFACT_STORE_CAPABILITY,
   REPLAY_OBJECT_ARTIFACT_STORE_REQUIRED_CAPABILITY,
@@ -28,6 +29,7 @@ import {
   assertReplayDecisionHarnessBuildAttestation,
   assertReplayDecisionHarnessReceipt,
   assertReplayDecisionHarnessSourceBundle,
+  assertReplayDecisionBoundary,
   assertReplayDecisionEvidenceTimeline,
   assertReplayDecisionInputSnapshot,
   assertReplaySupplementalFact,
@@ -36,6 +38,7 @@ import {
   createReplayDecisionHarnessBuildAttestation,
   createReplayDecisionHarnessReceipt,
   createReplayDecisionHarnessSourceBundle,
+  createReplayDecisionBoundary,
   createReplayDecisionEvidenceTimeline,
   createReplayDecisionInputSnapshot,
   type ReplayExecutionRequest,
@@ -243,8 +246,27 @@ test("Decision Input Snapshot and Harness Receipt are self-hashed immutable evid
   expect(timeline).toMatchObject({
     cardinality_policy: "single_authorized_decision",
     ordering_policy: "decision_time_then_sequence",
-    entries: [{ decision_sequence: 1, evidence_mode: "attested_harness" }],
+    entries: [{
+      decision_sequence: 1,
+      evidence_mode: "attested_harness",
+      decision_boundary: {
+        schema_version: REPLAY_DECISION_BOUNDARY_SCHEMA_VERSION,
+        decision_origin: "frozen_request_order",
+        market_input_evidence: "declared_not_materialized_or_recomputed",
+        market_input_snapshot_hash: null,
+      },
+    }],
   })
+  const boundary = createReplayDecisionBoundary(requestValue)
+  expect(() => assertReplayDecisionBoundary(boundary, requestValue)).not.toThrow()
+  expect(() => assertReplayDecisionBoundary({
+    ...boundary,
+    earliest_executable_time: requestValue.order.signal_time,
+  }, requestValue)).toThrow("frozen-order protocol")
+  expect(() => assertReplayDecisionBoundary({
+    ...boundary,
+    market_input_evidence: "recomputed" as never,
+  }, requestValue)).toThrow("frozen-order protocol")
   expect(() => assertReplayDecisionEvidenceTimeline(timeline, requestValue)).not.toThrow()
   expect(() => assertReplayDecisionEvidenceTimeline({ ...timeline, entries: [] }, requestValue)).toThrow("exactly one")
   expect(() => assertReplayDecisionEvidenceTimeline({
