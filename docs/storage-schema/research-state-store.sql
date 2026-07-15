@@ -460,6 +460,7 @@ CREATE TABLE IF NOT EXISTS rd_replay_checkpoint_receipt (
   engine_checkpoint_ref TEXT NOT NULL,
   engine_checkpoint_payload_hash TEXT NOT NULL,
   engine_checkpoint_hash TEXT NOT NULL,
+  storage_policy_version TEXT NOT NULL,
   next_source_offset INTEGER NOT NULL CHECK(next_source_offset >= 1),
   UNIQUE (attempt_id, next_source_offset),
   UNIQUE (diagnostic_checkpoint_ref, diagnostic_checkpoint_hash),

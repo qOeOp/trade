@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 
 export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v10" as const
 export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v16" as const
-export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v17" as const
+export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v18" as const
 export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v6" as const
 export const REPLAY_NUMERIC_POLICY_VERSION = "rd-replay-number-v3" as const
 export const REPLAY_DERIVED_DECIMAL_INCREMENT = "0.000000000001" as const
@@ -571,6 +571,7 @@ export interface ReplayArtifactManifest {
   result_hash: string
   producer_attempt_id: string
   producer_attempt_lease_hash: string
+  storage_policy_version: string
   files: Array<{ role: string; ref: string; sha256: string }>
   completeness: {
     authoritative_result: true

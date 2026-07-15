@@ -394,6 +394,7 @@ CREATE TABLE IF NOT EXISTS rd_replay_checkpoint_receipt (
   engine_checkpoint_ref TEXT NOT NULL,
   engine_checkpoint_payload_hash TEXT NOT NULL,
   engine_checkpoint_hash TEXT NOT NULL,
+  storage_policy_version TEXT NOT NULL,
   next_source_offset INTEGER NOT NULL CHECK(next_source_offset >= 1),
   UNIQUE (attempt_id, next_source_offset),
   UNIQUE (diagnostic_checkpoint_ref, diagnostic_checkpoint_hash),
@@ -952,10 +953,20 @@ const LIFECYCLE_RULE_SEED: ReadonlyArray<readonly [string, string, string, strin
 
 export function ensureResearchControlPlaneSchema(db: Database): void {
   db.exec(CONTROL_PLANE_SCHEMA_SQL)
+  migrateReplayCheckpointReceiptStoragePolicy(db)
   seedResultStages(db)
   seedResultTypes(db)
   seedLifecycleRules(db)
   validateLifecycleRuleSeed(db)
+}
+
+function migrateReplayCheckpointReceiptStoragePolicy(db: Database): void {
+  const columns = db.query("PRAGMA table_info(rd_replay_checkpoint_receipt)").all() as Array<{ name: string }>
+  if (columns.some((column) => column.name === "storage_policy_version")) return
+  db.run(`
+    ALTER TABLE rd_replay_checkpoint_receipt
+    ADD COLUMN storage_policy_version TEXT NOT NULL DEFAULT 'rd-replay-local-rename-no-fsync-v0'
+  `)
 }
 
 export function validateUniverseSeed(db: Database): void {

@@ -5,7 +5,8 @@ export const DRAFT_AUTHORIZATION_SCHEMA_VERSION = "trade.rd-draft-authorization.
 export const STRATEGY_DRAFT_BINDING_SCHEMA_VERSION = "trade.rd-strategy-draft-binding.v1" as const
 export const TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION = "trade.rd-trial-reservation-snapshot.v1" as const
 export const REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION = "trade.rd-replay-attempt-lease.v1" as const
-export const REPLAY_CHECKPOINT_RECEIPT_SCHEMA_VERSION = "trade.rd-replay-checkpoint-receipt.v1" as const
+export const REPLAY_CHECKPOINT_RECEIPT_SCHEMA_VERSION = "trade.rd-replay-checkpoint-receipt.v2" as const
+export const REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION = "rd-replay-local-fsync-link-cas-v1" as const
 export const REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION = "trade.rd-replay-resume-authorization-snapshot.v1" as const
 
 export interface ResearchIdentityBinding {
@@ -115,6 +116,7 @@ export interface ReplayCheckpointReceiptSnapshot {
   engine_checkpoint_ref: string
   engine_checkpoint_payload_hash: string
   engine_checkpoint_hash: string
+  storage_policy_version: typeof REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION
   next_source_offset: number
 }
 
@@ -232,6 +234,7 @@ export function assertReplayCheckpointReceiptSnapshot(value: ReplayCheckpointRec
     worker_id: value.worker_id,
     diagnostic_checkpoint_ref: value.diagnostic_checkpoint_ref,
     engine_checkpoint_ref: value.engine_checkpoint_ref,
+    storage_policy_version: value.storage_policy_version,
   })) requireText(item, `checkpoint_receipt.${field}`)
   for (const [field, item] of Object.entries({
     receipt_hash: value.receipt_hash,
@@ -244,6 +247,9 @@ export function assertReplayCheckpointReceiptSnapshot(value: ReplayCheckpointRec
   })) requireHash(item, `checkpoint_receipt.${field}`)
   requireUtcTimestamp(value.recorded_at, "checkpoint_receipt.recorded_at")
   if (value.status !== "recorded") fail("checkpoint receipt status must be recorded")
+  if (value.storage_policy_version !== REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION) {
+    fail("checkpoint receipt storage policy is not supported")
+  }
   for (const [field, item] of Object.entries({
     attempt_ordinal: value.attempt_ordinal,
     lease_generation: value.lease_generation,

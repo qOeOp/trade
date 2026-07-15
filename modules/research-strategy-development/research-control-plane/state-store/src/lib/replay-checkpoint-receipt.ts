@@ -1,6 +1,7 @@
 import type { Database } from "bun:sqlite"
 import {
   REPLAY_CHECKPOINT_RECEIPT_SCHEMA_VERSION,
+  REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION,
   assertReplayAttemptLeaseSnapshot,
   createReplayCheckpointReceiptSnapshot,
   hashReplayAttemptLeaseSnapshot,
@@ -17,6 +18,7 @@ export interface ReplayDiagnosticCheckpointDescriptor {
   checkpoint_hash: string
   producer_attempt_id: string
   producer_lease_generation: number
+  storage_policy_version: typeof REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION
   next_source_offset: number
 }
 
@@ -64,6 +66,7 @@ interface ReceiptRow {
   engine_checkpoint_ref: string
   engine_checkpoint_payload_hash: string
   engine_checkpoint_hash: string
+  storage_policy_version: typeof REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION
   next_source_offset: number
 }
 
@@ -107,6 +110,7 @@ export function recordReplayCheckpointReceipt(
     engine_checkpoint_ref: commit.checkpoint_ref,
     engine_checkpoint_payload_hash: commit.checkpoint_sha256,
     engine_checkpoint_hash: commit.checkpoint_hash,
+    storage_policy_version: commit.storage_policy_version,
     next_source_offset: commit.next_source_offset,
   })
 
@@ -154,14 +158,14 @@ export function recordReplayCheckpointReceipt(
         trial_id, run_id, request_hash, reservation_ref, reservation_hash,
         attempt_id, attempt_ordinal, worker_id, lease_generation, attempt_lease_hash,
         diagnostic_checkpoint_ref, diagnostic_checkpoint_hash,
-        engine_checkpoint_ref, engine_checkpoint_payload_hash, engine_checkpoint_hash,
+        engine_checkpoint_ref, engine_checkpoint_payload_hash, engine_checkpoint_hash, storage_policy_version,
         next_source_offset
       ) VALUES (
         $receipt_id, $receipt_ref, $receipt_hash, $recorded_at,
         $trial_id, $run_id, $request_hash, $reservation_ref, $reservation_hash,
         $attempt_id, $attempt_ordinal, $worker_id, $lease_generation, $attempt_lease_hash,
         $diagnostic_checkpoint_ref, $diagnostic_checkpoint_hash,
-        $engine_checkpoint_ref, $engine_checkpoint_payload_hash, $engine_checkpoint_hash,
+        $engine_checkpoint_ref, $engine_checkpoint_payload_hash, $engine_checkpoint_hash, $storage_policy_version,
         $next_source_offset
       )
     `).run({
@@ -177,6 +181,7 @@ export function recordReplayCheckpointReceipt(
       $engine_checkpoint_ref: snapshot.engine_checkpoint_ref,
       $engine_checkpoint_payload_hash: snapshot.engine_checkpoint_payload_hash,
       $engine_checkpoint_hash: snapshot.engine_checkpoint_hash,
+      $storage_policy_version: snapshot.storage_policy_version,
       $next_source_offset: snapshot.next_source_offset,
     })
     return snapshot
@@ -191,6 +196,9 @@ function validateDescriptor(value: ReplayDiagnosticCheckpointDescriptor): void {
   requireHash(value.checkpoint_sha256, "diagnostic_checkpoint_commit.checkpoint_sha256")
   requireHash(value.checkpoint_hash, "diagnostic_checkpoint_commit.checkpoint_hash")
   requireText(value.producer_attempt_id, "diagnostic_checkpoint_commit.producer_attempt_id")
+  if (value.storage_policy_version !== REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION) {
+    throw new Error("diagnostic_checkpoint_commit.storage_policy_version is not supported")
+  }
   if (!Number.isSafeInteger(value.producer_lease_generation) || value.producer_lease_generation < 1) {
     throw new Error("diagnostic_checkpoint_commit.producer_lease_generation must be positive")
   }
@@ -225,6 +233,7 @@ function toSnapshot(row: ReceiptRow): ReplayCheckpointReceiptSnapshot {
     engine_checkpoint_ref: row.engine_checkpoint_ref,
     engine_checkpoint_payload_hash: row.engine_checkpoint_payload_hash,
     engine_checkpoint_hash: row.engine_checkpoint_hash,
+    storage_policy_version: row.storage_policy_version,
     next_source_offset: row.next_source_offset,
   }
 }

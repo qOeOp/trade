@@ -3,6 +3,7 @@ import {
   CONTROL_PLANE_IDENTITY_SCHEMA_VERSION,
   REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION,
   REPLAY_CHECKPOINT_RECEIPT_SCHEMA_VERSION,
+  REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION,
   REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION,
   DRAFT_AUTHORIZATION_SCHEMA_VERSION,
   TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION,
@@ -122,8 +123,14 @@ test("Replay Checkpoint Receipt binds fenced producer authority and monotonic pr
     diagnostic_checkpoint_hash: "d".repeat(64),
     engine_checkpoint_ref: "artifact://attempt-1/diagnostic-checkpoint-2-2-ffffffffffffffff.json",
     engine_checkpoint_payload_hash: "e".repeat(64), engine_checkpoint_hash: "f".repeat(64),
+    storage_policy_version: REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION,
     next_source_offset: 2,
   })
   expect(hashReplayCheckpointReceiptSnapshot(receipt)).toBe(receipt.receipt_hash)
   expect(() => hashReplayCheckpointReceiptSnapshot({ ...receipt, next_source_offset: 3 })).toThrow("hash mismatch")
+  const { receipt_hash: _, ...body } = receipt
+  expect(() => createReplayCheckpointReceiptSnapshot({
+    ...body,
+    storage_policy_version: "unsupported-storage-policy" as typeof REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION,
+  })).toThrow("storage policy is not supported")
 })

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import { existsSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION, REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION, TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION, createReplayResumeAuthorizationSnapshot, hashReplayAttemptLeaseSnapshot, hashTrialReservationSnapshot, type ReplayAttemptLeaseSnapshot, type ReplayResumeAuthorizationSnapshot, type TrialReservationSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
+import { CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION, REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION, REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION, TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION, createReplayResumeAuthorizationSnapshot, hashReplayAttemptLeaseSnapshot, hashTrialReservationSnapshot, type ReplayAttemptLeaseSnapshot, type ReplayResumeAuthorizationSnapshot, type TrialReservationSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
 import {
   REPLAY_CERTIFIED_CAPABILITIES,
   REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
@@ -164,7 +164,9 @@ test("runner atomically commits artifacts and retries idempotently", () => {
   expect(first.status).toBe("completed")
   expect(first.artifact_manifest?.files.map((file) => file.role)).toEqual(["request", "trial_reservation", "attempt_lease", "dataset_manifest", "result", "source_events", "order_events", "fills", "positions", "ledger", "valuation_snapshot", "equity_bridge", "margin_snapshots", "liquidation", "journal", "trial_balance"])
   expect(first.artifact_manifest?.completeness.authoritative_result).toBe(true)
+  expect(first.artifact_manifest?.storage_policy_version).toBe(REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION)
   expect(first.artifact_commit?.terminal_checkpoint_hash).toBe(first.artifact_manifest?.completeness.terminal_checkpoint_hash)
+  expect(first.artifact_commit?.storage_policy_version).toBe(REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION)
   expect(second.status).toBe("completed")
   expect(second.idempotent_replay).toBe(true)
 })
@@ -310,6 +312,7 @@ test("runner atomically publishes an attempt-local checkpoint commit and resumes
   expect(cancelled.status).toBe("cancelled")
   expect(commit.producer_attempt_id).toBe("attempt-1")
   expect(commit.producer_lease_generation).toBe(3)
+  expect(commit.storage_policy_version).toBe(REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION)
   expect(commit.next_source_offset).toBe(cancelled.resumable_checkpoint!.next_source_offset)
   expect(receiptSubmissionOffsets).toEqual([1, 2])
   expect(new Set(receiptSubmissionRefs).size).toBe(2)

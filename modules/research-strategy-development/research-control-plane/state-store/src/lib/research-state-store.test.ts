@@ -110,6 +110,10 @@ test("research state store migrates the legacy rd_trial ledger without data loss
       created_at TEXT NOT NULL,
       result_json TEXT
     );
+    CREATE TABLE rd_replay_checkpoint_receipt (
+      receipt_id TEXT PRIMARY KEY
+    );
+    INSERT INTO rd_replay_checkpoint_receipt VALUES ('legacy-receipt');
     INSERT INTO rd_program VALUES ('program-1', 'legacy', 'active', '{}', '2026-07-14T00:00:00Z');
     INSERT INTO rd_trial VALUES (
       'legacy-trial', 'program-1', NULL, 'legacy-run', 'accepted',
@@ -121,6 +125,10 @@ test("research state store migrates the legacy rd_trial ledger without data loss
     assert.equal((db.query("SELECT COUNT(*) AS count FROM rd_program_trial").get() as { count: number }).count, 1)
     const controlColumns = db.query("PRAGMA table_info(rd_trial)").all() as Array<{ name: string }>
     assert.equal(controlColumns.some((column) => column.name === "experiment_id"), true)
+    const legacyReceipt = db.query(`
+      SELECT storage_policy_version FROM rd_replay_checkpoint_receipt WHERE receipt_id='legacy-receipt'
+    `).get() as { storage_policy_version: string }
+    assert.equal(legacyReceipt.storage_policy_version, "rd-replay-local-rename-no-fsync-v0")
   } finally {
     db.close()
   }

@@ -1,6 +1,7 @@
 import { Database } from "bun:sqlite"
 import assert from "node:assert/strict"
 import test from "node:test"
+import { REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION } from "../../../contracts/src/lib/control-plane-contracts"
 import {
   RESEARCH_LIFECYCLE_RULE_VERSION,
   validateUniverseSeed,
@@ -317,10 +318,24 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
         ref: "artifact://attempt-1/diagnostic-checkpoint-commit-2-2-6666666666666666.json", sha256: "8".repeat(64),
         checkpoint_ref: "artifact://attempt-1/diagnostic-checkpoint-2-2-6666666666666666.json",
         checkpoint_sha256: "7".repeat(64), checkpoint_hash: "6".repeat(64),
-        producer_attempt_id: "attempt-1", producer_lease_generation: 2, next_source_offset: 2,
+        producer_attempt_id: "attempt-1", producer_lease_generation: 2,
+        storage_policy_version: REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION, next_source_offset: 2,
       },
     })
     assert.equal(firstReceipt.next_source_offset, 2)
+    assert.equal(firstReceipt.storage_policy_version, REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION)
+    assert.throws(() => recordReplayCheckpointReceipt(db, {
+      receipt_id: "checkpoint-receipt-unsupported-storage", receipt_ref: "receipt://attempt-1/unsupported-storage",
+      recorded_at: "2026-07-14T04:02:30Z", attempt_lease: renewed,
+      diagnostic_checkpoint_commit: {
+        ref: "artifact://attempt-1/unsupported-storage-commit.json", sha256: "8".repeat(64),
+        checkpoint_ref: "artifact://attempt-1/unsupported-storage-checkpoint.json",
+        checkpoint_sha256: "7".repeat(64), checkpoint_hash: "6".repeat(64),
+        producer_attempt_id: "attempt-1", producer_lease_generation: 2,
+        storage_policy_version: "unsupported-storage-policy" as typeof REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION,
+        next_source_offset: 3,
+      },
+    }), /storage_policy_version is not supported/)
     assert.deepEqual(recordReplayCheckpointReceipt(db, {
       receipt_id: "checkpoint-receipt-1", receipt_ref: "receipt://attempt-1/2",
       recorded_at: "2026-07-14T04:02:30Z", attempt_lease: renewed,
@@ -328,7 +343,8 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
         ref: "artifact://attempt-1/diagnostic-checkpoint-commit-2-2-6666666666666666.json", sha256: "8".repeat(64),
         checkpoint_ref: "artifact://attempt-1/diagnostic-checkpoint-2-2-6666666666666666.json",
         checkpoint_sha256: "7".repeat(64), checkpoint_hash: "6".repeat(64),
-        producer_attempt_id: "attempt-1", producer_lease_generation: 2, next_source_offset: 2,
+        producer_attempt_id: "attempt-1", producer_lease_generation: 2,
+        storage_policy_version: REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION, next_source_offset: 2,
       },
     }), firstReceipt)
     assert.throws(() => recordReplayCheckpointReceipt(db, {
@@ -338,7 +354,8 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
         ref: "artifact://attempt-1/stale-lease-commit.json", sha256: "2".repeat(64),
         checkpoint_ref: "artifact://attempt-1/stale-lease-checkpoint.json",
         checkpoint_sha256: "3".repeat(64), checkpoint_hash: "4".repeat(64),
-        producer_attempt_id: "attempt-1", producer_lease_generation: 1, next_source_offset: 3,
+        producer_attempt_id: "attempt-1", producer_lease_generation: 1,
+        storage_policy_version: REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION, next_source_offset: 3,
       },
     }), /lease does not match Control Plane state/)
     assert.throws(() => recordReplayCheckpointReceipt(db, {
@@ -348,7 +365,8 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
         ref: "artifact://attempt-1/rollback-commit.json", sha256: "2".repeat(64),
         checkpoint_ref: "artifact://attempt-1/rollback-checkpoint.json",
         checkpoint_sha256: "3".repeat(64), checkpoint_hash: "4".repeat(64),
-        producer_attempt_id: "attempt-1", producer_lease_generation: 2, next_source_offset: 1,
+        producer_attempt_id: "attempt-1", producer_lease_generation: 2,
+        storage_policy_version: REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION, next_source_offset: 1,
       },
     }), /progress must advance monotonically/)
     assert.throws(() => db.query(`
@@ -407,7 +425,8 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
         ref: "artifact://attempt-2/diagnostic-checkpoint-commit-1-3-3333333333333333.json", sha256: "5".repeat(64),
         checkpoint_ref: "artifact://attempt-2/diagnostic-checkpoint-1-3-3333333333333333.json",
         checkpoint_sha256: "4".repeat(64), checkpoint_hash: "3".repeat(64),
-        producer_attempt_id: "attempt-2", producer_lease_generation: 1, next_source_offset: 3,
+        producer_attempt_id: "attempt-2", producer_lease_generation: 1,
+        storage_policy_version: REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION, next_source_offset: 3,
       },
     })
     assert.equal(secondReceipt.attempt_id, "attempt-2")
@@ -418,7 +437,8 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
         ref: "artifact://attempt-2/diagnostic-checkpoint-commit-1-4-bbbbbbbbbbbbbbbb.json", sha256: "9".repeat(64),
         checkpoint_ref: "artifact://attempt-2/diagnostic-checkpoint-1-4-bbbbbbbbbbbbbbbb.json",
         checkpoint_sha256: "a".repeat(64), checkpoint_hash: "b".repeat(64),
-        producer_attempt_id: "attempt-2", producer_lease_generation: 1, next_source_offset: 4,
+        producer_attempt_id: "attempt-2", producer_lease_generation: 1,
+        storage_policy_version: REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION, next_source_offset: 4,
       },
     }
     const secondLatestReceipt = recordReplayCheckpointReceipt(db, secondLatestReceiptInput)

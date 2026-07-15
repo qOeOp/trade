@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto"
-import { existsSync, mkdirSync, readFileSync, readdirSync, renameSync, unlinkSync, writeFileSync } from "node:fs"
+import { existsSync, readFileSync, readdirSync } from "node:fs"
 import { basename, dirname, join, relative, resolve, sep } from "node:path"
 import {
   assertReplayAttemptLeaseSnapshot,
   assertReplayResumeAuthorizationSnapshot,
   assertTrialReservationSnapshot,
+  REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION,
   hashReplayAttemptLeaseSnapshot,
   hashReplayResumeAuthorizationSnapshot,
   hashTrialReservationSnapshot,
@@ -39,6 +40,11 @@ import {
 } from "../../../engine/src/lib/replay-reference-engine"
 import { ReplayLiquidationDeficitError, ReplayMarginTerminalError } from "../../../engine/src/lib/replay-margin-path"
 import { ReplayInstrumentTerminalError } from "../../../engine/src/lib/replay-source-reducer"
+import {
+  ensureReplayDurableDirectory,
+  removeReplayDurableFile,
+  writeReplayImmutableCas,
+} from "./replay-local-artifact-store"
 
 export interface ReplayTrialRunInput {
   request: ReplayExecutionRequest
@@ -66,7 +72,7 @@ export interface ReplayTrialRunInput {
 }
 
 export interface ReplayTrialRunOutcome {
-  schema_version: "trade.rd-replay-run-outcome.v10"
+  schema_version: "trade.rd-replay-run-outcome.v11"
   run_id: string
   attempt_id: string
   lease_generation: number
@@ -97,9 +103,10 @@ export interface ReplayArtifactCommit {
   sha256: string
   producer_attempt_id: string
   terminal_checkpoint_hash: string
+  storage_policy_version: typeof REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION
 }
 
-export const REPLAY_DIAGNOSTIC_CHECKPOINT_COMMIT_SCHEMA_VERSION = "trade.rd-replay-diagnostic-checkpoint-commit.v1" as const
+export const REPLAY_DIAGNOSTIC_CHECKPOINT_COMMIT_SCHEMA_VERSION = "trade.rd-replay-diagnostic-checkpoint-commit.v2" as const
 
 export interface ReplayDiagnosticCheckpointCommitRef {
   ref: string
@@ -109,6 +116,7 @@ export interface ReplayDiagnosticCheckpointCommitRef {
   checkpoint_hash: string
   producer_attempt_id: string
   producer_lease_generation: number
+  storage_policy_version: typeof REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION
   next_source_offset: number
 }
 
@@ -120,6 +128,7 @@ interface ReplayDiagnosticCheckpointCommitRecord {
   producer_attempt_id: string
   producer_lease_generation: number
   producer_attempt_lease_hash: string
+  storage_policy_version: typeof REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION
   checkpoint_ref: string
   checkpoint_sha256: string
   checkpoint_hash: string
@@ -133,7 +142,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     validateTrialReservation(input.request, input.trial_reservation)
   } catch (error) {
     return {
-      schema_version: "trade.rd-replay-run-outcome.v10",
+      schema_version: "trade.rd-replay-run-outcome.v11",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -155,7 +164,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
   } catch (error) {
     const expired = error instanceof ReplayAttemptLeaseExpiredError
     return {
-      schema_version: "trade.rd-replay-run-outcome.v10",
+      schema_version: "trade.rd-replay-run-outcome.v11",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -172,7 +181,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
   }
   if (input.cancel_requested) {
     return {
-      schema_version: "trade.rd-replay-run-outcome.v10",
+      schema_version: "trade.rd-replay-run-outcome.v11",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -209,7 +218,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     if (committed) {
       cleanupDiagnosticCheckpoint(input.artifact_root!, input.request, input.attempt_lease.attempt_id)
       return {
-        schema_version: "trade.rd-replay-run-outcome.v10",
+        schema_version: "trade.rd-replay-run-outcome.v11",
         run_id: input.request.run_id,
         attempt_id: input.attempt_lease.attempt_id,
         lease_generation: input.attempt_lease.lease_generation,
@@ -267,7 +276,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
       : undefined
     if (input.artifact_root) cleanupDiagnosticCheckpoint(input.artifact_root, input.request, activeAttemptLease.attempt_id)
     return {
-      schema_version: "trade.rd-replay-run-outcome.v10",
+      schema_version: "trade.rd-replay-run-outcome.v11",
       run_id: input.request.run_id,
       attempt_id: activeAttemptLease.attempt_id,
       lease_generation: activeAttemptLease.lease_generation,
@@ -287,7 +296,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     const marginTerminal = error instanceof ReplayMarginTerminalError
     const liquidationDeficit = error instanceof ReplayLiquidationDeficitError
     return {
-      schema_version: "trade.rd-replay-run-outcome.v10",
+      schema_version: "trade.rd-replay-run-outcome.v11",
       run_id: input.request.run_id,
       attempt_id: activeAttemptLease.attempt_id,
       lease_generation: activeAttemptLease.lease_generation,
@@ -477,7 +486,7 @@ function commitArtifacts(
   result: ReplayResult,
 ): { artifact_manifest: ReplayArtifactManifest; artifact_commit: ReplayArtifactCommit } {
   const directory = runDirectory(root, request.idempotency_key, attemptLease.attempt_id)
-  mkdirSync(directory, { recursive: true })
+  ensureReplayDurableDirectory(directory)
   const requestText = `${canonicalJson(request)}\n`
   const trialReservationText = `${canonicalJson(trialReservation)}\n`
   const attemptLeaseText = `${canonicalJson(attemptLease)}\n`
@@ -495,22 +504,22 @@ function commitArtifacts(
   const journalText = result.journal.map((entry) => canonicalJson(entry)).join("\n") + "\n"
   const trialBalanceText = `${canonicalJson(result.trial_balance)}\n`
   const files = [
-    writeAtomic(directory, "request.json", requestText, "request"),
-    writeAtomic(directory, "trial-reservation.json", trialReservationText, "trial_reservation"),
-    writeAtomic(directory, "attempt-lease.json", attemptLeaseText, "attempt_lease"),
-    writeAtomic(directory, "dataset-manifest.json", datasetManifestText, "dataset_manifest"),
-    writeAtomic(directory, "result.json", resultText, "result"),
-    writeAtomic(directory, "source-events.jsonl", sourceEventsText, "source_events"),
-    writeAtomic(directory, "order-events.jsonl", orderEventsText, "order_events"),
-    writeAtomic(directory, "fills.jsonl", fillsText, "fills"),
-    writeAtomic(directory, "positions.jsonl", positionsText, "positions"),
-    writeAtomic(directory, "ledger.jsonl", ledgerText, "ledger"),
-    writeAtomic(directory, "valuation-snapshot.json", valuationSnapshotText, "valuation_snapshot"),
-    writeAtomic(directory, "equity-bridge.json", equityBridgeText, "equity_bridge"),
-    writeAtomic(directory, "margin-snapshots.json", marginSnapshotsText, "margin_snapshots"),
-    writeAtomic(directory, "liquidation.json", liquidationText, "liquidation"),
-    writeAtomic(directory, "journal.jsonl", journalText, "journal"),
-    writeAtomic(directory, "trial-balance.json", trialBalanceText, "trial_balance"),
+    writeImmutable(directory, "request.json", requestText, "request"),
+    writeImmutable(directory, "trial-reservation.json", trialReservationText, "trial_reservation"),
+    writeImmutable(directory, "attempt-lease.json", attemptLeaseText, "attempt_lease"),
+    writeImmutable(directory, "dataset-manifest.json", datasetManifestText, "dataset_manifest"),
+    writeImmutable(directory, "result.json", resultText, "result"),
+    writeImmutable(directory, "source-events.jsonl", sourceEventsText, "source_events"),
+    writeImmutable(directory, "order-events.jsonl", orderEventsText, "order_events"),
+    writeImmutable(directory, "fills.jsonl", fillsText, "fills"),
+    writeImmutable(directory, "positions.jsonl", positionsText, "positions"),
+    writeImmutable(directory, "ledger.jsonl", ledgerText, "ledger"),
+    writeImmutable(directory, "valuation-snapshot.json", valuationSnapshotText, "valuation_snapshot"),
+    writeImmutable(directory, "equity-bridge.json", equityBridgeText, "equity_bridge"),
+    writeImmutable(directory, "margin-snapshots.json", marginSnapshotsText, "margin_snapshots"),
+    writeImmutable(directory, "liquidation.json", liquidationText, "liquidation"),
+    writeImmutable(directory, "journal.jsonl", journalText, "journal"),
+    writeImmutable(directory, "trial-balance.json", trialBalanceText, "trial_balance"),
   ]
   const lastCommittedEventKey = result.source_events.at(-1)?.event_key ?? null
   const terminalCheckpointHash = computeTerminalCheckpointHash(request, trialReservation, result, lastCommittedEventKey)
@@ -521,6 +530,7 @@ function commitArtifacts(
     result_hash: result.fingerprint.result_hash,
     producer_attempt_id: attemptLease.attempt_id,
     producer_attempt_lease_hash: hashReplayAttemptLeaseSnapshot(attemptLease),
+    storage_policy_version: REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION,
     files,
     completeness: {
       authoritative_result: true,
@@ -530,13 +540,14 @@ function commitArtifacts(
     },
     created_at: result.completed_at,
   }
-  const manifestFile = writeAtomic(directory, "artifact-manifest.json", `${canonicalJson(manifest)}\n`, "manifest")
+  const manifestFile = writeImmutable(directory, "artifact-manifest.json", `${canonicalJson(manifest)}\n`, "manifest")
   return {
     artifact_manifest: manifest,
     artifact_commit: {
       ref: manifestFile.ref, sha256: manifestFile.sha256,
       producer_attempt_id: attemptLease.attempt_id,
       terminal_checkpoint_hash: terminalCheckpointHash,
+      storage_policy_version: REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION,
     },
   }
 }
@@ -554,6 +565,9 @@ function readCommitted(
   const manifestText = readFileSync(manifestPath, "utf8")
   const manifest = JSON.parse(manifestText) as ReplayArtifactManifest
   if (manifest.schema_version !== REPLAY_ARTIFACT_SCHEMA_VERSION) throw new Error("committed Replay artifact schema is not supported")
+  if (manifest.storage_policy_version !== REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION) {
+    throw new Error("committed Replay artifact storage policy is not supported")
+  }
   verifyArtifactCompleteness(directory, manifest)
   const requestPath = join(directory, ARTIFACT_FILE_NAMES.request)
   const trialReservationPath = join(directory, ARTIFACT_FILE_NAMES.trial_reservation)
@@ -615,6 +629,7 @@ function readCommitted(
       sha256: createHash("sha256").update(manifestText).digest("hex"),
       producer_attempt_id: manifest.producer_attempt_id,
       terminal_checkpoint_hash: manifest.completeness.terminal_checkpoint_hash,
+      storage_policy_version: REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION,
     },
   }
 }
@@ -653,12 +668,9 @@ function computeTerminalCheckpointHash(
   })
 }
 
-function writeAtomic(directory: string, name: string, content: string, role: string): { role: string; ref: string; sha256: string } {
+function writeImmutable(directory: string, name: string, content: string, role: string): { role: string; ref: string; sha256: string } {
   const path = join(directory, name)
-  const temporary = `${path}.tmp`
-  writeFileSync(temporary, content, "utf8")
-  renameSync(temporary, path)
-  return { role, ref: path, sha256: createHash("sha256").update(content).digest("hex") }
+  return { role, ...writeReplayImmutableCas(path, content) }
 }
 
 function runDirectory(root: string, idempotencyKey: string, attemptId: string): string {
@@ -672,10 +684,10 @@ function commitDiagnosticCheckpoint(
   checkpoint: ReplayEngineCheckpoint,
 ): ReplayDiagnosticCheckpointCommitRef {
   const directory = runDirectory(root, request.idempotency_key, attemptLease.attempt_id)
-  mkdirSync(directory, { recursive: true })
+  ensureReplayDurableDirectory(directory)
   const versionSuffix = `${attemptLease.lease_generation}-${checkpoint.next_source_offset}-${checkpoint.checkpoint_hash.slice(0, 16)}`
   const checkpointName = `diagnostic-checkpoint-${versionSuffix}.json`
-  const checkpointFile = writeAtomic(
+  const checkpointFile = writeImmutable(
     directory,
     checkpointName,
     `${canonicalJson(checkpoint)}\n`,
@@ -689,6 +701,7 @@ function commitDiagnosticCheckpoint(
     producer_attempt_id: attemptLease.attempt_id,
     producer_lease_generation: attemptLease.lease_generation,
     producer_attempt_lease_hash: hashReplayAttemptLeaseSnapshot(attemptLease),
+    storage_policy_version: REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION,
     checkpoint_ref: checkpointFile.ref,
     checkpoint_sha256: checkpointFile.sha256,
     checkpoint_hash: checkpoint.checkpoint_hash,
@@ -696,7 +709,7 @@ function commitDiagnosticCheckpoint(
     last_committed_event_key: checkpoint.last_committed_event_key,
     created_at: checkpoint.last_committed_event_key.event_time,
   }
-  const commitFile = writeAtomic(
+  const commitFile = writeImmutable(
     directory,
     `diagnostic-checkpoint-commit-${versionSuffix}.json`,
     `${canonicalJson(record)}\n`,
@@ -710,6 +723,7 @@ function commitDiagnosticCheckpoint(
     checkpoint_hash: checkpoint.checkpoint_hash,
     producer_attempt_id: attemptLease.attempt_id,
     producer_lease_generation: attemptLease.lease_generation,
+    storage_policy_version: REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION,
     next_source_offset: checkpoint.next_source_offset,
   }
 }
@@ -742,6 +756,9 @@ function loadReplayDiagnosticCheckpoint(
       || record.dataset_hash !== datasetManifest.data_hash
       || record.producer_attempt_id !== expectedProducerAttemptId) {
     throw new Error("Replay diagnostic checkpoint commit authority binding mismatch")
+  }
+  if (record.storage_policy_version !== REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION) {
+    throw new Error("Replay diagnostic checkpoint storage policy is not supported")
   }
   requireHash(record.producer_attempt_lease_hash, "diagnostic_checkpoint.producer_attempt_lease_hash")
   requireHash(record.checkpoint_sha256, "diagnostic_checkpoint.checkpoint_sha256")
@@ -779,8 +796,7 @@ function cleanupDiagnosticCheckpoint(root: string, request: ReplayExecutionReque
   if (!existsSync(directory)) return
   for (const name of readdirSync(directory)) {
     if (!/^diagnostic-checkpoint(?:-commit)?-\d+-\d+-[a-f0-9]{16}\.json$/.test(name)) continue
-    const path = join(directory, name)
-    if (existsSync(path)) unlinkSync(path)
+    removeReplayDurableFile(join(directory, name))
   }
 }
 
