@@ -1234,6 +1234,22 @@ export function replayDecisionScheduleEntryAt(
   return entry
 }
 
+export function replayAuthorizedInitialDecisionScheduleEntry(
+  request: Pick<ReplayExecutionRequest, "decision_schedule">,
+): ReplayDecisionScheduleEntry {
+  const entries = request.decision_schedule.entries.filter((entry) => entry.expected_effect === "authorized_initial_order")
+  if (entries.length !== 1) fail("Replay decision schedule must contain exactly one authorized initial Order")
+  return entries[0]!
+}
+
+export function replayAuthorizedInitialDecisionEvidenceEntry(
+  timeline: ReplayDecisionEvidenceTimeline,
+): ReplayDecisionEvidenceEntry {
+  const entries = timeline.entries.filter((entry) => entry.execution_effect === "authorized_order")
+  if (entries.length !== 1) fail("Replay decision evidence timeline must contain exactly one authorized Order")
+  return entries[0]!
+}
+
 export function createReplayDecisionMarketInputSnapshot(input: {
   request: ReplayExecutionRequest
   decision_time?: string
@@ -1312,7 +1328,7 @@ export function assertReplayDecisionMarketInputSnapshot(
 
 export function createReplayDecisionHarnessContext(
   request: ReplayExecutionRequest,
-  scheduleEntry: ReplayDecisionScheduleEntry = request.decision_schedule.entries.at(-1)!,
+  scheduleEntry: ReplayDecisionScheduleEntry = replayAuthorizedInitialDecisionScheduleEntry(request),
 ): ReplayDecisionHarnessContext {
   return {
     schema_version: REPLAY_DECISION_HARNESS_CONTEXT_SCHEMA_VERSION,

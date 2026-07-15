@@ -20,6 +20,7 @@ import {
   canonicalHash,
   canonicalJson,
   createReplayDecisionEvidenceTimeline,
+  replayAuthorizedInitialDecisionEvidenceEntry,
   replayExecutionSpecHash,
   type ReplayArtifactManifest,
   type ReplayDatasetManifest,
@@ -561,7 +562,7 @@ function commitArtifacts(
   const attemptLeaseText = `${canonicalJson(attemptLease)}\n`
   const datasetManifestText = `${canonicalJson(datasetManifest)}\n`
   const supplementalFactsText = `${canonicalJson(supplementalFacts)}\n`
-  const decisionMarketInputSnapshotText = `${canonicalJson(result.decision_evidence_timeline.entries.at(-1)!.decision_market_input_snapshot)}\n`
+  const decisionMarketInputSnapshotText = `${canonicalJson(replayAuthorizedInitialDecisionEvidenceEntry(result.decision_evidence_timeline).decision_market_input_snapshot)}\n`
   const decisionEvidenceTimelineText = `${canonicalJson(result.decision_evidence_timeline)}\n`
   const resultText = `${canonicalJson(result)}\n`
   const sourceEventsText = result.source_events.map((event) => canonicalJson(event)).join("\n") + "\n"
@@ -677,7 +678,7 @@ function readCommitted(
   if (canonicalHash(recordedDecisionEvidenceTimeline) !== canonicalHash(result.decision_evidence_timeline)) {
     throw new Error("committed Replay Decision Evidence Timeline does not match Result")
   }
-  const decisionEntry = recordedDecisionEvidenceTimeline.entries.at(-1)!
+  const decisionEntry = replayAuthorizedInitialDecisionEvidenceEntry(recordedDecisionEvidenceTimeline)
   const recordedDecisionMarketInputSnapshot = JSON.parse(
     decode(namespace.read(ARTIFACT_FILE_NAMES.decision_market_input_snapshot).bytes),
   ) as typeof decisionEntry.decision_market_input_snapshot

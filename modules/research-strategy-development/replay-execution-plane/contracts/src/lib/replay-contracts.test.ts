@@ -50,6 +50,8 @@ import {
   createReplayDecisionInputSnapshot,
   createReplayDecisionMarketInputSnapshot,
   createReplaySingleDecisionSchedule,
+  replayAuthorizedInitialDecisionEvidenceEntry,
+  replayAuthorizedInitialDecisionScheduleEntry,
   type ReplayExecutionRequest,
 } from "./replay-contracts"
 
@@ -126,6 +128,42 @@ test("Replay request requires complete Trial and evidence identity", () => {
   }
   unauthorizedSchedule.decision_schedule_hash = canonicalHash(unauthorizedSchedule.decision_schedule)
   expect(() => assertReplayExecutionRequest(unauthorizedSchedule)).toThrow("market-only closed-bar lookback")
+})
+
+test("authorized initial decision lookup is semantic rather than positional", () => {
+  const requestValue = fixtureRequest()
+  const authorizedScheduleEntry = requestValue.decision_schedule.entries[0]!
+  const noActionScheduleEntry = {
+    decision_sequence: 2,
+    decision_time: "2026-07-14T08:00:00Z",
+    expected_effect: "no_action" as const,
+    authorized_order_hash: null,
+  }
+  const nonPositionalRequest = {
+    ...requestValue,
+    decision_schedule: {
+      ...requestValue.decision_schedule,
+      entries: [authorizedScheduleEntry, noActionScheduleEntry],
+    },
+  }
+  expect(replayAuthorizedInitialDecisionScheduleEntry(nonPositionalRequest)).toEqual(authorizedScheduleEntry)
+
+  const inputSnapshot = createReplayDecisionInputSnapshot(requestValue, [])
+  const marketSnapshot = createReplayDecisionMarketInputSnapshot({ request: requestValue, interval_ms: 14_400_000, bars: [] })
+  const timeline = createReplayDecisionEvidenceTimeline({
+    request: requestValue,
+    decisions: [{
+      schedule_entry: authorizedScheduleEntry,
+      decision_input_snapshot: inputSnapshot,
+      decision_market_input_snapshot: marketSnapshot,
+    }],
+  })
+  const authorizedEvidenceEntry = timeline.entries[0]!
+  const nonPositionalTimeline = {
+    ...timeline,
+    entries: [{ ...authorizedEvidenceEntry, execution_effect: "no_action" as const }, authorizedEvidenceEntry],
+  }
+  expect(replayAuthorizedInitialDecisionEvidenceEntry(nonPositionalTimeline)).toEqual(authorizedEvidenceEntry)
 })
 
 test("Replay request freezes one bounded isolated maintenance tier", () => {

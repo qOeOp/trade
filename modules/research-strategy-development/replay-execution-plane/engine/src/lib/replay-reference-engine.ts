@@ -10,6 +10,7 @@ import {
   assertReplayExecutionRequest,
   canonicalHash,
   createReplayDecisionEvidenceTimeline,
+  replayAuthorizedInitialDecisionEvidenceEntry,
   type ReplayBoundaryPhase,
   type ReplayDatasetManifest,
   type ReplayDecisionEvidenceTimeline,
@@ -169,7 +170,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       throw new Error("Replay scheduled decision evidence does not match prepared point-in-time inputs")
     }
   }
-  const decisionEvidenceEntry = decisionEvidenceTimeline.entries.at(-1)!
+  const decisionEvidenceEntry = replayAuthorizedInitialDecisionEvidenceEntry(decisionEvidenceTimeline)
   const decisionInputSnapshot = decisionEvidenceEntry.decision_input_snapshot
   assertReplayDecisionInputSnapshot(decisionInputSnapshot, request)
   if (canonicalHash(decisionInputSnapshot) !== canonicalHash(prepared.decision_input_snapshot)) {

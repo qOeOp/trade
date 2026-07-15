@@ -5,6 +5,7 @@ import {
   canonicalHash,
   createReplayDecisionInputSnapshot,
   createReplayDecisionMarketInputSnapshot,
+  replayAuthorizedInitialDecisionScheduleEntry,
   replayDatasetHash,
   replayDatasetManifestHash,
   type ReplayDatasetManifest,
@@ -73,7 +74,11 @@ export function prepareReplayInputData(input: {
       request, manifest, input.bars, scheduleEntry.decision_time,
     ),
   }))
-  const authorizedDecisionInputs = decisionEvidenceInputs.at(-1)!
+  const authorizedScheduleEntry = replayAuthorizedInitialDecisionScheduleEntry(request)
+  const authorizedDecisionInputs = decisionEvidenceInputs.find(
+    (decision) => decision.schedule_entry.decision_sequence === authorizedScheduleEntry.decision_sequence,
+  )
+  if (!authorizedDecisionInputs) throw new Error("Replay authorized decision inputs are missing")
   return {
     bars: input.bars,
     funding_events: fundingEvents,
