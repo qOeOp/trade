@@ -30,6 +30,27 @@ interface OracleCase {
   }
 }
 
+interface EconomicProfile {
+  profile_id: string
+  fee_bps: number
+  slippage_bps: number
+  price_increment: string
+  settlement_increment: string
+  quantity: number
+}
+
+interface PathEconomics {
+  simulated_execution_price: number
+  gross_realized_pnl: number
+  exit_fee: number
+  net_terminal_contribution: number
+}
+
+interface Rational {
+  numerator: bigint
+  denominator: bigint
+}
+
 const fixture = JSON.parse(readFileSync(
   new URL("./fixtures/certified-ohlcv-resolution-oracle-v1.json", import.meta.url), "utf8",
 )) as {
@@ -39,6 +60,30 @@ const fixture = JSON.parse(readFileSync(
   entry_price: number
   cases: OracleCase[]
 }
+
+const economicFixture = JSON.parse(readFileSync(
+  new URL("./fixtures/certified-ohlcv-economic-oracle-v1.json", import.meta.url), "utf8",
+)) as {
+  schema_version: string
+  profiles: EconomicProfile[]
+  goldens: Array<{
+    case_id: string
+    profile_id: string
+    actual_path_id: ReplayOhlcvPathId
+    actual_path: PathEconomics
+    canonical_path: PathEconomics
+    envelope: {
+      min_net_terminal_contribution: number
+      max_net_terminal_contribution: number
+      net_terminal_contribution_span: number
+      canonical_shortfall_to_best: number
+    }
+  }>
+}
+
+const ZERO_COST_PROFILE = economicFixture.profiles.find(
+  (profile) => profile.profile_id === "zero-cost-fine-grid",
+)!
 
 function assertSamples(samples: Sample[], expectedDurationSeconds: number): void {
   if (samples.length < 2 || samples[0]![0] !== 0
@@ -130,7 +175,10 @@ function source(case_: OracleCase, kind: "bar_open_gap" | "bar_range_touch"): Re
   }
 }
 
-function evidenceFor(case_: OracleCase): ReplayOhlcvResolutionEvidence {
+function evidenceFor(
+  case_: OracleCase,
+  profile: EconomicProfile = ZERO_COST_PROFILE,
+): ReplayOhlcvResolutionEvidence {
   const bar = barFrom(case_)
   const stopTouched = case_.position_side === "long"
     ? bar.low <= case_.active_stop_price
@@ -145,16 +193,18 @@ function evidenceFor(case_: OracleCase): ReplayOhlcvResolutionEvidence {
     bar,
     position_side: case_.position_side,
     active_protection: {
-      protection_generation: 1, remaining_quantity: 1,
+      protection_generation: 1, remaining_quantity: profile.quantity,
       stop_order_id: `oracle-${case_.case_id}:order:stop`, stop_trigger_price: case_.active_stop_price,
       target_order_id: `oracle-${case_.case_id}:order:target`, target_trigger_price: case_.active_target_price,
     },
     economics: {
       entry_basis_price: fixture.entry_price,
       exit_side: case_.position_side === "long" ? "sell" : "buy",
-      cost_policy_id: "oracle-cost", cost_policy_version: "v1",
-      fee_bps: 0, slippage_bps: 0,
-      price_increment: "0.01", settlement_increment: "0.00000001", settlement_asset: "USDT",
+      cost_policy_id: `oracle-${profile.profile_id}`, cost_policy_version: "v1",
+      fee_bps: profile.fee_bps, slippage_bps: profile.slippage_bps,
+      price_increment: profile.price_increment,
+      settlement_increment: profile.settlement_increment,
+      settlement_asset: "USDT",
     },
     observation_kind: oracle.observation_kind,
     stop_touched: oracle.observation_kind === "bar_open_gap" ? oracle.role === "stop" : stopTouched,
@@ -163,6 +213,97 @@ function evidenceFor(case_: OracleCase): ReplayOhlcvResolutionEvidence {
       ? oracle.role
       : stopTouched && targetTouched ? "stop" : oracle.role,
   })
+}
+
+function rational(value: number | string): Rational {
+  const source = String(value)
+  const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(source)
+  if (!match) throw new Error(`economic oracle requires plain decimal input: ${source}`)
+  const fraction = match[3] ?? ""
+  const coefficient = BigInt(`${match[1] ?? ""}${match[2]}${fraction}`)
+  return { numerator: coefficient, denominator: 10n ** BigInt(fraction.length) }
+}
+
+function add(left: Rational, right: Rational): Rational {
+  return {
+    numerator: left.numerator * right.denominator + right.numerator * left.denominator,
+    denominator: left.denominator * right.denominator,
+  }
+}
+
+function multiply(left: Rational, right: Rational): Rational {
+  return {
+    numerator: left.numerator * right.numerator,
+    denominator: left.denominator * right.denominator,
+  }
+}
+
+function divide(left: Rational, right: Rational): Rational {
+  if (right.numerator === 0n) throw new Error("economic oracle division by zero")
+  const sign = right.numerator < 0n ? -1n : 1n
+  return {
+    numerator: left.numerator * right.denominator * sign,
+    denominator: left.denominator * right.numerator * sign,
+  }
+}
+
+function negate(value: Rational): Rational {
+  return { numerator: -value.numerator, denominator: value.denominator }
+}
+
+function quantize(
+  value: Rational,
+  increment: string,
+  rounding: "floor" | "ceil",
+): Rational {
+  const step = rational(increment)
+  const units = divide(value, step)
+  let quotient = units.numerator / units.denominator
+  const remainder = units.numerator % units.denominator
+  if (remainder !== 0n && rounding === "floor" && units.numerator < 0n) quotient -= 1n
+  if (remainder !== 0n && rounding === "ceil" && units.numerator > 0n) quotient += 1n
+  return multiply(rational(quotient.toString()), step)
+}
+
+function toNumber(value: Rational): number {
+  return Number(value.numerator) / Number(value.denominator)
+}
+
+function economicOracle(
+  case_: OracleCase,
+  triggerPrice: number,
+  profile: EconomicProfile,
+): PathEconomics {
+  const exitSide = case_.position_side === "long" ? "sell" : "buy"
+  const signedBps = exitSide === "buy" ? rational(profile.slippage_bps) : negate(rational(profile.slippage_bps))
+  const multiplier = divide(add(rational(10_000), signedBps), rational(10_000))
+  const executionPrice = quantize(
+    multiply(rational(triggerPrice), multiplier),
+    profile.price_increment,
+    exitSide === "buy" ? "ceil" : "floor",
+  )
+  const directionalDifference = case_.position_side === "long"
+    ? add(executionPrice, negate(rational(fixture.entry_price)))
+    : add(rational(fixture.entry_price), negate(executionPrice))
+  const gross = quantize(
+    multiply(directionalDifference, rational(profile.quantity)),
+    profile.settlement_increment,
+    "floor",
+  )
+  const fee = quantize(
+    divide(
+      multiply(multiply(executionPrice, rational(profile.quantity)), rational(profile.fee_bps)),
+      rational(10_000),
+    ),
+    profile.settlement_increment,
+    "ceil",
+  )
+  return {
+    simulated_execution_price: toNumber(executionPrice),
+    gross_realized_pnl: toNumber(gross),
+    exit_fee: toNumber(fee),
+    net_terminal_contribution: toNumber(add(gross, negate(fee))),
+  }
 }
 
 function rawTerminalPnl(side: Side, entryPrice: number, terminalPrice: number): number {
@@ -251,5 +392,80 @@ test("metamorphic: densifying an ordered oracle trace preserves OHLC and termina
     expect(resolveOrderedOracle(densified)).toEqual(resolveOrderedOracle(case_))
     expect(canonicalHash(semanticEnvelope(evidenceFor(densified))))
       .toBe(canonicalHash(semanticEnvelope(evidenceFor(case_))))
+  }
+})
+
+test("economic golden: independent rational oracle locks cost and rounding vectors", () => {
+  expect(economicFixture.schema_version).toBe("trade.rd-replay-ohlcv-economic-oracle-fixture.v1")
+  expect(economicFixture.profiles.length).toBe(3)
+  expect(economicFixture.goldens.length).toBe(2)
+  for (const golden of economicFixture.goldens) {
+    const case_ = fixture.cases.find((candidate) => candidate.case_id === golden.case_id)!
+    const profile = economicFixture.profiles.find((candidate) => candidate.profile_id === golden.profile_id)!
+    const evidence = evidenceFor(case_, profile)
+    const actual = resolveOrderedOracle(case_)
+    const actualPath = evidence.paths.find((path) => path.path_id === golden.actual_path_id)!
+    const canonicalPath = evidence.paths.find((path) => path.path_id === evidence.canonical.path_id)!
+    expect(actual.admissible_path_id).toBe(golden.actual_path_id)
+    expect(economicOracle(case_, actual.trigger_price, profile)).toEqual(golden.actual_path)
+    expect(actualPath).toMatchObject(golden.actual_path)
+    expect(canonicalPath).toMatchObject(golden.canonical_path)
+    expect(evidence.economic_impact).toMatchObject(golden.envelope)
+  }
+})
+
+test("economic parity: independent oracle matches every path across cost and precision profiles", () => {
+  for (const profile of economicFixture.profiles) {
+    for (const case_ of fixture.cases) {
+      const evidence = evidenceFor(case_, profile)
+      const oracle = resolveOrderedOracle(case_)
+      for (const path of evidence.paths) {
+        expect(path).toMatchObject(economicOracle(case_, path.trigger_price, profile))
+      }
+      const contributions = evidence.paths.map((path) => path.net_terminal_contribution)
+      const canonical = evidence.paths.find((path) => path.path_id === evidence.canonical.path_id)!
+      const expectedEnvelope = {
+        min_net_terminal_contribution: Math.min(...contributions),
+        max_net_terminal_contribution: Math.max(...contributions),
+        net_terminal_contribution_span: toNumber(add(
+          rational(Math.max(...contributions)), negate(rational(Math.min(...contributions))),
+        )),
+        canonical_shortfall_to_best: toNumber(add(
+          rational(Math.max(...contributions)), negate(rational(canonical.net_terminal_contribution)),
+        )),
+      }
+      expect(evidence.economic_impact).toMatchObject(expectedEnvelope)
+      const orderedPath = oracle.admissible_path_id
+        ? evidence.paths.find((path) => path.path_id === oracle.admissible_path_id)!
+        : evidence.paths[0]
+      expect(orderedPath).toMatchObject(economicOracle(case_, oracle.trigger_price, profile))
+      expect(canonical.net_terminal_contribution).toBeLessThanOrEqual(orderedPath.net_terminal_contribution)
+    }
+  }
+})
+
+test("economic metamorphic: trace densification preserves cost-aware path contributions", () => {
+  for (const profile of economicFixture.profiles) {
+    for (const case_ of fixture.cases) {
+      const densified = structuredClone(case_)
+      densified.samples = case_.samples.flatMap((sample, index) => {
+        const next = case_.samples[index + 1]
+        if (!next) return [sample]
+        return [sample, [
+          (sample[0] + next[0]) / 2,
+          (sample[1] + next[1]) / 2,
+        ] as Sample]
+      })
+      const originalEvidence = evidenceFor(case_, profile)
+      const densifiedEvidence = evidenceFor(densified, profile)
+      expect(resolveOrderedOracle(densified)).toEqual(resolveOrderedOracle(case_))
+      expect(canonicalHash({
+        paths: densifiedEvidence.paths,
+        economic_impact: densifiedEvidence.economic_impact,
+      })).toBe(canonicalHash({
+        paths: originalEvidence.paths,
+        economic_impact: originalEvidence.economic_impact,
+      }))
+    }
   }
 })
