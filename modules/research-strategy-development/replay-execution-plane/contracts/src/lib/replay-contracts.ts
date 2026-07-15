@@ -13,9 +13,9 @@ export {
   REPLAY_OBJECT_ARTIFACT_STORAGE_POLICY_VERSION,
 }
 
-export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v23" as const
-export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v35" as const
-export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v37" as const
+export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v24" as const
+export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v36" as const
+export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v38" as const
 export const REPLAY_ARTIFACT_STORE_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-artifact-store-capability.v1" as const
 export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v10" as const
 export const REPLAY_NUMERIC_POLICY_VERSION = "rd-replay-number-v3" as const
@@ -27,7 +27,7 @@ export const REPLAY_MAINTENANCE_BREACH_SCHEMA_VERSION = "trade.rd-replay-mainten
 export const REPLAY_LIQUIDATION_EXECUTION_SCHEMA_VERSION = "trade.rd-replay-liquidation-execution.v2" as const
 export const REPLAY_OHLCV_RESOLUTION_EVIDENCE_SCHEMA_VERSION = "trade.rd-replay-ohlcv-resolution-evidence.v3" as const
 export const REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION = "rd-replay-instrument-accounting-v1" as const
-export const REPLAY_DATASET_MANIFEST_SCHEMA_VERSION = "trade.rd-replay-dataset-manifest.v9" as const
+export const REPLAY_DATASET_MANIFEST_SCHEMA_VERSION = "trade.rd-replay-dataset-manifest.v10" as const
 export const REPLAY_SUPPLEMENTAL_FACT_SCHEMA_VERSION = "trade.rd-replay-supplemental-fact.v1" as const
 export const REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION = "trade.rd-replay-supplemental-requirement-set.v1" as const
 export const REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION = "trade.rd-replay-decision-input-snapshot.v1" as const
@@ -64,7 +64,7 @@ export const REPLAY_DECISION_HARNESS_BUILD_ARGUMENTS = [
 export const REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION = "trade.rd-replay-venue-risk-policy-snapshot.v1" as const
 export const REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION = "trade.rd-replay-instrument-spec-snapshot.v1" as const
 export const REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION = "trade.rd-replay-instrument-status-snapshot.v1" as const
-export const REPLAY_INSTRUMENT_STATUS_PROVENANCE_SCHEMA_VERSION = "trade.rd-replay-instrument-status-provenance.v1" as const
+export const REPLAY_INSTRUMENT_STATUS_PROVENANCE_SCHEMA_VERSION = "trade.rd-replay-instrument-status-provenance.v2" as const
 export const REPLAY_CERTIFIED_CAPABILITIES = [
   "closed-bar-protective-stop-tighten",
   "closed-candle",
@@ -151,6 +151,8 @@ export interface ReplayExecutionRequest {
   instrument_spec_schedule_hash: string
   instrument_status_schedule_hash: string
   instrument_status_provenance_hash: string
+  instrument_status_provider_capability_hash: string
+  instrument_status_provider_certification_hash: string
   harness_hash: string
   assumptions_hash: string
   strategy_policy_hash?: string
@@ -764,6 +766,9 @@ export interface ReplayInstrumentStatusProvenance {
   producer_id: string
   producer_version: string
   producer_build_hash: string
+  provider_capability_hash: string
+  provider_certification_ref: string
+  provider_certification_hash: string
   source_owner: string
   source_kind: "venue_status_event_archive" | "venue_current_snapshot" | "periodic_snapshot_series"
   normalization_policy_version: string
@@ -1406,6 +1411,8 @@ export interface ReplayEvidenceFingerprint {
   instrument_spec_schedule_hash: string
   instrument_status_schedule_hash: string
   instrument_status_provenance_hash: string
+  instrument_status_provider_capability_hash: string
+  instrument_status_provider_certification_hash: string
   harness_hash: string
   assumptions_hash: string
   cost_policy_hash: string
@@ -1577,7 +1584,7 @@ export function assertReplayExecutionRequest(value: ReplayExecutionRequest): voi
   ] as const) requireText(value[field], field)
   for (const field of [
     "trial_group_hash", "candidate_hash", "experiment_contract_hash", "dataset_hash", "harness_hash", "assumptions_hash",
-    "trial_reservation_hash", "supplemental_facts_hash", "supplemental_requirement_set_hash", "decision_market_input_requirement_hash", "decision_schedule_hash", "venue_risk_policy_schedule_hash", "instrument_spec_schedule_hash", "instrument_status_schedule_hash", "instrument_status_provenance_hash",
+    "trial_reservation_hash", "supplemental_facts_hash", "supplemental_requirement_set_hash", "decision_market_input_requirement_hash", "decision_schedule_hash", "venue_risk_policy_schedule_hash", "instrument_spec_schedule_hash", "instrument_status_schedule_hash", "instrument_status_provenance_hash", "instrument_status_provider_capability_hash", "instrument_status_provider_certification_hash",
   ] as const) requireHash(value[field], field)
   assertReplaySupplementalRequirementSet(value.supplemental_requirement_set, value.order.signal_time)
   if (canonicalHash(value.supplemental_requirement_set) !== value.supplemental_requirement_set_hash) {
@@ -3084,6 +3091,7 @@ export function assertReplayInstrumentStatusProvenance(
     source_owner: provenance.source_owner,
     normalization_policy_version: provenance.normalization_policy_version,
     source_ref: provenance.source_ref,
+    provider_certification_ref: provenance.provider_certification_ref,
   })) requireText(value, `instrument.status_provenance.${field}`)
   for (const [field, value] of Object.entries({
     coverage_start: provenance.coverage_start,
@@ -3093,6 +3101,8 @@ export function assertReplayInstrumentStatusProvenance(
   })) requireUtcTimestamp(value, `instrument.status_provenance.${field}`)
   requireHash(provenance.source_hash, "instrument.status_provenance.source_hash")
   requireHash(provenance.producer_build_hash, "instrument.status_provenance.producer_build_hash")
+  requireHash(provenance.provider_capability_hash, "instrument.status_provenance.provider_capability_hash")
+  requireHash(provenance.provider_certification_hash, "instrument.status_provenance.provider_certification_hash")
   requireHash(provenance.normalization_policy_hash, "instrument.status_provenance.normalization_policy_hash")
   requireHash(provenance.status_schedule_hash, "instrument.status_provenance.status_schedule_hash")
   if (!Number.isSafeInteger(provenance.source_record_count) || provenance.source_record_count < 1) {

@@ -332,6 +332,40 @@ CREATE TABLE IF NOT EXISTS rd_trial (
     REFERENCES rd_experiment_contract(trial_group_id, experiment_id)
 );
 
+CREATE TABLE IF NOT EXISTS rd_replay_instrument_status_provider_certification (
+  certification_id TEXT PRIMARY KEY,
+  certification_ref TEXT NOT NULL UNIQUE,
+  certification_hash TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL CHECK(status = 'certified'),
+  certified_at TEXT NOT NULL,
+  valid_until TEXT NOT NULL,
+  certifier_id TEXT NOT NULL,
+  certification_policy_version TEXT NOT NULL,
+  provider_capability_hash TEXT NOT NULL,
+  producer_domain TEXT NOT NULL CHECK(producer_domain = 'market-data-products'),
+  producer_id TEXT NOT NULL,
+  producer_version TEXT NOT NULL,
+  producer_build_hash TEXT NOT NULL,
+  normalization_policy_version TEXT NOT NULL,
+  normalization_policy_hash TEXT NOT NULL,
+  allowed_source_kind TEXT NOT NULL CHECK(allowed_source_kind = 'venue_status_event_archive'),
+  allowed_completeness TEXT NOT NULL CHECK(allowed_completeness = 'complete_history'),
+  certification_json TEXT NOT NULL CHECK(json_valid(certification_json)),
+  CHECK(certified_at < valid_until)
+);
+
+CREATE TRIGGER IF NOT EXISTS rd_replay_instrument_status_provider_certification_no_update
+BEFORE UPDATE ON rd_replay_instrument_status_provider_certification
+BEGIN
+  SELECT RAISE(ABORT, 'Replay provider certification is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS rd_replay_instrument_status_provider_certification_no_delete
+BEFORE DELETE ON rd_replay_instrument_status_provider_certification
+BEGIN
+  SELECT RAISE(ABORT, 'Replay provider certification is immutable');
+END;
+
 CREATE TABLE IF NOT EXISTS rd_replay_attempt (
   attempt_id TEXT PRIMARY KEY,
   trial_id TEXT NOT NULL,

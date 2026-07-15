@@ -1140,6 +1140,8 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       instrument_spec_schedule_hash: request.instrument_spec_schedule_hash,
       instrument_status_schedule_hash: request.instrument_status_schedule_hash,
       instrument_status_provenance_hash: request.instrument_status_provenance_hash,
+      instrument_status_provider_capability_hash: request.instrument_status_provider_capability_hash,
+      instrument_status_provider_certification_hash: request.instrument_status_provider_certification_hash,
       harness_hash: request.harness_hash,
       assumptions_hash: request.assumptions_hash,
       cost_policy_hash: canonicalHash(request.cost_policy),

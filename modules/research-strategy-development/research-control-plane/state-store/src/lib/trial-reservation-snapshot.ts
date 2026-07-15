@@ -7,6 +7,7 @@ import {
   type TrialReservationSnapshot,
 } from "../../../contracts/src/lib/control-plane-contracts"
 import { hashIdentityPayload } from "./research-identity-hash"
+import { readReplayInstrumentStatusProviderCertification } from "./instrument-status-provider-certification-registry"
 
 export interface IssueTrialReservationSnapshotInput {
   trial_id: string
@@ -63,6 +64,13 @@ export function issueTrialReservationSnapshot(
   if (contract.replay_execution_input?.supplemental_requirement_set_hash !== input.bindings.supplemental_requirement_set_hash) {
     throw new Error("Trial Reservation supplemental requirement set does not match the frozen Experiment Contract")
   }
+  const providerCertification = readReplayInstrumentStatusProviderCertification(
+    db,
+    input.bindings.instrument_status_provider_certification_hash,
+  )
+  if (providerCertification.provider_capability_hash !== input.bindings.instrument_status_provider_capability_hash) {
+    throw new Error("Trial Reservation provider capability does not match the registered certification")
+  }
   const snapshot: TrialReservationSnapshot = {
     schema_version: TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION,
     reservation_id: input.reservation_id,
@@ -87,6 +95,7 @@ export function issueTrialReservationSnapshot(
     trial_accounting_policy_version: row.trial_accounting_policy_version,
     candidate_assignment_hash: hashIdentityPayload(JSON.parse(row.parameter_assignment_json)),
     bindings: structuredClone(input.bindings),
+    instrument_status_provider_certification: providerCertification,
     required_capabilities: [...input.required_capabilities],
   }
   assertTrialReservationSnapshot(snapshot)

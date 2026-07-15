@@ -359,6 +359,10 @@ function validatePointInTimePolicyBindings(
   if (request.instrument_status_provenance_hash !== canonicalHash(manifest.instrument.status_provenance)) {
     throw new Error("instrument status provenance hash does not match Replay request")
   }
+  if (request.instrument_status_provider_capability_hash !== manifest.instrument.status_provenance.provider_capability_hash
+      || request.instrument_status_provider_certification_hash !== manifest.instrument.status_provenance.provider_certification_hash) {
+    throw new Error("instrument status provider certification does not match Replay request")
+  }
   for (const [index, bar] of bars.entries()) {
     const status = resolveReplayInstrumentStatusAt(manifest, bar.open_time)
     if (status.status !== "trading"

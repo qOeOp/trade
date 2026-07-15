@@ -5,12 +5,14 @@ import {
   REPLAY_CHECKPOINT_RECEIPT_SCHEMA_VERSION,
   REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION,
   REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION,
+  REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
   DRAFT_AUTHORIZATION_SCHEMA_VERSION,
   TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION,
   assertDraftStrategyAuthorization,
   assertTrialReservationSnapshot,
   createReplayCheckpointReceiptSnapshot,
   createReplayResumeAuthorizationSnapshot,
+  createReplayInstrumentStatusProviderCertificationSnapshot,
   hashReplayResumeAuthorizationSnapshot,
   hashTrialReservationSnapshot,
   hashReplayAttemptLeaseSnapshot,
@@ -20,6 +22,16 @@ import {
 } from "./control-plane-contracts"
 
 const HASH = "a".repeat(64)
+
+const PROVIDER_CERTIFICATION = createReplayInstrumentStatusProviderCertificationSnapshot({
+  schema_version: REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
+  certification_id: "status-provider-certification-1", certification_ref: "certification://status-provider/v1",
+  status: "certified", certified_at: "2026-07-13T00:00:00Z", valid_until: "2026-08-01T00:00:00Z",
+  certifier_id: "research-control-plane", certification_policy_version: "rd-status-provider-certification-v1",
+  provider_capability_hash: HASH, producer_domain: "market-data-products", producer_id: "market-data.instrument-status-provider",
+  producer_version: "v1", producer_build_hash: HASH, normalization_policy_version: "normalization-v1",
+  normalization_policy_hash: HASH, allowed_source_kind: "venue_status_event_archive", allowed_completeness: "complete_history",
+})
 
 function authorization(): DraftStrategyAuthorization {
   return {
@@ -56,9 +68,12 @@ function reservation(): TrialReservationSnapshot {
       replay_idempotency_key: "replay-1", execution_spec_hash: HASH, dataset_manifest_ref: "dataset://fixture", dataset_hash: HASH,
       supplemental_facts_hash: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
       supplemental_requirement_set_hash: "f126b641e1c2e55c174e3505e15232b466e50c3fd764f30968a925821c31d144",
-      venue_risk_policy_schedule_hash: HASH, instrument_spec_schedule_hash: HASH, instrument_status_schedule_hash: HASH, instrument_status_provenance_hash: HASH, harness_hash: HASH, assumptions_hash: HASH,
+      venue_risk_policy_schedule_hash: HASH, instrument_spec_schedule_hash: HASH, instrument_status_schedule_hash: HASH, instrument_status_provenance_hash: HASH,
+      instrument_status_provider_capability_hash: HASH, instrument_status_provider_certification_hash: PROVIDER_CERTIFICATION.certification_hash,
+      harness_hash: HASH, assumptions_hash: HASH,
       cost_policy_hash: HASH, margin_policy_hash: HASH, simulator_policy_version: "rd-replay-simulator-v7", execution_mode: "step",
     },
+    instrument_status_provider_certification: PROVIDER_CERTIFICATION,
     required_capabilities: ["closed-candle", "step"],
   }
 }

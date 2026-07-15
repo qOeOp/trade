@@ -12,9 +12,9 @@ import {
 } from "../../../market-data-store/src/lib/market-data-store"
 
 export const INSTRUMENT_STATUS_PROVIDER_CAPABILITY_SCHEMA_VERSION = "trade.market-data-instrument-status-provider-capability.v1" as const
-export const REPLAY_INSTRUMENT_STATUS_EVIDENCE_SCHEMA_VERSION = "trade.market-data-replay-instrument-status-evidence.v1" as const
+export const REPLAY_INSTRUMENT_STATUS_EVIDENCE_SCHEMA_VERSION = "trade.market-data-replay-instrument-status-evidence.v2" as const
 export const INSTRUMENT_STATUS_PROVIDER_ID = "market-data.instrument-status-provider" as const
-export const INSTRUMENT_STATUS_PROVIDER_VERSION = "v1" as const
+export const INSTRUMENT_STATUS_PROVIDER_VERSION = "v2" as const
 export const INSTRUMENT_STATUS_NORMALIZATION_POLICY_VERSION = "market-data-instrument-status-normalization-v1" as const
 
 const NORMALIZATION_POLICY = {
@@ -86,6 +86,12 @@ export interface ReplayInstrumentStatusEvidence {
   evidence_hash: string
 }
 
+export interface InstrumentStatusProviderCertificationBinding {
+  certification_ref: string
+  certification_hash: string
+  provider_capability_hash: string
+}
+
 export type ReplayInstrumentStatusEvidenceBody = Omit<ReplayInstrumentStatusEvidence, "evidence_hash">
 
 export function buildReplayInstrumentStatusEvidence(input: {
@@ -93,11 +99,18 @@ export function buildReplayInstrumentStatusEvidence(input: {
   replay_start: string
   replay_end: string
   produced_at: string
+  provider_certification: InstrumentStatusProviderCertificationBinding
 }): ReplayInstrumentStatusEvidence {
   assertInstrumentStatusArchive(input.archive)
   requireUtc(input.replay_start, "replay_start")
   requireUtc(input.replay_end, "replay_end")
   requireUtc(input.produced_at, "produced_at")
+  if (!input.provider_certification.certification_ref) throw new Error("provider certification_ref is required")
+  requireHash(input.provider_certification.certification_hash, "provider certification_hash")
+  requireHash(input.provider_certification.provider_capability_hash, "provider capability_hash")
+  if (input.provider_certification.provider_capability_hash !== INSTRUMENT_STATUS_PROVIDER_CAPABILITY.capability_hash) {
+    throw new Error("provider certification does not bind this capability")
+  }
   if (Date.parse(input.replay_start) >= Date.parse(input.replay_end)) throw new Error("Replay status evidence window must have positive duration")
   if (Date.parse(input.replay_start) < Date.parse(input.archive.coverage_start)
       || Date.parse(input.replay_end) > Date.parse(input.archive.coverage_end)) {
@@ -112,6 +125,9 @@ export function buildReplayInstrumentStatusEvidence(input: {
     producer_id: INSTRUMENT_STATUS_PROVIDER_ID,
     producer_version: INSTRUMENT_STATUS_PROVIDER_VERSION,
     producer_build_hash: INSTRUMENT_STATUS_PROVIDER_BUILD_HASH,
+    provider_capability_hash: input.provider_certification.provider_capability_hash,
+    provider_certification_ref: input.provider_certification.certification_ref,
+    provider_certification_hash: input.provider_certification.certification_hash,
     source_owner: input.archive.source_owner,
     source_kind: input.archive.source_kind,
     normalization_policy_version: INSTRUMENT_STATUS_NORMALIZATION_POLICY_VERSION,
@@ -182,6 +198,7 @@ export function assertReplayInstrumentStatusEvidence(evidence: ReplayInstrumentS
     throw new Error("instrument status evidence epochs must exactly close provenance coverage")
   }
   if (evidence.status_provenance.producer_build_hash !== evidence.provider_capability.producer_build_hash
+      || evidence.status_provenance.provider_capability_hash !== evidence.provider_capability.capability_hash
       || evidence.status_provenance.normalization_policy_hash !== evidence.provider_capability.normalization_policy_hash
       || evidence.status_provenance.producer_id !== evidence.provider_capability.producer_id
       || evidence.status_provenance.producer_version !== evidence.provider_capability.producer_version) {

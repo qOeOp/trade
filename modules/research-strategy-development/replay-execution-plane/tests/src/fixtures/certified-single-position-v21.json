@@ -1,6 +1,6 @@
 {
   "request": {
-    "schema_version": "trade.rd-replay-execution-request.v23",
+    "schema_version": "trade.rd-replay-execution-request.v24",
     "run_id": "golden-run",
     "idempotency_key": "golden-idempotency",
     "experiment_id": "exp-golden",
@@ -46,7 +46,9 @@
     "venue_risk_policy_schedule_hash": "bce56538f5e3d2b53aa1895edbe20809abe385a7f3e4af59ba576b03cbdb9f26",
     "instrument_spec_schedule_hash": "3c8736f2a900c073924a9c1d6eb51bb105b859007eb39d470e361cd34e52c604",
     "instrument_status_schedule_hash": "32d5c91441c7251e83005cbacf156fe545b4410cb28a02659417763debcee1fc",
-    "instrument_status_provenance_hash": "6538f128e117961f05b5efc91efaed865fd6472b99fc3c4aa90a60d789229518",
+    "instrument_status_provenance_hash": "4d8a8be1148a5c26c92340b1d2ffd3ef1c2e80ff1be72fb4a72e360211ef7d24",
+    "instrument_status_provider_capability_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "instrument_status_provider_certification_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     "harness_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
     "assumptions_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
     "symbol": "BTCUSDT",
@@ -113,7 +115,7 @@
     "random_seed": 7
   },
   "dataset_manifest": {
-    "schema_version": "trade.rd-replay-dataset-manifest.v9",
+    "schema_version": "trade.rd-replay-dataset-manifest.v10",
     "manifest_id": "manifest-golden",
     "manifest_ref": "dataset://golden",
     "data_hash": "5050e0b6330030d2ee61cb40234b2a98300bab7b088c482e331a2b6a057608d0",
@@ -179,11 +181,14 @@
         "source_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
       }],
       "status_provenance": {
-        "schema_version": "trade.rd-replay-instrument-status-provenance.v1",
+        "schema_version": "trade.rd-replay-instrument-status-provenance.v2",
         "producer_domain": "market-data-products",
         "producer_id": "golden-status-producer",
         "producer_version": "v1",
         "producer_build_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "provider_capability_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "provider_certification_ref": "certification://golden-status-provider/v1",
+        "provider_certification_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "source_owner": "binance-usdm",
         "source_kind": "venue_status_event_archive",
         "normalization_policy_version": "golden-status-normalization-v1",

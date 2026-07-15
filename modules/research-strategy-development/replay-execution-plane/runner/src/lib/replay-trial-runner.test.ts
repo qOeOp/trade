@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION, REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION, REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION, TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION, createReplayResumeAuthorizationSnapshot, hashReplayAttemptLeaseSnapshot, hashTrialReservationSnapshot, type ReplayAttemptLeaseSnapshot, type ReplayResumeAuthorizationSnapshot, type TrialReservationSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
+import { CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION, REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION, REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION, REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION, TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION, createReplayInstrumentStatusProviderCertificationSnapshot, createReplayResumeAuthorizationSnapshot, hashReplayAttemptLeaseSnapshot, hashTrialReservationSnapshot, type ReplayAttemptLeaseSnapshot, type ReplayResumeAuthorizationSnapshot, type TrialReservationSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
 import {
   REPLAY_CERTIFIED_CAPABILITIES,
   REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
@@ -54,6 +54,15 @@ import {
 import { buildReplayDecisionHarness, executeReplayDecisionHarnessWorker } from "./replay-decision-harness-build"
 
 const HASH = "b".repeat(64)
+const PROVIDER_CERTIFICATION = createReplayInstrumentStatusProviderCertificationSnapshot({
+  schema_version: REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
+  certification_id: "status-provider-certification-1", certification_ref: "certification://fixture-status-provider/v1",
+  status: "certified", certified_at: "2026-07-13T00:00:00Z", valid_until: "2026-08-01T00:00:00Z",
+  certifier_id: "research-control-plane", certification_policy_version: "rd-status-provider-certification-v1",
+  provider_capability_hash: HASH, producer_domain: "market-data-products", producer_id: "fixture-status-producer",
+  producer_version: "v1", producer_build_hash: HASH, normalization_policy_version: "fixture-status-normalization-v1",
+  normalization_policy_hash: HASH, allowed_source_kind: "venue_status_event_archive", allowed_completeness: "complete_history",
+})
 const OBSERVED_AT = "2026-07-14T00:01:00Z"
 const MAINTENANCE_TIER = { tier_id: "tier-1", snapshot_ref: "fixture:margin-tier-1", snapshot_hash: HASH, notional_floor: 0, notional_cap: 50_000, maintenance_margin_rate: 0.005, maintenance_amount: 0 }
 const RISK_SNAPSHOT = { schema_version: REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION, snapshot_id: "risk-1", venue_id: "binance-usdm", symbol: "BTCUSDT", effective_at: "2020-01-01T00:00:00Z", valid_until: null, observed_at: "2026-07-13T00:00:00Z", source_ref: "fixture:risk-1", source_hash: HASH, initial_margin_rate: 0.1, maintenance_tier: MAINTENANCE_TIER, liquidation_fee_bps: 50 }
@@ -61,6 +70,7 @@ const SPEC_SNAPSHOT = { schema_version: REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_V
 const STATUS_SNAPSHOT = { schema_version: REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION, snapshot_id: "status-1", venue_id: "binance-usdm", symbol: "BTCUSDT", status: "trading" as const, effective_at: "2020-01-01T00:00:00Z", valid_until: null, observed_at: "2026-07-13T00:00:00Z", source_ref: "fixture:status-1", source_hash: HASH }
 const statusProvenance = (statusEpochs: ReplayInstrumentStatusSnapshot[] = [STATUS_SNAPSHOT]) => createReplayInstrumentStatusProvenance({
   producer_domain: "market-data-products", producer_id: "fixture-status-producer", producer_version: "v1", producer_build_hash: HASH, source_owner: "binance-usdm",
+  provider_capability_hash: HASH, provider_certification_ref: PROVIDER_CERTIFICATION.certification_ref, provider_certification_hash: PROVIDER_CERTIFICATION.certification_hash,
   source_kind: "venue_status_event_archive", normalization_policy_version: "fixture-status-normalization-v1", normalization_policy_hash: HASH, completeness: "complete_history",
   coverage_start: "2020-01-01T00:00:00Z", coverage_end: "2030-01-01T00:00:00Z", source_observed_through: "2026-07-13T00:00:00Z", produced_at: "2026-07-13T00:00:00Z",
   source_ref: "fixture:status-source", source_hash: HASH, source_record_count: statusEpochs.length, status_epochs: statusEpochs,
@@ -86,6 +96,8 @@ function request(): ReplayExecutionRequest {
     venue_risk_policy_schedule_hash: canonicalHash([RISK_SNAPSHOT]), instrument_spec_schedule_hash: canonicalHash({ epochs: [SPEC_SNAPSHOT], accounting: ACCOUNTING }),
     instrument_status_schedule_hash: canonicalHash([STATUS_SNAPSHOT]),
     instrument_status_provenance_hash: canonicalHash(statusProvenance()),
+    instrument_status_provider_capability_hash: HASH,
+    instrument_status_provider_certification_hash: PROVIDER_CERTIFICATION.certification_hash,
     harness_hash: HASH, assumptions_hash: HASH, symbol: "BTCUSDT", timeframe: "4h", initial_cash: 1000,
     order,
     cost_policy: { policy_id: "fixture", version: "1", fee_bps: 0, slippage_bps: 0, liquidation_fee_bps: 50 },
@@ -203,10 +215,13 @@ function authorize(requestValue: ReplayExecutionRequest): TrialReservationSnapsh
       instrument_spec_schedule_hash: requestValue.instrument_spec_schedule_hash,
       instrument_status_schedule_hash: requestValue.instrument_status_schedule_hash,
       instrument_status_provenance_hash: requestValue.instrument_status_provenance_hash,
+      instrument_status_provider_capability_hash: requestValue.instrument_status_provider_capability_hash,
+      instrument_status_provider_certification_hash: requestValue.instrument_status_provider_certification_hash,
       harness_hash: requestValue.harness_hash, assumptions_hash: requestValue.assumptions_hash,
       cost_policy_hash: canonicalHash(requestValue.cost_policy), margin_policy_hash: canonicalHash(requestValue.margin_policy),
       simulator_policy_version: requestValue.simulator_policy.version, execution_mode: "step",
     },
+    instrument_status_provider_certification: PROVIDER_CERTIFICATION,
     required_capabilities: [...REPLAY_CERTIFIED_CAPABILITIES],
   }
   requestValue.trial_reservation_hash = hashTrialReservationSnapshot(reservation)
@@ -339,7 +354,7 @@ test("runner returns typed data-gap failures without publishing partial Result",
     bars: openPositionGapBars,
   })
   expect(openPositionFailure).toMatchObject({
-    schema_version: "trade.rd-replay-run-outcome.v33",
+    schema_version: "trade.rd-replay-run-outcome.v34",
     status: "failed",
     failure: {
       code: "dataset-grid-gap-in-execution-window",
@@ -1619,7 +1634,7 @@ test("runner enforces Reservation expiry only at Attempt claim admission", () =>
   expired.observed_at = "2026-07-14T00:01:30Z"
   const rejected = runReplayTrial({ ...expired, dataset_manifest: datasetManifest(), bars })
   expect(rejected).toMatchObject({
-    schema_version: "trade.rd-replay-run-outcome.v33",
+    schema_version: "trade.rd-replay-run-outcome.v34",
     status: "failed",
     failure: { code: "trial-reservation-expired", failure_class: "unsupported_contract", retryable: false, partial_result_published: false },
   })
@@ -1948,6 +1963,16 @@ test("runner rejects mutated bindings and unsupported capabilities before engine
   expect(capabilityOutcome.failure?.message).toContain("unsupported Replay capability")
   expect(capabilityOutcome.result).toBeUndefined()
   expect(capabilityOutcome.artifact_manifest).toBeUndefined()
+
+  const provenanceDrift = authorized()
+  const driftedManifest = datasetManifest()
+  driftedManifest.instrument.status_provenance = {
+    ...driftedManifest.instrument.status_provenance,
+    provider_certification_ref: "certification://unreserved-provider/v1",
+  }
+  const provenanceOutcome = runReplayTrial({ ...provenanceDrift, dataset_manifest: driftedManifest, bars })
+  expect(provenanceOutcome.failure?.code).toBe("trial-reservation-rejected")
+  expect(provenanceOutcome.failure?.message).toContain("reserved provider certification")
 })
 
 test("runner refuses to invent a delisting settlement price for an open position", () => {

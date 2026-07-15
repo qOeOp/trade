@@ -1,7 +1,11 @@
 import { Database } from "bun:sqlite"
 import assert from "node:assert/strict"
 import test from "node:test"
-import { REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION } from "../../../contracts/src/lib/control-plane-contracts"
+import {
+  REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION,
+  REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
+  createReplayInstrumentStatusProviderCertificationSnapshot,
+} from "../../../contracts/src/lib/control-plane-contracts"
 import {
   RESEARCH_LIFECYCLE_RULE_VERSION,
   validateUniverseSeed,
@@ -25,6 +29,7 @@ import { issueTrialReservationSnapshot } from "./trial-reservation-snapshot"
 import { claimReplayAttempt, finalizeReplayAttempt, renewReplayAttemptLease } from "./replay-attempt-authority"
 import { recordReplayCheckpointReceipt } from "./replay-checkpoint-receipt"
 import { issueReplayResumeAuthorization } from "./replay-resume-authorization"
+import { registerReplayInstrumentStatusProviderCertification } from "./instrument-status-provider-certification-registry"
 import {
   appendExperimentResult,
   applySystemTransition,
@@ -38,6 +43,17 @@ import {
 
 const NOW = "2026-07-14T03:20:00Z"
 const HASH_POLICY = "trade-flow.identity-hash.v1"
+const PROVIDER_CAPABILITY_HASH = "8".repeat(64)
+const PROVIDER_CERTIFICATION = createReplayInstrumentStatusProviderCertificationSnapshot({
+  schema_version: REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
+  certification_id: "status-provider-certification-1", certification_ref: "certification://status-provider/v1",
+  status: "certified", certified_at: "2026-07-13T00:00:00Z", valid_until: "2026-08-01T00:00:00Z",
+  certifier_id: "research-control-plane", certification_policy_version: "rd-status-provider-certification-v1",
+  provider_capability_hash: PROVIDER_CAPABILITY_HASH, producer_domain: "market-data-products",
+  producer_id: "market-data.instrument-status-provider", producer_version: "v1", producer_build_hash: "7".repeat(64),
+  normalization_policy_version: "status-normalization-v1", normalization_policy_hash: "6".repeat(64),
+  allowed_source_kind: "venue_status_event_archive", allowed_completeness: "complete_history",
+})
 
 test("control plane schema initializes frozen stages and lifecycle rules", () => {
   const db = openDb()
@@ -53,6 +69,7 @@ test("control plane schema initializes frozen stages and lifecycle rules", () =>
       "rd_trial_group",
       "rd_experiment_contract",
       "rd_trial",
+      "rd_replay_instrument_status_provider_certification",
       "rd_replay_attempt",
       "rd_experiment_result",
       "rd_review_decision",
@@ -63,6 +80,29 @@ test("control plane schema initializes frozen stages and lifecycle rules", () =>
     }
     assert.equal(count(db, "rd_result_stage"), 8)
     assert.equal(count(db, "rd_lifecycle_transition_rule") >= 20, true)
+  } finally {
+    db.close()
+  }
+})
+
+test("Control Plane provider certification registry is immutable and create-or-identical", () => {
+  const db = openDb()
+  try {
+    assert.deepEqual(registerReplayInstrumentStatusProviderCertification(db, PROVIDER_CERTIFICATION), PROVIDER_CERTIFICATION)
+    assert.throws(() => db.query(`
+      UPDATE rd_replay_instrument_status_provider_certification
+      SET valid_until = '2026-09-01T00:00:00Z'
+      WHERE certification_id = 'status-provider-certification-1'
+    `).run(), /immutable/)
+    const { certification_hash: _certificationHash, ...certificationBody } = PROVIDER_CERTIFICATION
+    const collision = createReplayInstrumentStatusProviderCertificationSnapshot({
+      ...certificationBody,
+      valid_until: "2026-09-01T00:00:00Z",
+    })
+    assert.throws(
+      () => registerReplayInstrumentStatusProviderCertification(db, collision),
+      /different content/,
+    )
   } finally {
     db.close()
   }
@@ -255,7 +295,8 @@ test("Control Plane atomically issues an immutable Replay Trial Reservation snap
         replay_idempotency_key: "replay-key", execution_spec_hash: "a".repeat(64), dataset_manifest_ref: "dataset://fixture", dataset_hash: "b".repeat(64),
         supplemental_facts_hash: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
         supplemental_requirement_set_hash: "f126b641e1c2e55c174e3505e15232b466e50c3fd764f30968a925821c31d144",
-        venue_risk_policy_schedule_hash: "c".repeat(64), instrument_spec_schedule_hash: "d".repeat(64), instrument_status_schedule_hash: "f".repeat(64), instrument_status_provenance_hash: "3".repeat(64), harness_hash: "e".repeat(64),
+        venue_risk_policy_schedule_hash: "c".repeat(64), instrument_spec_schedule_hash: "d".repeat(64), instrument_status_schedule_hash: "f".repeat(64), instrument_status_provenance_hash: "3".repeat(64),
+        instrument_status_provider_capability_hash: PROVIDER_CAPABILITY_HASH, instrument_status_provider_certification_hash: PROVIDER_CERTIFICATION.certification_hash, harness_hash: "e".repeat(64),
         assumptions_hash: "f".repeat(64), cost_policy_hash: "1".repeat(64), margin_policy_hash: "2".repeat(64),
         simulator_policy_version: "rd-replay-simulator-v7", execution_mode: "step",
       },
@@ -266,6 +307,27 @@ test("Control Plane atomically issues an immutable Replay Trial Reservation snap
     assert.equal(snapshot.identity.candidate_hash, candidateIdentityHash({ lookback: 20 }))
     assert.equal(snapshot.identity.experiment_contract_hash, hashIdentityPayload(experimentContract()))
     assert.equal(snapshot.counts_against_budget, true)
+    assert.throws(() => issueTrialReservationSnapshot(db, {
+      trial_id: "trial-reserved", reservation_id: "reservation-unknown-certification", reservation_ref: "reservation://unknown-certification", issued_at: NOW,
+      expires_at: "2026-07-14T04:08:00Z",
+      bindings: { ...snapshot.bindings, instrument_status_provider_certification_hash: "9".repeat(64) },
+      required_capabilities: snapshot.required_capabilities,
+    }), /not registered/)
+    const { certification_hash: _providerCertificationHash, ...providerCertificationBody } = PROVIDER_CERTIFICATION
+    const expiredCertification = createReplayInstrumentStatusProviderCertificationSnapshot({
+      ...providerCertificationBody,
+      certification_id: "status-provider-certification-expired",
+      certification_ref: "certification://status-provider/expired",
+      certified_at: "2026-07-14T01:00:00Z",
+      valid_until: "2026-07-14T03:00:00Z",
+    })
+    registerReplayInstrumentStatusProviderCertification(db, expiredCertification)
+    assert.throws(() => issueTrialReservationSnapshot(db, {
+      trial_id: "trial-reserved", reservation_id: "reservation-expired-certification", reservation_ref: "reservation://expired-certification", issued_at: NOW,
+      expires_at: "2026-07-14T04:08:00Z",
+      bindings: { ...snapshot.bindings, instrument_status_provider_certification_hash: expiredCertification.certification_hash },
+      required_capabilities: snapshot.required_capabilities,
+    }), /must be issued while provider certification is valid/)
     assert.throws(() => issueTrialReservationSnapshot(db, {
       trial_id: "trial-reserved", reservation_id: "reservation-requirement-drift", reservation_ref: "reservation://trial-reserved-requirement-drift", issued_at: NOW,
       expires_at: "2026-07-14T04:08:00Z",
@@ -300,7 +362,8 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
         replay_idempotency_key: "replay-attempt-key", execution_spec_hash: "a".repeat(64), dataset_manifest_ref: "dataset://fixture", dataset_hash: "b".repeat(64),
         supplemental_facts_hash: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
         supplemental_requirement_set_hash: "f126b641e1c2e55c174e3505e15232b466e50c3fd764f30968a925821c31d144",
-        venue_risk_policy_schedule_hash: "c".repeat(64), instrument_spec_schedule_hash: "d".repeat(64), instrument_status_schedule_hash: "f".repeat(64), instrument_status_provenance_hash: "3".repeat(64), harness_hash: "e".repeat(64),
+        venue_risk_policy_schedule_hash: "c".repeat(64), instrument_spec_schedule_hash: "d".repeat(64), instrument_status_schedule_hash: "f".repeat(64), instrument_status_provenance_hash: "3".repeat(64),
+        instrument_status_provider_capability_hash: PROVIDER_CAPABILITY_HASH, instrument_status_provider_certification_hash: PROVIDER_CERTIFICATION.certification_hash, harness_hash: "e".repeat(64),
         assumptions_hash: "f".repeat(64), cost_policy_hash: "1".repeat(64), margin_policy_hash: "2".repeat(64),
         simulator_policy_version: "rd-replay-simulator-v7", execution_mode: "step",
       },
@@ -610,6 +673,7 @@ test("blocker fact and lifecycle projection commit atomically", () => {
 function openDb(): Database {
   const db = new Database(":memory:")
   ensureResearchStateSchema(db)
+  registerReplayInstrumentStatusProviderCertification(db, PROVIDER_CERTIFICATION)
   return db
 }
 

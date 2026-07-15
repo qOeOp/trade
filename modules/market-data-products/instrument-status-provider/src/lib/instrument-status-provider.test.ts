@@ -15,7 +15,14 @@ import {
   buildReplayInstrumentStatusEvidence,
   INSTRUMENT_STATUS_NORMALIZATION_POLICY_HASH,
   INSTRUMENT_STATUS_PROVIDER_BUILD_HASH,
+  INSTRUMENT_STATUS_PROVIDER_CAPABILITY,
 } from "./instrument-status-provider"
+
+const PROVIDER_CERTIFICATION = {
+  certification_ref: "certification://status-provider/v1",
+  certification_hash: "d".repeat(64),
+  provider_capability_hash: INSTRUMENT_STATUS_PROVIDER_CAPABILITY.capability_hash,
+}
 
 function archive() {
   return createInstrumentStatusArchive({
@@ -44,6 +51,7 @@ test("provider deterministically normalizes a finalized archive into Replay evid
     replay_start: "2026-07-01T04:00:00Z",
     replay_end: "2026-07-03T20:00:00Z",
     produced_at: "2026-07-04T00:02:00Z",
+    provider_certification: PROVIDER_CERTIFICATION,
   }
   const first = buildReplayInstrumentStatusEvidence(input)
   const second = buildReplayInstrumentStatusEvidence(input)
@@ -66,12 +74,14 @@ test("provider rejects uncovered windows and evidence capability drift", () => {
     replay_start: "2026-06-30T00:00:00Z",
     replay_end: "2026-07-03T00:00:00Z",
     produced_at: "2026-07-04T00:02:00Z",
+    provider_certification: PROVIDER_CERTIFICATION,
   }), /exceeds the finalized archive coverage/)
   const evidence = buildReplayInstrumentStatusEvidence({
     archive: archive(),
     replay_start: "2026-07-01T00:00:00Z",
     replay_end: "2026-07-04T00:00:00Z",
     produced_at: "2026-07-04T00:02:00Z",
+    provider_certification: PROVIDER_CERTIFICATION,
   })
   assert.throws(() => assertReplayInstrumentStatusEvidence({
     ...evidence,
@@ -110,6 +120,7 @@ test("provider evidence is admitted by the authoritative Replay request and Data
     replay_start: fixture.dataset_manifest.first_open_time,
     replay_end: fixture.dataset_manifest.last_close_time,
     produced_at: "2026-07-15T00:02:00Z",
+    provider_certification: PROVIDER_CERTIFICATION,
   })
   const datasetManifest: ReplayDatasetManifest = {
     ...fixture.dataset_manifest,
@@ -123,6 +134,8 @@ test("provider evidence is admitted by the authoritative Replay request and Data
     ...fixture.request,
     instrument_status_schedule_hash: canonicalHash(evidence.status_epochs),
     instrument_status_provenance_hash: canonicalHash(evidence.status_provenance),
+    instrument_status_provider_capability_hash: evidence.status_provenance.provider_capability_hash,
+    instrument_status_provider_certification_hash: evidence.status_provenance.provider_certification_hash,
   }
   assert.doesNotThrow(() => assertReplayDatasetManifest(datasetManifest))
   assert.doesNotThrow(() => assertReplayExecutionRequest(request))

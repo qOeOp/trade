@@ -95,7 +95,7 @@ export interface ReplayTrialRunInput {
 }
 
 export interface ReplayTrialRunOutcome {
-  schema_version: "trade.rd-replay-run-outcome.v33"
+  schema_version: "trade.rd-replay-run-outcome.v34"
   run_id: string
   attempt_id: string
   lease_generation: number
@@ -163,10 +163,10 @@ interface ReplayDiagnosticCheckpointCommitRecord {
 
 export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcome {
   try {
-    validateTrialReservation(input.request, input.trial_reservation)
+    validateTrialReservation(input.request, input.trial_reservation, input.dataset_manifest)
   } catch (error) {
     return {
-      schema_version: "trade.rd-replay-run-outcome.v33",
+      schema_version: "trade.rd-replay-run-outcome.v34",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -189,7 +189,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     const expired = error instanceof ReplayAttemptLeaseExpiredError
     const reservationExpired = error instanceof ReplayTrialReservationExpiredError
     return {
-      schema_version: "trade.rd-replay-run-outcome.v33",
+      schema_version: "trade.rd-replay-run-outcome.v34",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -206,7 +206,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
   }
   if (input.cancel_requested) {
     return {
-      schema_version: "trade.rd-replay-run-outcome.v33",
+      schema_version: "trade.rd-replay-run-outcome.v34",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -252,7 +252,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     if (committed) {
       cleanupDiagnosticCheckpoint(activeArtifactNamespace!)
       return {
-        schema_version: "trade.rd-replay-run-outcome.v33",
+        schema_version: "trade.rd-replay-run-outcome.v34",
         run_id: input.request.run_id,
         attempt_id: input.attempt_lease.attempt_id,
         lease_generation: input.attempt_lease.lease_generation,
@@ -355,7 +355,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
       : undefined
     if (activeArtifactNamespace) cleanupDiagnosticCheckpoint(activeArtifactNamespace)
     return {
-      schema_version: "trade.rd-replay-run-outcome.v33",
+      schema_version: "trade.rd-replay-run-outcome.v34",
       run_id: input.request.run_id,
       attempt_id: activeAttemptLease.attempt_id,
       lease_generation: activeAttemptLease.lease_generation,
@@ -378,7 +378,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     const liquidationDeficit = error instanceof ReplayLiquidationDeficitError
     const dataContinuity = isReplayDataContinuityFailure(error)
     return {
-      schema_version: "trade.rd-replay-run-outcome.v33",
+      schema_version: "trade.rd-replay-run-outcome.v34",
       run_id: input.request.run_id,
       attempt_id: activeAttemptLease.attempt_id,
       lease_generation: activeAttemptLease.lease_generation,
@@ -536,7 +536,11 @@ function validateAttemptLease(
 class ReplayAttemptLeaseExpiredError extends Error {}
 class ReplayTrialReservationExpiredError extends Error {}
 
-function validateTrialReservation(request: ReplayExecutionRequest, reservation: TrialReservationSnapshot): void {
+function validateTrialReservation(
+  request: ReplayExecutionRequest,
+  reservation: TrialReservationSnapshot,
+  datasetManifest: ReplayDatasetManifest,
+): void {
   assertTrialReservationSnapshot(reservation)
   if (reservation.reservation_ref !== request.trial_reservation_ref
       || hashTrialReservationSnapshot(reservation) !== request.trial_reservation_hash) {
@@ -561,6 +565,8 @@ function validateTrialReservation(request: ReplayExecutionRequest, reservation: 
       || bindings.instrument_spec_schedule_hash !== request.instrument_spec_schedule_hash
       || bindings.instrument_status_schedule_hash !== request.instrument_status_schedule_hash
       || bindings.instrument_status_provenance_hash !== request.instrument_status_provenance_hash
+      || bindings.instrument_status_provider_capability_hash !== request.instrument_status_provider_capability_hash
+      || bindings.instrument_status_provider_certification_hash !== request.instrument_status_provider_certification_hash
       || bindings.harness_hash !== request.harness_hash
       || bindings.assumptions_hash !== request.assumptions_hash
       || bindings.cost_policy_hash !== canonicalHash(request.cost_policy)
@@ -568,6 +574,24 @@ function validateTrialReservation(request: ReplayExecutionRequest, reservation: 
       || bindings.simulator_policy_version !== request.simulator_policy.version
       || bindings.execution_mode !== "step") {
     throw new Error("Trial Reservation execution bindings do not match Replay request")
+  }
+  if (reservation.instrument_status_provider_certification.provider_capability_hash !== request.instrument_status_provider_capability_hash
+      || reservation.instrument_status_provider_certification.certification_hash !== request.instrument_status_provider_certification_hash) {
+    throw new Error("Trial Reservation provider certification does not match Replay request")
+  }
+  const statusProvenance = datasetManifest.instrument.status_provenance
+  if (statusProvenance.provider_certification_ref !== reservation.instrument_status_provider_certification.certification_ref
+      || statusProvenance.provider_certification_hash !== reservation.instrument_status_provider_certification.certification_hash
+      || statusProvenance.provider_capability_hash !== reservation.instrument_status_provider_certification.provider_capability_hash
+      || statusProvenance.producer_domain !== reservation.instrument_status_provider_certification.producer_domain
+      || statusProvenance.producer_id !== reservation.instrument_status_provider_certification.producer_id
+      || statusProvenance.producer_version !== reservation.instrument_status_provider_certification.producer_version
+      || statusProvenance.producer_build_hash !== reservation.instrument_status_provider_certification.producer_build_hash
+      || statusProvenance.normalization_policy_version !== reservation.instrument_status_provider_certification.normalization_policy_version
+      || statusProvenance.normalization_policy_hash !== reservation.instrument_status_provider_certification.normalization_policy_hash
+      || statusProvenance.source_kind !== reservation.instrument_status_provider_certification.allowed_source_kind
+      || statusProvenance.completeness !== reservation.instrument_status_provider_certification.allowed_completeness) {
+    throw new Error("Dataset status provenance does not bind the reserved provider certification")
   }
   const supported = new Set<string>(REPLAY_CERTIFIED_CAPABILITIES)
   if (reservation.required_capabilities.some((capability) => !supported.has(capability))) {

@@ -24,6 +24,8 @@ export interface DeveloperReplayPlan {
   instrument_spec_schedule_hash: string
   instrument_status_schedule_hash: string
   instrument_status_provenance_hash: string
+  instrument_status_provider_capability_hash: string
+  instrument_status_provider_certification_hash: string
   harness_hash: string
   assumptions_hash: string
   symbol: string
@@ -64,6 +66,8 @@ export function buildDeveloperReplayRequest(plan: DeveloperReplayPlan): ReplayEx
     instrument_spec_schedule_hash: plan.instrument_spec_schedule_hash,
     instrument_status_schedule_hash: plan.instrument_status_schedule_hash,
     instrument_status_provenance_hash: plan.instrument_status_provenance_hash,
+    instrument_status_provider_capability_hash: plan.instrument_status_provider_capability_hash,
+    instrument_status_provider_certification_hash: plan.instrument_status_provider_certification_hash,
     harness_hash: plan.harness_hash,
     assumptions_hash: plan.assumptions_hash,
     symbol: plan.symbol,

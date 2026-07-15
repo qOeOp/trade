@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
 import { commitInstrumentStatusArchive, createInstrumentStatusArchive, ensureMarketDataSchema } from "../../../market-data-store/src/lib/market-data-store"
+import { INSTRUMENT_STATUS_PROVIDER_CAPABILITY } from "../lib/instrument-status-provider"
 import { parseArgs, run } from "./main"
 
 test("instrument-status provider CLI reads one immutable archive without mutating the store", () => {
@@ -33,6 +34,11 @@ test("instrument-status provider CLI reads one immutable archive without mutatin
       replay_start: "2026-07-01T04:00:00Z",
       replay_end: "2026-07-01T20:00:00Z",
       produced_at: "2026-07-02T00:02:00Z",
+      provider_certification: {
+        certification_ref: "certification://status-provider/v1",
+        certification_hash: "d".repeat(64),
+        provider_capability_hash: INSTRUMENT_STATUS_PROVIDER_CAPABILITY.capability_hash,
+      },
     })])) as { evidence: { archive_hash: string; status_epochs: unknown[] } }
     assert.equal(result.evidence.archive_hash, archive.archive_hash)
     assert.equal(result.evidence.status_epochs.length, 1)

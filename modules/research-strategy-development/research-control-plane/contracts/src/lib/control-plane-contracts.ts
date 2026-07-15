@@ -4,7 +4,8 @@ import { REPLAY_LOCAL_ARTIFACT_STORAGE_POLICY_VERSION } from "../../../../../con
 export const CONTROL_PLANE_IDENTITY_SCHEMA_VERSION = "trade.rd-identity-binding.v1" as const
 export const DRAFT_AUTHORIZATION_SCHEMA_VERSION = "trade.rd-draft-authorization.v1" as const
 export const STRATEGY_DRAFT_BINDING_SCHEMA_VERSION = "trade.rd-strategy-draft-binding.v1" as const
-export const TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION = "trade.rd-trial-reservation-snapshot.v7" as const
+export const TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION = "trade.rd-trial-reservation-snapshot.v8" as const
+export const REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION = "trade.rd-replay-instrument-status-provider-certification.v1" as const
 export const REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION = "trade.rd-replay-attempt-lease.v1" as const
 export const REPLAY_CHECKPOINT_RECEIPT_SCHEMA_VERSION = "trade.rd-replay-checkpoint-receipt.v2" as const
 export const REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION = REPLAY_LOCAL_ARTIFACT_STORAGE_POLICY_VERSION
@@ -33,6 +34,8 @@ export interface ReplayReservationBindings {
   instrument_spec_schedule_hash: string
   instrument_status_schedule_hash: string
   instrument_status_provenance_hash: string
+  instrument_status_provider_capability_hash: string
+  instrument_status_provider_certification_hash: string
   harness_hash: string
   assumptions_hash: string
   cost_policy_hash: string
@@ -40,6 +43,32 @@ export interface ReplayReservationBindings {
   simulator_policy_version: string
   execution_mode: "step"
 }
+
+export interface ReplayInstrumentStatusProviderCertificationSnapshot {
+  schema_version: typeof REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION
+  certification_id: string
+  certification_ref: string
+  certification_hash: string
+  status: "certified"
+  certified_at: string
+  valid_until: string
+  certifier_id: string
+  certification_policy_version: string
+  provider_capability_hash: string
+  producer_domain: "market-data-products"
+  producer_id: string
+  producer_version: string
+  producer_build_hash: string
+  normalization_policy_version: string
+  normalization_policy_hash: string
+  allowed_source_kind: "venue_status_event_archive"
+  allowed_completeness: "complete_history"
+}
+
+export type ReplayInstrumentStatusProviderCertificationBody = Omit<
+  ReplayInstrumentStatusProviderCertificationSnapshot,
+  "certification_hash"
+>
 
 export interface TrialReservationSnapshot {
   schema_version: typeof TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION
@@ -55,6 +84,7 @@ export interface TrialReservationSnapshot {
   trial_accounting_policy_version: string
   candidate_assignment_hash: string
   bindings: ReplayReservationBindings
+  instrument_status_provider_certification: ReplayInstrumentStatusProviderCertificationSnapshot
   required_capabilities: string[]
 }
 
@@ -189,11 +219,24 @@ export function assertTrialReservationSnapshot(value: TrialReservationSnapshot):
     instrument_spec_schedule_hash: bindings.instrument_spec_schedule_hash,
     instrument_status_schedule_hash: bindings.instrument_status_schedule_hash,
     instrument_status_provenance_hash: bindings.instrument_status_provenance_hash,
+    instrument_status_provider_capability_hash: bindings.instrument_status_provider_capability_hash,
+    instrument_status_provider_certification_hash: bindings.instrument_status_provider_certification_hash,
     harness_hash: bindings.harness_hash,
     assumptions_hash: bindings.assumptions_hash,
     cost_policy_hash: bindings.cost_policy_hash,
     margin_policy_hash: bindings.margin_policy_hash,
   })) requireHash(binding, `reservation.bindings.${field}`)
+  assertReplayInstrumentStatusProviderCertificationSnapshot(value.instrument_status_provider_certification)
+  if (bindings.instrument_status_provider_capability_hash !== value.instrument_status_provider_certification.provider_capability_hash) {
+    fail("reservation provider capability does not match its certification")
+  }
+  if (bindings.instrument_status_provider_certification_hash !== value.instrument_status_provider_certification.certification_hash) {
+    fail("reservation provider certification hash does not match its snapshot")
+  }
+  if (Date.parse(value.issued_at) < Date.parse(value.instrument_status_provider_certification.certified_at)
+      || Date.parse(value.issued_at) >= Date.parse(value.instrument_status_provider_certification.valid_until)) {
+    fail("reservation must be issued while provider certification is valid")
+  }
   if (bindings.execution_mode !== "step") fail("reservation only supports step execution")
   if (!Array.isArray(value.required_capabilities) || value.required_capabilities.length === 0) {
     fail("reservation.required_capabilities must not be empty")
@@ -203,6 +246,50 @@ export function assertTrialReservationSnapshot(value: TrialReservationSnapshot):
   if (normalized.length !== capabilities.length || normalized.some((capability, index) => capability !== capabilities[index])) {
     fail("reservation.required_capabilities must be unique and sorted")
   }
+}
+
+export function createReplayInstrumentStatusProviderCertificationSnapshot(
+  body: ReplayInstrumentStatusProviderCertificationBody,
+): ReplayInstrumentStatusProviderCertificationSnapshot {
+  const value: ReplayInstrumentStatusProviderCertificationSnapshot = {
+    ...body,
+    certification_hash: createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex"),
+  }
+  assertReplayInstrumentStatusProviderCertificationSnapshot(value)
+  return value
+}
+
+export function assertReplayInstrumentStatusProviderCertificationSnapshot(
+  value: ReplayInstrumentStatusProviderCertificationSnapshot,
+): void {
+  if (value.schema_version !== REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION) {
+    fail("provider certification schema_version")
+  }
+  for (const [field, item] of Object.entries({
+    certification_id: value.certification_id,
+    certification_ref: value.certification_ref,
+    certifier_id: value.certifier_id,
+    certification_policy_version: value.certification_policy_version,
+    producer_id: value.producer_id,
+    producer_version: value.producer_version,
+    normalization_policy_version: value.normalization_policy_version,
+  })) requireText(item, `provider_certification.${field}`)
+  for (const [field, item] of Object.entries({
+    certification_hash: value.certification_hash,
+    provider_capability_hash: value.provider_capability_hash,
+    producer_build_hash: value.producer_build_hash,
+    normalization_policy_hash: value.normalization_policy_hash,
+  })) requireHash(item, `provider_certification.${field}`)
+  requireUtcTimestamp(value.certified_at, "provider_certification.certified_at")
+  requireUtcTimestamp(value.valid_until, "provider_certification.valid_until")
+  if (Date.parse(value.valid_until) <= Date.parse(value.certified_at)) fail("provider certification validity window must be positive")
+  if (value.status !== "certified") fail("provider certification status must be certified")
+  if (value.producer_domain !== "market-data-products") fail("provider certification producer_domain")
+  if (value.allowed_source_kind !== "venue_status_event_archive") fail("provider certification source kind")
+  if (value.allowed_completeness !== "complete_history") fail("provider certification completeness")
+  const { certification_hash: certificationHash, ...body } = value
+  const expected = createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")
+  if (certificationHash !== expected) fail("provider certification hash mismatch")
 }
 
 export function hashTrialReservationSnapshot(value: TrialReservationSnapshot): string {

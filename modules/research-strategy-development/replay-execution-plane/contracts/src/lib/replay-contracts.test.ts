@@ -78,6 +78,7 @@ const SPEC_SNAPSHOT = { schema_version: REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_V
 const STATUS_SNAPSHOT = { schema_version: REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION, snapshot_id: "status-1", venue_id: "binance-usdm", symbol: "BTCUSDT", status: "trading" as const, effective_at: "2020-01-01T00:00:00Z", valid_until: null, observed_at: "2026-07-13T00:00:00Z", source_ref: "fixture:status-1", source_hash: HASH }
 const statusProvenance = (statusEpochs: ReplayInstrumentStatusSnapshot[] = [STATUS_SNAPSHOT], completeness: "complete_history" | "current_snapshot_only" = "complete_history") => createReplayInstrumentStatusProvenance({
   producer_domain: "market-data-products", producer_id: "fixture-status-producer", producer_version: "v1", producer_build_hash: HASH, source_owner: "binance-usdm",
+  provider_capability_hash: HASH, provider_certification_ref: "certification://fixture-status-provider/v1", provider_certification_hash: HASH,
   source_kind: completeness === "complete_history" ? "venue_status_event_archive" : "venue_current_snapshot",
   normalization_policy_version: "fixture-status-normalization-v1", normalization_policy_hash: HASH, completeness,
   coverage_start: "2020-01-01T00:00:00Z", coverage_end: "2030-01-01T00:00:00Z",
@@ -118,6 +119,8 @@ export function fixtureRequest(): ReplayExecutionRequest {
     instrument_spec_schedule_hash: HASH,
     instrument_status_schedule_hash: canonicalHash([STATUS_SNAPSHOT]),
     instrument_status_provenance_hash: canonicalHash(statusProvenance()),
+    instrument_status_provider_capability_hash: HASH,
+    instrument_status_provider_certification_hash: HASH,
     harness_hash: HASH,
     assumptions_hash: HASH,
     symbol: "BTCUSDT",
@@ -146,6 +149,8 @@ test("Replay request requires complete Trial and evidence identity", () => {
   expect(() => assertReplayExecutionRequest({ ...fixtureRequest(), dataset_hash: "weak" })).toThrow()
   expect(() => assertReplayExecutionRequest({ ...fixtureRequest(), instrument_status_schedule_hash: "weak" })).toThrow()
   expect(() => assertReplayExecutionRequest({ ...fixtureRequest(), instrument_status_provenance_hash: "weak" })).toThrow()
+  expect(() => assertReplayExecutionRequest({ ...fixtureRequest(), instrument_status_provider_capability_hash: "weak" })).toThrow()
+  expect(() => assertReplayExecutionRequest({ ...fixtureRequest(), instrument_status_provider_certification_hash: "weak" })).toThrow()
   expect(() => assertReplayExecutionRequest({ ...fixtureRequest(), decision_schedule_hash: HASH })).toThrow("decision schedule hash mismatch")
   const unauthorizedSchedule = fixtureRequest()
   unauthorizedSchedule.decision_schedule = {
