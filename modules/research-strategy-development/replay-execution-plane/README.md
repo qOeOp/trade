@@ -1,5 +1,7 @@
 # Replay Execution Plane
 
+Instrument-status producer implementation 与 normalization policy 同时绑定 version + SHA-256 content hash，禁止版本字符串不变而实现漂移。
+
 RD 确定性历史执行与证据生产面。当前已实现：
 
 ```text
@@ -14,7 +16,7 @@ compatibility/ 迁入的 legacy replay/benchmark/panel 实现，只用于兼容�
 certification/ 迁入的 calibration 认证来源
 ```
 
-当前是 Trial Reservation v6、Request v22、Result v34、Artifact v36、Run Outcome v32、Dataset Manifest v8、OHLCV Resolution Evidence v3、Partial Reduce Intent v1、Reduce-only Exit Intent v1、Protective Stop Replace Intent v1、Decision Schedule v5、Boundary v7、Timeline v8、State Snapshot v3、Harness Context v6、Registry Capability v7、Harness Capability/Receipt v9、Worker Protocol v7、Engine Checkpoint v17、Simulator v10、Margin v7、Journal v4 的受限认证纵切。Control Plane 冻结 decision sequence/time/effect 与 `instrument_status_schedule_hash`；当前 lane 可选择一次全仓 stop tighten，或一次 fixed-quantity partial reduce 后按剩余仓位原子重建双保护，并可追加一次末位 full exit。stop/target/exact risk 在 partial open 前保持优先，terminal owner 会取消 pending partial。
+当前是 Trial Reservation v7、Request v23、Result v35、Artifact v37、Run Outcome v33、Dataset Manifest v9、Instrument Status Provenance v1、OHLCV Resolution Evidence v3、Partial Reduce Intent v1、Reduce-only Exit Intent v1、Protective Stop Replace Intent v1、Decision Schedule v5、Boundary v7、Timeline v8、State Snapshot v3、Harness Context v6、Registry Capability v7、Harness Capability/Receipt v9、Worker Protocol v7、Engine Checkpoint v17、Simulator v10、Margin v7、Journal v4 的受限认证纵切。Control Plane 分别冻结 `instrument_status_schedule_hash` 与 `instrument_status_provenance_hash`；只有 Market Data Products 生产的 venue event archive attestation 可以声明 `complete_history`，当前/周期快照不得升级为完整 PIT 历史。当前 lane 可选择一次全仓 stop tighten，或一次 fixed-quantity partial reduce 后按剩余仓位原子重建双保护，并可追加一次末位 full exit。
 
 R4.41 只新增非可执行 `Partial Reduce Intent Draft v1`：冻结一次小于初始仓位的 fixed-quantity market reduce-only，以及 partial Fill 后同 source boundary 按剩余仓位取消/重建双保护的 draft policy。它未进入 Request/Schedule/certified capabilities；Runner 对该 draft capability 显式拒绝，直到非终止 Fill、partial Position/Ledger、bracket resize 与 checkpoint parity 完成。
 
@@ -37,6 +39,8 @@ R4.49 用 certification-only Python `Decimal` oracle 排除同语言自证。Can
 R4.50 冻结执行相关时间网格缺失协议。连续 bar 的 observed-open price jump 仍按 `worse_open`；缺失整根 bar 则返回带精确 bounds/count 的 `dataset-grid-gap-in-execution-window`，不得跨越未知区间执行。缺 frozen entry bar 在 Fill 前失败；持仓后 gap 在前一已观测 close 后、后续 source/checkpoint 前失败，且无 partial Result/Artifact。终态在 gap 前完成时，未消费的未来 gap 不改变 Result；resume 不能绕过 fence。Simulator 推进至 v9，Run Outcome 推进至 v31，其他成功证据 schema 不变。
 
 R4.51 冻结 point-in-time instrument trading-status epochs。Dataset Manifest v8 必须给出连续半开 `trading/halted` schedule，Request/Reservation/Result fingerprint 独立绑定其 hash；只有完整 schedule 证明 `[previous.close, next.open)` 全程 halted 且 `next.open` 已恢复交易时，该无 bar 区间才不是数据缺口。halt/resume 是 phase-`00` SourceEvent；停牌期间禁止 entry、bar-open Fill 与策略订单执行，但 exact Funding/Mark 仍进入账本/风险观察。维持保证金穿透返回 `maintenance-margin-breach-while-halted`，不合成不可执行的 liquidation Fill。既有保护单跨停牌保持 active，恢复后的首个真实 open 继续用 observed-open gap 规则。delisting/settlement 仍是独立 typed failure，不能由本协议推断。
+
+R4.52 冻结 instrument-status producer authority。Dataset Manifest v9 的 `status_provenance` 绑定 producer domain/id/version、source owner/kind、归一化策略、覆盖区间、source observation/production time、原始记录数量/ref/hash 与 schedule hash；Request v23、Trial Reservation v7、Result v35 Fingerprint 分别绑定 provenance hash。`complete_history` 只接受 `venue_status_event_archive` 且必须覆盖 Replay window；current snapshot/periodic snapshots 只能声明 `current_snapshot_only`。Replay 不采集状态、不信任缺 bar 推断，也不把 producer attestation 当成真实性证明；生产 provider 与 archive completeness certification 尚未实现。
 
 经济入口按唯一 `authorized_initial_order / authorized_order` 语义定位，不依赖 Schedule/Timeline 数组末位；可选退出必须是 Schedule 末位并以 `authorized_reduce_only_exit` 独立表达，不能冒充第二个入口。所有 post-entry evaluation 必须由 Source Reducer 运行时产生 Position/Cash State Snapshot，并正确表达 terminal-before-decision、pending Order 与 checkpoint/resume。
 
