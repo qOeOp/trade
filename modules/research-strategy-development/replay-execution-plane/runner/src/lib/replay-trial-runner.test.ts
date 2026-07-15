@@ -8,6 +8,7 @@ import {
   REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
   REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION,
   REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION,
+  REPLAY_OBJECT_ARTIFACT_STORE_REQUIRED_CAPABILITY,
   REPLAY_REQUEST_SCHEMA_VERSION,
   REPLAY_SIMULATOR_POLICY_VERSION,
   REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
@@ -18,6 +19,8 @@ import {
   type ReplayExecutionRequest,
 } from "../../../contracts/src/lib/replay-contracts"
 import { runReplayTrial, type ReplayDiagnosticCheckpointCommitRef } from "./replay-trial-runner"
+import type { ReplayArtifactStore } from "./replay-artifact-store"
+import { createReplayLocalArtifactStore } from "./replay-local-artifact-store"
 
 const HASH = "b".repeat(64)
 const OBSERVED_AT = "2026-07-14T00:01:00Z"
@@ -160,7 +163,10 @@ function datasetManifest(): ReplayDatasetManifest {
 test("runner atomically commits artifacts and retries idempotently", () => {
   const root = mkdtempSync(join(tmpdir(), "rd-replay-runner-"))
   const first = runReplayTrial({ ...authorized(), dataset_manifest: datasetManifest(), bars, artifact_root: root })
-  const second = runReplayTrial({ ...authorized(), dataset_manifest: datasetManifest(), bars, artifact_root: root })
+  const second = runReplayTrial({
+    ...authorized(), dataset_manifest: datasetManifest(), bars,
+    artifact_store: createReplayLocalArtifactStore(root),
+  })
   expect(first.status).toBe("completed")
   expect(first.artifact_manifest?.files.map((file) => file.role)).toEqual(["request", "trial_reservation", "attempt_lease", "dataset_manifest", "result", "source_events", "order_events", "fills", "positions", "ledger", "valuation_snapshot", "equity_bridge", "margin_snapshots", "liquidation", "journal", "trial_balance"])
   expect(first.artifact_manifest?.completeness.authoritative_result).toBe(true)
@@ -203,6 +209,27 @@ test("runner represents early cancellation without publishing partial evidence",
   const result = runReplayTrial({ ...authorized(), dataset_manifest: datasetManifest(), bars, cancel_requested: true })
   expect(result.status).toBe("cancelled")
   expect(result.failure?.partial_result_published).toBe(false)
+})
+
+test("runner rejects a contract-valid but uncertified remote Artifact Store before execution", () => {
+  const remoteStore: ReplayArtifactStore = {
+    capability: REPLAY_OBJECT_ARTIFACT_STORE_REQUIRED_CAPABILITY,
+    openAttempt() {
+      throw new Error("uncertified remote backend must never be opened")
+    },
+  }
+  const result = runReplayTrial({
+    ...authorized(),
+    dataset_manifest: datasetManifest(),
+    bars,
+    artifact_store: remoteStore,
+  })
+  expect(result.status).toBe("failed")
+  expect(result.failure).toMatchObject({
+    code: "artifact-store-rejected",
+    failure_class: "unsupported_contract",
+    partial_result_published: false,
+  })
 })
 
 test("runner renews the fenced Attempt at source boundaries and resumes cancelled work exactly", () => {
@@ -373,7 +400,7 @@ test("runner atomically publishes an attempt-local checkpoint commit and resumes
     bars: replayBars,
     execution_control: { resume_authorization: resumeAuthorization(authority.request, authority.trial_reservation, outsideRootLease, commit) },
   })
-  expect(outsideRootRetry.failure?.message).toContain("outside artifact_root")
+  expect(outsideRootRetry.failure?.message).toContain("outside the Attempt namespace")
 
   const renewedTargetFloor = attemptLease(authority.request, authority.trial_reservation, {
     attempt_id: "attempt-5", attempt_ordinal: 5, worker_id: "worker-5", lease_generation: 1,

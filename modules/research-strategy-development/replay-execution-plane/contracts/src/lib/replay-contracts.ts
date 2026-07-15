@@ -1,8 +1,19 @@
 import { createHash } from "node:crypto"
+import {
+  REPLAY_LOCAL_ARTIFACT_STORAGE_POLICY_VERSION,
+  REPLAY_OBJECT_ARTIFACT_STORAGE_POLICY_VERSION,
+  type ReplayArtifactStoragePolicyVersion,
+} from "../../../../../contracts/replay-contract/src/replay-storage-policy"
+
+export {
+  REPLAY_LOCAL_ARTIFACT_STORAGE_POLICY_VERSION,
+  REPLAY_OBJECT_ARTIFACT_STORAGE_POLICY_VERSION,
+}
 
 export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v10" as const
 export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v16" as const
 export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v18" as const
+export const REPLAY_ARTIFACT_STORE_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-artifact-store-capability.v1" as const
 export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v6" as const
 export const REPLAY_NUMERIC_POLICY_VERSION = "rd-replay-number-v3" as const
 export const REPLAY_DERIVED_DECIMAL_INCREMENT = "0.000000000001" as const
@@ -33,6 +44,42 @@ export const REPLAY_REQUIRED_ARTIFACT_ROLES = [
   "valuation_snapshot", "equity_bridge", "margin_snapshots", "liquidation",
   "journal", "trial_balance",
 ] as const
+
+export interface ReplayArtifactStoreCapabilitySnapshot {
+  schema_version: typeof REPLAY_ARTIFACT_STORE_CAPABILITY_SCHEMA_VERSION
+  backend_kind: "local_filesystem" | "object_store"
+  storage_policy_version: ReplayArtifactStoragePolicyVersion
+  namespace_scope: "attempt"
+  immutable_create: "hard_link_create_if_absent" | "conditional_put_if_none_match_star"
+  collision_identity: "sha256_full_content"
+  read_after_write: "strong"
+  commit_marker: "manifest_last"
+  incomplete_write_cleanup: "unlink_temporary" | "abort_or_expire_uncommitted_upload"
+}
+
+export const REPLAY_LOCAL_ARTIFACT_STORE_CAPABILITY: ReplayArtifactStoreCapabilitySnapshot = {
+  schema_version: REPLAY_ARTIFACT_STORE_CAPABILITY_SCHEMA_VERSION,
+  backend_kind: "local_filesystem",
+  storage_policy_version: REPLAY_LOCAL_ARTIFACT_STORAGE_POLICY_VERSION,
+  namespace_scope: "attempt",
+  immutable_create: "hard_link_create_if_absent",
+  collision_identity: "sha256_full_content",
+  read_after_write: "strong",
+  commit_marker: "manifest_last",
+  incomplete_write_cleanup: "unlink_temporary",
+}
+
+export const REPLAY_OBJECT_ARTIFACT_STORE_REQUIRED_CAPABILITY: ReplayArtifactStoreCapabilitySnapshot = {
+  schema_version: REPLAY_ARTIFACT_STORE_CAPABILITY_SCHEMA_VERSION,
+  backend_kind: "object_store",
+  storage_policy_version: REPLAY_OBJECT_ARTIFACT_STORAGE_POLICY_VERSION,
+  namespace_scope: "attempt",
+  immutable_create: "conditional_put_if_none_match_star",
+  collision_identity: "sha256_full_content",
+  read_after_write: "strong",
+  commit_marker: "manifest_last",
+  incomplete_write_cleanup: "abort_or_expire_uncommitted_upload",
+}
 
 export interface ReplayExecutionRequest {
   schema_version: typeof REPLAY_REQUEST_SCHEMA_VERSION
@@ -830,6 +877,22 @@ export function replayExecutionSpecHash(request: ReplayExecutionRequest): string
   delete authorized.trial_reservation_ref
   delete authorized.trial_reservation_hash
   return canonicalHash(authorized)
+}
+
+export function assertReplayArtifactStoreCapability(
+  capability: ReplayArtifactStoreCapabilitySnapshot,
+): void {
+  if (capability.schema_version !== REPLAY_ARTIFACT_STORE_CAPABILITY_SCHEMA_VERSION) {
+    fail("unsupported Replay Artifact Store capability schema")
+  }
+  const expected = capability.backend_kind === "local_filesystem"
+    ? REPLAY_LOCAL_ARTIFACT_STORE_CAPABILITY
+    : capability.backend_kind === "object_store"
+      ? REPLAY_OBJECT_ARTIFACT_STORE_REQUIRED_CAPABILITY
+      : undefined
+  if (!expected || canonicalJson(capability) !== canonicalJson(expected)) {
+    fail("Replay Artifact Store capability does not match its backend contract")
+  }
 }
 
 export function canonicalHash(value: unknown): string {

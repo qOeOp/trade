@@ -4,18 +4,96 @@ import {
   existsSync,
   fsyncSync,
   linkSync,
+  lstatSync,
   mkdirSync,
   openSync,
   readFileSync,
+  readdirSync,
   renameSync,
   unlinkSync,
   writeFileSync,
 } from "node:fs"
-import { dirname, resolve } from "node:path"
+import { dirname, join, relative, resolve, sep } from "node:path"
+import { REPLAY_LOCAL_ARTIFACT_STORE_CAPABILITY } from "../../../contracts/src/lib/replay-contracts"
+import type {
+  ReplayArtifactAttemptIdentity,
+  ReplayArtifactNamespace,
+  ReplayArtifactReadFile,
+  ReplayArtifactStore,
+} from "./replay-artifact-store"
 
 export interface ReplayDurableFile {
   ref: string
   sha256: string
+}
+
+export function createReplayLocalArtifactStore(root: string): ReplayArtifactStore {
+  return new ReplayLocalArtifactStore(root)
+}
+
+class ReplayLocalArtifactStore implements ReplayArtifactStore {
+  readonly capability = REPLAY_LOCAL_ARTIFACT_STORE_CAPABILITY
+  readonly #root: string
+
+  constructor(root: string) {
+    if (root.trim() === "") throw new Error("Replay local Artifact Store root is required")
+    this.#root = resolve(root)
+  }
+
+  openAttempt(identity: ReplayArtifactAttemptIdentity): ReplayArtifactNamespace {
+    requireHash(identity.idempotency_key_hash, "idempotency_key_hash")
+    requireHash(identity.attempt_id_hash, "attempt_id_hash")
+    return new ReplayLocalArtifactNamespace(join(
+      this.#root,
+      identity.idempotency_key_hash.slice(0, 24),
+      identity.attempt_id_hash.slice(0, 24),
+    ))
+  }
+}
+
+class ReplayLocalArtifactNamespace implements ReplayArtifactNamespace {
+  readonly namespace_ref: string
+
+  constructor(directory: string) {
+    this.namespace_ref = resolve(directory)
+  }
+
+  fileRef(name: string): string {
+    requireFileName(name)
+    return join(this.namespace_ref, name)
+  }
+
+  exists(name: string): boolean {
+    return existsSync(this.fileRef(name))
+  }
+
+  listNames(): string[] {
+    return existsSync(this.namespace_ref) ? readdirNames(this.namespace_ref) : []
+  }
+
+  read(name: string): ReplayArtifactReadFile {
+    const ref = this.fileRef(name)
+    assertRegularFile(ref)
+    return { name, ref, bytes: readFileSync(ref) }
+  }
+
+  readRef(ref: string): ReplayArtifactReadFile {
+    const resolvedRef = resolve(ref)
+    const name = relative(this.namespace_ref, resolvedRef)
+    if (resolvedRef !== ref || name === "" || name === ".." || name.startsWith(`..${sep}`) || name.includes(sep)) {
+      throw new Error("Replay Artifact Store ref is outside the Attempt namespace")
+    }
+    requireFileName(name)
+    return this.read(name)
+  }
+
+  writeImmutable(name: string, content: string): ReplayDurableFile {
+    return writeReplayImmutableCas(this.fileRef(name), content)
+  }
+
+  remove(name: string): void {
+    removeReplayDurableFile(this.fileRef(name))
+  }
 }
 
 export function ensureReplayDurableDirectory(directory: string): void {
@@ -91,11 +169,19 @@ function writeDurableTemporary(path: string, content: string): void {
 }
 
 function assertExisting(path: string, expectedHash: string): ReplayDurableFile {
+  assertRegularFile(path)
   const actualHash = createHash("sha256").update(readFileSync(path)).digest("hex")
   if (actualHash !== expectedHash) {
     throw new Error("Replay immutable artifact CAS collision")
   }
   return { ref: path, sha256: actualHash }
+}
+
+function assertRegularFile(path: string): void {
+  const stat = lstatSync(path)
+  if (!stat.isFile() || stat.isSymbolicLink()) {
+    throw new Error("Replay Artifact Store ref must be a regular file, not a link")
+  }
 }
 
 function fsyncDirectory(path: string): void {
@@ -121,4 +207,18 @@ function removeIfPresent(path: string): void {
 
 function isAlreadyExists(error: unknown): boolean {
   return error instanceof Error && "code" in error && error.code === "EEXIST"
+}
+
+function readdirNames(directory: string): string[] {
+  return readdirSync(directory).sort((left, right) => left.localeCompare(right))
+}
+
+function requireFileName(name: string): void {
+  if (!/^[a-z0-9][a-z0-9.-]*$/.test(name)) {
+    throw new Error("Replay Artifact Store file name must be an ASCII Attempt-local basename")
+  }
+}
+
+function requireHash(value: string, field: string): void {
+  if (!/^[a-f0-9]{64}$/.test(value)) throw new Error(`Replay Artifact Store ${field} must be a sha256 digest`)
 }

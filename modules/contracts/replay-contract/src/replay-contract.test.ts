@@ -1,6 +1,15 @@
 import { readFileSync } from "node:fs"
 import assert from "node:assert/strict"
 import test from "node:test"
+import {
+  REPLAY_LOCAL_ARTIFACT_STORAGE_POLICY_VERSION,
+  REPLAY_OBJECT_ARTIFACT_STORAGE_POLICY_VERSION,
+} from "./replay-storage-policy"
+
+test("Replay storage policy ids are stable across Plane contracts", () => {
+  assert.equal(REPLAY_LOCAL_ARTIFACT_STORAGE_POLICY_VERSION, "rd-replay-local-fsync-link-cas-v1")
+  assert.equal(REPLAY_OBJECT_ARTIFACT_STORAGE_POLICY_VERSION, "rd-replay-object-conditional-put-cas-v1")
+})
 
 test("replay result schema exposes the stable outer shell", () => {
   const schema = JSON.parse(readFileSync(new URL("./schemas/replay-result.schema.json", import.meta.url), "utf8")) as { $id?: string; required?: unknown }

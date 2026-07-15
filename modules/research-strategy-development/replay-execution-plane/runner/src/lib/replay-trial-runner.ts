@@ -1,6 +1,4 @@
 import { createHash } from "node:crypto"
-import { existsSync, readFileSync, readdirSync } from "node:fs"
-import { basename, dirname, join, relative, resolve, sep } from "node:path"
 import {
   assertReplayAttemptLeaseSnapshot,
   assertReplayResumeAuthorizationSnapshot,
@@ -41,10 +39,15 @@ import {
 import { ReplayLiquidationDeficitError, ReplayMarginTerminalError } from "../../../engine/src/lib/replay-margin-path"
 import { ReplayInstrumentTerminalError } from "../../../engine/src/lib/replay-source-reducer"
 import {
-  ensureReplayDurableDirectory,
-  removeReplayDurableFile,
-  writeReplayImmutableCas,
+  createReplayLocalArtifactStore,
 } from "./replay-local-artifact-store"
+import {
+  ReplayArtifactStoreContractError,
+  assertCertifiedReplayArtifactStore,
+  type ReplayArtifactNamespace,
+  type ReplayArtifactReadFile,
+  type ReplayArtifactStore,
+} from "./replay-artifact-store"
 
 export interface ReplayTrialRunInput {
   request: ReplayExecutionRequest
@@ -56,6 +59,7 @@ export interface ReplayTrialRunInput {
   funding_events?: ReplayFundingEvent[]
   mark_events?: ReplayMarkEvent[]
   artifact_root?: string
+  artifact_store?: ReplayArtifactStore
   cancel_requested?: boolean
   execution_control?: {
     resume_checkpoint?: ReplayEngineCheckpoint
@@ -72,7 +76,7 @@ export interface ReplayTrialRunInput {
 }
 
 export interface ReplayTrialRunOutcome {
-  schema_version: "trade.rd-replay-run-outcome.v11"
+  schema_version: "trade.rd-replay-run-outcome.v12"
   run_id: string
   attempt_id: string
   lease_generation: number
@@ -86,7 +90,7 @@ export interface ReplayTrialRunOutcome {
   resumable_checkpoint?: ReplayEngineCheckpoint
   diagnostic_checkpoint_commit?: ReplayDiagnosticCheckpointCommitRef
   failure?: {
-    code: "trial-reservation-rejected" | "attempt-lease-rejected" | "resume-authorization-rejected" | "cancelled-before-start" | "execution-cancelled-at-checkpoint" | "instrument-delisted-with-open-position" | "initial-margin-deficit-without-resize" | "maintenance-margin-breach-without-liquidation" | "liquidation-deficit-unsupported" | "replay-execution-failed"
+    code: "trial-reservation-rejected" | "attempt-lease-rejected" | "resume-authorization-rejected" | "artifact-store-rejected" | "cancelled-before-start" | "execution-cancelled-at-checkpoint" | "instrument-delisted-with-open-position" | "initial-margin-deficit-without-resize" | "maintenance-margin-breach-without-liquidation" | "liquidation-deficit-unsupported" | "replay-execution-failed"
     failure_class: "input_invalid" | "unsupported_contract" | "data_integrity" | "deterministic_engine" | "resource" | "external_io"
     message: string
     retryable: boolean
@@ -142,7 +146,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     validateTrialReservation(input.request, input.trial_reservation)
   } catch (error) {
     return {
-      schema_version: "trade.rd-replay-run-outcome.v11",
+      schema_version: "trade.rd-replay-run-outcome.v12",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -164,7 +168,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
   } catch (error) {
     const expired = error instanceof ReplayAttemptLeaseExpiredError
     return {
-      schema_version: "trade.rd-replay-run-outcome.v11",
+      schema_version: "trade.rd-replay-run-outcome.v12",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -181,7 +185,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
   }
   if (input.cancel_requested) {
     return {
-      schema_version: "trade.rd-replay-run-outcome.v11",
+      schema_version: "trade.rd-replay-run-outcome.v12",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -202,6 +206,10 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
   let resumeAuthorizationHash: string | undefined
   let lastDiagnosticCheckpointCommit: ReplayDiagnosticCheckpointCommitRef | undefined
   try {
+    const artifactStore = resolveArtifactStore(input)
+    const activeArtifactNamespace = artifactStore
+      ? openAttemptNamespace(artifactStore, input.request, input.attempt_lease.attempt_id)
+      : undefined
     if (input.execution_control?.resume_checkpoint && input.execution_control.resume_authorization) {
       throw new ReplayResumeAuthorizationError("Replay resume must provide either an inline checkpoint or a Resume Authorization, not both")
     }
@@ -214,11 +222,13 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
       )
       resumeAuthorizationHash = hashReplayResumeAuthorizationSnapshot(input.execution_control.resume_authorization)
     }
-    const committed = input.artifact_root ? readCommitted(input.artifact_root, input.request, input.trial_reservation, input.attempt_lease, input.dataset_manifest) : undefined
+    const committed = activeArtifactNamespace
+      ? readCommitted(activeArtifactNamespace, input.request, input.trial_reservation, input.attempt_lease, input.dataset_manifest)
+      : undefined
     if (committed) {
-      cleanupDiagnosticCheckpoint(input.artifact_root!, input.request, input.attempt_lease.attempt_id)
+      cleanupDiagnosticCheckpoint(activeArtifactNamespace!)
       return {
-        schema_version: "trade.rd-replay-run-outcome.v11",
+        schema_version: "trade.rd-replay-run-outcome.v12",
         run_id: input.request.run_id,
         attempt_id: input.attempt_lease.attempt_id,
         lease_generation: input.attempt_lease.lease_generation,
@@ -231,7 +241,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     }
     const resumeCheckpoint = input.execution_control?.resume_authorization
       ? loadReplayDiagnosticCheckpoint(
-        input.artifact_root,
+        artifactStore,
         {
           ref: input.execution_control.resume_authorization.diagnostic_checkpoint_ref,
           sha256: input.execution_control.resume_authorization.diagnostic_checkpoint_hash,
@@ -249,11 +259,11 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
       mark_events: input.mark_events,
       execution_control: {
         resume_checkpoint: resumeCheckpoint,
-        on_checkpoint: input.artifact_root || input.execution_control?.on_checkpoint
+        on_checkpoint: activeArtifactNamespace || input.execution_control?.on_checkpoint
           ? (checkpoint) => {
-            if (input.artifact_root) {
+            if (activeArtifactNamespace) {
               lastDiagnosticCheckpointCommit = commitDiagnosticCheckpoint(
-                input.artifact_root, input.request, activeAttemptLease, checkpoint,
+                activeArtifactNamespace, input.request, activeAttemptLease, checkpoint,
               )
             }
             if (!input.execution_control?.on_checkpoint) return "continue"
@@ -271,12 +281,12 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
           : undefined,
       },
     })
-    const committedArtifact = input.artifact_root
-      ? commitArtifacts(input.artifact_root, input.request, input.trial_reservation, activeAttemptLease, input.dataset_manifest, result)
+    const committedArtifact = activeArtifactNamespace
+      ? commitArtifacts(activeArtifactNamespace, input.request, input.trial_reservation, activeAttemptLease, input.dataset_manifest, result)
       : undefined
-    if (input.artifact_root) cleanupDiagnosticCheckpoint(input.artifact_root, input.request, activeAttemptLease.attempt_id)
+    if (activeArtifactNamespace) cleanupDiagnosticCheckpoint(activeArtifactNamespace)
     return {
-      schema_version: "trade.rd-replay-run-outcome.v11",
+      schema_version: "trade.rd-replay-run-outcome.v12",
       run_id: input.request.run_id,
       attempt_id: activeAttemptLease.attempt_id,
       lease_generation: activeAttemptLease.lease_generation,
@@ -292,11 +302,12 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     const interrupted = error instanceof ReplayExecutionInterruptedError
     const leaseRejected = error instanceof ReplayAttemptLeaseControlError
     const resumeRejected = error instanceof ReplayResumeAuthorizationError
+    const artifactStoreRejected = error instanceof ReplayArtifactStoreContractError
     const instrumentTerminal = error instanceof ReplayInstrumentTerminalError
     const marginTerminal = error instanceof ReplayMarginTerminalError
     const liquidationDeficit = error instanceof ReplayLiquidationDeficitError
     return {
-      schema_version: "trade.rd-replay-run-outcome.v11",
+      schema_version: "trade.rd-replay-run-outcome.v12",
       run_id: input.request.run_id,
       attempt_id: activeAttemptLease.attempt_id,
       lease_generation: activeAttemptLease.lease_generation,
@@ -309,8 +320,8 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
         ? { diagnostic_checkpoint_commit: lastDiagnosticCheckpointCommit }
         : {}),
       failure: {
-        code: interrupted ? error.code : leaseRejected ? "attempt-lease-rejected" : resumeRejected ? "resume-authorization-rejected" : instrumentTerminal || marginTerminal || liquidationDeficit ? error.code : "replay-execution-failed",
-        failure_class: interrupted || leaseRejected ? "resource" : resumeRejected ? "unsupported_contract" : instrumentTerminal || marginTerminal || liquidationDeficit ? "deterministic_engine" : "data_integrity",
+        code: interrupted ? error.code : leaseRejected ? "attempt-lease-rejected" : resumeRejected ? "resume-authorization-rejected" : artifactStoreRejected ? "artifact-store-rejected" : instrumentTerminal || marginTerminal || liquidationDeficit ? error.code : "replay-execution-failed",
+        failure_class: interrupted || leaseRejected ? "resource" : resumeRejected || artifactStoreRejected ? "unsupported_contract" : instrumentTerminal || marginTerminal || liquidationDeficit ? "deterministic_engine" : "data_integrity",
         message: error instanceof Error ? error.message : String(error),
         retryable: false,
         partial_result_published: false,
@@ -478,15 +489,13 @@ const ARTIFACT_FILE_NAMES: Readonly<Record<(typeof REPLAY_REQUIRED_ARTIFACT_ROLE
 }
 
 function commitArtifacts(
-  root: string,
+  namespace: ReplayArtifactNamespace,
   request: ReplayExecutionRequest,
   trialReservation: TrialReservationSnapshot,
   attemptLease: ReplayAttemptLeaseSnapshot,
   datasetManifest: ReplayDatasetManifest,
   result: ReplayResult,
 ): { artifact_manifest: ReplayArtifactManifest; artifact_commit: ReplayArtifactCommit } {
-  const directory = runDirectory(root, request.idempotency_key, attemptLease.attempt_id)
-  ensureReplayDurableDirectory(directory)
   const requestText = `${canonicalJson(request)}\n`
   const trialReservationText = `${canonicalJson(trialReservation)}\n`
   const attemptLeaseText = `${canonicalJson(attemptLease)}\n`
@@ -504,22 +513,22 @@ function commitArtifacts(
   const journalText = result.journal.map((entry) => canonicalJson(entry)).join("\n") + "\n"
   const trialBalanceText = `${canonicalJson(result.trial_balance)}\n`
   const files = [
-    writeImmutable(directory, "request.json", requestText, "request"),
-    writeImmutable(directory, "trial-reservation.json", trialReservationText, "trial_reservation"),
-    writeImmutable(directory, "attempt-lease.json", attemptLeaseText, "attempt_lease"),
-    writeImmutable(directory, "dataset-manifest.json", datasetManifestText, "dataset_manifest"),
-    writeImmutable(directory, "result.json", resultText, "result"),
-    writeImmutable(directory, "source-events.jsonl", sourceEventsText, "source_events"),
-    writeImmutable(directory, "order-events.jsonl", orderEventsText, "order_events"),
-    writeImmutable(directory, "fills.jsonl", fillsText, "fills"),
-    writeImmutable(directory, "positions.jsonl", positionsText, "positions"),
-    writeImmutable(directory, "ledger.jsonl", ledgerText, "ledger"),
-    writeImmutable(directory, "valuation-snapshot.json", valuationSnapshotText, "valuation_snapshot"),
-    writeImmutable(directory, "equity-bridge.json", equityBridgeText, "equity_bridge"),
-    writeImmutable(directory, "margin-snapshots.json", marginSnapshotsText, "margin_snapshots"),
-    writeImmutable(directory, "liquidation.json", liquidationText, "liquidation"),
-    writeImmutable(directory, "journal.jsonl", journalText, "journal"),
-    writeImmutable(directory, "trial-balance.json", trialBalanceText, "trial_balance"),
+    writeImmutable(namespace, "request.json", requestText, "request"),
+    writeImmutable(namespace, "trial-reservation.json", trialReservationText, "trial_reservation"),
+    writeImmutable(namespace, "attempt-lease.json", attemptLeaseText, "attempt_lease"),
+    writeImmutable(namespace, "dataset-manifest.json", datasetManifestText, "dataset_manifest"),
+    writeImmutable(namespace, "result.json", resultText, "result"),
+    writeImmutable(namespace, "source-events.jsonl", sourceEventsText, "source_events"),
+    writeImmutable(namespace, "order-events.jsonl", orderEventsText, "order_events"),
+    writeImmutable(namespace, "fills.jsonl", fillsText, "fills"),
+    writeImmutable(namespace, "positions.jsonl", positionsText, "positions"),
+    writeImmutable(namespace, "ledger.jsonl", ledgerText, "ledger"),
+    writeImmutable(namespace, "valuation-snapshot.json", valuationSnapshotText, "valuation_snapshot"),
+    writeImmutable(namespace, "equity-bridge.json", equityBridgeText, "equity_bridge"),
+    writeImmutable(namespace, "margin-snapshots.json", marginSnapshotsText, "margin_snapshots"),
+    writeImmutable(namespace, "liquidation.json", liquidationText, "liquidation"),
+    writeImmutable(namespace, "journal.jsonl", journalText, "journal"),
+    writeImmutable(namespace, "trial-balance.json", trialBalanceText, "trial_balance"),
   ]
   const lastCommittedEventKey = result.source_events.at(-1)?.event_key ?? null
   const terminalCheckpointHash = computeTerminalCheckpointHash(request, trialReservation, result, lastCommittedEventKey)
@@ -540,7 +549,7 @@ function commitArtifacts(
     },
     created_at: result.completed_at,
   }
-  const manifestFile = writeImmutable(directory, "artifact-manifest.json", `${canonicalJson(manifest)}\n`, "manifest")
+  const manifestFile = writeImmutable(namespace, "artifact-manifest.json", `${canonicalJson(manifest)}\n`, "manifest")
   return {
     artifact_manifest: manifest,
     artifact_commit: {
@@ -553,43 +562,37 @@ function commitArtifacts(
 }
 
 function readCommitted(
-  root: string,
+  namespace: ReplayArtifactNamespace,
   request: ReplayExecutionRequest,
   trialReservation: TrialReservationSnapshot,
   attemptLease: ReplayAttemptLeaseSnapshot,
   datasetManifest: ReplayDatasetManifest,
 ): { result: ReplayResult; artifact_manifest: ReplayArtifactManifest; artifact_commit: ReplayArtifactCommit } | undefined {
-  const directory = runDirectory(root, request.idempotency_key, attemptLease.attempt_id)
-  const manifestPath = join(directory, "artifact-manifest.json")
-  if (!existsSync(manifestPath)) return undefined
-  const manifestText = readFileSync(manifestPath, "utf8")
+  if (!namespace.exists("artifact-manifest.json")) return undefined
+  const manifestFile = namespace.read("artifact-manifest.json")
+  const manifestText = decode(manifestFile.bytes)
   const manifest = JSON.parse(manifestText) as ReplayArtifactManifest
   if (manifest.schema_version !== REPLAY_ARTIFACT_SCHEMA_VERSION) throw new Error("committed Replay artifact schema is not supported")
   if (manifest.storage_policy_version !== REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION) {
     throw new Error("committed Replay artifact storage policy is not supported")
   }
-  verifyArtifactCompleteness(directory, manifest)
-  const requestPath = join(directory, ARTIFACT_FILE_NAMES.request)
-  const trialReservationPath = join(directory, ARTIFACT_FILE_NAMES.trial_reservation)
-  const attemptLeasePath = join(directory, ARTIFACT_FILE_NAMES.attempt_lease)
-  const datasetManifestPath = join(directory, ARTIFACT_FILE_NAMES.dataset_manifest)
-  const resultPath = join(directory, ARTIFACT_FILE_NAMES.result)
-  const recordedRequest = JSON.parse(readFileSync(requestPath, "utf8")) as ReplayExecutionRequest
+  verifyArtifactCompleteness(namespace, manifest)
+  const recordedRequest = JSON.parse(decode(namespace.read(ARTIFACT_FILE_NAMES.request).bytes)) as ReplayExecutionRequest
   if (canonicalHash(recordedRequest) !== canonicalHash(request)) throw new Error("Replay idempotency key was reused with a different request")
-  const recordedTrialReservation = JSON.parse(readFileSync(trialReservationPath, "utf8")) as TrialReservationSnapshot
+  const recordedTrialReservation = JSON.parse(decode(namespace.read(ARTIFACT_FILE_NAMES.trial_reservation).bytes)) as TrialReservationSnapshot
   if (hashTrialReservationSnapshot(recordedTrialReservation) !== hashTrialReservationSnapshot(trialReservation)) {
     throw new Error("Replay idempotency key was reused with a different Trial Reservation")
   }
-  const producerAttemptLease = JSON.parse(readFileSync(attemptLeasePath, "utf8")) as ReplayAttemptLeaseSnapshot
+  const producerAttemptLease = JSON.parse(decode(namespace.read(ARTIFACT_FILE_NAMES.attempt_lease).bytes)) as ReplayAttemptLeaseSnapshot
   assertReplayAttemptLeaseSnapshot(producerAttemptLease)
   if (producerAttemptLease.attempt_id !== manifest.producer_attempt_id
       || hashReplayAttemptLeaseSnapshot(producerAttemptLease) !== manifest.producer_attempt_lease_hash
       || hashReplayAttemptLeaseSnapshot(producerAttemptLease) !== hashReplayAttemptLeaseSnapshot(attemptLease)) {
     throw new Error("committed Replay producer Attempt lease mismatch")
   }
-  const recordedDatasetManifest = JSON.parse(readFileSync(datasetManifestPath, "utf8")) as ReplayDatasetManifest
+  const recordedDatasetManifest = JSON.parse(decode(namespace.read(ARTIFACT_FILE_NAMES.dataset_manifest).bytes)) as ReplayDatasetManifest
   if (canonicalHash(recordedDatasetManifest) !== canonicalHash(datasetManifest)) throw new Error("Replay idempotency key was reused with a different dataset manifest")
-  const result = JSON.parse(readFileSync(resultPath, "utf8")) as ReplayResult
+  const result = JSON.parse(decode(namespace.read(ARTIFACT_FILE_NAMES.result).bytes)) as ReplayResult
   if (result.schema_version !== REPLAY_RESULT_SCHEMA_VERSION) throw new Error("committed Replay result schema is not supported")
   if (manifest.run_id !== request.run_id || result.run_id !== request.run_id
       || manifest.result_hash !== result.fingerprint.result_hash) {
@@ -625,8 +628,8 @@ function readCommitted(
     result,
     artifact_manifest: manifest,
     artifact_commit: {
-      ref: manifestPath,
-      sha256: createHash("sha256").update(manifestText).digest("hex"),
+      ref: manifestFile.ref,
+      sha256: createHash("sha256").update(manifestFile.bytes).digest("hex"),
       producer_attempt_id: manifest.producer_attempt_id,
       terminal_checkpoint_hash: manifest.completeness.terminal_checkpoint_hash,
       storage_policy_version: REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION,
@@ -634,7 +637,7 @@ function readCommitted(
   }
 }
 
-function verifyArtifactCompleteness(directory: string, manifest: ReplayArtifactManifest): void {
+function verifyArtifactCompleteness(namespace: ReplayArtifactNamespace, manifest: ReplayArtifactManifest): void {
   const required = [...REPLAY_REQUIRED_ARTIFACT_ROLES]
   if (manifest.completeness?.authoritative_result !== true
       || canonicalJson(manifest.completeness.required_roles) !== canonicalJson(required)
@@ -644,11 +647,12 @@ function verifyArtifactCompleteness(directory: string, manifest: ReplayArtifactM
   for (let index = 0; index < required.length; index += 1) {
     const role = required[index]
     const file = manifest.files[index]
-    const expectedRef = join(directory, ARTIFACT_FILE_NAMES[role])
-    if (!file || file.role !== role || file.ref !== expectedRef || !existsSync(expectedRef)) {
+    const expectedName = ARTIFACT_FILE_NAMES[role]
+    const expectedRef = namespace.fileRef(expectedName)
+    if (!file || file.role !== role || file.ref !== expectedRef || !namespace.exists(expectedName)) {
       throw new Error(`committed Replay artifact is missing required role ${role}`)
     }
-    const actualHash = createHash("sha256").update(readFileSync(expectedRef)).digest("hex")
+    const actualHash = createHash("sha256").update(namespace.read(expectedName).bytes).digest("hex")
     if (actualHash !== file.sha256) throw new Error(`committed Replay artifact hash mismatch for ${role}`)
   }
 }
@@ -668,27 +672,20 @@ function computeTerminalCheckpointHash(
   })
 }
 
-function writeImmutable(directory: string, name: string, content: string, role: string): { role: string; ref: string; sha256: string } {
-  const path = join(directory, name)
-  return { role, ...writeReplayImmutableCas(path, content) }
-}
-
-function runDirectory(root: string, idempotencyKey: string, attemptId: string): string {
-  return join(root, canonicalHash(idempotencyKey).slice(0, 24), canonicalHash(attemptId).slice(0, 24))
+function writeImmutable(namespace: ReplayArtifactNamespace, name: string, content: string, role: string): { role: string; ref: string; sha256: string } {
+  return { role, ...namespace.writeImmutable(name, content) }
 }
 
 function commitDiagnosticCheckpoint(
-  root: string,
+  namespace: ReplayArtifactNamespace,
   request: ReplayExecutionRequest,
   attemptLease: ReplayAttemptLeaseSnapshot,
   checkpoint: ReplayEngineCheckpoint,
 ): ReplayDiagnosticCheckpointCommitRef {
-  const directory = runDirectory(root, request.idempotency_key, attemptLease.attempt_id)
-  ensureReplayDurableDirectory(directory)
   const versionSuffix = `${attemptLease.lease_generation}-${checkpoint.next_source_offset}-${checkpoint.checkpoint_hash.slice(0, 16)}`
   const checkpointName = `diagnostic-checkpoint-${versionSuffix}.json`
   const checkpointFile = writeImmutable(
-    directory,
+    namespace,
     checkpointName,
     `${canonicalJson(checkpoint)}\n`,
     "diagnostic_checkpoint",
@@ -710,7 +707,7 @@ function commitDiagnosticCheckpoint(
     created_at: checkpoint.last_committed_event_key.event_time,
   }
   const commitFile = writeImmutable(
-    directory,
+    namespace,
     `diagnostic-checkpoint-commit-${versionSuffix}.json`,
     `${canonicalJson(record)}\n`,
     "diagnostic_checkpoint_commit",
@@ -729,27 +726,28 @@ function commitDiagnosticCheckpoint(
 }
 
 function loadReplayDiagnosticCheckpoint(
-  root: string | undefined,
+  store: ReplayArtifactStore | undefined,
   locator: { ref: string; sha256: string },
   request: ReplayExecutionRequest,
   datasetManifest: ReplayDatasetManifest,
   expectedProducerAttemptId: string,
 ): ReplayEngineCheckpoint {
-  if (!root) throw new Error("durable Replay checkpoint resume requires artifact_root")
+  if (!store) throw new ReplayArtifactStoreContractError("durable Replay checkpoint resume requires an Artifact Store")
   requireHash(locator.sha256, "resume_authorization.diagnostic_checkpoint_hash")
-  const rootPath = resolve(root)
-  const commitPath = resolve(locator.ref)
-  const commitRelative = relative(rootPath, commitPath)
-  if (commitRelative === ".." || commitRelative.startsWith(`..${sep}`)
-      || !/^diagnostic-checkpoint-commit-\d+-\d+-[a-f0-9]{16}\.json$/.test(basename(commitPath))) {
-    throw new Error("Replay diagnostic checkpoint commit ref is outside artifact_root or has an invalid name")
+  const namespace = openAttemptNamespace(store, request, expectedProducerAttemptId)
+  let commitFile: ReplayArtifactReadFile
+  try {
+    commitFile = namespace.readRef(locator.ref)
+  } catch (error) {
+    throw new Error(`Replay diagnostic checkpoint commit ref is invalid: ${error instanceof Error ? error.message : String(error)}`)
   }
-  if (!existsSync(commitPath)) throw new Error("Replay diagnostic checkpoint commit does not exist")
-  const commitBytes = readFileSync(commitPath)
-  if (createHash("sha256").update(commitBytes).digest("hex") !== locator.sha256) {
+  if (!/^diagnostic-checkpoint-commit-\d+-\d+-[a-f0-9]{16}\.json$/.test(commitFile.name)) {
+    throw new Error("Replay diagnostic checkpoint commit ref has an invalid name")
+  }
+  if (createHash("sha256").update(commitFile.bytes).digest("hex") !== locator.sha256) {
     throw new Error("Replay diagnostic checkpoint commit hash mismatch")
   }
-  const record = JSON.parse(commitBytes.toString("utf8")) as ReplayDiagnosticCheckpointCommitRecord
+  const record = JSON.parse(decode(commitFile.bytes)) as ReplayDiagnosticCheckpointCommitRecord
   if (record.schema_version !== REPLAY_DIAGNOSTIC_CHECKPOINT_COMMIT_SCHEMA_VERSION
       || record.run_id !== request.run_id
       || record.request_hash !== canonicalHash(request)
@@ -768,20 +766,18 @@ function loadReplayDiagnosticCheckpoint(
     throw new Error("Replay diagnostic checkpoint commit sequence fields are invalid")
   }
   const expectedCommitName = `diagnostic-checkpoint-commit-${record.producer_lease_generation}-${record.next_source_offset}-${record.checkpoint_hash.slice(0, 16)}.json`
-  if (basename(commitPath) !== expectedCommitName) {
+  if (commitFile.name !== expectedCommitName) {
     throw new Error("Replay diagnostic checkpoint commit ref does not match its fenced progress identity")
   }
-  const checkpointPath = resolve(record.checkpoint_ref)
   const expectedCheckpointName = `diagnostic-checkpoint-${record.producer_lease_generation}-${record.next_source_offset}-${record.checkpoint_hash.slice(0, 16)}.json`
-  if (checkpointPath !== resolve(dirname(commitPath), expectedCheckpointName)) {
+  if (record.checkpoint_ref !== namespace.fileRef(expectedCheckpointName)) {
     throw new Error("Replay diagnostic checkpoint payload ref is not attempt-local")
   }
-  if (!existsSync(checkpointPath)) throw new Error("Replay diagnostic checkpoint payload does not exist")
-  const checkpointBytes = readFileSync(checkpointPath)
-  if (createHash("sha256").update(checkpointBytes).digest("hex") !== record.checkpoint_sha256) {
+  const checkpointFile = namespace.readRef(record.checkpoint_ref)
+  if (createHash("sha256").update(checkpointFile.bytes).digest("hex") !== record.checkpoint_sha256) {
     throw new Error("Replay diagnostic checkpoint payload hash mismatch")
   }
-  const checkpoint = JSON.parse(checkpointBytes.toString("utf8")) as ReplayEngineCheckpoint
+  const checkpoint = JSON.parse(decode(checkpointFile.bytes)) as ReplayEngineCheckpoint
   if (checkpoint.checkpoint_hash !== record.checkpoint_hash
       || checkpoint.next_source_offset !== record.next_source_offset
       || canonicalJson(checkpoint.last_committed_event_key) !== canonicalJson(record.last_committed_event_key)) {
@@ -791,13 +787,37 @@ function loadReplayDiagnosticCheckpoint(
   return checkpoint
 }
 
-function cleanupDiagnosticCheckpoint(root: string, request: ReplayExecutionRequest, attemptId: string): void {
-  const directory = runDirectory(root, request.idempotency_key, attemptId)
-  if (!existsSync(directory)) return
-  for (const name of readdirSync(directory)) {
+function cleanupDiagnosticCheckpoint(namespace: ReplayArtifactNamespace): void {
+  for (const name of namespace.listNames()) {
     if (!/^diagnostic-checkpoint(?:-commit)?-\d+-\d+-[a-f0-9]{16}\.json$/.test(name)) continue
-    removeReplayDurableFile(join(directory, name))
+    namespace.remove(name)
   }
+}
+
+function resolveArtifactStore(input: ReplayTrialRunInput): ReplayArtifactStore | undefined {
+  if (input.artifact_root && input.artifact_store) {
+    throw new ReplayArtifactStoreContractError("Replay execution accepts either artifact_root or artifact_store, not both")
+  }
+  const store = input.artifact_store ?? (input.artifact_root
+    ? createReplayLocalArtifactStore(input.artifact_root)
+    : undefined)
+  if (store) assertCertifiedReplayArtifactStore(store)
+  return store
+}
+
+function openAttemptNamespace(
+  store: ReplayArtifactStore,
+  request: ReplayExecutionRequest,
+  attemptId: string,
+): ReplayArtifactNamespace {
+  return store.openAttempt({
+    idempotency_key_hash: canonicalHash(request.idempotency_key),
+    attempt_id_hash: canonicalHash(attemptId),
+  })
+}
+
+function decode(bytes: Uint8Array): string {
+  return new TextDecoder().decode(bytes)
 }
 
 function requireHash(value: unknown, field: string): asserts value is string {

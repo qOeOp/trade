@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test"
 import {
   REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
+  REPLAY_LOCAL_ARTIFACT_STORE_CAPABILITY,
+  REPLAY_OBJECT_ARTIFACT_STORE_REQUIRED_CAPABILITY,
   REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION,
   REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION,
   REPLAY_REQUEST_SCHEMA_VERSION,
@@ -8,6 +10,7 @@ import {
   REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
   assertReplayExecutionRequest,
   assertReplayDatasetManifest,
+  assertReplayArtifactStoreCapability,
   canonicalHash,
   type ReplayExecutionRequest,
 } from "./replay-contracts"
@@ -94,6 +97,15 @@ test("Replay request freezes one bounded isolated maintenance tier", () => {
 
 test("canonical hash is independent of object key order", () => {
   expect(canonicalHash({ b: 2, a: 1 })).toBe(canonicalHash({ a: 1, b: 2 }))
+})
+
+test("Artifact Store capability freezes local and remote immutable-create semantics", () => {
+  expect(() => assertReplayArtifactStoreCapability(REPLAY_LOCAL_ARTIFACT_STORE_CAPABILITY)).not.toThrow()
+  expect(() => assertReplayArtifactStoreCapability(REPLAY_OBJECT_ARTIFACT_STORE_REQUIRED_CAPABILITY)).not.toThrow()
+  expect(() => assertReplayArtifactStoreCapability({
+    ...REPLAY_OBJECT_ARTIFACT_STORE_REQUIRED_CAPABILITY,
+    immutable_create: "hard_link_create_if_absent",
+  })).toThrow("does not match its backend contract")
 })
 
 test("Replay dataset manifest requires explicit UTC lifecycle and availability policy", () => {
