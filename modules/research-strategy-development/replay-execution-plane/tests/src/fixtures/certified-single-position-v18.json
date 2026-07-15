@@ -1,6 +1,6 @@
 {
   "request": {
-    "schema_version": "trade.rd-replay-execution-request.v17",
+    "schema_version": "trade.rd-replay-execution-request.v18",
     "run_id": "golden-run",
     "idempotency_key": "golden-idempotency",
     "experiment_id": "exp-golden",
@@ -30,7 +30,7 @@
     },
     "decision_market_input_requirement_hash": "daf6b0a74528c2a0e9a49b36324b201c100721528c0df31d653e90f4cbbed82c",
     "decision_schedule": {
-      "schema_version": "trade.rd-replay-decision-schedule.v1",
+      "schema_version": "trade.rd-replay-decision-schedule.v2",
       "schedule_policy": "frozen_closed_bar_schedule",
       "entries": [{
         "decision_sequence": 1,
@@ -39,7 +39,7 @@
         "authorized_order_hash": "14718b3a4d2a2488ead024675c5ccd1ee330d619aecdafd9185db3f0b33f05b0"
       }]
     },
-    "decision_schedule_hash": "f71f68bfdd79e83f74d4d8e02072104c6bb340de50fbdf3e715fa3ae5a853446",
+    "decision_schedule_hash": "22fd56854d027a75213deb300820ec84fa9913db68208ae6980a2708ea0cb2be",
     "venue_risk_policy_schedule_hash": "bce56538f5e3d2b53aa1895edbe20809abe385a7f3e4af59ba576b03cbdb9f26",
     "instrument_spec_schedule_hash": "3c8736f2a900c073924a9c1d6eb51bb105b859007eb39d470e361cd34e52c604",
     "harness_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",

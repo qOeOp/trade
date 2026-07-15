@@ -5,18 +5,26 @@ import {
   REPLAY_MARGIN_POLICY_VERSION,
   REPLAY_LIQUIDATION_EXECUTION_SCHEMA_VERSION,
   REPLAY_RESULT_SCHEMA_VERSION,
+  REPLAY_DECISION_STATE_SNAPSHOT_SCHEMA_VERSION,
   assertReplayDecisionEvidenceTimeline,
   assertReplayDecisionInputSnapshot,
   assertReplayExecutionRequest,
   canonicalHash,
   createReplayDecisionEvidenceTimeline,
+  createReplayDecisionStateSnapshot,
+  replayDecisionPhaseFor,
   replayAuthorizedInitialDecisionEvidenceEntry,
   type ReplayBoundaryPhase,
   type ReplayDatasetManifest,
   type ReplayDecisionEvidenceTimeline,
+  type ReplayDecisionEvidenceInput,
+  type ReplayDecisionHarnessBuildAttestation,
+  type ReplayDecisionHarnessReceipt,
+  type ReplayDecisionHarnessSourceBundle,
   type ReplayDecisionInputSnapshot,
   type ReplayDecisionMarketInputSnapshot,
   type ReplayDecisionScheduleEntry,
+  type ReplayDecisionStateSnapshot,
   type ReplayExecutionRequest,
   type ReplayEventKey,
   type ReplayFill,
@@ -55,7 +63,7 @@ import { completeReplayLiquidationOrderLane } from "./replay-liquidation-order-l
 import { ReplayLiquidationDeficitError, assertReplayPostEntryMargin, buildReplayMaintenanceBreachObservation, buildReplayPathMarginSnapshots } from "./replay-margin-path"
 import { reduceReplaySourceEvents } from "./replay-source-reducer"
 
-export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v10" as const
+export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v11" as const
 
 export interface ReplayEngineCheckpoint {
   schema_version: typeof REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION
@@ -63,6 +71,7 @@ export interface ReplayEngineCheckpoint {
   request_hash: string
   dataset_hash: string
   decision_evidence_timeline_hash: string
+  decision_evidence_timeline: ReplayDecisionEvidenceTimeline
   decision_boundary_hash: string
   decision_input_snapshot_hash: string
   decision_market_input_snapshot_hash: string
@@ -109,6 +118,16 @@ export interface ReplayKernelInput {
   mark_events?: ReplayMarkEvent[]
   supplemental_facts?: ReplaySupplementalFact[]
   decision_evidence_timeline?: ReplayDecisionEvidenceTimeline
+  runtime_decision_evaluator?: (input: {
+    schedule_entry: ReplayDecisionScheduleEntry
+    decision_input_snapshot: ReplayDecisionInputSnapshot
+    decision_market_input_snapshot: ReplayDecisionMarketInputSnapshot
+    decision_state_snapshot: ReplayDecisionStateSnapshot
+  }) => {
+    source_bundle: ReplayDecisionHarnessSourceBundle | null
+    build_attestation: ReplayDecisionHarnessBuildAttestation | null
+    receipt: ReplayDecisionHarnessReceipt | null
+  }
   execution_control?: ReplayExecutionControl
 }
 
@@ -150,7 +169,8 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     mark_events: input.mark_events,
     supplemental_facts: input.supplemental_facts,
   })
-  const decisionEvidenceTimeline = input.decision_evidence_timeline ?? (
+  const resumeCheckpoint = input.execution_control?.resume_checkpoint
+  const initialDecisionEvidenceTimeline = resumeCheckpoint?.decision_evidence_timeline ?? input.decision_evidence_timeline ?? (
     request.supplemental_requirement_set.mode === "none"
       ? createReplayDecisionEvidenceTimeline({
         request,
@@ -158,10 +178,14 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       })
       : undefined
   )
-  if (!decisionEvidenceTimeline) {
+  if (!initialDecisionEvidenceTimeline) {
     throw new Error("Replay supplemental lane requires a Decision Evidence Timeline")
   }
-  assertReplayDecisionEvidenceTimeline(decisionEvidenceTimeline, request)
+  let decisionEvidenceTimeline: ReplayDecisionEvidenceTimeline = initialDecisionEvidenceTimeline
+  assertReplayDecisionEvidenceTimeline(decisionEvidenceTimeline, request, { allow_pending_runtime: true })
+  if (!resumeCheckpoint && decisionEvidenceTimeline.entries.some((entry) => entry.decision_state_snapshot !== null)) {
+    throw new Error("Replay position-open decision evidence must be produced by the runtime source boundary")
+  }
   for (const [index, decisionEvidence] of decisionEvidenceTimeline.entries.entries()) {
     const preparedDecision = prepared.decision_evidence_inputs[index]
     if (!preparedDecision
@@ -170,7 +194,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       throw new Error("Replay scheduled decision evidence does not match prepared point-in-time inputs")
     }
   }
-  const decisionEvidenceEntry = replayAuthorizedInitialDecisionEvidenceEntry(decisionEvidenceTimeline)
+  let decisionEvidenceEntry = replayAuthorizedInitialDecisionEvidenceEntry(decisionEvidenceTimeline)
   const decisionInputSnapshot = decisionEvidenceEntry.decision_input_snapshot
   assertReplayDecisionInputSnapshot(decisionInputSnapshot, request)
   if (canonicalHash(decisionInputSnapshot) !== canonicalHash(prepared.decision_input_snapshot)) {
@@ -206,11 +230,10 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     request.cost_policy.slippage_bps,
     accountingSpec.price_increment,
   )
-  const resumeCheckpoint = input.execution_control?.resume_checkpoint
   if (resumeCheckpoint) {
     assertReplayEngineCheckpoint(
       resumeCheckpoint, request, input.dataset_manifest,
-      decisionEvidenceTimeline.timeline_hash, decisionEvidenceEntry.decision_boundary.boundary_hash,
+      undefined, decisionEvidenceEntry.decision_boundary.boundary_hash,
       decisionInputSnapshot.snapshot_hash, decisionMarketInputSnapshot.snapshot_hash,
       decisionHarnessReceipt?.receipt_hash ?? null,
       decisionHarnessBundle?.bundle_hash ?? null, decisionHarnessReceipt?.loader_policy_version ?? null,
@@ -296,6 +319,98 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     reduce_only: false,
   })
   const exactRiskSnapshots: ReplayMarginSnapshot[] = structuredClone(resumeCheckpoint?.exact_risk_snapshots ?? [])
+  let timelineInputs: ReplayDecisionEvidenceInput[] = decisionEvidenceTimeline.entries.map((entry, index) => ({
+    schedule_entry: structuredClone(request.decision_schedule.entries[index]!),
+    decision_input_snapshot: structuredClone(entry.decision_input_snapshot),
+    decision_market_input_snapshot: structuredClone(entry.decision_market_input_snapshot),
+    evaluation_status: entry.evaluation_status,
+    decision_state_snapshot: structuredClone(entry.decision_state_snapshot),
+    decision_harness_bundle: structuredClone(entry.decision_harness_bundle),
+    decision_harness_build: structuredClone(entry.decision_harness_build),
+    decision_harness_receipt: structuredClone(entry.decision_harness_receipt),
+    terminal_event_key: structuredClone(entry.terminal_event_key),
+  }))
+  const rebuildDecisionTimeline = (): void => {
+    decisionEvidenceTimeline = createReplayDecisionEvidenceTimeline({ request, decisions: timelineInputs })
+    decisionEvidenceEntry = replayAuthorizedInitialDecisionEvidenceEntry(decisionEvidenceTimeline)
+  }
+  const buildRuntimeStateSnapshot = (boundary: {
+    source_events: ReplaySourceEvent[]
+    applied_funding_sources: ReplaySourceEvent[]
+    entry_transition: ReplayEntryOrderExecution | null
+  }, scheduleEntry: ReplayDecisionScheduleEntry): ReplayDecisionStateSnapshot => {
+    const source = boundary.source_events.at(-1)
+    const entry = boundary.entry_transition
+    if (!source || source.kind !== "bar_range" || !entry || source.event_key.event_time !== scheduleEntry.decision_time) {
+      throw new Error("Replay runtime decision requires an open-position closed-bar boundary")
+    }
+    const bar = bars[source.source_index]
+    if (!bar) throw new Error("Replay runtime decision references a missing bar")
+    const entryFill = entryFillFor(entry)
+    const position = buildAverageCostPositionProjection({
+      run_id: request.run_id,
+      symbol: request.symbol,
+      accounting_spec: accountingSpec,
+      fills: [entryFill],
+    })[0]!
+    const fundingFacts = boundary.applied_funding_sources.map((fundingSource) => {
+      const event = fundingEvents[fundingSource.source_index]
+      if (!event) throw new Error("Replay runtime decision references missing funding")
+      return {
+        event_key: fundingSource.event_key,
+        amount: calculateFundingCashflowV3(
+          event.mark_price, entry.executed_quantity, event.rate, request.order.side,
+          accountingSpec.settlement_increment,
+        ),
+        ref: fundingSource.source_event_id,
+      }
+    })
+    const ledger = buildReplayCashLedger({
+      run_id: `${request.run_id}:decision:${scheduleEntry.decision_sequence}`,
+      initial_cash: request.initial_cash,
+      initial_event_key: initialLedgerEventKey,
+      ending_event_key: createReplayEventKey({
+        event_time: scheduleEntry.decision_time,
+        boundary_phase: 100,
+        source_sequence: source.event_key.source_sequence,
+        event_subphase: scheduleEntry.decision_sequence,
+        stable_event_id: `${request.run_id}:decision:${scheduleEntry.decision_sequence}:state`,
+      }),
+      fills: [entryFill],
+      positions: [position],
+      funding_facts: fundingFacts,
+      settlement_increment: accountingSpec.settlement_increment,
+    })
+    const cashBalance = ledger.at(-1)!.balance_after
+    const totalFees = ledger.filter((entry) => entry.kind === "fee")
+      .reduce((total, entry) => addReplayDecimalValues(total, -entry.amount), 0)
+    const totalFunding = ledger.filter((entry) => entry.kind === "funding")
+      .reduce((total, entry) => addReplayDecimalValues(total, entry.amount), 0)
+    const unrealizedPnl = quantizeReplayDifferenceProduct(
+      bar.close, position.average_entry_price!, Math.abs(position.signed_quantity),
+      Math.sign(position.signed_quantity) as -1 | 1, accountingSpec.settlement_increment, "floor",
+    )
+    return createReplayDecisionStateSnapshot({
+      schema_version: REPLAY_DECISION_STATE_SNAPSHOT_SCHEMA_VERSION,
+      run_id: request.run_id,
+      decision_sequence: scheduleEntry.decision_sequence,
+      decision_time: scheduleEntry.decision_time,
+      observation_event_key: structuredClone(source.event_key),
+      source_prefix_hash: canonicalHash(boundary.source_events),
+      position: {
+        state: "open",
+        side: position.side!,
+        signed_quantity: position.signed_quantity,
+        average_entry_price: position.average_entry_price!,
+      },
+      mark_price: bar.close,
+      cash_balance: cashBalance,
+      total_fees: totalFees,
+      total_funding: totalFunding,
+      unrealized_pnl: unrealizedPnl,
+      equity: addReplayDecimalValues(cashBalance, unrealizedPnl),
+    })
+  }
 
   const sourceReduction = reduceReplaySourceEvents({
     request,
@@ -313,6 +428,34 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       entry_transition: resumeCheckpoint.entry_transition,
     } : undefined,
     on_source_boundary: (boundary) => {
+      const source = boundary.source_events.at(-1)
+      const runtimeDecisionIndex = source?.kind === "bar_range"
+        ? timelineInputs.findIndex((decision) => decision.evaluation_status === "pending_runtime"
+          && decision.schedule_entry.decision_time === source.event_key.event_time)
+        : -1
+      if (runtimeDecisionIndex >= 0) {
+        const runtimeDecision = timelineInputs[runtimeDecisionIndex]!
+        if (replayDecisionPhaseFor(request, runtimeDecision.schedule_entry) !== "position_open"
+            || !input.runtime_decision_evaluator) {
+          throw new Error("Replay position-open schedule requires a runtime decision evaluator")
+        }
+        const decisionStateSnapshot = buildRuntimeStateSnapshot(boundary, runtimeDecision.schedule_entry)
+        const admission = input.runtime_decision_evaluator({
+          schedule_entry: runtimeDecision.schedule_entry,
+          decision_input_snapshot: runtimeDecision.decision_input_snapshot,
+          decision_market_input_snapshot: runtimeDecision.decision_market_input_snapshot,
+          decision_state_snapshot: decisionStateSnapshot,
+        })
+        timelineInputs[runtimeDecisionIndex] = {
+          ...runtimeDecision,
+          evaluation_status: "evaluated",
+          decision_state_snapshot: decisionStateSnapshot,
+          decision_harness_bundle: admission.source_bundle,
+          decision_harness_build: admission.build_attestation,
+          decision_harness_receipt: admission.receipt,
+        }
+        rebuildDecisionTimeline()
+      }
       if (!input.execution_control?.on_checkpoint) return
       const checkpoint = buildReplayEngineCheckpoint({
         request,
@@ -323,7 +466,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
         event_sequence: eventSequence,
         exact_risk_snapshots: exactRiskSnapshots,
         limitations,
-        decision_evidence_timeline_hash: decisionEvidenceTimeline.timeline_hash,
+        decision_evidence_timeline: decisionEvidenceTimeline,
         decision_boundary_hash: decisionEvidenceEntry.decision_boundary.boundary_hash,
         decision_input_snapshot_hash: decisionInputSnapshot.snapshot_hash,
         decision_market_input_snapshot_hash: decisionMarketInputSnapshot.snapshot_hash,
@@ -453,6 +596,27 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       }),
   })
   const { exit, entry_transition: entryExecution, terminal_transition: exitExecution } = sourceReduction
+  const terminalSourceEvent = sourceReduction.source_events.at(-1)
+  if (!terminalSourceEvent) throw new Error("Replay terminal reduction requires a source event")
+  let finalizedTerminalDecision = false
+  timelineInputs = timelineInputs.map((decision) => {
+    if (decision.evaluation_status !== "pending_runtime") return decision
+    if (Date.parse(decision.schedule_entry.decision_time) < Date.parse(terminalSourceEvent.event_key.event_time)) {
+      throw new Error("Replay runtime decision boundary was skipped before terminal execution")
+    }
+    finalizedTerminalDecision = true
+    return {
+      ...decision,
+      evaluation_status: "not_reached_terminal",
+      decision_state_snapshot: null,
+      decision_harness_bundle: null,
+      decision_harness_build: null,
+      decision_harness_receipt: null,
+      terminal_event_key: structuredClone(terminalSourceEvent.event_key),
+    }
+  })
+  if (finalizedTerminalDecision) rebuildDecisionTimeline()
+  assertReplayDecisionEvidenceTimeline(decisionEvidenceTimeline, request, { source_events: sourceReduction.source_events })
   const exitRiskPolicy = riskPolicyAt(exit.timestamp)
   const entryFill = entryFillFor(entryExecution)
   const fills: ReplayFill[] = [entryFill]
@@ -714,6 +878,9 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       decision_schedule_hash: request.decision_schedule_hash,
       decision_market_input_snapshot_hash: decisionMarketInputSnapshot.snapshot_hash,
       decision_evidence_timeline_hash: decisionEvidenceTimeline.timeline_hash,
+      decision_state_snapshot_hashes: decisionEvidenceTimeline.entries.map(
+        (entry) => entry.decision_state_snapshot?.snapshot_hash ?? null,
+      ),
       decision_boundary_hash: decisionEvidenceEntry.decision_boundary.boundary_hash,
       decision_input_snapshot_hash: decisionInputSnapshot.snapshot_hash,
       decision_harness_receipt_hash: decisionHarnessReceipt?.receipt_hash ?? null,
@@ -756,7 +923,7 @@ function buildReplayEngineCheckpoint(input: {
   event_sequence: number
   exact_risk_snapshots: ReplayMarginSnapshot[]
   limitations: ReplayResult["limitations"]
-  decision_evidence_timeline_hash: string
+  decision_evidence_timeline: ReplayDecisionEvidenceTimeline
   decision_boundary_hash: string
   decision_input_snapshot_hash: string
   decision_market_input_snapshot_hash: string
@@ -773,7 +940,8 @@ function buildReplayEngineCheckpoint(input: {
     run_id: input.request.run_id,
     request_hash: canonicalHash(input.request),
     dataset_hash: input.dataset_manifest.data_hash,
-    decision_evidence_timeline_hash: input.decision_evidence_timeline_hash,
+    decision_evidence_timeline_hash: input.decision_evidence_timeline.timeline_hash,
+    decision_evidence_timeline: structuredClone(input.decision_evidence_timeline),
     decision_boundary_hash: input.decision_boundary_hash,
     decision_input_snapshot_hash: input.decision_input_snapshot_hash,
     decision_market_input_snapshot_hash: input.decision_market_input_snapshot_hash,
@@ -814,6 +982,10 @@ export function assertReplayEngineCheckpoint(
   decisionHarnessWorkerProtocolVersion?: string | null,
 ): void {
   if (checkpoint.schema_version !== REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION) throw new Error("unsupported Replay engine checkpoint schema")
+  assertReplayDecisionEvidenceTimeline(checkpoint.decision_evidence_timeline, request, {
+    allow_pending_runtime: true,
+    source_events: checkpoint.source_events,
+  })
   if (checkpoint.run_id !== request.run_id
       || checkpoint.request_hash !== canonicalHash(request)
       || checkpoint.dataset_hash !== datasetManifest.data_hash
@@ -834,6 +1006,9 @@ export function assertReplayEngineCheckpoint(
       || checkpoint.simulator_policy_version !== request.simulator_policy.version
       || checkpoint.numeric_policy_version !== REPLAY_NUMERIC_POLICY_VERSION) {
     throw new Error("Replay engine checkpoint authority binding does not match execution input")
+  }
+  if (checkpoint.decision_evidence_timeline_hash !== checkpoint.decision_evidence_timeline.timeline_hash) {
+    throw new Error("Replay engine checkpoint authority binding Decision Evidence Timeline hash is invalid")
   }
   if (!/^[a-f0-9]{64}$/.test(checkpoint.decision_evidence_timeline_hash)
       || !/^[a-f0-9]{64}$/.test(checkpoint.decision_boundary_hash)

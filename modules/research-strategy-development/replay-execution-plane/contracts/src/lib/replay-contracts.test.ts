@@ -14,6 +14,7 @@ import {
   REPLAY_DECISION_HARNESS_CONTEXT_SCHEMA_VERSION,
   REPLAY_DECISION_MARKET_INPUT_SNAPSHOT_SCHEMA_VERSION,
   REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
+  REPLAY_DECISION_STATE_SNAPSHOT_SCHEMA_VERSION,
   REPLAY_LOCAL_ARTIFACT_STORE_CAPABILITY,
   REPLAY_OBJECT_ARTIFACT_STORE_REQUIRED_CAPABILITY,
   REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION,
@@ -38,6 +39,8 @@ import {
   assertReplayDecisionEvidenceTimeline,
   assertReplayDecisionInputSnapshot,
   assertReplayDecisionMarketInputSnapshot,
+  assertReplayDecisionStateSnapshot,
+  assertReplayDecisionStateSnapshotSourcePrefix,
   assertReplaySupplementalFact,
   assertReplaySupplementalRequirementSet,
   canonicalHash,
@@ -49,6 +52,7 @@ import {
   createReplayDecisionEvidenceTimeline,
   createReplayDecisionInputSnapshot,
   createReplayDecisionMarketInputSnapshot,
+  createReplayDecisionStateSnapshot,
   createReplaySingleDecisionSchedule,
   replayAuthorizedInitialDecisionEvidenceEntry,
   replayAuthorizedInitialDecisionScheduleEntry,
@@ -166,6 +170,40 @@ test("authorized initial decision lookup is semantic rather than positional", ()
   expect(replayAuthorizedInitialDecisionEvidenceEntry(nonPositionalTimeline)).toEqual(authorizedEvidenceEntry)
 })
 
+test("position-open decision state snapshot is self-hashed monetary evidence", () => {
+  const sourceEvents = [{
+    source_event_id: "source:bar_range:2",
+    kind: "bar_range" as const,
+    source_index: 1,
+    event_key: {
+      event_time: "2026-07-14T08:00:00Z", boundary_phase: 20 as const,
+      source_sequence: 2, event_subphase: 0, stable_event_id: "source:bar_range:2",
+    },
+  }]
+  const snapshot = createReplayDecisionStateSnapshot({
+    schema_version: REPLAY_DECISION_STATE_SNAPSHOT_SCHEMA_VERSION,
+    run_id: "run-state-1",
+    decision_sequence: 2,
+    decision_time: "2026-07-14T08:00:00Z",
+    observation_event_key: {
+      event_time: "2026-07-14T08:00:00Z", boundary_phase: 20,
+      source_sequence: 2, event_subphase: 0, stable_event_id: "source:bar_range:2",
+    },
+    source_prefix_hash: canonicalHash(sourceEvents),
+    position: { state: "open", side: "long", signed_quantity: 1, average_entry_price: 100 },
+    mark_price: 102,
+    cash_balance: 999.9,
+    total_fees: 0.1,
+    total_funding: 0,
+    unrealized_pnl: 2,
+    equity: 1001.9,
+  })
+  expect(() => assertReplayDecisionStateSnapshot(snapshot)).not.toThrow()
+  expect(() => assertReplayDecisionStateSnapshotSourcePrefix(snapshot, sourceEvents)).not.toThrow()
+  expect(() => assertReplayDecisionStateSnapshotSourcePrefix(snapshot, [])).toThrow("source prefix")
+  expect(() => assertReplayDecisionStateSnapshot({ ...snapshot, cash_balance: 1000 })).toThrow("hash mismatch")
+})
+
 test("Replay request freezes one bounded isolated maintenance tier", () => {
   const excessiveCollateral = fixtureRequest()
   excessiveCollateral.margin_policy.isolated_collateral = excessiveCollateral.initial_cash + 1
@@ -255,6 +293,7 @@ test("Decision Input Snapshot and Harness Receipt are self-hashed immutable evid
     request_context: createReplayDecisionHarnessContext(requestValue),
     decision_input_snapshot: snapshot,
     decision_market_input_snapshot: marketSnapshot,
+    decision_state_snapshot: null,
   }
   const workerResponse = {
     schema_version: REPLAY_DECISION_HARNESS_WORKER_RESPONSE_SCHEMA_VERSION,
@@ -281,6 +320,7 @@ test("Decision Input Snapshot and Harness Receipt are self-hashed immutable evid
     context_schema_version: REPLAY_DECISION_HARNESS_CONTEXT_SCHEMA_VERSION,
     supplemental_input_schema_version: REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION,
     market_input_schema_version: REPLAY_DECISION_MARKET_INPUT_SNAPSHOT_SCHEMA_VERSION,
+    state_input_schema_version: REPLAY_DECISION_STATE_SNAPSHOT_SCHEMA_VERSION,
     output_schema_version: REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION,
   }
   expect(() => assertReplayDecisionHarnessCapability(capability, requestValue)).not.toThrow()
@@ -289,6 +329,7 @@ test("Decision Input Snapshot and Harness Receipt are self-hashed immutable evid
     request: requestValue,
     decision_input_snapshot: snapshot,
     decision_market_input_snapshot: marketSnapshot,
+    decision_state_snapshot: null,
     source_bundle: sourceBundle,
     build_attestation: buildAttestation,
     capability,
@@ -306,7 +347,8 @@ test("Decision Input Snapshot and Harness Receipt are self-hashed immutable evid
     decisions: [{
       schedule_entry: requestValue.decision_schedule.entries[0]!,
       decision_input_snapshot: snapshot,
-      decision_market_input_snapshot: marketSnapshot,
+    decision_market_input_snapshot: marketSnapshot,
+    decision_state_snapshot: null,
       decision_harness_bundle: sourceBundle,
       decision_harness_build: buildAttestation,
       decision_harness_receipt: receipt,

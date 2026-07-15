@@ -12,6 +12,7 @@ import {
   REPLAY_DECISION_HARNESS_WORKER_RESPONSE_SCHEMA_VERSION,
   REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION,
   REPLAY_DECISION_MARKET_INPUT_SNAPSHOT_SCHEMA_VERSION,
+  REPLAY_DECISION_STATE_SNAPSHOT_SCHEMA_VERSION,
   REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION,
   REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION,
   REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS,
@@ -198,6 +199,7 @@ function inputFor(
     request_context: createReplayDecisionHarnessContext(boundRequest),
     decision_input_snapshot: prepared.decision_input_snapshot,
     decision_market_input_snapshot: prepared.decision_market_input_snapshot,
+    decision_state_snapshot: null,
   } : null
   const workerResponse = decisionHarnessBuild ? {
     schema_version: REPLAY_DECISION_HARNESS_WORKER_RESPONSE_SCHEMA_VERSION,
@@ -212,6 +214,7 @@ function inputFor(
         request: boundRequest,
         decision_input_snapshot: prepared.decision_input_snapshot,
         decision_market_input_snapshot: prepared.decision_market_input_snapshot,
+        decision_state_snapshot: null,
         source_bundle: decisionHarnessBundle!,
         build_attestation: decisionHarnessBuild!,
         capability: {
@@ -230,6 +233,7 @@ function inputFor(
           context_schema_version: REPLAY_DECISION_HARNESS_CONTEXT_SCHEMA_VERSION,
           supplemental_input_schema_version: REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION,
           market_input_schema_version: REPLAY_DECISION_MARKET_INPUT_SNAPSHOT_SCHEMA_VERSION,
+          state_input_schema_version: REPLAY_DECISION_STATE_SNAPSHOT_SCHEMA_VERSION,
           output_schema_version: REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION,
         },
         worker_request: workerRequest!,
