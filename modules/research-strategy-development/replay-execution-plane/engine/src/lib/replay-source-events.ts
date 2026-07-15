@@ -1,5 +1,6 @@
 import type {
   ReplayFundingEvent,
+  ReplayInstrumentStatusSnapshot,
   ReplayMarkEvent,
   ReplayMarketBar,
   ReplaySourceEvent,
@@ -10,6 +11,7 @@ export function buildReplaySourceEvents(input: {
   bars: ReplayMarketBar[]
   funding_events: ReplayFundingEvent[]
   mark_events: ReplayMarkEvent[]
+  instrument_status_epochs?: ReplayInstrumentStatusSnapshot[]
   delisted_at?: string | null
   start_time: string
   end_time: string
@@ -23,6 +25,10 @@ export function buildReplaySourceEvents(input: {
     return value >= start && value <= end
   }
   if (input.delisted_at && inWindow(input.delisted_at)) events.push(instrumentDelistedSourceEvent(input.delisted_at))
+  for (const [index, status] of (input.instrument_status_epochs ?? []).entries()) {
+    if (index === 0 || !inWindow(status.effective_at)) continue
+    events.push(instrumentStatusSourceEvent(status, index))
+  }
   for (const [index, bar] of input.bars.entries()) {
     const sourceSequence = index + 1
     if (inWindow(bar.open_time)) events.push(sourceEvent("bar_open", index, bar.open_time, 20, sourceSequence))
@@ -44,7 +50,7 @@ export function buildReplaySourceEvents(input: {
 }
 
 function sourceEvent(
-  kind: ReplaySourceEvent["kind"],
+  kind: "bar_open" | "bar_range" | "funding" | "mark",
   sourceIndex: number,
   eventTime: string,
   boundaryPhase: 10 | 15 | 20,
@@ -59,6 +65,27 @@ function sourceEvent(
       event_time: eventTime,
       boundary_phase: boundaryPhase,
       source_sequence: sourceSequence,
+      event_subphase: 0,
+      stable_event_id: sourceEventId,
+    }),
+  }
+}
+
+export function instrumentStatusSourceEvent(
+  status: ReplayInstrumentStatusSnapshot,
+  sourceIndex: number,
+): ReplaySourceEvent {
+  const kind = status.status === "halted" ? "instrument_halted" : "instrument_resumed"
+  const sourceEventId = `source:${kind}:${sourceIndex}:${status.effective_at}`
+  return {
+    source_event_id: sourceEventId,
+    kind,
+    source_index: sourceIndex,
+    instrument_status_snapshot_id: status.snapshot_id,
+    event_key: createReplayEventKey({
+      event_time: status.effective_at,
+      boundary_phase: 0,
+      source_sequence: sourceIndex + 1,
       event_subphase: 0,
       stable_event_id: sourceEventId,
     }),

@@ -21,14 +21,17 @@ export class ReplayMarginTerminalError extends Error {
   readonly maintenance_breach: ReplayMaintenanceBreachObservation | undefined
 
   constructor(
-    readonly code: "initial-margin-deficit-without-resize" | "maintenance-margin-breach-without-liquidation",
+    readonly code: "initial-margin-deficit-without-resize" | "maintenance-margin-breach-without-liquidation" | "maintenance-margin-breach-while-halted",
     readonly terminal_snapshot: ReplayMarginSnapshot,
   ) {
     super(code === "initial-margin-deficit-without-resize"
       ? `post-entry initial margin exceeds frozen collateral at ${terminal_snapshot.timestamp}; Replay does not resize the Trial order`
-      : `maintenance margin was breached at ${terminal_snapshot.timestamp}; no liquidation model is bound`)
+      : code === "maintenance-margin-breach-while-halted"
+        ? `maintenance margin was breached while instrument trading was halted at ${terminal_snapshot.timestamp}; Replay cannot synthesize an executable liquidation Fill`
+        : `maintenance margin was breached at ${terminal_snapshot.timestamp}; no liquidation model is bound`)
     this.name = "ReplayMarginTerminalError"
     this.maintenance_breach = code === "maintenance-margin-breach-without-liquidation"
+        || code === "maintenance-margin-breach-while-halted"
       ? buildReplayMaintenanceBreachObservation(terminal_snapshot)
       : undefined
   }
@@ -108,7 +111,7 @@ export function buildReplayPathMarginSnapshots(input: {
   if (!entryPosition || entryPosition.state !== "open") throw new Error("Replay margin path requires an open entry Position")
   const snapshots: ReplayMarginSnapshot[] = []
   for (const source of input.source_events) {
-    if (source.kind === "instrument_delisted"
+    if (source.kind === "instrument_delisted" || source.kind === "instrument_halted" || source.kind === "instrument_resumed"
         || compareReplayEventKeys(source.event_key, entryPosition.event_key) <= 0) continue
     if (input.exact_mark_coverage && (source.kind === "bar_open" || source.kind === "bar_range")) continue
     const observation = marginObservation(input.request, source, input.bars, input.funding_events, input.mark_events)

@@ -26,6 +26,7 @@ import {
   REPLAY_OBJECT_ARTIFACT_STORE_REQUIRED_CAPABILITY,
   REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION,
   REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION,
+  REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION,
   REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS,
   REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH,
   REPLAY_NO_DECISION_MARKET_INPUT,
@@ -72,6 +73,7 @@ const HASH = "a".repeat(64)
 const MAINTENANCE_TIER = { tier_id: "tier-1", snapshot_ref: "fixture:margin-tier-1", snapshot_hash: HASH, notional_floor: 0, notional_cap: 50_000, maintenance_margin_rate: 0.005, maintenance_amount: 0 }
 const RISK_SNAPSHOT = { schema_version: REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION, snapshot_id: "risk-1", venue_id: "binance-usdm", symbol: "BTCUSDT", effective_at: "2020-01-01T00:00:00Z", valid_until: null, observed_at: "2026-07-13T00:00:00Z", source_ref: "fixture:risk-1", source_hash: HASH, initial_margin_rate: 0.1, maintenance_tier: MAINTENANCE_TIER, liquidation_fee_bps: 50 }
 const SPEC_SNAPSHOT = { schema_version: REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION, snapshot_id: "spec-1", venue_id: "binance-usdm", symbol: "BTCUSDT", effective_at: "2020-01-01T00:00:00Z", valid_until: null, observed_at: "2026-07-13T00:00:00Z", source_ref: "fixture:spec-1", source_hash: HASH }
+const STATUS_SNAPSHOT = { schema_version: REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION, snapshot_id: "status-1", venue_id: "binance-usdm", symbol: "BTCUSDT", status: "trading" as const, effective_at: "2020-01-01T00:00:00Z", valid_until: null, observed_at: "2026-07-13T00:00:00Z", source_ref: "fixture:status-1", source_hash: HASH }
 
 export function fixtureRequest(): ReplayExecutionRequest {
   const order: ReplayExecutionRequest["order"] = {
@@ -104,6 +106,7 @@ export function fixtureRequest(): ReplayExecutionRequest {
     decision_schedule_hash: canonicalHash(decisionSchedule),
     venue_risk_policy_schedule_hash: canonicalHash([RISK_SNAPSHOT]),
     instrument_spec_schedule_hash: HASH,
+    instrument_status_schedule_hash: canonicalHash([STATUS_SNAPSHOT]),
     harness_hash: HASH,
     assumptions_hash: HASH,
     symbol: "BTCUSDT",
@@ -130,6 +133,7 @@ export function fixtureRequest(): ReplayExecutionRequest {
 test("Replay request requires complete Trial and evidence identity", () => {
   expect(() => assertReplayExecutionRequest(fixtureRequest())).not.toThrow()
   expect(() => assertReplayExecutionRequest({ ...fixtureRequest(), dataset_hash: "weak" })).toThrow()
+  expect(() => assertReplayExecutionRequest({ ...fixtureRequest(), instrument_status_schedule_hash: "weak" })).toThrow()
   expect(() => assertReplayExecutionRequest({ ...fixtureRequest(), decision_schedule_hash: HASH })).toThrow("decision schedule hash mismatch")
   const unauthorizedSchedule = fixtureRequest()
   unauthorizedSchedule.decision_schedule = {
@@ -711,6 +715,7 @@ test("Replay dataset manifest requires explicit UTC lifecycle and availability p
     venue_risk_policy_epochs: [RISK_SNAPSHOT],
     instrument: {
       listed_at: "2020-01-01T00:00:00Z", trading_enabled_at: "2020-01-01T00:00:00Z", delisted_at: null, status_history: "complete" as const,
+      status_epochs: [STATUS_SNAPSHOT],
       spec_epochs: [SPEC_SNAPSHOT],
       accounting: { spec_version: REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, product_type: "linear_derivative" as const, base_asset: "BTC", quote_asset: "USDT", settlement_asset: "USDT", contract_multiplier: "1", price_increment: "0.01", quantity_increment: "0.001", settlement_increment: "0.00000001" },
     },
@@ -728,5 +733,25 @@ test("Replay dataset manifest requires explicit UTC lifecycle and availability p
       { ...RISK_SNAPSHOT, valid_until: "2026-07-14T06:00:00Z" },
       { ...RISK_SNAPSHOT, snapshot_id: "risk-2", effective_at: "2026-07-14T07:00:00Z" },
     ],
+  })).toThrow("ordered, non-overlapping, and contiguous")
+
+  const statusSchedule = [
+    { ...STATUS_SNAPSHOT, valid_until: "2026-07-14T06:00:00Z" },
+    { ...STATUS_SNAPSHOT, snapshot_id: "status-halted", status: "halted" as const, effective_at: "2026-07-14T06:00:00Z", valid_until: "2026-07-14T07:00:00Z", source_ref: "fixture:status-halted", source_hash: "b".repeat(64) },
+    { ...STATUS_SNAPSHOT, snapshot_id: "status-resumed", effective_at: "2026-07-14T07:00:00Z", source_ref: "fixture:status-resumed", source_hash: "c".repeat(64) },
+  ]
+  expect(() => assertReplayDatasetManifest({
+    ...manifest,
+    instrument: { ...manifest.instrument, status_epochs: statusSchedule },
+  })).not.toThrow()
+  expect(() => assertReplayDatasetManifest({
+    ...manifest,
+    instrument: { ...manifest.instrument, status_history: "current_snapshot_only", status_epochs: statusSchedule },
+  })).toThrow("cannot certify historical halt epochs")
+  const gappedStatusSchedule = structuredClone(statusSchedule)
+  gappedStatusSchedule[0].valid_until = "2026-07-14T05:00:00Z"
+  expect(() => assertReplayDatasetManifest({
+    ...manifest,
+    instrument: { ...manifest.instrument, status_epochs: gappedStatusSchedule },
   })).toThrow("ordered, non-overlapping, and contiguous")
 })

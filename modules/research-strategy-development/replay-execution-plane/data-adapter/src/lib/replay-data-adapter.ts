@@ -7,6 +7,7 @@ import {
   createReplayDecisionInputSnapshot,
   createReplayDecisionMarketInputSnapshot,
   replayAuthorizedInitialDecisionScheduleEntry,
+  replayDecisionEarliestExecutableTimeFor,
   replayDatasetHash,
   replayDatasetManifestHash,
   type ReplayDatasetManifest,
@@ -16,6 +17,7 @@ import {
   type ReplayExecutionRequest,
   type ReplayFundingEvent,
   type ReplayInstrumentSpecSnapshot,
+  type ReplayInstrumentStatusSnapshot,
   type ReplayLimitation,
   type ReplayMarkEvent,
   type ReplayMarketBar,
@@ -71,6 +73,7 @@ export function prepareReplayInputData(input: {
   assertReplayDatasetManifest(manifest)
   assertReplayMarketBars(input.bars)
   if (input.bars.length === 0) throw new Error("Replay requires at least one closed bar")
+  validateReplayDecisionStatusAdmission(request, manifest)
   const executableTime = Date.parse(request.order.earliest_executable_time)
   if (!Number.isFinite(executableTime)) throw new Error("earliest executable time must be an ISO timestamp")
   const fundingEvents = validateReplayFundingEvents(input.funding_events || [])
@@ -173,7 +176,7 @@ function validateManifestBinding(
   }
   validateMarkCoverage(manifest, markEvents, observedThrough, firstOpen, lastClose)
   const supplementalAdmission = validateSupplementalBinding(request, manifest, supplementalFacts, observedThrough)
-  validatePointInTimePolicyBindings(request, manifest, firstOpen, lastClose, entryTime, observedThrough)
+  validatePointInTimePolicyBindings(request, manifest, bars, firstOpen, lastClose, entryTime, observedThrough)
   validateInstrumentWindow(request, manifest, bars)
   validateBarGrid(manifest, bars)
   return supplementalAdmission
@@ -325,6 +328,7 @@ function supplementalFactGroupKey(fact: ReplaySupplementalFact): string {
 function validatePointInTimePolicyBindings(
   request: ReplayExecutionRequest,
   manifest: ReplayDatasetManifest,
+  bars: ReplayMarketBar[],
   firstOpen: number,
   lastClose: number,
   entryTime: string,
@@ -332,11 +336,14 @@ function validatePointInTimePolicyBindings(
 ): void {
   const risks = manifest.venue_risk_policy_epochs
   const specs = manifest.instrument.spec_epochs
+  const statuses = manifest.instrument.status_epochs
   validateSnapshotScheduleCoversWindow(risks, firstOpen, lastClose, observedThrough, "venue risk policy")
   validateSnapshotScheduleCoversWindow(specs, firstOpen, lastClose, observedThrough, "instrument spec")
+  validateSnapshotScheduleCoversWindow(statuses, firstOpen, lastClose, observedThrough, "instrument status")
   const venueId = risks[0].venue_id
   if (risks.some((risk) => risk.symbol !== manifest.symbol || risk.venue_id !== venueId)
-      || specs.some((spec) => spec.symbol !== manifest.symbol || spec.venue_id !== venueId)) {
+      || specs.some((spec) => spec.symbol !== manifest.symbol || spec.venue_id !== venueId)
+      || statuses.some((status) => status.symbol !== manifest.symbol || status.venue_id !== venueId)) {
     throw new Error("policy schedule symbol or venue does not match dataset manifest")
   }
   if (request.venue_risk_policy_schedule_hash !== canonicalHash(risks)) {
@@ -345,6 +352,16 @@ function validatePointInTimePolicyBindings(
   const instrumentSpecHash = canonicalHash({ epochs: specs, accounting: manifest.instrument.accounting })
   if (request.instrument_spec_schedule_hash !== instrumentSpecHash) {
     throw new Error("instrument spec schedule hash does not match Replay request")
+  }
+  if (request.instrument_status_schedule_hash !== canonicalHash(statuses)) {
+    throw new Error("instrument status schedule hash does not match Replay request")
+  }
+  for (const [index, bar] of bars.entries()) {
+    const status = resolveReplayInstrumentStatusAt(manifest, bar.open_time)
+    if (status.status !== "trading"
+        || (status.valid_until !== null && Date.parse(bar.close_time) > Date.parse(status.valid_until))) {
+      throw new Error(`market bar ${index} overlaps an instrument halted interval`)
+    }
   }
   const entryRisk = resolveReplayVenueRiskPolicyAt(manifest, entryTime)
   if (request.margin_policy.initial_margin_rate !== entryRisk.initial_margin_rate
@@ -388,6 +405,32 @@ export function resolveReplayInstrumentSpecAt(
   timestamp: string,
 ): ReplayInstrumentSpecSnapshot {
   return resolveReplaySnapshotAt(manifest.instrument.spec_epochs, timestamp, "instrument spec")
+}
+
+export function resolveReplayInstrumentStatusAt(
+  manifest: ReplayDatasetManifest,
+  timestamp: string,
+): ReplayInstrumentStatusSnapshot {
+  return resolveReplaySnapshotAt(manifest.instrument.status_epochs, timestamp, "instrument status")
+}
+
+export function isReplayExplicitHaltInterval(
+  statuses: ReplayInstrumentStatusSnapshot[],
+  startTime: string,
+  endTime: string,
+): boolean {
+  const start = Date.parse(startTime)
+  const end = Date.parse(endTime)
+  if (!Number.isFinite(start) || !Number.isFinite(end) || start >= end) return false
+  let cursor = start
+  while (cursor < end) {
+    const status = resolveReplaySnapshotAt(statuses, new Date(cursor).toISOString(), "instrument status")
+    if (status.status !== "halted") return false
+    const statusEnd = status.valid_until === null ? Number.POSITIVE_INFINITY : Date.parse(status.valid_until)
+    if (statusEnd <= cursor) return false
+    cursor = Math.min(statusEnd, end)
+  }
+  return resolveReplaySnapshotAt(statuses, endTime, "instrument status").status === "trading"
 }
 
 function resolveReplaySnapshotAt<T extends { effective_at: string; valid_until: string | null }>(
@@ -449,6 +492,21 @@ function validateInstrumentWindow(
   }
 }
 
+function validateReplayDecisionStatusAdmission(
+  request: ReplayExecutionRequest,
+  manifest: ReplayDatasetManifest,
+): void {
+  for (const entry of request.decision_schedule.entries) {
+    if (resolveReplayInstrumentStatusAt(manifest, entry.decision_time).status !== "trading") {
+      throw new Error(`Replay decision ${entry.decision_sequence} occurs while instrument trading is halted`)
+    }
+    const executableTime = replayDecisionEarliestExecutableTimeFor(request, entry)
+    if (executableTime !== null && resolveReplayInstrumentStatusAt(manifest, executableTime).status !== "trading") {
+      throw new Error(`Replay decision ${entry.decision_sequence} executable boundary occurs while instrument trading is halted`)
+    }
+  }
+}
+
 function validateBarGrid(manifest: ReplayDatasetManifest, bars: ReplayMarketBar[]): void {
   const origin = Date.parse(bars[0].open_time)
   for (const [index, bar] of bars.entries()) {
@@ -467,14 +525,17 @@ function detectDatasetLimitations(
   const limitations: ReplayLimitation[] = []
   let missingBars = 0
   for (let index = 1; index <= entryIndex; index += 1) {
-    const previousOpen = Date.parse(bars[index - 1].open_time)
-    const currentOpen = Date.parse(bars[index].open_time)
-    missingBars += Math.max(0, currentOpen - previousOpen) / manifest.interval_ms - 1
+    const previous = bars[index - 1]
+    const current = bars[index]
+    const missing = Math.max(0, Date.parse(current.open_time) - Date.parse(previous.open_time)) / manifest.interval_ms - 1
+    if (missing > 0 && !isReplayExplicitHaltInterval(manifest.instrument.status_epochs, previous.close_time, current.open_time)) {
+      missingBars += missing
+    }
   }
   if (missingBars > 0) limitations.push({
     code: "dataset-grid-gap",
     severity: "resolution_limited",
-    detail: `Dataset is missing ${missingBars} expected bar(s); Simulator v9 never treats a missing time-grid bar as an observed price gap. A Result is possible only if the gap is outside the consumed execution path; reaching it fails before later SourceEvents.`,
+    detail: `Dataset is missing ${missingBars} expected bar(s); Simulator v10 never treats a missing time-grid bar as an observed price gap unless a complete PIT status schedule proves the entire interval was halted. A Result is possible only if the gap is outside the consumed execution path; reaching it fails before later SourceEvents.`,
   })
   if (manifest.instrument.status_history === "current_snapshot_only") limitations.push({
     code: "instrument-history-incomplete",

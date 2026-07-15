@@ -3,6 +3,7 @@ import {
   type ReplayEventKey,
   type ReplayExecutionRequest,
   type ReplayFundingEvent,
+  type ReplayInstrumentStatusSnapshot,
   type ReplayLimitation,
   type ReplayMarkEvent,
   type ReplayMarketBar,
@@ -12,7 +13,7 @@ import {
 import { compareReplayEventKeys } from "./replay-event-key"
 import { createReplaySimpleBracketOhlcvResolution, type ReplayOhlcvResolutionEconomics } from "./replay-ohlcv-resolution"
 import { buildReplaySourceEvents } from "./replay-source-events"
-import { ReplayDataContinuityError } from "../../../data-adapter/src/lib/replay-data-adapter"
+import { isReplayExplicitHaltInterval, ReplayDataContinuityError } from "../../../data-adapter/src/lib/replay-data-adapter"
 
 export type ReplayReducedExit =
   | { role: "stop" | "target"; timestamp: string; rawPrice: number; triggerSource: "bar_open" | "bar_range"; sourceSequence: number; resolution_evidence: ReplayOhlcvResolutionEvidence }
@@ -58,6 +59,7 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
   bars: ReplayMarketBar[]
   funding_events: ReplayFundingEvent[]
   mark_events: ReplayMarkEvent[]
+  instrument_status_epochs: ReplayInstrumentStatusSnapshot[]
   exact_mark_coverage: boolean
   entry_index: number
   delisted_at: string | null
@@ -84,6 +86,7 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
     bars: input.bars,
     funding_events: input.funding_events,
     mark_events: input.mark_events,
+    instrument_status_epochs: input.instrument_status_epochs,
     delisted_at: input.delisted_at,
     start_time: entryBar.open_time,
     end_time: lastBar.close_time,
@@ -99,6 +102,11 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
   const consumed: ReplaySourceEvent[] = [...(input.resume?.source_events ?? [])]
   const appliedFunding: ReplaySourceEvent[] = [...(input.resume?.applied_funding_sources ?? [])]
   let entryTransition: TEntry | undefined = input.resume?.entry_transition ?? undefined
+  let instrumentTrading = true
+  for (const source of consumed) {
+    if (source.kind === "instrument_halted") instrumentTrading = false
+    if (source.kind === "instrument_resumed") instrumentTrading = true
+  }
 
   const checkpoint = (nextSourceOffset: number): void => input.on_source_boundary?.({
     next_source_offset: nextSourceOffset,
@@ -111,6 +119,11 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
     const source = sourceEvents[sourceOffset]
     consumed.push(source)
     if (source.kind === "instrument_delisted") throw new ReplayInstrumentTerminalError(source)
+    if (source.kind === "instrument_halted" || source.kind === "instrument_resumed") {
+      instrumentTrading = source.kind === "instrument_resumed"
+      checkpoint(sourceOffset + 1)
+      continue
+    }
     if (source.kind === "funding") {
       if (entryTransition !== undefined
           && compareReplayEventKeys(source.event_key, input.get_entry_fill_event_key(entryTransition)) > 0) appliedFunding.push(source)
@@ -134,6 +147,7 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
       continue
     }
     if (source.kind === "bar_open" && source.source_index === input.entry_index && entryTransition === undefined) {
+      if (!instrumentTrading) throw new Error("Replay cannot activate an entry while instrument trading is halted")
       entryTransition = input.activate_entry(source)
     }
     if (entryTransition === undefined) throw new Error("Replay entry bar_open must be consumed before in-position market events")
@@ -145,6 +159,7 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
     const activeTargetPrice = activeProtection.target_trigger_price
 
     if (source.kind === "bar_open") {
+      if (!instrumentTrading) throw new Error("Replay cannot consume a market open while instrument trading is halted")
       const stopGap = isLong ? bar.open <= activeStopPrice : bar.open >= activeStopPrice
       if (stopGap) return reduction(
         {
@@ -250,7 +265,8 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
       input.complete_exit,
     )
     const nextBar = input.bars[source.source_index + 1]
-    if (nextBar && Date.parse(nextBar.open_time) !== Date.parse(bar.close_time)) {
+    if (nextBar && Date.parse(nextBar.open_time) !== Date.parse(bar.close_time)
+        && !isReplayExplicitHaltInterval(input.instrument_status_epochs, bar.close_time, nextBar.open_time)) {
       const interval = Date.parse(bar.close_time) - Date.parse(bar.open_time)
       const missingBarCount = (Date.parse(nextBar.open_time) - Date.parse(bar.close_time)) / interval
       if (!Number.isSafeInteger(missingBarCount) || missingBarCount <= 0) {

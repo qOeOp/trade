@@ -51,7 +51,7 @@ import { buildReplayEquityProjection } from "../../../accounting/src/lib/replay-
 import { buildReplayJournal } from "../../../accounting/src/lib/replay-journal"
 import { buildReplayMarginSnapshot } from "../../../accounting/src/lib/replay-margin"
 import { addReplayDecimalValues, isReplayIncrementAligned, quantizeReplayDifferenceProduct, quantizeReplayQuantity } from "../../../contracts/src/lib/replay-decimal"
-import { prepareReplayInputData, resolveReplayVenueRiskPolicyAt } from "../../../data-adapter/src/lib/replay-data-adapter"
+import { prepareReplayInputData, resolveReplayInstrumentStatusAt, resolveReplayVenueRiskPolicyAt } from "../../../data-adapter/src/lib/replay-data-adapter"
 import { deriveReplayMetrics } from "../../../metrics/src/lib/replay-metrics"
 import {
   submitReplayOrder,
@@ -63,10 +63,10 @@ import { completeReplayExitOrderLane, completeReplayStrategyExitOrderLane } from
 import { completeReplayLiquidationOrderLane } from "./replay-liquidation-order-lane"
 import { replaceReplayProtectiveStop } from "./replay-protective-stop-lane"
 import { completeReplayPartialReduceLane } from "./replay-partial-reduce-lane"
-import { ReplayLiquidationDeficitError, assertReplayPostEntryMargin, buildReplayMaintenanceBreachObservation, buildReplayPathMarginSnapshots } from "./replay-margin-path"
+import { ReplayLiquidationDeficitError, ReplayMarginTerminalError, assertReplayPostEntryMargin, buildReplayMaintenanceBreachObservation, buildReplayPathMarginSnapshots } from "./replay-margin-path"
 import { reduceReplaySourceEvents } from "./replay-source-reducer"
 
-export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v16" as const
+export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v17" as const
 
 export interface ReplayEngineCheckpoint {
   schema_version: typeof REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION
@@ -457,6 +457,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     bars,
     funding_events: fundingEvents,
     mark_events: markEvents,
+    instrument_status_epochs: input.dataset_manifest.instrument.status_epochs,
     exact_mark_coverage: exactMarkCoverage,
     entry_index: entryIndex,
     delisted_at: input.dataset_manifest.instrument.delisted_at,
@@ -701,6 +702,9 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       })
       exactRiskSnapshots.push(snapshot)
       if (snapshot.maintenance_margin_sufficient) return null
+      if (resolveReplayInstrumentStatusAt(input.dataset_manifest, source.event_key.event_time).status === "halted") {
+        throw new ReplayMarginTerminalError("maintenance-margin-breach-while-halted", snapshot)
+      }
       return {
         role: "liquidation" as const,
         timestamp: source.event_key.event_time,
@@ -1134,6 +1138,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       ),
       venue_risk_policy_schedule_hash: request.venue_risk_policy_schedule_hash,
       instrument_spec_schedule_hash: request.instrument_spec_schedule_hash,
+      instrument_status_schedule_hash: request.instrument_status_schedule_hash,
       harness_hash: request.harness_hash,
       assumptions_hash: request.assumptions_hash,
       cost_policy_hash: canonicalHash(request.cost_policy),

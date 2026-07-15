@@ -15,6 +15,7 @@ import {
   REPLAY_DECISION_STATE_SNAPSHOT_SCHEMA_VERSION,
   REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION,
   REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION,
+  REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION,
   REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS,
   REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH,
   REPLAY_NO_DECISION_MARKET_INPUT,
@@ -36,6 +37,7 @@ import {
   type ReplayDatasetManifest,
   type ReplayExecutionRequest,
   type ReplayFundingEvent,
+  type ReplayInstrumentStatusSnapshot,
   type ReplayMarkEvent,
   type ReplayMarketBar,
   type ReplaySupplementalFact,
@@ -51,6 +53,7 @@ const HASH = "a".repeat(64)
 const MAINTENANCE_TIER = { tier_id: "tier-1", snapshot_ref: "fixture:margin-tier-1", snapshot_hash: HASH, notional_floor: 0, notional_cap: 50_000, maintenance_margin_rate: 0.005, maintenance_amount: 0 }
 const RISK_SNAPSHOT = { schema_version: REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION, snapshot_id: "risk-1", venue_id: "binance-usdm", symbol: "BTCUSDT", effective_at: "2020-01-01T00:00:00Z", valid_until: null, observed_at: "2026-07-13T00:00:00Z", source_ref: "fixture:risk-1", source_hash: HASH, initial_margin_rate: 0.1, maintenance_tier: MAINTENANCE_TIER, liquidation_fee_bps: 50 }
 const SPEC_SNAPSHOT = { schema_version: REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION, snapshot_id: "spec-1", venue_id: "binance-usdm", symbol: "BTCUSDT", effective_at: "2020-01-01T00:00:00Z", valid_until: null, observed_at: "2026-07-13T00:00:00Z", source_ref: "fixture:spec-1", source_hash: HASH }
+const STATUS_SNAPSHOT = { schema_version: REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION, snapshot_id: "status-1", venue_id: "binance-usdm", symbol: "BTCUSDT", status: "trading" as const, effective_at: "2020-01-01T00:00:00Z", valid_until: null, observed_at: "2026-07-13T00:00:00Z", source_ref: "fixture:status-1", source_hash: HASH }
 const ACCOUNTING = { spec_version: REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, product_type: "linear_derivative" as const, base_asset: "BTC", quote_asset: "USDT", settlement_asset: "USDT", contract_multiplier: "1", price_increment: "0.01", quantity_increment: "0.001", settlement_increment: "0.00000001" }
 
 function request(side: "long" | "short" = "long"): ReplayExecutionRequest {
@@ -85,6 +88,7 @@ function request(side: "long" | "short" = "long"): ReplayExecutionRequest {
     decision_schedule_hash: canonicalHash(decisionSchedule),
     venue_risk_policy_schedule_hash: canonicalHash([RISK_SNAPSHOT]),
     instrument_spec_schedule_hash: canonicalHash({ epochs: [SPEC_SNAPSHOT], accounting: ACCOUNTING }),
+    instrument_status_schedule_hash: canonicalHash([STATUS_SNAPSHOT]),
     harness_hash: HASH,
     assumptions_hash: HASH,
     symbol: "BTCUSDT",
@@ -118,6 +122,7 @@ function inputFor(
   fundingEvents: ReplayFundingEvent[] = [],
   markEvents: ReplayMarkEvent[] = [],
   supplementalFacts: ReplaySupplementalFact[] = [],
+  statusEpochs: ReplayInstrumentStatusSnapshot[] = [STATUS_SNAPSHOT],
 ) {
   const dataHash = replayDatasetHash(bars, fundingEvents, markEvents, supplementalFacts)
   const venueRiskPolicy = {
@@ -160,6 +165,7 @@ function inputFor(
     supplemental_requirement_set_hash: canonicalHash(supplementalRequirementSet),
     harness_hash: decisionHarnessBundle?.bundle_hash ?? requestValue.harness_hash,
     venue_risk_policy_schedule_hash: canonicalHash([venueRiskPolicy]),
+    instrument_status_schedule_hash: canonicalHash(statusEpochs),
   }
   const datasetManifest: ReplayDatasetManifest = {
     schema_version: REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
@@ -177,6 +183,7 @@ function inputFor(
     venue_risk_policy_epochs: [venueRiskPolicy],
     instrument: {
       listed_at: "2020-01-01T00:00:00Z", trading_enabled_at: "2020-01-01T00:00:00Z", delisted_at: null, status_history: "complete",
+      status_epochs: statusEpochs,
       spec_epochs: [SPEC_SNAPSHOT],
       accounting: ACCOUNTING,
     },
@@ -548,6 +555,51 @@ test("execution-relevant grid gaps fail before later facts and cannot be bypasse
     ...gapInput,
     execution_control: { resume_checkpoint: checkpoint! },
   })).toThrow(ReplayDataContinuityError)
+})
+
+test("a frozen halt preserves protection and resumes at the first observed open", () => {
+  const statusEpochs: ReplayInstrumentStatusSnapshot[] = [
+    { ...STATUS_SNAPSHOT, valid_until: "2026-07-14T08:00:00Z" },
+    { ...STATUS_SNAPSHOT, snapshot_id: "status-halted", status: "halted", effective_at: "2026-07-14T08:00:00Z", valid_until: "2026-07-14T12:00:00Z", source_ref: "fixture:status-halted", source_hash: "b".repeat(64) },
+    { ...STATUS_SNAPSHOT, snapshot_id: "status-resumed", status: "trading", effective_at: "2026-07-14T12:00:00Z", valid_until: null, source_ref: "fixture:status-resumed", source_hash: "c".repeat(64) },
+  ]
+  const funding = [{ timestamp: "2026-07-14T10:00:00Z", rate: 0.001, mark_price: 100 }]
+  const replayInput = inputFor(request(), [
+    bar("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", 100, 104, 98, 101),
+    bar("2026-07-14T12:00:00Z", "2026-07-14T16:00:00Z", 94, 98, 92, 96),
+  ], funding, [], [], statusEpochs)
+  const clean = executeReplayKernel(replayInput)
+  expect(clean.source_events.map((event) => event.kind)).toEqual([
+    "bar_open", "instrument_halted", "bar_range", "funding", "instrument_resumed", "bar_open",
+  ])
+  expect(clean.source_events[1].event_key.boundary_phase).toBe(0)
+  expect(clean.source_events[2].event_key.boundary_phase).toBe(20)
+  expect(clean.source_events[4].event_key.boundary_phase).toBe(0)
+  expect(clean.source_events[5].event_key.boundary_phase).toBe(20)
+  expect(clean.ledger.some((entry) => entry.kind === "funding")).toBe(true)
+  expect(clean.fills.map((fill) => fill.order_role)).toEqual(["entry", "stop"])
+  expect(clean.fills[1]).toMatchObject({ timestamp: "2026-07-14T12:00:00Z", price: 93.99 })
+  expect(clean.order_events.find((event) => event.kind === "triggered")).toMatchObject({
+    trigger_source: "bar_open", trigger_observed_price: 94,
+  })
+  expect(clean.limitations.map((item) => item.code)).not.toContain("dataset-grid-gap")
+  expect(clean.fingerprint.instrument_status_schedule_hash).toBe(canonicalHash(statusEpochs))
+
+  let checkpoint: ReplayEngineCheckpoint | undefined
+  expect(() => executeReplayKernel({
+    ...replayInput,
+    execution_control: { on_checkpoint: (candidate) => {
+      checkpoint = candidate
+      return candidate.next_source_offset >= 4 ? "cancel" : "continue"
+    } },
+  })).toThrow(ReplayExecutionInterruptedError)
+  expect(checkpoint?.source_events.map((event) => event.kind)).toEqual([
+    "bar_open", "instrument_halted", "bar_range", "funding",
+  ])
+  expect(executeReplayKernel({
+    ...replayInput,
+    execution_control: { resume_checkpoint: checkpoint! },
+  })).toEqual(clean)
 })
 
 test("a terminal before an unconsumed future grid gap preserves semantic output", () => {
