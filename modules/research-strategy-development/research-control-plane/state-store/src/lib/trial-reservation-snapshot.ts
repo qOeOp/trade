@@ -7,7 +7,7 @@ import {
   type TrialReservationSnapshot,
 } from "../../../contracts/src/lib/control-plane-contracts"
 import { hashIdentityPayload } from "./research-identity-hash"
-import { readReplayInstrumentStatusProviderCertification } from "./instrument-status-provider-certification-registry"
+import { assertReplayInstrumentStatusProviderCertificationAdmittedAt } from "./instrument-status-provider-certification-registry"
 
 export interface IssueTrialReservationSnapshotInput {
   trial_id: string
@@ -64,9 +64,10 @@ export function issueTrialReservationSnapshot(
   if (contract.replay_execution_input?.supplemental_requirement_set_hash !== input.bindings.supplemental_requirement_set_hash) {
     throw new Error("Trial Reservation supplemental requirement set does not match the frozen Experiment Contract")
   }
-  const providerCertification = readReplayInstrumentStatusProviderCertification(
+  const providerCertification = assertReplayInstrumentStatusProviderCertificationAdmittedAt(
     db,
     input.bindings.instrument_status_provider_certification_hash,
+    input.issued_at,
   )
   if (providerCertification.provider_capability_hash !== input.bindings.instrument_status_provider_capability_hash) {
     throw new Error("Trial Reservation provider capability does not match the registered certification")

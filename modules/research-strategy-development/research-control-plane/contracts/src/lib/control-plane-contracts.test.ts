@@ -6,6 +6,7 @@ import {
   REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION,
   REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION,
   REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
+  REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION,
   DRAFT_AUTHORIZATION_SCHEMA_VERSION,
   TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION,
   assertDraftStrategyAuthorization,
@@ -13,6 +14,7 @@ import {
   createReplayCheckpointReceiptSnapshot,
   createReplayResumeAuthorizationSnapshot,
   createReplayInstrumentStatusProviderCertificationSnapshot,
+  createReplayInstrumentStatusProviderCertificationTermination,
   hashReplayResumeAuthorizationSnapshot,
   hashTrialReservationSnapshot,
   hashReplayAttemptLeaseSnapshot,
@@ -95,6 +97,27 @@ test("Trial Reservation snapshot is immutable-hashable and capability order is c
   expect(hashTrialReservationSnapshot(structuredClone(value))).toBe(hashTrialReservationSnapshot(value))
   expect(() => assertTrialReservationSnapshot({ ...value, required_capabilities: ["step", "closed-candle"] })).toThrow("unique and sorted")
   expect(() => assertTrialReservationSnapshot({ ...value, expires_at: value.issued_at })).toThrow("issued_at < expires_at")
+})
+
+test("provider certification termination is non-retroactive and type-safe", () => {
+  const supersession = createReplayInstrumentStatusProviderCertificationTermination({
+    schema_version: REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION,
+    termination_id: "termination-1", termination_ref: "certification-termination://status-provider/v1",
+    certification_hash: PROVIDER_CERTIFICATION.certification_hash, termination_type: "superseded",
+    recorded_at: "2026-07-14T00:00:00Z", effective_at: "2026-07-15T00:00:00Z",
+    authority_id: "research-control-plane", termination_policy_version: "rd-provider-termination-v1",
+    reason_code: "provider_build_rotation", successor_certification_hash: "b".repeat(64),
+  })
+  expect(supersession.termination_hash).toHaveLength(64)
+  const { termination_hash: _, ...body } = supersession
+  expect(() => createReplayInstrumentStatusProviderCertificationTermination({
+    ...body,
+    recorded_at: "2026-07-16T00:00:00Z",
+  })).toThrow("cannot be retroactive")
+  expect(() => createReplayInstrumentStatusProviderCertificationTermination({
+    ...body,
+    termination_type: "revoked",
+  })).toThrow("cannot name a successor")
 })
 
 test("Replay Attempt Lease snapshot carries a monotonic fencing generation", () => {

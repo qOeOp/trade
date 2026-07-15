@@ -6,6 +6,7 @@ export const DRAFT_AUTHORIZATION_SCHEMA_VERSION = "trade.rd-draft-authorization.
 export const STRATEGY_DRAFT_BINDING_SCHEMA_VERSION = "trade.rd-strategy-draft-binding.v1" as const
 export const TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION = "trade.rd-trial-reservation-snapshot.v8" as const
 export const REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION = "trade.rd-replay-instrument-status-provider-certification.v1" as const
+export const REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION = "trade.rd-replay-instrument-status-provider-certification-termination.v1" as const
 export const REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION = "trade.rd-replay-attempt-lease.v1" as const
 export const REPLAY_CHECKPOINT_RECEIPT_SCHEMA_VERSION = "trade.rd-replay-checkpoint-receipt.v2" as const
 export const REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION = REPLAY_LOCAL_ARTIFACT_STORAGE_POLICY_VERSION
@@ -68,6 +69,35 @@ export interface ReplayInstrumentStatusProviderCertificationSnapshot {
 export type ReplayInstrumentStatusProviderCertificationBody = Omit<
   ReplayInstrumentStatusProviderCertificationSnapshot,
   "certification_hash"
+>
+
+export type ReplayInstrumentStatusProviderCertificationTerminationReason =
+  | "provider_build_rotation"
+  | "normalization_policy_rotation"
+  | "capability_rotation"
+  | "certification_error"
+  | "determinism_regression"
+  | "security_incident"
+  | "provider_retired"
+
+export interface ReplayInstrumentStatusProviderCertificationTermination {
+  schema_version: typeof REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION
+  termination_id: string
+  termination_ref: string
+  termination_hash: string
+  certification_hash: string
+  termination_type: "revoked" | "superseded"
+  recorded_at: string
+  effective_at: string
+  authority_id: string
+  termination_policy_version: string
+  reason_code: ReplayInstrumentStatusProviderCertificationTerminationReason
+  successor_certification_hash: string | null
+}
+
+export type ReplayInstrumentStatusProviderCertificationTerminationBody = Omit<
+  ReplayInstrumentStatusProviderCertificationTermination,
+  "termination_hash"
 >
 
 export interface TrialReservationSnapshot {
@@ -290,6 +320,64 @@ export function assertReplayInstrumentStatusProviderCertificationSnapshot(
   const { certification_hash: certificationHash, ...body } = value
   const expected = createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")
   if (certificationHash !== expected) fail("provider certification hash mismatch")
+}
+
+export function createReplayInstrumentStatusProviderCertificationTermination(
+  body: ReplayInstrumentStatusProviderCertificationTerminationBody,
+): ReplayInstrumentStatusProviderCertificationTermination {
+  const value: ReplayInstrumentStatusProviderCertificationTermination = {
+    ...body,
+    termination_hash: createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex"),
+  }
+  assertReplayInstrumentStatusProviderCertificationTermination(value)
+  return value
+}
+
+export function assertReplayInstrumentStatusProviderCertificationTermination(
+  value: ReplayInstrumentStatusProviderCertificationTermination,
+): void {
+  if (value.schema_version !== REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION) {
+    fail("provider certification termination schema_version")
+  }
+  for (const [field, item] of Object.entries({
+    termination_id: value.termination_id,
+    termination_ref: value.termination_ref,
+    authority_id: value.authority_id,
+    termination_policy_version: value.termination_policy_version,
+  })) requireText(item, `provider_certification_termination.${field}`)
+  for (const [field, item] of Object.entries({
+    termination_hash: value.termination_hash,
+    certification_hash: value.certification_hash,
+  })) requireHash(item, `provider_certification_termination.${field}`)
+  requireUtcTimestamp(value.recorded_at, "provider_certification_termination.recorded_at")
+  requireUtcTimestamp(value.effective_at, "provider_certification_termination.effective_at")
+  if (Date.parse(value.effective_at) < Date.parse(value.recorded_at)) {
+    fail("provider certification termination cannot be retroactive")
+  }
+  if (value.termination_type !== "revoked" && value.termination_type !== "superseded") {
+    fail("provider certification termination type")
+  }
+  const reasons: ReplayInstrumentStatusProviderCertificationTerminationReason[] = [
+    "provider_build_rotation",
+    "normalization_policy_rotation",
+    "capability_rotation",
+    "certification_error",
+    "determinism_regression",
+    "security_incident",
+    "provider_retired",
+  ]
+  if (!reasons.includes(value.reason_code)) fail("provider certification termination reason_code")
+  if (value.termination_type === "superseded") {
+    requireHash(value.successor_certification_hash, "provider_certification_termination.successor_certification_hash")
+    if (value.successor_certification_hash === value.certification_hash) {
+      fail("provider certification cannot supersede itself")
+    }
+  } else if (value.successor_certification_hash !== null) {
+    fail("revoked provider certification cannot name a successor")
+  }
+  const { termination_hash: terminationHash, ...body } = value
+  const expected = createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")
+  if (terminationHash !== expected) fail("provider certification termination hash mismatch")
 }
 
 export function hashTrialReservationSnapshot(value: TrialReservationSnapshot): string {

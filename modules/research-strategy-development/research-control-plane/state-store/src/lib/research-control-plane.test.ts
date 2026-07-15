@@ -4,7 +4,10 @@ import test from "node:test"
 import {
   REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION,
   REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
+  REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION,
+  assertTrialReservationSnapshot,
   createReplayInstrumentStatusProviderCertificationSnapshot,
+  createReplayInstrumentStatusProviderCertificationTermination,
 } from "../../../contracts/src/lib/control-plane-contracts"
 import {
   RESEARCH_LIFECYCLE_RULE_VERSION,
@@ -29,7 +32,11 @@ import { issueTrialReservationSnapshot } from "./trial-reservation-snapshot"
 import { claimReplayAttempt, finalizeReplayAttempt, renewReplayAttemptLease } from "./replay-attempt-authority"
 import { recordReplayCheckpointReceipt } from "./replay-checkpoint-receipt"
 import { issueReplayResumeAuthorization } from "./replay-resume-authorization"
-import { registerReplayInstrumentStatusProviderCertification } from "./instrument-status-provider-certification-registry"
+import {
+  assertReplayInstrumentStatusProviderCertificationAdmittedAt,
+  registerReplayInstrumentStatusProviderCertification,
+  registerReplayInstrumentStatusProviderCertificationTermination,
+} from "./instrument-status-provider-certification-registry"
 import {
   appendExperimentResult,
   applySystemTransition,
@@ -70,6 +77,7 @@ test("control plane schema initializes frozen stages and lifecycle rules", () =>
       "rd_experiment_contract",
       "rd_trial",
       "rd_replay_instrument_status_provider_certification",
+      "rd_replay_instrument_status_provider_certification_termination",
       "rd_replay_attempt",
       "rd_experiment_result",
       "rd_review_decision",
@@ -102,6 +110,95 @@ test("Control Plane provider certification registry is immutable and create-or-i
     assert.throws(
       () => registerReplayInstrumentStatusProviderCertification(db, collision),
       /different content/,
+    )
+  } finally {
+    db.close()
+  }
+})
+
+test("Control Plane rotates or revokes provider certification without rewriting prior admission", () => {
+  const db = openDb()
+  try {
+    const { certification_hash: _, ...certificationBody } = PROVIDER_CERTIFICATION
+    const successor = createReplayInstrumentStatusProviderCertificationSnapshot({
+      ...certificationBody,
+      certification_id: "status-provider-certification-2",
+      certification_ref: "certification://status-provider/v2",
+      provider_capability_hash: "5".repeat(64),
+      producer_version: "v2",
+      producer_build_hash: "4".repeat(64),
+    })
+    registerReplayInstrumentStatusProviderCertification(db, successor)
+    const termination = createReplayInstrumentStatusProviderCertificationTermination({
+      schema_version: REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION,
+      termination_id: "status-provider-termination-1",
+      termination_ref: "certification-termination://status-provider/v1",
+      certification_hash: PROVIDER_CERTIFICATION.certification_hash,
+      termination_type: "superseded",
+      recorded_at: NOW,
+      effective_at: "2026-07-14T03:30:00Z",
+      authority_id: "research-control-plane",
+      termination_policy_version: "rd-status-provider-termination-v1",
+      reason_code: "provider_build_rotation",
+      successor_certification_hash: successor.certification_hash,
+    })
+    assert.deepEqual(registerReplayInstrumentStatusProviderCertificationTermination(db, termination), termination)
+    assert.deepEqual(registerReplayInstrumentStatusProviderCertificationTermination(db, termination), termination)
+    assert.equal(
+      assertReplayInstrumentStatusProviderCertificationAdmittedAt(db, PROVIDER_CERTIFICATION.certification_hash, NOW).certification_hash,
+      PROVIDER_CERTIFICATION.certification_hash,
+    )
+    assert.equal(
+      assertReplayInstrumentStatusProviderCertificationAdmittedAt(db, successor.certification_hash, termination.effective_at).certification_hash,
+      successor.certification_hash,
+    )
+    assert.throws(
+      () => assertReplayInstrumentStatusProviderCertificationAdmittedAt(db, PROVIDER_CERTIFICATION.certification_hash, termination.effective_at),
+      /superseded/,
+    )
+    assert.throws(() => db.query(`
+      UPDATE rd_replay_instrument_status_provider_certification_termination
+      SET reason_code = 'certification_error'
+      WHERE termination_id = 'status-provider-termination-1'
+    `).run(), /immutable/)
+    const { termination_hash: _terminationHash, ...terminationBody } = termination
+    const competing = createReplayInstrumentStatusProviderCertificationTermination({
+      ...terminationBody,
+      termination_id: "status-provider-termination-competing",
+      termination_ref: "certification-termination://status-provider/competing",
+      termination_type: "revoked",
+      reason_code: "certification_error",
+      successor_certification_hash: null,
+    })
+    assert.throws(
+      () => registerReplayInstrumentStatusProviderCertificationTermination(db, competing),
+      /different termination/,
+    )
+    const revokedCertification = createReplayInstrumentStatusProviderCertificationSnapshot({
+      ...certificationBody,
+      certification_id: "status-provider-certification-revoked",
+      certification_ref: "certification://status-provider/revoked",
+      provider_capability_hash: "3".repeat(64),
+      producer_version: "revoked-build",
+      producer_build_hash: "2".repeat(64),
+    })
+    registerReplayInstrumentStatusProviderCertification(db, revokedCertification)
+    registerReplayInstrumentStatusProviderCertificationTermination(db, createReplayInstrumentStatusProviderCertificationTermination({
+      schema_version: REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION,
+      termination_id: "status-provider-termination-revoked",
+      termination_ref: "certification-termination://status-provider/revoked",
+      certification_hash: revokedCertification.certification_hash,
+      termination_type: "revoked",
+      recorded_at: NOW,
+      effective_at: "2026-07-14T03:40:00Z",
+      authority_id: "research-control-plane",
+      termination_policy_version: "rd-status-provider-termination-v1",
+      reason_code: "determinism_regression",
+      successor_certification_hash: null,
+    }))
+    assert.throws(
+      () => assertReplayInstrumentStatusProviderCertificationAdmittedAt(db, revokedCertification.certification_hash, "2026-07-14T03:40:00Z"),
+      /revoked/,
     )
   } finally {
     db.close()
@@ -307,6 +404,64 @@ test("Control Plane atomically issues an immutable Replay Trial Reservation snap
     assert.equal(snapshot.identity.candidate_hash, candidateIdentityHash({ lookback: 20 }))
     assert.equal(snapshot.identity.experiment_contract_hash, hashIdentityPayload(experimentContract()))
     assert.equal(snapshot.counts_against_budget, true)
+    const { certification_hash: _oldCertificationHash, ...oldCertificationBody } = PROVIDER_CERTIFICATION
+    const successorCertification = createReplayInstrumentStatusProviderCertificationSnapshot({
+      ...oldCertificationBody,
+      certification_id: "status-provider-certification-reservation-successor",
+      certification_ref: "certification://status-provider/reservation-successor",
+      provider_capability_hash: "5".repeat(64),
+      producer_version: "v2",
+      producer_build_hash: "4".repeat(64),
+    })
+    registerReplayInstrumentStatusProviderCertification(db, successorCertification)
+    registerReplayInstrumentStatusProviderCertificationTermination(db, createReplayInstrumentStatusProviderCertificationTermination({
+      schema_version: REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION,
+      termination_id: "status-provider-termination-reservation",
+      termination_ref: "certification-termination://status-provider/reservation",
+      certification_hash: PROVIDER_CERTIFICATION.certification_hash,
+      termination_type: "superseded",
+      recorded_at: NOW,
+      effective_at: "2026-07-14T03:30:00Z",
+      authority_id: "research-control-plane",
+      termination_policy_version: "rd-status-provider-termination-v1",
+      reason_code: "provider_build_rotation",
+      successor_certification_hash: successorCertification.certification_hash,
+    }))
+    assert.doesNotThrow(() => assertTrialReservationSnapshot(snapshot))
+    assert.throws(() => issueTrialReservationSnapshot(db, {
+      trial_id: "trial-reserved", reservation_id: "reservation-superseded", reservation_ref: "reservation://superseded",
+      issued_at: "2026-07-14T03:30:00Z", expires_at: "2026-07-14T04:08:00Z",
+      bindings: snapshot.bindings, required_capabilities: snapshot.required_capabilities,
+    }), /superseded/)
+    const successorSnapshot = issueTrialReservationSnapshot(db, {
+      trial_id: "trial-reserved", reservation_id: "reservation-successor", reservation_ref: "reservation://successor",
+      issued_at: "2026-07-14T03:30:00Z", expires_at: "2026-07-14T04:08:00Z",
+      bindings: {
+        ...snapshot.bindings,
+        instrument_status_provider_capability_hash: successorCertification.provider_capability_hash,
+        instrument_status_provider_certification_hash: successorCertification.certification_hash,
+      },
+      required_capabilities: snapshot.required_capabilities,
+    })
+    assert.equal(successorSnapshot.instrument_status_provider_certification.certification_hash, successorCertification.certification_hash)
+    const historicalClaim = claimReplayAttempt(db, {
+      attempt_id: "attempt-pre-cutover-reservation",
+      worker_id: "worker-pre-cutover-reservation",
+      idempotency_key: "attempt-key-pre-cutover-reservation",
+      request_hash: "9".repeat(64),
+      claimed_at: "2026-07-14T03:40:00Z",
+      lease_expires_at: "2026-07-14T03:50:00Z",
+      trial_reservation: snapshot,
+    })
+    assert.equal(historicalClaim.attempt_ordinal, 1)
+    finalizeReplayAttempt(db, {
+      attempt_id: historicalClaim.attempt_id,
+      worker_id: historicalClaim.worker_id,
+      expected_lease_generation: historicalClaim.lease_generation,
+      status: "cancelled",
+      finalized_at: "2026-07-14T03:41:00Z",
+      failure_class: "resource",
+    })
     assert.throws(() => issueTrialReservationSnapshot(db, {
       trial_id: "trial-reserved", reservation_id: "reservation-unknown-certification", reservation_ref: "reservation://unknown-certification", issued_at: NOW,
       expires_at: "2026-07-14T04:08:00Z",

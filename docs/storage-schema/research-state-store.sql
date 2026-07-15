@@ -420,6 +420,34 @@ CREATE TABLE IF NOT EXISTS rd_replay_instrument_status_provider_certification (
   CHECK(certified_at < valid_until)
 );
 
+CREATE TABLE IF NOT EXISTS rd_replay_instrument_status_provider_certification_termination (
+  termination_id TEXT PRIMARY KEY,
+  termination_ref TEXT NOT NULL UNIQUE,
+  termination_hash TEXT NOT NULL UNIQUE,
+  certification_hash TEXT NOT NULL UNIQUE,
+  termination_type TEXT NOT NULL CHECK(termination_type IN ('revoked', 'superseded')),
+  recorded_at TEXT NOT NULL,
+  effective_at TEXT NOT NULL,
+  authority_id TEXT NOT NULL,
+  termination_policy_version TEXT NOT NULL,
+  reason_code TEXT NOT NULL CHECK(reason_code IN (
+    'provider_build_rotation', 'normalization_policy_rotation', 'capability_rotation',
+    'certification_error', 'determinism_regression', 'security_incident', 'provider_retired'
+  )),
+  successor_certification_hash TEXT,
+  termination_json TEXT NOT NULL CHECK(json_valid(termination_json)),
+  CHECK(julianday(recorded_at) <= julianday(effective_at)),
+  CHECK(
+    (termination_type = 'revoked' AND successor_certification_hash IS NULL) OR
+    (termination_type = 'superseded' AND successor_certification_hash IS NOT NULL
+      AND successor_certification_hash != certification_hash)
+  ),
+  FOREIGN KEY (certification_hash)
+    REFERENCES rd_replay_instrument_status_provider_certification(certification_hash),
+  FOREIGN KEY (successor_certification_hash)
+    REFERENCES rd_replay_instrument_status_provider_certification(certification_hash)
+);
+
 CREATE TABLE IF NOT EXISTS rd_replay_attempt (
   attempt_id TEXT PRIMARY KEY,
   trial_id TEXT NOT NULL,
@@ -880,6 +908,18 @@ CREATE TRIGGER IF NOT EXISTS rd_replay_instrument_status_provider_certification_
 BEFORE DELETE ON rd_replay_instrument_status_provider_certification
 BEGIN
   SELECT RAISE(ABORT, 'Replay provider certification is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS rd_replay_instrument_status_provider_certification_termination_no_update
+BEFORE UPDATE ON rd_replay_instrument_status_provider_certification_termination
+BEGIN
+  SELECT RAISE(ABORT, 'Replay provider certification termination is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS rd_replay_instrument_status_provider_certification_termination_no_delete
+BEFORE DELETE ON rd_replay_instrument_status_provider_certification_termination
+BEGIN
+  SELECT RAISE(ABORT, 'Replay provider certification termination is immutable');
 END;
 
 CREATE TRIGGER IF NOT EXISTS prevent_terminal_replay_attempt_mutation
