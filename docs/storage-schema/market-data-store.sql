@@ -1,6 +1,6 @@
 -- owner: market-data-products
 -- physical target: data/market_data.db
--- mode: append-or-upsert by manifest/content hash
+-- mode: manifest upsert plus immutable instrument-status archive CAS
 
 CREATE TABLE IF NOT EXISTS market_manifest (
   manifest_id     TEXT PRIMARY KEY,
@@ -37,4 +37,36 @@ CREATE TABLE IF NOT EXISTS feature_manifest (
   content_hash        TEXT NOT NULL,
   manifest_path       TEXT NOT NULL,
   generated_at        TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS instrument_status_archive (
+  archive_id               TEXT PRIMARY KEY,
+  schema_version           TEXT NOT NULL,
+  venue_id                 TEXT NOT NULL,
+  symbol                   TEXT NOT NULL,
+  source_owner             TEXT NOT NULL,
+  source_kind              TEXT NOT NULL,
+  completeness             TEXT NOT NULL,
+  coverage_start           TEXT NOT NULL,
+  coverage_end             TEXT NOT NULL,
+  source_observed_through  TEXT NOT NULL,
+  source_ref               TEXT NOT NULL,
+  source_hash              TEXT NOT NULL,
+  source_record_count      INTEGER NOT NULL,
+  imported_at              TEXT NOT NULL,
+  archive_hash             TEXT NOT NULL UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS instrument_status_event (
+  archive_id      TEXT NOT NULL,
+  event_id        TEXT NOT NULL,
+  event_sequence  INTEGER NOT NULL,
+  status          TEXT NOT NULL,
+  effective_at    TEXT NOT NULL,
+  observed_at     TEXT NOT NULL,
+  source_ref      TEXT NOT NULL,
+  source_hash     TEXT NOT NULL,
+  PRIMARY KEY (archive_id, event_sequence),
+  UNIQUE (archive_id, event_id),
+  FOREIGN KEY (archive_id) REFERENCES instrument_status_archive(archive_id)
 );

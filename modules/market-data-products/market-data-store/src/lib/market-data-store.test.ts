@@ -5,12 +5,15 @@ import {
   buildCanonicalCandles,
   buildFeatureManifest,
   buildFundingEvents,
+  commitInstrumentStatusArchive,
+  createInstrumentStatusArchive,
   buildMarketManifest,
   ensureMarketDataSchema,
   ensureOhlcvSchema,
   listFeatureManifests,
   readFeatureManifest,
   readFundingEvents,
+  readInstrumentStatusArchive,
   readMarketManifest,
   upsertCanonicalCandles,
   upsertFeatureManifest,
@@ -57,6 +60,86 @@ test("market data store records manifests and canonical rows", () => {
   } finally {
     db.close()
   }
+})
+
+test("market data store commits one immutable finalized instrument-status archive", () => {
+  const db = new Database(":memory:")
+  ensureMarketDataSchema(db)
+  const archive = createInstrumentStatusArchive({
+    archive_id: "binance-usdm-btc-status-2026-07",
+    venue_id: "binance-usdm",
+    symbol: "BTCUSDT",
+    source_owner: "binance-usdm",
+    source_kind: "venue_status_event_archive",
+    completeness: "complete_history",
+    coverage_start: "2026-07-01T00:00:00Z",
+    coverage_end: "2026-07-15T00:00:00Z",
+    source_observed_through: "2026-07-15T00:00:00Z",
+    source_ref: "venue-archive:binance-usdm:BTCUSDT:2026-07",
+    imported_at: "2026-07-15T00:01:00Z",
+    events: [{
+      event_id: "status-1",
+      event_sequence: 1,
+      status: "trading",
+      effective_at: "2026-07-01T00:00:00Z",
+      observed_at: "2026-07-01T00:00:01Z",
+      source_ref: "venue-event:status-1",
+      source_hash: "a".repeat(64),
+    }],
+  })
+  try {
+    assert.equal(commitInstrumentStatusArchive(db, archive), "created")
+    assert.equal(commitInstrumentStatusArchive(db, archive), "existing")
+    assert.deepEqual(readInstrumentStatusArchive(db, archive.archive_id), archive)
+    const conflictingArchive = createInstrumentStatusArchive({
+      archive_id: archive.archive_id,
+      venue_id: archive.venue_id,
+      symbol: archive.symbol,
+      source_owner: archive.source_owner,
+      source_kind: archive.source_kind,
+      completeness: archive.completeness,
+      coverage_start: archive.coverage_start,
+      coverage_end: archive.coverage_end,
+      source_observed_through: archive.source_observed_through,
+      source_ref: "venue-archive:mutated",
+      imported_at: archive.imported_at,
+      events: archive.events,
+    })
+    assert.throws(() => commitInstrumentStatusArchive(db, conflictingArchive), /different content/)
+  } finally {
+    db.close()
+  }
+})
+
+test("instrument-status archive rejects unfinalized coverage and redundant observations", () => {
+  const base = {
+    archive_id: "status-archive",
+    venue_id: "binance-usdm",
+    symbol: "BTCUSDT",
+    source_owner: "binance-usdm",
+    source_kind: "venue_status_event_archive" as const,
+    completeness: "complete_history" as const,
+    coverage_start: "2026-07-01T00:00:00Z",
+    coverage_end: "2026-07-15T00:00:00Z",
+    source_observed_through: "2026-07-14T23:59:59Z",
+    source_ref: "venue-archive:status",
+    imported_at: "2026-07-15T00:01:00Z",
+    events: [{ event_id: "one", event_sequence: 1, status: "trading" as const, effective_at: "2026-07-01T00:00:00Z", observed_at: "2026-07-01T00:00:01Z", source_ref: "event:one", source_hash: "a".repeat(64) }],
+  }
+  assert.throws(() => createInstrumentStatusArchive(base), /finality watermark/)
+  assert.throws(() => createInstrumentStatusArchive({
+    ...base,
+    source_observed_through: "2026-07-15T00:00:00Z",
+    imported_at: "",
+  }), /imported_at is required/)
+  assert.throws(() => createInstrumentStatusArchive({
+    ...base,
+    source_observed_through: "2026-07-15T00:00:00Z",
+    events: [
+      base.events[0],
+      { ...base.events[0], event_id: "two", event_sequence: 2, effective_at: "2026-07-02T00:00:00Z", observed_at: "2026-07-02T00:00:01Z" },
+    ],
+  }), /state transitions/)
 })
 
 test("market data store records funding events and feature manifests", () => {

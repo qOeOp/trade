@@ -7,13 +7,16 @@ import {
   buildCanonicalCandles,
   buildFeatureManifest,
   buildFundingEvents,
+  buildInstrumentStatusArchive,
   buildMarketManifest,
+  commitInstrumentStatusArchive,
   ensureMarketDataSchema,
   ensureOhlcvSchema,
   listFeatureManifests,
   readCanonicalCandles,
   readFeatureManifest,
   readFundingEvents,
+  readInstrumentStatusArchive,
   readLatestCandleOpenTime,
   readMarketManifest,
   upsertCanonicalCandles,
@@ -87,6 +90,11 @@ export function run(args: Args): JSONRecord {
       upsertFeatureManifest(db, manifest)
       return { ok: true, action: args.action, manifest }
     }
+    if (args.action === "commit_instrument_status_archive") {
+      const archive = buildInstrumentStatusArchive(args.json)
+      const commit_status = commitInstrumentStatusArchive(db, archive)
+      return { ok: true, action: args.action, commit_status, archive_id: archive.archive_id, archive_hash: archive.archive_hash }
+    }
     if (args.action === "read_manifest") {
       return {
         ok: true,
@@ -105,6 +113,13 @@ export function run(args: Args): JSONRecord {
           until_ts: optionalNumber(args.json.until_ts),
           limit: optionalNumber(args.json.limit),
         }),
+      }
+    }
+    if (args.action === "read_instrument_status_archive") {
+      return {
+        ok: true,
+        action: args.action,
+        archive: readInstrumentStatusArchive(db, stringField(args.json.archive_id)),
       }
     }
     if (args.action === "read_latest_candle") {
@@ -160,7 +175,7 @@ export function run(args: Args): JSONRecord {
 function printHelp(): void {
   console.log([
     "usage: bun src/scripts/main.ts --db data/market_data.db --ohlcv-db data/ohlcv.db --action init",
-    "actions: init | upsert_manifest | upsert_candles | upsert_funding | upsert_feature_manifest | read_manifest | read_funding | read_latest_candle | read_candles | read_feature_manifest | list_feature_manifests",
+    "actions: init | upsert_manifest | upsert_candles | upsert_funding | upsert_feature_manifest | commit_instrument_status_archive | read_manifest | read_funding | read_instrument_status_archive | read_latest_candle | read_candles | read_feature_manifest | list_feature_manifests",
   ].join("\n"))
 }
 

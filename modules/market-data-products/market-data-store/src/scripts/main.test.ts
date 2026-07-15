@@ -92,6 +92,26 @@ test("market data store CLI upserts and reads manifest", () => {
     ])) as { manifests: Array<{ feature_manifest_id: string }> }
     assert.equal(feature.manifest.feature_set_id, "crypto-market-features.v1")
     assert.deepEqual(features.manifests.map((item) => item.feature_manifest_id), ["features-cli"])
+
+    const archiveInput = {
+      archive_id: "status-cli",
+      venue_id: "binance-usdm",
+      symbol: "BTCUSDT",
+      source_owner: "binance-usdm",
+      source_kind: "venue_status_event_archive",
+      completeness: "complete_history",
+      coverage_start: "2026-07-01T00:00:00Z",
+      coverage_end: "2026-07-15T00:00:00Z",
+      source_observed_through: "2026-07-15T00:00:00Z",
+      source_ref: "venue-archive:status-cli",
+      imported_at: "2026-07-15T00:01:00Z",
+      events: [{ event_id: "status-1", event_sequence: 1, status: "trading", effective_at: "2026-07-01T00:00:00Z", observed_at: "2026-07-01T00:00:01Z", source_ref: "venue-event:status-1", source_hash: "a".repeat(64) }],
+    }
+    const committed = run(parseArgs(["--db", dbPath, "--action", "commit_instrument_status_archive", "--json", JSON.stringify(archiveInput)])) as { commit_status: string; archive_hash: string }
+    const statusArchive = run(parseArgs(["--db", dbPath, "--action", "read_instrument_status_archive", "--json", JSON.stringify({ archive_id: "status-cli" })])) as { archive: { archive_hash: string; events: unknown[] } }
+    assert.equal(committed.commit_status, "created")
+    assert.equal(statusArchive.archive.archive_hash, committed.archive_hash)
+    assert.equal(statusArchive.archive.events.length, 1)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

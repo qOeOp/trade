@@ -43,6 +43,7 @@
         "modules/market-data-products/binance-read/aggtrades-fetch",
         "modules/market-data-products/liquidation-zones",
         "modules/market-data-products/market-data-store",
+        "modules/market-data-products/instrument-status-provider",
         "modules/market-data-products/data-quality-gate",
         "modules/market-data-products/market-fact-publisher"
       ],
@@ -255,9 +256,9 @@
       "status": "implemented",
       "owner_domain": "market-data-products",
       "owner_module": "modules/market-data-products/market-data-store",
-      "physical": { "kind": "sqlite", "path": "data/market_data.db", "tables": ["market_manifest", "funding_event", "feature_manifest"] },
+      "physical": { "kind": "sqlite", "path": "data/market_data.db", "tables": ["market_manifest", "funding_event", "feature_manifest", "instrument_status_archive", "instrument_status_event"] },
       "schema": "docs/storage-schema/market-data-store.sql",
-      "write_contract": "append-or-upsert-by-manifest"
+      "write_contract": "manifest-upsert-plus-immutable-status-archive-cas"
     },
     {
       "id": "ohlcv_store",

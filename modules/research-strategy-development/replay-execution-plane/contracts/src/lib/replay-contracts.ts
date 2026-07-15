@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto"
+import { canonicalHash, canonicalJson } from "../../../../../contracts/runtime-core/src/canonical-json"
 import {
   REPLAY_LOCAL_ARTIFACT_STORAGE_POLICY_VERSION,
   REPLAY_OBJECT_ARTIFACT_STORAGE_POLICY_VERSION,
@@ -6,6 +7,8 @@ import {
 } from "../../../../../contracts/replay-contract/src/replay-storage-policy"
 
 export {
+  canonicalHash,
+  canonicalJson,
   REPLAY_LOCAL_ARTIFACT_STORAGE_POLICY_VERSION,
   REPLAY_OBJECT_ARTIFACT_STORAGE_POLICY_VERSION,
 }
@@ -3237,26 +3240,6 @@ export function assertReplayArtifactStoreCapability(
   if (!expected || canonicalJson(capability) !== canonicalJson(expected)) {
     fail("Replay Artifact Store capability does not match its backend contract")
   }
-}
-
-export function canonicalHash(value: unknown): string {
-  return createHash("sha256").update(canonicalJson(value)).digest("hex")
-}
-
-export function canonicalJson(value: unknown): string {
-  if (value === null || typeof value === "string" || typeof value === "boolean") return JSON.stringify(value)
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) fail("canonical JSON rejects non-finite numbers")
-    return JSON.stringify(Object.is(value, -0) ? 0 : value)
-  }
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`
-  if (value && typeof value === "object") {
-    const entries = Object.entries(value as Record<string, unknown>)
-      .filter(([, item]) => item !== undefined)
-      .sort(([a], [b]) => a.localeCompare(b))
-    return `{${entries.map(([key, item]) => `${JSON.stringify(key)}:${canonicalJson(item)}`).join(",")}}`
-  }
-  fail("canonical JSON rejects unsupported values")
 }
 
 function requireHash(value: unknown, field: string): void {

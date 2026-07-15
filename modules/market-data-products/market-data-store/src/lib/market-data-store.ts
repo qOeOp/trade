@@ -1,5 +1,8 @@
 import { Database } from "bun:sqlite"
+import { canonicalHash, canonicalJson } from "../../../../contracts/runtime-core/src/canonical-json"
 import { asRecord, numberField, stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
+
+export const INSTRUMENT_STATUS_ARCHIVE_SCHEMA_VERSION = "trade.market-data-instrument-status-archive.v1" as const
 
 export interface MarketManifest {
   manifest_id: string
@@ -51,6 +54,37 @@ export interface FeatureManifest {
   manifest_path: string
   generated_at: string
 }
+
+export interface InstrumentStatusArchiveEvent {
+  event_id: string
+  event_sequence: number
+  status: "trading" | "halted"
+  effective_at: string
+  observed_at: string
+  source_ref: string
+  source_hash: string
+}
+
+export interface InstrumentStatusArchive {
+  schema_version: typeof INSTRUMENT_STATUS_ARCHIVE_SCHEMA_VERSION
+  archive_id: string
+  venue_id: string
+  symbol: string
+  source_owner: string
+  source_kind: "venue_status_event_archive"
+  completeness: "complete_history"
+  coverage_start: string
+  coverage_end: string
+  source_observed_through: string
+  source_ref: string
+  source_hash: string
+  source_record_count: number
+  imported_at: string
+  events: InstrumentStatusArchiveEvent[]
+  archive_hash: string
+}
+
+export type InstrumentStatusArchiveBody = Omit<InstrumentStatusArchive, "archive_hash">
 
 export interface FundingEventQuery {
   exchange?: string
@@ -118,6 +152,40 @@ export function ensureMarketDataSchema(db: Database): void {
       generated_at        TEXT NOT NULL
     )
   `)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS instrument_status_archive (
+      archive_id               TEXT PRIMARY KEY,
+      schema_version           TEXT NOT NULL,
+      venue_id                 TEXT NOT NULL,
+      symbol                   TEXT NOT NULL,
+      source_owner             TEXT NOT NULL,
+      source_kind              TEXT NOT NULL,
+      completeness             TEXT NOT NULL,
+      coverage_start           TEXT NOT NULL,
+      coverage_end             TEXT NOT NULL,
+      source_observed_through  TEXT NOT NULL,
+      source_ref               TEXT NOT NULL,
+      source_hash              TEXT NOT NULL,
+      source_record_count      INTEGER NOT NULL,
+      imported_at              TEXT NOT NULL,
+      archive_hash             TEXT NOT NULL UNIQUE
+    )
+  `)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS instrument_status_event (
+      archive_id      TEXT NOT NULL,
+      event_id        TEXT NOT NULL,
+      event_sequence  INTEGER NOT NULL,
+      status          TEXT NOT NULL,
+      effective_at    TEXT NOT NULL,
+      observed_at     TEXT NOT NULL,
+      source_ref      TEXT NOT NULL,
+      source_hash     TEXT NOT NULL,
+      PRIMARY KEY (archive_id, event_sequence),
+      UNIQUE (archive_id, event_id),
+      FOREIGN KEY (archive_id) REFERENCES instrument_status_archive(archive_id)
+    )
+  `)
 }
 
 export function ensureOhlcvSchema(db: Database): void {
@@ -142,9 +210,196 @@ export function ensureOhlcvSchema(db: Database): void {
 }
 
 function configureSqliteConnection(db: Database): void {
+  db.run("PRAGMA foreign_keys = ON")
   db.run("PRAGMA busy_timeout = 5000")
   db.run("PRAGMA journal_mode = WAL")
   db.run("PRAGMA synchronous = NORMAL")
+}
+
+export function createInstrumentStatusArchive(input: Omit<InstrumentStatusArchiveBody, "schema_version" | "source_hash" | "source_record_count">): InstrumentStatusArchive {
+  const body: InstrumentStatusArchiveBody = {
+    schema_version: INSTRUMENT_STATUS_ARCHIVE_SCHEMA_VERSION,
+    ...input,
+    source_hash: canonicalHash(input.events),
+    source_record_count: input.events.length,
+  }
+  const archive = { ...body, archive_hash: canonicalHash(body) }
+  assertInstrumentStatusArchive(archive)
+  return archive
+}
+
+export function commitInstrumentStatusArchive(db: Database, archive: InstrumentStatusArchive): "created" | "existing" {
+  assertInstrumentStatusArchive(archive)
+  const insertArchive = db.query(`
+    INSERT INTO instrument_status_archive(
+      archive_id, schema_version, venue_id, symbol, source_owner, source_kind, completeness,
+      coverage_start, coverage_end, source_observed_through, source_ref, source_hash,
+      source_record_count, imported_at, archive_hash
+    ) VALUES (
+      $archive_id, $schema_version, $venue_id, $symbol, $source_owner, $source_kind, $completeness,
+      $coverage_start, $coverage_end, $source_observed_through, $source_ref, $source_hash,
+      $source_record_count, $imported_at, $archive_hash
+    )
+  `)
+  const insertEvent = db.query(`
+    INSERT INTO instrument_status_event(
+      archive_id, event_id, event_sequence, status, effective_at, observed_at, source_ref, source_hash
+    ) VALUES (
+      $archive_id, $event_id, $event_sequence, $status, $effective_at, $observed_at, $source_ref, $source_hash
+    )
+  `)
+  return db.transaction((): "created" | "existing" => {
+    const existing = readInstrumentStatusArchive(db, archive.archive_id)
+    if (existing) {
+      if (canonicalJson(existing) !== canonicalJson(archive)) {
+        throw new Error("instrument status archive id is already committed with different content")
+      }
+      return "existing"
+    }
+    insertArchive.run({
+      $archive_id: archive.archive_id,
+      $schema_version: archive.schema_version,
+      $venue_id: archive.venue_id,
+      $symbol: archive.symbol,
+      $source_owner: archive.source_owner,
+      $source_kind: archive.source_kind,
+      $completeness: archive.completeness,
+      $coverage_start: archive.coverage_start,
+      $coverage_end: archive.coverage_end,
+      $source_observed_through: archive.source_observed_through,
+      $source_ref: archive.source_ref,
+      $source_hash: archive.source_hash,
+      $source_record_count: archive.source_record_count,
+      $imported_at: archive.imported_at,
+      $archive_hash: archive.archive_hash,
+    })
+    for (const event of archive.events) {
+      insertEvent.run({ $archive_id: archive.archive_id, ...sqlStatusEvent(event) })
+    }
+    return "created"
+  }).immediate()
+}
+
+export function readInstrumentStatusArchive(db: Database, archiveId: string): InstrumentStatusArchive | null {
+  const row = db.query(`
+    SELECT archive_id, schema_version, venue_id, symbol, source_owner, source_kind, completeness,
+      coverage_start, coverage_end, source_observed_through, source_ref, source_hash,
+      source_record_count, imported_at, archive_hash
+    FROM instrument_status_archive
+    WHERE archive_id = $archive_id
+  `).get({ $archive_id: archiveId }) as InstrumentStatusArchiveRow | null
+  if (!row) return null
+  const events = db.query(`
+    SELECT event_id, event_sequence, status, effective_at, observed_at, source_ref, source_hash
+    FROM instrument_status_event
+    WHERE archive_id = $archive_id
+    ORDER BY event_sequence
+  `).all({ $archive_id: archiveId }) as InstrumentStatusArchiveEventRow[]
+  const archive: InstrumentStatusArchive = {
+    schema_version: row.schema_version as typeof INSTRUMENT_STATUS_ARCHIVE_SCHEMA_VERSION,
+    archive_id: row.archive_id,
+    venue_id: row.venue_id,
+    symbol: row.symbol,
+    source_owner: row.source_owner,
+    source_kind: row.source_kind as "venue_status_event_archive",
+    completeness: row.completeness as "complete_history",
+    coverage_start: row.coverage_start,
+    coverage_end: row.coverage_end,
+    source_observed_through: row.source_observed_through,
+    source_ref: row.source_ref,
+    source_hash: row.source_hash,
+    source_record_count: row.source_record_count,
+    imported_at: row.imported_at,
+    events: events.map((event) => ({ ...event, status: event.status as "trading" | "halted" })),
+    archive_hash: row.archive_hash,
+  }
+  assertInstrumentStatusArchive(archive)
+  return archive
+}
+
+export function buildInstrumentStatusArchive(input: JSONRecord): InstrumentStatusArchive {
+  const events = Array.isArray(input.events) ? input.events.map(asRecord).map((event) => ({
+    event_id: stringField(event.event_id),
+    event_sequence: numberField(event.event_sequence),
+    status: stringField(event.status) as "trading" | "halted",
+    effective_at: stringField(event.effective_at),
+    observed_at: stringField(event.observed_at),
+    source_ref: stringField(event.source_ref),
+    source_hash: stringField(event.source_hash),
+  })) : []
+  return createInstrumentStatusArchive({
+    archive_id: stringField(input.archive_id),
+    venue_id: stringField(input.venue_id),
+    symbol: stringField(input.symbol),
+    source_owner: stringField(input.source_owner),
+    source_kind: stringField(input.source_kind) as "venue_status_event_archive",
+    completeness: stringField(input.completeness) as "complete_history",
+    coverage_start: stringField(input.coverage_start),
+    coverage_end: stringField(input.coverage_end),
+    source_observed_through: stringField(input.source_observed_through),
+    source_ref: stringField(input.source_ref),
+    imported_at: stringField(input.imported_at),
+    events,
+  })
+}
+
+export function assertInstrumentStatusArchive(archive: InstrumentStatusArchive): void {
+  if (archive.schema_version !== INSTRUMENT_STATUS_ARCHIVE_SCHEMA_VERSION) throw new Error("unsupported instrument status archive schema")
+  for (const [field, value] of Object.entries({
+    archive_id: archive.archive_id,
+    venue_id: archive.venue_id,
+    symbol: archive.symbol,
+    source_owner: archive.source_owner,
+    source_ref: archive.source_ref,
+  })) requireNonEmpty(value, `instrument status archive ${field}`)
+  if (archive.source_owner !== archive.venue_id) throw new Error("instrument status archive source owner must match venue")
+  if (archive.source_kind !== "venue_status_event_archive" || archive.completeness !== "complete_history") {
+    throw new Error("instrument status archive only accepts complete venue event archives")
+  }
+  for (const [field, value] of Object.entries({
+    coverage_start: archive.coverage_start,
+    coverage_end: archive.coverage_end,
+    source_observed_through: archive.source_observed_through,
+    imported_at: archive.imported_at,
+  })) requireUtc(value, `instrument status archive ${field}`)
+  if (Date.parse(archive.coverage_start) >= Date.parse(archive.coverage_end)) throw new Error("instrument status archive coverage must have positive duration")
+  if (Date.parse(archive.source_observed_through) < Date.parse(archive.coverage_end)) {
+    throw new Error("instrument status archive finality watermark must cover coverage_end")
+  }
+  if (Date.parse(archive.imported_at) < Date.parse(archive.source_observed_through)) {
+    throw new Error("instrument status archive cannot be imported before its source watermark")
+  }
+  if (archive.events.length === 0 || archive.source_record_count !== archive.events.length) {
+    throw new Error("instrument status archive source record count must match a non-empty event set")
+  }
+  let previous: InstrumentStatusArchiveEvent | undefined
+  for (const [index, event] of archive.events.entries()) {
+    for (const [field, value] of Object.entries({ event_id: event.event_id, source_ref: event.source_ref })) {
+      requireNonEmpty(value, `instrument status event ${field}`)
+    }
+    requireHash(event.source_hash, "instrument status event source_hash")
+    requireUtc(event.effective_at, "instrument status event effective_at")
+    requireUtc(event.observed_at, "instrument status event observed_at")
+    if (event.event_sequence !== index + 1) throw new Error("instrument status event sequence must be contiguous from one")
+    if (event.status !== "trading" && event.status !== "halted") throw new Error("unsupported instrument status event")
+    if (Date.parse(event.effective_at) >= Date.parse(archive.coverage_end)) throw new Error("instrument status event falls outside archive coverage")
+    if (Date.parse(event.observed_at) < Date.parse(event.effective_at)
+        || Date.parse(event.observed_at) > Date.parse(archive.source_observed_through)) {
+      throw new Error("instrument status event observation violates point-in-time bounds")
+    }
+    if (previous && (Date.parse(event.effective_at) <= Date.parse(previous.effective_at) || event.status === previous.status)) {
+      throw new Error("instrument status events must be strictly ordered state transitions")
+    }
+    previous = event
+  }
+  if (Date.parse(archive.events[0].effective_at) > Date.parse(archive.coverage_start)) {
+    throw new Error("instrument status archive requires an anchor event at or before coverage_start")
+  }
+  requireHash(archive.source_hash, "instrument status archive source_hash")
+  requireHash(archive.archive_hash, "instrument status archive archive_hash")
+  if (archive.source_hash !== canonicalHash(archive.events)) throw new Error("instrument status archive source hash mismatch")
+  const body = Object.fromEntries(Object.entries(archive).filter(([key]) => key !== "archive_hash"))
+  if (archive.archive_hash !== canonicalHash(body)) throw new Error("instrument status archive hash mismatch")
 }
 
 export function upsertMarketManifest(db: Database, manifest: MarketManifest): void {
@@ -551,6 +806,34 @@ interface FeatureManifestRow {
   generated_at: string
 }
 
+interface InstrumentStatusArchiveRow {
+  archive_id: string
+  schema_version: string
+  venue_id: string
+  symbol: string
+  source_owner: string
+  source_kind: string
+  completeness: string
+  coverage_start: string
+  coverage_end: string
+  source_observed_through: string
+  source_ref: string
+  source_hash: string
+  source_record_count: number
+  imported_at: string
+  archive_hash: string
+}
+
+interface InstrumentStatusArchiveEventRow {
+  event_id: string
+  event_sequence: number
+  status: string
+  effective_at: string
+  observed_at: string
+  source_ref: string
+  source_hash: string
+}
+
 function manifestFromRow(row: MarketManifestRow): MarketManifest {
   return {
     manifest_id: row.manifest_id,
@@ -608,4 +891,35 @@ function featureManifestFromRow(row: FeatureManifestRow): FeatureManifest {
     manifest_path: row.manifest_path,
     generated_at: row.generated_at,
   }
+}
+
+function sqlStatusEvent(event: InstrumentStatusArchiveEvent): Record<string, string | number> {
+  return {
+    $event_id: event.event_id,
+    $event_sequence: event.event_sequence,
+    $status: event.status,
+    $effective_at: event.effective_at,
+    $observed_at: event.observed_at,
+    $source_ref: event.source_ref,
+    $source_hash: event.source_hash,
+  }
+}
+
+function requireNonEmpty(value: unknown, field: string): string {
+  if (typeof value !== "string" || value.trim() === "") throw new Error(`${field} is required`)
+  return value
+}
+
+function requireHash(value: unknown, field: string): string {
+  const text = requireNonEmpty(value, field)
+  if (!/^[a-f0-9]{64}$/.test(text)) throw new Error(`${field} must be a lowercase sha256 digest`)
+  return text
+}
+
+function requireUtc(value: unknown, field: string): string {
+  const text = requireNonEmpty(value, field)
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(text) || !Number.isFinite(Date.parse(text))) {
+    throw new Error(`${field} must be an RFC 3339 UTC timestamp`)
+  }
+  return text
 }

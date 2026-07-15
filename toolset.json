@@ -930,13 +930,14 @@
         "ohlcv-manifest",
         "canonical-candles",
         "funding-events",
-        "feature-manifest"
+        "feature-manifest",
+        "instrument-status-archive"
       ],
       "capability_class": [
         "A"
       ],
       "path": "modules/market-data-products/market-data-store",
-      "purpose": "Record market manifests, funding events, and feature manifests in market_data_store, and canonical candles in ohlcv_store.",
+      "purpose": "Record market manifests, funding events, feature manifests, and immutable instrument-status archives in market_data_store, and canonical candles in ohlcv_store.",
       "command": {
         "cwd": "modules/market-data-products/market-data-store",
         "argv": [
@@ -961,10 +962,61 @@
       },
       "notes": [
         "Owns logical market_data_store refs and ohlcv_store refs; durable market data uses database owner-store contracts, not file directories.",
-        "Read actions include read_manifest, read_funding, read_feature_manifest, and list_feature_manifests so other domains can consume owner refs without direct table access."
+        "Read actions include read_manifest, read_funding, read_instrument_status_archive, read_feature_manifest, and list_feature_manifests so other domains can consume owner refs without direct table access.",
+        "Instrument-status archives use immutable create-or-identical CAS; conflicting content under one archive id is rejected."
       ],
       "module_type": "atomic",
       "owner_scope": "market-data-products.market-data-store",
+      "requires_preflight": false,
+      "concurrency_group": "market-data-store",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
+    },
+    {
+      "id": "market-data.instrument-status-provider",
+      "domain": "market-data-products",
+      "intent": [
+        "instrument-status-provider",
+        "venue-status-event-archive",
+        "point-in-time-status",
+        "replay-status-provenance"
+      ],
+      "capability_class": [
+        "A",
+        "V"
+      ],
+      "path": "modules/market-data-products/instrument-status-provider",
+      "purpose": "Normalize one finalized immutable venue status-event archive into hash-bound Replay instrument-status epochs and provenance.",
+      "command": {
+        "cwd": "modules/market-data-products/instrument-status-provider",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--db",
+          "./data/market_data.db",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Read-only provider; archive import remains market-data.store ownership.",
+        "Does not infer status from missing OHLCV or certify external venue completeness beyond the committed archive finality assertion."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "market-data-products.instrument-status-provider",
       "requires_preflight": false,
       "concurrency_group": "market-data-store",
       "forbidden_callers": [

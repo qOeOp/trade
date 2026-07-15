@@ -7,6 +7,7 @@ contract module
 ## Owns
 
 - JSON record helpers.
+- Canonical JSON serialization and SHA-256 hashing shared by cross-domain wire contracts.
 - Repository-relative path resolution and runtime path guard.
 - Lifecycle processor spec / record helpers shared by control tower and domain runtime integrations.
 - Owner tool registry resolver for `toolset.json` entries.
