@@ -60,10 +60,11 @@ import { createReplayEventKey } from "./replay-event-key"
 import { completeReplayEntryOrderLane, type ReplayEntryOrderExecution } from "./replay-entry-order-lane"
 import { completeReplayExitOrderLane, completeReplayStrategyExitOrderLane } from "./replay-exit-order-lane"
 import { completeReplayLiquidationOrderLane } from "./replay-liquidation-order-lane"
+import { replaceReplayProtectiveStop } from "./replay-protective-stop-lane"
 import { ReplayLiquidationDeficitError, assertReplayPostEntryMargin, buildReplayMaintenanceBreachObservation, buildReplayPathMarginSnapshots } from "./replay-margin-path"
 import { reduceReplaySourceEvents } from "./replay-source-reducer"
 
-export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v12" as const
+export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v13" as const
 
 export interface ReplayEngineCheckpoint {
   schema_version: typeof REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION
@@ -405,6 +406,20 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
         signed_quantity: position.signed_quantity,
         average_entry_price: position.average_entry_price!,
       },
+      active_protection: {
+        stop: {
+          order_id: entry.stop_order.order_id,
+          status: "active",
+          trigger_price: entry.stop_order.trigger_price!,
+          remaining_quantity: entry.stop_order.remaining_quantity,
+        },
+        target: {
+          order_id: entry.target_order.order_id,
+          status: "active",
+          trigger_price: entry.target_order.trigger_price!,
+          remaining_quantity: entry.target_order.remaining_quantity,
+        },
+      },
       mark_price: bar.close,
       cash_balance: cashBalance,
       total_fees: totalFees,
@@ -457,6 +472,29 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
           decision_harness_receipt: admission.receipt,
         }
         rebuildDecisionTimeline()
+        if (runtimeDecision.schedule_entry.expected_effect === "authorized_protective_stop_replace") {
+          const replaceIntent = runtimeDecision.schedule_entry.authorized_protective_stop_replace
+          const entry = boundary.entry_transition
+          if (!replaceIntent || !entry || entry.stop_order.trigger_price !== replaceIntent.previous_stop_price) {
+            throw new Error("Replay protective stop replacement does not match the active stop")
+          }
+          const wouldAlreadyTrigger = request.order.side === "long"
+            ? replaceIntent.new_stop_price >= decisionStateSnapshot.mark_price
+            : replaceIntent.new_stop_price <= decisionStateSnapshot.mark_price
+          if (wouldAlreadyTrigger) throw new Error("Replay protective stop replacement is already triggered at decision time")
+          entry.stop_order = replaceReplayProtectiveStop({
+            run_id: request.run_id,
+            decision_sequence: runtimeDecision.schedule_entry.decision_sequence,
+            decision_time: replaceIntent.signal_time,
+            source_sequence: source!.event_key.source_sequence,
+            signed_position: entry.signed_position_after,
+            side: replaceIntent.side,
+            new_stop_price: replaceIntent.new_stop_price,
+            current_stop_order: entry.stop_order,
+            next_stamp: nextStamp,
+            capture,
+          })
+        }
         if (runtimeDecision.schedule_entry.expected_effect === "authorized_reduce_only_exit") {
           const exitIntent = runtimeDecision.schedule_entry.authorized_reduce_only_exit
           const entry = boundary.entry_transition
@@ -516,6 +554,12 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       capture,
     }),
     get_entry_fill_event_key: (entry) => entry.entry_fill_event_key,
+    get_active_stop_price: (entry) => {
+      if (entry.stop_order.status !== "active" || entry.stop_order.trigger_price === null) {
+        throw new Error("Replay source boundary requires one active protective stop")
+      }
+      return entry.stop_order.trigger_price
+    },
     observe_exact_risk: (source, entry, appliedFundingSources) => {
       const mark = source.kind === "mark"
         ? markEvents[source.source_index]?.mark_price
@@ -1131,6 +1175,12 @@ function assertInstrumentAlignedInputs(
     target_price: request.order.target_price,
   })) {
     if (!isReplayIncrementAligned(value, priceIncrement)) throw new Error(`Replay ${field} must align to price increment`)
+  }
+  for (const entry of request.decision_schedule.entries) {
+    const replace = entry.authorized_protective_stop_replace
+    if (replace && !isReplayIncrementAligned(replace.new_stop_price, priceIncrement)) {
+      throw new Error("Replay replacement stop_price must align to price increment")
+    }
   }
   for (const [index, bar] of bars.entries()) {
     for (const [field, value] of Object.entries({ open: bar.open, high: bar.high, low: bar.low, close: bar.close })) {

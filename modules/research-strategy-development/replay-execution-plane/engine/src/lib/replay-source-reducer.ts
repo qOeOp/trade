@@ -54,6 +54,7 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
   on_source_boundary?: (boundary: ReplaySourceBoundary<TEntry>) => void
   activate_entry: (source: ReplaySourceEvent) => TEntry
   get_entry_fill_event_key: (entry: TEntry) => ReplayEventKey
+  get_active_stop_price: (entry: TEntry) => number
   observe_exact_risk: (
     source: ReplaySourceEvent,
     entry: TEntry,
@@ -125,9 +126,10 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
     const bar = input.bars[source.source_index]
     if (!bar) throw new Error("Replay source event references a missing bar")
     const isLong = input.request.order.side === "long"
+    const activeStopPrice = input.get_active_stop_price(entryTransition)
 
     if (source.kind === "bar_open") {
-      const stopGap = isLong ? bar.open <= input.request.order.stop_price : bar.open >= input.request.order.stop_price
+      const stopGap = isLong ? bar.open <= activeStopPrice : bar.open >= activeStopPrice
       if (stopGap) return reduction(
         { role: "stop", timestamp: bar.open_time, rawPrice: bar.open, triggerSource: "bar_open", sourceSequence: source.source_index + 1 },
         consumed,
@@ -155,7 +157,7 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
       continue
     }
 
-    const stopTouched = isLong ? bar.low <= input.request.order.stop_price : bar.high >= input.request.order.stop_price
+    const stopTouched = isLong ? bar.low <= activeStopPrice : bar.high >= activeStopPrice
     const targetTouched = isLong ? bar.high >= input.request.order.target_price : bar.low <= input.request.order.target_price
     if (stopTouched && targetTouched) {
       input.limitations.push({
@@ -164,7 +166,7 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
         detail: "OHLCV cannot prove intrabar path; certified conservative policy resolves stop before target.",
       })
       return reduction(
-        { role: "stop", timestamp: bar.close_time, rawPrice: input.request.order.stop_price, triggerSource: "bar_range", sourceSequence: source.source_index + 1 },
+        { role: "stop", timestamp: bar.close_time, rawPrice: activeStopPrice, triggerSource: "bar_range", sourceSequence: source.source_index + 1 },
         consumed,
         appliedFunding,
         entryTransition,
@@ -172,7 +174,7 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
       )
     }
     if (stopTouched) return reduction(
-      { role: "stop", timestamp: bar.close_time, rawPrice: input.request.order.stop_price, triggerSource: "bar_range", sourceSequence: source.source_index + 1 },
+      { role: "stop", timestamp: bar.close_time, rawPrice: activeStopPrice, triggerSource: "bar_range", sourceSequence: source.source_index + 1 },
       consumed,
       appliedFunding,
       entryTransition,
