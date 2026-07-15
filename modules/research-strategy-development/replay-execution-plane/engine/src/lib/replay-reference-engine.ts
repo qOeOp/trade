@@ -1139,6 +1139,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       venue_risk_policy_schedule_hash: request.venue_risk_policy_schedule_hash,
       instrument_spec_schedule_hash: request.instrument_spec_schedule_hash,
       instrument_status_schedule_hash: request.instrument_status_schedule_hash,
+      instrument_status_provenance_hash: request.instrument_status_provenance_hash,
       harness_hash: request.harness_hash,
       assumptions_hash: request.assumptions_hash,
       cost_policy_hash: canonicalHash(request.cost_policy),

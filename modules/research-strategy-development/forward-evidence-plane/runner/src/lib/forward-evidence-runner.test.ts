@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
 import { CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, DRAFT_AUTHORIZATION_SCHEMA_VERSION, REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION, STRATEGY_DRAFT_BINDING_SCHEMA_VERSION, TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION, hashTrialReservationSnapshot, type ReplayAttemptLeaseSnapshot, type TrialReservationSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
-import { REPLAY_CERTIFIED_CAPABILITIES, REPLAY_DATASET_MANIFEST_SCHEMA_VERSION, REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION, REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION, REPLAY_NO_DECISION_MARKET_INPUT, REPLAY_NO_DECISION_MARKET_INPUT_HASH, REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS, REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH, REPLAY_REQUEST_SCHEMA_VERSION, REPLAY_SIMULATOR_POLICY_VERSION, REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION, canonicalHash, createReplaySingleDecisionSchedule, replayDatasetHash, replayExecutionSpecHash, type ReplayDatasetManifest, type ReplayExecutionRequest, type ReplayMarketBar } from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
+import { REPLAY_CERTIFIED_CAPABILITIES, REPLAY_DATASET_MANIFEST_SCHEMA_VERSION, REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION, REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION, REPLAY_NO_DECISION_MARKET_INPUT, REPLAY_NO_DECISION_MARKET_INPUT_HASH, REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS, REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH, REPLAY_REQUEST_SCHEMA_VERSION, REPLAY_SIMULATOR_POLICY_VERSION, REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION, canonicalHash, createReplayInstrumentStatusProvenance, createReplaySingleDecisionSchedule, replayDatasetHash, replayExecutionSpecHash, type ReplayDatasetManifest, type ReplayExecutionRequest, type ReplayMarketBar } from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
 import { FORWARD_ADMISSION_SCHEMA_VERSION, type ForwardAdmissionRequest } from "../../../contracts/src/lib/forward-evidence-contracts"
 import { runForwardEvidenceSession } from "./forward-evidence-runner"
 
@@ -9,6 +9,7 @@ const MAINTENANCE_TIER = { tier_id: "tier-1", snapshot_ref: "fixture:margin-tier
 const RISK_SNAPSHOT = { schema_version: REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION, snapshot_id: "risk-1", venue_id: "binance-usdm", symbol: "BTCUSDT", effective_at: "2020-01-01T00:00:00Z", valid_until: null, observed_at: "2026-07-14T08:00:00Z", source_ref: "fixture:risk-1", source_hash: HASH, initial_margin_rate: 0.1, maintenance_tier: MAINTENANCE_TIER, liquidation_fee_bps: 50 }
 const SPEC_SNAPSHOT = { schema_version: REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION, snapshot_id: "spec-1", venue_id: "binance-usdm", symbol: "BTCUSDT", effective_at: "2020-01-01T00:00:00Z", valid_until: null, observed_at: "2026-07-14T08:00:00Z", source_ref: "fixture:spec-1", source_hash: HASH }
 const STATUS_SNAPSHOT = { schema_version: REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION, snapshot_id: "status-1", venue_id: "binance-usdm", symbol: "BTCUSDT", status: "trading" as const, effective_at: "2020-01-01T00:00:00Z", valid_until: null, observed_at: "2026-07-14T08:00:00Z", source_ref: "fixture:status-1", source_hash: HASH }
+const STATUS_PROVENANCE = createReplayInstrumentStatusProvenance({ producer_domain: "market-data-products", producer_id: "fixture-status-producer", producer_version: "v1", producer_build_hash: HASH, source_owner: "binance-usdm", source_kind: "venue_status_event_archive", normalization_policy_version: "fixture-status-normalization-v1", normalization_policy_hash: HASH, completeness: "complete_history", coverage_start: "2020-01-01T00:00:00Z", coverage_end: "2026-07-15T00:00:00Z", source_observed_through: "2026-07-14T08:00:00Z", produced_at: "2026-07-14T08:00:00Z", source_ref: "fixture:status-source", source_hash: HASH, source_record_count: 1, status_epochs: [STATUS_SNAPSHOT] })
 const ACCOUNTING = { spec_version: REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, product_type: "linear_derivative" as const, base_asset: "BTC", quote_asset: "USDT", settlement_asset: "USDT", contract_multiplier: "1", price_increment: "0.01", quantity_increment: "0.001", settlement_increment: "0.00000001" }
 
 function admission(dataHash: string): ForwardAdmissionRequest {
@@ -33,6 +34,7 @@ function admission(dataHash: string): ForwardAdmissionRequest {
     trial_reservation_ref: "reservation://trial-1", trial_reservation_hash: HASH,
     venue_risk_policy_schedule_hash: canonicalHash([RISK_SNAPSHOT]), instrument_spec_schedule_hash: canonicalHash({ epochs: [SPEC_SNAPSHOT], accounting: ACCOUNTING }),
     instrument_status_schedule_hash: canonicalHash([STATUS_SNAPSHOT]),
+    instrument_status_provenance_hash: canonicalHash(STATUS_PROVENANCE),
     harness_hash: HASH, assumptions_hash: HASH, strategy_policy_hash: HASH, symbol: "BTCUSDT", timeframe: "4h", initial_cash: 1000,
     order,
     cost_policy: { policy_id: "fixture", version: "1", fee_bps: 0, slippage_bps: 0, liquidation_fee_bps: 50 },
@@ -55,7 +57,7 @@ function authorize(request: ReplayExecutionRequest): TrialReservationSnapshot {
     issued_at: "2026-07-14T08:00:00Z", expires_at: "2026-07-15T08:00:00Z", status: "reserved",
     identity: { schema_version: CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, experiment_id: request.experiment_id, trial_group_id: request.trial_group_id, trial_group_hash: request.trial_group_hash, trial_id: request.trial_id, candidate_id: request.candidate_id, candidate_hash: request.candidate_hash, identity_hash_policy_version: request.identity_hash_policy_version, experiment_contract_hash: request.experiment_contract_hash },
     trial_ordinal: 1, run_id: request.run_id, counts_against_budget: true, trial_accounting_policy_version: "count-all-v1", candidate_assignment_hash: HASH,
-    bindings: { replay_idempotency_key: request.idempotency_key, execution_spec_hash: replayExecutionSpecHash(request), dataset_manifest_ref: request.dataset_manifest_ref, dataset_hash: request.dataset_hash, supplemental_facts_hash: request.supplemental_facts_hash, supplemental_requirement_set_hash: request.supplemental_requirement_set_hash, venue_risk_policy_schedule_hash: request.venue_risk_policy_schedule_hash, instrument_spec_schedule_hash: request.instrument_spec_schedule_hash, instrument_status_schedule_hash: request.instrument_status_schedule_hash, harness_hash: request.harness_hash, assumptions_hash: request.assumptions_hash, cost_policy_hash: canonicalHash(request.cost_policy), margin_policy_hash: canonicalHash(request.margin_policy), simulator_policy_version: request.simulator_policy.version, execution_mode: "step" },
+    bindings: { replay_idempotency_key: request.idempotency_key, execution_spec_hash: replayExecutionSpecHash(request), dataset_manifest_ref: request.dataset_manifest_ref, dataset_hash: request.dataset_hash, supplemental_facts_hash: request.supplemental_facts_hash, supplemental_requirement_set_hash: request.supplemental_requirement_set_hash, venue_risk_policy_schedule_hash: request.venue_risk_policy_schedule_hash, instrument_spec_schedule_hash: request.instrument_spec_schedule_hash, instrument_status_schedule_hash: request.instrument_status_schedule_hash, instrument_status_provenance_hash: request.instrument_status_provenance_hash, harness_hash: request.harness_hash, assumptions_hash: request.assumptions_hash, cost_policy_hash: canonicalHash(request.cost_policy), margin_policy_hash: canonicalHash(request.margin_policy), simulator_policy_version: request.simulator_policy.version, execution_mode: "step" },
     required_capabilities: [...REPLAY_CERTIFIED_CAPABILITIES],
   }
   request.trial_reservation_hash = hashTrialReservationSnapshot(reservation)
@@ -88,6 +90,7 @@ function datasetManifest(bars: ReplayMarketBar[], dataHash: string): ReplayDatas
     instrument: {
       listed_at: "2020-01-01T00:00:00Z", trading_enabled_at: "2020-01-01T00:00:00Z", delisted_at: null, status_history: "complete",
       status_epochs: [STATUS_SNAPSHOT],
+      status_provenance: STATUS_PROVENANCE,
       spec_epochs: [SPEC_SNAPSHOT],
       accounting: ACCOUNTING,
     },

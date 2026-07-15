@@ -38,6 +38,7 @@ function request(): ReplayExecutionRequest {
     trial_reservation_ref: "reservation://trial-1", trial_reservation_hash: HASH,
     venue_risk_policy_schedule_hash: HASH, instrument_spec_schedule_hash: HASH,
     instrument_status_schedule_hash: HASH,
+    instrument_status_provenance_hash: HASH,
     harness_hash: HASH, assumptions_hash: HASH, symbol: "BTCUSDT", timeframe: "4h", initial_cash: 10_000,
     order,
     cost_policy: { policy_id: "fixture", version: "1", fee_bps: 0, slippage_bps: 0, liquidation_fee_bps: 50 },

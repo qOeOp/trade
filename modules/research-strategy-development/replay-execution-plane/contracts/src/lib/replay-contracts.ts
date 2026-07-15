@@ -10,9 +10,9 @@ export {
   REPLAY_OBJECT_ARTIFACT_STORAGE_POLICY_VERSION,
 }
 
-export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v22" as const
-export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v34" as const
-export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v36" as const
+export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v23" as const
+export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v35" as const
+export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v37" as const
 export const REPLAY_ARTIFACT_STORE_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-artifact-store-capability.v1" as const
 export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v10" as const
 export const REPLAY_NUMERIC_POLICY_VERSION = "rd-replay-number-v3" as const
@@ -24,7 +24,7 @@ export const REPLAY_MAINTENANCE_BREACH_SCHEMA_VERSION = "trade.rd-replay-mainten
 export const REPLAY_LIQUIDATION_EXECUTION_SCHEMA_VERSION = "trade.rd-replay-liquidation-execution.v2" as const
 export const REPLAY_OHLCV_RESOLUTION_EVIDENCE_SCHEMA_VERSION = "trade.rd-replay-ohlcv-resolution-evidence.v3" as const
 export const REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION = "rd-replay-instrument-accounting-v1" as const
-export const REPLAY_DATASET_MANIFEST_SCHEMA_VERSION = "trade.rd-replay-dataset-manifest.v8" as const
+export const REPLAY_DATASET_MANIFEST_SCHEMA_VERSION = "trade.rd-replay-dataset-manifest.v9" as const
 export const REPLAY_SUPPLEMENTAL_FACT_SCHEMA_VERSION = "trade.rd-replay-supplemental-fact.v1" as const
 export const REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION = "trade.rd-replay-supplemental-requirement-set.v1" as const
 export const REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION = "trade.rd-replay-decision-input-snapshot.v1" as const
@@ -61,6 +61,7 @@ export const REPLAY_DECISION_HARNESS_BUILD_ARGUMENTS = [
 export const REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION = "trade.rd-replay-venue-risk-policy-snapshot.v1" as const
 export const REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION = "trade.rd-replay-instrument-spec-snapshot.v1" as const
 export const REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION = "trade.rd-replay-instrument-status-snapshot.v1" as const
+export const REPLAY_INSTRUMENT_STATUS_PROVENANCE_SCHEMA_VERSION = "trade.rd-replay-instrument-status-provenance.v1" as const
 export const REPLAY_CERTIFIED_CAPABILITIES = [
   "closed-bar-protective-stop-tighten",
   "closed-candle",
@@ -146,6 +147,7 @@ export interface ReplayExecutionRequest {
   venue_risk_policy_schedule_hash: string
   instrument_spec_schedule_hash: string
   instrument_status_schedule_hash: string
+  instrument_status_provenance_hash: string
   harness_hash: string
   assumptions_hash: string
   strategy_policy_hash?: string
@@ -703,6 +705,7 @@ export interface ReplayDatasetManifest {
     delisted_at: string | null
     status_history: "complete" | "current_snapshot_only"
     status_epochs: ReplayInstrumentStatusSnapshot[]
+    status_provenance: ReplayInstrumentStatusProvenance
     spec_epochs: ReplayInstrumentSpecSnapshot[]
     accounting: ReplayInstrumentAccountingSpec
   }
@@ -750,6 +753,40 @@ export interface ReplayInstrumentStatusSnapshot {
   observed_at: string
   source_ref: string
   source_hash: string
+}
+
+export interface ReplayInstrumentStatusProvenance {
+  schema_version: typeof REPLAY_INSTRUMENT_STATUS_PROVENANCE_SCHEMA_VERSION
+  producer_domain: "market-data-products"
+  producer_id: string
+  producer_version: string
+  producer_build_hash: string
+  source_owner: string
+  source_kind: "venue_status_event_archive" | "venue_current_snapshot" | "periodic_snapshot_series"
+  normalization_policy_version: string
+  normalization_policy_hash: string
+  completeness: "complete_history" | "current_snapshot_only"
+  coverage_start: string
+  coverage_end: string
+  source_observed_through: string
+  produced_at: string
+  source_ref: string
+  source_hash: string
+  source_record_count: number
+  status_schedule_hash: string
+}
+
+export function createReplayInstrumentStatusProvenance(
+  input: Omit<ReplayInstrumentStatusProvenance, "schema_version" | "status_schedule_hash"> & {
+    status_epochs: ReplayInstrumentStatusSnapshot[]
+  },
+): ReplayInstrumentStatusProvenance {
+  const { status_epochs, ...provenance } = input
+  return {
+    schema_version: REPLAY_INSTRUMENT_STATUS_PROVENANCE_SCHEMA_VERSION,
+    ...provenance,
+    status_schedule_hash: canonicalHash(status_epochs),
+  }
 }
 
 export interface ReplayInstrumentAccountingSpec {
@@ -1365,6 +1402,7 @@ export interface ReplayEvidenceFingerprint {
   venue_risk_policy_schedule_hash: string
   instrument_spec_schedule_hash: string
   instrument_status_schedule_hash: string
+  instrument_status_provenance_hash: string
   harness_hash: string
   assumptions_hash: string
   cost_policy_hash: string
@@ -1536,7 +1574,7 @@ export function assertReplayExecutionRequest(value: ReplayExecutionRequest): voi
   ] as const) requireText(value[field], field)
   for (const field of [
     "trial_group_hash", "candidate_hash", "experiment_contract_hash", "dataset_hash", "harness_hash", "assumptions_hash",
-    "trial_reservation_hash", "supplemental_facts_hash", "supplemental_requirement_set_hash", "decision_market_input_requirement_hash", "decision_schedule_hash", "venue_risk_policy_schedule_hash", "instrument_spec_schedule_hash", "instrument_status_schedule_hash",
+    "trial_reservation_hash", "supplemental_facts_hash", "supplemental_requirement_set_hash", "decision_market_input_requirement_hash", "decision_schedule_hash", "venue_risk_policy_schedule_hash", "instrument_spec_schedule_hash", "instrument_status_schedule_hash", "instrument_status_provenance_hash",
   ] as const) requireHash(value[field], field)
   assertReplaySupplementalRequirementSet(value.supplemental_requirement_set, value.order.signal_time)
   if (canonicalHash(value.supplemental_requirement_set) !== value.supplemental_requirement_set_hash) {
@@ -2116,6 +2154,7 @@ export function assertReplayDatasetManifest(manifest: ReplayDatasetManifest): vo
   }
   assertReplaySnapshotSchedule(manifest.venue_risk_policy_epochs, assertReplayVenueRiskPolicySnapshot, "venue_risk_policy_epochs")
   assertReplaySnapshotSchedule(manifest.instrument.status_epochs, assertReplayInstrumentStatusSnapshot, "instrument.status_epochs")
+  assertReplayInstrumentStatusProvenance(manifest.instrument.status_provenance, manifest)
   assertReplaySnapshotSchedule(manifest.instrument.spec_epochs, assertReplayInstrumentSpecSnapshot, "instrument.spec_epochs")
   assertReplayInstrumentAccountingSpec(manifest.instrument.accounting)
   if (manifest.universe.survivorship !== "point_in_time" && manifest.universe.survivorship !== "survivor_only") {
@@ -3024,6 +3063,68 @@ export function assertReplayInstrumentStatusSnapshot(snapshot: ReplayInstrumentS
   requireHash(snapshot.source_hash, "instrument.status_snapshot.source_hash")
   if (snapshot.status !== "trading" && snapshot.status !== "halted") fail("unsupported instrument trading status")
   assertReplaySnapshotInterval(snapshot, "instrument.status_snapshot")
+}
+
+export function assertReplayInstrumentStatusProvenance(
+  provenance: ReplayInstrumentStatusProvenance,
+  manifest: ReplayDatasetManifest,
+): void {
+  if (provenance.schema_version !== REPLAY_INSTRUMENT_STATUS_PROVENANCE_SCHEMA_VERSION) {
+    fail("unsupported instrument status provenance schema")
+  }
+  if (provenance.producer_domain !== "market-data-products") {
+    fail("instrument status provenance producer domain must be market-data-products")
+  }
+  for (const [field, value] of Object.entries({
+    producer_id: provenance.producer_id,
+    producer_version: provenance.producer_version,
+    source_owner: provenance.source_owner,
+    normalization_policy_version: provenance.normalization_policy_version,
+    source_ref: provenance.source_ref,
+  })) requireText(value, `instrument.status_provenance.${field}`)
+  for (const [field, value] of Object.entries({
+    coverage_start: provenance.coverage_start,
+    coverage_end: provenance.coverage_end,
+    source_observed_through: provenance.source_observed_through,
+    produced_at: provenance.produced_at,
+  })) requireUtcTimestamp(value, `instrument.status_provenance.${field}`)
+  requireHash(provenance.source_hash, "instrument.status_provenance.source_hash")
+  requireHash(provenance.producer_build_hash, "instrument.status_provenance.producer_build_hash")
+  requireHash(provenance.normalization_policy_hash, "instrument.status_provenance.normalization_policy_hash")
+  requireHash(provenance.status_schedule_hash, "instrument.status_provenance.status_schedule_hash")
+  if (!Number.isSafeInteger(provenance.source_record_count) || provenance.source_record_count < 1) {
+    fail("instrument status provenance source_record_count must be positive")
+  }
+  if (Date.parse(provenance.coverage_start) >= Date.parse(provenance.coverage_end)) {
+    fail("instrument status provenance coverage must have positive duration")
+  }
+  if (Date.parse(provenance.source_observed_through) > Date.parse(provenance.produced_at)) {
+    fail("instrument status provenance cannot be produced before its source observation")
+  }
+  const statusScheduleHash = canonicalHash(manifest.instrument.status_epochs)
+  if (provenance.status_schedule_hash !== statusScheduleHash) {
+    fail("instrument status provenance schedule hash mismatch")
+  }
+  if (provenance.source_owner !== manifest.instrument.status_epochs[0]?.venue_id) {
+    fail("instrument status provenance source owner must match the status venue")
+  }
+  const expectedCompleteness = manifest.instrument.status_history === "complete"
+    ? "complete_history"
+    : "current_snapshot_only"
+  if (provenance.completeness !== expectedCompleteness) {
+    fail("instrument status provenance completeness does not match status_history")
+  }
+  if (provenance.completeness === "complete_history") {
+    if (provenance.source_kind !== "venue_status_event_archive") {
+      fail("complete instrument status history requires a venue status event archive")
+    }
+    if (Date.parse(provenance.coverage_start) > Date.parse(manifest.first_open_time)
+        || Date.parse(provenance.coverage_end) < Date.parse(manifest.last_close_time)) {
+      fail("complete instrument status provenance must cover the Replay window")
+    }
+  } else if (provenance.source_kind === "venue_status_event_archive") {
+    fail("current-snapshot-only provenance cannot claim a venue status event archive")
+  }
 }
 
 function assertReplaySnapshotSchedule<T extends { effective_at: string; valid_until: string | null }>(

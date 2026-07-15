@@ -95,7 +95,7 @@ export interface ReplayTrialRunInput {
 }
 
 export interface ReplayTrialRunOutcome {
-  schema_version: "trade.rd-replay-run-outcome.v32"
+  schema_version: "trade.rd-replay-run-outcome.v33"
   run_id: string
   attempt_id: string
   lease_generation: number
@@ -166,7 +166,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     validateTrialReservation(input.request, input.trial_reservation)
   } catch (error) {
     return {
-      schema_version: "trade.rd-replay-run-outcome.v32",
+      schema_version: "trade.rd-replay-run-outcome.v33",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -189,7 +189,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     const expired = error instanceof ReplayAttemptLeaseExpiredError
     const reservationExpired = error instanceof ReplayTrialReservationExpiredError
     return {
-      schema_version: "trade.rd-replay-run-outcome.v32",
+      schema_version: "trade.rd-replay-run-outcome.v33",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -206,7 +206,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
   }
   if (input.cancel_requested) {
     return {
-      schema_version: "trade.rd-replay-run-outcome.v32",
+      schema_version: "trade.rd-replay-run-outcome.v33",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -252,7 +252,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     if (committed) {
       cleanupDiagnosticCheckpoint(activeArtifactNamespace!)
       return {
-        schema_version: "trade.rd-replay-run-outcome.v32",
+        schema_version: "trade.rd-replay-run-outcome.v33",
         run_id: input.request.run_id,
         attempt_id: input.attempt_lease.attempt_id,
         lease_generation: input.attempt_lease.lease_generation,
@@ -355,7 +355,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
       : undefined
     if (activeArtifactNamespace) cleanupDiagnosticCheckpoint(activeArtifactNamespace)
     return {
-      schema_version: "trade.rd-replay-run-outcome.v32",
+      schema_version: "trade.rd-replay-run-outcome.v33",
       run_id: input.request.run_id,
       attempt_id: activeAttemptLease.attempt_id,
       lease_generation: activeAttemptLease.lease_generation,
@@ -378,7 +378,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     const liquidationDeficit = error instanceof ReplayLiquidationDeficitError
     const dataContinuity = isReplayDataContinuityFailure(error)
     return {
-      schema_version: "trade.rd-replay-run-outcome.v32",
+      schema_version: "trade.rd-replay-run-outcome.v33",
       run_id: input.request.run_id,
       attempt_id: activeAttemptLease.attempt_id,
       lease_generation: activeAttemptLease.lease_generation,
@@ -560,6 +560,7 @@ function validateTrialReservation(request: ReplayExecutionRequest, reservation: 
       || bindings.venue_risk_policy_schedule_hash !== request.venue_risk_policy_schedule_hash
       || bindings.instrument_spec_schedule_hash !== request.instrument_spec_schedule_hash
       || bindings.instrument_status_schedule_hash !== request.instrument_status_schedule_hash
+      || bindings.instrument_status_provenance_hash !== request.instrument_status_provenance_hash
       || bindings.harness_hash !== request.harness_hash
       || bindings.assumptions_hash !== request.assumptions_hash
       || bindings.cost_policy_hash !== canonicalHash(request.cost_policy)

@@ -23,6 +23,7 @@ export interface DeveloperReplayPlan {
   venue_risk_policy_schedule_hash: string
   instrument_spec_schedule_hash: string
   instrument_status_schedule_hash: string
+  instrument_status_provenance_hash: string
   harness_hash: string
   assumptions_hash: string
   symbol: string
@@ -62,6 +63,7 @@ export function buildDeveloperReplayRequest(plan: DeveloperReplayPlan): ReplayEx
     venue_risk_policy_schedule_hash: plan.venue_risk_policy_schedule_hash,
     instrument_spec_schedule_hash: plan.instrument_spec_schedule_hash,
     instrument_status_schedule_hash: plan.instrument_status_schedule_hash,
+    instrument_status_provenance_hash: plan.instrument_status_provenance_hash,
     harness_hash: plan.harness_hash,
     assumptions_hash: plan.assumptions_hash,
     symbol: plan.symbol,

@@ -14,11 +14,13 @@ import {
   REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION,
   REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
   canonicalHash,
+  createReplayInstrumentStatusProvenance,
   createReplaySingleDecisionSchedule,
   replayDatasetHash,
   type ReplayDatasetManifest,
   type ReplayExecutionRequest,
   type ReplayFundingEvent,
+  type ReplayInstrumentStatusSnapshot,
   type ReplayMarkEvent,
   type ReplayMarketBar,
   type ReplaySupplementalFact,
@@ -30,6 +32,12 @@ const MAINTENANCE_TIER = { tier_id: "tier-1", snapshot_ref: "fixture:margin-tier
 const RISK_SNAPSHOT = { schema_version: REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION, snapshot_id: "risk-1", venue_id: "binance-usdm", symbol: "BTCUSDT", effective_at: "2020-01-01T00:00:00Z", valid_until: null, observed_at: "2026-07-13T00:00:00Z", source_ref: "fixture:risk-1", source_hash: HASH, initial_margin_rate: 0.1, maintenance_tier: MAINTENANCE_TIER, liquidation_fee_bps: 50 }
 const SPEC_SNAPSHOT = { schema_version: REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION, snapshot_id: "spec-1", venue_id: "binance-usdm", symbol: "BTCUSDT", effective_at: "2020-01-01T00:00:00Z", valid_until: null, observed_at: "2026-07-13T00:00:00Z", source_ref: "fixture:spec-1", source_hash: HASH }
 const STATUS_SNAPSHOT = { schema_version: REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION, snapshot_id: "status-1", venue_id: "binance-usdm", symbol: "BTCUSDT", status: "trading" as const, effective_at: "2020-01-01T00:00:00Z", valid_until: null, observed_at: "2026-07-13T00:00:00Z", source_ref: "fixture:status-1", source_hash: HASH }
+const statusProvenance = (statusEpochs: ReplayInstrumentStatusSnapshot[] = [STATUS_SNAPSHOT], completeness: "complete_history" | "current_snapshot_only" = "complete_history") => createReplayInstrumentStatusProvenance({
+  producer_domain: "market-data-products", producer_id: "fixture-status-producer", producer_version: "v1", producer_build_hash: HASH, source_owner: "binance-usdm",
+  source_kind: completeness === "complete_history" ? "venue_status_event_archive" : "venue_current_snapshot", normalization_policy_version: "fixture-status-normalization-v1", normalization_policy_hash: HASH, completeness,
+  coverage_start: "2020-01-01T00:00:00Z", coverage_end: "2030-01-01T00:00:00Z", source_observed_through: "2026-07-13T00:00:00Z", produced_at: "2026-07-13T00:00:00Z",
+  source_ref: "fixture:status-source", source_hash: HASH, source_record_count: statusEpochs.length, status_epochs: statusEpochs,
+})
 const ACCOUNTING = { spec_version: REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, product_type: "linear_derivative" as const, base_asset: "BTC", quote_asset: "USDT", settlement_asset: "USDT", contract_multiplier: "1", price_increment: "0.01", quantity_increment: "0.001", settlement_increment: "0.00000001" }
 const bars: ReplayMarketBar[] = [
   { open_time: "2026-07-14T00:00:00Z", close_time: "2026-07-14T04:00:00Z", open: 100, high: 105, low: 95, close: 101, volume: 1, closed: true },
@@ -65,6 +73,7 @@ function request(dataHash = replayDatasetHash(bars, fundingEvents)): ReplayExecu
     trial_reservation_ref: "reservation://trial-1", trial_reservation_hash: HASH,
     venue_risk_policy_schedule_hash: canonicalHash([RISK_SNAPSHOT]), instrument_spec_schedule_hash: canonicalHash({ epochs: [SPEC_SNAPSHOT], accounting: ACCOUNTING }),
     instrument_status_schedule_hash: canonicalHash([STATUS_SNAPSHOT]),
+    instrument_status_provenance_hash: canonicalHash(statusProvenance()),
     harness_hash: HASH, assumptions_hash: HASH, symbol: "BTCUSDT", timeframe: "4h", initial_cash: 1000,
     order,
     cost_policy: { policy_id: "fixture", version: "1", fee_bps: 0, slippage_bps: 0, liquidation_fee_bps: 50 },
@@ -99,6 +108,7 @@ function manifest(dataHash = replayDatasetHash(bars, fundingEvents)): ReplayData
     instrument: {
       listed_at: "2020-01-01T00:00:00Z", trading_enabled_at: "2020-01-01T00:00:00Z", delisted_at: null, status_history: "complete",
       status_epochs: [STATUS_SNAPSHOT],
+      status_provenance: statusProvenance(),
       spec_epochs: [SPEC_SNAPSHOT],
       accounting: ACCOUNTING,
     },
@@ -192,11 +202,12 @@ test("data adapter admits only fully frozen PIT halt gaps", () => {
     first_open_time: haltBars[0].open_time,
     last_close_time: haltBars.at(-1)!.close_time,
     observed_through: haltBars.at(-1)!.close_time,
-    instrument: { ...manifest().instrument, status_epochs: statusSchedule },
+    instrument: { ...manifest().instrument, status_epochs: statusSchedule, status_provenance: statusProvenance(statusSchedule) },
   }
   const haltRequest = {
     ...requestAt("2026-07-14T04:00:00Z", "2026-07-14T12:00:00Z", dataHash),
     instrument_status_schedule_hash: canonicalHash(statusSchedule),
+    instrument_status_provenance_hash: canonicalHash(statusProvenance(statusSchedule)),
   }
   const prepared = prepareReplayInputData({ request: haltRequest, dataset_manifest: haltManifest, bars: haltBars })
   expect(prepared.entry_index).toBe(1)
@@ -206,18 +217,22 @@ test("data adapter admits only fully frozen PIT halt gaps", () => {
     request: { ...haltRequest, instrument_status_schedule_hash: HASH }, dataset_manifest: haltManifest, bars: haltBars,
   })).toThrow("instrument status schedule hash")
   expect(() => prepareReplayInputData({
+    request: { ...haltRequest, instrument_status_provenance_hash: HASH }, dataset_manifest: haltManifest, bars: haltBars,
+  })).toThrow("instrument status provenance hash")
+  expect(() => prepareReplayInputData({
     request: { ...haltRequest, order: { ...haltRequest.order, signal_time: "2026-07-14T08:00:00Z" }, decision_schedule: createReplaySingleDecisionSchedule({ ...haltRequest.order, signal_time: "2026-07-14T08:00:00Z" }), decision_schedule_hash: canonicalHash(createReplaySingleDecisionSchedule({ ...haltRequest.order, signal_time: "2026-07-14T08:00:00Z" })) },
     dataset_manifest: haltManifest, bars: haltBars,
   })).toThrow("occurs while instrument trading is halted")
   const haltedExecutableRequest = requestAt("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", dataHash)
   haltedExecutableRequest.instrument_status_schedule_hash = canonicalHash(statusSchedule)
+  haltedExecutableRequest.instrument_status_provenance_hash = canonicalHash(statusProvenance(statusSchedule))
   expect(() => prepareReplayInputData({ request: haltedExecutableRequest, dataset_manifest: haltManifest, bars: haltBars }))
     .toThrow("executable boundary occurs while instrument trading is halted")
 
   const overlappingBars = [haltBars[0], { ...haltBars[1], open_time: "2026-07-14T08:00:00Z", close_time: "2026-07-14T12:00:00Z" }]
   const overlappingHash = replayDatasetHash(overlappingBars)
   expect(() => prepareReplayInputData({
-    request: { ...requestAt("2026-07-14T00:00:00Z", "2026-07-14T04:00:00Z", overlappingHash), instrument_status_schedule_hash: canonicalHash(statusSchedule) },
+    request: { ...requestAt("2026-07-14T00:00:00Z", "2026-07-14T04:00:00Z", overlappingHash), instrument_status_schedule_hash: canonicalHash(statusSchedule), instrument_status_provenance_hash: canonicalHash(statusProvenance(statusSchedule)) },
     dataset_manifest: { ...haltManifest, data_hash: overlappingHash, last_close_time: overlappingBars.at(-1)!.close_time },
     bars: overlappingBars,
   })).toThrow("overlaps an instrument halted interval")
@@ -357,12 +372,14 @@ test("data adapter rejects a missing frozen entry bar but admits an unused pre-e
   const dataHash = replayDatasetHash(gapBars, [])
   const gapManifest: ReplayDatasetManifest = {
     ...manifest(dataHash), row_count: gapBars.length, last_close_time: gapBars[1].close_time, observed_through: gapBars[1].close_time,
-    instrument: { ...manifest().instrument, status_history: "current_snapshot_only" },
+    instrument: { ...manifest().instrument, status_history: "current_snapshot_only", status_provenance: statusProvenance([STATUS_SNAPSHOT], "current_snapshot_only") },
     universe: { selected_at: "2026-07-13T00:00:00Z", survivorship: "survivor_only" },
   }
+  const gapRequest = request(dataHash)
+  gapRequest.instrument_status_provenance_hash = canonicalHash(gapManifest.instrument.status_provenance)
   let missingEntryError: unknown
   try {
-    prepareReplayInputData({ request: request(dataHash), dataset_manifest: gapManifest, bars: gapBars })
+    prepareReplayInputData({ request: gapRequest, dataset_manifest: gapManifest, bars: gapBars })
   } catch (error) {
     missingEntryError = error
   }
@@ -376,8 +393,10 @@ test("data adapter rejects a missing frozen entry bar but admits an unused pre-e
     policy: "fail_before_unobserved_interval_effects",
   })
 
+  const unusedGapRequest = requestAt("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", dataHash)
+  unusedGapRequest.instrument_status_provenance_hash = canonicalHash(gapManifest.instrument.status_provenance)
   const prepared = prepareReplayInputData({
-    request: requestAt("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", dataHash),
+    request: unusedGapRequest,
     dataset_manifest: gapManifest,
     bars: gapBars,
   })

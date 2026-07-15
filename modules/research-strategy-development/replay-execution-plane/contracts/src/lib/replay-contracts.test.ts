@@ -63,10 +63,12 @@ import {
   createReplayDecisionInputSnapshot,
   createReplayDecisionMarketInputSnapshot,
   createReplayDecisionStateSnapshot,
+  createReplayInstrumentStatusProvenance,
   createReplaySingleDecisionSchedule,
   replayAuthorizedInitialDecisionEvidenceEntry,
   replayAuthorizedInitialDecisionScheduleEntry,
   type ReplayExecutionRequest,
+  type ReplayInstrumentStatusSnapshot,
 } from "./replay-contracts"
 
 const HASH = "a".repeat(64)
@@ -74,6 +76,14 @@ const MAINTENANCE_TIER = { tier_id: "tier-1", snapshot_ref: "fixture:margin-tier
 const RISK_SNAPSHOT = { schema_version: REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION, snapshot_id: "risk-1", venue_id: "binance-usdm", symbol: "BTCUSDT", effective_at: "2020-01-01T00:00:00Z", valid_until: null, observed_at: "2026-07-13T00:00:00Z", source_ref: "fixture:risk-1", source_hash: HASH, initial_margin_rate: 0.1, maintenance_tier: MAINTENANCE_TIER, liquidation_fee_bps: 50 }
 const SPEC_SNAPSHOT = { schema_version: REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION, snapshot_id: "spec-1", venue_id: "binance-usdm", symbol: "BTCUSDT", effective_at: "2020-01-01T00:00:00Z", valid_until: null, observed_at: "2026-07-13T00:00:00Z", source_ref: "fixture:spec-1", source_hash: HASH }
 const STATUS_SNAPSHOT = { schema_version: REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION, snapshot_id: "status-1", venue_id: "binance-usdm", symbol: "BTCUSDT", status: "trading" as const, effective_at: "2020-01-01T00:00:00Z", valid_until: null, observed_at: "2026-07-13T00:00:00Z", source_ref: "fixture:status-1", source_hash: HASH }
+const statusProvenance = (statusEpochs: ReplayInstrumentStatusSnapshot[] = [STATUS_SNAPSHOT], completeness: "complete_history" | "current_snapshot_only" = "complete_history") => createReplayInstrumentStatusProvenance({
+  producer_domain: "market-data-products", producer_id: "fixture-status-producer", producer_version: "v1", producer_build_hash: HASH, source_owner: "binance-usdm",
+  source_kind: completeness === "complete_history" ? "venue_status_event_archive" : "venue_current_snapshot",
+  normalization_policy_version: "fixture-status-normalization-v1", normalization_policy_hash: HASH, completeness,
+  coverage_start: "2020-01-01T00:00:00Z", coverage_end: "2030-01-01T00:00:00Z",
+  source_observed_through: "2026-07-13T00:00:00Z", produced_at: "2026-07-13T00:00:00Z",
+  source_ref: "fixture:status-source", source_hash: HASH, source_record_count: statusEpochs.length, status_epochs: statusEpochs,
+})
 
 export function fixtureRequest(): ReplayExecutionRequest {
   const order: ReplayExecutionRequest["order"] = {
@@ -107,6 +117,7 @@ export function fixtureRequest(): ReplayExecutionRequest {
     venue_risk_policy_schedule_hash: canonicalHash([RISK_SNAPSHOT]),
     instrument_spec_schedule_hash: HASH,
     instrument_status_schedule_hash: canonicalHash([STATUS_SNAPSHOT]),
+    instrument_status_provenance_hash: canonicalHash(statusProvenance()),
     harness_hash: HASH,
     assumptions_hash: HASH,
     symbol: "BTCUSDT",
@@ -134,6 +145,7 @@ test("Replay request requires complete Trial and evidence identity", () => {
   expect(() => assertReplayExecutionRequest(fixtureRequest())).not.toThrow()
   expect(() => assertReplayExecutionRequest({ ...fixtureRequest(), dataset_hash: "weak" })).toThrow()
   expect(() => assertReplayExecutionRequest({ ...fixtureRequest(), instrument_status_schedule_hash: "weak" })).toThrow()
+  expect(() => assertReplayExecutionRequest({ ...fixtureRequest(), instrument_status_provenance_hash: "weak" })).toThrow()
   expect(() => assertReplayExecutionRequest({ ...fixtureRequest(), decision_schedule_hash: HASH })).toThrow("decision schedule hash mismatch")
   const unauthorizedSchedule = fixtureRequest()
   unauthorizedSchedule.decision_schedule = {
@@ -716,6 +728,7 @@ test("Replay dataset manifest requires explicit UTC lifecycle and availability p
     instrument: {
       listed_at: "2020-01-01T00:00:00Z", trading_enabled_at: "2020-01-01T00:00:00Z", delisted_at: null, status_history: "complete" as const,
       status_epochs: [STATUS_SNAPSHOT],
+      status_provenance: statusProvenance(),
       spec_epochs: [SPEC_SNAPSHOT],
       accounting: { spec_version: REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, product_type: "linear_derivative" as const, base_asset: "BTC", quote_asset: "USDT", settlement_asset: "USDT", contract_multiplier: "1", price_increment: "0.01", quantity_increment: "0.001", settlement_increment: "0.00000001" },
     },
@@ -742,16 +755,28 @@ test("Replay dataset manifest requires explicit UTC lifecycle and availability p
   ]
   expect(() => assertReplayDatasetManifest({
     ...manifest,
-    instrument: { ...manifest.instrument, status_epochs: statusSchedule },
+    instrument: { ...manifest.instrument, status_epochs: statusSchedule, status_provenance: statusProvenance(statusSchedule) },
   })).not.toThrow()
   expect(() => assertReplayDatasetManifest({
     ...manifest,
-    instrument: { ...manifest.instrument, status_history: "current_snapshot_only", status_epochs: statusSchedule },
+    instrument: { ...manifest.instrument, status_history: "current_snapshot_only", status_epochs: statusSchedule, status_provenance: statusProvenance(statusSchedule, "current_snapshot_only") },
   })).toThrow("cannot certify historical halt epochs")
   const gappedStatusSchedule = structuredClone(statusSchedule)
   gappedStatusSchedule[0].valid_until = "2026-07-14T05:00:00Z"
   expect(() => assertReplayDatasetManifest({
     ...manifest,
-    instrument: { ...manifest.instrument, status_epochs: gappedStatusSchedule },
+    instrument: { ...manifest.instrument, status_epochs: gappedStatusSchedule, status_provenance: statusProvenance(gappedStatusSchedule) },
   })).toThrow("ordered, non-overlapping, and contiguous")
+  expect(() => assertReplayDatasetManifest({
+    ...manifest,
+    instrument: { ...manifest.instrument, status_provenance: { ...statusProvenance(), source_kind: "venue_current_snapshot" } },
+  })).toThrow("requires a venue status event archive")
+  expect(() => assertReplayDatasetManifest({
+    ...manifest,
+    instrument: { ...manifest.instrument, status_provenance: { ...statusProvenance(), coverage_end: "2026-07-14T07:00:00Z" } },
+  })).toThrow("must cover the Replay window")
+  expect(() => assertReplayDatasetManifest({
+    ...manifest,
+    instrument: { ...manifest.instrument, status_provenance: { ...statusProvenance(), status_schedule_hash: HASH } },
+  })).toThrow("schedule hash mismatch")
 })

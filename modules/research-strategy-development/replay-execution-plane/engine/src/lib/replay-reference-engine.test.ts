@@ -32,6 +32,7 @@ import {
   createReplayDecisionHarnessReceipt,
   createReplayDecisionHarnessSourceBundle,
   createReplayDecisionEvidenceTimeline,
+  createReplayInstrumentStatusProvenance,
   createReplaySingleDecisionSchedule,
   replayDatasetHash,
   type ReplayDatasetManifest,
@@ -54,6 +55,12 @@ const MAINTENANCE_TIER = { tier_id: "tier-1", snapshot_ref: "fixture:margin-tier
 const RISK_SNAPSHOT = { schema_version: REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION, snapshot_id: "risk-1", venue_id: "binance-usdm", symbol: "BTCUSDT", effective_at: "2020-01-01T00:00:00Z", valid_until: null, observed_at: "2026-07-13T00:00:00Z", source_ref: "fixture:risk-1", source_hash: HASH, initial_margin_rate: 0.1, maintenance_tier: MAINTENANCE_TIER, liquidation_fee_bps: 50 }
 const SPEC_SNAPSHOT = { schema_version: REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION, snapshot_id: "spec-1", venue_id: "binance-usdm", symbol: "BTCUSDT", effective_at: "2020-01-01T00:00:00Z", valid_until: null, observed_at: "2026-07-13T00:00:00Z", source_ref: "fixture:spec-1", source_hash: HASH }
 const STATUS_SNAPSHOT = { schema_version: REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION, snapshot_id: "status-1", venue_id: "binance-usdm", symbol: "BTCUSDT", status: "trading" as const, effective_at: "2020-01-01T00:00:00Z", valid_until: null, observed_at: "2026-07-13T00:00:00Z", source_ref: "fixture:status-1", source_hash: HASH }
+const statusProvenance = (statusEpochs: ReplayInstrumentStatusSnapshot[] = [STATUS_SNAPSHOT]) => createReplayInstrumentStatusProvenance({
+  producer_domain: "market-data-products", producer_id: "fixture-status-producer", producer_version: "v1", producer_build_hash: HASH, source_owner: "binance-usdm",
+  source_kind: "venue_status_event_archive", normalization_policy_version: "fixture-status-normalization-v1", normalization_policy_hash: HASH, completeness: "complete_history",
+  coverage_start: "2020-01-01T00:00:00Z", coverage_end: "2030-01-01T00:00:00Z", source_observed_through: "2026-07-13T00:00:00Z", produced_at: "2026-07-13T00:00:00Z",
+  source_ref: "fixture:status-source", source_hash: HASH, source_record_count: statusEpochs.length, status_epochs: statusEpochs,
+})
 const ACCOUNTING = { spec_version: REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, product_type: "linear_derivative" as const, base_asset: "BTC", quote_asset: "USDT", settlement_asset: "USDT", contract_multiplier: "1", price_increment: "0.01", quantity_increment: "0.001", settlement_increment: "0.00000001" }
 
 function request(side: "long" | "short" = "long"): ReplayExecutionRequest {
@@ -89,6 +96,7 @@ function request(side: "long" | "short" = "long"): ReplayExecutionRequest {
     venue_risk_policy_schedule_hash: canonicalHash([RISK_SNAPSHOT]),
     instrument_spec_schedule_hash: canonicalHash({ epochs: [SPEC_SNAPSHOT], accounting: ACCOUNTING }),
     instrument_status_schedule_hash: canonicalHash([STATUS_SNAPSHOT]),
+    instrument_status_provenance_hash: canonicalHash(statusProvenance()),
     harness_hash: HASH,
     assumptions_hash: HASH,
     symbol: "BTCUSDT",
@@ -166,6 +174,7 @@ function inputFor(
     harness_hash: decisionHarnessBundle?.bundle_hash ?? requestValue.harness_hash,
     venue_risk_policy_schedule_hash: canonicalHash([venueRiskPolicy]),
     instrument_status_schedule_hash: canonicalHash(statusEpochs),
+    instrument_status_provenance_hash: canonicalHash(statusProvenance(statusEpochs)),
   }
   const datasetManifest: ReplayDatasetManifest = {
     schema_version: REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
@@ -184,6 +193,7 @@ function inputFor(
     instrument: {
       listed_at: "2020-01-01T00:00:00Z", trading_enabled_at: "2020-01-01T00:00:00Z", delisted_at: null, status_history: "complete",
       status_epochs: statusEpochs,
+      status_provenance: statusProvenance(statusEpochs),
       spec_epochs: [SPEC_SNAPSHOT],
       accounting: ACCOUNTING,
     },
@@ -584,6 +594,7 @@ test("a frozen halt preserves protection and resumes at the first observed open"
   })
   expect(clean.limitations.map((item) => item.code)).not.toContain("dataset-grid-gap")
   expect(clean.fingerprint.instrument_status_schedule_hash).toBe(canonicalHash(statusEpochs))
+  expect(clean.fingerprint.instrument_status_provenance_hash).toBe(canonicalHash(replayInput.dataset_manifest.instrument.status_provenance))
 
   let checkpoint: ReplayEngineCheckpoint | undefined
   expect(() => executeReplayKernel({

@@ -32,12 +32,14 @@ import {
   createReplayDecisionInputSnapshot,
   createReplayDecisionMarketInputSnapshot,
   createReplayDecisionHarnessSourceBundle,
+  createReplayInstrumentStatusProvenance,
   replayDatasetHash,
   replayOhlcvActiveProtectionHash,
   replayOhlcvResolutionEvidenceHash,
   replayExecutionSpecHash,
   type ReplayDatasetManifest,
   type ReplayExecutionRequest,
+  type ReplayInstrumentStatusSnapshot,
   type ReplayMarketBar,
   type ReplaySupplementalFact,
 } from "../../../contracts/src/lib/replay-contracts"
@@ -57,6 +59,12 @@ const MAINTENANCE_TIER = { tier_id: "tier-1", snapshot_ref: "fixture:margin-tier
 const RISK_SNAPSHOT = { schema_version: REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION, snapshot_id: "risk-1", venue_id: "binance-usdm", symbol: "BTCUSDT", effective_at: "2020-01-01T00:00:00Z", valid_until: null, observed_at: "2026-07-13T00:00:00Z", source_ref: "fixture:risk-1", source_hash: HASH, initial_margin_rate: 0.1, maintenance_tier: MAINTENANCE_TIER, liquidation_fee_bps: 50 }
 const SPEC_SNAPSHOT = { schema_version: REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION, snapshot_id: "spec-1", venue_id: "binance-usdm", symbol: "BTCUSDT", effective_at: "2020-01-01T00:00:00Z", valid_until: null, observed_at: "2026-07-13T00:00:00Z", source_ref: "fixture:spec-1", source_hash: HASH }
 const STATUS_SNAPSHOT = { schema_version: REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION, snapshot_id: "status-1", venue_id: "binance-usdm", symbol: "BTCUSDT", status: "trading" as const, effective_at: "2020-01-01T00:00:00Z", valid_until: null, observed_at: "2026-07-13T00:00:00Z", source_ref: "fixture:status-1", source_hash: HASH }
+const statusProvenance = (statusEpochs: ReplayInstrumentStatusSnapshot[] = [STATUS_SNAPSHOT]) => createReplayInstrumentStatusProvenance({
+  producer_domain: "market-data-products", producer_id: "fixture-status-producer", producer_version: "v1", producer_build_hash: HASH, source_owner: "binance-usdm",
+  source_kind: "venue_status_event_archive", normalization_policy_version: "fixture-status-normalization-v1", normalization_policy_hash: HASH, completeness: "complete_history",
+  coverage_start: "2020-01-01T00:00:00Z", coverage_end: "2030-01-01T00:00:00Z", source_observed_through: "2026-07-13T00:00:00Z", produced_at: "2026-07-13T00:00:00Z",
+  source_ref: "fixture:status-source", source_hash: HASH, source_record_count: statusEpochs.length, status_epochs: statusEpochs,
+})
 const ACCOUNTING = { spec_version: REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, product_type: "linear_derivative" as const, base_asset: "BTC", quote_asset: "USDT", settlement_asset: "USDT", contract_multiplier: "1", price_increment: "0.01", quantity_increment: "0.001", settlement_increment: "0.00000001" }
 
 function request(): ReplayExecutionRequest {
@@ -77,6 +85,7 @@ function request(): ReplayExecutionRequest {
     trial_reservation_ref: "reservation://trial-1", trial_reservation_hash: HASH,
     venue_risk_policy_schedule_hash: canonicalHash([RISK_SNAPSHOT]), instrument_spec_schedule_hash: canonicalHash({ epochs: [SPEC_SNAPSHOT], accounting: ACCOUNTING }),
     instrument_status_schedule_hash: canonicalHash([STATUS_SNAPSHOT]),
+    instrument_status_provenance_hash: canonicalHash(statusProvenance()),
     harness_hash: HASH, assumptions_hash: HASH, symbol: "BTCUSDT", timeframe: "4h", initial_cash: 1000,
     order,
     cost_policy: { policy_id: "fixture", version: "1", fee_bps: 0, slippage_bps: 0, liquidation_fee_bps: 50 },
@@ -193,6 +202,7 @@ function authorize(requestValue: ReplayExecutionRequest): TrialReservationSnapsh
       venue_risk_policy_schedule_hash: requestValue.venue_risk_policy_schedule_hash,
       instrument_spec_schedule_hash: requestValue.instrument_spec_schedule_hash,
       instrument_status_schedule_hash: requestValue.instrument_status_schedule_hash,
+      instrument_status_provenance_hash: requestValue.instrument_status_provenance_hash,
       harness_hash: requestValue.harness_hash, assumptions_hash: requestValue.assumptions_hash,
       cost_policy_hash: canonicalHash(requestValue.cost_policy), margin_policy_hash: canonicalHash(requestValue.margin_policy),
       simulator_policy_version: requestValue.simulator_policy.version, execution_mode: "step",
@@ -274,6 +284,7 @@ function datasetManifest(): ReplayDatasetManifest {
     instrument: {
       listed_at: "2020-01-01T00:00:00Z", trading_enabled_at: "2020-01-01T00:00:00Z", delisted_at: null, status_history: "complete",
       status_epochs: [STATUS_SNAPSHOT],
+      status_provenance: statusProvenance(),
       spec_epochs: [SPEC_SNAPSHOT],
       accounting: ACCOUNTING,
     },
@@ -328,7 +339,7 @@ test("runner returns typed data-gap failures without publishing partial Result",
     bars: openPositionGapBars,
   })
   expect(openPositionFailure).toMatchObject({
-    schema_version: "trade.rd-replay-run-outcome.v32",
+    schema_version: "trade.rd-replay-run-outcome.v33",
     status: "failed",
     failure: {
       code: "dataset-grid-gap-in-execution-window",
@@ -1608,7 +1619,7 @@ test("runner enforces Reservation expiry only at Attempt claim admission", () =>
   expired.observed_at = "2026-07-14T00:01:30Z"
   const rejected = runReplayTrial({ ...expired, dataset_manifest: datasetManifest(), bars })
   expect(rejected).toMatchObject({
-    schema_version: "trade.rd-replay-run-outcome.v32",
+    schema_version: "trade.rd-replay-run-outcome.v33",
     status: "failed",
     failure: { code: "trial-reservation-expired", failure_class: "unsupported_contract", retryable: false, partial_result_published: false },
   })
@@ -2014,11 +2025,12 @@ test("maintenance breach during a frozen halt fails without inventing a liquidat
     idempotency_key: "halt-margin-idem",
     dataset_hash: dataHash,
     instrument_status_schedule_hash: canonicalHash(statusEpochs),
+    instrument_status_provenance_hash: canonicalHash(statusProvenance(statusEpochs)),
     margin_policy: { ...boundRequest().margin_policy, isolated_collateral: 20 },
   }
   const haltManifest = {
     ...datasetManifestFor(haltBars, dataHash),
-    instrument: { ...datasetManifest().instrument, status_epochs: statusEpochs },
+    instrument: { ...datasetManifest().instrument, status_epochs: statusEpochs, status_provenance: statusProvenance(statusEpochs) },
   }
   const outcome = runReplayTrial({
     ...authorized(haltRequest), dataset_manifest: haltManifest, bars: haltBars, funding_events: fundingEvents,
