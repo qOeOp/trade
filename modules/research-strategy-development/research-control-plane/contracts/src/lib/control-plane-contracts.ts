@@ -4,7 +4,7 @@ import { REPLAY_LOCAL_ARTIFACT_STORAGE_POLICY_VERSION } from "../../../../../con
 export const CONTROL_PLANE_IDENTITY_SCHEMA_VERSION = "trade.rd-identity-binding.v1" as const
 export const DRAFT_AUTHORIZATION_SCHEMA_VERSION = "trade.rd-draft-authorization.v1" as const
 export const STRATEGY_DRAFT_BINDING_SCHEMA_VERSION = "trade.rd-strategy-draft-binding.v1" as const
-export const TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION = "trade.rd-trial-reservation-snapshot.v1" as const
+export const TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION = "trade.rd-trial-reservation-snapshot.v2" as const
 export const REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION = "trade.rd-replay-attempt-lease.v1" as const
 export const REPLAY_CHECKPOINT_RECEIPT_SCHEMA_VERSION = "trade.rd-replay-checkpoint-receipt.v2" as const
 export const REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION = REPLAY_LOCAL_ARTIFACT_STORAGE_POLICY_VERSION
@@ -42,6 +42,7 @@ export interface TrialReservationSnapshot {
   reservation_id: string
   reservation_ref: string
   issued_at: string
+  expires_at: string
   status: "reserved"
   identity: ResearchIdentityBinding
   trial_ordinal: number
@@ -158,6 +159,10 @@ export function assertTrialReservationSnapshot(value: TrialReservationSnapshot):
   requireText(value.reservation_id, "reservation.reservation_id")
   requireText(value.reservation_ref, "reservation.reservation_ref")
   requireUtcTimestamp(value.issued_at, "reservation.issued_at")
+  requireUtcTimestamp(value.expires_at, "reservation.expires_at")
+  if (Date.parse(value.expires_at) <= Date.parse(value.issued_at)) {
+    fail("reservation timestamps must satisfy issued_at < expires_at")
+  }
   if (value.status !== "reserved") fail("reservation status must be reserved")
   assertIdentityFields(value.identity)
   if (!Number.isSafeInteger(value.trial_ordinal) || value.trial_ordinal < 1) fail("reservation.trial_ordinal must be positive")

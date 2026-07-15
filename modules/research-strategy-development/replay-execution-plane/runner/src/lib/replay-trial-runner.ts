@@ -76,7 +76,7 @@ export interface ReplayTrialRunInput {
 }
 
 export interface ReplayTrialRunOutcome {
-  schema_version: "trade.rd-replay-run-outcome.v12"
+  schema_version: "trade.rd-replay-run-outcome.v13"
   run_id: string
   attempt_id: string
   lease_generation: number
@@ -90,7 +90,7 @@ export interface ReplayTrialRunOutcome {
   resumable_checkpoint?: ReplayEngineCheckpoint
   diagnostic_checkpoint_commit?: ReplayDiagnosticCheckpointCommitRef
   failure?: {
-    code: "trial-reservation-rejected" | "attempt-lease-rejected" | "resume-authorization-rejected" | "artifact-store-rejected" | "cancelled-before-start" | "execution-cancelled-at-checkpoint" | "instrument-delisted-with-open-position" | "initial-margin-deficit-without-resize" | "maintenance-margin-breach-without-liquidation" | "liquidation-deficit-unsupported" | "replay-execution-failed"
+    code: "trial-reservation-rejected" | "trial-reservation-expired" | "attempt-lease-rejected" | "resume-authorization-rejected" | "artifact-store-rejected" | "cancelled-before-start" | "execution-cancelled-at-checkpoint" | "instrument-delisted-with-open-position" | "initial-margin-deficit-without-resize" | "maintenance-margin-breach-without-liquidation" | "liquidation-deficit-unsupported" | "replay-execution-failed"
     failure_class: "input_invalid" | "unsupported_contract" | "data_integrity" | "deterministic_engine" | "resource" | "external_io"
     message: string
     retryable: boolean
@@ -146,7 +146,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     validateTrialReservation(input.request, input.trial_reservation)
   } catch (error) {
     return {
-      schema_version: "trade.rd-replay-run-outcome.v12",
+      schema_version: "trade.rd-replay-run-outcome.v13",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -167,25 +167,26 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     attemptLeaseHash = hashReplayAttemptLeaseSnapshot(input.attempt_lease)
   } catch (error) {
     const expired = error instanceof ReplayAttemptLeaseExpiredError
+    const reservationExpired = error instanceof ReplayTrialReservationExpiredError
     return {
-      schema_version: "trade.rd-replay-run-outcome.v12",
+      schema_version: "trade.rd-replay-run-outcome.v13",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
       status: "failed",
       idempotent_replay: false,
       failure: {
-        code: "attempt-lease-rejected",
+        code: reservationExpired ? "trial-reservation-expired" : "attempt-lease-rejected",
         failure_class: expired ? "resource" : "unsupported_contract",
         message: error instanceof Error ? error.message : String(error),
-        retryable: expired,
+        retryable: expired && !reservationExpired,
         partial_result_published: false,
       },
     }
   }
   if (input.cancel_requested) {
     return {
-      schema_version: "trade.rd-replay-run-outcome.v12",
+      schema_version: "trade.rd-replay-run-outcome.v13",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -228,7 +229,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     if (committed) {
       cleanupDiagnosticCheckpoint(activeArtifactNamespace!)
       return {
-        schema_version: "trade.rd-replay-run-outcome.v12",
+        schema_version: "trade.rd-replay-run-outcome.v13",
         run_id: input.request.run_id,
         attempt_id: input.attempt_lease.attempt_id,
         lease_generation: input.attempt_lease.lease_generation,
@@ -286,7 +287,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
       : undefined
     if (activeArtifactNamespace) cleanupDiagnosticCheckpoint(activeArtifactNamespace)
     return {
-      schema_version: "trade.rd-replay-run-outcome.v12",
+      schema_version: "trade.rd-replay-run-outcome.v13",
       run_id: input.request.run_id,
       attempt_id: activeAttemptLease.attempt_id,
       lease_generation: activeAttemptLease.lease_generation,
@@ -307,7 +308,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     const marginTerminal = error instanceof ReplayMarginTerminalError
     const liquidationDeficit = error instanceof ReplayLiquidationDeficitError
     return {
-      schema_version: "trade.rd-replay-run-outcome.v12",
+      schema_version: "trade.rd-replay-run-outcome.v13",
       run_id: input.request.run_id,
       attempt_id: activeAttemptLease.attempt_id,
       lease_generation: activeAttemptLease.lease_generation,
@@ -431,6 +432,10 @@ function validateAttemptLease(
       || lease.request_hash !== canonicalHash(request)) {
     throw new Error("Replay Attempt lease authority does not match request and reservation")
   }
+  const claimed = Date.parse(lease.claimed_at)
+  if (claimed < Date.parse(reservation.issued_at) || claimed >= Date.parse(reservation.expires_at)) {
+    throw new ReplayTrialReservationExpiredError("Replay Attempt claim is outside the Trial Reservation validity window")
+  }
   const observed = Date.parse(observedAt)
   if (observed < Date.parse(lease.heartbeat_at)) {
     throw new Error("Replay Attempt observed_at precedes its fencing heartbeat")
@@ -441,6 +446,7 @@ function validateAttemptLease(
 }
 
 class ReplayAttemptLeaseExpiredError extends Error {}
+class ReplayTrialReservationExpiredError extends Error {}
 
 function validateTrialReservation(request: ReplayExecutionRequest, reservation: TrialReservationSnapshot): void {
   assertTrialReservationSnapshot(reservation)

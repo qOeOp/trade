@@ -49,7 +49,7 @@ function authorization(): DraftStrategyAuthorization {
 function reservation(): TrialReservationSnapshot {
   return {
     schema_version: TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION,
-    reservation_id: "reservation-1", reservation_ref: "reservation://trial-1", issued_at: "2026-07-14T00:00:00Z", status: "reserved",
+    reservation_id: "reservation-1", reservation_ref: "reservation://trial-1", issued_at: "2026-07-14T00:00:00Z", expires_at: "2026-07-15T00:00:00Z", status: "reserved",
     identity: authorization().identity, trial_ordinal: 1, run_id: "run-1", counts_against_budget: true,
     trial_accounting_policy_version: "count-all-v1", candidate_assignment_hash: HASH,
     bindings: {
@@ -77,6 +77,7 @@ test("Trial Reservation snapshot is immutable-hashable and capability order is c
   expect(hashTrialReservationSnapshot(value)).toHaveLength(64)
   expect(hashTrialReservationSnapshot(structuredClone(value))).toBe(hashTrialReservationSnapshot(value))
   expect(() => assertTrialReservationSnapshot({ ...value, required_capabilities: ["step", "closed-candle"] })).toThrow("unique and sorted")
+  expect(() => assertTrialReservationSnapshot({ ...value, expires_at: value.issued_at })).toThrow("issued_at < expires_at")
 })
 
 test("Replay Attempt Lease snapshot carries a monotonic fencing generation", () => {

@@ -58,6 +58,7 @@ function authorize(requestValue: ReplayExecutionRequest): TrialReservationSnapsh
     reservation_id: `reservation:${requestValue.run_id}`,
     reservation_ref: requestValue.trial_reservation_ref,
     issued_at: "2026-07-14T00:00:00Z",
+    expires_at: "2026-07-15T00:00:00Z",
     status: "reserved",
     identity: {
       schema_version: CONTROL_PLANE_IDENTITY_SCHEMA_VERSION,
@@ -203,6 +204,36 @@ test("runner fences stale Attempt leases and verifies every committed artifact f
   expect(retry.status).toBe("completed")
   expect(retry.artifact_manifest?.producer_attempt_id).toBe("attempt-2")
   expect(retry.artifact_commit?.ref).not.toBe(first.artifact_commit?.ref)
+})
+
+test("runner enforces Reservation expiry only at Attempt claim admission", () => {
+  const expired = authorized()
+  expired.trial_reservation.expires_at = "2026-07-14T00:01:00Z"
+  expired.request.trial_reservation_hash = hashTrialReservationSnapshot(expired.trial_reservation)
+  expired.attempt_lease = attemptLease(expired.request, expired.trial_reservation, {
+    claimed_at: expired.trial_reservation.expires_at,
+    heartbeat_at: "2026-07-14T00:01:00Z",
+    lease_expires_at: "2026-07-14T00:05:00Z",
+  })
+  expired.observed_at = "2026-07-14T00:01:30Z"
+  const rejected = runReplayTrial({ ...expired, dataset_manifest: datasetManifest(), bars })
+  expect(rejected).toMatchObject({
+    schema_version: "trade.rd-replay-run-outcome.v13",
+    status: "failed",
+    failure: { code: "trial-reservation-expired", failure_class: "unsupported_contract", retryable: false, partial_result_published: false },
+  })
+
+  const grandfathered = authorized()
+  grandfathered.trial_reservation.expires_at = "2026-07-14T00:01:00Z"
+  grandfathered.request.trial_reservation_hash = hashTrialReservationSnapshot(grandfathered.trial_reservation)
+  grandfathered.attempt_lease = attemptLease(grandfathered.request, grandfathered.trial_reservation, {
+    claimed_at: "2026-07-14T00:00:59Z",
+    heartbeat_at: "2026-07-14T00:01:30Z",
+    lease_expires_at: "2026-07-14T00:05:00Z",
+  })
+  grandfathered.observed_at = "2026-07-14T00:02:00Z"
+  const completed = runReplayTrial({ ...grandfathered, dataset_manifest: datasetManifest(), bars })
+  expect(completed.status).toBe("completed")
 })
 
 test("runner represents early cancellation without publishing partial evidence", () => {

@@ -79,6 +79,10 @@ export function claimReplayAttempt(db: Database, input: ClaimReplayAttemptInput)
   assertTrialReservationSnapshot(input.trial_reservation)
   const reservationHash = hashTrialReservationSnapshot(input.trial_reservation)
   const reservation = input.trial_reservation
+  const claimedAt = Date.parse(input.claimed_at)
+  if (claimedAt < Date.parse(reservation.issued_at) || claimedAt >= Date.parse(reservation.expires_at)) {
+    throw new Error("Replay Attempt claim must satisfy reservation issued_at <= claimed_at < expires_at")
+  }
 
   const claim = db.transaction(() => {
     const replay = readAttemptByIdempotencyKey(db, input.idempotency_key)

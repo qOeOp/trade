@@ -250,6 +250,7 @@ test("Control Plane atomically issues an immutable Replay Trial Reservation snap
     })
     const snapshot = issueTrialReservationSnapshot(db, {
       trial_id: "trial-reserved", reservation_id: "reservation-1", reservation_ref: "reservation://trial-reserved", issued_at: NOW,
+      expires_at: "2026-07-14T04:08:00Z",
       bindings: {
         replay_idempotency_key: "replay-key", execution_spec_hash: "a".repeat(64), dataset_manifest_ref: "dataset://fixture", dataset_hash: "b".repeat(64),
         venue_risk_policy_snapshot_hash: "c".repeat(64), instrument_spec_snapshot_hash: "d".repeat(64), harness_hash: "e".repeat(64),
@@ -266,6 +267,7 @@ test("Control Plane atomically issues an immutable Replay Trial Reservation snap
     finishTrial(db, { trial_id: "trial-reserved", status: "completed", completed_at: NOW })
     assert.throws(() => issueTrialReservationSnapshot(db, {
       trial_id: "trial-reserved", reservation_id: "reservation-2", reservation_ref: "reservation://trial-reserved", issued_at: NOW,
+      expires_at: "2026-07-14T04:08:00Z",
       bindings: snapshot.bindings, required_capabilities: snapshot.required_capabilities,
     }), /no longer reserved/)
   } finally {
@@ -285,6 +287,7 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
     })
     const reservation = issueTrialReservationSnapshot(db, {
       trial_id: "trial-attempt", reservation_id: "reservation-attempt", reservation_ref: "reservation://trial-attempt", issued_at: NOW,
+      expires_at: "2026-07-14T04:08:00Z",
       bindings: {
         replay_idempotency_key: "replay-attempt-key", execution_spec_hash: "a".repeat(64), dataset_manifest_ref: "dataset://fixture", dataset_hash: "b".repeat(64),
         venue_risk_policy_snapshot_hash: "c".repeat(64), instrument_spec_snapshot_hash: "d".repeat(64), harness_hash: "e".repeat(64),
@@ -293,6 +296,11 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
       },
       required_capabilities: ["closed-candle", "step"],
     })
+    assert.throws(() => claimReplayAttempt(db, {
+      attempt_id: "attempt-expired", worker_id: "worker-expired", idempotency_key: "attempt-key-expired",
+      request_hash: "9".repeat(64), claimed_at: reservation.expires_at, lease_expires_at: "2026-07-14T04:13:00Z",
+      trial_reservation: reservation,
+    }), /issued_at <= claimed_at < expires_at/)
     const first = claimReplayAttempt(db, {
       attempt_id: "attempt-1", worker_id: "worker-1", idempotency_key: "attempt-key-1",
       request_hash: "9".repeat(64), claimed_at: "2026-07-14T04:00:00Z", lease_expires_at: "2026-07-14T04:05:00Z",
@@ -483,7 +491,7 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
       attempt_id: "attempt-4", worker_id: "worker-4", idempotency_key: "attempt-key-4",
       request_hash: "9".repeat(64), claimed_at: "2026-07-14T04:11:00Z", lease_expires_at: "2026-07-14T04:16:00Z",
       trial_reservation: reservation,
-    }), /already has completed attempt/)
+    }), /issued_at <= claimed_at < expires_at/)
     assert.throws(() => db.query("UPDATE rd_replay_attempt SET artifact_ref='changed' WHERE attempt_id='attempt-3'").run(), /terminal Replay Attempt is immutable/)
   } finally {
     db.close()

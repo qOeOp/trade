@@ -13,6 +13,7 @@ export interface IssueTrialReservationSnapshotInput {
   reservation_id: string
   reservation_ref: string
   issued_at: string
+  expires_at: string
   bindings: ReplayReservationBindings
   required_capabilities: string[]
 }
@@ -60,6 +61,7 @@ export function issueTrialReservationSnapshot(
     reservation_id: input.reservation_id,
     reservation_ref: input.reservation_ref,
     issued_at: input.issued_at,
+    expires_at: input.expires_at,
     status: "reserved",
     identity: {
       schema_version: CONTROL_PLANE_IDENTITY_SCHEMA_VERSION,
