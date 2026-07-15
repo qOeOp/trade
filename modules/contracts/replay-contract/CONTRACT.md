@@ -10,6 +10,7 @@ contract module
 - Stable replay result JSON schema.
 - Stable replay fingerprint type shell.
 - Stable replay fingerprint JSON schema.
+- Cross-Plane Replay Artifact storage-policy identifiers.
 
 ## Inputs
 
