@@ -72,6 +72,30 @@ CREATE TABLE IF NOT EXISTS instrument_status_event (
   FOREIGN KEY (archive_id) REFERENCES instrument_status_archive(archive_id)
 );
 
+CREATE TABLE IF NOT EXISTS instrument_status_acquisition_receipt (
+  acquisition_id       TEXT PRIMARY KEY,
+  schema_version       TEXT NOT NULL,
+  venue_id             TEXT NOT NULL,
+  symbol               TEXT NOT NULL,
+  source_capability    TEXT NOT NULL,
+  transport            TEXT NOT NULL,
+  terminal_status      TEXT NOT NULL,
+  completed_at         TEXT NOT NULL,
+  receipt_json         TEXT NOT NULL CHECK(json_valid(receipt_json)),
+  receipt_hash         TEXT NOT NULL UNIQUE
+);
+
+CREATE TABLE IF NOT EXISTS instrument_status_source_payload (
+  payload_ref       TEXT PRIMARY KEY,
+  acquisition_id    TEXT NOT NULL,
+  attempt_ordinal   INTEGER NOT NULL,
+  content_hash      TEXT NOT NULL,
+  byte_count        INTEGER NOT NULL,
+  payload           BLOB NOT NULL,
+  UNIQUE (acquisition_id, attempt_ordinal),
+  FOREIGN KEY (acquisition_id) REFERENCES instrument_status_acquisition_receipt(acquisition_id)
+);
+
 CREATE TABLE IF NOT EXISTS instrument_status_source_batch (
   archive_id               TEXT NOT NULL,
   batch_id                 TEXT NOT NULL,
@@ -86,12 +110,15 @@ CREATE TABLE IF NOT EXISTS instrument_status_source_batch (
   source_ref               TEXT NOT NULL,
   raw_content_hash         TEXT NOT NULL,
   raw_record_count         INTEGER NOT NULL,
+  acquisition_receipt_id   TEXT NOT NULL,
+  acquisition_receipt_hash TEXT NOT NULL,
   previous_batch_hash      TEXT,
   batch_hash               TEXT NOT NULL,
   PRIMARY KEY (archive_id, batch_sequence),
   UNIQUE (archive_id, batch_id),
   UNIQUE (archive_id, batch_hash),
-  FOREIGN KEY (archive_id) REFERENCES instrument_status_archive(archive_id)
+  FOREIGN KEY (archive_id) REFERENCES instrument_status_archive(archive_id),
+  FOREIGN KEY (acquisition_receipt_id) REFERENCES instrument_status_acquisition_receipt(acquisition_id)
 );
 
 CREATE TABLE IF NOT EXISTS instrument_status_archive_audit (

@@ -1,8 +1,16 @@
 import assert from "node:assert/strict"
+import { Database } from "bun:sqlite"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
+import {
+  commitInstrumentStatusAcquisitionReceipt,
+  createInstrumentStatusAcquisitionAttempt,
+  createInstrumentStatusAcquisitionReceipt,
+  createInstrumentStatusSourceBatchFromAcquisition,
+  instrumentStatusPayloadHash,
+} from "../lib/market-data-store"
 import { parseArgs, run } from "./main"
 
 test("market data store CLI upserts and reads manifest", () => {
@@ -93,6 +101,57 @@ test("market data store CLI upserts and reads manifest", () => {
     assert.equal(feature.manifest.feature_set_id, "crypto-market-features.v1")
     assert.deepEqual(features.manifests.map((item) => item.feature_manifest_id), ["features-cli"])
 
+    const rawPayload = '{"records":[{"status":"TRADING"}]}'
+    const payloadRef = "market-data-store:instrument-status-source-payload:status-cli-acquisition:1"
+    const acquisitionAttempt = createInstrumentStatusAcquisitionAttempt({
+      attempt_ordinal: 1,
+      started_at: "2026-07-15T00:01:00Z",
+      completed_at: "2026-07-15T00:01:00Z",
+      outcome: "succeeded",
+      failure_class: null,
+      retryable: false,
+      http_status: 200,
+      response_payload_ref: payloadRef,
+      response_hash: instrumentStatusPayloadHash(rawPayload),
+      response_bytes: new TextEncoder().encode(rawPayload).byteLength,
+      response_record_count: 1,
+    })
+    const acquisition = createInstrumentStatusAcquisitionReceipt({
+      acquisition_id: "status-cli-acquisition",
+      venue_id: "binance-usdm",
+      symbol: "BTCUSDT",
+      source_capability: "historical_event_archive",
+      transport: "offline_import",
+      method: "offline_import",
+      endpoint: "offline-import:status-cli",
+      request_params_hash: "c".repeat(64),
+      requested_coverage_start: "2026-07-01T00:00:00Z",
+      requested_coverage_end: "2026-07-15T00:00:00Z",
+      source_observed_through: "2026-07-15T00:00:00Z",
+      requested_at: "2026-07-15T00:01:00Z",
+      completed_at: "2026-07-15T00:01:00Z",
+      terminal_status: "succeeded",
+      attempts: [acquisitionAttempt],
+    })
+    const sourceBatch = createInstrumentStatusSourceBatchFromAcquisition({
+      receipt: acquisition,
+      batch_id: "status-cli-batch",
+      batch_sequence: 1,
+      source_ref: "venue-batch:status-cli",
+      previous_batch_hash: null,
+    })
+    const db = new Database(dbPath)
+    try {
+      assert.equal(commitInstrumentStatusAcquisitionReceipt(db, acquisition, { [payloadRef]: rawPayload }), "created")
+    } finally {
+      db.close()
+    }
+    const storedAcquisition = run(parseArgs([
+      "--db", dbPath,
+      "--action", "read_instrument_status_acquisition_receipt",
+      "--json", JSON.stringify({ acquisition_id: acquisition.acquisition_id }),
+    ])) as { receipt: { receipt_hash: string } }
+    assert.equal(storedAcquisition.receipt.receipt_hash, acquisition.receipt_hash)
     const archiveInput = {
       archive_id: "status-cli",
       venue_id: "binance-usdm",
@@ -105,20 +164,7 @@ test("market data store CLI upserts and reads manifest", () => {
       source_observed_through: "2026-07-15T00:00:00Z",
       source_ref: "venue-archive:status-cli",
       imported_at: "2026-07-15T00:01:00Z",
-      source_batches: [{
-        batch_id: "status-cli-batch",
-        batch_sequence: 1,
-        venue_id: "binance-usdm",
-        symbol: "BTCUSDT",
-        coverage_start: "2026-07-01T00:00:00Z",
-        coverage_end: "2026-07-15T00:00:00Z",
-        source_observed_through: "2026-07-15T00:00:00Z",
-        retrieved_at: "2026-07-15T00:01:00Z",
-        source_ref: "venue-batch:status-cli",
-        raw_content_hash: "b".repeat(64),
-        raw_record_count: 1,
-        previous_batch_hash: null,
-      }],
+      source_batches: [sourceBatch],
       events: [{ event_id: "status-1", event_sequence: 1, status: "trading", effective_at: "2026-07-01T00:00:00Z", observed_at: "2026-07-01T00:00:01Z", source_ref: "venue-event:status-1", source_hash: "a".repeat(64), source_batch_id: "status-cli-batch" }],
     }
     const committed = run(parseArgs(["--db", dbPath, "--action", "commit_instrument_status_archive", "--json", JSON.stringify(archiveInput)])) as { commit_status: string; archive_hash: string }

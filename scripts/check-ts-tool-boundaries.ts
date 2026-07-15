@@ -93,6 +93,7 @@ function isAllowedCrossToolImport(file: string, sourceTool: string, targetTool: 
     "modules/live-execution-control/live-small-runner -> modules/live-execution-control/execution-router",
     "modules/live-execution-control/live-small-runner -> modules/live-execution-control/execution-recorder",
     "modules/market-data-products/ohlcv-fetch -> modules/market-data-products/market-data-store",
+    "modules/market-data-products/binance-read/instrument-status-collector -> modules/market-data-products/market-data-store",
     "modules/market-data-products/instrument-status-provider -> modules/market-data-products/market-data-store",
     "modules/market-data-products/instrument-status-provider -> modules/research-strategy-development/replay-execution-plane/contracts",
     "modules/exchange-gateway/binance-write/order-place -> modules/exchange-gateway/exchange-runtime-store",

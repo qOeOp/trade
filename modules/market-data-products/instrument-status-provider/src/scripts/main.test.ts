@@ -4,7 +4,16 @@ import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
-import { commitInstrumentStatusArchive, createInstrumentStatusArchive, createInstrumentStatusSourceBatchManifest, ensureMarketDataSchema } from "../../../market-data-store/src/lib/market-data-store"
+import {
+  commitInstrumentStatusAcquisitionReceipt,
+  commitInstrumentStatusArchive,
+  createInstrumentStatusAcquisitionAttempt,
+  createInstrumentStatusAcquisitionReceipt,
+  createInstrumentStatusArchive,
+  createInstrumentStatusSourceBatchFromAcquisition,
+  ensureMarketDataSchema,
+  instrumentStatusPayloadHash,
+} from "../../../market-data-store/src/lib/market-data-store"
 import { INSTRUMENT_STATUS_PROVIDER_CAPABILITY } from "../lib/instrument-status-provider"
 import { parseArgs, run } from "./main"
 
@@ -14,20 +23,46 @@ test("instrument-status provider CLI reads one immutable archive without mutatin
   const db = new Database(dbPath)
   try {
     ensureMarketDataSchema(db)
-    const batch = createInstrumentStatusSourceBatchManifest({
-      batch_id: "status-cli-batch",
-      batch_sequence: 1,
+    const payload = '{"records":[{"status":"TRADING"}]}'
+    const payloadRef = "market-data-store:instrument-status-source-payload:status-cli-acquisition:1"
+    const attempt = createInstrumentStatusAcquisitionAttempt({
+      attempt_ordinal: 1,
+      started_at: "2026-07-02T00:01:00Z",
+      completed_at: "2026-07-02T00:01:00Z",
+      outcome: "succeeded",
+      failure_class: null,
+      retryable: false,
+      http_status: 200,
+      response_payload_ref: payloadRef,
+      response_hash: instrumentStatusPayloadHash(payload),
+      response_bytes: new TextEncoder().encode(payload).byteLength,
+      response_record_count: 1,
+    })
+    const acquisition = createInstrumentStatusAcquisitionReceipt({
+      acquisition_id: "status-cli-acquisition",
       venue_id: "binance-usdm",
       symbol: "BTCUSDT",
-      coverage_start: "2026-07-01T00:00:00Z",
-      coverage_end: "2026-07-02T00:00:00Z",
+      source_capability: "historical_event_archive",
+      transport: "offline_import",
+      method: "offline_import",
+      endpoint: "offline-import:status-cli",
+      request_params_hash: "c".repeat(64),
+      requested_coverage_start: "2026-07-01T00:00:00Z",
+      requested_coverage_end: "2026-07-02T00:00:00Z",
       source_observed_through: "2026-07-02T00:00:00Z",
-      retrieved_at: "2026-07-02T00:01:00Z",
+      requested_at: "2026-07-02T00:01:00Z",
+      completed_at: "2026-07-02T00:01:00Z",
+      terminal_status: "succeeded",
+      attempts: [attempt],
+    })
+    const batch = createInstrumentStatusSourceBatchFromAcquisition({
+      receipt: acquisition,
+      batch_id: "status-cli-batch",
+      batch_sequence: 1,
       source_ref: "venue-batch:status-cli",
-      raw_content_hash: "b".repeat(64),
-      raw_record_count: 1,
       previous_batch_hash: null,
     })
+    commitInstrumentStatusAcquisitionReceipt(db, acquisition, { [payloadRef]: payload })
     const archive = createInstrumentStatusArchive({
       archive_id: "status-cli",
       venue_id: "binance-usdm",

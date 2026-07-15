@@ -41,6 +41,7 @@
         "modules/market-data-products/binance-read/market-scan",
         "modules/market-data-products/binance-read/symbol-snapshot",
         "modules/market-data-products/binance-read/aggtrades-fetch",
+        "modules/market-data-products/binance-read/instrument-status-collector",
         "modules/market-data-products/liquidation-zones",
         "modules/market-data-products/market-data-store",
         "modules/market-data-products/instrument-status-provider",
@@ -256,7 +257,7 @@
       "status": "implemented",
       "owner_domain": "market-data-products",
       "owner_module": "modules/market-data-products/market-data-store",
-      "physical": { "kind": "sqlite", "path": "data/market_data.db", "tables": ["market_manifest", "funding_event", "feature_manifest", "instrument_status_archive", "instrument_status_event", "instrument_status_source_batch", "instrument_status_archive_audit"] },
+      "physical": { "kind": "sqlite", "path": "data/market_data.db", "tables": ["market_manifest", "funding_event", "feature_manifest", "instrument_status_archive", "instrument_status_event", "instrument_status_acquisition_receipt", "instrument_status_source_payload", "instrument_status_source_batch", "instrument_status_archive_audit"] },
       "schema": "docs/storage-schema/market-data-store.sql",
       "write_contract": "manifest-upsert-plus-immutable-status-archive-cas"
     },

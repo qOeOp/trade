@@ -931,13 +931,14 @@
         "canonical-candles",
         "funding-events",
         "feature-manifest",
+        "instrument-status-acquisition",
         "instrument-status-archive"
       ],
       "capability_class": [
         "A"
       ],
       "path": "modules/market-data-products/market-data-store",
-      "purpose": "Record market manifests, funding events, feature manifests, and immutable instrument-status archives in market_data_store, and canonical candles in ohlcv_store.",
+      "purpose": "Record market manifests, funding events, feature manifests, instrument-status acquisition receipts/raw payloads, and immutable archives in market_data_store, and canonical candles in ohlcv_store.",
       "command": {
         "cwd": "modules/market-data-products/market-data-store",
         "argv": [
@@ -962,8 +963,8 @@
       },
       "notes": [
         "Owns logical market_data_store refs and ohlcv_store refs; durable market data uses database owner-store contracts, not file directories.",
-        "Read actions include read_manifest, read_funding, read_instrument_status_archive, read_feature_manifest, and list_feature_manifests so other domains can consume owner refs without direct table access.",
-        "Instrument-status archives use immutable create-or-identical CAS; conflicting content under one archive id is rejected."
+        "Read actions include read_manifest, read_funding, read_instrument_status_acquisition_receipt, read_instrument_status_archive, read_feature_manifest, and list_feature_manifests so other domains can consume owner refs without direct table access.",
+        "Instrument-status acquisitions and archives use immutable create-or-identical CAS; only historical acquisition capability can enter an archive source batch."
       ],
       "module_type": "atomic",
       "owner_scope": "market-data-products.market-data-store",
@@ -3161,6 +3162,57 @@
       "requires_preflight": false,
       "concurrency_group": "binance-read",
       "forbidden_callers": [],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
+    },
+    {
+      "id": "binance.instrument-status-collector",
+      "domain": "market-data-products",
+      "intent": [
+        "instrument-status",
+        "exchange-info",
+        "acquisition-receipt"
+      ],
+      "capability_class": [
+        "R",
+        "A"
+      ],
+      "path": "modules/market-data-products/binance-read/instrument-status-collector",
+      "purpose": "Fetch the current Binance USDⓈ-M symbol status and persist exact response bytes plus a retry-aware acquisition receipt.",
+      "command": {
+        "cwd": "modules/market-data-products/binance-read/instrument-status-collector",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--symbol",
+          "<symbol>",
+          "--db",
+          "./data/market_data.db",
+          "--acquisition-id",
+          "<acquisition-id>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Read-only Binance API; writes only market_data_store acquisition receipts and raw payload BLOBs.",
+        "Emits current_snapshot_only and cannot create complete-history evidence or Archive Source Batches."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "market-data-products.instrument-status-collector",
+      "requires_preflight": false,
+      "concurrency_group": "market-data",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",

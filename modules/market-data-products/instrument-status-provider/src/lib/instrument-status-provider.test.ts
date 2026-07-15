@@ -37,6 +37,8 @@ function archive() {
     source_ref: "venue-batch:july-status",
     raw_content_hash: "e".repeat(64),
     raw_record_count: 3,
+    acquisition_receipt_id: "july-status-acquisition",
+    acquisition_receipt_hash: "9".repeat(64),
     previous_batch_hash: null,
   })
   return createInstrumentStatusArchive({
@@ -137,6 +139,8 @@ test("provider evidence is admitted by the authoritative Replay request and Data
     source_ref: "venue-batch:golden-status",
     raw_content_hash: "f".repeat(64),
     raw_record_count: 1,
+    acquisition_receipt_id: "golden-status-acquisition",
+    acquisition_receipt_hash: "8".repeat(64),
     previous_batch_hash: null,
   })
   const source = createInstrumentStatusArchive({

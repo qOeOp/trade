@@ -1,11 +1,14 @@
 import { Database } from "bun:sqlite"
+import { createHash } from "node:crypto"
 import { canonicalHash, canonicalJson } from "../../../../contracts/runtime-core/src/canonical-json"
 import { asRecord, numberField, stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
 
-export const INSTRUMENT_STATUS_ARCHIVE_SCHEMA_VERSION = "trade.market-data-instrument-status-archive.v2" as const
-export const INSTRUMENT_STATUS_SOURCE_BATCH_SCHEMA_VERSION = "trade.market-data-instrument-status-source-batch.v1" as const
+export const INSTRUMENT_STATUS_ARCHIVE_SCHEMA_VERSION = "trade.market-data-instrument-status-archive.v3" as const
+export const INSTRUMENT_STATUS_SOURCE_BATCH_SCHEMA_VERSION = "trade.market-data-instrument-status-source-batch.v2" as const
 export const INSTRUMENT_STATUS_COMPLETENESS_AUDIT_SCHEMA_VERSION = "trade.market-data-instrument-status-completeness-audit.v1" as const
 export const INSTRUMENT_STATUS_COMPLETENESS_AUDIT_POLICY_VERSION = "market-data-status-batch-window-audit-v1" as const
+export const INSTRUMENT_STATUS_ACQUISITION_RECEIPT_SCHEMA_VERSION = "trade.market-data-instrument-status-acquisition-receipt.v1" as const
+export const INSTRUMENT_STATUS_ACQUISITION_ATTEMPT_SCHEMA_VERSION = "trade.market-data-instrument-status-acquisition-attempt.v1" as const
 
 export interface MarketManifest {
   manifest_id: string
@@ -82,11 +85,63 @@ export interface InstrumentStatusSourceBatchManifest {
   source_ref: string
   raw_content_hash: string
   raw_record_count: number
+  acquisition_receipt_id: string
+  acquisition_receipt_hash: string
   previous_batch_hash: string | null
   batch_hash: string
 }
 
 export type InstrumentStatusSourceBatchBody = Omit<InstrumentStatusSourceBatchManifest, "batch_hash">
+
+export interface InstrumentStatusAcquisitionAttempt {
+  schema_version: typeof INSTRUMENT_STATUS_ACQUISITION_ATTEMPT_SCHEMA_VERSION
+  attempt_ordinal: number
+  started_at: string
+  completed_at: string
+  outcome: "succeeded" | "failed"
+  failure_class: null | "timeout" | "rate_limited" | "external_io" | "invalid_response"
+  retryable: boolean
+  http_status: number | null
+  response_payload_ref: string | null
+  response_hash: string | null
+  response_bytes: number | null
+  response_record_count: number | null
+  attempt_hash: string
+}
+
+export type InstrumentStatusAcquisitionAttemptBody = Omit<InstrumentStatusAcquisitionAttempt, "attempt_hash">
+
+export interface InstrumentStatusAcquisitionReceipt {
+  schema_version: typeof INSTRUMENT_STATUS_ACQUISITION_RECEIPT_SCHEMA_VERSION
+  acquisition_id: string
+  venue_id: string
+  symbol: string
+  source_capability: "current_snapshot_only" | "historical_event_archive"
+  transport: "binance_usdm_rest" | "offline_import"
+  method: "GET" | "offline_import"
+  endpoint: string
+  request_params_hash: string
+  requested_coverage_start: string | null
+  requested_coverage_end: string | null
+  source_observed_through: string
+  requested_at: string
+  completed_at: string
+  terminal_status: "succeeded" | "failed"
+  external_authenticity: "not_verified"
+  attempts: InstrumentStatusAcquisitionAttempt[]
+  receipt_hash: string
+}
+
+export type InstrumentStatusAcquisitionReceiptBody = Omit<InstrumentStatusAcquisitionReceipt, "receipt_hash">
+
+export interface InstrumentStatusAcquisitionPayload {
+  payload_ref: string
+  acquisition_id: string
+  attempt_ordinal: number
+  content_hash: string
+  byte_count: number
+  payload: Uint8Array
+}
 
 export interface InstrumentStatusCompletenessAudit {
   schema_version: typeof INSTRUMENT_STATUS_COMPLETENESS_AUDIT_SCHEMA_VERSION
@@ -235,6 +290,32 @@ export function ensureMarketDataSchema(db: Database): void {
   `)
   ensureInstrumentStatusEventBatchColumn(db)
   db.run(`
+    CREATE TABLE IF NOT EXISTS instrument_status_acquisition_receipt (
+      acquisition_id       TEXT PRIMARY KEY,
+      schema_version       TEXT NOT NULL,
+      venue_id             TEXT NOT NULL,
+      symbol               TEXT NOT NULL,
+      source_capability    TEXT NOT NULL,
+      transport            TEXT NOT NULL,
+      terminal_status      TEXT NOT NULL,
+      completed_at         TEXT NOT NULL,
+      receipt_json         TEXT NOT NULL CHECK(json_valid(receipt_json)),
+      receipt_hash         TEXT NOT NULL UNIQUE
+    )
+  `)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS instrument_status_source_payload (
+      payload_ref       TEXT PRIMARY KEY,
+      acquisition_id    TEXT NOT NULL,
+      attempt_ordinal   INTEGER NOT NULL,
+      content_hash      TEXT NOT NULL,
+      byte_count        INTEGER NOT NULL,
+      payload           BLOB NOT NULL,
+      UNIQUE (acquisition_id, attempt_ordinal),
+      FOREIGN KEY (acquisition_id) REFERENCES instrument_status_acquisition_receipt(acquisition_id)
+    )
+  `)
+  db.run(`
     CREATE TABLE IF NOT EXISTS instrument_status_source_batch (
       archive_id               TEXT NOT NULL,
       batch_id                 TEXT NOT NULL,
@@ -249,14 +330,18 @@ export function ensureMarketDataSchema(db: Database): void {
       source_ref               TEXT NOT NULL,
       raw_content_hash         TEXT NOT NULL,
       raw_record_count         INTEGER NOT NULL,
+      acquisition_receipt_id   TEXT NOT NULL,
+      acquisition_receipt_hash TEXT NOT NULL,
       previous_batch_hash      TEXT,
       batch_hash               TEXT NOT NULL,
       PRIMARY KEY (archive_id, batch_sequence),
       UNIQUE (archive_id, batch_id),
       UNIQUE (archive_id, batch_hash),
-      FOREIGN KEY (archive_id) REFERENCES instrument_status_archive(archive_id)
+      FOREIGN KEY (archive_id) REFERENCES instrument_status_archive(archive_id),
+      FOREIGN KEY (acquisition_receipt_id) REFERENCES instrument_status_acquisition_receipt(acquisition_id)
     )
   `)
+  ensureInstrumentStatusBatchAcquisitionColumns(db)
   db.run(`
     CREATE TABLE IF NOT EXISTS instrument_status_archive_audit (
       archive_id               TEXT PRIMARY KEY,
@@ -278,6 +363,16 @@ function ensureInstrumentStatusEventBatchColumn(db: Database): void {
   const columns = db.query("PRAGMA table_info(instrument_status_event)").all() as Array<{ name: string }>
   if (!columns.some((column) => column.name === "source_batch_id")) {
     db.run("ALTER TABLE instrument_status_event ADD COLUMN source_batch_id TEXT")
+  }
+}
+
+function ensureInstrumentStatusBatchAcquisitionColumns(db: Database): void {
+  const columns = db.query("PRAGMA table_info(instrument_status_source_batch)").all() as Array<{ name: string }>
+  if (!columns.some((column) => column.name === "acquisition_receipt_id")) {
+    db.run("ALTER TABLE instrument_status_source_batch ADD COLUMN acquisition_receipt_id TEXT")
+  }
+  if (!columns.some((column) => column.name === "acquisition_receipt_hash")) {
+    db.run("ALTER TABLE instrument_status_source_batch ADD COLUMN acquisition_receipt_hash TEXT")
   }
 }
 
@@ -307,6 +402,169 @@ function configureSqliteConnection(db: Database): void {
   db.run("PRAGMA busy_timeout = 5000")
   db.run("PRAGMA journal_mode = WAL")
   db.run("PRAGMA synchronous = NORMAL")
+}
+
+export function instrumentStatusPayloadHash(payload: string | Uint8Array): string {
+  const bytes = typeof payload === "string" ? new TextEncoder().encode(payload) : payload
+  return createHash("sha256").update(bytes).digest("hex")
+}
+
+export function createInstrumentStatusAcquisitionAttempt(
+  body: Omit<InstrumentStatusAcquisitionAttemptBody, "schema_version">,
+): InstrumentStatusAcquisitionAttempt {
+  const value: InstrumentStatusAcquisitionAttempt = {
+    schema_version: INSTRUMENT_STATUS_ACQUISITION_ATTEMPT_SCHEMA_VERSION,
+    ...body,
+    attempt_hash: canonicalHash({ schema_version: INSTRUMENT_STATUS_ACQUISITION_ATTEMPT_SCHEMA_VERSION, ...body }),
+  }
+  assertInstrumentStatusAcquisitionAttempt(value)
+  return value
+}
+
+export function createInstrumentStatusAcquisitionReceipt(
+  body: Omit<InstrumentStatusAcquisitionReceiptBody, "schema_version" | "external_authenticity">,
+): InstrumentStatusAcquisitionReceipt {
+  const receiptBody: InstrumentStatusAcquisitionReceiptBody = {
+    schema_version: INSTRUMENT_STATUS_ACQUISITION_RECEIPT_SCHEMA_VERSION,
+    ...body,
+    external_authenticity: "not_verified",
+  }
+  const value = { ...receiptBody, receipt_hash: canonicalHash(receiptBody) }
+  assertInstrumentStatusAcquisitionReceipt(value)
+  return value
+}
+
+export function commitInstrumentStatusAcquisitionReceipt(
+  db: Database,
+  receipt: InstrumentStatusAcquisitionReceipt,
+  payloads: Record<string, string | Uint8Array>,
+): "created" | "existing" {
+  assertInstrumentStatusAcquisitionReceipt(receipt)
+  const verifiedPayloads = receipt.attempts.flatMap((attempt) => {
+    if (attempt.response_payload_ref === null) return []
+    const payload = payloads[attempt.response_payload_ref]
+    if (payload === undefined) throw new Error(`instrument status acquisition payload is missing: ${attempt.response_payload_ref}`)
+    const bytes = typeof payload === "string" ? new TextEncoder().encode(payload) : payload
+    if (instrumentStatusPayloadHash(bytes) !== attempt.response_hash || bytes.byteLength !== attempt.response_bytes) {
+      throw new Error("instrument status acquisition payload hash or byte count mismatch")
+    }
+    return [{ attempt, bytes }]
+  })
+  const insertReceipt = db.query(`
+    INSERT INTO instrument_status_acquisition_receipt(
+      acquisition_id, schema_version, venue_id, symbol, source_capability, transport,
+      terminal_status, completed_at, receipt_json, receipt_hash
+    ) VALUES (
+      $acquisition_id, $schema_version, $venue_id, $symbol, $source_capability, $transport,
+      $terminal_status, $completed_at, $receipt_json, $receipt_hash
+    )
+  `)
+  const insertPayload = db.query(`
+    INSERT INTO instrument_status_source_payload(
+      payload_ref, acquisition_id, attempt_ordinal, content_hash, byte_count, payload
+    ) VALUES (
+      $payload_ref, $acquisition_id, $attempt_ordinal, $content_hash, $byte_count, $payload
+    )
+  `)
+  return db.transaction((): "created" | "existing" => {
+    const existing = readInstrumentStatusAcquisitionReceipt(db, receipt.acquisition_id)
+    if (existing) {
+      if (canonicalJson(existing) !== canonicalJson(receipt)) {
+        throw new Error("instrument status acquisition id is already committed with different content")
+      }
+      for (const { attempt, bytes } of verifiedPayloads) {
+        const persisted = readInstrumentStatusAcquisitionPayload(db, attempt.response_payload_ref!)
+        if (!persisted || instrumentStatusPayloadHash(persisted.payload) !== instrumentStatusPayloadHash(bytes)) {
+          throw new Error("instrument status acquisition persisted payload mismatch")
+        }
+      }
+      return "existing"
+    }
+    insertReceipt.run({
+      $acquisition_id: receipt.acquisition_id,
+      $schema_version: receipt.schema_version,
+      $venue_id: receipt.venue_id,
+      $symbol: receipt.symbol,
+      $source_capability: receipt.source_capability,
+      $transport: receipt.transport,
+      $terminal_status: receipt.terminal_status,
+      $completed_at: receipt.completed_at,
+      $receipt_json: JSON.stringify(receipt),
+      $receipt_hash: receipt.receipt_hash,
+    })
+    for (const { attempt, bytes } of verifiedPayloads) {
+      insertPayload.run({
+        $payload_ref: attempt.response_payload_ref,
+        $acquisition_id: receipt.acquisition_id,
+        $attempt_ordinal: attempt.attempt_ordinal,
+        $content_hash: attempt.response_hash,
+        $byte_count: attempt.response_bytes,
+        $payload: bytes,
+      })
+    }
+    return "created"
+  }).immediate()
+}
+
+export function readInstrumentStatusAcquisitionReceipt(
+  db: Database,
+  acquisitionId: string,
+): InstrumentStatusAcquisitionReceipt | null {
+  const row = db.query(`
+    SELECT receipt_json, receipt_hash FROM instrument_status_acquisition_receipt
+    WHERE acquisition_id = $acquisition_id
+  `).get({ $acquisition_id: acquisitionId }) as { receipt_json: string; receipt_hash: string } | null
+  if (!row) return null
+  const receipt = JSON.parse(row.receipt_json) as InstrumentStatusAcquisitionReceipt
+  if (receipt.receipt_hash !== row.receipt_hash) throw new Error("instrument status acquisition persisted receipt hash mismatch")
+  assertInstrumentStatusAcquisitionReceipt(receipt)
+  return receipt
+}
+
+export function readInstrumentStatusAcquisitionPayload(
+  db: Database,
+  payloadRef: string,
+): InstrumentStatusAcquisitionPayload | null {
+  const row = db.query(`
+    SELECT payload_ref, acquisition_id, attempt_ordinal, content_hash, byte_count, payload
+    FROM instrument_status_source_payload WHERE payload_ref = $payload_ref
+  `).get({ $payload_ref: payloadRef }) as InstrumentStatusAcquisitionPayload | null
+  if (!row) return null
+  if (row.payload.byteLength !== row.byte_count || instrumentStatusPayloadHash(row.payload) !== row.content_hash) {
+    throw new Error("instrument status acquisition persisted payload integrity mismatch")
+  }
+  return row
+}
+
+export function createInstrumentStatusSourceBatchFromAcquisition(input: {
+  receipt: InstrumentStatusAcquisitionReceipt
+  batch_id: string
+  batch_sequence: number
+  source_ref: string
+  previous_batch_hash: string | null
+}): InstrumentStatusSourceBatchManifest {
+  assertInstrumentStatusAcquisitionReceipt(input.receipt)
+  const successfulAttempt = successfulAcquisitionAttempt(input.receipt)
+  if (!successfulAttempt || input.receipt.source_capability !== "historical_event_archive"
+      || input.receipt.requested_coverage_start === null || input.receipt.requested_coverage_end === null) {
+    throw new Error("only a successful historical event archive acquisition can create a source batch")
+  }
+  return createInstrumentStatusSourceBatchManifest({
+    batch_id: input.batch_id,
+    batch_sequence: input.batch_sequence,
+    venue_id: input.receipt.venue_id,
+    symbol: input.receipt.symbol,
+    coverage_start: input.receipt.requested_coverage_start,
+    coverage_end: input.receipt.requested_coverage_end,
+    source_observed_through: input.receipt.source_observed_through,
+    retrieved_at: input.receipt.completed_at,
+    source_ref: input.source_ref,
+    raw_content_hash: successfulAttempt.response_hash!,
+    raw_record_count: successfulAttempt.response_record_count!,
+    acquisition_receipt_id: input.receipt.acquisition_id,
+    acquisition_receipt_hash: input.receipt.receipt_hash,
+    previous_batch_hash: input.previous_batch_hash,
+  })
 }
 
 export function createInstrumentStatusSourceBatchManifest(
@@ -410,11 +668,13 @@ export function commitInstrumentStatusArchive(db: Database, archive: InstrumentS
     INSERT INTO instrument_status_source_batch(
       archive_id, batch_id, batch_sequence, schema_version, venue_id, symbol,
       coverage_start, coverage_end, source_observed_through, retrieved_at,
-      source_ref, raw_content_hash, raw_record_count, previous_batch_hash, batch_hash
+      source_ref, raw_content_hash, raw_record_count, acquisition_receipt_id,
+      acquisition_receipt_hash, previous_batch_hash, batch_hash
     ) VALUES (
       $archive_id, $batch_id, $batch_sequence, $schema_version, $venue_id, $symbol,
       $coverage_start, $coverage_end, $source_observed_through, $retrieved_at,
-      $source_ref, $raw_content_hash, $raw_record_count, $previous_batch_hash, $batch_hash
+      $source_ref, $raw_content_hash, $raw_record_count, $acquisition_receipt_id,
+      $acquisition_receipt_hash, $previous_batch_hash, $batch_hash
     )
   `)
   const insertAudit = db.query(`
@@ -444,6 +704,9 @@ export function commitInstrumentStatusArchive(db: Database, archive: InstrumentS
           || predecessor.coverage_start !== archive.coverage_start || predecessor.coverage_end !== archive.coverage_end) {
         throw new Error("instrument status archive supersession scope mismatch")
       }
+    }
+    for (const batch of archive.source_batches) {
+      assertInstrumentStatusSourceBatchAcquisitionBinding(db, batch)
     }
     insertArchive.run({
       $archive_id: archive.archive_id,
@@ -503,7 +766,8 @@ export function readInstrumentStatusArchive(db: Database, archiveId: string): In
   const sourceBatches = db.query(`
     SELECT batch_id, batch_sequence, schema_version, venue_id, symbol,
       coverage_start, coverage_end, source_observed_through, retrieved_at,
-      source_ref, raw_content_hash, raw_record_count, previous_batch_hash, batch_hash
+      source_ref, raw_content_hash, raw_record_count, acquisition_receipt_id,
+      acquisition_receipt_hash, previous_batch_hash, batch_hash
     FROM instrument_status_source_batch
     WHERE archive_id = $archive_id ORDER BY batch_sequence
   `).all({ $archive_id: archiveId }) as InstrumentStatusSourceBatchRow[]
@@ -539,6 +803,7 @@ export function readInstrumentStatusArchive(db: Database, archiveId: string): In
     archive_hash: row.archive_hash,
   }
   assertInstrumentStatusArchive(archive)
+  for (const batch of archive.source_batches) assertInstrumentStatusSourceBatchAcquisitionBinding(db, batch)
   return archive
 }
 
@@ -555,6 +820,8 @@ export function buildInstrumentStatusArchive(input: JSONRecord): InstrumentStatu
     source_ref: stringField(batch.source_ref),
     raw_content_hash: stringField(batch.raw_content_hash),
     raw_record_count: numberField(batch.raw_record_count),
+    acquisition_receipt_id: stringField(batch.acquisition_receipt_id),
+    acquisition_receipt_hash: stringField(batch.acquisition_receipt_hash),
     previous_batch_hash: batch.previous_batch_hash === null ? null : stringField(batch.previous_batch_hash),
   })) : []
   const events = Array.isArray(input.events) ? input.events.map(asRecord).map((event) => ({
@@ -676,6 +943,7 @@ export function assertInstrumentStatusSourceBatchManifest(batch: InstrumentStatu
   if (batch.schema_version !== INSTRUMENT_STATUS_SOURCE_BATCH_SCHEMA_VERSION) throw new Error("unsupported instrument status source batch schema")
   for (const [field, value] of Object.entries({
     batch_id: batch.batch_id, venue_id: batch.venue_id, symbol: batch.symbol, source_ref: batch.source_ref,
+    acquisition_receipt_id: batch.acquisition_receipt_id,
   })) requireNonEmpty(value, `instrument status source batch ${field}`)
   if (!Number.isSafeInteger(batch.batch_sequence) || batch.batch_sequence < 1) throw new Error("instrument status source batch sequence must be positive")
   if (!Number.isSafeInteger(batch.raw_record_count) || batch.raw_record_count < 0) throw new Error("instrument status source batch record count must be non-negative")
@@ -689,10 +957,147 @@ export function assertInstrumentStatusSourceBatchManifest(batch: InstrumentStatu
     throw new Error("instrument status source batch watermark ordering is invalid")
   }
   requireHash(batch.raw_content_hash, "instrument status source batch raw_content_hash")
+  requireHash(batch.acquisition_receipt_hash, "instrument status source batch acquisition_receipt_hash")
   if (batch.previous_batch_hash !== null) requireHash(batch.previous_batch_hash, "instrument status source batch previous_batch_hash")
   requireHash(batch.batch_hash, "instrument status source batch batch_hash")
   const { batch_hash: batchHash, ...body } = batch
   if (batchHash !== canonicalHash(body)) throw new Error("instrument status source batch hash mismatch")
+}
+
+export function assertInstrumentStatusAcquisitionAttempt(attempt: InstrumentStatusAcquisitionAttempt): void {
+  if (attempt.schema_version !== INSTRUMENT_STATUS_ACQUISITION_ATTEMPT_SCHEMA_VERSION) {
+    throw new Error("unsupported instrument status acquisition attempt schema")
+  }
+  if (!Number.isSafeInteger(attempt.attempt_ordinal) || attempt.attempt_ordinal < 1) {
+    throw new Error("instrument status acquisition attempt ordinal must be positive")
+  }
+  requireUtc(attempt.started_at, "instrument status acquisition attempt started_at")
+  requireUtc(attempt.completed_at, "instrument status acquisition attempt completed_at")
+  if (Date.parse(attempt.completed_at) < Date.parse(attempt.started_at)) {
+    throw new Error("instrument status acquisition attempt time ordering is invalid")
+  }
+  if (attempt.http_status !== null
+      && (!Number.isSafeInteger(attempt.http_status) || attempt.http_status < 100 || attempt.http_status > 599)) {
+    throw new Error("instrument status acquisition attempt HTTP status is invalid")
+  }
+  const responseTuple = [attempt.response_payload_ref, attempt.response_hash, attempt.response_bytes]
+  const hasResponse = responseTuple.every((value) => value !== null)
+  if (!hasResponse && !responseTuple.every((value) => value === null)) {
+    throw new Error("instrument status acquisition attempt response evidence must be all present or all absent")
+  }
+  if (hasResponse) {
+    requireNonEmpty(attempt.response_payload_ref, "instrument status acquisition attempt response_payload_ref")
+    requireHash(attempt.response_hash, "instrument status acquisition attempt response_hash")
+    if (!Number.isSafeInteger(attempt.response_bytes) || attempt.response_bytes! < 0) {
+      throw new Error("instrument status acquisition attempt response byte count is invalid")
+    }
+  }
+  if (attempt.outcome === "succeeded") {
+    if (!hasResponse || attempt.failure_class !== null || attempt.retryable
+        || attempt.http_status === null || attempt.http_status < 200 || attempt.http_status >= 300
+        || !Number.isSafeInteger(attempt.response_record_count) || attempt.response_record_count! < 1) {
+      throw new Error("successful instrument status acquisition attempt evidence is incomplete")
+    }
+  } else if (attempt.outcome === "failed") {
+    if (attempt.failure_class === null || attempt.response_record_count !== null) {
+      throw new Error("failed instrument status acquisition attempt classification is incomplete")
+    }
+  } else {
+    throw new Error("unsupported instrument status acquisition attempt outcome")
+  }
+  requireHash(attempt.attempt_hash, "instrument status acquisition attempt hash")
+  const { attempt_hash: attemptHash, ...body } = attempt
+  if (attemptHash !== canonicalHash(body)) throw new Error("instrument status acquisition attempt hash mismatch")
+}
+
+export function assertInstrumentStatusAcquisitionReceipt(receipt: InstrumentStatusAcquisitionReceipt): void {
+  if (receipt.schema_version !== INSTRUMENT_STATUS_ACQUISITION_RECEIPT_SCHEMA_VERSION) {
+    throw new Error("unsupported instrument status acquisition receipt schema")
+  }
+  for (const [field, value] of Object.entries({
+    acquisition_id: receipt.acquisition_id,
+    venue_id: receipt.venue_id,
+    symbol: receipt.symbol,
+    endpoint: receipt.endpoint,
+  })) requireNonEmpty(value, `instrument status acquisition ${field}`)
+  requireHash(receipt.request_params_hash, "instrument status acquisition request_params_hash")
+  requireUtc(receipt.source_observed_through, "instrument status acquisition source_observed_through")
+  requireUtc(receipt.requested_at, "instrument status acquisition requested_at")
+  requireUtc(receipt.completed_at, "instrument status acquisition completed_at")
+  if (Date.parse(receipt.completed_at) < Date.parse(receipt.requested_at)
+      || Date.parse(receipt.source_observed_through) > Date.parse(receipt.completed_at)) {
+    throw new Error("instrument status acquisition receipt time ordering is invalid")
+  }
+  if (receipt.external_authenticity !== "not_verified") {
+    throw new Error("instrument status acquisition receipt cannot claim external authenticity")
+  }
+  if (receipt.source_capability === "current_snapshot_only") {
+    if (receipt.transport !== "binance_usdm_rest" || receipt.method !== "GET"
+        || receipt.requested_coverage_start !== null || receipt.requested_coverage_end !== null) {
+      throw new Error("current instrument status snapshot acquisition cannot claim historical coverage")
+    }
+  } else if (receipt.source_capability === "historical_event_archive") {
+    if (receipt.transport !== "offline_import" || receipt.method !== "offline_import"
+        || receipt.requested_coverage_start === null || receipt.requested_coverage_end === null) {
+      throw new Error("historical instrument status acquisition requires an explicit offline-import window")
+    }
+    requireUtc(receipt.requested_coverage_start, "instrument status acquisition requested_coverage_start")
+    requireUtc(receipt.requested_coverage_end, "instrument status acquisition requested_coverage_end")
+    if (Date.parse(receipt.requested_coverage_start) >= Date.parse(receipt.requested_coverage_end)
+        || Date.parse(receipt.source_observed_through) < Date.parse(receipt.requested_coverage_end)) {
+      throw new Error("historical instrument status acquisition coverage/finality is invalid")
+    }
+  } else {
+    throw new Error("unsupported instrument status acquisition source capability")
+  }
+  if (receipt.attempts.length === 0) throw new Error("instrument status acquisition receipt requires attempts")
+  let previous: InstrumentStatusAcquisitionAttempt | undefined
+  for (const [index, attempt] of receipt.attempts.entries()) {
+    assertInstrumentStatusAcquisitionAttempt(attempt)
+    if (attempt.attempt_ordinal !== index + 1) throw new Error("instrument status acquisition attempts must be contiguous from one")
+    if (Date.parse(attempt.started_at) < Date.parse(previous?.completed_at ?? receipt.requested_at)) {
+      throw new Error("instrument status acquisition attempt chronology is invalid")
+    }
+    if (previous?.outcome === "succeeded") throw new Error("instrument status acquisition cannot retry after success")
+    previous = attempt
+  }
+  if (receipt.completed_at !== previous!.completed_at || receipt.terminal_status !== previous!.outcome) {
+    throw new Error("instrument status acquisition terminal receipt does not match its last attempt")
+  }
+  requireHash(receipt.receipt_hash, "instrument status acquisition receipt hash")
+  const { receipt_hash: receiptHash, ...body } = receipt
+  if (receiptHash !== canonicalHash(body)) throw new Error("instrument status acquisition receipt hash mismatch")
+}
+
+function successfulAcquisitionAttempt(receipt: InstrumentStatusAcquisitionReceipt): InstrumentStatusAcquisitionAttempt | null {
+  if (receipt.terminal_status !== "succeeded") return null
+  const attempt = receipt.attempts.at(-1) ?? null
+  return attempt?.outcome === "succeeded" ? attempt : null
+}
+
+function assertInstrumentStatusSourceBatchAcquisitionBinding(
+  db: Database,
+  batch: InstrumentStatusSourceBatchManifest,
+): void {
+  const acquisition = readInstrumentStatusAcquisitionReceipt(db, batch.acquisition_receipt_id)
+  const successfulAttempt = acquisition ? successfulAcquisitionAttempt(acquisition) : null
+  if (!acquisition || acquisition.receipt_hash !== batch.acquisition_receipt_hash) {
+    throw new Error("instrument status source batch acquisition receipt is missing or hash-mismatched")
+  }
+  if (acquisition.source_capability !== "historical_event_archive" || !successfulAttempt) {
+    throw new Error("instrument status source batch requires a successful historical acquisition")
+  }
+  if (acquisition.venue_id !== batch.venue_id || acquisition.symbol !== batch.symbol
+      || acquisition.requested_coverage_start !== batch.coverage_start
+      || acquisition.requested_coverage_end !== batch.coverage_end
+      || acquisition.source_observed_through !== batch.source_observed_through
+      || successfulAttempt.response_hash !== batch.raw_content_hash
+      || successfulAttempt.response_record_count !== batch.raw_record_count) {
+    throw new Error("instrument status source batch acquisition evidence mismatch")
+  }
+  if (!readInstrumentStatusAcquisitionPayload(db, successfulAttempt.response_payload_ref!)) {
+    throw new Error("instrument status source batch acquisition payload is missing")
+  }
 }
 
 export function assertInstrumentStatusCompletenessAudit(
@@ -1188,6 +1593,8 @@ interface InstrumentStatusSourceBatchRow {
   source_ref: string
   raw_content_hash: string
   raw_record_count: number
+  acquisition_receipt_id: string
+  acquisition_receipt_hash: string
   previous_batch_hash: string | null
   batch_hash: string
 }
@@ -1285,6 +1692,8 @@ function sqlStatusBatch(batch: InstrumentStatusSourceBatchManifest): Record<stri
     $source_ref: batch.source_ref,
     $raw_content_hash: batch.raw_content_hash,
     $raw_record_count: batch.raw_record_count,
+    $acquisition_receipt_id: batch.acquisition_receipt_id,
+    $acquisition_receipt_hash: batch.acquisition_receipt_hash,
     $previous_batch_hash: batch.previous_batch_hash,
     $batch_hash: batch.batch_hash,
   }

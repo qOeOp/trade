@@ -16,6 +16,7 @@ import {
   readCanonicalCandles,
   readFeatureManifest,
   readFundingEvents,
+  readInstrumentStatusAcquisitionReceipt,
   readInstrumentStatusArchive,
   readLatestCandleOpenTime,
   readMarketManifest,
@@ -122,6 +123,13 @@ export function run(args: Args): JSONRecord {
         archive: readInstrumentStatusArchive(db, stringField(args.json.archive_id)),
       }
     }
+    if (args.action === "read_instrument_status_acquisition_receipt") {
+      return {
+        ok: true,
+        action: args.action,
+        receipt: readInstrumentStatusAcquisitionReceipt(db, stringField(args.json.acquisition_id)),
+      }
+    }
     if (args.action === "read_latest_candle") {
       return withOhlcvDb(args.ohlcvDbPath, (ohlcvDb) => ({
         ok: true,
@@ -175,7 +183,7 @@ export function run(args: Args): JSONRecord {
 function printHelp(): void {
   console.log([
     "usage: bun src/scripts/main.ts --db data/market_data.db --ohlcv-db data/ohlcv.db --action init",
-    "actions: init | upsert_manifest | upsert_candles | upsert_funding | upsert_feature_manifest | commit_instrument_status_archive | read_manifest | read_funding | read_instrument_status_archive | read_latest_candle | read_candles | read_feature_manifest | list_feature_manifests",
+    "actions: init | upsert_manifest | upsert_candles | upsert_funding | upsert_feature_manifest | commit_instrument_status_archive | read_manifest | read_funding | read_instrument_status_acquisition_receipt | read_instrument_status_archive | read_latest_candle | read_candles | read_feature_manifest | list_feature_manifests",
   ].join("\n"))
 }
 

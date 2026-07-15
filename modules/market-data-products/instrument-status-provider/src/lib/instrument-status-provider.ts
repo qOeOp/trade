@@ -12,9 +12,9 @@ import {
 } from "../../../market-data-store/src/lib/market-data-store"
 
 export const INSTRUMENT_STATUS_PROVIDER_CAPABILITY_SCHEMA_VERSION = "trade.market-data-instrument-status-provider-capability.v1" as const
-export const REPLAY_INSTRUMENT_STATUS_EVIDENCE_SCHEMA_VERSION = "trade.market-data-replay-instrument-status-evidence.v3" as const
+export const REPLAY_INSTRUMENT_STATUS_EVIDENCE_SCHEMA_VERSION = "trade.market-data-replay-instrument-status-evidence.v4" as const
 export const INSTRUMENT_STATUS_PROVIDER_ID = "market-data.instrument-status-provider" as const
-export const INSTRUMENT_STATUS_PROVIDER_VERSION = "v3" as const
+export const INSTRUMENT_STATUS_PROVIDER_VERSION = "v4" as const
 export const INSTRUMENT_STATUS_NORMALIZATION_POLICY_VERSION = "market-data-instrument-status-normalization-v1" as const
 
 const NORMALIZATION_POLICY = {
@@ -32,7 +32,7 @@ export const INSTRUMENT_STATUS_NORMALIZATION_POLICY_HASH = canonicalHash(NORMALI
 const PROVIDER_BUILD_MANIFEST = {
   producer_id: INSTRUMENT_STATUS_PROVIDER_ID,
   producer_version: INSTRUMENT_STATUS_PROVIDER_VERSION,
-  input_schema: "trade.market-data-instrument-status-archive.v2",
+  input_schema: "trade.market-data-instrument-status-archive.v3",
   output_schema: REPLAY_INSTRUMENT_STATUS_EVIDENCE_SCHEMA_VERSION,
   normalization_policy_version: INSTRUMENT_STATUS_NORMALIZATION_POLICY_VERSION,
   normalization_policy_hash: INSTRUMENT_STATUS_NORMALIZATION_POLICY_HASH,
