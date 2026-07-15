@@ -16,6 +16,7 @@ import {
   REPLAY_CERTIFIED_CAPABILITIES,
   REPLAY_REQUIRED_ARTIFACT_ROLES,
   REPLAY_RESULT_SCHEMA_VERSION,
+  assertReplayDecisionHarnessBuildAttestation,
   assertReplayDecisionHarnessReceipt,
   assertReplayDecisionHarnessSourceBundle,
   assertReplayDecisionInputSnapshot,
@@ -24,6 +25,7 @@ import {
   replayExecutionSpecHash,
   type ReplayArtifactManifest,
   type ReplayDatasetManifest,
+  type ReplayDecisionHarnessBuildAttestation,
   type ReplayDecisionHarnessReceipt,
   type ReplayDecisionHarnessSourceBundle,
   type ReplayExecutionRequest,
@@ -90,7 +92,7 @@ export interface ReplayTrialRunInput {
 }
 
 export interface ReplayTrialRunOutcome {
-  schema_version: "trade.rd-replay-run-outcome.v18"
+  schema_version: "trade.rd-replay-run-outcome.v19"
   run_id: string
   attempt_id: string
   lease_generation: number
@@ -160,7 +162,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     validateTrialReservation(input.request, input.trial_reservation)
   } catch (error) {
     return {
-      schema_version: "trade.rd-replay-run-outcome.v18",
+      schema_version: "trade.rd-replay-run-outcome.v19",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -183,7 +185,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     const expired = error instanceof ReplayAttemptLeaseExpiredError
     const reservationExpired = error instanceof ReplayTrialReservationExpiredError
     return {
-      schema_version: "trade.rd-replay-run-outcome.v18",
+      schema_version: "trade.rd-replay-run-outcome.v19",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -200,7 +202,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
   }
   if (input.cancel_requested) {
     return {
-      schema_version: "trade.rd-replay-run-outcome.v18",
+      schema_version: "trade.rd-replay-run-outcome.v19",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -246,7 +248,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     if (committed) {
       cleanupDiagnosticCheckpoint(activeArtifactNamespace!)
       return {
-        schema_version: "trade.rd-replay-run-outcome.v18",
+        schema_version: "trade.rd-replay-run-outcome.v19",
         run_id: input.request.run_id,
         attempt_id: input.attempt_lease.attempt_id,
         lease_generation: input.attempt_lease.lease_generation,
@@ -291,6 +293,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
       supplemental_facts: input.supplemental_facts,
       decision_input_snapshot: decisionInputSnapshot,
       decision_harness_bundle: decisionHarnessAdmission.source_bundle,
+      decision_harness_build: decisionHarnessAdmission.build_attestation,
       decision_harness_receipt: decisionHarnessAdmission.receipt,
       execution_control: {
         resume_checkpoint: resumeCheckpoint,
@@ -324,7 +327,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
       : undefined
     if (activeArtifactNamespace) cleanupDiagnosticCheckpoint(activeArtifactNamespace)
     return {
-      schema_version: "trade.rd-replay-run-outcome.v18",
+      schema_version: "trade.rd-replay-run-outcome.v19",
       run_id: input.request.run_id,
       attempt_id: activeAttemptLease.attempt_id,
       lease_generation: activeAttemptLease.lease_generation,
@@ -346,7 +349,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     const marginTerminal = error instanceof ReplayMarginTerminalError
     const liquidationDeficit = error instanceof ReplayLiquidationDeficitError
     return {
-      schema_version: "trade.rd-replay-run-outcome.v18",
+      schema_version: "trade.rd-replay-run-outcome.v19",
       run_id: input.request.run_id,
       attempt_id: activeAttemptLease.attempt_id,
       lease_generation: activeAttemptLease.lease_generation,
@@ -531,6 +534,7 @@ const ARTIFACT_FILE_NAMES: Readonly<Record<(typeof REPLAY_REQUIRED_ARTIFACT_ROLE
   dataset_manifest: "dataset-manifest.json", result: "result.json", source_events: "source-events.jsonl",
   supplemental_facts: "supplemental-facts.json",
   decision_harness_bundle: "decision-harness-bundle.json",
+  decision_harness_build: "decision-harness-build.json",
   decision_input_snapshot: "decision-input-snapshot.json",
   decision_harness_receipt: "decision-harness-receipt.json",
   order_events: "order-events.jsonl", fills: "fills.jsonl", positions: "positions.jsonl", ledger: "ledger.jsonl",
@@ -553,6 +557,7 @@ function commitArtifacts(
   const datasetManifestText = `${canonicalJson(datasetManifest)}\n`
   const supplementalFactsText = `${canonicalJson(supplementalFacts)}\n`
   const decisionHarnessBundleText = `${canonicalJson(result.decision_harness_bundle)}\n`
+  const decisionHarnessBuildText = `${canonicalJson(result.decision_harness_build)}\n`
   const decisionInputSnapshotText = `${canonicalJson(result.decision_input_snapshot)}\n`
   const decisionHarnessReceiptText = `${canonicalJson(result.decision_harness_receipt)}\n`
   const resultText = `${canonicalJson(result)}\n`
@@ -574,6 +579,7 @@ function commitArtifacts(
     writeImmutable(namespace, "dataset-manifest.json", datasetManifestText, "dataset_manifest"),
     writeImmutable(namespace, "supplemental-facts.json", supplementalFactsText, "supplemental_facts"),
     writeImmutable(namespace, "decision-harness-bundle.json", decisionHarnessBundleText, "decision_harness_bundle"),
+    writeImmutable(namespace, "decision-harness-build.json", decisionHarnessBuildText, "decision_harness_build"),
     writeImmutable(namespace, "decision-input-snapshot.json", decisionInputSnapshotText, "decision_input_snapshot"),
     writeImmutable(namespace, "decision-harness-receipt.json", decisionHarnessReceiptText, "decision_harness_receipt"),
     writeImmutable(namespace, "result.json", resultText, "result"),
@@ -676,6 +682,21 @@ function readCommitted(
   if (canonicalHash(recordedDecisionHarnessBundle) !== canonicalHash(result.decision_harness_bundle)) {
     throw new Error("committed Replay Decision Harness Bundle does not match Result")
   }
+  const recordedDecisionHarnessBuild = JSON.parse(
+    decode(namespace.read(ARTIFACT_FILE_NAMES.decision_harness_build).bytes),
+  ) as ReplayDecisionHarnessBuildAttestation | null
+  if (request.supplemental_requirement_set.mode === "signal_time_complete" && !recordedDecisionHarnessBuild) {
+    throw new Error("committed Replay supplemental Result is missing Decision Harness Build Attestation")
+  }
+  if (request.supplemental_requirement_set.mode === "none" && recordedDecisionHarnessBuild) {
+    throw new Error("committed Replay Result claims an unauthorized Decision Harness Build Attestation")
+  }
+  if (recordedDecisionHarnessBuild) {
+    assertReplayDecisionHarnessBuildAttestation(recordedDecisionHarnessBuild, recordedDecisionHarnessBundle ?? undefined)
+  }
+  if (canonicalHash(recordedDecisionHarnessBuild) !== canonicalHash(result.decision_harness_build)) {
+    throw new Error("committed Replay Decision Harness Build Attestation does not match Result")
+  }
   const recordedDecisionInputSnapshot = JSON.parse(
     decode(namespace.read(ARTIFACT_FILE_NAMES.decision_input_snapshot).bytes),
   ) as ReplayResult["decision_input_snapshot"]
@@ -695,6 +716,7 @@ function readCommitted(
   if (recordedDecisionHarnessReceipt) {
     assertReplayDecisionHarnessReceipt(
       recordedDecisionHarnessReceipt, request, recordedDecisionInputSnapshot, recordedDecisionHarnessBundle ?? undefined,
+      recordedDecisionHarnessBuild ?? undefined,
     )
   }
   if (canonicalHash(recordedDecisionHarnessReceipt) !== canonicalHash(result.decision_harness_receipt)) {
@@ -704,8 +726,12 @@ function readCommitted(
       || result.fingerprint.decision_input_snapshot_hash !== recordedDecisionInputSnapshot.snapshot_hash
       || result.fingerprint.decision_harness_receipt_hash !== (recordedDecisionHarnessReceipt?.receipt_hash ?? null)
       || result.fingerprint.decision_harness_bundle_hash !== (recordedDecisionHarnessBundle?.bundle_hash ?? null)
+      || result.fingerprint.decision_harness_build_attestation_hash !== (recordedDecisionHarnessBuild?.attestation_hash ?? null)
+      || result.fingerprint.decision_harness_build_artifact_hash !== (recordedDecisionHarnessBuild?.artifact.sha256 ?? null)
+      || result.fingerprint.decision_harness_runtime_executable_hash !== (recordedDecisionHarnessBuild?.runtime.executable_sha256 ?? null)
       || result.fingerprint.decision_harness_registry_policy_version !== (recordedDecisionHarnessReceipt?.registry_policy_version ?? null)
-      || result.fingerprint.decision_harness_loader_policy_version !== (recordedDecisionHarnessReceipt?.loader_policy_version ?? null)) {
+      || result.fingerprint.decision_harness_loader_policy_version !== (recordedDecisionHarnessReceipt?.loader_policy_version ?? null)
+      || result.fingerprint.decision_harness_worker_protocol_version !== (recordedDecisionHarnessReceipt?.worker_protocol_version ?? null)) {
     throw new Error("committed Replay Result decision evidence fingerprint mismatch")
   }
   if (canonicalHash({
@@ -727,6 +753,7 @@ function readCommitted(
     trial_balance: result.trial_balance,
     supplemental_evidence: result.supplemental_evidence,
     decision_harness_bundle: result.decision_harness_bundle,
+    decision_harness_build: result.decision_harness_build,
     decision_input_snapshot: result.decision_input_snapshot,
     decision_harness_receipt: result.decision_harness_receipt,
     metrics: result.metrics,

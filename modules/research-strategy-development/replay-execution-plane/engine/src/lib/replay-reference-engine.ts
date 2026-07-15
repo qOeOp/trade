@@ -5,6 +5,7 @@ import {
   REPLAY_MARGIN_POLICY_VERSION,
   REPLAY_LIQUIDATION_EXECUTION_SCHEMA_VERSION,
   REPLAY_RESULT_SCHEMA_VERSION,
+  assertReplayDecisionHarnessBuildAttestation,
   assertReplayDecisionHarnessReceipt,
   assertReplayDecisionHarnessSourceBundle,
   assertReplayDecisionInputSnapshot,
@@ -12,6 +13,7 @@ import {
   canonicalHash,
   type ReplayBoundaryPhase,
   type ReplayDatasetManifest,
+  type ReplayDecisionHarnessBuildAttestation,
   type ReplayDecisionHarnessReceipt,
   type ReplayDecisionHarnessSourceBundle,
   type ReplayDecisionInputSnapshot,
@@ -53,7 +55,7 @@ import { completeReplayLiquidationOrderLane } from "./replay-liquidation-order-l
 import { ReplayLiquidationDeficitError, assertReplayPostEntryMargin, buildReplayMaintenanceBreachObservation, buildReplayPathMarginSnapshots } from "./replay-margin-path"
 import { reduceReplaySourceEvents } from "./replay-source-reducer"
 
-export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v6" as const
+export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v7" as const
 
 export interface ReplayEngineCheckpoint {
   schema_version: typeof REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION
@@ -63,7 +65,9 @@ export interface ReplayEngineCheckpoint {
   decision_input_snapshot_hash: string
   decision_harness_receipt_hash: string | null
   decision_harness_bundle_hash: string | null
+  decision_harness_build_attestation_hash: string | null
   decision_harness_loader_policy_version: string | null
+  decision_harness_worker_protocol_version: string | null
   simulator_policy_version: string
   numeric_policy_version: typeof REPLAY_NUMERIC_POLICY_VERSION
   next_source_offset: number
@@ -103,6 +107,7 @@ export interface ReplayKernelInput {
   supplemental_facts?: ReplaySupplementalFact[]
   decision_input_snapshot?: ReplayDecisionInputSnapshot
   decision_harness_bundle?: ReplayDecisionHarnessSourceBundle | null
+  decision_harness_build?: ReplayDecisionHarnessBuildAttestation | null
   decision_harness_receipt?: ReplayDecisionHarnessReceipt | null
   execution_control?: ReplayExecutionControl
 }
@@ -139,13 +144,15 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
   }
   const decisionHarnessReceipt = input.decision_harness_receipt ?? null
   const decisionHarnessBundle = input.decision_harness_bundle ?? null
+  const decisionHarnessBuild = input.decision_harness_build ?? null
   if (request.supplemental_requirement_set.mode === "signal_time_complete") {
-    if (!decisionHarnessBundle || !decisionHarnessReceipt) {
-      throw new Error("Replay supplemental lane requires a decision harness bundle and receipt")
+    if (!decisionHarnessBundle || !decisionHarnessBuild || !decisionHarnessReceipt) {
+      throw new Error("Replay supplemental lane requires decision harness bundle, build attestation, and receipt")
     }
     assertReplayDecisionHarnessSourceBundle(decisionHarnessBundle, request)
-    assertReplayDecisionHarnessReceipt(decisionHarnessReceipt, request, decisionInputSnapshot, decisionHarnessBundle)
-  } else if (decisionHarnessBundle || decisionHarnessReceipt) {
+    assertReplayDecisionHarnessBuildAttestation(decisionHarnessBuild, decisionHarnessBundle)
+    assertReplayDecisionHarnessReceipt(decisionHarnessReceipt, request, decisionInputSnapshot, decisionHarnessBundle, decisionHarnessBuild)
+  } else if (decisionHarnessBundle || decisionHarnessBuild || decisionHarnessReceipt) {
     throw new Error("Replay lane without supplemental requirements cannot claim decision harness evidence")
   }
   const { bars, funding_events: fundingEvents, mark_events: markEvents, entry_index: entryIndex } = prepared
@@ -177,6 +184,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       resumeCheckpoint, request, input.dataset_manifest,
       decisionInputSnapshot.snapshot_hash, decisionHarnessReceipt?.receipt_hash ?? null,
       decisionHarnessBundle?.bundle_hash ?? null, decisionHarnessReceipt?.loader_policy_version ?? null,
+      decisionHarnessBuild?.attestation_hash ?? null, decisionHarnessReceipt?.worker_protocol_version ?? null,
     )
   }
   const orderEvents: ReplayOrderEvent[] = structuredClone(resumeCheckpoint?.order_events ?? [])
@@ -228,9 +236,9 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
   }, nextStamp(request.order.signal_time, 90, 0, 0), 0)).order
   const limitations: ReplayResult["limitations"] = structuredClone(resumeCheckpoint?.limitations ?? prepared.limitations)
   if (!resumeCheckpoint && decisionHarnessReceipt) limitations.push({
-    code: "decision-harness-build-attestation-uncertified",
+    code: "decision-harness-os-sandbox-uncertified",
     severity: "info",
-    detail: "The receipt proves that a hash-resolved registered entrypoint consumed the frozen source bundle and decision snapshot and reproduced the authorized Order; build-artifact attestation and process isolation remain outside this slice.",
+    detail: "The receipt binds the frozen source set, exact Bun build artifact/runtime, and a matching fresh-subprocess reproducibility pair; this process boundary is not an OS sandbox and does not prove filesystem or network denial.",
   })
   if (!resumeCheckpoint && executionQuantity !== request.order.quantity) {
     limitations.push({
@@ -283,7 +291,9 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
         decision_input_snapshot_hash: decisionInputSnapshot.snapshot_hash,
         decision_harness_receipt_hash: decisionHarnessReceipt?.receipt_hash ?? null,
         decision_harness_bundle_hash: decisionHarnessBundle?.bundle_hash ?? null,
+        decision_harness_build_attestation_hash: decisionHarnessBuild?.attestation_hash ?? null,
         decision_harness_loader_policy_version: decisionHarnessReceipt?.loader_policy_version ?? null,
+        decision_harness_worker_protocol_version: decisionHarnessReceipt?.worker_protocol_version ?? null,
       })
       if (input.execution_control.on_checkpoint(checkpoint) === "cancel") {
         throw new ReplayExecutionInterruptedError(checkpoint)
@@ -646,6 +656,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     trial_balance: trialBalance,
     supplemental_evidence: prepared.supplemental_evidence,
     decision_harness_bundle: decisionHarnessBundle,
+    decision_harness_build: decisionHarnessBuild,
     decision_input_snapshot: decisionInputSnapshot,
     decision_harness_receipt: decisionHarnessReceipt,
     metrics,
@@ -667,8 +678,12 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       decision_input_snapshot_hash: decisionInputSnapshot.snapshot_hash,
       decision_harness_receipt_hash: decisionHarnessReceipt?.receipt_hash ?? null,
       decision_harness_bundle_hash: decisionHarnessBundle?.bundle_hash ?? null,
+      decision_harness_build_attestation_hash: decisionHarnessBuild?.attestation_hash ?? null,
+      decision_harness_build_artifact_hash: decisionHarnessBuild?.artifact.sha256 ?? null,
+      decision_harness_runtime_executable_hash: decisionHarnessBuild?.runtime.executable_sha256 ?? null,
       decision_harness_registry_policy_version: decisionHarnessReceipt?.registry_policy_version ?? null,
       decision_harness_loader_policy_version: decisionHarnessReceipt?.loader_policy_version ?? null,
+      decision_harness_worker_protocol_version: decisionHarnessReceipt?.worker_protocol_version ?? null,
       venue_risk_policy_schedule_hash: request.venue_risk_policy_schedule_hash,
       instrument_spec_schedule_hash: request.instrument_spec_schedule_hash,
       harness_hash: request.harness_hash,
@@ -704,7 +719,9 @@ function buildReplayEngineCheckpoint(input: {
   decision_input_snapshot_hash: string
   decision_harness_receipt_hash: string | null
   decision_harness_bundle_hash: string | null
+  decision_harness_build_attestation_hash: string | null
   decision_harness_loader_policy_version: string | null
+  decision_harness_worker_protocol_version: string | null
 }): ReplayEngineCheckpoint {
   const lastCommittedEventKey = input.boundary.source_events.at(-1)?.event_key
   if (!lastCommittedEventKey) throw new Error("Replay checkpoint requires a committed source event")
@@ -716,7 +733,9 @@ function buildReplayEngineCheckpoint(input: {
     decision_input_snapshot_hash: input.decision_input_snapshot_hash,
     decision_harness_receipt_hash: input.decision_harness_receipt_hash,
     decision_harness_bundle_hash: input.decision_harness_bundle_hash,
+    decision_harness_build_attestation_hash: input.decision_harness_build_attestation_hash,
     decision_harness_loader_policy_version: input.decision_harness_loader_policy_version,
+    decision_harness_worker_protocol_version: input.decision_harness_worker_protocol_version,
     simulator_policy_version: input.request.simulator_policy.version,
     numeric_policy_version: REPLAY_NUMERIC_POLICY_VERSION,
     next_source_offset: input.boundary.next_source_offset,
@@ -742,6 +761,8 @@ export function assertReplayEngineCheckpoint(
   decisionHarnessReceiptHash?: string | null,
   decisionHarnessBundleHash?: string | null,
   decisionHarnessLoaderPolicyVersion?: string | null,
+  decisionHarnessBuildAttestationHash?: string | null,
+  decisionHarnessWorkerProtocolVersion?: string | null,
 ): void {
   if (checkpoint.schema_version !== REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION) throw new Error("unsupported Replay engine checkpoint schema")
   if (checkpoint.run_id !== request.run_id
@@ -752,6 +773,10 @@ export function assertReplayEngineCheckpoint(
       || (decisionHarnessBundleHash !== undefined && checkpoint.decision_harness_bundle_hash !== decisionHarnessBundleHash)
       || (decisionHarnessLoaderPolicyVersion !== undefined
         && checkpoint.decision_harness_loader_policy_version !== decisionHarnessLoaderPolicyVersion)
+      || (decisionHarnessBuildAttestationHash !== undefined
+        && checkpoint.decision_harness_build_attestation_hash !== decisionHarnessBuildAttestationHash)
+      || (decisionHarnessWorkerProtocolVersion !== undefined
+        && checkpoint.decision_harness_worker_protocol_version !== decisionHarnessWorkerProtocolVersion)
       || checkpoint.simulator_policy_version !== request.simulator_policy.version
       || checkpoint.numeric_policy_version !== REPLAY_NUMERIC_POLICY_VERSION) {
     throw new Error("Replay engine checkpoint authority binding does not match execution input")
@@ -760,7 +785,9 @@ export function assertReplayEngineCheckpoint(
       || (checkpoint.decision_harness_receipt_hash !== null
         && !/^[a-f0-9]{64}$/.test(checkpoint.decision_harness_receipt_hash))
       || (checkpoint.decision_harness_bundle_hash !== null
-        && !/^[a-f0-9]{64}$/.test(checkpoint.decision_harness_bundle_hash))) {
+        && !/^[a-f0-9]{64}$/.test(checkpoint.decision_harness_bundle_hash))
+      || (checkpoint.decision_harness_build_attestation_hash !== null
+        && !/^[a-f0-9]{64}$/.test(checkpoint.decision_harness_build_attestation_hash))) {
     throw new Error("Replay engine checkpoint decision evidence hash is invalid")
   }
   if (!Number.isSafeInteger(checkpoint.next_source_offset) || checkpoint.next_source_offset <= 0

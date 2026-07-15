@@ -1,10 +1,14 @@
 import { expect, test } from "bun:test"
 import {
   REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
+  REPLAY_DECISION_HARNESS_BUILD_POLICY_VERSION,
   REPLAY_DECISION_HARNESS_CAPABILITY_SCHEMA_VERSION,
   REPLAY_DECISION_HARNESS_LOADER_POLICY_VERSION,
   REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION,
   REPLAY_DECISION_HARNESS_REGISTRY_POLICY_VERSION,
+  REPLAY_DECISION_HARNESS_WORKER_PROTOCOL_VERSION,
+  REPLAY_DECISION_HARNESS_WORKER_REQUEST_SCHEMA_VERSION,
+  REPLAY_DECISION_HARNESS_WORKER_RESPONSE_SCHEMA_VERSION,
   REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION,
   REPLAY_LOCAL_ARTIFACT_STORE_CAPABILITY,
   REPLAY_OBJECT_ARTIFACT_STORE_REQUIRED_CAPABILITY,
@@ -21,12 +25,14 @@ import {
   assertReplayDatasetManifest,
   assertReplayArtifactStoreCapability,
   assertReplayDecisionHarnessCapability,
+  assertReplayDecisionHarnessBuildAttestation,
   assertReplayDecisionHarnessReceipt,
   assertReplayDecisionHarnessSourceBundle,
   assertReplayDecisionInputSnapshot,
   assertReplaySupplementalFact,
   assertReplaySupplementalRequirementSet,
   canonicalHash,
+  createReplayDecisionHarnessBuildAttestation,
   createReplayDecisionHarnessReceipt,
   createReplayDecisionHarnessSourceBundle,
   createReplayDecisionInputSnapshot,
@@ -158,28 +164,64 @@ test("Decision Input Snapshot and Harness Receipt are self-hashed immutable evid
   expect(() => assertReplayDecisionInputSnapshot(snapshot, requestValue)).not.toThrow()
   expect(() => assertReplayDecisionInputSnapshot({ ...snapshot, decision_time: "2026-07-13T23:59:59Z" }, requestValue)).toThrow()
 
+  const buildAttestation = createReplayDecisionHarnessBuildAttestation({
+    source_bundle: sourceBundle,
+    runtime_version: "fixture-bun",
+    runtime_executable_sha256: HASH,
+    artifact_content_utf8: "export default 1\n",
+  })
+  expect(() => assertReplayDecisionHarnessBuildAttestation({
+    ...buildAttestation,
+    artifact: { ...buildAttestation.artifact, content_utf8: `${buildAttestation.artifact.content_utf8}// tampered\n` },
+  }, sourceBundle)).toThrow("artifact hash mismatch")
+  const workerRequest = {
+    schema_version: REPLAY_DECISION_HARNESS_WORKER_REQUEST_SCHEMA_VERSION,
+    invocation_id: HASH,
+    source_bundle_hash: sourceBundle.bundle_hash,
+    artifact_hash: buildAttestation.artifact.sha256,
+    request: requestValue,
+    decision_input_snapshot: snapshot,
+  }
+  const workerResponse = {
+    schema_version: REPLAY_DECISION_HARNESS_WORKER_RESPONSE_SCHEMA_VERSION,
+    invocation_id: HASH,
+    source_bundle_hash: sourceBundle.bundle_hash,
+    artifact_hash: buildAttestation.artifact.sha256,
+    derived_order: requestValue.order,
+    trace: { selected_records_hash: snapshot.selected_records_hash },
+  }
+
   const capability = {
     schema_version: REPLAY_DECISION_HARNESS_CAPABILITY_SCHEMA_VERSION,
     harness_hash: requestValue.harness_hash,
     source_bundle_ref: sourceBundle.bundle_ref,
     source_bundle_hash: sourceBundle.bundle_hash,
+    build_attestation_hash: buildAttestation.attestation_hash,
+    build_artifact_hash: buildAttestation.artifact.sha256,
+    runtime_executable_hash: buildAttestation.runtime.executable_sha256,
     registry_policy_version: REPLAY_DECISION_HARNESS_REGISTRY_POLICY_VERSION,
+    build_policy_version: REPLAY_DECISION_HARNESS_BUILD_POLICY_VERSION,
     loader_policy_version: REPLAY_DECISION_HARNESS_LOADER_POLICY_VERSION,
-    execution_policy: "registered_entrypoint_deterministic" as const,
+    worker_protocol_version: REPLAY_DECISION_HARNESS_WORKER_PROTOCOL_VERSION,
+    execution_policy: "fresh_subprocess_stdio_reproducibility_pair" as const,
     input_schema_version: REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION,
     output_schema_version: REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION,
   }
   expect(() => assertReplayDecisionHarnessCapability(capability, requestValue)).not.toThrow()
-  expect(() => assertReplayDecisionHarnessCapability({ ...capability, harness_hash: "b".repeat(64) }, requestValue)).toThrow("source/registry/loader binding")
+  expect(() => assertReplayDecisionHarnessCapability({ ...capability, harness_hash: "b".repeat(64) }, requestValue)).toThrow("source/build/runtime binding")
   const receipt = createReplayDecisionHarnessReceipt({
     request: requestValue,
     decision_input_snapshot: snapshot,
     source_bundle: sourceBundle,
+    build_attestation: buildAttestation,
     capability,
+    worker_request: workerRequest,
+    worker_response: workerResponse,
+    worker_verification_response: workerResponse,
     derived_order: requestValue.order,
     trace: { selected_records_hash: snapshot.selected_records_hash },
   })
-  expect(() => assertReplayDecisionHarnessReceipt(receipt, requestValue, snapshot, sourceBundle)).not.toThrow()
+  expect(() => assertReplayDecisionHarnessReceipt(receipt, requestValue, snapshot, sourceBundle, buildAttestation)).not.toThrow()
   expect(() => assertReplayDecisionHarnessReceipt({ ...receipt, trace: { tampered: true } }, requestValue, snapshot)).toThrow("trace hash")
 })
 

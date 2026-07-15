@@ -1,10 +1,14 @@
 import { expect, test } from "bun:test"
 import {
   REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
+  REPLAY_DECISION_HARNESS_BUILD_POLICY_VERSION,
   REPLAY_DECISION_HARNESS_CAPABILITY_SCHEMA_VERSION,
   REPLAY_DECISION_HARNESS_LOADER_POLICY_VERSION,
   REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION,
   REPLAY_DECISION_HARNESS_REGISTRY_POLICY_VERSION,
+  REPLAY_DECISION_HARNESS_WORKER_PROTOCOL_VERSION,
+  REPLAY_DECISION_HARNESS_WORKER_REQUEST_SCHEMA_VERSION,
+  REPLAY_DECISION_HARNESS_WORKER_RESPONSE_SCHEMA_VERSION,
   REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION,
   REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION,
   REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION,
@@ -16,6 +20,7 @@ import {
   REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION,
   REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
   canonicalHash,
+  createReplayDecisionHarnessBuildAttestation,
   createReplayDecisionHarnessReceipt,
   createReplayDecisionHarnessSourceBundle,
   replayDatasetHash,
@@ -167,26 +172,60 @@ function inputFor(
   }
   const base = { request: boundRequest, dataset_manifest: datasetManifest, bars, funding_events: fundingEvents, mark_events: markEvents, supplemental_facts: supplementalFacts }
   const prepared = prepareReplayInputData(base)
+  const decisionHarnessBuild = decisionHarnessBundle
+    ? createReplayDecisionHarnessBuildAttestation({
+      source_bundle: decisionHarnessBundle,
+      runtime_version: "fixture-bun",
+      runtime_executable_sha256: HASH,
+      artifact_content_utf8: "export default 1\n",
+    })
+    : null
+  const workerRequest = decisionHarnessBuild ? {
+    schema_version: REPLAY_DECISION_HARNESS_WORKER_REQUEST_SCHEMA_VERSION,
+    invocation_id: HASH,
+    source_bundle_hash: decisionHarnessBuild.source_bundle_hash,
+    artifact_hash: decisionHarnessBuild.artifact.sha256,
+    request: boundRequest,
+    decision_input_snapshot: prepared.decision_input_snapshot,
+  } : null
+  const workerResponse = decisionHarnessBuild ? {
+    schema_version: REPLAY_DECISION_HARNESS_WORKER_RESPONSE_SCHEMA_VERSION,
+    invocation_id: HASH,
+    source_bundle_hash: decisionHarnessBuild.source_bundle_hash,
+    artifact_hash: decisionHarnessBuild.artifact.sha256,
+    derived_order: boundRequest.order,
+    trace: { fixture: "engine-harness-executed" },
+  } : null
   return {
     ...base,
     decision_input_snapshot: prepared.decision_input_snapshot,
     decision_harness_bundle: decisionHarnessBundle,
+    decision_harness_build: decisionHarnessBuild,
     decision_harness_receipt: supplementalFacts.length > 0
       ? createReplayDecisionHarnessReceipt({
         request: boundRequest,
         decision_input_snapshot: prepared.decision_input_snapshot,
         source_bundle: decisionHarnessBundle!,
+        build_attestation: decisionHarnessBuild!,
         capability: {
           schema_version: REPLAY_DECISION_HARNESS_CAPABILITY_SCHEMA_VERSION,
           harness_hash: decisionHarnessBundle!.bundle_hash,
           source_bundle_ref: decisionHarnessBundle!.bundle_ref,
           source_bundle_hash: decisionHarnessBundle!.bundle_hash,
+          build_attestation_hash: decisionHarnessBuild!.attestation_hash,
+          build_artifact_hash: decisionHarnessBuild!.artifact.sha256,
+          runtime_executable_hash: decisionHarnessBuild!.runtime.executable_sha256,
           registry_policy_version: REPLAY_DECISION_HARNESS_REGISTRY_POLICY_VERSION,
+          build_policy_version: REPLAY_DECISION_HARNESS_BUILD_POLICY_VERSION,
           loader_policy_version: REPLAY_DECISION_HARNESS_LOADER_POLICY_VERSION,
-          execution_policy: "registered_entrypoint_deterministic",
+          worker_protocol_version: REPLAY_DECISION_HARNESS_WORKER_PROTOCOL_VERSION,
+          execution_policy: "fresh_subprocess_stdio_reproducibility_pair",
           input_schema_version: REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION,
           output_schema_version: REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION,
         },
+        worker_request: workerRequest!,
+        worker_response: workerResponse!,
+        worker_verification_response: workerResponse!,
         derived_order: boundRequest.order,
         trace: { fixture: "engine-harness-executed" },
       })
@@ -276,7 +315,11 @@ test("Result binds the deterministic signal-time supplemental revision view", ()
   const replayInput = inputFor(
     request(), [bar("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", 100, 109, 98, 108)], [], [], facts,
   )
-  const result = executeReplayKernel(replayInput)
+  let checkpoint: ReplayEngineCheckpoint | undefined
+  const result = executeReplayKernel({
+    ...replayInput,
+    execution_control: { on_checkpoint: (value) => { checkpoint = value; return "continue" } },
+  })
   expect(result.supplemental_evidence.selected_record_ids).toEqual(["feature-v1"])
   expect(result.supplemental_evidence.future_revision_count).toBe(1)
   expect(result.supplemental_evidence.requirement_evaluations).toHaveLength(1)
@@ -286,10 +329,14 @@ test("Result binds the deterministic signal-time supplemental revision view", ()
   expect(result.fingerprint.decision_input_snapshot_hash).toBe(result.decision_input_snapshot.snapshot_hash)
   expect(result.fingerprint.decision_harness_receipt_hash).toBe(result.decision_harness_receipt?.receipt_hash ?? null)
   expect(result.fingerprint.decision_harness_bundle_hash).toBe(result.decision_harness_bundle?.bundle_hash ?? null)
+  expect(result.fingerprint.decision_harness_build_attestation_hash).toBe(result.decision_harness_build?.attestation_hash ?? null)
   expect(result.fingerprint.decision_harness_loader_policy_version).toBe(REPLAY_DECISION_HARNESS_LOADER_POLICY_VERSION)
-  expect(result.limitations.map((limitation) => limitation.code)).toContain("decision-harness-build-attestation-uncertified")
-  expect(() => executeReplayKernel({ ...replayInput, decision_harness_receipt: null })).toThrow("requires a decision harness bundle and receipt")
-  expect(() => executeReplayKernel({ ...replayInput, decision_harness_bundle: null })).toThrow("requires a decision harness bundle and receipt")
+  expect(checkpoint?.decision_harness_build_attestation_hash).toBe(result.decision_harness_build?.attestation_hash ?? null)
+  expect(checkpoint?.decision_harness_worker_protocol_version).toBe(result.decision_harness_receipt?.worker_protocol_version ?? null)
+  expect(result.limitations.map((limitation) => limitation.code)).toContain("decision-harness-os-sandbox-uncertified")
+  expect(() => executeReplayKernel({ ...replayInput, decision_harness_receipt: null })).toThrow("requires decision harness bundle, build attestation, and receipt")
+  expect(() => executeReplayKernel({ ...replayInput, decision_harness_bundle: null })).toThrow("requires decision harness bundle, build attestation, and receipt")
+  expect(() => executeReplayKernel({ ...replayInput, decision_harness_build: null })).toThrow("requires decision harness bundle, build attestation, and receipt")
   expect(() => executeReplayKernel({
     ...replayInput,
     decision_input_snapshot: { ...replayInput.decision_input_snapshot, selected_records: [] },

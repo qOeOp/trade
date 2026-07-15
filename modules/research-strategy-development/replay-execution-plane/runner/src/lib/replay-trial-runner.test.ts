@@ -17,6 +17,8 @@ import {
   REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION,
   REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
   canonicalHash,
+  createReplayDecisionHarnessBuildAttestation,
+  createReplayDecisionInputSnapshot,
   createReplayDecisionHarnessSourceBundle,
   replayDatasetHash,
   replayExecutionSpecHash,
@@ -32,6 +34,7 @@ import {
   type ReplayDecisionHarnessRegistry,
   type ReplayRegisteredDecisionHarness,
 } from "./replay-decision-harness"
+import { buildReplayDecisionHarness, executeReplayDecisionHarnessWorker } from "./replay-decision-harness-build"
 
 const HASH = "b".repeat(64)
 const OBSERVED_AT = "2026-07-14T00:01:00Z"
@@ -66,23 +69,77 @@ const DATA_HASH = replayDatasetHash(bars)
 
 function boundRequest(): ReplayExecutionRequest { return { ...request(), dataset_hash: DATA_HASH } }
 
-function decisionHarness(
-  execute: ReplayRegisteredDecisionHarness["execute"] = ({ request: authorizedRequest }) => ({
-    derived_order: structuredClone(authorizedRequest.order),
-    trace: { fixture: "runner-harness-executed" },
-  }),
-  sourceContent = "export function execute(input) { return input.request.order }\n",
-): { source_bundle: ReplayRegisteredDecisionHarness["source_bundle"]; registry: ReturnType<typeof createReplayDecisionHarnessRegistry> } {
+function decisionHarness(sourceContent = `export function execute({ request, decision_input_snapshot }) {
+  return { derived_order: request.order, trace: { selected_records_hash: decision_input_snapshot.selected_records_hash } }
+}\n`): ReplayRegisteredDecisionHarness & { registry: ReturnType<typeof createReplayDecisionHarnessRegistry> } {
   const sourceBundle = createReplayDecisionHarnessSourceBundle({
     bundle_ref: "harness://fixture/runner-decision-v1",
     entrypoint: { file_path: "src/decision.ts", export_name: "execute" },
     files: [{ path: "src/decision.ts", content_utf8: sourceContent }],
   })
+  const buildAttestation = buildReplayDecisionHarness(sourceBundle)
   return {
     source_bundle: sourceBundle,
-    registry: createReplayDecisionHarnessRegistry([{ source_bundle: sourceBundle, execute }]),
+    build_attestation: buildAttestation,
+    registry: createReplayDecisionHarnessRegistry([{ source_bundle: sourceBundle, build_attestation: buildAttestation }]),
   }
 }
+
+test("decision harness build is deterministic and each invocation uses a fresh subprocess", () => {
+  const registration = decisionHarness(`export function execute({ request }) {
+    return { derived_order: request.order, trace: { worker_pid: process.pid } }
+  }\n`)
+  expect(buildReplayDecisionHarness(registration.source_bundle)).toEqual(registration.build_attestation)
+  const requestValue = boundRequest()
+  requestValue.harness_hash = registration.source_bundle.bundle_hash
+  const snapshot = createReplayDecisionInputSnapshot(requestValue, [])
+  const first = executeReplayDecisionHarnessWorker({ source_bundle: registration.source_bundle, build_attestation: registration.build_attestation, request: requestValue, decision_input_snapshot: snapshot })
+  const second = executeReplayDecisionHarnessWorker({ source_bundle: registration.source_bundle, build_attestation: registration.build_attestation, request: requestValue, decision_input_snapshot: snapshot })
+  expect(first.worker_response.derived_order).toEqual(requestValue.order)
+  expect((first.worker_response.trace as { worker_pid: number }).worker_pid).not.toBe(
+    (second.worker_response.trace as { worker_pid: number }).worker_pid,
+  )
+})
+
+test("decision harness build rejects external dependencies and runtime drift", () => {
+  const externalBundle = createReplayDecisionHarnessSourceBundle({
+    bundle_ref: "harness://fixture/external-v1",
+    entrypoint: { file_path: "src/decision.ts", export_name: "execute" },
+    files: [{
+      path: "src/decision.ts",
+      content_utf8: `import { readFileSync } from "node:fs"
+export function execute({ request }) { return { derived_order: request.order, trace: { bytes: readFileSync("/tmp/missing").length } } }
+`,
+    }],
+  })
+  expect(() => buildReplayDecisionHarness(externalBundle)).toThrow("external imports")
+
+  const registration = decisionHarness()
+  const forgedBuild = createReplayDecisionHarnessBuildAttestation({
+    source_bundle: registration.source_bundle,
+    runtime_version: registration.build_attestation.runtime.runtime_version,
+    runtime_executable_sha256: registration.build_attestation.runtime.executable_sha256,
+    artifact_content_utf8: `${registration.build_attestation.artifact.content_utf8}// forged\n`,
+  })
+  expect(() => createReplayDecisionHarnessRegistry([{
+    source_bundle: registration.source_bundle,
+    build_attestation: forgedBuild,
+  }])).toThrow("does not match deterministic rebuild")
+  const driftedBuild = createReplayDecisionHarnessBuildAttestation({
+    source_bundle: registration.source_bundle,
+    runtime_version: registration.build_attestation.runtime.runtime_version,
+    runtime_executable_sha256: "f".repeat(64),
+    artifact_content_utf8: registration.build_attestation.artifact.content_utf8,
+  })
+  const requestValue = boundRequest()
+  requestValue.harness_hash = registration.source_bundle.bundle_hash
+  expect(() => executeReplayDecisionHarnessWorker({
+    source_bundle: registration.source_bundle,
+    build_attestation: driftedBuild,
+    request: requestValue,
+    decision_input_snapshot: createReplayDecisionInputSnapshot(requestValue, []),
+  })).toThrow("runtime does not match build attestation")
+})
 
 function authorize(requestValue: ReplayExecutionRequest): TrialReservationSnapshot {
   const reservation: TrialReservationSnapshot = {
@@ -203,7 +260,7 @@ test("runner atomically commits artifacts and retries idempotently", () => {
     artifact_store: createReplayLocalArtifactStore(root),
   })
   expect(first.status).toBe("completed")
-  expect(first.artifact_manifest?.files.map((file) => file.role)).toEqual(["request", "trial_reservation", "attempt_lease", "dataset_manifest", "supplemental_facts", "decision_harness_bundle", "decision_input_snapshot", "decision_harness_receipt", "result", "source_events", "order_events", "fills", "positions", "ledger", "valuation_snapshot", "equity_bridge", "margin_snapshots", "liquidation", "journal", "trial_balance"])
+  expect(first.artifact_manifest?.files.map((file) => file.role)).toEqual(["request", "trial_reservation", "attempt_lease", "dataset_manifest", "supplemental_facts", "decision_harness_bundle", "decision_harness_build", "decision_input_snapshot", "decision_harness_receipt", "result", "source_events", "order_events", "fills", "positions", "ledger", "valuation_snapshot", "equity_bridge", "margin_snapshots", "liquidation", "journal", "trial_balance"])
   expect(first.artifact_manifest?.completeness.authoritative_result).toBe(true)
   expect(first.artifact_manifest?.storage_policy_version).toBe(REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION)
   expect(first.artifact_commit?.terminal_checkpoint_hash).toBe(first.artifact_manifest?.completeness.terminal_checkpoint_hash)
@@ -232,11 +289,7 @@ test("runner commits the complete supplemental revision stream as immutable evid
     }],
   }
   const dataHash = replayDatasetHash(bars, [], [], supplementalFacts)
-  let harnessExecutionCount = 0
-  const registeredHarness = decisionHarness(({ request: authorizedRequest, decision_input_snapshot: snapshot }) => {
-    harnessExecutionCount += 1
-    return { derived_order: structuredClone(authorizedRequest.order), trace: { selected_records_hash: snapshot.selected_records_hash } }
-  })
+  const registeredHarness = decisionHarness()
   const requestValue = {
     ...boundRequest(), dataset_hash: dataHash, supplemental_facts_hash: supplementalHash,
     supplemental_requirement_set: supplementalRequirementSet,
@@ -253,16 +306,20 @@ test("runner commits the complete supplemental revision stream as immutable evid
     decision_harness_registry: registeredHarness.registry,
   })
   expect(completed.status).toBe("completed")
-  expect(harnessExecutionCount).toBe(1)
   expect(completed.result?.supplemental_evidence.selected_record_ids).toEqual(["feature-1"])
   expect(completed.result?.decision_harness_receipt?.decision_input_snapshot_hash).toBe(completed.result?.decision_input_snapshot.snapshot_hash)
   const supplementalArtifact = completed.artifact_manifest?.files.find((file) => file.role === "supplemental_facts")
   expect(JSON.parse(readFileSync(supplementalArtifact!.ref, "utf8"))).toEqual(supplementalFacts)
   const bundleArtifact = completed.artifact_manifest?.files.find((file) => file.role === "decision_harness_bundle")
   expect(JSON.parse(readFileSync(bundleArtifact!.ref, "utf8"))).toEqual(registeredHarness.source_bundle)
+  const buildArtifact = completed.artifact_manifest?.files.find((file) => file.role === "decision_harness_build")
+  expect(JSON.parse(readFileSync(buildArtifact!.ref, "utf8"))).toEqual(registeredHarness.build_attestation)
   const idempotent = runReplayTrial({
     ...authorized(requestValue), dataset_manifest: manifest, bars, supplemental_facts: supplementalFacts, artifact_root: root,
-    decision_harness_registry: decisionHarness(() => { throw new Error("idempotent replay must not invoke harness") }).registry,
+    decision_harness_registry: {
+      ...registeredHarness.registry,
+      resolve: () => { throw new Error("idempotent replay must not resolve harness") },
+    },
   })
   expect(idempotent).toMatchObject({ status: "completed", idempotent_replay: true })
 
@@ -274,7 +331,7 @@ test("runner commits the complete supplemental revision stream as immutable evid
   })
   const unknownBundleRegistry = runReplayTrial({
     ...authorized(requestValue), dataset_manifest: manifest, bars, supplemental_facts: supplementalFacts,
-    decision_harness_registry: decisionHarness(undefined, "export function execute(input) { return { ...input.request.order } }\n").registry,
+    decision_harness_registry: decisionHarness("export function execute({ request }) { return { derived_order: { ...request.order }, trace: {} } }\n").registry,
   })
   expect(unknownBundleRegistry.failure).toMatchObject({ code: "decision-harness-rejected", partial_result_published: false })
   expect(unknownBundleRegistry.failure?.message).toContain("not registered")
@@ -290,12 +347,19 @@ test("runner commits the complete supplemental revision stream as immutable evid
   expect(loaderDrift.failure?.message).toContain("registry capability is not certified")
   const mismatchedOrder = runReplayTrial({
     ...authorized(requestValue), dataset_manifest: manifest, bars, supplemental_facts: supplementalFacts,
-    decision_harness_registry: decisionHarness(({ request: authorizedRequest }) => ({
-      derived_order: { ...authorizedRequest.order, target_price: authorizedRequest.order.target_price + 1 },
-      trace: { fixture: "mismatch" },
-    })).registry,
+    decision_harness_registry: decisionHarness("export function execute({ request }) { return { derived_order: { ...request.order, target_price: request.order.target_price + 1 }, trace: { fixture: 'mismatch' } } }\n").registry,
   })
   expect(mismatchedOrder.failure).toMatchObject({ code: "decision-harness-rejected", partial_result_published: false })
+  const nondeterministicHarness = decisionHarness(`export function execute({ request }) {
+    return { derived_order: request.order, trace: { worker_pid: process.pid } }
+  }\n`)
+  const nondeterministicRequest = { ...requestValue, harness_hash: nondeterministicHarness.source_bundle.bundle_hash }
+  const nondeterministicResult = runReplayTrial({
+    ...authorized(nondeterministicRequest), dataset_manifest: manifest, bars, supplemental_facts: supplementalFacts,
+    decision_harness_registry: nondeterministicHarness.registry,
+  })
+  expect(nondeterministicResult.failure).toMatchObject({ code: "decision-harness-rejected", partial_result_published: false })
+  expect(nondeterministicResult.failure?.message).toContain("reproducibility parity failed")
 })
 
 test("runner fences stale Attempt leases and verifies every committed artifact file", () => {
@@ -338,7 +402,7 @@ test("runner enforces Reservation expiry only at Attempt claim admission", () =>
   expired.observed_at = "2026-07-14T00:01:30Z"
   const rejected = runReplayTrial({ ...expired, dataset_manifest: datasetManifest(), bars })
   expect(rejected).toMatchObject({
-    schema_version: "trade.rd-replay-run-outcome.v18",
+    schema_version: "trade.rd-replay-run-outcome.v19",
     status: "failed",
     failure: { code: "trial-reservation-expired", failure_class: "unsupported_contract", retryable: false, partial_result_published: false },
   })
