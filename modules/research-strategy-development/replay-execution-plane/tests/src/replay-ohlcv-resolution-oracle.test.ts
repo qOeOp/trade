@@ -1,5 +1,7 @@
 import { expect, test } from "bun:test"
+import { spawnSync } from "node:child_process"
 import { readFileSync } from "node:fs"
+import { fileURLToPath } from "node:url"
 import {
   assertReplayOhlcvResolutionEvidence,
   canonicalHash,
@@ -49,6 +51,33 @@ interface PathEconomics {
 interface Rational {
   numerator: bigint
   denominator: bigint
+}
+
+interface PythonOracleVector {
+  vector_id: string
+  position_side: Side
+  exit_side: "buy" | "sell"
+  entry_basis_price: string
+  trigger_price: string
+  quantity: string
+  fee_bps: string
+  slippage_bps: string
+  price_increment: string
+  settlement_increment: string
+}
+
+type PythonOracleResponse = {
+  schema_version: "trade.rd-replay-ohlcv-economic-oracle-response.v1"
+  status: "completed"
+  results: Array<{
+    vector_id: string
+    economics: Record<keyof PathEconomics, string>
+  }>
+} | {
+  schema_version: "trade.rd-replay-ohlcv-economic-oracle-response.v1"
+  status: "failed"
+  error_class: "input_invalid"
+  message: string
 }
 
 const fixture = JSON.parse(readFileSync(
@@ -306,6 +335,42 @@ function economicOracle(
   }
 }
 
+function canonicalEconomics(economics: PathEconomics): Record<keyof PathEconomics, string> {
+  return {
+    simulated_execution_price: String(economics.simulated_execution_price),
+    gross_realized_pnl: String(economics.gross_realized_pnl),
+    exit_fee: String(economics.exit_fee),
+    net_terminal_contribution: String(economics.net_terminal_contribution),
+  }
+}
+
+function invokePythonEconomicOracle(request: unknown): {
+  exit_code: number | null
+  response: PythonOracleResponse
+  stderr: string
+} {
+  const resolverPath = fileURLToPath(
+    new URL("../../../../../scripts/resolve-python.sh", import.meta.url),
+  )
+  const oraclePath = fileURLToPath(
+    new URL("../scripts/ohlcv_economic_oracle.py", import.meta.url),
+  )
+  const resolution = spawnSync("sh", [resolverPath], { encoding: "utf8" })
+  if (resolution.status !== 0 || !resolution.stdout.trim()) {
+    throw new Error(`Python resolver failed: ${resolution.stderr}`)
+  }
+  const execution = spawnSync(resolution.stdout.trim(), [oraclePath], {
+    encoding: "utf8",
+    input: JSON.stringify(request),
+  })
+  if (execution.error) throw execution.error
+  return {
+    exit_code: execution.status,
+    response: JSON.parse(execution.stdout) as PythonOracleResponse,
+    stderr: execution.stderr,
+  }
+}
+
 function rawTerminalPnl(side: Side, entryPrice: number, terminalPrice: number): number {
   return side === "long" ? terminalPrice - entryPrice : entryPrice - terminalPrice
 }
@@ -468,4 +533,75 @@ test("economic metamorphic: trace densification preserves cost-aware path contri
       }))
     }
   }
+})
+
+test("cross-language parity: Python Decimal, TypeScript BigInt, and Evidence agree", () => {
+  const vectors: PythonOracleVector[] = []
+  const expected = new Map<string, {
+    production: Record<keyof PathEconomics, string>
+    bigint: Record<keyof PathEconomics, string>
+  }>()
+  for (const profile of economicFixture.profiles) {
+    for (const case_ of fixture.cases) {
+      const evidence = evidenceFor(case_, profile)
+      for (const path of evidence.paths) {
+        const vectorId = `${profile.profile_id}:${case_.case_id}:${path.path_id}`
+        vectors.push({
+          vector_id: vectorId,
+          position_side: case_.position_side,
+          exit_side: case_.position_side === "long" ? "sell" : "buy",
+          entry_basis_price: String(fixture.entry_price),
+          trigger_price: String(path.trigger_price),
+          quantity: String(profile.quantity),
+          fee_bps: String(profile.fee_bps),
+          slippage_bps: String(profile.slippage_bps),
+          price_increment: profile.price_increment,
+          settlement_increment: profile.settlement_increment,
+        })
+        expected.set(vectorId, {
+          production: canonicalEconomics(path),
+          bigint: canonicalEconomics(economicOracle(case_, path.trigger_price, profile)),
+        })
+      }
+    }
+  }
+  const execution = invokePythonEconomicOracle({
+    schema_version: "trade.rd-replay-ohlcv-economic-oracle-request.v1",
+    vectors,
+  })
+  expect(execution).toMatchObject({ exit_code: 0, stderr: "" })
+  expect(execution.response.status).toBe("completed")
+  if (execution.response.status !== "completed") throw new Error(execution.response.message)
+  expect(execution.response.results.length).toBe(48)
+  for (const result of execution.response.results) {
+    const counterparts = expected.get(result.vector_id)!
+    expect(result.economics).toEqual(counterparts.bigint)
+    expect(result.economics).toEqual(counterparts.production)
+  }
+})
+
+test("cross-language protocol: Python oracle returns typed input failure", () => {
+  const execution = invokePythonEconomicOracle({
+    schema_version: "trade.rd-replay-ohlcv-economic-oracle-request.v1",
+    vectors: [{
+      vector_id: "noncanonical-quantity",
+      position_side: "long",
+      exit_side: "sell",
+      entry_basis_price: "100",
+      trigger_price: "105",
+      quantity: "1.0",
+      fee_bps: "0",
+      slippage_bps: "0",
+      price_increment: "0.01",
+      settlement_increment: "0.00000001",
+    }],
+  })
+  expect(execution.exit_code).toBe(2)
+  expect(execution.stderr).toBe("")
+  expect(execution.response).toMatchObject({
+    schema_version: "trade.rd-replay-ohlcv-economic-oracle-response.v1",
+    status: "failed",
+    error_class: "input_invalid",
+    message: "quantity must be a canonical non-negative decimal string",
+  })
 })
