@@ -1,0 +1,180 @@
+{
+  "request": {
+    "schema_version": "trade.rd-replay-execution-request.v10",
+    "run_id": "golden-run",
+    "idempotency_key": "golden-idempotency",
+    "experiment_id": "exp-golden",
+    "trial_group_id": "tg-golden",
+    "trial_group_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "trial_id": "trial-golden",
+    "candidate_id": "candidate-golden",
+    "candidate_hash": "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+    "identity_hash_policy_version": "rd-identity-v1",
+    "experiment_contract_hash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+    "trial_reservation_ref": "reservation://trial-golden",
+    "trial_reservation_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "dataset_manifest_ref": "dataset://golden",
+    "dataset_hash": "47223604386a42a5ce8a8041d5774fea522490fe6e517528b15934d01cc2023c",
+    "venue_risk_policy_snapshot_hash": "ac6beeb640178aaa6005edec07f9df0ad1b7d936a6c5dab44d5cb51589d8533d",
+    "instrument_spec_snapshot_hash": "bd1a741ab8104111d785d5817be660e9d82f7846d0d6f441e6edcb429596ee05",
+    "harness_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",
+    "assumptions_hash": "ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff",
+    "symbol": "BTCUSDT",
+    "timeframe": "4h",
+    "initial_cash": 1000,
+    "order": {
+      "side": "long",
+      "quantity": 1,
+      "signal_time": "2026-07-14T00:00:00Z",
+      "earliest_executable_time": "2026-07-14T04:00:00Z",
+      "stop_price": 90,
+      "target_price": 110
+    },
+    "cost_policy": {
+      "policy_id": "golden-cost",
+      "version": "v1",
+      "fee_bps": 10,
+      "slippage_bps": 5,
+      "liquidation_fee_bps": 10
+    },
+    "simulator_policy": {
+      "version": "rd-replay-simulator-v6",
+      "signal_visibility": "closed_candle",
+      "earliest_execution": "next_open",
+      "same_bar_policy": "stop_first",
+      "gap_fill_policy": "worse_open",
+      "position_accounting": "average_cost",
+      "funding_timing": "exact_event",
+      "end_of_data": "mark_open",
+      "margin_evaluation": "before_strategy_orders"
+    },
+    "margin_policy": {
+      "policy_id": "certified-isolated-margin",
+      "version": "rd-replay-isolated-margin-v6",
+      "mode": "isolated",
+      "collateral_asset": "USDT",
+      "isolated_collateral": 1000,
+      "initial_margin_rate": 0.1,
+      "maintenance_tier": {
+        "tier_id": "fixture-tier-1",
+        "snapshot_ref": "fixture:maintenance-tier-1",
+        "snapshot_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "notional_floor": 0,
+        "notional_cap": 50000,
+        "maintenance_margin_rate": 0.005,
+        "maintenance_amount": 0
+      },
+      "cashflow_scope": "position_attributed",
+      "collateral_transfer": "reserve_at_entry_release_at_terminal_if_flat",
+      "settled_cashflow_account": "isolated_margin_collateral",
+      "observation_scope": "source_event_path",
+      "mark_source_policy": "complete_exact_mark_else_ohlcv_adverse",
+      "maintenance_trigger": "margin_balance_below_maintenance_requirement",
+      "breach_terminal_priority": "risk_before_strategy_exit",
+      "breach_evidence": "first_observed_source_event",
+      "maintenance_breach_action": "exact_observation_full_liquidation_else_terminal_failure",
+      "liquidation": "simulated_full_close",
+      "liquidation_trigger_sources": "mark_or_funding_mark",
+      "liquidation_execution_price": "trigger_mark_adverse_slippage",
+      "liquidation_quantity": "full_position",
+      "liquidation_order_priority": "cancel_strategy_exits_before_forced_fill",
+      "liquidation_deficit": "fail_without_result"
+    },
+    "random_seed": 7
+  },
+  "dataset_manifest": {
+    "schema_version": "trade.rd-replay-dataset-manifest.v4",
+    "manifest_id": "manifest-golden",
+    "manifest_ref": "dataset://golden",
+    "data_hash": "47223604386a42a5ce8a8041d5774fea522490fe6e517528b15934d01cc2023c",
+    "dataset_kind": "ohlcv",
+    "symbol": "BTCUSDT",
+    "timeframe": "4h",
+    "interval_ms": 14400000,
+    "row_count": 1,
+    "first_open_time": "2026-07-14T04:00:00Z",
+    "last_close_time": "2026-07-14T08:00:00Z",
+    "observed_through": "2026-07-14T08:00:00Z",
+    "closed_candles_only": true,
+    "bar_final_availability": "close_time",
+    "funding_availability": "event_time",
+    "mark_availability": "event_time",
+    "mark_coverage": "none",
+    "mark_interval_ms": null,
+    "mark_event_count": 0,
+    "venue_risk_policy": {
+      "schema_version": "trade.rd-replay-venue-risk-policy-snapshot.v1",
+      "snapshot_id": "risk-golden",
+      "venue_id": "binance-usdm",
+      "symbol": "BTCUSDT",
+      "effective_at": "2020-01-01T00:00:00Z",
+      "valid_until": null,
+      "observed_at": "2026-07-13T00:00:00Z",
+      "source_ref": "fixture:risk-golden",
+      "source_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "initial_margin_rate": 0.1,
+      "maintenance_tier": {
+        "tier_id": "fixture-tier-1",
+        "snapshot_ref": "fixture:maintenance-tier-1",
+        "snapshot_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "notional_floor": 0,
+        "notional_cap": 50000,
+        "maintenance_margin_rate": 0.005,
+        "maintenance_amount": 0
+      },
+      "liquidation_fee_bps": 10
+    },
+    "instrument": {
+      "listed_at": "2020-01-01T00:00:00Z",
+      "trading_enabled_at": "2020-01-01T00:00:00Z",
+      "delisted_at": null,
+      "status_history": "complete",
+      "spec_snapshot": {
+        "schema_version": "trade.rd-replay-instrument-spec-snapshot.v1",
+        "snapshot_id": "spec-golden",
+        "venue_id": "binance-usdm",
+        "symbol": "BTCUSDT",
+        "effective_at": "2020-01-01T00:00:00Z",
+        "valid_until": null,
+        "observed_at": "2026-07-13T00:00:00Z",
+        "source_ref": "fixture:spec-golden",
+        "source_hash": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+      },
+      "accounting": {
+        "spec_version": "rd-replay-instrument-accounting-v1",
+        "product_type": "linear_derivative",
+        "base_asset": "BTC",
+        "quote_asset": "USDT",
+        "settlement_asset": "USDT",
+        "contract_multiplier": "1",
+        "price_increment": "0.01",
+        "quantity_increment": "0.001",
+        "settlement_increment": "0.00000001"
+      }
+    },
+    "universe": {
+      "selected_at": "2026-07-13T00:00:00Z",
+      "survivorship": "point_in_time"
+    }
+  },
+  "bars": [
+    {
+      "open_time": "2026-07-14T04:00:00Z",
+      "close_time": "2026-07-14T08:00:00Z",
+      "open": 100,
+      "high": 111,
+      "low": 99,
+      "close": 109,
+      "volume": 10,
+      "closed": true
+    }
+  ],
+  "funding_events": [
+    {
+      "timestamp": "2026-07-14T06:00:00Z",
+      "rate": 0.001,
+      "mark_price": 105
+    }
+  ],
+  "expected_semantic_digest": "8742f6ae60a72ff46c949cdb9b7e362bd9edde1de767530096f8f0464ec494e6"
+}

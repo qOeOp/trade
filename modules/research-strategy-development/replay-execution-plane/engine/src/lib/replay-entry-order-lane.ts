@@ -13,6 +13,7 @@ import {
 import type { ReplayTransitionCapture } from "./replay-exit-order-lane"
 
 export interface ReplayEntryOrderExecution {
+  entry_order: ReplayOrder
   entry_order_id: string
   executed_quantity: number
   signed_position_after: number
@@ -84,6 +85,7 @@ export function completeReplayEntryOrderLane(input: {
   )).order
 
   return {
+    entry_order: entryOrder,
     entry_order_id: entryOrder.order_id,
     executed_quantity: entryTransition.executed_quantity,
     signed_position_after: signedPosition,

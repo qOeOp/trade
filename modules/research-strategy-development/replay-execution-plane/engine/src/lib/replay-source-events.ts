@@ -1,5 +1,6 @@
 import type {
   ReplayFundingEvent,
+  ReplayMarkEvent,
   ReplayMarketBar,
   ReplaySourceEvent,
 } from "../../../contracts/src/lib/replay-contracts"
@@ -8,6 +9,7 @@ import { compareReplayEventKeys, createReplayEventKey } from "./replay-event-key
 export function buildReplaySourceEvents(input: {
   bars: ReplayMarketBar[]
   funding_events: ReplayFundingEvent[]
+  mark_events: ReplayMarkEvent[]
   delisted_at?: string | null
   start_time: string
   end_time: string
@@ -29,6 +31,9 @@ export function buildReplaySourceEvents(input: {
   for (const [index, event] of input.funding_events.entries()) {
     if (inWindow(event.timestamp)) events.push(sourceEvent("funding", index, event.timestamp, 10, index + 1))
   }
+  for (const [index, event] of input.mark_events.entries()) {
+    if (inWindow(event.timestamp)) events.push(sourceEvent("mark", index, event.timestamp, 15, event.source_sequence))
+  }
   events.sort((left, right) => compareReplayEventKeys(left.event_key, right.event_key))
   for (let index = 1; index < events.length; index += 1) {
     if (compareReplayEventKeys(events[index - 1].event_key, events[index].event_key) >= 0) {
@@ -42,7 +47,7 @@ function sourceEvent(
   kind: ReplaySourceEvent["kind"],
   sourceIndex: number,
   eventTime: string,
-  boundaryPhase: 10 | 20,
+  boundaryPhase: 10 | 15 | 20,
   sourceSequence: number,
 ): ReplaySourceEvent {
   const sourceEventId = `source:${kind}:${sourceSequence}:${eventTime}`

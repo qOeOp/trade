@@ -20,6 +20,8 @@ import { RESEARCH_CONTRACT_VALIDATOR_VERSION } from "./research-contract-validat
 import { hashIdentityPayload } from "./research-identity-hash"
 import { buildDefaultUniverseSeed, seedDefaultResearchControlPlane } from "./research-universe-default-seed"
 import { ensureResearchStateSchema } from "./research-state-store"
+import { issueTrialReservationSnapshot } from "./trial-reservation-snapshot"
+import { claimReplayAttempt, finalizeReplayAttempt, renewReplayAttemptLease } from "./replay-attempt-authority"
 import {
   appendExperimentResult,
   applySystemTransition,
@@ -48,6 +50,7 @@ test("control plane schema initializes frozen stages and lifecycle rules", () =>
       "rd_trial_group",
       "rd_experiment_contract",
       "rd_trial",
+      "rd_replay_attempt",
       "rd_experiment_result",
       "rd_review_decision",
       "rd_lifecycle_event",
@@ -227,6 +230,121 @@ test("experiment facts enforce trial identity, sentinel, freeze, and append-only
       SET candidate_hash='replacement-hash'
       WHERE experiment_id='experiment-1'
     `).run(), /frozen candidate identity is immutable/)
+  } finally {
+    db.close()
+  }
+})
+
+test("Control Plane atomically issues an immutable Replay Trial Reservation snapshot", () => {
+  const db = openDb()
+  try {
+    seedExecutableExperiment(db, false)
+    db.query("UPDATE rd_trial_group SET status='running' WHERE trial_group_id='group-1'").run()
+    reserveTrial(db, {
+      trial_id: "trial-reserved", trial_group_id: "group-1", experiment_id: "experiment-1", trial_ordinal: 1,
+      candidate_id: "candidate-1", candidate_identity_hash: candidateIdentityHash({ lookback: 20 }), identity_hash_policy_version: HASH_POLICY,
+      run_id: "run-reserved", idempotency_key: "trial-reserved-key", created_at: NOW,
+    })
+    const snapshot = issueTrialReservationSnapshot(db, {
+      trial_id: "trial-reserved", reservation_id: "reservation-1", reservation_ref: "reservation://trial-reserved", issued_at: NOW,
+      bindings: {
+        replay_idempotency_key: "replay-key", execution_spec_hash: "a".repeat(64), dataset_manifest_ref: "dataset://fixture", dataset_hash: "b".repeat(64),
+        venue_risk_policy_snapshot_hash: "c".repeat(64), instrument_spec_snapshot_hash: "d".repeat(64), harness_hash: "e".repeat(64),
+        assumptions_hash: "f".repeat(64), cost_policy_hash: "1".repeat(64), margin_policy_hash: "2".repeat(64),
+        simulator_policy_version: "rd-replay-simulator-v6", execution_mode: "step",
+      },
+      required_capabilities: ["closed-candle", "step"],
+    })
+    assert.equal(snapshot.status, "reserved")
+    assert.equal(snapshot.identity.trial_group_hash, trialGroup().group_hash)
+    assert.equal(snapshot.identity.candidate_hash, candidateIdentityHash({ lookback: 20 }))
+    assert.equal(snapshot.identity.experiment_contract_hash, hashIdentityPayload(experimentContract()))
+    assert.equal(snapshot.counts_against_budget, true)
+    finishTrial(db, { trial_id: "trial-reserved", status: "completed", completed_at: NOW })
+    assert.throws(() => issueTrialReservationSnapshot(db, {
+      trial_id: "trial-reserved", reservation_id: "reservation-2", reservation_ref: "reservation://trial-reserved", issued_at: NOW,
+      bindings: snapshot.bindings, required_capabilities: snapshot.required_capabilities,
+    }), /no longer reserved/)
+  } finally {
+    db.close()
+  }
+})
+
+test("Control Plane fences Replay Attempt leases and permits retry only after a terminal or expired attempt", () => {
+  const db = openDb()
+  try {
+    seedExecutableExperiment(db, false)
+    db.query("UPDATE rd_trial_group SET status='running' WHERE trial_group_id='group-1'").run()
+    reserveTrial(db, {
+      trial_id: "trial-attempt", trial_group_id: "group-1", experiment_id: "experiment-1", trial_ordinal: 1,
+      candidate_id: "candidate-1", candidate_identity_hash: candidateIdentityHash({ lookback: 20 }), identity_hash_policy_version: HASH_POLICY,
+      run_id: "run-attempt", idempotency_key: "trial-attempt-key", created_at: NOW,
+    })
+    const reservation = issueTrialReservationSnapshot(db, {
+      trial_id: "trial-attempt", reservation_id: "reservation-attempt", reservation_ref: "reservation://trial-attempt", issued_at: NOW,
+      bindings: {
+        replay_idempotency_key: "replay-attempt-key", execution_spec_hash: "a".repeat(64), dataset_manifest_ref: "dataset://fixture", dataset_hash: "b".repeat(64),
+        venue_risk_policy_snapshot_hash: "c".repeat(64), instrument_spec_snapshot_hash: "d".repeat(64), harness_hash: "e".repeat(64),
+        assumptions_hash: "f".repeat(64), cost_policy_hash: "1".repeat(64), margin_policy_hash: "2".repeat(64),
+        simulator_policy_version: "rd-replay-simulator-v6", execution_mode: "step",
+      },
+      required_capabilities: ["closed-candle", "step"],
+    })
+    const first = claimReplayAttempt(db, {
+      attempt_id: "attempt-1", worker_id: "worker-1", idempotency_key: "attempt-key-1",
+      request_hash: "9".repeat(64), claimed_at: "2026-07-14T04:00:00Z", lease_expires_at: "2026-07-14T04:05:00Z",
+      trial_reservation: reservation,
+    })
+    assert.equal(first.attempt_ordinal, 1)
+    assert.equal(first.lease_generation, 1)
+    assert.throws(() => claimReplayAttempt(db, {
+      attempt_id: "attempt-conflict", worker_id: "worker-2", idempotency_key: "attempt-key-conflict",
+      request_hash: "9".repeat(64), claimed_at: "2026-07-14T04:01:00Z", lease_expires_at: "2026-07-14T04:06:00Z",
+      trial_reservation: reservation,
+    }), /already has active attempt/)
+    const renewed = renewReplayAttemptLease(db, {
+      attempt_id: "attempt-1", worker_id: "worker-1", expected_lease_generation: 1,
+      heartbeat_at: "2026-07-14T04:02:00Z", lease_expires_at: "2026-07-14T04:07:00Z",
+    })
+    assert.equal(renewed.status, "running")
+    assert.equal(renewed.lease_generation, 2)
+    assert.throws(() => finalizeReplayAttempt(db, {
+      attempt_id: "attempt-1", worker_id: "worker-1", expected_lease_generation: 1,
+      status: "failed", finalized_at: "2026-07-14T04:03:00Z", failure_class: "deterministic_engine",
+    }), /fencing token mismatch/)
+    finalizeReplayAttempt(db, {
+      attempt_id: "attempt-1", worker_id: "worker-1", expected_lease_generation: 2,
+      status: "failed", finalized_at: "2026-07-14T04:03:00Z", failure_class: "deterministic_engine",
+    })
+    const second = claimReplayAttempt(db, {
+      attempt_id: "attempt-2", worker_id: "worker-2", idempotency_key: "attempt-key-2",
+      request_hash: "9".repeat(64), claimed_at: "2026-07-14T04:04:00Z", lease_expires_at: "2026-07-14T04:06:00Z",
+      trial_reservation: reservation,
+    })
+    assert.equal(second.attempt_ordinal, 2)
+    const third = claimReplayAttempt(db, {
+      attempt_id: "attempt-3", worker_id: "worker-3", idempotency_key: "attempt-key-3",
+      request_hash: "9".repeat(64), claimed_at: "2026-07-14T04:07:00Z", lease_expires_at: "2026-07-14T04:12:00Z",
+      trial_reservation: reservation,
+    })
+    assert.equal(third.attempt_ordinal, 3)
+    assert.equal((db.query("SELECT status FROM rd_replay_attempt WHERE attempt_id='attempt-2'").get() as { status: string }).status, "expired")
+    assert.throws(() => finalizeReplayAttempt(db, {
+      attempt_id: "attempt-2", worker_id: "worker-2", expected_lease_generation: 1,
+      status: "cancelled", finalized_at: "2026-07-14T04:05:00Z", failure_class: "resource",
+    }), /already terminal/)
+    finalizeReplayAttempt(db, {
+      attempt_id: "attempt-3", worker_id: "worker-3", expected_lease_generation: 1,
+      status: "completed", finalized_at: "2026-07-14T04:10:00Z",
+      result_hash: "3".repeat(64), artifact_ref: "artifact://attempt-3", artifact_hash: "4".repeat(64),
+      terminal_checkpoint_hash: "5".repeat(64),
+    })
+    assert.throws(() => claimReplayAttempt(db, {
+      attempt_id: "attempt-4", worker_id: "worker-4", idempotency_key: "attempt-key-4",
+      request_hash: "9".repeat(64), claimed_at: "2026-07-14T04:11:00Z", lease_expires_at: "2026-07-14T04:16:00Z",
+      trial_reservation: reservation,
+    }), /already has completed attempt/)
+    assert.throws(() => db.query("UPDATE rd_replay_attempt SET artifact_ref='changed' WHERE attempt_id='attempt-3'").run(), /terminal Replay Attempt is immutable/)
   } finally {
     db.close()
   }

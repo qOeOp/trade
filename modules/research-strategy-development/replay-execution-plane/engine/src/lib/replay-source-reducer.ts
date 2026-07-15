@@ -3,6 +3,7 @@ import type {
   ReplayExecutionRequest,
   ReplayFundingEvent,
   ReplayLimitation,
+  ReplayMarkEvent,
   ReplayMarketBar,
   ReplaySourceEvent,
 } from "../../../contracts/src/lib/replay-contracts"
@@ -11,6 +12,7 @@ import { buildReplaySourceEvents } from "./replay-source-events"
 
 export type ReplayReducedExit =
   | { role: "stop" | "target"; timestamp: string; rawPrice: number; triggerSource: "bar_open" | "bar_range"; sourceSequence: number }
+  | { role: "liquidation"; timestamp: string; rawPrice: number; triggerSource: "mark" | "funding_mark"; triggerSourceRef: string; sourceSequence: number }
   | { role: "end_of_data"; timestamp: string; rawPrice: number; triggerSource: null; sourceSequence: number }
 
 export interface ReplaySourceReduction<TEntry, TTerminal> {
@@ -19,6 +21,13 @@ export interface ReplaySourceReduction<TEntry, TTerminal> {
   applied_funding_sources: ReplaySourceEvent[]
   entry_transition: TEntry
   terminal_transition: TTerminal
+}
+
+export interface ReplaySourceBoundary<TEntry> {
+  next_source_offset: number
+  source_events: ReplaySourceEvent[]
+  applied_funding_sources: ReplaySourceEvent[]
+  entry_transition: TEntry | null
 }
 
 export class ReplayInstrumentTerminalError extends Error {
@@ -34,11 +43,20 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
   request: ReplayExecutionRequest
   bars: ReplayMarketBar[]
   funding_events: ReplayFundingEvent[]
+  mark_events: ReplayMarkEvent[]
+  exact_mark_coverage: boolean
   entry_index: number
   delisted_at: string | null
   limitations: ReplayLimitation[]
+  resume?: ReplaySourceBoundary<TEntry>
+  on_source_boundary?: (boundary: ReplaySourceBoundary<TEntry>) => void
   activate_entry: (source: ReplaySourceEvent) => TEntry
   get_entry_fill_event_key: (entry: TEntry) => ReplayEventKey
+  observe_exact_risk: (
+    source: ReplaySourceEvent,
+    entry: TEntry,
+    appliedFundingSources: ReplaySourceEvent[],
+  ) => ReplayReducedExit | null
   complete_exit: (exit: ReplayReducedExit, entry: TEntry) => TTerminal
 }): ReplaySourceReduction<TEntry, TTerminal> {
   const entryBar = input.bars[input.entry_index]
@@ -47,23 +65,56 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
   const sourceEvents = buildReplaySourceEvents({
     bars: input.bars,
     funding_events: input.funding_events,
+    mark_events: input.mark_events,
     delisted_at: input.delisted_at,
     start_time: entryBar.open_time,
     end_time: lastBar.close_time,
   })
-  const consumed: ReplaySourceEvent[] = []
-  const appliedFunding: ReplaySourceEvent[] = []
-  let entryTransition: TEntry | undefined
+  const resumeOffset = input.resume?.next_source_offset ?? 0
+  if (!Number.isSafeInteger(resumeOffset) || resumeOffset < 0 || resumeOffset > sourceEvents.length) {
+    throw new Error("Replay resume source offset is outside the deterministic source stream")
+  }
+  const expectedPrefix = sourceEvents.slice(0, resumeOffset)
+  if (input.resume && JSON.stringify(input.resume.source_events) !== JSON.stringify(expectedPrefix)) {
+    throw new Error("Replay resume source prefix does not match the deterministic source stream")
+  }
+  const consumed: ReplaySourceEvent[] = [...(input.resume?.source_events ?? [])]
+  const appliedFunding: ReplaySourceEvent[] = [...(input.resume?.applied_funding_sources ?? [])]
+  let entryTransition: TEntry | undefined = input.resume?.entry_transition ?? undefined
 
-  for (const source of sourceEvents) {
+  const checkpoint = (nextSourceOffset: number): void => input.on_source_boundary?.({
+    next_source_offset: nextSourceOffset,
+    source_events: [...consumed],
+    applied_funding_sources: [...appliedFunding],
+    entry_transition: entryTransition ?? null,
+  })
+
+  for (let sourceOffset = resumeOffset; sourceOffset < sourceEvents.length; sourceOffset += 1) {
+    const source = sourceEvents[sourceOffset]
     consumed.push(source)
     if (source.kind === "instrument_delisted") throw new ReplayInstrumentTerminalError(source)
     if (source.kind === "funding") {
       if (entryTransition !== undefined
           && compareReplayEventKeys(source.event_key, input.get_entry_fill_event_key(entryTransition)) > 0) appliedFunding.push(source)
+      if (entryTransition !== undefined) {
+        const riskExit = input.observe_exact_risk(source, entryTransition, appliedFunding)
+        if (riskExit) return reduction(riskExit, consumed, appliedFunding, entryTransition, input.complete_exit)
+      }
+      checkpoint(sourceOffset + 1)
       continue
     }
-    if (source.source_index < input.entry_index) continue
+    if (source.kind === "mark") {
+      if (entryTransition !== undefined) {
+        const riskExit = input.observe_exact_risk(source, entryTransition, appliedFunding)
+        if (riskExit) return reduction(riskExit, consumed, appliedFunding, entryTransition, input.complete_exit)
+      }
+      checkpoint(sourceOffset + 1)
+      continue
+    }
+    if (source.source_index < input.entry_index) {
+      checkpoint(sourceOffset + 1)
+      continue
+    }
     if (source.kind === "bar_open" && source.source_index === input.entry_index && entryTransition === undefined) {
       entryTransition = input.activate_entry(source)
     }
@@ -89,6 +140,7 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
         entryTransition,
         input.complete_exit,
       )
+      checkpoint(sourceOffset + 1)
       continue
     }
 
@@ -122,16 +174,26 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
       entryTransition,
       input.complete_exit,
     )
+    checkpoint(sourceOffset + 1)
   }
 
   input.limitations.push({
-    code: "end-of-data-forced-close",
+    code: "end-of-data-open-position-marked",
     severity: "info",
-    detail: "Open evidence position was marked closed at the final closed bar for finite Result accounting.",
+    detail: input.exact_mark_coverage
+      ? "Open evidence position remains open and is valued at the final exact mark event; no synthetic exit Fill is created."
+      : "Open evidence position remains open and is valued at the final closed bar close; no synthetic exit Fill is created.",
   })
   if (entryTransition === undefined) throw new Error("Replay source reducer reached end-of-data before entry activation")
+  const finalMark = input.exact_mark_coverage ? input.mark_events.at(-1) : undefined
   return reduction(
-    { role: "end_of_data", timestamp: lastBar.close_time, rawPrice: lastBar.close, triggerSource: null, sourceSequence: input.bars.length },
+    {
+      role: "end_of_data",
+      timestamp: finalMark?.timestamp ?? lastBar.close_time,
+      rawPrice: finalMark?.mark_price ?? lastBar.close,
+      triggerSource: null,
+      sourceSequence: finalMark?.source_sequence ?? input.bars.length,
+    },
     consumed,
     appliedFunding,
     entryTransition,

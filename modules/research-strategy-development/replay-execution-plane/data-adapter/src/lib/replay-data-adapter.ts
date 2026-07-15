@@ -1,18 +1,22 @@
 import {
   assertReplayDatasetManifest,
   assertReplayMarketBars,
+  canonicalHash,
   replayDatasetHash,
   replayDatasetManifestHash,
   type ReplayDatasetManifest,
   type ReplayExecutionRequest,
   type ReplayFundingEvent,
   type ReplayLimitation,
+  type ReplayMarkEvent,
   type ReplayMarketBar,
 } from "../../../contracts/src/lib/replay-contracts"
+import { isReplayIncrementAligned } from "../../../contracts/src/lib/replay-decimal"
 
 export interface PreparedReplayInputData {
   bars: ReplayMarketBar[]
   funding_events: ReplayFundingEvent[]
+  mark_events: ReplayMarkEvent[]
   entry_index: number
   dataset_manifest_hash: string
   limitations: ReplayLimitation[]
@@ -23,6 +27,7 @@ export function prepareReplayInputData(input: {
   dataset_manifest: ReplayDatasetManifest
   bars: ReplayMarketBar[]
   funding_events?: ReplayFundingEvent[]
+  mark_events?: ReplayMarkEvent[]
 }): PreparedReplayInputData {
   const { request, dataset_manifest: manifest } = input
   assertReplayDatasetManifest(manifest)
@@ -31,12 +36,14 @@ export function prepareReplayInputData(input: {
   const executableTime = Date.parse(request.order.earliest_executable_time)
   if (!Number.isFinite(executableTime)) throw new Error("earliest executable time must be an ISO timestamp")
   const fundingEvents = validateReplayFundingEvents(input.funding_events || [])
-  validateManifestBinding(request, manifest, input.bars, fundingEvents)
+  const markEvents = validateReplayMarkEvents(input.mark_events || [])
+  validateManifestBinding(request, manifest, input.bars, fundingEvents, markEvents)
   const entryIndex = input.bars.findIndex((bar) => Date.parse(bar.open_time) >= executableTime)
   if (entryIndex < 0) throw new Error("dataset contains no bar at or after earliest executable time")
   return {
     bars: input.bars,
     funding_events: fundingEvents,
+    mark_events: markEvents,
     entry_index: entryIndex,
     dataset_manifest_hash: replayDatasetManifestHash(manifest),
     limitations: detectDatasetLimitations(manifest, input.bars),
@@ -48,10 +55,11 @@ function validateManifestBinding(
   manifest: ReplayDatasetManifest,
   bars: ReplayMarketBar[],
   fundingEvents: ReplayFundingEvent[],
+  markEvents: ReplayMarkEvent[],
 ): void {
   if (manifest.manifest_ref !== request.dataset_manifest_ref) throw new Error("dataset manifest ref does not match Replay request")
   if (manifest.data_hash !== request.dataset_hash) throw new Error("dataset manifest hash binding does not match Replay request")
-  const actualDataHash = replayDatasetHash(bars, fundingEvents)
+  const actualDataHash = replayDatasetHash(bars, fundingEvents, markEvents)
   if (actualDataHash !== manifest.data_hash) throw new Error("Replay dataset content hash mismatch")
   if (manifest.symbol !== request.symbol || manifest.timeframe !== request.timeframe) throw new Error("dataset symbol/timeframe does not match Replay request")
   if (manifest.row_count !== bars.length) throw new Error("dataset row_count does not match supplied bars")
@@ -70,8 +78,79 @@ function validateManifestBinding(
   if (fundingEvents.some((event) => Date.parse(event.timestamp) < firstOpen || Date.parse(event.timestamp) > lastClose)) {
     throw new Error("funding event falls outside the dataset manifest window")
   }
+  validateMarkCoverage(manifest, markEvents, observedThrough, firstOpen, lastClose)
+  validatePointInTimePolicyBindings(request, manifest, firstOpen, lastClose)
   validateInstrumentWindow(request, manifest, bars)
   validateBarGrid(manifest, bars)
+}
+
+function validatePointInTimePolicyBindings(
+  request: ReplayExecutionRequest,
+  manifest: ReplayDatasetManifest,
+  firstOpen: number,
+  lastClose: number,
+): void {
+  const risk = manifest.venue_risk_policy
+  const spec = manifest.instrument.spec_snapshot
+  if (risk.symbol !== manifest.symbol || spec.symbol !== manifest.symbol) {
+    throw new Error("policy snapshot symbol does not match dataset manifest")
+  }
+  if (risk.venue_id !== spec.venue_id) throw new Error("risk policy and instrument spec venue do not match")
+  validateSnapshotCoversWindow(risk, firstOpen, lastClose, "venue risk policy")
+  validateSnapshotCoversWindow(spec, firstOpen, lastClose, "instrument spec")
+  if (request.venue_risk_policy_snapshot_hash !== canonicalHash(risk)) {
+    throw new Error("venue risk policy snapshot hash does not match Replay request")
+  }
+  const instrumentSpecHash = canonicalHash({ snapshot: spec, accounting: manifest.instrument.accounting })
+  if (request.instrument_spec_snapshot_hash !== instrumentSpecHash) {
+    throw new Error("instrument spec snapshot hash does not match Replay request")
+  }
+  if (request.margin_policy.initial_margin_rate !== risk.initial_margin_rate
+      || canonicalHash(request.margin_policy.maintenance_tier) !== canonicalHash(risk.maintenance_tier)
+      || request.cost_policy.liquidation_fee_bps !== risk.liquidation_fee_bps) {
+    throw new Error("Replay request risk parameters do not match venue risk policy snapshot")
+  }
+}
+
+function validateSnapshotCoversWindow(
+  snapshot: { effective_at: string; valid_until: string | null },
+  firstOpen: number,
+  lastClose: number,
+  field: string,
+): void {
+  if (firstOpen < Date.parse(snapshot.effective_at)) throw new Error(`${field} snapshot becomes effective after the Replay window starts`)
+  if (snapshot.valid_until !== null && lastClose >= Date.parse(snapshot.valid_until)) {
+    throw new Error(`${field} snapshot does not cover the complete Replay window`)
+  }
+}
+
+function validateMarkCoverage(
+  manifest: ReplayDatasetManifest,
+  events: ReplayMarkEvent[],
+  observedThrough: number,
+  firstOpen: number,
+  lastClose: number,
+): void {
+  if (events.length !== manifest.mark_event_count) throw new Error("mark event count does not match dataset manifest")
+  if (manifest.mark_coverage === "none") {
+    if (events.length !== 0) throw new Error("mark coverage none cannot supply mark events")
+    return
+  }
+  const interval = manifest.mark_interval_ms
+  if (interval === null) throw new Error("complete mark coverage requires mark_interval_ms")
+  const expectedCount = (lastClose - firstOpen) / interval + 1
+  if (!Number.isSafeInteger(expectedCount) || expectedCount !== events.length) {
+    throw new Error("complete mark coverage does not span the manifest window on its declared grid")
+  }
+  for (const [index, event] of events.entries()) {
+    const timestamp = Date.parse(event.timestamp)
+    if (timestamp !== firstOpen + index * interval) throw new Error(`mark event ${index} is not aligned to the complete mark grid`)
+    if (Date.parse(event.available_at) !== timestamp) throw new Error(`mark event ${index} is not available at event time`)
+    if (timestamp > observedThrough) throw new Error(`mark event ${index} is not available by manifest observed_through`)
+    if (!isReplayIncrementAligned(event.mark_price, manifest.instrument.accounting.price_increment)) {
+      throw new Error(`mark event ${index} price does not align to instrument price increment`)
+    }
+  }
 }
 
 function validateInstrumentWindow(
@@ -138,6 +217,29 @@ export function validateReplayFundingEvents(events: ReplayFundingEvent[]): Repla
     if (!Number.isFinite(event.rate)) throw new Error("funding rate must be finite")
     if (!Number.isFinite(event.mark_price) || event.mark_price <= 0) throw new Error("funding mark_price must be positive")
     prior = timestamp
+    return event
+  })
+}
+
+export function validateReplayMarkEvents(events: ReplayMarkEvent[]): ReplayMarkEvent[] {
+  let priorTimestamp = Number.NEGATIVE_INFINITY
+  let priorSequence = -1
+  return [...events].map((event, index) => {
+    const timestampPattern = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/
+    if (!timestampPattern.test(event.timestamp) || !timestampPattern.test(event.available_at)) {
+      throw new Error("mark events must use RFC 3339 UTC timestamps")
+    }
+    const timestamp = Date.parse(event.timestamp)
+    const availableAt = Date.parse(event.available_at)
+    if (!Number.isFinite(timestamp) || !Number.isFinite(availableAt) || timestamp <= priorTimestamp) {
+      throw new Error("mark events must have strictly ordered ISO timestamps")
+    }
+    if (!Number.isSafeInteger(event.source_sequence) || event.source_sequence <= priorSequence) {
+      throw new Error("mark events must have strictly increasing non-negative source_sequence")
+    }
+    if (!Number.isFinite(event.mark_price) || event.mark_price <= 0) throw new Error(`mark event ${index} mark_price must be positive`)
+    priorTimestamp = timestamp
+    priorSequence = event.source_sequence
     return event
   })
 }

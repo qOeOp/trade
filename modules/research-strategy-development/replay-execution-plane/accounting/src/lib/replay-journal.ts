@@ -1,12 +1,17 @@
 import {
   REPLAY_JOURNAL_POLICY_VERSION,
+  REPLAY_EQUITY_POLICY_VERSION,
+  REPLAY_MARGIN_POLICY_VERSION,
   assertReplayEventKey,
   compareReplayEventKeys,
   type ReplayJournalAccount,
   type ReplayJournalEntry,
   type ReplayJournalLeg,
   type ReplayLedgerEntry,
+  type ReplayEquityBridge,
+  type ReplayMarginSnapshot,
   type ReplayTrialBalance,
+  type ReplayValuationSnapshot,
 } from "../../../contracts/src/lib/replay-contracts"
 import { addReplayDecimalValues, isReplayIncrementAligned } from "../../../contracts/src/lib/replay-decimal"
 
@@ -15,6 +20,9 @@ export interface ReplayJournalInput {
   settlement_asset: string
   settlement_increment: string
   ledger: ReplayLedgerEntry[]
+  valuation_snapshot: ReplayValuationSnapshot
+  equity_bridge: ReplayEquityBridge
+  margin_snapshots: ReplayMarginSnapshot[]
 }
 
 export interface ReplayJournalProjection {
@@ -24,43 +32,85 @@ export interface ReplayJournalProjection {
 
 const ACCOUNT_ORDER: ReplayJournalAccount[] = [
   "wallet_cash",
+  "isolated_margin_collateral",
   "opening_equity",
   "realized_pnl_income",
   "realized_pnl_loss",
   "fee_expense",
+  "liquidation_fee_expense",
   "funding_income",
   "funding_expense",
+  "position_valuation",
+  "unrealized_pnl_income",
+  "unrealized_pnl_loss",
 ]
 
 export function buildReplayJournal(input: ReplayJournalInput): ReplayJournalProjection {
   validateJournalInput(input)
   const journal: ReplayJournalEntry[] = []
-  let walletCashBalance = 0
+  const opening = input.ledger[0]
+  appendJournalEntry(input, journal, {
+    event_key: opening.event_key,
+    timestamp: opening.timestamp,
+    kind: "opening_balance",
+    ref: opening.ref,
+    amount: opening.amount,
+    debit: "wallet_cash",
+    credit: "opening_equity",
+  })
 
-  for (const ledgerEntry of input.ledger) {
-    if (ledgerEntry.kind === "ending_equity") continue
-    if (ledgerEntry.kind === "trade_cash") throw new Error("trade_cash is unsupported by journal policy v1")
+  const postEntryMargin = input.margin_snapshots[0]
+  appendJournalEntry(input, journal, {
+    event_key: postEntryMargin.event_key,
+    timestamp: postEntryMargin.timestamp,
+    kind: "collateral_reserve",
+    ref: postEntryMargin.snapshot_id,
+    amount: postEntryMargin.isolated_collateral,
+    debit: "isolated_margin_collateral",
+    credit: "wallet_cash",
+  })
+
+  for (const ledgerEntry of input.ledger.slice(1, -1)) {
+    if (ledgerEntry.kind === "trade_cash") throw new Error("trade_cash is unsupported by journal policy v3")
+    if (ledgerEntry.kind === "initial_cash" || ledgerEntry.kind === "ending_cash") {
+      throw new Error("Replay cash checkpoints cannot appear inside the journal fact stream")
+    }
     const accounts = journalAccounts(ledgerEntry)
-    const amount = Math.abs(ledgerEntry.amount)
-    const journalEntryId = `${input.run_id}:journal:${journal.length + 1}`
-    const legs: [ReplayJournalLeg, ReplayJournalLeg] = [
-      leg(journalEntryId, 1, accounts.debit, "debit", input.settlement_asset, amount),
-      leg(journalEntryId, 2, accounts.credit, "credit", input.settlement_asset, amount),
-    ]
-    journal.push({
-      journal_entry_id: journalEntryId,
+    appendJournalEntry(input, journal, {
       event_key: ledgerEntry.event_key,
       timestamp: ledgerEntry.timestamp,
-      kind: ledgerEntry.kind === "initial_cash" ? "opening_balance" : ledgerEntry.kind,
+      kind: ledgerEntry.kind,
       ref: ledgerEntry.ref,
-      policy_version: REPLAY_JOURNAL_POLICY_VERSION,
-      legs,
+      amount: Math.abs(ledgerEntry.amount),
+      ...accounts,
     })
-    for (const item of legs) {
-      if (item.account !== "wallet_cash") continue
-      walletCashBalance = addReplayDecimalValues(walletCashBalance, item.side === "debit" ? item.amount : -item.amount)
-    }
   }
+
+  const terminalMargin = input.margin_snapshots.at(-1)!
+  if (input.equity_bridge.terminal_position_state === "flat") {
+    appendJournalEntry(input, journal, {
+      event_key: terminalMargin.event_key,
+      timestamp: terminalMargin.timestamp,
+      kind: "collateral_release",
+      ref: terminalMargin.snapshot_id,
+      amount: endingCollateralBalance(input),
+      debit: "wallet_cash",
+      credit: "isolated_margin_collateral",
+    })
+  }
+
+  const valuationAmount = Math.abs(input.valuation_snapshot.unrealized_pnl)
+  const valuationAccounts = input.valuation_snapshot.unrealized_pnl >= 0
+    ? { debit: "position_valuation" as const, credit: "unrealized_pnl_income" as const }
+    : { debit: "unrealized_pnl_loss" as const, credit: "position_valuation" as const }
+  appendJournalEntry(input, journal, {
+    event_key: input.valuation_snapshot.event_key,
+    timestamp: input.valuation_snapshot.timestamp,
+    kind: "mark_to_market",
+    ref: input.valuation_snapshot.valuation_id,
+    amount: valuationAmount,
+    ...valuationAccounts,
+  })
 
   const debitTotal = journal.reduce((total, entry) => addReplayDecimalValues(
     total, entry.legs.filter((item) => item.side === "debit").reduce((sum, item) => addReplayDecimalValues(sum, item.amount), 0),
@@ -87,9 +137,16 @@ export function buildReplayJournal(input: ReplayJournalInput): ReplayJournalProj
       net_debit: addReplayDecimalValues(debit, -credit),
     }
   })
-  const endingEquity = input.ledger.at(-1)!.balance_after
-  if (walletCashBalance !== endingEquity) {
-    throw new Error("Replay journal wallet cash does not reconcile to ending equity")
+  const walletCashBalance = accountBalances.find((item) => item.account === "wallet_cash")!.net_debit
+  const isolatedMarginCollateralBalance = accountBalances.find((item) => item.account === "isolated_margin_collateral")!.net_debit
+  const settledCashBalance = addReplayDecimalValues(walletCashBalance, isolatedMarginCollateralBalance)
+  const positionValuationBalance = accountBalances.find((item) => item.account === "position_valuation")!.net_debit
+  const endingEquity = addReplayDecimalValues(settledCashBalance, positionValuationBalance)
+  if (settledCashBalance !== input.equity_bridge.cash_balance
+      || isolatedMarginCollateralBalance !== (input.equity_bridge.terminal_position_state === "open" ? endingCollateralBalance(input) : 0)
+      || positionValuationBalance !== input.equity_bridge.position_valuation
+      || endingEquity !== input.equity_bridge.ending_equity) {
+    throw new Error("Replay journal does not reconcile to the equity bridge")
   }
   return {
     journal,
@@ -100,6 +157,9 @@ export function buildReplayJournal(input: ReplayJournalInput): ReplayJournalProj
       credit_total: creditTotal,
       account_balances: accountBalances,
       wallet_cash_balance: walletCashBalance,
+      isolated_margin_collateral_balance: isolatedMarginCollateralBalance,
+      settled_cash_balance: settledCashBalance,
+      position_valuation_balance: positionValuationBalance,
       ending_equity: endingEquity,
       balanced: true,
     },
@@ -111,8 +171,8 @@ function validateJournalInput(input: ReplayJournalInput): void {
   if (!/^[A-Z0-9]{2,16}$/.test(input.settlement_asset)) throw new Error("Replay journal settlement asset is invalid")
   if (input.ledger.length < 2
       || input.ledger[0].kind !== "initial_cash"
-      || input.ledger.at(-1)?.kind !== "ending_equity") {
-    throw new Error("Replay journal requires initial_cash and ending_equity checkpoints")
+      || input.ledger.at(-1)?.kind !== "ending_cash") {
+    throw new Error("Replay journal requires initial_cash and ending_cash checkpoints")
   }
   const entryIds = new Set<string>()
   let balance = 0
@@ -133,30 +193,137 @@ function validateJournalInput(input: ReplayJournalInput): void {
     if (entry.kind === "initial_cash") {
       if (index !== 0 || entry.amount <= 0) throw new Error("Replay initial cash must be the positive first ledger fact")
       balance = entry.amount
-    } else if (entry.kind === "ending_equity") {
+    } else if (entry.kind === "ending_cash") {
       if (index !== input.ledger.length - 1 || entry.amount !== 0 || entry.balance_after !== balance) {
-        throw new Error("Replay ending equity checkpoint does not reconcile")
+        throw new Error("Replay ending cash checkpoint does not reconcile")
       }
       continue
     } else {
-      if (entry.kind === "trade_cash") throw new Error("trade_cash is unsupported by journal policy v1")
-      if (entry.kind === "fee" && entry.amount > 0) throw new Error("Replay fee ledger facts must be non-positive")
+      if (entry.kind === "trade_cash") throw new Error("trade_cash is unsupported by journal policy v3")
+      if ((entry.kind === "fee" || entry.kind === "liquidation_fee") && entry.amount > 0) throw new Error("Replay fee ledger facts must be non-positive")
       balance = addReplayDecimalValues(balance, entry.amount)
     }
     if (entry.balance_after !== balance) throw new Error("Replay ledger running balance does not reconcile")
   }
+  const valuation = input.valuation_snapshot
+  const endingCash = input.ledger.at(-1)!.balance_after
+  const terminalState = valuation.signed_quantity === 0 ? "flat" : "open"
+  if (input.equity_bridge.policy_version !== REPLAY_EQUITY_POLICY_VERSION
+      || input.equity_bridge.reconciled !== true
+      || valuation.valuation_id !== input.equity_bridge.valuation_id
+      || valuation.settlement_asset !== input.settlement_asset
+      || input.equity_bridge.settlement_asset !== input.settlement_asset
+      || valuation.timestamp !== valuation.event_key.event_time
+      || compareReplayEventKeys(input.ledger.at(-1)!.event_key, valuation.event_key) !== 0
+      || input.equity_bridge.terminal_position_state !== terminalState
+      || valuation.unrealized_pnl !== input.equity_bridge.position_valuation
+      || endingCash !== input.equity_bridge.cash_balance
+      || addReplayDecimalValues(endingCash, valuation.unrealized_pnl) !== input.equity_bridge.ending_equity
+      || (terminalState === "flat" && (valuation.average_entry_price !== null || valuation.unrealized_pnl !== 0))
+      || (terminalState === "open" && valuation.average_entry_price === null)) {
+    throw new Error("Replay valuation and equity bridge binding is invalid")
+  }
+  if (!isReplayIncrementAligned(valuation.unrealized_pnl, input.settlement_increment)
+      || !isReplayIncrementAligned(input.equity_bridge.cash_balance, input.settlement_increment)
+      || !isReplayIncrementAligned(input.equity_bridge.position_valuation, input.settlement_increment)
+      || !isReplayIncrementAligned(input.equity_bridge.ending_equity, input.settlement_increment)) {
+    throw new Error("Replay valuation and equity bridge must align to settlement increment")
+  }
+  validateMarginBinding(input, terminalState)
 }
 
 function journalAccounts(entry: ReplayLedgerEntry): { debit: ReplayJournalAccount; credit: ReplayJournalAccount } {
-  if (entry.kind === "initial_cash") return { debit: "wallet_cash", credit: "opening_equity" }
-  if (entry.kind === "fee") return { debit: "fee_expense", credit: "wallet_cash" }
+  if (entry.kind === "fee") return { debit: "fee_expense", credit: "isolated_margin_collateral" }
+  if (entry.kind === "liquidation_fee") return { debit: "liquidation_fee_expense", credit: "isolated_margin_collateral" }
   if (entry.kind === "funding") return entry.amount >= 0
-    ? { debit: "wallet_cash", credit: "funding_income" }
-    : { debit: "funding_expense", credit: "wallet_cash" }
+    ? { debit: "isolated_margin_collateral", credit: "funding_income" }
+    : { debit: "funding_expense", credit: "isolated_margin_collateral" }
   if (entry.kind === "realized_pnl") return entry.amount >= 0
-    ? { debit: "wallet_cash", credit: "realized_pnl_income" }
-    : { debit: "realized_pnl_loss", credit: "wallet_cash" }
+    ? { debit: "isolated_margin_collateral", credit: "realized_pnl_income" }
+    : { debit: "realized_pnl_loss", credit: "isolated_margin_collateral" }
   throw new Error(`unsupported Replay journal fact: ${entry.kind}`)
+}
+
+function validateMarginBinding(input: ReplayJournalInput, terminalState: "open" | "flat"): void {
+  const snapshots = input.margin_snapshots
+  if (snapshots.length < 2 || snapshots[0].stage !== "post_entry" || snapshots.at(-1)?.stage !== "terminal") {
+    throw new Error("Replay journal requires post-entry and terminal margin snapshots")
+  }
+  for (const [index, snapshot] of snapshots.entries()) {
+    if (snapshot.policy_version !== REPLAY_MARGIN_POLICY_VERSION
+        || snapshot.snapshot_sequence !== index + 1
+        || snapshot.timestamp !== snapshot.event_key.event_time
+        || snapshot.collateral_asset !== input.settlement_asset
+        || (index > 0 && compareReplayEventKeys(snapshots[index - 1].event_key, snapshot.event_key) > 0)) {
+      throw new Error("Replay margin snapshots are not a valid ordered journal source")
+    }
+  }
+  const postEntry = snapshots[0]
+  const terminal = snapshots.at(-1)!
+  if (postEntry.isolated_collateral <= 0
+      || compareReplayEventKeys(input.ledger[0].event_key, postEntry.event_key) >= 0
+      || compareReplayEventKeys(terminal.event_key, input.valuation_snapshot.event_key) !== 0
+      || (terminalState === "flat" && (terminal.state !== "flat" || terminal.isolated_collateral !== 0))
+      || (terminalState === "open" && (terminal.state === "flat" || terminal.isolated_collateral !== postEntry.isolated_collateral))) {
+    throw new Error("Replay margin reserve/release binding is invalid")
+  }
+  const entryCashflow = attributedSettledCashflow(input.ledger, postEntry.event_key)
+  const terminalCashflow = attributedSettledCashflow(input.ledger)
+  const collateralBalance = addReplayDecimalValues(postEntry.isolated_collateral, terminalCashflow)
+  if (postEntry.attributed_settled_cashflow !== entryCashflow
+      || collateralBalance < 0
+      || !isReplayIncrementAligned(collateralBalance, input.settlement_increment)
+      || (terminalState === "open" && (
+        terminal.attributed_settled_cashflow !== terminalCashflow
+        || terminal.margin_balance !== addReplayDecimalValues(collateralBalance, terminal.unrealized_pnl)
+      ))) {
+    throw new Error("Replay isolated collateral does not reconcile to margin snapshots")
+  }
+}
+
+function endingCollateralBalance(input: ReplayJournalInput): number {
+  return addReplayDecimalValues(
+    input.margin_snapshots[0].isolated_collateral,
+    attributedSettledCashflow(input.ledger),
+  )
+}
+
+function attributedSettledCashflow(ledger: ReplayLedgerEntry[], through?: ReplayJournalEntry["event_key"]): number {
+  return ledger
+    .filter((entry) => (entry.kind === "fee" || entry.kind === "liquidation_fee" || entry.kind === "funding" || entry.kind === "realized_pnl")
+      && (!through || compareReplayEventKeys(entry.event_key, through) <= 0))
+    .reduce((total, entry) => addReplayDecimalValues(total, entry.amount), 0)
+}
+
+function appendJournalEntry(
+  input: ReplayJournalInput,
+  journal: ReplayJournalEntry[],
+  fact: {
+    event_key: ReplayJournalEntry["event_key"]
+    timestamp: string
+    kind: ReplayJournalEntry["kind"]
+    ref: string
+    amount: number
+    debit: ReplayJournalAccount
+    credit: ReplayJournalAccount
+  },
+): void {
+  if (!Number.isFinite(fact.amount) || fact.amount < 0 || !isReplayIncrementAligned(fact.amount, input.settlement_increment)) {
+    throw new Error("Replay journal entry amount must be non-negative and settlement-increment aligned")
+  }
+  const journalEntryId = `${input.run_id}:journal:${journal.length + 1}`
+  journal.push({
+    journal_entry_id: journalEntryId,
+    event_key: fact.event_key,
+    timestamp: fact.timestamp,
+    kind: fact.kind,
+    ref: fact.ref,
+    policy_version: REPLAY_JOURNAL_POLICY_VERSION,
+    legs: [
+      leg(journalEntryId, 1, fact.debit, "debit", input.settlement_asset, fact.amount),
+      leg(journalEntryId, 2, fact.credit, "credit", input.settlement_asset, fact.amount),
+    ],
+  })
 }
 
 function leg(

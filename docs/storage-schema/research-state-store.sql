@@ -398,6 +398,47 @@ CREATE TABLE IF NOT EXISTS rd_trial (
     REFERENCES rd_experiment_contract(trial_group_id, experiment_id)
 );
 
+CREATE TABLE IF NOT EXISTS rd_replay_attempt (
+  attempt_id TEXT PRIMARY KEY,
+  trial_id TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  attempt_ordinal INTEGER NOT NULL CHECK(attempt_ordinal >= 1),
+  worker_id TEXT NOT NULL,
+  reservation_ref TEXT NOT NULL,
+  reservation_hash TEXT NOT NULL,
+  request_hash TEXT NOT NULL,
+  status TEXT NOT NULL CHECK(status IN ('claimed', 'running', 'completed', 'failed', 'cancelled', 'expired')),
+  lease_generation INTEGER NOT NULL CHECK(lease_generation >= 1),
+  claimed_at TEXT NOT NULL,
+  heartbeat_at TEXT NOT NULL,
+  lease_expires_at TEXT NOT NULL,
+  finalized_at TEXT,
+  result_hash TEXT,
+  artifact_ref TEXT,
+  artifact_hash TEXT,
+  terminal_checkpoint_hash TEXT,
+  diagnostic_checkpoint_ref TEXT,
+  diagnostic_checkpoint_hash TEXT,
+  failure_class TEXT CHECK(failure_class IN ('input_invalid', 'unsupported_contract', 'data_integrity', 'deterministic_engine', 'resource', 'external_io')),
+  idempotency_key TEXT NOT NULL UNIQUE,
+  UNIQUE (trial_id, attempt_ordinal),
+  CHECK(claimed_at <= heartbeat_at AND heartbeat_at < lease_expires_at),
+  CHECK(
+    (status IN ('claimed', 'running') AND finalized_at IS NULL AND result_hash IS NULL AND artifact_ref IS NULL AND artifact_hash IS NULL AND terminal_checkpoint_hash IS NULL AND failure_class IS NULL) OR
+    (status = 'completed' AND finalized_at IS NOT NULL AND result_hash IS NOT NULL AND artifact_ref IS NOT NULL AND artifact_hash IS NOT NULL AND terminal_checkpoint_hash IS NOT NULL AND failure_class IS NULL) OR
+    (status IN ('failed', 'cancelled', 'expired') AND finalized_at IS NOT NULL AND result_hash IS NULL AND artifact_ref IS NULL AND artifact_hash IS NULL AND terminal_checkpoint_hash IS NULL AND failure_class IS NOT NULL)
+  ),
+  CHECK(
+    (diagnostic_checkpoint_ref IS NULL AND diagnostic_checkpoint_hash IS NULL) OR
+    (diagnostic_checkpoint_ref IS NOT NULL AND diagnostic_checkpoint_hash IS NOT NULL)
+  ),
+  FOREIGN KEY (trial_id) REFERENCES rd_trial(trial_id)
+);
+
+CREATE UNIQUE INDEX IF NOT EXISTS one_active_replay_attempt_per_trial
+ON rd_replay_attempt(trial_id)
+WHERE status IN ('claimed', 'running');
+
 CREATE TABLE IF NOT EXISTS rd_experiment_result (
   result_id TEXT PRIMARY KEY,
   experiment_id TEXT NOT NULL,
@@ -738,6 +779,46 @@ WHEN OLD.status != 'reserved'
   OR NEW.completed_at IS NULL
 BEGIN
   SELECT RAISE(ABORT, 'invalid trial status transition');
+END;
+
+CREATE TRIGGER IF NOT EXISTS prevent_replay_attempt_identity_mutation
+BEFORE UPDATE OF trial_id, run_id, attempt_ordinal, worker_id, reservation_ref,
+  reservation_hash, request_hash, claimed_at, idempotency_key
+ON rd_replay_attempt
+BEGIN
+  SELECT RAISE(ABORT, 'Replay Attempt identity is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS prevent_terminal_replay_attempt_mutation
+BEFORE UPDATE ON rd_replay_attempt
+WHEN OLD.status IN ('completed', 'failed', 'cancelled', 'expired')
+BEGIN
+  SELECT RAISE(ABORT, 'terminal Replay Attempt is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS restrict_replay_attempt_status_transition
+BEFORE UPDATE OF status ON rd_replay_attempt
+WHEN NEW.status != OLD.status AND NOT (
+  (OLD.status = 'claimed' AND NEW.status IN ('running', 'completed', 'failed', 'cancelled', 'expired')) OR
+  (OLD.status = 'running' AND NEW.status IN ('completed', 'failed', 'cancelled', 'expired'))
+)
+BEGIN
+  SELECT RAISE(ABORT, 'invalid Replay Attempt status transition');
+END;
+
+CREATE TRIGGER IF NOT EXISTS restrict_replay_attempt_lease_renewal
+BEFORE UPDATE OF lease_generation, heartbeat_at, lease_expires_at
+ON rd_replay_attempt
+WHEN NEW.lease_generation != OLD.lease_generation
+  OR NEW.heartbeat_at != OLD.heartbeat_at
+  OR NEW.lease_expires_at != OLD.lease_expires_at
+BEGIN
+  SELECT CASE WHEN OLD.status NOT IN ('claimed', 'running')
+    OR NEW.lease_generation != OLD.lease_generation + 1
+    OR NEW.heartbeat_at < OLD.heartbeat_at
+    OR NEW.heartbeat_at >= OLD.lease_expires_at
+    OR NEW.lease_expires_at <= OLD.lease_expires_at
+  THEN RAISE(ABORT, 'invalid Replay Attempt lease renewal') END;
 END;
 
 CREATE TRIGGER IF NOT EXISTS prevent_contract_delete

@@ -217,7 +217,7 @@ export function buildReplayCashLedger(input: ReplayCashLedgerInput): ReplayLedge
 
   const facts: Array<{
     eventKey: ReplayEventKey
-    kind: "fee" | "funding" | "realized_pnl"
+    kind: "fee" | "liquidation_fee" | "funding" | "realized_pnl"
     amount: number
     ref: string
     priority: number
@@ -235,9 +235,12 @@ export function buildReplayCashLedger(input: ReplayCashLedgerInput): ReplayLedge
       })
     }
     facts.push({ eventKey: fill.event_key, kind: "fee", amount: -fill.fee, ref: fill.fill_id, priority: 1 })
+    if (fill.liquidation_fee) {
+      facts.push({ eventKey: fill.event_key, kind: "liquidation_fee", amount: -fill.liquidation_fee, ref: fill.fill_id, priority: 2 })
+    }
   }
   for (const funding of input.funding_facts) {
-    facts.push({ eventKey: funding.event_key, kind: "funding", amount: funding.amount, ref: funding.ref, priority: 2 })
+    facts.push({ eventKey: funding.event_key, kind: "funding", amount: funding.amount, ref: funding.ref, priority: 3 })
   }
   facts.sort((left, right) => compareReplayEventKeys(left.eventKey, right.eventKey)
     || left.priority - right.priority
@@ -247,7 +250,7 @@ export function buildReplayCashLedger(input: ReplayCashLedgerInput): ReplayLedge
     entry_id: `${input.run_id}:ledger:${entries.length + 1}`,
     event_key: input.ending_event_key,
     timestamp: input.ending_event_key.event_time,
-    kind: "ending_equity",
+    kind: "ending_cash",
     amount: 0,
     balance_after: balance,
     ref: input.run_id,
@@ -278,6 +281,13 @@ function validateCashLedgerInput(input: ReplayCashLedgerInput): void {
     }
     requireNonNegative(fill.fee, "Fill fee")
     if (!isReplayIncrementAligned(fill.fee, input.settlement_increment)) throw new Error("Fill fee must align to settlement increment")
+    const liquidationFee = fill.liquidation_fee ?? 0
+    requireNonNegative(liquidationFee, "Fill liquidation fee")
+    if (!isReplayIncrementAligned(liquidationFee, input.settlement_increment)
+        || (fill.order_role === "liquidation" && fill.liquidation_fee === undefined)
+        || (fill.order_role !== "liquidation" && liquidationFee !== 0)) {
+      throw new Error("Fill liquidation fee must be aligned and exclusive to a liquidation Fill")
+    }
     if (!Number.isFinite(position.realized_pnl_delta)) throw new Error("position realized PnL must be finite")
     if (!isReplayIncrementAligned(position.realized_pnl_delta, input.settlement_increment)) {
       throw new Error("position realized PnL must align to settlement increment")
@@ -302,9 +312,6 @@ function validateCashLedgerInput(input: ReplayCashLedgerInput): void {
   }
   if (compareReplayEventKeys(causalKeys.at(-1)!, input.ending_event_key) >= 0) {
     throw new Error("ending equity checkpoint must follow monetary facts")
-  }
-  if (input.positions.at(-1)!.signed_quantity !== 0) {
-    throw new Error("cash-only ending equity requires a flat terminal Position")
   }
 }
 

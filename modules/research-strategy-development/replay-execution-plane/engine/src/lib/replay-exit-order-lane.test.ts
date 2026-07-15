@@ -74,6 +74,7 @@ test("terminal target event drives trigger fill and sibling cancel in EventKey o
   ])
   expect(events.map((event) => event.event_key.boundary_phase)).toEqual([20, 20, 90])
   expect(result).toEqual({
+    terminal_state: "flat",
     exit_order_id: "run-lane:order:target",
     exit_quantity: 1,
     signed_position_after: 0,

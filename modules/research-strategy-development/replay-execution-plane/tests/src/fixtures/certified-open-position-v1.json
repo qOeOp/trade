@@ -1,0 +1,25 @@
+{
+  "bars": [
+    {
+      "open_time": "2026-07-14T04:00:00Z",
+      "close_time": "2026-07-14T08:00:00Z",
+      "open": 100,
+      "high": 109,
+      "low": 98,
+      "close": 108,
+      "volume": 10,
+      "closed": true
+    },
+    {
+      "open_time": "2026-07-14T08:00:00Z",
+      "close_time": "2026-07-14T12:00:00Z",
+      "open": 107,
+      "high": 109,
+      "low": 100,
+      "close": 106,
+      "volume": 12,
+      "closed": true
+    }
+  ],
+  "expected_semantic_digest": "9a11b1cae1407f035e4d4c784a1f212c3dd95e9721dc4847c5fb3a3bcf1a1dd4"
+}

@@ -4,14 +4,18 @@ import {
   type ForwardAdmissionRequest,
   type ForwardEvidenceResult,
 } from "../../../contracts/src/lib/forward-evidence-contracts"
-import type { ReplayDatasetManifest, ReplayFundingEvent, ReplayMarketBar } from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
+import type { ReplayDatasetManifest, ReplayFundingEvent, ReplayMarkEvent, ReplayMarketBar } from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
 import { runReplayTrial } from "../../../../replay-execution-plane/runner/src/lib/replay-trial-runner"
+import type { ReplayAttemptLeaseSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
 
 export interface ForwardEvidenceRunInput {
   admission: ForwardAdmissionRequest
+  replay_attempt_lease: ReplayAttemptLeaseSnapshot
+  replay_observed_at: string
   dataset_manifest: ReplayDatasetManifest
   bars: ReplayMarketBar[]
   funding_events?: ReplayFundingEvent[]
+  mark_events?: ReplayMarkEvent[]
   artifact_root?: string
   cancel_requested?: boolean
 }
@@ -47,9 +51,13 @@ export function runForwardEvidenceSession(input: ForwardEvidenceRunInput): Forwa
     }
     const outcome = runReplayTrial({
       request: admission.replay_request,
+      trial_reservation: admission.replay_trial_reservation,
+      attempt_lease: input.replay_attempt_lease,
+      observed_at: input.replay_observed_at,
       dataset_manifest: input.dataset_manifest,
       bars: input.bars,
       funding_events: input.funding_events,
+      mark_events: input.mark_events,
       artifact_root: input.artifact_root,
       cancel_requested: input.cancel_requested,
     })

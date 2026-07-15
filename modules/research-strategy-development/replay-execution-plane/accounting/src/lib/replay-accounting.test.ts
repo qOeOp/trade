@@ -120,13 +120,13 @@ describe("Replay accounting", () => {
       settlement_increment: ACCOUNTING_SPEC.settlement_increment,
     })
     expect(ledger.map((entry) => entry.kind)).toEqual([
-      "initial_cash", "fee", "funding", "fee", "realized_pnl", "fee", "realized_pnl", "fee", "ending_equity",
+      "initial_cash", "fee", "funding", "fee", "realized_pnl", "fee", "realized_pnl", "fee", "ending_cash",
     ])
     expect(ledger.map((entry) => entry.amount)).toEqual([1000, -1, -0.25, -2, 7.5, -3, 37.5, -4, 0])
     expect(ledger.at(-1)?.balance_after).toBe(1034.75)
   })
 
-  test("cash ledger rejects broken Position causality and unordered funding facts", () => {
+  test("cash ledger rejects broken causality but permits an open terminal Position", () => {
     const fills = [
       fill({ id: "f1", timestamp: "2026-07-14T04:00:00Z", side: "buy", quantity: 1, price: 100, fee: 0 }),
       fill({ id: "f2", timestamp: "2026-07-14T06:00:00Z", side: "sell", quantity: 1, price: 110, fee: 0, reduce_only: true }),
@@ -152,11 +152,12 @@ describe("Replay accounting", () => {
         { event_key: eventKey("2026-07-14T05:00:00Z", 10, "funding-1"), amount: 0, ref: "funding-1" },
       ],
     })).toThrow("must be strictly increasing")
-    expect(() => buildReplayCashLedger({
+    const openLedger = buildReplayCashLedger({
       ...base,
       fills: [fills[0]],
       positions: [positions[0]],
       funding_facts: [],
-    })).toThrow("requires a flat terminal Position")
+    })
+    expect(openLedger.at(-1)).toMatchObject({ kind: "ending_cash", balance_after: 1000 })
   })
 })

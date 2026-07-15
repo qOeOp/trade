@@ -3,9 +3,9 @@ import { existsSync, mkdtempSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { Database } from "bun:sqlite"
-import { CONTROL_PLANE_IDENTITY_SCHEMA_VERSION } from "../../contracts/src/lib/control-plane-contracts"
-import type { ResearchIdentityBinding } from "../../contracts/src/lib/control-plane-contracts"
-import { REPLAY_DATASET_MANIFEST_SCHEMA_VERSION, REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, REPLAY_SIMULATOR_POLICY_VERSION, replayDatasetHash, type ReplayDatasetManifest, type ReplayMarketBar } from "../../../replay-execution-plane/contracts/src/lib/replay-contracts"
+import { CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION, TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION, hashTrialReservationSnapshot } from "../../contracts/src/lib/control-plane-contracts"
+import type { ReplayAttemptLeaseSnapshot, ResearchIdentityBinding, TrialReservationSnapshot } from "../../contracts/src/lib/control-plane-contracts"
+import { REPLAY_CERTIFIED_CAPABILITIES, REPLAY_DATASET_MANIFEST_SCHEMA_VERSION, REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION, REPLAY_SIMULATOR_POLICY_VERSION, REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION, canonicalHash, replayDatasetHash, replayExecutionSpecHash, type ReplayDatasetManifest, type ReplayExecutionRequest, type ReplayMarketBar } from "../../../replay-execution-plane/contracts/src/lib/replay-contracts"
 import { buildDeveloperReplayRequest } from "../../../agent-roles/developer/src/lib/developer-role"
 import { runReplayTrial } from "../../../replay-execution-plane/runner/src/lib/replay-trial-runner"
 import { buildDraftAuthorization } from "../../../agent-roles/reviewer/src/lib/reviewer-role"
@@ -15,6 +15,10 @@ import { runForwardEvidenceSession } from "../../../forward-evidence-plane/runne
 import { FORWARD_ADMISSION_SCHEMA_VERSION as FORWARD_SCHEMA_VERSION } from "../../../forward-evidence-plane/contracts/src/lib/forward-evidence-contracts"
 
 const HASH = "2".repeat(64)
+const MAINTENANCE_TIER = { tier_id: "tier-1", snapshot_ref: "fixture:margin-tier-1", snapshot_hash: HASH, notional_floor: 0, notional_cap: 50_000, maintenance_margin_rate: 0.005, maintenance_amount: 0 }
+const RISK_SNAPSHOT = { schema_version: REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION, snapshot_id: "risk-1", venue_id: "binance-usdm", symbol: "BTCUSDT", effective_at: "2020-01-01T00:00:00Z", valid_until: null, observed_at: "2026-07-13T00:00:00Z", source_ref: "fixture:risk-1", source_hash: HASH, initial_margin_rate: 0.1, maintenance_tier: MAINTENANCE_TIER, liquidation_fee_bps: 50 }
+const SPEC_SNAPSHOT = { schema_version: REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION, snapshot_id: "spec-1", venue_id: "binance-usdm", symbol: "BTCUSDT", effective_at: "2020-01-01T00:00:00Z", valid_until: null, observed_at: "2026-07-13T00:00:00Z", source_ref: "fixture:spec-1", source_hash: HASH }
+const ACCOUNTING = { spec_version: REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, product_type: "linear_derivative" as const, base_asset: "BTC", quote_asset: "USDT", settlement_asset: "USDT", contract_multiplier: "1", price_increment: "0.01", quantity_increment: "0.001", settlement_increment: "0.00000001" }
 
 test("Contract to Replay to Review to landed Draft to Forward is auditable", () => {
   const historicalBars: ReplayMarketBar[] = [{ open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 100, high: 111, low: 99, close: 110, volume: 10, closed: true }]
@@ -27,14 +31,21 @@ test("Contract to Replay to Review to landed Draft to Forward is auditable", () 
   }
   const historicalRequest = buildDeveloperReplayRequest({
     run_id: "historical-run-1", idempotency_key: "historical-key-1", identity,
+    trial_reservation_ref: "reservation://trial-1", trial_reservation_hash: HASH,
     dataset_manifest_ref: "dataset://historical", dataset_hash: historicalDataHash, harness_hash: HASH, assumptions_hash: HASH,
+    venue_risk_policy_snapshot_hash: canonicalHash(RISK_SNAPSHOT), instrument_spec_snapshot_hash: canonicalHash({ snapshot: SPEC_SNAPSHOT, accounting: ACCOUNTING }),
     symbol: "BTCUSDT", timeframe: "4h", initial_cash: 1000,
     order: { side: "long", quantity: 1, signal_time: "2026-07-14T00:00:00Z", earliest_executable_time: "2026-07-14T04:00:00Z", stop_price: 95, target_price: 110 },
-    cost_policy: { policy_id: "fixture", version: "1", fee_bps: 0, slippage_bps: 0 },
-    simulator_policy: { version: REPLAY_SIMULATOR_POLICY_VERSION, signal_visibility: "closed_candle", earliest_execution: "next_open", same_bar_policy: "stop_first", gap_fill_policy: "worse_open", position_accounting: "average_cost", funding_timing: "exact_event" }, random_seed: 1,
+    cost_policy: { policy_id: "fixture", version: "1", fee_bps: 0, slippage_bps: 0, liquidation_fee_bps: 50 },
+    simulator_policy: { version: REPLAY_SIMULATOR_POLICY_VERSION, signal_visibility: "closed_candle", earliest_execution: "next_open", same_bar_policy: "stop_first", gap_fill_policy: "worse_open", position_accounting: "average_cost", funding_timing: "exact_event", end_of_data: "mark_open", margin_evaluation: "before_strategy_orders" },
+    margin_policy: { policy_id: "fixture", version: "rd-replay-isolated-margin-v6", mode: "isolated", collateral_asset: "USDT", isolated_collateral: 1000, initial_margin_rate: 0.1, maintenance_tier: { ...MAINTENANCE_TIER }, cashflow_scope: "position_attributed", collateral_transfer: "reserve_at_entry_release_at_terminal_if_flat", settled_cashflow_account: "isolated_margin_collateral", observation_scope: "source_event_path", mark_source_policy: "complete_exact_mark_else_ohlcv_adverse", maintenance_trigger: "margin_balance_below_maintenance_requirement", breach_terminal_priority: "risk_before_strategy_exit", breach_evidence: "first_observed_source_event", maintenance_breach_action: "exact_observation_full_liquidation_else_terminal_failure", liquidation: "simulated_full_close", liquidation_trigger_sources: "mark_or_funding_mark", liquidation_execution_price: "trigger_mark_adverse_slippage", liquidation_quantity: "full_position", liquidation_order_priority: "cancel_strategy_exits_before_forced_fill", liquidation_deficit: "fail_without_result" }, random_seed: 1,
   })
+  const historicalReservation = authorize(historicalRequest, 1)
   const replay = runReplayTrial({
     request: historicalRequest,
+    trial_reservation: historicalReservation,
+    attempt_lease: attemptLease(historicalRequest, historicalReservation, "historical-attempt-1", "2026-07-14T00:00:00Z"),
+    observed_at: "2026-07-14T00:01:00Z",
     dataset_manifest: manifest("historical", historicalBars, historicalDataHash, "2026-07-13T00:00:00Z"),
     bars: historicalBars,
   })
@@ -62,14 +73,19 @@ test("Contract to Replay to Review to landed Draft to Forward is auditable", () 
   const forwardRequest = {
     ...historicalRequest,
     run_id: "forward-run-1", idempotency_key: "forward-replay-key-1",
+    trial_id: "forward-trial-1", trial_reservation_ref: "reservation://forward-trial-1", trial_reservation_hash: HASH,
     dataset_manifest_ref: "dataset://forward", dataset_hash: forwardDataHash, strategy_policy_hash: draft.strategy_policy_hash,
     order: { ...historicalRequest.order, signal_time: "2026-07-14T12:00:00Z", earliest_executable_time: "2026-07-14T16:00:00Z" },
   }
+  const forwardReservation = authorize(forwardRequest, 2)
   const forward = runForwardEvidenceSession({
     admission: {
       schema_version: FORWARD_SCHEMA_VERSION, session_id: "forward-session-1", idempotency_key: "forward-key-1", forward_reservation_id: "forward-reservation-1",
       frozen_at: "2026-07-14T08:00:00Z", data_watermark: "2026-07-14T20:00:00Z", forward_dataset_hash: forwardDataHash, draft, replay_request: forwardRequest,
+      replay_trial_reservation: forwardReservation,
     },
+    replay_attempt_lease: attemptLease(forwardRequest, forwardReservation, "forward-attempt-1", "2026-07-14T12:00:00Z"),
+    replay_observed_at: "2026-07-14T12:01:00Z",
     dataset_manifest: manifest("forward", forwardBars, forwardDataHash, "2026-07-14T08:00:00Z"),
     bars: forwardBars,
   })
@@ -86,11 +102,43 @@ function manifest(id: string, bars: ReplayMarketBar[], dataHash: string, selecte
     dataset_kind: "ohlcv", symbol: "BTCUSDT", timeframe: "4h", interval_ms: 14_400_000,
     row_count: bars.length, first_open_time: bars[0].open_time, last_close_time: bars.at(-1)!.close_time,
     observed_through: bars.at(-1)!.close_time, closed_candles_only: true,
-    bar_final_availability: "close_time", funding_availability: "event_time",
+    bar_final_availability: "close_time", funding_availability: "event_time", mark_availability: "event_time",
+    mark_coverage: "none", mark_interval_ms: null, mark_event_count: 0,
+    venue_risk_policy: RISK_SNAPSHOT,
     instrument: {
       listed_at: "2020-01-01T00:00:00Z", trading_enabled_at: "2020-01-01T00:00:00Z", delisted_at: null, status_history: "complete",
-      accounting: { spec_version: REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, product_type: "linear_derivative", base_asset: "BTC", quote_asset: "USDT", settlement_asset: "USDT", contract_multiplier: "1", price_increment: "0.01", quantity_increment: "0.001", settlement_increment: "0.00000001" },
+      spec_snapshot: SPEC_SNAPSHOT,
+      accounting: ACCOUNTING,
     },
     universe: { selected_at: selectedAt, survivorship: "point_in_time" },
+  }
+}
+
+function authorize(request: ReplayExecutionRequest, trialOrdinal: number): TrialReservationSnapshot {
+  const reservation: TrialReservationSnapshot = {
+    schema_version: TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION, reservation_id: `reservation:${request.trial_id}`, reservation_ref: request.trial_reservation_ref,
+    issued_at: "2026-07-14T00:00:00Z", status: "reserved",
+    identity: { schema_version: CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, experiment_id: request.experiment_id, trial_group_id: request.trial_group_id, trial_group_hash: request.trial_group_hash, trial_id: request.trial_id, candidate_id: request.candidate_id, candidate_hash: request.candidate_hash, identity_hash_policy_version: request.identity_hash_policy_version, experiment_contract_hash: request.experiment_contract_hash },
+    trial_ordinal: trialOrdinal, run_id: request.run_id, counts_against_budget: true, trial_accounting_policy_version: "count-all-v1", candidate_assignment_hash: HASH,
+    bindings: { replay_idempotency_key: request.idempotency_key, execution_spec_hash: replayExecutionSpecHash(request), dataset_manifest_ref: request.dataset_manifest_ref, dataset_hash: request.dataset_hash, venue_risk_policy_snapshot_hash: request.venue_risk_policy_snapshot_hash, instrument_spec_snapshot_hash: request.instrument_spec_snapshot_hash, harness_hash: request.harness_hash, assumptions_hash: request.assumptions_hash, cost_policy_hash: canonicalHash(request.cost_policy), margin_policy_hash: canonicalHash(request.margin_policy), simulator_policy_version: request.simulator_policy.version, execution_mode: "step" }, required_capabilities: [...REPLAY_CERTIFIED_CAPABILITIES],
+  }
+  request.trial_reservation_hash = hashTrialReservationSnapshot(reservation)
+  return reservation
+}
+
+function attemptLease(
+  request: ReplayExecutionRequest,
+  reservation: TrialReservationSnapshot,
+  attemptId: string,
+  claimedAt: string,
+): ReplayAttemptLeaseSnapshot {
+  const claimed = Date.parse(claimedAt)
+  return {
+    schema_version: REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION,
+    attempt_id: attemptId, attempt_ordinal: 1, worker_id: `worker:${attemptId}`,
+    trial_id: request.trial_id, run_id: request.run_id, reservation_ref: reservation.reservation_ref,
+    reservation_hash: hashTrialReservationSnapshot(reservation), request_hash: canonicalHash(request),
+    status: "running", lease_generation: 2, claimed_at: claimedAt,
+    heartbeat_at: new Date(claimed + 30_000).toISOString(), lease_expires_at: new Date(claimed + 300_000).toISOString(),
   }
 }

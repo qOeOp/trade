@@ -1,7 +1,7 @@
-import { assertStrategyDraftBinding, type StrategyDraftBinding } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
+import { assertStrategyDraftBinding, assertTrialReservationSnapshot, hashTrialReservationSnapshot, type StrategyDraftBinding, type TrialReservationSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
 import { assertReplayExecutionRequest, type ReplayExecutionRequest, type ReplayResult } from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
 
-export const FORWARD_ADMISSION_SCHEMA_VERSION = "trade.rd-forward-admission-request.v1" as const
+export const FORWARD_ADMISSION_SCHEMA_VERSION = "trade.rd-forward-admission-request.v2" as const
 export const FORWARD_RESULT_SCHEMA_VERSION = "trade.rd-forward-result.v1" as const
 
 export interface ForwardAdmissionRequest {
@@ -14,6 +14,7 @@ export interface ForwardAdmissionRequest {
   forward_dataset_hash: string
   draft: StrategyDraftBinding
   replay_request: ReplayExecutionRequest
+  replay_trial_reservation: TrialReservationSnapshot
 }
 
 export interface ForwardEvidenceResult {
@@ -54,8 +55,13 @@ export function assertForwardAdmissionRequest(value: ForwardAdmissionRequest): v
   if (!/^[a-f0-9]{64}$/.test(value.forward_dataset_hash)) throw new Error("forward_dataset_hash must be sha256")
   assertStrategyDraftBinding(value.draft)
   assertReplayExecutionRequest(value.replay_request)
+  assertTrialReservationSnapshot(value.replay_trial_reservation)
   const identity = value.draft.authorization.identity
   const replay = value.replay_request
+  if (value.replay_trial_reservation.reservation_ref !== replay.trial_reservation_ref
+      || hashTrialReservationSnapshot(value.replay_trial_reservation) !== replay.trial_reservation_hash) {
+    throw new Error("Forward Replay Trial Reservation mismatch")
+  }
   if (replay.strategy_policy_hash !== value.draft.strategy_policy_hash) throw new Error("Forward Replay must bind the materialized strategy policy hash")
   if (replay.dataset_hash !== value.forward_dataset_hash) throw new Error("Forward Replay dataset hash mismatch")
   if (replay.candidate_id !== identity.candidate_id || replay.candidate_hash !== identity.candidate_hash) throw new Error("Forward Replay Candidate identity mismatch")

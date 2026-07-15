@@ -5,20 +5,19 @@ import type {
   ReplayOrderEvent,
 } from "../../../contracts/src/lib/replay-contracts"
 import {
-  activateReplayOrder,
   cancelReplayOrder,
   fillReplayOrder,
-  submitReplayOrder,
   triggerReplayOrder,
   type ReplayTransitionStamp,
 } from "./replay-order-state"
 import type { ReplayReducedExit } from "./replay-source-reducer"
 
 export interface ReplayExitOrderExecution {
-  exit_order_id: string
+  terminal_state: "flat" | "open_marked"
+  exit_order_id: string | null
   exit_quantity: number
   signed_position_after: number
-  exit_fill_event_key: ReplayEventKey
+  exit_fill_event_key: ReplayEventKey | null
 }
 
 export type ReplayTransitionCapture = <T extends { event: ReplayOrderEvent }>(transition: T) => T
@@ -67,7 +66,7 @@ export function completeReplayExitOrderLane(input: {
       transition.signed_position_after,
       "sibling-exit-filled",
     )).order
-    return execution(stopOrder.order_id, transition.executed_quantity, transition.signed_position_after, transition.event.event_key)
+    return execution("flat", stopOrder.order_id, transition.executed_quantity, transition.signed_position_after, transition.event.event_key)
   }
 
   if (exit.role === "target") {
@@ -90,7 +89,7 @@ export function completeReplayExitOrderLane(input: {
       transition.signed_position_after,
       "sibling-exit-filled",
     )).order
-    return execution(targetOrder.order_id, transition.executed_quantity, transition.signed_position_after, transition.event.event_key)
+    return execution("flat", targetOrder.order_id, transition.executed_quantity, transition.signed_position_after, transition.event.event_key)
   }
 
   stopOrder = input.capture(cancelReplayOrder(
@@ -105,37 +104,18 @@ export function completeReplayExitOrderLane(input: {
     input.signed_position,
     "end-of-data",
   )).order
-  const exitOrderId = `${input.run_id}:order:end-of-data`
-  let endOfDataOrder = input.capture(submitReplayOrder({
-    order_id: exitOrderId,
-    order_role: "end_of_data",
-    order_type: "market",
-    side: stopOrder.side,
-    quantity: stopOrder.quantity,
-    reduce_only: true,
-    submitted_at: exit.timestamp,
-  }, input.next_stamp(exit.timestamp, 90, exit.sourceSequence, 2), input.signed_position)).order
-  endOfDataOrder = input.capture(activateReplayOrder(
-    endOfDataOrder,
-    input.next_stamp(exit.timestamp, 90, exit.sourceSequence, 3),
-    input.signed_position,
-  )).order
-  const transition = input.capture(fillReplayOrder({
-    order: endOfDataOrder,
-    requested_quantity: endOfDataOrder.remaining_quantity,
-    stamp: input.next_stamp(exit.timestamp, 90, exit.sourceSequence, 4),
-    signed_position_before: input.signed_position,
-  }))
-  return execution(exitOrderId, transition.executed_quantity, transition.signed_position_after, transition.event.event_key)
+  return execution("open_marked", null, 0, input.signed_position, null)
 }
 
 function execution(
-  exitOrderId: string,
+  terminalState: ReplayExitOrderExecution["terminal_state"],
+  exitOrderId: string | null,
   exitQuantity: number,
   signedPositionAfter: number,
-  exitFillEventKey: ReplayEventKey,
+  exitFillEventKey: ReplayEventKey | null,
 ): ReplayExitOrderExecution {
   return {
+    terminal_state: terminalState,
     exit_order_id: exitOrderId,
     exit_quantity: exitQuantity,
     signed_position_after: signedPositionAfter,

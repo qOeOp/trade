@@ -9,8 +9,12 @@ export interface DeveloperReplayPlan {
   run_id: string
   idempotency_key: string
   identity: ResearchIdentityBinding
+  trial_reservation_ref: string
+  trial_reservation_hash: string
   dataset_manifest_ref: string
   dataset_hash: string
+  venue_risk_policy_snapshot_hash: string
+  instrument_spec_snapshot_hash: string
   harness_hash: string
   assumptions_hash: string
   symbol: string
@@ -19,6 +23,7 @@ export interface DeveloperReplayPlan {
   order: ReplayExecutionRequest["order"]
   cost_policy: ReplayExecutionRequest["cost_policy"]
   simulator_policy: ReplayExecutionRequest["simulator_policy"]
+  margin_policy: ReplayExecutionRequest["margin_policy"]
   random_seed: number
 }
 
@@ -35,8 +40,12 @@ export function buildDeveloperReplayRequest(plan: DeveloperReplayPlan): ReplayEx
     candidate_hash: plan.identity.candidate_hash,
     identity_hash_policy_version: plan.identity.identity_hash_policy_version,
     experiment_contract_hash: plan.identity.experiment_contract_hash,
+    trial_reservation_ref: plan.trial_reservation_ref,
+    trial_reservation_hash: plan.trial_reservation_hash,
     dataset_manifest_ref: plan.dataset_manifest_ref,
     dataset_hash: plan.dataset_hash,
+    venue_risk_policy_snapshot_hash: plan.venue_risk_policy_snapshot_hash,
+    instrument_spec_snapshot_hash: plan.instrument_spec_snapshot_hash,
     harness_hash: plan.harness_hash,
     assumptions_hash: plan.assumptions_hash,
     symbol: plan.symbol,
@@ -45,6 +54,7 @@ export function buildDeveloperReplayRequest(plan: DeveloperReplayPlan): ReplayEx
     order: plan.order,
     cost_policy: plan.cost_policy,
     simulator_policy: plan.simulator_policy,
+    margin_policy: plan.margin_policy,
     random_seed: plan.random_seed,
   }
   assertReplayExecutionRequest(request)

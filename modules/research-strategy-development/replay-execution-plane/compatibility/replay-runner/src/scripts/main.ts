@@ -3,9 +3,10 @@
 import { repoRoot } from "../../../../../../contracts/runtime-core/src/paths"
 import { errorResponse, printScriptResult, readFlagValue, readJsonObject, successResponse } from "../../../../../../contracts/runtime-core/src/script-json"
 import type { JSONRecord } from "../../../../../../contracts/runtime-core/src/json"
+import type { ReplayAttemptLeaseSnapshot, TrialReservationSnapshot } from "../../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
 import { hashCanonical, replayDataHash, replayHarnessHash } from "../../../replay-engine/src/lib/replay-core"
 import { replayRegisteredStrategy } from "../../../replay-engine/src/lib/strategy-replay"
-import { REPLAY_REQUEST_SCHEMA_VERSION, type ReplayDatasetManifest, type ReplayExecutionRequest, type ReplayFundingEvent, type ReplayMarketBar } from "../../../../contracts/src/lib/replay-contracts"
+import { REPLAY_REQUEST_SCHEMA_VERSION, type ReplayDatasetManifest, type ReplayExecutionRequest, type ReplayFundingEvent, type ReplayMarkEvent, type ReplayMarketBar } from "../../../../contracts/src/lib/replay-contracts"
 import { runReplayTrial } from "../../../../runner/src/lib/replay-trial-runner"
 
 interface Config {
@@ -52,9 +53,13 @@ function runConfig(config: Config): unknown {
   if (executionRequest.schema_version === REPLAY_REQUEST_SCHEMA_VERSION) {
     return runReplayTrial({
       request: executionRequest as unknown as ReplayExecutionRequest,
+      trial_reservation: asRecord(input.trial_reservation) as unknown as TrialReservationSnapshot,
+      attempt_lease: asRecord(input.attempt_lease) as unknown as ReplayAttemptLeaseSnapshot,
+      observed_at: stringField(input.observed_at),
       dataset_manifest: asRecord(input.dataset_manifest) as unknown as ReplayDatasetManifest,
       bars: asArray(input.bars) as ReplayMarketBar[],
       funding_events: asArray(input.funding_events) as ReplayFundingEvent[],
+      mark_events: asArray(input.mark_events) as ReplayMarkEvent[],
       artifact_root: stringField(input.artifact_root) || undefined,
       cancel_requested: input.cancel_requested === true,
     })
