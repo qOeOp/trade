@@ -14,7 +14,7 @@ compatibility/ 迁入的 legacy replay/benchmark/panel 实现，只用于兼容�
 certification/ 迁入的 calibration 认证来源
 ```
 
-当前是 Trial Reservation v5、Request v21、Result v31、Artifact v33、Run Outcome v28、Dataset Manifest v7、OHLCV Resolution Evidence v1、Partial Reduce Intent v1、Reduce-only Exit Intent v1、Protective Stop Replace Intent v1、Decision Schedule v5、Boundary v7、Timeline v8、State Snapshot v3、Harness Context v6、Registry Capability v7、Harness Capability/Receipt v9、Worker Protocol v7、Engine Checkpoint v15、Simulator v8、Margin v7、Journal v4 的受限认证纵切。Control Plane 冻结 decision sequence/time/effect；当前 lane 可选择一次全仓 stop tighten，或一次 fixed-quantity partial reduce 后按剩余仓位原子重建双保护，并可追加一次末位 full exit。stop/target/exact risk 在 partial open 前保持优先，terminal owner 会取消 pending partial。
+当前是 Trial Reservation v5、Request v21、Result v32、Artifact v34、Run Outcome v29、Dataset Manifest v7、OHLCV Resolution Evidence v2、Partial Reduce Intent v1、Reduce-only Exit Intent v1、Protective Stop Replace Intent v1、Decision Schedule v5、Boundary v7、Timeline v8、State Snapshot v3、Harness Context v6、Registry Capability v7、Harness Capability/Receipt v9、Worker Protocol v7、Engine Checkpoint v16、Simulator v8、Margin v7、Journal v4 的受限认证纵切。Control Plane 冻结 decision sequence/time/effect；当前 lane 可选择一次全仓 stop tighten，或一次 fixed-quantity partial reduce 后按剩余仓位原子重建双保护，并可追加一次末位 full exit。stop/target/exact risk 在 partial open 前保持优先，terminal owner 会取消 pending partial。
 
 R4.41 只新增非可执行 `Partial Reduce Intent Draft v1`：冻结一次小于初始仓位的 fixed-quantity market reduce-only，以及 partial Fill 后同 source boundary 按剩余仓位取消/重建双保护的 draft policy。它未进入 Request/Schedule/certified capabilities；Runner 对该 draft capability 显式拒绝，直到非终止 Fill、partial Position/Ledger、bracket resize 与 checkpoint parity 完成。
 
@@ -25,6 +25,8 @@ R4.43 认证 partial Fill 后的 stop、target、exact liquidation、EOD 与 fin
 R4.44 冻结 `OHLCV Resolution Evidence v1`：simple-bracket stop/target 终止逐 bar 保存 P1/P2 admissible path digest；open gap 与单触点为 `exact_under_ohlc`，双触点 collision 为 `resolution_limited`，canonical 仍取 stop-first 较差路径。Result/Fingerprint/Artifact 独立绑定该证据；Simulator v8 经济语义不变，不代表真实 intrabar reconstruction 或通用多订单 resolver。
 
 R4.45 以 Plane-local ordered-price oracle fixtures 认证该包络：long/short 的 gap/single-touch 结果与两条 path 等价，collision 的 high-first/low-first 真实 owner 分别落入 P1/P2；相同 OHLC 可对应相反真实 owner，而 canonical 始终保守选 stop。轨迹分段内加密采样不改变证据。该 oracle 只存在于 certification，不是 tick runtime 或新输入合同。
+
+R4.46 将每条 stop/target resolution evidence 绑定到 active protection generation、remaining quantity、stop/target Order id/trigger 与独立 protection hash。初始双保护为 generation 1；当前互斥的一次 stop replacement 或 partial resize 为 generation 2。Checkpoint、Result 发布与幂等复读均交叉核对 OrderEvent/Fill，重算哈希也不能回指旧保护单；Simulator v8 经济语义不变。
 
 经济入口按唯一 `authorized_initial_order / authorized_order` 语义定位，不依赖 Schedule/Timeline 数组末位；可选退出必须是 Schedule 末位并以 `authorized_reduce_only_exit` 独立表达，不能冒充第二个入口。所有 post-entry evaluation 必须由 Source Reducer 运行时产生 Position/Cash State Snapshot，并正确表达 terminal-before-decision、pending Order 与 checkpoint/resume。
 
