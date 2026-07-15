@@ -947,6 +947,19 @@ test("runner partially reduces once, rebuilds full protection, then cleanly resu
     .toBe(partialReceiptHash)
   expect(resumed.result!.fills.filter((fill) => fill.order_role === "strategy_partial_reduce")).toHaveLength(1)
 
+  const semanticTampered = structuredClone(cancelled.resumable_checkpoint!)
+  semanticTampered.entry_transition!.stop_order.trigger_price = 94
+  const { checkpoint_hash: _discardedCheckpointHash, ...semanticTamperedBody } = semanticTampered
+  semanticTampered.checkpoint_hash = canonicalHash(semanticTamperedBody)
+  const semanticRejected = runReplayTrial({
+    ...authority, attempt_lease: renewedLease, observed_at: "2026-07-14T00:02:00Z",
+    dataset_manifest: manifest, bars: marketBars, funding_events: fundingEvents,
+    decision_harness_registry: countingRegistry,
+    execution_control: { resume_checkpoint: semanticTampered },
+  })
+  expect(semanticRejected.status).toBe("failed")
+  expect(semanticRejected.failure?.message).toContain("partial-reduce protection state is invalid")
+
   const preemptedBars = marketBars.map((bar, index) => index === 4
     ? { ...bar, high: 121, close: 119 }
     : bar)
@@ -968,6 +981,87 @@ test("runner partially reduces once, rebuilds full protection, then cleanly resu
   expect(preempted.result!.decision_evidence_timeline.entries[2]).toMatchObject({
     evaluation_status: "not_reached_terminal", execution_effect: "not_reached",
   })
+
+  for (const owner of ["stop", "target"] as const) {
+    const terminalBars = marketBars.map((bar, index) => index === 5
+      ? owner === "stop" ? { ...bar, low: 94 } : { ...bar, high: 121 }
+      : bar)
+    const terminalDataHash = replayDatasetHash(terminalBars, fundingEvents)
+    const terminalRequest: ReplayExecutionRequest = {
+      ...requestValue, run_id: `partial-reduce-post-${owner}-run`,
+      idempotency_key: `partial-reduce-post-${owner}-idem`, dataset_hash: terminalDataHash,
+    }
+    const terminal = runReplayTrial({
+      ...authorized(terminalRequest),
+      dataset_manifest: { ...manifest, data_hash: terminalDataHash },
+      bars: terminalBars, funding_events: fundingEvents,
+      decision_harness_registry: registeredHarness.registry,
+    })
+    expect(terminal.status).toBe("completed")
+    expect(terminal.result!.fills.map((fill) => [fill.order_role, fill.quantity]))
+      .toEqual([["entry", 1], ["strategy_partial_reduce", 0.4], [owner, 0.6]])
+    expect(terminal.result!.fills.at(-1)!.order_id).toContain(`${owner}-after-partial:2`)
+    expect(terminal.result!.positions.at(-1)).toMatchObject({ state: "flat", signed_quantity: 0 })
+    expect(terminal.result!.decision_evidence_timeline.entries[2]).toMatchObject({
+      evaluation_status: "not_reached_terminal", execution_effect: "not_reached",
+    })
+  }
+
+  const partialOnlySchedule = {
+    ...decisionSchedule,
+    entries: decisionSchedule.entries.slice(0, 2),
+  }
+  const endOfDataRequest: ReplayExecutionRequest = {
+    ...requestValue, run_id: "partial-reduce-end-of-data-run", idempotency_key: "partial-reduce-end-of-data-idem",
+    decision_schedule: partialOnlySchedule, decision_schedule_hash: canonicalHash(partialOnlySchedule),
+  }
+  const endOfData = runReplayTrial({
+    ...authorized(endOfDataRequest), dataset_manifest: manifest, bars: marketBars, funding_events: fundingEvents,
+    decision_harness_registry: registeredHarness.registry,
+  })
+  expect(endOfData.status).toBe("completed")
+  expect(endOfData.result!.fills.map((fill) => fill.order_role)).toEqual(["entry", "strategy_partial_reduce"])
+  expect(endOfData.result!.positions.at(-1)).toMatchObject({ state: "open", signed_quantity: 0.6 })
+  expect(endOfData.result!.limitations.some((item) => item.code === "end-of-data-open-position-marked")).toBe(true)
+  expect(endOfData.result!.order_events.filter((event) => (
+    event.order_id.includes("after-partial:2") && event.kind === "cancelled"
+  )).map((event) => event.reason)).toEqual(["end-of-data", "end-of-data"])
+
+  const exactMarks = [
+    ["2026-07-14T00:00:00Z", 100], ["2026-07-14T04:00:00Z", 102],
+    ["2026-07-14T08:00:00Z", 104], ["2026-07-14T12:00:00Z", 103],
+    ["2026-07-14T16:00:00Z", 105], ["2026-07-14T20:00:00Z", 107],
+    ["2026-07-15T00:00:00Z", 75.5], ["2026-07-15T04:00:00Z", 104],
+    ["2026-07-15T08:00:00Z", 110],
+  ].map(([timestamp, markPrice], index) => ({
+    timestamp: timestamp as string, available_at: timestamp as string,
+    source_sequence: index + 1, mark_price: markPrice as number,
+  }))
+  const liquidationDataHash = replayDatasetHash(marketBars, fundingEvents, exactMarks)
+  const liquidationRisk = { ...RISK_SNAPSHOT, liquidation_fee_bps: 10 }
+  const liquidationRequest: ReplayExecutionRequest = {
+    ...requestValue, run_id: "partial-reduce-liquidation-run", idempotency_key: "partial-reduce-liquidation-idem",
+    dataset_hash: liquidationDataHash,
+    cost_policy: { ...requestValue.cost_policy, liquidation_fee_bps: 10 },
+    margin_policy: { ...requestValue.margin_policy, isolated_collateral: 15.1 },
+    venue_risk_policy_schedule_hash: canonicalHash([liquidationRisk]),
+  }
+  const liquidation = runReplayTrial({
+    ...authorized(liquidationRequest),
+    dataset_manifest: {
+      ...manifest, data_hash: liquidationDataHash, venue_risk_policy_epochs: [liquidationRisk],
+      mark_coverage: "complete_grid", mark_interval_ms: 14_400_000, mark_event_count: exactMarks.length,
+    },
+    bars: marketBars, funding_events: fundingEvents, mark_events: exactMarks,
+    decision_harness_registry: registeredHarness.registry,
+  })
+  expect(liquidation.failure).toBeUndefined()
+  expect(liquidation.status).toBe("completed")
+  expect(liquidation.result!.fills.map((fill) => [fill.order_role, fill.quantity]))
+    .toEqual([["entry", 1], ["strategy_partial_reduce", 0.4], ["liquidation", 0.6]])
+  expect(liquidation.result!.liquidation).toMatchObject({ quantity: 0.6, settlement_state: "flat_without_deficit" })
+  expect(liquidation.result!.order_events.filter((event) => event.event_key.boundary_phase === 15).slice(-5)
+    .map((event) => event.kind)).toEqual(["cancelled", "cancelled", "submitted", "activated", "filled"])
 })
 
 test("runner tightens one protective stop and resumes without replaying its Harness", () => {

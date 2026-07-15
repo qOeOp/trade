@@ -66,7 +66,7 @@ import { completeReplayPartialReduceLane } from "./replay-partial-reduce-lane"
 import { ReplayLiquidationDeficitError, assertReplayPostEntryMargin, buildReplayMaintenanceBreachObservation, buildReplayPathMarginSnapshots } from "./replay-margin-path"
 import { reduceReplaySourceEvents } from "./replay-source-reducer"
 
-export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v14" as const
+export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v15" as const
 
 export interface ReplayEngineCheckpoint {
   schema_version: typeof REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION
@@ -1241,6 +1241,35 @@ export function assertReplayEngineCheckpoint(
   if (canonicalHash(checkpoint.source_events.at(-1)?.event_key) !== canonicalHash(checkpoint.last_committed_event_key)) {
     throw new Error("Replay engine checkpoint last committed event key is invalid")
   }
+  const maximumOrderEventSequence = checkpoint.order_events.reduce(
+    (maximum, event) => Math.max(maximum, event.sequence),
+    0,
+  )
+  if (!Number.isSafeInteger(checkpoint.event_sequence)
+      || checkpoint.event_sequence !== maximumOrderEventSequence) {
+    throw new Error("Replay engine checkpoint OrderEvent sequence is invalid")
+  }
+  const assertOrderMatchesLastEvent = (order: ReplayOrder): void => {
+    const lastEvent = checkpoint.order_events
+      .filter((event) => event.order_id === order.order_id)
+      .sort((left, right) => left.sequence - right.sequence)
+      .at(-1)
+    if (!lastEvent
+        || lastEvent.sequence !== order.last_event_sequence
+        || canonicalHash(lastEvent.event_key) !== canonicalHash(order.last_event_key)
+        || lastEvent.status !== order.status
+        || lastEvent.remaining_quantity !== order.remaining_quantity) {
+      throw new Error("Replay engine checkpoint Order state does not match its last OrderEvent")
+    }
+  }
+  assertOrderMatchesLastEvent(checkpoint.entry_order)
+  if (checkpoint.entry_transition) {
+    assertOrderMatchesLastEvent(checkpoint.entry_transition.entry_order)
+    assertOrderMatchesLastEvent(checkpoint.entry_transition.stop_order)
+    assertOrderMatchesLastEvent(checkpoint.entry_transition.target_order)
+  }
+  if (checkpoint.partial_reduce_order) assertOrderMatchesLastEvent(checkpoint.partial_reduce_order)
+  if (checkpoint.strategy_exit_order) assertOrderMatchesLastEvent(checkpoint.strategy_exit_order)
   if (checkpoint.partial_reduce_order) {
     const scheduleEntry = request.decision_schedule.entries.find(
       (entry) => entry.expected_effect === "authorized_partial_reduce",
@@ -1253,11 +1282,13 @@ export function assertReplayEngineCheckpoint(
     const fill = checkpoint.partial_reduce_fills[0]
     if (!intent || evidence?.evaluation_status !== "evaluated"
         || evidence.execution_effect !== "authorized_partial_reduce"
+        || order.order_id !== `${request.run_id}:order:partial-reduce`
         || order.order_role !== "strategy_partial_reduce"
         || order.order_type !== "market"
         || order.side !== intent.side
         || order.quantity !== intent.quantity
         || order.reduce_only !== true
+        || order.trigger_price !== null
         || !["submitted", "filled"].includes(order.status)
         || order.submitted_at !== intent.signal_time
         || (order.status === "submitted" && (order.filled_quantity !== 0 || checkpoint.partial_reduce_fills.length !== 0))
@@ -1266,7 +1297,10 @@ export function assertReplayEngineCheckpoint(
           || !fill
           || fill.order_id !== order.order_id
           || fill.order_role !== "strategy_partial_reduce"
+          || fill.side !== intent.side
           || fill.quantity !== intent.quantity
+          || !Number.isFinite(fill.price) || fill.price <= 0
+          || !Number.isFinite(fill.fee) || fill.fee < 0
           || fill.reduce_only !== true
           || fill.timestamp !== intent.earliest_executable_time
           || order.filled_quantity !== intent.quantity
@@ -1279,7 +1313,19 @@ export function assertReplayEngineCheckpoint(
         ? entry.executed_quantity - intent.quantity
         : -entry.executed_quantity + intent.quantity
       if (!entry || entry.signed_position_after !== expectedSignedPosition
+          || entry.stop_order.order_id !== `${request.run_id}:order:stop-after-partial:${scheduleEntry.decision_sequence}`
+          || entry.target_order.order_id !== `${request.run_id}:order:target-after-partial:${scheduleEntry.decision_sequence}`
+          || entry.stop_order.order_role !== "stop" || entry.target_order.order_role !== "target"
+          || entry.stop_order.order_type !== "stop_market"
+          || entry.target_order.order_type !== "take_profit_market"
+          || entry.stop_order.side !== intent.side || entry.target_order.side !== intent.side
+          || entry.stop_order.reduce_only !== true || entry.target_order.reduce_only !== true
           || entry.stop_order.status !== "active" || entry.target_order.status !== "active"
+          || entry.stop_order.trigger_price !== request.order.stop_price
+          || entry.target_order.trigger_price !== request.order.target_price
+          || entry.stop_order.quantity !== Math.abs(expectedSignedPosition)
+          || entry.target_order.quantity !== Math.abs(expectedSignedPosition)
+          || entry.stop_order.filled_quantity !== 0 || entry.target_order.filled_quantity !== 0
           || entry.stop_order.remaining_quantity !== Math.abs(expectedSignedPosition)
           || entry.target_order.remaining_quantity !== Math.abs(expectedSignedPosition)) {
         throw new Error("Replay engine checkpoint partial-reduce protection state is invalid")
