@@ -374,6 +374,34 @@ ON rd_replay_attempt(trial_id)
 WHERE status IN ('claimed', 'running');
 
 
+CREATE TABLE IF NOT EXISTS rd_replay_checkpoint_receipt (
+  receipt_id TEXT PRIMARY KEY,
+  receipt_ref TEXT NOT NULL UNIQUE,
+  receipt_hash TEXT NOT NULL,
+  recorded_at TEXT NOT NULL,
+  trial_id TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  request_hash TEXT NOT NULL,
+  reservation_ref TEXT NOT NULL,
+  reservation_hash TEXT NOT NULL,
+  attempt_id TEXT NOT NULL,
+  attempt_ordinal INTEGER NOT NULL CHECK(attempt_ordinal >= 1),
+  worker_id TEXT NOT NULL,
+  lease_generation INTEGER NOT NULL CHECK(lease_generation >= 1),
+  attempt_lease_hash TEXT NOT NULL,
+  diagnostic_checkpoint_ref TEXT NOT NULL,
+  diagnostic_checkpoint_hash TEXT NOT NULL,
+  engine_checkpoint_ref TEXT NOT NULL,
+  engine_checkpoint_payload_hash TEXT NOT NULL,
+  engine_checkpoint_hash TEXT NOT NULL,
+  next_source_offset INTEGER NOT NULL CHECK(next_source_offset >= 1),
+  UNIQUE (attempt_id, next_source_offset),
+  UNIQUE (diagnostic_checkpoint_ref, diagnostic_checkpoint_hash),
+  FOREIGN KEY (trial_id) REFERENCES rd_trial(trial_id),
+  FOREIGN KEY (attempt_id) REFERENCES rd_replay_attempt(attempt_id)
+);
+
+
 CREATE TABLE IF NOT EXISTS rd_replay_resume_authorization (
   authorization_id TEXT PRIMARY KEY,
   authorization_ref TEXT NOT NULL UNIQUE,
@@ -800,6 +828,18 @@ CREATE TRIGGER IF NOT EXISTS prevent_replay_resume_authorization_delete
 BEFORE DELETE ON rd_replay_resume_authorization
 BEGIN
   SELECT RAISE(ABORT, 'Replay Resume Authorization is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS prevent_replay_checkpoint_receipt_update
+BEFORE UPDATE ON rd_replay_checkpoint_receipt
+BEGIN
+  SELECT RAISE(ABORT, 'Replay Checkpoint Receipt is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS prevent_replay_checkpoint_receipt_delete
+BEFORE DELETE ON rd_replay_checkpoint_receipt
+BEGIN
+  SELECT RAISE(ABORT, 'Replay Checkpoint Receipt is immutable');
 END;
 
 

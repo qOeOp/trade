@@ -2,15 +2,18 @@ import { expect, test } from "bun:test"
 import {
   CONTROL_PLANE_IDENTITY_SCHEMA_VERSION,
   REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION,
+  REPLAY_CHECKPOINT_RECEIPT_SCHEMA_VERSION,
   REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION,
   DRAFT_AUTHORIZATION_SCHEMA_VERSION,
   TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION,
   assertDraftStrategyAuthorization,
   assertTrialReservationSnapshot,
+  createReplayCheckpointReceiptSnapshot,
   createReplayResumeAuthorizationSnapshot,
   hashReplayResumeAuthorizationSnapshot,
   hashTrialReservationSnapshot,
   hashReplayAttemptLeaseSnapshot,
+  hashReplayCheckpointReceiptSnapshot,
   type DraftStrategyAuthorization,
   type TrialReservationSnapshot,
 } from "./control-plane-contracts"
@@ -95,7 +98,7 @@ test("Replay Resume Authorization binds a later target Attempt and detects mutat
     trial_id: "trial-1", run_id: "run-1", request_hash: "b".repeat(64),
     reservation_ref: "reservation://trial-1", reservation_hash: HASH,
     source_attempt_id: "attempt-1", source_attempt_ordinal: 1, source_attempt_status: "cancelled",
-    diagnostic_checkpoint_ref: "artifact://attempt-1/diagnostic-checkpoint-commit.json",
+    diagnostic_checkpoint_ref: "artifact://attempt-1/diagnostic-checkpoint-commit-2-2-ffffffffffffffff.json",
     diagnostic_checkpoint_hash: "c".repeat(64),
     target_attempt_id: "attempt-2", target_attempt_ordinal: 2, target_worker_id: "worker-2",
     target_claimed_at: "2026-07-15T00:01:00Z", target_lease_generation_floor: 1,
@@ -105,4 +108,22 @@ test("Replay Resume Authorization binds a later target Attempt and detects mutat
   expect(() => hashReplayResumeAuthorizationSnapshot({ ...value, target_worker_id: "worker-3" })).toThrow("hash mismatch")
   const { authorization_hash: _, ...body } = value
   expect(() => createReplayResumeAuthorizationSnapshot({ ...body, target_attempt_ordinal: 1 })).toThrow("later Attempt")
+})
+
+test("Replay Checkpoint Receipt binds fenced producer authority and monotonic progress", () => {
+  const receipt = createReplayCheckpointReceiptSnapshot({
+    schema_version: REPLAY_CHECKPOINT_RECEIPT_SCHEMA_VERSION,
+    receipt_id: "receipt-1", receipt_ref: "receipt://attempt-1/2", recorded_at: "2026-07-15T00:02:00Z", status: "recorded",
+    trial_id: "trial-1", run_id: "run-1", request_hash: "b".repeat(64),
+    reservation_ref: "reservation://trial-1", reservation_hash: HASH,
+    attempt_id: "attempt-1", attempt_ordinal: 1, worker_id: "worker-1", lease_generation: 2,
+    attempt_lease_hash: "c".repeat(64),
+    diagnostic_checkpoint_ref: "artifact://attempt-1/diagnostic-checkpoint-commit-2-2-ffffffffffffffff.json",
+    diagnostic_checkpoint_hash: "d".repeat(64),
+    engine_checkpoint_ref: "artifact://attempt-1/diagnostic-checkpoint-2-2-ffffffffffffffff.json",
+    engine_checkpoint_payload_hash: "e".repeat(64), engine_checkpoint_hash: "f".repeat(64),
+    next_source_offset: 2,
+  })
+  expect(hashReplayCheckpointReceiptSnapshot(receipt)).toBe(receipt.receipt_hash)
+  expect(() => hashReplayCheckpointReceiptSnapshot({ ...receipt, next_source_offset: 3 })).toThrow("hash mismatch")
 })

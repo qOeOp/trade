@@ -14,6 +14,7 @@ export interface IssueReplayResumeAuthorizationInput {
   authorization_ref: string
   issued_at: string
   source_attempt_id: string
+  source_checkpoint_receipt_id: string
   target_attempt_lease: ReplayAttemptLeaseSnapshot
 }
 
@@ -56,6 +57,21 @@ interface AuthorizationRow {
   target_attempt_lease_hash: string
 }
 
+interface CheckpointReceiptRow {
+  receipt_id: string
+  trial_id: string
+  run_id: string
+  request_hash: string
+  reservation_ref: string
+  reservation_hash: string
+  attempt_id: string
+  attempt_ordinal: number
+  worker_id: string
+  diagnostic_checkpoint_ref: string
+  diagnostic_checkpoint_hash: string
+  next_source_offset: number
+}
+
 export function issueReplayResumeAuthorization(
   db: Database,
   input: IssueReplayResumeAuthorizationInput,
@@ -64,11 +80,26 @@ export function issueReplayResumeAuthorization(
   requireUtc(input.issued_at, "issued_at")
   const source = readAttempt(db, input.source_attempt_id)
   const target = readAttempt(db, input.target_attempt_lease.attempt_id)
+  const receipt = readCheckpointReceipt(db, input.source_checkpoint_receipt_id)
   if (source.status !== "cancelled" && source.status !== "expired") {
     throw new Error("Replay resume source Attempt must be cancelled or expired")
   }
-  if (!source.diagnostic_checkpoint_ref || !source.diagnostic_checkpoint_hash) {
-    throw new Error("Replay resume source Attempt has no committed diagnostic checkpoint")
+  if (receipt.attempt_id !== source.attempt_id || receipt.attempt_ordinal !== source.attempt_ordinal
+      || receipt.worker_id !== source.worker_id || receipt.trial_id !== source.trial_id
+      || receipt.run_id !== source.run_id || receipt.request_hash !== source.request_hash
+      || receipt.reservation_ref !== source.reservation_ref || receipt.reservation_hash !== source.reservation_hash) {
+    throw new Error("Replay resume Checkpoint Receipt does not match the source Attempt authority")
+  }
+  const latestReceipt = db.query(`
+    SELECT receipt_id FROM rd_replay_checkpoint_receipt
+    WHERE attempt_id=$attempt_id ORDER BY next_source_offset DESC LIMIT 1
+  `).get({ $attempt_id: source.attempt_id }) as { receipt_id: string } | null
+  if (!latestReceipt || latestReceipt.receipt_id !== receipt.receipt_id) {
+    throw new Error("Replay resume requires the source Attempt's latest Checkpoint Receipt")
+  }
+  if ((source.diagnostic_checkpoint_ref && source.diagnostic_checkpoint_ref !== receipt.diagnostic_checkpoint_ref)
+      || (source.diagnostic_checkpoint_hash && source.diagnostic_checkpoint_hash !== receipt.diagnostic_checkpoint_hash)) {
+    throw new Error("Replay resume Checkpoint Receipt does not match terminal Attempt evidence")
   }
   if (target.status !== "claimed" && target.status !== "running") {
     throw new Error("Replay resume target Attempt must be active")
@@ -108,8 +139,8 @@ export function issueReplayResumeAuthorization(
     source_attempt_id: source.attempt_id,
     source_attempt_ordinal: source.attempt_ordinal,
     source_attempt_status: source.status,
-    diagnostic_checkpoint_ref: source.diagnostic_checkpoint_ref,
-    diagnostic_checkpoint_hash: source.diagnostic_checkpoint_hash,
+    diagnostic_checkpoint_ref: receipt.diagnostic_checkpoint_ref,
+    diagnostic_checkpoint_hash: receipt.diagnostic_checkpoint_hash,
     target_attempt_id: target.attempt_id,
     target_attempt_ordinal: target.attempt_ordinal,
     target_worker_id: target.worker_id,
@@ -175,6 +206,17 @@ function readAttempt(db: Database, attemptId: string): AttemptAuthorityRow {
     FROM rd_replay_attempt WHERE attempt_id=$attempt_id
   `).get({ $attempt_id: attemptId }) as AttemptAuthorityRow | null
   if (!row) throw new Error("Replay Resume Authorization references a missing Attempt")
+  return row
+}
+
+function readCheckpointReceipt(db: Database, receiptId: string): CheckpointReceiptRow {
+  const row = db.query(`
+    SELECT receipt_id, trial_id, run_id, request_hash, reservation_ref, reservation_hash,
+           attempt_id, attempt_ordinal, worker_id,
+           diagnostic_checkpoint_ref, diagnostic_checkpoint_hash, next_source_offset
+    FROM rd_replay_checkpoint_receipt WHERE receipt_id=$receipt_id
+  `).get({ $receipt_id: receiptId }) as CheckpointReceiptRow | null
+  if (!row) throw new Error("Replay Resume Authorization references a missing Checkpoint Receipt")
   return row
 }
 

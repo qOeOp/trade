@@ -22,6 +22,7 @@ import { buildDefaultUniverseSeed, seedDefaultResearchControlPlane } from "./res
 import { ensureResearchStateSchema } from "./research-state-store"
 import { issueTrialReservationSnapshot } from "./trial-reservation-snapshot"
 import { claimReplayAttempt, finalizeReplayAttempt, renewReplayAttemptLease } from "./replay-attempt-authority"
+import { recordReplayCheckpointReceipt } from "./replay-checkpoint-receipt"
 import { issueReplayResumeAuthorization } from "./replay-resume-authorization"
 import {
   appendExperimentResult,
@@ -309,6 +310,51 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
     })
     assert.equal(renewed.status, "running")
     assert.equal(renewed.lease_generation, 2)
+    const firstReceipt = recordReplayCheckpointReceipt(db, {
+      receipt_id: "checkpoint-receipt-1", receipt_ref: "receipt://attempt-1/2",
+      recorded_at: "2026-07-14T04:02:30Z", attempt_lease: renewed,
+      diagnostic_checkpoint_commit: {
+        ref: "artifact://attempt-1/diagnostic-checkpoint-commit-2-2-6666666666666666.json", sha256: "8".repeat(64),
+        checkpoint_ref: "artifact://attempt-1/diagnostic-checkpoint-2-2-6666666666666666.json",
+        checkpoint_sha256: "7".repeat(64), checkpoint_hash: "6".repeat(64),
+        producer_attempt_id: "attempt-1", producer_lease_generation: 2, next_source_offset: 2,
+      },
+    })
+    assert.equal(firstReceipt.next_source_offset, 2)
+    assert.deepEqual(recordReplayCheckpointReceipt(db, {
+      receipt_id: "checkpoint-receipt-1", receipt_ref: "receipt://attempt-1/2",
+      recorded_at: "2026-07-14T04:02:30Z", attempt_lease: renewed,
+      diagnostic_checkpoint_commit: {
+        ref: "artifact://attempt-1/diagnostic-checkpoint-commit-2-2-6666666666666666.json", sha256: "8".repeat(64),
+        checkpoint_ref: "artifact://attempt-1/diagnostic-checkpoint-2-2-6666666666666666.json",
+        checkpoint_sha256: "7".repeat(64), checkpoint_hash: "6".repeat(64),
+        producer_attempt_id: "attempt-1", producer_lease_generation: 2, next_source_offset: 2,
+      },
+    }), firstReceipt)
+    assert.throws(() => recordReplayCheckpointReceipt(db, {
+      receipt_id: "checkpoint-receipt-stale-lease", receipt_ref: "receipt://attempt-1/stale-lease",
+      recorded_at: "2026-07-14T04:02:30Z", attempt_lease: first,
+      diagnostic_checkpoint_commit: {
+        ref: "artifact://attempt-1/stale-lease-commit.json", sha256: "2".repeat(64),
+        checkpoint_ref: "artifact://attempt-1/stale-lease-checkpoint.json",
+        checkpoint_sha256: "3".repeat(64), checkpoint_hash: "4".repeat(64),
+        producer_attempt_id: "attempt-1", producer_lease_generation: 1, next_source_offset: 3,
+      },
+    }), /lease does not match Control Plane state/)
+    assert.throws(() => recordReplayCheckpointReceipt(db, {
+      receipt_id: "checkpoint-receipt-rollback", receipt_ref: "receipt://attempt-1/1",
+      recorded_at: "2026-07-14T04:02:40Z", attempt_lease: renewed,
+      diagnostic_checkpoint_commit: {
+        ref: "artifact://attempt-1/rollback-commit.json", sha256: "2".repeat(64),
+        checkpoint_ref: "artifact://attempt-1/rollback-checkpoint.json",
+        checkpoint_sha256: "3".repeat(64), checkpoint_hash: "4".repeat(64),
+        producer_attempt_id: "attempt-1", producer_lease_generation: 2, next_source_offset: 1,
+      },
+    }), /progress must advance monotonically/)
+    assert.throws(() => db.query(`
+      UPDATE rd_replay_checkpoint_receipt SET next_source_offset=3
+      WHERE receipt_id='checkpoint-receipt-1'
+    `).run(), /Replay Checkpoint Receipt is immutable/)
     assert.throws(() => finalizeReplayAttempt(db, {
       attempt_id: "attempt-1", worker_id: "worker-1", expected_lease_generation: 1,
       status: "failed", finalized_at: "2026-07-14T04:03:00Z", failure_class: "deterministic_engine",
@@ -316,7 +362,7 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
     finalizeReplayAttempt(db, {
       attempt_id: "attempt-1", worker_id: "worker-1", expected_lease_generation: 2,
       status: "cancelled", finalized_at: "2026-07-14T04:03:00Z", failure_class: "resource",
-      diagnostic_checkpoint_ref: "artifact://attempt-1/diagnostic-checkpoint-commit.json",
+      diagnostic_checkpoint_ref: "artifact://attempt-1/diagnostic-checkpoint-commit-2-2-6666666666666666.json",
       diagnostic_checkpoint_hash: "8".repeat(64),
     })
     assert.throws(() => finalizeReplayAttempt(db, {
@@ -336,6 +382,7 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
       authorization_ref: "authorization://replay-resume/1",
       issued_at: "2026-07-14T04:04:30Z",
       source_attempt_id: "attempt-1",
+      source_checkpoint_receipt_id: "checkpoint-receipt-1",
       target_attempt_lease: second,
     })
     assert.equal(resumeAuthorization.source_attempt_status, "cancelled")
@@ -346,12 +393,36 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
       authorization_ref: "authorization://replay-resume/1",
       issued_at: "2026-07-14T04:04:30Z",
       source_attempt_id: "attempt-1",
+      source_checkpoint_receipt_id: "checkpoint-receipt-1",
       target_attempt_lease: second,
     }), resumeAuthorization)
     assert.throws(() => db.query(`
       UPDATE rd_replay_resume_authorization SET diagnostic_checkpoint_hash=$hash
       WHERE authorization_id='resume-authorization-1'
     `).run({ $hash: "7".repeat(64) }), /Replay Resume Authorization is immutable/)
+    const secondReceipt = recordReplayCheckpointReceipt(db, {
+      receipt_id: "checkpoint-receipt-2", receipt_ref: "receipt://attempt-2/3",
+      recorded_at: "2026-07-14T04:05:00Z", attempt_lease: second,
+      diagnostic_checkpoint_commit: {
+        ref: "artifact://attempt-2/diagnostic-checkpoint-commit-1-3-3333333333333333.json", sha256: "5".repeat(64),
+        checkpoint_ref: "artifact://attempt-2/diagnostic-checkpoint-1-3-3333333333333333.json",
+        checkpoint_sha256: "4".repeat(64), checkpoint_hash: "3".repeat(64),
+        producer_attempt_id: "attempt-2", producer_lease_generation: 1, next_source_offset: 3,
+      },
+    })
+    assert.equal(secondReceipt.attempt_id, "attempt-2")
+    const secondLatestReceiptInput = {
+      receipt_id: "checkpoint-receipt-3", receipt_ref: "receipt://attempt-2/4",
+      recorded_at: "2026-07-14T04:05:30Z", attempt_lease: second,
+      diagnostic_checkpoint_commit: {
+        ref: "artifact://attempt-2/diagnostic-checkpoint-commit-1-4-bbbbbbbbbbbbbbbb.json", sha256: "9".repeat(64),
+        checkpoint_ref: "artifact://attempt-2/diagnostic-checkpoint-1-4-bbbbbbbbbbbbbbbb.json",
+        checkpoint_sha256: "a".repeat(64), checkpoint_hash: "b".repeat(64),
+        producer_attempt_id: "attempt-2", producer_lease_generation: 1, next_source_offset: 4,
+      },
+    }
+    const secondLatestReceipt = recordReplayCheckpointReceipt(db, secondLatestReceiptInput)
+    assert.equal(secondLatestReceipt.next_source_offset, 4)
     const third = claimReplayAttempt(db, {
       attempt_id: "attempt-3", worker_id: "worker-3", idempotency_key: "attempt-key-3",
       request_hash: "9".repeat(64), claimed_at: "2026-07-14T04:07:00Z", lease_expires_at: "2026-07-14T04:12:00Z",
@@ -359,6 +430,25 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
     })
     assert.equal(third.attempt_ordinal, 3)
     assert.equal((db.query("SELECT status FROM rd_replay_attempt WHERE attempt_id='attempt-2'").get() as { status: string }).status, "expired")
+    assert.deepEqual(recordReplayCheckpointReceipt(db, secondLatestReceiptInput), secondLatestReceipt)
+    assert.throws(() => issueReplayResumeAuthorization(db, {
+      authorization_id: "resume-authorization-stale-receipt",
+      authorization_ref: "authorization://replay-resume/stale-receipt",
+      issued_at: "2026-07-14T04:07:30Z",
+      source_attempt_id: "attempt-2",
+      source_checkpoint_receipt_id: "checkpoint-receipt-2",
+      target_attempt_lease: third,
+    }), /latest Checkpoint Receipt/)
+    const crashResumeAuthorization = issueReplayResumeAuthorization(db, {
+      authorization_id: "resume-authorization-2",
+      authorization_ref: "authorization://replay-resume/2",
+      issued_at: "2026-07-14T04:07:30Z",
+      source_attempt_id: "attempt-2",
+      source_checkpoint_receipt_id: "checkpoint-receipt-3",
+      target_attempt_lease: third,
+    })
+    assert.equal(crashResumeAuthorization.source_attempt_status, "expired")
+    assert.equal(crashResumeAuthorization.diagnostic_checkpoint_hash, "9".repeat(64))
     assert.throws(() => finalizeReplayAttempt(db, {
       attempt_id: "attempt-2", worker_id: "worker-2", expected_lease_generation: 1,
       status: "cancelled", finalized_at: "2026-07-14T04:05:00Z", failure_class: "resource",

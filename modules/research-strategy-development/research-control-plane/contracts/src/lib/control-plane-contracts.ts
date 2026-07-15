@@ -5,6 +5,7 @@ export const DRAFT_AUTHORIZATION_SCHEMA_VERSION = "trade.rd-draft-authorization.
 export const STRATEGY_DRAFT_BINDING_SCHEMA_VERSION = "trade.rd-strategy-draft-binding.v1" as const
 export const TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION = "trade.rd-trial-reservation-snapshot.v1" as const
 export const REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION = "trade.rd-replay-attempt-lease.v1" as const
+export const REPLAY_CHECKPOINT_RECEIPT_SCHEMA_VERSION = "trade.rd-replay-checkpoint-receipt.v1" as const
 export const REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION = "trade.rd-replay-resume-authorization-snapshot.v1" as const
 
 export interface ResearchIdentityBinding {
@@ -92,6 +93,32 @@ export interface ReplayResumeAuthorizationSnapshot {
   target_attempt_lease_hash: string
 }
 
+export interface ReplayCheckpointReceiptSnapshot {
+  schema_version: typeof REPLAY_CHECKPOINT_RECEIPT_SCHEMA_VERSION
+  receipt_id: string
+  receipt_ref: string
+  receipt_hash: string
+  recorded_at: string
+  status: "recorded"
+  trial_id: string
+  run_id: string
+  request_hash: string
+  reservation_ref: string
+  reservation_hash: string
+  attempt_id: string
+  attempt_ordinal: number
+  worker_id: string
+  lease_generation: number
+  attempt_lease_hash: string
+  diagnostic_checkpoint_ref: string
+  diagnostic_checkpoint_hash: string
+  engine_checkpoint_ref: string
+  engine_checkpoint_payload_hash: string
+  engine_checkpoint_hash: string
+  next_source_offset: number
+}
+
+export type ReplayCheckpointReceiptBody = Omit<ReplayCheckpointReceiptSnapshot, "receipt_hash">
 export type ReplayResumeAuthorizationBody = Omit<ReplayResumeAuthorizationSnapshot, "authorization_hash">
 
 export interface DraftStrategyAuthorization {
@@ -191,6 +218,59 @@ export function assertReplayAttemptLeaseSnapshot(value: ReplayAttemptLeaseSnapsh
 export function hashReplayAttemptLeaseSnapshot(value: ReplayAttemptLeaseSnapshot): string {
   assertReplayAttemptLeaseSnapshot(value)
   return createHash("sha256").update(canonicalReservationJson(value), "utf8").digest("hex")
+}
+
+export function assertReplayCheckpointReceiptSnapshot(value: ReplayCheckpointReceiptSnapshot): void {
+  if (value.schema_version !== REPLAY_CHECKPOINT_RECEIPT_SCHEMA_VERSION) fail("checkpoint receipt schema_version")
+  for (const [field, item] of Object.entries({
+    receipt_id: value.receipt_id,
+    receipt_ref: value.receipt_ref,
+    trial_id: value.trial_id,
+    run_id: value.run_id,
+    reservation_ref: value.reservation_ref,
+    attempt_id: value.attempt_id,
+    worker_id: value.worker_id,
+    diagnostic_checkpoint_ref: value.diagnostic_checkpoint_ref,
+    engine_checkpoint_ref: value.engine_checkpoint_ref,
+  })) requireText(item, `checkpoint_receipt.${field}`)
+  for (const [field, item] of Object.entries({
+    receipt_hash: value.receipt_hash,
+    request_hash: value.request_hash,
+    reservation_hash: value.reservation_hash,
+    attempt_lease_hash: value.attempt_lease_hash,
+    diagnostic_checkpoint_hash: value.diagnostic_checkpoint_hash,
+    engine_checkpoint_payload_hash: value.engine_checkpoint_payload_hash,
+    engine_checkpoint_hash: value.engine_checkpoint_hash,
+  })) requireHash(item, `checkpoint_receipt.${field}`)
+  requireUtcTimestamp(value.recorded_at, "checkpoint_receipt.recorded_at")
+  if (value.status !== "recorded") fail("checkpoint receipt status must be recorded")
+  for (const [field, item] of Object.entries({
+    attempt_ordinal: value.attempt_ordinal,
+    lease_generation: value.lease_generation,
+    next_source_offset: value.next_source_offset,
+  })) {
+    if (!Number.isSafeInteger(item) || item < 1) fail(`checkpoint_receipt.${field} must be positive`)
+  }
+  const { receipt_hash: receiptHash, ...body } = value
+  if (receiptHash !== createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")) {
+    fail("checkpoint receipt hash mismatch")
+  }
+}
+
+export function createReplayCheckpointReceiptSnapshot(
+  body: ReplayCheckpointReceiptBody,
+): ReplayCheckpointReceiptSnapshot {
+  const value: ReplayCheckpointReceiptSnapshot = {
+    ...body,
+    receipt_hash: createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex"),
+  }
+  assertReplayCheckpointReceiptSnapshot(value)
+  return value
+}
+
+export function hashReplayCheckpointReceiptSnapshot(value: ReplayCheckpointReceiptSnapshot): string {
+  assertReplayCheckpointReceiptSnapshot(value)
+  return value.receipt_hash
 }
 
 export function assertReplayResumeAuthorizationSnapshot(value: ReplayResumeAuthorizationSnapshot): void {

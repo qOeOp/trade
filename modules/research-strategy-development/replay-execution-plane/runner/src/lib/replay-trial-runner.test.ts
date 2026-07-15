@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { existsSync, mkdtempSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readdirSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION, REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION, TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION, createReplayResumeAuthorizationSnapshot, hashReplayAttemptLeaseSnapshot, hashTrialReservationSnapshot, type ReplayAttemptLeaseSnapshot, type ReplayResumeAuthorizationSnapshot, type TrialReservationSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
@@ -17,7 +17,7 @@ import {
   type ReplayDatasetManifest,
   type ReplayExecutionRequest,
 } from "../../../contracts/src/lib/replay-contracts"
-import { runReplayTrial } from "./replay-trial-runner"
+import { runReplayTrial, type ReplayDiagnosticCheckpointCommitRef } from "./replay-trial-runner"
 
 const HASH = "b".repeat(64)
 const OBSERVED_AT = "2026-07-14T00:01:00Z"
@@ -282,22 +282,26 @@ test("runner atomically publishes an attempt-local checkpoint commit and resumes
     heartbeat_at: "2026-07-14T00:01:30Z",
     lease_expires_at: "2026-07-14T00:06:30Z",
   })
-  const checkpointDirectory = join(
-    root,
-    canonicalHash(authority.request.idempotency_key).slice(0, 24),
-    canonicalHash(authority.attempt_lease.attempt_id).slice(0, 24),
-  )
   let boundaryCount = 0
+  const receiptSubmissionOffsets: number[] = []
+  const receiptSubmissionRefs: string[] = []
+  const receiptSubmissionCommits: ReplayDiagnosticCheckpointCommitRef[] = []
   const cancelled = runReplayTrial({
     ...authority,
     artifact_root: root,
     dataset_manifest: manifest,
     bars: replayBars,
     execution_control: {
-      on_checkpoint: () => {
+      on_checkpoint: (checkpoint, checkpointCommit) => {
         boundaryCount += 1
-        expect(existsSync(join(checkpointDirectory, "diagnostic-checkpoint.json"))).toBe(true)
-        expect(existsSync(join(checkpointDirectory, "diagnostic-checkpoint-commit.json"))).toBe(true)
+        expect(checkpointCommit).toBeDefined()
+        expect(existsSync(checkpointCommit!.ref)).toBe(true)
+        expect(existsSync(checkpointCommit!.checkpoint_ref)).toBe(true)
+        expect(checkpointCommit?.next_source_offset).toBe(checkpoint.next_source_offset)
+        expect(checkpointCommit?.producer_attempt_id).toBe("attempt-1")
+        receiptSubmissionOffsets.push(checkpointCommit!.next_source_offset)
+        receiptSubmissionRefs.push(checkpointCommit!.ref)
+        receiptSubmissionCommits.push(checkpointCommit!)
         return { command: boundaryCount >= 2 ? "cancel" : "continue", attempt_lease: renewedLease, observed_at: "2026-07-14T00:02:00Z" }
       },
     },
@@ -306,9 +310,32 @@ test("runner atomically publishes an attempt-local checkpoint commit and resumes
   expect(cancelled.status).toBe("cancelled")
   expect(commit.producer_attempt_id).toBe("attempt-1")
   expect(commit.producer_lease_generation).toBe(3)
+  expect(commit.next_source_offset).toBe(cancelled.resumable_checkpoint!.next_source_offset)
+  expect(receiptSubmissionOffsets).toEqual([1, 2])
+  expect(new Set(receiptSubmissionRefs).size).toBe(2)
+  expect(receiptSubmissionRefs.every((ref) => existsSync(ref))).toBe(true)
   expect(existsSync(commit.ref)).toBe(true)
   expect(existsSync(commit.checkpoint_ref)).toBe(true)
   expect(cancelled.artifact_manifest).toBeUndefined()
+
+  const crashFallbackLease = attemptLease(authority.request, authority.trial_reservation, {
+    attempt_id: "attempt-6", attempt_ordinal: 6, worker_id: "worker-6", lease_generation: 1,
+  })
+  const crashFallbackCommit = receiptSubmissionCommits[0]!
+  const crashFallback = runReplayTrial({
+    ...authority,
+    attempt_lease: crashFallbackLease,
+    artifact_root: root,
+    dataset_manifest: manifest,
+    bars: replayBars,
+    execution_control: {
+      resume_authorization: resumeAuthorization(
+        authority.request, authority.trial_reservation, crashFallbackLease, crashFallbackCommit,
+      ),
+    },
+  })
+  expect(crashFallback.status).toBe("completed")
+  expect(crashFallback.result).toEqual(clean.result)
 
   const retryLease = attemptLease(authority.request, authority.trial_reservation, {
     attempt_id: "attempt-2", attempt_ordinal: 2, worker_id: "worker-2", lease_generation: 1,
@@ -329,8 +356,8 @@ test("runner atomically publishes an attempt-local checkpoint commit and resumes
   expect(existsSync(commit.ref)).toBe(true)
   expect(existsSync(commit.checkpoint_ref)).toBe(true)
   const resumedDirectory = dirname(resumed.artifact_commit!.ref)
-  expect(existsSync(join(resumedDirectory, "diagnostic-checkpoint-commit.json"))).toBe(false)
   expect(resumed.artifact_manifest?.files.some((file) => file.role.includes("checkpoint"))).toBe(false)
+  expect(readdirSync(resumedDirectory).some((name) => name.startsWith("diagnostic-checkpoint"))).toBe(false)
 
   const outsideRootLease = attemptLease(authority.request, authority.trial_reservation, {
     attempt_id: "attempt-3", attempt_ordinal: 3, worker_id: "worker-3", lease_generation: 1,
