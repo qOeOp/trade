@@ -17,6 +17,7 @@ import {
   REPLAY_REQUIRED_ARTIFACT_ROLES,
   REPLAY_RESULT_SCHEMA_VERSION,
   assertReplayDecisionEvidenceTimeline,
+  assertReplayOhlcvResolutionEvidence,
   canonicalHash,
   canonicalJson,
   createReplayDecisionEvidenceTimeline,
@@ -90,7 +91,7 @@ export interface ReplayTrialRunInput {
 }
 
 export interface ReplayTrialRunOutcome {
-  schema_version: "trade.rd-replay-run-outcome.v27"
+  schema_version: "trade.rd-replay-run-outcome.v28"
   run_id: string
   attempt_id: string
   lease_generation: number
@@ -160,7 +161,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     validateTrialReservation(input.request, input.trial_reservation)
   } catch (error) {
     return {
-      schema_version: "trade.rd-replay-run-outcome.v27",
+      schema_version: "trade.rd-replay-run-outcome.v28",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -183,7 +184,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     const expired = error instanceof ReplayAttemptLeaseExpiredError
     const reservationExpired = error instanceof ReplayTrialReservationExpiredError
     return {
-      schema_version: "trade.rd-replay-run-outcome.v27",
+      schema_version: "trade.rd-replay-run-outcome.v28",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -200,7 +201,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
   }
   if (input.cancel_requested) {
     return {
-      schema_version: "trade.rd-replay-run-outcome.v27",
+      schema_version: "trade.rd-replay-run-outcome.v28",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -246,7 +247,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     if (committed) {
       cleanupDiagnosticCheckpoint(activeArtifactNamespace!)
       return {
-      schema_version: "trade.rd-replay-run-outcome.v27",
+        schema_version: "trade.rd-replay-run-outcome.v28",
         run_id: input.request.run_id,
         attempt_id: input.attempt_lease.attempt_id,
         lease_generation: input.attempt_lease.lease_generation,
@@ -347,7 +348,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
       : undefined
     if (activeArtifactNamespace) cleanupDiagnosticCheckpoint(activeArtifactNamespace)
     return {
-      schema_version: "trade.rd-replay-run-outcome.v27",
+      schema_version: "trade.rd-replay-run-outcome.v28",
       run_id: input.request.run_id,
       attempt_id: activeAttemptLease.attempt_id,
       lease_generation: activeAttemptLease.lease_generation,
@@ -369,7 +370,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     const marginTerminal = error instanceof ReplayMarginTerminalError
     const liquidationDeficit = error instanceof ReplayLiquidationDeficitError
     return {
-      schema_version: "trade.rd-replay-run-outcome.v27",
+      schema_version: "trade.rd-replay-run-outcome.v28",
       run_id: input.request.run_id,
       attempt_id: activeAttemptLease.attempt_id,
       lease_generation: activeAttemptLease.lease_generation,
@@ -556,6 +557,7 @@ const ARTIFACT_FILE_NAMES: Readonly<Record<(typeof REPLAY_REQUIRED_ARTIFACT_ROLE
   decision_market_input_snapshot: "decision-market-input-snapshot.json",
   decision_evidence_timeline: "decision-evidence-timeline.json",
   order_events: "order-events.jsonl", fills: "fills.jsonl", positions: "positions.jsonl", ledger: "ledger.jsonl",
+  ohlcv_resolution_evidence: "ohlcv-resolution-evidence.json",
   valuation_snapshot: "valuation-snapshot.json", equity_bridge: "equity-bridge.json", margin_snapshots: "margin-snapshots.json",
   liquidation: "liquidation.json", journal: "journal.jsonl", trial_balance: "trial-balance.json",
 }
@@ -582,6 +584,7 @@ function commitArtifacts(
   const fillsText = result.fills.map((fill) => canonicalJson(fill)).join("\n") + "\n"
   const positionsText = result.positions.map((position) => canonicalJson(position)).join("\n") + "\n"
   const ledgerText = result.ledger.map((entry) => canonicalJson(entry)).join("\n") + "\n"
+  const ohlcvResolutionEvidenceText = `${canonicalJson(result.ohlcv_resolution_evidence)}\n`
   const valuationSnapshotText = `${canonicalJson(result.valuation_snapshot)}\n`
   const equityBridgeText = `${canonicalJson(result.equity_bridge)}\n`
   const marginSnapshotsText = `${canonicalJson(result.margin_snapshots)}\n`
@@ -602,6 +605,7 @@ function commitArtifacts(
     writeImmutable(namespace, "fills.jsonl", fillsText, "fills"),
     writeImmutable(namespace, "positions.jsonl", positionsText, "positions"),
     writeImmutable(namespace, "ledger.jsonl", ledgerText, "ledger"),
+    writeImmutable(namespace, "ohlcv-resolution-evidence.json", ohlcvResolutionEvidenceText, "ohlcv_resolution_evidence"),
     writeImmutable(namespace, "valuation-snapshot.json", valuationSnapshotText, "valuation_snapshot"),
     writeImmutable(namespace, "equity-bridge.json", equityBridgeText, "equity_bridge"),
     writeImmutable(namespace, "margin-snapshots.json", marginSnapshotsText, "margin_snapshots"),
@@ -701,6 +705,14 @@ function readCommitted(
   const recordedDecisionHarnessBundle = decisionEntry.decision_harness_bundle
   const recordedDecisionHarnessBuild = decisionEntry.decision_harness_build
   const recordedDecisionHarnessReceipt = decisionEntry.decision_harness_receipt
+  const recordedOhlcvResolutionEvidence = JSON.parse(
+    decode(namespace.read(ARTIFACT_FILE_NAMES.ohlcv_resolution_evidence).bytes),
+  ) as ReplayResult["ohlcv_resolution_evidence"]
+  recordedOhlcvResolutionEvidence.forEach(assertReplayOhlcvResolutionEvidence)
+  if (canonicalHash(recordedOhlcvResolutionEvidence) !== canonicalHash(result.ohlcv_resolution_evidence)
+      || result.fingerprint.ohlcv_resolution_evidence_hash !== canonicalHash(recordedOhlcvResolutionEvidence)) {
+    throw new Error("committed Replay OHLCV Resolution Evidence does not match Result")
+  }
   if (result.supplemental_evidence.decision_input_snapshot_hash !== recordedDecisionInputSnapshot.snapshot_hash
       || result.fingerprint.decision_evidence_timeline_hash !== recordedDecisionEvidenceTimeline.timeline_hash
       || canonicalHash(result.fingerprint.decision_state_snapshot_hashes) !== canonicalHash(
@@ -740,6 +752,7 @@ function readCommitted(
     trial_balance: result.trial_balance,
     supplemental_evidence: result.supplemental_evidence,
     decision_evidence_timeline: result.decision_evidence_timeline,
+    ohlcv_resolution_evidence: result.ohlcv_resolution_evidence,
     metrics: result.metrics,
     limitations: result.limitations,
   }) !== manifest.result_hash) throw new Error("committed Replay result hash mismatch")

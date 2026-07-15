@@ -13,6 +13,10 @@ import {
 } from "./replay-order-state"
 import type { ReplayReducedExit } from "./replay-source-reducer"
 
+type ReplayExitOrderLaneExit =
+  | Omit<Extract<ReplayReducedExit, { triggerSource: "bar_open" | "bar_range" }>, "resolution_evidence">
+  | Extract<ReplayReducedExit, { role: "end_of_data" }>
+
 export interface ReplayExitOrderExecution {
   terminal_state: "flat" | "open_marked"
   exit_order_id: string | null
@@ -25,7 +29,7 @@ export type ReplayTransitionCapture = <T extends { event: ReplayOrderEvent }>(tr
 
 export function completeReplayExitOrderLane(input: {
   run_id: string
-  exit: ReplayReducedExit
+  exit: ReplayExitOrderLaneExit
   entry_time: string
   entry_source_sequence: number
   signed_position: number

@@ -606,6 +606,12 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       }
       return entry.stop_order.trigger_price
     },
+    get_active_target_price: (entry) => {
+      if (entry.target_order.status !== "active" || entry.target_order.trigger_price === null) {
+        throw new Error("Replay source boundary requires one active take-profit target")
+      }
+      return entry.target_order.trigger_price
+    },
     observe_exact_risk: (source, entry, appliedFundingSources) => {
       const mark = source.kind === "mark"
         ? markEvents[source.source_index]?.mark_price
@@ -1061,6 +1067,9 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     trial_balance: trialBalance,
     supplemental_evidence: prepared.supplemental_evidence,
     decision_evidence_timeline: decisionEvidenceTimeline,
+    ohlcv_resolution_evidence: exit.role === "stop" || exit.role === "target"
+      ? [exit.resolution_evidence]
+      : [],
     metrics,
     limitations,
   }
@@ -1094,6 +1103,9 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       decision_harness_registry_policy_version: decisionHarnessReceipt?.registry_policy_version ?? null,
       decision_harness_loader_policy_version: decisionHarnessReceipt?.loader_policy_version ?? null,
       decision_harness_worker_protocol_version: decisionHarnessReceipt?.worker_protocol_version ?? null,
+      ohlcv_resolution_evidence_hash: canonicalHash(
+        exit.role === "stop" || exit.role === "target" ? [exit.resolution_evidence] : [],
+      ),
       venue_risk_policy_schedule_hash: request.venue_risk_policy_schedule_hash,
       instrument_spec_schedule_hash: request.instrument_spec_schedule_hash,
       harness_hash: request.harness_hash,

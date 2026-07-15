@@ -250,6 +250,19 @@ test("metamorphic: scaling prices and cash preserves return fraction and exit ro
   expect(scaled.fills.at(-1)?.order_role).toBe(base.fills.at(-1)?.order_role)
   expect(scaled.metrics.return_fraction).toBe(base.metrics.return_fraction)
   expect(scaled.metrics.net_pnl).toBe(addReplayDecimalValues(base.metrics.net_pnl, base.metrics.net_pnl, base.metrics.net_pnl))
+  expect(scaled.ohlcv_resolution_evidence.map((evidence) => ({
+    status: evidence.status,
+    reason: evidence.resolution_reason,
+    path_roles: evidence.paths.map((path) => path.first_terminal_role),
+    canonical: evidence.canonical,
+  }))).toEqual(base.ohlcv_resolution_evidence.map((evidence) => ({
+    status: evidence.status,
+    reason: evidence.resolution_reason,
+    path_roles: evidence.paths.map((path) => path.first_terminal_role),
+    canonical: evidence.canonical,
+  })))
+  expect(scaled.ohlcv_resolution_evidence[0]!.paths.map((path) => path.trigger_price))
+    .toEqual(base.ohlcv_resolution_evidence[0]!.paths.map((path) => path.trigger_price * scale))
 })
 
 test("parity: engine result equals accounting and metrics component projections", () => {
@@ -318,7 +331,7 @@ test("data integrity: changing a bar without changing the frozen manifest is rej
 })
 
 function semanticDigest(result: ReturnType<typeof executeReplayKernel>): string {
-  return canonicalHash({ source_events: result.source_events, order_events: result.order_events, fills: result.fills, positions: result.positions, ledger: result.ledger, valuation_snapshot: result.valuation_snapshot, equity_bridge: result.equity_bridge, margin_snapshots: result.margin_snapshots, liquidation: result.liquidation, journal: result.journal, trial_balance: result.trial_balance, metrics: result.metrics, limitations: result.limitations })
+  return canonicalHash({ source_events: result.source_events, order_events: result.order_events, fills: result.fills, positions: result.positions, ledger: result.ledger, valuation_snapshot: result.valuation_snapshot, equity_bridge: result.equity_bridge, margin_snapshots: result.margin_snapshots, liquidation: result.liquidation, journal: result.journal, trial_balance: result.trial_balance, ohlcv_resolution_evidence: result.ohlcv_resolution_evidence, metrics: result.metrics, limitations: result.limitations })
 }
 
 function boundInput(request: ReplayExecutionRequest, bars: ReplayMarketBar[], fundingEvents: ReplayFundingEvent[] = []) {

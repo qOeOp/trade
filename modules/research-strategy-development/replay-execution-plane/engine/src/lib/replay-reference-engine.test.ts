@@ -265,6 +265,13 @@ test("closed-candle signal enters at next open and resolves same-bar collision s
   expect(result.order_events.find((event) => event.kind === "triggered")?.trigger_source).toBe("bar_range")
   expect(result.order_events.find((event) => event.kind === "triggered")?.trigger_observed_price).toBe(95)
   expect(result.limitations.some((limitation) => limitation.severity === "resolution_limited")).toBe(true)
+  expect(result.ohlcv_resolution_evidence[0]).toMatchObject({
+    status: "resolution_limited", resolution_reason: "stop_target_order_ambiguous",
+    canonical: { path_id: "open_low_high_close", terminal_role: "stop" },
+  })
+  expect(result.ohlcv_resolution_evidence[0]!.paths.map((path) => path.first_terminal_role))
+    .toEqual(["target", "stop"])
+  expect(result.fingerprint.ohlcv_resolution_evidence_hash).toBe(canonicalHash(result.ohlcv_resolution_evidence))
   expect(result.metrics.ending_equity).toBeLessThan(10_000)
 })
 
@@ -277,6 +284,10 @@ test("stop gap fills at the worse open and ledger conserves equity", () => {
   expect(result.fills[1].price).toBeLessThan(95)
   expect(result.order_events.find((event) => event.kind === "triggered")?.trigger_source).toBe("bar_open")
   expect(result.order_events.find((event) => event.kind === "triggered")?.trigger_observed_price).toBe(90)
+  expect(result.ohlcv_resolution_evidence[0]).toMatchObject({
+    observation_kind: "bar_open_gap", status: "exact_under_ohlc", resolution_reason: "open_gap_observed",
+  })
+  expect(result.ohlcv_resolution_evidence[0]!.paths.map((path) => path.trigger_price)).toEqual([90, 90])
   expect(result.ledger.at(-1)?.balance_after).toBe(result.metrics.ending_equity)
 })
 
@@ -310,6 +321,10 @@ test("take-profit gap triggers from the observed open for long and short positio
     expect(trigger?.trigger_source).toBe("bar_open")
     expect(trigger?.trigger_observed_price).toBe(fixture.observedOpen)
     expect(result.fills[1].price).toBe(fixture.expectedFill)
+    expect(result.ohlcv_resolution_evidence[0]).toMatchObject({
+      observation_kind: "bar_open_gap", status: "exact_under_ohlc",
+      canonical: { terminal_role: "target" },
+    })
   }
 })
 

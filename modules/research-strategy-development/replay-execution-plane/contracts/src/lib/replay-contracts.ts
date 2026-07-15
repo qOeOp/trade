@@ -11,8 +11,8 @@ export {
 }
 
 export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v21" as const
-export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v30" as const
-export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v32" as const
+export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v31" as const
+export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v33" as const
 export const REPLAY_ARTIFACT_STORE_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-artifact-store-capability.v1" as const
 export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v8" as const
 export const REPLAY_NUMERIC_POLICY_VERSION = "rd-replay-number-v3" as const
@@ -22,6 +22,7 @@ export const REPLAY_EQUITY_POLICY_VERSION = "rd-replay-equity-v1" as const
 export const REPLAY_MARGIN_POLICY_VERSION = "rd-replay-isolated-margin-v7" as const
 export const REPLAY_MAINTENANCE_BREACH_SCHEMA_VERSION = "trade.rd-replay-maintenance-breach-observation.v3" as const
 export const REPLAY_LIQUIDATION_EXECUTION_SCHEMA_VERSION = "trade.rd-replay-liquidation-execution.v2" as const
+export const REPLAY_OHLCV_RESOLUTION_EVIDENCE_SCHEMA_VERSION = "trade.rd-replay-ohlcv-resolution-evidence.v1" as const
 export const REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION = "rd-replay-instrument-accounting-v1" as const
 export const REPLAY_DATASET_MANIFEST_SCHEMA_VERSION = "trade.rd-replay-dataset-manifest.v7" as const
 export const REPLAY_SUPPLEMENTAL_FACT_SCHEMA_VERSION = "trade.rd-replay-supplemental-fact.v1" as const
@@ -76,7 +77,7 @@ export const REPLAY_CERTIFIED_CAPABILITIES = [
 ] as const
 export const REPLAY_REQUIRED_ARTIFACT_ROLES = [
   "request", "trial_reservation", "attempt_lease", "dataset_manifest", "supplemental_facts", "decision_market_input_snapshot", "decision_evidence_timeline", "result",
-  "source_events", "order_events", "fills", "positions", "ledger",
+  "source_events", "order_events", "fills", "positions", "ledger", "ohlcv_resolution_evidence",
   "valuation_snapshot", "equity_bridge", "margin_snapshots", "liquidation",
   "journal", "trial_balance",
 ] as const
@@ -752,6 +753,152 @@ export interface ReplayLimitation {
   detail: string
 }
 
+export type ReplayOhlcvPathId = "open_high_low_close" | "open_low_high_close"
+
+export interface ReplayOhlcvResolutionPath {
+  path_id: ReplayOhlcvPathId
+  first_terminal_role: "stop" | "target"
+  trigger_price: number
+  path_digest: string
+}
+
+export interface ReplayOhlcvResolutionEvidence {
+  schema_version: typeof REPLAY_OHLCV_RESOLUTION_EVIDENCE_SCHEMA_VERSION
+  resolution_id: string
+  source_event_id: string
+  source_event_key: ReplayEventKey
+  bar_index: number
+  bar: Pick<ReplayMarketBar, "open_time" | "close_time" | "open" | "high" | "low" | "close">
+  position_side: "long" | "short"
+  active_stop_price: number
+  active_target_price: number
+  observation_kind: "bar_open_gap" | "bar_range_touch"
+  status: "exact_under_ohlc" | "resolution_limited"
+  resolution_reason: "open_gap_observed" | "single_terminal_touch" | "stop_target_order_ambiguous"
+  paths: [ReplayOhlcvResolutionPath, ReplayOhlcvResolutionPath]
+  canonical: {
+    path_id: ReplayOhlcvPathId
+    terminal_role: "stop" | "target"
+    selection_policy: "equivalent_paths_stable_id" | "lower_terminal_equity_then_realized_pnl_then_path_id"
+  }
+  evidence_hash: string
+}
+
+export function replayOhlcvResolutionEvidenceHash(
+  evidence: Omit<ReplayOhlcvResolutionEvidence, "evidence_hash"> | ReplayOhlcvResolutionEvidence,
+): string {
+  const { evidence_hash: _evidenceHash, ...body } = evidence as ReplayOhlcvResolutionEvidence
+  return canonicalHash(body)
+}
+
+export function assertReplayOhlcvResolutionEvidence(evidence: ReplayOhlcvResolutionEvidence): void {
+  if (evidence.schema_version !== REPLAY_OHLCV_RESOLUTION_EVIDENCE_SCHEMA_VERSION) {
+    fail("unsupported Replay OHLCV resolution evidence schema")
+  }
+  requireText(evidence.resolution_id, "ohlcv_resolution.resolution_id")
+  requireText(evidence.source_event_id, "ohlcv_resolution.source_event_id")
+  assertReplayEventKey(evidence.source_event_key)
+  if (evidence.source_event_id !== evidence.source_event_key.stable_event_id) {
+    fail("ohlcv resolution source id does not match its EventKey")
+  }
+  if (!Number.isSafeInteger(evidence.bar_index) || evidence.bar_index < 0) {
+    fail("ohlcv resolution bar_index must be a non-negative safe integer")
+  }
+  requireUtcTimestamp(evidence.bar.open_time, "ohlcv_resolution.bar.open_time")
+  requireUtcTimestamp(evidence.bar.close_time, "ohlcv_resolution.bar.close_time")
+  if (Date.parse(evidence.bar.open_time) >= Date.parse(evidence.bar.close_time)) {
+    fail("ohlcv resolution bar interval is invalid")
+  }
+  for (const field of ["open", "high", "low", "close"] as const) {
+    requirePositive(evidence.bar[field], `ohlcv_resolution.bar.${field}`)
+  }
+  if (evidence.bar.low > Math.min(evidence.bar.open, evidence.bar.close)
+      || evidence.bar.high < Math.max(evidence.bar.open, evidence.bar.close)
+      || evidence.bar.low > evidence.bar.high) {
+    fail("ohlcv resolution bar geometry is invalid")
+  }
+  requirePositive(evidence.active_stop_price, "ohlcv_resolution.active_stop_price")
+  requirePositive(evidence.active_target_price, "ohlcv_resolution.active_target_price")
+  if ((evidence.position_side !== "long" && evidence.position_side !== "short")
+      || (evidence.observation_kind !== "bar_open_gap" && evidence.observation_kind !== "bar_range_touch")
+      || (evidence.status !== "exact_under_ohlc" && evidence.status !== "resolution_limited")) {
+    fail("ohlcv resolution enum value is invalid")
+  }
+  if ((evidence.position_side === "long" && evidence.active_stop_price >= evidence.active_target_price)
+      || (evidence.position_side === "short" && evidence.active_stop_price <= evidence.active_target_price)) {
+    fail("ohlcv resolution active bracket is invalid")
+  }
+  const expectedTime = evidence.observation_kind === "bar_open_gap"
+    ? evidence.bar.open_time
+    : evidence.bar.close_time
+  if (evidence.source_event_key.event_time !== expectedTime || evidence.source_event_key.boundary_phase !== 20) {
+    fail("ohlcv resolution source EventKey does not match its observation boundary")
+  }
+  const expectedPathIds: ReplayOhlcvPathId[] = ["open_high_low_close", "open_low_high_close"]
+  for (const [index, path] of evidence.paths.entries()) {
+    if (path.path_id !== expectedPathIds[index]) fail("ohlcv resolution paths must use canonical order")
+    requirePositive(path.trigger_price, `ohlcv_resolution.paths[${index}].trigger_price`)
+    requireHash(path.path_digest, `ohlcv_resolution.paths[${index}].path_digest`)
+    if (path.path_digest !== canonicalHash({
+      path_id: path.path_id,
+      first_terminal_role: path.first_terminal_role,
+      trigger_price: path.trigger_price,
+    })) fail("ohlcv resolution path digest mismatch")
+  }
+  const [highFirst, lowFirst] = evidence.paths
+  const pathsEquivalent = highFirst.first_terminal_role === lowFirst.first_terminal_role
+    && highFirst.trigger_price === lowFirst.trigger_price
+  const stopTouched = evidence.position_side === "long"
+    ? evidence.bar.low <= evidence.active_stop_price
+    : evidence.bar.high >= evidence.active_stop_price
+  const targetTouched = evidence.position_side === "long"
+    ? evidence.bar.high >= evidence.active_target_price
+    : evidence.bar.low <= evidence.active_target_price
+  const expectedTrigger = (role: "stop" | "target"): number => role === "stop"
+    ? evidence.active_stop_price
+    : evidence.active_target_price
+  if (evidence.observation_kind === "bar_open_gap") {
+    const observedOpenRole = evidence.position_side === "long"
+      ? evidence.bar.open <= evidence.active_stop_price ? "stop" : evidence.bar.open >= evidence.active_target_price ? "target" : null
+      : evidence.bar.open >= evidence.active_stop_price ? "stop" : evidence.bar.open <= evidence.active_target_price ? "target" : null
+    if (evidence.status !== "exact_under_ohlc" || evidence.resolution_reason !== "open_gap_observed"
+        || !observedOpenRole || !pathsEquivalent || highFirst.first_terminal_role !== observedOpenRole
+        || highFirst.trigger_price !== evidence.bar.open) {
+      fail("ohlcv open-gap resolution evidence is inconsistent")
+    }
+  } else if (evidence.status === "exact_under_ohlc") {
+    const singleRole = stopTouched !== targetTouched ? stopTouched ? "stop" : "target" : null
+    if (evidence.resolution_reason !== "single_terminal_touch" || !pathsEquivalent || !singleRole
+        || highFirst.first_terminal_role !== singleRole || highFirst.trigger_price !== expectedTrigger(singleRole)) {
+      fail("ohlcv single-touch resolution evidence is inconsistent")
+    }
+  } else if (evidence.resolution_reason !== "stop_target_order_ambiguous" || pathsEquivalent
+      || !stopTouched || !targetTouched
+      || highFirst.first_terminal_role !== (evidence.position_side === "long" ? "target" : "stop")
+      || lowFirst.first_terminal_role !== (evidence.position_side === "long" ? "stop" : "target")
+      || highFirst.trigger_price !== expectedTrigger(highFirst.first_terminal_role)
+      || lowFirst.trigger_price !== expectedTrigger(lowFirst.first_terminal_role)) {
+    fail("ohlcv ambiguous-path resolution evidence is inconsistent")
+  }
+  const expectedSelectionPolicy = evidence.status === "resolution_limited"
+    ? "lower_terminal_equity_then_realized_pnl_then_path_id"
+    : "equivalent_paths_stable_id"
+  const canonicalPath = evidence.paths.find((path) => path.path_id === evidence.canonical.path_id)
+  if (evidence.canonical.selection_policy !== expectedSelectionPolicy
+      || !canonicalPath || canonicalPath.first_terminal_role !== evidence.canonical.terminal_role
+      || evidence.status === "resolution_limited" && evidence.canonical.terminal_role !== "stop"
+      || evidence.status === "exact_under_ohlc" && (
+        evidence.canonical.path_id !== "open_high_low_close"
+        || evidence.canonical.terminal_role !== highFirst.first_terminal_role
+      )) {
+    fail("ohlcv canonical resolution selection is inconsistent")
+  }
+  requireHash(evidence.evidence_hash, "ohlcv_resolution.evidence_hash")
+  if (replayOhlcvResolutionEvidenceHash(evidence) !== evidence.evidence_hash) {
+    fail("ohlcv resolution evidence hash mismatch")
+  }
+}
+
 export type ReplayOrderSide = "buy" | "sell"
 export type ReplayOrderRole = "entry" | "stop" | "target" | "strategy_partial_reduce" | "strategy_exit" | "liquidation" | "end_of_data"
 export type ReplayOrderType = "market" | "stop_market" | "take_profit_market"
@@ -1061,6 +1208,7 @@ export interface ReplayEvidenceFingerprint {
   decision_harness_registry_policy_version: typeof REPLAY_DECISION_HARNESS_REGISTRY_POLICY_VERSION | null
   decision_harness_loader_policy_version: typeof REPLAY_DECISION_HARNESS_LOADER_POLICY_VERSION | null
   decision_harness_worker_protocol_version: typeof REPLAY_DECISION_HARNESS_WORKER_PROTOCOL_VERSION | null
+  ohlcv_resolution_evidence_hash: string
   venue_risk_policy_schedule_hash: string
   instrument_spec_schedule_hash: string
   harness_hash: string
@@ -1096,6 +1244,7 @@ export interface ReplayResult {
   trial_balance: ReplayTrialBalance
   supplemental_evidence: ReplaySupplementalEvidence
   decision_evidence_timeline: ReplayDecisionEvidenceTimeline
+  ohlcv_resolution_evidence: ReplayOhlcvResolutionEvidence[]
   metrics: {
     initial_cash: number
     ending_equity: number

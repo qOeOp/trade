@@ -6,13 +6,15 @@ import {
   type ReplayLimitation,
   type ReplayMarkEvent,
   type ReplayMarketBar,
+  type ReplayOhlcvResolutionEvidence,
   type ReplaySourceEvent,
 } from "../../../contracts/src/lib/replay-contracts"
 import { compareReplayEventKeys } from "./replay-event-key"
+import { createReplaySimpleBracketOhlcvResolution } from "./replay-ohlcv-resolution"
 import { buildReplaySourceEvents } from "./replay-source-events"
 
 export type ReplayReducedExit =
-  | { role: "stop" | "target"; timestamp: string; rawPrice: number; triggerSource: "bar_open" | "bar_range"; sourceSequence: number }
+  | { role: "stop" | "target"; timestamp: string; rawPrice: number; triggerSource: "bar_open" | "bar_range"; sourceSequence: number; resolution_evidence: ReplayOhlcvResolutionEvidence }
   | { role: "strategy_exit"; timestamp: string; rawPrice: number; triggerSource: "bar_open"; sourceSequence: number }
   | { role: "liquidation"; timestamp: string; rawPrice: number; triggerSource: "mark" | "funding_mark"; triggerSourceRef: string; sourceSequence: number }
   | { role: "end_of_data"; timestamp: string; rawPrice: number; triggerSource: null; sourceSequence: number }
@@ -55,6 +57,7 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
   activate_entry: (source: ReplaySourceEvent) => TEntry
   get_entry_fill_event_key: (entry: TEntry) => ReplayEventKey
   get_active_stop_price: (entry: TEntry) => number
+  get_active_target_price: (entry: TEntry) => number
   observe_exact_risk: (
     source: ReplaySourceEvent,
     entry: TEntry,
@@ -128,19 +131,36 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
     if (!bar) throw new Error("Replay source event references a missing bar")
     const isLong = input.request.order.side === "long"
     const activeStopPrice = input.get_active_stop_price(entryTransition)
+    const activeTargetPrice = input.get_active_target_price(entryTransition)
 
     if (source.kind === "bar_open") {
       const stopGap = isLong ? bar.open <= activeStopPrice : bar.open >= activeStopPrice
       if (stopGap) return reduction(
-        { role: "stop", timestamp: bar.open_time, rawPrice: bar.open, triggerSource: "bar_open", sourceSequence: source.source_index + 1 },
+        {
+          role: "stop", timestamp: bar.open_time, rawPrice: bar.open, triggerSource: "bar_open", sourceSequence: source.source_index + 1,
+          resolution_evidence: createReplaySimpleBracketOhlcvResolution({
+            run_id: input.request.run_id, source_event: source, bar, position_side: input.request.order.side,
+            active_stop_price: activeStopPrice, active_target_price: activeTargetPrice,
+            observation_kind: "bar_open_gap", stop_touched: true, target_touched: false,
+            canonical_terminal_role: "stop",
+          }),
+        },
         consumed,
         appliedFunding,
         entryTransition,
         input.complete_exit,
       )
-      const targetGap = isLong ? bar.open >= input.request.order.target_price : bar.open <= input.request.order.target_price
+      const targetGap = isLong ? bar.open >= activeTargetPrice : bar.open <= activeTargetPrice
       if (targetGap) return reduction(
-        { role: "target", timestamp: bar.open_time, rawPrice: bar.open, triggerSource: "bar_open", sourceSequence: source.source_index + 1 },
+        {
+          role: "target", timestamp: bar.open_time, rawPrice: bar.open, triggerSource: "bar_open", sourceSequence: source.source_index + 1,
+          resolution_evidence: createReplaySimpleBracketOhlcvResolution({
+            run_id: input.request.run_id, source_event: source, bar, position_side: input.request.order.side,
+            active_stop_price: activeStopPrice, active_target_price: activeTargetPrice,
+            observation_kind: "bar_open_gap", stop_touched: false, target_touched: true,
+            canonical_terminal_role: "target",
+          }),
+        },
         consumed,
         appliedFunding,
         entryTransition,
@@ -160,7 +180,7 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
     }
 
     const stopTouched = isLong ? bar.low <= activeStopPrice : bar.high >= activeStopPrice
-    const targetTouched = isLong ? bar.high >= input.request.order.target_price : bar.low <= input.request.order.target_price
+    const targetTouched = isLong ? bar.high >= activeTargetPrice : bar.low <= activeTargetPrice
     if (stopTouched && targetTouched) {
       input.limitations.push({
         code: "ohlcv-stop-target-collision",
@@ -168,7 +188,15 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
         detail: "OHLCV cannot prove intrabar path; certified conservative policy resolves stop before target.",
       })
       return reduction(
-        { role: "stop", timestamp: bar.close_time, rawPrice: activeStopPrice, triggerSource: "bar_range", sourceSequence: source.source_index + 1 },
+        {
+          role: "stop", timestamp: bar.close_time, rawPrice: activeStopPrice, triggerSource: "bar_range", sourceSequence: source.source_index + 1,
+          resolution_evidence: createReplaySimpleBracketOhlcvResolution({
+            run_id: input.request.run_id, source_event: source, bar, position_side: input.request.order.side,
+            active_stop_price: activeStopPrice, active_target_price: activeTargetPrice,
+            observation_kind: "bar_range_touch", stop_touched: true, target_touched: true,
+            canonical_terminal_role: "stop",
+          }),
+        },
         consumed,
         appliedFunding,
         entryTransition,
@@ -176,14 +204,30 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
       )
     }
     if (stopTouched) return reduction(
-      { role: "stop", timestamp: bar.close_time, rawPrice: activeStopPrice, triggerSource: "bar_range", sourceSequence: source.source_index + 1 },
+      {
+        role: "stop", timestamp: bar.close_time, rawPrice: activeStopPrice, triggerSource: "bar_range", sourceSequence: source.source_index + 1,
+        resolution_evidence: createReplaySimpleBracketOhlcvResolution({
+          run_id: input.request.run_id, source_event: source, bar, position_side: input.request.order.side,
+          active_stop_price: activeStopPrice, active_target_price: activeTargetPrice,
+          observation_kind: "bar_range_touch", stop_touched: true, target_touched: false,
+          canonical_terminal_role: "stop",
+        }),
+      },
       consumed,
       appliedFunding,
       entryTransition,
       input.complete_exit,
     )
     if (targetTouched) return reduction(
-      { role: "target", timestamp: bar.close_time, rawPrice: input.request.order.target_price, triggerSource: "bar_range", sourceSequence: source.source_index + 1 },
+      {
+        role: "target", timestamp: bar.close_time, rawPrice: activeTargetPrice, triggerSource: "bar_range", sourceSequence: source.source_index + 1,
+        resolution_evidence: createReplaySimpleBracketOhlcvResolution({
+          run_id: input.request.run_id, source_event: source, bar, position_side: input.request.order.side,
+          active_stop_price: activeStopPrice, active_target_price: activeTargetPrice,
+          observation_kind: "bar_range_touch", stop_touched: false, target_touched: true,
+          canonical_terminal_role: "target",
+        }),
+      },
       consumed,
       appliedFunding,
       entryTransition,
