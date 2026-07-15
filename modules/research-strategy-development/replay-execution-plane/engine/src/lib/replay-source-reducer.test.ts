@@ -2,6 +2,8 @@ import { expect, test } from "bun:test"
 import {
   REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS,
   REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH,
+  REPLAY_NO_DECISION_MARKET_INPUT,
+  REPLAY_NO_DECISION_MARKET_INPUT_HASH,
   REPLAY_REQUEST_SCHEMA_VERSION,
   REPLAY_SIMULATOR_POLICY_VERSION,
   type ReplayExecutionRequest,
@@ -23,6 +25,8 @@ function request(): ReplayExecutionRequest {
     supplemental_facts_hash: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     supplemental_requirement_set: structuredClone(REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS),
     supplemental_requirement_set_hash: REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH,
+    decision_market_input_requirement: structuredClone(REPLAY_NO_DECISION_MARKET_INPUT),
+    decision_market_input_requirement_hash: REPLAY_NO_DECISION_MARKET_INPUT_HASH,
     trial_reservation_ref: "reservation://trial-1", trial_reservation_hash: HASH,
     venue_risk_policy_schedule_hash: HASH, instrument_spec_schedule_hash: HASH,
     harness_hash: HASH, assumptions_hash: HASH, symbol: "BTCUSDT", timeframe: "4h", initial_cash: 10_000,

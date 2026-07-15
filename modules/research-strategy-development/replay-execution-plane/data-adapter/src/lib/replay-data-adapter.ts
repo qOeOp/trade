@@ -4,10 +4,12 @@ import {
   assertReplaySupplementalFact,
   canonicalHash,
   createReplayDecisionInputSnapshot,
+  createReplayDecisionMarketInputSnapshot,
   replayDatasetHash,
   replayDatasetManifestHash,
   type ReplayDatasetManifest,
   type ReplayDecisionInputSnapshot,
+  type ReplayDecisionMarketInputSnapshot,
   type ReplayExecutionRequest,
   type ReplayFundingEvent,
   type ReplayInstrumentSpecSnapshot,
@@ -29,6 +31,7 @@ export interface PreparedReplayInputData {
   supplemental_facts: ReplaySupplementalFact[]
   supplemental_evidence: ReplaySupplementalEvidence
   decision_input_snapshot: ReplayDecisionInputSnapshot
+  decision_market_input_snapshot: ReplayDecisionMarketInputSnapshot
   entry_index: number
   dataset_manifest_hash: string
   limitations: ReplayLimitation[]
@@ -56,6 +59,7 @@ export function prepareReplayInputData(input: {
   const supplementalAdmission = validateManifestBinding(
     request, manifest, input.bars, fundingEvents, markEvents, supplementalFacts, input.bars[entryIndex].open_time,
   )
+  const decisionMarketInputSnapshot = prepareDecisionMarketInputSnapshot(request, manifest, input.bars)
   return {
     bars: input.bars,
     funding_events: fundingEvents,
@@ -63,10 +67,26 @@ export function prepareReplayInputData(input: {
     supplemental_facts: supplementalFacts,
     supplemental_evidence: supplementalAdmission.evidence,
     decision_input_snapshot: supplementalAdmission.snapshot,
+    decision_market_input_snapshot: decisionMarketInputSnapshot,
     entry_index: entryIndex,
     dataset_manifest_hash: replayDatasetManifestHash(manifest),
     limitations: detectDatasetLimitations(manifest, input.bars),
   }
+}
+
+function prepareDecisionMarketInputSnapshot(
+  request: ReplayExecutionRequest,
+  manifest: ReplayDatasetManifest,
+  bars: ReplayMarketBar[],
+): ReplayDecisionMarketInputSnapshot {
+  const requirement = request.decision_market_input_requirement
+  if (requirement.mode === "none") {
+    return createReplayDecisionMarketInputSnapshot({ request, interval_ms: manifest.interval_ms, bars: [] })
+  }
+  const decisionTime = Date.parse(request.order.signal_time)
+  const visible = bars.filter((bar) => Date.parse(bar.close_time) <= decisionTime)
+  const selected = visible.slice(-requirement.lookback_bars)
+  return createReplayDecisionMarketInputSnapshot({ request, interval_ms: manifest.interval_ms, bars: selected })
 }
 
 function validateManifestBinding(

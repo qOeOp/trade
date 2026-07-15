@@ -6,7 +6,9 @@ import {
   REPLAY_DECISION_HARNESS_REGISTRY_CAPABILITY,
   REPLAY_DECISION_HARNESS_REGISTRY_POLICY_VERSION,
   REPLAY_DECISION_HARNESS_WORKER_PROTOCOL_VERSION,
+  REPLAY_DECISION_HARNESS_CONTEXT_SCHEMA_VERSION,
   REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION,
+  REPLAY_DECISION_MARKET_INPUT_SNAPSHOT_SCHEMA_VERSION,
   assertReplayDecisionHarnessBuildAttestation,
   assertReplayDecisionHarnessRegistryCapability,
   assertReplayDecisionHarnessSourceBundle,
@@ -18,6 +20,7 @@ import {
   type ReplayDecisionHarnessRegistryCapability,
   type ReplayDecisionHarnessSourceBundle,
   type ReplayDecisionInputSnapshot,
+  type ReplayDecisionMarketInputSnapshot,
   type ReplayExecutionRequest,
 } from "../../../contracts/src/lib/replay-contracts"
 import { buildReplayDecisionHarness, executeReplayDecisionHarnessWorker } from "./replay-decision-harness-build"
@@ -76,8 +79,10 @@ export function executeReplayDecisionHarness(input: {
   registry: ReplayDecisionHarnessRegistry | undefined
   request: ReplayExecutionRequest
   decision_input_snapshot: ReplayDecisionInputSnapshot
+  decision_market_input_snapshot: ReplayDecisionMarketInputSnapshot
 }): ReplayDecisionHarnessAdmission {
-  if (input.request.supplemental_requirement_set.mode === "none") {
+  if (input.request.supplemental_requirement_set.mode === "none"
+      && input.request.decision_market_input_requirement.mode === "none") {
     return { source_bundle: null, build_attestation: null, receipt: null }
   }
   if (!input.registry) throw new ReplayDecisionHarnessError("Replay supplemental lane requires a decision harness registry")
@@ -100,7 +105,9 @@ export function executeReplayDecisionHarness(input: {
       loader_policy_version: REPLAY_DECISION_HARNESS_LOADER_POLICY_VERSION,
       worker_protocol_version: REPLAY_DECISION_HARNESS_WORKER_PROTOCOL_VERSION,
       execution_policy: "fresh_subprocess_stdio_reproducibility_pair",
-      input_schema_version: REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION,
+      context_schema_version: REPLAY_DECISION_HARNESS_CONTEXT_SCHEMA_VERSION,
+      supplemental_input_schema_version: REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION,
+      market_input_schema_version: REPLAY_DECISION_MARKET_INPUT_SNAPSHOT_SCHEMA_VERSION,
       output_schema_version: REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION,
     }
     const execution = executeReplayDecisionHarnessWorker({
@@ -108,12 +115,14 @@ export function executeReplayDecisionHarness(input: {
       build_attestation: registration.build_attestation,
       request: input.request,
       decision_input_snapshot: input.decision_input_snapshot,
+      decision_market_input_snapshot: input.decision_market_input_snapshot,
     })
     const verificationExecution = executeReplayDecisionHarnessWorker({
       source_bundle: registration.source_bundle,
       build_attestation: registration.build_attestation,
       request: input.request,
       decision_input_snapshot: input.decision_input_snapshot,
+      decision_market_input_snapshot: input.decision_market_input_snapshot,
     })
     if (canonicalJson(execution.worker_request) !== canonicalJson(verificationExecution.worker_request)
         || canonicalJson(execution.worker_response) !== canonicalJson(verificationExecution.worker_response)) {
@@ -128,6 +137,7 @@ export function executeReplayDecisionHarness(input: {
       receipt: createReplayDecisionHarnessReceipt({
         request: input.request,
         decision_input_snapshot: input.decision_input_snapshot,
+        decision_market_input_snapshot: input.decision_market_input_snapshot,
         source_bundle: registration.source_bundle,
         build_attestation: registration.build_attestation,
         capability,

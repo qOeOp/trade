@@ -1,6 +1,6 @@
 {
   "request": {
-    "schema_version": "trade.rd-replay-execution-request.v15",
+    "schema_version": "trade.rd-replay-execution-request.v16",
     "run_id": "golden-run",
     "idempotency_key": "golden-idempotency",
     "experiment_id": "exp-golden",
@@ -23,6 +23,12 @@
       "requirements": []
     },
     "supplemental_requirement_set_hash": "f126b641e1c2e55c174e3505e15232b466e50c3fd764f30968a925821c31d144",
+    "decision_market_input_requirement": {
+      "schema_version": "trade.rd-replay-decision-market-input-requirement.v1",
+      "mode": "none",
+      "undeclared_input_policy": "reject"
+    },
+    "decision_market_input_requirement_hash": "daf6b0a74528c2a0e9a49b36324b201c100721528c0df31d653e90f4cbbed82c",
     "venue_risk_policy_schedule_hash": "bce56538f5e3d2b53aa1895edbe20809abe385a7f3e4af59ba576b03cbdb9f26",
     "instrument_spec_schedule_hash": "3c8736f2a900c073924a9c1d6eb51bb105b859007eb39d470e361cd34e52c604",
     "harness_hash": "eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee",

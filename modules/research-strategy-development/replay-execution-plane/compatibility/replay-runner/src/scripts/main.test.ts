@@ -5,7 +5,7 @@ import { join } from "node:path"
 import test from "node:test"
 import { run } from "./main"
 import { CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION, TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION, hashTrialReservationSnapshot, type ReplayAttemptLeaseSnapshot, type TrialReservationSnapshot } from "../../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
-import { REPLAY_CERTIFIED_CAPABILITIES, REPLAY_DATASET_MANIFEST_SCHEMA_VERSION, REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION, REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS, REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH, REPLAY_REQUEST_SCHEMA_VERSION, REPLAY_SIMULATOR_POLICY_VERSION, REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION, canonicalHash, replayDatasetHash, replayExecutionSpecHash, type ReplayExecutionRequest } from "../../../../contracts/src/lib/replay-contracts"
+import { REPLAY_CERTIFIED_CAPABILITIES, REPLAY_DATASET_MANIFEST_SCHEMA_VERSION, REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION, REPLAY_NO_DECISION_MARKET_INPUT, REPLAY_NO_DECISION_MARKET_INPUT_HASH, REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS, REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH, REPLAY_REQUEST_SCHEMA_VERSION, REPLAY_SIMULATOR_POLICY_VERSION, REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION, canonicalHash, replayDatasetHash, replayExecutionSpecHash, type ReplayExecutionRequest } from "../../../../contracts/src/lib/replay-contracts"
 
 type JSONRecord = Record<string, unknown>
 
@@ -63,6 +63,8 @@ test("legacy replay runner adapts Trial-bound requests to Replay Execution Plane
     supplemental_facts_hash: canonicalHash([]),
     supplemental_requirement_set: structuredClone(REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS),
     supplemental_requirement_set_hash: REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH,
+    decision_market_input_requirement: structuredClone(REPLAY_NO_DECISION_MARKET_INPUT),
+    decision_market_input_requirement_hash: REPLAY_NO_DECISION_MARKET_INPUT_HASH,
     trial_reservation_ref: "reservation://trial-1", trial_reservation_hash: hash,
     venue_risk_policy_schedule_hash: canonicalHash([riskSnapshot]), instrument_spec_schedule_hash: canonicalHash({ epochs: [specSnapshot], accounting }),
     harness_hash: hash, assumptions_hash: hash, symbol: "BTCUSDT", timeframe: "4h", initial_cash: 1000,

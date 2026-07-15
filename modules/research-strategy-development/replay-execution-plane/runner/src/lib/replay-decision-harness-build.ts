@@ -15,11 +15,13 @@ import {
   canonicalHash,
   canonicalJson,
   createReplayDecisionHarnessBuildAttestation,
+  createReplayDecisionHarnessContext,
   type ReplayDecisionHarnessBuildAttestation,
   type ReplayDecisionHarnessSourceBundle,
   type ReplayDecisionHarnessWorkerRequest,
   type ReplayDecisionHarnessWorkerResponse,
   type ReplayDecisionInputSnapshot,
+  type ReplayDecisionMarketInputSnapshot,
   type ReplayExecutionRequest,
 } from "../../../contracts/src/lib/replay-contracts"
 
@@ -84,6 +86,7 @@ export function executeReplayDecisionHarnessWorker(input: {
   build_attestation: ReplayDecisionHarnessBuildAttestation
   request: ReplayExecutionRequest
   decision_input_snapshot: ReplayDecisionInputSnapshot
+  decision_market_input_snapshot: ReplayDecisionMarketInputSnapshot
 }): ReplayDecisionHarnessWorkerExecution {
   assertReplayDecisionHarnessSourceBundle(input.source_bundle, input.request)
   assertReplayDecisionHarnessBuildAttestation(input.build_attestation, input.source_bundle)
@@ -99,16 +102,19 @@ export function executeReplayDecisionHarnessWorker(input: {
       source_bundle_hash: input.source_bundle.bundle_hash,
       artifact_hash: input.build_attestation.artifact.sha256,
       decision_input_snapshot_hash: input.decision_input_snapshot.snapshot_hash,
+      decision_market_input_snapshot_hash: input.decision_market_input_snapshot.snapshot_hash,
     }),
     source_bundle_hash: input.source_bundle.bundle_hash,
     artifact_hash: input.build_attestation.artifact.sha256,
-    request: structuredClone(input.request),
+    request_context: createReplayDecisionHarnessContext(input.request),
     decision_input_snapshot: structuredClone(input.decision_input_snapshot),
+    decision_market_input_snapshot: structuredClone(input.decision_market_input_snapshot),
   }
   assertReplayDecisionHarnessWorkerRequest(
     workerRequest,
     input.request,
     input.decision_input_snapshot,
+    input.decision_market_input_snapshot,
     input.build_attestation,
   )
   const root = mkdtempSync(join(tmpdir(), "rd-replay-harness-run-"))
@@ -147,7 +153,7 @@ function workerEntrypointSource(sourceBundle: ReplayDecisionHarnessSourceBundle)
     `const execute = harnessModule[${JSON.stringify(sourceBundle.entrypoint.export_name)}]`,
     `if (typeof execute !== "function") throw new Error("decision harness entrypoint export is not a function")`,
     "const input = JSON.parse(await Bun.stdin.text())",
-    "const output = await execute({ request: input.request, decision_input_snapshot: input.decision_input_snapshot })",
+    "const output = await execute({ request_context: input.request_context, decision_input_snapshot: input.decision_input_snapshot, decision_market_input_snapshot: input.decision_market_input_snapshot })",
     `const response = { schema_version: ${JSON.stringify(REPLAY_DECISION_HARNESS_WORKER_RESPONSE_SCHEMA_VERSION)}, invocation_id: input.invocation_id, source_bundle_hash: ${JSON.stringify(sourceBundle.bundle_hash)}, artifact_hash: input.artifact_hash, derived_order: output?.derived_order, trace: output?.trace }`,
     "process.stdout.write(JSON.stringify(response))",
     "",

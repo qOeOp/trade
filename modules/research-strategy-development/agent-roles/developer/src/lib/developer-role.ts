@@ -16,6 +16,8 @@ export interface DeveloperReplayPlan {
   supplemental_facts_hash: string
   supplemental_requirement_set: ReplayExecutionRequest["supplemental_requirement_set"]
   supplemental_requirement_set_hash: string
+  decision_market_input_requirement: ReplayExecutionRequest["decision_market_input_requirement"]
+  decision_market_input_requirement_hash: string
   venue_risk_policy_schedule_hash: string
   instrument_spec_schedule_hash: string
   harness_hash: string
@@ -50,6 +52,8 @@ export function buildDeveloperReplayRequest(plan: DeveloperReplayPlan): ReplayEx
     supplemental_facts_hash: plan.supplemental_facts_hash,
     supplemental_requirement_set: plan.supplemental_requirement_set,
     supplemental_requirement_set_hash: plan.supplemental_requirement_set_hash,
+    decision_market_input_requirement: plan.decision_market_input_requirement,
+    decision_market_input_requirement_hash: plan.decision_market_input_requirement_hash,
     venue_risk_policy_schedule_hash: plan.venue_risk_policy_schedule_hash,
     instrument_spec_schedule_hash: plan.instrument_spec_schedule_hash,
     harness_hash: plan.harness_hash,

@@ -11,12 +11,17 @@ import {
   REPLAY_DECISION_HARNESS_WORKER_RESPONSE_SCHEMA_VERSION,
   REPLAY_DECISION_BOUNDARY_SCHEMA_VERSION,
   REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION,
+  REPLAY_DECISION_HARNESS_CONTEXT_SCHEMA_VERSION,
+  REPLAY_DECISION_MARKET_INPUT_SNAPSHOT_SCHEMA_VERSION,
+  REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
   REPLAY_LOCAL_ARTIFACT_STORE_CAPABILITY,
   REPLAY_OBJECT_ARTIFACT_STORE_REQUIRED_CAPABILITY,
   REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION,
   REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION,
   REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS,
   REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH,
+  REPLAY_NO_DECISION_MARKET_INPUT,
+  REPLAY_NO_DECISION_MARKET_INPUT_HASH,
   REPLAY_REQUEST_SCHEMA_VERSION,
   REPLAY_SIMULATOR_POLICY_VERSION,
   REPLAY_SUPPLEMENTAL_FACT_SCHEMA_VERSION,
@@ -32,15 +37,18 @@ import {
   assertReplayDecisionBoundary,
   assertReplayDecisionEvidenceTimeline,
   assertReplayDecisionInputSnapshot,
+  assertReplayDecisionMarketInputSnapshot,
   assertReplaySupplementalFact,
   assertReplaySupplementalRequirementSet,
   canonicalHash,
   createReplayDecisionHarnessBuildAttestation,
+  createReplayDecisionHarnessContext,
   createReplayDecisionHarnessReceipt,
   createReplayDecisionHarnessSourceBundle,
   createReplayDecisionBoundary,
   createReplayDecisionEvidenceTimeline,
   createReplayDecisionInputSnapshot,
+  createReplayDecisionMarketInputSnapshot,
   type ReplayExecutionRequest,
 } from "./replay-contracts"
 
@@ -69,6 +77,8 @@ export function fixtureRequest(): ReplayExecutionRequest {
     supplemental_facts_hash: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
     supplemental_requirement_set: structuredClone(REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS),
     supplemental_requirement_set_hash: REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH,
+    decision_market_input_requirement: structuredClone(REPLAY_NO_DECISION_MARKET_INPUT),
+    decision_market_input_requirement_hash: REPLAY_NO_DECISION_MARKET_INPUT_HASH,
     venue_risk_policy_schedule_hash: canonicalHash([RISK_SNAPSHOT]),
     instrument_spec_schedule_hash: HASH,
     harness_hash: HASH,
@@ -169,6 +179,7 @@ test("Decision Input Snapshot and Harness Receipt are self-hashed immutable evid
   }
   requestValue.supplemental_requirement_set_hash = canonicalHash(requestValue.supplemental_requirement_set)
   const snapshot = createReplayDecisionInputSnapshot(requestValue, [])
+  const marketSnapshot = createReplayDecisionMarketInputSnapshot({ request: requestValue, interval_ms: 14_400_000, bars: [] })
   expect(snapshot).toMatchObject({
     schema_version: REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION,
     selected_records_hash: canonicalHash([]),
@@ -191,8 +202,9 @@ test("Decision Input Snapshot and Harness Receipt are self-hashed immutable evid
     invocation_id: HASH,
     source_bundle_hash: sourceBundle.bundle_hash,
     artifact_hash: buildAttestation.artifact.sha256,
-    request: requestValue,
+    request_context: createReplayDecisionHarnessContext(requestValue),
     decision_input_snapshot: snapshot,
+    decision_market_input_snapshot: marketSnapshot,
   }
   const workerResponse = {
     schema_version: REPLAY_DECISION_HARNESS_WORKER_RESPONSE_SCHEMA_VERSION,
@@ -216,7 +228,9 @@ test("Decision Input Snapshot and Harness Receipt are self-hashed immutable evid
     loader_policy_version: REPLAY_DECISION_HARNESS_LOADER_POLICY_VERSION,
     worker_protocol_version: REPLAY_DECISION_HARNESS_WORKER_PROTOCOL_VERSION,
     execution_policy: "fresh_subprocess_stdio_reproducibility_pair" as const,
-    input_schema_version: REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION,
+    context_schema_version: REPLAY_DECISION_HARNESS_CONTEXT_SCHEMA_VERSION,
+    supplemental_input_schema_version: REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION,
+    market_input_schema_version: REPLAY_DECISION_MARKET_INPUT_SNAPSHOT_SCHEMA_VERSION,
     output_schema_version: REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION,
   }
   expect(() => assertReplayDecisionHarnessCapability(capability, requestValue)).not.toThrow()
@@ -224,6 +238,7 @@ test("Decision Input Snapshot and Harness Receipt are self-hashed immutable evid
   const receipt = createReplayDecisionHarnessReceipt({
     request: requestValue,
     decision_input_snapshot: snapshot,
+    decision_market_input_snapshot: marketSnapshot,
     source_bundle: sourceBundle,
     build_attestation: buildAttestation,
     capability,
@@ -233,12 +248,13 @@ test("Decision Input Snapshot and Harness Receipt are self-hashed immutable evid
     derived_order: requestValue.order,
     trace: { selected_records_hash: snapshot.selected_records_hash },
   })
-  expect(() => assertReplayDecisionHarnessReceipt(receipt, requestValue, snapshot, sourceBundle, buildAttestation)).not.toThrow()
+  expect(() => assertReplayDecisionHarnessReceipt(receipt, requestValue, snapshot, marketSnapshot, sourceBundle, buildAttestation)).not.toThrow()
   expect(() => assertReplayDecisionHarnessReceipt({ ...receipt, trace: { tampered: true } }, requestValue, snapshot)).toThrow("trace hash")
 
   const timeline = createReplayDecisionEvidenceTimeline({
     request: requestValue,
     decision_input_snapshot: snapshot,
+    decision_market_input_snapshot: marketSnapshot,
     decision_harness_bundle: sourceBundle,
     decision_harness_build: buildAttestation,
     decision_harness_receipt: receipt,
@@ -251,28 +267,62 @@ test("Decision Input Snapshot and Harness Receipt are self-hashed immutable evid
       evidence_mode: "attested_harness",
       decision_boundary: {
         schema_version: REPLAY_DECISION_BOUNDARY_SCHEMA_VERSION,
-        decision_origin: "frozen_request_order",
-        market_input_evidence: "declared_not_materialized_or_recomputed",
-        market_input_snapshot_hash: null,
+        decision_origin: "attested_harness_verified_frozen_order",
+        market_input_evidence: "not_required_compatibility",
+        market_input_snapshot_hash: marketSnapshot.snapshot_hash,
       },
     }],
   })
-  const boundary = createReplayDecisionBoundary(requestValue)
-  expect(() => assertReplayDecisionBoundary(boundary, requestValue)).not.toThrow()
+  const boundary = createReplayDecisionBoundary(requestValue, marketSnapshot)
+  expect(() => assertReplayDecisionBoundary(boundary, requestValue, marketSnapshot)).not.toThrow()
   expect(() => assertReplayDecisionBoundary({
     ...boundary,
     earliest_executable_time: requestValue.order.signal_time,
-  }, requestValue)).toThrow("frozen-order protocol")
+  }, requestValue)).toThrow("decision-input protocol")
   expect(() => assertReplayDecisionBoundary({
     ...boundary,
     market_input_evidence: "recomputed" as never,
-  }, requestValue)).toThrow("frozen-order protocol")
+  }, requestValue)).toThrow("decision-input protocol")
   expect(() => assertReplayDecisionEvidenceTimeline(timeline, requestValue)).not.toThrow()
   expect(() => assertReplayDecisionEvidenceTimeline({ ...timeline, entries: [] }, requestValue)).toThrow("exactly one")
   expect(() => assertReplayDecisionEvidenceTimeline({
     ...timeline,
     entries: [{ ...timeline.entries[0]!, decision_sequence: 2 }],
   }, requestValue)).toThrow("ordering or authority binding")
+})
+
+test("Decision Market Input Snapshot admits only the frozen contiguous closed-bar lookback", () => {
+  const requestValue = fixtureRequest()
+  requestValue.order = { ...requestValue.order, signal_time: "2026-07-14T08:00:00Z", earliest_executable_time: "2026-07-14T12:00:00Z" }
+  requestValue.decision_market_input_requirement = {
+    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
+    mode: "closed_bar_lookback",
+    source_kind: "ohlcv",
+    fields: ["open", "high", "low", "close", "volume"],
+    lookback_bars: 2,
+    visibility_policy: "close_time_at_or_before_decision_time",
+    terminal_bar_policy: "close_time_equals_decision_time",
+    continuity_policy: "strict_interval_grid",
+    undeclared_input_policy: "reject",
+  }
+  requestValue.decision_market_input_requirement_hash = canonicalHash(requestValue.decision_market_input_requirement)
+  const bars = [
+    { open_time: "2026-07-14T00:00:00Z", close_time: "2026-07-14T04:00:00Z", open: 100, high: 102, low: 99, close: 101, volume: 1, closed: true as const },
+    { open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 101, high: 103, low: 100, close: 102, volume: 2, closed: true as const },
+  ]
+  const snapshot = createReplayDecisionMarketInputSnapshot({ request: requestValue, interval_ms: 14_400_000, bars })
+  expect(() => assertReplayDecisionMarketInputSnapshot(snapshot, requestValue)).not.toThrow()
+  expect(() => createReplayDecisionMarketInputSnapshot({ request: requestValue, interval_ms: 14_400_000, bars: [bars[1]] })).toThrow("lookback is incomplete")
+  expect(() => createReplayDecisionMarketInputSnapshot({
+    request: requestValue,
+    interval_ms: 14_400_000,
+    bars: [{ ...bars[0], open_time: "2026-07-13T20:00:00Z", close_time: "2026-07-14T00:00:00Z" }, bars[1]],
+  })).toThrow("grid gap")
+  expect(() => createReplayDecisionMarketInputSnapshot({
+    request: requestValue,
+    interval_ms: 14_400_000,
+    bars: [bars[1], { ...bars[1], open_time: "2026-07-14T08:00:00Z", close_time: "2026-07-14T12:00:00Z" }],
+  })).toThrow("future-visible")
 })
 
 test("supplemental requirement set freezes a non-overlapping closed input scope", () => {

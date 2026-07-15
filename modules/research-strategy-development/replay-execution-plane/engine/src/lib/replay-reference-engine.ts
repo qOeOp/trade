@@ -14,6 +14,7 @@ import {
   type ReplayDatasetManifest,
   type ReplayDecisionEvidenceTimeline,
   type ReplayDecisionInputSnapshot,
+  type ReplayDecisionMarketInputSnapshot,
   type ReplayExecutionRequest,
   type ReplayEventKey,
   type ReplayFill,
@@ -52,7 +53,7 @@ import { completeReplayLiquidationOrderLane } from "./replay-liquidation-order-l
 import { ReplayLiquidationDeficitError, assertReplayPostEntryMargin, buildReplayMaintenanceBreachObservation, buildReplayPathMarginSnapshots } from "./replay-margin-path"
 import { reduceReplaySourceEvents } from "./replay-source-reducer"
 
-export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v9" as const
+export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v10" as const
 
 export interface ReplayEngineCheckpoint {
   schema_version: typeof REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION
@@ -62,6 +63,7 @@ export interface ReplayEngineCheckpoint {
   decision_evidence_timeline_hash: string
   decision_boundary_hash: string
   decision_input_snapshot_hash: string
+  decision_market_input_snapshot_hash: string
   decision_harness_receipt_hash: string | null
   decision_harness_bundle_hash: string | null
   decision_harness_build_attestation_hash: string | null
@@ -108,18 +110,25 @@ export interface ReplayKernelInput {
   execution_control?: ReplayExecutionControl
 }
 
-export function prepareReplayDecisionInputSnapshot(
+export function prepareReplayDecisionEvidenceInputs(
   input: Pick<ReplayKernelInput, "request" | "dataset_manifest" | "bars" | "funding_events" | "mark_events" | "supplemental_facts">,
-): ReplayDecisionInputSnapshot {
+): {
+  decision_input_snapshot: ReplayDecisionInputSnapshot
+  decision_market_input_snapshot: ReplayDecisionMarketInputSnapshot
+} {
   assertReplayExecutionRequest(input.request)
-  return prepareReplayInputData({
+  const prepared = prepareReplayInputData({
     request: input.request,
     dataset_manifest: input.dataset_manifest,
     bars: input.bars,
     funding_events: input.funding_events,
     mark_events: input.mark_events,
     supplemental_facts: input.supplemental_facts,
-  }).decision_input_snapshot
+  })
+  return {
+    decision_input_snapshot: prepared.decision_input_snapshot,
+    decision_market_input_snapshot: prepared.decision_market_input_snapshot,
+  }
 }
 
 export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
@@ -135,7 +144,11 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
   })
   const decisionEvidenceTimeline = input.decision_evidence_timeline ?? (
     request.supplemental_requirement_set.mode === "none"
-      ? createReplayDecisionEvidenceTimeline({ request, decision_input_snapshot: prepared.decision_input_snapshot })
+      ? createReplayDecisionEvidenceTimeline({
+        request,
+        decision_input_snapshot: prepared.decision_input_snapshot,
+        decision_market_input_snapshot: prepared.decision_market_input_snapshot,
+      })
       : undefined
   )
   if (!decisionEvidenceTimeline) {
@@ -147,6 +160,10 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
   assertReplayDecisionInputSnapshot(decisionInputSnapshot, request)
   if (canonicalHash(decisionInputSnapshot) !== canonicalHash(prepared.decision_input_snapshot)) {
     throw new Error("Replay decision input snapshot does not match prepared signal-time inputs")
+  }
+  const decisionMarketInputSnapshot = decisionEvidenceEntry.decision_market_input_snapshot
+  if (canonicalHash(decisionMarketInputSnapshot) !== canonicalHash(prepared.decision_market_input_snapshot)) {
+    throw new Error("Replay decision market input snapshot does not match prepared closed-bar inputs")
   }
   const decisionHarnessReceipt = decisionEvidenceEntry.decision_harness_receipt
   const decisionHarnessBundle = decisionEvidenceEntry.decision_harness_bundle
@@ -179,7 +196,8 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     assertReplayEngineCheckpoint(
       resumeCheckpoint, request, input.dataset_manifest,
       decisionEvidenceTimeline.timeline_hash, decisionEvidenceEntry.decision_boundary.boundary_hash,
-      decisionInputSnapshot.snapshot_hash, decisionHarnessReceipt?.receipt_hash ?? null,
+      decisionInputSnapshot.snapshot_hash, decisionMarketInputSnapshot.snapshot_hash,
+      decisionHarnessReceipt?.receipt_hash ?? null,
       decisionHarnessBundle?.bundle_hash ?? null, decisionHarnessReceipt?.loader_policy_version ?? null,
       decisionHarnessBuild?.attestation_hash ?? null, decisionHarnessReceipt?.worker_protocol_version ?? null,
     )
@@ -237,7 +255,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     severity: "info",
     detail: "The receipt binds the frozen source set, exact Bun build artifact/runtime, and a matching fresh-subprocess reproducibility pair; this process boundary is not an OS sandbox and does not prove filesystem or network denial.",
   })
-  if (!resumeCheckpoint) limitations.push({
+  if (!resumeCheckpoint && request.decision_market_input_requirement.mode === "none") limitations.push({
     code: "decision-market-input-recomputation-uncertified",
     severity: "info",
     detail: "The Decision Boundary binds the frozen signal time, closed-candle declaration, and next-open delay, but this lane does not materialize or recompute a market-input snapshot; the authorized Order remains Control Plane-frozen evidence.",
@@ -293,6 +311,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
         decision_evidence_timeline_hash: decisionEvidenceTimeline.timeline_hash,
         decision_boundary_hash: decisionEvidenceEntry.decision_boundary.boundary_hash,
         decision_input_snapshot_hash: decisionInputSnapshot.snapshot_hash,
+        decision_market_input_snapshot_hash: decisionMarketInputSnapshot.snapshot_hash,
         decision_harness_receipt_hash: decisionHarnessReceipt?.receipt_hash ?? null,
         decision_harness_bundle_hash: decisionHarnessBundle?.bundle_hash ?? null,
         decision_harness_build_attestation_hash: decisionHarnessBuild?.attestation_hash ?? null,
@@ -676,6 +695,8 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       dataset_hash: request.dataset_hash,
       supplemental_facts_hash: request.supplemental_facts_hash,
       supplemental_requirement_set_hash: request.supplemental_requirement_set_hash,
+      decision_market_input_requirement_hash: request.decision_market_input_requirement_hash,
+      decision_market_input_snapshot_hash: decisionMarketInputSnapshot.snapshot_hash,
       decision_evidence_timeline_hash: decisionEvidenceTimeline.timeline_hash,
       decision_boundary_hash: decisionEvidenceEntry.decision_boundary.boundary_hash,
       decision_input_snapshot_hash: decisionInputSnapshot.snapshot_hash,
@@ -722,6 +743,7 @@ function buildReplayEngineCheckpoint(input: {
   decision_evidence_timeline_hash: string
   decision_boundary_hash: string
   decision_input_snapshot_hash: string
+  decision_market_input_snapshot_hash: string
   decision_harness_receipt_hash: string | null
   decision_harness_bundle_hash: string | null
   decision_harness_build_attestation_hash: string | null
@@ -738,6 +760,7 @@ function buildReplayEngineCheckpoint(input: {
     decision_evidence_timeline_hash: input.decision_evidence_timeline_hash,
     decision_boundary_hash: input.decision_boundary_hash,
     decision_input_snapshot_hash: input.decision_input_snapshot_hash,
+    decision_market_input_snapshot_hash: input.decision_market_input_snapshot_hash,
     decision_harness_receipt_hash: input.decision_harness_receipt_hash,
     decision_harness_bundle_hash: input.decision_harness_bundle_hash,
     decision_harness_build_attestation_hash: input.decision_harness_build_attestation_hash,
@@ -767,6 +790,7 @@ export function assertReplayEngineCheckpoint(
   decisionEvidenceTimelineHash?: string,
   decisionBoundaryHash?: string,
   decisionInputSnapshotHash?: string,
+  decisionMarketInputSnapshotHash?: string,
   decisionHarnessReceiptHash?: string | null,
   decisionHarnessBundleHash?: string | null,
   decisionHarnessLoaderPolicyVersion?: string | null,
@@ -781,6 +805,8 @@ export function assertReplayEngineCheckpoint(
         && checkpoint.decision_evidence_timeline_hash !== decisionEvidenceTimelineHash)
       || (decisionBoundaryHash !== undefined && checkpoint.decision_boundary_hash !== decisionBoundaryHash)
       || (decisionInputSnapshotHash !== undefined && checkpoint.decision_input_snapshot_hash !== decisionInputSnapshotHash)
+      || (decisionMarketInputSnapshotHash !== undefined
+        && checkpoint.decision_market_input_snapshot_hash !== decisionMarketInputSnapshotHash)
       || (decisionHarnessReceiptHash !== undefined && checkpoint.decision_harness_receipt_hash !== decisionHarnessReceiptHash)
       || (decisionHarnessBundleHash !== undefined && checkpoint.decision_harness_bundle_hash !== decisionHarnessBundleHash)
       || (decisionHarnessLoaderPolicyVersion !== undefined
@@ -796,6 +822,7 @@ export function assertReplayEngineCheckpoint(
   if (!/^[a-f0-9]{64}$/.test(checkpoint.decision_evidence_timeline_hash)
       || !/^[a-f0-9]{64}$/.test(checkpoint.decision_boundary_hash)
       || !/^[a-f0-9]{64}$/.test(checkpoint.decision_input_snapshot_hash)
+      || !/^[a-f0-9]{64}$/.test(checkpoint.decision_market_input_snapshot_hash)
       || (checkpoint.decision_harness_receipt_hash !== null
         && !/^[a-f0-9]{64}$/.test(checkpoint.decision_harness_receipt_hash))
       || (checkpoint.decision_harness_bundle_hash !== null
