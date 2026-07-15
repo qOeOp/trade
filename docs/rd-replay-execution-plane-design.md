@@ -12,6 +12,8 @@ Replay Execution Plane 是 **冻结实验的确定性执行与历史证据生产
 
 当前成熟度判断：**M2 / 5，已认证的受限纵切**。Control Plane authority、Attempt fencing、local durable Artifact、checkpoint resume、Dataset Manifest v7、supplemental PIT Snapshot、closed-candle/next-open、简单 bracket、EventKey、average-cost Position、Cash Ledger、Equity v1、Journal v4 与 isolated Margin v7 已贯通。Request v20 的 `Decision Schedule v4` 允许 pre-entry `no_action`、唯一 `authorized_initial_order`、position-open `no_action*`、至多一次 `authorized_protective_stop_replace`，以及至多一个末位 `authorized_reduce_only_exit`。止损替换只能把全仓 reduce-only stop-market 向有利方向收紧；在非终止 closed-bar 边界按 cancel old → submit new → activate new 执行，新 stop 已被当前 close 穿越则拒绝。R4.39 锁定 replacement stop、full strategy exit 与 exact liquidation 共用唯一 terminal owner；R4.40 锁定 long/short 价格镜像 parity，以及 replacement 后 stop/target 同 bar 双触发时的 stop-first + `resolution_limited` 保守结果。Checkpoint v13 保存 Timeline、当前保护单与 pending exit，clean/resume Result hash 一致且不重跑已提交 Harness。Result v29、Artifact v31、Run Outcome v26 不变：R4.39–R4.40 只增加组合/对称认证，没有新 wire capability。该纵切仍不支持动态 supplemental join、部分减仓、加仓/反转、通用 cancel/replace、止损放宽、target 改动、连续 trailing、通用 OHLC path resolver、多 strategy order、OS sandbox、remote adapter、cross/shared portfolio、tick/L2、generic matching 或 step/fast parity，因此不升到 M3。
 
+R4.41 已将首条 partial reduce 边界收敛为**非可执行 draft**，但不改变上述成熟度。Draft 只允许一次小于初始仓位的 fixed-quantity market reduce-only；partial Fill 必须留下 open Position，然后在无 SourceEvent 插入的同一 boundary 取消当前 stop/target，按 `abs(post-fill position)` 保留原 trigger 价重建全量双保护。首版 draft 禁止与 stop replacement 组合，允许后续 final full exit。该 schema/capability 未进入 Request v20、Schedule v4 或 certified set；Runner 必须在 Engine 前拒绝它，故当前仍不得声称 partial strategy reduction 已实现。
+
 实现路径：`replay-execution-plane/contracts`、`data-adapter`、`engine`、`accounting`、`metrics`、`runner` 与 `tests` 已成为 certified slice 的新语义 owner；`replay-execution-plane/compatibility/replay-runner` 可转发 Trial-bound request，`compatibility/replay-engine` 仅复用稳定 accounting 原语并继续作为 parity/迁移来源，不再承接新语义扩展。RD 根已无旧 Replay package。
 
 权威边界：
@@ -496,6 +498,8 @@ R4.39 不新增 schema/version，而是将 R4.37–R4.38 的组合空白升为�
 
 R4.40 继续不新增 schema/version。以固定中心价映射 `p' = 2c - p` 构造 long/short 镜像 bars、entry、initial stop、target 与 replacement stop；long 向上收紧和 short 向下收紧均通过 Harness/State binding。replacement 后的终止 bar 同时穿越 stop/target，两侧均产生 stop Fill 和 `ohlcv-stop-target-collision / resolution_limited`；镜像 Fill 价格、net/realized PnL、return、trade count 与 OrderEvent phase/subphase 一致。这证明当前 simple-bracket 保守包络的方向对称性，不证明真实 intrabar path，也不把 stop-first 升级为多订单通用解析制度。
 
+R4.41 冻结 `trade.rd-replay-partial-reduce-intent-draft.v1`，但故意不推进 Request/Result/Artifact 版本。Draft Intent 绑定 opposite side、market、reduce-only、fixed quantity、closed-bar signal/next eligible open、`must_remain_open`，且 quantity 严格小于 initial quantity。`rd-replay-partial-reduce-protection-v1-draft` 绑定 partial Fill 后的同 source boundary 执行 old stop/target cancel → remaining-quantity stop/target submit/activate，价格保持当前 trigger，数量 authority 只能是 post-fill Position。组合范围仅为 one partial → optional final full exit，不与 stop replacement 并存。当前 Reference Engine 仍把 strategy exit 视为 terminal，certified Position Projection 仍拒绝 partial close，Checkpoint 也未有 protection generation；因此 draft capability 的 Reservation 必须 unsupported，没有 Result/Artifact。
+
 这一闭包证明 deterministic source-to-artifact closure、执行时 exact runtime binary、冻结 pre-entry/position-open schedule 的逐 boundary market/state PIT、一次 tighten-only stop replacement、一次 full reduce-only exit Intent parity、三类终止组合唯一 owner、方向镜像 parity 及单请求进程边界；它不证明第三方签名 provenance，不支持任意外部依赖/SBOM，也不是 OS sandbox。Result 使用 `decision-harness-os-sandbox-uncertified` info limitation。其他 effect-changing decision、动态 supplemental join 与完整 feature DAG trace 仍未认证；不得表述为任意 Candidate 安全执行闭包。
 
 ## 12. Step/Event-driven 与 Fast/Vectorized
@@ -632,7 +636,7 @@ claimed -> running -> completed
 | clock/visibility | close signal、next-open、funding boundary | 无事件可在 availability 前消费 | 全部时间平移不改相对结果 | step 与 replay chunking digest |
 | OHLC path | stop/target、gap、entry+bracket 同 bar | canonical 是 admissible path 且 limitation 完整 | bar 拆细后已 resolved 结果不变 | OHLC step 与 higher-res resolved subset |
 | orders | market/limit/stop/TP/cancel race | fill 不早于 active；filled+remaining=requested | price/qty scale 后经济量同比 | fast supported order subset |
-| reduce/position | multiple entry、partial TP、oversized/wrong-side reduce-only、reversal | reduce-only 不增仓/翻向；position qty 守恒 | 拆一笔 fill 为多笔同价 fill，终态相同 | legacy simple resolver compatibility |
+| reduce/position | multiple entry、partial TP、oversized/wrong-side reduce-only、reversal；partial-reduce draft 非终止数量/时序/保护 policy 非法输入 | reduce-only 不增仓/翻向；draft quantity 必须留 open Position；未认证 capability 在 Engine 前拒绝 | 拆一笔 fill 为多笔同价 fill，终态相同；未实现前不声称 bracket-resize parity | legacy simple resolver compatibility；后续需 partial clean/resume parity |
 | numeric | bps price、fee、funding、linear PnL、weighted average、return vectors | 舍入方向不改善证据；所有现金事实 increment-aligned | price/cash 同比缩放后 return 与 scaled PnL 精确等价 | Bun/BigInt 与 Python Decimal 共享向量 |
 | ledger/cost | fee、funding、borrow、impact | 借贷平衡；NAV bridge 可解释 | zero-cost policy 恢复 gross PnL | step/fast ledger digest |
 | margin | isolated/cross、stop-liquidation collision | equity/margin 守恒；liquidation 后无未解释风险 | collateral 等比缩放 | 不允许 fast，断言 capability reject |
@@ -682,14 +686,14 @@ Property tests 的核心 invariants：订单 qty、position qty、cash/NAV bridg
 - limit/stop/TP、cancel/amend、multi-entry、partial、wrong-side/oversized reduce-only、reversal。
 - 只有具备数据能力的 fill policy 才开放；maker queue 缺失继续 limitation/unsupported。
 
-**当前状态：完成第四十子集，R3 未完成。** Simulator v7 的受限 tighten-only replacement 与可选 full strategy exit 未扩容；R4.39–R4.40 新增的是唯一 terminal owner、long/short 镜像 parity 与 replacement 后 simple-bracket stop-first limitation 认证。替换后 source、Harness、Checkpoint 都只观测当前 active stop，non-owner order 在 terminal Fill 后只能取消。该能力不等于通用多订单 matching；partial reduce、halt/resume order、external command、limit、generic cancel/replace、stop loosening、target amend、continuous trailing、TIF、multi-entry/reversal、部分强平和真实 partial liquidity 尚未接入。
+**当前状态：完成第四十一子集，R3 未完成。** R4.41 只增加 partial-reduce draft schema/policy 与 pre-Engine capability rejection，没有接入 Simulator v7。已决定的最小语义是 one fixed partial → atomic remaining-position bracket rebuild → optional final full exit，并与 stop replacement 互斥。仍缺非终止 source reduction、partial Position Projection、逐 Fill ledger、protection generation、checkpoint/resume 和 terminal arbitration 认证；完成前 partial reduce 仍是 unsupported。
 
 ### R4：统一 accounting
 
 - 定点 decimal、double-entry ledger、逐 fill fee、exact funding、borrow 接口。
 - isolated/cross margin、maintenance tiers、liquidation 与 penalty fixtures。
 
-**当前状态：完成第四十子集，未完成统一组合账本。** Request/Result 为 v20/v29，Artifact/Run Outcome 为 v31/v26；镜像 long/short replacement-stop Fill 已证明 net/realized PnL、return 与 trade count 对称，仍共用既有 average-cost、fee、cash、equity、journal 与 margin closure，没有平行 PnL 公式。flat/open/liquidation compatibility golden digest 不变。会改变 accounting 的 spec epoch、partial liquidation、bankruptcy/insurance/ADL、动态 collateral、borrow、cross/shared portfolio 与真实 execution reconstruction 未开始。
+**当前状态：完成第四十一子集，未完成统一组合账本。** Request/Result 仍为 v20/v29，Artifact/Run Outcome 仍为 v31/v26；R4.41 没有改变经济证据 schema。average-cost reducer 虽已能计算 partial realized PnL，certified single-position projection/Runner 仍拒绝 partial close，故不得从底层原语推导出端到端能力。下一纵切必须证明 partial fee/realized PnL、remaining unrealized PnL、cash/equity bridge、margin 与双保护数量在 clean/resume 下同时守恒。
 
 ### R5：Portfolio
 
