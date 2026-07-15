@@ -1,6 +1,6 @@
 ---
 title: R&D Module Audit
-updated_at: 2026-07-13 23:30 CST
+updated_at: 2026-07-15 CST
 ---
 
 # R&D Module Audit
@@ -9,6 +9,7 @@ updated_at: 2026-07-13 23:30 CST
 
 ## 修复状态
 
+- 已补：Replay R4.33 冻结 `Decision Market Input Requirement v1`，从 Dataset Manifest/Data Hash 已覆盖的 OHLCV 生成严格 closed-bar lookback Snapshot；Harness Worker 改用不含预填 Order 的白名单 Context，并以双 fresh subprocess 重算 Order。lookback 不足、gap、future-visible、Order 泄漏、输出漂移及 requirement/snapshot/artifact/checkpoint hash 漂移均拒绝。当前只认证单次 initial decision，不能外推为滚动信号或通用策略 runtime。
 - 已补：campaign validation 必须与 discovery 保持 locked holdout embargo；默认按 `max(max_hold_bars, factor lookback, funding interval)` 换算。
 - 已补：campaign 每个 hypothesis 必须带 `thesis_certificate`；缺 edge 类型、行为假设、参与者、regime、失效条件、成本敏感度、候选 universe 或 negative controls 时零 trial 停止。
 - 已补：replay provenance 输出 `temporal_contract`，覆盖 closed-candle reference、availability、lookback start、label end、universe selection 与 supplemental report availability；strategy review 会把缺 temporal contract 的 replay evidence 判为 legacy/stale。
