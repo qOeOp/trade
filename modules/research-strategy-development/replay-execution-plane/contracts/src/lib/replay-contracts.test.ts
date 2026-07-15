@@ -14,7 +14,9 @@ import {
   REPLAY_DECISION_HARNESS_CONTEXT_SCHEMA_VERSION,
   REPLAY_DECISION_MARKET_INPUT_SNAPSHOT_SCHEMA_VERSION,
   REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
+  REPLAY_DECISION_SCHEDULE_SCHEMA_VERSION,
   REPLAY_DECISION_STATE_SNAPSHOT_SCHEMA_VERSION,
+  REPLAY_REDUCE_ONLY_EXIT_INTENT_SCHEMA_VERSION,
   REPLAY_LOCAL_ARTIFACT_STORE_CAPABILITY,
   REPLAY_OBJECT_ARTIFACT_STORE_REQUIRED_CAPABILITY,
   REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION,
@@ -126,7 +128,7 @@ test("Replay request requires complete Trial and evidence identity", () => {
   unauthorizedSchedule.decision_schedule = {
     ...unauthorizedSchedule.decision_schedule,
     entries: [
-      { decision_sequence: 1, decision_time: "2026-07-13T20:00:00Z", expected_effect: "no_action", authorized_order_hash: null },
+      { decision_sequence: 1, decision_time: "2026-07-13T20:00:00Z", expected_effect: "no_action", authorized_reduce_only_exit: null, authorized_order_hash: null },
       { ...unauthorizedSchedule.decision_schedule.entries[0]!, decision_sequence: 2 },
     ],
   }
@@ -141,6 +143,7 @@ test("authorized initial decision lookup is semantic rather than positional", ()
     decision_sequence: 2,
     decision_time: "2026-07-14T08:00:00Z",
     expected_effect: "no_action" as const,
+    authorized_reduce_only_exit: null,
     authorized_order_hash: null,
   }
   const nonPositionalRequest = {
@@ -168,6 +171,67 @@ test("authorized initial decision lookup is semantic rather than positional", ()
     entries: [{ ...authorizedEvidenceEntry, execution_effect: "no_action" as const }, authorizedEvidenceEntry],
   }
   expect(replayAuthorizedInitialDecisionEvidenceEntry(nonPositionalTimeline)).toEqual(authorizedEvidenceEntry)
+})
+
+test("decision schedule freezes one final full-position reduce-only market exit", () => {
+  const requestValue = fixtureRequest()
+  const requirement = {
+    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
+    mode: "closed_bar_lookback" as const,
+    source_kind: "ohlcv" as const,
+    fields: ["open", "high", "low", "close", "volume"] as const,
+    lookback_bars: 1,
+    visibility_policy: "close_time_at_or_before_decision_time" as const,
+    terminal_bar_policy: "close_time_equals_decision_time" as const,
+    continuity_policy: "strict_interval_grid" as const,
+    undeclared_input_policy: "reject" as const,
+  }
+  const exitIntent = {
+    schema_version: REPLAY_REDUCE_ONLY_EXIT_INTENT_SCHEMA_VERSION,
+    side: "sell" as const,
+    order_type: "market" as const,
+    reduce_only: true as const,
+    quantity_policy: "full_open_position" as const,
+    signal_time: "2026-07-14T08:00:00Z",
+    earliest_executable_time: "2026-07-14T12:00:00Z",
+  }
+  requestValue.decision_market_input_requirement = requirement
+  requestValue.decision_market_input_requirement_hash = canonicalHash(requirement)
+  requestValue.decision_schedule = {
+    schema_version: REPLAY_DECISION_SCHEDULE_SCHEMA_VERSION,
+    schedule_policy: "frozen_closed_bar_schedule",
+    entries: [
+      requestValue.decision_schedule.entries[0]!,
+      {
+        decision_sequence: 2,
+        decision_time: exitIntent.signal_time,
+        expected_effect: "authorized_reduce_only_exit",
+        authorized_reduce_only_exit: exitIntent,
+        authorized_order_hash: canonicalHash(exitIntent),
+      },
+    ],
+  }
+  requestValue.decision_schedule_hash = canonicalHash(requestValue.decision_schedule)
+  expect(() => assertReplayExecutionRequest(requestValue)).not.toThrow()
+
+  const wrongSide = structuredClone(requestValue)
+  wrongSide.decision_schedule.entries[1]!.authorized_reduce_only_exit!.side = "buy"
+  wrongSide.decision_schedule.entries[1]!.authorized_order_hash = canonicalHash(
+    wrongSide.decision_schedule.entries[1]!.authorized_reduce_only_exit,
+  )
+  wrongSide.decision_schedule_hash = canonicalHash(wrongSide.decision_schedule)
+  expect(() => assertReplayExecutionRequest(wrongSide)).toThrow("opposite-side")
+
+  const notFinal = structuredClone(requestValue)
+  notFinal.decision_schedule.entries.push({
+    decision_sequence: 3,
+    decision_time: "2026-07-14T16:00:00Z",
+    expected_effect: "no_action",
+    authorized_reduce_only_exit: null,
+    authorized_order_hash: null,
+  })
+  notFinal.decision_schedule_hash = canonicalHash(notFinal.decision_schedule)
+  expect(() => assertReplayExecutionRequest(notFinal)).toThrow("final full-position")
 })
 
 test("position-open decision state snapshot is self-hashed monetary evidence", () => {

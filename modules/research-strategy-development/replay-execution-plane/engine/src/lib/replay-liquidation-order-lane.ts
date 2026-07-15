@@ -27,6 +27,7 @@ export function completeReplayLiquidationOrderLane(input: {
   signed_position: number
   stop_order: ReplayOrder
   target_order: ReplayOrder
+  strategy_exit_order?: ReplayOrder | null
   next_stamp: (
     eventTime: string,
     boundaryPhase: ReplayBoundaryPhase,
@@ -50,6 +51,13 @@ export function completeReplayLiquidationOrderLane(input: {
     input.signed_position,
     "maintenance-liquidation",
   ))
+  if (input.strategy_exit_order) input.capture(cancelReplayOrder(
+    input.strategy_exit_order,
+    input.next_stamp(input.event_time, 15, input.source_sequence, 3),
+    input.signed_position,
+    "maintenance-liquidation",
+  ))
+  const orderSubphase = input.strategy_exit_order ? 4 : 3
   let order = input.capture(submitReplayOrder({
     order_id: `${input.run_id}:order:liquidation`,
     order_role: "liquidation",
@@ -58,16 +66,16 @@ export function completeReplayLiquidationOrderLane(input: {
     quantity,
     reduce_only: true,
     submitted_at: input.event_time,
-  }, input.next_stamp(input.event_time, 15, input.source_sequence, 3), input.signed_position)).order
+  }, input.next_stamp(input.event_time, 15, input.source_sequence, orderSubphase), input.signed_position)).order
   order = input.capture(activateReplayOrder(
     order,
-    input.next_stamp(input.event_time, 15, input.source_sequence, 4),
+    input.next_stamp(input.event_time, 15, input.source_sequence, orderSubphase + 1),
     input.signed_position,
   )).order
   const fill = input.capture(fillReplayOrder({
     order,
     requested_quantity: order.remaining_quantity,
-    stamp: input.next_stamp(input.event_time, 15, input.source_sequence, 5),
+    stamp: input.next_stamp(input.event_time, 15, input.source_sequence, orderSubphase + 2),
     signed_position_before: input.signed_position,
   }))
   if (fill.signed_position_after !== 0 || fill.order.status !== "filled") {

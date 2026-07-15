@@ -7,7 +7,7 @@ import type {
   ReplayOrderType,
 } from "../../../contracts/src/lib/replay-contracts"
 import { createReplayEventKey } from "./replay-event-key"
-import { completeReplayExitOrderLane } from "./replay-exit-order-lane"
+import { completeReplayExitOrderLane, completeReplayStrategyExitOrderLane } from "./replay-exit-order-lane"
 
 function activeOrder(role: ReplayOrderRole, type: ReplayOrderType, subphase: number): ReplayOrder {
   const orderId = `run-lane:order:${role}`
@@ -79,5 +79,56 @@ test("terminal target event drives trigger fill and sibling cancel in EventKey o
     exit_quantity: 1,
     signed_position_after: 0,
     exit_fill_event_key: events[1].event_key,
+  })
+})
+
+test("authorized strategy exit activates and fills before cancelling both brackets", () => {
+  const events: ReplayOrderEvent[] = []
+  let sequence = 20
+  const strategyExit: ReplayOrder = {
+    ...activeOrder("strategy_exit", "market", 2),
+    status: "submitted",
+    active_at: null,
+    submitted_at: "2026-07-14T08:00:00Z",
+    trigger_price: null,
+  }
+  const result = completeReplayStrategyExitOrderLane({
+    run_id: "run-lane",
+    event_time: "2026-07-14T12:00:00Z",
+    source_sequence: 3,
+    signed_position: 1,
+    strategy_exit_order: strategyExit,
+    stop_order: activeOrder("stop", "stop_market", 1),
+    target_order: activeOrder("target", "take_profit_market", 3),
+    next_stamp: (eventTime, boundaryPhase, sourceSequence, eventSubphase) => {
+      sequence += 1
+      return {
+        sequence,
+        event_key: createReplayEventKey({
+          event_time: eventTime,
+          boundary_phase: boundaryPhase,
+          source_sequence: sourceSequence,
+          event_subphase: eventSubphase,
+          stable_event_id: `run-lane:event:${sequence}`,
+        }),
+      }
+    },
+    capture: (transition) => {
+      events.push(transition.event)
+      return transition
+    },
+  })
+
+  expect(events.map((event) => [event.order_id, event.kind, event.event_key.boundary_phase])).toEqual([
+    ["run-lane:order:strategy_exit", "activated", 20],
+    ["run-lane:order:strategy_exit", "filled", 20],
+    ["run-lane:order:stop", "cancelled", 90],
+    ["run-lane:order:target", "cancelled", 90],
+  ])
+  expect(result).toMatchObject({
+    terminal_state: "flat",
+    exit_order_id: "run-lane:order:strategy_exit",
+    exit_quantity: 1,
+    signed_position_after: 0,
   })
 })

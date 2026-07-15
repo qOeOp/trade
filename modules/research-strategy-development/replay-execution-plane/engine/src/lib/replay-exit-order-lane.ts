@@ -5,6 +5,7 @@ import type {
   ReplayOrderEvent,
 } from "../../../contracts/src/lib/replay-contracts"
 import {
+  activateReplayOrder,
   cancelReplayOrder,
   fillReplayOrder,
   triggerReplayOrder,
@@ -30,6 +31,7 @@ export function completeReplayExitOrderLane(input: {
   signed_position: number
   stop_order: ReplayOrder
   target_order: ReplayOrder
+  strategy_exit_order?: ReplayOrder | null
   next_stamp: (
     eventTime: string,
     boundaryPhase: ReplayBoundaryPhase,
@@ -66,6 +68,12 @@ export function completeReplayExitOrderLane(input: {
       transition.signed_position_after,
       "sibling-exit-filled",
     )).order
+    if (input.strategy_exit_order) input.capture(cancelReplayOrder(
+      input.strategy_exit_order,
+      input.next_stamp(exit.timestamp, 90, exit.sourceSequence, siblingCancelSubphase + 1),
+      transition.signed_position_after,
+      "sibling-exit-filled",
+    ))
     return execution("flat", stopOrder.order_id, transition.executed_quantity, transition.signed_position_after, transition.event.event_key)
   }
 
@@ -89,6 +97,12 @@ export function completeReplayExitOrderLane(input: {
       transition.signed_position_after,
       "sibling-exit-filled",
     )).order
+    if (input.strategy_exit_order) input.capture(cancelReplayOrder(
+      input.strategy_exit_order,
+      input.next_stamp(exit.timestamp, 90, exit.sourceSequence, siblingCancelSubphase + 1),
+      transition.signed_position_after,
+      "sibling-exit-filled",
+    ))
     return execution("flat", targetOrder.order_id, transition.executed_quantity, transition.signed_position_after, transition.event.event_key)
   }
 
@@ -104,7 +118,66 @@ export function completeReplayExitOrderLane(input: {
     input.signed_position,
     "end-of-data",
   )).order
+  if (input.strategy_exit_order) input.capture(cancelReplayOrder(
+    input.strategy_exit_order,
+    input.next_stamp(exit.timestamp, 90, exit.sourceSequence, 2),
+    input.signed_position,
+    "end-of-data",
+  ))
   return execution("open_marked", null, 0, input.signed_position, null)
+}
+
+export function completeReplayStrategyExitOrderLane(input: {
+  run_id: string
+  event_time: string
+  source_sequence: number
+  signed_position: number
+  strategy_exit_order: ReplayOrder
+  stop_order: ReplayOrder
+  target_order: ReplayOrder
+  next_stamp: (
+    eventTime: string,
+    boundaryPhase: ReplayBoundaryPhase,
+    sourceSequence: number,
+    eventSubphase: number,
+  ) => ReplayTransitionStamp
+  capture: ReplayTransitionCapture
+}): ReplayExitOrderExecution {
+  if (input.signed_position === 0) throw new Error("Replay strategy exit requires an open position")
+  let strategyExitOrder = input.capture(activateReplayOrder(
+    input.strategy_exit_order,
+    input.next_stamp(input.event_time, 20, input.source_sequence, 2),
+    input.signed_position,
+  )).order
+  const transition = input.capture(fillReplayOrder({
+    order: strategyExitOrder,
+    requested_quantity: strategyExitOrder.remaining_quantity,
+    stamp: input.next_stamp(input.event_time, 20, input.source_sequence, 3),
+    signed_position_before: input.signed_position,
+  }))
+  strategyExitOrder = transition.order
+  if (strategyExitOrder.status !== "filled" || transition.signed_position_after !== 0) {
+    throw new Error("certified Replay strategy exit must fully close the position")
+  }
+  input.capture(cancelReplayOrder(
+    input.stop_order,
+    input.next_stamp(input.event_time, 90, input.source_sequence, 0),
+    transition.signed_position_after,
+    "strategy-exit-filled",
+  ))
+  input.capture(cancelReplayOrder(
+    input.target_order,
+    input.next_stamp(input.event_time, 90, input.source_sequence, 1),
+    transition.signed_position_after,
+    "strategy-exit-filled",
+  ))
+  return execution(
+    "flat",
+    strategyExitOrder.order_id,
+    transition.executed_quantity,
+    transition.signed_position_after,
+    transition.event.event_key,
+  )
 }
 
 function execution(

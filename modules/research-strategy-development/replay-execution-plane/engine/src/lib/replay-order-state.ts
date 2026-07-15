@@ -184,7 +184,7 @@ export function cancelReplayOrder(
 }
 
 function validateRoleContract(submission: ReplayOrderSubmission): void {
-  if (!["entry", "stop", "target", "liquidation", "end_of_data"].includes(submission.order_role)) throw new Error("unsupported order_role")
+  if (!["entry", "stop", "target", "strategy_exit", "liquidation", "end_of_data"].includes(submission.order_role)) throw new Error("unsupported order_role")
   if (!["market", "stop_market", "take_profit_market"].includes(submission.order_type)) throw new Error("unsupported order_type")
   if (submission.side !== "buy" && submission.side !== "sell") throw new Error("unsupported order side")
   if (submission.order_role === "entry") {

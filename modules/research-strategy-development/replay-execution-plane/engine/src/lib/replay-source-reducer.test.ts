@@ -81,6 +81,7 @@ test("source reducer stops at the terminal market event and keeps only in-positi
     }),
     get_entry_fill_event_key: (entry) => entry.fill_key,
     observe_exact_risk: () => null,
+    observe_strategy_exit: () => null,
     complete_exit: (exit) => `${exit.role}:${exit.timestamp}`,
   })
 

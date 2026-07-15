@@ -58,12 +58,12 @@ import {
 } from "./replay-order-state"
 import { createReplayEventKey } from "./replay-event-key"
 import { completeReplayEntryOrderLane, type ReplayEntryOrderExecution } from "./replay-entry-order-lane"
-import { completeReplayExitOrderLane } from "./replay-exit-order-lane"
+import { completeReplayExitOrderLane, completeReplayStrategyExitOrderLane } from "./replay-exit-order-lane"
 import { completeReplayLiquidationOrderLane } from "./replay-liquidation-order-lane"
 import { ReplayLiquidationDeficitError, assertReplayPostEntryMargin, buildReplayMaintenanceBreachObservation, buildReplayPathMarginSnapshots } from "./replay-margin-path"
 import { reduceReplaySourceEvents } from "./replay-source-reducer"
 
-export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v11" as const
+export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v12" as const
 
 export interface ReplayEngineCheckpoint {
   schema_version: typeof REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION
@@ -88,6 +88,7 @@ export interface ReplayEngineCheckpoint {
   applied_funding_sources: ReplaySourceEvent[]
   entry_order: ReplayOrder
   entry_transition: ReplayEntryOrderExecution | null
+  strategy_exit_order: ReplayOrder | null
   order_events: ReplayOrderEvent[]
   event_sequence: number
   exact_risk_snapshots: ReplayMarginSnapshot[]
@@ -319,6 +320,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     reduce_only: false,
   })
   const exactRiskSnapshots: ReplayMarginSnapshot[] = structuredClone(resumeCheckpoint?.exact_risk_snapshots ?? [])
+  let strategyExitOrder: ReplayOrder | null = structuredClone(resumeCheckpoint?.strategy_exit_order ?? null)
   let timelineInputs: ReplayDecisionEvidenceInput[] = decisionEvidenceTimeline.entries.map((entry, index) => ({
     schedule_entry: structuredClone(request.decision_schedule.entries[index]!),
     decision_input_snapshot: structuredClone(entry.decision_input_snapshot),
@@ -455,6 +457,27 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
           decision_harness_receipt: admission.receipt,
         }
         rebuildDecisionTimeline()
+        if (runtimeDecision.schedule_entry.expected_effect === "authorized_reduce_only_exit") {
+          const exitIntent = runtimeDecision.schedule_entry.authorized_reduce_only_exit
+          const entry = boundary.entry_transition
+          if (!exitIntent || !entry || strategyExitOrder) {
+            throw new Error("Replay authorized strategy exit cannot create a unique pending Order")
+          }
+          strategyExitOrder = capture(submitReplayOrder({
+            order_id: `${request.run_id}:order:strategy-exit`,
+            order_role: "strategy_exit",
+            order_type: "market",
+            side: exitIntent.side,
+            quantity: Math.abs(entry.signed_position_after),
+            reduce_only: true,
+            submitted_at: exitIntent.signal_time,
+          }, nextStamp(
+            exitIntent.signal_time,
+            90,
+            source!.event_key.source_sequence,
+            runtimeDecision.schedule_entry.decision_sequence,
+          ), entry.signed_position_after)).order
+        }
       }
       if (!input.execution_control?.on_checkpoint) return
       const checkpoint = buildReplayEngineCheckpoint({
@@ -462,6 +485,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
         dataset_manifest: input.dataset_manifest,
         boundary,
         entry_order: boundary.entry_transition?.entry_order ?? entryOrder,
+        strategy_exit_order: strategyExitOrder,
         order_events: orderEvents,
         event_sequence: eventSequence,
         exact_risk_snapshots: exactRiskSnapshots,
@@ -572,6 +596,27 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
         sourceSequence: source.event_key.source_sequence,
       }
     },
+    observe_strategy_exit: (source) => {
+      if (!strategyExitOrder || source.kind !== "bar_open") return null
+      const scheduleEntry = request.decision_schedule.entries.find(
+        (entry) => entry.expected_effect === "authorized_reduce_only_exit",
+      )
+      const intent = scheduleEntry?.authorized_reduce_only_exit
+      if (!intent) throw new Error("Replay pending strategy exit lacks frozen schedule authority")
+      const sourceTime = Date.parse(source.event_key.event_time)
+      const executableTime = Date.parse(intent.earliest_executable_time)
+      if (sourceTime < executableTime) return null
+      if (sourceTime > executableTime) throw new Error("Replay skipped the authorized strategy exit executable boundary")
+      const bar = bars[source.source_index]
+      if (!bar) throw new Error("Replay strategy exit references a missing executable bar")
+      return {
+        role: "strategy_exit" as const,
+        timestamp: bar.open_time,
+        rawPrice: bar.open,
+        triggerSource: "bar_open" as const,
+        sourceSequence: source.source_index + 1,
+      }
+    },
     complete_exit: (exit, entry) => exit.role === "liquidation"
       ? completeReplayLiquidationOrderLane({
         run_id: request.run_id,
@@ -580,10 +625,23 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
         signed_position: entry.signed_position_after,
         stop_order: entry.stop_order,
         target_order: entry.target_order,
+        strategy_exit_order: strategyExitOrder,
         next_stamp: nextStamp,
         capture,
       })
-      : completeReplayExitOrderLane({
+      : exit.role === "strategy_exit"
+        ? completeReplayStrategyExitOrderLane({
+          run_id: request.run_id,
+          event_time: exit.timestamp,
+          source_sequence: exit.sourceSequence,
+          signed_position: entry.signed_position_after,
+          strategy_exit_order: strategyExitOrder!,
+          stop_order: entry.stop_order,
+          target_order: entry.target_order,
+          next_stamp: nextStamp,
+          capture,
+        })
+        : completeReplayExitOrderLane({
         run_id: request.run_id,
         exit,
         entry_time: entryBar.open_time,
@@ -591,6 +649,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
         signed_position: entry.signed_position_after,
         stop_order: entry.stop_order,
         target_order: entry.target_order,
+        strategy_exit_order: strategyExitOrder,
         next_stamp: nextStamp,
         capture,
       }),
@@ -919,6 +978,7 @@ function buildReplayEngineCheckpoint(input: {
     entry_transition: ReplayEntryOrderExecution | null
   }
   entry_order: ReplayOrder
+  strategy_exit_order: ReplayOrder | null
   order_events: ReplayOrderEvent[]
   event_sequence: number
   exact_risk_snapshots: ReplayMarginSnapshot[]
@@ -958,6 +1018,7 @@ function buildReplayEngineCheckpoint(input: {
     applied_funding_sources: structuredClone(input.boundary.applied_funding_sources),
     entry_order: structuredClone(input.entry_order),
     entry_transition: structuredClone(input.boundary.entry_transition),
+    strategy_exit_order: structuredClone(input.strategy_exit_order),
     order_events: structuredClone(input.order_events),
     event_sequence: input.event_sequence,
     exact_risk_snapshots: structuredClone(input.exact_risk_snapshots),
@@ -1031,6 +1092,26 @@ export function assertReplayEngineCheckpoint(
   }
   if (canonicalHash(checkpoint.source_events.at(-1)?.event_key) !== canonicalHash(checkpoint.last_committed_event_key)) {
     throw new Error("Replay engine checkpoint last committed event key is invalid")
+  }
+  if (checkpoint.strategy_exit_order) {
+    const scheduleEntry = request.decision_schedule.entries.find(
+      (entry) => entry.expected_effect === "authorized_reduce_only_exit",
+    )
+    const intent = scheduleEntry?.authorized_reduce_only_exit
+    const evidence = checkpoint.decision_evidence_timeline.entries.find(
+      (entry) => entry.decision_sequence === scheduleEntry?.decision_sequence,
+    )
+    if (!intent || evidence?.evaluation_status !== "evaluated"
+        || evidence.execution_effect !== "authorized_reduce_only_exit"
+        || checkpoint.strategy_exit_order.order_role !== "strategy_exit"
+        || checkpoint.strategy_exit_order.order_type !== "market"
+        || checkpoint.strategy_exit_order.side !== intent.side
+        || checkpoint.strategy_exit_order.reduce_only !== true
+        || checkpoint.strategy_exit_order.status !== "submitted"
+        || checkpoint.strategy_exit_order.submitted_at !== intent.signal_time
+        || checkpoint.strategy_exit_order.filled_quantity !== 0) {
+      throw new Error("Replay engine checkpoint pending strategy exit is invalid")
+    }
   }
   const { checkpoint_hash: checkpointHash, ...body } = checkpoint
   if (checkpointHash !== canonicalHash(body)) throw new Error("Replay engine checkpoint hash is invalid")

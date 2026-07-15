@@ -13,6 +13,7 @@ import { buildReplaySourceEvents } from "./replay-source-events"
 
 export type ReplayReducedExit =
   | { role: "stop" | "target"; timestamp: string; rawPrice: number; triggerSource: "bar_open" | "bar_range"; sourceSequence: number }
+  | { role: "strategy_exit"; timestamp: string; rawPrice: number; triggerSource: "bar_open"; sourceSequence: number }
   | { role: "liquidation"; timestamp: string; rawPrice: number; triggerSource: "mark" | "funding_mark"; triggerSourceRef: string; sourceSequence: number }
   | { role: "end_of_data"; timestamp: string; rawPrice: number; triggerSource: null; sourceSequence: number }
 
@@ -58,6 +59,7 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
     entry: TEntry,
     appliedFundingSources: ReplaySourceEvent[],
   ) => ReplayReducedExit | null
+  observe_strategy_exit: (source: ReplaySourceEvent, entry: TEntry) => ReplayReducedExit | null
   complete_exit: (exit: ReplayReducedExit, entry: TEntry) => TTerminal
 }): ReplaySourceReduction<TEntry, TTerminal> {
   const entryBar = input.bars[input.entry_index]
@@ -136,6 +138,14 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
       const targetGap = isLong ? bar.open >= input.request.order.target_price : bar.open <= input.request.order.target_price
       if (targetGap) return reduction(
         { role: "target", timestamp: bar.open_time, rawPrice: bar.open, triggerSource: "bar_open", sourceSequence: source.source_index + 1 },
+        consumed,
+        appliedFunding,
+        entryTransition,
+        input.complete_exit,
+      )
+      const strategyExit = input.observe_strategy_exit(source, entryTransition)
+      if (strategyExit) return reduction(
+        strategyExit,
         consumed,
         appliedFunding,
         entryTransition,
