@@ -10,7 +10,7 @@ status: implemented-vertical-slice
 
 Replay Execution Plane 是 **冻结实验的确定性执行与历史证据生产面**，不是研究决策面，也不是实盘执行面。它只做一件事：把 Research Control Plane 已冻结的 Trial，连同不可变 Experiment Contract、Candidate Identity、Dataset Manifest 与模拟政策，执行成可复读的事件链、统一账本和 Result Artifact。
 
-当前成熟度判断：**M2 / 5，已认证的受限纵切**。新 owner 已实现 Control Plane identity binding、manifest/ref/content-hash 校验、UTC/lifecycle/PIT 声明、closed-candle/next-open、简单 bracket、EventKey 全序、average-cost Position、Cash Ledger、Equity v1 与 Journal v4。Control Plane 可签发带准入截止时间的 Trial Reservation、Replay Attempt Lease、Checkpoint Receipt 与 Resume Authorization；State Store 保证 Reservation 半开有效期、active-attempt 唯一、heartbeat generation fencing、receipt offset 单调、expiry takeover、terminal immutable，并只把 `cancelled/expired` source Attempt 的最新 receipt 绑定到同 authority 下更晚的 active target Attempt。Runner 只通过 Attempt-scoped Artifact Store port 发布与读取证据；certified local adapter 在完整 source-event 边界按 `rd-replay-local-fsync-link-cas-v1` 耐久发布 payload/commit/member/Manifest，恢复校验 authorization、source commit、storage policy、namespace、target Attempt/worker 与 lease generation floor，结果与 clean run byte-semantically 相同。Capability v1 已冻结 remote conditional-put 目标合同，但 remote adapter 未认证且在 engine 前显式拒绝。Dataset Manifest v5 已认证连续多规则 epoch schedule，并按事件时间选择 venue-risk policy；listing 和未登记对象均无权威性。自动历史规则采集、会改变 accounting 的 instrument-spec epoch、部分强平、cross/shared portfolio、真实 tick/L2、generic matching 与 step/fast parity 尚未形成，因此成熟度仍为 M2。
+当前成熟度判断：**M2 / 5，已认证的受限纵切**。新 owner 已实现 Control Plane identity binding、manifest/ref/content-hash 校验、UTC/lifecycle/PIT 声明、closed-candle/next-open、简单 bracket、EventKey 全序、average-cost Position、Cash Ledger、Equity v1 与 Journal v4。Control Plane 可签发带准入截止时间的 Trial Reservation、Replay Attempt Lease、Checkpoint Receipt 与 Resume Authorization；State Store 保证 Reservation 半开有效期、active-attempt 唯一、heartbeat generation fencing、receipt offset 单调、expiry takeover、terminal immutable，并只把 `cancelled/expired` source Attempt 的最新 receipt 绑定到同 authority 下更晚的 active target Attempt。Runner 只通过 Attempt-scoped Artifact Store port 发布与读取证据；certified local adapter 在完整 source-event 边界按 `rd-replay-local-fsync-link-cas-v1` 耐久发布 payload/commit/member/Manifest，恢复校验 authorization、source commit、storage policy、namespace、target Attempt/worker 与 lease generation floor，结果与 clean run byte-semantically 相同。Capability v1 已冻结 remote conditional-put 目标合同，但 remote adapter 未认证且在 engine 前显式拒绝。Dataset Manifest v6 已认证连续多规则 epoch schedule 与 supplemental signal-time revision view；listing 和未登记对象均无权威性。自动历史规则采集、动态多决策 feature join、会改变 accounting 的 instrument-spec epoch、部分强平、cross/shared portfolio、真实 tick/L2、generic matching 与 step/fast parity 尚未形成，因此成熟度仍为 M2。
 
 实现路径：`replay-execution-plane/contracts`、`data-adapter`、`engine`、`accounting`、`metrics`、`runner` 与 `tests` 已成为 certified slice 的新语义 owner；`replay-execution-plane/compatibility/replay-runner` 可转发 Trial-bound request，`compatibility/replay-engine` 仅复用稳定 accounting 原语并继续作为 parity/迁移来源，不再承接新语义扩展。RD 根已无旧 Replay package。
 
@@ -132,7 +132,7 @@ flowchart LR
 2. **订单状态机仅覆盖窄纵切**：主路径已有 market/bracket lifecycle 与 reduce-only 守恒，但 limit/amend、cancel race、真实 partial、加减仓、reversal 仍无统一 matching/position 事实。
 3. **OHLC 路径不可知却未输出 resolution limitation**：stop/target 之外的多订单结果可能被任意实现顺序决定。
 4. **强平只覆盖单仓无坏账模型**：exact-risk full close 已进入统一账本，但多资产并发、动态 collateral、cross/shared allocation、部分强平、grid 间路径、破产价、保险基金与 ADL 仍无法守恒。
-5. **supplemental temporal identity 不完整**：主 OHLC/funding manifest 已绑定 availability/lifecycle/gap/survivorship，但 feature/OI/event revisions、source sequence、contract-spec history 与完整 code/policy hash 尚未共同绑定。
+5. **supplemental 执行闭包仍不完整**：feature/OI/event revision stream 已绑定 availability、received time、revision、source sequence 与 hash，并认证单次 `signal_time` 视图；但动态策略每个 decision boundary 的 join、feature 计算 trace 与完整 code/policy hash 尚未形成同一执行闭包。
 
 ## 4. 目标组件树
 
@@ -171,9 +171,9 @@ modules/research-strategy-development/
 
 ## 5. Control Plane 输入/输出合同
 
-当前 certified wire id 为 `trade.rd-trial-reservation-snapshot.v3`、`trade.rd-replay-attempt-lease.v1`、`trade.rd-replay-checkpoint-receipt.v2`、`trade.rd-replay-resume-authorization-snapshot.v1`、`trade.rd-replay-execution-request.v11`、`trade.rd-replay-dataset-manifest.v5`、`trade.rd-replay-result.v17`、`trade.rd-replay-artifact-manifest.v19`、`trade.rd-replay-artifact-store-capability.v1`、`trade.rd-replay-engine-checkpoint.v2`、`trade.rd-replay-diagnostic-checkpoint-commit.v2`、`trade.rd-replay-run-outcome.v14`；Local Storage/Remote Target/Simulator/Numeric/Journal/Equity/Margin Policy 分别为 `rd-replay-local-fsync-link-cas-v1`、`rd-replay-object-conditional-put-cas-v1`、`rd-replay-simulator-v7`、`rd-replay-number-v3`、`rd-replay-journal-v4`、`rd-replay-equity-v1`、`rd-replay-isolated-margin-v7`。Attempt、checkpoint、receipt、authorization 与 storage 是运行 envelope，不进入经济 evidence identity；Artifact Manifest 持久记录 storage policy 与 producer Attempt/lease hash，Control Plane 只接受当前 fencing generation 对 Result 的 terminal finalize。
+当前 certified wire id 为 `trade.rd-trial-reservation-snapshot.v4`、`trade.rd-replay-attempt-lease.v1`、`trade.rd-replay-checkpoint-receipt.v2`、`trade.rd-replay-resume-authorization-snapshot.v1`、`trade.rd-replay-execution-request.v12`、`trade.rd-replay-dataset-manifest.v6`、`trade.rd-replay-result.v18`、`trade.rd-replay-artifact-manifest.v20`、`trade.rd-replay-artifact-store-capability.v1`、`trade.rd-replay-engine-checkpoint.v3`、`trade.rd-replay-diagnostic-checkpoint-commit.v2`、`trade.rd-replay-run-outcome.v15`；Local Storage/Remote Target/Simulator/Numeric/Journal/Equity/Margin Policy 分别为 `rd-replay-local-fsync-link-cas-v1`、`rd-replay-object-conditional-put-cas-v1`、`rd-replay-simulator-v7`、`rd-replay-number-v3`、`rd-replay-journal-v4`、`rd-replay-equity-v1`、`rd-replay-isolated-margin-v7`。Attempt、checkpoint、receipt、authorization 与 storage 是运行 envelope，不进入经济 evidence identity；Artifact Manifest 持久记录 storage policy 与 producer Attempt/lease hash，Control Plane 只接受当前 fencing generation 对 Result 的 terminal finalize。
 
-Trial Reservation v3 冻结授权准入窗口 `[issued_at, expires_at)` 以及两份规则 schedule hash：两端均为 Control Plane 写入的 RFC 3339 UTC 时间，且必须满足 `issued_at < expires_at`。新 Attempt 的 `claimed_at` 必须落在该半开区间；等于 `expires_at` 即无权 claim，fresh retry 与 resume target 均不例外。Reservation 只回答“何时仍可创建执行权”，不充当运行 lease：合法 claim 后，即使墙钟越过 `expires_at`，运行、续租、checkpoint、取消和 terminal finalize 仍只由 Attempt lease/generation fencing 决定。Runner 消费端复核相同不变量及 Request/Reservation schedule binding，越界或 hash 漂移返回不可重试的 `trial-reservation-expired/unsupported_contract`，不启动 Engine、不发布部分 Result。TTL 长度及延期/重签策略仍由 Control Plane policy 决定，Replay 不自行延长或重签。
+Trial Reservation v4 冻结授权准入窗口 `[issued_at, expires_at)` 以及两份规则 schedule hash：两端均为 Control Plane 写入的 RFC 3339 UTC 时间，且必须满足 `issued_at < expires_at`。新 Attempt 的 `claimed_at` 必须落在该半开区间；等于 `expires_at` 即无权 claim，fresh retry 与 resume target 均不例外。Reservation 只回答“何时仍可创建执行权”，不充当运行 lease：合法 claim 后，即使墙钟越过 `expires_at`，运行、续租、checkpoint、取消和 terminal finalize 仍只由 Attempt lease/generation fencing 决定。Runner 消费端复核相同不变量及 Request/Reservation schedule binding，越界或 hash 漂移返回不可重试的 `trial-reservation-expired/unsupported_contract`，不启动 Engine、不发布部分 Result。TTL 长度及延期/重签策略仍由 Control Plane policy 决定，Replay 不自行延长或重签。
 
 ### 5.1 目标 `ReplayExecutionRequest`
 
@@ -196,6 +196,7 @@ Trial Reservation v3 冻结授权准入窗口 `[issued_at, expires_at)` 以及�
   "dataset": {
     "manifest_ref": "...",
     "data_hash": "sha256",
+    "supplemental_facts_hash": "sha256",
     "venue_risk_policy_schedule_hash": "sha256",
     "instrument_spec_schedule_hash": "sha256"
   },
@@ -214,7 +215,7 @@ Trial Reservation v3 冻结授权准入窗口 `[issued_at, expires_at)` 以及�
 }
 ```
 
-当前受限实现已完成 reservation + attempt + receipt + resume authority 闭包：Control Plane 只从 `status=reserved` Trial 签发 v3 reservation，并在写 Attempt 前强制 `issued_at <= claimed_at < expires_at`；claim 还校验权威 Trial与两份 schedule binding，active-attempt 唯一索引阻止双 worker；renew 必须在旧 lease 到期前推进 generation。Runner 通过 Artifact Store port 在 source-event 完整边界先按认证 storage policy 写由 `attempt lease generation + next_source_offset + checkpoint hash` 定名的 immutable payload/commit，再把 descriptor 交给外部控制回调。Control Plane 只在 descriptor producer 与当前 lease 精确一致、storage policy 受支持、`heartbeat_at <= recorded_at < lease_expires_at` 且 offset 前进时追加 Receipt v2。Resume Authorization 只接受 source 最新 receipt 并绑定 later active target Attempt；Runner 不接受裸 locator。cooperative cancel 返回 Run Outcome v14，不含 Result/Artifact；未认证 store 返回 `artifact-store-rejected/unsupported_contract`，只有 completed 可携带 Result hash、manifest ref/hash 与 terminal completeness hash。
+当前受限实现已完成 reservation + attempt + receipt + resume authority 闭包：Control Plane 只从 `status=reserved` Trial 签发 v4 reservation，并在写 Attempt 前强制 `issued_at <= claimed_at < expires_at`；claim 还校验权威 Trial、两份 schedule binding 与 supplemental-facts hash，active-attempt 唯一索引阻止双 worker；renew 必须在旧 lease 到期前推进 generation。Runner 通过 Artifact Store port 在 source-event 完整边界先按认证 storage policy 写由 `attempt lease generation + next_source_offset + checkpoint hash` 定名的 immutable payload/commit，再把 descriptor 交给外部控制回调。Control Plane 只在 descriptor producer 与当前 lease 精确一致、storage policy 受支持、`heartbeat_at <= recorded_at < lease_expires_at` 且 offset 前进时追加 Receipt v2。Resume Authorization 只接受 source 最新 receipt 并绑定 later active target Attempt；Runner 不接受裸 locator。cooperative cancel 返回 Run Outcome v15，不含 Result/Artifact；未认证 store 返回 `artifact-store-rejected/unsupported_contract`，只有 completed 可携带 Result hash、manifest ref/hash 与 terminal completeness hash。
 
 ### 5.2 目标 `ReplayExecutionResult`
 
@@ -237,6 +238,7 @@ Trial Reservation v3 冻结授权准入窗口 `[issued_at, expires_at)` 以及�
     "resolution": {"status": "exact", "limited_event_count": 0}
   },
   "liquidation_execution": null,
+  "supplemental_evidence": {"decision_time": "...", "selected_record_ids": [], "selected_records_hash": "sha256", "future_revision_count": 0},
   "metrics": {"schema_version": "trade-flow.replay-metrics.v1", "ref": "...", "content_hash": "sha256"},
   "artifact_manifest": {"ref": "...", "content_hash": "sha256"},
   "evidence_fingerprint": {"schema_version": "trade-flow.replay-fingerprint.v2", "hash": "sha256", "payload": {}},
@@ -365,9 +367,9 @@ Market/Stop/Take-profit/Reduce-only 的目标语义参考 Binance USDⓈ-M 官�
 
 每条 Ledger Entry 绑定 `event_key / order_id / fill_id / instrument / asset / amount / currency / policy_version`，借贷平衡为硬 invariant。slippage/impact 主要进入 fill price，同时记 attribution，禁止又从 PnL 重复扣减。
 
-当前 Result v17 延续单 settlement-asset Cash Ledger、Valuation/Equity v1，并以 Journal v4 记录 `liquidation_fee_expense`。Margin v7 冻结 isolated collateral、strict-below trigger、exact-risk execution 与 OHLCV failure fallback；Request 的 initial margin/tier/liquidation fee 必须匹配实际入场时生效的 venue-risk epoch，此后的每次 margin observation、funding 后风险检查与 liquidation 则按各自事件时间解析 active snapshot。snapshot 仍按 `isolated collateral + attributed fee/funding/realized/liquidation-fee cashflow + unrealized PnL` 计算，并携带实际规则 snapshot id/hash。exact breach Result 同时含 v3 trigger observation、forced Fill、独立交易费/事件时强平费、flat terminal 与 `trade.rd-replay-liquidation-execution.v2`；OHLCV breach Run Outcome v14 只携带 `execution_status=not_simulated` observation。零 headroom 仍 sufficient。负 collateral 返回 typed `liquidation-deficit-unsupported + remaining_collateral + trigger observation`，不发布 Result，不合成保险基金或坏账。
+当前 Result v18 延续单 settlement-asset Cash Ledger、Valuation/Equity v1，并以 Journal v4 记录 `liquidation_fee_expense`。Margin v7 冻结 isolated collateral、strict-below trigger、exact-risk execution 与 OHLCV failure fallback；Request 的 initial margin/tier/liquidation fee 必须匹配实际入场时生效的 venue-risk epoch，此后的每次 margin observation、funding 后风险检查与 liquidation 则按各自事件时间解析 active snapshot。snapshot 仍按 `isolated collateral + attributed fee/funding/realized/liquidation-fee cashflow + unrealized PnL` 计算，并携带实际规则 snapshot id/hash。exact breach Result 同时含 v3 trigger observation、forced Fill、独立交易费/事件时强平费、flat terminal 与 `trade.rd-replay-liquidation-execution.v2`；OHLCV breach Run Outcome v15 只携带 `execution_status=not_simulated` observation。零 headroom 仍 sufficient。负 collateral 返回 typed `liquidation-deficit-unsupported + remaining_collateral + trigger observation`，不发布 Result，不合成保险基金或坏账。
 
-Manifest v5 的 instrument-accounting spec 冻结 `base_asset / quote_asset / settlement_asset / contract_multiplier / price_increment / quantity_increment / settlement_increment`，并与 instrument-spec schedule 一起计算 Request-bound hash；Mark capability 仅接受 `none` 或覆盖 `[first_open_time,last_close_time]` 的 `complete_grid`，每条必须 `available_at == timestamp`、时间严格递增、source sequence 严格递增、价格 tick-aligned，count/interval/grid/content hash 全部一致；partial/stale/lagged Mark 流拒绝认证。当前只接受 unit-multiplier linear derivative、`quote_asset == settlement_asset` 与最多 12 位 increment scale。instrument-spec schedule 已提供事件时 provenance，但全窗口仍只允许一份不变的 accounting spec；会改变 tick、multiplier、settlement 等核算语义的 epoch、maker fee asset 与 mark-price 独立 increment 尚未认证，故只能声称 manifest-bound precision，不声称完整 venue precision。
+Manifest v6 的 instrument-accounting spec 冻结 `base_asset / quote_asset / settlement_asset / contract_multiplier / price_increment / quantity_increment / settlement_increment`，并与 instrument-spec schedule 一起计算 Request-bound hash；Mark capability 仅接受 `none` 或覆盖 `[first_open_time,last_close_time]` 的 `complete_grid`，每条必须 `available_at == timestamp`、时间严格递增、source sequence 严格递增、价格 tick-aligned，count/interval/grid/content hash 全部一致；partial/stale/lagged Mark 流拒绝认证。当前只接受 unit-multiplier linear derivative、`quote_asset == settlement_asset` 与最多 12 位 increment scale。instrument-spec schedule 已提供事件时 provenance，但全窗口仍只允许一份不变的 accounting spec；会改变 tick、multiplier、settlement 等核算语义的 epoch、maker fee asset 与 mark-price 独立 increment 尚未认证，故只能声称 manifest-bound precision，不声称完整 venue precision。
 
 ### 9.2 Position accounting
 
@@ -379,7 +381,7 @@ v1 支持 `net` position mode：
 - unrealized PnL 使用 Contract 指定 mark source；close/last 不能静默替代 mark。
 - `R_initial` 的分母为初始已承诺风险；`R_max_live_risk` 的分母为路径中最大有效风险。partial/add/reduce 后两者都保留，禁止只报一套易看的 R。
 
-当前 certified Result v17 的 Runner 闭包是一笔 non-reduce entry 后 stop/target full close、exact-risk liquidation full close 或 open-marked EOD。exact breach 生成 forced reduce-only market；OHLCV breach 没有 Result。两者都执行 `risk_before_strategy_exit`，但只有 exact path 具有模拟 Fill。该 Fill 是版本化模型输出，不是历史交易所 liquidation order reconstruction。
+当前 certified Result v18 的 Runner 闭包是一笔 non-reduce entry 后 stop/target full close、exact-risk liquidation full close 或 open-marked EOD。exact breach 生成 forced reduce-only market；OHLCV breach 没有 Result。两者都执行 `risk_before_strategy_exit`，但只有 exact path 具有模拟 Fill。该 Fill 是版本化模型输出，不是历史交易所 liquidation order reconstruction。
 
 ### 9.3 Funding、fee、borrow、margin、liquidation
 
@@ -429,7 +431,7 @@ Feature/funding/OI/event join 使用 `entity_key + event_time + availability_at 
 - 多 timeframe join 只使用已闭合且已 availability 的慢周期 bar；不能用未来 slow-bar close 填当前 fast row。
 - manifest 的 `closed_candles_only=true` 是声明，不是证明；adapter 必须用 close time、run cutoff、checksum 与行级 invariant 验证。
 
-Certified v5 已实现主 OHLC/funding 与规则 schedule 准入子集：Runner 强制接收结构化 Dataset Manifest；request ref/hash、manifest ref/hash 与实际 canonical bars/funding hash 必须一致；时间必须是 RFC 3339 UTC；symbol/timeframe/window/row count/interval、OHLC envelope、funding ordering、`observed_through`、`listed_at/trading_enabled_at/delisted_at` 均验证。venue-risk 与 instrument-spec epochs 各自使用 `[effective_at, valid_until)`，必须有序、无重叠、无缺口并由同一 venue/symbol 覆盖完整 `[first_open_time,last_close_time]`；Request 与 Reservation 分别绑定两份 canonical schedule hash。epoch 边界先切换规则，再处理同 timestamp 的 source event；initial margin 绑定实际入场 epoch，maintenance/liquidation fee 绑定实际风险观察或强平 epoch。`observed_at/source_ref/source_hash` 是审计来源元数据，所有 epoch 必须在 `observed_through` 前已知，但这不赋予策略更早可见性，也不证明自动历史规则采集。pre/post lifecycle、future funding、hash drift、错位 grid、schedule gap/overlap 直接失败；整周期缺 bar、`current_snapshot_only`、`survivor_only` 保留 elapsed time并写入 `resolution_limited`。尚未完成的是自动历史规则采集、会改变 accounting 的 instrument-spec epoch，以及 supplemental facts 的逐记录 `availability_at + revision_id + source_sequence` PIT join，不得把当前子集表述为全数据面防泄漏。
+Certified v6 已实现主 OHLC/funding、规则 schedule 与 supplemental signal-time PIT 准入子集：Runner 强制接收结构化 Dataset Manifest；request ref/hash、manifest ref/hash 与实际 canonical bars/funding/mark/supplemental revision stream 必须一致。supplemental record 强制 `event_time <= availability_at <= received_at`、同源 sequence 递增、同事实 revision id 唯一且 availability 递增；在 `signal_time` 只选择最后可见版本，未来修订保留在 Artifact 但不进入 decision view，Result 记录 selected ids/hash 与 future revision count。该协议认证的是冻结 precomputed Signal 所暴露的输入视图，不证明 Engine 重算 feature，也未支持动态多 decision join。venue-risk 与 instrument-spec epochs 继续以连续半开 schedule 覆盖完整窗口，并在同 timestamp source event 前切换。pre/post lifecycle、future funding、hash drift、错位 grid、schedule gap/overlap、supplemental payload/sequence/revision/hash 漂移直接失败；整周期缺 bar、`current_snapshot_only`、`survivor_only` 保留 elapsed time 并写入 `resolution_limited`。自动历史规则采集、会改变 accounting 的 instrument-spec epoch 与通用策略内 feature execution 尚未完成，不得把当前子集表述为全数据面防泄漏。
 
 ## 12. Step/Event-driven 与 Fast/Vectorized
 
@@ -460,7 +462,7 @@ Parity 不是“metrics 接近”，而是对同一 Request 的 semantic digest 
 
 每项 metric 必须声明 unit、currency/denominator、aggregation、missing policy 与 version。`profit_factor=999999` 之类 sentinel 不进入权威 schema；无 loss 时用 typed `null/+infinity-policy` 表达。研究 gate、DSR/PBO、winner selection 属于 Control Plane，不混进 execution metrics。
 
-当前 Result v17 认证基础 PnL/cost、observed margin 与独立 `total_liquidation_fees`；wallet/collateral/settled cash 是 Trial Balance 事实。exact breach Result 含一次 simulated liquidation execution，但尚未宣称通用 `liquidation_count` metric；OHLCV breach 仍无正式 Result metrics，只在 typed failure 携带首次 snapshot + Observation。
+当前 Result v18 认证基础 PnL/cost、observed margin 与独立 `total_liquidation_fees`；wallet/collateral/settled cash 是 Trial Balance 事实。exact breach Result 含一次 simulated liquidation execution，但尚未宣称通用 `liquidation_count` metric；OHLCV breach 仍无正式 Result metrics，只在 typed failure 携带首次 snapshot + Observation。
 
 ### 13.2 Artifact Manifest
 
@@ -484,11 +486,11 @@ artifact-manifest.json
 ├── limitations.json
 ├── diagnostics/                    # 非 promotion evidence
 ├── terminal completeness checkpoint # manifest 内完整提交摘要；不可 resume
-├── engine checkpoint v1            # 非权威可恢复 payload
+├── engine checkpoint v3            # 非权威可恢复 payload
 └── diagnostic checkpoint commit v2 # immutable versioned marker + storage policy；登记 Receipt 后方可授权恢复
 ```
 
-当前 Artifact v19 通过 Artifact Store port 在 `logical idempotency key / attempt_id` Attempt namespace 中提交并持久绑定 storage policy；Runner 不再直接调用文件系统。Capability v1 固定 `namespace_scope=attempt`、`collision_identity=sha256_full_content`、`read_after_write=strong`、`commit_marker=manifest_last`。certified local adapter 的 `rd-replay-local-fsync-link-cas-v1` 创建并 `fsync` 同目录临时文件，以 hard-link create-if-absent 发布，删除临时文件后 `fsync` 目录；同 ref 同 hash 幂等、异 hash collision。全部 member 先不可变发布，Manifest 最后发布，旧 worker 不能覆盖已引用成员；旧 v17 不会被追认为 durable。remote target `rd-replay-object-conditional-put-cas-v1` 要求 `If-None-Match: *`、完整内容 SHA-256、strong read-after-write、Manifest-last 与 abort/expiry incomplete upload；这是准入合同而非已实现 adapter，当前注入会在 namespace open 和 engine 前 typed reject。Engine Checkpoint v2 只在完整 source-event 后产生；Diagnostic Commit v2 与 Receipt v2 绑定 storage policy。恢复只接受最新 receipt 派生 Authorization，并通过 port 验证 namespace/ref/hash/source prefix；listing、未登记对象和 KG 都不是 authority。
+当前 Artifact v20 通过 Artifact Store port 在 `logical idempotency key / attempt_id` Attempt namespace 中提交并持久绑定 storage policy；Runner 不再直接调用文件系统。Capability v1 固定 `namespace_scope=attempt`、`collision_identity=sha256_full_content`、`read_after_write=strong`、`commit_marker=manifest_last`。certified local adapter 的 `rd-replay-local-fsync-link-cas-v1` 创建并 `fsync` 同目录临时文件，以 hard-link create-if-absent 发布，删除临时文件后 `fsync` 目录；同 ref 同 hash 幂等、异 hash collision。全部 member 先不可变发布，Manifest 最后发布，旧 worker 不能覆盖已引用成员；旧 Artifact v17 不会被追认为 durable。remote target `rd-replay-object-conditional-put-cas-v1` 要求 `If-None-Match: *`、完整内容 SHA-256、strong read-after-write、Manifest-last 与 abort/expiry incomplete upload；这是准入合同而非已实现 adapter，当前注入会在 namespace open 和 engine 前 typed reject。Engine Checkpoint v3 只在完整 source-event 后产生；Diagnostic Commit v2 与 Receipt v2 绑定 storage policy。恢复只接受最新 receipt 派生 Authorization，并通过 port 验证 namespace/ref/hash/source prefix；listing、未登记对象和 KG 都不是 authority。
 
 ### 13.3 Evidence Fingerprint
 
@@ -502,6 +504,7 @@ Fingerprint payload 使用与 Control Plane 一致的 `SHA-256(UTF-8(JCS(normali
 - `experiment_contract_hash`
 - `trial_reservation_hash`
 - `dataset_manifest_hash + data_hash`
+- `supplemental_facts_hash`（完整 revision stream）与 Result 中的 signal-time selected records hash
 - `venue_risk_policy_schedule_hash`
 - `instrument_spec_schedule_hash`（覆盖有序 spec provenance epochs 与全窗口 accounting fields）
 - `executable_candidate_code_hash`
@@ -551,7 +554,7 @@ claimed -> running -> completed
 - 跨 Attempt resume 不是 retry 的默认权利：source 必须 `cancelled/expired`，其最新 Checkpoint Receipt 必须由有效 producer lease 登记；不可变 Resume Authorization 再绑定 receipt 对应 commit、later target Attempt/worker、claimed identity 与 lease generation floor。一个 target Attempt 只能对应一份授权。
 - lease generation 是 fencing token：heartbeat 只能在旧 lease 有效时扩展 expiry 并 `generation+1`；旧 worker 可以产生 diagnostic 文件，但不能用旧 generation finalize authoritative Result。
 - completed finalize 强制 `result_hash + artifact_ref/hash + terminal_checkpoint_hash`；failed/cancelled/expired 强制 failure class 且禁止 authoritative Result 字段。terminal row 由 SQLite trigger 保持不可变。
-- engine 启动前 cancel 与 source-event boundary cooperative cancel 均已实现；边界只出现在该 source 的 risk/order 副作用全部完成后。取消 outcome 携带 Engine Checkpoint v2 且禁止 Result/Artifact；resume 必须重验 Control Plane authorization、commit/payload hash 与 source prefix，并由 parity test 证明与 clean run 等价。terminal completeness checkpoint 仍仅证明 Artifact 完整提交，二者禁止混用。
+- engine 启动前 cancel 与 source-event boundary cooperative cancel 均已实现；边界只出现在该 source 的 risk/order 副作用全部完成后。取消 outcome 携带 Engine Checkpoint v3 且禁止 Result/Artifact；resume 必须重验 Control Plane authorization、commit/payload hash 与 source prefix，并由 parity test 证明与 clean run 等价。terminal completeness checkpoint 仍仅证明 Artifact 完整提交，二者禁止混用。
 - `failure_class = input_invalid | unsupported_contract | data_integrity | deterministic_engine | resource | external_io` 与 `retryable` 是机器合同，日志文本不决定重试。
 
 ## 15. 测试与认证矩阵
@@ -583,7 +586,7 @@ Property tests 的核心 invariants：订单 qty、position qty、cash/NAV bridg
 
 ### R0：冻结合同，不搬目录
 
-- 新增 reservation/attempt-lease/checkpoint-receipt/resume-authorization/request/result/fingerprint/artifact/artifact-store-capability/engine-checkpoint/diagnostic-checkpoint-commit/storage/simulator/numeric/journal/equity/margin-policy 版本化 schema；当前 Trial Reservation/Attempt Lease/Checkpoint Receipt/Resume Authorization/Request/Dataset Manifest/Result/Artifact/Artifact Store Capability/Engine Checkpoint/Diagnostic Commit 分别为 v3/v1/v2/v1/v11/v5/v17/v19/v1/v2/v2，Run Outcome v14，Local Storage/Remote Target/Simulator/Numeric/Journal/Equity/Margin Policy 分别为 local-v1/object-v1/v7/v3/v4/v1/v7。
+- 新增 reservation/attempt-lease/checkpoint-receipt/resume-authorization/request/result/fingerprint/artifact/artifact-store-capability/engine-checkpoint/diagnostic-checkpoint-commit/storage/simulator/numeric/journal/equity/margin-policy 版本化 schema；当前 Trial Reservation/Attempt Lease/Checkpoint Receipt/Resume Authorization/Request/Dataset Manifest/Result/Artifact/Artifact Store Capability/Engine Checkpoint/Diagnostic Commit 分别为 v4/v1/v2/v1/v12/v6/v18/v20/v1/v3/v2，Run Outcome v15，Local Storage/Remote Target/Simulator/Numeric/Journal/Equity/Margin Policy 分别为 local-v1/object-v1/v7/v3/v4/v1/v7。
 - 给 v1 输出标 `legacy_single_trade_resolver`；停止向 v1 增加 promotion 语义。
 - 建 current behavior fixture inventory，明确正式、临时、隐含和 known-bad。
 
@@ -601,21 +604,21 @@ Property tests 的核心 invariants：订单 qty、position qty、cash/NAV bridg
 - 修正 code/harness/data/assumptions/cost hash 覆盖；Control Plane Trial reservation 原子校验。
 - runner 实现 idempotency、typed failure、cancel、checkpoint/atomic commit。
 
-**当前状态：完成 Trial Reservation expiry、Attempt fencing、Checkpoint Receipt、Resume Authorization、运行边界控制、Artifact Store port、本地耐久提交、硬崩溃后最新已登记进度恢复、主数据准入与多规则 epoch 闭包，supplemental PIT 待完成。** Control Plane 已实现 Reservation v3 半开 claim 窗口与 schedule binding、claim/renew/expire/finalize CAS、有效 lease 下 append-only Receipt v2 和 latest-receipt→target Attempt 授权；Runner 在 Engine 前复核 claim window 与 schedule hashes，且不以 Reservation 到期撤销已合法 claim 的 Attempt。Runner 只经 port 提交/读取/列举/清理 Attempt evidence，`artifact_root` 仅构造 local adapter。local parity、namespace confinement、stale generation/receipt、receipt idempotency、expiry takeover、CAS collision、authorization/tamper rejection、定向清理和 clean/resume parity 已实现；contract-valid remote backend 在执行前拒绝。崩溃发生在首份 receipt 前时只能 fresh retry。远端 adapter/provider fault certification、历史规则采集、会改变 accounting 的 spec epoch 及 supplemental PIT join 仍未完成。
+**当前状态：完成 Trial Reservation expiry、Attempt fencing、Checkpoint Receipt、Resume Authorization、运行边界控制、Artifact Store port、本地耐久提交、硬崩溃后最新已登记进度恢复、主数据准入、多规则 epoch 与 supplemental signal-time PIT 闭包。** Control Plane 已实现 Reservation v4 半开 claim 窗口、schedule/supplemental binding、claim/renew/expire/finalize CAS、有效 lease 下 append-only Receipt v2 和 latest-receipt→target Attempt 授权；Runner 在 Engine 前复核 claim window、schedule 与 supplemental hashes，且不以 Reservation 到期撤销已合法 claim 的 Attempt。完整 revision stream 作为 Artifact member 耐久提交，Result 固化 signal-time selection lineage；local parity、namespace confinement、stale generation/receipt、receipt idempotency、expiry takeover、CAS collision、authorization/tamper rejection、定向清理和 clean/resume parity 已实现。远端 adapter/provider fault certification、历史规则采集、会改变 accounting 的 spec epoch 与动态多决策 supplemental join 仍未完成。
 
 ### R3：订单状态机
 
 - limit/stop/TP、cancel/amend、multi-entry、partial、wrong-side/oversized reduce-only、reversal。
 - 只有具备数据能力的 fill policy 才开放；maker queue 缺失继续 limitation/unsupported。
 
-**当前状态：完成第二十五子集，R3 未完成。** Simulator v7 已增加规则 epoch 的 event-time 解析，但不扩张 matching capability；同 timestamp 先切规则再执行 source event，Margin/强平记录实际 snapshot provenance。halt/resume、external command、多订单 matching、limit、amend/TIF、multi-entry/reversal、部分强平和真实 partial liquidity 尚未接入。
+**当前状态：完成第二十六子集，R3 未完成。** Simulator v7 的 matching 算法未改变；本子集增加 signal-time supplemental input view 与 lineage，不把 supplemental record 混入市场 SourceEvent。halt/resume、external command、多订单 matching、limit、amend/TIF、multi-entry/reversal、部分强平和真实 partial liquidity 尚未接入。
 
 ### R4：统一 accounting
 
 - 定点 decimal、double-entry ledger、逐 fill fee、exact funding、borrow 接口。
 - isolated/cross margin、maintenance tiers、liquidation 与 penalty fixtures。
 
-**当前状态：完成第二十五子集，未完成统一组合账本。** Request/Result 为 v11/v17，Artifact/Run Outcome 为 v19/v14；Reservation v3 与 Fingerprint 绑定 venue-risk/instrument-spec schedule hash，Margin v7 按事件时间解析风险 epoch，Journal v4 算法不变。flat/open/liquidation golden digest 分别为 `c6834df3a9b3e1761da5800a1cbdfec2e343ff2746c0fef7f944183e2877558d`、`44fcc2c1e0c4448957885451f9de43e41c30e4b53f57b35f5bd4a3e14ed3768b`、`3a8472daf206ecfc18a1f7ce0a590fbab31afe2aa54788cb34c612d252ab5363`。会改变 accounting 的 spec epoch、partial liquidation、bankruptcy/insurance/ADL、动态 collateral、borrow、cross/shared portfolio 与真实 execution reconstruction 未开始。
+**当前状态：完成第二十六子集，未完成统一组合账本。** Request/Result 为 v12/v18，Artifact/Run Outcome 为 v20/v15；Reservation v4 与 Fingerprint 绑定 venue-risk/instrument-spec schedule 及 supplemental-facts hash，Margin v7 按事件时间解析风险 epoch，Journal v4 算法不变。flat/open/liquidation golden digest 分别为 `c6834df3a9b3e1761da5800a1cbdfec2e343ff2746c0fef7f944183e2877558d`、`44fcc2c1e0c4448957885451f9de43e41c30e4b53f57b35f5bd4a3e14ed3768b`、`3a8472daf206ecfc18a1f7ce0a590fbab31afe2aa54788cb34c612d252ab5363`。会改变 accounting 的 spec epoch、partial liquidation、bankruptcy/insurance/ADL、动态 collateral、borrow、cross/shared portfolio 与真实 execution reconstruction 未开始。
 
 ### R5：Portfolio
 
