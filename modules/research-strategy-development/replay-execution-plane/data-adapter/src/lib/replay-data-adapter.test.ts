@@ -3,9 +3,12 @@ import {
   REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
   REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION,
   REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION,
+  REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS,
+  REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH,
   REPLAY_REQUEST_SCHEMA_VERSION,
   REPLAY_SIMULATOR_POLICY_VERSION,
   REPLAY_SUPPLEMENTAL_FACT_SCHEMA_VERSION,
+  REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION,
   REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
   canonicalHash,
   replayDatasetHash,
@@ -47,6 +50,8 @@ function request(dataHash = replayDatasetHash(bars, fundingEvents)): ReplayExecu
     candidate_id: "candidate-1", candidate_hash: HASH, identity_hash_policy_version: "identity-v1",
     experiment_contract_hash: HASH, dataset_manifest_ref: "dataset://fixture", dataset_hash: dataHash,
     supplemental_facts_hash: canonicalHash([]),
+    supplemental_requirement_set: structuredClone(REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS),
+    supplemental_requirement_set_hash: REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH,
     trial_reservation_ref: "reservation://trial-1", trial_reservation_hash: HASH,
     venue_risk_policy_schedule_hash: canonicalHash([RISK_SNAPSHOT]), instrument_spec_schedule_hash: canonicalHash({ epochs: [SPEC_SNAPSHOT], accounting: ACCOUNTING }),
     harness_hash: HASH, assumptions_hash: HASH, symbol: "BTCUSDT", timeframe: "4h", initial_cash: 1000,
@@ -66,7 +71,7 @@ function manifest(dataHash = replayDatasetHash(bars, fundingEvents)): ReplayData
     row_count: bars.length, first_open_time: bars[0].open_time, last_close_time: bars.at(-1)!.close_time,
     observed_through: "2026-07-14T08:00:00Z", closed_candles_only: true,
     bar_final_availability: "close_time", funding_availability: "event_time", mark_availability: "event_time",
-    mark_coverage: "none", mark_interval_ms: null, mark_event_count: 0, supplemental_facts: { coverage: "none" as const, record_count: 0, source_ids: [], content_hash: canonicalHash([]) },
+    mark_coverage: "none", mark_interval_ms: null, mark_event_count: 0, supplemental_facts: { coverage: "none" as const, record_count: 0, source_ids: [], content_hash: canonicalHash([]), requirement_set_hash: "f126b641e1c2e55c174e3505e15232b466e50c3fd764f30968a925821c31d144" },
     venue_risk_policy_epochs: [RISK_SNAPSHOT],
     instrument: {
       listed_at: "2020-01-01T00:00:00Z", trading_enabled_at: "2020-01-01T00:00:00Z", delisted_at: null, status_history: "complete",
@@ -171,16 +176,33 @@ test("supplemental PIT join selects the last visible revision and excludes futur
     },
   ]
   const supplementalHash = canonicalHash(supplementalFacts)
+  const supplementalRequirementSet = {
+    schema_version: REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION,
+    mode: "signal_time_complete" as const,
+    undeclared_input_policy: "reject" as const,
+    requirements: [
+      { requirement_id: "btc-open-interest", source_id: "binance-open-interest", entity_key: "BTCUSDT", fact_key: "open_interest", event_time_start_inclusive: "2026-07-13T20:00:00Z", event_time_end_inclusive: "2026-07-13T20:00:00Z", minimum_visible_event_count: 1, maximum_latest_event_age_ms: 14_400_000 },
+      { requirement_id: "eth-open-interest", source_id: "binance-open-interest", entity_key: "ETHUSDT", fact_key: "open_interest", event_time_start_inclusive: "2026-07-13T20:00:00Z", event_time_end_inclusive: "2026-07-13T20:00:00Z", minimum_visible_event_count: 1, maximum_latest_event_age_ms: 14_400_000 },
+    ],
+  }
+  const supplementalRequirementSetHash = canonicalHash(supplementalRequirementSet)
   const dataHash = replayDatasetHash(bars, fundingEvents, [], supplementalFacts)
   const supplementalManifest: ReplayDatasetManifest = {
     ...manifest(dataHash),
     supplemental_facts: {
       coverage: "signal_time_snapshot", record_count: supplementalFacts.length,
       source_ids: ["binance-open-interest"], content_hash: supplementalHash,
+      requirement_set_hash: supplementalRequirementSetHash,
     },
   }
+  const supplementalRequest = {
+    ...request(dataHash),
+    supplemental_facts_hash: supplementalHash,
+    supplemental_requirement_set: supplementalRequirementSet,
+    supplemental_requirement_set_hash: supplementalRequirementSetHash,
+  }
   const prepared = prepareReplayInputData({
-    request: { ...request(dataHash), supplemental_facts_hash: supplementalHash },
+    request: supplementalRequest,
     dataset_manifest: supplementalManifest,
     bars,
     funding_events: fundingEvents,
@@ -188,6 +210,7 @@ test("supplemental PIT join selects the last visible revision and excludes futur
   })
   expect(prepared.supplemental_evidence.selected_record_ids).toEqual(["oi-btc-1", "oi-eth-1"])
   expect(prepared.supplemental_evidence.future_revision_count).toBe(1)
+  expect(prepared.supplemental_evidence.requirement_evaluations.map((evaluation) => evaluation.requirement_id)).toEqual(["btc-open-interest", "eth-open-interest"])
   expect(prepared.supplemental_evidence.selected_records_hash).toBe(canonicalHash(
     selectReplaySupplementalFactsAt(supplementalFacts, request().order.signal_time),
   ))
@@ -198,13 +221,44 @@ test("supplemental PIT join selects the last visible revision and excludes futur
 
   const tampered = supplementalFacts.map((fact, index) => index === 0 ? { ...fact, payload: { open_interest: "999" } } : fact)
   expect(() => prepareReplayInputData({
-    request: { ...request(dataHash), supplemental_facts_hash: supplementalHash }, dataset_manifest: supplementalManifest,
+    request: supplementalRequest, dataset_manifest: supplementalManifest,
     bars, funding_events: fundingEvents, supplemental_facts: tampered,
   })).toThrow("payload hash mismatch")
   expect(() => prepareReplayInputData({
-    request: { ...request(dataHash), supplemental_facts_hash: supplementalHash }, dataset_manifest: supplementalManifest,
+    request: supplementalRequest, dataset_manifest: supplementalManifest,
     bars, funding_events: fundingEvents, supplemental_facts: [...supplementalFacts].reverse(),
   })).toThrow("ordered by source_id and source_sequence")
+  const incompleteFacts = supplementalFacts.filter((fact) => fact.entity_key !== "ETHUSDT")
+  const incompleteHash = canonicalHash(incompleteFacts)
+  const incompleteDataHash = replayDatasetHash(bars, fundingEvents, [], incompleteFacts)
+  expect(() => prepareReplayInputData({
+    request: { ...supplementalRequest, dataset_hash: incompleteDataHash, supplemental_facts_hash: incompleteHash },
+    dataset_manifest: {
+      ...supplementalManifest,
+      data_hash: incompleteDataHash,
+      supplemental_facts: { ...supplementalManifest.supplemental_facts, record_count: incompleteFacts.length, content_hash: incompleteHash },
+    },
+    bars, funding_events: fundingEvents, supplemental_facts: incompleteFacts,
+  })).toThrow("eth-open-interest has insufficient visible events")
+
+  const staleRequirementSet = structuredClone(supplementalRequirementSet)
+  staleRequirementSet.requirements[0].maximum_latest_event_age_ms = 14_399_999
+  const staleRequirementSetHash = canonicalHash(staleRequirementSet)
+  expect(() => prepareReplayInputData({
+    request: { ...supplementalRequest, supplemental_requirement_set: staleRequirementSet, supplemental_requirement_set_hash: staleRequirementSetHash },
+    dataset_manifest: { ...supplementalManifest, supplemental_facts: { ...supplementalManifest.supplemental_facts, requirement_set_hash: staleRequirementSetHash } },
+    bars, funding_events: fundingEvents, supplemental_facts: supplementalFacts,
+  })).toThrow("btc-open-interest is stale at decision time")
+
+  const undeclared = { ...supplementalFacts[0], record_id: "volume-1", fact_key: "volume", revision_id: "volume-v1", source_sequence: 4 }
+  undeclared.content_hash = canonicalHash(undeclared.payload)
+  const undeclaredFacts = [...supplementalFacts, undeclared]
+  const undeclaredHash = canonicalHash(undeclaredFacts)
+  expect(() => prepareReplayInputData({
+    request: { ...supplementalRequest, dataset_hash: replayDatasetHash(bars, fundingEvents, [], undeclaredFacts), supplemental_facts_hash: undeclaredHash },
+    dataset_manifest: { ...supplementalManifest, data_hash: replayDatasetHash(bars, fundingEvents, [], undeclaredFacts), supplemental_facts: { ...supplementalManifest.supplemental_facts, record_count: undeclaredFacts.length, content_hash: undeclaredHash } },
+    bars, funding_events: fundingEvents, supplemental_facts: undeclaredFacts,
+  })).toThrow("outside the frozen requirement set")
 })
 
 test("data adapter preserves grid gaps and emits survivorship limitations", () => {
@@ -222,7 +276,7 @@ test("data adapter preserves grid gaps and emits survivorship limitations", () =
 test("data adapter certifies only a complete point-in-time mark grid", () => {
   const dataHash = replayDatasetHash(bars, fundingEvents, markEvents)
   const markManifest: ReplayDatasetManifest = {
-    ...manifest(dataHash), mark_coverage: "complete_grid", mark_interval_ms: 7_200_000, mark_event_count: markEvents.length, supplemental_facts: { coverage: "none" as const, record_count: 0, source_ids: [], content_hash: canonicalHash([]) },
+    ...manifest(dataHash), mark_coverage: "complete_grid", mark_interval_ms: 7_200_000, mark_event_count: markEvents.length, supplemental_facts: { coverage: "none" as const, record_count: 0, source_ids: [], content_hash: canonicalHash([]), requirement_set_hash: "f126b641e1c2e55c174e3505e15232b466e50c3fd764f30968a925821c31d144" },
   }
   const prepared = prepareReplayInputData({
     request: request(dataHash), dataset_manifest: markManifest, bars, funding_events: fundingEvents, mark_events: markEvents,

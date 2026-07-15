@@ -22,7 +22,7 @@ test("control-plane planner prompt routes missing capabilities to zero-Trial bac
   })
   const prompt = renderControlPlanePlannerPrompt(context)
   assert.match(prompt, /trade-flow\.rd-family-backlog-contract\.v1/)
-  assert.match(prompt, /trade-flow\.rd-experiment-contract\.v2/)
+  assert.match(prompt, /trade-flow\.rd-experiment-contract\.v3/)
   assert.match(prompt, /zero Trials/)
 })
 

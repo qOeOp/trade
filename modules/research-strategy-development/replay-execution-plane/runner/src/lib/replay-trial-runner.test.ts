@@ -8,10 +8,13 @@ import {
   REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
   REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION,
   REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION,
+  REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS,
+  REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH,
   REPLAY_OBJECT_ARTIFACT_STORE_REQUIRED_CAPABILITY,
   REPLAY_REQUEST_SCHEMA_VERSION,
   REPLAY_SIMULATOR_POLICY_VERSION,
   REPLAY_SUPPLEMENTAL_FACT_SCHEMA_VERSION,
+  REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION,
   REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
   canonicalHash,
   replayDatasetHash,
@@ -39,6 +42,8 @@ function request(): ReplayExecutionRequest {
     candidate_id: "candidate-1", candidate_hash: HASH, identity_hash_policy_version: "identity-v1",
     experiment_contract_hash: HASH, dataset_manifest_ref: "dataset://fixture", dataset_hash: HASH,
     supplemental_facts_hash: canonicalHash([]),
+    supplemental_requirement_set: structuredClone(REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS),
+    supplemental_requirement_set_hash: REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH,
     trial_reservation_ref: "reservation://trial-1", trial_reservation_hash: HASH,
     venue_risk_policy_schedule_hash: canonicalHash([RISK_SNAPSHOT]), instrument_spec_schedule_hash: canonicalHash({ epochs: [SPEC_SNAPSHOT], accounting: ACCOUNTING }),
     harness_hash: HASH, assumptions_hash: HASH, symbol: "BTCUSDT", timeframe: "4h", initial_cash: 1000,
@@ -76,6 +81,7 @@ function authorize(requestValue: ReplayExecutionRequest): TrialReservationSnapsh
       execution_spec_hash: replayExecutionSpecHash(requestValue),
       dataset_manifest_ref: requestValue.dataset_manifest_ref, dataset_hash: requestValue.dataset_hash,
       supplemental_facts_hash: requestValue.supplemental_facts_hash,
+      supplemental_requirement_set_hash: requestValue.supplemental_requirement_set_hash,
       venue_risk_policy_schedule_hash: requestValue.venue_risk_policy_schedule_hash,
       instrument_spec_schedule_hash: requestValue.instrument_spec_schedule_hash,
       harness_hash: requestValue.harness_hash, assumptions_hash: requestValue.assumptions_hash,
@@ -154,7 +160,7 @@ function datasetManifest(): ReplayDatasetManifest {
     row_count: 1, first_open_time: bars[0].open_time, last_close_time: bars[0].close_time,
     observed_through: bars[0].close_time, closed_candles_only: true,
     bar_final_availability: "close_time", funding_availability: "event_time", mark_availability: "event_time",
-    mark_coverage: "none", mark_interval_ms: null, mark_event_count: 0, supplemental_facts: { coverage: "none" as const, record_count: 0, source_ids: [], content_hash: canonicalHash([]) },
+    mark_coverage: "none", mark_interval_ms: null, mark_event_count: 0, supplemental_facts: { coverage: "none" as const, record_count: 0, source_ids: [], content_hash: canonicalHash([]), requirement_set_hash: "f126b641e1c2e55c174e3505e15232b466e50c3fd764f30968a925821c31d144" },
     venue_risk_policy_epochs: [RISK_SNAPSHOT],
     instrument: {
       listed_at: "2020-01-01T00:00:00Z", trading_enabled_at: "2020-01-01T00:00:00Z", delisted_at: null, status_history: "complete",
@@ -190,11 +196,26 @@ test("runner commits the complete supplemental revision stream as immutable evid
     revision_id: "v1", source_sequence: 1, payload: { score: "0.5" }, content_hash: canonicalHash({ score: "0.5" }),
   }]
   const supplementalHash = canonicalHash(supplementalFacts)
+  const supplementalRequirementSet = {
+    schema_version: REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION,
+    mode: "signal_time_complete" as const,
+    undeclared_input_policy: "reject" as const,
+    requirements: [{
+      requirement_id: "momentum-btc",
+      source_id: "feature-store", entity_key: "BTCUSDT", fact_key: "momentum",
+      event_time_start_inclusive: "2026-07-13T20:00:00Z", event_time_end_inclusive: "2026-07-13T20:00:00Z",
+      minimum_visible_event_count: 1, maximum_latest_event_age_ms: 14_400_000,
+    }],
+  }
   const dataHash = replayDatasetHash(bars, [], [], supplementalFacts)
-  const requestValue = { ...boundRequest(), dataset_hash: dataHash, supplemental_facts_hash: supplementalHash }
+  const requestValue = {
+    ...boundRequest(), dataset_hash: dataHash, supplemental_facts_hash: supplementalHash,
+    supplemental_requirement_set: supplementalRequirementSet,
+    supplemental_requirement_set_hash: canonicalHash(supplementalRequirementSet),
+  }
   const manifest: ReplayDatasetManifest = {
     ...datasetManifest(), data_hash: dataHash,
-    supplemental_facts: { coverage: "signal_time_snapshot", record_count: 1, source_ids: ["feature-store"], content_hash: supplementalHash },
+    supplemental_facts: { coverage: "signal_time_snapshot", record_count: 1, source_ids: ["feature-store"], content_hash: supplementalHash, requirement_set_hash: requestValue.supplemental_requirement_set_hash },
   }
   const root = mkdtempSync(join(tmpdir(), "rd-replay-runner-supplemental-"))
   const completed = runReplayTrial({
@@ -246,7 +267,7 @@ test("runner enforces Reservation expiry only at Attempt claim admission", () =>
   expired.observed_at = "2026-07-14T00:01:30Z"
   const rejected = runReplayTrial({ ...expired, dataset_manifest: datasetManifest(), bars })
   expect(rejected).toMatchObject({
-    schema_version: "trade.rd-replay-run-outcome.v15",
+    schema_version: "trade.rd-replay-run-outcome.v16",
     status: "failed",
     failure: { code: "trial-reservation-expired", failure_class: "unsupported_contract", retryable: false, partial_result_published: false },
   })
@@ -647,7 +668,7 @@ test("runner preserves typed liquidation deficit evidence without publishing a R
     venue_risk_policy_epochs: [{ ...RISK_SNAPSHOT, liquidation_fee_bps: 10 }],
     mark_coverage: "complete_grid" as const,
     mark_interval_ms: 14_400_000,
-    mark_event_count: marks.length, supplemental_facts: { coverage: "none" as const, record_count: 0, source_ids: [], content_hash: canonicalHash([]) },
+    mark_event_count: marks.length, supplemental_facts: { coverage: "none" as const, record_count: 0, source_ids: [], content_hash: canonicalHash([]), requirement_set_hash: "f126b641e1c2e55c174e3505e15232b466e50c3fd764f30968a925821c31d144" },
   }
   deficitRequest.venue_risk_policy_schedule_hash = canonicalHash(manifest.venue_risk_policy_epochs)
   const outcome = runReplayTrial({ ...authorized(deficitRequest), dataset_manifest: manifest, bars: deficitBars, mark_events: marks })

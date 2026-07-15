@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test"
 import { FORWARD_ADMISSION_SCHEMA_VERSION, assertForwardAdmissionRequest, type ForwardAdmissionRequest } from "./forward-evidence-contracts"
 import { CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, DRAFT_AUTHORIZATION_SCHEMA_VERSION, STRATEGY_DRAFT_BINDING_SCHEMA_VERSION, TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION, hashTrialReservationSnapshot, type TrialReservationSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
-import { REPLAY_CERTIFIED_CAPABILITIES, REPLAY_REQUEST_SCHEMA_VERSION, REPLAY_SIMULATOR_POLICY_VERSION, canonicalHash, replayExecutionSpecHash, type ReplayExecutionRequest } from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
+import { REPLAY_CERTIFIED_CAPABILITIES, REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS, REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH, REPLAY_REQUEST_SCHEMA_VERSION, REPLAY_SIMULATOR_POLICY_VERSION, canonicalHash, replayExecutionSpecHash, type ReplayExecutionRequest } from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
 
 const HASH = "d".repeat(64)
 
@@ -19,7 +19,7 @@ function fixture(): ForwardAdmissionRequest {
     experiment_id: "experiment-1", trial_group_id: "group-1", trial_group_hash: HASH, trial_id: "trial-1",
     candidate_id: "candidate-1", candidate_hash: HASH, identity_hash_policy_version: "identity-v1", experiment_contract_hash: HASH,
     trial_reservation_ref: "reservation://trial-1", trial_reservation_hash: HASH,
-    dataset_manifest_ref: "dataset://forward", dataset_hash: HASH, supplemental_facts_hash: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", venue_risk_policy_schedule_hash: HASH, instrument_spec_schedule_hash: HASH, harness_hash: HASH, assumptions_hash: HASH, strategy_policy_hash: HASH,
+    dataset_manifest_ref: "dataset://forward", dataset_hash: HASH, supplemental_facts_hash: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", supplemental_requirement_set: structuredClone(REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS), supplemental_requirement_set_hash: REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH, venue_risk_policy_schedule_hash: HASH, instrument_spec_schedule_hash: HASH, harness_hash: HASH, assumptions_hash: HASH, strategy_policy_hash: HASH,
     symbol: "BTCUSDT", timeframe: "4h", initial_cash: 1000,
     order: { side: "long", quantity: 1, signal_time: "2026-07-14T12:00:00Z", earliest_executable_time: "2026-07-14T16:00:00Z", stop_price: 95, target_price: 110 },
     cost_policy: { policy_id: "fixture", version: "1", fee_bps: 0, slippage_bps: 0, liquidation_fee_bps: 50 },
@@ -41,7 +41,7 @@ function authorize(request: ReplayExecutionRequest): TrialReservationSnapshot {
     schema_version: TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION, reservation_id: "reservation-1", reservation_ref: request.trial_reservation_ref,
     issued_at: "2026-07-14T08:00:00Z", expires_at: "2026-07-15T08:00:00Z", status: "reserved", identity: { schema_version: CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, experiment_id: request.experiment_id, trial_group_id: request.trial_group_id, trial_group_hash: request.trial_group_hash, trial_id: request.trial_id, candidate_id: request.candidate_id, candidate_hash: request.candidate_hash, identity_hash_policy_version: request.identity_hash_policy_version, experiment_contract_hash: request.experiment_contract_hash },
     trial_ordinal: 1, run_id: request.run_id, counts_against_budget: true, trial_accounting_policy_version: "count-all-v1", candidate_assignment_hash: HASH,
-    bindings: { replay_idempotency_key: request.idempotency_key, execution_spec_hash: replayExecutionSpecHash(request), dataset_manifest_ref: request.dataset_manifest_ref, dataset_hash: request.dataset_hash, supplemental_facts_hash: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945", venue_risk_policy_schedule_hash: request.venue_risk_policy_schedule_hash, instrument_spec_schedule_hash: request.instrument_spec_schedule_hash, harness_hash: request.harness_hash, assumptions_hash: request.assumptions_hash, cost_policy_hash: canonicalHash(request.cost_policy), margin_policy_hash: canonicalHash(request.margin_policy), simulator_policy_version: request.simulator_policy.version, execution_mode: "step" }, required_capabilities: [...REPLAY_CERTIFIED_CAPABILITIES],
+    bindings: { replay_idempotency_key: request.idempotency_key, execution_spec_hash: replayExecutionSpecHash(request), dataset_manifest_ref: request.dataset_manifest_ref, dataset_hash: request.dataset_hash, supplemental_facts_hash: request.supplemental_facts_hash, supplemental_requirement_set_hash: request.supplemental_requirement_set_hash, venue_risk_policy_schedule_hash: request.venue_risk_policy_schedule_hash, instrument_spec_schedule_hash: request.instrument_spec_schedule_hash, harness_hash: request.harness_hash, assumptions_hash: request.assumptions_hash, cost_policy_hash: canonicalHash(request.cost_policy), margin_policy_hash: canonicalHash(request.margin_policy), simulator_policy_version: request.simulator_policy.version, execution_mode: "step" }, required_capabilities: [...REPLAY_CERTIFIED_CAPABILITIES],
   }
   request.trial_reservation_hash = hashTrialReservationSnapshot(reservation)
   return reservation

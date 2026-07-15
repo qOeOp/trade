@@ -4,7 +4,7 @@ import { REPLAY_LOCAL_ARTIFACT_STORAGE_POLICY_VERSION } from "../../../../../con
 export const CONTROL_PLANE_IDENTITY_SCHEMA_VERSION = "trade.rd-identity-binding.v1" as const
 export const DRAFT_AUTHORIZATION_SCHEMA_VERSION = "trade.rd-draft-authorization.v1" as const
 export const STRATEGY_DRAFT_BINDING_SCHEMA_VERSION = "trade.rd-strategy-draft-binding.v1" as const
-export const TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION = "trade.rd-trial-reservation-snapshot.v4" as const
+export const TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION = "trade.rd-trial-reservation-snapshot.v5" as const
 export const REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION = "trade.rd-replay-attempt-lease.v1" as const
 export const REPLAY_CHECKPOINT_RECEIPT_SCHEMA_VERSION = "trade.rd-replay-checkpoint-receipt.v2" as const
 export const REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION = REPLAY_LOCAL_ARTIFACT_STORAGE_POLICY_VERSION
@@ -28,6 +28,7 @@ export interface ReplayReservationBindings {
   dataset_manifest_ref: string
   dataset_hash: string
   supplemental_facts_hash: string
+  supplemental_requirement_set_hash: string
   venue_risk_policy_schedule_hash: string
   instrument_spec_schedule_hash: string
   harness_hash: string
@@ -181,6 +182,7 @@ export function assertTrialReservationSnapshot(value: TrialReservationSnapshot):
     execution_spec_hash: bindings.execution_spec_hash,
     dataset_hash: bindings.dataset_hash,
     supplemental_facts_hash: bindings.supplemental_facts_hash,
+    supplemental_requirement_set_hash: bindings.supplemental_requirement_set_hash,
     venue_risk_policy_schedule_hash: bindings.venue_risk_policy_schedule_hash,
     instrument_spec_schedule_hash: bindings.instrument_spec_schedule_hash,
     harness_hash: bindings.harness_hash,

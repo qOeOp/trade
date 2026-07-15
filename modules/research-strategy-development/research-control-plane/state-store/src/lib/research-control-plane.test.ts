@@ -254,6 +254,7 @@ test("Control Plane atomically issues an immutable Replay Trial Reservation snap
       bindings: {
         replay_idempotency_key: "replay-key", execution_spec_hash: "a".repeat(64), dataset_manifest_ref: "dataset://fixture", dataset_hash: "b".repeat(64),
         supplemental_facts_hash: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        supplemental_requirement_set_hash: "f126b641e1c2e55c174e3505e15232b466e50c3fd764f30968a925821c31d144",
         venue_risk_policy_schedule_hash: "c".repeat(64), instrument_spec_schedule_hash: "d".repeat(64), harness_hash: "e".repeat(64),
         assumptions_hash: "f".repeat(64), cost_policy_hash: "1".repeat(64), margin_policy_hash: "2".repeat(64),
         simulator_policy_version: "rd-replay-simulator-v7", execution_mode: "step",
@@ -265,6 +266,12 @@ test("Control Plane atomically issues an immutable Replay Trial Reservation snap
     assert.equal(snapshot.identity.candidate_hash, candidateIdentityHash({ lookback: 20 }))
     assert.equal(snapshot.identity.experiment_contract_hash, hashIdentityPayload(experimentContract()))
     assert.equal(snapshot.counts_against_budget, true)
+    assert.throws(() => issueTrialReservationSnapshot(db, {
+      trial_id: "trial-reserved", reservation_id: "reservation-requirement-drift", reservation_ref: "reservation://trial-reserved-requirement-drift", issued_at: NOW,
+      expires_at: "2026-07-14T04:08:00Z",
+      bindings: { ...snapshot.bindings, supplemental_requirement_set_hash: "9".repeat(64) },
+      required_capabilities: snapshot.required_capabilities,
+    }), /does not match the frozen Experiment Contract/)
     finishTrial(db, { trial_id: "trial-reserved", status: "completed", completed_at: NOW })
     assert.throws(() => issueTrialReservationSnapshot(db, {
       trial_id: "trial-reserved", reservation_id: "reservation-2", reservation_ref: "reservation://trial-reserved", issued_at: NOW,
@@ -292,6 +299,7 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
       bindings: {
         replay_idempotency_key: "replay-attempt-key", execution_spec_hash: "a".repeat(64), dataset_manifest_ref: "dataset://fixture", dataset_hash: "b".repeat(64),
         supplemental_facts_hash: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        supplemental_requirement_set_hash: "f126b641e1c2e55c174e3505e15232b466e50c3fd764f30968a925821c31d144",
         venue_risk_policy_schedule_hash: "c".repeat(64), instrument_spec_schedule_hash: "d".repeat(64), harness_hash: "e".repeat(64),
         assumptions_hash: "f".repeat(64), cost_policy_hash: "1".repeat(64), margin_policy_hash: "2".repeat(64),
         simulator_policy_version: "rd-replay-simulator-v7", execution_mode: "step",
@@ -704,7 +712,7 @@ function proposalRevision(overrides: Partial<Parameters<typeof appendProposalRev
   const valid = overrides.validation_status !== "invalid"
   const proposalJson = overrides.proposal_json ?? (valid
     ? experimentContract()
-    : { schema_version: "trade-flow.rd-experiment-contract.v2" })
+    : { schema_version: "trade-flow.rd-experiment-contract.v3" })
   return {
     proposal_id: "proposal-1",
     planner_run_id: "planner-run-1",
@@ -746,7 +754,7 @@ function trialGroup(): Parameters<typeof registerTrialGroup>[1] {
 
 function experimentContract(): Record<string, unknown> {
   return {
-    schema_version: "trade-flow.rd-experiment-contract.v2",
+    schema_version: "trade-flow.rd-experiment-contract.v3",
     canonical_node_id: "canonical-1",
     code_family_id: "time_series_momentum_v1",
     implementation_version: "v1",
@@ -771,6 +779,10 @@ function experimentContract(): Record<string, unknown> {
     parent_experiment_id: null, random_seed: 1,
     code_commit_ref: "git://code", harness_commit_ref: "git://harness",
     data_snapshot_ref: "data://snapshot", assumptions_ref: "assumptions://v1",
+    replay_execution_input: {
+      supplemental_requirement_set_schema_version: "trade.rd-replay-supplemental-requirement-set.v1",
+      supplemental_requirement_set_hash: "f126b641e1c2e55c174e3505e15232b466e50c3fd764f30968a925821c31d144",
+    },
   }
 }
 

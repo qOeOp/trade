@@ -114,7 +114,7 @@ function seedExperiment(db: Database): void {
 
 function experimentContract(groupHash: string): Record<string, unknown> {
   return {
-    schema_version: "trade-flow.rd-experiment-contract.v2",
+    schema_version: "trade-flow.rd-experiment-contract.v3",
     canonical_node_id: "canonical:trend/time-series-trend/time-series-momentum",
     code_family_id: "time_series_momentum_v1", implementation_version: "v1",
     contract_versions: {
@@ -133,5 +133,9 @@ function experimentContract(groupHash: string): Record<string, unknown> {
     candidate_registration: { candidate_ids: ["candidate-1"] }, parent_experiment_id: null,
     random_seed: 1, code_commit_ref: "git://code", harness_commit_ref: "git://harness",
     data_snapshot_ref: "data://snapshot", assumptions_ref: "assumptions://v1",
+    replay_execution_input: {
+      supplemental_requirement_set_schema_version: "trade.rd-replay-supplemental-requirement-set.v1",
+      supplemental_requirement_set_hash: "f126b641e1c2e55c174e3505e15232b466e50c3fd764f30968a925821c31d144",
+    },
   }
 }

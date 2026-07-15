@@ -1,6 +1,6 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "trade-flow.rd-experiment-contract.v2",
+  "$id": "trade-flow.rd-experiment-contract.v3",
   "type": "object",
   "required": [
     "schema_version", "canonical_node_id", "code_family_id", "implementation_version",
@@ -10,10 +10,11 @@
     "portfolio_construction", "risk_rule", "execution_rule", "transaction_cost_model",
     "expected_holding_period", "benchmark", "validation_plan", "rejection_criteria",
     "trial_group_ref", "candidate_registration", "parent_experiment_id", "random_seed",
-    "code_commit_ref", "harness_commit_ref", "data_snapshot_ref", "assumptions_ref"
+    "code_commit_ref", "harness_commit_ref", "data_snapshot_ref", "assumptions_ref",
+    "replay_execution_input"
   ],
   "properties": {
-    "schema_version": { "const": "trade-flow.rd-experiment-contract.v2" },
+    "schema_version": { "const": "trade-flow.rd-experiment-contract.v3" },
     "canonical_node_id": { "type": "string", "minLength": 1 },
     "code_family_id": { "type": "string", "minLength": 1 },
     "implementation_version": { "type": "string", "minLength": 1 },
@@ -69,7 +70,16 @@
     "code_commit_ref": { "type": "string", "minLength": 1 },
     "harness_commit_ref": { "type": "string", "minLength": 1 },
     "data_snapshot_ref": { "type": "string", "minLength": 1 },
-    "assumptions_ref": { "type": "string", "minLength": 1 }
+    "assumptions_ref": { "type": "string", "minLength": 1 },
+    "replay_execution_input": {
+      "type": "object",
+      "required": ["supplemental_requirement_set_schema_version", "supplemental_requirement_set_hash"],
+      "properties": {
+        "supplemental_requirement_set_schema_version": { "const": "trade.rd-replay-supplemental-requirement-set.v1" },
+        "supplemental_requirement_set_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+      },
+      "additionalProperties": false
+    }
   },
   "additionalProperties": false
 }

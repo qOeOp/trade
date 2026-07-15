@@ -10,9 +10,9 @@ export {
   REPLAY_OBJECT_ARTIFACT_STORAGE_POLICY_VERSION,
 }
 
-export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v12" as const
-export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v18" as const
-export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v20" as const
+export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v13" as const
+export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v19" as const
+export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v21" as const
 export const REPLAY_ARTIFACT_STORE_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-artifact-store-capability.v1" as const
 export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v7" as const
 export const REPLAY_NUMERIC_POLICY_VERSION = "rd-replay-number-v3" as const
@@ -23,8 +23,9 @@ export const REPLAY_MARGIN_POLICY_VERSION = "rd-replay-isolated-margin-v7" as co
 export const REPLAY_MAINTENANCE_BREACH_SCHEMA_VERSION = "trade.rd-replay-maintenance-breach-observation.v3" as const
 export const REPLAY_LIQUIDATION_EXECUTION_SCHEMA_VERSION = "trade.rd-replay-liquidation-execution.v2" as const
 export const REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION = "rd-replay-instrument-accounting-v1" as const
-export const REPLAY_DATASET_MANIFEST_SCHEMA_VERSION = "trade.rd-replay-dataset-manifest.v6" as const
+export const REPLAY_DATASET_MANIFEST_SCHEMA_VERSION = "trade.rd-replay-dataset-manifest.v7" as const
 export const REPLAY_SUPPLEMENTAL_FACT_SCHEMA_VERSION = "trade.rd-replay-supplemental-fact.v1" as const
+export const REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION = "trade.rd-replay-supplemental-requirement-set.v1" as const
 export const REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION = "trade.rd-replay-venue-risk-policy-snapshot.v1" as const
 export const REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION = "trade.rd-replay-instrument-spec-snapshot.v1" as const
 export const REPLAY_CERTIFIED_CAPABILITIES = [
@@ -99,6 +100,8 @@ export interface ReplayExecutionRequest {
   dataset_manifest_ref: string
   dataset_hash: string
   supplemental_facts_hash: string
+  supplemental_requirement_set: ReplaySupplementalRequirementSet
+  supplemental_requirement_set_hash: string
   venue_risk_policy_schedule_hash: string
   instrument_spec_schedule_hash: string
   harness_hash: string
@@ -217,13 +220,50 @@ export interface ReplaySupplementalFact {
   content_hash: string
 }
 
+export interface ReplaySupplementalRequirement {
+  requirement_id: string
+  source_id: string
+  entity_key: string
+  fact_key: string
+  event_time_start_inclusive: string
+  event_time_end_inclusive: string
+  minimum_visible_event_count: number
+  maximum_latest_event_age_ms: number
+}
+
+export interface ReplaySupplementalRequirementSet {
+  schema_version: typeof REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION
+  mode: "none" | "signal_time_complete"
+  undeclared_input_policy: "reject"
+  requirements: ReplaySupplementalRequirement[]
+}
+
+export const REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS: ReplaySupplementalRequirementSet = {
+  schema_version: REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION,
+  mode: "none",
+  undeclared_input_policy: "reject",
+  requirements: [],
+}
+export const REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH = canonicalHash(REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS)
+
+export interface ReplaySupplementalRequirementEvaluation {
+  requirement_id: string
+  selected_event_count: number
+  latest_event_time: string
+  latest_event_age_ms: number
+  status: "satisfied"
+}
+
 export interface ReplaySupplementalEvidence {
   visibility_policy: "signal_time_snapshot"
+  requirement_set_hash: string
+  undeclared_input_policy: "reject"
   decision_time: string
   supplied_record_count: number
   selected_record_ids: string[]
   selected_records_hash: string
   future_revision_count: number
+  requirement_evaluations: ReplaySupplementalRequirementEvaluation[]
 }
 
 export interface ReplayDatasetManifest {
@@ -251,6 +291,7 @@ export interface ReplayDatasetManifest {
     record_count: number
     source_ids: string[]
     content_hash: string
+    requirement_set_hash: string
   }
   venue_risk_policy_epochs: ReplayVenueRiskPolicySnapshot[]
   instrument: {
@@ -605,6 +646,7 @@ export interface ReplayEvidenceFingerprint {
   dataset_manifest_hash: string
   dataset_hash: string
   supplemental_facts_hash: string
+  supplemental_requirement_set_hash: string
   venue_risk_policy_schedule_hash: string
   instrument_spec_schedule_hash: string
   harness_hash: string
@@ -685,8 +727,12 @@ export function assertReplayExecutionRequest(value: ReplayExecutionRequest): voi
   ] as const) requireText(value[field], field)
   for (const field of [
     "trial_group_hash", "candidate_hash", "experiment_contract_hash", "dataset_hash", "harness_hash", "assumptions_hash",
-    "trial_reservation_hash", "supplemental_facts_hash", "venue_risk_policy_schedule_hash", "instrument_spec_schedule_hash",
+    "trial_reservation_hash", "supplemental_facts_hash", "supplemental_requirement_set_hash", "venue_risk_policy_schedule_hash", "instrument_spec_schedule_hash",
   ] as const) requireHash(value[field], field)
+  assertReplaySupplementalRequirementSet(value.supplemental_requirement_set, value.order.signal_time)
+  if (canonicalHash(value.supplemental_requirement_set) !== value.supplemental_requirement_set_hash) {
+    fail("supplemental requirement set hash mismatch")
+  }
   if (value.strategy_policy_hash) requireHash(value.strategy_policy_hash, "strategy_policy_hash")
   requirePositive(value.initial_cash, "initial_cash")
   requirePositive(value.order.quantity, "order.quantity")
@@ -825,6 +871,7 @@ export function assertReplayDatasetManifest(manifest: ReplayDatasetManifest): vo
 function assertReplaySupplementalManifest(manifest: ReplayDatasetManifest): void {
   const supplemental = manifest.supplemental_facts
   requireHash(supplemental.content_hash, "manifest.supplemental_facts.content_hash")
+  requireHash(supplemental.requirement_set_hash, "manifest.supplemental_facts.requirement_set_hash")
   if (!Number.isSafeInteger(supplemental.record_count) || supplemental.record_count < 0) {
     fail("manifest.supplemental_facts.record_count must be a non-negative safe integer")
   }
@@ -844,6 +891,61 @@ function assertReplaySupplementalManifest(manifest: ReplayDatasetManifest): void
       fail("signal-time supplemental coverage requires records and source ids")
     }
   } else fail("unsupported supplemental fact coverage policy")
+}
+
+export function assertReplaySupplementalRequirementSet(
+  requirementSet: ReplaySupplementalRequirementSet,
+  decisionTime: string,
+): void {
+  if (requirementSet.schema_version !== REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION) {
+    fail("unsupported Replay supplemental requirement set schema")
+  }
+  if (requirementSet.undeclared_input_policy !== "reject") fail("supplemental undeclared input policy must reject")
+  requireUtcTimestamp(decisionTime, "supplemental_requirement_set.decision_time")
+  if (!Array.isArray(requirementSet.requirements)) fail("supplemental requirements must be an array")
+  if (requirementSet.mode === "none") {
+    if (requirementSet.requirements.length !== 0) fail("supplemental requirement mode none requires an empty requirement list")
+    return
+  }
+  if (requirementSet.mode !== "signal_time_complete" || requirementSet.requirements.length === 0) {
+    fail("signal-time-complete supplemental requirements must not be empty")
+  }
+  let priorId = ""
+  for (const [index, requirement] of requirementSet.requirements.entries()) {
+    for (const [field, value] of Object.entries({
+      requirement_id: requirement.requirement_id,
+      source_id: requirement.source_id,
+      entity_key: requirement.entity_key,
+      fact_key: requirement.fact_key,
+    })) {
+      const identifier = requireText(value, `supplemental_requirement[${index}].${field}`)
+      if (!/^[A-Za-z0-9][A-Za-z0-9._:/-]{0,255}$/.test(identifier)) {
+        fail(`supplemental_requirement[${index}].${field} must be an ASCII evidence identifier`)
+      }
+    }
+    if (requirement.requirement_id <= priorId) fail("supplemental requirements must have unique sorted requirement_id values")
+    priorId = requirement.requirement_id
+    requireUtcTimestamp(requirement.event_time_start_inclusive, `supplemental_requirement[${index}].event_time_start_inclusive`)
+    requireUtcTimestamp(requirement.event_time_end_inclusive, `supplemental_requirement[${index}].event_time_end_inclusive`)
+    const start = Date.parse(requirement.event_time_start_inclusive)
+    const end = Date.parse(requirement.event_time_end_inclusive)
+    if (start > end) fail("supplemental requirement event window must not be inverted")
+    if (end > Date.parse(decisionTime)) fail("supplemental requirement event window cannot extend beyond decision time")
+    if (!Number.isSafeInteger(requirement.minimum_visible_event_count) || requirement.minimum_visible_event_count < 1) {
+      fail("supplemental requirement minimum_visible_event_count must be a positive safe integer")
+    }
+    if (!Number.isSafeInteger(requirement.maximum_latest_event_age_ms) || requirement.maximum_latest_event_age_ms < 0) {
+      fail("supplemental requirement maximum_latest_event_age_ms must be a non-negative safe integer")
+    }
+    const overlapping = requirementSet.requirements.slice(0, index).some((prior) => (
+      prior.source_id === requirement.source_id
+      && prior.entity_key === requirement.entity_key
+      && prior.fact_key === requirement.fact_key
+      && Date.parse(prior.event_time_start_inclusive) <= end
+      && start <= Date.parse(prior.event_time_end_inclusive)
+    ))
+    if (overlapping) fail("supplemental requirement scopes must not overlap")
+  }
 }
 
 export function assertReplaySupplementalFact(fact: ReplaySupplementalFact): void {

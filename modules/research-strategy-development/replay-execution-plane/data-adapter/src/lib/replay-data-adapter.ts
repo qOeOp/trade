@@ -14,6 +14,8 @@ import {
   type ReplayMarketBar,
   type ReplaySupplementalEvidence,
   type ReplaySupplementalFact,
+  type ReplaySupplementalRequirement,
+  type ReplaySupplementalRequirementEvaluation,
   type ReplayVenueRiskPolicySnapshot,
 } from "../../../contracts/src/lib/replay-contracts"
 import { isReplayIncrementAligned } from "../../../contracts/src/lib/replay-decimal"
@@ -113,6 +115,10 @@ function validateSupplementalBinding(
   if (declared.content_hash !== contentHash || request.supplemental_facts_hash !== contentHash) {
     throw new Error("supplemental facts hash does not match Replay request and dataset manifest")
   }
+  if (declared.requirement_set_hash !== request.supplemental_requirement_set_hash
+      || canonicalHash(request.supplemental_requirement_set) !== request.supplemental_requirement_set_hash) {
+    throw new Error("supplemental requirement set hash does not match Replay request and dataset manifest")
+  }
   const sourceIds = [...new Set(facts.map((fact) => fact.source_id))].sort()
   if (canonicalHash(sourceIds) !== canonicalHash(declared.source_ids)) {
     throw new Error("supplemental fact source ids do not match dataset manifest")
@@ -121,14 +127,68 @@ function validateSupplementalBinding(
     throw new Error("supplemental fact was received after manifest observed_through")
   }
   const selected = selectReplaySupplementalFactsAt(facts, request.order.signal_time)
+  const requirementEvaluations = validateSupplementalRequirements(request, facts, selected)
   return {
     visibility_policy: "signal_time_snapshot",
+    requirement_set_hash: request.supplemental_requirement_set_hash,
+    undeclared_input_policy: "reject",
     decision_time: request.order.signal_time,
     supplied_record_count: facts.length,
     selected_record_ids: selected.map((fact) => fact.record_id),
     selected_records_hash: canonicalHash(selected),
     future_revision_count: facts.filter((fact) => Date.parse(fact.availability_at) > Date.parse(request.order.signal_time)).length,
+    requirement_evaluations: requirementEvaluations,
   }
+}
+
+function validateSupplementalRequirements(
+  request: ReplayExecutionRequest,
+  facts: ReplaySupplementalFact[],
+  selected: ReplaySupplementalFact[],
+): ReplaySupplementalRequirementEvaluation[] {
+  const requirements = request.supplemental_requirement_set.requirements
+  for (const fact of facts) {
+    const matches = requirements.filter((requirement) => supplementalFactMatchesRequirement(fact, requirement))
+    if (matches.length === 0) throw new Error(`supplemental fact ${fact.record_id} is outside the frozen requirement set`)
+    if (matches.length > 1) throw new Error(`supplemental fact ${fact.record_id} matches multiple frozen requirements`)
+  }
+  if (request.supplemental_requirement_set.mode === "none") {
+    if (facts.length !== 0) throw new Error("supplemental requirement mode none rejects supplied facts")
+    return []
+  }
+  const decisionTime = Date.parse(request.order.signal_time)
+  return requirements.map((requirement) => {
+    const visible = selected.filter((fact) => supplementalFactMatchesRequirement(fact, requirement))
+    if (visible.length < requirement.minimum_visible_event_count) {
+      throw new Error(`supplemental requirement ${requirement.requirement_id} has insufficient visible events`)
+    }
+    const latestEventTime = visible.reduce((latest, fact) => (
+      Date.parse(fact.event_time) > Date.parse(latest) ? fact.event_time : latest
+    ), visible[0].event_time)
+    const latestEventAge = decisionTime - Date.parse(latestEventTime)
+    if (latestEventAge > requirement.maximum_latest_event_age_ms) {
+      throw new Error(`supplemental requirement ${requirement.requirement_id} is stale at decision time`)
+    }
+    return {
+      requirement_id: requirement.requirement_id,
+      selected_event_count: visible.length,
+      latest_event_time: latestEventTime,
+      latest_event_age_ms: latestEventAge,
+      status: "satisfied" as const,
+    }
+  })
+}
+
+function supplementalFactMatchesRequirement(
+  fact: ReplaySupplementalFact,
+  requirement: ReplaySupplementalRequirement,
+): boolean {
+  const eventTime = Date.parse(fact.event_time)
+  return fact.source_id === requirement.source_id
+    && fact.entity_key === requirement.entity_key
+    && fact.fact_key === requirement.fact_key
+    && eventTime >= Date.parse(requirement.event_time_start_inclusive)
+    && eventTime <= Date.parse(requirement.event_time_end_inclusive)
 }
 
 export function validateReplaySupplementalFacts(facts: ReplaySupplementalFact[]): ReplaySupplementalFact[] {

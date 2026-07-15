@@ -101,7 +101,7 @@ function renderControlPlanePlannerPrompt(context: JSONRecord): string {
     "- Select exactly one active, implementation-ready L3 canonical from authoritative context.",
     "- Coverage cannot make catalog_only or product_out_of_scope nodes researchable.",
     "- If family/data/capability is missing, return trade-flow.rd-family-backlog-contract.v1 and spend zero Trials.",
-    "- Otherwise return trade-flow.rd-experiment-contract.v2 with every identity, temporal, pipeline, validation, cost, Trial Group, candidate, code, data, harness, and assumptions field populated.",
+    "- Otherwise return trade-flow.rd-experiment-contract.v3 with every identity, temporal, pipeline, validation, cost, Trial Group, candidate, code, data, harness, assumptions, and replay_execution_input field populated.",
     "- Never invent a code family, data surface, capability, evidence strength, Result, or validation outcome.",
     "- Return JSON only. The owner store will independently validate, hash, revision, and materialize it.",
   ].join("\n")

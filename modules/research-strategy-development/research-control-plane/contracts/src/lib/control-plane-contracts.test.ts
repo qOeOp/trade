@@ -55,6 +55,7 @@ function reservation(): TrialReservationSnapshot {
     bindings: {
       replay_idempotency_key: "replay-1", execution_spec_hash: HASH, dataset_manifest_ref: "dataset://fixture", dataset_hash: HASH,
       supplemental_facts_hash: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      supplemental_requirement_set_hash: "f126b641e1c2e55c174e3505e15232b466e50c3fd764f30968a925821c31d144",
       venue_risk_policy_schedule_hash: HASH, instrument_spec_schedule_hash: HASH, harness_hash: HASH, assumptions_hash: HASH,
       cost_policy_hash: HASH, margin_policy_hash: HASH, simulator_policy_version: "rd-replay-simulator-v7", execution_mode: "step",
     },

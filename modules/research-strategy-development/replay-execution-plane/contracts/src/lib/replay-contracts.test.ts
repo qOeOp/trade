@@ -5,14 +5,18 @@ import {
   REPLAY_OBJECT_ARTIFACT_STORE_REQUIRED_CAPABILITY,
   REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION,
   REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION,
+  REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS,
+  REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH,
   REPLAY_REQUEST_SCHEMA_VERSION,
   REPLAY_SIMULATOR_POLICY_VERSION,
   REPLAY_SUPPLEMENTAL_FACT_SCHEMA_VERSION,
+  REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION,
   REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
   assertReplayExecutionRequest,
   assertReplayDatasetManifest,
   assertReplayArtifactStoreCapability,
   assertReplaySupplementalFact,
+  assertReplaySupplementalRequirementSet,
   canonicalHash,
   type ReplayExecutionRequest,
 } from "./replay-contracts"
@@ -40,6 +44,8 @@ export function fixtureRequest(): ReplayExecutionRequest {
     dataset_manifest_ref: "dataset://btc-4h",
     dataset_hash: HASH,
     supplemental_facts_hash: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    supplemental_requirement_set: structuredClone(REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS),
+    supplemental_requirement_set_hash: REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH,
     venue_risk_policy_schedule_hash: canonicalHash([RISK_SNAPSHOT]),
     instrument_spec_schedule_hash: HASH,
     harness_hash: HASH,
@@ -115,6 +121,30 @@ test("supplemental fact freezes causal timestamps and canonical payload identity
   expect(() => assertReplaySupplementalFact({ ...fact, payload: { open_interest: "101" } })).toThrow("payload hash mismatch")
 })
 
+test("supplemental requirement set freezes a non-overlapping closed input scope", () => {
+  const requirementSet = {
+    schema_version: REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION,
+    mode: "signal_time_complete" as const,
+    undeclared_input_policy: "reject" as const,
+    requirements: [{
+      requirement_id: "open-interest-btc",
+      source_id: "binance-open-interest", entity_key: "BTCUSDT", fact_key: "open_interest",
+      event_time_start_inclusive: "2026-07-13T20:00:00Z", event_time_end_inclusive: "2026-07-13T20:00:00Z",
+      minimum_visible_event_count: 1, maximum_latest_event_age_ms: 14_400_000,
+    }],
+  }
+  expect(() => assertReplaySupplementalRequirementSet(requirementSet, "2026-07-14T00:00:00Z")).not.toThrow()
+  expect(() => assertReplaySupplementalRequirementSet({
+    ...requirementSet,
+    requirements: [...requirementSet.requirements, { ...requirementSet.requirements[0], requirement_id: "open-interest-btc-copy" }].sort((left, right) => left.requirement_id.localeCompare(right.requirement_id)),
+  }, "2026-07-14T00:00:00Z")).toThrow("must not overlap")
+  expect(() => assertReplaySupplementalRequirementSet({
+    ...requirementSet,
+    requirements: [{ ...requirementSet.requirements[0], event_time_end_inclusive: "2026-07-14T00:00:01Z" }],
+  }, "2026-07-14T00:00:00Z")).toThrow("beyond decision time")
+  expect(() => assertReplayExecutionRequest({ ...fixtureRequest(), supplemental_requirement_set_hash: HASH })).toThrow("requirement set hash mismatch")
+})
+
 test("Artifact Store capability freezes local and remote immutable-create semantics", () => {
   expect(() => assertReplayArtifactStoreCapability(REPLAY_LOCAL_ARTIFACT_STORE_CAPABILITY)).not.toThrow()
   expect(() => assertReplayArtifactStoreCapability(REPLAY_OBJECT_ARTIFACT_STORE_REQUIRED_CAPABILITY)).not.toThrow()
@@ -132,7 +162,7 @@ test("Replay dataset manifest requires explicit UTC lifecycle and availability p
     row_count: 1, first_open_time: "2026-07-14T04:00:00Z", last_close_time: "2026-07-14T08:00:00Z",
     observed_through: "2026-07-14T08:00:00Z", closed_candles_only: true as const,
     bar_final_availability: "close_time" as const, funding_availability: "event_time" as const, mark_availability: "event_time" as const,
-    mark_coverage: "none" as const, mark_interval_ms: null, mark_event_count: 0, supplemental_facts: { coverage: "none" as const, record_count: 0, source_ids: [], content_hash: canonicalHash([]) },
+    mark_coverage: "none" as const, mark_interval_ms: null, mark_event_count: 0, supplemental_facts: { coverage: "none" as const, record_count: 0, source_ids: [], content_hash: canonicalHash([]), requirement_set_hash: "f126b641e1c2e55c174e3505e15232b466e50c3fd764f30968a925821c31d144" },
     venue_risk_policy_epochs: [RISK_SNAPSHOT],
     instrument: {
       listed_at: "2020-01-01T00:00:00Z", trading_enabled_at: "2020-01-01T00:00:00Z", delisted_at: null, status_history: "complete" as const,

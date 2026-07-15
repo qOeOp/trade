@@ -14,6 +14,8 @@ export interface DeveloperReplayPlan {
   dataset_manifest_ref: string
   dataset_hash: string
   supplemental_facts_hash: string
+  supplemental_requirement_set: ReplayExecutionRequest["supplemental_requirement_set"]
+  supplemental_requirement_set_hash: string
   venue_risk_policy_schedule_hash: string
   instrument_spec_schedule_hash: string
   harness_hash: string
@@ -46,6 +48,8 @@ export function buildDeveloperReplayRequest(plan: DeveloperReplayPlan): ReplayEx
     dataset_manifest_ref: plan.dataset_manifest_ref,
     dataset_hash: plan.dataset_hash,
     supplemental_facts_hash: plan.supplemental_facts_hash,
+    supplemental_requirement_set: plan.supplemental_requirement_set,
+    supplemental_requirement_set_hash: plan.supplemental_requirement_set_hash,
     venue_risk_policy_schedule_hash: plan.venue_risk_policy_schedule_hash,
     instrument_spec_schedule_hash: plan.instrument_spec_schedule_hash,
     harness_hash: plan.harness_hash,

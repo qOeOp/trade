@@ -47,7 +47,7 @@ import { completeReplayLiquidationOrderLane } from "./replay-liquidation-order-l
 import { ReplayLiquidationDeficitError, assertReplayPostEntryMargin, buildReplayMaintenanceBreachObservation, buildReplayPathMarginSnapshots } from "./replay-margin-path"
 import { reduceReplaySourceEvents } from "./replay-source-reducer"
 
-export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v3" as const
+export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v4" as const
 
 export interface ReplayEngineCheckpoint {
   schema_version: typeof REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION
@@ -602,6 +602,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       dataset_manifest_hash: prepared.dataset_manifest_hash,
       dataset_hash: request.dataset_hash,
       supplemental_facts_hash: request.supplemental_facts_hash,
+      supplemental_requirement_set_hash: request.supplemental_requirement_set_hash,
       venue_risk_policy_schedule_hash: request.venue_risk_policy_schedule_hash,
       instrument_spec_schedule_hash: request.instrument_spec_schedule_hash,
       harness_hash: request.harness_hash,

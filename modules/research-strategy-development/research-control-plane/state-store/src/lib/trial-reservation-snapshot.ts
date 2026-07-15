@@ -33,6 +33,7 @@ interface ReservationRow {
   trial_accounting_policy_version: string
   parameter_assignment_json: string
   contract_hash: string
+  contract_json: string
 }
 
 export function issueTrialReservationSnapshot(
@@ -45,7 +46,7 @@ export function issueTrialReservationSnapshot(
       t.candidate_id, t.candidate_identity_hash, t.identity_hash_policy_version,
       t.run_id, t.status, t.counts_against_budget,
       g.group_hash, g.trial_accounting_policy_version,
-      c.parameter_assignment_json, e.contract_hash
+      c.parameter_assignment_json, e.contract_hash, e.contract_json
     FROM rd_trial t
     JOIN rd_trial_group g ON g.trial_group_id = t.trial_group_id
     JOIN rd_trial_group_candidate c
@@ -56,6 +57,12 @@ export function issueTrialReservationSnapshot(
   `).get({ $trial_id: input.trial_id }) as ReservationRow | null
   if (!row) throw new Error("Trial Reservation snapshot source does not exist")
   if (row.status !== "reserved") throw new Error("Trial Reservation snapshot source is no longer reserved")
+  const contract = JSON.parse(row.contract_json) as {
+    replay_execution_input?: { supplemental_requirement_set_hash?: string }
+  }
+  if (contract.replay_execution_input?.supplemental_requirement_set_hash !== input.bindings.supplemental_requirement_set_hash) {
+    throw new Error("Trial Reservation supplemental requirement set does not match the frozen Experiment Contract")
+  }
   const snapshot: TrialReservationSnapshot = {
     schema_version: TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION,
     reservation_id: input.reservation_id,

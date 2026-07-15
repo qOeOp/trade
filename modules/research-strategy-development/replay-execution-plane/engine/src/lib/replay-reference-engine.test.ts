@@ -3,9 +3,12 @@ import {
   REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
   REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION,
   REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION,
+  REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS,
+  REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH,
   REPLAY_REQUEST_SCHEMA_VERSION,
   REPLAY_SIMULATOR_POLICY_VERSION,
   REPLAY_SUPPLEMENTAL_FACT_SCHEMA_VERSION,
+  REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION,
   REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
   canonicalHash,
   replayDatasetHash,
@@ -46,6 +49,8 @@ function request(side: "long" | "short" = "long"): ReplayExecutionRequest {
     dataset_manifest_ref: "dataset://fixture",
     dataset_hash: HASH,
     supplemental_facts_hash: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    supplemental_requirement_set: structuredClone(REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS),
+    supplemental_requirement_set_hash: REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH,
     venue_risk_policy_schedule_hash: canonicalHash([RISK_SNAPSHOT]),
     instrument_spec_schedule_hash: canonicalHash({ epochs: [SPEC_SNAPSHOT], accounting: ACCOUNTING }),
     harness_hash: HASH,
@@ -96,7 +101,33 @@ function inputFor(
     maintenance_tier: structuredClone(requestValue.margin_policy.maintenance_tier),
     liquidation_fee_bps: requestValue.cost_policy.liquidation_fee_bps,
   }
-  const boundRequest = { ...requestValue, dataset_hash: dataHash, supplemental_facts_hash: canonicalHash(supplementalFacts), venue_risk_policy_schedule_hash: canonicalHash([venueRiskPolicy]) }
+  const requirementGroups = new Map<string, ReplaySupplementalFact>()
+  for (const fact of supplementalFacts) requirementGroups.set(`${fact.source_id}\u0000${fact.entity_key}\u0000${fact.fact_key}`, fact)
+  const supplementalRequirementSet = supplementalFacts.length === 0
+    ? structuredClone(REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS)
+    : {
+      schema_version: REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION,
+      mode: "signal_time_complete" as const,
+      undeclared_input_policy: "reject" as const,
+      requirements: [...requirementGroups.values()].map((fact, index) => ({
+        requirement_id: `requirement-${String(index + 1).padStart(3, "0")}`,
+        source_id: fact.source_id,
+        entity_key: fact.entity_key,
+        fact_key: fact.fact_key,
+        event_time_start_inclusive: fact.event_time,
+        event_time_end_inclusive: fact.event_time,
+        minimum_visible_event_count: 1,
+        maximum_latest_event_age_ms: Date.parse(requestValue.order.signal_time) - Date.parse(fact.event_time),
+      })),
+    }
+  const boundRequest = {
+    ...requestValue,
+    dataset_hash: dataHash,
+    supplemental_facts_hash: canonicalHash(supplementalFacts),
+    supplemental_requirement_set: supplementalRequirementSet,
+    supplemental_requirement_set_hash: canonicalHash(supplementalRequirementSet),
+    venue_risk_policy_schedule_hash: canonicalHash([venueRiskPolicy]),
+  }
   const datasetManifest: ReplayDatasetManifest = {
     schema_version: REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
     manifest_id: "manifest-fixture", manifest_ref: boundRequest.dataset_manifest_ref, data_hash: dataHash,
@@ -108,8 +139,8 @@ function inputFor(
     mark_interval_ms: markEvents.length > 0 ? 14_400_000 : null,
     mark_event_count: markEvents.length,
     supplemental_facts: supplementalFacts.length === 0
-      ? { coverage: "none" as const, record_count: 0, source_ids: [], content_hash: canonicalHash([]) }
-      : { coverage: "signal_time_snapshot" as const, record_count: supplementalFacts.length, source_ids: [...new Set(supplementalFacts.map((fact) => fact.source_id))].sort(), content_hash: canonicalHash(supplementalFacts) },
+      ? { coverage: "none" as const, record_count: 0, source_ids: [], content_hash: canonicalHash([]), requirement_set_hash: boundRequest.supplemental_requirement_set_hash }
+      : { coverage: "signal_time_snapshot" as const, record_count: supplementalFacts.length, source_ids: [...new Set(supplementalFacts.map((fact) => fact.source_id))].sort(), content_hash: canonicalHash(supplementalFacts), requirement_set_hash: boundRequest.supplemental_requirement_set_hash },
     venue_risk_policy_epochs: [venueRiskPolicy],
     instrument: {
       listed_at: "2020-01-01T00:00:00Z", trading_enabled_at: "2020-01-01T00:00:00Z", delisted_at: null, status_history: "complete",
@@ -206,7 +237,9 @@ test("Result binds the deterministic signal-time supplemental revision view", ()
   const result = executeReplayKernel(replayInput)
   expect(result.supplemental_evidence.selected_record_ids).toEqual(["feature-v1"])
   expect(result.supplemental_evidence.future_revision_count).toBe(1)
+  expect(result.supplemental_evidence.requirement_evaluations).toHaveLength(1)
   expect(result.fingerprint.supplemental_facts_hash).toBe(canonicalHash(facts))
+  expect(result.fingerprint.supplemental_requirement_set_hash).toBe(replayInput.request.supplemental_requirement_set_hash)
   expect(result.limitations.map((limitation) => limitation.code)).toContain("supplemental-signal-derivation-harness-bound")
 })
 

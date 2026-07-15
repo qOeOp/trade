@@ -1,6 +1,6 @@
 import type { JSONRecord } from "../../../../../contracts/runtime-core/src/json"
 
-export const RESEARCH_CONTRACT_VALIDATOR_VERSION = "trade-flow.rd-contract-validator.v1"
+export const RESEARCH_CONTRACT_VALIDATOR_VERSION = "trade-flow.rd-contract-validator.v2"
 
 const EXPERIMENT_FIELDS = [
   "schema_version", "canonical_node_id", "code_family_id", "implementation_version",
@@ -11,6 +11,7 @@ const EXPERIMENT_FIELDS = [
   "expected_holding_period", "benchmark", "validation_plan", "rejection_criteria",
   "trial_group_ref", "candidate_registration", "parent_experiment_id", "random_seed",
   "code_commit_ref", "harness_commit_ref", "data_snapshot_ref", "assumptions_ref",
+  "replay_execution_input",
 ] as const
 
 const BACKLOG_FIELDS = [
@@ -28,7 +29,7 @@ export interface ContractValidationResult {
 export function validateResearchProposal(kind: "experiment" | "family_backlog", value: JSONRecord): ContractValidationResult {
   const errors: string[] = []
   const expectedVersion = kind === "experiment"
-    ? "trade-flow.rd-experiment-contract.v2"
+    ? "trade-flow.rd-experiment-contract.v3"
     : "trade-flow.rd-family-backlog-contract.v1"
   if (value.schema_version !== expectedVersion) errors.push(`schema_version must be ${expectedVersion}`)
   const requiredFields = kind === "experiment" ? EXPERIMENT_FIELDS : BACKLOG_FIELDS
@@ -61,6 +62,7 @@ function validateExperiment(value: JSONRecord, errors: string[]): void {
     "signal_definition", "position_rule", "portfolio_construction", "risk_rule",
     "execution_rule", "transaction_cost_model", "expected_holding_period", "benchmark",
     "validation_plan", "trial_group_ref", "candidate_registration",
+    "replay_execution_input",
   ]) requireObject(value, field, errors)
   requireStringArray(value, "rejection_criteria", errors, true)
   const versions = record(value.contract_versions)
@@ -70,6 +72,14 @@ function validateExperiment(value: JSONRecord, errors: string[]): void {
   requireString(group, "group_hash", errors, "trial_group_ref")
   const candidates = record(value.candidate_registration)
   requireStringArray(candidates, "candidate_ids", errors, true, "candidate_registration")
+  const replayInput = record(value.replay_execution_input)
+  if (replayInput.supplemental_requirement_set_schema_version !== "trade.rd-replay-supplemental-requirement-set.v1") {
+    errors.push("replay_execution_input.supplemental_requirement_set_schema_version must be trade.rd-replay-supplemental-requirement-set.v1")
+  }
+  if (typeof replayInput.supplemental_requirement_set_hash !== "string"
+      || !/^[a-f0-9]{64}$/.test(replayInput.supplemental_requirement_set_hash)) {
+    errors.push("replay_execution_input.supplemental_requirement_set_hash must be a lowercase sha256 digest")
+  }
   if (!Number.isInteger(value.random_seed)) errors.push("random_seed must be an integer")
 }
 
