@@ -14,7 +14,7 @@ compatibility/ 迁入的 legacy replay/benchmark/panel 实现，只用于兼容�
 certification/ 迁入的 calibration 认证来源
 ```
 
-当前是 Trial Reservation v5、Request v21、Result v33、Artifact v35、Run Outcome v30、Dataset Manifest v7、OHLCV Resolution Evidence v3、Partial Reduce Intent v1、Reduce-only Exit Intent v1、Protective Stop Replace Intent v1、Decision Schedule v5、Boundary v7、Timeline v8、State Snapshot v3、Harness Context v6、Registry Capability v7、Harness Capability/Receipt v9、Worker Protocol v7、Engine Checkpoint v16、Simulator v8、Margin v7、Journal v4 的受限认证纵切。Control Plane 冻结 decision sequence/time/effect；当前 lane 可选择一次全仓 stop tighten，或一次 fixed-quantity partial reduce 后按剩余仓位原子重建双保护，并可追加一次末位 full exit。stop/target/exact risk 在 partial open 前保持优先，terminal owner 会取消 pending partial。
+当前是 Trial Reservation v5、Request v21、Result v33、Artifact v35、Run Outcome v31、Dataset Manifest v7、OHLCV Resolution Evidence v3、Partial Reduce Intent v1、Reduce-only Exit Intent v1、Protective Stop Replace Intent v1、Decision Schedule v5、Boundary v7、Timeline v8、State Snapshot v3、Harness Context v6、Registry Capability v7、Harness Capability/Receipt v9、Worker Protocol v7、Engine Checkpoint v16、Simulator v9、Margin v7、Journal v4 的受限认证纵切。Control Plane 冻结 decision sequence/time/effect；当前 lane 可选择一次全仓 stop tighten，或一次 fixed-quantity partial reduce 后按剩余仓位原子重建双保护，并可追加一次末位 full exit。stop/target/exact risk 在 partial open 前保持优先，terminal owner 会取消 pending partial。
 
 R4.41 只新增非可执行 `Partial Reduce Intent Draft v1`：冻结一次小于初始仓位的 fixed-quantity market reduce-only，以及 partial Fill 后同 source boundary 按剩余仓位取消/重建双保护的 draft policy。它未进入 Request/Schedule/certified capabilities；Runner 对该 draft capability 显式拒绝，直到非终止 Fill、partial Position/Ledger、bracket resize 与 checkpoint parity 完成。
 
@@ -33,6 +33,8 @@ R4.47 为 P1/P2 path 增加 cost-aware terminal contribution：同一 entry basi
 R4.48 以 certification-only 独立经济 oracle 排除同实现自证：三套 quantity/cost/increment profile 覆盖 zero cost、细粒度成本和 fractional-bps/coarse-grid，test-local BigInt rational 算法不导入 production accounting/decimal。24 个 profile×trace case 的双 path、ordered actual path、envelope 聚合、long/short 手算 golden 与 densification invariance 全部 parity；production schema 与 Simulator v8 不变。
 
 R4.49 用 certification-only Python `Decimal` oracle 排除同语言自证。Canonical-string JSON Request/Response v1 经 stdin/stdout 传 48 条 path 向量，Bun 测试要求 Python、TS BigInt 与 production Evidence 的 execution price/gross/fee/net 三方一致；非法 decimal 稳定返回 typed `input_invalid`。Python 不是新 Replay backend/port，production schema 与 Simulator v8 仍不变。
+
+R4.50 冻结执行相关时间网格缺失协议。连续 bar 的 observed-open price jump 仍按 `worse_open`；缺失整根 bar 则返回带精确 bounds/count 的 `dataset-grid-gap-in-execution-window`，不得跨越未知区间执行。缺 frozen entry bar 在 Fill 前失败；持仓后 gap 在前一已观测 close 后、后续 source/checkpoint 前失败，且无 partial Result/Artifact。终态在 gap 前完成时，未消费的未来 gap 不改变 Result；resume 不能绕过 fence。Simulator 推进至 v9，Run Outcome 推进至 v31，其他成功证据 schema 不变。
 
 经济入口按唯一 `authorized_initial_order / authorized_order` 语义定位，不依赖 Schedule/Timeline 数组末位；可选退出必须是 Schedule 末位并以 `authorized_reduce_only_exit` 独立表达，不能冒充第二个入口。所有 post-entry evaluation 必须由 Source Reducer 运行时产生 Position/Cash State Snapshot，并正确表达 terminal-before-decision、pending Order 与 checkpoint/resume。
 
