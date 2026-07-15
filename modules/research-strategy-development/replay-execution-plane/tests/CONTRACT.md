@@ -11,3 +11,5 @@ OHLCV Resolution Evidence v2 certification 必须覆盖 initial generation 1、s
 OHLCV Resolution Evidence v3 certification 还必须覆盖 long/short directionally rounded execution price、fee/gross/net 算术、exact path zero span、collision positive span、价格缩放、cost-policy tamper、canonical Fill tamper 与 clean/resume/idempotent parity。不得用该 envelope 推断真实 path probability 或完整 counterfactual equity。
 
 `OHLCV Economic Oracle Fixture v1` 是 certification-only 的成本/精度向量。Oracle 必须独立实现有理数与舍入，不得导入 production accounting/decimal；至少覆盖 zero-cost、非零 fee/slippage、fractional bps、coarse price/settlement increment、long/short、gap/single-touch/collision、ordered actual-path containment、手算 golden 与采样加密不变性。该认证不把 synthetic cost policy 升级为真实 venue 成本模型，也不授予 Result/Artifact authority。
+
+`OHLCV Economic Oracle Request/Response v1` 是 certification-only Python stdio 协议：输入 decimal 必须为 canonical string，输出 economics 也必须为 canonical string；success 保持 vector 顺序，非法 schema/direction/decimal/重复 id 必须非零退出并返回 typed `input_invalid`。Bun 必须通过仓库 Python resolver 调用，并把每条结果同时与 TypeScript BigInt oracle、production Evidence 对齐。该协议不是 Replay Plane port、tool、runtime backend 或 Artifact schema。

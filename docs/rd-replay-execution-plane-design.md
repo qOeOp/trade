@@ -28,6 +28,8 @@ R4.47 不改变 Simulator v8 canonical Fill，而为每条 admissible path 增�
 
 R4.48 不推进 production wire epoch，而以独立经济 oracle 认证 R4.47。Certification-local `Economic Oracle Fixture v1` 冻结 zero-cost、cost-aware fine-grid、fractional-bps coarse-grid 三套 quantity/cost/increment profile；test oracle 仅用本地 BigInt 有理数实现 buy-ceil/sell-floor 滑点价、signed PnL floor、fee ceil 与精确净额，不导入 Replay accounting/decimal 原语。24 个 profile×trace case 的两条 path、ordered actual path、min/max/span/canonical shortfall 均须与 Evidence v3 一致；long/short collision 手算 golden 和轨迹加密采样 metamorphic 另行锁定。它证明当前 simple-bracket terminal contribution 算术的实现独立 parity，不证明真实成交成本、路径概率、完整 equity interval 或跨语言一致性。
 
+R4.49 继续不推进 production wire epoch，而把 R4.48 集成经济链扩展到 Python `Decimal` 跨语言 oracle。Certification-only Request/Response v1 只经 stdin/stdout 传 canonical decimal string；Python 独立执行滑点、price tick、signed gross、fee、settlement increment 与 net，不导入 TypeScript 实现。Bun 测试通过仓库 Python resolver 调用它，要求 48 条 path 的 execution price/gross/fee/net 与 test-local BigInt、production Evidence 三方逐字符串一致，并锁定非规范 decimal 的 typed `input_invalid`。这证明当前 fixture 范围内的跨语言十进制算术 parity，不把 Python 变成 Replay backend，也不证明不同 JS runtime、平台浮点、完整 Result 或真实 venue 成本可移植。
+
 实现路径：`replay-execution-plane/contracts`、`data-adapter`、`engine`、`accounting`、`metrics`、`runner` 与 `tests` 已成为 certified slice 的新语义 owner；`replay-execution-plane/compatibility/replay-runner` 可转发 Trial-bound request，`compatibility/replay-engine` 仅复用稳定 accounting 原语并继续作为 parity/迁移来源，不再承接新语义扩展。RD 根已无旧 Replay package。
 
 权威边界：
@@ -532,6 +534,8 @@ R4.47 推进 `trade.rd-replay-ohlcv-resolution-evidence.v3`、Result v33、Artif
 
 R4.48 不改变 Request v21、Result v33、Artifact v35、Run Outcome v30、Checkpoint v16 或 Simulator v8。`certified-ohlcv-economic-oracle-v1.json` 冻结三套成本/精度 profile 与两条手算 collision golden；同包测试以不依赖 production decimal/accounting 的 BigInt rational oracle，逐项比较 8 条 ordered-price trace × 3 profile × 2 admissible path 的 execution price、gross、fee、net，并验证 ordered actual path containment、canonical non-improvement、envelope 聚合和 densification invariance。Oracle 只拥有 certification authority，不进入 Result 或 Artifact。
 
+R4.49 同样不改变任何 production version。`ohlcv_economic_oracle.py` 暴露 certification-only JSON Request/Response v1；所有 decimal 输入必须为 canonical string，success 保序返回 canonical string economics，非法 schema/direction/decimal/重复 id 返回非零退出与 typed `input_invalid`。Bun certification 通过 `scripts/resolve-python.sh` 解析解释器，一次提交 48 条向量，并将 Python Decimal 结果同时对齐 R4.48 BigInt oracle 和 Evidence v3；Python unittest 另锁 long/short 手算 golden、协议保序、重复 id 与非法输入。该 CLI 不是 Plane port、tool registry 或 runtime adapter。
+
 这一闭包证明 deterministic source-to-artifact closure、执行时 exact runtime binary、冻结 pre-entry/position-open schedule 的逐 boundary market/state PIT、一次 tighten-only stop replacement、一次 full reduce-only exit Intent parity、三类终止组合唯一 owner、方向镜像 parity 及单请求进程边界；它不证明第三方签名 provenance，不支持任意外部依赖/SBOM，也不是 OS sandbox。Result 使用 `decision-harness-os-sandbox-uncertified` info limitation。其他 effect-changing decision、动态 supplemental join 与完整 feature DAG trace 仍未认证；不得表述为任意 Candidate 安全执行闭包。
 
 ## 12. Step/Event-driven 与 Fast/Vectorized
@@ -671,7 +675,7 @@ claimed -> running -> completed
 | OHLC path | stop/target、open gap、single touch、long/short high-first/low-first collision、path/economics tamper | P1/P2 order/digest、bar/bracket/EventKey、status/reason/canonical role 自洽；ordered oracle outcome 必在 envelope 内；独立 BigInt oracle 覆盖 buy/sell 滑点方向、gross floor、fee ceil、net/span/shortfall；重算 evidence hash 不能掩盖篡改 | price/cash 同比缩放不改 status/reason/path role/canonical；轨迹分段内加密采样不改 OHLC、ordered outcome 与 cost-aware evidence；未来补数据不改已终止证据 | 已认证 synthetic ordered-price/economic oracle ↔ simple-bracket two-path parity；真实 tick runtime、真实成本拟合、generic step resolver 尚未完成 |
 | orders | market/limit/stop/TP/cancel race | fill 不早于 active；filled+remaining=requested | price/qty scale 后经济量同比 | fast supported order subset |
 | reduce/position | multiple entry、partial TP、oversized/wrong-side reduce-only、reversal；partial quantity/时序/组合/保护非法输入 | reduce-only 不增仓/翻向；fixed quantity 留 open Position；partial Fill 后 stop/target 数量等于剩余绝对仓位；terminal preemption 取消 pending partial | long/short 数量镜像；同价 Fill 拆分保持经济终态；clean/resume Result hash 相同 | legacy simple resolver compatibility；partial Position/Ledger/State/checkpoint parity |
-| numeric | bps price、fee、funding、linear PnL、weighted average、return vectors | 舍入方向不改善证据；所有现金事实 increment-aligned | price/cash 同比缩放后 return 与 scaled PnL 精确等价 | Bun/BigInt 与 Python Decimal 共享向量 |
+| numeric | bps price、fee、funding、linear PnL、weighted average、return vectors；integrated terminal contribution | 舍入方向不改善证据；所有现金事实 increment-aligned；canonical decimal string 与 typed invalid input | price/cash 同比缩放后 return 与 scaled PnL 精确等价 | 已认证 primitive Numeric v3 shared vectors；terminal path 的 production Evidence ↔ TS BigInt ↔ Python Decimal 三方 parity；完整 Result/多 runtime 尚未认证 |
 | ledger/cost | fee、funding、borrow、impact | 借贷平衡；NAV bridge 可解释 | zero-cost policy 恢复 gross PnL | step/fast ledger digest |
 | margin | isolated/cross、stop-liquidation collision | equity/margin 守恒；liquidation 后无未解释风险 | collateral 等比缩放 | 不允许 fast，断言 capability reject |
 | portfolio | 同时多资产信号、资金不足 | cash/exposure/risk cap 永不越界 | asset permutation 在对称 tie policy 下不变 | batch/stream step digest |
@@ -720,14 +724,14 @@ Property tests 的核心 invariants：订单 qty、position qty、cash/NAV bridg
 - limit/stop/TP、cancel/amend、multi-entry、partial、wrong-side/oversized reduce-only、reversal。
 - 只有具备数据能力的 fill policy 才开放；maker queue 缺失继续 limitation/unsupported。
 
-**当前状态：完成第四十八子集，R3 未完成。** R4.43 已认证 partial 后 terminal owner 闭包；R4.44–R4.45 冻结并认证 simple-bracket two-path envelope；R4.46 绑定 active protection identity；R4.47 量化 terminal contribution span/shortfall；R4.48 用独立 BigInt oracle 排除同实现自证。terminal preemption、long/short lane symmetry、economic-policy tamper rejection 与 clean/resume parity 已锁定。仍缺 multiple partial、真实 historical liquidity partial、通用 cancel/amend、limit/TIF、add/reversal、partial liquidation、generic OHLC resolver 与 step/fast parity。
+**当前状态：完成第四十九子集，R3 未完成。** R4.43 已认证 partial 后 terminal owner 闭包；R4.44–R4.45 冻结并认证 simple-bracket two-path envelope；R4.46 绑定 active protection identity；R4.47 量化 terminal contribution span/shortfall；R4.48–R4.49 以独立 BigInt 与 Python Decimal 排除同实现、同语言自证。terminal preemption、long/short lane symmetry、economic-policy tamper rejection 与 clean/resume parity 已锁定。仍缺 multiple partial、真实 historical liquidity partial、通用 cancel/amend、limit/TIF、add/reversal、partial liquidation、generic OHLC resolver 与 step/fast parity。
 
 ### R4：统一 accounting
 
 - 定点 decimal、double-entry ledger、逐 fill fee、exact funding、borrow 接口。
 - isolated/cross margin、maintenance tiers、liquidation 与 penalty fixtures。
 
-**当前状态：完成第四十八子集，未完成统一组合账本。** Request/Result 为 v21/v33，Artifact/Run Outcome 为 v35/v30；Simulator v8 accounting 不变。partial fee/realized PnL、Funding、cash/equity bridge、Margin、post-partial liquidation 与 EOD valuation 已守恒；R4.47 envelope 位于 evidence/metrics 层，R4.48 仅独立认证其算术，二者均不进入权威账本。现有 certified lane 仍是单 settlement asset、单 isolated Position。borrow、cross/shared portfolio、partial liquidation、bankruptcy/insurance/ADL 与多资产组合尚未开始。
+**当前状态：完成第四十九子集，未完成统一组合账本。** Request/Result 为 v21/v33，Artifact/Run Outcome 为 v35/v30；Simulator v8 accounting 不变。partial fee/realized PnL、Funding、cash/equity bridge、Margin、post-partial liquidation 与 EOD valuation 已守恒；R4.47 envelope 位于 evidence/metrics 层，R4.48–R4.49 只以独立实现/语言认证其算术，均不进入权威账本。现有 certified lane 仍是单 settlement asset、单 isolated Position。borrow、cross/shared portfolio、partial liquidation、bankruptcy/insurance/ADL 与多资产组合尚未开始。
 
 ### R5：Portfolio
 

@@ -32,6 +32,8 @@ R4.47 为 P1/P2 path 增加 cost-aware terminal contribution：同一 entry basi
 
 R4.48 以 certification-only 独立经济 oracle 排除同实现自证：三套 quantity/cost/increment profile 覆盖 zero cost、细粒度成本和 fractional-bps/coarse-grid，test-local BigInt rational 算法不导入 production accounting/decimal。24 个 profile×trace case 的双 path、ordered actual path、envelope 聚合、long/short 手算 golden 与 densification invariance 全部 parity；production schema 与 Simulator v8 不变。
 
+R4.49 用 certification-only Python `Decimal` oracle 排除同语言自证。Canonical-string JSON Request/Response v1 经 stdin/stdout 传 48 条 path 向量，Bun 测试要求 Python、TS BigInt 与 production Evidence 的 execution price/gross/fee/net 三方一致；非法 decimal 稳定返回 typed `input_invalid`。Python 不是新 Replay backend/port，production schema 与 Simulator v8 仍不变。
+
 经济入口按唯一 `authorized_initial_order / authorized_order` 语义定位，不依赖 Schedule/Timeline 数组末位；可选退出必须是 Schedule 末位并以 `authorized_reduce_only_exit` 独立表达，不能冒充第二个入口。所有 post-entry evaluation 必须由 Source Reducer 运行时产生 Position/Cash State Snapshot，并正确表达 terminal-before-decision、pending Order 与 checkpoint/resume。
 
 Reservation 只控制新 Attempt claim；已准入 Attempt 由 lease/generation fencing。Runner 仅通过 Attempt-scoped Artifact Store port 访问证据，local-v1 使用 `fsync + hard-link CAS + directory fsync`，remote-v1 仍只有准入合同、没有 certified adapter。Control Plane 单写 Reservation、Lease、Checkpoint Receipt 与 Resume Authorization；Replay 不查询或修改 Trial。对象存储实现/认证、OS sandbox、multiple partial、动态 supplemental join、变更 accounting epoch、历史规则采集、部分强平、cross/shared portfolio、tick/L2、真实 partial liquidity、limit queue 与 fast mode 未完成。
