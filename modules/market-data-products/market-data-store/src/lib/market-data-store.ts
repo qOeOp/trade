@@ -2,7 +2,10 @@ import { Database } from "bun:sqlite"
 import { canonicalHash, canonicalJson } from "../../../../contracts/runtime-core/src/canonical-json"
 import { asRecord, numberField, stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
 
-export const INSTRUMENT_STATUS_ARCHIVE_SCHEMA_VERSION = "trade.market-data-instrument-status-archive.v1" as const
+export const INSTRUMENT_STATUS_ARCHIVE_SCHEMA_VERSION = "trade.market-data-instrument-status-archive.v2" as const
+export const INSTRUMENT_STATUS_SOURCE_BATCH_SCHEMA_VERSION = "trade.market-data-instrument-status-source-batch.v1" as const
+export const INSTRUMENT_STATUS_COMPLETENESS_AUDIT_SCHEMA_VERSION = "trade.market-data-instrument-status-completeness-audit.v1" as const
+export const INSTRUMENT_STATUS_COMPLETENESS_AUDIT_POLICY_VERSION = "market-data-status-batch-window-audit-v1" as const
 
 export interface MarketManifest {
   manifest_id: string
@@ -63,7 +66,46 @@ export interface InstrumentStatusArchiveEvent {
   observed_at: string
   source_ref: string
   source_hash: string
+  source_batch_id: string
 }
+
+export interface InstrumentStatusSourceBatchManifest {
+  schema_version: typeof INSTRUMENT_STATUS_SOURCE_BATCH_SCHEMA_VERSION
+  batch_id: string
+  batch_sequence: number
+  venue_id: string
+  symbol: string
+  coverage_start: string
+  coverage_end: string
+  source_observed_through: string
+  retrieved_at: string
+  source_ref: string
+  raw_content_hash: string
+  raw_record_count: number
+  previous_batch_hash: string | null
+  batch_hash: string
+}
+
+export type InstrumentStatusSourceBatchBody = Omit<InstrumentStatusSourceBatchManifest, "batch_hash">
+
+export interface InstrumentStatusCompletenessAudit {
+  schema_version: typeof INSTRUMENT_STATUS_COMPLETENESS_AUDIT_SCHEMA_VERSION
+  audit_policy_version: typeof INSTRUMENT_STATUS_COMPLETENESS_AUDIT_POLICY_VERSION
+  audit_scope: "batch_window_continuity"
+  status: "passed"
+  external_completeness: "not_verified"
+  coverage_start: string
+  coverage_end: string
+  batch_count: number
+  source_record_count: number
+  gap_count: 0
+  overlap_count: 0
+  batch_chain_hash: string
+  audited_at: string
+  audit_hash: string
+}
+
+export type InstrumentStatusCompletenessAuditBody = Omit<InstrumentStatusCompletenessAudit, "audit_hash">
 
 export interface InstrumentStatusArchive {
   schema_version: typeof INSTRUMENT_STATUS_ARCHIVE_SCHEMA_VERSION
@@ -80,6 +122,10 @@ export interface InstrumentStatusArchive {
   source_hash: string
   source_record_count: number
   imported_at: string
+  source_batches: InstrumentStatusSourceBatchManifest[]
+  completeness_audit: InstrumentStatusCompletenessAudit
+  supersedes_archive_hash: string | null
+  correction_reason: string | null
   events: InstrumentStatusArchiveEvent[]
   archive_hash: string
 }
@@ -181,11 +227,58 @@ export function ensureMarketDataSchema(db: Database): void {
       observed_at     TEXT NOT NULL,
       source_ref      TEXT NOT NULL,
       source_hash     TEXT NOT NULL,
+      source_batch_id TEXT NOT NULL,
       PRIMARY KEY (archive_id, event_sequence),
       UNIQUE (archive_id, event_id),
       FOREIGN KEY (archive_id) REFERENCES instrument_status_archive(archive_id)
     )
   `)
+  ensureInstrumentStatusEventBatchColumn(db)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS instrument_status_source_batch (
+      archive_id               TEXT NOT NULL,
+      batch_id                 TEXT NOT NULL,
+      batch_sequence           INTEGER NOT NULL,
+      schema_version           TEXT NOT NULL,
+      venue_id                 TEXT NOT NULL,
+      symbol                   TEXT NOT NULL,
+      coverage_start           TEXT NOT NULL,
+      coverage_end             TEXT NOT NULL,
+      source_observed_through  TEXT NOT NULL,
+      retrieved_at             TEXT NOT NULL,
+      source_ref               TEXT NOT NULL,
+      raw_content_hash         TEXT NOT NULL,
+      raw_record_count         INTEGER NOT NULL,
+      previous_batch_hash      TEXT,
+      batch_hash               TEXT NOT NULL,
+      PRIMARY KEY (archive_id, batch_sequence),
+      UNIQUE (archive_id, batch_id),
+      UNIQUE (archive_id, batch_hash),
+      FOREIGN KEY (archive_id) REFERENCES instrument_status_archive(archive_id)
+    )
+  `)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS instrument_status_archive_audit (
+      archive_id               TEXT PRIMARY KEY,
+      audit_json               TEXT NOT NULL CHECK(json_valid(audit_json)),
+      audit_hash               TEXT NOT NULL,
+      supersedes_archive_hash  TEXT UNIQUE,
+      correction_reason        TEXT,
+      FOREIGN KEY (archive_id) REFERENCES instrument_status_archive(archive_id),
+      FOREIGN KEY (supersedes_archive_hash) REFERENCES instrument_status_archive(archive_hash),
+      CHECK(
+        (supersedes_archive_hash IS NULL AND correction_reason IS NULL) OR
+        (supersedes_archive_hash IS NOT NULL AND correction_reason IS NOT NULL)
+      )
+    )
+  `)
+}
+
+function ensureInstrumentStatusEventBatchColumn(db: Database): void {
+  const columns = db.query("PRAGMA table_info(instrument_status_event)").all() as Array<{ name: string }>
+  if (!columns.some((column) => column.name === "source_batch_id")) {
+    db.run("ALTER TABLE instrument_status_event ADD COLUMN source_batch_id TEXT")
+  }
 }
 
 export function ensureOhlcvSchema(db: Database): void {
@@ -216,12 +309,77 @@ function configureSqliteConnection(db: Database): void {
   db.run("PRAGMA synchronous = NORMAL")
 }
 
-export function createInstrumentStatusArchive(input: Omit<InstrumentStatusArchiveBody, "schema_version" | "source_hash" | "source_record_count">): InstrumentStatusArchive {
+export function createInstrumentStatusSourceBatchManifest(
+  body: Omit<InstrumentStatusSourceBatchBody, "schema_version">,
+): InstrumentStatusSourceBatchManifest {
+  const value: InstrumentStatusSourceBatchManifest = {
+    schema_version: INSTRUMENT_STATUS_SOURCE_BATCH_SCHEMA_VERSION,
+    ...body,
+    batch_hash: canonicalHash({ schema_version: INSTRUMENT_STATUS_SOURCE_BATCH_SCHEMA_VERSION, ...body }),
+  }
+  assertInstrumentStatusSourceBatchManifest(value)
+  return value
+}
+
+export function createInstrumentStatusCompletenessAudit(input: {
+  coverage_start: string
+  coverage_end: string
+  audited_at: string
+  source_batches: InstrumentStatusSourceBatchManifest[]
+}): InstrumentStatusCompletenessAudit {
+  const body: InstrumentStatusCompletenessAuditBody = {
+    schema_version: INSTRUMENT_STATUS_COMPLETENESS_AUDIT_SCHEMA_VERSION,
+    audit_policy_version: INSTRUMENT_STATUS_COMPLETENESS_AUDIT_POLICY_VERSION,
+    audit_scope: "batch_window_continuity",
+    status: "passed",
+    external_completeness: "not_verified",
+    coverage_start: input.coverage_start,
+    coverage_end: input.coverage_end,
+    batch_count: input.source_batches.length,
+    source_record_count: input.source_batches.reduce((sum, batch) => sum + batch.raw_record_count, 0),
+    gap_count: 0,
+    overlap_count: 0,
+    batch_chain_hash: canonicalHash(input.source_batches.map((batch) => batch.batch_hash)),
+    audited_at: input.audited_at,
+  }
+  const value = { ...body, audit_hash: canonicalHash(body) }
+  assertInstrumentStatusCompletenessAudit(value, input.source_batches)
+  return value
+}
+
+export function createInstrumentStatusArchive(input: Omit<
+  InstrumentStatusArchiveBody,
+  "schema_version" | "source_hash" | "source_record_count" | "completeness_audit" | "supersedes_archive_hash" | "correction_reason"
+> & {
+  supersedes_archive_hash?: string | null
+  correction_reason?: string | null
+}): InstrumentStatusArchive {
+  const sourceRecordCount = input.source_batches.reduce((sum, batch) => sum + batch.raw_record_count, 0)
   const body: InstrumentStatusArchiveBody = {
     schema_version: INSTRUMENT_STATUS_ARCHIVE_SCHEMA_VERSION,
-    ...input,
-    source_hash: canonicalHash(input.events),
-    source_record_count: input.events.length,
+    archive_id: input.archive_id,
+    venue_id: input.venue_id,
+    symbol: input.symbol,
+    source_owner: input.source_owner,
+    source_kind: input.source_kind,
+    completeness: input.completeness,
+    coverage_start: input.coverage_start,
+    coverage_end: input.coverage_end,
+    source_observed_through: input.source_observed_through,
+    source_ref: input.source_ref,
+    source_hash: canonicalHash(input.source_batches),
+    source_record_count: sourceRecordCount,
+    imported_at: input.imported_at,
+    source_batches: input.source_batches,
+    completeness_audit: createInstrumentStatusCompletenessAudit({
+      coverage_start: input.coverage_start,
+      coverage_end: input.coverage_end,
+      audited_at: input.imported_at,
+      source_batches: input.source_batches,
+    }),
+    supersedes_archive_hash: input.supersedes_archive_hash ?? null,
+    correction_reason: input.correction_reason ?? null,
+    events: input.events,
   }
   const archive = { ...body, archive_hash: canonicalHash(body) }
   assertInstrumentStatusArchive(archive)
@@ -243,9 +401,27 @@ export function commitInstrumentStatusArchive(db: Database, archive: InstrumentS
   `)
   const insertEvent = db.query(`
     INSERT INTO instrument_status_event(
-      archive_id, event_id, event_sequence, status, effective_at, observed_at, source_ref, source_hash
+      archive_id, event_id, event_sequence, status, effective_at, observed_at, source_ref, source_hash, source_batch_id
     ) VALUES (
-      $archive_id, $event_id, $event_sequence, $status, $effective_at, $observed_at, $source_ref, $source_hash
+      $archive_id, $event_id, $event_sequence, $status, $effective_at, $observed_at, $source_ref, $source_hash, $source_batch_id
+    )
+  `)
+  const insertBatch = db.query(`
+    INSERT INTO instrument_status_source_batch(
+      archive_id, batch_id, batch_sequence, schema_version, venue_id, symbol,
+      coverage_start, coverage_end, source_observed_through, retrieved_at,
+      source_ref, raw_content_hash, raw_record_count, previous_batch_hash, batch_hash
+    ) VALUES (
+      $archive_id, $batch_id, $batch_sequence, $schema_version, $venue_id, $symbol,
+      $coverage_start, $coverage_end, $source_observed_through, $retrieved_at,
+      $source_ref, $raw_content_hash, $raw_record_count, $previous_batch_hash, $batch_hash
+    )
+  `)
+  const insertAudit = db.query(`
+    INSERT INTO instrument_status_archive_audit(
+      archive_id, audit_json, audit_hash, supersedes_archive_hash, correction_reason
+    ) VALUES (
+      $archive_id, $audit_json, $audit_hash, $supersedes_archive_hash, $correction_reason
     )
   `)
   return db.transaction((): "created" | "existing" => {
@@ -255,6 +431,19 @@ export function commitInstrumentStatusArchive(db: Database, archive: InstrumentS
         throw new Error("instrument status archive id is already committed with different content")
       }
       return "existing"
+    }
+    if (archive.supersedes_archive_hash) {
+      const predecessor = db.query(`
+        SELECT venue_id, symbol, coverage_start, coverage_end
+        FROM instrument_status_archive WHERE archive_hash = $archive_hash
+      `).get({ $archive_hash: archive.supersedes_archive_hash }) as {
+        venue_id: string; symbol: string; coverage_start: string; coverage_end: string
+      } | null
+      if (!predecessor) throw new Error("instrument status archive supersession predecessor does not exist")
+      if (predecessor.venue_id !== archive.venue_id || predecessor.symbol !== archive.symbol
+          || predecessor.coverage_start !== archive.coverage_start || predecessor.coverage_end !== archive.coverage_end) {
+        throw new Error("instrument status archive supersession scope mismatch")
+      }
     }
     insertArchive.run({
       $archive_id: archive.archive_id,
@@ -276,6 +465,16 @@ export function commitInstrumentStatusArchive(db: Database, archive: InstrumentS
     for (const event of archive.events) {
       insertEvent.run({ $archive_id: archive.archive_id, ...sqlStatusEvent(event) })
     }
+    for (const batch of archive.source_batches) {
+      insertBatch.run({ $archive_id: archive.archive_id, ...sqlStatusBatch(batch) })
+    }
+    insertAudit.run({
+      $archive_id: archive.archive_id,
+      $audit_json: JSON.stringify(archive.completeness_audit),
+      $audit_hash: archive.completeness_audit.audit_hash,
+      $supersedes_archive_hash: archive.supersedes_archive_hash,
+      $correction_reason: archive.correction_reason,
+    })
     return "created"
   }).immediate()
 }
@@ -289,8 +488,27 @@ export function readInstrumentStatusArchive(db: Database, archiveId: string): In
     WHERE archive_id = $archive_id
   `).get({ $archive_id: archiveId }) as InstrumentStatusArchiveRow | null
   if (!row) return null
+  if (row.schema_version !== INSTRUMENT_STATUS_ARCHIVE_SCHEMA_VERSION) {
+    throw new Error("legacy instrument status archive requires explicit migration to source-batch closure")
+  }
+  const auditRow = db.query(`
+    SELECT audit_json, audit_hash, supersedes_archive_hash, correction_reason
+    FROM instrument_status_archive_audit WHERE archive_id = $archive_id
+  `).get({ $archive_id: archiveId }) as InstrumentStatusArchiveAuditRow | null
+  if (!auditRow) throw new Error("instrument status archive source-batch audit is missing")
+  const completenessAudit = JSON.parse(auditRow.audit_json) as InstrumentStatusCompletenessAudit
+  if (completenessAudit.audit_hash !== auditRow.audit_hash) {
+    throw new Error("instrument status archive persisted audit hash mismatch")
+  }
+  const sourceBatches = db.query(`
+    SELECT batch_id, batch_sequence, schema_version, venue_id, symbol,
+      coverage_start, coverage_end, source_observed_through, retrieved_at,
+      source_ref, raw_content_hash, raw_record_count, previous_batch_hash, batch_hash
+    FROM instrument_status_source_batch
+    WHERE archive_id = $archive_id ORDER BY batch_sequence
+  `).all({ $archive_id: archiveId }) as InstrumentStatusSourceBatchRow[]
   const events = db.query(`
-    SELECT event_id, event_sequence, status, effective_at, observed_at, source_ref, source_hash
+    SELECT event_id, event_sequence, status, effective_at, observed_at, source_ref, source_hash, source_batch_id
     FROM instrument_status_event
     WHERE archive_id = $archive_id
     ORDER BY event_sequence
@@ -310,6 +528,13 @@ export function readInstrumentStatusArchive(db: Database, archiveId: string): In
     source_hash: row.source_hash,
     source_record_count: row.source_record_count,
     imported_at: row.imported_at,
+    source_batches: sourceBatches.map((batch) => ({
+      ...batch,
+      schema_version: batch.schema_version as typeof INSTRUMENT_STATUS_SOURCE_BATCH_SCHEMA_VERSION,
+    })),
+    completeness_audit: completenessAudit,
+    supersedes_archive_hash: auditRow.supersedes_archive_hash,
+    correction_reason: auditRow.correction_reason,
     events: events.map((event) => ({ ...event, status: event.status as "trading" | "halted" })),
     archive_hash: row.archive_hash,
   }
@@ -318,6 +543,20 @@ export function readInstrumentStatusArchive(db: Database, archiveId: string): In
 }
 
 export function buildInstrumentStatusArchive(input: JSONRecord): InstrumentStatusArchive {
+  const sourceBatches = Array.isArray(input.source_batches) ? input.source_batches.map(asRecord).map((batch) => createInstrumentStatusSourceBatchManifest({
+    batch_id: stringField(batch.batch_id),
+    batch_sequence: numberField(batch.batch_sequence),
+    venue_id: stringField(batch.venue_id),
+    symbol: stringField(batch.symbol),
+    coverage_start: stringField(batch.coverage_start),
+    coverage_end: stringField(batch.coverage_end),
+    source_observed_through: stringField(batch.source_observed_through),
+    retrieved_at: stringField(batch.retrieved_at),
+    source_ref: stringField(batch.source_ref),
+    raw_content_hash: stringField(batch.raw_content_hash),
+    raw_record_count: numberField(batch.raw_record_count),
+    previous_batch_hash: batch.previous_batch_hash === null ? null : stringField(batch.previous_batch_hash),
+  })) : []
   const events = Array.isArray(input.events) ? input.events.map(asRecord).map((event) => ({
     event_id: stringField(event.event_id),
     event_sequence: numberField(event.event_sequence),
@@ -326,6 +565,7 @@ export function buildInstrumentStatusArchive(input: JSONRecord): InstrumentStatu
     observed_at: stringField(event.observed_at),
     source_ref: stringField(event.source_ref),
     source_hash: stringField(event.source_hash),
+    source_batch_id: stringField(event.source_batch_id),
   })) : []
   return createInstrumentStatusArchive({
     archive_id: stringField(input.archive_id),
@@ -339,6 +579,11 @@ export function buildInstrumentStatusArchive(input: JSONRecord): InstrumentStatu
     source_observed_through: stringField(input.source_observed_through),
     source_ref: stringField(input.source_ref),
     imported_at: stringField(input.imported_at),
+    source_batches: sourceBatches,
+    supersedes_archive_hash: input.supersedes_archive_hash === null || input.supersedes_archive_hash === undefined
+      ? null : stringField(input.supersedes_archive_hash),
+    correction_reason: input.correction_reason === null || input.correction_reason === undefined
+      ? null : stringField(input.correction_reason),
     events,
   })
 }
@@ -369,14 +614,29 @@ export function assertInstrumentStatusArchive(archive: InstrumentStatusArchive):
   if (Date.parse(archive.imported_at) < Date.parse(archive.source_observed_through)) {
     throw new Error("instrument status archive cannot be imported before its source watermark")
   }
+  if ((archive.supersedes_archive_hash === null) !== (archive.correction_reason === null)) {
+    throw new Error("instrument status archive supersession requires both predecessor and correction reason")
+  }
+  if (archive.supersedes_archive_hash !== null) requireHash(archive.supersedes_archive_hash, "instrument status archive supersedes_archive_hash")
+  if (archive.correction_reason !== null) requireNonEmpty(archive.correction_reason, "instrument status archive correction_reason")
+  assertInstrumentStatusCompletenessAudit(archive.completeness_audit, archive.source_batches)
+  if (archive.completeness_audit.coverage_start !== archive.coverage_start
+      || archive.completeness_audit.coverage_end !== archive.coverage_end
+      || archive.completeness_audit.audited_at !== archive.imported_at) {
+    throw new Error("instrument status archive completeness audit scope mismatch")
+  }
   if (archive.events.length === 0 || archive.source_record_count !== archive.events.length) {
     throw new Error("instrument status archive source record count must match a non-empty event set")
   }
+  const batchesById = new Map(archive.source_batches.map((batch) => [batch.batch_id, batch]))
+  const eventCounts = new Map<string, number>()
   let previous: InstrumentStatusArchiveEvent | undefined
   for (const [index, event] of archive.events.entries()) {
-    for (const [field, value] of Object.entries({ event_id: event.event_id, source_ref: event.source_ref })) {
+    for (const [field, value] of Object.entries({ event_id: event.event_id, source_ref: event.source_ref, source_batch_id: event.source_batch_id })) {
       requireNonEmpty(value, `instrument status event ${field}`)
     }
+    if (!batchesById.has(event.source_batch_id)) throw new Error("instrument status event references an unknown source batch")
+    eventCounts.set(event.source_batch_id, (eventCounts.get(event.source_batch_id) ?? 0) + 1)
     requireHash(event.source_hash, "instrument status event source_hash")
     requireUtc(event.effective_at, "instrument status event effective_at")
     requireUtc(event.observed_at, "instrument status event observed_at")
@@ -395,11 +655,91 @@ export function assertInstrumentStatusArchive(archive: InstrumentStatusArchive):
   if (Date.parse(archive.events[0].effective_at) > Date.parse(archive.coverage_start)) {
     throw new Error("instrument status archive requires an anchor event at or before coverage_start")
   }
+  for (const batch of archive.source_batches) {
+    if (batch.venue_id !== archive.venue_id || batch.symbol !== archive.symbol
+        || Date.parse(batch.source_observed_through) > Date.parse(archive.source_observed_through)
+        || Date.parse(batch.retrieved_at) > Date.parse(archive.imported_at)) {
+      throw new Error("instrument status source batch identity or time exceeds its archive")
+    }
+    if ((eventCounts.get(batch.batch_id) ?? 0) !== batch.raw_record_count) {
+      throw new Error("instrument status source batch record count does not match linked events")
+    }
+  }
   requireHash(archive.source_hash, "instrument status archive source_hash")
   requireHash(archive.archive_hash, "instrument status archive archive_hash")
-  if (archive.source_hash !== canonicalHash(archive.events)) throw new Error("instrument status archive source hash mismatch")
+  if (archive.source_hash !== canonicalHash(archive.source_batches)) throw new Error("instrument status archive source hash mismatch")
   const body = Object.fromEntries(Object.entries(archive).filter(([key]) => key !== "archive_hash"))
   if (archive.archive_hash !== canonicalHash(body)) throw new Error("instrument status archive hash mismatch")
+}
+
+export function assertInstrumentStatusSourceBatchManifest(batch: InstrumentStatusSourceBatchManifest): void {
+  if (batch.schema_version !== INSTRUMENT_STATUS_SOURCE_BATCH_SCHEMA_VERSION) throw new Error("unsupported instrument status source batch schema")
+  for (const [field, value] of Object.entries({
+    batch_id: batch.batch_id, venue_id: batch.venue_id, symbol: batch.symbol, source_ref: batch.source_ref,
+  })) requireNonEmpty(value, `instrument status source batch ${field}`)
+  if (!Number.isSafeInteger(batch.batch_sequence) || batch.batch_sequence < 1) throw new Error("instrument status source batch sequence must be positive")
+  if (!Number.isSafeInteger(batch.raw_record_count) || batch.raw_record_count < 0) throw new Error("instrument status source batch record count must be non-negative")
+  for (const [field, value] of Object.entries({
+    coverage_start: batch.coverage_start, coverage_end: batch.coverage_end,
+    source_observed_through: batch.source_observed_through, retrieved_at: batch.retrieved_at,
+  })) requireUtc(value, `instrument status source batch ${field}`)
+  if (Date.parse(batch.coverage_start) >= Date.parse(batch.coverage_end)) throw new Error("instrument status source batch coverage must be positive")
+  if (Date.parse(batch.source_observed_through) < Date.parse(batch.coverage_end)
+      || Date.parse(batch.retrieved_at) < Date.parse(batch.source_observed_through)) {
+    throw new Error("instrument status source batch watermark ordering is invalid")
+  }
+  requireHash(batch.raw_content_hash, "instrument status source batch raw_content_hash")
+  if (batch.previous_batch_hash !== null) requireHash(batch.previous_batch_hash, "instrument status source batch previous_batch_hash")
+  requireHash(batch.batch_hash, "instrument status source batch batch_hash")
+  const { batch_hash: batchHash, ...body } = batch
+  if (batchHash !== canonicalHash(body)) throw new Error("instrument status source batch hash mismatch")
+}
+
+export function assertInstrumentStatusCompletenessAudit(
+  audit: InstrumentStatusCompletenessAudit,
+  batches: InstrumentStatusSourceBatchManifest[],
+): void {
+  if (audit.schema_version !== INSTRUMENT_STATUS_COMPLETENESS_AUDIT_SCHEMA_VERSION
+      || audit.audit_policy_version !== INSTRUMENT_STATUS_COMPLETENESS_AUDIT_POLICY_VERSION) {
+    throw new Error("unsupported instrument status completeness audit")
+  }
+  if (audit.audit_scope !== "batch_window_continuity" || audit.status !== "passed"
+      || audit.external_completeness !== "not_verified" || audit.gap_count !== 0 || audit.overlap_count !== 0) {
+    throw new Error("instrument status completeness audit overclaims its evidence")
+  }
+  requireUtc(audit.coverage_start, "instrument status completeness audit coverage_start")
+  requireUtc(audit.coverage_end, "instrument status completeness audit coverage_end")
+  requireUtc(audit.audited_at, "instrument status completeness audit audited_at")
+  if (batches.length === 0 || audit.batch_count !== batches.length) throw new Error("instrument status completeness audit batch count mismatch")
+  const batchIds = new Set<string>()
+  const batchHashes = new Set<string>()
+  let previous: InstrumentStatusSourceBatchManifest | undefined
+  for (const [index, batch] of batches.entries()) {
+    assertInstrumentStatusSourceBatchManifest(batch)
+    if (batchIds.has(batch.batch_id) || batchHashes.has(batch.batch_hash)) {
+      throw new Error("instrument status source batches must have unique ids and hashes")
+    }
+    batchIds.add(batch.batch_id)
+    batchHashes.add(batch.batch_hash)
+    if (batch.batch_sequence !== index + 1) throw new Error("instrument status source batches must be contiguous from one")
+    if (index === 0) {
+      if (batch.coverage_start !== audit.coverage_start || batch.previous_batch_hash !== null) {
+        throw new Error("instrument status source batch chain has an invalid anchor")
+      }
+    } else if (batch.coverage_start !== previous!.coverage_end || batch.previous_batch_hash !== previous!.batch_hash) {
+      throw new Error("instrument status source batch chain has a gap, overlap, or broken hash link")
+    }
+    previous = batch
+  }
+  if (previous!.coverage_end !== audit.coverage_end) throw new Error("instrument status source batch chain does not close audit coverage")
+  const sourceRecordCount = batches.reduce((sum, batch) => sum + batch.raw_record_count, 0)
+  if (audit.source_record_count !== sourceRecordCount
+      || audit.batch_chain_hash !== canonicalHash(batches.map((batch) => batch.batch_hash))) {
+    throw new Error("instrument status completeness audit batch evidence mismatch")
+  }
+  requireHash(audit.audit_hash, "instrument status completeness audit audit_hash")
+  const { audit_hash: auditHash, ...body } = audit
+  if (auditHash !== canonicalHash(body)) throw new Error("instrument status completeness audit hash mismatch")
 }
 
 export function upsertMarketManifest(db: Database, manifest: MarketManifest): void {
@@ -832,6 +1172,31 @@ interface InstrumentStatusArchiveEventRow {
   observed_at: string
   source_ref: string
   source_hash: string
+  source_batch_id: string
+}
+
+interface InstrumentStatusSourceBatchRow {
+  batch_id: string
+  batch_sequence: number
+  schema_version: string
+  venue_id: string
+  symbol: string
+  coverage_start: string
+  coverage_end: string
+  source_observed_through: string
+  retrieved_at: string
+  source_ref: string
+  raw_content_hash: string
+  raw_record_count: number
+  previous_batch_hash: string | null
+  batch_hash: string
+}
+
+interface InstrumentStatusArchiveAuditRow {
+  audit_json: string
+  audit_hash: string
+  supersedes_archive_hash: string | null
+  correction_reason: string | null
 }
 
 function manifestFromRow(row: MarketManifestRow): MarketManifest {
@@ -902,6 +1267,26 @@ function sqlStatusEvent(event: InstrumentStatusArchiveEvent): Record<string, str
     $observed_at: event.observed_at,
     $source_ref: event.source_ref,
     $source_hash: event.source_hash,
+    $source_batch_id: event.source_batch_id,
+  }
+}
+
+function sqlStatusBatch(batch: InstrumentStatusSourceBatchManifest): Record<string, string | number | null> {
+  return {
+    $batch_id: batch.batch_id,
+    $batch_sequence: batch.batch_sequence,
+    $schema_version: batch.schema_version,
+    $venue_id: batch.venue_id,
+    $symbol: batch.symbol,
+    $coverage_start: batch.coverage_start,
+    $coverage_end: batch.coverage_end,
+    $source_observed_through: batch.source_observed_through,
+    $retrieved_at: batch.retrieved_at,
+    $source_ref: batch.source_ref,
+    $raw_content_hash: batch.raw_content_hash,
+    $raw_record_count: batch.raw_record_count,
+    $previous_batch_hash: batch.previous_batch_hash,
+    $batch_hash: batch.batch_hash,
   }
 }
 

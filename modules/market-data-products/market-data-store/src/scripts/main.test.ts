@@ -105,7 +105,21 @@ test("market data store CLI upserts and reads manifest", () => {
       source_observed_through: "2026-07-15T00:00:00Z",
       source_ref: "venue-archive:status-cli",
       imported_at: "2026-07-15T00:01:00Z",
-      events: [{ event_id: "status-1", event_sequence: 1, status: "trading", effective_at: "2026-07-01T00:00:00Z", observed_at: "2026-07-01T00:00:01Z", source_ref: "venue-event:status-1", source_hash: "a".repeat(64) }],
+      source_batches: [{
+        batch_id: "status-cli-batch",
+        batch_sequence: 1,
+        venue_id: "binance-usdm",
+        symbol: "BTCUSDT",
+        coverage_start: "2026-07-01T00:00:00Z",
+        coverage_end: "2026-07-15T00:00:00Z",
+        source_observed_through: "2026-07-15T00:00:00Z",
+        retrieved_at: "2026-07-15T00:01:00Z",
+        source_ref: "venue-batch:status-cli",
+        raw_content_hash: "b".repeat(64),
+        raw_record_count: 1,
+        previous_batch_hash: null,
+      }],
+      events: [{ event_id: "status-1", event_sequence: 1, status: "trading", effective_at: "2026-07-01T00:00:00Z", observed_at: "2026-07-01T00:00:01Z", source_ref: "venue-event:status-1", source_hash: "a".repeat(64), source_batch_id: "status-cli-batch" }],
     }
     const committed = run(parseArgs(["--db", dbPath, "--action", "commit_instrument_status_archive", "--json", JSON.stringify(archiveInput)])) as { commit_status: string; archive_hash: string }
     const statusArchive = run(parseArgs(["--db", dbPath, "--action", "read_instrument_status_archive", "--json", JSON.stringify({ archive_id: "status-cli" })])) as { archive: { archive_hash: string; events: unknown[] } }

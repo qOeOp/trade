@@ -5,8 +5,10 @@ import {
   buildCanonicalCandles,
   buildFeatureManifest,
   buildFundingEvents,
+  assertInstrumentStatusArchive,
   commitInstrumentStatusArchive,
   createInstrumentStatusArchive,
+  createInstrumentStatusSourceBatchManifest,
   buildMarketManifest,
   ensureMarketDataSchema,
   ensureOhlcvSchema,
@@ -20,6 +22,33 @@ import {
   upsertFundingEvents,
   upsertMarketManifest,
 } from "./market-data-store"
+
+function statusBatch(input: {
+  batch_id?: string
+  batch_sequence?: number
+  coverage_start?: string
+  coverage_end?: string
+  source_observed_through?: string
+  retrieved_at?: string
+  raw_record_count?: number
+  previous_batch_hash?: string | null
+  raw_content_hash?: string
+} = {}) {
+  return createInstrumentStatusSourceBatchManifest({
+    batch_id: input.batch_id ?? "status-batch-1",
+    batch_sequence: input.batch_sequence ?? 1,
+    venue_id: "binance-usdm",
+    symbol: "BTCUSDT",
+    coverage_start: input.coverage_start ?? "2026-07-01T00:00:00Z",
+    coverage_end: input.coverage_end ?? "2026-07-15T00:00:00Z",
+    source_observed_through: input.source_observed_through ?? input.coverage_end ?? "2026-07-15T00:00:00Z",
+    retrieved_at: input.retrieved_at ?? "2026-07-15T00:01:00Z",
+    source_ref: `venue-batch:${input.batch_id ?? "status-batch-1"}`,
+    raw_content_hash: input.raw_content_hash ?? "d".repeat(64),
+    raw_record_count: input.raw_record_count ?? 1,
+    previous_batch_hash: input.previous_batch_hash ?? null,
+  })
+}
 
 test("market data store records manifests and canonical rows", () => {
   const db = new Database(":memory:")
@@ -77,6 +106,7 @@ test("market data store commits one immutable finalized instrument-status archiv
     source_observed_through: "2026-07-15T00:00:00Z",
     source_ref: "venue-archive:binance-usdm:BTCUSDT:2026-07",
     imported_at: "2026-07-15T00:01:00Z",
+    source_batches: [statusBatch()],
     events: [{
       event_id: "status-1",
       event_sequence: 1,
@@ -85,6 +115,7 @@ test("market data store commits one immutable finalized instrument-status archiv
       observed_at: "2026-07-01T00:00:01Z",
       source_ref: "venue-event:status-1",
       source_hash: "a".repeat(64),
+      source_batch_id: "status-batch-1",
     }],
   })
   try {
@@ -103,6 +134,7 @@ test("market data store commits one immutable finalized instrument-status archiv
       source_observed_through: archive.source_observed_through,
       source_ref: "venue-archive:mutated",
       imported_at: archive.imported_at,
+      source_batches: archive.source_batches,
       events: archive.events,
     })
     assert.throws(() => commitInstrumentStatusArchive(db, conflictingArchive), /different content/)
@@ -124,22 +156,111 @@ test("instrument-status archive rejects unfinalized coverage and redundant obser
     source_observed_through: "2026-07-14T23:59:59Z",
     source_ref: "venue-archive:status",
     imported_at: "2026-07-15T00:01:00Z",
-    events: [{ event_id: "one", event_sequence: 1, status: "trading" as const, effective_at: "2026-07-01T00:00:00Z", observed_at: "2026-07-01T00:00:01Z", source_ref: "event:one", source_hash: "a".repeat(64) }],
+    source_batches: [statusBatch()],
+    events: [{ event_id: "one", event_sequence: 1, status: "trading" as const, effective_at: "2026-07-01T00:00:00Z", observed_at: "2026-07-01T00:00:01Z", source_ref: "event:one", source_hash: "a".repeat(64), source_batch_id: "status-batch-1" }],
   }
   assert.throws(() => createInstrumentStatusArchive(base), /finality watermark/)
   assert.throws(() => createInstrumentStatusArchive({
     ...base,
     source_observed_through: "2026-07-15T00:00:00Z",
     imported_at: "",
-  }), /imported_at is required/)
+  }), /required/)
   assert.throws(() => createInstrumentStatusArchive({
     ...base,
     source_observed_through: "2026-07-15T00:00:00Z",
+    source_batches: [statusBatch({ raw_record_count: 2 })],
     events: [
       base.events[0],
       { ...base.events[0], event_id: "two", event_sequence: 2, effective_at: "2026-07-02T00:00:00Z", observed_at: "2026-07-02T00:00:01Z" },
     ],
   }), /state transitions/)
+})
+
+test("instrument-status source batches require contiguous windows, hash links, and non-overclaiming audit", () => {
+  const first = statusBatch({ coverage_end: "2026-07-08T00:00:00Z", source_observed_through: "2026-07-08T00:00:00Z", retrieved_at: "2026-07-08T00:01:00Z" })
+  const second = statusBatch({
+    batch_id: "status-batch-2",
+    batch_sequence: 2,
+    coverage_start: first.coverage_end,
+    raw_content_hash: "e".repeat(64),
+    previous_batch_hash: first.batch_hash,
+  })
+  const archive = createInstrumentStatusArchive({
+    archive_id: "status-two-batches",
+    venue_id: "binance-usdm",
+    symbol: "BTCUSDT",
+    source_owner: "binance-usdm",
+    source_kind: "venue_status_event_archive",
+    completeness: "complete_history",
+    coverage_start: "2026-07-01T00:00:00Z",
+    coverage_end: "2026-07-15T00:00:00Z",
+    source_observed_through: "2026-07-15T00:00:00Z",
+    source_ref: "venue-archive:two-batches",
+    imported_at: "2026-07-15T00:01:00Z",
+    source_batches: [first, second],
+    events: [
+      { event_id: "one", event_sequence: 1, status: "trading", effective_at: "2026-07-01T00:00:00Z", observed_at: "2026-07-01T00:00:01Z", source_ref: "event:one", source_hash: "a".repeat(64), source_batch_id: first.batch_id },
+      { event_id: "two", event_sequence: 2, status: "halted", effective_at: "2026-07-10T00:00:00Z", observed_at: "2026-07-10T00:00:01Z", source_ref: "event:two", source_hash: "b".repeat(64), source_batch_id: second.batch_id },
+    ],
+  })
+  assert.equal(archive.completeness_audit.external_completeness, "not_verified")
+  assert.equal(archive.completeness_audit.batch_count, 2)
+  const { batch_hash: _batchHash, ...secondBody } = second
+  assert.throws(() => createInstrumentStatusArchive({
+    ...archive,
+    archive_id: "status-gap",
+    source_batches: [first, createInstrumentStatusSourceBatchManifest({
+      ...secondBody,
+      coverage_start: "2026-07-09T00:00:00Z",
+    })],
+  }), /gap, overlap, or broken hash link/)
+  const overclaim = {
+    ...archive,
+    completeness_audit: { ...archive.completeness_audit, external_completeness: "verified" },
+  }
+  assert.throws(() => assertInstrumentStatusArchive(overclaim as typeof archive), /overclaims/)
+})
+
+test("instrument-status archive corrections form an append-only single-successor chain", () => {
+  const db = new Database(":memory:")
+  ensureMarketDataSchema(db)
+  const predecessor = createInstrumentStatusArchive({
+    archive_id: "status-original",
+    venue_id: "binance-usdm",
+    symbol: "BTCUSDT",
+    source_owner: "binance-usdm",
+    source_kind: "venue_status_event_archive",
+    completeness: "complete_history",
+    coverage_start: "2026-07-01T00:00:00Z",
+    coverage_end: "2026-07-15T00:00:00Z",
+    source_observed_through: "2026-07-15T00:00:00Z",
+    source_ref: "venue-archive:original",
+    imported_at: "2026-07-15T00:01:00Z",
+    source_batches: [statusBatch()],
+    events: [{ event_id: "one", event_sequence: 1, status: "trading", effective_at: "2026-07-01T00:00:00Z", observed_at: "2026-07-01T00:00:01Z", source_ref: "event:one", source_hash: "a".repeat(64), source_batch_id: "status-batch-1" }],
+  })
+  const correctedBatch = statusBatch({ batch_id: "status-batch-corrected", raw_content_hash: "f".repeat(64) })
+  const corrected = createInstrumentStatusArchive({
+    ...predecessor,
+    archive_id: "status-corrected",
+    source_ref: "venue-archive:corrected",
+    source_batches: [correctedBatch],
+    supersedes_archive_hash: predecessor.archive_hash,
+    correction_reason: "upstream status record correction",
+    events: [{ ...predecessor.events[0], source_hash: "b".repeat(64), source_batch_id: correctedBatch.batch_id }],
+  })
+  try {
+    assert.equal(commitInstrumentStatusArchive(db, predecessor), "created")
+    assert.equal(commitInstrumentStatusArchive(db, corrected), "created")
+    assert.equal(readInstrumentStatusArchive(db, predecessor.archive_id)?.archive_hash, predecessor.archive_hash)
+    assert.equal(readInstrumentStatusArchive(db, corrected.archive_id)?.supersedes_archive_hash, predecessor.archive_hash)
+    const branch = createInstrumentStatusArchive({ ...corrected, archive_id: "status-corrected-branch", source_ref: "venue-archive:branch" })
+    assert.throws(() => commitInstrumentStatusArchive(db, branch), /UNIQUE constraint failed/)
+    const orphan = createInstrumentStatusArchive({ ...corrected, archive_id: "status-orphan", supersedes_archive_hash: "9".repeat(64) })
+    assert.throws(() => commitInstrumentStatusArchive(db, orphan), /predecessor does not exist/)
+  } finally {
+    db.close()
+  }
 })
 
 test("market data store records funding events and feature manifests", () => {

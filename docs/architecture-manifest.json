@@ -256,7 +256,7 @@
       "status": "implemented",
       "owner_domain": "market-data-products",
       "owner_module": "modules/market-data-products/market-data-store",
-      "physical": { "kind": "sqlite", "path": "data/market_data.db", "tables": ["market_manifest", "funding_event", "feature_manifest", "instrument_status_archive", "instrument_status_event"] },
+      "physical": { "kind": "sqlite", "path": "data/market_data.db", "tables": ["market_manifest", "funding_event", "feature_manifest", "instrument_status_archive", "instrument_status_event", "instrument_status_source_batch", "instrument_status_archive_audit"] },
       "schema": "docs/storage-schema/market-data-store.sql",
       "write_contract": "manifest-upsert-plus-immutable-status-archive-cas"
     },

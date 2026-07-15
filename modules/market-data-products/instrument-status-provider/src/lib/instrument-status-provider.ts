@@ -12,9 +12,9 @@ import {
 } from "../../../market-data-store/src/lib/market-data-store"
 
 export const INSTRUMENT_STATUS_PROVIDER_CAPABILITY_SCHEMA_VERSION = "trade.market-data-instrument-status-provider-capability.v1" as const
-export const REPLAY_INSTRUMENT_STATUS_EVIDENCE_SCHEMA_VERSION = "trade.market-data-replay-instrument-status-evidence.v2" as const
+export const REPLAY_INSTRUMENT_STATUS_EVIDENCE_SCHEMA_VERSION = "trade.market-data-replay-instrument-status-evidence.v3" as const
 export const INSTRUMENT_STATUS_PROVIDER_ID = "market-data.instrument-status-provider" as const
-export const INSTRUMENT_STATUS_PROVIDER_VERSION = "v2" as const
+export const INSTRUMENT_STATUS_PROVIDER_VERSION = "v3" as const
 export const INSTRUMENT_STATUS_NORMALIZATION_POLICY_VERSION = "market-data-instrument-status-normalization-v1" as const
 
 const NORMALIZATION_POLICY = {
@@ -32,7 +32,7 @@ export const INSTRUMENT_STATUS_NORMALIZATION_POLICY_HASH = canonicalHash(NORMALI
 const PROVIDER_BUILD_MANIFEST = {
   producer_id: INSTRUMENT_STATUS_PROVIDER_ID,
   producer_version: INSTRUMENT_STATUS_PROVIDER_VERSION,
-  input_schema: "trade.market-data-instrument-status-archive.v1",
+  input_schema: "trade.market-data-instrument-status-archive.v2",
   output_schema: REPLAY_INSTRUMENT_STATUS_EVIDENCE_SCHEMA_VERSION,
   normalization_policy_version: INSTRUMENT_STATUS_NORMALIZATION_POLICY_VERSION,
   normalization_policy_hash: INSTRUMENT_STATUS_NORMALIZATION_POLICY_HASH,
@@ -78,6 +78,10 @@ export interface ReplayInstrumentStatusEvidence {
   schema_version: typeof REPLAY_INSTRUMENT_STATUS_EVIDENCE_SCHEMA_VERSION
   archive_id: string
   archive_hash: string
+  archive_completeness_audit_hash: string
+  archive_batch_chain_hash: string
+  archive_external_completeness: "not_verified"
+  archive_supersedes_archive_hash: string | null
   replay_start: string
   replay_end: string
   provider_capability: InstrumentStatusProviderCapability
@@ -146,6 +150,10 @@ export function buildReplayInstrumentStatusEvidence(input: {
     schema_version: REPLAY_INSTRUMENT_STATUS_EVIDENCE_SCHEMA_VERSION,
     archive_id: input.archive.archive_id,
     archive_hash: input.archive.archive_hash,
+    archive_completeness_audit_hash: input.archive.completeness_audit.audit_hash,
+    archive_batch_chain_hash: input.archive.completeness_audit.batch_chain_hash,
+    archive_external_completeness: input.archive.completeness_audit.external_completeness,
+    archive_supersedes_archive_hash: input.archive.supersedes_archive_hash,
     replay_start: input.replay_start,
     replay_end: input.replay_end,
     provider_capability: INSTRUMENT_STATUS_PROVIDER_CAPABILITY,
@@ -163,6 +171,14 @@ export function assertReplayInstrumentStatusEvidence(evidence: ReplayInstrumentS
     throw new Error("instrument status provider capability is not certified")
   }
   requireHash(evidence.archive_hash, "archive_hash")
+  requireHash(evidence.archive_completeness_audit_hash, "archive_completeness_audit_hash")
+  requireHash(evidence.archive_batch_chain_hash, "archive_batch_chain_hash")
+  if (evidence.archive_external_completeness !== "not_verified") {
+    throw new Error("instrument status evidence cannot claim external archive completeness")
+  }
+  if (evidence.archive_supersedes_archive_hash !== null) {
+    requireHash(evidence.archive_supersedes_archive_hash, "archive_supersedes_archive_hash")
+  }
   requireHash(evidence.evidence_hash, "evidence_hash")
   requireUtc(evidence.replay_start, "replay_start")
   requireUtc(evidence.replay_end, "replay_end")
