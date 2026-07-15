@@ -4,7 +4,7 @@ Owns the deterministic EventKey total order and source-bound order orchestration
 
 Engine 消费 Request v21、Dataset Manifest v7 与 Timeline v8。唯一 partial lane 在冻结 open 全成 fixed quantity，并在同一 source boundary 原子执行 old stop/target cancel → remaining-quantity stop/target submit/activate；trigger 保持不变，后续 Funding、Margin、State Snapshot 与 terminal owner 均读取剩余仓位。它不是流动性 partial-fill 模型，也不是通用 OCO/matching engine。
 
-每个 simple-bracket stop/target 终止必须生成 `OHLCV Resolution Evidence v2`：绑定 source EventKey/bar、P1/P2 path digest、canonical path，以及当前 protection generation、remaining quantity、stop/target Order id/trigger/hash。open gap、单触点为 `exact_under_ohlc`；stop/target 同 bar 双触点为 `resolution_limited` 并保守选 stop。该协议只显式化 Simulator v8 既有经济语义，不重建真实 bar 内路径，也不开放通用多订单 crossing。
+每个 simple-bracket stop/target 终止必须生成 `OHLCV Resolution Evidence v3`：除 source/bar/path/protection 外，每条 path 以实际 entry basis、当前数量、冻结 cost/Numeric/increment 计算 execution price、gross PnL、exit fee、net terminal contribution；envelope 输出 min/max/span/canonical shortfall。open gap、单触点 span 为零；collision 保守选 stop 且 span 非零。该派生不改变 Simulator v8 Fill，不是完整 equity counterfactual 或路径概率。
 
 R4.45 的 ordered-price oracle 仅是 tests owner 的认证参考：它以已知 observation order 判定首个 bracket crossing，证明结果属于 P1/P2 envelope，并不进入 Engine 输入、SourceEvent schema 或 capability negotiation。Engine 仍只执行 OHLCV 模式。
 
