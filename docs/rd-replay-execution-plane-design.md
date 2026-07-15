@@ -20,6 +20,8 @@ R4.43 不增加新 capability，而是认证 partial Fill **之后**的唯一终
 
 R4.44 不改变 Simulator v8 的经济执行语义，而将既有 simple-bracket OHLCV 保守规则提升为机器可审计证据。每次 stop/target 终止均生成自哈希 Resolution Evidence v1：绑定 source EventKey、bar、active bracket、P1/P2 outcome/path digest、canonical path 与 selection policy；open gap 和单触点为 `exact_under_ohlc`，双触点为 `resolution_limited / stop_target_order_ambiguous`，canonical 取 stop path。Result v31/Fingerprint/Artifact v33 独立绑定证据集合，Runner 幂等复读重验内容。该阶段只证明 two-path simple-bracket envelope，不证明真实 intrabar path，也不开放 limit queue 或通用多订单 resolver。
 
+R4.45 不增加 production schema/version/capability，而用 certification-only `OHLCV Oracle Fixture v1` 检验该包络。8 条有序价格轨迹覆盖 long/short open gap、single touch、collision high-first/low-first；oracle 只按 synthetic piecewise-linear observations 的已知顺序取首个 bracket crossing。实际 outcome 必须落入 P1/P2 对应 path，canonical raw terminal PnL 不得优于实际 path；同一 OHLC 的两种极值顺序产生相反 owner，却必须得到同一 `resolution_limited` envelope。分段内加密采样不改变 bar、terminal outcome 或 evidence semantics。该结论是 simple-bracket envelope soundness，不是 tick runtime、真实成交 reconstruction 或 completeness proof。
+
 实现路径：`replay-execution-plane/contracts`、`data-adapter`、`engine`、`accounting`、`metrics`、`runner` 与 `tests` 已成为 certified slice 的新语义 owner；`replay-execution-plane/compatibility/replay-runner` 可转发 Trial-bound request，`compatibility/replay-engine` 仅复用稳定 accounting 原语并继续作为 parity/迁移来源，不再承接新语义扩展。RD 根已无旧 Replay package。
 
 权威边界：
@@ -354,6 +356,8 @@ P1/P2 是 v1 的保守 envelope，不声称枚举真实 bar 内全部往返路�
 
 R4.44 已实现上述协议的 **simple-bracket terminal subset**，而非完整逐段 event-kernel：`OHLCV Resolution Evidence v1` 的每条记录绑定 source EventKey/bar、position side、active stop/target、ordered P1/P2 outcome 与 path digest、canonical path/role/selection policy、自哈希。open gap 使用两条相同 observed-open path，单 stop 或单 target touch 使用两条相同 terminal outcome，均为 `exact_under_ohlc`；同 bar stop/target collision 的两条 role 不同，标记 `resolution_limited / stop_target_order_ambiguous`，并按 simple bracket 中较差 terminal equity 选择 stop。Result v31 保存证据数组，Fingerprint 保存其 canonical collection hash，Artifact v33 独立发布 `ohlcv-resolution-evidence.json`。不存在 stop/target terminal 时数组为空；这不把 absence 解释成 tick-level exactness。
 
+R4.45 的 higher-resolution oracle 只存在于 `replay-execution-plane/tests`。Fixture 明确 open/close 与严格递增的 `(offset_seconds, price)` observations；完整覆盖 bar interval，首个 observation 为 open，末个为 close。测试从同一轨迹独立聚合 OHLC，再分别计算 ordered first crossing 与生产 evidence：gap/single-touch 的两条 outcome 必须等价；collision 的 high-first/low-first outcome 必须各自匹配对应 path。Oracle 不产生 Fill/Ledger/Result，不写 Artifact，也不能被 Contract 当作可执行数据模式。
+
 ## 8. 订单与成交协议
 
 ### 8.1 Order 状态
@@ -514,6 +518,8 @@ R4.43 不新增 Request/Result/Artifact capability，只推进 Engine Checkpoint
 
 R4.44 新增 `trade.rd-replay-ohlcv-resolution-evidence.v1`、Result v31、Artifact v33 与 Run Outcome v28，但 Simulator 保持 v8：变更的是证据可审计性，不是 Fill 决策。Reference Engine 在 stop/target gap/touch 处生成 two-path simple-bracket evidence；Contract 校验 path id/order、bar geometry、bracket orientation、EventKey boundary、observation/status/reason 组合、path digest、canonical role 与 evidence hash。Runner 以 required artifact role 发布证据并在幂等复读时与 Result/Fingerprint 三方核对。golden、long/short collision、gap/single-touch、semantic tamper、价格/资金 scaling metamorphic 均已锁定；multiple order、limit queue、真实 bar 内路径仍未认证。
 
+R4.45 不推进任何 wire epoch。`certified-ohlcv-resolution-oracle-v1.json` 冻结 8 条完整 bar interval ordered-price traces；Plane-local test oracle 独立聚合 OHLC、按已知顺序求 first crossing，再与生产 `createReplaySimpleBracketOhlcvResolution` 比较。golden parity 锁定 outcome containment 与 canonical non-improvement；same-OHLC parity 锁定 long/short high-first/low-first 可产生相反真实 owner；densification metamorphic 锁定分段内插值不改变结果。Oracle 无 Result/Artifact authority，不能作为 tick capability 使用。
+
 这一闭包证明 deterministic source-to-artifact closure、执行时 exact runtime binary、冻结 pre-entry/position-open schedule 的逐 boundary market/state PIT、一次 tighten-only stop replacement、一次 full reduce-only exit Intent parity、三类终止组合唯一 owner、方向镜像 parity 及单请求进程边界；它不证明第三方签名 provenance，不支持任意外部依赖/SBOM，也不是 OS sandbox。Result 使用 `decision-harness-os-sandbox-uncertified` info limitation。其他 effect-changing decision、动态 supplemental join 与完整 feature DAG trace 仍未认证；不得表述为任意 Candidate 安全执行闭包。
 
 ## 12. Step/Event-driven 与 Fast/Vectorized
@@ -650,7 +656,7 @@ claimed -> running -> completed
 | 语义面 | Golden fixtures | Property tests | Metamorphic tests | Parity tests |
 | --- | --- | --- | --- | --- |
 | clock/visibility | close signal、next-open、funding boundary | 无事件可在 availability 前消费 | 全部时间平移不改相对结果 | step 与 replay chunking digest |
-| OHLC path | stop/target、open gap、single touch、long/short collision、path tamper | P1/P2 order/digest、bar/bracket/EventKey、status/reason/canonical role 自洽；重算 evidence hash 不能掩盖 path 篡改 | price/cash 同比缩放不改 status/reason/path role/canonical，trigger price 同比；未来补数据不改已终止证据 | 当前只认证 simple-bracket two-path subset；higher-res、generic step resolver 尚未完成 |
+| OHLC path | stop/target、open gap、single touch、long/short high-first/low-first collision、path tamper | P1/P2 order/digest、bar/bracket/EventKey、status/reason/canonical role 自洽；ordered oracle outcome 必在 envelope 内；重算 evidence hash 不能掩盖 path 篡改 | price/cash 同比缩放不改 status/reason/path role/canonical；轨迹分段内加密采样不改 OHLC/oracle/evidence；未来补数据不改已终止证据 | 已认证 synthetic ordered-price oracle ↔ simple-bracket two-path parity；真实 tick runtime、generic step resolver 尚未完成 |
 | orders | market/limit/stop/TP/cancel race | fill 不早于 active；filled+remaining=requested | price/qty scale 后经济量同比 | fast supported order subset |
 | reduce/position | multiple entry、partial TP、oversized/wrong-side reduce-only、reversal；partial quantity/时序/组合/保护非法输入 | reduce-only 不增仓/翻向；fixed quantity 留 open Position；partial Fill 后 stop/target 数量等于剩余绝对仓位；terminal preemption 取消 pending partial | long/short 数量镜像；同价 Fill 拆分保持经济终态；clean/resume Result hash 相同 | legacy simple resolver compatibility；partial Position/Ledger/State/checkpoint parity |
 | numeric | bps price、fee、funding、linear PnL、weighted average、return vectors | 舍入方向不改善证据；所有现金事实 increment-aligned | price/cash 同比缩放后 return 与 scaled PnL 精确等价 | Bun/BigInt 与 Python Decimal 共享向量 |
@@ -702,14 +708,14 @@ Property tests 的核心 invariants：订单 qty、position qty、cash/NAV bridg
 - limit/stop/TP、cancel/amend、multi-entry、partial、wrong-side/oversized reduce-only、reversal。
 - 只有具备数据能力的 fill policy 才开放；maker queue 缺失继续 limitation/unsupported。
 
-**当前状态：完成第四十四子集，R3 未完成。** R4.43 已认证 one fixed partial → atomic remaining-position bracket rebuild → stop/target/exact liquidation/EOD/optional final exit 的 terminal owner 闭包，并以 Checkpoint v15 锁定恢复语义；R4.44 将 stop/target open gap、single touch 与 collision 的 P1/P2/canonical/limitation 冻结为 Result/Fingerprint/Artifact 证据。terminal preemption、long/short lane symmetry、Position/Ledger/Funding/State、resolution tamper rejection 与 clean/resume parity 已锁定。仍缺 multiple partial、真实 historical liquidity partial、通用 cancel/amend、limit/TIF、add/reversal、partial liquidation、generic OHLC resolver 与 step/fast parity。
+**当前状态：完成第四十五子集，R3 未完成。** R4.43 已认证 one fixed partial → atomic remaining-position bracket rebuild → stop/target/exact liquidation/EOD/optional final exit 的 terminal owner 闭包；R4.44 冻结 stop/target P1/P2/canonical/limitation 证据；R4.45 用已知 ordered-price oracle 证明 simple-bracket outcome containment、same-OHLC opposite owner 与 densification invariance。terminal preemption、long/short lane symmetry、Position/Ledger/Funding/State、resolution tamper rejection 与 clean/resume parity 已锁定。仍缺 multiple partial、真实 historical liquidity partial、通用 cancel/amend、limit/TIF、add/reversal、partial liquidation、generic OHLC resolver 与 step/fast parity。
 
 ### R4：统一 accounting
 
 - 定点 decimal、double-entry ledger、逐 fill fee、exact funding、borrow 接口。
 - isolated/cross margin、maintenance tiers、liquidation 与 penalty fixtures。
 
-**当前状态：完成第四十四子集，未完成统一组合账本。** Request/Result 为 v21/v31，Artifact/Run Outcome 为 v33/v28；Simulator v8 accounting 不变。partial fee/realized PnL、remaining unrealized PnL、事件时 Funding、cash/equity bridge、Margin、post-partial full liquidation 与 EOD valuation 已在 clean/resume 下守恒；R4.44 只增加 OHLCV resolution evidence，不改变账本。现有 certified lane 仍是单 settlement asset、单 isolated Position。borrow、cross/shared portfolio、partial liquidation、bankruptcy/insurance/ADL 与多资产组合尚未开始。
+**当前状态：完成第四十五子集，未完成统一组合账本。** Request/Result 为 v21/v31，Artifact/Run Outcome 为 v33/v28；Simulator v8 accounting 不变。partial fee/realized PnL、remaining unrealized PnL、事件时 Funding、cash/equity bridge、Margin、post-partial full liquidation 与 EOD valuation 已在 clean/resume 下守恒；R4.44–R4.45 只增加 resolution evidence 与认证，不改变账本。现有 certified lane 仍是单 settlement asset、单 isolated Position。borrow、cross/shared portfolio、partial liquidation、bankruptcy/insurance/ADL 与多资产组合尚未开始。
 
 ### R5：Portfolio
 
