@@ -14,7 +14,7 @@ export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.
 export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v33" as const
 export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v35" as const
 export const REPLAY_ARTIFACT_STORE_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-artifact-store-capability.v1" as const
-export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v8" as const
+export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v9" as const
 export const REPLAY_NUMERIC_POLICY_VERSION = "rd-replay-number-v3" as const
 export const REPLAY_DERIVED_DECIMAL_INCREMENT = "0.000000000001" as const
 export const REPLAY_JOURNAL_POLICY_VERSION = "rd-replay-journal-v4" as const
@@ -751,6 +751,33 @@ export interface ReplayLimitation {
   code: string
   severity: "info" | "resolution_limited" | "unsupported"
   detail: string
+}
+
+export interface ReplayDataGapFailureEvidence {
+  gap_kind: "missing_earliest_executable_bar" | "open_position_grid_gap"
+  gap_start: string
+  next_observed_open: string
+  missing_bar_count: number
+  interval_ms: number
+  policy: "fail_before_unobserved_interval_effects"
+}
+
+export function assertReplayDataGapFailureEvidence(evidence: ReplayDataGapFailureEvidence): void {
+  if (evidence.gap_kind !== "missing_earliest_executable_bar"
+      && evidence.gap_kind !== "open_position_grid_gap") fail("unsupported Replay data-gap kind")
+  requireUtcTimestamp(evidence.gap_start, "data_gap.gap_start")
+  requireUtcTimestamp(evidence.next_observed_open, "data_gap.next_observed_open")
+  if (!Number.isSafeInteger(evidence.missing_bar_count) || evidence.missing_bar_count <= 0
+      || !Number.isSafeInteger(evidence.interval_ms) || evidence.interval_ms <= 0) {
+    fail("Replay data-gap count and interval must be positive safe integers")
+  }
+  if (Date.parse(evidence.next_observed_open) - Date.parse(evidence.gap_start)
+      !== evidence.missing_bar_count * evidence.interval_ms) {
+    fail("Replay data-gap bounds do not match the missing interval count")
+  }
+  if (evidence.policy !== "fail_before_unobserved_interval_effects") {
+    fail("unsupported Replay data-gap policy")
+  }
 }
 
 export type ReplayOhlcvPathId = "open_high_low_close" | "open_low_high_close"

@@ -16,6 +16,7 @@ import {
   REPLAY_CERTIFIED_CAPABILITIES,
   REPLAY_REQUIRED_ARTIFACT_ROLES,
   REPLAY_RESULT_SCHEMA_VERSION,
+  assertReplayDataGapFailureEvidence,
   assertReplayDecisionEvidenceTimeline,
   assertReplayOhlcvResolutionEvidence,
   assertReplayResultOhlcvResolutionBindings,
@@ -27,6 +28,7 @@ import {
   replayExecutionSpecHash,
   type ReplayArtifactManifest,
   type ReplayDatasetManifest,
+  type ReplayDataGapFailureEvidence,
   type ReplayDecisionEvidenceTimeline,
   type ReplayExecutionRequest,
   type ReplayEventKey,
@@ -93,7 +95,7 @@ export interface ReplayTrialRunInput {
 }
 
 export interface ReplayTrialRunOutcome {
-  schema_version: "trade.rd-replay-run-outcome.v30"
+  schema_version: "trade.rd-replay-run-outcome.v31"
   run_id: string
   attempt_id: string
   lease_generation: number
@@ -107,7 +109,7 @@ export interface ReplayTrialRunOutcome {
   resumable_checkpoint?: ReplayEngineCheckpoint
   diagnostic_checkpoint_commit?: ReplayDiagnosticCheckpointCommitRef
   failure?: {
-    code: "trial-reservation-rejected" | "trial-reservation-expired" | "attempt-lease-rejected" | "resume-authorization-rejected" | "artifact-store-rejected" | "decision-harness-rejected" | "cancelled-before-start" | "execution-cancelled-at-checkpoint" | "instrument-delisted-with-open-position" | "initial-margin-deficit-without-resize" | "maintenance-margin-breach-without-liquidation" | "liquidation-deficit-unsupported" | "replay-execution-failed"
+    code: "trial-reservation-rejected" | "trial-reservation-expired" | "attempt-lease-rejected" | "resume-authorization-rejected" | "artifact-store-rejected" | "decision-harness-rejected" | "cancelled-before-start" | "execution-cancelled-at-checkpoint" | "instrument-delisted-with-open-position" | "initial-margin-deficit-without-resize" | "maintenance-margin-breach-without-liquidation" | "liquidation-deficit-unsupported" | "dataset-grid-gap-in-execution-window" | "replay-execution-failed"
     failure_class: "input_invalid" | "unsupported_contract" | "data_integrity" | "deterministic_engine" | "resource" | "external_io"
     message: string
     retryable: boolean
@@ -116,6 +118,7 @@ export interface ReplayTrialRunOutcome {
     margin_snapshot?: ReplayMarginSnapshot
     maintenance_breach?: ReplayMaintenanceBreachObservation
     remaining_collateral?: number
+    data_gap?: ReplayDataGapFailureEvidence
   }
 }
 
@@ -163,7 +166,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     validateTrialReservation(input.request, input.trial_reservation)
   } catch (error) {
     return {
-      schema_version: "trade.rd-replay-run-outcome.v30",
+      schema_version: "trade.rd-replay-run-outcome.v31",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -186,7 +189,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     const expired = error instanceof ReplayAttemptLeaseExpiredError
     const reservationExpired = error instanceof ReplayTrialReservationExpiredError
     return {
-      schema_version: "trade.rd-replay-run-outcome.v30",
+      schema_version: "trade.rd-replay-run-outcome.v31",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -203,7 +206,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
   }
   if (input.cancel_requested) {
     return {
-      schema_version: "trade.rd-replay-run-outcome.v30",
+      schema_version: "trade.rd-replay-run-outcome.v31",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -249,7 +252,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     if (committed) {
       cleanupDiagnosticCheckpoint(activeArtifactNamespace!)
       return {
-        schema_version: "trade.rd-replay-run-outcome.v30",
+        schema_version: "trade.rd-replay-run-outcome.v31",
         run_id: input.request.run_id,
         attempt_id: input.attempt_lease.attempt_id,
         lease_generation: input.attempt_lease.lease_generation,
@@ -352,7 +355,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
       : undefined
     if (activeArtifactNamespace) cleanupDiagnosticCheckpoint(activeArtifactNamespace)
     return {
-      schema_version: "trade.rd-replay-run-outcome.v30",
+      schema_version: "trade.rd-replay-run-outcome.v31",
       run_id: input.request.run_id,
       attempt_id: activeAttemptLease.attempt_id,
       lease_generation: activeAttemptLease.lease_generation,
@@ -373,8 +376,9 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     const instrumentTerminal = error instanceof ReplayInstrumentTerminalError
     const marginTerminal = error instanceof ReplayMarginTerminalError
     const liquidationDeficit = error instanceof ReplayLiquidationDeficitError
+    const dataContinuity = isReplayDataContinuityFailure(error)
     return {
-      schema_version: "trade.rd-replay-run-outcome.v30",
+      schema_version: "trade.rd-replay-run-outcome.v31",
       run_id: input.request.run_id,
       attempt_id: activeAttemptLease.attempt_id,
       lease_generation: activeAttemptLease.lease_generation,
@@ -387,7 +391,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
         ? { diagnostic_checkpoint_commit: lastDiagnosticCheckpointCommit }
         : {}),
       failure: {
-        code: interrupted ? error.code : leaseRejected ? "attempt-lease-rejected" : resumeRejected ? "resume-authorization-rejected" : artifactStoreRejected ? "artifact-store-rejected" : decisionHarnessRejected ? error.code : instrumentTerminal || marginTerminal || liquidationDeficit ? error.code : "replay-execution-failed",
+        code: interrupted ? error.code : leaseRejected ? "attempt-lease-rejected" : resumeRejected ? "resume-authorization-rejected" : artifactStoreRejected ? "artifact-store-rejected" : decisionHarnessRejected ? error.code : instrumentTerminal || marginTerminal || liquidationDeficit || dataContinuity ? error.code : "replay-execution-failed",
         failure_class: interrupted || leaseRejected ? "resource" : resumeRejected || artifactStoreRejected || decisionHarnessRejected ? "unsupported_contract" : instrumentTerminal || marginTerminal || liquidationDeficit ? "deterministic_engine" : "data_integrity",
         message: error instanceof Error ? error.message : String(error),
         retryable: false,
@@ -404,8 +408,26 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
           maintenance_breach: error.maintenance_breach,
           remaining_collateral: error.remaining_collateral,
         } : {}),
+        ...(dataContinuity ? { data_gap: structuredClone(error.data_gap) } : {}),
       },
     }
+  }
+}
+
+interface ReplayDataContinuityFailure extends Error {
+  code: "dataset-grid-gap-in-execution-window"
+  data_gap: ReplayDataGapFailureEvidence
+}
+
+function isReplayDataContinuityFailure(error: unknown): error is ReplayDataContinuityFailure {
+  if (!(error instanceof Error) || typeof error !== "object" || error === null) return false
+  const candidate = error as Partial<ReplayDataContinuityFailure>
+  if (candidate.code !== "dataset-grid-gap-in-execution-window" || !candidate.data_gap) return false
+  try {
+    assertReplayDataGapFailureEvidence(candidate.data_gap)
+    return true
+  } catch {
+    return false
   }
 }
 

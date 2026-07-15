@@ -12,6 +12,7 @@ import {
 import { compareReplayEventKeys } from "./replay-event-key"
 import { createReplaySimpleBracketOhlcvResolution, type ReplayOhlcvResolutionEconomics } from "./replay-ohlcv-resolution"
 import { buildReplaySourceEvents } from "./replay-source-events"
+import { ReplayDataContinuityError } from "../../../data-adapter/src/lib/replay-data-adapter"
 
 export type ReplayReducedExit =
   | { role: "stop" | "target"; timestamp: string; rawPrice: number; triggerSource: "bar_open" | "bar_range"; sourceSequence: number; resolution_evidence: ReplayOhlcvResolutionEvidence }
@@ -248,6 +249,22 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
       entryTransition,
       input.complete_exit,
     )
+    const nextBar = input.bars[source.source_index + 1]
+    if (nextBar && Date.parse(nextBar.open_time) !== Date.parse(bar.close_time)) {
+      const interval = Date.parse(bar.close_time) - Date.parse(bar.open_time)
+      const missingBarCount = (Date.parse(nextBar.open_time) - Date.parse(bar.close_time)) / interval
+      if (!Number.isSafeInteger(missingBarCount) || missingBarCount <= 0) {
+        throw new Error("Replay reached a non-canonical market-data grid discontinuity")
+      }
+      throw new ReplayDataContinuityError({
+        gap_kind: "open_position_grid_gap",
+        gap_start: bar.close_time,
+        next_observed_open: nextBar.open_time,
+        missing_bar_count: missingBarCount,
+        interval_ms: interval,
+        policy: "fail_before_unobserved_interval_effects",
+      })
+    }
     checkpoint(sourceOffset + 1)
   }
 

@@ -1,5 +1,6 @@
 import {
   assertReplayDatasetManifest,
+  assertReplayDataGapFailureEvidence,
   assertReplayMarketBars,
   assertReplaySupplementalFact,
   canonicalHash,
@@ -9,6 +10,7 @@ import {
   replayDatasetHash,
   replayDatasetManifestHash,
   type ReplayDatasetManifest,
+  type ReplayDataGapFailureEvidence,
   type ReplayDecisionInputSnapshot,
   type ReplayDecisionMarketInputSnapshot,
   type ReplayExecutionRequest,
@@ -43,6 +45,20 @@ export interface PreparedReplayInputData {
   limitations: ReplayLimitation[]
 }
 
+export class ReplayDataContinuityError extends Error {
+  readonly code = "dataset-grid-gap-in-execution-window" as const
+
+  constructor(readonly data_gap: ReplayDataGapFailureEvidence) {
+    super(
+      data_gap.gap_kind === "missing_earliest_executable_bar"
+        ? `Replay dataset is missing the frozen earliest executable bar at ${data_gap.gap_start}; next observed open is ${data_gap.next_observed_open}`
+        : `Replay open position reaches an unobserved ${data_gap.missing_bar_count}-bar grid interval at ${data_gap.gap_start}; next observed open is ${data_gap.next_observed_open}`,
+    )
+    assertReplayDataGapFailureEvidence(data_gap)
+    this.name = "ReplayDataContinuityError"
+  }
+}
+
 export function prepareReplayInputData(input: {
   request: ReplayExecutionRequest
   dataset_manifest: ReplayDatasetManifest
@@ -62,6 +78,21 @@ export function prepareReplayInputData(input: {
   const supplementalFacts = validateReplaySupplementalFacts(input.supplemental_facts || [])
   const entryIndex = input.bars.findIndex((bar) => Date.parse(bar.open_time) >= executableTime)
   if (entryIndex < 0) throw new Error("dataset contains no bar at or after earliest executable time")
+  if (Date.parse(input.bars[entryIndex].open_time) !== executableTime) {
+    const nextObservedOpen = Date.parse(input.bars[entryIndex].open_time)
+    const missingBarCount = (nextObservedOpen - executableTime) / manifest.interval_ms
+    if (!Number.isSafeInteger(missingBarCount) || missingBarCount <= 0) {
+      throw new Error("dataset earliest executable boundary is not aligned to the manifest grid")
+    }
+    throw new ReplayDataContinuityError({
+      gap_kind: "missing_earliest_executable_bar",
+      gap_start: request.order.earliest_executable_time,
+      next_observed_open: input.bars[entryIndex].open_time,
+      missing_bar_count: missingBarCount,
+      interval_ms: manifest.interval_ms,
+      policy: "fail_before_unobserved_interval_effects",
+    })
+  }
   const supplementalAdmission = validateManifestBinding(
     request, manifest, input.bars, fundingEvents, markEvents, supplementalFacts, input.bars[entryIndex].open_time,
   )
@@ -90,7 +121,7 @@ export function prepareReplayInputData(input: {
     decision_evidence_inputs: decisionEvidenceInputs,
     entry_index: entryIndex,
     dataset_manifest_hash: replayDatasetManifestHash(manifest),
-    limitations: detectDatasetLimitations(manifest, input.bars),
+    limitations: detectDatasetLimitations(manifest, input.bars, entryIndex),
   }
 }
 
@@ -428,10 +459,14 @@ function validateBarGrid(manifest: ReplayDatasetManifest, bars: ReplayMarketBar[
   }
 }
 
-function detectDatasetLimitations(manifest: ReplayDatasetManifest, bars: ReplayMarketBar[]): ReplayLimitation[] {
+function detectDatasetLimitations(
+  manifest: ReplayDatasetManifest,
+  bars: ReplayMarketBar[],
+  entryIndex: number,
+): ReplayLimitation[] {
   const limitations: ReplayLimitation[] = []
   let missingBars = 0
-  for (let index = 1; index < bars.length; index += 1) {
+  for (let index = 1; index <= entryIndex; index += 1) {
     const previousOpen = Date.parse(bars[index - 1].open_time)
     const currentOpen = Date.parse(bars[index].open_time)
     missingBars += Math.max(0, currentOpen - previousOpen) / manifest.interval_ms - 1
@@ -439,7 +474,7 @@ function detectDatasetLimitations(manifest: ReplayDatasetManifest, bars: ReplayM
   if (missingBars > 0) limitations.push({
     code: "dataset-grid-gap",
     severity: "resolution_limited",
-    detail: `Dataset is missing ${missingBars} expected bar(s); elapsed time is preserved and the next observed open uses gap-fill semantics.`,
+    detail: `Dataset is missing ${missingBars} expected bar(s); Simulator v9 never treats a missing time-grid bar as an observed price gap. A Result is possible only if the gap is outside the consumed execution path; reaching it fails before later SourceEvents.`,
   })
   if (manifest.instrument.status_history === "current_snapshot_only") limitations.push({
     code: "instrument-history-incomplete",

@@ -22,7 +22,7 @@ import {
   type ReplayMarketBar,
   type ReplaySupplementalFact,
 } from "../../../contracts/src/lib/replay-contracts"
-import { fundingEventsInWindow, prepareReplayInputData, resolveReplayInstrumentSpecAt, resolveReplayVenueRiskPolicyAt, selectReplaySupplementalFactsAt } from "./replay-data-adapter"
+import { ReplayDataContinuityError, fundingEventsInWindow, prepareReplayInputData, resolveReplayInstrumentSpecAt, resolveReplayVenueRiskPolicyAt, selectReplaySupplementalFactsAt } from "./replay-data-adapter"
 
 const HASH = "a".repeat(64)
 const MAINTENANCE_TIER = { tier_id: "tier-1", snapshot_ref: "fixture:margin-tier-1", snapshot_hash: HASH, notional_floor: 0, notional_cap: 50_000, maintenance_margin_rate: 0.005, maintenance_amount: 0 }
@@ -68,6 +68,18 @@ function request(dataHash = replayDatasetHash(bars, fundingEvents)): ReplayExecu
     simulator_policy: { version: REPLAY_SIMULATOR_POLICY_VERSION, signal_visibility: "closed_candle", earliest_execution: "next_open", same_bar_policy: "stop_first", gap_fill_policy: "worse_open", position_accounting: "average_cost", funding_timing: "exact_event", end_of_data: "mark_open", margin_evaluation: "before_strategy_orders" },
     margin_policy: { policy_id: "fixture", version: "rd-replay-isolated-margin-v7", mode: "isolated", collateral_asset: "USDT", isolated_collateral: 1000, initial_margin_rate: 0.1, maintenance_tier: { ...MAINTENANCE_TIER }, cashflow_scope: "position_attributed", collateral_transfer: "reserve_at_entry_release_at_terminal_if_flat", settled_cashflow_account: "isolated_margin_collateral", observation_scope: "source_event_path", mark_source_policy: "complete_exact_mark_else_ohlcv_adverse", maintenance_trigger: "margin_balance_below_maintenance_requirement", breach_terminal_priority: "risk_before_strategy_exit", breach_evidence: "first_observed_source_event", maintenance_breach_action: "exact_observation_full_liquidation_else_terminal_failure", liquidation: "simulated_full_close", liquidation_trigger_sources: "mark_or_funding_mark", liquidation_execution_price: "trigger_mark_adverse_slippage", liquidation_quantity: "full_position", liquidation_order_priority: "cancel_strategy_exits_before_forced_fill", liquidation_deficit: "fail_without_result" },
     random_seed: 1,
+  }
+}
+
+function requestAt(signalTime: string, executableTime: string, dataHash: string): ReplayExecutionRequest {
+  const value = request(dataHash)
+  const order = { ...value.order, signal_time: signalTime, earliest_executable_time: executableTime }
+  const decisionSchedule = createReplaySingleDecisionSchedule(order)
+  return {
+    ...value,
+    order,
+    decision_schedule: decisionSchedule,
+    decision_schedule_hash: canonicalHash(decisionSchedule),
   }
 }
 
@@ -288,7 +300,7 @@ test("supplemental PIT join selects the last visible revision and excludes futur
   })).toThrow("outside the frozen requirement set")
 })
 
-test("data adapter preserves grid gaps and emits survivorship limitations", () => {
+test("data adapter rejects a missing frozen entry bar but admits an unused pre-entry gap", () => {
   const gapBars = [bars[0], { ...bars[1], open_time: "2026-07-14T08:00:00Z", close_time: "2026-07-14T12:00:00Z" }]
   const dataHash = replayDatasetHash(gapBars, [])
   const gapManifest: ReplayDatasetManifest = {
@@ -296,8 +308,29 @@ test("data adapter preserves grid gaps and emits survivorship limitations", () =
     instrument: { ...manifest().instrument, status_history: "current_snapshot_only" },
     universe: { selected_at: "2026-07-13T00:00:00Z", survivorship: "survivor_only" },
   }
-  const prepared = prepareReplayInputData({ request: request(dataHash), dataset_manifest: gapManifest, bars: gapBars })
+  let missingEntryError: unknown
+  try {
+    prepareReplayInputData({ request: request(dataHash), dataset_manifest: gapManifest, bars: gapBars })
+  } catch (error) {
+    missingEntryError = error
+  }
+  expect(missingEntryError).toBeInstanceOf(ReplayDataContinuityError)
+  expect((missingEntryError as ReplayDataContinuityError).data_gap).toEqual({
+    gap_kind: "missing_earliest_executable_bar",
+    gap_start: "2026-07-14T04:00:00Z",
+    next_observed_open: "2026-07-14T08:00:00Z",
+    missing_bar_count: 1,
+    interval_ms: 14_400_000,
+    policy: "fail_before_unobserved_interval_effects",
+  })
+
+  const prepared = prepareReplayInputData({
+    request: requestAt("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", dataHash),
+    dataset_manifest: gapManifest,
+    bars: gapBars,
+  })
   expect(prepared.limitations.map((item) => item.code)).toEqual(["dataset-grid-gap", "instrument-history-incomplete", "survivor-only-universe"])
+  expect(prepared.limitations[0].detail).toContain("Simulator v9")
 })
 
 test("data adapter certifies only a complete point-in-time mark grid", () => {

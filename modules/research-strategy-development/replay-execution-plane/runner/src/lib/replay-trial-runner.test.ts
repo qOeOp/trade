@@ -37,6 +37,7 @@ import {
   replayExecutionSpecHash,
   type ReplayDatasetManifest,
   type ReplayExecutionRequest,
+  type ReplayMarketBar,
   type ReplaySupplementalFact,
 } from "../../../contracts/src/lib/replay-contracts"
 import { runReplayTrial, type ReplayDiagnosticCheckpointCommitRef } from "./replay-trial-runner"
@@ -275,6 +276,23 @@ function datasetManifest(): ReplayDatasetManifest {
   }
 }
 
+function datasetManifestFor(
+  replayBars: ReplayMarketBar[],
+  dataHash: string,
+): ReplayDatasetManifest {
+  const first = replayBars[0]
+  const last = replayBars.at(-1)
+  if (!first || !last) throw new Error("runner dataset fixture requires bars")
+  return {
+    ...datasetManifest(),
+    data_hash: dataHash,
+    row_count: replayBars.length,
+    first_open_time: first.open_time,
+    last_close_time: last.close_time,
+    observed_through: last.close_time,
+  }
+}
+
 test("runner atomically commits artifacts and retries idempotently", () => {
   const root = mkdtempSync(join(tmpdir(), "rd-replay-runner-"))
   const first = runReplayTrial({ ...authorized(), dataset_manifest: datasetManifest(), bars, artifact_root: root })
@@ -290,6 +308,63 @@ test("runner atomically commits artifacts and retries idempotently", () => {
   expect(first.artifact_commit?.storage_policy_version).toBe(REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION)
   expect(second.status).toBe("completed")
   expect(second.idempotent_replay).toBe(true)
+})
+
+test("runner returns typed data-gap failures without publishing partial Result", () => {
+  const openPositionGapBars = [
+    { open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 100, high: 104, low: 98, close: 102, volume: 10, closed: true as const },
+    { open_time: "2026-07-14T12:00:00Z", close_time: "2026-07-14T16:00:00Z", open: 80, high: 120, low: 70, close: 90, volume: 10, closed: true as const },
+  ]
+  const openPositionHash = replayDatasetHash(openPositionGapBars)
+  const openPositionRequest = { ...request(), dataset_hash: openPositionHash }
+  const openPositionFailure = runReplayTrial({
+    ...authorized(openPositionRequest),
+    dataset_manifest: datasetManifestFor(openPositionGapBars, openPositionHash),
+    bars: openPositionGapBars,
+  })
+  expect(openPositionFailure).toMatchObject({
+    schema_version: "trade.rd-replay-run-outcome.v31",
+    status: "failed",
+    failure: {
+      code: "dataset-grid-gap-in-execution-window",
+      failure_class: "data_integrity",
+      retryable: false,
+      partial_result_published: false,
+      data_gap: {
+        gap_kind: "open_position_grid_gap",
+        gap_start: "2026-07-14T08:00:00Z",
+        next_observed_open: "2026-07-14T12:00:00Z",
+        missing_bar_count: 1,
+        interval_ms: 14_400_000,
+        policy: "fail_before_unobserved_interval_effects",
+      },
+    },
+  })
+  expect(openPositionFailure.result).toBeUndefined()
+  expect(openPositionFailure.artifact_manifest).toBeUndefined()
+
+  const missingEntryBars = [{
+    open_time: "2026-07-14T08:00:00Z", close_time: "2026-07-14T12:00:00Z",
+    open: 101, high: 106, low: 96, close: 102, volume: 10, closed: true as const,
+  }]
+  const missingEntryHash = replayDatasetHash(missingEntryBars)
+  const missingEntryRequest = { ...request(), dataset_hash: missingEntryHash }
+  const missingEntryFailure = runReplayTrial({
+    ...authorized(missingEntryRequest),
+    dataset_manifest: datasetManifestFor(missingEntryBars, missingEntryHash),
+    bars: missingEntryBars,
+  })
+  expect(missingEntryFailure.failure).toMatchObject({
+    code: "dataset-grid-gap-in-execution-window",
+    failure_class: "data_integrity",
+    partial_result_published: false,
+    data_gap: {
+      gap_kind: "missing_earliest_executable_bar",
+      gap_start: "2026-07-14T04:00:00Z",
+      next_observed_open: "2026-07-14T08:00:00Z",
+      missing_bar_count: 1,
+    },
+  })
 })
 
 test("runner commits the complete supplemental revision stream as immutable evidence", () => {
@@ -1528,7 +1603,7 @@ test("runner enforces Reservation expiry only at Attempt claim admission", () =>
   expired.observed_at = "2026-07-14T00:01:30Z"
   const rejected = runReplayTrial({ ...expired, dataset_manifest: datasetManifest(), bars })
   expect(rejected).toMatchObject({
-    schema_version: "trade.rd-replay-run-outcome.v30",
+    schema_version: "trade.rd-replay-run-outcome.v31",
     status: "failed",
     failure: { code: "trial-reservation-expired", failure_class: "unsupported_contract", retryable: false, partial_result_published: false },
   })

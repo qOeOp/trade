@@ -40,7 +40,7 @@ import {
   type ReplayMarketBar,
   type ReplaySupplementalFact,
 } from "../../../contracts/src/lib/replay-contracts"
-import { prepareReplayInputData } from "../../../data-adapter/src/lib/replay-data-adapter"
+import { ReplayDataContinuityError, prepareReplayInputData } from "../../../data-adapter/src/lib/replay-data-adapter"
 import {
   ReplayExecutionInterruptedError,
   executeReplayKernel,
@@ -512,6 +512,56 @@ test("source-boundary checkpoint resumes to a byte-semantically identical result
     execution_control: { resume_checkpoint: checkpoint! },
   })
   expect(resumed).toEqual(clean)
+})
+
+test("execution-relevant grid gaps fail before later facts and cannot be bypassed by resume", () => {
+  const gapInput = inputFor(request(), [
+    bar("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", 100, 104, 98, 102),
+    bar("2026-07-14T12:00:00Z", "2026-07-14T16:00:00Z", 80, 120, 70, 90),
+  ], [{ timestamp: "2026-07-14T10:00:00Z", rate: 0.001, mark_price: 101 }])
+  let directError: unknown
+  try {
+    executeReplayKernel(gapInput)
+  } catch (error) {
+    directError = error
+  }
+  expect(directError).toBeInstanceOf(ReplayDataContinuityError)
+  expect((directError as ReplayDataContinuityError).data_gap).toEqual({
+    gap_kind: "open_position_grid_gap",
+    gap_start: "2026-07-14T08:00:00Z",
+    next_observed_open: "2026-07-14T12:00:00Z",
+    missing_bar_count: 1,
+    interval_ms: 14_400_000,
+    policy: "fail_before_unobserved_interval_effects",
+  })
+
+  let checkpoint: ReplayEngineCheckpoint | undefined
+  expect(() => executeReplayKernel({
+    ...gapInput,
+    execution_control: { on_checkpoint: (candidate) => {
+      checkpoint = candidate
+      return "cancel"
+    } },
+  })).toThrow(ReplayExecutionInterruptedError)
+  expect(checkpoint?.next_source_offset).toBe(1)
+  expect(() => executeReplayKernel({
+    ...gapInput,
+    execution_control: { resume_checkpoint: checkpoint! },
+  })).toThrow(ReplayDataContinuityError)
+})
+
+test("a terminal before an unconsumed future grid gap preserves semantic output", () => {
+  const terminalBar = bar("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", 100, 111, 98, 110)
+  const base = executeReplayKernel(inputFor(request(), [terminalBar]))
+  const extended = executeReplayKernel(inputFor(request(), [
+    terminalBar,
+    bar("2026-07-14T12:00:00Z", "2026-07-14T16:00:00Z", 50, 150, 40, 100),
+  ]))
+  expect(extended.source_events).toEqual(base.source_events)
+  expect(extended.order_events).toEqual(base.order_events)
+  expect(extended.fills).toEqual(base.fills)
+  expect(extended.ledger).toEqual(base.ledger)
+  expect(extended.limitations).toEqual(base.limitations)
 })
 
 test("checkpoint hash and source prefix fencing reject tampered resume state", () => {

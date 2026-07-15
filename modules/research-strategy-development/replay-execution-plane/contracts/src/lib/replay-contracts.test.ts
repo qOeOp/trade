@@ -48,6 +48,7 @@ import {
   assertReplayDecisionMarketInputSnapshot,
   assertReplayDecisionStateSnapshot,
   assertReplayDecisionStateSnapshotSourcePrefix,
+  assertReplayDataGapFailureEvidence,
   assertReplayPartialReduceIntent,
   assertReplaySupplementalFact,
   assertReplaySupplementalRequirementSet,
@@ -623,6 +624,20 @@ test("Decision Market Input Snapshot admits only the frozen contiguous closed-ba
   const snapshot = createReplayDecisionMarketInputSnapshot({ request: requestValue, interval_ms: 14_400_000, bars })
   expect(() => assertReplayDecisionMarketInputSnapshot(snapshot, requestValue)).not.toThrow()
   expect(() => createReplayDecisionMarketInputSnapshot({ request: requestValue, interval_ms: 14_400_000, bars: [bars[1]] })).toThrow("lookback is incomplete")
+  const oneBarRequest = structuredClone(requestValue)
+  if (oneBarRequest.decision_market_input_requirement.mode !== "closed_bar_lookback") {
+    throw new Error("fixture requires closed-bar lookback")
+  }
+  oneBarRequest.decision_market_input_requirement = {
+    ...oneBarRequest.decision_market_input_requirement,
+    lookback_bars: 1,
+  }
+  oneBarRequest.decision_market_input_requirement_hash = canonicalHash(oneBarRequest.decision_market_input_requirement)
+  expect(() => createReplayDecisionMarketInputSnapshot({
+    request: oneBarRequest,
+    interval_ms: 14_400_000,
+    bars: [bars[0]],
+  })).toThrow("terminal bar must close at decision time")
   expect(() => createReplayDecisionMarketInputSnapshot({
     request: requestValue,
     interval_ms: 14_400_000,
@@ -633,6 +648,22 @@ test("Decision Market Input Snapshot admits only the frozen contiguous closed-ba
     interval_ms: 14_400_000,
     bars: [bars[1], { ...bars[1], open_time: "2026-07-14T08:00:00Z", close_time: "2026-07-14T12:00:00Z" }],
   })).toThrow("future-visible")
+})
+
+test("data-gap failure evidence binds exact missing grid bounds", () => {
+  const evidence = {
+    gap_kind: "open_position_grid_gap" as const,
+    gap_start: "2026-07-14T08:00:00Z",
+    next_observed_open: "2026-07-14T16:00:00Z",
+    missing_bar_count: 2,
+    interval_ms: 14_400_000,
+    policy: "fail_before_unobserved_interval_effects" as const,
+  }
+  expect(() => assertReplayDataGapFailureEvidence(evidence)).not.toThrow()
+  expect(() => assertReplayDataGapFailureEvidence({
+    ...evidence,
+    missing_bar_count: 1,
+  })).toThrow("bounds do not match")
 })
 
 test("supplemental requirement set freezes a non-overlapping closed input scope", () => {

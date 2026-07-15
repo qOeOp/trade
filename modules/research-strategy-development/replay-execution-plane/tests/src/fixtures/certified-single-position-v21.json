@@ -66,7 +66,7 @@
       "liquidation_fee_bps": 10
     },
     "simulator_policy": {
-      "version": "rd-replay-simulator-v8",
+      "version": "rd-replay-simulator-v9",
       "signal_visibility": "closed_candle",
       "earliest_execution": "next_open",
       "same_bar_policy": "stop_first",
