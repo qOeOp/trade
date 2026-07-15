@@ -2,7 +2,7 @@
 
 import { errorResponse, printScriptResult, readFlagValue, readJsonObject, successResponse } from "../../../../../contracts/runtime-core/src/script-json"
 import type { JSONRecord } from "../../../../../contracts/runtime-core/src/json"
-import type { ReplayAttemptLeaseSnapshot, TrialReservationSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
+import type { ReplayAttemptLeaseSnapshot, ReplayResumeAuthorizationSnapshot, TrialReservationSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
 import type { ReplayDatasetManifest, ReplayExecutionRequest, ReplayFundingEvent, ReplayMarkEvent, ReplayMarketBar } from "../../../contracts/src/lib/replay-contracts"
 import type { ReplayEngineCheckpoint } from "../../../engine/src/lib/replay-reference-engine"
 import { runReplayTrial } from "../lib/replay-trial-runner"
@@ -23,13 +23,13 @@ export function run(argv: string[]): JSONRecord {
       mark_events: array(input.mark_events) as ReplayMarkEvent[],
       artifact_root: text(input.artifact_root) || undefined,
       cancel_requested: input.cancel_requested === true,
-      execution_control: input.resume_checkpoint || input.resume_checkpoint_commit
+      execution_control: input.resume_checkpoint || input.resume_authorization
         ? {
           ...(input.resume_checkpoint
             ? { resume_checkpoint: record(input.resume_checkpoint) as unknown as ReplayEngineCheckpoint }
             : {}),
-          ...(input.resume_checkpoint_commit
-            ? { resume_checkpoint_commit: record(input.resume_checkpoint_commit) as unknown as { ref: string; sha256: string } }
+          ...(input.resume_authorization
+            ? { resume_authorization: record(input.resume_authorization) as unknown as ReplayResumeAuthorizationSnapshot }
             : {}),
         }
         : undefined,

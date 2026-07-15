@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import { existsSync, mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION, TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION, hashTrialReservationSnapshot, type ReplayAttemptLeaseSnapshot, type TrialReservationSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
+import { CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION, REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION, TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION, createReplayResumeAuthorizationSnapshot, hashReplayAttemptLeaseSnapshot, hashTrialReservationSnapshot, type ReplayAttemptLeaseSnapshot, type ReplayResumeAuthorizationSnapshot, type TrialReservationSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
 import {
   REPLAY_CERTIFIED_CAPABILITIES,
   REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
@@ -104,6 +104,38 @@ function attemptLease(
     claimed_at: "2026-07-14T00:00:00Z", heartbeat_at: "2026-07-14T00:00:30Z",
     lease_expires_at: "2026-07-14T00:05:00Z", ...overrides,
   }
+}
+
+function resumeAuthorization(
+  requestValue: ReplayExecutionRequest,
+  reservation: TrialReservationSnapshot,
+  targetLease: ReplayAttemptLeaseSnapshot,
+  commit: { ref: string; sha256: string; producer_attempt_id: string },
+  suffix = targetLease.attempt_id,
+): ReplayResumeAuthorizationSnapshot {
+  return createReplayResumeAuthorizationSnapshot({
+    schema_version: REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION,
+    authorization_id: `resume-authorization:${suffix}`,
+    authorization_ref: `authorization://resume/${suffix}`,
+    issued_at: "2026-07-14T00:00:45Z",
+    status: "authorized",
+    trial_id: requestValue.trial_id,
+    run_id: requestValue.run_id,
+    request_hash: canonicalHash(requestValue),
+    reservation_ref: reservation.reservation_ref,
+    reservation_hash: hashTrialReservationSnapshot(reservation),
+    source_attempt_id: commit.producer_attempt_id,
+    source_attempt_ordinal: 1,
+    source_attempt_status: "cancelled",
+    diagnostic_checkpoint_ref: commit.ref,
+    diagnostic_checkpoint_hash: commit.sha256,
+    target_attempt_id: targetLease.attempt_id,
+    target_attempt_ordinal: targetLease.attempt_ordinal,
+    target_worker_id: targetLease.worker_id,
+    target_claimed_at: targetLease.claimed_at,
+    target_lease_generation_floor: targetLease.lease_generation,
+    target_attempt_lease_hash: hashReplayAttemptLeaseSnapshot(targetLease),
+  })
 }
 
 function datasetManifest(): ReplayDatasetManifest {
@@ -281,16 +313,18 @@ test("runner atomically publishes an attempt-local checkpoint commit and resumes
   const retryLease = attemptLease(authority.request, authority.trial_reservation, {
     attempt_id: "attempt-2", attempt_ordinal: 2, worker_id: "worker-2", lease_generation: 1,
   })
+  const retryAuthorization = resumeAuthorization(authority.request, authority.trial_reservation, retryLease, commit)
   const resumed = runReplayTrial({
     ...authority,
     attempt_lease: retryLease,
     artifact_root: root,
     dataset_manifest: manifest,
     bars: replayBars,
-    execution_control: { resume_checkpoint_commit: { ref: commit.ref, sha256: commit.sha256 } },
+    execution_control: { resume_authorization: retryAuthorization },
   })
   expect(resumed.failure).toBeUndefined()
   expect(resumed.status).toBe("completed")
+  expect(resumed.resume_authorization_hash).toBe(retryAuthorization.authorization_hash)
   expect(resumed.result).toEqual(clean.result)
   expect(existsSync(commit.ref)).toBe(true)
   expect(existsSync(commit.checkpoint_ref)).toBe(true)
@@ -298,28 +332,81 @@ test("runner atomically publishes an attempt-local checkpoint commit and resumes
   expect(existsSync(join(resumedDirectory, "diagnostic-checkpoint-commit.json"))).toBe(false)
   expect(resumed.artifact_manifest?.files.some((file) => file.role.includes("checkpoint"))).toBe(false)
 
+  const outsideRootLease = attemptLease(authority.request, authority.trial_reservation, {
+    attempt_id: "attempt-3", attempt_ordinal: 3, worker_id: "worker-3", lease_generation: 1,
+  })
   const outsideRootRetry = runReplayTrial({
     ...authority,
-    attempt_lease: attemptLease(authority.request, authority.trial_reservation, {
-      attempt_id: "attempt-3", attempt_ordinal: 3, worker_id: "worker-3", lease_generation: 1,
-    }),
+    attempt_lease: outsideRootLease,
     artifact_root: join(root, "different-root"),
     dataset_manifest: manifest,
     bars: replayBars,
-    execution_control: { resume_checkpoint_commit: { ref: commit.ref, sha256: commit.sha256 } },
+    execution_control: { resume_authorization: resumeAuthorization(authority.request, authority.trial_reservation, outsideRootLease, commit) },
   })
   expect(outsideRootRetry.failure?.message).toContain("outside artifact_root")
 
-  writeFileSync(commit.checkpoint_ref, "tampered\n", "utf8")
-  const tamperedRetry = runReplayTrial({
+  const renewedTargetFloor = attemptLease(authority.request, authority.trial_reservation, {
+    attempt_id: "attempt-5", attempt_ordinal: 5, worker_id: "worker-5", lease_generation: 1,
+  })
+  const renewedTargetAuthorization = resumeAuthorization(authority.request, authority.trial_reservation, renewedTargetFloor, commit)
+  const renewedTargetLease = {
+    ...renewedTargetFloor,
+    status: "running" as const,
+    lease_generation: 2,
+    heartbeat_at: "2026-07-14T00:01:30Z",
+    lease_expires_at: "2026-07-14T00:06:30Z",
+  }
+  const renewedTarget = runReplayTrial({
     ...authority,
-    attempt_lease: attemptLease(authority.request, authority.trial_reservation, {
-      attempt_id: "attempt-4", attempt_ordinal: 4, worker_id: "worker-4", lease_generation: 1,
-    }),
+    attempt_lease: renewedTargetLease,
+    observed_at: "2026-07-14T00:02:00Z",
     artifact_root: root,
     dataset_manifest: manifest,
     bars: replayBars,
-    execution_control: { resume_checkpoint_commit: { ref: commit.ref, sha256: commit.sha256 } },
+    execution_control: { resume_authorization: renewedTargetAuthorization },
+  })
+  expect(renewedTarget.status).toBe("completed")
+  expect(renewedTarget.resume_authorization_hash).toBe(renewedTargetAuthorization.authorization_hash)
+
+  const wrongTargetLease = attemptLease(authority.request, authority.trial_reservation, {
+    attempt_id: "attempt-wrong", attempt_ordinal: 6, worker_id: "worker-wrong", lease_generation: 1,
+  })
+  const wrongTarget = runReplayTrial({
+    ...authority,
+    attempt_lease: wrongTargetLease,
+    artifact_root: root,
+    dataset_manifest: manifest,
+    bars: replayBars,
+    execution_control: { resume_authorization: retryAuthorization },
+  })
+  expect(wrongTarget).toMatchObject({
+    status: "failed",
+    failure: { code: "resume-authorization-rejected", failure_class: "unsupported_contract" },
+  })
+
+  const mutatedAuthorization = { ...retryAuthorization, diagnostic_checkpoint_hash: "7".repeat(64) }
+  const mutatedTarget = runReplayTrial({
+    ...authority,
+    attempt_lease: retryLease,
+    artifact_root: root,
+    dataset_manifest: manifest,
+    bars: replayBars,
+    execution_control: { resume_authorization: mutatedAuthorization },
+  })
+  expect(mutatedTarget.failure?.code).toBe("resume-authorization-rejected")
+  expect(mutatedTarget.failure?.message).toContain("hash mismatch")
+
+  writeFileSync(commit.checkpoint_ref, "tampered\n", "utf8")
+  const tamperedLease = attemptLease(authority.request, authority.trial_reservation, {
+    attempt_id: "attempt-4", attempt_ordinal: 4, worker_id: "worker-4", lease_generation: 1,
+  })
+  const tamperedRetry = runReplayTrial({
+    ...authority,
+    attempt_lease: tamperedLease,
+    artifact_root: root,
+    dataset_manifest: manifest,
+    bars: replayBars,
+    execution_control: { resume_authorization: resumeAuthorization(authority.request, authority.trial_reservation, tamperedLease, commit) },
   })
   expect(tamperedRetry).toMatchObject({
     status: "failed",

@@ -5,6 +5,7 @@ export const DRAFT_AUTHORIZATION_SCHEMA_VERSION = "trade.rd-draft-authorization.
 export const STRATEGY_DRAFT_BINDING_SCHEMA_VERSION = "trade.rd-strategy-draft-binding.v1" as const
 export const TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION = "trade.rd-trial-reservation-snapshot.v1" as const
 export const REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION = "trade.rd-replay-attempt-lease.v1" as const
+export const REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION = "trade.rd-replay-resume-authorization-snapshot.v1" as const
 
 export interface ResearchIdentityBinding {
   schema_version: typeof CONTROL_PLANE_IDENTITY_SCHEMA_VERSION
@@ -65,6 +66,33 @@ export interface ReplayAttemptLeaseSnapshot {
   heartbeat_at: string
   lease_expires_at: string
 }
+
+export interface ReplayResumeAuthorizationSnapshot {
+  schema_version: typeof REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION
+  authorization_id: string
+  authorization_ref: string
+  authorization_hash: string
+  issued_at: string
+  status: "authorized"
+  trial_id: string
+  run_id: string
+  request_hash: string
+  reservation_ref: string
+  reservation_hash: string
+  source_attempt_id: string
+  source_attempt_ordinal: number
+  source_attempt_status: "cancelled" | "expired"
+  diagnostic_checkpoint_ref: string
+  diagnostic_checkpoint_hash: string
+  target_attempt_id: string
+  target_attempt_ordinal: number
+  target_worker_id: string
+  target_claimed_at: string
+  target_lease_generation_floor: number
+  target_attempt_lease_hash: string
+}
+
+export type ReplayResumeAuthorizationBody = Omit<ReplayResumeAuthorizationSnapshot, "authorization_hash">
 
 export interface DraftStrategyAuthorization {
   schema_version: typeof DRAFT_AUTHORIZATION_SCHEMA_VERSION
@@ -163,6 +191,65 @@ export function assertReplayAttemptLeaseSnapshot(value: ReplayAttemptLeaseSnapsh
 export function hashReplayAttemptLeaseSnapshot(value: ReplayAttemptLeaseSnapshot): string {
   assertReplayAttemptLeaseSnapshot(value)
   return createHash("sha256").update(canonicalReservationJson(value), "utf8").digest("hex")
+}
+
+export function assertReplayResumeAuthorizationSnapshot(value: ReplayResumeAuthorizationSnapshot): void {
+  if (value.schema_version !== REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION) fail("resume authorization schema_version")
+  for (const [field, item] of Object.entries({
+    authorization_id: value.authorization_id,
+    authorization_ref: value.authorization_ref,
+    trial_id: value.trial_id,
+    run_id: value.run_id,
+    reservation_ref: value.reservation_ref,
+    source_attempt_id: value.source_attempt_id,
+    diagnostic_checkpoint_ref: value.diagnostic_checkpoint_ref,
+    target_attempt_id: value.target_attempt_id,
+    target_worker_id: value.target_worker_id,
+  })) requireText(item, `resume_authorization.${field}`)
+  for (const [field, item] of Object.entries({
+    authorization_hash: value.authorization_hash,
+    request_hash: value.request_hash,
+    reservation_hash: value.reservation_hash,
+    diagnostic_checkpoint_hash: value.diagnostic_checkpoint_hash,
+    target_attempt_lease_hash: value.target_attempt_lease_hash,
+  })) requireHash(item, `resume_authorization.${field}`)
+  requireUtcTimestamp(value.issued_at, "resume_authorization.issued_at")
+  requireUtcTimestamp(value.target_claimed_at, "resume_authorization.target_claimed_at")
+  if (value.status !== "authorized") fail("resume authorization status must be authorized")
+  if (value.source_attempt_status !== "cancelled" && value.source_attempt_status !== "expired") {
+    fail("resume authorization source Attempt must be cancelled or expired")
+  }
+  for (const [field, item] of Object.entries({
+    source_attempt_ordinal: value.source_attempt_ordinal,
+    target_attempt_ordinal: value.target_attempt_ordinal,
+    target_lease_generation_floor: value.target_lease_generation_floor,
+  })) {
+    if (!Number.isSafeInteger(item) || item < 1) fail(`resume_authorization.${field} must be positive`)
+  }
+  if (value.source_attempt_id === value.target_attempt_id
+      || value.target_attempt_ordinal <= value.source_attempt_ordinal) {
+    fail("resume authorization target Attempt must be a later Attempt")
+  }
+  const { authorization_hash: authorizationHash, ...body } = value
+  if (authorizationHash !== createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")) {
+    fail("resume authorization hash mismatch")
+  }
+}
+
+export function createReplayResumeAuthorizationSnapshot(
+  body: ReplayResumeAuthorizationBody,
+): ReplayResumeAuthorizationSnapshot {
+  const value: ReplayResumeAuthorizationSnapshot = {
+    ...body,
+    authorization_hash: createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex"),
+  }
+  assertReplayResumeAuthorizationSnapshot(value)
+  return value
+}
+
+export function hashReplayResumeAuthorizationSnapshot(value: ReplayResumeAuthorizationSnapshot): string {
+  assertReplayResumeAuthorizationSnapshot(value)
+  return value.authorization_hash
 }
 
 export function assertDraftStrategyAuthorization(value: DraftStrategyAuthorization): void {

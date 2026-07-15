@@ -22,6 +22,7 @@ import { buildDefaultUniverseSeed, seedDefaultResearchControlPlane } from "./res
 import { ensureResearchStateSchema } from "./research-state-store"
 import { issueTrialReservationSnapshot } from "./trial-reservation-snapshot"
 import { claimReplayAttempt, finalizeReplayAttempt, renewReplayAttemptLease } from "./replay-attempt-authority"
+import { issueReplayResumeAuthorization } from "./replay-resume-authorization"
 import {
   appendExperimentResult,
   applySystemTransition,
@@ -314,13 +315,13 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
     }), /fencing token mismatch/)
     finalizeReplayAttempt(db, {
       attempt_id: "attempt-1", worker_id: "worker-1", expected_lease_generation: 2,
-      status: "failed", finalized_at: "2026-07-14T04:03:00Z", failure_class: "deterministic_engine",
+      status: "cancelled", finalized_at: "2026-07-14T04:03:00Z", failure_class: "resource",
       diagnostic_checkpoint_ref: "artifact://attempt-1/diagnostic-checkpoint-commit.json",
       diagnostic_checkpoint_hash: "8".repeat(64),
     })
     assert.throws(() => finalizeReplayAttempt(db, {
       attempt_id: "attempt-1", worker_id: "worker-1", expected_lease_generation: 2,
-      status: "failed", finalized_at: "2026-07-14T04:03:00Z", failure_class: "deterministic_engine",
+      status: "cancelled", finalized_at: "2026-07-14T04:03:00Z", failure_class: "resource",
       diagnostic_checkpoint_ref: "artifact://attempt-1/changed.json",
       diagnostic_checkpoint_hash: "8".repeat(64),
     }), /already terminal/)
@@ -330,6 +331,27 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
       trial_reservation: reservation,
     })
     assert.equal(second.attempt_ordinal, 2)
+    const resumeAuthorization = issueReplayResumeAuthorization(db, {
+      authorization_id: "resume-authorization-1",
+      authorization_ref: "authorization://replay-resume/1",
+      issued_at: "2026-07-14T04:04:30Z",
+      source_attempt_id: "attempt-1",
+      target_attempt_lease: second,
+    })
+    assert.equal(resumeAuthorization.source_attempt_status, "cancelled")
+    assert.equal(resumeAuthorization.target_attempt_id, "attempt-2")
+    assert.equal(resumeAuthorization.target_attempt_lease_hash.length, 64)
+    assert.deepEqual(issueReplayResumeAuthorization(db, {
+      authorization_id: "resume-authorization-1",
+      authorization_ref: "authorization://replay-resume/1",
+      issued_at: "2026-07-14T04:04:30Z",
+      source_attempt_id: "attempt-1",
+      target_attempt_lease: second,
+    }), resumeAuthorization)
+    assert.throws(() => db.query(`
+      UPDATE rd_replay_resume_authorization SET diagnostic_checkpoint_hash=$hash
+      WHERE authorization_id='resume-authorization-1'
+    `).run({ $hash: "7".repeat(64) }), /Replay Resume Authorization is immutable/)
     const third = claimReplayAttempt(db, {
       attempt_id: "attempt-3", worker_id: "worker-3", idempotency_key: "attempt-key-3",
       request_hash: "9".repeat(64), claimed_at: "2026-07-14T04:07:00Z", lease_expires_at: "2026-07-14T04:12:00Z",

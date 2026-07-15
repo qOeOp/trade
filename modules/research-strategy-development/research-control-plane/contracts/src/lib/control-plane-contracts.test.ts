@@ -2,10 +2,13 @@ import { expect, test } from "bun:test"
 import {
   CONTROL_PLANE_IDENTITY_SCHEMA_VERSION,
   REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION,
+  REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION,
   DRAFT_AUTHORIZATION_SCHEMA_VERSION,
   TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION,
   assertDraftStrategyAuthorization,
   assertTrialReservationSnapshot,
+  createReplayResumeAuthorizationSnapshot,
+  hashReplayResumeAuthorizationSnapshot,
   hashTrialReservationSnapshot,
   hashReplayAttemptLeaseSnapshot,
   type DraftStrategyAuthorization,
@@ -83,4 +86,23 @@ test("Replay Attempt Lease snapshot carries a monotonic fencing generation", () 
   }
   expect(hashReplayAttemptLeaseSnapshot(lease)).toHaveLength(64)
   expect(() => hashReplayAttemptLeaseSnapshot({ ...lease, lease_expires_at: lease.heartbeat_at })).toThrow(/timestamps/)
+})
+
+test("Replay Resume Authorization binds a later target Attempt and detects mutation", () => {
+  const value = createReplayResumeAuthorizationSnapshot({
+    schema_version: REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION,
+    authorization_id: "resume-1", authorization_ref: "resume://attempt-2", issued_at: "2026-07-15T00:02:00Z", status: "authorized",
+    trial_id: "trial-1", run_id: "run-1", request_hash: "b".repeat(64),
+    reservation_ref: "reservation://trial-1", reservation_hash: HASH,
+    source_attempt_id: "attempt-1", source_attempt_ordinal: 1, source_attempt_status: "cancelled",
+    diagnostic_checkpoint_ref: "artifact://attempt-1/diagnostic-checkpoint-commit.json",
+    diagnostic_checkpoint_hash: "c".repeat(64),
+    target_attempt_id: "attempt-2", target_attempt_ordinal: 2, target_worker_id: "worker-2",
+    target_claimed_at: "2026-07-15T00:01:00Z", target_lease_generation_floor: 1,
+    target_attempt_lease_hash: "d".repeat(64),
+  })
+  expect(hashReplayResumeAuthorizationSnapshot(value)).toBe(value.authorization_hash)
+  expect(() => hashReplayResumeAuthorizationSnapshot({ ...value, target_worker_id: "worker-3" })).toThrow("hash mismatch")
+  const { authorization_hash: _, ...body } = value
+  expect(() => createReplayResumeAuthorizationSnapshot({ ...body, target_attempt_ordinal: 1 })).toThrow("later Attempt")
 })

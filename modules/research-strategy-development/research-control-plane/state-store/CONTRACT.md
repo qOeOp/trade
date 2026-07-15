@@ -12,6 +12,7 @@ Owns `research_state_store`, including the durable R&D program memory and the Re
 - Own Strategy Universe, scope, coverage, and capability registry projections.
 - Atomically materialize immutable Trial Reservation Snapshot v1 from the reserved Trial, Trial Group, Candidate membership and Experiment Contract join; issuance is refused after the Trial leaves `reserved`.
 - Own Replay Attempt claim/renew/expire/finalize state: one active Attempt per Trial, monotonic lease generation fencing, immutable terminal rows, and completed-only Result/Artifact/checkpoint completeness fields. Replay workers consume lease snapshots but never write this table directly.
+- Own immutable Replay Resume Authorization Snapshot v1 issuance. Authorization may bind only a committed diagnostic checkpoint on a `cancelled`/`expired` source Attempt to one later active target Attempt under the same Trial/run/request/reservation authority; target Attempt is unique, lease generation is a floor, and workers cannot mint or mutate this authority.
 - Seed the frozen default Universe, Data Surface Registry, capability index, and current coverage map.
 - Serve the authoritative Planner context from those facts and scoped KG lessons.
 - Append validated Proposal Revisions and materialize each Proposal at most once.
