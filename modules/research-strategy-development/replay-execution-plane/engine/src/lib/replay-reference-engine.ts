@@ -461,6 +461,17 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     entry_index: entryIndex,
     delisted_at: input.dataset_manifest.instrument.delisted_at,
     limitations,
+    resolution_economics: {
+      entry_basis_price: entryPrice,
+      exit_side: exitSide,
+      cost_policy_id: request.cost_policy.policy_id,
+      cost_policy_version: request.cost_policy.version,
+      fee_bps: request.cost_policy.fee_bps,
+      slippage_bps: request.cost_policy.slippage_bps,
+      price_increment: accountingSpec.price_increment,
+      settlement_increment: accountingSpec.settlement_increment,
+      settlement_asset: accountingSpec.settlement_asset,
+    },
     resume: resumeCheckpoint ? {
       next_source_offset: resumeCheckpoint.next_source_offset,
       source_events: resumeCheckpoint.source_events,
@@ -1028,7 +1039,17 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     equity_bridge: equityBridge,
     margin_snapshots: marginSnapshots,
   })
-  const metrics = deriveReplayMetrics({ initial_cash: request.initial_cash, fills, ledger, equity_bridge: equityBridge, margin_snapshots: marginSnapshots })
+  const ohlcvResolutionEvidence = exit.role === "stop" || exit.role === "target"
+    ? [exit.resolution_evidence]
+    : []
+  const metrics = deriveReplayMetrics({
+    initial_cash: request.initial_cash,
+    fills,
+    ledger,
+    equity_bridge: equityBridge,
+    margin_snapshots: marginSnapshots,
+    ohlcv_resolution_evidence: ohlcvResolutionEvidence,
+  })
   const liquidation = exit.role === "liquidation" && exitFill
     ? {
       schema_version: REPLAY_LIQUIDATION_EXECUTION_SCHEMA_VERSION,
@@ -1074,9 +1095,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     trial_balance: trialBalance,
     supplemental_evidence: prepared.supplemental_evidence,
     decision_evidence_timeline: decisionEvidenceTimeline,
-    ohlcv_resolution_evidence: exit.role === "stop" || exit.role === "target"
-      ? [exit.resolution_evidence]
-      : [],
+    ohlcv_resolution_evidence: ohlcvResolutionEvidence,
     metrics,
     limitations,
   }

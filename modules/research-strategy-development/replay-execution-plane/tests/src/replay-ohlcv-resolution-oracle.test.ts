@@ -149,6 +149,13 @@ function evidenceFor(case_: OracleCase): ReplayOhlcvResolutionEvidence {
       stop_order_id: `oracle-${case_.case_id}:order:stop`, stop_trigger_price: case_.active_stop_price,
       target_order_id: `oracle-${case_.case_id}:order:target`, target_trigger_price: case_.active_target_price,
     },
+    economics: {
+      entry_basis_price: fixture.entry_price,
+      exit_side: case_.position_side === "long" ? "sell" : "buy",
+      cost_policy_id: "oracle-cost", cost_policy_version: "v1",
+      fee_bps: 0, slippage_bps: 0,
+      price_increment: "0.01", settlement_increment: "0.00000001", settlement_asset: "USDT",
+    },
     observation_kind: oracle.observation_kind,
     stop_touched: oracle.observation_kind === "bar_open_gap" ? oracle.role === "stop" : stopTouched,
     target_touched: oracle.observation_kind === "bar_open_gap" ? oracle.role === "target" : targetTouched,

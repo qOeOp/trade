@@ -263,6 +263,14 @@ test("metamorphic: scaling prices and cash preserves return fraction and exit ro
   })))
   expect(scaled.ohlcv_resolution_evidence[0]!.paths.map((path) => path.trigger_price))
     .toEqual(base.ohlcv_resolution_evidence[0]!.paths.map((path) => path.trigger_price * scale))
+  expect(scaled.ohlcv_resolution_evidence[0]!.economic_impact.net_terminal_contribution_span)
+    .toBe(addReplayDecimalValues(
+      base.ohlcv_resolution_evidence[0]!.economic_impact.net_terminal_contribution_span,
+      base.ohlcv_resolution_evidence[0]!.economic_impact.net_terminal_contribution_span,
+      base.ohlcv_resolution_evidence[0]!.economic_impact.net_terminal_contribution_span,
+    ))
+  expect(scaled.metrics.ohlcv_canonical_shortfall_to_best)
+    .toBe(scaled.ohlcv_resolution_evidence[0]!.economic_impact.canonical_shortfall_to_best)
 })
 
 test("parity: engine result equals accounting and metrics component projections", () => {
@@ -312,6 +320,7 @@ test("parity: engine result equals accounting and metrics component projections"
     ledger,
     equity_bridge: result.equity_bridge,
     margin_snapshots: result.margin_snapshots,
+    ohlcv_resolution_evidence: result.ohlcv_resolution_evidence,
   })).toEqual(result.metrics)
 })
 

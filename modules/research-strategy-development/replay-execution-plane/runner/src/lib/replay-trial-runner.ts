@@ -45,6 +45,7 @@ import {
   prepareReplayDecisionEvidenceInputs,
   type ReplayEngineCheckpoint,
 } from "../../../engine/src/lib/replay-reference-engine"
+import { assertReplayOhlcvEconomicImpactBindings } from "../../../engine/src/lib/replay-ohlcv-resolution"
 import { ReplayLiquidationDeficitError, ReplayMarginTerminalError } from "../../../engine/src/lib/replay-margin-path"
 import { ReplayInstrumentTerminalError } from "../../../engine/src/lib/replay-source-reducer"
 import {
@@ -92,7 +93,7 @@ export interface ReplayTrialRunInput {
 }
 
 export interface ReplayTrialRunOutcome {
-  schema_version: "trade.rd-replay-run-outcome.v29"
+  schema_version: "trade.rd-replay-run-outcome.v30"
   run_id: string
   attempt_id: string
   lease_generation: number
@@ -162,7 +163,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     validateTrialReservation(input.request, input.trial_reservation)
   } catch (error) {
     return {
-      schema_version: "trade.rd-replay-run-outcome.v29",
+      schema_version: "trade.rd-replay-run-outcome.v30",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -185,7 +186,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     const expired = error instanceof ReplayAttemptLeaseExpiredError
     const reservationExpired = error instanceof ReplayTrialReservationExpiredError
     return {
-      schema_version: "trade.rd-replay-run-outcome.v29",
+      schema_version: "trade.rd-replay-run-outcome.v30",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -202,7 +203,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
   }
   if (input.cancel_requested) {
     return {
-      schema_version: "trade.rd-replay-run-outcome.v29",
+      schema_version: "trade.rd-replay-run-outcome.v30",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -248,7 +249,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     if (committed) {
       cleanupDiagnosticCheckpoint(activeArtifactNamespace!)
       return {
-        schema_version: "trade.rd-replay-run-outcome.v29",
+        schema_version: "trade.rd-replay-run-outcome.v30",
         run_id: input.request.run_id,
         attempt_id: input.attempt_lease.attempt_id,
         lease_generation: input.attempt_lease.lease_generation,
@@ -342,6 +343,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
       },
     })
     assertReplayResultOhlcvResolutionBindings(result, input.request)
+    assertResultOhlcvEconomicImpactBindings(result, input.request, input.dataset_manifest)
     const committedArtifact = activeArtifactNamespace
       ? commitArtifacts(
         activeArtifactNamespace, input.request, input.trial_reservation, activeAttemptLease,
@@ -350,7 +352,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
       : undefined
     if (activeArtifactNamespace) cleanupDiagnosticCheckpoint(activeArtifactNamespace)
     return {
-      schema_version: "trade.rd-replay-run-outcome.v29",
+      schema_version: "trade.rd-replay-run-outcome.v30",
       run_id: input.request.run_id,
       attempt_id: activeAttemptLease.attempt_id,
       lease_generation: activeAttemptLease.lease_generation,
@@ -372,7 +374,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     const marginTerminal = error instanceof ReplayMarginTerminalError
     const liquidationDeficit = error instanceof ReplayLiquidationDeficitError
     return {
-      schema_version: "trade.rd-replay-run-outcome.v29",
+      schema_version: "trade.rd-replay-run-outcome.v30",
       run_id: input.request.run_id,
       attempt_id: activeAttemptLease.attempt_id,
       lease_generation: activeAttemptLease.lease_generation,
@@ -646,6 +648,30 @@ function commitArtifacts(
   }
 }
 
+function assertResultOhlcvEconomicImpactBindings(
+  result: ReplayResult,
+  request: ReplayExecutionRequest,
+  datasetManifest: ReplayDatasetManifest,
+): void {
+  if (result.ohlcv_resolution_evidence.length === 0) return
+  const entryFill = result.fills.find((fill) => fill.order_role === "entry")
+  if (!entryFill) throw new Error("Replay OHLCV economic impact requires one entry Fill basis")
+  const accounting = datasetManifest.instrument.accounting
+  for (const evidence of result.ohlcv_resolution_evidence) {
+    assertReplayOhlcvEconomicImpactBindings(evidence, {
+      entry_basis_price: entryFill.price,
+      exit_side: request.order.side === "long" ? "sell" : "buy",
+      cost_policy_id: request.cost_policy.policy_id,
+      cost_policy_version: request.cost_policy.version,
+      fee_bps: request.cost_policy.fee_bps,
+      slippage_bps: request.cost_policy.slippage_bps,
+      price_increment: accounting.price_increment,
+      settlement_increment: accounting.settlement_increment,
+      settlement_asset: accounting.settlement_asset,
+    })
+  }
+}
+
 function readCommitted(
   namespace: ReplayArtifactNamespace,
   request: ReplayExecutionRequest,
@@ -686,6 +712,7 @@ function readCommitted(
   const result = JSON.parse(decode(namespace.read(ARTIFACT_FILE_NAMES.result).bytes)) as ReplayResult
   if (result.schema_version !== REPLAY_RESULT_SCHEMA_VERSION) throw new Error("committed Replay result schema is not supported")
   assertReplayResultOhlcvResolutionBindings(result, request)
+  assertResultOhlcvEconomicImpactBindings(result, request, datasetManifest)
   if (manifest.run_id !== request.run_id || result.run_id !== request.run_id
       || manifest.result_hash !== result.fingerprint.result_hash) {
     throw new Error("committed Replay identity or Result hash binding mismatch")

@@ -1528,7 +1528,7 @@ test("runner enforces Reservation expiry only at Attempt claim admission", () =>
   expired.observed_at = "2026-07-14T00:01:30Z"
   const rejected = runReplayTrial({ ...expired, dataset_manifest: datasetManifest(), bars })
   expect(rejected).toMatchObject({
-    schema_version: "trade.rd-replay-run-outcome.v29",
+    schema_version: "trade.rd-replay-run-outcome.v30",
     status: "failed",
     failure: { code: "trial-reservation-expired", failure_class: "unsupported_contract", retryable: false, partial_result_published: false },
   })

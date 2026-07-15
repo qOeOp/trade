@@ -41,7 +41,10 @@ test("metrics are derived from immutable fills and ledger", () => {
     { policy_version: REPLAY_MARGIN_POLICY_VERSION, venue_risk_policy_snapshot_id: "risk-1", venue_risk_policy_snapshot_hash: "1".repeat(64), snapshot_id: "margin-entry", snapshot_sequence: 1, stage: "post_entry", event_key: fills[0].event_key, timestamp: fills[0].timestamp, position_event_id: "position-1", mark_source_ref: "f1", mark_source: "fill_price", resolution: "exact", symbol: "BTCUSDT", collateral_asset: "USDT", signed_quantity: 1, mark_price: 100, notional: 100, isolated_collateral: 20, attributed_settled_cashflow: -1, unrealized_pnl: 0, margin_balance: 19, initial_margin_requirement: 10, maintenance_margin_requirement: 5, initial_margin_headroom: 9, maintenance_margin_headroom: 14, margin_ratio: 0.263157894737, initial_margin_sufficient: true, maintenance_margin_sufficient: true, maintenance_trigger: "margin_balance_below_maintenance_requirement", maintenance_breach_observed: false, breach_terminal_priority: "risk_before_strategy_exit", state: "healthy", liquidation_evaluated: false },
     { policy_version: REPLAY_MARGIN_POLICY_VERSION, venue_risk_policy_snapshot_id: "risk-1", venue_risk_policy_snapshot_hash: "1".repeat(64), snapshot_id: "margin-terminal", snapshot_sequence: 2, stage: "terminal", event_key: ledger.at(-1)!.event_key, timestamp: fills[1].timestamp, position_event_id: "position-2", mark_source_ref: "f2", mark_source: "fill_price", resolution: "not_applicable_flat", symbol: "BTCUSDT", collateral_asset: "USDT", signed_quantity: 0, mark_price: 110, notional: 0, isolated_collateral: 0, attributed_settled_cashflow: 0, unrealized_pnl: 0, margin_balance: 0, initial_margin_requirement: 0, maintenance_margin_requirement: 0, initial_margin_headroom: 0, maintenance_margin_headroom: 0, margin_ratio: null, initial_margin_sufficient: true, maintenance_margin_sufficient: true, maintenance_trigger: "margin_balance_below_maintenance_requirement", maintenance_breach_observed: false, breach_terminal_priority: "risk_before_strategy_exit", state: "flat", liquidation_evaluated: false },
   ]
-  expect(deriveReplayMetrics({ initial_cash: 1000, fills, ledger, equity_bridge: equityBridge, margin_snapshots: marginSnapshots })).toEqual({
+  expect(deriveReplayMetrics({
+    initial_cash: 1000, fills, ledger, equity_bridge: equityBridge,
+    margin_snapshots: marginSnapshots, ohlcv_resolution_evidence: [],
+  })).toEqual({
     initial_cash: 1000,
     ending_equity: 1008,
     net_pnl: 8,
@@ -56,5 +59,8 @@ test("metrics are derived from immutable fills and ledger", () => {
     peak_observed_margin_ratio: 0.263157894737,
     terminal_margin_ratio: null,
     observed_maintenance_breach_count: 0,
+    ohlcv_resolution_limited_count: 0,
+    ohlcv_net_terminal_contribution_span: 0,
+    ohlcv_canonical_shortfall_to_best: 0,
   })
 })

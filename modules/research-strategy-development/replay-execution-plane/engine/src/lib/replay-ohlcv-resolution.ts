@@ -1,8 +1,10 @@
 import {
+  REPLAY_NUMERIC_POLICY_VERSION,
   REPLAY_OHLCV_RESOLUTION_EVIDENCE_SCHEMA_VERSION,
   assertReplayOhlcvResolutionEvidence,
   canonicalHash,
   replayOhlcvActiveProtectionHash,
+  replayOhlcvEconomicImpactHash,
   replayOhlcvResolutionEvidenceHash,
   type ReplayMarketBar,
   type ReplayOhlcvPathId,
@@ -10,6 +12,20 @@ import {
   type ReplayOhlcvResolutionPath,
   type ReplaySourceEvent,
 } from "../../../contracts/src/lib/replay-contracts"
+import { addReplayDecimalValues, quantizeReplayDifferenceProduct } from "../../../contracts/src/lib/replay-decimal"
+import { applyAdverseSlippageV3, calculateNotionalChargeV3 } from "../../../accounting/src/lib/replay-accounting"
+
+export interface ReplayOhlcvResolutionEconomics {
+  entry_basis_price: number
+  exit_side: "buy" | "sell"
+  cost_policy_id: string
+  cost_policy_version: string
+  fee_bps: number
+  slippage_bps: number
+  price_increment: string
+  settlement_increment: string
+  settlement_asset: string
+}
 
 export function createReplaySimpleBracketOhlcvResolution(input: {
   run_id: string
@@ -24,6 +40,7 @@ export function createReplaySimpleBracketOhlcvResolution(input: {
     target_order_id: string
     target_trigger_price: number
   }
+  economics: ReplayOhlcvResolutionEconomics
   observation_kind: "bar_open_gap" | "bar_range_touch"
   stop_touched: boolean
   target_touched: boolean
@@ -47,10 +64,32 @@ export function createReplaySimpleBracketOhlcvResolution(input: {
     : role === "stop" ? input.active_protection.stop_trigger_price : input.active_protection.target_trigger_price
   const pathFor = (pathId: ReplayOhlcvPathId): ReplayOhlcvResolutionPath => {
     const firstTerminalRole = roleFor(pathId)
+    const triggerPrice = triggerFor(firstTerminalRole)
+    const simulatedExecutionPrice = applyAdverseSlippageV3(
+      triggerPrice, input.economics.exit_side, input.economics.slippage_bps, input.economics.price_increment,
+    )
+    const grossRealizedPnl = quantizeReplayDifferenceProduct(
+      simulatedExecutionPrice,
+      input.economics.entry_basis_price,
+      input.active_protection.remaining_quantity,
+      input.position_side === "long" ? 1 : -1,
+      input.economics.settlement_increment,
+      "floor",
+    )
+    const exitFee = calculateNotionalChargeV3(
+      simulatedExecutionPrice,
+      input.active_protection.remaining_quantity,
+      input.economics.fee_bps,
+      input.economics.settlement_increment,
+    )
     const body = {
       path_id: pathId,
       first_terminal_role: firstTerminalRole,
-      trigger_price: triggerFor(firstTerminalRole),
+      trigger_price: triggerPrice,
+      simulated_execution_price: simulatedExecutionPrice,
+      gross_realized_pnl: grossRealizedPnl,
+      exit_fee: exitFee,
+      net_terminal_contribution: addReplayDecimalValues(grossRealizedPnl, -exitFee),
     }
     return { ...body, path_digest: canonicalHash(body) }
   }
@@ -63,6 +102,33 @@ export function createReplaySimpleBracketOhlcvResolution(input: {
   const canonicalPath = collision
     ? paths.find((path) => path.first_terminal_role === input.canonical_terminal_role)!
     : paths[0]
+  const pathContributions = paths.map((path) => path.net_terminal_contribution)
+  const minimumContribution = Math.min(...pathContributions)
+  const maximumContribution = Math.max(...pathContributions)
+  const economicImpactBody = {
+    scope: "terminal_fill_contribution_excludes_common_cashflows" as const,
+    settlement_asset: input.economics.settlement_asset,
+    cost_policy_id: input.economics.cost_policy_id,
+    cost_policy_version: input.economics.cost_policy_version,
+    numeric_policy_version: REPLAY_NUMERIC_POLICY_VERSION,
+    fee_bps: input.economics.fee_bps,
+    slippage_bps: input.economics.slippage_bps,
+    price_increment: input.economics.price_increment,
+    settlement_increment: input.economics.settlement_increment,
+    entry_basis_price: input.economics.entry_basis_price,
+    quantity: input.active_protection.remaining_quantity,
+    min_net_terminal_contribution: minimumContribution,
+    max_net_terminal_contribution: maximumContribution,
+    net_terminal_contribution_span: addReplayDecimalValues(maximumContribution, -minimumContribution),
+    canonical_net_terminal_contribution: canonicalPath.net_terminal_contribution,
+    canonical_shortfall_to_best: addReplayDecimalValues(
+      maximumContribution, -canonicalPath.net_terminal_contribution,
+    ),
+  }
+  const economicImpact = {
+    ...economicImpactBody,
+    impact_hash: replayOhlcvEconomicImpactHash(economicImpactBody),
+  }
   const body = {
     schema_version: REPLAY_OHLCV_RESOLUTION_EVIDENCE_SCHEMA_VERSION,
     resolution_id: `${input.run_id}:ohlcv-resolution:${input.source_event.source_event_id}`,
@@ -81,6 +147,7 @@ export function createReplaySimpleBracketOhlcvResolution(input: {
       ? "open_gap_observed" as const
       : collision ? "stop_target_order_ambiguous" as const : "single_terminal_touch" as const,
     paths: [...paths] as [ReplayOhlcvResolutionPath, ReplayOhlcvResolutionPath],
+    economic_impact: economicImpact,
     canonical: {
       path_id: canonicalPath.path_id,
       terminal_role: input.canonical_terminal_role,
@@ -92,4 +159,38 @@ export function createReplaySimpleBracketOhlcvResolution(input: {
   const evidence = { ...body, evidence_hash: replayOhlcvResolutionEvidenceHash(body) }
   assertReplayOhlcvResolutionEvidence(evidence)
   return evidence
+}
+
+export function assertReplayOhlcvEconomicImpactBindings(
+  evidence: ReplayOhlcvResolutionEvidence,
+  economics: ReplayOhlcvResolutionEconomics,
+): void {
+  const expected = createReplaySimpleBracketOhlcvResolution({
+    run_id: evidence.resolution_id.slice(0, evidence.resolution_id.indexOf(":ohlcv-resolution:")),
+    source_event: {
+      source_event_id: evidence.source_event_id,
+      event_key: structuredClone(evidence.source_event_key),
+      kind: evidence.observation_kind === "bar_open_gap" ? "bar_open" : "bar_range",
+      source_index: evidence.bar_index,
+    },
+    bar: { ...evidence.bar, volume: 1, closed: true },
+    position_side: evidence.position_side,
+    active_protection: {
+      protection_generation: evidence.active_protection.protection_generation,
+      remaining_quantity: evidence.active_protection.remaining_quantity,
+      stop_order_id: evidence.active_protection.stop_order_id,
+      stop_trigger_price: evidence.active_protection.stop_trigger_price,
+      target_order_id: evidence.active_protection.target_order_id,
+      target_trigger_price: evidence.active_protection.target_trigger_price,
+    },
+    economics,
+    observation_kind: evidence.observation_kind,
+    stop_touched: evidence.paths.some((path) => path.first_terminal_role === "stop"),
+    target_touched: evidence.paths.some((path) => path.first_terminal_role === "target"),
+    canonical_terminal_role: evidence.canonical.terminal_role,
+  })
+  if (canonicalHash(expected.paths) !== canonicalHash(evidence.paths)
+      || canonicalHash(expected.economic_impact) !== canonicalHash(evidence.economic_impact)) {
+    throw new Error("Replay OHLCV economic impact does not match frozen execution inputs")
+  }
 }

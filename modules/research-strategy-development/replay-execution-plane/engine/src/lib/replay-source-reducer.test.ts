@@ -72,6 +72,12 @@ test("source reducer stops at the terminal market event and keeps only in-positi
     entry_index: 0,
     delisted_at: null,
     limitations,
+    resolution_economics: {
+      entry_basis_price: 100, exit_side: "sell",
+      cost_policy_id: "fixture-cost", cost_policy_version: "v1",
+      fee_bps: 4, slippage_bps: 5,
+      price_increment: "0.01", settlement_increment: "0.00000001", settlement_asset: "USDT",
+    },
     activate_entry: (source) => ({
       source_event_id: source.source_event_id,
       fill_key: createReplayEventKey({

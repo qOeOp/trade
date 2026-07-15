@@ -1,4 +1,4 @@
-import type { ReplayEquityBridge, ReplayFill, ReplayLedgerEntry, ReplayMarginSnapshot, ReplayResult } from "../../../contracts/src/lib/replay-contracts"
+import type { ReplayEquityBridge, ReplayFill, ReplayLedgerEntry, ReplayMarginSnapshot, ReplayOhlcvResolutionEvidence, ReplayResult } from "../../../contracts/src/lib/replay-contracts"
 import { addReplayDecimalValues, divideReplayDecimalValues } from "../../../contracts/src/lib/replay-decimal"
 
 export function deriveReplayMetrics(input: {
@@ -7,6 +7,7 @@ export function deriveReplayMetrics(input: {
   ledger: ReplayLedgerEntry[]
   equity_bridge: ReplayEquityBridge
   margin_snapshots: ReplayMarginSnapshot[]
+  ohlcv_resolution_evidence: ReplayOhlcvResolutionEvidence[]
 }): ReplayResult["metrics"] {
   const ending = [...input.ledger].reverse().find((entry) => entry.kind === "ending_cash")
   if (!ending) throw new Error("Replay metrics require an ending_cash ledger entry")
@@ -43,5 +44,14 @@ export function deriveReplayMetrics(input: {
     peak_observed_margin_ratio: observedRatios.length > 0 ? Math.max(...observedRatios) : null,
     terminal_margin_ratio: terminalMargin.margin_ratio,
     observed_maintenance_breach_count: input.margin_snapshots.filter((snapshot) => !snapshot.maintenance_margin_sufficient).length,
+    ohlcv_resolution_limited_count: input.ohlcv_resolution_evidence.filter(
+      (evidence) => evidence.status === "resolution_limited",
+    ).length,
+    ohlcv_net_terminal_contribution_span: input.ohlcv_resolution_evidence.reduce(
+      (total, evidence) => addReplayDecimalValues(total, evidence.economic_impact.net_terminal_contribution_span), 0,
+    ),
+    ohlcv_canonical_shortfall_to_best: input.ohlcv_resolution_evidence.reduce(
+      (total, evidence) => addReplayDecimalValues(total, evidence.economic_impact.canonical_shortfall_to_best), 0,
+    ),
   }
 }

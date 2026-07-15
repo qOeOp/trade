@@ -11,8 +11,8 @@ export {
 }
 
 export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v21" as const
-export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v32" as const
-export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v34" as const
+export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v33" as const
+export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v35" as const
 export const REPLAY_ARTIFACT_STORE_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-artifact-store-capability.v1" as const
 export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v8" as const
 export const REPLAY_NUMERIC_POLICY_VERSION = "rd-replay-number-v3" as const
@@ -22,7 +22,7 @@ export const REPLAY_EQUITY_POLICY_VERSION = "rd-replay-equity-v1" as const
 export const REPLAY_MARGIN_POLICY_VERSION = "rd-replay-isolated-margin-v7" as const
 export const REPLAY_MAINTENANCE_BREACH_SCHEMA_VERSION = "trade.rd-replay-maintenance-breach-observation.v3" as const
 export const REPLAY_LIQUIDATION_EXECUTION_SCHEMA_VERSION = "trade.rd-replay-liquidation-execution.v2" as const
-export const REPLAY_OHLCV_RESOLUTION_EVIDENCE_SCHEMA_VERSION = "trade.rd-replay-ohlcv-resolution-evidence.v2" as const
+export const REPLAY_OHLCV_RESOLUTION_EVIDENCE_SCHEMA_VERSION = "trade.rd-replay-ohlcv-resolution-evidence.v3" as const
 export const REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION = "rd-replay-instrument-accounting-v1" as const
 export const REPLAY_DATASET_MANIFEST_SCHEMA_VERSION = "trade.rd-replay-dataset-manifest.v7" as const
 export const REPLAY_SUPPLEMENTAL_FACT_SCHEMA_VERSION = "trade.rd-replay-supplemental-fact.v1" as const
@@ -759,7 +759,38 @@ export interface ReplayOhlcvResolutionPath {
   path_id: ReplayOhlcvPathId
   first_terminal_role: "stop" | "target"
   trigger_price: number
+  simulated_execution_price: number
+  gross_realized_pnl: number
+  exit_fee: number
+  net_terminal_contribution: number
   path_digest: string
+}
+
+export interface ReplayOhlcvEconomicImpactEnvelope {
+  scope: "terminal_fill_contribution_excludes_common_cashflows"
+  settlement_asset: string
+  cost_policy_id: string
+  cost_policy_version: string
+  numeric_policy_version: typeof REPLAY_NUMERIC_POLICY_VERSION
+  fee_bps: number
+  slippage_bps: number
+  price_increment: string
+  settlement_increment: string
+  entry_basis_price: number
+  quantity: number
+  min_net_terminal_contribution: number
+  max_net_terminal_contribution: number
+  net_terminal_contribution_span: number
+  canonical_net_terminal_contribution: number
+  canonical_shortfall_to_best: number
+  impact_hash: string
+}
+
+export function replayOhlcvEconomicImpactHash(
+  impact: Omit<ReplayOhlcvEconomicImpactEnvelope, "impact_hash"> | ReplayOhlcvEconomicImpactEnvelope,
+): string {
+  const { impact_hash: _impactHash, ...body } = impact as ReplayOhlcvEconomicImpactEnvelope
+  return canonicalHash(body)
 }
 
 export interface ReplayOhlcvActiveProtectionEvidence {
@@ -792,6 +823,7 @@ export interface ReplayOhlcvResolutionEvidence {
   status: "exact_under_ohlc" | "resolution_limited"
   resolution_reason: "open_gap_observed" | "single_terminal_touch" | "stop_target_order_ambiguous"
   paths: [ReplayOhlcvResolutionPath, ReplayOhlcvResolutionPath]
+  economic_impact: ReplayOhlcvEconomicImpactEnvelope
   canonical: {
     path_id: ReplayOhlcvPathId
     terminal_role: "stop" | "target"
@@ -868,11 +900,21 @@ export function assertReplayOhlcvResolutionEvidence(evidence: ReplayOhlcvResolut
   for (const [index, path] of evidence.paths.entries()) {
     if (path.path_id !== expectedPathIds[index]) fail("ohlcv resolution paths must use canonical order")
     requirePositive(path.trigger_price, `ohlcv_resolution.paths[${index}].trigger_price`)
+    requirePositive(path.simulated_execution_price, `ohlcv_resolution.paths[${index}].simulated_execution_price`)
+    if (!Number.isFinite(path.gross_realized_pnl)
+        || !Number.isFinite(path.net_terminal_contribution)) {
+      fail("ohlcv resolution path economic contribution must be finite")
+    }
+    requireNonNegative(path.exit_fee, `ohlcv_resolution.paths[${index}].exit_fee`)
     requireHash(path.path_digest, `ohlcv_resolution.paths[${index}].path_digest`)
     if (path.path_digest !== canonicalHash({
       path_id: path.path_id,
       first_terminal_role: path.first_terminal_role,
       trigger_price: path.trigger_price,
+      simulated_execution_price: path.simulated_execution_price,
+      gross_realized_pnl: path.gross_realized_pnl,
+      exit_fee: path.exit_fee,
+      net_terminal_contribution: path.net_terminal_contribution,
     })) fail("ohlcv resolution path digest mismatch")
   }
   const [highFirst, lowFirst] = evidence.paths
@@ -922,6 +964,42 @@ export function assertReplayOhlcvResolutionEvidence(evidence: ReplayOhlcvResolut
         || evidence.canonical.terminal_role !== highFirst.first_terminal_role
       )) {
     fail("ohlcv canonical resolution selection is inconsistent")
+  }
+  const impact = evidence.economic_impact
+  requireText(impact.settlement_asset, "ohlcv_resolution.economic_impact.settlement_asset")
+  requireText(impact.cost_policy_id, "ohlcv_resolution.economic_impact.cost_policy_id")
+  requireText(impact.cost_policy_version, "ohlcv_resolution.economic_impact.cost_policy_version")
+  if (impact.numeric_policy_version !== REPLAY_NUMERIC_POLICY_VERSION) {
+    fail("ohlcv resolution economic impact numeric policy is invalid")
+  }
+  requireNonNegative(impact.fee_bps, "ohlcv_resolution.economic_impact.fee_bps")
+  requireNonNegative(impact.slippage_bps, "ohlcv_resolution.economic_impact.slippage_bps")
+  requireCanonicalPositiveDecimal(impact.price_increment, "ohlcv_resolution.economic_impact.price_increment")
+  requireCanonicalPositiveDecimal(impact.settlement_increment, "ohlcv_resolution.economic_impact.settlement_increment")
+  requirePositive(impact.entry_basis_price, "ohlcv_resolution.economic_impact.entry_basis_price")
+  requirePositive(impact.quantity, "ohlcv_resolution.economic_impact.quantity")
+  for (const field of [
+    "min_net_terminal_contribution", "max_net_terminal_contribution",
+    "net_terminal_contribution_span", "canonical_net_terminal_contribution",
+    "canonical_shortfall_to_best",
+  ] as const) {
+    if (!Number.isFinite(impact[field])) fail(`ohlcv resolution economic impact ${field} must be finite`)
+  }
+  const pathContributions = evidence.paths.map((path) => path.net_terminal_contribution)
+  const minimum = Math.min(...pathContributions)
+  const maximum = Math.max(...pathContributions)
+  if (impact.scope !== "terminal_fill_contribution_excludes_common_cashflows"
+      || impact.quantity !== protection.remaining_quantity
+      || impact.min_net_terminal_contribution !== minimum
+      || impact.max_net_terminal_contribution !== maximum
+      || impact.canonical_net_terminal_contribution !== canonicalPath.net_terminal_contribution
+      || impact.net_terminal_contribution_span < 0
+      || impact.canonical_shortfall_to_best < 0) {
+    fail("ohlcv resolution economic impact envelope is inconsistent")
+  }
+  requireHash(impact.impact_hash, "ohlcv_resolution.economic_impact.impact_hash")
+  if (replayOhlcvEconomicImpactHash(impact) !== impact.impact_hash) {
+    fail("ohlcv resolution economic impact hash mismatch")
   }
   requireHash(evidence.evidence_hash, "ohlcv_resolution.evidence_hash")
   if (replayOhlcvResolutionEvidenceHash(evidence) !== evidence.evidence_hash) {
@@ -1290,6 +1368,9 @@ export interface ReplayResult {
     peak_observed_margin_ratio: number | null
     terminal_margin_ratio: number | null
     observed_maintenance_breach_count: number
+    ohlcv_resolution_limited_count: number
+    ohlcv_net_terminal_contribution_span: number
+    ohlcv_canonical_shortfall_to_best: number
   }
   limitations: ReplayLimitation[]
   fingerprint: ReplayEvidenceFingerprint
@@ -1315,8 +1396,12 @@ export function assertReplayResultOhlcvResolutionBindings(
       ? protection.stop_order_id
       : protection.target_order_id
     const fill = terminalFills.find((candidate) => candidate.order_id === terminalOrderId)
+    const canonicalPath = evidence.paths.find((path) => path.path_id === evidence.canonical.path_id)
     if (!fill || fill.order_role !== evidence.canonical.terminal_role
-        || fill.quantity !== protection.remaining_quantity) {
+        || fill.quantity !== protection.remaining_quantity
+        || !canonicalPath
+        || fill.price !== canonicalPath.simulated_execution_price
+        || fill.fee !== canonicalPath.exit_fee) {
       fail("Replay Result OHLCV resolution terminal Fill binding is invalid")
     }
     for (const orderId of [protection.stop_order_id, protection.target_order_id]) {

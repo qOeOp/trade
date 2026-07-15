@@ -24,6 +24,7 @@ import {
   REPLAY_SUPPLEMENTAL_FACT_SCHEMA_VERSION,
   REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION,
   REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
+  assertReplayResultOhlcvResolutionBindings,
   canonicalHash,
   createReplayDecisionHarnessContext,
   createReplayDecisionHarnessBuildAttestation,
@@ -276,7 +277,19 @@ test("closed-candle signal enters at next open and resolves same-bar collision s
   expect(result.ohlcv_resolution_evidence[0]!.paths.map((path) => path.first_terminal_role))
     .toEqual(["target", "stop"])
   expect(result.fingerprint.ohlcv_resolution_evidence_hash).toBe(canonicalHash(result.ohlcv_resolution_evidence))
+  expect(result.metrics).toMatchObject({
+    ohlcv_resolution_limited_count: 1,
+    ohlcv_net_terminal_contribution_span: result.ohlcv_resolution_evidence[0]!
+      .economic_impact.net_terminal_contribution_span,
+    ohlcv_canonical_shortfall_to_best: result.ohlcv_resolution_evidence[0]!
+      .economic_impact.canonical_shortfall_to_best,
+  })
   expect(result.metrics.ending_equity).toBeLessThan(10_000)
+  expect(() => assertReplayResultOhlcvResolutionBindings(result, request())).not.toThrow()
+  const fillTampered = structuredClone(result)
+  fillTampered.fills.at(-1)!.price += 1
+  expect(() => assertReplayResultOhlcvResolutionBindings(fillTampered, request()))
+    .toThrow("terminal Fill binding is invalid")
 })
 
 test("stop gap fills at the worse open and ledger conserves equity", () => {

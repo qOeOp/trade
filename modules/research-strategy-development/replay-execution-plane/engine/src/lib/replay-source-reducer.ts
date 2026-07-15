@@ -10,7 +10,7 @@ import {
   type ReplaySourceEvent,
 } from "../../../contracts/src/lib/replay-contracts"
 import { compareReplayEventKeys } from "./replay-event-key"
-import { createReplaySimpleBracketOhlcvResolution } from "./replay-ohlcv-resolution"
+import { createReplaySimpleBracketOhlcvResolution, type ReplayOhlcvResolutionEconomics } from "./replay-ohlcv-resolution"
 import { buildReplaySourceEvents } from "./replay-source-events"
 
 export type ReplayReducedExit =
@@ -61,6 +61,7 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
   entry_index: number
   delisted_at: string | null
   limitations: ReplayLimitation[]
+  resolution_economics: ReplayOhlcvResolutionEconomics
   resume?: ReplaySourceBoundary<TEntry>
   on_source_boundary?: (boundary: ReplaySourceBoundary<TEntry>) => void
   activate_entry: (source: ReplaySourceEvent) => TEntry
@@ -150,6 +151,7 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
           resolution_evidence: createReplaySimpleBracketOhlcvResolution({
             run_id: input.request.run_id, source_event: source, bar, position_side: input.request.order.side,
             active_protection: activeProtection,
+            economics: input.resolution_economics,
             observation_kind: "bar_open_gap", stop_touched: true, target_touched: false,
             canonical_terminal_role: "stop",
           }),
@@ -166,6 +168,7 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
           resolution_evidence: createReplaySimpleBracketOhlcvResolution({
             run_id: input.request.run_id, source_event: source, bar, position_side: input.request.order.side,
             active_protection: activeProtection,
+            economics: input.resolution_economics,
             observation_kind: "bar_open_gap", stop_touched: false, target_touched: true,
             canonical_terminal_role: "target",
           }),
@@ -202,6 +205,7 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
           resolution_evidence: createReplaySimpleBracketOhlcvResolution({
             run_id: input.request.run_id, source_event: source, bar, position_side: input.request.order.side,
             active_protection: activeProtection,
+            economics: input.resolution_economics,
             observation_kind: "bar_range_touch", stop_touched: true, target_touched: true,
             canonical_terminal_role: "stop",
           }),
@@ -218,6 +222,7 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
         resolution_evidence: createReplaySimpleBracketOhlcvResolution({
           run_id: input.request.run_id, source_event: source, bar, position_side: input.request.order.side,
           active_protection: activeProtection,
+          economics: input.resolution_economics,
           observation_kind: "bar_range_touch", stop_touched: true, target_touched: false,
           canonical_terminal_role: "stop",
         }),
@@ -233,6 +238,7 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
         resolution_evidence: createReplaySimpleBracketOhlcvResolution({
           run_id: input.request.run_id, source_event: source, bar, position_side: input.request.order.side,
           active_protection: activeProtection,
+          economics: input.resolution_economics,
           observation_kind: "bar_range_touch", stop_touched: false, target_touched: true,
           canonical_terminal_role: "target",
         }),

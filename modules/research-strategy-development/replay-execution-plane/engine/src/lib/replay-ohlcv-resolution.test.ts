@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test"
-import { assertReplayOhlcvResolutionEvidence, canonicalHash, type ReplayMarketBar, type ReplaySourceEvent } from "../../../contracts/src/lib/replay-contracts"
-import { createReplaySimpleBracketOhlcvResolution } from "./replay-ohlcv-resolution"
+import { assertReplayOhlcvResolutionEvidence, canonicalHash, replayOhlcvEconomicImpactHash, replayOhlcvResolutionEvidenceHash, type ReplayMarketBar, type ReplaySourceEvent } from "../../../contracts/src/lib/replay-contracts"
+import { assertReplayOhlcvEconomicImpactBindings, createReplaySimpleBracketOhlcvResolution } from "./replay-ohlcv-resolution"
 
 function protection(stop: number, target: number) {
   return {
@@ -8,6 +8,13 @@ function protection(stop: number, target: number) {
     stop_order_id: "run:order:stop", stop_trigger_price: stop,
     target_order_id: "run:order:target", target_trigger_price: target,
   }
+}
+
+const economics = {
+  entry_basis_price: 100, exit_side: "sell" as const,
+  cost_policy_id: "fixture-cost", cost_policy_version: "v1",
+  fee_bps: 4, slippage_bps: 5,
+  price_increment: "0.01", settlement_increment: "0.00000001", settlement_asset: "USDT",
 }
 
 const collisionBar: ReplayMarketBar = {
@@ -32,6 +39,7 @@ test("OHLCV collision evidence exposes both admissible path owners and picks sto
     const evidence = createReplaySimpleBracketOhlcvResolution({
       run_id: `collision-${side}`, source_event: source("bar_range"), bar: collisionBar,
       position_side: side, active_protection: protection(side === "long" ? 95 : 105, side === "long" ? 105 : 95),
+      economics: { ...economics, exit_side: side === "long" ? "sell" : "buy" },
       observation_kind: "bar_range_touch", stop_touched: true, target_touched: true,
       canonical_terminal_role: "stop",
     })
@@ -42,6 +50,28 @@ test("OHLCV collision evidence exposes both admissible path owners and picks sto
     expect(evidence.paths.map((path) => path.first_terminal_role)).toEqual(
       side === "long" ? ["target", "stop"] : ["stop", "target"],
     )
+    expect(evidence.economic_impact).toMatchObject({
+      scope: "terminal_fill_contribution_excludes_common_cashflows",
+      entry_basis_price: 100, quantity: 1,
+      canonical_net_terminal_contribution: evidence.paths.find((path) => path.first_terminal_role === "stop")!
+        .net_terminal_contribution,
+      canonical_shortfall_to_best: evidence.economic_impact.net_terminal_contribution_span,
+    })
+    expect(evidence.economic_impact.net_terminal_contribution_span).toBeGreaterThan(0)
+    expect(evidence.paths.map(({ first_terminal_role, simulated_execution_price, gross_realized_pnl, exit_fee, net_terminal_contribution }) => ({
+      first_terminal_role, simulated_execution_price, gross_realized_pnl, exit_fee, net_terminal_contribution,
+    }))).toEqual(side === "long" ? [
+      { first_terminal_role: "target", simulated_execution_price: 104.94, gross_realized_pnl: 4.94, exit_fee: 0.041976, net_terminal_contribution: 4.898024 },
+      { first_terminal_role: "stop", simulated_execution_price: 94.95, gross_realized_pnl: -5.05, exit_fee: 0.03798, net_terminal_contribution: -5.08798 },
+    ] : [
+      { first_terminal_role: "stop", simulated_execution_price: 105.06, gross_realized_pnl: -5.06, exit_fee: 0.042024, net_terminal_contribution: -5.102024 },
+      { first_terminal_role: "target", simulated_execution_price: 95.05, gross_realized_pnl: 4.95, exit_fee: 0.03802, net_terminal_contribution: 4.91198 },
+    ])
+    expect(evidence.economic_impact.net_terminal_contribution_span)
+      .toBe(side === "long" ? 9.986004 : 10.014004)
+    expect(() => assertReplayOhlcvEconomicImpactBindings(
+      evidence, { ...economics, exit_side: side === "long" ? "sell" : "buy" },
+    )).not.toThrow()
     expect(evidence.canonical.path_id).toBe(side === "long" ? "open_low_high_close" : "open_high_low_close")
     expect(() => assertReplayOhlcvResolutionEvidence(evidence)).not.toThrow()
 
@@ -50,6 +80,15 @@ test("OHLCV collision evidence exposes both admissible path owners and picks sto
     const { evidence_hash: _oldHash, ...body } = tampered
     tampered.evidence_hash = canonicalHash(body)
     expect(() => assertReplayOhlcvResolutionEvidence(tampered)).toThrow("path digest mismatch")
+
+    const policyTampered = structuredClone(evidence)
+    policyTampered.economic_impact.fee_bps = 8
+    policyTampered.economic_impact.impact_hash = replayOhlcvEconomicImpactHash(policyTampered.economic_impact)
+    policyTampered.evidence_hash = replayOhlcvResolutionEvidenceHash(policyTampered)
+    expect(() => assertReplayOhlcvResolutionEvidence(policyTampered)).not.toThrow()
+    expect(() => assertReplayOhlcvEconomicImpactBindings(
+      policyTampered, { ...economics, exit_side: side === "long" ? "sell" : "buy" },
+    )).toThrow("does not match frozen execution inputs")
   }
 })
 
@@ -57,18 +96,21 @@ test("observed gaps and single terminal touches are exact under the two-path env
   const gapBar = { ...collisionBar, open: 90, high: 102, low: 88, close: 100 }
   const gap = createReplaySimpleBracketOhlcvResolution({
     run_id: "gap", source_event: { ...source("bar_open"), event_key: { ...source("bar_open").event_key }, source_index: 0 },
-    bar: gapBar, position_side: "long", active_protection: protection(95, 110),
+    bar: gapBar, position_side: "long", active_protection: protection(95, 110), economics,
     observation_kind: "bar_open_gap", stop_touched: true, target_touched: false,
     canonical_terminal_role: "stop",
   })
   expect(gap).toMatchObject({ status: "exact_under_ohlc", resolution_reason: "open_gap_observed" })
   expect(gap.paths.map((path) => [path.first_terminal_role, path.trigger_price]))
     .toEqual([["stop", 90], ["stop", 90]])
+  expect(gap.economic_impact).toMatchObject({
+    net_terminal_contribution_span: 0, canonical_shortfall_to_best: 0,
+  })
 
   const single = createReplaySimpleBracketOhlcvResolution({
     run_id: "single", source_event: source("bar_range"),
     bar: { ...collisionBar, low: 99 }, position_side: "long",
-    active_protection: protection(95, 105),
+    active_protection: protection(95, 105), economics,
     observation_kind: "bar_range_touch", stop_touched: false, target_touched: true,
     canonical_terminal_role: "target",
   })
