@@ -9,3 +9,5 @@ Tests may compare certified components and compatibility outputs, but this packa
 OHLCV Resolution Evidence v2 certification 必须覆盖 initial generation 1、stop replacement generation 2、partial-resize generation 2 及其 remaining quantity/order identity，并以重算 evidence/checkpoint hash 的 stale-generation 篡改证明自洽哈希不能替代跨 Artifact 的 SourceEvent/OrderEvent/Fill 绑定。
 
 OHLCV Resolution Evidence v3 certification 还必须覆盖 long/short directionally rounded execution price、fee/gross/net 算术、exact path zero span、collision positive span、价格缩放、cost-policy tamper、canonical Fill tamper 与 clean/resume/idempotent parity。不得用该 envelope 推断真实 path probability 或完整 counterfactual equity。
+
+`OHLCV Economic Oracle Fixture v1` 是 certification-only 的成本/精度向量。Oracle 必须独立实现有理数与舍入，不得导入 production accounting/decimal；至少覆盖 zero-cost、非零 fee/slippage、fractional bps、coarse price/settlement increment、long/short、gap/single-touch/collision、ordered actual-path containment、手算 golden 与采样加密不变性。该认证不把 synthetic cost policy 升级为真实 venue 成本模型，也不授予 Result/Artifact authority。
