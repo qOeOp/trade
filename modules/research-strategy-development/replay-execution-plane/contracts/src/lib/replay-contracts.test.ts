@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test"
 import {
   REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
+  REPLAY_DECISION_HARNESS_CAPABILITY_SCHEMA_VERSION,
+  REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION,
+  REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION,
   REPLAY_LOCAL_ARTIFACT_STORE_CAPABILITY,
   REPLAY_OBJECT_ARTIFACT_STORE_REQUIRED_CAPABILITY,
   REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION,
@@ -15,9 +18,14 @@ import {
   assertReplayExecutionRequest,
   assertReplayDatasetManifest,
   assertReplayArtifactStoreCapability,
+  assertReplayDecisionHarnessCapability,
+  assertReplayDecisionHarnessReceipt,
+  assertReplayDecisionInputSnapshot,
   assertReplaySupplementalFact,
   assertReplaySupplementalRequirementSet,
   canonicalHash,
+  createReplayDecisionHarnessReceipt,
+  createReplayDecisionInputSnapshot,
   type ReplayExecutionRequest,
 } from "./replay-contracts"
 
@@ -119,6 +127,35 @@ test("supplemental fact freezes causal timestamps and canonical payload identity
   expect(() => assertReplaySupplementalFact(fact)).not.toThrow()
   expect(() => assertReplaySupplementalFact({ ...fact, availability_at: "2026-07-13T19:59:59Z" })).toThrow("before its event time")
   expect(() => assertReplaySupplementalFact({ ...fact, payload: { open_interest: "101" } })).toThrow("payload hash mismatch")
+})
+
+test("Decision Input Snapshot and Harness Receipt are self-hashed immutable evidence", () => {
+  const requestValue = fixtureRequest()
+  const snapshot = createReplayDecisionInputSnapshot(requestValue, [])
+  expect(snapshot).toMatchObject({
+    schema_version: REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION,
+    selected_records_hash: canonicalHash([]),
+  })
+  expect(() => assertReplayDecisionInputSnapshot(snapshot, requestValue)).not.toThrow()
+  expect(() => assertReplayDecisionInputSnapshot({ ...snapshot, decision_time: "2026-07-13T23:59:59Z" }, requestValue)).toThrow()
+
+  const capability = {
+    schema_version: REPLAY_DECISION_HARNESS_CAPABILITY_SCHEMA_VERSION,
+    harness_hash: requestValue.harness_hash,
+    execution_policy: "in_process_deterministic" as const,
+    input_schema_version: REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION,
+    output_schema_version: REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION,
+  }
+  expect(() => assertReplayDecisionHarnessCapability(capability, requestValue)).not.toThrow()
+  expect(() => assertReplayDecisionHarnessCapability({ ...capability, harness_hash: "b".repeat(64) }, requestValue)).toThrow("capability hash")
+  const receipt = createReplayDecisionHarnessReceipt({
+    request: requestValue,
+    decision_input_snapshot: snapshot,
+    derived_order: requestValue.order,
+    trace: { selected_records_hash: snapshot.selected_records_hash },
+  })
+  expect(() => assertReplayDecisionHarnessReceipt(receipt, requestValue, snapshot)).not.toThrow()
+  expect(() => assertReplayDecisionHarnessReceipt({ ...receipt, trace: { tampered: true } }, requestValue, snapshot)).toThrow("trace hash")
 })
 
 test("supplemental requirement set freezes a non-overlapping closed input scope", () => {

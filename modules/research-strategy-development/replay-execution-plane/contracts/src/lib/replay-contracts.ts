@@ -11,8 +11,8 @@ export {
 }
 
 export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v13" as const
-export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v19" as const
-export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v21" as const
+export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v20" as const
+export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v22" as const
 export const REPLAY_ARTIFACT_STORE_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-artifact-store-capability.v1" as const
 export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v7" as const
 export const REPLAY_NUMERIC_POLICY_VERSION = "rd-replay-number-v3" as const
@@ -26,6 +26,9 @@ export const REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION = "rd-replay-instrument-a
 export const REPLAY_DATASET_MANIFEST_SCHEMA_VERSION = "trade.rd-replay-dataset-manifest.v7" as const
 export const REPLAY_SUPPLEMENTAL_FACT_SCHEMA_VERSION = "trade.rd-replay-supplemental-fact.v1" as const
 export const REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION = "trade.rd-replay-supplemental-requirement-set.v1" as const
+export const REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION = "trade.rd-replay-decision-input-snapshot.v1" as const
+export const REPLAY_DECISION_HARNESS_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-decision-harness-capability.v1" as const
+export const REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION = "trade.rd-replay-decision-harness-receipt.v1" as const
 export const REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION = "trade.rd-replay-venue-risk-policy-snapshot.v1" as const
 export const REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION = "trade.rd-replay-instrument-spec-snapshot.v1" as const
 export const REPLAY_CERTIFIED_CAPABILITIES = [
@@ -41,7 +44,7 @@ export const REPLAY_CERTIFIED_CAPABILITIES = [
   "stop-take-profit-market",
 ] as const
 export const REPLAY_REQUIRED_ARTIFACT_ROLES = [
-  "request", "trial_reservation", "attempt_lease", "dataset_manifest", "supplemental_facts", "result",
+  "request", "trial_reservation", "attempt_lease", "dataset_manifest", "supplemental_facts", "decision_input_snapshot", "decision_harness_receipt", "result",
   "source_events", "order_events", "fills", "positions", "ledger",
   "valuation_snapshot", "equity_bridge", "margin_snapshots", "liquidation",
   "journal", "trial_balance",
@@ -254,6 +257,41 @@ export interface ReplaySupplementalRequirementEvaluation {
   status: "satisfied"
 }
 
+export interface ReplayDecisionInputSnapshot {
+  schema_version: typeof REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION
+  run_id: string
+  decision_time: string
+  supplemental_requirement_set_hash: string
+  visibility_policy: "signal_time_snapshot"
+  selected_records: ReplaySupplementalFact[]
+  selected_records_hash: string
+  snapshot_hash: string
+}
+
+export type ReplayDecisionInputSnapshotBody = Omit<ReplayDecisionInputSnapshot, "snapshot_hash">
+
+export interface ReplayDecisionHarnessCapability {
+  schema_version: typeof REPLAY_DECISION_HARNESS_CAPABILITY_SCHEMA_VERSION
+  harness_hash: string
+  execution_policy: "in_process_deterministic"
+  input_schema_version: typeof REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION
+  output_schema_version: typeof REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION
+}
+
+export interface ReplayDecisionHarnessReceipt {
+  schema_version: typeof REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION
+  run_id: string
+  harness_hash: string
+  execution_policy: "in_process_deterministic"
+  decision_input_snapshot_hash: string
+  derived_order: ReplayExecutionRequest["order"]
+  trace: ReplaySupplementalValue
+  trace_hash: string
+  receipt_hash: string
+}
+
+export type ReplayDecisionHarnessReceiptBody = Omit<ReplayDecisionHarnessReceipt, "receipt_hash">
+
 export interface ReplaySupplementalEvidence {
   visibility_policy: "signal_time_snapshot"
   requirement_set_hash: string
@@ -264,6 +302,7 @@ export interface ReplaySupplementalEvidence {
   selected_records_hash: string
   future_revision_count: number
   requirement_evaluations: ReplaySupplementalRequirementEvaluation[]
+  decision_input_snapshot_hash: string
 }
 
 export interface ReplayDatasetManifest {
@@ -647,6 +686,8 @@ export interface ReplayEvidenceFingerprint {
   dataset_hash: string
   supplemental_facts_hash: string
   supplemental_requirement_set_hash: string
+  decision_input_snapshot_hash: string
+  decision_harness_receipt_hash: string | null
   venue_risk_policy_schedule_hash: string
   instrument_spec_schedule_hash: string
   harness_hash: string
@@ -681,6 +722,8 @@ export interface ReplayResult {
   journal: ReplayJournalEntry[]
   trial_balance: ReplayTrialBalance
   supplemental_evidence: ReplaySupplementalEvidence
+  decision_input_snapshot: ReplayDecisionInputSnapshot
+  decision_harness_receipt: ReplayDecisionHarnessReceipt | null
   metrics: {
     initial_cash: number
     ending_equity: number
@@ -976,6 +1019,130 @@ export function assertReplaySupplementalFact(fact: ReplaySupplementalFact): void
   }
   requireHash(fact.content_hash, "supplemental_fact.content_hash")
   if (canonicalHash(fact.payload) !== fact.content_hash) fail("supplemental fact payload hash mismatch")
+}
+
+export function createReplayDecisionInputSnapshot(
+  request: ReplayExecutionRequest,
+  selectedRecords: ReplaySupplementalFact[],
+): ReplayDecisionInputSnapshot {
+  const records = structuredClone(selectedRecords)
+  records.forEach(assertReplaySupplementalFact)
+  const body: ReplayDecisionInputSnapshotBody = {
+    schema_version: REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION,
+    run_id: request.run_id,
+    decision_time: request.order.signal_time,
+    supplemental_requirement_set_hash: request.supplemental_requirement_set_hash,
+    visibility_policy: "signal_time_snapshot",
+    selected_records: records,
+    selected_records_hash: canonicalHash(records),
+  }
+  const snapshot = { ...body, snapshot_hash: canonicalHash(body) }
+  assertReplayDecisionInputSnapshot(snapshot, request)
+  return snapshot
+}
+
+export function assertReplayDecisionInputSnapshot(
+  snapshot: ReplayDecisionInputSnapshot,
+  request?: ReplayExecutionRequest,
+): void {
+  if (snapshot.schema_version !== REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION) {
+    fail("unsupported Replay decision input snapshot schema")
+  }
+  requireText(snapshot.run_id, "decision_input_snapshot.run_id")
+  requireUtcTimestamp(snapshot.decision_time, "decision_input_snapshot.decision_time")
+  requireHash(snapshot.supplemental_requirement_set_hash, "decision_input_snapshot.supplemental_requirement_set_hash")
+  if (snapshot.visibility_policy !== "signal_time_snapshot") fail("unsupported decision input visibility policy")
+  let priorGroupKey = ""
+  for (const fact of snapshot.selected_records) {
+    assertReplaySupplementalFact(fact)
+    if (Date.parse(fact.availability_at) > Date.parse(snapshot.decision_time)) {
+      fail("decision input snapshot contains a future-visible supplemental fact")
+    }
+    const groupKey = `${fact.source_id}\u0000${fact.entity_key}\u0000${fact.fact_key}\u0000${fact.event_time}`
+    if (groupKey <= priorGroupKey) fail("decision input selected records must have unique canonical fact-group order")
+    priorGroupKey = groupKey
+  }
+  requireHash(snapshot.selected_records_hash, "decision_input_snapshot.selected_records_hash")
+  requireHash(snapshot.snapshot_hash, "decision_input_snapshot.snapshot_hash")
+  if (canonicalHash(snapshot.selected_records) !== snapshot.selected_records_hash) {
+    fail("decision input selected records hash mismatch")
+  }
+  const { snapshot_hash: _snapshotHash, ...body } = snapshot
+  if (canonicalHash(body) !== snapshot.snapshot_hash) fail("decision input snapshot hash mismatch")
+  if (request && (
+    snapshot.run_id !== request.run_id
+    || snapshot.decision_time !== request.order.signal_time
+    || snapshot.supplemental_requirement_set_hash !== request.supplemental_requirement_set_hash
+  )) fail("decision input snapshot does not match Replay request")
+  if (request?.supplemental_requirement_set.mode === "none" && snapshot.selected_records.length !== 0) {
+    fail("decision input snapshot without supplemental requirements must be empty")
+  }
+}
+
+export function assertReplayDecisionHarnessCapability(
+  capability: ReplayDecisionHarnessCapability,
+  request?: ReplayExecutionRequest,
+): void {
+  if (capability.schema_version !== REPLAY_DECISION_HARNESS_CAPABILITY_SCHEMA_VERSION
+      || capability.execution_policy !== "in_process_deterministic"
+      || capability.input_schema_version !== REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION
+      || capability.output_schema_version !== REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION) {
+    fail("unsupported Replay decision harness capability")
+  }
+  requireHash(capability.harness_hash, "decision_harness_capability.harness_hash")
+  if (request && capability.harness_hash !== request.harness_hash) {
+    fail("decision harness capability hash does not match Replay request")
+  }
+}
+
+export function createReplayDecisionHarnessReceipt(input: {
+  request: ReplayExecutionRequest
+  decision_input_snapshot: ReplayDecisionInputSnapshot
+  derived_order: ReplayExecutionRequest["order"]
+  trace: ReplaySupplementalValue
+}): ReplayDecisionHarnessReceipt {
+  assertReplayDecisionInputSnapshot(input.decision_input_snapshot, input.request)
+  const trace = structuredClone(input.trace)
+  const body: ReplayDecisionHarnessReceiptBody = {
+    schema_version: REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION,
+    run_id: input.request.run_id,
+    harness_hash: input.request.harness_hash,
+    execution_policy: "in_process_deterministic",
+    decision_input_snapshot_hash: input.decision_input_snapshot.snapshot_hash,
+    derived_order: structuredClone(input.derived_order),
+    trace,
+    trace_hash: canonicalHash(trace),
+  }
+  const receipt = { ...body, receipt_hash: canonicalHash(body) }
+  assertReplayDecisionHarnessReceipt(receipt, input.request, input.decision_input_snapshot)
+  return receipt
+}
+
+export function assertReplayDecisionHarnessReceipt(
+  receipt: ReplayDecisionHarnessReceipt,
+  request?: ReplayExecutionRequest,
+  snapshot?: ReplayDecisionInputSnapshot,
+): void {
+  if (receipt.schema_version !== REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION
+      || receipt.execution_policy !== "in_process_deterministic") {
+    fail("unsupported Replay decision harness receipt")
+  }
+  requireText(receipt.run_id, "decision_harness_receipt.run_id")
+  requireHash(receipt.harness_hash, "decision_harness_receipt.harness_hash")
+  requireHash(receipt.decision_input_snapshot_hash, "decision_harness_receipt.decision_input_snapshot_hash")
+  requireHash(receipt.trace_hash, "decision_harness_receipt.trace_hash")
+  requireHash(receipt.receipt_hash, "decision_harness_receipt.receipt_hash")
+  if (canonicalHash(receipt.trace) !== receipt.trace_hash) fail("decision harness trace hash mismatch")
+  const { receipt_hash: _receiptHash, ...body } = receipt
+  if (canonicalHash(body) !== receipt.receipt_hash) fail("decision harness receipt hash mismatch")
+  if (request && (
+    receipt.run_id !== request.run_id
+    || receipt.harness_hash !== request.harness_hash
+    || canonicalJson(receipt.derived_order) !== canonicalJson(request.order)
+  )) fail("decision harness receipt does not match Replay request")
+  if (snapshot && receipt.decision_input_snapshot_hash !== snapshot.snapshot_hash) {
+    fail("decision harness receipt does not match decision input snapshot")
+  }
 }
 
 export function assertReplayVenueRiskPolicySnapshot(snapshot: ReplayVenueRiskPolicySnapshot): void {

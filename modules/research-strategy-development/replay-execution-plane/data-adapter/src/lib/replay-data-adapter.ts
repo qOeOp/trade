@@ -3,9 +3,11 @@ import {
   assertReplayMarketBars,
   assertReplaySupplementalFact,
   canonicalHash,
+  createReplayDecisionInputSnapshot,
   replayDatasetHash,
   replayDatasetManifestHash,
   type ReplayDatasetManifest,
+  type ReplayDecisionInputSnapshot,
   type ReplayExecutionRequest,
   type ReplayFundingEvent,
   type ReplayInstrumentSpecSnapshot,
@@ -26,6 +28,7 @@ export interface PreparedReplayInputData {
   mark_events: ReplayMarkEvent[]
   supplemental_facts: ReplaySupplementalFact[]
   supplemental_evidence: ReplaySupplementalEvidence
+  decision_input_snapshot: ReplayDecisionInputSnapshot
   entry_index: number
   dataset_manifest_hash: string
   limitations: ReplayLimitation[]
@@ -50,7 +53,7 @@ export function prepareReplayInputData(input: {
   const supplementalFacts = validateReplaySupplementalFacts(input.supplemental_facts || [])
   const entryIndex = input.bars.findIndex((bar) => Date.parse(bar.open_time) >= executableTime)
   if (entryIndex < 0) throw new Error("dataset contains no bar at or after earliest executable time")
-  const supplementalEvidence = validateManifestBinding(
+  const supplementalAdmission = validateManifestBinding(
     request, manifest, input.bars, fundingEvents, markEvents, supplementalFacts, input.bars[entryIndex].open_time,
   )
   return {
@@ -58,7 +61,8 @@ export function prepareReplayInputData(input: {
     funding_events: fundingEvents,
     mark_events: markEvents,
     supplemental_facts: supplementalFacts,
-    supplemental_evidence: supplementalEvidence,
+    supplemental_evidence: supplementalAdmission.evidence,
+    decision_input_snapshot: supplementalAdmission.snapshot,
     entry_index: entryIndex,
     dataset_manifest_hash: replayDatasetManifestHash(manifest),
     limitations: detectDatasetLimitations(manifest, input.bars),
@@ -73,7 +77,7 @@ function validateManifestBinding(
   markEvents: ReplayMarkEvent[],
   supplementalFacts: ReplaySupplementalFact[],
   entryTime: string,
-): ReplaySupplementalEvidence {
+): { evidence: ReplaySupplementalEvidence; snapshot: ReplayDecisionInputSnapshot } {
   if (manifest.manifest_ref !== request.dataset_manifest_ref) throw new Error("dataset manifest ref does not match Replay request")
   if (manifest.data_hash !== request.dataset_hash) throw new Error("dataset manifest hash binding does not match Replay request")
   const actualDataHash = replayDatasetHash(bars, fundingEvents, markEvents, supplementalFacts)
@@ -96,11 +100,11 @@ function validateManifestBinding(
     throw new Error("funding event falls outside the dataset manifest window")
   }
   validateMarkCoverage(manifest, markEvents, observedThrough, firstOpen, lastClose)
-  const supplementalEvidence = validateSupplementalBinding(request, manifest, supplementalFacts, observedThrough)
+  const supplementalAdmission = validateSupplementalBinding(request, manifest, supplementalFacts, observedThrough)
   validatePointInTimePolicyBindings(request, manifest, firstOpen, lastClose, entryTime, observedThrough)
   validateInstrumentWindow(request, manifest, bars)
   validateBarGrid(manifest, bars)
-  return supplementalEvidence
+  return supplementalAdmission
 }
 
 function validateSupplementalBinding(
@@ -108,7 +112,7 @@ function validateSupplementalBinding(
   manifest: ReplayDatasetManifest,
   facts: ReplaySupplementalFact[],
   observedThrough: number,
-): ReplaySupplementalEvidence {
+): { evidence: ReplaySupplementalEvidence; snapshot: ReplayDecisionInputSnapshot } {
   const declared = manifest.supplemental_facts
   const contentHash = canonicalHash(facts)
   if (declared.record_count !== facts.length) throw new Error("supplemental fact count does not match dataset manifest")
@@ -128,7 +132,8 @@ function validateSupplementalBinding(
   }
   const selected = selectReplaySupplementalFactsAt(facts, request.order.signal_time)
   const requirementEvaluations = validateSupplementalRequirements(request, facts, selected)
-  return {
+  const snapshot = createReplayDecisionInputSnapshot(request, selected)
+  return { snapshot, evidence: {
     visibility_policy: "signal_time_snapshot",
     requirement_set_hash: request.supplemental_requirement_set_hash,
     undeclared_input_policy: "reject",
@@ -138,7 +143,8 @@ function validateSupplementalBinding(
     selected_records_hash: canonicalHash(selected),
     future_revision_count: facts.filter((fact) => Date.parse(fact.availability_at) > Date.parse(request.order.signal_time)).length,
     requirement_evaluations: requirementEvaluations,
-  }
+    decision_input_snapshot_hash: snapshot.snapshot_hash,
+  } }
 }
 
 function validateSupplementalRequirements(
@@ -403,11 +409,6 @@ function detectDatasetLimitations(manifest: ReplayDatasetManifest, bars: ReplayM
     code: "survivor-only-universe",
     severity: "resolution_limited",
     detail: "Dataset universe excludes unavailable inactive/delisted history and cannot support survivorship-robust conclusions.",
-  })
-  if (manifest.supplemental_facts.coverage === "signal_time_snapshot") limitations.push({
-    code: "supplemental-signal-derivation-harness-bound",
-    severity: "info",
-    detail: "Replay certifies the signal-time supplemental view and lineage; the precomputed Signal derivation remains bound to the frozen harness rather than being recomputed by the engine.",
   })
   return limitations
 }

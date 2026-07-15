@@ -6,6 +6,9 @@ import { CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, REPLAY_ATTEMPT_LEASE_SCHEMA_VERS
 import {
   REPLAY_CERTIFIED_CAPABILITIES,
   REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
+  REPLAY_DECISION_HARNESS_CAPABILITY_SCHEMA_VERSION,
+  REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION,
+  REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION,
   REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION,
   REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION,
   REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS,
@@ -26,6 +29,7 @@ import {
 import { runReplayTrial, type ReplayDiagnosticCheckpointCommitRef } from "./replay-trial-runner"
 import type { ReplayArtifactStore } from "./replay-artifact-store"
 import { createReplayLocalArtifactStore } from "./replay-local-artifact-store"
+import type { ReplayDecisionHarness } from "./replay-decision-harness"
 
 const HASH = "b".repeat(64)
 const OBSERVED_AT = "2026-07-14T00:01:00Z"
@@ -59,6 +63,25 @@ const bars = [{ open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00
 const DATA_HASH = replayDatasetHash(bars)
 
 function boundRequest(): ReplayExecutionRequest { return { ...request(), dataset_hash: DATA_HASH } }
+
+function decisionHarness(
+  requestValue: ReplayExecutionRequest,
+  execute: ReplayDecisionHarness["execute"] = ({ request: authorizedRequest }) => ({
+    derived_order: structuredClone(authorizedRequest.order),
+    trace: { fixture: "runner-harness-executed" },
+  }),
+): ReplayDecisionHarness {
+  return {
+    capability: {
+      schema_version: REPLAY_DECISION_HARNESS_CAPABILITY_SCHEMA_VERSION,
+      harness_hash: requestValue.harness_hash,
+      execution_policy: "in_process_deterministic",
+      input_schema_version: REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION,
+      output_schema_version: REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION,
+    },
+    execute,
+  }
+}
 
 function authorize(requestValue: ReplayExecutionRequest): TrialReservationSnapshot {
   const reservation: TrialReservationSnapshot = {
@@ -179,7 +202,7 @@ test("runner atomically commits artifacts and retries idempotently", () => {
     artifact_store: createReplayLocalArtifactStore(root),
   })
   expect(first.status).toBe("completed")
-  expect(first.artifact_manifest?.files.map((file) => file.role)).toEqual(["request", "trial_reservation", "attempt_lease", "dataset_manifest", "supplemental_facts", "result", "source_events", "order_events", "fills", "positions", "ledger", "valuation_snapshot", "equity_bridge", "margin_snapshots", "liquidation", "journal", "trial_balance"])
+  expect(first.artifact_manifest?.files.map((file) => file.role)).toEqual(["request", "trial_reservation", "attempt_lease", "dataset_manifest", "supplemental_facts", "decision_input_snapshot", "decision_harness_receipt", "result", "source_events", "order_events", "fills", "positions", "ledger", "valuation_snapshot", "equity_bridge", "margin_snapshots", "liquidation", "journal", "trial_balance"])
   expect(first.artifact_manifest?.completeness.authoritative_result).toBe(true)
   expect(first.artifact_manifest?.storage_policy_version).toBe(REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION)
   expect(first.artifact_commit?.terminal_checkpoint_hash).toBe(first.artifact_manifest?.completeness.terminal_checkpoint_hash)
@@ -218,13 +241,40 @@ test("runner commits the complete supplemental revision stream as immutable evid
     supplemental_facts: { coverage: "signal_time_snapshot", record_count: 1, source_ids: ["feature-store"], content_hash: supplementalHash, requirement_set_hash: requestValue.supplemental_requirement_set_hash },
   }
   const root = mkdtempSync(join(tmpdir(), "rd-replay-runner-supplemental-"))
+  let harnessExecutionCount = 0
   const completed = runReplayTrial({
     ...authorized(requestValue), dataset_manifest: manifest, bars, supplemental_facts: supplementalFacts, artifact_root: root,
+    decision_harness: decisionHarness(requestValue, ({ request: authorizedRequest, decision_input_snapshot: snapshot }) => {
+      harnessExecutionCount += 1
+      return { derived_order: structuredClone(authorizedRequest.order), trace: { selected_records_hash: snapshot.selected_records_hash } }
+    }),
   })
   expect(completed.status).toBe("completed")
+  expect(harnessExecutionCount).toBe(1)
   expect(completed.result?.supplemental_evidence.selected_record_ids).toEqual(["feature-1"])
+  expect(completed.result?.decision_harness_receipt?.decision_input_snapshot_hash).toBe(completed.result?.decision_input_snapshot.snapshot_hash)
   const supplementalArtifact = completed.artifact_manifest?.files.find((file) => file.role === "supplemental_facts")
   expect(JSON.parse(readFileSync(supplementalArtifact!.ref, "utf8"))).toEqual(supplementalFacts)
+  const idempotent = runReplayTrial({
+    ...authorized(requestValue), dataset_manifest: manifest, bars, supplemental_facts: supplementalFacts, artifact_root: root,
+    decision_harness: decisionHarness(requestValue, () => { throw new Error("idempotent replay must not invoke harness") }),
+  })
+  expect(idempotent).toMatchObject({ status: "completed", idempotent_replay: true })
+
+  const missingHarness = runReplayTrial({
+    ...authorized(requestValue), dataset_manifest: manifest, bars, supplemental_facts: supplementalFacts,
+  })
+  expect(missingHarness.failure).toMatchObject({
+    code: "decision-harness-rejected", failure_class: "unsupported_contract", partial_result_published: false,
+  })
+  const mismatchedOrder = runReplayTrial({
+    ...authorized(requestValue), dataset_manifest: manifest, bars, supplemental_facts: supplementalFacts,
+    decision_harness: decisionHarness(requestValue, ({ request: authorizedRequest }) => ({
+      derived_order: { ...authorizedRequest.order, target_price: authorizedRequest.order.target_price + 1 },
+      trace: { fixture: "mismatch" },
+    })),
+  })
+  expect(mismatchedOrder.failure).toMatchObject({ code: "decision-harness-rejected", partial_result_published: false })
 })
 
 test("runner fences stale Attempt leases and verifies every committed artifact file", () => {
@@ -267,7 +317,7 @@ test("runner enforces Reservation expiry only at Attempt claim admission", () =>
   expired.observed_at = "2026-07-14T00:01:30Z"
   const rejected = runReplayTrial({ ...expired, dataset_manifest: datasetManifest(), bars })
   expect(rejected).toMatchObject({
-    schema_version: "trade.rd-replay-run-outcome.v16",
+    schema_version: "trade.rd-replay-run-outcome.v17",
     status: "failed",
     failure: { code: "trial-reservation-expired", failure_class: "unsupported_contract", retryable: false, partial_result_published: false },
   })

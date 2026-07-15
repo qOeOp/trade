@@ -214,10 +214,29 @@ test("supplemental PIT join selects the last visible revision and excludes futur
   expect(prepared.supplemental_evidence.selected_records_hash).toBe(canonicalHash(
     selectReplaySupplementalFactsAt(supplementalFacts, request().order.signal_time),
   ))
+  expect(prepared.supplemental_evidence.decision_input_snapshot_hash).toBe(prepared.decision_input_snapshot.snapshot_hash)
+  expect(prepared.decision_input_snapshot.selected_records.map((fact) => fact.record_id)).toEqual(["oi-btc-1", "oi-eth-1"])
   expect(selectReplaySupplementalFactsAt(supplementalFacts, request().order.signal_time)).toEqual(
     selectReplaySupplementalFactsAt(supplementalFacts.filter((fact) => fact.record_id !== "oi-btc-2"), request().order.signal_time),
   )
-  expect(prepared.limitations.map((limitation) => limitation.code)).toContain("supplemental-signal-derivation-harness-bound")
+  expect(prepared.limitations.map((limitation) => limitation.code)).not.toContain("supplemental-signal-derivation-harness-bound")
+  const factsWithoutFutureRevision = supplementalFacts.filter((fact) => fact.record_id !== "oi-btc-2")
+  const factsWithoutFutureHash = canonicalHash(factsWithoutFutureRevision)
+  const dataWithoutFutureHash = replayDatasetHash(bars, fundingEvents, [], factsWithoutFutureRevision)
+  const preparedWithoutFutureRevision = prepareReplayInputData({
+    request: { ...supplementalRequest, dataset_hash: dataWithoutFutureHash, supplemental_facts_hash: factsWithoutFutureHash },
+    dataset_manifest: {
+      ...supplementalManifest,
+      data_hash: dataWithoutFutureHash,
+      supplemental_facts: {
+        ...supplementalManifest.supplemental_facts,
+        record_count: factsWithoutFutureRevision.length,
+        content_hash: factsWithoutFutureHash,
+      },
+    },
+    bars, funding_events: fundingEvents, supplemental_facts: factsWithoutFutureRevision,
+  })
+  expect(preparedWithoutFutureRevision.decision_input_snapshot.snapshot_hash).toBe(prepared.decision_input_snapshot.snapshot_hash)
 
   const tampered = supplementalFacts.map((fact, index) => index === 0 ? { ...fact, payload: { open_interest: "999" } } : fact)
   expect(() => prepareReplayInputData({

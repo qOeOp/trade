@@ -11,6 +11,7 @@ import {
   REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION,
   REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
   canonicalHash,
+  createReplayDecisionHarnessReceipt,
   replayDatasetHash,
   type ReplayDatasetManifest,
   type ReplayExecutionRequest,
@@ -19,6 +20,7 @@ import {
   type ReplayMarketBar,
   type ReplaySupplementalFact,
 } from "../../../contracts/src/lib/replay-contracts"
+import { prepareReplayInputData } from "../../../data-adapter/src/lib/replay-data-adapter"
 import {
   ReplayExecutionInterruptedError,
   executeReplayKernel,
@@ -149,7 +151,20 @@ function inputFor(
     },
     universe: { selected_at: "2026-07-13T00:00:00Z", survivorship: "point_in_time" },
   }
-  return { request: boundRequest, dataset_manifest: datasetManifest, bars, funding_events: fundingEvents, mark_events: markEvents, supplemental_facts: supplementalFacts }
+  const base = { request: boundRequest, dataset_manifest: datasetManifest, bars, funding_events: fundingEvents, mark_events: markEvents, supplemental_facts: supplementalFacts }
+  const prepared = prepareReplayInputData(base)
+  return {
+    ...base,
+    decision_input_snapshot: prepared.decision_input_snapshot,
+    decision_harness_receipt: supplementalFacts.length > 0
+      ? createReplayDecisionHarnessReceipt({
+        request: boundRequest,
+        decision_input_snapshot: prepared.decision_input_snapshot,
+        derived_order: boundRequest.order,
+        trace: { fixture: "engine-harness-executed" },
+      })
+      : null,
+  }
 }
 
 test("closed-candle signal enters at next open and resolves same-bar collision stop first", () => {
@@ -240,7 +255,15 @@ test("Result binds the deterministic signal-time supplemental revision view", ()
   expect(result.supplemental_evidence.requirement_evaluations).toHaveLength(1)
   expect(result.fingerprint.supplemental_facts_hash).toBe(canonicalHash(facts))
   expect(result.fingerprint.supplemental_requirement_set_hash).toBe(replayInput.request.supplemental_requirement_set_hash)
-  expect(result.limitations.map((limitation) => limitation.code)).toContain("supplemental-signal-derivation-harness-bound")
+  expect(result.decision_harness_receipt?.derived_order).toEqual(replayInput.request.order)
+  expect(result.fingerprint.decision_input_snapshot_hash).toBe(result.decision_input_snapshot.snapshot_hash)
+  expect(result.fingerprint.decision_harness_receipt_hash).toBe(result.decision_harness_receipt?.receipt_hash ?? null)
+  expect(result.limitations.map((limitation) => limitation.code)).toContain("decision-harness-source-registry-uncertified")
+  expect(() => executeReplayKernel({ ...replayInput, decision_harness_receipt: null })).toThrow("requires a decision harness receipt")
+  expect(() => executeReplayKernel({
+    ...replayInput,
+    decision_input_snapshot: { ...replayInput.decision_input_snapshot, selected_records: [] },
+  })).toThrow("selected records hash mismatch")
 })
 
 test("risk policy epochs switch before same-time source-event margin evaluation", () => {
