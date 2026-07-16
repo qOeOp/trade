@@ -8,7 +8,7 @@ RD 确定性历史执行与证据生产面。当前已实现：
 contracts/  完整 Trial/Candidate/Dataset/Instrument/Policy/Result/Fingerprint 合同
 data-adapter/ manifest/hash、UTC、instrument/PIT policy snapshot、supplemental requirement/revision join、closed bar/grid gap、funding/mark 准入
 engine/     EventKey source reducer + source-bound entry/exit/forced-liquidation lanes
-accounting/ slippage、trade/liquidation fee、exact funding、Position、现金与 Journal v5 / Equity v2
+accounting/ slippage、trade/liquidation fee、exact funding、Position、现金与 Journal v5 / Equity v3
 metrics/    只从 fills/ledger 派生权威 Replay metrics
 runner/     monotonic Attempt lease fencing、transport-neutral coordinator/pre-terminal local outbox、namespace discovery/recovery-first no-replay ack、幂等、typed failure、Harness worker 与完整 Artifact commit
 tests/      golden、property、metamorphic、component parity 认证
@@ -16,7 +16,7 @@ compatibility/ 迁入的 legacy replay/benchmark/panel 实现，只用于兼容�
 certification/ 迁入的 calibration 认证来源
 ```
 
-当前是 Request v26、Result v39、Artifact v41、Run Outcome v35、Dataset Manifest v11、Pending Order Resolution v1、OHLCV Resolution Evidence v3、Engine Checkpoint v18、Simulator v12、Margin v7、Journal v5 / Equity v2 的受限认证纵切，并继续绑定 Control Plane Reservation/Attempt/certification/cancellation authority。entry 可选 next-open market 或 pre-entry GTC Limit；Limit 只在冻结 bounded-full-fill capacity 内按 OHLC open/strict-cross 生成 resolution-limited Fill。数据边界仍未成交则提交 `unfilled_at_data_end` 零成交 Result，保留 active Order，不伪造 cancel/expire。position-open 仍只允许一次 stop tighten，或一次 fixed partial 后重建双保护并可追加 final full exit。remote transport/SLA、真实 queue/depth partial、IOC/Cancel/multi-order 未认证。
+当前是 Request v27、Result v40、Artifact v42、Run Outcome v35、Dataset Manifest v11、Pending Order Resolution v2、OHLCV Resolution Evidence v3、Engine Checkpoint v19、Simulator v13、Margin v7、Journal v5 / Equity v3 的受限认证纵切，并继续绑定 Control Plane Reservation/Attempt/certification/cancellation authority。entry 可选 next-open market 或 pre-entry GTC/IOC Limit；GTC 可跨 observation resting 并在数据边界保留 active，IOC 只在 earliest-open 全成或 expired。两类零成交都提交权威 Result，不伪造 Fill/Position/Funding。position-open 仍只允许一次 stop tighten，或一次 fixed partial 后重建双保护并可追加 final full exit。remote transport/SLA、真实 queue/depth partial、主动 Cancel/multi-order 未认证。
 
 R4.41 只新增非可执行 `Partial Reduce Intent Draft v1`：冻结一次小于初始仓位的 fixed-quantity market reduce-only，以及 partial Fill 后同 source boundary 按剩余仓位取消/重建双保护的 draft policy。它未进入 Request/Schedule/certified capabilities；Runner 对该 draft capability 显式拒绝，直到非终止 Fill、partial Position/Ledger、bracket resize 与 checkpoint parity 完成。
 
@@ -59,6 +59,10 @@ R4.68 将 R4.59—R4.67 的 Observation/ack、durable outbox、pre-terminal comm
 R4.69 冻结独立 `Pending Order Resolution v1`，先确定 Limit GTC/IOC、Stop-market GTC 与 Cancel EventKey race，不扩张 Request/Runner。Limit 仅在显式 `ohlcv-cross-through-full-fill-bounded-v1` 且 quantity 不超过 capacity 时给出 open/strict-cross 全成参考；因 queue 不可见仍标 `resolution_limited`，touch 不填单。Cancel 严格早于 observation 则胜，晚于 fill 则败；同 ordinal 与 touch-before-cancel 返回 `unresolved`。该 primitive 不生成 Fill/Ledger/Artifact，Simulator v10 不变。
 
 R4.70 只集成该 primitive 的 pre-entry Limit GTC 子集。Request 冻结 `limit_price/time_in_force/liquidity_model/full_fill_capacity`；signal 时 active、next-open 起观察，Fill price 不得劣于 limit，保护只在 decisive SourceEvent 之后激活。Checkpoint 保存 resting resolution prefix；clean/resume 生成相同 Result。Artifact 新增 `pending-order-resolutions.json`；EOD 未成交返回 typed failure且无 Result。IOC、Stop pending、Cancel OrderEvent 和多订单竞争仍未开放。
+
+R4.71–R4.72 为 Limit capacity 增加 PIT-available self-hashed attestation，并把 GTC 数据边界未成交从临时 failure 改为 `unfilled_at_data_end` 完成 Result：保留 active Order、resting chain 与零成交账本，不伪造 cancel/expire。
+
+R4.73 接入 pre-entry IOC：只观察 earliest-executable `bar_open`，marketable 则 bounded-full-fill，否则以独立 `expired` OrderEvent 和 `entry_outcome=expired_unfilled` 立即完成；同 bar range 与后续 bar 不再属于该订单。`cancelled` 保留给显式 cancel authority。主动 Cancel、IOC partial remainder、Stop pending 与 multi-order 仍未开放。
 
 经济入口按唯一 `authorized_initial_order / authorized_order` 语义定位，不依赖 Schedule/Timeline 数组末位；可选退出必须是 Schedule 末位并以 `authorized_reduce_only_exit` 独立表达，不能冒充第二个入口。所有 post-entry evaluation 必须由 Source Reducer 运行时产生 Position/Cash State Snapshot，并正确表达 terminal-before-decision、pending Order 与 checkpoint/resume。
 

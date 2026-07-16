@@ -1,10 +1,10 @@
 # Replay Reference Engine
 
-Owns the deterministic EventKey total order and source-bound order orchestration for Simulator v12. Same-time phases are delisting/status `00`, funding `10`, exact mark/risk `15`, OHLC market `20`, ledger `70/100`, and order side effects `90`.
+Owns the deterministic EventKey total order and source-bound order orchestration for Simulator v13. Same-time phases are delisting/status `00`, funding `10`, exact mark/risk `15`, OHLC market `20`, ledger `70/100`, and order side effects `90`.
 
 Engine 消费 Request v23、Dataset Manifest v9 与 Timeline v8。Status schedule/provenance 已由 Adapter 验证；Engine 只消费冻结 epochs，不调用 producer/provider。唯一 partial lane 在冻结 open 全成 fixed quantity，并在同一 source boundary 原子执行 old stop/target cancel → remaining-quantity stop/target submit/activate；trigger 保持不变，后续 Funding、Margin、State Snapshot 与 terminal owner 均读取剩余仓位。它不是流动性 partial-fill 模型，也不是通用 OCO/matching engine。
 
-每个 simple-bracket stop/target 终止必须生成 `OHLCV Resolution Evidence v3`。该派生不改变 Simulator v12 Fill，不是完整 equity counterfactual 或路径概率。
+每个 simple-bracket stop/target 终止必须生成 `OHLCV Resolution Evidence v3`。该派生不改变 Simulator v13 Fill，不是完整 equity counterfactual 或路径概率。
 
 R4.45 的 ordered-price oracle 仅是 tests owner 的认证参考：它以已知 observation order 判定首个 bracket crossing，证明结果属于 P1/P2 envelope，并不进入 Engine 输入、SourceEvent schema 或 capability negotiation。Engine 仍只执行 OHLCV 模式。
 
@@ -12,4 +12,4 @@ R4.45 的 ordered-price oracle 仅是 tests owner 的认证参考：它以已知
 
 Engine Checkpoint v17 只在一个 SourceEvent 的风险、决策、订单和保护重建副作用全部完成且 continuity fence 通过后发布；它绑定 source prefix（含 halt/resume）、Timeline、entry/current bracket generation、pending/filled partial Order、partial Fill、pending final exit 与风险快照，并在恢复时验证全局 event sequence、每个 Order 的最后 OrderEvent、partial Intent/Fill 及重建 protection identity/trigger/quantity。重算 checkpoint hash 不能把语义篡改变成合法状态。Resume 必须复现 clean Result，且不得重放已提交 partial decision/Fill/Funding。自动 status reconstruction、halt settlement、tick/L2、真实 partial liquidity、multiple partial、partial liquidation、external command、portfolio matching 均不在认证范围。
 
-`replay-pending-order-resolution` owns `Pending Order Resolution v1`. Simulator v12 integrates only pre-entry Limit GTC：signal 时 active，next-open 起观察，open marketable/strict-cross 可在冻结 capacity 内全成但始终 queue-limited；touch remains resting。Limit Fill 严格晚于 decisive SourceEvent且不得劣价，随后才激活 bracket。到数据边界仍未成交时保留 active entry 与 resting chain，输出 `unfilled_at_data_end`，不合成 cancel/expire。Checkpoint v18 保存 resolution prefix 与 pending entry；Result v39/Artifact v41 单独绑定完整链。IOC、Stop pending、Cancel side effect 与多订单竞争未集成。
+`replay-pending-order-resolution` owns `Pending Order Resolution v2`. Simulator v13 integrates pre-entry Limit GTC/IOC：signal 时 active；GTC 从 next-open 起观察，open marketable/strict-cross 可在冻结 capacity 内全成但始终 queue-limited，touch remains resting，数据边界仍未成交则保留 active entry 并输出 `unfilled_at_data_end`。IOC 只观察 earliest-open，marketable 则全成，否则生成 TIF-owned `expired` OrderEvent 和 `expired_unfilled`，禁止消费 range/future bars。Limit Fill/expiry 严格晚于 decisive SourceEvent。Checkpoint v19 保存 terminal 前 resolution prefix 与 pending entry；Result v40/Artifact v42 单独绑定完整链。Stop pending、主动 Cancel side effect 与多订单竞争未集成。

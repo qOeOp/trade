@@ -10,7 +10,7 @@ status: implemented-vertical-slice
 
 Replay Execution Plane 是 **冻结实验的确定性执行与历史证据生产面**，不是研究决策面，也不是实盘执行面。它只做一件事：把 Research Control Plane 已冻结的 Trial，连同不可变 Experiment Contract、Candidate Identity、Dataset Manifest 与模拟政策，执行成可复读的事件链、统一账本和 Result Artifact。
 
-当前成熟度判断：**M2 / 5，已认证的受限纵切**。Control Plane authority、provider certification registry/termination、Reservation/Attempt cancellation/fencing、local durable Artifact/cancellation outbox、checkpoint resume、Dataset Manifest v11、supplemental PIT Snapshot、PIT instrument status/provenance、closed-candle/next-open、简单 bracket、EventKey、average-cost Position、Cash Ledger、Equity v2、Journal v5 与 isolated Margin v7 已贯通。Request v26 / Schedule v5 的 entry 可冻结 next-open market，或首条 pre-entry GTC Limit；后者以 OHLC open/strict-cross、PIT liquidity-capacity attestation 与 queue limitation解析每个 observation。已成交链产生 Fill/Position/Margin；到不可变数据边界仍未成交则产生 `entry_outcome=unfilled_at_data_end` 的零成交完成 Result，保留 active Order 与完整 resting resolution chain，不伪造 cancel/expire。两类结果均写入 Checkpoint v18、Result v39/Fingerprint 与 Artifact v41。position-open 仍只允许互斥的一次 stop tighten 或 fixed partial，partial 后可追加一次末位 full exit。capacity attestation 只证明冻结前可获得的静态保守上限及来源闭包，不证明逐事件 depth 或 queue。该纵切仍不支持真实 queue/depth partial、IOC/FOK/GTD、通用 cancel/amend、多 pending order、venue 历史 archive 外部穷尽审计、remote transport、OS sandbox、停牌结算、cross/shared portfolio、tick/L2、generic matching 或 step/fast parity，因此不升到 M3。
+当前成熟度判断：**M2 / 5，已认证的受限纵切**。Control Plane authority、provider certification registry/termination、Reservation/Attempt cancellation/fencing、local durable Artifact/cancellation outbox、checkpoint resume、Dataset Manifest v11、supplemental PIT Snapshot、PIT instrument status/provenance、closed-candle/next-open、简单 bracket、EventKey、average-cost Position、Cash Ledger、Equity v3、Journal v5 与 isolated Margin v7 已贯通。Request v27 / Schedule v5 的 entry 可冻结 next-open market，或单个 pre-entry GTC/IOC Limit。GTC 以 OHLC open/strict-cross、PIT liquidity-capacity attestation 与 queue limitation 解析每个 observation；到不可变数据边界仍未成交则产生 `unfilled_at_data_end`，保留 active Order。IOC 只观察 earliest-executable `bar_open`：全成或以独立 `expired` OrderEvent 产生 `expired_unfilled`，不得消费同 bar range 或后续 bar。三类结果均写入 Checkpoint v19、Result v40/Fingerprint 与 Artifact v42。position-open 仍只允许互斥的一次 stop tighten 或 fixed partial，partial 后可追加一次末位 full exit。capacity attestation 只证明冻结前可获得的静态保守上限及来源闭包，不证明逐事件 depth 或 queue。该纵切仍不支持真实 queue/depth partial、FOK/GTD、主动 Cancel/amend、多 pending order、venue 历史 archive 外部穷尽审计、remote transport、OS sandbox、停牌结算、cross/shared portfolio、tick/L2、generic matching 或 step/fast parity，因此不升到 M3。
 
 R4.41 已将首条 partial reduce 边界收敛为**非可执行 draft**，但不改变上述成熟度。Draft 只允许一次小于初始仓位的 fixed-quantity market reduce-only；partial Fill 必须留下 open Position，然后在无 SourceEvent 插入的同一 boundary 取消当前 stop/target，按 `abs(post-fill position)` 保留原 trigger 价重建全量双保护。首版 draft 禁止与 stop replacement 组合，允许后续 final full exit。该 schema/capability 未进入 Request v20、Schedule v4 或 certified set；Runner 必须在 Engine 前拒绝它，故当前仍不得声称 partial strategy reduction 已实现。
 
@@ -75,6 +75,8 @@ R4.70 将该 primitive 收敛为首条 **pre-entry GTC Limit 可执行纵切**�
 R4.71 消除 R4.70 的 **capacity 裸自报**。Dataset Manifest v11 可携带 self-hashed `Liquidity Capacity Attestation v1`：绑定 symbol/base-asset quantity unit、静态全成上限、校准窗口、`observed_through <= available_at <= signal_time`、source ref/hash、opaque derivation policy id/version/hash，并固定 `not_event_depth_or_queue_position_proof`。Request v26 的 Limit lane 同时冻结 capacity 与 attestation hash；Trial Reservation v9 独立冻结该 hash，Market lane 固定为 `null`。Adapter 在 Engine 前拒绝缺失、未来可见、标的/容量/哈希漂移；Result v38 Fingerprint、Dataset manifest hash 与 Artifact v40 的 `liquidity-capacity-attestation.json` 形成复读闭包。Checkpoint v18 不复制新对象，而由 Request hash + Dataset manifest hash 间接冻结；恢复仍必须生成同一 Result hash。该证据不定义 ADV/volume/depth 算法、不校验外部数据真实性，也不降低所有 OHLCV Limit Fill 的 `resolution_limited` 等级。
 
 R4.72 纠正 R4.70 的 **未成交即 Engine failure 临时策略**。GTC Limit 消费完全部 admissible SourceEvent 后仍无 Fill，是正常市场结果，不是模拟器故障。Source Reducer 以 nullable entry/terminal transition 返回 `end_of_data`；Result v39 新增 `entry_outcome=filled|unfilled_at_data_end`。后者保持 entry Order `active`，保留 submit/activate 与全量 resting resolution，不合成 cancel/expire；`fills/positions/margin_snapshots/liquidation` 为空，Ledger 仅 initial/ending cash，Equity v2 以 `never_opened` 和 nullable `position_event_id` 表达零仓位，Journal v5 不预留 collateral，Metrics 为零交易/零 PnL，并正常提交 Artifact v41。Simulator v12 改变的是终态证据分类，不放宽 Fill 条件。clean/resume Result hash、Artifact 幂等复读、Result tamper、空账本/空保证金均已锁定。持单遇 delisting 仍 typed-fail；IOC/Cancel/expire 的 OrderEvent 与终态 authority 尚未开放。
+
+R4.73 冻结 **IOC 首个 next-open 到期纵切与订单终态分型**。Request v27 允许 pre-entry `limit+ioc`，但其生命周期只有一个 observation：`earliest_executable_time` 的 `bar_open`。若 open marketable，则在 attested capacity 内全成，仍因历史 queue/depth 不可见标 `ohlcv-limit-queue-unobserved / resolution_limited`；若不 marketable，Pending Order Resolution v2 返回 `expired / ioc_unfilled_at_first_open`，Engine 在 decisive SourceEvent 之后生成独立 `expired` OrderEvent，立即以 `entry_outcome=expired_unfilled` 完成 Result v40，Equity v3 用该 open 作为零仓位 valuation source，Artifact v42 可幂等复读。后续同 bar strict-cross、后续 bar、Funding entitlement、Fill/Position/Margin 均不得出现。`active_at_data_end` 仍只属于 GTC；`cancelled` 只属于显式外部/用户 cancel authority，不能用来代替 TIF expiry。Checkpoint v19 允许 expiry 前的 active IOC 恢复，但 terminal expiry 不作为可恢复中间态。此映射参考 Binance 官方 [USDⓈ-M Common Definitions](https://developers.binance.com/zh-CN/docs/products/derivatives-trading-usds-futures/common-definition) 的 IOC/EXPIRED 词义；仓库内版本化合同才是 Replay 权威，不宣称重建交易所 queue。主动 Cancel、IOC partial remainder、FOK/GTD、stop pending 和 multi-order allocation 仍未开放。
 
 实现路径：`replay-execution-plane/contracts`、`data-adapter`、`engine`、`accounting`、`metrics`、`runner` 与 `tests` 已成为 certified slice 的新语义 owner；`replay-execution-plane/compatibility/replay-runner` 可转发 Trial-bound request，`compatibility/replay-engine` 仅复用稳定 accounting 原语并继续作为 parity/迁移来源，不再承接新语义扩展。RD 根已无旧 Replay package。
 
@@ -165,7 +167,7 @@ flowchart LR
 | 已正式实现并测试 | 双边 fee/slippage bps；funding 与 bar 共用 EventKey，entry/exit 同 timestamp 使用 `t-` position | 当前 certified lane 允许一次 fixed-quantity partial；Funding/Margin 按 EventKey 读取当时 Position，multiple partial/add/reversal 未认证，adverse fallback 仅属 compatibility |
 | 已正式实现并测试 | 主 replay 不允许 lane 内重叠持仓 | 允许单仓一次 reduce-only partial，但不允许第二 entry、加仓、反转或 portfolio 并发 |
 | 已正式实现并测试 | SourceEvent reducer 同步驱动 entry/exit order lanes；submit/activate/trigger/partial/full/cancel/reject、EventKey 全序、oversized cap 与 wrong-side reduce-only 由独立状态 owner 守恒 | entry open、halt/resume、funding、bracket activation、terminal source/fill/cancel 共用因果边界；尚无 external-command、多订单 matching、真实 partial liquidity 或 limit queue |
-| 已正式实现并测试 | 独立 Pending Order Resolution v1：Limit GTC/IOC、Stop-market GTC、OHLC open/range 与 Cancel EventKey race | pre-integration evidence primitive；Limit fill/touch 均保留 queue limitation，同 ordinal/touch-before-cancel unresolved；未进入 Request/Runner/Fill/Ledger/Artifact |
+| 已正式实现并测试 | Pending Order Resolution v2：Limit GTC/IOC、Stop-market GTC、OHLC open/range 与 Cancel EventKey race | pre-entry GTC/IOC 已进入 Request/Runner/Result/Artifact；Stop/Cancel 仍只是 primitive。IOC 只允许 earliest-open 全成或 expired；Limit fill/touch 均保留 queue limitation，同 ordinal/touch-before-cancel unresolved |
 | 已正式实现并测试 | complete PIT `trading/halted` status epochs；停牌区间无 bar、Funding/Mark 继续、恢复首 open gap 与 checkpoint resume | 只接受冻结状态事实，不从缺 bar 推断 halt；停牌中 maintenance breach typed-fail；无 halt settlement、venue state collector 或 delisting settlement |
 | 已正式实现并测试 | instrument-status acquisition receipt、immutable archive、provider normalization、Control Plane certification 与 provenance binding | Store 保存 exact response BLOB、retry/terminal receipt，并只允许 historical capability 进入 Source Batch；Binance REST collector 只能 current snapshot。Provider 只读生成 certification-bound epochs/provenance；Control Plane 注册并在 Reservation issuance 校验 capability/有效期；Dataset/Request/Reservation/Fingerprint 四方绑定同一收据。该闭包不等于 venue 签名或外部穷尽审计 |
 | 已正式实现并测试 | multi-Fill average-cost、open/flat cash reducer、terminal valuation 与 settlement-asset journal | 一次 fixed-quantity partial 后的 stop/target/final exit/exact liquidation 全平及 EOD open-marked 已锁定；add/reversal/multiple partial、oversized reduce-only 仍拒绝；cash、position valuation、ending equity、journal/trial balance 对账 |
@@ -187,7 +189,7 @@ flowchart LR
 | 隐含行为 | supplemental report 的生成时间同时充当 `availability_at` | 不可靠；生成、观测、发布、可用时间必须分开 |
 | 隐含行为 | manifest 缺 universe time 时回退 dataset start/generated time | 只能输出 limitation，不能据此声称 point-in-time universe |
 | 已正式实现并测试 | expected grid 上缺 bar 不得被时间压缩或当作 observed price gap | 缺 entry bar 在 Fill 前失败；持仓后缺口在前一 observed close 后、未来 source/checkpoint 前失败；terminal-before-gap 不消费未来缺口 |
-| 部分设计 | Limit GTC/IOC、Stop-market GTC 与单 Observation/Cancel race 已有独立 resolver；amend、FOK/GTD、真实 queue/partial、多订单 allocation、multi-entry/reversal 尚未设计 | resolver 不等于 executable Runner capability；不得从 resolution reference 推断已产生 Fill/Ledger |
+| 部分设计 | Limit GTC/IOC 已有 executable lane；Stop-market pending 与单 Observation/Cancel race 只有 resolver；amend、FOK/GTD、真实 queue/partial、多订单 allocation、multi-entry/reversal 尚未设计 | 只有 GTC/IOC entry Result 可推导 Fill 或 expiry；其余 resolution reference 不等于 executable Runner capability |
 | 已正式实现并测试 | frozen isolated collateral reserve/release | entry reserve、position-attributed cashflow routing、flat release、open retain、wallet/collateral/settled cash/equity 对账已锁定；动态 add/withdraw、cross/shared margin 仍不支持 |
 | 部分实现 | isolated source-prefix margin/liquidation | 完整 Mark Event grid 与 exact funding 可触发单仓全量模拟强平；缺 Mark 时 bar open + 不利极值只做保守失败。Mark 不触发策略单，forced Fill 为 policy-modelled evidence；部分强平、deficit/insurance/ADL、cross/shared margin、borrow、真实 impact 未完成 |
 | 尚未设计 | step/fast semantic digest parity | fast mode 上线前硬门槛 |
@@ -200,7 +202,7 @@ flowchart LR
 ### 3.4 最危险的五个 fidelity 缺口
 
 1. **多个模拟器、无 parity**：同一 candidate 在 replay、benchmark、panel 可能得到不同资金、成本和时序语义。
-2. **订单状态机仍未接入通用 matching**：主路径已有 market/bracket lifecycle 与 reduce-only 守恒，R4.69 只补单 pending-order resolution；limit/amend、真实 queue/partial、多订单资金竞争、加减仓与 reversal 仍无统一 Fill/position 事实。
+2. **订单状态机仍未接入通用 matching**：主路径已有 market/bracket lifecycle、单个 pre-entry GTC/IOC Limit 与 reduce-only 守恒；主动 cancel/amend、真实 queue/partial、多订单资金竞争、加仓与 reversal 仍无统一 Fill/Position 事实。
 3. **OHLC 路径不可知却未输出 resolution limitation**：stop/target 之外的多订单结果可能被任意实现顺序决定。
 4. **强平只覆盖单仓无坏账模型**：exact-risk full close 已进入统一账本，但多资产并发、动态 collateral、cross/shared allocation、部分强平、grid 间路径、破产价、保险基金与 ADL 仍无法守恒。
 5. **Harness 仍不是安全沙箱或完整策略闭包**：required lane 已认证 Source Bundle -> deterministic Bun artifact -> exact runtime -> fresh stdio subprocess，并对冻结 schedule 中每个 pre-entry boundary 重做 market PIT；但该边界不封锁文件系统/网络、没有独立签名者或任意依赖 SBOM，也未覆盖持仓后动态 supplemental join、feature DAG trace 与订单更新。
@@ -242,7 +244,7 @@ modules/research-strategy-development/
 
 ## 5. Control Plane 输入/输出合同
 
-当前 certified wire id 为 Control Plane `trade-flow.rd-experiment-contract.v3`、Trial Reservation v9、Provider Certification/Termination v1、Cancellation/Attempt Lease/Checkpoint Receipt/Resume Authorization，以及 Replay Request v26、Dataset Manifest v11、Liquidity Capacity Attestation v1、Decision Schedule v5/Timeline v8、Pending Order Resolution v1、OHLCV Resolution Evidence v3、Result v39、Artifact v41、Engine Checkpoint v18、Run Outcome v35。Request/Reservation/Manifest/Result/Artifact 显式绑定 Limit capacity authority；Checkpoint 通过 Request/Manifest hash 间接绑定。Simulator 为 v12，Journal/Equity 为 v5/v2；Storage/Numeric/Margin Policy 不变。
+当前 certified wire id 为 Control Plane `trade-flow.rd-experiment-contract.v3`、Trial Reservation v9、Provider Certification/Termination v1、Cancellation/Attempt Lease/Checkpoint Receipt/Resume Authorization，以及 Replay Request v27、Dataset Manifest v11、Liquidity Capacity Attestation v1、Decision Schedule v5/Timeline v8、Pending Order Resolution v2、OHLCV Resolution Evidence v3、Result v40、Artifact v42、Engine Checkpoint v19、Run Outcome v35。Request/Reservation/Manifest/Result/Artifact 显式绑定 Limit capacity authority；Checkpoint 通过 Request/Manifest hash 间接绑定。Simulator 为 v13，Journal/Equity 为 v5/v3；Storage/Numeric/Margin Policy 不变。
 
 Trial Reservation v9 冻结授权准入窗口 `[issued_at, expires_at)`、risk/spec/status 三份 schedule hash、status provenance/provider capability/provider certification hash、完整 supplemental revision stream hash、Requirement Set hash 与 nullable liquidity-capacity-attestation hash，并内嵌认证快照。发放时 Control Plane 从注册表按 certification hash 读取，不接受调用方内嵌对象；认证须处于 `[certified_at, min(valid_until, termination.effective_at))` 且 capability 与 binding 相等。Termination v1 只裁定新签发；Reservation Cancellation v1 才能停止既有 Reservation 的未来 claim，且不停止已 active Attempt；Attempt Cancellation v1 才能终止精确 lease generation。Reservation TTL 仍只控制新 Attempt claim；未取消的合法 active claim 继续由 Attempt lease/generation fencing 决定。Replay 不查询这些注册表，只复核冻结 Reservation、Request 与 Dataset 三方闭包，并从外部 execution-control port 接收运行命令。
 
@@ -250,7 +252,7 @@ Trial Reservation v9 冻结授权准入窗口 `[issued_at, expires_at)`、risk/s
 
 ```json
 {
-  "schema_version": "trade.rd-replay-execution-request.v26",
+  "schema_version": "trade.rd-replay-execution-request.v27",
   "run_id": "...",
   "idempotency_key": "...",
   "identity": {
@@ -308,11 +310,11 @@ Trial Reservation v9 冻结授权准入窗口 `[issued_at, expires_at)`、risk/s
   "order": {
     "side": "long | short", "quantity": 1, "signal_time": "...", "earliest_executable_time": "...",
     "stop_price": 95, "target_price": 110,
-    "entry_execution": {"order_type": "limit", "limit_price": 99.5, "time_in_force": "gtc", "liquidity_model": "ohlcv-cross-through-full-fill-bounded-v1", "full_fill_capacity": 1, "liquidity_capacity_attestation_hash": "sha256"}
+    "entry_execution": {"order_type": "limit", "limit_price": 99.5, "time_in_force": "gtc | ioc", "liquidity_model": "ohlcv-cross-through-full-fill-bounded-v1", "full_fill_capacity": 1, "liquidity_capacity_attestation_hash": "sha256"}
   },
   "executable_candidate": {"harness_bundle_hash": "sha256", "candidate_hash": "sha256"},
   "policies": {
-    "simulator_policy_version": "rd-replay-simulator-v12",
+    "simulator_policy_version": "rd-replay-simulator-v13",
     "assumptions_ref": "...",
     "assumptions_hash": "sha256",
     "cost_policy_ref": "...",
@@ -331,13 +333,13 @@ Trial Reservation v9 冻结授权准入窗口 `[issued_at, expires_at)`、risk/s
 
 ```json
 {
-  "schema_version": "trade.rd-replay-result.v39",
+  "schema_version": "trade.rd-replay-result.v40",
   "result_id": "...",
   "run_id": "...",
   "attempt_id": "...",
   "idempotency_key": "...",
   "status": "completed",
-  "entry_outcome": "filled | unfilled_at_data_end",
+  "entry_outcome": "filled | unfilled_at_data_end | expired_unfilled",
   "authoritative_result": true,
   "identity": {},
   "execution": {
@@ -440,7 +442,7 @@ triggered | partially_filled -> rejected              # reduce-only zero-fill
 
 当前 Simulator v10 的 transition 是 append-only `OrderEvent`；conditional strategy fill 必须先 `triggered`。source vocabulary 为 `instrument_delisted|instrument_halted|instrument_resumed|funding|mark|bar_open|bar_range`。Mark 不触发 stop/TP；exact maintenance breach 只有在 trading 时才能创建 `liquidation`，halted 时必须 typed-fail。`authorized_protective_stop_replace` 保持 tighten-only。`authorized_partial_reduce` 在决策边界提交 `strategy_partial_reduce`，仅在严格更晚 eligible `bar_open` 全成 fixed quantity；同刻 exact risk、stop gap、target gap 先执行。partial Fill 位于 phase 20，旧 stop/target cancel 与剩余仓位 protection submit/activate 位于同 source 的 phase 90；无 SourceEvent 可插入。后续 source、Funding、Margin、State Snapshot 与 terminal owner 只读当前 Position/protection。非终止 `bar_range` 后必须先通过 continuity/status fence，才能发布 checkpoint 或消费未来 source。EOD 或更早 terminal 会取消 pending partial/final exit；`rd-replay-number-v3` 不变。
 
-`Pending Order Resolution v1` 仍是纯解析层；R4.70 只把其中的 pre-entry Limit GTC 子集接入权威状态机。Order 在 signal 后 active，next-open 起按 EventKey 逐个观察；未触达或 exact-touch 保持 resting，open marketable/strict-cross 生成 resolution-limited full Fill。Fill EventKey 必须严格晚于 decisive SourceEvent，Fill 价经 frozen adverse slippage 后仍不得劣于 limit；stop/target 再于 phase `90` 激活，因此不得用已经消费的同一 open/range 反向触发新保护。解析前缀进入 Checkpoint/Result/Artifact。IOC、Stop pending、Cancel side effect 和多单 allocation 仍停留在 primitive，不是 Runner capability。
+`Pending Order Resolution v2` 接入 pre-entry Limit GTC/IOC。Order 在 signal 后 active；GTC 从 next-open 起按 EventKey 逐 `bar_open/bar_range` 观察，未触达或 exact-touch 保持 resting，open marketable/strict-cross 生成 resolution-limited full Fill。IOC 只观察 earliest-executable `bar_open`，marketable 则全成，否则 `expired`，不进入 range。Fill/expiry EventKey 均严格晚于 decisive SourceEvent；Fill 价经 frozen adverse slippage 后仍不得劣于 limit，stop/target 再于 phase `90` 激活，因此不得回看已消费 boundary。解析链进入 Checkpoint/Result/Artifact。Stop pending、主动 Cancel side effect 和多单 allocation 仍不是 Runner capability。
 
 ### 8.2 类型合同
 
@@ -487,7 +489,7 @@ Market/Stop/Take-profit/Reduce-only 的目标语义参考 Binance USDⓈ-M 官�
 
 每条 Ledger Entry 绑定 `event_key / order_id / fill_id / instrument / asset / amount / currency / policy_version`，借贷平衡为硬 invariant。slippage/impact 主要进入 fill price，同时记 attribution，禁止又从 PnL 重复扣减。
 
-当前 Result v39 延续单 settlement-asset Cash Ledger，并升级为 Valuation/Equity v2 与 Journal v5。Limit entry 的实际 Fill fee/Position/Ledger 只使用 limit-respecting execution price；`pending_order_resolutions` 与 capacity attestation 是解析/authority 证据，不重复入账。partial Fill 的手续费和 realized PnL 以同一 EventKey 入账；Funding 只按 SourceEvent 前已生效 Position 计提。未成交 Limit EOD 是 `never_opened` 完成结果：无 Fill/Position/Funding/Margin、现金不变、PnL 为零，且 active Order 只表示数据边界状态，不越权推导取消。Margin v7、exact-risk execution 与 OHLCV failure fallback 不变；data gap、halted breach仍由 Run Outcome v35 typed failure 表达且不发布 partial Result。
+当前 Result v40 延续单 settlement-asset Cash Ledger，并使用 Valuation/Equity v3 与 Journal v5。Limit entry 的实际 Fill fee/Position/Ledger 只使用 limit-respecting execution price；`pending_order_resolutions` 与 capacity attestation 是解析/authority 证据，不重复入账。partial Fill 的手续费和 realized PnL 以同一 EventKey 入账；Funding 只按 SourceEvent 前已生效 Position 计提。未成交 GTC EOD 与 IOC first-open expiry 都是 `never_opened` 完成结果：无 Fill/Position/Funding/Margin、现金不变、PnL 为零；前者保留 active Order，后者绑定 expired OrderEvent 与 `bar_open` valuation。Margin v7、exact-risk execution 与 OHLCV failure fallback 不变；data gap、halted breach仍由 Run Outcome v35 typed failure 表达且不发布 partial Result。
 
 Manifest v9 的 instrument-accounting spec 冻结 `base_asset / quote_asset / settlement_asset / contract_multiplier / price_increment / quantity_increment / settlement_increment`，并与 instrument-spec schedule 一起计算 Request-bound hash；status schedule 与 status provenance 分别以独立 hash 绑定，不得混入 accounting identity。Mark capability 仅接受 `none` 或覆盖 `[first_open_time,last_close_time]` 的 `complete_grid`，每条必须 `available_at == timestamp`、时间严格递增、source sequence 严格递增、价格 tick-aligned，count/interval/grid/content hash 全部一致；partial/stale/lagged Mark 流拒绝认证。当前只接受 unit-multiplier linear derivative、`quote_asset == settlement_asset` 与最多 12 位 increment scale。instrument-spec schedule 已提供事件时 provenance，但全窗口仍只允许一份不变的 accounting spec；会改变 tick、multiplier、settlement 等核算语义的 epoch、maker fee asset 与 mark-price 独立 increment 尚未认证，故只能声称 manifest-bound precision，不声称完整 venue precision。
 
@@ -650,7 +652,7 @@ Parity 不是“metrics 接近”，而是对同一 Request 的 semantic digest 
 
 每项 metric 必须声明 unit、currency/denominator、aggregation、missing policy 与 version。`profit_factor=999999` 之类 sentinel 不进入权威 schema；无 loss 时用 typed `null/+infinity-policy` 表达。研究 gate、DSR/PBO、winner selection 属于 Control Plane，不混进 execution metrics。
 
-当前 Result v39 认证基础 PnL/cost、observed margin、`total_liquidation_fees`、Schedule/Timeline、OHLCV Resolution Evidence v3、Pending Order Resolution v1、nullable liquidity-capacity-attestation hash 与 typed `entry_outcome`。`pending_order_resolution_limited_count` 只计解析链中的 limitation；它不反写经济账本。Limit/partial 的经济效果都只能由 Fill → Position → Ledger → Equity/Metrics 派生。exact breach Result 含 simulated liquidation execution；`unfilled_at_data_end` 有正式零交易 metrics，以区别正常零成交与运行失败。OHLCV maintenance 或 halted maintenance breach仍无正式 Result metrics。
+当前 Result v40 认证基础 PnL/cost、observed margin、`total_liquidation_fees`、Schedule/Timeline、OHLCV Resolution Evidence v3、Pending Order Resolution v2、nullable liquidity-capacity-attestation hash 与 typed `entry_outcome`。`pending_order_resolution_limited_count` 只计解析链中的 limitation；它不反写经济账本。Limit/partial 的经济效果都只能由 Fill → Position → Ledger → Equity/Metrics 派生。exact breach Result 含 simulated liquidation execution；`unfilled_at_data_end` 与 `expired_unfilled` 都有正式零交易 metrics，前者绑定 active GTC/data boundary，后者绑定 expired IOC/first open。OHLCV maintenance 或 halted maintenance breach 仍无正式 Result metrics。
 
 ### 13.2 Artifact Manifest
 
@@ -684,7 +686,7 @@ artifact-manifest.json
 └── diagnostic checkpoint commit v2 # immutable versioned marker + storage policy；登记 Receipt 后方可授权恢复
 ```
 
-当前 Artifact v41 通过 Artifact Store port 在 `logical idempotency key / attempt_id` namespace 中提交并绑定 storage policy；Fingerprint 分别绑定 status authority、liquidity-capacity attestation 与 `pending_order_resolutions_hash`。Runner 首次发布和幂等复读都重验 attestation、解析链、SourceEvent 与 `entry_outcome`：filled 分支必须绑定 limit-respecting entry Fill，unfilled 分支必须只有 resting chain 且无 Fill/Position。Checkpoint v18 通过 Request/Manifest hash 与解析前缀冻结恢复闭包，恢复后必须重建同一 Result hash。local CAS 已认证，remote target 仍未认证。
+当前 Artifact v42 通过 Artifact Store port 在 `logical idempotency key / attempt_id` namespace 中提交并绑定 storage policy；Fingerprint 分别绑定 status authority、liquidity-capacity attestation 与 `pending_order_resolutions_hash`。Runner 首次发布和幂等复读都重验 attestation、解析链、SourceEvent 与 `entry_outcome`：filled 分支必须绑定 limit-respecting entry Fill；GTC data-boundary 分支必须只有 resting chain 与 active Order；IOC expiry 分支必须只有一条 earliest-open expired resolution、独立 expired OrderEvent 且无 Fill/Position。Checkpoint v19 通过 Request/Manifest hash 与解析前缀冻结恢复闭包，恢复后必须重建同一 Result hash。local CAS 已认证，remote target 仍未认证。
 
 ### 13.3 Evidence Fingerprint
 
@@ -815,14 +817,14 @@ Property tests 的核心 invariants：订单 qty、position qty、cash/NAV bridg
 - limit/stop/TP、cancel/amend、multi-entry、partial、wrong-side/oversized reduce-only、reversal。
 - 只有具备数据能力的 fill policy 才开放；maker queue 缺失继续 limitation/unsupported。
 
-**当前状态：完成第七十子集，R3 未完成。** R4.43 已认证 partial 后 terminal owner 闭包；R4.44–R4.49 冻结 simple-bracket resolution/economics 与独立跨语言 oracle；R4.50–R4.68 完成 data/status/provider/execution-authority 受限闭包；R4.69–R4.72 完成单 pending-order resolver、pre-entry GTC Limit 经济链、PIT capacity authority 与未成交完成终态。terminal preemption、long/short symmetry、capacity hash/causality、zero-execution accounting、status/provenance/continuity fence、artifact 复读与 clean/resume parity 已锁定。仍缺 IOC/Stop/Cancel/expire 的 executable integration、FOK/GTD、amend、真实 liquidity partial、多订单 allocation、add/reversal、partial liquidation、halt settlement、generic multi-order OHLC resolver 与 step/fast parity。
+**当前状态：完成第七十三子集，R3 未完成。** R4.43 已认证 partial 后 terminal owner 闭包；R4.44–R4.49 冻结 simple-bracket resolution/economics 与独立跨语言 oracle；R4.50–R4.68 完成 data/status/provider/execution-authority 受限闭包；R4.69–R4.73 完成单 pending-order resolver、pre-entry GTC/IOC Limit 经济链、PIT capacity authority、GTC data-boundary 与 IOC first-open expiry 终态。terminal preemption、long/short symmetry、capacity hash/causality、zero-execution accounting、status/provenance/continuity fence、artifact 复读与 clean/resume parity 已锁定。仍缺 Stop pending、主动 Cancel authority/integration、IOC partial remainder、FOK/GTD、amend、真实 liquidity partial、多订单 allocation、add/reversal、partial liquidation、halt settlement、generic multi-order OHLC resolver 与 step/fast parity。
 
 ### R4：统一 accounting
 
 - 定点 decimal、double-entry ledger、逐 fill fee、exact funding、borrow 接口。
 - isolated/cross margin、maintenance tiers、liquidation 与 penalty fixtures。
 
-**当前状态：完成第七十子集，未完成统一组合账本。** Request/Result 为 v26/v39，Artifact/Run Outcome 为 v41/v35；Simulator v12、Equity v2、Journal v5 已区分 filled、open、flat 与 never-opened。partial fee/realized PnL、Funding、cash/equity bridge、Margin、post-partial liquidation、EOD valuation、受限 Limit entry 与零成交 cash conservation 已守恒。现有 certified lane 仍是单 settlement asset、单 isolated Position。borrow、cross/shared portfolio、halt settlement、partial liquidation、bankruptcy/insurance/ADL 与多资产组合尚未开始。
+**当前状态：完成第七十三子集，未完成统一组合账本。** Request/Result 为 v27/v40，Artifact/Run Outcome 为 v42/v35；Simulator v13、Equity v3、Journal v5 已区分 filled、open、flat、GTC never-opened 与 IOC expired-never-opened。partial fee/realized PnL、Funding、cash/equity bridge、Margin、post-partial liquidation、EOD valuation、受限 Limit entry 与零成交 cash conservation 已守恒。现有 certified lane 仍是单 settlement asset、单 isolated Position。borrow、cross/shared portfolio、halt settlement、partial liquidation、bankruptcy/insurance/ADL 与多资产组合尚未开始。
 
 ### R5：Portfolio
 
@@ -855,7 +857,7 @@ Property tests 的核心 invariants：订单 qty、position qty、cash/NAV bridg
 以下问题需要真实数据能力或 Control Plane 共同决策，本文不提前固定：
 
 1. Numeric Policy v3 已冻结 certified arithmetic 与 Bun/Python parity；若未来把 wire number 改为 canonical decimal string，是否同时升级 Request、Dataset Manifest 与 Result，须以真实跨语言消费者需求决定，不能仅为形式上的任意精度提前破坏现有 wire。
-2. R4.71 已冻结 capacity attestation 的内部 schema、PIT 因果与跨合同哈希闭包，R4.72 已冻结数据边界 active/unfilled 的零成交完成语义；production capacity source/校准算法、外部真实性/完整性认证仍未决。该 attestation 不是 maker queue/depth 证明；真实 queue/depth/partial model，以及 IOC/Cancel/expire/多订单何时进入 executable capability，须由真实数据能力和独立订单终态协议驱动。
+2. R4.71 已冻结 capacity attestation 的内部 schema、PIT 因果与跨合同哈希闭包，R4.72 已冻结数据边界 active/unfilled，R4.73 已冻结 IOC first-open expired/unfilled；production capacity source/校准算法、外部真实性/完整性认证仍未决。该 attestation 不是 maker queue/depth 证明；真实 queue/depth/partial model，以及主动 Cancel、IOC partial remainder 与多订单何时进入 executable capability，须由真实数据能力和独立订单终态协议驱动。
 3. shared portfolio 同时信号采用 pro-rata、预注册 priority 还是独立 allocator ref；不能由 symbol 排序代替。
 4. venue risk/instrument spec 历史快照，以及 instrument-status event archive 的历史自动采集、venue 签名和外部 completeness audit owner；R4.56 已实现 current REST snapshot receipt、exact raw payload/retry 留存及 imported archive 保留/纠错，但 finality/authenticity 仍是 source assertion，不能声称自动复原 Binance 历史规则/状态。
 5. Reservation/Attempt Cancellation v1、transport-neutral coordinator、进程内 no-replay ack retry、local durable outbox、pre-terminal handoff、recovery-first admission、monotonic renewal binding、local namespace discovery、startup job 与 recovery-before-claim gate 已冻结；`research.replay-attempt-admission` 是 production claim 入口，但仓库尚无 deployment worker supervisor/pool identity，无法证明 artifact root 与被停止/准入的进程集合一致。Control Plane poll/local commit、filesystem discovery/SQLite ack 仍无跨存储事务。remote discovery/index、outbox retention/GC/quarantine、remote store、push/poll/lease-renew response/IPC/网络、startup/停止确认 SLA、worker watchdog 与外部签名仍需结合部署模型决定，不能让 Replay 或 J04 research loop 擅自固定。
