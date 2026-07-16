@@ -876,11 +876,7 @@ test("Control Plane cancellation authority separately fences future claims and o
       "2026-07-14T03:46:00Z",
     ), /registered before worker observation/)
     coordinationPort.acknowledge({ observation, registered_at: "2026-07-14T03:48:00Z" })
-    assert.deepEqual(recordReplayAttemptCancellationObservation(
-      db,
-      observation,
-      "2026-07-14T03:49:00Z",
-    ), observation)
+    coordinationPort.acknowledge({ observation, registered_at: "2026-07-14T03:49:00Z" })
     assert.deepEqual(readReplayAttemptCancellationObservation(db, renewed.attempt_id), observation)
     assert.deepEqual(readReplayAttemptCancellationLatency(db, renewed.attempt_id), {
       cancellation_recorded_at: "2026-07-14T03:46:00Z",
