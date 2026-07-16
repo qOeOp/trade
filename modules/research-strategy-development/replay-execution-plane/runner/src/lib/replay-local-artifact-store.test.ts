@@ -46,9 +46,18 @@ test("local Artifact Store port isolates opaque refs inside one Attempt namespac
   const committed = namespace.writeImmutable("result.json", "{}\n")
   expect(namespace.readRef(committed.ref).bytes.toString()).toBe("{}\n")
   expect(namespace.listNames()).toEqual(["result.json"])
+  expect(store.discoverAttemptNamespaces().map((item) => item.namespace_ref)).toEqual([namespace.namespace_ref])
   expect(() => namespace.readRef(join(root, "outside.json"))).toThrow("outside the Attempt namespace")
   const outside = join(root, "outside.json")
   writeFileSync(outside, "{}\n", "utf8")
   symlinkSync(outside, namespace.fileRef("linked.json"))
   expect(() => namespace.read("linked.json")).toThrow("regular file, not a link")
+})
+
+test("local Artifact Store discovery rejects linked namespace trees", () => {
+  const root = mkdtempSync(join(tmpdir(), "rd-replay-discovery-link-"))
+  const outside = mkdtempSync(join(tmpdir(), "rd-replay-discovery-outside-"))
+  symlinkSync(outside, join(root, "a".repeat(24)))
+  const store = createReplayLocalArtifactStore(root)
+  expect(() => store.discoverAttemptNamespaces()).toThrow("refuses symbolic links")
 })

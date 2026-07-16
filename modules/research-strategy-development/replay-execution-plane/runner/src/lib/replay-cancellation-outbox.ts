@@ -17,17 +17,33 @@ import {
 import type { ReplayTrialRunOutcome } from "./replay-trial-runner"
 import {
   assertCertifiedReplayArtifactStore,
+  type ReplayArtifactDiscoveryStore,
   type ReplayArtifactNamespace,
   type ReplayArtifactStore,
 } from "./replay-artifact-store"
 
-export const REPLAY_CANCELLATION_OUTBOX_RECORD_SCHEMA_VERSION = "trade.rd-replay-cancellation-outbox-record.v1" as const
+export const REPLAY_CANCELLATION_OUTBOX_RECORD_SCHEMA_VERSION = "trade.rd-replay-cancellation-outbox-record.v2" as const
+const REPLAY_CANCELLATION_OUTBOX_RECORD_LEGACY_SCHEMA_VERSION = "trade.rd-replay-cancellation-outbox-record.v1" as const
 export const REPLAY_CANCELLATION_OUTBOX_COMMIT_SCHEMA_VERSION = "trade.rd-replay-cancellation-outbox-commit.v1" as const
 
 const OUTBOX_RECORD_NAME = "cancellation-observation-outbox.json"
 
 export interface ReplayCancellationOutboxRecord {
   schema_version: typeof REPLAY_CANCELLATION_OUTBOX_RECORD_SCHEMA_VERSION
+  persisted_at: string
+  idempotency_key_hash: string
+  request_hash: string
+  run_id: string
+  attempt_id: string
+  lease_generation: number
+  attempt_lease: ReplayAttemptLeaseSnapshot
+  boundary_poll_count: number
+  replay_outcome: ReplayTrialRunOutcome
+  record_hash: string
+}
+
+interface ReplayCancellationOutboxLegacyRecord {
+  schema_version: typeof REPLAY_CANCELLATION_OUTBOX_RECORD_LEGACY_SCHEMA_VERSION
   persisted_at: string
   request_hash: string
   run_id: string
@@ -37,6 +53,8 @@ export interface ReplayCancellationOutboxRecord {
   replay_outcome: ReplayTrialRunOutcome
   record_hash: string
 }
+
+type ReplayCancellationOutboxStoredRecord = ReplayCancellationOutboxRecord | ReplayCancellationOutboxLegacyRecord
 
 export interface ReplayCancellationOutboxCommit {
   schema_version: typeof REPLAY_CANCELLATION_OUTBOX_COMMIT_SCHEMA_VERSION
@@ -50,8 +68,14 @@ export interface ReplayCancellationOutboxCommit {
 }
 
 export interface ReplayCancellationOutboxLoadedRecord {
-  record: ReplayCancellationOutboxRecord
+  record: ReplayCancellationOutboxStoredRecord
   commit: ReplayCancellationOutboxCommit
+}
+
+export interface ReplayCancellationOutboxDiscoveredRecord {
+  namespace_ref: string
+  attempt_lease: ReplayAttemptLeaseSnapshot
+  loaded: ReplayCancellationOutboxLoadedRecord
 }
 
 export interface ReplayCancellationOutboxPort {
@@ -72,8 +96,9 @@ export function createReplayCancellationArtifactOutbox(
   assertCertifiedReplayArtifactStore(store)
   assertReplayAttemptLeaseSnapshot(attemptLease)
   const requestHash = canonicalHash(request)
+  const idempotencyKeyHash = canonicalHash(request.idempotency_key)
   const namespace = store.openAttempt({
-    idempotency_key_hash: canonicalHash(request.idempotency_key),
+    idempotency_key_hash: idempotencyKeyHash,
     attempt_id_hash: canonicalHash(attemptLease.attempt_id),
   })
 
@@ -100,10 +125,12 @@ export function createReplayCancellationArtifactOutbox(
       const body = {
         schema_version: REPLAY_CANCELLATION_OUTBOX_RECORD_SCHEMA_VERSION,
         persisted_at: persistedAt,
+        idempotency_key_hash: idempotencyKeyHash,
         request_hash: requestHash,
         run_id: replayOutcome.run_id,
         attempt_id: replayOutcome.attempt_id,
         lease_generation: replayOutcome.lease_generation,
+        attempt_lease: structuredClone(currentLease),
         boundary_poll_count: boundaryPollCount,
         replay_outcome: structuredClone(replayOutcome),
       }
@@ -115,6 +142,35 @@ export function createReplayCancellationArtifactOutbox(
   }
 }
 
+export function discoverReplayCancellationArtifactOutboxes(
+  store: ReplayArtifactDiscoveryStore,
+): ReplayCancellationOutboxDiscoveredRecord[] {
+  assertCertifiedReplayArtifactStore(store)
+  const discovered: ReplayCancellationOutboxDiscoveredRecord[] = []
+  const attemptIds = new Set<string>()
+  const observationHashes = new Set<string>()
+  for (const namespace of store.discoverAttemptNamespaces()) {
+    if (!namespace.exists(OUTBOX_RECORD_NAME)) continue
+    const loaded = readStoredOutboxRecord(namespace)
+    if (loaded.record.schema_version === REPLAY_CANCELLATION_OUTBOX_RECORD_LEGACY_SCHEMA_VERSION) {
+      throw new Error("Replay cancellation outbox v1 requires an explicitly bound invocation and cannot be discovered")
+    }
+    assertDiscoverableOutboxRecord(store, namespace, loaded.record)
+    const observation = loaded.record.replay_outcome.cancellation_observation!
+    if (attemptIds.has(loaded.record.attempt_id) || observationHashes.has(observation.observation_hash)) {
+      throw new Error("Replay cancellation outbox discovery found duplicate Attempt or Observation authority")
+    }
+    attemptIds.add(loaded.record.attempt_id)
+    observationHashes.add(observation.observation_hash)
+    discovered.push({
+      namespace_ref: namespace.namespace_ref,
+      attempt_lease: structuredClone(loaded.record.attempt_lease),
+      loaded,
+    })
+  }
+  return discovered.sort((left, right) => left.namespace_ref.localeCompare(right.namespace_ref))
+}
+
 function loadOutboxRecord(
   namespace: ReplayArtifactNamespace,
   requestHash: string,
@@ -122,16 +178,23 @@ function loadOutboxRecord(
   attemptLease: ReplayAttemptLeaseSnapshot,
 ): ReplayCancellationOutboxLoadedRecord | null {
   if (!namespace.exists(OUTBOX_RECORD_NAME)) return null
+  const loaded = readStoredOutboxRecord(namespace)
+  assertOutboxRecord(loaded.record, requestHash, runId, attemptLease)
+  return loaded
+}
+
+function readStoredOutboxRecord(
+  namespace: ReplayArtifactNamespace,
+): ReplayCancellationOutboxLoadedRecord {
   const file = namespace.read(OUTBOX_RECORD_NAME)
   const sha256 = createHash("sha256").update(file.bytes).digest("hex")
   const text = new TextDecoder().decode(file.bytes)
-  let record: ReplayCancellationOutboxRecord
+  let record: ReplayCancellationOutboxStoredRecord
   try {
-    record = JSON.parse(text) as ReplayCancellationOutboxRecord
+    record = JSON.parse(text) as ReplayCancellationOutboxStoredRecord
   } catch (error) {
     throw new Error(`Replay cancellation outbox record is invalid JSON: ${error instanceof Error ? error.message : String(error)}`)
   }
-  assertOutboxRecord(record, requestHash, runId, attemptLease)
   if (text !== `${canonicalJson(record)}\n`) {
     throw new Error("Replay cancellation outbox record encoding is not canonical")
   }
@@ -139,12 +202,13 @@ function loadOutboxRecord(
 }
 
 function assertOutboxRecord(
-  record: ReplayCancellationOutboxRecord,
+  record: ReplayCancellationOutboxStoredRecord,
   requestHash: string,
   runId: string,
   attemptLease: ReplayAttemptLeaseSnapshot,
 ): void {
-  if (record.schema_version !== REPLAY_CANCELLATION_OUTBOX_RECORD_SCHEMA_VERSION) {
+  if (record.schema_version !== REPLAY_CANCELLATION_OUTBOX_RECORD_SCHEMA_VERSION
+      && record.schema_version !== REPLAY_CANCELLATION_OUTBOX_RECORD_LEGACY_SCHEMA_VERSION) {
     throw new Error("Replay cancellation outbox record schema is not supported")
   }
   const observation = assertReplayCancellationAcknowledgementOutcome(
@@ -152,10 +216,46 @@ function assertOutboxRecord(
     record.boundary_poll_count,
   )
   assertOutboxAuthority(requestHash, runId, attemptLease, record.replay_outcome, observation)
+  if (record.schema_version === REPLAY_CANCELLATION_OUTBOX_RECORD_SCHEMA_VERSION) {
+    assertReplayAttemptLeaseSnapshot(record.attempt_lease)
+    assertOutboxAuthority(
+      record.request_hash,
+      record.run_id,
+      record.attempt_lease,
+      record.replay_outcome,
+      observation,
+      record.attempt_lease,
+    )
+    if (!/^[a-f0-9]{64}$/.test(record.idempotency_key_hash)
+        || record.request_hash !== record.attempt_lease.request_hash
+        || record.attempt_id !== record.attempt_lease.attempt_id
+        || record.lease_generation !== record.attempt_lease.lease_generation
+        || record.replay_outcome.attempt_lease_hash !== hashReplayAttemptLeaseSnapshot(record.attempt_lease)) {
+      throw new Error("Replay cancellation outbox rehydrated lease binding mismatch")
+    }
+  }
   assertPersistedAt(record.persisted_at, observation.observed_at)
   const { record_hash: recordHash, ...body } = record
   if (recordHash !== canonicalHash(body)) {
     throw new Error("Replay cancellation outbox record hash mismatch")
+  }
+}
+
+function assertDiscoverableOutboxRecord(
+  store: ReplayArtifactDiscoveryStore,
+  namespace: ReplayArtifactNamespace,
+  record: ReplayCancellationOutboxRecord,
+): void {
+  assertOutboxRecord(record, record.request_hash, record.run_id, record.attempt_lease)
+  if (!/^[a-f0-9]{64}$/.test(record.idempotency_key_hash)) {
+    throw new Error("Replay cancellation outbox idempotency key hash is invalid")
+  }
+  const expectedNamespace = store.openAttempt({
+    idempotency_key_hash: record.idempotency_key_hash,
+    attempt_id_hash: canonicalHash(record.attempt_id),
+  })
+  if (expectedNamespace.namespace_ref !== namespace.namespace_ref) {
+    throw new Error("Replay cancellation outbox is stored outside its bound Attempt namespace")
   }
 }
 
@@ -210,7 +310,7 @@ function assertPersistedAt(persistedAt: string, observedAt: string): void {
 function createCommit(
   ref: string,
   sha256: string,
-  record: ReplayCancellationOutboxRecord,
+  record: ReplayCancellationOutboxStoredRecord,
 ): ReplayCancellationOutboxCommit {
   const observation = record.replay_outcome.cancellation_observation
   if (!observation) throw new Error("Replay cancellation outbox record lost its Observation")

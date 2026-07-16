@@ -27,6 +27,7 @@ import {
   REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
   assertReplayResultOhlcvResolutionBindings,
   canonicalHash,
+  canonicalJson,
   createReplaySingleDecisionSchedule,
   createReplayDecisionHarnessBuildAttestation,
   createReplayDecisionInputSnapshot,
@@ -48,12 +49,13 @@ import {
   ReplayCancellationAcknowledgementError,
   ReplayCancellationOutboxPersistenceError,
   acknowledgeReplayCancellationOutcome,
+  recoverDiscoveredReplayCancellationAcknowledgements,
   recoverReplayCancellationAcknowledgement,
   runReplayTrialWithCancellationCoordination,
   runReplayTrialWithDurableCancellationCoordination,
   type ReplayCancellationCoordinationPort,
 } from "./replay-cancellation-coordinator"
-import { createReplayCancellationArtifactOutbox } from "./replay-cancellation-outbox"
+import { createReplayCancellationArtifactOutbox, discoverReplayCancellationArtifactOutboxes } from "./replay-cancellation-outbox"
 import type { ReplayArtifactStore } from "./replay-artifact-store"
 import { createReplayLocalArtifactStore } from "./replay-local-artifact-store"
 import {
@@ -2178,6 +2180,18 @@ test("durable cancellation outbox recovers acknowledgement after restart without
   expect(() => restartedOutbox.load()).toThrow("encoding is not canonical")
   writeFileSync(recordRef, originalRecord)
 
+  const currentRecord = JSON.parse(originalRecord.toString()) as Record<string, unknown>
+  const { record_hash: _currentRecordHash, idempotency_key_hash: _idempotencyKeyHash, attempt_lease: _attemptLease, ...legacyBody } = currentRecord
+  const legacyRecord = {
+    ...legacyBody,
+    schema_version: "trade.rd-replay-cancellation-outbox-record.v1",
+  }
+  const legacyBytes = `${canonicalJson({ ...legacyRecord, record_hash: canonicalHash(legacyRecord) })}\n`
+  writeFileSync(recordRef, legacyBytes)
+  expect(restartedOutbox.load()?.record.schema_version).toBe("trade.rd-replay-cancellation-outbox-record.v1")
+  expect(() => discoverReplayCancellationArtifactOutboxes(artifactStore)).toThrow("requires an explicitly bound invocation")
+  writeFileSync(recordRef, originalRecord)
+
   let unsafeAcknowledgementCount = 0
   const persistenceFailureTimes = ["2026-07-14T00:02:00Z", "2026-07-14T00:02:30Z"]
   let persistenceFailure: ReplayCancellationOutboxPersistenceError | undefined
@@ -2276,8 +2290,9 @@ test("cancellation outbox follows one Attempt across monotonic lease renewal", (
     source_offset: 2,
   })
   const root = mkdtempSync(join(tmpdir(), "rd-replay-renewed-cancellation-outbox-"))
+  const artifactStore = createReplayLocalArtifactStore(root)
   const outbox = createReplayCancellationArtifactOutbox(
-    createReplayLocalArtifactStore(root),
+    artifactStore,
     authority.request,
     authority.attempt_lease,
   )
@@ -2293,10 +2308,43 @@ test("cancellation outbox follows one Attempt across monotonic lease renewal", (
     observation_hash: renewedOutcome.cancellation_observation?.observation_hash,
   })
   expect(outbox.load()?.record).toMatchObject({
+    schema_version: "trade.rd-replay-cancellation-outbox-record.v2",
     attempt_id: renewedLease.attempt_id,
     lease_generation: renewedLease.lease_generation,
+    attempt_lease: renewedLease,
     boundary_poll_count: 2,
   })
+
+  let discoveredAcknowledgementCount = 0
+  const discoveryRecovery = recoverDiscoveredReplayCancellationAcknowledgements(artifactStore, {
+    poll: () => { throw new Error("discovery recovery must not poll") },
+    inspectRecovery: ({ observation }) => ({
+      status: "pending",
+      observation_hash: observation.observation_hash,
+    }),
+    acknowledge: () => { discoveredAcknowledgementCount += 1 },
+  }, { now: () => "2026-07-14T00:05:00Z" })
+  expect(discoveryRecovery).toMatchObject({
+    schema_version: "trade.rd-replay-cancellation-discovery-recovery-result.v1",
+    discovered_count: 1,
+    deliveries: [{
+      namespace_ref: dirname(commit.ref),
+      attempt_id: renewedLease.attempt_id,
+      lease_generation: renewedLease.lease_generation,
+      delivery_status: "registered",
+      outbox_commit: { record_hash: commit.record_hash },
+    }],
+  })
+  expect(discoveredAcknowledgementCount).toBe(1)
+  const alreadyRegistered = recoverDiscoveredReplayCancellationAcknowledgements(artifactStore, {
+    poll: () => { throw new Error("discovery recovery must not poll") },
+    inspectRecovery: ({ observation }) => ({
+      status: "already_registered",
+      observation_hash: observation.observation_hash,
+    }),
+    acknowledge: () => { throw new Error("registered observation must not be redelivered") },
+  }, { now: () => "2026-07-14T00:05:30Z" })
+  expect(alreadyRegistered.deliveries[0]?.delivery_status).toBe("already_registered")
 
   let recoveryPollCount = 0
   const recovered = runReplayTrialWithDurableCancellationCoordination({
@@ -2345,6 +2393,25 @@ test("cancellation outbox follows one Attempt across monotonic lease renewal", (
     boundary_poll_count: 2,
     persisted_at: "2026-07-14T00:04:30Z",
   })).toThrow("current lease binding mismatch")
+
+  const misplacedNamespace = artifactStore.openAttempt({
+    idempotency_key_hash: "0".repeat(64),
+    attempt_id_hash: canonicalHash(renewedLease.attempt_id),
+  })
+  misplacedNamespace.writeImmutable(
+    "cancellation-observation-outbox.json",
+    readFileSync(commit.ref, "utf8"),
+  )
+  let misplacedInspectionCount = 0
+  expect(() => recoverDiscoveredReplayCancellationAcknowledgements(artifactStore, {
+    poll: () => null,
+    inspectRecovery: ({ observation }) => {
+      misplacedInspectionCount += 1
+      return { status: "pending", observation_hash: observation.observation_hash }
+    },
+    acknowledge: () => {},
+  }, { now: () => "2026-07-14T00:06:00Z" })).toThrow("outside its bound Attempt namespace")
+  expect(misplacedInspectionCount).toBe(0)
 })
 
 test("durable coordinator persists the renewed lease when cancellation arrives later", () => {

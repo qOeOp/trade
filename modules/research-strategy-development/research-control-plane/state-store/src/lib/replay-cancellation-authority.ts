@@ -54,6 +54,12 @@ export interface ReplayCancellationCoordinationPortAdapter {
     observation: ReplayAttemptCancellationObservationSnapshot
     registered_at: string
   }): void
+  inspectRecovery(input: {
+    observation: ReplayAttemptCancellationObservationSnapshot
+  }): {
+    status: "pending" | "already_registered"
+    observation_hash: string
+  }
 }
 
 export interface ReplayAttemptCancellationLatencyProjection {
@@ -75,6 +81,7 @@ export function createSqliteReplayCancellationCoordinationPort(
     acknowledge: ({ observation, registered_at: registeredAt }) => {
       recordReplayAttemptCancellationObservation(db, observation, registeredAt)
     },
+    inspectRecovery: ({ observation }) => inspectReplayCancellationRecovery(db, observation),
   }
 }
 
@@ -368,20 +375,7 @@ export function recordReplayAttemptCancellationObservation(
     }
 
     const cancellation = readReplayAttemptCancellation(db, observation.attempt_id)
-    if (!cancellation
-        || cancellation.cancellation_id !== observation.cancellation_id
-        || cancellation.cancellation_ref !== observation.cancellation_ref
-        || cancellation.cancellation_hash !== observation.cancellation_hash
-        || cancellation.trial_id !== observation.trial_id
-        || cancellation.run_id !== observation.run_id
-        || cancellation.reservation_ref !== observation.reservation_ref
-        || cancellation.reservation_hash !== observation.reservation_hash
-        || cancellation.request_hash !== observation.request_hash
-        || cancellation.attempt_ordinal !== observation.attempt_ordinal
-        || cancellation.worker_id !== observation.worker_id
-        || cancellation.target_lease_generation !== observation.target_lease_generation) {
-      throw new Error("Replay Attempt cancellation observation does not match authority cancellation")
-    }
+    assertObservationMatchesCancellation(observation, cancellation)
     if (Date.parse(observation.observed_at) < Date.parse(cancellation.recorded_at)) {
       throw new Error("Replay Attempt cancellation cannot be observed before it is recorded")
     }
@@ -454,6 +448,25 @@ export function readReplayAttemptCancellationObservation(
   return row ? parseAttemptCancellationObservation(row) : null
 }
 
+export function inspectReplayCancellationRecovery(
+  db: Database,
+  observation: ReplayAttemptCancellationObservationSnapshot,
+): { status: "pending" | "already_registered"; observation_hash: string } {
+  assertReplayAttemptCancellationObservationSnapshot(observation)
+  const existing = readReplayAttemptCancellationObservation(db, observation.attempt_id)
+  if (existing) {
+    if (existing.observation_hash !== observation.observation_hash) {
+      throw new Error("Replay Attempt cancellation recovery found a different registered observation")
+    }
+    return { status: "already_registered", observation_hash: existing.observation_hash }
+  }
+  assertObservationMatchesCancellation(
+    observation,
+    readReplayAttemptCancellation(db, observation.attempt_id),
+  )
+  return { status: "pending", observation_hash: observation.observation_hash }
+}
+
 export function readReplayAttemptCancellationLatency(
   db: Database,
   attemptId: string,
@@ -503,6 +516,27 @@ function parseAttemptCancellation(row: CancellationRow): ReplayAttemptCancellati
     throw new Error("Replay Attempt cancellation registry row is inconsistent")
   }
   return cancellation
+}
+
+function assertObservationMatchesCancellation(
+  observation: ReplayAttemptCancellationObservationSnapshot,
+  cancellation: ReplayAttemptCancellationSnapshot | null,
+): asserts cancellation is ReplayAttemptCancellationSnapshot {
+  if (!cancellation
+      || cancellation.cancellation_id !== observation.cancellation_id
+      || cancellation.cancellation_ref !== observation.cancellation_ref
+      || cancellation.cancellation_hash !== observation.cancellation_hash
+      || cancellation.trial_id !== observation.trial_id
+      || cancellation.run_id !== observation.run_id
+      || cancellation.reservation_ref !== observation.reservation_ref
+      || cancellation.reservation_hash !== observation.reservation_hash
+      || cancellation.request_hash !== observation.request_hash
+      || cancellation.attempt_id !== observation.attempt_id
+      || cancellation.attempt_ordinal !== observation.attempt_ordinal
+      || cancellation.worker_id !== observation.worker_id
+      || cancellation.target_lease_generation !== observation.target_lease_generation) {
+    throw new Error("Replay Attempt cancellation observation does not match authority cancellation")
+  }
 }
 
 function parseAttemptCancellationObservation(

@@ -36,6 +36,10 @@ export interface ReplayArtifactStore {
   openAttempt(identity: ReplayArtifactAttemptIdentity): ReplayArtifactNamespace
 }
 
+export interface ReplayArtifactDiscoveryStore extends ReplayArtifactStore {
+  discoverAttemptNamespaces(): ReplayArtifactNamespace[]
+}
+
 export class ReplayArtifactStoreContractError extends Error {}
 
 export function assertCertifiedReplayArtifactStore(store: ReplayArtifactStore): void {

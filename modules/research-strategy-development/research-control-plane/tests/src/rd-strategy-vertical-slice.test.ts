@@ -8,7 +8,7 @@ import type { ReplayAttemptLeaseSnapshot, ResearchIdentityBinding, TrialReservat
 import { REPLAY_CERTIFIED_CAPABILITIES, REPLAY_DATASET_MANIFEST_SCHEMA_VERSION, REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION, REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION, REPLAY_NO_DECISION_MARKET_INPUT, REPLAY_NO_DECISION_MARKET_INPUT_HASH, REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS, REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH, REPLAY_SIMULATOR_POLICY_VERSION, REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION, canonicalHash, createReplayInstrumentStatusProvenance, createReplaySingleDecisionSchedule, replayDatasetHash, replayExecutionSpecHash, type ReplayDatasetManifest, type ReplayExecutionRequest, type ReplayMarketBar } from "../../../replay-execution-plane/contracts/src/lib/replay-contracts"
 import { buildDeveloperReplayRequest } from "../../../agent-roles/developer/src/lib/developer-role"
 import { runReplayTrial } from "../../../replay-execution-plane/runner/src/lib/replay-trial-runner"
-import type { ReplayCancellationCoordinationPort } from "../../../replay-execution-plane/runner/src/lib/replay-cancellation-coordinator"
+import type { ReplayCancellationCoordinationPort, ReplayCancellationRecoveryAuthorityPort } from "../../../replay-execution-plane/runner/src/lib/replay-cancellation-coordinator"
 import { createSqliteReplayCancellationCoordinationPort } from "../../state-store/src/lib/replay-cancellation-authority"
 import { buildDraftAuthorization } from "../../../agent-roles/reviewer/src/lib/reviewer-role"
 import { materializeDraftStrategy } from "../../strategy-registry/src/lib/strategy-registry"
@@ -28,8 +28,10 @@ const ACCOUNTING = { spec_version: REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, pr
 test("Control Plane SQLite cancellation adapter conforms to the Replay coordinator port", () => {
   const db = new Database(":memory:")
   const port: ReplayCancellationCoordinationPort = createSqliteReplayCancellationCoordinationPort(db)
+  const recoveryPort: ReplayCancellationRecoveryAuthorityPort = createSqliteReplayCancellationCoordinationPort(db)
   expect(typeof port.poll).toBe("function")
   expect(typeof port.acknowledge).toBe("function")
+  expect(typeof recoveryPort.inspectRecovery).toBe("function")
   db.close()
 })
 

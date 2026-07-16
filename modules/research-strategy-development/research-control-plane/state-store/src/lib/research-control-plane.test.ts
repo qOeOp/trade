@@ -870,6 +870,10 @@ test("Control Plane cancellation authority separately fences future claims and o
       "2026-07-14T03:48:00Z",
     ), /cannot be observed before/)
     const observation = createReplayAttemptCancellationObservationSnapshot(observationBody)
+    assert.deepEqual(coordinationPort.inspectRecovery({ observation }), {
+      status: "pending",
+      observation_hash: observation.observation_hash,
+    })
     assert.throws(() => recordReplayAttemptCancellationObservation(
       db,
       observation,
@@ -877,6 +881,10 @@ test("Control Plane cancellation authority separately fences future claims and o
     ), /registered before worker observation/)
     coordinationPort.acknowledge({ observation, registered_at: "2026-07-14T03:48:00Z" })
     coordinationPort.acknowledge({ observation, registered_at: "2026-07-14T03:49:00Z" })
+    assert.deepEqual(coordinationPort.inspectRecovery({ observation }), {
+      status: "already_registered",
+      observation_hash: observation.observation_hash,
+    })
     assert.deepEqual(readReplayAttemptCancellationObservation(db, renewed.attempt_id), observation)
     assert.deepEqual(readReplayAttemptCancellationLatency(db, renewed.attempt_id), {
       cancellation_recorded_at: "2026-07-14T03:46:00Z",

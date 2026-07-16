@@ -15,14 +15,17 @@ import {
 } from "./replay-trial-runner"
 import type { ReplayEngineCheckpoint } from "../../../engine/src/lib/replay-reference-engine"
 import { canonicalHash, canonicalJson } from "../../../contracts/src/lib/replay-contracts"
-import type {
-  ReplayCancellationOutboxCommit,
-  ReplayCancellationOutboxLoadedRecord,
-  ReplayCancellationOutboxPort,
+import {
+  discoverReplayCancellationArtifactOutboxes,
+  type ReplayCancellationOutboxCommit,
+  type ReplayCancellationOutboxLoadedRecord,
+  type ReplayCancellationOutboxPort,
 } from "./replay-cancellation-outbox"
+import type { ReplayArtifactDiscoveryStore } from "./replay-artifact-store"
 
 export const REPLAY_CANCELLATION_COORDINATION_RESULT_SCHEMA_VERSION = "trade.rd-replay-cancellation-coordination-result.v1" as const
 export const REPLAY_DURABLE_CANCELLATION_COORDINATION_RESULT_SCHEMA_VERSION = "trade.rd-replay-durable-cancellation-coordination-result.v1" as const
+export const REPLAY_CANCELLATION_DISCOVERY_RECOVERY_RESULT_SCHEMA_VERSION = "trade.rd-replay-cancellation-discovery-recovery-result.v1" as const
 
 export interface ReplayCancellationDirective {
   command: "cancel"
@@ -42,6 +45,15 @@ export interface ReplayCancellationCoordinationPort {
   }): void
 }
 
+export interface ReplayCancellationRecoveryAuthorityPort extends ReplayCancellationCoordinationPort {
+  inspectRecovery(input: {
+    observation: ReplayAttemptCancellationObservationSnapshot
+  }): {
+    status: "pending" | "already_registered"
+    observation_hash: string
+  }
+}
+
 export interface ReplayCancellationCoordinatorClock {
   now(): string
 }
@@ -58,6 +70,19 @@ export interface ReplayDurableCancellationCoordinationResult {
   schema_version: typeof REPLAY_DURABLE_CANCELLATION_COORDINATION_RESULT_SCHEMA_VERSION
   coordination_result: ReplayCancellationCoordinationResult
   outbox_commit: ReplayCancellationOutboxCommit | null
+}
+
+export interface ReplayCancellationDiscoveryRecoveryResult {
+  schema_version: typeof REPLAY_CANCELLATION_DISCOVERY_RECOVERY_RESULT_SCHEMA_VERSION
+  discovered_count: number
+  deliveries: Array<{
+    namespace_ref: string
+    attempt_id: string
+    lease_generation: number
+    observation_hash: string
+    delivery_status: "registered" | "already_registered"
+    outbox_commit: ReplayCancellationOutboxCommit
+  }>
 }
 
 export class ReplayCancellationAcknowledgementError extends Error {
@@ -286,6 +311,45 @@ export function recoverReplayCancellationAcknowledgement(
   const loaded = outbox.load()
   if (!loaded) return null
   return acknowledgeLoadedReplayCancellation(loaded, port, clock)
+}
+
+export function recoverDiscoveredReplayCancellationAcknowledgements(
+  store: ReplayArtifactDiscoveryStore,
+  port: ReplayCancellationRecoveryAuthorityPort,
+  clock: ReplayCancellationCoordinatorClock,
+): ReplayCancellationDiscoveryRecoveryResult {
+  const discovered = discoverReplayCancellationArtifactOutboxes(store)
+  const plans = discovered.map((item) => {
+    const observation = assertReplayCancellationAcknowledgementOutcome(
+      item.loaded.record.replay_outcome,
+      item.loaded.record.boundary_poll_count,
+    )
+    const authority = port.inspectRecovery({ observation: structuredClone(observation) })
+    if (authority.observation_hash !== observation.observation_hash) {
+      throw new Error("Replay cancellation recovery authority returned a different Observation")
+    }
+    if (authority.status !== "pending" && authority.status !== "already_registered") {
+      throw new Error("Replay cancellation recovery authority returned an unsupported status")
+    }
+    return { item, observation, authority }
+  })
+  const deliveries: ReplayCancellationDiscoveryRecoveryResult["deliveries"] = []
+  for (const { item, observation, authority } of plans) {
+    if (authority.status === "pending") acknowledgeLoadedReplayCancellation(item.loaded, port, clock)
+    deliveries.push({
+      namespace_ref: item.namespace_ref,
+      attempt_id: item.attempt_lease.attempt_id,
+      lease_generation: item.attempt_lease.lease_generation,
+      observation_hash: observation.observation_hash,
+      delivery_status: authority.status === "pending" ? "registered" : "already_registered",
+      outbox_commit: structuredClone(item.loaded.commit),
+    })
+  }
+  return {
+    schema_version: REPLAY_CANCELLATION_DISCOVERY_RECOVERY_RESULT_SCHEMA_VERSION,
+    discovered_count: plans.length,
+    deliveries,
+  }
 }
 
 function acknowledgeLoadedReplayCancellation(

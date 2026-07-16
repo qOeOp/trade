@@ -8,6 +8,7 @@ import {
   mkdirSync,
   openSync,
   readFileSync,
+  type Dirent,
   readdirSync,
   renameSync,
   unlinkSync,
@@ -17,9 +18,9 @@ import { dirname, join, relative, resolve, sep } from "node:path"
 import { REPLAY_LOCAL_ARTIFACT_STORE_CAPABILITY } from "../../../contracts/src/lib/replay-contracts"
 import type {
   ReplayArtifactAttemptIdentity,
+  ReplayArtifactDiscoveryStore,
   ReplayArtifactNamespace,
   ReplayArtifactReadFile,
-  ReplayArtifactStore,
 } from "./replay-artifact-store"
 
 export interface ReplayDurableFile {
@@ -27,11 +28,11 @@ export interface ReplayDurableFile {
   sha256: string
 }
 
-export function createReplayLocalArtifactStore(root: string): ReplayArtifactStore {
+export function createReplayLocalArtifactStore(root: string): ReplayArtifactDiscoveryStore {
   return new ReplayLocalArtifactStore(root)
 }
 
-class ReplayLocalArtifactStore implements ReplayArtifactStore {
+class ReplayLocalArtifactStore implements ReplayArtifactDiscoveryStore {
   readonly capability = REPLAY_LOCAL_ARTIFACT_STORE_CAPABILITY
   readonly #root: string
 
@@ -48,6 +49,20 @@ class ReplayLocalArtifactStore implements ReplayArtifactStore {
       identity.idempotency_key_hash.slice(0, 24),
       identity.attempt_id_hash.slice(0, 24),
     ))
+  }
+
+  discoverAttemptNamespaces(): ReplayArtifactNamespace[] {
+    if (!existsSync(this.#root)) return []
+    const namespaces: ReplayArtifactNamespace[] = []
+    for (const idempotencyDirectory of readDiscoveryDirectories(this.#root)) {
+      requireDiscoveryDirectoryName(idempotencyDirectory.name)
+      const idempotencyPath = join(this.#root, idempotencyDirectory.name)
+      for (const attemptDirectory of readDiscoveryDirectories(idempotencyPath)) {
+        requireDiscoveryDirectoryName(attemptDirectory.name)
+        namespaces.push(new ReplayLocalArtifactNamespace(join(idempotencyPath, attemptDirectory.name)))
+      }
+    }
+    return namespaces.sort((left, right) => left.namespace_ref.localeCompare(right.namespace_ref))
   }
 }
 
@@ -211,6 +226,22 @@ function isAlreadyExists(error: unknown): boolean {
 
 function readdirNames(directory: string): string[] {
   return readdirSync(directory).sort((left, right) => left.localeCompare(right))
+}
+
+function readDiscoveryDirectories(directory: string): Dirent[] {
+  return readdirSync(directory, { withFileTypes: true })
+    .sort((left, right) => left.name.localeCompare(right.name))
+    .filter((entry) => {
+      if (entry.isSymbolicLink()) throw new Error("Replay Artifact Store discovery refuses symbolic links")
+      if (!entry.isDirectory()) throw new Error("Replay Artifact Store discovery requires a two-level directory tree")
+      return true
+    })
+}
+
+function requireDiscoveryDirectoryName(name: string): void {
+  if (!/^[a-f0-9]{24}$/.test(name)) {
+    throw new Error("Replay Artifact Store discovery found a non-canonical namespace directory")
+  }
 }
 
 function requireFileName(name: string): void {
