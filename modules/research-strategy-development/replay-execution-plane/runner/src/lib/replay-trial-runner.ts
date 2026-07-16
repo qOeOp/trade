@@ -367,7 +367,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
       },
     })
     assertReplayResultOhlcvResolutionBindings(result, input.request)
-    assertReplayResultPendingOrderBindings(result, input.request)
+    assertReplayResultPendingOrderBindings(result, input.request, input.dataset_manifest)
     assertResultOhlcvEconomicImpactBindings(result, input.request, input.dataset_manifest)
     const committedArtifact = activeArtifactNamespace
       ? commitArtifacts(
@@ -677,6 +677,9 @@ function validateTrialReservation(
       || bindings.execution_spec_hash !== replayExecutionSpecHash(request)
       || bindings.dataset_manifest_ref !== request.dataset_manifest_ref
       || bindings.dataset_hash !== request.dataset_hash
+      || bindings.liquidity_capacity_attestation_hash !== (request.order.entry_execution.order_type === "limit"
+        ? request.order.entry_execution.liquidity_capacity_attestation_hash
+        : null)
       || bindings.supplemental_facts_hash !== request.supplemental_facts_hash
       || bindings.supplemental_requirement_set_hash !== request.supplemental_requirement_set_hash
       || bindings.venue_risk_policy_schedule_hash !== request.venue_risk_policy_schedule_hash
@@ -723,6 +726,7 @@ function validateTrialReservation(
 const ARTIFACT_FILE_NAMES: Readonly<Record<(typeof REPLAY_REQUIRED_ARTIFACT_ROLES)[number], string>> = {
   request: "request.json", trial_reservation: "trial-reservation.json", attempt_lease: "attempt-lease.json",
   dataset_manifest: "dataset-manifest.json", result: "result.json", source_events: "source-events.jsonl",
+  liquidity_capacity_attestation: "liquidity-capacity-attestation.json",
   supplemental_facts: "supplemental-facts.json",
   decision_market_input_snapshot: "decision-market-input-snapshot.json",
   decision_evidence_timeline: "decision-evidence-timeline.json",
@@ -746,6 +750,7 @@ function commitArtifacts(
   const trialReservationText = `${canonicalJson(trialReservation)}\n`
   const attemptLeaseText = `${canonicalJson(attemptLease)}\n`
   const datasetManifestText = `${canonicalJson(datasetManifest)}\n`
+  const liquidityCapacityAttestationText = `${canonicalJson(datasetManifest.liquidity_capacity_attestation ?? null)}\n`
   const supplementalFactsText = `${canonicalJson(supplementalFacts)}\n`
   const decisionMarketInputSnapshotText = `${canonicalJson(replayAuthorizedInitialDecisionEvidenceEntry(result.decision_evidence_timeline).decision_market_input_snapshot)}\n`
   const decisionEvidenceTimelineText = `${canonicalJson(result.decision_evidence_timeline)}\n`
@@ -768,6 +773,7 @@ function commitArtifacts(
     writeImmutable(namespace, "trial-reservation.json", trialReservationText, "trial_reservation"),
     writeImmutable(namespace, "attempt-lease.json", attemptLeaseText, "attempt_lease"),
     writeImmutable(namespace, "dataset-manifest.json", datasetManifestText, "dataset_manifest"),
+    writeImmutable(namespace, "liquidity-capacity-attestation.json", liquidityCapacityAttestationText, "liquidity_capacity_attestation"),
     writeImmutable(namespace, "supplemental-facts.json", supplementalFactsText, "supplemental_facts"),
     writeImmutable(namespace, "decision-market-input-snapshot.json", decisionMarketInputSnapshotText, "decision_market_input_snapshot"),
     writeImmutable(namespace, "decision-evidence-timeline.json", decisionEvidenceTimelineText, "decision_evidence_timeline"),
@@ -873,6 +879,12 @@ function readCommitted(
   }
   const recordedDatasetManifest = JSON.parse(decode(namespace.read(ARTIFACT_FILE_NAMES.dataset_manifest).bytes)) as ReplayDatasetManifest
   if (canonicalHash(recordedDatasetManifest) !== canonicalHash(datasetManifest)) throw new Error("Replay idempotency key was reused with a different dataset manifest")
+  const recordedLiquidityCapacityAttestation = JSON.parse(
+    decode(namespace.read(ARTIFACT_FILE_NAMES.liquidity_capacity_attestation).bytes),
+  ) as ReplayDatasetManifest["liquidity_capacity_attestation"] | null
+  if (canonicalHash(recordedLiquidityCapacityAttestation) !== canonicalHash(datasetManifest.liquidity_capacity_attestation ?? null)) {
+    throw new Error("committed Replay liquidity capacity attestation does not match dataset manifest")
+  }
   const recordedSupplementalFacts = JSON.parse(decode(namespace.read(ARTIFACT_FILE_NAMES.supplemental_facts).bytes)) as ReplaySupplementalFact[]
   if (canonicalHash(recordedSupplementalFacts) !== canonicalHash(supplementalFacts)
       || canonicalHash(recordedSupplementalFacts) !== request.supplemental_facts_hash) {
@@ -881,7 +893,7 @@ function readCommitted(
   const result = JSON.parse(decode(namespace.read(ARTIFACT_FILE_NAMES.result).bytes)) as ReplayResult
   if (result.schema_version !== REPLAY_RESULT_SCHEMA_VERSION) throw new Error("committed Replay result schema is not supported")
   assertReplayResultOhlcvResolutionBindings(result, request)
-  assertReplayResultPendingOrderBindings(result, request)
+  assertReplayResultPendingOrderBindings(result, request, datasetManifest)
   assertResultOhlcvEconomicImpactBindings(result, request, datasetManifest)
   if (manifest.run_id !== request.run_id || result.run_id !== request.run_id
       || manifest.result_hash !== result.fingerprint.result_hash) {

@@ -91,7 +91,7 @@ function testClaim(): Record<string, unknown> {
     claimed_at: "2026-07-16T08:00:01Z",
     lease_expires_at: "2026-07-16T08:05:00Z",
     trial_reservation: {
-      schema_version: "trade.rd-trial-reservation-snapshot.v8",
+      schema_version: "trade.rd-trial-reservation-snapshot.v9",
       reservation_id: "reservation-cli-1",
       reservation_ref: "reservation://cli/1",
       issued_at: "2026-07-16T07:00:00Z",
@@ -118,6 +118,7 @@ function testClaim(): Record<string, unknown> {
         execution_spec_hash: "a".repeat(64),
         dataset_manifest_ref: "dataset://cli/1",
         dataset_hash: "a".repeat(64),
+        liquidity_capacity_attestation_hash: null,
         supplemental_facts_hash: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
         supplemental_requirement_set_hash: "f126b641e1c2e55c174e3505e15232b466e50c3fd764f30968a925821c31d144",
         venue_risk_policy_schedule_hash: "a".repeat(64),

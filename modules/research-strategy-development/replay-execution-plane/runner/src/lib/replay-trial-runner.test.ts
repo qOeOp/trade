@@ -34,6 +34,7 @@ import {
   createReplayDecisionMarketInputSnapshot,
   createReplayDecisionHarnessSourceBundle,
   createReplayInstrumentStatusProvenance,
+  createReplayLiquidityCapacityAttestation,
   replayDatasetHash,
   replayOhlcvActiveProtectionHash,
   replayOhlcvResolutionEvidenceHash,
@@ -88,6 +89,16 @@ const statusProvenance = (statusEpochs: ReplayInstrumentStatusSnapshot[] = [STAT
   source_ref: "fixture:status-source", source_hash: HASH, source_record_count: statusEpochs.length, status_epochs: statusEpochs,
 })
 const ACCOUNTING = { spec_version: REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, product_type: "linear_derivative" as const, base_asset: "BTC", quote_asset: "USDT", settlement_asset: "USDT", contract_multiplier: "1", price_increment: "0.01", quantity_increment: "0.001", settlement_increment: "0.00000001" }
+const CAPACITY_ATTESTATION = createReplayLiquidityCapacityAttestation({
+  schema_version: "trade.rd-replay-liquidity-capacity-attestation.v1",
+  attestation_id: "capacity-1", attestation_ref: "capacity://fixture/1", symbol: "BTCUSDT",
+  quantity_unit: "base_asset", capacity_scope: "static_order_quantity_ceiling", full_fill_capacity: 1,
+  calibration_window_start: "2026-07-01T00:00:00Z", calibration_window_end: "2026-07-12T00:00:00Z",
+  observed_through: "2026-07-12T00:00:00Z", available_at: "2026-07-13T00:00:00Z",
+  source_ref: "dataset://liquidity-calibration/1", source_hash: HASH,
+  derivation_policy_id: "fixture-conservative-capacity", derivation_policy_version: "v1", derivation_policy_hash: HASH,
+  evidence_limitation: "not_event_depth_or_queue_position_proof",
+})
 
 function request(): ReplayExecutionRequest {
   const order: ReplayExecutionRequest["order"] = { side: "long", quantity: 1, signal_time: "2026-07-14T00:00:00Z", earliest_executable_time: "2026-07-14T04:00:00Z", stop_price: 95, target_price: 110, entry_execution: { order_type: "market" } }
@@ -221,6 +232,9 @@ function authorize(requestValue: ReplayExecutionRequest): TrialReservationSnapsh
       replay_idempotency_key: requestValue.idempotency_key,
       execution_spec_hash: replayExecutionSpecHash(requestValue),
       dataset_manifest_ref: requestValue.dataset_manifest_ref, dataset_hash: requestValue.dataset_hash,
+      liquidity_capacity_attestation_hash: requestValue.order.entry_execution.order_type === "limit"
+        ? requestValue.order.entry_execution.liquidity_capacity_attestation_hash
+        : null,
       supplemental_facts_hash: requestValue.supplemental_facts_hash,
       supplemental_requirement_set_hash: requestValue.supplemental_requirement_set_hash,
       venue_risk_policy_schedule_hash: requestValue.venue_risk_policy_schedule_hash,
@@ -307,6 +321,7 @@ function datasetManifest(): ReplayDatasetManifest {
     observed_through: bars[0].close_time, closed_candles_only: true,
     bar_final_availability: "close_time", funding_availability: "event_time", mark_availability: "event_time",
     mark_coverage: "none", mark_interval_ms: null, mark_event_count: 0, supplemental_facts: { coverage: "none" as const, record_count: 0, source_ids: [], content_hash: canonicalHash([]), requirement_set_hash: "f126b641e1c2e55c174e3505e15232b466e50c3fd764f30968a925821c31d144" },
+    liquidity_capacity_attestation: CAPACITY_ATTESTATION,
     venue_risk_policy_epochs: [RISK_SNAPSHOT],
     instrument: {
       listed_at: "2020-01-01T00:00:00Z", trading_enabled_at: "2020-01-01T00:00:00Z", delisted_at: null, status_history: "complete",
@@ -344,7 +359,7 @@ test("runner atomically commits artifacts and retries idempotently", () => {
     artifact_store: createReplayLocalArtifactStore(root),
   })
   expect(first.status).toBe("completed")
-  expect(first.artifact_manifest?.files.map((file) => file.role)).toEqual(["request", "trial_reservation", "attempt_lease", "dataset_manifest", "supplemental_facts", "decision_market_input_snapshot", "decision_evidence_timeline", "result", "source_events", "order_events", "fills", "positions", "ledger", "ohlcv_resolution_evidence", "pending_order_resolutions", "valuation_snapshot", "equity_bridge", "margin_snapshots", "liquidation", "journal", "trial_balance"])
+  expect(first.artifact_manifest?.files.map((file) => file.role)).toEqual(["request", "trial_reservation", "attempt_lease", "dataset_manifest", "liquidity_capacity_attestation", "supplemental_facts", "decision_market_input_snapshot", "decision_evidence_timeline", "result", "source_events", "order_events", "fills", "positions", "ledger", "ohlcv_resolution_evidence", "pending_order_resolutions", "valuation_snapshot", "equity_bridge", "margin_snapshots", "liquidation", "journal", "trial_balance"])
   expect(first.artifact_manifest?.completeness.authoritative_result).toBe(true)
   expect(first.artifact_manifest?.storage_policy_version).toBe(REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION)
   expect(first.artifact_commit?.terminal_checkpoint_hash).toBe(first.artifact_manifest?.completeness.terminal_checkpoint_hash)
@@ -365,6 +380,7 @@ test("runner commits a pre-entry GTC Limit resolution chain as an authoritative 
     entry_execution: {
       order_type: "limit", limit_price: 99.5, time_in_force: "gtc",
       liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1", full_fill_capacity: 1,
+      liquidity_capacity_attestation_hash: CAPACITY_ATTESTATION.attestation_hash,
     },
   }
   const decisionSchedule = createReplaySingleDecisionSchedule(order)
@@ -382,8 +398,12 @@ test("runner commits a pre-entry GTC Limit resolution chain as an authoritative 
   expect(completed.result?.fills[0]).toMatchObject({ order_role: "entry", price: 99.5 })
   expect(completed.result?.fingerprint.pending_order_resolutions_hash)
     .toBe(canonicalHash(completed.result?.pending_order_resolutions))
+  expect(completed.result?.fingerprint.liquidity_capacity_attestation_hash).toBe(CAPACITY_ATTESTATION.attestation_hash)
   expect(completed.artifact_manifest?.files.some(
     (file) => file.role === "pending_order_resolutions" && file.ref.endsWith("pending-order-resolutions.json"),
+  )).toBe(true)
+  expect(completed.artifact_manifest?.files.some(
+    (file) => file.role === "liquidity_capacity_attestation" && file.ref.endsWith("liquidity-capacity-attestation.json"),
   )).toBe(true)
 })
 
@@ -397,6 +417,7 @@ test("runner returns a typed terminal failure when a GTC Limit never fills", () 
     entry_execution: {
       order_type: "limit", limit_price: 99.5, time_in_force: "gtc",
       liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1", full_fill_capacity: 1,
+      liquidity_capacity_attestation_hash: CAPACITY_ATTESTATION.attestation_hash,
     },
   }
   const decisionSchedule = createReplaySingleDecisionSchedule(order)

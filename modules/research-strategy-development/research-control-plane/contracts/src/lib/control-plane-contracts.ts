@@ -4,7 +4,7 @@ import { REPLAY_LOCAL_ARTIFACT_STORAGE_POLICY_VERSION } from "../../../../../con
 export const CONTROL_PLANE_IDENTITY_SCHEMA_VERSION = "trade.rd-identity-binding.v1" as const
 export const DRAFT_AUTHORIZATION_SCHEMA_VERSION = "trade.rd-draft-authorization.v1" as const
 export const STRATEGY_DRAFT_BINDING_SCHEMA_VERSION = "trade.rd-strategy-draft-binding.v1" as const
-export const TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION = "trade.rd-trial-reservation-snapshot.v8" as const
+export const TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION = "trade.rd-trial-reservation-snapshot.v9" as const
 export const REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION = "trade.rd-replay-instrument-status-provider-certification.v1" as const
 export const REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION = "trade.rd-replay-instrument-status-provider-certification-termination.v1" as const
 export const REPLAY_RESERVATION_CANCELLATION_SCHEMA_VERSION = "trade.rd-replay-reservation-cancellation.v1" as const
@@ -32,6 +32,7 @@ export interface ReplayReservationBindings {
   execution_spec_hash: string
   dataset_manifest_ref: string
   dataset_hash: string
+  liquidity_capacity_attestation_hash: string | null
   supplemental_facts_hash: string
   supplemental_requirement_set_hash: string
   venue_risk_policy_schedule_hash: string
@@ -339,6 +340,9 @@ export function assertTrialReservationSnapshot(value: TrialReservationSnapshot):
     cost_policy_hash: bindings.cost_policy_hash,
     margin_policy_hash: bindings.margin_policy_hash,
   })) requireHash(binding, `reservation.bindings.${field}`)
+  if (bindings.liquidity_capacity_attestation_hash !== null) {
+    requireHash(bindings.liquidity_capacity_attestation_hash, "reservation.bindings.liquidity_capacity_attestation_hash")
+  }
   assertReplayInstrumentStatusProviderCertificationSnapshot(value.instrument_status_provider_certification)
   if (bindings.instrument_status_provider_capability_hash !== value.instrument_status_provider_certification.provider_capability_hash) {
     fail("reservation provider capability does not match its certification")

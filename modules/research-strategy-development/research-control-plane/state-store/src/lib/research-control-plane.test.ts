@@ -409,7 +409,7 @@ test("Control Plane atomically issues an immutable Replay Trial Reservation snap
       trial_id: "trial-reserved", reservation_id: "reservation-1", reservation_ref: "reservation://trial-reserved", issued_at: NOW,
       expires_at: "2026-07-14T04:08:00Z",
       bindings: {
-        replay_idempotency_key: "replay-key", execution_spec_hash: "a".repeat(64), dataset_manifest_ref: "dataset://fixture", dataset_hash: "b".repeat(64),
+        replay_idempotency_key: "replay-key", execution_spec_hash: "a".repeat(64), dataset_manifest_ref: "dataset://fixture", dataset_hash: "b".repeat(64), liquidity_capacity_attestation_hash: null,
         supplemental_facts_hash: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
         supplemental_requirement_set_hash: "f126b641e1c2e55c174e3505e15232b466e50c3fd764f30968a925821c31d144",
         venue_risk_policy_schedule_hash: "c".repeat(64), instrument_spec_schedule_hash: "d".repeat(64), instrument_status_schedule_hash: "f".repeat(64), instrument_status_provenance_hash: "3".repeat(64),
@@ -534,7 +534,7 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
       trial_id: "trial-attempt", reservation_id: "reservation-attempt", reservation_ref: "reservation://trial-attempt", issued_at: NOW,
       expires_at: "2026-07-14T04:08:00Z",
       bindings: {
-        replay_idempotency_key: "replay-attempt-key", execution_spec_hash: "a".repeat(64), dataset_manifest_ref: "dataset://fixture", dataset_hash: "b".repeat(64),
+        replay_idempotency_key: "replay-attempt-key", execution_spec_hash: "a".repeat(64), dataset_manifest_ref: "dataset://fixture", dataset_hash: "b".repeat(64), liquidity_capacity_attestation_hash: null,
         supplemental_facts_hash: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
         supplemental_requirement_set_hash: "f126b641e1c2e55c174e3505e15232b466e50c3fd764f30968a925821c31d144",
         venue_risk_policy_schedule_hash: "c".repeat(64), instrument_spec_schedule_hash: "d".repeat(64), instrument_status_schedule_hash: "f".repeat(64), instrument_status_provenance_hash: "3".repeat(64),
@@ -760,7 +760,7 @@ test("Control Plane cancellation authority separately fences future claims and o
       trial_id: "trial-cancellation", reservation_id: "reservation-cancellation", reservation_ref: "reservation://trial-cancellation",
       issued_at: NOW, expires_at: "2026-07-14T04:08:00Z",
       bindings: {
-        replay_idempotency_key: "replay-cancellation-key", execution_spec_hash: "a".repeat(64), dataset_manifest_ref: "dataset://fixture", dataset_hash: "b".repeat(64),
+        replay_idempotency_key: "replay-cancellation-key", execution_spec_hash: "a".repeat(64), dataset_manifest_ref: "dataset://fixture", dataset_hash: "b".repeat(64), liquidity_capacity_attestation_hash: null,
         supplemental_facts_hash: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
         supplemental_requirement_set_hash: "f126b641e1c2e55c174e3505e15232b466e50c3fd764f30968a925821c31d144",
         venue_risk_policy_schedule_hash: "c".repeat(64), instrument_spec_schedule_hash: "d".repeat(64), instrument_status_schedule_hash: "f".repeat(64), instrument_status_provenance_hash: "3".repeat(64),

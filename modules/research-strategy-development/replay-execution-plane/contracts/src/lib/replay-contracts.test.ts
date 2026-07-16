@@ -64,6 +64,7 @@ import {
   createReplayDecisionMarketInputSnapshot,
   createReplayDecisionStateSnapshot,
   createReplayInstrumentStatusProvenance,
+  createReplayLiquidityCapacityAttestation,
   createReplaySingleDecisionSchedule,
   replayAuthorizedInitialDecisionEvidenceEntry,
   replayAuthorizedInitialDecisionScheduleEntry,
@@ -165,13 +166,14 @@ test("Replay request requires complete Trial and evidence identity", () => {
   expect(() => assertReplayExecutionRequest(unauthorizedSchedule)).toThrow("market-only closed-bar lookback")
 })
 
-test("Request v25 freezes the executable pre-entry GTC Limit envelope", () => {
+test("Request v26 freezes the executable pre-entry GTC Limit envelope", () => {
   const requestValue = fixtureRequest()
   requestValue.order = {
     ...requestValue.order,
     entry_execution: {
       order_type: "limit", limit_price: 99.5, time_in_force: "gtc",
       liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1", full_fill_capacity: 1,
+      liquidity_capacity_attestation_hash: HASH,
     },
   }
   requestValue.decision_schedule = createReplaySingleDecisionSchedule(requestValue.order)
@@ -805,4 +807,32 @@ test("Replay dataset manifest requires explicit UTC lifecycle and availability p
     ...manifest,
     instrument: { ...manifest.instrument, status_provenance: { ...statusProvenance(), status_schedule_hash: HASH } },
   })).toThrow("schedule hash mismatch")
+})
+
+test("liquidity capacity attestation is self-hashed and chronologically causal", () => {
+  const value = createReplayLiquidityCapacityAttestation({
+    schema_version: "trade.rd-replay-liquidity-capacity-attestation.v1",
+    attestation_id: "capacity-1", attestation_ref: "capacity://btc/1", symbol: "BTCUSDT",
+    quantity_unit: "base_asset", capacity_scope: "static_order_quantity_ceiling", full_fill_capacity: 1,
+    calibration_window_start: "2026-07-01T00:00:00Z", calibration_window_end: "2026-07-12T00:00:00Z",
+    observed_through: "2026-07-12T00:00:00Z", available_at: "2026-07-13T00:00:00Z",
+    source_ref: "dataset://capacity-source/1", source_hash: HASH,
+    derivation_policy_id: "conservative-capacity", derivation_policy_version: "v1", derivation_policy_hash: HASH,
+    evidence_limitation: "not_event_depth_or_queue_position_proof",
+  })
+  const tampered = { ...value, full_fill_capacity: 2 }
+  expect(() => assertReplayDatasetManifest({
+    schema_version: REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
+    manifest_id: "manifest-1", manifest_ref: "dataset://capacity", data_hash: HASH,
+    dataset_kind: "ohlcv", symbol: "BTCUSDT", timeframe: "4h", interval_ms: 14_400_000,
+    row_count: 1, first_open_time: "2026-07-14T04:00:00Z", last_close_time: "2026-07-14T08:00:00Z",
+    observed_through: "2026-07-14T08:00:00Z", closed_candles_only: true,
+    bar_final_availability: "close_time", funding_availability: "event_time", mark_availability: "event_time",
+    mark_coverage: "none", mark_interval_ms: null, mark_event_count: 0,
+    supplemental_facts: { coverage: "none", record_count: 0, source_ids: [], content_hash: canonicalHash([]), requirement_set_hash: "f126b641e1c2e55c174e3505e15232b466e50c3fd764f30968a925821c31d144" },
+    liquidity_capacity_attestation: tampered,
+    venue_risk_policy_epochs: [RISK_SNAPSHOT],
+    instrument: { listed_at: "2020-01-01T00:00:00Z", trading_enabled_at: "2020-01-01T00:00:00Z", delisted_at: null, status_history: "complete", status_epochs: [STATUS_SNAPSHOT], status_provenance: statusProvenance(), spec_epochs: [SPEC_SNAPSHOT], accounting: { spec_version: REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, product_type: "linear_derivative", base_asset: "BTC", quote_asset: "USDT", settlement_asset: "USDT", contract_multiplier: "1", price_increment: "0.01", quantity_increment: "0.001", settlement_increment: "0.00000001" } },
+    universe: { selected_at: "2026-07-14T00:00:00Z", survivorship: "point_in_time" },
+  })).toThrow("attestation hash mismatch")
 })

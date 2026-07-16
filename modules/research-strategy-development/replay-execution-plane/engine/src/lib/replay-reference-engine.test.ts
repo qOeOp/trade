@@ -34,6 +34,7 @@ import {
   createReplayDecisionHarnessSourceBundle,
   createReplayDecisionEvidenceTimeline,
   createReplayInstrumentStatusProvenance,
+  createReplayLiquidityCapacityAttestation,
   createReplaySingleDecisionSchedule,
   replayDatasetHash,
   replayPendingOrderResolutionHash,
@@ -65,6 +66,16 @@ const statusProvenance = (statusEpochs: ReplayInstrumentStatusSnapshot[] = [STAT
   source_ref: "fixture:status-source", source_hash: HASH, source_record_count: statusEpochs.length, status_epochs: statusEpochs,
 })
 const ACCOUNTING = { spec_version: REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, product_type: "linear_derivative" as const, base_asset: "BTC", quote_asset: "USDT", settlement_asset: "USDT", contract_multiplier: "1", price_increment: "0.01", quantity_increment: "0.001", settlement_increment: "0.00000001" }
+const CAPACITY_ATTESTATION = createReplayLiquidityCapacityAttestation({
+  schema_version: "trade.rd-replay-liquidity-capacity-attestation.v1",
+  attestation_id: "capacity-1", attestation_ref: "capacity://fixture/1", symbol: "BTCUSDT",
+  quantity_unit: "base_asset", capacity_scope: "static_order_quantity_ceiling", full_fill_capacity: 1,
+  calibration_window_start: "2026-07-01T00:00:00Z", calibration_window_end: "2026-07-12T00:00:00Z",
+  observed_through: "2026-07-12T00:00:00Z", available_at: "2026-07-13T00:00:00Z",
+  source_ref: "dataset://liquidity-calibration/1", source_hash: HASH,
+  derivation_policy_id: "fixture-conservative-capacity", derivation_policy_version: "v1", derivation_policy_hash: HASH,
+  evidence_limitation: "not_event_depth_or_queue_position_proof",
+})
 
 function request(side: "long" | "short" = "long"): ReplayExecutionRequest {
   const order: ReplayExecutionRequest["order"] = {
@@ -195,6 +206,7 @@ function inputFor(
     supplemental_facts: supplementalFacts.length === 0
       ? { coverage: "none" as const, record_count: 0, source_ids: [], content_hash: canonicalHash([]), requirement_set_hash: boundRequest.supplemental_requirement_set_hash }
       : { coverage: "signal_time_snapshot" as const, record_count: supplementalFacts.length, source_ids: [...new Set(supplementalFacts.map((fact) => fact.source_id))].sort(), content_hash: canonicalHash(supplementalFacts), requirement_set_hash: boundRequest.supplemental_requirement_set_hash },
+    liquidity_capacity_attestation: CAPACITY_ATTESTATION,
     venue_risk_policy_epochs: [venueRiskPolicy],
     instrument: {
       listed_at: "2020-01-01T00:00:00Z", trading_enabled_at: "2020-01-01T00:00:00Z", delisted_at: null, status_history: "complete",
@@ -322,6 +334,7 @@ test("pre-entry GTC Limit rests, strict-cross fills within its bound, and resume
     entry_execution: {
       order_type: "limit", limit_price: 99.5, time_in_force: "gtc",
       liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1", full_fill_capacity: 1,
+      liquidity_capacity_attestation_hash: CAPACITY_ATTESTATION.attestation_hash,
     },
   }
   requestValue.decision_schedule = createReplaySingleDecisionSchedule(requestValue.order)
@@ -340,7 +353,12 @@ test("pre-entry GTC Limit rests, strict-cross fills within its bound, and resume
   ])
   expect(uninterrupted.metrics.pending_order_resolution_limited_count).toBe(1)
   expect(uninterrupted.limitations.map((limitation) => limitation.code)).toContain("ohlcv-limit-queue-unobserved")
-  assertReplayResultPendingOrderBindings(uninterrupted, replayInput.request)
+  assertReplayResultPendingOrderBindings(uninterrupted, replayInput.request, replayInput.dataset_manifest)
+  const fingerprintTampered = structuredClone(uninterrupted)
+  fingerprintTampered.fingerprint.liquidity_capacity_attestation_hash = null
+  expect(() => assertReplayResultPendingOrderBindings(
+    fingerprintTampered, replayInput.request, replayInput.dataset_manifest,
+  )).toThrow("attestation fingerprint mismatch")
 
   let checkpoint: ReplayEngineCheckpoint | undefined
   expect(() => executeReplayKernel({

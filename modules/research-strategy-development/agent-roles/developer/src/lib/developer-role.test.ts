@@ -6,7 +6,7 @@ import { buildDeveloperReplayRequest } from "./developer-role"
 const HASH = "f".repeat(64)
 
 test("Developer request copies authority identity without inventing it", () => {
-  const order: ReplayExecutionRequest["order"] = { side: "long", quantity: 1, signal_time: "2026-07-14T00:00:00Z", earliest_executable_time: "2026-07-14T04:00:00Z", stop_price: 95, target_price: 110 }
+  const order: ReplayExecutionRequest["order"] = { side: "long", quantity: 1, signal_time: "2026-07-14T00:00:00Z", earliest_executable_time: "2026-07-14T04:00:00Z", stop_price: 95, target_price: 110, entry_execution: { order_type: "market" } }
   const decisionSchedule = createReplaySingleDecisionSchedule(order)
   const request = buildDeveloperReplayRequest({
     run_id: "run-1", idempotency_key: "key-1",

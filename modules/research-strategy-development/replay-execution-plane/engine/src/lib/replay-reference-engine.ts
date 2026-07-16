@@ -62,8 +62,9 @@ import {
 } from "./replay-order-state"
 import { createReplayEventKey } from "./replay-event-key"
 import { completeReplayEntryOrderLane, completeReplayLimitEntryOrderLane, type ReplayEntryOrderExecution } from "./replay-entry-order-lane"
-import { completeReplayExitOrderLane, completeReplayStrategyExitOrderLane } from "./replay-exit-order-lane"
-import { completeReplayLiquidationOrderLane } from "./replay-liquidation-order-lane"
+import { completeReplayExitOrderLane, completeReplayStrategyExitOrderLane, type ReplayExitOrderExecution } from "./replay-exit-order-lane"
+import { completeReplayLiquidationOrderLane, type ReplayLiquidationOrderExecution } from "./replay-liquidation-order-lane"
+import type { ReplayOhlcvResolutionEconomics } from "./replay-ohlcv-resolution"
 import { replaceReplayProtectiveStop } from "./replay-protective-stop-lane"
 import { completeReplayPartialReduceLane } from "./replay-partial-reduce-lane"
 import { ReplayLiquidationDeficitError, ReplayMarginTerminalError, assertReplayPostEntryMargin, buildReplayMaintenanceBreachObservation, buildReplayPathMarginSnapshots } from "./replay-margin-path"
@@ -320,7 +321,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     )
     return entrySide === "buy" ? Math.min(adverse, execution.limit_price) : Math.max(adverse, execution.limit_price)
   }
-  const terminalPendingResolution = pendingOrderResolutions.findLast(
+  const terminalPendingResolution = [...pendingOrderResolutions].reverse().find(
     (resolution) => resolution.outcome.status === "filled",
   )
   let entryPrice = request.order.entry_execution.order_type === "market"
@@ -488,7 +489,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     })
   }
 
-  const resolutionEconomics = {
+  const resolutionEconomics: ReplayOhlcvResolutionEconomics = {
     entry_basis_price: entryPrice,
     exit_side: exitSide,
     cost_policy_id: request.cost_policy.policy_id,
@@ -499,7 +500,10 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     settlement_increment: accountingSpec.settlement_increment,
     settlement_asset: accountingSpec.settlement_asset,
   }
-  const sourceReduction = reduceReplaySourceEvents({
+  const sourceReduction = reduceReplaySourceEvents<
+    ReplayEntryOrderExecution,
+    ReplayExitOrderExecution | ReplayLiquidationOrderExecution
+  >({
     request,
     bars,
     funding_events: fundingEvents,
@@ -1208,6 +1212,9 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       trial_reservation_hash: request.trial_reservation_hash,
       dataset_manifest_hash: prepared.dataset_manifest_hash,
       dataset_hash: request.dataset_hash,
+      liquidity_capacity_attestation_hash: request.order.entry_execution.order_type === "limit"
+        ? request.order.entry_execution.liquidity_capacity_attestation_hash
+        : null,
       supplemental_facts_hash: request.supplemental_facts_hash,
       supplemental_requirement_set_hash: request.supplemental_requirement_set_hash,
       decision_market_input_requirement_hash: request.decision_market_input_requirement_hash,

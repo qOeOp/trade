@@ -13,9 +13,9 @@ export {
   REPLAY_OBJECT_ARTIFACT_STORAGE_POLICY_VERSION,
 }
 
-export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v25" as const
-export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v37" as const
-export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v39" as const
+export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v26" as const
+export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v38" as const
+export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v40" as const
 export const REPLAY_ARTIFACT_STORE_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-artifact-store-capability.v1" as const
 export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v11" as const
 export const REPLAY_NUMERIC_POLICY_VERSION = "rd-replay-number-v3" as const
@@ -28,7 +28,8 @@ export const REPLAY_LIQUIDATION_EXECUTION_SCHEMA_VERSION = "trade.rd-replay-liqu
 export const REPLAY_OHLCV_RESOLUTION_EVIDENCE_SCHEMA_VERSION = "trade.rd-replay-ohlcv-resolution-evidence.v3" as const
 export const REPLAY_PENDING_ORDER_RESOLUTION_SCHEMA_VERSION = "trade.rd-replay-pending-order-resolution.v1" as const
 export const REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION = "rd-replay-instrument-accounting-v1" as const
-export const REPLAY_DATASET_MANIFEST_SCHEMA_VERSION = "trade.rd-replay-dataset-manifest.v10" as const
+export const REPLAY_DATASET_MANIFEST_SCHEMA_VERSION = "trade.rd-replay-dataset-manifest.v11" as const
+export const REPLAY_LIQUIDITY_CAPACITY_ATTESTATION_SCHEMA_VERSION = "trade.rd-replay-liquidity-capacity-attestation.v1" as const
 export const REPLAY_SUPPLEMENTAL_FACT_SCHEMA_VERSION = "trade.rd-replay-supplemental-fact.v1" as const
 export const REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION = "trade.rd-replay-supplemental-requirement-set.v1" as const
 export const REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION = "trade.rd-replay-decision-input-snapshot.v1" as const
@@ -84,7 +85,7 @@ export const REPLAY_CERTIFIED_CAPABILITIES = [
   "stop-take-profit-market",
 ] as const
 export const REPLAY_REQUIRED_ARTIFACT_ROLES = [
-  "request", "trial_reservation", "attempt_lease", "dataset_manifest", "supplemental_facts", "decision_market_input_snapshot", "decision_evidence_timeline", "result",
+  "request", "trial_reservation", "attempt_lease", "dataset_manifest", "liquidity_capacity_attestation", "supplemental_facts", "decision_market_input_snapshot", "decision_evidence_timeline", "result",
   "source_events", "order_events", "fills", "positions", "ledger", "ohlcv_resolution_evidence", "pending_order_resolutions",
   "valuation_snapshot", "equity_bridge", "margin_snapshots", "liquidation",
   "journal", "trial_balance",
@@ -176,6 +177,7 @@ export interface ReplayExecutionRequest {
         time_in_force: "gtc"
         liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1"
         full_fill_capacity: number
+        liquidity_capacity_attestation_hash: string
       }
   }
   cost_policy: {
@@ -714,6 +716,7 @@ export interface ReplayDatasetManifest {
     content_hash: string
     requirement_set_hash: string
   }
+  liquidity_capacity_attestation?: ReplayLiquidityCapacityAttestation
   venue_risk_policy_epochs: ReplayVenueRiskPolicySnapshot[]
   instrument: {
     listed_at: string
@@ -730,6 +733,29 @@ export interface ReplayDatasetManifest {
     survivorship: "point_in_time" | "survivor_only"
   }
 }
+
+export interface ReplayLiquidityCapacityAttestation {
+  schema_version: typeof REPLAY_LIQUIDITY_CAPACITY_ATTESTATION_SCHEMA_VERSION
+  attestation_id: string
+  attestation_ref: string
+  symbol: string
+  quantity_unit: "base_asset"
+  capacity_scope: "static_order_quantity_ceiling"
+  full_fill_capacity: number
+  calibration_window_start: string
+  calibration_window_end: string
+  observed_through: string
+  available_at: string
+  source_ref: string
+  source_hash: string
+  derivation_policy_id: string
+  derivation_policy_version: string
+  derivation_policy_hash: string
+  evidence_limitation: "not_event_depth_or_queue_position_proof"
+  attestation_hash: string
+}
+
+export type ReplayLiquidityCapacityAttestationBody = Omit<ReplayLiquidityCapacityAttestation, "attestation_hash">
 
 export interface ReplayVenueRiskPolicySnapshot {
   schema_version: typeof REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION
@@ -1458,6 +1484,7 @@ export interface ReplayEvidenceFingerprint {
   trial_reservation_hash: string
   dataset_manifest_hash: string
   dataset_hash: string
+  liquidity_capacity_attestation_hash: string | null
   supplemental_facts_hash: string
   supplemental_requirement_set_hash: string
   decision_market_input_requirement_hash: string
@@ -1633,14 +1660,27 @@ export function assertReplayResultOhlcvResolutionBindings(
 export function assertReplayResultPendingOrderBindings(
   result: ReplayResult,
   request: ReplayExecutionRequest,
+  datasetManifest: ReplayDatasetManifest,
 ): void {
   const resolutions = result.pending_order_resolutions
+  const expectedAttestationHash = request.order.entry_execution.order_type === "limit"
+    ? request.order.entry_execution.liquidity_capacity_attestation_hash
+    : null
+  if (result.fingerprint.liquidity_capacity_attestation_hash !== expectedAttestationHash) {
+    fail("Replay Result liquidity capacity attestation fingerprint mismatch")
+  }
   if (request.order.entry_execution.order_type === "market") {
     if (resolutions.length !== 0) fail("market entry cannot carry pending-order resolutions")
     return
   }
   if (resolutions.length === 0) fail("Limit entry requires pending-order resolution evidence")
   const entry = request.order.entry_execution
+  const attestation = datasetManifest.liquidity_capacity_attestation
+  if (!attestation
+      || attestation.attestation_hash !== entry.liquidity_capacity_attestation_hash
+      || attestation.full_fill_capacity !== entry.full_fill_capacity) {
+    fail("pending-order resolution lacks its frozen liquidity capacity attestation")
+  }
   const expectedSide: ReplayOrderSide = request.order.side === "long" ? "buy" : "sell"
   const orderId = `${request.run_id}:order:entry`
   const activation = result.order_events.find((event) => event.order_id === orderId && event.kind === "activated")
@@ -1655,7 +1695,7 @@ export function assertReplayResultPendingOrderBindings(
         || resolution.order.time_in_force !== "gtc"
         || resolution.order.limit_price !== entry.limit_price
         || resolution.order.liquidity_model !== entry.liquidity_model
-        || resolution.order.full_fill_capacity !== entry.full_fill_capacity) {
+        || resolution.order.full_fill_capacity !== attestation.full_fill_capacity) {
       fail("pending-order resolution does not match frozen Limit entry")
     }
     if (canonicalHash(resolution.order.activation_event_key) !== canonicalHash(activation.event_key)) {
@@ -1744,12 +1784,14 @@ export function assertReplayExecutionRequest(value: ReplayExecutionRequest): voi
   if (value.order.side === "long" && value.order.stop_price >= value.order.target_price) fail("long stop must be below target")
   if (value.order.side === "short" && value.order.stop_price <= value.order.target_price) fail("short stop must be above target")
   const entryExecution = value.order.entry_execution
+  if (!entryExecution || typeof entryExecution !== "object") fail("order.entry_execution is required")
   if (entryExecution.order_type === "limit") {
     if (canonicalJson(Object.keys(entryExecution).sort()) !== canonicalJson([
-      "full_fill_capacity", "limit_price", "liquidity_model", "order_type", "time_in_force",
+      "full_fill_capacity", "limit_price", "liquidity_capacity_attestation_hash", "liquidity_model", "order_type", "time_in_force",
     ])) fail("executable Limit entry carries unsupported fields")
     requirePositive(entryExecution.limit_price, "order.entry_execution.limit_price")
     requirePositive(entryExecution.full_fill_capacity, "order.entry_execution.full_fill_capacity")
+    requireHash(entryExecution.liquidity_capacity_attestation_hash, "order.entry_execution.liquidity_capacity_attestation_hash")
     if (entryExecution.time_in_force !== "gtc"
         || entryExecution.liquidity_model !== "ohlcv-cross-through-full-fill-bounded-v1") {
       fail("unsupported executable Limit entry policy")
@@ -2354,6 +2396,84 @@ export function assertReplayDatasetManifest(manifest: ReplayDatasetManifest): vo
     }
   } else fail("unsupported mark coverage policy")
   assertReplaySupplementalManifest(manifest)
+  if (manifest.liquidity_capacity_attestation !== undefined) {
+    assertReplayLiquidityCapacityAttestation(manifest.liquidity_capacity_attestation)
+    if (manifest.liquidity_capacity_attestation.symbol !== manifest.symbol) {
+      fail("liquidity capacity attestation symbol does not match manifest")
+    }
+  }
+}
+
+export function assertReplayLiquidityCapacityAttestation(value: ReplayLiquidityCapacityAttestation): void {
+  if (value.schema_version !== REPLAY_LIQUIDITY_CAPACITY_ATTESTATION_SCHEMA_VERSION) {
+    fail("liquidity capacity attestation schema_version")
+  }
+  for (const [field, item] of Object.entries({
+    attestation_id: value.attestation_id,
+    attestation_ref: value.attestation_ref,
+    symbol: value.symbol,
+    source_ref: value.source_ref,
+    derivation_policy_id: value.derivation_policy_id,
+    derivation_policy_version: value.derivation_policy_version,
+  })) requireText(item, `liquidity_capacity_attestation.${field}`)
+  for (const [field, item] of Object.entries({
+    source_hash: value.source_hash,
+    derivation_policy_hash: value.derivation_policy_hash,
+    attestation_hash: value.attestation_hash,
+  })) requireHash(item, `liquidity_capacity_attestation.${field}`)
+  requirePositive(value.full_fill_capacity, "liquidity_capacity_attestation.full_fill_capacity")
+  if (value.quantity_unit !== "base_asset"
+      || value.capacity_scope !== "static_order_quantity_ceiling"
+      || value.evidence_limitation !== "not_event_depth_or_queue_position_proof") {
+    fail("unsupported liquidity capacity attestation policy")
+  }
+  for (const [field, item] of Object.entries({
+    calibration_window_start: value.calibration_window_start,
+    calibration_window_end: value.calibration_window_end,
+    observed_through: value.observed_through,
+    available_at: value.available_at,
+  })) requireUtcTimestamp(item, `liquidity_capacity_attestation.${field}`)
+  if (Date.parse(value.calibration_window_start) >= Date.parse(value.calibration_window_end)
+      || Date.parse(value.calibration_window_end) > Date.parse(value.observed_through)
+      || Date.parse(value.observed_through) > Date.parse(value.available_at)) {
+    fail("liquidity capacity attestation chronology is invalid")
+  }
+  const { attestation_hash: _attestationHash, ...body } = value
+  if (canonicalHash(body) !== value.attestation_hash) fail("liquidity capacity attestation hash mismatch")
+}
+
+export function replayLiquidityCapacityAttestationHash(
+  value: ReplayLiquidityCapacityAttestationBody | ReplayLiquidityCapacityAttestation,
+): string {
+  const { attestation_hash: _attestationHash, ...body } = value as ReplayLiquidityCapacityAttestation
+  return canonicalHash(body)
+}
+
+export function createReplayLiquidityCapacityAttestation(
+  body: ReplayLiquidityCapacityAttestationBody,
+): ReplayLiquidityCapacityAttestation {
+  const value = { ...body, attestation_hash: canonicalHash(body) }
+  assertReplayLiquidityCapacityAttestation(value)
+  return value
+}
+
+export function assertReplayLiquidityCapacityBinding(
+  request: ReplayExecutionRequest,
+  manifest: ReplayDatasetManifest,
+): void {
+  const execution = request.order.entry_execution
+  if (execution.order_type === "market") return
+  const attestation = manifest.liquidity_capacity_attestation
+  if (!attestation) fail("executable Limit entry requires a liquidity capacity attestation")
+  assertReplayLiquidityCapacityAttestation(attestation)
+  if (attestation.symbol !== request.symbol
+      || attestation.attestation_hash !== execution.liquidity_capacity_attestation_hash
+      || attestation.full_fill_capacity !== execution.full_fill_capacity) {
+    fail("Limit entry does not match its liquidity capacity attestation")
+  }
+  if (Date.parse(attestation.available_at) > Date.parse(request.order.signal_time)) {
+    fail("liquidity capacity attestation was not available at signal time")
+  }
 }
 
 function assertReplaySupplementalManifest(manifest: ReplayDatasetManifest): void {

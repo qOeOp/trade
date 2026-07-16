@@ -1,5 +1,6 @@
 import {
   assertReplayDatasetManifest,
+  assertReplayLiquidityCapacityBinding,
   assertReplayDataGapFailureEvidence,
   assertReplayMarketBars,
   assertReplaySupplementalFact,
@@ -71,6 +72,7 @@ export function prepareReplayInputData(input: {
 }): PreparedReplayInputData {
   const { request, dataset_manifest: manifest } = input
   assertReplayDatasetManifest(manifest)
+  assertReplayLiquidityCapacityBinding(request, manifest)
   assertReplayMarketBars(input.bars)
   if (input.bars.length === 0) throw new Error("Replay requires at least one closed bar")
   validateReplayDecisionStatusAdmission(request, manifest)

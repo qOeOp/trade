@@ -15,6 +15,7 @@ import {
   REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
   canonicalHash,
   createReplayInstrumentStatusProvenance,
+  createReplayLiquidityCapacityAttestation,
   createReplaySingleDecisionSchedule,
   replayDatasetHash,
   type ReplayDatasetManifest,
@@ -123,6 +124,37 @@ test("data adapter verifies manifest binding and selects the first executable ba
   expect(prepared.entry_index).toBe(1)
   expect(prepared.limitations).toEqual([])
   expect(fundingEventsInWindow(prepared.funding_events, "2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z")).toHaveLength(1)
+})
+
+test("data adapter admits a Limit only with a matching PIT-available capacity attestation", () => {
+  const attestation = createReplayLiquidityCapacityAttestation({
+    schema_version: "trade.rd-replay-liquidity-capacity-attestation.v1",
+    attestation_id: "capacity-1", attestation_ref: "capacity://btc/1", symbol: "BTCUSDT",
+    quantity_unit: "base_asset", capacity_scope: "static_order_quantity_ceiling", full_fill_capacity: 1,
+    calibration_window_start: "2026-07-01T00:00:00Z", calibration_window_end: "2026-07-12T00:00:00Z",
+    observed_through: "2026-07-12T00:00:00Z", available_at: "2026-07-13T00:00:00Z",
+    source_ref: "dataset://capacity-source/1", source_hash: HASH,
+    derivation_policy_id: "conservative-capacity", derivation_policy_version: "v1", derivation_policy_hash: HASH,
+    evidence_limitation: "not_event_depth_or_queue_position_proof",
+  })
+  const requestValue = request()
+  requestValue.order = { ...requestValue.order, entry_execution: {
+    order_type: "limit", limit_price: 99, time_in_force: "gtc",
+    liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1", full_fill_capacity: 1,
+    liquidity_capacity_attestation_hash: attestation.attestation_hash,
+  } }
+  requestValue.decision_schedule = createReplaySingleDecisionSchedule(requestValue.order)
+  requestValue.decision_schedule_hash = canonicalHash(requestValue.decision_schedule)
+  expect(() => prepareReplayInputData({
+    request: requestValue, dataset_manifest: { ...manifest(), liquidity_capacity_attestation: attestation }, bars, funding_events: fundingEvents,
+  })).not.toThrow()
+  const { attestation_hash: _attestationHash, ...attestationBody } = attestation
+  const late = createReplayLiquidityCapacityAttestation({ ...attestationBody, available_at: "2026-07-14T00:00:01Z" })
+  if (requestValue.order.entry_execution.order_type !== "limit") throw new Error("fixture must be Limit")
+  requestValue.order.entry_execution.liquidity_capacity_attestation_hash = late.attestation_hash
+  expect(() => prepareReplayInputData({
+    request: requestValue, dataset_manifest: { ...manifest(), liquidity_capacity_attestation: late }, bars, funding_events: fundingEvents,
+  })).toThrow("not available at signal time")
 })
 
 test("data adapter rejects unordered funding instead of sorting silently", () => {

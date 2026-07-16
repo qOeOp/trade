@@ -1,6 +1,6 @@
 {
   "request": {
-    "schema_version": "trade.rd-replay-execution-request.v25",
+    "schema_version": "trade.rd-replay-execution-request.v26",
     "run_id": "golden-run",
     "idempotency_key": "golden-idempotency",
     "experiment_id": "exp-golden",
@@ -118,7 +118,7 @@
     "random_seed": 7
   },
   "dataset_manifest": {
-    "schema_version": "trade.rd-replay-dataset-manifest.v10",
+    "schema_version": "trade.rd-replay-dataset-manifest.v11",
     "manifest_id": "manifest-golden",
     "manifest_ref": "dataset://golden",
     "data_hash": "5050e0b6330030d2ee61cb40234b2a98300bab7b088c482e331a2b6a057608d0",
