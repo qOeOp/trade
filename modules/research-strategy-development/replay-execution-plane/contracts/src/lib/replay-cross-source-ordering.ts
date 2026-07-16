@@ -315,3 +315,9 @@ function requireUtc(value: unknown, field: string): string {
   }
   return value
 }
+
+export {
+  requireHash as requireReplayCrossSourceHash,
+  requireText as requireReplayCrossSourceText,
+  requireUtc as requireReplayCrossSourceUtc,
+}

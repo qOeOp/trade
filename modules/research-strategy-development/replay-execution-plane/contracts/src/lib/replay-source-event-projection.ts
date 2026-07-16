@@ -5,6 +5,9 @@ import {
   REPLAY_CROSS_SOURCE_RANK_BY_SOURCE,
   assertReplayCrossSourceEventKey,
   compareReplayCrossSourceEventKeys,
+  requireReplayCrossSourceHash as requireHash,
+  requireReplayCrossSourceText as requireText,
+  requireReplayCrossSourceUtc as requireUtc,
   type ReplayCrossSourceEventKey,
   type ReplayCrossSourceKind,
   type ReplayCrossSourceOrderingAttestation,
@@ -223,25 +226,4 @@ export function assertReplaySourceEventProjection(value: ReplaySourceEventProjec
   if (!allowedKinds[value.source_kind].includes(value.projected_kind)) {
     throw new Error("projected SourceEvent kind/source binding is invalid")
   }
-}
-
-function requireText(value: unknown, field: string): string {
-  if (typeof value !== "string" || value.trim() === "") throw new Error(`${field} is required`)
-  return value
-}
-
-function requireHash(value: unknown, field: string): string {
-  if (typeof value !== "string" || !/^[a-f0-9]{64}$/.test(value)) {
-    throw new Error(`${field} must be a lowercase sha256 digest`)
-  }
-  return value
-}
-
-function requireUtc(value: unknown, field: string): string {
-  if (typeof value !== "string"
-      || !/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(value)
-      || !Number.isFinite(Date.parse(value))) {
-    throw new Error(`${field} must be an RFC 3339 UTC timestamp`)
-  }
-  return value
 }
