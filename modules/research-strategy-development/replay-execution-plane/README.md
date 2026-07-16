@@ -56,6 +56,8 @@ R4.58 实现 Control Plane emergency cancellation authority。Reservation Cancel
 
 R4.68 将 R4.59—R4.67 的 Observation/ack、durable outbox、pre-terminal commit、restart recovery、renewal binding 与 local discovery 接到 Control Plane `research.replay-attempt-admission`：production claim 必须先完成同一 local store 的 recovery，失败则 zero-claim。Replay Runner 仍只消费冻结 Lease，不读取 SQLite、不拥有 worker supervisor；remote store、pool identity 与 startup/stop SLA 未认证。
 
+R4.69 冻结独立 `Pending Order Resolution v1`，先确定 Limit GTC/IOC、Stop-market GTC 与 Cancel EventKey race，不扩张 Request/Runner。Limit 仅在显式 `ohlcv-cross-through-full-fill-bounded-v1` 且 quantity 不超过 capacity 时给出 open/strict-cross 全成参考；因 queue 不可见仍标 `resolution_limited`，touch 不填单。Cancel 严格早于 observation 则胜，晚于 fill 则败；同 ordinal 与 touch-before-cancel 返回 `unresolved`。该 primitive 不生成 Fill/Ledger/Artifact，Simulator v10 不变。
+
 经济入口按唯一 `authorized_initial_order / authorized_order` 语义定位，不依赖 Schedule/Timeline 数组末位；可选退出必须是 Schedule 末位并以 `authorized_reduce_only_exit` 独立表达，不能冒充第二个入口。所有 post-entry evaluation 必须由 Source Reducer 运行时产生 Position/Cash State Snapshot，并正确表达 terminal-before-decision、pending Order 与 checkpoint/resume。
 
 Reservation 只控制新 Attempt claim；已准入 Attempt 由 lease/generation fencing。Runner 仅通过 Attempt-scoped Artifact Store port 访问证据，local-v1 使用 `fsync + hard-link CAS + directory fsync`，remote-v1 仍只有准入合同、没有 certified adapter。Control Plane 单写 Reservation、Lease、Checkpoint Receipt 与 Resume Authorization；Replay 不查询或修改 Trial。对象存储实现/认证、OS sandbox、multiple partial、动态 supplemental join、变更 accounting epoch、历史规则采集、部分强平、cross/shared portfolio、tick/L2、真实 partial liquidity、limit queue 与 fast mode 未完成。

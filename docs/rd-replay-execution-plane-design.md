@@ -68,6 +68,8 @@ R4.67 落地 **Control Plane-owned cancellation startup recovery job**。`resear
 
 R4.68 冻结 **Control Plane recovery-before-claim admission gate**。仓库审计确认 canonical/compatibility Runner 都只消费现成 Lease，`claimReplayAttempt` 此前没有 production CLI；因此不把 DB/recovery 塞进 Replay Plane，也不虚构 worker supervisor。`research.replay-attempt-admission` 在同一 existing authority DB session 内先完成 R4.67 全量 recovery，再调用既有 claim authority；`recovered_at <= claimed_at`，malformed/tampered discovery、authority conflict 或时间倒置均 zero-claim，返回 Lease 再交叉核对 Attempt/worker、Trial/run、Reservation/hash、Request 与 claim/expiry。standalone recovery 仍不 claim；valid Observation recovery 不因后续 claim validation 失败回滚，因此这是 ordered fail-closed gate，不是 filesystem/SQLite distributed transaction。调用方仍须确保 artifact root 属于同一已停止 worker pool；process supervisor/pool identity、remote store、startup SLA 尚未设计。J04、Result/Artifact/Fingerprint/Simulator/经济语义不变。
 
+R4.69 冻结 **Pending Order Resolution v1 pre-integration primitive**。不修改既有 `ReplayOrder`、Request/Checkpoint/Result/Artifact epoch，也不声称 Runner 已支持 Limit。新合同只解析一个已激活 `limit` GTC/IOC 或 `stop_market` GTC、一个 `bar_open|bar_range` observation 与可选 Cancel EventKey。Limit 只有显式 `ohlcv-cross-through-full-fill-bounded-v1` 且 quantity 不超过 capacity 才可给出 full-fill reference：open marketable 取不劣于 limit 的 observed open，range 必须 strict-cross 才取 limit；两者因 queue 不可见仍 `resolution_limited`，exact touch 为 no-fill limited，未触达才 `exact_under_ohlc`。Stop gap 取 open、range trigger 取 trigger reference；这里只是执行参考，不是含 fee/slippage/impact 的 Fill。Cancel 严格早于 observation 胜、严格晚于 modelled fill 败、晚于确定 non-fill 胜；same ordinal 与 touch-before-cancel 返回 `unresolved`，禁止 stable id 猜序。golden hash、IOC、long/short mirror、capacity/activation/price-bound 与 rehash tamper 已锁定。FOK/GTD、amend、真实 queue/partial、多订单 allocation、Runner/Artifact 集成仍未完成；Simulator v10 与经济语义不变。
+
 实现路径：`replay-execution-plane/contracts`、`data-adapter`、`engine`、`accounting`、`metrics`、`runner` 与 `tests` 已成为 certified slice 的新语义 owner；`replay-execution-plane/compatibility/replay-runner` 可转发 Trial-bound request，`compatibility/replay-engine` 仅复用稳定 accounting 原语并继续作为 parity/迁移来源，不再承接新语义扩展。RD 根已无旧 Replay package。
 
 权威边界：
@@ -146,7 +148,7 @@ flowchart LR
 
 ### 3.2 已由测试锁定的语义
 
-验证快照：`2026-07-15` 本轮 Replay contracts/engine/runner/certification 与 Reviewer 定向测试均通过；仓库级质量结果以本轮交付记录为准。通过只证明下表已有行为稳定，不证明尚无 fixture 的订单/账本 fidelity。
+验证快照：`2026-07-16` 本轮 Replay contracts/engine/runner/certification 与 Reviewer 定向测试均通过；仓库级质量结果以本轮交付记录为准。通过只证明下表已有行为稳定，不证明尚无 fixture 的订单/账本 fidelity。
 
 | 状态 | 当前语义 | 证据与限制 |
 | --- | --- | --- |
@@ -157,6 +159,7 @@ flowchart LR
 | 已正式实现并测试 | 双边 fee/slippage bps；funding 与 bar 共用 EventKey，entry/exit 同 timestamp 使用 `t-` position | 当前 certified lane 允许一次 fixed-quantity partial；Funding/Margin 按 EventKey 读取当时 Position，multiple partial/add/reversal 未认证，adverse fallback 仅属 compatibility |
 | 已正式实现并测试 | 主 replay 不允许 lane 内重叠持仓 | 允许单仓一次 reduce-only partial，但不允许第二 entry、加仓、反转或 portfolio 并发 |
 | 已正式实现并测试 | SourceEvent reducer 同步驱动 entry/exit order lanes；submit/activate/trigger/partial/full/cancel/reject、EventKey 全序、oversized cap 与 wrong-side reduce-only 由独立状态 owner 守恒 | entry open、halt/resume、funding、bracket activation、terminal source/fill/cancel 共用因果边界；尚无 external-command、多订单 matching、真实 partial liquidity 或 limit queue |
+| 已正式实现并测试 | 独立 Pending Order Resolution v1：Limit GTC/IOC、Stop-market GTC、OHLC open/range 与 Cancel EventKey race | pre-integration evidence primitive；Limit fill/touch 均保留 queue limitation，同 ordinal/touch-before-cancel unresolved；未进入 Request/Runner/Fill/Ledger/Artifact |
 | 已正式实现并测试 | complete PIT `trading/halted` status epochs；停牌区间无 bar、Funding/Mark 继续、恢复首 open gap 与 checkpoint resume | 只接受冻结状态事实，不从缺 bar 推断 halt；停牌中 maintenance breach typed-fail；无 halt settlement、venue state collector 或 delisting settlement |
 | 已正式实现并测试 | instrument-status acquisition receipt、immutable archive、provider normalization、Control Plane certification 与 provenance binding | Store 保存 exact response BLOB、retry/terminal receipt，并只允许 historical capability 进入 Source Batch；Binance REST collector 只能 current snapshot。Provider 只读生成 certification-bound epochs/provenance；Control Plane 注册并在 Reservation issuance 校验 capability/有效期；Dataset/Request/Reservation/Fingerprint 四方绑定同一收据。该闭包不等于 venue 签名或外部穷尽审计 |
 | 已正式实现并测试 | multi-Fill average-cost、open/flat cash reducer、terminal valuation 与 settlement-asset journal | 一次 fixed-quantity partial 后的 stop/target/final exit/exact liquidation 全平及 EOD open-marked 已锁定；add/reversal/multiple partial、oversized reduce-only 仍拒绝；cash、position valuation、ending equity、journal/trial balance 对账 |
@@ -178,7 +181,7 @@ flowchart LR
 | 隐含行为 | supplemental report 的生成时间同时充当 `availability_at` | 不可靠；生成、观测、发布、可用时间必须分开 |
 | 隐含行为 | manifest 缺 universe time 时回退 dataset start/generated time | 只能输出 limitation，不能据此声称 point-in-time universe |
 | 已正式实现并测试 | expected grid 上缺 bar 不得被时间压缩或当作 observed price gap | 缺 entry bar 在 Fill 前失败；持仓后缺口在前一 observed close 后、未来 source/checkpoint 前失败；terminal-before-gap 不消费未来缺口 |
-| 尚未设计 | amend/TIF、limit queue、真实 partial fill、cancel race、multi-entry/reversal | 进入后续 order/matching capability；不得从当前状态组件推断已支持 |
+| 部分设计 | Limit GTC/IOC、Stop-market GTC 与单 Observation/Cancel race 已有独立 resolver；amend、FOK/GTD、真实 queue/partial、多订单 allocation、multi-entry/reversal 尚未设计 | resolver 不等于 executable Runner capability；不得从 resolution reference 推断已产生 Fill/Ledger |
 | 已正式实现并测试 | frozen isolated collateral reserve/release | entry reserve、position-attributed cashflow routing、flat release、open retain、wallet/collateral/settled cash/equity 对账已锁定；动态 add/withdraw、cross/shared margin 仍不支持 |
 | 部分实现 | isolated source-prefix margin/liquidation | 完整 Mark Event grid 与 exact funding 可触发单仓全量模拟强平；缺 Mark 时 bar open + 不利极值只做保守失败。Mark 不触发策略单，forced Fill 为 policy-modelled evidence；部分强平、deficit/insurance/ADL、cross/shared margin、borrow、真实 impact 未完成 |
 | 尚未设计 | step/fast semantic digest parity | fast mode 上线前硬门槛 |
@@ -191,7 +194,7 @@ flowchart LR
 ### 3.4 最危险的五个 fidelity 缺口
 
 1. **多个模拟器、无 parity**：同一 candidate 在 replay、benchmark、panel 可能得到不同资金、成本和时序语义。
-2. **订单状态机仅覆盖窄纵切**：主路径已有 market/bracket lifecycle 与 reduce-only 守恒，但 limit/amend、cancel race、真实 partial、加减仓、reversal 仍无统一 matching/position 事实。
+2. **订单状态机仍未接入通用 matching**：主路径已有 market/bracket lifecycle 与 reduce-only 守恒，R4.69 只补单 pending-order resolution；limit/amend、真实 queue/partial、多订单资金竞争、加减仓与 reversal 仍无统一 Fill/position 事实。
 3. **OHLC 路径不可知却未输出 resolution limitation**：stop/target 之外的多订单结果可能被任意实现顺序决定。
 4. **强平只覆盖单仓无坏账模型**：exact-risk full close 已进入统一账本，但多资产并发、动态 collateral、cross/shared allocation、部分强平、grid 间路径、破产价、保险基金与 ADL 仍无法守恒。
 5. **Harness 仍不是安全沙箱或完整策略闭包**：required lane 已认证 Source Bundle -> deterministic Bun artifact -> exact runtime -> fresh stdio subprocess，并对冻结 schedule 中每个 pre-entry boundary 重做 market PIT；但该边界不封锁文件系统/网络、没有独立签名者或任意依赖 SBOM，也未覆盖持仓后动态 supplemental join、feature DAG trace 与订单更新。
@@ -424,6 +427,8 @@ triggered | partially_filled -> rejected              # reduce-only zero-fill
 ```
 
 当前 Simulator v10 的 transition 是 append-only `OrderEvent`；conditional strategy fill 必须先 `triggered`。source vocabulary 为 `instrument_delisted|instrument_halted|instrument_resumed|funding|mark|bar_open|bar_range`。Mark 不触发 stop/TP；exact maintenance breach 只有在 trading 时才能创建 `liquidation`，halted 时必须 typed-fail。`authorized_protective_stop_replace` 保持 tighten-only。`authorized_partial_reduce` 在决策边界提交 `strategy_partial_reduce`，仅在严格更晚 eligible `bar_open` 全成 fixed quantity；同刻 exact risk、stop gap、target gap 先执行。partial Fill 位于 phase 20，旧 stop/target cancel 与剩余仓位 protection submit/activate 位于同 source 的 phase 90；无 SourceEvent 可插入。后续 source、Funding、Margin、State Snapshot 与 terminal owner 只读当前 Position/protection。非终止 `bar_range` 后必须先通过 continuity/status fence，才能发布 checkpoint 或消费未来 source。EOD 或更早 terminal 会取消 pending partial/final exit；`rd-replay-number-v3` 不变。
+
+R4.69 的 `Pending Order Resolution v1` 位于该状态机之前的独立解析层：输入 active order + one OHLC observation + optional Cancel EventKey，输出 self-hashed outcome/reference/limitation；不提交 `OrderEvent`、`Fill`、fee、position 或 ledger。它用于先锁定 Limit/Stop/TIF/Cancel 的可证明边界，下一阶段只有在 Request capability、numeric/cost、OrderEvent/Checkpoint/Artifact 全链接通后才能称 executable。
 
 ### 8.2 类型合同
 
@@ -743,7 +748,7 @@ claimed -> running -> completed
 | clock/visibility | close signal、next-open、funding boundary | 无事件可在 availability 前消费 | 全部时间平移不改相对结果 | step 与 replay chunking digest |
 | execution authority | Reservation scheduled/immediate cancellation、active Attempt cancellation、lease renewal、terminal race、observation ack、pre-terminal outbox、restart recovery-first admission、local namespace discovery/startup job/claim-side gate | receipt/observation/outbox self-hash、CAS/单目标；active cancellation 精确命中未过期 current lease；outbox v2 绑定 exact current lease/derived namespace；admission 要求 existing authority DB/store、全量 recovery 在 claim 前、返回 Lease 与输入 authority 一致 | 生效前 active claim 幂等重送不变；already-registered 不重投；旧 generation、rollback、worker/Attempt 漂移、misplaced namespace、symlink、tamper、wrong DB、时间倒置均 fail-before-claim；输出不含本机路径 | `research.replay-attempt-admission`：local discovery + pending/already inspection/ack → authoritative claim → Lease → Replay；process supervisor/pool identity、remote discovery/transport/polling/SLA 未认证 |
 | OHLC path | stop/target、open gap、single touch、long/short high-first/low-first collision、path/economics tamper | P1/P2 order/digest、bar/bracket/EventKey、status/reason/canonical role 自洽；ordered oracle outcome 必在 envelope 内；独立 BigInt oracle 覆盖 buy/sell 滑点方向、gross floor、fee ceil、net/span/shortfall；重算 evidence hash 不能掩盖篡改 | price/cash 同比缩放不改 status/reason/path role/canonical；轨迹分段内加密采样不改 OHLC、ordered outcome 与 cost-aware evidence；未来补数据不改已终止证据 | 已认证 synthetic ordered-price/economic oracle ↔ simple-bracket two-path parity；真实 tick runtime、真实成本拟合、generic step resolver 尚未完成 |
-| orders | market/limit/stop/TP/cancel race | fill 不早于 active；filled+remaining=requested | price/qty scale 后经济量同比 | fast supported order subset |
+| orders | market/bracket；Pending Resolution 的 limit GTC/IOC、stop GTC、cancel race | fill 不早于 active；filled+remaining=requested；bounded full-fill capacity；limit 不劣价；同 ordinal 不猜序 | buy/sell 中心价镜像；EventKey 前后平移不改胜负 | primitive 尚未接 Runner/Fill/Ledger；fast 仍禁止 conditional/pending orders |
 | reduce/position | multiple entry、partial TP、oversized/wrong-side reduce-only、reversal；partial quantity/时序/组合/保护非法输入 | reduce-only 不增仓/翻向；fixed quantity 留 open Position；partial Fill 后 stop/target 数量等于剩余绝对仓位；terminal preemption 取消 pending partial | long/short 数量镜像；同价 Fill 拆分保持经济终态；clean/resume Result hash 相同 | legacy simple resolver compatibility；partial Position/Ledger/State/checkpoint parity |
 | numeric | bps price、fee、funding、linear PnL、weighted average、return vectors；integrated terminal contribution | 舍入方向不改善证据；所有现金事实 increment-aligned；canonical decimal string 与 typed invalid input | price/cash 同比缩放后 return 与 scaled PnL 精确等价 | 已认证 primitive Numeric v3 shared vectors；terminal path 的 production Evidence ↔ TS BigInt ↔ Python Decimal 三方 parity；完整 Result/多 runtime 尚未认证 |
 | ledger/cost | fee、funding、borrow、impact | 借贷平衡；NAV bridge 可解释 | zero-cost policy 恢复 gross PnL | step/fast ledger digest |
@@ -795,14 +800,14 @@ Property tests 的核心 invariants：订单 qty、position qty、cash/NAV bridg
 - limit/stop/TP、cancel/amend、multi-entry、partial、wrong-side/oversized reduce-only、reversal。
 - 只有具备数据能力的 fill policy 才开放；maker queue 缺失继续 limitation/unsupported。
 
-**当前状态：完成第六十六子集，R3 未完成。** R4.43 已认证 partial 后 terminal owner 闭包；R4.44–R4.49 冻结 simple-bracket resolution/economics 与独立跨语言 oracle；R4.50 阻断 missing-grid 被误当 observed gap；R4.51 将 complete halt gap 与普通缺口分离；R4.52 阻断 current/periodic snapshot 被包装成 complete history；R4.53 增加 imported archive/provider 内容闭包；R4.57–R4.68 补齐 provider certification 未来 admission、显式 cancellation authority、observation/ack、transport-neutral coordinator、no-replay ack retry、local durable outbox、pre-terminal handoff、recovery-first admission、renewal-aware binding、local discovery、startup job 与 claim-side gate。terminal preemption、long/short lane symmetry、economic-policy tamper rejection、status/provenance/continuity fence 与 clean/resume parity 已锁定。仍缺外部 venue completeness、multiple partial、真实 historical liquidity partial、通用 cancel/amend、limit/TIF、add/reversal、partial liquidation、halt settlement、generic OHLC resolver 与 step/fast parity。
+**当前状态：完成第六十七子集，R3 未完成。** R4.43 已认证 partial 后 terminal owner 闭包；R4.44–R4.49 冻结 simple-bracket resolution/economics 与独立跨语言 oracle；R4.50–R4.68 完成 data/status/provider/execution-authority 受限闭包；R4.69 新增 Limit GTC/IOC、Stop-market GTC 与 Cancel race 的单订单 resolution primitive。terminal preemption、long/short symmetry、economic-policy tamper、status/provenance/continuity fence 与 clean/resume parity 已锁定。仍缺该 primitive 的 Request/OrderEvent/Fill/Checkpoint/Artifact 集成、FOK/GTD、amend、multiple/真实 liquidity partial、多订单 allocation、add/reversal、partial liquidation、halt settlement、generic multi-order OHLC resolver 与 step/fast parity。
 
 ### R4：统一 accounting
 
 - 定点 decimal、double-entry ledger、逐 fill fee、exact funding、borrow 接口。
 - isolated/cross margin、maintenance tiers、liquidation 与 penalty fixtures。
 
-**当前状态：完成第六十六子集，未完成统一组合账本。** Request/Result 为 v24/v36，Artifact/Run Outcome 为 v38/v35；Simulator v10 的 accounting 算术不变，但缺失执行区间不得产生任何后续账本事实。partial fee/realized PnL、Funding、cash/equity bridge、Margin、post-partial liquidation 与 EOD valuation 已守恒；R4.51 允许 exact Funding/Mark 在 frozen halt 内继续进入账本/风险观察，R4.52–R4.68 只增强这些状态事实的来源、采集、准入、取消、observation、协调、ack retry 与 operational outbox/discovery/startup/admission 闭包，不改变经济执行。现有 certified lane 仍是单 settlement asset、单 isolated Position。borrow、cross/shared portfolio、halt settlement、partial liquidation、bankruptcy/insurance/ADL 与多资产组合尚未开始。
+**当前状态：完成第六十七子集，未完成统一组合账本。** Request/Result 为 v24/v36，Artifact/Run Outcome 为 v38/v35；Simulator v10 的 accounting 算术不变。partial fee/realized PnL、Funding、cash/equity bridge、Margin、post-partial liquidation 与 EOD valuation 已守恒；R4.52–R4.68 只增强 authority/storage，R4.69 仅输出 pending-order reference/limitation，不创建 Fill/Ledger。现有 certified lane 仍是单 settlement asset、单 isolated Position。borrow、cross/shared portfolio、halt settlement、partial liquidation、bankruptcy/insurance/ADL 与多资产组合尚未开始。
 
 ### R5：Portfolio
 
@@ -835,7 +840,7 @@ Property tests 的核心 invariants：订单 qty、position qty、cash/NAV bridg
 以下问题需要真实数据能力或 Control Plane 共同决策，本文不提前固定：
 
 1. Numeric Policy v3 已冻结 certified arithmetic 与 Bun/Python parity；若未来把 wire number 改为 canonical decimal string，是否同时升级 Request、Dataset Manifest 与 Result，须以真实跨语言消费者需求决定，不能仅为形式上的任意精度提前破坏现有 wire。
-2. OHLC `touch` limit 的默认 queue policy是 zero-fill，还是基于可证明 cross-through 的 conservative fill；必须由数据 capability 与研究用途共同决定。
+2. R4.69 pre-integration primitive 已固定：exact touch 不填单且标 queue-limited，strict-cross 只有在显式 full-fill-bounded capacity 内才给出 limit reference，仍不得声称 maker fidelity。未决的是该 capacity 的数据来源/校准/认证、真实 queue/partial model 与何时允许进入 Runner capability。
 3. shared portfolio 同时信号采用 pro-rata、预注册 priority 还是独立 allocator ref；不能由 symbol 排序代替。
 4. venue risk/instrument spec 历史快照，以及 instrument-status event archive 的历史自动采集、venue 签名和外部 completeness audit owner；R4.56 已实现 current REST snapshot receipt、exact raw payload/retry 留存及 imported archive 保留/纠错，但 finality/authenticity 仍是 source assertion，不能声称自动复原 Binance 历史规则/状态。
 5. Reservation/Attempt Cancellation v1、transport-neutral coordinator、进程内 no-replay ack retry、local durable outbox、pre-terminal handoff、recovery-first admission、monotonic renewal binding、local namespace discovery、startup job 与 recovery-before-claim gate 已冻结；`research.replay-attempt-admission` 是 production claim 入口，但仓库尚无 deployment worker supervisor/pool identity，无法证明 artifact root 与被停止/准入的进程集合一致。Control Plane poll/local commit、filesystem discovery/SQLite ack 仍无跨存储事务。remote discovery/index、outbox retention/GC/quarantine、remote store、push/poll/lease-renew response/IPC/网络、startup/停止确认 SLA、worker watchdog 与外部签名仍需结合部署模型决定，不能让 Replay 或 J04 research loop 擅自固定。
