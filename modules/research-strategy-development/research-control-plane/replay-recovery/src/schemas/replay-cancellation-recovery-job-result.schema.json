@@ -1,0 +1,41 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade.rd-replay-cancellation-recovery-job-result.v1",
+  "type": "object",
+  "required": ["schema_version", "status", "recovered_at", "discovered_count", "registered_count", "already_registered_count", "recovery"],
+  "properties": {
+    "schema_version": { "const": "trade.rd-replay-cancellation-recovery-job-result.v1" },
+    "status": { "enum": ["no_outbox", "reconciled"] },
+    "recovered_at": { "type": "string", "format": "date-time" },
+    "discovered_count": { "type": "integer", "minimum": 0 },
+    "registered_count": { "type": "integer", "minimum": 0 },
+    "already_registered_count": { "type": "integer", "minimum": 0 },
+    "recovery": {
+      "type": "object",
+      "required": ["schema_version", "discovered_count", "deliveries"],
+      "properties": {
+        "schema_version": { "const": "trade.rd-replay-cancellation-discovery-recovery-result.v2" },
+        "discovered_count": { "type": "integer", "minimum": 0 },
+        "deliveries": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["namespace_identity_hash", "attempt_id", "lease_generation", "observation_hash", "delivery_status", "outbox_record_hash", "outbox_sha256"],
+            "properties": {
+              "namespace_identity_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "attempt_id": { "type": "string", "minLength": 1 },
+              "lease_generation": { "type": "integer", "minimum": 1 },
+              "observation_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "delivery_status": { "enum": ["registered", "already_registered"] },
+              "outbox_record_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+              "outbox_sha256": { "type": "string", "pattern": "^[a-f0-9]{64}$" }
+            },
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

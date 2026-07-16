@@ -1618,6 +1618,50 @@
       "entry_contract": { "kind": "cli-json", "input_schema": "", "output_schema": "" }
     },
     {
+      "id": "research.replay-cancellation-recovery",
+      "domain": "research-strategy-development",
+      "intent": [
+        "replay-startup-recovery",
+        "cancellation-outbox-reconciliation",
+        "no-replay-observation-ack"
+      ],
+      "capability_class": ["A"],
+      "path": "modules/research-strategy-development/research-control-plane/replay-recovery",
+      "purpose": "Reconcile validated local Replay cancellation outboxes with Control Plane Observation authority before fresh worker admission.",
+      "command": {
+        "cwd": "modules/research-strategy-development/research-control-plane/replay-recovery",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--db",
+          "./data/rd_state.db",
+          "--artifact-root",
+          "<replay-artifact-root>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Control Plane-owned startup job; it may append only an exact pending cancellation Observation through the authoritative registry.",
+        "Does not run Replay, claim Attempts, delete outboxes, or expose machine-local paths in its result."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "research-control-plane.replay-recovery",
+      "requires_preflight": false,
+      "concurrency_group": "rd-state",
+      "forbidden_callers": ["exchange-write"],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": "modules/research-strategy-development/research-control-plane/replay-recovery/src/schemas/replay-cancellation-recovery-job-result.schema.json"
+      }
+    },
+    {
       "id": "research.data-split",
       "domain": "research-strategy-development",
       "intent": [

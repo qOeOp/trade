@@ -2325,16 +2325,18 @@ test("cancellation outbox follows one Attempt across monotonic lease renewal", (
     acknowledge: () => { discoveredAcknowledgementCount += 1 },
   }, { now: () => "2026-07-14T00:05:00Z" })
   expect(discoveryRecovery).toMatchObject({
-    schema_version: "trade.rd-replay-cancellation-discovery-recovery-result.v1",
+    schema_version: "trade.rd-replay-cancellation-discovery-recovery-result.v2",
     discovered_count: 1,
     deliveries: [{
-      namespace_ref: dirname(commit.ref),
       attempt_id: renewedLease.attempt_id,
       lease_generation: renewedLease.lease_generation,
       delivery_status: "registered",
-      outbox_commit: { record_hash: commit.record_hash },
+      outbox_record_hash: commit.record_hash,
+      outbox_sha256: commit.sha256,
     }],
   })
+  expect(discoveryRecovery.deliveries[0]?.namespace_identity_hash).toMatch(/^[a-f0-9]{64}$/)
+  expect(JSON.stringify(discoveryRecovery)).not.toContain(root)
   expect(discoveredAcknowledgementCount).toBe(1)
   const alreadyRegistered = recoverDiscoveredReplayCancellationAcknowledgements(artifactStore, {
     poll: () => { throw new Error("discovery recovery must not poll") },

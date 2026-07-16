@@ -73,7 +73,7 @@ export interface ReplayCancellationOutboxLoadedRecord {
 }
 
 export interface ReplayCancellationOutboxDiscoveredRecord {
-  namespace_ref: string
+  namespace_identity_hash: string
   attempt_lease: ReplayAttemptLeaseSnapshot
   loaded: ReplayCancellationOutboxLoadedRecord
 }
@@ -163,12 +163,15 @@ export function discoverReplayCancellationArtifactOutboxes(
     attemptIds.add(loaded.record.attempt_id)
     observationHashes.add(observation.observation_hash)
     discovered.push({
-      namespace_ref: namespace.namespace_ref,
+      namespace_identity_hash: canonicalHash({
+        idempotency_key_hash: loaded.record.idempotency_key_hash,
+        attempt_id_hash: canonicalHash(loaded.record.attempt_id),
+      }),
       attempt_lease: structuredClone(loaded.record.attempt_lease),
       loaded,
     })
   }
-  return discovered.sort((left, right) => left.namespace_ref.localeCompare(right.namespace_ref))
+  return discovered.sort((left, right) => left.namespace_identity_hash.localeCompare(right.namespace_identity_hash))
 }
 
 function loadOutboxRecord(

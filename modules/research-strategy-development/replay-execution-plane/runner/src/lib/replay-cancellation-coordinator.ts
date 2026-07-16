@@ -25,7 +25,7 @@ import type { ReplayArtifactDiscoveryStore } from "./replay-artifact-store"
 
 export const REPLAY_CANCELLATION_COORDINATION_RESULT_SCHEMA_VERSION = "trade.rd-replay-cancellation-coordination-result.v1" as const
 export const REPLAY_DURABLE_CANCELLATION_COORDINATION_RESULT_SCHEMA_VERSION = "trade.rd-replay-durable-cancellation-coordination-result.v1" as const
-export const REPLAY_CANCELLATION_DISCOVERY_RECOVERY_RESULT_SCHEMA_VERSION = "trade.rd-replay-cancellation-discovery-recovery-result.v1" as const
+export const REPLAY_CANCELLATION_DISCOVERY_RECOVERY_RESULT_SCHEMA_VERSION = "trade.rd-replay-cancellation-discovery-recovery-result.v2" as const
 
 export interface ReplayCancellationDirective {
   command: "cancel"
@@ -76,12 +76,13 @@ export interface ReplayCancellationDiscoveryRecoveryResult {
   schema_version: typeof REPLAY_CANCELLATION_DISCOVERY_RECOVERY_RESULT_SCHEMA_VERSION
   discovered_count: number
   deliveries: Array<{
-    namespace_ref: string
+    namespace_identity_hash: string
     attempt_id: string
     lease_generation: number
     observation_hash: string
     delivery_status: "registered" | "already_registered"
-    outbox_commit: ReplayCancellationOutboxCommit
+    outbox_record_hash: string
+    outbox_sha256: string
   }>
 }
 
@@ -337,12 +338,13 @@ export function recoverDiscoveredReplayCancellationAcknowledgements(
   for (const { item, observation, authority } of plans) {
     if (authority.status === "pending") acknowledgeLoadedReplayCancellation(item.loaded, port, clock)
     deliveries.push({
-      namespace_ref: item.namespace_ref,
+      namespace_identity_hash: item.namespace_identity_hash,
       attempt_id: item.attempt_lease.attempt_id,
       lease_generation: item.attempt_lease.lease_generation,
       observation_hash: observation.observation_hash,
       delivery_status: authority.status === "pending" ? "registered" : "already_registered",
-      outbox_commit: structuredClone(item.loaded.commit),
+      outbox_record_hash: item.loaded.commit.record_hash,
+      outbox_sha256: item.loaded.commit.sha256,
     })
   }
   return {
