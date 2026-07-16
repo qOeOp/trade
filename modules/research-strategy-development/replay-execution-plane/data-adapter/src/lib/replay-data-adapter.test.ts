@@ -126,7 +126,7 @@ test("data adapter verifies manifest binding and selects the first executable ba
   expect(fundingEventsInWindow(prepared.funding_events, "2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z")).toHaveLength(1)
 })
 
-test("data adapter admits a Limit only with a matching PIT-available capacity attestation", () => {
+test("data adapter admits non-market entry only with a matching PIT-available capacity attestation", () => {
   const attestation = createReplayLiquidityCapacityAttestation({
     schema_version: "trade.rd-replay-liquidity-capacity-attestation.v1",
     attestation_id: "capacity-1", attestation_ref: "capacity://btc/1", symbol: "BTCUSDT",
@@ -148,9 +148,19 @@ test("data adapter admits a Limit only with a matching PIT-available capacity at
   expect(() => prepareReplayInputData({
     request: requestValue, dataset_manifest: { ...manifest(), liquidity_capacity_attestation: attestation }, bars, funding_events: fundingEvents,
   })).not.toThrow()
+  requestValue.order = { ...requestValue.order, entry_execution: {
+    order_type: "stop_market", trigger_price: 102, trigger_source: "last_trade_ohlcv", time_in_force: "gtc",
+    liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1", full_fill_capacity: 1,
+    liquidity_capacity_attestation_hash: attestation.attestation_hash,
+  } }
+  requestValue.decision_schedule = createReplaySingleDecisionSchedule(requestValue.order)
+  requestValue.decision_schedule_hash = canonicalHash(requestValue.decision_schedule)
+  expect(() => prepareReplayInputData({
+    request: requestValue, dataset_manifest: { ...manifest(), liquidity_capacity_attestation: attestation }, bars, funding_events: fundingEvents,
+  })).not.toThrow()
   const { attestation_hash: _attestationHash, ...attestationBody } = attestation
   const late = createReplayLiquidityCapacityAttestation({ ...attestationBody, available_at: "2026-07-14T00:00:01Z" })
-  if (requestValue.order.entry_execution.order_type !== "limit") throw new Error("fixture must be Limit")
+  if (requestValue.order.entry_execution.order_type === "market") throw new Error("fixture must be non-market")
   requestValue.order.entry_execution.liquidity_capacity_attestation_hash = late.attestation_hash
   expect(() => prepareReplayInputData({
     request: requestValue, dataset_manifest: { ...manifest(), liquidity_capacity_attestation: late }, bars, funding_events: fundingEvents,

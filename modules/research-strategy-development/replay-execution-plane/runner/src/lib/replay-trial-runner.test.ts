@@ -234,9 +234,9 @@ function authorize(requestValue: ReplayExecutionRequest): TrialReservationSnapsh
       replay_idempotency_key: requestValue.idempotency_key,
       execution_spec_hash: replayExecutionSpecHash(requestValue),
       dataset_manifest_ref: requestValue.dataset_manifest_ref, dataset_hash: requestValue.dataset_hash,
-      liquidity_capacity_attestation_hash: requestValue.order.entry_execution.order_type === "limit"
-        ? requestValue.order.entry_execution.liquidity_capacity_attestation_hash
-        : null,
+      liquidity_capacity_attestation_hash: requestValue.order.entry_execution.order_type === "market"
+        ? null
+        : requestValue.order.entry_execution.liquidity_capacity_attestation_hash,
       supplemental_facts_hash: requestValue.supplemental_facts_hash,
       supplemental_requirement_set_hash: requestValue.supplemental_requirement_set_hash,
       venue_risk_policy_schedule_hash: requestValue.venue_risk_policy_schedule_hash,
@@ -697,6 +697,162 @@ export function execute({ request_context, decision_market_input_snapshot, decis
   })
   expect(filled.result?.decision_evidence_timeline.entries[1]?.terminal_event_key?.event_time)
     .toBe("2026-07-14T04:00:00Z")
+})
+
+test("runner commits bounded Stop-market entry evidence and fails closed on same-bar path ambiguity", () => {
+  const order: ReplayExecutionRequest["order"] = {
+    ...request().order,
+    entry_execution: {
+      order_type: "stop_market", trigger_price: 102, trigger_source: "last_trade_ohlcv", time_in_force: "gtc",
+      liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1", full_fill_capacity: 1,
+      liquidity_capacity_attestation_hash: CAPACITY_ATTESTATION.attestation_hash,
+    },
+  }
+  const decisionSchedule = createReplaySingleDecisionSchedule(order)
+  const run = (bars: ReplayMarketBar[], idempotencyKey: string) => {
+    const dataHash = replayDatasetHash(bars)
+    const requestValue: ReplayExecutionRequest = {
+      ...request(), order, dataset_hash: dataHash, idempotency_key: idempotencyKey,
+      decision_schedule: decisionSchedule, decision_schedule_hash: canonicalHash(decisionSchedule),
+    }
+    return runReplayTrial({
+      ...authorized(requestValue), dataset_manifest: datasetManifestFor(bars, dataHash), bars,
+      artifact_root: mkdtempSync(join(tmpdir(), `rd-replay-stop-entry-${idempotencyKey}-`)),
+    })
+  }
+
+  const completed = run([{
+    open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z",
+    open: 100, high: 103, low: 99, close: 101, volume: 10, closed: true,
+  }], "idem-stop-entry-range")
+  expect(completed).toMatchObject({
+    status: "completed",
+    result: { entry_outcome: "filled" },
+  })
+  expect(completed.result?.pending_order_resolutions.at(-1)).toMatchObject({
+    order: { order_type: "stop_market", trigger_price: 102, trigger_source: "last_trade_ohlcv" },
+    outcome: { status: "triggered_and_filled", reason: "stop_range_trigger", fill_reference_price: 102 },
+  })
+  expect(completed.result?.order_events
+    .filter((event) => event.order_id.endsWith(":order:entry"))
+    .map((event) => event.kind)).toEqual(["submitted", "activated", "triggered", "filled"])
+  expect(completed.artifact_manifest?.result_hash).toBe(completed.result?.fingerprint.result_hash)
+
+  const untriggered = run([{
+    open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z",
+    open: 100, high: 101, low: 99, close: 100, volume: 10, closed: true,
+  }], "idem-stop-entry-untriggered")
+  expect(untriggered).toMatchObject({
+    status: "completed",
+    result: { entry_outcome: "unfilled_at_data_end", fills: [], positions: [] },
+  })
+  expect(untriggered.result?.limitations.map((limitation) => limitation.code))
+    .toContain("stop-entry-untriggered-through-data-end")
+
+  const ambiguous = run([{
+    open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z",
+    open: 100, high: 111, low: 94, close: 103, volume: 10, closed: true,
+  }], "idem-stop-entry-ambiguous")
+  expect(ambiguous).toMatchObject({
+    status: "failed",
+    failure: {
+      code: "stop-entry-same-bar-path-ambiguous", failure_class: "deterministic_engine",
+      partial_result_published: false,
+      pending_order_resolution: { outcome: { status: "triggered_and_filled", reason: "stop_range_trigger" } },
+      stop_entry_path_ambiguity: {
+        stop_touched: true, target_touched: true,
+        policy: "fail_without_result_when_post_trigger_path_is_unprovable",
+      },
+    },
+  })
+  expect("artifact_manifest" in ambiguous).toBe(false)
+  expect("result" in ambiguous).toBe(false)
+})
+
+test("runner evaluates scheduled Stop-market Cancel v2 and preserves trigger-before-cancel ordering", () => {
+  const preSignalBar: ReplayMarketBar = {
+    open_time: "2026-07-13T20:00:00Z", close_time: "2026-07-14T00:00:00Z",
+    open: 100, high: 101, low: 99, close: 100, volume: 10, closed: true,
+  }
+  const intent = createReplayEntryCancelIntent({
+    intent_id: "scheduled-cancel-stop-entry", requested_at: "2026-07-14T00:00:00Z",
+    effective_at: "2026-07-14T08:00:00Z", target_order_type: "stop_market",
+  })
+  const order: ReplayExecutionRequest["order"] = {
+    ...request().order,
+    entry_cancel_intent: intent,
+    entry_execution: {
+      order_type: "stop_market", trigger_price: 102, trigger_source: "last_trade_ohlcv", time_in_force: "gtc",
+      liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1", full_fill_capacity: 1,
+      liquidity_capacity_attestation_hash: CAPACITY_ATTESTATION.attestation_hash,
+    },
+  }
+  const requirement = {
+    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
+    mode: "closed_bar_lookback" as const, source_kind: "ohlcv" as const,
+    fields: ["open", "high", "low", "close", "volume"] as const, lookback_bars: 1,
+    visibility_policy: "close_time_at_or_before_decision_time" as const,
+    terminal_bar_policy: "close_time_equals_decision_time" as const,
+    continuity_policy: "strict_interval_grid" as const, undeclared_input_policy: "reject" as const,
+  }
+  const schedule = createReplayEntryCancelDecisionSchedule(order)
+  const registration = decisionHarness(`const initialOrder = ${JSON.stringify(order)}
+const cancelIntent = ${JSON.stringify(intent)}
+export function execute({ request_context, decision_market_input_snapshot, decision_state_snapshot }) {
+  if (decision_state_snapshot !== null) throw new Error("pending entry cancel cannot consume position state")
+  if (request_context.decision_phase === "pending_entry") {
+    return { decision_output: { action: "cancel_entry_order", order: cancelIntent }, trace: { bars_hash: decision_market_input_snapshot.bars_hash } }
+  }
+  return { decision_output: { action: "submit_initial_order", order: initialOrder }, trace: { bars_hash: decision_market_input_snapshot.bars_hash } }
+}
+`)
+  const run = (executionBar: ReplayMarketBar, idempotencyKey: string) => {
+    const runBars = [preSignalBar, executionBar]
+    const dataHash = replayDatasetHash(runBars)
+    const requestValue: ReplayExecutionRequest = {
+      ...request(), order, dataset_hash: dataHash, idempotency_key: idempotencyKey,
+      harness_hash: registration.source_bundle.bundle_hash,
+      decision_market_input_requirement: requirement,
+      decision_market_input_requirement_hash: canonicalHash(requirement),
+      decision_schedule: schedule, decision_schedule_hash: canonicalHash(schedule),
+    }
+    return runReplayTrial({
+      ...authorized(requestValue), dataset_manifest: datasetManifestFor(runBars, dataHash), bars: runBars,
+      decision_harness_registry: registration.registry,
+      artifact_root: mkdtempSync(join(tmpdir(), `rd-replay-scheduled-stop-cancel-${idempotencyKey}-`)),
+    })
+  }
+
+  const cancelled = run({
+    open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z",
+    open: 100, high: 101, low: 99, close: 100, volume: 10, closed: true,
+  }, "idem-scheduled-stop-cancel")
+  expect(cancelled).toMatchObject({
+    status: "completed",
+    result: {
+      entry_outcome: "cancelled_unfilled",
+      decision_evidence_timeline: { entries: [
+        { decision_kind: "initial_order", evaluation_status: "evaluated" },
+        { decision_kind: "entry_cancel", evaluation_status: "evaluated", execution_effect: "authorized_entry_cancel" },
+      ] },
+    },
+  })
+
+  const triggered = run({
+    open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z",
+    open: 100, high: 103, low: 99, close: 102, volume: 10, closed: true,
+  }, "idem-scheduled-stop-trigger-first")
+  expect(triggered).toMatchObject({
+    status: "completed",
+    result: {
+      entry_outcome: "filled",
+      pending_order_resolutions: [{ outcome: { status: "resting" } }, { outcome: { status: "triggered_and_filled" } }],
+      decision_evidence_timeline: { entries: [
+        { decision_kind: "initial_order", evaluation_status: "evaluated" },
+        { decision_kind: "entry_cancel", evaluation_status: "evaluated", execution_effect: "authorized_entry_cancel" },
+      ] },
+    },
+  })
 })
 
 test("runner returns typed data-gap failures without publishing partial Result", () => {

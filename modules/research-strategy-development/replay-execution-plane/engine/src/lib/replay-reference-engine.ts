@@ -12,6 +12,7 @@ import {
   assertReplayPendingOrderResolution,
   canonicalHash,
   compareReplayEventKeys,
+  createReplayStopEntrySameBarPathAmbiguity,
   createReplayDecisionEvidenceTimeline,
   createReplayDecisionStateSnapshot,
   replayDecisionPhaseFor,
@@ -39,6 +40,7 @@ import {
   type ReplayPendingOrderResolution,
   type ReplayResult,
   type ReplaySourceEvent,
+  type ReplayStopEntrySameBarPathAmbiguity,
   type ReplaySupplementalFact,
   type ReplayVenueRiskPolicySnapshot,
 } from "../../../contracts/src/lib/replay-contracts"
@@ -63,7 +65,7 @@ import {
   type ReplayTransitionStamp,
 } from "./replay-order-state"
 import { createReplayEventKey } from "./replay-event-key"
-import { completeReplayEntryOrderLane, completeReplayLimitEntryOrderLane, type ReplayEntryOrderExecution } from "./replay-entry-order-lane"
+import { completeReplayEntryOrderLane, completeReplayLimitEntryOrderLane, completeReplayStopEntryOrderLane, type ReplayEntryOrderExecution } from "./replay-entry-order-lane"
 import { completeReplayExitOrderLane, completeReplayStrategyExitOrderLane, type ReplayExitOrderExecution } from "./replay-exit-order-lane"
 import { completeReplayLiquidationOrderLane, type ReplayLiquidationOrderExecution } from "./replay-liquidation-order-lane"
 import type { ReplayOhlcvResolutionEconomics } from "./replay-ohlcv-resolution"
@@ -73,7 +75,7 @@ import { ReplayLiquidationDeficitError, ReplayMarginTerminalError, assertReplayP
 import { reduceReplaySourceEvents } from "./replay-source-reducer"
 import { resolveReplayPendingOrder } from "./replay-pending-order-resolution"
 
-export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v21" as const
+export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v22" as const
 
 export interface ReplayEngineCheckpoint {
   schema_version: typeof REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION
@@ -130,6 +132,18 @@ export class ReplayPendingOrderAmbiguityError extends Error {
   constructor(readonly pending_order_resolution: ReplayPendingOrderResolution) {
     super(`Replay cannot prove whether the pending entry filled before contract cancellation at ${pending_order_resolution.observation.source_event_key.event_time}`)
     this.name = "ReplayPendingOrderAmbiguityError"
+  }
+}
+
+export class ReplayStopEntrySameBarPathAmbiguityError extends Error {
+  readonly code = "stop-entry-same-bar-path-ambiguous" as const
+
+  constructor(
+    readonly pending_order_resolution: ReplayPendingOrderResolution,
+    readonly stop_entry_path_ambiguity: ReplayStopEntrySameBarPathAmbiguity,
+  ) {
+    super(`Replay cannot prove the post-trigger protection path inside Stop-market entry bar ending ${stop_entry_path_ambiguity.bar.close_time}`)
+    this.name = "ReplayStopEntrySameBarPathAmbiguityError"
   }
 }
 
@@ -327,9 +341,11 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     ...(request.order.entry_execution.order_type === "limit" ? {
       limit_price: request.order.entry_execution.limit_price,
       time_in_force: request.order.entry_execution.time_in_force,
+    } : request.order.entry_execution.order_type === "stop_market" ? {
+      trigger_price: request.order.entry_execution.trigger_price,
     } : {}),
   }, nextStamp(request.order.signal_time, 90, 0, 0), 0)).order
-  if (!resumeCheckpoint && entryOrder.order_type === "limit") {
+  if (!resumeCheckpoint && (entryOrder.order_type === "limit" || entryOrder.order_type === "stop_market")) {
     entryOrder = capture(activateReplayOrder(
       entryOrder, nextStamp(request.order.signal_time, 90, 0, 1), 0,
     )).order
@@ -337,22 +353,25 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
   const pendingOrderResolutions: ReplayPendingOrderResolution[] = structuredClone(
     resumeCheckpoint?.pending_order_resolutions ?? [],
   )
-  const limitExecutionPrice = (referencePrice: number): number => {
+  const pendingExecutionPrice = (referencePrice: number): number => {
     const execution = request.order.entry_execution
-    if (execution.order_type !== "limit") throw new Error("Limit execution price requires a Limit entry")
+    if (execution.order_type === "market") throw new Error("pending execution price requires a pending entry")
     const adverse = applyAdverseSlippageV3(
       referencePrice, entrySide, request.cost_policy.slippage_bps, accountingSpec.price_increment,
     )
+    if (execution.order_type === "stop_market") return adverse
     return entrySide === "buy" ? Math.min(adverse, execution.limit_price) : Math.max(adverse, execution.limit_price)
   }
   const terminalPendingResolution = [...pendingOrderResolutions].reverse().find(
-    (resolution) => resolution.outcome.status === "filled",
+    (resolution) => resolution.outcome.status === "filled" || resolution.outcome.status === "triggered_and_filled",
   )
   let entryPrice = request.order.entry_execution.order_type === "market"
     ? marketEntryPrice
     : terminalPendingResolution?.outcome.fill_reference_price == null
-      ? request.order.entry_execution.limit_price
-      : limitExecutionPrice(terminalPendingResolution.outcome.fill_reference_price)
+      ? request.order.entry_execution.order_type === "limit"
+        ? request.order.entry_execution.limit_price
+        : request.order.entry_execution.trigger_price
+      : pendingExecutionPrice(terminalPendingResolution.outcome.fill_reference_price)
   const limitations: ReplayResult["limitations"] = structuredClone(resumeCheckpoint?.limitations ?? prepared.limitations)
   if (!resumeCheckpoint && decisionHarnessReceipt) limitations.push({
     code: "decision-harness-os-sandbox-uncertified",
@@ -371,8 +390,8 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       detail: `Requested quantity ${request.order.quantity} was rounded down to ${executionQuantity} by Numeric Policy v3.`,
     })
   }
-  if (request.order.entry_execution.order_type === "limit" && executionQuantity !== request.order.quantity) {
-    throw new Error("executable Limit entry quantity must align with the frozen instrument increment")
+  if (request.order.entry_execution.order_type !== "market" && executionQuantity !== request.order.quantity) {
+    throw new Error("executable pending entry quantity must align with the frozen instrument increment")
   }
 
   const entryFillFor = (entryExecution: { entry_order_id: string; entry_fill_event_key: ReplayFill["event_key"]; executed_quantity: number }): ReplayFill => ({
@@ -732,14 +751,14 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       : null,
     observe_pending_entry: (source) => {
       const execution = request.order.entry_execution
-      if (execution.order_type !== "limit") return { entry_transition: null, terminal_exit: null }
+      if (execution.order_type === "market") return { entry_transition: null, terminal_exit: null }
       if (source.kind !== "bar_open" && source.kind !== "bar_range") return { entry_transition: null, terminal_exit: null }
-      if (execution.time_in_force === "ioc" && source.kind !== "bar_open") {
+      if (execution.order_type === "limit" && execution.time_in_force === "ioc" && source.kind !== "bar_open") {
         throw new Error("IOC Limit entry reached a non-open observation before expiry")
       }
-      if (entryOrder.status !== "active") throw new Error("pending Limit entry Order is not active")
+      if (entryOrder.status !== "active") throw new Error("pending entry Order is not active")
       const bar = bars[source.source_index]
-      if (!bar) throw new Error("pending Limit entry references a missing bar")
+      if (!bar) throw new Error("pending entry references a missing bar")
       evaluateScheduledEntryCancel(source)
       const cancelEffectiveKey = entryCancelIntent && source.kind === "bar_range"
           && source.event_key.event_time === entryCancelIntent.effective_at
@@ -754,14 +773,14 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       const resolution = resolveReplayPendingOrder({
         order: {
           order_id: entryOrder.order_id,
-          order_type: "limit",
+          order_type: execution.order_type,
           side: entrySide,
           quantity: entryOrder.quantity,
           time_in_force: execution.time_in_force,
           activation_event_key: entryOrder.last_event_key,
-          limit_price: execution.limit_price,
-          trigger_price: null,
-          trigger_source: null,
+          limit_price: execution.order_type === "limit" ? execution.limit_price : null,
+          trigger_price: execution.order_type === "stop_market" ? execution.trigger_price : null,
+          trigger_source: execution.order_type === "stop_market" ? execution.trigger_source : null,
           liquidity_model: execution.liquidity_model,
           full_fill_capacity: execution.full_fill_capacity,
         },
@@ -776,7 +795,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       if (resolution.outcome.status === "unresolved") throw new ReplayPendingOrderAmbiguityError(resolution)
       if (resolution.outcome.status === "cancelled") {
         if (!entryCancelIntent || !cancelEffectiveKey) {
-          throw new Error("pending Limit cancellation lacks frozen contract authority")
+          throw new Error("pending entry cancellation lacks frozen contract authority")
         }
         entryOrder = capture(cancelReplayOrder(
           entryOrder,
@@ -813,17 +832,52 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
           },
         }
       }
-      if (resolution.outcome.status !== "filled") return { entry_transition: null, terminal_exit: null }
-      entryPrice = limitExecutionPrice(resolution.outcome.fill_reference_price!)
+      if (resolution.outcome.status !== "filled" && resolution.outcome.status !== "triggered_and_filled") {
+        return { entry_transition: null, terminal_exit: null }
+      }
+      if (execution.order_type === "stop_market" && source.kind === "bar_range") {
+        const stopTouched = request.order.side === "long"
+          ? bar.low <= request.order.stop_price
+          : bar.high >= request.order.stop_price
+        const targetTouched = request.order.side === "long"
+          ? bar.high >= request.order.target_price
+          : bar.low <= request.order.target_price
+        if (stopTouched || targetTouched) {
+          throw new ReplayStopEntrySameBarPathAmbiguityError(
+            resolution,
+            createReplayStopEntrySameBarPathAmbiguity({
+              run_id: request.run_id,
+              position_side: request.order.side,
+              source_event_key: structuredClone(source.event_key),
+              bar: structuredClone(bar),
+              entry_trigger_price: execution.trigger_price,
+              protective_stop_price: request.order.stop_price,
+              target_price: request.order.target_price,
+              stop_touched: stopTouched,
+              target_touched: targetTouched,
+            }),
+          )
+        }
+      }
+      entryPrice = pendingExecutionPrice(resolution.outcome.fill_reference_price!)
       resolutionEconomics.entry_basis_price = entryPrice
-      if (!limitations.some((limitation) => limitation.code === "ohlcv-limit-queue-unobserved")) {
+      if (execution.order_type === "limit" && !limitations.some((limitation) => limitation.code === "ohlcv-limit-queue-unobserved")) {
         limitations.push({
           code: "ohlcv-limit-queue-unobserved",
           severity: "resolution_limited",
           detail: "OHLCV strict-cross/full-fill is a frozen bounded liquidity assumption; queue position and traded depth are not observed.",
         })
       }
-      const completed = completeReplayLimitEntryOrderLane({
+      const completed = execution.order_type === "limit" ? completeReplayLimitEntryOrderLane({
+        run_id: request.run_id,
+        entry_order: entryOrder,
+        resolution,
+        exit_side: exitSide,
+        stop_price: request.order.stop_price,
+        target_price: request.order.target_price,
+        next_stamp: nextStamp,
+        capture,
+      }) : completeReplayStopEntryOrderLane({
         run_id: request.run_id,
         entry_order: entryOrder,
         resolution,
@@ -1095,9 +1149,9 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
         trial_reservation_hash: request.trial_reservation_hash,
         dataset_manifest_hash: prepared.dataset_manifest_hash,
         dataset_hash: request.dataset_hash,
-        liquidity_capacity_attestation_hash: request.order.entry_execution.order_type === "limit"
-          ? request.order.entry_execution.liquidity_capacity_attestation_hash
-          : null,
+        liquidity_capacity_attestation_hash: request.order.entry_execution.order_type === "market"
+          ? null
+          : request.order.entry_execution.liquidity_capacity_attestation_hash,
         supplemental_facts_hash: request.supplemental_facts_hash,
         supplemental_requirement_set_hash: request.supplemental_requirement_set_hash,
         decision_market_input_requirement_hash: request.decision_market_input_requirement_hash,
@@ -1142,7 +1196,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
   }
   if (entryExecution === null || exitExecution === null) {
     if (entryExecution !== null || exitExecution !== null
-        || request.order.entry_execution.order_type !== "limit"
+        || request.order.entry_execution.order_type === "market"
         || (exit.role !== "end_of_data" && exit.role !== "entry_expired" && exit.role !== "entry_cancelled")) {
       throw new Error("Replay source reduction returned an inconsistent never-opened terminal state")
     }
@@ -1156,11 +1210,13 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     } : exit.role === "entry_cancelled" ? {
       code: "gtc-entry-cancelled-by-frozen-contract",
       severity: "info",
-      detail: "The GTC Limit was proven unfilled through the frozen closed-bar boundary, then cancelled by its immutable Experiment Contract intent; no later market observation belongs to this Order.",
+      detail: "The GTC pending entry was proven unfilled through the frozen closed-bar boundary, then cancelled by its immutable Experiment Contract intent; no later market observation belongs to this Order.",
     } : {
-      code: "limit-entry-unfilled-through-data-end",
+      code: request.order.entry_execution.order_type === "limit"
+        ? "limit-entry-unfilled-through-data-end"
+        : "stop-entry-untriggered-through-data-end",
       severity: "info",
-      detail: "The GTC Limit remains active at the immutable data boundary; Replay records zero execution and does not invent a cancellation, expiry, Fill, Position, or funding entitlement.",
+      detail: "The GTC pending entry remains active at the immutable data boundary; Replay records zero execution and does not invent a cancellation, expiry, Fill, Position, or funding entitlement.",
     })
     const sourceEvents = sourceReduction.source_events
     const endingLedgerEventKey = createReplayEventKey({
@@ -1661,15 +1717,20 @@ export function assertReplayEngineCheckpoint(
   if (request.order.entry_execution.order_type === "market" && checkpoint.pending_order_resolutions.length !== 0) {
     throw new Error("market-entry checkpoint cannot carry pending-order resolutions")
   }
-  if (request.order.entry_execution.order_type === "limit") {
+  if (request.order.entry_execution.order_type !== "market") {
+    const execution = request.order.entry_execution
     let previousResolutionKey: ReplayEventKey | null = null
     const activationEvent = checkpoint.order_events.find(
       (event) => event.order_id === checkpoint.entry_order.order_id && event.kind === "activated",
     )
-    if (!activationEvent || checkpoint.entry_order.order_type !== "limit"
-        || checkpoint.entry_order.limit_price !== request.order.entry_execution.limit_price
-        || checkpoint.entry_order.time_in_force !== request.order.entry_execution.time_in_force) {
-      throw new Error("Limit-entry checkpoint Order authority is invalid")
+    const entryOrderAuthorityMatches = execution.order_type === "limit"
+      ? checkpoint.entry_order.order_type === "limit"
+        && checkpoint.entry_order.limit_price === execution.limit_price
+        && checkpoint.entry_order.time_in_force === execution.time_in_force
+      : checkpoint.entry_order.order_type === "stop_market"
+        && checkpoint.entry_order.trigger_price === execution.trigger_price
+    if (!activationEvent || !entryOrderAuthorityMatches) {
+      throw new Error("pending-entry checkpoint Order authority is invalid")
     }
     for (const [index, resolution] of checkpoint.pending_order_resolutions.entries()) {
       const source = checkpoint.source_events.find(
@@ -1680,22 +1741,24 @@ export function assertReplayEngineCheckpoint(
           || (previousResolutionKey
             && compareReplayEventKeys(previousResolutionKey, resolution.observation.source_event_key) >= 0)
           || (index < checkpoint.pending_order_resolutions.length - 1 && resolution.outcome.status !== "resting")) {
-        throw new Error("Limit-entry checkpoint resolution prefix is invalid")
+        throw new Error("pending-entry checkpoint resolution prefix is invalid")
       }
       previousResolutionKey = resolution.observation.source_event_key
     }
     const terminalResolution = checkpoint.pending_order_resolutions.at(-1)
-    if (checkpoint.entry_transition && terminalResolution?.outcome.status !== "filled") {
-      throw new Error("filled Limit-entry checkpoint lacks terminal pending-order resolution")
+    const terminalFilled = terminalResolution?.outcome.status === "filled"
+      || terminalResolution?.outcome.status === "triggered_and_filled"
+    if (checkpoint.entry_transition && !terminalFilled) {
+      throw new Error("filled pending-entry checkpoint lacks terminal pending-order resolution")
     }
-    if (!checkpoint.entry_transition && terminalResolution?.outcome.status === "filled") {
-      throw new Error("pending Limit-entry checkpoint cannot carry a terminal Fill resolution")
+    if (!checkpoint.entry_transition && terminalFilled) {
+      throw new Error("pending-entry checkpoint cannot carry a terminal Fill resolution")
     }
     if (!checkpoint.entry_transition && terminalResolution?.outcome.status === "expired") {
-      throw new Error("expired Limit-entry cannot be persisted as a resumable checkpoint")
+      throw new Error("expired pending-entry cannot be persisted as a resumable checkpoint")
     }
     if (!checkpoint.entry_transition && terminalResolution?.outcome.status === "cancelled") {
-      throw new Error("cancelled Limit-entry cannot be persisted as a resumable checkpoint")
+      throw new Error("cancelled pending-entry cannot be persisted as a resumable checkpoint")
     }
   }
   if (checkpoint.entry_transition) {

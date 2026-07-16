@@ -168,7 +168,7 @@ test("Replay request requires complete Trial and evidence identity", () => {
   expect(() => assertReplayExecutionRequest(unauthorizedSchedule)).toThrow("market-only closed-bar lookback")
 })
 
-test("Request v29 freezes fixed and scheduled contract-owned GTC cancel boundaries", () => {
+test("Request v30 freezes Limit and Stop-market pending-entry authority", () => {
   const requestValue = fixtureRequest()
   requestValue.order = {
     ...requestValue.order,
@@ -217,7 +217,7 @@ test("Request v29 freezes fixed and scheduled contract-owned GTC cancel boundari
   const scheduleTampered = structuredClone(scheduled)
   scheduleTampered.decision_schedule.entries[1]!.authorized_entry_cancel!.intent_id = "tampered"
   scheduleTampered.decision_schedule_hash = canonicalHash(scheduleTampered.decision_schedule)
-  expect(() => assertReplayExecutionRequest(scheduleTampered)).toThrow("must match the frozen GTC Limit cancel intent")
+  expect(() => assertReplayExecutionRequest(scheduleTampered)).toThrow("must match the frozen GTC pending-entry cancel intent")
   const cancelHashTampered = structuredClone(cancelled)
   cancelHashTampered.order.entry_cancel_intent!.effective_at = "2026-07-14T12:00:00Z"
   cancelHashTampered.decision_schedule = createReplaySingleDecisionSchedule(cancelHashTampered.order)
@@ -227,13 +227,45 @@ test("Request v29 freezes fixed and scheduled contract-owned GTC cancel boundari
   iocCancelled.order.entry_cancel_intent = cancelled.order.entry_cancel_intent
   iocCancelled.decision_schedule = createReplaySingleDecisionSchedule(iocCancelled.order)
   iocCancelled.decision_schedule_hash = canonicalHash(iocCancelled.decision_schedule)
-  expect(() => assertReplayExecutionRequest(iocCancelled)).toThrow("requires one GTC Limit")
+  expect(() => assertReplayExecutionRequest(iocCancelled)).toThrow("requires one matching GTC pending entry")
   const overCapacity = structuredClone(requestValue)
   if (overCapacity.order.entry_execution.order_type !== "limit") throw new Error("fixture must be Limit")
   overCapacity.order.entry_execution.full_fill_capacity = 0.5
   overCapacity.decision_schedule = createReplaySingleDecisionSchedule(overCapacity.order)
   overCapacity.decision_schedule_hash = canonicalHash(overCapacity.decision_schedule)
   expect(() => assertReplayExecutionRequest(overCapacity)).toThrow("exceeds frozen full-fill capacity")
+
+  const stopEntry = fixtureRequest()
+  stopEntry.order = {
+    ...stopEntry.order,
+    entry_cancel_intent: createReplayEntryCancelIntent({
+      intent_id: "cancel-stop-entry-1",
+      requested_at: stopEntry.order.signal_time,
+      effective_at: "2026-07-14T08:00:00Z",
+      target_order_type: "stop_market",
+    }),
+    entry_execution: {
+      order_type: "stop_market", trigger_price: 102, trigger_source: "last_trade_ohlcv", time_in_force: "gtc",
+      liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1", full_fill_capacity: 1,
+      liquidity_capacity_attestation_hash: HASH,
+    },
+  }
+  stopEntry.decision_market_input_requirement = structuredClone(scheduled.decision_market_input_requirement)
+  stopEntry.decision_market_input_requirement_hash = canonicalHash(stopEntry.decision_market_input_requirement)
+  stopEntry.decision_schedule = createReplayEntryCancelDecisionSchedule(stopEntry.order)
+  stopEntry.decision_schedule_hash = canonicalHash(stopEntry.decision_schedule)
+  expect(() => assertReplayExecutionRequest(stopEntry)).not.toThrow()
+  expect(stopEntry.order.entry_cancel_intent).toMatchObject({
+    schema_version: "trade.rd-replay-entry-cancel-intent.v2", target_order_type: "stop_market",
+  })
+  const mismatchedStopCancel = structuredClone(stopEntry)
+  mismatchedStopCancel.order.entry_cancel_intent = createReplayEntryCancelIntent({
+    intent_id: "wrong-limit-target", requested_at: stopEntry.order.signal_time,
+    effective_at: "2026-07-14T08:00:00Z",
+  })
+  mismatchedStopCancel.decision_schedule = createReplaySingleDecisionSchedule(mismatchedStopCancel.order)
+  mismatchedStopCancel.decision_schedule_hash = canonicalHash(mismatchedStopCancel.decision_schedule)
+  expect(() => assertReplayExecutionRequest(mismatchedStopCancel)).toThrow("requires one matching GTC pending entry")
 })
 
 test("authorized initial decision lookup is semantic rather than positional", () => {

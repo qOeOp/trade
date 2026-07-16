@@ -65,7 +65,7 @@ export class ReplayPendingEntryDelistedError extends Error {
   readonly code = "instrument-delisted-with-pending-entry" as const
 
   constructor(readonly terminal_event: ReplaySourceEvent) {
-    super(`instrument was delisted while the Limit entry was still pending at ${terminal_event.event_key.event_time}`)
+    super(`instrument was delisted while the entry Order was still pending at ${terminal_event.event_key.event_time}`)
     this.name = "ReplayPendingEntryDelistedError"
   }
 }
@@ -136,7 +136,7 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
     const source = sourceEvents[sourceOffset]
     consumed.push(source)
     if (source.kind === "instrument_delisted") {
-      if (entryTransition === undefined && input.request.order.entry_execution.order_type === "limit") {
+      if (entryTransition === undefined && input.request.order.entry_execution.order_type !== "market") {
         throw new ReplayPendingEntryDelistedError(source)
       }
       throw new ReplayInstrumentTerminalError(source)

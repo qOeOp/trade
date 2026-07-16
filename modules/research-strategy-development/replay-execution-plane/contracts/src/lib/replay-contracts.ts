@@ -13,11 +13,11 @@ export {
   REPLAY_OBJECT_ARTIFACT_STORAGE_POLICY_VERSION,
 }
 
-export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v29" as const
-export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v42" as const
-export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v44" as const
+export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v30" as const
+export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v43" as const
+export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v45" as const
 export const REPLAY_ARTIFACT_STORE_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-artifact-store-capability.v1" as const
-export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v15" as const
+export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v16" as const
 export const REPLAY_NUMERIC_POLICY_VERSION = "rd-replay-number-v3" as const
 export const REPLAY_DERIVED_DECIMAL_INCREMENT = "0.000000000001" as const
 export const REPLAY_JOURNAL_POLICY_VERSION = "rd-replay-journal-v5" as const
@@ -27,7 +27,9 @@ export const REPLAY_MAINTENANCE_BREACH_SCHEMA_VERSION = "trade.rd-replay-mainten
 export const REPLAY_LIQUIDATION_EXECUTION_SCHEMA_VERSION = "trade.rd-replay-liquidation-execution.v2" as const
 export const REPLAY_OHLCV_RESOLUTION_EVIDENCE_SCHEMA_VERSION = "trade.rd-replay-ohlcv-resolution-evidence.v3" as const
 export const REPLAY_PENDING_ORDER_RESOLUTION_SCHEMA_VERSION = "trade.rd-replay-pending-order-resolution.v2" as const
+export const REPLAY_STOP_ENTRY_SAME_BAR_PATH_AMBIGUITY_SCHEMA_VERSION = "trade.rd-replay-stop-entry-same-bar-path-ambiguity.v1" as const
 export const REPLAY_ENTRY_CANCEL_INTENT_SCHEMA_VERSION = "trade.rd-replay-entry-cancel-intent.v1" as const
+export const REPLAY_STOP_ENTRY_CANCEL_INTENT_SCHEMA_VERSION = "trade.rd-replay-entry-cancel-intent.v2" as const
 export const REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION = "rd-replay-instrument-accounting-v1" as const
 export const REPLAY_DATASET_MANIFEST_SCHEMA_VERSION = "trade.rd-replay-dataset-manifest.v11" as const
 export const REPLAY_LIQUIDITY_CAPACITY_ATTESTATION_SCHEMA_VERSION = "trade.rd-replay-liquidity-capacity-attestation.v1" as const
@@ -36,7 +38,7 @@ export const REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION = "trade.rd-repl
 export const REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION = "trade.rd-replay-decision-input-snapshot.v1" as const
 export const REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION = "trade.rd-replay-decision-market-input-requirement.v1" as const
 export const REPLAY_DECISION_MARKET_INPUT_SNAPSHOT_SCHEMA_VERSION = "trade.rd-replay-decision-market-input-snapshot.v1" as const
-export const REPLAY_DECISION_SCHEDULE_SCHEMA_VERSION = "trade.rd-replay-decision-schedule.v6" as const
+export const REPLAY_DECISION_SCHEDULE_SCHEMA_VERSION = "trade.rd-replay-decision-schedule.v7" as const
 export const REPLAY_REDUCE_ONLY_EXIT_INTENT_SCHEMA_VERSION = "trade.rd-replay-reduce-only-exit-intent.v1" as const
 export const REPLAY_PROTECTIVE_STOP_REPLACE_INTENT_SCHEMA_VERSION = "trade.rd-replay-protective-stop-replace-intent.v1" as const
 export const REPLAY_PARTIAL_REDUCE_INTENT_SCHEMA_VERSION = "trade.rd-replay-partial-reduce-intent.v1" as const
@@ -46,17 +48,17 @@ export const REPLAY_DECISION_STATE_SNAPSHOT_SCHEMA_VERSION = "trade.rd-replay-de
 export const REPLAY_DECISION_HARNESS_CONTEXT_SCHEMA_VERSION = "trade.rd-replay-decision-harness-context.v7" as const
 export const REPLAY_DECISION_HARNESS_SOURCE_BUNDLE_SCHEMA_VERSION = "trade.rd-replay-decision-harness-source-bundle.v1" as const
 export const REPLAY_DECISION_HARNESS_BUILD_ATTESTATION_SCHEMA_VERSION = "trade.rd-replay-decision-harness-build-attestation.v2" as const
-export const REPLAY_DECISION_HARNESS_WORKER_REQUEST_SCHEMA_VERSION = "trade.rd-replay-decision-harness-worker-request.v8" as const
-export const REPLAY_DECISION_HARNESS_WORKER_RESPONSE_SCHEMA_VERSION = "trade.rd-replay-decision-harness-worker-response.v8" as const
-export const REPLAY_DECISION_HARNESS_REGISTRY_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-decision-harness-registry-capability.v8" as const
-export const REPLAY_DECISION_HARNESS_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-decision-harness-capability.v10" as const
-export const REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION = "trade.rd-replay-decision-harness-receipt.v10" as const
+export const REPLAY_DECISION_HARNESS_WORKER_REQUEST_SCHEMA_VERSION = "trade.rd-replay-decision-harness-worker-request.v9" as const
+export const REPLAY_DECISION_HARNESS_WORKER_RESPONSE_SCHEMA_VERSION = "trade.rd-replay-decision-harness-worker-response.v9" as const
+export const REPLAY_DECISION_HARNESS_REGISTRY_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-decision-harness-registry-capability.v9" as const
+export const REPLAY_DECISION_HARNESS_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-decision-harness-capability.v11" as const
+export const REPLAY_DECISION_HARNESS_RECEIPT_SCHEMA_VERSION = "trade.rd-replay-decision-harness-receipt.v11" as const
 export const REPLAY_DECISION_BOUNDARY_SCHEMA_VERSION = "trade.rd-replay-decision-boundary.v8" as const
-export const REPLAY_DECISION_EVIDENCE_TIMELINE_SCHEMA_VERSION = "trade.rd-replay-decision-evidence-timeline.v9" as const
-export const REPLAY_DECISION_HARNESS_REGISTRY_POLICY_VERSION = "rd-replay-decision-harness-registry-v8" as const
+export const REPLAY_DECISION_EVIDENCE_TIMELINE_SCHEMA_VERSION = "trade.rd-replay-decision-evidence-timeline.v10" as const
+export const REPLAY_DECISION_HARNESS_REGISTRY_POLICY_VERSION = "rd-replay-decision-harness-registry-v9" as const
 export const REPLAY_DECISION_HARNESS_BUILD_POLICY_VERSION = "rd-replay-bun-single-file-build-v2" as const
 export const REPLAY_DECISION_HARNESS_LOADER_POLICY_VERSION = "rd-replay-attested-fresh-subprocess-loader-v1" as const
-export const REPLAY_DECISION_HARNESS_WORKER_PROTOCOL_VERSION = "rd-replay-harness-worker-stdio-v8" as const
+export const REPLAY_DECISION_HARNESS_WORKER_PROTOCOL_VERSION = "rd-replay-harness-worker-stdio-v9" as const
 export const REPLAY_DECISION_HARNESS_BUILD_ARGUMENTS = [
   "--target=bun",
   "--format=esm",
@@ -83,6 +85,8 @@ export const REPLAY_CERTIFIED_CAPABILITIES = [
   "pit-instrument-status-epochs",
   "pre-entry-gtc-limit-contract-cancel",
   "pre-entry-gtc-limit-ohlcv-bounded-full-fill",
+  "pre-entry-gtc-stop-market-contract-cancel",
+  "pre-entry-gtc-stop-market-ohlcv-bounded-full-fill",
   "pre-entry-ioc-limit-next-open-bounded-full-fill",
   "single-position",
   "step",
@@ -184,6 +188,15 @@ export interface ReplayExecutionRequest {
         full_fill_capacity: number
         liquidity_capacity_attestation_hash: string
       }
+      | {
+        order_type: "stop_market"
+        trigger_price: number
+        trigger_source: "last_trade_ohlcv"
+        time_in_force: "gtc"
+        liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1"
+        full_fill_capacity: number
+        liquidity_capacity_attestation_hash: string
+      }
   }
   cost_policy: {
     policy_id: string
@@ -207,7 +220,7 @@ export interface ReplayExecutionRequest {
   random_seed: number
 }
 
-export interface ReplayEntryCancelIntent {
+export interface ReplayLimitEntryCancelIntent {
   schema_version: typeof REPLAY_ENTRY_CANCEL_INTENT_SCHEMA_VERSION
   intent_id: string
   authority: "experiment_contract"
@@ -220,6 +233,22 @@ export interface ReplayEntryCancelIntent {
   reason_code: "experiment_contract_cancel"
   intent_hash: string
 }
+
+export interface ReplayStopEntryCancelIntent {
+  schema_version: typeof REPLAY_STOP_ENTRY_CANCEL_INTENT_SCHEMA_VERSION
+  intent_id: string
+  authority: "experiment_contract"
+  target_order_role: "entry"
+  target_order_type: "stop_market"
+  target_time_in_force: "gtc"
+  requested_at: string
+  effective_at: string
+  effective_boundary: "after_bar_range"
+  reason_code: "experiment_contract_cancel"
+  intent_hash: string
+}
+
+export type ReplayEntryCancelIntent = ReplayLimitEntryCancelIntent | ReplayStopEntryCancelIntent
 
 export interface ReplayIsolatedMarginPolicy {
   policy_id: string
@@ -1306,6 +1335,21 @@ export interface ReplayPendingOrderResolution {
   resolution_hash: string
 }
 
+export interface ReplayStopEntrySameBarPathAmbiguity {
+  schema_version: typeof REPLAY_STOP_ENTRY_SAME_BAR_PATH_AMBIGUITY_SCHEMA_VERSION
+  run_id: string
+  position_side: "long" | "short"
+  source_event_key: ReplayEventKey
+  bar: ReplayMarketBar
+  entry_trigger_price: number
+  protective_stop_price: number
+  target_price: number
+  stop_touched: boolean
+  target_touched: boolean
+  policy: "fail_without_result_when_post_trigger_path_is_unprovable"
+  evidence_hash: string
+}
+
 export interface ReplayLedgerEntry {
   entry_id: string
   event_key: ReplayEventKey
@@ -1687,9 +1731,9 @@ export function assertReplayResultPendingOrderBindings(
   datasetManifest: ReplayDatasetManifest,
 ): void {
   const resolutions = result.pending_order_resolutions
-  const expectedAttestationHash = request.order.entry_execution.order_type === "limit"
-    ? request.order.entry_execution.liquidity_capacity_attestation_hash
-    : null
+  const expectedAttestationHash = request.order.entry_execution.order_type === "market"
+    ? null
+    : request.order.entry_execution.liquidity_capacity_attestation_hash
   if (result.fingerprint.liquidity_capacity_attestation_hash !== expectedAttestationHash) {
     fail("Replay Result liquidity capacity attestation fingerprint mismatch")
   }
@@ -1699,7 +1743,7 @@ export function assertReplayResultPendingOrderBindings(
     }
     return
   }
-  if (resolutions.length === 0) fail("Limit entry requires pending-order resolution evidence")
+  if (resolutions.length === 0) fail("pending entry requires pending-order resolution evidence")
   const entry = request.order.entry_execution
   const attestation = datasetManifest.liquidity_capacity_attestation
   if (!attestation
@@ -1710,19 +1754,26 @@ export function assertReplayResultPendingOrderBindings(
   const expectedSide: ReplayOrderSide = request.order.side === "long" ? "buy" : "sell"
   const orderId = `${request.run_id}:order:entry`
   const activation = result.order_events.find((event) => event.order_id === orderId && event.kind === "activated")
-  if (!activation) fail("Limit entry lacks an activation OrderEvent")
+  if (!activation) fail("pending entry lacks an activation OrderEvent")
   let previousKey: ReplayEventKey | null = null
   for (const [index, resolution] of resolutions.entries()) {
     assertReplayPendingOrderResolution(resolution)
+    const executionFieldsMatch = entry.order_type === "limit"
+      ? resolution.order.limit_price === entry.limit_price
+        && resolution.order.trigger_price === null
+        && resolution.order.trigger_source === null
+      : resolution.order.limit_price === null
+        && resolution.order.trigger_price === entry.trigger_price
+        && resolution.order.trigger_source === entry.trigger_source
     if (resolution.order.order_id !== orderId
-        || resolution.order.order_type !== "limit"
+        || resolution.order.order_type !== entry.order_type
         || resolution.order.side !== expectedSide
         || resolution.order.quantity !== request.order.quantity
         || resolution.order.time_in_force !== entry.time_in_force
-        || resolution.order.limit_price !== entry.limit_price
         || resolution.order.liquidity_model !== entry.liquidity_model
-        || resolution.order.full_fill_capacity !== attestation.full_fill_capacity) {
-      fail("pending-order resolution does not match frozen Limit entry")
+        || resolution.order.full_fill_capacity !== attestation.full_fill_capacity
+        || !executionFieldsMatch) {
+      fail("pending-order resolution does not match frozen entry")
     }
     if (canonicalHash(resolution.order.activation_event_key) !== canonicalHash(activation.event_key)) {
       fail("pending-order resolution activation binding is invalid")
@@ -1741,8 +1792,9 @@ export function assertReplayResultPendingOrderBindings(
     if ((!terminal || result.entry_outcome === "unfilled_at_data_end") && resolution.outcome.status !== "resting") {
       fail("non-terminal pending-order resolution must remain resting")
     }
-    if (terminal && result.entry_outcome === "filled" && resolution.outcome.status !== "filled") {
-      fail("successful Replay Limit entry must terminate with a full Fill resolution")
+    const expectedFilledStatus = entry.order_type === "limit" ? "filled" : "triggered_and_filled"
+    if (terminal && result.entry_outcome === "filled" && resolution.outcome.status !== expectedFilledStatus) {
+      fail("successful Replay pending entry must terminate with a full Fill resolution")
     }
   }
   if (entry.time_in_force === "ioc"
@@ -1767,12 +1819,12 @@ export function assertReplayResultPendingOrderBindings(
           || terminal.cancel_effective_key.event_subphase !== 0
           || terminal.cancel_effective_key.stable_event_id !== `${request.run_id}:entry-cancel:${entryCancelIntent.intent_hash}`
         ))) {
-      fail("filled GTC Limit does not respect its frozen cancel EventKey ordering")
+      fail("filled GTC pending entry does not respect its frozen cancel EventKey ordering")
     }
   }
   if (result.entry_outcome === "unfilled_at_data_end") {
     if (entry.time_in_force !== "gtc" || request.order.entry_cancel_intent) {
-      fail("only a GTC Limit without a frozen cancel boundary may remain active at the data boundary")
+      fail("only a GTC pending entry without a frozen cancel boundary may remain active at the data boundary")
     }
     const entryEvents = result.order_events
       .filter((event) => event.order_id === orderId)
@@ -1783,7 +1835,7 @@ export function assertReplayResultPendingOrderBindings(
         || result.valuation_snapshot.position_event_id !== null
         || result.metrics.trade_count !== 0 || result.metrics.net_pnl !== 0
         || !lastEntryEvent || lastEntryEvent.status !== "active" || lastEntryEvent.remaining_quantity !== request.order.quantity) {
-      fail("unfilled Limit entry must preserve an active full-quantity Order and zero-execution accounting")
+      fail("unfilled pending entry must preserve an active full-quantity Order and zero-execution accounting")
     }
     return
   }
@@ -1841,7 +1893,7 @@ export function assertReplayResultPendingOrderBindings(
         || lastEntryEvent.fill_quantity !== 0 || lastEntryEvent.remaining_quantity !== request.order.quantity
         || lastEntryEvent.reason !== intent.reason_code
         || canonicalHash(lastEntryEvent.event_key) !== canonicalHash(cancelKey)) {
-      fail("unfilled GTC Limit contract cancel must bind one post-range Cancel EventKey and zero-execution accounting")
+      fail("unfilled GTC pending-entry contract cancel must bind one post-range Cancel EventKey and zero-execution accounting")
     }
     return
   }
@@ -1851,9 +1903,9 @@ export function assertReplayResultPendingOrderBindings(
       || canonicalHash(fill.event_key) === canonicalHash(terminal.outcome.decisive_event_key)
       || compareReplayEventKeys(fill.event_key, terminal.outcome.decisive_event_key) <= 0
       || fill.quantity !== terminal.outcome.fill_quantity
-      || (expectedSide === "buy" && fill.price > entry.limit_price)
-      || (expectedSide === "sell" && fill.price < entry.limit_price)) {
-    fail("pending-order terminal resolution does not bind a limit-respecting entry Fill")
+      || (entry.order_type === "limit" && expectedSide === "buy" && fill.price > entry.limit_price)
+      || (entry.order_type === "limit" && expectedSide === "sell" && fill.price < entry.limit_price)) {
+    fail("pending-order terminal resolution does not bind its entry Fill")
   }
 }
 
@@ -1932,6 +1984,32 @@ export function assertReplayExecutionRequest(value: ReplayExecutionRequest): voi
     )) {
       fail("executable Limit entry supports only its initial decision and optional entry cancel")
     }
+  } else if (entryExecution.order_type === "stop_market") {
+    if (canonicalJson(Object.keys(entryExecution).sort()) !== canonicalJson([
+      "full_fill_capacity", "liquidity_capacity_attestation_hash", "liquidity_model", "order_type", "time_in_force", "trigger_price", "trigger_source",
+    ])) fail("executable Stop-market entry carries unsupported fields")
+    requirePositive(entryExecution.trigger_price, "order.entry_execution.trigger_price")
+    requirePositive(entryExecution.full_fill_capacity, "order.entry_execution.full_fill_capacity")
+    requireHash(entryExecution.liquidity_capacity_attestation_hash, "order.entry_execution.liquidity_capacity_attestation_hash")
+    if (entryExecution.time_in_force !== "gtc"
+        || entryExecution.trigger_source !== "last_trade_ohlcv"
+        || entryExecution.liquidity_model !== "ohlcv-cross-through-full-fill-bounded-v1") {
+      fail("unsupported executable Stop-market entry policy")
+    }
+    if (value.order.quantity > entryExecution.full_fill_capacity) {
+      fail("Stop-market entry quantity exceeds frozen full-fill capacity")
+    }
+    if (value.order.side === "long"
+      ? value.order.stop_price >= entryExecution.trigger_price || entryExecution.trigger_price >= value.order.target_price
+      : value.order.target_price >= entryExecution.trigger_price || entryExecution.trigger_price >= value.order.stop_price) {
+      fail("Stop-market entry trigger must remain strictly inside its protective stop/target bounds")
+    }
+    if (value.decision_schedule.entries.some(
+      (entry) => entry.expected_effect !== "authorized_initial_order"
+        && entry.expected_effect !== "authorized_entry_cancel",
+    )) {
+      fail("executable Stop-market entry supports only its initial decision and optional entry cancel")
+    }
   } else if (entryExecution.order_type !== "market") {
     fail("unsupported entry execution order type")
   } else if (canonicalJson(Object.keys(entryExecution).sort()) !== canonicalJson(["order_type"])) {
@@ -1942,10 +2020,11 @@ export function assertReplayExecutionRequest(value: ReplayExecutionRequest): voi
       fail("order.entry_cancel_intent must be an object")
     }
     assertReplayEntryCancelIntent(entryCancelIntent)
-    if (entryExecution.order_type !== "limit" || entryExecution.time_in_force !== "gtc"
+    if (entryExecution.order_type === "market" || entryExecution.time_in_force !== "gtc"
+        || entryCancelIntent.target_order_type !== entryExecution.order_type
         || entryCancelIntent.requested_at !== value.order.signal_time
         || Date.parse(entryCancelIntent.effective_at) <= Date.parse(value.order.earliest_executable_time)) {
-      fail("entry cancel intent requires one GTC Limit and a later closed-bar effective boundary")
+      fail("entry cancel intent requires one matching GTC pending entry and a later closed-bar effective boundary")
     }
   }
   requireNonNegative(value.cost_policy.fee_bps, "cost_policy.fee_bps")
@@ -2123,7 +2202,7 @@ export function assertReplayDecisionSchedule(
           || canonicalHash(entryCancel) !== canonicalHash(intent)
           || entry.decision_time !== intent.effective_at
           || entry.authorized_order_hash !== canonicalHash(intent)) {
-        fail("authorized entry cancel must match the frozen GTC Limit cancel intent")
+        fail("authorized entry cancel must match the frozen GTC pending-entry cancel intent")
       }
       assertReplayEntryCancelIntent(entryCancel)
       authorizedEntryCancelCount += 1
@@ -2649,12 +2728,12 @@ export function assertReplayLiquidityCapacityBinding(
   const execution = request.order.entry_execution
   if (execution.order_type === "market") return
   const attestation = manifest.liquidity_capacity_attestation
-  if (!attestation) fail("executable Limit entry requires a liquidity capacity attestation")
+  if (!attestation) fail("executable pending entry requires a liquidity capacity attestation")
   assertReplayLiquidityCapacityAttestation(attestation)
   if (attestation.symbol !== request.symbol
       || attestation.attestation_hash !== execution.liquidity_capacity_attestation_hash
       || attestation.full_fill_capacity !== execution.full_fill_capacity) {
-    fail("Limit entry does not match its liquidity capacity attestation")
+    fail("pending entry does not match its liquidity capacity attestation")
   }
   if (Date.parse(attestation.available_at) > Date.parse(request.order.signal_time)) {
     fail("liquidity capacity attestation was not available at signal time")
@@ -3701,7 +3780,7 @@ export function replayExecutionSpecHash(request: ReplayExecutionRequest): string
 }
 
 export function replayEntryCancelIntentHash(
-  value: Omit<ReplayEntryCancelIntent, "intent_hash">,
+  value: Omit<ReplayLimitEntryCancelIntent, "intent_hash"> | Omit<ReplayStopEntryCancelIntent, "intent_hash">,
 ): string {
   return canonicalHash(value)
 }
@@ -3710,29 +3789,38 @@ export function createReplayEntryCancelIntent(input: {
   intent_id: string
   requested_at: string
   effective_at: string
+  target_order_type?: "limit" | "stop_market"
 }): ReplayEntryCancelIntent {
-  const body = {
-    schema_version: REPLAY_ENTRY_CANCEL_INTENT_SCHEMA_VERSION,
+  const targetOrderType = input.target_order_type ?? "limit"
+  const common = {
     intent_id: input.intent_id,
     authority: "experiment_contract" as const,
     target_order_role: "entry" as const,
-    target_order_type: "limit" as const,
     target_time_in_force: "gtc" as const,
     requested_at: input.requested_at,
     effective_at: input.effective_at,
     effective_boundary: "after_bar_range" as const,
     reason_code: "experiment_contract_cancel" as const,
   }
-  const value = { ...body, intent_hash: replayEntryCancelIntentHash(body) }
+  const body: Omit<ReplayLimitEntryCancelIntent, "intent_hash"> | Omit<ReplayStopEntryCancelIntent, "intent_hash"> = targetOrderType === "limit"
+    ? { schema_version: REPLAY_ENTRY_CANCEL_INTENT_SCHEMA_VERSION, ...common, target_order_type: "limit" }
+    : { schema_version: REPLAY_STOP_ENTRY_CANCEL_INTENT_SCHEMA_VERSION, ...common, target_order_type: "stop_market" }
+  const value: ReplayEntryCancelIntent = targetOrderType === "limit"
+    ? { ...body as Omit<ReplayLimitEntryCancelIntent, "intent_hash">, intent_hash: replayEntryCancelIntentHash(body) }
+    : { ...body as Omit<ReplayStopEntryCancelIntent, "intent_hash">, intent_hash: replayEntryCancelIntentHash(body) }
   assertReplayEntryCancelIntent(value)
   return value
 }
 
 export function assertReplayEntryCancelIntent(value: ReplayEntryCancelIntent): void {
-  if (value.schema_version !== REPLAY_ENTRY_CANCEL_INTENT_SCHEMA_VERSION
+  const validVersionAndTarget = value.schema_version === REPLAY_ENTRY_CANCEL_INTENT_SCHEMA_VERSION
+    ? value.target_order_type === "limit"
+    : value.schema_version === REPLAY_STOP_ENTRY_CANCEL_INTENT_SCHEMA_VERSION
+      ? value.target_order_type === "stop_market"
+      : false
+  if (!validVersionAndTarget
       || value.authority !== "experiment_contract"
       || value.target_order_role !== "entry"
-      || value.target_order_type !== "limit"
       || value.target_time_in_force !== "gtc"
       || value.effective_boundary !== "after_bar_range"
       || value.reason_code !== "experiment_contract_cancel") {
@@ -3850,6 +3938,50 @@ export function assertReplayPendingOrderResolution(value: ReplayPendingOrderReso
   requireHash(value.resolution_hash, "pending_order.resolution_hash")
   const { resolution_hash: _resolutionHash, ...body } = value
   if (replayPendingOrderResolutionHash(body) !== value.resolution_hash) fail("pending order resolution hash mismatch")
+}
+
+export function createReplayStopEntrySameBarPathAmbiguity(
+  body: Omit<ReplayStopEntrySameBarPathAmbiguity, "schema_version" | "policy" | "evidence_hash">,
+): ReplayStopEntrySameBarPathAmbiguity {
+  const evidenceBody = {
+    schema_version: REPLAY_STOP_ENTRY_SAME_BAR_PATH_AMBIGUITY_SCHEMA_VERSION,
+    ...structuredClone(body),
+    policy: "fail_without_result_when_post_trigger_path_is_unprovable" as const,
+  }
+  const evidence = { ...evidenceBody, evidence_hash: canonicalHash(evidenceBody) }
+  assertReplayStopEntrySameBarPathAmbiguity(evidence)
+  return evidence
+}
+
+export function assertReplayStopEntrySameBarPathAmbiguity(
+  value: ReplayStopEntrySameBarPathAmbiguity,
+): void {
+  if (value.schema_version !== REPLAY_STOP_ENTRY_SAME_BAR_PATH_AMBIGUITY_SCHEMA_VERSION
+      || value.policy !== "fail_without_result_when_post_trigger_path_is_unprovable") {
+    fail("unsupported Stop-market entry same-bar path ambiguity evidence")
+  }
+  requireText(value.run_id, "stop_entry_path_ambiguity.run_id")
+  assertReplayEventKey(value.source_event_key)
+  assertReplayMarketBars([value.bar])
+  requirePositive(value.entry_trigger_price, "stop_entry_path_ambiguity.entry_trigger_price")
+  requirePositive(value.protective_stop_price, "stop_entry_path_ambiguity.protective_stop_price")
+  requirePositive(value.target_price, "stop_entry_path_ambiguity.target_price")
+  if (value.source_event_key.event_time !== value.bar.close_time || value.source_event_key.boundary_phase !== 20) {
+    fail("Stop-market entry same-bar path ambiguity must bind the bar-range SourceEvent")
+  }
+  const expectedStopTouched = value.position_side === "long"
+    ? value.bar.low <= value.protective_stop_price
+    : value.bar.high >= value.protective_stop_price
+  const expectedTargetTouched = value.position_side === "long"
+    ? value.bar.high >= value.target_price
+    : value.bar.low <= value.target_price
+  if ((!value.stop_touched && !value.target_touched)
+      || value.stop_touched !== expectedStopTouched || value.target_touched !== expectedTargetTouched) {
+    fail("Stop-market entry same-bar path ambiguity touch evidence is inconsistent")
+  }
+  const { evidence_hash: _evidenceHash, ...body } = value
+  requireHash(value.evidence_hash, "stop_entry_path_ambiguity.evidence_hash")
+  if (canonicalHash(body) !== value.evidence_hash) fail("Stop-market entry same-bar path ambiguity hash mismatch")
 }
 
 function assertReplayPendingOrderOutcomeSemantics(value: ReplayPendingOrderResolution): void {

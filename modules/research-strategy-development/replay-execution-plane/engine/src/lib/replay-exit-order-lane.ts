@@ -123,27 +123,28 @@ export function completeReplayExitOrderLane(input: {
     return execution("flat", targetOrder.order_id, transition.executed_quantity, transition.signed_position_after, transition.event.event_key)
   }
 
+  const endOfDataSubphase = immediateAfterActivation ? 4 : 0
   stopOrder = input.capture(cancelReplayOrder(
     stopOrder,
-    input.next_stamp(exit.timestamp, 90, exit.sourceSequence, 0),
+    input.next_stamp(exit.timestamp, 90, exit.sourceSequence, endOfDataSubphase),
     input.signed_position,
     "end-of-data",
   )).order
   targetOrder = input.capture(cancelReplayOrder(
     targetOrder,
-    input.next_stamp(exit.timestamp, 90, exit.sourceSequence, 1),
+    input.next_stamp(exit.timestamp, 90, exit.sourceSequence, endOfDataSubphase + 1),
     input.signed_position,
     "end-of-data",
   )).order
   if (input.strategy_exit_order) input.capture(cancelReplayOrder(
     input.strategy_exit_order,
-    input.next_stamp(exit.timestamp, 90, exit.sourceSequence, 2),
+    input.next_stamp(exit.timestamp, 90, exit.sourceSequence, endOfDataSubphase + 2),
     input.signed_position,
     "end-of-data",
   ))
   if (input.partial_reduce_order?.status === "submitted") input.capture(cancelReplayOrder(
     input.partial_reduce_order,
-    input.next_stamp(exit.timestamp, 90, exit.sourceSequence, 3),
+    input.next_stamp(exit.timestamp, 90, exit.sourceSequence, endOfDataSubphase + 3),
     input.signed_position,
     "end-of-data",
   ))

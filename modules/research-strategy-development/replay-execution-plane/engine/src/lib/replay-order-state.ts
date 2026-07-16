@@ -215,8 +215,8 @@ function validateRoleContract(submission: ReplayOrderSubmission): void {
   if (!["market", "limit", "stop_market", "take_profit_market"].includes(submission.order_type)) throw new Error("unsupported order_type")
   if (submission.side !== "buy" && submission.side !== "sell") throw new Error("unsupported order side")
   if (submission.order_role === "entry") {
-    if ((submission.order_type !== "market" && submission.order_type !== "limit") || submission.reduce_only) {
-      throw new Error("entry must be a non-reduce-only market or limit order")
+    if ((submission.order_type !== "market" && submission.order_type !== "limit" && submission.order_type !== "stop_market") || submission.reduce_only) {
+      throw new Error("entry must be a non-reduce-only market, limit, or stop-market order")
     }
   } else if (!submission.reduce_only) {
     throw new Error("exit orders must be reduce-only")

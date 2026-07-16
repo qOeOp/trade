@@ -122,7 +122,7 @@ test("provider rejects uncovered windows and evidence capability drift", () => {
 })
 
 test("provider evidence is admitted by the authoritative Replay request and Dataset Manifest contracts", () => {
-  const fixturePath = resolve(import.meta.dir, "../../../../research-strategy-development/replay-execution-plane/tests/src/fixtures/certified-single-position-v23.json")
+  const fixturePath = resolve(import.meta.dir, "../../../../research-strategy-development/replay-execution-plane/tests/src/fixtures/certified-single-position-v24.json")
   const fixture = JSON.parse(readFileSync(fixturePath, "utf8")) as {
     request: ReplayExecutionRequest
     dataset_manifest: ReplayDatasetManifest

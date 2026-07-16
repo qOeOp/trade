@@ -44,12 +44,14 @@ import {
   type ReplayMarginSnapshot,
   type ReplayPendingOrderResolution,
   type ReplayResult,
+  type ReplayStopEntrySameBarPathAmbiguity,
   type ReplaySupplementalFact,
 } from "../../../contracts/src/lib/replay-contracts"
 import {
   ReplayEntryCancelBoundaryError,
   ReplayExecutionInterruptedError,
   ReplayPendingOrderAmbiguityError,
+  ReplayStopEntrySameBarPathAmbiguityError,
   assertReplayEngineCheckpoint,
   executeReplayKernel,
   prepareReplayDecisionEvidenceInputs,
@@ -119,7 +121,7 @@ export interface ReplayTrialRunOutcome {
   diagnostic_checkpoint_commit?: ReplayDiagnosticCheckpointCommitRef
   cancellation_observation?: ReplayAttemptCancellationObservationSnapshot
   failure?: {
-    code: "trial-reservation-rejected" | "trial-reservation-expired" | "attempt-lease-rejected" | "resume-authorization-rejected" | "artifact-store-rejected" | "decision-harness-rejected" | "cancelled-before-start" | "execution-cancelled-at-checkpoint" | "instrument-delisted-with-open-position" | "instrument-delisted-with-pending-entry" | "initial-margin-deficit-without-resize" | "maintenance-margin-breach-without-liquidation" | "maintenance-margin-breach-while-halted" | "liquidation-deficit-unsupported" | "dataset-grid-gap-in-execution-window" | "missing-entry-cancel-boundary" | "pending-order-resolution-ambiguous" | "replay-execution-failed"
+    code: "trial-reservation-rejected" | "trial-reservation-expired" | "attempt-lease-rejected" | "resume-authorization-rejected" | "artifact-store-rejected" | "decision-harness-rejected" | "cancelled-before-start" | "execution-cancelled-at-checkpoint" | "instrument-delisted-with-open-position" | "instrument-delisted-with-pending-entry" | "initial-margin-deficit-without-resize" | "maintenance-margin-breach-without-liquidation" | "maintenance-margin-breach-while-halted" | "liquidation-deficit-unsupported" | "dataset-grid-gap-in-execution-window" | "missing-entry-cancel-boundary" | "pending-order-resolution-ambiguous" | "stop-entry-same-bar-path-ambiguous" | "replay-execution-failed"
     failure_class: "input_invalid" | "unsupported_contract" | "data_integrity" | "deterministic_engine" | "resource" | "external_io"
     message: string
     retryable: boolean
@@ -130,6 +132,7 @@ export interface ReplayTrialRunOutcome {
     remaining_collateral?: number
     data_gap?: ReplayDataGapFailureEvidence
     pending_order_resolution?: ReplayPendingOrderResolution
+    stop_entry_path_ambiguity?: ReplayStopEntrySameBarPathAmbiguity
   }
 }
 
@@ -405,6 +408,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     const marginTerminal = error instanceof ReplayMarginTerminalError
     const liquidationDeficit = error instanceof ReplayLiquidationDeficitError
     const pendingOrderAmbiguity = error instanceof ReplayPendingOrderAmbiguityError
+    const stopEntryPathAmbiguity = error instanceof ReplayStopEntrySameBarPathAmbiguityError
     const entryCancelBoundary = error instanceof ReplayEntryCancelBoundaryError
     const dataContinuity = isReplayDataContinuityFailure(error)
     const authorityCancelled = interrupted && cancellationObservation !== undefined
@@ -429,8 +433,8 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
         ? { cancellation_observation: cancellationObservation }
         : {}),
       failure: {
-        code: interrupted ? error.code : leaseRejected ? "attempt-lease-rejected" : resumeRejected ? "resume-authorization-rejected" : artifactStoreRejected ? "artifact-store-rejected" : decisionHarnessRejected ? error.code : instrumentTerminal || pendingEntryDelisted || marginTerminal || liquidationDeficit || dataContinuity || pendingOrderAmbiguity || entryCancelBoundary ? error.code : "replay-execution-failed",
-        failure_class: interrupted || leaseRejected ? "resource" : resumeRejected || artifactStoreRejected || decisionHarnessRejected ? "unsupported_contract" : instrumentTerminal || pendingEntryDelisted || marginTerminal || liquidationDeficit || pendingOrderAmbiguity ? "deterministic_engine" : "data_integrity",
+        code: interrupted ? error.code : leaseRejected ? "attempt-lease-rejected" : resumeRejected ? "resume-authorization-rejected" : artifactStoreRejected ? "artifact-store-rejected" : decisionHarnessRejected ? error.code : instrumentTerminal || pendingEntryDelisted || marginTerminal || liquidationDeficit || dataContinuity || pendingOrderAmbiguity || stopEntryPathAmbiguity || entryCancelBoundary ? error.code : "replay-execution-failed",
+        failure_class: interrupted || leaseRejected ? "resource" : resumeRejected || artifactStoreRejected || decisionHarnessRejected ? "unsupported_contract" : instrumentTerminal || pendingEntryDelisted || marginTerminal || liquidationDeficit || pendingOrderAmbiguity || stopEntryPathAmbiguity ? "deterministic_engine" : "data_integrity",
         message: error instanceof Error ? error.message : String(error),
         retryable: false,
         partial_result_published: false,
@@ -450,6 +454,11 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
         ...(pendingOrderAmbiguity ? {
           event_key: structuredClone(error.pending_order_resolution.observation.source_event_key),
           pending_order_resolution: structuredClone(error.pending_order_resolution),
+        } : {}),
+        ...(stopEntryPathAmbiguity ? {
+          event_key: structuredClone(error.stop_entry_path_ambiguity.source_event_key),
+          pending_order_resolution: structuredClone(error.pending_order_resolution),
+          stop_entry_path_ambiguity: structuredClone(error.stop_entry_path_ambiguity),
         } : {}),
       },
     }
@@ -687,9 +696,9 @@ function validateTrialReservation(
       || bindings.execution_spec_hash !== replayExecutionSpecHash(request)
       || bindings.dataset_manifest_ref !== request.dataset_manifest_ref
       || bindings.dataset_hash !== request.dataset_hash
-      || bindings.liquidity_capacity_attestation_hash !== (request.order.entry_execution.order_type === "limit"
-        ? request.order.entry_execution.liquidity_capacity_attestation_hash
-        : null)
+      || bindings.liquidity_capacity_attestation_hash !== (request.order.entry_execution.order_type === "market"
+        ? null
+        : request.order.entry_execution.liquidity_capacity_attestation_hash)
       || bindings.supplemental_facts_hash !== request.supplemental_facts_hash
       || bindings.supplemental_requirement_set_hash !== request.supplemental_requirement_set_hash
       || bindings.venue_risk_policy_schedule_hash !== request.venue_risk_policy_schedule_hash

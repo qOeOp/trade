@@ -27,6 +27,7 @@ import {
   REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
   assertReplayResultOhlcvResolutionBindings,
   assertReplayResultPendingOrderBindings,
+  assertReplayStopEntrySameBarPathAmbiguity,
   canonicalHash,
   createReplayDecisionHarnessContext,
   createReplayDecisionHarnessBuildAttestation,
@@ -51,6 +52,7 @@ import { ReplayDataContinuityError, prepareReplayInputData } from "../../../data
 import {
   ReplayExecutionInterruptedError,
   ReplayPendingOrderAmbiguityError,
+  ReplayStopEntrySameBarPathAmbiguityError,
   executeReplayKernel,
   type ReplayEngineCheckpoint,
 } from "./replay-reference-engine"
@@ -642,6 +644,157 @@ test("strict-cross fill precedes same-close contract cancel while exact touch fa
       resolution_status: "resolution_limited",
     })
   }
+})
+
+test("pre-entry GTC Stop-market resolves gap and range triggers and resumes identically", () => {
+  const requestValue = request()
+  requestValue.order = {
+    ...requestValue.order,
+    entry_execution: {
+      order_type: "stop_market", trigger_price: 102, trigger_source: "last_trade_ohlcv", time_in_force: "gtc",
+      liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1", full_fill_capacity: 1,
+      liquidity_capacity_attestation_hash: CAPACITY_ATTESTATION.attestation_hash,
+    },
+  }
+  requestValue.decision_schedule = createReplaySingleDecisionSchedule(requestValue.order)
+  requestValue.decision_schedule_hash = canonicalHash(requestValue.decision_schedule)
+  const gapInput = inputFor(requestValue, [
+    bar("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", 100, 101, 98, 100),
+    bar("2026-07-14T08:00:00Z", "2026-07-14T12:00:00Z", 104, 108, 103, 106),
+  ])
+  const gap = executeReplayKernel(gapInput)
+  expect(gap.entry_outcome).toBe("filled")
+  expect(gap.pending_order_resolutions.map((resolution) => resolution.outcome.reason)).toEqual([
+    "stop_not_triggered", "stop_not_triggered", "stop_open_gap",
+  ])
+  expect(gap.pending_order_resolutions.at(-1)).toMatchObject({
+    outcome: { status: "triggered_and_filled", fill_reference_price: 104 },
+    resolution_status: "exact_under_ohlc",
+  })
+  expect(gap.fills[0]).toMatchObject({ order_role: "entry", timestamp: "2026-07-14T08:00:00Z" })
+  expect(gap.fills[0]!.price).toBeGreaterThan(104)
+  expect(gap.order_events.filter((event) => event.order_id.endsWith(":order:entry")).map((event) => event.kind))
+    .toEqual(["submitted", "activated", "triggered", "filled"])
+  expect(() => assertReplayResultPendingOrderBindings(gap, gapInput.request, gapInput.dataset_manifest)).not.toThrow()
+
+  const rangeInput = inputFor(requestValue, [
+    bar("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", 100, 103, 99, 101),
+    bar("2026-07-14T08:00:00Z", "2026-07-14T12:00:00Z", 101, 108, 100, 106),
+  ])
+  const range = executeReplayKernel(rangeInput)
+  expect(range.pending_order_resolutions.at(-1)).toMatchObject({
+    observation: { observation_kind: "bar_range" },
+    outcome: { status: "triggered_and_filled", reason: "stop_range_trigger", fill_reference_price: 102 },
+  })
+  expect(range.fills[0]!.price).toBeGreaterThan(102)
+  let checkpoint: ReplayEngineCheckpoint | undefined
+  expect(() => executeReplayKernel({
+    ...rangeInput,
+    execution_control: { on_checkpoint: (candidate) => { checkpoint = candidate; return "cancel" } },
+  })).toThrow(ReplayExecutionInterruptedError)
+  expect(checkpoint).toMatchObject({
+    entry_transition: null, entry_order: { order_type: "stop_market", status: "active" },
+    pending_order_resolutions: [{ outcome: { status: "resting" } }],
+  })
+  const resumed = executeReplayKernel({ ...rangeInput, execution_control: { resume_checkpoint: checkpoint } })
+  expect(canonicalHash(resumed)).toBe(canonicalHash(range))
+
+  const shortRequest = request("short")
+  shortRequest.order = {
+    ...shortRequest.order,
+    entry_execution: {
+      order_type: "stop_market", trigger_price: 98, trigger_source: "last_trade_ohlcv", time_in_force: "gtc",
+      liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1", full_fill_capacity: 1,
+      liquidity_capacity_attestation_hash: CAPACITY_ATTESTATION.attestation_hash,
+    },
+  }
+  shortRequest.decision_schedule = createReplaySingleDecisionSchedule(shortRequest.order)
+  shortRequest.decision_schedule_hash = canonicalHash(shortRequest.decision_schedule)
+  const shortInput = inputFor(shortRequest, [
+    bar("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", 100, 101, 97, 99),
+    bar("2026-07-14T08:00:00Z", "2026-07-14T12:00:00Z", 99, 100, 94, 96),
+  ])
+  const short = executeReplayKernel(shortInput)
+  expect(short.pending_order_resolutions.at(-1)).toMatchObject({
+    outcome: { status: "triggered_and_filled", reason: "stop_range_trigger", fill_reference_price: 98 },
+  })
+  expect(short.fills[0]!.price).toBeLessThan(98)
+  expect(() => assertReplayResultPendingOrderBindings(short, shortInput.request, shortInput.dataset_manifest)).not.toThrow()
+})
+
+test("Stop-market range entry fails closed when its post-trigger protection path is unknowable", () => {
+  const requestValue = request()
+  requestValue.order = {
+    ...requestValue.order,
+    entry_execution: {
+      order_type: "stop_market", trigger_price: 102, trigger_source: "last_trade_ohlcv", time_in_force: "gtc",
+      liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1", full_fill_capacity: 1,
+      liquidity_capacity_attestation_hash: CAPACITY_ATTESTATION.attestation_hash,
+    },
+  }
+  requestValue.decision_schedule = createReplaySingleDecisionSchedule(requestValue.order)
+  requestValue.decision_schedule_hash = canonicalHash(requestValue.decision_schedule)
+  try {
+    executeReplayKernel(inputFor(requestValue, [
+      bar("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", 100, 111, 94, 103),
+    ]))
+    throw new Error("expected Stop-market same-bar path ambiguity")
+  } catch (error) {
+    expect(error).toBeInstanceOf(ReplayStopEntrySameBarPathAmbiguityError)
+    const evidence = (error as ReplayStopEntrySameBarPathAmbiguityError).stop_entry_path_ambiguity
+    expect(evidence).toMatchObject({
+      position_side: "long", stop_touched: true, target_touched: true,
+      policy: "fail_without_result_when_post_trigger_path_is_unprovable",
+    })
+    expect((error as ReplayStopEntrySameBarPathAmbiguityError).pending_order_resolution).toMatchObject({
+      outcome: { status: "triggered_and_filled", reason: "stop_range_trigger" },
+    })
+    const tampered = structuredClone(evidence)
+    tampered.stop_touched = false
+    const { evidence_hash: _evidenceHash, ...body } = tampered
+    tampered.evidence_hash = canonicalHash(body)
+    expect(() => assertReplayStopEntrySameBarPathAmbiguity(tampered)).toThrow("touch evidence")
+  }
+})
+
+test("Stop-market trigger precedes same-close contract Cancel and proven non-trigger lets Cancel win", () => {
+  const requestValue = request()
+  requestValue.order = {
+    ...requestValue.order,
+    entry_cancel_intent: createReplayEntryCancelIntent({
+      intent_id: "cancel-stop-entry-race", requested_at: requestValue.order.signal_time,
+      effective_at: "2026-07-14T08:00:00Z", target_order_type: "stop_market",
+    }),
+    entry_execution: {
+      order_type: "stop_market", trigger_price: 102, trigger_source: "last_trade_ohlcv", time_in_force: "gtc",
+      liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1", full_fill_capacity: 1,
+      liquidity_capacity_attestation_hash: CAPACITY_ATTESTATION.attestation_hash,
+    },
+  }
+  requestValue.decision_schedule = createReplaySingleDecisionSchedule(requestValue.order)
+  requestValue.decision_schedule_hash = canonicalHash(requestValue.decision_schedule)
+  const filledInput = inputFor(requestValue, [
+    bar("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", 100, 103, 99, 101),
+    bar("2026-07-14T08:00:00Z", "2026-07-14T12:00:00Z", 101, 108, 100, 106),
+  ])
+  const filled = executeReplayKernel(filledInput)
+  expect(filled.pending_order_resolutions.at(-1)).toMatchObject({
+    outcome: { status: "triggered_and_filled", reason: "stop_range_trigger" },
+    cancel_effective_key: { event_time: "2026-07-14T08:00:00Z", boundary_phase: 90 },
+  })
+  expect(filled.order_events.some((event) => event.order_id.endsWith(":order:entry") && event.kind === "cancelled"))
+    .toBe(false)
+
+  const cancelledInput = inputFor(requestValue, [
+    bar("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", 100, 101, 99, 100),
+  ])
+  const cancelled = executeReplayKernel(cancelledInput)
+  expect(cancelled).toMatchObject({ entry_outcome: "cancelled_unfilled", fills: [] })
+  expect(cancelled.pending_order_resolutions.at(-1)).toMatchObject({
+    outcome: { status: "cancelled", reason: "cancel_after_non_fill" },
+  })
+  expect(() => assertReplayResultPendingOrderBindings(cancelled, cancelledInput.request, cancelledInput.dataset_manifest))
+    .not.toThrow()
 })
 
 test("stop gap fills at the worse open and ledger conserves equity", () => {
