@@ -32,6 +32,7 @@ import {
   createReplayDecisionHarnessBuildAttestation,
   createReplayDecisionHarnessReceipt,
   createReplayDecisionHarnessSourceBundle,
+  createReplayEntryCancelIntent,
   createReplayDecisionEvidenceTimeline,
   createReplayInstrumentStatusProvenance,
   createReplayLiquidityCapacityAttestation,
@@ -49,6 +50,7 @@ import {
 import { ReplayDataContinuityError, prepareReplayInputData } from "../../../data-adapter/src/lib/replay-data-adapter"
 import {
   ReplayExecutionInterruptedError,
+  ReplayPendingOrderAmbiguityError,
   executeReplayKernel,
   type ReplayEngineCheckpoint,
 } from "./replay-reference-engine"
@@ -538,6 +540,108 @@ test("pre-entry IOC Limit expires unfilled at first open and never consumes late
     execution_control: { resume_checkpoint: checkpoint },
   })
   expect(canonicalHash(resumed)).toBe(canonicalHash(clean))
+})
+
+test("frozen GTC entry cancel wins only after a proven non-fill range and resumes identically", () => {
+  const requestValue = request()
+  requestValue.order = {
+    ...requestValue.order,
+    entry_cancel_intent: createReplayEntryCancelIntent({
+      intent_id: "cancel-entry-1",
+      requested_at: requestValue.order.signal_time,
+      effective_at: "2026-07-14T08:00:00Z",
+    }),
+    entry_execution: {
+      order_type: "limit", limit_price: 99.5, time_in_force: "gtc",
+      liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1", full_fill_capacity: 1,
+      liquidity_capacity_attestation_hash: CAPACITY_ATTESTATION.attestation_hash,
+    },
+  }
+  requestValue.decision_schedule = createReplaySingleDecisionSchedule(requestValue.order)
+  requestValue.decision_schedule_hash = canonicalHash(requestValue.decision_schedule)
+  const replayInput = inputFor(requestValue, [
+    bar("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", 101, 103, 100, 102),
+    bar("2026-07-14T08:00:00Z", "2026-07-14T12:00:00Z", 98, 111, 94, 105),
+  ])
+  const clean = executeReplayKernel(replayInput)
+  expect(clean).toMatchObject({
+    status: "completed", entry_outcome: "cancelled_unfilled", completed_at: "2026-07-14T08:00:00Z",
+    fills: [], positions: [], margin_snapshots: [],
+    valuation_snapshot: { mark_source: "bar_close", mark_price: 102, position_event_id: null },
+    equity_bridge: { terminal_position_state: "never_opened", ending_equity: 10_000 },
+    metrics: { trade_count: 0, net_pnl: 0 },
+  })
+  expect(clean.source_events.map((event) => event.kind)).toEqual(["bar_open", "bar_range"])
+  expect(clean.pending_order_resolutions.map((resolution) => resolution.outcome.status))
+    .toEqual(["resting", "cancelled"])
+  expect(clean.pending_order_resolutions.at(-1)).toMatchObject({
+    outcome: { reason: "cancel_after_non_fill" },
+    cancel_effective_key: { boundary_phase: 90, event_time: "2026-07-14T08:00:00Z" },
+  })
+  expect(clean.order_events.filter((event) => event.order_id.endsWith(":order:entry")).map((event) => event.kind))
+    .toEqual(["submitted", "activated", "cancelled"])
+  expect(clean.order_events.at(-1)).toMatchObject({ reason: "experiment_contract_cancel", remaining_quantity: 1 })
+  expect(() => assertReplayResultPendingOrderBindings(clean, replayInput.request, replayInput.dataset_manifest))
+    .not.toThrow()
+
+  let checkpoint: ReplayEngineCheckpoint | undefined
+  expect(() => executeReplayKernel({
+    ...replayInput,
+    execution_control: { on_checkpoint: (candidate) => { checkpoint = candidate; return "cancel" } },
+  })).toThrow(ReplayExecutionInterruptedError)
+  expect(checkpoint).toMatchObject({
+    entry_transition: null, entry_order: { status: "active" }, pending_order_resolutions: [{ outcome: { status: "resting" } }],
+  })
+  const resumed = executeReplayKernel({ ...replayInput, execution_control: { resume_checkpoint: checkpoint } })
+  expect(canonicalHash(resumed)).toBe(canonicalHash(clean))
+})
+
+test("strict-cross fill precedes same-close contract cancel while exact touch fails ambiguous", () => {
+  const requestValue = request()
+  requestValue.order = {
+    ...requestValue.order,
+    entry_cancel_intent: createReplayEntryCancelIntent({
+      intent_id: "cancel-entry-race",
+      requested_at: requestValue.order.signal_time,
+      effective_at: "2026-07-14T08:00:00Z",
+    }),
+    entry_execution: {
+      order_type: "limit", limit_price: 99.5, time_in_force: "gtc",
+      liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1", full_fill_capacity: 1,
+      liquidity_capacity_attestation_hash: CAPACITY_ATTESTATION.attestation_hash,
+    },
+  }
+  requestValue.decision_schedule = createReplaySingleDecisionSchedule(requestValue.order)
+  requestValue.decision_schedule_hash = canonicalHash(requestValue.decision_schedule)
+  const filledInput = inputFor(requestValue, [
+    bar("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", 101, 103, 99, 102),
+    bar("2026-07-14T08:00:00Z", "2026-07-14T12:00:00Z", 102, 105, 100, 103),
+  ])
+  const filled = executeReplayKernel(filledInput)
+  expect(filled.entry_outcome).toBe("filled")
+  expect(filled.pending_order_resolutions.at(-1)).toMatchObject({
+    outcome: { status: "filled", reason: "limit_strict_cross" },
+    cancel_effective_key: { boundary_phase: 90, event_time: "2026-07-14T08:00:00Z" },
+  })
+  expect(filled.order_events
+    .filter((event) => event.order_id.endsWith(":order:entry"))
+    .some((event) => event.kind === "cancelled")).toBe(false)
+  expect(() => assertReplayResultPendingOrderBindings(filled, filledInput.request, filledInput.dataset_manifest))
+    .not.toThrow()
+
+  const touchInput = inputFor(requestValue, [
+    bar("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", 101, 103, 99.5, 102),
+  ])
+  try {
+    executeReplayKernel(touchInput)
+    throw new Error("expected pending-order ambiguity")
+  } catch (error) {
+    expect(error).toBeInstanceOf(ReplayPendingOrderAmbiguityError)
+    expect((error as ReplayPendingOrderAmbiguityError).pending_order_resolution).toMatchObject({
+      outcome: { status: "unresolved", reason: "limit_touch_before_cancel_unresolved" },
+      resolution_status: "resolution_limited",
+    })
+  }
 })
 
 test("stop gap fills at the worse open and ledger conserves equity", () => {

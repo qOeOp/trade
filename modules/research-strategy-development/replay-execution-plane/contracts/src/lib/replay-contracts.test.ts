@@ -61,6 +61,7 @@ import {
   createReplayDecisionBoundary,
   createReplayDecisionEvidenceTimeline,
   createReplayDecisionInputSnapshot,
+  createReplayEntryCancelIntent,
   createReplayDecisionMarketInputSnapshot,
   createReplayDecisionStateSnapshot,
   createReplayInstrumentStatusProvenance,
@@ -166,7 +167,7 @@ test("Replay request requires complete Trial and evidence identity", () => {
   expect(() => assertReplayExecutionRequest(unauthorizedSchedule)).toThrow("market-only closed-bar lookback")
 })
 
-test("Request v27 freezes executable pre-entry GTC and IOC Limit envelopes", () => {
+test("Request v28 freezes GTC, IOC, and one contract-owned GTC cancel boundary", () => {
   const requestValue = fixtureRequest()
   requestValue.order = {
     ...requestValue.order,
@@ -185,6 +186,25 @@ test("Request v27 freezes executable pre-entry GTC and IOC Limit envelopes", () 
   ioc.decision_schedule = createReplaySingleDecisionSchedule(ioc.order)
   ioc.decision_schedule_hash = canonicalHash(ioc.decision_schedule)
   expect(() => assertReplayExecutionRequest(ioc)).not.toThrow()
+  const cancelled = structuredClone(requestValue)
+  cancelled.order.entry_cancel_intent = createReplayEntryCancelIntent({
+    intent_id: "cancel-entry-1",
+    requested_at: cancelled.order.signal_time,
+    effective_at: "2026-07-14T08:00:00Z",
+  })
+  cancelled.decision_schedule = createReplaySingleDecisionSchedule(cancelled.order)
+  cancelled.decision_schedule_hash = canonicalHash(cancelled.decision_schedule)
+  expect(() => assertReplayExecutionRequest(cancelled)).not.toThrow()
+  const cancelHashTampered = structuredClone(cancelled)
+  cancelHashTampered.order.entry_cancel_intent!.effective_at = "2026-07-14T12:00:00Z"
+  cancelHashTampered.decision_schedule = createReplaySingleDecisionSchedule(cancelHashTampered.order)
+  cancelHashTampered.decision_schedule_hash = canonicalHash(cancelHashTampered.decision_schedule)
+  expect(() => assertReplayExecutionRequest(cancelHashTampered)).toThrow("intent hash mismatch")
+  const iocCancelled = structuredClone(ioc)
+  iocCancelled.order.entry_cancel_intent = cancelled.order.entry_cancel_intent
+  iocCancelled.decision_schedule = createReplaySingleDecisionSchedule(iocCancelled.order)
+  iocCancelled.decision_schedule_hash = canonicalHash(iocCancelled.decision_schedule)
+  expect(() => assertReplayExecutionRequest(iocCancelled)).toThrow("requires one GTC Limit")
   const overCapacity = structuredClone(requestValue)
   if (overCapacity.order.entry_execution.order_type !== "limit") throw new Error("fixture must be Limit")
   overCapacity.order.entry_execution.full_fill_capacity = 0.5

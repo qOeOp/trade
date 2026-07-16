@@ -57,6 +57,7 @@ import { prepareReplayInputData, resolveReplayInstrumentStatusAt, resolveReplayV
 import { deriveReplayMetrics } from "../../../metrics/src/lib/replay-metrics"
 import {
   activateReplayOrder,
+  cancelReplayOrder,
   expireReplayOrder,
   submitReplayOrder,
   type ReplayTransitionStamp,
@@ -72,7 +73,7 @@ import { ReplayLiquidationDeficitError, ReplayMarginTerminalError, assertReplayP
 import { reduceReplaySourceEvents } from "./replay-source-reducer"
 import { resolveReplayPendingOrder } from "./replay-pending-order-resolution"
 
-export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v19" as const
+export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v20" as const
 
 export interface ReplayEngineCheckpoint {
   schema_version: typeof REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION
@@ -120,6 +121,24 @@ export class ReplayExecutionInterruptedError extends Error {
   constructor(readonly checkpoint: ReplayEngineCheckpoint) {
     super(`Replay execution was cancelled after source offset ${checkpoint.next_source_offset}`)
     this.name = "ReplayExecutionInterruptedError"
+  }
+}
+
+export class ReplayPendingOrderAmbiguityError extends Error {
+  readonly code = "pending-order-resolution-ambiguous" as const
+
+  constructor(readonly pending_order_resolution: ReplayPendingOrderResolution) {
+    super(`Replay cannot prove whether the pending entry filled before contract cancellation at ${pending_order_resolution.observation.source_event_key.event_time}`)
+    this.name = "ReplayPendingOrderAmbiguityError"
+  }
+}
+
+export class ReplayEntryCancelBoundaryError extends Error {
+  readonly code = "missing-entry-cancel-boundary" as const
+
+  constructor(readonly effective_at: string) {
+    super(`Replay entry cancel intent has no exact closed-bar boundary at ${effective_at}`)
+    this.name = "ReplayEntryCancelBoundaryError"
   }
 }
 
@@ -237,6 +256,10 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
   const executionQuantity = quantizeReplayQuantity(request.order.quantity, accountingSpec.quantity_increment)
 
   const entryBar = bars[entryIndex]
+  const entryCancelIntent = request.order.entry_cancel_intent
+  if (entryCancelIntent && !bars.slice(entryIndex).some((bar) => bar.close_time === entryCancelIntent.effective_at)) {
+    throw new ReplayEntryCancelBoundaryError(entryCancelIntent.effective_at)
+  }
   const entrySide = request.order.side === "long" ? "buy" : "sell"
   const exitSide = request.order.side === "long" ? "sell" : "buy"
   const marketEntryPrice = applyAdverseSlippageV3(
@@ -667,6 +690,16 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       if (entryOrder.status !== "active") throw new Error("pending Limit entry Order is not active")
       const bar = bars[source.source_index]
       if (!bar) throw new Error("pending Limit entry references a missing bar")
+      const cancelEffectiveKey = entryCancelIntent && source.kind === "bar_range"
+          && source.event_key.event_time === entryCancelIntent.effective_at
+        ? createReplayEventKey({
+          event_time: entryCancelIntent.effective_at,
+          boundary_phase: 90,
+          source_sequence: source.event_key.source_sequence,
+          event_subphase: 0,
+          stable_event_id: `${request.run_id}:entry-cancel:${entryCancelIntent.intent_hash}`,
+        })
+        : null
       const resolution = resolveReplayPendingOrder({
         order: {
           order_id: entryOrder.order_id,
@@ -686,9 +719,31 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
           source_event_key: source.event_key,
           bar,
         },
-        cancel_effective_key: null,
+        cancel_effective_key: cancelEffectiveKey,
       })
       pendingOrderResolutions.push(resolution)
+      if (resolution.outcome.status === "unresolved") throw new ReplayPendingOrderAmbiguityError(resolution)
+      if (resolution.outcome.status === "cancelled") {
+        if (!entryCancelIntent || !cancelEffectiveKey) {
+          throw new Error("pending Limit cancellation lacks frozen contract authority")
+        }
+        entryOrder = capture(cancelReplayOrder(
+          entryOrder,
+          { sequence: nextSequence(), event_key: cancelEffectiveKey },
+          0,
+          entryCancelIntent.reason_code,
+        )).order
+        return {
+          entry_transition: null,
+          terminal_exit: {
+            role: "entry_cancelled",
+            timestamp: bar.close_time,
+            rawPrice: bar.close,
+            triggerSource: "bar_range",
+            sourceSequence: source.source_index + 1,
+          },
+        }
+      }
       if (resolution.outcome.status === "expired") {
         entryOrder = capture(expireReplayOrder(
           entryOrder,
@@ -1036,14 +1091,20 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
   if (entryExecution === null || exitExecution === null) {
     if (entryExecution !== null || exitExecution !== null
         || request.order.entry_execution.order_type !== "limit"
-        || (exit.role !== "end_of_data" && exit.role !== "entry_expired")) {
+        || (exit.role !== "end_of_data" && exit.role !== "entry_expired" && exit.role !== "entry_cancelled")) {
       throw new Error("Replay source reduction returned an inconsistent never-opened terminal state")
     }
-    const entryOutcome = exit.role === "entry_expired" ? "expired_unfilled" as const : "unfilled_at_data_end" as const
+    const entryOutcome = exit.role === "entry_expired"
+      ? "expired_unfilled" as const
+      : exit.role === "entry_cancelled" ? "cancelled_unfilled" as const : "unfilled_at_data_end" as const
     limitations.push(exit.role === "entry_expired" ? {
       code: "ioc-entry-expired-unfilled-at-first-open",
       severity: "info",
       detail: "The IOC Limit was not marketable at its sole next-open observation and expired with its full quantity; later bar range and later bars are outside this Order's lifetime.",
+    } : exit.role === "entry_cancelled" ? {
+      code: "gtc-entry-cancelled-by-frozen-contract",
+      severity: "info",
+      detail: "The GTC Limit was proven unfilled through the frozen closed-bar boundary, then cancelled by its immutable Experiment Contract intent; no later market observation belongs to this Order.",
     } : {
       code: "limit-entry-unfilled-through-data-end",
       severity: "info",
@@ -1069,10 +1130,13 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     })
     const markSource = exit.role === "entry_expired"
       ? "bar_open" as const
+      : exit.role === "entry_cancelled" ? "bar_close" as const
       : exactMarkCoverage ? "mark_event" as const : "bar_close" as const
-    const markSourceRef = [...sourceEvents].reverse().find((source) => exit.role === "entry_expired"
-      ? source.kind === "bar_open" && source.event_key.event_time === exit.timestamp
-      : source.kind === (exactMarkCoverage ? "mark" : "bar_range") && source.event_key.event_time === exit.timestamp)?.source_event_id
+    const markSourceRef = [...sourceEvents].reverse().find((source) => {
+      if (exit.role === "entry_expired") return source.kind === "bar_open" && source.event_key.event_time === exit.timestamp
+      if (exit.role === "entry_cancelled") return source.kind === "bar_range" && source.event_key.event_time === exit.timestamp
+      return source.kind === (exactMarkCoverage ? "mark" : "bar_range") && source.event_key.event_time === exit.timestamp
+    })?.source_event_id
     if (!markSourceRef) throw new Error("Replay never-opened terminal mark source is missing")
     const { valuation_snapshot: valuationSnapshot, equity_bridge: equityBridge } = buildReplayNeverOpenedEquityProjection({
       run_id: request.run_id,
@@ -1128,8 +1192,8 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       limitations,
     })
   }
-  if (exit.role === "entry_expired") {
-    throw new Error("expired entry cannot reach the position terminal execution path")
+  if (exit.role === "entry_expired" || exit.role === "entry_cancelled") {
+    throw new Error("unfilled terminal entry cannot reach the position terminal execution path")
   }
   const exitRiskPolicy = riskPolicyAt(exit.timestamp)
   const entryFill = entryFillFor(entryExecution)
@@ -1577,6 +1641,9 @@ export function assertReplayEngineCheckpoint(
     }
     if (!checkpoint.entry_transition && terminalResolution?.outcome.status === "expired") {
       throw new Error("expired Limit-entry cannot be persisted as a resumable checkpoint")
+    }
+    if (!checkpoint.entry_transition && terminalResolution?.outcome.status === "cancelled") {
+      throw new Error("cancelled Limit-entry cannot be persisted as a resumable checkpoint")
     }
   }
   if (checkpoint.entry_transition) {

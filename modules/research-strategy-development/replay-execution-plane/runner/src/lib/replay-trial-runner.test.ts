@@ -33,6 +33,7 @@ import {
   createReplayDecisionInputSnapshot,
   createReplayDecisionMarketInputSnapshot,
   createReplayDecisionHarnessSourceBundle,
+  createReplayEntryCancelIntent,
   createReplayInstrumentStatusProvenance,
   createReplayLiquidityCapacityAttestation,
   replayDatasetHash,
@@ -506,6 +507,99 @@ test("runner commits and idempotently replays an IOC first-open expiry", () => {
     status: "completed", idempotent_replay: true,
     result: { entry_outcome: "expired_unfilled" },
   })
+})
+
+test("runner commits contract-owned GTC cancellation and preserves ambiguous touch as typed failure", () => {
+  const cancelBars = [
+    { open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 101, high: 103, low: 100, close: 102, volume: 10, closed: true as const },
+  ]
+  const order: ReplayExecutionRequest["order"] = {
+    ...request().order,
+    entry_cancel_intent: createReplayEntryCancelIntent({
+      intent_id: "cancel-entry-runner",
+      requested_at: request().order.signal_time,
+      effective_at: "2026-07-14T08:00:00Z",
+    }),
+    entry_execution: {
+      order_type: "limit", limit_price: 99.5, time_in_force: "gtc",
+      liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1", full_fill_capacity: 1,
+      liquidity_capacity_attestation_hash: CAPACITY_ATTESTATION.attestation_hash,
+    },
+  }
+  const decisionSchedule = createReplaySingleDecisionSchedule(order)
+  const dataHash = replayDatasetHash(cancelBars)
+  const requestValue: ReplayExecutionRequest = {
+    ...request(), order, dataset_hash: dataHash,
+    decision_schedule: decisionSchedule, decision_schedule_hash: canonicalHash(decisionSchedule),
+  }
+  const root = mkdtempSync(join(tmpdir(), "rd-replay-contract-cancel-"))
+  const completed = runReplayTrial({
+    ...authorized(requestValue), dataset_manifest: datasetManifestFor(cancelBars, dataHash), bars: cancelBars,
+    artifact_root: root,
+  })
+  expect(completed).toMatchObject({
+    status: "completed",
+    result: {
+      entry_outcome: "cancelled_unfilled", fills: [], positions: [], margin_snapshots: [],
+      metrics: { trade_count: 0, net_pnl: 0 },
+    },
+  })
+  expect(completed.result?.order_events.at(-1)).toMatchObject({
+    kind: "cancelled", reason: "experiment_contract_cancel", remaining_quantity: 1,
+  })
+  expect(completed.artifact_manifest?.result_hash).toBe(completed.result?.fingerprint.result_hash)
+
+  const touchBars = [{ ...cancelBars[0], low: 99.5 }]
+  const touchHash = replayDatasetHash(touchBars)
+  const touchRequest = { ...requestValue, dataset_hash: touchHash, idempotency_key: "idem-touch-cancel" }
+  const failure = runReplayTrial({
+    ...authorized(touchRequest), dataset_manifest: datasetManifestFor(touchBars, touchHash), bars: touchBars,
+    artifact_root: mkdtempSync(join(tmpdir(), "rd-replay-contract-cancel-touch-")),
+  })
+  expect(failure).toMatchObject({
+    status: "failed",
+    failure: {
+      code: "pending-order-resolution-ambiguous",
+      failure_class: "deterministic_engine",
+      partial_result_published: false,
+      pending_order_resolution: {
+        outcome: { status: "unresolved", reason: "limit_touch_before_cancel_unresolved" },
+      },
+    },
+  })
+  expect("artifact_manifest" in failure).toBe(false)
+  expect("result" in failure).toBe(false)
+
+  const missingOrder: ReplayExecutionRequest["order"] = {
+    ...order,
+    entry_cancel_intent: createReplayEntryCancelIntent({
+      intent_id: "cancel-entry-missing-boundary",
+      requested_at: order.signal_time,
+      effective_at: "2026-07-14T12:00:00Z",
+    }),
+  }
+  const missingSchedule = createReplaySingleDecisionSchedule(missingOrder)
+  const missingRequest: ReplayExecutionRequest = {
+    ...requestValue,
+    order: missingOrder,
+    idempotency_key: "idem-missing-cancel-boundary",
+    decision_schedule: missingSchedule,
+    decision_schedule_hash: canonicalHash(missingSchedule),
+  }
+  const missing = runReplayTrial({
+    ...authorized(missingRequest), dataset_manifest: datasetManifestFor(cancelBars, dataHash), bars: cancelBars,
+    artifact_root: mkdtempSync(join(tmpdir(), "rd-replay-contract-cancel-missing-")),
+  })
+  expect(missing).toMatchObject({
+    status: "failed",
+    failure: {
+      code: "missing-entry-cancel-boundary",
+      failure_class: "data_integrity",
+      partial_result_published: false,
+    },
+  })
+  expect("artifact_manifest" in missing).toBe(false)
+  expect("result" in missing).toBe(false)
 })
 
 test("runner returns typed data-gap failures without publishing partial Result", () => {

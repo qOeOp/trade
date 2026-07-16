@@ -27,5 +27,5 @@
   ],
   "isolated_collateral": 20,
   "liquidation_fee_bps": 10,
-  "expected_semantic_digest": "e487717747b5f1d06901c414962994e624cbcedacb4e3a8fb391ed27b5665e94"
+  "expected_semantic_digest": "c0cdc8b3fc11a8b78200539c48ea2ed424658db90acd6b2478d38c907d843448"
 }

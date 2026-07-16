@@ -219,7 +219,7 @@ function reservation(): TrialReservationSnapshot {
       assumptions_hash: HASH,
       cost_policy_hash: HASH,
       margin_policy_hash: HASH,
-      simulator_policy_version: "rd-replay-simulator-v13",
+      simulator_policy_version: "rd-replay-simulator-v14",
       execution_mode: "step",
     },
     instrument_status_provider_certification: certification,

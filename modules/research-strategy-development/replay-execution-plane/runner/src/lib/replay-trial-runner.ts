@@ -42,11 +42,14 @@ import {
   type ReplayMaintenanceBreachObservation,
   type ReplayMarketBar,
   type ReplayMarginSnapshot,
+  type ReplayPendingOrderResolution,
   type ReplayResult,
   type ReplaySupplementalFact,
 } from "../../../contracts/src/lib/replay-contracts"
 import {
+  ReplayEntryCancelBoundaryError,
   ReplayExecutionInterruptedError,
+  ReplayPendingOrderAmbiguityError,
   assertReplayEngineCheckpoint,
   executeReplayKernel,
   prepareReplayDecisionEvidenceInputs,
@@ -116,7 +119,7 @@ export interface ReplayTrialRunOutcome {
   diagnostic_checkpoint_commit?: ReplayDiagnosticCheckpointCommitRef
   cancellation_observation?: ReplayAttemptCancellationObservationSnapshot
   failure?: {
-    code: "trial-reservation-rejected" | "trial-reservation-expired" | "attempt-lease-rejected" | "resume-authorization-rejected" | "artifact-store-rejected" | "decision-harness-rejected" | "cancelled-before-start" | "execution-cancelled-at-checkpoint" | "instrument-delisted-with-open-position" | "instrument-delisted-with-pending-entry" | "initial-margin-deficit-without-resize" | "maintenance-margin-breach-without-liquidation" | "maintenance-margin-breach-while-halted" | "liquidation-deficit-unsupported" | "dataset-grid-gap-in-execution-window" | "replay-execution-failed"
+    code: "trial-reservation-rejected" | "trial-reservation-expired" | "attempt-lease-rejected" | "resume-authorization-rejected" | "artifact-store-rejected" | "decision-harness-rejected" | "cancelled-before-start" | "execution-cancelled-at-checkpoint" | "instrument-delisted-with-open-position" | "instrument-delisted-with-pending-entry" | "initial-margin-deficit-without-resize" | "maintenance-margin-breach-without-liquidation" | "maintenance-margin-breach-while-halted" | "liquidation-deficit-unsupported" | "dataset-grid-gap-in-execution-window" | "missing-entry-cancel-boundary" | "pending-order-resolution-ambiguous" | "replay-execution-failed"
     failure_class: "input_invalid" | "unsupported_contract" | "data_integrity" | "deterministic_engine" | "resource" | "external_io"
     message: string
     retryable: boolean
@@ -126,6 +129,7 @@ export interface ReplayTrialRunOutcome {
     maintenance_breach?: ReplayMaintenanceBreachObservation
     remaining_collateral?: number
     data_gap?: ReplayDataGapFailureEvidence
+    pending_order_resolution?: ReplayPendingOrderResolution
   }
 }
 
@@ -399,6 +403,8 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     const pendingEntryDelisted = error instanceof ReplayPendingEntryDelistedError
     const marginTerminal = error instanceof ReplayMarginTerminalError
     const liquidationDeficit = error instanceof ReplayLiquidationDeficitError
+    const pendingOrderAmbiguity = error instanceof ReplayPendingOrderAmbiguityError
+    const entryCancelBoundary = error instanceof ReplayEntryCancelBoundaryError
     const dataContinuity = isReplayDataContinuityFailure(error)
     const authorityCancelled = interrupted && cancellationObservation !== undefined
     if (authorityCancelled && activeArtifactNamespace) cleanupDiagnosticCheckpoint(activeArtifactNamespace)
@@ -422,8 +428,8 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
         ? { cancellation_observation: cancellationObservation }
         : {}),
       failure: {
-        code: interrupted ? error.code : leaseRejected ? "attempt-lease-rejected" : resumeRejected ? "resume-authorization-rejected" : artifactStoreRejected ? "artifact-store-rejected" : decisionHarnessRejected ? error.code : instrumentTerminal || pendingEntryDelisted || marginTerminal || liquidationDeficit || dataContinuity ? error.code : "replay-execution-failed",
-        failure_class: interrupted || leaseRejected ? "resource" : resumeRejected || artifactStoreRejected || decisionHarnessRejected ? "unsupported_contract" : instrumentTerminal || pendingEntryDelisted || marginTerminal || liquidationDeficit ? "deterministic_engine" : "data_integrity",
+        code: interrupted ? error.code : leaseRejected ? "attempt-lease-rejected" : resumeRejected ? "resume-authorization-rejected" : artifactStoreRejected ? "artifact-store-rejected" : decisionHarnessRejected ? error.code : instrumentTerminal || pendingEntryDelisted || marginTerminal || liquidationDeficit || dataContinuity || pendingOrderAmbiguity || entryCancelBoundary ? error.code : "replay-execution-failed",
+        failure_class: interrupted || leaseRejected ? "resource" : resumeRejected || artifactStoreRejected || decisionHarnessRejected ? "unsupported_contract" : instrumentTerminal || pendingEntryDelisted || marginTerminal || liquidationDeficit || pendingOrderAmbiguity ? "deterministic_engine" : "data_integrity",
         message: error instanceof Error ? error.message : String(error),
         retryable: false,
         partial_result_published: false,
@@ -440,6 +446,10 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
           remaining_collateral: error.remaining_collateral,
         } : {}),
         ...(dataContinuity ? { data_gap: structuredClone(error.data_gap) } : {}),
+        ...(pendingOrderAmbiguity ? {
+          event_key: structuredClone(error.pending_order_resolution.observation.source_event_key),
+          pending_order_resolution: structuredClone(error.pending_order_resolution),
+        } : {}),
       },
     }
   }

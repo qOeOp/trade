@@ -21,10 +21,11 @@ export type ReplayReducedExit =
   | { role: "liquidation"; timestamp: string; rawPrice: number; triggerSource: "mark" | "funding_mark"; triggerSourceRef: string; sourceSequence: number }
   | { role: "end_of_data"; timestamp: string; rawPrice: number; triggerSource: null; sourceSequence: number }
   | { role: "entry_expired"; timestamp: string; rawPrice: number; triggerSource: "bar_open"; sourceSequence: number }
+  | { role: "entry_cancelled"; timestamp: string; rawPrice: number; triggerSource: "bar_range"; sourceSequence: number }
 
 export interface ReplayPendingEntryObservation<TEntry> {
   entry_transition: TEntry | null
-  terminal_exit: Extract<ReplayReducedExit, { role: "entry_expired" }> | null
+  terminal_exit: Extract<ReplayReducedExit, { role: "entry_expired" | "entry_cancelled" }> | null
 }
 
 export interface ReplaySourceReduction<TEntry, TTerminal> {
