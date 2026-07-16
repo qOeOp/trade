@@ -1,7 +1,8 @@
-import type {
-  ReplayAttemptCancellationObservationSnapshot,
-  ReplayAttemptCancellationSnapshot,
-  ReplayAttemptLeaseSnapshot,
+import {
+  assertReplayAttemptCancellationObservationSnapshot,
+  type ReplayAttemptCancellationObservationSnapshot,
+  type ReplayAttemptCancellationSnapshot,
+  type ReplayAttemptLeaseSnapshot,
 } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
 import {
   runReplayTrial,
@@ -46,12 +47,74 @@ export interface ReplayCancellationCoordinationResult {
 export class ReplayCancellationAcknowledgementError extends Error {
   readonly replay_outcome: ReplayTrialRunOutcome
   readonly boundary_poll_count: number
+  readonly attempted_registered_at: string
+  readonly acknowledgement_cause: unknown
 
-  constructor(outcome: ReplayTrialRunOutcome, boundaryPollCount: number, cause: unknown) {
+  constructor(
+    outcome: ReplayTrialRunOutcome,
+    boundaryPollCount: number,
+    attemptedRegisteredAt: string,
+    cause: unknown,
+  ) {
     super(`Replay cancellation acknowledgement failed: ${cause instanceof Error ? cause.message : String(cause)}`)
     this.name = "ReplayCancellationAcknowledgementError"
     this.replay_outcome = structuredClone(outcome)
     this.boundary_poll_count = boundaryPollCount
+    this.attempted_registered_at = attemptedRegisteredAt
+    this.acknowledgement_cause = cause
+  }
+}
+
+export function acknowledgeReplayCancellationOutcome(
+  replayOutcome: ReplayTrialRunOutcome,
+  boundaryPollCount: number,
+  port: ReplayCancellationCoordinationPort,
+  clock: ReplayCancellationCoordinatorClock,
+): ReplayCancellationCoordinationResult {
+  if (!Number.isSafeInteger(boundaryPollCount) || boundaryPollCount < 0) {
+    throw new Error("Replay cancellation boundary poll count must be a non-negative integer")
+  }
+  const observation = replayOutcome.cancellation_observation
+  if (replayOutcome.status !== "cancelled"
+      || replayOutcome.failure?.code !== "execution-cancelled-at-checkpoint"
+      || !observation
+      || replayOutcome.result !== undefined
+      || replayOutcome.artifact_manifest !== undefined
+      || replayOutcome.artifact_commit !== undefined
+      || replayOutcome.resumable_checkpoint !== undefined
+      || replayOutcome.diagnostic_checkpoint_commit !== undefined) {
+    throw new Error("Replay cancellation acknowledgement requires an authoritative cancelled outcome")
+  }
+  assertReplayAttemptCancellationObservationSnapshot(observation)
+  if (observation.run_id !== replayOutcome.run_id
+      || observation.attempt_id !== replayOutcome.attempt_id
+      || observation.target_lease_generation !== replayOutcome.lease_generation
+      || observation.outcome_schema_version !== replayOutcome.schema_version
+      || observation.outcome_failure_code !== replayOutcome.failure.code) {
+    throw new Error("Replay cancellation Observation does not match its Run Outcome")
+  }
+  const registeredAt = clock.now()
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(registeredAt)
+      || !Number.isFinite(Date.parse(registeredAt))
+      || Date.parse(registeredAt) < Date.parse(observation.observed_at)) {
+    throw new Error("Replay cancellation registration time must be RFC 3339 UTC at or after observation")
+  }
+  try {
+    port.acknowledge({ observation: structuredClone(observation), registered_at: registeredAt })
+  } catch (error) {
+    throw new ReplayCancellationAcknowledgementError(
+      replayOutcome,
+      boundaryPollCount,
+      registeredAt,
+      error,
+    )
+  }
+  return {
+    schema_version: REPLAY_CANCELLATION_COORDINATION_RESULT_SCHEMA_VERSION,
+    replay_outcome: structuredClone(replayOutcome),
+    boundary_poll_count: boundaryPollCount,
+    acknowledgement_status: "registered",
+    registered_at: registeredAt,
   }
 }
 
@@ -98,20 +161,5 @@ export function runReplayTrialWithCancellationCoordination(
       registered_at: null,
     }
   }
-  const registeredAt = clock.now()
-  try {
-    port.acknowledge({
-      observation: replayOutcome.cancellation_observation,
-      registered_at: registeredAt,
-    })
-  } catch (error) {
-    throw new ReplayCancellationAcknowledgementError(replayOutcome, boundaryPollCount, error)
-  }
-  return {
-    schema_version: REPLAY_CANCELLATION_COORDINATION_RESULT_SCHEMA_VERSION,
-    replay_outcome: replayOutcome,
-    boundary_poll_count: boundaryPollCount,
-    acknowledgement_status: "registered",
-    registered_at: registeredAt,
-  }
+  return acknowledgeReplayCancellationOutcome(replayOutcome, boundaryPollCount, port, clock)
 }

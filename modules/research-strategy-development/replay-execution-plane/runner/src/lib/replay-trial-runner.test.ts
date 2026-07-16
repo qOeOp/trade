@@ -46,6 +46,7 @@ import {
 import { runReplayTrial, type ReplayDiagnosticCheckpointCommitRef } from "./replay-trial-runner"
 import {
   ReplayCancellationAcknowledgementError,
+  acknowledgeReplayCancellationOutcome,
   runReplayTrialWithCancellationCoordination,
   type ReplayCancellationCoordinationPort,
 } from "./replay-cancellation-coordinator"
@@ -1889,23 +1890,64 @@ test("cancellation coordinator polls an injected authority port and acknowledges
   }])
 
   const failedTimes = ["2026-07-14T00:02:00Z", "2026-07-14T00:03:00Z"]
+  let failedPollCount = 0
+  let failedAcknowledgement: ReplayCancellationAcknowledgementError | undefined
   try {
     runReplayTrialWithCancellationCoordination({
       ...authority,
       observed_at: "2026-07-14T00:00:45Z",
       dataset_manifest: datasetManifest(),
       bars,
-    }, { ...port, acknowledge: () => { throw new Error("registry unavailable") } }, {
+    }, {
+      poll: (input) => {
+        failedPollCount += 1
+        return port.poll(input)
+      },
+      acknowledge: () => { throw new Error("registry unavailable") },
+    }, {
       now: () => failedTimes.shift()!,
     })
     throw new Error("expected acknowledgement failure")
   } catch (error) {
     expect(error).toBeInstanceOf(ReplayCancellationAcknowledgementError)
-    expect((error as ReplayCancellationAcknowledgementError).replay_outcome).toMatchObject({
+    failedAcknowledgement = error as ReplayCancellationAcknowledgementError
+    expect(failedAcknowledgement.replay_outcome).toMatchObject({
       status: "cancelled",
       cancellation_observation: { cancellation_hash: cancellation.cancellation_hash },
     })
+    expect(failedAcknowledgement.attempted_registered_at).toBe("2026-07-14T00:03:00Z")
+    expect(failedAcknowledgement.acknowledgement_cause).toBeInstanceOf(Error)
   }
+  if (!failedAcknowledgement) throw new Error("coordinator did not preserve failed acknowledgement")
+  const retried = acknowledgeReplayCancellationOutcome(
+    failedAcknowledgement.replay_outcome,
+    failedAcknowledgement.boundary_poll_count,
+    port,
+    { now: () => "2026-07-14T00:04:00Z" },
+  )
+  expect(retried).toMatchObject({
+    boundary_poll_count: 1,
+    acknowledgement_status: "registered",
+    registered_at: "2026-07-14T00:04:00Z",
+    replay_outcome: {
+      status: "cancelled",
+      cancellation_observation: { cancellation_hash: cancellation.cancellation_hash },
+    },
+  })
+  expect(failedPollCount).toBe(1)
+  expect(acknowledgements).toHaveLength(2)
+  expect(() => acknowledgeReplayCancellationOutcome(
+    { ...retried.replay_outcome, status: "completed" },
+    retried.boundary_poll_count,
+    port,
+    { now: () => "2026-07-14T00:05:00Z" },
+  )).toThrow("authoritative cancelled outcome")
+  expect(() => acknowledgeReplayCancellationOutcome(
+    retried.replay_outcome,
+    retried.boundary_poll_count,
+    port,
+    { now: () => "2026-07-14T00:01:59Z" },
+  )).toThrow("at or after observation")
 })
 
 test("runner atomically publishes an attempt-local checkpoint commit and resumes it across processes", () => {
