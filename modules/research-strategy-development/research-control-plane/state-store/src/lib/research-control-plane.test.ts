@@ -5,9 +5,14 @@ import {
   REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION,
   REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
   REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION,
+  REPLAY_RESERVATION_CANCELLATION_SCHEMA_VERSION,
+  REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION,
   assertTrialReservationSnapshot,
+  hashTrialReservationSnapshot,
   createReplayInstrumentStatusProviderCertificationSnapshot,
   createReplayInstrumentStatusProviderCertificationTermination,
+  createReplayReservationCancellationSnapshot,
+  createReplayAttemptCancellationSnapshot,
 } from "../../../contracts/src/lib/control-plane-contracts"
 import {
   RESEARCH_LIFECYCLE_RULE_VERSION,
@@ -37,6 +42,11 @@ import {
   registerReplayInstrumentStatusProviderCertification,
   registerReplayInstrumentStatusProviderCertificationTermination,
 } from "./instrument-status-provider-certification-registry"
+import {
+  cancelReplayAttemptByAuthority,
+  readReplayAttemptCancellation,
+  registerReplayReservationCancellation,
+} from "./replay-cancellation-authority"
 import {
   appendExperimentResult,
   applySystemTransition,
@@ -78,7 +88,9 @@ test("control plane schema initializes frozen stages and lifecycle rules", () =>
       "rd_trial",
       "rd_replay_instrument_status_provider_certification",
       "rd_replay_instrument_status_provider_certification_termination",
+      "rd_replay_reservation_cancellation",
       "rd_replay_attempt",
+      "rd_replay_attempt_cancellation",
       "rd_experiment_result",
       "rd_review_decision",
       "rd_lifecycle_event",
@@ -721,6 +733,127 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
       trial_reservation: reservation,
     }), /issued_at <= claimed_at < expires_at/)
     assert.throws(() => db.query("UPDATE rd_replay_attempt SET artifact_ref='changed' WHERE attempt_id='attempt-3'").run(), /terminal Replay Attempt is immutable/)
+  } finally {
+    db.close()
+  }
+})
+
+test("Control Plane cancellation authority separately fences future claims and one active Attempt", () => {
+  const db = openDb()
+  try {
+    seedExecutableExperiment(db, false)
+    db.query("UPDATE rd_trial_group SET status='running' WHERE trial_group_id='group-1'").run()
+    reserveTrial(db, {
+      trial_id: "trial-cancellation", trial_group_id: "group-1", experiment_id: "experiment-1", trial_ordinal: 1,
+      candidate_id: "candidate-1", candidate_identity_hash: candidateIdentityHash({ lookback: 20 }), identity_hash_policy_version: HASH_POLICY,
+      run_id: "run-cancellation", idempotency_key: "trial-cancellation-key", created_at: NOW,
+    })
+    const reservation = issueTrialReservationSnapshot(db, {
+      trial_id: "trial-cancellation", reservation_id: "reservation-cancellation", reservation_ref: "reservation://trial-cancellation",
+      issued_at: NOW, expires_at: "2026-07-14T04:08:00Z",
+      bindings: {
+        replay_idempotency_key: "replay-cancellation-key", execution_spec_hash: "a".repeat(64), dataset_manifest_ref: "dataset://fixture", dataset_hash: "b".repeat(64),
+        supplemental_facts_hash: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        supplemental_requirement_set_hash: "f126b641e1c2e55c174e3505e15232b466e50c3fd764f30968a925821c31d144",
+        venue_risk_policy_schedule_hash: "c".repeat(64), instrument_spec_schedule_hash: "d".repeat(64), instrument_status_schedule_hash: "f".repeat(64), instrument_status_provenance_hash: "3".repeat(64),
+        instrument_status_provider_capability_hash: PROVIDER_CAPABILITY_HASH, instrument_status_provider_certification_hash: PROVIDER_CERTIFICATION.certification_hash, harness_hash: "e".repeat(64),
+        assumptions_hash: "f".repeat(64), cost_policy_hash: "1".repeat(64), margin_policy_hash: "2".repeat(64),
+        simulator_policy_version: "rd-replay-simulator-v7", execution_mode: "step",
+      },
+      required_capabilities: ["closed-candle", "step"],
+    })
+    const reservationCancellation = createReplayReservationCancellationSnapshot({
+      schema_version: REPLAY_RESERVATION_CANCELLATION_SCHEMA_VERSION,
+      cancellation_id: "reservation-cancellation-1", cancellation_ref: "cancellation://reservation/1",
+      status: "cancelled", recorded_at: "2026-07-14T03:30:00Z", effective_at: "2026-07-14T03:50:00Z",
+      authority_id: "research-control-plane", cancellation_policy_version: "rd-replay-cancellation-v1",
+      reason_code: "provider_certification_incident", trial_id: reservation.identity.trial_id, run_id: reservation.run_id,
+      reservation_ref: reservation.reservation_ref, reservation_hash: hashTrialReservationSnapshot(reservation),
+      scope: "future_attempt_claims",
+    })
+    assert.deepEqual(registerReplayReservationCancellation(db, reservationCancellation, reservation), reservationCancellation)
+    assert.deepEqual(registerReplayReservationCancellation(db, reservationCancellation, reservation), reservationCancellation)
+    const { cancellation_hash: _reservationCancellationHash, ...reservationCancellationBody } = reservationCancellation
+    assert.throws(() => registerReplayReservationCancellation(db, createReplayReservationCancellationSnapshot({
+      ...reservationCancellationBody,
+      cancellation_id: "reservation-cancellation-competing",
+      cancellation_ref: "cancellation://reservation/competing",
+      reason_code: "policy_withdrawal",
+    }), reservation), /different cancellation/)
+    const first = claimReplayAttempt(db, {
+      attempt_id: "attempt-cancellation-1", worker_id: "worker-cancellation", idempotency_key: "attempt-cancellation-key",
+      request_hash: "9".repeat(64), claimed_at: "2026-07-14T03:40:00Z", lease_expires_at: "2026-07-14T04:05:00Z",
+      trial_reservation: reservation,
+    })
+    const renewed = renewReplayAttemptLease(db, {
+      attempt_id: first.attempt_id, worker_id: first.worker_id, expected_lease_generation: first.lease_generation,
+      heartbeat_at: "2026-07-14T03:45:00Z", lease_expires_at: "2026-07-14T04:07:00Z",
+    })
+    assert.equal(claimReplayAttempt(db, {
+      attempt_id: first.attempt_id, worker_id: first.worker_id, idempotency_key: "attempt-cancellation-key",
+      request_hash: first.request_hash, claimed_at: "2026-07-14T04:00:00Z", lease_expires_at: renewed.lease_expires_at,
+      trial_reservation: reservation,
+    }).attempt_id, first.attempt_id)
+    const attemptCancellationBody = {
+      schema_version: REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION,
+      cancellation_id: "attempt-cancellation-authority-1", cancellation_ref: "cancellation://attempt/1",
+      status: "cancelled" as const, recorded_at: "2026-07-14T03:46:00Z",
+      authority_id: "research-control-plane", cancellation_policy_version: "rd-replay-cancellation-v1",
+      reason_code: "provider_certification_incident" as const, trial_id: renewed.trial_id, run_id: renewed.run_id,
+      reservation_ref: renewed.reservation_ref, reservation_hash: renewed.reservation_hash, request_hash: renewed.request_hash,
+      attempt_id: renewed.attempt_id, attempt_ordinal: renewed.attempt_ordinal, worker_id: renewed.worker_id,
+      target_lease_generation: renewed.lease_generation, scope: "active_attempt" as const,
+    }
+    assert.throws(() => cancelReplayAttemptByAuthority(db, createReplayAttemptCancellationSnapshot({
+      ...attemptCancellationBody,
+      cancellation_id: "attempt-cancellation-stale", cancellation_ref: "cancellation://attempt/stale",
+      target_lease_generation: 1,
+    })), /generation is stale/)
+    const attemptCancellation = createReplayAttemptCancellationSnapshot(attemptCancellationBody)
+    assert.deepEqual(cancelReplayAttemptByAuthority(db, attemptCancellation), attemptCancellation)
+    assert.deepEqual(cancelReplayAttemptByAuthority(db, attemptCancellation), attemptCancellation)
+    assert.deepEqual(readReplayAttemptCancellation(db, renewed.attempt_id), attemptCancellation)
+    const { cancellation_hash: _attemptCancellationHash, ...storedAttemptCancellationBody } = attemptCancellation
+    assert.throws(() => cancelReplayAttemptByAuthority(db, createReplayAttemptCancellationSnapshot({
+      ...storedAttemptCancellationBody,
+      cancellation_id: "attempt-cancellation-competing",
+      cancellation_ref: "cancellation://attempt/competing",
+      reason_code: "policy_withdrawal",
+    })), /different authority cancellation/)
+    assert.throws(() => renewReplayAttemptLease(db, {
+      attempt_id: renewed.attempt_id, worker_id: renewed.worker_id, expected_lease_generation: renewed.lease_generation,
+      heartbeat_at: "2026-07-14T03:47:00Z", lease_expires_at: "2026-07-14T04:08:00Z",
+    }), /terminal/)
+    assert.throws(() => recordReplayCheckpointReceipt(db, {
+      receipt_id: "checkpoint-after-authority-cancel", receipt_ref: "receipt://attempt-cancellation/after-cancel",
+      recorded_at: "2026-07-14T03:47:00Z", attempt_lease: renewed,
+      diagnostic_checkpoint_commit: {
+        ref: "artifact://attempt-cancellation/commit.json", sha256: "8".repeat(64),
+        checkpoint_ref: "artifact://attempt-cancellation/checkpoint.json", checkpoint_sha256: "7".repeat(64),
+        checkpoint_hash: "6".repeat(64), producer_attempt_id: renewed.attempt_id,
+        producer_lease_generation: renewed.lease_generation,
+        storage_policy_version: REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION, next_source_offset: 1,
+      },
+    }), /active Attempt/)
+    assert.throws(() => finalizeReplayAttempt(db, {
+      attempt_id: renewed.attempt_id, worker_id: renewed.worker_id,
+      expected_lease_generation: renewed.lease_generation, status: "completed", finalized_at: "2026-07-14T03:47:00Z",
+      result_hash: "5".repeat(64), artifact_ref: "artifact://cancelled", artifact_hash: "4".repeat(64),
+      terminal_checkpoint_hash: "3".repeat(64),
+    }), /already terminal/)
+    assert.throws(() => claimReplayAttempt(db, {
+      attempt_id: "attempt-cancellation-2", worker_id: "worker-cancellation-2", idempotency_key: "attempt-cancellation-key-2",
+      request_hash: "9".repeat(64), claimed_at: "2026-07-14T04:00:00Z", lease_expires_at: "2026-07-14T04:05:00Z",
+      trial_reservation: reservation,
+    }), /Reservation was cancelled/)
+    assert.throws(() => db.query(`
+      UPDATE rd_replay_reservation_cancellation SET reason_code='policy_withdrawal'
+      WHERE cancellation_id='reservation-cancellation-1'
+    `).run(), /immutable/)
+    assert.throws(() => db.query(`
+      UPDATE rd_replay_attempt_cancellation SET reason_code='policy_withdrawal'
+      WHERE cancellation_id='attempt-cancellation-authority-1'
+    `).run(), /immutable/)
   } finally {
     db.close()
   }

@@ -5,6 +5,8 @@ import {
   REPLAY_CHECKPOINT_RECEIPT_SCHEMA_VERSION,
   REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION,
   REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION,
+  REPLAY_RESERVATION_CANCELLATION_SCHEMA_VERSION,
+  REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION,
   REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
   REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION,
   DRAFT_AUTHORIZATION_SCHEMA_VERSION,
@@ -15,6 +17,8 @@ import {
   createReplayResumeAuthorizationSnapshot,
   createReplayInstrumentStatusProviderCertificationSnapshot,
   createReplayInstrumentStatusProviderCertificationTermination,
+  createReplayReservationCancellationSnapshot,
+  createReplayAttemptCancellationSnapshot,
   hashReplayResumeAuthorizationSnapshot,
   hashTrialReservationSnapshot,
   hashReplayAttemptLeaseSnapshot,
@@ -118,6 +122,40 @@ test("provider certification termination is non-retroactive and type-safe", () =
     ...body,
     termination_type: "revoked",
   })).toThrow("cannot name a successor")
+})
+
+test("Replay cancellation receipts separate future claims from one active Attempt", () => {
+  const reservationCancellation = createReplayReservationCancellationSnapshot({
+    schema_version: REPLAY_RESERVATION_CANCELLATION_SCHEMA_VERSION,
+    cancellation_id: "reservation-cancellation-1", cancellation_ref: "cancellation://reservation/1",
+    status: "cancelled", recorded_at: "2026-07-14T00:01:00Z", effective_at: "2026-07-14T00:02:00Z",
+    authority_id: "research-control-plane", cancellation_policy_version: "rd-replay-cancellation-v1",
+    reason_code: "provider_certification_incident", trial_id: "trial-1", run_id: "run-1",
+    reservation_ref: "reservation://trial-1", reservation_hash: HASH, scope: "future_attempt_claims",
+  })
+  expect(reservationCancellation.cancellation_hash).toHaveLength(64)
+  const { cancellation_hash: _, ...reservationBody } = reservationCancellation
+  expect(() => createReplayReservationCancellationSnapshot({
+    ...reservationBody,
+    recorded_at: "2026-07-14T00:03:00Z",
+  })).toThrow("cannot be retroactive")
+
+  const attemptCancellation = createReplayAttemptCancellationSnapshot({
+    schema_version: REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION,
+    cancellation_id: "attempt-cancellation-1", cancellation_ref: "cancellation://attempt/1",
+    status: "cancelled", recorded_at: "2026-07-14T00:03:00Z",
+    authority_id: "research-control-plane", cancellation_policy_version: "rd-replay-cancellation-v1",
+    reason_code: "operator_emergency_stop", trial_id: "trial-1", run_id: "run-1",
+    reservation_ref: "reservation://trial-1", reservation_hash: HASH, request_hash: "b".repeat(64),
+    attempt_id: "attempt-1", attempt_ordinal: 1, worker_id: "worker-1", target_lease_generation: 2,
+    scope: "active_attempt",
+  })
+  expect(attemptCancellation.cancellation_hash).toHaveLength(64)
+  const { cancellation_hash: _attemptHash, ...attemptBody } = attemptCancellation
+  expect(() => createReplayAttemptCancellationSnapshot({
+    ...attemptBody,
+    target_lease_generation: 0,
+  })).toThrow("must be positive")
 })
 
 test("Replay Attempt Lease snapshot carries a monotonic fencing generation", () => {

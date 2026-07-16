@@ -7,6 +7,8 @@ export const STRATEGY_DRAFT_BINDING_SCHEMA_VERSION = "trade.rd-strategy-draft-bi
 export const TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION = "trade.rd-trial-reservation-snapshot.v8" as const
 export const REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION = "trade.rd-replay-instrument-status-provider-certification.v1" as const
 export const REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION = "trade.rd-replay-instrument-status-provider-certification-termination.v1" as const
+export const REPLAY_RESERVATION_CANCELLATION_SCHEMA_VERSION = "trade.rd-replay-reservation-cancellation.v1" as const
+export const REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION = "trade.rd-replay-attempt-cancellation.v1" as const
 export const REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION = "trade.rd-replay-attempt-lease.v1" as const
 export const REPLAY_CHECKPOINT_RECEIPT_SCHEMA_VERSION = "trade.rd-replay-checkpoint-receipt.v2" as const
 export const REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION = REPLAY_LOCAL_ARTIFACT_STORAGE_POLICY_VERSION
@@ -99,6 +101,56 @@ export type ReplayInstrumentStatusProviderCertificationTerminationBody = Omit<
   ReplayInstrumentStatusProviderCertificationTermination,
   "termination_hash"
 >
+
+export type ReplayExecutionCancellationReason =
+  | "provider_certification_incident"
+  | "data_integrity_incident"
+  | "harness_security_incident"
+  | "policy_withdrawal"
+  | "operator_emergency_stop"
+
+export interface ReplayReservationCancellationSnapshot {
+  schema_version: typeof REPLAY_RESERVATION_CANCELLATION_SCHEMA_VERSION
+  cancellation_id: string
+  cancellation_ref: string
+  cancellation_hash: string
+  status: "cancelled"
+  recorded_at: string
+  effective_at: string
+  authority_id: string
+  cancellation_policy_version: string
+  reason_code: ReplayExecutionCancellationReason
+  trial_id: string
+  run_id: string
+  reservation_ref: string
+  reservation_hash: string
+  scope: "future_attempt_claims"
+}
+
+export interface ReplayAttemptCancellationSnapshot {
+  schema_version: typeof REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION
+  cancellation_id: string
+  cancellation_ref: string
+  cancellation_hash: string
+  status: "cancelled"
+  recorded_at: string
+  authority_id: string
+  cancellation_policy_version: string
+  reason_code: ReplayExecutionCancellationReason
+  trial_id: string
+  run_id: string
+  reservation_ref: string
+  reservation_hash: string
+  request_hash: string
+  attempt_id: string
+  attempt_ordinal: number
+  worker_id: string
+  target_lease_generation: number
+  scope: "active_attempt"
+}
+
+export type ReplayReservationCancellationBody = Omit<ReplayReservationCancellationSnapshot, "cancellation_hash">
+export type ReplayAttemptCancellationBody = Omit<ReplayAttemptCancellationSnapshot, "cancellation_hash">
 
 export interface TrialReservationSnapshot {
   schema_version: typeof TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION
@@ -380,6 +432,73 @@ export function assertReplayInstrumentStatusProviderCertificationTermination(
   if (terminationHash !== expected) fail("provider certification termination hash mismatch")
 }
 
+export function createReplayReservationCancellationSnapshot(
+  body: ReplayReservationCancellationBody,
+): ReplayReservationCancellationSnapshot {
+  const value: ReplayReservationCancellationSnapshot = {
+    ...body,
+    cancellation_hash: createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex"),
+  }
+  assertReplayReservationCancellationSnapshot(value)
+  return value
+}
+
+export function assertReplayReservationCancellationSnapshot(
+  value: ReplayReservationCancellationSnapshot,
+): void {
+  if (value.schema_version !== REPLAY_RESERVATION_CANCELLATION_SCHEMA_VERSION) fail("reservation cancellation schema_version")
+  assertCancellationCommon(value, "reservation_cancellation")
+  requireUtcTimestamp(value.effective_at, "reservation_cancellation.effective_at")
+  if (Date.parse(value.effective_at) < Date.parse(value.recorded_at)) {
+    fail("reservation cancellation cannot be retroactive")
+  }
+  for (const [field, item] of Object.entries({
+    trial_id: value.trial_id,
+    run_id: value.run_id,
+    reservation_ref: value.reservation_ref,
+  })) requireText(item, `reservation_cancellation.${field}`)
+  requireHash(value.reservation_hash, "reservation_cancellation.reservation_hash")
+  if (value.scope !== "future_attempt_claims") fail("reservation cancellation scope")
+  assertCancellationHash(value, "reservation cancellation")
+}
+
+export function createReplayAttemptCancellationSnapshot(
+  body: ReplayAttemptCancellationBody,
+): ReplayAttemptCancellationSnapshot {
+  const value: ReplayAttemptCancellationSnapshot = {
+    ...body,
+    cancellation_hash: createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex"),
+  }
+  assertReplayAttemptCancellationSnapshot(value)
+  return value
+}
+
+export function assertReplayAttemptCancellationSnapshot(
+  value: ReplayAttemptCancellationSnapshot,
+): void {
+  if (value.schema_version !== REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION) fail("attempt cancellation schema_version")
+  assertCancellationCommon(value, "attempt_cancellation")
+  for (const [field, item] of Object.entries({
+    trial_id: value.trial_id,
+    run_id: value.run_id,
+    reservation_ref: value.reservation_ref,
+    attempt_id: value.attempt_id,
+    worker_id: value.worker_id,
+  })) requireText(item, `attempt_cancellation.${field}`)
+  for (const [field, item] of Object.entries({
+    reservation_hash: value.reservation_hash,
+    request_hash: value.request_hash,
+  })) requireHash(item, `attempt_cancellation.${field}`)
+  if (!Number.isSafeInteger(value.attempt_ordinal) || value.attempt_ordinal < 1) {
+    fail("attempt_cancellation.attempt_ordinal must be positive")
+  }
+  if (!Number.isSafeInteger(value.target_lease_generation) || value.target_lease_generation < 1) {
+    fail("attempt_cancellation.target_lease_generation must be positive")
+  }
+  if (value.scope !== "active_attempt") fail("attempt cancellation scope")
+  assertCancellationHash(value, "attempt cancellation")
+}
+
 export function hashTrialReservationSnapshot(value: TrialReservationSnapshot): string {
   assertTrialReservationSnapshot(value)
   return createHash("sha256").update(canonicalReservationJson(value), "utf8").digest("hex")
@@ -564,6 +683,38 @@ function assertIdentityFields(value: ResearchIdentityBinding): void {
   requireHash(value.candidate_hash, "identity.candidate_hash")
   requireText(value.identity_hash_policy_version, "identity.identity_hash_policy_version")
   requireHash(value.experiment_contract_hash, "identity.experiment_contract_hash")
+}
+
+function assertCancellationCommon(
+  value: ReplayReservationCancellationSnapshot | ReplayAttemptCancellationSnapshot,
+  fieldPrefix: string,
+): void {
+  for (const [field, item] of Object.entries({
+    cancellation_id: value.cancellation_id,
+    cancellation_ref: value.cancellation_ref,
+    authority_id: value.authority_id,
+    cancellation_policy_version: value.cancellation_policy_version,
+  })) requireText(item, `${fieldPrefix}.${field}`)
+  requireHash(value.cancellation_hash, `${fieldPrefix}.cancellation_hash`)
+  requireUtcTimestamp(value.recorded_at, `${fieldPrefix}.recorded_at`)
+  if (value.status !== "cancelled") fail(`${fieldPrefix}.status must be cancelled`)
+  const reasons: ReplayExecutionCancellationReason[] = [
+    "provider_certification_incident",
+    "data_integrity_incident",
+    "harness_security_incident",
+    "policy_withdrawal",
+    "operator_emergency_stop",
+  ]
+  if (!reasons.includes(value.reason_code)) fail(`${fieldPrefix}.reason_code`)
+}
+
+function assertCancellationHash(
+  value: ReplayReservationCancellationSnapshot | ReplayAttemptCancellationSnapshot,
+  label: string,
+): void {
+  const { cancellation_hash: cancellationHash, ...body } = value
+  const expected = createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")
+  if (cancellationHash !== expected) fail(`${label} hash mismatch`)
 }
 
 function requireHash(value: unknown, field: string): void {

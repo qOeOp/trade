@@ -7,6 +7,7 @@ import {
   type ReplayAttemptLeaseSnapshot,
   type TrialReservationSnapshot,
 } from "../../../contracts/src/lib/control-plane-contracts"
+import { assertReplayReservationClaimNotCancelled } from "./replay-cancellation-authority"
 
 export type ReplayAttemptFailureClass = "input_invalid" | "unsupported_contract" | "data_integrity" | "deterministic_engine" | "resource" | "external_io"
 
@@ -95,6 +96,8 @@ export function claimReplayAttempt(db: Database, input: ClaimReplayAttemptInput)
       }
       return toLeaseSnapshot(replay)
     }
+
+    assertReplayReservationClaimNotCancelled(db, reservationHash, input.claimed_at)
 
     const trial = db.query(`
       SELECT trial_id, run_id, status, experiment_id, trial_group_id, candidate_id,

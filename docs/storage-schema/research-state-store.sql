@@ -448,6 +448,29 @@ CREATE TABLE IF NOT EXISTS rd_replay_instrument_status_provider_certification_te
     REFERENCES rd_replay_instrument_status_provider_certification(certification_hash)
 );
 
+CREATE TABLE IF NOT EXISTS rd_replay_reservation_cancellation (
+  cancellation_id TEXT PRIMARY KEY,
+  cancellation_ref TEXT NOT NULL UNIQUE,
+  cancellation_hash TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL CHECK(status = 'cancelled'),
+  recorded_at TEXT NOT NULL,
+  effective_at TEXT NOT NULL,
+  authority_id TEXT NOT NULL,
+  cancellation_policy_version TEXT NOT NULL,
+  reason_code TEXT NOT NULL CHECK(reason_code IN (
+    'provider_certification_incident', 'data_integrity_incident',
+    'harness_security_incident', 'policy_withdrawal', 'operator_emergency_stop'
+  )),
+  trial_id TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  reservation_ref TEXT NOT NULL,
+  reservation_hash TEXT NOT NULL UNIQUE,
+  scope TEXT NOT NULL CHECK(scope = 'future_attempt_claims'),
+  cancellation_json TEXT NOT NULL CHECK(json_valid(cancellation_json)),
+  CHECK(julianday(recorded_at) <= julianday(effective_at)),
+  FOREIGN KEY (trial_id) REFERENCES rd_trial(trial_id)
+);
+
 CREATE TABLE IF NOT EXISTS rd_replay_attempt (
   attempt_id TEXT PRIMARY KEY,
   trial_id TEXT NOT NULL,
@@ -488,6 +511,33 @@ CREATE TABLE IF NOT EXISTS rd_replay_attempt (
 CREATE UNIQUE INDEX IF NOT EXISTS one_active_replay_attempt_per_trial
 ON rd_replay_attempt(trial_id)
 WHERE status IN ('claimed', 'running');
+
+CREATE TABLE IF NOT EXISTS rd_replay_attempt_cancellation (
+  cancellation_id TEXT PRIMARY KEY,
+  cancellation_ref TEXT NOT NULL UNIQUE,
+  cancellation_hash TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL CHECK(status = 'cancelled'),
+  recorded_at TEXT NOT NULL,
+  authority_id TEXT NOT NULL,
+  cancellation_policy_version TEXT NOT NULL,
+  reason_code TEXT NOT NULL CHECK(reason_code IN (
+    'provider_certification_incident', 'data_integrity_incident',
+    'harness_security_incident', 'policy_withdrawal', 'operator_emergency_stop'
+  )),
+  trial_id TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  reservation_ref TEXT NOT NULL,
+  reservation_hash TEXT NOT NULL,
+  request_hash TEXT NOT NULL,
+  attempt_id TEXT NOT NULL UNIQUE,
+  attempt_ordinal INTEGER NOT NULL CHECK(attempt_ordinal >= 1),
+  worker_id TEXT NOT NULL,
+  target_lease_generation INTEGER NOT NULL CHECK(target_lease_generation >= 1),
+  scope TEXT NOT NULL CHECK(scope = 'active_attempt'),
+  cancellation_json TEXT NOT NULL CHECK(json_valid(cancellation_json)),
+  FOREIGN KEY (trial_id) REFERENCES rd_trial(trial_id),
+  FOREIGN KEY (attempt_id) REFERENCES rd_replay_attempt(attempt_id)
+);
 
 
 CREATE TABLE IF NOT EXISTS rd_replay_checkpoint_receipt (
@@ -920,6 +970,30 @@ CREATE TRIGGER IF NOT EXISTS rd_replay_instrument_status_provider_certification_
 BEFORE DELETE ON rd_replay_instrument_status_provider_certification_termination
 BEGIN
   SELECT RAISE(ABORT, 'Replay provider certification termination is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS rd_replay_reservation_cancellation_no_update
+BEFORE UPDATE ON rd_replay_reservation_cancellation
+BEGIN
+  SELECT RAISE(ABORT, 'Replay Reservation cancellation is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS rd_replay_reservation_cancellation_no_delete
+BEFORE DELETE ON rd_replay_reservation_cancellation
+BEGIN
+  SELECT RAISE(ABORT, 'Replay Reservation cancellation is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS rd_replay_attempt_cancellation_no_update
+BEFORE UPDATE ON rd_replay_attempt_cancellation
+BEGIN
+  SELECT RAISE(ABORT, 'Replay Attempt cancellation is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS rd_replay_attempt_cancellation_no_delete
+BEFORE DELETE ON rd_replay_attempt_cancellation
+BEGIN
+  SELECT RAISE(ABORT, 'Replay Attempt cancellation is immutable');
 END;
 
 CREATE TRIGGER IF NOT EXISTS prevent_terminal_replay_attempt_mutation
