@@ -1,5 +1,7 @@
 import {
   assertReplayAttemptCancellationObservationSnapshot,
+  hashReplayAttemptLeaseSnapshot,
+  hashTrialReservationSnapshot,
   type ReplayAttemptCancellationObservationSnapshot,
   type ReplayAttemptCancellationSnapshot,
   type ReplayAttemptLeaseSnapshot,
@@ -12,9 +14,10 @@ import {
   type ReplayTrialRunOutcome,
 } from "./replay-trial-runner"
 import type { ReplayEngineCheckpoint } from "../../../engine/src/lib/replay-reference-engine"
-import { canonicalJson } from "../../../contracts/src/lib/replay-contracts"
+import { canonicalHash, canonicalJson } from "../../../contracts/src/lib/replay-contracts"
 import type {
   ReplayCancellationOutboxCommit,
+  ReplayCancellationOutboxLoadedRecord,
   ReplayCancellationOutboxPort,
 } from "./replay-cancellation-outbox"
 
@@ -194,6 +197,11 @@ export function runReplayTrialWithDurableCancellationCoordination(
   clock: ReplayCancellationCoordinatorClock,
   outbox: ReplayCancellationOutboxPort,
 ): ReplayDurableCancellationCoordinationResult {
+  const pending = outbox.load()
+  if (pending) {
+    assertReplayCancellationOutboxInvocationBinding(pending, input)
+    return acknowledgeLoadedReplayCancellation(pending, port, clock)
+  }
   let preparedOutcome: ReplayTrialRunOutcome | undefined
   let outboxCommit: ReplayCancellationOutboxCommit | undefined
   let attemptedPersistedAt: string | undefined
@@ -276,6 +284,14 @@ export function recoverReplayCancellationAcknowledgement(
 ): ReplayDurableCancellationCoordinationResult | null {
   const loaded = outbox.load()
   if (!loaded) return null
+  return acknowledgeLoadedReplayCancellation(loaded, port, clock)
+}
+
+function acknowledgeLoadedReplayCancellation(
+  loaded: ReplayCancellationOutboxLoadedRecord,
+  port: ReplayCancellationCoordinationPort,
+  clock: ReplayCancellationCoordinatorClock,
+): ReplayDurableCancellationCoordinationResult {
   return {
     schema_version: REPLAY_DURABLE_CANCELLATION_COORDINATION_RESULT_SCHEMA_VERSION,
     coordination_result: acknowledgeReplayCancellationOutcome(
@@ -286,6 +302,33 @@ export function recoverReplayCancellationAcknowledgement(
       loaded.commit,
     ),
     outbox_commit: loaded.commit,
+  }
+}
+
+function assertReplayCancellationOutboxInvocationBinding(
+  loaded: ReplayCancellationOutboxLoadedRecord,
+  input: ReplayTrialRunInput,
+): void {
+  const outcome = loaded.record.replay_outcome
+  const observation = assertReplayCancellationAcknowledgementOutcome(
+    outcome,
+    loaded.record.boundary_poll_count,
+  )
+  if (loaded.record.request_hash !== canonicalHash(input.request)
+      || loaded.record.run_id !== input.request.run_id
+      || loaded.record.attempt_id !== input.attempt_lease.attempt_id
+      || loaded.record.lease_generation !== input.attempt_lease.lease_generation
+      || outcome.attempt_lease_hash !== hashReplayAttemptLeaseSnapshot(input.attempt_lease)
+      || observation.trial_id !== input.request.trial_id
+      || observation.reservation_ref !== input.trial_reservation.reservation_ref
+      || observation.reservation_hash !== hashTrialReservationSnapshot(input.trial_reservation)
+      || observation.attempt_ordinal !== input.attempt_lease.attempt_ordinal
+      || observation.worker_id !== input.attempt_lease.worker_id
+      || loaded.commit.record_hash !== loaded.record.record_hash
+      || loaded.commit.observation_hash !== observation.observation_hash
+      || loaded.commit.producer_attempt_id !== input.attempt_lease.attempt_id
+      || loaded.commit.producer_lease_generation !== input.attempt_lease.lease_generation) {
+    throw new Error("Replay cancellation outbox does not match the durable coordinator invocation")
   }
 }
 

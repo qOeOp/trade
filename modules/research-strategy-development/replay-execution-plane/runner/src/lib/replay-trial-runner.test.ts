@@ -2085,6 +2085,51 @@ test("durable cancellation outbox recovers acknowledgement after restart without
     authority.attempt_lease,
   )
   expect(restartedOutbox.load()?.record.persisted_at).toBe("2026-07-14T00:02:30Z")
+  let startupPollCount = 0
+  const startupAcknowledgements: unknown[] = []
+  const startupRecovered = runReplayTrialWithDurableCancellationCoordination({
+    ...authority,
+    observed_at: "2026-07-14T00:10:00Z",
+    cancel_requested: true,
+    dataset_manifest: datasetManifest(),
+    bars: [],
+  }, {
+    poll: () => {
+      startupPollCount += 1
+      throw new Error("pending outbox recovery must not poll")
+    },
+    acknowledge: ({ observation }) => { startupAcknowledgements.push(observation) },
+  }, { now: () => "2026-07-14T00:03:30Z" }, restartedOutbox)
+  expect(startupRecovered).toMatchObject({
+    coordination_result: {
+      acknowledgement_status: "registered",
+      boundary_poll_count: 1,
+      replay_outcome: { status: "cancelled" },
+    },
+    outbox_commit: { record_hash: failedAcknowledgement.outbox_commit.record_hash },
+  })
+  expect(startupPollCount).toBe(0)
+  expect(startupAcknowledgements).toHaveLength(1)
+
+  let crossBindingPollCount = 0
+  let crossBindingAcknowledgementCount = 0
+  expect(() => runReplayTrialWithDurableCancellationCoordination({
+    ...authority,
+    request: { ...authority.request, run_id: "different-run" },
+    observed_at: "2026-07-14T00:10:00Z",
+    dataset_manifest: datasetManifest(),
+    bars: [],
+  }, {
+    poll: () => {
+      crossBindingPollCount += 1
+      return null
+    },
+    acknowledge: () => { crossBindingAcknowledgementCount += 1 },
+  }, { now: () => "2026-07-14T00:04:00Z" }, restartedOutbox))
+    .toThrow("does not match the durable coordinator invocation")
+  expect(crossBindingPollCount).toBe(0)
+  expect(crossBindingAcknowledgementCount).toBe(0)
+
   let recoveryPollCount = 0
   const recoveredObservations: unknown[] = []
   const recovered = recoverReplayCancellationAcknowledgement(restartedOutbox, {
@@ -2112,6 +2157,20 @@ test("durable cancellation outbox recovers acknowledgement after restart without
   tamperedRecord.boundary_poll_count += 1
   writeFileSync(recordRef, `${JSON.stringify(tamperedRecord)}\n`)
   expect(() => restartedOutbox.load()).toThrow("record hash mismatch")
+  let tamperedPollCount = 0
+  expect(() => runReplayTrialWithDurableCancellationCoordination({
+    ...authority,
+    observed_at: "2026-07-14T00:10:00Z",
+    dataset_manifest: datasetManifest(),
+    bars: [],
+  }, {
+    poll: () => {
+      tamperedPollCount += 1
+      return null
+    },
+    acknowledge: () => { throw new Error("tampered outbox must not acknowledge") },
+  }, { now: () => "2026-07-14T00:05:00Z" }, restartedOutbox)).toThrow("record hash mismatch")
+  expect(tamperedPollCount).toBe(0)
   writeFileSync(recordRef, originalRecord)
   writeFileSync(recordRef, ` ${originalRecord.toString()}`)
   expect(() => restartedOutbox.load()).toThrow("encoding is not canonical")
