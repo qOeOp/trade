@@ -233,6 +233,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
   let resumeAuthorizationHash: string | undefined
   let lastDiagnosticCheckpointCommit: ReplayDiagnosticCheckpointCommitRef | undefined
   let cancellationObservation: ReplayAttemptCancellationObservationSnapshot | undefined
+  let authorityCancellationOutcome: ReplayTrialRunOutcome | undefined
   let activeArtifactNamespace: ReplayArtifactNamespace | undefined
   try {
     const artifactStore = resolveArtifactStore(input)
@@ -344,12 +345,15 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
               validateAttemptLease(input.request, input.trial_reservation, decision.attempt_lease, decision.observed_at)
               assertAttemptLeaseSuccessor(activeAttemptLease, decision.attempt_lease)
               if (decision.attempt_cancellation) {
-                cancellationObservation = observeAttemptCancellation(
-                  input.request,
-                  input.trial_reservation,
-                  activeAttemptLease,
-                  { ...decision, attempt_cancellation: decision.attempt_cancellation },
-                )
+                authorityCancellationOutcome = createReplayAuthorityCancellationOutcome({
+                  request: input.request,
+                  trial_reservation: input.trial_reservation,
+                  active_attempt_lease: activeAttemptLease,
+                  decision: { ...decision, attempt_cancellation: decision.attempt_cancellation },
+                  source_offset: checkpoint.next_source_offset,
+                  resume_authorization: input.execution_control?.resume_authorization,
+                })
+                cancellationObservation = authorityCancellationOutcome.cancellation_observation
               }
             } catch (error) {
               throw new ReplayAttemptLeaseControlError(error instanceof Error ? error.message : String(error))
@@ -395,6 +399,9 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     const dataContinuity = isReplayDataContinuityFailure(error)
     const authorityCancelled = interrupted && cancellationObservation !== undefined
     if (authorityCancelled && activeArtifactNamespace) cleanupDiagnosticCheckpoint(activeArtifactNamespace)
+    if (authorityCancelled && authorityCancellationOutcome) {
+      return structuredClone(authorityCancellationOutcome)
+    }
     return {
       schema_version: "trade.rd-replay-run-outcome.v35",
       run_id: input.request.run_id,
@@ -499,17 +506,25 @@ function validateResumeAuthorization(
   }
 }
 
-function observeAttemptCancellation(
-  request: ReplayExecutionRequest,
-  reservation: TrialReservationSnapshot,
-  activeLease: ReplayAttemptLeaseSnapshot,
+export function createReplayAuthorityCancellationOutcome(input: {
+  request: ReplayExecutionRequest
+  trial_reservation: TrialReservationSnapshot
+  active_attempt_lease: ReplayAttemptLeaseSnapshot
   decision: {
     command: "continue" | "cancel"
     attempt_lease: ReplayAttemptLeaseSnapshot
     observed_at: string
     attempt_cancellation: ReplayAttemptCancellationSnapshot
-  },
-): ReplayAttemptCancellationObservationSnapshot {
+  }
+  source_offset: number
+  resume_authorization?: ReplayResumeAuthorizationSnapshot
+}): ReplayTrialRunOutcome {
+  const { request, trial_reservation: reservation, active_attempt_lease: activeLease, decision } = input
+  if (!Number.isSafeInteger(input.source_offset) || input.source_offset < 0) {
+    throw new Error("Replay authority cancellation source offset must be a non-negative integer")
+  }
+  validateAttemptLease(request, reservation, decision.attempt_lease, decision.observed_at)
+  assertAttemptLeaseSuccessor(activeLease, decision.attempt_lease)
   assertReplayAttemptCancellationSnapshot(decision.attempt_cancellation)
   const cancellation = decision.attempt_cancellation
   if (decision.command !== "cancel") {
@@ -532,7 +547,7 @@ function observeAttemptCancellation(
   if (Date.parse(decision.observed_at) < Date.parse(cancellation.recorded_at)) {
     throw new Error("Replay Attempt authority cancellation cannot be observed before it is recorded")
   }
-  return createReplayAttemptCancellationObservationSnapshot({
+  const observation = createReplayAttemptCancellationObservationSnapshot({
     schema_version: "trade.rd-replay-attempt-cancellation-observation.v1",
     observation_id: `cancellation-observation-${cancellation.cancellation_hash}`,
     observation_ref: `cancellation-observation://${activeLease.attempt_id}/${cancellation.cancellation_hash}`,
@@ -555,6 +570,26 @@ function observeAttemptCancellation(
     outcome_failure_code: "execution-cancelled-at-checkpoint",
     partial_result_published: false,
   })
+  return {
+    schema_version: "trade.rd-replay-run-outcome.v35",
+    run_id: request.run_id,
+    attempt_id: activeLease.attempt_id,
+    lease_generation: activeLease.lease_generation,
+    attempt_lease_hash: hashReplayAttemptLeaseSnapshot(activeLease),
+    ...(input.resume_authorization
+      ? { resume_authorization_hash: hashReplayResumeAuthorizationSnapshot(input.resume_authorization) }
+      : {}),
+    status: "cancelled",
+    idempotent_replay: false,
+    cancellation_observation: observation,
+    failure: {
+      code: "execution-cancelled-at-checkpoint",
+      failure_class: "resource",
+      message: `Replay execution was cancelled after source offset ${input.source_offset}`,
+      retryable: false,
+      partial_result_published: false,
+    },
+  }
 }
 
 function assertAttemptLeaseSuccessor(

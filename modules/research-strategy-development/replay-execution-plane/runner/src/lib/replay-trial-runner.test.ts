@@ -2006,9 +2006,11 @@ test("durable cancellation outbox recovers acknowledgement after restart without
   )
   let pollCount = 0
   let acknowledgementCount = 0
+  const coordinationOrder: string[] = []
   const failingPort: ReplayCancellationCoordinationPort = {
     poll: ({ attempt_lease: attemptLease, observed_at: observedAt }) => {
       pollCount += 1
+      coordinationOrder.push("poll")
       return {
         command: "cancel",
         attempt_lease: attemptLease,
@@ -2018,8 +2020,19 @@ test("durable cancellation outbox recovers acknowledgement after restart without
     },
     acknowledge: () => {
       acknowledgementCount += 1
+      coordinationOrder.push("acknowledge")
       throw new Error("control plane unavailable")
     },
+  }
+  let filesAtPersistence: string[] = []
+  const preterminalOutbox = {
+    persist: (input: Parameters<typeof outbox.persist>[0]) => {
+      coordinationOrder.push("persist")
+      const commit = outbox.persist(input)
+      filesAtPersistence = readdirSync(dirname(commit.ref))
+      return commit
+    },
+    load: () => outbox.load(),
   }
   const times = [
     "2026-07-14T00:02:00Z",
@@ -2034,7 +2047,7 @@ test("durable cancellation outbox recovers acknowledgement after restart without
       artifact_store: artifactStore,
       dataset_manifest: datasetManifest(),
       bars,
-    }, failingPort, { now: () => times.shift()! }, outbox)
+    }, failingPort, { now: () => times.shift()! }, preterminalOutbox)
     throw new Error("expected durable acknowledgement failure")
   } catch (error) {
     expect(error).toBeInstanceOf(ReplayCancellationAcknowledgementError)
@@ -2043,6 +2056,9 @@ test("durable cancellation outbox recovers acknowledgement after restart without
   if (!failedAcknowledgement?.outbox_commit) throw new Error("durable coordinator lost the outbox commit")
   expect(pollCount).toBe(1)
   expect(acknowledgementCount).toBe(1)
+  expect(coordinationOrder).toEqual(["poll", "persist", "acknowledge"])
+  expect(filesAtPersistence).toContain("cancellation-observation-outbox.json")
+  expect(filesAtPersistence.some((name) => name.startsWith("diagnostic-checkpoint-"))).toBe(true)
   expect(failedAcknowledgement.outbox_commit).toMatchObject({
     schema_version: "trade.rd-replay-cancellation-outbox-commit.v1",
     observation_hash: failedAcknowledgement.replay_outcome.cancellation_observation?.observation_hash,
@@ -2103,19 +2119,60 @@ test("durable cancellation outbox recovers acknowledgement after restart without
 
   let unsafeAcknowledgementCount = 0
   const persistenceFailureTimes = ["2026-07-14T00:02:00Z", "2026-07-14T00:02:30Z"]
-  expect(() => runReplayTrialWithDurableCancellationCoordination({
+  let persistenceFailure: ReplayCancellationOutboxPersistenceError | undefined
+  try {
+    runReplayTrialWithDurableCancellationCoordination({
+      ...authority,
+      observed_at: "2026-07-14T00:00:45Z",
+      dataset_manifest: datasetManifest(),
+      bars,
+    }, {
+      ...failingPort,
+      acknowledge: () => { unsafeAcknowledgementCount += 1 },
+    }, { now: () => persistenceFailureTimes.shift()! }, {
+      persist: () => { throw new Error("artifact store unavailable") },
+      load: () => null,
+    })
+    throw new Error("expected pre-terminal persistence failure")
+  } catch (error) {
+    expect(error).toBeInstanceOf(ReplayCancellationOutboxPersistenceError)
+    persistenceFailure = error as ReplayCancellationOutboxPersistenceError
+  }
+  expect(persistenceFailure?.replay_outcome).toMatchObject({
+    status: "cancelled",
+    failure: { code: "execution-cancelled-at-checkpoint", partial_result_published: false },
+    cancellation_observation: { cancellation_hash: cancellation.cancellation_hash },
+  })
+  expect(unsafeAcknowledgementCount).toBe(0)
+
+  let invalidPersistenceCount = 0
+  let invalidAcknowledgementCount = 0
+  const invalidDirective = runReplayTrialWithDurableCancellationCoordination({
     ...authority,
     observed_at: "2026-07-14T00:00:45Z",
     dataset_manifest: datasetManifest(),
     bars,
   }, {
-    ...failingPort,
-    acknowledge: () => { unsafeAcknowledgementCount += 1 },
-  }, { now: () => persistenceFailureTimes.shift()! }, {
-    persist: () => { throw new Error("artifact store unavailable") },
+    poll: ({ attempt_lease: attemptLease }) => ({
+      command: "cancel",
+      attempt_lease: attemptLease,
+      observed_at: "2026-07-14T00:06:00Z",
+      attempt_cancellation: cancellation,
+    }),
+    acknowledge: () => { invalidAcknowledgementCount += 1 },
+  }, { now: () => "2026-07-14T00:06:00Z" }, {
+    persist: () => {
+      invalidPersistenceCount += 1
+      throw new Error("invalid directive must not reach persistence")
+    },
     load: () => null,
-  })).toThrow(ReplayCancellationOutboxPersistenceError)
-  expect(unsafeAcknowledgementCount).toBe(0)
+  })
+  expect(invalidDirective.coordination_result.replay_outcome).toMatchObject({
+    status: "failed",
+    failure: { code: "attempt-lease-rejected", partial_result_published: false },
+  })
+  expect(invalidPersistenceCount).toBe(0)
+  expect(invalidAcknowledgementCount).toBe(0)
 })
 
 test("runner atomically publishes an attempt-local checkpoint commit and resumes it across processes", () => {

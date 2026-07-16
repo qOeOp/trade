@@ -5,12 +5,14 @@ import {
   type ReplayAttemptLeaseSnapshot,
 } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
 import {
+  createReplayAuthorityCancellationOutcome,
   runReplayTrial,
   type ReplayDiagnosticCheckpointCommitRef,
   type ReplayTrialRunInput,
   type ReplayTrialRunOutcome,
 } from "./replay-trial-runner"
 import type { ReplayEngineCheckpoint } from "../../../engine/src/lib/replay-reference-engine"
+import { canonicalJson } from "../../../contracts/src/lib/replay-contracts"
 import type {
   ReplayCancellationOutboxCommit,
   ReplayCancellationOutboxPort,
@@ -192,7 +194,41 @@ export function runReplayTrialWithDurableCancellationCoordination(
   clock: ReplayCancellationCoordinatorClock,
   outbox: ReplayCancellationOutboxPort,
 ): ReplayDurableCancellationCoordinationResult {
-  const executed = executeReplayTrialWithCancellationPolling(input, port, clock)
+  let preparedOutcome: ReplayTrialRunOutcome | undefined
+  let outboxCommit: ReplayCancellationOutboxCommit | undefined
+  let attemptedPersistedAt: string | undefined
+  let persistenceFailed = false
+  let persistenceCause: unknown
+  const executed = executeReplayTrialWithCancellationPolling(input, port, clock, ({
+    directive,
+    active_attempt_lease: activeAttemptLease,
+    checkpoint,
+    boundary_poll_count: boundaryPollCount,
+  }) => {
+    try {
+      preparedOutcome = createReplayAuthorityCancellationOutcome({
+        request: input.request,
+        trial_reservation: input.trial_reservation,
+        active_attempt_lease: activeAttemptLease,
+        decision: directive,
+        source_offset: checkpoint.next_source_offset,
+        resume_authorization: input.execution_control?.resume_authorization,
+      })
+    } catch {
+      return
+    }
+    attemptedPersistedAt = clock.now()
+    try {
+      outboxCommit = outbox.persist({
+        replay_outcome: preparedOutcome,
+        boundary_poll_count: boundaryPollCount,
+        persisted_at: attemptedPersistedAt,
+      })
+    } catch (error) {
+      persistenceFailed = true
+      persistenceCause = error
+    }
+  })
   if (!executed.replay_outcome.cancellation_observation) {
     return {
       schema_version: REPLAY_DURABLE_CANCELLATION_COORDINATION_RESULT_SCHEMA_VERSION,
@@ -206,21 +242,19 @@ export function runReplayTrialWithDurableCancellationCoordination(
       outbox_commit: null,
     }
   }
-  const persistedAt = clock.now()
-  let outboxCommit: ReplayCancellationOutboxCommit
-  try {
-    outboxCommit = outbox.persist({
-      replay_outcome: executed.replay_outcome,
-      boundary_poll_count: executed.boundary_poll_count,
-      persisted_at: persistedAt,
-    })
-  } catch (error) {
+  if (persistenceFailed) {
     throw new ReplayCancellationOutboxPersistenceError(
       executed.replay_outcome,
       executed.boundary_poll_count,
-      persistedAt,
-      error,
+      attemptedPersistedAt!,
+      persistenceCause,
     )
+  }
+  if (!preparedOutcome || !outboxCommit) {
+    throw new Error("Replay authority cancellation reached terminal state without a pre-terminal outbox commit")
+  }
+  if (canonicalJson(preparedOutcome) !== canonicalJson(executed.replay_outcome)) {
+    throw new Error("Replay pre-terminal cancellation outcome does not match the Runner terminal outcome")
   }
   return {
     schema_version: REPLAY_DURABLE_CANCELLATION_COORDINATION_RESULT_SCHEMA_VERSION,
@@ -259,6 +293,12 @@ function executeReplayTrialWithCancellationPolling(
   input: ReplayTrialRunInput,
   port: ReplayCancellationCoordinationPort,
   clock: ReplayCancellationCoordinatorClock,
+  onAuthorityCancellation?: (input: {
+    directive: ReplayCancellationDirective
+    active_attempt_lease: ReplayAttemptLeaseSnapshot
+    checkpoint: ReplayEngineCheckpoint
+    boundary_poll_count: number
+  }) => void,
 ): { replay_outcome: ReplayTrialRunOutcome; boundary_poll_count: number } {
   const delegatedControl = input.execution_control?.on_checkpoint
   let activeLease = structuredClone(input.attempt_lease)
@@ -274,7 +314,15 @@ function executeReplayTrialWithCancellationPolling(
         const observedAt = clock.now()
         boundaryPollCount += 1
         const directive = port.poll({ attempt_lease: activeLease, observed_at: observedAt })
-        if (directive) return directive
+        if (directive) {
+          onAuthorityCancellation?.({
+            directive,
+            active_attempt_lease: structuredClone(activeLease),
+            checkpoint: structuredClone(checkpoint),
+            boundary_poll_count: boundaryPollCount,
+          })
+          return directive
+        }
         if (delegatedControl) {
           const delegated = delegatedControl(checkpoint, diagnosticCheckpointCommit)
           activeLease = structuredClone(delegated.attempt_lease)
