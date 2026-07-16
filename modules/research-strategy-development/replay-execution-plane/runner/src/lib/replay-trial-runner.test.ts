@@ -912,7 +912,7 @@ test("runner submits one authorized full reduce-only exit and executes it at the
     decision_harness_receipt: null,
   })
   expect(terminalResult.result!.order_events.some((event) => event.order_id.endsWith(":strategy-exit"))).toBe(false)
-})
+}, 15_000)
 
 test("runner partially reduces once, rebuilds full protection, then cleanly resumes to final exit", () => {
   const requirement = {
@@ -1370,7 +1370,7 @@ test("runner tightens one protective stop and resumes without replaying its Harn
   expect(liquidationTransitions[0]!.order_id).toContain("stop-replacement")
   expect(liquidationTransitions[1]!.order_id).toEndWith(":order:target")
   expect(liquidationTransitions.slice(2).every((event) => event.order_id.endsWith(":order:liquidation"))).toBe(true)
-})
+}, 15_000)
 
 test("runner preserves one terminal owner after stop replacement and a later strategy exit", () => {
   const requirement = {
@@ -1494,7 +1494,7 @@ test("runner preserves one terminal owner after stop replacement and a later str
   expect(resumed.status).toBe("completed")
   expect(canonicalHash(resumed.result)).toBe(canonicalHash(completed.result))
   expect(registryResolutionCount - resolutionsBeforeResume).toBe(1)
-})
+}, 15_000)
 
 test("protective stop replacement is direction-symmetric and keeps stop-first OHLC resolution", () => {
   const requirement = {

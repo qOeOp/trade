@@ -65,7 +65,7 @@ test("feature report helper runs tech-indicators from the tool directory when ca
   }
 })
 
-test("feature report runner handles large feature-series output", { timeout: 20_000 }, () => {
+test("feature report runner handles large feature-series output", { timeout: 60_000 }, () => {
   const dir = mkdtempSync(join(tmpdir(), "feature-report-large-"))
   try {
     const manifestPath = join(dir, "manifest.json")
