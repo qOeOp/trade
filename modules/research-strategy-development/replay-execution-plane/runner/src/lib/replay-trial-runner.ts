@@ -233,9 +233,10 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
   let resumeAuthorizationHash: string | undefined
   let lastDiagnosticCheckpointCommit: ReplayDiagnosticCheckpointCommitRef | undefined
   let cancellationObservation: ReplayAttemptCancellationObservationSnapshot | undefined
+  let activeArtifactNamespace: ReplayArtifactNamespace | undefined
   try {
     const artifactStore = resolveArtifactStore(input)
-    const activeArtifactNamespace = artifactStore
+    activeArtifactNamespace = artifactStore
       ? openAttemptNamespace(artifactStore, input.request, input.attempt_lease.attempt_id)
       : undefined
     if (input.execution_control?.resume_checkpoint && input.execution_control.resume_authorization) {
@@ -392,6 +393,8 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     const marginTerminal = error instanceof ReplayMarginTerminalError
     const liquidationDeficit = error instanceof ReplayLiquidationDeficitError
     const dataContinuity = isReplayDataContinuityFailure(error)
+    const authorityCancelled = interrupted && cancellationObservation !== undefined
+    if (authorityCancelled && activeArtifactNamespace) cleanupDiagnosticCheckpoint(activeArtifactNamespace)
     return {
       schema_version: "trade.rd-replay-run-outcome.v35",
       run_id: input.request.run_id,
@@ -401,8 +404,8 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
       ...(resumeAuthorizationHash ? { resume_authorization_hash: resumeAuthorizationHash } : {}),
       status: interrupted ? "cancelled" : "failed",
       idempotent_replay: false,
-      ...(interrupted ? { resumable_checkpoint: error.checkpoint } : {}),
-      ...(interrupted && lastDiagnosticCheckpointCommit
+      ...(interrupted && !authorityCancelled ? { resumable_checkpoint: error.checkpoint } : {}),
+      ...(interrupted && !authorityCancelled && lastDiagnosticCheckpointCommit
         ? { diagnostic_checkpoint_commit: lastDiagnosticCheckpointCommit }
         : {}),
       ...(interrupted && cancellationObservation

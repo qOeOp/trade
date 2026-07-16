@@ -44,6 +44,11 @@ import {
   type ReplaySupplementalFact,
 } from "../../../contracts/src/lib/replay-contracts"
 import { runReplayTrial, type ReplayDiagnosticCheckpointCommitRef } from "./replay-trial-runner"
+import {
+  ReplayCancellationAcknowledgementError,
+  runReplayTrialWithCancellationCoordination,
+  type ReplayCancellationCoordinationPort,
+} from "./replay-cancellation-coordinator"
 import type { ReplayArtifactStore } from "./replay-artifact-store"
 import { createReplayLocalArtifactStore } from "./replay-local-artifact-store"
 import {
@@ -1740,6 +1745,7 @@ test("runner renews the fenced Attempt at source boundaries and resumes cancelle
 
 test("runner binds an authority cancellation to one observable cancelled outcome", () => {
   const authority = authorized()
+  const artifactStore = createReplayLocalArtifactStore(mkdtempSync(join(tmpdir(), "rd-replay-authority-cancel-")))
   const cancellation = createReplayAttemptCancellationSnapshot({
     schema_version: REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION,
     cancellation_id: "attempt-cancellation-1",
@@ -1763,6 +1769,7 @@ test("runner binds an authority cancellation to one observable cancelled outcome
   const outcome = runReplayTrial({
     ...authority,
     observed_at: "2026-07-14T00:02:00Z",
+    artifact_store: artifactStore,
     dataset_manifest: datasetManifest(),
     bars,
     execution_control: {
@@ -1791,6 +1798,13 @@ test("runner binds an authority cancellation to one observable cancelled outcome
   expect(outcome.cancellation_observation?.observation_hash).toHaveLength(64)
   expect(outcome.result).toBeUndefined()
   expect(outcome.artifact_manifest).toBeUndefined()
+  expect(outcome.resumable_checkpoint).toBeUndefined()
+  expect(outcome.diagnostic_checkpoint_commit).toBeUndefined()
+  const cancelledNamespace = artifactStore.openAttempt({
+    idempotency_key_hash: canonicalHash(authority.request.idempotency_key),
+    attempt_id_hash: canonicalHash(authority.attempt_lease.attempt_id),
+  })
+  expect(cancelledNamespace.listNames()).toEqual([])
 
   const { cancellation_hash: _cancellationHash, ...cancellationBody } = cancellation
   const staleCancellation = createReplayAttemptCancellationSnapshot({
@@ -1816,6 +1830,82 @@ test("runner binds an authority cancellation to one observable cancelled outcome
     failure: { code: "attempt-lease-rejected", partial_result_published: false },
   })
   expect(stale.cancellation_observation).toBeUndefined()
+})
+
+test("cancellation coordinator polls an injected authority port and acknowledges the worker observation", () => {
+  const authority = authorized()
+  const cancellation = createReplayAttemptCancellationSnapshot({
+    schema_version: REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION,
+    cancellation_id: "attempt-cancellation-coordinator-1",
+    cancellation_ref: "cancellation://attempt/coordinator-1",
+    status: "cancelled",
+    recorded_at: "2026-07-14T00:01:00Z",
+    authority_id: "research-control-plane",
+    cancellation_policy_version: "rd-replay-cancellation-v1",
+    reason_code: "operator_emergency_stop",
+    trial_id: authority.request.trial_id,
+    run_id: authority.request.run_id,
+    reservation_ref: authority.trial_reservation.reservation_ref,
+    reservation_hash: hashTrialReservationSnapshot(authority.trial_reservation),
+    request_hash: canonicalHash(authority.request),
+    attempt_id: authority.attempt_lease.attempt_id,
+    attempt_ordinal: authority.attempt_lease.attempt_ordinal,
+    worker_id: authority.attempt_lease.worker_id,
+    target_lease_generation: authority.attempt_lease.lease_generation,
+    scope: "active_attempt",
+  })
+  const acknowledgements: Parameters<ReplayCancellationCoordinationPort["acknowledge"]>[0][] = []
+  const port: ReplayCancellationCoordinationPort = {
+    poll: ({ attempt_lease: attemptLease, observed_at: observedAt }) => ({
+      command: "cancel",
+      attempt_lease: attemptLease,
+      observed_at: observedAt,
+      attempt_cancellation: cancellation,
+    }),
+    acknowledge: (input) => { acknowledgements.push(input) },
+  }
+  const times = ["2026-07-14T00:02:00Z", "2026-07-14T00:03:00Z"]
+  const coordinated = runReplayTrialWithCancellationCoordination({
+    ...authority,
+    observed_at: "2026-07-14T00:00:45Z",
+    dataset_manifest: datasetManifest(),
+    bars,
+  }, port, { now: () => times.shift()! })
+  expect(coordinated).toMatchObject({
+    schema_version: "trade.rd-replay-cancellation-coordination-result.v1",
+    boundary_poll_count: 1,
+    acknowledgement_status: "registered",
+    registered_at: "2026-07-14T00:03:00Z",
+    replay_outcome: {
+      status: "cancelled",
+      cancellation_observation: { cancellation_hash: cancellation.cancellation_hash },
+    },
+  })
+  const coordinatedObservation = coordinated.replay_outcome.cancellation_observation
+  if (!coordinatedObservation) throw new Error("coordinator did not return cancellation observation")
+  expect(acknowledgements).toEqual([{
+    observation: coordinatedObservation,
+    registered_at: "2026-07-14T00:03:00Z",
+  }])
+
+  const failedTimes = ["2026-07-14T00:02:00Z", "2026-07-14T00:03:00Z"]
+  try {
+    runReplayTrialWithCancellationCoordination({
+      ...authority,
+      observed_at: "2026-07-14T00:00:45Z",
+      dataset_manifest: datasetManifest(),
+      bars,
+    }, { ...port, acknowledge: () => { throw new Error("registry unavailable") } }, {
+      now: () => failedTimes.shift()!,
+    })
+    throw new Error("expected acknowledgement failure")
+  } catch (error) {
+    expect(error).toBeInstanceOf(ReplayCancellationAcknowledgementError)
+    expect((error as ReplayCancellationAcknowledgementError).replay_outcome).toMatchObject({
+      status: "cancelled",
+      cancellation_observation: { cancellation_hash: cancellation.cancellation_hash },
+    })
+  }
 })
 
 test("runner atomically publishes an attempt-local checkpoint commit and resumes it across processes", () => {
