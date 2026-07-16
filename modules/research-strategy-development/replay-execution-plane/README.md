@@ -10,7 +10,7 @@ data-adapter/ manifest/hash、UTC、instrument/PIT policy snapshot、supplementa
 engine/     EventKey source reducer + source-bound entry/exit/forced-liquidation lanes
 accounting/ slippage、trade/liquidation fee、exact funding、Position、现金与 Journal v4
 metrics/    只从 fills/ledger 派生权威 Replay metrics
-runner/     Attempt lease fencing、幂等、transport-neutral cancellation coordinator、typed failure、Harness worker 与完整 Artifact commit
+runner/     Attempt lease fencing、幂等、transport-neutral cancellation coordinator/no-replay ack retry、typed failure、Harness worker 与完整 Artifact commit
 tests/      golden、property、metamorphic、component parity 认证
 compatibility/ 迁入的 legacy replay/benchmark/panel 实现，只用于兼容与 parity
 certification/ 迁入的 calibration 认证来源
