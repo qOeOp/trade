@@ -7,6 +7,7 @@ import {
   REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION,
   REPLAY_RESERVATION_CANCELLATION_SCHEMA_VERSION,
   REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION,
+  REPLAY_ATTEMPT_CANCELLATION_OBSERVATION_SCHEMA_VERSION,
   REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
   REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION,
   DRAFT_AUTHORIZATION_SCHEMA_VERSION,
@@ -19,6 +20,7 @@ import {
   createReplayInstrumentStatusProviderCertificationTermination,
   createReplayReservationCancellationSnapshot,
   createReplayAttemptCancellationSnapshot,
+  createReplayAttemptCancellationObservationSnapshot,
   hashReplayResumeAuthorizationSnapshot,
   hashTrialReservationSnapshot,
   hashReplayAttemptLeaseSnapshot,
@@ -154,6 +156,36 @@ test("Replay cancellation receipts separate future claims from one active Attemp
   const { cancellation_hash: _attemptHash, ...attemptBody } = attemptCancellation
   expect(() => createReplayAttemptCancellationSnapshot({
     ...attemptBody,
+    target_lease_generation: 0,
+  })).toThrow("must be positive")
+
+  const observation = createReplayAttemptCancellationObservationSnapshot({
+    schema_version: REPLAY_ATTEMPT_CANCELLATION_OBSERVATION_SCHEMA_VERSION,
+    observation_id: "attempt-cancellation-observation-1",
+    observation_ref: "cancellation-observation://attempt/1",
+    status: "observed",
+    observed_at: "2026-07-14T00:04:00Z",
+    cancellation_id: attemptCancellation.cancellation_id,
+    cancellation_ref: attemptCancellation.cancellation_ref,
+    cancellation_hash: attemptCancellation.cancellation_hash,
+    trial_id: attemptCancellation.trial_id,
+    run_id: attemptCancellation.run_id,
+    reservation_ref: attemptCancellation.reservation_ref,
+    reservation_hash: attemptCancellation.reservation_hash,
+    request_hash: attemptCancellation.request_hash,
+    attempt_id: attemptCancellation.attempt_id,
+    attempt_ordinal: attemptCancellation.attempt_ordinal,
+    worker_id: attemptCancellation.worker_id,
+    target_lease_generation: attemptCancellation.target_lease_generation,
+    outcome_schema_version: "trade.rd-replay-run-outcome.v35",
+    outcome_status: "cancelled",
+    outcome_failure_code: "execution-cancelled-at-checkpoint",
+    partial_result_published: false,
+  })
+  expect(observation.observation_hash).toHaveLength(64)
+  const { observation_hash: _observationHash, ...observationBody } = observation
+  expect(() => createReplayAttemptCancellationObservationSnapshot({
+    ...observationBody,
     target_lease_generation: 0,
   })).toThrow("must be positive")
 })

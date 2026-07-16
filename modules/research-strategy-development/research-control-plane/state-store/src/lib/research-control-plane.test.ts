@@ -7,12 +7,14 @@ import {
   REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION,
   REPLAY_RESERVATION_CANCELLATION_SCHEMA_VERSION,
   REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION,
+  REPLAY_ATTEMPT_CANCELLATION_OBSERVATION_SCHEMA_VERSION,
   assertTrialReservationSnapshot,
   hashTrialReservationSnapshot,
   createReplayInstrumentStatusProviderCertificationSnapshot,
   createReplayInstrumentStatusProviderCertificationTermination,
   createReplayReservationCancellationSnapshot,
   createReplayAttemptCancellationSnapshot,
+  createReplayAttemptCancellationObservationSnapshot,
 } from "../../../contracts/src/lib/control-plane-contracts"
 import {
   RESEARCH_LIFECYCLE_RULE_VERSION,
@@ -45,6 +47,9 @@ import {
 import {
   cancelReplayAttemptByAuthority,
   readReplayAttemptCancellation,
+  readReplayAttemptCancellationObservation,
+  recordReplayAttemptCancellationObservation,
+  resolveReplayAttemptCancellationDirective,
   registerReplayReservationCancellation,
 } from "./replay-cancellation-authority"
 import {
@@ -91,6 +96,7 @@ test("control plane schema initializes frozen stages and lifecycle rules", () =>
       "rd_replay_reservation_cancellation",
       "rd_replay_attempt",
       "rd_replay_attempt_cancellation",
+      "rd_replay_attempt_cancellation_observation",
       "rd_experiment_result",
       "rd_review_decision",
       "rd_lifecycle_event",
@@ -813,6 +819,81 @@ test("Control Plane cancellation authority separately fences future claims and o
     assert.deepEqual(cancelReplayAttemptByAuthority(db, attemptCancellation), attemptCancellation)
     assert.deepEqual(cancelReplayAttemptByAuthority(db, attemptCancellation), attemptCancellation)
     assert.deepEqual(readReplayAttemptCancellation(db, renewed.attempt_id), attemptCancellation)
+    assert.deepEqual(resolveReplayAttemptCancellationDirective(
+      db,
+      renewed,
+      "2026-07-14T03:47:00Z",
+    ), {
+      command: "cancel",
+      attempt_lease: renewed,
+      observed_at: "2026-07-14T03:47:00Z",
+      attempt_cancellation: attemptCancellation,
+    })
+    assert.throws(() => resolveReplayAttemptCancellationDirective(
+      db,
+      renewed,
+      renewed.lease_expires_at,
+    ), /missed the worker lease window/)
+    const observationBody = {
+      schema_version: REPLAY_ATTEMPT_CANCELLATION_OBSERVATION_SCHEMA_VERSION,
+      observation_id: "attempt-cancellation-observation-1",
+      observation_ref: "cancellation-observation://attempt/1",
+      status: "observed" as const,
+      observed_at: "2026-07-14T03:47:00Z",
+      cancellation_id: attemptCancellation.cancellation_id,
+      cancellation_ref: attemptCancellation.cancellation_ref,
+      cancellation_hash: attemptCancellation.cancellation_hash,
+      trial_id: attemptCancellation.trial_id,
+      run_id: attemptCancellation.run_id,
+      reservation_ref: attemptCancellation.reservation_ref,
+      reservation_hash: attemptCancellation.reservation_hash,
+      request_hash: attemptCancellation.request_hash,
+      attempt_id: attemptCancellation.attempt_id,
+      attempt_ordinal: attemptCancellation.attempt_ordinal,
+      worker_id: attemptCancellation.worker_id,
+      target_lease_generation: attemptCancellation.target_lease_generation,
+      outcome_schema_version: "trade.rd-replay-run-outcome.v35" as const,
+      outcome_status: "cancelled" as const,
+      outcome_failure_code: "execution-cancelled-at-checkpoint" as const,
+      partial_result_published: false as const,
+    }
+    assert.throws(() => recordReplayAttemptCancellationObservation(
+      db,
+      createReplayAttemptCancellationObservationSnapshot({
+        ...observationBody,
+        observation_id: "attempt-cancellation-observation-too-early",
+        observation_ref: "cancellation-observation://attempt/too-early",
+        observed_at: "2026-07-14T03:45:00Z",
+      }),
+      "2026-07-14T03:48:00Z",
+    ), /cannot be observed before/)
+    const observation = createReplayAttemptCancellationObservationSnapshot(observationBody)
+    assert.throws(() => recordReplayAttemptCancellationObservation(
+      db,
+      observation,
+      "2026-07-14T03:46:00Z",
+    ), /registered before worker observation/)
+    assert.deepEqual(recordReplayAttemptCancellationObservation(
+      db,
+      observation,
+      "2026-07-14T03:48:00Z",
+    ), observation)
+    assert.deepEqual(recordReplayAttemptCancellationObservation(
+      db,
+      observation,
+      "2026-07-14T03:49:00Z",
+    ), observation)
+    assert.deepEqual(readReplayAttemptCancellationObservation(db, renewed.attempt_id), observation)
+    assert.throws(() => recordReplayAttemptCancellationObservation(
+      db,
+      createReplayAttemptCancellationObservationSnapshot({
+        ...observationBody,
+        observation_id: "attempt-cancellation-observation-competing",
+        observation_ref: "cancellation-observation://attempt/competing",
+        observed_at: "2026-07-14T03:48:00Z",
+      }),
+      "2026-07-14T03:49:00Z",
+    ), /different observation/)
     const { cancellation_hash: _attemptCancellationHash, ...storedAttemptCancellationBody } = attemptCancellation
     assert.throws(() => cancelReplayAttemptByAuthority(db, createReplayAttemptCancellationSnapshot({
       ...storedAttemptCancellationBody,
@@ -853,6 +934,10 @@ test("Control Plane cancellation authority separately fences future claims and o
     assert.throws(() => db.query(`
       UPDATE rd_replay_attempt_cancellation SET reason_code='policy_withdrawal'
       WHERE cancellation_id='attempt-cancellation-authority-1'
+    `).run(), /immutable/)
+    assert.throws(() => db.query(`
+      UPDATE rd_replay_attempt_cancellation_observation SET observed_at='2026-07-14T03:49:00Z'
+      WHERE observation_id='attempt-cancellation-observation-1'
     `).run(), /immutable/)
   } finally {
     db.close()

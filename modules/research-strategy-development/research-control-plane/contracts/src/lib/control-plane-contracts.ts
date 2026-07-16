@@ -9,6 +9,7 @@ export const REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION = "t
 export const REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION = "trade.rd-replay-instrument-status-provider-certification-termination.v1" as const
 export const REPLAY_RESERVATION_CANCELLATION_SCHEMA_VERSION = "trade.rd-replay-reservation-cancellation.v1" as const
 export const REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION = "trade.rd-replay-attempt-cancellation.v1" as const
+export const REPLAY_ATTEMPT_CANCELLATION_OBSERVATION_SCHEMA_VERSION = "trade.rd-replay-attempt-cancellation-observation.v1" as const
 export const REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION = "trade.rd-replay-attempt-lease.v1" as const
 export const REPLAY_CHECKPOINT_RECEIPT_SCHEMA_VERSION = "trade.rd-replay-checkpoint-receipt.v2" as const
 export const REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION = REPLAY_LOCAL_ARTIFACT_STORAGE_POLICY_VERSION
@@ -151,6 +152,36 @@ export interface ReplayAttemptCancellationSnapshot {
 
 export type ReplayReservationCancellationBody = Omit<ReplayReservationCancellationSnapshot, "cancellation_hash">
 export type ReplayAttemptCancellationBody = Omit<ReplayAttemptCancellationSnapshot, "cancellation_hash">
+
+export interface ReplayAttemptCancellationObservationSnapshot {
+  schema_version: typeof REPLAY_ATTEMPT_CANCELLATION_OBSERVATION_SCHEMA_VERSION
+  observation_id: string
+  observation_ref: string
+  observation_hash: string
+  status: "observed"
+  observed_at: string
+  cancellation_id: string
+  cancellation_ref: string
+  cancellation_hash: string
+  trial_id: string
+  run_id: string
+  reservation_ref: string
+  reservation_hash: string
+  request_hash: string
+  attempt_id: string
+  attempt_ordinal: number
+  worker_id: string
+  target_lease_generation: number
+  outcome_schema_version: "trade.rd-replay-run-outcome.v35"
+  outcome_status: "cancelled"
+  outcome_failure_code: "execution-cancelled-at-checkpoint"
+  partial_result_published: false
+}
+
+export type ReplayAttemptCancellationObservationBody = Omit<
+  ReplayAttemptCancellationObservationSnapshot,
+  "observation_hash"
+>
 
 export interface TrialReservationSnapshot {
   schema_version: typeof TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION
@@ -497,6 +528,59 @@ export function assertReplayAttemptCancellationSnapshot(
   }
   if (value.scope !== "active_attempt") fail("attempt cancellation scope")
   assertCancellationHash(value, "attempt cancellation")
+}
+
+export function createReplayAttemptCancellationObservationSnapshot(
+  body: ReplayAttemptCancellationObservationBody,
+): ReplayAttemptCancellationObservationSnapshot {
+  const value: ReplayAttemptCancellationObservationSnapshot = {
+    ...body,
+    observation_hash: createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex"),
+  }
+  assertReplayAttemptCancellationObservationSnapshot(value)
+  return value
+}
+
+export function assertReplayAttemptCancellationObservationSnapshot(
+  value: ReplayAttemptCancellationObservationSnapshot,
+): void {
+  if (value.schema_version !== REPLAY_ATTEMPT_CANCELLATION_OBSERVATION_SCHEMA_VERSION) {
+    fail("attempt cancellation observation schema_version")
+  }
+  for (const [field, item] of Object.entries({
+    observation_id: value.observation_id,
+    observation_ref: value.observation_ref,
+    cancellation_id: value.cancellation_id,
+    cancellation_ref: value.cancellation_ref,
+    trial_id: value.trial_id,
+    run_id: value.run_id,
+    reservation_ref: value.reservation_ref,
+    attempt_id: value.attempt_id,
+    worker_id: value.worker_id,
+  })) requireText(item, `attempt_cancellation_observation.${field}`)
+  for (const [field, item] of Object.entries({
+    observation_hash: value.observation_hash,
+    cancellation_hash: value.cancellation_hash,
+    reservation_hash: value.reservation_hash,
+    request_hash: value.request_hash,
+  })) requireHash(item, `attempt_cancellation_observation.${field}`)
+  requireUtcTimestamp(value.observed_at, "attempt_cancellation_observation.observed_at")
+  if (!Number.isSafeInteger(value.attempt_ordinal) || value.attempt_ordinal < 1) {
+    fail("attempt_cancellation_observation.attempt_ordinal must be positive")
+  }
+  if (!Number.isSafeInteger(value.target_lease_generation) || value.target_lease_generation < 1) {
+    fail("attempt_cancellation_observation.target_lease_generation must be positive")
+  }
+  if (value.status !== "observed"
+      || value.outcome_schema_version !== "trade.rd-replay-run-outcome.v35"
+      || value.outcome_status !== "cancelled"
+      || value.outcome_failure_code !== "execution-cancelled-at-checkpoint"
+      || value.partial_result_published !== false) {
+    fail("attempt cancellation observation outcome is not authoritative cancellation acknowledgement")
+  }
+  const { observation_hash: observationHash, ...body } = value
+  const expected = createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")
+  if (observationHash !== expected) fail("attempt cancellation observation hash mismatch")
 }
 
 export function hashTrialReservationSnapshot(value: TrialReservationSnapshot): string {

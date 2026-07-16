@@ -1,10 +1,14 @@
 import type { Database } from "bun:sqlite"
 import {
+  assertReplayAttemptLeaseSnapshot,
   assertReplayAttemptCancellationSnapshot,
+  assertReplayAttemptCancellationObservationSnapshot,
   assertReplayReservationCancellationSnapshot,
   assertTrialReservationSnapshot,
   hashTrialReservationSnapshot,
   type ReplayAttemptCancellationSnapshot,
+  type ReplayAttemptCancellationObservationSnapshot,
+  type ReplayAttemptLeaseSnapshot,
   type ReplayReservationCancellationSnapshot,
   type TrialReservationSnapshot,
 } from "../../../contracts/src/lib/control-plane-contracts"
@@ -12,6 +16,11 @@ import {
 interface CancellationRow {
   cancellation_hash: string
   cancellation_json: string
+}
+
+interface CancellationObservationRow {
+  observation_hash: string
+  observation_json: string
 }
 
 interface AttemptAuthorityRow {
@@ -27,6 +36,13 @@ interface AttemptAuthorityRow {
   lease_generation: number
   claimed_at: string
   lease_expires_at: string
+}
+
+export interface ReplayAttemptCancellationDirective {
+  command: "cancel"
+  attempt_lease: ReplayAttemptLeaseSnapshot
+  observed_at: string
+  attempt_cancellation: ReplayAttemptCancellationSnapshot
 }
 
 export function registerReplayReservationCancellation(
@@ -248,6 +264,163 @@ export function readReplayAttemptCancellation(
   return row ? parseAttemptCancellation(row) : null
 }
 
+export function resolveReplayAttemptCancellationDirective(
+  db: Database,
+  attemptLease: ReplayAttemptLeaseSnapshot,
+  observedAt: string,
+): ReplayAttemptCancellationDirective | null {
+  assertReplayAttemptLeaseSnapshot(attemptLease)
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(observedAt)
+      || !Number.isFinite(Date.parse(observedAt))) {
+    throw new Error("Replay Attempt cancellation observation time must be RFC 3339 UTC")
+  }
+  const cancellation = readReplayAttemptCancellation(db, attemptLease.attempt_id)
+  if (!cancellation) return null
+  if (cancellation.trial_id !== attemptLease.trial_id
+      || cancellation.run_id !== attemptLease.run_id
+      || cancellation.reservation_ref !== attemptLease.reservation_ref
+      || cancellation.reservation_hash !== attemptLease.reservation_hash
+      || cancellation.request_hash !== attemptLease.request_hash
+      || cancellation.attempt_ordinal !== attemptLease.attempt_ordinal
+      || cancellation.worker_id !== attemptLease.worker_id
+      || cancellation.target_lease_generation !== attemptLease.lease_generation) {
+    throw new Error("Replay Attempt cancellation does not match the worker lease")
+  }
+  if (Date.parse(observedAt) < Date.parse(cancellation.recorded_at)) {
+    throw new Error("Replay Attempt cancellation cannot be delivered before it is recorded")
+  }
+  if (Date.parse(observedAt) >= Date.parse(attemptLease.lease_expires_at)) {
+    throw new Error("Replay Attempt cancellation delivery missed the worker lease window")
+  }
+  return {
+    command: "cancel",
+    attempt_lease: structuredClone(attemptLease),
+    observed_at: observedAt,
+    attempt_cancellation: cancellation,
+  }
+}
+
+export function recordReplayAttemptCancellationObservation(
+  db: Database,
+  observation: ReplayAttemptCancellationObservationSnapshot,
+  registeredAt: string,
+): ReplayAttemptCancellationObservationSnapshot {
+  assertReplayAttemptCancellationObservationSnapshot(observation)
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,3})?Z$/.test(registeredAt)
+      || !Number.isFinite(Date.parse(registeredAt))) {
+    throw new Error("Replay Attempt cancellation registration time must be RFC 3339 UTC")
+  }
+  if (Date.parse(registeredAt) < Date.parse(observation.observed_at)) {
+    throw new Error("Replay Attempt cancellation cannot be registered before worker observation")
+  }
+  const write = db.transaction(() => {
+    const existing = db.query(`
+      SELECT observation_hash, observation_json
+      FROM rd_replay_attempt_cancellation_observation
+      WHERE observation_id = $observation_id
+        OR observation_ref = $observation_ref
+        OR cancellation_hash = $cancellation_hash
+        OR attempt_id = $attempt_id
+    `).get({
+      $observation_id: observation.observation_id,
+      $observation_ref: observation.observation_ref,
+      $cancellation_hash: observation.cancellation_hash,
+      $attempt_id: observation.attempt_id,
+    }) as CancellationObservationRow | null
+    if (existing) {
+      if (existing.observation_hash !== observation.observation_hash) {
+        throw new Error("Replay Attempt cancellation already has a different observation")
+      }
+      return parseAttemptCancellationObservation(existing)
+    }
+
+    const cancellation = readReplayAttemptCancellation(db, observation.attempt_id)
+    if (!cancellation
+        || cancellation.cancellation_id !== observation.cancellation_id
+        || cancellation.cancellation_ref !== observation.cancellation_ref
+        || cancellation.cancellation_hash !== observation.cancellation_hash
+        || cancellation.trial_id !== observation.trial_id
+        || cancellation.run_id !== observation.run_id
+        || cancellation.reservation_ref !== observation.reservation_ref
+        || cancellation.reservation_hash !== observation.reservation_hash
+        || cancellation.request_hash !== observation.request_hash
+        || cancellation.attempt_ordinal !== observation.attempt_ordinal
+        || cancellation.worker_id !== observation.worker_id
+        || cancellation.target_lease_generation !== observation.target_lease_generation) {
+      throw new Error("Replay Attempt cancellation observation does not match authority cancellation")
+    }
+    if (Date.parse(observation.observed_at) < Date.parse(cancellation.recorded_at)) {
+      throw new Error("Replay Attempt cancellation cannot be observed before it is recorded")
+    }
+    const attempt = db.query(`
+      SELECT attempt_id, trial_id, run_id, attempt_ordinal, worker_id,
+             reservation_ref, reservation_hash, request_hash, status,
+             lease_generation, claimed_at, lease_expires_at
+      FROM rd_replay_attempt WHERE attempt_id = $attempt_id
+    `).get({ $attempt_id: observation.attempt_id }) as AttemptAuthorityRow | null
+    if (!attempt || attempt.status !== "cancelled"
+        || attempt.lease_generation !== observation.target_lease_generation
+        || attempt.worker_id !== observation.worker_id) {
+      throw new Error("Replay Attempt cancellation observation requires the matching terminal Attempt")
+    }
+
+    db.query(`
+      INSERT INTO rd_replay_attempt_cancellation_observation(
+        observation_id, observation_ref, observation_hash, status, observed_at, registered_at,
+        cancellation_id, cancellation_ref, cancellation_hash,
+        trial_id, run_id, reservation_ref, reservation_hash, request_hash,
+        attempt_id, attempt_ordinal, worker_id, target_lease_generation,
+        outcome_schema_version, outcome_status, outcome_failure_code,
+        partial_result_published, observation_json
+      ) VALUES (
+        $observation_id, $observation_ref, $observation_hash, $status, $observed_at, $registered_at,
+        $cancellation_id, $cancellation_ref, $cancellation_hash,
+        $trial_id, $run_id, $reservation_ref, $reservation_hash, $request_hash,
+        $attempt_id, $attempt_ordinal, $worker_id, $target_lease_generation,
+        $outcome_schema_version, $outcome_status, $outcome_failure_code,
+        0, $observation_json
+      )
+    `).run({
+      $observation_id: observation.observation_id,
+      $observation_ref: observation.observation_ref,
+      $observation_hash: observation.observation_hash,
+      $status: observation.status,
+      $observed_at: observation.observed_at,
+      $registered_at: registeredAt,
+      $cancellation_id: observation.cancellation_id,
+      $cancellation_ref: observation.cancellation_ref,
+      $cancellation_hash: observation.cancellation_hash,
+      $trial_id: observation.trial_id,
+      $run_id: observation.run_id,
+      $reservation_ref: observation.reservation_ref,
+      $reservation_hash: observation.reservation_hash,
+      $request_hash: observation.request_hash,
+      $attempt_id: observation.attempt_id,
+      $attempt_ordinal: observation.attempt_ordinal,
+      $worker_id: observation.worker_id,
+      $target_lease_generation: observation.target_lease_generation,
+      $outcome_schema_version: observation.outcome_schema_version,
+      $outcome_status: observation.outcome_status,
+      $outcome_failure_code: observation.outcome_failure_code,
+      $observation_json: JSON.stringify(observation),
+    })
+    return structuredClone(observation)
+  })
+  return write.immediate()
+}
+
+export function readReplayAttemptCancellationObservation(
+  db: Database,
+  attemptId: string,
+): ReplayAttemptCancellationObservationSnapshot | null {
+  const row = db.query(`
+    SELECT observation_hash, observation_json
+    FROM rd_replay_attempt_cancellation_observation
+    WHERE attempt_id = $attempt_id
+  `).get({ $attempt_id: attemptId }) as CancellationObservationRow | null
+  return row ? parseAttemptCancellationObservation(row) : null
+}
+
 function parseReservationCancellation(row: CancellationRow): ReplayReservationCancellationSnapshot {
   const cancellation = JSON.parse(row.cancellation_json) as ReplayReservationCancellationSnapshot
   assertReplayReservationCancellationSnapshot(cancellation)
@@ -264,4 +437,15 @@ function parseAttemptCancellation(row: CancellationRow): ReplayAttemptCancellati
     throw new Error("Replay Attempt cancellation registry row is inconsistent")
   }
   return cancellation
+}
+
+function parseAttemptCancellationObservation(
+  row: CancellationObservationRow,
+): ReplayAttemptCancellationObservationSnapshot {
+  const observation = JSON.parse(row.observation_json) as ReplayAttemptCancellationObservationSnapshot
+  assertReplayAttemptCancellationObservationSnapshot(observation)
+  if (observation.observation_hash !== row.observation_hash) {
+    throw new Error("Replay Attempt cancellation observation registry row is inconsistent")
+  }
+  return observation
 }

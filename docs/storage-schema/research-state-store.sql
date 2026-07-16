@@ -539,6 +539,35 @@ CREATE TABLE IF NOT EXISTS rd_replay_attempt_cancellation (
   FOREIGN KEY (attempt_id) REFERENCES rd_replay_attempt(attempt_id)
 );
 
+CREATE TABLE IF NOT EXISTS rd_replay_attempt_cancellation_observation (
+  observation_id TEXT PRIMARY KEY,
+  observation_ref TEXT NOT NULL UNIQUE,
+  observation_hash TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL CHECK(status = 'observed'),
+  observed_at TEXT NOT NULL,
+  registered_at TEXT NOT NULL,
+  cancellation_id TEXT NOT NULL UNIQUE,
+  cancellation_ref TEXT NOT NULL UNIQUE,
+  cancellation_hash TEXT NOT NULL UNIQUE,
+  trial_id TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  reservation_ref TEXT NOT NULL,
+  reservation_hash TEXT NOT NULL,
+  request_hash TEXT NOT NULL,
+  attempt_id TEXT NOT NULL UNIQUE,
+  attempt_ordinal INTEGER NOT NULL CHECK(attempt_ordinal >= 1),
+  worker_id TEXT NOT NULL,
+  target_lease_generation INTEGER NOT NULL CHECK(target_lease_generation >= 1),
+  outcome_schema_version TEXT NOT NULL CHECK(outcome_schema_version = 'trade.rd-replay-run-outcome.v35'),
+  outcome_status TEXT NOT NULL CHECK(outcome_status = 'cancelled'),
+  outcome_failure_code TEXT NOT NULL CHECK(outcome_failure_code = 'execution-cancelled-at-checkpoint'),
+  partial_result_published INTEGER NOT NULL CHECK(partial_result_published = 0),
+  observation_json TEXT NOT NULL CHECK(json_valid(observation_json)),
+  CHECK(julianday(observed_at) <= julianday(registered_at)),
+  FOREIGN KEY (cancellation_id) REFERENCES rd_replay_attempt_cancellation(cancellation_id),
+  FOREIGN KEY (attempt_id) REFERENCES rd_replay_attempt(attempt_id)
+);
+
 
 CREATE TABLE IF NOT EXISTS rd_replay_checkpoint_receipt (
   receipt_id TEXT PRIMARY KEY,
@@ -994,6 +1023,18 @@ CREATE TRIGGER IF NOT EXISTS rd_replay_attempt_cancellation_no_delete
 BEFORE DELETE ON rd_replay_attempt_cancellation
 BEGIN
   SELECT RAISE(ABORT, 'Replay Attempt cancellation is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS rd_replay_attempt_cancellation_observation_no_update
+BEFORE UPDATE ON rd_replay_attempt_cancellation_observation
+BEGIN
+  SELECT RAISE(ABORT, 'Replay Attempt cancellation observation is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS rd_replay_attempt_cancellation_observation_no_delete
+BEFORE DELETE ON rd_replay_attempt_cancellation_observation
+BEGIN
+  SELECT RAISE(ABORT, 'Replay Attempt cancellation observation is immutable');
 END;
 
 CREATE TRIGGER IF NOT EXISTS prevent_terminal_replay_attempt_mutation
