@@ -9,6 +9,7 @@ import {
   assertReplayDecisionEvidenceTimeline,
   assertReplayDecisionInputSnapshot,
   assertReplayExecutionRequest,
+  assertReplayPendingOrderResolution,
   canonicalHash,
   compareReplayEventKeys,
   createReplayDecisionEvidenceTimeline,
@@ -35,6 +36,7 @@ import {
   type ReplayMarginSnapshot,
   type ReplayOrder,
   type ReplayOrderEvent,
+  type ReplayPendingOrderResolution,
   type ReplayResult,
   type ReplaySourceEvent,
   type ReplaySupplementalFact,
@@ -54,19 +56,21 @@ import { addReplayDecimalValues, isReplayIncrementAligned, quantizeReplayDiffere
 import { prepareReplayInputData, resolveReplayInstrumentStatusAt, resolveReplayVenueRiskPolicyAt } from "../../../data-adapter/src/lib/replay-data-adapter"
 import { deriveReplayMetrics } from "../../../metrics/src/lib/replay-metrics"
 import {
+  activateReplayOrder,
   submitReplayOrder,
   type ReplayTransitionStamp,
 } from "./replay-order-state"
 import { createReplayEventKey } from "./replay-event-key"
-import { completeReplayEntryOrderLane, type ReplayEntryOrderExecution } from "./replay-entry-order-lane"
+import { completeReplayEntryOrderLane, completeReplayLimitEntryOrderLane, type ReplayEntryOrderExecution } from "./replay-entry-order-lane"
 import { completeReplayExitOrderLane, completeReplayStrategyExitOrderLane } from "./replay-exit-order-lane"
 import { completeReplayLiquidationOrderLane } from "./replay-liquidation-order-lane"
 import { replaceReplayProtectiveStop } from "./replay-protective-stop-lane"
 import { completeReplayPartialReduceLane } from "./replay-partial-reduce-lane"
 import { ReplayLiquidationDeficitError, ReplayMarginTerminalError, assertReplayPostEntryMargin, buildReplayMaintenanceBreachObservation, buildReplayPathMarginSnapshots } from "./replay-margin-path"
 import { reduceReplaySourceEvents } from "./replay-source-reducer"
+import { resolveReplayPendingOrder } from "./replay-pending-order-resolution"
 
-export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v17" as const
+export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v18" as const
 
 export interface ReplayEngineCheckpoint {
   schema_version: typeof REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION
@@ -91,6 +95,7 @@ export interface ReplayEngineCheckpoint {
   applied_funding_sources: ReplaySourceEvent[]
   entry_order: ReplayOrder
   entry_transition: ReplayEntryOrderExecution | null
+  pending_order_resolutions: ReplayPendingOrderResolution[]
   partial_reduce_order: ReplayOrder | null
   partial_reduce_fills: ReplayFill[]
   strategy_exit_order: ReplayOrder | null
@@ -232,7 +237,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
   const entryBar = bars[entryIndex]
   const entrySide = request.order.side === "long" ? "buy" : "sell"
   const exitSide = request.order.side === "long" ? "sell" : "buy"
-  const entryPrice = applyAdverseSlippageV3(
+  const marketEntryPrice = applyAdverseSlippageV3(
     entryBar.open,
     entrySide,
     request.cost_policy.slippage_bps,
@@ -286,15 +291,43 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     stable_event_id: `${request.run_id}:ledger:initial-cash`,
   })
   const entryOrderId = `${request.run_id}:order:entry`
-  const entryOrder: ReplayOrder = resumeCheckpoint?.entry_order ?? capture(submitReplayOrder({
+  let entryOrder: ReplayOrder = resumeCheckpoint?.entry_order ?? capture(submitReplayOrder({
     order_id: entryOrderId,
     order_role: "entry",
-    order_type: "market",
+    order_type: request.order.entry_execution.order_type,
     side: entrySide,
     quantity: executionQuantity,
     reduce_only: false,
     submitted_at: request.order.signal_time,
+    ...(request.order.entry_execution.order_type === "limit" ? {
+      limit_price: request.order.entry_execution.limit_price,
+      time_in_force: request.order.entry_execution.time_in_force,
+    } : {}),
   }, nextStamp(request.order.signal_time, 90, 0, 0), 0)).order
+  if (!resumeCheckpoint && entryOrder.order_type === "limit") {
+    entryOrder = capture(activateReplayOrder(
+      entryOrder, nextStamp(request.order.signal_time, 90, 0, 1), 0,
+    )).order
+  }
+  const pendingOrderResolutions: ReplayPendingOrderResolution[] = structuredClone(
+    resumeCheckpoint?.pending_order_resolutions ?? [],
+  )
+  const limitExecutionPrice = (referencePrice: number): number => {
+    const execution = request.order.entry_execution
+    if (execution.order_type !== "limit") throw new Error("Limit execution price requires a Limit entry")
+    const adverse = applyAdverseSlippageV3(
+      referencePrice, entrySide, request.cost_policy.slippage_bps, accountingSpec.price_increment,
+    )
+    return entrySide === "buy" ? Math.min(adverse, execution.limit_price) : Math.max(adverse, execution.limit_price)
+  }
+  const terminalPendingResolution = pendingOrderResolutions.findLast(
+    (resolution) => resolution.outcome.status === "filled",
+  )
+  let entryPrice = request.order.entry_execution.order_type === "market"
+    ? marketEntryPrice
+    : terminalPendingResolution?.outcome.fill_reference_price == null
+      ? request.order.entry_execution.limit_price
+      : limitExecutionPrice(terminalPendingResolution.outcome.fill_reference_price)
   const limitations: ReplayResult["limitations"] = structuredClone(resumeCheckpoint?.limitations ?? prepared.limitations)
   if (!resumeCheckpoint && decisionHarnessReceipt) limitations.push({
     code: "decision-harness-os-sandbox-uncertified",
@@ -313,13 +346,16 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       detail: `Requested quantity ${request.order.quantity} was rounded down to ${executionQuantity} by Numeric Policy v3.`,
     })
   }
+  if (request.order.entry_execution.order_type === "limit" && executionQuantity !== request.order.quantity) {
+    throw new Error("executable Limit entry quantity must align with the frozen instrument increment")
+  }
 
   const entryFillFor = (entryExecution: { entry_order_id: string; entry_fill_event_key: ReplayFill["event_key"]; executed_quantity: number }): ReplayFill => ({
     fill_id: `${request.run_id}:fill:1`,
     order_id: entryExecution.entry_order_id,
     order_role: "entry",
     event_key: entryExecution.entry_fill_event_key,
-    timestamp: entryBar.open_time,
+    timestamp: entryExecution.entry_fill_event_key.event_time,
     side: entrySide,
     quantity: entryExecution.executed_quantity,
     price: entryPrice,
@@ -452,6 +488,17 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     })
   }
 
+  const resolutionEconomics = {
+    entry_basis_price: entryPrice,
+    exit_side: exitSide,
+    cost_policy_id: request.cost_policy.policy_id,
+    cost_policy_version: request.cost_policy.version,
+    fee_bps: request.cost_policy.fee_bps,
+    slippage_bps: request.cost_policy.slippage_bps,
+    price_increment: accountingSpec.price_increment,
+    settlement_increment: accountingSpec.settlement_increment,
+    settlement_asset: accountingSpec.settlement_asset,
+  }
   const sourceReduction = reduceReplaySourceEvents({
     request,
     bars,
@@ -462,17 +509,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     entry_index: entryIndex,
     delisted_at: input.dataset_manifest.instrument.delisted_at,
     limitations,
-    resolution_economics: {
-      entry_basis_price: entryPrice,
-      exit_side: exitSide,
-      cost_policy_id: request.cost_policy.policy_id,
-      cost_policy_version: request.cost_policy.version,
-      fee_bps: request.cost_policy.fee_bps,
-      slippage_bps: request.cost_policy.slippage_bps,
-      price_increment: accountingSpec.price_increment,
-      settlement_increment: accountingSpec.settlement_increment,
-      settlement_asset: accountingSpec.settlement_asset,
-    },
+    resolution_economics: resolutionEconomics,
     resume: resumeCheckpoint ? {
       next_source_offset: resumeCheckpoint.next_source_offset,
       source_events: resumeCheckpoint.source_events,
@@ -580,6 +617,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
         dataset_manifest: input.dataset_manifest,
         boundary,
         entry_order: boundary.entry_transition?.entry_order ?? entryOrder,
+        pending_order_resolutions: pendingOrderResolutions,
         partial_reduce_order: partialReduceOrder,
         partial_reduce_fills: partialReduceFills,
         strategy_exit_order: strategyExitOrder,
@@ -601,17 +639,71 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
         throw new ReplayExecutionInterruptedError(checkpoint)
       }
     },
-    activate_entry: () => completeReplayEntryOrderLane({
-      run_id: request.run_id,
-      entry_time: entryBar.open_time,
-      entry_source_sequence: entrySourceSequence,
-      entry_order: entryOrder,
-      exit_side: exitSide,
-      stop_price: request.order.stop_price,
-      target_price: request.order.target_price,
-      next_stamp: nextStamp,
-      capture,
-    }),
+    activate_entry: () => request.order.entry_execution.order_type === "market"
+      ? completeReplayEntryOrderLane({
+        run_id: request.run_id,
+        entry_time: entryBar.open_time,
+        entry_source_sequence: entrySourceSequence,
+        entry_order: entryOrder,
+        exit_side: exitSide,
+        stop_price: request.order.stop_price,
+        target_price: request.order.target_price,
+        next_stamp: nextStamp,
+        capture,
+      })
+      : null,
+    observe_pending_entry: (source) => {
+      const execution = request.order.entry_execution
+      if (execution.order_type !== "limit") return null
+      if (source.kind !== "bar_open" && source.kind !== "bar_range") return null
+      if (entryOrder.status !== "active") throw new Error("pending Limit entry Order is not active")
+      const bar = bars[source.source_index]
+      if (!bar) throw new Error("pending Limit entry references a missing bar")
+      const resolution = resolveReplayPendingOrder({
+        order: {
+          order_id: entryOrder.order_id,
+          order_type: "limit",
+          side: entrySide,
+          quantity: entryOrder.quantity,
+          time_in_force: "gtc",
+          activation_event_key: entryOrder.last_event_key,
+          limit_price: execution.limit_price,
+          trigger_price: null,
+          trigger_source: null,
+          liquidity_model: execution.liquidity_model,
+          full_fill_capacity: execution.full_fill_capacity,
+        },
+        observation: {
+          observation_kind: source.kind,
+          source_event_key: source.event_key,
+          bar,
+        },
+        cancel_effective_key: null,
+      })
+      pendingOrderResolutions.push(resolution)
+      if (resolution.outcome.status !== "filled") return null
+      entryPrice = limitExecutionPrice(resolution.outcome.fill_reference_price!)
+      resolutionEconomics.entry_basis_price = entryPrice
+      if (!limitations.some((limitation) => limitation.code === "ohlcv-limit-queue-unobserved")) {
+        limitations.push({
+          code: "ohlcv-limit-queue-unobserved",
+          severity: "resolution_limited",
+          detail: "OHLCV strict-cross/full-fill is a frozen bounded liquidity assumption; queue position and traded depth are not observed.",
+        })
+      }
+      const completed = completeReplayLimitEntryOrderLane({
+        run_id: request.run_id,
+        entry_order: entryOrder,
+        resolution,
+        exit_side: exitSide,
+        stop_price: request.order.stop_price,
+        target_price: request.order.target_price,
+        next_stamp: nextStamp,
+        capture,
+      })
+      entryOrder = completed.entry_order
+      return completed
+    },
     get_entry_fill_event_key: (entry) => entry.entry_fill_event_key,
     get_active_protection: (entry) => {
       if (entry.stop_order.status !== "active" || entry.stop_order.trigger_price === null
@@ -819,8 +911,8 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
         : completeReplayExitOrderLane({
         run_id: request.run_id,
         exit,
-        entry_time: entryBar.open_time,
-        entry_source_sequence: entrySourceSequence,
+        entry_time: entry.entry_fill_event_key.event_time,
+        entry_source_sequence: entry.entry_fill_event_key.source_sequence,
         signed_position: entry.signed_position_after,
         stop_order: entry.stop_order,
         target_order: entry.target_order,
@@ -1053,6 +1145,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     equity_bridge: equityBridge,
     margin_snapshots: marginSnapshots,
     ohlcv_resolution_evidence: ohlcvResolutionEvidence,
+    pending_order_resolutions: pendingOrderResolutions,
   })
   const liquidation = exit.role === "liquidation" && exitFill
     ? {
@@ -1100,6 +1193,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     supplemental_evidence: prepared.supplemental_evidence,
     decision_evidence_timeline: decisionEvidenceTimeline,
     ohlcv_resolution_evidence: ohlcvResolutionEvidence,
+    pending_order_resolutions: pendingOrderResolutions,
     metrics,
     limitations,
   }
@@ -1136,6 +1230,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       ohlcv_resolution_evidence_hash: canonicalHash(
         exit.role === "stop" || exit.role === "target" ? [exit.resolution_evidence] : [],
       ),
+      pending_order_resolutions_hash: canonicalHash(pendingOrderResolutions),
       venue_risk_policy_schedule_hash: request.venue_risk_policy_schedule_hash,
       instrument_spec_schedule_hash: request.instrument_spec_schedule_hash,
       instrument_status_schedule_hash: request.instrument_status_schedule_hash,
@@ -1168,6 +1263,7 @@ function buildReplayEngineCheckpoint(input: {
     entry_transition: ReplayEntryOrderExecution | null
   }
   entry_order: ReplayOrder
+  pending_order_resolutions: ReplayPendingOrderResolution[]
   partial_reduce_order: ReplayOrder | null
   partial_reduce_fills: ReplayFill[]
   strategy_exit_order: ReplayOrder | null
@@ -1210,6 +1306,7 @@ function buildReplayEngineCheckpoint(input: {
     applied_funding_sources: structuredClone(input.boundary.applied_funding_sources),
     entry_order: structuredClone(input.entry_order),
     entry_transition: structuredClone(input.boundary.entry_transition),
+    pending_order_resolutions: structuredClone(input.pending_order_resolutions),
     partial_reduce_order: structuredClone(input.partial_reduce_order),
     partial_reduce_fills: structuredClone(input.partial_reduce_fills),
     strategy_exit_order: structuredClone(input.strategy_exit_order),
@@ -1309,6 +1406,41 @@ export function assertReplayEngineCheckpoint(
     }
   }
   assertOrderMatchesLastEvent(checkpoint.entry_order)
+  checkpoint.pending_order_resolutions.forEach(assertReplayPendingOrderResolution)
+  if (request.order.entry_execution.order_type === "market" && checkpoint.pending_order_resolutions.length !== 0) {
+    throw new Error("market-entry checkpoint cannot carry pending-order resolutions")
+  }
+  if (request.order.entry_execution.order_type === "limit") {
+    let previousResolutionKey: ReplayEventKey | null = null
+    const activationEvent = checkpoint.order_events.find(
+      (event) => event.order_id === checkpoint.entry_order.order_id && event.kind === "activated",
+    )
+    if (!activationEvent || checkpoint.entry_order.order_type !== "limit"
+        || checkpoint.entry_order.limit_price !== request.order.entry_execution.limit_price
+        || checkpoint.entry_order.time_in_force !== "gtc") {
+      throw new Error("Limit-entry checkpoint Order authority is invalid")
+    }
+    for (const [index, resolution] of checkpoint.pending_order_resolutions.entries()) {
+      const source = checkpoint.source_events.find(
+        (candidate) => canonicalHash(candidate.event_key) === canonicalHash(resolution.observation.source_event_key),
+      )
+      if (!source || canonicalHash(resolution.order.activation_event_key) !== canonicalHash(activationEvent.event_key)
+          || resolution.order.order_id !== checkpoint.entry_order.order_id
+          || (previousResolutionKey
+            && compareReplayEventKeys(previousResolutionKey, resolution.observation.source_event_key) >= 0)
+          || (index < checkpoint.pending_order_resolutions.length - 1 && resolution.outcome.status !== "resting")) {
+        throw new Error("Limit-entry checkpoint resolution prefix is invalid")
+      }
+      previousResolutionKey = resolution.observation.source_event_key
+    }
+    const terminalResolution = checkpoint.pending_order_resolutions.at(-1)
+    if (checkpoint.entry_transition && terminalResolution?.outcome.status !== "filled") {
+      throw new Error("filled Limit-entry checkpoint lacks terminal pending-order resolution")
+    }
+    if (!checkpoint.entry_transition && terminalResolution?.outcome.status === "filled") {
+      throw new Error("pending Limit-entry checkpoint cannot carry a terminal Fill resolution")
+    }
+  }
   if (checkpoint.entry_transition) {
     assertOrderMatchesLastEvent(checkpoint.entry_transition.entry_order)
     assertOrderMatchesLastEvent(checkpoint.entry_transition.stop_order)

@@ -321,6 +321,7 @@ test("parity: engine result equals accounting and metrics component projections"
     equity_bridge: result.equity_bridge,
     margin_snapshots: result.margin_snapshots,
     ohlcv_resolution_evidence: result.ohlcv_resolution_evidence,
+    pending_order_resolutions: result.pending_order_resolutions,
   })).toEqual(result.metrics)
 })
 

@@ -57,7 +57,7 @@ const markEvents: ReplayMarkEvent[] = [
 ]
 
 function request(dataHash = replayDatasetHash(bars, fundingEvents)): ReplayExecutionRequest {
-  const order: ReplayExecutionRequest["order"] = { side: "long", quantity: 1, signal_time: "2026-07-14T00:00:00Z", earliest_executable_time: "2026-07-14T04:00:00Z", stop_price: 95, target_price: 110 }
+  const order: ReplayExecutionRequest["order"] = { side: "long", quantity: 1, signal_time: "2026-07-14T00:00:00Z", earliest_executable_time: "2026-07-14T04:00:00Z", stop_price: 95, target_price: 110, entry_execution: { order_type: "market" } }
   const decisionSchedule = createReplaySingleDecisionSchedule(order)
   return {
     schema_version: REPLAY_REQUEST_SCHEMA_VERSION,

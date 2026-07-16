@@ -90,6 +90,7 @@ export function fixtureRequest(): ReplayExecutionRequest {
   const order: ReplayExecutionRequest["order"] = {
     side: "long", quantity: 1, signal_time: "2026-07-14T00:00:00Z",
     earliest_executable_time: "2026-07-14T04:00:00Z", stop_price: 95, target_price: 110,
+    entry_execution: { order_type: "market" },
   }
   const decisionSchedule = createReplaySingleDecisionSchedule(order)
   return {
@@ -162,6 +163,26 @@ test("Replay request requires complete Trial and evidence identity", () => {
   }
   unauthorizedSchedule.decision_schedule_hash = canonicalHash(unauthorizedSchedule.decision_schedule)
   expect(() => assertReplayExecutionRequest(unauthorizedSchedule)).toThrow("market-only closed-bar lookback")
+})
+
+test("Request v25 freezes the executable pre-entry GTC Limit envelope", () => {
+  const requestValue = fixtureRequest()
+  requestValue.order = {
+    ...requestValue.order,
+    entry_execution: {
+      order_type: "limit", limit_price: 99.5, time_in_force: "gtc",
+      liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1", full_fill_capacity: 1,
+    },
+  }
+  requestValue.decision_schedule = createReplaySingleDecisionSchedule(requestValue.order)
+  requestValue.decision_schedule_hash = canonicalHash(requestValue.decision_schedule)
+  expect(() => assertReplayExecutionRequest(requestValue)).not.toThrow()
+  const overCapacity = structuredClone(requestValue)
+  if (overCapacity.order.entry_execution.order_type !== "limit") throw new Error("fixture must be Limit")
+  overCapacity.order.entry_execution.full_fill_capacity = 0.5
+  overCapacity.decision_schedule = createReplaySingleDecisionSchedule(overCapacity.order)
+  overCapacity.decision_schedule_hash = canonicalHash(overCapacity.decision_schedule)
+  expect(() => assertReplayExecutionRequest(overCapacity)).toThrow("exceeds frozen full-fill capacity")
 })
 
 test("authorized initial decision lookup is semantic rather than positional", () => {

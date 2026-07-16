@@ -54,6 +54,24 @@ export class ReplayInstrumentTerminalError extends Error {
   }
 }
 
+export class ReplayPendingEntryTerminalError extends Error {
+  readonly code = "limit-entry-unfilled-at-end-of-data" as const
+
+  constructor() {
+    super("Limit entry remained active through the final admissible OHLCV boundary; no Result is published")
+    this.name = "ReplayPendingEntryTerminalError"
+  }
+}
+
+export class ReplayPendingEntryDelistedError extends Error {
+  readonly code = "instrument-delisted-with-pending-entry" as const
+
+  constructor(readonly terminal_event: ReplaySourceEvent) {
+    super(`instrument was delisted while the Limit entry was still pending at ${terminal_event.event_key.event_time}`)
+    this.name = "ReplayPendingEntryDelistedError"
+  }
+}
+
 export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input: {
   request: ReplayExecutionRequest
   bars: ReplayMarketBar[]
@@ -67,7 +85,8 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
   resolution_economics: ReplayOhlcvResolutionEconomics
   resume?: ReplaySourceBoundary<TEntry>
   on_source_boundary?: (boundary: ReplaySourceBoundary<TEntry>) => void
-  activate_entry: (source: ReplaySourceEvent) => TEntry
+  activate_entry: (source: ReplaySourceEvent) => TEntry | null
+  observe_pending_entry: (source: ReplaySourceEvent) => TEntry | null
   get_entry_fill_event_key: (entry: TEntry) => ReplayEventKey
   get_active_protection: (entry: TEntry) => ReplayActiveProtection
   observe_exact_risk: (
@@ -118,7 +137,12 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
   for (let sourceOffset = resumeOffset; sourceOffset < sourceEvents.length; sourceOffset += 1) {
     const source = sourceEvents[sourceOffset]
     consumed.push(source)
-    if (source.kind === "instrument_delisted") throw new ReplayInstrumentTerminalError(source)
+    if (source.kind === "instrument_delisted") {
+      if (entryTransition === undefined && input.request.order.entry_execution.order_type === "limit") {
+        throw new ReplayPendingEntryDelistedError(source)
+      }
+      throw new ReplayInstrumentTerminalError(source)
+    }
     if (source.kind === "instrument_halted" || source.kind === "instrument_resumed") {
       instrumentTrading = source.kind === "instrument_resumed"
       checkpoint(sourceOffset + 1)
@@ -148,11 +172,25 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
     }
     if (source.kind === "bar_open" && source.source_index === input.entry_index && entryTransition === undefined) {
       if (!instrumentTrading) throw new Error("Replay cannot activate an entry while instrument trading is halted")
-      entryTransition = input.activate_entry(source)
+      entryTransition = input.activate_entry(source) ?? undefined
     }
-    if (entryTransition === undefined) throw new Error("Replay entry bar_open must be consumed before in-position market events")
+    let pendingEntryCreated = false
+    if (entryTransition === undefined && (source.kind === "bar_open" || source.kind === "bar_range")) {
+      if (!instrumentTrading) throw new Error("Replay cannot observe a pending entry while instrument trading is halted")
+      entryTransition = input.observe_pending_entry(source) ?? undefined
+      pendingEntryCreated = entryTransition !== undefined
+    }
     const bar = input.bars[source.source_index]
     if (!bar) throw new Error("Replay source event references a missing bar")
+    if (entryTransition === undefined) {
+      assertNextBarContinuity(input, source, bar)
+      checkpoint(sourceOffset + 1)
+      continue
+    }
+    if (pendingEntryCreated) {
+      checkpoint(sourceOffset + 1)
+      continue
+    }
     const isLong = input.request.order.side === "long"
     const activeProtection = input.get_active_protection(entryTransition)
     const activeStopPrice = activeProtection.stop_trigger_price
@@ -264,23 +302,7 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
       entryTransition,
       input.complete_exit,
     )
-    const nextBar = input.bars[source.source_index + 1]
-    if (nextBar && Date.parse(nextBar.open_time) !== Date.parse(bar.close_time)
-        && !isReplayExplicitHaltInterval(input.instrument_status_epochs, bar.close_time, nextBar.open_time)) {
-      const interval = Date.parse(bar.close_time) - Date.parse(bar.open_time)
-      const missingBarCount = (Date.parse(nextBar.open_time) - Date.parse(bar.close_time)) / interval
-      if (!Number.isSafeInteger(missingBarCount) || missingBarCount <= 0) {
-        throw new Error("Replay reached a non-canonical market-data grid discontinuity")
-      }
-      throw new ReplayDataContinuityError({
-        gap_kind: "open_position_grid_gap",
-        gap_start: bar.close_time,
-        next_observed_open: nextBar.open_time,
-        missing_bar_count: missingBarCount,
-        interval_ms: interval,
-        policy: "fail_before_unobserved_interval_effects",
-      })
-    }
+    assertNextBarContinuity(input, source, bar)
     checkpoint(sourceOffset + 1)
   }
 
@@ -291,7 +313,7 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
       ? "Open evidence position remains open and is valued at the final exact mark event; no synthetic exit Fill is created."
       : "Open evidence position remains open and is valued at the final closed bar close; no synthetic exit Fill is created.",
   })
-  if (entryTransition === undefined) throw new Error("Replay source reducer reached end-of-data before entry activation")
+  if (entryTransition === undefined) throw new ReplayPendingEntryTerminalError()
   const finalMark = input.exact_mark_coverage ? input.mark_events.at(-1) : undefined
   return reduction(
     {
@@ -306,6 +328,30 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
     entryTransition,
     input.complete_exit,
   )
+}
+
+function assertNextBarContinuity(
+  input: { bars: ReplayMarketBar[]; instrument_status_epochs: ReplayInstrumentStatusSnapshot[] },
+  source: ReplaySourceEvent,
+  bar: ReplayMarketBar,
+): void {
+  if (source.kind !== "bar_range") return
+  const nextBar = input.bars[source.source_index + 1]
+  if (!nextBar || Date.parse(nextBar.open_time) === Date.parse(bar.close_time)
+      || isReplayExplicitHaltInterval(input.instrument_status_epochs, bar.close_time, nextBar.open_time)) return
+  const interval = Date.parse(bar.close_time) - Date.parse(bar.open_time)
+  const missingBarCount = (Date.parse(nextBar.open_time) - Date.parse(bar.close_time)) / interval
+  if (!Number.isSafeInteger(missingBarCount) || missingBarCount <= 0) {
+    throw new Error("Replay reached a non-canonical market-data grid discontinuity")
+  }
+  throw new ReplayDataContinuityError({
+    gap_kind: "open_position_grid_gap",
+    gap_start: bar.close_time,
+    next_observed_open: nextBar.open_time,
+    missing_bar_count: missingBarCount,
+    interval_ms: interval,
+    policy: "fail_before_unobserved_interval_effects",
+  })
 }
 
 function reduction<TEntry, TTerminal>(

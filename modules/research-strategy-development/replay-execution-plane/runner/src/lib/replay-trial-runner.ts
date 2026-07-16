@@ -24,6 +24,7 @@ import {
   assertReplayDecisionEvidenceTimeline,
   assertReplayOhlcvResolutionEvidence,
   assertReplayResultOhlcvResolutionBindings,
+  assertReplayResultPendingOrderBindings,
   canonicalHash,
   canonicalJson,
   createReplayDecisionEvidenceTimeline,
@@ -53,7 +54,7 @@ import {
 } from "../../../engine/src/lib/replay-reference-engine"
 import { assertReplayOhlcvEconomicImpactBindings } from "../../../engine/src/lib/replay-ohlcv-resolution"
 import { ReplayLiquidationDeficitError, ReplayMarginTerminalError } from "../../../engine/src/lib/replay-margin-path"
-import { ReplayInstrumentTerminalError } from "../../../engine/src/lib/replay-source-reducer"
+import { ReplayInstrumentTerminalError, ReplayPendingEntryDelistedError, ReplayPendingEntryTerminalError } from "../../../engine/src/lib/replay-source-reducer"
 import {
   createReplayLocalArtifactStore,
 } from "./replay-local-artifact-store"
@@ -115,7 +116,7 @@ export interface ReplayTrialRunOutcome {
   diagnostic_checkpoint_commit?: ReplayDiagnosticCheckpointCommitRef
   cancellation_observation?: ReplayAttemptCancellationObservationSnapshot
   failure?: {
-    code: "trial-reservation-rejected" | "trial-reservation-expired" | "attempt-lease-rejected" | "resume-authorization-rejected" | "artifact-store-rejected" | "decision-harness-rejected" | "cancelled-before-start" | "execution-cancelled-at-checkpoint" | "instrument-delisted-with-open-position" | "initial-margin-deficit-without-resize" | "maintenance-margin-breach-without-liquidation" | "maintenance-margin-breach-while-halted" | "liquidation-deficit-unsupported" | "dataset-grid-gap-in-execution-window" | "replay-execution-failed"
+    code: "trial-reservation-rejected" | "trial-reservation-expired" | "attempt-lease-rejected" | "resume-authorization-rejected" | "artifact-store-rejected" | "decision-harness-rejected" | "cancelled-before-start" | "execution-cancelled-at-checkpoint" | "instrument-delisted-with-open-position" | "instrument-delisted-with-pending-entry" | "limit-entry-unfilled-at-end-of-data" | "initial-margin-deficit-without-resize" | "maintenance-margin-breach-without-liquidation" | "maintenance-margin-breach-while-halted" | "liquidation-deficit-unsupported" | "dataset-grid-gap-in-execution-window" | "replay-execution-failed"
     failure_class: "input_invalid" | "unsupported_contract" | "data_integrity" | "deterministic_engine" | "resource" | "external_io"
     message: string
     retryable: boolean
@@ -366,6 +367,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
       },
     })
     assertReplayResultOhlcvResolutionBindings(result, input.request)
+    assertReplayResultPendingOrderBindings(result, input.request)
     assertResultOhlcvEconomicImpactBindings(result, input.request, input.dataset_manifest)
     const committedArtifact = activeArtifactNamespace
       ? commitArtifacts(
@@ -394,6 +396,8 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     const artifactStoreRejected = error instanceof ReplayArtifactStoreContractError
     const decisionHarnessRejected = error instanceof ReplayDecisionHarnessError
     const instrumentTerminal = error instanceof ReplayInstrumentTerminalError
+    const pendingEntryDelisted = error instanceof ReplayPendingEntryDelistedError
+    const pendingEntryTerminal = error instanceof ReplayPendingEntryTerminalError
     const marginTerminal = error instanceof ReplayMarginTerminalError
     const liquidationDeficit = error instanceof ReplayLiquidationDeficitError
     const dataContinuity = isReplayDataContinuityFailure(error)
@@ -419,12 +423,12 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
         ? { cancellation_observation: cancellationObservation }
         : {}),
       failure: {
-        code: interrupted ? error.code : leaseRejected ? "attempt-lease-rejected" : resumeRejected ? "resume-authorization-rejected" : artifactStoreRejected ? "artifact-store-rejected" : decisionHarnessRejected ? error.code : instrumentTerminal || marginTerminal || liquidationDeficit || dataContinuity ? error.code : "replay-execution-failed",
-        failure_class: interrupted || leaseRejected ? "resource" : resumeRejected || artifactStoreRejected || decisionHarnessRejected ? "unsupported_contract" : instrumentTerminal || marginTerminal || liquidationDeficit ? "deterministic_engine" : "data_integrity",
+        code: interrupted ? error.code : leaseRejected ? "attempt-lease-rejected" : resumeRejected ? "resume-authorization-rejected" : artifactStoreRejected ? "artifact-store-rejected" : decisionHarnessRejected ? error.code : instrumentTerminal || pendingEntryDelisted || pendingEntryTerminal || marginTerminal || liquidationDeficit || dataContinuity ? error.code : "replay-execution-failed",
+        failure_class: interrupted || leaseRejected ? "resource" : resumeRejected || artifactStoreRejected || decisionHarnessRejected ? "unsupported_contract" : instrumentTerminal || pendingEntryDelisted || pendingEntryTerminal || marginTerminal || liquidationDeficit ? "deterministic_engine" : "data_integrity",
         message: error instanceof Error ? error.message : String(error),
         retryable: false,
         partial_result_published: false,
-        ...(instrumentTerminal ? { event_key: error.terminal_event.event_key } : {}),
+        ...(instrumentTerminal || pendingEntryDelisted ? { event_key: error.terminal_event.event_key } : {}),
         ...(marginTerminal ? {
           event_key: error.terminal_snapshot.event_key,
           margin_snapshot: error.terminal_snapshot,
@@ -724,6 +728,7 @@ const ARTIFACT_FILE_NAMES: Readonly<Record<(typeof REPLAY_REQUIRED_ARTIFACT_ROLE
   decision_evidence_timeline: "decision-evidence-timeline.json",
   order_events: "order-events.jsonl", fills: "fills.jsonl", positions: "positions.jsonl", ledger: "ledger.jsonl",
   ohlcv_resolution_evidence: "ohlcv-resolution-evidence.json",
+  pending_order_resolutions: "pending-order-resolutions.json",
   valuation_snapshot: "valuation-snapshot.json", equity_bridge: "equity-bridge.json", margin_snapshots: "margin-snapshots.json",
   liquidation: "liquidation.json", journal: "journal.jsonl", trial_balance: "trial-balance.json",
 }
@@ -751,6 +756,7 @@ function commitArtifacts(
   const positionsText = result.positions.map((position) => canonicalJson(position)).join("\n") + "\n"
   const ledgerText = result.ledger.map((entry) => canonicalJson(entry)).join("\n") + "\n"
   const ohlcvResolutionEvidenceText = `${canonicalJson(result.ohlcv_resolution_evidence)}\n`
+  const pendingOrderResolutionsText = `${canonicalJson(result.pending_order_resolutions)}\n`
   const valuationSnapshotText = `${canonicalJson(result.valuation_snapshot)}\n`
   const equityBridgeText = `${canonicalJson(result.equity_bridge)}\n`
   const marginSnapshotsText = `${canonicalJson(result.margin_snapshots)}\n`
@@ -772,6 +778,7 @@ function commitArtifacts(
     writeImmutable(namespace, "positions.jsonl", positionsText, "positions"),
     writeImmutable(namespace, "ledger.jsonl", ledgerText, "ledger"),
     writeImmutable(namespace, "ohlcv-resolution-evidence.json", ohlcvResolutionEvidenceText, "ohlcv_resolution_evidence"),
+    writeImmutable(namespace, "pending-order-resolutions.json", pendingOrderResolutionsText, "pending_order_resolutions"),
     writeImmutable(namespace, "valuation-snapshot.json", valuationSnapshotText, "valuation_snapshot"),
     writeImmutable(namespace, "equity-bridge.json", equityBridgeText, "equity_bridge"),
     writeImmutable(namespace, "margin-snapshots.json", marginSnapshotsText, "margin_snapshots"),
@@ -874,6 +881,7 @@ function readCommitted(
   const result = JSON.parse(decode(namespace.read(ARTIFACT_FILE_NAMES.result).bytes)) as ReplayResult
   if (result.schema_version !== REPLAY_RESULT_SCHEMA_VERSION) throw new Error("committed Replay result schema is not supported")
   assertReplayResultOhlcvResolutionBindings(result, request)
+  assertReplayResultPendingOrderBindings(result, request)
   assertResultOhlcvEconomicImpactBindings(result, request, datasetManifest)
   if (manifest.run_id !== request.run_id || result.run_id !== request.run_id
       || manifest.result_hash !== result.fingerprint.result_hash) {
@@ -904,6 +912,13 @@ function readCommitted(
   if (canonicalHash(recordedOhlcvResolutionEvidence) !== canonicalHash(result.ohlcv_resolution_evidence)
       || result.fingerprint.ohlcv_resolution_evidence_hash !== canonicalHash(recordedOhlcvResolutionEvidence)) {
     throw new Error("committed Replay OHLCV Resolution Evidence does not match Result")
+  }
+  const recordedPendingOrderResolutions = JSON.parse(
+    decode(namespace.read(ARTIFACT_FILE_NAMES.pending_order_resolutions).bytes),
+  ) as ReplayResult["pending_order_resolutions"]
+  if (canonicalHash(recordedPendingOrderResolutions) !== canonicalHash(result.pending_order_resolutions)
+      || result.fingerprint.pending_order_resolutions_hash !== canonicalHash(recordedPendingOrderResolutions)) {
+    throw new Error("committed Replay pending-order resolutions do not match Result")
   }
   if (result.supplemental_evidence.decision_input_snapshot_hash !== recordedDecisionInputSnapshot.snapshot_hash
       || result.fingerprint.decision_evidence_timeline_hash !== recordedDecisionEvidenceTimeline.timeline_hash
@@ -945,6 +960,7 @@ function readCommitted(
     supplemental_evidence: result.supplemental_evidence,
     decision_evidence_timeline: result.decision_evidence_timeline,
     ohlcv_resolution_evidence: result.ohlcv_resolution_evidence,
+    pending_order_resolutions: result.pending_order_resolutions,
     metrics: result.metrics,
     limitations: result.limitations,
   }) !== manifest.result_hash) throw new Error("committed Replay result hash mismatch")

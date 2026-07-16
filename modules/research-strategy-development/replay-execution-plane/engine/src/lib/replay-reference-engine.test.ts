@@ -26,6 +26,7 @@ import {
   REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION,
   REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
   assertReplayResultOhlcvResolutionBindings,
+  assertReplayResultPendingOrderBindings,
   canonicalHash,
   createReplayDecisionHarnessContext,
   createReplayDecisionHarnessBuildAttestation,
@@ -35,6 +36,7 @@ import {
   createReplayInstrumentStatusProvenance,
   createReplaySingleDecisionSchedule,
   replayDatasetHash,
+  replayPendingOrderResolutionHash,
   type ReplayDatasetManifest,
   type ReplayExecutionRequest,
   type ReplayFundingEvent,
@@ -69,6 +71,7 @@ function request(side: "long" | "short" = "long"): ReplayExecutionRequest {
     side, quantity: 1, signal_time: "2026-07-14T00:00:00Z",
     earliest_executable_time: "2026-07-14T04:00:00Z",
     stop_price: side === "long" ? 95 : 105, target_price: side === "long" ? 110 : 90,
+    entry_execution: { order_type: "market" },
   }
   const decisionSchedule = createReplaySingleDecisionSchedule(order)
   return {
@@ -310,6 +313,60 @@ test("closed-candle signal enters at next open and resolves same-bar collision s
   fillTampered.fills.at(-1)!.price += 1
   expect(() => assertReplayResultOhlcvResolutionBindings(fillTampered, request()))
     .toThrow("terminal Fill binding is invalid")
+})
+
+test("pre-entry GTC Limit rests, strict-cross fills within its bound, and resumes with identical evidence", () => {
+  const requestValue = request()
+  requestValue.order = {
+    ...requestValue.order,
+    entry_execution: {
+      order_type: "limit", limit_price: 99.5, time_in_force: "gtc",
+      liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1", full_fill_capacity: 1,
+    },
+  }
+  requestValue.decision_schedule = createReplaySingleDecisionSchedule(requestValue.order)
+  requestValue.decision_schedule_hash = canonicalHash(requestValue.decision_schedule)
+  const replayInput = inputFor(requestValue, [
+    bar("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", 101, 103, 100, 102),
+    bar("2026-07-14T08:00:00Z", "2026-07-14T12:00:00Z", 101, 103, 99, 100),
+    bar("2026-07-14T12:00:00Z", "2026-07-14T16:00:00Z", 100, 111, 98, 110),
+  ])
+  const uninterrupted = executeReplayKernel(replayInput)
+  expect(uninterrupted.fills[0]).toMatchObject({
+    order_role: "entry", timestamp: "2026-07-14T12:00:00Z", price: 99.5, quantity: 1,
+  })
+  expect(uninterrupted.pending_order_resolutions.map((resolution) => resolution.outcome.reason)).toEqual([
+    "limit_not_reached", "limit_not_reached", "limit_not_reached", "limit_strict_cross",
+  ])
+  expect(uninterrupted.metrics.pending_order_resolution_limited_count).toBe(1)
+  expect(uninterrupted.limitations.map((limitation) => limitation.code)).toContain("ohlcv-limit-queue-unobserved")
+  assertReplayResultPendingOrderBindings(uninterrupted, replayInput.request)
+
+  let checkpoint: ReplayEngineCheckpoint | undefined
+  expect(() => executeReplayKernel({
+    ...replayInput,
+    execution_control: { on_checkpoint: (value) => { checkpoint = value; return "cancel" } },
+  })).toThrow(ReplayExecutionInterruptedError)
+  expect(checkpoint?.entry_transition).toBeNull()
+  expect(checkpoint?.entry_order.status).toBe("active")
+  expect(checkpoint?.pending_order_resolutions).toHaveLength(1)
+  const tampered = structuredClone(checkpoint!)
+  const tamperedResolution = tampered.pending_order_resolutions[0]!
+  tamperedResolution.observation.source_event_key.stable_event_id = "forged-source"
+  if (!tamperedResolution.outcome.decisive_event_key) throw new Error("fixture resolution must be decisive")
+  tamperedResolution.outcome.decisive_event_key.stable_event_id = "forged-source"
+  const { resolution_hash: _resolutionHash, ...resolutionBody } = tamperedResolution
+  tamperedResolution.resolution_hash = replayPendingOrderResolutionHash(resolutionBody)
+  const { checkpoint_hash: _checkpointHash, ...checkpointBody } = tampered
+  tampered.checkpoint_hash = canonicalHash(checkpointBody)
+  expect(() => executeReplayKernel({
+    ...replayInput, execution_control: { resume_checkpoint: tampered },
+  })).toThrow("resolution prefix is invalid")
+  const resumed = executeReplayKernel({
+    ...replayInput,
+    execution_control: { resume_checkpoint: checkpoint },
+  })
+  expect(canonicalHash(resumed)).toBe(canonicalHash(uninterrupted))
 })
 
 test("stop gap fills at the worse open and ledger conserves equity", () => {

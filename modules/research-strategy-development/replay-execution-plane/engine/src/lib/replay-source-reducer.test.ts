@@ -21,6 +21,7 @@ function request(): ReplayExecutionRequest {
   const order: ReplayExecutionRequest["order"] = {
     side: "long", quantity: 1, signal_time: "2026-07-14T00:00:00Z",
     earliest_executable_time: "2026-07-14T04:00:00Z", stop_price: 95, target_price: 110,
+    entry_execution: { order_type: "market" },
   }
   const decisionSchedule = createReplaySingleDecisionSchedule(order)
   return {
@@ -94,6 +95,7 @@ test("source reducer stops at the terminal market event and keeps only in-positi
         event_subphase: 3, stable_event_id: "entry-fill",
       }),
     }),
+    observe_pending_entry: () => null,
     get_entry_fill_event_key: (entry) => entry.fill_key,
     get_active_protection: () => ({
       protection_generation: 1, remaining_quantity: 1,

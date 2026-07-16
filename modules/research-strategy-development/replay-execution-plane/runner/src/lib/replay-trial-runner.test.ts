@@ -90,7 +90,7 @@ const statusProvenance = (statusEpochs: ReplayInstrumentStatusSnapshot[] = [STAT
 const ACCOUNTING = { spec_version: REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, product_type: "linear_derivative" as const, base_asset: "BTC", quote_asset: "USDT", settlement_asset: "USDT", contract_multiplier: "1", price_increment: "0.01", quantity_increment: "0.001", settlement_increment: "0.00000001" }
 
 function request(): ReplayExecutionRequest {
-  const order: ReplayExecutionRequest["order"] = { side: "long", quantity: 1, signal_time: "2026-07-14T00:00:00Z", earliest_executable_time: "2026-07-14T04:00:00Z", stop_price: 95, target_price: 110 }
+  const order: ReplayExecutionRequest["order"] = { side: "long", quantity: 1, signal_time: "2026-07-14T00:00:00Z", earliest_executable_time: "2026-07-14T04:00:00Z", stop_price: 95, target_price: 110, entry_execution: { order_type: "market" } }
   const decisionSchedule = createReplaySingleDecisionSchedule(order)
   return {
     schema_version: REPLAY_REQUEST_SCHEMA_VERSION,
@@ -125,7 +125,7 @@ const DATA_HASH = replayDatasetHash(bars)
 function boundRequest(): ReplayExecutionRequest { return { ...request(), dataset_hash: DATA_HASH } }
 
 function decisionHarness(sourceContent = `export function execute({ request_context, decision_input_snapshot }) {
-  return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: 95, target_price: 110 } }, trace: { selected_records_hash: decision_input_snapshot.selected_records_hash } }
+  return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: 95, target_price: 110, entry_execution: { order_type: "market" } } }, trace: { selected_records_hash: decision_input_snapshot.selected_records_hash } }
 }\n`): ReplayRegisteredDecisionHarness & { registry: ReturnType<typeof createReplayDecisionHarnessRegistry> } {
   const sourceBundle = createReplayDecisionHarnessSourceBundle({
     bundle_ref: "harness://fixture/runner-decision-v1",
@@ -142,7 +142,7 @@ function decisionHarness(sourceContent = `export function execute({ request_cont
 
 test("decision harness build is deterministic and each invocation uses a fresh subprocess", () => {
   const registration = decisionHarness(`export function execute({ request_context }) {
-    return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: 95, target_price: 110 } }, trace: { worker_pid: process.pid } }
+    return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: 95, target_price: 110, entry_execution: { order_type: "market" } } }, trace: { worker_pid: process.pid } }
   }\n`)
   expect(buildReplayDecisionHarness(registration.source_bundle)).toEqual(registration.build_attestation)
   const requestValue = boundRequest()
@@ -344,13 +344,78 @@ test("runner atomically commits artifacts and retries idempotently", () => {
     artifact_store: createReplayLocalArtifactStore(root),
   })
   expect(first.status).toBe("completed")
-  expect(first.artifact_manifest?.files.map((file) => file.role)).toEqual(["request", "trial_reservation", "attempt_lease", "dataset_manifest", "supplemental_facts", "decision_market_input_snapshot", "decision_evidence_timeline", "result", "source_events", "order_events", "fills", "positions", "ledger", "ohlcv_resolution_evidence", "valuation_snapshot", "equity_bridge", "margin_snapshots", "liquidation", "journal", "trial_balance"])
+  expect(first.artifact_manifest?.files.map((file) => file.role)).toEqual(["request", "trial_reservation", "attempt_lease", "dataset_manifest", "supplemental_facts", "decision_market_input_snapshot", "decision_evidence_timeline", "result", "source_events", "order_events", "fills", "positions", "ledger", "ohlcv_resolution_evidence", "pending_order_resolutions", "valuation_snapshot", "equity_bridge", "margin_snapshots", "liquidation", "journal", "trial_balance"])
   expect(first.artifact_manifest?.completeness.authoritative_result).toBe(true)
   expect(first.artifact_manifest?.storage_policy_version).toBe(REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION)
   expect(first.artifact_commit?.terminal_checkpoint_hash).toBe(first.artifact_manifest?.completeness.terminal_checkpoint_hash)
   expect(first.artifact_commit?.storage_policy_version).toBe(REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION)
   expect(second.status).toBe("completed")
   expect(second.idempotent_replay).toBe(true)
+})
+
+test("runner commits a pre-entry GTC Limit resolution chain as an authoritative artifact", () => {
+  const limitBars = [
+    { open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 101, high: 103, low: 100, close: 102, volume: 10, closed: true as const },
+    { open_time: "2026-07-14T08:00:00Z", close_time: "2026-07-14T12:00:00Z", open: 101, high: 103, low: 99, close: 100, volume: 10, closed: true as const },
+    { open_time: "2026-07-14T12:00:00Z", close_time: "2026-07-14T16:00:00Z", open: 100, high: 111, low: 98, close: 110, volume: 10, closed: true as const },
+  ]
+  const dataHash = replayDatasetHash(limitBars)
+  const order: ReplayExecutionRequest["order"] = {
+    ...request().order,
+    entry_execution: {
+      order_type: "limit", limit_price: 99.5, time_in_force: "gtc",
+      liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1", full_fill_capacity: 1,
+    },
+  }
+  const decisionSchedule = createReplaySingleDecisionSchedule(order)
+  const requestValue: ReplayExecutionRequest = {
+    ...request(), order, dataset_hash: dataHash,
+    decision_schedule: decisionSchedule, decision_schedule_hash: canonicalHash(decisionSchedule),
+  }
+  const root = mkdtempSync(join(tmpdir(), "rd-replay-limit-runner-"))
+  const completed = runReplayTrial({
+    ...authorized(requestValue), dataset_manifest: datasetManifestFor(limitBars, dataHash),
+    bars: limitBars, artifact_root: root,
+  })
+  expect(completed.status).toBe("completed")
+  expect(completed.result?.pending_order_resolutions.at(-1)?.outcome.reason).toBe("limit_strict_cross")
+  expect(completed.result?.fills[0]).toMatchObject({ order_role: "entry", price: 99.5 })
+  expect(completed.result?.fingerprint.pending_order_resolutions_hash)
+    .toBe(canonicalHash(completed.result?.pending_order_resolutions))
+  expect(completed.artifact_manifest?.files.some(
+    (file) => file.role === "pending_order_resolutions" && file.ref.endsWith("pending-order-resolutions.json"),
+  )).toBe(true)
+})
+
+test("runner returns a typed terminal failure when a GTC Limit never fills", () => {
+  const noFillBars = [
+    { open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 101, high: 103, low: 100, close: 102, volume: 10, closed: true as const },
+  ]
+  const dataHash = replayDatasetHash(noFillBars)
+  const order: ReplayExecutionRequest["order"] = {
+    ...request().order,
+    entry_execution: {
+      order_type: "limit", limit_price: 99.5, time_in_force: "gtc",
+      liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1", full_fill_capacity: 1,
+    },
+  }
+  const decisionSchedule = createReplaySingleDecisionSchedule(order)
+  const requestValue: ReplayExecutionRequest = {
+    ...request(), order, dataset_hash: dataHash,
+    decision_schedule: decisionSchedule, decision_schedule_hash: canonicalHash(decisionSchedule),
+  }
+  const failed = runReplayTrial({
+    ...authorized(requestValue), dataset_manifest: datasetManifestFor(noFillBars, dataHash), bars: noFillBars,
+  })
+  expect(failed).toMatchObject({
+    status: "failed",
+    failure: {
+      code: "limit-entry-unfilled-at-end-of-data", failure_class: "deterministic_engine",
+      retryable: false, partial_result_published: false,
+    },
+  })
+  expect(failed.result).toBeUndefined()
+  expect(failed.artifact_manifest).toBeUndefined()
 })
 
 test("runner returns typed data-gap failures without publishing partial Result", () => {
@@ -501,7 +566,7 @@ test("runner commits the complete supplemental revision stream as immutable evid
   })
   expect(mismatchedOrder.failure).toMatchObject({ code: "decision-harness-rejected", partial_result_published: false })
   const nondeterministicHarness = decisionHarness(`export function execute({ request_context }) {
-    return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: 95, target_price: 110 } }, trace: { worker_pid: process.pid } }
+    return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: 95, target_price: 110, entry_execution: { order_type: "market" } } }, trace: { worker_pid: process.pid } }
   }\n`)
   const nondeterministicRequest = { ...requestValue, harness_hash: nondeterministicHarness.source_bundle.bundle_hash }
   const nondeterministicResult = runReplayTrial({
@@ -532,10 +597,10 @@ test("runner recomputes the frozen Order from a hash-bound closed-bar lookback w
   const registeredHarness = decisionHarness(`export function execute({ request_context, decision_market_input_snapshot }) {
     if ("order" in request_context) throw new Error("request context leaked order")
     const close = decision_market_input_snapshot.bars.at(-1).close
-    return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: close - 6, target_price: close + 9 } }, trace: { bars_hash: decision_market_input_snapshot.bars_hash } }
+    return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: close - 6, target_price: close + 9, entry_execution: { order_type: "market" } } }, trace: { bars_hash: decision_market_input_snapshot.bars_hash } }
   }\n`)
   const dataHash = replayDatasetHash(marketBars)
-  const order: ReplayExecutionRequest["order"] = { side: "long", quantity: 1, signal_time: "2026-07-14T04:00:00Z", earliest_executable_time: "2026-07-14T08:00:00Z", stop_price: 95, target_price: 110 }
+  const order: ReplayExecutionRequest["order"] = { side: "long", quantity: 1, signal_time: "2026-07-14T04:00:00Z", earliest_executable_time: "2026-07-14T08:00:00Z", stop_price: 95, target_price: 110, entry_execution: { order_type: "market" } }
   const decisionSchedule = createReplaySingleDecisionSchedule(order)
   const requestValue: ReplayExecutionRequest = {
     ...boundRequest(),
@@ -591,11 +656,12 @@ test("runner evaluates every frozen closed-bar boundary before one authorized in
   const registeredHarness = decisionHarness(`export function execute({ request_context, decision_market_input_snapshot }) {
     if (request_context.decision_sequence === 1) return { decision_output: { action: "no_action" }, trace: { close: decision_market_input_snapshot.bars.at(-1).close } }
     const close = decision_market_input_snapshot.bars.at(-1).close
-    return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: close - 7, target_price: close + 8 } }, trace: { close } }
+    return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: close - 7, target_price: close + 8, entry_execution: { order_type: "market" } } }, trace: { close } }
   }\n`)
   const order: ReplayExecutionRequest["order"] = {
     side: "long", quantity: 1, signal_time: "2026-07-14T08:00:00Z",
     earliest_executable_time: "2026-07-14T12:00:00Z", stop_price: 95, target_price: 110,
+    entry_execution: { order_type: "market" },
   }
   const decisionSchedule = {
     schema_version: REPLAY_DECISION_SCHEDULE_SCHEMA_VERSION,
@@ -655,11 +721,12 @@ test("runner evaluates position-open no-action from runtime state and records te
       if (decision_state_snapshot?.position.state !== "open") throw new Error("missing runtime open state")
       return { decision_output: { action: "no_action" }, trace: { state_hash: decision_state_snapshot.snapshot_hash, mark: decision_state_snapshot.mark_price } }
     }
-    return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: 95, target_price: 110 } }, trace: { phase: request_context.decision_phase } }
+    return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: 95, target_price: 110, entry_execution: { order_type: "market" } } }, trace: { phase: request_context.decision_phase } }
   }\n`)
   const order: ReplayExecutionRequest["order"] = {
     side: "long", quantity: 1, signal_time: "2026-07-14T08:00:00Z",
     earliest_executable_time: "2026-07-14T12:00:00Z", stop_price: 95, target_price: 110,
+    entry_execution: { order_type: "market" },
   }
   const decisionSchedule = {
     schema_version: REPLAY_DECISION_SCHEDULE_SCHEMA_VERSION,
@@ -781,6 +848,7 @@ test("runner submits one authorized full reduce-only exit and executes it at the
   const order: ReplayExecutionRequest["order"] = {
     side: "long", quantity: 1, signal_time: "2026-07-14T08:00:00Z",
     earliest_executable_time: "2026-07-14T12:00:00Z", stop_price: 95, target_price: 120,
+    entry_execution: { order_type: "market" },
   }
   const exitIntent = {
     schema_version: REPLAY_REDUCE_ONLY_EXIT_INTENT_SCHEMA_VERSION,
@@ -804,7 +872,7 @@ test("runner submits one authorized full reduce-only exit and executes it at the
       if (decision_state_snapshot?.position.state !== "open") throw new Error("missing runtime open state")
       return { decision_output: { action: "submit_reduce_only_exit", order: { schema_version: "trade.rd-replay-reduce-only-exit-intent.v1", side: "sell", order_type: "market", reduce_only: true, quantity_policy: "full_open_position", signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time } }, trace: { state_hash: decision_state_snapshot.snapshot_hash } }
     }
-    return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: 95, target_price: 120 } }, trace: { phase: request_context.decision_phase } }
+    return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: 95, target_price: 120, entry_execution: { order_type: "market" } } }, trace: { phase: request_context.decision_phase } }
   }\n`)
   const dataHash = replayDatasetHash(marketBars)
   const requestValue: ReplayExecutionRequest = {
@@ -949,6 +1017,7 @@ test("runner partially reduces once, rebuilds full protection, then cleanly resu
   const order: ReplayExecutionRequest["order"] = {
     side: "long", quantity: 1, signal_time: "2026-07-14T08:00:00Z",
     earliest_executable_time: "2026-07-14T12:00:00Z", stop_price: 95, target_price: 120,
+    entry_execution: { order_type: "market" },
   }
   const partialIntent = {
     schema_version: REPLAY_PARTIAL_REDUCE_INTENT_SCHEMA_VERSION,
@@ -980,7 +1049,7 @@ test("runner partially reduces once, rebuilds full protection, then cleanly resu
   const registeredHarness = decisionHarness(`export function execute({ request_context, decision_state_snapshot }) {
     if (request_context.decision_sequence === 2) return { decision_output: { action: "submit_partial_reduce", order: { schema_version: ${JSON.stringify(REPLAY_PARTIAL_REDUCE_INTENT_SCHEMA_VERSION)}, side: "sell", order_type: "market", reduce_only: true, quantity_policy: "fixed_quantity", quantity: 0.4, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, post_fill_position_policy: "must_remain_open", protection_resize_policy: "after_fill_cancel_both_then_replace_remaining_at_same_source_boundary", protection_policy_version: ${JSON.stringify(REPLAY_PARTIAL_REDUCE_PROTECTION_POLICY_VERSION)}, replacement_trigger_policy: "preserve_current_stop_and_target_prices", remaining_quantity_authority: "absolute_post_fill_position", schedule_combination_policy: "one_partial_reduce_then_optional_final_full_exit_no_stop_replace" } }, trace: { state_hash: decision_state_snapshot.snapshot_hash } }
     if (request_context.decision_sequence === 3) return { decision_output: { action: "submit_reduce_only_exit", order: { schema_version: "trade.rd-replay-reduce-only-exit-intent.v1", side: "sell", order_type: "market", reduce_only: true, quantity_policy: "full_open_position", signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time } }, trace: { state_hash: decision_state_snapshot.snapshot_hash } }
-    return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: 95, target_price: 120 } }, trace: { phase: request_context.decision_phase } }
+    return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: 95, target_price: 120, entry_execution: { order_type: "market" } } }, trace: { phase: request_context.decision_phase } }
   }\n`)
   const dataHash = replayDatasetHash(marketBars, fundingEvents)
   const requestValue: ReplayExecutionRequest = {
@@ -1221,6 +1290,7 @@ test("runner tightens one protective stop and resumes without replaying its Harn
   const order: ReplayExecutionRequest["order"] = {
     side: "long", quantity: 1, signal_time: "2026-07-14T08:00:00Z",
     earliest_executable_time: "2026-07-14T12:00:00Z", stop_price: 95, target_price: 120,
+    entry_execution: { order_type: "market" },
   }
   const replaceIntent = {
     schema_version: REPLAY_PROTECTIVE_STOP_REPLACE_INTENT_SCHEMA_VERSION,
@@ -1242,7 +1312,7 @@ test("runner tightens one protective stop and resumes without replaying its Harn
       if (decision_state_snapshot?.active_protection.stop.trigger_price !== 95) throw new Error("missing active stop state")
       return { decision_output: { action: "replace_protective_stop", order: { schema_version: "trade.rd-replay-protective-stop-replace-intent.v1", side: "sell", order_type: "stop_market", reduce_only: true, quantity_policy: "full_open_position", replace_policy: "tighten_only_cancel_then_submit", signal_time: request_context.decision_time, previous_stop_price: 95, new_stop_price: 104 } }, trace: { state_hash: decision_state_snapshot.snapshot_hash } }
     }
-    return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: 95, target_price: 120 } }, trace: { phase: request_context.decision_phase } }
+    return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: 95, target_price: 120, entry_execution: { order_type: "market" } } }, trace: { phase: request_context.decision_phase } }
   }\n`)
   const dataHash = replayDatasetHash(marketBars)
   const requestValue: ReplayExecutionRequest = {
@@ -1406,6 +1476,7 @@ test("runner preserves one terminal owner after stop replacement and a later str
   const order: ReplayExecutionRequest["order"] = {
     side: "long", quantity: 1, signal_time: "2026-07-14T08:00:00Z",
     earliest_executable_time: "2026-07-14T12:00:00Z", stop_price: 95, target_price: 120,
+    entry_execution: { order_type: "market" },
   }
   const replaceIntent = {
     schema_version: REPLAY_PROTECTIVE_STOP_REPLACE_INTENT_SCHEMA_VERSION,
@@ -1431,7 +1502,7 @@ test("runner preserves one terminal owner after stop replacement and a later str
   }
   const registeredHarness = decisionHarness(`export function execute({ request_context, decision_state_snapshot }) {
     if (request_context.decision_phase === "initial_entry") {
-      return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: 95, target_price: 120 } }, trace: { phase: "entry" } }
+      return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: 95, target_price: 120, entry_execution: { order_type: "market" } } }, trace: { phase: "entry" } }
     }
     const stop = decision_state_snapshot?.active_protection.stop.trigger_price
     if (stop === 95) {
@@ -1538,6 +1609,7 @@ test("protective stop replacement is direction-symmetric and keeps stop-first OH
       side, quantity: 1, signal_time: "2026-07-14T08:00:00Z",
       earliest_executable_time: "2026-07-14T12:00:00Z",
       stop_price: initialStop, target_price: target,
+      entry_execution: { order_type: "market" },
     }
     const replaceIntent = {
       schema_version: REPLAY_PROTECTIVE_STOP_REPLACE_INTENT_SCHEMA_VERSION,
@@ -1557,7 +1629,7 @@ test("protective stop replacement is direction-symmetric and keeps stop-first OH
     }
     const registeredHarness = decisionHarness(`export function execute({ request_context, decision_state_snapshot }) {
       if (request_context.decision_phase === "initial_entry") {
-        return { decision_output: { action: "submit_initial_order", order: { side: ${JSON.stringify(side)}, quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: ${initialStop}, target_price: ${target} } }, trace: { phase: "entry" } }
+        return { decision_output: { action: "submit_initial_order", order: { side: ${JSON.stringify(side)}, quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: ${initialStop}, target_price: ${target}, entry_execution: { order_type: "market" } } }, trace: { phase: "entry" } }
       }
       if (decision_state_snapshot?.active_protection.stop.trigger_price !== ${initialStop}) throw new Error("wrong active stop")
       return { decision_output: { action: "replace_protective_stop", order: { schema_version: "trade.rd-replay-protective-stop-replace-intent.v1", side: ${JSON.stringify(exitSide)}, order_type: "stop_market", reduce_only: true, quantity_policy: "full_open_position", replace_policy: "tighten_only_cancel_then_submit", signal_time: request_context.decision_time, previous_stop_price: ${initialStop}, new_stop_price: ${replacementStop} } }, trace: { state_hash: decision_state_snapshot.snapshot_hash } }

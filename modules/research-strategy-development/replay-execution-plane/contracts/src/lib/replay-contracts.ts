@@ -13,11 +13,11 @@ export {
   REPLAY_OBJECT_ARTIFACT_STORAGE_POLICY_VERSION,
 }
 
-export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v24" as const
-export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v36" as const
-export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v38" as const
+export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v25" as const
+export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v37" as const
+export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v39" as const
 export const REPLAY_ARTIFACT_STORE_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-artifact-store-capability.v1" as const
-export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v10" as const
+export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v11" as const
 export const REPLAY_NUMERIC_POLICY_VERSION = "rd-replay-number-v3" as const
 export const REPLAY_DERIVED_DECIMAL_INCREMENT = "0.000000000001" as const
 export const REPLAY_JOURNAL_POLICY_VERSION = "rd-replay-journal-v4" as const
@@ -78,13 +78,14 @@ export const REPLAY_CERTIFIED_CAPABILITIES = [
   "next-open-reduce-only-strategy-exit",
   "ohlcv",
   "pit-instrument-status-epochs",
+  "pre-entry-gtc-limit-ohlcv-bounded-full-fill",
   "single-position",
   "step",
   "stop-take-profit-market",
 ] as const
 export const REPLAY_REQUIRED_ARTIFACT_ROLES = [
   "request", "trial_reservation", "attempt_lease", "dataset_manifest", "supplemental_facts", "decision_market_input_snapshot", "decision_evidence_timeline", "result",
-  "source_events", "order_events", "fills", "positions", "ledger", "ohlcv_resolution_evidence",
+  "source_events", "order_events", "fills", "positions", "ledger", "ohlcv_resolution_evidence", "pending_order_resolutions",
   "valuation_snapshot", "equity_bridge", "margin_snapshots", "liquidation",
   "journal", "trial_balance",
 ] as const
@@ -167,6 +168,15 @@ export interface ReplayExecutionRequest {
     earliest_executable_time: string
     stop_price: number
     target_price: number
+    entry_execution:
+      | { order_type: "market" }
+      | {
+        order_type: "limit"
+        limit_price: number
+        time_in_force: "gtc"
+        liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1"
+        full_fill_capacity: number
+      }
   }
   cost_policy: {
     policy_id: string
@@ -1099,7 +1109,7 @@ export function assertReplayOhlcvResolutionEvidence(evidence: ReplayOhlcvResolut
 
 export type ReplayOrderSide = "buy" | "sell"
 export type ReplayOrderRole = "entry" | "stop" | "target" | "strategy_partial_reduce" | "strategy_exit" | "liquidation" | "end_of_data"
-export type ReplayOrderType = "market" | "stop_market" | "take_profit_market"
+export type ReplayOrderType = "market" | "limit" | "stop_market" | "take_profit_market"
 export type ReplayOrderStatus = "submitted" | "active" | "triggered" | "partially_filled" | "filled" | "cancelled" | "rejected"
 
 export type ReplayBoundaryPhase = 0 | 10 | 15 | 20 | 70 | 90 | 100
@@ -1147,6 +1157,8 @@ export interface ReplayOrder {
   submitted_at: string
   active_at: string | null
   trigger_price: number | null
+  limit_price?: number
+  time_in_force?: "gtc"
   last_event_sequence: number
   last_event_key: ReplayEventKey
 }
@@ -1464,6 +1476,7 @@ export interface ReplayEvidenceFingerprint {
   decision_harness_loader_policy_version: typeof REPLAY_DECISION_HARNESS_LOADER_POLICY_VERSION | null
   decision_harness_worker_protocol_version: typeof REPLAY_DECISION_HARNESS_WORKER_PROTOCOL_VERSION | null
   ohlcv_resolution_evidence_hash: string
+  pending_order_resolutions_hash: string
   venue_risk_policy_schedule_hash: string
   instrument_spec_schedule_hash: string
   instrument_status_schedule_hash: string
@@ -1504,6 +1517,7 @@ export interface ReplayResult {
   supplemental_evidence: ReplaySupplementalEvidence
   decision_evidence_timeline: ReplayDecisionEvidenceTimeline
   ohlcv_resolution_evidence: ReplayOhlcvResolutionEvidence[]
+  pending_order_resolutions: ReplayPendingOrderResolution[]
   metrics: {
     initial_cash: number
     ending_equity: number
@@ -1520,6 +1534,7 @@ export interface ReplayResult {
     terminal_margin_ratio: number | null
     observed_maintenance_breach_count: number
     ohlcv_resolution_limited_count: number
+    pending_order_resolution_limited_count: number
     ohlcv_net_terminal_contribution_span: number
     ohlcv_canonical_shortfall_to_best: number
   }
@@ -1615,6 +1630,67 @@ export function assertReplayResultOhlcvResolutionBindings(
   }
 }
 
+export function assertReplayResultPendingOrderBindings(
+  result: ReplayResult,
+  request: ReplayExecutionRequest,
+): void {
+  const resolutions = result.pending_order_resolutions
+  if (request.order.entry_execution.order_type === "market") {
+    if (resolutions.length !== 0) fail("market entry cannot carry pending-order resolutions")
+    return
+  }
+  if (resolutions.length === 0) fail("Limit entry requires pending-order resolution evidence")
+  const entry = request.order.entry_execution
+  const expectedSide: ReplayOrderSide = request.order.side === "long" ? "buy" : "sell"
+  const orderId = `${request.run_id}:order:entry`
+  const activation = result.order_events.find((event) => event.order_id === orderId && event.kind === "activated")
+  if (!activation) fail("Limit entry lacks an activation OrderEvent")
+  let previousKey: ReplayEventKey | null = null
+  for (const [index, resolution] of resolutions.entries()) {
+    assertReplayPendingOrderResolution(resolution)
+    if (resolution.order.order_id !== orderId
+        || resolution.order.order_type !== "limit"
+        || resolution.order.side !== expectedSide
+        || resolution.order.quantity !== request.order.quantity
+        || resolution.order.time_in_force !== "gtc"
+        || resolution.order.limit_price !== entry.limit_price
+        || resolution.order.liquidity_model !== entry.liquidity_model
+        || resolution.order.full_fill_capacity !== entry.full_fill_capacity) {
+      fail("pending-order resolution does not match frozen Limit entry")
+    }
+    if (canonicalHash(resolution.order.activation_event_key) !== canonicalHash(activation.event_key)) {
+      fail("pending-order resolution activation binding is invalid")
+    }
+    const source = result.source_events.find(
+      (candidate) => canonicalHash(candidate.event_key) === canonicalHash(resolution.observation.source_event_key),
+    )
+    if (!source || (source.kind !== "bar_open" && source.kind !== "bar_range")) {
+      fail("pending-order resolution source binding is invalid")
+    }
+    if (previousKey && compareReplayEventKeys(previousKey, resolution.observation.source_event_key) >= 0) {
+      fail("pending-order resolutions are not strictly ordered")
+    }
+    previousKey = resolution.observation.source_event_key
+    const terminal = index === resolutions.length - 1
+    if (!terminal && resolution.outcome.status !== "resting") {
+      fail("non-terminal pending-order resolution must remain resting")
+    }
+    if (terminal && resolution.outcome.status !== "filled") {
+      fail("successful Replay Limit entry must terminate with a full Fill resolution")
+    }
+  }
+  const terminal = resolutions.at(-1)!
+  const fill = result.fills.find((candidate) => candidate.order_id === orderId && candidate.order_role === "entry")
+  if (!fill || !terminal.outcome.decisive_event_key
+      || canonicalHash(fill.event_key) === canonicalHash(terminal.outcome.decisive_event_key)
+      || compareReplayEventKeys(fill.event_key, terminal.outcome.decisive_event_key) <= 0
+      || fill.quantity !== terminal.outcome.fill_quantity
+      || (expectedSide === "buy" && fill.price > entry.limit_price)
+      || (expectedSide === "sell" && fill.price < entry.limit_price)) {
+    fail("pending-order terminal resolution does not bind a limit-respecting entry Fill")
+  }
+}
+
 export interface ReplayArtifactManifest {
   schema_version: typeof REPLAY_ARTIFACT_SCHEMA_VERSION
   artifact_id: string
@@ -1667,6 +1743,28 @@ export function assertReplayExecutionRequest(value: ReplayExecutionRequest): voi
   }
   if (value.order.side === "long" && value.order.stop_price >= value.order.target_price) fail("long stop must be below target")
   if (value.order.side === "short" && value.order.stop_price <= value.order.target_price) fail("short stop must be above target")
+  const entryExecution = value.order.entry_execution
+  if (entryExecution.order_type === "limit") {
+    if (canonicalJson(Object.keys(entryExecution).sort()) !== canonicalJson([
+      "full_fill_capacity", "limit_price", "liquidity_model", "order_type", "time_in_force",
+    ])) fail("executable Limit entry carries unsupported fields")
+    requirePositive(entryExecution.limit_price, "order.entry_execution.limit_price")
+    requirePositive(entryExecution.full_fill_capacity, "order.entry_execution.full_fill_capacity")
+    if (entryExecution.time_in_force !== "gtc"
+        || entryExecution.liquidity_model !== "ohlcv-cross-through-full-fill-bounded-v1") {
+      fail("unsupported executable Limit entry policy")
+    }
+    if (value.order.quantity > entryExecution.full_fill_capacity) {
+      fail("Limit entry quantity exceeds frozen full-fill capacity")
+    }
+    if (value.decision_schedule.entries.length !== 1) {
+      fail("executable Limit entry v1 supports one initial decision only")
+    }
+  } else if (entryExecution.order_type !== "market") {
+    fail("unsupported entry execution order type")
+  } else if (canonicalJson(Object.keys(entryExecution).sort()) !== canonicalJson(["order_type"])) {
+    fail("market entry carries unsupported execution fields")
+  }
   requireNonNegative(value.cost_policy.fee_bps, "cost_policy.fee_bps")
   requireNonNegative(value.cost_policy.slippage_bps, "cost_policy.slippage_bps")
   requireNonNegative(value.cost_policy.liquidation_fee_bps, "cost_policy.liquidation_fee_bps")

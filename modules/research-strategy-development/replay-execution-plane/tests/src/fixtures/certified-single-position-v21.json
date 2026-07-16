@@ -1,6 +1,6 @@
 {
   "request": {
-    "schema_version": "trade.rd-replay-execution-request.v24",
+    "schema_version": "trade.rd-replay-execution-request.v25",
     "run_id": "golden-run",
     "idempotency_key": "golden-idempotency",
     "experiment_id": "exp-golden",
@@ -39,10 +39,10 @@
         "authorized_reduce_only_exit": null,
         "authorized_protective_stop_replace": null,
         "authorized_partial_reduce": null,
-        "authorized_order_hash": "14718b3a4d2a2488ead024675c5ccd1ee330d619aecdafd9185db3f0b33f05b0"
+        "authorized_order_hash": "573fa4f2ce56402c9cfa4fa25115cf4684b161dcce770bc09877a0072b55eef4"
       }]
     },
-    "decision_schedule_hash": "98d683c1bc91e74b2a638ca552e81da0af42ef2febbe9ac2951708b1dd7e265c",
+    "decision_schedule_hash": "aefb93937f14ff348fcce211787ae16c5950d550b121abf402d81395510366ab",
     "venue_risk_policy_schedule_hash": "bce56538f5e3d2b53aa1895edbe20809abe385a7f3e4af59ba576b03cbdb9f26",
     "instrument_spec_schedule_hash": "3c8736f2a900c073924a9c1d6eb51bb105b859007eb39d470e361cd34e52c604",
     "instrument_status_schedule_hash": "32d5c91441c7251e83005cbacf156fe545b4410cb28a02659417763debcee1fc",
@@ -60,7 +60,10 @@
       "signal_time": "2026-07-14T00:00:00Z",
       "earliest_executable_time": "2026-07-14T04:00:00Z",
       "stop_price": 90,
-      "target_price": 110
+      "target_price": 110,
+      "entry_execution": {
+        "order_type": "market"
+      }
     },
     "cost_policy": {
       "policy_id": "golden-cost",
@@ -70,7 +73,7 @@
       "liquidation_fee_bps": 10
     },
     "simulator_policy": {
-      "version": "rd-replay-simulator-v10",
+      "version": "rd-replay-simulator-v11",
       "signal_visibility": "closed_candle",
       "earliest_execution": "next_open",
       "same_bar_policy": "stop_first",
@@ -250,5 +253,5 @@
       "mark_price": 105
     }
   ],
-  "expected_semantic_digest": "675914365b24ba434f44c1530fc075d225389d575389e3dd25ddb114167fe5f6"
+  "expected_semantic_digest": "7cfdece6768b3559d698021191e0223bd41a9330a3a820ebd97c57cb85366ebb"
 }

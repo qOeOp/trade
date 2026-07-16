@@ -17,6 +17,8 @@ export interface ReplayOrderSubmission {
   reduce_only: boolean
   submitted_at: string
   trigger_price?: number | null
+  limit_price?: number
+  time_in_force?: "gtc"
 }
 
 export interface ReplayOrderTransition {
@@ -60,6 +62,9 @@ export function submitReplayOrder(
     submitted_at: submission.submitted_at,
     active_at: null,
     trigger_price: submission.trigger_price ?? null,
+    ...(submission.order_type === "limit"
+      ? { limit_price: submission.limit_price!, time_in_force: submission.time_in_force! }
+      : {}),
     last_event_sequence: stamp.sequence,
     last_event_key: stamp.event_key,
   }
@@ -92,7 +97,9 @@ export function triggerReplayOrder(
 ): ReplayOrderTransition {
   requireNextStamp(order, stamp)
   if (order.status !== "active") throw new Error(`cannot trigger order in ${order.status} state`)
-  if (order.order_type === "market") throw new Error("market order cannot trigger")
+  if (order.order_type !== "stop_market" && order.order_type !== "take_profit_market") {
+    throw new Error(`${order.order_type} order cannot trigger`)
+  }
   requireFinite(signedPosition, "signed_position")
   requirePositive(triggerObservedPrice, "trigger_observed_price")
   if (triggerSource !== "bar_open" && triggerSource !== "bar_range") throw new Error("unsupported trigger source")
@@ -117,7 +124,7 @@ export function fillReplayOrder(input: {
 }): ReplayOrderFillTransition {
   const { order } = input
   requireNextStamp(order, input.stamp)
-  const fillable = order.order_type === "market"
+  const fillable = order.order_type === "market" || order.order_type === "limit"
     ? order.status === "active" || order.status === "partially_filled"
     : order.status === "triggered" || order.status === "partially_filled"
   if (!fillable) {
@@ -185,10 +192,12 @@ export function cancelReplayOrder(
 
 function validateRoleContract(submission: ReplayOrderSubmission): void {
   if (!["entry", "stop", "target", "strategy_partial_reduce", "strategy_exit", "liquidation", "end_of_data"].includes(submission.order_role)) throw new Error("unsupported order_role")
-  if (!["market", "stop_market", "take_profit_market"].includes(submission.order_type)) throw new Error("unsupported order_type")
+  if (!["market", "limit", "stop_market", "take_profit_market"].includes(submission.order_type)) throw new Error("unsupported order_type")
   if (submission.side !== "buy" && submission.side !== "sell") throw new Error("unsupported order side")
   if (submission.order_role === "entry") {
-    if (submission.order_type !== "market" || submission.reduce_only) throw new Error("entry must be a non-reduce-only market order")
+    if ((submission.order_type !== "market" && submission.order_type !== "limit") || submission.reduce_only) {
+      throw new Error("entry must be a non-reduce-only market or limit order")
+    }
   } else if (!submission.reduce_only) {
     throw new Error("exit orders must be reduce-only")
   }
@@ -199,7 +208,13 @@ function validateRoleContract(submission: ReplayOrderSubmission): void {
   if (submission.order_role === "end_of_data" && submission.order_type !== "market") throw new Error("end_of_data role requires market")
   const needsTrigger = submission.order_type === "stop_market" || submission.order_type === "take_profit_market"
   if (needsTrigger) requirePositive(submission.trigger_price, "trigger_price")
-  if (!needsTrigger && submission.trigger_price != null) throw new Error("market order cannot carry trigger_price")
+  if (!needsTrigger && submission.trigger_price != null) throw new Error("non-trigger order cannot carry trigger_price")
+  if (submission.order_type === "limit") {
+    requirePositive(submission.limit_price, "limit_price")
+    if (submission.time_in_force !== "gtc") throw new Error("executable limit entry supports gtc only")
+  } else if (submission.limit_price !== undefined || submission.time_in_force !== undefined) {
+    throw new Error("non-limit order cannot carry limit fields")
+  }
 }
 
 function reducibleQuantity(side: ReplayOrderSide, signedPosition: number): number {

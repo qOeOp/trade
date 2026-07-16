@@ -43,7 +43,7 @@ test("metrics are derived from immutable fills and ledger", () => {
   ]
   expect(deriveReplayMetrics({
     initial_cash: 1000, fills, ledger, equity_bridge: equityBridge,
-    margin_snapshots: marginSnapshots, ohlcv_resolution_evidence: [],
+    margin_snapshots: marginSnapshots, ohlcv_resolution_evidence: [], pending_order_resolutions: [],
   })).toEqual({
     initial_cash: 1000,
     ending_equity: 1008,
@@ -60,6 +60,7 @@ test("metrics are derived from immutable fills and ledger", () => {
     terminal_margin_ratio: null,
     observed_maintenance_breach_count: 0,
     ohlcv_resolution_limited_count: 0,
+    pending_order_resolution_limited_count: 0,
     ohlcv_net_terminal_contribution_span: 0,
     ohlcv_canonical_shortfall_to_best: 0,
   })
