@@ -440,6 +440,106 @@ test("pre-entry GTC Limit that never fills completes flat and resumes with ident
   expect(canonicalHash(resumed)).toBe(canonicalHash(uninterrupted))
 })
 
+test("pre-entry IOC Limit fills only from its first eligible open", () => {
+  const requestValue = request()
+  requestValue.order = {
+    ...requestValue.order,
+    entry_execution: {
+      order_type: "limit", limit_price: 100, time_in_force: "ioc",
+      liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1", full_fill_capacity: 1,
+      liquidity_capacity_attestation_hash: CAPACITY_ATTESTATION.attestation_hash,
+    },
+  }
+  requestValue.decision_schedule = createReplaySingleDecisionSchedule(requestValue.order)
+  requestValue.decision_schedule_hash = canonicalHash(requestValue.decision_schedule)
+  const replayInput = inputFor(requestValue, [
+    bar("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", 99, 111, 94, 105),
+  ])
+  const result = executeReplayKernel(replayInput)
+  expect(result.entry_outcome).toBe("filled")
+  expect(result.pending_order_resolutions).toHaveLength(1)
+  expect(result.pending_order_resolutions[0]).toMatchObject({
+    order: { time_in_force: "ioc" },
+    observation: { observation_kind: "bar_open" },
+    outcome: { status: "filled", reason: "limit_open_marketable", fill_reference_price: 99 },
+  })
+  expect(result.fills[0]).toMatchObject({ order_role: "entry", timestamp: "2026-07-14T04:00:00Z" })
+  expect(() => assertReplayResultPendingOrderBindings(result, replayInput.request, replayInput.dataset_manifest))
+    .not.toThrow()
+})
+
+test("pre-entry IOC Limit expires unfilled at first open and never consumes later range", () => {
+  const requestValue = request()
+  requestValue.order = {
+    ...requestValue.order,
+    entry_execution: {
+      order_type: "limit", limit_price: 99.5, time_in_force: "ioc",
+      liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1", full_fill_capacity: 1,
+      liquidity_capacity_attestation_hash: CAPACITY_ATTESTATION.attestation_hash,
+    },
+  }
+  requestValue.decision_schedule = createReplaySingleDecisionSchedule(requestValue.order)
+  requestValue.decision_schedule_hash = canonicalHash(requestValue.decision_schedule)
+  const replayInput = inputFor(requestValue, [
+    bar("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", 101, 103, 98, 100),
+    bar("2026-07-14T08:00:00Z", "2026-07-14T12:00:00Z", 98, 111, 94, 105),
+  ])
+  const result = executeReplayKernel(replayInput)
+  expect(result).toMatchObject({
+    status: "completed", entry_outcome: "expired_unfilled", completed_at: "2026-07-14T04:00:00Z",
+    fills: [], positions: [], margin_snapshots: [],
+    valuation_snapshot: { mark_source: "bar_open", mark_price: 101, position_event_id: null },
+    equity_bridge: { terminal_position_state: "never_opened", ending_equity: 10_000 },
+    metrics: { trade_count: 0, net_pnl: 0 },
+  })
+  expect(result.source_events.map((event) => event.kind)).toEqual(["bar_open"])
+  expect(result.pending_order_resolutions).toHaveLength(1)
+  expect(result.pending_order_resolutions[0]).toMatchObject({
+    order: { time_in_force: "ioc" },
+    observation: { observation_kind: "bar_open" },
+    outcome: { status: "expired", reason: "ioc_unfilled_at_first_open", remaining_quantity: 1 },
+  })
+  expect(result.order_events.filter((event) => event.order_id.endsWith(":order:entry")).map((event) => event.kind))
+    .toEqual(["submitted", "activated", "expired"])
+  expect(result.limitations.map((limitation) => limitation.code))
+    .toContain("ioc-entry-expired-unfilled-at-first-open")
+  expect(() => assertReplayResultPendingOrderBindings(result, replayInput.request, replayInput.dataset_manifest))
+    .not.toThrow()
+
+  const cancelledTamper = structuredClone(result)
+  cancelledTamper.order_events.at(-1)!.kind = "cancelled"
+  cancelledTamper.order_events.at(-1)!.status = "cancelled"
+  expect(() => assertReplayResultPendingOrderBindings(
+    cancelledTamper, replayInput.request, replayInput.dataset_manifest,
+  )).toThrow("expire after its first-open decision")
+  const reasonTamper = structuredClone(result)
+  reasonTamper.order_events.at(-1)!.reason = "user_cancelled"
+  expect(() => assertReplayResultPendingOrderBindings(
+    reasonTamper, replayInput.request, replayInput.dataset_manifest,
+  )).toThrow("expire after its first-open decision")
+
+  const resumableInput = inputFor(requestValue, replayInput.bars, [
+    { timestamp: "2026-07-14T04:00:00Z", rate: 0.001, mark_price: 101 },
+  ])
+  const clean = executeReplayKernel(resumableInput)
+  let checkpoint: ReplayEngineCheckpoint | undefined
+  expect(() => executeReplayKernel({
+    ...resumableInput,
+    execution_control: { on_checkpoint: (candidate) => { checkpoint = candidate; return "cancel" } },
+  })).toThrow(ReplayExecutionInterruptedError)
+  expect(checkpoint).toMatchObject({
+    next_source_offset: 1,
+    entry_transition: null,
+    entry_order: { status: "active", time_in_force: "ioc" },
+    pending_order_resolutions: [],
+  })
+  const resumed = executeReplayKernel({
+    ...resumableInput,
+    execution_control: { resume_checkpoint: checkpoint },
+  })
+  expect(canonicalHash(resumed)).toBe(canonicalHash(clean))
+})
+
 test("stop gap fills at the worse open and ledger conserves equity", () => {
   const result = executeReplayKernel(inputFor(request(), [
       bar("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", 100, 102, 98, 101),

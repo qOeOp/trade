@@ -18,7 +18,7 @@ export interface ReplayOrderSubmission {
   submitted_at: string
   trigger_price?: number | null
   limit_price?: number
-  time_in_force?: "gtc"
+  time_in_force?: "gtc" | "ioc"
 }
 
 export interface ReplayOrderTransition {
@@ -190,6 +190,26 @@ export function cancelReplayOrder(
   return { order: cancelled, event: eventFor(cancelled, stamp, "cancelled", 0, signedPosition, reason) }
 }
 
+export function expireReplayOrder(
+  order: ReplayOrder,
+  stamp: ReplayTransitionStamp,
+  signedPosition: number,
+  reason: string,
+): ReplayOrderTransition {
+  requireNextStamp(order, stamp)
+  if (order.order_type !== "limit" || order.time_in_force !== "ioc" || order.status !== "active") {
+    throw new Error(`cannot expire non-active IOC limit order in ${order.status} state`)
+  }
+  requireText(reason, "expiry reason")
+  const expired = {
+    ...order,
+    status: "expired" as const,
+    last_event_sequence: stamp.sequence,
+    last_event_key: stamp.event_key,
+  }
+  return { order: expired, event: eventFor(expired, stamp, "expired", 0, signedPosition, reason) }
+}
+
 function validateRoleContract(submission: ReplayOrderSubmission): void {
   if (!["entry", "stop", "target", "strategy_partial_reduce", "strategy_exit", "liquidation", "end_of_data"].includes(submission.order_role)) throw new Error("unsupported order_role")
   if (!["market", "limit", "stop_market", "take_profit_market"].includes(submission.order_type)) throw new Error("unsupported order_type")
@@ -211,7 +231,9 @@ function validateRoleContract(submission: ReplayOrderSubmission): void {
   if (!needsTrigger && submission.trigger_price != null) throw new Error("non-trigger order cannot carry trigger_price")
   if (submission.order_type === "limit") {
     requirePositive(submission.limit_price, "limit_price")
-    if (submission.time_in_force !== "gtc") throw new Error("executable limit entry supports gtc only")
+    if (submission.time_in_force !== "gtc" && submission.time_in_force !== "ioc") {
+      throw new Error("executable limit entry supports gtc or ioc only")
+    }
   } else if (submission.limit_price !== undefined || submission.time_in_force !== undefined) {
     throw new Error("non-limit order cannot carry limit fields")
   }

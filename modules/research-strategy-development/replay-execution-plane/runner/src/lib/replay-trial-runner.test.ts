@@ -460,6 +460,54 @@ test("runner commits a completed zero-execution Result when a GTC Limit remains 
   })
 })
 
+test("runner commits and idempotently replays an IOC first-open expiry", () => {
+  const iocBars = [
+    { open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 101, high: 103, low: 98, close: 100, volume: 10, closed: true as const },
+    { open_time: "2026-07-14T08:00:00Z", close_time: "2026-07-14T12:00:00Z", open: 98, high: 111, low: 94, close: 105, volume: 10, closed: true as const },
+  ]
+  const dataHash = replayDatasetHash(iocBars)
+  const order: ReplayExecutionRequest["order"] = {
+    ...request().order,
+    entry_execution: {
+      order_type: "limit", limit_price: 99.5, time_in_force: "ioc",
+      liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1", full_fill_capacity: 1,
+      liquidity_capacity_attestation_hash: CAPACITY_ATTESTATION.attestation_hash,
+    },
+  }
+  const decisionSchedule = createReplaySingleDecisionSchedule(order)
+  const requestValue: ReplayExecutionRequest = {
+    ...request(), order, dataset_hash: dataHash,
+    decision_schedule: decisionSchedule, decision_schedule_hash: canonicalHash(decisionSchedule),
+  }
+  const root = mkdtempSync(join(tmpdir(), "rd-replay-ioc-expired-"))
+  const input = {
+    ...authorized(requestValue), dataset_manifest: datasetManifestFor(iocBars, dataHash), bars: iocBars,
+  }
+  const completed = runReplayTrial({ ...input, artifact_root: root })
+  expect(completed).toMatchObject({
+    status: "completed",
+    result: {
+      entry_outcome: "expired_unfilled",
+      completed_at: "2026-07-14T04:00:00Z",
+      fills: [], positions: [], margin_snapshots: [],
+      valuation_snapshot: { mark_source: "bar_open", mark_price: 101 },
+      metrics: { trade_count: 0, net_pnl: 0 },
+    },
+  })
+  expect(completed.result?.source_events.map((event) => event.kind)).toEqual(["bar_open"])
+  expect(completed.result?.order_events.at(-1)).toMatchObject({
+    kind: "expired", status: "expired", reason: "ioc_unfilled_at_first_open", remaining_quantity: 1,
+  })
+  expect(completed.result?.pending_order_resolutions).toHaveLength(1)
+  expect(completed.artifact_manifest?.result_hash).toBe(completed.result?.fingerprint.result_hash)
+
+  const idempotent = runReplayTrial({ ...input, artifact_store: createReplayLocalArtifactStore(root) })
+  expect(idempotent).toMatchObject({
+    status: "completed", idempotent_replay: true,
+    result: { entry_outcome: "expired_unfilled" },
+  })
+})
+
 test("runner returns typed data-gap failures without publishing partial Result", () => {
   const openPositionGapBars = [
     { open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 100, high: 104, low: 98, close: 102, volume: 10, closed: true as const },

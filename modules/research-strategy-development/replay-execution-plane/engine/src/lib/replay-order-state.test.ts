@@ -4,6 +4,7 @@ import { compareReplayEventKeys, createReplayEventKey } from "./replay-event-key
 import {
   activateReplayOrder,
   cancelReplayOrder,
+  expireReplayOrder,
   fillReplayOrder,
   submitReplayOrder,
   triggerReplayOrder,
@@ -75,6 +76,34 @@ test("wrong-side reduce-only is rejected and cancelled orders cannot fill", () =
   }, stamp(5, "2026-07-14T04:00:00Z"), 1).order, stamp(6, "2026-07-14T04:00:00Z"), 1)
   const cancelled = cancelReplayOrder(fresh.order, stamp(7, "2026-07-14T06:00:00Z"), 1, "oco-sibling-filled")
   expect(() => fillReplayOrder({ order: cancelled.order, requested_quantity: 1, stamp: stamp(8, "2026-07-14T08:00:00Z"), signed_position_before: 1 })).toThrow("cancelled")
+})
+
+test("IOC limit expires distinctly from an explicit cancellation", () => {
+  const submitted = submitReplayOrder({
+    order_id: "ioc-entry", order_role: "entry", order_type: "limit", side: "buy",
+    quantity: 1, reduce_only: false, submitted_at: "2026-07-14T00:00:00Z",
+    limit_price: 99, time_in_force: "ioc",
+  }, stamp(1, "2026-07-14T00:00:00Z"), 0)
+  const active = activateReplayOrder(submitted.order, stamp(2, "2026-07-14T00:00:00Z"), 0)
+  const expired = expireReplayOrder(
+    active.order, stamp(3, "2026-07-14T04:00:00Z"), 0, "ioc_unfilled_at_first_open",
+  )
+  expect(expired).toMatchObject({
+    order: { status: "expired", filled_quantity: 0, remaining_quantity: 1 },
+    event: { kind: "expired", status: "expired", reason: "ioc_unfilled_at_first_open" },
+  })
+  expect(() => cancelReplayOrder(expired.order, stamp(4, "2026-07-14T04:00:00Z"), 0, "late-cancel"))
+    .toThrow("expired")
+  expect(() => expireReplayOrder(expired.order, stamp(4, "2026-07-14T04:00:00Z"), 0, "again"))
+    .toThrow("expired")
+
+  const gtc = activateReplayOrder(submitReplayOrder({
+    order_id: "gtc-entry", order_role: "entry", order_type: "limit", side: "buy",
+    quantity: 1, reduce_only: false, submitted_at: "2026-07-14T00:00:00Z",
+    limit_price: 99, time_in_force: "gtc",
+  }, stamp(5, "2026-07-14T00:00:00Z"), 0).order, stamp(6, "2026-07-14T00:00:00Z"), 0)
+  expect(() => expireReplayOrder(gtc.order, stamp(7, "2026-07-14T04:00:00Z"), 0, "wrong-tif"))
+    .toThrow("non-active IOC")
 })
 
 test("conditional orders require trigger and every transition advances EventKey", () => {

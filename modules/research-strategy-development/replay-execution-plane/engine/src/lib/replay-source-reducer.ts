@@ -20,6 +20,12 @@ export type ReplayReducedExit =
   | { role: "strategy_exit"; timestamp: string; rawPrice: number; triggerSource: "bar_open"; sourceSequence: number }
   | { role: "liquidation"; timestamp: string; rawPrice: number; triggerSource: "mark" | "funding_mark"; triggerSourceRef: string; sourceSequence: number }
   | { role: "end_of_data"; timestamp: string; rawPrice: number; triggerSource: null; sourceSequence: number }
+  | { role: "entry_expired"; timestamp: string; rawPrice: number; triggerSource: "bar_open"; sourceSequence: number }
+
+export interface ReplayPendingEntryObservation<TEntry> {
+  entry_transition: TEntry | null
+  terminal_exit: Extract<ReplayReducedExit, { role: "entry_expired" }> | null
+}
 
 export interface ReplaySourceReduction<TEntry, TTerminal> {
   exit: ReplayReducedExit
@@ -77,7 +83,7 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
   resume?: ReplaySourceBoundary<TEntry>
   on_source_boundary?: (boundary: ReplaySourceBoundary<TEntry>) => void
   activate_entry: (source: ReplaySourceEvent) => TEntry | null
-  observe_pending_entry: (source: ReplaySourceEvent) => TEntry | null
+  observe_pending_entry: (source: ReplaySourceEvent) => ReplayPendingEntryObservation<TEntry>
   get_entry_fill_event_key: (entry: TEntry) => ReplayEventKey
   get_active_protection: (entry: TEntry) => ReplayActiveProtection
   observe_exact_risk: (
@@ -168,7 +174,18 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
     let pendingEntryCreated = false
     if (entryTransition === undefined && (source.kind === "bar_open" || source.kind === "bar_range")) {
       if (!instrumentTrading) throw new Error("Replay cannot observe a pending entry while instrument trading is halted")
-      entryTransition = input.observe_pending_entry(source) ?? undefined
+      const observation = input.observe_pending_entry(source)
+      if (observation.terminal_exit) {
+        if (observation.entry_transition) throw new Error("pending entry observation cannot fill and expire together")
+        return {
+          exit: observation.terminal_exit,
+          source_events: [...consumed],
+          applied_funding_sources: [...appliedFunding],
+          entry_transition: null,
+          terminal_transition: null,
+        }
+      }
+      entryTransition = observation.entry_transition ?? undefined
       pendingEntryCreated = entryTransition !== undefined
     }
     const bar = input.bars[source.source_index]

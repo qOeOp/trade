@@ -64,8 +64,8 @@ export function resolveReplayPendingOrder(
   }
   if (order.time_in_force === "ioc") {
     return finish(shell, {
-      status: "cancelled",
-      reason: "ioc_not_marketable",
+      status: "expired",
+      reason: "ioc_unfilled_at_first_open",
       decisive_event_key: structuredClone(observation.source_event_key),
       fill_reference_price: null,
       fill_quantity: 0,

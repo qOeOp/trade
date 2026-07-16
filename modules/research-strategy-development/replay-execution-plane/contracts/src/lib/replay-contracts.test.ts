@@ -166,7 +166,7 @@ test("Replay request requires complete Trial and evidence identity", () => {
   expect(() => assertReplayExecutionRequest(unauthorizedSchedule)).toThrow("market-only closed-bar lookback")
 })
 
-test("Request v26 freezes the executable pre-entry GTC Limit envelope", () => {
+test("Request v27 freezes executable pre-entry GTC and IOC Limit envelopes", () => {
   const requestValue = fixtureRequest()
   requestValue.order = {
     ...requestValue.order,
@@ -179,6 +179,12 @@ test("Request v26 freezes the executable pre-entry GTC Limit envelope", () => {
   requestValue.decision_schedule = createReplaySingleDecisionSchedule(requestValue.order)
   requestValue.decision_schedule_hash = canonicalHash(requestValue.decision_schedule)
   expect(() => assertReplayExecutionRequest(requestValue)).not.toThrow()
+  const ioc = structuredClone(requestValue)
+  if (ioc.order.entry_execution.order_type !== "limit") throw new Error("fixture must be Limit")
+  ioc.order.entry_execution.time_in_force = "ioc"
+  ioc.decision_schedule = createReplaySingleDecisionSchedule(ioc.order)
+  ioc.decision_schedule_hash = canonicalHash(ioc.decision_schedule)
+  expect(() => assertReplayExecutionRequest(ioc)).not.toThrow()
   const overCapacity = structuredClone(requestValue)
   if (overCapacity.order.entry_execution.order_type !== "limit") throw new Error("fixture must be Limit")
   overCapacity.order.entry_execution.full_fill_capacity = 0.5

@@ -57,6 +57,7 @@ import { prepareReplayInputData, resolveReplayInstrumentStatusAt, resolveReplayV
 import { deriveReplayMetrics } from "../../../metrics/src/lib/replay-metrics"
 import {
   activateReplayOrder,
+  expireReplayOrder,
   submitReplayOrder,
   type ReplayTransitionStamp,
 } from "./replay-order-state"
@@ -71,7 +72,7 @@ import { ReplayLiquidationDeficitError, ReplayMarginTerminalError, assertReplayP
 import { reduceReplaySourceEvents } from "./replay-source-reducer"
 import { resolveReplayPendingOrder } from "./replay-pending-order-resolution"
 
-export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v18" as const
+export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v19" as const
 
 export interface ReplayEngineCheckpoint {
   schema_version: typeof REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION
@@ -658,8 +659,11 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       : null,
     observe_pending_entry: (source) => {
       const execution = request.order.entry_execution
-      if (execution.order_type !== "limit") return null
-      if (source.kind !== "bar_open" && source.kind !== "bar_range") return null
+      if (execution.order_type !== "limit") return { entry_transition: null, terminal_exit: null }
+      if (source.kind !== "bar_open" && source.kind !== "bar_range") return { entry_transition: null, terminal_exit: null }
+      if (execution.time_in_force === "ioc" && source.kind !== "bar_open") {
+        throw new Error("IOC Limit entry reached a non-open observation before expiry")
+      }
       if (entryOrder.status !== "active") throw new Error("pending Limit entry Order is not active")
       const bar = bars[source.source_index]
       if (!bar) throw new Error("pending Limit entry references a missing bar")
@@ -669,7 +673,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
           order_type: "limit",
           side: entrySide,
           quantity: entryOrder.quantity,
-          time_in_force: "gtc",
+          time_in_force: execution.time_in_force,
           activation_event_key: entryOrder.last_event_key,
           limit_price: execution.limit_price,
           trigger_price: null,
@@ -685,7 +689,25 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
         cancel_effective_key: null,
       })
       pendingOrderResolutions.push(resolution)
-      if (resolution.outcome.status !== "filled") return null
+      if (resolution.outcome.status === "expired") {
+        entryOrder = capture(expireReplayOrder(
+          entryOrder,
+          nextStamp(source.event_key.event_time, 90, source.event_key.source_sequence, 0),
+          0,
+          resolution.outcome.reason,
+        )).order
+        return {
+          entry_transition: null,
+          terminal_exit: {
+            role: "entry_expired",
+            timestamp: bar.open_time,
+            rawPrice: bar.open,
+            triggerSource: "bar_open",
+            sourceSequence: source.source_index + 1,
+          },
+        }
+      }
+      if (resolution.outcome.status !== "filled") return { entry_transition: null, terminal_exit: null }
       entryPrice = limitExecutionPrice(resolution.outcome.fill_reference_price!)
       resolutionEconomics.entry_basis_price = entryPrice
       if (!limitations.some((limitation) => limitation.code === "ohlcv-limit-queue-unobserved")) {
@@ -706,7 +728,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
         capture,
       })
       entryOrder = completed.entry_order
-      return completed
+      return { entry_transition: completed, terminal_exit: null }
     },
     get_entry_fill_event_key: (entry) => entry.entry_fill_event_key,
     get_active_protection: (entry) => {
@@ -1013,10 +1035,16 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
   }
   if (entryExecution === null || exitExecution === null) {
     if (entryExecution !== null || exitExecution !== null
-        || request.order.entry_execution.order_type !== "limit" || exit.role !== "end_of_data") {
+        || request.order.entry_execution.order_type !== "limit"
+        || (exit.role !== "end_of_data" && exit.role !== "entry_expired")) {
       throw new Error("Replay source reduction returned an inconsistent never-opened terminal state")
     }
-    limitations.push({
+    const entryOutcome = exit.role === "entry_expired" ? "expired_unfilled" as const : "unfilled_at_data_end" as const
+    limitations.push(exit.role === "entry_expired" ? {
+      code: "ioc-entry-expired-unfilled-at-first-open",
+      severity: "info",
+      detail: "The IOC Limit was not marketable at its sole next-open observation and expired with its full quantity; later bar range and later bars are outside this Order's lifetime.",
+    } : {
       code: "limit-entry-unfilled-through-data-end",
       severity: "info",
       detail: "The GTC Limit remains active at the immutable data boundary; Replay records zero execution and does not invent a cancellation, expiry, Fill, Position, or funding entitlement.",
@@ -1039,11 +1067,12 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       funding_facts: [],
       settlement_increment: accountingSpec.settlement_increment,
     })
-    const markSource = exactMarkCoverage ? "mark_event" as const : "bar_close" as const
-    const markSourceRef = [...sourceEvents].reverse().find(
-      (source) => source.kind === (exactMarkCoverage ? "mark" : "bar_range")
-        && source.event_key.event_time === exit.timestamp,
-    )?.source_event_id
+    const markSource = exit.role === "entry_expired"
+      ? "bar_open" as const
+      : exactMarkCoverage ? "mark_event" as const : "bar_close" as const
+    const markSourceRef = [...sourceEvents].reverse().find((source) => exit.role === "entry_expired"
+      ? source.kind === "bar_open" && source.event_key.event_time === exit.timestamp
+      : source.kind === (exactMarkCoverage ? "mark" : "bar_range") && source.event_key.event_time === exit.timestamp)?.source_event_id
     if (!markSourceRef) throw new Error("Replay never-opened terminal mark source is missing")
     const { valuation_snapshot: valuationSnapshot, equity_bridge: equityBridge } = buildReplayNeverOpenedEquityProjection({
       run_id: request.run_id,
@@ -1077,7 +1106,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       schema_version: REPLAY_RESULT_SCHEMA_VERSION,
       run_id: request.run_id,
       status: "completed",
-      entry_outcome: "unfilled_at_data_end",
+      entry_outcome: entryOutcome,
       started_at: request.order.signal_time,
       completed_at: exit.timestamp,
       source_events: sourceEvents,
@@ -1098,6 +1127,9 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       metrics,
       limitations,
     })
+  }
+  if (exit.role === "entry_expired") {
+    throw new Error("expired entry cannot reach the position terminal execution path")
   }
   const exitRiskPolicy = riskPolicyAt(exit.timestamp)
   const entryFill = entryFillFor(entryExecution)
@@ -1520,7 +1552,7 @@ export function assertReplayEngineCheckpoint(
     )
     if (!activationEvent || checkpoint.entry_order.order_type !== "limit"
         || checkpoint.entry_order.limit_price !== request.order.entry_execution.limit_price
-        || checkpoint.entry_order.time_in_force !== "gtc") {
+        || checkpoint.entry_order.time_in_force !== request.order.entry_execution.time_in_force) {
       throw new Error("Limit-entry checkpoint Order authority is invalid")
     }
     for (const [index, resolution] of checkpoint.pending_order_resolutions.entries()) {
@@ -1542,6 +1574,9 @@ export function assertReplayEngineCheckpoint(
     }
     if (!checkpoint.entry_transition && terminalResolution?.outcome.status === "filled") {
       throw new Error("pending Limit-entry checkpoint cannot carry a terminal Fill resolution")
+    }
+    if (!checkpoint.entry_transition && terminalResolution?.outcome.status === "expired") {
+      throw new Error("expired Limit-entry cannot be persisted as a resumable checkpoint")
     }
   }
   if (checkpoint.entry_transition) {

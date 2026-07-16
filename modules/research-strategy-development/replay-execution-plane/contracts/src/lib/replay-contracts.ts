@@ -13,20 +13,20 @@ export {
   REPLAY_OBJECT_ARTIFACT_STORAGE_POLICY_VERSION,
 }
 
-export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v26" as const
-export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v39" as const
-export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v41" as const
+export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v27" as const
+export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v40" as const
+export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v42" as const
 export const REPLAY_ARTIFACT_STORE_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-artifact-store-capability.v1" as const
-export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v12" as const
+export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v13" as const
 export const REPLAY_NUMERIC_POLICY_VERSION = "rd-replay-number-v3" as const
 export const REPLAY_DERIVED_DECIMAL_INCREMENT = "0.000000000001" as const
 export const REPLAY_JOURNAL_POLICY_VERSION = "rd-replay-journal-v5" as const
-export const REPLAY_EQUITY_POLICY_VERSION = "rd-replay-equity-v2" as const
+export const REPLAY_EQUITY_POLICY_VERSION = "rd-replay-equity-v3" as const
 export const REPLAY_MARGIN_POLICY_VERSION = "rd-replay-isolated-margin-v7" as const
 export const REPLAY_MAINTENANCE_BREACH_SCHEMA_VERSION = "trade.rd-replay-maintenance-breach-observation.v3" as const
 export const REPLAY_LIQUIDATION_EXECUTION_SCHEMA_VERSION = "trade.rd-replay-liquidation-execution.v2" as const
 export const REPLAY_OHLCV_RESOLUTION_EVIDENCE_SCHEMA_VERSION = "trade.rd-replay-ohlcv-resolution-evidence.v3" as const
-export const REPLAY_PENDING_ORDER_RESOLUTION_SCHEMA_VERSION = "trade.rd-replay-pending-order-resolution.v1" as const
+export const REPLAY_PENDING_ORDER_RESOLUTION_SCHEMA_VERSION = "trade.rd-replay-pending-order-resolution.v2" as const
 export const REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION = "rd-replay-instrument-accounting-v1" as const
 export const REPLAY_DATASET_MANIFEST_SCHEMA_VERSION = "trade.rd-replay-dataset-manifest.v11" as const
 export const REPLAY_LIQUIDITY_CAPACITY_ATTESTATION_SCHEMA_VERSION = "trade.rd-replay-liquidity-capacity-attestation.v1" as const
@@ -80,6 +80,7 @@ export const REPLAY_CERTIFIED_CAPABILITIES = [
   "ohlcv",
   "pit-instrument-status-epochs",
   "pre-entry-gtc-limit-ohlcv-bounded-full-fill",
+  "pre-entry-ioc-limit-next-open-bounded-full-fill",
   "single-position",
   "step",
   "stop-take-profit-market",
@@ -174,7 +175,7 @@ export interface ReplayExecutionRequest {
       | {
         order_type: "limit"
         limit_price: number
-        time_in_force: "gtc"
+        time_in_force: "gtc" | "ioc"
         liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1"
         full_fill_capacity: number
         liquidity_capacity_attestation_hash: string
@@ -1136,7 +1137,7 @@ export function assertReplayOhlcvResolutionEvidence(evidence: ReplayOhlcvResolut
 export type ReplayOrderSide = "buy" | "sell"
 export type ReplayOrderRole = "entry" | "stop" | "target" | "strategy_partial_reduce" | "strategy_exit" | "liquidation" | "end_of_data"
 export type ReplayOrderType = "market" | "limit" | "stop_market" | "take_profit_market"
-export type ReplayOrderStatus = "submitted" | "active" | "triggered" | "partially_filled" | "filled" | "cancelled" | "rejected"
+export type ReplayOrderStatus = "submitted" | "active" | "triggered" | "partially_filled" | "filled" | "cancelled" | "expired" | "rejected"
 
 export type ReplayBoundaryPhase = 0 | 10 | 15 | 20 | 70 | 90 | 100
 
@@ -1184,7 +1185,7 @@ export interface ReplayOrder {
   active_at: string | null
   trigger_price: number | null
   limit_price?: number
-  time_in_force?: "gtc"
+  time_in_force?: "gtc" | "ioc"
   last_event_sequence: number
   last_event_key: ReplayEventKey
 }
@@ -1195,7 +1196,7 @@ export interface ReplayOrderEvent {
   sequence: number
   event_key: ReplayEventKey
   timestamp: string
-  kind: "submitted" | "activated" | "triggered" | "partially_filled" | "filled" | "cancelled" | "rejected"
+  kind: "submitted" | "activated" | "triggered" | "partially_filled" | "filled" | "cancelled" | "expired" | "rejected"
   status: ReplayOrderStatus
   fill_quantity: number
   remaining_quantity: number
@@ -1230,7 +1231,7 @@ export interface ReplayFill {
 export type ReplayPendingOrderType = "limit" | "stop_market"
 export type ReplayPendingOrderTimeInForce = "gtc" | "ioc"
 export type ReplayPendingOrderResolutionStatus = "exact_under_ohlc" | "resolution_limited"
-export type ReplayPendingOrderOutcomeStatus = "resting" | "filled" | "triggered_and_filled" | "cancelled" | "unresolved"
+export type ReplayPendingOrderOutcomeStatus = "resting" | "filled" | "triggered_and_filled" | "cancelled" | "expired" | "unresolved"
 export type ReplayPendingOrderOutcomeReason =
   | "limit_open_marketable"
   | "limit_strict_cross"
@@ -1241,7 +1242,7 @@ export type ReplayPendingOrderOutcomeReason =
   | "stop_not_triggered"
   | "cancel_precedes_observation"
   | "cancel_after_non_fill"
-  | "ioc_not_marketable"
+  | "ioc_unfilled_at_first_open"
   | "same_ordinal_cancel_race"
   | "limit_touch_before_cancel_unresolved"
 
@@ -1352,7 +1353,7 @@ export interface ReplayValuationSnapshot {
   timestamp: string
   position_event_id: string | null
   mark_source_ref: string
-  mark_source: "fill_price" | "bar_close" | "mark_event"
+  mark_source: "fill_price" | "bar_open" | "bar_close" | "mark_event"
   symbol: string
   settlement_asset: string
   mark_price: number
@@ -1528,7 +1529,7 @@ export interface ReplayResult {
   schema_version: typeof REPLAY_RESULT_SCHEMA_VERSION
   run_id: string
   status: "completed" | "failed" | "cancelled"
-  entry_outcome: "filled" | "unfilled_at_data_end"
+  entry_outcome: "filled" | "unfilled_at_data_end" | "expired_unfilled"
   started_at: string
   completed_at: string
   source_events: ReplaySourceEvent[]
@@ -1695,7 +1696,7 @@ export function assertReplayResultPendingOrderBindings(
         || resolution.order.order_type !== "limit"
         || resolution.order.side !== expectedSide
         || resolution.order.quantity !== request.order.quantity
-        || resolution.order.time_in_force !== "gtc"
+        || resolution.order.time_in_force !== entry.time_in_force
         || resolution.order.limit_price !== entry.limit_price
         || resolution.order.liquidity_model !== entry.liquidity_model
         || resolution.order.full_fill_capacity !== attestation.full_fill_capacity) {
@@ -1722,7 +1723,14 @@ export function assertReplayResultPendingOrderBindings(
       fail("successful Replay Limit entry must terminate with a full Fill resolution")
     }
   }
+  if (entry.time_in_force === "ioc"
+      && (resolutions.length !== 1
+        || resolutions[0]!.observation.observation_kind !== "bar_open"
+        || resolutions[0]!.observation.source_event_key.event_time !== request.order.earliest_executable_time)) {
+    fail("IOC Limit must have exactly one earliest-executable bar_open resolution")
+  }
   if (result.entry_outcome === "unfilled_at_data_end") {
+    if (entry.time_in_force !== "gtc") fail("only a GTC Limit may remain active at the data boundary")
     const entryEvents = result.order_events
       .filter((event) => event.order_id === orderId)
       .sort((left, right) => left.sequence - right.sequence)
@@ -1733,6 +1741,29 @@ export function assertReplayResultPendingOrderBindings(
         || result.metrics.trade_count !== 0 || result.metrics.net_pnl !== 0
         || !lastEntryEvent || lastEntryEvent.status !== "active" || lastEntryEvent.remaining_quantity !== request.order.quantity) {
       fail("unfilled Limit entry must preserve an active full-quantity Order and zero-execution accounting")
+    }
+    return
+  }
+  if (result.entry_outcome === "expired_unfilled") {
+    const terminal = resolutions.at(-1)!
+    const entryEvents = result.order_events
+      .filter((event) => event.order_id === orderId)
+      .sort((left, right) => left.sequence - right.sequence)
+    const lastEntryEvent = entryEvents.at(-1)
+    if (entry.time_in_force !== "ioc" || resolutions.length !== 1
+        || terminal.observation.observation_kind !== "bar_open"
+        || terminal.outcome.status !== "expired"
+        || terminal.outcome.reason !== "ioc_unfilled_at_first_open"
+        || result.fills.length !== 0 || result.positions.length !== 0 || result.margin_snapshots.length !== 0
+        || result.liquidation !== null || result.equity_bridge.terminal_position_state !== "never_opened"
+        || result.valuation_snapshot.position_event_id !== null
+        || result.metrics.trade_count !== 0 || result.metrics.net_pnl !== 0
+        || !lastEntryEvent || lastEntryEvent.kind !== "expired" || lastEntryEvent.status !== "expired"
+        || lastEntryEvent.fill_quantity !== 0 || lastEntryEvent.remaining_quantity !== request.order.quantity
+        || lastEntryEvent.reason !== terminal.outcome.reason
+        || !terminal.outcome.decisive_event_key
+        || compareReplayEventKeys(lastEntryEvent.event_key, terminal.outcome.decisive_event_key) <= 0) {
+      fail("unfilled IOC Limit must expire after its first-open decision with zero-execution accounting")
     }
     return
   }
@@ -1809,7 +1840,7 @@ export function assertReplayExecutionRequest(value: ReplayExecutionRequest): voi
     requirePositive(entryExecution.limit_price, "order.entry_execution.limit_price")
     requirePositive(entryExecution.full_fill_capacity, "order.entry_execution.full_fill_capacity")
     requireHash(entryExecution.liquidity_capacity_attestation_hash, "order.entry_execution.liquidity_capacity_attestation_hash")
-    if (entryExecution.time_in_force !== "gtc"
+    if ((entryExecution.time_in_force !== "gtc" && entryExecution.time_in_force !== "ioc")
         || entryExecution.liquidity_model !== "ohlcv-cross-through-full-fill-bounded-v1") {
       fail("unsupported executable Limit entry policy")
     }
@@ -3574,7 +3605,7 @@ export function assertReplayPendingOrderResolution(value: ReplayPendingOrderReso
       fail("pending order cancellation must follow activation")
     }
   }
-  if (!["resting", "filled", "triggered_and_filled", "cancelled", "unresolved"].includes(outcome.status)) {
+  if (!["resting", "filled", "triggered_and_filled", "cancelled", "expired", "unresolved"].includes(outcome.status)) {
     fail("pending order outcome status is unsupported")
   }
   requireNonNegative(outcome.fill_quantity, "pending_order.outcome.fill_quantity")
@@ -3605,6 +3636,14 @@ export function assertReplayPendingOrderResolution(value: ReplayPendingOrderReso
     }
   } else if (!outcome.decisive_event_key) {
     fail("resolved pending order outcome requires a decisive EventKey")
+  }
+  if (order.time_in_force === "ioc" && value.cancel_effective_key === null
+      && outcome.status !== "filled" && outcome.status !== "expired") {
+    fail("IOC limit must fill or expire at its sole observation")
+  }
+  if (outcome.status === "expired"
+      && (order.time_in_force !== "ioc" || outcome.reason !== "ioc_unfilled_at_first_open")) {
+    fail("pending order expiry is reserved for an unfilled IOC first-open decision")
   }
   const queueLimited = order.order_type === "limit"
     && ["limit_open_marketable", "limit_strict_cross", "limit_touch_queue_unproven", "limit_touch_before_cancel_unresolved"].includes(outcome.reason)
@@ -3657,7 +3696,7 @@ function assertReplayPendingOrderOutcomeSemantics(value: ReplayPendingOrderResol
         return order.order_type === "limit" && limitTouch && outcome.status === "resting" && cancelKey === null && sourceDecisive
       case "limit_not_reached":
         return order.order_type === "limit" && !limitMarketable && !limitStrictCross && !limitTouch
-          && outcome.status === "resting" && cancelKey === null && sourceDecisive
+          && order.time_in_force === "gtc" && outcome.status === "resting" && cancelKey === null && sourceDecisive
       case "stop_open_gap":
         return order.order_type === "stop_market" && sourceCanDecide && stopOpenTriggered && outcome.status === "triggered_and_filled"
           && outcome.fill_reference_price === observation.bar.open && sourceDecisive
@@ -3672,9 +3711,9 @@ function assertReplayPendingOrderOutcomeSemantics(value: ReplayPendingOrderResol
       case "cancel_after_non_fill":
         return cancelKey !== null && cancelAfter && outcome.status === "cancelled" && decisiveIs(cancelKey)
           && (order.order_type === "limit" ? !limitMarketable && !limitStrictCross && !limitTouch : !stopOpenTriggered && !stopRangeTriggered)
-      case "ioc_not_marketable":
+      case "ioc_unfilled_at_first_open":
         return order.order_type === "limit" && sourceCanDecide && order.time_in_force === "ioc" && !limitMarketable
-          && outcome.status === "cancelled" && sourceDecisive
+          && outcome.status === "expired" && sourceDecisive
       case "same_ordinal_cancel_race":
         return cancelKey !== null && sameReplayEventOrdinal(cancelKey, observation.source_event_key)
           && outcome.status === "unresolved" && outcome.decisive_event_key === null

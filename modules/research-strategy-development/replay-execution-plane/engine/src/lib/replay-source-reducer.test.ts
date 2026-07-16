@@ -95,7 +95,7 @@ test("source reducer stops at the terminal market event and keeps only in-positi
         event_subphase: 3, stable_event_id: "entry-fill",
       }),
     }),
-    observe_pending_entry: () => null,
+    observe_pending_entry: () => ({ entry_transition: null, terminal_exit: null }),
     get_entry_fill_event_key: (entry) => entry.fill_key,
     get_active_protection: () => ({
       protection_generation: 1, remaining_quantity: 1,

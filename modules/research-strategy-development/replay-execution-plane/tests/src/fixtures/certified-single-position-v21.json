@@ -1,6 +1,6 @@
 {
   "request": {
-    "schema_version": "trade.rd-replay-execution-request.v26",
+    "schema_version": "trade.rd-replay-execution-request.v27",
     "run_id": "golden-run",
     "idempotency_key": "golden-idempotency",
     "experiment_id": "exp-golden",
@@ -73,7 +73,7 @@
       "liquidation_fee_bps": 10
     },
     "simulator_policy": {
-      "version": "rd-replay-simulator-v12",
+      "version": "rd-replay-simulator-v13",
       "signal_visibility": "closed_candle",
       "earliest_execution": "next_open",
       "same_bar_policy": "stop_first",
@@ -253,5 +253,5 @@
       "mark_price": 105
     }
   ],
-  "expected_semantic_digest": "262015b40b13e8c6e648b7fc1745407450b0e77900aaab506171f2f998528388"
+  "expected_semantic_digest": "159074020f087c596a65dc234414c4ab2728f82304d10f1f54fb06cc95680c43"
 }

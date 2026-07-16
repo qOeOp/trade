@@ -41,7 +41,7 @@ test("golden: GTC limit uses observed-open improvement but remains queue-limited
     cancel_effective_key: null,
   })
   expect(sell.outcome.fill_reference_price).toBe(100)
-  expect(buy.resolution_hash).toBe("d6108a5cbf983efd967b9655d3ab65495004c114d6442204b3b64f23b0c8d8e1")
+  expect(buy.resolution_hash).toBe("9db3324d062e8491056c4d362d24e7f140b04a05a589f0535455eec859fdf330")
   expect(sell.resolution_hash).toHaveLength(64)
 })
 
@@ -83,7 +83,7 @@ test("IOC limit resolves only at the first eligible open", () => {
     cancel_effective_key: null,
   })
   expect(cancelled).toMatchObject({
-    outcome: { status: "cancelled", reason: "ioc_not_marketable", decisive_event_key: observation("bar_open").source_event_key },
+    outcome: { status: "expired", reason: "ioc_unfilled_at_first_open", decisive_event_key: observation("bar_open").source_event_key },
     resolution_status: "exact_under_ohlc",
   })
   expect(() => resolveReplayPendingOrder({
