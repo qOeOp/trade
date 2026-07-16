@@ -46,7 +46,9 @@ import {
 } from "./instrument-status-provider-certification-registry"
 import {
   cancelReplayAttemptByAuthority,
+  createSqliteReplayCancellationCoordinationPort,
   readReplayAttemptCancellation,
+  readReplayAttemptCancellationLatency,
   readReplayAttemptCancellationObservation,
   recordReplayAttemptCancellationObservation,
   resolveReplayAttemptCancellationDirective,
@@ -819,11 +821,11 @@ test("Control Plane cancellation authority separately fences future claims and o
     assert.deepEqual(cancelReplayAttemptByAuthority(db, attemptCancellation), attemptCancellation)
     assert.deepEqual(cancelReplayAttemptByAuthority(db, attemptCancellation), attemptCancellation)
     assert.deepEqual(readReplayAttemptCancellation(db, renewed.attempt_id), attemptCancellation)
-    assert.deepEqual(resolveReplayAttemptCancellationDirective(
-      db,
-      renewed,
-      "2026-07-14T03:47:00Z",
-    ), {
+    const coordinationPort = createSqliteReplayCancellationCoordinationPort(db)
+    assert.deepEqual(coordinationPort.poll({
+      attempt_lease: renewed,
+      observed_at: "2026-07-14T03:47:00Z",
+    }), {
       command: "cancel",
       attempt_lease: renewed,
       observed_at: "2026-07-14T03:47:00Z",
@@ -873,17 +875,21 @@ test("Control Plane cancellation authority separately fences future claims and o
       observation,
       "2026-07-14T03:46:00Z",
     ), /registered before worker observation/)
-    assert.deepEqual(recordReplayAttemptCancellationObservation(
-      db,
-      observation,
-      "2026-07-14T03:48:00Z",
-    ), observation)
+    coordinationPort.acknowledge({ observation, registered_at: "2026-07-14T03:48:00Z" })
     assert.deepEqual(recordReplayAttemptCancellationObservation(
       db,
       observation,
       "2026-07-14T03:49:00Z",
     ), observation)
     assert.deepEqual(readReplayAttemptCancellationObservation(db, renewed.attempt_id), observation)
+    assert.deepEqual(readReplayAttemptCancellationLatency(db, renewed.attempt_id), {
+      cancellation_recorded_at: "2026-07-14T03:46:00Z",
+      worker_observed_at: "2026-07-14T03:47:00Z",
+      control_plane_registered_at: "2026-07-14T03:48:00Z",
+      authority_to_observation_ms: 60_000,
+      observation_to_registration_ms: 60_000,
+      authority_to_registration_ms: 120_000,
+    })
     assert.throws(() => recordReplayAttemptCancellationObservation(
       db,
       createReplayAttemptCancellationObservationSnapshot({

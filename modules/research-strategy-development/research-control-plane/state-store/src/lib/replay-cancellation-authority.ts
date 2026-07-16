@@ -45,6 +45,39 @@ export interface ReplayAttemptCancellationDirective {
   attempt_cancellation: ReplayAttemptCancellationSnapshot
 }
 
+export interface ReplayCancellationCoordinationPortAdapter {
+  poll(input: {
+    attempt_lease: ReplayAttemptLeaseSnapshot
+    observed_at: string
+  }): ReplayAttemptCancellationDirective | null
+  acknowledge(input: {
+    observation: ReplayAttemptCancellationObservationSnapshot
+    registered_at: string
+  }): void
+}
+
+export interface ReplayAttemptCancellationLatencyProjection {
+  cancellation_recorded_at: string
+  worker_observed_at: string
+  control_plane_registered_at: string
+  authority_to_observation_ms: number
+  observation_to_registration_ms: number
+  authority_to_registration_ms: number
+}
+
+export function createSqliteReplayCancellationCoordinationPort(
+  db: Database,
+): ReplayCancellationCoordinationPortAdapter {
+  return {
+    poll: ({ attempt_lease: attemptLease, observed_at: observedAt }) => (
+      resolveReplayAttemptCancellationDirective(db, attemptLease, observedAt)
+    ),
+    acknowledge: ({ observation, registered_at: registeredAt }) => {
+      recordReplayAttemptCancellationObservation(db, observation, registeredAt)
+    },
+  }
+}
+
 export function registerReplayReservationCancellation(
   db: Database,
   cancellation: ReplayReservationCancellationSnapshot,
@@ -419,6 +452,39 @@ export function readReplayAttemptCancellationObservation(
     WHERE attempt_id = $attempt_id
   `).get({ $attempt_id: attemptId }) as CancellationObservationRow | null
   return row ? parseAttemptCancellationObservation(row) : null
+}
+
+export function readReplayAttemptCancellationLatency(
+  db: Database,
+  attemptId: string,
+): ReplayAttemptCancellationLatencyProjection | null {
+  const row = db.query(`
+    SELECT cancellation.recorded_at AS cancellation_recorded_at,
+           observation.observed_at AS worker_observed_at,
+           observation.registered_at AS control_plane_registered_at
+    FROM rd_replay_attempt_cancellation AS cancellation
+    JOIN rd_replay_attempt_cancellation_observation AS observation
+      ON observation.cancellation_hash = cancellation.cancellation_hash
+    WHERE cancellation.attempt_id = $attempt_id
+  `).get({ $attempt_id: attemptId }) as {
+    cancellation_recorded_at: string
+    worker_observed_at: string
+    control_plane_registered_at: string
+  } | null
+  if (!row) return null
+  const recorded = Date.parse(row.cancellation_recorded_at)
+  const observed = Date.parse(row.worker_observed_at)
+  const registered = Date.parse(row.control_plane_registered_at)
+  if (![recorded, observed, registered].every(Number.isFinite)
+      || recorded > observed || observed > registered) {
+    throw new Error("Replay Attempt cancellation latency projection is inconsistent")
+  }
+  return {
+    ...row,
+    authority_to_observation_ms: observed - recorded,
+    observation_to_registration_ms: registered - observed,
+    authority_to_registration_ms: registered - recorded,
+  }
 }
 
 function parseReservationCancellation(row: CancellationRow): ReplayReservationCancellationSnapshot {

@@ -8,6 +8,8 @@ import type { ReplayAttemptLeaseSnapshot, ResearchIdentityBinding, TrialReservat
 import { REPLAY_CERTIFIED_CAPABILITIES, REPLAY_DATASET_MANIFEST_SCHEMA_VERSION, REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION, REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION, REPLAY_NO_DECISION_MARKET_INPUT, REPLAY_NO_DECISION_MARKET_INPUT_HASH, REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS, REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH, REPLAY_SIMULATOR_POLICY_VERSION, REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION, canonicalHash, createReplayInstrumentStatusProvenance, createReplaySingleDecisionSchedule, replayDatasetHash, replayExecutionSpecHash, type ReplayDatasetManifest, type ReplayExecutionRequest, type ReplayMarketBar } from "../../../replay-execution-plane/contracts/src/lib/replay-contracts"
 import { buildDeveloperReplayRequest } from "../../../agent-roles/developer/src/lib/developer-role"
 import { runReplayTrial } from "../../../replay-execution-plane/runner/src/lib/replay-trial-runner"
+import type { ReplayCancellationCoordinationPort } from "../../../replay-execution-plane/runner/src/lib/replay-cancellation-coordinator"
+import { createSqliteReplayCancellationCoordinationPort } from "../../state-store/src/lib/replay-cancellation-authority"
 import { buildDraftAuthorization } from "../../../agent-roles/reviewer/src/lib/reviewer-role"
 import { materializeDraftStrategy } from "../../strategy-registry/src/lib/strategy-registry"
 import { SOURCE_SCHEMA_VERSION } from "../../strategy-policy-writer/src/lib/strategy-policy-writer"
@@ -22,6 +24,14 @@ const SPEC_SNAPSHOT = { schema_version: REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_V
 const STATUS_SNAPSHOT = { schema_version: REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION, snapshot_id: "status-1", venue_id: "binance-usdm", symbol: "BTCUSDT", status: "trading" as const, effective_at: "2020-01-01T00:00:00Z", valid_until: null, observed_at: "2026-07-13T00:00:00Z", source_ref: "fixture:status-1", source_hash: HASH }
 const STATUS_PROVENANCE = createReplayInstrumentStatusProvenance({ producer_domain: "market-data-products", producer_id: "fixture-status-producer", producer_version: "v1", producer_build_hash: HASH, provider_capability_hash: HASH, provider_certification_ref: PROVIDER_CERTIFICATION.certification_ref, provider_certification_hash: PROVIDER_CERTIFICATION.certification_hash, source_owner: "binance-usdm", source_kind: "venue_status_event_archive", normalization_policy_version: "fixture-status-normalization-v1", normalization_policy_hash: HASH, completeness: "complete_history", coverage_start: "2020-01-01T00:00:00Z", coverage_end: "2026-07-15T00:00:00Z", source_observed_through: "2026-07-13T00:00:00Z", produced_at: "2026-07-13T00:00:00Z", source_ref: "fixture:status-source", source_hash: HASH, source_record_count: 1, status_epochs: [STATUS_SNAPSHOT] })
 const ACCOUNTING = { spec_version: REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, product_type: "linear_derivative" as const, base_asset: "BTC", quote_asset: "USDT", settlement_asset: "USDT", contract_multiplier: "1", price_increment: "0.01", quantity_increment: "0.001", settlement_increment: "0.00000001" }
+
+test("Control Plane SQLite cancellation adapter conforms to the Replay coordinator port", () => {
+  const db = new Database(":memory:")
+  const port: ReplayCancellationCoordinationPort = createSqliteReplayCancellationCoordinationPort(db)
+  expect(typeof port.poll).toBe("function")
+  expect(typeof port.acknowledge).toBe("function")
+  db.close()
+})
 
 test("Contract to Replay to Review to landed Draft to Forward is auditable", () => {
   const historicalBars: ReplayMarketBar[] = [{ open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 100, high: 111, low: 99, close: 110, volume: 10, closed: true }]
