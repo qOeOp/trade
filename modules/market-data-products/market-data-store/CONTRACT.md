@@ -1,6 +1,6 @@
 # Market Data Store Contract
 
-Owns `market_data_store` for market manifests, funding events, feature manifests, and immutable instrument-status archives, plus `ohlcv_store` for canonical candles.
+Owns `market_data_store` for market manifests, funding events, feature manifests, immutable instrument-status archives, and immutable aggregate-trade archives, plus `ohlcv_store` for canonical candles.
 
 ## Responsibilities
 
@@ -15,6 +15,9 @@ Owns `market_data_store` for market manifests, funding events, feature manifests
 - Admit only gap-free, overlap-free source-batch windows whose linked record counts close the normalized event set. The audit scope is `batch_window_continuity`; `external_completeness` is always `not_verified`.
 - Preserve corrections as an append-only, same-scope, single-successor `supersedes_archive_hash` chain; never mutate or hide the predecessor.
 - Serve acquisition receipt metadata and an archive by id through owner read ports; raw BLOB reads remain an integrity/audit library surface, not a default CLI payload.
+- Import Binance USD-M historical aggregate-trade JSON only through an explicit `offline_import` source receipt; preserve exact source bytes and create-or-identical Archive v1.
+- Deterministically normalize `a/p/q/f/l/T/m` into one-symbol ordered events; require contiguous aggregate ids, non-decreasing trade time, half-open window membership, source finality, and raw-byte/receipt/audit/archive hash closure.
+- Label aggregate-trade availability as trade-time resolution-limited and local completeness as `not_verified`; never promote recent REST reads or local id continuity into external complete-history authority.
 
 ## Boundaries
 
@@ -22,4 +25,4 @@ Owns `market_data_store` for market manifests, funding events, feature manifests
 - Does not write `trade.db`.
 - Does not call exchange write APIs.
 - Does not store research experiment results; those remain artifacts/evidence refs.
-- Does not normalize status epochs, infer missing events, select a canonical/latest correction, or certify external venue completeness, authenticity, signature, transport identity, or source-system exhaustiveness.
+- Does not normalize status epochs, infer missing events, select a canonical/latest correction, or certify external venue completeness, authenticity, signature, transport identity, source-system exhaustiveness, dissemination latency, or cross-source ordering.

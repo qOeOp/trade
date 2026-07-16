@@ -1,6 +1,6 @@
 -- owner: market-data-products
 -- physical target: data/market_data.db
--- mode: manifest upsert plus immutable instrument-status archive CAS
+-- mode: manifest upsert plus immutable instrument-status / aggregate-trade archive CAS
 
 CREATE TABLE IF NOT EXISTS market_manifest (
   manifest_id     TEXT PRIMARY KEY,
@@ -133,4 +133,17 @@ CREATE TABLE IF NOT EXISTS instrument_status_archive_audit (
     (supersedes_archive_hash IS NULL AND correction_reason IS NULL) OR
     (supersedes_archive_hash IS NOT NULL AND correction_reason IS NOT NULL)
   )
+);
+
+CREATE TABLE IF NOT EXISTS aggregate_trade_archive (
+  archive_id       TEXT PRIMARY KEY,
+  schema_version   TEXT NOT NULL,
+  venue_id         TEXT NOT NULL,
+  symbol           TEXT NOT NULL,
+  coverage_start   TEXT NOT NULL,
+  coverage_end     TEXT NOT NULL,
+  source_hash      TEXT NOT NULL,
+  archive_hash     TEXT NOT NULL UNIQUE,
+  archive_json     TEXT NOT NULL CHECK(json_valid(archive_json)),
+  raw_payload      BLOB NOT NULL
 );

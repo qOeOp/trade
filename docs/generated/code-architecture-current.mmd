@@ -27,6 +27,7 @@ flowchart LR
     module_modules_market_data_products_binance_read_instrument_status_collector["market-data-products/binance-read/instrument-status-collector"]
     module_modules_market_data_products_liquidation_zones["market-data-products/liquidation-zones"]
     module_modules_market_data_products_market_data_store["market-data-products/market-data-store"]
+    module_modules_market_data_products_aggregate_trade_provider["market-data-products/aggregate-trade-provider"]
     module_modules_market_data_products_instrument_status_provider["market-data-products/instrument-status-provider"]
     module_modules_market_data_products_data_quality_gate["market-data-products/data-quality-gate"]
     module_modules_market_data_products_market_fact_publisher["market-data-products/market-fact-publisher"]
@@ -153,4 +154,5 @@ flowchart LR
   domain_policy_risk -- "owns store" --> store_policy_registry
   store_ops_runtime_store[("ops_runtime_store")]
   domain_orchestration_ops -- "owns store" --> store_ops_runtime_store
+  module_modules_market_data_products_aggregate_trade_provider -. "1 import" .-> module_modules_research_strategy_development_replay_execution_plane_contracts
   module_modules_market_data_products_instrument_status_provider -. "1 import" .-> module_modules_research_strategy_development_replay_execution_plane_contracts

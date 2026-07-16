@@ -5,7 +5,7 @@
 ## Verdict
 
 - Hard drift: none.
-- Cross-domain source imports visible from code: 1. These are implementation projection lines, not protocol rails.
+- Cross-domain source imports visible from code: 2. These are implementation projection lines, not protocol rails.
 - Test files are excluded from the flyline count.
 - Job owner / target-domain mismatches visible from manifest: 0.
 - CONTRACT roots outside manifest domain module list: 0. These are usually internal engines or pending module declarations.
@@ -17,7 +17,7 @@
 | `orchestration-ops` | 6 | 6 | ops_runtime_store | - |
 | `policy-risk` | 2 | 2 | policy_registry | - |
 | `portfolio-execution-state` | 2 | 2 | trade_event_store, flow_read_models | - |
-| `market-data-products` | 11 | 9 | market_data_store, ohlcv_store | - |
+| `market-data-products` | 12 | 10 | market_data_store, ohlcv_store | - |
 | `exchange-gateway` | 10 | 10 | exchange_runtime_store | - |
 | `live-decision-planning` | 6 | 6 | - | J03:slow_track_market_watch |
 | `live-execution-control` | 9 | 9 | - | J01:account_reconcile_guard, J02:fast_track_guard |
@@ -41,6 +41,7 @@
 
 | Source domain | Target domain | Source module | Target module | Files |
 | --- | --- | --- | --- | ---: |
+| `market-data-products` | `research-strategy-development` | `modules/market-data-products/aggregate-trade-provider` | `modules/research-strategy-development/replay-execution-plane/contracts` | 1 |
 | `market-data-products` | `research-strategy-development` | `modules/market-data-products/instrument-status-provider` | `modules/research-strategy-development/replay-execution-plane/contracts` | 1 |
 
 ## Orphan Package Modules

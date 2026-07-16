@@ -27,7 +27,7 @@
 | --- | --- | --- | --- | --- |
 | `trade_event_store` | implemented | `portfolio-execution-state/event-store` | `data/trade.db.plan_event` | 钱的事件真相；append-only |
 | `flow_read_models` | implemented-derived | `portfolio-execution-state/flow-projector` | memory；可选 cache table | 从 `plan_event` 重建，不是事实源 |
-| `market_data_store` | implemented | `market-data-products/market-data-store` | `data/market_data.db` | market/funding/feature manifests；instrument-status acquisition receipt/raw payload、Archive v3、source-batch/audit 与 append-only supersession；不证明外部源穷尽 |
+| `market_data_store` | implemented | `market-data-products/market-data-store` | `data/market_data.db` | market/funding/feature manifests；instrument-status acquisition/archive；aggregate-trade exact raw bytes/receipt/audit/Archive v1；不证明外部源穷尽 |
 | `ohlcv_store` | implemented | `market-data-products/market-data-store` | `data/ohlcv.db` | canonical candles；`ohlcv-fetch --ohlcv-db` 按 latest candle 增量抓取并 upsert 多标的 / 多周期 OHLCV |
 | `exchange_runtime_store` | implemented | `exchange-gateway/exchange-runtime-store` | `data/exchange_runtime.db` | 交易所 command/result/idempotency ledger；Binance 写工具与 `execution-router` 默认接入；真钱事实仍回写 `trade_event_store` |
 | `artifact_catalog` | implemented | `artifact-knowledge/artifact-catalog` | `data/data_catalog.db` | artifact/dataset/evidence/report 索引，不存大 payload |
@@ -36,7 +36,7 @@
 | `policy_registry` | implemented | `policy-risk/policy-registry` | `data/policy_registry.db` | runtime policy snapshot 与 approved strategy refs |
 | `ops_runtime_store` | implemented | `orchestration-ops/ops-runtime-store` | `data/ops_runtime.db` | cycle/job/health/notify/domain_message observability；`summary` 读口派生 stage/domain/attention 聚合；domain-bus 只存 envelope/ref，不参与交易真相 |
 
-`market_data_store` 的 owner 读口已覆盖 `read_manifest`、`read_funding`、`read_feature_manifest`、`list_feature_manifests`、`read_instrument_status_archive`；instrument-status acquisition 先以 create-or-identical receipt 保存逐次 HTTP/导入结果及 exact response BLOB，只有 historical capability 可进入 batch/audit/archive hash 闭包，修订只追加 supersession。`ohlcv_store` 的 owner 读口覆盖 `read_latest_candle` 与 `read_candles`。后续 R&D / governance 迁移消费 candles、funding、status 或 feature refs 时，应优先走 owner CLI / protocol ref，而不是跨域直读 SQL 表。
+`market_data_store` 的 owner 读口已覆盖 `read_manifest`、`read_funding`、`read_feature_manifest`、`list_feature_manifests`、`read_instrument_status_archive` 与 library-level `read_aggregate_trade_archive`；instrument-status acquisition 先以 create-or-identical receipt 保存逐次 HTTP/导入结果及 exact response BLOB，只有 historical capability 可进入 batch/audit/archive hash 闭包，修订只追加 supersession。aggregate-trade archive 只接受 offline historical import，保存 exact raw BLOB，并在读取时复算规范化事件与 receipt/audit/archive hash；本地 id 连续不代表外部完整。`ohlcv_store` 的 owner 读口覆盖 `read_latest_candle` 与 `read_candles`。后续 R&D / governance 迁移消费 candles、funding、status 或 feature refs 时，应优先走 owner CLI / protocol ref，而不是跨域直读 SQL 表。
 
 `calibration-market-features --market-data-db` 会在 calibration suite input 的 dataset 上同时保留旧 `indicator_report_path` 与新 `market_data_db / funding_events_ref / feature_manifest_ref`。当前 benchmark input、data hash 与 panel diagnostics 已识别这些 refs；实际 funding 数值读取仍兼容旧 JSON report，后续可在不改输入契约的前提下切换到 owner 读口。
 
