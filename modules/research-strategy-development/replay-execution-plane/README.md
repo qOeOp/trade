@@ -54,6 +54,8 @@ R4.57 实现 Control Plane provider certification rotation/revocation。Terminat
 
 R4.58 实现 Control Plane emergency cancellation authority。Reservation Cancellation v1 绑定完整 Reservation hash，以非追溯 `effective_at` 永久阻止新 claim；已 active Attempt 不受暗中影响。Attempt Cancellation v1 绑定 Trial/run/request/reservation、Attempt/worker/ordinal 与精确 lease generation，收据和 terminal `cancelled` 状态原子提交；旧 generation 后续 renew/finalize/checkpoint 全部失效。若要停止当前运行并禁止 retry，协调者必须显式写两份收据。Runner 继续通过既有 cooperative callback 观察 `cancel`，不发布 partial Result/Artifact；Replay wire、Simulator 和经济语义不变。
 
+R4.68 将 R4.59—R4.67 的 Observation/ack、durable outbox、pre-terminal commit、restart recovery、renewal binding 与 local discovery 接到 Control Plane `research.replay-attempt-admission`：production claim 必须先完成同一 local store 的 recovery，失败则 zero-claim。Replay Runner 仍只消费冻结 Lease，不读取 SQLite、不拥有 worker supervisor；remote store、pool identity 与 startup/stop SLA 未认证。
+
 经济入口按唯一 `authorized_initial_order / authorized_order` 语义定位，不依赖 Schedule/Timeline 数组末位；可选退出必须是 Schedule 末位并以 `authorized_reduce_only_exit` 独立表达，不能冒充第二个入口。所有 post-entry evaluation 必须由 Source Reducer 运行时产生 Position/Cash State Snapshot，并正确表达 terminal-before-decision、pending Order 与 checkpoint/resume。
 
 Reservation 只控制新 Attempt claim；已准入 Attempt 由 lease/generation fencing。Runner 仅通过 Attempt-scoped Artifact Store port 访问证据，local-v1 使用 `fsync + hard-link CAS + directory fsync`，remote-v1 仍只有准入合同、没有 certified adapter。Control Plane 单写 Reservation、Lease、Checkpoint Receipt 与 Resume Authorization；Replay 不查询或修改 Trial。对象存储实现/认证、OS sandbox、multiple partial、动态 supplemental join、变更 accounting epoch、历史规则采集、部分强平、cross/shared portfolio、tick/L2、真实 partial liquidity、limit queue 与 fast mode 未完成。
