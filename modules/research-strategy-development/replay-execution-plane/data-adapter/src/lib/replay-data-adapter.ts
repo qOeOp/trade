@@ -544,7 +544,7 @@ function detectDatasetLimitations(
   if (missingBars > 0) limitations.push({
     code: "dataset-grid-gap",
     severity: "resolution_limited",
-    detail: `Dataset is missing ${missingBars} expected bar(s); Simulator v14 never treats a missing time-grid bar as an observed price gap unless a complete PIT status schedule proves the entire interval was halted. A Result is possible only if the gap is outside the consumed execution path; reaching it fails before later SourceEvents.`,
+    detail: `Dataset is missing ${missingBars} expected bar(s); Simulator v15 never treats a missing time-grid bar as an observed price gap unless a complete PIT status schedule proves the entire interval was halted. A Result is possible only if the gap is outside the consumed execution path; reaching it fails before later SourceEvents.`,
   })
   if (manifest.instrument.status_history === "current_snapshot_only") limitations.push({
     code: "instrument-history-incomplete",

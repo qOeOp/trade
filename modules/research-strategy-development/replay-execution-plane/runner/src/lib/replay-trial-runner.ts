@@ -286,7 +286,8 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
       supplemental_facts: input.supplemental_facts,
     })
     const decisionEvidence = decisionInputs.decisions.map((decision) => {
-      if (replayDecisionPhaseFor(input.request, decision.schedule_entry) === "position_open") {
+      const decisionPhase = replayDecisionPhaseFor(input.request, decision.schedule_entry)
+      if (decisionPhase === "position_open" || decisionPhase === "pending_entry") {
         return { ...decision, evaluation_status: "pending_runtime" as const }
       }
       const decisionHarnessAdmission = executeReplayDecisionHarness({

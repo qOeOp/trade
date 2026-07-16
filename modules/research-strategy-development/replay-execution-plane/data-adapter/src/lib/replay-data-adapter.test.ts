@@ -438,7 +438,7 @@ test("data adapter rejects a missing frozen entry bar but admits an unused pre-e
     bars: gapBars,
   })
   expect(prepared.limitations.map((item) => item.code)).toEqual(["dataset-grid-gap", "instrument-history-incomplete", "survivor-only-universe"])
-  expect(prepared.limitations[0].detail).toContain("Simulator v14")
+  expect(prepared.limitations[0].detail).toContain("Simulator v15")
 })
 
 test("data adapter certifies only a complete point-in-time mark grid", () => {

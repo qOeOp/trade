@@ -73,7 +73,7 @@ import { ReplayLiquidationDeficitError, ReplayMarginTerminalError, assertReplayP
 import { reduceReplaySourceEvents } from "./replay-source-reducer"
 import { resolveReplayPendingOrder } from "./replay-pending-order-resolution"
 
-export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v20" as const
+export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v21" as const
 
 export interface ReplayEngineCheckpoint {
   schema_version: typeof REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION
@@ -154,7 +154,7 @@ export interface ReplayKernelInput {
     schedule_entry: ReplayDecisionScheduleEntry
     decision_input_snapshot: ReplayDecisionInputSnapshot
     decision_market_input_snapshot: ReplayDecisionMarketInputSnapshot
-    decision_state_snapshot: ReplayDecisionStateSnapshot
+    decision_state_snapshot: ReplayDecisionStateSnapshot | null
   }) => {
     source_bundle: ReplayDecisionHarnessSourceBundle | null
     build_attestation: ReplayDecisionHarnessBuildAttestation | null
@@ -419,6 +419,56 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
   const rebuildDecisionTimeline = (): void => {
     decisionEvidenceTimeline = createReplayDecisionEvidenceTimeline({ request, decisions: timelineInputs })
     decisionEvidenceEntry = replayAuthorizedInitialDecisionEvidenceEntry(decisionEvidenceTimeline)
+  }
+  const scheduledEntryCancel = request.decision_schedule.entries.find(
+    (entry) => entry.expected_effect === "authorized_entry_cancel",
+  )
+  const evaluateScheduledEntryCancel = (source: ReplaySourceEvent): void => {
+    if (!scheduledEntryCancel || source.kind !== "bar_range"
+        || source.event_key.event_time !== scheduledEntryCancel.decision_time) return
+    const decisionIndex = timelineInputs.findIndex(
+      (decision) => decision.schedule_entry.decision_sequence === scheduledEntryCancel.decision_sequence,
+    )
+    const decision = timelineInputs[decisionIndex]
+    if (!decision || decision.evaluation_status !== "pending_runtime"
+        || replayDecisionPhaseFor(request, decision.schedule_entry) !== "pending_entry"
+        || !input.runtime_decision_evaluator) {
+      throw new Error("Replay scheduled entry cancel requires a pending-entry runtime Harness decision")
+    }
+    const admission = input.runtime_decision_evaluator({
+      schedule_entry: decision.schedule_entry,
+      decision_input_snapshot: decision.decision_input_snapshot,
+      decision_market_input_snapshot: decision.decision_market_input_snapshot,
+      decision_state_snapshot: null,
+    })
+    timelineInputs[decisionIndex] = {
+      ...decision,
+      evaluation_status: "evaluated",
+      decision_state_snapshot: null,
+      decision_harness_bundle: admission.source_bundle,
+      decision_harness_build: admission.build_attestation,
+      decision_harness_receipt: admission.receipt,
+    }
+    rebuildDecisionTimeline()
+  }
+  const markScheduledEntryCancelNotReached = (entryFillKey: ReplayEventKey): void => {
+    if (!scheduledEntryCancel
+        || Date.parse(entryFillKey.event_time) >= Date.parse(scheduledEntryCancel.decision_time)) return
+    const decisionIndex = timelineInputs.findIndex(
+      (decision) => decision.schedule_entry.decision_sequence === scheduledEntryCancel.decision_sequence,
+    )
+    const decision = timelineInputs[decisionIndex]
+    if (!decision || decision.evaluation_status !== "pending_runtime") return
+    timelineInputs[decisionIndex] = {
+      ...decision,
+      evaluation_status: "not_reached_terminal",
+      decision_state_snapshot: null,
+      decision_harness_bundle: null,
+      decision_harness_build: null,
+      decision_harness_receipt: null,
+      terminal_event_key: structuredClone(entryFillKey),
+    }
+    rebuildDecisionTimeline()
   }
   const buildRuntimeStateSnapshot = (boundary: {
     source_events: ReplaySourceEvent[]
@@ -690,6 +740,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       if (entryOrder.status !== "active") throw new Error("pending Limit entry Order is not active")
       const bar = bars[source.source_index]
       if (!bar) throw new Error("pending Limit entry references a missing bar")
+      evaluateScheduledEntryCancel(source)
       const cancelEffectiveKey = entryCancelIntent && source.kind === "bar_range"
           && source.event_key.event_time === entryCancelIntent.effective_at
         ? createReplayEventKey({
@@ -783,6 +834,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
         capture,
       })
       entryOrder = completed.entry_order
+      markScheduledEntryCancelNotReached(completed.entry_fill_event_key)
       return { entry_transition: completed, terminal_exit: null }
     },
     get_entry_fill_event_key: (entry) => entry.entry_fill_event_key,

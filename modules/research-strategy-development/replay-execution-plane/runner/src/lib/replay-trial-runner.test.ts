@@ -28,6 +28,7 @@ import {
   assertReplayResultOhlcvResolutionBindings,
   canonicalHash,
   canonicalJson,
+  createReplayEntryCancelDecisionSchedule,
   createReplaySingleDecisionSchedule,
   createReplayDecisionHarnessBuildAttestation,
   createReplayDecisionInputSnapshot,
@@ -600,6 +601,102 @@ test("runner commits contract-owned GTC cancellation and preserves ambiguous tou
   })
   expect("artifact_manifest" in missing).toBe(false)
   expect("result" in missing).toBe(false)
+})
+
+test("runner evaluates a scheduled pending-entry Cancel Harness and marks an earlier Fill not reached", () => {
+  const preSignalBar = {
+    open_time: "2026-07-13T20:00:00Z", close_time: "2026-07-14T00:00:00Z",
+    open: 100, high: 102, low: 99, close: 101, volume: 10, closed: true as const,
+  }
+  const intent = createReplayEntryCancelIntent({
+    intent_id: "scheduled-cancel-entry",
+    requested_at: "2026-07-14T00:00:00Z",
+    effective_at: "2026-07-14T08:00:00Z",
+  })
+  const order: ReplayExecutionRequest["order"] = {
+    ...request().order,
+    entry_cancel_intent: intent,
+    entry_execution: {
+      order_type: "limit", limit_price: 99.5, time_in_force: "gtc",
+      liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1", full_fill_capacity: 1,
+      liquidity_capacity_attestation_hash: CAPACITY_ATTESTATION.attestation_hash,
+    },
+  }
+  const requirement = {
+    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
+    mode: "closed_bar_lookback" as const, source_kind: "ohlcv" as const,
+    fields: ["open", "high", "low", "close", "volume"] as const, lookback_bars: 1,
+    visibility_policy: "close_time_at_or_before_decision_time" as const,
+    terminal_bar_policy: "close_time_equals_decision_time" as const,
+    continuity_policy: "strict_interval_grid" as const, undeclared_input_policy: "reject" as const,
+  }
+  const schedule = createReplayEntryCancelDecisionSchedule(order)
+  const registration = decisionHarness(`const initialOrder = ${JSON.stringify(order)}
+const cancelIntent = ${JSON.stringify(intent)}
+export function execute({ request_context, decision_market_input_snapshot, decision_state_snapshot }) {
+  if (decision_state_snapshot !== null) throw new Error("pending entry cancel cannot consume position state")
+  if (request_context.decision_phase === "pending_entry") {
+    return { decision_output: { action: "cancel_entry_order", order: cancelIntent }, trace: { bars_hash: decision_market_input_snapshot.bars_hash } }
+  }
+  return { decision_output: { action: "submit_initial_order", order: initialOrder }, trace: { bars_hash: decision_market_input_snapshot.bars_hash } }
+}
+`)
+  const run = (executionBar: ReplayMarketBar, idempotencyKey: string) => {
+    const runBars = [preSignalBar, executionBar]
+    const dataHash = replayDatasetHash(runBars)
+    const requestValue: ReplayExecutionRequest = {
+      ...request(), order, dataset_hash: dataHash, idempotency_key: idempotencyKey,
+      harness_hash: registration.source_bundle.bundle_hash,
+      decision_market_input_requirement: requirement,
+      decision_market_input_requirement_hash: canonicalHash(requirement),
+      decision_schedule: schedule, decision_schedule_hash: canonicalHash(schedule),
+    }
+    return runReplayTrial({
+      ...authorized(requestValue), dataset_manifest: datasetManifestFor(runBars, dataHash), bars: runBars,
+      decision_harness_registry: registration.registry,
+      artifact_root: mkdtempSync(join(tmpdir(), `rd-replay-scheduled-cancel-${idempotencyKey}-`)),
+    })
+  }
+
+  const cancelled = run({
+    open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z",
+    open: 101, high: 103, low: 100, close: 102, volume: 10, closed: true,
+  }, "idem-scheduled-cancel")
+  expect(cancelled).toMatchObject({
+    status: "completed",
+    result: {
+      entry_outcome: "cancelled_unfilled",
+      decision_evidence_timeline: { entries: [
+        { decision_kind: "initial_order", evaluation_status: "evaluated" },
+        {
+          decision_kind: "entry_cancel", evaluation_status: "evaluated",
+          execution_effect: "authorized_entry_cancel", decision_state_snapshot: null,
+          decision_harness_receipt: { decision_output: { action: "cancel_entry_order", order: intent } },
+        },
+      ] },
+    },
+  })
+
+  const filled = run({
+    open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z",
+    open: 99, high: 103, low: 98, close: 102, volume: 10, closed: true,
+  }, "idem-scheduled-cancel-fill-first")
+  expect(filled).toMatchObject({
+    status: "completed",
+    result: {
+      entry_outcome: "filled",
+      decision_evidence_timeline: { entries: [
+        { decision_kind: "initial_order", evaluation_status: "evaluated" },
+        {
+          decision_kind: "entry_cancel", evaluation_status: "not_reached_terminal",
+          execution_effect: "not_reached", decision_state_snapshot: null,
+          decision_harness_receipt: null,
+        },
+      ] },
+    },
+  })
+  expect(filled.result?.decision_evidence_timeline.entries[1]?.terminal_event_key?.event_time)
+    .toBe("2026-07-14T04:00:00Z")
 })
 
 test("runner returns typed data-gap failures without publishing partial Result", () => {

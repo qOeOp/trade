@@ -61,6 +61,7 @@ import {
   createReplayDecisionBoundary,
   createReplayDecisionEvidenceTimeline,
   createReplayDecisionInputSnapshot,
+  createReplayEntryCancelDecisionSchedule,
   createReplayEntryCancelIntent,
   createReplayDecisionMarketInputSnapshot,
   createReplayDecisionStateSnapshot,
@@ -167,7 +168,7 @@ test("Replay request requires complete Trial and evidence identity", () => {
   expect(() => assertReplayExecutionRequest(unauthorizedSchedule)).toThrow("market-only closed-bar lookback")
 })
 
-test("Request v28 freezes GTC, IOC, and one contract-owned GTC cancel boundary", () => {
+test("Request v29 freezes fixed and scheduled contract-owned GTC cancel boundaries", () => {
   const requestValue = fixtureRequest()
   requestValue.order = {
     ...requestValue.order,
@@ -195,6 +196,28 @@ test("Request v28 freezes GTC, IOC, and one contract-owned GTC cancel boundary",
   cancelled.decision_schedule = createReplaySingleDecisionSchedule(cancelled.order)
   cancelled.decision_schedule_hash = canonicalHash(cancelled.decision_schedule)
   expect(() => assertReplayExecutionRequest(cancelled)).not.toThrow()
+  const scheduled = structuredClone(cancelled)
+  scheduled.decision_market_input_requirement = {
+    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
+    mode: "closed_bar_lookback", source_kind: "ohlcv",
+    fields: ["open", "high", "low", "close", "volume"], lookback_bars: 1,
+    visibility_policy: "close_time_at_or_before_decision_time",
+    terminal_bar_policy: "close_time_equals_decision_time",
+    continuity_policy: "strict_interval_grid", undeclared_input_policy: "reject",
+  }
+  scheduled.decision_market_input_requirement_hash = canonicalHash(scheduled.decision_market_input_requirement)
+  scheduled.decision_schedule = createReplayEntryCancelDecisionSchedule(scheduled.order)
+  scheduled.decision_schedule_hash = canonicalHash(scheduled.decision_schedule)
+  expect(() => assertReplayExecutionRequest(scheduled)).not.toThrow()
+  expect(scheduled.decision_schedule.entries[1]).toMatchObject({
+    expected_effect: "authorized_entry_cancel",
+    decision_time: scheduled.order.entry_cancel_intent!.effective_at,
+    authorized_order_hash: canonicalHash(scheduled.order.entry_cancel_intent),
+  })
+  const scheduleTampered = structuredClone(scheduled)
+  scheduleTampered.decision_schedule.entries[1]!.authorized_entry_cancel!.intent_id = "tampered"
+  scheduleTampered.decision_schedule_hash = canonicalHash(scheduleTampered.decision_schedule)
+  expect(() => assertReplayExecutionRequest(scheduleTampered)).toThrow("must match the frozen GTC Limit cancel intent")
   const cancelHashTampered = structuredClone(cancelled)
   cancelHashTampered.order.entry_cancel_intent!.effective_at = "2026-07-14T12:00:00Z"
   cancelHashTampered.decision_schedule = createReplaySingleDecisionSchedule(cancelHashTampered.order)
