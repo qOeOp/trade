@@ -2,7 +2,7 @@ import { expect, test } from "bun:test"
 import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION, REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION, REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION, REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION, TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION, createReplayInstrumentStatusProviderCertificationSnapshot, createReplayResumeAuthorizationSnapshot, hashReplayAttemptLeaseSnapshot, hashTrialReservationSnapshot, type ReplayAttemptLeaseSnapshot, type ReplayResumeAuthorizationSnapshot, type TrialReservationSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
+import { CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION, REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION, REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION, REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION, REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION, TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION, createReplayAttemptCancellationSnapshot, createReplayInstrumentStatusProviderCertificationSnapshot, createReplayResumeAuthorizationSnapshot, hashReplayAttemptLeaseSnapshot, hashTrialReservationSnapshot, type ReplayAttemptLeaseSnapshot, type ReplayResumeAuthorizationSnapshot, type TrialReservationSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
 import {
   REPLAY_CERTIFIED_CAPABILITIES,
   REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
@@ -354,7 +354,7 @@ test("runner returns typed data-gap failures without publishing partial Result",
     bars: openPositionGapBars,
   })
   expect(openPositionFailure).toMatchObject({
-    schema_version: "trade.rd-replay-run-outcome.v34",
+    schema_version: "trade.rd-replay-run-outcome.v35",
     status: "failed",
     failure: {
       code: "dataset-grid-gap-in-execution-window",
@@ -1634,7 +1634,7 @@ test("runner enforces Reservation expiry only at Attempt claim admission", () =>
   expired.observed_at = "2026-07-14T00:01:30Z"
   const rejected = runReplayTrial({ ...expired, dataset_manifest: datasetManifest(), bars })
   expect(rejected).toMatchObject({
-    schema_version: "trade.rd-replay-run-outcome.v34",
+    schema_version: "trade.rd-replay-run-outcome.v35",
     status: "failed",
     failure: { code: "trial-reservation-expired", failure_class: "unsupported_contract", retryable: false, partial_result_published: false },
   })
@@ -1736,6 +1736,86 @@ test("runner renews the fenced Attempt at source boundaries and resumes cancelle
   expect(resumed.failure).toBeUndefined()
   expect(resumed.status).toBe("completed")
   expect(resumed.result).toEqual(clean.result)
+})
+
+test("runner binds an authority cancellation to one observable cancelled outcome", () => {
+  const authority = authorized()
+  const cancellation = createReplayAttemptCancellationSnapshot({
+    schema_version: REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION,
+    cancellation_id: "attempt-cancellation-1",
+    cancellation_ref: "cancellation://attempt/1",
+    status: "cancelled",
+    recorded_at: "2026-07-14T00:01:00Z",
+    authority_id: "research-control-plane",
+    cancellation_policy_version: "rd-replay-cancellation-v1",
+    reason_code: "operator_emergency_stop",
+    trial_id: authority.request.trial_id,
+    run_id: authority.request.run_id,
+    reservation_ref: authority.trial_reservation.reservation_ref,
+    reservation_hash: hashTrialReservationSnapshot(authority.trial_reservation),
+    request_hash: canonicalHash(authority.request),
+    attempt_id: authority.attempt_lease.attempt_id,
+    attempt_ordinal: authority.attempt_lease.attempt_ordinal,
+    worker_id: authority.attempt_lease.worker_id,
+    target_lease_generation: authority.attempt_lease.lease_generation,
+    scope: "active_attempt",
+  })
+  const outcome = runReplayTrial({
+    ...authority,
+    observed_at: "2026-07-14T00:02:00Z",
+    dataset_manifest: datasetManifest(),
+    bars,
+    execution_control: {
+      on_checkpoint: () => ({
+        command: "cancel",
+        attempt_lease: authority.attempt_lease,
+        observed_at: "2026-07-14T00:02:00Z",
+        attempt_cancellation: cancellation,
+      }),
+    },
+  })
+  expect(outcome).toMatchObject({
+    schema_version: "trade.rd-replay-run-outcome.v35",
+    status: "cancelled",
+    failure: { code: "execution-cancelled-at-checkpoint", partial_result_published: false },
+    cancellation_observation: {
+      schema_version: "trade.rd-replay-attempt-cancellation-observation.v1",
+      status: "observed",
+      cancellation_hash: cancellation.cancellation_hash,
+      attempt_id: authority.attempt_lease.attempt_id,
+      target_lease_generation: authority.attempt_lease.lease_generation,
+      outcome_schema_version: "trade.rd-replay-run-outcome.v35",
+      outcome_failure_code: "execution-cancelled-at-checkpoint",
+    },
+  })
+  expect(outcome.cancellation_observation?.observation_hash).toHaveLength(64)
+  expect(outcome.result).toBeUndefined()
+  expect(outcome.artifact_manifest).toBeUndefined()
+
+  const { cancellation_hash: _cancellationHash, ...cancellationBody } = cancellation
+  const staleCancellation = createReplayAttemptCancellationSnapshot({
+    ...cancellationBody,
+    cancellation_id: "attempt-cancellation-stale",
+    cancellation_ref: "cancellation://attempt/stale",
+    target_lease_generation: authority.attempt_lease.lease_generation + 1,
+  })
+  const stale = runReplayTrial({
+    ...authority,
+    observed_at: "2026-07-14T00:02:00Z",
+    dataset_manifest: datasetManifest(),
+    bars,
+    execution_control: { on_checkpoint: () => ({
+      command: "cancel",
+      attempt_lease: authority.attempt_lease,
+      observed_at: "2026-07-14T00:02:00Z",
+      attempt_cancellation: staleCancellation,
+    }) },
+  })
+  expect(stale).toMatchObject({
+    status: "failed",
+    failure: { code: "attempt-lease-rejected", partial_result_published: false },
+  })
+  expect(stale.cancellation_observation).toBeUndefined()
 })
 
 test("runner atomically publishes an attempt-local checkpoint commit and resumes it across processes", () => {

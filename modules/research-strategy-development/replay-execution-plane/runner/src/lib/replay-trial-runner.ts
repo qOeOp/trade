@@ -1,12 +1,16 @@
 import { createHash } from "node:crypto"
 import {
+  assertReplayAttemptCancellationSnapshot,
   assertReplayAttemptLeaseSnapshot,
   assertReplayResumeAuthorizationSnapshot,
   assertTrialReservationSnapshot,
+  createReplayAttemptCancellationObservationSnapshot,
   REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION,
   hashReplayAttemptLeaseSnapshot,
   hashReplayResumeAuthorizationSnapshot,
   hashTrialReservationSnapshot,
+  type ReplayAttemptCancellationObservationSnapshot,
+  type ReplayAttemptCancellationSnapshot,
   type ReplayAttemptLeaseSnapshot,
   type ReplayResumeAuthorizationSnapshot,
   type TrialReservationSnapshot,
@@ -90,12 +94,13 @@ export interface ReplayTrialRunInput {
       command: "continue" | "cancel"
       attempt_lease: ReplayAttemptLeaseSnapshot
       observed_at: string
+      attempt_cancellation?: ReplayAttemptCancellationSnapshot
     }
   }
 }
 
 export interface ReplayTrialRunOutcome {
-  schema_version: "trade.rd-replay-run-outcome.v34"
+  schema_version: "trade.rd-replay-run-outcome.v35"
   run_id: string
   attempt_id: string
   lease_generation: number
@@ -108,6 +113,7 @@ export interface ReplayTrialRunOutcome {
   artifact_commit?: ReplayArtifactCommit
   resumable_checkpoint?: ReplayEngineCheckpoint
   diagnostic_checkpoint_commit?: ReplayDiagnosticCheckpointCommitRef
+  cancellation_observation?: ReplayAttemptCancellationObservationSnapshot
   failure?: {
     code: "trial-reservation-rejected" | "trial-reservation-expired" | "attempt-lease-rejected" | "resume-authorization-rejected" | "artifact-store-rejected" | "decision-harness-rejected" | "cancelled-before-start" | "execution-cancelled-at-checkpoint" | "instrument-delisted-with-open-position" | "initial-margin-deficit-without-resize" | "maintenance-margin-breach-without-liquidation" | "maintenance-margin-breach-while-halted" | "liquidation-deficit-unsupported" | "dataset-grid-gap-in-execution-window" | "replay-execution-failed"
     failure_class: "input_invalid" | "unsupported_contract" | "data_integrity" | "deterministic_engine" | "resource" | "external_io"
@@ -166,7 +172,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     validateTrialReservation(input.request, input.trial_reservation, input.dataset_manifest)
   } catch (error) {
     return {
-      schema_version: "trade.rd-replay-run-outcome.v34",
+      schema_version: "trade.rd-replay-run-outcome.v35",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -189,7 +195,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     const expired = error instanceof ReplayAttemptLeaseExpiredError
     const reservationExpired = error instanceof ReplayTrialReservationExpiredError
     return {
-      schema_version: "trade.rd-replay-run-outcome.v34",
+      schema_version: "trade.rd-replay-run-outcome.v35",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -206,7 +212,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
   }
   if (input.cancel_requested) {
     return {
-      schema_version: "trade.rd-replay-run-outcome.v34",
+      schema_version: "trade.rd-replay-run-outcome.v35",
       run_id: input.request.run_id,
       attempt_id: input.attempt_lease.attempt_id,
       lease_generation: input.attempt_lease.lease_generation,
@@ -226,6 +232,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
   let activeAttemptLeaseHash = attemptLeaseHash
   let resumeAuthorizationHash: string | undefined
   let lastDiagnosticCheckpointCommit: ReplayDiagnosticCheckpointCommitRef | undefined
+  let cancellationObservation: ReplayAttemptCancellationObservationSnapshot | undefined
   try {
     const artifactStore = resolveArtifactStore(input)
     const activeArtifactNamespace = artifactStore
@@ -252,7 +259,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     if (committed) {
       cleanupDiagnosticCheckpoint(activeArtifactNamespace!)
       return {
-        schema_version: "trade.rd-replay-run-outcome.v34",
+        schema_version: "trade.rd-replay-run-outcome.v35",
         run_id: input.request.run_id,
         attempt_id: input.attempt_lease.attempt_id,
         lease_generation: input.attempt_lease.lease_generation,
@@ -335,6 +342,14 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
             try {
               validateAttemptLease(input.request, input.trial_reservation, decision.attempt_lease, decision.observed_at)
               assertAttemptLeaseSuccessor(activeAttemptLease, decision.attempt_lease)
+              if (decision.attempt_cancellation) {
+                cancellationObservation = observeAttemptCancellation(
+                  input.request,
+                  input.trial_reservation,
+                  activeAttemptLease,
+                  { ...decision, attempt_cancellation: decision.attempt_cancellation },
+                )
+              }
             } catch (error) {
               throw new ReplayAttemptLeaseControlError(error instanceof Error ? error.message : String(error))
             }
@@ -355,7 +370,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
       : undefined
     if (activeArtifactNamespace) cleanupDiagnosticCheckpoint(activeArtifactNamespace)
     return {
-      schema_version: "trade.rd-replay-run-outcome.v34",
+      schema_version: "trade.rd-replay-run-outcome.v35",
       run_id: input.request.run_id,
       attempt_id: activeAttemptLease.attempt_id,
       lease_generation: activeAttemptLease.lease_generation,
@@ -378,7 +393,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     const liquidationDeficit = error instanceof ReplayLiquidationDeficitError
     const dataContinuity = isReplayDataContinuityFailure(error)
     return {
-      schema_version: "trade.rd-replay-run-outcome.v34",
+      schema_version: "trade.rd-replay-run-outcome.v35",
       run_id: input.request.run_id,
       attempt_id: activeAttemptLease.attempt_id,
       lease_generation: activeAttemptLease.lease_generation,
@@ -389,6 +404,9 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
       ...(interrupted ? { resumable_checkpoint: error.checkpoint } : {}),
       ...(interrupted && lastDiagnosticCheckpointCommit
         ? { diagnostic_checkpoint_commit: lastDiagnosticCheckpointCommit }
+        : {}),
+      ...(interrupted && cancellationObservation
+        ? { cancellation_observation: cancellationObservation }
         : {}),
       failure: {
         code: interrupted ? error.code : leaseRejected ? "attempt-lease-rejected" : resumeRejected ? "resume-authorization-rejected" : artifactStoreRejected ? "artifact-store-rejected" : decisionHarnessRejected ? error.code : instrumentTerminal || marginTerminal || liquidationDeficit || dataContinuity ? error.code : "replay-execution-failed",
@@ -476,6 +494,64 @@ function validateResumeAuthorization(
       && hashReplayAttemptLeaseSnapshot(lease) !== authorization.target_attempt_lease_hash) {
     throw new ReplayResumeAuthorizationError("Replay Resume Authorization target lease hash mismatch")
   }
+}
+
+function observeAttemptCancellation(
+  request: ReplayExecutionRequest,
+  reservation: TrialReservationSnapshot,
+  activeLease: ReplayAttemptLeaseSnapshot,
+  decision: {
+    command: "continue" | "cancel"
+    attempt_lease: ReplayAttemptLeaseSnapshot
+    observed_at: string
+    attempt_cancellation: ReplayAttemptCancellationSnapshot
+  },
+): ReplayAttemptCancellationObservationSnapshot {
+  assertReplayAttemptCancellationSnapshot(decision.attempt_cancellation)
+  const cancellation = decision.attempt_cancellation
+  if (decision.command !== "cancel") {
+    throw new Error("Replay Attempt authority cancellation requires a cancel command")
+  }
+  if (hashReplayAttemptLeaseSnapshot(decision.attempt_lease) !== hashReplayAttemptLeaseSnapshot(activeLease)) {
+    throw new Error("Replay Attempt authority cancellation cannot renew or replace its terminal lease")
+  }
+  if (cancellation.trial_id !== request.trial_id
+      || cancellation.run_id !== request.run_id
+      || cancellation.request_hash !== canonicalHash(request)
+      || cancellation.reservation_ref !== reservation.reservation_ref
+      || cancellation.reservation_hash !== hashTrialReservationSnapshot(reservation)
+      || cancellation.attempt_id !== activeLease.attempt_id
+      || cancellation.attempt_ordinal !== activeLease.attempt_ordinal
+      || cancellation.worker_id !== activeLease.worker_id
+      || cancellation.target_lease_generation !== activeLease.lease_generation) {
+    throw new Error("Replay Attempt authority cancellation does not match the active execution authority")
+  }
+  if (Date.parse(decision.observed_at) < Date.parse(cancellation.recorded_at)) {
+    throw new Error("Replay Attempt authority cancellation cannot be observed before it is recorded")
+  }
+  return createReplayAttemptCancellationObservationSnapshot({
+    schema_version: "trade.rd-replay-attempt-cancellation-observation.v1",
+    observation_id: `cancellation-observation-${cancellation.cancellation_hash}`,
+    observation_ref: `cancellation-observation://${activeLease.attempt_id}/${cancellation.cancellation_hash}`,
+    status: "observed",
+    observed_at: decision.observed_at,
+    cancellation_id: cancellation.cancellation_id,
+    cancellation_ref: cancellation.cancellation_ref,
+    cancellation_hash: cancellation.cancellation_hash,
+    trial_id: cancellation.trial_id,
+    run_id: cancellation.run_id,
+    reservation_ref: cancellation.reservation_ref,
+    reservation_hash: cancellation.reservation_hash,
+    request_hash: cancellation.request_hash,
+    attempt_id: cancellation.attempt_id,
+    attempt_ordinal: cancellation.attempt_ordinal,
+    worker_id: cancellation.worker_id,
+    target_lease_generation: cancellation.target_lease_generation,
+    outcome_schema_version: "trade.rd-replay-run-outcome.v35",
+    outcome_status: "cancelled",
+    outcome_failure_code: "execution-cancelled-at-checkpoint",
+    partial_result_published: false,
+  })
 }
 
 function assertAttemptLeaseSuccessor(
