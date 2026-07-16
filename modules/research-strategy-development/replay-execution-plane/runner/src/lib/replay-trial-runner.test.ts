@@ -43,7 +43,7 @@ import {
   type ReplayMarketBar,
   type ReplaySupplementalFact,
 } from "../../../contracts/src/lib/replay-contracts"
-import { runReplayTrial, type ReplayDiagnosticCheckpointCommitRef } from "./replay-trial-runner"
+import { createReplayAuthorityCancellationOutcome, runReplayTrial, type ReplayDiagnosticCheckpointCommitRef } from "./replay-trial-runner"
 import {
   ReplayCancellationAcknowledgementError,
   ReplayCancellationOutboxPersistenceError,
@@ -2070,11 +2070,13 @@ test("durable cancellation outbox recovers acknowledgement after restart without
   ])
   expect(outbox.persist({
     replay_outcome: failedAcknowledgement.replay_outcome,
+    attempt_lease: authority.attempt_lease,
     boundary_poll_count: failedAcknowledgement.boundary_poll_count,
     persisted_at: "2026-07-14T00:03:30Z",
   })).toEqual(failedAcknowledgement.outbox_commit)
   expect(() => outbox.persist({
     replay_outcome: failedAcknowledgement.replay_outcome,
+    attempt_lease: authority.attempt_lease,
     boundary_poll_count: failedAcknowledgement.boundary_poll_count + 1,
     persisted_at: "2026-07-14T00:03:30Z",
   })).toThrow("different delivery evidence")
@@ -2232,6 +2234,219 @@ test("durable cancellation outbox recovers acknowledgement after restart without
   })
   expect(invalidPersistenceCount).toBe(0)
   expect(invalidAcknowledgementCount).toBe(0)
+})
+
+test("cancellation outbox follows one Attempt across monotonic lease renewal", () => {
+  const authority = authorized()
+  const renewedLease = attemptLease(authority.request, authority.trial_reservation, {
+    lease_generation: authority.attempt_lease.lease_generation + 1,
+    heartbeat_at: "2026-07-14T00:02:00Z",
+    lease_expires_at: "2026-07-14T00:07:00Z",
+  })
+  const cancellation = createReplayAttemptCancellationSnapshot({
+    schema_version: REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION,
+    cancellation_id: "attempt-cancellation-renewed-1",
+    cancellation_ref: "cancellation://attempt/renewed-1",
+    status: "cancelled",
+    recorded_at: "2026-07-14T00:03:00Z",
+    authority_id: "research-control-plane",
+    cancellation_policy_version: "rd-replay-cancellation-v1",
+    reason_code: "operator_emergency_stop",
+    trial_id: authority.request.trial_id,
+    run_id: authority.request.run_id,
+    reservation_ref: authority.trial_reservation.reservation_ref,
+    reservation_hash: hashTrialReservationSnapshot(authority.trial_reservation),
+    request_hash: canonicalHash(authority.request),
+    attempt_id: renewedLease.attempt_id,
+    attempt_ordinal: renewedLease.attempt_ordinal,
+    worker_id: renewedLease.worker_id,
+    target_lease_generation: renewedLease.lease_generation,
+    scope: "active_attempt",
+  })
+  const renewedOutcome = createReplayAuthorityCancellationOutcome({
+    request: authority.request,
+    trial_reservation: authority.trial_reservation,
+    active_attempt_lease: renewedLease,
+    decision: {
+      command: "cancel",
+      attempt_lease: renewedLease,
+      observed_at: "2026-07-14T00:04:00Z",
+      attempt_cancellation: cancellation,
+    },
+    source_offset: 2,
+  })
+  const root = mkdtempSync(join(tmpdir(), "rd-replay-renewed-cancellation-outbox-"))
+  const outbox = createReplayCancellationArtifactOutbox(
+    createReplayLocalArtifactStore(root),
+    authority.request,
+    authority.attempt_lease,
+  )
+  const commit = outbox.persist({
+    replay_outcome: renewedOutcome,
+    attempt_lease: renewedLease,
+    boundary_poll_count: 2,
+    persisted_at: "2026-07-14T00:04:30Z",
+  })
+  expect(commit).toMatchObject({
+    producer_attempt_id: renewedLease.attempt_id,
+    producer_lease_generation: renewedLease.lease_generation,
+    observation_hash: renewedOutcome.cancellation_observation?.observation_hash,
+  })
+  expect(outbox.load()?.record).toMatchObject({
+    attempt_id: renewedLease.attempt_id,
+    lease_generation: renewedLease.lease_generation,
+    boundary_poll_count: 2,
+  })
+
+  let recoveryPollCount = 0
+  const recovered = runReplayTrialWithDurableCancellationCoordination({
+    ...authority,
+    attempt_lease: renewedLease,
+    observed_at: "2026-07-14T00:08:00Z",
+    cancel_requested: true,
+    dataset_manifest: datasetManifest(),
+    bars: [],
+  }, {
+    poll: () => {
+      recoveryPollCount += 1
+      return null
+    },
+    acknowledge: () => {},
+  }, { now: () => "2026-07-14T00:05:00Z" }, outbox)
+  expect(recovered).toMatchObject({
+    coordination_result: {
+      acknowledgement_status: "registered",
+      boundary_poll_count: 2,
+      replay_outcome: { lease_generation: renewedLease.lease_generation },
+    },
+    outbox_commit: { record_hash: commit.record_hash },
+  })
+  expect(recoveryPollCount).toBe(0)
+
+  expect(() => runReplayTrialWithDurableCancellationCoordination({
+    ...authority,
+    observed_at: "2026-07-14T00:08:00Z",
+    dataset_manifest: datasetManifest(),
+    bars: [],
+  }, {
+    poll: () => { throw new Error("stale invocation must not poll") },
+    acknowledge: () => { throw new Error("stale invocation must not acknowledge") },
+  }, { now: () => "2026-07-14T00:05:30Z" }, outbox))
+    .toThrow("does not match the durable coordinator invocation")
+
+  const mismatchedOutbox = createReplayCancellationArtifactOutbox(
+    createReplayLocalArtifactStore(mkdtempSync(join(tmpdir(), "rd-replay-renewed-cancellation-mismatch-"))),
+    authority.request,
+    authority.attempt_lease,
+  )
+  expect(() => mismatchedOutbox.persist({
+    replay_outcome: renewedOutcome,
+    attempt_lease: authority.attempt_lease,
+    boundary_poll_count: 2,
+    persisted_at: "2026-07-14T00:04:30Z",
+  })).toThrow("current lease binding mismatch")
+})
+
+test("durable coordinator persists the renewed lease when cancellation arrives later", () => {
+  const replayBars = [
+    { ...bars[0], high: 105, close: 104 },
+    {
+      open_time: "2026-07-14T08:00:00Z",
+      close_time: "2026-07-14T12:00:00Z",
+      open: 104,
+      high: 111,
+      low: 103,
+      close: 110,
+      volume: 11,
+      closed: true as const,
+    },
+  ]
+  const dataHash = replayDatasetHash(replayBars)
+  const requestValue = { ...boundRequest(), dataset_hash: dataHash }
+  const authority = authorized(requestValue)
+  const manifest = datasetManifestFor(replayBars, dataHash)
+  const renewedLease = attemptLease(requestValue, authority.trial_reservation, {
+    lease_generation: authority.attempt_lease.lease_generation + 1,
+    heartbeat_at: "2026-07-14T00:01:00Z",
+    lease_expires_at: "2026-07-14T00:06:00Z",
+  })
+  const cancellation = createReplayAttemptCancellationSnapshot({
+    schema_version: REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION,
+    cancellation_id: "attempt-cancellation-after-renewal-1",
+    cancellation_ref: "cancellation://attempt/after-renewal-1",
+    status: "cancelled",
+    recorded_at: "2026-07-14T00:02:00Z",
+    authority_id: "research-control-plane",
+    cancellation_policy_version: "rd-replay-cancellation-v1",
+    reason_code: "operator_emergency_stop",
+    trial_id: requestValue.trial_id,
+    run_id: requestValue.run_id,
+    reservation_ref: authority.trial_reservation.reservation_ref,
+    reservation_hash: hashTrialReservationSnapshot(authority.trial_reservation),
+    request_hash: canonicalHash(requestValue),
+    attempt_id: renewedLease.attempt_id,
+    attempt_ordinal: renewedLease.attempt_ordinal,
+    worker_id: renewedLease.worker_id,
+    target_lease_generation: renewedLease.lease_generation,
+    scope: "active_attempt",
+  })
+  const artifactStore = createReplayLocalArtifactStore(
+    mkdtempSync(join(tmpdir(), "rd-replay-coordinator-renewed-cancellation-")),
+  )
+  const outbox = createReplayCancellationArtifactOutbox(
+    artifactStore,
+    requestValue,
+    authority.attempt_lease,
+  )
+  let pollCount = 0
+  let acknowledgementCount = 0
+  const times = [
+    "2026-07-14T00:01:00Z",
+    "2026-07-14T00:03:00Z",
+    "2026-07-14T00:03:30Z",
+    "2026-07-14T00:04:00Z",
+  ]
+  const coordinated = runReplayTrialWithDurableCancellationCoordination({
+    ...authority,
+    artifact_store: artifactStore,
+    dataset_manifest: manifest,
+    bars: replayBars,
+    execution_control: {
+      on_checkpoint: () => ({
+        command: "continue",
+        attempt_lease: renewedLease,
+        observed_at: "2026-07-14T00:01:00Z",
+      }),
+    },
+  }, {
+    poll: ({ attempt_lease: activeLease, observed_at: observedAt }) => {
+      pollCount += 1
+      if (pollCount === 1) return null
+      expect(hashReplayAttemptLeaseSnapshot(activeLease)).toBe(hashReplayAttemptLeaseSnapshot(renewedLease))
+      return {
+        command: "cancel",
+        attempt_lease: activeLease,
+        observed_at: observedAt,
+        attempt_cancellation: cancellation,
+      }
+    },
+    acknowledge: () => { acknowledgementCount += 1 },
+  }, { now: () => times.shift()! }, outbox)
+  expect(coordinated).toMatchObject({
+    coordination_result: {
+      boundary_poll_count: 2,
+      acknowledgement_status: "registered",
+      replay_outcome: {
+        status: "cancelled",
+        lease_generation: renewedLease.lease_generation,
+      },
+    },
+    outbox_commit: { producer_lease_generation: renewedLease.lease_generation },
+  })
+  expect(pollCount).toBe(2)
+  expect(acknowledgementCount).toBe(1)
+  expect(outbox.load()?.record.replay_outcome.attempt_lease_hash)
+    .toBe(hashReplayAttemptLeaseSnapshot(renewedLease))
 })
 
 test("runner atomically publishes an attempt-local checkpoint commit and resumes it across processes", () => {

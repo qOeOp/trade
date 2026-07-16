@@ -229,6 +229,7 @@ export function runReplayTrialWithDurableCancellationCoordination(
     try {
       outboxCommit = outbox.persist({
         replay_outcome: preparedOutcome,
+        attempt_lease: activeAttemptLease,
         boundary_poll_count: boundaryPollCount,
         persisted_at: attemptedPersistedAt,
       })

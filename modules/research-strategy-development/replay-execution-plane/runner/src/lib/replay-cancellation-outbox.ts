@@ -1,5 +1,10 @@
 import { createHash } from "node:crypto"
-import type { ReplayAttemptLeaseSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
+import {
+  assertReplayAttemptLeaseSnapshot,
+  hashReplayAttemptLeaseSnapshot,
+  type ReplayAttemptCancellationObservationSnapshot,
+  type ReplayAttemptLeaseSnapshot,
+} from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
 import {
   REPLAY_LOCAL_ARTIFACT_STORAGE_POLICY_VERSION,
   canonicalHash,
@@ -52,6 +57,7 @@ export interface ReplayCancellationOutboxLoadedRecord {
 export interface ReplayCancellationOutboxPort {
   persist(input: {
     replay_outcome: ReplayTrialRunOutcome
+    attempt_lease: ReplayAttemptLeaseSnapshot
     boundary_poll_count: number
     persisted_at: string
   }): ReplayCancellationOutboxCommit
@@ -64,6 +70,7 @@ export function createReplayCancellationArtifactOutbox(
   attemptLease: ReplayAttemptLeaseSnapshot,
 ): ReplayCancellationOutboxPort {
   assertCertifiedReplayArtifactStore(store)
+  assertReplayAttemptLeaseSnapshot(attemptLease)
   const requestHash = canonicalHash(request)
   const namespace = store.openAttempt({
     idempotency_key_hash: canonicalHash(request.idempotency_key),
@@ -78,9 +85,9 @@ export function createReplayCancellationArtifactOutbox(
   )
 
   return {
-    persist: ({ replay_outcome: replayOutcome, boundary_poll_count: boundaryPollCount, persisted_at: persistedAt }) => {
+    persist: ({ replay_outcome: replayOutcome, attempt_lease: currentLease, boundary_poll_count: boundaryPollCount, persisted_at: persistedAt }) => {
       const observation = assertReplayCancellationAcknowledgementOutcome(replayOutcome, boundaryPollCount)
-      assertOutboxAuthority(requestHash, request.run_id, attemptLease, replayOutcome, observation.request_hash)
+      assertOutboxAuthority(requestHash, request.run_id, attemptLease, replayOutcome, observation, currentLease)
       assertPersistedAt(persistedAt, observation.observed_at)
       const existing = load()
       if (existing) {
@@ -144,7 +151,7 @@ function assertOutboxRecord(
     record.replay_outcome,
     record.boundary_poll_count,
   )
-  assertOutboxAuthority(requestHash, runId, attemptLease, record.replay_outcome, observation.request_hash)
+  assertOutboxAuthority(requestHash, runId, attemptLease, record.replay_outcome, observation)
   assertPersistedAt(record.persisted_at, observation.observed_at)
   const { record_hash: recordHash, ...body } = record
   if (recordHash !== canonicalHash(body)) {
@@ -155,15 +162,40 @@ function assertOutboxRecord(
 function assertOutboxAuthority(
   requestHash: string,
   runId: string,
-  attemptLease: ReplayAttemptLeaseSnapshot,
+  attemptLeaseFloor: ReplayAttemptLeaseSnapshot,
   replayOutcome: ReplayTrialRunOutcome,
-  observationRequestHash: string,
+  observation: ReplayAttemptCancellationObservationSnapshot,
+  currentLease?: ReplayAttemptLeaseSnapshot,
 ): void {
-  if (observationRequestHash !== requestHash
+  if (observation.request_hash !== requestHash
       || replayOutcome.run_id !== runId
-      || replayOutcome.attempt_id !== attemptLease.attempt_id
-      || replayOutcome.lease_generation !== attemptLease.lease_generation) {
+      || replayOutcome.attempt_id !== attemptLeaseFloor.attempt_id
+      || replayOutcome.lease_generation !== observation.target_lease_generation
+      || replayOutcome.lease_generation < attemptLeaseFloor.lease_generation
+      || !/^[a-f0-9]{64}$/.test(replayOutcome.attempt_lease_hash || "")
+      || observation.trial_id !== attemptLeaseFloor.trial_id
+      || observation.run_id !== attemptLeaseFloor.run_id
+      || observation.reservation_ref !== attemptLeaseFloor.reservation_ref
+      || observation.reservation_hash !== attemptLeaseFloor.reservation_hash
+      || observation.attempt_id !== attemptLeaseFloor.attempt_id
+      || observation.attempt_ordinal !== attemptLeaseFloor.attempt_ordinal
+      || observation.worker_id !== attemptLeaseFloor.worker_id) {
     throw new Error("Replay cancellation outbox authority binding mismatch")
+  }
+  if (!currentLease) return
+  assertReplayAttemptLeaseSnapshot(currentLease)
+  if (currentLease.trial_id !== attemptLeaseFloor.trial_id
+      || currentLease.run_id !== attemptLeaseFloor.run_id
+      || currentLease.reservation_ref !== attemptLeaseFloor.reservation_ref
+      || currentLease.reservation_hash !== attemptLeaseFloor.reservation_hash
+      || currentLease.request_hash !== attemptLeaseFloor.request_hash
+      || currentLease.attempt_id !== attemptLeaseFloor.attempt_id
+      || currentLease.attempt_ordinal !== attemptLeaseFloor.attempt_ordinal
+      || currentLease.worker_id !== attemptLeaseFloor.worker_id
+      || currentLease.lease_generation < attemptLeaseFloor.lease_generation
+      || replayOutcome.lease_generation !== currentLease.lease_generation
+      || replayOutcome.attempt_lease_hash !== hashReplayAttemptLeaseSnapshot(currentLease)) {
+    throw new Error("Replay cancellation outbox current lease binding mismatch")
   }
 }
 
