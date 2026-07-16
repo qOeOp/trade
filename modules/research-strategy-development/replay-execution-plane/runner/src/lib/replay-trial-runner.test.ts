@@ -46,10 +46,14 @@ import {
 import { runReplayTrial, type ReplayDiagnosticCheckpointCommitRef } from "./replay-trial-runner"
 import {
   ReplayCancellationAcknowledgementError,
+  ReplayCancellationOutboxPersistenceError,
   acknowledgeReplayCancellationOutcome,
+  recoverReplayCancellationAcknowledgement,
   runReplayTrialWithCancellationCoordination,
+  runReplayTrialWithDurableCancellationCoordination,
   type ReplayCancellationCoordinationPort,
 } from "./replay-cancellation-coordinator"
+import { createReplayCancellationArtifactOutbox } from "./replay-cancellation-outbox"
 import type { ReplayArtifactStore } from "./replay-artifact-store"
 import { createReplayLocalArtifactStore } from "./replay-local-artifact-store"
 import {
@@ -1948,6 +1952,170 @@ test("cancellation coordinator polls an injected authority port and acknowledges
     port,
     { now: () => "2026-07-14T00:01:59Z" },
   )).toThrow("at or after observation")
+})
+
+test("durable cancellation outbox recovers acknowledgement after restart without replay", () => {
+  const authority = authorized()
+  let unexpectedPersistenceCount = 0
+  const completed = runReplayTrialWithDurableCancellationCoordination({
+    ...authority,
+    observed_at: "2026-07-14T00:00:45Z",
+    dataset_manifest: datasetManifest(),
+    bars,
+  }, {
+    poll: () => null,
+    acknowledge: () => { throw new Error("completed Replay must not acknowledge cancellation") },
+  }, { now: () => "2026-07-14T00:02:00Z" }, {
+    persist: () => {
+      unexpectedPersistenceCount += 1
+      throw new Error("completed Replay must not persist cancellation outbox")
+    },
+    load: () => null,
+  })
+  expect(completed).toMatchObject({
+    coordination_result: { replay_outcome: { status: "completed" }, acknowledgement_status: "not_applicable" },
+    outbox_commit: null,
+  })
+  expect(unexpectedPersistenceCount).toBe(0)
+  const cancellation = createReplayAttemptCancellationSnapshot({
+    schema_version: REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION,
+    cancellation_id: "attempt-cancellation-outbox-1",
+    cancellation_ref: "cancellation://attempt/outbox-1",
+    status: "cancelled",
+    recorded_at: "2026-07-14T00:01:00Z",
+    authority_id: "research-control-plane",
+    cancellation_policy_version: "rd-replay-cancellation-v1",
+    reason_code: "operator_emergency_stop",
+    trial_id: authority.request.trial_id,
+    run_id: authority.request.run_id,
+    reservation_ref: authority.trial_reservation.reservation_ref,
+    reservation_hash: hashTrialReservationSnapshot(authority.trial_reservation),
+    request_hash: canonicalHash(authority.request),
+    attempt_id: authority.attempt_lease.attempt_id,
+    attempt_ordinal: authority.attempt_lease.attempt_ordinal,
+    worker_id: authority.attempt_lease.worker_id,
+    target_lease_generation: authority.attempt_lease.lease_generation,
+    scope: "active_attempt",
+  })
+  const root = mkdtempSync(join(tmpdir(), "rd-replay-cancellation-outbox-"))
+  const artifactStore = createReplayLocalArtifactStore(root)
+  const outbox = createReplayCancellationArtifactOutbox(
+    artifactStore,
+    authority.request,
+    authority.attempt_lease,
+  )
+  let pollCount = 0
+  let acknowledgementCount = 0
+  const failingPort: ReplayCancellationCoordinationPort = {
+    poll: ({ attempt_lease: attemptLease, observed_at: observedAt }) => {
+      pollCount += 1
+      return {
+        command: "cancel",
+        attempt_lease: attemptLease,
+        observed_at: observedAt,
+        attempt_cancellation: cancellation,
+      }
+    },
+    acknowledge: () => {
+      acknowledgementCount += 1
+      throw new Error("control plane unavailable")
+    },
+  }
+  const times = [
+    "2026-07-14T00:02:00Z",
+    "2026-07-14T00:02:30Z",
+    "2026-07-14T00:03:00Z",
+  ]
+  let failedAcknowledgement: ReplayCancellationAcknowledgementError | undefined
+  try {
+    runReplayTrialWithDurableCancellationCoordination({
+      ...authority,
+      observed_at: "2026-07-14T00:00:45Z",
+      artifact_store: artifactStore,
+      dataset_manifest: datasetManifest(),
+      bars,
+    }, failingPort, { now: () => times.shift()! }, outbox)
+    throw new Error("expected durable acknowledgement failure")
+  } catch (error) {
+    expect(error).toBeInstanceOf(ReplayCancellationAcknowledgementError)
+    failedAcknowledgement = error as ReplayCancellationAcknowledgementError
+  }
+  if (!failedAcknowledgement?.outbox_commit) throw new Error("durable coordinator lost the outbox commit")
+  expect(pollCount).toBe(1)
+  expect(acknowledgementCount).toBe(1)
+  expect(failedAcknowledgement.outbox_commit).toMatchObject({
+    schema_version: "trade.rd-replay-cancellation-outbox-commit.v1",
+    observation_hash: failedAcknowledgement.replay_outcome.cancellation_observation?.observation_hash,
+    producer_attempt_id: authority.attempt_lease.attempt_id,
+    producer_lease_generation: authority.attempt_lease.lease_generation,
+  })
+  expect(readdirSync(dirname(failedAcknowledgement.outbox_commit.ref))).toEqual([
+    "cancellation-observation-outbox.json",
+  ])
+  expect(outbox.persist({
+    replay_outcome: failedAcknowledgement.replay_outcome,
+    boundary_poll_count: failedAcknowledgement.boundary_poll_count,
+    persisted_at: "2026-07-14T00:03:30Z",
+  })).toEqual(failedAcknowledgement.outbox_commit)
+  expect(() => outbox.persist({
+    replay_outcome: failedAcknowledgement.replay_outcome,
+    boundary_poll_count: failedAcknowledgement.boundary_poll_count + 1,
+    persisted_at: "2026-07-14T00:03:30Z",
+  })).toThrow("different delivery evidence")
+
+  const restartedOutbox = createReplayCancellationArtifactOutbox(
+    createReplayLocalArtifactStore(root),
+    authority.request,
+    authority.attempt_lease,
+  )
+  expect(restartedOutbox.load()?.record.persisted_at).toBe("2026-07-14T00:02:30Z")
+  let recoveryPollCount = 0
+  const recoveredObservations: unknown[] = []
+  const recovered = recoverReplayCancellationAcknowledgement(restartedOutbox, {
+    poll: () => {
+      recoveryPollCount += 1
+      return null
+    },
+    acknowledge: ({ observation }) => { recoveredObservations.push(observation) },
+  }, { now: () => "2026-07-14T00:04:00Z" })
+  expect(recovered).toMatchObject({
+    schema_version: "trade.rd-replay-durable-cancellation-coordination-result.v1",
+    coordination_result: {
+      acknowledgement_status: "registered",
+      registered_at: "2026-07-14T00:04:00Z",
+      boundary_poll_count: 1,
+    },
+    outbox_commit: { record_hash: failedAcknowledgement.outbox_commit.record_hash },
+  })
+  expect(recoveryPollCount).toBe(0)
+  expect(recoveredObservations).toHaveLength(1)
+
+  const recordRef = failedAcknowledgement.outbox_commit.ref
+  const originalRecord = readFileSync(recordRef)
+  const tamperedRecord = JSON.parse(originalRecord.toString()) as { boundary_poll_count: number }
+  tamperedRecord.boundary_poll_count += 1
+  writeFileSync(recordRef, `${JSON.stringify(tamperedRecord)}\n`)
+  expect(() => restartedOutbox.load()).toThrow("record hash mismatch")
+  writeFileSync(recordRef, originalRecord)
+  writeFileSync(recordRef, ` ${originalRecord.toString()}`)
+  expect(() => restartedOutbox.load()).toThrow("encoding is not canonical")
+  writeFileSync(recordRef, originalRecord)
+
+  let unsafeAcknowledgementCount = 0
+  const persistenceFailureTimes = ["2026-07-14T00:02:00Z", "2026-07-14T00:02:30Z"]
+  expect(() => runReplayTrialWithDurableCancellationCoordination({
+    ...authority,
+    observed_at: "2026-07-14T00:00:45Z",
+    dataset_manifest: datasetManifest(),
+    bars,
+  }, {
+    ...failingPort,
+    acknowledge: () => { unsafeAcknowledgementCount += 1 },
+  }, { now: () => persistenceFailureTimes.shift()! }, {
+    persist: () => { throw new Error("artifact store unavailable") },
+    load: () => null,
+  })).toThrow(ReplayCancellationOutboxPersistenceError)
+  expect(unsafeAcknowledgementCount).toBe(0)
 })
 
 test("runner atomically publishes an attempt-local checkpoint commit and resumes it across processes", () => {
