@@ -2,9 +2,16 @@ import { Database } from "bun:sqlite"
 import assert from "node:assert/strict"
 import test from "node:test"
 import {
+  AGGREGATE_TRADE_PROVIDER_BUILD_HASH,
+  AGGREGATE_TRADE_PROVIDER_CAPABILITY,
+  AGGREGATE_TRADE_PROVIDER_POLICY_HASH,
+} from "../../../../../market-data-products/aggregate-trade-provider/src/lib/aggregate-trade-provider"
+import {
   REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION,
   REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
   REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION,
+  REPLAY_AGGREGATE_TRADE_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
+  REPLAY_AGGREGATE_TRADE_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION,
   REPLAY_RESERVATION_CANCELLATION_SCHEMA_VERSION,
   REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION,
   REPLAY_ATTEMPT_CANCELLATION_OBSERVATION_SCHEMA_VERSION,
@@ -12,6 +19,8 @@ import {
   hashTrialReservationSnapshot,
   createReplayInstrumentStatusProviderCertificationSnapshot,
   createReplayInstrumentStatusProviderCertificationTermination,
+  createReplayAggregateTradeProviderCertificationSnapshot,
+  createReplayAggregateTradeProviderCertificationTermination,
   createReplayReservationCancellationSnapshot,
   createReplayAttemptCancellationSnapshot,
   createReplayAttemptCancellationObservationSnapshot,
@@ -44,6 +53,13 @@ import {
   registerReplayInstrumentStatusProviderCertification,
   registerReplayInstrumentStatusProviderCertificationTermination,
 } from "./instrument-status-provider-certification-registry"
+import {
+  assertReplayAggregateTradeProviderCertificationAdmittedAt,
+  issueReplayAggregateTradeEvidenceAdmission,
+  readReplayAggregateTradeEvidenceAdmission,
+  registerReplayAggregateTradeProviderCertification,
+  registerReplayAggregateTradeProviderCertificationTermination,
+} from "./aggregate-trade-provider-certification-registry"
 import {
   cancelReplayAttemptByAuthority,
   createSqliteReplayCancellationCoordinationPort,
@@ -79,6 +95,29 @@ const PROVIDER_CERTIFICATION = createReplayInstrumentStatusProviderCertification
   allowed_source_kind: "venue_status_event_archive", allowed_completeness: "complete_history",
 })
 
+const AGGREGATE_TRADE_PROVIDER_CAPABILITY_HASH = AGGREGATE_TRADE_PROVIDER_CAPABILITY.capability_hash
+const AGGREGATE_TRADE_PROVIDER_CERTIFICATION = createReplayAggregateTradeProviderCertificationSnapshot({
+  schema_version: REPLAY_AGGREGATE_TRADE_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
+  certification_id: "aggregate-trade-provider-certification-1",
+  certification_ref: "certification://aggregate-trade-provider/v1",
+  status: "certified",
+  certified_at: "2026-07-13T00:00:00Z",
+  valid_until: "2026-08-01T00:00:00Z",
+  certifier_id: "research-control-plane",
+  certification_policy_version: "rd-aggregate-trade-provider-certification-v1",
+  provider_capability_hash: AGGREGATE_TRADE_PROVIDER_CAPABILITY_HASH,
+  producer_domain: "market-data-products",
+  producer_id: "market-data.aggregate-trade-provider",
+  producer_version: "v1",
+  producer_build_hash: AGGREGATE_TRADE_PROVIDER_BUILD_HASH,
+  provider_policy_hash: AGGREGATE_TRADE_PROVIDER_POLICY_HASH,
+  accepted_archive_schema: "trade.market-data-aggregate-trade-archive.v1",
+  emitted_event_schema: "trade.rd-replay-aggregate-trade-event.v1",
+  emitted_attestation_schema: "trade.rd-replay-aggregate-trade-coverage-attestation.v1",
+  allowed_source_kind: "venue_aggregate_trade_archive",
+  allowed_external_completeness: "not_verified",
+})
+
 test("control plane schema initializes frozen stages and lifecycle rules", () => {
   const db = openDb()
   try {
@@ -95,6 +134,9 @@ test("control plane schema initializes frozen stages and lifecycle rules", () =>
       "rd_trial",
       "rd_replay_instrument_status_provider_certification",
       "rd_replay_instrument_status_provider_certification_termination",
+      "rd_replay_aggregate_trade_provider_certification",
+      "rd_replay_aggregate_trade_provider_certification_termination",
+      "rd_replay_aggregate_trade_evidence_admission",
       "rd_replay_reservation_cancellation",
       "rd_replay_attempt",
       "rd_replay_attempt_cancellation",
@@ -220,6 +262,129 @@ test("Control Plane rotates or revokes provider certification without rewriting 
       () => assertReplayInstrumentStatusProviderCertificationAdmittedAt(db, revokedCertification.certification_hash, "2026-07-14T03:40:00Z"),
       /revoked/,
     )
+  } finally {
+    db.close()
+  }
+})
+
+test("Control Plane admits aggregate trade evidence only as a Reservation-bound pre-integration sidecar", () => {
+  const db = openDb()
+  try {
+    assert.deepEqual(
+      registerReplayAggregateTradeProviderCertification(db, AGGREGATE_TRADE_PROVIDER_CERTIFICATION),
+      AGGREGATE_TRADE_PROVIDER_CERTIFICATION,
+    )
+    assert.deepEqual(
+      registerReplayAggregateTradeProviderCertification(db, AGGREGATE_TRADE_PROVIDER_CERTIFICATION),
+      AGGREGATE_TRADE_PROVIDER_CERTIFICATION,
+    )
+    assert.throws(() => db.query(`
+      UPDATE rd_replay_aggregate_trade_provider_certification
+      SET valid_until = '2026-09-01T00:00:00Z'
+      WHERE certification_id = 'aggregate-trade-provider-certification-1'
+    `).run(), /immutable/)
+
+    seedExecutableExperiment(db, false)
+    db.query("UPDATE rd_trial_group SET status='running' WHERE trial_group_id='group-1'").run()
+    reserveTrial(db, {
+      trial_id: "trial-aggregate-trade", trial_group_id: "group-1", experiment_id: "experiment-1", trial_ordinal: 1,
+      candidate_id: "candidate-1", candidate_identity_hash: candidateIdentityHash({ lookback: 20 }),
+      identity_hash_policy_version: HASH_POLICY, run_id: "run-aggregate-trade",
+      idempotency_key: "trial-aggregate-trade-key", created_at: NOW,
+    })
+    const reservation = issueTrialReservationSnapshot(db, {
+      trial_id: "trial-aggregate-trade",
+      reservation_id: "reservation-aggregate-trade",
+      reservation_ref: "reservation://aggregate-trade",
+      issued_at: NOW,
+      expires_at: "2026-07-14T04:08:00Z",
+      bindings: {
+        replay_idempotency_key: "replay-aggregate-trade",
+        execution_spec_hash: "a".repeat(64),
+        dataset_manifest_ref: "dataset://aggregate-trade-fixture",
+        dataset_hash: "b".repeat(64),
+        liquidity_capacity_attestation_hash: null,
+        supplemental_facts_hash: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+        supplemental_requirement_set_hash: "f126b641e1c2e55c174e3505e15232b466e50c3fd764f30968a925821c31d144",
+        venue_risk_policy_schedule_hash: "c".repeat(64),
+        instrument_spec_schedule_hash: "d".repeat(64),
+        instrument_status_schedule_hash: "f".repeat(64),
+        instrument_status_provenance_hash: "3".repeat(64),
+        instrument_status_provider_capability_hash: PROVIDER_CAPABILITY_HASH,
+        instrument_status_provider_certification_hash: PROVIDER_CERTIFICATION.certification_hash,
+        harness_hash: "e".repeat(64),
+        assumptions_hash: "f".repeat(64),
+        cost_policy_hash: "1".repeat(64),
+        margin_policy_hash: "2".repeat(64),
+        simulator_policy_version: "rd-replay-simulator-v16",
+        execution_mode: "step",
+      },
+      required_capabilities: ["closed-candle", "step"],
+    })
+    const admissionInput = {
+      admission_id: "aggregate-trade-admission-1",
+      admission_ref: "admission://aggregate-trade/trial-aggregate-trade",
+      issued_at: "2026-07-14T03:25:00Z",
+      authority_id: "research-control-plane",
+      admission_policy_version: "rd-aggregate-trade-evidence-admission-v1",
+      reservation,
+      provider_certification_hash: AGGREGATE_TRADE_PROVIDER_CERTIFICATION.certification_hash,
+      provider_capability_hash: AGGREGATE_TRADE_PROVIDER_CAPABILITY_HASH,
+      archive_id: "aggregate-trade-archive-1",
+      archive_hash: "6".repeat(64),
+      source_receipt_hash: "7".repeat(64),
+      completeness_audit_hash: "8".repeat(64),
+      evidence_ref: "evidence://aggregate-trade/trial-aggregate-trade",
+      evidence_hash: "9".repeat(64),
+      coverage_attestation_hash: "a".repeat(64),
+      evidence_produced_at: "2026-07-14T03:15:00Z",
+      coverage_start: "2026-07-14T03:00:00Z",
+      coverage_end: "2026-07-14T03:10:00Z",
+    }
+    const admission = issueReplayAggregateTradeEvidenceAdmission(db, admissionInput)
+    assert.equal(admission.scope, "pre_integration_exact_price_path_only")
+    assert.equal(admission.external_completeness, "not_verified")
+    assert.deepEqual(issueReplayAggregateTradeEvidenceAdmission(db, admissionInput), admission)
+    assert.deepEqual(readReplayAggregateTradeEvidenceAdmission(db, admission.reservation_hash), admission)
+    assert.throws(() => issueReplayAggregateTradeEvidenceAdmission(db, {
+      ...admissionInput,
+      admission_id: "aggregate-trade-admission-competing",
+      admission_ref: "admission://aggregate-trade/competing",
+      evidence_hash: "b".repeat(64),
+    }), /different content/)
+    assert.throws(() => issueReplayAggregateTradeEvidenceAdmission(db, {
+      ...admissionInput,
+      provider_capability_hash: "c".repeat(64),
+    }), /does not match/)
+
+    const termination = createReplayAggregateTradeProviderCertificationTermination({
+      schema_version: REPLAY_AGGREGATE_TRADE_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION,
+      termination_id: "aggregate-trade-provider-termination-1",
+      termination_ref: "certification-termination://aggregate-trade-provider/v1",
+      certification_hash: AGGREGATE_TRADE_PROVIDER_CERTIFICATION.certification_hash,
+      termination_type: "revoked",
+      recorded_at: NOW,
+      effective_at: "2026-07-14T03:30:00Z",
+      authority_id: "research-control-plane",
+      termination_policy_version: "rd-aggregate-trade-provider-termination-v1",
+      reason_code: "determinism_regression",
+      successor_certification_hash: null,
+    })
+    assert.deepEqual(registerReplayAggregateTradeProviderCertificationTermination(db, termination), termination)
+    assert.equal(
+      assertReplayAggregateTradeProviderCertificationAdmittedAt(
+        db,
+        AGGREGATE_TRADE_PROVIDER_CERTIFICATION.certification_hash,
+        admission.issued_at,
+      ).certification_hash,
+      AGGREGATE_TRADE_PROVIDER_CERTIFICATION.certification_hash,
+    )
+    assert.throws(() => assertReplayAggregateTradeProviderCertificationAdmittedAt(
+      db,
+      AGGREGATE_TRADE_PROVIDER_CERTIFICATION.certification_hash,
+      termination.effective_at,
+    ), /revoked/)
+    assert.deepEqual(readReplayAggregateTradeEvidenceAdmission(db, admission.reservation_hash), admission)
   } finally {
     db.close()
   }

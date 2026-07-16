@@ -448,6 +448,88 @@ CREATE TABLE IF NOT EXISTS rd_replay_instrument_status_provider_certification_te
     REFERENCES rd_replay_instrument_status_provider_certification(certification_hash)
 );
 
+CREATE TABLE IF NOT EXISTS rd_replay_aggregate_trade_provider_certification (
+  certification_id TEXT PRIMARY KEY,
+  certification_ref TEXT NOT NULL UNIQUE,
+  certification_hash TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL CHECK(status = 'certified'),
+  certified_at TEXT NOT NULL,
+  valid_until TEXT NOT NULL,
+  certifier_id TEXT NOT NULL,
+  certification_policy_version TEXT NOT NULL,
+  provider_capability_hash TEXT NOT NULL,
+  producer_domain TEXT NOT NULL CHECK(producer_domain = 'market-data-products'),
+  producer_id TEXT NOT NULL CHECK(producer_id = 'market-data.aggregate-trade-provider'),
+  producer_version TEXT NOT NULL,
+  producer_build_hash TEXT NOT NULL,
+  provider_policy_hash TEXT NOT NULL,
+  accepted_archive_schema TEXT NOT NULL CHECK(accepted_archive_schema = 'trade.market-data-aggregate-trade-archive.v1'),
+  emitted_event_schema TEXT NOT NULL CHECK(emitted_event_schema = 'trade.rd-replay-aggregate-trade-event.v1'),
+  emitted_attestation_schema TEXT NOT NULL CHECK(emitted_attestation_schema = 'trade.rd-replay-aggregate-trade-coverage-attestation.v1'),
+  allowed_source_kind TEXT NOT NULL CHECK(allowed_source_kind = 'venue_aggregate_trade_archive'),
+  allowed_external_completeness TEXT NOT NULL CHECK(allowed_external_completeness = 'not_verified'),
+  certification_json TEXT NOT NULL CHECK(json_valid(certification_json)),
+  CHECK(certified_at < valid_until)
+);
+
+CREATE TABLE IF NOT EXISTS rd_replay_aggregate_trade_provider_certification_termination (
+  termination_id TEXT PRIMARY KEY,
+  termination_ref TEXT NOT NULL UNIQUE,
+  termination_hash TEXT NOT NULL UNIQUE,
+  certification_hash TEXT NOT NULL UNIQUE,
+  termination_type TEXT NOT NULL CHECK(termination_type IN ('revoked', 'superseded')),
+  recorded_at TEXT NOT NULL,
+  effective_at TEXT NOT NULL,
+  authority_id TEXT NOT NULL,
+  termination_policy_version TEXT NOT NULL,
+  reason_code TEXT NOT NULL CHECK(reason_code IN (
+    'provider_build_rotation', 'normalization_policy_rotation', 'capability_rotation',
+    'certification_error', 'determinism_regression', 'security_incident', 'provider_retired'
+  )),
+  successor_certification_hash TEXT,
+  termination_json TEXT NOT NULL CHECK(json_valid(termination_json)),
+  CHECK(julianday(recorded_at) <= julianday(effective_at)),
+  CHECK(
+    (termination_type = 'revoked' AND successor_certification_hash IS NULL) OR
+    (termination_type = 'superseded' AND successor_certification_hash IS NOT NULL
+      AND successor_certification_hash != certification_hash)
+  ),
+  FOREIGN KEY (certification_hash)
+    REFERENCES rd_replay_aggregate_trade_provider_certification(certification_hash),
+  FOREIGN KEY (successor_certification_hash)
+    REFERENCES rd_replay_aggregate_trade_provider_certification(certification_hash)
+);
+
+CREATE TABLE IF NOT EXISTS rd_replay_aggregate_trade_evidence_admission (
+  admission_id TEXT PRIMARY KEY,
+  admission_ref TEXT NOT NULL UNIQUE,
+  admission_hash TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL CHECK(status = 'admitted'),
+  issued_at TEXT NOT NULL,
+  authority_id TEXT NOT NULL,
+  admission_policy_version TEXT NOT NULL,
+  trial_id TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  reservation_ref TEXT NOT NULL,
+  reservation_hash TEXT NOT NULL UNIQUE,
+  provider_capability_hash TEXT NOT NULL,
+  provider_certification_hash TEXT NOT NULL,
+  archive_id TEXT NOT NULL,
+  archive_hash TEXT NOT NULL,
+  evidence_ref TEXT NOT NULL,
+  evidence_hash TEXT NOT NULL,
+  coverage_attestation_hash TEXT NOT NULL,
+  coverage_start TEXT NOT NULL,
+  coverage_end TEXT NOT NULL,
+  external_completeness TEXT NOT NULL CHECK(external_completeness = 'not_verified'),
+  scope TEXT NOT NULL CHECK(scope = 'pre_integration_exact_price_path_only'),
+  admission_json TEXT NOT NULL CHECK(json_valid(admission_json)),
+  CHECK(coverage_start < coverage_end),
+  FOREIGN KEY (trial_id) REFERENCES rd_trial(trial_id),
+  FOREIGN KEY (provider_certification_hash)
+    REFERENCES rd_replay_aggregate_trade_provider_certification(certification_hash)
+);
+
 CREATE TABLE IF NOT EXISTS rd_replay_reservation_cancellation (
   cancellation_id TEXT PRIMARY KEY,
   cancellation_ref TEXT NOT NULL UNIQUE,
@@ -999,6 +1081,42 @@ CREATE TRIGGER IF NOT EXISTS rd_replay_instrument_status_provider_certification_
 BEFORE DELETE ON rd_replay_instrument_status_provider_certification_termination
 BEGIN
   SELECT RAISE(ABORT, 'Replay provider certification termination is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS rd_replay_aggregate_trade_provider_certification_no_update
+BEFORE UPDATE ON rd_replay_aggregate_trade_provider_certification
+BEGIN
+  SELECT RAISE(ABORT, 'Replay aggregate trade provider certification is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS rd_replay_aggregate_trade_provider_certification_no_delete
+BEFORE DELETE ON rd_replay_aggregate_trade_provider_certification
+BEGIN
+  SELECT RAISE(ABORT, 'Replay aggregate trade provider certification is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS rd_replay_aggregate_trade_provider_certification_termination_no_update
+BEFORE UPDATE ON rd_replay_aggregate_trade_provider_certification_termination
+BEGIN
+  SELECT RAISE(ABORT, 'Replay aggregate trade provider certification termination is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS rd_replay_aggregate_trade_provider_certification_termination_no_delete
+BEFORE DELETE ON rd_replay_aggregate_trade_provider_certification_termination
+BEGIN
+  SELECT RAISE(ABORT, 'Replay aggregate trade provider certification termination is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS rd_replay_aggregate_trade_evidence_admission_no_update
+BEFORE UPDATE ON rd_replay_aggregate_trade_evidence_admission
+BEGIN
+  SELECT RAISE(ABORT, 'Replay aggregate trade evidence admission is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS rd_replay_aggregate_trade_evidence_admission_no_delete
+BEFORE DELETE ON rd_replay_aggregate_trade_evidence_admission
+BEGIN
+  SELECT RAISE(ABORT, 'Replay aggregate trade evidence admission is immutable');
 END;
 
 CREATE TRIGGER IF NOT EXISTS rd_replay_reservation_cancellation_no_update

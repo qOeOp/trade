@@ -31,7 +31,7 @@
 | `ohlcv_store` | implemented | `market-data-products/market-data-store` | `data/ohlcv.db` | canonical candles；`ohlcv-fetch --ohlcv-db` 按 latest candle 增量抓取并 upsert 多标的 / 多周期 OHLCV |
 | `exchange_runtime_store` | implemented | `exchange-gateway/exchange-runtime-store` | `data/exchange_runtime.db` | 交易所 command/result/idempotency ledger；Binance 写工具与 `execution-router` 默认接入；真钱事实仍回写 `trade_event_store` |
 | `artifact_catalog` | implemented | `artifact-knowledge/artifact-catalog` | `data/data_catalog.db` | artifact/dataset/evidence/report 索引，不存大 payload |
-| `research_state_store` | implemented | `research-strategy-development/research-control-plane/state-store` | `data/rd_state.db` | RD program memory + Research Control Plane facts + Draft Strategy registry |
+| `research_state_store` | implemented | `research-strategy-development/research-control-plane/state-store` | `data/rd_state.db` | RD program memory + Control Plane facts；status/aggregate-trade provider certification；Reservation-bound exact-evidence admission；Draft Strategy registry |
 | `governance_ledger` | implemented | `governance-review-compliance/governance-ledger` | `data/governance.db` | evidence、promotion、closed-flow review 的独立 ledger |
 | `policy_registry` | implemented | `policy-risk/policy-registry` | `data/policy_registry.db` | runtime policy snapshot 与 approved strategy refs |
 | `ops_runtime_store` | implemented | `orchestration-ops/ops-runtime-store` | `data/ops_runtime.db` | cycle/job/health/notify/domain_message observability；`summary` 读口派生 stage/domain/attention 聚合；domain-bus 只存 envelope/ref，不参与交易真相 |

@@ -110,6 +110,7 @@ function isAllowedCrossToolImport(file: string, sourceTool: string, targetTool: 
     "modules/governance-review-compliance/closed-flow-review-sweep -> modules/governance-review-compliance/governance-ledger",
   ])
   const testOnlyAllowed = new Set([
+    "modules/research-strategy-development/research-control-plane/state-store -> modules/market-data-products/aggregate-trade-provider",
     "modules/live-decision-planning/slow-track-plan -> modules/policy-risk/runtime-policy-compiler",
     "modules/live-decision-planning/slow-track-plan -> modules/portfolio-execution-state/event-store",
     "modules/live-decision-planning/slow-track-plan -> modules/portfolio-execution-state/flow-projector",

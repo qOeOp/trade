@@ -7,6 +7,9 @@ export const STRATEGY_DRAFT_BINDING_SCHEMA_VERSION = "trade.rd-strategy-draft-bi
 export const TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION = "trade.rd-trial-reservation-snapshot.v9" as const
 export const REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION = "trade.rd-replay-instrument-status-provider-certification.v1" as const
 export const REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION = "trade.rd-replay-instrument-status-provider-certification-termination.v1" as const
+export const REPLAY_AGGREGATE_TRADE_PROVIDER_CERTIFICATION_SCHEMA_VERSION = "trade.rd-replay-aggregate-trade-provider-certification.v1" as const
+export const REPLAY_AGGREGATE_TRADE_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION = "trade.rd-replay-aggregate-trade-provider-certification-termination.v1" as const
+export const REPLAY_AGGREGATE_TRADE_EVIDENCE_ADMISSION_SCHEMA_VERSION = "trade.rd-replay-aggregate-trade-evidence-admission.v1" as const
 export const REPLAY_RESERVATION_CANCELLATION_SCHEMA_VERSION = "trade.rd-replay-reservation-cancellation.v1" as const
 export const REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION = "trade.rd-replay-attempt-cancellation.v1" as const
 export const REPLAY_ATTEMPT_CANCELLATION_OBSERVATION_SCHEMA_VERSION = "trade.rd-replay-attempt-cancellation-observation.v1" as const
@@ -102,6 +105,92 @@ export interface ReplayInstrumentStatusProviderCertificationTermination {
 export type ReplayInstrumentStatusProviderCertificationTerminationBody = Omit<
   ReplayInstrumentStatusProviderCertificationTermination,
   "termination_hash"
+>
+
+export interface ReplayAggregateTradeProviderCertificationSnapshot {
+  schema_version: typeof REPLAY_AGGREGATE_TRADE_PROVIDER_CERTIFICATION_SCHEMA_VERSION
+  certification_id: string
+  certification_ref: string
+  certification_hash: string
+  status: "certified"
+  certified_at: string
+  valid_until: string
+  certifier_id: string
+  certification_policy_version: string
+  provider_capability_hash: string
+  producer_domain: "market-data-products"
+  producer_id: "market-data.aggregate-trade-provider"
+  producer_version: string
+  producer_build_hash: string
+  provider_policy_hash: string
+  accepted_archive_schema: "trade.market-data-aggregate-trade-archive.v1"
+  emitted_event_schema: "trade.rd-replay-aggregate-trade-event.v1"
+  emitted_attestation_schema: "trade.rd-replay-aggregate-trade-coverage-attestation.v1"
+  allowed_source_kind: "venue_aggregate_trade_archive"
+  allowed_external_completeness: "not_verified"
+}
+
+export type ReplayAggregateTradeProviderCertificationBody = Omit<
+  ReplayAggregateTradeProviderCertificationSnapshot,
+  "certification_hash"
+>
+
+export type ReplayAggregateTradeProviderCertificationTerminationReason =
+  ReplayInstrumentStatusProviderCertificationTerminationReason
+
+export interface ReplayAggregateTradeProviderCertificationTermination {
+  schema_version: typeof REPLAY_AGGREGATE_TRADE_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION
+  termination_id: string
+  termination_ref: string
+  termination_hash: string
+  certification_hash: string
+  termination_type: "revoked" | "superseded"
+  recorded_at: string
+  effective_at: string
+  authority_id: string
+  termination_policy_version: string
+  reason_code: ReplayAggregateTradeProviderCertificationTerminationReason
+  successor_certification_hash: string | null
+}
+
+export type ReplayAggregateTradeProviderCertificationTerminationBody = Omit<
+  ReplayAggregateTradeProviderCertificationTermination,
+  "termination_hash"
+>
+
+export interface ReplayAggregateTradeEvidenceAdmissionSnapshot {
+  schema_version: typeof REPLAY_AGGREGATE_TRADE_EVIDENCE_ADMISSION_SCHEMA_VERSION
+  admission_id: string
+  admission_ref: string
+  admission_hash: string
+  status: "admitted"
+  issued_at: string
+  authority_id: string
+  admission_policy_version: string
+  trial_id: string
+  run_id: string
+  reservation_ref: string
+  reservation_hash: string
+  provider_capability_hash: string
+  provider_certification_hash: string
+  provider_certification: ReplayAggregateTradeProviderCertificationSnapshot
+  archive_id: string
+  archive_hash: string
+  source_receipt_hash: string
+  completeness_audit_hash: string
+  evidence_ref: string
+  evidence_hash: string
+  coverage_attestation_hash: string
+  evidence_produced_at: string
+  coverage_start: string
+  coverage_end: string
+  external_completeness: "not_verified"
+  scope: "pre_integration_exact_price_path_only"
+}
+
+export type ReplayAggregateTradeEvidenceAdmissionBody = Omit<
+  ReplayAggregateTradeEvidenceAdmissionSnapshot,
+  "admission_hash"
 >
 
 export type ReplayExecutionCancellationReason =
@@ -465,6 +554,182 @@ export function assertReplayInstrumentStatusProviderCertificationTermination(
   const { termination_hash: terminationHash, ...body } = value
   const expected = createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")
   if (terminationHash !== expected) fail("provider certification termination hash mismatch")
+}
+
+export function createReplayAggregateTradeProviderCertificationSnapshot(
+  body: ReplayAggregateTradeProviderCertificationBody,
+): ReplayAggregateTradeProviderCertificationSnapshot {
+  const value: ReplayAggregateTradeProviderCertificationSnapshot = {
+    ...body,
+    certification_hash: createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex"),
+  }
+  assertReplayAggregateTradeProviderCertificationSnapshot(value)
+  return value
+}
+
+export function assertReplayAggregateTradeProviderCertificationSnapshot(
+  value: ReplayAggregateTradeProviderCertificationSnapshot,
+): void {
+  if (value.schema_version !== REPLAY_AGGREGATE_TRADE_PROVIDER_CERTIFICATION_SCHEMA_VERSION) {
+    fail("aggregate trade provider certification schema_version")
+  }
+  for (const [field, item] of Object.entries({
+    certification_id: value.certification_id,
+    certification_ref: value.certification_ref,
+    certifier_id: value.certifier_id,
+    certification_policy_version: value.certification_policy_version,
+    producer_version: value.producer_version,
+  })) requireText(item, `aggregate_trade_provider_certification.${field}`)
+  for (const [field, item] of Object.entries({
+    certification_hash: value.certification_hash,
+    provider_capability_hash: value.provider_capability_hash,
+    producer_build_hash: value.producer_build_hash,
+    provider_policy_hash: value.provider_policy_hash,
+  })) requireHash(item, `aggregate_trade_provider_certification.${field}`)
+  requireUtcTimestamp(value.certified_at, "aggregate_trade_provider_certification.certified_at")
+  requireUtcTimestamp(value.valid_until, "aggregate_trade_provider_certification.valid_until")
+  if (Date.parse(value.valid_until) <= Date.parse(value.certified_at)) {
+    fail("aggregate trade provider certification validity window must be positive")
+  }
+  if (value.status !== "certified"
+      || value.producer_domain !== "market-data-products"
+      || value.producer_id !== "market-data.aggregate-trade-provider"
+      || value.accepted_archive_schema !== "trade.market-data-aggregate-trade-archive.v1"
+      || value.emitted_event_schema !== "trade.rd-replay-aggregate-trade-event.v1"
+      || value.emitted_attestation_schema !== "trade.rd-replay-aggregate-trade-coverage-attestation.v1"
+      || value.allowed_source_kind !== "venue_aggregate_trade_archive"
+      || value.allowed_external_completeness !== "not_verified") {
+    fail("aggregate trade provider certification capability policy")
+  }
+  const { certification_hash: certificationHash, ...body } = value
+  const expected = createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")
+  if (certificationHash !== expected) fail("aggregate trade provider certification hash mismatch")
+}
+
+export function createReplayAggregateTradeProviderCertificationTermination(
+  body: ReplayAggregateTradeProviderCertificationTerminationBody,
+): ReplayAggregateTradeProviderCertificationTermination {
+  const value: ReplayAggregateTradeProviderCertificationTermination = {
+    ...body,
+    termination_hash: createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex"),
+  }
+  assertReplayAggregateTradeProviderCertificationTermination(value)
+  return value
+}
+
+export function assertReplayAggregateTradeProviderCertificationTermination(
+  value: ReplayAggregateTradeProviderCertificationTermination,
+): void {
+  if (value.schema_version !== REPLAY_AGGREGATE_TRADE_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION) {
+    fail("aggregate trade provider certification termination schema_version")
+  }
+  for (const [field, item] of Object.entries({
+    termination_id: value.termination_id,
+    termination_ref: value.termination_ref,
+    authority_id: value.authority_id,
+    termination_policy_version: value.termination_policy_version,
+  })) requireText(item, `aggregate_trade_provider_certification_termination.${field}`)
+  requireHash(value.termination_hash, "aggregate_trade_provider_certification_termination.termination_hash")
+  requireHash(value.certification_hash, "aggregate_trade_provider_certification_termination.certification_hash")
+  requireUtcTimestamp(value.recorded_at, "aggregate_trade_provider_certification_termination.recorded_at")
+  requireUtcTimestamp(value.effective_at, "aggregate_trade_provider_certification_termination.effective_at")
+  if (Date.parse(value.effective_at) < Date.parse(value.recorded_at)) {
+    fail("aggregate trade provider certification termination cannot be retroactive")
+  }
+  if (value.termination_type !== "revoked" && value.termination_type !== "superseded") {
+    fail("aggregate trade provider certification termination type")
+  }
+  const reasons: ReplayAggregateTradeProviderCertificationTerminationReason[] = [
+    "provider_build_rotation",
+    "normalization_policy_rotation",
+    "capability_rotation",
+    "certification_error",
+    "determinism_regression",
+    "security_incident",
+    "provider_retired",
+  ]
+  if (!reasons.includes(value.reason_code)) fail("aggregate trade provider certification termination reason_code")
+  if (value.termination_type === "superseded") {
+    requireHash(
+      value.successor_certification_hash,
+      "aggregate_trade_provider_certification_termination.successor_certification_hash",
+    )
+    if (value.successor_certification_hash === value.certification_hash) {
+      fail("aggregate trade provider certification cannot supersede itself")
+    }
+  } else if (value.successor_certification_hash !== null) {
+    fail("revoked aggregate trade provider certification cannot name a successor")
+  }
+  const { termination_hash: terminationHash, ...body } = value
+  const expected = createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")
+  if (terminationHash !== expected) fail("aggregate trade provider certification termination hash mismatch")
+}
+
+export function createReplayAggregateTradeEvidenceAdmissionSnapshot(
+  body: ReplayAggregateTradeEvidenceAdmissionBody,
+): ReplayAggregateTradeEvidenceAdmissionSnapshot {
+  const value: ReplayAggregateTradeEvidenceAdmissionSnapshot = {
+    ...body,
+    admission_hash: createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex"),
+  }
+  assertReplayAggregateTradeEvidenceAdmissionSnapshot(value)
+  return value
+}
+
+export function assertReplayAggregateTradeEvidenceAdmissionSnapshot(
+  value: ReplayAggregateTradeEvidenceAdmissionSnapshot,
+): void {
+  if (value.schema_version !== REPLAY_AGGREGATE_TRADE_EVIDENCE_ADMISSION_SCHEMA_VERSION) {
+    fail("aggregate trade evidence admission schema_version")
+  }
+  for (const [field, item] of Object.entries({
+    admission_id: value.admission_id,
+    admission_ref: value.admission_ref,
+    authority_id: value.authority_id,
+    admission_policy_version: value.admission_policy_version,
+    trial_id: value.trial_id,
+    run_id: value.run_id,
+    reservation_ref: value.reservation_ref,
+    archive_id: value.archive_id,
+    evidence_ref: value.evidence_ref,
+  })) requireText(item, `aggregate_trade_evidence_admission.${field}`)
+  for (const [field, item] of Object.entries({
+    admission_hash: value.admission_hash,
+    reservation_hash: value.reservation_hash,
+    provider_capability_hash: value.provider_capability_hash,
+    provider_certification_hash: value.provider_certification_hash,
+    archive_hash: value.archive_hash,
+    source_receipt_hash: value.source_receipt_hash,
+    completeness_audit_hash: value.completeness_audit_hash,
+    evidence_hash: value.evidence_hash,
+    coverage_attestation_hash: value.coverage_attestation_hash,
+  })) requireHash(item, `aggregate_trade_evidence_admission.${field}`)
+  requireUtcTimestamp(value.issued_at, "aggregate_trade_evidence_admission.issued_at")
+  requireUtcTimestamp(value.evidence_produced_at, "aggregate_trade_evidence_admission.evidence_produced_at")
+  requireUtcTimestamp(value.coverage_start, "aggregate_trade_evidence_admission.coverage_start")
+  requireUtcTimestamp(value.coverage_end, "aggregate_trade_evidence_admission.coverage_end")
+  if (Date.parse(value.coverage_start) >= Date.parse(value.coverage_end)
+      || Date.parse(value.evidence_produced_at) < Date.parse(value.coverage_end)
+      || Date.parse(value.issued_at) < Date.parse(value.evidence_produced_at)) {
+    fail("aggregate trade evidence admission chronology")
+  }
+  assertReplayAggregateTradeProviderCertificationSnapshot(value.provider_certification)
+  if (value.provider_capability_hash !== value.provider_certification.provider_capability_hash
+      || value.provider_certification_hash !== value.provider_certification.certification_hash) {
+    fail("aggregate trade evidence admission provider certification binding")
+  }
+  if (Date.parse(value.issued_at) < Date.parse(value.provider_certification.certified_at)
+      || Date.parse(value.issued_at) >= Date.parse(value.provider_certification.valid_until)) {
+    fail("aggregate trade evidence admission requires a currently valid provider certification")
+  }
+  if (value.status !== "admitted"
+      || value.external_completeness !== "not_verified"
+      || value.scope !== "pre_integration_exact_price_path_only") {
+    fail("aggregate trade evidence admission cannot authorize execution or overclaim completeness")
+  }
+  const { admission_hash: admissionHash, ...body } = value
+  const expected = createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")
+  if (admissionHash !== expected) fail("aggregate trade evidence admission hash mismatch")
 }
 
 export function createReplayReservationCancellationSnapshot(

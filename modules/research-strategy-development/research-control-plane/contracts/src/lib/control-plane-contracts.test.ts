@@ -10,6 +10,9 @@ import {
   REPLAY_ATTEMPT_CANCELLATION_OBSERVATION_SCHEMA_VERSION,
   REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
   REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION,
+  REPLAY_AGGREGATE_TRADE_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
+  REPLAY_AGGREGATE_TRADE_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION,
+  REPLAY_AGGREGATE_TRADE_EVIDENCE_ADMISSION_SCHEMA_VERSION,
   DRAFT_AUTHORIZATION_SCHEMA_VERSION,
   TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION,
   assertDraftStrategyAuthorization,
@@ -18,6 +21,9 @@ import {
   createReplayResumeAuthorizationSnapshot,
   createReplayInstrumentStatusProviderCertificationSnapshot,
   createReplayInstrumentStatusProviderCertificationTermination,
+  createReplayAggregateTradeProviderCertificationSnapshot,
+  createReplayAggregateTradeProviderCertificationTermination,
+  createReplayAggregateTradeEvidenceAdmissionSnapshot,
   createReplayReservationCancellationSnapshot,
   createReplayAttemptCancellationSnapshot,
   createReplayAttemptCancellationObservationSnapshot,
@@ -39,6 +45,28 @@ const PROVIDER_CERTIFICATION = createReplayInstrumentStatusProviderCertification
   provider_capability_hash: HASH, producer_domain: "market-data-products", producer_id: "market-data.instrument-status-provider",
   producer_version: "v1", producer_build_hash: HASH, normalization_policy_version: "normalization-v1",
   normalization_policy_hash: HASH, allowed_source_kind: "venue_status_event_archive", allowed_completeness: "complete_history",
+})
+
+const AGGREGATE_TRADE_PROVIDER_CERTIFICATION = createReplayAggregateTradeProviderCertificationSnapshot({
+  schema_version: REPLAY_AGGREGATE_TRADE_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
+  certification_id: "aggregate-trade-provider-certification-1",
+  certification_ref: "certification://aggregate-trade-provider/v1",
+  status: "certified",
+  certified_at: "2026-07-13T00:00:00Z",
+  valid_until: "2026-08-01T00:00:00Z",
+  certifier_id: "research-control-plane",
+  certification_policy_version: "rd-aggregate-trade-provider-certification-v1",
+  provider_capability_hash: HASH,
+  producer_domain: "market-data-products",
+  producer_id: "market-data.aggregate-trade-provider",
+  producer_version: "v1",
+  producer_build_hash: HASH,
+  provider_policy_hash: HASH,
+  accepted_archive_schema: "trade.market-data-aggregate-trade-archive.v1",
+  emitted_event_schema: "trade.rd-replay-aggregate-trade-event.v1",
+  emitted_attestation_schema: "trade.rd-replay-aggregate-trade-coverage-attestation.v1",
+  allowed_source_kind: "venue_aggregate_trade_archive",
+  allowed_external_completeness: "not_verified",
 })
 
 function authorization(): DraftStrategyAuthorization {
@@ -125,6 +153,66 @@ test("provider certification termination is non-retroactive and type-safe", () =
     ...body,
     termination_type: "revoked",
   })).toThrow("cannot name a successor")
+})
+
+test("aggregate trade provider admission stays pre-integration and completeness-bounded", () => {
+  const admission = createReplayAggregateTradeEvidenceAdmissionSnapshot({
+    schema_version: REPLAY_AGGREGATE_TRADE_EVIDENCE_ADMISSION_SCHEMA_VERSION,
+    admission_id: "aggregate-trade-admission-1",
+    admission_ref: "admission://aggregate-trade/trial-1",
+    status: "admitted",
+    issued_at: "2026-07-15T00:03:00Z",
+    authority_id: "research-control-plane",
+    admission_policy_version: "rd-aggregate-trade-evidence-admission-v1",
+    trial_id: "trial-1",
+    run_id: "run-1",
+    reservation_ref: "reservation://trial-1",
+    reservation_hash: HASH,
+    provider_capability_hash: AGGREGATE_TRADE_PROVIDER_CERTIFICATION.provider_capability_hash,
+    provider_certification_hash: AGGREGATE_TRADE_PROVIDER_CERTIFICATION.certification_hash,
+    provider_certification: AGGREGATE_TRADE_PROVIDER_CERTIFICATION,
+    archive_id: "aggregate-trade-archive-1",
+    archive_hash: HASH,
+    source_receipt_hash: HASH,
+    completeness_audit_hash: HASH,
+    evidence_ref: "evidence://aggregate-trade/trial-1",
+    evidence_hash: HASH,
+    coverage_attestation_hash: HASH,
+    evidence_produced_at: "2026-07-15T00:02:00Z",
+    coverage_start: "2026-07-15T00:00:00Z",
+    coverage_end: "2026-07-15T00:01:00Z",
+    external_completeness: "not_verified",
+    scope: "pre_integration_exact_price_path_only",
+  })
+  expect(admission.admission_hash).toHaveLength(64)
+  const { admission_hash: _admissionHash, ...body } = admission
+  expect(() => createReplayAggregateTradeEvidenceAdmissionSnapshot({
+    ...body,
+    scope: "runner_execution" as typeof body.scope,
+  })).toThrow("cannot authorize execution")
+  expect(() => createReplayAggregateTradeEvidenceAdmissionSnapshot({
+    ...body,
+    issued_at: "2026-07-15T00:01:00Z",
+  })).toThrow("chronology")
+  expect(() => createReplayAggregateTradeEvidenceAdmissionSnapshot({
+    ...body,
+    provider_capability_hash: "b".repeat(64),
+  })).toThrow("provider certification binding")
+
+  const termination = createReplayAggregateTradeProviderCertificationTermination({
+    schema_version: REPLAY_AGGREGATE_TRADE_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION,
+    termination_id: "aggregate-trade-termination-1",
+    termination_ref: "certification-termination://aggregate-trade-provider/v1",
+    certification_hash: AGGREGATE_TRADE_PROVIDER_CERTIFICATION.certification_hash,
+    termination_type: "revoked",
+    recorded_at: "2026-07-15T00:04:00Z",
+    effective_at: "2026-07-15T00:05:00Z",
+    authority_id: "research-control-plane",
+    termination_policy_version: "rd-aggregate-trade-provider-termination-v1",
+    reason_code: "determinism_regression",
+    successor_certification_hash: null,
+  })
+  expect(termination.termination_hash).toHaveLength(64)
 })
 
 test("Replay cancellation receipts separate future claims from one active Attempt", () => {
