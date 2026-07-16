@@ -65,3 +65,28 @@ test("metrics are derived from immutable fills and ledger", () => {
     ohlcv_canonical_shortfall_to_best: 0,
   })
 })
+
+test("metrics preserve a zero-execution run as evidence rather than failure", () => {
+  const initial = eventKey("2026-07-14T00:00:00Z", 70, "initial-unfilled")
+  const ending = eventKey("2026-07-14T08:00:00Z", 100, "ending-unfilled")
+  const metrics = deriveReplayMetrics({
+    initial_cash: 1000,
+    fills: [],
+    ledger: [
+      { entry_id: "u1", event_key: initial, timestamp: initial.event_time, kind: "initial_cash", amount: 1000, balance_after: 1000, ref: "run" },
+      { entry_id: "u2", event_key: ending, timestamp: ending.event_time, kind: "ending_cash", amount: 0, balance_after: 1000, ref: "run" },
+    ],
+    equity_bridge: {
+      policy_version: REPLAY_EQUITY_POLICY_VERSION, valuation_id: "valuation-unfilled", settlement_asset: "USDT",
+      terminal_position_state: "never_opened", cash_balance: 1000, position_valuation: 0,
+      ending_equity: 1000, reconciled: true,
+    },
+    margin_snapshots: [],
+    ohlcv_resolution_evidence: [],
+    pending_order_resolutions: [],
+  })
+  expect(metrics).toMatchObject({
+    ending_equity: 1000, net_pnl: 0, return_fraction: 0, trade_count: 0,
+    margin_observation_count: 0, terminal_margin_ratio: null,
+  })
+})

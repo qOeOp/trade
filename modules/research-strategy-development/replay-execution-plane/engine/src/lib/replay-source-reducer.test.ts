@@ -110,6 +110,7 @@ test("source reducer stops at the terminal market event and keeps only in-positi
 
   expect(result.exit.role).toBe("target")
   expect(result.exit.timestamp).toBe("2026-07-14T12:00:00Z")
+  if (!result.entry_transition) throw new Error("fixture must enter before target")
   expect(result.entry_transition.source_event_id).toContain("source:bar_open:1")
   expect(result.terminal_transition).toBe("target:2026-07-14T12:00:00Z")
   expect(result.source_events.at(-1)?.kind).toBe("bar_range")

@@ -263,8 +263,11 @@ function validateCashLedgerInput(input: ReplayCashLedgerInput): void {
   if (!isReplayIncrementAligned(input.initial_cash, input.settlement_increment)) {
     throw new Error("initial_cash must align to settlement increment")
   }
-  if (input.fills.length === 0 || input.fills.length !== input.positions.length) {
+  if (input.fills.length !== input.positions.length) {
     throw new Error("cash ledger requires one Position Projection per Fill")
+  }
+  if (input.fills.length === 0 && input.funding_facts.length !== 0) {
+    throw new Error("cash ledger cannot attribute funding before a Position opens")
   }
   const fillIds = new Set<string>()
   for (const [index, fill] of input.fills.entries()) {
@@ -307,6 +310,12 @@ function validateCashLedgerInput(input: ReplayCashLedgerInput): void {
   }
   const causalKeys = [...input.fills.map((fill) => fill.event_key), ...input.funding_facts.map((fact) => fact.event_key)]
     .sort(compareReplayEventKeys)
+  if (causalKeys.length === 0) {
+    if (compareReplayEventKeys(input.initial_event_key, input.ending_event_key) >= 0) {
+      throw new Error("ending equity checkpoint must follow initial cash")
+    }
+    return
+  }
   if (compareReplayEventKeys(input.initial_event_key, causalKeys[0]) >= 0) {
     throw new Error("initial cash checkpoint must precede monetary facts")
   }

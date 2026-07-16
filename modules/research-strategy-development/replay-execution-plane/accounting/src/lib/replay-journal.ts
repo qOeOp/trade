@@ -59,19 +59,22 @@ export function buildReplayJournal(input: ReplayJournalInput): ReplayJournalProj
     credit: "opening_equity",
   })
 
-  const postEntryMargin = input.margin_snapshots[0]
-  appendJournalEntry(input, journal, {
-    event_key: postEntryMargin.event_key,
-    timestamp: postEntryMargin.timestamp,
-    kind: "collateral_reserve",
-    ref: postEntryMargin.snapshot_id,
-    amount: postEntryMargin.isolated_collateral,
-    debit: "isolated_margin_collateral",
-    credit: "wallet_cash",
-  })
+  const neverOpened = input.equity_bridge.terminal_position_state === "never_opened"
+  if (!neverOpened) {
+    const postEntryMargin = input.margin_snapshots[0]
+    appendJournalEntry(input, journal, {
+      event_key: postEntryMargin.event_key,
+      timestamp: postEntryMargin.timestamp,
+      kind: "collateral_reserve",
+      ref: postEntryMargin.snapshot_id,
+      amount: postEntryMargin.isolated_collateral,
+      debit: "isolated_margin_collateral",
+      credit: "wallet_cash",
+    })
+  }
 
   for (const ledgerEntry of input.ledger.slice(1, -1)) {
-    if (ledgerEntry.kind === "trade_cash") throw new Error("trade_cash is unsupported by journal policy v3")
+    if (ledgerEntry.kind === "trade_cash") throw new Error("trade_cash is unsupported by journal policy v5")
     if (ledgerEntry.kind === "initial_cash" || ledgerEntry.kind === "ending_cash") {
       throw new Error("Replay cash checkpoints cannot appear inside the journal fact stream")
     }
@@ -86,8 +89,8 @@ export function buildReplayJournal(input: ReplayJournalInput): ReplayJournalProj
     })
   }
 
-  const terminalMargin = input.margin_snapshots.at(-1)!
   if (input.equity_bridge.terminal_position_state === "flat") {
+    const terminalMargin = input.margin_snapshots.at(-1)!
     appendJournalEntry(input, journal, {
       event_key: terminalMargin.event_key,
       timestamp: terminalMargin.timestamp,
@@ -199,7 +202,7 @@ function validateJournalInput(input: ReplayJournalInput): void {
       }
       continue
     } else {
-      if (entry.kind === "trade_cash") throw new Error("trade_cash is unsupported by journal policy v3")
+      if (entry.kind === "trade_cash") throw new Error("trade_cash is unsupported by journal policy v5")
       if ((entry.kind === "fee" || entry.kind === "liquidation_fee") && entry.amount > 0) throw new Error("Replay fee ledger facts must be non-positive")
       balance = addReplayDecimalValues(balance, entry.amount)
     }
@@ -207,7 +210,9 @@ function validateJournalInput(input: ReplayJournalInput): void {
   }
   const valuation = input.valuation_snapshot
   const endingCash = input.ledger.at(-1)!.balance_after
-  const terminalState = valuation.signed_quantity === 0 ? "flat" : "open"
+  const terminalState = valuation.position_event_id === null
+    ? "never_opened" as const
+    : valuation.signed_quantity === 0 ? "flat" as const : "open" as const
   if (input.equity_bridge.policy_version !== REPLAY_EQUITY_POLICY_VERSION
       || input.equity_bridge.reconciled !== true
       || valuation.valuation_id !== input.equity_bridge.valuation_id
@@ -219,6 +224,9 @@ function validateJournalInput(input: ReplayJournalInput): void {
       || valuation.unrealized_pnl !== input.equity_bridge.position_valuation
       || endingCash !== input.equity_bridge.cash_balance
       || addReplayDecimalValues(endingCash, valuation.unrealized_pnl) !== input.equity_bridge.ending_equity
+      || (terminalState === "never_opened" && (
+        valuation.signed_quantity !== 0 || valuation.average_entry_price !== null || valuation.unrealized_pnl !== 0
+      ))
       || (terminalState === "flat" && (valuation.average_entry_price !== null || valuation.unrealized_pnl !== 0))
       || (terminalState === "open" && valuation.average_entry_price === null)) {
     throw new Error("Replay valuation and equity bridge binding is invalid")
@@ -244,8 +252,12 @@ function journalAccounts(entry: ReplayLedgerEntry): { debit: ReplayJournalAccoun
   throw new Error(`unsupported Replay journal fact: ${entry.kind}`)
 }
 
-function validateMarginBinding(input: ReplayJournalInput, terminalState: "open" | "flat"): void {
+function validateMarginBinding(input: ReplayJournalInput, terminalState: "open" | "flat" | "never_opened"): void {
   const snapshots = input.margin_snapshots
+  if (terminalState === "never_opened") {
+    if (snapshots.length !== 0) throw new Error("Replay never-opened journal cannot carry Margin facts")
+    return
+  }
   if (snapshots.length < 2 || snapshots[0].stage !== "post_entry" || snapshots.at(-1)?.stage !== "terminal") {
     throw new Error("Replay journal requires post-entry and terminal margin snapshots")
   }

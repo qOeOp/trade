@@ -407,7 +407,7 @@ test("runner commits a pre-entry GTC Limit resolution chain as an authoritative 
   )).toBe(true)
 })
 
-test("runner returns a typed terminal failure when a GTC Limit never fills", () => {
+test("runner commits a completed zero-execution Result when a GTC Limit remains active at data end", () => {
   const noFillBars = [
     { open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 101, high: 103, low: 100, close: 102, volume: 10, closed: true as const },
   ]
@@ -425,18 +425,39 @@ test("runner returns a typed terminal failure when a GTC Limit never fills", () 
     ...request(), order, dataset_hash: dataHash,
     decision_schedule: decisionSchedule, decision_schedule_hash: canonicalHash(decisionSchedule),
   }
-  const failed = runReplayTrial({
+  const root = mkdtempSync(join(tmpdir(), "rd-replay-limit-unfilled-"))
+  const completed = runReplayTrial({
     ...authorized(requestValue), dataset_manifest: datasetManifestFor(noFillBars, dataHash), bars: noFillBars,
+    artifact_root: root,
   })
-  expect(failed).toMatchObject({
-    status: "failed",
-    failure: {
-      code: "limit-entry-unfilled-at-end-of-data", failure_class: "deterministic_engine",
-      retryable: false, partial_result_published: false,
+  expect(completed).toMatchObject({
+    status: "completed",
+    result: {
+      status: "completed",
+      entry_outcome: "unfilled_at_data_end",
+      fills: [],
+      positions: [],
+      margin_snapshots: [],
+      equity_bridge: { terminal_position_state: "never_opened", position_valuation: 0 },
+      metrics: { trade_count: 0, net_pnl: 0, margin_observation_count: 0 },
     },
   })
-  expect(failed.result).toBeUndefined()
-  expect(failed.artifact_manifest).toBeUndefined()
+  expect(completed.result?.order_events.at(-1)).toMatchObject({ order_id: "run-1:order:entry", status: "active" })
+  expect(completed.result?.pending_order_resolutions.every(
+    (resolution) => resolution.outcome.status === "resting",
+  )).toBe(true)
+  expect(completed.result?.ledger.map((entry) => entry.kind)).toEqual(["initial_cash", "ending_cash"])
+  expect(completed.result?.journal.map((entry) => entry.kind)).toEqual(["opening_balance", "mark_to_market"])
+  expect(completed.artifact_manifest?.result_hash).toBe(completed.result?.fingerprint.result_hash)
+  expect(completed.failure).toBeUndefined()
+  const idempotent = runReplayTrial({
+    ...authorized(requestValue), dataset_manifest: datasetManifestFor(noFillBars, dataHash), bars: noFillBars,
+    artifact_store: createReplayLocalArtifactStore(root),
+  })
+  expect(idempotent).toMatchObject({
+    status: "completed", idempotent_replay: true,
+    result: { entry_outcome: "unfilled_at_data_end" },
+  })
 })
 
 test("runner returns typed data-gap failures without publishing partial Result", () => {

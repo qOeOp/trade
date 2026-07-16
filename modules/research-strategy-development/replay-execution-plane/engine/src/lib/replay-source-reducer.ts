@@ -25,8 +25,8 @@ export interface ReplaySourceReduction<TEntry, TTerminal> {
   exit: ReplayReducedExit
   source_events: ReplaySourceEvent[]
   applied_funding_sources: ReplaySourceEvent[]
-  entry_transition: TEntry
-  terminal_transition: TTerminal
+  entry_transition: TEntry | null
+  terminal_transition: TTerminal | null
 }
 
 export interface ReplaySourceBoundary<TEntry> {
@@ -51,15 +51,6 @@ export class ReplayInstrumentTerminalError extends Error {
   constructor(readonly terminal_event: ReplaySourceEvent) {
     super(`instrument was delisted with an open evidence position at ${terminal_event.event_key.event_time}; no settlement price is bound`)
     this.name = "ReplayInstrumentTerminalError"
-  }
-}
-
-export class ReplayPendingEntryTerminalError extends Error {
-  readonly code = "limit-entry-unfilled-at-end-of-data" as const
-
-  constructor() {
-    super("Limit entry remained active through the final admissible OHLCV boundary; no Result is published")
-    this.name = "ReplayPendingEntryTerminalError"
   }
 }
 
@@ -306,6 +297,23 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
     checkpoint(sourceOffset + 1)
   }
 
+  const finalMark = input.exact_mark_coverage ? input.mark_events.at(-1) : undefined
+  const exit: ReplayReducedExit = {
+    role: "end_of_data",
+    timestamp: finalMark?.timestamp ?? lastBar.close_time,
+    rawPrice: finalMark?.mark_price ?? lastBar.close,
+    triggerSource: null,
+    sourceSequence: finalMark?.source_sequence ?? input.bars.length,
+  }
+  if (entryTransition === undefined) {
+    return {
+      exit,
+      source_events: [...consumed],
+      applied_funding_sources: [...appliedFunding],
+      entry_transition: null,
+      terminal_transition: null,
+    }
+  }
   input.limitations.push({
     code: "end-of-data-open-position-marked",
     severity: "info",
@@ -313,21 +321,7 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
       ? "Open evidence position remains open and is valued at the final exact mark event; no synthetic exit Fill is created."
       : "Open evidence position remains open and is valued at the final closed bar close; no synthetic exit Fill is created.",
   })
-  if (entryTransition === undefined) throw new ReplayPendingEntryTerminalError()
-  const finalMark = input.exact_mark_coverage ? input.mark_events.at(-1) : undefined
-  return reduction(
-    {
-      role: "end_of_data",
-      timestamp: finalMark?.timestamp ?? lastBar.close_time,
-      rawPrice: finalMark?.mark_price ?? lastBar.close,
-      triggerSource: null,
-      sourceSequence: finalMark?.source_sequence ?? input.bars.length,
-    },
-    consumed,
-    appliedFunding,
-    entryTransition,
-    input.complete_exit,
-  )
+  return reduction(exit, consumed, appliedFunding, entryTransition, input.complete_exit)
 }
 
 function assertNextBarContinuity(

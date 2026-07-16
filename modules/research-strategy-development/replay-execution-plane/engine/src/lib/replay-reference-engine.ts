@@ -49,7 +49,7 @@ import {
   calculateNotionalChargeV3,
 } from "../../../accounting/src/lib/replay-accounting"
 import { buildAverageCostPositionProjection } from "../../../accounting/src/lib/replay-position-accounting"
-import { buildReplayEquityProjection } from "../../../accounting/src/lib/replay-equity"
+import { buildReplayEquityProjection, buildReplayNeverOpenedEquityProjection } from "../../../accounting/src/lib/replay-equity"
 import { buildReplayJournal } from "../../../accounting/src/lib/replay-journal"
 import { buildReplayMarginSnapshot } from "../../../accounting/src/lib/replay-margin"
 import { addReplayDecimalValues, isReplayIncrementAligned, quantizeReplayDifferenceProduct, quantizeReplayQuantity } from "../../../contracts/src/lib/replay-decimal"
@@ -932,7 +932,8 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
   let finalizedTerminalDecision = false
   timelineInputs = timelineInputs.map((decision) => {
     if (decision.evaluation_status !== "pending_runtime") return decision
-    if (Date.parse(decision.schedule_entry.decision_time) < Date.parse(terminalSourceEvent.event_key.event_time)) {
+    if (entryExecution !== null
+        && Date.parse(decision.schedule_entry.decision_time) < Date.parse(terminalSourceEvent.event_key.event_time)) {
       throw new Error("Replay runtime decision boundary was skipped before terminal execution")
     }
     finalizedTerminalDecision = true
@@ -948,6 +949,156 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
   })
   if (finalizedTerminalDecision) rebuildDecisionTimeline()
   assertReplayDecisionEvidenceTimeline(decisionEvidenceTimeline, request, { source_events: sourceReduction.source_events })
+  const finalizeResult = (resultBody: Omit<ReplayResult, "fingerprint">): ReplayResult => {
+    const initialDecision = replayAuthorizedInitialDecisionEvidenceEntry(resultBody.decision_evidence_timeline)
+    const initialInput = initialDecision.decision_input_snapshot
+    const initialMarketInput = initialDecision.decision_market_input_snapshot
+    const initialReceipt = initialDecision.decision_harness_receipt
+    const initialBundle = initialDecision.decision_harness_bundle
+    const initialBuild = initialDecision.decision_harness_build
+    return {
+      ...resultBody,
+      fingerprint: {
+        experiment_contract_hash: request.experiment_contract_hash,
+        trial_group_hash: request.trial_group_hash,
+        candidate_hash: request.candidate_hash,
+        identity_hash_policy_version: request.identity_hash_policy_version,
+        trial_reservation_hash: request.trial_reservation_hash,
+        dataset_manifest_hash: prepared.dataset_manifest_hash,
+        dataset_hash: request.dataset_hash,
+        liquidity_capacity_attestation_hash: request.order.entry_execution.order_type === "limit"
+          ? request.order.entry_execution.liquidity_capacity_attestation_hash
+          : null,
+        supplemental_facts_hash: request.supplemental_facts_hash,
+        supplemental_requirement_set_hash: request.supplemental_requirement_set_hash,
+        decision_market_input_requirement_hash: request.decision_market_input_requirement_hash,
+        decision_schedule_hash: request.decision_schedule_hash,
+        decision_market_input_snapshot_hash: initialMarketInput.snapshot_hash,
+        decision_evidence_timeline_hash: resultBody.decision_evidence_timeline.timeline_hash,
+        decision_state_snapshot_hashes: resultBody.decision_evidence_timeline.entries.map(
+          (entry) => entry.decision_state_snapshot?.snapshot_hash ?? null,
+        ),
+        decision_boundary_hash: initialDecision.decision_boundary.boundary_hash,
+        decision_input_snapshot_hash: initialInput.snapshot_hash,
+        decision_harness_receipt_hash: initialReceipt?.receipt_hash ?? null,
+        decision_harness_bundle_hash: initialBundle?.bundle_hash ?? null,
+        decision_harness_build_attestation_hash: initialBuild?.attestation_hash ?? null,
+        decision_harness_build_artifact_hash: initialBuild?.artifact.sha256 ?? null,
+        decision_harness_runtime_executable_hash: initialBuild?.runtime.executable_sha256 ?? null,
+        decision_harness_registry_policy_version: initialReceipt?.registry_policy_version ?? null,
+        decision_harness_loader_policy_version: initialReceipt?.loader_policy_version ?? null,
+        decision_harness_worker_protocol_version: initialReceipt?.worker_protocol_version ?? null,
+        ohlcv_resolution_evidence_hash: canonicalHash(resultBody.ohlcv_resolution_evidence),
+        pending_order_resolutions_hash: canonicalHash(resultBody.pending_order_resolutions),
+        venue_risk_policy_schedule_hash: request.venue_risk_policy_schedule_hash,
+        instrument_spec_schedule_hash: request.instrument_spec_schedule_hash,
+        instrument_status_schedule_hash: request.instrument_status_schedule_hash,
+        instrument_status_provenance_hash: request.instrument_status_provenance_hash,
+        instrument_status_provider_capability_hash: request.instrument_status_provider_capability_hash,
+        instrument_status_provider_certification_hash: request.instrument_status_provider_certification_hash,
+        harness_hash: request.harness_hash,
+        assumptions_hash: request.assumptions_hash,
+        cost_policy_hash: canonicalHash(request.cost_policy),
+        simulator_policy_version: request.simulator_policy.version,
+        numeric_policy_version: REPLAY_NUMERIC_POLICY_VERSION,
+        journal_policy_version: REPLAY_JOURNAL_POLICY_VERSION,
+        equity_policy_version: REPLAY_EQUITY_POLICY_VERSION,
+        margin_policy_version: REPLAY_MARGIN_POLICY_VERSION,
+        margin_policy_hash: canonicalHash(request.margin_policy),
+        request_hash: canonicalHash(request),
+        result_hash: canonicalHash(resultBody),
+        random_seed: request.random_seed,
+      },
+    }
+  }
+  if (entryExecution === null || exitExecution === null) {
+    if (entryExecution !== null || exitExecution !== null
+        || request.order.entry_execution.order_type !== "limit" || exit.role !== "end_of_data") {
+      throw new Error("Replay source reduction returned an inconsistent never-opened terminal state")
+    }
+    limitations.push({
+      code: "limit-entry-unfilled-through-data-end",
+      severity: "info",
+      detail: "The GTC Limit remains active at the immutable data boundary; Replay records zero execution and does not invent a cancellation, expiry, Fill, Position, or funding entitlement.",
+    })
+    const sourceEvents = sourceReduction.source_events
+    const endingLedgerEventKey = createReplayEventKey({
+      event_time: exit.timestamp,
+      boundary_phase: 100,
+      source_sequence: exit.sourceSequence,
+      event_subphase: 0,
+      stable_event_id: `${request.run_id}:ledger:ending-cash`,
+    })
+    const ledger = buildReplayCashLedger({
+      run_id: request.run_id,
+      initial_cash: request.initial_cash,
+      initial_event_key: initialLedgerEventKey,
+      ending_event_key: endingLedgerEventKey,
+      fills: [],
+      positions: [],
+      funding_facts: [],
+      settlement_increment: accountingSpec.settlement_increment,
+    })
+    const markSource = exactMarkCoverage ? "mark_event" as const : "bar_close" as const
+    const markSourceRef = [...sourceEvents].reverse().find(
+      (source) => source.kind === (exactMarkCoverage ? "mark" : "bar_range")
+        && source.event_key.event_time === exit.timestamp,
+    )?.source_event_id
+    if (!markSourceRef) throw new Error("Replay never-opened terminal mark source is missing")
+    const { valuation_snapshot: valuationSnapshot, equity_bridge: equityBridge } = buildReplayNeverOpenedEquityProjection({
+      run_id: request.run_id,
+      symbol: request.symbol,
+      accounting_spec: accountingSpec,
+      mark_event_key: endingLedgerEventKey,
+      mark_source_ref: markSourceRef,
+      mark_source: markSource,
+      mark_price: exit.rawPrice,
+      ledger,
+    })
+    const { journal, trial_balance: trialBalance } = buildReplayJournal({
+      run_id: request.run_id,
+      settlement_asset: accountingSpec.settlement_asset,
+      settlement_increment: accountingSpec.settlement_increment,
+      ledger,
+      valuation_snapshot: valuationSnapshot,
+      equity_bridge: equityBridge,
+      margin_snapshots: [],
+    })
+    const metrics = deriveReplayMetrics({
+      initial_cash: request.initial_cash,
+      fills: [],
+      ledger,
+      equity_bridge: equityBridge,
+      margin_snapshots: [],
+      ohlcv_resolution_evidence: [],
+      pending_order_resolutions: pendingOrderResolutions,
+    })
+    return finalizeResult({
+      schema_version: REPLAY_RESULT_SCHEMA_VERSION,
+      run_id: request.run_id,
+      status: "completed",
+      entry_outcome: "unfilled_at_data_end",
+      started_at: request.order.signal_time,
+      completed_at: exit.timestamp,
+      source_events: sourceEvents,
+      order_events: orderEvents,
+      fills: [],
+      positions: [],
+      ledger,
+      valuation_snapshot: valuationSnapshot,
+      equity_bridge: equityBridge,
+      margin_snapshots: [],
+      liquidation: null,
+      journal,
+      trial_balance: trialBalance,
+      supplemental_evidence: prepared.supplemental_evidence,
+      decision_evidence_timeline: decisionEvidenceTimeline,
+      ohlcv_resolution_evidence: [],
+      pending_order_resolutions: pendingOrderResolutions,
+      metrics,
+      limitations,
+    })
+  }
   const exitRiskPolicy = riskPolicyAt(exit.timestamp)
   const entryFill = entryFillFor(entryExecution)
   const fills: ReplayFill[] = [entryFill, ...partialReduceFills]
@@ -1127,7 +1278,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     limitations.push({
       code: "ohlcv-margin-path-adverse-extreme",
       severity: "resolution_limited",
-      detail: "OHLCV cannot prove intrabar mark order; Margin Policy v6 checks the position-side adverse bar extreme before strategy-order resolution but cannot execute liquidation from it.",
+      detail: "OHLCV cannot prove intrabar mark order; Margin Policy v7 checks the position-side adverse bar extreme before strategy-order resolution but cannot execute liquidation from it.",
     })
   }
   const { journal, trial_balance: trialBalance } = buildReplayJournal({
@@ -1181,6 +1332,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     schema_version: REPLAY_RESULT_SCHEMA_VERSION,
     run_id: request.run_id,
     status: "completed" as const,
+    entry_outcome: "filled" as const,
     started_at: request.order.signal_time,
     completed_at: exit.timestamp,
     source_events: sourceEvents,
@@ -1201,63 +1353,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     metrics,
     limitations,
   }
-  const resultHash = canonicalHash(resultBody)
-  return {
-    ...resultBody,
-    fingerprint: {
-      experiment_contract_hash: request.experiment_contract_hash,
-      trial_group_hash: request.trial_group_hash,
-      candidate_hash: request.candidate_hash,
-      identity_hash_policy_version: request.identity_hash_policy_version,
-      trial_reservation_hash: request.trial_reservation_hash,
-      dataset_manifest_hash: prepared.dataset_manifest_hash,
-      dataset_hash: request.dataset_hash,
-      liquidity_capacity_attestation_hash: request.order.entry_execution.order_type === "limit"
-        ? request.order.entry_execution.liquidity_capacity_attestation_hash
-        : null,
-      supplemental_facts_hash: request.supplemental_facts_hash,
-      supplemental_requirement_set_hash: request.supplemental_requirement_set_hash,
-      decision_market_input_requirement_hash: request.decision_market_input_requirement_hash,
-      decision_schedule_hash: request.decision_schedule_hash,
-      decision_market_input_snapshot_hash: decisionMarketInputSnapshot.snapshot_hash,
-      decision_evidence_timeline_hash: decisionEvidenceTimeline.timeline_hash,
-      decision_state_snapshot_hashes: decisionEvidenceTimeline.entries.map(
-        (entry) => entry.decision_state_snapshot?.snapshot_hash ?? null,
-      ),
-      decision_boundary_hash: decisionEvidenceEntry.decision_boundary.boundary_hash,
-      decision_input_snapshot_hash: decisionInputSnapshot.snapshot_hash,
-      decision_harness_receipt_hash: decisionHarnessReceipt?.receipt_hash ?? null,
-      decision_harness_bundle_hash: decisionHarnessBundle?.bundle_hash ?? null,
-      decision_harness_build_attestation_hash: decisionHarnessBuild?.attestation_hash ?? null,
-      decision_harness_build_artifact_hash: decisionHarnessBuild?.artifact.sha256 ?? null,
-      decision_harness_runtime_executable_hash: decisionHarnessBuild?.runtime.executable_sha256 ?? null,
-      decision_harness_registry_policy_version: decisionHarnessReceipt?.registry_policy_version ?? null,
-      decision_harness_loader_policy_version: decisionHarnessReceipt?.loader_policy_version ?? null,
-      decision_harness_worker_protocol_version: decisionHarnessReceipt?.worker_protocol_version ?? null,
-      ohlcv_resolution_evidence_hash: canonicalHash(
-        exit.role === "stop" || exit.role === "target" ? [exit.resolution_evidence] : [],
-      ),
-      pending_order_resolutions_hash: canonicalHash(pendingOrderResolutions),
-      venue_risk_policy_schedule_hash: request.venue_risk_policy_schedule_hash,
-      instrument_spec_schedule_hash: request.instrument_spec_schedule_hash,
-      instrument_status_schedule_hash: request.instrument_status_schedule_hash,
-      instrument_status_provenance_hash: request.instrument_status_provenance_hash,
-      instrument_status_provider_capability_hash: request.instrument_status_provider_capability_hash,
-      instrument_status_provider_certification_hash: request.instrument_status_provider_certification_hash,
-      harness_hash: request.harness_hash,
-      assumptions_hash: request.assumptions_hash,
-      cost_policy_hash: canonicalHash(request.cost_policy),
-      simulator_policy_version: request.simulator_policy.version,
-      numeric_policy_version: REPLAY_NUMERIC_POLICY_VERSION,
-      journal_policy_version: REPLAY_JOURNAL_POLICY_VERSION,
-      equity_policy_version: REPLAY_EQUITY_POLICY_VERSION,
-      margin_policy_version: REPLAY_MARGIN_POLICY_VERSION,
-      margin_policy_hash: canonicalHash(request.margin_policy),
-      request_hash: canonicalHash(request),
-      result_hash: resultHash,
-      random_seed: request.random_seed,
-    },
-  }
+  return finalizeResult(resultBody)
 }
 
 function buildReplayEngineCheckpoint(input: {

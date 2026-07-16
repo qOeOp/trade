@@ -22,10 +22,15 @@ export function deriveReplayMetrics(input: {
     .filter((ratio): ratio is number => ratio !== null)
   const postEntryMargin = input.margin_snapshots.filter((snapshot) => snapshot.stage === "post_entry")
   const terminalMargins = input.margin_snapshots.filter((snapshot) => snapshot.stage === "terminal")
-  if (postEntryMargin.length !== 1 || terminalMargins.length !== 1
-      || input.margin_snapshots[0]?.stage !== "post_entry"
-      || input.margin_snapshots.at(-1)?.stage !== "terminal"
-      || input.margin_snapshots.some((snapshot, index) => snapshot.snapshot_sequence !== index + 1)) {
+  const neverOpened = input.equity_bridge.terminal_position_state === "never_opened"
+  if (neverOpened) {
+    if (input.fills.length !== 0 || input.margin_snapshots.length !== 0) {
+      throw new Error("Replay never-opened metrics cannot consume Fill or Margin facts")
+    }
+  } else if (postEntryMargin.length !== 1 || terminalMargins.length !== 1
+    || input.margin_snapshots[0]?.stage !== "post_entry"
+    || input.margin_snapshots.at(-1)?.stage !== "terminal"
+    || input.margin_snapshots.some((snapshot, index) => snapshot.snapshot_sequence !== index + 1)) {
     throw new Error("Replay metrics require one ordered post-entry/path/terminal margin sequence")
   }
   const terminalMargin = terminalMargins[0]
@@ -43,7 +48,7 @@ export function deriveReplayMetrics(input: {
     trade_count: input.fills.filter((fill) => fill.order_role === "entry").length,
     margin_observation_count: input.margin_snapshots.length,
     peak_observed_margin_ratio: observedRatios.length > 0 ? Math.max(...observedRatios) : null,
-    terminal_margin_ratio: terminalMargin.margin_ratio,
+    terminal_margin_ratio: terminalMargin?.margin_ratio ?? null,
     observed_maintenance_breach_count: input.margin_snapshots.filter((snapshot) => !snapshot.maintenance_margin_sufficient).length,
     ohlcv_resolution_limited_count: input.ohlcv_resolution_evidence.filter(
       (evidence) => evidence.status === "resolution_limited",

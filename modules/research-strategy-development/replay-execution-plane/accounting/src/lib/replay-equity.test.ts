@@ -7,7 +7,7 @@ import {
   type ReplayLedgerEntry,
   type ReplayPositionProjection,
 } from "../../../contracts/src/lib/replay-contracts"
-import { buildReplayEquityProjection } from "./replay-equity"
+import { buildReplayEquityProjection, buildReplayNeverOpenedEquityProjection } from "./replay-equity"
 
 const SPEC: ReplayInstrumentAccountingSpec = {
   spec_version: REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION,
@@ -101,4 +101,24 @@ test("flat terminal valuation is zero and requires a later checkpoint", () => {
     mark_price: 110,
     ledger: ledger(),
   })).toThrow("must follow")
+})
+
+test("never-opened equity preserves cash without inventing a Position", () => {
+  const facts = [ledger()[0]!, { ...ledger().at(-1)!, balance_after: 1000 }]
+  const projection = buildReplayNeverOpenedEquityProjection({
+    run_id: "run-unfilled",
+    symbol: "BTCUSDT",
+    accounting_spec: SPEC,
+    mark_event_key: facts.at(-1)!.event_key,
+    mark_source_ref: "source:bar-range:1",
+    mark_source: "bar_close",
+    mark_price: 102,
+    ledger: facts,
+  })
+  expect(projection.valuation_snapshot).toMatchObject({
+    position_event_id: null, signed_quantity: 0, average_entry_price: null, unrealized_pnl: 0,
+  })
+  expect(projection.equity_bridge).toMatchObject({
+    terminal_position_state: "never_opened", cash_balance: 1000, ending_equity: 1000,
+  })
 })

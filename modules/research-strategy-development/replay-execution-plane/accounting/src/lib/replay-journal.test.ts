@@ -118,6 +118,37 @@ test("journal projects balanced legs and reconciles wallet cash to ending equity
   expect(projection.trial_balance.balanced).toBe(true)
 })
 
+test("journal records a never-opened run without reserving collateral", () => {
+  const initial = key("2026-07-14T00:00:00Z", 70, "initial-unfilled")
+  const ending = key("2026-07-14T08:00:00Z", 100, "ending-unfilled")
+  const facts: ReplayLedgerEntry[] = [
+    { entry_id: "u1", event_key: initial, timestamp: initial.event_time, kind: "initial_cash", amount: 1000, balance_after: 1000, ref: "run-unfilled" },
+    { entry_id: "u2", event_key: ending, timestamp: ending.event_time, kind: "ending_cash", amount: 0, balance_after: 1000, ref: "run-unfilled" },
+  ]
+  const projection = buildReplayJournal({
+    run_id: "run-unfilled",
+    settlement_asset: "USDT",
+    settlement_increment: "0.01",
+    ledger: facts,
+    valuation_snapshot: {
+      valuation_id: "valuation-unfilled", event_key: ending, timestamp: ending.event_time,
+      position_event_id: null, mark_source_ref: "source:bar-range:1", mark_source: "bar_close",
+      symbol: "BTCUSDT", settlement_asset: "USDT", mark_price: 102,
+      signed_quantity: 0, average_entry_price: null, unrealized_pnl: 0,
+    },
+    equity_bridge: {
+      policy_version: REPLAY_EQUITY_POLICY_VERSION, valuation_id: "valuation-unfilled", settlement_asset: "USDT",
+      terminal_position_state: "never_opened", cash_balance: 1000, position_valuation: 0,
+      ending_equity: 1000, reconciled: true,
+    },
+    margin_snapshots: [],
+  })
+  expect(projection.journal.map((entry) => entry.kind)).toEqual(["opening_balance", "mark_to_market"])
+  expect(projection.trial_balance).toMatchObject({
+    wallet_cash_balance: 1000, isolated_margin_collateral_balance: 0, ending_equity: 1000, balanced: true,
+  })
+})
+
 test("journal rejects a cash checkpoint that does not reconcile", () => {
   const broken = ledger()
   broken[2].balance_after = 9999

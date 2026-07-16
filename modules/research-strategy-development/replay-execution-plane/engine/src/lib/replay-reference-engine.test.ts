@@ -387,6 +387,59 @@ test("pre-entry GTC Limit rests, strict-cross fills within its bound, and resume
   expect(canonicalHash(resumed)).toBe(canonicalHash(uninterrupted))
 })
 
+test("pre-entry GTC Limit that never fills completes flat and resumes with identical evidence", () => {
+  const requestValue = request()
+  requestValue.order = {
+    ...requestValue.order,
+    entry_execution: {
+      order_type: "limit", limit_price: 99.5, time_in_force: "gtc",
+      liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1", full_fill_capacity: 1,
+      liquidity_capacity_attestation_hash: CAPACITY_ATTESTATION.attestation_hash,
+    },
+  }
+  requestValue.decision_schedule = createReplaySingleDecisionSchedule(requestValue.order)
+  requestValue.decision_schedule_hash = canonicalHash(requestValue.decision_schedule)
+  const replayInput = inputFor(requestValue, [
+    bar("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", 101, 103, 100, 102),
+  ])
+  const uninterrupted = executeReplayKernel(replayInput)
+  expect(uninterrupted).toMatchObject({
+    status: "completed", entry_outcome: "unfilled_at_data_end",
+    fills: [], positions: [], margin_snapshots: [],
+    equity_bridge: { terminal_position_state: "never_opened", cash_balance: 10_000, ending_equity: 10_000 },
+    metrics: { trade_count: 0, net_pnl: 0, total_fees: 0, total_funding: 0 },
+  })
+  expect(uninterrupted.pending_order_resolutions.map((resolution) => resolution.outcome.status))
+    .toEqual(["resting", "resting"])
+  expect(uninterrupted.limitations.map((limitation) => limitation.code))
+    .toContain("limit-entry-unfilled-through-data-end")
+  expect(() => assertReplayResultPendingOrderBindings(
+    uninterrupted, replayInput.request, replayInput.dataset_manifest,
+  )).not.toThrow()
+  const outcomeTampered = structuredClone(uninterrupted)
+  outcomeTampered.entry_outcome = "filled"
+  expect(() => assertReplayResultPendingOrderBindings(
+    outcomeTampered, replayInput.request, replayInput.dataset_manifest,
+  )).toThrow("terminate with a full Fill resolution")
+  const activeStateTampered = structuredClone(uninterrupted)
+  activeStateTampered.order_events.at(-1)!.status = "cancelled"
+  expect(() => assertReplayResultPendingOrderBindings(
+    activeStateTampered, replayInput.request, replayInput.dataset_manifest,
+  )).toThrow("active full-quantity Order")
+
+  let checkpoint: ReplayEngineCheckpoint | undefined
+  expect(() => executeReplayKernel({
+    ...replayInput,
+    execution_control: { on_checkpoint: (value) => { checkpoint = value; return "cancel" } },
+  })).toThrow(ReplayExecutionInterruptedError)
+  expect(checkpoint).toMatchObject({ entry_transition: null, entry_order: { status: "active" } })
+  const resumed = executeReplayKernel({
+    ...replayInput,
+    execution_control: { resume_checkpoint: checkpoint },
+  })
+  expect(canonicalHash(resumed)).toBe(canonicalHash(uninterrupted))
+})
+
 test("stop gap fills at the worse open and ledger conserves equity", () => {
   const result = executeReplayKernel(inputFor(request(), [
       bar("2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z", 100, 102, 98, 101),

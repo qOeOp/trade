@@ -14,14 +14,14 @@ export {
 }
 
 export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v26" as const
-export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v38" as const
-export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v40" as const
+export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v39" as const
+export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v41" as const
 export const REPLAY_ARTIFACT_STORE_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-artifact-store-capability.v1" as const
-export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v11" as const
+export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v12" as const
 export const REPLAY_NUMERIC_POLICY_VERSION = "rd-replay-number-v3" as const
 export const REPLAY_DERIVED_DECIMAL_INCREMENT = "0.000000000001" as const
-export const REPLAY_JOURNAL_POLICY_VERSION = "rd-replay-journal-v4" as const
-export const REPLAY_EQUITY_POLICY_VERSION = "rd-replay-equity-v1" as const
+export const REPLAY_JOURNAL_POLICY_VERSION = "rd-replay-journal-v5" as const
+export const REPLAY_EQUITY_POLICY_VERSION = "rd-replay-equity-v2" as const
 export const REPLAY_MARGIN_POLICY_VERSION = "rd-replay-isolated-margin-v7" as const
 export const REPLAY_MAINTENANCE_BREACH_SCHEMA_VERSION = "trade.rd-replay-maintenance-breach-observation.v3" as const
 export const REPLAY_LIQUIDATION_EXECUTION_SCHEMA_VERSION = "trade.rd-replay-liquidation-execution.v2" as const
@@ -1350,7 +1350,7 @@ export interface ReplayValuationSnapshot {
   valuation_id: string
   event_key: ReplayEventKey
   timestamp: string
-  position_event_id: string
+  position_event_id: string | null
   mark_source_ref: string
   mark_source: "fill_price" | "bar_close" | "mark_event"
   symbol: string
@@ -1365,7 +1365,7 @@ export interface ReplayEquityBridge {
   policy_version: typeof REPLAY_EQUITY_POLICY_VERSION
   valuation_id: string
   settlement_asset: string
-  terminal_position_state: "open" | "flat"
+  terminal_position_state: "open" | "flat" | "never_opened"
   cash_balance: number
   position_valuation: number
   ending_equity: number
@@ -1528,6 +1528,7 @@ export interface ReplayResult {
   schema_version: typeof REPLAY_RESULT_SCHEMA_VERSION
   run_id: string
   status: "completed" | "failed" | "cancelled"
+  entry_outcome: "filled" | "unfilled_at_data_end"
   started_at: string
   completed_at: string
   source_events: ReplaySourceEvent[]
@@ -1670,7 +1671,9 @@ export function assertReplayResultPendingOrderBindings(
     fail("Replay Result liquidity capacity attestation fingerprint mismatch")
   }
   if (request.order.entry_execution.order_type === "market") {
-    if (resolutions.length !== 0) fail("market entry cannot carry pending-order resolutions")
+    if (result.entry_outcome !== "filled" || resolutions.length !== 0) {
+      fail("market entry must be filled without pending-order resolutions")
+    }
     return
   }
   if (resolutions.length === 0) fail("Limit entry requires pending-order resolution evidence")
@@ -1712,12 +1715,26 @@ export function assertReplayResultPendingOrderBindings(
     }
     previousKey = resolution.observation.source_event_key
     const terminal = index === resolutions.length - 1
-    if (!terminal && resolution.outcome.status !== "resting") {
+    if ((!terminal || result.entry_outcome === "unfilled_at_data_end") && resolution.outcome.status !== "resting") {
       fail("non-terminal pending-order resolution must remain resting")
     }
-    if (terminal && resolution.outcome.status !== "filled") {
+    if (terminal && result.entry_outcome === "filled" && resolution.outcome.status !== "filled") {
       fail("successful Replay Limit entry must terminate with a full Fill resolution")
     }
+  }
+  if (result.entry_outcome === "unfilled_at_data_end") {
+    const entryEvents = result.order_events
+      .filter((event) => event.order_id === orderId)
+      .sort((left, right) => left.sequence - right.sequence)
+    const lastEntryEvent = entryEvents.at(-1)
+    if (result.fills.length !== 0 || result.positions.length !== 0 || result.margin_snapshots.length !== 0
+        || result.liquidation !== null || result.equity_bridge.terminal_position_state !== "never_opened"
+        || result.valuation_snapshot.position_event_id !== null
+        || result.metrics.trade_count !== 0 || result.metrics.net_pnl !== 0
+        || !lastEntryEvent || lastEntryEvent.status !== "active" || lastEntryEvent.remaining_quantity !== request.order.quantity) {
+      fail("unfilled Limit entry must preserve an active full-quantity Order and zero-execution accounting")
+    }
+    return
   }
   const terminal = resolutions.at(-1)!
   const fill = result.fills.find((candidate) => candidate.order_id === orderId && candidate.order_role === "entry")

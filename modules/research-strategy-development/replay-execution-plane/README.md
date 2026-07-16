@@ -8,7 +8,7 @@ RD 确定性历史执行与证据生产面。当前已实现：
 contracts/  完整 Trial/Candidate/Dataset/Instrument/Policy/Result/Fingerprint 合同
 data-adapter/ manifest/hash、UTC、instrument/PIT policy snapshot、supplemental requirement/revision join、closed bar/grid gap、funding/mark 准入
 engine/     EventKey source reducer + source-bound entry/exit/forced-liquidation lanes
-accounting/ slippage、trade/liquidation fee、exact funding、Position、现金与 Journal v4
+accounting/ slippage、trade/liquidation fee、exact funding、Position、现金与 Journal v5 / Equity v2
 metrics/    只从 fills/ledger 派生权威 Replay metrics
 runner/     monotonic Attempt lease fencing、transport-neutral coordinator/pre-terminal local outbox、namespace discovery/recovery-first no-replay ack、幂等、typed failure、Harness worker 与完整 Artifact commit
 tests/      golden、property、metamorphic、component parity 认证
@@ -16,7 +16,7 @@ compatibility/ 迁入的 legacy replay/benchmark/panel 实现，只用于兼容�
 certification/ 迁入的 calibration 认证来源
 ```
 
-当前是 Request v25、Result v37、Artifact v39、Run Outcome v35、Dataset Manifest v10、Pending Order Resolution v1、OHLCV Resolution Evidence v3、Engine Checkpoint v18、Simulator v11、Margin v7、Journal v4 的受限认证纵切，并继续绑定 Control Plane Reservation/Attempt/certification/cancellation authority。entry 可选 next-open market 或 pre-entry GTC Limit；Limit 只在冻结 bounded-full-fill capacity 内按 OHLC open/strict-cross 生成 resolution-limited Fill，解析链进入 checkpoint/result/fingerprint/artifact。position-open 仍只允许一次 stop tighten，或一次 fixed partial 后重建双保护并可追加 final full exit。remote transport/SLA、真实 queue/depth partial、IOC/Cancel/multi-order 未认证。
+当前是 Request v26、Result v39、Artifact v41、Run Outcome v35、Dataset Manifest v11、Pending Order Resolution v1、OHLCV Resolution Evidence v3、Engine Checkpoint v18、Simulator v12、Margin v7、Journal v5 / Equity v2 的受限认证纵切，并继续绑定 Control Plane Reservation/Attempt/certification/cancellation authority。entry 可选 next-open market 或 pre-entry GTC Limit；Limit 只在冻结 bounded-full-fill capacity 内按 OHLC open/strict-cross 生成 resolution-limited Fill。数据边界仍未成交则提交 `unfilled_at_data_end` 零成交 Result，保留 active Order，不伪造 cancel/expire。position-open 仍只允许一次 stop tighten，或一次 fixed partial 后重建双保护并可追加 final full exit。remote transport/SLA、真实 queue/depth partial、IOC/Cancel/multi-order 未认证。
 
 R4.41 只新增非可执行 `Partial Reduce Intent Draft v1`：冻结一次小于初始仓位的 fixed-quantity market reduce-only，以及 partial Fill 后同 source boundary 按剩余仓位取消/重建双保护的 draft policy。它未进入 Request/Schedule/certified capabilities；Runner 对该 draft capability 显式拒绝，直到非终止 Fill、partial Position/Ledger、bracket resize 与 checkpoint parity 完成。
 
