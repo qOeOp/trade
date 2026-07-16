@@ -26,6 +26,7 @@ export const REPLAY_MARGIN_POLICY_VERSION = "rd-replay-isolated-margin-v7" as co
 export const REPLAY_MAINTENANCE_BREACH_SCHEMA_VERSION = "trade.rd-replay-maintenance-breach-observation.v3" as const
 export const REPLAY_LIQUIDATION_EXECUTION_SCHEMA_VERSION = "trade.rd-replay-liquidation-execution.v2" as const
 export const REPLAY_OHLCV_RESOLUTION_EVIDENCE_SCHEMA_VERSION = "trade.rd-replay-ohlcv-resolution-evidence.v3" as const
+export const REPLAY_PENDING_ORDER_RESOLUTION_SCHEMA_VERSION = "trade.rd-replay-pending-order-resolution.v1" as const
 export const REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION = "rd-replay-instrument-accounting-v1" as const
 export const REPLAY_DATASET_MANIFEST_SCHEMA_VERSION = "trade.rd-replay-dataset-manifest.v10" as const
 export const REPLAY_SUPPLEMENTAL_FACT_SCHEMA_VERSION = "trade.rd-replay-supplemental-fact.v1" as const
@@ -1186,6 +1187,62 @@ export interface ReplayFill {
   fee: number
   liquidation_fee?: number
   reduce_only: boolean
+}
+
+export type ReplayPendingOrderType = "limit" | "stop_market"
+export type ReplayPendingOrderTimeInForce = "gtc" | "ioc"
+export type ReplayPendingOrderResolutionStatus = "exact_under_ohlc" | "resolution_limited"
+export type ReplayPendingOrderOutcomeStatus = "resting" | "filled" | "triggered_and_filled" | "cancelled" | "unresolved"
+export type ReplayPendingOrderOutcomeReason =
+  | "limit_open_marketable"
+  | "limit_strict_cross"
+  | "limit_touch_queue_unproven"
+  | "limit_not_reached"
+  | "stop_open_gap"
+  | "stop_range_trigger"
+  | "stop_not_triggered"
+  | "cancel_precedes_observation"
+  | "cancel_after_non_fill"
+  | "ioc_not_marketable"
+  | "same_ordinal_cancel_race"
+  | "limit_touch_before_cancel_unresolved"
+
+export interface ReplayPendingOrderSpec {
+  order_id: string
+  order_type: ReplayPendingOrderType
+  side: ReplayOrderSide
+  quantity: number
+  time_in_force: ReplayPendingOrderTimeInForce
+  activation_event_key: ReplayEventKey
+  limit_price: number | null
+  trigger_price: number | null
+  trigger_source: "last_trade_ohlcv" | null
+  liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1"
+  full_fill_capacity: number
+}
+
+export interface ReplayPendingOrderObservation {
+  observation_kind: "bar_open" | "bar_range"
+  source_event_key: ReplayEventKey
+  bar: ReplayMarketBar
+}
+
+export interface ReplayPendingOrderResolution {
+  schema_version: typeof REPLAY_PENDING_ORDER_RESOLUTION_SCHEMA_VERSION
+  order: ReplayPendingOrderSpec
+  observation: ReplayPendingOrderObservation
+  cancel_effective_key: ReplayEventKey | null
+  outcome: {
+    status: ReplayPendingOrderOutcomeStatus
+    reason: ReplayPendingOrderOutcomeReason
+    decisive_event_key: ReplayEventKey | null
+    fill_reference_price: number | null
+    fill_quantity: number
+    remaining_quantity: number
+  }
+  resolution_status: ReplayPendingOrderResolutionStatus
+  limitations: Array<"ohlcv-limit-queue-unobserved" | "same-event-order-unproven">
+  resolution_hash: string
 }
 
 export interface ReplayLedgerEntry {
@@ -3234,6 +3291,171 @@ export function replayExecutionSpecHash(request: ReplayExecutionRequest): string
   delete authorized.trial_reservation_ref
   delete authorized.trial_reservation_hash
   return canonicalHash(authorized)
+}
+
+export function replayPendingOrderResolutionHash(
+  value: Omit<ReplayPendingOrderResolution, "resolution_hash">,
+): string {
+  return canonicalHash(value)
+}
+
+export function assertReplayPendingOrderResolution(value: ReplayPendingOrderResolution): void {
+  if (value.schema_version !== REPLAY_PENDING_ORDER_RESOLUTION_SCHEMA_VERSION) fail("pending order resolution schema_version")
+  const { order, observation, outcome } = value
+  requireText(order.order_id, "pending_order.order_id")
+  if (order.order_type !== "limit" && order.order_type !== "stop_market") fail("pending order type is unsupported")
+  if (order.side !== "buy" && order.side !== "sell") fail("pending order side is unsupported")
+  requirePositive(order.quantity, "pending_order.quantity")
+  if (order.time_in_force !== "gtc" && order.time_in_force !== "ioc") fail("pending order time_in_force is unsupported")
+  assertReplayEventKey(order.activation_event_key)
+  if (order.liquidity_model !== "ohlcv-cross-through-full-fill-bounded-v1") fail("pending order liquidity model is unsupported")
+  requirePositive(order.full_fill_capacity, "pending_order.full_fill_capacity")
+  if (order.quantity > order.full_fill_capacity) fail("pending order quantity exceeds full-fill capacity")
+  if (order.order_type === "limit") {
+    requirePositive(order.limit_price, "pending_order.limit_price")
+    if (order.trigger_price !== null || order.trigger_source !== null) fail("limit order cannot carry stop trigger fields")
+  } else {
+    requirePositive(order.trigger_price, "pending_order.trigger_price")
+    if (order.limit_price !== null || order.trigger_source !== "last_trade_ohlcv") fail("stop-market trigger contract is invalid")
+    if (order.time_in_force !== "gtc") fail("stop-market pending order supports gtc only")
+  }
+  if (order.time_in_force === "ioc" && observation.observation_kind !== "bar_open") {
+    fail("IOC limit order requires a bar_open observation")
+  }
+  assertReplayEventKey(observation.source_event_key)
+  assertReplayMarketBars([observation.bar])
+  const expectedObservationTime = observation.observation_kind === "bar_open"
+    ? observation.bar.open_time
+    : observation.observation_kind === "bar_range" ? observation.bar.close_time : null
+  if (expectedObservationTime === null || observation.source_event_key.event_time !== expectedObservationTime) {
+    fail("pending order observation key does not match its bar boundary")
+  }
+  if (compareReplayEventKeys(order.activation_event_key, observation.source_event_key) >= 0) {
+    fail("pending order observation must follow activation")
+  }
+  if (value.cancel_effective_key) {
+    assertReplayEventKey(value.cancel_effective_key)
+    if (compareReplayEventKeys(order.activation_event_key, value.cancel_effective_key) >= 0) {
+      fail("pending order cancellation must follow activation")
+    }
+  }
+  if (!["resting", "filled", "triggered_and_filled", "cancelled", "unresolved"].includes(outcome.status)) {
+    fail("pending order outcome status is unsupported")
+  }
+  requireNonNegative(outcome.fill_quantity, "pending_order.outcome.fill_quantity")
+  requireNonNegative(outcome.remaining_quantity, "pending_order.outcome.remaining_quantity")
+  if (Math.abs(outcome.fill_quantity + outcome.remaining_quantity - order.quantity) > 1e-12) {
+    fail("pending order outcome quantity is not conserved")
+  }
+  const isFilled = outcome.status === "filled" || outcome.status === "triggered_and_filled"
+  if (isFilled) {
+    requirePositive(outcome.fill_reference_price, "pending_order.outcome.fill_reference_price")
+    if (outcome.fill_quantity !== order.quantity || outcome.remaining_quantity !== 0) fail("pending order fill must be full under bounded model")
+    if (!outcome.decisive_event_key || canonicalJson(outcome.decisive_event_key) !== canonicalJson(observation.source_event_key)) {
+      fail("pending order fill must bind the observation key")
+    }
+    if (order.order_type === "limit") {
+      if (order.side === "buy" && outcome.fill_reference_price! > order.limit_price!
+          || order.side === "sell" && outcome.fill_reference_price! < order.limit_price!) {
+        fail("limit fill reference price violates its price bound")
+      }
+    }
+  } else if (outcome.fill_reference_price !== null || outcome.fill_quantity !== 0 || outcome.remaining_quantity !== order.quantity) {
+    fail("non-filled pending order outcome cannot carry fill evidence")
+  }
+  if (outcome.status === "unresolved") {
+    if (outcome.decisive_event_key !== null
+        || outcome.reason !== "same_ordinal_cancel_race" && outcome.reason !== "limit_touch_before_cancel_unresolved") {
+      fail("unresolved race contract is invalid")
+    }
+  } else if (!outcome.decisive_event_key) {
+    fail("resolved pending order outcome requires a decisive EventKey")
+  }
+  const queueLimited = order.order_type === "limit"
+    && ["limit_open_marketable", "limit_strict_cross", "limit_touch_queue_unproven", "limit_touch_before_cancel_unresolved"].includes(outcome.reason)
+  const raceLimited = outcome.reason === "same_ordinal_cancel_race"
+  const expectedLimitations = [
+    ...(queueLimited ? ["ohlcv-limit-queue-unobserved" as const] : []),
+    ...(raceLimited ? ["same-event-order-unproven" as const] : []),
+  ]
+  if (canonicalJson(value.limitations) !== canonicalJson(expectedLimitations)) fail("pending order limitations are inconsistent")
+  if (value.resolution_status !== (expectedLimitations.length > 0 ? "resolution_limited" : "exact_under_ohlc")) {
+    fail("pending order resolution status is inconsistent")
+  }
+  assertReplayPendingOrderOutcomeSemantics(value)
+  requireHash(value.resolution_hash, "pending_order.resolution_hash")
+  const { resolution_hash: _resolutionHash, ...body } = value
+  if (replayPendingOrderResolutionHash(body) !== value.resolution_hash) fail("pending order resolution hash mismatch")
+}
+
+function assertReplayPendingOrderOutcomeSemantics(value: ReplayPendingOrderResolution): void {
+  const { order, observation, outcome, cancel_effective_key: cancelKey } = value
+  const decisiveIs = (key: ReplayEventKey): boolean => outcome.decisive_event_key !== null
+    && canonicalJson(outcome.decisive_event_key) === canonicalJson(key)
+  const limit = order.limit_price ?? Number.NaN
+  const trigger = order.trigger_price ?? Number.NaN
+  const limitMarketable = observation.observation_kind === "bar_open"
+    && (order.side === "buy" ? observation.bar.open <= limit : observation.bar.open >= limit)
+  const limitStrictCross = observation.observation_kind === "bar_range"
+    && (order.side === "buy" ? observation.bar.low < limit : observation.bar.high > limit)
+  const limitTouch = observation.observation_kind === "bar_range"
+    && (order.side === "buy" ? observation.bar.low === limit : observation.bar.high === limit)
+  const stopOpenTriggered = observation.observation_kind === "bar_open"
+    && (order.side === "buy" ? observation.bar.open >= trigger : observation.bar.open <= trigger)
+  const stopRangeTriggered = observation.observation_kind === "bar_range"
+    && (order.side === "buy" ? observation.bar.high >= trigger : observation.bar.low <= trigger)
+  const cancelBefore = cancelKey !== null && !sameReplayEventOrdinal(cancelKey, observation.source_event_key)
+    && compareReplayEventKeys(cancelKey, observation.source_event_key) < 0
+  const cancelAfter = cancelKey !== null && !sameReplayEventOrdinal(cancelKey, observation.source_event_key)
+    && compareReplayEventKeys(cancelKey, observation.source_event_key) > 0
+  const sourceCanDecide = cancelKey === null || cancelAfter
+  const sourceDecisive = decisiveIs(observation.source_event_key)
+  const valid = (() => {
+    switch (outcome.reason) {
+      case "limit_open_marketable":
+        return order.order_type === "limit" && sourceCanDecide && limitMarketable && outcome.status === "filled"
+          && outcome.fill_reference_price === observation.bar.open && sourceDecisive
+      case "limit_strict_cross":
+        return order.order_type === "limit" && sourceCanDecide && limitStrictCross && outcome.status === "filled"
+          && outcome.fill_reference_price === order.limit_price && sourceDecisive
+      case "limit_touch_queue_unproven":
+        return order.order_type === "limit" && limitTouch && outcome.status === "resting" && cancelKey === null && sourceDecisive
+      case "limit_not_reached":
+        return order.order_type === "limit" && !limitMarketable && !limitStrictCross && !limitTouch
+          && outcome.status === "resting" && cancelKey === null && sourceDecisive
+      case "stop_open_gap":
+        return order.order_type === "stop_market" && sourceCanDecide && stopOpenTriggered && outcome.status === "triggered_and_filled"
+          && outcome.fill_reference_price === observation.bar.open && sourceDecisive
+      case "stop_range_trigger":
+        return order.order_type === "stop_market" && sourceCanDecide && stopRangeTriggered && outcome.status === "triggered_and_filled"
+          && outcome.fill_reference_price === order.trigger_price && sourceDecisive
+      case "stop_not_triggered":
+        return order.order_type === "stop_market" && !stopOpenTriggered && !stopRangeTriggered
+          && outcome.status === "resting" && cancelKey === null && sourceDecisive
+      case "cancel_precedes_observation":
+        return cancelKey !== null && cancelBefore && outcome.status === "cancelled" && decisiveIs(cancelKey)
+      case "cancel_after_non_fill":
+        return cancelKey !== null && cancelAfter && outcome.status === "cancelled" && decisiveIs(cancelKey)
+          && (order.order_type === "limit" ? !limitMarketable && !limitStrictCross && !limitTouch : !stopOpenTriggered && !stopRangeTriggered)
+      case "ioc_not_marketable":
+        return order.order_type === "limit" && sourceCanDecide && order.time_in_force === "ioc" && !limitMarketable
+          && outcome.status === "cancelled" && sourceDecisive
+      case "same_ordinal_cancel_race":
+        return cancelKey !== null && sameReplayEventOrdinal(cancelKey, observation.source_event_key)
+          && outcome.status === "unresolved" && outcome.decisive_event_key === null
+      case "limit_touch_before_cancel_unresolved":
+        return order.order_type === "limit" && limitTouch && cancelAfter
+          && outcome.status === "unresolved" && outcome.decisive_event_key === null
+    }
+  })()
+  if (!valid) fail("pending order outcome does not match price/time/cancel semantics")
+}
+
+function sameReplayEventOrdinal(left: ReplayEventKey, right: ReplayEventKey): boolean {
+  return left.event_time === right.event_time
+    && left.boundary_phase === right.boundary_phase
+    && left.source_sequence === right.source_sequence
+    && left.event_subphase === right.event_subphase
 }
 
 export function assertReplayArtifactStoreCapability(
