@@ -5,6 +5,7 @@ RD 权威治理面。当前 canonical owner：
 ```text
 contracts/          跨 Plane 身份与 Draft 授权合同
 state-store/        Universe、Proposal、Contract、Trial、Result、Review、Lifecycle、KG 单写者
+replay-recovery/    Control Plane-owned local cancellation outbox startup reconciliation
 strategy-registry/  accept_for_draft 后的确定性策略物化与注册
 tests/              Contract -> Replay -> Review -> Draft -> Forward 纵切认证
 program-control/    迁入的 RD program memory，待继续抽离 planning 逻辑
