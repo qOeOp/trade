@@ -524,6 +524,58 @@ BEGIN
   SELECT RAISE(ABORT, 'Replay aggregate trade evidence admission is immutable');
 END;
 
+CREATE TABLE IF NOT EXISTS rd_replay_cross_source_ordering_admission (
+  admission_id TEXT PRIMARY KEY,
+  admission_ref TEXT NOT NULL UNIQUE,
+  admission_hash TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL CHECK(status = 'admitted'),
+  issued_at TEXT NOT NULL,
+  authority_id TEXT NOT NULL,
+  admission_policy_version TEXT NOT NULL,
+  trial_id TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  reservation_ref TEXT NOT NULL,
+  reservation_hash TEXT NOT NULL UNIQUE,
+  aggregate_trade_evidence_admission_ref TEXT NOT NULL,
+  aggregate_trade_evidence_admission_hash TEXT NOT NULL UNIQUE,
+  aggregate_trade_coverage_attestation_hash TEXT NOT NULL,
+  ordering_attestation_id TEXT NOT NULL,
+  ordering_attestation_hash TEXT NOT NULL UNIQUE,
+  ordering_resolution TEXT NOT NULL CHECK(ordering_resolution IN ('exact_by_declared_timestamps', 'resolution_limited')),
+  ambiguity_group_count INTEGER NOT NULL CHECK(ambiguity_group_count >= 0),
+  dataset_manifest_ref TEXT NOT NULL,
+  dataset_hash TEXT NOT NULL,
+  instrument_status_schedule_hash TEXT NOT NULL,
+  instrument_status_provenance_hash TEXT NOT NULL,
+  instrument_status_events_hash TEXT NOT NULL,
+  funding_events_hash TEXT NOT NULL,
+  aggregate_trade_events_hash TEXT NOT NULL,
+  ohlcv_bars_hash TEXT NOT NULL,
+  source_collections_hash TEXT NOT NULL,
+  ordered_events_hash TEXT NOT NULL,
+  ambiguity_groups_hash TEXT NOT NULL,
+  limitations_hash TEXT NOT NULL,
+  external_completeness TEXT NOT NULL CHECK(external_completeness = 'not_verified'),
+  scope TEXT NOT NULL CHECK(scope = 'pre_integration_cross_source_ordering_only'),
+  economic_authority TEXT NOT NULL CHECK(economic_authority = 'none'),
+  admission_json TEXT NOT NULL CHECK(json_valid(admission_json)),
+  FOREIGN KEY (trial_id) REFERENCES rd_trial(trial_id),
+  FOREIGN KEY (aggregate_trade_evidence_admission_hash)
+    REFERENCES rd_replay_aggregate_trade_evidence_admission(admission_hash)
+);
+
+CREATE TRIGGER IF NOT EXISTS rd_replay_cross_source_ordering_admission_no_update
+BEFORE UPDATE ON rd_replay_cross_source_ordering_admission
+BEGIN
+  SELECT RAISE(ABORT, 'Replay cross-source ordering admission is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS rd_replay_cross_source_ordering_admission_no_delete
+BEFORE DELETE ON rd_replay_cross_source_ordering_admission
+BEGIN
+  SELECT RAISE(ABORT, 'Replay cross-source ordering admission is immutable');
+END;
+
 CREATE TABLE IF NOT EXISTS rd_replay_reservation_cancellation (
   cancellation_id TEXT PRIMARY KEY,
   cancellation_ref TEXT NOT NULL UNIQUE,

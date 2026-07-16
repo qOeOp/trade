@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+import { createHash } from "node:crypto"
 import {
   CONTROL_PLANE_IDENTITY_SCHEMA_VERSION,
   REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION,
@@ -13,6 +14,7 @@ import {
   REPLAY_AGGREGATE_TRADE_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
   REPLAY_AGGREGATE_TRADE_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION,
   REPLAY_AGGREGATE_TRADE_EVIDENCE_ADMISSION_SCHEMA_VERSION,
+  REPLAY_CROSS_SOURCE_ORDERING_ADMISSION_SCHEMA_VERSION,
   DRAFT_AUTHORIZATION_SCHEMA_VERSION,
   TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION,
   assertDraftStrategyAuthorization,
@@ -24,6 +26,7 @@ import {
   createReplayAggregateTradeProviderCertificationSnapshot,
   createReplayAggregateTradeProviderCertificationTermination,
   createReplayAggregateTradeEvidenceAdmissionSnapshot,
+  createReplayCrossSourceOrderingAdmissionSnapshot,
   createReplayReservationCancellationSnapshot,
   createReplayAttemptCancellationSnapshot,
   createReplayAttemptCancellationObservationSnapshot,
@@ -213,6 +216,75 @@ test("aggregate trade provider admission stays pre-integration and completeness-
     successor_certification_hash: null,
   })
   expect(termination.termination_hash).toHaveLength(64)
+})
+
+test("cross-source ordering admission binds four source hashes without economic authority", () => {
+  const limitations = [
+    "cross-source-global-sequence-unavailable",
+    "source-clock-resolution-does-not-prove-within-timestamp-order",
+    "aggregate-trade-external-completeness-not-verified",
+    "funding-external-completeness-not-asserted",
+    "ohlcv-aggregate-trade-bar-link-not-attested",
+  ] as const
+  const admission = createReplayCrossSourceOrderingAdmissionSnapshot({
+    schema_version: REPLAY_CROSS_SOURCE_ORDERING_ADMISSION_SCHEMA_VERSION,
+    admission_id: "cross-source-admission-1",
+    admission_ref: "admission://cross-source/trial-1",
+    status: "admitted",
+    issued_at: "2026-07-15T00:04:00Z",
+    authority_id: "research-control-plane",
+    admission_policy_version: "rd-cross-source-ordering-admission-v1",
+    trial_id: "trial-1",
+    run_id: "run-1",
+    reservation_ref: "reservation://trial-1",
+    reservation_hash: HASH,
+    aggregate_trade_evidence_admission_ref: "admission://aggregate-trade/trial-1",
+    aggregate_trade_evidence_admission_hash: HASH,
+    aggregate_trade_coverage_attestation_hash: HASH,
+    ordering_attestation_id: "cross-source-ordering-1",
+    ordering_attestation_hash: HASH,
+    ordering_attestation_schema_version: "trade.rd-replay-cross-source-ordering-attestation.v1",
+    event_key_policy_version: "rd-replay-cross-source-event-key-v1",
+    symbol: "BTCUSDT",
+    timeframe: "4h",
+    window_start_inclusive: "2026-07-15T00:00:00Z",
+    window_end_exclusive: "2026-07-15T00:03:00Z",
+    dataset_manifest_ref: "dataset://fixture",
+    dataset_hash: HASH,
+    instrument_status_schedule_hash: HASH,
+    instrument_status_provenance_hash: HASH,
+    source_kinds: ["instrument_status", "funding", "aggregate_trade", "ohlcv"],
+    instrument_status_events_hash: HASH,
+    funding_events_hash: HASH,
+    aggregate_trade_events_hash: HASH,
+    ohlcv_bars_hash: HASH,
+    source_collections_hash: HASH,
+    ordered_events_hash: HASH,
+    ambiguity_groups_hash: HASH,
+    ambiguity_group_count: 1,
+    ordering_resolution: "resolution_limited",
+    limitations: [...limitations],
+    limitations_hash: createHash("sha256").update(JSON.stringify(limitations)).digest("hex"),
+    external_completeness: "not_verified",
+    scope: "pre_integration_cross_source_ordering_only",
+    economic_authority: "none",
+  })
+  expect(admission.admission_hash).toHaveLength(64)
+  const { admission_hash: _admissionHash, ...body } = admission
+  expect(() => createReplayCrossSourceOrderingAdmissionSnapshot({
+    ...body,
+    economic_authority: "runner" as typeof body.economic_authority,
+  })).toThrow("cannot authorize economic execution")
+  expect(() => createReplayCrossSourceOrderingAdmissionSnapshot({
+    ...body,
+    ambiguity_group_count: 0,
+    ordering_resolution: "exact_by_declared_timestamps",
+  })).toThrow("overclaims")
+  expect(() => createReplayCrossSourceOrderingAdmissionSnapshot({
+    ...body,
+    funding_events_hash: "b".repeat(64),
+    source_kinds: ["instrument_status", "aggregate_trade", "funding", "ohlcv"] as unknown as typeof body.source_kinds,
+  })).toThrow("four-source canonical set")
 })
 
 test("Replay cancellation receipts separate future claims from one active Attempt", () => {

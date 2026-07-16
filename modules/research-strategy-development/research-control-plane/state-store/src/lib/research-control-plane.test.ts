@@ -7,6 +7,12 @@ import {
   AGGREGATE_TRADE_PROVIDER_POLICY_HASH,
 } from "../../../../../market-data-products/aggregate-trade-provider/src/lib/aggregate-trade-provider"
 import {
+  REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION,
+} from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
+import {
+  buildReplayCrossSourceOrderingAttestation,
+} from "../../../../replay-execution-plane/data-adapter/src/lib/replay-cross-source-ordering"
+import {
   REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION,
   REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
   REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION,
@@ -60,6 +66,10 @@ import {
   registerReplayAggregateTradeProviderCertification,
   registerReplayAggregateTradeProviderCertificationTermination,
 } from "./aggregate-trade-provider-certification-registry"
+import {
+  issueReplayCrossSourceOrderingAdmission,
+  readReplayCrossSourceOrderingAdmission,
+} from "./cross-source-ordering-admission-registry"
 import {
   cancelReplayAttemptByAuthority,
   createSqliteReplayCancellationCoordinationPort,
@@ -137,6 +147,7 @@ test("control plane schema initializes frozen stages and lifecycle rules", () =>
       "rd_replay_aggregate_trade_provider_certification",
       "rd_replay_aggregate_trade_provider_certification_termination",
       "rd_replay_aggregate_trade_evidence_admission",
+      "rd_replay_cross_source_ordering_admission",
       "rd_replay_reservation_cancellation",
       "rd_replay_attempt",
       "rd_replay_attempt_cancellation",
@@ -346,6 +357,64 @@ test("Control Plane admits aggregate trade evidence only as a Reservation-bound 
     assert.equal(admission.external_completeness, "not_verified")
     assert.deepEqual(issueReplayAggregateTradeEvidenceAdmission(db, admissionInput), admission)
     assert.deepEqual(readReplayAggregateTradeEvidenceAdmission(db, admission.reservation_hash), admission)
+
+    const orderingAttestation = buildReplayCrossSourceOrderingAttestation({
+      symbol: "BTCUSDT",
+      timeframe: "5m",
+      window_start_inclusive: admission.coverage_start,
+      window_end_exclusive: admission.coverage_end,
+      bars: [{
+        open_time: "2026-07-14T03:00:00Z", close_time: "2026-07-14T03:05:00Z",
+        open: 100, high: 102, low: 99, close: 101, volume: 10, closed: true,
+      }],
+      funding_events: [{ timestamp: "2026-07-14T03:00:00Z", rate: 0.0001, mark_price: 100 }],
+      instrument_status_events: [{
+        schema_version: REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION,
+        snapshot_id: "status-cross-source-1", venue_id: "binance-usdm", symbol: "BTCUSDT", status: "trading",
+        effective_at: "2026-07-14T03:00:00Z", valid_until: null, observed_at: "2026-07-14T03:00:00.500Z",
+        source_ref: "archive:status:cross-source-1", source_hash: "d".repeat(64),
+      }],
+      instrument_status_completeness: "complete_history",
+      aggregate_trade_events: [{
+        schema_version: "trade.rd-replay-aggregate-trade-event.v1",
+        symbol: "BTCUSDT", aggregate_trade_id: 10, first_trade_id: 100, last_trade_id: 101,
+        trade_time: "2026-07-14T03:00:00Z", available_at: "2026-07-14T03:00:00Z",
+        price: 100, quantity: 1, buyer_is_maker: false,
+      }],
+    })
+    const aggregateTradeEventsHash = orderingAttestation.source_collections
+      .find((collection) => collection.source_kind === "aggregate_trade")!.content_hash
+    const orderingAdmissionInput = {
+      admission_id: "cross-source-ordering-admission-1",
+      admission_ref: "admission://cross-source-ordering/trial-aggregate-trade",
+      issued_at: "2026-07-14T03:26:00Z",
+      authority_id: "research-control-plane",
+      admission_policy_version: "rd-cross-source-ordering-admission-v1",
+      reservation,
+      aggregate_trade_evidence_admission_ref: admission.admission_ref,
+      aggregate_trade_evidence_admission_hash: admission.admission_hash,
+      aggregate_trade_coverage_events_hash: aggregateTradeEventsHash,
+      ordering_attestation: orderingAttestation,
+    }
+    const orderingAdmission = issueReplayCrossSourceOrderingAdmission(db, orderingAdmissionInput)
+    assert.equal(orderingAdmission.scope, "pre_integration_cross_source_ordering_only")
+    assert.equal(orderingAdmission.economic_authority, "none")
+    assert.equal(orderingAdmission.ordering_resolution, "resolution_limited")
+    assert.deepEqual(issueReplayCrossSourceOrderingAdmission(db, orderingAdmissionInput), orderingAdmission)
+    assert.deepEqual(readReplayCrossSourceOrderingAdmission(db, admission.reservation_hash), orderingAdmission)
+    assert.throws(() => issueReplayCrossSourceOrderingAdmission(db, {
+      ...orderingAdmissionInput,
+      aggregate_trade_evidence_admission_hash: "e".repeat(64),
+    }), /does not bind/)
+    assert.throws(() => issueReplayCrossSourceOrderingAdmission(db, {
+      ...orderingAdmissionInput,
+      aggregate_trade_coverage_events_hash: "e".repeat(64),
+    }), /coverage events hash/)
+    assert.throws(() => db.query(`
+      UPDATE rd_replay_cross_source_ordering_admission
+      SET economic_authority = 'runner'
+      WHERE admission_id = 'cross-source-ordering-admission-1'
+    `).run(), /immutable/)
     assert.throws(() => issueReplayAggregateTradeEvidenceAdmission(db, {
       ...admissionInput,
       admission_id: "aggregate-trade-admission-competing",
@@ -385,6 +454,13 @@ test("Control Plane admits aggregate trade evidence only as a Reservation-bound 
       termination.effective_at,
     ), /revoked/)
     assert.deepEqual(readReplayAggregateTradeEvidenceAdmission(db, admission.reservation_hash), admission)
+    assert.deepEqual(readReplayCrossSourceOrderingAdmission(db, admission.reservation_hash), orderingAdmission)
+    assert.throws(() => issueReplayCrossSourceOrderingAdmission(db, {
+      ...orderingAdmissionInput,
+      admission_id: "cross-source-ordering-admission-after-revoke",
+      admission_ref: "admission://cross-source-ordering/after-revoke",
+      issued_at: termination.effective_at,
+    }), /revoked/)
   } finally {
     db.close()
   }

@@ -10,6 +10,7 @@ export const REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_
 export const REPLAY_AGGREGATE_TRADE_PROVIDER_CERTIFICATION_SCHEMA_VERSION = "trade.rd-replay-aggregate-trade-provider-certification.v1" as const
 export const REPLAY_AGGREGATE_TRADE_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION = "trade.rd-replay-aggregate-trade-provider-certification-termination.v1" as const
 export const REPLAY_AGGREGATE_TRADE_EVIDENCE_ADMISSION_SCHEMA_VERSION = "trade.rd-replay-aggregate-trade-evidence-admission.v1" as const
+export const REPLAY_CROSS_SOURCE_ORDERING_ADMISSION_SCHEMA_VERSION = "trade.rd-replay-cross-source-ordering-admission.v1" as const
 export const REPLAY_RESERVATION_CANCELLATION_SCHEMA_VERSION = "trade.rd-replay-reservation-cancellation.v1" as const
 export const REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION = "trade.rd-replay-attempt-cancellation.v1" as const
 export const REPLAY_ATTEMPT_CANCELLATION_OBSERVATION_SCHEMA_VERSION = "trade.rd-replay-attempt-cancellation-observation.v1" as const
@@ -190,6 +191,64 @@ export interface ReplayAggregateTradeEvidenceAdmissionSnapshot {
 
 export type ReplayAggregateTradeEvidenceAdmissionBody = Omit<
   ReplayAggregateTradeEvidenceAdmissionSnapshot,
+  "admission_hash"
+>
+
+export type ReplayCrossSourceOrderingAdmissionLimitation =
+  | "cross-source-global-sequence-unavailable"
+  | "source-clock-resolution-does-not-prove-within-timestamp-order"
+  | "aggregate-trade-external-completeness-not-verified"
+  | "funding-external-completeness-not-asserted"
+  | "ohlcv-aggregate-trade-bar-link-not-attested"
+  | "instrument-status-effective-vs-availability-separated"
+
+export interface ReplayCrossSourceOrderingAdmissionSnapshot {
+  schema_version: typeof REPLAY_CROSS_SOURCE_ORDERING_ADMISSION_SCHEMA_VERSION
+  admission_id: string
+  admission_ref: string
+  admission_hash: string
+  status: "admitted"
+  issued_at: string
+  authority_id: string
+  admission_policy_version: string
+  trial_id: string
+  run_id: string
+  reservation_ref: string
+  reservation_hash: string
+  aggregate_trade_evidence_admission_ref: string
+  aggregate_trade_evidence_admission_hash: string
+  aggregate_trade_coverage_attestation_hash: string
+  ordering_attestation_id: string
+  ordering_attestation_hash: string
+  ordering_attestation_schema_version: "trade.rd-replay-cross-source-ordering-attestation.v1"
+  event_key_policy_version: "rd-replay-cross-source-event-key-v1"
+  symbol: string
+  timeframe: string
+  window_start_inclusive: string
+  window_end_exclusive: string
+  dataset_manifest_ref: string
+  dataset_hash: string
+  instrument_status_schedule_hash: string
+  instrument_status_provenance_hash: string
+  source_kinds: ["instrument_status", "funding", "aggregate_trade", "ohlcv"]
+  instrument_status_events_hash: string
+  funding_events_hash: string
+  aggregate_trade_events_hash: string
+  ohlcv_bars_hash: string
+  source_collections_hash: string
+  ordered_events_hash: string
+  ambiguity_groups_hash: string
+  ambiguity_group_count: number
+  ordering_resolution: "exact_by_declared_timestamps" | "resolution_limited"
+  limitations: ReplayCrossSourceOrderingAdmissionLimitation[]
+  limitations_hash: string
+  external_completeness: "not_verified"
+  scope: "pre_integration_cross_source_ordering_only"
+  economic_authority: "none"
+}
+
+export type ReplayCrossSourceOrderingAdmissionBody = Omit<
+  ReplayCrossSourceOrderingAdmissionSnapshot,
   "admission_hash"
 >
 
@@ -730,6 +789,110 @@ export function assertReplayAggregateTradeEvidenceAdmissionSnapshot(
   const { admission_hash: admissionHash, ...body } = value
   const expected = createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")
   if (admissionHash !== expected) fail("aggregate trade evidence admission hash mismatch")
+}
+
+export function createReplayCrossSourceOrderingAdmissionSnapshot(
+  body: ReplayCrossSourceOrderingAdmissionBody,
+): ReplayCrossSourceOrderingAdmissionSnapshot {
+  const value: ReplayCrossSourceOrderingAdmissionSnapshot = {
+    ...body,
+    admission_hash: createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex"),
+  }
+  assertReplayCrossSourceOrderingAdmissionSnapshot(value)
+  return value
+}
+
+export function assertReplayCrossSourceOrderingAdmissionSnapshot(
+  value: ReplayCrossSourceOrderingAdmissionSnapshot,
+): void {
+  if (value.schema_version !== REPLAY_CROSS_SOURCE_ORDERING_ADMISSION_SCHEMA_VERSION) {
+    fail("cross-source ordering admission schema_version")
+  }
+  for (const [field, item] of Object.entries({
+    admission_id: value.admission_id,
+    admission_ref: value.admission_ref,
+    authority_id: value.authority_id,
+    admission_policy_version: value.admission_policy_version,
+    trial_id: value.trial_id,
+    run_id: value.run_id,
+    reservation_ref: value.reservation_ref,
+    aggregate_trade_evidence_admission_ref: value.aggregate_trade_evidence_admission_ref,
+    ordering_attestation_id: value.ordering_attestation_id,
+    symbol: value.symbol,
+    timeframe: value.timeframe,
+    dataset_manifest_ref: value.dataset_manifest_ref,
+  })) requireText(item, `cross_source_ordering_admission.${field}`)
+  for (const [field, item] of Object.entries({
+    admission_hash: value.admission_hash,
+    reservation_hash: value.reservation_hash,
+    aggregate_trade_evidence_admission_hash: value.aggregate_trade_evidence_admission_hash,
+    aggregate_trade_coverage_attestation_hash: value.aggregate_trade_coverage_attestation_hash,
+    ordering_attestation_hash: value.ordering_attestation_hash,
+    dataset_hash: value.dataset_hash,
+    instrument_status_schedule_hash: value.instrument_status_schedule_hash,
+    instrument_status_provenance_hash: value.instrument_status_provenance_hash,
+    instrument_status_events_hash: value.instrument_status_events_hash,
+    funding_events_hash: value.funding_events_hash,
+    aggregate_trade_events_hash: value.aggregate_trade_events_hash,
+    ohlcv_bars_hash: value.ohlcv_bars_hash,
+    source_collections_hash: value.source_collections_hash,
+    ordered_events_hash: value.ordered_events_hash,
+    ambiguity_groups_hash: value.ambiguity_groups_hash,
+    limitations_hash: value.limitations_hash,
+  })) requireHash(item, `cross_source_ordering_admission.${field}`)
+  requireUtcTimestamp(value.issued_at, "cross_source_ordering_admission.issued_at")
+  requireUtcTimestamp(value.window_start_inclusive, "cross_source_ordering_admission.window_start_inclusive")
+  requireUtcTimestamp(value.window_end_exclusive, "cross_source_ordering_admission.window_end_exclusive")
+  if (Date.parse(value.window_start_inclusive) >= Date.parse(value.window_end_exclusive)) {
+    fail("cross-source ordering admission window must be positive and half-open")
+  }
+  if (canonicalReservationJson(value.source_kinds)
+      !== canonicalReservationJson(["instrument_status", "funding", "aggregate_trade", "ohlcv"])) {
+    fail("cross-source ordering admission requires the four-source canonical set")
+  }
+  const allowedLimitations: ReplayCrossSourceOrderingAdmissionLimitation[] = [
+    "cross-source-global-sequence-unavailable",
+    "source-clock-resolution-does-not-prove-within-timestamp-order",
+    "aggregate-trade-external-completeness-not-verified",
+    "funding-external-completeness-not-asserted",
+    "ohlcv-aggregate-trade-bar-link-not-attested",
+    "instrument-status-effective-vs-availability-separated",
+  ]
+  const canonicalLimitations = allowedLimitations.filter((limitation) => value.limitations.includes(limitation))
+  if (canonicalReservationJson(value.limitations) !== canonicalReservationJson(canonicalLimitations)
+      || !value.limitations.includes("aggregate-trade-external-completeness-not-verified")
+      || !value.limitations.includes("funding-external-completeness-not-asserted")
+      || !value.limitations.includes("ohlcv-aggregate-trade-bar-link-not-attested")) {
+    fail("cross-source ordering admission limitations are incomplete or non-canonical")
+  }
+  const expectedLimitationsHash = createHash("sha256")
+    .update(canonicalReservationJson(value.limitations), "utf8").digest("hex")
+  if (value.limitations_hash !== expectedLimitationsHash) fail("cross-source ordering admission limitations hash mismatch")
+  if (!Number.isSafeInteger(value.ambiguity_group_count) || value.ambiguity_group_count < 0) {
+    fail("cross-source ordering admission ambiguity_group_count")
+  }
+  const hasGlobalSequenceLimitation = value.limitations.includes("cross-source-global-sequence-unavailable")
+  const hasClockResolutionLimitation = value.limitations.includes("source-clock-resolution-does-not-prove-within-timestamp-order")
+  if (hasGlobalSequenceLimitation !== hasClockResolutionLimitation) {
+    fail("cross-source ordering admission collision limitations must appear together")
+  }
+  const collisionLimitationsPresent = hasGlobalSequenceLimitation && hasClockResolutionLimitation
+  if ((value.ordering_resolution === "resolution_limited" && (value.ambiguity_group_count < 1 || !collisionLimitationsPresent))
+      || (value.ordering_resolution === "exact_by_declared_timestamps"
+        && (value.ambiguity_group_count !== 0 || collisionLimitationsPresent))) {
+    fail("cross-source ordering admission resolution overclaims evidence")
+  }
+  if (value.status !== "admitted"
+      || value.ordering_attestation_schema_version !== "trade.rd-replay-cross-source-ordering-attestation.v1"
+      || value.event_key_policy_version !== "rd-replay-cross-source-event-key-v1"
+      || value.external_completeness !== "not_verified"
+      || value.scope !== "pre_integration_cross_source_ordering_only"
+      || value.economic_authority !== "none") {
+    fail("cross-source ordering admission cannot authorize economic execution or overclaim completeness")
+  }
+  const { admission_hash: admissionHash, ...body } = value
+  const expected = createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")
+  if (admissionHash !== expected) fail("cross-source ordering admission hash mismatch")
 }
 
 export function createReplayReservationCancellationSnapshot(

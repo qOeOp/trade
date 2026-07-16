@@ -111,6 +111,7 @@ function isAllowedCrossToolImport(file: string, sourceTool: string, targetTool: 
   ])
   const testOnlyAllowed = new Set([
     "modules/research-strategy-development/research-control-plane/state-store -> modules/market-data-products/aggregate-trade-provider",
+    "modules/research-strategy-development/research-control-plane/state-store -> modules/research-strategy-development/replay-execution-plane/data-adapter",
     "modules/live-decision-planning/slow-track-plan -> modules/policy-risk/runtime-policy-compiler",
     "modules/live-decision-planning/slow-track-plan -> modules/portfolio-execution-state/event-store",
     "modules/live-decision-planning/slow-track-plan -> modules/portfolio-execution-state/flow-projector",
@@ -178,6 +179,7 @@ function isAllowedResearchStrategyDevelopmentImport(sourceTool: string, targetTo
     "modules/research-strategy-development/replay-execution-plane/compatibility/replay-runner -> modules/research-strategy-development/replay-execution-plane/runner",
     "modules/research-strategy-development/replay-execution-plane/compatibility/replay-runner -> modules/research-strategy-development/research-control-plane/contracts",
     "modules/research-strategy-development/research-control-plane/state-store -> modules/research-strategy-development/research-control-plane/contracts",
+    "modules/research-strategy-development/research-control-plane/state-store -> modules/research-strategy-development/replay-execution-plane/contracts",
     "modules/research-strategy-development/research-control-plane/strategy-registry -> modules/research-strategy-development/research-control-plane/contracts",
     "modules/research-strategy-development/research-control-plane/strategy-registry -> modules/research-strategy-development/research-control-plane/strategy-policy-writer",
     "modules/research-strategy-development/replay-execution-plane/engine -> modules/research-strategy-development/replay-execution-plane/contracts",
