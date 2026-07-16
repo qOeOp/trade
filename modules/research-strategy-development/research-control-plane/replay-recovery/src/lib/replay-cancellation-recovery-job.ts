@@ -28,28 +28,45 @@ export interface ReplayCancellationRecoveryJobResult {
 export function runReplayCancellationRecoveryJob(
   input: ReplayCancellationRecoveryJobInput,
 ): ReplayCancellationRecoveryJobResult {
-  requireUtc(input.registered_at)
-  requireExistingFile(input.db_path, "Research Control Plane DB")
-  requireExistingDirectory(input.artifact_root, "Replay Artifact Store root")
-  const db = new Database(input.db_path)
+  return withReplayCancellationAuthorityDatabase(input.db_path, (db) =>
+    recoverReplayCancellationOutboxes(db, input.artifact_root, input.registered_at))
+}
+
+export function recoverReplayCancellationOutboxes(
+  db: Database,
+  artifactRoot: string,
+  registeredAt: string,
+): ReplayCancellationRecoveryJobResult {
+  requireUtc(registeredAt)
+  requireExistingDirectory(artifactRoot, "Replay Artifact Store root")
+  assertCancellationAuthoritySchema(db)
+  const recovery = recoverDiscoveredReplayCancellationAcknowledgements(
+    createReplayLocalArtifactStore(artifactRoot),
+    createSqliteReplayCancellationCoordinationPort(db),
+    { now: () => registeredAt },
+  )
+  const registeredCount = recovery.deliveries.filter((item) => item.delivery_status === "registered").length
+  const alreadyRegisteredCount = recovery.deliveries.length - registeredCount
+  return {
+    schema_version: REPLAY_CANCELLATION_RECOVERY_JOB_RESULT_SCHEMA_VERSION,
+    status: recovery.discovered_count === 0 ? "no_outbox" : "reconciled",
+    recovered_at: registeredAt,
+    discovered_count: recovery.discovered_count,
+    registered_count: registeredCount,
+    already_registered_count: alreadyRegisteredCount,
+    recovery,
+  }
+}
+
+export function withReplayCancellationAuthorityDatabase<T>(
+  dbPath: string,
+  operation: (db: Database) => T,
+): T {
+  requireExistingFile(dbPath, "Research Control Plane DB")
+  const db = new Database(dbPath)
   try {
     assertCancellationAuthoritySchema(db)
-    const recovery = recoverDiscoveredReplayCancellationAcknowledgements(
-      createReplayLocalArtifactStore(input.artifact_root),
-      createSqliteReplayCancellationCoordinationPort(db),
-      { now: () => input.registered_at },
-    )
-    const registeredCount = recovery.deliveries.filter((item) => item.delivery_status === "registered").length
-    const alreadyRegisteredCount = recovery.deliveries.length - registeredCount
-    return {
-      schema_version: REPLAY_CANCELLATION_RECOVERY_JOB_RESULT_SCHEMA_VERSION,
-      status: recovery.discovered_count === 0 ? "no_outbox" : "reconciled",
-      recovered_at: input.registered_at,
-      discovered_count: recovery.discovered_count,
-      registered_count: registeredCount,
-      already_registered_count: alreadyRegisteredCount,
-      recovery,
-    }
+    return operation(db)
   } finally {
     db.close()
   }

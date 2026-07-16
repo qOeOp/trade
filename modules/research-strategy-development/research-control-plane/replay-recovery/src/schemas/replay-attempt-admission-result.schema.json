@@ -1,0 +1,35 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade.rd-replay-attempt-admission-result.v1",
+  "type": "object",
+  "required": ["schema_version", "status", "recovered_at", "claimed_at", "recovery", "attempt_lease"],
+  "properties": {
+    "schema_version": { "const": "trade.rd-replay-attempt-admission-result.v1" },
+    "status": { "const": "admitted" },
+    "recovered_at": { "type": "string", "format": "date-time" },
+    "claimed_at": { "type": "string", "format": "date-time" },
+    "recovery": { "$ref": "replay-cancellation-recovery-job-result.schema.json" },
+    "attempt_lease": {
+      "type": "object",
+      "required": ["schema_version", "attempt_id", "attempt_ordinal", "worker_id", "trial_id", "run_id", "reservation_ref", "reservation_hash", "request_hash", "status", "lease_generation", "claimed_at", "heartbeat_at", "lease_expires_at"],
+      "properties": {
+        "schema_version": { "const": "trade.rd-replay-attempt-lease.v1" },
+        "attempt_id": { "type": "string", "minLength": 1 },
+        "attempt_ordinal": { "type": "integer", "minimum": 1 },
+        "worker_id": { "type": "string", "minLength": 1 },
+        "trial_id": { "type": "string", "minLength": 1 },
+        "run_id": { "type": "string", "minLength": 1 },
+        "reservation_ref": { "type": "string", "minLength": 1 },
+        "reservation_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "request_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "status": { "enum": ["claimed", "running"] },
+        "lease_generation": { "type": "integer", "minimum": 1 },
+        "claimed_at": { "type": "string", "format": "date-time" },
+        "heartbeat_at": { "type": "string", "format": "date-time" },
+        "lease_expires_at": { "type": "string", "format": "date-time" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

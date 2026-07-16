@@ -1608,6 +1608,7 @@
       },
       "notes": [
         "Certified v1 supports one isolated asset lane, next-open market entry, full reduce-only stop/target, exact funding events, and unified evidence ledger.",
+        "Production Attempt leases must be obtained through research.replay-attempt-admission so local cancellation recovery precedes fresh claim.",
         "No Candidate generation, Review Decision, formal Shadow, or exchange access."
       ],
       "module_type": "atomic",
@@ -1659,6 +1660,54 @@
         "kind": "cli-json",
         "input_schema": "",
         "output_schema": "modules/research-strategy-development/research-control-plane/replay-recovery/src/schemas/replay-cancellation-recovery-job-result.schema.json"
+      }
+    },
+    {
+      "id": "research.replay-attempt-admission",
+      "domain": "research-strategy-development",
+      "intent": [
+        "replay-attempt-admission",
+        "recovery-before-claim",
+        "replay-worker-lease"
+      ],
+      "capability_class": ["A"],
+      "path": "modules/research-strategy-development/research-control-plane/replay-recovery",
+      "purpose": "Recover the certified local cancellation outbox set before issuing one authoritative Replay Attempt lease.",
+      "command": {
+        "cwd": "modules/research-strategy-development/research-control-plane/replay-recovery",
+        "argv": [
+          "bun",
+          "src/scripts/admit.ts",
+          "--db",
+          "./data/rd_state.db",
+          "--artifact-root",
+          "<replay-artifact-root>",
+          "--recovered-at",
+          "<rfc3339-utc>",
+          "--json",
+          "<claim-payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Control Plane-owned claim-side gate; complete outbox recovery and authority inspection happen before claimReplayAttempt on the same DB session.",
+        "Does not run Replay, spawn workers, delete outboxes, or expose machine-local paths in its result."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "research-control-plane.replay-recovery",
+      "requires_preflight": false,
+      "concurrency_group": "rd-state",
+      "forbidden_callers": ["exchange-write"],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": "modules/research-strategy-development/research-control-plane/replay-recovery/src/schemas/replay-attempt-admission-result.schema.json"
       }
     },
     {
