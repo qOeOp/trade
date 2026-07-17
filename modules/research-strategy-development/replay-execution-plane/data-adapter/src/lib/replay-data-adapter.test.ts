@@ -14,6 +14,7 @@ import {
   REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION,
   REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
   canonicalHash,
+  createReplayDecisionHarnessContext,
   createReplayInstrumentStatusProvenance,
   createReplayLiquidityCapacityAttestation,
   createReplaySingleDecisionSchedule,
@@ -30,9 +31,18 @@ import {
   assertReplayInitialSignalSupplementalInputMaterialization,
 } from "../../../contracts/src/lib/replay-initial-signal-supplemental-input-materialization"
 import {
+  REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_HARNESS_CONTEXT_BINDING_ENTRY_SCHEMA_VERSION,
+  REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_HARNESS_CONTEXT_BINDING_POLICY_VERSION,
+  REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_HARNESS_CONTEXT_BINDING_SCHEMA_VERSION,
+  createReplaySourceEventDecisionObservationHarnessContextBinding,
+  createReplaySourceEventDecisionObservationHarnessContextBindingEntry,
+  type ReplaySourceEventDecisionObservationHarnessContextBindingBody,
+} from "../../../contracts/src/lib/replay-source-event-decision-observation-harness-context-binding"
+import {
   assertReplayInitialSignalSupplementalInputMaterializationLineage,
   buildReplayInitialSignalSupplementalInputMaterialization,
 } from "./replay-initial-signal-supplemental-input-materialization"
+import { buildReplayDecisionWorkerInputAssembly } from "./replay-decision-worker-input-assembly"
 import { ReplayDataContinuityError, fundingEventsInWindow, prepareReplayInputData, resolveReplayInstrumentSpecAt, resolveReplayVenueRiskPolicyAt, selectReplaySupplementalFactsAt } from "./replay-data-adapter"
 
 const HASH = "a".repeat(64)
@@ -124,6 +134,83 @@ function manifest(dataHash = replayDatasetHash(bars, fundingEvents)): ReplayData
     },
     universe: { selected_at: "2026-07-13T00:00:00Z", survivorship: "point_in_time" },
   }
+}
+
+function oneEntryHarnessContextBinding(requestValue: ReplayExecutionRequest) {
+  const scheduleEntry = requestValue.decision_schedule.entries[0]!
+  const context = createReplayDecisionHarnessContext(requestValue, scheduleEntry)
+  const entry = createReplaySourceEventDecisionObservationHarnessContextBindingEntry({
+    schema_version: REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_HARNESS_CONTEXT_BINDING_ENTRY_SCHEMA_VERSION,
+    decision_sequence: scheduleEntry.decision_sequence,
+    decision_time: scheduleEntry.decision_time,
+    selected_expected_effect: scheduleEntry.expected_effect,
+    selected_schedule_entry_hash: canonicalHash(scheduleEntry),
+    schedule_binding_id: "fixture-schedule-binding-1",
+    schedule_binding_hash: HASH,
+    observation_projection_id: "fixture-observation-projection-1",
+    observation_projection_hash: HASH,
+    observation_as_of_time: scheduleEntry.decision_time,
+    observation_count: 1,
+    observations_hash: HASH,
+    observation_values_hash: HASH,
+    visibility_cut_hash: HASH,
+    pit_payload_view_hash: HASH,
+    harness_hash: requestValue.harness_hash,
+    harness_context: context,
+    harness_context_hash: canonicalHash(context),
+  })
+  const bodyWithoutId: Omit<ReplaySourceEventDecisionObservationHarnessContextBindingBody, "binding_id"> = {
+    schema_version: REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_HARNESS_CONTEXT_BINDING_SCHEMA_VERSION,
+    binding_policy_version: REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_HARNESS_CONTEXT_BINDING_POLICY_VERSION,
+    scope: "pre_integration_non_economic_observation_harness_context_binding",
+    binding_purpose: "bind_admitted_observation_boundaries_to_frozen_harness_context_identity",
+    authority_source: "control_plane_derivation_admission",
+    context_derivation: "canonical_request_and_schedule_entry",
+    observation_binding: "admitted_bundle_member_identity_only",
+    decision_input_materialization: "not_certified",
+    supplemental_input_compatibility: "not_bound",
+    market_input_compatibility: "not_bound",
+    state_input_compatibility: "not_bound",
+    worker_request_compatibility: "not_bound",
+    harness_invocation: "forbidden",
+    decision_output_authority: "none",
+    signal_authority: "none",
+    order_authority: "none",
+    economic_authority: "none",
+    runner_compatibility: "not_bound",
+    request_schema_version: requestValue.schema_version,
+    request_hash: canonicalHash(requestValue),
+    run_id: requestValue.run_id,
+    experiment_id: requestValue.experiment_id,
+    trial_group_id: requestValue.trial_group_id,
+    trial_id: requestValue.trial_id,
+    candidate_id: requestValue.candidate_id,
+    candidate_hash: requestValue.candidate_hash,
+    reservation_ref: requestValue.trial_reservation_ref,
+    reservation_hash: requestValue.trial_reservation_hash,
+    dataset_manifest_ref: requestValue.dataset_manifest_ref,
+    dataset_hash: requestValue.dataset_hash,
+    derivation_admission_id: "fixture-derivation-admission-1",
+    derivation_admission_ref: "admission://fixture/derivation-1",
+    derivation_admission_hash: HASH,
+    bundle_id: "fixture-observation-bundle-1",
+    bundle_hash: HASH,
+    decision_schedule_hash: requestValue.decision_schedule_hash,
+    harness_hash: requestValue.harness_hash,
+    harness_context_schema_version: context.schema_version,
+    entry_count: 1,
+    entries: [entry],
+    entries_hash: canonicalHash([entry]),
+    entry_hashes_hash: canonicalHash([entry.entry_hash]),
+    harness_context_hashes_hash: canonicalHash([entry.harness_context_hash]),
+    observation_projection_hashes_hash: canonicalHash([entry.observation_projection_hash]),
+    first_decision_time: entry.decision_time,
+    last_decision_time: entry.decision_time,
+  }
+  return createReplaySourceEventDecisionObservationHarnessContextBinding({
+    ...bodyWithoutId,
+    binding_id: `source-event-observation-harness-context-${canonicalHash(bodyWithoutId).slice(0, 24)}`,
+  })
 }
 
 test("data adapter verifies manifest binding and selects the first executable bar", () => {
@@ -386,6 +473,31 @@ test("supplemental PIT join selects the last visible revision and excludes futur
   futureLeakingMaterialization.selected_record_ids = ["oi-btc-2", "oi-eth-1"]
   expect(() => assertReplayInitialSignalSupplementalInputMaterialization(futureLeakingMaterialization))
     .toThrow("semantic drift")
+  const nonEmptyWorkerAssemblyInput = {
+    harness_context_binding: oneEntryHarnessContextBinding(supplementalRequest),
+    observation_input_materialization: null,
+    initial_signal_supplemental_materialization: materialization,
+  }
+  const nonEmptyWorkerAssembly = buildReplayDecisionWorkerInputAssembly(nonEmptyWorkerAssemblyInput)
+  expect(nonEmptyWorkerAssembly.entries[0]!.supplemental_input_source)
+    .toBe("r4_98_initial_signal_materialization")
+  expect(nonEmptyWorkerAssembly.entries[0]!.decision_input_snapshot_hash)
+    .toBe(materialization.decision_input_snapshot_hash)
+  expect(nonEmptyWorkerAssembly.entries[0]!.market_input_source)
+    .toBe("not_materialized_for_nonempty_request")
+  expect(nonEmptyWorkerAssembly.entries[0]!.input_tuple_status).toBe("incomplete_market_snapshot")
+  expect(nonEmptyWorkerAssembly.incomplete_market_entry_count).toBe(1)
+  expect(nonEmptyWorkerAssembly.worker_request_count).toBe(0)
+  expect(buildReplayDecisionWorkerInputAssembly(structuredClone(nonEmptyWorkerAssemblyInput)))
+    .toEqual(nonEmptyWorkerAssembly)
+  const mismatchedContext = oneEntryHarnessContextBinding({
+    ...supplementalRequest,
+    candidate_hash: "b".repeat(64),
+  })
+  expect(() => buildReplayDecisionWorkerInputAssembly({
+    ...nonEmptyWorkerAssemblyInput,
+    harness_context_binding: mismatchedContext,
+  })).toThrow("R4.98 parent binding drift")
   const factsWithoutFutureRevision = supplementalFacts.filter((fact) => fact.record_id !== "oi-btc-2")
   const factsWithoutFutureHash = canonicalHash(factsWithoutFutureRevision)
   const dataWithoutFutureHash = replayDatasetHash(bars, fundingEvents, [], factsWithoutFutureRevision)

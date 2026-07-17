@@ -61,6 +61,9 @@ import {
   assertReplaySourceEventDecisionObservationInputMaterialization,
 } from "../../../../replay-execution-plane/contracts/src/lib/replay-source-event-decision-observation-input-materialization"
 import {
+  assertReplayDecisionWorkerInputAssembly,
+} from "../../../../replay-execution-plane/contracts/src/lib/replay-decision-worker-input-assembly"
+import {
   buildReplayCrossSourceOrderingAttestation,
 } from "../../../../replay-execution-plane/data-adapter/src/lib/replay-cross-source-ordering"
 import { buildReplaySourceEventProjectionAttestation } from "../../../../replay-execution-plane/data-adapter/src/lib/replay-source-event-projection"
@@ -73,6 +76,10 @@ import {
   assertReplaySourceEventDecisionObservationInputMaterializationLineage,
   buildReplaySourceEventDecisionObservationInputMaterialization,
 } from "../../../../replay-execution-plane/data-adapter/src/lib/replay-source-event-decision-observation-input-materialization"
+import {
+  assertReplayDecisionWorkerInputAssemblyLineage,
+  buildReplayDecisionWorkerInputAssembly,
+} from "../../../../replay-execution-plane/data-adapter/src/lib/replay-decision-worker-input-assembly"
 import {
   REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION,
   REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
@@ -717,6 +724,40 @@ test("Control Plane admits aggregate trade evidence only as a Reservation-bound 
         interval_ms: inputMaterializationInput.dataset_manifest.interval_ms + 1,
       },
     }), /bar duration differs from interval/)
+
+    const workerInputAssemblyInput = {
+      harness_context_binding: harnessContextBinding,
+      observation_input_materialization: inputMaterialization,
+      initial_signal_supplemental_materialization: null,
+    }
+    const workerInputAssembly = buildReplayDecisionWorkerInputAssembly(workerInputAssemblyInput)
+    assert.equal(workerInputAssembly.parent_validation, "self_hash_and_cross_object_binding_only")
+    assert.equal(workerInputAssembly.complete_entry_count, 1)
+    assert.equal(workerInputAssembly.incomplete_market_entry_count, 0)
+    assert.equal(workerInputAssembly.incomplete_state_entry_count, 0)
+    assert.equal(workerInputAssembly.worker_request_count, 0)
+    assert.equal(workerInputAssembly.entries[0]!.input_tuple_status, "complete_non_executable_build_unbound")
+    assert.equal(workerInputAssembly.entries[0]!.worker_request, null)
+    assert.equal(workerInputAssembly.source_bundle_binding, "not_bound")
+    assert.equal(workerInputAssembly.build_attestation_binding, "not_bound")
+    assert.doesNotThrow(() => assertReplayDecisionWorkerInputAssembly(workerInputAssembly))
+    assert.doesNotThrow(() => assertReplayDecisionWorkerInputAssemblyLineage(
+      workerInputAssembly,
+      workerInputAssemblyInput,
+    ))
+    assert.deepEqual(buildReplayDecisionWorkerInputAssembly(
+      structuredClone(workerInputAssemblyInput),
+    ), workerInputAssembly)
+    assert.throws(() => buildReplayDecisionWorkerInputAssembly({
+      ...workerInputAssemblyInput,
+      initial_signal_supplemental_materialization: {} as never,
+    }), /exactly one materialization source/)
+    const substitutedWorkerAssembly = structuredClone(workerInputAssembly)
+    substitutedWorkerAssembly.entries[0]!.harness_context.random_seed += 1
+    assert.throws(
+      () => assertReplayDecisionWorkerInputAssembly(substitutedWorkerAssembly),
+      /semantic drift/,
+    )
 
     const substitutedInput = structuredClone(inputMaterialization)
     const substitutedMarketSnapshot = substitutedInput.entries[0]!.decision_market_input_snapshot
