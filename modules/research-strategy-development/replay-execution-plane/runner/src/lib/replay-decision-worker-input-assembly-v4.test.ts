@@ -11,8 +11,10 @@ import {
   REPLAY_SIMULATOR_POLICY_VERSION,
   REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
   canonicalHash,
+  createReplayDecisionHarnessBuildAttestation,
   createReplayDecisionInputSnapshot,
   createReplayDecisionHarnessContext,
+  createReplayDecisionHarnessSourceBundle,
   createReplayDecisionMarketInputSnapshot,
   createReplayDecisionStateSnapshot,
   createReplayInstrumentStatusProvenance,
@@ -40,16 +42,24 @@ import {
   assertReplayDecisionWorkerInputAssemblyV3,
 } from "../../../contracts/src/lib/replay-decision-worker-input-assembly-v3"
 import {
+  assertReplayDecisionWorkerInputAssemblyV4,
+} from "../../../contracts/src/lib/replay-decision-worker-input-assembly-v4"
+import {
   assertReplayPositionOpenStateInputMaterialization,
 } from "../../../contracts/src/lib/replay-position-open-state-input-materialization"
 import {
   assertReplayPositionOpenStateInputMaterializationLineage,
   buildReplayPositionOpenStateInputMaterialization,
-} from "./replay-position-open-state-input-materialization"
+} from "../../../engine/src/lib/replay-position-open-state-input-materialization"
 import {
   assertReplayDecisionWorkerInputAssemblyV3Lineage,
   buildReplayDecisionWorkerInputAssemblyV3,
-} from "./replay-decision-worker-input-assembly-v3"
+} from "../../../engine/src/lib/replay-decision-worker-input-assembly-v3"
+import { buildReplayDecisionHarness } from "./replay-decision-harness-build"
+import {
+  assertReplayDecisionWorkerInputAssemblyV4Lineage,
+  buildReplayDecisionWorkerInputAssemblyV4,
+} from "./replay-decision-worker-input-assembly-v4"
 
 const HASH = "a".repeat(64)
 const ACCOUNTING = {
@@ -92,7 +102,7 @@ const STATUS_PROVENANCE = createReplayInstrumentStatusProvenance({
   source_record_count: 1, status_epochs: [STATUS_SNAPSHOT],
 })
 
-function request(candidateHash = HASH): ReplayExecutionRequest {
+function request(candidateHash = HASH, harnessHash = HASH): ReplayExecutionRequest {
   const order: ReplayExecutionRequest["order"] = {
     side: "long", quantity: 1, signal_time: "2026-07-14T04:00:00Z",
     earliest_executable_time: "2026-07-14T08:00:00Z", stop_price: 95, target_price: 110,
@@ -143,7 +153,7 @@ function request(candidateHash = HASH): ReplayExecutionRequest {
     instrument_status_provenance_hash: canonicalHash(STATUS_PROVENANCE),
     instrument_status_provider_capability_hash: HASH,
     instrument_status_provider_certification_hash: HASH,
-    harness_hash: HASH, assumptions_hash: HASH, symbol: "BTCUSDT", timeframe: "4h", initial_cash: 1000,
+    harness_hash: harnessHash, assumptions_hash: HASH, symbol: "BTCUSDT", timeframe: "4h", initial_cash: 1000,
     order, cost_policy: { policy_id: "fixture", version: "1", fee_bps: 0, slippage_bps: 0, liquidation_fee_bps: 50 },
     simulator_policy: {
       version: REPLAY_SIMULATOR_POLICY_VERSION, signal_visibility: "closed_candle",
@@ -296,8 +306,17 @@ function workerInputAssemblyV2(requestValue: ReplayExecutionRequest, binding: Re
   })
 }
 
-test("Engine materializes position-open State and completes Assembly v3 without Worker authority", () => {
-  const requestValue = request()
+test("Replay binds runtime inputs and deterministic code evidence without Worker authority", () => {
+  const sourceBundle = createReplayDecisionHarnessSourceBundle({
+    bundle_ref: "fixture://decision-harness/r4-104",
+    entrypoint: { file_path: "strategy.ts", export_name: "decide" },
+    files: [{
+      path: "strategy.ts",
+      content_utf8: "export function decide() { return { decision_output: { action: 'no_action' }, trace: null } }\n",
+    }],
+  })
+  const buildAttestation = buildReplayDecisionHarness(sourceBundle)
+  const requestValue = request(HASH, sourceBundle.bundle_hash)
   const binding = contextBinding(requestValue)
   const sourceEvents: ReplaySourceEvent[] = [{
     source_event_id: "source:bar_range:1", kind: "bar_range", source_index: 0,
@@ -368,6 +387,49 @@ test("Engine materializes position-open State and completes Assembly v3 without 
     ...assemblyV3,
     worker_request_count: 1 as never,
   })).toThrow("unsupported decision Worker input assembly v3 authority")
+
+  const assemblyV4Input = {
+    source_assembly_v3: assemblyV3,
+    harness_context_binding: binding,
+    source_bundle: sourceBundle,
+    build_attestation: buildAttestation,
+  }
+  const assemblyV4 = buildReplayDecisionWorkerInputAssemblyV4(assemblyV4Input)
+  expect(assemblyV4.owner).toBe("replay_runner_code_admission")
+  expect(assemblyV4.input_tuple_status).toBe("complete_non_executable_build_bound")
+  expect(assemblyV4.source_bundle_hash).toBe(sourceBundle.bundle_hash)
+  expect(assemblyV4.build_attestation_hash).toBe(buildAttestation.attestation_hash)
+  expect(assemblyV4.build_artifact_hash).toBe(buildAttestation.artifact.sha256)
+  expect(assemblyV4.worker_request_count).toBe(0)
+  expect(assemblyV4.worker_request_materialization).toBe("forbidden")
+  expect(assemblyV4.harness_invocation).toBe("forbidden")
+  expect(() => assertReplayDecisionWorkerInputAssemblyV4(assemblyV4)).not.toThrow()
+  expect(() => assertReplayDecisionWorkerInputAssemblyV4Lineage(assemblyV4, assemblyV4Input)).not.toThrow()
+  expect(buildReplayDecisionWorkerInputAssemblyV4(structuredClone(assemblyV4Input))).toEqual(assemblyV4)
+  const forgedBuild = createReplayDecisionHarnessBuildAttestation({
+    source_bundle: sourceBundle,
+    runtime_version: buildAttestation.runtime.runtime_version,
+    runtime_executable_sha256: buildAttestation.runtime.executable_sha256,
+    artifact_content_utf8: `${buildAttestation.artifact.content_utf8}// forged\n`,
+  })
+  expect(() => buildReplayDecisionWorkerInputAssemblyV4({
+    ...assemblyV4Input,
+    build_attestation: forgedBuild,
+  })).toThrow("does not match deterministic rebuild")
+  const mismatchedBundle = createReplayDecisionHarnessSourceBundle({
+    bundle_ref: "fixture://decision-harness/r4-104-mismatch",
+    entrypoint: { file_path: "strategy.ts", export_name: "decide" },
+    files: [{ path: "strategy.ts", content_utf8: "export function decide() { return null }\n" }],
+  })
+  expect(() => buildReplayDecisionWorkerInputAssemblyV4({
+    ...assemblyV4Input,
+    source_bundle: mismatchedBundle,
+    build_attestation: buildReplayDecisionHarness(mismatchedBundle),
+  })).toThrow("input/Context/code binding drift")
+  expect(() => assertReplayDecisionWorkerInputAssemblyV4({
+    ...assemblyV4,
+    worker_request_count: 1 as never,
+  })).toThrow("unsupported decision Worker input assembly v4 authority")
 
   expect(() => buildReplayPositionOpenStateInputMaterialization({
     ...input,
