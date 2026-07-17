@@ -11,7 +11,9 @@ import {
   REPLAY_SIMULATOR_POLICY_VERSION,
   REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
   canonicalHash,
+  createReplayDecisionInputSnapshot,
   createReplayDecisionHarnessContext,
+  createReplayDecisionMarketInputSnapshot,
   createReplayDecisionStateSnapshot,
   createReplayInstrumentStatusProvenance,
   type ReplayDecisionScheduleEntry,
@@ -27,12 +29,27 @@ import {
   type ReplaySourceEventDecisionObservationHarnessContextBindingBody,
 } from "../../../contracts/src/lib/replay-source-event-decision-observation-harness-context-binding"
 import {
+  REPLAY_DECISION_WORKER_INPUT_ASSEMBLY_V2_ENTRY_SCHEMA_VERSION,
+  REPLAY_DECISION_WORKER_INPUT_ASSEMBLY_V2_POLICY_VERSION,
+  REPLAY_DECISION_WORKER_INPUT_ASSEMBLY_V2_SCHEMA_VERSION,
+  createReplayDecisionWorkerInputAssemblyV2,
+  createReplayDecisionWorkerInputAssemblyV2Entry,
+  type ReplayDecisionWorkerInputAssemblyV2Body,
+} from "../../../contracts/src/lib/replay-decision-worker-input-assembly-v2"
+import {
+  assertReplayDecisionWorkerInputAssemblyV3,
+} from "../../../contracts/src/lib/replay-decision-worker-input-assembly-v3"
+import {
   assertReplayPositionOpenStateInputMaterialization,
 } from "../../../contracts/src/lib/replay-position-open-state-input-materialization"
 import {
   assertReplayPositionOpenStateInputMaterializationLineage,
   buildReplayPositionOpenStateInputMaterialization,
 } from "./replay-position-open-state-input-materialization"
+import {
+  assertReplayDecisionWorkerInputAssemblyV3Lineage,
+  buildReplayDecisionWorkerInputAssemblyV3,
+} from "./replay-decision-worker-input-assembly-v3"
 
 const HASH = "a".repeat(64)
 const ACCOUNTING = {
@@ -204,7 +221,82 @@ function contextBinding(requestValue: ReplayExecutionRequest) {
   })
 }
 
-test("Engine materializes one position-open State input without creating Worker authority", () => {
+function workerInputAssemblyV2(requestValue: ReplayExecutionRequest, binding: ReturnType<typeof contextBinding>) {
+  const entries = binding.entries.map((contextEntry) => {
+    const decisionTime = contextEntry.decision_time
+    const close = Date.parse(decisionTime)
+    const decisionInput = createReplayDecisionInputSnapshot(requestValue, [], decisionTime)
+    const marketInput = createReplayDecisionMarketInputSnapshot({
+      request: requestValue,
+      decision_time: decisionTime,
+      interval_ms: 14_400_000,
+      bars: [{
+        open_time: new Date(close - 14_400_000).toISOString(), close_time: decisionTime,
+        open: 100, high: 103, low: 99, close: 102, volume: 10, closed: true,
+      }],
+    })
+    const needsState = contextEntry.harness_context.decision_phase === "position_open"
+    return createReplayDecisionWorkerInputAssemblyV2Entry({
+      schema_version: REPLAY_DECISION_WORKER_INPUT_ASSEMBLY_V2_ENTRY_SCHEMA_VERSION,
+      decision_sequence: contextEntry.decision_sequence,
+      decision_time: decisionTime,
+      decision_phase: contextEntry.harness_context.decision_phase,
+      harness_context_binding_entry_hash: contextEntry.entry_hash,
+      harness_context: structuredClone(contextEntry.harness_context),
+      harness_context_hash: contextEntry.harness_context_hash,
+      supplemental_input_source: "r4_97_empty_input_materialization",
+      decision_input_snapshot: decisionInput,
+      decision_input_snapshot_hash: decisionInput.snapshot_hash,
+      market_input_source: "r4_100_market_input_materialization",
+      decision_market_input_snapshot: marketInput,
+      decision_market_input_snapshot_hash: marketInput.snapshot_hash,
+      r4_97_embedded_market_compatibility: "exact_snapshot_match",
+      state_input_status: needsState
+        ? "runtime_state_required_not_materialized" : "not_applicable_non_position_phase",
+      decision_state_snapshot: null,
+      input_tuple_status: needsState
+        ? "incomplete_runtime_state_snapshot" : "complete_non_executable_build_unbound",
+      worker_request: null,
+      harness_invocation: "forbidden",
+      execution_effect: "none",
+    })
+  })
+  const bodyWithoutId: Omit<ReplayDecisionWorkerInputAssemblyV2Body, "assembly_id"> = {
+    schema_version: REPLAY_DECISION_WORKER_INPUT_ASSEMBLY_V2_SCHEMA_VERSION,
+    assembly_policy_version: REPLAY_DECISION_WORKER_INPUT_ASSEMBLY_V2_POLICY_VERSION,
+    scope: "pre_worker_non_economic_complete_input_tuple_assembly",
+    purpose: "bind_context_supplemental_and_market_snapshots_without_creating_worker_request",
+    parent_validation: "self_hash_and_cross_object_binding_only",
+    source_bundle_binding: "not_bound", build_attestation_binding: "not_bound",
+    invocation_identity_materialization: "forbidden", worker_request_materialization: "forbidden",
+    harness_invocation: "forbidden", decision_output_authority: "none", signal_authority: "none",
+    order_authority: "none", economic_authority: "none", runner_compatibility: "not_bound",
+    request_hash: canonicalHash(requestValue), run_id: requestValue.run_id,
+    experiment_id: requestValue.experiment_id, trial_group_id: requestValue.trial_group_id,
+    trial_id: requestValue.trial_id, candidate_id: requestValue.candidate_id,
+    candidate_hash: requestValue.candidate_hash, harness_context_binding_id: binding.binding_id,
+    harness_context_binding_hash: binding.binding_hash,
+    observation_input_materialization_id: "fixture-r4-97-materialization",
+    observation_input_materialization_hash: HASH,
+    initial_signal_supplemental_materialization_id: null,
+    initial_signal_supplemental_materialization_hash: null,
+    market_input_materialization_id: "fixture-r4-100-materialization",
+    market_input_materialization_hash: HASH,
+    supplemental_source_policy: "exactly_one_request_bound_r4_97_or_r4_98_materialization",
+    market_source_policy: "required_same_request_context_bound_r4_100_materialization",
+    r4_97_embedded_market_policy: "require_exact_match_then_use_r4_100",
+    entry_count: entries.length, entries, entries_hash: canonicalHash(entries),
+    entry_hashes_hash: canonicalHash(entries.map((entry) => entry.entry_hash)),
+    complete_entry_count: 1, incomplete_state_entry_count: 1, missing_market_entry_count: 0,
+    worker_request_count: 0,
+  }
+  return createReplayDecisionWorkerInputAssemblyV2({
+    ...bodyWithoutId,
+    assembly_id: `decision-worker-input-v2-${canonicalHash(bodyWithoutId).slice(0, 24)}`,
+  })
+}
+
+test("Engine materializes position-open State and completes Assembly v3 without Worker authority", () => {
   const requestValue = request()
   const binding = contextBinding(requestValue)
   const sourceEvents: ReplaySourceEvent[] = [{
@@ -250,6 +342,33 @@ test("Engine materializes one position-open State input without creating Worker 
   expect(() => assertReplayPositionOpenStateInputMaterializationLineage(materialization, input)).not.toThrow()
   expect(buildReplayPositionOpenStateInputMaterialization(structuredClone(input))).toEqual(materialization)
 
+  const sourceAssemblyV2 = workerInputAssemblyV2(requestValue, binding)
+  const assemblyV3Input = {
+    source_assembly_v2: sourceAssemblyV2,
+    state_input_materializations: [materialization],
+  }
+  const assemblyV3 = buildReplayDecisionWorkerInputAssemblyV3(assemblyV3Input)
+  expect(assemblyV3.owner).toBe("replay_engine_runtime")
+  expect(assemblyV3.source_assembly_v2_hash).toBe(sourceAssemblyV2.assembly_hash)
+  expect(assemblyV3.state_materialization_count).toBe(1)
+  expect(assemblyV3.complete_entry_count).toBe(2)
+  expect(assemblyV3.incomplete_state_entry_count).toBe(0)
+  expect(assemblyV3.entries[1]!.state_input_materialization_hash).toBe(materialization.materialization_hash)
+  expect(assemblyV3.entries[1]!.input_tuple_status).toBe("complete_non_executable_build_unbound")
+  expect(assemblyV3.worker_request_count).toBe(0)
+  expect(assemblyV3.entries.every((entry) => entry.worker_request === null)).toBeTrue()
+  expect(() => assertReplayDecisionWorkerInputAssemblyV3(assemblyV3)).not.toThrow()
+  expect(() => assertReplayDecisionWorkerInputAssemblyV3Lineage(assemblyV3, assemblyV3Input)).not.toThrow()
+  expect(buildReplayDecisionWorkerInputAssemblyV3(structuredClone(assemblyV3Input))).toEqual(assemblyV3)
+  expect(() => buildReplayDecisionWorkerInputAssemblyV3({
+    ...assemblyV3Input,
+    state_input_materializations: [],
+  })).toThrow("exactly one State parent")
+  expect(() => assertReplayDecisionWorkerInputAssemblyV3({
+    ...assemblyV3,
+    worker_request_count: 1 as never,
+  })).toThrow("unsupported decision Worker input assembly v3 authority")
+
   expect(() => buildReplayPositionOpenStateInputMaterialization({
     ...input,
     source_events: sourceEvents.slice(1),
@@ -268,6 +387,17 @@ test("Engine materializes one position-open State input without creating Worker 
     ...input,
     harness_context_binding: contextBinding(request("b".repeat(64))),
   })).toThrow("Request/Context binding drift")
+  const mismatchedRequest = request("b".repeat(64))
+  const mismatchedState = buildReplayPositionOpenStateInputMaterialization({
+    request: mismatchedRequest,
+    harness_context_binding: contextBinding(mismatchedRequest),
+    decision_state_snapshot: snapshot,
+    source_events: sourceEvents,
+  })
+  expect(() => buildReplayDecisionWorkerInputAssemblyV3({
+    ...assemblyV3Input,
+    state_input_materializations: [mismatchedState],
+  })).toThrow("R4.102 parent binding drift")
   expect(() => assertReplayPositionOpenStateInputMaterialization({
     ...materialization,
     worker_request_materialization: "allowed" as never,
