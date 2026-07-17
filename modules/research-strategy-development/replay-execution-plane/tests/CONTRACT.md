@@ -12,6 +12,8 @@ R4.87 certification must prove closed-world as-of cuts: boundary inclusion is `a
 
 R4.88 certification must prove payload non-leakage and exact materialization: only Cut members receive typed Wire payloads; delayed facts appear only at availability; empty cuts yield empty views; future transitions remain identity-only. Replacing a payload and recomputing all view-local hashes must fail Wire lineage verification.
 
+R4.89 certification must prove observation-field safety: bar-open cannot expose range/close fields; full OHLCV appears only from a closed-bar event; delayed status remains availability-gated; empty views remain empty. Extra-field leakage fails the exact whitelist, while semantic substitution plus rehash fails payload-record lineage.
+
 `OHLCV Oracle Fixture v1` 是 certification-only 的 ordered-price reference：只对 synthetic piecewise-linear observation trace 计算首个 simple-bracket crossing，用于证明 OHLC P1/P2 envelope containment、same-OHLC opposite outcome 与 sampling-density metamorphism。它不是 Market Data 合同、tick Replay 模式或真实成交事实。
 
 OHLCV Resolution Evidence v2 certification 必须覆盖 initial generation 1、stop replacement generation 2、partial-resize generation 2 及其 remaining quantity/order identity，并以重算 evidence/checkpoint hash 的 stale-generation 篡改证明自洽哈希不能替代跨 Artifact 的 SourceEvent/OrderEvent/Fill 绑定。
