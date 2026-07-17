@@ -12,7 +12,6 @@ import {
   assertReplayDecisionHarnessSourceBundle,
   assertReplayDecisionHarnessWorkerRequest,
   assertReplayDecisionHarnessWorkerResponse,
-  canonicalHash,
   canonicalJson,
   createReplayDecisionHarnessBuildAttestation,
   createReplayDecisionHarnessContext,
@@ -26,6 +25,7 @@ import {
   type ReplayDecisionStateSnapshot,
   type ReplayExecutionRequest,
 } from "../../../contracts/src/lib/replay-contracts"
+import { deriveReplayDecisionHarnessInvocationId } from "../../../contracts/src/lib/replay-decision-harness-invocation-identity"
 
 const WORKER_ENTRY_FILE = "__rd_replay_worker__.ts"
 const WORKER_ARTIFACT_FILE = "worker.mjs"
@@ -101,7 +101,7 @@ export function executeReplayDecisionHarnessWorker(input: {
   }
   const workerRequest: ReplayDecisionHarnessWorkerRequest = {
     schema_version: REPLAY_DECISION_HARNESS_WORKER_REQUEST_SCHEMA_VERSION,
-    invocation_id: canonicalHash({
+    invocation_id: deriveReplayDecisionHarnessInvocationId({
       run_id: input.request.run_id,
       source_bundle_hash: input.source_bundle.bundle_hash,
       artifact_hash: input.build_attestation.artifact.sha256,
