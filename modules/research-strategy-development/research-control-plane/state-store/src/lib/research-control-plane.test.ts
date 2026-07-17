@@ -7,17 +7,51 @@ import {
   AGGREGATE_TRADE_PROVIDER_POLICY_HASH,
 } from "../../../../../market-data-products/aggregate-trade-provider/src/lib/aggregate-trade-provider"
 import {
+  REPLAY_NO_DECISION_MARKET_INPUT,
+  REPLAY_NO_DECISION_MARKET_INPUT_HASH,
+  REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS,
+  REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH,
+  REPLAY_REQUEST_SCHEMA_VERSION,
+  REPLAY_SIMULATOR_POLICY_VERSION,
   REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION,
+  canonicalHash,
+  createReplaySingleDecisionSchedule,
+  type ReplayExecutionRequest,
 } from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
+import {
+  REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_BUNDLE_POLICY_VERSION,
+  REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_BUNDLE_SCHEMA_VERSION,
+  createReplaySourceEventDecisionObservationBundle,
+} from "../../../../replay-execution-plane/contracts/src/lib/replay-source-event-decision-observation-bundle"
+import {
+  REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_FIELD_POLICY_VERSION,
+  REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_POLICY_VERSION,
+  REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_PROJECTION_SCHEMA_VERSION,
+  createReplaySourceEventDecisionObservationProjection,
+} from "../../../../replay-execution-plane/contracts/src/lib/replay-source-event-decision-observation"
+import {
+  REPLAY_SOURCE_EVENT_DECISION_SCHEDULE_OBSERVATION_BINDING_POLICY_VERSION,
+  REPLAY_SOURCE_EVENT_DECISION_SCHEDULE_OBSERVATION_BINDING_SCHEMA_VERSION,
+  createReplaySourceEventDecisionScheduleObservationBinding,
+} from "../../../../replay-execution-plane/contracts/src/lib/replay-source-event-decision-schedule-observation-binding"
+import {
+  REPLAY_SOURCE_EVENT_DECISION_SCHEDULE_OBSERVATION_BINDING_SET_POLICY_VERSION,
+  REPLAY_SOURCE_EVENT_DECISION_SCHEDULE_OBSERVATION_BINDING_SET_SCHEMA_VERSION,
+  createReplaySourceEventDecisionScheduleObservationBindingSet,
+} from "../../../../replay-execution-plane/contracts/src/lib/replay-source-event-decision-schedule-observation-binding-set"
+import type { ReplaySourceEventWireManifest } from "../../../../replay-execution-plane/contracts/src/lib/replay-source-event-wire"
 import {
   buildReplayCrossSourceOrderingAttestation,
 } from "../../../../replay-execution-plane/data-adapter/src/lib/replay-cross-source-ordering"
+import { buildReplaySourceEventProjectionAttestation } from "../../../../replay-execution-plane/data-adapter/src/lib/replay-source-event-projection"
+import { materializeReplaySourceEventWire } from "../../../../replay-execution-plane/data-adapter/src/lib/replay-source-event-wire"
 import {
   REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION,
   REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
   REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION,
   REPLAY_AGGREGATE_TRADE_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
   REPLAY_AGGREGATE_TRADE_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION,
+  REPLAY_DECISION_OBSERVATION_BUNDLE_ADMISSION_SCHEMA_VERSION,
   REPLAY_RESERVATION_CANCELLATION_SCHEMA_VERSION,
   REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION,
   REPLAY_ATTEMPT_CANCELLATION_OBSERVATION_SCHEMA_VERSION,
@@ -70,6 +104,10 @@ import {
   issueReplayCrossSourceOrderingAdmission,
   readReplayCrossSourceOrderingAdmission,
 } from "./cross-source-ordering-admission-registry"
+import {
+  issueReplayDecisionObservationBundleAdmission,
+  readReplayDecisionObservationBundleAdmission,
+} from "./decision-observation-bundle-admission-registry"
 import {
   cancelReplayAttemptByAuthority,
   createSqliteReplayCancellationCoordinationPort,
@@ -148,6 +186,7 @@ test("control plane schema initializes frozen stages and lifecycle rules", () =>
       "rd_replay_aggregate_trade_provider_certification_termination",
       "rd_replay_aggregate_trade_evidence_admission",
       "rd_replay_cross_source_ordering_admission",
+      "rd_replay_decision_observation_bundle_admission",
       "rd_replay_reservation_cancellation",
       "rd_replay_attempt",
       "rd_replay_attempt_cancellation",
@@ -358,29 +397,33 @@ test("Control Plane admits aggregate trade evidence only as a Reservation-bound 
     assert.deepEqual(issueReplayAggregateTradeEvidenceAdmission(db, admissionInput), admission)
     assert.deepEqual(readReplayAggregateTradeEvidenceAdmission(db, admission.reservation_hash), admission)
 
+    const bars = [{
+      open_time: "2026-07-14T03:00:00Z", close_time: "2026-07-14T03:05:00Z",
+      open: 100, high: 102, low: 99, close: 101, volume: 10, closed: true as const,
+    }]
+    const fundingEvents = [{ timestamp: "2026-07-14T03:00:00Z", rate: 0.0001, mark_price: 100 }]
+    const instrumentStatusEvents = [{
+      schema_version: REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION,
+      snapshot_id: "status-cross-source-1", venue_id: "binance-usdm", symbol: "BTCUSDT", status: "trading" as const,
+      effective_at: "2026-07-14T03:00:00Z", valid_until: null, observed_at: "2026-07-14T03:00:00.500Z",
+      source_ref: "archive:status:cross-source-1", source_hash: "d".repeat(64),
+    }]
+    const aggregateTradeEvents = [{
+      schema_version: "trade.rd-replay-aggregate-trade-event.v1" as const,
+      symbol: "BTCUSDT", aggregate_trade_id: 10, first_trade_id: 100, last_trade_id: 101,
+      trade_time: "2026-07-14T03:00:00Z", available_at: "2026-07-14T03:00:00Z",
+      price: 100, quantity: 1, buyer_is_maker: false,
+    }]
     const orderingAttestation = buildReplayCrossSourceOrderingAttestation({
       symbol: "BTCUSDT",
       timeframe: "5m",
       window_start_inclusive: admission.coverage_start,
       window_end_exclusive: admission.coverage_end,
-      bars: [{
-        open_time: "2026-07-14T03:00:00Z", close_time: "2026-07-14T03:05:00Z",
-        open: 100, high: 102, low: 99, close: 101, volume: 10, closed: true,
-      }],
-      funding_events: [{ timestamp: "2026-07-14T03:00:00Z", rate: 0.0001, mark_price: 100 }],
-      instrument_status_events: [{
-        schema_version: REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION,
-        snapshot_id: "status-cross-source-1", venue_id: "binance-usdm", symbol: "BTCUSDT", status: "trading",
-        effective_at: "2026-07-14T03:00:00Z", valid_until: null, observed_at: "2026-07-14T03:00:00.500Z",
-        source_ref: "archive:status:cross-source-1", source_hash: "d".repeat(64),
-      }],
+      bars,
+      funding_events: fundingEvents,
+      instrument_status_events: instrumentStatusEvents,
       instrument_status_completeness: "complete_history",
-      aggregate_trade_events: [{
-        schema_version: "trade.rd-replay-aggregate-trade-event.v1",
-        symbol: "BTCUSDT", aggregate_trade_id: 10, first_trade_id: 100, last_trade_id: 101,
-        trade_time: "2026-07-14T03:00:00Z", available_at: "2026-07-14T03:00:00Z",
-        price: 100, quantity: 1, buyer_is_maker: false,
-      }],
+      aggregate_trade_events: aggregateTradeEvents,
     })
     const aggregateTradeEventsHash = orderingAttestation.source_collections
       .find((collection) => collection.source_kind === "aggregate_trade")!.content_hash
@@ -415,6 +458,60 @@ test("Control Plane admits aggregate trade evidence only as a Reservation-bound 
       SET economic_authority = 'runner'
       WHERE admission_id = 'cross-source-ordering-admission-1'
     `).run(), /immutable/)
+
+    const request = decisionObservationRequest(reservation)
+    const sourceProjection = buildReplaySourceEventProjectionAttestation({
+      ordering_admission: orderingAdmission,
+      ordering_attestation: orderingAttestation,
+    })
+    const wireManifest = materializeReplaySourceEventWire({
+      bars,
+      funding_events: fundingEvents,
+      instrument_status_events: instrumentStatusEvents,
+      aggregate_trade_events: aggregateTradeEvents,
+      ordering_attestation: orderingAttestation,
+      ordering_admission: orderingAdmission,
+      projection: sourceProjection,
+    })
+    const bundle = decisionObservationBundleFixture(request, wireManifest)
+    const bundleAdmissionInput = {
+      admission_id: "decision-observation-bundle-admission-1",
+      admission_ref: "admission://decision-observation-bundle/trial-aggregate-trade",
+      issued_at: "2026-07-14T03:27:00Z",
+      authority_id: "research-control-plane",
+      admission_policy_version: "rd-decision-observation-bundle-admission-v1",
+      reservation,
+      request,
+      wire_manifest: wireManifest,
+      bundle,
+    }
+    const bundleAdmission = issueReplayDecisionObservationBundleAdmission(db, bundleAdmissionInput)
+    assert.equal(bundleAdmission.schema_version, REPLAY_DECISION_OBSERVATION_BUNDLE_ADMISSION_SCHEMA_VERSION)
+    assert.equal(bundleAdmission.scope, "pre_integration_non_economic_observation_audit_only")
+    assert.equal(bundleAdmission.parent_lineage_validation, "wire_identity_and_schedule_binding_only")
+    assert.equal(bundleAdmission.projection_derivation_compatibility, "not_certified")
+    assert.equal(bundleAdmission.harness_invocation, "forbidden")
+    assert.equal(bundleAdmission.economic_authority, "none")
+    assert.deepEqual(issueReplayDecisionObservationBundleAdmission(db, bundleAdmissionInput), bundleAdmission)
+    assert.deepEqual(
+      readReplayDecisionObservationBundleAdmission(db, hashTrialReservationSnapshot(reservation)),
+      bundleAdmission,
+    )
+    assert.throws(() => issueReplayDecisionObservationBundleAdmission(db, {
+      ...bundleAdmissionInput,
+      admission_id: "decision-observation-bundle-admission-competing",
+      admission_ref: "admission://decision-observation-bundle/competing",
+    }), /different content/)
+    assert.throws(() => issueReplayDecisionObservationBundleAdmission(db, {
+      ...bundleAdmissionInput,
+      request: { ...request, dataset_hash: "9".repeat(64) },
+    }), /data bindings/)
+    assert.throws(() => db.query(`
+      UPDATE rd_replay_decision_observation_bundle_admission
+      SET economic_authority = 'runner'
+      WHERE admission_id = 'decision-observation-bundle-admission-1'
+    `).run(), /immutable/)
+
     assert.throws(() => issueReplayAggregateTradeEvidenceAdmission(db, {
       ...admissionInput,
       admission_id: "aggregate-trade-admission-competing",
@@ -1293,6 +1390,239 @@ test("blocker fact and lifecycle projection commit atomically", () => {
     db.close()
   }
 })
+
+function decisionObservationBundleFixture(
+  request: ReplayExecutionRequest,
+  wire: ReplaySourceEventWireManifest,
+) {
+  const scheduleEntry = request.decision_schedule.entries[0]!
+  const emptyHash = canonicalHash([])
+  const projection = createReplaySourceEventDecisionObservationProjection({
+    schema_version: REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_PROJECTION_SCHEMA_VERSION,
+    projection_id: "decision-observation-projection-admission-fixture",
+    projection_policy_version: REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_POLICY_VERSION,
+    field_policy_version: REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_FIELD_POLICY_VERSION,
+    scope: "pre_integration_non_economic_decision_observation_projection",
+    projection_purpose: "candidate_decision_input_fields_only",
+    decision_input_compatibility: "not_asserted",
+    decision_authority: "none",
+    signal_authority: "none",
+    order_authority: "none",
+    economic_authority: "none",
+    harness_compatibility: "not_bound",
+    runner_compatibility: "not_bound",
+    future_payload_access: "forbidden",
+    bar_open_visibility: "open_only_no_range_fields",
+    closed_bar_visibility: "full_ohlcv_only_when_closed",
+    payload_view_id: "pit-payload-view-admission-fixture",
+    payload_view_hash: "6".repeat(64),
+    wire_manifest_id: wire.wire_manifest_id,
+    wire_manifest_hash: wire.manifest_hash,
+    cut_id: "visibility-cut-admission-fixture",
+    cut_hash: "7".repeat(64),
+    as_of_time: scheduleEntry.decision_time,
+    observation_count: 0,
+    observations: [],
+    observations_hash: emptyHash,
+    observation_values_hash: emptyHash,
+    source_observation_counts: { instrument_status: 0, funding: 0, aggregate_trade: 0, ohlcv: 0 },
+    future_transition_count: 0,
+    future_transition_ids_hash: emptyHash,
+  })
+  const bindingBodyWithoutId = {
+    schema_version: REPLAY_SOURCE_EVENT_DECISION_SCHEDULE_OBSERVATION_BINDING_SCHEMA_VERSION,
+    binding_policy_version: REPLAY_SOURCE_EVENT_DECISION_SCHEDULE_OBSERVATION_BINDING_POLICY_VERSION,
+    scope: "pre_integration_non_economic_schedule_observation_binding" as const,
+    binding_purpose: "prove_frozen_decision_time_equals_observation_as_of_time" as const,
+    schedule_authority: "external_frozen_reference_only" as const,
+    schedule_validation: "structural_hash_and_selected_entry_only" as const,
+    selected_effect_handling: "opaque_frozen_label_not_executed" as const,
+    observation_authority: "whitelisted_non_economic_projection_only" as const,
+    time_binding_rule: "observation_as_of_time_equals_selected_decision_time" as const,
+    harness_invocation: "forbidden" as const,
+    decision_authority: "none" as const,
+    signal_authority: "none" as const,
+    order_authority: "none" as const,
+    economic_authority: "none" as const,
+    runner_compatibility: "not_bound" as const,
+    decision_schedule_schema_version: request.decision_schedule.schema_version,
+    decision_schedule_hash: request.decision_schedule_hash,
+    decision_schedule_entry_count: request.decision_schedule.entries.length,
+    selected_decision_sequence: scheduleEntry.decision_sequence,
+    selected_decision_time: scheduleEntry.decision_time,
+    selected_expected_effect: scheduleEntry.expected_effect,
+    selected_schedule_entry_hash: canonicalHash(scheduleEntry),
+    observation_projection_id: projection.projection_id,
+    observation_projection_hash: projection.projection_hash,
+    observation_field_policy_version: projection.field_policy_version,
+    observation_as_of_time: projection.as_of_time,
+    observation_count: projection.observation_count,
+    payload_view_hash: projection.payload_view_hash,
+    cut_hash: projection.cut_hash,
+  }
+  const binding = createReplaySourceEventDecisionScheduleObservationBinding({
+    ...bindingBodyWithoutId,
+    binding_id: `source-event-decision-schedule-observation-${canonicalHash(bindingBodyWithoutId).slice(0, 24)}`,
+  })
+  const setBodyWithoutId = {
+    schema_version: REPLAY_SOURCE_EVENT_DECISION_SCHEDULE_OBSERVATION_BINDING_SET_SCHEMA_VERSION,
+    binding_set_policy_version: REPLAY_SOURCE_EVENT_DECISION_SCHEDULE_OBSERVATION_BINDING_SET_POLICY_VERSION,
+    scope: "pre_integration_non_economic_schedule_observation_binding_set" as const,
+    set_purpose: "prove_complete_frozen_schedule_observation_coverage" as const,
+    schedule_authority: "external_frozen_reference_only" as const,
+    schedule_validation: "structural_hash_and_member_lineage_only" as const,
+    completeness_rule: "exactly_one_binding_per_schedule_entry" as const,
+    ordering_rule: "decision_sequence_ascending" as const,
+    duplicate_binding_policy: "reject" as const,
+    cross_schedule_binding_policy: "forbidden" as const,
+    selected_effect_handling: "opaque_frozen_label_not_executed" as const,
+    harness_invocation: "forbidden" as const,
+    decision_authority: "none" as const,
+    signal_authority: "none" as const,
+    order_authority: "none" as const,
+    economic_authority: "none" as const,
+    runner_compatibility: "not_bound" as const,
+    decision_schedule_schema_version: request.decision_schedule.schema_version,
+    decision_schedule_hash: request.decision_schedule_hash,
+    decision_schedule_entry_count: 1,
+    binding_count: 1,
+    bindings: [binding],
+    bindings_hash: canonicalHash([binding]),
+    binding_hashes_hash: canonicalHash([binding.binding_hash]),
+    observation_projection_hashes_hash: canonicalHash([projection.projection_hash]),
+    first_decision_time: scheduleEntry.decision_time,
+    last_decision_time: scheduleEntry.decision_time,
+  }
+  const bindingSet = createReplaySourceEventDecisionScheduleObservationBindingSet({
+    ...setBodyWithoutId,
+    binding_set_id: `source-event-decision-schedule-observation-set-${canonicalHash(setBodyWithoutId).slice(0, 24)}`,
+  })
+  const bundleBodyWithoutId = {
+    schema_version: REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_BUNDLE_SCHEMA_VERSION,
+    bundle_policy_version: REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_BUNDLE_POLICY_VERSION,
+    scope: "pre_integration_non_economic_decision_observation_bundle" as const,
+    bundle_purpose: "portable_schedule_bound_observation_payloads" as const,
+    projection_payload_rule: "exactly_one_projection_per_binding" as const,
+    ordering_rule: "binding_sequence_ascending" as const,
+    payload_portability: "projection_payloads_embedded_with_external_parent_lineage" as const,
+    parent_lineage_requirement: "mandatory_for_authoritative_rebuild" as const,
+    decision_input_compatibility: "not_asserted" as const,
+    harness_compatibility: "not_bound" as const,
+    harness_invocation: "forbidden" as const,
+    decision_authority: "none" as const,
+    signal_authority: "none" as const,
+    order_authority: "none" as const,
+    economic_authority: "none" as const,
+    artifact_compatibility: "not_bound" as const,
+    runner_compatibility: "not_bound" as const,
+    decision_schedule_hash: request.decision_schedule_hash,
+    decision_schedule_entry_count: 1,
+    binding_set_id: bindingSet.binding_set_id,
+    binding_set_hash: bindingSet.binding_set_hash,
+    binding_set: bindingSet,
+    projection_count: 1,
+    projections: [projection],
+    projections_hash: canonicalHash([projection]),
+    projection_ids_hash: canonicalHash([projection.projection_id]),
+    projection_hashes_hash: canonicalHash([projection.projection_hash]),
+    observation_values_hashes_hash: canonicalHash([projection.observation_values_hash]),
+    first_as_of_time: projection.as_of_time,
+    last_as_of_time: projection.as_of_time,
+  }
+  return createReplaySourceEventDecisionObservationBundle({
+    ...bundleBodyWithoutId,
+    bundle_id: `source-event-decision-observation-bundle-${canonicalHash(bundleBodyWithoutId).slice(0, 24)}`,
+  })
+}
+
+function decisionObservationRequest(reservation: ReturnType<typeof issueTrialReservationSnapshot>): ReplayExecutionRequest {
+  const order: ReplayExecutionRequest["order"] = {
+    side: "long",
+    quantity: 1,
+    signal_time: "2026-07-14T03:05:00Z",
+    earliest_executable_time: "2026-07-14T03:10:00Z",
+    stop_price: 95,
+    target_price: 105,
+    entry_execution: { order_type: "market" },
+  }
+  const decisionSchedule = createReplaySingleDecisionSchedule(order)
+  return {
+    schema_version: REPLAY_REQUEST_SCHEMA_VERSION,
+    run_id: reservation.run_id,
+    idempotency_key: reservation.bindings.replay_idempotency_key,
+    experiment_id: reservation.identity.experiment_id,
+    trial_group_id: reservation.identity.trial_group_id,
+    trial_group_hash: reservation.identity.trial_group_hash,
+    trial_id: reservation.identity.trial_id,
+    candidate_id: reservation.identity.candidate_id,
+    candidate_hash: reservation.identity.candidate_hash,
+    identity_hash_policy_version: reservation.identity.identity_hash_policy_version,
+    experiment_contract_hash: reservation.identity.experiment_contract_hash,
+    trial_reservation_ref: reservation.reservation_ref,
+    trial_reservation_hash: hashTrialReservationSnapshot(reservation),
+    dataset_manifest_ref: reservation.bindings.dataset_manifest_ref,
+    dataset_hash: reservation.bindings.dataset_hash,
+    supplemental_facts_hash: reservation.bindings.supplemental_facts_hash,
+    supplemental_requirement_set: structuredClone(REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS),
+    supplemental_requirement_set_hash: REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH,
+    decision_market_input_requirement: structuredClone(REPLAY_NO_DECISION_MARKET_INPUT),
+    decision_market_input_requirement_hash: REPLAY_NO_DECISION_MARKET_INPUT_HASH,
+    decision_schedule: decisionSchedule,
+    decision_schedule_hash: canonicalHash(decisionSchedule),
+    venue_risk_policy_schedule_hash: reservation.bindings.venue_risk_policy_schedule_hash,
+    instrument_spec_schedule_hash: reservation.bindings.instrument_spec_schedule_hash,
+    instrument_status_schedule_hash: reservation.bindings.instrument_status_schedule_hash,
+    instrument_status_provenance_hash: reservation.bindings.instrument_status_provenance_hash,
+    instrument_status_provider_capability_hash: reservation.bindings.instrument_status_provider_capability_hash,
+    instrument_status_provider_certification_hash: reservation.bindings.instrument_status_provider_certification_hash,
+    harness_hash: reservation.bindings.harness_hash,
+    assumptions_hash: reservation.bindings.assumptions_hash,
+    symbol: "BTCUSDT",
+    timeframe: "5m",
+    initial_cash: 1_000,
+    order,
+    cost_policy: { policy_id: "fixture", version: "1", fee_bps: 0, slippage_bps: 0, liquidation_fee_bps: 50 },
+    simulator_policy: {
+      version: REPLAY_SIMULATOR_POLICY_VERSION,
+      signal_visibility: "closed_candle",
+      earliest_execution: "next_open",
+      same_bar_policy: "stop_first",
+      gap_fill_policy: "worse_open",
+      position_accounting: "average_cost",
+      funding_timing: "exact_event",
+      end_of_data: "mark_open",
+      margin_evaluation: "before_strategy_orders",
+    },
+    margin_policy: {
+      policy_id: "fixture",
+      version: "rd-replay-isolated-margin-v7",
+      mode: "isolated",
+      collateral_asset: "USDT",
+      isolated_collateral: 1_000,
+      initial_margin_rate: 0.1,
+      maintenance_tier: {
+        tier_id: "tier-1", snapshot_ref: "fixture:margin-tier-1", snapshot_hash: "5".repeat(64),
+        notional_floor: 0, notional_cap: 50_000, maintenance_margin_rate: 0.005, maintenance_amount: 0,
+      },
+      cashflow_scope: "position_attributed",
+      collateral_transfer: "reserve_at_entry_release_at_terminal_if_flat",
+      settled_cashflow_account: "isolated_margin_collateral",
+      observation_scope: "source_event_path",
+      mark_source_policy: "complete_exact_mark_else_ohlcv_adverse",
+      maintenance_trigger: "margin_balance_below_maintenance_requirement",
+      breach_terminal_priority: "risk_before_strategy_exit",
+      breach_evidence: "first_observed_source_event",
+      maintenance_breach_action: "exact_observation_full_liquidation_else_terminal_failure",
+      liquidation: "simulated_full_close",
+      liquidation_trigger_sources: "mark_or_funding_mark",
+      liquidation_execution_price: "trigger_mark_adverse_slippage",
+      liquidation_quantity: "full_position",
+      liquidation_order_priority: "cancel_strategy_exits_before_forced_fill",
+      liquidation_deficit: "fail_without_result",
+    },
+    random_seed: 1,
+  }
+}
 
 function openDb(): Database {
   const db = new Database(":memory:")

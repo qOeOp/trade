@@ -15,6 +15,7 @@ import {
   REPLAY_AGGREGATE_TRADE_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION,
   REPLAY_AGGREGATE_TRADE_EVIDENCE_ADMISSION_SCHEMA_VERSION,
   REPLAY_CROSS_SOURCE_ORDERING_ADMISSION_SCHEMA_VERSION,
+  REPLAY_DECISION_OBSERVATION_BUNDLE_ADMISSION_SCHEMA_VERSION,
   DRAFT_AUTHORIZATION_SCHEMA_VERSION,
   TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION,
   assertDraftStrategyAuthorization,
@@ -27,6 +28,7 @@ import {
   createReplayAggregateTradeProviderCertificationTermination,
   createReplayAggregateTradeEvidenceAdmissionSnapshot,
   createReplayCrossSourceOrderingAdmissionSnapshot,
+  createReplayDecisionObservationBundleAdmissionSnapshot,
   createReplayReservationCancellationSnapshot,
   createReplayAttemptCancellationSnapshot,
   createReplayAttemptCancellationObservationSnapshot,
@@ -362,6 +364,65 @@ test("Replay Attempt Lease snapshot carries a monotonic fencing generation", () 
   }
   expect(hashReplayAttemptLeaseSnapshot(lease)).toHaveLength(64)
   expect(() => hashReplayAttemptLeaseSnapshot({ ...lease, lease_expires_at: lease.heartbeat_at })).toThrow(/timestamps/)
+})
+
+test("Replay decision observation Bundle admission is immutable non-economic authority", () => {
+  const value = createReplayDecisionObservationBundleAdmissionSnapshot({
+    schema_version: REPLAY_DECISION_OBSERVATION_BUNDLE_ADMISSION_SCHEMA_VERSION,
+    admission_id: "observation-bundle-admission-1",
+    admission_ref: "admission://decision-observation-bundle/1",
+    status: "admitted",
+    issued_at: "2026-07-14T00:10:00Z",
+    authority_id: "research-control-plane",
+    admission_policy_version: "rd-decision-observation-bundle-admission-v1",
+    trial_id: "trial-1",
+    run_id: "run-1",
+    reservation_ref: "reservation://trial-1",
+    reservation_hash: HASH,
+    request_schema_version: "trade.rd-replay-execution-request.v30",
+    request_hash: "b".repeat(64),
+    dataset_manifest_ref: "dataset://fixture",
+    dataset_hash: "c".repeat(64),
+    ordering_admission_ref: "admission://cross-source-ordering/1",
+    ordering_admission_hash: "d".repeat(64),
+    wire_manifest_id: "source-event-wire-1",
+    wire_manifest_hash: "e".repeat(64),
+    wire_policy_version: "rd-replay-source-event-wire-v2",
+    decision_schedule_hash: "f".repeat(64),
+    decision_schedule_entry_count: 2,
+    bundle_id: "source-event-decision-observation-bundle-1",
+    bundle_hash: "1".repeat(64),
+    bundle_policy_version: "rd-replay-source-event-decision-observation-bundle-v1",
+    binding_set_id: "source-event-decision-schedule-observation-set-1",
+    binding_set_hash: "2".repeat(64),
+    projection_count: 2,
+    projections_hash: "3".repeat(64),
+    observation_values_hashes_hash: "4".repeat(64),
+    first_as_of_time: "2026-07-14T00:01:00Z",
+    last_as_of_time: "2026-07-14T00:02:00Z",
+    consumer_capability: "non_economic_decision_observation_audit",
+    scope: "pre_integration_non_economic_observation_audit_only",
+    parent_lineage_validation: "wire_identity_and_schedule_binding_only",
+    projection_derivation_compatibility: "not_certified",
+    decision_input_compatibility: "not_asserted",
+    harness_compatibility: "not_bound",
+    harness_invocation: "forbidden",
+    runner_compatibility: "not_bound",
+    decision_authority: "none",
+    signal_authority: "none",
+    order_authority: "none",
+    economic_authority: "none",
+  })
+  expect(value.admission_hash).toHaveLength(64)
+  const { admission_hash: _, ...body } = value
+  expect(() => createReplayDecisionObservationBundleAdmissionSnapshot({
+    ...body,
+    projection_count: 1,
+  })).toThrow("cardinality")
+  expect(() => createReplayDecisionObservationBundleAdmissionSnapshot({
+    ...body,
+    harness_invocation: "allowed" as "forbidden",
+  })).toThrow("cannot authorize execution")
 })
 
 test("Replay Resume Authorization binds a later target Attempt and detects mutation", () => {

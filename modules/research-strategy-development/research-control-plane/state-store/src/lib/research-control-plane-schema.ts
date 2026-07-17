@@ -576,6 +576,54 @@ BEGIN
   SELECT RAISE(ABORT, 'Replay cross-source ordering admission is immutable');
 END;
 
+CREATE TABLE IF NOT EXISTS rd_replay_decision_observation_bundle_admission (
+  admission_id TEXT PRIMARY KEY,
+  admission_ref TEXT NOT NULL UNIQUE,
+  admission_hash TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL CHECK(status = 'admitted'),
+  issued_at TEXT NOT NULL,
+  authority_id TEXT NOT NULL,
+  admission_policy_version TEXT NOT NULL,
+  trial_id TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  reservation_ref TEXT NOT NULL,
+  reservation_hash TEXT NOT NULL UNIQUE,
+  request_hash TEXT NOT NULL UNIQUE,
+  dataset_manifest_ref TEXT NOT NULL,
+  dataset_hash TEXT NOT NULL,
+  ordering_admission_ref TEXT NOT NULL,
+  ordering_admission_hash TEXT NOT NULL UNIQUE,
+  wire_manifest_id TEXT NOT NULL,
+  wire_manifest_hash TEXT NOT NULL UNIQUE,
+  decision_schedule_hash TEXT NOT NULL,
+  bundle_id TEXT NOT NULL UNIQUE,
+  bundle_hash TEXT NOT NULL UNIQUE,
+  binding_set_hash TEXT NOT NULL,
+  projection_count INTEGER NOT NULL CHECK(projection_count > 0),
+  projections_hash TEXT NOT NULL,
+  observation_values_hashes_hash TEXT NOT NULL,
+  consumer_capability TEXT NOT NULL CHECK(consumer_capability = 'non_economic_decision_observation_audit'),
+  scope TEXT NOT NULL CHECK(scope = 'pre_integration_non_economic_observation_audit_only'),
+  harness_invocation TEXT NOT NULL CHECK(harness_invocation = 'forbidden'),
+  economic_authority TEXT NOT NULL CHECK(economic_authority = 'none'),
+  admission_json TEXT NOT NULL CHECK(json_valid(admission_json)),
+  FOREIGN KEY (trial_id) REFERENCES rd_trial(trial_id),
+  FOREIGN KEY (ordering_admission_hash)
+    REFERENCES rd_replay_cross_source_ordering_admission(admission_hash)
+);
+
+CREATE TRIGGER IF NOT EXISTS rd_replay_decision_observation_bundle_admission_no_update
+BEFORE UPDATE ON rd_replay_decision_observation_bundle_admission
+BEGIN
+  SELECT RAISE(ABORT, 'Replay decision observation bundle admission is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS rd_replay_decision_observation_bundle_admission_no_delete
+BEFORE DELETE ON rd_replay_decision_observation_bundle_admission
+BEGIN
+  SELECT RAISE(ABORT, 'Replay decision observation bundle admission is immutable');
+END;
+
 CREATE TABLE IF NOT EXISTS rd_replay_reservation_cancellation (
   cancellation_id TEXT PRIMARY KEY,
   cancellation_ref TEXT NOT NULL UNIQUE,

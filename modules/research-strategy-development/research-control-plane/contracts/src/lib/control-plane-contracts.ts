@@ -11,6 +11,7 @@ export const REPLAY_AGGREGATE_TRADE_PROVIDER_CERTIFICATION_SCHEMA_VERSION = "tra
 export const REPLAY_AGGREGATE_TRADE_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION = "trade.rd-replay-aggregate-trade-provider-certification-termination.v1" as const
 export const REPLAY_AGGREGATE_TRADE_EVIDENCE_ADMISSION_SCHEMA_VERSION = "trade.rd-replay-aggregate-trade-evidence-admission.v1" as const
 export const REPLAY_CROSS_SOURCE_ORDERING_ADMISSION_SCHEMA_VERSION = "trade.rd-replay-cross-source-ordering-admission.v1" as const
+export const REPLAY_DECISION_OBSERVATION_BUNDLE_ADMISSION_SCHEMA_VERSION = "trade.rd-replay-decision-observation-bundle-admission.v1" as const
 export const REPLAY_RESERVATION_CANCELLATION_SCHEMA_VERSION = "trade.rd-replay-reservation-cancellation.v1" as const
 export const REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION = "trade.rd-replay-attempt-cancellation.v1" as const
 export const REPLAY_ATTEMPT_CANCELLATION_OBSERVATION_SCHEMA_VERSION = "trade.rd-replay-attempt-cancellation-observation.v1" as const
@@ -249,6 +250,59 @@ export interface ReplayCrossSourceOrderingAdmissionSnapshot {
 
 export type ReplayCrossSourceOrderingAdmissionBody = Omit<
   ReplayCrossSourceOrderingAdmissionSnapshot,
+  "admission_hash"
+>
+
+export interface ReplayDecisionObservationBundleAdmissionSnapshot {
+  schema_version: typeof REPLAY_DECISION_OBSERVATION_BUNDLE_ADMISSION_SCHEMA_VERSION
+  admission_id: string
+  admission_ref: string
+  admission_hash: string
+  status: "admitted"
+  issued_at: string
+  authority_id: string
+  admission_policy_version: string
+  trial_id: string
+  run_id: string
+  reservation_ref: string
+  reservation_hash: string
+  request_schema_version: "trade.rd-replay-execution-request.v30"
+  request_hash: string
+  dataset_manifest_ref: string
+  dataset_hash: string
+  ordering_admission_ref: string
+  ordering_admission_hash: string
+  wire_manifest_id: string
+  wire_manifest_hash: string
+  wire_policy_version: "rd-replay-source-event-wire-v2"
+  decision_schedule_hash: string
+  decision_schedule_entry_count: number
+  bundle_id: string
+  bundle_hash: string
+  bundle_policy_version: "rd-replay-source-event-decision-observation-bundle-v1"
+  binding_set_id: string
+  binding_set_hash: string
+  projection_count: number
+  projections_hash: string
+  observation_values_hashes_hash: string
+  first_as_of_time: string
+  last_as_of_time: string
+  consumer_capability: "non_economic_decision_observation_audit"
+  scope: "pre_integration_non_economic_observation_audit_only"
+  parent_lineage_validation: "wire_identity_and_schedule_binding_only"
+  projection_derivation_compatibility: "not_certified"
+  decision_input_compatibility: "not_asserted"
+  harness_compatibility: "not_bound"
+  harness_invocation: "forbidden"
+  runner_compatibility: "not_bound"
+  decision_authority: "none"
+  signal_authority: "none"
+  order_authority: "none"
+  economic_authority: "none"
+}
+
+export type ReplayDecisionObservationBundleAdmissionBody = Omit<
+  ReplayDecisionObservationBundleAdmissionSnapshot,
   "admission_hash"
 >
 
@@ -893,6 +947,85 @@ export function assertReplayCrossSourceOrderingAdmissionSnapshot(
   const { admission_hash: admissionHash, ...body } = value
   const expected = createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")
   if (admissionHash !== expected) fail("cross-source ordering admission hash mismatch")
+}
+
+export function createReplayDecisionObservationBundleAdmissionSnapshot(
+  body: ReplayDecisionObservationBundleAdmissionBody,
+): ReplayDecisionObservationBundleAdmissionSnapshot {
+  const value: ReplayDecisionObservationBundleAdmissionSnapshot = {
+    ...body,
+    admission_hash: createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex"),
+  }
+  assertReplayDecisionObservationBundleAdmissionSnapshot(value)
+  return value
+}
+
+export function assertReplayDecisionObservationBundleAdmissionSnapshot(
+  value: ReplayDecisionObservationBundleAdmissionSnapshot,
+): void {
+  if (value.schema_version !== REPLAY_DECISION_OBSERVATION_BUNDLE_ADMISSION_SCHEMA_VERSION) {
+    fail("decision observation bundle admission schema_version")
+  }
+  for (const [field, item] of Object.entries({
+    admission_id: value.admission_id,
+    admission_ref: value.admission_ref,
+    authority_id: value.authority_id,
+    admission_policy_version: value.admission_policy_version,
+    trial_id: value.trial_id,
+    run_id: value.run_id,
+    reservation_ref: value.reservation_ref,
+    dataset_manifest_ref: value.dataset_manifest_ref,
+    ordering_admission_ref: value.ordering_admission_ref,
+    wire_manifest_id: value.wire_manifest_id,
+    bundle_id: value.bundle_id,
+    binding_set_id: value.binding_set_id,
+  })) requireText(item, `decision_observation_bundle_admission.${field}`)
+  for (const [field, item] of Object.entries({
+    admission_hash: value.admission_hash,
+    reservation_hash: value.reservation_hash,
+    request_hash: value.request_hash,
+    dataset_hash: value.dataset_hash,
+    ordering_admission_hash: value.ordering_admission_hash,
+    wire_manifest_hash: value.wire_manifest_hash,
+    decision_schedule_hash: value.decision_schedule_hash,
+    bundle_hash: value.bundle_hash,
+    binding_set_hash: value.binding_set_hash,
+    projections_hash: value.projections_hash,
+    observation_values_hashes_hash: value.observation_values_hashes_hash,
+  })) requireHash(item, `decision_observation_bundle_admission.${field}`)
+  requireUtcTimestamp(value.issued_at, "decision_observation_bundle_admission.issued_at")
+  requireUtcTimestamp(value.first_as_of_time, "decision_observation_bundle_admission.first_as_of_time")
+  requireUtcTimestamp(value.last_as_of_time, "decision_observation_bundle_admission.last_as_of_time")
+  if (Date.parse(value.first_as_of_time) > Date.parse(value.last_as_of_time)) {
+    fail("decision observation bundle admission observation window")
+  }
+  if (!Number.isSafeInteger(value.decision_schedule_entry_count)
+      || value.decision_schedule_entry_count < 1
+      || !Number.isSafeInteger(value.projection_count)
+      || value.projection_count !== value.decision_schedule_entry_count) {
+    fail("decision observation bundle admission cardinality")
+  }
+  if (value.status !== "admitted"
+      || value.request_schema_version !== "trade.rd-replay-execution-request.v30"
+      || value.wire_policy_version !== "rd-replay-source-event-wire-v2"
+      || value.bundle_policy_version !== "rd-replay-source-event-decision-observation-bundle-v1"
+      || value.consumer_capability !== "non_economic_decision_observation_audit"
+      || value.scope !== "pre_integration_non_economic_observation_audit_only"
+      || value.parent_lineage_validation !== "wire_identity_and_schedule_binding_only"
+      || value.projection_derivation_compatibility !== "not_certified"
+      || value.decision_input_compatibility !== "not_asserted"
+      || value.harness_compatibility !== "not_bound"
+      || value.harness_invocation !== "forbidden"
+      || value.runner_compatibility !== "not_bound"
+      || value.decision_authority !== "none"
+      || value.signal_authority !== "none"
+      || value.order_authority !== "none"
+      || value.economic_authority !== "none") {
+    fail("decision observation bundle admission cannot authorize execution")
+  }
+  const { admission_hash: admissionHash, ...body } = value
+  const expected = createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")
+  if (admissionHash !== expected) fail("decision observation bundle admission hash mismatch")
 }
 
 export function createReplayReservationCancellationSnapshot(
