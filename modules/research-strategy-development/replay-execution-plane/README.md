@@ -98,6 +98,8 @@ R4.89 增加 non-economic Decision Observation Projection v1。Projection 将 PI
 
 R4.90 增加 non-economic Decision Schedule Observation Binding v1。它只引用外部冻结 Schedule v7/hash 的一个 entry，并强制 selected `decision_time` 等于 Projection `as_of_time`；schedule effect 仅作 opaque label 绑定，不在此复验 Request authority 或执行。Binding exact-field、自哈希并绑定 entry/projection/view/cut，Harness、Signal、Order、经济副作用和 Runner compatibility 仍明确禁止或未绑定。
 
+R4.91 增加 non-economic Decision Schedule Observation Binding Set v1。Set 要求 frozen Schedule 的每个 sequence 恰好一份 R4.90 binding，按 decision sequence 升序并共用同一 schedule hash；缺项、重复、乱序、跨 Schedule 混装即使重哈希也拒绝。它只证明 closed-world observation coverage，不执行 effect，也不接 Harness、Runner 或经济链。
+
 经济入口按唯一 `authorized_initial_order / authorized_order` 语义定位，不依赖 Schedule/Timeline 数组末位；可选退出必须是 Schedule 末位并以 `authorized_reduce_only_exit` 独立表达，不能冒充第二个入口。所有 post-entry evaluation 必须由 Source Reducer 运行时产生 Position/Cash State Snapshot，并正确表达 terminal-before-decision、pending Order 与 checkpoint/resume。
 
 Reservation 只控制新 Attempt claim；已准入 Attempt 由 lease/generation fencing。Runner 仅通过 Attempt-scoped Artifact Store port 访问证据，local-v1 使用 `fsync + hard-link CAS + directory fsync`，remote-v1 仍只有准入合同、没有 certified adapter。Control Plane 单写 Reservation、Lease、Checkpoint Receipt 与 Resume Authorization；Replay 不查询或修改 Trial。对象存储实现/认证、OS sandbox、multiple partial、动态 supplemental join、变更 accounting epoch、历史规则采集、部分强平、cross/shared portfolio、tick/L2、真实 partial liquidity、limit queue 与 fast mode 未完成。

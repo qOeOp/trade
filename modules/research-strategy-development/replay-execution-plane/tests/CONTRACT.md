@@ -16,6 +16,8 @@ R4.89 certification must prove observation-field safety: bar-open cannot expose 
 
 R4.90 certification must prove schedule/as-of binding without execution: every selected frozen entry binds only to the Projection at its exact decision time; distinct entries produce distinct causal prefixes. Time mismatch、stale frozen hash、effect substitution plus rehash and top-level field injection must fail, while the contract continues to forbid Harness invocation and all Decision/Signal/Order/economic authority.
 
+R4.91 certification must prove closed-world Schedule coverage: binding count equals frozen entry count; sequences are complete and ascending; every member shares one Schedule hash; binding and Projection identities are unique. Omission、duplicate、reorder、cross-Schedule mixing and locally rehashed attacks must fail without invoking Harness or producing any Decision/Signal/Order/economic effect.
+
 `OHLCV Oracle Fixture v1` 是 certification-only 的 ordered-price reference：只对 synthetic piecewise-linear observation trace 计算首个 simple-bracket crossing，用于证明 OHLC P1/P2 envelope containment、same-OHLC opposite outcome 与 sampling-density metamorphism。它不是 Market Data 合同、tick Replay 模式或真实成交事实。
 
 OHLCV Resolution Evidence v2 certification 必须覆盖 initial generation 1、stop replacement generation 2、partial-resize generation 2 及其 remaining quantity/order identity，并以重算 evidence/checkpoint hash 的 stale-generation 篡改证明自洽哈希不能替代跨 Artifact 的 SourceEvent/OrderEvent/Fill 绑定。
