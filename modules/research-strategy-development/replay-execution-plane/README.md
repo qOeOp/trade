@@ -140,7 +140,7 @@ R4.110 增加 Attempt-bound Execution Envelope v1。Envelope 同时绑定 Contro
 
 R4.111 增加 Dispatch Lease Admission v1。Admission 只在一次 Control Plane current-Lease observation 上证明 Envelope 的 Attempt/worker/generation/hash 精确且 `observed_at ∈ [heartbeat_at, lease_expires_at)`；续租必须先使用 successor Envelope，跨 Attempt retry 必须先使用新 root。该 observation 不是独立时钟证明，实际 dispatch/process/transport、Response、Harness 与全部执行/经济 authority 仍关闭。
 
-R4.112 增加 Control Plane Current Attempt Lease Observation Receipt v1 与 Replay Dispatch Lease Authority Binding v1。Control Plane 在单个只读 SQLite transaction 中按 Trial 读取 active Attempt 并生成 self-hashed receipt；Replay 只消费 receipt，精确绑定 R4.111 Admission 的 time、Lease hash、Attempt/worker/generation。Receipt 尚未持久化且 caller-supplied UTC 不是外部时钟证明；实际 dispatch/process/transport、Response、Harness 与经济 authority 仍关闭。
+R4.112 增加 Control Plane Current Attempt Lease Observation Receipt v1 与 Replay Dispatch Lease Authority Binding v1。Control Plane 在单个只读 SQLite transaction 中按 Trial 读取 active Attempt 并生成 self-hashed receipt；Replay 只消费 receipt，精确绑定 R4.111 Admission 的 time、Lease hash、Attempt/worker/generation。R4.113 将原 receipt 登记进 immutable create-or-identical SQLite registry：首次写入重验 current Lease，旧 generation 不得晚登记，重复内容幂等，冲突、UPDATE、DELETE拒绝，重启后可读。Receipt wire 未增加“来自 registry”声明，caller-supplied UTC 也不是外部时钟证明；实际 dispatch/process/transport、Response、Harness 与经济 authority 仍关闭。
 
 经济入口按唯一 `authorized_initial_order / authorized_order` 语义定位，不依赖 Schedule/Timeline 数组末位；可选退出必须是 Schedule 末位并以 `authorized_reduce_only_exit` 独立表达，不能冒充第二个入口。所有 post-entry evaluation 必须由 Source Reducer 运行时产生 Position/Cash State Snapshot，并正确表达 terminal-before-decision、pending Order 与 checkpoint/resume。
 
