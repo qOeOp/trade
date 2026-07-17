@@ -182,6 +182,10 @@ export function assertReplayAttemptLeaseObservationEnvelopeView(
       || Date.parse(value.observed_at) >= Date.parse(lease.lease_expires_at)) {
     throw new Error("decision harness Control Plane Lease Observation does not bind a fresh Lease")
   }
+  const { observation_hash: observationHash, ...body } = value
+  if (observationHash !== canonicalHash(body)) {
+    throw new Error("decision harness Control Plane Lease Observation hash mismatch")
+  }
 }
 
 const FIELDS = ["authority_observation_status", "binding_hash", "binding_id", "binding_policy_version",

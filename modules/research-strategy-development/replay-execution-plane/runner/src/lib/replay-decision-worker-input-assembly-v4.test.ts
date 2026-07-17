@@ -95,6 +95,9 @@ import {
   assertReplayDecisionHarnessDispatchEvidenceRegistration,
 } from "../../../contracts/src/lib/replay-decision-harness-dispatch-evidence-registration"
 import {
+  assertReplayDecisionHarnessDispatchClaim,
+} from "../../../contracts/src/lib/replay-decision-harness-dispatch-claim"
+import {
   assertReplayPositionOpenStateInputMaterialization,
 } from "../../../contracts/src/lib/replay-position-open-state-input-materialization"
 import {
@@ -115,6 +118,10 @@ import {
   readReplayDispatchEvidence,
   registerReplayDispatchEvidence,
 } from "./replay-dispatch-evidence-registry"
+import {
+  claimReplayDispatch,
+  readReplayDispatchClaim,
+} from "./replay-dispatch-claim-registry"
 import {
   assertReplayDecisionHarnessInvocationIdentityLineage,
   buildReplayDecisionHarnessInvocationIdentitySet,
@@ -1112,7 +1119,102 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       registered_at: "2026-07-14T00:00:32Z",
     })).toThrow("natural key is already registered with different authority")
 
-    const [registryFile] = readdirSync(dispatchEvidenceRegistryRoot)
+    const claimObservation = createReplayAttemptLeaseObservationSnapshot({
+      ...leaseObservationBody,
+      observation_id: "lease-observation-envelope-claim",
+      observation_ref: "observation://replay-attempt-lease/envelope-claim",
+      observed_at: "2026-07-14T00:00:32Z",
+    })
+    expect(() => claimReplayDispatch({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_registration: dispatchEvidenceRegistration,
+      revalidation_observation: leaseObservation,
+      dispatcher_claimant_id: "runner-claimant-1",
+      claimed_at: "2026-07-14T00:00:33Z",
+    })).toThrow("requires a post-registration Lease observation")
+    expect(() => claimReplayDispatch({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_registration: dispatchEvidenceRegistration,
+      revalidation_observation: claimObservation,
+      dispatcher_claimant_id: "runner-claimant-1",
+      claimed_at: attemptLease.lease_expires_at,
+    })).toThrow("must occur inside the revalidated Lease window")
+    const missingRegistrationRoot = mkdtempSync(join(tmpdir(), "replay-dispatch-claim-missing-"))
+    try {
+      expect(() => claimReplayDispatch({
+        registry_root: missingRegistrationRoot,
+        source_registration: dispatchEvidenceRegistration,
+        revalidation_observation: claimObservation,
+        dispatcher_claimant_id: "runner-claimant-1",
+        claimed_at: "2026-07-14T00:00:33Z",
+      })).toThrow("requires the exact durable Dispatch Evidence Registration")
+    } finally {
+      rmSync(missingRegistrationRoot, { recursive: true, force: true })
+    }
+    const claimRenewedObservation = createReplayAttemptLeaseObservationSnapshot({
+      ...leaseObservationBody,
+      observation_id: "lease-observation-envelope-claim-renewed",
+      observation_ref: "observation://replay-attempt-lease/envelope-claim-renewed",
+      observed_at: renewedLease.heartbeat_at,
+      lease_generation: renewedLease.lease_generation,
+      attempt_lease_hash: hashReplayAttemptLeaseSnapshot(renewedLease),
+      attempt_lease: renewedLease,
+    })
+    expect(() => claimReplayDispatch({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_registration: dispatchEvidenceRegistration,
+      revalidation_observation: claimRenewedObservation,
+      dispatcher_claimant_id: "runner-claimant-1",
+      claimed_at: "2026-07-14T00:02:01Z",
+    })).toThrow("registration or Lease revalidation drift")
+
+    const dispatchClaim = claimReplayDispatch({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_registration: dispatchEvidenceRegistration,
+      revalidation_observation: claimObservation,
+      dispatcher_claimant_id: "runner-claimant-1",
+      claimed_at: "2026-07-14T00:00:33Z",
+    })
+    expect(dispatchClaim.claim_effect)
+      .toBe("at_most_one_local_claimant_while_cas_record_is_preserved")
+    expect(dispatchClaim.delivery_guarantee).toBe("at_most_once_claim_can_lose_dispatch_before_occurrence")
+    expect(dispatchClaim.dispatch_authorization)
+      .toBe("cas_exclusivity_only_not_process_or_transport_authority")
+    expect(dispatchClaim.dispatch_occurrence).toBe("not_materialized")
+    expect(() => assertReplayDecisionHarnessDispatchClaim(dispatchClaim)).not.toThrow()
+    expect(claimReplayDispatch({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_registration: structuredClone(dispatchEvidenceRegistration),
+      revalidation_observation: structuredClone(claimObservation),
+      dispatcher_claimant_id: "runner-claimant-1",
+      claimed_at: "2026-07-14T00:00:34Z",
+    })).toEqual(dispatchClaim)
+    expect(() => claimReplayDispatch({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_registration: dispatchEvidenceRegistration,
+      revalidation_observation: claimObservation,
+      dispatcher_claimant_id: "runner-claimant-2",
+      claimed_at: "2026-07-14T00:00:34Z",
+    })).toThrow("natural key is already claimed by different authority")
+    expect(readReplayDispatchClaim({
+      registry_root: dispatchEvidenceRegistryRoot,
+      attempt_id: dispatchEvidenceRegistration.attempt_id,
+      lease_generation: dispatchEvidenceRegistration.lease_generation,
+      logical_request_id: dispatchEvidenceRegistration.logical_request_id,
+    })).toEqual(dispatchClaim)
+
+    const registryFiles = readdirSync(dispatchEvidenceRegistryRoot)
+    const claimFile = registryFiles.find((name) => name.startsWith("dispatch-claim-"))
+    if (!claimFile) throw new Error("expected Replay Dispatch Claim registry file")
+    writeFileSync(join(dispatchEvidenceRegistryRoot, claimFile), "{}\n", "utf8")
+    expect(() => readReplayDispatchClaim({
+      registry_root: dispatchEvidenceRegistryRoot,
+      attempt_id: dispatchEvidenceRegistration.attempt_id,
+      lease_generation: dispatchEvidenceRegistration.lease_generation,
+      logical_request_id: dispatchEvidenceRegistration.logical_request_id,
+    })).toThrow()
+
+    const registryFile = registryFiles.find((name) => name.startsWith("dispatch-evidence-"))
     if (!registryFile) throw new Error("expected Replay Dispatch Evidence registry file")
     writeFileSync(join(dispatchEvidenceRegistryRoot, registryFile), "{}\n", "utf8")
     expect(() => readReplayDispatchEvidence({
