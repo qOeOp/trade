@@ -82,7 +82,9 @@ R4.81 由 Control Plane 为 R4.80 Ordering Attestation 签发 Reservation-bound 
 
 R4.82 新增 Admission-bound SourceEvent Projection Attestation v1。Data Adapter 必须同时验证 R4.81 Admission 与 R4.80 Ordering Attestation，再将每个 ordered envelope 一对一投影，保留 effective/availability、payload hash、native identity、source rank/sequence 与 ambiguity resolution。该对象固定为 hash-only、non-economic 且不声明 production SourceEvent compatibility；现有生产 SourceEvent 缺少上述 provenance 字段和 Aggregate Trade kind，因此本阶段不接 Runner/Engine，也不修改 Request、Result、Artifact、Checkpoint 或 Simulator。
 
-R4.83 冻结 parallel candidate SourceEvent Wire v2，而不修改已进入 Result/Checkpoint hash 的 legacy SourceEvent。Wire event 内嵌四源 canonical typed payload，并从 effective/availability、native identity、payload hash 与 cross-source key 重建 R4.80 Envelope；Manifest 绑定 Projection、Admission、Ordering Attestation、Reservation、Dataset 与整条 payload/event/envelope hash 链。迁移合同固定 legacy unchanged、parity not certified、Runner not bound、economic authority none；当前没有 materializer 或 Engine consumer。
+R4.83 冻结 parallel candidate SourceEvent Wire v2，而不修改已进入 Result/Checkpoint hash 的 legacy SourceEvent。Wire event 内嵌四源 canonical typed payload，并从 effective/availability、native identity、payload hash 与 cross-source key 重建 R4.80 Envelope；Manifest 绑定 Projection、Admission、Ordering Attestation、Reservation、Dataset 与整条 payload/event/envelope hash 链。迁移合同固定 legacy unchanged、parity not certified、Runner not bound、economic authority none；该阶段尚无 materializer 或 Engine consumer。
+
+R4.84 实现 Projection-bound Wire v2 materializer：先用原始四源 payload 重建并逐字节哈希核对 Ordering Attestation，再按 Projection 一对一内联 payload，缺失、额外、篡改或顺序漂移均 fail closed。另以真实 legacy Engine builder 认证 Instrument Status、Funding、bar-open/bar-range 的共有事件调度 correspondence；Aggregate Trade 仍为 Wire-only，payload、EventKey 与跨源同刻顺序 parity 明确不声明。该路径仍不绑定 Runner/Engine 经济消费。
 
 经济入口按唯一 `authorized_initial_order / authorized_order` 语义定位，不依赖 Schedule/Timeline 数组末位；可选退出必须是 Schedule 末位并以 `authorized_reduce_only_exit` 独立表达，不能冒充第二个入口。所有 post-entry evaluation 必须由 Source Reducer 运行时产生 Position/Cash State Snapshot，并正确表达 terminal-before-decision、pending Order 与 checkpoint/resume。
 
