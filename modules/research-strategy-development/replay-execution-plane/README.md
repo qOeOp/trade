@@ -102,6 +102,8 @@ R4.91 增加 non-economic Decision Schedule Observation Binding Set v1。Set 要
 
 R4.92 增加 portable non-economic Decision Observation Bundle v1。Bundle 内嵌完整 Binding Set 与每个 boundary 的实际 Projection，逐项绑定 id/hash、as-of、observation count、View/Cut hash，并分别折叠 payload/identity/value hashes。它仍要求 authoritative rebuild 重验外部 parent lineage；Decision Input compatibility 未声明，Harness、Artifact、Runner 与经济 authority 均未开放。
 
+R4.93 增加 Control Plane-owned Decision Observation Bundle Admission v1。签发时重验 authoritative reserved Trial、Reservation v9、Request v30、已登记 Ordering Admission、Wire v2、完整 frozen Schedule binding 与 Bundle，并以 immutable create-or-identical sidecar 只授予 `non_economic_decision_observation_audit`。该 receipt 仅认证 Wire identity 与 Schedule binding；Projection derivation 仍为 `not_certified`，Harness/Runner/Decision/Signal/Order/economic authority 均未开放。
+
 经济入口按唯一 `authorized_initial_order / authorized_order` 语义定位，不依赖 Schedule/Timeline 数组末位；可选退出必须是 Schedule 末位并以 `authorized_reduce_only_exit` 独立表达，不能冒充第二个入口。所有 post-entry evaluation 必须由 Source Reducer 运行时产生 Position/Cash State Snapshot，并正确表达 terminal-before-decision、pending Order 与 checkpoint/resume。
 
 Reservation 只控制新 Attempt claim；已准入 Attempt 由 lease/generation fencing。Runner 仅通过 Attempt-scoped Artifact Store port 访问证据，local-v1 使用 `fsync + hard-link CAS + directory fsync`，remote-v1 仍只有准入合同、没有 certified adapter。Control Plane 单写 Reservation、Lease、Checkpoint Receipt 与 Resume Authorization；Replay 不查询或修改 Trial。对象存储实现/认证、OS sandbox、multiple partial、动态 supplemental join、变更 accounting epoch、历史规则采集、部分强平、cross/shared portfolio、tick/L2、真实 partial liquidity、limit queue 与 fast mode 未完成。
