@@ -145,6 +145,9 @@ import {
   assertReplayDecisionHarnessWorkerV10ExecutionAdmissionClockAttestation,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-execution-admission-clock-attestation"
 import {
+  assertReplayDecisionHarnessWorkerV10ExecutionAdmissionCommand,
+} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-execution-admission-command"
+import {
   assertReplayPositionOpenStateInputMaterialization,
 } from "../../../contracts/src/lib/replay-position-open-state-input-materialization"
 import {
@@ -246,6 +249,14 @@ import {
   readReplayWorkerV10ExecutionAdmissionClockAttestation,
   registerReplayWorkerV10ExecutionAdmissionClockAttestation,
 } from "./replay-worker-v10-execution-admission-clock-attestation-registry"
+import {
+  assertReplayDecisionHarnessWorkerV10ExecutionAdmissionCommandLineage,
+  buildReplayDecisionHarnessWorkerV10ExecutionAdmissionCommand,
+} from "./replay-decision-harness-worker-v10-execution-admission-command"
+import {
+  issueReplayWorkerV10ExecutionAdmissionCommand,
+  readReplayWorkerV10ExecutionAdmissionCommand,
+} from "./replay-worker-v10-execution-admission-command-registry"
 import {
   assertReplayDecisionHarnessInvocationIdentityLineage,
   buildReplayDecisionHarnessInvocationIdentitySet,
@@ -2099,8 +2110,99 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       registry_root: dispatchEvidenceRegistryRoot,
       ...clockBindingInput,
     })).toEqual(clockBinding)
+    const commandInput = { source_clock_binding: clockBinding }
+    const executionAdmissionCommand = buildReplayDecisionHarnessWorkerV10ExecutionAdmissionCommand(commandInput)
+    expect(executionAdmissionCommand.status).toBe("issued_process_launch_intent_not_materialized")
+    expect(executionAdmissionCommand.command_instance_count).toBe(1)
+    expect(executionAdmissionCommand.execution_admission)
+      .toBe("granted_for_exact_attempt_bound_process_launch_intent_creation_only")
+    expect(executionAdmissionCommand.worker_request_hash).toBe(clockBinding.target_worker_request_hash)
+    expect(executionAdmissionCommand.dispatch_claim_hash).toBe(dispatchClaim.claim_hash)
+    expect(executionAdmissionCommand.current_lease_observation_hash).toBe(preIssueObservation.observation_hash)
+    expect(executionAdmissionCommand.registry_read_receipt_hash).toBe(registryReadReceipt.receipt_hash)
+    expect(executionAdmissionCommand.dispatch_clock_attestation_hash).toBe(clockAttestation.attestation_hash)
+    expect(executionAdmissionCommand.issued_at).toBe(clockAttestation.registry_read_completed_at)
+    expect(executionAdmissionCommand.valid_before).toBe(attemptLease.lease_expires_at)
+    expect(executionAdmissionCommand.blockers).toEqual([
+      "attempt_bound_stdio_process_launch_intent_not_materialized",
+      "attempt_bound_stdio_process_receipt_not_materialized",
+      "worker_request_frame_write_and_decode_not_materialized",
+      "worker_response_frame_read_and_admission_not_materialized",
+    ])
+    expect(executionAdmissionCommand.attempt_bound_process_launch_intent_count).toBe(0)
+    expect(executionAdmissionCommand.dispatch_occurrence).toBe("not_materialized")
+    expect(executionAdmissionCommand.harness_invocation).toBe("forbidden")
+    expect(() => assertReplayDecisionHarnessWorkerV10ExecutionAdmissionCommand(executionAdmissionCommand)).not.toThrow()
+    expect(() => assertReplayDecisionHarnessWorkerV10ExecutionAdmissionCommandLineage(
+      executionAdmissionCommand,
+      commandInput,
+    )).not.toThrow()
+    expect(() => assertReplayDecisionHarnessWorkerV10ExecutionAdmissionCommand({
+      ...executionAdmissionCommand,
+      attempt_bound_process_launch_intent_count: 1 as never,
+    })).toThrow("unsupported Execution Admission Command authority")
+    const missingCommandRoot = mkdtempSync(join(tmpdir(), "replay-worker-v10-execution-command-missing-"))
+    try {
+      expect(() => issueReplayWorkerV10ExecutionAdmissionCommand({
+        registry_root: missingCommandRoot,
+        ...commandInput,
+      })).toThrow("requires the exact durable clock attestation binding")
+    } finally {
+      rmSync(missingCommandRoot, { recursive: true, force: true })
+    }
+    expect(issueReplayWorkerV10ExecutionAdmissionCommand({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...commandInput,
+    })).toEqual(executionAdmissionCommand)
+    expect(readReplayWorkerV10ExecutionAdmissionCommand({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...commandInput,
+    })).toEqual(executionAdmissionCommand)
+
+    const alternateClockIdentityHash = replayDispatchClockAttestationIdentityHash({
+      source_registry_read_receipt_hash: registryReadReceipt.receipt_hash,
+      registry_read_started_at: registryReadReceipt.read_at,
+      registry_read_completed_at: "2026-07-14T00:00:37Z",
+      registry_read_started_monotonic_ns: "3000000",
+      registry_read_completed_monotonic_ns: "3000200",
+      attestation_policy_version: REPLAY_DISPATCH_CLOCK_ATTESTATION_POLICY_VERSION,
+    })
+    const alternateClockAttestation = createReplayDispatchClockAttestation({
+      ...((({ attestation_hash: _hash, ...body }) => body)(clockAttestation)),
+      attestation_id: `replay-dispatch-clock-attestation-${alternateClockIdentityHash.slice(0, 24)}`,
+      attestation_ref: `attestation://replay-dispatch-clock/${alternateClockIdentityHash.slice(0, 24)}`,
+      registry_read_completed_at: "2026-07-14T00:00:37Z",
+      registry_read_completed_monotonic_ns: "3000200",
+    })
+    const alternateClockBindingInput = {
+      source_registry_provenance: registryProvenance,
+      control_plane_clock_attestation: alternateClockAttestation,
+    }
+    const alternateClockBinding = registerReplayWorkerV10ExecutionAdmissionClockAttestation({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...alternateClockBindingInput,
+    })
+    const alternateCommand = buildReplayDecisionHarnessWorkerV10ExecutionAdmissionCommand({
+      source_clock_binding: alternateClockBinding,
+    })
+    expect(alternateCommand.command_key).toBe(executionAdmissionCommand.command_key)
+    expect(alternateCommand.command_hash).not.toBe(executionAdmissionCommand.command_hash)
+    expect(() => issueReplayWorkerV10ExecutionAdmissionCommand({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_clock_binding: alternateClockBinding,
+    })).toThrow("natural key is already issued with different evidence")
+
+    const commandFile = readdirSync(dispatchEvidenceRegistryRoot)
+      .find((name) => name.startsWith("worker-v10-execution-admission-command-"))
+    if (!commandFile) throw new Error("expected Execution Admission Command file")
+    writeFileSync(join(dispatchEvidenceRegistryRoot, commandFile), "{}\n", "utf8")
+    expect(() => readReplayWorkerV10ExecutionAdmissionCommand({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...commandInput,
+    })).toThrow()
     const clockBindingFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name.startsWith("worker-v10-execution-admission-clock-attestation-"))
+      .find((name) => name
+        === `worker-v10-execution-admission-clock-attestation-${clockBinding.binding_key}.json`)
     if (!clockBindingFile) throw new Error("expected Execution Admission clock attestation file")
     writeFileSync(join(dispatchEvidenceRegistryRoot, clockBindingFile), "{}\n", "utf8")
     expect(() => readReplayWorkerV10ExecutionAdmissionClockAttestation({
