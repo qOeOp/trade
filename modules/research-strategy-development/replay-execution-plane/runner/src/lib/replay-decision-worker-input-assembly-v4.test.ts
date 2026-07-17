@@ -129,6 +129,9 @@ import {
   assertReplayDecisionHarnessWorkerV10ExecutionAdmissionContract,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-execution-admission-contract"
 import {
+  assertReplayDecisionHarnessWorkerV10ExecutionAdmissionPreIssueBundle,
+} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-execution-admission-pre-issue-bundle"
+import {
   assertReplayPositionOpenStateInputMaterialization,
 } from "../../../contracts/src/lib/replay-position-open-state-input-materialization"
 import {
@@ -206,6 +209,14 @@ import {
   readReplayWorkerV10ExecutionAdmissionContract,
   registerReplayWorkerV10ExecutionAdmissionContract,
 } from "./replay-worker-v10-execution-admission-contract-registry"
+import {
+  assertReplayDecisionHarnessWorkerV10ExecutionAdmissionPreIssueBundleLineage,
+  buildReplayDecisionHarnessWorkerV10ExecutionAdmissionPreIssueBundle,
+} from "./replay-decision-harness-worker-v10-execution-admission-pre-issue-bundle"
+import {
+  readReplayWorkerV10ExecutionAdmissionPreIssueBundle,
+  registerReplayWorkerV10ExecutionAdmissionPreIssueBundle,
+} from "./replay-worker-v10-execution-admission-pre-issue-registry"
 import {
   assertReplayDecisionHarnessInvocationIdentityLineage,
   buildReplayDecisionHarnessInvocationIdentitySet,
@@ -1733,57 +1744,6 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       registry_root: dispatchEvidenceRegistryRoot,
       source_successor_transport_contract: successorTransportContract,
     })).toEqual(executionAdmissionContract)
-    const executionAdmissionFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name.startsWith("worker-v10-execution-admission-contract-"))
-    if (!executionAdmissionFile) throw new Error("expected Replay Worker v10 Execution Admission Contract file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, executionAdmissionFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10ExecutionAdmissionContract({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_successor_transport_contract: successorTransportContract,
-    })).toThrow()
-
-    const successorTransportFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name.startsWith("worker-v10-successor-transport-contract-"))
-    if (!successorTransportFile) throw new Error("expected Replay Worker v10 successor Transport Contract file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, successorTransportFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10SuccessorTransportContract({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_negative_probe_receipt: negativeProbeReceipt,
-    })).toThrow()
-
-    const negativeProbeFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name.startsWith("worker-v10-negative-probe-receipt-"))
-    if (!negativeProbeFile) throw new Error("expected Replay Worker v10 negative probe receipt file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, negativeProbeFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10NegativeProbeReceipt({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_stdio_capability: durableStdioCapability,
-    })).toThrow()
-
-    const transportContractFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name.startsWith("worker-v10-transport-contract-"))
-    if (!transportContractFile) throw new Error("expected Replay Worker v10 Transport Contract registry file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, transportContractFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10TransportContract({
-      registry_root: dispatchEvidenceRegistryRoot,
-      ...transportContractInput,
-    })).toThrow()
-
-    const competingObservation = createReplayAttemptLeaseObservationSnapshot({
-      ...leaseObservationBody,
-      observation_id: "lease-observation-envelope-competing",
-      observation_ref: "observation://replay-attempt-lease/envelope-competing",
-      observed_at: "2026-07-14T00:00:31Z",
-    })
-    const competingBinding = buildReplayDecisionHarnessDispatchLeaseAuthorityBinding({
-      source_execution_envelope: executionEnvelope,
-      control_plane_lease_observation: competingObservation,
-    })
-    expect(() => registerReplayDispatchEvidence({
-      registry_root: dispatchEvidenceRegistryRoot,
-      authority_binding: competingBinding,
-      registered_at: "2026-07-14T00:00:32Z",
-    })).toThrow("natural key is already registered with different authority")
 
     const claimObservation = createReplayAttemptLeaseObservationSnapshot({
       ...leaseObservationBody,
@@ -1868,6 +1828,150 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       lease_generation: dispatchEvidenceRegistration.lease_generation,
       logical_request_id: dispatchEvidenceRegistration.logical_request_id,
     })).toEqual(dispatchClaim)
+
+    const preIssueObservation = createReplayAttemptLeaseObservationSnapshot({
+      ...leaseObservationBody,
+      observation_id: "lease-observation-envelope-pre-issue",
+      observation_ref: "observation://replay-attempt-lease/envelope-pre-issue",
+      observed_at: "2026-07-14T00:00:34Z",
+    })
+    const preIssueInput = {
+      source_execution_admission_contract: executionAdmissionContract,
+      source_dispatch_claim: dispatchClaim,
+      source_current_lease_observation: preIssueObservation,
+    }
+    const preIssueBundle = buildReplayDecisionHarnessWorkerV10ExecutionAdmissionPreIssueBundle(preIssueInput)
+    expect(preIssueBundle.status).toBe("claim_and_lease_evidence_bound_command_issue_blocked")
+    expect(preIssueBundle.durable_claim_binding).toBe("exact_local_cas_dispatch_claim_bound")
+    expect(preIssueBundle.lease_revalidation_status)
+      .toBe("fresh_under_control_plane_receipt_with_caller_supplied_clock_only")
+    expect(preIssueBundle.predecessor_blocker_closure)
+      .toBe("dispatch_claim_and_current_lease_revalidation_bound_without_closing_provenance_or_clock")
+    expect(preIssueBundle.control_plane_registry_read_provenance)
+      .toBe("not_materialized_observation_wire_only")
+    expect(preIssueBundle.clock_evidence).toBe("caller_supplied_utc_not_external_time_attestation")
+    expect(preIssueBundle.target_worker_request_hash).toBe(executionAdmissionContract.target_worker_request_hash)
+    expect(preIssueBundle.attempt_id).toBe(dispatchClaim.attempt_id)
+    expect(preIssueBundle.lease_generation).toBe(dispatchClaim.lease_generation)
+    expect(preIssueBundle.successor_process_artifact_hash)
+      .toBe(successorTransportContract.successor_process_artifact_hash)
+    expect(preIssueBundle.transport_contract_hash).toBe(successorTransportContract.contract_hash)
+    expect(preIssueBundle.execution_admission_command).toBeNull()
+    expect(preIssueBundle.execution_admission_command_instance_count).toBe(0)
+    expect(preIssueBundle.blockers).toEqual([
+      "control_plane_registry_read_provenance_not_materialized",
+      "independent_dispatch_clock_attestation_not_materialized",
+      "execution_admission_command_instance_not_issued",
+      "attempt_bound_stdio_process_launch_intent_not_materialized",
+      "attempt_bound_stdio_process_receipt_not_materialized",
+      "worker_request_frame_write_and_decode_not_materialized",
+      "worker_response_frame_read_and_admission_not_materialized",
+    ])
+    expect(preIssueBundle.dispatch_occurrence).toBe("not_materialized")
+    expect(preIssueBundle.transport_activation).toBe("blocked")
+    expect(preIssueBundle.harness_invocation).toBe("forbidden")
+    expect(() => assertReplayDecisionHarnessWorkerV10ExecutionAdmissionPreIssueBundle(preIssueBundle))
+      .not.toThrow()
+    expect(() => assertReplayDecisionHarnessWorkerV10ExecutionAdmissionPreIssueBundleLineage(
+      preIssueBundle,
+      preIssueInput,
+    )).not.toThrow()
+    expect(() => buildReplayDecisionHarnessWorkerV10ExecutionAdmissionPreIssueBundle({
+      ...preIssueInput,
+      source_current_lease_observation: claimObservation,
+    })).toThrow("observation is not post-claim fresh")
+    expect(() => buildReplayDecisionHarnessWorkerV10ExecutionAdmissionPreIssueBundle({
+      ...preIssueInput,
+      source_current_lease_observation: claimRenewedObservation,
+    })).toThrow("parent binding drift")
+    expect(() => assertReplayDecisionHarnessWorkerV10ExecutionAdmissionPreIssueBundle({
+      ...preIssueBundle,
+      execution_admission_command_instance_count: 1 as never,
+    })).toThrow("unsupported decision harness Worker v10 Execution Admission pre-issue authority")
+
+    const missingPreIssueRoot = mkdtempSync(join(tmpdir(), "replay-worker-v10-pre-issue-missing-"))
+    try {
+      expect(() => registerReplayWorkerV10ExecutionAdmissionPreIssueBundle({
+        registry_root: missingPreIssueRoot,
+        ...preIssueInput,
+      })).toThrow()
+    } finally {
+      rmSync(missingPreIssueRoot, { recursive: true, force: true })
+    }
+    expect(registerReplayWorkerV10ExecutionAdmissionPreIssueBundle({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...preIssueInput,
+    })).toEqual(preIssueBundle)
+    expect(registerReplayWorkerV10ExecutionAdmissionPreIssueBundle({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_execution_admission_contract: structuredClone(executionAdmissionContract),
+      source_dispatch_claim: structuredClone(dispatchClaim),
+      source_current_lease_observation: structuredClone(preIssueObservation),
+    })).toEqual(preIssueBundle)
+    expect(readReplayWorkerV10ExecutionAdmissionPreIssueBundle({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...preIssueInput,
+    })).toEqual(preIssueBundle)
+    const preIssueFile = readdirSync(dispatchEvidenceRegistryRoot)
+      .find((name) => name.startsWith("worker-v10-execution-admission-pre-issue-"))
+    if (!preIssueFile) throw new Error("expected Replay Worker v10 Execution Admission pre-issue file")
+    writeFileSync(join(dispatchEvidenceRegistryRoot, preIssueFile), "{}\n", "utf8")
+    expect(() => readReplayWorkerV10ExecutionAdmissionPreIssueBundle({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...preIssueInput,
+    })).toThrow()
+
+    const executionAdmissionFile = readdirSync(dispatchEvidenceRegistryRoot)
+      .find((name) => name.startsWith("worker-v10-execution-admission-contract-"))
+    if (!executionAdmissionFile) throw new Error("expected Replay Worker v10 Execution Admission Contract file")
+    writeFileSync(join(dispatchEvidenceRegistryRoot, executionAdmissionFile), "{}\n", "utf8")
+    expect(() => readReplayWorkerV10ExecutionAdmissionContract({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_successor_transport_contract: successorTransportContract,
+    })).toThrow()
+
+    const successorTransportFile = readdirSync(dispatchEvidenceRegistryRoot)
+      .find((name) => name.startsWith("worker-v10-successor-transport-contract-"))
+    if (!successorTransportFile) throw new Error("expected Replay Worker v10 successor Transport Contract file")
+    writeFileSync(join(dispatchEvidenceRegistryRoot, successorTransportFile), "{}\n", "utf8")
+    expect(() => readReplayWorkerV10SuccessorTransportContract({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_negative_probe_receipt: negativeProbeReceipt,
+    })).toThrow()
+
+    const negativeProbeFile = readdirSync(dispatchEvidenceRegistryRoot)
+      .find((name) => name.startsWith("worker-v10-negative-probe-receipt-"))
+    if (!negativeProbeFile) throw new Error("expected Replay Worker v10 negative probe receipt file")
+    writeFileSync(join(dispatchEvidenceRegistryRoot, negativeProbeFile), "{}\n", "utf8")
+    expect(() => readReplayWorkerV10NegativeProbeReceipt({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_stdio_capability: durableStdioCapability,
+    })).toThrow()
+
+    const transportContractFile = readdirSync(dispatchEvidenceRegistryRoot)
+      .find((name) => name.startsWith("worker-v10-transport-contract-"))
+    if (!transportContractFile) throw new Error("expected Replay Worker v10 Transport Contract registry file")
+    writeFileSync(join(dispatchEvidenceRegistryRoot, transportContractFile), "{}\n", "utf8")
+    expect(() => readReplayWorkerV10TransportContract({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...transportContractInput,
+    })).toThrow()
+
+    const competingObservation = createReplayAttemptLeaseObservationSnapshot({
+      ...leaseObservationBody,
+      observation_id: "lease-observation-envelope-competing",
+      observation_ref: "observation://replay-attempt-lease/envelope-competing",
+      observed_at: "2026-07-14T00:00:31Z",
+    })
+    const competingBinding = buildReplayDecisionHarnessDispatchLeaseAuthorityBinding({
+      source_execution_envelope: executionEnvelope,
+      control_plane_lease_observation: competingObservation,
+    })
+    expect(() => registerReplayDispatchEvidence({
+      registry_root: dispatchEvidenceRegistryRoot,
+      authority_binding: competingBinding,
+      registered_at: "2026-07-14T00:00:32Z",
+    })).toThrow("natural key is already registered with different authority")
 
     const launchObservation = createReplayAttemptLeaseObservationSnapshot({
       ...leaseObservationBody,
