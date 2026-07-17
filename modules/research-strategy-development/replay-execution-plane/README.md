@@ -116,6 +116,8 @@ R4.98 增加独立 Initial Signal Supplemental Input Materialization v1。它只
 
 R4.99 增加 Decision Worker Input Assembly v1，但不创建 Worker Request。它把 R4.96 Context 与恰好一个同 Request 的输入物化来源组成 exact-field、自哈希 tuple：空 supplemental 复用 R4.97，非 position-open entry 可标记 `complete_non_executable_build_unbound`；非空 supplemental 复用 R4.98，但因尚无同 Request 的 Market materialization，必须标记 `incomplete_market_snapshot`；position-open 固定 `incomplete_runtime_state_snapshot`。source bundle、build attestation、invocation id、Harness 与 Runner 仍未绑定。
 
+R4.100 增加独立 Decision Market Input Materialization v1。它完整重建 Request/Bundle/Derivation Admission/R4.96 Context lineage，只按 Dataset market identity 与冻结 market requirement 从 admitted closed-bar observations 生成正式 Market Snapshot；supplemental mode/content 不属于该组件责任。空与非空 supplemental Request 在相同 market parents 下产生相同 Snapshot，但保持不同 Request/Context/materialization lineage。R4.99 v1 尚未升级消费该对象，Worker Request、Harness 与 Runner 仍关闭。
+
 经济入口按唯一 `authorized_initial_order / authorized_order` 语义定位，不依赖 Schedule/Timeline 数组末位；可选退出必须是 Schedule 末位并以 `authorized_reduce_only_exit` 独立表达，不能冒充第二个入口。所有 post-entry evaluation 必须由 Source Reducer 运行时产生 Position/Cash State Snapshot，并正确表达 terminal-before-decision、pending Order 与 checkpoint/resume。
 
 Reservation 只控制新 Attempt claim；已准入 Attempt 由 lease/generation fencing。Runner 仅通过 Attempt-scoped Artifact Store port 访问证据，local-v1 使用 `fsync + hard-link CAS + directory fsync`，remote-v1 仍只有准入合同、没有 certified adapter。Control Plane 单写 Reservation、Lease、Checkpoint Receipt 与 Resume Authorization；Replay 不查询或修改 Trial。对象存储实现/认证、OS sandbox、multiple partial、滚动 supplemental requirement/window、变更 accounting epoch、历史规则采集、部分强平、cross/shared portfolio、tick/L2、真实 partial liquidity、limit queue 与 fast mode 未完成。
