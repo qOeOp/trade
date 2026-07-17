@@ -113,7 +113,7 @@ export function createReplayDecisionHarnessWorkerRequestV10Materialization(
 export function assertReplayDecisionHarnessWorkerRequestV10(
   value: ReplayDecisionHarnessWorkerRequestV10,
 ): void {
-  assertFields(value, REQUEST_FIELDS, "decision harness Worker Request v10")
+  assertFields(value, REPLAY_DECISION_HARNESS_WORKER_REQUEST_V10_FIELDS, "decision harness Worker Request v10")
   if (value.schema_version !== REPLAY_DECISION_HARNESS_TARGET_WORKER_REQUEST_SCHEMA_VERSION
       || value.worker_protocol_version !== REPLAY_DECISION_HARNESS_TARGET_WORKER_PROTOCOL_VERSION
       || value.identity_policy_version !== REPLAY_DECISION_HARNESS_LOGICAL_REQUEST_IDENTITY_POLICY_VERSION
@@ -248,12 +248,14 @@ export function assertReplayDecisionHarnessWorkerRequestV10Materialization(
   }
 }
 
-const REQUEST_FIELDS = ["artifact_hash", "code_admission_hash", "decision_input_snapshot",
+export const REPLAY_DECISION_HARNESS_WORKER_REQUEST_V10_FIELDS = Object.freeze([
+  "artifact_hash", "code_admission_hash", "decision_input_snapshot",
   "decision_input_snapshot_hash", "decision_market_input_snapshot", "decision_market_input_snapshot_hash",
   "decision_state_snapshot", "decision_state_snapshot_hash", "execution_admission", "execution_envelope",
   "identity_policy_version", "legacy_migration_status", "legacy_v9_invocation_id", "logical_request_id",
   "request_context", "request_context_hash", "request_hash", "run_id", "schema_version", "source_bundle_hash",
-  "transport_status", "worker_protocol_version"].sort()
+  "transport_status", "worker_protocol_version",
+].sort())
 const MATERIALIZATION_FIELDS = ["activation_gate", "activation_status", "decision_output_authority",
   "economic_authority", "execution_attempt_identity", "execution_envelope", "field_policy", "harness_invocation",
   "identity_policy_version", "logical_request_ids_hash", "materialization_hash", "materialization_id",
@@ -263,7 +265,7 @@ const MATERIALIZATION_FIELDS = ["activation_gate", "activation_status", "decisio
   "signal_authority", "source_identity_upgrade", "source_identity_upgrade_hash", "source_identity_upgrade_id",
   "transport", "trial_authority", "worker_protocol_version", "worker_request_schema_version"].sort()
 
-function assertFields(value: object, expected: string[], label: string): void {
+function assertFields(value: object, expected: readonly string[], label: string): void {
   if (canonicalHash(Object.keys(value).sort()) !== canonicalHash(expected)) {
     throw new Error(`${label} field whitelist drift`)
   }
