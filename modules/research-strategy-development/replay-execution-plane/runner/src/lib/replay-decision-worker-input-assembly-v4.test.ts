@@ -126,6 +126,9 @@ import {
   assertReplayDecisionHarnessWorkerV10SuccessorTransportContract,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-transport-contract"
 import {
+  assertReplayDecisionHarnessWorkerV10ExecutionAdmissionContract,
+} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-execution-admission-contract"
+import {
   assertReplayPositionOpenStateInputMaterialization,
 } from "../../../contracts/src/lib/replay-position-open-state-input-materialization"
 import {
@@ -195,6 +198,14 @@ import {
   readReplayWorkerV10SuccessorTransportContract,
   registerReplayWorkerV10SuccessorTransportContract,
 } from "./replay-worker-v10-successor-transport-contract-registry"
+import {
+  assertReplayDecisionHarnessWorkerV10ExecutionAdmissionContractLineage,
+  buildReplayDecisionHarnessWorkerV10ExecutionAdmissionContract,
+} from "./replay-decision-harness-worker-v10-execution-admission-contract"
+import {
+  readReplayWorkerV10ExecutionAdmissionContract,
+  registerReplayWorkerV10ExecutionAdmissionContract,
+} from "./replay-worker-v10-execution-admission-contract-registry"
 import {
   assertReplayDecisionHarnessInvocationIdentityLineage,
   buildReplayDecisionHarnessInvocationIdentitySet,
@@ -1633,6 +1644,104 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       registry_root: dispatchEvidenceRegistryRoot,
       source_negative_probe_receipt: negativeProbeReceipt,
     })).toEqual(successorTransportContract)
+
+    const missingExecutionAdmissionRoot = mkdtempSync(join(tmpdir(), "replay-worker-v10-admission-missing-"))
+    try {
+      expect(() => registerReplayWorkerV10ExecutionAdmissionContract({
+        registry_root: missingExecutionAdmissionRoot,
+        source_successor_transport_contract: successorTransportContract,
+      })).toThrow()
+    } finally {
+      rmSync(missingExecutionAdmissionRoot, { recursive: true, force: true })
+    }
+    const executionAdmissionInput = {
+      source_successor_transport_contract: successorTransportContract,
+    }
+    const executionAdmissionContract = buildReplayDecisionHarnessWorkerV10ExecutionAdmissionContract(
+      executionAdmissionInput,
+    )
+    expect(executionAdmissionContract.status)
+      .toBe("authority_model_frozen_activation_blocked_zero_instance")
+    expect(executionAdmissionContract.execution_authority_model)
+      .toBe("separate_attempt_bound_execution_admission_command")
+    expect(executionAdmissionContract.request_v11_decision)
+      .toBe("not_required_for_authority_only_transition")
+    expect(executionAdmissionContract.worker_request_v10_role)
+      .toBe("immutable_non_executable_logical_payload_source")
+    expect(executionAdmissionContract.worker_request_marker_policy)
+      .toBe("preserved_not_overridden_or_reinterpreted")
+    expect(executionAdmissionContract.effective_executable_object)
+      .toBe("future_execution_admission_command_not_worker_request_v10")
+    expect(executionAdmissionContract.target_worker_request_execution_admission).toBe("not_granted")
+    expect(executionAdmissionContract.target_worker_request_transport_status).toBe("not_invoked")
+    expect(executionAdmissionContract.future_command_required_bindings).toEqual([
+      "worker_request_hash",
+      "logical_request_id",
+      "attempt_id",
+      "attempt_ordinal",
+      "worker_id",
+      "lease_generation",
+      "dispatch_claim_hash",
+      "current_lease_observation_hash",
+      "successor_process_artifact_hash",
+      "transport_contract_hash",
+    ])
+    expect(executionAdmissionContract.blockers).toEqual([
+      "exact_durable_dispatch_claim_not_bound",
+      "control_plane_registry_read_provenance_not_materialized",
+      "independent_dispatch_clock_attestation_not_materialized",
+      "current_lease_revalidation_for_admission_command_not_materialized",
+      "execution_admission_command_instance_not_issued",
+      "attempt_bound_stdio_process_launch_intent_not_materialized",
+      "attempt_bound_stdio_process_receipt_not_materialized",
+      "worker_request_frame_write_and_decode_not_materialized",
+      "worker_response_frame_read_and_admission_not_materialized",
+    ])
+    expect(executionAdmissionContract.admission_command_instance_count).toBe(0)
+    expect(executionAdmissionContract.request_frame_instance_count).toBe(0)
+    expect(executionAdmissionContract.request_write_receipt_count).toBe(0)
+    expect(executionAdmissionContract.request_decode_receipt_count).toBe(0)
+    expect(executionAdmissionContract.response_frame_instance_count).toBe(0)
+    expect(executionAdmissionContract.response_read_receipt_count).toBe(0)
+    expect(executionAdmissionContract.dispatch_occurrence).toBe("not_materialized")
+    expect(executionAdmissionContract.transport_activation).toBe("blocked")
+    expect(executionAdmissionContract.harness_invocation).toBe("forbidden")
+    expect(() => assertReplayDecisionHarnessWorkerV10ExecutionAdmissionContract(
+      executionAdmissionContract,
+    )).not.toThrow()
+    expect(() => assertReplayDecisionHarnessWorkerV10ExecutionAdmissionContractLineage(
+      executionAdmissionContract,
+      executionAdmissionInput,
+    )).not.toThrow()
+    expect(() => assertReplayDecisionHarnessWorkerV10ExecutionAdmissionContract({
+      ...executionAdmissionContract,
+      worker_request_marker_policy: "overridden" as never,
+    })).toThrow("unsupported decision harness Worker v10 Execution Admission Contract authority")
+    expect(() => assertReplayDecisionHarnessWorkerV10ExecutionAdmissionContract({
+      ...executionAdmissionContract,
+      admission_command_instance_count: 1 as never,
+    })).toThrow("unsupported decision harness Worker v10 Execution Admission Contract authority")
+    expect(registerReplayWorkerV10ExecutionAdmissionContract({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_successor_transport_contract: successorTransportContract,
+    })).toEqual(executionAdmissionContract)
+    expect(registerReplayWorkerV10ExecutionAdmissionContract({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_successor_transport_contract: structuredClone(successorTransportContract),
+    })).toEqual(executionAdmissionContract)
+    expect(readReplayWorkerV10ExecutionAdmissionContract({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_successor_transport_contract: successorTransportContract,
+    })).toEqual(executionAdmissionContract)
+    const executionAdmissionFile = readdirSync(dispatchEvidenceRegistryRoot)
+      .find((name) => name.startsWith("worker-v10-execution-admission-contract-"))
+    if (!executionAdmissionFile) throw new Error("expected Replay Worker v10 Execution Admission Contract file")
+    writeFileSync(join(dispatchEvidenceRegistryRoot, executionAdmissionFile), "{}\n", "utf8")
+    expect(() => readReplayWorkerV10ExecutionAdmissionContract({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_successor_transport_contract: successorTransportContract,
+    })).toThrow()
+
     const successorTransportFile = readdirSync(dispatchEvidenceRegistryRoot)
       .find((name) => name.startsWith("worker-v10-successor-transport-contract-"))
     if (!successorTransportFile) throw new Error("expected Replay Worker v10 successor Transport Contract file")
