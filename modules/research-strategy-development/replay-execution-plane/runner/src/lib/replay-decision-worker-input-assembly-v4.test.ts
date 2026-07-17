@@ -1,4 +1,7 @@
 import { expect, test } from "bun:test"
+import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import {
   REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION,
   REPLAY_ATTEMPT_LEASE_OBSERVATION_POLICY_VERSION,
@@ -89,6 +92,9 @@ import {
   assertReplayDecisionHarnessDispatchLeaseAuthorityBinding,
 } from "../../../contracts/src/lib/replay-decision-harness-dispatch-lease-authority-binding"
 import {
+  assertReplayDecisionHarnessDispatchEvidenceRegistration,
+} from "../../../contracts/src/lib/replay-decision-harness-dispatch-evidence-registration"
+import {
   assertReplayPositionOpenStateInputMaterialization,
 } from "../../../contracts/src/lib/replay-position-open-state-input-materialization"
 import {
@@ -105,6 +111,10 @@ import {
   assertReplayDecisionHarnessCodeAdmissionLineage,
   buildReplayDecisionHarnessCodeAdmission,
 } from "./replay-decision-harness-code-admission"
+import {
+  readReplayDispatchEvidence,
+  registerReplayDispatchEvidence,
+} from "./replay-dispatch-evidence-registry"
 import {
   assertReplayDecisionHarnessInvocationIdentityLineage,
   buildReplayDecisionHarnessInvocationIdentitySet,
@@ -1052,6 +1062,68 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
     source_execution_envelope: structuredClone(executionEnvelope),
     control_plane_lease_observation: structuredClone(leaseObservation),
   })).toEqual(dispatchAuthorityBinding)
+  const dispatchEvidenceRegistryRoot = mkdtempSync(join(tmpdir(), "replay-dispatch-evidence-"))
+  try {
+    expect(() => registerReplayDispatchEvidence({
+      registry_root: dispatchEvidenceRegistryRoot,
+      authority_binding: dispatchAuthorityBinding,
+      registered_at: attemptLease.lease_expires_at,
+    })).toThrow("must occur inside the observed Lease window")
+    const dispatchEvidenceRegistration = registerReplayDispatchEvidence({
+      registry_root: dispatchEvidenceRegistryRoot,
+      authority_binding: dispatchAuthorityBinding,
+      registered_at: "2026-07-14T00:00:31Z",
+    })
+    expect(dispatchEvidenceRegistration.source_authority_binding_hash)
+      .toBe(dispatchAuthorityBinding.binding_hash)
+    expect(dispatchEvidenceRegistration.evidence_status).toBe("durable_pre_dispatch_evidence_only")
+    expect(dispatchEvidenceRegistration.dispatch_claim).toBeNull()
+    expect(dispatchEvidenceRegistration.dispatch_eligibility)
+      .toBe("requires_future_current_lease_revalidation_and_one_time_dispatch_claim")
+    expect(dispatchEvidenceRegistration.dispatch_occurrence).toBe("not_materialized")
+    expect(() => assertReplayDecisionHarnessDispatchEvidenceRegistration(
+      dispatchEvidenceRegistration,
+    )).not.toThrow()
+    expect(registerReplayDispatchEvidence({
+      registry_root: dispatchEvidenceRegistryRoot,
+      authority_binding: structuredClone(dispatchAuthorityBinding),
+      registered_at: "2026-07-14T00:00:32Z",
+    })).toEqual(dispatchEvidenceRegistration)
+    expect(readReplayDispatchEvidence({
+      registry_root: dispatchEvidenceRegistryRoot,
+      attempt_id: dispatchEvidenceRegistration.attempt_id,
+      lease_generation: dispatchEvidenceRegistration.lease_generation,
+      logical_request_id: dispatchEvidenceRegistration.logical_request_id,
+    })).toEqual(dispatchEvidenceRegistration)
+
+    const competingObservation = createReplayAttemptLeaseObservationSnapshot({
+      ...leaseObservationBody,
+      observation_id: "lease-observation-envelope-competing",
+      observation_ref: "observation://replay-attempt-lease/envelope-competing",
+      observed_at: "2026-07-14T00:00:31Z",
+    })
+    const competingBinding = buildReplayDecisionHarnessDispatchLeaseAuthorityBinding({
+      source_execution_envelope: executionEnvelope,
+      control_plane_lease_observation: competingObservation,
+    })
+    expect(() => registerReplayDispatchEvidence({
+      registry_root: dispatchEvidenceRegistryRoot,
+      authority_binding: competingBinding,
+      registered_at: "2026-07-14T00:00:32Z",
+    })).toThrow("natural key is already registered with different authority")
+
+    const [registryFile] = readdirSync(dispatchEvidenceRegistryRoot)
+    if (!registryFile) throw new Error("expected Replay Dispatch Evidence registry file")
+    writeFileSync(join(dispatchEvidenceRegistryRoot, registryFile), "{}\n", "utf8")
+    expect(() => readReplayDispatchEvidence({
+      registry_root: dispatchEvidenceRegistryRoot,
+      attempt_id: dispatchEvidenceRegistration.attempt_id,
+      lease_generation: dispatchEvidenceRegistration.lease_generation,
+      logical_request_id: dispatchEvidenceRegistration.logical_request_id,
+    })).toThrow()
+  } finally {
+    rmSync(dispatchEvidenceRegistryRoot, { recursive: true, force: true })
+  }
   const renewedObservation = createReplayAttemptLeaseObservationSnapshot({
     ...leaseObservationBody,
     observation_id: "lease-observation-envelope-2",
