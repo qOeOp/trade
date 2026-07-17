@@ -106,6 +106,8 @@ R4.93 增加 Control Plane-owned Decision Observation Bundle Admission v1。签�
 
 R4.94 增加 Replay-owned Decision Observation Bundle Derivation Attestation v1。认证器逐 boundary 重验 `Wire → Gate → Trace → Cursor → Cut → View → Projection → Binding → Bundle`，并要求所有 boundary 共用同一 Wire/Gate/Trace/Cursor root；有效但来自不同 root 的成员也拒绝。Attestation 只携带父链 hash summary，独立复验仍需外部 parents；R4.93 Control Plane Admission 尚未绑定它，Harness/Runner/Decision/Signal/Order/economic authority 继续未开放。
 
+R4.95 增加 Control Plane-owned Decision Observation Bundle Derivation Admission v1。新 receipt 不修改 R4.93，而是把既有 Bundle Admission 与 R4.94 Attestation 的 Reservation、Request、Dataset、Ordering、Wire、Schedule、Bundle、Binding Set 和逐 boundary hashes 锁成 create-or-identical sidecar。Control Plane 只验证 attestation schema/hash 与 admitted Bundle binding，明确不重放 Replay parents；独立复验仍需外部父链，Harness/Runner/Decision/Signal/Order/economic authority 均未开放。
+
 经济入口按唯一 `authorized_initial_order / authorized_order` 语义定位，不依赖 Schedule/Timeline 数组末位；可选退出必须是 Schedule 末位并以 `authorized_reduce_only_exit` 独立表达，不能冒充第二个入口。所有 post-entry evaluation 必须由 Source Reducer 运行时产生 Position/Cash State Snapshot，并正确表达 terminal-before-decision、pending Order 与 checkpoint/resume。
 
 Reservation 只控制新 Attempt claim；已准入 Attempt 由 lease/generation fencing。Runner 仅通过 Attempt-scoped Artifact Store port 访问证据，local-v1 使用 `fsync + hard-link CAS + directory fsync`，remote-v1 仍只有准入合同、没有 certified adapter。Control Plane 单写 Reservation、Lease、Checkpoint Receipt 与 Resume Authorization；Replay 不查询或修改 Trial。对象存储实现/认证、OS sandbox、multiple partial、动态 supplemental join、变更 accounting epoch、历史规则采集、部分强平、cross/shared portfolio、tick/L2、真实 partial liquidity、limit queue 与 fast mode 未完成。
