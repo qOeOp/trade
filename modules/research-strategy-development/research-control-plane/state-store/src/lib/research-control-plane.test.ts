@@ -44,6 +44,7 @@ import {
   REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH,
   REPLAY_REQUEST_SCHEMA_VERSION,
   REPLAY_SIMULATOR_POLICY_VERSION,
+  REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION,
   REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION,
   REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
   canonicalHash,
@@ -64,6 +65,9 @@ import {
   assertReplayDecisionWorkerInputAssembly,
 } from "../../../../replay-execution-plane/contracts/src/lib/replay-decision-worker-input-assembly"
 import {
+  assertReplayDecisionMarketInputMaterialization,
+} from "../../../../replay-execution-plane/contracts/src/lib/replay-decision-market-input-materialization"
+import {
   buildReplayCrossSourceOrderingAttestation,
 } from "../../../../replay-execution-plane/data-adapter/src/lib/replay-cross-source-ordering"
 import { buildReplaySourceEventProjectionAttestation } from "../../../../replay-execution-plane/data-adapter/src/lib/replay-source-event-projection"
@@ -81,6 +85,10 @@ import {
   buildReplayDecisionWorkerInputAssembly,
 } from "../../../../replay-execution-plane/data-adapter/src/lib/replay-decision-worker-input-assembly"
 import {
+  assertReplayDecisionMarketInputMaterializationLineage,
+  buildReplayDecisionMarketInputMaterialization,
+} from "../../../../replay-execution-plane/data-adapter/src/lib/replay-decision-market-input-materialization"
+import {
   REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION,
   REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
   REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION,
@@ -97,6 +105,7 @@ import {
   createReplayInstrumentStatusProviderCertificationTermination,
   createReplayAggregateTradeProviderCertificationSnapshot,
   createReplayAggregateTradeProviderCertificationTermination,
+  createReplayDecisionObservationBundleDerivationAdmissionSnapshot,
   createReplayReservationCancellationSnapshot,
   createReplayAttemptCancellationSnapshot,
   createReplayAttemptCancellationObservationSnapshot,
@@ -724,6 +733,84 @@ test("Control Plane admits aggregate trade evidence only as a Reservation-bound 
         interval_ms: inputMaterializationInput.dataset_manifest.interval_ms + 1,
       },
     }), /bar duration differs from interval/)
+
+    const marketMaterializationInput = {
+      request,
+      dataset_manifest: inputMaterializationInput.dataset_manifest,
+      bundle,
+      derivation_admission: derivationAdmission,
+      harness_context_binding: harnessContextBinding,
+    }
+    const marketMaterialization = buildReplayDecisionMarketInputMaterialization(marketMaterializationInput)
+    assert.equal(marketMaterialization.supplemental_binding_validation, "not_inspected_outside_market_responsibility")
+    assert.equal(marketMaterialization.raw_dataset_revalidation, "not_performed")
+    assert.equal(marketMaterialization.worker_request_materialization, "forbidden")
+    assert.deepEqual(
+      marketMaterialization.entries[0]!.decision_market_input_snapshot,
+      inputMaterialization.entries[0]!.decision_market_input_snapshot,
+    )
+    assert.doesNotThrow(() => assertReplayDecisionMarketInputMaterialization(marketMaterialization))
+    assert.doesNotThrow(() => assertReplayDecisionMarketInputMaterializationLineage(
+      marketMaterialization,
+      marketMaterializationInput,
+    ))
+
+    const supplementalRequirementSet = {
+      schema_version: REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION,
+      mode: "signal_time_complete" as const,
+      undeclared_input_policy: "reject" as const,
+      requirements: [{
+        requirement_id: "fixture-open-interest",
+        source_id: "fixture-open-interest",
+        entity_key: request.symbol,
+        fact_key: "open_interest",
+        event_time_start_inclusive: "2026-07-14T03:00:00Z",
+        event_time_end_inclusive: "2026-07-14T03:00:00Z",
+        minimum_visible_event_count: 1,
+        maximum_latest_event_age_ms: 300_000,
+      }],
+    }
+    const nonEmptySupplementalRequest = {
+      ...request,
+      supplemental_facts_hash: "b".repeat(64),
+      supplemental_requirement_set: supplementalRequirementSet,
+      supplemental_requirement_set_hash: canonicalHash(supplementalRequirementSet),
+    }
+    const { admission_hash: _admissionHash, ...derivationAdmissionBody } = derivationAdmission
+    const nonEmptyDerivationAdmission = createReplayDecisionObservationBundleDerivationAdmissionSnapshot({
+      ...derivationAdmissionBody,
+      request_hash: canonicalHash(nonEmptySupplementalRequest),
+    })
+    const nonEmptyHarnessContextBinding = buildReplaySourceEventDecisionObservationHarnessContextBinding({
+      request: nonEmptySupplementalRequest,
+      bundle,
+      derivation_admission: nonEmptyDerivationAdmission,
+    })
+    const nonEmptyMarketMaterialization = buildReplayDecisionMarketInputMaterialization({
+      ...marketMaterializationInput,
+      request: nonEmptySupplementalRequest,
+      derivation_admission: nonEmptyDerivationAdmission,
+      harness_context_binding: nonEmptyHarnessContextBinding,
+    })
+    assert.equal(
+      nonEmptyMarketMaterialization.entries[0]!.decision_market_input_snapshot_hash,
+      marketMaterialization.entries[0]!.decision_market_input_snapshot_hash,
+    )
+    assert.notEqual(nonEmptyMarketMaterialization.request_hash, marketMaterialization.request_hash)
+    assert.notEqual(
+      nonEmptyMarketMaterialization.harness_context_binding_hash,
+      marketMaterialization.harness_context_binding_hash,
+    )
+    assert.throws(() => buildReplaySourceEventDecisionObservationInputMaterialization({
+      ...inputMaterializationInput,
+      request: nonEmptySupplementalRequest,
+      derivation_admission: nonEmptyDerivationAdmission,
+      harness_context_binding: nonEmptyHarnessContextBinding,
+    }), /only certifies empty supplemental requirements/)
+    assert.throws(() => assertReplayDecisionMarketInputMaterializationLineage(
+      nonEmptyMarketMaterialization,
+      marketMaterializationInput,
+    ), /parent lineage drift/)
 
     const workerInputAssemblyInput = {
       harness_context_binding: harnessContextBinding,

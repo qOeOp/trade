@@ -7,10 +7,8 @@ import {
   canonicalHash,
   createReplayDecisionInputSnapshot,
   createReplayDecisionMarketInputSnapshot,
-  replayDatasetManifestHash,
   type ReplayDatasetManifest,
   type ReplayExecutionRequest,
-  type ReplayMarketBar,
 } from "../../../contracts/src/lib/replay-contracts"
 import {
   assertReplaySourceEventDecisionObservationBundle,
@@ -37,6 +35,8 @@ import {
 import {
   assertReplaySourceEventDecisionObservationHarnessContextBindingLineage,
 } from "./replay-source-event-decision-observation-harness-context-binding"
+import { selectReplayDecisionMarketInputBars } from "./replay-decision-market-input-selection"
+import { buildReplayDecisionInputMaterializationCommonFields } from "./replay-decision-input-materialization-common-fields"
 
 export interface ReplaySourceEventDecisionObservationInputMaterializationInput {
   request: ReplayExecutionRequest
@@ -85,7 +85,7 @@ function buildBodyWithoutId(
       [],
       contextEntry.decision_time,
     )
-    const bars = selectMarketInputBars(input.request, projection.observations)
+    const bars = selectReplayDecisionMarketInputBars(input.request, projection.observations)
     const marketInputSnapshot = createReplayDecisionMarketInputSnapshot({
       request: input.request,
       decision_time: contextEntry.decision_time,
@@ -126,36 +126,10 @@ function buildBodyWithoutId(
     parent_context_binding_validation: "full_rebuild_against_request_bundle_and_derivation_admission",
     dataset_manifest_validation: "schema_and_request_identity_only",
     observation_source_validation: "admitted_bundle_projection_and_context_binding_lineage",
-    raw_dataset_revalidation: "not_performed",
     supplemental_input_materialization: "certified_empty_requirement_set_only",
     market_input_materialization: "certified_from_admitted_closed_bar_observations",
     state_input_materialization: "not_materialized_runtime_state_required",
-    worker_request_materialization: "forbidden",
-    harness_invocation: "forbidden",
-    decision_output_authority: "none",
-    signal_authority: "none",
-    order_authority: "none",
-    economic_authority: "none",
-    runner_compatibility: "not_bound",
-    request_schema_version: input.request.schema_version,
-    request_hash: canonicalHash(input.request),
-    run_id: input.request.run_id,
-    experiment_id: input.request.experiment_id,
-    trial_group_id: input.request.trial_group_id,
-    trial_id: input.request.trial_id,
-    candidate_id: input.request.candidate_id,
-    candidate_hash: input.request.candidate_hash,
-    reservation_ref: input.request.trial_reservation_ref,
-    reservation_hash: input.request.trial_reservation_hash,
-    dataset_manifest_ref: input.dataset_manifest.manifest_ref,
-    dataset_hash: input.dataset_manifest.data_hash,
-    dataset_manifest_hash: replayDatasetManifestHash(input.dataset_manifest),
-    derivation_admission_id: input.derivation_admission.admission_id,
-    derivation_admission_hash: input.derivation_admission.admission_hash,
-    bundle_id: input.bundle.bundle_id,
-    bundle_hash: input.bundle.bundle_hash,
-    harness_context_binding_id: input.harness_context_binding.binding_id,
-    harness_context_binding_hash: input.harness_context_binding.binding_hash,
+    ...buildReplayDecisionInputMaterializationCommonFields(input),
     supplemental_requirement_set_hash: input.request.supplemental_requirement_set_hash,
     decision_market_input_requirement_hash: input.request.decision_market_input_requirement_hash,
     decision_input_snapshot_schema_version: REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION,
@@ -175,18 +149,6 @@ function buildBodyWithoutId(
     first_decision_time: entries[0]!.decision_time,
     last_decision_time: entries.at(-1)!.decision_time,
   }
-}
-
-function selectMarketInputBars(
-  request: ReplayExecutionRequest,
-  observations: ReplaySourceEventDecisionObservationBundle["projections"][number]["observations"],
-): ReplayMarketBar[] {
-  const requirement = request.decision_market_input_requirement
-  if (requirement.mode === "none") return []
-  return observations
-    .filter((item) => item.observation_type === "closed_bar")
-    .map((item) => structuredClone(item.observation) as ReplayMarketBar)
-    .slice(-requirement.lookback_bars)
 }
 
 function assertInputAuthority(input: ReplaySourceEventDecisionObservationInputMaterializationInput): void {
