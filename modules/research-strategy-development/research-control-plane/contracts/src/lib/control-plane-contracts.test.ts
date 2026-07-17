@@ -16,6 +16,7 @@ import {
   REPLAY_AGGREGATE_TRADE_EVIDENCE_ADMISSION_SCHEMA_VERSION,
   REPLAY_CROSS_SOURCE_ORDERING_ADMISSION_SCHEMA_VERSION,
   REPLAY_DECISION_OBSERVATION_BUNDLE_ADMISSION_SCHEMA_VERSION,
+  REPLAY_DECISION_OBSERVATION_BUNDLE_DERIVATION_ADMISSION_SCHEMA_VERSION,
   DRAFT_AUTHORIZATION_SCHEMA_VERSION,
   TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION,
   assertDraftStrategyAuthorization,
@@ -29,6 +30,7 @@ import {
   createReplayAggregateTradeEvidenceAdmissionSnapshot,
   createReplayCrossSourceOrderingAdmissionSnapshot,
   createReplayDecisionObservationBundleAdmissionSnapshot,
+  createReplayDecisionObservationBundleDerivationAdmissionSnapshot,
   createReplayReservationCancellationSnapshot,
   createReplayAttemptCancellationSnapshot,
   createReplayAttemptCancellationObservationSnapshot,
@@ -423,6 +425,71 @@ test("Replay decision observation Bundle admission is immutable non-economic aut
     ...body,
     harness_invocation: "allowed" as "forbidden",
   })).toThrow("cannot authorize execution")
+})
+
+test("Replay decision observation derivation admission binds evidence without replay authority", () => {
+  const value = createReplayDecisionObservationBundleDerivationAdmissionSnapshot({
+    schema_version: REPLAY_DECISION_OBSERVATION_BUNDLE_DERIVATION_ADMISSION_SCHEMA_VERSION,
+    admission_id: "observation-derivation-admission-1",
+    admission_ref: "admission://decision-observation-derivation/1",
+    status: "admitted",
+    issued_at: "2026-07-14T00:11:00Z",
+    authority_id: "research-control-plane",
+    admission_policy_version: "rd-decision-observation-derivation-admission-v1",
+    trial_id: "trial-1",
+    run_id: "run-1",
+    reservation_ref: "reservation://trial-1",
+    reservation_hash: HASH,
+    request_hash: "b".repeat(64),
+    dataset_manifest_ref: "dataset://fixture",
+    dataset_hash: "c".repeat(64),
+    bundle_admission_ref: "admission://decision-observation-bundle/1",
+    bundle_admission_hash: "d".repeat(64),
+    ordering_admission_hash: "e".repeat(64),
+    wire_manifest_id: "source-event-wire-1",
+    wire_manifest_hash: "f".repeat(64),
+    decision_schedule_hash: "1".repeat(64),
+    bundle_id: "source-event-decision-observation-bundle-1",
+    bundle_hash: "2".repeat(64),
+    binding_set_id: "source-event-decision-schedule-observation-set-1",
+    binding_set_hash: "3".repeat(64),
+    derivation_attestation_id: "source-event-decision-observation-derivation-1",
+    derivation_attestation_hash: "4".repeat(64),
+    derivation_policy_version: "rd-replay-source-event-decision-observation-bundle-derivation-v1",
+    certification_result: "certified_against_supplied_parent_chain",
+    common_parent_rule: "one_wire_gate_trace_cursor_for_all_boundaries",
+    boundary_count: 2,
+    boundaries_hash: "5".repeat(64),
+    first_decision_time: "2026-07-14T00:01:00Z",
+    last_decision_time: "2026-07-14T00:02:00Z",
+    consumer_capability: "non_economic_decision_observation_derivation_audit",
+    scope: "pre_integration_non_economic_derivation_admission_only",
+    control_plane_validation: "attestation_schema_hash_and_admitted_bundle_binding",
+    control_plane_parent_replay: "not_performed",
+    independent_verification: "external_parent_replay_required",
+    decision_input_compatibility: "not_asserted",
+    harness_compatibility: "not_bound",
+    harness_invocation: "forbidden",
+    runner_compatibility: "not_bound",
+    decision_authority: "none",
+    signal_authority: "none",
+    order_authority: "none",
+    economic_authority: "none",
+  })
+  expect(value.admission_hash).toHaveLength(64)
+  const { admission_hash: _, ...body } = value
+  expect(() => createReplayDecisionObservationBundleDerivationAdmissionSnapshot({
+    ...body,
+    control_plane_parent_replay: "performed" as "not_performed",
+  })).toThrow("cannot authorize execution")
+  expect(() => createReplayDecisionObservationBundleDerivationAdmissionSnapshot({
+    ...body,
+    runner_compatibility: "bound" as "not_bound",
+  })).toThrow("cannot authorize execution")
+  expect(() => createReplayDecisionObservationBundleDerivationAdmissionSnapshot({
+    ...body,
+    unexpected_authority: "runner",
+  } as typeof body)).toThrow("field whitelist")
 })
 
 test("Replay Resume Authorization binds a later target Attempt and detects mutation", () => {

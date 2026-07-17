@@ -12,6 +12,7 @@ export const REPLAY_AGGREGATE_TRADE_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VE
 export const REPLAY_AGGREGATE_TRADE_EVIDENCE_ADMISSION_SCHEMA_VERSION = "trade.rd-replay-aggregate-trade-evidence-admission.v1" as const
 export const REPLAY_CROSS_SOURCE_ORDERING_ADMISSION_SCHEMA_VERSION = "trade.rd-replay-cross-source-ordering-admission.v1" as const
 export const REPLAY_DECISION_OBSERVATION_BUNDLE_ADMISSION_SCHEMA_VERSION = "trade.rd-replay-decision-observation-bundle-admission.v1" as const
+export const REPLAY_DECISION_OBSERVATION_BUNDLE_DERIVATION_ADMISSION_SCHEMA_VERSION = "trade.rd-replay-decision-observation-bundle-derivation-admission.v1" as const
 export const REPLAY_RESERVATION_CANCELLATION_SCHEMA_VERSION = "trade.rd-replay-reservation-cancellation.v1" as const
 export const REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION = "trade.rd-replay-attempt-cancellation.v1" as const
 export const REPLAY_ATTEMPT_CANCELLATION_OBSERVATION_SCHEMA_VERSION = "trade.rd-replay-attempt-cancellation-observation.v1" as const
@@ -303,6 +304,61 @@ export interface ReplayDecisionObservationBundleAdmissionSnapshot {
 
 export type ReplayDecisionObservationBundleAdmissionBody = Omit<
   ReplayDecisionObservationBundleAdmissionSnapshot,
+  "admission_hash"
+>
+
+export interface ReplayDecisionObservationBundleDerivationAdmissionSnapshot {
+  schema_version: typeof REPLAY_DECISION_OBSERVATION_BUNDLE_DERIVATION_ADMISSION_SCHEMA_VERSION
+  admission_id: string
+  admission_ref: string
+  admission_hash: string
+  status: "admitted"
+  issued_at: string
+  authority_id: string
+  admission_policy_version: string
+  trial_id: string
+  run_id: string
+  reservation_ref: string
+  reservation_hash: string
+  request_hash: string
+  dataset_manifest_ref: string
+  dataset_hash: string
+  bundle_admission_ref: string
+  bundle_admission_hash: string
+  ordering_admission_hash: string
+  wire_manifest_id: string
+  wire_manifest_hash: string
+  decision_schedule_hash: string
+  bundle_id: string
+  bundle_hash: string
+  binding_set_id: string
+  binding_set_hash: string
+  derivation_attestation_id: string
+  derivation_attestation_hash: string
+  derivation_policy_version: "rd-replay-source-event-decision-observation-bundle-derivation-v1"
+  certification_result: "certified_against_supplied_parent_chain"
+  common_parent_rule: "one_wire_gate_trace_cursor_for_all_boundaries"
+  boundary_count: number
+  boundaries_hash: string
+  first_decision_time: string
+  last_decision_time: string
+  consumer_capability: "non_economic_decision_observation_derivation_audit"
+  scope: "pre_integration_non_economic_derivation_admission_only"
+  control_plane_validation: "attestation_schema_hash_and_admitted_bundle_binding"
+  control_plane_parent_replay: "not_performed"
+  independent_verification: "external_parent_replay_required"
+  decision_input_compatibility: "not_asserted"
+  harness_compatibility: "not_bound"
+  harness_invocation: "forbidden"
+  runner_compatibility: "not_bound"
+  decision_authority: "none"
+  signal_authority: "none"
+  order_authority: "none"
+  economic_authority: "none"
+}
+
+export type ReplayDecisionObservationBundleDerivationAdmissionBody = Omit<
+  ReplayDecisionObservationBundleDerivationAdmissionSnapshot,
   "admission_hash"
 >
 
@@ -1028,6 +1084,90 @@ export function assertReplayDecisionObservationBundleAdmissionSnapshot(
   if (admissionHash !== expected) fail("decision observation bundle admission hash mismatch")
 }
 
+export function createReplayDecisionObservationBundleDerivationAdmissionSnapshot(
+  body: ReplayDecisionObservationBundleDerivationAdmissionBody,
+): ReplayDecisionObservationBundleDerivationAdmissionSnapshot {
+  const value: ReplayDecisionObservationBundleDerivationAdmissionSnapshot = {
+    ...body,
+    admission_hash: createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex"),
+  }
+  assertReplayDecisionObservationBundleDerivationAdmissionSnapshot(value)
+  return value
+}
+
+export function assertReplayDecisionObservationBundleDerivationAdmissionSnapshot(
+  value: ReplayDecisionObservationBundleDerivationAdmissionSnapshot,
+): void {
+  if (value.schema_version !== REPLAY_DECISION_OBSERVATION_BUNDLE_DERIVATION_ADMISSION_SCHEMA_VERSION) {
+    fail("decision observation bundle derivation admission schema_version")
+  }
+  assertExactSnapshotFields(
+    value,
+    REPLAY_DECISION_OBSERVATION_BUNDLE_DERIVATION_ADMISSION_FIELDS,
+    "decision observation bundle derivation admission",
+  )
+  for (const [field, item] of Object.entries({
+    admission_id: value.admission_id,
+    admission_ref: value.admission_ref,
+    authority_id: value.authority_id,
+    admission_policy_version: value.admission_policy_version,
+    trial_id: value.trial_id,
+    run_id: value.run_id,
+    reservation_ref: value.reservation_ref,
+    dataset_manifest_ref: value.dataset_manifest_ref,
+    bundle_admission_ref: value.bundle_admission_ref,
+    wire_manifest_id: value.wire_manifest_id,
+    bundle_id: value.bundle_id,
+    binding_set_id: value.binding_set_id,
+    derivation_attestation_id: value.derivation_attestation_id,
+  })) requireText(item, `decision_observation_bundle_derivation_admission.${field}`)
+  for (const [field, item] of Object.entries({
+    admission_hash: value.admission_hash,
+    reservation_hash: value.reservation_hash,
+    request_hash: value.request_hash,
+    dataset_hash: value.dataset_hash,
+    bundle_admission_hash: value.bundle_admission_hash,
+    ordering_admission_hash: value.ordering_admission_hash,
+    wire_manifest_hash: value.wire_manifest_hash,
+    decision_schedule_hash: value.decision_schedule_hash,
+    bundle_hash: value.bundle_hash,
+    binding_set_hash: value.binding_set_hash,
+    derivation_attestation_hash: value.derivation_attestation_hash,
+    boundaries_hash: value.boundaries_hash,
+  })) requireHash(item, `decision_observation_bundle_derivation_admission.${field}`)
+  requireUtcTimestamp(value.issued_at, "decision_observation_bundle_derivation_admission.issued_at")
+  requireUtcTimestamp(value.first_decision_time, "decision_observation_bundle_derivation_admission.first_decision_time")
+  requireUtcTimestamp(value.last_decision_time, "decision_observation_bundle_derivation_admission.last_decision_time")
+  if (Date.parse(value.first_decision_time) > Date.parse(value.last_decision_time)) {
+    fail("decision observation bundle derivation admission decision window")
+  }
+  if (!Number.isSafeInteger(value.boundary_count) || value.boundary_count < 1) {
+    fail("decision observation bundle derivation admission boundary_count")
+  }
+  if (value.status !== "admitted"
+      || value.derivation_policy_version !== "rd-replay-source-event-decision-observation-bundle-derivation-v1"
+      || value.certification_result !== "certified_against_supplied_parent_chain"
+      || value.common_parent_rule !== "one_wire_gate_trace_cursor_for_all_boundaries"
+      || value.consumer_capability !== "non_economic_decision_observation_derivation_audit"
+      || value.scope !== "pre_integration_non_economic_derivation_admission_only"
+      || value.control_plane_validation !== "attestation_schema_hash_and_admitted_bundle_binding"
+      || value.control_plane_parent_replay !== "not_performed"
+      || value.independent_verification !== "external_parent_replay_required"
+      || value.decision_input_compatibility !== "not_asserted"
+      || value.harness_compatibility !== "not_bound"
+      || value.harness_invocation !== "forbidden"
+      || value.runner_compatibility !== "not_bound"
+      || value.decision_authority !== "none"
+      || value.signal_authority !== "none"
+      || value.order_authority !== "none"
+      || value.economic_authority !== "none") {
+    fail("decision observation bundle derivation admission cannot authorize execution")
+  }
+  const { admission_hash: admissionHash, ...body } = value
+  const expected = createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")
+  if (admissionHash !== expected) fail("decision observation bundle derivation admission hash mismatch")
+}
+
 export function createReplayReservationCancellationSnapshot(
   body: ReplayReservationCancellationBody,
 ): ReplayReservationCancellationSnapshot {
@@ -1364,6 +1504,27 @@ function assertCancellationHash(
   const { cancellation_hash: cancellationHash, ...body } = value
   const expected = createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")
   if (cancellationHash !== expected) fail(`${label} hash mismatch`)
+}
+
+const REPLAY_DECISION_OBSERVATION_BUNDLE_DERIVATION_ADMISSION_FIELDS = [
+  "admission_hash", "admission_id", "admission_policy_version", "admission_ref",
+  "authority_id", "binding_set_hash", "binding_set_id", "boundaries_hash",
+  "boundary_count", "bundle_admission_hash", "bundle_admission_ref", "bundle_hash",
+  "bundle_id", "certification_result", "common_parent_rule", "consumer_capability",
+  "control_plane_parent_replay", "control_plane_validation", "dataset_hash",
+  "dataset_manifest_ref", "decision_authority", "decision_input_compatibility",
+  "decision_schedule_hash", "derivation_attestation_hash", "derivation_attestation_id",
+  "derivation_policy_version", "economic_authority", "first_decision_time",
+  "harness_compatibility", "harness_invocation", "independent_verification", "issued_at",
+  "last_decision_time", "order_authority", "ordering_admission_hash", "request_hash",
+  "reservation_hash", "reservation_ref", "run_id", "runner_compatibility", "schema_version",
+  "scope", "signal_authority", "status", "trial_id", "wire_manifest_hash", "wire_manifest_id",
+].sort()
+
+function assertExactSnapshotFields(value: object, expected: string[], label: string): void {
+  if (canonicalReservationJson(Object.keys(value).sort()) !== canonicalReservationJson(expected)) {
+    fail(`${label} field whitelist drift`)
+  }
 }
 
 function requireHash(value: unknown, field: string): void {

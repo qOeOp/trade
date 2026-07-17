@@ -7,22 +7,17 @@ import {
   AGGREGATE_TRADE_PROVIDER_POLICY_HASH,
 } from "../../../../../market-data-products/aggregate-trade-provider/src/lib/aggregate-trade-provider"
 import {
-  REPLAY_NO_DECISION_MARKET_INPUT,
-  REPLAY_NO_DECISION_MARKET_INPUT_HASH,
-  REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS,
-  REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH,
-  REPLAY_REQUEST_SCHEMA_VERSION,
-  REPLAY_SIMULATOR_POLICY_VERSION,
-  REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION,
-  canonicalHash,
-  createReplaySingleDecisionSchedule,
-  type ReplayExecutionRequest,
-} from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
-import {
   REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_BUNDLE_POLICY_VERSION,
   REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_BUNDLE_SCHEMA_VERSION,
   createReplaySourceEventDecisionObservationBundle,
 } from "../../../../replay-execution-plane/contracts/src/lib/replay-source-event-decision-observation-bundle"
+import {
+  REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_BUNDLE_DERIVATION_BOUNDARY_SCHEMA_VERSION,
+  REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_BUNDLE_DERIVATION_POLICY_VERSION,
+  REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_BUNDLE_DERIVATION_SCHEMA_VERSION,
+  createReplaySourceEventDecisionObservationBundleDerivationAttestation,
+  createReplaySourceEventDecisionObservationBundleDerivationBoundary,
+} from "../../../../replay-execution-plane/contracts/src/lib/replay-source-event-decision-observation-bundle-derivation"
 import {
   REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_FIELD_POLICY_VERSION,
   REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_POLICY_VERSION,
@@ -39,6 +34,18 @@ import {
   REPLAY_SOURCE_EVENT_DECISION_SCHEDULE_OBSERVATION_BINDING_SET_SCHEMA_VERSION,
   createReplaySourceEventDecisionScheduleObservationBindingSet,
 } from "../../../../replay-execution-plane/contracts/src/lib/replay-source-event-decision-schedule-observation-binding-set"
+import {
+  REPLAY_NO_DECISION_MARKET_INPUT,
+  REPLAY_NO_DECISION_MARKET_INPUT_HASH,
+  REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS,
+  REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH,
+  REPLAY_REQUEST_SCHEMA_VERSION,
+  REPLAY_SIMULATOR_POLICY_VERSION,
+  REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION,
+  canonicalHash,
+  createReplaySingleDecisionSchedule,
+  type ReplayExecutionRequest,
+} from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
 import type { ReplaySourceEventWireManifest } from "../../../../replay-execution-plane/contracts/src/lib/replay-source-event-wire"
 import {
   buildReplayCrossSourceOrderingAttestation,
@@ -52,6 +59,7 @@ import {
   REPLAY_AGGREGATE_TRADE_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
   REPLAY_AGGREGATE_TRADE_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION,
   REPLAY_DECISION_OBSERVATION_BUNDLE_ADMISSION_SCHEMA_VERSION,
+  REPLAY_DECISION_OBSERVATION_BUNDLE_DERIVATION_ADMISSION_SCHEMA_VERSION,
   REPLAY_RESERVATION_CANCELLATION_SCHEMA_VERSION,
   REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION,
   REPLAY_ATTEMPT_CANCELLATION_OBSERVATION_SCHEMA_VERSION,
@@ -108,6 +116,10 @@ import {
   issueReplayDecisionObservationBundleAdmission,
   readReplayDecisionObservationBundleAdmission,
 } from "./decision-observation-bundle-admission-registry"
+import {
+  issueReplayDecisionObservationBundleDerivationAdmission,
+  readReplayDecisionObservationBundleDerivationAdmission,
+} from "./decision-observation-bundle-derivation-admission-registry"
 import {
   cancelReplayAttemptByAuthority,
   createSqliteReplayCancellationCoordinationPort,
@@ -187,6 +199,7 @@ test("control plane schema initializes frozen stages and lifecycle rules", () =>
       "rd_replay_aggregate_trade_evidence_admission",
       "rd_replay_cross_source_ordering_admission",
       "rd_replay_decision_observation_bundle_admission",
+      "rd_replay_decision_observation_bundle_derivation_admission",
       "rd_replay_reservation_cancellation",
       "rd_replay_attempt",
       "rd_replay_attempt_cancellation",
@@ -473,7 +486,8 @@ test("Control Plane admits aggregate trade evidence only as a Reservation-bound 
       ordering_admission: orderingAdmission,
       projection: sourceProjection,
     })
-    const bundle = decisionObservationBundleFixture(request, wireManifest)
+    const derivationFixture = decisionObservationDerivationFixture(request, wireManifest)
+    const bundle = derivationFixture.bundle
     const bundleAdmissionInput = {
       admission_id: "decision-observation-bundle-admission-1",
       admission_ref: "admission://decision-observation-bundle/trial-aggregate-trade",
@@ -510,6 +524,65 @@ test("Control Plane admits aggregate trade evidence only as a Reservation-bound 
       UPDATE rd_replay_decision_observation_bundle_admission
       SET economic_authority = 'runner'
       WHERE admission_id = 'decision-observation-bundle-admission-1'
+    `).run(), /immutable/)
+
+    const derivationAdmissionInput = {
+      admission_id: "decision-observation-derivation-admission-1",
+      admission_ref: "admission://decision-observation-derivation/trial-aggregate-trade",
+      issued_at: "2026-07-14T03:28:00Z",
+      authority_id: "research-control-plane",
+      admission_policy_version: "rd-decision-observation-derivation-admission-v1",
+      reservation,
+      bundle,
+      derivation_attestation: derivationFixture.derivation_attestation,
+    }
+    const derivationAdmission = issueReplayDecisionObservationBundleDerivationAdmission(
+      db,
+      derivationAdmissionInput,
+    )
+    assert.equal(
+      derivationAdmission.schema_version,
+      REPLAY_DECISION_OBSERVATION_BUNDLE_DERIVATION_ADMISSION_SCHEMA_VERSION,
+    )
+    assert.equal(derivationAdmission.control_plane_parent_replay, "not_performed")
+    assert.equal(
+      derivationAdmission.control_plane_validation,
+      "attestation_schema_hash_and_admitted_bundle_binding",
+    )
+    assert.equal(derivationAdmission.harness_invocation, "forbidden")
+    assert.equal(derivationAdmission.economic_authority, "none")
+    assert.deepEqual(
+      issueReplayDecisionObservationBundleDerivationAdmission(db, derivationAdmissionInput),
+      derivationAdmission,
+    )
+    assert.deepEqual(
+      readReplayDecisionObservationBundleDerivationAdmission(db, hashTrialReservationSnapshot(reservation)),
+      derivationAdmission,
+    )
+    assert.throws(() => issueReplayDecisionObservationBundleDerivationAdmission(db, {
+      ...derivationAdmissionInput,
+      admission_id: "decision-observation-derivation-admission-competing",
+      admission_ref: "admission://decision-observation-derivation/competing",
+    }), /different content/)
+    const substitutedAttestation = structuredClone(derivationFixture.derivation_attestation)
+    substitutedAttestation.bundle_hash = "8".repeat(64)
+    const {
+      attestation_hash: _substitutedHash,
+      attestation_id: _substitutedId,
+      ...substitutedBodyWithoutId
+    } = substitutedAttestation
+    substitutedAttestation.attestation_id
+      = `source-event-decision-observation-derivation-${canonicalHash(substitutedBodyWithoutId).slice(0, 24)}`
+    const { attestation_hash: _rehash, ...substitutedBody } = substitutedAttestation
+    substitutedAttestation.attestation_hash = canonicalHash(substitutedBody)
+    assert.throws(() => issueReplayDecisionObservationBundleDerivationAdmission(db, {
+      ...derivationAdmissionInput,
+      derivation_attestation: substitutedAttestation,
+    }), /does not bind the admitted Bundle/)
+    assert.throws(() => db.query(`
+      UPDATE rd_replay_decision_observation_bundle_derivation_admission
+      SET economic_authority = 'runner'
+      WHERE admission_id = 'decision-observation-derivation-admission-1'
     `).run(), /immutable/)
 
     assert.throws(() => issueReplayAggregateTradeEvidenceAdmission(db, {
@@ -1391,7 +1464,7 @@ test("blocker fact and lifecycle projection commit atomically", () => {
   }
 })
 
-function decisionObservationBundleFixture(
+function decisionObservationDerivationFixture(
   request: ReplayExecutionRequest,
   wire: ReplaySourceEventWireManifest,
 ) {
@@ -1529,10 +1602,80 @@ function decisionObservationBundleFixture(
     first_as_of_time: projection.as_of_time,
     last_as_of_time: projection.as_of_time,
   }
-  return createReplaySourceEventDecisionObservationBundle({
+  const bundle = createReplaySourceEventDecisionObservationBundle({
     ...bundleBodyWithoutId,
     bundle_id: `source-event-decision-observation-bundle-${canonicalHash(bundleBodyWithoutId).slice(0, 24)}`,
   })
+  const boundary = createReplaySourceEventDecisionObservationBundleDerivationBoundary({
+    schema_version: REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_BUNDLE_DERIVATION_BOUNDARY_SCHEMA_VERSION,
+    decision_sequence: binding.selected_decision_sequence,
+    decision_time: binding.selected_decision_time,
+    visibility_cut_id: projection.cut_id,
+    visibility_cut_hash: projection.cut_hash,
+    pit_payload_view_id: projection.payload_view_id,
+    pit_payload_view_hash: projection.payload_view_hash,
+    observation_projection_id: projection.projection_id,
+    observation_projection_hash: projection.projection_hash,
+    schedule_binding_id: binding.binding_id,
+    schedule_binding_hash: binding.binding_hash,
+    visible_transition_count: projection.observation_count,
+    observation_count: projection.observation_count,
+    observations_hash: projection.observations_hash,
+    observation_values_hash: projection.observation_values_hash,
+    future_transition_count: projection.future_transition_count,
+    future_transition_ids_hash: projection.future_transition_ids_hash,
+  })
+  const attestationBodyWithoutId = {
+    schema_version: REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_BUNDLE_DERIVATION_SCHEMA_VERSION,
+    derivation_policy_version: REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_BUNDLE_DERIVATION_POLICY_VERSION,
+    scope: "pre_integration_non_economic_observation_bundle_derivation" as const,
+    attestation_purpose: "prove_bundle_rebuild_from_complete_parent_chain" as const,
+    derivation_chain: "wire_gate_trace_cursor_cut_view_projection_binding_bundle" as const,
+    certification_result: "certified_against_supplied_parent_chain" as const,
+    common_parent_rule: "one_wire_gate_trace_cursor_for_all_boundaries" as const,
+    independent_verification: "external_parent_replay_required" as const,
+    portability: "hash_summary_without_parent_payload_duplication" as const,
+    control_plane_admission_compatibility: "not_bound" as const,
+    decision_input_compatibility: "not_asserted" as const,
+    harness_compatibility: "not_bound" as const,
+    harness_invocation: "forbidden" as const,
+    runner_compatibility: "not_bound" as const,
+    decision_authority: "none" as const,
+    signal_authority: "none" as const,
+    order_authority: "none" as const,
+    economic_authority: "none" as const,
+    wire_manifest_id: wire.wire_manifest_id,
+    wire_manifest_hash: wire.manifest_hash,
+    ordering_attestation_id: wire.ordering_attestation_id,
+    ordering_attestation_hash: wire.ordering_attestation_hash,
+    pre_execution_gate_id: "source-event-wire-gate-contract-fixture",
+    pre_execution_gate_hash: "8".repeat(64),
+    candidate_trace_id: "source-event-candidate-trace-contract-fixture",
+    candidate_trace_hash: "9".repeat(64),
+    availability_cursor_id: "source-event-availability-cursor-contract-fixture",
+    availability_cursor_hash: "a".repeat(64),
+    decision_schedule_hash: request.decision_schedule_hash,
+    bundle_id: bundle.bundle_id,
+    bundle_hash: bundle.bundle_hash,
+    binding_set_id: bundle.binding_set_id,
+    binding_set_hash: bundle.binding_set_hash,
+    boundary_count: 1,
+    boundaries: [boundary],
+    boundaries_hash: canonicalHash([boundary]),
+    cut_hashes_hash: canonicalHash([boundary.visibility_cut_hash]),
+    payload_view_hashes_hash: canonicalHash([boundary.pit_payload_view_hash]),
+    projection_hashes_hash: canonicalHash([boundary.observation_projection_hash]),
+    binding_hashes_hash: canonicalHash([boundary.schedule_binding_hash]),
+    first_decision_time: boundary.decision_time,
+    last_decision_time: boundary.decision_time,
+  }
+  return {
+    bundle,
+    derivation_attestation: createReplaySourceEventDecisionObservationBundleDerivationAttestation({
+      ...attestationBodyWithoutId,
+      attestation_id: `source-event-decision-observation-derivation-${canonicalHash(attestationBodyWithoutId).slice(0, 24)}`,
+    }),
+  }
 }
 
 function decisionObservationRequest(reservation: ReturnType<typeof issueTrialReservationSnapshot>): ReplayExecutionRequest {
