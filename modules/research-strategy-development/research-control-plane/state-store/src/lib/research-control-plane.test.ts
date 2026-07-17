@@ -48,10 +48,17 @@ import {
 } from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
 import type { ReplaySourceEventWireManifest } from "../../../../replay-execution-plane/contracts/src/lib/replay-source-event-wire"
 import {
+  assertReplaySourceEventDecisionObservationHarnessContextBinding,
+} from "../../../../replay-execution-plane/contracts/src/lib/replay-source-event-decision-observation-harness-context-binding"
+import {
   buildReplayCrossSourceOrderingAttestation,
 } from "../../../../replay-execution-plane/data-adapter/src/lib/replay-cross-source-ordering"
 import { buildReplaySourceEventProjectionAttestation } from "../../../../replay-execution-plane/data-adapter/src/lib/replay-source-event-projection"
 import { materializeReplaySourceEventWire } from "../../../../replay-execution-plane/data-adapter/src/lib/replay-source-event-wire"
+import {
+  assertReplaySourceEventDecisionObservationHarnessContextBindingLineage,
+  buildReplaySourceEventDecisionObservationHarnessContextBinding,
+} from "../../../../replay-execution-plane/data-adapter/src/lib/replay-source-event-decision-observation-harness-context-binding"
 import {
   REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION,
   REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
@@ -584,6 +591,72 @@ test("Control Plane admits aggregate trade evidence only as a Reservation-bound 
       SET economic_authority = 'runner'
       WHERE admission_id = 'decision-observation-derivation-admission-1'
     `).run(), /immutable/)
+
+    const harnessContextBindingInput = {
+      request,
+      bundle,
+      derivation_admission: derivationAdmission,
+    }
+    const harnessContextBinding = buildReplaySourceEventDecisionObservationHarnessContextBinding(
+      harnessContextBindingInput,
+    )
+    assert.equal(harnessContextBinding.harness_invocation, "forbidden")
+    assert.equal(harnessContextBinding.decision_input_materialization, "not_certified")
+    assert.equal(harnessContextBinding.worker_request_compatibility, "not_bound")
+    assert.equal(harnessContextBinding.decision_output_authority, "none")
+    assert.equal(harnessContextBinding.economic_authority, "none")
+    assert.equal(harnessContextBinding.entries[0]!.harness_context.decision_time, bundle.first_as_of_time)
+    assert.equal(
+      buildReplaySourceEventDecisionObservationHarnessContextBinding(
+        structuredClone(harnessContextBindingInput),
+      ).binding_hash,
+      harnessContextBinding.binding_hash,
+    )
+    assert.doesNotThrow(() => assertReplaySourceEventDecisionObservationHarnessContextBindingLineage(
+      harnessContextBinding,
+      harnessContextBindingInput,
+    ))
+    assert.throws(() => buildReplaySourceEventDecisionObservationHarnessContextBinding({
+      ...harnessContextBindingInput,
+      request: { ...request, harness_hash: "7".repeat(64) },
+    }), /Request does not match Derivation Admission/)
+
+    const substitutedContext = structuredClone(harnessContextBinding)
+    substitutedContext.entries[0]!.harness_context.random_seed += 1
+    substitutedContext.entries[0]!.harness_context_hash
+      = canonicalHash(substitutedContext.entries[0]!.harness_context)
+    const { entry_hash: _entryHash, ...entryBody } = substitutedContext.entries[0]!
+    substitutedContext.entries[0]!.entry_hash = canonicalHash(entryBody)
+    substitutedContext.entries_hash = canonicalHash(substitutedContext.entries)
+    substitutedContext.entry_hashes_hash
+      = canonicalHash(substitutedContext.entries.map((item) => item.entry_hash))
+    substitutedContext.harness_context_hashes_hash
+      = canonicalHash(substitutedContext.entries.map((item) => item.harness_context_hash))
+    const {
+      binding_hash: _bindingHash,
+      binding_id: _bindingId,
+      ...bindingBodyWithoutId
+    } = substitutedContext
+    substitutedContext.binding_id
+      = `source-event-observation-harness-context-${canonicalHash(bindingBodyWithoutId).slice(0, 24)}`
+    const { binding_hash: _bindingRehash, ...bindingBody } = substitutedContext
+    substitutedContext.binding_hash = canonicalHash(bindingBody)
+    assert.doesNotThrow(() => assertReplaySourceEventDecisionObservationHarnessContextBinding(substitutedContext))
+    assert.throws(() => assertReplaySourceEventDecisionObservationHarnessContextBindingLineage(
+      substitutedContext,
+      harnessContextBindingInput,
+    ), /parent lineage drift/)
+
+    const extendedHarnessBinding = structuredClone(harnessContextBinding) as typeof harnessContextBinding & {
+      runner_authority?: string
+    }
+    extendedHarnessBinding.runner_authority = "allowed"
+    const { binding_hash: _extendedBindingHash, ...extendedBindingBody } = extendedHarnessBinding
+    extendedHarnessBinding.binding_hash = canonicalHash(extendedBindingBody)
+    assert.throws(
+      () => assertReplaySourceEventDecisionObservationHarnessContextBinding(extendedHarnessBinding),
+      /field whitelist/,
+    )
 
     assert.throws(() => issueReplayAggregateTradeEvidenceAdmission(db, {
       ...admissionInput,
