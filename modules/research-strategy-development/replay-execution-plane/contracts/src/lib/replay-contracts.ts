@@ -3133,15 +3133,24 @@ export function assertReplayDecisionHarnessWorkerResponse(
   requireHash(workerResponse.invocation_id, "decision_harness_worker_response.invocation_id")
   requireHash(workerResponse.source_bundle_hash, "decision_harness_worker_response.source_bundle_hash")
   requireHash(workerResponse.artifact_hash, "decision_harness_worker_response.artifact_hash")
-  if (!workerResponse.decision_output || typeof workerResponse.decision_output !== "object") {
+  assertReplayDecisionOutput(workerResponse.decision_output)
+  if (workerRequest && (
+    workerResponse.invocation_id !== workerRequest.invocation_id
+    || workerResponse.source_bundle_hash !== workerRequest.source_bundle_hash
+    || workerResponse.artifact_hash !== workerRequest.artifact_hash
+  )) fail("decision harness worker response does not match worker request")
+}
+
+export function assertReplayDecisionOutput(decisionOutput: ReplayDecisionOutput): void {
+  if (!decisionOutput || typeof decisionOutput !== "object") {
     fail("decision harness worker response requires a decision output")
   }
-  if (workerResponse.decision_output.action === "submit_initial_order") {
-    requirePositive(workerResponse.decision_output.order.quantity, "decision_harness_worker_response.decision_output.order.quantity")
-  } else if (workerResponse.decision_output.action === "cancel_entry_order") {
-    assertReplayEntryCancelIntent(workerResponse.decision_output.order)
-  } else if (workerResponse.decision_output.action === "submit_partial_reduce") {
-    const partial = workerResponse.decision_output.order
+  if (decisionOutput.action === "submit_initial_order") {
+    requirePositive(decisionOutput.order.quantity, "decision_harness_worker_response.decision_output.order.quantity")
+  } else if (decisionOutput.action === "cancel_entry_order") {
+    assertReplayEntryCancelIntent(decisionOutput.order)
+  } else if (decisionOutput.action === "submit_partial_reduce") {
+    const partial = decisionOutput.order
     if (partial.schema_version !== REPLAY_PARTIAL_REDUCE_INTENT_SCHEMA_VERSION
         || !["buy", "sell"].includes(partial.side) || partial.order_type !== "market"
         || partial.reduce_only !== true || partial.quantity_policy !== "fixed_quantity"
@@ -3159,8 +3168,8 @@ export function assertReplayDecisionHarnessWorkerResponse(
     if (Date.parse(partial.earliest_executable_time) <= Date.parse(partial.signal_time)) {
       fail("partial-reduce decision output must execute after its signal")
     }
-  } else if (workerResponse.decision_output.action === "submit_reduce_only_exit") {
-    const exit = workerResponse.decision_output.order
+  } else if (decisionOutput.action === "submit_reduce_only_exit") {
+    const exit = decisionOutput.order
     if (exit.schema_version !== REPLAY_REDUCE_ONLY_EXIT_INTENT_SCHEMA_VERSION
         || !["buy", "sell"].includes(exit.side) || exit.order_type !== "market"
         || exit.reduce_only !== true || exit.quantity_policy !== "full_open_position") {
@@ -3171,8 +3180,8 @@ export function assertReplayDecisionHarnessWorkerResponse(
     if (Date.parse(exit.earliest_executable_time) <= Date.parse(exit.signal_time)) {
       fail("reduce-only exit decision output must execute after its signal")
     }
-  } else if (workerResponse.decision_output.action === "replace_protective_stop") {
-    const replace = workerResponse.decision_output.order
+  } else if (decisionOutput.action === "replace_protective_stop") {
+    const replace = decisionOutput.order
     if (replace.schema_version !== REPLAY_PROTECTIVE_STOP_REPLACE_INTENT_SCHEMA_VERSION
         || !["buy", "sell"].includes(replace.side) || replace.order_type !== "stop_market"
         || replace.reduce_only !== true || replace.quantity_policy !== "full_open_position"
@@ -3182,14 +3191,9 @@ export function assertReplayDecisionHarnessWorkerResponse(
       fail("unsupported protective stop replacement decision output")
     }
     requireUtcTimestamp(replace.signal_time, "decision_harness_worker_response.decision_output.order.signal_time")
-  } else if (workerResponse.decision_output.action !== "no_action") {
+  } else if (decisionOutput.action !== "no_action") {
     fail("unsupported decision harness output action")
   }
-  if (workerRequest && (
-    workerResponse.invocation_id !== workerRequest.invocation_id
-    || workerResponse.source_bundle_hash !== workerRequest.source_bundle_hash
-    || workerResponse.artifact_hash !== workerRequest.artifact_hash
-  )) fail("decision harness worker response does not match worker request")
 }
 
 export function assertReplayDecisionHarnessRegistryCapability(
