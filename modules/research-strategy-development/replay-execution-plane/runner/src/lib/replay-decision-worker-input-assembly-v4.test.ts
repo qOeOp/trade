@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test"
 import {
   REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION,
+  REPLAY_ATTEMPT_LEASE_OBSERVATION_POLICY_VERSION,
+  REPLAY_ATTEMPT_LEASE_OBSERVATION_SCHEMA_VERSION,
+  createReplayAttemptLeaseObservationSnapshot,
   hashReplayAttemptLeaseSnapshot,
   type ReplayAttemptLeaseSnapshot,
 } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
@@ -83,6 +86,9 @@ import {
   assertReplayDecisionHarnessDispatchLeaseAdmission,
 } from "../../../contracts/src/lib/replay-decision-harness-dispatch-lease-admission"
 import {
+  assertReplayDecisionHarnessDispatchLeaseAuthorityBinding,
+} from "../../../contracts/src/lib/replay-decision-harness-dispatch-lease-authority-binding"
+import {
   assertReplayPositionOpenStateInputMaterialization,
 } from "../../../contracts/src/lib/replay-position-open-state-input-materialization"
 import {
@@ -123,6 +129,10 @@ import {
   assertReplayDecisionHarnessDispatchLeaseAdmissionLineage,
   buildReplayDecisionHarnessDispatchLeaseAdmission,
 } from "./replay-decision-harness-dispatch-lease-admission"
+import {
+  assertReplayDecisionHarnessDispatchLeaseAuthorityBindingLineage,
+  buildReplayDecisionHarnessDispatchLeaseAuthorityBinding,
+} from "./replay-decision-harness-dispatch-lease-authority-binding"
 import {
   assertReplayDecisionWorkerInputAssemblyV4Lineage,
   buildReplayDecisionWorkerInputAssemblyV4,
@@ -994,6 +1004,84 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
     ...dispatchAdmission,
     transport_admission: "granted" as never,
   })).toThrow("unsupported decision harness Dispatch Lease Admission authority")
+
+  const leaseObservationBody = {
+    schema_version: REPLAY_ATTEMPT_LEASE_OBSERVATION_SCHEMA_VERSION,
+    observation_id: "lease-observation-envelope-1",
+    observation_ref: "observation://replay-attempt-lease/envelope-1",
+    observation_policy_version: REPLAY_ATTEMPT_LEASE_OBSERVATION_POLICY_VERSION,
+    status: "active_lease_observed" as const,
+    observed_at: attemptLease.heartbeat_at,
+    authority_owner: "research_control_plane" as const,
+    authority_source: "research_control_plane_state_store" as const,
+    read_consistency: "single_control_plane_transaction" as const,
+    clock_evidence: "caller_supplied_utc_not_external_time_attestation" as const,
+    trial_id: attemptLease.trial_id,
+    run_id: attemptLease.run_id,
+    attempt_id: attemptLease.attempt_id,
+    attempt_ordinal: attemptLease.attempt_ordinal,
+    worker_id: attemptLease.worker_id,
+    lease_generation: attemptLease.lease_generation,
+    attempt_lease_hash: hashReplayAttemptLeaseSnapshot(attemptLease),
+    attempt_lease: attemptLease,
+  }
+  const leaseObservation = createReplayAttemptLeaseObservationSnapshot(leaseObservationBody)
+  const authorityBindingInput = {
+    source_execution_envelope: executionEnvelope,
+    control_plane_lease_observation: leaseObservation,
+  }
+  const dispatchAuthorityBinding = buildReplayDecisionHarnessDispatchLeaseAuthorityBinding(authorityBindingInput)
+  expect(dispatchAuthorityBinding.authority_observation_status).toBe("control_plane_receipt_verified")
+  expect(dispatchAuthorityBinding.control_plane_observation_hash).toBe(leaseObservation.observation_hash)
+  expect(dispatchAuthorityBinding.source_dispatch_lease_admission_hash).toBe(dispatchAdmission.admission_hash)
+  expect(dispatchAuthorityBinding.receipt_binding_policy)
+    .toBe("exact_observation_time_lease_hash_attempt_worker_and_generation")
+  expect(dispatchAuthorityBinding.dispatch_eligibility)
+    .toBe("authority_receipt_and_lease_freshness_admitted_only")
+  expect(dispatchAuthorityBinding.dispatch_occurrence).toBe("not_materialized")
+  expect(dispatchAuthorityBinding.clock_evidence).toBe("caller_supplied_utc_not_external_time_attestation")
+  expect(dispatchAuthorityBinding.transport_admission).toBe("not_granted")
+  expect(dispatchAuthorityBinding.response_instance).toBeNull()
+  expect(dispatchAuthorityBinding.economic_authority).toBe("none")
+  expect(() => assertReplayDecisionHarnessDispatchLeaseAuthorityBinding(dispatchAuthorityBinding)).not.toThrow()
+  expect(() => assertReplayDecisionHarnessDispatchLeaseAuthorityBindingLineage(
+    dispatchAuthorityBinding,
+    authorityBindingInput,
+  )).not.toThrow()
+  expect(buildReplayDecisionHarnessDispatchLeaseAuthorityBinding({
+    source_execution_envelope: structuredClone(executionEnvelope),
+    control_plane_lease_observation: structuredClone(leaseObservation),
+  })).toEqual(dispatchAuthorityBinding)
+  const renewedObservation = createReplayAttemptLeaseObservationSnapshot({
+    ...leaseObservationBody,
+    observation_id: "lease-observation-envelope-2",
+    observation_ref: "observation://replay-attempt-lease/envelope-2",
+    observed_at: renewedLease.heartbeat_at,
+    lease_generation: renewedLease.lease_generation,
+    attempt_lease_hash: hashReplayAttemptLeaseSnapshot(renewedLease),
+    attempt_lease: renewedLease,
+  })
+  expect(() => buildReplayDecisionHarnessDispatchLeaseAuthorityBinding({
+    source_execution_envelope: executionEnvelope,
+    control_plane_lease_observation: renewedObservation,
+  })).toThrow("current Lease generation and a successor Envelope")
+  const successorAuthorityBinding = buildReplayDecisionHarnessDispatchLeaseAuthorityBinding({
+    source_execution_envelope: successorEnvelope,
+    control_plane_lease_observation: renewedObservation,
+  })
+  expect(successorAuthorityBinding.source_dispatch_lease_admission.lease_generation).toBe(3)
+  expect(successorAuthorityBinding.binding_hash).not.toBe(dispatchAuthorityBinding.binding_hash)
+  expect(() => buildReplayDecisionHarnessDispatchLeaseAuthorityBinding({
+    ...authorityBindingInput,
+    control_plane_lease_observation: {
+      ...leaseObservation,
+      observation_hash: "b".repeat(64),
+    },
+  })).toThrow("observation hash mismatch")
+  expect(() => assertReplayDecisionHarnessDispatchLeaseAuthorityBinding({
+    ...dispatchAuthorityBinding,
+    transport_admission: "granted" as never,
+  })).toThrow("unsupported decision harness Dispatch Lease Authority Binding authority")
 
   expect(() => buildReplayPositionOpenStateInputMaterialization({
     ...input,
