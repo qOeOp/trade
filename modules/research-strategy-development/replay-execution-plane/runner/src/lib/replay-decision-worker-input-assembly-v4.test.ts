@@ -10,9 +10,13 @@ import {
   REPLAY_ATTEMPT_LEASE_OBSERVATION_SCHEMA_VERSION,
   REPLAY_ATTEMPT_LEASE_OBSERVATION_REGISTRY_READ_RECEIPT_POLICY_VERSION,
   REPLAY_ATTEMPT_LEASE_OBSERVATION_REGISTRY_READ_RECEIPT_SCHEMA_VERSION,
+  REPLAY_DISPATCH_CLOCK_ATTESTATION_POLICY_VERSION,
+  REPLAY_DISPATCH_CLOCK_ATTESTATION_SCHEMA_VERSION,
   createReplayAttemptLeaseObservationRegistryReadReceipt,
   createReplayAttemptLeaseObservationSnapshot,
+  createReplayDispatchClockAttestation,
   hashReplayAttemptLeaseSnapshot,
+  replayDispatchClockAttestationIdentityHash,
   type ReplayAttemptLeaseSnapshot,
 } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
 import {
@@ -138,6 +142,9 @@ import {
   assertReplayDecisionHarnessWorkerV10ExecutionAdmissionRegistryProvenance,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-execution-admission-registry-provenance"
 import {
+  assertReplayDecisionHarnessWorkerV10ExecutionAdmissionClockAttestation,
+} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-execution-admission-clock-attestation"
+import {
   assertReplayPositionOpenStateInputMaterialization,
 } from "../../../contracts/src/lib/replay-position-open-state-input-materialization"
 import {
@@ -231,6 +238,14 @@ import {
   readReplayWorkerV10ExecutionAdmissionRegistryProvenance,
   registerReplayWorkerV10ExecutionAdmissionRegistryProvenance,
 } from "./replay-worker-v10-execution-admission-registry-provenance-registry"
+import {
+  assertReplayDecisionHarnessWorkerV10ExecutionAdmissionClockAttestationLineage,
+  buildReplayDecisionHarnessWorkerV10ExecutionAdmissionClockAttestation,
+} from "./replay-decision-harness-worker-v10-execution-admission-clock-attestation"
+import {
+  readReplayWorkerV10ExecutionAdmissionClockAttestation,
+  registerReplayWorkerV10ExecutionAdmissionClockAttestation,
+} from "./replay-worker-v10-execution-admission-clock-attestation-registry"
 import {
   assertReplayDecisionHarnessInvocationIdentityLineage,
   buildReplayDecisionHarnessInvocationIdentitySet,
@@ -2005,6 +2020,93 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       registry_root: dispatchEvidenceRegistryRoot,
       ...registryProvenanceInput,
     })).toEqual(registryProvenance)
+    const clockIdentityHash = replayDispatchClockAttestationIdentityHash({
+      source_registry_read_receipt_hash: registryReadReceipt.receipt_hash,
+      registry_read_started_at: registryReadReceipt.read_at,
+      registry_read_completed_at: "2026-07-14T00:00:36Z",
+      registry_read_started_monotonic_ns: "3000000",
+      registry_read_completed_monotonic_ns: "3000100",
+      attestation_policy_version: REPLAY_DISPATCH_CLOCK_ATTESTATION_POLICY_VERSION,
+    })
+    const clockAttestation = createReplayDispatchClockAttestation({
+      schema_version: REPLAY_DISPATCH_CLOCK_ATTESTATION_SCHEMA_VERSION,
+      attestation_id: `replay-dispatch-clock-attestation-${clockIdentityHash.slice(0, 24)}`,
+      attestation_ref: `attestation://replay-dispatch-clock/${clockIdentityHash.slice(0, 24)}`,
+      attestation_policy_version: REPLAY_DISPATCH_CLOCK_ATTESTATION_POLICY_VERSION,
+      status: "authority_clock_bracketed_registry_read",
+      authority_owner: "research_control_plane",
+      authority_source: "research_control_plane_state_store",
+      clock_source: "control_plane_authority_process_clock_port",
+      clock_independence: "authority_internal_sampling_without_caller_timestamp_input",
+      caller_time_input: "forbidden",
+      wall_clock_source: "javascript_date_now_utc",
+      monotonic_clock_source: "process_hrtime_bigint",
+      external_time_attestation: "not_provided",
+      registry_read_bracketing: "wall_and_monotonic_samples_before_and_after_single_transaction_read",
+      registry_read_started_at: registryReadReceipt.read_at,
+      registry_read_completed_at: "2026-07-14T00:00:36Z",
+      registry_read_started_monotonic_ns: "3000000",
+      registry_read_completed_monotonic_ns: "3000100",
+      source_registry_read_receipt_id: registryReadReceipt.receipt_id,
+      source_registry_read_receipt_ref: registryReadReceipt.receipt_ref,
+      source_registry_read_receipt_hash: registryReadReceipt.receipt_hash,
+      source_registry_read_receipt: registryReadReceipt,
+      attempt_id: registryReadReceipt.current_attempt_lease.attempt_id,
+      worker_id: registryReadReceipt.current_attempt_lease.worker_id,
+      lease_generation: registryReadReceipt.current_attempt_lease.lease_generation,
+      current_attempt_lease_hash: registryReadReceipt.current_attempt_lease_hash,
+    })
+    const clockBindingInput = {
+      source_registry_provenance: registryProvenance,
+      control_plane_clock_attestation: clockAttestation,
+    }
+    const clockBinding = buildReplayDecisionHarnessWorkerV10ExecutionAdmissionClockAttestation(clockBindingInput)
+    expect(clockBinding.status).toBe("authority_clock_attested_command_issue_blocked")
+    expect(clockBinding.independent_dispatch_clock_attestation).toBe("authority_internal_dual_sample_bound")
+    expect(clockBinding.clock_authority_limit).toBe("local_control_plane_process_clock_not_signed_remote_or_tsa_time")
+    expect(clockBinding.predecessor_blocker_closure).toBe("independent_dispatch_clock_attestation_closed_only")
+    expect(clockBinding.execution_admission_command_instance_count).toBe(0)
+    expect(clockBinding.blockers).toEqual([
+      "execution_admission_command_instance_not_issued",
+      "attempt_bound_stdio_process_launch_intent_not_materialized",
+      "attempt_bound_stdio_process_receipt_not_materialized",
+      "worker_request_frame_write_and_decode_not_materialized",
+      "worker_response_frame_read_and_admission_not_materialized",
+    ])
+    expect(() => assertReplayDecisionHarnessWorkerV10ExecutionAdmissionClockAttestation(clockBinding)).not.toThrow()
+    expect(() => assertReplayDecisionHarnessWorkerV10ExecutionAdmissionClockAttestationLineage(
+      clockBinding,
+      clockBindingInput,
+    )).not.toThrow()
+    expect(() => buildReplayDecisionHarnessWorkerV10ExecutionAdmissionClockAttestation({
+      ...clockBindingInput,
+      control_plane_clock_attestation: { ...clockAttestation, attestation_hash: "2".repeat(64) },
+    })).toThrow()
+    const missingClockRoot = mkdtempSync(join(tmpdir(), "replay-worker-v10-clock-attestation-missing-"))
+    try {
+      expect(() => registerReplayWorkerV10ExecutionAdmissionClockAttestation({
+        registry_root: missingClockRoot,
+        ...clockBindingInput,
+      })).toThrow("requires the exact durable registry provenance")
+    } finally {
+      rmSync(missingClockRoot, { recursive: true, force: true })
+    }
+    expect(registerReplayWorkerV10ExecutionAdmissionClockAttestation({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...clockBindingInput,
+    })).toEqual(clockBinding)
+    expect(readReplayWorkerV10ExecutionAdmissionClockAttestation({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...clockBindingInput,
+    })).toEqual(clockBinding)
+    const clockBindingFile = readdirSync(dispatchEvidenceRegistryRoot)
+      .find((name) => name.startsWith("worker-v10-execution-admission-clock-attestation-"))
+    if (!clockBindingFile) throw new Error("expected Execution Admission clock attestation file")
+    writeFileSync(join(dispatchEvidenceRegistryRoot, clockBindingFile), "{}\n", "utf8")
+    expect(() => readReplayWorkerV10ExecutionAdmissionClockAttestation({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...clockBindingInput,
+    })).toThrow()
     const registryProvenanceFile = readdirSync(dispatchEvidenceRegistryRoot)
       .find((name) => name.startsWith("worker-v10-execution-admission-registry-provenance-"))
     if (!registryProvenanceFile) throw new Error("expected Execution Admission registry provenance file")

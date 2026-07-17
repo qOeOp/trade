@@ -5,16 +5,21 @@ import {
   REPLAY_ATTEMPT_LEASE_OBSERVATION_REGISTRY_READ_RECEIPT_POLICY_VERSION,
   REPLAY_ATTEMPT_LEASE_OBSERVATION_REGISTRY_READ_RECEIPT_SCHEMA_VERSION,
   REPLAY_ATTEMPT_LEASE_OBSERVATION_SCHEMA_VERSION,
+  REPLAY_DISPATCH_CLOCK_ATTESTATION_POLICY_VERSION,
+  REPLAY_DISPATCH_CLOCK_ATTESTATION_SCHEMA_VERSION,
   assertReplayAttemptLeaseSnapshot,
   assertReplayAttemptLeaseObservationSnapshot,
   assertTrialReservationSnapshot,
   createReplayAttemptLeaseObservationSnapshot,
   createReplayAttemptLeaseObservationRegistryReadReceipt,
+  createReplayDispatchClockAttestation,
   hashReplayAttemptLeaseSnapshot,
   hashTrialReservationSnapshot,
+  replayDispatchClockAttestationIdentityHash,
   type ReplayAttemptLeaseObservationSnapshot,
   type ReplayAttemptLeaseObservationRegistryReadReceipt,
   type ReplayAttemptLeaseSnapshot,
+  type ReplayDispatchClockAttestation,
   type TrialReservationSnapshot,
 } from "../../../contracts/src/lib/control-plane-contracts"
 import { assertReplayReservationClaimNotCancelled } from "./replay-cancellation-authority"
@@ -98,6 +103,28 @@ interface LeaseObservationRow {
 export interface ReadReplayAttemptLeaseObservationRegistryReceiptInput {
   observation_id: string
   read_at: string
+}
+
+export interface ReplayDispatchClockSample {
+  wall_time_utc: string
+  monotonic_ns: string
+}
+
+export interface ReplayDispatchClockPort {
+  sample(): ReplayDispatchClockSample
+}
+
+export interface AttestReplayDispatchClockInput {
+  observation_id: string
+}
+
+export function createSystemReplayDispatchClockPort(): ReplayDispatchClockPort {
+  return {
+    sample: () => ({
+      wall_time_utc: new Date(Date.now()).toISOString(),
+      monotonic_ns: process.hrtime.bigint().toString(),
+    }),
+  }
 }
 
 export function claimReplayAttempt(db: Database, input: ClaimReplayAttemptInput): ReplayAttemptLeaseSnapshot {
@@ -407,6 +434,63 @@ export function readReplayAttemptLeaseObservationRegistryReceipt(
     })
   })
   return read()
+}
+
+export function attestReplayDispatchClock(
+  db: Database,
+  input: AttestReplayDispatchClockInput,
+  clock: ReplayDispatchClockPort = createSystemReplayDispatchClockPort(),
+): ReplayDispatchClockAttestation {
+  requireText(input.observation_id, "observation_id")
+  const started = readReplayDispatchClockSample(clock, "started")
+  const receipt = readReplayAttemptLeaseObservationRegistryReceipt(db, {
+    observation_id: input.observation_id,
+    read_at: started.wall_time_utc,
+  })
+  const completed = readReplayDispatchClockSample(clock, "completed")
+  const identityHash = replayDispatchClockAttestationIdentityHash({
+    source_registry_read_receipt_hash: receipt.receipt_hash,
+    registry_read_started_at: started.wall_time_utc,
+    registry_read_completed_at: completed.wall_time_utc,
+    registry_read_started_monotonic_ns: started.monotonic_ns,
+    registry_read_completed_monotonic_ns: completed.monotonic_ns,
+    attestation_policy_version: REPLAY_DISPATCH_CLOCK_ATTESTATION_POLICY_VERSION,
+  })
+  return createReplayDispatchClockAttestation({
+    schema_version: REPLAY_DISPATCH_CLOCK_ATTESTATION_SCHEMA_VERSION,
+    attestation_id: `replay-dispatch-clock-attestation-${identityHash.slice(0, 24)}`,
+    attestation_ref: `attestation://replay-dispatch-clock/${identityHash.slice(0, 24)}`,
+    attestation_policy_version: REPLAY_DISPATCH_CLOCK_ATTESTATION_POLICY_VERSION,
+    status: "authority_clock_bracketed_registry_read",
+    authority_owner: "research_control_plane",
+    authority_source: "research_control_plane_state_store",
+    clock_source: "control_plane_authority_process_clock_port",
+    clock_independence: "authority_internal_sampling_without_caller_timestamp_input",
+    caller_time_input: "forbidden",
+    wall_clock_source: "javascript_date_now_utc",
+    monotonic_clock_source: "process_hrtime_bigint",
+    external_time_attestation: "not_provided",
+    registry_read_bracketing: "wall_and_monotonic_samples_before_and_after_single_transaction_read",
+    registry_read_started_at: started.wall_time_utc,
+    registry_read_completed_at: completed.wall_time_utc,
+    registry_read_started_monotonic_ns: started.monotonic_ns,
+    registry_read_completed_monotonic_ns: completed.monotonic_ns,
+    source_registry_read_receipt_id: receipt.receipt_id,
+    source_registry_read_receipt_ref: receipt.receipt_ref,
+    source_registry_read_receipt_hash: receipt.receipt_hash,
+    source_registry_read_receipt: receipt,
+    attempt_id: receipt.current_attempt_lease.attempt_id,
+    worker_id: receipt.current_attempt_lease.worker_id,
+    lease_generation: receipt.current_attempt_lease.lease_generation,
+    current_attempt_lease_hash: receipt.current_attempt_lease_hash,
+  })
+}
+
+function readReplayDispatchClockSample(clock: ReplayDispatchClockPort, label: string): ReplayDispatchClockSample {
+  const sample = clock.sample()
+  requireUtc(sample.wall_time_utc, `dispatch_clock_${label}.wall_time_utc`)
+  if (!/^\d+$/.test(sample.monotonic_ns)) throw new Error(`dispatch_clock_${label}.monotonic_ns must be unsigned integer text`)
+  return sample
 }
 
 export function finalizeReplayAttempt(db: Database, input: FinalizeReplayAttemptInput): void {

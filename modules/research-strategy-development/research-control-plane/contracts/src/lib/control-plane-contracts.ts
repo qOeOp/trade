@@ -23,6 +23,10 @@ export const REPLAY_ATTEMPT_LEASE_OBSERVATION_REGISTRY_READ_RECEIPT_SCHEMA_VERSI
   "trade.rd-replay-attempt-lease-observation-registry-read-receipt.v1" as const
 export const REPLAY_ATTEMPT_LEASE_OBSERVATION_REGISTRY_READ_RECEIPT_POLICY_VERSION =
   "rd-replay-attempt-lease-observation-registry-read-receipt-v1" as const
+export const REPLAY_DISPATCH_CLOCK_ATTESTATION_SCHEMA_VERSION =
+  "trade.rd-replay-dispatch-clock-attestation.v1" as const
+export const REPLAY_DISPATCH_CLOCK_ATTESTATION_POLICY_VERSION =
+  "rd-replay-dispatch-clock-attestation-v1" as const
 export const REPLAY_CHECKPOINT_RECEIPT_SCHEMA_VERSION = "trade.rd-replay-checkpoint-receipt.v2" as const
 export const REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION = REPLAY_LOCAL_ARTIFACT_STORAGE_POLICY_VERSION
 export const REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION = "trade.rd-replay-resume-authorization-snapshot.v1" as const
@@ -538,6 +542,49 @@ export type ReplayAttemptLeaseObservationRegistryReadReceiptBody = Omit<
   ReplayAttemptLeaseObservationRegistryReadReceipt,
   "receipt_hash"
 >
+
+export interface ReplayDispatchClockAttestation {
+  schema_version: typeof REPLAY_DISPATCH_CLOCK_ATTESTATION_SCHEMA_VERSION
+  attestation_id: string
+  attestation_ref: string
+  attestation_hash: string
+  attestation_policy_version: typeof REPLAY_DISPATCH_CLOCK_ATTESTATION_POLICY_VERSION
+  status: "authority_clock_bracketed_registry_read"
+  authority_owner: "research_control_plane"
+  authority_source: "research_control_plane_state_store"
+  clock_source: "control_plane_authority_process_clock_port"
+  clock_independence: "authority_internal_sampling_without_caller_timestamp_input"
+  caller_time_input: "forbidden"
+  wall_clock_source: "javascript_date_now_utc"
+  monotonic_clock_source: "process_hrtime_bigint"
+  external_time_attestation: "not_provided"
+  registry_read_bracketing: "wall_and_monotonic_samples_before_and_after_single_transaction_read"
+  registry_read_started_at: string
+  registry_read_completed_at: string
+  registry_read_started_monotonic_ns: string
+  registry_read_completed_monotonic_ns: string
+  source_registry_read_receipt_id: string
+  source_registry_read_receipt_ref: string
+  source_registry_read_receipt_hash: string
+  source_registry_read_receipt: ReplayAttemptLeaseObservationRegistryReadReceipt
+  attempt_id: string
+  worker_id: string
+  lease_generation: number
+  current_attempt_lease_hash: string
+}
+
+export type ReplayDispatchClockAttestationBody = Omit<ReplayDispatchClockAttestation, "attestation_hash">
+
+export function replayDispatchClockAttestationIdentityHash(input: {
+  source_registry_read_receipt_hash: string
+  registry_read_started_at: string
+  registry_read_completed_at: string
+  registry_read_started_monotonic_ns: string
+  registry_read_completed_monotonic_ns: string
+  attestation_policy_version: typeof REPLAY_DISPATCH_CLOCK_ATTESTATION_POLICY_VERSION
+}): string {
+  return createHash("sha256").update(canonicalReservationJson(input), "utf8").digest("hex")
+}
 
 export interface ReplayResumeAuthorizationSnapshot {
   schema_version: typeof REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION
@@ -1506,6 +1553,87 @@ export function assertReplayAttemptLeaseObservationRegistryReadReceipt(
   const { receipt_hash: receiptHash, ...body } = value
   const expected = createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")
   if (receiptHash !== expected) fail("attempt lease observation registry read receipt hash mismatch")
+}
+
+export function createReplayDispatchClockAttestation(
+  body: ReplayDispatchClockAttestationBody,
+): ReplayDispatchClockAttestation {
+  const value = {
+    ...structuredClone(body),
+    attestation_hash: createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex"),
+  }
+  assertReplayDispatchClockAttestation(value)
+  return value
+}
+
+export function assertReplayDispatchClockAttestation(value: ReplayDispatchClockAttestation): void {
+  if (value.schema_version !== REPLAY_DISPATCH_CLOCK_ATTESTATION_SCHEMA_VERSION
+      || value.attestation_policy_version !== REPLAY_DISPATCH_CLOCK_ATTESTATION_POLICY_VERSION
+      || value.status !== "authority_clock_bracketed_registry_read"
+      || value.authority_owner !== "research_control_plane"
+      || value.authority_source !== "research_control_plane_state_store"
+      || value.clock_source !== "control_plane_authority_process_clock_port"
+      || value.clock_independence !== "authority_internal_sampling_without_caller_timestamp_input"
+      || value.caller_time_input !== "forbidden"
+      || value.wall_clock_source !== "javascript_date_now_utc"
+      || value.monotonic_clock_source !== "process_hrtime_bigint"
+      || value.external_time_attestation !== "not_provided"
+      || value.registry_read_bracketing
+        !== "wall_and_monotonic_samples_before_and_after_single_transaction_read") {
+    fail("dispatch clock attestation policy or authority")
+  }
+  for (const [field, item] of Object.entries({
+    attestation_id: value.attestation_id,
+    attestation_ref: value.attestation_ref,
+    source_registry_read_receipt_id: value.source_registry_read_receipt_id,
+    source_registry_read_receipt_ref: value.source_registry_read_receipt_ref,
+    attempt_id: value.attempt_id,
+    worker_id: value.worker_id,
+  })) requireText(item, `dispatch_clock_attestation.${field}`)
+  for (const [field, item] of Object.entries({
+    attestation_hash: value.attestation_hash,
+    source_registry_read_receipt_hash: value.source_registry_read_receipt_hash,
+    current_attempt_lease_hash: value.current_attempt_lease_hash,
+  })) requireHash(item, `dispatch_clock_attestation.${field}`)
+  requireUtcTimestamp(value.registry_read_started_at, "dispatch_clock_attestation.registry_read_started_at")
+  requireUtcTimestamp(value.registry_read_completed_at, "dispatch_clock_attestation.registry_read_completed_at")
+  if (!/^\d+$/.test(value.registry_read_started_monotonic_ns)
+      || !/^\d+$/.test(value.registry_read_completed_monotonic_ns)
+      || BigInt(value.registry_read_completed_monotonic_ns) <= BigInt(value.registry_read_started_monotonic_ns)) {
+    fail("dispatch clock attestation monotonic bracket")
+  }
+  if (!Number.isSafeInteger(value.lease_generation) || value.lease_generation < 1) {
+    fail("dispatch clock attestation lease generation")
+  }
+  assertReplayAttemptLeaseObservationRegistryReadReceipt(value.source_registry_read_receipt)
+  const receipt = value.source_registry_read_receipt
+  const lease = receipt.current_attempt_lease
+  if (value.source_registry_read_receipt_id !== receipt.receipt_id
+      || value.source_registry_read_receipt_ref !== receipt.receipt_ref
+      || value.source_registry_read_receipt_hash !== receipt.receipt_hash
+      || value.attempt_id !== lease.attempt_id || value.worker_id !== lease.worker_id
+      || value.lease_generation !== lease.lease_generation
+      || value.current_attempt_lease_hash !== receipt.current_attempt_lease_hash
+      || value.registry_read_started_at !== receipt.read_at
+      || Date.parse(value.registry_read_completed_at) < Date.parse(value.registry_read_started_at)
+      || Date.parse(value.registry_read_completed_at) >= Date.parse(lease.lease_expires_at)) {
+    fail("dispatch clock attestation receipt or chronology mismatch")
+  }
+  const identityHash = replayDispatchClockAttestationIdentityHash({
+    source_registry_read_receipt_hash: receipt.receipt_hash,
+    registry_read_started_at: value.registry_read_started_at,
+    registry_read_completed_at: value.registry_read_completed_at,
+    registry_read_started_monotonic_ns: value.registry_read_started_monotonic_ns,
+    registry_read_completed_monotonic_ns: value.registry_read_completed_monotonic_ns,
+    attestation_policy_version: value.attestation_policy_version,
+  })
+  if (value.attestation_id !== `replay-dispatch-clock-attestation-${identityHash.slice(0, 24)}`
+      || value.attestation_ref !== `attestation://replay-dispatch-clock/${identityHash.slice(0, 24)}`) {
+    fail("dispatch clock attestation identity")
+  }
+  const { attestation_hash: attestationHash, ...body } = value
+  const expected = createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")
+  if (attestationHash !== expected) fail("dispatch clock attestation hash mismatch")
 }
 
 export function assertReplayCheckpointReceiptSnapshot(value: ReplayCheckpointReceiptSnapshot): void {

@@ -122,6 +122,7 @@ import {
   createReplayAttemptCancellationObservationSnapshot,
   createReplayAttemptLeaseObservationSnapshot,
   assertReplayAttemptLeaseObservationRegistryReadReceipt,
+  assertReplayDispatchClockAttestation,
 } from "../../../contracts/src/lib/control-plane-contracts"
 import {
   RESEARCH_LIFECYCLE_RULE_VERSION,
@@ -145,6 +146,7 @@ import { ensureResearchStateSchema } from "./research-state-store"
 import { issueTrialReservationSnapshot } from "./trial-reservation-snapshot"
 import {
   claimReplayAttempt,
+  attestReplayDispatchClock,
   finalizeReplayAttempt,
   observeCurrentReplayAttemptLease,
   readReplayAttemptLeaseObservation,
@@ -1433,6 +1435,43 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
       ...registryReadReceipt,
       registered_at: "2026-07-14T04:02:02Z",
     }), /hash mismatch/)
+    const clockSamples = [
+      { wall_time_utc: "2026-07-14T04:02:04Z", monotonic_ns: "1000000" },
+      { wall_time_utc: "2026-07-14T04:02:05Z", monotonic_ns: "1000100" },
+    ]
+    const clockAttestation = attestReplayDispatchClock(db, {
+      observation_id: leaseObservation.observation_id,
+    }, {
+      sample: () => {
+        const sample = clockSamples.shift()
+        if (!sample) throw new Error("unexpected clock sample")
+        return sample
+      },
+    })
+    assert.doesNotThrow(() => assertReplayDispatchClockAttestation(clockAttestation))
+    assert.equal(clockAttestation.clock_independence, "authority_internal_sampling_without_caller_timestamp_input")
+    assert.equal(clockAttestation.caller_time_input, "forbidden")
+    assert.equal(clockAttestation.registry_read_started_at, "2026-07-14T04:02:04Z")
+    assert.equal(clockAttestation.registry_read_completed_at, "2026-07-14T04:02:05Z")
+    assert.equal(clockAttestation.source_registry_read_receipt.read_at, clockAttestation.registry_read_started_at)
+    assert.equal(clockAttestation.external_time_attestation, "not_provided")
+    assert.throws(() => assertReplayDispatchClockAttestation({
+      ...clockAttestation,
+      registry_read_completed_monotonic_ns: clockAttestation.registry_read_started_monotonic_ns,
+    }), /monotonic bracket/)
+    const invalidClockSamples = [
+      { wall_time_utc: "2026-07-14T04:02:06Z", monotonic_ns: "2000000" },
+      { wall_time_utc: renewed.lease_expires_at, monotonic_ns: "2000100" },
+    ]
+    assert.throws(() => attestReplayDispatchClock(db, {
+      observation_id: leaseObservation.observation_id,
+    }, {
+      sample: () => {
+        const sample = invalidClockSamples.shift()
+        if (!sample) throw new Error("unexpected clock sample")
+        return sample
+      },
+    }), /chronology mismatch/)
     assert.throws(() => observeCurrentReplayAttemptLease(db, {
       trial_id: renewed.trial_id,
       observed_at: "2026-07-14T04:01:59Z",
