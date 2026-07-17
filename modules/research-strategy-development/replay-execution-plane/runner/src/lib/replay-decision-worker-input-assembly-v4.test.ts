@@ -102,6 +102,9 @@ import {
   assertReplayDecisionHarnessProcessLaunchReceipt,
 } from "../../../contracts/src/lib/replay-decision-harness-process-launch"
 import {
+  assertReplayDecisionHarnessTransportActivationGate,
+} from "../../../contracts/src/lib/replay-decision-harness-transport-activation"
+import {
   assertReplayPositionOpenStateInputMaterialization,
 } from "../../../contracts/src/lib/replay-position-open-state-input-materialization"
 import {
@@ -131,6 +134,10 @@ import {
   readReplayProcessLaunchAttempt,
   readReplayProcessLaunchReceipt,
 } from "./replay-process-launch-registry"
+import {
+  readReplayTransportActivationGate,
+  registerReplayTransportActivationGate,
+} from "./replay-transport-activation-registry"
 import {
   assertReplayDecisionHarnessInvocationIdentityLineage,
   buildReplayDecisionHarnessInvocationIdentitySet,
@@ -1272,6 +1279,70 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
     expect(readReplayProcessLaunchAttempt(launchKey))
       .toEqual(processLaunchReceipt.source_process_launch_attempt)
     expect(readReplayProcessLaunchReceipt(launchKey)).toEqual(processLaunchReceipt)
+
+    const missingTransportGateRoot = mkdtempSync(join(tmpdir(), "replay-transport-gate-missing-"))
+    try {
+      expect(() => registerReplayTransportActivationGate({
+        registry_root: missingTransportGateRoot,
+        source_process_launch_receipt: processLaunchReceipt,
+      })).toThrow("requires the exact durable Process Launch Receipt")
+    } finally {
+      rmSync(missingTransportGateRoot, { recursive: true, force: true })
+    }
+    const transportGate = registerReplayTransportActivationGate({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_process_launch_receipt: processLaunchReceipt,
+    })
+    expect(transportGate.status).toBe("blocked")
+    expect(transportGate.activation_status).toBe("denied")
+    expect(transportGate.attested_artifact_worker_protocol_version).toBe("rd-replay-harness-worker-stdio-v9")
+    expect(transportGate.target_worker_protocol_version).toBe("rd-replay-harness-worker-stdio-v10")
+    expect(transportGate.protocol_relation).toBe("incompatible_v9_artifact_v10_request")
+    expect(transportGate.compatibility_projection_policy)
+      .toBe("forbidden_no_silent_v10_to_v9_request_projection")
+    expect(transportGate.process_reuse_policy).toBe("completed_probe_process_is_not_a_live_dispatch_process")
+    expect(transportGate.blockers).toEqual([
+      "attested_artifact_worker_protocol_v9_target_request_protocol_v10_mismatch",
+      "source_process_launch_receipt_is_terminal_probe_not_reusable_worker_process",
+      "target_worker_request_execution_admission_not_granted",
+      "target_worker_request_transport_status_not_invoked",
+    ])
+    expect(transportGate.transport_frame_instance_count).toBe(0)
+    expect(transportGate.request_write_receipt_count).toBe(0)
+    expect(transportGate.dispatch_occurrence).toBe("not_materialized")
+    expect(transportGate.worker_request_write).toBe("forbidden")
+    expect(transportGate.harness_invocation).toBe("forbidden")
+    expect(transportGate.response_instance).toBeNull()
+    expect(transportGate.decision_output_authority).toBe("none")
+    expect(() => assertReplayDecisionHarnessTransportActivationGate(transportGate)).not.toThrow()
+    expect(registerReplayTransportActivationGate({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_process_launch_receipt: structuredClone(processLaunchReceipt),
+    })).toEqual(transportGate)
+    expect(readReplayTransportActivationGate({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_process_launch_receipt: processLaunchReceipt,
+    })).toEqual(transportGate)
+    expect(() => assertReplayDecisionHarnessTransportActivationGate({
+      ...transportGate,
+      target_worker_protocol_version: "rd-replay-harness-worker-stdio-v9" as never,
+    })).toThrow("unsupported decision harness Transport Activation authority")
+    expect(() => assertReplayDecisionHarnessTransportActivationGate({
+      ...transportGate,
+      blockers: transportGate.blockers.slice(1),
+    })).toThrow("parent or blocker binding drift")
+    expect(() => assertReplayDecisionHarnessTransportActivationGate({
+      ...transportGate,
+      transport_frame_instance_count: 1 as never,
+    })).toThrow("unsupported decision harness Transport Activation authority")
+    const transportGateFile = readdirSync(dispatchEvidenceRegistryRoot)
+      .find((name) => name.startsWith("transport-activation-"))
+    if (!transportGateFile) throw new Error("expected Replay Transport Activation Gate registry file")
+    writeFileSync(join(dispatchEvidenceRegistryRoot, transportGateFile), "{}\n", "utf8")
+    expect(() => readReplayTransportActivationGate({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_process_launch_receipt: processLaunchReceipt,
+    })).toThrow()
 
     const registryFilesAfterLaunch = readdirSync(dispatchEvidenceRegistryRoot)
     const processReceiptFile = registryFilesAfterLaunch.find((name) => name.startsWith("process-launch-receipt-"))
