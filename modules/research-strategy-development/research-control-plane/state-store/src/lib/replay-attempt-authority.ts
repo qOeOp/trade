@@ -4,6 +4,7 @@ import {
   REPLAY_ATTEMPT_LEASE_OBSERVATION_POLICY_VERSION,
   REPLAY_ATTEMPT_LEASE_OBSERVATION_SCHEMA_VERSION,
   assertReplayAttemptLeaseSnapshot,
+  assertReplayAttemptLeaseObservationSnapshot,
   assertTrialReservationSnapshot,
   createReplayAttemptLeaseObservationSnapshot,
   hashReplayAttemptLeaseSnapshot,
@@ -77,6 +78,16 @@ interface AttemptRow {
   diagnostic_checkpoint_hash: string | null
   failure_class: ReplayAttemptFailureClass | null
   idempotency_key: string
+}
+
+interface LeaseObservationRow {
+  observation_id: string
+  observation_ref: string
+  observation_hash: string
+  attempt_id: string
+  lease_generation: number
+  observed_at: string
+  observation_json: string
 }
 
 export function claimReplayAttempt(db: Database, input: ClaimReplayAttemptInput): ReplayAttemptLeaseSnapshot {
@@ -234,6 +245,102 @@ export function observeCurrentReplayAttemptLease(
   return observe()
 }
 
+export function registerReplayAttemptLeaseObservation(
+  db: Database,
+  observation: ReplayAttemptLeaseObservationSnapshot,
+  registeredAt: string,
+): ReplayAttemptLeaseObservationSnapshot {
+  assertReplayAttemptLeaseObservationSnapshot(observation)
+  requireUtc(registeredAt, "registered_at")
+  if (Date.parse(registeredAt) < Date.parse(observation.observed_at)) {
+    throw new Error("Replay Attempt Lease observation cannot be registered before it was observed")
+  }
+  const register = db.transaction(() => {
+    const existing = db.query(`
+      SELECT observation_id, observation_ref, observation_hash, attempt_id,
+             lease_generation, observed_at, observation_json
+      FROM rd_replay_attempt_lease_observation
+      WHERE observation_id=$observation_id OR observation_ref=$observation_ref
+         OR observation_hash=$observation_hash
+         OR (attempt_id=$attempt_id AND lease_generation=$lease_generation AND observed_at=$observed_at)
+    `).all({
+      $observation_id: observation.observation_id,
+      $observation_ref: observation.observation_ref,
+      $observation_hash: observation.observation_hash,
+      $attempt_id: observation.attempt_id,
+      $lease_generation: observation.lease_generation,
+      $observed_at: observation.observed_at,
+    }) as LeaseObservationRow[]
+    if (existing.length > 0) {
+      if (existing.length !== 1 || existing[0]?.observation_hash !== observation.observation_hash) {
+        throw new Error("Replay Attempt Lease observation identity was reused with different authority")
+      }
+      return parseLeaseObservation(existing[0])
+    }
+
+    if (Date.parse(registeredAt) >= Date.parse(observation.attempt_lease.lease_expires_at)) {
+      throw new Error("Replay Attempt Lease observation registration missed the active Lease window")
+    }
+    const attempt = readAttempt(db, observation.attempt_id)
+    if (attempt.status !== "claimed" && attempt.status !== "running") {
+      throw new Error("Replay Attempt Lease observation registration requires an active Attempt")
+    }
+    const currentLease = toLeaseSnapshot(attempt)
+    if (hashReplayAttemptLeaseSnapshot(currentLease) !== observation.attempt_lease_hash) {
+      throw new Error("Replay Attempt Lease observation no longer matches Control Plane state")
+    }
+    db.query(`
+      INSERT INTO rd_replay_attempt_lease_observation(
+        observation_id, observation_ref, observation_hash, observation_policy_version,
+        status, observed_at, registered_at, authority_owner, authority_source,
+        read_consistency, clock_evidence, trial_id, run_id, attempt_id,
+        attempt_ordinal, worker_id, lease_generation, attempt_lease_hash, observation_json
+      ) VALUES (
+        $observation_id, $observation_ref, $observation_hash, $observation_policy_version,
+        $status, $observed_at, $registered_at, $authority_owner, $authority_source,
+        $read_consistency, $clock_evidence, $trial_id, $run_id, $attempt_id,
+        $attempt_ordinal, $worker_id, $lease_generation, $attempt_lease_hash, $observation_json
+      )
+    `).run({
+      $observation_id: observation.observation_id,
+      $observation_ref: observation.observation_ref,
+      $observation_hash: observation.observation_hash,
+      $observation_policy_version: observation.observation_policy_version,
+      $status: observation.status,
+      $observed_at: observation.observed_at,
+      $registered_at: registeredAt,
+      $authority_owner: observation.authority_owner,
+      $authority_source: observation.authority_source,
+      $read_consistency: observation.read_consistency,
+      $clock_evidence: observation.clock_evidence,
+      $trial_id: observation.trial_id,
+      $run_id: observation.run_id,
+      $attempt_id: observation.attempt_id,
+      $attempt_ordinal: observation.attempt_ordinal,
+      $worker_id: observation.worker_id,
+      $lease_generation: observation.lease_generation,
+      $attempt_lease_hash: observation.attempt_lease_hash,
+      $observation_json: JSON.stringify(observation),
+    })
+    return structuredClone(observation)
+  })
+  return register.immediate()
+}
+
+export function readReplayAttemptLeaseObservation(
+  db: Database,
+  observationId: string,
+): ReplayAttemptLeaseObservationSnapshot | null {
+  requireText(observationId, "observation_id")
+  const row = db.query(`
+    SELECT observation_id, observation_ref, observation_hash, attempt_id,
+           lease_generation, observed_at, observation_json
+    FROM rd_replay_attempt_lease_observation
+    WHERE observation_id=$observation_id
+  `).get({ $observation_id: observationId }) as LeaseObservationRow | null
+  return row ? parseLeaseObservation(row) : null
+}
+
 export function finalizeReplayAttempt(db: Database, input: FinalizeReplayAttemptInput): void {
   requireText(input.attempt_id, "attempt_id")
   requireText(input.worker_id, "worker_id")
@@ -317,6 +424,20 @@ function toLeaseSnapshot(row: AttemptRow): ReplayAttemptLeaseSnapshot {
   }
   assertReplayAttemptLeaseSnapshot(snapshot)
   return snapshot
+}
+
+function parseLeaseObservation(row: LeaseObservationRow): ReplayAttemptLeaseObservationSnapshot {
+  const observation = JSON.parse(row.observation_json) as ReplayAttemptLeaseObservationSnapshot
+  assertReplayAttemptLeaseObservationSnapshot(observation)
+  if (row.observation_id !== observation.observation_id
+      || row.observation_ref !== observation.observation_ref
+      || row.observation_hash !== observation.observation_hash
+      || row.attempt_id !== observation.attempt_id
+      || row.lease_generation !== observation.lease_generation
+      || row.observed_at !== observation.observed_at) {
+    throw new Error("Replay Attempt Lease observation registry row does not match its immutable payload")
+  }
+  return observation
 }
 
 function requireHash(value: unknown, field: string): asserts value is string {

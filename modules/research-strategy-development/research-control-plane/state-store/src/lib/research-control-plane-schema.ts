@@ -832,6 +832,44 @@ BEGIN
   SELECT RAISE(ABORT, 'Replay Attempt cancellation observation is immutable');
 END;
 
+CREATE TABLE IF NOT EXISTS rd_replay_attempt_lease_observation (
+  observation_id TEXT PRIMARY KEY,
+  observation_ref TEXT NOT NULL UNIQUE,
+  observation_hash TEXT NOT NULL UNIQUE,
+  observation_policy_version TEXT NOT NULL CHECK(observation_policy_version = 'rd-replay-attempt-lease-observation-v1'),
+  status TEXT NOT NULL CHECK(status = 'active_lease_observed'),
+  observed_at TEXT NOT NULL,
+  registered_at TEXT NOT NULL,
+  authority_owner TEXT NOT NULL CHECK(authority_owner = 'research_control_plane'),
+  authority_source TEXT NOT NULL CHECK(authority_source = 'research_control_plane_state_store'),
+  read_consistency TEXT NOT NULL CHECK(read_consistency = 'single_control_plane_transaction'),
+  clock_evidence TEXT NOT NULL CHECK(clock_evidence = 'caller_supplied_utc_not_external_time_attestation'),
+  trial_id TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  attempt_id TEXT NOT NULL,
+  attempt_ordinal INTEGER NOT NULL CHECK(attempt_ordinal >= 1),
+  worker_id TEXT NOT NULL,
+  lease_generation INTEGER NOT NULL CHECK(lease_generation >= 1),
+  attempt_lease_hash TEXT NOT NULL,
+  observation_json TEXT NOT NULL CHECK(json_valid(observation_json)),
+  CHECK(julianday(observed_at) <= julianday(registered_at)),
+  UNIQUE (attempt_id, lease_generation, observed_at),
+  FOREIGN KEY (trial_id) REFERENCES rd_trial(trial_id),
+  FOREIGN KEY (attempt_id) REFERENCES rd_replay_attempt(attempt_id)
+);
+
+CREATE TRIGGER IF NOT EXISTS rd_replay_attempt_lease_observation_no_update
+BEFORE UPDATE ON rd_replay_attempt_lease_observation
+BEGIN
+  SELECT RAISE(ABORT, 'Replay Attempt Lease observation is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS rd_replay_attempt_lease_observation_no_delete
+BEFORE DELETE ON rd_replay_attempt_lease_observation
+BEGIN
+  SELECT RAISE(ABORT, 'Replay Attempt Lease observation is immutable');
+END;
+
 
 CREATE TABLE IF NOT EXISTS rd_replay_checkpoint_receipt (
   receipt_id TEXT PRIMARY KEY,

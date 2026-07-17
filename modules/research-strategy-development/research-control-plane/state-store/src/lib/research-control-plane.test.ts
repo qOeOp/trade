@@ -1,5 +1,8 @@
 import { Database } from "bun:sqlite"
 import assert from "node:assert/strict"
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import test from "node:test"
 import {
   AGGREGATE_TRADE_PROVIDER_BUILD_HASH,
@@ -117,6 +120,7 @@ import {
   createReplayReservationCancellationSnapshot,
   createReplayAttemptCancellationSnapshot,
   createReplayAttemptCancellationObservationSnapshot,
+  createReplayAttemptLeaseObservationSnapshot,
 } from "../../../contracts/src/lib/control-plane-contracts"
 import {
   RESEARCH_LIFECYCLE_RULE_VERSION,
@@ -142,6 +146,8 @@ import {
   claimReplayAttempt,
   finalizeReplayAttempt,
   observeCurrentReplayAttemptLease,
+  readReplayAttemptLeaseObservation,
+  registerReplayAttemptLeaseObservation,
   renewReplayAttemptLease,
 } from "./replay-attempt-authority"
 import { recordReplayCheckpointReceipt } from "./replay-checkpoint-receipt"
@@ -1287,7 +1293,9 @@ test("Control Plane atomically issues an immutable Replay Trial Reservation snap
 })
 
 test("Control Plane fences Replay Attempt leases and permits retry only after a terminal or expired attempt", () => {
-  const db = openDb()
+  const directory = mkdtempSync(join(tmpdir(), "replay-attempt-authority-"))
+  const databasePath = join(directory, "rd-state.db")
+  let db = openDb(databasePath)
   try {
     seedExecutableExperiment(db, false)
     db.query("UPDATE rd_trial_group SET status='running' WHERE trial_group_id='group-1'").run()
@@ -1322,6 +1330,10 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
     })
     assert.equal(first.attempt_ordinal, 1)
     assert.equal(first.lease_generation, 1)
+    const staleLeaseObservation = observeCurrentReplayAttemptLease(db, {
+      trial_id: first.trial_id,
+      observed_at: "2026-07-14T04:01:00Z",
+    })
     assert.throws(() => claimReplayAttempt(db, {
       attempt_id: "attempt-conflict", worker_id: "worker-2", idempotency_key: "attempt-key-conflict",
       request_hash: "9".repeat(64), claimed_at: "2026-07-14T04:01:00Z", lease_expires_at: "2026-07-14T04:06:00Z",
@@ -1333,6 +1345,11 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
     })
     assert.equal(renewed.status, "running")
     assert.equal(renewed.lease_generation, 2)
+    assert.throws(() => registerReplayAttemptLeaseObservation(
+      db,
+      staleLeaseObservation,
+      "2026-07-14T04:02:01Z",
+    ), /no longer matches Control Plane state/)
     const leaseObservation = observeCurrentReplayAttemptLease(db, {
       trial_id: renewed.trial_id,
       observed_at: renewed.heartbeat_at,
@@ -1344,6 +1361,47 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
       trial_id: renewed.trial_id,
       observed_at: renewed.heartbeat_at,
     }), leaseObservation)
+    assert.deepEqual(registerReplayAttemptLeaseObservation(
+      db,
+      leaseObservation,
+      "2026-07-14T04:02:01Z",
+    ), leaseObservation)
+    assert.deepEqual(registerReplayAttemptLeaseObservation(
+      db,
+      leaseObservation,
+      "2026-07-14T04:02:02Z",
+    ), leaseObservation)
+    const lateObservation = observeCurrentReplayAttemptLease(db, {
+      trial_id: renewed.trial_id,
+      observed_at: "2026-07-14T04:02:30Z",
+    })
+    assert.throws(() => registerReplayAttemptLeaseObservation(
+      db,
+      lateObservation,
+      renewed.lease_expires_at,
+    ), /missed the active Lease window/)
+    const competingObservation = createReplayAttemptLeaseObservationSnapshot((({
+      observation_hash: _observationHash,
+      ...body
+    }) => ({
+      ...body,
+      observation_ref: "observation://replay-attempt-lease/competing",
+    }))(leaseObservation))
+    assert.throws(() => registerReplayAttemptLeaseObservation(
+      db,
+      competingObservation,
+      "2026-07-14T04:02:03Z",
+    ), /identity was reused with different authority/)
+    assert.throws(() => db.query(`
+      UPDATE rd_replay_attempt_lease_observation SET registered_at='2026-07-14T04:02:04Z'
+      WHERE observation_id=$observation_id
+    `).run({ $observation_id: leaseObservation.observation_id }), /Lease observation is immutable/)
+    assert.throws(() => db.query(`
+      DELETE FROM rd_replay_attempt_lease_observation WHERE observation_id=$observation_id
+    `).run({ $observation_id: leaseObservation.observation_id }), /Lease observation is immutable/)
+    db.close()
+    db = openDb(databasePath)
+    assert.deepEqual(readReplayAttemptLeaseObservation(db, leaseObservation.observation_id), leaseObservation)
     assert.throws(() => observeCurrentReplayAttemptLease(db, {
       trial_id: renewed.trial_id,
       observed_at: "2026-07-14T04:01:59Z",
@@ -1532,6 +1590,7 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
     assert.throws(() => db.query("UPDATE rd_replay_attempt SET artifact_ref='changed' WHERE attempt_id='attempt-3'").run(), /terminal Replay Attempt is immutable/)
   } finally {
     db.close()
+    rmSync(directory, { recursive: true, force: true })
   }
 })
 
@@ -2287,8 +2346,8 @@ function decisionObservationManifest(request: ReplayExecutionRequest): ReplayDat
   }
 }
 
-function openDb(): Database {
-  const db = new Database(":memory:")
+function openDb(path = ":memory:"): Database {
+  const db = new Database(path)
   ensureResearchStateSchema(db)
   registerReplayInstrumentStatusProviderCertification(db, PROVIDER_CERTIFICATION)
   return db
