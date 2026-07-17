@@ -128,6 +128,8 @@ R4.104 增加 Runner-owned Decision Worker Input Assembly v4。它内嵌 R4.103 
 
 R4.105 增加 Runner-owned Decision Harness Code Admission v1。它验证固定 Registry Capability，按 v4 bundle hash 查询并要求完整 registration 与 v4 Source Bundle/Build Attestation 精确相同，再冻结 capability、lookup、registration 与 parent v4。该 receipt 仅证明 admission 时的 process-local interface observation：registry instance identity 不可用、future lookup 不保证、无签名或持久 authority；invocation identity、Worker Request、Harness execution 与 Trial/Decision/Signal/Order/economic authority 仍关闭。
 
+R4.106 增加 Runner-owned Decision Harness Invocation Identity Set v1。它从 R4.105 parent 的每个完整 input tuple 派生与正式 Worker Request v9 完全相同的 logical `invocation_id`，且正式执行路径改用同一纯函数。该 ID 被 reproducibility pair 共享，不是 PID/process/attempt/retry identity；旧 v9 公式未直接包含 Context hash，只由 parent evidence 绑定。Worker Request 仍为 null，Harness 与全部执行/经济 authority 仍关闭。
+
 经济入口按唯一 `authorized_initial_order / authorized_order` 语义定位，不依赖 Schedule/Timeline 数组末位；可选退出必须是 Schedule 末位并以 `authorized_reduce_only_exit` 独立表达，不能冒充第二个入口。所有 post-entry evaluation 必须由 Source Reducer 运行时产生 Position/Cash State Snapshot，并正确表达 terminal-before-decision、pending Order 与 checkpoint/resume。
 
 Reservation 只控制新 Attempt claim；已准入 Attempt 由 lease/generation fencing。Runner 仅通过 Attempt-scoped Artifact Store port 访问证据，local-v1 使用 `fsync + hard-link CAS + directory fsync`，remote-v1 仍只有准入合同、没有 certified adapter。Control Plane 单写 Reservation、Lease、Checkpoint Receipt 与 Resume Authorization；Replay 不查询或修改 Trial。对象存储实现/认证、OS sandbox、multiple partial、滚动 supplemental requirement/window、变更 accounting epoch、历史规则采集、部分强平、cross/shared portfolio、tick/L2、真实 partial liquidity、limit queue 与 fast mode 未完成。
