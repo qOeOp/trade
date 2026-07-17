@@ -134,6 +134,8 @@ R4.107 增加 Logical Request Identity Upgrade v1 / Identity Policy v2。下一 
 
 R4.108 增加 Worker Request v10 Materialization v1。Request exact whitelist 内嵌完整 Context/Input/Market/nullable State 实体并绑定其 hash、Code Admission、bundle/artifact、v2 logical ID、v9 alias 与 request self-hash；Attempt/process/lease 字段被拒绝。对象固定不可执行：admission 未授予、envelope 为 null、transport 未调用，v9 execution path 不变；Response、execution envelope、Worker/transport certification、Harness 与全部执行/经济 authority 仍未物化。
 
+R4.109 增加 Worker Response v10 Contract v1，但保持零 Response 实例。Response schema exact-echo Request self-hash、Code Admission 与全部 logical/input hashes，并绑定 typed DecisionOutput、trace 与自身 hash；结构合法仍只是 `unadmitted_worker_claim`。Contract 内嵌 R4.108，固定 response admission 未授予、execution envelope/process/Harness Receipt 未物化、transport/Harness forbidden，v9 execution path 不变。
+
 经济入口按唯一 `authorized_initial_order / authorized_order` 语义定位，不依赖 Schedule/Timeline 数组末位；可选退出必须是 Schedule 末位并以 `authorized_reduce_only_exit` 独立表达，不能冒充第二个入口。所有 post-entry evaluation 必须由 Source Reducer 运行时产生 Position/Cash State Snapshot，并正确表达 terminal-before-decision、pending Order 与 checkpoint/resume。
 
 Reservation 只控制新 Attempt claim；已准入 Attempt 由 lease/generation fencing。Runner 仅通过 Attempt-scoped Artifact Store port 访问证据，local-v1 使用 `fsync + hard-link CAS + directory fsync`，remote-v1 仍只有准入合同、没有 certified adapter。Control Plane 单写 Reservation、Lease、Checkpoint Receipt 与 Resume Authorization；Replay 不查询或修改 Trial。对象存储实现/认证、OS sandbox、multiple partial、滚动 supplemental requirement/window、变更 accounting epoch、历史规则采集、部分强平、cross/shared portfolio、tick/L2、真实 partial liquidity、limit queue 与 fast mode 未完成。
