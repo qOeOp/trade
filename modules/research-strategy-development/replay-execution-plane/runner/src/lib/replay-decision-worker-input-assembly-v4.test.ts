@@ -98,6 +98,10 @@ import {
   assertReplayDecisionHarnessDispatchClaim,
 } from "../../../contracts/src/lib/replay-decision-harness-dispatch-claim"
 import {
+  assertReplayDecisionHarnessProcessLaunchAttempt,
+  assertReplayDecisionHarnessProcessLaunchReceipt,
+} from "../../../contracts/src/lib/replay-decision-harness-process-launch"
+import {
   assertReplayPositionOpenStateInputMaterialization,
 } from "../../../contracts/src/lib/replay-position-open-state-input-materialization"
 import {
@@ -122,6 +126,11 @@ import {
   claimReplayDispatch,
   readReplayDispatchClaim,
 } from "./replay-dispatch-claim-registry"
+import {
+  launchReplayDispatchProcessProbe,
+  readReplayProcessLaunchAttempt,
+  readReplayProcessLaunchReceipt,
+} from "./replay-process-launch-registry"
 import {
   assertReplayDecisionHarnessInvocationIdentityLineage,
   buildReplayDecisionHarnessInvocationIdentitySet,
@@ -1202,6 +1211,90 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       lease_generation: dispatchEvidenceRegistration.lease_generation,
       logical_request_id: dispatchEvidenceRegistration.logical_request_id,
     })).toEqual(dispatchClaim)
+
+    const launchObservation = createReplayAttemptLeaseObservationSnapshot({
+      ...leaseObservationBody,
+      observation_id: "lease-observation-envelope-launch",
+      observation_ref: "observation://replay-attempt-lease/envelope-launch",
+      observed_at: "2026-07-14T00:00:34Z",
+    })
+    expect(() => launchReplayDispatchProcessProbe({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_claim: dispatchClaim,
+      launch_observation: claimObservation,
+      clock: { now: () => "2026-07-14T00:00:35Z" },
+    })).toThrow("requires a post-claim Lease observation")
+    expect(() => launchReplayDispatchProcessProbe({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_claim: dispatchClaim,
+      launch_observation: launchObservation,
+      clock: { now: () => attemptLease.lease_expires_at },
+    })).toThrow("must be invoked inside the revalidated Lease window")
+    expect(() => launchReplayDispatchProcessProbe({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_claim: dispatchClaim,
+      launch_observation: claimRenewedObservation,
+      clock: { now: () => "2026-07-14T00:02:02Z" },
+    })).toThrow("parent or executable binding drift")
+
+    const launchTimes = ["2026-07-14T00:00:35Z", "2026-07-14T00:00:36Z"]
+    const processLaunchReceipt = launchReplayDispatchProcessProbe({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_claim: dispatchClaim,
+      launch_observation: launchObservation,
+      clock: { now: () => launchTimes.shift() ?? "2026-07-14T00:00:36Z" },
+    })
+    expect(processLaunchReceipt.receipt_status).toBe("started_probe_eof_rejected")
+    expect(processLaunchReceipt.process_launch_occurrence).toBe("runner_observed_child_started")
+    expect(processLaunchReceipt.observed_child_pid).toBeGreaterThan(0)
+    expect(processLaunchReceipt.process_instance_id).toHaveLength(64)
+    expect(processLaunchReceipt.worker_request_count).toBe(0)
+    expect(processLaunchReceipt.dispatch_occurrence).toBe("not_materialized_zero_worker_request_bytes")
+    expect(processLaunchReceipt.transport_admission).toBe("not_granted")
+    expect(processLaunchReceipt.response_instance).toBeNull()
+    expect(processLaunchReceipt.decision_output_authority).toBe("none")
+    expect(() => assertReplayDecisionHarnessProcessLaunchAttempt(
+      processLaunchReceipt.source_process_launch_attempt,
+    )).not.toThrow()
+    expect(() => assertReplayDecisionHarnessProcessLaunchReceipt(processLaunchReceipt)).not.toThrow()
+    expect(launchReplayDispatchProcessProbe({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_claim: structuredClone(dispatchClaim),
+      launch_observation: structuredClone(launchObservation),
+      clock: { now: () => { throw new Error("idempotent read must not relaunch") } },
+    })).toEqual(processLaunchReceipt)
+    const launchKey = {
+      registry_root: dispatchEvidenceRegistryRoot,
+      attempt_id: dispatchClaim.attempt_id,
+      lease_generation: dispatchClaim.lease_generation,
+      logical_request_id: dispatchClaim.logical_request_id,
+    }
+    expect(readReplayProcessLaunchAttempt(launchKey))
+      .toEqual(processLaunchReceipt.source_process_launch_attempt)
+    expect(readReplayProcessLaunchReceipt(launchKey)).toEqual(processLaunchReceipt)
+
+    const registryFilesAfterLaunch = readdirSync(dispatchEvidenceRegistryRoot)
+    const processReceiptFile = registryFilesAfterLaunch.find((name) => name.startsWith("process-launch-receipt-"))
+    if (!processReceiptFile) throw new Error("expected Replay Process Launch Receipt registry file")
+    writeFileSync(join(dispatchEvidenceRegistryRoot, processReceiptFile), "{}\n", "utf8")
+    expect(() => readReplayProcessLaunchReceipt(launchKey)).toThrow()
+    writeFileSync(
+      join(dispatchEvidenceRegistryRoot, processReceiptFile),
+      `${JSON.stringify(processLaunchReceipt, null, 2)}\n`,
+      "utf8",
+    )
+    expect(() => readReplayProcessLaunchReceipt(launchKey)).toThrow("not canonical")
+    rmSync(join(dispatchEvidenceRegistryRoot, processReceiptFile))
+    expect(() => launchReplayDispatchProcessProbe({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_claim: dispatchClaim,
+      launch_observation: launchObservation,
+      clock: { now: () => { throw new Error("orphan launch attempt must not relaunch") } },
+    })).toThrow("pending or indeterminate")
+    const processAttemptFile = registryFilesAfterLaunch.find((name) => name.startsWith("process-launch-attempt-"))
+    if (!processAttemptFile) throw new Error("expected Replay Process Launch Attempt registry file")
+    writeFileSync(join(dispatchEvidenceRegistryRoot, processAttemptFile), "{}\n", "utf8")
+    expect(() => readReplayProcessLaunchAttempt(launchKey)).toThrow()
 
     const registryFiles = readdirSync(dispatchEvidenceRegistryRoot)
     const claimFile = registryFiles.find((name) => name.startsWith("dispatch-claim-"))

@@ -9,6 +9,7 @@ import {
   removeReplayDurableFile,
   writeReplayDurableAtomic,
   writeReplayImmutableCas,
+  writeReplayImmutableCasWithDisposition,
 } from "./replay-local-artifact-store"
 
 test("local artifact store fsyncs nested directories and atomically replaces staging files", () => {
@@ -33,6 +34,17 @@ test("local artifact store uses create-if-absent CAS for immutable commits", () 
   expect(readFileSync(path, "utf8")).toBe("committed\n")
   removeReplayDurableFile(path)
   expect(existsSync(path)).toBe(false)
+})
+
+test("local immutable CAS reports the sole creator without weakening collision checks", () => {
+  const root = mkdtempSync(join(tmpdir(), "rd-replay-cas-disposition-"))
+  const path = join(root, "launch-attempt.json")
+  const first = writeReplayImmutableCasWithDisposition(path, "intent\n")
+  const retry = writeReplayImmutableCasWithDisposition(path, "intent\n")
+  expect(first.created).toBe(true)
+  expect(retry.created).toBe(false)
+  expect(retry.file).toEqual(first.file)
+  expect(() => writeReplayImmutableCasWithDisposition(path, "competitor\n")).toThrow("CAS collision")
 })
 
 test("local Artifact Store port isolates opaque refs inside one Attempt namespace", () => {

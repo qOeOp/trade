@@ -28,6 +28,11 @@ export interface ReplayDurableFile {
   sha256: string
 }
 
+export interface ReplayImmutableCasDisposition {
+  file: ReplayDurableFile
+  created: boolean
+}
+
 export function createReplayLocalArtifactStore(root: string): ReplayArtifactDiscoveryStore {
   return new ReplayLocalArtifactStore(root)
 }
@@ -144,9 +149,16 @@ export function writeReplayDurableAtomic(path: string, content: string): ReplayD
 }
 
 export function writeReplayImmutableCas(path: string, content: string): ReplayDurableFile {
+  return writeReplayImmutableCasWithDisposition(path, content).file
+}
+
+export function writeReplayImmutableCasWithDisposition(
+  path: string,
+  content: string,
+): ReplayImmutableCasDisposition {
   ensureReplayDurableDirectory(dirname(path))
   const sha256 = digest(content)
-  if (existsSync(path)) return assertExisting(path, sha256)
+  if (existsSync(path)) return { file: assertExisting(path, sha256), created: false }
   const temporary = temporaryPath(path)
   writeDurableTemporary(temporary, content)
   try {
@@ -154,9 +166,9 @@ export function writeReplayImmutableCas(path: string, content: string): ReplayDu
       linkSync(temporary, path)
     } catch (error) {
       if (!isAlreadyExists(error)) throw error
-      return assertExisting(path, sha256)
+      return { file: assertExisting(path, sha256), created: false }
     }
-    return { ref: path, sha256 }
+    return { file: { ref: path, sha256 }, created: true }
   } finally {
     removeIfPresent(temporary)
     fsyncDirectory(dirname(path))
