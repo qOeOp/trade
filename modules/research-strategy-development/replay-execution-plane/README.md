@@ -100,6 +100,8 @@ R4.90 增加 non-economic Decision Schedule Observation Binding v1。它只引�
 
 R4.91 增加 non-economic Decision Schedule Observation Binding Set v1。Set 要求 frozen Schedule 的每个 sequence 恰好一份 R4.90 binding，按 decision sequence 升序并共用同一 schedule hash；缺项、重复、乱序、跨 Schedule 混装即使重哈希也拒绝。它只证明 closed-world observation coverage，不执行 effect，也不接 Harness、Runner 或经济链。
 
+R4.92 增加 portable non-economic Decision Observation Bundle v1。Bundle 内嵌完整 Binding Set 与每个 boundary 的实际 Projection，逐项绑定 id/hash、as-of、observation count、View/Cut hash，并分别折叠 payload/identity/value hashes。它仍要求 authoritative rebuild 重验外部 parent lineage；Decision Input compatibility 未声明，Harness、Artifact、Runner 与经济 authority 均未开放。
+
 经济入口按唯一 `authorized_initial_order / authorized_order` 语义定位，不依赖 Schedule/Timeline 数组末位；可选退出必须是 Schedule 末位并以 `authorized_reduce_only_exit` 独立表达，不能冒充第二个入口。所有 post-entry evaluation 必须由 Source Reducer 运行时产生 Position/Cash State Snapshot，并正确表达 terminal-before-decision、pending Order 与 checkpoint/resume。
 
 Reservation 只控制新 Attempt claim；已准入 Attempt 由 lease/generation fencing。Runner 仅通过 Attempt-scoped Artifact Store port 访问证据，local-v1 使用 `fsync + hard-link CAS + directory fsync`，remote-v1 仍只有准入合同、没有 certified adapter。Control Plane 单写 Reservation、Lease、Checkpoint Receipt 与 Resume Authorization；Replay 不查询或修改 Trial。对象存储实现/认证、OS sandbox、multiple partial、动态 supplemental join、变更 accounting epoch、历史规则采集、部分强平、cross/shared portfolio、tick/L2、真实 partial liquidity、limit queue 与 fast mode 未完成。
