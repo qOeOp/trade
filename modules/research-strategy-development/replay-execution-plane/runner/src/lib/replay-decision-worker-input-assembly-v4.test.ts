@@ -119,6 +119,10 @@ import {
   createReplayDecisionHarnessWorkerV10ResponseFrame,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-transport-contract"
 import {
+  assertReplayDecisionHarnessWorkerV10NegativeProbeReceipt,
+  assertReplayDecisionHarnessWorkerV10StdioCapability,
+} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-stdio-capability"
+import {
   assertReplayPositionOpenStateInputMaterialization,
 } from "../../../contracts/src/lib/replay-position-open-state-input-materialization"
 import {
@@ -168,6 +172,18 @@ import {
   readReplayWorkerV10TransportContract,
   registerReplayWorkerV10TransportContract,
 } from "./replay-worker-v10-transport-contract-registry"
+import {
+  assertReplayDecisionHarnessWorkerV10StdioCapabilityLineage,
+  buildReplayDecisionHarnessWorkerV10StdioCapability,
+} from "./replay-decision-harness-worker-v10-stdio-build"
+import {
+  readReplayWorkerV10StdioCapability,
+  registerReplayWorkerV10StdioCapability,
+} from "./replay-worker-v10-stdio-capability-registry"
+import {
+  readReplayWorkerV10NegativeProbeReceipt,
+  runReplayWorkerV10NegativeProbeSuite,
+} from "./replay-worker-v10-negative-probe-registry"
 import {
   assertReplayDecisionHarnessInvocationIdentityLineage,
   buildReplayDecisionHarnessInvocationIdentitySet,
@@ -1427,6 +1443,112 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       registry_root: dispatchEvidenceRegistryRoot,
       ...transportContractInput,
     })).toEqual(workerV10TransportContract)
+
+    const missingStdioCapabilityRoot = mkdtempSync(join(tmpdir(), "replay-worker-v10-stdio-missing-"))
+    try {
+      expect(() => registerReplayWorkerV10StdioCapability({
+        registry_root: missingStdioCapabilityRoot,
+        source_transport_contract: workerV10TransportContract,
+      })).toThrow("requires the exact durable Transport Contract")
+    } finally {
+      rmSync(missingStdioCapabilityRoot, { recursive: true, force: true })
+    }
+    const workerV10StdioCapability = buildReplayDecisionHarnessWorkerV10StdioCapability({
+      source_transport_contract: registeredTransportContract,
+    })
+    expect(workerV10StdioCapability.status)
+      .toBe("stdio_process_capability_available_transport_activation_not_granted")
+    expect(workerV10StdioCapability.source_decoder_artifact_hash)
+      .toBe(workerV10BuildCapability.artifact.sha256)
+    expect(workerV10StdioCapability.artifact.sha256)
+      .not.toBe(workerV10StdioCapability.source_decoder_artifact_hash)
+    expect(workerV10StdioCapability.artifact.sha256)
+      .not.toBe(workerV10StdioCapability.source_legacy_v9_artifact_hash)
+    expect(workerV10StdioCapability.r4_119_binding_relation)
+      .toBe("successor_artifact_requires_new_transport_contract_no_retroactive_rewrite")
+    expect(workerV10StdioCapability.valid_frame_policy)
+      .toBe("reject_before_decode_until_successor_transport_activation")
+    expect(workerV10StdioCapability.process_instance_count).toBe(0)
+    expect(workerV10StdioCapability.worker_request_frame_instance_count).toBe(0)
+    expect(workerV10StdioCapability.worker_request_decode_occurrence).toBe("not_materialized")
+    expect(workerV10StdioCapability.harness_invocation).toBe("forbidden")
+    expect(() => assertReplayDecisionHarnessWorkerV10StdioCapability(
+      workerV10StdioCapability,
+    )).not.toThrow()
+    expect(() => assertReplayDecisionHarnessWorkerV10StdioCapabilityLineage(
+      workerV10StdioCapability,
+      { source_transport_contract: registeredTransportContract },
+    )).not.toThrow()
+    expect(() => assertReplayDecisionHarnessWorkerV10StdioCapability({
+      ...workerV10StdioCapability,
+      source_decoder_artifact_hash: workerV10StdioCapability.artifact.sha256,
+    })).toThrow("parent or artifact binding drift")
+    const successorArtifactFrame = createReplayDecisionHarnessWorkerV10RequestFrame({
+      ...requestFrameBody,
+      process_artifact_hash: workerV10StdioCapability.artifact.sha256,
+    })
+    expect(() => assertReplayDecisionHarnessWorkerV10RequestFrame(
+      successorArtifactFrame,
+      workerV10TransportContract,
+    )).toThrow("Transport Contract binding drift")
+
+    const durableStdioCapability = registerReplayWorkerV10StdioCapability({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_transport_contract: registeredTransportContract,
+    })
+    expect(durableStdioCapability).toEqual(workerV10StdioCapability)
+    expect(registerReplayWorkerV10StdioCapability({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_transport_contract: structuredClone(registeredTransportContract),
+    })).toEqual(workerV10StdioCapability)
+    expect(readReplayWorkerV10StdioCapability({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_transport_contract: registeredTransportContract,
+    })).toEqual(workerV10StdioCapability)
+
+    const negativeProbeReceipt = runReplayWorkerV10NegativeProbeSuite({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_stdio_capability: durableStdioCapability,
+      clock: { now: () => "2026-07-14T00:00:33Z" },
+    })
+    expect(negativeProbeReceipt.status).toBe("complete_expected_pre_decode_rejections")
+    expect(negativeProbeReceipt.probe_order).toEqual([
+      "empty_eof",
+      "invalid_json_lf",
+      "missing_lf",
+      "multiple_frames",
+      "oversized_input",
+    ])
+    expect(negativeProbeReceipt.probe_results.map((item) => item.exit_status))
+      .toEqual([64, 65, 67, 68, 66])
+    expect(negativeProbeReceipt.process_instance_count).toBe(5)
+    expect(negativeProbeReceipt.worker_request_frame_instance_count).toBe(0)
+    expect(negativeProbeReceipt.worker_request_write_receipt_count).toBe(0)
+    expect(negativeProbeReceipt.worker_request_decode_occurrence).toBe("not_materialized")
+    expect(negativeProbeReceipt.dispatch_occurrence)
+      .toBe("not_materialized_only_non_frame_probe_bytes")
+    expect(negativeProbeReceipt.harness_invocation).toBe("forbidden")
+    expect(() => assertReplayDecisionHarnessWorkerV10NegativeProbeReceipt(
+      negativeProbeReceipt,
+    )).not.toThrow()
+    expect(runReplayWorkerV10NegativeProbeSuite({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_stdio_capability: durableStdioCapability,
+      clock: { now: () => "2026-07-14T00:00:34Z" },
+    })).toEqual(negativeProbeReceipt)
+    expect(readReplayWorkerV10NegativeProbeReceipt({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_stdio_capability: durableStdioCapability,
+    })).toEqual(negativeProbeReceipt)
+    const negativeProbeFile = readdirSync(dispatchEvidenceRegistryRoot)
+      .find((name) => name.startsWith("worker-v10-negative-probe-receipt-"))
+    if (!negativeProbeFile) throw new Error("expected Replay Worker v10 negative probe receipt file")
+    writeFileSync(join(dispatchEvidenceRegistryRoot, negativeProbeFile), "{}\n", "utf8")
+    expect(() => readReplayWorkerV10NegativeProbeReceipt({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_stdio_capability: durableStdioCapability,
+    })).toThrow()
+
     const transportContractFile = readdirSync(dispatchEvidenceRegistryRoot)
       .find((name) => name.startsWith("worker-v10-transport-contract-"))
     if (!transportContractFile) throw new Error("expected Replay Worker v10 Transport Contract registry file")
