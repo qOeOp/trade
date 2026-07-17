@@ -3,6 +3,8 @@ import { createHash } from "node:crypto"
 import {
   CONTROL_PLANE_IDENTITY_SCHEMA_VERSION,
   REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION,
+  REPLAY_ATTEMPT_LEASE_OBSERVATION_POLICY_VERSION,
+  REPLAY_ATTEMPT_LEASE_OBSERVATION_SCHEMA_VERSION,
   REPLAY_CHECKPOINT_RECEIPT_SCHEMA_VERSION,
   REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION,
   REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION,
@@ -34,6 +36,7 @@ import {
   createReplayReservationCancellationSnapshot,
   createReplayAttemptCancellationSnapshot,
   createReplayAttemptCancellationObservationSnapshot,
+  createReplayAttemptLeaseObservationSnapshot,
   hashReplayResumeAuthorizationSnapshot,
   hashTrialReservationSnapshot,
   hashReplayAttemptLeaseSnapshot,
@@ -366,6 +369,37 @@ test("Replay Attempt Lease snapshot carries a monotonic fencing generation", () 
   }
   expect(hashReplayAttemptLeaseSnapshot(lease)).toHaveLength(64)
   expect(() => hashReplayAttemptLeaseSnapshot({ ...lease, lease_expires_at: lease.heartbeat_at })).toThrow(/timestamps/)
+
+  const observation = createReplayAttemptLeaseObservationSnapshot({
+    schema_version: REPLAY_ATTEMPT_LEASE_OBSERVATION_SCHEMA_VERSION,
+    observation_id: "replay-attempt-lease-observation-1",
+    observation_ref: "observation://replay-attempt-lease/1",
+    observation_policy_version: REPLAY_ATTEMPT_LEASE_OBSERVATION_POLICY_VERSION,
+    status: "active_lease_observed",
+    observed_at: lease.heartbeat_at,
+    authority_owner: "research_control_plane",
+    authority_source: "research_control_plane_state_store",
+    read_consistency: "single_control_plane_transaction",
+    clock_evidence: "caller_supplied_utc_not_external_time_attestation",
+    trial_id: lease.trial_id,
+    run_id: lease.run_id,
+    attempt_id: lease.attempt_id,
+    attempt_ordinal: lease.attempt_ordinal,
+    worker_id: lease.worker_id,
+    lease_generation: lease.lease_generation,
+    attempt_lease_hash: hashReplayAttemptLeaseSnapshot(lease),
+    attempt_lease: lease,
+  })
+  expect(observation.observation_hash).toHaveLength(64)
+  const { observation_hash: _observationHash, ...observationBody } = observation
+  expect(() => createReplayAttemptLeaseObservationSnapshot({
+    ...observationBody,
+    observed_at: lease.lease_expires_at,
+  })).toThrow(/heartbeat_at <= observed_at < lease_expires_at/)
+  expect(() => createReplayAttemptLeaseObservationSnapshot({
+    ...observationBody,
+    lease_generation: lease.lease_generation + 1,
+  })).toThrow(/does not bind/)
 })
 
 test("Replay decision observation Bundle admission is immutable non-economic authority", () => {

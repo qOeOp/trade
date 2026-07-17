@@ -1,9 +1,14 @@
 import type { Database } from "bun:sqlite"
 import {
   REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION,
+  REPLAY_ATTEMPT_LEASE_OBSERVATION_POLICY_VERSION,
+  REPLAY_ATTEMPT_LEASE_OBSERVATION_SCHEMA_VERSION,
   assertReplayAttemptLeaseSnapshot,
   assertTrialReservationSnapshot,
+  createReplayAttemptLeaseObservationSnapshot,
+  hashReplayAttemptLeaseSnapshot,
   hashTrialReservationSnapshot,
+  type ReplayAttemptLeaseObservationSnapshot,
   type ReplayAttemptLeaseSnapshot,
   type TrialReservationSnapshot,
 } from "../../../contracts/src/lib/control-plane-contracts"
@@ -27,6 +32,11 @@ export interface RenewReplayAttemptLeaseInput {
   expected_lease_generation: number
   heartbeat_at: string
   lease_expires_at: string
+}
+
+export interface ObserveCurrentReplayAttemptLeaseInput {
+  trial_id: string
+  observed_at: string
 }
 
 export interface FinalizeReplayAttemptInput {
@@ -179,6 +189,49 @@ export function renewReplayAttemptLease(db: Database, input: RenewReplayAttemptL
   })
   if (result.changes !== 1) throw new Error("Replay Attempt lease lost during renewal")
   return toLeaseSnapshot(readAttempt(db, input.attempt_id))
+}
+
+export function observeCurrentReplayAttemptLease(
+  db: Database,
+  input: ObserveCurrentReplayAttemptLeaseInput,
+): ReplayAttemptLeaseObservationSnapshot {
+  requireText(input.trial_id, "trial_id")
+  requireUtc(input.observed_at, "observed_at")
+  const observe = db.transaction(() => {
+    const row = db.query(`
+      SELECT * FROM rd_replay_attempt
+      WHERE trial_id=$trial_id AND status IN ('claimed', 'running')
+    `).get({ $trial_id: input.trial_id }) as AttemptRow | null
+    if (!row) throw new Error("Replay Trial has no active Attempt Lease to observe")
+    const lease = toLeaseSnapshot(row)
+    const observed = Date.parse(input.observed_at)
+    if (observed < Date.parse(lease.heartbeat_at) || observed >= Date.parse(lease.lease_expires_at)) {
+      throw new Error("Replay Attempt Lease observation must satisfy heartbeat_at <= observed_at < lease_expires_at")
+    }
+    const leaseHash = hashReplayAttemptLeaseSnapshot(lease)
+    const discriminator = `${leaseHash.slice(0, 16)}-${observed}`
+    return createReplayAttemptLeaseObservationSnapshot({
+      schema_version: REPLAY_ATTEMPT_LEASE_OBSERVATION_SCHEMA_VERSION,
+      observation_id: `replay-attempt-lease-observation-${discriminator}`,
+      observation_ref: `observation://replay-attempt-lease/${discriminator}`,
+      observation_policy_version: REPLAY_ATTEMPT_LEASE_OBSERVATION_POLICY_VERSION,
+      status: "active_lease_observed",
+      observed_at: input.observed_at,
+      authority_owner: "research_control_plane",
+      authority_source: "research_control_plane_state_store",
+      read_consistency: "single_control_plane_transaction",
+      clock_evidence: "caller_supplied_utc_not_external_time_attestation",
+      trial_id: lease.trial_id,
+      run_id: lease.run_id,
+      attempt_id: lease.attempt_id,
+      attempt_ordinal: lease.attempt_ordinal,
+      worker_id: lease.worker_id,
+      lease_generation: lease.lease_generation,
+      attempt_lease_hash: leaseHash,
+      attempt_lease: lease,
+    })
+  })
+  return observe()
 }
 
 export function finalizeReplayAttempt(db: Database, input: FinalizeReplayAttemptInput): void {

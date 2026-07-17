@@ -107,6 +107,7 @@ import {
   REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION,
   REPLAY_ATTEMPT_CANCELLATION_OBSERVATION_SCHEMA_VERSION,
   assertTrialReservationSnapshot,
+  hashReplayAttemptLeaseSnapshot,
   hashTrialReservationSnapshot,
   createReplayInstrumentStatusProviderCertificationSnapshot,
   createReplayInstrumentStatusProviderCertificationTermination,
@@ -137,7 +138,12 @@ import { hashIdentityPayload } from "./research-identity-hash"
 import { buildDefaultUniverseSeed, seedDefaultResearchControlPlane } from "./research-universe-default-seed"
 import { ensureResearchStateSchema } from "./research-state-store"
 import { issueTrialReservationSnapshot } from "./trial-reservation-snapshot"
-import { claimReplayAttempt, finalizeReplayAttempt, renewReplayAttemptLease } from "./replay-attempt-authority"
+import {
+  claimReplayAttempt,
+  finalizeReplayAttempt,
+  observeCurrentReplayAttemptLease,
+  renewReplayAttemptLease,
+} from "./replay-attempt-authority"
 import { recordReplayCheckpointReceipt } from "./replay-checkpoint-receipt"
 import { issueReplayResumeAuthorization } from "./replay-resume-authorization"
 import {
@@ -1327,6 +1333,25 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
     })
     assert.equal(renewed.status, "running")
     assert.equal(renewed.lease_generation, 2)
+    const leaseObservation = observeCurrentReplayAttemptLease(db, {
+      trial_id: renewed.trial_id,
+      observed_at: renewed.heartbeat_at,
+    })
+    assert.equal(leaseObservation.attempt_lease_hash, hashReplayAttemptLeaseSnapshot(renewed))
+    assert.equal(leaseObservation.lease_generation, renewed.lease_generation)
+    assert.equal(leaseObservation.read_consistency, "single_control_plane_transaction")
+    assert.deepEqual(observeCurrentReplayAttemptLease(db, {
+      trial_id: renewed.trial_id,
+      observed_at: renewed.heartbeat_at,
+    }), leaseObservation)
+    assert.throws(() => observeCurrentReplayAttemptLease(db, {
+      trial_id: renewed.trial_id,
+      observed_at: "2026-07-14T04:01:59Z",
+    }), /heartbeat_at <= observed_at < lease_expires_at/)
+    assert.throws(() => observeCurrentReplayAttemptLease(db, {
+      trial_id: renewed.trial_id,
+      observed_at: renewed.lease_expires_at,
+    }), /heartbeat_at <= observed_at < lease_expires_at/)
     const firstReceipt = recordReplayCheckpointReceipt(db, {
       receipt_id: "checkpoint-receipt-1", receipt_ref: "receipt://attempt-1/2",
       recorded_at: "2026-07-14T04:02:30Z", attempt_lease: renewed,
@@ -1405,6 +1430,10 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
       diagnostic_checkpoint_ref: "artifact://attempt-1/changed.json",
       diagnostic_checkpoint_hash: "8".repeat(64),
     }), /already terminal/)
+    assert.throws(() => observeCurrentReplayAttemptLease(db, {
+      trial_id: renewed.trial_id,
+      observed_at: "2026-07-14T04:03:30Z",
+    }), /no active Attempt Lease/)
     const second = claimReplayAttempt(db, {
       attempt_id: "attempt-2", worker_id: "worker-2", idempotency_key: "attempt-key-2",
       request_hash: "9".repeat(64), claimed_at: "2026-07-14T04:04:00Z", lease_expires_at: "2026-07-14T04:06:00Z",

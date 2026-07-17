@@ -17,6 +17,8 @@ export const REPLAY_RESERVATION_CANCELLATION_SCHEMA_VERSION = "trade.rd-replay-r
 export const REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION = "trade.rd-replay-attempt-cancellation.v1" as const
 export const REPLAY_ATTEMPT_CANCELLATION_OBSERVATION_SCHEMA_VERSION = "trade.rd-replay-attempt-cancellation-observation.v1" as const
 export const REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION = "trade.rd-replay-attempt-lease.v1" as const
+export const REPLAY_ATTEMPT_LEASE_OBSERVATION_SCHEMA_VERSION = "trade.rd-replay-attempt-lease-observation.v1" as const
+export const REPLAY_ATTEMPT_LEASE_OBSERVATION_POLICY_VERSION = "rd-replay-attempt-lease-observation-v1" as const
 export const REPLAY_CHECKPOINT_RECEIPT_SCHEMA_VERSION = "trade.rd-replay-checkpoint-receipt.v2" as const
 export const REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION = REPLAY_LOCAL_ARTIFACT_STORAGE_POLICY_VERSION
 export const REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION = "trade.rd-replay-resume-authorization-snapshot.v1" as const
@@ -476,6 +478,30 @@ export interface ReplayAttemptLeaseSnapshot {
   heartbeat_at: string
   lease_expires_at: string
 }
+
+export interface ReplayAttemptLeaseObservationSnapshot {
+  schema_version: typeof REPLAY_ATTEMPT_LEASE_OBSERVATION_SCHEMA_VERSION
+  observation_id: string
+  observation_ref: string
+  observation_hash: string
+  observation_policy_version: typeof REPLAY_ATTEMPT_LEASE_OBSERVATION_POLICY_VERSION
+  status: "active_lease_observed"
+  observed_at: string
+  authority_owner: "research_control_plane"
+  authority_source: "research_control_plane_state_store"
+  read_consistency: "single_control_plane_transaction"
+  clock_evidence: "caller_supplied_utc_not_external_time_attestation"
+  trial_id: string
+  run_id: string
+  attempt_id: string
+  attempt_ordinal: number
+  worker_id: string
+  lease_generation: number
+  attempt_lease_hash: string
+  attempt_lease: ReplayAttemptLeaseSnapshot
+}
+
+export type ReplayAttemptLeaseObservationBody = Omit<ReplayAttemptLeaseObservationSnapshot, "observation_hash">
 
 export interface ReplayResumeAuthorizationSnapshot {
   schema_version: typeof REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION
@@ -1317,6 +1343,61 @@ export function assertReplayAttemptLeaseSnapshot(value: ReplayAttemptLeaseSnapsh
 export function hashReplayAttemptLeaseSnapshot(value: ReplayAttemptLeaseSnapshot): string {
   assertReplayAttemptLeaseSnapshot(value)
   return createHash("sha256").update(canonicalReservationJson(value), "utf8").digest("hex")
+}
+
+export function createReplayAttemptLeaseObservationSnapshot(
+  body: ReplayAttemptLeaseObservationBody,
+): ReplayAttemptLeaseObservationSnapshot {
+  const value: ReplayAttemptLeaseObservationSnapshot = {
+    ...structuredClone(body),
+    observation_hash: createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex"),
+  }
+  assertReplayAttemptLeaseObservationSnapshot(value)
+  return value
+}
+
+export function assertReplayAttemptLeaseObservationSnapshot(
+  value: ReplayAttemptLeaseObservationSnapshot,
+): void {
+  if (value.schema_version !== REPLAY_ATTEMPT_LEASE_OBSERVATION_SCHEMA_VERSION
+      || value.observation_policy_version !== REPLAY_ATTEMPT_LEASE_OBSERVATION_POLICY_VERSION
+      || value.status !== "active_lease_observed"
+      || value.authority_owner !== "research_control_plane"
+      || value.authority_source !== "research_control_plane_state_store"
+      || value.read_consistency !== "single_control_plane_transaction"
+      || value.clock_evidence !== "caller_supplied_utc_not_external_time_attestation") {
+    fail("attempt lease observation policy or authority")
+  }
+  for (const [field, item] of Object.entries({
+    observation_id: value.observation_id,
+    observation_ref: value.observation_ref,
+    trial_id: value.trial_id,
+    run_id: value.run_id,
+    attempt_id: value.attempt_id,
+    worker_id: value.worker_id,
+  })) requireText(item, `attempt_lease_observation.${field}`)
+  requireHash(value.observation_hash, "attempt_lease_observation.observation_hash")
+  requireHash(value.attempt_lease_hash, "attempt_lease_observation.attempt_lease_hash")
+  requireUtcTimestamp(value.observed_at, "attempt_lease_observation.observed_at")
+  if (!Number.isSafeInteger(value.attempt_ordinal) || value.attempt_ordinal < 1
+      || !Number.isSafeInteger(value.lease_generation) || value.lease_generation < 1) {
+    fail("attempt lease observation ordinal and generation must be positive")
+  }
+  assertReplayAttemptLeaseSnapshot(value.attempt_lease)
+  const lease = value.attempt_lease
+  if (value.attempt_lease_hash !== hashReplayAttemptLeaseSnapshot(lease)
+      || value.trial_id !== lease.trial_id || value.run_id !== lease.run_id
+      || value.attempt_id !== lease.attempt_id || value.attempt_ordinal !== lease.attempt_ordinal
+      || value.worker_id !== lease.worker_id || value.lease_generation !== lease.lease_generation) {
+    fail("attempt lease observation does not bind its Lease")
+  }
+  const observed = Date.parse(value.observed_at)
+  if (observed < Date.parse(lease.heartbeat_at) || observed >= Date.parse(lease.lease_expires_at)) {
+    fail("attempt lease observation must satisfy heartbeat_at <= observed_at < lease_expires_at")
+  }
+  const { observation_hash: observationHash, ...body } = value
+  const expected = createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")
+  if (observationHash !== expected) fail("attempt lease observation hash mismatch")
 }
 
 export function assertReplayCheckpointReceiptSnapshot(value: ReplayCheckpointReceiptSnapshot): void {
