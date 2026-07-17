@@ -138,6 +138,8 @@ R4.109 增加 Worker Response v10 Contract v1，但保持零 Response 实例。R
 
 R4.110 增加 Attempt-bound Execution Envelope v1。Envelope 同时绑定 Control Plane Replay Execution Request hash、Worker Request self-hash、logical ID 与一个精确 Attempt lease generation；续租必须生成 predecessor-linked successor，跨 Attempt retry 生成保持 logical ID 的新 root。Control Plane `worker_id` 不等于 OS process identity，dispatch freshness 未验证；transport admission、Response、Harness 与全部执行/经济 authority 仍关闭。
 
+R4.111 增加 Dispatch Lease Admission v1。Admission 只在一次 Control Plane current-Lease observation 上证明 Envelope 的 Attempt/worker/generation/hash 精确且 `observed_at ∈ [heartbeat_at, lease_expires_at)`；续租必须先使用 successor Envelope，跨 Attempt retry 必须先使用新 root。该 observation 不是独立时钟证明，实际 dispatch/process/transport、Response、Harness 与全部执行/经济 authority 仍关闭。
+
 经济入口按唯一 `authorized_initial_order / authorized_order` 语义定位，不依赖 Schedule/Timeline 数组末位；可选退出必须是 Schedule 末位并以 `authorized_reduce_only_exit` 独立表达，不能冒充第二个入口。所有 post-entry evaluation 必须由 Source Reducer 运行时产生 Position/Cash State Snapshot，并正确表达 terminal-before-decision、pending Order 与 checkpoint/resume。
 
 Reservation 只控制新 Attempt claim；已准入 Attempt 由 lease/generation fencing。Runner 仅通过 Attempt-scoped Artifact Store port 访问证据，local-v1 使用 `fsync + hard-link CAS + directory fsync`，remote-v1 仍只有准入合同、没有 certified adapter。Control Plane 单写 Reservation、Lease、Checkpoint Receipt 与 Resume Authorization；Replay 不查询或修改 Trial。对象存储实现/认证、OS sandbox、multiple partial、滚动 supplemental requirement/window、变更 accounting epoch、历史规则采集、部分强平、cross/shared portfolio、tick/L2、真实 partial liquidity、limit queue 与 fast mode 未完成。
