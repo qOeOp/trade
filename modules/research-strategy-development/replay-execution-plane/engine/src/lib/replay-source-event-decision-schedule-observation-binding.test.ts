@@ -7,6 +7,9 @@ import {
 import {
   assertReplaySourceEventDecisionScheduleObservationBinding,
 } from "../../../contracts/src/lib/replay-source-event-decision-schedule-observation-binding"
+import {
+  assertReplaySourceEventDecisionScheduleObservationBindingSet,
+} from "../../../contracts/src/lib/replay-source-event-decision-schedule-observation-binding-set"
 import { replaySourceEventWireTestFixture } from "../../../data-adapter/src/lib/replay-cross-source-test-fixture"
 import { evaluateReplaySourceEventWirePreExecutionGate } from "../../../data-adapter/src/lib/replay-source-event-wire-gate"
 import { buildReplaySourceEventAvailabilityCursor } from "./replay-source-event-availability-cursor"
@@ -16,6 +19,10 @@ import {
   buildReplaySourceEventDecisionScheduleObservationBinding,
   type ReplaySourceEventDecisionScheduleObservationBindingInput,
 } from "./replay-source-event-decision-schedule-observation-binding"
+import {
+  assertReplaySourceEventDecisionScheduleObservationBindingSetLineage,
+  buildReplaySourceEventDecisionScheduleObservationBindingSet,
+} from "./replay-source-event-decision-schedule-observation-binding-set"
 import { buildReplaySourceEventPitPayloadView } from "./replay-source-event-pit-payload-view"
 import { buildReplaySourceEventVisibilityCut } from "./replay-source-event-visibility-cut"
 import { reduceReplaySourceEventWireCandidateSchedule } from "./replay-source-event-wire-candidate-reducer"
@@ -161,3 +168,101 @@ test("decision schedule observation binding rejects time, frozen hash, field, an
   expect(() => assertReplaySourceEventDecisionScheduleObservationBinding(extended))
     .toThrow("field whitelist")
 })
+
+test("binding set covers every frozen schedule entry exactly once without execution authority", () => {
+  const schedule = frozenSchedule()
+  const scheduleHash = canonicalHash(schedule)
+  const input = {
+    decision_schedule: schedule,
+    decision_schedule_hash: scheduleHash,
+    binding_inputs: [
+      bindingInput(1, "2026-07-14T04:00:00Z", schedule, scheduleHash),
+      bindingInput(2, "2026-07-14T04:08:00Z", schedule, scheduleHash),
+    ],
+  }
+  const set = buildReplaySourceEventDecisionScheduleObservationBindingSet(input)
+  const replayed = buildReplaySourceEventDecisionScheduleObservationBindingSet(structuredClone(input))
+
+  expect(() => assertReplaySourceEventDecisionScheduleObservationBindingSet(set)).not.toThrow()
+  expect(() => assertReplaySourceEventDecisionScheduleObservationBindingSetLineage(set, input)).not.toThrow()
+  expect(replayed.binding_set_hash).toBe(set.binding_set_hash)
+  expect(set.binding_count).toBe(schedule.entries.length)
+  expect(set.bindings.map((item) => item.selected_decision_sequence)).toEqual([1, 2])
+  expect(set.completeness_rule).toBe("exactly_one_binding_per_schedule_entry")
+  expect(set.cross_schedule_binding_policy).toBe("forbidden")
+  expect(set.harness_invocation).toBe("forbidden")
+  expect(set.decision_authority).toBe("none")
+  expect(set.order_authority).toBe("none")
+})
+
+test("binding set rejects omission, duplicate, reorder, and cross-schedule mixing", () => {
+  const schedule = frozenSchedule()
+  const scheduleHash = canonicalHash(schedule)
+  const first = bindingInput(1, "2026-07-14T04:00:00Z", schedule, scheduleHash)
+  const second = bindingInput(2, "2026-07-14T04:08:00Z", schedule, scheduleHash)
+  const base = { decision_schedule: schedule, decision_schedule_hash: scheduleHash }
+
+  expect(() => buildReplaySourceEventDecisionScheduleObservationBindingSet({
+    ...base,
+    binding_inputs: [first],
+  })).toThrow("not closed-world complete")
+  expect(() => buildReplaySourceEventDecisionScheduleObservationBindingSet({
+    ...base,
+    binding_inputs: [first, structuredClone(first)],
+  })).toThrow("input order or schedule drift")
+  expect(() => buildReplaySourceEventDecisionScheduleObservationBindingSet({
+    ...base,
+    binding_inputs: [second, first],
+  })).toThrow("input order or schedule drift")
+
+  const foreignSchedule = frozenSchedule()
+  foreignSchedule.entries[1]!.authorized_order_hash = "c".repeat(64)
+  const foreignHash = canonicalHash(foreignSchedule)
+  const foreignSecond = bindingInput(
+    2,
+    "2026-07-14T04:08:00Z",
+    foreignSchedule,
+    foreignHash,
+  )
+  expect(() => buildReplaySourceEventDecisionScheduleObservationBindingSet({
+    ...base,
+    binding_inputs: [first, foreignSecond],
+  })).toThrow("input order or schedule drift")
+
+  const set = buildReplaySourceEventDecisionScheduleObservationBindingSet({
+    ...base,
+    binding_inputs: [first, second],
+  })
+  const duplicatedProjection = structuredClone(set)
+  duplicatedProjection.bindings[1]!.observation_projection_hash
+    = duplicatedProjection.bindings[0]!.observation_projection_hash
+  rehashBinding(duplicatedProjection.bindings[1]!)
+  rehashBindingSet(duplicatedProjection)
+  expect(() => assertReplaySourceEventDecisionScheduleObservationBindingSet(duplicatedProjection))
+    .toThrow("duplicate member")
+})
+
+function rehashBinding(
+  binding: ReturnType<typeof buildReplaySourceEventDecisionScheduleObservationBinding>,
+): void {
+  const { binding_hash: _oldHash, binding_id: _oldId, ...bodyWithoutId } = binding
+  binding.binding_id
+    = `source-event-decision-schedule-observation-${canonicalHash(bodyWithoutId).slice(0, 24)}`
+  const { binding_hash: _rehash, ...body } = binding
+  binding.binding_hash = canonicalHash(body)
+}
+
+function rehashBindingSet(
+  set: ReturnType<typeof buildReplaySourceEventDecisionScheduleObservationBindingSet>,
+): void {
+  set.bindings_hash = canonicalHash(set.bindings)
+  set.binding_hashes_hash = canonicalHash(set.bindings.map((item) => item.binding_hash))
+  set.observation_projection_hashes_hash = canonicalHash(
+    set.bindings.map((item) => item.observation_projection_hash),
+  )
+  const { binding_set_hash: _oldHash, binding_set_id: _oldId, ...bodyWithoutId } = set
+  set.binding_set_id
+    = `source-event-decision-schedule-observation-set-${canonicalHash(bodyWithoutId).slice(0, 24)}`
+  const { binding_set_hash: _rehash, ...body } = set
+  set.binding_set_hash = canonicalHash(body)
+}
