@@ -150,6 +150,8 @@ R4.116 增加 Runner-owned Process Launch Attempt/Receipt v1。Runner 在 post-c
 
 R4.117 增加 Runner-owned Transport Activation Gate v1。Gate 重读 exact Process Launch Receipt 后发现 attested artifact 仍是 v9，而目标 Request 是不可执行 v10，且 probe process 已终止；因此持久化完整 ordered blockers，禁止 silent v10→v9 projection 与 process reuse，固定 frame/write receipt 数量为 0、dispatch 未发生。未来 v10 capability/process evidence 必须生成新 gate key；本阶段不预设 frame schema。
 
+R4.118 增加 Runner-owned Worker v10 Decoder Build Capability v1。Runner 从 exact Code Admission/Source Bundle 生成独立于 v9 worker 的 deterministic Bun ESM decoder artifact，冻结 Request v10 exact fields、protocol/schema 与不可执行 markers，并以 local immutable CAS 提供 create-or-identical/restart read；module fixture 只调用 pure in-memory decoder，完整 Request 语义仍由 Runner Contract validator 负责。该 capability 没有 stdin loop、frame、process/request instance、dispatch、Harness 或经济 authority，不改写 R4.117 blocked gate，也不完成 v9→v10 cutover。
+
 经济入口按唯一 `authorized_initial_order / authorized_order` 语义定位，不依赖 Schedule/Timeline 数组末位；可选退出必须是 Schedule 末位并以 `authorized_reduce_only_exit` 独立表达，不能冒充第二个入口。所有 post-entry evaluation 必须由 Source Reducer 运行时产生 Position/Cash State Snapshot，并正确表达 terminal-before-decision、pending Order 与 checkpoint/resume。
 
 Reservation 只控制新 Attempt claim；已准入 Attempt 由 lease/generation fencing。Runner 仅通过 Attempt-scoped Artifact Store port 访问证据，local-v1 使用 `fsync + hard-link CAS + directory fsync`，remote-v1 仍只有准入合同、没有 certified adapter。Control Plane 单写 Reservation、Lease、Checkpoint Receipt 与 Resume Authorization；Replay 不查询或修改 Trial。对象存储实现/认证、OS sandbox、multiple partial、滚动 supplemental requirement/window、变更 accounting epoch、历史规则采集、部分强平、cross/shared portfolio、tick/L2、真实 partial liquidity、limit queue 与 fast mode 未完成。
