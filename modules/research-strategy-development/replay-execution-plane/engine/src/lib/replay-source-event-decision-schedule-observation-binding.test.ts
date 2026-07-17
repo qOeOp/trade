@@ -8,6 +8,9 @@ import {
   assertReplaySourceEventDecisionObservationBundle,
 } from "../../../contracts/src/lib/replay-source-event-decision-observation-bundle"
 import {
+  assertReplaySourceEventDecisionObservationBundleDerivationAttestation,
+} from "../../../contracts/src/lib/replay-source-event-decision-observation-bundle-derivation"
+import {
   assertReplaySourceEventDecisionScheduleObservationBinding,
 } from "../../../contracts/src/lib/replay-source-event-decision-schedule-observation-binding"
 import {
@@ -21,6 +24,10 @@ import {
   assertReplaySourceEventDecisionObservationBundleLineage,
   buildReplaySourceEventDecisionObservationBundle,
 } from "./replay-source-event-decision-observation-bundle"
+import {
+  assertReplaySourceEventDecisionObservationBundleDerivationLineage,
+  certifyReplaySourceEventDecisionObservationBundleDerivation,
+} from "./replay-source-event-decision-observation-bundle-derivation"
 import {
   assertReplaySourceEventDecisionScheduleObservationBindingLineage,
   buildReplaySourceEventDecisionScheduleObservationBinding,
@@ -68,8 +75,9 @@ function bindingInput(
   asOfTime: string,
   scheduleValue = frozenSchedule(),
   scheduleHash = canonicalHash(scheduleValue),
+  exact = false,
 ): ReplaySourceEventDecisionScheduleObservationBindingInput {
-  const fixture = replaySourceEventWireTestFixture()
+  const fixture = replaySourceEventWireTestFixture({ exact })
   const preExecutionGate = evaluateReplaySourceEventWirePreExecutionGate({
     wire_manifest: fixture.wire_manifest,
     ordering_attestation: fixture.ordering_attestation,
@@ -327,6 +335,81 @@ test("decision observation bundle rejects omission, reorder, substitution, and f
   const { bundle_hash: _extendedHash, ...extendedBody } = extended
   extended.bundle_hash = canonicalHash(extendedBody)
   expect(() => assertReplaySourceEventDecisionObservationBundle(extended))
+    .toThrow("field whitelist")
+})
+
+test("decision observation derivation attestation certifies the complete common parent chain", () => {
+  const setInput = bindingSetInput()
+  const input = {
+    ...setInput,
+    decision_schedule_observation_binding_set:
+      buildReplaySourceEventDecisionScheduleObservationBindingSet(setInput),
+  }
+  const bundle = buildReplaySourceEventDecisionObservationBundle(input)
+  const attestation = certifyReplaySourceEventDecisionObservationBundleDerivation(bundle, input)
+  const replayed = certifyReplaySourceEventDecisionObservationBundleDerivation(
+    structuredClone(bundle),
+    structuredClone(input),
+  )
+
+  expect(() => assertReplaySourceEventDecisionObservationBundleDerivationAttestation(attestation))
+    .not.toThrow()
+  expect(() => assertReplaySourceEventDecisionObservationBundleDerivationLineage(
+    attestation,
+    bundle,
+    input,
+  )).not.toThrow()
+  expect(replayed.attestation_hash).toBe(attestation.attestation_hash)
+  expect(attestation.boundary_count).toBe(input.decision_schedule.entries.length)
+  expect(attestation.certification_result).toBe("certified_against_supplied_parent_chain")
+  expect(attestation.common_parent_rule).toBe("one_wire_gate_trace_cursor_for_all_boundaries")
+  expect(attestation.control_plane_admission_compatibility).toBe("not_bound")
+  expect(attestation.harness_invocation).toBe("forbidden")
+  expect(attestation.economic_authority).toBe("none")
+})
+
+test("decision observation derivation rejects mixed roots, parent substitution, and authority injection", () => {
+  const schedule = frozenSchedule()
+  const scheduleHash = canonicalHash(schedule)
+  const mixedSetInput = {
+    decision_schedule: schedule,
+    decision_schedule_hash: scheduleHash,
+    binding_inputs: [
+      bindingInput(1, "2026-07-14T04:00:00Z", schedule, scheduleHash),
+      bindingInput(2, "2026-07-14T04:08:00Z", schedule, scheduleHash, true),
+    ],
+  }
+  const mixedInput = {
+    ...mixedSetInput,
+    decision_schedule_observation_binding_set:
+      buildReplaySourceEventDecisionScheduleObservationBindingSet(mixedSetInput),
+  }
+  const mixedBundle = buildReplaySourceEventDecisionObservationBundle(mixedInput)
+  expect(() => certifyReplaySourceEventDecisionObservationBundleDerivation(mixedBundle, mixedInput))
+    .toThrow("mixes parent chains")
+
+  const setInput = bindingSetInput()
+  const input = {
+    ...setInput,
+    decision_schedule_observation_binding_set:
+      buildReplaySourceEventDecisionScheduleObservationBindingSet(setInput),
+  }
+  const bundle = buildReplaySourceEventDecisionObservationBundle(input)
+  const attestation = certifyReplaySourceEventDecisionObservationBundleDerivation(bundle, input)
+  const substitutedInput = structuredClone(input)
+  substitutedInput.binding_inputs[1]!.pit_payload_view
+    = substitutedInput.binding_inputs[0]!.pit_payload_view
+  expect(() => assertReplaySourceEventDecisionObservationBundleDerivationLineage(
+    attestation,
+    bundle,
+    substitutedInput,
+  )).toThrow()
+
+  const extended = structuredClone(attestation) as typeof attestation & { runner_admission?: string }
+  extended.runner_admission = "allowed"
+  const { attestation_hash: _oldHash, ...body } = extended
+  extended.attestation_hash = canonicalHash(body)
+  expect(() => assertReplaySourceEventDecisionObservationBundleDerivationAttestation(extended))
     .toThrow("field whitelist")
 })
 
