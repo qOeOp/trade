@@ -121,6 +121,7 @@ import {
   createReplayAttemptCancellationSnapshot,
   createReplayAttemptCancellationObservationSnapshot,
   createReplayAttemptLeaseObservationSnapshot,
+  assertReplayAttemptLeaseObservationRegistryReadReceipt,
 } from "../../../contracts/src/lib/control-plane-contracts"
 import {
   RESEARCH_LIFECYCLE_RULE_VERSION,
@@ -147,6 +148,7 @@ import {
   finalizeReplayAttempt,
   observeCurrentReplayAttemptLease,
   readReplayAttemptLeaseObservation,
+  readReplayAttemptLeaseObservationRegistryReceipt,
   registerReplayAttemptLeaseObservation,
   renewReplayAttemptLease,
 } from "./replay-attempt-authority"
@@ -1402,6 +1404,35 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
     db.close()
     db = openDb(databasePath)
     assert.deepEqual(readReplayAttemptLeaseObservation(db, leaseObservation.observation_id), leaseObservation)
+    assert.throws(() => readReplayAttemptLeaseObservationRegistryReceipt(db, {
+      observation_id: "missing-observation",
+      read_at: "2026-07-14T04:02:03Z",
+    }), /registry row does not exist/)
+    assert.throws(() => readReplayAttemptLeaseObservationRegistryReceipt(db, {
+      observation_id: leaseObservation.observation_id,
+      read_at: "2026-07-14T04:02:00Z",
+    }), /after registration and before expiry/)
+    const registryReadReceipt = readReplayAttemptLeaseObservationRegistryReceipt(db, {
+      observation_id: leaseObservation.observation_id,
+      read_at: "2026-07-14T04:02:03Z",
+    })
+    assert.doesNotThrow(() => assertReplayAttemptLeaseObservationRegistryReadReceipt(registryReadReceipt))
+    assert.equal(registryReadReceipt.registry_table, "rd_replay_attempt_lease_observation")
+    assert.equal(registryReadReceipt.registry_key, leaseObservation.observation_id)
+    assert.equal(registryReadReceipt.registered_at, "2026-07-14T04:02:01Z")
+    assert.equal(registryReadReceipt.registry_read_provenance, "registered_row_and_current_attempt_exact_match")
+    assert.equal(registryReadReceipt.source_observation_hash, leaseObservation.observation_hash)
+    assert.equal(registryReadReceipt.current_attempt_lease_hash, hashReplayAttemptLeaseSnapshot(renewed))
+    assert.equal(registryReadReceipt.clock_evidence, "caller_supplied_utc_not_external_time_attestation")
+    assert.equal(registryReadReceipt.external_time_attestation, "not_provided")
+    assert.deepEqual(readReplayAttemptLeaseObservationRegistryReceipt(db, {
+      observation_id: leaseObservation.observation_id,
+      read_at: "2026-07-14T04:02:03Z",
+    }), registryReadReceipt)
+    assert.throws(() => assertReplayAttemptLeaseObservationRegistryReadReceipt({
+      ...registryReadReceipt,
+      registered_at: "2026-07-14T04:02:02Z",
+    }), /hash mismatch/)
     assert.throws(() => observeCurrentReplayAttemptLease(db, {
       trial_id: renewed.trial_id,
       observed_at: "2026-07-14T04:01:59Z",

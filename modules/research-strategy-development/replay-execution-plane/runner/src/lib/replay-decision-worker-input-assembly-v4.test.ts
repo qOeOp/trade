@@ -8,6 +8,9 @@ import {
   REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION,
   REPLAY_ATTEMPT_LEASE_OBSERVATION_POLICY_VERSION,
   REPLAY_ATTEMPT_LEASE_OBSERVATION_SCHEMA_VERSION,
+  REPLAY_ATTEMPT_LEASE_OBSERVATION_REGISTRY_READ_RECEIPT_POLICY_VERSION,
+  REPLAY_ATTEMPT_LEASE_OBSERVATION_REGISTRY_READ_RECEIPT_SCHEMA_VERSION,
+  createReplayAttemptLeaseObservationRegistryReadReceipt,
   createReplayAttemptLeaseObservationSnapshot,
   hashReplayAttemptLeaseSnapshot,
   type ReplayAttemptLeaseSnapshot,
@@ -132,6 +135,9 @@ import {
   assertReplayDecisionHarnessWorkerV10ExecutionAdmissionPreIssueBundle,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-execution-admission-pre-issue-bundle"
 import {
+  assertReplayDecisionHarnessWorkerV10ExecutionAdmissionRegistryProvenance,
+} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-execution-admission-registry-provenance"
+import {
   assertReplayPositionOpenStateInputMaterialization,
 } from "../../../contracts/src/lib/replay-position-open-state-input-materialization"
 import {
@@ -217,6 +223,14 @@ import {
   readReplayWorkerV10ExecutionAdmissionPreIssueBundle,
   registerReplayWorkerV10ExecutionAdmissionPreIssueBundle,
 } from "./replay-worker-v10-execution-admission-pre-issue-registry"
+import {
+  assertReplayDecisionHarnessWorkerV10ExecutionAdmissionRegistryProvenanceLineage,
+  buildReplayDecisionHarnessWorkerV10ExecutionAdmissionRegistryProvenance,
+} from "./replay-decision-harness-worker-v10-execution-admission-registry-provenance"
+import {
+  readReplayWorkerV10ExecutionAdmissionRegistryProvenance,
+  registerReplayWorkerV10ExecutionAdmissionRegistryProvenance,
+} from "./replay-worker-v10-execution-admission-registry-provenance-registry"
 import {
   assertReplayDecisionHarnessInvocationIdentityLineage,
   buildReplayDecisionHarnessInvocationIdentitySet,
@@ -1912,6 +1926,93 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       registry_root: dispatchEvidenceRegistryRoot,
       ...preIssueInput,
     })).toEqual(preIssueBundle)
+    const registryReadReceipt = createReplayAttemptLeaseObservationRegistryReadReceipt({
+      schema_version: REPLAY_ATTEMPT_LEASE_OBSERVATION_REGISTRY_READ_RECEIPT_SCHEMA_VERSION,
+      receipt_id: `replay-attempt-lease-observation-registry-read-${preIssueObservation.observation_hash.slice(0, 16)}-${Date.parse("2026-07-14T00:00:35Z")}`,
+      receipt_ref: `receipt://replay-attempt-lease-observation-registry-read/${preIssueObservation.observation_hash.slice(0, 16)}-${Date.parse("2026-07-14T00:00:35Z")}`,
+      receipt_policy_version: REPLAY_ATTEMPT_LEASE_OBSERVATION_REGISTRY_READ_RECEIPT_POLICY_VERSION,
+      status: "registered_active_lease_observation_read",
+      authority_owner: "research_control_plane",
+      authority_source: "research_control_plane_state_store",
+      registry_table: "rd_replay_attempt_lease_observation",
+      registry_key: preIssueObservation.observation_id,
+      registry_row_immutability: "sqlite_update_and_delete_triggers",
+      read_consistency: "single_control_plane_transaction",
+      registry_read_provenance: "registered_row_and_current_attempt_exact_match",
+      registered_at: "2026-07-14T00:00:34Z",
+      read_at: "2026-07-14T00:00:35Z",
+      clock_evidence: "caller_supplied_utc_not_external_time_attestation",
+      external_time_attestation: "not_provided",
+      source_observation_id: preIssueObservation.observation_id,
+      source_observation_ref: preIssueObservation.observation_ref,
+      source_observation_hash: preIssueObservation.observation_hash,
+      source_observation: preIssueObservation,
+      current_attempt_status: preIssueObservation.attempt_lease.status,
+      current_attempt_lease_hash: preIssueObservation.attempt_lease_hash,
+      current_attempt_lease: preIssueObservation.attempt_lease,
+    })
+    const registryProvenanceInput = {
+      source_pre_issue_bundle: preIssueBundle,
+      control_plane_registry_read_receipt: registryReadReceipt,
+    }
+    const registryProvenance = buildReplayDecisionHarnessWorkerV10ExecutionAdmissionRegistryProvenance(
+      registryProvenanceInput,
+    )
+    expect(registryProvenance.status).toBe("registry_provenance_bound_independent_clock_blocked")
+    expect(registryProvenance.control_plane_registry_read_provenance)
+      .toBe("registered_row_and_current_attempt_exact_match_bound")
+    expect(registryProvenance.predecessor_blocker_closure)
+      .toBe("control_plane_registry_read_provenance_closed_only")
+    expect(registryProvenance.external_time_attestation).toBe("not_provided")
+    expect(registryProvenance.execution_admission_command_instance_count).toBe(0)
+    expect(registryProvenance.blockers).toEqual([
+      "independent_dispatch_clock_attestation_not_materialized",
+      "execution_admission_command_instance_not_issued",
+      "attempt_bound_stdio_process_launch_intent_not_materialized",
+      "attempt_bound_stdio_process_receipt_not_materialized",
+      "worker_request_frame_write_and_decode_not_materialized",
+      "worker_response_frame_read_and_admission_not_materialized",
+    ])
+    expect(() => assertReplayDecisionHarnessWorkerV10ExecutionAdmissionRegistryProvenance(registryProvenance))
+      .not.toThrow()
+    expect(() => assertReplayDecisionHarnessWorkerV10ExecutionAdmissionRegistryProvenanceLineage(
+      registryProvenance,
+      registryProvenanceInput,
+    )).not.toThrow()
+    expect(() => buildReplayDecisionHarnessWorkerV10ExecutionAdmissionRegistryProvenance({
+      ...registryProvenanceInput,
+      control_plane_registry_read_receipt: { ...registryReadReceipt, receipt_hash: "1".repeat(64) },
+    })).toThrow()
+    const missingProvenanceRoot = mkdtempSync(join(tmpdir(), "replay-worker-v10-registry-provenance-missing-"))
+    try {
+      expect(() => registerReplayWorkerV10ExecutionAdmissionRegistryProvenance({
+        registry_root: missingProvenanceRoot,
+        ...registryProvenanceInput,
+      })).toThrow("requires the exact durable pre-issue bundle")
+    } finally {
+      rmSync(missingProvenanceRoot, { recursive: true, force: true })
+    }
+    expect(registerReplayWorkerV10ExecutionAdmissionRegistryProvenance({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...registryProvenanceInput,
+    })).toEqual(registryProvenance)
+    expect(registerReplayWorkerV10ExecutionAdmissionRegistryProvenance({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_pre_issue_bundle: structuredClone(preIssueBundle),
+      control_plane_registry_read_receipt: structuredClone(registryReadReceipt),
+    })).toEqual(registryProvenance)
+    expect(readReplayWorkerV10ExecutionAdmissionRegistryProvenance({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...registryProvenanceInput,
+    })).toEqual(registryProvenance)
+    const registryProvenanceFile = readdirSync(dispatchEvidenceRegistryRoot)
+      .find((name) => name.startsWith("worker-v10-execution-admission-registry-provenance-"))
+    if (!registryProvenanceFile) throw new Error("expected Execution Admission registry provenance file")
+    writeFileSync(join(dispatchEvidenceRegistryRoot, registryProvenanceFile), "{}\n", "utf8")
+    expect(() => readReplayWorkerV10ExecutionAdmissionRegistryProvenance({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...registryProvenanceInput,
+    })).toThrow()
     const preIssueFile = readdirSync(dispatchEvidenceRegistryRoot)
       .find((name) => name.startsWith("worker-v10-execution-admission-pre-issue-"))
     if (!preIssueFile) throw new Error("expected Replay Worker v10 Execution Admission pre-issue file")

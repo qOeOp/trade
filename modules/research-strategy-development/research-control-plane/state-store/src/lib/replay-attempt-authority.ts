@@ -2,14 +2,18 @@ import type { Database } from "bun:sqlite"
 import {
   REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION,
   REPLAY_ATTEMPT_LEASE_OBSERVATION_POLICY_VERSION,
+  REPLAY_ATTEMPT_LEASE_OBSERVATION_REGISTRY_READ_RECEIPT_POLICY_VERSION,
+  REPLAY_ATTEMPT_LEASE_OBSERVATION_REGISTRY_READ_RECEIPT_SCHEMA_VERSION,
   REPLAY_ATTEMPT_LEASE_OBSERVATION_SCHEMA_VERSION,
   assertReplayAttemptLeaseSnapshot,
   assertReplayAttemptLeaseObservationSnapshot,
   assertTrialReservationSnapshot,
   createReplayAttemptLeaseObservationSnapshot,
+  createReplayAttemptLeaseObservationRegistryReadReceipt,
   hashReplayAttemptLeaseSnapshot,
   hashTrialReservationSnapshot,
   type ReplayAttemptLeaseObservationSnapshot,
+  type ReplayAttemptLeaseObservationRegistryReadReceipt,
   type ReplayAttemptLeaseSnapshot,
   type TrialReservationSnapshot,
 } from "../../../contracts/src/lib/control-plane-contracts"
@@ -87,7 +91,13 @@ interface LeaseObservationRow {
   attempt_id: string
   lease_generation: number
   observed_at: string
+  registered_at: string
   observation_json: string
+}
+
+export interface ReadReplayAttemptLeaseObservationRegistryReceiptInput {
+  observation_id: string
+  read_at: string
 }
 
 export function claimReplayAttempt(db: Database, input: ClaimReplayAttemptInput): ReplayAttemptLeaseSnapshot {
@@ -258,7 +268,7 @@ export function registerReplayAttemptLeaseObservation(
   const register = db.transaction(() => {
     const existing = db.query(`
       SELECT observation_id, observation_ref, observation_hash, attempt_id,
-             lease_generation, observed_at, observation_json
+             lease_generation, observed_at, registered_at, observation_json
       FROM rd_replay_attempt_lease_observation
       WHERE observation_id=$observation_id OR observation_ref=$observation_ref
          OR observation_hash=$observation_hash
@@ -334,11 +344,69 @@ export function readReplayAttemptLeaseObservation(
   requireText(observationId, "observation_id")
   const row = db.query(`
     SELECT observation_id, observation_ref, observation_hash, attempt_id,
-           lease_generation, observed_at, observation_json
+           lease_generation, observed_at, registered_at, observation_json
     FROM rd_replay_attempt_lease_observation
     WHERE observation_id=$observation_id
   `).get({ $observation_id: observationId }) as LeaseObservationRow | null
   return row ? parseLeaseObservation(row) : null
+}
+
+export function readReplayAttemptLeaseObservationRegistryReceipt(
+  db: Database,
+  input: ReadReplayAttemptLeaseObservationRegistryReceiptInput,
+): ReplayAttemptLeaseObservationRegistryReadReceipt {
+  requireText(input.observation_id, "observation_id")
+  requireUtc(input.read_at, "read_at")
+  const read = db.transaction(() => {
+    const row = db.query(`
+      SELECT observation_id, observation_ref, observation_hash, attempt_id,
+             lease_generation, observed_at, registered_at, observation_json
+      FROM rd_replay_attempt_lease_observation
+      WHERE observation_id=$observation_id
+    `).get({ $observation_id: input.observation_id }) as LeaseObservationRow | null
+    if (!row) throw new Error("Replay Attempt Lease observation registry row does not exist")
+    const observation = parseLeaseObservation(row)
+    const attempt = readAttempt(db, observation.attempt_id)
+    if (attempt.status !== "claimed" && attempt.status !== "running") {
+      throw new Error("Replay Attempt Lease observation registry read requires an active Attempt")
+    }
+    const currentLease = toLeaseSnapshot(attempt)
+    const currentLeaseHash = hashReplayAttemptLeaseSnapshot(currentLease)
+    if (currentLeaseHash !== observation.attempt_lease_hash) {
+      throw new Error("Replay Attempt Lease observation registry read no longer matches current Control Plane state")
+    }
+    const readAt = Date.parse(input.read_at)
+    if (readAt < Date.parse(row.registered_at) || readAt >= Date.parse(currentLease.lease_expires_at)) {
+      throw new Error("Replay Attempt Lease observation registry read must occur after registration and before expiry")
+    }
+    const discriminator = `${observation.observation_hash.slice(0, 16)}-${readAt}`
+    return createReplayAttemptLeaseObservationRegistryReadReceipt({
+      schema_version: REPLAY_ATTEMPT_LEASE_OBSERVATION_REGISTRY_READ_RECEIPT_SCHEMA_VERSION,
+      receipt_id: `replay-attempt-lease-observation-registry-read-${discriminator}`,
+      receipt_ref: `receipt://replay-attempt-lease-observation-registry-read/${discriminator}`,
+      receipt_policy_version: REPLAY_ATTEMPT_LEASE_OBSERVATION_REGISTRY_READ_RECEIPT_POLICY_VERSION,
+      status: "registered_active_lease_observation_read",
+      authority_owner: "research_control_plane",
+      authority_source: "research_control_plane_state_store",
+      registry_table: "rd_replay_attempt_lease_observation",
+      registry_key: observation.observation_id,
+      registry_row_immutability: "sqlite_update_and_delete_triggers",
+      read_consistency: "single_control_plane_transaction",
+      registry_read_provenance: "registered_row_and_current_attempt_exact_match",
+      registered_at: row.registered_at,
+      read_at: input.read_at,
+      clock_evidence: "caller_supplied_utc_not_external_time_attestation",
+      external_time_attestation: "not_provided",
+      source_observation_id: observation.observation_id,
+      source_observation_ref: observation.observation_ref,
+      source_observation_hash: observation.observation_hash,
+      source_observation: observation,
+      current_attempt_status: currentLease.status,
+      current_attempt_lease_hash: currentLeaseHash,
+      current_attempt_lease: currentLease,
+    })
+  })
+  return read()
 }
 
 export function finalizeReplayAttempt(db: Database, input: FinalizeReplayAttemptInput): void {

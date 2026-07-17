@@ -19,6 +19,10 @@ export const REPLAY_ATTEMPT_CANCELLATION_OBSERVATION_SCHEMA_VERSION = "trade.rd-
 export const REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION = "trade.rd-replay-attempt-lease.v1" as const
 export const REPLAY_ATTEMPT_LEASE_OBSERVATION_SCHEMA_VERSION = "trade.rd-replay-attempt-lease-observation.v1" as const
 export const REPLAY_ATTEMPT_LEASE_OBSERVATION_POLICY_VERSION = "rd-replay-attempt-lease-observation-v1" as const
+export const REPLAY_ATTEMPT_LEASE_OBSERVATION_REGISTRY_READ_RECEIPT_SCHEMA_VERSION =
+  "trade.rd-replay-attempt-lease-observation-registry-read-receipt.v1" as const
+export const REPLAY_ATTEMPT_LEASE_OBSERVATION_REGISTRY_READ_RECEIPT_POLICY_VERSION =
+  "rd-replay-attempt-lease-observation-registry-read-receipt-v1" as const
 export const REPLAY_CHECKPOINT_RECEIPT_SCHEMA_VERSION = "trade.rd-replay-checkpoint-receipt.v2" as const
 export const REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION = REPLAY_LOCAL_ARTIFACT_STORAGE_POLICY_VERSION
 export const REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION = "trade.rd-replay-resume-authorization-snapshot.v1" as const
@@ -502,6 +506,38 @@ export interface ReplayAttemptLeaseObservationSnapshot {
 }
 
 export type ReplayAttemptLeaseObservationBody = Omit<ReplayAttemptLeaseObservationSnapshot, "observation_hash">
+
+export interface ReplayAttemptLeaseObservationRegistryReadReceipt {
+  schema_version: typeof REPLAY_ATTEMPT_LEASE_OBSERVATION_REGISTRY_READ_RECEIPT_SCHEMA_VERSION
+  receipt_id: string
+  receipt_ref: string
+  receipt_hash: string
+  receipt_policy_version: typeof REPLAY_ATTEMPT_LEASE_OBSERVATION_REGISTRY_READ_RECEIPT_POLICY_VERSION
+  status: "registered_active_lease_observation_read"
+  authority_owner: "research_control_plane"
+  authority_source: "research_control_plane_state_store"
+  registry_table: "rd_replay_attempt_lease_observation"
+  registry_key: string
+  registry_row_immutability: "sqlite_update_and_delete_triggers"
+  read_consistency: "single_control_plane_transaction"
+  registry_read_provenance: "registered_row_and_current_attempt_exact_match"
+  registered_at: string
+  read_at: string
+  clock_evidence: "caller_supplied_utc_not_external_time_attestation"
+  external_time_attestation: "not_provided"
+  source_observation_id: string
+  source_observation_ref: string
+  source_observation_hash: string
+  source_observation: ReplayAttemptLeaseObservationSnapshot
+  current_attempt_status: "claimed" | "running"
+  current_attempt_lease_hash: string
+  current_attempt_lease: ReplayAttemptLeaseSnapshot
+}
+
+export type ReplayAttemptLeaseObservationRegistryReadReceiptBody = Omit<
+  ReplayAttemptLeaseObservationRegistryReadReceipt,
+  "receipt_hash"
+>
 
 export interface ReplayResumeAuthorizationSnapshot {
   schema_version: typeof REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION
@@ -1398,6 +1434,78 @@ export function assertReplayAttemptLeaseObservationSnapshot(
   const { observation_hash: observationHash, ...body } = value
   const expected = createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")
   if (observationHash !== expected) fail("attempt lease observation hash mismatch")
+}
+
+export function createReplayAttemptLeaseObservationRegistryReadReceipt(
+  body: ReplayAttemptLeaseObservationRegistryReadReceiptBody,
+): ReplayAttemptLeaseObservationRegistryReadReceipt {
+  const value = {
+    ...structuredClone(body),
+    receipt_hash: createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex"),
+  }
+  assertReplayAttemptLeaseObservationRegistryReadReceipt(value)
+  return value
+}
+
+export function assertReplayAttemptLeaseObservationRegistryReadReceipt(
+  value: ReplayAttemptLeaseObservationRegistryReadReceipt,
+): void {
+  if (value.schema_version !== REPLAY_ATTEMPT_LEASE_OBSERVATION_REGISTRY_READ_RECEIPT_SCHEMA_VERSION
+      || value.receipt_policy_version
+        !== REPLAY_ATTEMPT_LEASE_OBSERVATION_REGISTRY_READ_RECEIPT_POLICY_VERSION
+      || value.status !== "registered_active_lease_observation_read"
+      || value.authority_owner !== "research_control_plane"
+      || value.authority_source !== "research_control_plane_state_store"
+      || value.registry_table !== "rd_replay_attempt_lease_observation"
+      || value.registry_row_immutability !== "sqlite_update_and_delete_triggers"
+      || value.read_consistency !== "single_control_plane_transaction"
+      || value.registry_read_provenance !== "registered_row_and_current_attempt_exact_match"
+      || value.clock_evidence !== "caller_supplied_utc_not_external_time_attestation"
+      || value.external_time_attestation !== "not_provided") {
+    fail("attempt lease observation registry read receipt policy or authority")
+  }
+  for (const [field, item] of Object.entries({
+    receipt_id: value.receipt_id,
+    receipt_ref: value.receipt_ref,
+    registry_key: value.registry_key,
+    source_observation_id: value.source_observation_id,
+    source_observation_ref: value.source_observation_ref,
+  })) requireText(item, `attempt_lease_observation_registry_read_receipt.${field}`)
+  for (const [field, item] of Object.entries({
+    receipt_hash: value.receipt_hash,
+    source_observation_hash: value.source_observation_hash,
+    current_attempt_lease_hash: value.current_attempt_lease_hash,
+  })) requireHash(item, `attempt_lease_observation_registry_read_receipt.${field}`)
+  requireUtcTimestamp(value.registered_at, "attempt_lease_observation_registry_read_receipt.registered_at")
+  requireUtcTimestamp(value.read_at, "attempt_lease_observation_registry_read_receipt.read_at")
+  assertReplayAttemptLeaseObservationSnapshot(value.source_observation)
+  assertReplayAttemptLeaseSnapshot(value.current_attempt_lease)
+  const observation = value.source_observation
+  const lease = value.current_attempt_lease
+  if (value.registry_key !== observation.observation_id
+      || value.source_observation_id !== observation.observation_id
+      || value.source_observation_ref !== observation.observation_ref
+      || value.source_observation_hash !== observation.observation_hash
+      || value.current_attempt_status !== lease.status
+      || value.current_attempt_lease_hash !== hashReplayAttemptLeaseSnapshot(lease)
+      || value.current_attempt_lease_hash !== observation.attempt_lease_hash
+      || canonicalReservationJson(lease) !== canonicalReservationJson(observation.attempt_lease)) {
+    fail("attempt lease observation registry read receipt source or current Lease mismatch")
+  }
+  const registeredAt = Date.parse(value.registered_at)
+  const readAt = Date.parse(value.read_at)
+  if (registeredAt < Date.parse(observation.observed_at)
+      || readAt < registeredAt || readAt >= Date.parse(lease.lease_expires_at)) {
+    fail("attempt lease observation registry read receipt chronology")
+  }
+  const discriminator = `${observation.observation_hash.slice(0, 16)}-${readAt}`
+  if (value.receipt_id !== `replay-attempt-lease-observation-registry-read-${discriminator}`
+      || value.receipt_ref !== `receipt://replay-attempt-lease-observation-registry-read/${discriminator}`) {
+    fail("attempt lease observation registry read receipt identity")
+  }
+  const { receipt_hash: receiptHash, ...body } = value
+  const expected = createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")
+  if (receiptHash !== expected) fail("attempt lease observation registry read receipt hash mismatch")
 }
 
 export function assertReplayCheckpointReceiptSnapshot(value: ReplayCheckpointReceiptSnapshot): void {
