@@ -116,7 +116,9 @@ R4.98 增加独立 Initial Signal Supplemental Input Materialization v1。它只
 
 R4.99 增加 Decision Worker Input Assembly v1，但不创建 Worker Request。它把 R4.96 Context 与恰好一个同 Request 的输入物化来源组成 exact-field、自哈希 tuple：空 supplemental 复用 R4.97，非 position-open entry 可标记 `complete_non_executable_build_unbound`；非空 supplemental 复用 R4.98，但因尚无同 Request 的 Market materialization，必须标记 `incomplete_market_snapshot`；position-open 固定 `incomplete_runtime_state_snapshot`。source bundle、build attestation、invocation id、Harness 与 Runner 仍未绑定。
 
-R4.100 增加独立 Decision Market Input Materialization v1。它完整重建 Request/Bundle/Derivation Admission/R4.96 Context lineage，只按 Dataset market identity 与冻结 market requirement 从 admitted closed-bar observations 生成正式 Market Snapshot；supplemental mode/content 不属于该组件责任。空与非空 supplemental Request 在相同 market parents 下产生相同 Snapshot，但保持不同 Request/Context/materialization lineage。R4.99 v1 尚未升级消费该对象，Worker Request、Harness 与 Runner 仍关闭。
+R4.100 增加独立 Decision Market Input Materialization v1。它完整重建 Request/Bundle/Derivation Admission/R4.96 Context lineage，只按 Dataset market identity 与冻结 market requirement 从 admitted closed-bar observations 生成正式 Market Snapshot；supplemental mode/content 不属于该组件责任。空与非空 supplemental Request 在相同 market parents 下产生相同 Snapshot，但保持不同 Request/Context/materialization lineage。R4.99 v1 保持历史语义，R4.101 v2 才消费该对象；Worker Request、Harness 与 Runner 仍关闭。
+
+R4.101 增加 Decision Worker Input Assembly v2，并保留 v1。v2 强制消费同 Request/Context 的 R4.100 Market 与恰好一个 R4.97/R4.98 Supplemental parent；R4.97 路径必须先证明旧内嵌 Market 与 R4.100 精确一致，R4.98 路径因此消除 `incomplete_market_snapshot`。非 position-open tuple 可完整但仍不可执行；position-open 继续缺 runtime State。source bundle、build attestation、invocation identity、Worker Request、Harness 与 Runner 仍未绑定。
 
 经济入口按唯一 `authorized_initial_order / authorized_order` 语义定位，不依赖 Schedule/Timeline 数组末位；可选退出必须是 Schedule 末位并以 `authorized_reduce_only_exit` 独立表达，不能冒充第二个入口。所有 post-entry evaluation 必须由 Source Reducer 运行时产生 Position/Cash State Snapshot，并正确表达 terminal-before-decision、pending Order 与 checkpoint/resume。
 
