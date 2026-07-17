@@ -86,6 +86,8 @@ R4.83 冻结 parallel candidate SourceEvent Wire v2，而不修改已进入 Resu
 
 R4.84 实现 Projection-bound Wire v2 materializer：先用原始四源 payload 重建并逐字节哈希核对 Ordering Attestation，再按 Projection 一对一内联 payload，缺失、额外、篡改或顺序漂移均 fail closed。另以真实 legacy Engine builder 认证 Instrument Status、Funding、bar-open/bar-range 的共有事件调度 correspondence；Aggregate Trade 仍为 Wire-only，payload、EventKey 与跨源同刻顺序 parity 明确不声明。该路径仍不绑定 Runner/Engine 经济消费。
 
+R4.85 增加 Wire pre-execution gate 与非经济 candidate reducer。Gate 只放行 `non_economic_schedule_trace`；经济 exact-trigger 在跨源同刻时因 `resolution_limited` 拒绝，即使 declared timestamps 无碰撞也因 economic consumer 未认证而拒绝。Reducer 逐事件保留 ambiguity-group hash 与 `deterministic_tie_break_only`，所有 execution effect 固定为 none；现有 reference Engine、Runner、Result/Artifact epoch 不变。
+
 经济入口按唯一 `authorized_initial_order / authorized_order` 语义定位，不依赖 Schedule/Timeline 数组末位；可选退出必须是 Schedule 末位并以 `authorized_reduce_only_exit` 独立表达，不能冒充第二个入口。所有 post-entry evaluation 必须由 Source Reducer 运行时产生 Position/Cash State Snapshot，并正确表达 terminal-before-decision、pending Order 与 checkpoint/resume。
 
 Reservation 只控制新 Attempt claim；已准入 Attempt 由 lease/generation fencing。Runner 仅通过 Attempt-scoped Artifact Store port 访问证据，local-v1 使用 `fsync + hard-link CAS + directory fsync`，remote-v1 仍只有准入合同、没有 certified adapter。Control Plane 单写 Reservation、Lease、Checkpoint Receipt 与 Resume Authorization；Replay 不查询或修改 Trial。对象存储实现/认证、OS sandbox、multiple partial、动态 supplemental join、变更 accounting epoch、历史规则采集、部分强平、cross/shared portfolio、tick/L2、真实 partial liquidity、limit queue 与 fast mode 未完成。
