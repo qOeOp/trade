@@ -5,6 +5,9 @@ import {
   type ReplayDecisionSchedule,
 } from "../../../contracts/src/lib/replay-contracts"
 import {
+  assertReplaySourceEventDecisionObservationBundle,
+} from "../../../contracts/src/lib/replay-source-event-decision-observation-bundle"
+import {
   assertReplaySourceEventDecisionScheduleObservationBinding,
 } from "../../../contracts/src/lib/replay-source-event-decision-schedule-observation-binding"
 import {
@@ -14,6 +17,10 @@ import { replaySourceEventWireTestFixture } from "../../../data-adapter/src/lib/
 import { evaluateReplaySourceEventWirePreExecutionGate } from "../../../data-adapter/src/lib/replay-source-event-wire-gate"
 import { buildReplaySourceEventAvailabilityCursor } from "./replay-source-event-availability-cursor"
 import { buildReplaySourceEventDecisionObservationProjection } from "./replay-source-event-decision-observation"
+import {
+  assertReplaySourceEventDecisionObservationBundleLineage,
+  buildReplaySourceEventDecisionObservationBundle,
+} from "./replay-source-event-decision-observation-bundle"
 import {
   assertReplaySourceEventDecisionScheduleObservationBindingLineage,
   buildReplaySourceEventDecisionScheduleObservationBinding,
@@ -93,6 +100,19 @@ function bindingInput(
     decision_schedule_hash: scheduleHash,
     selected_decision_sequence: selectedDecisionSequence,
     decision_observation_projection: buildReplaySourceEventDecisionObservationProjection(observationInput),
+  }
+}
+
+function bindingSetInput() {
+  const schedule = frozenSchedule()
+  const scheduleHash = canonicalHash(schedule)
+  return {
+    decision_schedule: schedule,
+    decision_schedule_hash: scheduleHash,
+    binding_inputs: [
+      bindingInput(1, "2026-07-14T04:00:00Z", schedule, scheduleHash),
+      bindingInput(2, "2026-07-14T04:08:00Z", schedule, scheduleHash),
+    ],
   }
 }
 
@@ -242,6 +262,74 @@ test("binding set rejects omission, duplicate, reorder, and cross-schedule mixin
     .toThrow("duplicate member")
 })
 
+test("decision observation bundle carries every schedule-bound Projection without authority escalation", () => {
+  const setInput = bindingSetInput()
+  const bindingSet = buildReplaySourceEventDecisionScheduleObservationBindingSet(setInput)
+  const input = {
+    ...setInput,
+    decision_schedule_observation_binding_set: bindingSet,
+  }
+  const bundle = buildReplaySourceEventDecisionObservationBundle(input)
+  const replayed = buildReplaySourceEventDecisionObservationBundle(structuredClone(input))
+
+  expect(() => assertReplaySourceEventDecisionObservationBundle(bundle)).not.toThrow()
+  expect(() => assertReplaySourceEventDecisionObservationBundleLineage(bundle, input)).not.toThrow()
+  expect(replayed.bundle_hash).toBe(bundle.bundle_hash)
+  expect(bundle.projection_count).toBe(bindingSet.binding_count)
+  expect(bundle.projections.map((item) => item.as_of_time))
+    .toEqual(bindingSet.bindings.map((item) => item.selected_decision_time))
+  expect(bundle.projections[0]!.observations.map((item) => item.observation_type))
+    .toEqual(["funding_settlement", "aggregate_trade", "bar_open"])
+  expect(bundle.decision_input_compatibility).toBe("not_asserted")
+  expect(bundle.harness_compatibility).toBe("not_bound")
+  expect(bundle.artifact_compatibility).toBe("not_bound")
+  expect(bundle.order_authority).toBe("none")
+})
+
+test("decision observation bundle rejects omission, reorder, substitution, and field injection", () => {
+  const setInput = bindingSetInput()
+  const bindingSet = buildReplaySourceEventDecisionScheduleObservationBindingSet(setInput)
+  const input = {
+    ...setInput,
+    decision_schedule_observation_binding_set: bindingSet,
+  }
+  const bundle = buildReplaySourceEventDecisionObservationBundle(input)
+
+  const omitted = structuredClone(bundle)
+  omitted.projections.pop()
+  omitted.projection_count = omitted.projections.length
+  omitted.last_as_of_time = omitted.projections.at(-1)!.as_of_time
+  rehashBundle(omitted)
+  expect(() => assertReplaySourceEventDecisionObservationBundle(omitted))
+    .toThrow("cardinality drift")
+
+  const reordered = structuredClone(bundle)
+  reordered.projections.reverse()
+  reordered.first_as_of_time = reordered.projections[0]!.as_of_time
+  reordered.last_as_of_time = reordered.projections.at(-1)!.as_of_time
+  rehashBundle(reordered)
+  expect(() => assertReplaySourceEventDecisionObservationBundle(reordered))
+    .toThrow("projection binding drift")
+
+  const substituted = structuredClone(bundle)
+  const funding = substituted.projections[1]!.observations.find(
+    (item) => item.observation_type === "funding_settlement",
+  )!
+  ;(funding.observation as { rate: number }).rate = 0.25
+  funding.observation_hash = canonicalHash(funding.observation)
+  rehashProjection(substituted.projections[1]!)
+  rehashBundle(substituted)
+  expect(() => assertReplaySourceEventDecisionObservationBundle(substituted))
+    .toThrow("projection binding drift")
+
+  const extended = structuredClone(bundle) as typeof bundle & { harness_context_hash?: string }
+  extended.harness_context_hash = "d".repeat(64)
+  const { bundle_hash: _extendedHash, ...extendedBody } = extended
+  extended.bundle_hash = canonicalHash(extendedBody)
+  expect(() => assertReplaySourceEventDecisionObservationBundle(extended))
+    .toThrow("field whitelist")
+})
+
 function rehashBinding(
   binding: ReturnType<typeof buildReplaySourceEventDecisionScheduleObservationBinding>,
 ): void {
@@ -265,4 +353,33 @@ function rehashBindingSet(
     = `source-event-decision-schedule-observation-set-${canonicalHash(bodyWithoutId).slice(0, 24)}`
   const { binding_set_hash: _rehash, ...body } = set
   set.binding_set_hash = canonicalHash(body)
+}
+
+function rehashProjection(
+  projection: ReturnType<typeof buildReplaySourceEventDecisionObservationProjection>,
+): void {
+  projection.observations_hash = canonicalHash(projection.observations)
+  projection.observation_values_hash = canonicalHash(
+    projection.observations.map((item) => item.observation),
+  )
+  const { projection_hash: _oldHash, ...body } = projection
+  projection.projection_hash = canonicalHash(body)
+}
+
+function rehashBundle(
+  bundle: ReturnType<typeof buildReplaySourceEventDecisionObservationBundle>,
+): void {
+  bundle.projections_hash = canonicalHash(bundle.projections)
+  bundle.projection_ids_hash = canonicalHash(bundle.projections.map((item) => item.projection_id))
+  bundle.projection_hashes_hash = canonicalHash(
+    bundle.projections.map((item) => item.projection_hash),
+  )
+  bundle.observation_values_hashes_hash = canonicalHash(
+    bundle.projections.map((item) => item.observation_values_hash),
+  )
+  const { bundle_hash: _oldHash, bundle_id: _oldId, ...bodyWithoutId } = bundle
+  bundle.bundle_id
+    = `source-event-decision-observation-bundle-${canonicalHash(bodyWithoutId).slice(0, 24)}`
+  const { bundle_hash: _rehash, ...body } = bundle
+  bundle.bundle_hash = canonicalHash(body)
 }
