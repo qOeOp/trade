@@ -26,6 +26,13 @@ import {
   type ReplayMarketBar,
   type ReplaySupplementalFact,
 } from "../../../contracts/src/lib/replay-contracts"
+import {
+  assertReplayInitialSignalSupplementalInputMaterialization,
+} from "../../../contracts/src/lib/replay-initial-signal-supplemental-input-materialization"
+import {
+  assertReplayInitialSignalSupplementalInputMaterializationLineage,
+  buildReplayInitialSignalSupplementalInputMaterialization,
+} from "./replay-initial-signal-supplemental-input-materialization"
 import { ReplayDataContinuityError, fundingEventsInWindow, prepareReplayInputData, resolveReplayInstrumentSpecAt, resolveReplayVenueRiskPolicyAt, selectReplaySupplementalFactsAt } from "./replay-data-adapter"
 
 const HASH = "a".repeat(64)
@@ -354,6 +361,31 @@ test("supplemental PIT join selects the last visible revision and excludes futur
     selectReplaySupplementalFactsAt(supplementalFacts.filter((fact) => fact.record_id !== "oi-btc-2"), request().order.signal_time),
   )
   expect(prepared.limitations.map((limitation) => limitation.code)).not.toContain("supplemental-signal-derivation-harness-bound")
+  const materializationInput = {
+    request: supplementalRequest,
+    dataset_manifest: supplementalManifest,
+    supplemental_facts: supplementalFacts,
+  }
+  const materialization = buildReplayInitialSignalSupplementalInputMaterialization(materializationInput)
+  expect(materialization.input_channel).toBe("dataset_manifest_bound_supplemental_revision_stream")
+  expect(materialization.market_wire_relationship).toBe("separate_input_channel_not_market_wire_source")
+  expect(materialization.decision_scope).toBe("authorized_initial_order_signal_time_only")
+  expect(materialization.selected_record_ids).toEqual(["oi-btc-1", "oi-eth-1"])
+  expect(materialization.future_record_ids).toEqual(["oi-btc-2"])
+  expect(materialization.decision_input_snapshot.snapshot_hash).toBe(prepared.decision_input_snapshot.snapshot_hash)
+  expect(buildReplayInitialSignalSupplementalInputMaterialization(materializationInput)).toEqual(materialization)
+  expect(() => assertReplayInitialSignalSupplementalInputMaterializationLineage(materialization, {
+    ...materializationInput,
+    dataset_manifest: { ...supplementalManifest, observed_through: "2026-07-14T07:59:59Z" },
+  })).toThrow()
+  expect(() => assertReplayInitialSignalSupplementalInputMaterialization({
+    ...materialization,
+    economic_authority: "result" as never,
+  })).toThrow("unsupported initial-signal supplemental input materialization authority")
+  const futureLeakingMaterialization = structuredClone(materialization)
+  futureLeakingMaterialization.selected_record_ids = ["oi-btc-2", "oi-eth-1"]
+  expect(() => assertReplayInitialSignalSupplementalInputMaterialization(futureLeakingMaterialization))
+    .toThrow("semantic drift")
   const factsWithoutFutureRevision = supplementalFacts.filter((fact) => fact.record_id !== "oi-btc-2")
   const factsWithoutFutureHash = canonicalHash(factsWithoutFutureRevision)
   const dataWithoutFutureHash = replayDatasetHash(bars, fundingEvents, [], factsWithoutFutureRevision)
