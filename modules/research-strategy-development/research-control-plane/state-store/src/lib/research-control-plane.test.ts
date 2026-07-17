@@ -22,6 +22,7 @@ import {
   REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_FIELD_POLICY_VERSION,
   REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_POLICY_VERSION,
   REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_PROJECTION_SCHEMA_VERSION,
+  REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_RECORD_SCHEMA_VERSION,
   createReplaySourceEventDecisionObservationProjection,
 } from "../../../../replay-execution-plane/contracts/src/lib/replay-source-event-decision-observation"
 import {
@@ -35,21 +36,30 @@ import {
   createReplaySourceEventDecisionScheduleObservationBindingSet,
 } from "../../../../replay-execution-plane/contracts/src/lib/replay-source-event-decision-schedule-observation-binding-set"
 import {
-  REPLAY_NO_DECISION_MARKET_INPUT,
-  REPLAY_NO_DECISION_MARKET_INPUT_HASH,
+  REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
+  REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
+  REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION,
+  REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION,
   REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS,
   REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH,
   REPLAY_REQUEST_SCHEMA_VERSION,
   REPLAY_SIMULATOR_POLICY_VERSION,
   REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION,
+  REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
   canonicalHash,
+  createReplayInstrumentStatusProvenance,
   createReplaySingleDecisionSchedule,
+  type ReplayDatasetManifest,
   type ReplayExecutionRequest,
+  type ReplayMarketBar,
 } from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
 import type { ReplaySourceEventWireManifest } from "../../../../replay-execution-plane/contracts/src/lib/replay-source-event-wire"
 import {
   assertReplaySourceEventDecisionObservationHarnessContextBinding,
 } from "../../../../replay-execution-plane/contracts/src/lib/replay-source-event-decision-observation-harness-context-binding"
+import {
+  assertReplaySourceEventDecisionObservationInputMaterialization,
+} from "../../../../replay-execution-plane/contracts/src/lib/replay-source-event-decision-observation-input-materialization"
 import {
   buildReplayCrossSourceOrderingAttestation,
 } from "../../../../replay-execution-plane/data-adapter/src/lib/replay-cross-source-ordering"
@@ -59,6 +69,10 @@ import {
   assertReplaySourceEventDecisionObservationHarnessContextBindingLineage,
   buildReplaySourceEventDecisionObservationHarnessContextBinding,
 } from "../../../../replay-execution-plane/data-adapter/src/lib/replay-source-event-decision-observation-harness-context-binding"
+import {
+  assertReplaySourceEventDecisionObservationInputMaterializationLineage,
+  buildReplaySourceEventDecisionObservationInputMaterialization,
+} from "../../../../replay-execution-plane/data-adapter/src/lib/replay-source-event-decision-observation-input-materialization"
 import {
   REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION,
   REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
@@ -655,6 +669,105 @@ test("Control Plane admits aggregate trade evidence only as a Reservation-bound 
     extendedHarnessBinding.binding_hash = canonicalHash(extendedBindingBody)
     assert.throws(
       () => assertReplaySourceEventDecisionObservationHarnessContextBinding(extendedHarnessBinding),
+      /field whitelist/,
+    )
+
+    const inputMaterializationInput = {
+      request,
+      dataset_manifest: decisionObservationManifest(request),
+      bundle,
+      derivation_admission: derivationAdmission,
+      harness_context_binding: harnessContextBinding,
+    }
+    const inputMaterialization = buildReplaySourceEventDecisionObservationInputMaterialization(
+      inputMaterializationInput,
+    )
+    assert.equal(inputMaterialization.raw_dataset_revalidation, "not_performed")
+    assert.equal(inputMaterialization.supplemental_input_materialization, "certified_empty_requirement_set_only")
+    assert.equal(inputMaterialization.market_input_materialization, "certified_from_admitted_closed_bar_observations")
+    assert.equal(inputMaterialization.state_input_materialization, "not_materialized_runtime_state_required")
+    assert.equal(inputMaterialization.worker_request_materialization, "forbidden")
+    assert.equal(inputMaterialization.harness_invocation, "forbidden")
+    assert.equal(inputMaterialization.runner_compatibility, "not_bound")
+    assert.equal(inputMaterialization.entries[0]!.decision_input_snapshot.selected_records.length, 0)
+    assert.deepEqual(inputMaterialization.entries[0]!.decision_market_input_snapshot.bars, bars)
+    assert.equal(inputMaterialization.entries[0]!.state_input_status, "not_applicable_non_position_phase")
+    assert.equal(inputMaterialization.entries[0]!.decision_state_snapshot, null)
+    assert.equal(
+      buildReplaySourceEventDecisionObservationInputMaterialization(
+        structuredClone(inputMaterializationInput),
+      ).materialization_hash,
+      inputMaterialization.materialization_hash,
+    )
+    assert.doesNotThrow(() => assertReplaySourceEventDecisionObservationInputMaterializationLineage(
+      inputMaterialization,
+      inputMaterializationInput,
+    ))
+    assert.throws(() => buildReplaySourceEventDecisionObservationInputMaterialization({
+      ...inputMaterializationInput,
+      dataset_manifest: {
+        ...inputMaterializationInput.dataset_manifest,
+        manifest_ref: "dataset://drift",
+      },
+    }), /Dataset Manifest does not match Request/)
+    assert.throws(() => buildReplaySourceEventDecisionObservationInputMaterialization({
+      ...inputMaterializationInput,
+      dataset_manifest: {
+        ...inputMaterializationInput.dataset_manifest,
+        interval_ms: inputMaterializationInput.dataset_manifest.interval_ms + 1,
+      },
+    }), /bar duration differs from interval/)
+
+    const substitutedInput = structuredClone(inputMaterialization)
+    const substitutedMarketSnapshot = substitutedInput.entries[0]!.decision_market_input_snapshot
+    substitutedMarketSnapshot.interval_ms = 240_000
+    substitutedMarketSnapshot.bars[0]!.open_time = "2026-07-14T03:01:00Z"
+    substitutedMarketSnapshot.bars_hash = canonicalHash(substitutedMarketSnapshot.bars)
+    const { snapshot_hash: _substitutedMarketHash, ...substitutedMarketBody } = substitutedMarketSnapshot
+    substitutedMarketSnapshot.snapshot_hash = canonicalHash(substitutedMarketBody)
+    substitutedInput.entries[0]!.decision_market_input_snapshot_hash = substitutedMarketSnapshot.snapshot_hash
+    const { entry_hash: _substitutedInputEntryHash, ...substitutedInputEntryBody } = substitutedInput.entries[0]!
+    substitutedInput.entries[0]!.entry_hash = canonicalHash(substitutedInputEntryBody)
+    substitutedInput.entries_hash = canonicalHash(substitutedInput.entries)
+    substitutedInput.entry_hashes_hash = canonicalHash(substitutedInput.entries.map((item) => item.entry_hash))
+    substitutedInput.decision_market_input_snapshot_hashes_hash
+      = canonicalHash(substitutedInput.entries.map((item) => item.decision_market_input_snapshot_hash))
+    const {
+      materialization_hash: _substitutedMaterializationHash,
+      materialization_id: _substitutedMaterializationId,
+      ...substitutedInputBodyWithoutId
+    } = substitutedInput
+    substitutedInput.materialization_id
+      = `source-event-decision-input-${canonicalHash(substitutedInputBodyWithoutId).slice(0, 24)}`
+    const { materialization_hash: _substitutedInputRehash, ...substitutedInputBody } = substitutedInput
+    substitutedInput.materialization_hash = canonicalHash(substitutedInputBody)
+    assert.doesNotThrow(() => assertReplaySourceEventDecisionObservationInputMaterialization(substitutedInput))
+    assert.throws(() => assertReplaySourceEventDecisionObservationInputMaterializationLineage(
+      substitutedInput,
+      inputMaterializationInput,
+    ), /parent lineage drift/)
+
+    const futureLeakingInput = structuredClone(inputMaterialization)
+    const futureMarketSnapshot = futureLeakingInput.entries[0]!.decision_market_input_snapshot
+    futureMarketSnapshot.bars[0]!.open_time = "2026-07-14T03:01:00Z"
+    futureMarketSnapshot.bars[0]!.close_time = "2026-07-14T03:06:00Z"
+    futureMarketSnapshot.bars_hash = canonicalHash(futureMarketSnapshot.bars)
+    const { snapshot_hash: _futureMarketHash, ...futureMarketBody } = futureMarketSnapshot
+    futureMarketSnapshot.snapshot_hash = canonicalHash(futureMarketBody)
+    futureLeakingInput.entries[0]!.decision_market_input_snapshot_hash = futureMarketSnapshot.snapshot_hash
+    assert.throws(
+      () => assertReplaySourceEventDecisionObservationInputMaterialization(futureLeakingInput),
+      /future or discontinuous market input/,
+    )
+
+    const extendedInputMaterialization = structuredClone(inputMaterialization) as typeof inputMaterialization & {
+      runner_authority?: string
+    }
+    extendedInputMaterialization.runner_authority = "allowed"
+    const { materialization_hash: _extendedInputHash, ...extendedInputBody } = extendedInputMaterialization
+    extendedInputMaterialization.materialization_hash = canonicalHash(extendedInputBody)
+    assert.throws(
+      () => assertReplaySourceEventDecisionObservationInputMaterialization(extendedInputMaterialization),
       /field whitelist/,
     )
 
@@ -1543,6 +1656,27 @@ function decisionObservationDerivationFixture(
 ) {
   const scheduleEntry = request.decision_schedule.entries[0]!
   const emptyHash = canonicalHash([])
+  const closedBarWire = wire.wire_events.find((event) => event.kind === "bar_range")!
+  const closedBar = structuredClone(closedBarWire.payload) as ReplayMarketBar
+  const observation = {
+    schema_version: REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_RECORD_SCHEMA_VERSION,
+    observation_id: `source-event-decision-observation-${closedBarWire.wire_event_id}`,
+    observation_ordinal: 0,
+    payload_record_id: "pit-payload-record-admission-fixture",
+    payload_record_hash: canonicalHash({ wire_event_id: closedBarWire.wire_event_id }),
+    transition_id: "visibility-transition-admission-fixture",
+    wire_event_id: closedBarWire.wire_event_id,
+    source_kind: "ohlcv" as const,
+    effective_time: closedBarWire.effective_time,
+    availability_at: closedBarWire.availability_at,
+    observation_type: "closed_bar" as const,
+    observation: closedBar,
+    observation_hash: canonicalHash(closedBar),
+    payload_hash: closedBarWire.payload_hash,
+    source_envelope_hash: closedBarWire.source_envelope_hash,
+    projection_effect: "read_only_observation" as const,
+    execution_effect: "none" as const,
+  }
   const projection = createReplaySourceEventDecisionObservationProjection({
     schema_version: REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_PROJECTION_SCHEMA_VERSION,
     projection_id: "decision-observation-projection-admission-fixture",
@@ -1567,11 +1701,11 @@ function decisionObservationDerivationFixture(
     cut_id: "visibility-cut-admission-fixture",
     cut_hash: "7".repeat(64),
     as_of_time: scheduleEntry.decision_time,
-    observation_count: 0,
-    observations: [],
-    observations_hash: emptyHash,
-    observation_values_hash: emptyHash,
-    source_observation_counts: { instrument_status: 0, funding: 0, aggregate_trade: 0, ohlcv: 0 },
+    observation_count: 1,
+    observations: [observation],
+    observations_hash: canonicalHash([observation]),
+    observation_values_hash: canonicalHash([observation.observation]),
+    source_observation_counts: { instrument_status: 0, funding: 0, aggregate_trade: 0, ohlcv: 1 },
     future_transition_count: 0,
     future_transition_ids_hash: emptyHash,
   })
@@ -1762,6 +1896,17 @@ function decisionObservationRequest(reservation: ReturnType<typeof issueTrialRes
     entry_execution: { order_type: "market" },
   }
   const decisionSchedule = createReplaySingleDecisionSchedule(order)
+  const decisionMarketInputRequirement = {
+    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
+    mode: "closed_bar_lookback" as const,
+    source_kind: "ohlcv" as const,
+    fields: ["open", "high", "low", "close", "volume"] as const,
+    lookback_bars: 1,
+    visibility_policy: "close_time_at_or_before_decision_time" as const,
+    terminal_bar_policy: "close_time_equals_decision_time" as const,
+    continuity_policy: "strict_interval_grid" as const,
+    undeclared_input_policy: "reject" as const,
+  }
   return {
     schema_version: REPLAY_REQUEST_SCHEMA_VERSION,
     run_id: reservation.run_id,
@@ -1781,8 +1926,8 @@ function decisionObservationRequest(reservation: ReturnType<typeof issueTrialRes
     supplemental_facts_hash: reservation.bindings.supplemental_facts_hash,
     supplemental_requirement_set: structuredClone(REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS),
     supplemental_requirement_set_hash: REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH,
-    decision_market_input_requirement: structuredClone(REPLAY_NO_DECISION_MARKET_INPUT),
-    decision_market_input_requirement_hash: REPLAY_NO_DECISION_MARKET_INPUT_HASH,
+    decision_market_input_requirement: decisionMarketInputRequirement,
+    decision_market_input_requirement_hash: canonicalHash(decisionMarketInputRequirement),
     decision_schedule: decisionSchedule,
     decision_schedule_hash: canonicalHash(decisionSchedule),
     venue_risk_policy_schedule_hash: reservation.bindings.venue_risk_policy_schedule_hash,
@@ -1837,6 +1982,116 @@ function decisionObservationRequest(reservation: ReturnType<typeof issueTrialRes
       liquidation_deficit: "fail_without_result",
     },
     random_seed: 1,
+  }
+}
+
+function decisionObservationManifest(request: ReplayExecutionRequest): ReplayDatasetManifest {
+  const status = {
+    schema_version: REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION,
+    snapshot_id: "status-decision-input-1",
+    venue_id: "binance-usdm",
+    symbol: request.symbol,
+    status: "trading" as const,
+    effective_at: "2020-01-01T00:00:00Z",
+    valid_until: null,
+    observed_at: "2026-07-14T03:00:00Z",
+    source_ref: "archive:status:decision-input-1",
+    source_hash: "6".repeat(64),
+  }
+  const statusProvenance = createReplayInstrumentStatusProvenance({
+    producer_domain: "market-data-products",
+    producer_id: "fixture-status-provider",
+    producer_version: "v1",
+    producer_build_hash: "7".repeat(64),
+    provider_capability_hash: request.instrument_status_provider_capability_hash,
+    provider_certification_ref: "certification://status-provider/v1",
+    provider_certification_hash: request.instrument_status_provider_certification_hash,
+    source_owner: "binance-usdm",
+    source_kind: "venue_status_event_archive",
+    normalization_policy_version: "status-normalization-v1",
+    normalization_policy_hash: "8".repeat(64),
+    completeness: "complete_history",
+    coverage_start: "2020-01-01T00:00:00Z",
+    coverage_end: "2030-01-01T00:00:00Z",
+    source_observed_through: "2026-07-14T03:10:00Z",
+    produced_at: "2026-07-14T03:10:00Z",
+    source_ref: "archive:status:decision-input",
+    source_hash: "9".repeat(64),
+    source_record_count: 1,
+    status_epochs: [status],
+  })
+  return {
+    schema_version: REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
+    manifest_id: "manifest-decision-input-1",
+    manifest_ref: request.dataset_manifest_ref,
+    data_hash: request.dataset_hash,
+    dataset_kind: "ohlcv",
+    symbol: request.symbol,
+    timeframe: request.timeframe,
+    interval_ms: 300_000,
+    row_count: 1,
+    first_open_time: "2026-07-14T03:00:00Z",
+    last_close_time: "2026-07-14T03:05:00Z",
+    observed_through: "2026-07-14T03:10:00Z",
+    closed_candles_only: true,
+    bar_final_availability: "close_time",
+    funding_availability: "event_time",
+    mark_availability: "event_time",
+    mark_coverage: "none",
+    mark_interval_ms: null,
+    mark_event_count: 0,
+    supplemental_facts: {
+      coverage: "none",
+      record_count: 0,
+      source_ids: [],
+      content_hash: canonicalHash([]),
+      requirement_set_hash: request.supplemental_requirement_set_hash,
+    },
+    venue_risk_policy_epochs: [{
+      schema_version: REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
+      snapshot_id: "risk-decision-input-1",
+      venue_id: "binance-usdm",
+      symbol: request.symbol,
+      effective_at: "2020-01-01T00:00:00Z",
+      valid_until: null,
+      observed_at: "2026-07-14T03:00:00Z",
+      source_ref: "archive:risk:decision-input-1",
+      source_hash: "a".repeat(64),
+      initial_margin_rate: request.margin_policy.initial_margin_rate,
+      maintenance_tier: structuredClone(request.margin_policy.maintenance_tier),
+      liquidation_fee_bps: request.cost_policy.liquidation_fee_bps,
+    }],
+    instrument: {
+      listed_at: "2020-01-01T00:00:00Z",
+      trading_enabled_at: "2020-01-01T00:00:00Z",
+      delisted_at: null,
+      status_history: "complete",
+      status_epochs: [status],
+      status_provenance: statusProvenance,
+      spec_epochs: [{
+        schema_version: REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION,
+        snapshot_id: "spec-decision-input-1",
+        venue_id: "binance-usdm",
+        symbol: request.symbol,
+        effective_at: "2020-01-01T00:00:00Z",
+        valid_until: null,
+        observed_at: "2026-07-14T03:00:00Z",
+        source_ref: "archive:spec:decision-input-1",
+        source_hash: "b".repeat(64),
+      }],
+      accounting: {
+        spec_version: REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION,
+        product_type: "linear_derivative",
+        base_asset: "BTC",
+        quote_asset: "USDT",
+        settlement_asset: "USDT",
+        contract_multiplier: "1",
+        price_increment: "0.01",
+        quantity_increment: "0.001",
+        settlement_increment: "0.00000001",
+      },
+    },
+    universe: { selected_at: "2026-07-14T02:59:00Z", survivorship: "point_in_time" },
   }
 }
 
