@@ -120,6 +120,8 @@ R4.100 增加独立 Decision Market Input Materialization v1。它完整重建 R
 
 R4.101 增加 Decision Worker Input Assembly v2，并保留 v1。v2 强制消费同 Request/Context 的 R4.100 Market 与恰好一个 R4.97/R4.98 Supplemental parent；R4.97 路径必须先证明旧内嵌 Market 与 R4.100 精确一致，R4.98 路径因此消除 `incomplete_market_snapshot`。非 position-open tuple 可完整但仍不可执行；position-open 继续缺 runtime State。source bundle、build attestation、invocation identity、Worker Request、Harness 与 Runner 仍未绑定。
 
+R4.102 增加 Engine-owned Position-open State Input Materialization v1。它只在一个冻结的 `position_open` closed-bar boundary 上消费既有正式 Decision State Snapshot v3，重验 Request/Schedule、R4.96 Context entry 与完整 SourceEvent prefix 后生成 exact-field、自哈希 wrapper；不重算 Position/Cash/Fee/Funding/PnL，也不把 schema/hash 成功解释为经济 derivation 或运行真实性证明。R4.101 Assembly v2 保持不变，尚未消费该对象；Worker Request、Harness invocation 与 Runner 仍关闭。
+
 经济入口按唯一 `authorized_initial_order / authorized_order` 语义定位，不依赖 Schedule/Timeline 数组末位；可选退出必须是 Schedule 末位并以 `authorized_reduce_only_exit` 独立表达，不能冒充第二个入口。所有 post-entry evaluation 必须由 Source Reducer 运行时产生 Position/Cash State Snapshot，并正确表达 terminal-before-decision、pending Order 与 checkpoint/resume。
 
 Reservation 只控制新 Attempt claim；已准入 Attempt 由 lease/generation fencing。Runner 仅通过 Attempt-scoped Artifact Store port 访问证据，local-v1 使用 `fsync + hard-link CAS + directory fsync`，remote-v1 仍只有准入合同、没有 certified adapter。Control Plane 单写 Reservation、Lease、Checkpoint Receipt 与 Resume Authorization；Replay 不查询或修改 Trial。对象存储实现/认证、OS sandbox、multiple partial、滚动 supplemental requirement/window、变更 accounting epoch、历史规则采集、部分强平、cross/shared portfolio、tick/L2、真实 partial liquidity、limit queue 与 fast mode 未完成。
