@@ -144,6 +144,8 @@ R4.112 增加 Control Plane Current Attempt Lease Observation Receipt v1 与 Rep
 
 R4.114 增加 Runner-owned Dispatch Evidence Registration v1 与 local immutable CAS registry。它以 Attempt/generation/logical Request 为自然键，持久化完整 Envelope→Admission→Control Plane Authority Binding；首次登记必须仍在 observed Lease window，相同证据幂等、竞争证据与字节篡改拒绝，重启读取重新验证 canonical contract。Registration 固定 `dispatch_claim=null` 与 `dispatch_occurrence=not_materialized`；当前没有真实派发、进程、transport、Response 或经济 authority。
 
+R4.115 增加 Runner-owned Local Dispatch Claim v1。Claim 前必须从同一 root 重读 R4.114 Registration，并以严格晚于登记的新 Control Plane Observation 重验同一 Lease；本地 CAS 只允许首个 opaque claimant，相同重试幂等，竞争、续租漂移、过期、孤儿或篡改证据拒绝。该 claim 只在记录保留期间提供 at-most-once exclusivity，claim 后 crash 可能丢失派发机会；它不绑定真实 process，且 `dispatch_occurrence=not_materialized`。
+
 经济入口按唯一 `authorized_initial_order / authorized_order` 语义定位，不依赖 Schedule/Timeline 数组末位；可选退出必须是 Schedule 末位并以 `authorized_reduce_only_exit` 独立表达，不能冒充第二个入口。所有 post-entry evaluation 必须由 Source Reducer 运行时产生 Position/Cash State Snapshot，并正确表达 terminal-before-decision、pending Order 与 checkpoint/resume。
 
 Reservation 只控制新 Attempt claim；已准入 Attempt 由 lease/generation fencing。Runner 仅通过 Attempt-scoped Artifact Store port 访问证据，local-v1 使用 `fsync + hard-link CAS + directory fsync`，remote-v1 仍只有准入合同、没有 certified adapter。Control Plane 单写 Reservation、Lease、Checkpoint Receipt 与 Resume Authorization；Replay 不查询或修改 Trial。对象存储实现/认证、OS sandbox、multiple partial、滚动 supplemental requirement/window、变更 accounting epoch、历史规则采集、部分强平、cross/shared portfolio、tick/L2、真实 partial liquidity、limit queue 与 fast mode 未完成。
