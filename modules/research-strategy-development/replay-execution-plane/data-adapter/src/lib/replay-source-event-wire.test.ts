@@ -4,21 +4,19 @@ import {
   assertReplaySourceEventWireManifest,
   replaySourceEventWireEnvelope,
 } from "../../../contracts/src/lib/replay-source-event-wire"
-import { replayCrossSourceTestFixture } from "./replay-cross-source-test-fixture"
-import { buildReplaySourceEventProjectionAttestation } from "./replay-source-event-projection"
+import {
+  replaySourceEventWireTestFixture,
+} from "./replay-cross-source-test-fixture"
 import {
   assertReplaySourceEventWireMaterializationLineage,
   materializeReplaySourceEventWire,
 } from "./replay-source-event-wire"
 
 test("Projection-bound materializer consumes every admitted four-source payload exactly once", () => {
-  const fixture = replayCrossSourceTestFixture()
-  const projection = buildReplaySourceEventProjectionAttestation({
-    ordering_admission: fixture.ordering_admission,
-    ordering_attestation: fixture.ordering_attestation,
-  })
+  const fixture = replaySourceEventWireTestFixture()
+  const projection = fixture.projection
   const input = { ...fixture, projection }
-  const wire = materializeReplaySourceEventWire(input)
+  const wire = fixture.wire_manifest
   const replayed = materializeReplaySourceEventWire(structuredClone(input))
 
   expect(() => assertReplaySourceEventWireManifest(wire)).not.toThrow()
@@ -38,11 +36,8 @@ test("Projection-bound materializer consumes every admitted four-source payload 
 })
 
 test("materializer fails closed when raw payloads no longer rebuild Admission-bound ordering", () => {
-  const fixture = replayCrossSourceTestFixture()
-  const projection = buildReplaySourceEventProjectionAttestation({
-    ordering_admission: fixture.ordering_admission,
-    ordering_attestation: fixture.ordering_attestation,
-  })
+  const fixture = replaySourceEventWireTestFixture()
+  const projection = fixture.projection
   const drifted = structuredClone({ ...fixture, projection })
   drifted.funding_events[0]!.mark_price = 101
   expect(() => materializeReplaySourceEventWire(drifted)).toThrow("do not rebuild")

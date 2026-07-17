@@ -8,21 +8,15 @@ import {
   assertReplaySourceEventLegacyParityAttestation,
   assertReplaySourceEventLegacyParityLineage,
 } from "../../contracts/src/lib/replay-source-event-legacy-parity"
-import { replayCrossSourceTestFixture } from "../../data-adapter/src/lib/replay-cross-source-test-fixture"
-import { buildReplaySourceEventProjectionAttestation } from "../../data-adapter/src/lib/replay-source-event-projection"
+import { replaySourceEventWireTestFixture } from "../../data-adapter/src/lib/replay-cross-source-test-fixture"
 import {
   certifyReplaySourceEventLegacyParity,
-  materializeReplaySourceEventWire,
 } from "../../data-adapter/src/lib/replay-source-event-wire"
 import { buildReplaySourceEvents } from "../../engine/src/lib/replay-source-events"
 
 test("actual legacy builder matches Wire v2 shared event schedule while stronger parity stays unclaimed", () => {
-  const fixture = replayCrossSourceTestFixture()
-  const projection = buildReplaySourceEventProjectionAttestation({
-    ordering_admission: fixture.ordering_admission,
-    ordering_attestation: fixture.ordering_attestation,
-  })
-  const wire = materializeReplaySourceEventWire({ ...fixture, projection })
+  const fixture = replaySourceEventWireTestFixture()
+  const wire = fixture.wire_manifest
   const baseline: ReplayInstrumentStatusSnapshot = {
     schema_version: REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION,
     snapshot_id: "status-baseline",
@@ -71,12 +65,8 @@ test("actual legacy builder matches Wire v2 shared event schedule while stronger
 })
 
 test("legacy parity rejects missing or time-shifted shared events", () => {
-  const fixture = replayCrossSourceTestFixture({ exact: true })
-  const projection = buildReplaySourceEventProjectionAttestation({
-    ordering_admission: fixture.ordering_admission,
-    ordering_attestation: fixture.ordering_attestation,
-  })
-  const wire = materializeReplaySourceEventWire({ ...fixture, projection })
+  const fixture = replaySourceEventWireTestFixture({ exact: true })
+  const wire = fixture.wire_manifest
   const legacyEvents = buildReplaySourceEvents({
     bars: fixture.bars,
     funding_events: fixture.funding_events,

@@ -12,7 +12,11 @@ import {
   type ReplayMarketBar,
 } from "../../../contracts/src/lib/replay-contracts"
 import type { ReplayCrossSourceOrderingAttestation } from "../../../contracts/src/lib/replay-cross-source-ordering"
+import type { ReplaySourceEventProjectionAttestation } from "../../../contracts/src/lib/replay-source-event-projection"
+import type { ReplaySourceEventWireManifest } from "../../../contracts/src/lib/replay-source-event-wire"
 import { buildReplayCrossSourceOrderingAttestation } from "./replay-cross-source-ordering"
+import { buildReplaySourceEventProjectionAttestation } from "./replay-source-event-projection"
+import { materializeReplaySourceEventWire } from "./replay-source-event-wire"
 
 const HASH = "a".repeat(64)
 
@@ -23,6 +27,11 @@ export interface ReplayCrossSourceTestFixture {
   aggregate_trade_events: ReplayAggregateTradeEvent[]
   ordering_attestation: ReplayCrossSourceOrderingAttestation
   ordering_admission: ReplayCrossSourceOrderingAdmissionSnapshot
+}
+
+export interface ReplaySourceEventWireTestFixture extends ReplayCrossSourceTestFixture {
+  projection: ReplaySourceEventProjectionAttestation
+  wire_manifest: ReplaySourceEventWireManifest
 }
 
 export function replayCrossSourceTestFixture(input: { exact?: boolean } = {}): ReplayCrossSourceTestFixture {
@@ -87,6 +96,19 @@ export function replayCrossSourceTestFixture(input: { exact?: boolean } = {}): R
     aggregate_trade_events: aggregateTradeEvents,
     ordering_attestation: attestation,
     ordering_admission: replayCrossSourceOrderingAdmission(attestation),
+  }
+}
+
+export function replaySourceEventWireTestFixture(input: { exact?: boolean } = {}): ReplaySourceEventWireTestFixture {
+  const fixture = replayCrossSourceTestFixture(input)
+  const projection = buildReplaySourceEventProjectionAttestation({
+    ordering_admission: fixture.ordering_admission,
+    ordering_attestation: fixture.ordering_attestation,
+  })
+  return {
+    ...fixture,
+    projection,
+    wire_manifest: materializeReplaySourceEventWire({ ...fixture, projection }),
   }
 }
 
