@@ -65,6 +65,9 @@ import {
   assertReplayDecisionWorkerInputAssembly,
 } from "../../../../replay-execution-plane/contracts/src/lib/replay-decision-worker-input-assembly"
 import {
+  assertReplayDecisionWorkerInputAssemblyV2,
+} from "../../../../replay-execution-plane/contracts/src/lib/replay-decision-worker-input-assembly-v2"
+import {
   assertReplayDecisionMarketInputMaterialization,
 } from "../../../../replay-execution-plane/contracts/src/lib/replay-decision-market-input-materialization"
 import {
@@ -84,6 +87,10 @@ import {
   assertReplayDecisionWorkerInputAssemblyLineage,
   buildReplayDecisionWorkerInputAssembly,
 } from "../../../../replay-execution-plane/data-adapter/src/lib/replay-decision-worker-input-assembly"
+import {
+  assertReplayDecisionWorkerInputAssemblyV2Lineage,
+  buildReplayDecisionWorkerInputAssemblyV2,
+} from "../../../../replay-execution-plane/data-adapter/src/lib/replay-decision-worker-input-assembly-v2"
 import {
   assertReplayDecisionMarketInputMaterializationLineage,
   buildReplayDecisionMarketInputMaterialization,
@@ -835,6 +842,34 @@ test("Control Plane admits aggregate trade evidence only as a Reservation-bound 
     assert.deepEqual(buildReplayDecisionWorkerInputAssembly(
       structuredClone(workerInputAssemblyInput),
     ), workerInputAssembly)
+    const workerInputAssemblyV2Input = {
+      ...workerInputAssemblyInput,
+      market_input_materialization: marketMaterialization,
+    }
+    const workerInputAssemblyV2 = buildReplayDecisionWorkerInputAssemblyV2(workerInputAssemblyV2Input)
+    assert.equal(workerInputAssemblyV2.complete_entry_count, 1)
+    assert.equal(workerInputAssemblyV2.incomplete_state_entry_count, 0)
+    assert.equal(workerInputAssemblyV2.missing_market_entry_count, 0)
+    assert.equal(workerInputAssemblyV2.worker_request_count, 0)
+    assert.equal(workerInputAssemblyV2.entries[0]!.market_input_source, "r4_100_market_input_materialization")
+    assert.equal(workerInputAssemblyV2.entries[0]!.r4_97_embedded_market_compatibility, "exact_snapshot_match")
+    assert.deepEqual(
+      workerInputAssemblyV2.entries[0]!.decision_market_input_snapshot,
+      marketMaterialization.entries[0]!.decision_market_input_snapshot,
+    )
+    assert.equal(workerInputAssemblyV2.entries[0]!.worker_request, null)
+    assert.doesNotThrow(() => assertReplayDecisionWorkerInputAssemblyV2(workerInputAssemblyV2))
+    assert.doesNotThrow(() => assertReplayDecisionWorkerInputAssemblyV2Lineage(
+      workerInputAssemblyV2,
+      workerInputAssemblyV2Input,
+    ))
+    assert.deepEqual(buildReplayDecisionWorkerInputAssemblyV2(
+      structuredClone(workerInputAssemblyV2Input),
+    ), workerInputAssemblyV2)
+    assert.throws(() => buildReplayDecisionWorkerInputAssemblyV2({
+      ...workerInputAssemblyV2Input,
+      market_input_materialization: nonEmptyMarketMaterialization,
+    }), /R4.100 parent binding drift/)
     assert.throws(() => buildReplayDecisionWorkerInputAssembly({
       ...workerInputAssemblyInput,
       initial_signal_supplemental_materialization: {} as never,

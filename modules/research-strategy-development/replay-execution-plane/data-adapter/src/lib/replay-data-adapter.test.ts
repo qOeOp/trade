@@ -15,6 +15,7 @@ import {
   REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
   canonicalHash,
   createReplayDecisionHarnessContext,
+  createReplayDecisionMarketInputSnapshot,
   createReplayInstrumentStatusProvenance,
   createReplayLiquidityCapacityAttestation,
   createReplaySingleDecisionSchedule,
@@ -31,6 +32,17 @@ import {
   assertReplayInitialSignalSupplementalInputMaterialization,
 } from "../../../contracts/src/lib/replay-initial-signal-supplemental-input-materialization"
 import {
+  REPLAY_DECISION_MARKET_INPUT_MATERIALIZATION_ENTRY_SCHEMA_VERSION,
+  REPLAY_DECISION_MARKET_INPUT_MATERIALIZATION_POLICY_VERSION,
+  REPLAY_DECISION_MARKET_INPUT_MATERIALIZATION_SCHEMA_VERSION,
+  createReplayDecisionMarketInputMaterialization,
+  createReplayDecisionMarketInputMaterializationEntry,
+  type ReplayDecisionMarketInputMaterializationBody,
+} from "../../../contracts/src/lib/replay-decision-market-input-materialization"
+import {
+  assertReplayDecisionWorkerInputAssemblyV2,
+} from "../../../contracts/src/lib/replay-decision-worker-input-assembly-v2"
+import {
   REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_HARNESS_CONTEXT_BINDING_ENTRY_SCHEMA_VERSION,
   REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_HARNESS_CONTEXT_BINDING_POLICY_VERSION,
   REPLAY_SOURCE_EVENT_DECISION_OBSERVATION_HARNESS_CONTEXT_BINDING_SCHEMA_VERSION,
@@ -43,6 +55,10 @@ import {
   buildReplayInitialSignalSupplementalInputMaterialization,
 } from "./replay-initial-signal-supplemental-input-materialization"
 import { buildReplayDecisionWorkerInputAssembly } from "./replay-decision-worker-input-assembly"
+import {
+  assertReplayDecisionWorkerInputAssemblyV2Lineage,
+  buildReplayDecisionWorkerInputAssemblyV2,
+} from "./replay-decision-worker-input-assembly-v2"
 import { ReplayDataContinuityError, fundingEventsInWindow, prepareReplayInputData, resolveReplayInstrumentSpecAt, resolveReplayVenueRiskPolicyAt, selectReplaySupplementalFactsAt } from "./replay-data-adapter"
 
 const HASH = "a".repeat(64)
@@ -210,6 +226,84 @@ function oneEntryHarnessContextBinding(requestValue: ReplayExecutionRequest) {
   return createReplaySourceEventDecisionObservationHarnessContextBinding({
     ...bodyWithoutId,
     binding_id: `source-event-observation-harness-context-${canonicalHash(bodyWithoutId).slice(0, 24)}`,
+  })
+}
+
+function oneEntryMarketInputMaterialization(
+  requestValue: ReplayExecutionRequest,
+  contextBinding: ReturnType<typeof oneEntryHarnessContextBinding>,
+) {
+  const contextEntry = contextBinding.entries[0]!
+  const snapshot = createReplayDecisionMarketInputSnapshot({
+    request: requestValue,
+    decision_time: contextEntry.decision_time,
+    interval_ms: 14_400_000,
+    bars: [],
+  })
+  const entry = createReplayDecisionMarketInputMaterializationEntry({
+    schema_version: REPLAY_DECISION_MARKET_INPUT_MATERIALIZATION_ENTRY_SCHEMA_VERSION,
+    decision_sequence: contextEntry.decision_sequence,
+    decision_time: contextEntry.decision_time,
+    decision_phase: contextEntry.harness_context.decision_phase,
+    harness_context_binding_entry_hash: contextEntry.entry_hash,
+    observation_projection_id: contextEntry.observation_projection_id,
+    observation_projection_hash: contextEntry.observation_projection_hash,
+    market_input_status: "materialized_empty_no_requirement",
+    decision_market_input_snapshot: snapshot,
+    decision_market_input_snapshot_hash: snapshot.snapshot_hash,
+    worker_request_compatibility: "not_bound",
+    harness_invocation: "forbidden",
+    execution_effect: "none",
+  })
+  const bodyWithoutId: Omit<ReplayDecisionMarketInputMaterializationBody, "materialization_id"> = {
+    schema_version: REPLAY_DECISION_MARKET_INPUT_MATERIALIZATION_SCHEMA_VERSION,
+    materialization_policy_version: REPLAY_DECISION_MARKET_INPUT_MATERIALIZATION_POLICY_VERSION,
+    scope: "pre_worker_non_economic_market_input_materialization",
+    purpose: "materialize_formal_market_snapshots_from_admitted_closed_bar_observations",
+    authority_source: "decision_observation_harness_context_binding",
+    parent_context_binding_validation: "full_rebuild_against_request_bundle_and_derivation_admission",
+    dataset_manifest_validation: "schema_and_request_market_identity_only",
+    supplemental_binding_validation: "not_inspected_outside_market_responsibility",
+    raw_dataset_revalidation: "not_performed",
+    worker_request_materialization: "forbidden",
+    harness_invocation: "forbidden",
+    decision_output_authority: "none",
+    signal_authority: "none",
+    order_authority: "none",
+    economic_authority: "none",
+    runner_compatibility: "not_bound",
+    request_schema_version: requestValue.schema_version,
+    request_hash: canonicalHash(requestValue),
+    run_id: requestValue.run_id,
+    experiment_id: requestValue.experiment_id,
+    trial_group_id: requestValue.trial_group_id,
+    trial_id: requestValue.trial_id,
+    candidate_id: requestValue.candidate_id,
+    candidate_hash: requestValue.candidate_hash,
+    reservation_ref: requestValue.trial_reservation_ref,
+    reservation_hash: requestValue.trial_reservation_hash,
+    dataset_manifest_ref: requestValue.dataset_manifest_ref,
+    dataset_hash: requestValue.dataset_hash,
+    dataset_manifest_hash: HASH,
+    derivation_admission_id: contextBinding.derivation_admission_id,
+    derivation_admission_hash: contextBinding.derivation_admission_hash,
+    bundle_id: contextBinding.bundle_id,
+    bundle_hash: contextBinding.bundle_hash,
+    harness_context_binding_id: contextBinding.binding_id,
+    harness_context_binding_hash: contextBinding.binding_hash,
+    decision_market_input_requirement_hash: requestValue.decision_market_input_requirement_hash,
+    decision_market_input_snapshot_schema_version: snapshot.schema_version,
+    entry_count: 1,
+    entries: [entry],
+    entries_hash: canonicalHash([entry]),
+    entry_hashes_hash: canonicalHash([entry.entry_hash]),
+    snapshot_hashes_hash: canonicalHash([snapshot.snapshot_hash]),
+    first_decision_time: entry.decision_time,
+    last_decision_time: entry.decision_time,
+  }
+  return createReplayDecisionMarketInputMaterialization({
+    ...bodyWithoutId,
+    materialization_id: `decision-market-input-${canonicalHash(bodyWithoutId).slice(0, 24)}`,
   })
 }
 
@@ -490,6 +584,56 @@ test("supplemental PIT join selects the last visible revision and excludes futur
   expect(nonEmptyWorkerAssembly.worker_request_count).toBe(0)
   expect(buildReplayDecisionWorkerInputAssembly(structuredClone(nonEmptyWorkerAssemblyInput)))
     .toEqual(nonEmptyWorkerAssembly)
+  const nonEmptyMarketMaterialization = oneEntryMarketInputMaterialization(
+    supplementalRequest,
+    nonEmptyWorkerAssemblyInput.harness_context_binding,
+  )
+  const workerAssemblyV2Input = {
+    ...nonEmptyWorkerAssemblyInput,
+    market_input_materialization: nonEmptyMarketMaterialization,
+  }
+  const workerAssemblyV2 = buildReplayDecisionWorkerInputAssemblyV2(workerAssemblyV2Input)
+  expect(workerAssemblyV2.entries[0]!.supplemental_input_source)
+    .toBe("r4_98_initial_signal_materialization")
+  expect(workerAssemblyV2.entries[0]!.market_input_source)
+    .toBe("r4_100_market_input_materialization")
+  expect(workerAssemblyV2.entries[0]!.r4_97_embedded_market_compatibility)
+    .toBe("not_applicable_nonempty_supplemental")
+  expect(workerAssemblyV2.entries[0]!.input_tuple_status)
+    .toBe("complete_non_executable_build_unbound")
+  expect(workerAssemblyV2.complete_entry_count).toBe(1)
+  expect(workerAssemblyV2.missing_market_entry_count).toBe(0)
+  expect(workerAssemblyV2.worker_request_count).toBe(0)
+  expect(workerAssemblyV2.entries[0]!.worker_request).toBeNull()
+  expect(() => assertReplayDecisionWorkerInputAssemblyV2(workerAssemblyV2)).not.toThrow()
+  expect(() => assertReplayDecisionWorkerInputAssemblyV2Lineage(workerAssemblyV2, workerAssemblyV2Input))
+    .not.toThrow()
+  expect(buildReplayDecisionWorkerInputAssemblyV2(structuredClone(workerAssemblyV2Input)))
+    .toEqual(workerAssemblyV2)
+  const mismatchedMarketContext = oneEntryHarnessContextBinding({
+    ...supplementalRequest,
+    candidate_hash: "b".repeat(64),
+  })
+  expect(() => buildReplayDecisionWorkerInputAssemblyV2({
+    ...workerAssemblyV2Input,
+    market_input_materialization: oneEntryMarketInputMaterialization(
+      { ...supplementalRequest, candidate_hash: "b".repeat(64) },
+      mismatchedMarketContext,
+    ),
+  })).toThrow("R4.100 parent binding drift")
+  const workerAssemblyV2WithInjectedAuthority = {
+    ...workerAssemblyV2,
+    worker_request_count: 1 as never,
+  }
+  expect(() => assertReplayDecisionWorkerInputAssemblyV2(workerAssemblyV2WithInjectedAuthority))
+    .toThrow("unsupported decision Worker input assembly v2 authority")
+  const workerAssemblyV2WithMixedParent = structuredClone(workerAssemblyV2)
+  workerAssemblyV2WithMixedParent.observation_input_materialization_id = "forged-r4-97-parent"
+  workerAssemblyV2WithMixedParent.observation_input_materialization_hash = HASH
+  workerAssemblyV2WithMixedParent.initial_signal_supplemental_materialization_id = null
+  workerAssemblyV2WithMixedParent.initial_signal_supplemental_materialization_hash = null
+  expect(() => assertReplayDecisionWorkerInputAssemblyV2(workerAssemblyV2WithMixedParent))
+    .toThrow("member identity drift")
   const mismatchedContext = oneEntryHarnessContextBinding({
     ...supplementalRequest,
     candidate_hash: "b".repeat(64),
