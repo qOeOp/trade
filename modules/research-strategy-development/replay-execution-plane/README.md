@@ -124,6 +124,8 @@ R4.102 增加 Engine-owned Position-open State Input Materialization v1。它只
 
 R4.103 增加 Engine-owned Decision Worker Input Assembly v3，并内嵌而不改写 R4.101 v2。v3 只接受至少含一个 `incomplete_runtime_state_snapshot` 的 v2，以及按 Schedule 顺序为每个 position-open entry 提供的唯一 R4.102 parent；逐项绑定 Request/Trial/Candidate/Context/entry 后，所有 tuple 成为 `complete_non_executable_build_unbound`。上游 R4.96–R4.102 lineage 与完整 SourceEvent prefix 仍需外部 parents 重放；Worker Request、Harness invocation、Decision/Signal/Order/economic authority 与 Runner 继续关闭。
 
+R4.104 增加 Runner-owned Decision Worker Input Assembly v4。它内嵌 R4.103 v3、完整 R4.96 Context Binding、Harness Source Bundle v1 与 Build Attestation v2，要求 `Context.harness_hash == bundle_hash`，并通过现有 Runner build path 在当前冻结 Bun runtime 下确定性重建、逐字节匹配 attestation/artifact 后标记 `complete_non_executable_build_bound`。独立复验仍须重新 build；registry admission、invocation identity、Worker Request、Harness execution、Decision/Signal/Order/economic authority 与 Trial Runner 集成仍关闭。
+
 经济入口按唯一 `authorized_initial_order / authorized_order` 语义定位，不依赖 Schedule/Timeline 数组末位；可选退出必须是 Schedule 末位并以 `authorized_reduce_only_exit` 独立表达，不能冒充第二个入口。所有 post-entry evaluation 必须由 Source Reducer 运行时产生 Position/Cash State Snapshot，并正确表达 terminal-before-decision、pending Order 与 checkpoint/resume。
 
 Reservation 只控制新 Attempt claim；已准入 Attempt 由 lease/generation fencing。Runner 仅通过 Attempt-scoped Artifact Store port 访问证据，local-v1 使用 `fsync + hard-link CAS + directory fsync`，remote-v1 仍只有准入合同、没有 certified adapter。Control Plane 单写 Reservation、Lease、Checkpoint Receipt 与 Resume Authorization；Replay 不查询或修改 Trial。对象存储实现/认证、OS sandbox、multiple partial、滚动 supplemental requirement/window、变更 accounting epoch、历史规则采集、部分强平、cross/shared portfolio、tick/L2、真实 partial liquidity、limit queue 与 fast mode 未完成。
