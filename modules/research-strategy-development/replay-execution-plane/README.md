@@ -88,6 +88,8 @@ R4.84 实现 Projection-bound Wire v2 materializer：先用原始四源 payload 
 
 R4.85 增加 Wire pre-execution gate 与非经济 candidate reducer。Gate 只放行 `non_economic_schedule_trace`；经济 exact-trigger 在跨源同刻时因 `resolution_limited` 拒绝，即使 declared timestamps 无碰撞也因 economic consumer 未认证而拒绝。Reducer 逐事件保留 ambiguity-group hash 与 `deterministic_tie_break_only`，所有 execution effect 固定为 none；现有 reference Engine、Runner、Result/Artifact epoch 不变。
 
+R4.86 增加非经济 availability-aware dual-clock cursor。Candidate Trace 继续保存按 `effective_time` 排列的市场时间轴；Cursor 另按 `(availability_at, effective_time, effective-event ordinal, wire-event id)` 生成可见性时间轴。`availability_at > effective_time` 的事件只能在到达时成为 `delayed_historical_fact`，不得提前进入视图或追溯产生执行副作用；两条 timeline、lineage、lag 与 per-source fold 均自哈希。该 Cursor 不接 reference Engine、Runner、Result、Artifact 或 Checkpoint。
+
 经济入口按唯一 `authorized_initial_order / authorized_order` 语义定位，不依赖 Schedule/Timeline 数组末位；可选退出必须是 Schedule 末位并以 `authorized_reduce_only_exit` 独立表达，不能冒充第二个入口。所有 post-entry evaluation 必须由 Source Reducer 运行时产生 Position/Cash State Snapshot，并正确表达 terminal-before-decision、pending Order 与 checkpoint/resume。
 
 Reservation 只控制新 Attempt claim；已准入 Attempt 由 lease/generation fencing。Runner 仅通过 Attempt-scoped Artifact Store port 访问证据，local-v1 使用 `fsync + hard-link CAS + directory fsync`，remote-v1 仍只有准入合同、没有 certified adapter。Control Plane 单写 Reservation、Lease、Checkpoint Receipt 与 Resume Authorization；Replay 不查询或修改 Trial。对象存储实现/认证、OS sandbox、multiple partial、动态 supplemental join、变更 accounting epoch、历史规则采集、部分强平、cross/shared portfolio、tick/L2、真实 partial liquidity、limit queue 与 fast mode 未完成。
