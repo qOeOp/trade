@@ -1,6 +1,6 @@
 ---
 title: R&D Module Audit
-updated_at: 2026-07-17 CST
+updated_at: 2026-07-18 CST
 ---
 
 # R&D Module Audit
@@ -9,6 +9,7 @@ updated_at: 2026-07-17 CST
 
 ## 修复状态
 
+- 已补：Replay R4.137 物化 Worker v10 Authority Request Dispatch Attempt/Receipt v1。Runner 从 exact durable Process Launch Receipt 的完整 authority lineage 唯一重建 Request Frame v2，触碰 child stdin 前以 `Process Receipt hash + Frame hash` CAS 不可重放写槽；只有首次调用返回的 exact live session 可写 canonical JSON UTF-8 LF、关闭 stdin，并按冻结 timeout/response bound 排空 stdout/stderr等待退出。Attempt 无 Receipt 视为 child 可能已消费，禁止自动 rewrite；Receipt retry 不取 clock、无需 live handle。Receipt 用 canonical base64 暂存 exact raw bytes/count/hash 与 exit outcome，但明确不是最终 Artifact 格式；exit `0`、非空 stdout 也不构成 decode/Harness/Response 证明。测试锁定 exact Transport/Command/Intent/Worker Request frame binding、一次 write/close、opaque capture、durable retry、缺 parent 与 tamper 拒绝。当前 Request Frame/write Receipt=1，decode Receipt、Response Frame/read/admission=0，Decision/Signal/Order/economic/Trial authority 全为 none，成熟度不升 M3。
 - 已补：Replay R4.97 冻结 non-economic Decision Observation Input Materialization v1。Data Adapter 完整重建 R4.96 binding lineage，校验 Dataset Manifest schema 与 Request identity，并为每个 boundary 复用正式合同生成 Decision Input Snapshot v1 与 Market Input Snapshot v1；首版只认证 supplemental requirement `none` 的空快照，closed-bar lookback 只取 admitted Projection 中末 N 根 `closed_bar`，未来 bar、interval/grid/terminal-time 漂移 fail closed。position-open State Snapshot 固定 `runtime_state_required_not_materialized`，raw dataset revalidation、Worker Request、Harness invocation、Runner 与经济 authority 均未开放。测试覆盖 closed-bar 正式物化、deterministic rebuild、Manifest identity/interval drift、future leakage、self-consistent snapshot substitution 与 authority field injection，成熟度不升 M3。
 - 已补：Replay R4.92 冻结 portable non-economic Decision Observation Bundle v1。Bundle 内嵌完整 R4.91 Binding Set 与逐 boundary R4.89 Projection payload，要求 `projection_count == binding_count == schedule entry count`，按 binding sequence 一对一匹配 projection id/hash、as-of time、observation count、Payload View hash 与 Cut hash；Projection id/hash 唯一，payload/ids/hashes/observation-values hashes 分别折叠。Bundle 明示 payload 可携带但 authoritative rebuild 必须重验外部 parent lineage，不能把自包含 JSON 当成来源权威。测试覆盖 deterministic rebuild、实际 observation payload、omission、reorder、funding substitution+rehash 与字段注入。Decision Input compatibility 未声明，Harness/Artifact/Runner 未绑定，Decision/Signal/Order/economic authority 均为 none，成熟度不升 M3。
 - 已补：Replay R4.93 由 Research Control Plane 签发 immutable Decision Observation Bundle Admission v1。签发函数不接受 caller 自报 lineage 摘要，而是重验 reserved Trial、Reservation v9、Request v30、已登记 Cross-source Ordering Admission、Wire v2、Request 的完整 frozen Schedule 与 portable Bundle；每个 Reservation/request/ordering/wire/bundle identity 只能 create-or-identical 一份 sidecar。测试锁定重放幂等、竞争 identity、Request/Reservation data drift 与 SQLite update 禁止。唯一 capability 为 `non_economic_decision_observation_audit`；当前只认证 `wire_identity_and_schedule_binding_only`，Projection 是否由完整 Cursor→Cut→View 父链正确推导仍为 `not_certified`，Harness/Runner/Decision/Signal/Order/economic authority 均为 none，Request/Reservation/Result/Artifact/Checkpoint/Simulator 版本不变，成熟度不升 M3。
