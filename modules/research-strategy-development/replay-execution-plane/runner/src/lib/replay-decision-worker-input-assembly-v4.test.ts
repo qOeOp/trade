@@ -343,6 +343,15 @@ import {
   registerReplayWorkerV10AuthorityScheduleAdmission,
 } from "./replay-worker-v10-authority-schedule-admission-registry"
 import {
+  REPLAY_DECISION_HARNESS_WORKER_V10_REPRODUCIBILITY_DISTINCT_BINDINGS,
+  REPLAY_DECISION_HARNESS_WORKER_V10_REPRODUCIBILITY_SAME_BINDINGS,
+  assertReplayDecisionHarnessWorkerV10ReproducibilityPairContract,
+} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-reproducibility-pair-contract"
+import {
+  readReplayWorkerV10ReproducibilityPairContract,
+  registerReplayWorkerV10ReproducibilityPairContract,
+} from "./replay-worker-v10-reproducibility-pair-contract-registry"
+import {
   assertReplayDecisionHarnessWorkerV10AuthorityFrameBuildContractLineage,
   buildReplayDecisionHarnessWorkerV10AuthorityFrameBuildContract,
 } from "./replay-decision-harness-worker-v10-authority-frame-build-contract"
@@ -3510,6 +3519,76 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       source_response_validation: authorityResponseValidation,
       source_replay_execution_request: structuredClone(requestValue),
     })).toEqual(authorityScheduleAdmission)
+
+    const missingReproducibilityRoot = mkdtempSync(join(tmpdir(), "replay-worker-v10-pair-missing-"))
+    try {
+      expect(() => registerReplayWorkerV10ReproducibilityPairContract({
+        registry_root: missingReproducibilityRoot,
+        source_schedule_admission: authorityScheduleAdmission,
+      })).toThrow("requires the exact durable Spawn Boundary Revalidation")
+    } finally {
+      rmSync(missingReproducibilityRoot, { recursive: true, force: true })
+    }
+    const reproducibilityPairContract = registerReplayWorkerV10ReproducibilityPairContract({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_schedule_admission: authorityScheduleAdmission,
+    })
+    expect(reproducibilityPairContract.status)
+      .toBe("requirements_frozen_second_response_and_pair_not_materialized")
+    expect(reproducibilityPairContract.logical_request_id)
+      .toBe(authorityDispatchAttempt.request_frame.logical_request_id)
+    if (authorityProcessReceipt.process_instance_id === null
+        || authorityProcessReceipt.observed_child_pid === null) {
+      throw new Error("expected successful first authority process identity")
+    }
+    expect(reproducibilityPairContract.source_process_instance_id)
+      .toBe(authorityProcessReceipt.process_instance_id)
+    expect(reproducibilityPairContract.source_observed_child_pid)
+      .toBe(authorityProcessReceipt.observed_child_pid)
+    expect(reproducibilityPairContract.required_same_bindings)
+      .toEqual([...REPLAY_DECISION_HARNESS_WORKER_V10_REPRODUCIBILITY_SAME_BINDINGS])
+    expect(reproducibilityPairContract.required_distinct_bindings)
+      .toEqual([...REPLAY_DECISION_HARNESS_WORKER_V10_REPRODUCIBILITY_DISTINCT_BINDINGS])
+    expect(reproducibilityPairContract.capsule_reuse_policy)
+      .toBe("forbidden_second_process_requires_distinct_command_intent_capsule_lineage")
+    expect(reproducibilityPairContract.successor_authority_policy)
+      .toBe("not_selected_same_attempt_new_generation_or_control_plane_authorized_new_attempt_only")
+    expect(reproducibilityPairContract.first_schedule_admission_count).toBe(1)
+    expect(reproducibilityPairContract.second_schedule_admission_count).toBe(0)
+    expect(reproducibilityPairContract.response_instance_count).toBe(1)
+    expect(reproducibilityPairContract.required_response_instance_count).toBe(2)
+    expect(reproducibilityPairContract.reproducibility_pair_count).toBe(0)
+    expect(reproducibilityPairContract.harness_receipt_count).toBe(0)
+    expect(reproducibilityPairContract.blockers).toEqual([
+      "successor_verification_authority_lineage_not_materialized",
+      "second_distinct_fresh_process_schedule_admission_not_materialized",
+      "response_reproducibility_pair_not_materialized",
+      "worker_v10_harness_receipt_not_materialized",
+    ])
+    expect(reproducibilityPairContract.signal_authority).toBe("none")
+    expect(reproducibilityPairContract.order_authority).toBe("none")
+    expect(reproducibilityPairContract.economic_authority).toBe("none")
+    expect(() => assertReplayDecisionHarnessWorkerV10ReproducibilityPairContract(
+      reproducibilityPairContract,
+    )).not.toThrow()
+    expect(readReplayWorkerV10ReproducibilityPairContract({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_schedule_admission: authorityScheduleAdmission,
+    })).toEqual(reproducibilityPairContract)
+    expect(registerReplayWorkerV10ReproducibilityPairContract({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_schedule_admission: structuredClone(authorityScheduleAdmission),
+    })).toEqual(reproducibilityPairContract)
+
+    const reproducibilityPairContractFile = readdirSync(dispatchEvidenceRegistryRoot)
+      .find((name) => name
+        === `worker-v10-reproducibility-pair-contract-${reproducibilityPairContract.contract_key}.json`)
+    if (!reproducibilityPairContractFile) throw new Error("expected Worker v10 Reproducibility Pair Contract file")
+    writeFileSync(join(dispatchEvidenceRegistryRoot, reproducibilityPairContractFile), "{}\n", "utf8")
+    expect(() => readReplayWorkerV10ReproducibilityPairContract({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_schedule_admission: authorityScheduleAdmission,
+    })).toThrow()
 
     const authorityScheduleAdmissionFile = readdirSync(dispatchEvidenceRegistryRoot)
       .find((name) => name
