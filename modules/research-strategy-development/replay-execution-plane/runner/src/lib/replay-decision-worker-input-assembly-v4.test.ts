@@ -15,14 +15,19 @@ import {
   REPLAY_DISPATCH_CLOCK_ATTESTATION_SCHEMA_VERSION,
   REPLAY_SPAWN_BOUNDARY_REVALIDATION_RECEIPT_POLICY_VERSION,
   REPLAY_SPAWN_BOUNDARY_REVALIDATION_RECEIPT_SCHEMA_VERSION,
+  REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_RECEIPT_POLICY_VERSION,
+  REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_RECEIPT_SCHEMA_VERSION,
   assertReplaySpawnBoundaryRevalidationReceipt,
+  assertReplaySuccessorVerificationLeaseRenewalReceipt,
   createReplayAttemptLeaseObservationRegistryReadReceipt,
   createReplayAttemptLeaseObservationSnapshot,
   createReplayDispatchClockAttestation,
   createReplaySpawnBoundaryRevalidationReceipt,
+  createReplaySuccessorVerificationLeaseRenewalReceipt,
   hashReplayAttemptLeaseSnapshot,
   replayDispatchClockAttestationIdentityHash,
   replaySpawnBoundaryRevalidationReceiptIdentityHash,
+  replaySuccessorVerificationLeaseRenewalReceiptIdentityHash,
   type ReplayAttemptLeaseSnapshot,
 } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
 import {
@@ -359,6 +364,16 @@ import {
   readReplayWorkerV10SuccessorVerificationAuthorityContract,
   registerReplayWorkerV10SuccessorVerificationAuthorityContract,
 } from "./replay-worker-v10-successor-verification-authority-contract-registry"
+import {
+  assertReplayDecisionHarnessWorkerV10SuccessorLeaseAdmission,
+} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-lease-admission"
+import {
+  admitReplayWorkerV10SuccessorLease,
+  readReplayWorkerV10SuccessorLeaseAdmission,
+} from "./replay-worker-v10-successor-lease-admission-registry"
+import {
+  readReplayWorkerV10SuccessorVerificationLeaseRenewalRequest,
+} from "./replay-worker-v10-successor-verification-lease-renewal-request-registry"
 import {
   assertReplayDecisionHarnessWorkerV10AuthorityFrameBuildContractLineage,
   buildReplayDecisionHarnessWorkerV10AuthorityFrameBuildContract,
@@ -3650,6 +3665,170 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       source_reproducibility_pair_contract: structuredClone(reproducibilityPairContract),
     })).toEqual(successorAuthorityContract)
 
+    const requestedSuccessorLeaseExpiry = "2026-07-14T00:10:00Z"
+    let successorRenewalPortCallCount = 0
+    const successorLeaseResult = admitReplayWorkerV10SuccessorLease({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_successor_authority_contract: successorAuthorityContract,
+      requested_lease_expires_at: requestedSuccessorLeaseExpiry,
+      authority_port: {
+        renew: (request) => {
+          successorRenewalPortCallCount += 1
+          expect(request.source_successor_authority_contract_hash)
+            .toBe(successorAuthorityContract.contract_hash)
+          expect(request.source_reproducibility_pair_contract_hash)
+            .toBe(reproducibilityPairContract.contract_hash)
+          expect(request.source_first_schedule_admission_hash)
+            .toBe(authorityScheduleAdmission.admission_hash)
+          expect(request.source_first_execution_envelope_hash).toBe(executionEnvelope.envelope_hash)
+          expect(request.logical_request_id).toBe(firstRequestV10.logical_request_id)
+          expect(request.worker_request_hash).toBe(firstRequestV10.request_hash)
+          expect(request.replay_execution_request_hash).toBe(authorityBinding.request_hash)
+          expect(request.expected_current_attempt_lease_hash)
+            .toBe(hashReplayAttemptLeaseSnapshot(attemptLease))
+          expect(request.expected_current_lease_generation).toBe(attemptLease.lease_generation)
+          expect(request.minimum_successor_lease_generation).toBe(attemptLease.lease_generation + 1)
+          const renewedAt = "2026-07-14T00:04:00Z"
+          const successorAttemptLease: ReplayAttemptLeaseSnapshot = {
+            ...structuredClone(attemptLease),
+            status: "running",
+            lease_generation: attemptLease.lease_generation + 1,
+            heartbeat_at: renewedAt,
+            lease_expires_at: request.requested_lease_expires_at,
+          }
+          const predecessorHash = hashReplayAttemptLeaseSnapshot(attemptLease)
+          const successorHash = hashReplayAttemptLeaseSnapshot(successorAttemptLease)
+          const identity = replaySuccessorVerificationLeaseRenewalReceiptIdentityHash({
+            source_request_hash: request.request_hash,
+            predecessor_attempt_lease_hash: predecessorHash,
+            successor_attempt_lease_hash: successorHash,
+            receipt_policy_version:
+              REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_RECEIPT_POLICY_VERSION,
+          })
+          return createReplaySuccessorVerificationLeaseRenewalReceipt({
+            schema_version: REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_RECEIPT_SCHEMA_VERSION,
+            receipt_id: `replay-successor-verification-lease-renewal-receipt-${identity.slice(0, 24)}`,
+            receipt_ref:
+              `receipt://replay-successor-verification-lease-renewal/${identity.slice(0, 24)}`,
+            receipt_policy_version:
+              REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_RECEIPT_POLICY_VERSION,
+            status: "successor_verification_lease_renewed",
+            authority_owner: "research_control_plane",
+            authority_source: "research_control_plane_state_store",
+            registry_table: "rd_replay_successor_verification_lease_renewal",
+            registry_row_immutability: "sqlite_update_and_delete_triggers",
+            source_request_id: request.request_id,
+            source_request_ref: request.request_ref,
+            source_request_hash: request.request_hash,
+            source_request: structuredClone(request),
+            source_evidence_validation: "opaque_hash_binding_only_replay_lineage_not_revalidated",
+            renewal_transaction:
+              "single_control_plane_transaction_exact_predecessor_fencing_update_and_receipt_insert",
+            clock_source: "control_plane_authority_process_clock_port",
+            clock_independence: "authority_internal_sampling_without_caller_heartbeat_time",
+            caller_heartbeat_time_input: "forbidden",
+            external_time_attestation: "not_provided",
+            renewed_at: renewedAt,
+            predecessor_attempt_lease_hash: predecessorHash,
+            predecessor_attempt_lease: structuredClone(attemptLease),
+            successor_attempt_lease_hash: successorHash,
+            successor_attempt_lease: successorAttemptLease,
+            generation_relation: "successor_equals_predecessor_plus_one",
+            immutable_attempt_binding:
+              "attempt_ordinal_worker_trial_run_reservation_request_and_claimed_at_exactly_equal",
+            requested_expiry_relation:
+              "successor_expiry_equals_control_plane_admitted_request_expiry",
+            successor_authority: "lease_generation_only_fresh_execution_lineage_still_required",
+            process_authority: "none",
+            harness_authority: "none",
+            decision_output_authority: "none",
+            signal_authority: "none",
+            order_authority: "none",
+            economic_authority: "none",
+            trial_authority: "none",
+          })
+        },
+      },
+    })
+    expect(successorRenewalPortCallCount).toBe(1)
+    expect(successorLeaseResult.renewal_request.requested_lease_expires_at)
+      .toBe(requestedSuccessorLeaseExpiry)
+    expect(successorLeaseResult.renewal_request.request_authority)
+      .toBe("none_control_plane_must_atomically_admit_or_reject")
+    expect(() => assertReplaySuccessorVerificationLeaseRenewalReceipt(
+      successorLeaseResult.control_plane_renewal_receipt,
+    )).not.toThrow()
+    const successorLeaseAdmission = successorLeaseResult.successor_lease_admission
+    expect(successorLeaseAdmission.status)
+      .toBe("successor_attempt_lease_admitted_lineage_not_materialized")
+    expect(successorLeaseAdmission.source_successor_authority_contract_hash)
+      .toBe(successorAuthorityContract.contract_hash)
+    expect(successorLeaseAdmission.predecessor_attempt_lease_hash)
+      .toBe(hashReplayAttemptLeaseSnapshot(attemptLease))
+    expect(successorLeaseAdmission.successor_lease_generation).toBe(attemptLease.lease_generation + 1)
+    expect(successorLeaseAdmission.successor_attempt_lease_count).toBe(1)
+    expect(successorLeaseAdmission.successor_execution_envelope_count).toBe(0)
+    expect(successorLeaseAdmission.successor_authority_lineage_count).toBe(0)
+    expect(successorLeaseAdmission.second_schedule_admission_count).toBe(0)
+    expect(successorLeaseAdmission.reproducibility_pair_count).toBe(0)
+    expect(successorLeaseAdmission.harness_receipt_count).toBe(0)
+    expect(successorLeaseAdmission.successor_lease_authority)
+      .toBe("admitted_for_fresh_lineage_construction_only")
+    expect(successorLeaseAdmission.successor_process_authority)
+      .toBe("none_fresh_envelope_command_intent_capsule_revalidation_required")
+    expect(successorLeaseAdmission.blockers).toEqual([
+      "predecessor_linked_successor_execution_envelope_not_materialized",
+      "successor_command_intent_capsule_and_process_lineage_not_materialized",
+      "second_distinct_fresh_process_schedule_admission_not_materialized",
+      "response_reproducibility_pair_not_materialized",
+      "worker_v10_harness_receipt_not_materialized",
+    ])
+    expect(successorLeaseAdmission.signal_authority).toBe("none")
+    expect(successorLeaseAdmission.order_authority).toBe("none")
+    expect(successorLeaseAdmission.economic_authority).toBe("none")
+    expect(() => assertReplayDecisionHarnessWorkerV10SuccessorLeaseAdmission(
+      successorLeaseAdmission,
+    )).not.toThrow()
+    expect(readReplayWorkerV10SuccessorVerificationLeaseRenewalRequest({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_successor_authority_contract: successorAuthorityContract,
+      requested_lease_expires_at: requestedSuccessorLeaseExpiry,
+    })).toEqual(successorLeaseResult.renewal_request)
+    expect(readReplayWorkerV10SuccessorLeaseAdmission({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_successor_authority_contract: successorAuthorityContract,
+      source_renewal_request: successorLeaseResult.renewal_request,
+    })).toEqual(successorLeaseAdmission)
+    expect(admitReplayWorkerV10SuccessorLease({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_successor_authority_contract: structuredClone(successorAuthorityContract),
+      requested_lease_expires_at: requestedSuccessorLeaseExpiry,
+      authority_port: {
+        renew: () => {
+          successorRenewalPortCallCount += 1
+          throw new Error("durable admission retry must not call Control Plane again")
+        },
+      },
+    })).toEqual(successorLeaseResult)
+    expect(successorRenewalPortCallCount).toBe(1)
+    expect(() => admitReplayWorkerV10SuccessorLease({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_successor_authority_contract: successorAuthorityContract,
+      requested_lease_expires_at: "2026-07-14T00:11:00Z",
+      authority_port: { renew: () => successorLeaseResult.control_plane_renewal_receipt },
+    })).toThrow("natural key has different evidence")
+
+    const successorLeaseAdmissionFile = readdirSync(dispatchEvidenceRegistryRoot)
+      .find((name) => name
+        === `worker-v10-successor-lease-admission-${successorLeaseAdmission.admission_key}.json`)
+    if (!successorLeaseAdmissionFile) throw new Error("expected Worker v10 successor Lease Admission file")
+    writeFileSync(join(dispatchEvidenceRegistryRoot, successorLeaseAdmissionFile), "{}\n", "utf8")
+    expect(() => readReplayWorkerV10SuccessorLeaseAdmission({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_successor_authority_contract: successorAuthorityContract,
+      source_renewal_request: successorLeaseResult.renewal_request,
+    })).toThrow()
+
     const successorAuthorityContractFile = readdirSync(dispatchEvidenceRegistryRoot)
       .find((name) => name
         === `worker-v10-successor-verification-authority-contract-${successorAuthorityContract.contract_key}.json`)
@@ -4191,4 +4370,4 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       cash_balance: 999.8,
     }),
   })).toThrow("parent lineage drift")
-}, 120_000)
+}, 180_000)

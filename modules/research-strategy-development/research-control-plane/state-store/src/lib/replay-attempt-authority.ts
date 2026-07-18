@@ -147,6 +147,12 @@ export interface ReplayDispatchClockPort {
   sample(): ReplayDispatchClockSample
 }
 
+export interface ReplaySuccessorVerificationLeaseRenewalAuthorityPortAdapter {
+  renew(
+    request: ReplaySuccessorVerificationLeaseRenewalRequest,
+  ): ReplaySuccessorVerificationLeaseRenewalReceipt
+}
+
 export interface AttestReplayDispatchClockInput {
   observation_id: string
 }
@@ -161,6 +167,15 @@ export function createSystemReplayDispatchClockPort(): ReplayDispatchClockPort {
       wall_time_utc: new Date(Date.now()).toISOString(),
       monotonic_ns: process.hrtime.bigint().toString(),
     }),
+  }
+}
+
+export function createSqliteReplaySuccessorVerificationLeaseRenewalAuthorityPort(
+  db: Database,
+  clock: ReplayDispatchClockPort = createSystemReplayDispatchClockPort(),
+): ReplaySuccessorVerificationLeaseRenewalAuthorityPortAdapter {
+  return {
+    renew: (request) => renewReplayAttemptLeaseForSuccessorVerification(db, request, clock),
   }
 }
 

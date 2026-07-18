@@ -157,6 +157,7 @@ import { issueTrialReservationSnapshot } from "./trial-reservation-snapshot"
 import {
   claimReplayAttempt,
   attestReplayDispatchClock,
+  createSqliteReplaySuccessorVerificationLeaseRenewalAuthorityPort,
   finalizeReplayAttempt,
   observeCurrentReplayAttemptLease,
   readReplayAttemptLeaseObservation,
@@ -1394,9 +1395,10 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
       harness_authority: "none",
       economic_authority: "none",
     })
-    const renewalReceipt = renewReplayAttemptLeaseForSuccessorVerification(db, renewalRequest, {
+    const renewalPort = createSqliteReplaySuccessorVerificationLeaseRenewalAuthorityPort(db, {
       sample: () => ({ wall_time_utc: "2026-07-14T04:02:00Z", monotonic_ns: "1000000" }),
     })
+    const renewalReceipt = renewalPort.renew(renewalRequest)
     assert.doesNotThrow(() => assertReplaySuccessorVerificationLeaseRenewalReceipt(renewalReceipt))
     assert.equal(renewalReceipt.predecessor_attempt_lease_hash, hashReplayAttemptLeaseSnapshot(first))
     assert.equal(renewalReceipt.successor_authority,
@@ -1407,9 +1409,9 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
     const renewed = renewalReceipt.successor_attempt_lease
     assert.equal(renewed.status, "running")
     assert.equal(renewed.lease_generation, 2)
-    assert.deepEqual(renewReplayAttemptLeaseForSuccessorVerification(db, renewalRequest, {
+    assert.deepEqual(createSqliteReplaySuccessorVerificationLeaseRenewalAuthorityPort(db, {
       sample: () => { throw new Error("idempotent renewal retry must not sample clock") },
-    }), renewalReceipt)
+    }).renew(renewalRequest), renewalReceipt)
     assert.deepEqual(readReplaySuccessorVerificationLeaseRenewalReceipt(db, renewalRequest.request_hash),
       renewalReceipt)
     const { request_hash: _competingRenewalRequestHash, ...competingRenewalRequestBody } = renewalRequest
