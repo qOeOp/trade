@@ -9,24 +9,32 @@ import {
   REPLAY_DISPATCH_CLOCK_ATTESTATION_SCHEMA_VERSION,
   REPLAY_SPAWN_BOUNDARY_REVALIDATION_RECEIPT_POLICY_VERSION,
   REPLAY_SPAWN_BOUNDARY_REVALIDATION_RECEIPT_SCHEMA_VERSION,
+  REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_RECEIPT_POLICY_VERSION,
+  REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_RECEIPT_SCHEMA_VERSION,
   assertReplayAttemptLeaseSnapshot,
   assertReplayAttemptLeaseObservationSnapshot,
   assertReplaySpawnBoundaryRevalidationRequest,
+  assertReplaySuccessorVerificationLeaseRenewalReceipt,
+  assertReplaySuccessorVerificationLeaseRenewalRequest,
   assertTrialReservationSnapshot,
   createReplayAttemptLeaseObservationSnapshot,
   createReplayAttemptLeaseObservationRegistryReadReceipt,
   createReplayDispatchClockAttestation,
   createReplaySpawnBoundaryRevalidationReceipt,
+  createReplaySuccessorVerificationLeaseRenewalReceipt,
   hashReplayAttemptLeaseSnapshot,
   hashTrialReservationSnapshot,
   replayDispatchClockAttestationIdentityHash,
   replaySpawnBoundaryRevalidationReceiptIdentityHash,
+  replaySuccessorVerificationLeaseRenewalReceiptIdentityHash,
   type ReplayAttemptLeaseObservationSnapshot,
   type ReplayAttemptLeaseObservationRegistryReadReceipt,
   type ReplayAttemptLeaseSnapshot,
   type ReplayDispatchClockAttestation,
   type ReplaySpawnBoundaryRevalidationReceipt,
   type ReplaySpawnBoundaryRevalidationRequest,
+  type ReplaySuccessorVerificationLeaseRenewalReceipt,
+  type ReplaySuccessorVerificationLeaseRenewalRequest,
   type TrialReservationSnapshot,
 } from "../../../contracts/src/lib/control-plane-contracts"
 import { assertReplayReservationClaimNotCancelled } from "./replay-cancellation-authority"
@@ -105,6 +113,24 @@ interface LeaseObservationRow {
   observed_at: string
   registered_at: string
   observation_json: string
+}
+
+interface SuccessorVerificationLeaseRenewalRow {
+  receipt_id: string
+  receipt_ref: string
+  receipt_hash: string
+  source_request_id: string
+  source_request_key: string
+  source_request_hash: string
+  source_successor_authority_contract_hash: string
+  attempt_id: string
+  predecessor_lease_generation: number
+  successor_lease_generation: number
+  predecessor_attempt_lease_hash: string
+  successor_attempt_lease_hash: string
+  renewed_at: string
+  lease_expires_at: string
+  receipt_json: string
 }
 
 export interface ReadReplayAttemptLeaseObservationRegistryReceiptInput {
@@ -248,6 +274,182 @@ export function renewReplayAttemptLease(db: Database, input: RenewReplayAttemptL
   })
   if (result.changes !== 1) throw new Error("Replay Attempt lease lost during renewal")
   return toLeaseSnapshot(readAttempt(db, input.attempt_id))
+}
+
+export function renewReplayAttemptLeaseForSuccessorVerification(
+  db: Database,
+  request: ReplaySuccessorVerificationLeaseRenewalRequest,
+  clock: ReplayDispatchClockPort = createSystemReplayDispatchClockPort(),
+): ReplaySuccessorVerificationLeaseRenewalReceipt {
+  assertReplaySuccessorVerificationLeaseRenewalRequest(request)
+  const renew = db.transaction(() => {
+    const existing = db.query(`
+      SELECT receipt_id, receipt_ref, receipt_hash, source_request_id, source_request_key,
+             source_request_hash, source_successor_authority_contract_hash, attempt_id,
+             predecessor_lease_generation, successor_lease_generation,
+             predecessor_attempt_lease_hash, successor_attempt_lease_hash,
+             renewed_at, lease_expires_at, receipt_json
+      FROM rd_replay_successor_verification_lease_renewal
+      WHERE source_request_id=$source_request_id OR source_request_key=$source_request_key
+         OR source_request_hash=$source_request_hash
+         OR source_successor_authority_contract_hash=$source_successor_authority_contract_hash
+    `).all({
+      $source_request_id: request.request_id,
+      $source_request_key: request.request_key,
+      $source_request_hash: request.request_hash,
+      $source_successor_authority_contract_hash: request.source_successor_authority_contract_hash,
+    }) as SuccessorVerificationLeaseRenewalRow[]
+    if (existing.length > 0) {
+      if (existing.length !== 1 || existing[0]?.source_request_hash !== request.request_hash) {
+        throw new Error("Replay successor verification Lease renewal identity was reused with different authority")
+      }
+      return parseSuccessorVerificationLeaseRenewalReceipt(existing[0])
+    }
+
+    const current = readAttempt(db, request.attempt_id)
+    if (current.status !== "claimed" && current.status !== "running") {
+      throw new Error("Replay successor verification Lease renewal requires an active Attempt")
+    }
+    const predecessor = toLeaseSnapshot(current)
+    if (request.attempt_ordinal !== predecessor.attempt_ordinal
+        || request.worker_id !== predecessor.worker_id
+        || request.replay_execution_request_hash !== predecessor.request_hash
+        || request.expected_current_lease_generation !== predecessor.lease_generation
+        || request.expected_current_attempt_lease_hash !== hashReplayAttemptLeaseSnapshot(predecessor)) {
+      throw new Error("Replay successor verification Lease renewal fencing or Request binding mismatch")
+    }
+    if (Date.parse(request.requested_lease_expires_at) <= Date.parse(predecessor.lease_expires_at)) {
+      throw new Error("Replay successor verification Lease renewal must extend expiry")
+    }
+    const renewedAt = readReplayDispatchClockSample(clock, "successor_verification_renewal").wall_time_utc
+    if (Date.parse(renewedAt) < Date.parse(predecessor.heartbeat_at)
+        || Date.parse(renewedAt) >= Date.parse(predecessor.lease_expires_at)) {
+      throw new Error("Replay successor verification Lease renewal must occur inside the active Lease window")
+    }
+    const result = db.query(`
+      UPDATE rd_replay_attempt
+      SET status='running', lease_generation=lease_generation+1,
+          heartbeat_at=$heartbeat_at, lease_expires_at=$lease_expires_at
+      WHERE attempt_id=$attempt_id AND worker_id=$worker_id
+        AND lease_generation=$generation AND status IN ('claimed', 'running')
+    `).run({
+      $attempt_id: request.attempt_id,
+      $worker_id: request.worker_id,
+      $generation: request.expected_current_lease_generation,
+      $heartbeat_at: renewedAt,
+      $lease_expires_at: request.requested_lease_expires_at,
+    })
+    if (result.changes !== 1) {
+      throw new Error("Replay successor verification Lease renewal lost authority during transaction")
+    }
+    const successor = toLeaseSnapshot(readAttempt(db, request.attempt_id))
+    const predecessorHash = hashReplayAttemptLeaseSnapshot(predecessor)
+    const successorHash = hashReplayAttemptLeaseSnapshot(successor)
+    const identity = replaySuccessorVerificationLeaseRenewalReceiptIdentityHash({
+      source_request_hash: request.request_hash,
+      predecessor_attempt_lease_hash: predecessorHash,
+      successor_attempt_lease_hash: successorHash,
+      receipt_policy_version: REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_RECEIPT_POLICY_VERSION,
+    })
+    const receipt = createReplaySuccessorVerificationLeaseRenewalReceipt({
+      schema_version: REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_RECEIPT_SCHEMA_VERSION,
+      receipt_id: `replay-successor-verification-lease-renewal-receipt-${identity.slice(0, 24)}`,
+      receipt_ref: `receipt://replay-successor-verification-lease-renewal/${identity.slice(0, 24)}`,
+      receipt_policy_version: REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_RECEIPT_POLICY_VERSION,
+      status: "successor_verification_lease_renewed",
+      authority_owner: "research_control_plane",
+      authority_source: "research_control_plane_state_store",
+      registry_table: "rd_replay_successor_verification_lease_renewal",
+      registry_row_immutability: "sqlite_update_and_delete_triggers",
+      source_request_id: request.request_id,
+      source_request_ref: request.request_ref,
+      source_request_hash: request.request_hash,
+      source_request: structuredClone(request),
+      source_evidence_validation: "opaque_hash_binding_only_replay_lineage_not_revalidated",
+      renewal_transaction:
+        "single_control_plane_transaction_exact_predecessor_fencing_update_and_receipt_insert",
+      clock_source: "control_plane_authority_process_clock_port",
+      clock_independence: "authority_internal_sampling_without_caller_heartbeat_time",
+      caller_heartbeat_time_input: "forbidden",
+      external_time_attestation: "not_provided",
+      renewed_at: renewedAt,
+      predecessor_attempt_lease_hash: predecessorHash,
+      predecessor_attempt_lease: predecessor,
+      successor_attempt_lease_hash: successorHash,
+      successor_attempt_lease: successor,
+      generation_relation: "successor_equals_predecessor_plus_one",
+      immutable_attempt_binding:
+        "attempt_ordinal_worker_trial_run_reservation_request_and_claimed_at_exactly_equal",
+      requested_expiry_relation: "successor_expiry_equals_control_plane_admitted_request_expiry",
+      successor_authority: "lease_generation_only_fresh_execution_lineage_still_required",
+      process_authority: "none",
+      harness_authority: "none",
+      decision_output_authority: "none",
+      signal_authority: "none",
+      order_authority: "none",
+      economic_authority: "none",
+      trial_authority: "none",
+    })
+    db.query(`
+      INSERT INTO rd_replay_successor_verification_lease_renewal(
+        receipt_id, receipt_ref, receipt_hash, receipt_policy_version, status,
+        source_request_id, source_request_key, source_request_hash,
+        source_successor_authority_contract_hash, source_reproducibility_pair_contract_hash,
+        attempt_id, attempt_ordinal, worker_id,
+        predecessor_lease_generation, predecessor_attempt_lease_hash,
+        successor_lease_generation, successor_attempt_lease_hash,
+        renewed_at, lease_expires_at, receipt_json
+      ) VALUES (
+        $receipt_id, $receipt_ref, $receipt_hash, $receipt_policy_version, $status,
+        $source_request_id, $source_request_key, $source_request_hash,
+        $source_successor_authority_contract_hash, $source_reproducibility_pair_contract_hash,
+        $attempt_id, $attempt_ordinal, $worker_id,
+        $predecessor_lease_generation, $predecessor_attempt_lease_hash,
+        $successor_lease_generation, $successor_attempt_lease_hash,
+        $renewed_at, $lease_expires_at, $receipt_json
+      )
+    `).run({
+      $receipt_id: receipt.receipt_id,
+      $receipt_ref: receipt.receipt_ref,
+      $receipt_hash: receipt.receipt_hash,
+      $receipt_policy_version: receipt.receipt_policy_version,
+      $status: receipt.status,
+      $source_request_id: request.request_id,
+      $source_request_key: request.request_key,
+      $source_request_hash: request.request_hash,
+      $source_successor_authority_contract_hash: request.source_successor_authority_contract_hash,
+      $source_reproducibility_pair_contract_hash: request.source_reproducibility_pair_contract_hash,
+      $attempt_id: request.attempt_id,
+      $attempt_ordinal: request.attempt_ordinal,
+      $worker_id: request.worker_id,
+      $predecessor_lease_generation: predecessor.lease_generation,
+      $predecessor_attempt_lease_hash: predecessorHash,
+      $successor_lease_generation: successor.lease_generation,
+      $successor_attempt_lease_hash: successorHash,
+      $renewed_at: renewedAt,
+      $lease_expires_at: successor.lease_expires_at,
+      $receipt_json: JSON.stringify(receipt),
+    })
+    return receipt
+  })
+  return renew.immediate()
+}
+
+export function readReplaySuccessorVerificationLeaseRenewalReceipt(
+  db: Database,
+  sourceRequestHash: string,
+): ReplaySuccessorVerificationLeaseRenewalReceipt | null {
+  requireHash(sourceRequestHash, "successor_verification_lease_renewal.source_request_hash")
+  const row = db.query(`
+    SELECT receipt_id, receipt_ref, receipt_hash, source_request_id, source_request_key,
+           source_request_hash, source_successor_authority_contract_hash, attempt_id,
+           predecessor_lease_generation, successor_lease_generation,
+           predecessor_attempt_lease_hash, successor_attempt_lease_hash,
+           renewed_at, lease_expires_at, receipt_json
+    FROM rd_replay_successor_verification_lease_renewal
+    WHERE source_request_hash=$source_request_hash
+  `).get({ $source_request_hash: sourceRequestHash }) as SuccessorVerificationLeaseRenewalRow | null
+  return row ? parseSuccessorVerificationLeaseRenewalReceipt(row) : null
 }
 
 export function observeCurrentReplayAttemptLease(
@@ -676,6 +878,29 @@ function parseLeaseObservation(row: LeaseObservationRow): ReplayAttemptLeaseObse
     throw new Error("Replay Attempt Lease observation registry row does not match its immutable payload")
   }
   return observation
+}
+
+function parseSuccessorVerificationLeaseRenewalReceipt(
+  row: SuccessorVerificationLeaseRenewalRow,
+): ReplaySuccessorVerificationLeaseRenewalReceipt {
+  const receipt = JSON.parse(row.receipt_json) as ReplaySuccessorVerificationLeaseRenewalReceipt
+  assertReplaySuccessorVerificationLeaseRenewalReceipt(receipt)
+  if (row.receipt_id !== receipt.receipt_id || row.receipt_ref !== receipt.receipt_ref
+      || row.receipt_hash !== receipt.receipt_hash || row.source_request_id !== receipt.source_request_id
+      || row.source_request_key !== receipt.source_request.request_key
+      || row.source_request_hash !== receipt.source_request_hash
+      || row.source_successor_authority_contract_hash
+        !== receipt.source_request.source_successor_authority_contract_hash
+      || row.attempt_id !== receipt.successor_attempt_lease.attempt_id
+      || row.predecessor_lease_generation !== receipt.predecessor_attempt_lease.lease_generation
+      || row.successor_lease_generation !== receipt.successor_attempt_lease.lease_generation
+      || row.predecessor_attempt_lease_hash !== receipt.predecessor_attempt_lease_hash
+      || row.successor_attempt_lease_hash !== receipt.successor_attempt_lease_hash
+      || row.renewed_at !== receipt.renewed_at
+      || row.lease_expires_at !== receipt.successor_attempt_lease.lease_expires_at) {
+    throw new Error("Replay successor verification Lease renewal row does not match its immutable Receipt")
+  }
+  return receipt
 }
 
 function requireHash(value: unknown, field: string): asserts value is string {

@@ -109,6 +109,8 @@ import {
   REPLAY_RESERVATION_CANCELLATION_SCHEMA_VERSION,
   REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION,
   REPLAY_ATTEMPT_CANCELLATION_OBSERVATION_SCHEMA_VERSION,
+  REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_REQUEST_POLICY_VERSION,
+  REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_REQUEST_SCHEMA_VERSION,
   assertTrialReservationSnapshot,
   hashReplayAttemptLeaseSnapshot,
   hashTrialReservationSnapshot,
@@ -126,6 +128,9 @@ import {
   REPLAY_SPAWN_BOUNDARY_REVALIDATION_REQUEST_POLICY_VERSION,
   REPLAY_SPAWN_BOUNDARY_REVALIDATION_REQUEST_SCHEMA_VERSION,
   assertReplaySpawnBoundaryRevalidationReceipt,
+  assertReplaySuccessorVerificationLeaseRenewalReceipt,
+  createReplaySuccessorVerificationLeaseRenewalRequest,
+  replaySuccessorVerificationLeaseRenewalRequestKey,
   createReplaySpawnBoundaryRevalidationRequest,
   replaySpawnBoundaryRevalidationRequestKey,
 } from "../../../contracts/src/lib/control-plane-contracts"
@@ -156,9 +161,11 @@ import {
   observeCurrentReplayAttemptLease,
   readReplayAttemptLeaseObservation,
   readReplayAttemptLeaseObservationRegistryReceipt,
+  readReplaySuccessorVerificationLeaseRenewalReceipt,
   registerReplayAttemptLeaseObservation,
   revalidateReplaySpawnBoundary,
   renewReplayAttemptLease,
+  renewReplayAttemptLeaseForSuccessorVerification,
 } from "./replay-attempt-authority"
 import { recordReplayCheckpointReceipt } from "./replay-checkpoint-receipt"
 import { issueReplayResumeAuthorization } from "./replay-resume-authorization"
@@ -1349,12 +1356,95 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
       request_hash: "9".repeat(64), claimed_at: "2026-07-14T04:01:00Z", lease_expires_at: "2026-07-14T04:06:00Z",
       trial_reservation: reservation,
     }), /already has active attempt/)
-    const renewed = renewReplayAttemptLease(db, {
-      attempt_id: "attempt-1", worker_id: "worker-1", expected_lease_generation: 1,
-      heartbeat_at: "2026-07-14T04:02:00Z", lease_expires_at: "2026-07-14T04:07:00Z",
+    const successorAuthorityContractHash = "8".repeat(64)
+    const renewalRequestKey = replaySuccessorVerificationLeaseRenewalRequestKey({
+      source_successor_authority_contract_hash: successorAuthorityContractHash,
+      attempt_id: first.attempt_id,
+      worker_id: first.worker_id,
+      expected_current_lease_generation: first.lease_generation,
+      request_policy_version: REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_REQUEST_POLICY_VERSION,
     })
+    const renewalRequest = createReplaySuccessorVerificationLeaseRenewalRequest({
+      schema_version: REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_REQUEST_SCHEMA_VERSION,
+      request_id: `replay-successor-verification-lease-renewal-${renewalRequestKey.slice(0, 24)}`,
+      request_ref: `request://replay-successor-verification-lease-renewal/${renewalRequestKey.slice(0, 24)}`,
+      request_key: renewalRequestKey,
+      request_policy_version: REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_REQUEST_POLICY_VERSION,
+      status: "successor_verification_lease_renewal_requested",
+      requester_owner: "replay_runner",
+      authority_target: "research_control_plane",
+      purpose: "second_reproducibility_member_same_attempt_successor_generation",
+      source_successor_authority_contract_hash: successorAuthorityContractHash,
+      source_reproducibility_pair_contract_hash: "7".repeat(64),
+      source_first_schedule_admission_hash: "6".repeat(64),
+      source_first_execution_envelope_hash: "5".repeat(64),
+      logical_request_id: "4".repeat(64),
+      worker_request_hash: "3".repeat(64),
+      replay_execution_request_hash: first.request_hash,
+      attempt_id: first.attempt_id,
+      attempt_ordinal: first.attempt_ordinal,
+      worker_id: first.worker_id,
+      expected_current_lease_generation: first.lease_generation,
+      expected_current_attempt_lease_hash: hashReplayAttemptLeaseSnapshot(first),
+      minimum_successor_lease_generation: first.lease_generation + 1,
+      requested_lease_expires_at: "2026-07-14T04:07:00Z",
+      source_evidence_role: "opaque_replay_hash_binding_control_plane_does_not_revalidate_replay_lineage",
+      request_authority: "none_control_plane_must_atomically_admit_or_reject",
+      process_authority: "none",
+      harness_authority: "none",
+      economic_authority: "none",
+    })
+    const renewalReceipt = renewReplayAttemptLeaseForSuccessorVerification(db, renewalRequest, {
+      sample: () => ({ wall_time_utc: "2026-07-14T04:02:00Z", monotonic_ns: "1000000" }),
+    })
+    assert.doesNotThrow(() => assertReplaySuccessorVerificationLeaseRenewalReceipt(renewalReceipt))
+    assert.equal(renewalReceipt.predecessor_attempt_lease_hash, hashReplayAttemptLeaseSnapshot(first))
+    assert.equal(renewalReceipt.successor_authority,
+      "lease_generation_only_fresh_execution_lineage_still_required")
+    assert.equal(renewalReceipt.process_authority, "none")
+    assert.equal(renewalReceipt.harness_authority, "none")
+    assert.equal(renewalReceipt.economic_authority, "none")
+    const renewed = renewalReceipt.successor_attempt_lease
     assert.equal(renewed.status, "running")
     assert.equal(renewed.lease_generation, 2)
+    assert.deepEqual(renewReplayAttemptLeaseForSuccessorVerification(db, renewalRequest, {
+      sample: () => { throw new Error("idempotent renewal retry must not sample clock") },
+    }), renewalReceipt)
+    assert.deepEqual(readReplaySuccessorVerificationLeaseRenewalReceipt(db, renewalRequest.request_hash),
+      renewalReceipt)
+    const { request_hash: _competingRenewalRequestHash, ...competingRenewalRequestBody } = renewalRequest
+    const competingRenewalRequest = createReplaySuccessorVerificationLeaseRenewalRequest({
+      ...competingRenewalRequestBody,
+      requested_lease_expires_at: "2026-07-14T04:08:00Z",
+    })
+    assert.throws(() => renewReplayAttemptLeaseForSuccessorVerification(db, competingRenewalRequest, {
+      sample: () => { throw new Error("competing renewal must fail before clock") },
+    }), /identity was reused with different authority/)
+    const staleSuccessorAuthorityContractHash = "0".repeat(64)
+    const staleRenewalRequestKey = replaySuccessorVerificationLeaseRenewalRequestKey({
+      source_successor_authority_contract_hash: staleSuccessorAuthorityContractHash,
+      attempt_id: first.attempt_id,
+      worker_id: first.worker_id,
+      expected_current_lease_generation: first.lease_generation,
+      request_policy_version: REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_REQUEST_POLICY_VERSION,
+    })
+    const staleRenewalRequest = createReplaySuccessorVerificationLeaseRenewalRequest({
+      ...competingRenewalRequestBody,
+      request_id: `replay-successor-verification-lease-renewal-${staleRenewalRequestKey.slice(0, 24)}`,
+      request_ref: `request://replay-successor-verification-lease-renewal/${staleRenewalRequestKey.slice(0, 24)}`,
+      request_key: staleRenewalRequestKey,
+      source_successor_authority_contract_hash: staleSuccessorAuthorityContractHash,
+    })
+    assert.throws(() => renewReplayAttemptLeaseForSuccessorVerification(db, staleRenewalRequest, {
+      sample: () => { throw new Error("stale fencing must fail before clock") },
+    }), /fencing or Request binding mismatch/)
+    assert.throws(() => db.query(`
+      UPDATE rd_replay_successor_verification_lease_renewal SET status='changed'
+      WHERE receipt_id=$receipt_id
+    `).run({ $receipt_id: renewalReceipt.receipt_id }), /immutable/)
+    assert.throws(() => db.query(`
+      DELETE FROM rd_replay_successor_verification_lease_renewal WHERE receipt_id=$receipt_id
+    `).run({ $receipt_id: renewalReceipt.receipt_id }), /immutable/)
     assert.throws(() => registerReplayAttemptLeaseObservation(
       db,
       staleLeaseObservation,

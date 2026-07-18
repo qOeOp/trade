@@ -870,6 +870,46 @@ BEGIN
   SELECT RAISE(ABORT, 'Replay Attempt Lease observation is immutable');
 END;
 
+CREATE TABLE IF NOT EXISTS rd_replay_successor_verification_lease_renewal (
+  receipt_id TEXT PRIMARY KEY,
+  receipt_ref TEXT NOT NULL UNIQUE,
+  receipt_hash TEXT NOT NULL UNIQUE,
+  receipt_policy_version TEXT NOT NULL CHECK(
+    receipt_policy_version = 'rd-replay-successor-verification-lease-renewal-receipt-v1'
+  ),
+  status TEXT NOT NULL CHECK(status = 'successor_verification_lease_renewed'),
+  source_request_id TEXT NOT NULL UNIQUE,
+  source_request_key TEXT NOT NULL UNIQUE,
+  source_request_hash TEXT NOT NULL UNIQUE,
+  source_successor_authority_contract_hash TEXT NOT NULL UNIQUE,
+  source_reproducibility_pair_contract_hash TEXT NOT NULL,
+  attempt_id TEXT NOT NULL,
+  attempt_ordinal INTEGER NOT NULL CHECK(attempt_ordinal >= 1),
+  worker_id TEXT NOT NULL,
+  predecessor_lease_generation INTEGER NOT NULL CHECK(predecessor_lease_generation >= 1),
+  predecessor_attempt_lease_hash TEXT NOT NULL,
+  successor_lease_generation INTEGER NOT NULL CHECK(successor_lease_generation >= 2),
+  successor_attempt_lease_hash TEXT NOT NULL,
+  renewed_at TEXT NOT NULL,
+  lease_expires_at TEXT NOT NULL,
+  receipt_json TEXT NOT NULL CHECK(json_valid(receipt_json)),
+  CHECK(successor_lease_generation = predecessor_lease_generation + 1),
+  CHECK(julianday(renewed_at) < julianday(lease_expires_at)),
+  FOREIGN KEY (attempt_id) REFERENCES rd_replay_attempt(attempt_id)
+);
+
+CREATE TRIGGER IF NOT EXISTS rd_replay_successor_verification_lease_renewal_no_update
+BEFORE UPDATE ON rd_replay_successor_verification_lease_renewal
+BEGIN
+  SELECT RAISE(ABORT, 'Replay successor verification Lease renewal Receipt is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS rd_replay_successor_verification_lease_renewal_no_delete
+BEFORE DELETE ON rd_replay_successor_verification_lease_renewal
+BEGIN
+  SELECT RAISE(ABORT, 'Replay successor verification Lease renewal Receipt is immutable');
+END;
+
 
 CREATE TABLE IF NOT EXISTS rd_replay_checkpoint_receipt (
   receipt_id TEXT PRIMARY KEY,

@@ -17,6 +17,14 @@ export const REPLAY_RESERVATION_CANCELLATION_SCHEMA_VERSION = "trade.rd-replay-r
 export const REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION = "trade.rd-replay-attempt-cancellation.v1" as const
 export const REPLAY_ATTEMPT_CANCELLATION_OBSERVATION_SCHEMA_VERSION = "trade.rd-replay-attempt-cancellation-observation.v1" as const
 export const REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION = "trade.rd-replay-attempt-lease.v1" as const
+export const REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_REQUEST_SCHEMA_VERSION =
+  "trade.rd-replay-successor-verification-lease-renewal-request.v1" as const
+export const REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_REQUEST_POLICY_VERSION =
+  "rd-replay-successor-verification-lease-renewal-request-v1" as const
+export const REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_RECEIPT_SCHEMA_VERSION =
+  "trade.rd-replay-successor-verification-lease-renewal-receipt.v1" as const
+export const REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_RECEIPT_POLICY_VERSION =
+  "rd-replay-successor-verification-lease-renewal-receipt-v1" as const
 export const REPLAY_ATTEMPT_LEASE_OBSERVATION_SCHEMA_VERSION = "trade.rd-replay-attempt-lease-observation.v1" as const
 export const REPLAY_ATTEMPT_LEASE_OBSERVATION_POLICY_VERSION = "rd-replay-attempt-lease-observation-v1" as const
 export const REPLAY_ATTEMPT_LEASE_OBSERVATION_REGISTRY_READ_RECEIPT_SCHEMA_VERSION =
@@ -494,6 +502,91 @@ export interface ReplayAttemptLeaseSnapshot {
   heartbeat_at: string
   lease_expires_at: string
 }
+
+export interface ReplaySuccessorVerificationLeaseRenewalRequest {
+  schema_version: typeof REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_REQUEST_SCHEMA_VERSION
+  request_id: string
+  request_ref: string
+  request_key: string
+  request_hash: string
+  request_policy_version:
+    typeof REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_REQUEST_POLICY_VERSION
+  status: "successor_verification_lease_renewal_requested"
+  requester_owner: "replay_runner"
+  authority_target: "research_control_plane"
+  purpose: "second_reproducibility_member_same_attempt_successor_generation"
+  source_successor_authority_contract_hash: string
+  source_reproducibility_pair_contract_hash: string
+  source_first_schedule_admission_hash: string
+  source_first_execution_envelope_hash: string
+  logical_request_id: string
+  worker_request_hash: string
+  replay_execution_request_hash: string
+  attempt_id: string
+  attempt_ordinal: number
+  worker_id: string
+  expected_current_lease_generation: number
+  expected_current_attempt_lease_hash: string
+  minimum_successor_lease_generation: number
+  requested_lease_expires_at: string
+  source_evidence_role: "opaque_replay_hash_binding_control_plane_does_not_revalidate_replay_lineage"
+  request_authority: "none_control_plane_must_atomically_admit_or_reject"
+  process_authority: "none"
+  harness_authority: "none"
+  economic_authority: "none"
+}
+
+export type ReplaySuccessorVerificationLeaseRenewalRequestBody = Omit<
+  ReplaySuccessorVerificationLeaseRenewalRequest,
+  "request_hash"
+>
+
+export interface ReplaySuccessorVerificationLeaseRenewalReceipt {
+  schema_version: typeof REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_RECEIPT_SCHEMA_VERSION
+  receipt_id: string
+  receipt_ref: string
+  receipt_hash: string
+  receipt_policy_version:
+    typeof REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_RECEIPT_POLICY_VERSION
+  status: "successor_verification_lease_renewed"
+  authority_owner: "research_control_plane"
+  authority_source: "research_control_plane_state_store"
+  registry_table: "rd_replay_successor_verification_lease_renewal"
+  registry_row_immutability: "sqlite_update_and_delete_triggers"
+  source_request_id: string
+  source_request_ref: string
+  source_request_hash: string
+  source_request: ReplaySuccessorVerificationLeaseRenewalRequest
+  source_evidence_validation: "opaque_hash_binding_only_replay_lineage_not_revalidated"
+  renewal_transaction:
+    "single_control_plane_transaction_exact_predecessor_fencing_update_and_receipt_insert"
+  clock_source: "control_plane_authority_process_clock_port"
+  clock_independence: "authority_internal_sampling_without_caller_heartbeat_time"
+  caller_heartbeat_time_input: "forbidden"
+  external_time_attestation: "not_provided"
+  renewed_at: string
+  predecessor_attempt_lease_hash: string
+  predecessor_attempt_lease: ReplayAttemptLeaseSnapshot
+  successor_attempt_lease_hash: string
+  successor_attempt_lease: ReplayAttemptLeaseSnapshot
+  generation_relation: "successor_equals_predecessor_plus_one"
+  immutable_attempt_binding:
+    "attempt_ordinal_worker_trial_run_reservation_request_and_claimed_at_exactly_equal"
+  requested_expiry_relation: "successor_expiry_equals_control_plane_admitted_request_expiry"
+  successor_authority: "lease_generation_only_fresh_execution_lineage_still_required"
+  process_authority: "none"
+  harness_authority: "none"
+  decision_output_authority: "none"
+  signal_authority: "none"
+  order_authority: "none"
+  economic_authority: "none"
+  trial_authority: "none"
+}
+
+export type ReplaySuccessorVerificationLeaseRenewalReceiptBody = Omit<
+  ReplaySuccessorVerificationLeaseRenewalReceipt,
+  "receipt_hash"
+>
 
 export interface ReplayAttemptLeaseObservationSnapshot {
   schema_version: typeof REPLAY_ATTEMPT_LEASE_OBSERVATION_SCHEMA_VERSION
@@ -1540,6 +1633,237 @@ export function hashReplayAttemptLeaseSnapshot(value: ReplayAttemptLeaseSnapshot
   assertReplayAttemptLeaseSnapshot(value)
   return createHash("sha256").update(canonicalReservationJson(value), "utf8").digest("hex")
 }
+
+export function replaySuccessorVerificationLeaseRenewalRequestKey(input: {
+  source_successor_authority_contract_hash: string
+  attempt_id: string
+  worker_id: string
+  expected_current_lease_generation: number
+  request_policy_version:
+    typeof REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_REQUEST_POLICY_VERSION
+}): string {
+  requireHash(input.source_successor_authority_contract_hash,
+    "successor_verification_lease_renewal_request_key.source_contract_hash")
+  requireText(input.attempt_id, "successor_verification_lease_renewal_request_key.attempt_id")
+  requireText(input.worker_id, "successor_verification_lease_renewal_request_key.worker_id")
+  if (!Number.isSafeInteger(input.expected_current_lease_generation)
+      || input.expected_current_lease_generation < 1
+      || input.request_policy_version
+        !== REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_REQUEST_POLICY_VERSION) {
+    fail("successor verification Lease renewal Request key")
+  }
+  return createHash("sha256").update(canonicalReservationJson(input), "utf8").digest("hex")
+}
+
+export function createReplaySuccessorVerificationLeaseRenewalRequest(
+  body: ReplaySuccessorVerificationLeaseRenewalRequestBody,
+): ReplaySuccessorVerificationLeaseRenewalRequest {
+  const value = {
+    ...structuredClone(body),
+    request_hash: createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex"),
+  }
+  assertReplaySuccessorVerificationLeaseRenewalRequest(value)
+  return value
+}
+
+export function assertReplaySuccessorVerificationLeaseRenewalRequest(
+  value: ReplaySuccessorVerificationLeaseRenewalRequest,
+): void {
+  assertExactSnapshotFields(value, REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_REQUEST_FIELDS,
+    "successor verification Lease renewal Request")
+  if (value.schema_version !== REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_REQUEST_SCHEMA_VERSION
+      || value.request_policy_version
+        !== REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_REQUEST_POLICY_VERSION
+      || value.status !== "successor_verification_lease_renewal_requested"
+      || value.requester_owner !== "replay_runner" || value.authority_target !== "research_control_plane"
+      || value.purpose !== "second_reproducibility_member_same_attempt_successor_generation"
+      || value.source_evidence_role
+        !== "opaque_replay_hash_binding_control_plane_does_not_revalidate_replay_lineage"
+      || value.request_authority !== "none_control_plane_must_atomically_admit_or_reject"
+      || value.process_authority !== "none" || value.harness_authority !== "none"
+      || value.economic_authority !== "none") {
+    fail("successor verification Lease renewal Request policy or authority")
+  }
+  for (const [field, item] of Object.entries({
+    request_id: value.request_id, request_ref: value.request_ref, logical_request_id: value.logical_request_id,
+    attempt_id: value.attempt_id, worker_id: value.worker_id,
+  })) requireText(item, `successor_verification_lease_renewal_request.${field}`)
+  for (const [field, item] of Object.entries({
+    request_key: value.request_key, request_hash: value.request_hash,
+    source_successor_authority_contract_hash: value.source_successor_authority_contract_hash,
+    source_reproducibility_pair_contract_hash: value.source_reproducibility_pair_contract_hash,
+    source_first_schedule_admission_hash: value.source_first_schedule_admission_hash,
+    source_first_execution_envelope_hash: value.source_first_execution_envelope_hash,
+    worker_request_hash: value.worker_request_hash,
+    replay_execution_request_hash: value.replay_execution_request_hash,
+    expected_current_attempt_lease_hash: value.expected_current_attempt_lease_hash,
+  })) requireHash(item, `successor_verification_lease_renewal_request.${field}`)
+  if (!Number.isSafeInteger(value.attempt_ordinal) || value.attempt_ordinal < 1
+      || !Number.isSafeInteger(value.expected_current_lease_generation)
+      || value.expected_current_lease_generation < 1
+      || value.minimum_successor_lease_generation !== value.expected_current_lease_generation + 1) {
+    fail("successor verification Lease renewal Request ordinal or generation")
+  }
+  requireUtcTimestamp(value.requested_lease_expires_at,
+    "successor_verification_lease_renewal_request.requested_lease_expires_at")
+  const key = replaySuccessorVerificationLeaseRenewalRequestKey({
+    source_successor_authority_contract_hash: value.source_successor_authority_contract_hash,
+    attempt_id: value.attempt_id,
+    worker_id: value.worker_id,
+    expected_current_lease_generation: value.expected_current_lease_generation,
+    request_policy_version: REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_REQUEST_POLICY_VERSION,
+  })
+  if (value.request_key !== key
+      || value.request_id !== `replay-successor-verification-lease-renewal-${key.slice(0, 24)}`
+      || value.request_ref !== `request://replay-successor-verification-lease-renewal/${key.slice(0, 24)}`) {
+    fail("successor verification Lease renewal Request identity")
+  }
+  const { request_hash: requestHash, ...body } = value
+  const expected = createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")
+  if (requestHash !== expected) fail("successor verification Lease renewal Request hash mismatch")
+}
+
+export function replaySuccessorVerificationLeaseRenewalReceiptIdentityHash(input: {
+  source_request_hash: string
+  predecessor_attempt_lease_hash: string
+  successor_attempt_lease_hash: string
+  receipt_policy_version:
+    typeof REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_RECEIPT_POLICY_VERSION
+}): string {
+  requireHash(input.source_request_hash, "successor_verification_lease_renewal_receipt.request_hash")
+  requireHash(input.predecessor_attempt_lease_hash,
+    "successor_verification_lease_renewal_receipt.predecessor_lease_hash")
+  requireHash(input.successor_attempt_lease_hash,
+    "successor_verification_lease_renewal_receipt.successor_lease_hash")
+  if (input.receipt_policy_version
+      !== REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_RECEIPT_POLICY_VERSION) {
+    fail("successor verification Lease renewal Receipt policy")
+  }
+  return createHash("sha256").update(canonicalReservationJson(input), "utf8").digest("hex")
+}
+
+export function createReplaySuccessorVerificationLeaseRenewalReceipt(
+  body: ReplaySuccessorVerificationLeaseRenewalReceiptBody,
+): ReplaySuccessorVerificationLeaseRenewalReceipt {
+  const value = {
+    ...structuredClone(body),
+    receipt_hash: createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex"),
+  }
+  assertReplaySuccessorVerificationLeaseRenewalReceipt(value)
+  return value
+}
+
+export function assertReplaySuccessorVerificationLeaseRenewalReceipt(
+  value: ReplaySuccessorVerificationLeaseRenewalReceipt,
+): void {
+  assertExactSnapshotFields(value, REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_RECEIPT_FIELDS,
+    "successor verification Lease renewal Receipt")
+  if (value.schema_version !== REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_RECEIPT_SCHEMA_VERSION
+      || value.receipt_policy_version
+        !== REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_RECEIPT_POLICY_VERSION
+      || value.status !== "successor_verification_lease_renewed"
+      || value.authority_owner !== "research_control_plane"
+      || value.authority_source !== "research_control_plane_state_store"
+      || value.registry_table !== "rd_replay_successor_verification_lease_renewal"
+      || value.registry_row_immutability !== "sqlite_update_and_delete_triggers"
+      || value.source_evidence_validation !== "opaque_hash_binding_only_replay_lineage_not_revalidated"
+      || value.renewal_transaction
+        !== "single_control_plane_transaction_exact_predecessor_fencing_update_and_receipt_insert"
+      || value.clock_source !== "control_plane_authority_process_clock_port"
+      || value.clock_independence !== "authority_internal_sampling_without_caller_heartbeat_time"
+      || value.caller_heartbeat_time_input !== "forbidden"
+      || value.external_time_attestation !== "not_provided"
+      || value.generation_relation !== "successor_equals_predecessor_plus_one"
+      || value.immutable_attempt_binding
+        !== "attempt_ordinal_worker_trial_run_reservation_request_and_claimed_at_exactly_equal"
+      || value.requested_expiry_relation
+        !== "successor_expiry_equals_control_plane_admitted_request_expiry"
+      || value.successor_authority !== "lease_generation_only_fresh_execution_lineage_still_required"
+      || value.process_authority !== "none" || value.harness_authority !== "none"
+      || value.decision_output_authority !== "none" || value.signal_authority !== "none"
+      || value.order_authority !== "none" || value.economic_authority !== "none"
+      || value.trial_authority !== "none") {
+    fail("successor verification Lease renewal Receipt policy or authority")
+  }
+  for (const [field, item] of Object.entries({
+    receipt_id: value.receipt_id, receipt_ref: value.receipt_ref,
+    source_request_id: value.source_request_id, source_request_ref: value.source_request_ref,
+  })) requireText(item, `successor_verification_lease_renewal_receipt.${field}`)
+  for (const [field, item] of Object.entries({
+    receipt_hash: value.receipt_hash, source_request_hash: value.source_request_hash,
+    predecessor_attempt_lease_hash: value.predecessor_attempt_lease_hash,
+    successor_attempt_lease_hash: value.successor_attempt_lease_hash,
+  })) requireHash(item, `successor_verification_lease_renewal_receipt.${field}`)
+  requireUtcTimestamp(value.renewed_at, "successor_verification_lease_renewal_receipt.renewed_at")
+  assertReplaySuccessorVerificationLeaseRenewalRequest(value.source_request)
+  assertReplayAttemptLeaseSnapshot(value.predecessor_attempt_lease)
+  assertReplayAttemptLeaseSnapshot(value.successor_attempt_lease)
+  const request = value.source_request
+  const predecessor = value.predecessor_attempt_lease
+  const successor = value.successor_attempt_lease
+  if (value.source_request_id !== request.request_id || value.source_request_ref !== request.request_ref
+      || value.source_request_hash !== request.request_hash
+      || value.predecessor_attempt_lease_hash !== hashReplayAttemptLeaseSnapshot(predecessor)
+      || value.successor_attempt_lease_hash !== hashReplayAttemptLeaseSnapshot(successor)
+      || request.attempt_id !== predecessor.attempt_id || request.attempt_ordinal !== predecessor.attempt_ordinal
+      || request.worker_id !== predecessor.worker_id
+      || request.expected_current_lease_generation !== predecessor.lease_generation
+      || request.expected_current_attempt_lease_hash !== value.predecessor_attempt_lease_hash
+      || request.minimum_successor_lease_generation !== successor.lease_generation
+      || successor.lease_generation !== predecessor.lease_generation + 1
+      || successor.status !== "running" || successor.heartbeat_at !== value.renewed_at
+      || successor.lease_expires_at !== request.requested_lease_expires_at
+      || successor.attempt_id !== predecessor.attempt_id
+      || successor.attempt_ordinal !== predecessor.attempt_ordinal
+      || successor.worker_id !== predecessor.worker_id || successor.trial_id !== predecessor.trial_id
+      || successor.run_id !== predecessor.run_id || successor.reservation_ref !== predecessor.reservation_ref
+      || successor.reservation_hash !== predecessor.reservation_hash
+      || successor.request_hash !== predecessor.request_hash || successor.claimed_at !== predecessor.claimed_at) {
+    fail("successor verification Lease renewal Receipt lineage or fencing mismatch")
+  }
+  const renewedAt = Date.parse(value.renewed_at)
+  if (renewedAt < Date.parse(predecessor.heartbeat_at)
+      || renewedAt >= Date.parse(predecessor.lease_expires_at)
+      || Date.parse(successor.lease_expires_at) <= Date.parse(predecessor.lease_expires_at)) {
+    fail("successor verification Lease renewal Receipt chronology")
+  }
+  const identity = replaySuccessorVerificationLeaseRenewalReceiptIdentityHash({
+    source_request_hash: request.request_hash,
+    predecessor_attempt_lease_hash: value.predecessor_attempt_lease_hash,
+    successor_attempt_lease_hash: value.successor_attempt_lease_hash,
+    receipt_policy_version: REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_RECEIPT_POLICY_VERSION,
+  })
+  if (value.receipt_id !== `replay-successor-verification-lease-renewal-receipt-${identity.slice(0, 24)}`
+      || value.receipt_ref
+        !== `receipt://replay-successor-verification-lease-renewal/${identity.slice(0, 24)}`) {
+    fail("successor verification Lease renewal Receipt identity")
+  }
+  const { receipt_hash: receiptHash, ...body } = value
+  const expected = createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")
+  if (receiptHash !== expected) fail("successor verification Lease renewal Receipt hash mismatch")
+}
+
+const REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_REQUEST_FIELDS = [
+  "attempt_id", "attempt_ordinal", "authority_target", "economic_authority",
+  "expected_current_attempt_lease_hash", "expected_current_lease_generation", "harness_authority",
+  "logical_request_id", "minimum_successor_lease_generation", "process_authority", "purpose",
+  "replay_execution_request_hash", "request_authority", "request_hash", "request_id", "request_key",
+  "request_policy_version", "request_ref", "requested_lease_expires_at", "requester_owner", "schema_version",
+  "source_evidence_role", "source_first_execution_envelope_hash", "source_first_schedule_admission_hash",
+  "source_reproducibility_pair_contract_hash", "source_successor_authority_contract_hash", "status",
+  "worker_id", "worker_request_hash",
+].sort()
+
+const REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_RECEIPT_FIELDS = [
+  "authority_owner", "authority_source", "caller_heartbeat_time_input", "clock_independence", "clock_source",
+  "decision_output_authority", "economic_authority", "external_time_attestation", "generation_relation",
+  "harness_authority", "immutable_attempt_binding", "order_authority", "predecessor_attempt_lease",
+  "predecessor_attempt_lease_hash", "process_authority", "receipt_hash", "receipt_id", "receipt_policy_version",
+  "receipt_ref", "registry_row_immutability", "registry_table", "renewal_transaction", "renewed_at",
+  "requested_expiry_relation", "schema_version", "signal_authority", "source_evidence_validation",
+  "source_request", "source_request_hash", "source_request_id", "source_request_ref", "status",
+  "successor_attempt_lease", "successor_attempt_lease_hash", "successor_authority", "trial_authority",
+].sort()
 
 export function createReplayAttemptLeaseObservationSnapshot(
   body: ReplayAttemptLeaseObservationBody,
