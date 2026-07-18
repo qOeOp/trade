@@ -374,6 +374,9 @@ import {
   assertReplayDecisionHarnessWorkerV10SuccessorExecutionTransportAdmission,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-execution-transport-admission"
 import {
+  assertReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmission,
+} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-execution-stdio-probe-admission"
+import {
   admitReplayWorkerV10SuccessorLease,
   readReplayWorkerV10SuccessorLeaseAdmission,
 } from "./replay-worker-v10-successor-lease-admission-registry"
@@ -388,6 +391,10 @@ import {
   readReplayWorkerV10SuccessorExecutionTransport,
   registerReplayWorkerV10SuccessorExecutionTransport,
 } from "./replay-worker-v10-successor-execution-transport-registry"
+import {
+  readReplayWorkerV10SuccessorExecutionStdioProbe,
+  registerReplayWorkerV10SuccessorExecutionStdioProbe,
+} from "./replay-worker-v10-successor-execution-stdio-probe-registry"
 import {
   assertReplayDecisionHarnessWorkerV10AuthorityFrameBuildContractLineage,
   buildReplayDecisionHarnessWorkerV10AuthorityFrameBuildContract,
@@ -3985,6 +3992,119 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       successor_execution_admission_command_count: 1 as never,
     })).toThrow()
 
+    expect(() => registerReplayWorkerV10StdioCapability({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_transport_contract: successorTransportAdmission.successor_base_transport_contract,
+    })).toThrow()
+    expect(() => registerReplayWorkerV10StdioCapability({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_transport_contract: workerV10TransportContract,
+      source_successor_execution_transport_admission: successorTransportAdmission,
+    })).toThrow("successor Transport Admission binding drift")
+    const missingSuccessorStdioProbeRoot = mkdtempSync(
+      join(tmpdir(), "replay-worker-v10-successor-execution-stdio-probe-missing-"),
+    )
+    try {
+      expect(() => registerReplayWorkerV10SuccessorExecutionStdioProbe({
+        registry_root: missingSuccessorStdioProbeRoot,
+        source_successor_execution_transport_admission: successorTransportAdmission,
+        clock: { now: () => "2026-07-14T00:01:00Z" },
+      })).toThrow()
+    } finally {
+      rmSync(missingSuccessorStdioProbeRoot, { recursive: true, force: true })
+    }
+
+    let successorProbeClockCalls = 0
+    const successorStdioProbeAdmission = registerReplayWorkerV10SuccessorExecutionStdioProbe({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_successor_execution_transport_admission: successorTransportAdmission,
+      clock: {
+        now: () => {
+          successorProbeClockCalls += 1
+          return "2026-07-14T00:01:00Z"
+        },
+      },
+    })
+    expect(successorProbeClockCalls).toBe(1)
+    expect(successorStdioProbeAdmission.status)
+      .toBe("successor_stdio_and_negative_probe_admitted_execution_contract_not_materialized")
+    expect(successorStdioProbeAdmission.source_successor_execution_transport_admission_hash)
+      .toBe(successorTransportAdmission.admission_hash)
+    expect(successorStdioProbeAdmission.source_predecessor_stdio_capability_hash)
+      .toBe(durableStdioCapability.capability_hash)
+    expect(successorStdioProbeAdmission.successor_stdio_capability_hash)
+      .not.toBe(durableStdioCapability.capability_hash)
+    expect(successorStdioProbeAdmission.successor_stdio_capability.source_transport_contract_hash)
+      .toBe(successorTransportAdmission.successor_base_transport_contract_hash)
+    expect(successorStdioProbeAdmission.successor_stdio_capability.artifact.sha256)
+      .toBe(durableStdioCapability.artifact.sha256)
+    expect(successorStdioProbeAdmission.successor_stdio_capability.artifact.content_utf8)
+      .toBe(durableStdioCapability.artifact.content_utf8)
+    expect(successorStdioProbeAdmission.artifact_parity_status)
+      .toBe("successor_rebuild_byte_identical_to_predecessor_stdio_artifact")
+    expect(successorStdioProbeAdmission.successor_negative_probe_receipt_hash)
+      .not.toBe(negativeProbeReceipt.receipt_hash)
+    expect(successorStdioProbeAdmission.successor_negative_probe_receipt.source_stdio_capability_hash)
+      .toBe(successorStdioProbeAdmission.successor_stdio_capability_hash)
+    expect(successorStdioProbeAdmission.successor_negative_probe_receipt.process_instance_count).toBe(5)
+    expect(successorStdioProbeAdmission.successor_negative_probe_receipt
+      .worker_request_frame_instance_count).toBe(0)
+    expect(successorStdioProbeAdmission.successor_base_transport_contract_count).toBe(1)
+    expect(successorStdioProbeAdmission.successor_stdio_capability_count).toBe(1)
+    expect(successorStdioProbeAdmission.successor_negative_probe_receipt_count).toBe(1)
+    expect(successorStdioProbeAdmission.successor_negative_probe_process_count).toBe(5)
+    expect(successorStdioProbeAdmission.successor_worker_request_frame_count).toBe(0)
+    expect(successorStdioProbeAdmission.successor_worker_request_decode_count).toBe(0)
+    expect(successorStdioProbeAdmission.successor_artifact_bound_transport_contract_count).toBe(0)
+    expect(successorStdioProbeAdmission.successor_execution_admission_contract_count).toBe(0)
+    expect(successorStdioProbeAdmission.successor_execution_admission_command_count).toBe(0)
+    expect(successorStdioProbeAdmission.successor_worker_process_count).toBe(0)
+    expect(successorStdioProbeAdmission.second_response_count).toBe(0)
+    expect(successorStdioProbeAdmission.second_schedule_admission_count).toBe(0)
+    expect(successorStdioProbeAdmission.reproducibility_pair_count).toBe(0)
+    expect(successorStdioProbeAdmission.harness_receipt_count).toBe(0)
+    expect(successorStdioProbeAdmission.transport_authority)
+      .toBe("stdio_artifact_certified_activation_not_granted")
+    expect(successorStdioProbeAdmission.command_authority).toBe("none")
+    expect(successorStdioProbeAdmission.worker_process_authority).toBe("none")
+    expect(successorStdioProbeAdmission.signal_authority).toBe("none")
+    expect(successorStdioProbeAdmission.order_authority).toBe("none")
+    expect(successorStdioProbeAdmission.economic_authority).toBe("none")
+    expect(() => assertReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmission(
+      successorStdioProbeAdmission,
+    )).not.toThrow()
+    expect(readReplayWorkerV10SuccessorExecutionStdioProbe({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_successor_execution_transport_admission: successorTransportAdmission,
+    })).toEqual(successorStdioProbeAdmission)
+    expect(registerReplayWorkerV10SuccessorExecutionStdioProbe({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_successor_execution_transport_admission: structuredClone(successorTransportAdmission),
+      clock: {
+        now: () => {
+          successorProbeClockCalls += 1
+          return "2026-07-14T00:01:01Z"
+        },
+      },
+    })).toEqual(successorStdioProbeAdmission)
+    expect(successorProbeClockCalls).toBe(1)
+    expect(() => assertReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmission({
+      ...successorStdioProbeAdmission,
+      successor_worker_process_count: 1 as never,
+    })).toThrow()
+
+    const successorStdioProbeAdmissionFile = readdirSync(dispatchEvidenceRegistryRoot)
+      .find((name) => name
+        === `worker-v10-successor-execution-stdio-probe-${successorStdioProbeAdmission.admission_key}.json`)
+    if (!successorStdioProbeAdmissionFile) {
+      throw new Error("expected Worker v10 successor execution Stdio Probe Admission file")
+    }
+    writeFileSync(join(dispatchEvidenceRegistryRoot, successorStdioProbeAdmissionFile), "{}\n", "utf8")
+    expect(() => readReplayWorkerV10SuccessorExecutionStdioProbe({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_successor_execution_transport_admission: successorTransportAdmission,
+    })).toThrow()
+
     const successorTransportAdmissionFile = readdirSync(dispatchEvidenceRegistryRoot)
       .find((name) => name
         === `worker-v10-successor-execution-transport-${successorTransportAdmission.admission_key}.json`)
@@ -4285,7 +4405,8 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
     })).toThrow()
 
     const negativeProbeFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name.startsWith("worker-v10-negative-probe-receipt-"))
+      .find((name) => name
+        === `worker-v10-negative-probe-receipt-${negativeProbeReceipt.receipt_key}.json`)
     if (!negativeProbeFile) throw new Error("expected Replay Worker v10 negative probe receipt file")
     writeFileSync(join(dispatchEvidenceRegistryRoot, negativeProbeFile), "{}\n", "utf8")
     expect(() => readReplayWorkerV10NegativeProbeReceipt({
@@ -4562,4 +4683,4 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       cash_balance: 999.8,
     }),
   })).toThrow("parent lineage drift")
-}, 300_000)
+}, 600_000)

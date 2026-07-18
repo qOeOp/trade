@@ -17,6 +17,9 @@ import {
   type ReplayDecisionHarnessWorkerV10NegativeProbeResult,
   type ReplayDecisionHarnessWorkerV10StdioCapability,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-stdio-capability"
+import {
+  type ReplayDecisionHarnessWorkerV10SuccessorExecutionTransportAdmission,
+} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-execution-transport-admission"
 import { writeReplayImmutableCas } from "./replay-local-artifact-store"
 import { readReplayWorkerV10StdioCapability } from "./replay-worker-v10-stdio-capability-registry"
 
@@ -30,6 +33,8 @@ export interface ReplayWorkerV10NegativeProbeClock {
 export interface ReplayWorkerV10NegativeProbeRegistryInput {
   registry_root: string
   source_stdio_capability: ReplayDecisionHarnessWorkerV10StdioCapability
+  source_successor_execution_transport_admission?:
+    ReplayDecisionHarnessWorkerV10SuccessorExecutionTransportAdmission
   clock?: ReplayWorkerV10NegativeProbeClock
 }
 
@@ -174,6 +179,8 @@ function requireDurableCapability(input: Omit<ReplayWorkerV10NegativeProbeRegist
   const durable = readReplayWorkerV10StdioCapability({
     registry_root: input.registry_root,
     source_transport_contract: contract,
+    source_successor_execution_transport_admission:
+      input.source_successor_execution_transport_admission,
   })
   if (!durable || durable.capability_hash !== input.source_stdio_capability.capability_hash) {
     throw new Error("Replay Worker v10 negative probe requires the exact durable Stdio Capability")

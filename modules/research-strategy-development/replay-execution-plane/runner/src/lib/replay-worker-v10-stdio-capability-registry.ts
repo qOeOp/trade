@@ -11,27 +11,40 @@ import {
   replayDecisionHarnessWorkerV10StdioCapabilityKey,
   type ReplayDecisionHarnessWorkerV10StdioCapability,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-stdio-capability"
+import {
+  assertReplayDecisionHarnessWorkerV10SuccessorExecutionTransportAdmission,
+  type ReplayDecisionHarnessWorkerV10SuccessorExecutionTransportAdmission,
+} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-execution-transport-admission"
 import { writeReplayImmutableCas } from "./replay-local-artifact-store"
 import {
   buildReplayDecisionHarnessWorkerV10StdioCapability,
 } from "./replay-decision-harness-worker-v10-stdio-build"
 import { readReplayWorkerV10TransportContract } from "./replay-worker-v10-transport-contract-registry"
+import {
+  readReplayWorkerV10SuccessorExecutionTransport,
+} from "./replay-worker-v10-successor-execution-transport-registry"
 
 export interface ReplayWorkerV10StdioCapabilityRegistryInput {
   registry_root: string
   source_transport_contract: ReplayDecisionHarnessWorkerV10TransportContract
+  source_successor_execution_transport_admission?:
+    ReplayDecisionHarnessWorkerV10SuccessorExecutionTransportAdmission
 }
 
 export function registerReplayWorkerV10StdioCapability(
   input: ReplayWorkerV10StdioCapabilityRegistryInput,
 ): ReplayDecisionHarnessWorkerV10StdioCapability {
   requireDurableParent(input)
+  const key = capabilityKey(input.source_transport_contract)
+  const path = capabilityPath(input.registry_root, key)
+  const existing = readCapability(path)
+  if (existing) return assertExactParent(existing, input.source_transport_contract)
   const expected = buildReplayDecisionHarnessWorkerV10StdioCapability({
     source_transport_contract: input.source_transport_contract,
   })
-  const path = capabilityPath(input.registry_root, expected.capability_key)
-  const existing = readCapability(path)
-  if (existing) return assertCreateOrIdentical(existing, expected)
+  if (expected.capability_key !== key) {
+    throw new Error("Replay Worker v10 Stdio Capability natural key drift")
+  }
   const content = `${canonicalJson(expected)}\n`
   try {
     writeReplayImmutableCas(path, content)
@@ -57,6 +70,21 @@ export function readReplayWorkerV10StdioCapability(
 function requireDurableParent(input: ReplayWorkerV10StdioCapabilityRegistryInput): void {
   requireInput(input)
   const contract = input.source_transport_contract
+  const successorAdmission = input.source_successor_execution_transport_admission
+  if (successorAdmission) {
+    const durable = readReplayWorkerV10SuccessorExecutionTransport({
+      registry_root: input.registry_root,
+      source_successor_execution_envelope_admission:
+        successorAdmission.source_successor_execution_envelope_admission,
+    })
+    if (!durable || durable.admission_hash !== successorAdmission.admission_hash
+        || successorAdmission.successor_base_transport_contract_hash !== contract.contract_hash) {
+      throw new Error(
+        "Replay Worker v10 Stdio Capability requires the exact durable R4.145 Transport Admission",
+      )
+    }
+    return
+  }
   const durable = readReplayWorkerV10TransportContract({
     registry_root: input.registry_root,
     source_worker_v10_build_capability: contract.source_worker_v10_build_capability,
@@ -72,6 +100,15 @@ function requireInput(input: ReplayWorkerV10StdioCapabilityRegistryInput): void 
     throw new Error("Replay Worker v10 Stdio Capability registry root is required")
   }
   assertReplayDecisionHarnessWorkerV10TransportContract(input.source_transport_contract)
+  if (input.source_successor_execution_transport_admission) {
+    const admission = input.source_successor_execution_transport_admission
+    assertReplayDecisionHarnessWorkerV10SuccessorExecutionTransportAdmission(admission)
+    if (admission.successor_base_transport_contract_hash !== input.source_transport_contract.contract_hash
+        || canonicalJson(admission.successor_base_transport_contract)
+          !== canonicalJson(input.source_transport_contract)) {
+      throw new Error("Replay Worker v10 Stdio Capability successor Transport Admission binding drift")
+    }
+  }
 }
 
 function assertCreateOrIdentical(
