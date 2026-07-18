@@ -151,6 +151,9 @@ import {
   assertReplayDecisionHarnessWorkerV10ProcessLaunchIntent,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-process-launch-intent"
 import {
+  assertReplayDecisionHarnessWorkerV10ProcessLaunchReadinessGate,
+} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-process-launch-readiness-gate"
+import {
   assertReplayPositionOpenStateInputMaterialization,
 } from "../../../contracts/src/lib/replay-position-open-state-input-materialization"
 import {
@@ -268,6 +271,10 @@ import {
   issueReplayWorkerV10ProcessLaunchIntent,
   readReplayWorkerV10ProcessLaunchIntent,
 } from "./replay-worker-v10-process-launch-intent-registry"
+import {
+  readReplayWorkerV10ProcessLaunchReadinessGate,
+  registerReplayWorkerV10ProcessLaunchReadinessGate,
+} from "./replay-worker-v10-process-launch-readiness-gate-registry"
 import {
   assertReplayDecisionHarnessInvocationIdentityLineage,
   buildReplayDecisionHarnessInvocationIdentitySet,
@@ -2318,6 +2325,71 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       ...processIntentInput,
     })).toEqual(processLaunchIntent)
 
+    const processReadinessInput = { source_process_launch_intent: processLaunchIntent }
+    const missingReadinessRoot = mkdtempSync(join(tmpdir(), "replay-worker-v10-readiness-missing-"))
+    try {
+      expect(() => registerReplayWorkerV10ProcessLaunchReadinessGate({
+        registry_root: missingReadinessRoot,
+        ...processReadinessInput,
+      })).toThrow("requires the exact durable Process Launch Intent")
+    } finally {
+      rmSync(missingReadinessRoot, { recursive: true, force: true })
+    }
+    const processLaunchReadiness = registerReplayWorkerV10ProcessLaunchReadinessGate({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...processReadinessInput,
+    })
+    expect(processLaunchReadiness.status).toBe("blocked_intent_bound_artifact_not_dispatch_executable")
+    expect(processLaunchReadiness.launch_decision).toBe("denied")
+    expect(processLaunchReadiness.launch_decision_reason)
+      .toBe("spawn_would_only_create_a_terminal_non_dispatch_process")
+    expect(processLaunchReadiness.intent_bound_process_artifact_hash).toBe(processLaunchIntent.process_artifact_hash)
+    expect(processLaunchReadiness.artifact_valid_frame_exit_code).toBe(70)
+    expect(processLaunchReadiness.artifact_valid_frame_error_code).toBe("transport_activation_not_granted")
+    expect(processLaunchReadiness.request_frame_authority_finding)
+      .toBe("unadmitted_candidate_has_no_command_or_intent_hash")
+    expect(processLaunchReadiness.response_frame_authority_finding)
+      .toBe("unadmitted_candidate_has_no_execution_admission_command_hash")
+    expect(processLaunchReadiness.exact_binding_consequence)
+      .toBe("new_artifact_requires_new_transport_command_and_intent_versions")
+    expect(processLaunchReadiness.required_cutover_objects).toEqual([
+      "activated_stdio_build_capability",
+      "command_bound_request_frame",
+      "command_echoing_response_frame",
+      "artifact_bound_successor_transport",
+      "new_execution_admission_command",
+      "new_process_launch_intent",
+    ])
+    expect(processLaunchReadiness.blockers).toEqual([
+      "intent_bound_artifact_rejects_every_parseable_request_before_decode",
+      "request_frame_v1_lacks_command_and_intent_authority_binding",
+      "response_frame_v1_lacks_execution_admission_command_echo",
+      "exact_artifact_binding_requires_versioned_downstream_reissue",
+    ])
+    expect(processLaunchReadiness.readiness_gate_instance_count).toBe(1)
+    expect(processLaunchReadiness.process_launch_receipt_count).toBe(0)
+    expect(processLaunchReadiness.admitted_process_instance_count).toBe(0)
+    expect(processLaunchReadiness.request_frame_instance_count).toBe(0)
+    expect(processLaunchReadiness.response_frame_instance_count).toBe(0)
+    expect(processLaunchReadiness.dispatch_occurrence).toBe("not_materialized")
+    expect(processLaunchReadiness.harness_invocation).toBe("forbidden")
+    expect(() => assertReplayDecisionHarnessWorkerV10ProcessLaunchReadinessGate({
+      ...processLaunchReadiness,
+      launch_decision: "granted" as never,
+    })).toThrow("unsupported Worker v10 Process Launch Readiness Gate authority")
+    expect(readReplayWorkerV10ProcessLaunchReadinessGate({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...processReadinessInput,
+    })).toEqual(processLaunchReadiness)
+    const processReadinessFile = readdirSync(dispatchEvidenceRegistryRoot)
+      .find((name) => name === `worker-v10-process-launch-readiness-${processLaunchReadiness.gate_key}.json`)
+    if (!processReadinessFile) throw new Error("expected Worker v10 Process Launch Readiness Gate file")
+    writeFileSync(join(dispatchEvidenceRegistryRoot, processReadinessFile), "{}\n", "utf8")
+    expect(() => readReplayWorkerV10ProcessLaunchReadinessGate({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...processReadinessInput,
+    })).toThrow()
+
     const alternatePostCommandClockIdentityHash = replayDispatchClockAttestationIdentityHash({
       source_registry_read_receipt_hash: postCommandRegistryReceipt.receipt_hash,
       registry_read_started_at: postCommandReadAt,
@@ -2715,4 +2787,4 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       cash_balance: 999.8,
     }),
   })).toThrow("parent lineage drift")
-}, 20_000)
+}, 30_000)

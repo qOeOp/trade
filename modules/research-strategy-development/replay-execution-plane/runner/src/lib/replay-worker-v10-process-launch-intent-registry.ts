@@ -27,6 +27,11 @@ export interface ReplayWorkerV10ProcessLaunchIntentRegistryInput {
   post_command_clock_attestation: ReplayDispatchClockAttestationView
 }
 
+export interface ReplayWorkerV10ProcessLaunchIntentEntryInput {
+  registry_root: string
+  intent_key: string
+}
+
 export function issueReplayWorkerV10ProcessLaunchIntent(
   input: ReplayWorkerV10ProcessLaunchIntentRegistryInput,
 ): ReplayDecisionHarnessWorkerV10ProcessLaunchIntent {
@@ -54,6 +59,17 @@ export function readReplayWorkerV10ProcessLaunchIntent(
   if (!value) return null
   requireDurableParent(input)
   return sameIntent(value, buildReplayDecisionHarnessWorkerV10ProcessLaunchIntent(input))
+}
+
+export function readReplayWorkerV10ProcessLaunchIntentEntry(
+  input: ReplayWorkerV10ProcessLaunchIntentEntryInput,
+): ReplayDecisionHarnessWorkerV10ProcessLaunchIntent | null {
+  if (input.registry_root.trim() === "" || !/^[0-9a-f]{64}$/.test(input.intent_key)) {
+    throw new Error("Process Launch Intent entry identity is invalid")
+  }
+  const value = readIntent(intentPath(input.registry_root, input.intent_key))
+  if (value && value.intent_key !== input.intent_key) throw new Error("Process Launch Intent entry key mismatch")
+  return value
 }
 
 function requireDurableParent(input: ReplayWorkerV10ProcessLaunchIntentRegistryInput): void {
