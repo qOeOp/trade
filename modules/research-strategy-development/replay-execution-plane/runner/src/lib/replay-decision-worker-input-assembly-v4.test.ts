@@ -194,6 +194,10 @@ import {
   assertReplayDecisionHarnessWorkerV10AuthorityProcessLaunchReceipt,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-authority-process-launch"
 import {
+  assertReplayDecisionHarnessWorkerV10AuthorityRequestDispatchAttempt,
+  assertReplayDecisionHarnessWorkerV10AuthorityRequestDispatchReceipt,
+} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-authority-request-dispatch"
+import {
   assertReplayPositionOpenStateInputMaterialization,
 } from "../../../contracts/src/lib/replay-position-open-state-input-materialization"
 import {
@@ -320,6 +324,11 @@ import {
   readReplayWorkerV10AuthorityProcessLaunchAttempt,
   readReplayWorkerV10AuthorityProcessLaunchReceipt,
 } from "./replay-worker-v10-authority-process-launch-registry"
+import {
+  dispatchReplayWorkerV10AuthorityRequest,
+  readReplayWorkerV10AuthorityRequestDispatchAttempt,
+  readReplayWorkerV10AuthorityRequestDispatchReceipt,
+} from "./replay-worker-v10-authority-request-dispatch-registry"
 import {
   assertReplayDecisionHarnessWorkerV10AuthorityFrameBuildContractLineage,
   buildReplayDecisionHarnessWorkerV10AuthorityFrameBuildContract,
@@ -3262,7 +3271,90 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
     expect(authorityProcessRetry.disposition).toBe("durable_receipt_without_live_handle")
     expect(authorityProcessRetry.receipt).toEqual(authorityProcessReceipt)
     expect(authorityProcessRetry.session).toBeNull()
-    await authorityProcessSession.terminateWithoutDispatch()
+
+    const missingAuthorityDispatchRoot = mkdtempSync(join(tmpdir(), "replay-worker-v10-authority-dispatch-missing-"))
+    try {
+      await expect(dispatchReplayWorkerV10AuthorityRequest({
+        registry_root: missingAuthorityDispatchRoot,
+        source_process_launch_receipt: authorityProcessReceipt,
+        session: authorityProcessSession,
+        clock: { now: () => "2026-07-14T00:00:57Z" },
+      })).rejects.toThrow("requires the exact durable Spawn Boundary Revalidation")
+    } finally {
+      rmSync(missingAuthorityDispatchRoot, { recursive: true, force: true })
+    }
+    const authorityDispatchTimes = [
+      "2026-07-14T00:00:57Z", "2026-07-14T00:00:58Z",
+      "2026-07-14T00:00:59Z", "2026-07-14T00:01:00Z",
+    ]
+    const authorityDispatchOutcome = await dispatchReplayWorkerV10AuthorityRequest({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_process_launch_receipt: authorityProcessReceipt,
+      session: authorityProcessSession,
+      clock: { now: () => authorityDispatchTimes.shift() ?? "2026-07-14T00:01:00Z" },
+    })
+    expect(authorityDispatchOutcome.disposition).toBe("new_opaque_transport_capture")
+    const authorityDispatchReceipt = authorityDispatchOutcome.receipt
+    expect(authorityDispatchReceipt.receipt_status).toBe("process_exited_opaque_output_captured")
+    expect(authorityDispatchReceipt.source_process_launch_receipt_hash).toBe(authorityProcessReceipt.receipt_hash)
+    expect(authorityDispatchReceipt.process_instance_id).toBe(authorityProcessReceipt.process_instance_id!)
+    expect(authorityDispatchReceipt.stdin_bytes_written).toBe(authorityDispatchReceipt.request_frame_bytes)
+    expect(authorityDispatchReceipt.stdin_closed).toBe(true)
+    expect(authorityDispatchReceipt.stdout_bytes_read).toBeGreaterThan(0)
+    expect(authorityDispatchReceipt.stderr_bytes_read).toBe(0)
+    expect(authorityDispatchReceipt.exit_status).toBe(0)
+    expect(authorityDispatchReceipt.exit_signal).toBeNull()
+    expect(authorityDispatchReceipt.transport_error_code).toBeNull()
+    expect(authorityDispatchReceipt.raw_capture_authority)
+      .toBe("opaque_transport_candidate_not_response_frame")
+    expect(authorityDispatchReceipt.request_frame_instance_count).toBe(1)
+    expect(authorityDispatchReceipt.request_write_receipt_count).toBe(1)
+    expect(authorityDispatchReceipt.request_decode_receipt_count).toBe(0)
+    expect(authorityDispatchReceipt.response_frame_instance_count).toBe(0)
+    expect(authorityDispatchReceipt.response_read_receipt_count).toBe(0)
+    expect(authorityDispatchReceipt.blockers).toEqual([
+      "raw_response_frame_decode_validation_and_admission_not_materialized",
+    ])
+    expect(authorityDispatchReceipt.response_admission).toBe("not_granted")
+    expect(authorityDispatchReceipt.decision_output_authority).toBe("none")
+    expect(() => assertReplayDecisionHarnessWorkerV10AuthorityRequestDispatchReceipt(
+      authorityDispatchReceipt,
+    )).not.toThrow()
+    const authorityDispatchAttempt = readReplayWorkerV10AuthorityRequestDispatchAttempt({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_process_launch_receipt: authorityProcessReceipt,
+    })
+    if (!authorityDispatchAttempt) throw new Error("expected Worker v10 Authority Request Dispatch Attempt")
+    expect(authorityDispatchAttempt.request_frame.frame_kind).toBe("worker_request")
+    expect(authorityDispatchAttempt.request_frame.transport_contract_hash).toBe(authorityTransport.contract_hash)
+    expect(authorityDispatchAttempt.request_frame.execution_admission_command_hash).toBe(authorityCommand.command_hash)
+    expect(authorityDispatchAttempt.request_frame.process_launch_intent_hash).toBe(authorityIntent.intent_hash)
+    expect(authorityDispatchAttempt.request_frame.worker_request_hash).toBe(authorityTransport.target_worker_request_hash)
+    expect(() => assertReplayDecisionHarnessWorkerV10AuthorityRequestDispatchAttempt(
+      authorityDispatchAttempt,
+    )).not.toThrow()
+    expect(readReplayWorkerV10AuthorityRequestDispatchReceipt({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_process_launch_receipt: authorityProcessReceipt,
+    })).toEqual(authorityDispatchReceipt)
+    const authorityDispatchRetry = await dispatchReplayWorkerV10AuthorityRequest({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_process_launch_receipt: authorityProcessReceipt,
+      session: null,
+      clock: { now: () => { throw new Error("durable dispatch retry must not read a new clock") } },
+    })
+    expect(authorityDispatchRetry.disposition).toBe("durable_receipt_without_live_handle")
+    expect(authorityDispatchRetry.receipt).toEqual(authorityDispatchReceipt)
+
+    const authorityDispatchReceiptFile = readdirSync(dispatchEvidenceRegistryRoot)
+      .find((name) => name
+        === `worker-v10-authority-request-dispatch-receipt-${authorityDispatchReceipt.receipt_key}.json`)
+    if (!authorityDispatchReceiptFile) throw new Error("expected Worker v10 Authority Request Dispatch Receipt file")
+    writeFileSync(join(dispatchEvidenceRegistryRoot, authorityDispatchReceiptFile), "{}\n", "utf8")
+    expect(() => readReplayWorkerV10AuthorityRequestDispatchReceipt({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_process_launch_receipt: authorityProcessReceipt,
+    })).toThrow()
 
     const authorityProcessReceiptFile = readdirSync(dispatchEvidenceRegistryRoot)
       .find((name) => name

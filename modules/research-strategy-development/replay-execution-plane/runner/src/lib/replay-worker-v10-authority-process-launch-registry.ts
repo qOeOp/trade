@@ -66,7 +66,25 @@ export interface ReplayWorkerV10AuthorityProcessLaunchOutcome {
 export interface ReplayWorkerV10AuthorityProcessSession {
   readonly process_instance_id: string
   readonly observed_child_pid: number
+  dispatchOpaqueRequest(input: ReplayWorkerV10AuthorityOpaqueRequestInput): Promise<ReplayWorkerV10AuthorityOpaqueProcessCapture>
   terminateWithoutDispatch(): Promise<void>
+}
+
+export interface ReplayWorkerV10AuthorityOpaqueRequestInput {
+  request_bytes: Buffer
+  timeout_ms: number
+  max_stdout_bytes: number
+  max_stderr_bytes: number
+  on_request_written: () => void
+}
+
+export interface ReplayWorkerV10AuthorityOpaqueProcessCapture {
+  stdout: Buffer
+  stderr: Buffer
+  exit_status: number | null
+  exit_signal: NodeJS.Signals | null
+  transport_error_code: "timeout" | "stdout_limit" | "stderr_limit" | "stream_error" | null
+  transport_error_hash: string | null
 }
 
 interface StartedProcess {
@@ -458,15 +476,103 @@ function createSession(
   processInstanceId: string,
   observedChildPid: number,
 ): ReplayWorkerV10AuthorityProcessSession {
-  let terminated = false
+  let consumed = false
   return {
     process_instance_id: processInstanceId,
     observed_child_pid: observedChildPid,
+    async dispatchOpaqueRequest(
+      input: ReplayWorkerV10AuthorityOpaqueRequestInput,
+    ): Promise<ReplayWorkerV10AuthorityOpaqueProcessCapture> {
+      if (consumed) throw new Error("Authority Process session is already consumed")
+      assertOpaqueRequestInput(input)
+      consumed = true
+      return await dispatchStartedProcess(started, input)
+    },
     async terminateWithoutDispatch(): Promise<void> {
-      if (terminated) return
-      terminated = true
+      if (consumed) return
+      consumed = true
       await terminateStartedProcess(started)
     },
+  }
+}
+
+async function dispatchStartedProcess(
+  started: StartedProcess,
+  input: ReplayWorkerV10AuthorityOpaqueRequestInput,
+): Promise<ReplayWorkerV10AuthorityOpaqueProcessCapture> {
+  const child = started.child
+  const stdout: Buffer[] = []
+  const stderr: Buffer[] = []
+  let stdoutBytes = 0
+  let stderrBytes = 0
+  let transportErrorCode: ReplayWorkerV10AuthorityOpaqueProcessCapture["transport_error_code"] = null
+  let transportErrorHash: string | null = null
+  let timeout: ReturnType<typeof setTimeout> | null = null
+  const setTransportError = (
+    code: Exclude<ReplayWorkerV10AuthorityOpaqueProcessCapture["transport_error_code"], null>,
+    detail: string,
+  ) => {
+    if (transportErrorCode !== null) return
+    transportErrorCode = code
+    transportErrorHash = sha256(detail)
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL")
+  }
+  child.stdout.on("data", (chunk: Buffer) => {
+    stdout.push(Buffer.from(chunk))
+    stdoutBytes += chunk.byteLength
+    if (stdoutBytes > input.max_stdout_bytes) setTransportError("stdout_limit", `stdout:${stdoutBytes}`)
+  })
+  child.stderr.on("data", (chunk: Buffer) => {
+    stderr.push(Buffer.from(chunk))
+    stderrBytes += chunk.byteLength
+    if (stderrBytes > input.max_stderr_bytes) setTransportError("stderr_limit", `stderr:${stderrBytes}`)
+  })
+  child.stdout.once("error", (error) => setTransportError("stream_error", `stdout:${error.message}`))
+  child.stderr.once("error", (error) => setTransportError("stream_error", `stderr:${error.message}`))
+  const closed = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolveClose) => {
+    child.once("close", (code, signal) => resolveClose({ code, signal }))
+  })
+  try {
+    await new Promise<void>((resolveWrite, rejectWrite) => {
+      child.stdin.write(input.request_bytes, (error) => {
+        if (error) {
+          rejectWrite(error)
+          return
+        }
+        child.stdin.end()
+        input.on_request_written()
+        resolveWrite()
+      })
+    })
+    timeout = setTimeout(() => setTransportError("timeout", `timeout:${input.timeout_ms}`), input.timeout_ms)
+    const exit = await closed
+    return {
+      stdout: Buffer.concat(stdout),
+      stderr: Buffer.concat(stderr),
+      exit_status: exit.code,
+      exit_signal: exit.signal,
+      transport_error_code: transportErrorCode,
+      transport_error_hash: transportErrorHash,
+    }
+  } catch (error) {
+    if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL")
+    await closed
+    throw error
+  } finally {
+    if (timeout !== null) clearTimeout(timeout)
+    rmSync(started.root, { recursive: true, force: true })
+  }
+}
+
+function assertOpaqueRequestInput(input: ReplayWorkerV10AuthorityOpaqueRequestInput): void {
+  if (!Buffer.isBuffer(input.request_bytes) || input.request_bytes.byteLength < 1) {
+    throw new Error("Authority Process opaque Request bytes are required")
+  }
+  for (const bound of [input.timeout_ms, input.max_stdout_bytes, input.max_stderr_bytes]) {
+    if (!Number.isSafeInteger(bound) || bound < 1) throw new Error("Authority Process opaque Request bound")
+  }
+  if (typeof input.on_request_written !== "function") {
+    throw new Error("Authority Process opaque Request write observer is required")
   }
 }
 
