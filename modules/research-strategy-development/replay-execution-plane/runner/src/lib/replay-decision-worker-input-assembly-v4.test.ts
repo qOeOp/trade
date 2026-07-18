@@ -196,7 +196,12 @@ import {
 import {
   assertReplayDecisionHarnessWorkerV10AuthorityRequestDispatchAttempt,
   assertReplayDecisionHarnessWorkerV10AuthorityRequestDispatchReceipt,
+  createReplayDecisionHarnessWorkerV10AuthorityRequestDispatchReceipt,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-authority-request-dispatch"
+import {
+  assertReplayDecisionHarnessWorkerV10AuthorityResponseValidation,
+  decodeReplayDecisionHarnessWorkerV10AuthorityResponseCapture,
+} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-authority-response-validation"
 import {
   assertReplayPositionOpenStateInputMaterialization,
 } from "../../../contracts/src/lib/replay-position-open-state-input-materialization"
@@ -329,6 +334,10 @@ import {
   readReplayWorkerV10AuthorityRequestDispatchAttempt,
   readReplayWorkerV10AuthorityRequestDispatchReceipt,
 } from "./replay-worker-v10-authority-request-dispatch-registry"
+import {
+  readReplayWorkerV10AuthorityResponseValidation,
+  registerReplayWorkerV10AuthorityResponseValidation,
+} from "./replay-worker-v10-authority-response-validation-registry"
 import {
   assertReplayDecisionHarnessWorkerV10AuthorityFrameBuildContractLineage,
   buildReplayDecisionHarnessWorkerV10AuthorityFrameBuildContract,
@@ -3346,6 +3355,109 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
     expect(authorityDispatchRetry.disposition).toBe("durable_receipt_without_live_handle")
     expect(authorityDispatchRetry.receipt).toEqual(authorityDispatchReceipt)
 
+    const withAuthorityRawCapture = (stdout: Buffer, stderr = Buffer.alloc(0)) => {
+      const { receipt_hash: _receiptHash, ...body } = authorityDispatchReceipt
+      return createReplayDecisionHarnessWorkerV10AuthorityRequestDispatchReceipt({
+        ...body,
+        stdout_bytes_read: stdout.byteLength,
+        stdout_bytes_hash: createHash("sha256").update(stdout).digest("hex"),
+        stdout_bytes_base64: stdout.toString("base64"),
+        stderr_bytes_read: stderr.byteLength,
+        stderr_bytes_hash: createHash("sha256").update(stderr).digest("hex"),
+        stderr_bytes_base64: stderr.toString("base64"),
+      })
+    }
+    const malformedUtf8Decode = decodeReplayDecisionHarnessWorkerV10AuthorityResponseCapture(
+      withAuthorityRawCapture(Buffer.from([0xff])),
+    )
+    expect(malformedUtf8Decode.status).toBe("rejected")
+    if (malformedUtf8Decode.status !== "rejected") throw new Error("expected malformed UTF-8 rejection")
+    expect(malformedUtf8Decode.error_code).toBe("response_frame_malformed_utf8")
+    const trailingFrameDecode = decodeReplayDecisionHarnessWorkerV10AuthorityResponseCapture(
+      withAuthorityRawCapture(Buffer.concat([
+        Buffer.from(authorityDispatchReceipt.stdout_bytes_base64, "base64"),
+        Buffer.from("{}\n", "utf8"),
+      ])),
+    )
+    expect(trailingFrameDecode.status).toBe("rejected")
+    if (trailingFrameDecode.status !== "rejected") throw new Error("expected trailing Frame rejection")
+    expect(trailingFrameDecode.error_code).toBe("response_frame_not_single_canonical_json_utf8_lf")
+    const echoDriftFrame = JSON.parse(
+      Buffer.from(authorityDispatchReceipt.stdout_bytes_base64, "base64").toString("utf8"),
+    ) as Record<string, unknown>
+    echoDriftFrame.execution_admission_command_hash = "f".repeat(64)
+    const { frame_hash: _oldFrameHash, ...echoDriftBody } = echoDriftFrame
+    echoDriftFrame.frame_hash = canonicalHash(echoDriftBody)
+    const echoDriftDecode = decodeReplayDecisionHarnessWorkerV10AuthorityResponseCapture(
+      withAuthorityRawCapture(Buffer.from(`${canonicalJson(echoDriftFrame)}\n`, "utf8")),
+    )
+    expect(echoDriftDecode.status).toBe("rejected")
+    if (echoDriftDecode.status !== "rejected") throw new Error("expected Response echo rejection")
+    expect(echoDriftDecode.error_code).toBe("response_frame_contract_or_echo_invalid")
+    const stderrDecode = decodeReplayDecisionHarnessWorkerV10AuthorityResponseCapture(
+      withAuthorityRawCapture(
+        Buffer.from(authorityDispatchReceipt.stdout_bytes_base64, "base64"),
+        Buffer.from("unexpected stderr\n", "utf8"),
+      ),
+    )
+    expect(stderrDecode.status).toBe("rejected")
+    if (stderrDecode.status !== "rejected") throw new Error("expected stderr rejection")
+    expect(stderrDecode.error_code).toBe("transport_outcome_not_admissible")
+
+    const missingAuthorityResponseRoot = mkdtempSync(join(tmpdir(), "replay-worker-v10-response-missing-"))
+    try {
+      expect(() => registerReplayWorkerV10AuthorityResponseValidation({
+        registry_root: missingAuthorityResponseRoot,
+        source_dispatch_receipt: authorityDispatchReceipt,
+      })).toThrow("requires the exact durable Spawn Boundary Revalidation")
+    } finally {
+      rmSync(missingAuthorityResponseRoot, { recursive: true, force: true })
+    }
+    const authorityResponseValidation = registerReplayWorkerV10AuthorityResponseValidation({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_dispatch_receipt: authorityDispatchReceipt,
+    })
+    expect(authorityResponseValidation.validation_status)
+      .toBe("admitted_non_economic_worker_response_candidate")
+    expect(authorityResponseValidation.validation_error_code).toBeNull()
+    expect(authorityResponseValidation.response_frame_hash).not.toBeNull()
+    expect(authorityResponseValidation.worker_response_hash).not.toBeNull()
+    expect(authorityResponseValidation.request_decode_receipt_count).toBe(1)
+    expect(authorityResponseValidation.response_frame_instance_count).toBe(1)
+    expect(authorityResponseValidation.response_read_receipt_count).toBe(1)
+    expect(authorityResponseValidation.response_validation_receipt_count).toBe(1)
+    expect(authorityResponseValidation.response_admission)
+      .toBe("granted_non_economic_worker_response_candidate_only")
+    expect(authorityResponseValidation.decision_output_authority)
+      .toBe("typed_worker_claim_only_not_schedule_admitted")
+    expect(authorityResponseValidation.signal_authority).toBe("none")
+    expect(authorityResponseValidation.order_authority).toBe("none")
+    expect(authorityResponseValidation.economic_authority).toBe("none")
+    expect(authorityResponseValidation.blockers).toEqual([
+      "schedule_and_harness_receipt_admission_not_materialized",
+    ])
+    expect(() => assertReplayDecisionHarnessWorkerV10AuthorityResponseValidation(
+      authorityResponseValidation,
+    )).not.toThrow()
+    expect(readReplayWorkerV10AuthorityResponseValidation({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_dispatch_receipt: authorityDispatchReceipt,
+    })).toEqual(authorityResponseValidation)
+    expect(registerReplayWorkerV10AuthorityResponseValidation({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_dispatch_receipt: authorityDispatchReceipt,
+    })).toEqual(authorityResponseValidation)
+
+    const authorityResponseValidationFile = readdirSync(dispatchEvidenceRegistryRoot)
+      .find((name) => name
+        === `worker-v10-authority-response-validation-${authorityResponseValidation.validation_key}.json`)
+    if (!authorityResponseValidationFile) throw new Error("expected Worker v10 Authority Response Validation file")
+    writeFileSync(join(dispatchEvidenceRegistryRoot, authorityResponseValidationFile), "{}\n", "utf8")
+    expect(() => readReplayWorkerV10AuthorityResponseValidation({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_dispatch_receipt: authorityDispatchReceipt,
+    })).toThrow()
+
     const authorityDispatchReceiptFile = readdirSync(dispatchEvidenceRegistryRoot)
       .find((name) => name
         === `worker-v10-authority-request-dispatch-receipt-${authorityDispatchReceipt.receipt_key}.json`)
@@ -3844,4 +3956,4 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       cash_balance: 999.8,
     }),
   })).toThrow("parent lineage drift")
-}, 60_000)
+}, 120_000)
