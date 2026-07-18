@@ -339,6 +339,10 @@ import {
   registerReplayWorkerV10AuthorityResponseValidation,
 } from "./replay-worker-v10-authority-response-validation-registry"
 import {
+  readReplayWorkerV10AuthorityScheduleAdmission,
+  registerReplayWorkerV10AuthorityScheduleAdmission,
+} from "./replay-worker-v10-authority-schedule-admission-registry"
+import {
   assertReplayDecisionHarnessWorkerV10AuthorityFrameBuildContractLineage,
   buildReplayDecisionHarnessWorkerV10AuthorityFrameBuildContract,
 } from "./replay-decision-harness-worker-v10-authority-frame-build-contract"
@@ -685,7 +689,13 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
     entrypoint: { file_path: "strategy.ts", export_name: "decide" },
     files: [{
       path: "strategy.ts",
-      content_utf8: "export function decide() { return { decision_output: { action: 'no_action' }, trace: null } }\n",
+      content_utf8: [
+        "export function decide(input) {",
+        "  if (input.request_context.decision_phase !== 'initial_entry') return { decision_output: { action: 'no_action' }, trace: null }",
+        "  return { decision_output: { action: 'submit_initial_order', order: { side: 'long', quantity: 1, signal_time: '2026-07-14T04:00:00Z', earliest_executable_time: '2026-07-14T08:00:00Z', stop_price: 95, target_price: 110, entry_execution: { order_type: 'market' } } }, trace: null }",
+        "}",
+        "",
+      ].join("\n"),
     }],
   })
   const buildAttestation = buildReplayDecisionHarness(sourceBundle)
@@ -3447,6 +3457,70 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       registry_root: dispatchEvidenceRegistryRoot,
       source_dispatch_receipt: authorityDispatchReceipt,
     })).toEqual(authorityResponseValidation)
+
+    const missingAuthorityScheduleRoot = mkdtempSync(join(tmpdir(), "replay-worker-v10-schedule-missing-"))
+    try {
+      expect(() => registerReplayWorkerV10AuthorityScheduleAdmission({
+        registry_root: missingAuthorityScheduleRoot,
+        source_response_validation: authorityResponseValidation,
+        source_replay_execution_request: requestValue,
+      })).toThrow("requires the exact durable Spawn Boundary Revalidation")
+    } finally {
+      rmSync(missingAuthorityScheduleRoot, { recursive: true, force: true })
+    }
+    expect(() => registerReplayWorkerV10AuthorityScheduleAdmission({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_response_validation: authorityResponseValidation,
+      source_replay_execution_request: { ...requestValue, assumptions_hash: "f".repeat(64) },
+    })).toThrow("does not match Control Plane Attempt lease")
+    const authorityScheduleAdmission = registerReplayWorkerV10AuthorityScheduleAdmission({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_response_validation: authorityResponseValidation,
+      source_replay_execution_request: requestValue,
+    })
+    expect(authorityScheduleAdmission.admission_status)
+      .toBe("admitted_exact_frozen_schedule_match_non_economic")
+    expect(authorityScheduleAdmission.control_plane_attempt_lease_request_hash)
+      .toBe(canonicalHash(requestValue))
+    expect(authorityScheduleAdmission.decision_sequence).toBe(1)
+    expect(authorityScheduleAdmission.decision_time).toBe(requestValue.order.signal_time)
+    expect(authorityScheduleAdmission.selected_schedule_entry_hash)
+      .toBe(canonicalHash(requestValue.decision_schedule.entries[0]))
+    expect(authorityScheduleAdmission.claimed_decision_output)
+      .toEqual(authorityScheduleAdmission.expected_decision_output)
+    expect(authorityScheduleAdmission.schedule_admission).toBe("granted_exact_boundary_match")
+    expect(authorityScheduleAdmission.decision_output_authority)
+      .toBe("schedule_matched_worker_claim_not_harness_receipt_admitted")
+    expect(authorityScheduleAdmission.response_instance_count).toBe(1)
+    expect(authorityScheduleAdmission.required_reproducibility_response_count).toBe(2)
+    expect(authorityScheduleAdmission.harness_receipt_count).toBe(0)
+    expect(authorityScheduleAdmission.blockers).toEqual([
+      "independent_worker_response_reproducibility_pair_and_harness_receipt_not_materialized",
+    ])
+    expect(authorityScheduleAdmission.signal_authority).toBe("none")
+    expect(authorityScheduleAdmission.order_authority).toBe("none")
+    expect(authorityScheduleAdmission.economic_authority).toBe("none")
+    expect(readReplayWorkerV10AuthorityScheduleAdmission({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_response_validation: authorityResponseValidation,
+      source_replay_execution_request: requestValue,
+    })).toEqual(authorityScheduleAdmission)
+    expect(registerReplayWorkerV10AuthorityScheduleAdmission({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_response_validation: authorityResponseValidation,
+      source_replay_execution_request: structuredClone(requestValue),
+    })).toEqual(authorityScheduleAdmission)
+
+    const authorityScheduleAdmissionFile = readdirSync(dispatchEvidenceRegistryRoot)
+      .find((name) => name
+        === `worker-v10-authority-schedule-admission-${authorityScheduleAdmission.admission_key}.json`)
+    if (!authorityScheduleAdmissionFile) throw new Error("expected Worker v10 Authority Schedule Admission file")
+    writeFileSync(join(dispatchEvidenceRegistryRoot, authorityScheduleAdmissionFile), "{}\n", "utf8")
+    expect(() => readReplayWorkerV10AuthorityScheduleAdmission({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_response_validation: authorityResponseValidation,
+      source_replay_execution_request: requestValue,
+    })).toThrow()
 
     const authorityResponseValidationFile = readdirSync(dispatchEvidenceRegistryRoot)
       .find((name) => name
