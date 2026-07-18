@@ -190,6 +190,10 @@ import {
   assertReplayDecisionHarnessWorkerV10AuthoritySpawnBoundaryRevalidation,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-authority-spawn-boundary-revalidation"
 import {
+  assertReplayDecisionHarnessWorkerV10AuthorityProcessLaunchAttempt,
+  assertReplayDecisionHarnessWorkerV10AuthorityProcessLaunchReceipt,
+} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-authority-process-launch"
+import {
   assertReplayPositionOpenStateInputMaterialization,
 } from "../../../contracts/src/lib/replay-position-open-state-input-materialization"
 import {
@@ -311,6 +315,11 @@ import {
   readReplayWorkerV10ProcessLaunchReadinessGate,
   registerReplayWorkerV10ProcessLaunchReadinessGate,
 } from "./replay-worker-v10-process-launch-readiness-gate-registry"
+import {
+  launchReplayWorkerV10AuthorityProcess,
+  readReplayWorkerV10AuthorityProcessLaunchAttempt,
+  readReplayWorkerV10AuthorityProcessLaunchReceipt,
+} from "./replay-worker-v10-authority-process-launch-registry"
 import {
   assertReplayDecisionHarnessWorkerV10AuthorityFrameBuildContractLineage,
   buildReplayDecisionHarnessWorkerV10AuthorityFrameBuildContract,
@@ -3195,6 +3204,76 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       ...spawnRevalidationInput,
       control_plane_revalidation_receipt: buildSpawnRevalidationReceipt("2026-07-14T00:00:55Z", "7000200"),
     })).toThrow("natural key has different evidence")
+
+    const missingAuthorityProcessRoot = mkdtempSync(join(tmpdir(), "replay-worker-v10-authority-process-missing-"))
+    try {
+      await expect(launchReplayWorkerV10AuthorityProcess({
+        registry_root: missingAuthorityProcessRoot,
+        source_spawn_revalidation: spawnRevalidation,
+        clock: { now: () => "2026-07-14T00:00:55Z" },
+      })).rejects.toThrow("requires the exact durable Spawn Boundary Revalidation")
+    } finally {
+      rmSync(missingAuthorityProcessRoot, { recursive: true, force: true })
+    }
+    const authorityProcessTimes = ["2026-07-14T00:00:55Z", "2026-07-14T00:00:56Z"]
+    const authorityProcessOutcome = await launchReplayWorkerV10AuthorityProcess({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_spawn_revalidation: spawnRevalidation,
+      clock: { now: () => authorityProcessTimes.shift() ?? "2026-07-14T00:00:56Z" },
+    })
+    expect(authorityProcessOutcome.disposition).toBe("new_live_process_handle")
+    expect(authorityProcessOutcome.session).not.toBeNull()
+    const authorityProcessSession = authorityProcessOutcome.session
+    if (!authorityProcessSession) throw new Error("expected live Worker v10 Authority Process session")
+    const authorityProcessReceipt = authorityProcessOutcome.receipt
+    expect(authorityProcessReceipt.receipt_status).toBe("started_process_frame_not_written")
+    expect(authorityProcessReceipt.source_spawn_revalidation_hash).toBe(spawnRevalidation.binding_hash)
+    expect(authorityProcessReceipt.authority_capsule_hash).toBe(authorityCapsule.capsule_hash)
+    expect(authorityProcessReceipt.process_artifact_hash).toBe(activatedStdio.artifact.sha256)
+    expect(authorityProcessReceipt.observed_child_pid).toBeGreaterThan(0)
+    expect(authorityProcessReceipt.process_instance_id).toBe(authorityProcessSession.process_instance_id)
+    expect(authorityProcessReceipt.stdin_bytes_written).toBe(0)
+    expect(authorityProcessReceipt.stdin_closed).toBe(false)
+    expect(authorityProcessReceipt.request_frame_instance_count).toBe(0)
+    expect(authorityProcessReceipt.response_frame_instance_count).toBe(0)
+    expect(authorityProcessReceipt.blockers).toEqual([
+      "authority_frame_write_decode_read_and_admission_not_materialized",
+    ])
+    expect(() => assertReplayDecisionHarnessWorkerV10AuthorityProcessLaunchReceipt(
+      authorityProcessReceipt,
+    )).not.toThrow()
+    const authorityProcessAttempt = readReplayWorkerV10AuthorityProcessLaunchAttempt({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_spawn_revalidation: spawnRevalidation,
+    })
+    if (!authorityProcessAttempt) throw new Error("expected Worker v10 Authority Process Launch Attempt")
+    expect(() => assertReplayDecisionHarnessWorkerV10AuthorityProcessLaunchAttempt(
+      authorityProcessAttempt,
+    )).not.toThrow()
+    expect(readReplayWorkerV10AuthorityProcessLaunchReceipt({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_spawn_revalidation: spawnRevalidation,
+    })).toEqual(authorityProcessReceipt)
+    const authorityProcessRetry = await launchReplayWorkerV10AuthorityProcess({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_spawn_revalidation: spawnRevalidation,
+      clock: { now: () => { throw new Error("durable receipt retry must not read a new clock") } },
+    })
+    expect(authorityProcessRetry.disposition).toBe("durable_receipt_without_live_handle")
+    expect(authorityProcessRetry.receipt).toEqual(authorityProcessReceipt)
+    expect(authorityProcessRetry.session).toBeNull()
+    await authorityProcessSession.terminateWithoutDispatch()
+
+    const authorityProcessReceiptFile = readdirSync(dispatchEvidenceRegistryRoot)
+      .find((name) => name
+        === `worker-v10-authority-process-launch-receipt-${authorityProcessReceipt.receipt_key}.json`)
+    if (!authorityProcessReceiptFile) throw new Error("expected Worker v10 Authority Process Launch Receipt file")
+    writeFileSync(join(dispatchEvidenceRegistryRoot, authorityProcessReceiptFile), "{}\n", "utf8")
+    expect(() => readReplayWorkerV10AuthorityProcessLaunchReceipt({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_spawn_revalidation: spawnRevalidation,
+    })).toThrow()
+
     const spawnRevalidationFile = readdirSync(dispatchEvidenceRegistryRoot)
       .find((name) => name === `worker-v10-authority-spawn-revalidation-${spawnRevalidation.binding_key}.json`)
     if (!spawnRevalidationFile) throw new Error("expected Worker v10 Authority Spawn Revalidation file")
