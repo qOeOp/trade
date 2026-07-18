@@ -148,6 +148,9 @@ import {
   assertReplayDecisionHarnessWorkerV10ExecutionAdmissionCommand,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-execution-admission-command"
 import {
+  assertReplayDecisionHarnessWorkerV10ProcessLaunchIntent,
+} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-process-launch-intent"
+import {
   assertReplayPositionOpenStateInputMaterialization,
 } from "../../../contracts/src/lib/replay-position-open-state-input-materialization"
 import {
@@ -257,6 +260,14 @@ import {
   issueReplayWorkerV10ExecutionAdmissionCommand,
   readReplayWorkerV10ExecutionAdmissionCommand,
 } from "./replay-worker-v10-execution-admission-command-registry"
+import {
+  assertReplayDecisionHarnessWorkerV10ProcessLaunchIntentLineage,
+  buildReplayDecisionHarnessWorkerV10ProcessLaunchIntent,
+} from "./replay-decision-harness-worker-v10-process-launch-intent"
+import {
+  issueReplayWorkerV10ProcessLaunchIntent,
+  readReplayWorkerV10ProcessLaunchIntent,
+} from "./replay-worker-v10-process-launch-intent-registry"
 import {
   assertReplayDecisionHarnessInvocationIdentityLineage,
   buildReplayDecisionHarnessInvocationIdentitySet,
@@ -2158,6 +2169,189 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       registry_root: dispatchEvidenceRegistryRoot,
       ...commandInput,
     })).toEqual(executionAdmissionCommand)
+
+    const postCommandObservation = createReplayAttemptLeaseObservationSnapshot({
+      ...leaseObservationBody,
+      observation_id: "lease-observation-envelope-process-intent",
+      observation_ref: "observation://replay-attempt-lease/process-intent",
+      observed_at: "2026-07-14T00:00:38Z",
+    })
+    const postCommandReadAt = "2026-07-14T00:00:40Z"
+    const postCommandRegistryReceipt = createReplayAttemptLeaseObservationRegistryReadReceipt({
+      schema_version: REPLAY_ATTEMPT_LEASE_OBSERVATION_REGISTRY_READ_RECEIPT_SCHEMA_VERSION,
+      receipt_id: `replay-attempt-lease-observation-registry-read-${postCommandObservation.observation_hash.slice(0, 16)}-${Date.parse(postCommandReadAt)}`,
+      receipt_ref: `receipt://replay-attempt-lease-observation-registry-read/${postCommandObservation.observation_hash.slice(0, 16)}-${Date.parse(postCommandReadAt)}`,
+      receipt_policy_version: REPLAY_ATTEMPT_LEASE_OBSERVATION_REGISTRY_READ_RECEIPT_POLICY_VERSION,
+      status: "registered_active_lease_observation_read",
+      authority_owner: "research_control_plane",
+      authority_source: "research_control_plane_state_store",
+      registry_table: "rd_replay_attempt_lease_observation",
+      registry_key: postCommandObservation.observation_id,
+      registry_row_immutability: "sqlite_update_and_delete_triggers",
+      read_consistency: "single_control_plane_transaction",
+      registry_read_provenance: "registered_row_and_current_attempt_exact_match",
+      registered_at: "2026-07-14T00:00:39Z",
+      read_at: postCommandReadAt,
+      clock_evidence: "caller_supplied_utc_not_external_time_attestation",
+      external_time_attestation: "not_provided",
+      source_observation_id: postCommandObservation.observation_id,
+      source_observation_ref: postCommandObservation.observation_ref,
+      source_observation_hash: postCommandObservation.observation_hash,
+      source_observation: postCommandObservation,
+      current_attempt_status: postCommandObservation.attempt_lease.status,
+      current_attempt_lease_hash: postCommandObservation.attempt_lease_hash,
+      current_attempt_lease: postCommandObservation.attempt_lease,
+    })
+    const postCommandClockIdentityHash = replayDispatchClockAttestationIdentityHash({
+      source_registry_read_receipt_hash: postCommandRegistryReceipt.receipt_hash,
+      registry_read_started_at: postCommandReadAt,
+      registry_read_completed_at: "2026-07-14T00:00:41Z",
+      registry_read_started_monotonic_ns: "4000000",
+      registry_read_completed_monotonic_ns: "4000100",
+      attestation_policy_version: REPLAY_DISPATCH_CLOCK_ATTESTATION_POLICY_VERSION,
+    })
+    const postCommandClockAttestation = createReplayDispatchClockAttestation({
+      schema_version: REPLAY_DISPATCH_CLOCK_ATTESTATION_SCHEMA_VERSION,
+      attestation_id: `replay-dispatch-clock-attestation-${postCommandClockIdentityHash.slice(0, 24)}`,
+      attestation_ref: `attestation://replay-dispatch-clock/${postCommandClockIdentityHash.slice(0, 24)}`,
+      attestation_policy_version: REPLAY_DISPATCH_CLOCK_ATTESTATION_POLICY_VERSION,
+      status: "authority_clock_bracketed_registry_read",
+      authority_owner: "research_control_plane",
+      authority_source: "research_control_plane_state_store",
+      clock_source: "control_plane_authority_process_clock_port",
+      clock_independence: "authority_internal_sampling_without_caller_timestamp_input",
+      caller_time_input: "forbidden",
+      wall_clock_source: "javascript_date_now_utc",
+      monotonic_clock_source: "process_hrtime_bigint",
+      external_time_attestation: "not_provided",
+      registry_read_bracketing: "wall_and_monotonic_samples_before_and_after_single_transaction_read",
+      registry_read_started_at: postCommandReadAt,
+      registry_read_completed_at: "2026-07-14T00:00:41Z",
+      registry_read_started_monotonic_ns: "4000000",
+      registry_read_completed_monotonic_ns: "4000100",
+      source_registry_read_receipt_id: postCommandRegistryReceipt.receipt_id,
+      source_registry_read_receipt_ref: postCommandRegistryReceipt.receipt_ref,
+      source_registry_read_receipt_hash: postCommandRegistryReceipt.receipt_hash,
+      source_registry_read_receipt: postCommandRegistryReceipt,
+      attempt_id: postCommandRegistryReceipt.current_attempt_lease.attempt_id,
+      worker_id: postCommandRegistryReceipt.current_attempt_lease.worker_id,
+      lease_generation: postCommandRegistryReceipt.current_attempt_lease.lease_generation,
+      current_attempt_lease_hash: postCommandRegistryReceipt.current_attempt_lease_hash,
+    })
+    const processIntentInput = {
+      source_execution_admission_command: executionAdmissionCommand,
+      post_command_clock_attestation: postCommandClockAttestation,
+    }
+    const processLaunchIntent = buildReplayDecisionHarnessWorkerV10ProcessLaunchIntent(processIntentInput)
+    expect(processLaunchIntent.status).toBe("intent_committed_process_not_started")
+    expect(processLaunchIntent.process_launch_intent_instance_count).toBe(1)
+    expect(processLaunchIntent.source_execution_admission_command_hash).toBe(executionAdmissionCommand.command_hash)
+    expect(processLaunchIntent.post_command_lease_observation_hash).toBe(postCommandObservation.observation_hash)
+    expect(processLaunchIntent.current_attempt_lease_hash).toBe(executionAdmissionCommand.current_attempt_lease_hash)
+    expect(processLaunchIntent.process_artifact_hash).toBe(executionAdmissionCommand.successor_process_artifact_hash)
+    expect(processLaunchIntent.intent_issued_at).toBe(postCommandClockAttestation.registry_read_completed_at)
+    expect(processLaunchIntent.valid_before).toBe(attemptLease.lease_expires_at)
+    expect(processLaunchIntent.process_launch_authority)
+      .toBe("not_granted_until_fresh_spawn_boundary_revalidation")
+    expect(processLaunchIntent.blockers).toEqual([
+      "attempt_bound_stdio_process_receipt_not_materialized",
+      "worker_request_frame_write_and_decode_not_materialized",
+      "worker_response_frame_read_and_admission_not_materialized",
+    ])
+    expect(processLaunchIntent.attempt_bound_process_receipt_count).toBe(0)
+    expect(processLaunchIntent.admitted_process_instance_count).toBe(0)
+    expect(processLaunchIntent.process_launch_occurrence).toBe("not_materialized")
+    expect(processLaunchIntent.dispatch_occurrence).toBe("not_materialized")
+    expect(processLaunchIntent.harness_invocation).toBe("forbidden")
+    expect(() => assertReplayDecisionHarnessWorkerV10ProcessLaunchIntent(processLaunchIntent)).not.toThrow()
+    expect(() => assertReplayDecisionHarnessWorkerV10ProcessLaunchIntentLineage(
+      processLaunchIntent,
+      processIntentInput,
+    )).not.toThrow()
+    expect(() => buildReplayDecisionHarnessWorkerV10ProcessLaunchIntent({
+      ...processIntentInput,
+      post_command_clock_attestation: clockAttestation,
+    })).toThrow("parent, revalidation, or executable binding drift")
+    expect(() => buildReplayDecisionHarnessWorkerV10ProcessLaunchIntent({
+      ...processIntentInput,
+      post_command_clock_attestation: {
+        ...postCommandClockAttestation,
+        source_registry_read_receipt: {
+          ...postCommandRegistryReceipt,
+          current_attempt_status: "cancelled" as never,
+        },
+      },
+    })).toThrow()
+    expect(() => buildReplayDecisionHarnessWorkerV10ProcessLaunchIntent({
+      ...processIntentInput,
+      post_command_clock_attestation: {
+        ...postCommandClockAttestation,
+        lease_generation: postCommandClockAttestation.lease_generation + 1,
+      },
+    })).toThrow()
+    expect(() => buildReplayDecisionHarnessWorkerV10ProcessLaunchIntent({
+      ...processIntentInput,
+      post_command_clock_attestation: {
+        ...postCommandClockAttestation,
+        registry_read_completed_at: attemptLease.lease_expires_at,
+      },
+    })).toThrow()
+    expect(() => assertReplayDecisionHarnessWorkerV10ProcessLaunchIntent({
+      ...processLaunchIntent,
+      process_launch_occurrence: "materialized" as never,
+    })).toThrow("unsupported Worker v10 Process Launch Intent authority")
+    const missingIntentRoot = mkdtempSync(join(tmpdir(), "replay-worker-v10-process-intent-missing-"))
+    try {
+      expect(() => issueReplayWorkerV10ProcessLaunchIntent({
+        registry_root: missingIntentRoot,
+        ...processIntentInput,
+      })).toThrow("requires the exact durable Execution Admission Command")
+    } finally {
+      rmSync(missingIntentRoot, { recursive: true, force: true })
+    }
+    expect(issueReplayWorkerV10ProcessLaunchIntent({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...processIntentInput,
+    })).toEqual(processLaunchIntent)
+    expect(readReplayWorkerV10ProcessLaunchIntent({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...processIntentInput,
+    })).toEqual(processLaunchIntent)
+
+    const alternatePostCommandClockIdentityHash = replayDispatchClockAttestationIdentityHash({
+      source_registry_read_receipt_hash: postCommandRegistryReceipt.receipt_hash,
+      registry_read_started_at: postCommandReadAt,
+      registry_read_completed_at: "2026-07-14T00:00:42Z",
+      registry_read_started_monotonic_ns: "4000000",
+      registry_read_completed_monotonic_ns: "4000200",
+      attestation_policy_version: REPLAY_DISPATCH_CLOCK_ATTESTATION_POLICY_VERSION,
+    })
+    const alternatePostCommandClockAttestation = createReplayDispatchClockAttestation({
+      ...((({ attestation_hash: _hash, ...body }) => body)(postCommandClockAttestation)),
+      attestation_id: `replay-dispatch-clock-attestation-${alternatePostCommandClockIdentityHash.slice(0, 24)}`,
+      attestation_ref: `attestation://replay-dispatch-clock/${alternatePostCommandClockIdentityHash.slice(0, 24)}`,
+      registry_read_completed_at: "2026-07-14T00:00:42Z",
+      registry_read_completed_monotonic_ns: "4000200",
+    })
+    const alternateProcessLaunchIntent = buildReplayDecisionHarnessWorkerV10ProcessLaunchIntent({
+      source_execution_admission_command: executionAdmissionCommand,
+      post_command_clock_attestation: alternatePostCommandClockAttestation,
+    })
+    expect(alternateProcessLaunchIntent.intent_key).toBe(processLaunchIntent.intent_key)
+    expect(alternateProcessLaunchIntent.intent_hash).not.toBe(processLaunchIntent.intent_hash)
+    expect(() => issueReplayWorkerV10ProcessLaunchIntent({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_execution_admission_command: executionAdmissionCommand,
+      post_command_clock_attestation: alternatePostCommandClockAttestation,
+    })).toThrow("natural key is already issued with different evidence")
+    const processIntentFile = readdirSync(dispatchEvidenceRegistryRoot)
+      .find((name) => name === `worker-v10-process-launch-intent-${processLaunchIntent.intent_key}.json`)
+    if (!processIntentFile) throw new Error("expected Worker v10 Process Launch Intent file")
+    writeFileSync(join(dispatchEvidenceRegistryRoot, processIntentFile), "{}\n", "utf8")
+    expect(() => readReplayWorkerV10ProcessLaunchIntent({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...processIntentInput,
+    })).toThrow()
 
     const alternateClockIdentityHash = replayDispatchClockAttestationIdentityHash({
       source_registry_read_receipt_hash: registryReadReceipt.receipt_hash,

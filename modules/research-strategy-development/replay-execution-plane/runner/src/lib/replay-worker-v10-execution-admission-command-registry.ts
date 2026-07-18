@@ -20,6 +20,11 @@ export interface ReplayWorkerV10ExecutionAdmissionCommandRegistryInput {
   source_clock_binding: ReplayDecisionHarnessWorkerV10ExecutionAdmissionClockAttestation
 }
 
+export interface ReplayWorkerV10ExecutionAdmissionCommandEntryInput {
+  registry_root: string
+  command_key: string
+}
+
 export function issueReplayWorkerV10ExecutionAdmissionCommand(
   input: ReplayWorkerV10ExecutionAdmissionCommandRegistryInput,
 ): ReplayDecisionHarnessWorkerV10ExecutionAdmissionCommand {
@@ -47,6 +52,19 @@ export function readReplayWorkerV10ExecutionAdmissionCommand(
   if (!value) return null
   requireDurableParent(input)
   return sameCommand(value, buildReplayDecisionHarnessWorkerV10ExecutionAdmissionCommand(input))
+}
+
+export function readReplayWorkerV10ExecutionAdmissionCommandEntry(
+  input: ReplayWorkerV10ExecutionAdmissionCommandEntryInput,
+): ReplayDecisionHarnessWorkerV10ExecutionAdmissionCommand | null {
+  if (input.registry_root.trim() === "" || !/^[0-9a-f]{64}$/.test(input.command_key)) {
+    throw new Error("Execution Admission Command entry identity is invalid")
+  }
+  const value = readCommand(commandPath(input.registry_root, input.command_key))
+  if (value && value.command_key !== input.command_key) {
+    throw new Error("Execution Admission Command entry key mismatch")
+  }
+  return value
 }
 
 function requireDurableParent(input: ReplayWorkerV10ExecutionAdmissionCommandRegistryInput): void {
