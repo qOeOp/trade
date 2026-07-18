@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test"
+import { spawnSync } from "node:child_process"
 import { createHash } from "node:crypto"
 import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
@@ -163,6 +164,10 @@ import {
   createReplayDecisionHarnessWorkerV10AuthorityResponseFrame,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-authority-frame-build-contract"
 import {
+  REPLAY_DECISION_HARNESS_WORKER_V10_AUTHORITY_CAPSULE_ENV,
+  assertReplayDecisionHarnessWorkerV10ActivatedStdioCapability,
+} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-activated-stdio-capability"
+import {
   assertReplayPositionOpenStateInputMaterialization,
 } from "../../../contracts/src/lib/replay-position-open-state-input-materialization"
 import {
@@ -292,6 +297,14 @@ import {
   readReplayWorkerV10AuthorityFrameBuildContract,
   registerReplayWorkerV10AuthorityFrameBuildContract,
 } from "./replay-worker-v10-authority-frame-build-contract-registry"
+import {
+  assertReplayDecisionHarnessWorkerV10ActivatedStdioCapabilityLineage,
+  buildReplayDecisionHarnessWorkerV10ActivatedStdioCapability,
+} from "./replay-decision-harness-worker-v10-activated-stdio-build"
+import {
+  readReplayWorkerV10ActivatedStdioCapability,
+  registerReplayWorkerV10ActivatedStdioCapability,
+} from "./replay-worker-v10-activated-stdio-capability-registry"
 import {
   assertReplayDecisionHarnessInvocationIdentityLineage,
   buildReplayDecisionHarnessInvocationIdentitySet,
@@ -2516,6 +2529,91 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       registry_root: dispatchEvidenceRegistryRoot,
       ...authorityBuildInput,
     })).toEqual(authorityFrameBuild)
+
+    const activatedStdioInput = { source_authority_frame_build_contract: authorityFrameBuild }
+    const activatedStdio = buildReplayDecisionHarnessWorkerV10ActivatedStdioCapability(activatedStdioInput)
+    expect(activatedStdio.status).toBe("artifact_built_successor_transport_and_authority_not_materialized")
+    expect(activatedStdio.artifact.sha256).not.toBe(processLaunchReadiness.intent_bound_process_artifact_hash)
+    expect(activatedStdio.authority_capsule_environment_variable)
+      .toBe(REPLAY_DECISION_HARNESS_WORKER_V10_AUTHORITY_CAPSULE_ENV)
+    expect(activatedStdio.authority_capsule_fields).toEqual([
+      "execution_admission_command_hash",
+      "execution_envelope_hash",
+      "logical_request_id",
+      "process_artifact_hash",
+      "process_launch_intent_hash",
+      "transport_contract_hash",
+      "worker_request_hash",
+    ])
+    expect(activatedStdio.frame_authority_validation)
+      .toBe("every_outer_authority_field_must_equal_capsule_before_worker_request_decode")
+    expect(activatedStdio.valid_authority_frame_probe)
+      .toBe("not_materialized_until_successor_authority_exists")
+    expect(activatedStdio.blockers).toEqual([
+      "artifact_bound_successor_transport_not_materialized",
+      "successor_execution_admission_command_not_issued",
+      "successor_process_launch_intent_not_issued",
+      "fresh_spawn_boundary_revalidation_not_materialized",
+      "attempt_bound_process_launch_receipt_not_materialized",
+      "authority_frame_write_decode_read_and_admission_not_materialized",
+    ])
+    expect(activatedStdio.activated_stdio_artifact_count).toBe(1)
+    expect(activatedStdio.authority_capsule_instance_count).toBe(0)
+    expect(activatedStdio.admitted_process_instance_count).toBe(0)
+    expect(activatedStdio.request_frame_instance_count).toBe(0)
+    expect(activatedStdio.response_frame_instance_count).toBe(0)
+    expect(() => assertReplayDecisionHarnessWorkerV10ActivatedStdioCapability(activatedStdio)).not.toThrow()
+    expect(() => assertReplayDecisionHarnessWorkerV10ActivatedStdioCapabilityLineage(
+      activatedStdio,
+      activatedStdioInput,
+    )).not.toThrow()
+    const activatedArtifactRoot = mkdtempSync(join(tmpdir(), "replay-worker-v10-activated-artifact-"))
+    try {
+      const artifactPath = join(activatedArtifactRoot, activatedStdio.artifact.file_name)
+      writeFileSync(artifactPath, activatedStdio.artifact.content_utf8, "utf8")
+      const missingCapsuleProbe = spawnSync(process.execPath, [artifactPath], {
+        encoding: "utf8",
+        env: { TZ: "UTC", LANG: "C", LC_ALL: "C" },
+        input: "",
+      })
+      expect(missingCapsuleProbe.status).toBe(71)
+      expect(missingCapsuleProbe.stderr).toBe('{"error_code":"launch_authority_capsule_missing"}\n')
+      const malformedCapsuleProbe = spawnSync(process.execPath, [artifactPath], {
+        encoding: "utf8",
+        env: { TZ: "UTC", LANG: "C", LC_ALL: "C", [REPLAY_DECISION_HARNESS_WORKER_V10_AUTHORITY_CAPSULE_ENV]: "{}" },
+        input: "",
+      })
+      expect(malformedCapsuleProbe.status).toBe(72)
+      expect(malformedCapsuleProbe.stderr).toBe('{"error_code":"launch_authority_capsule_invalid"}\n')
+    } finally {
+      rmSync(activatedArtifactRoot, { recursive: true, force: true })
+    }
+    const missingActivatedRoot = mkdtempSync(join(tmpdir(), "replay-worker-v10-activated-missing-"))
+    try {
+      expect(() => registerReplayWorkerV10ActivatedStdioCapability({
+        registry_root: missingActivatedRoot,
+        ...activatedStdioInput,
+      })).toThrow("requires the exact durable Authority Frame Build Contract")
+    } finally {
+      rmSync(missingActivatedRoot, { recursive: true, force: true })
+    }
+    expect(registerReplayWorkerV10ActivatedStdioCapability({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...activatedStdioInput,
+    })).toEqual(activatedStdio)
+    expect(readReplayWorkerV10ActivatedStdioCapability({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...activatedStdioInput,
+    })).toEqual(activatedStdio)
+    const activatedStdioFile = readdirSync(dispatchEvidenceRegistryRoot)
+      .find((name) => name === `worker-v10-activated-stdio-${activatedStdio.capability_key}.json`)
+    if (!activatedStdioFile) throw new Error("expected Worker v10 Activated Stdio Capability file")
+    writeFileSync(join(dispatchEvidenceRegistryRoot, activatedStdioFile), "{}\n", "utf8")
+    expect(() => readReplayWorkerV10ActivatedStdioCapability({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...activatedStdioInput,
+    })).toThrow()
+
     const authorityBuildFile = readdirSync(dispatchEvidenceRegistryRoot)
       .find((name) => name === `worker-v10-authority-frame-build-${authorityFrameBuild.contract_key}.json`)
     if (!authorityBuildFile) throw new Error("expected Worker v10 Authority Frame Build Contract file")

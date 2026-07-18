@@ -24,6 +24,11 @@ export interface ReplayWorkerV10AuthorityFrameBuildContractRegistryInput {
   source_launch_readiness_gate: ReplayDecisionHarnessWorkerV10ProcessLaunchReadinessGate
 }
 
+export interface ReplayWorkerV10AuthorityFrameBuildContractEntryInput {
+  registry_root: string
+  contract_key: string
+}
+
 export function registerReplayWorkerV10AuthorityFrameBuildContract(
   input: ReplayWorkerV10AuthorityFrameBuildContractRegistryInput,
 ): ReplayDecisionHarnessWorkerV10AuthorityFrameBuildContract {
@@ -55,6 +60,19 @@ export function readReplayWorkerV10AuthorityFrameBuildContract(
   if (!value) return null
   requireDurableParent(input)
   return sameContract(value, buildReplayDecisionHarnessWorkerV10AuthorityFrameBuildContract(input))
+}
+
+export function readReplayWorkerV10AuthorityFrameBuildContractEntry(
+  input: ReplayWorkerV10AuthorityFrameBuildContractEntryInput,
+): ReplayDecisionHarnessWorkerV10AuthorityFrameBuildContract | null {
+  if (input.registry_root.trim() === "" || !/^[0-9a-f]{64}$/.test(input.contract_key)) {
+    throw new Error("Authority Frame Build Contract entry identity is invalid")
+  }
+  const value = readContract(contractPath(input.registry_root, input.contract_key))
+  if (value && value.contract_key !== input.contract_key) {
+    throw new Error("Authority Frame Build Contract entry key mismatch")
+  }
+  return value
 }
 
 function requireDurableParent(input: ReplayWorkerV10AuthorityFrameBuildContractRegistryInput): void {
