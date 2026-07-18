@@ -59,7 +59,7 @@ export function readReplayWorkerV10ActivatedStdioCapability(
   const value = readCapability(capabilityPath(input.registry_root, key))
   if (!value) return null
   requireDurableParent(input)
-  return sameCapability(value, buildReplayDecisionHarnessWorkerV10ActivatedStdioCapability(input))
+  return exactParent(value, input.source_authority_frame_build_contract)
 }
 
 export function readReplayWorkerV10ActivatedStdioCapabilityEntry(
@@ -101,6 +101,17 @@ function sameCapability(
     throw new Error("Activated Stdio Capability key is already registered with different evidence")
   }
   return existing
+}
+
+function exactParent(
+  capability: ReplayDecisionHarnessWorkerV10ActivatedStdioCapability,
+  sourceContract: ReplayDecisionHarnessWorkerV10AuthorityFrameBuildContract,
+): ReplayDecisionHarnessWorkerV10ActivatedStdioCapability {
+  if (capability.source_authority_frame_build_contract_hash !== sourceContract.contract_hash
+      || canonicalJson(capability.source_authority_frame_build_contract) !== canonicalJson(sourceContract)) {
+    throw new Error("Activated Stdio Capability durable parent evidence drift")
+  }
+  return capability
 }
 
 function readCapability(path: string): ReplayDecisionHarnessWorkerV10ActivatedStdioCapability | null {

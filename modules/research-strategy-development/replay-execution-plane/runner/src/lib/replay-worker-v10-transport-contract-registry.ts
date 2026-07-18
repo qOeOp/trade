@@ -9,6 +9,10 @@ import {
   type ReplayDecisionHarnessWorkerV10BuildCapability,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-build-capability"
 import {
+  assertReplayDecisionHarnessWorkerV10SuccessorExecutionEnvelopeAdmission,
+  type ReplayDecisionHarnessWorkerV10SuccessorExecutionEnvelopeAdmission,
+} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-execution-envelope-admission"
+import {
   REPLAY_DECISION_HARNESS_WORKER_V10_TRANSPORT_POLICY_VERSION,
   assertReplayDecisionHarnessWorkerV10TransportContract,
   replayDecisionHarnessWorkerV10TransportContractKey,
@@ -21,11 +25,16 @@ import {
   buildReplayDecisionHarnessWorkerV10TransportContract,
 } from "./replay-decision-harness-worker-v10-transport-contract"
 import { readReplayWorkerV10BuildCapability } from "./replay-worker-v10-build-capability-registry"
+import {
+  readReplayWorkerV10SuccessorExecutionEnvelope,
+} from "./replay-worker-v10-successor-execution-envelope-registry"
 
 export interface ReplayWorkerV10TransportContractRegistryInput {
   registry_root: string
   source_worker_v10_build_capability: ReplayDecisionHarnessWorkerV10BuildCapability
   source_execution_envelope: ReplayDecisionHarnessExecutionEnvelope
+  source_successor_execution_envelope_admission?:
+    ReplayDecisionHarnessWorkerV10SuccessorExecutionEnvelopeAdmission
 }
 
 export function registerReplayWorkerV10TransportContract(
@@ -83,9 +92,20 @@ function requireDurableParents(input: ReplayWorkerV10TransportContractRegistryIn
   })
   const persistedEnvelope = registration?.source_authority_binding.source_dispatch_lease_admission
     .source_execution_envelope
-  if (!persistedEnvelope || persistedEnvelope.envelope_hash !== envelope.envelope_hash) {
-    throw new Error("Replay Worker v10 Transport Contract requires the exact durable Execution Envelope")
+  if (persistedEnvelope?.envelope_hash === envelope.envelope_hash) return
+  const successorAdmission = input.source_successor_execution_envelope_admission
+  if (successorAdmission) {
+    const durable = readReplayWorkerV10SuccessorExecutionEnvelope({
+      registry_root: input.registry_root,
+      source_successor_lease_admission: successorAdmission.source_successor_lease_admission,
+    })
+    if (durable?.admission_hash === successorAdmission.admission_hash
+        && successorAdmission.successor_execution_envelope_hash === envelope.envelope_hash
+        && canonicalJson(successorAdmission.successor_execution_envelope) === canonicalJson(envelope)) {
+      return
+    }
   }
+  throw new Error("Replay Worker v10 Transport Contract requires the exact durable Execution Envelope")
 }
 
 function requireInput(input: ReplayWorkerV10TransportContractRegistryInput): void {
@@ -94,6 +114,17 @@ function requireInput(input: ReplayWorkerV10TransportContractRegistryInput): voi
   }
   assertReplayDecisionHarnessWorkerV10BuildCapability(input.source_worker_v10_build_capability)
   assertReplayDecisionHarnessExecutionEnvelope(input.source_execution_envelope)
+  if (input.source_successor_execution_envelope_admission) {
+    assertReplayDecisionHarnessWorkerV10SuccessorExecutionEnvelopeAdmission(
+      input.source_successor_execution_envelope_admission,
+    )
+    if (input.source_successor_execution_envelope_admission.successor_execution_envelope_hash
+          !== input.source_execution_envelope.envelope_hash
+        || canonicalJson(input.source_successor_execution_envelope_admission.successor_execution_envelope)
+          !== canonicalJson(input.source_execution_envelope)) {
+      throw new Error("Replay Worker v10 Transport Contract successor Envelope Admission binding drift")
+    }
+  }
 }
 
 function assertCreateOrIdentical(

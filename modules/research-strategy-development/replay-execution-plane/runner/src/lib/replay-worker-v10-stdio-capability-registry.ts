@@ -51,10 +51,7 @@ export function readReplayWorkerV10StdioCapability(
   const capability = readCapability(capabilityPath(input.registry_root, key))
   if (!capability) return null
   requireDurableParent(input)
-  const expected = buildReplayDecisionHarnessWorkerV10StdioCapability({
-    source_transport_contract: input.source_transport_contract,
-  })
-  return assertCreateOrIdentical(capability, expected)
+  return assertExactParent(capability, input.source_transport_contract)
 }
 
 function requireDurableParent(input: ReplayWorkerV10StdioCapabilityRegistryInput): void {
@@ -85,6 +82,17 @@ function assertCreateOrIdentical(
     throw new Error("Replay Worker v10 Stdio Capability key is already registered with different evidence")
   }
   return existing
+}
+
+function assertExactParent(
+  capability: ReplayDecisionHarnessWorkerV10StdioCapability,
+  sourceTransport: ReplayDecisionHarnessWorkerV10TransportContract,
+): ReplayDecisionHarnessWorkerV10StdioCapability {
+  if (capability.source_transport_contract_hash !== sourceTransport.contract_hash
+      || canonicalJson(capability.source_transport_contract) !== canonicalJson(sourceTransport)) {
+    throw new Error("Replay Worker v10 Stdio Capability durable parent evidence drift")
+  }
+  return capability
 }
 
 function readCapability(path: string): ReplayDecisionHarnessWorkerV10StdioCapability | null {

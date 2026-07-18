@@ -371,6 +371,9 @@ import {
   assertReplayDecisionHarnessWorkerV10SuccessorExecutionEnvelopeAdmission,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-execution-envelope-admission"
 import {
+  assertReplayDecisionHarnessWorkerV10SuccessorExecutionTransportAdmission,
+} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-execution-transport-admission"
+import {
   admitReplayWorkerV10SuccessorLease,
   readReplayWorkerV10SuccessorLeaseAdmission,
 } from "./replay-worker-v10-successor-lease-admission-registry"
@@ -381,6 +384,10 @@ import {
   readReplayWorkerV10SuccessorExecutionEnvelope,
   registerReplayWorkerV10SuccessorExecutionEnvelope,
 } from "./replay-worker-v10-successor-execution-envelope-registry"
+import {
+  readReplayWorkerV10SuccessorExecutionTransport,
+  registerReplayWorkerV10SuccessorExecutionTransport,
+} from "./replay-worker-v10-successor-execution-transport-registry"
 import {
   assertReplayDecisionHarnessWorkerV10AuthorityFrameBuildContractLineage,
   buildReplayDecisionHarnessWorkerV10AuthorityFrameBuildContract,
@@ -3886,6 +3893,110 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       successor_execution_admission_command_count: 1 as never,
     })).toThrow()
 
+    expect(() => registerReplayWorkerV10TransportContract({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_worker_v10_build_capability: durableWorkerV10Capability,
+      source_execution_envelope: successorEnvelopeAdmission.successor_execution_envelope,
+    })).toThrow("requires the exact durable Execution Envelope")
+    expect(() => registerReplayWorkerV10TransportContract({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_worker_v10_build_capability: durableWorkerV10Capability,
+      source_execution_envelope: executionEnvelope,
+      source_successor_execution_envelope_admission: successorEnvelopeAdmission,
+    })).toThrow("successor Envelope Admission binding drift")
+    const missingLeaseSuccessorTransportRoot = mkdtempSync(
+      join(tmpdir(), "replay-worker-v10-successor-execution-transport-missing-"),
+    )
+    try {
+      expect(() => registerReplayWorkerV10SuccessorExecutionTransport({
+        registry_root: missingLeaseSuccessorTransportRoot,
+        source_successor_execution_envelope_admission: successorEnvelopeAdmission,
+      })).toThrow("requires the exact durable R4.144 Envelope Admission")
+    } finally {
+      rmSync(missingLeaseSuccessorTransportRoot, { recursive: true, force: true })
+    }
+
+    const successorTransportAdmission = registerReplayWorkerV10SuccessorExecutionTransport({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_successor_execution_envelope_admission: successorEnvelopeAdmission,
+    })
+    expect(successorTransportAdmission.status)
+      .toBe("successor_base_transport_admitted_command_not_materialized")
+    expect(successorTransportAdmission.source_successor_execution_envelope_admission_hash)
+      .toBe(successorEnvelopeAdmission.admission_hash)
+    expect(successorTransportAdmission.source_predecessor_transport_contract_hash)
+      .toBe(workerV10TransportContract.contract_hash)
+    expect(successorTransportAdmission.successor_base_transport_contract_hash)
+      .not.toBe(workerV10TransportContract.contract_hash)
+    expect(successorTransportAdmission.successor_base_transport_contract.source_execution_envelope_hash)
+      .toBe(successorEnvelopeAdmission.successor_execution_envelope_hash)
+    expect(successorTransportAdmission.successor_base_transport_contract
+      .source_worker_v10_build_capability_hash).toBe(durableWorkerV10Capability.capability_hash)
+    expect(successorTransportAdmission.successor_base_transport_contract.target_worker_request_hash)
+      .toBe(workerV10TransportContract.target_worker_request_hash)
+    expect(successorTransportAdmission.reuse_boundary_policy)
+      .toBe("reuse_only_envelope_independent_immutable_code_and_logical_request_evidence")
+    expect(successorTransportAdmission.reusable_evidence).toEqual([
+      "code_admission_and_source_bundle",
+      "worker_v10_build_capability_and_decoder_artifact",
+      "logical_worker_request_and_response_contract",
+      "protocol_frame_schemas_and_resource_limits",
+    ])
+    expect(successorTransportAdmission.rebuild_required).toEqual([
+      "execution_envelope_bound_base_transport_contract",
+      "transport_bound_stdio_capability_even_if_artifact_bytes_rebuild_identically",
+      "stdio_capability_bound_negative_probe_receipt",
+      "artifact_bound_successor_transport_and_execution_admission_contract",
+      "lease_observation_clock_command_intent_capsule_revalidation_and_process_lineage",
+    ])
+    expect(successorTransportAdmission.reused_worker_v10_build_capability_count).toBe(1)
+    expect(successorTransportAdmission.successor_base_transport_contract_count).toBe(1)
+    expect(successorTransportAdmission.successor_stdio_capability_count).toBe(0)
+    expect(successorTransportAdmission.successor_negative_probe_receipt_count).toBe(0)
+    expect(successorTransportAdmission.successor_artifact_bound_transport_contract_count).toBe(0)
+    expect(successorTransportAdmission.successor_execution_admission_contract_count).toBe(0)
+    expect(successorTransportAdmission.successor_execution_admission_command_count).toBe(0)
+    expect(successorTransportAdmission.successor_process_count).toBe(0)
+    expect(successorTransportAdmission.second_response_count).toBe(0)
+    expect(successorTransportAdmission.second_schedule_admission_count).toBe(0)
+    expect(successorTransportAdmission.reproducibility_pair_count).toBe(0)
+    expect(successorTransportAdmission.harness_receipt_count).toBe(0)
+    expect(successorTransportAdmission.transport_authority)
+      .toBe("contract_frozen_zero_instance_not_activated")
+    expect(successorTransportAdmission.command_authority)
+      .toBe("none_fresh_envelope_bound_chain_required")
+    expect(successorTransportAdmission.process_authority).toBe("none")
+    expect(successorTransportAdmission.signal_authority).toBe("none")
+    expect(successorTransportAdmission.order_authority).toBe("none")
+    expect(successorTransportAdmission.economic_authority).toBe("none")
+    expect(() => assertReplayDecisionHarnessWorkerV10SuccessorExecutionTransportAdmission(
+      successorTransportAdmission,
+    )).not.toThrow()
+    expect(readReplayWorkerV10SuccessorExecutionTransport({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_successor_execution_envelope_admission: successorEnvelopeAdmission,
+    })).toEqual(successorTransportAdmission)
+    expect(registerReplayWorkerV10SuccessorExecutionTransport({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_successor_execution_envelope_admission: structuredClone(successorEnvelopeAdmission),
+    })).toEqual(successorTransportAdmission)
+    expect(() => assertReplayDecisionHarnessWorkerV10SuccessorExecutionTransportAdmission({
+      ...successorTransportAdmission,
+      successor_execution_admission_command_count: 1 as never,
+    })).toThrow()
+
+    const successorTransportAdmissionFile = readdirSync(dispatchEvidenceRegistryRoot)
+      .find((name) => name
+        === `worker-v10-successor-execution-transport-${successorTransportAdmission.admission_key}.json`)
+    if (!successorTransportAdmissionFile) {
+      throw new Error("expected Worker v10 successor execution Transport Admission file")
+    }
+    writeFileSync(join(dispatchEvidenceRegistryRoot, successorTransportAdmissionFile), "{}\n", "utf8")
+    expect(() => readReplayWorkerV10SuccessorExecutionTransport({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_successor_execution_envelope_admission: successorEnvelopeAdmission,
+    })).toThrow()
+
     const successorEnvelopeAdmissionFile = readdirSync(dispatchEvidenceRegistryRoot)
       .find((name) => name
         === `worker-v10-successor-execution-envelope-${successorEnvelopeAdmission.admission_key}.json`)
@@ -4183,7 +4294,8 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
     })).toThrow()
 
     const transportContractFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name.startsWith("worker-v10-transport-contract-"))
+      .find((name) => name
+        === `worker-v10-transport-contract-${workerV10TransportContract.contract_key}.json`)
     if (!transportContractFile) throw new Error("expected Replay Worker v10 Transport Contract registry file")
     writeFileSync(join(dispatchEvidenceRegistryRoot, transportContractFile), "{}\n", "utf8")
     expect(() => readReplayWorkerV10TransportContract({
@@ -4450,4 +4562,4 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       cash_balance: 999.8,
     }),
   })).toThrow("parent lineage drift")
-}, 180_000)
+}, 300_000)
