@@ -123,6 +123,11 @@ import {
   createReplayAttemptLeaseObservationSnapshot,
   assertReplayAttemptLeaseObservationRegistryReadReceipt,
   assertReplayDispatchClockAttestation,
+  REPLAY_SPAWN_BOUNDARY_REVALIDATION_REQUEST_POLICY_VERSION,
+  REPLAY_SPAWN_BOUNDARY_REVALIDATION_REQUEST_SCHEMA_VERSION,
+  assertReplaySpawnBoundaryRevalidationReceipt,
+  createReplaySpawnBoundaryRevalidationRequest,
+  replaySpawnBoundaryRevalidationRequestKey,
 } from "../../../contracts/src/lib/control-plane-contracts"
 import {
   RESEARCH_LIFECYCLE_RULE_VERSION,
@@ -152,6 +157,7 @@ import {
   readReplayAttemptLeaseObservation,
   readReplayAttemptLeaseObservationRegistryReceipt,
   registerReplayAttemptLeaseObservation,
+  revalidateReplaySpawnBoundary,
   renewReplayAttemptLease,
 } from "./replay-attempt-authority"
 import { recordReplayCheckpointReceipt } from "./replay-checkpoint-receipt"
@@ -1472,6 +1478,75 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
         return sample
       },
     }), /chronology mismatch/)
+    const spawnRequestKey = replaySpawnBoundaryRevalidationRequestKey({
+      source_authority_capsule_record_hash: "a".repeat(64),
+      attempt_id: renewed.attempt_id,
+      worker_id: renewed.worker_id,
+      lease_generation: renewed.lease_generation,
+      request_policy_version: REPLAY_SPAWN_BOUNDARY_REVALIDATION_REQUEST_POLICY_VERSION,
+    })
+    const spawnRequest = createReplaySpawnBoundaryRevalidationRequest({
+      schema_version: REPLAY_SPAWN_BOUNDARY_REVALIDATION_REQUEST_SCHEMA_VERSION,
+      request_id: `replay-spawn-boundary-revalidation-request-${spawnRequestKey.slice(0, 24)}`,
+      request_ref: `request://replay-spawn-boundary-revalidation/${spawnRequestKey.slice(0, 24)}`,
+      request_key: spawnRequestKey,
+      request_policy_version: REPLAY_SPAWN_BOUNDARY_REVALIDATION_REQUEST_POLICY_VERSION,
+      status: "capsule_bound_current_attempt_revalidation_requested",
+      requester_owner: "replay_runner",
+      authority_target: "research_control_plane",
+      purpose: "revalidate_exact_current_attempt_after_capsule_commit_before_spawn",
+      source_authority_capsule_record_hash: "a".repeat(64),
+      authority_capsule_hash: "b".repeat(64),
+      source_authority_process_launch_intent_hash: "c".repeat(64),
+      source_authority_execution_admission_command_hash: "d".repeat(64),
+      source_authority_transport_contract_hash: "e".repeat(64),
+      process_artifact_hash: "f".repeat(64),
+      worker_request_hash: "1".repeat(64),
+      attempt_id: renewed.attempt_id,
+      attempt_ordinal: renewed.attempt_ordinal,
+      worker_id: renewed.worker_id,
+      lease_generation: renewed.lease_generation,
+      expected_current_attempt_lease_hash: hashReplayAttemptLeaseSnapshot(renewed),
+      expected_valid_before: renewed.lease_expires_at,
+      challenge_policy: "one_capsule_bound_challenge_no_caller_time_or_state_substitution",
+      retry_policy: "fresh_command_intent_capsule_authority_lineage_required_after_failed_or_stale_challenge",
+      process_authority: "none",
+    })
+    const spawnClockSamples = [
+      { wall_time_utc: "2026-07-14T04:02:06Z", monotonic_ns: "3000000" },
+      { wall_time_utc: "2026-07-14T04:02:07Z", monotonic_ns: "3000100" },
+    ]
+    const spawnReceipt = revalidateReplaySpawnBoundary(db, { request: spawnRequest }, {
+      sample: () => {
+        const sample = spawnClockSamples.shift()
+        if (!sample) throw new Error("unexpected spawn clock sample")
+        return sample
+      },
+    })
+    assert.doesNotThrow(() => assertReplaySpawnBoundaryRevalidationReceipt(spawnReceipt))
+    assert.equal(spawnReceipt.source_request_hash, spawnRequest.request_hash)
+    assert.equal(spawnReceipt.current_attempt_lease_hash, hashReplayAttemptLeaseSnapshot(renewed))
+    assert.equal(spawnReceipt.revalidated_at, "2026-07-14T04:02:07Z")
+    assert.equal(spawnReceipt.process_authority, "none")
+    const driftedSpawnRequestKey = replaySpawnBoundaryRevalidationRequestKey({
+      source_authority_capsule_record_hash: "2".repeat(64),
+      attempt_id: renewed.attempt_id,
+      worker_id: renewed.worker_id,
+      lease_generation: renewed.lease_generation,
+      request_policy_version: REPLAY_SPAWN_BOUNDARY_REVALIDATION_REQUEST_POLICY_VERSION,
+    })
+    const { request_hash: _spawnRequestHash, ...spawnRequestBody } = spawnRequest
+    const driftedSpawnRequest = createReplaySpawnBoundaryRevalidationRequest({
+      ...spawnRequestBody,
+      request_id: `replay-spawn-boundary-revalidation-request-${driftedSpawnRequestKey.slice(0, 24)}`,
+      request_ref: `request://replay-spawn-boundary-revalidation/${driftedSpawnRequestKey.slice(0, 24)}`,
+      request_key: driftedSpawnRequestKey,
+      source_authority_capsule_record_hash: "2".repeat(64),
+      expected_current_attempt_lease_hash: "3".repeat(64),
+    })
+    assert.throws(() => revalidateReplaySpawnBoundary(db, { request: driftedSpawnRequest }, {
+      sample: () => ({ wall_time_utc: "2026-07-14T04:02:08Z", monotonic_ns: "4000000" }),
+    }), /no longer matches current Control Plane state/)
     assert.throws(() => observeCurrentReplayAttemptLease(db, {
       trial_id: renewed.trial_id,
       observed_at: "2026-07-14T04:01:59Z",

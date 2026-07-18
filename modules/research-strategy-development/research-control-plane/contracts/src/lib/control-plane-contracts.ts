@@ -27,6 +27,14 @@ export const REPLAY_DISPATCH_CLOCK_ATTESTATION_SCHEMA_VERSION =
   "trade.rd-replay-dispatch-clock-attestation.v1" as const
 export const REPLAY_DISPATCH_CLOCK_ATTESTATION_POLICY_VERSION =
   "rd-replay-dispatch-clock-attestation-v1" as const
+export const REPLAY_SPAWN_BOUNDARY_REVALIDATION_REQUEST_SCHEMA_VERSION =
+  "trade.rd-replay-spawn-boundary-revalidation-request.v1" as const
+export const REPLAY_SPAWN_BOUNDARY_REVALIDATION_REQUEST_POLICY_VERSION =
+  "rd-replay-spawn-boundary-revalidation-request-v1" as const
+export const REPLAY_SPAWN_BOUNDARY_REVALIDATION_RECEIPT_SCHEMA_VERSION =
+  "trade.rd-replay-spawn-boundary-revalidation-receipt.v1" as const
+export const REPLAY_SPAWN_BOUNDARY_REVALIDATION_RECEIPT_POLICY_VERSION =
+  "rd-replay-spawn-boundary-revalidation-receipt-v1" as const
 export const REPLAY_CHECKPOINT_RECEIPT_SCHEMA_VERSION = "trade.rd-replay-checkpoint-receipt.v2" as const
 export const REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION = REPLAY_LOCAL_ARTIFACT_STORAGE_POLICY_VERSION
 export const REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION = "trade.rd-replay-resume-authorization-snapshot.v1" as const
@@ -583,6 +591,111 @@ export function replayDispatchClockAttestationIdentityHash(input: {
   registry_read_completed_monotonic_ns: string
   attestation_policy_version: typeof REPLAY_DISPATCH_CLOCK_ATTESTATION_POLICY_VERSION
 }): string {
+  return createHash("sha256").update(canonicalReservationJson(input), "utf8").digest("hex")
+}
+
+export interface ReplaySpawnBoundaryRevalidationRequest {
+  schema_version: typeof REPLAY_SPAWN_BOUNDARY_REVALIDATION_REQUEST_SCHEMA_VERSION
+  request_id: string
+  request_ref: string
+  request_key: string
+  request_hash: string
+  request_policy_version: typeof REPLAY_SPAWN_BOUNDARY_REVALIDATION_REQUEST_POLICY_VERSION
+  status: "capsule_bound_current_attempt_revalidation_requested"
+  requester_owner: "replay_runner"
+  authority_target: "research_control_plane"
+  purpose: "revalidate_exact_current_attempt_after_capsule_commit_before_spawn"
+  source_authority_capsule_record_hash: string
+  authority_capsule_hash: string
+  source_authority_process_launch_intent_hash: string
+  source_authority_execution_admission_command_hash: string
+  source_authority_transport_contract_hash: string
+  process_artifact_hash: string
+  worker_request_hash: string
+  attempt_id: string
+  attempt_ordinal: number
+  worker_id: string
+  lease_generation: number
+  expected_current_attempt_lease_hash: string
+  expected_valid_before: string
+  challenge_policy: "one_capsule_bound_challenge_no_caller_time_or_state_substitution"
+  retry_policy: "fresh_command_intent_capsule_authority_lineage_required_after_failed_or_stale_challenge"
+  process_authority: "none"
+}
+
+export type ReplaySpawnBoundaryRevalidationRequestBody = Omit<
+  ReplaySpawnBoundaryRevalidationRequest,
+  "request_hash"
+>
+
+export interface ReplaySpawnBoundaryRevalidationReceipt {
+  schema_version: typeof REPLAY_SPAWN_BOUNDARY_REVALIDATION_RECEIPT_SCHEMA_VERSION
+  receipt_id: string
+  receipt_ref: string
+  receipt_hash: string
+  receipt_policy_version: typeof REPLAY_SPAWN_BOUNDARY_REVALIDATION_RECEIPT_POLICY_VERSION
+  status: "capsule_bound_current_attempt_revalidated"
+  authority_owner: "research_control_plane"
+  authority_source: "research_control_plane_state_store"
+  source_request_id: string
+  source_request_ref: string
+  source_request_hash: string
+  source_request: ReplaySpawnBoundaryRevalidationRequest
+  clock_source: "control_plane_authority_process_clock_port"
+  clock_independence: "authority_internal_sampling_without_caller_timestamp_input"
+  caller_time_input: "forbidden"
+  wall_clock_source: "javascript_date_now_utc"
+  monotonic_clock_source: "process_hrtime_bigint"
+  external_time_attestation: "not_provided"
+  current_attempt_read:
+    "single_control_plane_transaction_exact_attempt_worker_generation_and_lease_hash"
+  registry_read_started_at: string
+  registry_read_completed_at: string
+  registry_read_started_monotonic_ns: string
+  registry_read_completed_monotonic_ns: string
+  current_attempt_status: "claimed" | "running"
+  current_attempt_lease_hash: string
+  current_attempt_lease: ReplayAttemptLeaseSnapshot
+  revalidated_at: string
+  valid_before: string
+  spawn_candidate_authority: "single_immediate_spawn_candidate_not_process_start_evidence"
+  race_limit: "receipt_cannot_prove_absence_of_cancellation_or_fencing_after_completed_read"
+  process_authority: "none"
+}
+
+export type ReplaySpawnBoundaryRevalidationReceiptBody = Omit<
+  ReplaySpawnBoundaryRevalidationReceipt,
+  "receipt_hash"
+>
+
+export function replaySpawnBoundaryRevalidationRequestKey(input: {
+  source_authority_capsule_record_hash: string
+  attempt_id: string
+  worker_id: string
+  lease_generation: number
+  request_policy_version: typeof REPLAY_SPAWN_BOUNDARY_REVALIDATION_REQUEST_POLICY_VERSION
+}): string {
+  for (const [field, item] of Object.entries({
+    source_authority_capsule_record_hash: input.source_authority_capsule_record_hash,
+  })) requireHash(item, `spawn_boundary_revalidation_request_key.${field}`)
+  requireText(input.attempt_id, "spawn_boundary_revalidation_request_key.attempt_id")
+  requireText(input.worker_id, "spawn_boundary_revalidation_request_key.worker_id")
+  if (!Number.isSafeInteger(input.lease_generation) || input.lease_generation < 1
+      || input.request_policy_version !== REPLAY_SPAWN_BOUNDARY_REVALIDATION_REQUEST_POLICY_VERSION) {
+    fail("spawn boundary revalidation request key")
+  }
+  return createHash("sha256").update(canonicalReservationJson(input), "utf8").digest("hex")
+}
+
+export function replaySpawnBoundaryRevalidationReceiptIdentityHash(input: {
+  source_request_hash: string
+  registry_read_started_at: string
+  registry_read_completed_at: string
+  registry_read_started_monotonic_ns: string
+  registry_read_completed_monotonic_ns: string
+  receipt_policy_version: typeof REPLAY_SPAWN_BOUNDARY_REVALIDATION_RECEIPT_POLICY_VERSION
+}): string {
+  requireHash(input.source_request_hash, "spawn_boundary_revalidation_receipt_identity.request_hash")
   return createHash("sha256").update(canonicalReservationJson(input), "utf8").digest("hex")
 }
 
@@ -1634,6 +1747,183 @@ export function assertReplayDispatchClockAttestation(value: ReplayDispatchClockA
   const { attestation_hash: attestationHash, ...body } = value
   const expected = createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")
   if (attestationHash !== expected) fail("dispatch clock attestation hash mismatch")
+}
+
+export function createReplaySpawnBoundaryRevalidationRequest(
+  body: ReplaySpawnBoundaryRevalidationRequestBody,
+): ReplaySpawnBoundaryRevalidationRequest {
+  const value = {
+    ...structuredClone(body),
+    request_hash: createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex"),
+  }
+  assertReplaySpawnBoundaryRevalidationRequest(value)
+  return value
+}
+
+export function assertReplaySpawnBoundaryRevalidationRequest(
+  value: ReplaySpawnBoundaryRevalidationRequest,
+): void {
+  assertExactFields(value, REPLAY_SPAWN_BOUNDARY_REVALIDATION_REQUEST_FIELDS,
+    "spawn boundary revalidation request")
+  if (value.schema_version !== REPLAY_SPAWN_BOUNDARY_REVALIDATION_REQUEST_SCHEMA_VERSION
+      || value.request_policy_version !== REPLAY_SPAWN_BOUNDARY_REVALIDATION_REQUEST_POLICY_VERSION
+      || value.status !== "capsule_bound_current_attempt_revalidation_requested"
+      || value.requester_owner !== "replay_runner"
+      || value.authority_target !== "research_control_plane"
+      || value.purpose !== "revalidate_exact_current_attempt_after_capsule_commit_before_spawn"
+      || value.challenge_policy !== "one_capsule_bound_challenge_no_caller_time_or_state_substitution"
+      || value.retry_policy
+        !== "fresh_command_intent_capsule_authority_lineage_required_after_failed_or_stale_challenge"
+      || value.process_authority !== "none") {
+    fail("spawn boundary revalidation request policy or authority")
+  }
+  for (const [field, item] of Object.entries({
+    request_id: value.request_id, request_ref: value.request_ref,
+    attempt_id: value.attempt_id, worker_id: value.worker_id,
+  })) requireText(item, `spawn_boundary_revalidation_request.${field}`)
+  for (const [field, item] of Object.entries({
+    request_key: value.request_key, request_hash: value.request_hash,
+    source_authority_capsule_record_hash: value.source_authority_capsule_record_hash,
+    authority_capsule_hash: value.authority_capsule_hash,
+    source_authority_process_launch_intent_hash: value.source_authority_process_launch_intent_hash,
+    source_authority_execution_admission_command_hash:
+      value.source_authority_execution_admission_command_hash,
+    source_authority_transport_contract_hash: value.source_authority_transport_contract_hash,
+    process_artifact_hash: value.process_artifact_hash, worker_request_hash: value.worker_request_hash,
+    expected_current_attempt_lease_hash: value.expected_current_attempt_lease_hash,
+  })) requireHash(item, `spawn_boundary_revalidation_request.${field}`)
+  requireUtcTimestamp(value.expected_valid_before, "spawn_boundary_revalidation_request.expected_valid_before")
+  if (!Number.isSafeInteger(value.attempt_ordinal) || value.attempt_ordinal < 1
+      || !Number.isSafeInteger(value.lease_generation) || value.lease_generation < 1) {
+    fail("spawn boundary revalidation request Attempt binding")
+  }
+  const expectedKey = replaySpawnBoundaryRevalidationRequestKey({
+    source_authority_capsule_record_hash: value.source_authority_capsule_record_hash,
+    attempt_id: value.attempt_id,
+    worker_id: value.worker_id,
+    lease_generation: value.lease_generation,
+    request_policy_version: value.request_policy_version,
+  })
+  if (value.request_key !== expectedKey
+      || value.request_id !== `replay-spawn-boundary-revalidation-request-${expectedKey.slice(0, 24)}`
+      || value.request_ref !== `request://replay-spawn-boundary-revalidation/${expectedKey.slice(0, 24)}`) {
+    fail("spawn boundary revalidation request identity")
+  }
+  const { request_hash: requestHash, ...body } = value
+  const expected = createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")
+  if (requestHash !== expected) fail("spawn boundary revalidation request hash mismatch")
+}
+
+export function createReplaySpawnBoundaryRevalidationReceipt(
+  body: ReplaySpawnBoundaryRevalidationReceiptBody,
+): ReplaySpawnBoundaryRevalidationReceipt {
+  const value = {
+    ...structuredClone(body),
+    receipt_hash: createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex"),
+  }
+  assertReplaySpawnBoundaryRevalidationReceipt(value)
+  return value
+}
+
+export function assertReplaySpawnBoundaryRevalidationReceipt(
+  value: ReplaySpawnBoundaryRevalidationReceipt,
+): void {
+  assertExactFields(value, REPLAY_SPAWN_BOUNDARY_REVALIDATION_RECEIPT_FIELDS,
+    "spawn boundary revalidation receipt")
+  if (value.schema_version !== REPLAY_SPAWN_BOUNDARY_REVALIDATION_RECEIPT_SCHEMA_VERSION
+      || value.receipt_policy_version !== REPLAY_SPAWN_BOUNDARY_REVALIDATION_RECEIPT_POLICY_VERSION
+      || value.status !== "capsule_bound_current_attempt_revalidated"
+      || value.authority_owner !== "research_control_plane"
+      || value.authority_source !== "research_control_plane_state_store"
+      || value.clock_source !== "control_plane_authority_process_clock_port"
+      || value.clock_independence !== "authority_internal_sampling_without_caller_timestamp_input"
+      || value.caller_time_input !== "forbidden"
+      || value.wall_clock_source !== "javascript_date_now_utc"
+      || value.monotonic_clock_source !== "process_hrtime_bigint"
+      || value.external_time_attestation !== "not_provided"
+      || value.current_attempt_read
+        !== "single_control_plane_transaction_exact_attempt_worker_generation_and_lease_hash"
+      || value.spawn_candidate_authority !== "single_immediate_spawn_candidate_not_process_start_evidence"
+      || value.race_limit
+        !== "receipt_cannot_prove_absence_of_cancellation_or_fencing_after_completed_read"
+      || value.process_authority !== "none") {
+    fail("spawn boundary revalidation receipt policy or authority")
+  }
+  for (const [field, item] of Object.entries({
+    receipt_id: value.receipt_id, receipt_ref: value.receipt_ref,
+    source_request_id: value.source_request_id, source_request_ref: value.source_request_ref,
+  })) requireText(item, `spawn_boundary_revalidation_receipt.${field}`)
+  for (const [field, item] of Object.entries({
+    receipt_hash: value.receipt_hash, source_request_hash: value.source_request_hash,
+    current_attempt_lease_hash: value.current_attempt_lease_hash,
+  })) requireHash(item, `spawn_boundary_revalidation_receipt.${field}`)
+  for (const [field, item] of Object.entries({
+    registry_read_started_at: value.registry_read_started_at,
+    registry_read_completed_at: value.registry_read_completed_at,
+    revalidated_at: value.revalidated_at, valid_before: value.valid_before,
+  })) requireUtcTimestamp(item, `spawn_boundary_revalidation_receipt.${field}`)
+  if (!/^\d+$/.test(value.registry_read_started_monotonic_ns)
+      || !/^\d+$/.test(value.registry_read_completed_monotonic_ns)
+      || BigInt(value.registry_read_completed_monotonic_ns)
+        <= BigInt(value.registry_read_started_monotonic_ns)) {
+    fail("spawn boundary revalidation receipt monotonic bracket")
+  }
+  assertReplaySpawnBoundaryRevalidationRequest(value.source_request)
+  assertReplayAttemptLeaseSnapshot(value.current_attempt_lease)
+  const request = value.source_request
+  const lease = value.current_attempt_lease
+  if (value.source_request_id !== request.request_id || value.source_request_ref !== request.request_ref
+      || value.source_request_hash !== request.request_hash
+      || value.current_attempt_status !== lease.status
+      || value.current_attempt_lease_hash !== hashReplayAttemptLeaseSnapshot(lease)
+      || value.current_attempt_lease_hash !== request.expected_current_attempt_lease_hash
+      || lease.attempt_id !== request.attempt_id || lease.attempt_ordinal !== request.attempt_ordinal
+      || lease.worker_id !== request.worker_id || lease.lease_generation !== request.lease_generation
+      || Date.parse(value.registry_read_completed_at) < Date.parse(value.registry_read_started_at)
+      || value.revalidated_at !== value.registry_read_completed_at
+      || value.valid_before !== lease.lease_expires_at
+      || value.valid_before !== request.expected_valid_before
+      || Date.parse(value.registry_read_completed_at) >= Date.parse(value.valid_before)) {
+    fail("spawn boundary revalidation receipt request, Lease, or chronology mismatch")
+  }
+  const identityHash = replaySpawnBoundaryRevalidationReceiptIdentityHash({
+    source_request_hash: request.request_hash,
+    registry_read_started_at: value.registry_read_started_at,
+    registry_read_completed_at: value.registry_read_completed_at,
+    registry_read_started_monotonic_ns: value.registry_read_started_monotonic_ns,
+    registry_read_completed_monotonic_ns: value.registry_read_completed_monotonic_ns,
+    receipt_policy_version: value.receipt_policy_version,
+  })
+  if (value.receipt_id !== `replay-spawn-boundary-revalidation-receipt-${identityHash.slice(0, 24)}`
+      || value.receipt_ref !== `receipt://replay-spawn-boundary-revalidation/${identityHash.slice(0, 24)}`) {
+    fail("spawn boundary revalidation receipt identity")
+  }
+  const { receipt_hash: receiptHash, ...body } = value
+  const expected = createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")
+  if (receiptHash !== expected) fail("spawn boundary revalidation receipt hash mismatch")
+}
+
+const REPLAY_SPAWN_BOUNDARY_REVALIDATION_REQUEST_FIELDS = ["attempt_id", "attempt_ordinal",
+  "authority_capsule_hash", "authority_target", "challenge_policy", "expected_current_attempt_lease_hash",
+  "expected_valid_before", "lease_generation", "process_artifact_hash", "process_authority", "purpose",
+  "request_hash", "request_id", "request_key", "request_policy_version", "request_ref", "requester_owner",
+  "retry_policy", "schema_version", "source_authority_capsule_record_hash",
+  "source_authority_execution_admission_command_hash", "source_authority_process_launch_intent_hash",
+  "source_authority_transport_contract_hash", "status", "worker_id", "worker_request_hash"].sort()
+
+const REPLAY_SPAWN_BOUNDARY_REVALIDATION_RECEIPT_FIELDS = ["authority_owner", "authority_source",
+  "caller_time_input", "clock_independence", "clock_source", "current_attempt_lease",
+  "current_attempt_lease_hash", "current_attempt_read", "current_attempt_status", "external_time_attestation",
+  "monotonic_clock_source", "process_authority", "race_limit", "receipt_hash", "receipt_id",
+  "receipt_policy_version", "receipt_ref", "registry_read_completed_at",
+  "registry_read_completed_monotonic_ns", "registry_read_started_at", "registry_read_started_monotonic_ns",
+  "revalidated_at", "schema_version", "source_request", "source_request_hash", "source_request_id",
+  "source_request_ref", "spawn_candidate_authority", "status", "valid_before", "wall_clock_source"].sort()
+
+function assertExactFields(value: object, fields: string[], label: string): void {
+  if (canonicalReservationJson(Object.keys(value).sort()) !== canonicalReservationJson(fields)) {
+    fail(`${label} field whitelist drift`)
+  }
 }
 
 export function assertReplayCheckpointReceiptSnapshot(value: ReplayCheckpointReceiptSnapshot): void {

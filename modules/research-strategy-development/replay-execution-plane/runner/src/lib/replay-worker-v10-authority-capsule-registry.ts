@@ -24,6 +24,11 @@ export interface ReplayWorkerV10AuthorityCapsuleRegistryInput {
   source_authority_process_launch_intent: ReplayDecisionHarnessWorkerV10AuthorityProcessLaunchIntent
 }
 
+export interface ReplayWorkerV10AuthorityCapsuleEntryInput {
+  registry_root: string
+  capsule_key: string
+}
+
 export function materializeReplayWorkerV10AuthorityCapsule(
   input: ReplayWorkerV10AuthorityCapsuleRegistryInput,
 ): ReplayDecisionHarnessWorkerV10AuthorityCapsuleRecord {
@@ -51,6 +56,20 @@ export function readReplayWorkerV10AuthorityCapsule(
   if (!value) return null
   requireDurableParent(input)
   return sameCapsule(value, buildReplayDecisionHarnessWorkerV10AuthorityCapsule(input))
+}
+
+export function readReplayWorkerV10AuthorityCapsuleEntry(
+  input: ReplayWorkerV10AuthorityCapsuleEntryInput,
+): ReplayDecisionHarnessWorkerV10AuthorityCapsuleRecord | null {
+  if (input.registry_root.trim() === "") throw new Error("Authority Capsule registry root is required")
+  if (!/^[a-f0-9]{64}$/.test(input.capsule_key)) {
+    throw new Error("Authority Capsule key must be a canonical hash")
+  }
+  const value = readCapsule(capsulePath(input.registry_root, input.capsule_key))
+  if (value && value.capsule_key !== input.capsule_key) {
+    throw new Error("Authority Capsule entry key mismatch")
+  }
+  return value
 }
 
 function requireDurableParent(input: ReplayWorkerV10AuthorityCapsuleRegistryInput): void {
