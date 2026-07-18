@@ -24,6 +24,11 @@ export interface ReplayWorkerV10AuthorityTransportContractRegistryInput {
   source_activated_stdio_capability: ReplayDecisionHarnessWorkerV10ActivatedStdioCapability
 }
 
+export interface ReplayWorkerV10AuthorityTransportContractEntryInput {
+  registry_root: string
+  contract_key: string
+}
+
 export function registerReplayWorkerV10AuthorityTransportContract(
   input: ReplayWorkerV10AuthorityTransportContractRegistryInput,
 ): ReplayDecisionHarnessWorkerV10AuthorityTransportContract {
@@ -52,6 +57,18 @@ export function readReplayWorkerV10AuthorityTransportContract(
   if (!value) return null
   requireDurableParent(input)
   return sameContract(value, buildReplayDecisionHarnessWorkerV10AuthorityTransportContract(input))
+}
+
+export function readReplayWorkerV10AuthorityTransportContractEntry(
+  input: ReplayWorkerV10AuthorityTransportContractEntryInput,
+): ReplayDecisionHarnessWorkerV10AuthorityTransportContract | null {
+  if (input.registry_root.trim() === "") throw new Error("Authority Transport Contract registry root is required")
+  if (!/^[a-f0-9]{64}$/.test(input.contract_key)) {
+    throw new Error("Authority Transport Contract key must be a canonical hash")
+  }
+  const value = readContract(contractPath(input.registry_root, input.contract_key))
+  if (value && value.contract_key !== input.contract_key) throw new Error("Authority Transport Contract entry key mismatch")
+  return value
 }
 
 function requireDurableParent(input: ReplayWorkerV10AuthorityTransportContractRegistryInput): void {
