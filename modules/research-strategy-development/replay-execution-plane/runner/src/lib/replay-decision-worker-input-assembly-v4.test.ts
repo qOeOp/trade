@@ -352,6 +352,14 @@ import {
   registerReplayWorkerV10ReproducibilityPairContract,
 } from "./replay-worker-v10-reproducibility-pair-contract-registry"
 import {
+  REPLAY_DECISION_HARNESS_WORKER_V10_SUCCESSOR_IMMUTABLE_BINDINGS,
+  assertReplayDecisionHarnessWorkerV10SuccessorVerificationAuthorityContract,
+} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-verification-authority-contract"
+import {
+  readReplayWorkerV10SuccessorVerificationAuthorityContract,
+  registerReplayWorkerV10SuccessorVerificationAuthorityContract,
+} from "./replay-worker-v10-successor-verification-authority-contract-registry"
+import {
   assertReplayDecisionHarnessWorkerV10AuthorityFrameBuildContractLineage,
   buildReplayDecisionHarnessWorkerV10AuthorityFrameBuildContract,
 } from "./replay-decision-harness-worker-v10-authority-frame-build-contract"
@@ -3579,6 +3587,80 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       registry_root: dispatchEvidenceRegistryRoot,
       source_schedule_admission: structuredClone(authorityScheduleAdmission),
     })).toEqual(reproducibilityPairContract)
+
+    const missingSuccessorAuthorityRoot = mkdtempSync(join(tmpdir(), "replay-worker-v10-successor-missing-"))
+    try {
+      expect(() => registerReplayWorkerV10SuccessorVerificationAuthorityContract({
+        registry_root: missingSuccessorAuthorityRoot,
+        source_reproducibility_pair_contract: reproducibilityPairContract,
+      })).toThrow("requires the exact durable Spawn Boundary Revalidation")
+    } finally {
+      rmSync(missingSuccessorAuthorityRoot, { recursive: true, force: true })
+    }
+    const successorAuthorityContract = registerReplayWorkerV10SuccessorVerificationAuthorityContract({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_reproducibility_pair_contract: reproducibilityPairContract,
+    })
+    expect(successorAuthorityContract.status)
+      .toBe("same_attempt_successor_generation_selected_not_materialized")
+    expect(successorAuthorityContract.selected_successor_authority_kind)
+      .toBe("same_attempt_higher_lease_generation")
+    expect(successorAuthorityContract.selection_reason)
+      .toBe("reproducibility_verification_is_one_attempt_execution_obligation_not_a_terminal_retry")
+    expect(successorAuthorityContract.cross_attempt_policy)
+      .toBe("new_attempt_reserved_for_control_plane_authorized_recovery_after_prior_attempt_terminal_or_expired")
+    expect(successorAuthorityContract.replay_renewal_authority).toBe("none_control_plane_only")
+    expect(successorAuthorityContract.source_first_attempt_id).toBe(executionEnvelope.attempt_id)
+    expect(successorAuthorityContract.source_first_attempt_ordinal).toBe(executionEnvelope.attempt_ordinal)
+    expect(successorAuthorityContract.source_first_worker_id).toBe(executionEnvelope.worker_id)
+    expect(successorAuthorityContract.source_first_lease_generation).toBe(executionEnvelope.lease_generation)
+    expect(successorAuthorityContract.minimum_successor_lease_generation)
+      .toBe(executionEnvelope.lease_generation + 1)
+    expect(successorAuthorityContract.required_immutable_bindings)
+      .toEqual([...REPLAY_DECISION_HARNESS_WORKER_V10_SUCCESSOR_IMMUTABLE_BINDINGS])
+    expect(successorAuthorityContract.successor_attempt_lease).toBeNull()
+    expect(successorAuthorityContract.successor_execution_envelope).toBeNull()
+    expect(successorAuthorityContract.successor_execution_admission_command).toBeNull()
+    expect(successorAuthorityContract.successor_process_launch_intent).toBeNull()
+    expect(successorAuthorityContract.successor_authority_capsule).toBeNull()
+    expect(successorAuthorityContract.successor_authority_lineage_count).toBe(0)
+    expect(successorAuthorityContract.second_schedule_admission_count).toBe(0)
+    expect(successorAuthorityContract.reproducibility_pair_count).toBe(0)
+    expect(successorAuthorityContract.harness_receipt_count).toBe(0)
+    expect(successorAuthorityContract.blockers).toEqual([
+      "control_plane_successor_lease_evidence_not_materialized",
+      "predecessor_linked_successor_execution_envelope_not_materialized",
+      "successor_command_intent_capsule_and_process_lineage_not_materialized",
+      "second_distinct_fresh_process_schedule_admission_not_materialized",
+      "response_reproducibility_pair_not_materialized",
+      "worker_v10_harness_receipt_not_materialized",
+    ])
+    expect(successorAuthorityContract.signal_authority).toBe("none")
+    expect(successorAuthorityContract.order_authority).toBe("none")
+    expect(successorAuthorityContract.economic_authority).toBe("none")
+    expect(() => assertReplayDecisionHarnessWorkerV10SuccessorVerificationAuthorityContract(
+      successorAuthorityContract,
+    )).not.toThrow()
+    expect(readReplayWorkerV10SuccessorVerificationAuthorityContract({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_reproducibility_pair_contract: reproducibilityPairContract,
+    })).toEqual(successorAuthorityContract)
+    expect(registerReplayWorkerV10SuccessorVerificationAuthorityContract({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_reproducibility_pair_contract: structuredClone(reproducibilityPairContract),
+    })).toEqual(successorAuthorityContract)
+
+    const successorAuthorityContractFile = readdirSync(dispatchEvidenceRegistryRoot)
+      .find((name) => name
+        === `worker-v10-successor-verification-authority-contract-${successorAuthorityContract.contract_key}.json`)
+    if (!successorAuthorityContractFile) {
+      throw new Error("expected Worker v10 successor verification authority Contract file")
+    }
+    writeFileSync(join(dispatchEvidenceRegistryRoot, successorAuthorityContractFile), "{}\n", "utf8")
+    expect(() => readReplayWorkerV10SuccessorVerificationAuthorityContract({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_reproducibility_pair_contract: reproducibilityPairContract,
+    })).toThrow()
 
     const reproducibilityPairContractFile = readdirSync(dispatchEvidenceRegistryRoot)
       .find((name) => name
