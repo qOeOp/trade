@@ -179,6 +179,9 @@ import {
   assertReplayDecisionHarnessWorkerV10AuthorityProcessLaunchIntent,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-authority-process-launch-intent"
 import {
+  assertReplayDecisionHarnessWorkerV10AuthorityCapsuleRecord,
+} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-authority-capsule"
+import {
   assertReplayPositionOpenStateInputMaterialization,
 } from "../../../contracts/src/lib/replay-position-open-state-input-materialization"
 import {
@@ -340,6 +343,14 @@ import {
   issueReplayWorkerV10AuthorityProcessLaunchIntent,
   readReplayWorkerV10AuthorityProcessLaunchIntent,
 } from "./replay-worker-v10-authority-process-launch-intent-registry"
+import {
+  assertReplayDecisionHarnessWorkerV10AuthorityCapsuleLineage,
+  buildReplayDecisionHarnessWorkerV10AuthorityCapsule,
+} from "./replay-decision-harness-worker-v10-authority-capsule"
+import {
+  materializeReplayWorkerV10AuthorityCapsule,
+  readReplayWorkerV10AuthorityCapsule,
+} from "./replay-worker-v10-authority-capsule-registry"
 import {
   assertReplayDecisionHarnessInvocationIdentityLineage,
   buildReplayDecisionHarnessInvocationIdentitySet,
@@ -2965,6 +2976,81 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       source_authority_execution_admission_command: authorityCommand,
       post_command_clock_attestation: buildAuthorityIntentClock("2026-07-14T00:00:52Z", "6000200"),
     })).toThrow("natural key has different evidence")
+
+    const authorityCapsuleInput = {
+      source_authority_process_launch_intent: authorityIntent,
+    }
+    const authorityCapsule = buildReplayDecisionHarnessWorkerV10AuthorityCapsule(authorityCapsuleInput)
+    expect(authorityCapsule.status)
+      .toBe("capsule_materialized_spawn_revalidation_and_process_not_materialized")
+    expect(authorityCapsule.source_authority_process_launch_intent_hash).toBe(authorityIntent.intent_hash)
+    expect(authorityCapsule.source_authority_execution_admission_command_hash).toBe(authorityCommand.command_hash)
+    expect(authorityCapsule.source_authority_transport_contract_hash).toBe(authorityTransport.contract_hash)
+    expect(authorityCapsule.authority_capsule).toEqual({
+      execution_admission_command_hash: authorityCommand.command_hash,
+      execution_envelope_hash: authorityIntent.source_execution_envelope_hash,
+      logical_request_id: authorityIntent.logical_request_id,
+      process_artifact_hash: activatedStdio.artifact.sha256,
+      process_launch_intent_hash: authorityIntent.intent_hash,
+      transport_contract_hash: authorityTransport.contract_hash,
+      worker_request_hash: authorityIntent.worker_request_hash,
+    })
+    expect(authorityCapsule.authority_capsule_canonical_json)
+      .toBe(canonicalJson(authorityCapsule.authority_capsule))
+    expect(authorityCapsule.capsule_hash).toBe(canonicalHash(authorityCapsule.authority_capsule))
+    expect(authorityCapsule.blockers).toEqual([
+      "fresh_spawn_boundary_revalidation_not_materialized",
+      "attempt_bound_process_launch_receipt_not_materialized",
+      "authority_frame_write_decode_read_and_admission_not_materialized",
+    ])
+    expect(authorityCapsule.authority_capsule_instance_count).toBe(1)
+    expect(authorityCapsule.spawn_boundary_revalidation_receipt_count).toBe(0)
+    expect(authorityCapsule.process_launch_receipt_count).toBe(0)
+    expect(authorityCapsule.admitted_process_instance_count).toBe(0)
+    expect(authorityCapsule.request_frame_instance_count).toBe(0)
+    expect(authorityCapsule.response_frame_instance_count).toBe(0)
+    expect(() => assertReplayDecisionHarnessWorkerV10AuthorityCapsuleRecord(authorityCapsule)).not.toThrow()
+    expect(() => assertReplayDecisionHarnessWorkerV10AuthorityCapsuleLineage(
+      authorityCapsule,
+      authorityCapsuleInput,
+    )).not.toThrow()
+    expect(() => assertReplayDecisionHarnessWorkerV10AuthorityCapsuleRecord({
+      ...authorityCapsule,
+      authority_capsule: {
+        ...authorityCapsule.authority_capsule,
+        process_artifact_hash: successorTransportContract.successor_process_artifact_hash,
+      },
+    })).toThrow("parent or environment binding drift")
+    const missingAuthorityCapsuleRoot = mkdtempSync(join(tmpdir(), "replay-worker-v10-authority-capsule-missing-"))
+    try {
+      expect(() => materializeReplayWorkerV10AuthorityCapsule({
+        registry_root: missingAuthorityCapsuleRoot,
+        ...authorityCapsuleInput,
+      })).toThrow("requires the exact durable Authority Process Launch Intent")
+    } finally {
+      rmSync(missingAuthorityCapsuleRoot, { recursive: true, force: true })
+    }
+    expect(materializeReplayWorkerV10AuthorityCapsule({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...authorityCapsuleInput,
+    })).toEqual(authorityCapsule)
+    expect(materializeReplayWorkerV10AuthorityCapsule({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...authorityCapsuleInput,
+    })).toEqual(authorityCapsule)
+    expect(readReplayWorkerV10AuthorityCapsule({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...authorityCapsuleInput,
+    })).toEqual(authorityCapsule)
+    const authorityCapsuleFile = readdirSync(dispatchEvidenceRegistryRoot)
+      .find((name) => name === `worker-v10-authority-capsule-${authorityCapsule.capsule_key}.json`)
+    if (!authorityCapsuleFile) throw new Error("expected Worker v10 Authority Capsule file")
+    writeFileSync(join(dispatchEvidenceRegistryRoot, authorityCapsuleFile), "{}\n", "utf8")
+    expect(() => readReplayWorkerV10AuthorityCapsule({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...authorityCapsuleInput,
+    })).toThrow()
+
     const authorityIntentFile = readdirSync(dispatchEvidenceRegistryRoot)
       .find((name) => name === `worker-v10-authority-process-launch-intent-${authorityIntent.intent_key}.json`)
     if (!authorityIntentFile) throw new Error("expected Worker v10 Authority Process Launch Intent file")

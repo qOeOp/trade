@@ -29,6 +29,11 @@ export interface ReplayWorkerV10AuthorityProcessLaunchIntentRegistryInput {
   post_command_clock_attestation: ReplayDispatchClockAttestationView
 }
 
+export interface ReplayWorkerV10AuthorityProcessLaunchIntentEntryInput {
+  registry_root: string
+  intent_key: string
+}
+
 export function issueReplayWorkerV10AuthorityProcessLaunchIntent(
   input: ReplayWorkerV10AuthorityProcessLaunchIntentRegistryInput,
 ): ReplayDecisionHarnessWorkerV10AuthorityProcessLaunchIntent {
@@ -56,6 +61,22 @@ export function readReplayWorkerV10AuthorityProcessLaunchIntent(
   if (!value) return null
   requireDurableParent(input)
   return sameIntent(value, buildReplayDecisionHarnessWorkerV10AuthorityProcessLaunchIntent(input))
+}
+
+export function readReplayWorkerV10AuthorityProcessLaunchIntentEntry(
+  input: ReplayWorkerV10AuthorityProcessLaunchIntentEntryInput,
+): ReplayDecisionHarnessWorkerV10AuthorityProcessLaunchIntent | null {
+  if (input.registry_root.trim() === "") {
+    throw new Error("Authority Process Launch Intent registry root is required")
+  }
+  if (!/^[a-f0-9]{64}$/.test(input.intent_key)) {
+    throw new Error("Authority Process Launch Intent key must be a canonical hash")
+  }
+  const value = readIntent(intentPath(input.registry_root, input.intent_key))
+  if (value && value.intent_key !== input.intent_key) {
+    throw new Error("Authority Process Launch Intent entry key mismatch")
+  }
+  return value
 }
 
 function requireDurableParent(input: ReplayWorkerV10AuthorityProcessLaunchIntentRegistryInput): void {
