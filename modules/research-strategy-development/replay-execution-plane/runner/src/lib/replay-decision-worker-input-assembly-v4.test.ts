@@ -154,6 +154,15 @@ import {
   assertReplayDecisionHarnessWorkerV10ProcessLaunchReadinessGate,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-process-launch-readiness-gate"
 import {
+  REPLAY_DECISION_HARNESS_WORKER_V10_AUTHORITY_REQUEST_FRAME_SCHEMA_VERSION,
+  REPLAY_DECISION_HARNESS_WORKER_V10_AUTHORITY_RESPONSE_FRAME_SCHEMA_VERSION,
+  assertReplayDecisionHarnessWorkerV10AuthorityFrameBuildContract,
+  assertReplayDecisionHarnessWorkerV10AuthorityRequestFrame,
+  assertReplayDecisionHarnessWorkerV10AuthorityResponseFrame,
+  createReplayDecisionHarnessWorkerV10AuthorityRequestFrame,
+  createReplayDecisionHarnessWorkerV10AuthorityResponseFrame,
+} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-authority-frame-build-contract"
+import {
   assertReplayPositionOpenStateInputMaterialization,
 } from "../../../contracts/src/lib/replay-position-open-state-input-materialization"
 import {
@@ -275,6 +284,14 @@ import {
   readReplayWorkerV10ProcessLaunchReadinessGate,
   registerReplayWorkerV10ProcessLaunchReadinessGate,
 } from "./replay-worker-v10-process-launch-readiness-gate-registry"
+import {
+  assertReplayDecisionHarnessWorkerV10AuthorityFrameBuildContractLineage,
+  buildReplayDecisionHarnessWorkerV10AuthorityFrameBuildContract,
+} from "./replay-decision-harness-worker-v10-authority-frame-build-contract"
+import {
+  readReplayWorkerV10AuthorityFrameBuildContract,
+  registerReplayWorkerV10AuthorityFrameBuildContract,
+} from "./replay-worker-v10-authority-frame-build-contract-registry"
 import {
   assertReplayDecisionHarnessInvocationIdentityLineage,
   buildReplayDecisionHarnessInvocationIdentitySet,
@@ -2381,6 +2398,133 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       registry_root: dispatchEvidenceRegistryRoot,
       ...processReadinessInput,
     })).toEqual(processLaunchReadiness)
+
+    const authorityBuildInput = { source_launch_readiness_gate: processLaunchReadiness }
+    const authorityFrameBuild = buildReplayDecisionHarnessWorkerV10AuthorityFrameBuildContract(
+      authorityBuildInput,
+    )
+    expect(authorityFrameBuild.status).toBe("contract_frozen_build_not_materialized")
+    expect(authorityFrameBuild.request_frame_schema_version)
+      .toBe(REPLAY_DECISION_HARNESS_WORKER_V10_AUTHORITY_REQUEST_FRAME_SCHEMA_VERSION)
+    expect(authorityFrameBuild.response_frame_schema_version)
+      .toBe(REPLAY_DECISION_HARNESS_WORKER_V10_AUTHORITY_RESPONSE_FRAME_SCHEMA_VERSION)
+    expect(authorityFrameBuild.required_response_echo_fields).toEqual([
+      "execution_admission_command_hash",
+      "process_launch_intent_hash",
+      "request_frame_hash",
+      "worker_request_hash",
+    ])
+    expect(authorityFrameBuild.old_authority_reuse_policy)
+      .toBe("forbidden_new_artifact_requires_new_transport_command_and_intent")
+    expect(authorityFrameBuild.blockers).toEqual([
+      "activated_stdio_process_artifact_not_materialized",
+      "artifact_bound_successor_transport_not_materialized",
+      "successor_execution_admission_command_not_issued",
+      "successor_process_launch_intent_not_issued",
+      "fresh_spawn_boundary_revalidation_not_materialized",
+      "attempt_bound_process_launch_receipt_not_materialized",
+      "authority_frame_write_decode_read_and_admission_not_materialized",
+    ])
+    expect(authorityFrameBuild.activated_stdio_artifact_count).toBe(0)
+    expect(authorityFrameBuild.successor_transport_contract_count).toBe(0)
+    expect(authorityFrameBuild.successor_execution_admission_command_count).toBe(0)
+    expect(authorityFrameBuild.successor_process_launch_intent_count).toBe(0)
+    expect(authorityFrameBuild.admitted_process_instance_count).toBe(0)
+    expect(authorityFrameBuild.request_frame_instance_count).toBe(0)
+    expect(authorityFrameBuild.response_frame_instance_count).toBe(0)
+    expect(() => assertReplayDecisionHarnessWorkerV10AuthorityFrameBuildContract(
+      authorityFrameBuild,
+    )).not.toThrow()
+    expect(() => assertReplayDecisionHarnessWorkerV10AuthorityFrameBuildContractLineage(
+      authorityFrameBuild,
+      authorityBuildInput,
+    )).not.toThrow()
+
+    const futureTransportHash = canonicalHash({ kind: "future-authority-transport" })
+    const futureArtifactHash = canonicalHash({ kind: "future-activated-stdio-artifact" })
+    const futureCommandHash = canonicalHash({ kind: "future-execution-admission-command" })
+    const futureIntentHash = canonicalHash({ kind: "future-process-launch-intent" })
+    const authorityRequestFrame = createReplayDecisionHarnessWorkerV10AuthorityRequestFrame({
+      schema_version: REPLAY_DECISION_HARNESS_WORKER_V10_AUTHORITY_REQUEST_FRAME_SCHEMA_VERSION,
+      frame_kind: "worker_request",
+      worker_protocol_version: firstRequestV10.worker_protocol_version,
+      transport_contract_hash: futureTransportHash,
+      execution_envelope_hash: executionEnvelope.envelope_hash,
+      process_artifact_hash: futureArtifactHash,
+      execution_admission_command_hash: futureCommandHash,
+      process_launch_intent_hash: futureIntentHash,
+      logical_request_id: firstRequestV10.logical_request_id,
+      worker_request_hash: firstRequestV10.request_hash,
+      worker_request: structuredClone(firstRequestV10),
+      authority_status: "authority_bound_candidate_not_admitted",
+    })
+    expect(() => assertReplayDecisionHarnessWorkerV10AuthorityRequestFrame(
+      authorityRequestFrame,
+    )).not.toThrow()
+    const authorityResponseFrame = createReplayDecisionHarnessWorkerV10AuthorityResponseFrame({
+      schema_version: REPLAY_DECISION_HARNESS_WORKER_V10_AUTHORITY_RESPONSE_FRAME_SCHEMA_VERSION,
+      frame_kind: "worker_response",
+      worker_protocol_version: responseV10.worker_protocol_version,
+      transport_contract_hash: futureTransportHash,
+      execution_envelope_hash: executionEnvelope.envelope_hash,
+      process_artifact_hash: futureArtifactHash,
+      execution_admission_command_hash: futureCommandHash,
+      process_launch_intent_hash: futureIntentHash,
+      request_frame_hash: authorityRequestFrame.frame_hash,
+      logical_request_id: responseV10.logical_request_id,
+      worker_request_hash: responseV10.request_hash,
+      worker_response_hash: responseV10.response_hash,
+      worker_response: structuredClone(responseV10),
+      authority_status: "authority_bound_candidate_not_admitted",
+    })
+    expect(() => assertReplayDecisionHarnessWorkerV10AuthorityResponseFrame(
+      authorityResponseFrame,
+      authorityRequestFrame,
+    )).not.toThrow()
+    const { frame_hash: _authorityResponseHash, ...authorityResponseBody } = authorityResponseFrame
+    const commandEchoTamper = createReplayDecisionHarnessWorkerV10AuthorityResponseFrame({
+      ...authorityResponseBody,
+      execution_admission_command_hash: canonicalHash({ kind: "wrong-command" }),
+    })
+    expect(() => assertReplayDecisionHarnessWorkerV10AuthorityResponseFrame(
+      commandEchoTamper,
+      authorityRequestFrame,
+    )).toThrow("Request authority echo drift")
+    const requestEchoTamper = createReplayDecisionHarnessWorkerV10AuthorityResponseFrame({
+      ...authorityResponseBody,
+      request_frame_hash: canonicalHash({ kind: "wrong-request-frame" }),
+    })
+    expect(() => assertReplayDecisionHarnessWorkerV10AuthorityResponseFrame(
+      requestEchoTamper,
+      authorityRequestFrame,
+    )).toThrow("Request authority echo drift")
+
+    const missingAuthorityBuildRoot = mkdtempSync(join(tmpdir(), "replay-worker-v10-authority-build-missing-"))
+    try {
+      expect(() => registerReplayWorkerV10AuthorityFrameBuildContract({
+        registry_root: missingAuthorityBuildRoot,
+        ...authorityBuildInput,
+      })).toThrow("requires the exact durable Process Launch Readiness Gate")
+    } finally {
+      rmSync(missingAuthorityBuildRoot, { recursive: true, force: true })
+    }
+    expect(registerReplayWorkerV10AuthorityFrameBuildContract({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...authorityBuildInput,
+    })).toEqual(authorityFrameBuild)
+    expect(readReplayWorkerV10AuthorityFrameBuildContract({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...authorityBuildInput,
+    })).toEqual(authorityFrameBuild)
+    const authorityBuildFile = readdirSync(dispatchEvidenceRegistryRoot)
+      .find((name) => name === `worker-v10-authority-frame-build-${authorityFrameBuild.contract_key}.json`)
+    if (!authorityBuildFile) throw new Error("expected Worker v10 Authority Frame Build Contract file")
+    writeFileSync(join(dispatchEvidenceRegistryRoot, authorityBuildFile), "{}\n", "utf8")
+    expect(() => readReplayWorkerV10AuthorityFrameBuildContract({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...authorityBuildInput,
+    })).toThrow()
+
     const processReadinessFile = readdirSync(dispatchEvidenceRegistryRoot)
       .find((name) => name === `worker-v10-process-launch-readiness-${processLaunchReadiness.gate_key}.json`)
     if (!processReadinessFile) throw new Error("expected Worker v10 Process Launch Readiness Gate file")

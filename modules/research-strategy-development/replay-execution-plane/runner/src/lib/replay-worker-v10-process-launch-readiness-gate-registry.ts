@@ -22,6 +22,11 @@ export interface ReplayWorkerV10ProcessLaunchReadinessGateRegistryInput {
   source_process_launch_intent: ReplayDecisionHarnessWorkerV10ProcessLaunchIntent
 }
 
+export interface ReplayWorkerV10ProcessLaunchReadinessGateEntryInput {
+  registry_root: string
+  gate_key: string
+}
+
 export function registerReplayWorkerV10ProcessLaunchReadinessGate(
   input: ReplayWorkerV10ProcessLaunchReadinessGateRegistryInput,
 ): ReplayDecisionHarnessWorkerV10ProcessLaunchReadinessGate {
@@ -49,6 +54,19 @@ export function readReplayWorkerV10ProcessLaunchReadinessGate(
   if (!value) return null
   requireDurableParent(input)
   return sameGate(value, buildReplayDecisionHarnessWorkerV10ProcessLaunchReadinessGate(input))
+}
+
+export function readReplayWorkerV10ProcessLaunchReadinessGateEntry(
+  input: ReplayWorkerV10ProcessLaunchReadinessGateEntryInput,
+): ReplayDecisionHarnessWorkerV10ProcessLaunchReadinessGate | null {
+  if (input.registry_root.trim() === "" || !/^[0-9a-f]{64}$/.test(input.gate_key)) {
+    throw new Error("Process Launch Readiness Gate entry identity is invalid")
+  }
+  const value = readGate(gatePath(input.registry_root, input.gate_key))
+  if (value && value.gate_key !== input.gate_key) {
+    throw new Error("Process Launch Readiness Gate entry key mismatch")
+  }
+  return value
 }
 
 function requireDurableParent(input: ReplayWorkerV10ProcessLaunchReadinessGateRegistryInput): void {
