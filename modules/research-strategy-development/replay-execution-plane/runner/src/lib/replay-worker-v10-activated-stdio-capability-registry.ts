@@ -24,6 +24,11 @@ export interface ReplayWorkerV10ActivatedStdioCapabilityRegistryInput {
   source_authority_frame_build_contract: ReplayDecisionHarnessWorkerV10AuthorityFrameBuildContract
 }
 
+export interface ReplayWorkerV10ActivatedStdioCapabilityEntryInput {
+  registry_root: string
+  capability_key: string
+}
+
 export function registerReplayWorkerV10ActivatedStdioCapability(
   input: ReplayWorkerV10ActivatedStdioCapabilityRegistryInput,
 ): ReplayDecisionHarnessWorkerV10ActivatedStdioCapability {
@@ -55,6 +60,18 @@ export function readReplayWorkerV10ActivatedStdioCapability(
   if (!value) return null
   requireDurableParent(input)
   return sameCapability(value, buildReplayDecisionHarnessWorkerV10ActivatedStdioCapability(input))
+}
+
+export function readReplayWorkerV10ActivatedStdioCapabilityEntry(
+  input: ReplayWorkerV10ActivatedStdioCapabilityEntryInput,
+): ReplayDecisionHarnessWorkerV10ActivatedStdioCapability | null {
+  if (input.registry_root.trim() === "") {
+    throw new Error("Activated Stdio Capability registry root is required")
+  }
+  if (!/^[a-f0-9]{64}$/.test(input.capability_key)) {
+    throw new Error("Activated Stdio Capability key must be a canonical hash")
+  }
+  return readCapability(capabilityPath(input.registry_root, input.capability_key))
 }
 
 function requireDurableParent(input: ReplayWorkerV10ActivatedStdioCapabilityRegistryInput): void {

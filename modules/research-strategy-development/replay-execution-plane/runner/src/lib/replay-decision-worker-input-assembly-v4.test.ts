@@ -168,6 +168,10 @@ import {
   assertReplayDecisionHarnessWorkerV10ActivatedStdioCapability,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-activated-stdio-capability"
 import {
+  REPLAY_DECISION_HARNESS_WORKER_V10_AUTHORITY_PROCESS_RECEIPT_BINDINGS,
+  assertReplayDecisionHarnessWorkerV10AuthorityTransportContract,
+} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-authority-transport-contract"
+import {
   assertReplayPositionOpenStateInputMaterialization,
 } from "../../../contracts/src/lib/replay-position-open-state-input-materialization"
 import {
@@ -305,6 +309,14 @@ import {
   readReplayWorkerV10ActivatedStdioCapability,
   registerReplayWorkerV10ActivatedStdioCapability,
 } from "./replay-worker-v10-activated-stdio-capability-registry"
+import {
+  assertReplayDecisionHarnessWorkerV10AuthorityTransportContractLineage,
+  buildReplayDecisionHarnessWorkerV10AuthorityTransportContract,
+} from "./replay-decision-harness-worker-v10-authority-transport-contract"
+import {
+  readReplayWorkerV10AuthorityTransportContract,
+  registerReplayWorkerV10AuthorityTransportContract,
+} from "./replay-worker-v10-authority-transport-contract-registry"
 import {
   assertReplayDecisionHarnessInvocationIdentityLineage,
   buildReplayDecisionHarnessInvocationIdentitySet,
@@ -2605,6 +2617,73 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       registry_root: dispatchEvidenceRegistryRoot,
       ...activatedStdioInput,
     })).toEqual(activatedStdio)
+
+    const authorityTransportInput = { source_activated_stdio_capability: activatedStdio }
+    const authorityTransport = buildReplayDecisionHarnessWorkerV10AuthorityTransportContract(
+      authorityTransportInput,
+    )
+    expect(authorityTransport.status).toBe("activated_artifact_bound_authority_issuance_blocked_zero_process")
+    expect(authorityTransport.activated_process_artifact_hash).toBe(activatedStdio.artifact.sha256)
+    expect(authorityTransport.source_predecessor_transport_contract_hash)
+      .toBe(successorTransportContract.contract_hash)
+    expect(authorityTransport.request_frame_schema_version)
+      .toBe(REPLAY_DECISION_HARNESS_WORKER_V10_AUTHORITY_REQUEST_FRAME_SCHEMA_VERSION)
+    expect(authorityTransport.response_frame_schema_version)
+      .toBe(REPLAY_DECISION_HARNESS_WORKER_V10_AUTHORITY_RESPONSE_FRAME_SCHEMA_VERSION)
+    expect(authorityTransport.authority_capsule_intent_binding)
+      .toBe("future_successor_intent_hash_derived_at_spawn_not_stored_in_intent_payload")
+    expect(authorityTransport.process_receipt_required_bindings)
+      .toEqual(REPLAY_DECISION_HARNESS_WORKER_V10_AUTHORITY_PROCESS_RECEIPT_BINDINGS)
+    expect(authorityTransport.blockers).toEqual([
+      "successor_execution_admission_command_not_issued",
+      "successor_process_launch_intent_not_issued",
+      "fresh_spawn_boundary_revalidation_not_materialized",
+      "attempt_bound_process_launch_receipt_not_materialized",
+      "authority_frame_write_decode_read_and_admission_not_materialized",
+    ])
+    expect(authorityTransport.activated_stdio_artifact_count).toBe(1)
+    expect(authorityTransport.authority_transport_contract_instance_count).toBe(1)
+    expect(authorityTransport.successor_execution_admission_command_count).toBe(0)
+    expect(authorityTransport.successor_process_launch_intent_count).toBe(0)
+    expect(authorityTransport.authority_capsule_instance_count).toBe(0)
+    expect(authorityTransport.process_launch_receipt_count).toBe(0)
+    expect(authorityTransport.request_frame_instance_count).toBe(0)
+    expect(authorityTransport.response_frame_instance_count).toBe(0)
+    expect(() => assertReplayDecisionHarnessWorkerV10AuthorityTransportContract(authorityTransport)).not.toThrow()
+    expect(() => assertReplayDecisionHarnessWorkerV10AuthorityTransportContractLineage(
+      authorityTransport,
+      authorityTransportInput,
+    )).not.toThrow()
+    expect(() => assertReplayDecisionHarnessWorkerV10AuthorityTransportContract({
+      ...authorityTransport,
+      activated_process_artifact_hash: successorTransportContract.successor_process_artifact_hash,
+    })).toThrow("parent or artifact binding drift")
+    const missingAuthorityTransportRoot = mkdtempSync(join(tmpdir(), "replay-worker-v10-authority-transport-missing-"))
+    try {
+      expect(() => registerReplayWorkerV10AuthorityTransportContract({
+        registry_root: missingAuthorityTransportRoot,
+        ...authorityTransportInput,
+      })).toThrow("requires the exact durable Activated Stdio Capability")
+    } finally {
+      rmSync(missingAuthorityTransportRoot, { recursive: true, force: true })
+    }
+    expect(registerReplayWorkerV10AuthorityTransportContract({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...authorityTransportInput,
+    })).toEqual(authorityTransport)
+    expect(readReplayWorkerV10AuthorityTransportContract({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...authorityTransportInput,
+    })).toEqual(authorityTransport)
+    const authorityTransportFile = readdirSync(dispatchEvidenceRegistryRoot)
+      .find((name) => name === `worker-v10-authority-transport-${authorityTransport.contract_key}.json`)
+    if (!authorityTransportFile) throw new Error("expected Worker v10 Authority Transport Contract file")
+    writeFileSync(join(dispatchEvidenceRegistryRoot, authorityTransportFile), "{}\n", "utf8")
+    expect(() => readReplayWorkerV10AuthorityTransportContract({
+      registry_root: dispatchEvidenceRegistryRoot,
+      ...authorityTransportInput,
+    })).toThrow()
+
     const activatedStdioFile = readdirSync(dispatchEvidenceRegistryRoot)
       .find((name) => name === `worker-v10-activated-stdio-${activatedStdio.capability_key}.json`)
     if (!activatedStdioFile) throw new Error("expected Worker v10 Activated Stdio Capability file")
@@ -3029,4 +3108,4 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       cash_balance: 999.8,
     }),
   })).toThrow("parent lineage drift")
-}, 30_000)
+}, 60_000)
