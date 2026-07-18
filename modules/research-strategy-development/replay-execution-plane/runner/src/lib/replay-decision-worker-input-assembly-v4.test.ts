@@ -368,12 +368,19 @@ import {
   assertReplayDecisionHarnessWorkerV10SuccessorLeaseAdmission,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-lease-admission"
 import {
+  assertReplayDecisionHarnessWorkerV10SuccessorExecutionEnvelopeAdmission,
+} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-execution-envelope-admission"
+import {
   admitReplayWorkerV10SuccessorLease,
   readReplayWorkerV10SuccessorLeaseAdmission,
 } from "./replay-worker-v10-successor-lease-admission-registry"
 import {
   readReplayWorkerV10SuccessorVerificationLeaseRenewalRequest,
 } from "./replay-worker-v10-successor-verification-lease-renewal-request-registry"
+import {
+  readReplayWorkerV10SuccessorExecutionEnvelope,
+  registerReplayWorkerV10SuccessorExecutionEnvelope,
+} from "./replay-worker-v10-successor-execution-envelope-registry"
 import {
   assertReplayDecisionHarnessWorkerV10AuthorityFrameBuildContractLineage,
   buildReplayDecisionHarnessWorkerV10AuthorityFrameBuildContract,
@@ -3817,6 +3824,79 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       requested_lease_expires_at: "2026-07-14T00:11:00Z",
       authority_port: { renew: () => successorLeaseResult.control_plane_renewal_receipt },
     })).toThrow("natural key has different evidence")
+
+    const successorEnvelopeAdmission = registerReplayWorkerV10SuccessorExecutionEnvelope({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_successor_lease_admission: successorLeaseAdmission,
+    })
+    expect(successorEnvelopeAdmission.status)
+      .toBe("successor_execution_envelope_admitted_command_not_materialized")
+    expect(successorEnvelopeAdmission.source_successor_lease_admission_hash)
+      .toBe(successorLeaseAdmission.admission_hash)
+    expect(successorEnvelopeAdmission.source_predecessor_execution_envelope_hash)
+      .toBe(executionEnvelope.envelope_hash)
+    expect(successorEnvelopeAdmission.successor_execution_envelope.succession_kind)
+      .toBe("same_attempt_lease_generation_successor")
+    expect(successorEnvelopeAdmission.successor_execution_envelope.predecessor_execution_envelope_hash)
+      .toBe(executionEnvelope.envelope_hash)
+    expect(successorEnvelopeAdmission.successor_execution_envelope.attempt_lease_hash)
+      .toBe(successorLeaseAdmission.successor_attempt_lease_hash)
+    expect(successorEnvelopeAdmission.successor_execution_envelope.lease_generation)
+      .toBe(attemptLease.lease_generation + 1)
+    expect(successorEnvelopeAdmission.successor_execution_envelope.envelope_hash)
+      .not.toBe(executionEnvelope.envelope_hash)
+    expect(successorEnvelopeAdmission.successor_execution_envelope.envelope_hash)
+      .not.toBe(successorEnvelope.envelope_hash)
+    expect(successorEnvelopeAdmission.successor_execution_envelope_count).toBe(1)
+    expect(successorEnvelopeAdmission.successor_execution_admission_command_count).toBe(0)
+    expect(successorEnvelopeAdmission.successor_process_launch_intent_count).toBe(0)
+    expect(successorEnvelopeAdmission.successor_authority_capsule_count).toBe(0)
+    expect(successorEnvelopeAdmission.successor_spawn_revalidation_count).toBe(0)
+    expect(successorEnvelopeAdmission.successor_process_count).toBe(0)
+    expect(successorEnvelopeAdmission.second_response_count).toBe(0)
+    expect(successorEnvelopeAdmission.second_schedule_admission_count).toBe(0)
+    expect(successorEnvelopeAdmission.reproducibility_pair_count).toBe(0)
+    expect(successorEnvelopeAdmission.harness_receipt_count).toBe(0)
+    expect(successorEnvelopeAdmission.envelope_authority)
+      .toBe("admitted_for_fresh_successor_command_construction_only")
+    expect(successorEnvelopeAdmission.process_authority)
+      .toBe("none_fresh_command_intent_capsule_revalidation_required")
+    expect(successorEnvelopeAdmission.blockers).toEqual([
+      "successor_command_intent_capsule_and_process_lineage_not_materialized",
+      "second_distinct_fresh_process_schedule_admission_not_materialized",
+      "response_reproducibility_pair_not_materialized",
+      "worker_v10_harness_receipt_not_materialized",
+    ])
+    expect(successorEnvelopeAdmission.signal_authority).toBe("none")
+    expect(successorEnvelopeAdmission.order_authority).toBe("none")
+    expect(successorEnvelopeAdmission.economic_authority).toBe("none")
+    expect(() => assertReplayDecisionHarnessWorkerV10SuccessorExecutionEnvelopeAdmission(
+      successorEnvelopeAdmission,
+    )).not.toThrow()
+    expect(readReplayWorkerV10SuccessorExecutionEnvelope({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_successor_lease_admission: successorLeaseAdmission,
+    })).toEqual(successorEnvelopeAdmission)
+    expect(registerReplayWorkerV10SuccessorExecutionEnvelope({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_successor_lease_admission: structuredClone(successorLeaseAdmission),
+    })).toEqual(successorEnvelopeAdmission)
+    expect(() => assertReplayDecisionHarnessWorkerV10SuccessorExecutionEnvelopeAdmission({
+      ...successorEnvelopeAdmission,
+      successor_execution_admission_command_count: 1 as never,
+    })).toThrow()
+
+    const successorEnvelopeAdmissionFile = readdirSync(dispatchEvidenceRegistryRoot)
+      .find((name) => name
+        === `worker-v10-successor-execution-envelope-${successorEnvelopeAdmission.admission_key}.json`)
+    if (!successorEnvelopeAdmissionFile) {
+      throw new Error("expected Worker v10 successor Execution Envelope Admission file")
+    }
+    writeFileSync(join(dispatchEvidenceRegistryRoot, successorEnvelopeAdmissionFile), "{}\n", "utf8")
+    expect(() => readReplayWorkerV10SuccessorExecutionEnvelope({
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_successor_lease_admission: successorLeaseAdmission,
+    })).toThrow()
 
     const successorLeaseAdmissionFile = readdirSync(dispatchEvidenceRegistryRoot)
       .find((name) => name
