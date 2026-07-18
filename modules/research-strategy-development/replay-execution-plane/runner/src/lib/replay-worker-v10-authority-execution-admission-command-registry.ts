@@ -29,6 +29,11 @@ export interface ReplayWorkerV10AuthorityExecutionAdmissionCommandRegistryInput 
   control_plane_clock_attestation: ReplayDispatchClockAttestationView
 }
 
+export interface ReplayWorkerV10AuthorityExecutionAdmissionCommandEntryInput {
+  registry_root: string
+  command_key: string
+}
+
 export function issueReplayWorkerV10AuthorityExecutionAdmissionCommand(
   input: ReplayWorkerV10AuthorityExecutionAdmissionCommandRegistryInput,
 ): ReplayDecisionHarnessWorkerV10AuthorityExecutionAdmissionCommand {
@@ -56,6 +61,22 @@ export function readReplayWorkerV10AuthorityExecutionAdmissionCommand(
   if (!value) return null
   requireDurableParent(input)
   return sameCommand(value, buildReplayDecisionHarnessWorkerV10AuthorityExecutionAdmissionCommand(input))
+}
+
+export function readReplayWorkerV10AuthorityExecutionAdmissionCommandEntry(
+  input: ReplayWorkerV10AuthorityExecutionAdmissionCommandEntryInput,
+): ReplayDecisionHarnessWorkerV10AuthorityExecutionAdmissionCommand | null {
+  if (input.registry_root.trim() === "") {
+    throw new Error("Authority Execution Admission Command registry root is required")
+  }
+  if (!/^[a-f0-9]{64}$/.test(input.command_key)) {
+    throw new Error("Authority Execution Admission Command key must be a canonical hash")
+  }
+  const value = readCommand(commandPath(input.registry_root, input.command_key))
+  if (value && value.command_key !== input.command_key) {
+    throw new Error("Authority Execution Admission Command entry key mismatch")
+  }
+  return value
 }
 
 function requireDurableParent(input: ReplayWorkerV10AuthorityExecutionAdmissionCommandRegistryInput): void {
