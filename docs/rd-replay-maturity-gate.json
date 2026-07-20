@@ -7,9 +7,9 @@
   "active_milestone": {
     "id": "M4-P26",
     "name": "fixed-partial-reduce-portfolio-risk-resize-end-to-end",
-    "status": "in_progress",
+    "status": "complete",
     "functional_commit_budget": 8,
-    "functional_commits_used": 0
+    "functional_commits_used": 1
   },
   "policy": {
     "zero_instance_progress_forbidden": true,
@@ -20,37 +20,37 @@
   },
   "gates": {
     "functional": {
-      "explicit_fixed_partial_reduce_projection_opt_in": false,
-      "fixed_partial_reduce_full_fill_then_generation_two_protection": false,
-      "quantity_aware_funding_margin_and_liquidation": false,
-      "realized_pnl_fee_cash_and_collateral_reconciliation": false,
-      "gross_net_exposure_and_risk_resize": false,
-      "owner_keyed_terminal_accounting": false,
-      "bounded_cycle_cash_roll_forward": false,
-      "terminal_accounting_cycle_manifest_last_artifacts": false
+      "explicit_fixed_partial_reduce_projection_opt_in": true,
+      "fixed_partial_reduce_full_fill_then_generation_two_protection": true,
+      "quantity_aware_funding_margin_and_liquidation": true,
+      "realized_pnl_fee_cash_and_collateral_reconciliation": true,
+      "gross_net_exposure_and_risk_resize": true,
+      "owner_keyed_terminal_accounting": true,
+      "bounded_cycle_cash_roll_forward": true,
+      "terminal_accounting_cycle_manifest_last_artifacts": true
     },
     "evidence": {
-      "long_short_fixed_partial_execution": false,
-      "decision_boundary_initial_bracket_race": false,
-      "post_partial_stop_target_strategy_exit_and_liquidation_ownership": false,
-      "funding_before_and_after_partial_uses_t_minus_quantity": false,
-      "open_at_end_keeps_resized_position_cash_collateral_exposure_and_risk": false,
-      "cash_collateral_exposure_and_risk_conservation": false,
-      "four_cycle_cash_and_owner_bridge": false,
-      "cycle_local_ledger_hash_preservation": false,
-      "one_sequence_opening_equity": false,
-      "mid_cycle_failure_no_sequence_evidence": false,
-      "semantic_tamper_fail_closed": false,
-      "artifact_idempotent_replay": false,
-      "interrupted_publication_no_sequence_manifest": false
+      "long_short_fixed_partial_execution": true,
+      "decision_boundary_initial_bracket_race": true,
+      "post_partial_stop_target_strategy_exit_and_liquidation_ownership": true,
+      "funding_before_and_after_partial_uses_t_minus_quantity": true,
+      "open_at_end_keeps_resized_position_cash_collateral_exposure_and_risk": true,
+      "cash_collateral_exposure_and_risk_conservation": true,
+      "four_cycle_cash_and_owner_bridge": true,
+      "cycle_local_ledger_hash_preservation": true,
+      "one_sequence_opening_equity": true,
+      "mid_cycle_failure_no_sequence_evidence": true,
+      "semantic_tamper_fail_closed": true,
+      "artifact_idempotent_replay": true,
+      "interrupted_publication_no_sequence_manifest": true
     },
     "cutover": {
-      "production_terminal_accounting_and_cycle_runners": false,
-      "default_portfolio_projection_rejects_fixed_partial_reduce": false,
-      "p15_through_p25_preserved": false,
-      "single_change_set_end_to_end_consumer": false,
-      "no_successor_cycle_before_full_flat": false,
-      "no_dynamic_sizing_repeat_partial_reentry_cross_margin_real_liquidity_or_fast": false
+      "production_terminal_accounting_and_cycle_runners": true,
+      "default_portfolio_projection_rejects_fixed_partial_reduce": true,
+      "p15_through_p25_preserved": true,
+      "single_change_set_end_to_end_consumer": true,
+      "no_successor_cycle_before_full_flat": true,
+      "no_dynamic_sizing_repeat_partial_reentry_cross_margin_real_liquidity_or_fast": true
     }
   },
   "evidence_refs": [
@@ -177,7 +177,16 @@
     "modules/research-strategy-development/replay-execution-plane/engine/src/lib/replay-partial-reduce-lane.ts",
     "modules/research-strategy-development/replay-execution-plane/engine/src/lib/replay-partial-reduce-lane.test.ts",
     "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.test.ts",
-    "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts"
+    "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
+    "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-portfolio-fixed-partial-terminal-contracts.ts",
+    "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-portfolio-fixed-partial-terminal-accounting-contracts.ts",
+    "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-portfolio-fixed-partial-cycle-sequence-contracts.ts",
+    "modules/research-strategy-development/replay-execution-plane/engine/src/lib/replay-portfolio-fixed-partial-terminal-engine.ts",
+    "modules/research-strategy-development/replay-execution-plane/accounting/src/lib/replay-portfolio-fixed-partial-terminal-accounting.ts",
+    "modules/research-strategy-development/replay-execution-plane/accounting/src/lib/replay-portfolio-fixed-partial-cycle-sequence-accounting.ts",
+    "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-fixed-partial-terminal-runner.ts",
+    "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-fixed-partial-terminal-accounting-runner.ts",
+    "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-fixed-partial-cycle-sequence-runner.ts"
   ],
-  "next_allowed_outcome": "all-m4-p26-gates-true-in-one-bounded-change-set"
+  "next_allowed_outcome": "audit-and-select-next-bounded-m4-fidelity-gap-after-fixed-partial-reduce"
 }
