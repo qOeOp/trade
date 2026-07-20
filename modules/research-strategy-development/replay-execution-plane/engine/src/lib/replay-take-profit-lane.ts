@@ -11,15 +11,15 @@ import {
   type ReplayTransitionStamp,
 } from "./replay-order-state"
 
-export function replaceReplayProtectiveStop(input: {
+export function replaceReplayTakeProfit(input: {
   run_id: string
   decision_sequence: number
   decision_time: string
   source_sequence: number
   signed_position: number
   side: ReplayOrderSide
-  new_stop_price: number
-  current_stop_order: ReplayOrder
+  new_target_price: number
+  current_target_order: ReplayOrder
   next_stamp: (
     eventTime: string,
     boundaryPhase: ReplayBoundaryPhase,
@@ -28,24 +28,24 @@ export function replaceReplayProtectiveStop(input: {
   ) => ReplayTransitionStamp
   capture: <T extends { order: ReplayOrder; event: ReplayOrderEvent }>(transition: T) => T
 }): ReplayOrder {
-  if (input.signed_position === 0 || input.current_stop_order.status !== "active") {
-    throw new Error("Replay protective stop replacement requires an active protected position")
+  if (input.signed_position === 0 || input.current_target_order.status !== "active") {
+    throw new Error("Replay take-profit replacement requires an active protected position")
   }
   input.capture(cancelReplayOrder(
-    input.current_stop_order,
+    input.current_target_order,
     input.next_stamp(input.decision_time, 90, input.source_sequence, 0),
     input.signed_position,
-    "protective-stop-replaced",
+    "take-profit-repriced",
   ))
   let replacement = input.capture(submitReplayOrder({
-    order_id: `${input.run_id}:order:stop-replacement:${input.decision_sequence}`,
-    order_role: "stop",
-    order_type: "stop_market",
+    order_id: `${input.run_id}:order:target-replacement:${input.decision_sequence}`,
+    order_role: "target",
+    order_type: "take_profit_market",
     side: input.side,
     quantity: Math.abs(input.signed_position),
     reduce_only: true,
     submitted_at: input.decision_time,
-    trigger_price: input.new_stop_price,
+    trigger_price: input.new_target_price,
   }, input.next_stamp(input.decision_time, 90, input.source_sequence, 1), input.signed_position)).order
   replacement = input.capture(activateReplayOrder(
     replacement,

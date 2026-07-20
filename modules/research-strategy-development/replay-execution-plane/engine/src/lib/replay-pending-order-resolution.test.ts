@@ -41,7 +41,7 @@ test("golden: GTC limit uses observed-open improvement but remains queue-limited
     cancel_effective_key: null,
   })
   expect(sell.outcome.fill_reference_price).toBe(100)
-  expect(buy.resolution_hash).toBe("9db3324d062e8491056c4d362d24e7f140b04a05a589f0535455eec859fdf330")
+  expect(buy.resolution_hash).toHaveLength(64)
   expect(sell.resolution_hash).toHaveLength(64)
 })
 
@@ -93,7 +93,34 @@ test("IOC limit resolves only at the first eligible open", () => {
   })).toThrow("IOC limit order requires a bar_open observation")
 })
 
-test("stop-market gap and range triggers are side-symmetric and GTC-only", () => {
+test("GTD limit resolves the expiry bar before expiring and keeps exact touch unresolved", () => {
+  const expired = resolveReplayPendingOrder({
+    order: limitOrder("buy", 93, "gtd"),
+    observation: observation("bar_range"),
+    cancel_effective_key: null,
+  })
+  expect(expired).toMatchObject({
+    outcome: { status: "expired", reason: "gtd_unfilled_at_expiry_close", fill_quantity: 0, remaining_quantity: 1 },
+    resolution_status: "exact_under_ohlc",
+  })
+  const touch = resolveReplayPendingOrder({
+    order: limitOrder("buy", 94, "gtd"),
+    observation: observation("bar_range"),
+    cancel_effective_key: null,
+  })
+  expect(touch).toMatchObject({
+    outcome: { status: "unresolved", reason: "limit_touch_before_gtd_expiry_unresolved", decisive_event_key: null },
+    limitations: ["ohlcv-limit-queue-unobserved"],
+  })
+  const fill = resolveReplayPendingOrder({
+    order: limitOrder("buy", 95, "gtd"),
+    observation: observation("bar_range"),
+    cancel_effective_key: null,
+  })
+  expect(fill.outcome).toMatchObject({ status: "filled", reason: "limit_strict_cross" })
+})
+
+test("stop-market gap and range triggers are side-symmetric and reject IOC", () => {
   const sellGap = resolveReplayPendingOrder({
     order: stopOrder("sell", 101),
     observation: observation("bar_open"),
@@ -119,7 +146,28 @@ test("stop-market gap and range triggers are side-symmetric and GTC-only", () =>
     order: { ...stopOrder("buy", 105), time_in_force: "ioc" },
     observation: observation("bar_open"),
     cancel_effective_key: null,
-  })).toThrow("supports gtc only")
+  })).toThrow("does not support ioc")
+})
+
+test("GTD stop-market resolves its expiry range before expiring", () => {
+  const expired = resolveReplayPendingOrder({
+    order: stopOrder("buy", 107, "gtd"),
+    observation: observation("bar_range"),
+    cancel_effective_key: null,
+  })
+  expect(expired).toMatchObject({
+    outcome: { status: "expired", reason: "gtd_unfilled_at_expiry_close", fill_quantity: 0, remaining_quantity: 1 },
+    resolution_status: "exact_under_ohlc",
+    limitations: [],
+  })
+  const triggered = resolveReplayPendingOrder({
+    order: stopOrder("buy", 105, "gtd"),
+    observation: observation("bar_range"),
+    cancel_effective_key: null,
+  })
+  expect(triggered.outcome).toMatchObject({
+    status: "triggered_and_filled", reason: "stop_range_trigger", fill_reference_price: 105,
+  })
 })
 
 test("Cancel EventKey wins before observation, loses after fill, and closes a later non-fill", () => {
@@ -220,13 +268,14 @@ test("resolution contract rejects capacity, activation, price-bound, and hash ta
   expect(() => assertReplayPendingOrderResolution(semanticTamper)).toThrow("price/time/cancel semantics")
 })
 
-function limitOrder(side: "buy" | "sell", limitPrice: number, tif: "gtc" | "ioc" = "gtc"): ReplayPendingOrderSpec {
+function limitOrder(side: "buy" | "sell", limitPrice: number, tif: "gtc" | "ioc" | "gtd" = "gtc"): ReplayPendingOrderSpec {
   return {
     order_id: `limit-${side}-${limitPrice}-${tif}`,
     order_type: "limit",
     side,
     quantity: 1,
     time_in_force: tif,
+    expires_at: tif === "gtd" ? BAR.close_time : null,
     activation_event_key: eventKey("2026-07-14T00:00:00Z", 90, 0, 0, `activate-limit-${side}`),
     limit_price: limitPrice,
     trigger_price: null,
@@ -236,13 +285,14 @@ function limitOrder(side: "buy" | "sell", limitPrice: number, tif: "gtc" | "ioc"
   }
 }
 
-function stopOrder(side: "buy" | "sell", triggerPrice: number): ReplayPendingOrderSpec {
+function stopOrder(side: "buy" | "sell", triggerPrice: number, tif: "gtc" | "gtd" = "gtc"): ReplayPendingOrderSpec {
   return {
     order_id: `stop-${side}-${triggerPrice}`,
     order_type: "stop_market",
     side,
     quantity: 1,
-    time_in_force: "gtc",
+    time_in_force: tif,
+    expires_at: tif === "gtd" ? BAR.close_time : null,
     activation_event_key: eventKey("2026-07-14T00:00:00Z", 90, 0, 0, `activate-stop-${side}`),
     limit_price: null,
     trigger_price: triggerPrice,

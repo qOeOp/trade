@@ -337,6 +337,24 @@ test("data adapter admits non-market entry only with a matching PIT-available ca
     request: requestValue, dataset_manifest: { ...manifest(), liquidity_capacity_attestation: attestation }, bars, funding_events: fundingEvents,
   })).not.toThrow()
   requestValue.order = { ...requestValue.order, entry_execution: {
+    order_type: "limit", limit_price: 99, time_in_force: "gtd", expires_at: "2026-07-14T08:00:00Z",
+    liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1", full_fill_capacity: 1,
+    liquidity_capacity_attestation_hash: attestation.attestation_hash,
+  } }
+  requestValue.decision_schedule = createReplaySingleDecisionSchedule(requestValue.order)
+  requestValue.decision_schedule_hash = canonicalHash(requestValue.decision_schedule)
+  expect(() => prepareReplayInputData({
+    request: requestValue, dataset_manifest: { ...manifest(), liquidity_capacity_attestation: attestation }, bars, funding_events: fundingEvents,
+  })).not.toThrow()
+  const missingExpiry = structuredClone(requestValue)
+  if (missingExpiry.order.entry_execution.order_type !== "limit") throw new Error("fixture must be Limit")
+  missingExpiry.order.entry_execution.expires_at = "2026-07-14T12:00:00Z"
+  missingExpiry.decision_schedule = createReplaySingleDecisionSchedule(missingExpiry.order)
+  missingExpiry.decision_schedule_hash = canonicalHash(missingExpiry.decision_schedule)
+  expect(() => prepareReplayInputData({
+    request: missingExpiry, dataset_manifest: { ...manifest(), liquidity_capacity_attestation: attestation }, bars, funding_events: fundingEvents,
+  })).toThrow("must bind one supplied executable closed-bar boundary")
+  requestValue.order = { ...requestValue.order, entry_execution: {
     order_type: "stop_market", trigger_price: 102, trigger_source: "last_trade_ohlcv", time_in_force: "gtc",
     liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1", full_fill_capacity: 1,
     liquidity_capacity_attestation_hash: attestation.attestation_hash,
@@ -346,9 +364,24 @@ test("data adapter admits non-market entry only with a matching PIT-available ca
   expect(() => prepareReplayInputData({
     request: requestValue, dataset_manifest: { ...manifest(), liquidity_capacity_attestation: attestation }, bars, funding_events: fundingEvents,
   })).not.toThrow()
+  if (requestValue.order.entry_execution.order_type !== "stop_market") throw new Error("fixture must be Stop-market")
+  requestValue.order.entry_execution.time_in_force = "gtd"
+  requestValue.order.entry_execution.expires_at = "2026-07-14T08:00:00Z"
+  requestValue.decision_schedule = createReplaySingleDecisionSchedule(requestValue.order)
+  requestValue.decision_schedule_hash = canonicalHash(requestValue.decision_schedule)
+  expect(() => prepareReplayInputData({
+    request: requestValue, dataset_manifest: { ...manifest(), liquidity_capacity_attestation: attestation }, bars, funding_events: fundingEvents,
+  })).not.toThrow()
+  const missingStopExpiry = structuredClone(requestValue)
+  if (missingStopExpiry.order.entry_execution.order_type !== "stop_market") throw new Error("fixture must be Stop-market")
+  missingStopExpiry.order.entry_execution.expires_at = "2026-07-14T12:00:00Z"
+  missingStopExpiry.decision_schedule = createReplaySingleDecisionSchedule(missingStopExpiry.order)
+  missingStopExpiry.decision_schedule_hash = canonicalHash(missingStopExpiry.decision_schedule)
+  expect(() => prepareReplayInputData({
+    request: missingStopExpiry, dataset_manifest: { ...manifest(), liquidity_capacity_attestation: attestation }, bars, funding_events: fundingEvents,
+  })).toThrow("must bind one supplied executable closed-bar boundary")
   const { attestation_hash: _attestationHash, ...attestationBody } = attestation
   const late = createReplayLiquidityCapacityAttestation({ ...attestationBody, available_at: "2026-07-14T00:00:01Z" })
-  if (requestValue.order.entry_execution.order_type === "market") throw new Error("fixture must be non-market")
   requestValue.order.entry_execution.liquidity_capacity_attestation_hash = late.attestation_hash
   expect(() => prepareReplayInputData({
     request: requestValue, dataset_manifest: { ...manifest(), liquidity_capacity_attestation: late }, bars, funding_events: fundingEvents,

@@ -35,18 +35,18 @@ export function completeReplayLiquidationOrderLane(input: {
     sourceSequence: number,
     eventSubphase: number,
   ) => ReplayTransitionStamp
-  capture: <T extends { event: ReplayOrderEvent }>(transition: T) => T
+  capture: <T extends { order: ReplayOrder; event: ReplayOrderEvent }>(transition: T) => T
 }): ReplayLiquidationOrderExecution {
   if (input.signed_position === 0) throw new Error("Replay liquidation requires an open position")
   const side = input.signed_position > 0 ? "sell" as const : "buy" as const
   const quantity = Math.abs(input.signed_position)
-  input.capture(cancelReplayOrder(
+  if (input.stop_order.status === "active") input.capture(cancelReplayOrder(
     input.stop_order,
     input.next_stamp(input.event_time, 15, input.source_sequence, 1),
     input.signed_position,
     "maintenance-liquidation",
   ))
-  input.capture(cancelReplayOrder(
+  if (input.target_order.status === "active") input.capture(cancelReplayOrder(
     input.target_order,
     input.next_stamp(input.event_time, 15, input.source_sequence, 2),
     input.signed_position,

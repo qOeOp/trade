@@ -33,12 +33,15 @@ export function createReplaySimpleBracketOhlcvResolution(input: {
   bar: ReplayMarketBar
   position_side: "long" | "short"
   active_protection: {
+    protection_mode?: "bracket" | "stop_only" | "target_only"
     protection_generation: number
     remaining_quantity: number
     stop_order_id: string
     stop_trigger_price: number
+    stop_order_status?: "active" | "cancelled"
     target_order_id: string
     target_trigger_price: number
+    target_order_status?: "active" | "cancelled"
   }
   economics: ReplayOhlcvResolutionEconomics
   observation_kind: "bar_open_gap" | "bar_range_touch"
@@ -48,6 +51,14 @@ export function createReplaySimpleBracketOhlcvResolution(input: {
 }): ReplayOhlcvResolutionEvidence {
   if (!input.stop_touched && !input.target_touched) {
     throw new Error("Replay OHLCV resolution requires at least one terminal touch")
+  }
+  const protectionMode = input.active_protection.protection_mode ?? "bracket"
+  const stopOrderStatus = input.active_protection.stop_order_status ?? "active"
+  const targetOrderStatus = input.active_protection.target_order_status ?? "active"
+  if ((protectionMode === "bracket" && (stopOrderStatus !== "active" || targetOrderStatus !== "active"))
+      || (protectionMode === "stop_only" && (stopOrderStatus !== "active" || targetOrderStatus !== "cancelled" || input.target_touched))
+      || (protectionMode === "target_only" && (stopOrderStatus !== "cancelled" || targetOrderStatus !== "active" || input.stop_touched))) {
+    throw new Error("Replay OHLCV resolution protection mode is inconsistent")
   }
   const collision = input.stop_touched && input.target_touched
   if (collision && input.observation_kind !== "bar_range_touch") {
@@ -96,7 +107,15 @@ export function createReplaySimpleBracketOhlcvResolution(input: {
   const paths = [pathFor("open_high_low_close"), pathFor("open_low_high_close")] as const
   const activeProtection = {
     ...input.active_protection,
-    protection_hash: replayOhlcvActiveProtectionHash(input.active_protection),
+    protection_mode: protectionMode,
+    stop_order_status: stopOrderStatus,
+    target_order_status: targetOrderStatus,
+    protection_hash: replayOhlcvActiveProtectionHash({
+      ...input.active_protection,
+      protection_mode: protectionMode,
+      stop_order_status: stopOrderStatus,
+      target_order_status: targetOrderStatus,
+    }),
   }
   const status = collision ? "resolution_limited" as const : "exact_under_ohlc" as const
   const canonicalPath = collision
@@ -176,12 +195,15 @@ export function assertReplayOhlcvEconomicImpactBindings(
     bar: { ...evidence.bar, volume: 1, closed: true },
     position_side: evidence.position_side,
     active_protection: {
+      protection_mode: evidence.active_protection.protection_mode,
       protection_generation: evidence.active_protection.protection_generation,
       remaining_quantity: evidence.active_protection.remaining_quantity,
       stop_order_id: evidence.active_protection.stop_order_id,
       stop_trigger_price: evidence.active_protection.stop_trigger_price,
+      stop_order_status: evidence.active_protection.stop_order_status,
       target_order_id: evidence.active_protection.target_order_id,
       target_trigger_price: evidence.active_protection.target_trigger_price,
+      target_order_status: evidence.active_protection.target_order_status,
     },
     economics,
     observation_kind: evidence.observation_kind,

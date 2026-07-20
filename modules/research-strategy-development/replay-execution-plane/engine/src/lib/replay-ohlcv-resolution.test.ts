@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { assertReplayOhlcvResolutionEvidence, canonicalHash, replayOhlcvEconomicImpactHash, replayOhlcvResolutionEvidenceHash, type ReplayMarketBar, type ReplaySourceEvent } from "../../../contracts/src/lib/replay-contracts"
+import { assertReplayOhlcvResolutionEvidence, canonicalHash, replayOhlcvActiveProtectionHash, replayOhlcvEconomicImpactHash, replayOhlcvResolutionEvidenceHash, type ReplayMarketBar, type ReplaySourceEvent } from "../../../contracts/src/lib/replay-contracts"
 import { assertReplayOhlcvEconomicImpactBindings, createReplaySimpleBracketOhlcvResolution } from "./replay-ohlcv-resolution"
 
 function protection(stop: number, target: number) {
@@ -135,4 +135,41 @@ test("observed gaps and single terminal touches are exact under the two-path env
   sourceTamper.evidence_hash = canonicalHash(sourceTamperBody)
   expect(() => assertReplayOhlcvResolutionEvidence(sourceTamper))
     .toThrow("source id does not match its EventKey")
+})
+
+test("single-sided protection makes the cancelled sibling unreachable without inventing intrabar order", () => {
+  const stopOnly = createReplaySimpleBracketOhlcvResolution({
+    run_id: "stop-only", source_event: source("bar_range"), bar: collisionBar,
+    position_side: "long",
+    active_protection: {
+      ...protection(95, 105), protection_mode: "stop_only",
+      stop_order_status: "active", target_order_status: "cancelled",
+    },
+    economics, observation_kind: "bar_range_touch", stop_touched: true, target_touched: false,
+    canonical_terminal_role: "stop",
+  })
+  const targetOnly = createReplaySimpleBracketOhlcvResolution({
+    run_id: "target-only", source_event: source("bar_range"), bar: collisionBar,
+    position_side: "long",
+    active_protection: {
+      ...protection(95, 105), protection_mode: "target_only",
+      stop_order_status: "cancelled", target_order_status: "active",
+    },
+    economics, observation_kind: "bar_range_touch", stop_touched: false, target_touched: true,
+    canonical_terminal_role: "target",
+  })
+  expect(stopOnly.paths.every((path) => path.first_terminal_role === "stop")).toBe(true)
+  expect(targetOnly.paths.every((path) => path.first_terminal_role === "target")).toBe(true)
+  expect(stopOnly.status).toBe("exact_under_ohlc")
+  expect(targetOnly.status).toBe("exact_under_ohlc")
+  expect(() => assertReplayOhlcvResolutionEvidence(stopOnly)).not.toThrow()
+  expect(() => assertReplayOhlcvResolutionEvidence(targetOnly)).not.toThrow()
+
+  const rehashedStatusTamper = structuredClone(targetOnly)
+  rehashedStatusTamper.active_protection.stop_order_status = "active"
+  rehashedStatusTamper.active_protection.protection_hash = replayOhlcvActiveProtectionHash(rehashedStatusTamper.active_protection)
+  const { evidence_hash: _evidenceHash, ...body } = rehashedStatusTamper
+  rehashedStatusTamper.evidence_hash = canonicalHash(body)
+  expect(() => assertReplayOhlcvResolutionEvidence(rehashedStatusTamper))
+    .toThrow("protection mode and Order statuses are inconsistent")
 })

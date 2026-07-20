@@ -18,7 +18,8 @@ export interface ReplayOrderSubmission {
   submitted_at: string
   trigger_price?: number | null
   limit_price?: number
-  time_in_force?: "gtc" | "ioc"
+  time_in_force?: "gtc" | "ioc" | "gtd"
+  expires_at?: string
 }
 
 export interface ReplayOrderTransition {
@@ -63,7 +64,16 @@ export function submitReplayOrder(
     active_at: null,
     trigger_price: submission.trigger_price ?? null,
     ...(submission.order_type === "limit"
-      ? { limit_price: submission.limit_price!, time_in_force: submission.time_in_force! }
+      ? {
+        limit_price: submission.limit_price!,
+        time_in_force: submission.time_in_force!,
+        ...(submission.time_in_force === "gtd" ? { expires_at: submission.expires_at! } : {}),
+      }
+      : submission.order_role === "entry" && submission.order_type === "stop_market"
+        ? {
+          time_in_force: submission.time_in_force!,
+          ...(submission.time_in_force === "gtd" ? { expires_at: submission.expires_at! } : {}),
+        }
       : {}),
     last_event_sequence: stamp.sequence,
     last_event_key: stamp.event_key,
@@ -197,8 +207,14 @@ export function expireReplayOrder(
   reason: string,
 ): ReplayOrderTransition {
   requireNextStamp(order, stamp)
-  if (order.order_type !== "limit" || order.time_in_force !== "ioc" || order.status !== "active") {
-    throw new Error(`cannot expire non-active IOC limit order in ${order.status} state`)
+  if ((order.order_type !== "limit" && order.order_type !== "stop_market")
+      || (order.time_in_force !== "ioc" && order.time_in_force !== "gtd")
+      || order.status !== "active") {
+    throw new Error(`cannot expire non-active expiring pending order in ${order.status} state`)
+  }
+  if (order.time_in_force === "gtd"
+      && (order.expires_at !== stamp.event_key.event_time || stamp.event_key.boundary_phase !== 90)) {
+    throw new Error("GTD pending-order expiry must use its frozen phase-90 expiry boundary")
   }
   requireText(reason, "expiry reason")
   const expired = {
@@ -231,10 +247,31 @@ function validateRoleContract(submission: ReplayOrderSubmission): void {
   if (!needsTrigger && submission.trigger_price != null) throw new Error("non-trigger order cannot carry trigger_price")
   if (submission.order_type === "limit") {
     requirePositive(submission.limit_price, "limit_price")
-    if (submission.time_in_force !== "gtc" && submission.time_in_force !== "ioc") {
-      throw new Error("executable limit entry supports gtc or ioc only")
+    if (submission.time_in_force !== "gtc" && submission.time_in_force !== "ioc" && submission.time_in_force !== "gtd") {
+      throw new Error("executable limit entry supports gtc, ioc, or gtd only")
     }
-  } else if (submission.limit_price !== undefined || submission.time_in_force !== undefined) {
+    if (submission.time_in_force === "gtd") {
+      requireUtcTimestamp(submission.expires_at, "expires_at")
+      if (Date.parse(submission.expires_at!) <= Date.parse(submission.submitted_at)) {
+        throw new Error("GTD expiry must follow submission")
+      }
+    } else if (submission.expires_at !== undefined) {
+      throw new Error("non-GTD limit order cannot carry expires_at")
+    }
+  } else if (submission.order_role === "entry" && submission.order_type === "stop_market") {
+    if (submission.limit_price !== undefined) throw new Error("stop-market entry cannot carry limit_price")
+    if (submission.time_in_force !== "gtc" && submission.time_in_force !== "gtd") {
+      throw new Error("executable stop-market entry supports gtc or gtd only")
+    }
+    if (submission.time_in_force === "gtd") {
+      requireUtcTimestamp(submission.expires_at, "expires_at")
+      if (Date.parse(submission.expires_at!) <= Date.parse(submission.submitted_at)) {
+        throw new Error("GTD expiry must follow submission")
+      }
+    } else if (submission.expires_at !== undefined) {
+      throw new Error("non-GTD stop-market entry cannot carry expires_at")
+    }
+  } else if (submission.limit_price !== undefined || submission.time_in_force !== undefined || submission.expires_at !== undefined) {
     throw new Error("non-limit order cannot carry limit fields")
   }
 }

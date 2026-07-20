@@ -20,7 +20,7 @@ export type ReplayReducedExit =
   | { role: "strategy_exit"; timestamp: string; rawPrice: number; triggerSource: "bar_open"; sourceSequence: number }
   | { role: "liquidation"; timestamp: string; rawPrice: number; triggerSource: "mark" | "funding_mark"; triggerSourceRef: string; sourceSequence: number }
   | { role: "end_of_data"; timestamp: string; rawPrice: number; triggerSource: null; sourceSequence: number }
-  | { role: "entry_expired"; timestamp: string; rawPrice: number; triggerSource: "bar_open"; sourceSequence: number }
+  | { role: "entry_expired"; timestamp: string; rawPrice: number; triggerSource: "bar_open" | "bar_range"; sourceSequence: number }
   | { role: "entry_cancelled"; timestamp: string; rawPrice: number; triggerSource: "bar_range"; sourceSequence: number }
 
 export interface ReplayPendingEntryObservation<TEntry> {
@@ -44,12 +44,15 @@ export interface ReplaySourceBoundary<TEntry> {
 }
 
 export interface ReplayActiveProtection {
+  protection_mode: "bracket" | "stop_only" | "target_only"
   protection_generation: number
   remaining_quantity: number
   stop_order_id: string
   stop_trigger_price: number
+  stop_order_status: "active" | "cancelled"
   target_order_id: string
   target_trigger_price: number
+  target_order_status: "active" | "cancelled"
 }
 
 export class ReplayInstrumentTerminalError extends Error {
@@ -207,7 +210,8 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
 
     if (source.kind === "bar_open") {
       if (!instrumentTrading) throw new Error("Replay cannot consume a market open while instrument trading is halted")
-      const stopGap = isLong ? bar.open <= activeStopPrice : bar.open >= activeStopPrice
+      const stopGap = activeProtection.protection_mode !== "target_only"
+        && (isLong ? bar.open <= activeStopPrice : bar.open >= activeStopPrice)
       if (stopGap) return reduction(
         {
           role: "stop", timestamp: bar.open_time, rawPrice: bar.open, triggerSource: "bar_open", sourceSequence: source.source_index + 1,
@@ -224,7 +228,8 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
         entryTransition,
         input.complete_exit,
       )
-      const targetGap = isLong ? bar.open >= activeTargetPrice : bar.open <= activeTargetPrice
+      const targetGap = activeProtection.protection_mode !== "stop_only"
+        && (isLong ? bar.open >= activeTargetPrice : bar.open <= activeTargetPrice)
       if (targetGap) return reduction(
         {
           role: "target", timestamp: bar.open_time, rawPrice: bar.open, triggerSource: "bar_open", sourceSequence: source.source_index + 1,
@@ -254,8 +259,10 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
       continue
     }
 
-    const stopTouched = isLong ? bar.low <= activeStopPrice : bar.high >= activeStopPrice
-    const targetTouched = isLong ? bar.high >= activeTargetPrice : bar.low <= activeTargetPrice
+    const stopTouched = activeProtection.protection_mode !== "target_only"
+      && (isLong ? bar.low <= activeStopPrice : bar.high >= activeStopPrice)
+    const targetTouched = activeProtection.protection_mode !== "stop_only"
+      && (isLong ? bar.high >= activeTargetPrice : bar.low <= activeTargetPrice)
     if (stopTouched && targetTouched) {
       input.limitations.push({
         code: "ohlcv-stop-target-collision",

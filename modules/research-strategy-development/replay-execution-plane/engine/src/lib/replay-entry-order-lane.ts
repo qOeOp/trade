@@ -10,6 +10,7 @@ import {
   fillReplayOrder,
   submitReplayOrder,
   triggerReplayOrder,
+  type ReplayOrderFillTransition,
   type ReplayTransitionStamp,
 } from "./replay-order-state"
 import type { ReplayTransitionCapture } from "./replay-exit-order-lane"
@@ -125,36 +126,7 @@ export function completeReplayLimitEntryOrderLane(input: {
     stamp: input.next_stamp(decisiveKey.event_time, 20, decisiveKey.source_sequence, decisiveKey.event_subphase + 1),
     signed_position_before: 0,
   }))
-  const signedPosition = entryTransition.signed_position_after
-  const eventTime = entryTransition.event.timestamp
-  const sourceSequence = decisiveKey.source_sequence
-
-  let stopOrder = input.capture(submitReplayOrder({
-    order_id: `${input.run_id}:order:stop`, order_role: "stop", order_type: "stop_market",
-    side: input.exit_side, quantity: entryTransition.executed_quantity, reduce_only: true,
-    submitted_at: eventTime, trigger_price: input.stop_price,
-  }, input.next_stamp(eventTime, 90, sourceSequence, 0), signedPosition)).order
-  stopOrder = input.capture(activateReplayOrder(
-    stopOrder, input.next_stamp(eventTime, 90, sourceSequence, 1), signedPosition,
-  )).order
-  let targetOrder = input.capture(submitReplayOrder({
-    order_id: `${input.run_id}:order:target`, order_role: "target", order_type: "take_profit_market",
-    side: input.exit_side, quantity: entryTransition.executed_quantity, reduce_only: true,
-    submitted_at: eventTime, trigger_price: input.target_price,
-  }, input.next_stamp(eventTime, 90, sourceSequence, 2), signedPosition)).order
-  targetOrder = input.capture(activateReplayOrder(
-    targetOrder, input.next_stamp(eventTime, 90, sourceSequence, 3), signedPosition,
-  )).order
-  return {
-    entry_order: entryTransition.order,
-    entry_order_id: entryTransition.order.order_id,
-    executed_quantity: entryTransition.executed_quantity,
-    signed_position_after: signedPosition,
-    entry_fill_event_key: entryTransition.event.event_key,
-    stop_order: stopOrder,
-    target_order: targetOrder,
-    protection_generation: 1,
-  }
+  return activateReplayEntryInitialProtection(input, entryTransition, decisiveKey.source_sequence)
 }
 
 export function completeReplayStopEntryOrderLane(input: {
@@ -191,10 +163,20 @@ export function completeReplayStopEntryOrderLane(input: {
     stamp: input.next_stamp(decisiveKey.event_time, 20, decisiveKey.source_sequence, decisiveKey.event_subphase + 2),
     signed_position_before: 0,
   }))
+  return activateReplayEntryInitialProtection(input, entryTransition, decisiveKey.source_sequence)
+}
+
+function activateReplayEntryInitialProtection(input: {
+  run_id: string
+  exit_side: ReplayOrderSide
+  stop_price: number
+  target_price: number
+  next_stamp: (eventTime: string, boundaryPhase: ReplayBoundaryPhase,
+    sourceSequence: number, eventSubphase: number) => ReplayTransitionStamp
+  capture: ReplayTransitionCapture
+}, entryTransition: ReplayOrderFillTransition, sourceSequence: number): ReplayEntryOrderExecution {
   const signedPosition = entryTransition.signed_position_after
   const eventTime = entryTransition.event.timestamp
-  const sourceSequence = decisiveKey.source_sequence
-
   let stopOrder = input.capture(submitReplayOrder({
     order_id: `${input.run_id}:order:stop`, order_role: "stop", order_type: "stop_market",
     side: input.exit_side, quantity: entryTransition.executed_quantity, reduce_only: true,

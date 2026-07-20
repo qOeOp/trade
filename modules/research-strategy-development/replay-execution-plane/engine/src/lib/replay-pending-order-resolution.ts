@@ -28,6 +28,9 @@ export function resolveReplayPendingOrder(
 ): ReplayPendingOrderResolution {
   const shell = provisionalShell(input)
   const { order, observation, cancel_effective_key: cancelKey } = input
+  const gtdExpiryReached = order.time_in_force === "gtd"
+    && observation.observation_kind === "bar_range"
+    && observation.source_event_key.event_time === order.expires_at
   if (cancelKey && sameEventOrdinal(cancelKey, observation.source_event_key)) {
     return finish(shell, {
       status: "unresolved",
@@ -91,6 +94,26 @@ export function resolveReplayPendingOrder(
       fill_quantity: 0,
       remaining_quantity: order.quantity,
     }, priceResolution.queueLimited ? ["ohlcv-limit-queue-unobserved"] : [])
+  }
+  if (gtdExpiryReached) {
+    if (priceResolution.queueLimited) {
+      return finish(shell, {
+        status: "unresolved",
+        reason: "limit_touch_before_gtd_expiry_unresolved",
+        decisive_event_key: null,
+        fill_reference_price: null,
+        fill_quantity: 0,
+        remaining_quantity: order.quantity,
+      }, ["ohlcv-limit-queue-unobserved"])
+    }
+    return finish(shell, {
+      status: "expired",
+      reason: "gtd_unfilled_at_expiry_close",
+      decisive_event_key: structuredClone(observation.source_event_key),
+      fill_reference_price: null,
+      fill_quantity: 0,
+      remaining_quantity: order.quantity,
+    }, [])
   }
   return finish(shell, {
     status: "resting",

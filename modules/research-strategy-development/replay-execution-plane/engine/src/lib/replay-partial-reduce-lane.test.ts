@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test"
 import type { ReplayBoundaryPhase, ReplayOrderEvent } from "../../../contracts/src/lib/replay-contracts"
-import { activateReplayOrder, submitReplayOrder, type ReplayTransitionStamp } from "./replay-order-state"
+import {
+  activateReplayOrder,
+  cancelReplayOrder,
+  submitReplayOrder,
+  type ReplayTransitionStamp,
+} from "./replay-order-state"
 import { completeReplayExitOrderLane } from "./replay-exit-order-lane"
 import { completeReplayLiquidationOrderLane } from "./replay-liquidation-order-lane"
 import { completeReplayPartialReduceLane } from "./replay-partial-reduce-lane"
@@ -149,4 +154,69 @@ test("every post-partial terminal owner consumes only the resized position for l
       }
     }
   }
+})
+
+test("liquidation preserves a prior target cancellation and closes through one terminal owner", () => {
+  const events: ReplayOrderEvent[] = []
+  let sequence = 0
+  const nextStamp = (time: string, phase: ReplayBoundaryPhase, source: number, subphase: number): ReplayTransitionStamp => ({
+    sequence: ++sequence,
+    event_key: {
+      event_time: time,
+      boundary_phase: phase,
+      source_sequence: source,
+      event_subphase: subphase,
+      stable_event_id: `stop-only-liquidation:event:${sequence}`,
+    },
+  })
+  const capture = <T extends { event: ReplayOrderEvent }>(transition: T): T => {
+    events.push(transition.event)
+    return transition
+  }
+  const active = (role: "stop" | "target", triggerPrice: number, subphase: number) => {
+    const submitted = capture(submitReplayOrder({
+      order_id: `stop-only-liquidation:${role}`,
+      order_role: role,
+      order_type: role === "stop" ? "stop_market" : "take_profit_market",
+      side: "sell",
+      quantity: 1,
+      reduce_only: true,
+      submitted_at: "2026-07-14T12:00:00Z",
+      trigger_price: triggerPrice,
+    }, nextStamp("2026-07-14T12:00:00Z", 90, 1, subphase), 1)).order
+    return capture(activateReplayOrder(
+      submitted,
+      nextStamp("2026-07-14T12:00:00Z", 90, 1, subphase + 1),
+      1,
+    )).order
+  }
+  const stop = active("stop", 95, 0)
+  const activeTarget = active("target", 120, 2)
+  const target = capture(cancelReplayOrder(
+    activeTarget,
+    nextStamp("2026-07-14T20:00:00Z", 90, 6, 0),
+    1,
+    "take-profit-condition-revoked",
+  )).order
+  events.length = 0
+
+  const terminal = completeReplayLiquidationOrderLane({
+    run_id: "stop-only-liquidation",
+    event_time: "2026-07-15T00:00:00Z",
+    source_sequence: 7,
+    signed_position: 1,
+    stop_order: stop,
+    target_order: target,
+    next_stamp: nextStamp,
+    capture,
+  })
+
+  expect(target.status).toBe("cancelled")
+  expect(terminal).toMatchObject({ terminal_state: "flat", exit_quantity: 1, signed_position_after: 0 })
+  expect(events.map((event) => [event.order_id, event.kind])).toEqual([
+    [stop.order_id, "cancelled"],
+    ["stop-only-liquidation:order:liquidation", "submitted"],
+    ["stop-only-liquidation:order:liquidation", "activated"],
+    ["stop-only-liquidation:order:liquidation", "filled"],
+  ])
 })

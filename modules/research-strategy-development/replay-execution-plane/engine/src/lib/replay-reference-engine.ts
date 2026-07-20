@@ -10,8 +10,10 @@ import {
   assertReplayDecisionInputSnapshot,
   assertReplayExecutionRequest,
   assertReplayPendingOrderResolution,
+  assertReplayOrderStateSnapshot,
   canonicalHash,
   compareReplayEventKeys,
+  createReplayOrderStateSnapshot,
   createReplayStopEntrySameBarPathAmbiguity,
   createReplayDecisionEvidenceTimeline,
   createReplayDecisionStateSnapshot,
@@ -70,12 +72,13 @@ import { completeReplayExitOrderLane, completeReplayStrategyExitOrderLane, type 
 import { completeReplayLiquidationOrderLane, type ReplayLiquidationOrderExecution } from "./replay-liquidation-order-lane"
 import type { ReplayOhlcvResolutionEconomics } from "./replay-ohlcv-resolution"
 import { replaceReplayProtectiveStop } from "./replay-protective-stop-lane"
+import { replaceReplayTakeProfit } from "./replay-take-profit-lane"
 import { completeReplayPartialReduceLane } from "./replay-partial-reduce-lane"
 import { ReplayLiquidationDeficitError, ReplayMarginTerminalError, assertReplayPostEntryMargin, buildReplayMaintenanceBreachObservation, buildReplayPathMarginSnapshots } from "./replay-margin-path"
 import { reduceReplaySourceEvents } from "./replay-source-reducer"
 import { resolveReplayPendingOrder } from "./replay-pending-order-resolution"
 
-export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v22" as const
+export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v29" as const
 
 export interface ReplayEngineCheckpoint {
   schema_version: typeof REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION
@@ -105,6 +108,7 @@ export interface ReplayEngineCheckpoint {
   partial_reduce_fills: ReplayFill[]
   strategy_exit_order: ReplayOrder | null
   order_events: ReplayOrderEvent[]
+  order_state_snapshot: ReplayResult["order_state_snapshot"]
   event_sequence: number
   exact_risk_snapshots: ReplayMarginSnapshot[]
   limitations: ReplayResult["limitations"]
@@ -293,6 +297,11 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     )
   }
   const orderEvents: ReplayOrderEvent[] = structuredClone(resumeCheckpoint?.order_events ?? [])
+  const orderStateById = new Map<string, ReplayOrder>()
+  const restoreOrderState = (order: ReplayOrder | null | undefined): void => {
+    if (order) orderStateById.set(order.order_id, structuredClone(order))
+  }
+  for (const order of resumeCheckpoint?.order_state_snapshot.orders ?? []) restoreOrderState(order)
   let eventSequence = resumeCheckpoint?.event_sequence ?? 0
   const nextSequence = (): number => {
     eventSequence += 1
@@ -316,8 +325,9 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       }),
     }
   }
-  const capture = <T extends { event: ReplayOrderEvent }>(transition: T): T => {
+  const capture = <T extends { order: ReplayOrder; event: ReplayOrderEvent }>(transition: T): T => {
     orderEvents.push(transition.event)
+    orderStateById.set(transition.order.order_id, structuredClone(transition.order))
     return transition
   }
 
@@ -341,8 +351,15 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     ...(request.order.entry_execution.order_type === "limit" ? {
       limit_price: request.order.entry_execution.limit_price,
       time_in_force: request.order.entry_execution.time_in_force,
+      ...(request.order.entry_execution.time_in_force === "gtd"
+        ? { expires_at: request.order.entry_execution.expires_at }
+        : {}),
     } : request.order.entry_execution.order_type === "stop_market" ? {
       trigger_price: request.order.entry_execution.trigger_price,
+      time_in_force: request.order.entry_execution.time_in_force,
+      ...(request.order.entry_execution.time_in_force === "gtd"
+        ? { expires_at: request.order.entry_execution.expires_at }
+        : {}),
     } : {}),
   }, nextStamp(request.order.signal_time, 90, 0, 0), 0)).order
   if (!resumeCheckpoint && (entryOrder.order_type === "limit" || entryOrder.order_type === "stop_market")) {
@@ -665,6 +682,35 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
           })
           entry.protection_generation += 1
         }
+        if (runtimeDecision.schedule_entry.expected_effect === "authorized_take_profit_replace") {
+          const replaceIntent = runtimeDecision.schedule_entry.authorized_take_profit_replace
+          const entry = boundary.entry_transition
+          if (!replaceIntent || !entry
+              || entry.target_order.order_id !== replaceIntent.target_order_id
+              || entry.target_order.trigger_price !== replaceIntent.previous_target_price
+              || entry.target_order.status !== "active" || entry.stop_order.status !== "active"
+              || entry.target_order.remaining_quantity !== Math.abs(entry.signed_position_after)
+              || entry.stop_order.remaining_quantity !== Math.abs(entry.signed_position_after)) {
+            throw new Error("Replay take-profit replacement does not match the active full-position bracket")
+          }
+          const wouldAlreadyTrigger = request.order.side === "long"
+            ? replaceIntent.new_target_price <= decisionStateSnapshot.mark_price
+            : replaceIntent.new_target_price >= decisionStateSnapshot.mark_price
+          if (wouldAlreadyTrigger) throw new Error("Replay take-profit replacement is already triggered at decision time")
+          entry.target_order = replaceReplayTakeProfit({
+            run_id: request.run_id,
+            decision_sequence: runtimeDecision.schedule_entry.decision_sequence,
+            decision_time: replaceIntent.signal_time,
+            source_sequence: source!.event_key.source_sequence,
+            signed_position: entry.signed_position_after,
+            side: replaceIntent.side,
+            new_target_price: replaceIntent.new_target_price,
+            current_target_order: entry.target_order,
+            next_stamp: nextStamp,
+            capture,
+          })
+          entry.protection_generation += 1
+        }
         if (runtimeDecision.schedule_entry.expected_effect === "authorized_partial_reduce") {
           const partialIntent = runtimeDecision.schedule_entry.authorized_partial_reduce
           const entry = boundary.entry_transition
@@ -707,6 +753,76 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
             runtimeDecision.schedule_entry.decision_sequence,
           ), entry.signed_position_after)).order
         }
+        if (runtimeDecision.schedule_entry.expected_effect === "authorized_strategy_exit_cancel") {
+          const cancelIntent = runtimeDecision.schedule_entry.authorized_strategy_exit_cancel
+          const exitSchedule = request.decision_schedule.entries.find(
+            (candidate) => candidate.decision_sequence === cancelIntent?.target_exit_decision_sequence,
+          )
+          const exitIntent = exitSchedule?.authorized_reduce_only_exit
+          const entry = boundary.entry_transition
+          if (!cancelIntent || !exitIntent || !entry || !strategyExitOrder
+              || strategyExitOrder.status !== "submitted"
+              || Date.parse(cancelIntent.effective_at) >= Date.parse(exitIntent.earliest_executable_time)) {
+            throw new Error("Replay authorized strategy-exit cancel requires its unique pending submitted Order")
+          }
+          strategyExitOrder = capture(cancelReplayOrder(
+            strategyExitOrder,
+            nextStamp(
+              cancelIntent.effective_at,
+              90,
+              source!.event_key.source_sequence,
+              runtimeDecision.schedule_entry.decision_sequence,
+            ),
+            entry.signed_position_after,
+            cancelIntent.reason_code,
+          )).order
+        }
+        if (runtimeDecision.schedule_entry.expected_effect === "authorized_take_profit_cancel") {
+          const cancelIntent = runtimeDecision.schedule_entry.authorized_take_profit_cancel
+          const entry = boundary.entry_transition
+          if (!cancelIntent || !entry
+              || entry.target_order.order_id !== cancelIntent.target_order_id
+              || entry.target_order.status !== "active"
+              || entry.stop_order.status !== "active"
+              || entry.stop_order.remaining_quantity !== Math.abs(entry.signed_position_after)
+              || entry.target_order.remaining_quantity !== entry.stop_order.remaining_quantity) {
+            throw new Error("Replay authorized take-profit cancel requires an active target and aligned preserved stop")
+          }
+          entry.target_order = capture(cancelReplayOrder(
+            entry.target_order,
+            nextStamp(
+              cancelIntent.effective_at,
+              90,
+              source!.event_key.source_sequence,
+              runtimeDecision.schedule_entry.decision_sequence,
+            ),
+            entry.signed_position_after,
+            cancelIntent.reason_code,
+          )).order
+        }
+        if (runtimeDecision.schedule_entry.expected_effect === "authorized_protective_stop_cancel") {
+          const cancelIntent = runtimeDecision.schedule_entry.authorized_protective_stop_cancel
+          const entry = boundary.entry_transition
+          if (!cancelIntent || !entry
+              || entry.stop_order.order_id !== cancelIntent.target_order_id
+              || entry.stop_order.status !== "active"
+              || entry.target_order.status !== "active"
+              || entry.target_order.remaining_quantity !== Math.abs(entry.signed_position_after)
+              || entry.stop_order.remaining_quantity !== entry.target_order.remaining_quantity) {
+            throw new Error("Replay authorized protective-stop cancel requires an active stop and aligned preserved target")
+          }
+          entry.stop_order = capture(cancelReplayOrder(
+            entry.stop_order,
+            nextStamp(
+              cancelIntent.effective_at,
+              90,
+              source!.event_key.source_sequence,
+              runtimeDecision.schedule_entry.decision_sequence,
+            ),
+            entry.signed_position_after,
+            cancelIntent.reason_code,
+          )).order
+        }
       }
       if (!input.execution_control?.on_checkpoint) return
       const checkpoint = buildReplayEngineCheckpoint({
@@ -719,6 +835,11 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
         partial_reduce_fills: partialReduceFills,
         strategy_exit_order: strategyExitOrder,
         order_events: orderEvents,
+        order_state_snapshot: createReplayOrderStateSnapshot({
+          run_id: request.run_id,
+          orders: [...orderStateById.values()],
+          order_events: orderEvents,
+        }),
         event_sequence: eventSequence,
         exact_risk_snapshots: exactRiskSnapshots,
         limitations,
@@ -777,6 +898,9 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
           side: entrySide,
           quantity: entryOrder.quantity,
           time_in_force: execution.time_in_force,
+          expires_at: execution.time_in_force === "gtd"
+            ? execution.expires_at ?? null
+            : null,
           activation_event_key: entryOrder.last_event_key,
           limit_price: execution.order_type === "limit" ? execution.limit_price : null,
           trigger_price: execution.order_type === "stop_market" ? execution.trigger_price : null,
@@ -825,9 +949,15 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
           entry_transition: null,
           terminal_exit: {
             role: "entry_expired",
-            timestamp: bar.open_time,
-            rawPrice: bar.open,
-            triggerSource: "bar_open",
+            timestamp: execution.time_in_force === "gtd"
+              ? bar.close_time
+              : bar.open_time,
+            rawPrice: execution.time_in_force === "gtd"
+              ? bar.close
+              : bar.open,
+            triggerSource: execution.time_in_force === "gtd"
+              ? "bar_range"
+              : "bar_open",
             sourceSequence: source.source_index + 1,
           },
         }
@@ -893,20 +1023,28 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     },
     get_entry_fill_event_key: (entry) => entry.entry_fill_event_key,
     get_active_protection: (entry) => {
-      if (entry.stop_order.status !== "active" || entry.stop_order.trigger_price === null
-          || entry.target_order.status !== "active" || entry.target_order.trigger_price === null
+      const stopStatus = entry.stop_order.status
+      const targetStatus = entry.target_order.status
+      if ((stopStatus !== "active" && stopStatus !== "cancelled") || entry.stop_order.trigger_price === null
+          || (targetStatus !== "active" && targetStatus !== "cancelled") || entry.target_order.trigger_price === null
+          || (stopStatus === "cancelled" && targetStatus === "cancelled")
           || entry.stop_order.remaining_quantity <= 0
           || entry.stop_order.remaining_quantity !== entry.target_order.remaining_quantity
           || entry.stop_order.remaining_quantity !== Math.abs(entry.signed_position_after)) {
-        throw new Error("Replay source boundary requires one quantity-aligned active protection pair")
+        throw new Error("Replay source boundary requires a full-position active stop and aligned target lineage")
       }
       return {
+        protection_mode: stopStatus === "cancelled"
+          ? "target_only" as const
+          : targetStatus === "cancelled" ? "stop_only" as const : "bracket" as const,
         protection_generation: entry.protection_generation,
         remaining_quantity: entry.stop_order.remaining_quantity,
         stop_order_id: entry.stop_order.order_id,
         stop_trigger_price: entry.stop_order.trigger_price,
+        stop_order_status: stopStatus,
         target_order_id: entry.target_order.order_id,
         target_trigger_price: entry.target_order.trigger_price,
+        target_order_status: targetStatus,
       }
     },
     observe_exact_risk: (source, entry, appliedFundingSources) => {
@@ -1050,6 +1188,10 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     },
     observe_strategy_exit: (source) => {
       if (!strategyExitOrder || source.kind !== "bar_open") return null
+      if (strategyExitOrder.status === "cancelled") return null
+      if (strategyExitOrder.status !== "submitted") {
+        throw new Error("Replay strategy exit reached execution in a non-pending state")
+      }
       const scheduleEntry = request.decision_schedule.entries.find(
         (entry) => entry.expected_effect === "authorized_reduce_only_exit",
       )
@@ -1078,7 +1220,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
         stop_order: entry.stop_order,
         target_order: entry.target_order,
         partial_reduce_order: partialReduceOrder,
-        strategy_exit_order: strategyExitOrder,
+        strategy_exit_order: strategyExitOrder?.status === "submitted" ? strategyExitOrder : null,
         next_stamp: nextStamp,
         capture,
       })
@@ -1104,7 +1246,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
         stop_order: entry.stop_order,
         target_order: entry.target_order,
         partial_reduce_order: partialReduceOrder,
-        strategy_exit_order: strategyExitOrder,
+          strategy_exit_order: strategyExitOrder?.status === "submitted" ? strategyExitOrder : null,
         next_stamp: nextStamp,
         capture,
       }),
@@ -1173,6 +1315,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
         decision_harness_worker_protocol_version: initialReceipt?.worker_protocol_version ?? null,
         ohlcv_resolution_evidence_hash: canonicalHash(resultBody.ohlcv_resolution_evidence),
         pending_order_resolutions_hash: canonicalHash(resultBody.pending_order_resolutions),
+        order_state_snapshot_hash: resultBody.order_state_snapshot.snapshot_hash,
         venue_risk_policy_schedule_hash: request.venue_risk_policy_schedule_hash,
         instrument_spec_schedule_hash: request.instrument_spec_schedule_hash,
         instrument_status_schedule_hash: request.instrument_status_schedule_hash,
@@ -1203,10 +1346,13 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     const entryOutcome = exit.role === "entry_expired"
       ? "expired_unfilled" as const
       : exit.role === "entry_cancelled" ? "cancelled_unfilled" as const : "unfilled_at_data_end" as const
+    const gtdExpired = exit.role === "entry_expired" && exit.triggerSource === "bar_range"
     limitations.push(exit.role === "entry_expired" ? {
-      code: "ioc-entry-expired-unfilled-at-first-open",
+      code: gtdExpired ? "gtd-entry-expired-unfilled-at-frozen-close" : "ioc-entry-expired-unfilled-at-first-open",
       severity: "info",
-      detail: "The IOC Limit was not marketable at its sole next-open observation and expired with its full quantity; later bar range and later bars are outside this Order's lifetime.",
+      detail: gtdExpired
+        ? "The GTD pending entry remained unfilled or untriggered after the frozen expiry bar range and expired with its full quantity at phase 90; later observations are outside this Order's lifetime."
+        : "The IOC Limit was not marketable at its sole next-open observation and expired with its full quantity; later bar range and later bars are outside this Order's lifetime.",
     } : exit.role === "entry_cancelled" ? {
       code: "gtc-entry-cancelled-by-frozen-contract",
       severity: "info",
@@ -1237,11 +1383,14 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       settlement_increment: accountingSpec.settlement_increment,
     })
     const markSource = exit.role === "entry_expired"
-      ? "bar_open" as const
+      ? exit.triggerSource === "bar_range" ? "bar_close" as const : "bar_open" as const
       : exit.role === "entry_cancelled" ? "bar_close" as const
       : exactMarkCoverage ? "mark_event" as const : "bar_close" as const
     const markSourceRef = [...sourceEvents].reverse().find((source) => {
-      if (exit.role === "entry_expired") return source.kind === "bar_open" && source.event_key.event_time === exit.timestamp
+      if (exit.role === "entry_expired") {
+        return source.kind === (exit.triggerSource === "bar_range" ? "bar_range" : "bar_open")
+          && source.event_key.event_time === exit.timestamp
+      }
       if (exit.role === "entry_cancelled") return source.kind === "bar_range" && source.event_key.event_time === exit.timestamp
       return source.kind === (exactMarkCoverage ? "mark" : "bar_range") && source.event_key.event_time === exit.timestamp
     })?.source_event_id
@@ -1274,6 +1423,11 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       ohlcv_resolution_evidence: [],
       pending_order_resolutions: pendingOrderResolutions,
     })
+    const orderStateSnapshot = createReplayOrderStateSnapshot({
+      run_id: request.run_id,
+      orders: [...orderStateById.values()],
+      order_events: orderEvents,
+    })
     return finalizeResult({
       schema_version: REPLAY_RESULT_SCHEMA_VERSION,
       run_id: request.run_id,
@@ -1283,6 +1437,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       completed_at: exit.timestamp,
       source_events: sourceEvents,
       order_events: orderEvents,
+      order_state_snapshot: orderStateSnapshot,
       fills: [],
       positions: [],
       ledger,
@@ -1532,6 +1687,11 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       settlement_state: "flat_without_deficit" as const,
     }
     : null
+  const orderStateSnapshot = createReplayOrderStateSnapshot({
+    run_id: request.run_id,
+    orders: [...orderStateById.values()],
+    order_events: orderEvents,
+  })
   const resultBody = {
     schema_version: REPLAY_RESULT_SCHEMA_VERSION,
     run_id: request.run_id,
@@ -1541,6 +1701,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     completed_at: exit.timestamp,
     source_events: sourceEvents,
     order_events: orderEvents,
+    order_state_snapshot: orderStateSnapshot,
     fills,
     positions,
     ledger,
@@ -1575,6 +1736,7 @@ function buildReplayEngineCheckpoint(input: {
   partial_reduce_fills: ReplayFill[]
   strategy_exit_order: ReplayOrder | null
   order_events: ReplayOrderEvent[]
+  order_state_snapshot: ReplayResult["order_state_snapshot"]
   event_sequence: number
   exact_risk_snapshots: ReplayMarginSnapshot[]
   limitations: ReplayResult["limitations"]
@@ -1618,6 +1780,7 @@ function buildReplayEngineCheckpoint(input: {
     partial_reduce_fills: structuredClone(input.partial_reduce_fills),
     strategy_exit_order: structuredClone(input.strategy_exit_order),
     order_events: structuredClone(input.order_events),
+    order_state_snapshot: structuredClone(input.order_state_snapshot),
     event_sequence: input.event_sequence,
     exact_risk_snapshots: structuredClone(input.exact_risk_snapshots),
     limitations: structuredClone(input.limitations),
@@ -1699,6 +1862,7 @@ export function assertReplayEngineCheckpoint(
       || checkpoint.event_sequence !== maximumOrderEventSequence) {
     throw new Error("Replay engine checkpoint OrderEvent sequence is invalid")
   }
+  assertReplayOrderStateSnapshot(checkpoint.order_state_snapshot, checkpoint.order_events)
   const assertOrderMatchesLastEvent = (order: ReplayOrder): void => {
     const lastEvent = checkpoint.order_events
       .filter((event) => event.order_id === order.order_id)
@@ -1727,8 +1891,11 @@ export function assertReplayEngineCheckpoint(
       ? checkpoint.entry_order.order_type === "limit"
         && checkpoint.entry_order.limit_price === execution.limit_price
         && checkpoint.entry_order.time_in_force === execution.time_in_force
+        && checkpoint.entry_order.expires_at === (execution.time_in_force === "gtd" ? execution.expires_at : undefined)
       : checkpoint.entry_order.order_type === "stop_market"
         && checkpoint.entry_order.trigger_price === execution.trigger_price
+        && checkpoint.entry_order.time_in_force === execution.time_in_force
+        && checkpoint.entry_order.expires_at === (execution.time_in_force === "gtd" ? execution.expires_at : undefined)
     if (!activationEvent || !entryOrderAuthorityMatches) {
       throw new Error("pending-entry checkpoint Order authority is invalid")
     }
@@ -1776,13 +1943,55 @@ export function assertReplayEngineCheckpoint(
     const replacementApplied = Boolean(replacementIntent && replacementSchedule
       && replacementEvidence?.evaluation_status === "evaluated"
       && replacementEvidence.execution_effect === "authorized_protective_stop_replace")
+    const targetReplacementSchedule = request.decision_schedule.entries.find(
+      (candidate) => candidate.expected_effect === "authorized_take_profit_replace",
+    )
+    const targetReplacementIntent = targetReplacementSchedule?.authorized_take_profit_replace
+    const targetReplacementEvidence = checkpoint.decision_evidence_timeline.entries.find(
+      (candidate) => candidate.decision_sequence === targetReplacementSchedule?.decision_sequence,
+    )
+    const targetReplacementApplied = Boolean(targetReplacementIntent && targetReplacementSchedule
+      && targetReplacementEvidence?.evaluation_status === "evaluated"
+      && targetReplacementEvidence.execution_effect === "authorized_take_profit_replace")
     const partialApplied = checkpoint.partial_reduce_order?.status === "filled"
-    const expectedGeneration = replacementApplied || partialApplied ? 2 : 1
+    const targetCancelSchedule = request.decision_schedule.entries.find(
+      (candidate) => candidate.expected_effect === "authorized_take_profit_cancel",
+    )
+    const targetCancelIntent = targetCancelSchedule?.authorized_take_profit_cancel
+    const targetCancelEvidence = checkpoint.decision_evidence_timeline.entries.find(
+      (candidate) => candidate.decision_sequence === targetCancelSchedule?.decision_sequence,
+    )
+    const targetCancelApplied = Boolean(targetCancelIntent && targetCancelSchedule
+      && targetCancelEvidence?.evaluation_status === "evaluated"
+      && targetCancelEvidence.execution_effect === "authorized_take_profit_cancel")
+    const stopCancelSchedule = request.decision_schedule.entries.find(
+      (candidate) => candidate.expected_effect === "authorized_protective_stop_cancel",
+    )
+    const stopCancelIntent = stopCancelSchedule?.authorized_protective_stop_cancel
+    const stopCancelEvidence = checkpoint.decision_evidence_timeline.entries.find(
+      (candidate) => candidate.decision_sequence === stopCancelSchedule?.decision_sequence,
+    )
+    const stopCancelApplied = Boolean(stopCancelIntent && stopCancelSchedule
+      && stopCancelEvidence?.evaluation_status === "evaluated"
+      && stopCancelEvidence.execution_effect === "authorized_protective_stop_cancel")
+    const expectedGeneration = replacementApplied || targetReplacementApplied || partialApplied ? 2 : 1
     if (!Number.isSafeInteger(entry.protection_generation)
         || entry.protection_generation !== expectedGeneration
+        || entry.stop_order.status !== (stopCancelApplied ? "cancelled" : "active")
+        || entry.target_order.status !== (targetCancelApplied ? "cancelled" : "active")
         || entry.stop_order.remaining_quantity !== entry.target_order.remaining_quantity
         || entry.stop_order.remaining_quantity !== Math.abs(entry.signed_position_after)) {
       throw new Error("Replay engine checkpoint protection generation is invalid")
+    }
+    if (targetCancelApplied && (!targetCancelIntent
+        || entry.target_order.order_id !== targetCancelIntent.target_order_id
+        || entry.target_order.last_event_key.event_time !== targetCancelIntent.effective_at)) {
+      throw new Error("Replay engine checkpoint stop-only protection lacks frozen target-cancel evidence")
+    }
+    if (stopCancelApplied && (!stopCancelIntent
+        || entry.stop_order.order_id !== stopCancelIntent.target_order_id
+        || entry.stop_order.last_event_key.event_time !== stopCancelIntent.effective_at)) {
+      throw new Error("Replay engine checkpoint target-only protection lacks frozen stop-cancel evidence")
     }
     if (replacementApplied && (!replacementIntent || !replacementSchedule
         || entry.stop_order.order_id !== `${request.run_id}:order:stop-replacement:${replacementSchedule.decision_sequence}`
@@ -1791,7 +2000,14 @@ export function assertReplayEngineCheckpoint(
         || entry.target_order.trigger_price !== request.order.target_price)) {
       throw new Error("Replay engine checkpoint replacement protection state is invalid")
     }
-    if (!replacementApplied && !partialApplied
+    if (targetReplacementApplied && (!targetReplacementIntent || !targetReplacementSchedule
+        || entry.stop_order.order_id !== `${request.run_id}:order:stop`
+        || entry.target_order.order_id !== `${request.run_id}:order:target-replacement:${targetReplacementSchedule.decision_sequence}`
+        || entry.stop_order.trigger_price !== request.order.stop_price
+        || entry.target_order.trigger_price !== targetReplacementIntent.new_target_price)) {
+      throw new Error("Replay engine checkpoint take-profit replacement state is invalid")
+    }
+    if (!replacementApplied && !targetReplacementApplied && !partialApplied
         && (entry.stop_order.order_id !== `${request.run_id}:order:stop`
           || entry.target_order.order_id !== `${request.run_id}:order:target`
           || entry.stop_order.trigger_price !== request.order.stop_price
@@ -1873,16 +2089,31 @@ export function assertReplayEngineCheckpoint(
     const evidence = checkpoint.decision_evidence_timeline.entries.find(
       (entry) => entry.decision_sequence === scheduleEntry?.decision_sequence,
     )
+    const cancelSchedule = request.decision_schedule.entries.find(
+      (entry) => entry.expected_effect === "authorized_strategy_exit_cancel",
+    )
+    const cancelEvidence = checkpoint.decision_evidence_timeline.entries.find(
+      (entry) => entry.decision_sequence === cancelSchedule?.decision_sequence,
+    )
+    const cancelApplied = cancelEvidence?.evaluation_status === "evaluated"
+      && cancelEvidence.execution_effect === "authorized_strategy_exit_cancel"
+    const expectedStatus = cancelApplied ? "cancelled" : "submitted"
     if (!intent || evidence?.evaluation_status !== "evaluated"
         || evidence.execution_effect !== "authorized_reduce_only_exit"
         || checkpoint.strategy_exit_order.order_role !== "strategy_exit"
         || checkpoint.strategy_exit_order.order_type !== "market"
         || checkpoint.strategy_exit_order.side !== intent.side
         || checkpoint.strategy_exit_order.reduce_only !== true
-        || checkpoint.strategy_exit_order.status !== "submitted"
+        || checkpoint.strategy_exit_order.status !== expectedStatus
         || checkpoint.strategy_exit_order.submitted_at !== intent.signal_time
         || checkpoint.strategy_exit_order.filled_quantity !== 0) {
       throw new Error("Replay engine checkpoint pending strategy exit is invalid")
+    }
+    if (cancelApplied && (!cancelSchedule?.authorized_strategy_exit_cancel
+        || cancelSchedule.authorized_strategy_exit_cancel.target_exit_decision_sequence !== scheduleEntry?.decision_sequence
+        || checkpoint.strategy_exit_order.last_event_key.event_time
+          !== cancelSchedule.authorized_strategy_exit_cancel.effective_at)) {
+      throw new Error("Replay engine checkpoint cancelled strategy exit lacks frozen cancellation evidence")
     }
   }
   const { checkpoint_hash: checkpointHash, ...body } = checkpoint
@@ -1909,6 +2140,10 @@ function assertInstrumentAlignedInputs(
     const replace = entry.authorized_protective_stop_replace
     if (replace && !isReplayIncrementAligned(replace.new_stop_price, priceIncrement)) {
       throw new Error("Replay replacement stop_price must align to price increment")
+    }
+    const targetReplace = entry.authorized_take_profit_replace
+    if (targetReplace && !isReplayIncrementAligned(targetReplace.new_target_price, priceIncrement)) {
+      throw new Error("Replay replacement target_price must align to price increment")
     }
     const partial = entry.authorized_partial_reduce
     if (partial && (!isReplayIncrementAligned(partial.quantity, quantityIncrement)

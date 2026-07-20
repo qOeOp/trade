@@ -181,7 +181,17 @@ function validateManifestBinding(
   validatePointInTimePolicyBindings(request, manifest, bars, firstOpen, lastClose, entryTime, observedThrough)
   validateInstrumentWindow(request, manifest, bars)
   validateBarGrid(manifest, bars)
+  validateGtdExpiryBoundary(request, bars)
   return supplementalAdmission
+}
+
+function validateGtdExpiryBoundary(request: ReplayExecutionRequest, bars: ReplayMarketBar[]): void {
+  const execution = request.order.entry_execution
+  if (execution.order_type === "market" || execution.time_in_force !== "gtd") return
+  const expiryBar = bars.find((bar) => bar.close_time === execution.expires_at)
+  if (!expiryBar || Date.parse(expiryBar.open_time) < Date.parse(request.order.earliest_executable_time)) {
+    throw new Error("GTD pending-entry expiry must bind one supplied executable closed-bar boundary")
+  }
 }
 
 function validateSupplementalBinding(

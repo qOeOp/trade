@@ -515,12 +515,12 @@ test("pre-entry IOC Limit expires unfilled at first open and never consumes late
   cancelledTamper.order_events.at(-1)!.status = "cancelled"
   expect(() => assertReplayResultPendingOrderBindings(
     cancelledTamper, replayInput.request, replayInput.dataset_manifest,
-  )).toThrow("expire after its first-open decision")
+  )).toThrow("must bind its TIF boundary and zero-execution accounting")
   const reasonTamper = structuredClone(result)
   reasonTamper.order_events.at(-1)!.reason = "user_cancelled"
   expect(() => assertReplayResultPendingOrderBindings(
     reasonTamper, replayInput.request, replayInput.dataset_manifest,
-  )).toThrow("expire after its first-open decision")
+  )).toThrow("must bind its TIF boundary and zero-execution accounting")
 
   const resumableInput = inputFor(requestValue, replayInput.bars, [
     { timestamp: "2026-07-14T04:00:00Z", rate: 0.001, mark_price: 101 },
@@ -1140,6 +1140,19 @@ test("checkpoint hash and source prefix fencing reject tampered resume state", (
     ...replayInput,
     execution_control: { resume_checkpoint: boundaryTampered },
   })).toThrow("authority binding")
+  const orderStateTampered = structuredClone(checkpoint!)
+  const activeOrder = orderStateTampered.order_state_snapshot.orders.find((order) => order.status === "active")!
+  activeOrder.filled_quantity = 0.25
+  activeOrder.remaining_quantity = 0.75
+  orderStateTampered.order_state_snapshot.orders_hash = canonicalHash(orderStateTampered.order_state_snapshot.orders)
+  const { snapshot_hash: _snapshotHash, ...snapshotBody } = orderStateTampered.order_state_snapshot
+  orderStateTampered.order_state_snapshot.snapshot_hash = canonicalHash(snapshotBody)
+  const { checkpoint_hash: _checkpointHash, ...checkpointBody } = orderStateTampered
+  orderStateTampered.checkpoint_hash = canonicalHash(checkpointBody)
+  expect(() => executeReplayKernel({
+    ...replayInput,
+    execution_control: { resume_checkpoint: orderStateTampered },
+  })).toThrow("terminal state")
   checkpoint!.source_events[0].source_event_id = "tampered"
   expect(() => executeReplayKernel({
     ...replayInput,

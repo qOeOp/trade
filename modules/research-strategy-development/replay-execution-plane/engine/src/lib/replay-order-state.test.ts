@@ -1,5 +1,9 @@
 import { expect, test } from "bun:test"
 import type { ReplayBoundaryPhase } from "../../../contracts/src/lib/replay-contracts"
+import {
+  assertReplayOrderStateSnapshot,
+  createReplayOrderStateSnapshot,
+} from "../../../contracts/src/lib/replay-contracts"
 import { compareReplayEventKeys, createReplayEventKey } from "./replay-event-key"
 import {
   activateReplayOrder,
@@ -103,7 +107,37 @@ test("IOC limit expires distinctly from an explicit cancellation", () => {
     limit_price: 99, time_in_force: "gtc",
   }, stamp(5, "2026-07-14T00:00:00Z"), 0).order, stamp(6, "2026-07-14T00:00:00Z"), 0)
   expect(() => expireReplayOrder(gtc.order, stamp(7, "2026-07-14T04:00:00Z"), 0, "wrong-tif"))
-    .toThrow("non-active IOC")
+    .toThrow("non-active expiring pending order")
+
+  const gtd = activateReplayOrder(submitReplayOrder({
+    order_id: "gtd-entry", order_role: "entry", order_type: "limit", side: "buy",
+    quantity: 1, reduce_only: false, submitted_at: "2026-07-14T00:00:00Z",
+    limit_price: 99, time_in_force: "gtd", expires_at: "2026-07-14T08:00:00Z",
+  }, stamp(8, "2026-07-14T00:00:00Z"), 0).order, stamp(9, "2026-07-14T00:00:00Z"), 0)
+  expect(() => expireReplayOrder(gtd.order, stamp(10, "2026-07-14T04:00:00Z"), 0, "too-early"))
+    .toThrow("frozen phase-90 expiry boundary")
+  const gtdExpired = expireReplayOrder(
+    gtd.order,
+    { ...stamp(10, "2026-07-14T08:00:00Z"), event_key: { ...stamp(10, "2026-07-14T08:00:00Z").event_key, boundary_phase: 90 } },
+    0,
+    "gtd_unfilled_at_expiry_close",
+  )
+  expect(gtdExpired.order).toMatchObject({ status: "expired", expires_at: "2026-07-14T08:00:00Z" })
+
+  const stopGtd = activateReplayOrder(submitReplayOrder({
+    order_id: "gtd-stop-entry", order_role: "entry", order_type: "stop_market", side: "buy",
+    quantity: 1, reduce_only: false, submitted_at: "2026-07-14T00:00:00Z",
+    trigger_price: 105, time_in_force: "gtd", expires_at: "2026-07-14T08:00:00Z",
+  }, stamp(11, "2026-07-14T00:00:00Z"), 0).order, stamp(12, "2026-07-14T00:00:00Z"), 0)
+  const stopGtdExpired = expireReplayOrder(
+    stopGtd.order,
+    { ...stamp(13, "2026-07-14T08:00:00Z"), event_key: { ...stamp(13, "2026-07-14T08:00:00Z").event_key, boundary_phase: 90 } },
+    0,
+    "gtd_unfilled_at_expiry_close",
+  )
+  expect(stopGtdExpired.order).toMatchObject({
+    order_type: "stop_market", status: "expired", time_in_force: "gtd", expires_at: "2026-07-14T08:00:00Z",
+  })
 })
 
 test("conditional orders require trigger and every transition advances EventKey", () => {
@@ -139,4 +173,52 @@ test("same-timestamp trigger fill and cancel race has one EventKey order", () =>
 
   const cancelled = cancelReplayOrder(active.order, stamp(6, "2026-07-14T07:59:59Z", 90, 6, 0), 1, "earlier-command")
   expect(() => triggerReplayOrder(cancelled.order, stamp(7, "2026-07-14T08:00:00Z", 20, 7, 2), 1, "bar_range", 95)).toThrow("cancelled")
+})
+
+test("order state snapshot closes concurrent protection into one canonical auditable state", () => {
+  const events = [] as ReturnType<typeof submitReplayOrder>["event"][]
+  const capture = <T extends ReturnType<typeof submitReplayOrder>>(transition: T): T => {
+    events.push(transition.event)
+    return transition
+  }
+  let stop = capture(submitReplayOrder({
+    order_id: "stop-snapshot", order_role: "stop", order_type: "stop_market", side: "sell",
+    quantity: 1, reduce_only: true, submitted_at: "2026-07-14T04:00:00Z", trigger_price: 95,
+  }, stamp(1, "2026-07-14T04:00:00Z"), 1)).order
+  stop = capture(activateReplayOrder(stop, stamp(2, "2026-07-14T04:00:00Z"), 1)).order
+  let target = capture(submitReplayOrder({
+    order_id: "target-snapshot", order_role: "target", order_type: "take_profit_market", side: "sell",
+    quantity: 1, reduce_only: true, submitted_at: "2026-07-14T04:00:00Z", trigger_price: 110,
+  }, stamp(3, "2026-07-14T04:00:00Z"), 1)).order
+  target = capture(activateReplayOrder(target, stamp(4, "2026-07-14T04:00:00Z"), 1)).order
+  stop = capture(triggerReplayOrder(
+    stop, stamp(5, "2026-07-14T08:00:00Z", 20, 1, 2), 1, "bar_range", 95,
+  )).order
+  const stopFill = capture(fillReplayOrder({
+    order: stop, requested_quantity: 1,
+    stamp: stamp(6, "2026-07-14T08:00:00Z", 20, 1, 3), signed_position_before: 1,
+  }))
+  stop = stopFill.order
+  target = capture(cancelReplayOrder(
+    target, stamp(7, "2026-07-14T08:00:00Z", 90, 1, 0), 0, "sibling-exit-filled",
+  )).order
+
+  const snapshot = createReplayOrderStateSnapshot({
+    run_id: "run-order-snapshot",
+    orders: [target, stop],
+    order_events: events,
+  })
+  expect(snapshot.orders.map((order) => order.order_id)).toEqual(["stop-snapshot", "target-snapshot"])
+  expect(snapshot.nonterminal_order_ids).toEqual([])
+  expect(snapshot.terminal_order_ids).toEqual(["stop-snapshot", "target-snapshot"])
+  expect(snapshot.orders.map((order) => order.status)).toEqual(["filled", "cancelled"])
+  expect(createReplayOrderStateSnapshot({
+    run_id: "run-order-snapshot", orders: [stop, target], order_events: events,
+  })).toEqual(snapshot)
+  expect(() => assertReplayOrderStateSnapshot({
+    ...snapshot,
+    orders: snapshot.orders.map((order, index) => index === 0
+      ? { ...order, remaining_quantity: 1 }
+      : order),
+  }, events)).toThrow("quantity conservation")
 })

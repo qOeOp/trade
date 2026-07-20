@@ -25,7 +25,7 @@ export interface ReplayExitOrderExecution {
   exit_fill_event_key: ReplayEventKey | null
 }
 
-export type ReplayTransitionCapture = <T extends { event: ReplayOrderEvent }>(transition: T) => T
+export type ReplayTransitionCapture = <T extends { order: ReplayOrder; event: ReplayOrderEvent }>(transition: T) => T
 
 export function completeReplayExitOrderLane(input: {
   run_id: string
@@ -67,7 +67,7 @@ export function completeReplayExitOrderLane(input: {
       stamp: input.next_stamp(exit.timestamp, triggerPhase, exit.sourceSequence, triggerSubphase + 1),
       signed_position_before: input.signed_position,
     }))
-    targetOrder = input.capture(cancelReplayOrder(
+    if (targetOrder.status === "active") targetOrder = input.capture(cancelReplayOrder(
       targetOrder,
       input.next_stamp(exit.timestamp, 90, exit.sourceSequence, siblingCancelSubphase),
       transition.signed_position_after,
@@ -102,7 +102,7 @@ export function completeReplayExitOrderLane(input: {
       stamp: input.next_stamp(exit.timestamp, triggerPhase, exit.sourceSequence, triggerSubphase + 1),
       signed_position_before: input.signed_position,
     }))
-    stopOrder = input.capture(cancelReplayOrder(
+    if (stopOrder.status === "active") stopOrder = input.capture(cancelReplayOrder(
       stopOrder,
       input.next_stamp(exit.timestamp, 90, exit.sourceSequence, siblingCancelSubphase),
       transition.signed_position_after,
@@ -124,13 +124,13 @@ export function completeReplayExitOrderLane(input: {
   }
 
   const endOfDataSubphase = immediateAfterActivation ? 4 : 0
-  stopOrder = input.capture(cancelReplayOrder(
+  if (stopOrder.status === "active") stopOrder = input.capture(cancelReplayOrder(
     stopOrder,
     input.next_stamp(exit.timestamp, 90, exit.sourceSequence, endOfDataSubphase),
     input.signed_position,
     "end-of-data",
   )).order
-  targetOrder = input.capture(cancelReplayOrder(
+  if (targetOrder.status === "active") targetOrder = input.capture(cancelReplayOrder(
     targetOrder,
     input.next_stamp(exit.timestamp, 90, exit.sourceSequence, endOfDataSubphase + 1),
     input.signed_position,
@@ -184,13 +184,13 @@ export function completeReplayStrategyExitOrderLane(input: {
   if (strategyExitOrder.status !== "filled" || transition.signed_position_after !== 0) {
     throw new Error("certified Replay strategy exit must fully close the position")
   }
-  input.capture(cancelReplayOrder(
+  if (input.stop_order.status === "active") input.capture(cancelReplayOrder(
     input.stop_order,
     input.next_stamp(input.event_time, 90, input.source_sequence, 0),
     transition.signed_position_after,
     "strategy-exit-filled",
   ))
-  input.capture(cancelReplayOrder(
+  if (input.target_order.status === "active") input.capture(cancelReplayOrder(
     input.target_order,
     input.next_stamp(input.event_time, 90, input.source_sequence, 1),
     transition.signed_position_after,
