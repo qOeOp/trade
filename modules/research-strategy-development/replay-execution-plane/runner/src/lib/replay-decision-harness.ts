@@ -11,9 +11,12 @@ import {
   REPLAY_DECISION_MARKET_INPUT_SNAPSHOT_SCHEMA_VERSION,
   REPLAY_DECISION_STATE_SNAPSHOT_SCHEMA_VERSION,
   assertReplayDecisionHarnessBuildAttestation,
+  assertReplayDecisionHarnessReceipt,
   assertReplayDecisionHarnessRegistryCapability,
   assertReplayDecisionHarnessSourceBundle,
   canonicalJson,
+  canonicalHash,
+  createReplayDecisionHarnessContext,
   createReplayDecisionHarnessReceipt,
   replayDecisionOutputFor,
   type ReplayDecisionHarnessBuildAttestation,
@@ -27,6 +30,10 @@ import {
   type ReplayDecisionStateSnapshot,
   type ReplayExecutionRequest,
 } from "../../../contracts/src/lib/replay-contracts"
+import {
+  assertReplayDecisionHarnessWorkerV10CutoverReceipt,
+  type ReplayDecisionHarnessWorkerV10CutoverReceipt,
+} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-cutover-receipt"
 import { buildReplayDecisionHarness, executeReplayDecisionHarnessWorker } from "./replay-decision-harness-build"
 
 export interface ReplayRegisteredDecisionHarness {
@@ -37,6 +44,15 @@ export interface ReplayRegisteredDecisionHarness {
 export interface ReplayDecisionHarnessRegistry {
   capability: ReplayDecisionHarnessRegistryCapability
   resolve(bundleHash: string): ReplayRegisteredDecisionHarness | undefined
+  resolve_cutover?(input: ReplayDecisionHarnessCutoverLookup):
+    ReplayDecisionHarnessWorkerV10CutoverReceipt | undefined
+}
+
+export interface ReplayDecisionHarnessCutoverLookup {
+  request_context_hash: string
+  decision_input_snapshot_hash: string
+  decision_market_input_snapshot_hash: string
+  decision_state_snapshot_hash: string | null
 }
 
 export interface ReplayDecisionHarnessAdmission {
@@ -79,6 +95,29 @@ export function createReplayDecisionHarnessRegistry(
   }
 }
 
+export function createReplayDecisionHarnessCutoverRegistry(
+  registrations: ReplayRegisteredDecisionHarness[],
+  receipts: ReplayDecisionHarnessWorkerV10CutoverReceipt[],
+): ReplayDecisionHarnessRegistry {
+  const base = createReplayDecisionHarnessRegistry(registrations)
+  const cutovers = new Map<string, ReplayDecisionHarnessWorkerV10CutoverReceipt>()
+  for (const receipt of receipts) {
+    assertReplayDecisionHarnessWorkerV10CutoverReceipt(receipt)
+    const key = cutoverLookupKey(receipt)
+    if (cutovers.has(key)) {
+      throw new ReplayDecisionHarnessError("Replay decision harness cutover registry contains a duplicate lookup")
+    }
+    cutovers.set(key, structuredClone(receipt))
+  }
+  return {
+    ...base,
+    resolve_cutover: (lookup) => {
+      const receipt = cutovers.get(cutoverLookupKey(lookup))
+      return receipt && structuredClone(receipt)
+    },
+  }
+}
+
 export function executeReplayDecisionHarness(input: {
   registry: ReplayDecisionHarnessRegistry | undefined
   request: ReplayExecutionRequest
@@ -98,6 +137,32 @@ export function executeReplayDecisionHarness(input: {
     if (!registration) throw new Error("decision harness bundle hash is not registered")
     assertReplayDecisionHarnessSourceBundle(registration.source_bundle, input.request)
     assertReplayDecisionHarnessBuildAttestation(registration.build_attestation, registration.source_bundle)
+    const requestContextHash = canonicalHash(
+      createReplayDecisionHarnessContext(input.request, input.schedule_entry),
+    )
+    const cutover = input.registry.resolve_cutover?.({
+      request_context_hash: requestContextHash,
+      decision_input_snapshot_hash: input.decision_input_snapshot.snapshot_hash,
+      decision_market_input_snapshot_hash: input.decision_market_input_snapshot.snapshot_hash,
+      decision_state_snapshot_hash: input.decision_state_snapshot?.snapshot_hash ?? null,
+    })
+    if (cutover) {
+      assertReplayDecisionHarnessWorkerV10CutoverReceipt(cutover)
+      assertReplayDecisionHarnessReceipt(
+        cutover,
+        input.request,
+        input.decision_input_snapshot,
+        input.decision_market_input_snapshot,
+        registration.source_bundle,
+        registration.build_attestation,
+        input.decision_state_snapshot ?? null,
+      )
+      return {
+        source_bundle: structuredClone(registration.source_bundle),
+        build_attestation: structuredClone(registration.build_attestation),
+        receipt: structuredClone(cutover),
+      }
+    }
     const capability: ReplayDecisionHarnessCapability = {
       schema_version: REPLAY_DECISION_HARNESS_CAPABILITY_SCHEMA_VERSION,
       harness_hash: registration.source_bundle.bundle_hash,
@@ -164,4 +229,13 @@ export function executeReplayDecisionHarness(input: {
   } catch (error) {
     throw new ReplayDecisionHarnessError(error instanceof Error ? error.message : String(error))
   }
+}
+
+function cutoverLookupKey(input: ReplayDecisionHarnessCutoverLookup): string {
+  return canonicalHash({
+    request_context_hash: input.request_context_hash,
+    decision_input_snapshot_hash: input.decision_input_snapshot_hash,
+    decision_market_input_snapshot_hash: input.decision_market_input_snapshot_hash,
+    decision_state_snapshot_hash: input.decision_state_snapshot_hash,
+  })
 }

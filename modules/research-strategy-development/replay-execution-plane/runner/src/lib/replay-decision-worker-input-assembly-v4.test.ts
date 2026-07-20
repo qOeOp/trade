@@ -6,6 +6,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 import {
+  CONTROL_PLANE_IDENTITY_SCHEMA_VERSION,
   REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION,
   REPLAY_ATTEMPT_LEASE_OBSERVATION_POLICY_VERSION,
   REPLAY_ATTEMPT_LEASE_OBSERVATION_SCHEMA_VERSION,
@@ -17,21 +18,28 @@ import {
   REPLAY_SPAWN_BOUNDARY_REVALIDATION_RECEIPT_SCHEMA_VERSION,
   REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_RECEIPT_POLICY_VERSION,
   REPLAY_SUCCESSOR_VERIFICATION_LEASE_RENEWAL_RECEIPT_SCHEMA_VERSION,
+  REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
+  TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION,
   assertReplaySpawnBoundaryRevalidationReceipt,
   assertReplaySuccessorVerificationLeaseRenewalReceipt,
   createReplayAttemptLeaseObservationRegistryReadReceipt,
   createReplayAttemptLeaseObservationSnapshot,
   createReplayDispatchClockAttestation,
+  createReplayInstrumentStatusProviderCertificationSnapshot,
   createReplaySpawnBoundaryRevalidationReceipt,
   createReplaySuccessorVerificationLeaseRenewalReceipt,
   hashReplayAttemptLeaseSnapshot,
+  hashTrialReservationSnapshot,
   replayDispatchClockAttestationIdentityHash,
   replaySpawnBoundaryRevalidationReceiptIdentityHash,
   replaySuccessorVerificationLeaseRenewalReceiptIdentityHash,
   type ReplayAttemptLeaseSnapshot,
   type ReplaySpawnBoundaryRevalidationRequest,
+  type TrialReservationSnapshot,
 } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
 import {
+  REPLAY_CERTIFIED_CAPABILITIES,
+  REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
   REPLAY_DECISION_STATE_SNAPSHOT_SCHEMA_VERSION,
   REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
   REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION,
@@ -51,8 +59,12 @@ import {
   createReplayDecisionMarketInputSnapshot,
   createReplayDecisionStateSnapshot,
   createReplayInstrumentStatusProvenance,
+  replayDatasetHash,
+  replayExecutionSpecHash,
+  type ReplayDatasetManifest,
   type ReplayDecisionScheduleEntry,
   type ReplayExecutionRequest,
+  type ReplayMarketBar,
   type ReplaySourceEvent,
 } from "../../../contracts/src/lib/replay-contracts"
 import {
@@ -220,7 +232,12 @@ import {
   buildReplayDecisionWorkerInputAssemblyV3,
 } from "../../../engine/src/lib/replay-decision-worker-input-assembly-v3"
 import { buildReplayDecisionHarness } from "./replay-decision-harness-build"
-import { createReplayDecisionHarnessRegistry } from "./replay-decision-harness"
+import { runReplayTrial } from "./replay-trial-runner"
+import {
+  createReplayDecisionHarnessCutoverRegistry,
+  createReplayDecisionHarnessRegistry,
+  executeReplayDecisionHarness,
+} from "./replay-decision-harness"
 import {
   assertReplayDecisionHarnessCodeAdmissionLineage,
   buildReplayDecisionHarnessCodeAdmission,
@@ -357,6 +374,10 @@ import {
   readReplayWorkerV10ReproducibilityPairContract,
   registerReplayWorkerV10ReproducibilityPairContract,
 } from "./replay-worker-v10-reproducibility-pair-contract-registry"
+import {
+  executeReplayWorkerV10Cutover,
+  readReplayWorkerV10CutoverReceipt,
+} from "./replay-worker-v10-cutover"
 import {
   REPLAY_DECISION_HARNESS_WORKER_V10_SUCCESSOR_IMMUTABLE_BINDINGS,
   assertReplayDecisionHarnessWorkerV10SuccessorVerificationAuthorityContract,
@@ -567,10 +588,30 @@ const STATUS_SNAPSHOT = {
   effective_at: "2020-01-01T00:00:00Z", valid_until: null, observed_at: "2026-07-13T00:00:00Z",
   source_ref: "fixture:status-1", source_hash: HASH,
 }
+const PROVIDER_CERTIFICATION = createReplayInstrumentStatusProviderCertificationSnapshot({
+  schema_version: REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
+  certification_id: "status-provider-certification-r4-152",
+  certification_ref: "certification://fixture-status-provider/v1",
+  status: "certified",
+  certified_at: "2026-07-13T00:00:00Z",
+  valid_until: "2026-08-01T00:00:00Z",
+  certifier_id: "research-control-plane",
+  certification_policy_version: "rd-status-provider-certification-v1",
+  provider_capability_hash: HASH,
+  producer_domain: "market-data-products",
+  producer_id: "fixture-status-producer",
+  producer_version: "v1",
+  producer_build_hash: HASH,
+  normalization_policy_version: "fixture-status-normalization-v1",
+  normalization_policy_hash: HASH,
+  allowed_source_kind: "venue_status_event_archive",
+  allowed_completeness: "complete_history",
+})
 const STATUS_PROVENANCE = createReplayInstrumentStatusProvenance({
   producer_domain: "market-data-products", producer_id: "fixture-status-producer", producer_version: "v1",
   producer_build_hash: HASH, source_owner: "binance-usdm", provider_capability_hash: HASH,
-  provider_certification_ref: "certification://fixture-status-provider/v1", provider_certification_hash: HASH,
+  provider_certification_ref: PROVIDER_CERTIFICATION.certification_ref,
+  provider_certification_hash: PROVIDER_CERTIFICATION.certification_hash,
   source_kind: "venue_status_event_archive", normalization_policy_version: "fixture-status-normalization-v1",
   normalization_policy_hash: HASH, completeness: "complete_history", coverage_start: "2020-01-01T00:00:00Z",
   coverage_end: "2030-01-01T00:00:00Z", source_observed_through: "2026-07-13T00:00:00Z",
@@ -578,14 +619,25 @@ const STATUS_PROVENANCE = createReplayInstrumentStatusProvenance({
   source_record_count: 1, status_epochs: [STATUS_SNAPSHOT],
 })
 
-function request(candidateHash = HASH, harnessHash = HASH): ReplayExecutionRequest {
+const GOLDEN_REPLAY_BARS: ReplayMarketBar[] = [
+  { open_time: "2026-07-14T00:00:00.000Z", close_time: "2026-07-14T04:00:00Z", open: 100, high: 103, low: 99, close: 102, volume: 10, closed: true },
+  { open_time: "2026-07-14T04:00:00.000Z", close_time: "2026-07-14T08:00:00Z", open: 100, high: 103, low: 99, close: 102, volume: 10, closed: true },
+  { open_time: "2026-07-14T08:00:00.000Z", close_time: "2026-07-14T12:00:00Z", open: 100, high: 103, low: 99, close: 102, volume: 10, closed: true },
+]
+const GOLDEN_REPLAY_DATASET_HASH = replayDatasetHash(GOLDEN_REPLAY_BARS)
+
+function request(
+  candidateHash = HASH,
+  harnessHash = HASH,
+  datasetHash = HASH,
+): ReplayExecutionRequest {
   const order: ReplayExecutionRequest["order"] = {
     side: "long", quantity: 1, signal_time: "2026-07-14T04:00:00Z",
     earliest_executable_time: "2026-07-14T08:00:00Z", stop_price: 95, target_price: 110,
     entry_execution: { order_type: "market" },
   }
   const schedule = {
-    schema_version: "trade.rd-replay-decision-schedule.v7" as const,
+    schema_version: "trade.rd-replay-decision-schedule.v11" as const,
     schedule_policy: "frozen_closed_bar_schedule" as const,
     entries: [{
       decision_sequence: 1, decision_time: order.signal_time,
@@ -616,7 +668,7 @@ function request(candidateHash = HASH, harnessHash = HASH): ReplayExecutionReque
     trial_id: "trial-1", candidate_id: "candidate-1", candidate_hash: candidateHash,
     identity_hash_policy_version: "rd-identity-v1", experiment_contract_hash: HASH,
     trial_reservation_ref: "reservation://trial-1", trial_reservation_hash: HASH,
-    dataset_manifest_ref: "dataset://fixture", dataset_hash: HASH,
+    dataset_manifest_ref: "dataset://fixture", dataset_hash: datasetHash,
     supplemental_facts_hash: canonicalHash([]),
     supplemental_requirement_set: structuredClone(REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS),
     supplemental_requirement_set_hash: REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH,
@@ -628,7 +680,7 @@ function request(candidateHash = HASH, harnessHash = HASH): ReplayExecutionReque
     instrument_status_schedule_hash: canonicalHash([STATUS_SNAPSHOT]),
     instrument_status_provenance_hash: canonicalHash(STATUS_PROVENANCE),
     instrument_status_provider_capability_hash: HASH,
-    instrument_status_provider_certification_hash: HASH,
+    instrument_status_provider_certification_hash: PROVIDER_CERTIFICATION.certification_hash,
     harness_hash: harnessHash, assumptions_hash: HASH, symbol: "BTCUSDT", timeframe: "4h", initial_cash: 1000,
     order, cost_policy: { policy_id: "fixture", version: "1", fee_bps: 0, slippage_bps: 0, liquidation_fee_bps: 50 },
     simulator_policy: {
@@ -653,6 +705,101 @@ function request(candidateHash = HASH, harnessHash = HASH): ReplayExecutionReque
       liquidation_deficit: "fail_without_result",
     },
     random_seed: 1,
+  }
+}
+
+function authorizeReplayTrialRequest(requestValue: ReplayExecutionRequest): TrialReservationSnapshot {
+  const reservation: TrialReservationSnapshot = {
+    schema_version: TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION,
+    reservation_id: `reservation:${requestValue.run_id}`,
+    reservation_ref: requestValue.trial_reservation_ref,
+    issued_at: "2026-07-14T00:00:00Z",
+    expires_at: "2026-07-15T00:00:00Z",
+    status: "reserved",
+    identity: {
+      schema_version: CONTROL_PLANE_IDENTITY_SCHEMA_VERSION,
+      experiment_id: requestValue.experiment_id,
+      trial_group_id: requestValue.trial_group_id,
+      trial_group_hash: requestValue.trial_group_hash,
+      trial_id: requestValue.trial_id,
+      candidate_id: requestValue.candidate_id,
+      candidate_hash: requestValue.candidate_hash,
+      identity_hash_policy_version: requestValue.identity_hash_policy_version,
+      experiment_contract_hash: requestValue.experiment_contract_hash,
+    },
+    trial_ordinal: 1,
+    run_id: requestValue.run_id,
+    counts_against_budget: true,
+    trial_accounting_policy_version: "count-all-v1",
+    candidate_assignment_hash: HASH,
+    bindings: {
+      replay_idempotency_key: requestValue.idempotency_key,
+      execution_spec_hash: replayExecutionSpecHash(requestValue),
+      dataset_manifest_ref: requestValue.dataset_manifest_ref,
+      dataset_hash: requestValue.dataset_hash,
+      liquidity_capacity_attestation_hash: null,
+      supplemental_facts_hash: requestValue.supplemental_facts_hash,
+      supplemental_requirement_set_hash: requestValue.supplemental_requirement_set_hash,
+      venue_risk_policy_schedule_hash: requestValue.venue_risk_policy_schedule_hash,
+      instrument_spec_schedule_hash: requestValue.instrument_spec_schedule_hash,
+      instrument_status_schedule_hash: requestValue.instrument_status_schedule_hash,
+      instrument_status_provenance_hash: requestValue.instrument_status_provenance_hash,
+      instrument_status_provider_capability_hash: requestValue.instrument_status_provider_capability_hash,
+      instrument_status_provider_certification_hash: requestValue.instrument_status_provider_certification_hash,
+      harness_hash: requestValue.harness_hash,
+      assumptions_hash: requestValue.assumptions_hash,
+      cost_policy_hash: canonicalHash(requestValue.cost_policy),
+      margin_policy_hash: canonicalHash(requestValue.margin_policy),
+      simulator_policy_version: requestValue.simulator_policy.version,
+      execution_mode: "step",
+    },
+    instrument_status_provider_certification: PROVIDER_CERTIFICATION,
+    required_capabilities: [...REPLAY_CERTIFIED_CAPABILITIES],
+  }
+  requestValue.trial_reservation_hash = hashTrialReservationSnapshot(reservation)
+  return reservation
+}
+
+function goldenReplayDatasetManifest(): ReplayDatasetManifest {
+  return {
+    schema_version: REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
+    manifest_id: "manifest-r4-152",
+    manifest_ref: "dataset://fixture",
+    data_hash: GOLDEN_REPLAY_DATASET_HASH,
+    dataset_kind: "ohlcv",
+    symbol: "BTCUSDT",
+    timeframe: "4h",
+    interval_ms: 14_400_000,
+    row_count: GOLDEN_REPLAY_BARS.length,
+    first_open_time: GOLDEN_REPLAY_BARS[0]!.open_time,
+    last_close_time: GOLDEN_REPLAY_BARS.at(-1)!.close_time,
+    observed_through: GOLDEN_REPLAY_BARS.at(-1)!.close_time,
+    closed_candles_only: true,
+    bar_final_availability: "close_time",
+    funding_availability: "event_time",
+    mark_availability: "event_time",
+    mark_coverage: "none",
+    mark_interval_ms: null,
+    mark_event_count: 0,
+    supplemental_facts: {
+      coverage: "none",
+      record_count: 0,
+      source_ids: [],
+      content_hash: canonicalHash([]),
+      requirement_set_hash: REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH,
+    },
+    venue_risk_policy_epochs: [RISK_SNAPSHOT],
+    instrument: {
+      listed_at: "2020-01-01T00:00:00Z",
+      trading_enabled_at: "2020-01-01T00:00:00Z",
+      delisted_at: null,
+      status_history: "complete",
+      status_epochs: [STATUS_SNAPSHOT],
+      status_provenance: STATUS_PROVENANCE,
+      spec_epochs: [SPEC_SNAPSHOT],
+      accounting: ACCOUNTING,
+    },
+    universe: { selected_at: "2026-07-13T00:00:00Z", survivorship: "point_in_time" },
   }
 }
 
@@ -798,7 +945,8 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
     }],
   })
   const buildAttestation = buildReplayDecisionHarness(sourceBundle)
-  const requestValue = request(HASH, sourceBundle.bundle_hash)
+  const requestValue = request(HASH, sourceBundle.bundle_hash, GOLDEN_REPLAY_DATASET_HASH)
+  const trialReservation = authorizeReplayTrialRequest(requestValue)
   const binding = contextBinding(requestValue)
   const sourceEvents: ReplaySourceEvent[] = [{
     source_event_id: "source:bar_range:1", kind: "bar_range", source_index: 0,
@@ -4865,6 +5013,113 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       source_successor_authority_capsule: successorAuthorityCapsule,
       source_successor_process_launch_intent: successorProcessLaunchIntent,
     })).toEqual(successorSpawnResult)
+    let cutoverRevalidationCalls = 0
+    const cutoverInput = {
+      registry_root: dispatchEvidenceRegistryRoot,
+      source_pair_contract: reproducibilityPairContract,
+      source_successor_spawn_revalidation: successorSpawnRevalidation,
+      source_successor_authority_capsule: successorAuthorityCapsule,
+      source_successor_process_launch_intent: successorProcessLaunchIntent,
+      source_successor_stdio_probe_admission: successorStdioProbeAdmission,
+      authority_port: {
+        revalidate: (request: ReplaySpawnBoundaryRevalidationRequest) => {
+          cutoverRevalidationCalls += 1
+          return buildSuccessorSpawnReceipt(
+            request, "2026-07-14T00:04:10Z", "2026-07-14T00:04:11Z", "12000000", "12000100",
+          )
+        },
+      },
+    }
+    const cutover = executeReplayWorkerV10Cutover(cutoverInput)
+    expect(cutover.disposition).toBe("new_cutover_receipt")
+    expect(cutover.receipt.status)
+      .toBe("admitted_two_fresh_process_pair_and_exact_schedule_effect")
+    expect(cutover.receipt.first_observed_child_pid)
+      .not.toBe(cutover.receipt.second_observed_child_pid)
+    expect(cutover.receipt.first_process_instance_id)
+      .not.toBe(cutover.receipt.second_process_instance_id)
+    expect(cutover.receipt.first_worker_response_hash)
+      .toBe(cutover.receipt.second_worker_response_hash)
+    expect(cutover.receipt.response_instance_count).toBe(2)
+    expect(cutover.receipt.schedule_admission_count).toBe(2)
+    expect(cutover.receipt.reproducibility_pair_count).toBe(1)
+    expect(cutover.receipt.harness_receipt_count).toBe(1)
+    expect(cutover.receipt.economic_authority).toBe("granted_exact_frozen_schedule_effect")
+    expect(cutover.receipt.blockers).toEqual([])
+    expect(cutoverRevalidationCalls).toBe(1)
+    expect(readReplayWorkerV10CutoverReceipt(cutoverInput)).toEqual(cutover.receipt)
+    const cutoverRetry = executeReplayWorkerV10Cutover(cutoverInput)
+    expect(cutoverRetry.disposition).toBe("existing_cutover_receipt")
+    expect(cutoverRetry.receipt).toEqual(cutover.receipt)
+    expect(cutoverRevalidationCalls).toBe(1)
+    const cutoverWorkerRequest = cutover.receipt.second_request_frame.worker_request
+    const formalCutoverAdmission = executeReplayDecisionHarness({
+      registry: createReplayDecisionHarnessCutoverRegistry([{
+        source_bundle: sourceBundle,
+        build_attestation: buildAttestation,
+      }], [cutover.receipt]),
+      request: requestValue,
+      schedule_entry: requestValue.decision_schedule.entries[0]!,
+      decision_input_snapshot: cutoverWorkerRequest.decision_input_snapshot,
+      decision_market_input_snapshot: cutoverWorkerRequest.decision_market_input_snapshot,
+      decision_state_snapshot: cutoverWorkerRequest.decision_state_snapshot,
+    })
+    expect(formalCutoverAdmission.receipt?.receipt_hash).toBe(cutover.receipt.receipt_hash)
+    expect(formalCutoverAdmission.receipt?.worker_protocol_version)
+      .toBe("rd-replay-harness-worker-stdio-v10")
+    expect(formalCutoverAdmission.receipt?.decision_output).toEqual(cutover.receipt.decision_output)
+    const resultArtifactRoot = mkdtempSync(join(tmpdir(), "rd-replay-r4-152-result-golden-"))
+    try {
+      const cutoverRegistry = createReplayDecisionHarnessCutoverRegistry([{
+        source_bundle: sourceBundle,
+        build_attestation: buildAttestation,
+      }], [cutover.receipt])
+      const completedTrial = runReplayTrial({
+        request: requestValue,
+        trial_reservation: trialReservation,
+        attempt_lease: successorLeaseAdmission.successor_attempt_lease,
+        observed_at: "2026-07-14T00:04:12Z",
+        dataset_manifest: goldenReplayDatasetManifest(),
+        bars: GOLDEN_REPLAY_BARS,
+        decision_harness_registry: cutoverRegistry,
+        artifact_root: resultArtifactRoot,
+      })
+      expect(completedTrial.status).toBe("completed")
+      expect(completedTrial.result?.status).toBe("completed")
+      const initialDecisionEvidence = completedTrial.result?.decision_evidence_timeline.entries[0]
+      expect(initialDecisionEvidence?.decision_harness_receipt?.receipt_hash)
+        .toBe(cutover.receipt.receipt_hash)
+      expect(initialDecisionEvidence?.decision_harness_receipt?.worker_protocol_version)
+        .toBe("rd-replay-harness-worker-stdio-v10")
+      expect(completedTrial.result?.fingerprint.decision_harness_receipt_hash)
+        .toBe(cutover.receipt.receipt_hash)
+      expect(completedTrial.result?.fingerprint.decision_harness_worker_protocol_version)
+        .toBe("rd-replay-harness-worker-stdio-v10")
+      expect(completedTrial.result?.fingerprint.dataset_hash).toBe(GOLDEN_REPLAY_DATASET_HASH)
+      expect(completedTrial.result?.fingerprint.trial_reservation_hash)
+        .toBe(hashTrialReservationSnapshot(trialReservation))
+      expect(completedTrial.artifact_manifest?.result_hash)
+        .toBe(completedTrial.result?.fingerprint.result_hash)
+      expect(completedTrial.artifact_manifest?.files.some(
+        (file) => file.role === "decision_evidence_timeline",
+      )).toBe(true)
+      expect(completedTrial.artifact_manifest?.completeness.authoritative_result).toBe(true)
+      const idempotentTrial = runReplayTrial({
+        request: requestValue,
+        trial_reservation: trialReservation,
+        attempt_lease: successorLeaseAdmission.successor_attempt_lease,
+        observed_at: "2026-07-14T00:04:12Z",
+        dataset_manifest: goldenReplayDatasetManifest(),
+        bars: GOLDEN_REPLAY_BARS,
+        decision_harness_registry: cutoverRegistry,
+        artifact_root: resultArtifactRoot,
+      })
+      expect(idempotentTrial.status).toBe("completed")
+      expect(idempotentTrial.idempotent_replay).toBe(true)
+      expect(idempotentTrial.artifact_manifest).toEqual(completedTrial.artifact_manifest)
+    } finally {
+      rmSync(resultArtifactRoot, { recursive: true, force: true })
+    }
     expect(admitReplayWorkerV10SuccessorSpawnBoundaryRevalidation({
       registry_root: dispatchEvidenceRegistryRoot,
       source_successor_authority_capsule: structuredClone(successorAuthorityCapsule),
