@@ -69,6 +69,8 @@ artifact-knowledge
 
 产品上先做 protocol fabric / rails，不做平台级 middleware：图上可以画 logical bus layer 来降低理解成本，但运行时先由 job ticket、contract schema registry、`trade.db`/read model、catalog/artifact ref、approved strategy / policy snapshot、market manifests / fresh snapshot 承担通信协议。只有当多 worker ack/retry、异步订阅、消费位点或跨进程实时推送成为硬需求时，才升级为队列或消息总线。
 
+Agent 交互入口允许使用本地 stdio MCP，但 MCP 只做显式白名单与协议适配：只读发现/查询可直接映射到 Owner CLI；写操作、长任务与交易动作仍走 supervisor、job ticket、preflight 和 owner boundary。MCP 不提供任意命令执行，不成为新的事实源或领域 owner。
+
 每个责任域对外只暴露 `domain inbox / domain outbox`。job ticket、event write envelope、artifact ref、policy snapshot、market fact ref 等只能进出这两个端口；外部不得直接接入域内 handler 或 store。域内可以有多个组件，但不增加对外入口。
 
 顶层域不继续按工具数量膨胀，但 `market-exchange-connectivity` 拆为 `market-data-products` 与 `exchange-gateway`：前者是数据产品 owner，后者是外部连接和 side effect owner。其他粗域内部用 capability lane 表达已实现功能。数据管线必须作为 data product pipeline 管理：`raw capture -> canonical facts -> features -> datasets -> experiments -> evidence -> policy/live -> review feedback`。每层只产 manifest/ref/hash/schema/freshness，不把大 payload 或临时实验状态直接塞进跨域通信。
