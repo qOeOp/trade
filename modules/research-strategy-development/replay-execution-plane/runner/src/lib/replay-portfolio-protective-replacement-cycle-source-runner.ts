@@ -41,7 +41,7 @@ export function runReplayPortfolioProtectiveReplacementCycleSource(
   cycle: ReplayPortfolioCycleSequenceRunCycleInput,
   openingCash: number,
   variant: "protective_stop" | "take_profit" | "take_profit_cancel" | "protective_stop_cancel"
-    | "strategy_exit_cancel",
+    | "strategy_exit_cancel" | "fixed_partial_reduce",
 ) {
   const authority = materializeReplayPortfolioCycleSequenceAuthority(input.reservation, cycle, openingCash)
   let allocationResult
@@ -72,8 +72,10 @@ export function runReplayPortfolioProtectiveReplacementCycleSource(
         ...common, allow_predeclared_take_profit_cancel_projection: true,
       }) : variant === "protective_stop_cancel" ? materializeReplayRuntimeSharedWalletRiskLanes({
         ...common, allow_predeclared_protective_stop_cancel_projection: true,
-      }) : materializeReplayRuntimeSharedWalletRiskLanes({
+      }) : variant === "strategy_exit_cancel" ? materializeReplayRuntimeSharedWalletRiskLanes({
         ...common, allow_predeclared_strategy_exit_cancel_projection: true,
+      }) : materializeReplayRuntimeSharedWalletRiskLanes({
+        ...common, allow_predeclared_fixed_partial_reduce_projection: true,
       })
     riskResult = (input.execute_risk_slice ?? executeReplayRuntimeSharedWalletRiskSlice)({
       plan: cycle.risk_plan, authority: authority.risk, lanes, allocation_result: allocationResult,

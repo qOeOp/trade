@@ -30,6 +30,7 @@ export interface ReplayRuntimeSharedWalletRiskRunInput {
   allow_predeclared_take_profit_cancel_projection?: true
   allow_predeclared_protective_stop_cancel_projection?: true
   allow_predeclared_strategy_exit_cancel_projection?: true
+  allow_predeclared_fixed_partial_reduce_projection?: true
 }
 
 export interface ReplayRuntimeSharedWalletRiskMaterializationAuthority {
@@ -59,6 +60,7 @@ export interface ReplayRuntimeSharedWalletRiskMaterializeInput {
   allow_predeclared_take_profit_cancel_projection?: true
   allow_predeclared_protective_stop_cancel_projection?: true
   allow_predeclared_strategy_exit_cancel_projection?: true
+  allow_predeclared_fixed_partial_reduce_projection?: true
 }
 
 export function runReplayRuntimeSharedWalletRiskSlice(
@@ -140,6 +142,7 @@ export function materializeReplayRuntimeSharedWalletRiskLanes(
       (entry) => entry.expected_effect === "authorized_protective_stop_cancel",
     )
     const strategyExitCancels = entries.filter((entry) => entry.expected_effect === "authorized_strategy_exit_cancel")
+    const partialReduces = entries.filter((entry) => entry.expected_effect === "authorized_partial_reduce")
     const allowedEffects = ["authorized_initial_order", "authorized_reduce_only_exit", "no_action"]
     if (input.allow_predeclared_protective_stop_replacement_projection) {
       allowedEffects.push("authorized_protective_stop_replace")
@@ -156,17 +159,22 @@ export function materializeReplayRuntimeSharedWalletRiskLanes(
     if (input.allow_predeclared_strategy_exit_cancel_projection) {
       allowedEffects.push("authorized_strategy_exit_cancel")
     }
+    if (input.allow_predeclared_fixed_partial_reduce_projection) {
+      allowedEffects.push("authorized_partial_reduce")
+    }
     const mutationCount = replacements.length + targetReplacements.length + targetCancels.length
       + protectiveStopCancels.length
     if (exits.length > 1 || replacements.length > 1 || targetReplacements.length > 1 || targetCancels.length > 1
         || protectiveStopCancels.length > 1
         || strategyExitCancels.length > 1
+        || partialReduces.length > 1
         || mutationCount > 1
         || replacements.length > 0 && !input.allow_predeclared_protective_stop_replacement_projection
         || targetReplacements.length > 0 && !input.allow_predeclared_take_profit_replacement_projection
         || targetCancels.length > 0 && !input.allow_predeclared_take_profit_cancel_projection
         || protectiveStopCancels.length > 0 && !input.allow_predeclared_protective_stop_cancel_projection
         || strategyExitCancels.length > 0 && !input.allow_predeclared_strategy_exit_cancel_projection
+        || partialReduces.length > 0 && !input.allow_predeclared_fixed_partial_reduce_projection
         || entries.some((entry) => !allowedEffects.includes(entry.expected_effect))) {
       throw new Error(`runtime shared wallet risk lane ${lane.lane_id} has unsupported decision mutations`)
     }
@@ -247,6 +255,23 @@ export function materializeReplayRuntimeSharedWalletRiskLanes(
         || Date.parse(strategyExitCancelIntent.effective_at)
           >= Date.parse(exits[0].authorized_reduce_only_exit.earliest_executable_time))) {
       throw new Error(`runtime shared wallet risk lane ${lane.lane_id} strategy exit cancel projection drift`)
+    }
+    const partialIntent = partialReduces[0]?.authorized_partial_reduce ?? null
+    if (partialReduces[0] && (!partialIntent
+        || partialReduces[0].authorized_order_hash !== canonicalHash(partialIntent)
+        || partialIntent.order_type !== "market" || partialIntent.reduce_only !== true
+        || partialIntent.quantity_policy !== "fixed_quantity" || partialIntent.quantity <= 0
+        || partialIntent.quantity >= request.order.quantity
+        || partialIntent.post_fill_position_policy !== "must_remain_open"
+        || partialIntent.protection_resize_policy
+          !== "after_fill_cancel_both_then_replace_remaining_at_same_source_boundary"
+        || partialIntent.replacement_trigger_policy !== "preserve_current_stop_and_target_prices"
+        || partialIntent.remaining_quantity_authority !== "absolute_post_fill_position"
+        || partialIntent.schedule_combination_policy
+          !== "one_partial_reduce_then_optional_final_full_exit_no_stop_replace"
+        || partialIntent.side !== (request.order.side === "long" ? "sell" : "buy")
+        || partialIntent.earliest_executable_time !== partialReduces[0].decision_time)) {
+      throw new Error(`runtime shared wallet risk lane ${lane.lane_id} partial-reduce projection drift`)
     }
     const exitIntent = exits[0]?.authorized_reduce_only_exit ?? null
     const expectedExitHash = exitIntent ? canonicalHash(exitIntent) : null

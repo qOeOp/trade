@@ -46,6 +46,7 @@ export interface ReplayIntegratedPortfolioRunInput {
   allow_predeclared_take_profit_cancel_projection?: true
   allow_predeclared_protective_stop_cancel_projection?: true
   allow_predeclared_strategy_exit_cancel_projection?: true
+  allow_predeclared_fixed_partial_reduce_projection?: true
 }
 
 export function runReplayIntegratedPortfolio(
@@ -79,6 +80,8 @@ export function runReplayIntegratedPortfolio(
         input.allow_predeclared_protective_stop_cancel_projection,
       allow_predeclared_strategy_exit_cancel_projection:
         input.allow_predeclared_strategy_exit_cancel_projection,
+      allow_predeclared_fixed_partial_reduce_projection:
+        input.allow_predeclared_fixed_partial_reduce_projection,
     })
     if (riskLanes.some((lane) => lane.entry_time !== input.integrated_plan.initial_allocation_time
         || (lane.exit !== null && Date.parse(lane.exit.time) <= Date.parse(input.integrated_plan.initial_allocation_time)))) {
