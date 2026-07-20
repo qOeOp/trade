@@ -41,7 +41,7 @@ export interface ReplayInitialSignalSupplementalInputMaterialization {
   signal_authority: "none"
   order_authority: "none"
   economic_authority: "none"
-  request_schema_version: "trade.rd-replay-execution-request.v30"
+  request_schema_version: "trade.rd-replay-execution-request.v36"
   request_hash: string
   run_id: string
   experiment_id: string
@@ -111,7 +111,7 @@ export function assertReplayInitialSignalSupplementalInputMaterialization(
       || value.signal_authority !== "none"
       || value.order_authority !== "none"
       || value.economic_authority !== "none"
-      || value.request_schema_version !== "trade.rd-replay-execution-request.v30"
+      || value.request_schema_version !== "trade.rd-replay-execution-request.v36"
       || value.dataset_manifest_schema_version !== "trade.rd-replay-dataset-manifest.v11"
       || value.decision_input_snapshot_schema_version !== REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION) {
     throw new Error("unsupported initial-signal supplemental input materialization authority")

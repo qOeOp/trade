@@ -56,7 +56,7 @@ export interface ReplaySourceEventDecisionObservationHarnessContextBinding {
   order_authority: "none"
   economic_authority: "none"
   runner_compatibility: "not_bound"
-  request_schema_version: "trade.rd-replay-execution-request.v30"
+  request_schema_version: "trade.rd-replay-execution-request.v36"
   request_hash: string
   run_id: string
   experiment_id: string
@@ -173,7 +173,7 @@ export function assertReplaySourceEventDecisionObservationHarnessContextBinding(
       || value.order_authority !== "none"
       || value.economic_authority !== "none"
       || value.runner_compatibility !== "not_bound"
-      || value.request_schema_version !== "trade.rd-replay-execution-request.v30"
+      || value.request_schema_version !== "trade.rd-replay-execution-request.v36"
       || value.harness_context_schema_version !== REPLAY_DECISION_HARNESS_CONTEXT_SCHEMA_VERSION) {
     throw new Error("unsupported observation Harness Context binding authority")
   }

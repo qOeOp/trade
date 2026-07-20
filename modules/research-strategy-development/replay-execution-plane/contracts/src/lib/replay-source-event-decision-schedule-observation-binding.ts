@@ -184,8 +184,12 @@ const DECISION_EFFECTS = new Set<ReplayDecisionScheduleEntry["expected_effect"]>
   "authorized_initial_order",
   "authorized_entry_cancel",
   "authorized_protective_stop_replace",
+  "authorized_take_profit_replace",
   "authorized_partial_reduce",
   "authorized_reduce_only_exit",
+  "authorized_strategy_exit_cancel",
+  "authorized_take_profit_cancel",
+  "authorized_protective_stop_cancel",
 ])
 
 const BINDING_FIELDS = [

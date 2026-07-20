@@ -17,7 +17,11 @@ import {
   REPLAY_DECISION_SCHEDULE_SCHEMA_VERSION,
   REPLAY_DECISION_STATE_SNAPSHOT_SCHEMA_VERSION,
   REPLAY_REDUCE_ONLY_EXIT_INTENT_SCHEMA_VERSION,
+  REPLAY_STRATEGY_EXIT_CANCEL_INTENT_SCHEMA_VERSION,
+  REPLAY_TAKE_PROFIT_CANCEL_INTENT_SCHEMA_VERSION,
+  REPLAY_PROTECTIVE_STOP_CANCEL_INTENT_SCHEMA_VERSION,
   REPLAY_PROTECTIVE_STOP_REPLACE_INTENT_SCHEMA_VERSION,
+  REPLAY_TAKE_PROFIT_REPLACE_INTENT_SCHEMA_VERSION,
   REPLAY_PARTIAL_REDUCE_INTENT_SCHEMA_VERSION,
   REPLAY_PARTIAL_REDUCE_PROTECTION_POLICY_VERSION,
   REPLAY_PARTIAL_REDUCE_CAPABILITY,
@@ -168,7 +172,7 @@ test("Replay request requires complete Trial and evidence identity", () => {
   expect(() => assertReplayExecutionRequest(unauthorizedSchedule)).toThrow("market-only closed-bar lookback")
 })
 
-test("Request v30 freezes Limit and Stop-market pending-entry authority", () => {
+test("Request v36 freezes Limit and Stop-market GTD pending-entry authority", () => {
   const requestValue = fixtureRequest()
   requestValue.order = {
     ...requestValue.order,
@@ -187,6 +191,25 @@ test("Request v30 freezes Limit and Stop-market pending-entry authority", () => 
   ioc.decision_schedule = createReplaySingleDecisionSchedule(ioc.order)
   ioc.decision_schedule_hash = canonicalHash(ioc.decision_schedule)
   expect(() => assertReplayExecutionRequest(ioc)).not.toThrow()
+  const gtd = structuredClone(requestValue)
+  if (gtd.order.entry_execution.order_type !== "limit") throw new Error("fixture must be Limit")
+  gtd.order.entry_execution.time_in_force = "gtd"
+  gtd.order.entry_execution.expires_at = "2026-07-14T08:00:00Z"
+  gtd.decision_schedule = createReplaySingleDecisionSchedule(gtd.order)
+  gtd.decision_schedule_hash = canonicalHash(gtd.decision_schedule)
+  expect(() => assertReplayExecutionRequest(gtd)).not.toThrow()
+  const gtdWithoutExpiry = structuredClone(gtd)
+  if (gtdWithoutExpiry.order.entry_execution.order_type !== "limit") throw new Error("fixture must be Limit")
+  delete gtdWithoutExpiry.order.entry_execution.expires_at
+  gtdWithoutExpiry.decision_schedule = createReplaySingleDecisionSchedule(gtdWithoutExpiry.order)
+  gtdWithoutExpiry.decision_schedule_hash = canonicalHash(gtdWithoutExpiry.decision_schedule)
+  expect(() => assertReplayExecutionRequest(gtdWithoutExpiry)).toThrow("unsupported fields")
+  const gtdTooEarly = structuredClone(gtd)
+  if (gtdTooEarly.order.entry_execution.order_type !== "limit") throw new Error("fixture must be Limit")
+  gtdTooEarly.order.entry_execution.expires_at = gtdTooEarly.order.earliest_executable_time
+  gtdTooEarly.decision_schedule = createReplaySingleDecisionSchedule(gtdTooEarly.order)
+  gtdTooEarly.decision_schedule_hash = canonicalHash(gtdTooEarly.decision_schedule)
+  expect(() => assertReplayExecutionRequest(gtdTooEarly)).toThrow("must follow the earliest executable time")
   const cancelled = structuredClone(requestValue)
   cancelled.order.entry_cancel_intent = createReplayEntryCancelIntent({
     intent_id: "cancel-entry-1",
@@ -258,6 +281,31 @@ test("Request v30 freezes Limit and Stop-market pending-entry authority", () => 
   expect(stopEntry.order.entry_cancel_intent).toMatchObject({
     schema_version: "trade.rd-replay-entry-cancel-intent.v2", target_order_type: "stop_market",
   })
+  const stopGtd = structuredClone(stopEntry)
+  delete stopGtd.order.entry_cancel_intent
+  if (stopGtd.order.entry_execution.order_type !== "stop_market") throw new Error("fixture must be Stop-market")
+  stopGtd.order.entry_execution.time_in_force = "gtd"
+  stopGtd.order.entry_execution.expires_at = "2026-07-14T08:00:00Z"
+  stopGtd.decision_schedule = createReplaySingleDecisionSchedule(stopGtd.order)
+  stopGtd.decision_schedule_hash = canonicalHash(stopGtd.decision_schedule)
+  expect(() => assertReplayExecutionRequest(stopGtd)).not.toThrow()
+  const stopGtdWithoutExpiry = structuredClone(stopGtd)
+  if (stopGtdWithoutExpiry.order.entry_execution.order_type !== "stop_market") throw new Error("fixture must be Stop-market")
+  delete stopGtdWithoutExpiry.order.entry_execution.expires_at
+  stopGtdWithoutExpiry.decision_schedule = createReplaySingleDecisionSchedule(stopGtdWithoutExpiry.order)
+  stopGtdWithoutExpiry.decision_schedule_hash = canonicalHash(stopGtdWithoutExpiry.decision_schedule)
+  expect(() => assertReplayExecutionRequest(stopGtdWithoutExpiry)).toThrow("unsupported fields")
+  const stopGtdTooEarly = structuredClone(stopGtd)
+  if (stopGtdTooEarly.order.entry_execution.order_type !== "stop_market") throw new Error("fixture must be Stop-market")
+  stopGtdTooEarly.order.entry_execution.expires_at = stopGtdTooEarly.order.earliest_executable_time
+  stopGtdTooEarly.decision_schedule = createReplaySingleDecisionSchedule(stopGtdTooEarly.order)
+  stopGtdTooEarly.decision_schedule_hash = canonicalHash(stopGtdTooEarly.decision_schedule)
+  expect(() => assertReplayExecutionRequest(stopGtdTooEarly)).toThrow("must follow the earliest executable time")
+  const cancelledStopGtd = structuredClone(stopGtd)
+  cancelledStopGtd.order.entry_cancel_intent = stopEntry.order.entry_cancel_intent
+  cancelledStopGtd.decision_schedule = createReplaySingleDecisionSchedule(cancelledStopGtd.order)
+  cancelledStopGtd.decision_schedule_hash = canonicalHash(cancelledStopGtd.decision_schedule)
+  expect(() => assertReplayExecutionRequest(cancelledStopGtd)).toThrow("requires one matching GTC pending entry")
   const mismatchedStopCancel = structuredClone(stopEntry)
   mismatchedStopCancel.order.entry_cancel_intent = createReplayEntryCancelIntent({
     intent_id: "wrong-limit-target", requested_at: stopEntry.order.signal_time,
@@ -370,6 +418,164 @@ test("decision schedule freezes one final full-position reduce-only market exit"
   })
   notFinal.decision_schedule_hash = canonicalHash(notFinal.decision_schedule)
   expect(() => assertReplayExecutionRequest(notFinal)).toThrow("final full-position")
+
+  const cancelledExit = structuredClone(requestValue)
+  cancelledExit.decision_schedule.entries[1]!.authorized_reduce_only_exit!.earliest_executable_time = "2026-07-14T16:00:00Z"
+  cancelledExit.decision_schedule.entries[1]!.authorized_order_hash = canonicalHash(
+    cancelledExit.decision_schedule.entries[1]!.authorized_reduce_only_exit,
+  )
+  const cancelIntent = {
+    schema_version: REPLAY_STRATEGY_EXIT_CANCEL_INTENT_SCHEMA_VERSION,
+    target_order_role: "strategy_exit" as const,
+    target_exit_decision_sequence: 2,
+    cancel_policy: "cancel_submitted_before_earliest_executable_time" as const,
+    effective_at: "2026-07-14T12:00:00Z",
+    reason_code: "strategy_exit_condition_revoked" as const,
+  }
+  cancelledExit.decision_schedule.entries.push({
+    decision_sequence: 3,
+    decision_time: cancelIntent.effective_at,
+    expected_effect: "authorized_strategy_exit_cancel",
+    authorized_strategy_exit_cancel: cancelIntent,
+    authorized_reduce_only_exit: null,
+    authorized_protective_stop_replace: null,
+    authorized_partial_reduce: null,
+    authorized_order_hash: canonicalHash(cancelIntent),
+  })
+  cancelledExit.decision_schedule_hash = canonicalHash(cancelledExit.decision_schedule)
+  expect(() => assertReplayExecutionRequest(cancelledExit)).not.toThrow()
+
+  const lateCancel = structuredClone(cancelledExit)
+  lateCancel.decision_schedule.entries[2]!.decision_time = "2026-07-14T16:00:00Z"
+  lateCancel.decision_schedule.entries[2]!.authorized_strategy_exit_cancel!.effective_at = "2026-07-14T16:00:00Z"
+  lateCancel.decision_schedule.entries[2]!.authorized_order_hash = canonicalHash(
+    lateCancel.decision_schedule.entries[2]!.authorized_strategy_exit_cancel,
+  )
+  lateCancel.decision_schedule_hash = canonicalHash(lateCancel.decision_schedule)
+  expect(() => assertReplayExecutionRequest(lateCancel)).toThrow("before its executable boundary")
+
+  const wrongTarget = structuredClone(cancelledExit)
+  wrongTarget.decision_schedule.entries[2]!.authorized_strategy_exit_cancel!.target_exit_decision_sequence = 1
+  wrongTarget.decision_schedule.entries[2]!.authorized_order_hash = canonicalHash(
+    wrongTarget.decision_schedule.entries[2]!.authorized_strategy_exit_cancel,
+  )
+  wrongTarget.decision_schedule_hash = canonicalHash(wrongTarget.decision_schedule)
+  expect(() => assertReplayExecutionRequest(wrongTarget)).toThrow("target an earlier submitted exit")
+})
+
+test("decision schedule permits one final target cancel only while preserving the initial full-position stop", () => {
+  const requestValue = fixtureRequest()
+  const requirement = {
+    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
+    mode: "closed_bar_lookback" as const, source_kind: "ohlcv" as const,
+    fields: ["open", "high", "low", "close", "volume"] as const, lookback_bars: 1,
+    visibility_policy: "close_time_at_or_before_decision_time" as const,
+    terminal_bar_policy: "close_time_equals_decision_time" as const,
+    continuity_policy: "strict_interval_grid" as const, undeclared_input_policy: "reject" as const,
+  }
+  const cancelIntent = {
+    schema_version: REPLAY_TAKE_PROFIT_CANCEL_INTENT_SCHEMA_VERSION,
+    target_order_role: "target" as const,
+    target_order_type: "take_profit_market" as const,
+    target_order_id: `${requestValue.run_id}:order:target`,
+    cancel_policy: "cancel_active_target_preserve_stop" as const,
+    stop_preservation_policy: "require_active_full_position_stop" as const,
+    schedule_combination_policy: "initial_bracket_only_no_other_position_mutation" as const,
+    effective_at: "2026-07-14T08:00:00Z",
+    reason_code: "take_profit_condition_revoked" as const,
+  }
+  requestValue.decision_market_input_requirement = requirement
+  requestValue.decision_market_input_requirement_hash = canonicalHash(requirement)
+  requestValue.decision_schedule = {
+    schema_version: REPLAY_DECISION_SCHEDULE_SCHEMA_VERSION,
+    schedule_policy: "frozen_closed_bar_schedule",
+    entries: [
+      requestValue.decision_schedule.entries[0]!,
+      {
+        decision_sequence: 2, decision_time: cancelIntent.effective_at,
+        expected_effect: "authorized_take_profit_cancel",
+        authorized_take_profit_cancel: cancelIntent,
+        authorized_reduce_only_exit: null, authorized_protective_stop_replace: null,
+        authorized_partial_reduce: null, authorized_order_hash: canonicalHash(cancelIntent),
+      },
+    ],
+  }
+  requestValue.decision_schedule_hash = canonicalHash(requestValue.decision_schedule)
+  expect(() => assertReplayExecutionRequest(requestValue)).not.toThrow()
+
+  const wrongTarget = structuredClone(requestValue)
+  wrongTarget.decision_schedule.entries[1]!.authorized_take_profit_cancel!.target_order_id = "foreign-target"
+  wrongTarget.decision_schedule.entries[1]!.authorized_order_hash = canonicalHash(
+    wrongTarget.decision_schedule.entries[1]!.authorized_take_profit_cancel,
+  )
+  wrongTarget.decision_schedule_hash = canonicalHash(wrongTarget.decision_schedule)
+  expect(() => assertReplayExecutionRequest(wrongTarget)).toThrow("initial-bracket target cancellation")
+
+  const tooEarly = structuredClone(requestValue)
+  tooEarly.decision_schedule.entries[1]!.decision_time = requestValue.order.earliest_executable_time
+  tooEarly.decision_schedule.entries[1]!.authorized_take_profit_cancel!.effective_at = requestValue.order.earliest_executable_time
+  tooEarly.decision_schedule.entries[1]!.authorized_order_hash = canonicalHash(
+    tooEarly.decision_schedule.entries[1]!.authorized_take_profit_cancel,
+  )
+  tooEarly.decision_schedule_hash = canonicalHash(tooEarly.decision_schedule)
+  expect(() => assertReplayExecutionRequest(tooEarly)).toThrow("active stop preserved")
+})
+
+test("decision schedule permits one final protective-stop cancel only while preserving the initial full-position target", () => {
+  const requestValue = fixtureRequest()
+  const requirement = {
+    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
+    mode: "closed_bar_lookback" as const, source_kind: "ohlcv" as const,
+    fields: ["open", "high", "low", "close", "volume"] as const, lookback_bars: 1,
+    visibility_policy: "close_time_at_or_before_decision_time" as const,
+    terminal_bar_policy: "close_time_equals_decision_time" as const,
+    continuity_policy: "strict_interval_grid" as const, undeclared_input_policy: "reject" as const,
+  }
+  const cancelIntent = {
+    schema_version: REPLAY_PROTECTIVE_STOP_CANCEL_INTENT_SCHEMA_VERSION,
+    target_order_role: "stop" as const,
+    target_order_type: "stop_market" as const,
+    target_order_id: `${requestValue.run_id}:order:stop`,
+    cancel_policy: "cancel_active_stop_preserve_target" as const,
+    target_preservation_policy: "require_active_full_position_target" as const,
+    schedule_combination_policy: "initial_bracket_only_no_other_position_mutation" as const,
+    effective_at: "2026-07-14T08:00:00Z",
+    reason_code: "protective_stop_condition_revoked" as const,
+  }
+  requestValue.decision_market_input_requirement = requirement
+  requestValue.decision_market_input_requirement_hash = canonicalHash(requirement)
+  requestValue.decision_schedule = {
+    schema_version: REPLAY_DECISION_SCHEDULE_SCHEMA_VERSION,
+    schedule_policy: "frozen_closed_bar_schedule",
+    entries: [
+      requestValue.decision_schedule.entries[0]!,
+      {
+        decision_sequence: 2, decision_time: cancelIntent.effective_at,
+        expected_effect: "authorized_protective_stop_cancel",
+        authorized_protective_stop_cancel: cancelIntent,
+        authorized_reduce_only_exit: null, authorized_protective_stop_replace: null,
+        authorized_partial_reduce: null, authorized_order_hash: canonicalHash(cancelIntent),
+      },
+    ],
+  }
+  requestValue.decision_schedule_hash = canonicalHash(requestValue.decision_schedule)
+  expect(() => assertReplayExecutionRequest(requestValue)).not.toThrow()
+
+  const wrongTarget = structuredClone(requestValue)
+  wrongTarget.decision_schedule.entries[1]!.authorized_protective_stop_cancel!.target_order_id = "foreign-stop"
+  wrongTarget.decision_schedule.entries[1]!.authorized_order_hash = canonicalHash(
+    wrongTarget.decision_schedule.entries[1]!.authorized_protective_stop_cancel,
+  )
+  wrongTarget.decision_schedule_hash = canonicalHash(wrongTarget.decision_schedule)
+  expect(() => assertReplayExecutionRequest(wrongTarget)).toThrow("initial-bracket stop cancellation")
+
+  const preserveWrongRole = structuredClone(requestValue)
+  preserveWrongRole.decision_schedule.entries[1]!.authorized_protective_stop_cancel!.target_order_role = "target" as "stop"
+  preserveWrongRole.decision_schedule.entries[1]!.authorized_order_hash = canonicalHash(
+    preserveWrongRole.decision_schedule.entries[1]!.authorized_protective_stop_cancel,
+  )
+  preserveWrongRole.decision_schedule_hash = canonicalHash(preserveWrongRole.decision_schedule)
+  expect(() => assertReplayExecutionRequest(preserveWrongRole)).toThrow("active target preserved")
 })
 
 test("decision schedule permits one full-position tighten-only protective stop replacement", () => {
@@ -416,6 +622,65 @@ test("decision schedule permits one full-position tighten-only protective stop r
   )
   loosened.decision_schedule_hash = canonicalHash(loosened.decision_schedule)
   expect(() => assertReplayExecutionRequest(loosened)).toThrow("must tighten")
+})
+
+test("decision schedule permits one final take-profit replacement while preserving the initial stop", () => {
+  const requestValue = fixtureRequest()
+  const requirement = {
+    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
+    mode: "closed_bar_lookback" as const, source_kind: "ohlcv" as const,
+    fields: ["open", "high", "low", "close", "volume"] as const, lookback_bars: 1,
+    visibility_policy: "close_time_at_or_before_decision_time" as const,
+    terminal_bar_policy: "close_time_equals_decision_time" as const,
+    continuity_policy: "strict_interval_grid" as const, undeclared_input_policy: "reject" as const,
+  }
+  const replaceIntent = {
+    schema_version: REPLAY_TAKE_PROFIT_REPLACE_INTENT_SCHEMA_VERSION,
+    side: "sell" as const, order_type: "take_profit_market" as const, reduce_only: true as const,
+    quantity_policy: "full_open_position" as const,
+    target_order_id: `${requestValue.run_id}:order:target`,
+    replace_policy: "cancel_then_submit_not_already_triggered" as const,
+    stop_preservation_policy: "require_active_full_position_stop" as const,
+    schedule_combination_policy: "initial_bracket_only_no_other_position_mutation" as const,
+    signal_time: "2026-07-14T08:00:00Z",
+    previous_target_price: requestValue.order.target_price,
+    new_target_price: 115,
+    reason_code: "take_profit_repriced" as const,
+  }
+  requestValue.decision_market_input_requirement = requirement
+  requestValue.decision_market_input_requirement_hash = canonicalHash(requirement)
+  requestValue.decision_schedule = {
+    schema_version: REPLAY_DECISION_SCHEDULE_SCHEMA_VERSION,
+    schedule_policy: "frozen_closed_bar_schedule",
+    entries: [
+      requestValue.decision_schedule.entries[0]!,
+      {
+        decision_sequence: 2, decision_time: replaceIntent.signal_time,
+        expected_effect: "authorized_take_profit_replace",
+        authorized_reduce_only_exit: null, authorized_protective_stop_replace: null,
+        authorized_take_profit_replace: replaceIntent, authorized_partial_reduce: null,
+        authorized_order_hash: canonicalHash(replaceIntent),
+      },
+    ],
+  }
+  requestValue.decision_schedule_hash = canonicalHash(requestValue.decision_schedule)
+  expect(() => assertReplayExecutionRequest(requestValue)).not.toThrow()
+
+  const wrongTarget = structuredClone(requestValue)
+  wrongTarget.decision_schedule.entries[1]!.authorized_take_profit_replace!.target_order_id = "wrong-target"
+  wrongTarget.decision_schedule.entries[1]!.authorized_order_hash = canonicalHash(
+    wrongTarget.decision_schedule.entries[1]!.authorized_take_profit_replace,
+  )
+  wrongTarget.decision_schedule_hash = canonicalHash(wrongTarget.decision_schedule)
+  expect(() => assertReplayExecutionRequest(wrongTarget)).toThrow("preserve its stop")
+
+  const unchanged = structuredClone(requestValue)
+  unchanged.decision_schedule.entries[1]!.authorized_take_profit_replace!.new_target_price = requestValue.order.target_price
+  unchanged.decision_schedule.entries[1]!.authorized_order_hash = canonicalHash(
+    unchanged.decision_schedule.entries[1]!.authorized_take_profit_replace,
+  )
+  unchanged.decision_schedule_hash = canonicalHash(unchanged.decision_schedule)
+  expect(() => assertReplayExecutionRequest(unchanged)).toThrow("preserve its stop")
 })
 
 test("decision schedule certifies one non-terminal fixed-quantity partial reduce", () => {
