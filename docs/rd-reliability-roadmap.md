@@ -6,7 +6,7 @@ title: R&D Reliability Roadmap
 
 目标：先让系统稳定暴露问题，再让 R&D 搜索策略。
 
-Replay 已完成 M4-P25 并选择 M4-P26：protective-stop cancel 风险降级已闭合；下一有界纵切是一次预声明 next-open fixed-quantity partial reduce 的 Portfolio quantity/risk resize。P26 尚未实现，默认 Portfolio projection 继续拒绝 partial；动态 sizing、重复 partial、reentry、cross-margin、真实 liquidity 与 Fast 均未进入，整体仍为 M3。
+Replay 已完成 M4-P26：一次预声明 next-open fixed-quantity partial 已贯通认证 Lane Result、Portfolio quantity/risk/exposure、owner-keyed accounting 与 1–8 full-flat cycle；默认 projection 仍拒绝 partial，原 isolated collateral 保留到 full-flat。动态 sizing、重复 partial、reentry、cross-margin、真实 liquidity 与 Fast 均未进入，整体仍为 M3；下一纵切待 blocker audit。
 
 ## 1. 数据层
 
@@ -76,7 +76,7 @@ Replay 已完成 M4-P25 并选择 M4-P26：protective-stop cancel 风险降级�
 
 - 目标：replay、forward shadow、live signal 看到同一份策略事实；性能优化、批量 replay 或 paper tracker 不改变交易路径。
 - Jesse 调研吸收：借鉴其 step / fast simulator parity、K 线内触价、多订单排序、partial exit、reduce-only 数量上限等内核纪律；只重写等价行为，不引入 Jesse 运行依赖。
-- 当前：Replay 已到 M3 单资产 Step 纵切；M3-G1–G8 与 M4-P1–P25 已冻结，M4-P26 已选择但尚未实现。单资产 fixed partial 已正式限制为一次 frozen next-open market fixed quantity，Fill 后在同一 source boundary 将 generation-1 bracket 原子替换为相同 trigger、剩余数量的 generation 2；long/short、Funding、stop/target/strategy-exit、open-at-end、exact liquidation、resume 与 tamper 已有证据。Portfolio predecessor 仍 fail closed。成熟度仍为 M3。
-- 缺口：Portfolio 尚不能在 fixed partial-reduce full Fill 后同步提交 realized PnL/fee、settled/available cash、remaining quantity、Funding、isolated Margin、gross/net exposure、current stop risk 与 protection generation，因此 terminal owner、open-at-end NAV 和下一周期资格均可能失真。仍无动态/重复 partial、周期内 reentry、partial liquidation、cross-margin、borrow、generic matching、真实 liquidity partial 或 Fast parity。
-- 下一块：M4-P26 `fixed-partial-reduce-portfolio-risk-resize-end-to-end`。只消费一次已冻结的 fixed-quantity partial；generation-1 boundary 先决，订单自身 full Fill 后按剩余绝对仓位重建 generation 2，随后 exact Funding/Mark/Margin/liquidation 与 stop/target/final strategy exit 都必须使用新数量。历史 admission fact 保留，current exposure/risk utilization 按剩余仓位重算；没有 venue collateral-release authority，isolated collateral 保留到 full-flat，下降的 utilization 不授权新入场、reentry 或 successor。
-- 完成信号：默认 Portfolio projection 继续 fail closed；显式 successor 在同一 change set 内锁定 long/short、decision-boundary bracket race、partial 前后 t-minus Funding、post-partial stop/target/strategy-exit/liquidation、open-at-end cash/保留抵押/exposure/risk、owner-keyed accounting、1–8 full-flat cycle、唯一 opening equity、retry、failure、publication interruption 与 tamper。P15–P25 不改写；不得开放动态 sizing、第二次 partial、partial 后 amend、订单 partial fill、reentry、cross-margin、真实 liquidity 或 Fast。
+- 当前：Replay 已到 M3；M3-G1–G8 与 M4-P1–P26 已冻结。P26 用认证单资产 Replay Result 作为 Lane execution authority，显式 successor 完成 generation-2、quantity-aware Funding/Mark/Margin/liquidation、cash/collateral、gross/net exposure、历史 admission/current stop-risk 分离、owner-keyed accounting 与 bounded cycle；默认 predecessor 仍 fail closed。
+- 缺口：仍无动态/重复 partial、partial 后 order mutation、周期内 reentry、cross-margin、borrow、generic matching、真实 liquidity partial 或独立 Fast parity；不得从 P26 的 fixed full-fill 模型外推。
+- 下一块：未选择。先比较剩余 blocker 的 authority、输入数据与可认证 backend，不以新增 schema/phase 数量作为进度。
+- 已锁完成信号：long/short、decision-boundary bracket race、partial 前后 Funding、post-partial owner、open-at-end cash/保留抵押/exposure/risk、双分录、四周期 cash bridge、唯一 opening equity、retry/failure/interruption/tamper 与 P15–P25 回归均通过。
