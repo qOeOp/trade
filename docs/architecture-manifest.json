@@ -6,6 +6,7 @@
       "status": "implemented",
       "modules": [
         "modules/orchestration-ops/trade-flow",
+        "modules/orchestration-ops/agent-mcp",
         "modules/orchestration-ops/domain-bus",
         "modules/orchestration-ops/ops-runtime-store",
         "modules/orchestration-ops/runtime-health-guard",

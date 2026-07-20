@@ -28,6 +28,7 @@
 | 模块 | 输入 | 输出 | 负责 | 禁止 |
 | --- | --- | --- | --- | --- |
 | `orchestration-ops/trade-flow` | strategy markdown、trading config、`trade.db`、tool JSON 输出 | CLI response、automation jobs、shadow observe glue | control tower CLI、command routing、automation cycle、owner tool handoff | Binance endpoint 细节、市场数据接入实现、执行流 owner、恢复 owner、R&D 实验实现、策略复核 owner |
+| `orchestration-ops/agent-mcp` | `toolset.json` 与显式只读查询参数 | MCP structured result | 本地 stdio MCP 门面、只读白名单、Owner CLI 适配 | 任意命令执行、领域写入、Binance write、远程监听 |
 | `portfolio-execution-state/event-store` | `trade.db` handle、plan event payload | validated `plan_event` rows、ordered event reads | `trade.db.plan_event` schema、append/read、event validation | flow projection、交易所调用、策略判断、artifact catalog |
 | `portfolio-execution-state/flow-projector` | event-store reads、reconcile drafts | flow state、active flows、lane conflicts、approved reconcile apply result | 可重建 flow projection、风险锁、open action gap、reconcile draft apply | event schema ownership、交易所调用、策略判断 |
 | `policy-risk/runtime-policy-compiler` | trading config、legacy account / notify config | normalized config、`runtime-policy.v1`、compact snapshot | trading config normalize / clamp / hash | preflight、execution、review、R&D 决策、`trade.db`、Binance |
@@ -102,7 +103,7 @@
 
 ## Rules
 
-- agent-facing 模块之间通过 CLI JSON contract 协作；源码跨模块 import 只允许指向 `modules/contracts/*`、同 domain 的无 package internal engine，或 `orchestration-ops/trade-flow` 编排层调用 `modules/*` 原子能力。
+- agent-facing 模块之间通过 CLI JSON contract 协作；MCP 只作为 Agent 入口适配既有 Owner CLI，不成为新的领域 owner。源码跨模块 import 只允许指向 `modules/contracts/*`、同 domain 的无 package internal engine，或 `orchestration-ops/trade-flow` 编排层调用 `modules/*` 原子能力。
 - `modules/orchestration-ops/trade-flow/src/domain/*/index.ts` 是 trade-flow 编排边界；新增原子能力优先落独立 `modules/<domain>/<module>`，不要继续塞进 trade-flow。
 - 模块 durable 运行事实只落 `data/*.db`；临时工作产物只落 `tmp/`；模块目录不保存运行快照、cache、研究垃圾。
 - `T` 类 Binance 写模块不得被 R&D / replay / market scan 直接调用。

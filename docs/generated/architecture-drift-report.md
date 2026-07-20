@@ -14,7 +14,7 @@
 
 | Domain | Manifest modules | Package-backed modules | Owns stores | Owns jobs |
 | --- | ---: | ---: | --- | --- |
-| `orchestration-ops` | 6 | 6 | ops_runtime_store | - |
+| `orchestration-ops` | 7 | 7 | ops_runtime_store | - |
 | `policy-risk` | 2 | 2 | policy_registry | - |
 | `portfolio-execution-state` | 2 | 2 | trade_event_store, flow_read_models | - |
 | `market-data-products` | 12 | 10 | market_data_store, ohlcv_store | - |
