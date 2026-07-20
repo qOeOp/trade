@@ -22,8 +22,6 @@ import type {
 } from "../../../contracts/src/lib/replay-portfolio-fixed-partial-terminal-contracts"
 import type { ReplayPortfolioCycleSequencePlan } from
   "../../../contracts/src/lib/replay-portfolio-cycle-sequence-contracts"
-import type { ReplayPortfolioCycleSequenceReservationSnapshot } from
-  "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
 import { canonicalHash } from "../../../contracts/src/lib/replay-contracts"
 import { addReplayDecimalValues } from "../../../contracts/src/lib/replay-decimal"
 
@@ -38,8 +36,12 @@ export interface ReplayPortfolioFixedPartialCycleSource {
   accounting_evidence: ReplayPortfolioFixedPartialTerminalAccountingEvidence
   accounting_manifest: ReplayPortfolioFixedPartialTerminalAccountingArtifactManifest
 }
+interface ReplayPortfolioFixedPartialCycleSequenceAuthority {
+  reservation_hash: string; experiment_id: string; trial_group_id: string; trial_group_hash: string
+  portfolio_id: string; settlement_asset: string; initial_cash: number
+}
 export function createReplayPortfolioFixedPartialCycleSequenceEvidence(input: {
-  plan: ReplayPortfolioCycleSequencePlan; reservation: ReplayPortfolioCycleSequenceReservationSnapshot
+  plan: ReplayPortfolioCycleSequencePlan; reservation: ReplayPortfolioFixedPartialCycleSequenceAuthority
   cycles: ReplayPortfolioFixedPartialCycleSource[]
 }): ReplayPortfolioFixedPartialCycleSequenceEvidence {
   const commits = input.cycles.map((cycle) => {

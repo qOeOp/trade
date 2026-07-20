@@ -209,6 +209,9 @@ export function assertReplayPortfolioFixedPartialTerminalEvidence(
           record.initial_quantity, -record.partial_quantity)
         || filled && record.generation_two_quantity !== record.ending_quantity && record.ending_open
         || record.ending_open && record.released_collateral !== 0
+        || !record.ending_open && record.current_active_stop_risk_amount !== 0
+        || record.ending_open && filled && !(record.current_active_stop_risk_amount > 0
+          && record.current_active_stop_risk_amount < record.admission_frozen_stop_risk_amount)
         || !record.ending_open && record.reserved_admission_risk_amount !== 0
         || record.ending_open && record.reserved_admission_risk_amount !== record.admission_frozen_stop_risk_amount
         || record.owner === "not_opened" !== (record.partial_status === "not_opened")) fail("record semantics")

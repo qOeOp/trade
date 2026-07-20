@@ -131,6 +131,13 @@ import {
   replayPortfolioProtectiveTerminalRecordHash,
 } from "../../../contracts/src/lib/replay-portfolio-protective-terminal-contracts"
 import {
+  assertReplayPortfolioFixedPartialTerminalEvidence,
+  replayPortfolioFixedPartialTerminalEvidenceHash,
+  replayPortfolioFixedPartialTerminalRecordHash,
+} from "../../../contracts/src/lib/replay-portfolio-fixed-partial-terminal-contracts"
+import { assertReplayPortfolioFixedPartialCycleSequenceEvidence } from
+  "../../../contracts/src/lib/replay-portfolio-fixed-partial-cycle-sequence-contracts"
+import {
   assertReplayPortfolioProtectiveStopReplacementTerminalEvidence,
   replayPortfolioProtectiveStopReplacementTerminalEvidenceHash,
   replayPortfolioProtectiveStopReplacementTerminalFingerprintHash,
@@ -5848,6 +5855,16 @@ test("Portfolio fixed partial consumes certified lane Results and resizes wallet
       expect(runReplayPortfolioFixedPartialTerminal(input)).toMatchObject({
         status: "completed", idempotent_replay: true, evidence: outcome.evidence,
       })
+      const tampered = structuredClone(outcome.evidence)
+      const tamperedRecord = tampered.lane_records.find((candidate) => candidate.lane_id === lane.lane_id)!
+      tamperedRecord.current_active_stop_risk_amount = 1
+      tamperedRecord.record_hash = replayPortfolioFixedPartialTerminalRecordHash(tamperedRecord)
+      tampered.lane_records_hash = canonicalHash(tampered.lane_records)
+      tampered.fingerprint.lane_records_hash = tampered.lane_records_hash
+      const { fingerprint_hash: _fingerprintHash, ...fingerprintBody } = tampered.fingerprint
+      tampered.fingerprint.fingerprint_hash = canonicalHash(fingerprintBody)
+      tampered.evidence_hash = replayPortfolioFixedPartialTerminalEvidenceHash(tampered)
+      expect(() => assertReplayPortfolioFixedPartialTerminalEvidence(tampered)).toThrow("record semantics")
     } finally { rmSync(root, { recursive: true, force: true }) }
   }
 
@@ -5887,7 +5904,7 @@ test("Portfolio fixed partial consumes certified lane Results and resizes wallet
   const liquidationBase = runtimeLaneInput({ laneId: "fixed-partial-liquidation", symbol: "ADAUSDT",
     collateral: 20, feeBps: 0 })
   const liquidationLane = withRuntimeRisk(withRuntimeFixedPartial(liquidationBase, { terminal: "open" }),
-    [100, 95, 60])
+    [100, 95, 80])
   const liquidationRoot = mkdtempSync(join(tmpdir(), "replay-portfolio-fixed-partial-liquidation-"))
   try {
     const outcome = runReplayPortfolioFixedPartialTerminal({ ...protectiveStopCancelPortfolioInput(
@@ -5954,6 +5971,7 @@ test("Portfolio fixed partial rolls four full-flat owner-keyed cash cycles", () 
     fixture.allocationPlan, reservation.reservation_hash, fixture.riskPlan, reservation.reservation_hash) }))
   const plan = cycleSequencePlan(portfolioId, reservation.reservation_hash, planned)
   const root = mkdtempSync(join(tmpdir(), "replay-fixed-partial-cycle-sequence-"))
+  const interruptedRoot = mkdtempSync(join(tmpdir(), "replay-fixed-partial-cycle-interrupted-"))
   try {
     const input = { plan, reservation, cycles: planned.map((fixture, index) => ({ cycle_index: index + 1,
       integrated_plan: fixture.integratedPlan, allocation_plan: fixture.allocationPlan,
@@ -5984,7 +6002,27 @@ test("Portfolio fixed partial rolls four full-flat owner-keyed cash cycles", () 
     ])
     expect(runReplayPortfolioFixedPartialCycleSequence(input)).toMatchObject({
       status: "completed", idempotent_replay: true, evidence: outcome.evidence })
-  } finally { rmSync(root, { recursive: true, force: true }) }
+    let laneCalls = 0
+    expect(runReplayPortfolioFixedPartialCycleSequence({ ...input, execute_lane_replay: (trial) => {
+      laneCalls += 1; if (laneCalls === 3) throw new Error("fixture cycle 3 lane Replay failure")
+      return fixedPartialLaneReplayStub(trial)
+    } })).toMatchObject({ status: "failed", evidence: null, artifact_manifest: null,
+      failure: { code: "partial-cycle-terminal-failed", cycle_index: 3,
+        partial_sequence_result_published: false } })
+    const interruptedBase = createReplayLocalArtifactStore(interruptedRoot)
+    const interruptedStore = failWriteOnce(interruptedBase, "consolidated-journal.json")
+    expect(runReplayPortfolioFixedPartialCycleSequence({ ...input, artifact_store: interruptedStore }))
+      .toMatchObject({ status: "failed", evidence: null, artifact_manifest: null,
+        failure: { code: "partial-cycle-sequence-artifact-failed",
+          partial_sequence_result_published: false } })
+    expect(interruptedBase.discoverAttemptNamespaces().some((namespace) =>
+      namespace.exists("portfolio-fixed-partial-cycle-sequence-artifact-manifest.json"))).toBe(false)
+    const tampered = structuredClone(outcome.evidence)
+    tampered.cycle_commits[1]!.opening_available_cash += 1
+    expect(() => assertReplayPortfolioFixedPartialCycleSequenceEvidence(tampered)).toThrow("drift")
+  } finally {
+    rmSync(root, { recursive: true, force: true }); rmSync(interruptedRoot, { recursive: true, force: true })
+  }
 })
 
 test("Portfolio Artifact uses manifest-last commit, is idempotent, and retries orphan payloads without partial Result", () => {
