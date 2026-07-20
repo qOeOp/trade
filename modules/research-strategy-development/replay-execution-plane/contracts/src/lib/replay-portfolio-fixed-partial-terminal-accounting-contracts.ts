@@ -95,6 +95,18 @@ export function assertReplayPortfolioFixedPartialTerminalAccountingEvidence(
       || value.fingerprint.fingerprint_hash !== strip(value.fingerprint, "fingerprint_hash")
       || value.evidence_hash !== replayPortfolioFixedPartialTerminalAccountingEvidenceHash(value)) fail()
 }
+export function assertReplayPortfolioFixedPartialTerminalAccountingArtifactManifest(
+  value: ReplayPortfolioFixedPartialTerminalAccountingArtifactManifest,
+): void {
+  const roles = ["terminal_artifact_manifest", "terminal_evidence", "ledger", "journal",
+    "trial_balance", "accounting_evidence"]
+  if (value.schema_version !== REPLAY_PORTFOLIO_FIXED_PARTIAL_TERMINAL_ACCOUNTING_ARTIFACT_MANIFEST_SCHEMA_VERSION
+      || JSON.stringify(value.files.map((file) => file.role)) !== JSON.stringify(roles)
+      || JSON.stringify(value.completeness.required_roles) !== JSON.stringify(roles)
+      || value.completeness.authoritative_result !== true
+      || value.completeness.partial_payload_without_manifest_is_authoritative !== false
+      || value.manifest_hash !== replayPortfolioFixedPartialTerminalAccountingArtifactManifestHash(value)) fail()
+}
 function strip(value: unknown, key: string): string { const body = { ...(value as Record<string, unknown>) };
   delete body[key]; return canonicalHash(body) }
 function fail(): never { throw new Error("Portfolio fixed-partial terminal accounting drift") }

@@ -83,6 +83,7 @@ export interface ReplayPortfolioFixedPartialTerminalRecord {
   ending_open: boolean
   ending_quantity: number
   ending_mark_price: number | null
+  ending_mark_time: string | null
   ending_mark_notional: number
   ending_unrealized_pnl: number
   admission_frozen_stop_risk_amount: number
