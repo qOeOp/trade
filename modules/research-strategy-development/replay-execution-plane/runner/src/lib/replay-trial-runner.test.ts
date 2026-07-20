@@ -20,7 +20,11 @@ import {
   REPLAY_PARTIAL_REDUCE_INTENT_SCHEMA_VERSION,
   REPLAY_PARTIAL_REDUCE_PROTECTION_POLICY_VERSION,
   REPLAY_REDUCE_ONLY_EXIT_INTENT_SCHEMA_VERSION,
+  REPLAY_STRATEGY_EXIT_CANCEL_INTENT_SCHEMA_VERSION,
+  REPLAY_TAKE_PROFIT_CANCEL_INTENT_SCHEMA_VERSION,
+  REPLAY_PROTECTIVE_STOP_CANCEL_INTENT_SCHEMA_VERSION,
   REPLAY_PROTECTIVE_STOP_REPLACE_INTENT_SCHEMA_VERSION,
+  REPLAY_TAKE_PROFIT_REPLACE_INTENT_SCHEMA_VERSION,
   REPLAY_SIMULATOR_POLICY_VERSION,
   REPLAY_SUPPLEMENTAL_FACT_SCHEMA_VERSION,
   REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION,
@@ -361,7 +365,10 @@ test("runner atomically commits artifacts and retries idempotently", () => {
     artifact_store: createReplayLocalArtifactStore(root),
   })
   expect(first.status).toBe("completed")
-  expect(first.artifact_manifest?.files.map((file) => file.role)).toEqual(["request", "trial_reservation", "attempt_lease", "dataset_manifest", "liquidity_capacity_attestation", "supplemental_facts", "decision_market_input_snapshot", "decision_evidence_timeline", "result", "source_events", "order_events", "fills", "positions", "ledger", "ohlcv_resolution_evidence", "pending_order_resolutions", "valuation_snapshot", "equity_bridge", "margin_snapshots", "liquidation", "journal", "trial_balance"])
+  expect(first.artifact_manifest?.files.map((file) => file.role)).toEqual(["request", "trial_reservation", "attempt_lease", "dataset_manifest", "liquidity_capacity_attestation", "supplemental_facts", "decision_market_input_snapshot", "decision_evidence_timeline", "result", "source_events", "order_events", "order_state_snapshot", "fills", "positions", "ledger", "ohlcv_resolution_evidence", "pending_order_resolutions", "valuation_snapshot", "equity_bridge", "margin_snapshots", "liquidation", "journal", "trial_balance"])
+  expect(first.result?.order_state_snapshot.order_count).toBeGreaterThanOrEqual(3)
+  expect(first.result?.fingerprint.order_state_snapshot_hash)
+    .toBe(first.result?.order_state_snapshot.snapshot_hash)
   expect(first.artifact_manifest?.completeness.authoritative_result).toBe(true)
   expect(first.artifact_manifest?.storage_policy_version).toBe(REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION)
   expect(first.artifact_commit?.terminal_checkpoint_hash).toBe(first.artifact_manifest?.completeness.terminal_checkpoint_hash)
@@ -507,6 +514,230 @@ test("runner commits and idempotently replays an IOC first-open expiry", () => {
   expect(idempotent).toMatchObject({
     status: "completed", idempotent_replay: true,
     result: { entry_outcome: "expired_unfilled" },
+  })
+})
+
+test("runner expires a GTD Limit after its frozen range and resumes with identical evidence", () => {
+  const gtdBars = [
+    { open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 101, high: 103, low: 100, close: 102, volume: 10, closed: true as const },
+  ]
+  const dataHash = replayDatasetHash(gtdBars)
+  const order: ReplayExecutionRequest["order"] = {
+    ...request().order,
+    entry_execution: {
+      order_type: "limit", limit_price: 99.5, time_in_force: "gtd", expires_at: "2026-07-14T08:00:00Z",
+      liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1", full_fill_capacity: 1,
+      liquidity_capacity_attestation_hash: CAPACITY_ATTESTATION.attestation_hash,
+    },
+  }
+  const decisionSchedule = createReplaySingleDecisionSchedule(order)
+  const requestValue: ReplayExecutionRequest = {
+    ...request(), order, dataset_hash: dataHash, idempotency_key: "idem-gtd-expiry",
+    decision_schedule: decisionSchedule, decision_schedule_hash: canonicalHash(decisionSchedule),
+  }
+  const input = {
+    ...authorized(requestValue), dataset_manifest: datasetManifestFor(gtdBars, dataHash), bars: gtdBars,
+  }
+  const clean = runReplayTrial({ ...input, artifact_root: mkdtempSync(join(tmpdir(), "rd-replay-gtd-clean-")) })
+  expect(clean).toMatchObject({
+    status: "completed",
+    result: {
+      entry_outcome: "expired_unfilled", completed_at: "2026-07-14T08:00:00Z",
+      fills: [], positions: [], valuation_snapshot: { mark_source: "bar_close", mark_price: 102 },
+    },
+  })
+  expect(clean.result?.pending_order_resolutions.at(-1)?.outcome).toMatchObject({
+    status: "expired", reason: "gtd_unfilled_at_expiry_close",
+  })
+  expect(clean.result?.order_events.at(-1)).toMatchObject({
+    kind: "expired", reason: "gtd_unfilled_at_expiry_close", remaining_quantity: 1,
+  })
+
+  const resumeRoot = mkdtempSync(join(tmpdir(), "rd-replay-gtd-resume-"))
+  const renewedLease = attemptLease(input.request, input.trial_reservation, {
+    lease_generation: 3, heartbeat_at: "2026-07-14T00:01:30Z", lease_expires_at: "2026-07-14T00:06:30Z",
+  })
+  const interrupted = runReplayTrial({
+    ...input,
+    artifact_root: resumeRoot,
+    execution_control: { on_checkpoint: (checkpoint) => ({
+      command: checkpoint.pending_order_resolutions.length === 1 ? "cancel" : "continue",
+      attempt_lease: renewedLease,
+      observed_at: "2026-07-14T00:02:00Z",
+    }) },
+  })
+  expect(interrupted).toMatchObject({ status: "cancelled", failure: { code: "execution-cancelled-at-checkpoint" } })
+  expect(interrupted.resumable_checkpoint?.pending_order_resolutions).toHaveLength(1)
+  const resumed = runReplayTrial({
+    ...input,
+    attempt_lease: renewedLease,
+    observed_at: "2026-07-14T00:02:00Z",
+    artifact_root: resumeRoot,
+    execution_control: { resume_checkpoint: interrupted.resumable_checkpoint },
+  })
+  expect(resumed.status).toBe("completed")
+  expect(resumed.result?.fingerprint.result_hash).toBe(clean.result?.fingerprint.result_hash)
+  const tamperedCheckpoint = structuredClone(interrupted.resumable_checkpoint!)
+  tamperedCheckpoint.entry_order.expires_at = "2026-07-14T12:00:00Z"
+  const { checkpoint_hash: _tamperedHash, ...tamperedBody } = tamperedCheckpoint
+  tamperedCheckpoint.checkpoint_hash = canonicalHash(tamperedBody)
+  const tamperedResume = runReplayTrial({
+    ...input,
+    attempt_lease: renewedLease,
+    observed_at: "2026-07-14T00:02:00Z",
+    artifact_root: mkdtempSync(join(tmpdir(), "rd-replay-gtd-tamper-")),
+    execution_control: { resume_checkpoint: tamperedCheckpoint },
+  })
+  expect(tamperedResume).toMatchObject({ status: "failed", failure: { partial_result_published: false } })
+  expect(tamperedResume.failure?.message).toContain("pending-entry checkpoint Order authority is invalid")
+
+  const touchBars = [{ ...gtdBars[0], low: 99.5 }]
+  const touchHash = replayDatasetHash(touchBars)
+  const touchRequest: ReplayExecutionRequest = {
+    ...requestValue, dataset_hash: touchHash, idempotency_key: "idem-gtd-touch",
+  }
+  const touch = runReplayTrial({
+    ...authorized(touchRequest), dataset_manifest: datasetManifestFor(touchBars, touchHash), bars: touchBars,
+    artifact_root: mkdtempSync(join(tmpdir(), "rd-replay-gtd-touch-")),
+  })
+  expect(touch).toMatchObject({
+    status: "failed",
+    failure: {
+      code: "pending-order-resolution-ambiguous",
+      partial_result_published: false,
+      pending_order_resolution: { outcome: { reason: "limit_touch_before_gtd_expiry_unresolved" } },
+    },
+  })
+
+  const crossedBars = [
+    { ...gtdBars[0], low: 99, close: 100 },
+    { open_time: "2026-07-14T08:00:00Z", close_time: "2026-07-14T12:00:00Z", open: 100, high: 111, low: 98, close: 110, volume: 10, closed: true as const },
+  ]
+  const crossedHash = replayDatasetHash(crossedBars)
+  const crossedRequest: ReplayExecutionRequest = {
+    ...requestValue, dataset_hash: crossedHash, idempotency_key: "idem-gtd-cross",
+  }
+  const crossed = runReplayTrial({
+    ...authorized(crossedRequest), dataset_manifest: datasetManifestFor(crossedBars, crossedHash), bars: crossedBars,
+    artifact_root: mkdtempSync(join(tmpdir(), "rd-replay-gtd-cross-")),
+  })
+  expect(crossed).toMatchObject({
+    status: "completed",
+    result: { entry_outcome: "filled", pending_order_resolutions: [{}, { outcome: { reason: "limit_strict_cross" } }] },
+  })
+  expect(crossed.result?.order_events.some((event) => event.order_id.endsWith(":order:entry") && event.kind === "expired"))
+    .toBe(false)
+})
+
+test("runner expires a GTD Stop-market only after its frozen range and preserves trigger priority", () => {
+  const expiryBars: ReplayMarketBar[] = [{
+    open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z",
+    open: 101, high: 103, low: 100, close: 102, volume: 10, closed: true,
+  }]
+  const dataHash = replayDatasetHash(expiryBars)
+  const order: ReplayExecutionRequest["order"] = {
+    ...request().order,
+    entry_execution: {
+      order_type: "stop_market", trigger_price: 105, trigger_source: "last_trade_ohlcv",
+      time_in_force: "gtd", expires_at: "2026-07-14T08:00:00Z",
+      liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1", full_fill_capacity: 1,
+      liquidity_capacity_attestation_hash: CAPACITY_ATTESTATION.attestation_hash,
+    },
+  }
+  const decisionSchedule = createReplaySingleDecisionSchedule(order)
+  const requestValue: ReplayExecutionRequest = {
+    ...request(), order, dataset_hash: dataHash, idempotency_key: "idem-gtd-stop-expiry",
+    decision_schedule: decisionSchedule, decision_schedule_hash: canonicalHash(decisionSchedule),
+  }
+  const input = {
+    ...authorized(requestValue), dataset_manifest: datasetManifestFor(expiryBars, dataHash), bars: expiryBars,
+  }
+  const clean = runReplayTrial({
+    ...input, artifact_root: mkdtempSync(join(tmpdir(), "rd-replay-gtd-stop-clean-")),
+  })
+  expect(clean).toMatchObject({
+    status: "completed",
+    result: {
+      entry_outcome: "expired_unfilled", completed_at: "2026-07-14T08:00:00Z",
+      fills: [], positions: [], valuation_snapshot: { mark_source: "bar_close", mark_price: 102 },
+    },
+  })
+  expect(clean.result?.pending_order_resolutions.at(-1)).toMatchObject({
+    order: { order_type: "stop_market", time_in_force: "gtd", expires_at: "2026-07-14T08:00:00Z" },
+    outcome: { status: "expired", reason: "gtd_unfilled_at_expiry_close" },
+  })
+  expect(clean.result?.order_events.at(-1)).toMatchObject({
+    kind: "expired", status: "expired", reason: "gtd_unfilled_at_expiry_close", remaining_quantity: 1,
+  })
+
+  const resumeRoot = mkdtempSync(join(tmpdir(), "rd-replay-gtd-stop-resume-"))
+  const renewedLease = attemptLease(input.request, input.trial_reservation, {
+    lease_generation: 3, heartbeat_at: "2026-07-14T00:01:30Z", lease_expires_at: "2026-07-14T00:06:30Z",
+  })
+  const interrupted = runReplayTrial({
+    ...input,
+    artifact_root: resumeRoot,
+    execution_control: { on_checkpoint: (checkpoint) => ({
+      command: checkpoint.pending_order_resolutions.length === 1 ? "cancel" : "continue",
+      attempt_lease: renewedLease,
+      observed_at: "2026-07-14T00:02:00Z",
+    }) },
+  })
+  expect(interrupted).toMatchObject({ status: "cancelled", failure: { code: "execution-cancelled-at-checkpoint" } })
+  const resumed = runReplayTrial({
+    ...input,
+    attempt_lease: renewedLease,
+    observed_at: "2026-07-14T00:02:00Z",
+    artifact_root: resumeRoot,
+    execution_control: { resume_checkpoint: interrupted.resumable_checkpoint },
+  })
+  expect(resumed.result?.fingerprint.result_hash).toBe(clean.result?.fingerprint.result_hash)
+  const tamperedCheckpoint = structuredClone(interrupted.resumable_checkpoint!)
+  tamperedCheckpoint.entry_order.expires_at = "2026-07-14T12:00:00Z"
+  const { checkpoint_hash: _tamperedHash, ...tamperedBody } = tamperedCheckpoint
+  tamperedCheckpoint.checkpoint_hash = canonicalHash(tamperedBody)
+  const tampered = runReplayTrial({
+    ...input,
+    attempt_lease: renewedLease,
+    observed_at: "2026-07-14T00:02:00Z",
+    artifact_root: mkdtempSync(join(tmpdir(), "rd-replay-gtd-stop-tamper-")),
+    execution_control: { resume_checkpoint: tamperedCheckpoint },
+  })
+  expect(tampered).toMatchObject({ status: "failed", failure: { partial_result_published: false } })
+  expect(tampered.failure?.message).toContain("pending-entry checkpoint Order authority is invalid")
+
+  const triggeredBars = [{ ...expiryBars[0]!, high: 106, close: 105 }]
+  const triggeredHash = replayDatasetHash(triggeredBars)
+  const triggeredRequest: ReplayExecutionRequest = {
+    ...requestValue, dataset_hash: triggeredHash, idempotency_key: "idem-gtd-stop-triggered",
+  }
+  const triggered = runReplayTrial({
+    ...authorized(triggeredRequest), dataset_manifest: datasetManifestFor(triggeredBars, triggeredHash), bars: triggeredBars,
+    artifact_root: mkdtempSync(join(tmpdir(), "rd-replay-gtd-stop-triggered-")),
+  })
+  expect(triggered).toMatchObject({
+    status: "completed",
+    result: { entry_outcome: "filled", pending_order_resolutions: [{}, { outcome: { reason: "stop_range_trigger" } }] },
+  })
+  expect(triggered.result?.order_events.some(
+    (event) => event.order_id.endsWith(":order:entry") && event.kind === "expired",
+  )).toBe(false)
+
+  const ambiguousBars = [{ ...expiryBars[0]!, high: 106, low: 94 }]
+  const ambiguousHash = replayDatasetHash(ambiguousBars)
+  const ambiguousRequest: ReplayExecutionRequest = {
+    ...requestValue, dataset_hash: ambiguousHash, idempotency_key: "idem-gtd-stop-ambiguous",
+  }
+  const ambiguous = runReplayTrial({
+    ...authorized(ambiguousRequest), dataset_manifest: datasetManifestFor(ambiguousBars, ambiguousHash), bars: ambiguousBars,
+    artifact_root: mkdtempSync(join(tmpdir(), "rd-replay-gtd-stop-ambiguous-")),
+  })
+  expect(ambiguous).toMatchObject({
+    status: "failed",
+    failure: {
+      code: "stop-entry-same-bar-path-ambiguous", partial_result_published: false,
+      pending_order_resolution: { outcome: { status: "triggered_and_filled", reason: "stop_range_trigger" } },
+    },
   })
 })
 
@@ -1431,6 +1662,452 @@ test("runner submits one authorized full reduce-only exit and executes it at the
   expect(terminalResult.result!.order_events.some((event) => event.order_id.endsWith(":strategy-exit"))).toBe(false)
 }, 15_000)
 
+test("runner cancels one pending strategy exit before execution and preserves protective terminal ownership across resume", () => {
+  const requirement = {
+    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
+    mode: "closed_bar_lookback" as const, source_kind: "ohlcv" as const,
+    fields: ["open", "high", "low", "close", "volume"] as const, lookback_bars: 1,
+    visibility_policy: "close_time_at_or_before_decision_time" as const,
+    terminal_bar_policy: "close_time_equals_decision_time" as const,
+    continuity_policy: "strict_interval_grid" as const, undeclared_input_policy: "reject" as const,
+  }
+  const marketBars = [
+    { open_time: "2026-07-14T00:00:00Z", close_time: "2026-07-14T04:00:00Z", open: 99, high: 102, low: 98, close: 100, volume: 10, closed: true as const },
+    { open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 100, high: 104, low: 99, close: 102, volume: 11, closed: true as const },
+    { open_time: "2026-07-14T08:00:00Z", close_time: "2026-07-14T12:00:00Z", open: 102, high: 105, low: 101, close: 104, volume: 12, closed: true as const },
+    { open_time: "2026-07-14T12:00:00Z", close_time: "2026-07-14T16:00:00Z", open: 103, high: 106, low: 100, close: 105, volume: 13, closed: true as const },
+    { open_time: "2026-07-14T16:00:00Z", close_time: "2026-07-14T20:00:00Z", open: 105, high: 108, low: 103, close: 107, volume: 14, closed: true as const },
+    { open_time: "2026-07-14T20:00:00Z", close_time: "2026-07-15T00:00:00Z", open: 107, high: 112, low: 104, close: 111, volume: 15, closed: true as const },
+    { open_time: "2026-07-15T00:00:00Z", close_time: "2026-07-15T04:00:00Z", open: 111, high: 113, low: 109, close: 112, volume: 16, closed: true as const },
+  ]
+  const order: ReplayExecutionRequest["order"] = {
+    side: "long", quantity: 1, signal_time: "2026-07-14T08:00:00Z",
+    earliest_executable_time: "2026-07-14T12:00:00Z", stop_price: 95, target_price: 110,
+    entry_execution: { order_type: "market" },
+  }
+  const exitIntent = {
+    schema_version: REPLAY_REDUCE_ONLY_EXIT_INTENT_SCHEMA_VERSION,
+    side: "sell" as const, order_type: "market" as const, reduce_only: true as const,
+    quantity_policy: "full_open_position" as const,
+    signal_time: "2026-07-14T16:00:00Z", earliest_executable_time: "2026-07-15T00:00:00Z",
+  }
+  const cancelIntent = {
+    schema_version: REPLAY_STRATEGY_EXIT_CANCEL_INTENT_SCHEMA_VERSION,
+    target_order_role: "strategy_exit" as const,
+    target_exit_decision_sequence: 2,
+    cancel_policy: "cancel_submitted_before_earliest_executable_time" as const,
+    effective_at: "2026-07-14T20:00:00Z",
+    reason_code: "strategy_exit_condition_revoked" as const,
+  }
+  const decisionSchedule = {
+    schema_version: REPLAY_DECISION_SCHEDULE_SCHEMA_VERSION,
+    schedule_policy: "frozen_closed_bar_schedule" as const,
+    entries: [
+      { decision_sequence: 1, decision_time: order.signal_time, expected_effect: "authorized_initial_order" as const, authorized_strategy_exit_cancel: null, authorized_reduce_only_exit: null, authorized_protective_stop_replace: null, authorized_partial_reduce: null, authorized_order_hash: canonicalHash(order) },
+      { decision_sequence: 2, decision_time: exitIntent.signal_time, expected_effect: "authorized_reduce_only_exit" as const, authorized_strategy_exit_cancel: null, authorized_reduce_only_exit: exitIntent, authorized_protective_stop_replace: null, authorized_partial_reduce: null, authorized_order_hash: canonicalHash(exitIntent) },
+      { decision_sequence: 3, decision_time: cancelIntent.effective_at, expected_effect: "authorized_strategy_exit_cancel" as const, authorized_strategy_exit_cancel: cancelIntent, authorized_reduce_only_exit: null, authorized_protective_stop_replace: null, authorized_partial_reduce: null, authorized_order_hash: canonicalHash(cancelIntent) },
+    ],
+  }
+  const registeredHarness = decisionHarness(`export function execute({ request_context, decision_state_snapshot }) {
+    if (request_context.decision_sequence === 3) return { decision_output: { action: "cancel_strategy_exit", order: { schema_version: "trade.rd-replay-strategy-exit-cancel-intent.v1", target_order_role: "strategy_exit", target_exit_decision_sequence: 2, cancel_policy: "cancel_submitted_before_earliest_executable_time", effective_at: request_context.decision_time, reason_code: "strategy_exit_condition_revoked" } }, trace: { state_hash: decision_state_snapshot.snapshot_hash } }
+    if (request_context.decision_sequence === 2) return { decision_output: { action: "submit_reduce_only_exit", order: { schema_version: "trade.rd-replay-reduce-only-exit-intent.v1", side: "sell", order_type: "market", reduce_only: true, quantity_policy: "full_open_position", signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time } }, trace: { state_hash: decision_state_snapshot.snapshot_hash } }
+    return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: 95, target_price: 110, entry_execution: { order_type: "market" } } }, trace: { phase: request_context.decision_phase } }
+  }\n`)
+  const dataHash = replayDatasetHash(marketBars)
+  const requestValue: ReplayExecutionRequest = {
+    ...boundRequest(), run_id: "strategy-exit-cancel-run", idempotency_key: "strategy-exit-cancel-idem",
+    dataset_hash: dataHash, harness_hash: registeredHarness.source_bundle.bundle_hash,
+    decision_market_input_requirement: requirement,
+    decision_market_input_requirement_hash: canonicalHash(requirement),
+    decision_schedule: decisionSchedule, decision_schedule_hash: canonicalHash(decisionSchedule), order,
+  }
+  const manifest: ReplayDatasetManifest = {
+    ...datasetManifest(), data_hash: dataHash, row_count: marketBars.length,
+    first_open_time: marketBars[0]!.open_time, last_close_time: marketBars.at(-1)!.close_time,
+    observed_through: marketBars.at(-1)!.close_time,
+  }
+  const authority = authorized(requestValue)
+  const completed = runReplayTrial({
+    ...authority, dataset_manifest: manifest, bars: marketBars,
+    decision_harness_registry: registeredHarness.registry,
+  })
+  expect(completed.failure).toBeUndefined()
+  expect(completed.status).toBe("completed")
+  expect(completed.result!.decision_evidence_timeline.entries.map((entry) => entry.execution_effect))
+    .toEqual(["authorized_order", "authorized_reduce_only_exit", "authorized_strategy_exit_cancel"])
+  expect(completed.result!.order_events.filter((event) => event.order_id.endsWith(":strategy-exit"))
+    .map((event) => [event.kind, event.timestamp, event.reason]))
+    .toEqual([
+      ["submitted", exitIntent.signal_time, null],
+      ["cancelled", cancelIntent.effective_at, cancelIntent.reason_code],
+    ])
+  expect(completed.result!.fills.map((fill) => [fill.order_role, fill.timestamp, fill.price]))
+    .toEqual([["entry", order.earliest_executable_time, 103], ["target", "2026-07-15T00:00:00Z", 110]])
+  expect(completed.result!.order_state_snapshot.orders.find((candidate) => candidate.order_role === "strategy_exit"))
+    .toMatchObject({ status: "cancelled", remaining_quantity: 1 })
+
+  const renewedLease = attemptLease(authority.request, authority.trial_reservation, {
+    lease_generation: 3, heartbeat_at: "2026-07-14T00:01:30Z", lease_expires_at: "2026-07-14T00:06:30Z",
+  })
+  const interrupted = runReplayTrial({
+    ...authority, dataset_manifest: manifest, bars: marketBars,
+    decision_harness_registry: registeredHarness.registry,
+    execution_control: {
+      on_checkpoint: (checkpoint) => ({
+        command: checkpoint.strategy_exit_order?.status === "cancelled" ? "cancel" : "continue",
+        attempt_lease: renewedLease, observed_at: "2026-07-14T00:02:00Z",
+      }),
+    },
+  })
+  expect(interrupted.status).toBe("cancelled")
+  expect(interrupted.resumable_checkpoint?.strategy_exit_order?.status).toBe("cancelled")
+  const resumed = runReplayTrial({
+    ...authority, attempt_lease: renewedLease, observed_at: "2026-07-14T00:02:00Z",
+    dataset_manifest: manifest, bars: marketBars, decision_harness_registry: registeredHarness.registry,
+    execution_control: { resume_checkpoint: interrupted.resumable_checkpoint },
+  })
+  expect(resumed.status).toBe("completed")
+  expect(canonicalHash(resumed.result)).toBe(canonicalHash(completed.result))
+  expect(resumed.result!.order_events.filter((event) => event.order_id.endsWith(":strategy-exit") && event.kind === "cancelled"))
+    .toHaveLength(1)
+}, 15_000)
+
+test("runner cancels one active target, preserves the stop, and ignores later former-target touches", () => {
+  const runId = "take-profit-cancel-run"
+  const requirement = {
+    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
+    mode: "closed_bar_lookback" as const, source_kind: "ohlcv" as const,
+    fields: ["open", "high", "low", "close", "volume"] as const, lookback_bars: 1,
+    visibility_policy: "close_time_at_or_before_decision_time" as const,
+    terminal_bar_policy: "close_time_equals_decision_time" as const,
+    continuity_policy: "strict_interval_grid" as const, undeclared_input_policy: "reject" as const,
+  }
+  const marketBars = [
+    { open_time: "2026-07-14T00:00:00Z", close_time: "2026-07-14T04:00:00Z", open: 99, high: 102, low: 98, close: 100, volume: 10, closed: true as const },
+    { open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 100, high: 104, low: 99, close: 102, volume: 11, closed: true as const },
+    { open_time: "2026-07-14T08:00:00Z", close_time: "2026-07-14T12:00:00Z", open: 102, high: 105, low: 101, close: 104, volume: 12, closed: true as const },
+    { open_time: "2026-07-14T12:00:00Z", close_time: "2026-07-14T16:00:00Z", open: 103, high: 106, low: 100, close: 105, volume: 13, closed: true as const },
+    { open_time: "2026-07-14T16:00:00Z", close_time: "2026-07-14T20:00:00Z", open: 105, high: 108, low: 103, close: 107, volume: 14, closed: true as const },
+    { open_time: "2026-07-14T20:00:00Z", close_time: "2026-07-15T00:00:00Z", open: 107, high: 112, low: 100, close: 111, volume: 15, closed: true as const },
+    { open_time: "2026-07-15T00:00:00Z", close_time: "2026-07-15T04:00:00Z", open: 111, high: 113, low: 94, close: 96, volume: 16, closed: true as const },
+  ]
+  const order: ReplayExecutionRequest["order"] = {
+    side: "long", quantity: 1, signal_time: "2026-07-14T08:00:00Z",
+    earliest_executable_time: "2026-07-14T12:00:00Z", stop_price: 95, target_price: 110,
+    entry_execution: { order_type: "market" },
+  }
+  const cancelIntent = {
+    schema_version: REPLAY_TAKE_PROFIT_CANCEL_INTENT_SCHEMA_VERSION,
+    target_order_role: "target" as const, target_order_type: "take_profit_market" as const,
+    target_order_id: `${runId}:order:target`,
+    cancel_policy: "cancel_active_target_preserve_stop" as const,
+    stop_preservation_policy: "require_active_full_position_stop" as const,
+    schedule_combination_policy: "initial_bracket_only_no_other_position_mutation" as const,
+    effective_at: "2026-07-14T20:00:00Z",
+    reason_code: "take_profit_condition_revoked" as const,
+  }
+  const decisionSchedule = {
+    schema_version: REPLAY_DECISION_SCHEDULE_SCHEMA_VERSION,
+    schedule_policy: "frozen_closed_bar_schedule" as const,
+    entries: [
+      { decision_sequence: 1, decision_time: order.signal_time, expected_effect: "authorized_initial_order" as const, authorized_take_profit_cancel: null, authorized_reduce_only_exit: null, authorized_protective_stop_replace: null, authorized_partial_reduce: null, authorized_order_hash: canonicalHash(order) },
+      { decision_sequence: 2, decision_time: cancelIntent.effective_at, expected_effect: "authorized_take_profit_cancel" as const, authorized_take_profit_cancel: cancelIntent, authorized_reduce_only_exit: null, authorized_protective_stop_replace: null, authorized_partial_reduce: null, authorized_order_hash: canonicalHash(cancelIntent) },
+    ],
+  }
+  const registeredHarness = decisionHarness(`export function execute({ request_context, decision_state_snapshot }) {
+    if (request_context.decision_sequence === 2) return { decision_output: { action: "cancel_take_profit", order: { schema_version: "trade.rd-replay-take-profit-cancel-intent.v1", target_order_role: "target", target_order_type: "take_profit_market", target_order_id: request_context.run_id + ":order:target", cancel_policy: "cancel_active_target_preserve_stop", stop_preservation_policy: "require_active_full_position_stop", schedule_combination_policy: "initial_bracket_only_no_other_position_mutation", effective_at: request_context.decision_time, reason_code: "take_profit_condition_revoked" } }, trace: { state_hash: decision_state_snapshot.snapshot_hash } }
+    return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: 95, target_price: 110, entry_execution: { order_type: "market" } } }, trace: { phase: request_context.decision_phase } }
+  }\n`)
+  const dataHash = replayDatasetHash(marketBars)
+  const requestValue: ReplayExecutionRequest = {
+    ...boundRequest(), run_id: runId, idempotency_key: "take-profit-cancel-idem",
+    dataset_hash: dataHash, harness_hash: registeredHarness.source_bundle.bundle_hash,
+    decision_market_input_requirement: requirement,
+    decision_market_input_requirement_hash: canonicalHash(requirement),
+    decision_schedule: decisionSchedule, decision_schedule_hash: canonicalHash(decisionSchedule), order,
+  }
+  const manifest: ReplayDatasetManifest = {
+    ...datasetManifest(), data_hash: dataHash, row_count: marketBars.length,
+    first_open_time: marketBars[0]!.open_time, last_close_time: marketBars.at(-1)!.close_time,
+    observed_through: marketBars.at(-1)!.close_time,
+  }
+  const authority = authorized(requestValue)
+  const completed = runReplayTrial({
+    ...authority, dataset_manifest: manifest, bars: marketBars,
+    decision_harness_registry: registeredHarness.registry,
+  })
+  expect(completed.failure).toBeUndefined()
+  expect(completed.status).toBe("completed")
+  expect(completed.result!.decision_evidence_timeline.entries.map((entry) => entry.execution_effect))
+    .toEqual(["authorized_order", "authorized_take_profit_cancel"])
+  expect(completed.result!.fills.map((fill) => [fill.order_role, fill.timestamp, fill.price]))
+    .toEqual([["entry", order.earliest_executable_time, 103], ["stop", "2026-07-15T04:00:00Z", 95]])
+  expect(completed.result!.order_events.filter((event) => event.order_id === cancelIntent.target_order_id)
+    .map((event) => [event.kind, event.timestamp, event.reason]))
+    .toEqual([
+      ["submitted", order.earliest_executable_time, null],
+      ["activated", order.earliest_executable_time, null],
+      ["cancelled", cancelIntent.effective_at, cancelIntent.reason_code],
+    ])
+  expect(completed.result!.ohlcv_resolution_evidence[0]!.active_protection).toMatchObject({
+    protection_mode: "stop_only", target_order_status: "cancelled",
+    stop_order_id: `${runId}:order:stop`, target_order_id: cancelIntent.target_order_id,
+  })
+
+  const renewedLease = attemptLease(authority.request, authority.trial_reservation, {
+    lease_generation: 3, heartbeat_at: "2026-07-14T00:01:30Z", lease_expires_at: "2026-07-14T00:06:30Z",
+  })
+  const interrupted = runReplayTrial({
+    ...authority, dataset_manifest: manifest, bars: marketBars,
+    decision_harness_registry: registeredHarness.registry,
+    execution_control: {
+      on_checkpoint: (checkpoint) => ({
+        command: checkpoint.entry_transition?.target_order.status === "cancelled" ? "cancel" : "continue",
+        attempt_lease: renewedLease, observed_at: "2026-07-14T00:02:00Z",
+      }),
+    },
+  })
+  expect(interrupted.status).toBe("cancelled")
+  expect(interrupted.resumable_checkpoint?.entry_transition).toMatchObject({
+    stop_order: { status: "active" }, target_order: { status: "cancelled" },
+  })
+  const resumed = runReplayTrial({
+    ...authority, attempt_lease: renewedLease, observed_at: "2026-07-14T00:02:00Z",
+    dataset_manifest: manifest, bars: marketBars, decision_harness_registry: registeredHarness.registry,
+    execution_control: { resume_checkpoint: interrupted.resumable_checkpoint },
+  })
+  expect(resumed.status).toBe("completed")
+  expect(canonicalHash(resumed.result)).toBe(canonicalHash(completed.result))
+
+  const tamperedCheckpoint = structuredClone(interrupted.resumable_checkpoint!)
+  tamperedCheckpoint.entry_transition!.target_order.status = "active"
+  const { checkpoint_hash: _tamperedHash, ...tamperedBody } = tamperedCheckpoint
+  tamperedCheckpoint.checkpoint_hash = canonicalHash(tamperedBody)
+  const tamperedResume = runReplayTrial({
+    ...authority, attempt_lease: renewedLease, observed_at: "2026-07-14T00:02:00Z",
+    dataset_manifest: manifest, bars: marketBars, decision_harness_registry: registeredHarness.registry,
+    execution_control: { resume_checkpoint: tamperedCheckpoint },
+  })
+  expect(tamperedResume.status).toBe("failed")
+  expect(tamperedResume.failure?.message).toContain("Order state does not match its last OrderEvent")
+
+  const raceBars = marketBars.map((bar, index) => index === 4 ? { ...bar, high: 112, close: 111 } : bar)
+  const raceHash = replayDatasetHash(raceBars)
+  const raceRunId = "take-profit-cancel-race-run"
+  const raceIntent = { ...cancelIntent, target_order_id: `${raceRunId}:order:target` }
+  const raceSchedule = structuredClone(decisionSchedule)
+  raceSchedule.entries[1]!.authorized_take_profit_cancel = raceIntent
+  raceSchedule.entries[1]!.authorized_order_hash = canonicalHash(raceIntent)
+  const raceRequest: ReplayExecutionRequest = {
+    ...requestValue, run_id: raceRunId, idempotency_key: "take-profit-cancel-race-idem", dataset_hash: raceHash,
+    decision_schedule: raceSchedule, decision_schedule_hash: canonicalHash(raceSchedule),
+  }
+  const raceResult = runReplayTrial({
+    ...authorized(raceRequest), dataset_manifest: { ...manifest, data_hash: raceHash }, bars: raceBars,
+    decision_harness_registry: registeredHarness.registry,
+  })
+  expect(raceResult.status).toBe("completed")
+  expect(raceResult.result!.fills.at(-1)).toMatchObject({ order_role: "target", timestamp: cancelIntent.effective_at })
+  expect(raceResult.result!.decision_evidence_timeline.entries[1]).toMatchObject({
+    evaluation_status: "not_reached_terminal", execution_effect: "not_reached",
+  })
+
+  const eodBars = marketBars.slice(0, 6).map((bar, index) => index === 5
+    ? { ...bar, high: 112, low: 100, close: 111 }
+    : bar)
+  const eodHash = replayDatasetHash(eodBars)
+  const eodRunId = "take-profit-cancel-eod-run"
+  const eodIntent = { ...cancelIntent, target_order_id: `${eodRunId}:order:target` }
+  const eodSchedule = structuredClone(decisionSchedule)
+  eodSchedule.entries[1]!.authorized_take_profit_cancel = eodIntent
+  eodSchedule.entries[1]!.authorized_order_hash = canonicalHash(eodIntent)
+  const eodRequest: ReplayExecutionRequest = {
+    ...requestValue, run_id: eodRunId, idempotency_key: "take-profit-cancel-eod-idem", dataset_hash: eodHash,
+    decision_schedule: eodSchedule, decision_schedule_hash: canonicalHash(eodSchedule),
+  }
+  const eodResult = runReplayTrial({
+    ...authorized(eodRequest),
+    dataset_manifest: {
+      ...manifest, data_hash: eodHash, row_count: eodBars.length,
+      last_close_time: eodBars.at(-1)!.close_time, observed_through: eodBars.at(-1)!.close_time,
+    },
+    bars: eodBars, decision_harness_registry: registeredHarness.registry,
+  })
+  expect(eodResult.status).toBe("completed")
+  expect(eodResult.result!.fills.map((fill) => fill.order_role)).toEqual(["entry"])
+  expect(eodResult.result!.positions.at(-1)?.state).toBe("open")
+  expect(eodResult.result!.order_events.filter(
+    (event) => event.order_id === eodIntent.target_order_id && event.kind === "cancelled",
+  )).toHaveLength(1)
+}, 15_000)
+
+test("runner cancels one active protective stop, preserves the target, and ignores later former-stop touches", () => {
+  const runId = "protective-stop-cancel-run"
+  const requirement = {
+    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
+    mode: "closed_bar_lookback" as const, source_kind: "ohlcv" as const,
+    fields: ["open", "high", "low", "close", "volume"] as const, lookback_bars: 1,
+    visibility_policy: "close_time_at_or_before_decision_time" as const,
+    terminal_bar_policy: "close_time_equals_decision_time" as const,
+    continuity_policy: "strict_interval_grid" as const, undeclared_input_policy: "reject" as const,
+  }
+  const marketBars = [
+    { open_time: "2026-07-14T00:00:00Z", close_time: "2026-07-14T04:00:00Z", open: 99, high: 102, low: 98, close: 100, volume: 10, closed: true as const },
+    { open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 100, high: 104, low: 99, close: 102, volume: 11, closed: true as const },
+    { open_time: "2026-07-14T08:00:00Z", close_time: "2026-07-14T12:00:00Z", open: 102, high: 105, low: 101, close: 104, volume: 12, closed: true as const },
+    { open_time: "2026-07-14T12:00:00Z", close_time: "2026-07-14T16:00:00Z", open: 103, high: 106, low: 100, close: 105, volume: 13, closed: true as const },
+    { open_time: "2026-07-14T16:00:00Z", close_time: "2026-07-14T20:00:00Z", open: 105, high: 108, low: 96, close: 107, volume: 14, closed: true as const },
+    { open_time: "2026-07-14T20:00:00Z", close_time: "2026-07-15T00:00:00Z", open: 107, high: 109, low: 94, close: 108, volume: 15, closed: true as const },
+    { open_time: "2026-07-15T00:00:00Z", close_time: "2026-07-15T04:00:00Z", open: 108, high: 112, low: 93, close: 111, volume: 16, closed: true as const },
+  ]
+  const order: ReplayExecutionRequest["order"] = {
+    side: "long", quantity: 1, signal_time: "2026-07-14T08:00:00Z",
+    earliest_executable_time: "2026-07-14T12:00:00Z", stop_price: 95, target_price: 110,
+    entry_execution: { order_type: "market" },
+  }
+  const cancelIntent = {
+    schema_version: REPLAY_PROTECTIVE_STOP_CANCEL_INTENT_SCHEMA_VERSION,
+    target_order_role: "stop" as const, target_order_type: "stop_market" as const,
+    target_order_id: `${runId}:order:stop`,
+    cancel_policy: "cancel_active_stop_preserve_target" as const,
+    target_preservation_policy: "require_active_full_position_target" as const,
+    schedule_combination_policy: "initial_bracket_only_no_other_position_mutation" as const,
+    effective_at: "2026-07-14T20:00:00Z",
+    reason_code: "protective_stop_condition_revoked" as const,
+  }
+  const decisionSchedule = {
+    schema_version: REPLAY_DECISION_SCHEDULE_SCHEMA_VERSION,
+    schedule_policy: "frozen_closed_bar_schedule" as const,
+    entries: [
+      { decision_sequence: 1, decision_time: order.signal_time, expected_effect: "authorized_initial_order" as const, authorized_protective_stop_cancel: null, authorized_reduce_only_exit: null, authorized_protective_stop_replace: null, authorized_partial_reduce: null, authorized_order_hash: canonicalHash(order) },
+      { decision_sequence: 2, decision_time: cancelIntent.effective_at, expected_effect: "authorized_protective_stop_cancel" as const, authorized_protective_stop_cancel: cancelIntent, authorized_reduce_only_exit: null, authorized_protective_stop_replace: null, authorized_partial_reduce: null, authorized_order_hash: canonicalHash(cancelIntent) },
+    ],
+  }
+  const registeredHarness = decisionHarness(`export function execute({ request_context, decision_state_snapshot }) {
+    if (request_context.decision_sequence === 2) return { decision_output: { action: "cancel_protective_stop", order: { schema_version: "trade.rd-replay-protective-stop-cancel-intent.v1", target_order_role: "stop", target_order_type: "stop_market", target_order_id: request_context.run_id + ":order:stop", cancel_policy: "cancel_active_stop_preserve_target", target_preservation_policy: "require_active_full_position_target", schedule_combination_policy: "initial_bracket_only_no_other_position_mutation", effective_at: request_context.decision_time, reason_code: "protective_stop_condition_revoked" } }, trace: { state_hash: decision_state_snapshot.snapshot_hash } }
+    return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: 95, target_price: 110, entry_execution: { order_type: "market" } } }, trace: { phase: request_context.decision_phase } }
+  }\n`)
+  const dataHash = replayDatasetHash(marketBars)
+  const requestValue: ReplayExecutionRequest = {
+    ...boundRequest(), run_id: runId, idempotency_key: "protective-stop-cancel-idem",
+    dataset_hash: dataHash, harness_hash: registeredHarness.source_bundle.bundle_hash,
+    decision_market_input_requirement: requirement,
+    decision_market_input_requirement_hash: canonicalHash(requirement),
+    decision_schedule: decisionSchedule, decision_schedule_hash: canonicalHash(decisionSchedule), order,
+  }
+  const manifest: ReplayDatasetManifest = {
+    ...datasetManifest(), data_hash: dataHash, row_count: marketBars.length,
+    first_open_time: marketBars[0]!.open_time, last_close_time: marketBars.at(-1)!.close_time,
+    observed_through: marketBars.at(-1)!.close_time,
+  }
+  const authority = authorized(requestValue)
+  const completed = runReplayTrial({
+    ...authority, dataset_manifest: manifest, bars: marketBars,
+    decision_harness_registry: registeredHarness.registry,
+  })
+  expect(completed.failure).toBeUndefined()
+  expect(completed.status).toBe("completed")
+  expect(completed.result!.decision_evidence_timeline.entries.map((entry) => entry.execution_effect))
+    .toEqual(["authorized_order", "authorized_protective_stop_cancel"])
+  expect(completed.result!.fills.map((fill) => [fill.order_role, fill.timestamp, fill.price]))
+    .toEqual([["entry", order.earliest_executable_time, 103], ["target", "2026-07-15T04:00:00Z", 110]])
+  expect(completed.result!.order_events.filter((event) => event.order_id === cancelIntent.target_order_id)
+    .map((event) => [event.kind, event.timestamp, event.reason]))
+    .toEqual([
+      ["submitted", order.earliest_executable_time, null],
+      ["activated", order.earliest_executable_time, null],
+      ["cancelled", cancelIntent.effective_at, cancelIntent.reason_code],
+    ])
+  expect(completed.result!.ohlcv_resolution_evidence[0]!.active_protection).toMatchObject({
+    protection_mode: "target_only", stop_order_status: "cancelled", target_order_status: "active",
+    stop_order_id: cancelIntent.target_order_id, target_order_id: `${runId}:order:target`,
+  })
+
+  const renewedLease = attemptLease(authority.request, authority.trial_reservation, {
+    lease_generation: 3, heartbeat_at: "2026-07-14T00:01:30Z", lease_expires_at: "2026-07-14T00:06:30Z",
+  })
+  const interrupted = runReplayTrial({
+    ...authority, dataset_manifest: manifest, bars: marketBars,
+    decision_harness_registry: registeredHarness.registry,
+    execution_control: {
+      on_checkpoint: (checkpoint) => ({
+        command: checkpoint.entry_transition?.stop_order.status === "cancelled" ? "cancel" : "continue",
+        attempt_lease: renewedLease, observed_at: "2026-07-14T00:02:00Z",
+      }),
+    },
+  })
+  expect(interrupted.status).toBe("cancelled")
+  expect(interrupted.resumable_checkpoint?.entry_transition).toMatchObject({
+    stop_order: { status: "cancelled" }, target_order: { status: "active" },
+  })
+  const resumed = runReplayTrial({
+    ...authority, attempt_lease: renewedLease, observed_at: "2026-07-14T00:02:00Z",
+    dataset_manifest: manifest, bars: marketBars, decision_harness_registry: registeredHarness.registry,
+    execution_control: { resume_checkpoint: interrupted.resumable_checkpoint },
+  })
+  expect(resumed.status).toBe("completed")
+  expect(canonicalHash(resumed.result)).toBe(canonicalHash(completed.result))
+
+  const tamperedCheckpoint = structuredClone(interrupted.resumable_checkpoint!)
+  tamperedCheckpoint.entry_transition!.stop_order.status = "active"
+  const { checkpoint_hash: _tamperedHash, ...tamperedBody } = tamperedCheckpoint
+  tamperedCheckpoint.checkpoint_hash = canonicalHash(tamperedBody)
+  const tamperedResume = runReplayTrial({
+    ...authority, attempt_lease: renewedLease, observed_at: "2026-07-14T00:02:00Z",
+    dataset_manifest: manifest, bars: marketBars, decision_harness_registry: registeredHarness.registry,
+    execution_control: { resume_checkpoint: tamperedCheckpoint },
+  })
+  expect(tamperedResume.status).toBe("failed")
+  expect(tamperedResume.failure?.message).toContain("Order state does not match its last OrderEvent")
+
+  const raceBars = marketBars.map((bar, index) => index === 4 ? { ...bar, low: 94, close: 96 } : bar)
+  const raceHash = replayDatasetHash(raceBars)
+  const raceRunId = "protective-stop-cancel-race-run"
+  const raceIntent = { ...cancelIntent, target_order_id: `${raceRunId}:order:stop` }
+  const raceSchedule = structuredClone(decisionSchedule)
+  raceSchedule.entries[1]!.authorized_protective_stop_cancel = raceIntent
+  raceSchedule.entries[1]!.authorized_order_hash = canonicalHash(raceIntent)
+  const raceRequest: ReplayExecutionRequest = {
+    ...requestValue, run_id: raceRunId, idempotency_key: "protective-stop-cancel-race-idem", dataset_hash: raceHash,
+    decision_schedule: raceSchedule, decision_schedule_hash: canonicalHash(raceSchedule),
+  }
+  const raceResult = runReplayTrial({
+    ...authorized(raceRequest), dataset_manifest: { ...manifest, data_hash: raceHash }, bars: raceBars,
+    decision_harness_registry: registeredHarness.registry,
+  })
+  expect(raceResult.status).toBe("completed")
+  expect(raceResult.result!.fills.at(-1)).toMatchObject({ order_role: "stop", timestamp: cancelIntent.effective_at })
+  expect(raceResult.result!.decision_evidence_timeline.entries[1]).toMatchObject({
+    evaluation_status: "not_reached_terminal", execution_effect: "not_reached",
+  })
+
+  const eodBars = marketBars.slice(0, 6)
+  const eodHash = replayDatasetHash(eodBars)
+  const eodRunId = "protective-stop-cancel-eod-run"
+  const eodIntent = { ...cancelIntent, target_order_id: `${eodRunId}:order:stop` }
+  const eodSchedule = structuredClone(decisionSchedule)
+  eodSchedule.entries[1]!.authorized_protective_stop_cancel = eodIntent
+  eodSchedule.entries[1]!.authorized_order_hash = canonicalHash(eodIntent)
+  const eodRequest: ReplayExecutionRequest = {
+    ...requestValue, run_id: eodRunId, idempotency_key: "protective-stop-cancel-eod-idem", dataset_hash: eodHash,
+    decision_schedule: eodSchedule, decision_schedule_hash: canonicalHash(eodSchedule),
+  }
+  const eodResult = runReplayTrial({
+    ...authorized(eodRequest),
+    dataset_manifest: {
+      ...manifest, data_hash: eodHash, row_count: eodBars.length,
+      last_close_time: eodBars.at(-1)!.close_time, observed_through: eodBars.at(-1)!.close_time,
+    },
+    bars: eodBars, decision_harness_registry: registeredHarness.registry,
+  })
+  expect(eodResult.status).toBe("completed")
+  expect(eodResult.result!.fills.map((fill) => fill.order_role)).toEqual(["entry"])
+  expect(eodResult.result!.positions.at(-1)?.state).toBe("open")
+  expect(eodResult.result!.order_events.filter(
+    (event) => event.order_id === eodIntent.target_order_id && event.kind === "cancelled",
+  )).toHaveLength(1)
+}, 15_000)
+
 test("runner partially reduces once, rebuilds full protection, then cleanly resumes to final exit", () => {
   const requirement = {
     schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
@@ -1889,6 +2566,143 @@ test("runner tightens one protective stop and resumes without replaying its Harn
   expect(liquidationTransitions[0]!.order_id).toContain("stop-replacement")
   expect(liquidationTransitions[1]!.order_id).toEndWith(":order:target")
   expect(liquidationTransitions.slice(2).every((event) => event.order_id.endsWith(":order:liquidation"))).toBe(true)
+}, 15_000)
+
+test("runner reprices one take-profit, preserves the stop, and ignores the former target", () => {
+  const requirement = {
+    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
+    mode: "closed_bar_lookback" as const, source_kind: "ohlcv" as const,
+    fields: ["open", "high", "low", "close", "volume"] as const, lookback_bars: 1,
+    visibility_policy: "close_time_at_or_before_decision_time" as const,
+    terminal_bar_policy: "close_time_equals_decision_time" as const,
+    continuity_policy: "strict_interval_grid" as const, undeclared_input_policy: "reject" as const,
+  }
+  const marketBars = [
+    { open_time: "2026-07-14T00:00:00Z", close_time: "2026-07-14T04:00:00Z", open: 99, high: 102, low: 98, close: 100, volume: 10, closed: true as const },
+    { open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 100, high: 104, low: 99, close: 102, volume: 11, closed: true as const },
+    { open_time: "2026-07-14T08:00:00Z", close_time: "2026-07-14T12:00:00Z", open: 102, high: 105, low: 101, close: 104, volume: 12, closed: true as const },
+    { open_time: "2026-07-14T12:00:00Z", close_time: "2026-07-14T16:00:00Z", open: 103, high: 106, low: 100, close: 105, volume: 13, closed: true as const },
+    { open_time: "2026-07-14T16:00:00Z", close_time: "2026-07-14T20:00:00Z", open: 105, high: 108, low: 103, close: 107, volume: 14, closed: true as const },
+    { open_time: "2026-07-14T20:00:00Z", close_time: "2026-07-15T00:00:00Z", open: 107, high: 109, low: 105, close: 108, volume: 15, closed: true as const },
+    { open_time: "2026-07-15T00:00:00Z", close_time: "2026-07-15T04:00:00Z", open: 108, high: 111, low: 106, close: 109, volume: 16, closed: true as const },
+    { open_time: "2026-07-15T04:00:00Z", close_time: "2026-07-15T08:00:00Z", open: 109, high: 121, low: 108, close: 120, volume: 17, closed: true as const },
+  ]
+  const order: ReplayExecutionRequest["order"] = {
+    side: "long", quantity: 1, signal_time: "2026-07-14T08:00:00Z",
+    earliest_executable_time: "2026-07-14T12:00:00Z", stop_price: 95, target_price: 110,
+    entry_execution: { order_type: "market" },
+  }
+  const replaceIntent = {
+    schema_version: REPLAY_TAKE_PROFIT_REPLACE_INTENT_SCHEMA_VERSION,
+    side: "sell" as const, order_type: "take_profit_market" as const, reduce_only: true as const,
+    quantity_policy: "full_open_position" as const,
+    target_order_id: "target-replace-run:order:target",
+    replace_policy: "cancel_then_submit_not_already_triggered" as const,
+    stop_preservation_policy: "require_active_full_position_stop" as const,
+    schedule_combination_policy: "initial_bracket_only_no_other_position_mutation" as const,
+    signal_time: "2026-07-14T20:00:00Z", previous_target_price: 110, new_target_price: 120,
+    reason_code: "take_profit_repriced" as const,
+  }
+  const decisionSchedule = {
+    schema_version: REPLAY_DECISION_SCHEDULE_SCHEMA_VERSION,
+    schedule_policy: "frozen_closed_bar_schedule" as const,
+    entries: [
+      { decision_sequence: 1, decision_time: order.signal_time, expected_effect: "authorized_initial_order" as const, authorized_reduce_only_exit: null, authorized_protective_stop_replace: null, authorized_take_profit_replace: null, authorized_partial_reduce: null, authorized_order_hash: canonicalHash(order) },
+      { decision_sequence: 2, decision_time: replaceIntent.signal_time, expected_effect: "authorized_take_profit_replace" as const, authorized_reduce_only_exit: null, authorized_protective_stop_replace: null, authorized_take_profit_replace: replaceIntent, authorized_partial_reduce: null, authorized_order_hash: canonicalHash(replaceIntent) },
+    ],
+  }
+  const registeredHarness = decisionHarness(`export function execute({ request_context, decision_state_snapshot }) {
+    if (request_context.decision_phase === "position_open") {
+      if (decision_state_snapshot?.active_protection.stop.trigger_price !== 95 || decision_state_snapshot?.active_protection.target.trigger_price !== 110) throw new Error("missing active bracket")
+      return { decision_output: { action: "replace_take_profit", order: { schema_version: "trade.rd-replay-take-profit-replace-intent.v1", side: "sell", order_type: "take_profit_market", reduce_only: true, quantity_policy: "full_open_position", target_order_id: "target-replace-run:order:target", replace_policy: "cancel_then_submit_not_already_triggered", stop_preservation_policy: "require_active_full_position_stop", schedule_combination_policy: "initial_bracket_only_no_other_position_mutation", signal_time: request_context.decision_time, previous_target_price: 110, new_target_price: 120, reason_code: "take_profit_repriced" } }, trace: { state_hash: decision_state_snapshot.snapshot_hash } }
+    }
+    return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: 95, target_price: 110, entry_execution: { order_type: "market" } } }, trace: { phase: request_context.decision_phase } }
+  }\n`)
+  const dataHash = replayDatasetHash(marketBars)
+  const requestValue: ReplayExecutionRequest = {
+    ...boundRequest(), run_id: "target-replace-run", idempotency_key: "target-replace-idem",
+    dataset_hash: dataHash, harness_hash: registeredHarness.source_bundle.bundle_hash,
+    decision_market_input_requirement: requirement,
+    decision_market_input_requirement_hash: canonicalHash(requirement),
+    decision_schedule: decisionSchedule, decision_schedule_hash: canonicalHash(decisionSchedule), order,
+  }
+  const manifest: ReplayDatasetManifest = {
+    ...datasetManifest(), data_hash: dataHash, row_count: marketBars.length,
+    first_open_time: marketBars[0]!.open_time, last_close_time: marketBars.at(-1)!.close_time,
+    observed_through: marketBars.at(-1)!.close_time,
+  }
+  const authority = authorized(requestValue)
+  const completed = runReplayTrial({ ...authority, dataset_manifest: manifest, bars: marketBars, decision_harness_registry: registeredHarness.registry })
+  expect(completed.status).toBe("completed")
+  expect(completed.result!.decision_evidence_timeline.entries[1]).toMatchObject({
+    execution_effect: "authorized_take_profit_replace",
+    decision_state_snapshot: { active_protection: { stop: { trigger_price: 95 }, target: { trigger_price: 110 } } },
+  })
+  expect(completed.result!.fills.at(-1)).toMatchObject({ order_role: "target", timestamp: "2026-07-15T08:00:00Z", price: 120 })
+  expect(completed.result!.order_events.filter((event) => event.order_id.includes("target-replacement"))
+    .map((event) => event.kind)).toEqual(["submitted", "activated", "triggered", "filled"])
+  expect(completed.result!.order_events.find((event) => event.order_id.endsWith(":order:target") && event.kind === "cancelled"))
+    .toMatchObject({ reason: "take-profit-repriced" })
+  expect(completed.result!.ohlcv_resolution_evidence[0]!.active_protection).toMatchObject({
+    protection_generation: 2, stop_order_id: `${requestValue.run_id}:order:stop`,
+    target_order_id: `${requestValue.run_id}:order:target-replacement:2`,
+    stop_trigger_price: 95, target_trigger_price: 120,
+  })
+  expect(() => assertReplayResultOhlcvResolutionBindings(completed.result!, requestValue)).not.toThrow()
+
+  const renewedLease = attemptLease(authority.request, authority.trial_reservation, {
+    lease_generation: 3, heartbeat_at: "2026-07-14T00:01:30Z", lease_expires_at: "2026-07-14T00:06:30Z",
+  })
+  const cancelled = runReplayTrial({
+    ...authority, dataset_manifest: manifest, bars: marketBars, decision_harness_registry: registeredHarness.registry,
+    execution_control: { on_checkpoint: (checkpoint) => ({
+      command: checkpoint.entry_transition?.target_order.order_id.includes("target-replacement") ? "cancel" : "continue",
+      attempt_lease: renewedLease, observed_at: "2026-07-14T00:02:00Z",
+    }) },
+  })
+  expect(cancelled.status).toBe("cancelled")
+  expect(cancelled.resumable_checkpoint?.entry_transition).toMatchObject({
+    protection_generation: 2,
+    stop_order: { status: "active", trigger_price: 95 },
+    target_order: { status: "active", trigger_price: 120 },
+  })
+  const resumed = runReplayTrial({
+    ...authority, attempt_lease: renewedLease, observed_at: "2026-07-14T00:02:00Z",
+    dataset_manifest: manifest, bars: marketBars, decision_harness_registry: registeredHarness.registry,
+    execution_control: { resume_checkpoint: cancelled.resumable_checkpoint },
+  })
+  expect(canonicalHash(resumed.result)).toBe(canonicalHash(completed.result))
+
+  const tampered = structuredClone(cancelled.resumable_checkpoint!)
+  tampered.entry_transition!.target_order.trigger_price = 119
+  const { checkpoint_hash: _checkpointHash, ...checkpointBody } = tampered
+  tampered.checkpoint_hash = canonicalHash(checkpointBody)
+  const rejected = runReplayTrial({
+    ...authority, attempt_lease: renewedLease, observed_at: "2026-07-14T00:02:00Z",
+    dataset_manifest: manifest, bars: marketBars, decision_harness_registry: registeredHarness.registry,
+    execution_control: { resume_checkpoint: tampered },
+  })
+  expect(rejected.status).toBe("failed")
+  expect(rejected.failure?.message).toContain("take-profit replacement state is invalid")
+
+  const collisionBars = marketBars.map((bar, index) => index === 4 ? { ...bar, high: 111 } : bar)
+  const collisionHash = replayDatasetHash(collisionBars)
+  const collisionRequest = { ...requestValue, run_id: "target-replace-collision-run", idempotency_key: "target-replace-collision-idem", dataset_hash: collisionHash }
+  collisionRequest.decision_schedule = structuredClone(decisionSchedule)
+  const collisionIntent = collisionRequest.decision_schedule.entries[1]!.authorized_take_profit_replace!
+  collisionIntent.target_order_id = `${collisionRequest.run_id}:order:target`
+  collisionRequest.decision_schedule.entries[1]!.authorized_order_hash = canonicalHash(collisionIntent)
+  collisionRequest.decision_schedule_hash = canonicalHash(collisionRequest.decision_schedule)
+  const collision = runReplayTrial({
+    ...authorized(collisionRequest), dataset_manifest: { ...manifest, data_hash: collisionHash }, bars: collisionBars,
+    decision_harness_registry: registeredHarness.registry,
+  })
+  expect(collision.status).toBe("completed")
+  expect(collision.result!.fills.at(-1)).toMatchObject({ order_role: "target", timestamp: "2026-07-14T20:00:00Z", price: 110 })
+  expect(collision.result!.decision_evidence_timeline.entries[1]).toMatchObject({
+    evaluation_status: "not_reached_terminal", execution_effect: "not_reached",
+  })
+  expect(collision.result!.order_events.some((event) => event.order_id.includes("target-replacement"))).toBe(false)
 }, 15_000)
 
 test("runner preserves one terminal owner after stop replacement and a later strategy exit", () => {

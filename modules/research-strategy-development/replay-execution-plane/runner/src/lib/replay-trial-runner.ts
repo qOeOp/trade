@@ -23,6 +23,7 @@ import {
   assertReplayDataGapFailureEvidence,
   assertReplayDecisionEvidenceTimeline,
   assertReplayOhlcvResolutionEvidence,
+  assertReplayOrderStateSnapshot,
   assertReplayResultOhlcvResolutionBindings,
   assertReplayResultPendingOrderBindings,
   canonicalHash,
@@ -376,6 +377,10 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     })
     assertReplayResultOhlcvResolutionBindings(result, input.request)
     assertReplayResultPendingOrderBindings(result, input.request, input.dataset_manifest)
+    assertReplayOrderStateSnapshot(result.order_state_snapshot, result.order_events)
+    if (result.fingerprint.order_state_snapshot_hash !== result.order_state_snapshot.snapshot_hash) {
+      throw new Error("Replay Result Order State Snapshot fingerprint mismatch")
+    }
     assertResultOhlcvEconomicImpactBindings(result, input.request, input.dataset_manifest)
     const committedArtifact = activeArtifactNamespace
       ? commitArtifacts(
@@ -749,7 +754,8 @@ const ARTIFACT_FILE_NAMES: Readonly<Record<(typeof REPLAY_REQUIRED_ARTIFACT_ROLE
   supplemental_facts: "supplemental-facts.json",
   decision_market_input_snapshot: "decision-market-input-snapshot.json",
   decision_evidence_timeline: "decision-evidence-timeline.json",
-  order_events: "order-events.jsonl", fills: "fills.jsonl", positions: "positions.jsonl", ledger: "ledger.jsonl",
+  order_events: "order-events.jsonl", order_state_snapshot: "order-state-snapshot.json",
+  fills: "fills.jsonl", positions: "positions.jsonl", ledger: "ledger.jsonl",
   ohlcv_resolution_evidence: "ohlcv-resolution-evidence.json",
   pending_order_resolutions: "pending-order-resolutions.json",
   valuation_snapshot: "valuation-snapshot.json", equity_bridge: "equity-bridge.json", margin_snapshots: "margin-snapshots.json",
@@ -776,6 +782,7 @@ function commitArtifacts(
   const resultText = `${canonicalJson(result)}\n`
   const sourceEventsText = result.source_events.map((event) => canonicalJson(event)).join("\n") + "\n"
   const orderEventsText = result.order_events.map((event) => canonicalJson(event)).join("\n") + "\n"
+  const orderStateSnapshotText = `${canonicalJson(result.order_state_snapshot)}\n`
   const fillsText = result.fills.map((fill) => canonicalJson(fill)).join("\n") + "\n"
   const positionsText = result.positions.map((position) => canonicalJson(position)).join("\n") + "\n"
   const ledgerText = result.ledger.map((entry) => canonicalJson(entry)).join("\n") + "\n"
@@ -799,6 +806,7 @@ function commitArtifacts(
     writeImmutable(namespace, "result.json", resultText, "result"),
     writeImmutable(namespace, "source-events.jsonl", sourceEventsText, "source_events"),
     writeImmutable(namespace, "order-events.jsonl", orderEventsText, "order_events"),
+    writeImmutable(namespace, "order-state-snapshot.json", orderStateSnapshotText, "order_state_snapshot"),
     writeImmutable(namespace, "fills.jsonl", fillsText, "fills"),
     writeImmutable(namespace, "positions.jsonl", positionsText, "positions"),
     writeImmutable(namespace, "ledger.jsonl", ledgerText, "ledger"),
@@ -951,6 +959,14 @@ function readCommitted(
       || result.fingerprint.pending_order_resolutions_hash !== canonicalHash(recordedPendingOrderResolutions)) {
     throw new Error("committed Replay pending-order resolutions do not match Result")
   }
+  const recordedOrderStateSnapshot = JSON.parse(
+    decode(namespace.read(ARTIFACT_FILE_NAMES.order_state_snapshot).bytes),
+  ) as ReplayResult["order_state_snapshot"]
+  assertReplayOrderStateSnapshot(recordedOrderStateSnapshot, result.order_events)
+  if (canonicalHash(recordedOrderStateSnapshot) !== canonicalHash(result.order_state_snapshot)
+      || result.fingerprint.order_state_snapshot_hash !== recordedOrderStateSnapshot.snapshot_hash) {
+    throw new Error("committed Replay Order State Snapshot does not match Result")
+  }
   if (result.supplemental_evidence.decision_input_snapshot_hash !== recordedDecisionInputSnapshot.snapshot_hash
       || result.fingerprint.decision_evidence_timeline_hash !== recordedDecisionEvidenceTimeline.timeline_hash
       || canonicalHash(result.fingerprint.decision_state_snapshot_hashes) !== canonicalHash(
@@ -980,6 +996,7 @@ function readCommitted(
     completed_at: result.completed_at,
     source_events: result.source_events,
     order_events: result.order_events,
+    order_state_snapshot: result.order_state_snapshot,
     fills: result.fills,
     positions: result.positions,
     ledger: result.ledger,
