@@ -326,9 +326,8 @@ function queryDataCatalog(input: CatalogQueryInput): CatalogQueryResult {
     report_kind: input.reportKind || undefined,
     limit,
   }
-  const db = new Database(catalogDbPath)
+  const db = new Database(catalogDbPath, { readonly: true })
   try {
-    ensureDataCatalogSchema(db)
     const artifactIDs = new Set<string>()
     const artifacts = listArtifactsForQuery(db, query, limit)
     for (const artifact of artifacts) {

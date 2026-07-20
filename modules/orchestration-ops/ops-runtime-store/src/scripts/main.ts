@@ -51,6 +51,15 @@ export function parseArgs(argv: string[]): Args {
 }
 
 export function run(args: Args): JSONRecord {
+  if (args.action === "summary") {
+    const db = new Database(args.dbPath, { readonly: true })
+    try {
+      const cycleId = stringField(args.json.cycle_id)
+      return { ok: true, action: args.action, summary: readCycleSummary(db, cycleId) }
+    } finally {
+      db.close()
+    }
+  }
   const db = new Database(args.dbPath)
   try {
     ensureOpsRuntimeSchema(db)
@@ -89,10 +98,6 @@ export function run(args: Args): JSONRecord {
     if (args.action === "update_incident") {
       const incident = updateIncidentStatus(db, args.json)
       return { ok: true, action: args.action, incident, events: readIncidentEvents(db, { incident_id: incident.incident_id }) }
-    }
-    if (args.action === "summary") {
-      const cycleId = stringField(args.json.cycle_id)
-      return { ok: true, action: args.action, summary: readCycleSummary(db, cycleId) }
     }
     throw new Error(`unsupported action: ${args.action}`)
   } finally {

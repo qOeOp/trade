@@ -47,6 +47,52 @@
       }
     },
     {
+      "id": "agent.mcp",
+      "domain": "orchestration-ops",
+      "intent": [
+        "agent-tool-discovery",
+        "artifact-query",
+        "rd-state-read",
+        "ops-summary-read"
+      ],
+      "capability_class": [
+        "R"
+      ],
+      "path": "modules/orchestration-ops/agent-mcp",
+      "purpose": "Expose an explicit read-only MCP allowlist over local tool discovery and selected Owner CLI queries.",
+      "command": {
+        "cwd": "modules/orchestration-ops/agent-mcp",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Local stdio only; does not listen on the network.",
+        "Discovery does not authorize execution of toolset commands.",
+        "No arbitrary command or exchange-write surface is exposed."
+      ],
+      "module_type": "suite",
+      "owner_scope": "orchestration-ops.agent-mcp",
+      "requires_preflight": false,
+      "concurrency_group": "agent-read",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "mcp-stdio",
+        "input_schema": "",
+        "output_schema": ""
+      }
+    },
+    {
       "id": "ops.runtime-store",
       "domain": "orchestration-ops",
       "intent": [

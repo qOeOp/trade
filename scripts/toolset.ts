@@ -40,7 +40,7 @@ const MANIFEST_PATH = "toolset.json"
 const VALID_CAPABILITIES = new Set(["R", "A", "E", "V", "T", "C"])
 const VALID_WRITES = ["trade_db", "catalog", "artifacts", "binance", "config"]
 const VALID_MODULE_TYPES = new Set(["suite", "atomic", "contract"])
-const VALID_ENTRY_CONTRACT_KINDS = new Set(["cli-json"])
+const VALID_ENTRY_CONTRACT_KINDS = new Set(["cli-json", "mcp-stdio"])
 
 function main(argv: string[]): void {
   const args = parseArgs(argv)
