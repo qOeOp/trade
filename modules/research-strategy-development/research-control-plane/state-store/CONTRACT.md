@@ -54,7 +54,7 @@ The legacy program-learning trial ledger is `rd_program_trial`. `rd_trial` is re
 
 - Seed/query: `seed_default_control_plane`, `seed_universe`, `upsert_data_surface`, `link_universe_data_surface`, `upsert_pipeline_registry_item`, `upsert_universe_coverage`, `read_planning_context`.
 - Proposal/experiment: `append_proposal_revision`, `materialize_proposal`, `register_trial_group`, `register_experiment`.
-- Execution boundary: `reserve_trial`, `cancel_replay_reservation`, `cancel_replay_attempt`, `observe_replay_attempt_cancellation`, `finish_trial`, `append_result`.
+- Execution boundary: `reserve_trial`, child `Trial Reservation Snapshot`, `Shared Initial Capital Reservation v1`, `Runtime Shared Wallet Reservation v1`, `Runtime Shared Wallet Lifecycle Reservation v1`, `Runtime Shared Wallet Funding Reservation v1`, `Runtime Shared Wallet Risk Reservation v1`, `Replay Portfolio Allocation Reservation v1`, `Replay Portfolio Reallocation Reservation v1`, `Replay Portfolio Cycle Sequence Reservation v1`, `cancel_replay_reservation`, `cancel_replay_attempt`, `observe_replay_attempt_cancellation`, `finish_trial`, `append_result`. 资金 authority 都只能覆盖同一 frozen Experiment/Trial Group 的 current reserved Trials并冻结 explicit priority。Reallocation 保持 cycle-2 compatibility；Cycle Sequence 一次冻结连续 1–8 个 Allocation/Risk Plan、互不重复的 Trial、caps 与严格递增时点，禁止 runtime append/search expansion。只有第一周期冻结 initial cash，后续现金必须由 Replay 的前序 full-flat Result 派生。所有 authority 均不得修改 child Contract、决定晋级、写 Review，或开放 cross-margin、partial fill/liquidation、borrow、insurance/ADL。
 - Review/memory: `apply_reviewer_decision`, `append_lesson`.
 - Lifecycle: `apply_system_transition`, `open_blocker`, `close_blocker`, `check_lifecycle_projection`, `rebuild_lifecycle_projection`.
 

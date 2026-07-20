@@ -154,6 +154,16 @@ import { hashIdentityPayload } from "./research-identity-hash"
 import { buildDefaultUniverseSeed, seedDefaultResearchControlPlane } from "./research-universe-default-seed"
 import { ensureResearchStateSchema } from "./research-state-store"
 import { issueTrialReservationSnapshot } from "./trial-reservation-snapshot"
+import { issueReplaySharedInitialCapitalReservation } from "./shared-initial-capital-reservation"
+import {
+  issueReplayRuntimeSharedWalletLifecycleReservation,
+  issueReplayRuntimeSharedWalletFundingReservation,
+  issueReplayRuntimeSharedWalletRiskReservation,
+  issueReplayPortfolioAllocationReservation,
+  issueReplayPortfolioReallocationReservation,
+  issueReplayPortfolioCycleSequenceReservation,
+  issueReplayRuntimeSharedWalletReservation,
+} from "./runtime-shared-wallet-reservation"
 import {
   claimReplayAttempt,
   attestReplayDispatchClock,
@@ -453,7 +463,7 @@ test("Control Plane admits aggregate trade evidence only as a Reservation-bound 
         assumptions_hash: "f".repeat(64),
         cost_policy_hash: "1".repeat(64),
         margin_policy_hash: "2".repeat(64),
-        simulator_policy_version: "rd-replay-simulator-v16",
+        simulator_policy_version: "rd-replay-simulator-v22",
         execution_mode: "step",
       },
       required_capabilities: ["closed-candle", "step"],
@@ -1305,6 +1315,268 @@ test("Control Plane atomically issues an immutable Replay Trial Reservation snap
       expires_at: "2026-07-14T04:08:00Z",
       bindings: snapshot.bindings, required_capabilities: snapshot.required_capabilities,
     }), /no longer reserved/)
+  } finally {
+    db.close()
+  }
+})
+
+test("Control Plane issues shared initial capital only over current child Trial Reservations", () => {
+  const db = openDb()
+  try {
+    seedExecutableExperiment(db, false, 2)
+    db.query("UPDATE rd_trial_group SET status='running' WHERE trial_group_id='group-1'").run()
+    for (const [index, suffix] of ["a", "b"].entries()) {
+      reserveTrial(db, {
+        trial_id: `trial-shared-${suffix}`, trial_group_id: "group-1", experiment_id: "experiment-1",
+        trial_ordinal: index + 1, candidate_id: "candidate-1",
+        candidate_identity_hash: candidateIdentityHash({ lookback: 20 }), identity_hash_policy_version: HASH_POLICY,
+        run_id: `run-shared-${suffix}`, idempotency_key: `trial-shared-${suffix}-key`, created_at: NOW,
+      })
+    }
+    const bindings = {
+      replay_idempotency_key: "replay-shared-a", execution_spec_hash: "a".repeat(64),
+      dataset_manifest_ref: "dataset://shared-fixture", dataset_hash: "b".repeat(64),
+      liquidity_capacity_attestation_hash: null,
+      supplemental_facts_hash: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+      supplemental_requirement_set_hash: "f126b641e1c2e55c174e3505e15232b466e50c3fd764f30968a925821c31d144",
+      venue_risk_policy_schedule_hash: "c".repeat(64), instrument_spec_schedule_hash: "d".repeat(64),
+      instrument_status_schedule_hash: "f".repeat(64), instrument_status_provenance_hash: "3".repeat(64),
+      instrument_status_provider_capability_hash: PROVIDER_CAPABILITY_HASH,
+      instrument_status_provider_certification_hash: PROVIDER_CERTIFICATION.certification_hash,
+      harness_hash: "e".repeat(64), assumptions_hash: "f".repeat(64), cost_policy_hash: "1".repeat(64),
+      margin_policy_hash: "2".repeat(64), simulator_policy_version: "rd-replay-simulator-v22", execution_mode: "step" as const,
+    }
+    const reservationA = issueTrialReservationSnapshot(db, {
+      trial_id: "trial-shared-a", reservation_id: "reservation-shared-a",
+      reservation_ref: "reservation://shared/a", issued_at: NOW, expires_at: "2026-07-14T04:08:00Z",
+      bindings, required_capabilities: ["closed-candle", "step"],
+    })
+    const reservationB = issueTrialReservationSnapshot(db, {
+      trial_id: "trial-shared-b", reservation_id: "reservation-shared-b",
+      reservation_ref: "reservation://shared/b", issued_at: NOW, expires_at: "2026-07-14T04:08:00Z",
+      bindings: { ...bindings, replay_idempotency_key: "replay-shared-b" },
+      required_capabilities: ["closed-candle", "step"],
+    })
+    const input = {
+      reservation_id: "shared-initial-capital-1",
+      reservation_ref: "reservation://shared-initial-capital/1",
+      issued_at: "2026-07-14T03:21:00Z",
+      expires_at: "2026-07-14T04:00:00Z",
+      batch_id: "batch-shared-1",
+      batch_plan_hash: "9".repeat(64),
+      settlement_asset: "USDT",
+      shared_initial_cash: 3000,
+      lanes: [
+        { lane_id: "lane-b", priority_rank: 1, allocated_initial_cash: 2000, trial_reservation: reservationB },
+        { lane_id: "lane-a", priority_rank: 2, allocated_initial_cash: 1000, trial_reservation: reservationA },
+      ],
+    }
+    const shared = issueReplaySharedInitialCapitalReservation(db, input)
+    assert.equal(shared.reservation_hash.length, 64)
+    assert.deepEqual(shared.lanes.map((lane) => lane.lane_id), ["lane-b", "lane-a"])
+    assert.equal(shared.total_allocated_initial_cash, 3000)
+    assert.throws(() => issueReplaySharedInitialCapitalReservation(db, {
+      ...input,
+      shared_initial_cash: 2999,
+    }), /fully allocate/)
+    const runtime = issueReplayRuntimeSharedWalletReservation(db, {
+      reservation_id: "runtime-shared-wallet-1",
+      reservation_ref: "reservation://runtime-shared-wallet/1",
+      issued_at: "2026-07-14T03:21:00Z",
+      expires_at: "2026-07-14T04:00:00Z",
+      portfolio_id: "portfolio-1",
+      portfolio_plan_hash: "8".repeat(64),
+      settlement_asset: "USDT",
+      shared_initial_cash: 100,
+      lanes: [
+        { lane_id: "lane-b", priority_rank: 1, trial_reservation: reservationB },
+        { lane_id: "lane-a", priority_rank: 2, trial_reservation: reservationA },
+      ],
+    })
+    assert.equal(runtime.reservation_hash.length, 64)
+    assert.deepEqual(runtime.lanes.map((lane) => lane.lane_id), ["lane-b", "lane-a"])
+    assert.equal(runtime.shared_initial_cash, 100)
+    assert.equal(Object.hasOwn(runtime.lanes[0]!, "allocated_initial_cash"), false)
+    const lifecycle = issueReplayRuntimeSharedWalletLifecycleReservation(db, {
+      reservation_id: "runtime-shared-wallet-lifecycle-1",
+      reservation_ref: "reservation://runtime-shared-wallet-lifecycle/1",
+      issued_at: "2026-07-14T03:21:00Z",
+      expires_at: "2026-07-14T04:00:00Z",
+      portfolio_id: "portfolio-lifecycle-1",
+      portfolio_plan_hash: "7".repeat(64),
+      settlement_asset: "USDT",
+      shared_initial_cash: 100,
+      lanes: [
+        { lane_id: "lane-b", priority_rank: 1, trial_reservation: reservationB },
+        { lane_id: "lane-a", priority_rank: 2, trial_reservation: reservationA },
+      ],
+    })
+    assert.equal(lifecycle.reservation_hash.length, 64)
+    assert.equal(lifecycle.same_time_cash_policy, "exit_release_before_entry_admission_then_control_plane_priority")
+    assert.deepEqual(lifecycle.lanes.map((lane) => lane.lane_id), ["lane-b", "lane-a"])
+    const funding = issueReplayRuntimeSharedWalletFundingReservation(db, {
+      reservation_id: "runtime-shared-wallet-funding-1",
+      reservation_ref: "reservation://runtime-shared-wallet-funding/1",
+      issued_at: "2026-07-14T03:21:00Z",
+      expires_at: "2026-07-14T04:00:00Z",
+      portfolio_id: "portfolio-funding-1",
+      portfolio_plan_hash: "6".repeat(64),
+      settlement_asset: "USDT",
+      shared_initial_cash: 100,
+      lanes: [
+        { lane_id: "lane-b", priority_rank: 1, trial_reservation: reservationB },
+        { lane_id: "lane-a", priority_rank: 2, trial_reservation: reservationA },
+      ],
+    })
+    assert.equal(funding.reservation_hash.length, 64)
+    assert.equal(funding.funding_policy_version, "exact-event-time-t-minus-position-v1")
+    assert.deepEqual(funding.lanes.map((lane) => lane.lane_id), ["lane-b", "lane-a"])
+    const risk = issueReplayRuntimeSharedWalletRiskReservation(db, {
+      reservation_id: "runtime-shared-wallet-risk-1",
+      reservation_ref: "reservation://runtime-shared-wallet-risk/1",
+      issued_at: "2026-07-14T03:21:00Z",
+      expires_at: "2026-07-14T04:00:00Z",
+      portfolio_id: "portfolio-risk-1",
+      portfolio_plan_hash: "5".repeat(64),
+      settlement_asset: "USDT",
+      shared_initial_cash: 100,
+      lanes: [
+        { lane_id: "lane-b", priority_rank: 1, trial_reservation: reservationB },
+        { lane_id: "lane-a", priority_rank: 2, trial_reservation: reservationA },
+      ],
+    })
+    assert.equal(risk.reservation_hash.length, 64)
+    assert.equal(risk.risk_policy_version, "complete-exact-mark-isolated-maintenance-full-liquidation-v1")
+    assert.deepEqual(risk.lanes.map((lane) => lane.lane_id), ["lane-b", "lane-a"])
+    const allocation = issueReplayPortfolioAllocationReservation(db, {
+      reservation_id: "portfolio-allocation-1",
+      reservation_ref: "reservation://portfolio-allocation/1",
+      issued_at: "2026-07-14T03:21:00Z",
+      expires_at: "2026-07-14T04:00:00Z",
+      portfolio_id: "portfolio-allocation-1",
+      portfolio_plan_hash: "4".repeat(64),
+      settlement_asset: "USDT",
+      shared_initial_cash: 100,
+      max_gross_exposure_amount: 200,
+      max_abs_net_exposure_amount: 100,
+      max_portfolio_risk_amount: 25,
+      lanes: [
+        { lane_id: "lane-b", priority_rank: 1, max_lane_risk_amount: 15, trial_reservation: reservationB },
+        { lane_id: "lane-a", priority_rank: 2, max_lane_risk_amount: 15, trial_reservation: reservationA },
+      ],
+    })
+    assert.equal(allocation.reservation_hash.length, 64)
+    assert.equal(allocation.max_gross_exposure_amount, 200)
+    assert.deepEqual(allocation.lanes.map((lane) => [lane.lane_id, lane.max_lane_risk_amount]), [
+      ["lane-b", 15], ["lane-a", 15],
+    ])
+    const reallocation = issueReplayPortfolioReallocationReservation(db, {
+      reservation_id: "portfolio-reallocation-1",
+      reservation_ref: "reservation://portfolio-reallocation/1",
+      issued_at: "2026-07-14T03:21:30Z",
+      expires_at: "2026-07-14T04:00:00Z",
+      portfolio_id: "portfolio-allocation-1",
+      portfolio_plan_hash: "3".repeat(64),
+      settlement_asset: "USDT",
+      portfolio_initial_cash: 100,
+      predecessor_integrated_result_hash: "2".repeat(64),
+      predecessor_artifact_manifest_hash: "1".repeat(64),
+      earliest_reallocation_time: "2026-07-14T03:22:00Z",
+      max_gross_exposure_amount: 200,
+      max_abs_net_exposure_amount: 100,
+      max_portfolio_risk_amount: 25,
+      lanes: [
+        { lane_id: "lane-b", priority_rank: 1, max_lane_risk_amount: 15, trial_reservation: reservationB },
+        { lane_id: "lane-a", priority_rank: 2, max_lane_risk_amount: 15, trial_reservation: reservationA },
+      ],
+    })
+    assert.equal(reallocation.reallocation_cycle, 2)
+    assert.equal(reallocation.predecessor_integrated_result_hash, "2".repeat(64))
+    assert.deepEqual(reallocation.lanes.map((lane) => [lane.lane_id, lane.max_lane_risk_amount]), [
+      ["lane-b", 15], ["lane-a", 15],
+    ])
+    const sequence = issueReplayPortfolioCycleSequenceReservation(db, {
+      reservation_id: "portfolio-cycle-sequence-1",
+      reservation_ref: "reservation://portfolio-cycle-sequence/1",
+      issued_at: "2026-07-14T03:21:30Z",
+      expires_at: "2026-07-14T04:00:00Z",
+      portfolio_id: "portfolio-allocation-1",
+      settlement_asset: "USDT",
+      initial_cash: 100,
+      cycles: [{
+        allocation_plan_hash: "7".repeat(64),
+        risk_plan_hash: "6".repeat(64),
+        earliest_cycle_time: "2026-07-14T03:22:00Z",
+        max_gross_exposure_amount: 200,
+        max_abs_net_exposure_amount: 100,
+        max_portfolio_risk_amount: 25,
+        lanes: [
+          { lane_id: "lane-b", priority_rank: 1, max_lane_risk_amount: 15, trial_reservation: reservationB },
+          { lane_id: "lane-a", priority_rank: 2, max_lane_risk_amount: 15, trial_reservation: reservationA },
+        ],
+      }],
+    })
+    assert.equal(sequence.cycle_count, 1)
+    assert.equal(sequence.max_cycle_count, 8)
+    assert.deepEqual(sequence.cycles[0]?.lanes.map((lane) => lane.lane_id), ["lane-b", "lane-a"])
+    finishTrial(db, { trial_id: "trial-shared-b", status: "completed", completed_at: "2026-07-14T03:22:00Z" })
+    assert.throws(() => issueReplaySharedInitialCapitalReservation(db, input), /current reserved Trial/)
+    assert.throws(() => issueReplayRuntimeSharedWalletReservation(db, {
+      reservation_id: "runtime-shared-wallet-2",
+      reservation_ref: "reservation://runtime-shared-wallet/2",
+      issued_at: "2026-07-14T03:23:00Z",
+      expires_at: "2026-07-14T04:00:00Z",
+      portfolio_id: "portfolio-1",
+      portfolio_plan_hash: "8".repeat(64),
+      settlement_asset: "USDT",
+      shared_initial_cash: 100,
+      lanes: [
+        { lane_id: "lane-b", priority_rank: 1, trial_reservation: reservationB },
+        { lane_id: "lane-a", priority_rank: 2, trial_reservation: reservationA },
+      ],
+    }), /current reserved Trial/)
+    assert.throws(() => issueReplayRuntimeSharedWalletLifecycleReservation(db, {
+      reservation_id: "runtime-shared-wallet-lifecycle-2",
+      reservation_ref: "reservation://runtime-shared-wallet-lifecycle/2",
+      issued_at: "2026-07-14T03:23:00Z",
+      expires_at: "2026-07-14T04:00:00Z",
+      portfolio_id: "portfolio-lifecycle-1",
+      portfolio_plan_hash: "7".repeat(64),
+      settlement_asset: "USDT",
+      shared_initial_cash: 100,
+      lanes: [
+        { lane_id: "lane-b", priority_rank: 1, trial_reservation: reservationB },
+        { lane_id: "lane-a", priority_rank: 2, trial_reservation: reservationA },
+      ],
+    }), /current reserved Trial/)
+    assert.throws(() => issueReplayRuntimeSharedWalletFundingReservation(db, {
+      reservation_id: "runtime-shared-wallet-funding-2",
+      reservation_ref: "reservation://runtime-shared-wallet-funding/2",
+      issued_at: "2026-07-14T03:23:00Z",
+      expires_at: "2026-07-14T04:00:00Z",
+      portfolio_id: "portfolio-funding-1",
+      portfolio_plan_hash: "6".repeat(64),
+      settlement_asset: "USDT",
+      shared_initial_cash: 100,
+      lanes: [
+        { lane_id: "lane-b", priority_rank: 1, trial_reservation: reservationB },
+        { lane_id: "lane-a", priority_rank: 2, trial_reservation: reservationA },
+      ],
+    }), /current reserved Trial/)
+    assert.throws(() => issueReplayRuntimeSharedWalletRiskReservation(db, {
+      reservation_id: "runtime-shared-wallet-risk-2",
+      reservation_ref: "reservation://runtime-shared-wallet-risk/2",
+      issued_at: "2026-07-14T03:23:00Z",
+      expires_at: "2026-07-14T04:00:00Z",
+      portfolio_id: "portfolio-risk-1",
+      portfolio_plan_hash: "5".repeat(64),
+      settlement_asset: "USDT",
+      shared_initial_cash: 100,
+      lanes: [
+        { lane_id: "lane-b", priority_rank: 1, trial_reservation: reservationB },
+        { lane_id: "lane-a", priority_rank: 2, trial_reservation: reservationA },
+      ],
+    }), /current reserved Trial/)
   } finally {
     db.close()
   }
@@ -2627,10 +2899,19 @@ function seedUniverse(db: Database): void {
   }
 }
 
-function seedExecutableExperiment(db: Database, startDiscovery = true): void {
+function seedExecutableExperiment(db: Database, startDiscovery = true, maxTrials = 1): void {
   seedUniverse(db)
-  appendProposalRevision(db, proposalRevision({ validation_status: "valid" }))
-  registerTrialGroup(db, trialGroup())
+  const registeredGroup = trialGroup()
+  const { group_hash: _defaultGroupHash, ...registeredGroupBody } = registeredGroup
+  const groupBody = { ...registeredGroupBody, max_trials: maxTrials }
+  const group = { ...groupBody, group_hash: trialGroupIdentityHash(groupBody) }
+  const contract = experimentContract(group.group_hash)
+  appendProposalRevision(db, proposalRevision({
+    validation_status: "valid",
+    proposal_json: contract,
+    proposal_hash: hashIdentityPayload(contract),
+  }))
+  registerTrialGroup(db, group)
   registerExperiment(db, {
     experiment_id: "experiment-1",
     proposal_id: "proposal-1",
@@ -2639,13 +2920,13 @@ function seedExecutableExperiment(db: Database, startDiscovery = true): void {
     hypothesis_id: "hypothesis-1",
     code_family_id: "time_series_momentum_v1",
     trial_group_id: "group-1",
-    trial_group_hash: trialGroup().group_hash,
-    contract_hash: hashIdentityPayload(experimentContract()),
+    trial_group_hash: group.group_hash,
+    contract_hash: hashIdentityPayload(contract),
     identity_hash_policy_version: HASH_POLICY,
     contract_validator_version: RESEARCH_CONTRACT_VALIDATOR_VERSION,
     lifecycle_rule_version: RESEARCH_LIFECYCLE_RULE_VERSION,
     scope_policy_version: "scope-v1",
-    contract_json: experimentContract(),
+    contract_json: contract,
     bootstrap_event_id: "event-1",
     bootstrap_idempotency_key: "event-key-1",
     registered_at: NOW,
@@ -2729,7 +3010,7 @@ function trialGroup(): Parameters<typeof registerTrialGroup>[1] {
   return { ...identity, group_hash: trialGroupIdentityHash(identity) }
 }
 
-function experimentContract(): Record<string, unknown> {
+function experimentContract(groupHash = trialGroupHashForContract()): Record<string, unknown> {
   return {
     schema_version: "trade-flow.rd-experiment-contract.v3",
     canonical_node_id: "canonical-1",
@@ -2751,7 +3032,7 @@ function experimentContract(): Record<string, unknown> {
     position_rule: {}, portfolio_construction: {}, risk_rule: {}, execution_rule: {},
     transaction_cost_model: {}, expected_holding_period: {}, benchmark: {}, validation_plan: {},
     rejection_criteria: ["net return does not exceed cost"],
-    trial_group_ref: { trial_group_id: "group-1", group_hash: trialGroupHashForContract() },
+    trial_group_ref: { trial_group_id: "group-1", group_hash: groupHash },
     candidate_registration: { candidate_ids: ["candidate-1"] },
     parent_experiment_id: null, random_seed: 1,
     code_commit_ref: "git://code", harness_commit_ref: "git://harness",
