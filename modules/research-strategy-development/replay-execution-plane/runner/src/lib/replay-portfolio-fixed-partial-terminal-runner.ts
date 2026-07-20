@@ -61,11 +61,13 @@ export function runReplayPortfolioFixedPartialTerminal(
   } catch (error) { return failed(input, "source-terminal-failed", error) }
   let lanes: ReplayPortfolioFixedPartialTerminalLane[]
   let laneResults: NonNullable<ReplayPortfolioFixedPartialTerminalOutcome["lane_results"]>
+  let laneReplayIdempotent = false
   try {
     const materialized = materializeReplayPortfolioFixedPartialTerminalLanes({ lanes: input.lanes,
       priority_lanes: input.risk_reservation.lanes, allocation_result: allocationResult,
       artifact_store: input.artifact_store, execute_lane_replay: input.execute_lane_replay })
     lanes = materialized.lanes; laneResults = materialized.lane_results
+    laneReplayIdempotent = materialized.idempotent_replay
   } catch (error) { return failed(input, "lane-replay-failed", error) }
   let evidence
   try {
@@ -84,7 +86,8 @@ export function runReplayPortfolioFixedPartialTerminal(
       schema_version: REPLAY_PORTFOLIO_FIXED_PARTIAL_TERMINAL_OUTCOME_SCHEMA_VERSION,
       portfolio_id: input.integrated_plan.portfolio_id, status: "completed", evidence,
       artifact_manifest: published.manifest, lane_results: laneResults,
-      idempotent_replay: source.idempotent_replay && published.idempotent_replay, failure: null,
+      idempotent_replay: source.idempotent_replay && laneReplayIdempotent
+        && published.idempotent_replay, failure: null,
     }
     const outcome = { ...body, outcome_hash: replayPortfolioFixedPartialTerminalOutcomeHash(body) }
     assertReplayPortfolioFixedPartialTerminalOutcome(outcome); return outcome
@@ -102,6 +105,7 @@ export function materializeReplayPortfolioFixedPartialTerminalLanes(input: {
   const decisionByLane = new Map<string, (typeof decisions)[number]>(decisions.map((item) => [item.lane_id, item]))
   const priorityByLane = new Map(input.priority_lanes.map((item) => [item.lane_id, item.priority_rank]))
   const laneResults: NonNullable<ReplayPortfolioFixedPartialTerminalOutcome["lane_results"]> = []
+  const laneIdempotency = new Map<string, boolean>()
   const lanes = input.lanes.map(({ lane_id: laneId, trial }) => {
     const decision = decisionByLane.get(laneId); const priority = priorityByLane.get(laneId)
     if (!decision || !priority) throw new Error(`Fixed-partial Lane ${laneId} source missing`)
@@ -122,6 +126,7 @@ export function materializeReplayPortfolioFixedPartialTerminalLanes(input: {
       }
       replay = { result: outcome.result, artifact_manifest: outcome.artifact_manifest }
       laneResults.push({ lane_id: laneId, ...replay })
+      laneIdempotency.set(laneId, outcome.idempotent_replay)
     }
     const accounting = trial.dataset_manifest.instrument.accounting
     return { lane_id: laneId, priority_rank: priority, request_hash: canonicalHash(trial.request),
@@ -130,7 +135,8 @@ export function materializeReplayPortfolioFixedPartialTerminalLanes(input: {
       partial_intent: partialIntent ? structuredClone(partialIntent) : null,
       partial_intent_hash: partialIntent ? canonicalHash(partialIntent) : null, replay }
   }).sort((a, b) => a.lane_id.localeCompare(b.lane_id))
-  laneResults.sort((a, b) => a.lane_id.localeCompare(b.lane_id)); return { lanes, lane_results: laneResults }
+  laneResults.sort((a, b) => a.lane_id.localeCompare(b.lane_id)); return { lanes, lane_results: laneResults,
+    idempotent_replay: [...laneIdempotency.values()].every(Boolean) }
 }
 
 export function publishReplayPortfolioFixedPartialTerminalArtifact(input: {

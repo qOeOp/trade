@@ -65,6 +65,7 @@ export function runReplayPortfolioFixedPartialCycleSequence(
         lane_results: laneResults, evidence: terminalEvidence, authority_frozen_at: input.reservation.issued_at,
         artifact_store: input.artifact_store })
       terminalManifest = published.manifest; childIdempotent = childIdempotent && source.childIdempotent
+        && materialized.idempotent_replay
         && published.idempotent_replay
     } catch (error) { return failed("partial-cycle-terminal-failed", cycle.cycle_index, error) }
     if (terminalEvidence.lane_records.some((record) => record.ending_open)

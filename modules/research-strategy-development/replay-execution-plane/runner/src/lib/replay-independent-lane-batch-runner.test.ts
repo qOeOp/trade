@@ -840,7 +840,7 @@ function fixedPartialLaneReplayStub(input: ReplayTrialRunInput): ReplayTrialRunO
   const artifact = { run_id: request.run_id, result_hash: resultHash } as ReplayArtifactManifest
   return { schema_version: "trade.rd-replay-run-outcome.v35", run_id: request.run_id,
     attempt_id: input.attempt_lease.attempt_id, lease_generation: input.attempt_lease.lease_generation,
-    status: "completed", idempotent_replay: false, result, artifact_manifest: artifact } as ReplayTrialRunOutcome
+    status: "completed", idempotent_replay: true, result, artifact_manifest: artifact } as ReplayTrialRunOutcome
 }
 
 function fixedPartialLiquidationReplayStub(input: ReplayTrialRunInput): ReplayTrialRunOutcome {
