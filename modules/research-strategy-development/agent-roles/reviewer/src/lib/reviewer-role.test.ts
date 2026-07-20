@@ -1,13 +1,13 @@
 import { expect, test } from "bun:test"
 import { CONTROL_PLANE_IDENTITY_SCHEMA_VERSION } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
-import { REPLAY_DECISION_BOUNDARY_SCHEMA_VERSION, REPLAY_DECISION_EVIDENCE_TIMELINE_SCHEMA_VERSION, REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION, REPLAY_DECISION_MARKET_INPUT_SNAPSHOT_SCHEMA_VERSION, REPLAY_EQUITY_POLICY_VERSION, REPLAY_JOURNAL_POLICY_VERSION, REPLAY_MARGIN_POLICY_VERSION, REPLAY_NUMERIC_POLICY_VERSION, REPLAY_RESULT_SCHEMA_VERSION, canonicalHash, type ReplayResult } from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
+import { REPLAY_DECISION_BOUNDARY_SCHEMA_VERSION, REPLAY_DECISION_EVIDENCE_TIMELINE_SCHEMA_VERSION, REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION, REPLAY_DECISION_MARKET_INPUT_SNAPSHOT_SCHEMA_VERSION, REPLAY_EQUITY_POLICY_VERSION, REPLAY_JOURNAL_POLICY_VERSION, REPLAY_MARGIN_POLICY_VERSION, REPLAY_NUMERIC_POLICY_VERSION, REPLAY_RESULT_SCHEMA_VERSION, canonicalHash, createReplayOrderStateSnapshot, type ReplayResult } from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
 import { buildDraftAuthorization } from "./reviewer-role"
 
 const HASH = "1".repeat(64)
 const identity = { schema_version: CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, experiment_id: "experiment-1", trial_group_id: "group-1", trial_group_hash: HASH, trial_id: "trial-1", candidate_id: "candidate-1", candidate_hash: HASH, identity_hash_policy_version: "identity-v1", experiment_contract_hash: HASH }
-type LegacyReplayResultFixture = Omit<ReplayResult, "pending_order_resolutions" | "metrics" | "fingerprint"> & {
+type LegacyReplayResultFixture = Omit<ReplayResult, "pending_order_resolutions" | "order_state_snapshot" | "metrics" | "fingerprint"> & {
   metrics: Omit<ReplayResult["metrics"], "pending_order_resolution_limited_count">
-  fingerprint: Omit<ReplayResult["fingerprint"], "liquidity_capacity_attestation_hash" | "pending_order_resolutions_hash">
+  fingerprint: Omit<ReplayResult["fingerprint"], "liquidity_capacity_attestation_hash" | "pending_order_resolutions_hash" | "order_state_snapshot_hash">
 }
 const legacyResult: LegacyReplayResultFixture = {
   schema_version: REPLAY_RESULT_SCHEMA_VERSION, run_id: "run-1", status: "completed", entry_outcome: "filled", started_at: "2026-07-14T04:00:00Z", completed_at: "2026-07-14T08:00:00Z", source_events: [], order_events: [], fills: [], positions: [], ledger: [], ohlcv_resolution_evidence: [], journal: [],
@@ -23,11 +23,13 @@ const legacyResult: LegacyReplayResultFixture = {
 const result: ReplayResult = {
   ...legacyResult,
   pending_order_resolutions: [],
+  order_state_snapshot: createReplayOrderStateSnapshot({ run_id: "run-1", orders: [], order_events: [] }),
   metrics: { ...legacyResult.metrics, pending_order_resolution_limited_count: 0 },
   fingerprint: {
     ...legacyResult.fingerprint,
     liquidity_capacity_attestation_hash: null,
     pending_order_resolutions_hash: canonicalHash([]),
+    order_state_snapshot_hash: createReplayOrderStateSnapshot({ run_id: "run-1", orders: [], order_events: [] }).snapshot_hash,
   },
 }
 

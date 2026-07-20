@@ -131,7 +131,7 @@ function testClaim(): Record<string, unknown> {
         assumptions_hash: "a".repeat(64),
         cost_policy_hash: "a".repeat(64),
         margin_policy_hash: "a".repeat(64),
-        simulator_policy_version: "rd-replay-simulator-v16",
+        simulator_policy_version: "rd-replay-simulator-v22",
         execution_mode: "step",
       },
       instrument_status_provider_certification: certification,
