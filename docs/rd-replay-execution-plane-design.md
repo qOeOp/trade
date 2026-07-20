@@ -1,7 +1,7 @@
 ---
 title: RD Replay Execution Plane Design
 updated_at: 2026-07-20 CST
-status: m4-p25-complete-m4-p26-selected-m3-maturity
+status: m4-p26-complete-m3-maturity
 ---
 
 # RD Replay Execution Plane Design
@@ -10,7 +10,7 @@ status: m4-p25-complete-m4-p26-selected-m3-maturity
 
 Replay Execution Plane 是 **冻结实验的确定性执行与历史证据生产面**，不是研究决策面，也不是实盘执行面。它只做一件事：把 Research Control Plane 已冻结的 Trial，连同不可变 Experiment Contract、Candidate Identity、Dataset Manifest 与模拟政策，执行成可复读的事件链、统一账本和 Result Artifact。
 
-当前成熟度判断：**M3 / 5，单资产 Step 已认证；M4-P1–P25 已贯通 Control Plane 预声明、硬上限八个周期的 protective lifecycle、exact-Mark 重估、stop/target replacement、三类 cancel 的 terminal owner、风险状态与 consolidated accounting；M4-P26 已选择但尚未实现，仍不足以升级成熟度**。P26 只把单资产已冻结的一次 next-open fixed-quantity partial reduce 传播到 Portfolio quantity/risk/accounting/cycle，不开放动态 sizing 或真实 liquidity partial。默认 Portfolio 入口继续拒绝；重复 mutation、周期内 reentry、cross-margin、borrow、generic matching、真实 liquidity 或 Step/Fast parity 仍未进入，故整体保持 M3。
+当前成熟度判断：**M3 / 5，单资产 Step 已认证；M4-P1–P26 已贯通 Control Plane 预声明、硬上限八个周期的 protective lifecycle、exact-Mark 重估、stop/target replacement、三类 cancel 与一次 fixed partial 的 terminal owner、风险状态和 consolidated accounting，仍不足以升级成熟度**。P26 只把单资产已冻结的一次 next-open fixed-quantity full-fill partial 传播到 Portfolio quantity/risk/accounting/cycle，不开放动态 sizing 或真实 liquidity partial。默认 Portfolio 入口继续拒绝；重复 mutation、周期内 reentry、cross-margin、borrow、generic matching、真实 liquidity 或 Step/Fast parity 仍未进入，故整体保持 M3。
 
 ### 1.1 M3 收敛门禁
 
@@ -80,7 +80,7 @@ Replay Execution Plane 是 **冻结实验的确定性执行与历史证据生产
 
 **M4-P25 已完成，成熟度继续保持 M3**：范围只包含 Schedule 已冻结的唯一 final full-position protective-stop cancel，严格复用 `cancel_active_stop_preserve_target`，不新增自由 cancel authority。decision boundary 的 generation-1 stop/range 先决；未终态才取消 stop，后续 former stop 永久不可达，generation-1 target 保持 active 并继续与 exact liquidation、open-at-end 竞争。历史 admission risk 永久绑定；cancel 无 Fill、cash/accounting posting 或预算释放，open Position 显式为 `unbounded_by_active_stop` 且 active-stop bounded risk=`null`，继续消费 Funding、exact Mark 与 maintenance/liquidation；只有 committed full-flat target/liquidation 才释放 collateral、exposure/risk 并允许 bounded successor。terminal、risk-degradation state、owner-keyed accounting、manifest-last Artifact 与 1–8 cycle 已在同一 change set 闭合；四周期 cash=`100→111→122→102→113`，默认 Portfolio projection 继续拒绝，P15–P24 不改写。
 
-**M4-P26 已选择、尚未实现，成熟度继续保持 M3**：范围只包含一个冻结的 `next-open-fixed-quantity-partial-reduce`，该 reduce Order 自身必须 full Fill 且保留非零 Position；partial executable boundary 上 generation-1 stop/target 与 exact risk 先决，成功 Fill 才实现 partial realized PnL/fee，并在同一 source boundary 取消两条旧保护、以原 trigger 和 remaining absolute quantity 激活 generation 2。之后 Funding 的 t-minus Position、exact Mark、isolated maintenance/liquidation、gross/net exposure、current protected risk、open-at-end NAV 与 terminal owner 必须全部使用剩余数量；原 admission identity/risk 只作历史事实，不得被 current risk 冒充。当前没有 venue collateral-release authority，因此 isolated collateral 在 partial 后保持 reserved，直到 committed full-flat；current risk utilization 的下降也不形成新 Allocation、entry、reentry 或 successor authority。纵切必须一次闭合 terminal、quantity/risk state、owner-keyed accounting、manifest-last Artifact 与 1–8 full-flat cycle；默认 Portfolio projection 继续拒绝，P15–P25 不改写。动态 sizing、第二次 partial、partial 后 amend/cancel、订单 partial fill/真实 liquidity、加仓/reentry、cross-margin/borrow 与 Fast 均不进入。
+**M4-P26 已完成，成熟度继续保持 M3**：范围只包含一个冻结的 `next-open-fixed-quantity-partial-reduce`，该 reduce Order 自身必须 full Fill 且保留非零 Position；partial executable boundary 上 generation-1 stop/target 与 exact risk 先决，成功 Fill 才实现 partial realized PnL/fee，并在同一 source boundary 取消两条旧保护、以原 trigger 和 remaining absolute quantity 激活 generation 2。Portfolio successor 消费认证 Lane Result/Artifact，使后续 Funding t-minus Position、exact Mark、isolated maintenance/liquidation、gross/net exposure、current protected risk、open-at-end NAV 与 owner 使用剩余数量；admission risk 保留为历史事实。isolated collateral 在 partial 后保持 reserved，直到 committed full-flat；utilization 下降不形成新 Allocation、entry、reentry 或 successor authority。terminal、quantity/risk、owner-keyed accounting、manifest-last Artifact 与 1–8 full-flat cycle 已闭合；默认 projection 继续拒绝，P15–P25 不改写。动态 sizing、第二次 partial、partial 后 amend/cancel、订单 partial fill/真实 liquidity、加仓/reentry、cross-margin/borrow 与 Fast 均未进入。
 
 R4.151 继续是旧 evidence-chain 冻结点，不再以 `R4.152`、`R4.153` 为零实例对象追加阶段。M3-G1–G8 与 M4-P1–P25 均以 bounded milestone 同时交付消费者、证据与 cutover；M4-P26 只有所有门禁在一个 change set 闭合后才算完成。P22–P25 未原地改写 predecessor；P26 也不得用 quantity/risk schema 零实例冒充进度，或顺带开放动态 partial、reentry、cross-margin、真实 liquidity、Fast 与通用撮合。
 
@@ -1076,7 +1076,7 @@ Property tests 的核心 invariants：订单 qty、position qty、cash/NAV bridg
 - 定点 decimal、double-entry ledger、逐 fill fee、exact funding、borrow 接口。
 - isolated/cross margin、maintenance tiers、liquidation 与 penalty fixtures。
 
-**当前状态：M4-P25 complete、M4-P26 selected/in progress，整体成熟度仍为 M3。** Control Plane 预声明、bounded Allocation cycle、exact-risk lifecycle、统一 Artifact、exact-Mark revaluation、simple bracket、一个 stop/target replacement 及三类 cancel 的 terminal/accounting/cycle successor 已闭合。P26 选择一次 fixed partial 的 quantity/risk resize，但所有完成门禁仍为 false：不得在 partial 后继续沿用 full entry quantity 计算 Funding/Margin/exposure/risk，不得凭空释放 isolated collateral，不得把 risk-utilization 下降当作新 Allocation，也不得在未 full-flat 时滚入下一周期。动态/重复 partial、周期内 reentry、partial liquidation、cross-margin、borrow、真实 liquidity partial 与 Step/Fast parity 仍未闭合，不能升级为完整 M4。
+**当前状态：M4-P26 complete，整体成熟度仍为 M3。** Control Plane 预声明、bounded Allocation cycle、exact-risk lifecycle、统一 Artifact、exact-Mark revaluation、simple bracket、一个 stop/target replacement、三类 cancel 及一次 fixed partial 的 terminal/accounting/cycle successor 已闭合。P26 以认证 Lane Replay Result 承接同 bar/phase、generation-2、Funding/Mark/Margin/liquidation 语义，再归并共享钱包、原 collateral、剩余 quantity、gross/net exposure、历史 admission/current stop risk 与唯一 owner；只有 full-flat 才释放 collateral/risk 并允许预声明 successor cycle。动态/重复 partial、周期内 reentry、partial 后 mutation、cross-margin、borrow、真实 liquidity partial 与 Step/Fast parity 仍未闭合，不能升级为完整 M4；下一纵切待 blocker audit。
 
 ### R5：Portfolio
 
