@@ -6,7 +6,7 @@ title: R&D Reliability Roadmap
 
 目标：先让系统稳定暴露问题，再让 R&D 搜索策略。
 
-Replay 已完成 M4-P26：一次预声明 next-open fixed-quantity partial 已贯通认证 Lane Result、Portfolio quantity/risk/exposure、owner-keyed accounting 与 1–8 full-flat cycle；默认 projection 仍拒绝 partial，原 isolated collateral 保留到 full-flat。动态 sizing、重复 partial、reentry、cross-margin、真实 liquidity 与 Fast 均未进入，整体仍为 M3；下一纵切待 blocker audit。
+Replay 已完成 M4-P26，并经 blocker audit 选择 M4-P27：在不引入真实 liquidity 假设的前提下，把一次 fixed partial 收敛为最多两次、全部预声明且各自 full-fill 的 fixed partial，贯通单资产 generation-2/3 protection、Portfolio quantity/risk/accounting 与 bounded cycle。P27 尚未实现；动态 sizing、第三次 partial、partial 后 amend/cancel、reentry、cross-margin、borrow、真实 liquidity 与 Fast 均继续禁止，整体仍为 M3。
 
 ## 1. 数据层
 
@@ -76,7 +76,8 @@ Replay 已完成 M4-P26：一次预声明 next-open fixed-quantity partial 已�
 
 - 目标：replay、forward shadow、live signal 看到同一份策略事实；性能优化、批量 replay 或 paper tracker 不改变交易路径。
 - Jesse 调研吸收：借鉴其 step / fast simulator parity、K 线内触价、多订单排序、partial exit、reduce-only 数量上限等内核纪律；只重写等价行为，不引入 Jesse 运行依赖。
-- 当前：Replay 已到 M3；M3-G1–G8 与 M4-P1–P26 已冻结。P26 用认证单资产 Replay Result 作为 Lane execution authority，显式 successor 完成 generation-2、quantity-aware Funding/Mark/Margin/liquidation、cash/collateral、gross/net exposure、历史 admission/current stop-risk 分离、owner-keyed accounting 与 bounded cycle；默认 predecessor 仍 fail closed。
+- 当前：Replay 已到 M3；M3-G1–G8 与 M4-P1–P26 已冻结。P26 用认证单资产 Replay Result 作为 Lane execution authority，显式 successor 完成 generation-2、quantity-aware Funding/Mark/Margin/liquidation、cash/collateral、gross/net exposure、历史 admission/current stop-risk 分离、owner-keyed accounting 与 bounded cycle；默认 predecessor 仍 fail closed。P27 已选定但未实现。
 - 缺口：仍无动态/重复 partial、partial 后 order mutation、周期内 reentry、cross-margin、borrow、generic matching、真实 liquidity partial 或独立 Fast parity；不得从 P26 的 fixed full-fill 模型外推。
-- 下一块：未选择。先比较剩余 blocker 的 authority、输入数据与可认证 backend，不以新增 schema/phase 数量作为进度。
+- 下一块：M4-P27 `two-predeclared-fixed-partial-reduces-end-to-end`。同一 frozen Schedule 最多两次严格递增的 next-open fixed-quantity reduce-only partial；每个 Order 自身只能 full-fill，第一、第二次 Fill 后都必须保留正仓位，累计数量必须严格小于 initial quantity。每次 executable boundary 均先让当前 generation protection 与 exact risk 取得终态机会；成功后按剩余绝对数量原子重建下一 generation。实现必须一次闭合单资产 Result/Checkpoint、Portfolio quantity/Funding/Mark/Margin/liquidation、current risk/exposure、owner-keyed accounting、manifest-last Artifact 与 1–8 full-flat cycle；不得拆成零实例 schema 阶段。
+- P27 不做：动态数量、第三次 partial、订单级 partial fill、partial 后 stop/target amend/cancel、加仓/reentry、抵押释放再授权、cross-margin、borrow、真实 L2/queue、Fast。
 - 已锁完成信号：long/short、decision-boundary bracket race、partial 前后 Funding、post-partial owner、open-at-end cash/保留抵押/exposure/risk、双分录、四周期 cash bridge、唯一 opening equity、retry/failure/interruption/tamper 与 P15–P25 回归均通过。
