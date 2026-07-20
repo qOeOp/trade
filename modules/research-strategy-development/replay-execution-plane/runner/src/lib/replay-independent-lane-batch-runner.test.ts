@@ -746,6 +746,94 @@ function withRuntimeFixedPartial(
   return lane
 }
 
+function fixedPartialLaneReplayStub(input: ReplayTrialRunInput): ReplayTrialRunOutcome {
+  const request = input.request; const side = request.order.side
+  const partialEntry = request.decision_schedule.entries.find((entry) =>
+    entry.expected_effect === "authorized_partial_reduce")!
+  const partial = partialEntry.authorized_partial_reduce!
+  const exit = request.decision_schedule.entries.find((entry) =>
+    entry.expected_effect === "authorized_reduce_only_exit")?.authorized_reduce_only_exit ?? null
+  const key = (time: string, phase: 10 | 20 | 90, id: string, subphase = 0) => ({
+    event_time: time, boundary_phase: phase, source_sequence: 1, event_subphase: subphase, stable_event_id: id,
+  })
+  const entryBar = input.bars.find((bar) => bar.open_time === request.order.earliest_executable_time)!
+  const entryFill = { fill_id: `${request.run_id}:fill:entry`, order_id: `${request.run_id}:order:entry`,
+    order_role: "entry" as const, event_key: key(entryBar.open_time, 20, "entry"), timestamp: entryBar.open_time,
+    side: side === "long" ? "buy" as const : "sell" as const, quantity: 1, price: entryBar.open,
+    fee: 0, reduce_only: false }
+  const race = side === "long" ? entryBar.low <= request.order.stop_price : entryBar.high >= request.order.stop_price
+  const partialBar = input.bars.find((bar) => bar.open_time === partial.earliest_executable_time)!
+  const partialFill = { fill_id: `${request.run_id}:fill:partial`, order_id: `${request.run_id}:order:partial`,
+    order_role: "strategy_partial_reduce" as const, event_key: key(partialBar.open_time, 20, "partial"),
+    timestamp: partialBar.open_time, side: partial.side, quantity: 0.4, price: partialBar.open,
+    fee: 0, reduce_only: true }
+  const terminalTime = race ? entryBar.close_time : exit?.earliest_executable_time ?? null
+  const terminalBar = terminalTime ? input.bars.find((bar) => bar.open_time === terminalTime) : null
+  const terminalPrice = race ? request.order.stop_price : terminalBar?.open ?? null
+  const terminalFill = terminalTime ? { fill_id: `${request.run_id}:fill:terminal`,
+    order_id: `${request.run_id}:order:${race ? "stop" : "strategy-exit"}`,
+    order_role: race ? "stop" as const : "strategy_exit" as const,
+    event_key: key(terminalTime, 20, "terminal"), timestamp: terminalTime,
+    side: side === "long" ? "sell" as const : "buy" as const,
+    quantity: race ? 1 : 0.6, price: terminalPrice!, fee: 0, reduce_only: true } : null
+  const pnl = (price: number, quantity: number) => Number(((side === "long"
+    ? price - entryBar.open : entryBar.open - price) * quantity).toFixed(8))
+  const positions: ReplayResult["positions"] = [{ position_event_id: "position:entry", position_id: "position:1", sequence: 1,
+    event_key: entryFill.event_key, timestamp: entryFill.timestamp, cause_fill_id: entryFill.fill_id,
+    symbol: request.symbol, accounting_method: "average_cost" as const, numeric_policy_version: "rd-replay-number-v3" as const,
+    state: "open" as const, side, signed_quantity: side === "long" ? 1 : -1,
+    average_entry_price: entryBar.open, valuation_price: entryBar.open, valuation_source: "fill_price" as const,
+    realized_pnl_delta: 0, realized_pnl_cumulative: 0, unrealized_pnl: 0 }]
+  if (!race) positions.push({ ...positions[0]!, position_event_id: "position:partial", sequence: 2,
+    event_key: partialFill.event_key, timestamp: partialFill.timestamp, cause_fill_id: partialFill.fill_id,
+    signed_quantity: side === "long" ? 0.6 : -0.6, realized_pnl_delta: pnl(partialFill.price, 0.4),
+    realized_pnl_cumulative: pnl(partialFill.price, 0.4) })
+  if (terminalFill) positions.push({ ...positions[0]!, position_event_id: "position:terminal",
+    sequence: positions.length + 1, event_key: terminalFill.event_key, timestamp: terminalFill.timestamp,
+    cause_fill_id: terminalFill.fill_id, state: "flat", side: null, signed_quantity: 0,
+    average_entry_price: null, valuation_price: terminalFill.price,
+    realized_pnl_delta: pnl(terminalFill.price, terminalFill.quantity),
+    realized_pnl_cumulative: race ? pnl(terminalFill.price, 1)
+      : pnl(partialFill.price, 0.4) + pnl(terminalFill.price, 0.6) })
+  const funding = (input.funding_events ?? []).filter((event) => !race
+      && Date.parse(event.timestamp) > Date.parse(entryBar.open_time)
+      && (!terminalTime || Date.parse(event.timestamp) < Date.parse(terminalTime)))
+    .map((event) => ({ event, amount: Number(((side === "long" ? -1 : 1) * event.mark_price * event.rate
+      * (Date.parse(event.timestamp) < Date.parse(partial.earliest_executable_time) ? 1 : 0.6)).toFixed(8)) }))
+  const realizedFlows = positions.filter((position) => position.realized_pnl_delta !== 0)
+  const ledger = [
+    ...funding.map(({ event, amount }, index) => ({ entry_id: `funding:${index}`, event_key: key(event.timestamp, 10, `funding:${index}`),
+      timestamp: event.timestamp, kind: "funding" as const, amount, balance_after: 0, ref: `funding:${index}` })),
+    ...realizedFlows.map((position, index) => ({ entry_id: `pnl:${index}`, event_key: position.event_key,
+      timestamp: position.timestamp, kind: "realized_pnl" as const, amount: position.realized_pnl_delta,
+      balance_after: 0, ref: position.cause_fill_id })),
+  ].sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp)
+    || a.event_key.boundary_phase - b.event_key.boundary_phase)
+  let balance = request.initial_cash
+  ledger.forEach((entry) => { balance += entry.amount; entry.balance_after = balance })
+  const open = !terminalFill
+  const mark = input.mark_events?.at(-1)?.mark_price ?? input.bars.at(-1)!.close
+  const resultHash = canonicalHash({ run_id: request.run_id, fills: race
+    ? [entryFill, terminalFill] : [entryFill, partialFill, ...(terminalFill ? [terminalFill] : [])], ledger, mark })
+  const resize = race ? [] : ["cancelled", "cancelled", "submitted", "activated", "submitted", "activated"].map(
+    (kind, index) => ({ event_id: `resize:${index}`, order_id: `resize-order:${index < 2 ? index : Math.floor(index / 2)}`,
+      sequence: index + 1, event_key: key(partial.earliest_executable_time, 90, `resize:${index}`, index),
+      timestamp: partial.earliest_executable_time, kind, status: kind === "cancelled" ? "cancelled" : "active",
+      fill_quantity: 0, remaining_quantity: index < 2 ? 1 : 0.6, signed_position_after: side === "long" ? 0.6 : -0.6,
+      reason: null, trigger_source: null, trigger_observed_price: null }))
+  const result = { run_id: request.run_id, status: "completed", fills: race ? [entryFill, terminalFill]
+    : [entryFill, partialFill, ...(terminalFill ? [terminalFill] : [])], positions, ledger, order_events: resize,
+    equity_bridge: { terminal_position_state: open ? "open" : "flat" },
+    valuation_snapshot: { timestamp: input.mark_events?.at(-1)?.timestamp ?? input.bars.at(-1)!.close_time,
+      mark_source: "mark_event", mark_price: mark, signed_quantity: open ? (side === "long" ? 0.6 : -0.6) : 0,
+      unrealized_pnl: open ? pnl(mark, 0.6) : 0 },
+    fingerprint: { request_hash: canonicalHash(request), result_hash: resultHash } } as unknown as ReplayResult
+  const artifact = { run_id: request.run_id, result_hash: resultHash } as ReplayArtifactManifest
+  return { schema_version: "trade.rd-replay-run-outcome.v35", run_id: request.run_id,
+    attempt_id: input.attempt_lease.attempt_id, lease_generation: input.attempt_lease.lease_generation,
+    status: "completed", idempotent_replay: false, result, artifact_manifest: artifact } as ReplayTrialRunOutcome
+}
+
 function withRuntimeProtectiveStopReplacement(
   lane: ReturnType<typeof runtimeLaneInput>,
   input: { decisionTime?: string; newStopPrice?: number; nextOpen?: number; sameBoundaryLow?: number } = {},
@@ -5686,7 +5774,8 @@ test("Portfolio fixed partial consumes certified lane Results and resizes wallet
     lane.trial.attempt_lease.request_hash = canonicalHash(lane.trial.request)
     const root = mkdtempSync(join(tmpdir(), `replay-portfolio-fixed-partial-${item.id}-`))
     try {
-      const input = protectiveStopCancelPortfolioInput([lane], `portfolio-fixed-partial-${item.id}`, root)
+      const input = { ...protectiveStopCancelPortfolioInput(
+        [lane], `portfolio-fixed-partial-${item.id}`, root), execute_lane_replay: fixedPartialLaneReplayStub }
       expect(runReplayIntegratedPortfolio(input)).toMatchObject({
         status: "failed", failure: { code: "integrated-risk-failed", partial_result_published: false },
       })
@@ -5739,7 +5828,8 @@ test("Portfolio fixed partial consumes certified lane Results and resizes wallet
   const openRoot = mkdtempSync(join(tmpdir(), "replay-portfolio-fixed-partial-open-"))
   try {
     const outcome = runReplayPortfolioFixedPartialTerminal(
-      protectiveStopCancelPortfolioInput([openLane], "portfolio-fixed-partial-open", openRoot))
+      { ...protectiveStopCancelPortfolioInput([openLane], "portfolio-fixed-partial-open", openRoot),
+        execute_lane_replay: fixedPartialLaneReplayStub })
     if (!outcome.evidence) throw new Error(outcome.failure?.message ?? "fixed-partial open missing")
     expect(outcome.evidence.lane_records.find((record) => record.lane_id === openLane.lane_id)).toMatchObject({
       partial_status: "filled_open_at_data_end", owner: "open_at_data_end", ending_open: true,
@@ -5757,7 +5847,8 @@ test("Portfolio fixed partial consumes certified lane Results and resizes wallet
   const raceRoot = mkdtempSync(join(tmpdir(), "replay-portfolio-fixed-partial-race-"))
   try {
     const outcome = runReplayPortfolioFixedPartialTerminal(
-      protectiveStopCancelPortfolioInput([raceLane], "portfolio-fixed-partial-race", raceRoot))
+      { ...protectiveStopCancelPortfolioInput([raceLane], "portfolio-fixed-partial-race", raceRoot),
+        execute_lane_replay: fixedPartialLaneReplayStub })
     if (!outcome.evidence) throw new Error(outcome.failure?.message ?? "fixed-partial race missing")
     expect(outcome.evidence.lane_records.find((record) => record.lane_id === raceLane.lane_id)).toMatchObject({
       partial_status: "terminal_before_partial", partial_fill_hash: null,

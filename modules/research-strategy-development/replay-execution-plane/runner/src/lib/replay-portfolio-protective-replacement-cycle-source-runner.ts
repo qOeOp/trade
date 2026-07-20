@@ -173,6 +173,7 @@ export function runReplayPortfolioProtectiveReplacementCycleSource(
     throw new ReplayPortfolioProtectiveReplacementCycleSourceError("replacement-cycle-terminal-failed", error)
   }
   return {
+    allocationResult,
     riskResult,
     sourceTerminalEvidence,
     sourceTerminalManifest,

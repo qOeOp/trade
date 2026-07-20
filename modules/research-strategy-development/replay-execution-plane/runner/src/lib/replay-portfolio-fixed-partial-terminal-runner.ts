@@ -62,41 +62,10 @@ export function runReplayPortfolioFixedPartialTerminal(
   let lanes: ReplayPortfolioFixedPartialTerminalLane[]
   let laneResults: NonNullable<ReplayPortfolioFixedPartialTerminalOutcome["lane_results"]>
   try {
-    const decisions = allocationResult.allocation_cycles.flatMap((cycle) => cycle.decisions)
-    const decisionByLane = new Map<string, (typeof decisions)[number]>(
-      decisions.map((item) => [item.lane_id, item]),
-    )
-    const priorityByLane = new Map(input.risk_reservation.lanes.map((item) => [item.lane_id, item.priority_rank]))
-    laneResults = []
-    lanes = input.lanes.map(({ lane_id: laneId, trial }) => {
-      const decision = decisionByLane.get(laneId); const priority = priorityByLane.get(laneId)
-      if (!decision || !priority) throw new Error(`Fixed-partial Lane ${laneId} source missing`)
-      const entries = trial.request.decision_schedule.entries
-      const partials = entries.filter((entry) => entry.expected_effect === "authorized_partial_reduce")
-      if (partials.length > 1 || entries.some((entry) => ![
-        "authorized_initial_order", "authorized_partial_reduce", "authorized_reduce_only_exit", "no_action",
-      ].includes(entry.expected_effect))) throw new Error(`Fixed-partial Lane ${laneId} exceeds bounded schedule`)
-      const partialIntent = partials[0]?.authorized_partial_reduce ?? null
-      if (partials[0] && (!partialIntent || partials[0].authorized_order_hash !== canonicalHash(partialIntent))) {
-        throw new Error(`Fixed-partial Lane ${laneId} intent authority drift`)
-      }
-      let replay: ReplayPortfolioFixedPartialTerminalLane["replay"] = null
-      if (decision.allocation === "admitted") {
-        const outcome = (input.execute_lane_replay ?? runReplayTrial)({ ...trial, artifact_store: input.artifact_store })
-        if (outcome.status !== "completed" || !outcome.result || !outcome.artifact_manifest) {
-          throw new Error(outcome.failure?.message ?? `Fixed-partial Lane ${laneId} Replay failed`)
-        }
-        replay = { result: outcome.result, artifact_manifest: outcome.artifact_manifest }
-        laneResults.push({ lane_id: laneId, ...replay })
-      }
-      const accounting = trial.dataset_manifest.instrument.accounting
-      return { lane_id: laneId, priority_rank: priority, request_hash: canonicalHash(trial.request),
-        fee_bps: trial.request.cost_policy.fee_bps, slippage_bps: trial.request.cost_policy.slippage_bps,
-        price_increment: accounting.price_increment, settlement_increment: accounting.settlement_increment,
-        partial_intent: partialIntent ? structuredClone(partialIntent) : null,
-        partial_intent_hash: partialIntent ? canonicalHash(partialIntent) : null, replay }
-    }).sort((a, b) => a.lane_id.localeCompare(b.lane_id))
-    laneResults.sort((a, b) => a.lane_id.localeCompare(b.lane_id))
+    const materialized = materializeReplayPortfolioFixedPartialTerminalLanes({ lanes: input.lanes,
+      priority_lanes: input.risk_reservation.lanes, allocation_result: allocationResult,
+      artifact_store: input.artifact_store, execute_lane_replay: input.execute_lane_replay })
+    lanes = materialized.lanes; laneResults = materialized.lane_results
   } catch (error) { return failed(input, "lane-replay-failed", error) }
   let evidence
   try {
@@ -120,6 +89,48 @@ export function runReplayPortfolioFixedPartialTerminal(
     const outcome = { ...body, outcome_hash: replayPortfolioFixedPartialTerminalOutcomeHash(body) }
     assertReplayPortfolioFixedPartialTerminalOutcome(outcome); return outcome
   } catch (error) { return failed(input, "partial-terminal-artifact-failed", error) }
+}
+
+export function materializeReplayPortfolioFixedPartialTerminalLanes(input: {
+  lanes: ReplayPortfolioProtectiveTerminalRunInput["lanes"]
+  priority_lanes: Array<{ lane_id: string; priority_rank: number }>
+  allocation_result: Parameters<typeof executeReplayPortfolioFixedPartialTerminal>[0]["allocation_result"]
+  artifact_store: ReplayPortfolioFixedPartialTerminalRunInput["artifact_store"]
+  execute_lane_replay?: typeof runReplayTrial
+}) {
+  const decisions = input.allocation_result.allocation_cycles.flatMap((cycle) => cycle.decisions)
+  const decisionByLane = new Map<string, (typeof decisions)[number]>(decisions.map((item) => [item.lane_id, item]))
+  const priorityByLane = new Map(input.priority_lanes.map((item) => [item.lane_id, item.priority_rank]))
+  const laneResults: NonNullable<ReplayPortfolioFixedPartialTerminalOutcome["lane_results"]> = []
+  const lanes = input.lanes.map(({ lane_id: laneId, trial }) => {
+    const decision = decisionByLane.get(laneId); const priority = priorityByLane.get(laneId)
+    if (!decision || !priority) throw new Error(`Fixed-partial Lane ${laneId} source missing`)
+    const entries = trial.request.decision_schedule.entries
+    const partials = entries.filter((entry) => entry.expected_effect === "authorized_partial_reduce")
+    if (partials.length > 1 || entries.some((entry) => ![
+      "authorized_initial_order", "authorized_partial_reduce", "authorized_reduce_only_exit", "no_action",
+    ].includes(entry.expected_effect))) throw new Error(`Fixed-partial Lane ${laneId} exceeds bounded schedule`)
+    const partialIntent = partials[0]?.authorized_partial_reduce ?? null
+    if (partials[0] && (!partialIntent || partials[0].authorized_order_hash !== canonicalHash(partialIntent))) {
+      throw new Error(`Fixed-partial Lane ${laneId} intent authority drift`)
+    }
+    let replay: ReplayPortfolioFixedPartialTerminalLane["replay"] = null
+    if (decision.allocation === "admitted") {
+      const outcome = (input.execute_lane_replay ?? runReplayTrial)({ ...trial, artifact_store: input.artifact_store })
+      if (outcome.status !== "completed" || !outcome.result || !outcome.artifact_manifest) {
+        throw new Error(outcome.failure?.message ?? `Fixed-partial Lane ${laneId} Replay failed`)
+      }
+      replay = { result: outcome.result, artifact_manifest: outcome.artifact_manifest }
+      laneResults.push({ lane_id: laneId, ...replay })
+    }
+    const accounting = trial.dataset_manifest.instrument.accounting
+    return { lane_id: laneId, priority_rank: priority, request_hash: canonicalHash(trial.request),
+      fee_bps: trial.request.cost_policy.fee_bps, slippage_bps: trial.request.cost_policy.slippage_bps,
+      price_increment: accounting.price_increment, settlement_increment: accounting.settlement_increment,
+      partial_intent: partialIntent ? structuredClone(partialIntent) : null,
+      partial_intent_hash: partialIntent ? canonicalHash(partialIntent) : null, replay }
+  }).sort((a, b) => a.lane_id.localeCompare(b.lane_id))
+  laneResults.sort((a, b) => a.lane_id.localeCompare(b.lane_id)); return { lanes, lane_results: laneResults }
 }
 
 export function publishReplayPortfolioFixedPartialTerminalArtifact(input: {
