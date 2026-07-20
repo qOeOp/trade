@@ -270,7 +270,8 @@ export function materializeReplayRuntimeSharedWalletRiskLanes(
         || partialIntent.schedule_combination_policy
           !== "one_partial_reduce_then_optional_final_full_exit_no_stop_replace"
         || partialIntent.side !== (request.order.side === "long" ? "sell" : "buy")
-        || partialIntent.earliest_executable_time !== partialReduces[0].decision_time)) {
+        || partialIntent.signal_time !== partialReduces[0].decision_time
+        || Date.parse(partialIntent.earliest_executable_time) <= Date.parse(partialIntent.signal_time))) {
       throw new Error(`runtime shared wallet risk lane ${lane.lane_id} partial-reduce projection drift`)
     }
     const exitIntent = exits[0]?.authorized_reduce_only_exit ?? null
