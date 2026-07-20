@@ -8,6 +8,15 @@ import {
   REPLAY_CHECKPOINT_RECEIPT_SCHEMA_VERSION,
   REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION,
   REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION,
+  REPLAY_SHARED_INITIAL_CAPITAL_RESERVATION_SCHEMA_VERSION,
+  REPLAY_RUNTIME_SHARED_WALLET_RESERVATION_SCHEMA_VERSION,
+  REPLAY_RUNTIME_SHARED_WALLET_LIFECYCLE_RESERVATION_SCHEMA_VERSION,
+  REPLAY_RUNTIME_SHARED_WALLET_FUNDING_RESERVATION_SCHEMA_VERSION,
+  REPLAY_RUNTIME_SHARED_WALLET_RISK_RESERVATION_SCHEMA_VERSION,
+  REPLAY_PORTFOLIO_ALLOCATION_RESERVATION_SCHEMA_VERSION,
+  REPLAY_PORTFOLIO_REALLOCATION_RESERVATION_SCHEMA_VERSION,
+  REPLAY_PORTFOLIO_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION,
+  REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES,
   REPLAY_RESERVATION_CANCELLATION_SCHEMA_VERSION,
   REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION,
   REPLAY_ATTEMPT_CANCELLATION_OBSERVATION_SCHEMA_VERSION,
@@ -23,8 +32,24 @@ import {
   TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION,
   assertDraftStrategyAuthorization,
   assertTrialReservationSnapshot,
+  assertReplaySharedInitialCapitalReservationSnapshot,
+  assertReplayRuntimeSharedWalletReservationSnapshot,
+  assertReplayRuntimeSharedWalletLifecycleReservationSnapshot,
+  assertReplayRuntimeSharedWalletFundingReservationSnapshot,
+  assertReplayRuntimeSharedWalletRiskReservationSnapshot,
+  assertReplayPortfolioAllocationReservationSnapshot,
+  assertReplayPortfolioReallocationReservationSnapshot,
+  assertReplayPortfolioCycleSequenceReservationSnapshot,
   createReplayCheckpointReceiptSnapshot,
   createReplayResumeAuthorizationSnapshot,
+  createReplaySharedInitialCapitalReservationSnapshot,
+  createReplayRuntimeSharedWalletReservationSnapshot,
+  createReplayRuntimeSharedWalletLifecycleReservationSnapshot,
+  createReplayRuntimeSharedWalletFundingReservationSnapshot,
+  createReplayRuntimeSharedWalletRiskReservationSnapshot,
+  createReplayPortfolioAllocationReservationSnapshot,
+  createReplayPortfolioReallocationReservationSnapshot,
+  createReplayPortfolioCycleSequenceReservationSnapshot,
   createReplayInstrumentStatusProviderCertificationSnapshot,
   createReplayInstrumentStatusProviderCertificationTermination,
   createReplayAggregateTradeProviderCertificationSnapshot,
@@ -142,6 +167,369 @@ test("Trial Reservation snapshot is immutable-hashable and capability order is c
   expect(hashTrialReservationSnapshot(structuredClone(value))).toBe(hashTrialReservationSnapshot(value))
   expect(() => assertTrialReservationSnapshot({ ...value, required_capabilities: ["step", "closed-candle"] })).toThrow("unique and sorted")
   expect(() => assertTrialReservationSnapshot({ ...value, expires_at: value.issued_at })).toThrow("issued_at < expires_at")
+})
+
+test("shared initial capital Reservation freezes one fully allocated pool and explicit priority", () => {
+  const value = createReplaySharedInitialCapitalReservationSnapshot({
+    schema_version: REPLAY_SHARED_INITIAL_CAPITAL_RESERVATION_SCHEMA_VERSION,
+    reservation_id: "shared-capital-1",
+    reservation_ref: "reservation://shared-capital/1",
+    issued_at: "2026-07-14T00:01:00Z",
+    expires_at: "2026-07-14T01:00:00Z",
+    status: "reserved",
+    authority_id: "research-control-plane",
+    experiment_id: "experiment-1",
+    trial_group_id: "group-1",
+    trial_group_hash: HASH,
+    batch_id: "batch-1",
+    batch_plan_hash: HASH,
+    settlement_asset: "USDT",
+    capital_policy_version: "rd-shared-initial-capital-static-preallocation-v1",
+    execution_priority_policy: "control_plane_explicit_rank_no_ties",
+    shared_initial_cash: 3000.3,
+    total_allocated_initial_cash: 3000.3,
+    lanes: [
+      { lane_id: "lane-b", priority_rank: 1, trial_id: "trial-2", run_id: "run-2", trial_reservation_ref: "reservation://trial-2", trial_reservation_hash: "b".repeat(64), allocated_initial_cash: 2000.2 },
+      { lane_id: "lane-a", priority_rank: 2, trial_id: "trial-1", run_id: "run-1", trial_reservation_ref: "reservation://trial-1", trial_reservation_hash: "c".repeat(64), allocated_initial_cash: 1000.1 },
+    ],
+    limitations: [
+      "no_runtime_cash_reuse_or_rebalancing",
+      "no_cross_lane_margin_or_liquidation",
+      "no_concurrent_matching_claim",
+    ],
+  })
+  expect(() => assertReplaySharedInitialCapitalReservationSnapshot(value)).not.toThrow()
+  expect(value.reservation_hash).toHaveLength(64)
+  expect(() => createReplaySharedInitialCapitalReservationSnapshot({
+    ...value,
+    shared_initial_cash: 3000.2,
+  })).toThrow("fully allocate")
+  expect(() => createReplaySharedInitialCapitalReservationSnapshot({
+    ...value,
+    lanes: [value.lanes[1]!, value.lanes[0]!],
+  })).toThrow("consecutive explicit priority")
+  expect(() => assertReplaySharedInitialCapitalReservationSnapshot({
+    ...value,
+    injected: true,
+  } as typeof value)).toThrow("field whitelist drift")
+})
+
+test("runtime shared wallet Reservation authorizes one pool without static lane allocations", () => {
+  const value = createReplayRuntimeSharedWalletReservationSnapshot({
+    schema_version: REPLAY_RUNTIME_SHARED_WALLET_RESERVATION_SCHEMA_VERSION,
+    reservation_id: "runtime-wallet-1",
+    reservation_ref: "reservation://runtime-wallet/1",
+    issued_at: "2026-07-14T00:01:00Z",
+    expires_at: "2026-07-14T01:00:00Z",
+    status: "reserved",
+    authority_id: "research-control-plane",
+    experiment_id: "experiment-1",
+    trial_group_id: "group-1",
+    trial_group_hash: HASH,
+    portfolio_id: "portfolio-1",
+    portfolio_plan_hash: "b".repeat(64),
+    settlement_asset: "USDT",
+    shared_initial_cash: 100,
+    capital_policy_version: "rd-runtime-shared-wallet-isolated-entry-v1",
+    simultaneous_order_policy: "event_time_then_control_plane_priority",
+    lanes: [
+      { lane_id: "lane-b", priority_rank: 1, trial_id: "trial-2", run_id: "run-2", trial_reservation_ref: "reservation://trial-2", trial_reservation_hash: "c".repeat(64) },
+      { lane_id: "lane-a", priority_rank: 2, trial_id: "trial-1", run_id: "run-1", trial_reservation_ref: "reservation://trial-1", trial_reservation_hash: "d".repeat(64) },
+    ],
+    limitations: [
+      "market_next_open_entry_only",
+      "isolated_margin_no_cross_margin",
+      "no_exit_funding_liquidation_or_cash_release",
+    ],
+  })
+  expect(() => assertReplayRuntimeSharedWalletReservationSnapshot(value)).not.toThrow()
+  expect(value.reservation_hash).toHaveLength(64)
+  expect(Object.hasOwn(value.lanes[0]!, "allocated_initial_cash")).toBe(false)
+
+  const tied = structuredClone(value)
+  tied.lanes[1]!.priority_rank = 1
+  expect(() => assertReplayRuntimeSharedWalletReservationSnapshot(tied)).toThrow("consecutive explicit priority")
+  expect(() => assertReplayRuntimeSharedWalletReservationSnapshot({
+    ...value,
+    limitations: [
+      "market_next_open_entry_only",
+      "isolated_margin_no_cross_margin",
+    ],
+  } as unknown as typeof value)).toThrow("limitations were weakened")
+})
+
+test("runtime shared wallet lifecycle Reservation freezes exit-release ordering without execution authority", () => {
+  const value = createReplayRuntimeSharedWalletLifecycleReservationSnapshot({
+    schema_version: REPLAY_RUNTIME_SHARED_WALLET_LIFECYCLE_RESERVATION_SCHEMA_VERSION,
+    reservation_id: "runtime-wallet-lifecycle-1",
+    reservation_ref: "reservation://runtime-wallet-lifecycle/1",
+    issued_at: "2026-07-14T00:01:00Z",
+    expires_at: "2026-07-14T01:00:00Z",
+    status: "reserved",
+    authority_id: "research-control-plane",
+    experiment_id: "experiment-1",
+    trial_group_id: "group-1",
+    trial_group_hash: HASH,
+    portfolio_id: "portfolio-1",
+    portfolio_plan_hash: "b".repeat(64),
+    settlement_asset: "USDT",
+    shared_initial_cash: 100,
+    capital_policy_version: "rd-runtime-shared-wallet-entry-exit-release-v1",
+    same_time_cash_policy: "exit_release_before_entry_admission_then_control_plane_priority",
+    lanes: [
+      { lane_id: "lane-b", priority_rank: 1, trial_id: "trial-2", run_id: "run-2", trial_reservation_ref: "reservation://trial-2", trial_reservation_hash: "c".repeat(64) },
+      { lane_id: "lane-a", priority_rank: 2, trial_id: "trial-1", run_id: "run-1", trial_reservation_ref: "reservation://trial-1", trial_reservation_hash: "d".repeat(64) },
+    ],
+    limitations: [
+      "market_next_open_entry_and_full_exit_only",
+      "isolated_margin_no_cross_margin",
+      "no_funding_liquidation_or_partial_position",
+    ],
+  })
+  expect(() => assertReplayRuntimeSharedWalletLifecycleReservationSnapshot(value)).not.toThrow()
+  expect(value.reservation_hash).toHaveLength(64)
+  expect(Object.hasOwn(value.lanes[0]!, "allocated_initial_cash")).toBe(false)
+
+  const reordered = structuredClone(value)
+  reordered.lanes.reverse()
+  expect(() => assertReplayRuntimeSharedWalletLifecycleReservationSnapshot(reordered))
+    .toThrow("consecutive priority and unique authority")
+  expect(() => assertReplayRuntimeSharedWalletLifecycleReservationSnapshot({
+    ...value,
+    limitations: [
+      "market_next_open_entry_and_full_exit_only",
+      "isolated_margin_no_cross_margin",
+    ],
+  } as unknown as typeof value)).toThrow("limitations were weakened")
+})
+
+test("runtime shared wallet funding Reservation freezes phase-10 cash authority without risk authority", () => {
+  const value = createReplayRuntimeSharedWalletFundingReservationSnapshot({
+    schema_version: REPLAY_RUNTIME_SHARED_WALLET_FUNDING_RESERVATION_SCHEMA_VERSION,
+    reservation_id: "runtime-wallet-funding-1",
+    reservation_ref: "reservation://runtime-wallet-funding/1",
+    issued_at: "2026-07-14T00:01:00Z",
+    expires_at: "2026-07-14T01:00:00Z",
+    status: "reserved",
+    authority_id: "research-control-plane",
+    experiment_id: "experiment-1",
+    trial_group_id: "group-1",
+    trial_group_hash: HASH,
+    portfolio_id: "portfolio-1",
+    portfolio_plan_hash: "b".repeat(64),
+    settlement_asset: "USDT",
+    shared_initial_cash: 100,
+    capital_policy_version: "rd-runtime-shared-wallet-exact-funding-v1",
+    funding_policy_version: "exact-event-time-t-minus-position-v1",
+    same_time_cash_policy: "funding_before_exit_before_entry_then_control_plane_priority",
+    lanes: [
+      { lane_id: "lane-b", priority_rank: 1, trial_id: "trial-2", run_id: "run-2", trial_reservation_ref: "reservation://trial-2", trial_reservation_hash: "c".repeat(64) },
+      { lane_id: "lane-a", priority_rank: 2, trial_id: "trial-1", run_id: "run-1", trial_reservation_ref: "reservation://trial-1", trial_reservation_hash: "d".repeat(64) },
+    ],
+    limitations: [
+      "market_next_open_entry_full_exit_and_exact_funding_only",
+      "isolated_margin_no_cross_margin",
+      "no_liquidation_partial_position_or_borrow",
+    ],
+  })
+  expect(() => assertReplayRuntimeSharedWalletFundingReservationSnapshot(value)).not.toThrow()
+  expect(value.reservation_hash).toHaveLength(64)
+  const weakened = structuredClone(value)
+  weakened.limitations.pop()
+  expect(() => assertReplayRuntimeSharedWalletFundingReservationSnapshot(weakened as typeof value))
+    .toThrow("limitations were weakened")
+  const tied = structuredClone(value)
+  tied.lanes[1]!.priority_rank = 1
+  expect(() => assertReplayRuntimeSharedWalletFundingReservationSnapshot(tied))
+    .toThrow("consecutive priority and unique authority")
+})
+
+test("runtime shared wallet risk Reservation freezes exact-risk terminal priority without cross-margin authority", () => {
+  const value = createReplayRuntimeSharedWalletRiskReservationSnapshot({
+    schema_version: REPLAY_RUNTIME_SHARED_WALLET_RISK_RESERVATION_SCHEMA_VERSION,
+    reservation_id: "runtime-wallet-risk-1",
+    reservation_ref: "reservation://runtime-wallet-risk/1",
+    issued_at: "2026-07-14T00:01:00Z",
+    expires_at: "2026-07-14T01:00:00Z",
+    status: "reserved",
+    authority_id: "research-control-plane",
+    experiment_id: "experiment-1",
+    trial_group_id: "group-1",
+    trial_group_hash: HASH,
+    portfolio_id: "portfolio-1",
+    portfolio_plan_hash: "b".repeat(64),
+    settlement_asset: "USDT",
+    shared_initial_cash: 100,
+    capital_policy_version: "rd-runtime-shared-wallet-exact-risk-v1",
+    funding_policy_version: "exact-event-time-t-minus-position-v1",
+    risk_policy_version: "complete-exact-mark-isolated-maintenance-full-liquidation-v1",
+    same_time_cash_policy: "funding_then_exact_risk_then_liquidation_then_exit_then_entry_then_control_plane_priority",
+    lanes: [
+      { lane_id: "lane-b", priority_rank: 1, trial_id: "trial-2", run_id: "run-2", trial_reservation_ref: "reservation://trial-2", trial_reservation_hash: "c".repeat(64) },
+      { lane_id: "lane-a", priority_rank: 2, trial_id: "trial-1", run_id: "run-1", trial_reservation_ref: "reservation://trial-1", trial_reservation_hash: "d".repeat(64) },
+    ],
+    limitations: [
+      "market_next_open_entry_full_exit_exact_funding_and_mark_risk_only",
+      "isolated_margin_full_liquidation_no_cross_margin",
+      "no_partial_liquidation_borrow_insurance_or_adl",
+    ],
+  })
+  expect(() => assertReplayRuntimeSharedWalletRiskReservationSnapshot(value)).not.toThrow()
+  expect(value.reservation_hash).toHaveLength(64)
+  const weakened = structuredClone(value)
+  weakened.limitations.pop()
+  expect(() => assertReplayRuntimeSharedWalletRiskReservationSnapshot(weakened as typeof value))
+    .toThrow("limitations were weakened")
+  const tied = structuredClone(value)
+  tied.lanes[1]!.priority_rank = 1
+  expect(() => assertReplayRuntimeSharedWalletRiskReservationSnapshot(tied))
+    .toThrow("consecutive priority and unique authority")
+})
+
+test("Portfolio Allocation Reservation freezes gross, absolute-net, and stop-loss risk caps", () => {
+  const value = createReplayPortfolioAllocationReservationSnapshot({
+    schema_version: REPLAY_PORTFOLIO_ALLOCATION_RESERVATION_SCHEMA_VERSION,
+    reservation_id: "portfolio-allocation-1",
+    reservation_ref: "reservation://portfolio-allocation/1",
+    issued_at: "2026-07-14T00:01:00Z",
+    expires_at: "2026-07-14T01:00:00Z",
+    status: "reserved",
+    authority_id: "research-control-plane",
+    experiment_id: "experiment-1",
+    trial_group_id: "group-1",
+    trial_group_hash: HASH,
+    portfolio_id: "portfolio-1",
+    portfolio_plan_hash: "b".repeat(64),
+    settlement_asset: "USDT",
+    shared_initial_cash: 100,
+    allocation_policy_version: "simultaneous-entry-greedy-priority-no-resize-v1",
+    exposure_policy_version: "entry-execution-notional-gross-and-absolute-net-v1",
+    risk_budget_policy_version: "entry-to-frozen-stop-adverse-execution-plus-round-trip-fees-v1",
+    rejection_precedence: "lane_risk_then_cash_then_gross_then_absolute_net_then_portfolio_risk",
+    max_gross_exposure_amount: 200,
+    max_abs_net_exposure_amount: 100,
+    max_portfolio_risk_amount: 25,
+    lanes: [
+      { lane_id: "lane-b", priority_rank: 1, trial_id: "trial-2", run_id: "run-2", trial_reservation_ref: "reservation://trial-2", trial_reservation_hash: "c".repeat(64), max_lane_risk_amount: 15 },
+      { lane_id: "lane-a", priority_rank: 2, trial_id: "trial-1", run_id: "run-1", trial_reservation_ref: "reservation://trial-1", trial_reservation_hash: "d".repeat(64), max_lane_risk_amount: 15 },
+    ],
+    limitations: [
+      "market_next_open_full_fill_or_reject_no_resize_entry_slice_only",
+      "entry_notional_exposure_and_frozen_stop_loss_budget_not_dynamic_var",
+      "no_exit_funding_liquidation_cross_margin_partial_fill_or_borrow",
+    ],
+  })
+  expect(() => assertReplayPortfolioAllocationReservationSnapshot(value)).not.toThrow()
+  const inconsistent = structuredClone(value)
+  inconsistent.max_abs_net_exposure_amount = 201
+  expect(() => assertReplayPortfolioAllocationReservationSnapshot(inconsistent))
+    .toThrow("caps are inconsistent")
+  const weakened = structuredClone(value)
+  weakened.limitations.pop()
+  expect(() => assertReplayPortfolioAllocationReservationSnapshot(weakened as typeof value))
+    .toThrow("limitations were weakened")
+})
+
+test("Portfolio Reallocation Reservation binds cycle two to committed predecessor evidence", () => {
+  const value = createReplayPortfolioReallocationReservationSnapshot({
+    schema_version: REPLAY_PORTFOLIO_REALLOCATION_RESERVATION_SCHEMA_VERSION,
+    reservation_id: "portfolio-reallocation-1",
+    reservation_ref: "reservation://portfolio-reallocation/1",
+    issued_at: "2026-07-14T00:03:10Z",
+    expires_at: "2026-07-14T01:00:00Z",
+    status: "reserved",
+    authority_id: "research-control-plane",
+    experiment_id: "experiment-1",
+    trial_group_id: "group-1",
+    trial_group_hash: HASH,
+    portfolio_id: "portfolio-1",
+    portfolio_plan_hash: "b".repeat(64),
+    settlement_asset: "USDT",
+    portfolio_initial_cash: 100,
+    predecessor_integrated_result_hash: "c".repeat(64),
+    predecessor_artifact_manifest_hash: "d".repeat(64),
+    reallocation_cycle: 2,
+    earliest_reallocation_time: "2026-07-14T00:04:00Z",
+    opening_cash_policy: "predecessor_ending_available_cash_after_full_flat_release",
+    eligibility_policy: "all_predecessor_positions_closed_and_exposure_risk_zero",
+    allocation_policy_version: "simultaneous-entry-greedy-priority-no-resize-v1",
+    max_gross_exposure_amount: 200,
+    max_abs_net_exposure_amount: 100,
+    max_portfolio_risk_amount: 25,
+    lanes: [
+      { lane_id: "lane-b", priority_rank: 1, trial_id: "trial-2", run_id: "run-2", trial_reservation_ref: "reservation://trial-2", trial_reservation_hash: "e".repeat(64), max_lane_risk_amount: 15 },
+      { lane_id: "lane-a", priority_rank: 2, trial_id: "trial-1", run_id: "run-1", trial_reservation_ref: "reservation://trial-1", trial_reservation_hash: "f".repeat(64), max_lane_risk_amount: 15 },
+    ],
+    limitations: [
+      "second_cycle_only_after_authoritative_full_flat_release",
+      "opening_cash_derived_from_predecessor_result_not_control_plane_estimate",
+      "no_third_cycle_partial_cross_margin_borrow_or_fast",
+    ],
+  })
+  expect(() => assertReplayPortfolioReallocationReservationSnapshot(value)).not.toThrow()
+  const predecessorDrift = structuredClone(value)
+  predecessorDrift.predecessor_integrated_result_hash = "1".repeat(64)
+  expect(() => assertReplayPortfolioReallocationReservationSnapshot(predecessorDrift))
+    .toThrow("reallocation hash")
+  const thirdCycle = structuredClone(value) as unknown as { reallocation_cycle: number }
+  thirdCycle.reallocation_cycle = 3
+  expect(() => assertReplayPortfolioReallocationReservationSnapshot(thirdCycle as unknown as typeof value))
+    .toThrow("reallocation policy")
+})
+
+test("Portfolio Cycle Sequence Reservation freezes a bounded contiguous schedule without opening-cash estimates", () => {
+  const value = createReplayPortfolioCycleSequenceReservationSnapshot({
+    schema_version: REPLAY_PORTFOLIO_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION,
+    reservation_id: "cycle-sequence-1",
+    reservation_ref: "reservation://cycle-sequence/1",
+    issued_at: "2026-07-14T00:00:00Z",
+    expires_at: "2026-07-14T01:00:00Z",
+    status: "reserved",
+    authority_id: "research-control-plane",
+    experiment_id: "experiment-1",
+    trial_group_id: "group-1",
+    trial_group_hash: HASH,
+    portfolio_id: "portfolio-1",
+    settlement_asset: "USDT",
+    initial_cash: 100,
+    cycle_count: 3,
+    max_cycle_count: REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES,
+    opening_cash_policy: "first_cycle_initial_then_predecessor_ending_available",
+    successor_eligibility_policy: "predecessor_full_flat_exposure_and_risk_zero",
+    expansion_policy: "exact_predeclared_cycles_no_runtime_append_or_search_expansion",
+    cycles: [1, 2, 3].map((cycle) => ({
+      cycle_index: cycle,
+      allocation_plan_hash: `${cycle}`.repeat(64),
+      risk_plan_hash: `${cycle + 3}`.repeat(64),
+      earliest_cycle_time: `2026-07-14T00:0${cycle}:00Z`,
+      max_gross_exposure_amount: 200,
+      max_abs_net_exposure_amount: 100,
+      max_portfolio_risk_amount: 25,
+      lanes: [1, 2].map((lane) => ({
+        lane_id: `cycle-${cycle}-lane-${lane}`,
+        priority_rank: lane,
+        trial_id: `trial-${cycle}-${lane}`,
+        run_id: `run-${cycle}-${lane}`,
+        trial_reservation_ref: `reservation://trial-${cycle}-${lane}`,
+        trial_reservation_hash: createHash("sha256").update(`reservation-${cycle}-${lane}`).digest("hex"),
+        max_lane_risk_amount: 15,
+      })),
+    })),
+    limitations: [
+      "one_to_eight_predeclared_full_flat_cycles_only",
+      "cycle_opening_cash_is_runtime_predecessor_evidence_not_control_plane_estimate",
+      "no_partial_cross_margin_borrow_real_liquidity_fast_or_runtime_cycle_expansion",
+    ],
+  })
+  expect(() => assertReplayPortfolioCycleSequenceReservationSnapshot(value)).not.toThrow()
+  const expanded = structuredClone(value)
+  expanded.cycle_count = 4
+  expect(() => assertReplayPortfolioCycleSequenceReservationSnapshot(expanded))
+    .toThrow("cycle sequence policy")
+  const reordered = structuredClone(value)
+  reordered.cycles[1]!.earliest_cycle_time = reordered.cycles[0]!.earliest_cycle_time
+  expect(() => assertReplayPortfolioCycleSequenceReservationSnapshot(reordered))
+    .toThrow("cycle sequence order")
 })
 
 test("provider certification termination is non-retroactive and type-safe", () => {
@@ -415,7 +803,7 @@ test("Replay decision observation Bundle admission is immutable non-economic aut
     run_id: "run-1",
     reservation_ref: "reservation://trial-1",
     reservation_hash: HASH,
-    request_schema_version: "trade.rd-replay-execution-request.v30",
+    request_schema_version: "trade.rd-replay-execution-request.v36",
     request_hash: "b".repeat(64),
     dataset_manifest_ref: "dataset://fixture",
     dataset_hash: "c".repeat(64),

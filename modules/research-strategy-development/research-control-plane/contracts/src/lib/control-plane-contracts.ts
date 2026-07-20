@@ -46,6 +46,23 @@ export const REPLAY_SPAWN_BOUNDARY_REVALIDATION_RECEIPT_POLICY_VERSION =
 export const REPLAY_CHECKPOINT_RECEIPT_SCHEMA_VERSION = "trade.rd-replay-checkpoint-receipt.v2" as const
 export const REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION = REPLAY_LOCAL_ARTIFACT_STORAGE_POLICY_VERSION
 export const REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION = "trade.rd-replay-resume-authorization-snapshot.v1" as const
+export const REPLAY_SHARED_INITIAL_CAPITAL_RESERVATION_SCHEMA_VERSION =
+  "trade.rd-replay-shared-initial-capital-reservation.v1" as const
+export const REPLAY_RUNTIME_SHARED_WALLET_RESERVATION_SCHEMA_VERSION =
+  "trade.rd-replay-runtime-shared-wallet-reservation.v1" as const
+export const REPLAY_RUNTIME_SHARED_WALLET_LIFECYCLE_RESERVATION_SCHEMA_VERSION =
+  "trade.rd-replay-runtime-shared-wallet-lifecycle-reservation.v1" as const
+export const REPLAY_RUNTIME_SHARED_WALLET_FUNDING_RESERVATION_SCHEMA_VERSION =
+  "trade.rd-replay-runtime-shared-wallet-funding-reservation.v1" as const
+export const REPLAY_RUNTIME_SHARED_WALLET_RISK_RESERVATION_SCHEMA_VERSION =
+  "trade.rd-replay-runtime-shared-wallet-risk-reservation.v1" as const
+export const REPLAY_PORTFOLIO_ALLOCATION_RESERVATION_SCHEMA_VERSION =
+  "trade.rd-replay-portfolio-allocation-reservation.v1" as const
+export const REPLAY_PORTFOLIO_REALLOCATION_RESERVATION_SCHEMA_VERSION =
+  "trade.rd-replay-portfolio-reallocation-reservation.v1" as const
+export const REPLAY_PORTFOLIO_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION =
+  "trade.rd-replay-portfolio-cycle-sequence-reservation.v1" as const
+export const REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES = 8 as const
 
 export interface ResearchIdentityBinding {
   schema_version: typeof CONTROL_PLANE_IDENTITY_SCHEMA_VERSION
@@ -293,7 +310,7 @@ export interface ReplayDecisionObservationBundleAdmissionSnapshot {
   run_id: string
   reservation_ref: string
   reservation_hash: string
-  request_schema_version: "trade.rd-replay-execution-request.v30"
+  request_schema_version: "trade.rd-replay-execution-request.v36"
   request_hash: string
   dataset_manifest_ref: string
   dataset_hash: string
@@ -485,6 +502,339 @@ export interface TrialReservationSnapshot {
   instrument_status_provider_certification: ReplayInstrumentStatusProviderCertificationSnapshot
   required_capabilities: string[]
 }
+
+export interface ReplaySharedInitialCapitalReservationSnapshot {
+  schema_version: typeof REPLAY_SHARED_INITIAL_CAPITAL_RESERVATION_SCHEMA_VERSION
+  reservation_id: string
+  reservation_ref: string
+  reservation_hash: string
+  issued_at: string
+  expires_at: string
+  status: "reserved"
+  authority_id: "research-control-plane"
+  experiment_id: string
+  trial_group_id: string
+  trial_group_hash: string
+  batch_id: string
+  batch_plan_hash: string
+  settlement_asset: string
+  capital_policy_version: "rd-shared-initial-capital-static-preallocation-v1"
+  execution_priority_policy: "control_plane_explicit_rank_no_ties"
+  shared_initial_cash: number
+  total_allocated_initial_cash: number
+  lanes: Array<{
+    lane_id: string
+    priority_rank: number
+    trial_id: string
+    run_id: string
+    trial_reservation_ref: string
+    trial_reservation_hash: string
+    allocated_initial_cash: number
+  }>
+  limitations: [
+    "no_runtime_cash_reuse_or_rebalancing",
+    "no_cross_lane_margin_or_liquidation",
+    "no_concurrent_matching_claim",
+  ]
+}
+
+export type ReplaySharedInitialCapitalReservationBody = Omit<
+  ReplaySharedInitialCapitalReservationSnapshot,
+  "reservation_hash"
+>
+
+export interface ReplayRuntimeSharedWalletReservationSnapshot {
+  schema_version: typeof REPLAY_RUNTIME_SHARED_WALLET_RESERVATION_SCHEMA_VERSION
+  reservation_id: string
+  reservation_ref: string
+  reservation_hash: string
+  issued_at: string
+  expires_at: string
+  status: "reserved"
+  authority_id: "research-control-plane"
+  experiment_id: string
+  trial_group_id: string
+  trial_group_hash: string
+  portfolio_id: string
+  portfolio_plan_hash: string
+  settlement_asset: string
+  shared_initial_cash: number
+  capital_policy_version: "rd-runtime-shared-wallet-isolated-entry-v1"
+  simultaneous_order_policy: "event_time_then_control_plane_priority"
+  lanes: Array<{
+    lane_id: string
+    priority_rank: number
+    trial_id: string
+    run_id: string
+    trial_reservation_ref: string
+    trial_reservation_hash: string
+  }>
+  limitations: [
+    "market_next_open_entry_only",
+    "isolated_margin_no_cross_margin",
+    "no_exit_funding_liquidation_or_cash_release",
+  ]
+}
+
+export type ReplayRuntimeSharedWalletReservationBody = Omit<
+  ReplayRuntimeSharedWalletReservationSnapshot,
+  "reservation_hash"
+>
+
+export interface ReplayRuntimeSharedWalletLifecycleReservationSnapshot {
+  schema_version: typeof REPLAY_RUNTIME_SHARED_WALLET_LIFECYCLE_RESERVATION_SCHEMA_VERSION
+  reservation_id: string
+  reservation_ref: string
+  reservation_hash: string
+  issued_at: string
+  expires_at: string
+  status: "reserved"
+  authority_id: "research-control-plane"
+  experiment_id: string
+  trial_group_id: string
+  trial_group_hash: string
+  portfolio_id: string
+  portfolio_plan_hash: string
+  settlement_asset: string
+  shared_initial_cash: number
+  capital_policy_version: "rd-runtime-shared-wallet-entry-exit-release-v1"
+  same_time_cash_policy: "exit_release_before_entry_admission_then_control_plane_priority"
+  lanes: Array<{
+    lane_id: string
+    priority_rank: number
+    trial_id: string
+    run_id: string
+    trial_reservation_ref: string
+    trial_reservation_hash: string
+  }>
+  limitations: [
+    "market_next_open_entry_and_full_exit_only",
+    "isolated_margin_no_cross_margin",
+    "no_funding_liquidation_or_partial_position",
+  ]
+}
+
+export type ReplayRuntimeSharedWalletLifecycleReservationBody = Omit<
+  ReplayRuntimeSharedWalletLifecycleReservationSnapshot,
+  "reservation_hash"
+>
+
+export interface ReplayRuntimeSharedWalletFundingReservationSnapshot {
+  schema_version: typeof REPLAY_RUNTIME_SHARED_WALLET_FUNDING_RESERVATION_SCHEMA_VERSION
+  reservation_id: string
+  reservation_ref: string
+  reservation_hash: string
+  issued_at: string
+  expires_at: string
+  status: "reserved"
+  authority_id: "research-control-plane"
+  experiment_id: string
+  trial_group_id: string
+  trial_group_hash: string
+  portfolio_id: string
+  portfolio_plan_hash: string
+  settlement_asset: string
+  shared_initial_cash: number
+  capital_policy_version: "rd-runtime-shared-wallet-exact-funding-v1"
+  funding_policy_version: "exact-event-time-t-minus-position-v1"
+  same_time_cash_policy: "funding_before_exit_before_entry_then_control_plane_priority"
+  lanes: Array<{
+    lane_id: string
+    priority_rank: number
+    trial_id: string
+    run_id: string
+    trial_reservation_ref: string
+    trial_reservation_hash: string
+  }>
+  limitations: [
+    "market_next_open_entry_full_exit_and_exact_funding_only",
+    "isolated_margin_no_cross_margin",
+    "no_liquidation_partial_position_or_borrow",
+  ]
+}
+
+export type ReplayRuntimeSharedWalletFundingReservationBody = Omit<
+  ReplayRuntimeSharedWalletFundingReservationSnapshot,
+  "reservation_hash"
+>
+
+export interface ReplayRuntimeSharedWalletRiskReservationSnapshot {
+  schema_version: typeof REPLAY_RUNTIME_SHARED_WALLET_RISK_RESERVATION_SCHEMA_VERSION
+  reservation_id: string
+  reservation_ref: string
+  reservation_hash: string
+  issued_at: string
+  expires_at: string
+  status: "reserved"
+  authority_id: "research-control-plane"
+  experiment_id: string
+  trial_group_id: string
+  trial_group_hash: string
+  portfolio_id: string
+  portfolio_plan_hash: string
+  settlement_asset: string
+  shared_initial_cash: number
+  capital_policy_version: "rd-runtime-shared-wallet-exact-risk-v1"
+  funding_policy_version: "exact-event-time-t-minus-position-v1"
+  risk_policy_version: "complete-exact-mark-isolated-maintenance-full-liquidation-v1"
+  same_time_cash_policy: "funding_then_exact_risk_then_liquidation_then_exit_then_entry_then_control_plane_priority"
+  lanes: Array<{
+    lane_id: string
+    priority_rank: number
+    trial_id: string
+    run_id: string
+    trial_reservation_ref: string
+    trial_reservation_hash: string
+  }>
+  limitations: [
+    "market_next_open_entry_full_exit_exact_funding_and_mark_risk_only",
+    "isolated_margin_full_liquidation_no_cross_margin",
+    "no_partial_liquidation_borrow_insurance_or_adl",
+  ]
+}
+
+export type ReplayRuntimeSharedWalletRiskReservationBody = Omit<
+  ReplayRuntimeSharedWalletRiskReservationSnapshot,
+  "reservation_hash"
+>
+
+export interface ReplayPortfolioAllocationReservationSnapshot {
+  schema_version: typeof REPLAY_PORTFOLIO_ALLOCATION_RESERVATION_SCHEMA_VERSION
+  reservation_id: string
+  reservation_ref: string
+  reservation_hash: string
+  issued_at: string
+  expires_at: string
+  status: "reserved"
+  authority_id: "research-control-plane"
+  experiment_id: string
+  trial_group_id: string
+  trial_group_hash: string
+  portfolio_id: string
+  portfolio_plan_hash: string
+  settlement_asset: string
+  shared_initial_cash: number
+  allocation_policy_version: "simultaneous-entry-greedy-priority-no-resize-v1"
+  exposure_policy_version: "entry-execution-notional-gross-and-absolute-net-v1"
+  risk_budget_policy_version: "entry-to-frozen-stop-adverse-execution-plus-round-trip-fees-v1"
+  rejection_precedence: "lane_risk_then_cash_then_gross_then_absolute_net_then_portfolio_risk"
+  max_gross_exposure_amount: number
+  max_abs_net_exposure_amount: number
+  max_portfolio_risk_amount: number
+  lanes: Array<{
+    lane_id: string
+    priority_rank: number
+    trial_id: string
+    run_id: string
+    trial_reservation_ref: string
+    trial_reservation_hash: string
+    max_lane_risk_amount: number
+  }>
+  limitations: [
+    "market_next_open_full_fill_or_reject_no_resize_entry_slice_only",
+    "entry_notional_exposure_and_frozen_stop_loss_budget_not_dynamic_var",
+    "no_exit_funding_liquidation_cross_margin_partial_fill_or_borrow",
+  ]
+}
+
+export type ReplayPortfolioAllocationReservationBody = Omit<
+  ReplayPortfolioAllocationReservationSnapshot,
+  "reservation_hash"
+>
+
+export interface ReplayPortfolioReallocationReservationSnapshot {
+  schema_version: typeof REPLAY_PORTFOLIO_REALLOCATION_RESERVATION_SCHEMA_VERSION
+  reservation_id: string
+  reservation_ref: string
+  reservation_hash: string
+  issued_at: string
+  expires_at: string
+  status: "reserved"
+  authority_id: "research-control-plane"
+  experiment_id: string
+  trial_group_id: string
+  trial_group_hash: string
+  portfolio_id: string
+  portfolio_plan_hash: string
+  settlement_asset: string
+  portfolio_initial_cash: number
+  predecessor_integrated_result_hash: string
+  predecessor_artifact_manifest_hash: string
+  reallocation_cycle: 2
+  earliest_reallocation_time: string
+  opening_cash_policy: "predecessor_ending_available_cash_after_full_flat_release"
+  eligibility_policy: "all_predecessor_positions_closed_and_exposure_risk_zero"
+  allocation_policy_version: "simultaneous-entry-greedy-priority-no-resize-v1"
+  max_gross_exposure_amount: number
+  max_abs_net_exposure_amount: number
+  max_portfolio_risk_amount: number
+  lanes: Array<{
+    lane_id: string
+    priority_rank: number
+    trial_id: string
+    run_id: string
+    trial_reservation_ref: string
+    trial_reservation_hash: string
+    max_lane_risk_amount: number
+  }>
+  limitations: [
+    "second_cycle_only_after_authoritative_full_flat_release",
+    "opening_cash_derived_from_predecessor_result_not_control_plane_estimate",
+    "no_third_cycle_partial_cross_margin_borrow_or_fast",
+  ]
+}
+
+export type ReplayPortfolioReallocationReservationBody = Omit<ReplayPortfolioReallocationReservationSnapshot, "reservation_hash">
+
+export interface ReplayPortfolioCycleSequenceReservationSnapshot {
+  schema_version: typeof REPLAY_PORTFOLIO_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION
+  reservation_id: string
+  reservation_ref: string
+  reservation_hash: string
+  issued_at: string
+  expires_at: string
+  status: "reserved"
+  authority_id: "research-control-plane"
+  experiment_id: string
+  trial_group_id: string
+  trial_group_hash: string
+  portfolio_id: string
+  settlement_asset: string
+  initial_cash: number
+  cycle_count: number
+  max_cycle_count: typeof REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES
+  opening_cash_policy: "first_cycle_initial_then_predecessor_ending_available"
+  successor_eligibility_policy: "predecessor_full_flat_exposure_and_risk_zero"
+  expansion_policy: "exact_predeclared_cycles_no_runtime_append_or_search_expansion"
+  cycles: Array<{
+    cycle_index: number
+    allocation_plan_hash: string
+    risk_plan_hash: string
+    earliest_cycle_time: string
+    max_gross_exposure_amount: number
+    max_abs_net_exposure_amount: number
+    max_portfolio_risk_amount: number
+    lanes: Array<{
+      lane_id: string
+      priority_rank: number
+      trial_id: string
+      run_id: string
+      trial_reservation_ref: string
+      trial_reservation_hash: string
+      max_lane_risk_amount: number
+    }>
+  }>
+  limitations: [
+    "one_to_eight_predeclared_full_flat_cycles_only",
+    "cycle_opening_cash_is_runtime_predecessor_evidence_not_control_plane_estimate",
+    "no_partial_cross_margin_borrow_real_liquidity_fast_or_runtime_cycle_expansion",
+  ]
+}
+
+export type ReplayPortfolioCycleSequenceReservationBody = Omit<
+  ReplayPortfolioCycleSequenceReservationSnapshot,
+  "reservation_hash"
+>
 
 export interface ReplayAttemptLeaseSnapshot {
   schema_version: typeof REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION
@@ -938,6 +1288,716 @@ export function assertTrialReservationSnapshot(value: TrialReservationSnapshot):
   }
 }
 
+export function createReplaySharedInitialCapitalReservationSnapshot(
+  body: ReplaySharedInitialCapitalReservationBody,
+): ReplaySharedInitialCapitalReservationSnapshot {
+  const value = {
+    ...body,
+    reservation_hash: createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex"),
+  }
+  assertReplaySharedInitialCapitalReservationSnapshot(value)
+  return value
+}
+
+export function assertReplaySharedInitialCapitalReservationSnapshot(
+  value: ReplaySharedInitialCapitalReservationSnapshot,
+): void {
+  requireExactObjectFields(value, [
+    "schema_version", "reservation_id", "reservation_ref", "reservation_hash", "issued_at", "expires_at",
+    "status", "authority_id", "experiment_id", "trial_group_id", "trial_group_hash", "batch_id",
+    "batch_plan_hash", "settlement_asset", "capital_policy_version", "execution_priority_policy",
+    "shared_initial_cash", "total_allocated_initial_cash", "lanes", "limitations",
+  ], "shared_initial_capital_reservation")
+  if (value.schema_version !== REPLAY_SHARED_INITIAL_CAPITAL_RESERVATION_SCHEMA_VERSION) {
+    fail("shared initial capital reservation schema_version")
+  }
+  for (const [field, item] of Object.entries({
+    reservation_id: value.reservation_id,
+    reservation_ref: value.reservation_ref,
+    experiment_id: value.experiment_id,
+    trial_group_id: value.trial_group_id,
+    batch_id: value.batch_id,
+    settlement_asset: value.settlement_asset,
+  })) requireText(item, `shared_initial_capital_reservation.${field}`)
+  for (const [field, item] of Object.entries({
+    reservation_hash: value.reservation_hash,
+    trial_group_hash: value.trial_group_hash,
+    batch_plan_hash: value.batch_plan_hash,
+  })) requireHash(item, `shared_initial_capital_reservation.${field}`)
+  requireUtcTimestamp(value.issued_at, "shared_initial_capital_reservation.issued_at")
+  requireUtcTimestamp(value.expires_at, "shared_initial_capital_reservation.expires_at")
+  if (Date.parse(value.expires_at) <= Date.parse(value.issued_at)) {
+    fail("shared initial capital reservation timestamps must satisfy issued_at < expires_at")
+  }
+  if (value.status !== "reserved" || value.authority_id !== "research-control-plane"
+      || value.capital_policy_version !== "rd-shared-initial-capital-static-preallocation-v1"
+      || value.execution_priority_policy !== "control_plane_explicit_rank_no_ties") {
+    fail("shared initial capital reservation policy is unsupported")
+  }
+  requirePositiveFinite(value.shared_initial_cash, "shared_initial_capital_reservation.shared_initial_cash")
+  requirePositiveFinite(
+    value.total_allocated_initial_cash,
+    "shared_initial_capital_reservation.total_allocated_initial_cash",
+  )
+  if (!Array.isArray(value.lanes) || value.lanes.length < 2) {
+    fail("shared initial capital reservation requires at least two lanes")
+  }
+  const laneIds = new Set<string>()
+  const trialIds = new Set<string>()
+  const runIds = new Set<string>()
+  const reservationHashes = new Set<string>()
+  for (let index = 0; index < value.lanes.length; index += 1) {
+    const lane = value.lanes[index]!
+    requireExactObjectFields(lane, [
+      "lane_id", "priority_rank", "trial_id", "run_id", "trial_reservation_ref",
+      "trial_reservation_hash", "allocated_initial_cash",
+    ], "shared_initial_capital_reservation.lane")
+    requireText(lane.lane_id, "shared_initial_capital_reservation.lane_id")
+    requireText(lane.trial_id, "shared_initial_capital_reservation.trial_id")
+    requireText(lane.run_id, "shared_initial_capital_reservation.run_id")
+    requireText(lane.trial_reservation_ref, "shared_initial_capital_reservation.trial_reservation_ref")
+    requireHash(lane.trial_reservation_hash, "shared_initial_capital_reservation.trial_reservation_hash")
+    requirePositiveFinite(lane.allocated_initial_cash, "shared_initial_capital_reservation.allocated_initial_cash")
+    if (lane.priority_rank !== index + 1 || laneIds.has(lane.lane_id) || trialIds.has(lane.trial_id)
+        || runIds.has(lane.run_id) || reservationHashes.has(lane.trial_reservation_hash)) {
+      fail("shared initial capital reservation lanes require consecutive explicit priority and unique authority")
+    }
+    laneIds.add(lane.lane_id)
+    trialIds.add(lane.trial_id)
+    runIds.add(lane.run_id)
+    reservationHashes.add(lane.trial_reservation_hash)
+  }
+  const allocated = exactFiniteNumberSum(value.lanes.map((lane) => lane.allocated_initial_cash))
+  if (!exactFiniteNumberEquals(allocated, value.total_allocated_initial_cash)
+      || !exactFiniteNumberEquals(allocated, value.shared_initial_cash)) {
+    fail("shared initial capital reservation must fully allocate one cash pool exactly once")
+  }
+  const expectedLimitations: ReplaySharedInitialCapitalReservationSnapshot["limitations"] = [
+    "no_runtime_cash_reuse_or_rebalancing",
+    "no_cross_lane_margin_or_liquidation",
+    "no_concurrent_matching_claim",
+  ]
+  if (canonicalReservationJson(value.limitations) !== canonicalReservationJson(expectedLimitations)) {
+    fail("shared initial capital reservation limitations were weakened")
+  }
+  const { reservation_hash: reservationHash, ...body } = value
+  const expectedHash = createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")
+  if (reservationHash !== expectedHash) fail("shared initial capital reservation hash mismatch")
+}
+
+export function createReplayRuntimeSharedWalletReservationSnapshot(
+  body: ReplayRuntimeSharedWalletReservationBody,
+): ReplayRuntimeSharedWalletReservationSnapshot {
+  const value = {
+    ...body,
+    reservation_hash: createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex"),
+  }
+  assertReplayRuntimeSharedWalletReservationSnapshot(value)
+  return value
+}
+
+export function assertReplayRuntimeSharedWalletReservationSnapshot(
+  value: ReplayRuntimeSharedWalletReservationSnapshot,
+): void {
+  requireExactObjectFields(value, [
+    "schema_version", "reservation_id", "reservation_ref", "reservation_hash", "issued_at", "expires_at",
+    "status", "authority_id", "experiment_id", "trial_group_id", "trial_group_hash", "portfolio_id",
+    "portfolio_plan_hash", "settlement_asset", "shared_initial_cash", "capital_policy_version",
+    "simultaneous_order_policy", "lanes", "limitations",
+  ], "runtime_shared_wallet_reservation")
+  if (value.schema_version !== REPLAY_RUNTIME_SHARED_WALLET_RESERVATION_SCHEMA_VERSION) {
+    fail("runtime shared wallet reservation schema_version")
+  }
+  for (const [field, item] of Object.entries({
+    reservation_id: value.reservation_id,
+    reservation_ref: value.reservation_ref,
+    experiment_id: value.experiment_id,
+    trial_group_id: value.trial_group_id,
+    portfolio_id: value.portfolio_id,
+    settlement_asset: value.settlement_asset,
+  })) requireText(item, `runtime_shared_wallet_reservation.${field}`)
+  for (const [field, item] of Object.entries({
+    reservation_hash: value.reservation_hash,
+    trial_group_hash: value.trial_group_hash,
+    portfolio_plan_hash: value.portfolio_plan_hash,
+  })) requireHash(item, `runtime_shared_wallet_reservation.${field}`)
+  requireUtcTimestamp(value.issued_at, "runtime_shared_wallet_reservation.issued_at")
+  requireUtcTimestamp(value.expires_at, "runtime_shared_wallet_reservation.expires_at")
+  if (Date.parse(value.expires_at) <= Date.parse(value.issued_at)) {
+    fail("runtime shared wallet reservation timestamps must satisfy issued_at < expires_at")
+  }
+  if (value.status !== "reserved" || value.authority_id !== "research-control-plane"
+      || value.capital_policy_version !== "rd-runtime-shared-wallet-isolated-entry-v1"
+      || value.simultaneous_order_policy !== "event_time_then_control_plane_priority") {
+    fail("runtime shared wallet reservation policy is unsupported")
+  }
+  requirePositiveFinite(value.shared_initial_cash, "runtime_shared_wallet_reservation.shared_initial_cash")
+  if (!Array.isArray(value.lanes) || value.lanes.length < 2) {
+    fail("runtime shared wallet reservation requires at least two lanes")
+  }
+  const laneIds = new Set<string>()
+  const trialIds = new Set<string>()
+  const runIds = new Set<string>()
+  const reservationHashes = new Set<string>()
+  for (let index = 0; index < value.lanes.length; index += 1) {
+    const lane = value.lanes[index]!
+    requireExactObjectFields(lane, [
+      "lane_id", "priority_rank", "trial_id", "run_id", "trial_reservation_ref", "trial_reservation_hash",
+    ], "runtime_shared_wallet_reservation.lane")
+    requireText(lane.lane_id, "runtime_shared_wallet_reservation.lane_id")
+    requireText(lane.trial_id, "runtime_shared_wallet_reservation.trial_id")
+    requireText(lane.run_id, "runtime_shared_wallet_reservation.run_id")
+    requireText(lane.trial_reservation_ref, "runtime_shared_wallet_reservation.trial_reservation_ref")
+    requireHash(lane.trial_reservation_hash, "runtime_shared_wallet_reservation.trial_reservation_hash")
+    if (lane.priority_rank !== index + 1 || laneIds.has(lane.lane_id) || trialIds.has(lane.trial_id)
+        || runIds.has(lane.run_id) || reservationHashes.has(lane.trial_reservation_hash)) {
+      fail("runtime shared wallet reservation lanes require consecutive explicit priority and unique authority")
+    }
+    laneIds.add(lane.lane_id)
+    trialIds.add(lane.trial_id)
+    runIds.add(lane.run_id)
+    reservationHashes.add(lane.trial_reservation_hash)
+  }
+  const expectedLimitations: ReplayRuntimeSharedWalletReservationSnapshot["limitations"] = [
+    "market_next_open_entry_only",
+    "isolated_margin_no_cross_margin",
+    "no_exit_funding_liquidation_or_cash_release",
+  ]
+  if (canonicalReservationJson(value.limitations) !== canonicalReservationJson(expectedLimitations)) {
+    fail("runtime shared wallet reservation limitations were weakened")
+  }
+  const { reservation_hash: reservationHash, ...body } = value
+  const expectedHash = createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")
+  if (reservationHash !== expectedHash) fail("runtime shared wallet reservation hash mismatch")
+}
+
+export function createReplayRuntimeSharedWalletLifecycleReservationSnapshot(
+  body: ReplayRuntimeSharedWalletLifecycleReservationBody,
+): ReplayRuntimeSharedWalletLifecycleReservationSnapshot {
+  const value = {
+    ...body,
+    reservation_hash: createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex"),
+  }
+  assertReplayRuntimeSharedWalletLifecycleReservationSnapshot(value)
+  return value
+}
+
+export function assertReplayRuntimeSharedWalletLifecycleReservationSnapshot(
+  value: ReplayRuntimeSharedWalletLifecycleReservationSnapshot,
+): void {
+  requireExactObjectFields(value, [
+    "schema_version", "reservation_id", "reservation_ref", "reservation_hash", "issued_at", "expires_at",
+    "status", "authority_id", "experiment_id", "trial_group_id", "trial_group_hash", "portfolio_id",
+    "portfolio_plan_hash", "settlement_asset", "shared_initial_cash", "capital_policy_version",
+    "same_time_cash_policy", "lanes", "limitations",
+  ], "runtime_shared_wallet_lifecycle_reservation")
+  if (value.schema_version !== REPLAY_RUNTIME_SHARED_WALLET_LIFECYCLE_RESERVATION_SCHEMA_VERSION) {
+    fail("runtime shared wallet lifecycle reservation schema_version")
+  }
+  for (const [field, item] of Object.entries({
+    reservation_id: value.reservation_id, reservation_ref: value.reservation_ref,
+    experiment_id: value.experiment_id, trial_group_id: value.trial_group_id,
+    portfolio_id: value.portfolio_id, settlement_asset: value.settlement_asset,
+  })) requireText(item, `runtime_shared_wallet_lifecycle_reservation.${field}`)
+  for (const [field, item] of Object.entries({
+    reservation_hash: value.reservation_hash, trial_group_hash: value.trial_group_hash,
+    portfolio_plan_hash: value.portfolio_plan_hash,
+  })) requireHash(item, `runtime_shared_wallet_lifecycle_reservation.${field}`)
+  requireUtcTimestamp(value.issued_at, "runtime_shared_wallet_lifecycle_reservation.issued_at")
+  requireUtcTimestamp(value.expires_at, "runtime_shared_wallet_lifecycle_reservation.expires_at")
+  if (Date.parse(value.expires_at) <= Date.parse(value.issued_at)) {
+    fail("runtime shared wallet lifecycle reservation timestamps must satisfy issued_at < expires_at")
+  }
+  if (value.status !== "reserved" || value.authority_id !== "research-control-plane"
+      || value.capital_policy_version !== "rd-runtime-shared-wallet-entry-exit-release-v1"
+      || value.same_time_cash_policy !== "exit_release_before_entry_admission_then_control_plane_priority") {
+    fail("runtime shared wallet lifecycle reservation policy is unsupported")
+  }
+  requirePositiveFinite(value.shared_initial_cash, "runtime_shared_wallet_lifecycle_reservation.shared_initial_cash")
+  if (!Array.isArray(value.lanes) || value.lanes.length < 2) {
+    fail("runtime shared wallet lifecycle reservation requires at least two lanes")
+  }
+  const identities = new Set<string>()
+  for (let index = 0; index < value.lanes.length; index += 1) {
+    const lane = value.lanes[index]!
+    requireExactObjectFields(lane, [
+      "lane_id", "priority_rank", "trial_id", "run_id", "trial_reservation_ref", "trial_reservation_hash",
+    ], "runtime_shared_wallet_lifecycle_reservation.lane")
+    for (const [field, item] of Object.entries({
+      lane_id: lane.lane_id, trial_id: lane.trial_id, run_id: lane.run_id,
+      trial_reservation_ref: lane.trial_reservation_ref,
+    })) requireText(item, `runtime_shared_wallet_lifecycle_reservation.${field}`)
+    requireHash(lane.trial_reservation_hash, "runtime_shared_wallet_lifecycle_reservation.trial_reservation_hash")
+    const identity = canonicalReservationJson([
+      lane.lane_id, lane.trial_id, lane.run_id, lane.trial_reservation_hash,
+    ])
+    if (lane.priority_rank !== index + 1 || identities.has(identity)) {
+      fail("runtime shared wallet lifecycle reservation lanes require consecutive priority and unique authority")
+    }
+    identities.add(identity)
+  }
+  if (new Set(value.lanes.map((lane) => lane.lane_id)).size !== value.lanes.length
+      || new Set(value.lanes.map((lane) => lane.trial_id)).size !== value.lanes.length
+      || new Set(value.lanes.map((lane) => lane.run_id)).size !== value.lanes.length
+      || new Set(value.lanes.map((lane) => lane.trial_reservation_hash)).size !== value.lanes.length) {
+    fail("runtime shared wallet lifecycle reservation authority identities must each be unique")
+  }
+  const expectedLimitations: ReplayRuntimeSharedWalletLifecycleReservationSnapshot["limitations"] = [
+    "market_next_open_entry_and_full_exit_only",
+    "isolated_margin_no_cross_margin",
+    "no_funding_liquidation_or_partial_position",
+  ]
+  if (canonicalReservationJson(value.limitations) !== canonicalReservationJson(expectedLimitations)) {
+    fail("runtime shared wallet lifecycle reservation limitations were weakened")
+  }
+  const { reservation_hash: reservationHash, ...body } = value
+  if (reservationHash !== createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")) {
+    fail("runtime shared wallet lifecycle reservation hash mismatch")
+  }
+}
+
+export function createReplayRuntimeSharedWalletFundingReservationSnapshot(
+  body: ReplayRuntimeSharedWalletFundingReservationBody,
+): ReplayRuntimeSharedWalletFundingReservationSnapshot {
+  const value = {
+    ...body,
+    reservation_hash: createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex"),
+  }
+  assertReplayRuntimeSharedWalletFundingReservationSnapshot(value)
+  return value
+}
+
+export function assertReplayRuntimeSharedWalletFundingReservationSnapshot(
+  value: ReplayRuntimeSharedWalletFundingReservationSnapshot,
+): void {
+  requireExactObjectFields(value, [
+    "schema_version", "reservation_id", "reservation_ref", "reservation_hash", "issued_at", "expires_at",
+    "status", "authority_id", "experiment_id", "trial_group_id", "trial_group_hash", "portfolio_id",
+    "portfolio_plan_hash", "settlement_asset", "shared_initial_cash", "capital_policy_version",
+    "funding_policy_version", "same_time_cash_policy", "lanes", "limitations",
+  ], "runtime_shared_wallet_funding_reservation")
+  if (value.schema_version !== REPLAY_RUNTIME_SHARED_WALLET_FUNDING_RESERVATION_SCHEMA_VERSION) {
+    fail("runtime shared wallet funding reservation schema_version")
+  }
+  for (const [field, item] of Object.entries({
+    reservation_id: value.reservation_id, reservation_ref: value.reservation_ref,
+    experiment_id: value.experiment_id, trial_group_id: value.trial_group_id,
+    portfolio_id: value.portfolio_id, settlement_asset: value.settlement_asset,
+  })) requireText(item, `runtime_shared_wallet_funding_reservation.${field}`)
+  for (const [field, item] of Object.entries({
+    reservation_hash: value.reservation_hash, trial_group_hash: value.trial_group_hash,
+    portfolio_plan_hash: value.portfolio_plan_hash,
+  })) requireHash(item, `runtime_shared_wallet_funding_reservation.${field}`)
+  requireUtcTimestamp(value.issued_at, "runtime_shared_wallet_funding_reservation.issued_at")
+  requireUtcTimestamp(value.expires_at, "runtime_shared_wallet_funding_reservation.expires_at")
+  if (Date.parse(value.expires_at) <= Date.parse(value.issued_at)) {
+    fail("runtime shared wallet funding reservation timestamps must satisfy issued_at < expires_at")
+  }
+  if (value.status !== "reserved" || value.authority_id !== "research-control-plane"
+      || value.capital_policy_version !== "rd-runtime-shared-wallet-exact-funding-v1"
+      || value.funding_policy_version !== "exact-event-time-t-minus-position-v1"
+      || value.same_time_cash_policy !== "funding_before_exit_before_entry_then_control_plane_priority") {
+    fail("runtime shared wallet funding reservation policy is unsupported")
+  }
+  requirePositiveFinite(value.shared_initial_cash, "runtime_shared_wallet_funding_reservation.shared_initial_cash")
+  if (!Array.isArray(value.lanes) || value.lanes.length < 2) {
+    fail("runtime shared wallet funding reservation requires at least two lanes")
+  }
+  const laneIds = new Set<string>()
+  const trialIds = new Set<string>()
+  const runIds = new Set<string>()
+  const reservationHashes = new Set<string>()
+  for (let index = 0; index < value.lanes.length; index += 1) {
+    const lane = value.lanes[index]!
+    requireExactObjectFields(lane, [
+      "lane_id", "priority_rank", "trial_id", "run_id", "trial_reservation_ref", "trial_reservation_hash",
+    ], "runtime_shared_wallet_funding_reservation.lane")
+    requireText(lane.lane_id, "runtime_shared_wallet_funding_reservation.lane_id")
+    requireText(lane.trial_id, "runtime_shared_wallet_funding_reservation.trial_id")
+    requireText(lane.run_id, "runtime_shared_wallet_funding_reservation.run_id")
+    requireText(lane.trial_reservation_ref, "runtime_shared_wallet_funding_reservation.trial_reservation_ref")
+    requireHash(lane.trial_reservation_hash, "runtime_shared_wallet_funding_reservation.trial_reservation_hash")
+    if (lane.priority_rank !== index + 1 || laneIds.has(lane.lane_id) || trialIds.has(lane.trial_id)
+        || runIds.has(lane.run_id) || reservationHashes.has(lane.trial_reservation_hash)) {
+      fail("runtime shared wallet funding reservation lanes require consecutive priority and unique authority")
+    }
+    laneIds.add(lane.lane_id)
+    trialIds.add(lane.trial_id)
+    runIds.add(lane.run_id)
+    reservationHashes.add(lane.trial_reservation_hash)
+  }
+  const limitations: ReplayRuntimeSharedWalletFundingReservationSnapshot["limitations"] = [
+    "market_next_open_entry_full_exit_and_exact_funding_only",
+    "isolated_margin_no_cross_margin",
+    "no_liquidation_partial_position_or_borrow",
+  ]
+  if (canonicalReservationJson(value.limitations) !== canonicalReservationJson(limitations)) {
+    fail("runtime shared wallet funding reservation limitations were weakened")
+  }
+  const { reservation_hash: reservationHash, ...body } = value
+  if (reservationHash !== createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")) {
+    fail("runtime shared wallet funding reservation hash mismatch")
+  }
+}
+
+export function createReplayRuntimeSharedWalletRiskReservationSnapshot(
+  body: ReplayRuntimeSharedWalletRiskReservationBody,
+): ReplayRuntimeSharedWalletRiskReservationSnapshot {
+  const value = {
+    ...body,
+    reservation_hash: createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex"),
+  }
+  assertReplayRuntimeSharedWalletRiskReservationSnapshot(value)
+  return value
+}
+
+export function assertReplayRuntimeSharedWalletRiskReservationSnapshot(
+  value: ReplayRuntimeSharedWalletRiskReservationSnapshot,
+): void {
+  requireExactObjectFields(value, [
+    "schema_version", "reservation_id", "reservation_ref", "reservation_hash", "issued_at", "expires_at",
+    "status", "authority_id", "experiment_id", "trial_group_id", "trial_group_hash", "portfolio_id",
+    "portfolio_plan_hash", "settlement_asset", "shared_initial_cash", "capital_policy_version",
+    "funding_policy_version", "risk_policy_version", "same_time_cash_policy", "lanes", "limitations",
+  ], "runtime_shared_wallet_risk_reservation")
+  if (value.schema_version !== REPLAY_RUNTIME_SHARED_WALLET_RISK_RESERVATION_SCHEMA_VERSION) {
+    fail("runtime shared wallet risk reservation schema_version")
+  }
+  for (const [field, item] of Object.entries({
+    reservation_id: value.reservation_id, reservation_ref: value.reservation_ref,
+    experiment_id: value.experiment_id, trial_group_id: value.trial_group_id,
+    portfolio_id: value.portfolio_id, settlement_asset: value.settlement_asset,
+  })) requireText(item, `runtime_shared_wallet_risk_reservation.${field}`)
+  for (const [field, item] of Object.entries({
+    reservation_hash: value.reservation_hash, trial_group_hash: value.trial_group_hash,
+    portfolio_plan_hash: value.portfolio_plan_hash,
+  })) requireHash(item, `runtime_shared_wallet_risk_reservation.${field}`)
+  requireUtcTimestamp(value.issued_at, "runtime_shared_wallet_risk_reservation.issued_at")
+  requireUtcTimestamp(value.expires_at, "runtime_shared_wallet_risk_reservation.expires_at")
+  if (Date.parse(value.expires_at) <= Date.parse(value.issued_at)) {
+    fail("runtime shared wallet risk reservation timestamps must satisfy issued_at < expires_at")
+  }
+  if (value.status !== "reserved" || value.authority_id !== "research-control-plane"
+      || value.capital_policy_version !== "rd-runtime-shared-wallet-exact-risk-v1"
+      || value.funding_policy_version !== "exact-event-time-t-minus-position-v1"
+      || value.risk_policy_version !== "complete-exact-mark-isolated-maintenance-full-liquidation-v1"
+      || value.same_time_cash_policy !== "funding_then_exact_risk_then_liquidation_then_exit_then_entry_then_control_plane_priority") {
+    fail("runtime shared wallet risk reservation policy is unsupported")
+  }
+  requirePositiveFinite(value.shared_initial_cash, "runtime_shared_wallet_risk_reservation.shared_initial_cash")
+  if (!Array.isArray(value.lanes) || value.lanes.length < 2) {
+    fail("runtime shared wallet risk reservation requires at least two lanes")
+  }
+  const laneIds = new Set<string>()
+  const trialIds = new Set<string>()
+  const runIds = new Set<string>()
+  const reservationHashes = new Set<string>()
+  for (let index = 0; index < value.lanes.length; index += 1) {
+    const lane = value.lanes[index]!
+    requireExactObjectFields(lane, [
+      "lane_id", "priority_rank", "trial_id", "run_id", "trial_reservation_ref", "trial_reservation_hash",
+    ], "runtime_shared_wallet_risk_reservation.lane")
+    requireText(lane.lane_id, "runtime_shared_wallet_risk_reservation.lane_id")
+    requireText(lane.trial_id, "runtime_shared_wallet_risk_reservation.trial_id")
+    requireText(lane.run_id, "runtime_shared_wallet_risk_reservation.run_id")
+    requireText(lane.trial_reservation_ref, "runtime_shared_wallet_risk_reservation.trial_reservation_ref")
+    requireHash(lane.trial_reservation_hash, "runtime_shared_wallet_risk_reservation.trial_reservation_hash")
+    if (lane.priority_rank !== index + 1 || laneIds.has(lane.lane_id) || trialIds.has(lane.trial_id)
+        || runIds.has(lane.run_id) || reservationHashes.has(lane.trial_reservation_hash)) {
+      fail("runtime shared wallet risk reservation lanes require consecutive priority and unique authority")
+    }
+    laneIds.add(lane.lane_id)
+    trialIds.add(lane.trial_id)
+    runIds.add(lane.run_id)
+    reservationHashes.add(lane.trial_reservation_hash)
+  }
+  const limitations: ReplayRuntimeSharedWalletRiskReservationSnapshot["limitations"] = [
+    "market_next_open_entry_full_exit_exact_funding_and_mark_risk_only",
+    "isolated_margin_full_liquidation_no_cross_margin",
+    "no_partial_liquidation_borrow_insurance_or_adl",
+  ]
+  if (canonicalReservationJson(value.limitations) !== canonicalReservationJson(limitations)) {
+    fail("runtime shared wallet risk reservation limitations were weakened")
+  }
+  const { reservation_hash: reservationHash, ...body } = value
+  if (reservationHash !== createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")) {
+    fail("runtime shared wallet risk reservation hash mismatch")
+  }
+}
+
+export function createReplayPortfolioAllocationReservationSnapshot(
+  body: ReplayPortfolioAllocationReservationBody,
+): ReplayPortfolioAllocationReservationSnapshot {
+  const value = {
+    ...structuredClone(body),
+    reservation_hash: createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex"),
+  }
+  assertReplayPortfolioAllocationReservationSnapshot(value)
+  return value
+}
+
+export function assertReplayPortfolioAllocationReservationSnapshot(
+  value: ReplayPortfolioAllocationReservationSnapshot,
+): void {
+  requireExactObjectFields(value, [
+    "schema_version", "reservation_id", "reservation_ref", "reservation_hash", "issued_at", "expires_at",
+    "status", "authority_id", "experiment_id", "trial_group_id", "trial_group_hash", "portfolio_id",
+    "portfolio_plan_hash", "settlement_asset", "shared_initial_cash", "allocation_policy_version",
+    "exposure_policy_version", "risk_budget_policy_version", "rejection_precedence",
+    "max_gross_exposure_amount", "max_abs_net_exposure_amount", "max_portfolio_risk_amount",
+    "lanes", "limitations",
+  ], "portfolio_allocation_reservation")
+  if (value.schema_version !== REPLAY_PORTFOLIO_ALLOCATION_RESERVATION_SCHEMA_VERSION) {
+    fail("portfolio allocation reservation schema_version")
+  }
+  for (const [field, item] of Object.entries({
+    reservation_id: value.reservation_id, reservation_ref: value.reservation_ref,
+    experiment_id: value.experiment_id, trial_group_id: value.trial_group_id,
+    portfolio_id: value.portfolio_id, settlement_asset: value.settlement_asset,
+  })) requireText(item, `portfolio_allocation_reservation.${field}`)
+  for (const [field, item] of Object.entries({
+    reservation_hash: value.reservation_hash, trial_group_hash: value.trial_group_hash,
+    portfolio_plan_hash: value.portfolio_plan_hash,
+  })) requireHash(item, `portfolio_allocation_reservation.${field}`)
+  requireUtcTimestamp(value.issued_at, "portfolio_allocation_reservation.issued_at")
+  requireUtcTimestamp(value.expires_at, "portfolio_allocation_reservation.expires_at")
+  if (Date.parse(value.expires_at) <= Date.parse(value.issued_at)) {
+    fail("portfolio allocation reservation timestamps must satisfy issued_at < expires_at")
+  }
+  if (value.status !== "reserved" || value.authority_id !== "research-control-plane"
+      || value.allocation_policy_version !== "simultaneous-entry-greedy-priority-no-resize-v1"
+      || value.exposure_policy_version !== "entry-execution-notional-gross-and-absolute-net-v1"
+      || value.risk_budget_policy_version
+        !== "entry-to-frozen-stop-adverse-execution-plus-round-trip-fees-v1"
+      || value.rejection_precedence
+        !== "lane_risk_then_cash_then_gross_then_absolute_net_then_portfolio_risk") {
+    fail("portfolio allocation reservation policy is unsupported")
+  }
+  requirePositiveFinite(value.shared_initial_cash, "portfolio_allocation_reservation.shared_initial_cash")
+  requirePositiveFinite(value.max_gross_exposure_amount,
+    "portfolio_allocation_reservation.max_gross_exposure_amount")
+  requirePositiveFinite(value.max_abs_net_exposure_amount,
+    "portfolio_allocation_reservation.max_abs_net_exposure_amount")
+  requirePositiveFinite(value.max_portfolio_risk_amount,
+    "portfolio_allocation_reservation.max_portfolio_risk_amount")
+  if (value.max_abs_net_exposure_amount > value.max_gross_exposure_amount
+      || value.max_portfolio_risk_amount > value.shared_initial_cash) {
+    fail("portfolio allocation reservation caps are inconsistent")
+  }
+  if (!Array.isArray(value.lanes) || value.lanes.length < 2) {
+    fail("portfolio allocation reservation requires at least two lanes")
+  }
+  const laneIds = new Set<string>()
+  const trialIds = new Set<string>()
+  const runIds = new Set<string>()
+  const reservationHashes = new Set<string>()
+  for (let index = 0; index < value.lanes.length; index += 1) {
+    const lane = value.lanes[index]!
+    requireExactObjectFields(lane, [
+      "lane_id", "priority_rank", "trial_id", "run_id", "trial_reservation_ref",
+      "trial_reservation_hash", "max_lane_risk_amount",
+    ], "portfolio_allocation_reservation.lane")
+    requireText(lane.lane_id, "portfolio_allocation_reservation.lane_id")
+    requireText(lane.trial_id, "portfolio_allocation_reservation.trial_id")
+    requireText(lane.run_id, "portfolio_allocation_reservation.run_id")
+    requireText(lane.trial_reservation_ref, "portfolio_allocation_reservation.trial_reservation_ref")
+    requireHash(lane.trial_reservation_hash, "portfolio_allocation_reservation.trial_reservation_hash")
+    requirePositiveFinite(lane.max_lane_risk_amount, "portfolio_allocation_reservation.max_lane_risk_amount")
+    if (lane.max_lane_risk_amount > value.max_portfolio_risk_amount || lane.priority_rank !== index + 1
+        || laneIds.has(lane.lane_id) || trialIds.has(lane.trial_id) || runIds.has(lane.run_id)
+        || reservationHashes.has(lane.trial_reservation_hash)) {
+      fail("portfolio allocation reservation lanes require bounded risk, consecutive priority and unique authority")
+    }
+    laneIds.add(lane.lane_id)
+    trialIds.add(lane.trial_id)
+    runIds.add(lane.run_id)
+    reservationHashes.add(lane.trial_reservation_hash)
+  }
+  const limitations: ReplayPortfolioAllocationReservationSnapshot["limitations"] = [
+    "market_next_open_full_fill_or_reject_no_resize_entry_slice_only",
+    "entry_notional_exposure_and_frozen_stop_loss_budget_not_dynamic_var",
+    "no_exit_funding_liquidation_cross_margin_partial_fill_or_borrow",
+  ]
+  if (canonicalReservationJson(value.limitations) !== canonicalReservationJson(limitations)) {
+    fail("portfolio allocation reservation limitations were weakened")
+  }
+  const { reservation_hash: reservationHash, ...body } = value
+  if (reservationHash !== createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")) {
+    fail("portfolio allocation reservation hash mismatch")
+  }
+}
+
+export function createReplayPortfolioReallocationReservationSnapshot(
+  body: ReplayPortfolioReallocationReservationBody,
+): ReplayPortfolioReallocationReservationSnapshot {
+  const value = {
+    ...structuredClone(body),
+    reservation_hash: createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex"),
+  }
+  assertReplayPortfolioReallocationReservationSnapshot(value)
+  return value
+}
+
+export function assertReplayPortfolioReallocationReservationSnapshot(
+  value: ReplayPortfolioReallocationReservationSnapshot,
+): void {
+  requireExactObjectFields(value, [
+    "schema_version", "reservation_id", "reservation_ref", "reservation_hash", "issued_at", "expires_at",
+    "status", "authority_id", "experiment_id", "trial_group_id", "trial_group_hash", "portfolio_id",
+    "portfolio_plan_hash", "settlement_asset", "portfolio_initial_cash", "predecessor_integrated_result_hash",
+    "predecessor_artifact_manifest_hash", "reallocation_cycle", "earliest_reallocation_time",
+    "opening_cash_policy", "eligibility_policy", "allocation_policy_version", "max_gross_exposure_amount",
+    "max_abs_net_exposure_amount", "max_portfolio_risk_amount", "lanes", "limitations",
+  ], "portfolio_reallocation_reservation")
+  for (const text of [value.reservation_id, value.reservation_ref, value.experiment_id, value.trial_group_id,
+    value.portfolio_id, value.settlement_asset]) requireText(text, "portfolio_reallocation_reservation.text")
+  for (const hash of [value.reservation_hash, value.trial_group_hash, value.portfolio_plan_hash,
+    value.predecessor_integrated_result_hash, value.predecessor_artifact_manifest_hash]) {
+    requireHash(hash, "portfolio_reallocation_reservation.hash")
+  }
+  requireUtcTimestamp(value.issued_at, "portfolio_reallocation_reservation.issued_at")
+  requireUtcTimestamp(value.expires_at, "portfolio_reallocation_reservation.expires_at")
+  requireUtcTimestamp(value.earliest_reallocation_time, "portfolio_reallocation_reservation.earliest_reallocation_time")
+  if (value.schema_version !== REPLAY_PORTFOLIO_REALLOCATION_RESERVATION_SCHEMA_VERSION
+      || value.status !== "reserved" || value.authority_id !== "research-control-plane"
+      || value.reallocation_cycle !== 2
+      || value.opening_cash_policy !== "predecessor_ending_available_cash_after_full_flat_release"
+      || value.eligibility_policy !== "all_predecessor_positions_closed_and_exposure_risk_zero"
+      || value.allocation_policy_version !== "simultaneous-entry-greedy-priority-no-resize-v1"
+      || Date.parse(value.expires_at) <= Date.parse(value.issued_at)
+      || Date.parse(value.earliest_reallocation_time) < Date.parse(value.issued_at)) fail("portfolio reallocation policy")
+  for (const [name, amount] of Object.entries({ initial: value.portfolio_initial_cash,
+    gross: value.max_gross_exposure_amount, net: value.max_abs_net_exposure_amount,
+    risk: value.max_portfolio_risk_amount })) requirePositiveFinite(amount, `portfolio_reallocation_reservation.${name}`)
+  if (value.max_abs_net_exposure_amount > value.max_gross_exposure_amount
+      || value.max_portfolio_risk_amount > value.portfolio_initial_cash || value.lanes.length < 2) fail("portfolio reallocation caps")
+  const laneIds = new Set<string>()
+  const trialIds = new Set<string>()
+  const runIds = new Set<string>()
+  const reservationHashes = new Set<string>()
+  value.lanes.forEach((lane, index) => {
+    requireExactObjectFields(lane, ["lane_id", "priority_rank", "trial_id", "run_id", "trial_reservation_ref",
+      "trial_reservation_hash", "max_lane_risk_amount"], "portfolio_reallocation_reservation.lane")
+    requireHash(lane.trial_reservation_hash, "portfolio_reallocation_reservation.lane.hash")
+    requirePositiveFinite(lane.max_lane_risk_amount, "portfolio_reallocation_reservation.lane.risk")
+    requireText(lane.lane_id, "portfolio_reallocation_reservation.lane.lane_id")
+    requireText(lane.trial_id, "portfolio_reallocation_reservation.lane.trial_id")
+    requireText(lane.run_id, "portfolio_reallocation_reservation.lane.run_id")
+    requireText(lane.trial_reservation_ref, "portfolio_reallocation_reservation.lane.trial_reservation_ref")
+    if (lane.priority_rank !== index + 1 || lane.max_lane_risk_amount > value.max_portfolio_risk_amount
+        || laneIds.has(lane.lane_id) || trialIds.has(lane.trial_id) || runIds.has(lane.run_id)
+        || reservationHashes.has(lane.trial_reservation_hash)) fail("portfolio reallocation lanes")
+    laneIds.add(lane.lane_id)
+    trialIds.add(lane.trial_id)
+    runIds.add(lane.run_id)
+    reservationHashes.add(lane.trial_reservation_hash)
+  })
+  const limitations: ReplayPortfolioReallocationReservationSnapshot["limitations"] = [
+    "second_cycle_only_after_authoritative_full_flat_release",
+    "opening_cash_derived_from_predecessor_result_not_control_plane_estimate",
+    "no_third_cycle_partial_cross_margin_borrow_or_fast",
+  ]
+  if (canonicalReservationJson(value.limitations) !== canonicalReservationJson(limitations)) fail("portfolio reallocation limitations")
+  const { reservation_hash: hash, ...body } = value
+  if (hash !== createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")) fail("portfolio reallocation hash")
+}
+
+export function createReplayPortfolioCycleSequenceReservationSnapshot(
+  body: ReplayPortfolioCycleSequenceReservationBody,
+): ReplayPortfolioCycleSequenceReservationSnapshot {
+  const value = {
+    ...structuredClone(body),
+    reservation_hash: createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex"),
+  }
+  assertReplayPortfolioCycleSequenceReservationSnapshot(value)
+  return value
+}
+
+export function assertReplayPortfolioCycleSequenceReservationSnapshot(
+  value: ReplayPortfolioCycleSequenceReservationSnapshot,
+): void {
+  requireExactObjectFields(value, [
+    "schema_version", "reservation_id", "reservation_ref", "reservation_hash", "issued_at", "expires_at",
+    "status", "authority_id", "experiment_id", "trial_group_id", "trial_group_hash", "portfolio_id",
+    "settlement_asset", "initial_cash", "cycle_count", "max_cycle_count", "opening_cash_policy",
+    "successor_eligibility_policy", "expansion_policy", "cycles", "limitations",
+  ], "portfolio_cycle_sequence_reservation")
+  for (const text of [value.reservation_id, value.reservation_ref, value.experiment_id, value.trial_group_id,
+    value.portfolio_id, value.settlement_asset]) requireText(text, "portfolio_cycle_sequence_reservation.text")
+  for (const hash of [value.reservation_hash, value.trial_group_hash]) {
+    requireHash(hash, "portfolio_cycle_sequence_reservation.hash")
+  }
+  requireUtcTimestamp(value.issued_at, "portfolio_cycle_sequence_reservation.issued_at")
+  requireUtcTimestamp(value.expires_at, "portfolio_cycle_sequence_reservation.expires_at")
+  requirePositiveFinite(value.initial_cash, "portfolio_cycle_sequence_reservation.initial_cash")
+  if (value.schema_version !== REPLAY_PORTFOLIO_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION
+      || value.status !== "reserved" || value.authority_id !== "research-control-plane"
+      || value.max_cycle_count !== REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES
+      || value.opening_cash_policy !== "first_cycle_initial_then_predecessor_ending_available"
+      || value.successor_eligibility_policy !== "predecessor_full_flat_exposure_and_risk_zero"
+      || value.expansion_policy !== "exact_predeclared_cycles_no_runtime_append_or_search_expansion"
+      || Date.parse(value.expires_at) <= Date.parse(value.issued_at)
+      || !Number.isSafeInteger(value.cycle_count) || value.cycle_count < 1
+      || value.cycle_count > REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES
+      || value.cycles.length !== value.cycle_count) fail("portfolio cycle sequence policy")
+  let priorTime = Number.NEGATIVE_INFINITY
+  const trialIds = new Set<string>()
+  const runIds = new Set<string>()
+  const reservationHashes = new Set<string>()
+  for (const [cycleOffset, cycle] of value.cycles.entries()) {
+    requireExactObjectFields(cycle, [
+      "cycle_index", "allocation_plan_hash", "risk_plan_hash", "earliest_cycle_time",
+      "max_gross_exposure_amount", "max_abs_net_exposure_amount", "max_portfolio_risk_amount", "lanes",
+    ], "portfolio_cycle_sequence_reservation.cycle")
+    requireHash(cycle.allocation_plan_hash, "portfolio_cycle_sequence_reservation.cycle.allocation_plan_hash")
+    requireHash(cycle.risk_plan_hash, "portfolio_cycle_sequence_reservation.cycle.risk_plan_hash")
+    requireUtcTimestamp(cycle.earliest_cycle_time, "portfolio_cycle_sequence_reservation.cycle.earliest_cycle_time")
+    if (cycle.cycle_index !== cycleOffset + 1 || Date.parse(cycle.earliest_cycle_time) <= priorTime
+        || Date.parse(cycle.earliest_cycle_time) < Date.parse(value.issued_at)
+        || Date.parse(cycle.earliest_cycle_time) >= Date.parse(value.expires_at)) fail("portfolio cycle sequence order")
+    priorTime = Date.parse(cycle.earliest_cycle_time)
+    for (const [name, amount] of Object.entries({ gross: cycle.max_gross_exposure_amount,
+      net: cycle.max_abs_net_exposure_amount, risk: cycle.max_portfolio_risk_amount })) {
+      requirePositiveFinite(amount, `portfolio_cycle_sequence_reservation.cycle.${name}`)
+    }
+    if (cycle.max_abs_net_exposure_amount > cycle.max_gross_exposure_amount
+        || cycle.max_portfolio_risk_amount > value.initial_cash || cycle.lanes.length < 2) {
+      fail("portfolio cycle sequence caps")
+    }
+    const laneIds = new Set<string>()
+    cycle.lanes.forEach((lane, laneOffset) => {
+      requireExactObjectFields(lane, ["lane_id", "priority_rank", "trial_id", "run_id",
+        "trial_reservation_ref", "trial_reservation_hash", "max_lane_risk_amount"],
+      "portfolio_cycle_sequence_reservation.lane")
+      requireText(lane.lane_id, "portfolio_cycle_sequence_reservation.lane.lane_id")
+      requireText(lane.trial_id, "portfolio_cycle_sequence_reservation.lane.trial_id")
+      requireText(lane.run_id, "portfolio_cycle_sequence_reservation.lane.run_id")
+      requireText(lane.trial_reservation_ref, "portfolio_cycle_sequence_reservation.lane.trial_reservation_ref")
+      requireHash(lane.trial_reservation_hash, "portfolio_cycle_sequence_reservation.lane.hash")
+      requirePositiveFinite(lane.max_lane_risk_amount, "portfolio_cycle_sequence_reservation.lane.risk")
+      if (lane.priority_rank !== laneOffset + 1 || lane.max_lane_risk_amount > cycle.max_portfolio_risk_amount
+          || laneIds.has(lane.lane_id) || trialIds.has(lane.trial_id) || runIds.has(lane.run_id)
+          || reservationHashes.has(lane.trial_reservation_hash)) fail("portfolio cycle sequence lanes")
+      laneIds.add(lane.lane_id)
+      trialIds.add(lane.trial_id)
+      runIds.add(lane.run_id)
+      reservationHashes.add(lane.trial_reservation_hash)
+    })
+  }
+  const limitations: ReplayPortfolioCycleSequenceReservationSnapshot["limitations"] = [
+    "one_to_eight_predeclared_full_flat_cycles_only",
+    "cycle_opening_cash_is_runtime_predecessor_evidence_not_control_plane_estimate",
+    "no_partial_cross_margin_borrow_real_liquidity_fast_or_runtime_cycle_expansion",
+  ]
+  if (canonicalReservationJson(value.limitations) !== canonicalReservationJson(limitations)) {
+    fail("portfolio cycle sequence limitations")
+  }
+  const { reservation_hash: hash, ...body } = value
+  if (hash !== createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")) {
+    fail("portfolio cycle sequence hash")
+  }
+}
+
 export function createReplayInstrumentStatusProviderCertificationSnapshot(
   body: ReplayInstrumentStatusProviderCertificationBody,
 ): ReplayInstrumentStatusProviderCertificationSnapshot {
@@ -1377,7 +2437,7 @@ export function assertReplayDecisionObservationBundleAdmissionSnapshot(
     fail("decision observation bundle admission cardinality")
   }
   if (value.status !== "admitted"
-      || value.request_schema_version !== "trade.rd-replay-execution-request.v30"
+      || value.request_schema_version !== "trade.rd-replay-execution-request.v36"
       || value.wire_policy_version !== "rd-replay-source-event-wire-v2"
       || value.bundle_policy_version !== "rd-replay-source-event-decision-observation-bundle-v1"
       || value.consumer_capability !== "non_economic_decision_observation_audit"
@@ -2456,6 +3516,61 @@ function assertExactSnapshotFields(value: object, expected: string[], label: str
   if (canonicalReservationJson(Object.keys(value).sort()) !== canonicalReservationJson(expected)) {
     fail(`${label} field whitelist drift`)
   }
+}
+
+function requireExactObjectFields(value: object, expected: string[], label: string): void {
+  assertExactSnapshotFields(value, [...expected].sort(), label)
+}
+
+interface ExactFiniteNumber {
+  coefficient: bigint
+  scale: number
+}
+
+function exactFiniteNumberSum(values: number[]): ExactFiniteNumber {
+  return values.map(exactFiniteNumber).reduce((total, value) => {
+    const scale = Math.max(total.scale, value.scale)
+    return normalizeExactFiniteNumber({
+      coefficient: total.coefficient * 10n ** BigInt(scale - total.scale)
+        + value.coefficient * 10n ** BigInt(scale - value.scale),
+      scale,
+    })
+  }, { coefficient: 0n, scale: 0 })
+}
+
+function exactFiniteNumberEquals(left: ExactFiniteNumber, right: number): boolean {
+  const normalizedLeft = normalizeExactFiniteNumber(left)
+  const normalizedRight = exactFiniteNumber(right)
+  return normalizedLeft.coefficient === normalizedRight.coefficient && normalizedLeft.scale === normalizedRight.scale
+}
+
+function exactFiniteNumber(value: number): ExactFiniteNumber {
+  if (!Number.isFinite(value)) fail("exact finite number input")
+  const [mantissa, exponentText = "0"] = String(Object.is(value, -0) ? 0 : value).toLowerCase().split("e")
+  const exponent = Number(exponentText)
+  const sign = mantissa.startsWith("-") ? -1n : 1n
+  const unsigned = mantissa.replace(/^[+-]/, "")
+  const [integer, fraction = ""] = unsigned.split(".")
+  let coefficient = sign * BigInt(`${integer}${fraction}`)
+  let scale = fraction.length - exponent
+  if (scale < 0) {
+    coefficient *= 10n ** BigInt(-scale)
+    scale = 0
+  }
+  return normalizeExactFiniteNumber({ coefficient, scale })
+}
+
+function normalizeExactFiniteNumber(value: ExactFiniteNumber): ExactFiniteNumber {
+  let { coefficient, scale } = value
+  while (scale > 0 && coefficient % 10n === 0n) {
+    coefficient /= 10n
+    scale -= 1
+  }
+  return { coefficient, scale }
+}
+
+function requirePositiveFinite(value: unknown, field: string): asserts value is number {
+  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) fail(`${field} must be positive and finite`)
 }
 
 function requireHash(value: unknown, field: string): void {
