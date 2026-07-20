@@ -1,5 +1,7 @@
 # Replay Trial Runner
 
+M4-P26 owns the explicit fixed-partial projection opt-in, per-Lane certified Replay execution, Portfolio terminal/accounting publication and bounded Cycle Sequence Runner. Default Integrated/Risk projection remains fail-closed. Child Result/Artifact, terminal, accounting and sequence payloads are immutable and manifest-last; any Lane, source, full-flat or publication failure returns no aggregate Evidence/manifest. Successor cash derives only from the prior committed partial-aware Trial Balance.
+
 M4-P25 owns the explicit protective-stop-cancel projection opt-in、terminal/accounting Runner and bounded Cycle Sequence Runner. Default Integrated/Risk materialization still fails closed；the successor validates the final cancel closure, keeps historical admission risk reserved, publishes target-only/risk-degraded terminal and accounting children, and refuses successor cash roll-forward until full-flat exposure and risk are zero. Eleven sequence payloads precede the manifest, and no aggregate Evidence is published on child、projection、full-flat or publication failure.
 
 M4-P24 owns the explicit strategy-exit-cancel projection opt-in、terminal/accounting Runner and bounded Cycle Sequence Runner. Default Integrated/Risk materialization still fails closed；the successor validates the cancel closure before Risk execution, commits terminal and accounting child Artifacts before cash roll-forward, writes eleven sequence payloads before the manifest, and publishes no aggregate Evidence on any child、full-flat、projection or publication failure.
