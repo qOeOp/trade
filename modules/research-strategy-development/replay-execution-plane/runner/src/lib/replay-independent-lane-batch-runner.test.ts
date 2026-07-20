@@ -260,6 +260,8 @@ import { runReplayPortfolioProtectiveTerminal } from "./replay-portfolio-protect
 import { runReplayPortfolioFixedPartialTerminal } from "./replay-portfolio-fixed-partial-terminal-runner"
 import { runReplayPortfolioFixedPartialTerminalAccounting } from
   "./replay-portfolio-fixed-partial-terminal-accounting-runner"
+import { runReplayPortfolioFixedPartialCycleSequence } from
+  "./replay-portfolio-fixed-partial-cycle-sequence-runner"
 import { runReplayPortfolioProtectiveStopReplacementTerminal } from
   "./replay-portfolio-protective-stop-replacement-terminal-runner"
 import { runReplayPortfolioProtectiveStopReplacementTerminalAccounting } from
@@ -832,6 +834,32 @@ function fixedPartialLaneReplayStub(input: ReplayTrialRunInput): ReplayTrialRunO
   return { schema_version: "trade.rd-replay-run-outcome.v35", run_id: request.run_id,
     attempt_id: input.attempt_lease.attempt_id, lease_generation: input.attempt_lease.lease_generation,
     status: "completed", idempotent_replay: false, result, artifact_manifest: artifact } as ReplayTrialRunOutcome
+}
+
+function fixedPartialLiquidationReplayStub(input: ReplayTrialRunInput): ReplayTrialRunOutcome {
+  const outcome = fixedPartialLaneReplayStub(input); const result = outcome.result!
+  const mark = input.mark_events!.at(-1)!; const side = input.request.order.side
+  const fill = { fill_id: `${input.request.run_id}:fill:liquidation`,
+    order_id: `${input.request.run_id}:order:liquidation`, order_role: "liquidation" as const,
+    event_key: { event_time: mark.timestamp, boundary_phase: 15 as const, source_sequence: mark.source_sequence,
+      event_subphase: 0, stable_event_id: "liquidation" }, timestamp: mark.timestamp,
+    side: side === "long" ? "sell" as const : "buy" as const, quantity: 0.6, price: mark.mark_price,
+    fee: 0, liquidation_fee: 0, reduce_only: true }
+  const realized = Number(((side === "long" ? mark.mark_price - 100 : 100 - mark.mark_price) * 0.6).toFixed(8))
+  result.fills.push(fill); result.positions.push({ ...result.positions[0]!, position_event_id: "position:liquidation",
+    sequence: result.positions.length + 1, event_key: fill.event_key, timestamp: fill.timestamp,
+    cause_fill_id: fill.fill_id, state: "flat", side: null, signed_quantity: 0, average_entry_price: null,
+    valuation_price: fill.price, realized_pnl_delta: realized,
+    realized_pnl_cumulative: result.positions.at(-1)!.realized_pnl_cumulative + realized })
+  result.ledger.push({ entry_id: "pnl:liquidation", event_key: fill.event_key, timestamp: fill.timestamp,
+    kind: "realized_pnl", amount: realized, balance_after: 0, ref: fill.fill_id })
+  result.ledger.sort((a, b) => Date.parse(a.timestamp) - Date.parse(b.timestamp)
+    || a.event_key.boundary_phase - b.event_key.boundary_phase)
+  result.equity_bridge.terminal_position_state = "flat"; result.valuation_snapshot.signed_quantity = 0
+  result.valuation_snapshot.unrealized_pnl = 0
+  result.fingerprint.result_hash = canonicalHash({ source: result.fingerprint.result_hash, fill, realized })
+  outcome.artifact_manifest!.result_hash = result.fingerprint.result_hash
+  return outcome
 }
 
 function withRuntimeProtectiveStopReplacement(
@@ -5855,6 +5883,108 @@ test("Portfolio fixed partial consumes certified lane Results and resizes wallet
       owner: "initial_protective_stop", ending_open: false,
     })
   } finally { rmSync(raceRoot, { recursive: true, force: true }) }
+
+  const liquidationBase = runtimeLaneInput({ laneId: "fixed-partial-liquidation", symbol: "ADAUSDT",
+    collateral: 20, feeBps: 0 })
+  const liquidationLane = withRuntimeRisk(withRuntimeFixedPartial(liquidationBase, { terminal: "open" }),
+    [100, 95, 60])
+  const liquidationRoot = mkdtempSync(join(tmpdir(), "replay-portfolio-fixed-partial-liquidation-"))
+  try {
+    const outcome = runReplayPortfolioFixedPartialTerminal({ ...protectiveStopCancelPortfolioInput(
+      [liquidationLane], "portfolio-fixed-partial-liquidation", liquidationRoot),
+    execute_lane_replay: fixedPartialLiquidationReplayStub })
+    if (!outcome.evidence) throw new Error(outcome.failure?.message ?? "fixed-partial liquidation missing")
+    expect(outcome.evidence.lane_records.find((record) => record.lane_id === liquidationLane.lane_id))
+      .toMatchObject({ partial_status: "filled_then_terminal", generation_two_quantity: 0.6,
+        owner: "exact_liquidation", terminal_phase: 15, ending_open: false,
+        ending_quantity: 0, released_collateral: 20 })
+  } finally { rmSync(liquidationRoot, { recursive: true, force: true }) }
+})
+
+test("Portfolio fixed partial rolls four full-flat owner-keyed cash cycles", () => {
+  const portfolioId = "portfolio-fixed-partial-cycle-sequence"
+  const fixtures = ["2026-07-14T00:02:00Z", "2026-07-14T00:05:00Z",
+    "2026-07-14T00:08:00Z", "2026-07-14T00:11:00Z"].map((entry, index) => {
+    const side = index % 2 === 0 ? "long" as const : "short" as const
+    const primaryBase = runtimeLaneInput({ laneId: `fixed-partial-cycle-${index + 1}`,
+      symbol: ["BTCUSDT", "ETHUSDT", "SOLUSDT", "XRPUSDT"][index]!, collateral: 20,
+      feeBps: 0, executableTime: entry })
+    Object.assign(primaryBase.trial.request.order, { side, stop_price: side === "long" ? 90 : 110,
+      target_price: side === "long" ? 120 : 80 })
+    const markTimes = [entry, new Date(Date.parse(entry) + 60_000).toISOString().replace(".000Z", "Z"),
+      new Date(Date.parse(entry) + 120_000).toISOString().replace(".000Z", "Z")] as [string, string, string]
+    const primary = withRuntimeRisk(withRuntimeFixedPartial(primaryBase),
+      [100, side === "long" ? 105 : 95, side === "long" ? 110 : 90], { markTimes })
+    const rejected = withRuntimeRisk(withRuntimeLifecycleExit(runtimeLaneInput({
+      laneId: `fixed-partial-cycle-${index + 1}-rejected`, symbol: "BNBUSDT", collateral: 20,
+      feeBps: 0, executableTime: entry }), { executableTime: markTimes[2], open: 100 }),
+    [100, 100, 100], { markTimes })
+    const lanes = [primary, rejected]
+    const allocationDraft = portfolioAllocationPlan(lanes)
+    const allocationBody = { ...allocationDraft, portfolio_id: portfolioId }
+    const allocationPlan = { ...allocationBody, plan_hash: replayPortfolioAllocationPlanHash(allocationBody) }
+    const riskDraft = runtimeRiskPlan(lanes); const riskBody = { ...riskDraft, portfolio_id: portfolioId }
+    const riskPlan = { ...riskBody, plan_hash: replayRuntimeSharedWalletRiskPlanHash(riskBody) }
+    return { entry, lanes, allocationPlan, riskPlan }
+  })
+  const reservation = createReplayPortfolioCycleSequenceReservationSnapshot({
+    schema_version: REPLAY_PORTFOLIO_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION,
+    reservation_id: "fixed-partial-cycle-sequence-4", reservation_ref: "reservation://fixed-partial-cycle/4",
+    issued_at: "2026-07-14T00:00:30Z", expires_at: "2026-07-14T00:15:00Z", status: "reserved",
+    authority_id: "research-control-plane", experiment_id: "experiment-1", trial_group_id: "trial-group-1",
+    trial_group_hash: HASH, portfolio_id: portfolioId, settlement_asset: "USDT", initial_cash: 100,
+    cycle_count: 4, max_cycle_count: REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES,
+    opening_cash_policy: "first_cycle_initial_then_predecessor_ending_available",
+    successor_eligibility_policy: "predecessor_full_flat_exposure_and_risk_zero",
+    expansion_policy: "exact_predeclared_cycles_no_runtime_append_or_search_expansion",
+    cycles: fixtures.map((fixture, index) => ({ cycle_index: index + 1,
+      allocation_plan_hash: fixture.allocationPlan.plan_hash, risk_plan_hash: fixture.riskPlan.plan_hash,
+      earliest_cycle_time: fixture.entry, max_gross_exposure_amount: 100,
+      max_abs_net_exposure_amount: 100, max_portfolio_risk_amount: 25,
+      lanes: fixture.lanes.map((lane, rank) => ({ lane_id: lane.lane_id, priority_rank: rank + 1,
+        trial_id: lane.trial.request.trial_id, run_id: lane.trial.request.run_id,
+        trial_reservation_ref: lane.trial.trial_reservation.reservation_ref,
+        trial_reservation_hash: hashTrialReservationSnapshot(lane.trial.trial_reservation),
+        max_lane_risk_amount: 15 })) })),
+    limitations: ["one_to_eight_predeclared_full_flat_cycles_only",
+      "cycle_opening_cash_is_runtime_predecessor_evidence_not_control_plane_estimate",
+      "no_partial_cross_margin_borrow_real_liquidity_fast_or_runtime_cycle_expansion"],
+  })
+  const planned = fixtures.map((fixture) => ({ ...fixture, integratedPlan: integratedPortfolioPlan(
+    fixture.allocationPlan, reservation.reservation_hash, fixture.riskPlan, reservation.reservation_hash) }))
+  const plan = cycleSequencePlan(portfolioId, reservation.reservation_hash, planned)
+  const root = mkdtempSync(join(tmpdir(), "replay-fixed-partial-cycle-sequence-"))
+  try {
+    const input = { plan, reservation, cycles: planned.map((fixture, index) => ({ cycle_index: index + 1,
+      integrated_plan: fixture.integratedPlan, allocation_plan: fixture.allocationPlan,
+      risk_plan: fixture.riskPlan, lanes: [...fixture.lanes].reverse().map((lane) => ({
+        lane_id: lane.lane_id, trial: lane.trial })) })), artifact_store: createReplayLocalArtifactStore(root),
+      execute_lane_replay: fixedPartialLaneReplayStub }
+    const outcome = runReplayPortfolioFixedPartialCycleSequence(input)
+    if (!outcome.evidence || !outcome.artifact_manifest) {
+      throw new Error(outcome.failure?.message ?? "fixed-partial cycle sequence missing")
+    }
+    expect(outcome.evidence.cycle_commits.map((commit) => [commit.cycle_index,
+      commit.opening_available_cash, commit.ending_available_cash])).toEqual([
+      [1, 100, 108], [2, 108, 116], [3, 116, 124], [4, 124, 132],
+    ])
+    expect(outcome.evidence.consolidated_ledger.filter((entry) =>
+      entry.cycle_entry.cashflow_kind === "realized_pnl").map((entry) => entry.cycle_entry.amount))
+      .toEqual([2, 6, 2, 6, 2, 6, 2, 6])
+    expect(outcome.evidence.consolidated_journal.filter((entry) =>
+      entry.cycle_entry.posting_kind === "opening_cash")).toHaveLength(1)
+    expect(outcome.evidence.consolidated_trial_balance).toMatchObject({
+      ending_available_cash: 132, ending_reserved_isolated_collateral: 0,
+      ending_unrealized_pnl: 0, opening_equity_posting_count: 1, balanced: true })
+    expect(outcome.artifact_manifest.files.map((file) => file.role)).toEqual([
+      "cycle_sequence_plan", "cycle_sequence_reservation", "cycle_terminal_artifact_manifests",
+      "cycle_terminal_evidence", "cycle_accounting_artifact_manifests", "cycle_accounting_evidence",
+      "consolidated_ledger", "consolidated_journal", "consolidated_trial_balance",
+      "cycle_sequence_fingerprint", "cycle_sequence_evidence",
+    ])
+    expect(runReplayPortfolioFixedPartialCycleSequence(input)).toMatchObject({
+      status: "completed", idempotent_replay: true, evidence: outcome.evidence })
+  } finally { rmSync(root, { recursive: true, force: true }) }
 })
 
 test("Portfolio Artifact uses manifest-last commit, is idempotent, and retries orphan payloads without partial Result", () => {
