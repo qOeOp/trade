@@ -60,7 +60,7 @@
         "V"
       ],
       "path": "modules/orchestration-ops/trade-flow",
-      "purpose": "Execute one leased and idempotent program-runtime shadow wakeup over the existing job graph without enabling domain jobs or live writes.",
+      "purpose": "Execute one leased fixed-profile wakeup: ops-only shadow, J06 canary, or J01-J07 full shadow with exchange writes disabled.",
       "command": {
         "cwd": "modules/orchestration-ops/trade-flow",
         "argv": [
@@ -74,15 +74,15 @@
         ]
       },
       "writes": {
-        "trade_db": false,
-        "catalog": false,
-        "artifacts": false,
+        "trade_db": true,
+        "catalog": true,
+        "artifacts": true,
         "binance": false,
         "config": false
       },
       "notes": [
-        "Writes only orchestration observations in ops_runtime_store through existing lifecycle owners.",
-        "Closed-world input cannot enable J01-J07, live writes, real notifications, or disable required L2 service and resident-consumer health checks.",
+        "shadow_program writes only orchestration observations; catalog_hygiene_canary delegates only J06; full_shadow delegates the fixed J01-J07 owner graph and its declared logical writes.",
+        "No profile can enable exchange live writes, real notifications, arbitrary jobs/commands, GC/--yes, or weaker required L2 service and resident-consumer health checks.",
         "This remains the reusable one-shot entry beneath trade-flow.program-shadow-supervisor."
       ],
       "module_type": "suite",
@@ -123,15 +123,15 @@
         ]
       },
       "writes": {
-        "trade_db": false,
-        "catalog": false,
-        "artifacts": false,
+        "trade_db": true,
+        "catalog": true,
+        "artifacts": true,
         "binance": false,
         "config": false
       },
       "notes": [
         "Foreground only; launchd, systemd, Docker, or another external process manager owns restart and process lifetime.",
-        "The fixed profile keeps J01-J07 and live writes disabled; each lifecycle child command is bounded to 30 seconds.",
+        "shadow_program keeps J01-J07 disabled; full_shadow enables the fixed seven-job graph while preserving owner active gates and permanently denies exchange live writes; each child command is bounded to 30 seconds.",
         "The one-shot catalog_hygiene_canary profile is a separate opt-in migration gate: it forces only J06, permits only artifact_catalog writes, and exposes no GC, --yes, arbitrary-root, notification, or live-write authority.",
         "The durable supervisor lease uses heartbeat renewal and fencing tokens; SIGINT/SIGTERM drains the in-flight wakeup before release.",
         "SQLite contention is bounded to a one-second busy window and returns ops_store_busy; every graph result carries a cycle-independent parity hash for Agent/program comparison.",
