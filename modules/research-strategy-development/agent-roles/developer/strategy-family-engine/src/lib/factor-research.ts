@@ -1,4 +1,4 @@
-import { buildIndicators } from "../../../../../replay-execution-plane/compatibility/legacy-research-kernel/src/lib/replay-core"
+import { buildIndicators } from "../../../../../replay-execution-plane/compatibility/legacy-research-features/src/lib/legacy-research-features"
 import { hashCanonical } from "../../../../../replay-execution-plane/compatibility/legacy-replay-identity/src/lib/legacy-replay-identity"
 import type { Candle } from "../../../../../replay-execution-plane/compatibility/legacy-research-data/src/lib/legacy-research-data"
 import {
