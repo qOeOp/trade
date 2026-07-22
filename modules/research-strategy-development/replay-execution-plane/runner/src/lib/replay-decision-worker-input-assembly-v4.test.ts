@@ -132,10 +132,6 @@ import {
   assertReplayDecisionHarnessDispatchClaim,
 } from "../../../contracts/src/lib/replay-decision-harness-dispatch-claim"
 import {
-  assertReplayDecisionHarnessProcessLaunchAttempt,
-  assertReplayDecisionHarnessProcessLaunchReceipt,
-} from "../../../contracts/src/lib/replay-decision-harness-process-launch"
-import {
   assertReplayDecisionHarnessTransportActivationGate,
 } from "../../../contracts/src/lib/replay-decision-harness-transport-activation"
 import {
@@ -405,7 +401,6 @@ import {
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-authority-capsule"
 import {
   assertReplayDecisionHarnessWorkerV10SuccessorSpawnBoundaryRevalidation,
-  assertReplayDecisionHarnessWorkerV10SuccessorSpawnBoundaryRevalidationLineage,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-spawn-boundary-revalidation"
 import {
   admitReplayWorkerV10SuccessorLease,
@@ -554,6 +549,13 @@ import {
   expectAuthorityResponseAndSchedule,
   expectAuthoritySpawnBoundary,
 } from "./replay-worker-v10-authority-stage.assertions"
+import {
+  expectFormalCutoverAdmission,
+  expectLegacyProcessProbe,
+  expectLegacyTransportActivation,
+  expectSuccessorSpawnRevalidation,
+  expectWorkerV10Cutover,
+} from "./replay-worker-v10-cutover-legacy-stage.assertions"
 
 const HASH = "a".repeat(64)
 const ACCOUNTING = {
@@ -4805,59 +4807,11 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
     const successorSpawnRequest = successorSpawnResult.revalidation_request
     const successorSpawnReceipt = successorSpawnResult.control_plane_revalidation_receipt
     const successorSpawnRevalidation = successorSpawnResult.spawn_boundary_revalidation
-    expect(successorSpawnRequest.source_authority_capsule_record_hash)
-      .toBe(successorAuthorityCapsule.record_hash)
-    expect(successorSpawnRequest.source_authority_process_launch_intent_hash)
-      .toBe(successorProcessLaunchIntent.intent_hash)
-    expect(successorSpawnRequest.expected_current_attempt_lease_hash)
-      .toBe(successorAuthorityCapsule.current_attempt_lease_hash)
-    expect(successorSpawnReceipt.source_request_hash).toBe(successorSpawnRequest.request_hash)
-    expect(successorSpawnReceipt.registry_read_started_at).toBe("2026-07-14T00:04:08Z")
-    expect(successorSpawnReceipt.revalidated_at).toBe("2026-07-14T00:04:09Z")
-    expect(successorSpawnReceipt.process_authority).toBe("none")
-    expect(successorSpawnRevalidation.status)
-      .toBe("successor_spawn_boundary_revalidated_process_not_materialized")
-    expect(successorSpawnRevalidation.source_successor_authority_capsule_record_hash)
-      .toBe(successorAuthorityCapsule.record_hash)
-    expect(successorSpawnRevalidation.source_successor_process_launch_intent_hash)
-      .toBe(successorProcessLaunchIntent.intent_hash)
-    expect(successorSpawnRevalidation.source_intent_issued_at)
-      .toBe(successorProcessLaunchIntent.intent_issued_at)
-    expect(successorSpawnRevalidation.source_capsule_parent_canonical_file_sha256).toHaveLength(64)
-    expect(successorSpawnRevalidation.source_intent_parent_canonical_file_sha256).toHaveLength(64)
-    expect(successorSpawnRevalidation.source_request_canonical_file_sha256).toHaveLength(64)
-    expect(successorSpawnRevalidation.source_receipt_canonical_file_sha256).toHaveLength(64)
-    expect(successorSpawnRevalidation.successor_execution_admission_command_count).toBe(1)
-    expect(successorSpawnRevalidation.successor_process_launch_intent_count).toBe(1)
-    expect(successorSpawnRevalidation.successor_authority_capsule_count).toBe(1)
-    expect(successorSpawnRevalidation.successor_spawn_revalidation_request_count).toBe(1)
-    expect(successorSpawnRevalidation.successor_spawn_revalidation_receipt_count).toBe(1)
-    expect(successorSpawnRevalidation.successor_spawn_revalidation_count).toBe(1)
-    expect(successorSpawnRevalidation.successor_worker_process_count).toBe(0)
-    expect(successorSpawnRevalidation.successor_worker_request_frame_count).toBe(0)
-    expect(successorSpawnRevalidation.successor_worker_request_decode_count).toBe(0)
-    expect(successorSpawnRevalidation.second_response_count).toBe(0)
-    expect(successorSpawnRevalidation.second_schedule_admission_count).toBe(0)
-    expect(successorSpawnRevalidation.reproducibility_pair_count).toBe(0)
-    expect(successorSpawnRevalidation.harness_receipt_count).toBe(0)
-    expect(successorSpawnRevalidation.spawn_transition_authority)
-      .toBe("granted_for_one_immediate_attempt_bound_process_start_candidate")
-    expect(successorSpawnRevalidation.process_start_evidence).toBe("none")
-    expect(successorSpawnRevalidation.blockers).toEqual([
-      "successor_worker_process_and_request_dispatch_not_materialized",
-      "second_response_schedule_pair_and_harness_receipt_not_materialized",
-    ])
-    expect(successorSpawnRevalidation.signal_authority).toBe("none")
-    expect(successorSpawnRevalidation.order_authority).toBe("none")
-    expect(successorSpawnRevalidation.economic_authority).toBe("none")
-    expect(() => assertReplayDecisionHarnessWorkerV10SuccessorSpawnBoundaryRevalidation(
-      successorSpawnRevalidation,
-    )).not.toThrow()
-    expect(() => assertReplayDecisionHarnessWorkerV10SuccessorSpawnBoundaryRevalidationLineage(
-      successorSpawnRevalidation,
-      successorAuthorityCapsule,
-      successorProcessLaunchIntent,
-    )).not.toThrow()
+    expectSuccessorSpawnRevalidation({
+      result: successorSpawnResult,
+      capsule: successorAuthorityCapsule,
+      intent: successorProcessLaunchIntent,
+    })
     expect(readReplayWorkerV10SuccessorSpawnBoundaryRevalidation({
       registry_root: dispatchEvidenceRegistryRoot,
       source_successor_authority_capsule: successorAuthorityCapsule,
@@ -4882,22 +4836,10 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
     }
     const cutover = executeReplayWorkerV10Cutover(cutoverInput)
     replayProfile("worker cutover")
-    expect(cutover.disposition).toBe("new_cutover_receipt")
-    expect(cutover.receipt.status)
-      .toBe("admitted_two_fresh_process_pair_and_exact_schedule_effect")
-    expect(cutover.receipt.first_observed_child_pid)
-      .not.toBe(cutover.receipt.second_observed_child_pid)
-    expect(cutover.receipt.first_process_instance_id)
-      .not.toBe(cutover.receipt.second_process_instance_id)
-    expect(cutover.receipt.first_worker_response_hash)
-      .toBe(cutover.receipt.second_worker_response_hash)
-    expect(cutover.receipt.response_instance_count).toBe(2)
-    expect(cutover.receipt.schedule_admission_count).toBe(2)
-    expect(cutover.receipt.reproducibility_pair_count).toBe(1)
-    expect(cutover.receipt.harness_receipt_count).toBe(1)
-    expect(cutover.receipt.economic_authority).toBe("granted_exact_frozen_schedule_effect")
-    expect(cutover.receipt.blockers).toEqual([])
-    expect(cutoverRevalidationCalls).toBe(1)
+    expectWorkerV10Cutover({
+      outcome: cutover,
+      revalidation_calls: cutoverRevalidationCalls,
+    })
     expect(readReplayWorkerV10CutoverReceipt(cutoverInput)).toEqual(cutover.receipt)
     const cutoverRetry = executeReplayWorkerV10Cutover(cutoverInput)
     expect(cutoverRetry.disposition).toBe("existing_cutover_receipt")
@@ -4916,10 +4858,10 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       decision_state_snapshot: cutoverWorkerRequest.decision_state_snapshot,
     })
     replayProfile("formal cutover admission")
-    expect(formalCutoverAdmission.receipt?.receipt_hash).toBe(cutover.receipt.receipt_hash)
-    expect(formalCutoverAdmission.receipt?.worker_protocol_version)
-      .toBe("rd-replay-harness-worker-stdio-v10")
-    expect(formalCutoverAdmission.receipt?.decision_output).toEqual(cutover.receipt.decision_output)
+    expectFormalCutoverAdmission({
+      receipt: formalCutoverAdmission.receipt,
+      cutover: cutover.receipt,
+    })
     const resultArtifactRoot = mkdtempSync(join(tmpdir(), "rd-replay-r4-152-result-golden-"))
     try {
       const cutoverRegistry = createReplayDecisionHarnessCutoverRegistry([{
@@ -5549,19 +5491,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       launch_observation: launchObservation,
       clock: { now: () => launchTimes.shift() ?? "2026-07-14T00:00:36Z" },
     })
-    expect(processLaunchReceipt.receipt_status).toBe("started_probe_eof_rejected")
-    expect(processLaunchReceipt.process_launch_occurrence).toBe("runner_observed_child_started")
-    expect(processLaunchReceipt.observed_child_pid).toBeGreaterThan(0)
-    expect(processLaunchReceipt.process_instance_id).toHaveLength(64)
-    expect(processLaunchReceipt.worker_request_count).toBe(0)
-    expect(processLaunchReceipt.dispatch_occurrence).toBe("not_materialized_zero_worker_request_bytes")
-    expect(processLaunchReceipt.transport_admission).toBe("not_granted")
-    expect(processLaunchReceipt.response_instance).toBeNull()
-    expect(processLaunchReceipt.decision_output_authority).toBe("none")
-    expect(() => assertReplayDecisionHarnessProcessLaunchAttempt(
-      processLaunchReceipt.source_process_launch_attempt,
-    )).not.toThrow()
-    expect(() => assertReplayDecisionHarnessProcessLaunchReceipt(processLaunchReceipt)).not.toThrow()
+    expectLegacyProcessProbe(processLaunchReceipt)
     expect(launchReplayDispatchProcessProbe({
       registry_root: dispatchEvidenceRegistryRoot,
       source_claim: structuredClone(dispatchClaim),
@@ -5592,28 +5522,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       source_process_launch_receipt: processLaunchReceipt,
     })
     replayProfile("legacy transport activation")
-    expect(transportGate.status).toBe("blocked")
-    expect(transportGate.activation_status).toBe("denied")
-    expect(transportGate.attested_artifact_worker_protocol_version).toBe("rd-replay-harness-worker-stdio-v9")
-    expect(transportGate.target_worker_protocol_version).toBe("rd-replay-harness-worker-stdio-v10")
-    expect(transportGate.protocol_relation).toBe("incompatible_v9_artifact_v10_request")
-    expect(transportGate.compatibility_projection_policy)
-      .toBe("forbidden_no_silent_v10_to_v9_request_projection")
-    expect(transportGate.process_reuse_policy).toBe("completed_probe_process_is_not_a_live_dispatch_process")
-    expect(transportGate.blockers).toEqual([
-      "attested_artifact_worker_protocol_v9_target_request_protocol_v10_mismatch",
-      "source_process_launch_receipt_is_terminal_probe_not_reusable_worker_process",
-      "target_worker_request_execution_admission_not_granted",
-      "target_worker_request_transport_status_not_invoked",
-    ])
-    expect(transportGate.transport_frame_instance_count).toBe(0)
-    expect(transportGate.request_write_receipt_count).toBe(0)
-    expect(transportGate.dispatch_occurrence).toBe("not_materialized")
-    expect(transportGate.worker_request_write).toBe("forbidden")
-    expect(transportGate.harness_invocation).toBe("forbidden")
-    expect(transportGate.response_instance).toBeNull()
-    expect(transportGate.decision_output_authority).toBe("none")
-    expect(() => assertReplayDecisionHarnessTransportActivationGate(transportGate)).not.toThrow()
+    expectLegacyTransportActivation(transportGate)
     expect(registerReplayTransportActivationGate({
       registry_root: dispatchEvidenceRegistryRoot,
       source_process_launch_receipt: structuredClone(processLaunchReceipt),
