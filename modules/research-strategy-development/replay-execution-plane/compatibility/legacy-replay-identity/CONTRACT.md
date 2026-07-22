@@ -7,7 +7,7 @@ legacy evidence identity compatibility module
 ## Owns
 
 - 既有 replay evidence 的 canonical、file、manifest/data 与 harness SHA-256 算法。
-- 对 legacy research kernel、strategy fixture、data、features、evaluation、provenance 与 identity implementation source set 的 harness identity 计算。
+- 对 legacy research kernel、strategy fixture、candidate-batch engine、strategy-family/factor engine、data、features、evaluation、provenance 与 identity implementation source set 的 harness identity 计算。
 
 ## Inputs
 
@@ -17,6 +17,7 @@ legacy evidence identity compatibility module
 ## Outputs
 
 - Legacy-compatible canonical、content、data 与 harness hashes。
+- Fail-closed、repo-relative 的 harness production source refs；缺失 owner source 时拒绝生成 hash。
 
 ## Boundaries
 
