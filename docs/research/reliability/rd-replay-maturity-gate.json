@@ -9,7 +9,7 @@
     "name": "bounded-bar-linked-aggregate-trade-stop-entry-path-end-to-end",
     "status": "in_progress",
     "functional_commit_budget": 6,
-    "functional_commits_used": 0
+    "functional_commits_used": 1
   },
   "policy": {
     "zero_instance_progress_forbidden": true,
@@ -20,8 +20,8 @@
   },
   "gates": {
     "functional": {
-      "immutable_kline_aggregate_trade_bar_link": false,
-      "ohlcv_volume_trade_count_and_id_reconciliation": false,
+      "immutable_kline_aggregate_trade_bar_link": true,
+      "ohlcv_volume_trade_count_and_id_reconciliation": true,
       "control_plane_bar_link_and_exact_path_authority": false,
       "opt_in_step_engine_stop_entry_path_consumer": false,
       "checkpoint_result_fingerprint_and_manifest_binding": false,
@@ -30,12 +30,12 @@
     "evidence": {
       "same_ohlcv_opposite_ordered_paths_for_long_and_short": false,
       "entry_trade_cannot_retroactively_trigger_protection": false,
-      "half_open_window_pit_availability_and_bar_boundary": false,
-      "price_volume_quote_volume_trade_count_and_id_tamper_fail_closed": false,
+      "half_open_window_pit_availability_and_bar_boundary": true,
+      "price_volume_quote_volume_trade_count_and_id_tamper_fail_closed": true,
       "missing_or_unlinked_source_remains_unresolved": false,
       "clean_resume_path_and_result_parity": false,
       "artifact_idempotent_replay_and_payload_tamper_rejection": false,
-      "insurance_adl_queue_fill_quantity_slippage_and_impact_not_overclaimed": false
+      "insurance_adl_queue_fill_quantity_slippage_and_impact_not_overclaimed": true
     },
     "cutover": {
       "production_opt_in_lane_consumer": false,
@@ -210,7 +210,12 @@
     "modules/research-strategy-development/replay-execution-plane/data-adapter/src/lib/replay-source-event-wire.ts",
     "modules/research-strategy-development/replay-execution-plane/data-adapter/src/lib/replay-source-event-wire.test.ts",
     "modules/research-strategy-development/replay-execution-plane/engine/src/lib/replay-exact-trade-stop-resolution.ts",
-    "modules/research-strategy-development/replay-execution-plane/engine/src/lib/replay-exact-trade-stop-resolution.test.ts"
+    "modules/research-strategy-development/replay-execution-plane/engine/src/lib/replay-exact-trade-stop-resolution.test.ts",
+    "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-decimal.ts",
+    "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-kline-aggregate-trade-bar-link-contracts.ts",
+    "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-kline-aggregate-trade-bar-link-contracts.test.ts",
+    "modules/research-strategy-development/replay-execution-plane/data-adapter/src/lib/replay-kline-aggregate-trade-bar-link.ts",
+    "modules/research-strategy-development/replay-execution-plane/data-adapter/src/lib/replay-kline-aggregate-trade-bar-link.test.ts"
   ],
   "next_allowed_outcome": "all-m4-p29-gates-true-in-one-bounded-change-set"
 }
