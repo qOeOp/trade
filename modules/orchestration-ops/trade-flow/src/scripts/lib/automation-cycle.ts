@@ -618,26 +618,27 @@ function rdStrategySupervisorJob(input: {
   const commandArgv = [
     "bun",
     "src/scripts/main.ts",
-    "--supervisor-job",
     "--db",
     input.rdStateDb,
-    "--program-id",
-    input.rdProgramId,
     "--catalog-db",
     input.catalogDb,
+    "--program-id",
+    input.rdProgramId,
+    "--profile",
+    "profile/model-gateway.json",
     "--json",
     JSON.stringify(jobPayload),
   ]
   const supervisorToolJob = resolveToolJob({
     jobId: "rd_strategy_supervisor",
-    toolId: "research.rd-supervisor",
+    toolId: "research.rd-autonomy-cycle",
     executable: input.active,
-    payload: { state_ref: programStateRef, db_path: input.rdStateDb, program_id: input.rdProgramId, catalog_db: input.catalogDb, json: jobPayload },
+    payload: { state_ref: programStateRef, db_path: input.rdStateDb, program_id: input.rdProgramId, catalog_db: input.catalogDb, model_profile: "profile/model-gateway.json", json: jobPayload },
     argv: commandArgv,
   })
   return {
     ...baseJob(input),
-    subagent_role: "rd-supervisor",
+    subagent_role: "rd-autonomy-cycle",
     write_scope: ["research artifacts", "catalog metadata", "strategy drafts only after gated candidate"],
     concurrency_group: "research-rd",
     may_write_trade_db: false,
@@ -650,7 +651,7 @@ function rdStrategySupervisorJob(input: {
     command: commandFromToolJob(supervisorToolJob),
     tool_job: supervisorToolJob,
     command_spec: asRecord(supervisorToolJob.command_spec),
-    entrypoint: "read rd_program_state, request action=plan_next, then explicitly run the returned R&D loop/campaign payload and write learning-memory updates until a stop condition is reached",
+    entrypoint: "read plan_next; if the active queue is empty, run one bounded hypothesis model task and CAS queue only a validated ready proposal; then delegate the existing R&D supervisor",
     research_loop_contract: {
       loop_until: ["strategy_draft_created", "budget_exhausted", "data_or_tool_blocked"],
       stop_without_user: true,
@@ -703,7 +704,7 @@ function rdStrategySupervisorJob(input: {
           output: "bounded proposal: thesis certificate fields + candidate universe sketch",
         },
       ],
-      single_writer_rule: "Sidecar subagents are read-only scouts; only rd-supervisor may write rd_program_state through research.rd-program-state or payload writeback.",
+      single_writer_rule: "Sidecar scouts and model output are read-only proposals; autonomy-cycle may only CAS a ready queue proposal through research.rd-program-state, and rd-supervisor owns Trial/result writeback.",
     },
   }
 }

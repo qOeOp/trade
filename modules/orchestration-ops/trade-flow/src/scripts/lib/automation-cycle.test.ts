@@ -229,7 +229,7 @@ test("automation cycle plan can dispatch a learning strategy R&D supervisor", ()
     const jobs = asArray(result.jobs).map(asRecord)
     const rd = asRecord(jobs.find((job) => job.job_id === "rd_strategy_supervisor"))
     assert.equal(rd.active, true)
-    assert.equal(rd.subagent_role, "rd-supervisor")
+    assert.equal(rd.subagent_role, "rd-autonomy-cycle")
     assert.equal(rd.may_write_trade_db, false)
     assert.equal(rd.may_call_binance_write, false)
     const contract = asRecord(rd.research_loop_contract)
@@ -247,21 +247,21 @@ test("automation cycle plan can dispatch a learning strategy R&D supervisor", ()
     const sidecars = asArray(contract.sidecar_subagents).map(asRecord)
     assert.deepEqual(sidecars.map((sidecar) => sidecar.role), ["rd-history-scout", "rd-data-scout", "rd-edge-scout"])
     assert.equal(sidecars.every((sidecar) => sidecar.may_write_state === false), true)
-    assert.match(String(contract.single_writer_rule), /only rd-supervisor/)
-    assert.match(String(rd.command), /--supervisor-job/)
+    assert.match(String(contract.single_writer_rule), /CAS a ready queue proposal/)
+    assert.match(String(rd.command), /--profile/)
     assert.deepEqual(rd.allowed_runtime_writes, ["research_state_store", "artifact_catalog"])
     const rdToolJob = asRecord(rd.tool_job)
-    assert.equal(rdToolJob.tool_id, "research.rd-supervisor")
+    assert.equal(rdToolJob.tool_id, "research.rd-autonomy-cycle")
     assert.equal(rdToolJob.ticket_no, "J04")
     assert.equal(rdToolJob.target_domain, "research-strategy-development")
-    assert.equal(asRecord(rdToolJob.command_spec).cwd, "modules/research-strategy-development/research-control-plane/program-supervisor")
+    assert.equal(asRecord(rdToolJob.command_spec).cwd, "modules/research-strategy-development/research-control-plane/autonomy-cycle")
     const commandSpec = asRecord(rd.command_spec)
     assert.deepEqual(asArray(commandSpec.argv).slice(0, 5), [
       "bun",
       "src/scripts/main.ts",
-      "--supervisor-job",
       "--db",
-      "./data/rd_state.db"
+      "./data/rd_state.db",
+      "--catalog-db"
     ])
     const argv = asArray(commandSpec.argv)
     const jobPayload = JSON.parse(String(argv[argv.length - 1])) as { goal: { budget: { max_hypotheses: number; max_trials_total: number; max_locked_holdout_uses: number } } }
@@ -313,12 +313,12 @@ test("automation cycle plan can drive R&D supervisor from durable program state"
     assert.equal(asRecord(activeRd.goal).objective, "find a shadow-eligible 4H swing strategy")
     assert.equal(activeRd.program_state_status, "active")
     assert.equal(activeRd.program_state_ref, rdProgramRef)
-    assert.match(String(activeRd.command), /modules\/research-strategy-development\/research-control-plane\/program-supervisor\/src\/scripts\/main.ts/)
+    assert.match(String(activeRd.command), /modules\/research-strategy-development\/research-control-plane\/autonomy-cycle\/src\/scripts\/main.ts/)
     const rdToolJob = asRecord(activeRd.tool_job)
-    assert.equal(rdToolJob.tool_id, "research.rd-supervisor")
+    assert.equal(rdToolJob.tool_id, "research.rd-autonomy-cycle")
     assert.equal(rdToolJob.ticket_no, "J04")
     assert.equal(rdToolJob.target_domain, "research-strategy-development")
-    assert.equal(asRecord(rdToolJob.command_spec).cwd, "modules/research-strategy-development/research-control-plane/program-supervisor")
+    assert.equal(asRecord(rdToolJob.command_spec).cwd, "modules/research-strategy-development/research-control-plane/autonomy-cycle")
     assert.equal(asRecord(rdToolJob.payload).state_ref, String(activeRd.program_state_ref))
     assert.equal(asRecord(rdToolJob.payload).db_path, rdStateDb)
     assert.deepEqual(activeRd.allowed_runtime_writes, ["research_state_store", "artifact_catalog"])
@@ -327,9 +327,9 @@ test("automation cycle plan can drive R&D supervisor from durable program state"
     assert.deepEqual(asArray(commandSpec.argv).slice(0, 5), [
       "bun",
       "src/scripts/main.ts",
-      "--supervisor-job",
       "--db",
       rdStateDb,
+      "--catalog-db",
     ])
     const contract = asRecord(activeRd.research_loop_contract)
     assert.equal(asRecord(contract.budget).max_trials_total, 8)

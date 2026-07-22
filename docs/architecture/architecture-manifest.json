@@ -157,6 +157,7 @@
         "modules/research-strategy-development/agent-roles/developer/candidate-batch-engine",
         "modules/research-strategy-development/research-control-plane/program-control",
         "modules/research-strategy-development/research-control-plane/program-supervisor",
+        "modules/research-strategy-development/research-control-plane/autonomy-cycle",
         "modules/research-strategy-development/research-control-plane/replay-recovery",
         "modules/research-strategy-development/forward-evidence-plane/paper-tracker",
         "modules/research-strategy-development/agent-roles/developer/rd-loop-runner",

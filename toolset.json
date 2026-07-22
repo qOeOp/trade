@@ -21,7 +21,7 @@
           "bun",
           "src/scripts/main.ts",
           "--profile",
-          "../../../profile/model-gateway.json",
+          "profile/model-gateway.json",
           "--json",
           "<payload>"
         ]
@@ -2513,7 +2513,7 @@
         "A"
       ],
       "path": "modules/research-strategy-development/research-control-plane/program-control",
-      "purpose": "Initialize, read, update, or plan_next durable R&D learning memory in research_state_store.",
+      "purpose": "Initialize, read, update, plan_next, or atomically queue one validated ready proposal in durable R&D learning memory.",
       "command": {
         "cwd": "modules/research-strategy-development/research-control-plane/program-control",
         "argv": [
@@ -2535,7 +2535,7 @@
         "config": false
       },
       "notes": [
-        "Writes the explicit research_state_store rd_program row. plan_next is read-only planning output and does not execute research."
+        "Writes the explicit research_state_store rd_program row. plan_next is read-only; queue_proposal is updated_at-CAS protected and accepts only ready proposals."
       ],
       "module_type": "atomic",
       "owner_scope": "research.rd-program-state",
@@ -2550,6 +2550,34 @@
         "input_schema": "",
         "output_schema": "modules/research-strategy-development/research-control-plane/program-control/src/schemas/rd-program-state-result.schema.json"
       }
+    },
+    {
+      "id": "research.rd-autonomy-cycle",
+      "domain": "research-strategy-development",
+      "intent": [
+        "rd-autonomy",
+        "queue-replenishment",
+        "bounded-model-task",
+        "rd-supervisor"
+      ],
+      "capability_class": ["A", "E"],
+      "path": "modules/research-strategy-development/research-control-plane/autonomy-cycle",
+      "purpose": "Run one bounded J04 wakeup: refill an empty active queue through a validated model proposal, then delegate the existing RD supervisor.",
+      "command": {
+        "cwd": "modules/research-strategy-development/research-control-plane/autonomy-cycle",
+        "argv": ["bun", "src/scripts/main.ts", "--db", "data/rd_state.db", "--catalog-db", "data/data_catalog.db", "--program-id", "<program-id>", "--profile", "profile/model-gateway.json", "--json", "<payload>"]
+      },
+      "writes": { "trade_db": false, "catalog": true, "artifacts": true, "binance": false, "config": false },
+      "notes": [
+        "Stopped programs and already-ready plans do not call the model; provider/schema/unready failures write no state and run no Trial.",
+        "Queue writes delegate to research.rd-program-state queue_proposal CAS; Trial execution delegates to research.rd-supervisor and promotion remains outside this surface."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "research.rd-autonomy-cycle",
+      "requires_preflight": false,
+      "concurrency_group": "research-rd",
+      "forbidden_callers": ["execution", "exchange-write"],
+      "entry_contract": { "kind": "cli-json", "input_schema": "", "output_schema": "" }
     },
     {
       "id": "research.rd-supervisor",
