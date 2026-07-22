@@ -1,0 +1,15 @@
+{
+  "name": "@trade/watch-task-contract",
+  "private": true,
+  "type": "module",
+  "devDependencies": {
+    "@types/bun": "^1.3.5",
+    "typescript": "^5.9.2"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "lint": "bun run typecheck",
+    "test": "bun test ./src/*.test.ts",
+    "check": "bun run lint && bun run test"
+  }
+}
