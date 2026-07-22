@@ -3,10 +3,12 @@ title: R&D Module Audit
 role: research-audit-log
 status: audit-log
 owner: research-strategy-development
-last_verified: 2026-07-22 CST
+last_verified: 2026-07-23 CST
 ---
 
 # R&D Module Audit
+
+- 2026-07-23：Replay Trial Reservation Admission v1 落地，关闭 Trial Plan 到持久化 Snapshot v9 之间的 caller-supplied binding 缺口。新请求只能携带不含 Reservation ref/hash 的 exact Execution Spec 与完整 Dataset Manifest；Control Plane 在一个 immediate transaction 重验 Plan/Trial/Candidate/Contract、`reserved + running + discovery`、PIT universe、完整 status history、Manifest availability、supplemental/risk/spec/status hashes、active risk epoch、liquidity attestation 与注册 provider 全 provenance，并从 Spec/Manifest 派生 harness、assumptions、cost、margin、simulator 及完整 certified capability set。Record 自哈希且内嵌 Snapshot，另存 full Manifest hash；幂等漂移、重叠有效 Reservation、UPDATE/DELETE 均拒绝。该边界没有创建 Replay Request 或 Attempt；下一纵切是 exact Reservation binding 后的不可变 Replay Request assembly/registration，且不得改写已准入 Spec。
 
 - 2026-07-22：formal Contract → Trial planning/start/reservation authority 落地。新增 self-hashed Experiment Trial Plan v1，只接受 authoritative Freeze 与 exact Experiment/Contract/Group/Candidate identities；Plan ordinals 必须从 1 连续、trial/run/idempotency identities 唯一、数量不超过 frozen `max_trials`，且每个 frozen Candidate 至少被计划一次，显式重复仍按 `trade-flow.trial-accounting.v1` 消耗预算。一个 immediate transaction 将 Group `registered→running`、Experiment lifecycle `proposed@v1→discovery@v2`，再写入全部 `rd_trial(status=reserved)` 与 immutable Plan/items；注入第二笔 Trial 失败证明 Group、lifecycle event、第一笔 Trial 和 Plan 全部回滚。该 `reserved` 是 Control Plane Trial fact，不包含 Dataset、Replay Request、Trial Reservation Snapshot v9、Attempt 或执行权。下一纵切是 Replay Reservation input assembly/admission：绑定 Dataset Manifest、provider certification、harness、assumptions、cost/margin/simulator policy，不能让 Trial Plan 自报这些事实。
 

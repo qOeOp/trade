@@ -344,6 +344,32 @@ CREATE TABLE IF NOT EXISTS rd_experiment_trial_plan_item (
   FOREIGN KEY (trial_id) REFERENCES rd_trial(trial_id)
 );
 
+CREATE TABLE IF NOT EXISTS rd_replay_trial_reservation_admission (
+  admission_id TEXT PRIMARY KEY,
+  plan_id TEXT NOT NULL,
+  trial_id TEXT NOT NULL,
+  reservation_id TEXT NOT NULL UNIQUE,
+  reservation_ref TEXT NOT NULL UNIQUE,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  admission_request_hash TEXT NOT NULL UNIQUE,
+  execution_spec_hash TEXT NOT NULL,
+  execution_spec_json TEXT NOT NULL CHECK(json_valid(execution_spec_json)),
+  dataset_manifest_ref TEXT NOT NULL,
+  dataset_hash TEXT NOT NULL,
+  dataset_manifest_hash TEXT NOT NULL,
+  dataset_manifest_json TEXT NOT NULL CHECK(json_valid(dataset_manifest_json)),
+  provider_certification_hash TEXT NOT NULL,
+  reservation_hash TEXT NOT NULL UNIQUE,
+  reservation_snapshot_json TEXT NOT NULL CHECK(json_valid(reservation_snapshot_json)),
+  admission_hash TEXT NOT NULL UNIQUE,
+  admission_json TEXT NOT NULL CHECK(json_valid(admission_json)),
+  issued_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  CHECK(julianday(issued_at) < julianday(expires_at)),
+  FOREIGN KEY (plan_id) REFERENCES rd_experiment_trial_plan(plan_id),
+  FOREIGN KEY (trial_id) REFERENCES rd_trial(trial_id)
+);
+
 CREATE TABLE IF NOT EXISTS rd_proposal (
   proposal_id TEXT PRIMARY KEY,
   planner_run_id TEXT NOT NULL,
@@ -1696,6 +1722,13 @@ BEGIN SELECT RAISE(ABORT, 'Experiment Trial Plan item is immutable'); END;
 CREATE TRIGGER IF NOT EXISTS prevent_experiment_trial_plan_item_delete
 BEFORE DELETE ON rd_experiment_trial_plan_item
 BEGIN SELECT RAISE(ABORT, 'Experiment Trial Plan item is immutable'); END;
+
+CREATE TRIGGER IF NOT EXISTS prevent_replay_trial_reservation_admission_update
+BEFORE UPDATE ON rd_replay_trial_reservation_admission
+BEGIN SELECT RAISE(ABORT, 'Replay Trial Reservation Admission Record is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS prevent_replay_trial_reservation_admission_delete
+BEFORE DELETE ON rd_replay_trial_reservation_admission
+BEGIN SELECT RAISE(ABORT, 'Replay Trial Reservation Admission Record is immutable'); END;
 
 CREATE TRIGGER IF NOT EXISTS prevent_trial_group_candidate_update
 BEFORE UPDATE ON rd_trial_group_candidate

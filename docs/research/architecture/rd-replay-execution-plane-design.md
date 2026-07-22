@@ -3,7 +3,7 @@ title: RD Replay Execution Plane
 role: research-feature-contract
 status: active-partial
 owner: replay-execution-plane
-last_verified: 2026-07-22 CST
+last_verified: 2026-07-23 CST
 ---
 
 # RD Replay Execution Plane
@@ -40,7 +40,7 @@ Control Plane authorization
 ```
 
 每一层只放大已授权的输入，不自行补策略语义、数据或权限。
-Control Plane `rd_trial(status=reserved)` 只冻结 Trial identity 与预算；它必须经过独立 Replay Trial Reservation Snapshot，将 Dataset Manifest、provider certification、harness、assumptions、cost/margin/simulator policy 全部 hash-bound，才属于本 Plane 可消费的 authorization。Experiment Trial Plan Record 不能替代该 Snapshot。
+Control Plane `rd_trial(status=reserved)` 只冻结 Trial identity 与预算；它必须经过持久化 Replay Trial Reservation Admission v1：Control Plane 从 exact pre-Reservation Execution Spec 与完整 Dataset Manifest 重算 Dataset/provider/harness/assumptions/cost/margin/simulator bindings，并签发、内嵌 Snapshot v9，才形成可消费 authorization。调用方不能自报 bindings 或 capability set；Experiment Trial Plan Record 不能替代 Admission/Snapshot。Admission 仍不等于 Replay Request：Developer 下一步只能把 exact Snapshot ref/hash 插入已准入 Spec，Control Plane 再登记 Request，随后才允许 Attempt。
 
 ## 4. 核心不变量
 

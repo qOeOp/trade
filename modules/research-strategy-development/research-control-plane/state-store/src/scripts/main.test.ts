@@ -202,6 +202,13 @@ test("research state store CLI admits a bounded Planner Proposal without materia
     assert.throws(() => run(parseArgs([
       "--db", dbPath, "--action", "start_experiment_trial_plan", "--json", "{}",
     ])), /plan_id is required/)
+    assert.throws(() => run(parseArgs([
+      "--db", dbPath, "--action", "admit_replay_trial_reservation", "--json", "{}",
+    ])), /unsupported Replay Trial Reservation Admission request/)
+    assert.throws(() => run(parseArgs([
+      "--db", dbPath, "--action", "read_replay_trial_reservation_admission",
+      "--json", JSON.stringify({ admission_id: "missing-admission" }),
+    ])), /Admission Record is missing/)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

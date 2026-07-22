@@ -3,7 +3,7 @@ title: RD Architecture Migration
 role: research-architecture-migration
 status: active-migration
 owner: research-strategy-development
-last_verified: 2026-07-22 CST
+last_verified: 2026-07-23 CST
 ---
 
 # RD Architecture Migration
@@ -27,7 +27,7 @@ agent-roles/
 - Replay 当前成熟度： [rd-replay-maturity-gate.json](../reliability/rd-replay-maturity-gate.json)。
 - Replay 已为 M5/maintenance-only；后续 R&D 主线从 Planner 的 Control Plane context → bounded Proposal 权威链开始，不创建 Replay M5.x 或 P30。
 - Planner 首条权威链已闭合为 Control Plane context → Planner Submission v2 → Control Plane Proposal Admission v1；Admission 仅落不可变 Proposal/revision，不等于 Experiment Contract、Trial Group、Trial 或执行授权。旧 `rd_proposal` 的 contract-shaped materialization 暂留兼容，后续必须显式拆出 Proposal → Contract 编译边界，不能反向冒充 Planner intake。
-- Proposal → Developer → formal Contract → Trial facts 链已闭合为 latest Proposal Admission → immutable Brief → Draft/Receipt → `valid|invalid` Validation → atomic Freeze → atomic Experiment Trial Plan。Freeze compiler v1 注册 Contract、enumerated Group/Candidates 和 bootstrap lifecycle；Trial Plan v1 只接受 exact Freeze，在一个事务将 Group `registered→running`、Experiment `proposed→discovery`，并按 contiguous plan 和 frozen budget 写入全部 `rd_trial(status=reserved)`。任一后段 Trial 失败回滚整个启动。这里的 Trial fact 只是 Control Plane 预算/身份预留，不是 Replay Trial Reservation Snapshot v9；下一边界才绑定 Dataset Manifest、harness/assumptions/cost/margin/simulator policy 与 provider certification，随后才能组装 Replay Request。legacy Proposal compatibility projection 仍是待移除债务。
+- Proposal → Developer → formal Contract → Replay Reservation 链现为 latest Proposal Admission → immutable Brief → Draft/Receipt → `valid|invalid` Validation → atomic Freeze → atomic Experiment Trial Plan → Replay Trial Reservation Admission v1。Admission 只接受 Plan 内仍为 `reserved` 的 Trial 和不含 Reservation authority 的 exact Execution Spec，重算完整 Dataset Manifest、provider、harness/assumptions、cost/margin/simulator bindings，持久化 self-hashed Record 与 Snapshot v9；它不创建 Replay Request/Attempt。下一边界是将 exact Snapshot ref/hash 插入已准入 Spec并登记不可变 Replay Request，禁止借组装改写 Spec。legacy Proposal compatibility projection 与旧 caller-supplied Snapshot helper 仍是待收口债务。
 - Plane 边界：各子树 `README.md` / module `CONTRACT.md`。
 - 历史迁移进度： [Legacy RD Architecture Migration Plan](../../history/legacy-rd-architecture-migration-plan.md)。
 

@@ -42,6 +42,60 @@ import { RESEARCH_LIFECYCLE_RULE_VERSION } from "./research-control-plane-schema
 import { readPlannerControlPlaneContext } from "./research-control-plane-operations"
 import { ensureResearchStateSchema } from "./research-state-store"
 import { seedDefaultResearchControlPlane } from "./research-universe-default-seed"
+import {
+  REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
+  createReplayInstrumentStatusProviderCertificationSnapshot,
+} from "../../../contracts/src/lib/control-plane-contracts"
+import {
+  REPLAY_CERTIFIED_CAPABILITIES,
+  REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
+  REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION,
+  REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION,
+  REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION,
+  REPLAY_NO_DECISION_MARKET_INPUT,
+  REPLAY_NO_DECISION_MARKET_INPUT_HASH,
+  REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS,
+  REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH,
+  REPLAY_REQUEST_SCHEMA_VERSION,
+  REPLAY_SIMULATOR_POLICY_VERSION,
+  REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
+  canonicalHash,
+  createReplayInstrumentStatusProvenance,
+  createReplaySingleDecisionSchedule,
+  replayDatasetHash,
+  replayDatasetManifestHash,
+  replayExecutionSpecHash,
+  type ReplayDatasetManifest,
+  type ReplayExecutionRequest,
+  type ReplayMarketBar,
+} from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
+import { registerReplayInstrumentStatusProviderCertification } from "./instrument-status-provider-certification-registry"
+import {
+  admitReplayTrialReservation,
+  readReplayTrialReservationAdmission,
+} from "./replay-trial-reservation-admission"
+import { REPLAY_TRIAL_RESERVATION_ADMISSION_REQUEST_SCHEMA_VERSION } from "../../../contracts/src/lib/replay-trial-reservation-admission"
+
+const REPLAY_HASH = "2".repeat(64)
+const REPLAY_PROVIDER_CERTIFICATION = createReplayInstrumentStatusProviderCertificationSnapshot({
+  schema_version: REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
+  certification_id: "trial-plan-status-provider-certification",
+  certification_ref: "certification://trial-plan-status-provider/v1",
+  status: "certified",
+  certified_at: "2026-07-22T08:00:00Z",
+  valid_until: "2026-08-01T00:00:00Z",
+  certifier_id: "research-control-plane",
+  certification_policy_version: "rd-status-provider-certification-v1",
+  provider_capability_hash: REPLAY_HASH,
+  producer_domain: "market-data-products",
+  producer_id: "trial-plan-status-producer",
+  producer_version: "v1",
+  producer_build_hash: REPLAY_HASH,
+  normalization_policy_version: "trial-plan-status-normalization-v1",
+  normalization_policy_hash: REPLAY_HASH,
+  allowed_source_kind: "venue_status_event_archive",
+  allowed_completeness: "complete_history",
+})
 
 function openDb(): Database {
   const db = new Database(":memory:")
@@ -185,6 +239,144 @@ function validDraftPayload(brief: ReturnType<typeof issueBrief>, lookback = 20) 
       },
     },
   }
+}
+
+function replayFixture(plan: ReturnType<typeof startExperimentTrialPlan>): {
+  manifest: ReplayDatasetManifest
+  request: ReplayExecutionRequest
+} {
+  const bar: ReplayMarketBar = {
+    open_time: "2026-07-22T04:00:00Z", close_time: "2026-07-22T08:00:00Z",
+    open: 100, high: 111, low: 99, close: 110, volume: 10, closed: true,
+  }
+  const dataHash = replayDatasetHash([bar])
+  const maintenanceTier = {
+    tier_id: "tier-1", snapshot_ref: "fixture:margin-tier-1", snapshot_hash: REPLAY_HASH,
+    notional_floor: 0, notional_cap: 50_000, maintenance_margin_rate: 0.005,
+    maintenance_amount: 0,
+  }
+  const risk = {
+    schema_version: REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
+    snapshot_id: "trial-plan-risk-1", venue_id: "binance-usdm", symbol: "BTCUSDT",
+    effective_at: "2020-01-01T00:00:00Z", valid_until: null,
+    observed_at: "2026-07-22T08:00:00Z", source_ref: "fixture:trial-plan-risk",
+    source_hash: REPLAY_HASH, initial_margin_rate: 0.1, maintenance_tier: maintenanceTier,
+    liquidation_fee_bps: 50,
+  }
+  const instrumentSpec = {
+    schema_version: REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION,
+    snapshot_id: "trial-plan-spec-1", venue_id: "binance-usdm", symbol: "BTCUSDT",
+    effective_at: "2020-01-01T00:00:00Z", valid_until: null,
+    observed_at: "2026-07-22T08:00:00Z", source_ref: "fixture:trial-plan-spec",
+    source_hash: REPLAY_HASH,
+  }
+  const status = {
+    schema_version: REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION,
+    snapshot_id: "trial-plan-status-1", venue_id: "binance-usdm", symbol: "BTCUSDT",
+    status: "trading" as const, effective_at: "2020-01-01T00:00:00Z", valid_until: null,
+    observed_at: "2026-07-22T08:00:00Z", source_ref: "fixture:trial-plan-status",
+    source_hash: REPLAY_HASH,
+  }
+  const provenance = createReplayInstrumentStatusProvenance({
+    producer_domain: REPLAY_PROVIDER_CERTIFICATION.producer_domain,
+    producer_id: REPLAY_PROVIDER_CERTIFICATION.producer_id,
+    producer_version: REPLAY_PROVIDER_CERTIFICATION.producer_version,
+    producer_build_hash: REPLAY_PROVIDER_CERTIFICATION.producer_build_hash,
+    provider_capability_hash: REPLAY_PROVIDER_CERTIFICATION.provider_capability_hash,
+    provider_certification_ref: REPLAY_PROVIDER_CERTIFICATION.certification_ref,
+    provider_certification_hash: REPLAY_PROVIDER_CERTIFICATION.certification_hash,
+    source_owner: "binance-usdm", source_kind: "venue_status_event_archive",
+    normalization_policy_version: REPLAY_PROVIDER_CERTIFICATION.normalization_policy_version,
+    normalization_policy_hash: REPLAY_PROVIDER_CERTIFICATION.normalization_policy_hash,
+    completeness: "complete_history", coverage_start: "2020-01-01T00:00:00Z",
+    coverage_end: "2026-07-22T08:00:00Z", source_observed_through: "2026-07-22T08:00:00Z",
+    produced_at: "2026-07-22T08:00:00Z", source_ref: "fixture:trial-plan-status-source",
+    source_hash: REPLAY_HASH, source_record_count: 1, status_epochs: [status],
+  })
+  const accounting = {
+    spec_version: REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION,
+    product_type: "linear_derivative" as const, base_asset: "BTC", quote_asset: "USDT",
+    settlement_asset: "USDT", contract_multiplier: "1", price_increment: "0.01",
+    quantity_increment: "0.001", settlement_increment: "0.00000001",
+  }
+  const manifest: ReplayDatasetManifest = {
+    schema_version: REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
+    manifest_id: "trial-plan-manifest-1", manifest_ref: "dataset://trial-plan-replay-1",
+    data_hash: dataHash, dataset_kind: "ohlcv", symbol: "BTCUSDT", timeframe: "4h",
+    interval_ms: 14_400_000, row_count: 1, first_open_time: bar.open_time,
+    last_close_time: bar.close_time, observed_through: bar.close_time,
+    closed_candles_only: true, bar_final_availability: "close_time",
+    funding_availability: "event_time", mark_availability: "event_time",
+    mark_coverage: "none", mark_interval_ms: null, mark_event_count: 0,
+    supplemental_facts: {
+      coverage: "none", record_count: 0, source_ids: [], content_hash: canonicalHash([]),
+      requirement_set_hash: REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH,
+    },
+    venue_risk_policy_epochs: [risk],
+    instrument: {
+      listed_at: "2020-01-01T00:00:00Z", trading_enabled_at: "2020-01-01T00:00:00Z",
+      delisted_at: null, status_history: "complete", status_epochs: [status],
+      status_provenance: provenance, spec_epochs: [instrumentSpec], accounting,
+    },
+    universe: { selected_at: "2026-07-22T00:00:00Z", survivorship: "point_in_time" },
+  }
+  const trial = plan.trials[0]!
+  const order: ReplayExecutionRequest["order"] = {
+    side: "long", quantity: 1, signal_time: "2026-07-22T00:00:00Z",
+    earliest_executable_time: bar.open_time, stop_price: 95, target_price: 110,
+    entry_execution: { order_type: "market" },
+  }
+  const decisionSchedule = createReplaySingleDecisionSchedule(order)
+  const request: ReplayExecutionRequest = {
+    schema_version: REPLAY_REQUEST_SCHEMA_VERSION,
+    run_id: trial.run_id, idempotency_key: "trial-plan-replay-request-key-1",
+    experiment_id: plan.experiment_id, trial_group_id: plan.trial_group_id,
+    trial_group_hash: plan.trial_group_hash, trial_id: trial.trial_id,
+    candidate_id: trial.candidate_id, candidate_hash: trial.candidate_identity_hash,
+    identity_hash_policy_version: plan.identity_hash_policy_version,
+    experiment_contract_hash: plan.experiment_contract_hash,
+    trial_reservation_ref: "reservation://pre-admission-placeholder",
+    trial_reservation_hash: "0".repeat(64), dataset_manifest_ref: manifest.manifest_ref,
+    dataset_hash: manifest.data_hash, supplemental_facts_hash: manifest.supplemental_facts.content_hash,
+    supplemental_requirement_set: structuredClone(REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS),
+    supplemental_requirement_set_hash: REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH,
+    decision_market_input_requirement: structuredClone(REPLAY_NO_DECISION_MARKET_INPUT),
+    decision_market_input_requirement_hash: REPLAY_NO_DECISION_MARKET_INPUT_HASH,
+    decision_schedule: decisionSchedule, decision_schedule_hash: canonicalHash(decisionSchedule),
+    venue_risk_policy_schedule_hash: canonicalHash(manifest.venue_risk_policy_epochs),
+    instrument_spec_schedule_hash: canonicalHash({ epochs: manifest.instrument.spec_epochs, accounting }),
+    instrument_status_schedule_hash: canonicalHash(manifest.instrument.status_epochs),
+    instrument_status_provenance_hash: canonicalHash(manifest.instrument.status_provenance),
+    instrument_status_provider_capability_hash: provenance.provider_capability_hash,
+    instrument_status_provider_certification_hash: provenance.provider_certification_hash,
+    harness_hash: REPLAY_HASH, assumptions_hash: REPLAY_HASH, symbol: manifest.symbol,
+    timeframe: manifest.timeframe, initial_cash: 1000, order,
+    cost_policy: { policy_id: "fixture", version: "1", fee_bps: 0, slippage_bps: 0, liquidation_fee_bps: 50 },
+    simulator_policy: {
+      version: REPLAY_SIMULATOR_POLICY_VERSION, signal_visibility: "closed_candle",
+      earliest_execution: "next_open", same_bar_policy: "stop_first", gap_fill_policy: "worse_open",
+      position_accounting: "average_cost", funding_timing: "exact_event", end_of_data: "mark_open",
+      margin_evaluation: "before_strategy_orders",
+    },
+    margin_policy: {
+      policy_id: "fixture", version: "rd-replay-isolated-margin-v7", mode: "isolated",
+      collateral_asset: "USDT", isolated_collateral: 1000, initial_margin_rate: 0.1,
+      maintenance_tier: maintenanceTier, cashflow_scope: "position_attributed",
+      collateral_transfer: "reserve_at_entry_release_at_terminal_if_flat",
+      settled_cashflow_account: "isolated_margin_collateral", observation_scope: "source_event_path",
+      mark_source_policy: "complete_exact_mark_else_ohlcv_adverse",
+      maintenance_trigger: "margin_balance_below_maintenance_requirement",
+      breach_terminal_priority: "risk_before_strategy_exit",
+      breach_evidence: "first_observed_source_event",
+      maintenance_breach_action: "exact_observation_full_liquidation_else_terminal_failure",
+      liquidation: "simulated_full_close", liquidation_trigger_sources: "mark_or_funding_mark",
+      liquidation_execution_price: "trigger_mark_adverse_slippage", liquidation_quantity: "full_position",
+      liquidation_order_priority: "cancel_strategy_exits_before_forced_fill",
+      liquidation_deficit: "fail_without_result",
+    },
+    random_seed: 1,
+  }
+  return { manifest, request }
 }
 
 test("Control Plane issues one immutable Brief and receives an unvalidated Draft idempotently", () => {
@@ -488,6 +680,93 @@ test("Control Plane starts one frozen Experiment and reserves its complete Trial
     expect(() => db.query("UPDATE rd_experiment_trial_plan SET trial_count=2").run()).toThrow("immutable")
     expect(() => startExperimentTrialPlan(db, { ...request, planned_at: "2026-07-22T12:10:00Z" }))
       .toThrow("idempotency key already exists")
+  } finally {
+    db.close()
+  }
+})
+
+test("Control Plane derives and persists one immutable Replay Trial Reservation Admission", () => {
+  const db = openDb()
+  try {
+    registerReplayInstrumentStatusProviderCertification(db, REPLAY_PROVIDER_CERTIFICATION)
+    admitProposal(db)
+    const brief = issueBrief(db)
+    receive(db, draft(brief, { draft_json: validDraftPayload(brief) }))
+    const validation = validateDeveloperContractDraft(db, {
+      schema_version: DEVELOPER_CONTRACT_DRAFT_VALIDATION_REQUEST_SCHEMA_VERSION,
+      validation_id: "validation-replay-reservation", brief_id: brief.brief_id, draft_revision: 1,
+      idempotency_key: "validation-replay-reservation-key", validated_at: "2026-07-22T12:07:00Z",
+    })
+    const freeze = freezeDeveloperExperimentContract(db, {
+      schema_version: DEVELOPER_CONTRACT_FREEZE_REQUEST_SCHEMA_VERSION,
+      freeze_id: "freeze-replay-reservation", validation_id: validation.validation_id,
+      validation_hash: validation.validation_hash, experiment_id: "experiment-replay-reservation",
+      bootstrap_lifecycle_event_id: "event-replay-reservation-register",
+      bootstrap_lifecycle_idempotency_key: "event-replay-reservation-register-key",
+      idempotency_key: "freeze-replay-reservation-key", frozen_at: "2026-07-22T12:08:00Z",
+    })
+    const plan = startExperimentTrialPlan(db, {
+      schema_version: EXPERIMENT_TRIAL_PLAN_REQUEST_SCHEMA_VERSION,
+      plan_id: "replay-reservation-plan-1", freeze_id: freeze.freeze_id, freeze_hash: freeze.freeze_hash,
+      experiment_id: freeze.experiment_id, trial_group_id: freeze.trial_group_id,
+      trial_group_hash: freeze.trial_group_hash,
+      trials: [{
+        trial_id: "replay-reservation-trial-1", trial_ordinal: 1,
+        candidate_id: freeze.candidates[0]!.candidate_id,
+        candidate_identity_hash: freeze.candidates[0]!.candidate_identity_hash,
+        run_id: "replay-reservation-run-1", trial_idempotency_key: "replay-reservation-trial-key-1",
+      }],
+      discovery_lifecycle_event_id: "event-replay-reservation-discovery",
+      discovery_lifecycle_idempotency_key: "event-replay-reservation-discovery-key",
+      idempotency_key: "replay-reservation-plan-key-1", planned_at: "2026-07-22T12:09:00Z",
+    })
+    const fixture = replayFixture(plan)
+    const { trial_reservation_ref: _reservationRef, trial_reservation_hash: _reservationHash,
+      ...executionSpec } = fixture.request
+    const request = {
+      schema_version: REPLAY_TRIAL_RESERVATION_ADMISSION_REQUEST_SCHEMA_VERSION,
+      admission_id: "replay-reservation-admission-1", plan_id: plan.plan_id, plan_hash: plan.plan_hash,
+      trial_id: plan.trials[0]!.trial_id, reservation_id: "replay-reservation-1",
+      reservation_ref: "reservation://replay-reservation-trial-1/v1",
+      execution_spec: executionSpec, dataset_manifest: fixture.manifest,
+      idempotency_key: "replay-reservation-admission-key-1",
+      issued_at: "2026-07-22T12:10:00Z", expires_at: "2026-07-22T13:10:00Z",
+    } as const
+    const admission = admitReplayTrialReservation(db, request)
+    expect(admitReplayTrialReservation(db, request)).toEqual(admission)
+    expect(readReplayTrialReservationAdmission(db, admission.admission_id)).toEqual(admission)
+    expect(admission.status).toBe("admitted")
+    expect(admission.reservation_snapshot.bindings.execution_spec_hash)
+      .toBe(replayExecutionSpecHash(fixture.request))
+    expect(admission.dataset_manifest_hash).toBe(replayDatasetManifestHash(fixture.manifest))
+    expect(admission.reservation_snapshot.required_capabilities).toEqual([...REPLAY_CERTIFIED_CAPABILITIES])
+    expect(admission.replay_request_authority).toBe("none_until_exact_reservation_binding")
+    expect(count(db, "rd_replay_trial_reservation_admission")).toBe(1)
+    expect(count(db, "rd_replay_attempt")).toBe(0)
+    expect(() => db.query(`
+      UPDATE rd_replay_trial_reservation_admission SET dataset_hash=$hash
+    `).run({ $hash: "9".repeat(64) })).toThrow("immutable")
+    expect(() => admitReplayTrialReservation(db, {
+      ...request,
+      execution_spec: { ...executionSpec, harness_hash: "8".repeat(64) },
+    })).toThrow("idempotency key already exists")
+    expect(() => admitReplayTrialReservation(db, {
+      ...request,
+      admission_id: "replay-reservation-admission-manifest-drift",
+      reservation_id: "replay-reservation-manifest-drift",
+      reservation_ref: "reservation://replay-reservation-trial-1/manifest-drift",
+      idempotency_key: "replay-reservation-admission-manifest-drift-key",
+      execution_spec: { ...executionSpec, venue_risk_policy_schedule_hash: "8".repeat(64) },
+      issued_at: "2026-07-22T13:10:00Z", expires_at: "2026-07-22T14:10:00Z",
+    })).toThrow("venue_risk_policy_schedule_hash does not match")
+    expect(() => admitReplayTrialReservation(db, {
+      ...request,
+      admission_id: "replay-reservation-admission-overlap",
+      reservation_id: "replay-reservation-overlap",
+      reservation_ref: "reservation://replay-reservation-trial-1/overlap",
+      idempotency_key: "replay-reservation-admission-overlap-key",
+    })).toThrow("overlapping active Reservations")
+    expect(count(db, "rd_replay_trial_reservation_admission")).toBe(1)
   } finally {
     db.close()
   }
