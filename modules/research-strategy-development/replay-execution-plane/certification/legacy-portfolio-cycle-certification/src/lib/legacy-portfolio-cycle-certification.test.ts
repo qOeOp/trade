@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import {
@@ -78,6 +78,8 @@ import { runReplayTwoCyclePortfolio } from
   "../../../../compatibility/legacy-portfolio-cycle/src/lib/replay-two-cycle-portfolio-runner"
 import { runReplayPortfolioCycleSequenceAccounting } from
   "../../../../compatibility/legacy-portfolio-cycle/src/lib/replay-portfolio-cycle-sequence-accounting-runner"
+import { readReplayHistoricalArtifactMigration } from
+  "../../../../compatibility/legacy-portfolio-cycle/src/lib/replay-historical-artifact-reader"
 import { createReplayLocalArtifactStore } from "../../../../runner/src/lib/replay-local-artifact-store"
 import { runReplayIntegratedPortfolio } from "../../../../runner/src/lib/replay-integrated-portfolio-runner"
 import { runReplayPortfolioCycleSequence } from "../../../../runner/src/lib/replay-portfolio-cycle-sequence-runner"
@@ -765,6 +767,20 @@ test("P10 reallocation closes into one deterministic P11 two-cycle Result/Artifa
     expect(runReplayTwoCyclePortfolio(twoCycleInput)).toMatchObject({
       status: "completed", idempotent_replay: true, result: twoCycle.result,
     })
+    const migration = readReplayHistoricalArtifactMigration(artifactStore, ["M4-P10", "M4-P11"])
+    expect(migration.entries.map((entry) => [entry.milestone, entry.historical_shape])).toEqual([
+      ["M4-P10", "fixed-second-allocation"],
+      ["M4-P11", "fixed-two-cycle"],
+    ])
+    expect(migration.entries[1]?.summary).toMatchObject({
+      cycle_count: 2,
+      cycle_1_ending_available_cash: 100,
+      cycle_2_opening_available_cash: 100,
+      ending_available_cash: 100,
+    })
+    expect(migration.receipt_hash).toMatch(/^[a-f0-9]{64}$/)
+    expect(readReplayHistoricalArtifactMigration(artifactStore, ["M4-P10", "M4-P11"]))
+      .toEqual(migration)
 
     const notFlat = structuredClone(predecessor)
     notFlat.result!.ending_gross_exposure = 1
@@ -774,6 +790,11 @@ test("P10 reallocation closes into one deterministic P11 two-cycle Result/Artifa
       result: null,
       failure: { code: "reallocation-input-invalid", partial_result_published: false },
     })
+    const historicalResultRef = twoCycle.artifact_manifest.files
+      .find((file) => file.role === "two_cycle_result")!.ref
+    writeFileSync(historicalResultRef, "{}\n")
+    expect(() => readReplayHistoricalArtifactMigration(artifactStore, ["M4-P10", "M4-P11"]))
+      .toThrow("payload binding drifted")
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
@@ -866,6 +887,7 @@ test("P13 consolidates three predeclared full-flat cycles into one balanced acco
   const plan = cycleSequencePlan(portfolioId, reservation.reservation_hash, cycles)
   const root = mkdtempSync(join(tmpdir(), "legacy-cycle-accounting-certification-"))
   try {
+    const artifactStore = createReplayLocalArtifactStore(root)
     const input = {
       plan,
       reservation,
@@ -879,7 +901,7 @@ test("P13 consolidates three predeclared full-flat cycles into one balanced acco
           trial: lane.trial,
         })),
       })),
-      artifact_store: createReplayLocalArtifactStore(root),
+      artifact_store: artifactStore,
     }
     const sequence = runReplayPortfolioCycleSequence(input)
     if (!sequence.result || !sequence.artifact_manifest) {
@@ -930,6 +952,22 @@ test("P13 consolidates three predeclared full-flat cycles into one balanced acco
       idempotent_replay: true,
       evidence: accounting.evidence,
     })
+    const migration = readReplayHistoricalArtifactMigration(artifactStore, ["M4-P13"])
+    expect(migration.entries[0]).toMatchObject({
+      milestone: "M4-P13",
+      historical_shape: "bounded-sequence-consolidated-accounting",
+      summary: {
+        cycle_count: 3,
+        initial_cash: 100,
+        ending_available_cash: 110,
+        ending_portfolio_nav: 110,
+        balanced: true,
+        opening_equity_posting_count: 1,
+      },
+    })
+    expect(migration.receipt_hash).toMatch(/^[a-f0-9]{64}$/)
+    expect(readReplayHistoricalArtifactMigration(artifactStore, ["M4-P13"]))
+      .toEqual(migration)
     expect(runReplayPortfolioCycleSequenceAccounting({
       ...input,
       publish_accounting_artifact: () => {
