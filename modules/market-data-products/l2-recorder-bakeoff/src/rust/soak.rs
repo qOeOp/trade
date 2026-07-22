@@ -13,8 +13,7 @@ use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tungstenite::Message;
 
-mod segment_core;
-use segment_core::{FinalizedSegment, StreamingSegmentWriter};
+use trade_l2_order_book_core::{FinalizedSegment, StreamingSegmentWriter};
 
 const STREAM_BASE: &str = "wss://fstream.binance.com/public/stream?streams=";
 const SNAPSHOT_URL: &str = "https://fapi.binance.com/fapi/v1/depth";

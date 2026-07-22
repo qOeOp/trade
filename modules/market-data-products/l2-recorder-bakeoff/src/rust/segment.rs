@@ -1,22 +1,13 @@
-use crc32fast::hash as crc32;
 use serde::Serialize;
-use sha2::{Digest, Sha256};
 use std::env;
 use std::error::Error;
-use std::fs::{self, File, OpenOptions};
-use std::io::{Read, Write};
+use std::fs::{self, OpenOptions};
+use std::io::Write;
 use std::time::{Duration, Instant};
+use trade_l2_order_book_core::{StreamingSegmentWriter, recover_segment as recover_tl2s};
 
 #[cfg(test)]
 use std::time::{SystemTime, UNIX_EPOCH};
-
-mod segment_core;
-use segment_core::StreamingSegmentWriter;
-
-const MAGIC: &[u8; 4] = b"TL2S";
-const HEADER_BYTES: usize = 8;
-const FRAME_HEADER_BYTES: usize = 8;
-const MAX_PAYLOAD_BYTES: usize = 16 * 1024 * 1024;
 
 #[derive(Debug, Serialize)]
 struct WriteResult {
@@ -34,7 +25,7 @@ struct WriteResult {
 struct RecoveryResult {
     schema_version: &'static str,
     implementation: &'static str,
-    status: &'static str,
+    status: String,
     valid_frame_count: usize,
     valid_bytes: usize,
     payload_bytes: usize,
@@ -172,65 +163,25 @@ fn recover_segment(
     salvage_output: Option<&str>,
 ) -> Result<RecoveryResult, Box<dyn Error>> {
     let started_at = Instant::now();
-    let mut segment = Vec::new();
-    File::open(path)?.read_to_end(&mut segment)?;
-    let mut status = "complete";
-    let mut offset = 0;
-    let mut valid_frame_count = 0;
-    let mut payload_bytes = 0;
-    let mut payload_hasher = Sha256::new();
-    if segment.len() < HEADER_BYTES
-        || &segment[0..4] != MAGIC
-        || u16::from_be_bytes([segment[4], segment[5]]) != 1
-        || u16::from_be_bytes([segment[6], segment[7]]) != 0
-    {
-        status = "invalid_header";
-    } else {
-        offset = HEADER_BYTES;
-        while offset < segment.len() {
-            if segment.len() - offset < FRAME_HEADER_BYTES {
-                status = "truncated_frame_header";
-                break;
-            }
-            let length = u32::from_be_bytes(segment[offset..offset + 4].try_into()?) as usize;
-            let expected_crc = u32::from_be_bytes(segment[offset + 4..offset + 8].try_into()?);
-            if length == 0 || length > MAX_PAYLOAD_BYTES {
-                status = "invalid_length";
-                break;
-            }
-            if segment.len() - offset - FRAME_HEADER_BYTES < length {
-                status = "truncated_payload";
-                break;
-            }
-            let payload =
-                &segment[offset + FRAME_HEADER_BYTES..offset + FRAME_HEADER_BYTES + length];
-            if crc32(payload) != expected_crc {
-                status = "checksum_mismatch";
-                break;
-            }
-            payload_hasher.update(payload);
-            payload_bytes += payload.len();
-            valid_frame_count += 1;
-            offset += FRAME_HEADER_BYTES + length;
-        }
-    }
+    let recovered = recover_tl2s(path)?;
     if let Some(output) = salvage_output {
+        let segment = fs::read(path)?;
         let mut file = OpenOptions::new()
             .write(true)
             .create_new(true)
             .open(output)?;
-        file.write_all(&segment[..offset])?;
+        file.write_all(&segment[..recovered.valid_bytes])?;
         file.sync_all()?;
     }
     Ok(RecoveryResult {
         schema_version: "trade.l2-segment-recovery-result.v1",
         implementation: "rust",
-        status,
-        valid_frame_count,
-        valid_bytes: offset,
-        payload_bytes,
-        payload_hash: format!("{:x}", payload_hasher.finalize()),
-        segment_bytes: segment.len(),
+        status: recovered.status,
+        valid_frame_count: recovered.valid_frame_count,
+        valid_bytes: recovered.valid_bytes,
+        payload_bytes: recovered.payload_bytes,
+        payload_hash: recovered.payload_hash,
+        segment_bytes: recovered.segment_bytes,
         elapsed_ns: started_at.elapsed().as_nanos(),
     })
 }

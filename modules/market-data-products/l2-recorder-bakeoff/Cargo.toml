@@ -24,3 +24,4 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
 tungstenite = { version = "0.30", features = ["rustls-tls-native-roots"] }
+trade-l2-order-book-core = { path = "../l2-order-book-core" }
