@@ -1,11 +1,13 @@
 # Market Data Store Contract
 
-Owns `market_data_store` for market manifests, funding events, feature manifests, immutable instrument-status archives, and immutable aggregate-trade archives, plus `ohlcv_store` for canonical candles.
+Owns `market_data_store` for market manifests, admitted L2 epoch manifests, funding events, feature manifests, immutable instrument-status archives, and immutable aggregate-trade archives, plus `ohlcv_store` for canonical candles.
 
 ## Responsibilities
 
 - Create and migrate the market data / OHLCV store schemas.
 - Upsert source/data manifests by content hash.
+- Admit only `complete` Rust L2 epoch proposals after exact snapshot hash, snapshot update id, TL2S header/frame CRC, segment byte/hash/count, sibling-ref, repo runtime-path, and epoch count closure checks; commit epoch plus segment index create-or-identical.
+- Label admitted L2 scope as `epoch_contiguous` and external completeness as `not_verified`; preserve but reject `incomplete` proposals from the formal Replay/RD source catalog.
 - Insert canonical candles into `ohlcv_store` keyed by exchange/symbol/timeframe/open time.
 - Insert funding events keyed by exchange/symbol/funding time.
 - Register feature manifests derived from source manifests.
@@ -24,5 +26,6 @@ Owns `market_data_store` for market manifests, funding events, feature manifests
 - Does not own trading decisions or position state.
 - Does not write `trade.db`.
 - Does not call exchange write APIs.
+- Does not ingest WebSocket frames, own the current order book, mutate Rust evidence files, or infer continuity across L2 epochs.
 - Does not store research experiment results; those remain artifacts/evidence refs.
 - Does not normalize status epochs, infer missing events, select a canonical/latest correction, or certify external venue completeness, authenticity, signature, transport identity, source-system exhaustiveness, dissemination latency, or cross-source ordering.

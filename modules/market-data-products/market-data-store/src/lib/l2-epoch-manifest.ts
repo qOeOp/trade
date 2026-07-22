@@ -102,6 +102,7 @@ export function ensureL2EpochManifestSchema(db: Database): void {
 export function admitL2EpochManifest(db: Database, input: L2EpochAdmissionInput): L2EpochAdmissionResult {
   const root = realpathSync(resolve(input.repository_root))
   const manifestPath = resolveRuntimeEvidencePath(root, input.manifest_path)
+  ensureInside(root, realpathSync(manifestPath))
   const manifestBytes = readRegularFile(manifestPath, "manifest")
   const manifest = parseManifest(manifestBytes)
   verifyManifestEvidence(manifest, manifestPath, root)
@@ -111,17 +112,16 @@ export function admitL2EpochManifest(db: Database, input: L2EpochAdmissionInput)
   const epochId = `binance-usdm:${manifest.symbol}:${manifest.stream_epoch}`
   const admittedAt = input.admitted_at ?? new Date().toISOString()
   requireUtc(admittedAt, "admitted_at")
-  const existing = db.query(`
-    SELECT manifest_hash FROM l2_epoch_manifest WHERE epoch_id = $epoch_id
-  `).get({ $epoch_id: epochId }) as { manifest_hash: string } | null
-  if (existing != null) {
-    if (existing.manifest_hash !== manifestHash) throw new Error("L2 epoch already exists with different content")
-    const epoch = readL2EpochManifest(db, epochId)
-    if (epoch == null) throw new Error("stored L2 epoch disappeared during admission")
-    return { commit_status: "existing", epoch }
-  }
-
+  let commitStatus: "created" | "existing" = "created"
   const commit = db.transaction(() => {
+    const existing = db.query(`
+      SELECT manifest_hash FROM l2_epoch_manifest WHERE epoch_id = $epoch_id
+    `).get({ $epoch_id: epochId }) as { manifest_hash: string } | null
+    if (existing != null) {
+      if (existing.manifest_hash !== manifestHash) throw new Error("L2 epoch already exists with different content")
+      commitStatus = "existing"
+      return
+    }
     db.query(`
       INSERT INTO l2_epoch_manifest(
         epoch_id, schema_version, exchange, symbol, stream_epoch, started_at_ms,
@@ -182,7 +182,7 @@ export function admitL2EpochManifest(db: Database, input: L2EpochAdmissionInput)
   commit()
   const epoch = readL2EpochManifest(db, epochId)
   if (epoch == null) throw new Error("admitted L2 epoch is unreadable")
-  return { commit_status: "created", epoch }
+  return { commit_status: commitStatus, epoch }
 }
 
 export function readL2EpochManifest(db: Database, epochId: string): AdmittedL2Epoch | null {
@@ -206,6 +206,30 @@ export function readL2EpochManifest(db: Database, epochId: string): AdmittedL2Ep
   }
   const bytes = Buffer.from(row.manifest_json)
   if (sha256(bytes) !== row.manifest_hash) throw new Error("stored L2 epoch manifest hash mismatch")
+  const manifest = parseManifest(bytes)
+  const storedSegments = db.query(`
+    SELECT segment_ref, frame_count, payload_bytes, segment_bytes, payload_hash,
+      segment_hash, writer_elapsed_ns
+    FROM l2_segment_manifest WHERE epoch_id = $epoch_id ORDER BY segment_sequence
+  `).all({ $epoch_id: epochId }) as Array<{
+    segment_ref: string
+    frame_count: number
+    payload_bytes: number
+    segment_bytes: number
+    payload_hash: string
+    segment_hash: string
+    writer_elapsed_ns: number
+  }>
+  const projectedSegments = storedSegments.map((segment) => ({
+    path: segment.segment_ref,
+    frame_count: segment.frame_count,
+    payload_bytes: segment.payload_bytes,
+    segment_bytes: segment.segment_bytes,
+    payload_hash: segment.payload_hash,
+    segment_hash: segment.segment_hash,
+    writer_elapsed_ns: segment.writer_elapsed_ns,
+  }))
+  if (JSON.stringify(projectedSegments) !== JSON.stringify(manifest.segments)) throw new Error("stored L2 segment index differs from manifest")
   return {
     epoch_id: row.epoch_id,
     exchange: "binance-usdm",
@@ -214,7 +238,7 @@ export function readL2EpochManifest(db: Database, epochId: string): AdmittedL2Ep
     admitted_at: row.admitted_at,
     source_completeness: "epoch_contiguous",
     external_completeness: "not_verified",
-    manifest: parseManifest(bytes),
+    manifest,
   }
 }
 
@@ -224,6 +248,7 @@ function verifyManifestEvidence(manifest: L2EpochManifestProposal, manifestPath:
   const directory = dirname(manifestPath)
   const snapshotPath = resolveSibling(directory, manifest.snapshot_ref)
   ensureInside(root, snapshotPath)
+  ensureInside(root, realpathSync(snapshotPath))
   const snapshotBytes = readRegularFile(snapshotPath, "snapshot")
   if (sha256(snapshotBytes) !== manifest.snapshot_hash) throw new Error("L2 snapshot hash mismatch")
   const snapshot = JSON.parse(snapshotBytes.toString("utf8")) as { lastUpdateId?: unknown }
@@ -237,6 +262,7 @@ function verifyManifestEvidence(manifest: L2EpochManifestProposal, manifestPath:
     refs.add(segment.path)
     const segmentPath = resolveSibling(directory, segment.path)
     ensureInside(root, segmentPath)
+    ensureInside(root, realpathSync(segmentPath))
     const bytes = readRegularFile(segmentPath, "segment")
     if (bytes.byteLength !== segment.segment_bytes || sha256(bytes) !== segment.segment_hash) {
       throw new Error(`L2 segment byte/hash mismatch: ${segment.path}`)
