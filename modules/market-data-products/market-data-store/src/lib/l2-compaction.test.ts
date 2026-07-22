@@ -5,13 +5,16 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import test from "node:test"
+import { canonicalNfcHash } from "../../../../contracts/runtime-core/src/canonical-json"
 import {
   admitL2CompactionProposal,
   admitL2EpochManifest,
   ensureMarketDataSchema,
   prepareL2CompactionJob,
+  readL2ExperimentAttachmentReferrerReceipt,
   readL2Compaction,
   readL2CompactedEpochSource,
+  registerL2ExperimentAttachmentReferrerReceipt,
   type L2CompactionProposal,
   type L2EpochManifestProposal,
 } from "./market-data-store"
@@ -82,6 +85,47 @@ test("L2 owner issues one compaction job and admits exact Parquet proposal while
     assert.equal(source?.row_count, 2)
     assert.equal(source?.deletion_eligible, false)
     assert.deepEqual(readL2CompactedEpochSource(db, created.compaction.compaction_id), source)
+    assert.ok(source)
+    const authority = buildL2AttachmentAuthority(source)
+    const registered = registerL2ExperimentAttachmentReferrerReceipt(db, {
+      authority,
+      registered_at: "2026-07-22T01:02:00Z",
+    })
+    assert.equal(registered.commit_status, "created")
+    assert.equal(registered.receipt.source_hash, source.source_hash)
+    assert.equal(registered.receipt.deletion_authority, "none")
+    assert.equal(JSON.stringify(registered.receipt).includes("trial_id"), false)
+    assert.deepEqual(registerL2ExperimentAttachmentReferrerReceipt(db, {
+      authority,
+      registered_at: "2026-07-22T01:03:00Z",
+    }), { commit_status: "existing", receipt: registered.receipt })
+    assert.deepEqual(
+      readL2ExperimentAttachmentReferrerReceipt(db, authority.authority_snapshot_hash),
+      registered.receipt,
+    )
+    assert.deepEqual(db.query(`
+      SELECT retention_class, compaction_ref, deletion_eligible FROM l2_epoch_retention
+    `).get(), {
+      retention_class: "compacted_pinned",
+      compaction_ref: created.compaction.compaction_id,
+      deletion_eligible: 0,
+    })
+    assert.throws(() => db.run(`
+      UPDATE l2_experiment_attachment_referrer_receipt SET registered_at = registered_at
+    `), /immutable/)
+    assert.throws(() => db.run(`DELETE FROM l2_experiment_attachment_referrer_receipt`), /immutable/)
+
+    const sourceDrift = rehashAuthority({ ...authority, source_hash: "f".repeat(64) })
+    assert.throws(() => registerL2ExperimentAttachmentReferrerReceipt(db, {
+      authority: sourceDrift,
+    }), /does not bind the local pinned source/)
+    const economicDrift = rehashAuthority({ ...authority, economic_authority: "fill" })
+    assert.throws(() => registerL2ExperimentAttachmentReferrerReceipt(db, {
+      authority: economicDrift,
+    }), /unsupported L2 referrer authority/)
+    assert.throws(() => registerL2ExperimentAttachmentReferrerReceipt(db, {
+      authority: { ...authority, batch_hash: "e".repeat(64) },
+    }), /snapshot hash mismatch/)
     assert.equal(admitL2EpochManifest(db, fixture.admission).commit_status, "existing")
   } finally {
     db.close()
@@ -180,6 +224,70 @@ function createEpochFixture() {
     admission: { repository_root: root, manifest_path: "tmp/l2-order-book-service/run/epoch-manifest.json" },
     cleanup: () => rmSync(root, { recursive: true, force: true }),
   }
+}
+
+function buildL2AttachmentAuthority(source: NonNullable<ReturnType<typeof readL2CompactedEpochSource>>) {
+  const limitations = [
+    "source-external-completeness-not-verified",
+    "single-compacted-epoch-and-one-exact-validated-batch-only",
+    "no-cross-epoch-or-unbound-frame-read",
+    "public-depth-deltas-do-not-prove-hypothetical-queue-position",
+    "no-fill-quantity-maker-probability-slippage-impact-or-economic-authority",
+    "separate-attachment-does-not-mutate-the-ohlcv-dataset-manifest",
+    "replay-runner-not-bound",
+  ]
+  const body = {
+    schema_version: "trade.rd-replay-l2-experiment-attachment-authority.v1",
+    authority_snapshot_id: "l2-attachment-test",
+    authority_snapshot_ref: "authority://l2-attachment-test",
+    status: "authorized",
+    issued_at: "2026-07-22T01:01:30Z",
+    authority_id: "research-control-plane",
+    authority_policy_version: "rd-replay-l2-experiment-attachment-v1",
+    trial_id: "trial-l2-test",
+    run_id: "run-l2-test",
+    reservation_ref: "reservation://trial-l2-test",
+    reservation_hash: "1".repeat(64),
+    request_schema_version: "trade.replay-execution-request.v38",
+    request_hash: "2".repeat(64),
+    dataset_manifest_id: "manifest-l2-test",
+    dataset_manifest_ref: "manifest://l2-test",
+    dataset_data_hash: "3".repeat(64),
+    dataset_manifest_hash: "4".repeat(64),
+    venue_id: "binance-usdm",
+    symbol: source.symbol,
+    source_id: source.source_id,
+    source_hash: source.source_hash,
+    compaction_id: source.compaction_id,
+    epoch_id: source.epoch_id,
+    stream_epoch: source.stream_epoch,
+    source_row_count: source.row_count,
+    source_parquet_hash: source.parquet_hash,
+    source_retention_class: "compacted_pinned",
+    source_deletion_eligible: false,
+    batch_id: "replay-l2-depth-batch:test",
+    batch_hash: "5".repeat(64),
+    batch_rows_hash: "6".repeat(64),
+    batch_offset: 0,
+    batch_row_count: source.row_count,
+    batch_next_offset: source.row_count,
+    frame_start_inclusive: 1,
+    frame_end_exclusive: source.row_count + 1,
+    batch_exhausted: true,
+    attachment_scope: "one_exact_validated_batch_within_one_compacted_epoch",
+    gap_policy: "reject_missing_frame_and_cross_epoch_join",
+    economic_authority: "none",
+    runner_compatibility: "not_bound",
+    external_completeness: "not_verified",
+    limitations,
+    limitations_hash: canonicalNfcHash(limitations),
+  }
+  return { ...body, authority_snapshot_hash: canonicalNfcHash(body) }
+}
+
+function rehashAuthority(authority: Record<string, unknown>) {
+  const { authority_snapshot_hash: _hash, ...body } = authority
+  return { ...body, authority_snapshot_hash: canonicalNfcHash(body) }
 }
 
 function buildTl2s(payloads: Buffer[]): Buffer {
