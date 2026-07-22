@@ -3701,6 +3701,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       registry_root: dispatchEvidenceRegistryRoot,
       source_dispatch_receipt: authorityDispatchReceipt,
     })
+    replayProfile("authority response validation")
     expect(authorityResponseValidation.validation_status)
       .toBe("admitted_non_economic_worker_response_candidate")
     expect(authorityResponseValidation.validation_error_code).toBeNull()
@@ -3798,6 +3799,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       registry_root: dispatchEvidenceRegistryRoot,
       source_schedule_admission: authorityScheduleAdmission,
     })
+    replayProfile("reproducibility pair")
     expect(reproducibilityPairContract.status)
       .toBe("requirements_frozen_second_response_and_pair_not_materialized")
     expect(reproducibilityPairContract.logical_request_id)
@@ -3992,6 +3994,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
         },
       },
     })
+    replayProfile("successor lease")
     expect(successorRenewalPortCallCount).toBe(1)
     expect(successorLeaseResult.renewal_request.requested_lease_expires_at)
       .toBe(requestedSuccessorLeaseExpiry)
@@ -4148,6 +4151,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       registry_root: dispatchEvidenceRegistryRoot,
       source_successor_execution_envelope_admission: successorEnvelopeAdmission,
     })
+    replayProfile("successor execution transport")
     expect(successorTransportAdmission.status)
       .toBe("successor_base_transport_admitted_command_not_materialized")
     expect(successorTransportAdmission.source_successor_execution_envelope_admission_hash)
@@ -4330,6 +4334,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       registry_root: dispatchEvidenceRegistryRoot,
       source_successor_execution_stdio_probe_admission: successorStdioProbeAdmission,
     })
+    replayProfile("successor execution contract")
     const successorArtifactTransport =
       successorExecutionContractAdmission.successor_artifact_bound_transport_contract
     const successorExecutionAdmission =
@@ -4513,6 +4518,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       registry_root: dispatchEvidenceRegistryRoot,
       ...successorCommandInput,
     })
+    replayProfile("successor execution command")
     const successorDispatchClaim =
       successorCommandAdmission.successor_execution_admission_command.source_dispatch_claim
     const successorExecutionCommand = successorCommandAdmission.successor_execution_admission_command
@@ -4709,6 +4715,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       registry_root: dispatchEvidenceRegistryRoot,
       ...successorIntentInput,
     })
+    replayProfile("successor process intent")
     expect(successorProcessLaunchIntent.status)
       .toBe("successor_intent_committed_capsule_revalidation_and_process_not_materialized")
     expect(successorProcessLaunchIntent.source_successor_execution_command_admission_hash)
@@ -4796,6 +4803,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       registry_root: dispatchEvidenceRegistryRoot,
       ...successorCapsuleInput,
     })
+    replayProfile("successor authority capsule")
     expect(successorAuthorityCapsule.status)
       .toBe("successor_capsule_materialized_spawn_revalidation_and_process_not_materialized")
     expect(successorAuthorityCapsule.source_successor_process_launch_intent_hash)
@@ -4978,6 +4986,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       registry_root: dispatchEvidenceRegistryRoot,
       ...successorSpawnInput,
     })
+    replayProfile("successor spawn revalidation")
     expect(successorSpawnRevalidationPortCalls).toBe(1)
     const successorSpawnRequest = successorSpawnResult.revalidation_request
     const successorSpawnReceipt = successorSpawnResult.control_plane_revalidation_receipt
@@ -5058,6 +5067,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       },
     }
     const cutover = executeReplayWorkerV10Cutover(cutoverInput)
+    replayProfile("worker cutover")
     expect(cutover.disposition).toBe("new_cutover_receipt")
     expect(cutover.receipt.status)
       .toBe("admitted_two_fresh_process_pair_and_exact_schedule_effect")
@@ -5091,6 +5101,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       decision_market_input_snapshot: cutoverWorkerRequest.decision_market_input_snapshot,
       decision_state_snapshot: cutoverWorkerRequest.decision_state_snapshot,
     })
+    replayProfile("formal cutover admission")
     expect(formalCutoverAdmission.receipt?.receipt_hash).toBe(cutover.receipt.receipt_hash)
     expect(formalCutoverAdmission.receipt?.worker_protocol_version)
       .toBe("rd-replay-harness-worker-stdio-v10")
@@ -5766,6 +5777,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       registry_root: dispatchEvidenceRegistryRoot,
       source_process_launch_receipt: processLaunchReceipt,
     })
+    replayProfile("legacy transport activation")
     expect(transportGate.status).toBe("blocked")
     expect(transportGate.activation_status).toBe("denied")
     expect(transportGate.attested_artifact_worker_protocol_version).toBe("rd-replay-harness-worker-stdio-v9")
