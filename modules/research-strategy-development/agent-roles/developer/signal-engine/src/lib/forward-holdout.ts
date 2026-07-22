@@ -1,4 +1,5 @@
-import { hashCanonical, loadCandlesFromManifest, loadManifest, type Candle } from "../../../../../replay-execution-plane/compatibility/legacy-research-kernel/src/lib/replay-core"
+import { hashCanonical } from "../../../../../replay-execution-plane/compatibility/legacy-replay-identity/src/lib/legacy-replay-identity"
+import { loadCandlesFromManifest, loadManifest, type Candle } from "../../../../../replay-execution-plane/compatibility/legacy-research-data/src/lib/legacy-research-data"
 import { evaluateStrategySignal, type StrategySignalCandidateInput } from "./strategy-signal"
 
 type JSONRecord = Record<string, unknown>
