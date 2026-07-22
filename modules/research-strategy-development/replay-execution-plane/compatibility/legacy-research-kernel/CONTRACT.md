@@ -7,8 +7,8 @@ legacy shared research execution kernel / compatibility-only
 ## Owns
 
 - Legacy strategy replay orchestration、conservative fill ordering、cost and funding semantics。
-- Legacy result shell、trade facts and temporal integrity detection。
-- Legacy contracts/data/feature/evaluation/provenance/identity 仅兼容重导出。
+- Legacy result shell、trade facts and next-open fill materialization。
+- Legacy contracts/data/decision/feature/evaluation/provenance/identity 仅兼容重导出。
 - Bounded full-series versus cutoff-recomputed strategy-decision integrity detection.
 
 ## Inputs
@@ -33,12 +33,12 @@ legacy shared research execution kernel / compatibility-only
 - Does not promote strategies.
 - Does not call Binance write tools.
 - Strategies cannot read future bars or choose an actual next-open fill price.
-- The integrity detector rebuilds indicators at each cutoff; callers with external feature stores must also provide a cutoff-bounded strategy factory.
+- The compatibility decision owner rebuilds indicators at each cutoff; callers with external feature stores must also provide a cutoff-bounded strategy factory.
 - Native historical evidence belongs to Replay contracts/data-adapter/engine/accounting/runner, not this kernel.
 
 ## Retirement Gate
 
-- 所有直接消费者迁出 legacy `ReplayResult`、fill/signal semantics；contracts/data/feature/evaluation/provenance/identity consumers 独立退役。
+- 所有直接消费者迁出 legacy `ReplayResult`、fill/signal semantics；contracts/data/decision/feature/evaluation/provenance/identity consumers 独立退役。
 - State Store capability refs 改指 canonical owner；cross-plane import allowlist 清零。
 - `legacy-replay-fingerprint` certification 显式迁移或终止。
 - legacy integration coverage 被各 canonical owner 的定向测试替代后，删除本模块而非改名接管新语义。
