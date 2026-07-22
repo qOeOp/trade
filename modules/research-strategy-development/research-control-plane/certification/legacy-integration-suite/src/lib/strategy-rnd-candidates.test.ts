@@ -181,6 +181,7 @@ function factorResearchFixture(): FactorResearchReport {
     max_fdr: 0.05,
     selection_scope: {
       method: "purged_chronological_trade_split_v1",
+      purge_rule: "label_end_strictly_before_oos_start",
       train_end_at: "2026-01-01T00:00:00Z",
       oos_start_at: "2026-02-01T00:00:00Z",
       total_target_count: 20,

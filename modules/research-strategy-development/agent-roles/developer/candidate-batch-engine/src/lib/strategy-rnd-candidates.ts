@@ -113,6 +113,7 @@ function purgedFactorSelectionTargets(
       targets: [],
       scope: {
         method: "purged_chronological_trade_split_v1",
+        purge_rule: "label_end_strictly_before_oos_start",
         train_end_at: null,
         oos_start_at: trades[0]?.signal_time ?? null,
         total_target_count: trades.length,
@@ -130,6 +131,7 @@ function purgedFactorSelectionTargets(
     targets: selected.map((trade) => ({ timestamp: trade.signal_time, value: trade.r, regime: trade.regime })),
     scope: {
       method: "purged_chronological_trade_split_v1",
+      purge_rule: "label_end_strictly_before_oos_start",
       train_end_at: selected.at(-1)?.signal_time ?? null,
       oos_start_at: oosStart,
       total_target_count: trades.length,

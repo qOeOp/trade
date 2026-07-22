@@ -20,6 +20,7 @@ interface FactorResearchOptions {
 
 interface FactorSelectionScope {
   method: "full_declared_sample" | "purged_chronological_trade_split_v1"
+  purge_rule: "none" | "label_end_strictly_before_oos_start"
   train_end_at: string | null
   oos_start_at: string | null
   total_target_count: number
@@ -70,7 +71,7 @@ function researchFactorSeeds(
   options: FactorResearchOptions = {},
 ): FactorResearchReport {
   const horizonBars = positiveInteger(options.horizonBars, 6)
-  const setupConditioned = Boolean(options.targets?.length)
+  const setupConditioned = Array.isArray(options.targets)
   const lookback = positiveInteger(options.lookback, 100)
   const minSamples = positiveInteger(options.minSamples, setupConditioned ? 30 : 300)
   const minAbsIc = boundedNumber(options.minAbsIc, 0.03, 0, 1)
@@ -155,6 +156,7 @@ function researchFactorSeeds(
 
   const selectionScope = options.selectionScope || {
     method: "full_declared_sample",
+    purge_rule: "none",
     train_end_at: null,
     oos_start_at: null,
     total_target_count: options.targets?.length ?? 0,

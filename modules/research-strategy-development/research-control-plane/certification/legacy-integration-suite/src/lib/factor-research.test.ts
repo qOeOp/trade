@@ -58,6 +58,17 @@ test("factor research keeps stable predictive factors and prunes correlated copi
     })
     assert.equal(setupReport.method, "setup_conditioned_rank_ic")
     assert.equal(setupReport.seeds.length, 1)
+
+    const emptyTrainingReport = researchFactorSeeds(loadFactorFeatureStore(reportPath), candles, "4h", {
+      lookback: 60,
+      minSamples: 1,
+      minAbsIc: 0,
+      targets: [],
+    })
+    assert.equal(emptyTrainingReport.method, "setup_conditioned_rank_ic")
+    assert.equal(emptyTrainingReport.profiles.every((profile) => profile.sample_count === 0), true)
+    assert.deepEqual(emptyTrainingReport.selected_factor_ids, [])
+    assert.deepEqual(emptyTrainingReport.seeds, [])
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
