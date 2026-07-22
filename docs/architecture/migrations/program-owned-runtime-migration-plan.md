@@ -37,10 +37,10 @@ program-owned runtime
 尚缺：
 
 - 已有前台常驻 `shadow_program` supervisor，但 J01-J07 尚未迁入其执行权；当前外部 Agent / automation 仍承担 domain 唤醒和部分语义编排。
-- 无程序内 LLM provider port；hypothesis 等语义产物仍由外部 Agent 生成。
+- 已有受限 SiliconFlow provider port 与 hypothesis task adapter，但尚未完成真实 capability smoke、dataset parity、server secret/soak，也未进入常驻 program job。
 - 已有单标的 Rust Binance WebSocket、gap/resync epoch、TL2S raw segment、可重建 book 与 owner read；多标的隔离、production process deployment、Replay consumer cutover 尚未闭合。
 - `domain-bus` 只审计 envelope；它不是高吞吐 broker，也不执行 worker。
-- LLM trace、eval、成本、provider capability 与 secret lifecycle 尚无统一边界。
+- LLM request/result、预算、脱敏与进程环境 secret 已有最小边界；持久 trace、成本评测、capability adoption 与 server secret lifecycle 尚未闭合。
 
 P3 实施检查点（2026-07-23）：`trade-flow.program-shadow` 已建立 one-shot program-owned wakeup；`trade-flow.program-shadow-supervisor` 在其上增加前台常驻 cadence、20 秒 durable lease、5 秒 heartbeat、跨正常释放仍单调的 fencing generation、稳定时间槽 cycle identity、30 秒 lifecycle child timeout 与 `SIGINT/SIGTERM` in-flight drain。两者复用既有 job graph 和 ops store；closed-world profile 固定禁用 J01-J07、live write 与真实通知，只执行 L2 service/consumer health、control review 和 dry-run notify。真实两周期 `program-shadow-2026-07-22T16-02-36-000Z` / `...37-000Z` 均为 3/3 processor completed、7/7 domain job disabled/skipped、两条 L2 health `ok`，supervisor 与 wakeup lease 均释放；同一 60 秒槽连续重启时两层 fencing token 均由 `1→2`，第二次只返回 `skipped_terminal`。另一次真实 `SIGINT` 在完成当轮后以 `stop_reason=signal` 退出且无残留锁。外部 process manager 仍拥有 restart/backoff，仓库不建立 PID-file authority；故障与对照证据见下一检查点。J01-J07 尚未切换 authority，因此本文保持 `proposed`。
 
@@ -254,7 +254,7 @@ Broker 采用门：多个独立 worker 必须同时消费、消费者需要独�
 
 SiliconFlow 提供 OpenAI-compatible `/v1`、Chat Completions、部分模型的 function calling 与 JSON mode。基础实现使用 OpenAI-compatible SDK 或薄 HTTP client；不把 provider 类型泄漏到 domain contract。
 
-### Gateway owns
+### 目标 Gateway owns
 
 - `provider / model / capability` registry；
 - credential lookup、endpoint、timeout、retry / backoff、rate / token budget；
@@ -365,9 +365,10 @@ R&D 纵切无 Binance write，且已有 schema / queue / budget / holdout gate�
 
 ### P4 — SiliconFlow model gateway
 
-- OpenAI-compatible provider adapter、capability registry、budget/redaction/trace。
-- 先接 R&D hypothesis structured output 与离线 eval。
-- Provider outage、invalid JSON、truncation 一律不推进 owner state。
+- 已实现：provider-neutral request/result contract、固定 SiliconFlow `/v1/chat/completions` profile、JSON Object capability、credential lookup、timeout、限次 transient retry、token/input/output budget、hash/identity、typed failure 与脱敏结果。
+- 已实现：R&D hypothesis domain adapter 与离线 eval；有效 proposal 仍需 designer lint/data-family binding，网关和 adapter 均不写 RD state。
+- 已证明：credential/provider outage、invalid envelope/usage/JSON、truncation、budget、identity/schema/authority drift 一律 fail closed，不推进 owner state。
+- 待闭合：真实 key 单次 capability smoke、固定 dataset 的 Agent/API quality-cost-latency parity、脱敏 usage/trace 持久化、rate backoff/circuit breaker 与 server secret/soak。
 
 退出：Agent 与 API 生成在固定 dataset 上可比较；schema/authority 失败为零。
 

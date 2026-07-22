@@ -3,7 +3,7 @@ title: Technical Contract
 role: technical-contract-index
 status: active
 owner: architecture
-last_verified: 2026-07-22 CST
+last_verified: 2026-07-23 CST
 ---
 
 # Technical Contract
@@ -117,7 +117,11 @@ action_intent
 
 单机服务器的 production profile、process authority、启动依赖、readiness、secret、路径与 systemd 采用门见 [server-runtime-profile.md](./server-runtime-profile.md)。当前只闭合 no-live-write shadow profile，不代表 J01–J07 或 live execution 已切换 authority。
 
-## 11. 检查
+## 11. Model Task
+
+模型只消费 provider-neutral、带 hash/identity/budget 的 bounded task，输出永远是 `execution_authority=none` 的 proposal。provider IO 由 `ops.model-gateway` 负责，领域 owner 负责 prompt/output schema 与 next action；模型失败不得推进 owner state。当前唯一纵切和未完成采用门见 [model-gateway.md](./model-gateway.md)。
+
+## 12. 检查
 
 | 改动 | 最小验证 |
 | --- | --- |
