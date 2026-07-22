@@ -25,6 +25,7 @@ agent-roles/
 
 - 物理根和 relocation： [rd-module-disposition.json](./rd-module-disposition.json)。
 - Replay 当前成熟度： [rd-replay-maturity-gate.json](../reliability/rd-replay-maturity-gate.json)。
+- Replay 已为 M5/maintenance-only；后续 R&D 主线从 Planner 的 Control Plane context → bounded Proposal 权威链开始，不创建 Replay M5.x 或 P30。
 - Plane 边界：各子树 `README.md` / module `CONTRACT.md`。
 - 历史迁移进度： [Legacy RD Architecture Migration Plan](../../history/legacy-rd-architecture-migration-plan.md)。
 

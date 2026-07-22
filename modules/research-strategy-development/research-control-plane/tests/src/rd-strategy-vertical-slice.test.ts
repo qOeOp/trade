@@ -7,6 +7,7 @@ import { CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, REPLAY_ATTEMPT_LEASE_SCHEMA_VERS
 import type { ReplayAttemptLeaseSnapshot, ResearchIdentityBinding, TrialReservationSnapshot } from "../../contracts/src/lib/control-plane-contracts"
 import { REPLAY_CERTIFIED_CAPABILITIES, REPLAY_DATASET_MANIFEST_SCHEMA_VERSION, REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION, REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION, REPLAY_NO_DECISION_MARKET_INPUT, REPLAY_NO_DECISION_MARKET_INPUT_HASH, REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS, REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH, REPLAY_SIMULATOR_POLICY_VERSION, REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION, canonicalHash, createReplayInstrumentStatusProvenance, createReplaySingleDecisionSchedule, replayDatasetHash, replayExecutionSpecHash, type ReplayDatasetManifest, type ReplayExecutionRequest, type ReplayMarketBar } from "../../../replay-execution-plane/contracts/src/lib/replay-contracts"
 import { buildDeveloperReplayRequest } from "../../../agent-roles/developer/src/lib/developer-role"
+import { buildPlannerProposal } from "../../../agent-roles/planner/src/lib/planner-role"
 import { runReplayTrial } from "../../../replay-execution-plane/runner/src/lib/replay-trial-runner"
 import type { ReplayCancellationCoordinationPort, ReplayCancellationRecoveryAuthorityPort } from "../../../replay-execution-plane/runner/src/lib/replay-cancellation-coordinator"
 import { createSqliteReplayCancellationCoordinationPort } from "../../state-store/src/lib/replay-cancellation-authority"
@@ -15,6 +16,9 @@ import { materializeDraftStrategy } from "../../strategy-registry/src/lib/strate
 import { SOURCE_SCHEMA_VERSION } from "../../strategy-policy-writer/src/lib/strategy-policy-writer"
 import { runForwardEvidenceSession } from "../../../forward-evidence-plane/runner/src/lib/forward-evidence-runner"
 import { FORWARD_ADMISSION_SCHEMA_VERSION as FORWARD_SCHEMA_VERSION } from "../../../forward-evidence-plane/contracts/src/lib/forward-evidence-contracts"
+import { readPlannerControlPlaneContext } from "../../state-store/src/lib/research-control-plane-operations"
+import { ensureResearchStateSchema } from "../../state-store/src/lib/research-state-store"
+import { seedDefaultResearchControlPlane } from "../../state-store/src/lib/research-universe-default-seed"
 
 const HASH = "2".repeat(64)
 const PROVIDER_CERTIFICATION = createReplayInstrumentStatusProviderCertificationSnapshot({ schema_version: REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION, certification_id: "status-provider-certification-1", certification_ref: "certification://fixture-status-provider/v1", status: "certified", certified_at: "2026-07-13T00:00:00Z", valid_until: "2026-08-01T00:00:00Z", certifier_id: "research-control-plane", certification_policy_version: "rd-status-provider-certification-v1", provider_capability_hash: HASH, producer_domain: "market-data-products", producer_id: "fixture-status-producer", producer_version: "v1", producer_build_hash: HASH, normalization_policy_version: "fixture-status-normalization-v1", normalization_policy_hash: HASH, allowed_source_kind: "venue_status_event_archive", allowed_completeness: "complete_history" })
@@ -24,6 +28,37 @@ const SPEC_SNAPSHOT = { schema_version: REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_V
 const STATUS_SNAPSHOT = { schema_version: REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION, snapshot_id: "status-1", venue_id: "binance-usdm", symbol: "BTCUSDT", status: "trading" as const, effective_at: "2020-01-01T00:00:00Z", valid_until: null, observed_at: "2026-07-13T00:00:00Z", source_ref: "fixture:status-1", source_hash: HASH }
 const STATUS_PROVENANCE = createReplayInstrumentStatusProvenance({ producer_domain: "market-data-products", producer_id: "fixture-status-producer", producer_version: "v1", producer_build_hash: HASH, provider_capability_hash: HASH, provider_certification_ref: PROVIDER_CERTIFICATION.certification_ref, provider_certification_hash: PROVIDER_CERTIFICATION.certification_hash, source_owner: "binance-usdm", source_kind: "venue_status_event_archive", normalization_policy_version: "fixture-status-normalization-v1", normalization_policy_hash: HASH, completeness: "complete_history", coverage_start: "2020-01-01T00:00:00Z", coverage_end: "2026-07-15T00:00:00Z", source_observed_through: "2026-07-13T00:00:00Z", produced_at: "2026-07-13T00:00:00Z", source_ref: "fixture:status-source", source_hash: HASH, source_record_count: 1, status_epochs: [STATUS_SNAPSHOT] })
 const ACCOUNTING = { spec_version: REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, product_type: "linear_derivative" as const, base_asset: "BTC", quote_asset: "USDT", settlement_asset: "USDT", contract_multiplier: "1", price_increment: "0.01", quantity_increment: "0.001", settlement_increment: "0.00000001" }
+
+test("Control Plane planning context is the only accepted Planner Proposal input authority", () => {
+  const db = new Database(":memory:")
+  try {
+    ensureResearchStateSchema(db)
+    seedDefaultResearchControlPlane(db, "2026-07-22T12:00:00Z")
+    const context = readPlannerControlPlaneContext(db)
+    const proposal = buildPlannerProposal({
+      proposal_id: "proposal-planner-1",
+      hypothesis_id: "hypothesis-planner-1",
+      universe_node_id: "canonical:trend/time-series-trend/time-series-momentum",
+      objective: "Test one bounded time-series trend mechanism",
+      dataset_requirements: ["ohlcv"],
+      candidate_space: { lookback: [20, 40] },
+      trial_budget: 2,
+      evaluation_protocol_ref: "protocol://historical-v1",
+      control_plane_context: context,
+      created_at: "2026-07-22T12:01:00Z",
+    })
+    expect(proposal.control_plane_context_hash).toBe(context.context_hash)
+    expect(proposal).not.toHaveProperty("trial_id")
+
+    db.query("UPDATE rd_data_surface SET coverage_status='blocked' WHERE slug='ohlcv'").run()
+    expect(() => buildPlannerProposal({
+      ...proposal,
+      control_plane_context: readPlannerControlPlaneContext(db),
+    })).toThrow("not ready")
+  } finally {
+    db.close()
+  }
+})
 
 test("Control Plane SQLite cancellation adapter conforms to the Replay coordinator port", () => {
   const db = new Database(":memory:")

@@ -248,6 +248,7 @@ function isAllowedResearchStrategyDevelopmentImport(sourceTool: string, targetTo
     "modules/research-strategy-development/forward-evidence-plane/runner -> modules/research-strategy-development/replay-execution-plane/runner",
     "modules/research-strategy-development/agent-roles/developer -> modules/research-strategy-development/research-control-plane/contracts",
     "modules/research-strategy-development/agent-roles/developer -> modules/research-strategy-development/replay-execution-plane/contracts",
+    "modules/research-strategy-development/agent-roles/planner -> modules/research-strategy-development/research-control-plane/contracts",
     "modules/research-strategy-development/agent-roles/reviewer -> modules/research-strategy-development/research-control-plane/contracts",
     "modules/research-strategy-development/agent-roles/reviewer -> modules/research-strategy-development/replay-execution-plane/contracts",
     "modules/research-strategy-development/agent-roles/developer/signal-engine -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-decision",

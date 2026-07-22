@@ -1,5 +1,16 @@
 import { Database } from "bun:sqlite"
 import type { JSONRecord } from "../../../../../contracts/runtime-core/src/json"
+import {
+  PLANNER_CONTROL_PLANE_CONTEXT_SNAPSHOT_SCHEMA_VERSION,
+  createPlannerControlPlaneContextSnapshot,
+  type PlannerActiveCanonical,
+  type PlannerCanonicalDataSurfaceRequirement,
+  type PlannerCapability,
+  type PlannerControlPlaneContextSnapshot,
+  type PlannerDataSurface,
+  type PlannerLessonRef,
+  type PlannerUniverseCoverage,
+} from "../../../contracts/src/lib/planner-control-plane-context"
 import { validateUniverseSeed } from "./research-control-plane-schema"
 
 export interface UniverseSeed {
@@ -174,7 +185,7 @@ export function upsertUniverseCoverage(db: Database, input: {
   })
 }
 
-export function readPlannerControlPlaneContext(db: Database): JSONRecord {
+export function readPlannerControlPlaneContext(db: Database): PlannerControlPlaneContextSnapshot {
   const canonicals = db.query(`
     SELECT n.node_id, n.path, n.name, n.research_scope_status,
            n.implementation_scope_status,
@@ -195,31 +206,51 @@ export function readPlannerControlPlaneContext(db: Database): JSONRecord {
   const dataSurfaces = db.query(`
     SELECT surface_id, slug, coverage_status, owner_module, evidence_ref
     FROM rd_data_surface ORDER BY slug
-  `).all() as Array<Record<string, unknown>>
+  `).all() as PlannerDataSurface[]
+  const canonicalDataSurfaceRequirements = db.query(`
+    SELECT link.node_id, link.surface_id, link.requirement_type, link.coverage_status
+    FROM rd_universe_data_surface link
+    JOIN rd_universe_node node ON node.node_id=link.node_id
+    WHERE node.level=3 AND node.research_scope_status='active'
+    ORDER BY link.node_id, link.surface_id
+  `).all() as Array<PlannerCanonicalDataSurfaceRequirement & { node_id: string }>
   const capabilities = db.query(`
     SELECT item_id, registry_type, slug, version, status, owner_module,
            capability_tags_json
     FROM rd_pipeline_registry_item
     WHERE status IN ('active', 'experimental')
     ORDER BY registry_type, slug, version
-  `).all() as Array<Record<string, unknown>>
+  `).all() as Array<Omit<PlannerCapability, "capability_tags"> & { capability_tags_json: string }>
   const lessons = db.query(`
-    SELECT n.kg_node_id, n.ref_id, n.slug, n.name, n.metadata_json
+    SELECT n.kg_node_id, n.ref_id, n.slug, n.name, n.metadata_json, n.updated_at
     FROM rd_knowledge_node n WHERE n.node_type='lesson'
-    ORDER BY n.updated_at DESC LIMIT 100
-  `).all() as Array<Record<string, unknown>>
-  return {
-    schema_version: "trade-flow.rd-planner-control-plane-context.v1",
+    ORDER BY n.updated_at DESC, n.kg_node_id LIMIT 100
+  `).all() as Array<Omit<PlannerLessonRef, "metadata"> & { metadata_json: string | null }>
+  return createPlannerControlPlaneContextSnapshot({
+    schema_version: PLANNER_CONTROL_PLANE_CONTEXT_SNAPSHOT_SCHEMA_VERSION,
     active_canonicals: canonicals.map((row) => ({
       node_id: row.node_id, path: row.path, name: row.name,
-      research_scope_status: row.research_scope_status,
-      implementation_scope_status: row.implementation_scope_status,
-      coverage: JSON.parse(row.coverage_json),
+      research_scope_status: row.research_scope_status as PlannerActiveCanonical["research_scope_status"],
+      implementation_scope_status: row.implementation_scope_status as PlannerActiveCanonical["implementation_scope_status"],
+      coverage: JSON.parse(row.coverage_json) as PlannerUniverseCoverage[],
+      data_surface_requirements: canonicalDataSurfaceRequirements
+        .filter((item) => item.node_id === row.node_id)
+        .map((item) => ({
+          surface_id: item.surface_id,
+          requirement_type: item.requirement_type,
+          coverage_status: item.coverage_status,
+        })),
     })),
-    data_surfaces: dataSurfaces.map(parseJsonColumns),
-    capabilities: capabilities.map(parseJsonColumns),
-    lessons: lessons.map(parseJsonColumns),
-  }
+    data_surfaces: dataSurfaces,
+    capabilities: capabilities.map(({ capability_tags_json: capabilityTagsJson, ...row }) => ({
+      ...row,
+      capability_tags: JSON.parse(capabilityTagsJson) as string[],
+    })),
+    lessons: lessons.map(({ metadata_json: metadataJson, ...row }) => ({
+      ...row,
+      metadata: metadataJson === null ? null : JSON.parse(metadataJson) as JSONRecord,
+    })),
+  })
 }
 
 export function seedUniverse(db: Database, seed: UniverseSeed): void {
@@ -744,16 +775,6 @@ function required(value: string, field: string): string {
   const normalized = value?.trim()
   if (!normalized) throw new Error(`${field} is required`)
   return normalized
-}
-
-function parseJsonColumns(row: Record<string, unknown>): Record<string, unknown> {
-  return Object.fromEntries(Object.entries(row).map(([key, value]) => {
-    if (typeof value === "string" && key.endsWith("_json")) {
-      try { return [key.slice(0, -5), JSON.parse(value)] }
-      catch { return [key, value] }
-    }
-    return [key, value]
-  }))
 }
 
 function ensureKgNode(

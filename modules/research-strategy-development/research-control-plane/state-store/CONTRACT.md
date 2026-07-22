@@ -35,7 +35,7 @@ Owns `research_state_store`, including the durable R&D program memory and the Re
 - Own append-only Replay Checkpoint Receipt v2 registration. A receipt is accepted only inside the exact active Attempt lease generation, binds the immutable versioned diagnostic commit/payload hashes plus certified storage-policy version, and advances `next_source_offset` monotonically. Repeating an already committed receipt is idempotent even after Attempt expiry; new evidence from a stale or terminal lease is rejected. Migrated v1 rows are marked `rd-replay-local-rename-no-fsync-v0` and cannot authorize a v2 resume.
 - Own immutable Replay Resume Authorization Snapshot v1 issuance. Authorization may bind only the latest registered Checkpoint Receipt on a `cancelled`/`expired` source Attempt to one later active target Attempt under the same Trial/run/request/reservation authority; target Attempt is unique, lease generation is a floor, and workers cannot mint or mutate this authority.
 - Seed the frozen default Universe, Data Surface Registry, capability index, and current coverage map.
-- Serve the authoritative Planner context from those facts and scoped KG lessons.
+- Serve the authoritative Planner context from those facts and scoped KG lessons as a canonical self-hashed `Planner Control Plane Context Snapshot v1`; repeated unchanged reads are byte-semantic identity, and any selected fact change rotates `context_hash`.
 - Append validated Proposal Revisions and materialize each Proposal at most once.
 - Register immutable Trial Groups, Candidates, and Experiment Contracts.
 - Write the bootstrap lifecycle event in the same transaction as Experiment registration.
