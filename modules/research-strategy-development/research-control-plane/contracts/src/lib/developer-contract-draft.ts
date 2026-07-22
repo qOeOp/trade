@@ -268,24 +268,24 @@ export function assertDeveloperContractDraftReceipt(value: DeveloperContractDraf
   }
 }
 
-function required(value: string, field: string): string {
+export function required(value: string, field: string): string {
   const normalized = value?.trim()
   if (!normalized) throw new Error(`${field} is required`)
   return normalized
 }
 
-function positiveInteger(value: number, field: string): number {
+export function positiveInteger(value: number, field: string): number {
   if (!Number.isSafeInteger(value) || value < 1) throw new Error(`${field} must be a positive integer`)
   return value
 }
 
-function digest(value: string, field: string): string {
+export function digest(value: string, field: string): string {
   const normalized = required(value, field)
   if (!/^[a-f0-9]{64}$/.test(normalized)) throw new Error(`${field} must be a lowercase sha256 digest`)
   return normalized
 }
 
-function utc(value: string, field: string): string {
+export function utc(value: string, field: string): string {
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(value)
       || Number.isNaN(Date.parse(value))) {
     throw new Error(`${field} must be an RFC 3339 UTC timestamp`)
@@ -293,6 +293,6 @@ function utc(value: string, field: string): string {
   return value
 }
 
-function isRecord(value: unknown): value is JSONRecord {
+export function isRecord(value: unknown): value is JSONRecord {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value)
 }
