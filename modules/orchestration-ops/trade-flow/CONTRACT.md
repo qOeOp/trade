@@ -5,6 +5,7 @@
 - Automation cycle planning and job-graph routing
 - Suite CLI parameter, response, permission, and owner-handoff semantics
 - Thin observe, execution, recovery, and runtime façades
+- Executable job dependencies and business-result policies: unresolved account reconciliation blocks dependent fast/new-risk stages even when the owner command exits successfully.
 
 ## Delegates
 
