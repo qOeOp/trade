@@ -12,11 +12,11 @@
   "production_consumer_edge_counts": {
     "replay-canonical-runtime": 12,
     "replay-compatibility-runtime": 30,
-    "research-control-plane": 5,
+    "research-control-plane": 6,
     "forward-evidence-plane": 5,
     "agent-roles": 14
   },
   "observed_module_count": 23,
-  "observed_production_consumer_edge_count": 66,
-  "observed_closure_sha256": "6eedcb77ac4f8703079829adc053ff8bfa81196f995868d86c7c6aad01c3a28d"
+  "observed_production_consumer_edge_count": 67,
+  "observed_closure_sha256": "cb89b926036cb813ec5df758f9dd9d5607ac8462353f00aa0935c9dc58213cd0"
 }
