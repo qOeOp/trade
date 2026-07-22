@@ -35,6 +35,7 @@ legacy shared research execution kernel / compatibility-only
 - Strategies cannot read future bars or choose an actual next-open fill price.
 - The compatibility decision owner rebuilds indicators at each cutoff; callers with external feature stores must also provide a cutoff-bounded strategy factory.
 - Native historical evidence belongs to Replay contracts/data-adapter/engine/accounting/runner, not this kernel.
+- Hardcoded certification strategies belong to `legacy-research-strategy-fixture`; this kernel does not own a strategy registry.
 
 ## Retirement Gate
 
