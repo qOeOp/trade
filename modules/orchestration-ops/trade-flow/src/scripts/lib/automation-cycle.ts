@@ -571,6 +571,7 @@ function rdStrategySupervisorJob(input: {
   now: string
 }): JSONRecord {
   const budget = asRecord(input.goal.budget)
+  const maxLockedHoldoutUses = nonNegativeNumberOr(budget.max_locked_holdout_uses, 1)
   const programStateRef = input.programStateRef || rdProgramRef(input.rdProgramId)
   const supervisorPayload: JSONRecord = {
     max_iterations: 20,
@@ -590,7 +591,7 @@ function rdStrategySupervisorJob(input: {
       budget: {
         max_hypotheses: positiveNumber(budget.max_hypotheses) || 20,
         max_trials_total: positiveNumber(budget.max_trials_total) || 80,
-        max_locked_holdout_uses: positiveNumber(budget.max_locked_holdout_uses) || 1,
+        max_locked_holdout_uses: maxLockedHoldoutUses,
       },
       next_hypothesis_queue: asArray(input.goal.next_hypothesis_queue).map(asRecord),
     },
@@ -655,7 +656,7 @@ function rdStrategySupervisorJob(input: {
       budget: {
         max_hypotheses: positiveNumber(budget.max_hypotheses) || 20,
         max_trials_total: positiveNumber(budget.max_trials_total) || 80,
-        max_locked_holdout_uses: positiveNumber(budget.max_locked_holdout_uses) || 1,
+        max_locked_holdout_uses: maxLockedHoldoutUses,
       },
       learning_memory: {
         read_ref: input.learningMemoryRef,
@@ -1004,6 +1005,10 @@ function readLastRunsFromCronLog(dataDir: string): JSONRecord {
 
 function positiveNumber(value: unknown): number {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : 0
+}
+
+function nonNegativeNumberOr(value: unknown, fallback: number): number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0 ? value : fallback
 }
 
 function asArray(value: unknown): unknown[] {

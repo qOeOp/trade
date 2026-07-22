@@ -145,13 +145,13 @@ test("automation cycle plan can dispatch a learning strategy R&D supervisor", ()
     const result = buildAutomationCyclePlan(db, dbPath, {
       cycle_id: "cycle-rd-supervisor",
       now: "2026-07-09T12:15:00Z",
-      rd_learning_memory_ref: "docs/rd-audit.md",
+      rd_learning_memory_ref: "docs/research/reliability/rd-audit.md",
       rd_strategy_goal: {
         objective: "find a shadow-eligible 4H swing strategy",
         budget: {
           max_hypotheses: 3,
           max_trials_total: 18,
-          max_locked_holdout_uses: 1,
+          max_locked_holdout_uses: 0,
         },
       },
     })
@@ -165,6 +165,7 @@ test("automation cycle plan can dispatch a learning strategy R&D supervisor", ()
     const contract = asRecord(rd.research_loop_contract)
     assert.deepEqual(contract.loop_until, ["strategy_draft_created", "budget_exhausted", "data_or_tool_blocked"])
     assert.equal(asRecord(contract.budget).max_hypotheses, 3)
+    assert.equal(asRecord(contract.budget).max_locked_holdout_uses, 0)
     assert.deepEqual(asRecord(contract.learning_memory).write_back, [
       "failure_summary",
       "reliability_gate",
@@ -193,9 +194,10 @@ test("automation cycle plan can dispatch a learning strategy R&D supervisor", ()
       "./data/rd_state.db"
     ])
     const argv = asArray(commandSpec.argv)
-    const jobPayload = JSON.parse(String(argv[argv.length - 1])) as { goal: { budget: { max_hypotheses: number; max_trials_total: number } } }
+    const jobPayload = JSON.parse(String(argv[argv.length - 1])) as { goal: { budget: { max_hypotheses: number; max_trials_total: number; max_locked_holdout_uses: number } } }
     assert.equal(jobPayload.goal.budget.max_hypotheses, 3)
     assert.equal(jobPayload.goal.budget.max_trials_total, 18)
+    assert.equal(jobPayload.goal.budget.max_locked_holdout_uses, 0)
     const parallel = asRecord(asArray(result.dispatch_order).find((stage) => asRecord(stage).stage === "parallel_isolated_work"))
     assert.ok(asArray(parallel.job_ids).includes("rd_strategy_supervisor"))
   } finally {
