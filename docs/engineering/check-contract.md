@@ -29,6 +29,8 @@ last_verified: 2026-07-22 CST
 | --- | --- | --- | --- |
 | `repo-whitespace` | repo root | `git diff --check` | 空白、冲突标记、尾随空格 |
 | `project-quality` | repo root | `scripts/quality-check.sh` | 提交前 secret / TS / Go / Rust / Python / shell / hygiene 总闸 |
+| `replay-runner-worker-v10` | `modules/research-strategy-development/replay-execution-plane/runner` | `bun run test:worker-v10` | 单实例运行深证据链集成测试，并输出阶段耗时 |
+| `replay-runner-remaining` | `modules/research-strategy-development/replay-execution-plane/runner` | `bun run test:remaining` | 不与巨型 worker-v10 场景混跑的其余 runner 回归 |
 | `quality-judge-regression` | repo root | `bun test ./scripts/*.test.ts` | 用恶意反例证明架构、evidence、测试完整性审查 fail closed |
 | `package-test-integrity` | repo root | `bun scripts/check-package-tests.ts` | 生产 TS package 必须有 colocated 测试，且 test script 不得空跑成功 |
 | `zero-duplication` | repo root | `bun scripts/check-duplication.ts` | 六类源码在既定检测粒度下重复片段必须为 0 |
@@ -50,8 +52,9 @@ last_verified: 2026-07-22 CST
 | `live-small-runner-check` | `modules/live-execution-control/live-small-runner` | `bun run check` | explicit live-small exchange write runner |
 | `reconcile-drafts-check` | `modules/live-execution-control/reconcile-drafts` | `bun run check` | local flow + account snapshot -> reconcile drafts |
 | `recovery-runner-check` | `modules/live-execution-control/recovery-runner` | `bun run check` | account snapshot read -> reconcile -> optional local apply / needs_review |
+| `legacy-research-data-check` | `modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-data` | `bun run check` | legacy Candle、manifest/CSV loading and funding range helpers |
 | `legacy-replay-identity-check` | `modules/research-strategy-development/replay-execution-plane/compatibility/legacy-replay-identity` | `bun run check` | legacy canonical/file/data/harness identity compatibility |
-| `legacy-research-kernel-check` | `modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-kernel` | `bun run check` | legacy R&D evaluation/data-loading compatibility primitives |
+| `legacy-research-kernel-check` | `modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-kernel` | `bun run check` | legacy R&D evaluation compatibility primitives |
 | `legacy-replay-fingerprint-certification-check` | `modules/research-strategy-development/replay-execution-plane/certification/legacy-replay-fingerprint` | `bun run check` | legacy Replay evidence fingerprint parity certification |
 | `data-split-check` | `modules/research-strategy-development/research-control-plane/dataset-governance/data-split` | `bun run check` | discovery / validation / locked holdout split |
 | `signal-evaluator-check` | `modules/research-strategy-development/agent-roles/reviewer/signal-evaluator` | `bun run check` | latest closed-candle / post-freeze diagnostic signal |
@@ -100,6 +103,7 @@ last_verified: 2026-07-22 CST
 | recovery / reconcile | `modules/live-execution-control/reconcile-drafts/src/**`, `modules/live-execution-control/recovery-runner/src/**`, `src/scripts/commands/recovery.ts` | `reconcile-drafts-check` + `recovery-runner-check` + `trade-flow-typecheck` + `bun test ./src/scripts/lib/reconcile-schema.test.ts ./src/scripts/main.test.ts` |
 | observe / runtime load | `src/scripts/lib/observe-*`, `src/scripts/commands/observe.ts`, `modules/live-decision-planning/observe-builder/src/**`, `modules/live-decision-planning/observe-runner/src/**` | `observe-builder-check` + `observe-runner-check` + `trade-flow-typecheck` + `bun test ./src/scripts/commands/handlers.test.ts ./src/scripts/lib/core-data-schemas.test.ts` |
 | runtime policy compiler | `modules/policy-risk/runtime-policy-compiler/src/**` | `runtime-policy-compiler-check` + `trade-flow-check` |
+| legacy research data | `modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-data/src/**` | `legacy-research-data-check` + `legacy-research-kernel-check` + `legacy-replay-identity-check` + `candidate-batch-check` + `signal-evaluator-check` + `replay-benchmark-check` + `funding-governance-check` + `rd-paper-tracker-check` + `rd-integration-suite-check` |
 | legacy replay identity | `modules/research-strategy-development/replay-execution-plane/compatibility/legacy-replay-identity/src/**` | `legacy-replay-identity-check` + `legacy-research-kernel-check` + `legacy-replay-fingerprint-certification-check` + `replay-benchmark-check` + `rd-integration-suite-check` |
 | legacy research kernel | `modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-kernel/src/**` | `legacy-research-kernel-check` + `legacy-replay-identity-check` + `legacy-replay-fingerprint-certification-check`; add `candidate-batch-check`, `signal-evaluator-check`, `replay-benchmark-check`, `funding-governance-check`, `rd-paper-tracker-check` and `rd-integration-suite-check` if semantics changed |
 | legacy replay fingerprint certification | `modules/research-strategy-development/replay-execution-plane/certification/legacy-replay-fingerprint/src/**` | `legacy-replay-fingerprint-certification-check` + `strategy-review-check` |
