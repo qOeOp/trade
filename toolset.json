@@ -1576,7 +1576,7 @@
         "config": false
       },
       "notes": [
-        "Canonical parity certification over the legacy replay kernel; does not run Replay or forward Trial-bound requests.",
+        "Canonical parity certification over the legacy research kernel; does not run Replay or forward Trial-bound requests.",
         "Kernel retirement must explicitly migrate or terminate this certification; native Replay fingerprints remain Trial-bound authority."
       ],
       "module_type": "atomic",
