@@ -250,4 +250,45 @@ mod tests {
         state.mark_not_live("resyncing", "gap", true, 5).await;
         assert!(state.current_book(20).await.is_err());
     }
+
+    #[tokio::test]
+    async fn slow_watermark_consumer_observes_latest_state_and_epoch_resync() {
+        let state = SharedState::new("BTCUSDT".to_string());
+        let mut receiver = state.subscribe();
+        state
+            .begin_epoch("epoch-1".to_string(), &snapshot(), 10, 1)
+            .await
+            .expect("epoch 1");
+        for update_id in 101..=103 {
+            state
+                .apply(
+                    &DepthUpdate {
+                        event_time_ms: update_id,
+                        transaction_time_ms: update_id - 1,
+                        local_receive_time_ms: update_id + 1,
+                        first_update_id: update_id,
+                        final_update_id: update_id,
+                        previous_final_update_id: update_id - 1,
+                        bids: Vec::new(),
+                        asks: Vec::new(),
+                    },
+                    update_id + 2,
+                )
+                .await
+                .expect("apply");
+        }
+        receiver.changed().await.expect("latest watermark");
+        let latest = receiver.borrow_and_update().clone();
+        assert_eq!(latest.last_update_id, 103);
+        assert!(!latest.resync_required);
+
+        state
+            .begin_epoch("epoch-2".to_string(), &snapshot(), 10, 200)
+            .await
+            .expect("epoch 2");
+        receiver.changed().await.expect("epoch watermark");
+        let rollover = receiver.borrow_and_update().clone();
+        assert_eq!(rollover.stream_epoch, "epoch-2");
+        assert!(rollover.resync_required);
+    }
 }
