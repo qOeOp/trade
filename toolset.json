@@ -3,6 +3,54 @@
   "description": "Agent-facing index for the local trading toolset. Source code lives under modules; this manifest is the discovery contract.",
   "tools": [
     {
+      "id": "ops.model-gateway",
+      "domain": "orchestration-ops",
+      "intent": [
+        "model-task",
+        "bounded-inference",
+        "json-object"
+      ],
+      "capability_class": [
+        "A"
+      ],
+      "path": "modules/orchestration-ops/model-gateway",
+      "purpose": "Execute one provider-neutral, budgeted model task through the fixed SiliconFlow profile without granting domain or execution authority.",
+      "command": {
+        "cwd": "modules/orchestration-ops/model-gateway",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--profile",
+          "../../../profile/model-gateway.json",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Reads SILICONFLOW_API_KEY only from the process environment and never returns prompts, credentials, raw response bodies, or reasoning content.",
+        "The parsed output is an untrusted proposal with execution_authority=none; the owning domain must validate it before any persistence or queue transition."
+      ],
+      "module_type": "suite",
+      "owner_scope": "orchestration-ops.model-gateway",
+      "requires_preflight": false,
+      "concurrency_group": "model-provider",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
+    },
+    {
       "id": "trade-flow.automation",
       "domain": "orchestration-ops",
       "intent": [
