@@ -3,10 +3,8 @@ import {
   buildReplayDecisionInput,
   detectReplayDecisionLookahead,
   replayStrategy,
-  type ReplayResult,
-  type ReplaySignal,
-  type ReplayStrategy,
 } from "../../../../../replay-execution-plane/compatibility/legacy-research-kernel/src/lib/replay-core"
+import type { ReplayResult, ReplaySignal, ReplayStrategy } from "../../../../../replay-execution-plane/compatibility/legacy-research-contracts/src/lib/legacy-research-contracts"
 import { hashCanonical } from "../../../../../replay-execution-plane/compatibility/legacy-replay-identity/src/lib/legacy-replay-identity"
 import { loadCandlesFromManifest, loadManifest } from "../../../../../replay-execution-plane/compatibility/legacy-research-data/src/lib/legacy-research-data"
 import { type FactorFeatureStore, windowFactorFeatureStore } from "../../../strategy-family-engine/src/lib/factor-engine"
