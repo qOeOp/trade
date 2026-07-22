@@ -9,12 +9,11 @@ interface GateManifest {
   maturity_scale: number
   evidence_chain_freeze: string
   completed_milestones: string[]
-  active_milestone: {
+  convergence_workstream: {
     id: string
-    name: string
-    status: "in_progress" | "complete"
-    functional_commit_budget: number
-    functional_commits_used: number
+    status: "in_progress" | "m4_complete" | "complete"
+    p30_creation: string
+    scope: string
   }
   policy: {
     zero_instance_progress_forbidden: boolean
@@ -23,14 +22,56 @@ interface GateManifest {
     new_schema_requires_same_change_set_consumer: boolean
     maturity_requires_all_gates: boolean
   }
-  gates: Record<string, Record<string, boolean>>
+  exit_gates: Record<string, Record<string, boolean>>
   evidence_refs: string[]
   next_allowed_outcome: string
 }
 
+interface CapabilityInventory {
+  schema_version: string
+  freeze: string
+  p30_creation: string
+  entries: Array<{
+    milestone: string
+    capability: string
+    classification: "canonical" | "opt_in" | "compatibility" | "obsolete"
+    target_role: string
+  }>
+  summary: Record<"canonical" | "opt_in" | "compatibility" | "obsolete" | "total", number>
+}
+
 const manifestPath = process.env.RD_REPLAY_MATURITY_GATE_PATH || "docs/research/reliability/rd-replay-maturity-gate.json"
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as GateManifest
+const inventoryPath = process.env.RD_REPLAY_CAPABILITY_INVENTORY_PATH
+  || "docs/research/reliability/rd-replay-capability-inventory.json"
+const inventory = JSON.parse(readFileSync(inventoryPath, "utf8")) as CapabilityInventory
 const issues: string[] = []
+
+const expectedCapabilityMilestones = Array.from({ length: 29 }, (_, index) => `M4-P${index + 1}`)
+if (inventory.schema_version !== "trade.rd-replay-capability-inventory.v1"
+    || inventory.freeze !== "M4-P29" || inventory.p30_creation !== "forbidden") {
+  issues.push("Replay capability inventory must remain frozen at M4-P29 with P30 forbidden")
+}
+if (canonicalArray(inventory.entries.map((entry) => entry.milestone))
+    !== canonicalArray(expectedCapabilityMilestones)
+    || new Set(inventory.entries.map((entry) => entry.milestone)).size !== 29
+    || new Set(inventory.entries.map((entry) => entry.capability)).size !== 29
+    || inventory.entries.some((entry) => !entry.capability || !entry.target_role)) {
+  issues.push("Replay capability inventory must classify each P1-P29 capability exactly once")
+}
+const classificationCounts = { canonical: 0, opt_in: 0, compatibility: 0, obsolete: 0 }
+for (const entry of inventory.entries) {
+  if (!(entry.classification in classificationCounts)) {
+    issues.push(`unsupported Replay capability classification: ${entry.classification}`)
+    continue
+  }
+  classificationCounts[entry.classification] += 1
+}
+if (inventory.summary.total !== 29
+    || Object.entries(classificationCounts).some(([key, count]) =>
+      inventory.summary[key as keyof typeof classificationCounts] !== count)) {
+  issues.push("Replay capability inventory summary does not match its entries")
+}
 
 const evidenceRefs = new Set<string>()
 for (const ref of manifest.evidence_refs) {
@@ -46,7 +87,7 @@ for (const ref of manifest.evidence_refs) {
   }
 }
 
-if (manifest.schema_version !== "trade.rd-replay-maturity-gate.v1") {
+if (manifest.schema_version !== "trade.rd-replay-maturity-gate.v2") {
   issues.push("unsupported Replay maturity gate schema")
 }
 if (manifest.maturity_scale !== 5 || !Number.isSafeInteger(manifest.maturity)
@@ -56,18 +97,13 @@ if (manifest.maturity_scale !== 5 || !Number.isSafeInteger(manifest.maturity)
 if (manifest.evidence_chain_freeze !== "R4.151") {
   issues.push("Replay evidence-chain freeze must remain R4.151; M3-G1 is a bounded cutover, not R4.152+")
 }
-if (canonicalArray(manifest.completed_milestones) !== canonicalArray(["M3-G1", "M3-G2", "M3-G3", "M3-G4", "M3-G5", "M3-G6", "M3-G7", "M3-G8", "M4-P1", "M4-P2", "M4-P3", "M4-P4", "M4-P5", "M4-P6", "M4-P7", "M4-P8", "M4-P9", "M4-P10", "M4-P11", "M4-P12", "M4-P13", "M4-P14", "M4-P15", "M4-P16", "M4-P17", "M4-P18", "M4-P19", "M4-P20", "M4-P21", "M4-P22", "M4-P23", "M4-P24", "M4-P25", "M4-P26", "M4-P27", "M4-P28"])) {
+if (canonicalArray(manifest.completed_milestones) !== canonicalArray(["M3-G1", "M3-G2", "M3-G3", "M3-G4", "M3-G5", "M3-G6", "M3-G7", "M3-G8", "M4-P1", "M4-P2", "M4-P3", "M4-P4", "M4-P5", "M4-P6", "M4-P7", "M4-P8", "M4-P9", "M4-P10", "M4-P11", "M4-P12", "M4-P13", "M4-P14", "M4-P15", "M4-P16", "M4-P17", "M4-P18", "M4-P19", "M4-P20", "M4-P21", "M4-P22", "M4-P23", "M4-P24", "M4-P25", "M4-P26", "M4-P27", "M4-P28", "M4-P29"])) {
   issues.push("Replay completed milestone history is incomplete")
 }
-if (manifest.active_milestone.id !== "M4-P29"
-    || manifest.active_milestone.name !== "bounded-bar-linked-aggregate-trade-stop-entry-path-end-to-end") {
-  issues.push("the active Replay milestone must be M4-P29")
-}
-if (manifest.active_milestone.functional_commit_budget !== 6
-    || !Number.isSafeInteger(manifest.active_milestone.functional_commits_used)
-    || manifest.active_milestone.functional_commits_used < 0
-    || manifest.active_milestone.functional_commits_used > manifest.active_milestone.functional_commit_budget) {
-  issues.push("M4-P29 functional commit budget is invalid or exhausted")
+if (manifest.convergence_workstream.id !== "M4-CONVERGENCE"
+    || manifest.convergence_workstream.p30_creation !== "forbidden"
+    || manifest.convergence_workstream.scope !== "canonicalize-supported-capabilities-without-adding-simulator-semantics") {
+  issues.push("Replay must remain on the finite M4 convergence workstream; P30 is forbidden")
 }
 if (!manifest.policy.zero_instance_progress_forbidden
     || !manifest.policy.phase_number_progress_forbidden
@@ -78,39 +114,62 @@ if (!manifest.policy.zero_instance_progress_forbidden
 }
 
 const expectedGateNames = {
-  functional: ["immutable_kline_aggregate_trade_bar_link", "ohlcv_volume_trade_count_and_id_reconciliation", "control_plane_bar_link_and_exact_path_authority", "opt_in_step_engine_stop_entry_path_consumer", "checkpoint_result_fingerprint_and_manifest_binding", "typed_unresolved_fallback_without_partial_result"],
-  evidence: ["same_ohlcv_opposite_ordered_paths_for_long_and_short", "entry_trade_cannot_retroactively_trigger_protection", "half_open_window_pit_availability_and_bar_boundary", "price_volume_quote_volume_trade_count_and_id_tamper_fail_closed", "missing_or_unlinked_source_remains_unresolved", "clean_resume_path_and_result_parity", "artifact_idempotent_replay_and_payload_tamper_rejection", "insurance_adl_queue_fill_quantity_slippage_and_impact_not_overclaimed"],
-  cutover: ["production_opt_in_lane_consumer", "default_ohlcv_and_portfolio_paths_unchanged", "p15_through_p28_preserved", "bar_relative_path_evidence_keeps_external_completeness_not_verified", "no_generic_aggregate_trade_source_merge", "no_queue_partial_fill_slippage_impact_insurance_adl_cross_margin_borrow_or_fast"],
+  m4: [
+    "p1_through_p29_inventory_frozen",
+    "canonical_public_entrypoints_declared",
+    "opt_in_activation_registry_complete",
+    "compatibility_consumers_isolated",
+    "result_artifact_and_checkpoint_epochs_converged",
+    "single_owner_certification_command",
+    "canonical_and_compatibility_test_suites_separated",
+    "all_supported_profiles_have_golden_resume_idempotency_and_tamper_evidence",
+    "no_unclassified_replay_module_or_production_consumer",
+  ],
+  m5: [
+    "m4_exit_complete",
+    "cross_process_reproducibility_bundle",
+    "historical_artifact_read_migration_certified",
+    "crash_recovery_and_exactly_once_publication_certified",
+    "declared_capacity_and_performance_envelope_certified",
+    "fault_injection_and_corruption_recovery_certified",
+    "operational_observability_and_runbook_complete",
+    "release_candidate_fixture_pack_frozen",
+    "independent_release_audit_passed",
+  ],
 } as const
-const gateValues: boolean[] = []
+const gateValues: Record<keyof typeof expectedGateNames, boolean[]> = { m4: [], m5: [] }
 for (const [group, names] of Object.entries(expectedGateNames)) {
-  const actual = manifest.gates[group]
+  const actual = manifest.exit_gates[group]
   if (!actual || JSON.stringify(Object.keys(actual).sort()) !== JSON.stringify([...names].sort())) {
     issues.push(`Replay maturity gate group ${group} has an unexpected shape`)
     continue
   }
   for (const name of names) {
     if (typeof actual[name] !== "boolean") issues.push(`Replay maturity gate ${group}.${name} is not boolean`)
-    else gateValues.push(actual[name])
+    else gateValues[group as keyof typeof expectedGateNames].push(actual[name])
   }
 }
-const expectedGateCount = Object.values(expectedGateNames).reduce((total, names) => total + names.length, 0)
-const allGates = gateValues.length === expectedGateCount && gateValues.every(Boolean)
-if (manifest.maturity !== 3) {
-  issues.push("M4-P29 can certify only a bar-linked aggregate-trade price path for one Stop-market entry ambiguity; external completeness remains not verified and queue, Fill quantity, slippage, impact, insurance/ADL, cross-margin, borrow and Fast remain unsupported, so Replay must stay M3")
+const m4Complete = gateValues.m4.length === expectedGateNames.m4.length && gateValues.m4.every(Boolean)
+if (manifest.exit_gates.m5?.m4_exit_complete !== m4Complete) {
+  issues.push("Replay M5 gate must reflect the complete M4 exit atomically")
 }
-if (!allGates && manifest.active_milestone.status !== "in_progress") {
-  issues.push("M4-P29 cannot be complete while a gate remains false")
+const m5Complete = gateValues.m5.length === expectedGateNames.m5.length && gateValues.m5.every(Boolean)
+const expectedMaturity = m5Complete ? 5 : m4Complete ? 4 : 3
+const expectedStatus = m5Complete ? "complete" : m4Complete ? "m4_complete" : "in_progress"
+if (manifest.maturity !== expectedMaturity) {
+  issues.push(`Replay maturity must be ${expectedMaturity} for the current finite exit-gate state`)
 }
-if (allGates && manifest.active_milestone.status !== "complete") {
-  issues.push("all M4-P29 gates require milestone completion")
+if (manifest.convergence_workstream.status !== expectedStatus) {
+  issues.push(`Replay convergence workstream status must be ${expectedStatus}`)
 }
-if (allGates && manifest.evidence_refs.length === 0) {
-  issues.push("completed M4-P29 gates require durable test or artifact evidence refs")
+if ((m4Complete || m5Complete) && manifest.evidence_refs.length === 0) {
+  issues.push("completed Replay exit gates require durable test or artifact evidence refs")
 }
-const expectedNextOutcome = allGates
-  ? "audit-and-select-next-bounded-m4-fidelity-gap-after-bar-linked-aggregate-trade-path"
-  : "all-m4-p29-gates-true-in-one-bounded-change-set"
+const expectedNextOutcome = m5Complete
+  ? "maintenance-only-new-capability-requires-explicit-reopen-decision"
+  : m4Complete
+    ? "m5-release-certification-only-no-new-simulator-capability"
+    : "m4-convergence-only-p30-and-new-simulator-capabilities-forbidden"
 if (manifest.next_allowed_outcome !== expectedNextOutcome) {
   issues.push("Replay next outcome does not match M4-P29 gate state")
 }
