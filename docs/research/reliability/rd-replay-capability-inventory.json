@@ -8,6 +8,12 @@
     "compatibility": "只为历史 Artifact/调用者读回或迁移保留；禁止新增生产消费者",
     "obsolete": "已证明无权威消费者且迁移完成，可删除；删除前必须有 executable dependency evidence"
   },
+  "canonical_public_entrypoints": [
+    { "profile": "single-trial", "owner": "runner", "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.ts", "export": "runReplayTrial" },
+    { "profile": "independent-lane-batch", "owner": "runner", "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.ts", "export": "runReplayIndependentLaneBatch" },
+    { "profile": "integrated-portfolio", "owner": "runner", "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-integrated-portfolio-runner.ts", "export": "runReplayIntegratedPortfolio" },
+    { "profile": "terminal-aware-bounded-cycle", "owner": "runner", "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-terminal-cycle-sequence-runner.ts", "export": "runReplayPortfolioProtectiveTerminalCycleSequence" }
+  ],
   "entries": [
     { "milestone": "M4-P1", "capability": "independent-lane-batch", "classification": "canonical", "target_role": "独立资金 Lane 的公共批执行模式" },
     { "milestone": "M4-P2", "capability": "static-shared-initial-capital", "classification": "opt_in", "target_role": "显式静态资金分配模式；不得冒充 runtime wallet" },

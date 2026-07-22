@@ -20,7 +20,7 @@
   "exit_gates": {
     "m4": {
       "p1_through_p29_inventory_frozen": true,
-      "canonical_public_entrypoints_declared": false,
+      "canonical_public_entrypoints_declared": true,
       "opt_in_activation_registry_complete": false,
       "compatibility_consumers_isolated": false,
       "result_artifact_and_checkpoint_epochs_converged": false,
