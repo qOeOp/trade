@@ -17,6 +17,8 @@ import {
   REPLAY_PORTFOLIO_REALLOCATION_RESERVATION_SCHEMA_VERSION,
   REPLAY_PORTFOLIO_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION,
   REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES,
+  REPLAY_PORTFOLIO_TWO_FIXED_PARTIAL_RESERVATION_SCHEMA_VERSION,
+  REPLAY_PORTFOLIO_TWO_FIXED_PARTIAL_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION,
   REPLAY_RESERVATION_CANCELLATION_SCHEMA_VERSION,
   REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION,
   REPLAY_ATTEMPT_CANCELLATION_OBSERVATION_SCHEMA_VERSION,
@@ -40,6 +42,8 @@ import {
   assertReplayPortfolioAllocationReservationSnapshot,
   assertReplayPortfolioReallocationReservationSnapshot,
   assertReplayPortfolioCycleSequenceReservationSnapshot,
+  assertReplayPortfolioTwoFixedPartialReservationSnapshot,
+  assertReplayPortfolioTwoFixedPartialCycleSequenceReservationSnapshot,
   createReplayCheckpointReceiptSnapshot,
   createReplayResumeAuthorizationSnapshot,
   createReplaySharedInitialCapitalReservationSnapshot,
@@ -50,6 +54,8 @@ import {
   createReplayPortfolioAllocationReservationSnapshot,
   createReplayPortfolioReallocationReservationSnapshot,
   createReplayPortfolioCycleSequenceReservationSnapshot,
+  createReplayPortfolioTwoFixedPartialReservationSnapshot,
+  createReplayPortfolioTwoFixedPartialCycleSequenceReservationSnapshot,
   createReplayInstrumentStatusProviderCertificationSnapshot,
   createReplayInstrumentStatusProviderCertificationTermination,
   createReplayAggregateTradeProviderCertificationSnapshot,
@@ -532,6 +538,86 @@ test("Portfolio Cycle Sequence Reservation freezes a bounded contiguous schedule
     .toThrow("cycle sequence order")
 })
 
+test("Portfolio two-fixed-partial Reservation freezes projection identity without execution authority", () => {
+  const value = createReplayPortfolioTwoFixedPartialReservationSnapshot({
+    schema_version: REPLAY_PORTFOLIO_TWO_FIXED_PARTIAL_RESERVATION_SCHEMA_VERSION,
+    reservation_id: "portfolio-two-partial-1", reservation_ref: "reservation://portfolio-two-partial/1",
+    issued_at: "2026-07-14T00:00:00Z", expires_at: "2026-07-14T01:00:00Z", status: "reserved",
+    authority_id: "research-control-plane", experiment_id: "experiment-1", trial_group_id: "group-1",
+    trial_group_hash: HASH, portfolio_id: "portfolio-1", settlement_asset: "USDT",
+    source_terminal_evidence_hash: "b".repeat(64),
+    source_terminal_artifact_manifest_hash: "c".repeat(64), risk_result_hash: "d".repeat(64),
+    projection_policy_version: "two-predeclared-fixed-partials-terminal-risk-v1",
+    lanes: [
+      { lane_id: "lane-a", priority_rank: 1, trial_id: "trial-a", run_id: "run-a",
+        trial_reservation_ref: "reservation://trial-a", trial_reservation_hash: "e".repeat(64),
+        request_hash: "f".repeat(64), source_terminal_record_hash: "1".repeat(64), isolated_collateral: 20 },
+      { lane_id: "lane-b", priority_rank: 2, trial_id: "trial-b", run_id: "run-b",
+        trial_reservation_ref: "reservation://trial-b", trial_reservation_hash: "2".repeat(64),
+        request_hash: "3".repeat(64), source_terminal_record_hash: "4".repeat(64), isolated_collateral: 25 },
+    ],
+    limitations: [
+      "exactly_two_predeclared_fixed_quantity_partial_reduces_per_opened_lane",
+      "projection_only_no_contract_search_review_or_lifecycle_authority",
+      "no_dynamic_sizing_third_partial_post_partial_mutation_reentry_cross_margin_borrow_real_liquidity_or_fast",
+    ],
+  })
+  expect(() => assertReplayPortfolioTwoFixedPartialReservationSnapshot(value)).not.toThrow()
+  const reordered = structuredClone(value); reordered.lanes.reverse()
+  expect(() => assertReplayPortfolioTwoFixedPartialReservationSnapshot(reordered))
+    .toThrow("reservation lanes")
+  const widened = structuredClone(value)
+  widened.limitations[1] = "projection_and_review_authority" as typeof widened.limitations[1]
+  expect(() => assertReplayPortfolioTwoFixedPartialReservationSnapshot(widened))
+    .toThrow("limitations")
+})
+
+test("Portfolio two-fixed-partial cycle Reservation freezes exact child order and no runtime expansion", () => {
+  const children = Array.from({ length: 4 }, (_, index) => createReplayPortfolioTwoFixedPartialReservationSnapshot({
+    schema_version: REPLAY_PORTFOLIO_TWO_FIXED_PARTIAL_RESERVATION_SCHEMA_VERSION,
+    reservation_id: `p27-child-${index + 1}`, reservation_ref: `reservation://p27-child/${index + 1}`,
+    issued_at: "2026-07-14T00:00:00Z", expires_at: "2026-07-14T01:00:00Z", status: "reserved",
+    authority_id: "research-control-plane", experiment_id: "experiment-1", trial_group_id: "group-1",
+    trial_group_hash: HASH, portfolio_id: "portfolio-1", settlement_asset: "USDT",
+    source_terminal_evidence_hash: String(index + 1).repeat(64),
+    source_terminal_artifact_manifest_hash: String(index + 2).repeat(64),
+    risk_result_hash: String(index + 3).repeat(64),
+    projection_policy_version: "two-predeclared-fixed-partials-terminal-risk-v1",
+    lanes: [{ lane_id: `lane-${index + 1}`, priority_rank: 1, trial_id: `trial-${index + 1}`,
+      run_id: `run-${index + 1}`, trial_reservation_ref: `reservation://trial-${index + 1}`,
+      trial_reservation_hash: String(index + 4).repeat(64), request_hash: String(index + 5).repeat(64),
+      source_terminal_record_hash: String(index + 6).repeat(64), isolated_collateral: 20 }],
+    limitations: ["exactly_two_predeclared_fixed_quantity_partial_reduces_per_opened_lane",
+      "projection_only_no_contract_search_review_or_lifecycle_authority",
+      "no_dynamic_sizing_third_partial_post_partial_mutation_reentry_cross_margin_borrow_real_liquidity_or_fast"],
+  }))
+  const value = createReplayPortfolioTwoFixedPartialCycleSequenceReservationSnapshot({
+    schema_version: REPLAY_PORTFOLIO_TWO_FIXED_PARTIAL_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION,
+    reservation_id: "p27-sequence-1", reservation_ref: "reservation://p27-sequence/1",
+    issued_at: "2026-07-14T00:00:00Z", expires_at: "2026-07-14T01:00:00Z", status: "reserved",
+    authority_id: "research-control-plane", experiment_id: "experiment-1", trial_group_id: "group-1",
+    trial_group_hash: HASH, portfolio_id: "portfolio-1", settlement_asset: "USDT", initial_cash: 100,
+    cycle_count: 4, max_cycle_count: 8,
+    opening_cash_policy: "first_cycle_initial_then_predecessor_committed_trial_balance",
+    successor_eligibility_policy: "predecessor_committed_full_flat_exposure_collateral_and_risk_zero",
+    expansion_policy: "exact_predeclared_child_reservations_no_runtime_append_or_search_expansion",
+    cycles: children.map((child, index) => ({ cycle_index: index + 1,
+      two_fixed_partial_reservation_hash: child.reservation_hash,
+      earliest_cycle_time: `2026-07-14T00:${String(index * 8).padStart(2, "0")}:00Z`,
+      lanes: child.lanes.map((lane) => ({ lane_id: lane.lane_id, priority_rank: lane.priority_rank,
+        trial_id: lane.trial_id, run_id: lane.run_id, trial_reservation_hash: lane.trial_reservation_hash,
+        request_hash: lane.request_hash })) })),
+    limitations: ["one_to_eight_predeclared_two_fixed_partial_full_flat_cycles_only",
+      "cycle_opening_cash_must_equal_predecessor_committed_trial_balance",
+      "no_dynamic_sizing_third_partial_post_partial_mutation_reentry_cross_margin_borrow_real_liquidity_fast_or_runtime_cycle_expansion"],
+  })
+  expect(() => assertReplayPortfolioTwoFixedPartialCycleSequenceReservationSnapshot(value)).not.toThrow()
+  const expanded = structuredClone(value); expanded.cycle_count = 5
+  expect(() => assertReplayPortfolioTwoFixedPartialCycleSequenceReservationSnapshot(expanded)).toThrow("policy")
+  const reordered = structuredClone(value); reordered.cycles[1]!.earliest_cycle_time = value.cycles[0]!.earliest_cycle_time
+  expect(() => assertReplayPortfolioTwoFixedPartialCycleSequenceReservationSnapshot(reordered)).toThrow("order")
+})
+
 test("provider certification termination is non-retroactive and type-safe", () => {
   const supersession = createReplayInstrumentStatusProviderCertificationTermination({
     schema_version: REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION,
@@ -803,7 +889,7 @@ test("Replay decision observation Bundle admission is immutable non-economic aut
     run_id: "run-1",
     reservation_ref: "reservation://trial-1",
     reservation_hash: HASH,
-    request_schema_version: "trade.rd-replay-execution-request.v36",
+    request_schema_version: "trade.rd-replay-execution-request.v38",
     request_hash: "b".repeat(64),
     dataset_manifest_ref: "dataset://fixture",
     dataset_hash: "c".repeat(64),
