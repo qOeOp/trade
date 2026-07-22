@@ -30,6 +30,21 @@ interface WorkerEvidence extends NaturalSoakWorkerEvidence {
 const moduleRoot = process.cwd();
 const repositoryRoot = resolve(moduleRoot, "../../..");
 const arguments_ = parseArgs(process.argv.slice(2));
+const terminalStatePath = arguments_.terminalState == null
+  ? undefined
+  : resolve(repositoryRoot, arguments_.terminalState);
+if (terminalStatePath != null) {
+  assertTmpPath(terminalStatePath);
+  process.on("exit", (exitCode) => {
+    mkdirSync(dirname(terminalStatePath), { recursive: true });
+    writeFileSync(terminalStatePath, `${JSON.stringify({
+      schema_version: "trade.l2-natural-soak-terminal-state.v1",
+      finished_at: new Date().toISOString(),
+      status: exitCode === 0 ? "completed" : "failed",
+      exit_code: exitCode,
+    }, null, 2)}\n`, { flag: "wx", mode: 0o600 });
+  });
+}
 if (!arguments_.yesPublicNetwork)
   throw new Error("natural public soak requires explicit --yes-public-network");
 const outputPath = resolve(repositoryRoot, arguments_.output);
@@ -270,6 +285,7 @@ function parseArgs(argv: string[]): {
   segmentFrames: number;
   syncEveryFrames: number;
   maxBookLevels: number;
+  terminalState?: string;
   output: string;
 } {
   const result = {
@@ -281,8 +297,9 @@ function parseArgs(argv: string[]): {
     queueCapacity: 64,
     segmentFrames: 1000,
     syncEveryFrames: 100,
-    maxBookLevels: 20_000,
+    maxBookLevels: 100_000,
     output: `tmp/l2-recorder-bakeoff/natural-soak-evidence-${Date.now()}.json`,
+    terminalState: undefined as string | undefined,
   };
   let index = 0;
   while (index < argv.length) {
@@ -309,6 +326,7 @@ function parseArgs(argv: string[]): {
     else if (argv[index] === "--max-book-levels")
       result.maxBookLevels = Number(value);
     else if (argv[index] === "--output") result.output = value;
+    else if (argv[index] === "--terminal-state") result.terminalState = value;
     else throw new Error(`unknown argument: ${argv[index]}`);
     index += 2;
   }

@@ -774,7 +774,7 @@ fn parse_args(values: Vec<String>) -> Result<Arguments, Box<dyn Error>> {
     let mut queue_capacity = 256;
     let mut segment_frames = 1000;
     let mut sync_every_frames = 100;
-    let mut max_book_levels = 20_000;
+    let mut max_book_levels = 100_000;
     let mut force_disconnect_after = 0;
     let mut output_base = PathBuf::from("../../../tmp/l2-recorder-bakeoff/soak-rust");
     let mut yes_public_network = false;
@@ -835,6 +835,12 @@ fn parse_args(values: Vec<String>) -> Result<Arguments, Box<dyn Error>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn natural_soak_default_book_capacity_supports_long_running_depth() {
+        let arguments = parse_args(vec![]).expect("default arguments");
+        assert_eq!(arguments.max_book_levels, 100_000);
+    }
 
     fn event(first: u64, final_id: u64, previous: u64) -> DepthEvent {
         DepthEvent {

@@ -34,6 +34,7 @@ const launchDirectory = resolve(
 assertTmpPath(launchDirectory);
 mkdirSync(launchDirectory, { recursive: true });
 const logPath = resolve(launchDirectory, "supervisor.log");
+const terminalStatePath = resolve(launchDirectory, "terminal-state.json");
 const receiptPath = resolve(launchDirectory, "launch-receipt.json");
 const descriptor = openSync(logPath, "wx", 0o600);
 let child: ReturnType<typeof Bun.spawn>;
@@ -43,6 +44,8 @@ try {
       process.execPath,
       resolve(moduleRoot, "src/scripts/natural-soak-supervisor.ts"),
       ...forwardedArguments,
+      "--terminal-state",
+      relative(repositoryRoot, terminalStatePath),
     ],
     cwd: moduleRoot,
     stdin: "ignore",
@@ -62,6 +65,7 @@ const receipt = {
   supervisor_pid: child.pid,
   evidence_path: relative(repositoryRoot, outputPath),
   log_path: relative(repositoryRoot, logPath),
+  terminal_state_path: relative(repositoryRoot, terminalStatePath),
 };
 writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, {
   flag: "wx",

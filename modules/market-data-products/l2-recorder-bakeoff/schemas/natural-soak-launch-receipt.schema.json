@@ -15,6 +15,7 @@
     "started_at": { "type": "string", "format": "date-time" },
     "supervisor_pid": { "type": "integer", "minimum": 2 },
     "evidence_path": { "type": "string", "pattern": "^tmp/" },
-    "log_path": { "type": "string", "pattern": "^tmp/" }
+    "log_path": { "type": "string", "pattern": "^tmp/" },
+    "terminal_state_path": { "type": "string", "pattern": "^tmp/" }
   }
 }

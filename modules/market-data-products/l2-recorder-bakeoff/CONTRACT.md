@@ -17,6 +17,8 @@ P0-only evidence module for selecting the runtime language of the future public 
 - Benchmark results are evidence, not an automatic language decision.
 - Rust soak also requires `--yes-public-network`; it uses a bounded receiver queue and bounded book-level cap, and writes only below the requested ignored output base.
 - The Bun supervisor may own Rust process lifecycle and evidence orchestration, but never parses books or writes market-data owner stores. It signals only the exact child PID it created.
+- Detached launches publish an immutable terminal-state sidecar; status reports `failed` immediately when the supervisor exits without passing evidence instead of inferring activity from recently written segment files.
+- The natural-soak default combined book cap is 100,000 levels. A configured capacity breach remains a hard, explicit failure and may only resume in a fresh epoch.
 
 ## Raw segment protocol
 

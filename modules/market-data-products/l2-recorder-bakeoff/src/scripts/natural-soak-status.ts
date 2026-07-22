@@ -10,6 +10,7 @@ interface LaunchReceipt {
   supervisor_pid: number;
   evidence_path: string;
   log_path: string;
+  terminal_state_path?: string;
 }
 
 interface ObservedFile {
@@ -38,6 +39,19 @@ const logPath = resolve(repositoryRoot, receipt.log_path);
 assertTmpPath(evidencePath);
 assertTmpPath(logPath);
 const evidenceExists = existsSync(evidencePath);
+const terminalStatePath = receipt.terminal_state_path == null
+  ? undefined
+  : resolve(repositoryRoot, receipt.terminal_state_path);
+if (terminalStatePath != null) assertTmpPath(terminalStatePath);
+const terminalState = terminalStatePath != null && existsSync(terminalStatePath)
+  ? (JSON.parse(readFileSync(terminalStatePath, "utf8")) as {
+      schema_version?: string;
+      status?: "completed" | "failed";
+      exit_code?: number;
+    })
+  : undefined;
+if (terminalState != null && terminalState.schema_version !== "trade.l2-natural-soak-terminal-state.v1")
+  throw new Error("unsupported natural soak terminal state");
 const workRoot = resolve(
   repositoryRoot,
   "tmp/l2-recorder-bakeoff/natural-soak-work",
@@ -69,19 +83,23 @@ const latestFile = [...observedFiles].sort(
   (left, right) => right.modifiedAtMs - left.modifiedAtMs,
 )[0];
 const observedAtMs = Date.now();
-const status = deriveNaturalSoakStatus({
-  evidenceExists,
-  observedAtMs,
-  startedAtMs,
-  latestDataModifiedAtMs: latestFile?.modifiedAtMs,
-  staleAfterMs: arguments_.staleAfterMs,
-});
 const completedEvidence = evidenceExists
   ? (JSON.parse(readFileSync(evidencePath, "utf8")) as {
       gate_eligible?: boolean;
       gate_verdict?: string;
     })
   : undefined;
+const supervisorAlive = processIsAlive(receipt.supervisor_pid);
+const status = deriveNaturalSoakStatus({
+  evidenceExists,
+  evidenceVerdict: completedEvidence?.gate_verdict,
+  supervisorAlive,
+  terminalStatus: terminalState?.status,
+  observedAtMs,
+  startedAtMs,
+  latestDataModifiedAtMs: latestFile?.modifiedAtMs,
+  staleAfterMs: arguments_.staleAfterMs,
+});
 process.stdout.write(
   `${JSON.stringify({
     schema_version: "trade.l2-natural-soak-status.v1",
@@ -90,12 +108,16 @@ process.stdout.write(
     freshness_ms: status.freshness_ms,
     receipt_path: relative(repositoryRoot, receiptPath),
     supervisor_pid: receipt.supervisor_pid,
+    supervisor_alive: supervisorAlive,
     evidence_path: receipt.evidence_path,
     evidence_exists: evidenceExists,
     gate_eligible: completedEvidence?.gate_eligible,
     gate_verdict: completedEvidence?.gate_verdict,
     log_path: receipt.log_path,
     log_exists: existsSync(logPath),
+    terminal_state_path: receipt.terminal_state_path,
+    terminal_state_exists: terminalState != null,
+    supervisor_exit_code: terminalState?.exit_code,
     finalized_segments: segmentFiles.length,
     partial_segments: partialFiles.length,
     latest_data_path:
@@ -109,6 +131,15 @@ process.stdout.write(
         : new Date(latestFile.modifiedAtMs).toISOString(),
   })}\n`,
 );
+
+function processIsAlive(pid: number): boolean {
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (error) {
+    return error instanceof Error && "code" in error && error.code === "EPERM";
+  }
+}
 
 function listObservedFiles(workDirectory: string): ObservedFile[] {
   const files: ObservedFile[] = [];
