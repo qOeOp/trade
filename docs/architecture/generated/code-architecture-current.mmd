@@ -1,6 +1,6 @@
 flowchart LR
   blueprint["Blueprint: architecture-overview-v2.mmd"]
-  generated["Generated from code + manifest"]
+  generated["Generated from code + manifest\nblueprint 70d0759e7f7d"]
   blueprint -. compare .- generated
   subgraph domain_orchestration_ops["orchestration-ops"]
     module_modules_orchestration_ops_trade_flow["orchestration-ops/trade-flow"]
@@ -82,19 +82,16 @@ flowchart LR
     module_modules_research_strategy_development_agent_roles_planner["research-strategy-development/agent-roles/planner"]
     module_modules_research_strategy_development_agent_roles_developer["research-strategy-development/agent-roles/developer"]
     module_modules_research_strategy_development_agent_roles_reviewer["research-strategy-development/agent-roles/reviewer"]
-    module_modules_research_strategy_development_replay_execution_plane_compatibility_replay_runner["research-strategy-development/replay-execution-plane/compatibility/replay-runner"]
+    module_modules_research_strategy_development_replay_execution_plane_compatibility_legacy_replay_fingerprint["research-strategy-development/replay-execution-plane/compatibility/legacy-replay-fingerprint"]
     module_modules_research_strategy_development_replay_execution_plane_compatibility_replay_engine["research-strategy-development/replay-execution-plane/compatibility/replay-engine"]
     module_modules_research_strategy_development_research_control_plane_dataset_governance_data_split["research-strategy-development/research-control-plane/dataset-governance/data-split"]
     module_modules_research_strategy_development_agent_roles_reviewer_signal_evaluator["research-strategy-development/agent-roles/reviewer/signal-evaluator"]
     module_modules_research_strategy_development_agent_roles_developer_signal_engine["research-strategy-development/agent-roles/developer/signal-engine"]
-    module_modules_research_strategy_development_replay_execution_plane_compatibility_panel_evaluator["research-strategy-development/replay-execution-plane/compatibility/panel-evaluator"]
-    module_modules_research_strategy_development_replay_execution_plane_compatibility_benchmark_runner["research-strategy-development/replay-execution-plane/compatibility/benchmark-runner"]
     module_modules_research_strategy_development_replay_execution_plane_compatibility_benchmark_engine["research-strategy-development/replay-execution-plane/compatibility/benchmark-engine"]
     module_modules_research_strategy_development_replay_execution_plane_certification_calibration_suite["research-strategy-development/replay-execution-plane/certification/calibration-suite"]
     module_modules_research_strategy_development_research_control_plane_dataset_governance_funding_governance["research-strategy-development/research-control-plane/dataset-governance/funding-governance"]
     module_modules_research_strategy_development_agent_roles_developer_candidate_batch["research-strategy-development/agent-roles/developer/candidate-batch"]
     module_modules_research_strategy_development_agent_roles_developer_candidate_batch_engine["research-strategy-development/agent-roles/developer/candidate-batch-engine"]
-    module_modules_research_strategy_development_forward_evidence_plane_compatibility_forward_holdout["research-strategy-development/forward-evidence-plane/compatibility/forward-holdout"]
     module_modules_research_strategy_development_research_control_plane_program_control["research-strategy-development/research-control-plane/program-control"]
     module_modules_research_strategy_development_research_control_plane_program_supervisor["research-strategy-development/research-control-plane/program-supervisor"]
     module_modules_research_strategy_development_research_control_plane_replay_recovery["research-strategy-development/research-control-plane/replay-recovery"]
@@ -106,7 +103,6 @@ flowchart LR
     module_modules_research_strategy_development_agent_roles_planner_strategy_hypothesis_designer["research-strategy-development/agent-roles/planner/strategy-hypothesis-designer"]
     module_modules_research_strategy_development_research_control_plane_strategy_policy_writer["research-strategy-development/research-control-plane/strategy-policy-writer"]
     module_modules_research_strategy_development_research_control_plane_certification_legacy_integration_suite["research-strategy-development/research-control-plane/certification/legacy-integration-suite"]
-    module_modules_research_strategy_development_research_control_plane_compatibility_candidate_freezer["research-strategy-development/research-control-plane/compatibility/candidate-freezer"]
     module_modules_research_strategy_development_research_control_plane_evidence_registry["research-strategy-development/research-control-plane/evidence-registry"]
     module_modules_research_strategy_development_agent_roles_developer_strategy_contract_compile["research-strategy-development/agent-roles/developer/strategy-contract-compile"]
     module_modules_research_strategy_development_research_control_plane_contract_lint["research-strategy-development/research-control-plane/contract-lint"]
@@ -156,5 +152,3 @@ flowchart LR
   domain_policy_risk -- "owns store" --> store_policy_registry
   store_ops_runtime_store[("ops_runtime_store")]
   domain_orchestration_ops -- "owns store" --> store_ops_runtime_store
-  module_modules_market_data_products_aggregate_trade_provider -. "1 import" .-> module_modules_research_strategy_development_replay_execution_plane_contracts
-  module_modules_market_data_products_instrument_status_provider -. "1 import" .-> module_modules_research_strategy_development_replay_execution_plane_contracts

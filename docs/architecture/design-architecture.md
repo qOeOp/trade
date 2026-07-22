@@ -29,6 +29,7 @@ product contract
 - 外部只有一个 automation 入口；orchestration 只规划、调度、收口和审计。
 - 在线交易、research、governance、artifact 和 ops 各自拥有事实，不共享一个万能数据库。
 - 跨域传 contract / envelope / ref，不直接读取对方实现或物理表。
+- 生产源码跨域 import 保持为 0；Market Data / Replay 的共享 wire 由 `modules/contracts/replay-contract` 承载。
 - 交易所事实优先于本地投影；投影必须可从权威事件重建。
 - research 不写 `trade.db`，不调用 Binance write；market data 不输出交易动作。
 - 新增风险必须经过 policy、fresh facts、preflight、execution contract 和显式授权。
@@ -131,7 +132,6 @@ Universe / Knowledge / Proposal
 
 ## 9. 当前限制
 
-- 代码投影仍有 2 条已登记 Market Data → Replay contracts 跨域 import；不得扩张，目标是共享 contract/ref rail。
 - trading config 已有 compiler / policy registry，但部分旧调用方仍需完成统一消费；以 [trading-config.md](../runtime/trading-config.md) 的 known gaps 为准。
 - Replay 已有受限 certified vertical slice；未认证的 queue/depth partial、通用 multi-order、remote transport 等不得表述为已支持。
 - compatibility 子树仍存在时，只能缩减，不能新增 authority 语义。

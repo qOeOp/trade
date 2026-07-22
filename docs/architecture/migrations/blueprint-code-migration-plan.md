@@ -10,7 +10,7 @@ last_verified: 2026-07-22 CST
 
 ## 1. 当前结论
 
-v2 蓝图的物理骨架已落地：10 个顶层 domain、J01-J07、10 个 logical store、10 条 rail、domain runtime、protocol fabric 与 drift audit 均有机器清单和检查。迁移已从“补目录”进入“移除兼容 authority 与源码飞线”。
+v2 蓝图的物理骨架已落地：10 个顶层 domain、J01-J07、10 个 logical store、10 条 rail、domain runtime、protocol fabric 与 drift audit 均有机器清单和检查。生产源码跨域 import 已归零；迁移重心是移除兼容 authority 与补齐 owner-native pipeline。
 
 当前事实只看：
 
@@ -29,12 +29,13 @@ v2 蓝图的物理骨架已落地：10 个顶层 domain、J01-J07、10 个 logic
 - domain job 已有 owner-native result 的主路径。
 - architecture drift 报告进入 quality gate。
 - 新模块按 domain / atomic / contract / internal-engine 规则归位。
+- Market Data / Replay 的 status 与 aggregate-trade wire 已上提 `modules/contracts/replay-contract`，生产源码飞线归零。
+- 无消费者 `research.candidate-freezer` 已从 toolset、manifest 与代码树退役；共享 frozen-candidate ref 协议保留。
 
 ## 3. 剩余迁移债务
 
 | 债务 | 当前边界 | 退出条件 |
 | --- | --- | --- |
-| 2 条 Market Data → Replay contract import | 已登记，不得扩张 | 上提共享 contract 或改用 ref / rail，drift 归零 |
 | compatibility 子树 | 只保留 parity 与迁移入口 | owner-native replacement 通过回归后删除，不新增 authority |
 | façade 直接调用 owner CLI | 允许 resolver / adapter，不允许业务判断 | job / rail envelope 成为正常跨域路径 |
 | thin owner ports 未接完整 pipeline | 不能据壳声明功能完成 | 实际 consumer、durable result 和 owner tests 闭合 |
@@ -42,7 +43,7 @@ v2 蓝图的物理骨架已落地：10 个顶层 domain、J01-J07、10 个 logic
 
 ## 4. 迁移顺序
 
-1. 禁止新增未登记跨域 import 和 compatibility authority。
+1. 保持生产源码跨域 import 为 0，禁止新增 compatibility authority。
 2. 先建立 shared contract / ref / owner inbox，再迁调用方。
 3. 以同输入 parity、幂等和 store write scope 验证 replacement。
 4. 切换 registry / resolver / job handler。
