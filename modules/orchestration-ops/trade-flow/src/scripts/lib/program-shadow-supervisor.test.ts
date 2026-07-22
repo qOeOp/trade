@@ -66,6 +66,7 @@ test("program shadow supervisor runs stable cadence slots and releases its fence
 test("program shadow supervisor forwards the fixed full-shadow profile without live commands", async () => {
   const fixture = createFixture("program-full-shadow-supervisor-")
   try {
+    let now = new Date("2026-07-23T04:02:00.000Z")
     const commands: Array<{ argv: string[] }> = []
     const result = await runProgramShadowSupervisor(
       fixture.tradeDb,
@@ -74,7 +75,8 @@ test("program shadow supervisor forwards the fixed full-shadow profile without l
         ops_runtime_db: fixture.opsDbPath,
         runtime_profile: "full_shadow",
         rd_trackers: [{ tracker_id: "supervisor-tracker-1" }],
-        max_cycles: 1,
+        interval_seconds: 1,
+        max_cycles: 2,
         observe_agent_parity: true,
       },
       async (command): Promise<CommandExecutionResult> => {
@@ -84,8 +86,12 @@ test("program shadow supervisor forwards the fixed full-shadow profile without l
           : { exit_code: 0, stdout: JSON.stringify({ ok: true }), stderr: "" }
       },
       {
-        clock: () => new Date("2026-07-23T04:02:00.000Z"),
+        clock: () => new Date(now),
         holderId: () => "full-shadow-supervisor",
+        sleep: async (milliseconds) => {
+          now = new Date(now.getTime() + milliseconds)
+          return "elapsed"
+        },
       },
     )
 
@@ -94,12 +100,51 @@ test("program shadow supervisor forwards the fixed full-shadow profile without l
     assert.equal((result.last_wakeup as { runtime_profile: string }).runtime_profile, "full_shadow")
     assert.equal(
       (result.parity_observation as { matched: number; mismatched: number }).matched,
-      1,
+      2,
       JSON.stringify(result.parity_observation),
     )
     assert.equal((result.parity_observation as { matched: number; mismatched: number }).mismatched, 0)
     assert.equal(commands.some((command) => command.argv.includes("--run-live-small")), false)
     assert.equal(commands.some((command) => command.argv.some((part) => part.includes("binance-write"))), false)
+
+    const commandCount = commands.length
+    const restarted = await runProgramShadowSupervisor(
+      fixture.tradeDb,
+      fixture.tradeDbPath,
+      {
+        ops_runtime_db: fixture.opsDbPath,
+        runtime_profile: "full_shadow",
+        rd_trackers: [{ tracker_id: "supervisor-tracker-1" }],
+        interval_seconds: 1,
+        max_cycles: 1,
+        observe_agent_parity: true,
+      },
+      async (command): Promise<CommandExecutionResult> => {
+        commands.push({ argv: command.argv })
+        return { exit_code: 0, stdout: JSON.stringify({ ok: true }), stderr: "" }
+      },
+      { clock: () => new Date(now), holderId: () => "full-shadow-supervisor-restart" },
+    )
+    assert.equal((restarted.cycles as { skipped_terminal: number }).skipped_terminal, 1)
+    assert.equal(commands.length, commandCount)
+    assert.equal((restarted.lease as { fencing_token: number }).fencing_token, 2)
+
+    const opsDb = new Database(fixture.opsDbPath)
+    try {
+      const cycleCount = opsDb.query("SELECT COUNT(*) AS count FROM cycle_run WHERE cycle_id LIKE 'program-shadow-%'").get() as { count: number }
+      const duplicateJobs = opsDb.query(`
+        SELECT COUNT(*) AS count FROM (
+          SELECT cycle_id, ticket_no, COUNT(*) AS copies
+          FROM job_run GROUP BY cycle_id, ticket_no HAVING copies > 1
+        )
+      `).get() as { count: number }
+      const incidentCount = opsDb.query("SELECT COUNT(*) AS count FROM incident").get() as { count: number }
+      assert.equal(cycleCount.count, 2)
+      assert.equal(duplicateJobs.count, 0)
+      assert.equal(incidentCount.count, 0)
+    } finally {
+      opsDb.close()
+    }
   } finally {
     fixture.close()
   }
