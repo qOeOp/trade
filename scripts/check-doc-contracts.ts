@@ -130,6 +130,7 @@ for (const path of currentDocuments) {
   for (const field of requiredMetadata) {
     if (!metadata[field]) issues.push(`${path} missing frontmatter field: ${field}`)
   }
+  checkTitleStructure(path, metadata.title, "current")
   checkLastVerified(path, metadata.last_verified)
   if (!indexedPaths.has(path)) issues.push(`current document is missing from ${indexPath}: ${path}`)
 }
@@ -139,6 +140,7 @@ for (const path of walkMarkdown("docs/history").filter((path) => path !== "docs/
   for (const field of requiredMetadata) {
     if (!metadata[field]) issues.push(`${path} missing frontmatter field: ${field}`)
   }
+  checkTitleStructure(path, metadata.title, "historical")
   checkLastVerified(path, metadata.last_verified)
   if (!["completed-historical", "legacy-reference"].includes(metadata.status ?? "")) {
     issues.push(`${path} must use completed-historical or legacy-reference status`)
@@ -225,4 +227,14 @@ function checkLastVerified(path: string, value: string | undefined): void {
     if (date.getUTCFullYear() === year && date.getUTCMonth() === month - 1 && date.getUTCDate() === day) return
   }
   issues.push(`${path} has invalid last_verified: ${value} (expected YYYY-MM-DD CST)`)
+}
+
+function checkTitleStructure(path: string, title: string | undefined, lifecycle: "current" | "historical"): void {
+  if (!title) return
+  const headingCount = [...readFileSync(path, "utf8").matchAll(/^#\s+\S.*$/gm)].length
+  if (lifecycle === "current" && headingCount !== 1) {
+    issues.push(`${path} must contain exactly one top-level heading; found ${headingCount}`)
+  } else if (lifecycle === "historical" && headingCount === 0) {
+    issues.push(`${path} must contain at least one top-level heading`)
+  }
 }

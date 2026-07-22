@@ -59,6 +59,8 @@ current 文档只允许以上状态，并必须与 `doc-contract-index.json` 一
 
 `role` 也不是自由标签，并与 status 绑定：contract / index / decision / roadmap / runbook 使用 `active`；feature contract 可使用 `active-partial`；migration 只使用 `proposed` 或 `active-migration`；source material、implementation record、audit log 分别只使用 `source-material`、`implemented`、`audit-log`。精确 role→status 组合由 `check-doc-contracts.ts` 执法，新增组合必须先修改本合同与 checker。
 
+`title` 是稳定、可读的元数据标题，不要求与正文展示标题逐字相同。current 文档必须且只能有一个 `#` 一级标题；history 可为保留原始结构包含多个一级标题，但至少有一个。
+
 `last_verified` 统一使用 `YYYY-MM-DD CST`，日期必须真实存在。它表示 owner 最近一次核对当前内容的日期；机器检查不定义 freshness SLA，也不会因自然时间流逝自动改写文档。
 
 ## 归档规则

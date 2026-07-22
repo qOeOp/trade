@@ -425,6 +425,28 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("expected YYYY-MM-DD CST")
   })
 
+  test("document contracts reject a current document without a top-level heading", () => {
+    const root = documentContractFixture({})
+    const path = join(root, "docs/README.md")
+    writeFileSync(path, readFileSync(path, "utf8").replace("# Documentation", "## Documentation"))
+
+    const result = runJudge("check-doc-contracts.ts", root)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("must contain exactly one top-level heading; found 0")
+  })
+
+  test("document contracts reject multiple top-level headings in a current document", () => {
+    const root = documentContractFixture({})
+    const path = join(root, "docs/README.md")
+    writeFileSync(path, `${readFileSync(path, "utf8")}# Duplicate\n`)
+
+    const result = runJudge("check-doc-contracts.ts", root)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("must contain exactly one top-level heading; found 2")
+  })
+
   test("package tests cannot omit a colocated test file", () => {
     const root = temporaryRoot()
     write(root, "modules/domain-a/tool-a/package.json", JSON.stringify({
