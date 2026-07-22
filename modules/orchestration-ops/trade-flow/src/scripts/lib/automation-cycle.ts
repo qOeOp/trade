@@ -262,6 +262,7 @@ export function buildAutomationCyclePlan(_db: Database, dbPath: string, input: A
       reason: activeFlowCount > 0 ? "active flows need trigger, protection, and reconcile checks" : "no active flow needs fast guard",
       cadence: cadence.fast_track_guard,
       allowedRuntimeWrites: ["trade_event_store"],
+      dependsOnJobIds: ["account_reconcile_guard"],
     }),
     tradeJob({
       job_id: "slow_track_market_watch",
@@ -449,6 +450,7 @@ function tradeJob(input: {
   reason: string
   cadence: CadenceState
   allowedRuntimeWrites?: string[]
+  dependsOnJobIds?: string[]
 }): JSONRecord {
   return {
     ...baseJob(input),
@@ -462,6 +464,7 @@ function tradeJob(input: {
     command_spec: asRecord(input.toolJob.command_spec),
     cadence: input.cadence,
     ...(input.allowedRuntimeWrites ? { allowed_runtime_writes: input.allowedRuntimeWrites } : {}),
+    ...(input.dependsOnJobIds ? { depends_on_job_ids: input.dependsOnJobIds } : {}),
   }
 }
 
@@ -534,6 +537,11 @@ function accountReconcileJob(input: {
     concurrency_group: "trade-db",
     may_write_trade_db: true,
     may_call_binance_write: false,
+    result_policy: {
+      status_path: ["data", "status"],
+      completed_statuses: ["recovered_noop", "recovered_applied"],
+      blocked_statuses: ["reconcile_draft_ready", "abort_unmatched_reconcile"],
+    },
     trigger_mode: "active_flow_guard",
     candidate_chain_ids: input.candidateChainIds,
     entrypoint: "read active flow refs, reconcile account snapshot facts, and only write local reconcile/needs_review facts",

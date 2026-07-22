@@ -114,6 +114,7 @@ export async function runAutomationJobGraph(
         allowLiveWrites: input.allow_live_writes === true,
         opsDb,
         executor,
+        priorResults: results,
       })))
       results.push(...stageResults)
     }
@@ -225,6 +226,7 @@ async function runOneJob(input: {
   allowLiveWrites: boolean
   opsDb: Database
   executor: CommandExecutor
+  priorResults: JobResult[]
 }): Promise<JobResult> {
   const toolJob = asRecord(input.job.tool_job)
   const command = commandSpecFromJob(input.job)
@@ -264,6 +266,11 @@ async function runOneJob(input: {
     return recordJobAndBus(input.opsDb, input.cycleId, base, "skipped", "runner dry-run; set execute_jobs=true to run command_spec", input.generatedAt)
   }
 
+  const dependencyBlocker = dependencyBlockerReason(input.job, input.priorResults)
+  if (dependencyBlocker) {
+    return recordJobAndBus(input.opsDb, input.cycleId, base, "blocked", dependencyBlocker, input.generatedAt)
+  }
+
   const liveWriteBlocker = liveWriteBlockerReason(command, input.allowLiveWrites)
   if (liveWriteBlocker) {
     return recordJobAndBus(input.opsDb, input.cycleId, base, "blocked", liveWriteBlocker, input.generatedAt)
@@ -288,6 +295,13 @@ async function runOneJob(input: {
         runtime_result: nativeRuntimeResult,
       })
     }
+    const businessStatus = resultPolicyStatus(input.job, executed.stdout)
+    if (businessStatus) {
+      return recordJobAndBus(input.opsDb, input.cycleId, base, businessStatus.status, businessStatus.reason, input.generatedAt, {
+        result_ref: `ops-runtime://cycle/${input.cycleId}/job/${ticketNo}`,
+        exit_code: executed.exit_code,
+      })
+    }
     return recordJobAndBus(input.opsDb, input.cycleId, base, "completed", "command completed", input.generatedAt, {
       result_ref: `ops-runtime://cycle/${input.cycleId}/job/${ticketNo}`,
       exit_code: executed.exit_code,
@@ -302,6 +316,38 @@ async function runOneJob(input: {
     stdout_tail: executed.stdout.slice(-1000),
   })
   return result
+}
+
+function dependencyBlockerReason(job: JSONRecord, priorResults: JobResult[]): string {
+  const required = asArray(job.depends_on_job_ids).map(String).filter(Boolean)
+  if (required.length === 0) return ""
+  const byJobId = new Map(priorResults.map((result) => [result.job_id, result]))
+  for (const jobId of required) {
+    const result = byJobId.get(jobId)
+    if (!result || result.status !== "completed") {
+      return `dependency ${jobId} did not complete successfully${result ? ` (${result.status})` : ""}`
+    }
+  }
+  return ""
+}
+
+function resultPolicyStatus(job: JSONRecord, stdout: string): { status: "completed" | "blocked" | "failed"; reason: string } | null {
+  const policy = asRecord(job.result_policy)
+  const statusPath = asArray(policy.status_path).map(String).filter(Boolean)
+  if (statusPath.length === 0) return null
+  let value: unknown = parseJsonObject(stdout)
+  for (const key of statusPath) value = asRecord(value)[key]
+  const businessStatus = stringField(value)
+  if (!businessStatus) {
+    return { status: "failed", reason: `command output omitted required business status at ${statusPath.join(".")}` }
+  }
+  if (asArray(policy.completed_statuses).map(String).includes(businessStatus)) {
+    return { status: "completed", reason: `business status ${businessStatus}` }
+  }
+  if (asArray(policy.blocked_statuses).map(String).includes(businessStatus)) {
+    return { status: "blocked", reason: `business status ${businessStatus}` }
+  }
+  return { status: "failed", reason: `unrecognized business status ${businessStatus}` }
 }
 
 function recordJobAndBus(

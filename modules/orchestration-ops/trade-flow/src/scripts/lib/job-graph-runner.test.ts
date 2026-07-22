@@ -147,7 +147,7 @@ test("job graph runner accepts native J02 domain runtime result from fast-track 
       ops_runtime_db: opsDbPath,
       execute_jobs: true,
       include_runtime_health: false,
-      include_account_reconcile: false,
+      include_account_reconcile: true,
       include_fast_track: true,
       include_slow_track: false,
       include_rd_strategy_supervisor: false,
@@ -156,26 +156,28 @@ test("job graph runner accepts native J02 domain runtime result from fast-track 
       include_closed_flow_review: false,
       include_control_effectiveness_review: false,
       include_ops_notify: false,
-    }, async (): Promise<CommandExecutionResult> => ({
+    }, async (command): Promise<CommandExecutionResult> => ({
       exit_code: 0,
-      stdout: JSON.stringify({
-        ok: true,
-        data: {
-          runtime_result: {
-            schema_id: "trade.domain-runtime.domain-job-result.v1",
-            ok: true,
-            status: "ok",
-            domain: "live-execution-control",
-            job_id: "fast_track_guard",
-            idempotency_key: "cycle-job-graph-j02:J02",
-            input_refs: ["trade_event_store:chain/flow-j02"],
-            output_refs: ["tmp/artifacts/trade-flow/fast-track-cycle-job-graph-j02-J02.json"],
-            writes: { trade_event_store: true },
-            incidents: [],
-            audit: { cycle_id: "cycle-job-graph-j02", ticket_no: "J02" },
+      stdout: command.argv.includes("--cron-recover-from-tools")
+        ? JSON.stringify({ ok: true, data: { status: "recovered_noop" } })
+        : JSON.stringify({
+          ok: true,
+          data: {
+            runtime_result: {
+              schema_id: "trade.domain-runtime.domain-job-result.v1",
+              ok: true,
+              status: "ok",
+              domain: "live-execution-control",
+              job_id: "fast_track_guard",
+              idempotency_key: "cycle-job-graph-j02:J02",
+              input_refs: ["trade_event_store:chain/flow-j02"],
+              output_refs: ["tmp/artifacts/trade-flow/fast-track-cycle-job-graph-j02-J02.json"],
+              writes: { trade_event_store: true },
+              incidents: [],
+              audit: { cycle_id: "cycle-job-graph-j02", ticket_no: "J02" },
+            },
           },
-        },
-      }),
+        }),
       stderr: "",
     }))
 
@@ -471,6 +473,61 @@ test("job graph runner records incidents for failed domain jobs", async () => {
     } finally {
       opsDb.close()
     }
+  } finally {
+    tradeDb.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("job graph runner blocks fast guard when reconciliation remains unresolved", async () => {
+  const dir = makeCheckDir("job-graph-runner-reconcile-barrier-")
+  const tradeDbPath = join(dir, "trade.db")
+  const opsDbPath = join(dir, "ops_runtime.db")
+  const tradeDb = new Database(tradeDbPath)
+  try {
+    ensureSchema(tradeDb)
+    appendPlanEvent(tradeDb, {
+      event_key: "obs-reconcile-barrier",
+      chain_id: "flow-reconcile-barrier",
+      kind: "observe",
+      created_at: "2026-07-11T00:00:00Z",
+      body_json: { source: "slow_track", symbol: "BTCUSDT", side: "long" },
+    })
+    const executed: string[] = []
+    const result = await runAutomationJobGraph(tradeDb, tradeDbPath, {
+      cycle_id: "cycle-reconcile-barrier",
+      now: "2026-07-11T00:15:00Z",
+      ops_runtime_db: opsDbPath,
+      execute_jobs: true,
+      include_runtime_health: false,
+      include_account_reconcile: true,
+      include_fast_track: true,
+      include_slow_track: false,
+      include_rd_strategy_supervisor: false,
+      include_rd_trackers: false,
+      include_closed_flow_review: false,
+      include_catalog_hygiene: false,
+      include_control_effectiveness_review: false,
+      include_ops_notify: false,
+    }, async (command): Promise<CommandExecutionResult> => {
+      executed.push(command.argv.join(" "))
+      return {
+        exit_code: 0,
+        stdout: JSON.stringify({ ok: true, data: { status: "reconcile_draft_ready" } }),
+        stderr: "",
+      }
+    })
+
+    const jobs = result.jobs as Array<{ job_id: string; status: string; reason: string }>
+    const reconcile = jobs.find((job) => job.job_id === "account_reconcile_guard")
+    const fast = jobs.find((job) => job.job_id === "fast_track_guard")
+    assert.equal(result.ok, false)
+    assert.equal(reconcile?.status, "blocked")
+    assert.match(reconcile?.reason || "", /reconcile_draft_ready/)
+    assert.equal(fast?.status, "blocked")
+    assert.match(fast?.reason || "", /dependency account_reconcile_guard/)
+    assert.equal(executed.length, 1)
+    assert.match(executed[0], /cron-recover-from-tools/)
   } finally {
     tradeDb.close()
     rmSync(dir, { recursive: true, force: true })
