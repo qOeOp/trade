@@ -311,16 +311,6 @@ import {
   registerReplayWorkerV10ProcessLaunchReadinessGate,
 } from "./replay-worker-v10-process-launch-readiness-gate-registry"
 import {
-  launchReplayWorkerV10AuthorityProcess,
-  readReplayWorkerV10AuthorityProcessLaunchAttempt,
-  readReplayWorkerV10AuthorityProcessLaunchReceipt,
-} from "./replay-worker-v10-authority-process-launch-registry"
-import {
-  dispatchReplayWorkerV10AuthorityRequest,
-  readReplayWorkerV10AuthorityRequestDispatchAttempt,
-  readReplayWorkerV10AuthorityRequestDispatchReceipt,
-} from "./replay-worker-v10-authority-request-dispatch-registry"
-import {
   executeReplayWorkerV10Cutover,
   readReplayWorkerV10CutoverReceipt,
 } from "./replay-worker-v10-cutover"
@@ -424,11 +414,7 @@ import {
   assertReplayDecisionWorkerInputAssemblyV4Lineage,
   buildReplayDecisionWorkerInputAssemblyV4,
 } from "./replay-decision-worker-input-assembly-v4"
-import {
-  expectAuthorityDispatch,
-  expectAuthorityProcessLaunch,
-  expectAuthoritySpawnBoundary,
-} from "./replay-worker-v10-authority-stage.assertions"
+import { expectAuthoritySpawnBoundary } from "./replay-worker-v10-authority-stage.assertions"
 import {
   expectFormalCutoverAdmission,
   expectWorkerV10Cutover,
@@ -443,6 +429,7 @@ import { runReplayWorkerV10UpstreamIntegrityStage } from "./replay-worker-v10-up
 import { runReplayWorkerV10SuccessorExecutionStage } from "./replay-worker-v10-successor-execution-stage"
 import { runReplayWorkerV10SuccessorLeaseStage } from "./replay-worker-v10-successor-lease-stage"
 import { runReplayWorkerV10AuthorityResponseStage } from "./replay-worker-v10-authority-response-stage"
+import { runReplayWorkerV10AuthorityProcessStage } from "./replay-worker-v10-authority-process-stage"
 
 const HASH = "a".repeat(64)
 const ACCOUNTING = {
@@ -3374,103 +3361,19 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       control_plane_revalidation_receipt: buildSpawnRevalidationReceipt("2026-07-14T00:00:55Z", "7000200"),
     })).toThrow("natural key has different evidence")
 
-    const missingAuthorityProcessRoot = mkdtempSync(join(tmpdir(), "replay-worker-v10-authority-process-missing-"))
-    try {
-      await expect(launchReplayWorkerV10AuthorityProcess({
-        registry_root: missingAuthorityProcessRoot,
-        source_spawn_revalidation: spawnRevalidation,
-        clock: { now: () => "2026-07-14T00:00:55Z" },
-      })).rejects.toThrow("requires the exact durable Spawn Boundary Revalidation")
-    } finally {
-      rmSync(missingAuthorityProcessRoot, { recursive: true, force: true })
-    }
-    const authorityProcessTimes = ["2026-07-14T00:00:55Z", "2026-07-14T00:00:56Z"]
-    const authorityProcessOutcome = await launchReplayWorkerV10AuthorityProcess({
+    const authorityProcessStage = await runReplayWorkerV10AuthorityProcessStage({
       registry_root: dispatchEvidenceRegistryRoot,
-      source_spawn_revalidation: spawnRevalidation,
-      clock: { now: () => authorityProcessTimes.shift() ?? "2026-07-14T00:00:56Z" },
+      spawn_revalidation: spawnRevalidation,
+      authority_capsule: authorityCapsule,
+      activated_stdio: activatedStdio,
+      authority_transport: authorityTransport,
+      authority_command: authorityCommand,
+      authority_intent: authorityIntent,
+      profile: replayProfile,
     })
-    expect(authorityProcessOutcome.disposition).toBe("new_live_process_handle")
-    expect(authorityProcessOutcome.session).not.toBeNull()
-    const authorityProcessSession = authorityProcessOutcome.session
-    if (!authorityProcessSession) throw new Error("expected live Worker v10 Authority Process session")
-    const authorityProcessReceipt = authorityProcessOutcome.receipt
-    const authorityProcessAttempt = readReplayWorkerV10AuthorityProcessLaunchAttempt({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_spawn_revalidation: spawnRevalidation,
-    })
-    if (!authorityProcessAttempt) throw new Error("expected Worker v10 Authority Process Launch Attempt")
-    expectAuthorityProcessLaunch({
-      receipt: authorityProcessReceipt,
-      spawn_revalidation_hash: spawnRevalidation.binding_hash,
-      authority_capsule_hash: authorityCapsule.capsule_hash,
-      process_artifact_hash: activatedStdio.artifact.sha256,
-      live_process_instance_id: authorityProcessSession.process_instance_id,
-    })
-    expect(readReplayWorkerV10AuthorityProcessLaunchReceipt({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_spawn_revalidation: spawnRevalidation,
-    })).toEqual(authorityProcessReceipt)
-    const authorityProcessRetry = await launchReplayWorkerV10AuthorityProcess({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_spawn_revalidation: spawnRevalidation,
-      clock: { now: () => { throw new Error("durable receipt retry must not read a new clock") } },
-    })
-    expect(authorityProcessRetry.disposition).toBe("durable_receipt_without_live_handle")
-    expect(authorityProcessRetry.receipt).toEqual(authorityProcessReceipt)
-    expect(authorityProcessRetry.session).toBeNull()
-
-    const missingAuthorityDispatchRoot = mkdtempSync(join(tmpdir(), "replay-worker-v10-authority-dispatch-missing-"))
-    try {
-      await expect(dispatchReplayWorkerV10AuthorityRequest({
-        registry_root: missingAuthorityDispatchRoot,
-        source_process_launch_receipt: authorityProcessReceipt,
-        session: authorityProcessSession,
-        clock: { now: () => "2026-07-14T00:00:57Z" },
-      })).rejects.toThrow("requires the exact durable Spawn Boundary Revalidation")
-    } finally {
-      rmSync(missingAuthorityDispatchRoot, { recursive: true, force: true })
-    }
-    const authorityDispatchTimes = [
-      "2026-07-14T00:00:57Z", "2026-07-14T00:00:58Z",
-      "2026-07-14T00:00:59Z", "2026-07-14T00:01:00Z",
-    ]
-    const authorityDispatchOutcome = await dispatchReplayWorkerV10AuthorityRequest({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_process_launch_receipt: authorityProcessReceipt,
-      session: authorityProcessSession,
-      clock: { now: () => authorityDispatchTimes.shift() ?? "2026-07-14T00:01:00Z" },
-    })
-    replayProfile("authority process dispatch")
-    expect(authorityDispatchOutcome.disposition).toBe("new_opaque_transport_capture")
-    const authorityDispatchReceipt = authorityDispatchOutcome.receipt
-    const authorityDispatchAttempt = readReplayWorkerV10AuthorityRequestDispatchAttempt({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_process_launch_receipt: authorityProcessReceipt,
-    })
-    if (!authorityDispatchAttempt) throw new Error("expected Worker v10 Authority Request Dispatch Attempt")
-    expectAuthorityDispatch({
-      receipt: authorityDispatchReceipt,
-      attempt: authorityDispatchAttempt,
-      process_launch_receipt_hash: authorityProcessReceipt.receipt_hash,
-      process_instance_id: authorityProcessReceipt.process_instance_id!,
-      transport_contract_hash: authorityTransport.contract_hash,
-      execution_command_hash: authorityCommand.command_hash,
-      process_launch_intent_hash: authorityIntent.intent_hash,
-      worker_request_hash: authorityTransport.target_worker_request_hash,
-    })
-    expect(readReplayWorkerV10AuthorityRequestDispatchReceipt({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_process_launch_receipt: authorityProcessReceipt,
-    })).toEqual(authorityDispatchReceipt)
-    const authorityDispatchRetry = await dispatchReplayWorkerV10AuthorityRequest({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_process_launch_receipt: authorityProcessReceipt,
-      session: null,
-      clock: { now: () => { throw new Error("durable dispatch retry must not read a new clock") } },
-    })
-    expect(authorityDispatchRetry.disposition).toBe("durable_receipt_without_live_handle")
-    expect(authorityDispatchRetry.receipt).toEqual(authorityDispatchReceipt)
+    const authorityProcessReceipt = authorityProcessStage.process_receipt
+    const authorityDispatchReceipt = authorityProcessStage.dispatch_receipt
+    const authorityDispatchAttempt = authorityProcessStage.dispatch_attempt
 
     const authorityResponseStage = runReplayWorkerV10AuthorityResponseStage({
       registry_root: dispatchEvidenceRegistryRoot,
