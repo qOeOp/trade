@@ -407,6 +407,24 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("role product-source-material does not allow status: active")
   })
 
+  test("document contracts reject a non-existent last_verified calendar date", () => {
+    const root = documentContractFixture({ lastVerified: "2026-02-30 CST" })
+
+    const result = runJudge("check-doc-contracts.ts", root)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("has invalid last_verified: 2026-02-30 CST")
+  })
+
+  test("document contracts keep last_verified on the project CST date convention", () => {
+    const root = documentContractFixture({ lastVerified: "2026-07-22 JST" })
+
+    const result = runJudge("check-doc-contracts.ts", root)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("expected YYYY-MM-DD CST")
+  })
+
   test("package tests cannot omit a colocated test file", () => {
     const root = temporaryRoot()
     write(root, "modules/domain-a/tool-a/package.json", JSON.stringify({
@@ -472,18 +490,27 @@ function architectureFixture(overrides: { jobs?: unknown[] } = {}): string {
   return root
 }
 
-function documentContractFixture(overrides: { status?: string; owner?: string; role?: string }): string {
+function documentContractFixture(
+  overrides: { status?: string; owner?: string; role?: string; lastVerified?: string },
+): string {
   const root = temporaryRoot()
   const status = overrides.status ?? "active"
   const owner = overrides.owner ?? "architecture"
   const role = overrides.role ?? "documentation-index"
-  const metadata = (title: string, role: string, documentStatus: string, owner: string) => [
+  const lastVerified = overrides.lastVerified ?? "2026-07-22 CST"
+  const metadata = (
+    title: string,
+    role: string,
+    documentStatus: string,
+    owner: string,
+    verified = "2026-07-22 CST",
+  ) => [
     "---",
     `title: ${title}`,
     `role: ${role}`,
     `status: ${documentStatus}`,
     `owner: ${owner}`,
-    "last_verified: 2026-07-22 CST",
+    `last_verified: ${verified}`,
     "---",
     "",
     `# ${title}`,
@@ -494,7 +521,7 @@ function documentContractFixture(overrides: { status?: string; owner?: string; r
     { id: "history-index", path: "docs/history/README.md", role: "history-index", status: "active", owner: "architecture" },
     { id: "risk-contract", path: "docs/runtime/risk-control-contract.md", role: "runtime-feature-contract", status: "active", owner: "policy-risk" },
   ]
-  write(root, "docs/README.md", metadata("Documentation", role, status, owner))
+  write(root, "docs/README.md", metadata("Documentation", role, status, owner, lastVerified))
   write(root, "docs/history/README.md", metadata("History", "history-index", "active", "architecture"))
   write(root, "docs/runtime/risk-control-contract.md", metadata("Risk", "runtime-feature-contract", "active", "policy-risk"))
   write(root, "docs/engineering/doc-contract-index.json", JSON.stringify({
