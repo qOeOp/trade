@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { createHash } from "node:crypto"
 import test from "node:test"
 import { canonicalHash, canonicalJson } from "../canonical-json"
 
@@ -10,4 +11,14 @@ test("canonical JSON is stable across key order and negative zero", () => {
 test("canonical JSON rejects non-finite and unsupported values", () => {
   assert.throws(() => canonicalJson(Number.NaN), /non-finite/)
   assert.throws(() => canonicalJson(Symbol("unsupported")), /unsupported/)
+})
+
+test("canonical hash preserves exact bytes for deeply nested evidence", () => {
+  let evidence: unknown = { z: -0, a: "leaf" }
+  for (let index = 0; index < 128; index += 1) {
+    evidence = { source: evidence, ordinal: index, omitted: undefined }
+  }
+  const encoded = canonicalJson(evidence)
+  assert.equal(canonicalHash(evidence), createHash("sha256").update(encoded).digest("hex"))
+  assert.equal(encoded.includes('"omitted"'), false)
 })
