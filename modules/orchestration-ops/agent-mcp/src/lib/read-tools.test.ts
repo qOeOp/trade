@@ -67,6 +67,7 @@ test("owner adapters use fixed scripts and only pass typed payloads", async () =
     const service = new ReadToolService({
       root,
       catalogDbPath: "tmp/mcp/catalog.db",
+      marketDataDbPath: "tmp/mcp/market-data.db",
       rdStateDbPath: "tmp/mcp/rd.db",
       opsRuntimeDbPath: "tmp/mcp/ops.db",
       execute: async (command) => {
@@ -76,14 +77,44 @@ test("owner adapters use fixed scripts and only pass typed payloads", async () =
     })
     await service.queryArtifactCatalog({ symbol: "BTCUSDT", limit: 5 })
     await service.readArtifact("artifact_demo", 4096)
+    await service.auditL2RetentionReference("binance-usdm:BTCUSDT:epoch-1")
+    await service.listL2RetentionReferenceAudits({
+      after_epoch_id: "binance-usdm:BTCUSDT:epoch-1",
+      limit: 10,
+    })
+    await service.readL2ServiceHealth()
+    await service.readL2BookWatchConsumerHealth()
     await service.readRdProgram("rd-program")
     await service.readOpsCycleSummary("cycle-1")
-    assert.equal(commands.length, 4)
+    assert.equal(commands.length, 8)
     assert.equal(commands[0].script, "modules/artifact-knowledge/artifact-catalog/src/scripts/main.ts")
     assert.deepEqual(JSON.parse(commands[0].args.at(-1) ?? "{}"), { symbol: "BTCUSDT", limit: 5 })
     assert.deepEqual(JSON.parse(commands[1].args.at(-1) ?? "{}"), { artifact_id: "artifact_demo", max_bytes: 4096 })
-    assert.equal(commands[2].args.at(-1), "{\"action\":\"read\"}")
-    assert.deepEqual(JSON.parse(commands[3].args.at(-1) ?? "{}"), { cycle_id: "cycle-1" })
+    assert.equal(commands[2].script, "modules/market-data-products/market-data-store/src/scripts/main.ts")
+    assert.deepEqual(commands[2].args.slice(0, 4), [
+      "--db", "tmp/mcp/market-data.db", "--action", "audit_l2_retention_reference_closure",
+    ])
+    assert.deepEqual(JSON.parse(commands[2].args.at(-1) ?? "{}"), {
+      epoch_id: "binance-usdm:BTCUSDT:epoch-1",
+    })
+    assert.equal(commands[3].script, "modules/market-data-products/market-data-store/src/scripts/main.ts")
+    assert.deepEqual(commands[3].args.slice(0, 4), [
+      "--db", "tmp/mcp/market-data.db", "--action", "list_l2_retention_reference_audits",
+    ])
+    assert.deepEqual(JSON.parse(commands[3].args.at(-1) ?? "{}"), {
+      after_epoch_id: "binance-usdm:BTCUSDT:epoch-1",
+      limit: 10,
+    })
+    assert.deepEqual(commands[4], {
+      script: "modules/market-data-products/l2-order-book-service/src/scripts/owner-health.ts",
+      args: [],
+    })
+    assert.deepEqual(commands[5], {
+      script: "modules/orchestration-ops/l2-current-book-probe/src/scripts/consumer-read.ts",
+      args: [],
+    })
+    assert.equal(commands[6].args.at(-1), "{\"action\":\"read\"}")
+    assert.deepEqual(JSON.parse(commands[7].args.at(-1) ?? "{}"), { cycle_id: "cycle-1" })
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
