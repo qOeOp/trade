@@ -5,7 +5,6 @@ import ts from "typescript"
 import {
   REPLAY_CERTIFICATION_OWNER,
   REPLAY_PLANE_ROOT,
-  type ReplayCertificationManifest,
 } from "./replay-certification"
 
 export type ReplayModuleClassification =
@@ -29,85 +28,6 @@ export interface ObservedReplayConsumerEdge {
 export interface ObservedReplayModuleConsumerClosure {
   modules: ObservedReplayModule[]
   production_consumer_edges: ObservedReplayConsumerEdge[]
-}
-
-export interface ReplayExternalProductionConsumerEdge extends ObservedReplayConsumerEdge {
-  classification: "canonical" | "compatibility"
-}
-
-export interface ReplayModuleConsumerClosureManifest {
-  schema_version: "trade.rd-replay-module-consumer-closure.v1"
-  owner: string
-  source_scope: "modules-static-production-imports"
-  module_registry: "replay-certification-suites.json"
-  production_consumer_policy:
-    "all-external-consumers-explicit-internal-consumers-closed-by-module-registry"
-  external_production_consumer_edges: ReplayExternalProductionConsumerEdge[]
-}
-
-export function loadReplayModuleConsumerClosureManifest(
-  repoRoot: string,
-): ReplayModuleConsumerClosureManifest {
-  const path = join(repoRoot, REPLAY_CERTIFICATION_OWNER, "replay-module-consumer-closure.json")
-  return JSON.parse(readFileSync(path, "utf8")) as ReplayModuleConsumerClosureManifest
-}
-
-export function assertReplayModuleConsumerClosure(
-  manifest: ReplayModuleConsumerClosureManifest,
-  certificationManifest: ReplayCertificationManifest,
-  repoRoot: string,
-): ObservedReplayModuleConsumerClosure {
-  if (manifest.schema_version !== "trade.rd-replay-module-consumer-closure.v1"
-      || manifest.owner !== REPLAY_CERTIFICATION_OWNER
-      || manifest.source_scope !== "modules-static-production-imports"
-      || manifest.module_registry !== "replay-certification-suites.json"
-      || manifest.production_consumer_policy
-        !== "all-external-consumers-explicit-internal-consumers-closed-by-module-registry") {
-    throw new Error("unsupported Replay module/consumer closure manifest")
-  }
-  const observed = discoverReplayModuleConsumerClosure(repoRoot)
-  const expectedModules = [
-    {
-      classification: "certification-owner" as const,
-      package_path: REPLAY_CERTIFICATION_OWNER,
-      package_name: packageName(repoRoot, REPLAY_CERTIFICATION_OWNER),
-    },
-    ...certificationManifest.suites.map((suite) => ({
-      classification: classifyReplayModule(suite.package_path),
-      package_path: suite.package_path,
-      package_name: suite.package_name,
-    })),
-  ].sort((left, right) => left.package_path.localeCompare(right.package_path))
-  if (JSON.stringify(observed.modules) !== JSON.stringify(expectedModules)) {
-    throw new Error("Replay module registry does not classify the complete Plane package set")
-  }
-  const registeredEdges = manifest.external_production_consumer_edges
-  const sortedRegisteredEdges = [...registeredEdges].sort(compareExternalEdges)
-  const registeredKeys = registeredEdges.map(edgeKey)
-  if (new Set(registeredKeys).size !== registeredKeys.length
-      || JSON.stringify(registeredEdges) !== JSON.stringify(sortedRegisteredEdges)) {
-    throw new Error("Replay external production consumer edges must be unique and sorted")
-  }
-  for (const edge of registeredEdges) {
-    if (edge.consumer_path.startsWith(`${REPLAY_PLANE_ROOT}/`)
-        || !edge.provider_path.startsWith(`${REPLAY_PLANE_ROOT}/`)
-        || edge.classification !== providerClassification(edge.provider_path)) {
-      throw new Error(`Replay external production consumer classification is invalid: ${edgeKey(edge)}`)
-    }
-  }
-  const observedExternalEdges = observed.production_consumer_edges
-    .filter((edge) => !edge.consumer_path.startsWith(`${REPLAY_PLANE_ROOT}/`))
-    .map((edge) => ({ ...edge, classification: providerClassification(edge.provider_path) }))
-    .sort(compareExternalEdges)
-  if (JSON.stringify(registeredEdges) !== JSON.stringify(observedExternalEdges)) {
-    throw new Error("Replay external production consumer registry does not match static imports")
-  }
-  const modulePaths = new Set(observed.modules.map((entry) => entry.package_path))
-  if (observed.production_consumer_edges.some((edge) =>
-    edge.consumer_path.startsWith(`${REPLAY_PLANE_ROOT}/`) && !modulePaths.has(edge.consumer_path))) {
-    throw new Error("Replay internal production consumer has no classified module owner")
-  }
-  return observed
 }
 
 export type ReplayProductionConsumerClassification =
@@ -263,22 +183,6 @@ function resolveProviderPackage(
     return owningPackage(resolved, packageRoots)
   }
   return packageNames.get(specifier) ?? null
-}
-
-function providerClassification(providerPath: string): "canonical" | "compatibility" {
-  return providerPath.includes("/compatibility/")
-    || providerPath.includes("/certification/legacy-") ? "compatibility" : "canonical"
-}
-
-function edgeKey(edge: ObservedReplayConsumerEdge): string {
-  return `${edge.consumer_path} -> ${edge.provider_path}`
-}
-
-function compareExternalEdges(
-  left: ReplayExternalProductionConsumerEdge,
-  right: ReplayExternalProductionConsumerEdge,
-): number {
-  return edgeKey(left).localeCompare(edgeKey(right))
 }
 
 function staticModuleSpecifiers(source: ts.SourceFile): string[] {

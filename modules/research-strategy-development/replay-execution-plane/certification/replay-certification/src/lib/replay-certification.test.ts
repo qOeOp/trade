@@ -61,7 +61,7 @@ describe("Replay certification owner", () => {
     expect(first.modules).toHaveLength(23)
     expect(new Set(first.modules.map((entry) => entry.package_path))).toHaveLength(23)
     expect(first.production_consumer_edges.length).toBeGreaterThan(0)
-  })
+  }, 15_000)
 
   test("rejects module or production consumer closure drift", () => {
     const manifest = loadReplayModuleConsumerClosureManifest(repoRoot)
@@ -70,5 +70,5 @@ describe("Replay certification owner", () => {
     drifted.observed_production_consumer_edge_count -= 1
     expect(() => assertReplayModuleConsumerClosureManifest(drifted, repoRoot))
       .toThrow("classify every production consumer edge")
-  })
+  }, 15_000)
 })

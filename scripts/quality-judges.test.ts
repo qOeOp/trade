@@ -174,6 +174,24 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("classify every Plane package exactly once")
   })
 
+  test("Replay module and production consumer closure cannot drift silently", () => {
+    const registry = JSON.parse(readFileSync(
+      join(repoRoot, "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-module-consumer-closure.json"),
+      "utf8",
+    )) as { observed_production_consumer_edge_count: number }
+    registry.observed_production_consumer_edge_count -= 1
+    const root = temporaryRoot()
+    const registryPath = join(root, "replay-module-consumer-closure.json")
+    writeFileSync(registryPath, JSON.stringify(registry))
+
+    const result = runJudge("check-rd-replay-maturity-gate.ts", repoRoot, [], {
+      RD_REPLAY_MODULE_CONSUMER_CLOSURE_PATH: registryPath,
+    })
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("classify every production consumer edge")
+  })
+
   test("package tests cannot report success for an empty suite", () => {
     const root = temporaryRoot()
     write(root, "modules/domain-a/tool-a/package.json", JSON.stringify({
