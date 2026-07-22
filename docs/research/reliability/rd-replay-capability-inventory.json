@@ -28,6 +28,11 @@
     { "milestone": "M4-P28", "activation": "dedicated-runner-and-control-plane-authority", "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-post-partial-stop-replacement-cycle-sequence-runner.ts", "export": "runReplayPortfolioPostPartialStopReplacementCycleSequence" },
     { "milestone": "M4-P29", "activation": "input.bar_linked_stop_entry_path.activation_mode=explicit_opt_in_pre_result_binding", "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.ts", "export": "runReplayTrial" }
   ],
+  "compatibility_consumer_registry": [
+    { "milestone": "M4-P10", "owner": "legacy-portfolio-cycle", "path": "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle/src/lib/replay-portfolio-reallocation-runner.ts", "export": "runReplayPortfolioReallocation" },
+    { "milestone": "M4-P11", "owner": "legacy-portfolio-cycle", "path": "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle/src/lib/replay-two-cycle-portfolio-runner.ts", "export": "runReplayTwoCyclePortfolio" },
+    { "milestone": "M4-P13", "owner": "legacy-portfolio-cycle", "path": "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle/src/lib/replay-portfolio-cycle-sequence-accounting-runner.ts", "export": "runReplayPortfolioCycleSequenceAccounting" }
+  ],
   "entries": [
     { "milestone": "M4-P1", "capability": "independent-lane-batch", "classification": "canonical", "target_role": "独立资金 Lane 的公共批执行模式" },
     { "milestone": "M4-P2", "capability": "static-shared-initial-capital", "classification": "opt_in", "target_role": "显式静态资金分配模式；不得冒充 runtime wallet" },
