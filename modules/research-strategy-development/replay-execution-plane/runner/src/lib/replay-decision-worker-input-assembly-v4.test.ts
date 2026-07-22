@@ -205,19 +205,9 @@ import {
   assertReplayDecisionHarnessWorkerV10AuthorityCapsuleRecord,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-authority-capsule"
 import {
-  assertReplayDecisionHarnessWorkerV10AuthoritySpawnBoundaryRevalidation,
-} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-authority-spawn-boundary-revalidation"
-import {
-  assertReplayDecisionHarnessWorkerV10AuthorityProcessLaunchAttempt,
-  assertReplayDecisionHarnessWorkerV10AuthorityProcessLaunchReceipt,
-} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-authority-process-launch"
-import {
-  assertReplayDecisionHarnessWorkerV10AuthorityRequestDispatchAttempt,
-  assertReplayDecisionHarnessWorkerV10AuthorityRequestDispatchReceipt,
   createReplayDecisionHarnessWorkerV10AuthorityRequestDispatchReceipt,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-authority-request-dispatch"
 import {
-  assertReplayDecisionHarnessWorkerV10AuthorityResponseValidation,
   decodeReplayDecisionHarnessWorkerV10AuthorityResponseCapture,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-authority-response-validation"
 import {
@@ -516,7 +506,6 @@ import {
   readReplayWorkerV10AuthoritySpawnBoundaryRevalidationRequest,
 } from "./replay-worker-v10-authority-spawn-boundary-revalidation-request-registry"
 import {
-  assertReplayDecisionHarnessWorkerV10AuthoritySpawnBoundaryRevalidationLineage,
   buildReplayDecisionHarnessWorkerV10AuthoritySpawnBoundaryRevalidation,
 } from "./replay-decision-harness-worker-v10-authority-spawn-boundary-revalidation"
 import {
@@ -559,6 +548,12 @@ import {
   expectCompactSuccessorStdioProbe,
   expectSuccessorExecutionContracts,
 } from "./replay-worker-v10-successor-contract-stage.assertions"
+import {
+  expectAuthorityDispatch,
+  expectAuthorityProcessLaunch,
+  expectAuthorityResponseAndSchedule,
+  expectAuthoritySpawnBoundary,
+} from "./replay-worker-v10-authority-stage.assertions"
 
 const HASH = "a".repeat(64)
 const ACCOUNTING = {
@@ -3463,28 +3458,10 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       spawnRevalidationInput,
     )
     replayProfile("authority spawn chain")
-    expect(spawnRevalidation.status).toBe("spawn_boundary_revalidated_process_not_materialized")
-    expect(spawnRevalidation.source_authority_capsule_record_hash).toBe(authorityCapsule.record_hash)
-    expect(spawnRevalidation.control_plane_revalidation_receipt_hash).toBe(spawnRevalidationReceipt.receipt_hash)
-    expect(spawnRevalidation.freshness_semantics)
-      .toBe("receipt_binds_capsule_challenge_and_does_not_reuse_pre_capsule_clock_evidence")
-    expect(spawnRevalidation.blockers).toEqual([
-      "attempt_bound_process_launch_receipt_not_materialized",
-      "authority_frame_write_decode_read_and_admission_not_materialized",
-    ])
-    expect(spawnRevalidation.spawn_boundary_revalidation_request_count).toBe(1)
-    expect(spawnRevalidation.spawn_boundary_revalidation_receipt_count).toBe(1)
-    expect(spawnRevalidation.process_launch_receipt_count).toBe(0)
-    expect(spawnRevalidation.admitted_process_instance_count).toBe(0)
-    expect(spawnRevalidation.request_frame_instance_count).toBe(0)
-    expect(spawnRevalidation.response_frame_instance_count).toBe(0)
-    expect(() => assertReplayDecisionHarnessWorkerV10AuthoritySpawnBoundaryRevalidation(
-      spawnRevalidation,
-    )).not.toThrow()
-    expect(() => assertReplayDecisionHarnessWorkerV10AuthoritySpawnBoundaryRevalidationLineage(
-      spawnRevalidation,
-      spawnRevalidationInput,
-    )).not.toThrow()
+    expectAuthoritySpawnBoundary({
+      revalidation: spawnRevalidation,
+      lineage: spawnRevalidationInput,
+    })
     const missingSpawnBindingRoot = mkdtempSync(join(tmpdir(), "replay-worker-v10-spawn-binding-missing-"))
     try {
       expect(() => registerReplayWorkerV10AuthoritySpawnBoundaryRevalidation({
@@ -3529,30 +3506,18 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
     const authorityProcessSession = authorityProcessOutcome.session
     if (!authorityProcessSession) throw new Error("expected live Worker v10 Authority Process session")
     const authorityProcessReceipt = authorityProcessOutcome.receipt
-    expect(authorityProcessReceipt.receipt_status).toBe("started_process_frame_not_written")
-    expect(authorityProcessReceipt.source_spawn_revalidation_hash).toBe(spawnRevalidation.binding_hash)
-    expect(authorityProcessReceipt.authority_capsule_hash).toBe(authorityCapsule.capsule_hash)
-    expect(authorityProcessReceipt.process_artifact_hash).toBe(activatedStdio.artifact.sha256)
-    expect(authorityProcessReceipt.observed_child_pid).toBeGreaterThan(0)
-    expect(authorityProcessReceipt.process_instance_id).toBe(authorityProcessSession.process_instance_id)
-    expect(authorityProcessReceipt.stdin_bytes_written).toBe(0)
-    expect(authorityProcessReceipt.stdin_closed).toBe(false)
-    expect(authorityProcessReceipt.request_frame_instance_count).toBe(0)
-    expect(authorityProcessReceipt.response_frame_instance_count).toBe(0)
-    expect(authorityProcessReceipt.blockers).toEqual([
-      "authority_frame_write_decode_read_and_admission_not_materialized",
-    ])
-    expect(() => assertReplayDecisionHarnessWorkerV10AuthorityProcessLaunchReceipt(
-      authorityProcessReceipt,
-    )).not.toThrow()
     const authorityProcessAttempt = readReplayWorkerV10AuthorityProcessLaunchAttempt({
       registry_root: dispatchEvidenceRegistryRoot,
       source_spawn_revalidation: spawnRevalidation,
     })
     if (!authorityProcessAttempt) throw new Error("expected Worker v10 Authority Process Launch Attempt")
-    expect(() => assertReplayDecisionHarnessWorkerV10AuthorityProcessLaunchAttempt(
-      authorityProcessAttempt,
-    )).not.toThrow()
+    expectAuthorityProcessLaunch({
+      receipt: authorityProcessReceipt,
+      spawn_revalidation_hash: spawnRevalidation.binding_hash,
+      authority_capsule_hash: authorityCapsule.capsule_hash,
+      process_artifact_hash: activatedStdio.artifact.sha256,
+      live_process_instance_id: authorityProcessSession.process_instance_id,
+    })
     expect(readReplayWorkerV10AuthorityProcessLaunchReceipt({
       registry_root: dispatchEvidenceRegistryRoot,
       source_spawn_revalidation: spawnRevalidation,
@@ -3590,44 +3555,21 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
     replayProfile("authority process dispatch")
     expect(authorityDispatchOutcome.disposition).toBe("new_opaque_transport_capture")
     const authorityDispatchReceipt = authorityDispatchOutcome.receipt
-    expect(authorityDispatchReceipt.receipt_status).toBe("process_exited_opaque_output_captured")
-    expect(authorityDispatchReceipt.source_process_launch_receipt_hash).toBe(authorityProcessReceipt.receipt_hash)
-    expect(authorityDispatchReceipt.process_instance_id).toBe(authorityProcessReceipt.process_instance_id!)
-    expect(authorityDispatchReceipt.stdin_bytes_written).toBe(authorityDispatchReceipt.request_frame_bytes)
-    expect(authorityDispatchReceipt.stdin_closed).toBe(true)
-    expect(authorityDispatchReceipt.stdout_bytes_read).toBeGreaterThan(0)
-    expect(authorityDispatchReceipt.stderr_bytes_read).toBe(0)
-    expect(authorityDispatchReceipt.exit_status).toBe(0)
-    expect(authorityDispatchReceipt.exit_signal).toBeNull()
-    expect(authorityDispatchReceipt.transport_error_code).toBeNull()
-    expect(authorityDispatchReceipt.raw_capture_authority)
-      .toBe("opaque_transport_candidate_not_response_frame")
-    expect(authorityDispatchReceipt.request_frame_instance_count).toBe(1)
-    expect(authorityDispatchReceipt.request_write_receipt_count).toBe(1)
-    expect(authorityDispatchReceipt.request_decode_receipt_count).toBe(0)
-    expect(authorityDispatchReceipt.response_frame_instance_count).toBe(0)
-    expect(authorityDispatchReceipt.response_read_receipt_count).toBe(0)
-    expect(authorityDispatchReceipt.blockers).toEqual([
-      "raw_response_frame_decode_validation_and_admission_not_materialized",
-    ])
-    expect(authorityDispatchReceipt.response_admission).toBe("not_granted")
-    expect(authorityDispatchReceipt.decision_output_authority).toBe("none")
-    expect(() => assertReplayDecisionHarnessWorkerV10AuthorityRequestDispatchReceipt(
-      authorityDispatchReceipt,
-    )).not.toThrow()
     const authorityDispatchAttempt = readReplayWorkerV10AuthorityRequestDispatchAttempt({
       registry_root: dispatchEvidenceRegistryRoot,
       source_process_launch_receipt: authorityProcessReceipt,
     })
     if (!authorityDispatchAttempt) throw new Error("expected Worker v10 Authority Request Dispatch Attempt")
-    expect(authorityDispatchAttempt.request_frame.frame_kind).toBe("worker_request")
-    expect(authorityDispatchAttempt.request_frame.transport_contract_hash).toBe(authorityTransport.contract_hash)
-    expect(authorityDispatchAttempt.request_frame.execution_admission_command_hash).toBe(authorityCommand.command_hash)
-    expect(authorityDispatchAttempt.request_frame.process_launch_intent_hash).toBe(authorityIntent.intent_hash)
-    expect(authorityDispatchAttempt.request_frame.worker_request_hash).toBe(authorityTransport.target_worker_request_hash)
-    expect(() => assertReplayDecisionHarnessWorkerV10AuthorityRequestDispatchAttempt(
-      authorityDispatchAttempt,
-    )).not.toThrow()
+    expectAuthorityDispatch({
+      receipt: authorityDispatchReceipt,
+      attempt: authorityDispatchAttempt,
+      process_launch_receipt_hash: authorityProcessReceipt.receipt_hash,
+      process_instance_id: authorityProcessReceipt.process_instance_id!,
+      transport_contract_hash: authorityTransport.contract_hash,
+      execution_command_hash: authorityCommand.command_hash,
+      process_launch_intent_hash: authorityIntent.intent_hash,
+      worker_request_hash: authorityTransport.target_worker_request_hash,
+    })
     expect(readReplayWorkerV10AuthorityRequestDispatchReceipt({
       registry_root: dispatchEvidenceRegistryRoot,
       source_process_launch_receipt: authorityProcessReceipt,
@@ -3704,28 +3646,6 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       source_dispatch_receipt: authorityDispatchReceipt,
     })
     replayProfile("authority response validation")
-    expect(authorityResponseValidation.validation_status)
-      .toBe("admitted_non_economic_worker_response_candidate")
-    expect(authorityResponseValidation.validation_error_code).toBeNull()
-    expect(authorityResponseValidation.response_frame_hash).not.toBeNull()
-    expect(authorityResponseValidation.worker_response_hash).not.toBeNull()
-    expect(authorityResponseValidation.request_decode_receipt_count).toBe(1)
-    expect(authorityResponseValidation.response_frame_instance_count).toBe(1)
-    expect(authorityResponseValidation.response_read_receipt_count).toBe(1)
-    expect(authorityResponseValidation.response_validation_receipt_count).toBe(1)
-    expect(authorityResponseValidation.response_admission)
-      .toBe("granted_non_economic_worker_response_candidate_only")
-    expect(authorityResponseValidation.decision_output_authority)
-      .toBe("typed_worker_claim_only_not_schedule_admitted")
-    expect(authorityResponseValidation.signal_authority).toBe("none")
-    expect(authorityResponseValidation.order_authority).toBe("none")
-    expect(authorityResponseValidation.economic_authority).toBe("none")
-    expect(authorityResponseValidation.blockers).toEqual([
-      "schedule_and_harness_receipt_admission_not_materialized",
-    ])
-    expect(() => assertReplayDecisionHarnessWorkerV10AuthorityResponseValidation(
-      authorityResponseValidation,
-    )).not.toThrow()
     expect(readReplayWorkerV10AuthorityResponseValidation({
       registry_root: dispatchEvidenceRegistryRoot,
       source_dispatch_receipt: authorityDispatchReceipt,
@@ -3755,28 +3675,11 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       source_response_validation: authorityResponseValidation,
       source_replay_execution_request: requestValue,
     })
-    expect(authorityScheduleAdmission.admission_status)
-      .toBe("admitted_exact_frozen_schedule_match_non_economic")
-    expect(authorityScheduleAdmission.control_plane_attempt_lease_request_hash)
-      .toBe(canonicalHash(requestValue))
-    expect(authorityScheduleAdmission.decision_sequence).toBe(1)
-    expect(authorityScheduleAdmission.decision_time).toBe(requestValue.order.signal_time)
-    expect(authorityScheduleAdmission.selected_schedule_entry_hash)
-      .toBe(canonicalHash(requestValue.decision_schedule.entries[0]))
-    expect(authorityScheduleAdmission.claimed_decision_output)
-      .toEqual(authorityScheduleAdmission.expected_decision_output)
-    expect(authorityScheduleAdmission.schedule_admission).toBe("granted_exact_boundary_match")
-    expect(authorityScheduleAdmission.decision_output_authority)
-      .toBe("schedule_matched_worker_claim_not_harness_receipt_admitted")
-    expect(authorityScheduleAdmission.response_instance_count).toBe(1)
-    expect(authorityScheduleAdmission.required_reproducibility_response_count).toBe(2)
-    expect(authorityScheduleAdmission.harness_receipt_count).toBe(0)
-    expect(authorityScheduleAdmission.blockers).toEqual([
-      "independent_worker_response_reproducibility_pair_and_harness_receipt_not_materialized",
-    ])
-    expect(authorityScheduleAdmission.signal_authority).toBe("none")
-    expect(authorityScheduleAdmission.order_authority).toBe("none")
-    expect(authorityScheduleAdmission.economic_authority).toBe("none")
+    expectAuthorityResponseAndSchedule({
+      validation: authorityResponseValidation,
+      schedule: authorityScheduleAdmission,
+      request: requestValue,
+    })
     expect(readReplayWorkerV10AuthorityScheduleAdmission({
       registry_root: dispatchEvidenceRegistryRoot,
       source_response_validation: authorityResponseValidation,
