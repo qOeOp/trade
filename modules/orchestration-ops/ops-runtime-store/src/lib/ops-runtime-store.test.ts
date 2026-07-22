@@ -20,6 +20,9 @@ import {
   upsertDomainMessage,
   upsertJobRun,
   upsertOpsLock,
+  acquireOpsLock,
+  readOpsLock,
+  releaseOpsLock,
 } from "./ops-runtime-store"
 
 test("ops runtime store creates schema and records cycle/job observability", () => {
@@ -236,6 +239,41 @@ test("ops runtime store records health, notify attempts, and locks", () => {
     assert.equal(notifyRow.status, "sent")
     const lockRow = db.query("SELECT holder_id FROM ops_lock WHERE lock_key='automation-cycle'").get() as { holder_id: string }
     assert.equal(lockRow.holder_id, "cycle-2")
+  } finally {
+    db.close()
+  }
+})
+
+test("ops runtime store acquires, rejects, expires, and releases named locks atomically", () => {
+  const db = new Database(":memory:")
+  try {
+    ensureOpsRuntimeSchema(db)
+    const first = acquireOpsLock(db, {
+      lock_key: "research-rd",
+      holder_id: "cycle-1",
+      acquired_at: "2026-07-22T00:00:00.000Z",
+      expires_at: "2026-07-22T01:00:00.000Z",
+    })
+    assert.equal(first.acquired, true)
+    const blocked = acquireOpsLock(db, {
+      lock_key: "research-rd",
+      holder_id: "cycle-2",
+      acquired_at: "2026-07-22T00:30:00.000Z",
+      expires_at: "2026-07-22T01:30:00.000Z",
+    })
+    assert.equal(blocked.acquired, false)
+    assert.equal(blocked.lock.holder_id, "cycle-1")
+    const replaced = acquireOpsLock(db, {
+      lock_key: "research-rd",
+      holder_id: "cycle-2",
+      acquired_at: "2026-07-22T01:00:00.000Z",
+      expires_at: "2026-07-22T02:00:00.000Z",
+    })
+    assert.equal(replaced.acquired, true)
+    assert.equal(readOpsLock(db, "research-rd")?.holder_id, "cycle-2")
+    assert.equal(releaseOpsLock(db, "research-rd", "cycle-1"), false)
+    assert.equal(releaseOpsLock(db, "research-rd", "cycle-2"), true)
+    assert.equal(readOpsLock(db, "research-rd"), null)
   } finally {
     db.close()
   }

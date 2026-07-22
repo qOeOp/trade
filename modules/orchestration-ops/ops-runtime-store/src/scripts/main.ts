@@ -4,15 +4,18 @@ import { Database } from "bun:sqlite"
 import { readFileSync } from "node:fs"
 import {
   buildCycleRun,
+  acquireOpsLock,
   buildDomainMessage,
   buildIncident,
   buildJobRun,
   ensureOpsRuntimeSchema,
   readCycleSummary,
+  readOpsLock,
   readDomainMessages,
   readIncidentEvents,
   readIncidents,
   recordIncident,
+  releaseOpsLock,
   updateIncidentStatus,
   upsertCycleRun,
   upsertDomainMessage,
@@ -86,6 +89,20 @@ export function run(args: Args): JSONRecord {
       recordIncident(db, incident)
       return { ok: true, action: args.action, incident }
     }
+    if (args.action === "acquire_lock") {
+      return { ok: true, action: args.action, ...acquireOpsLock(db, {
+        lock_key: stringField(args.json.lock_key),
+        holder_id: stringField(args.json.holder_id),
+        acquired_at: stringField(args.json.acquired_at),
+        expires_at: stringField(args.json.expires_at),
+      }) }
+    }
+    if (args.action === "read_lock") {
+      return { ok: true, action: args.action, lock: readOpsLock(db, stringField(args.json.lock_key)) }
+    }
+    if (args.action === "release_lock") {
+      return { ok: true, action: args.action, released: releaseOpsLock(db, stringField(args.json.lock_key), stringField(args.json.holder_id)) }
+    }
     if (args.action === "list_messages") {
       return { ok: true, action: args.action, messages: readDomainMessages(db, args.json) }
     }
@@ -108,7 +125,7 @@ export function run(args: Args): JSONRecord {
 function printHelp(): void {
   console.log([
     "usage: bun src/scripts/main.ts --db data/ops_runtime.db --action init",
-    "actions: init | record_cycle | record_job | record_message | list_messages | record_incident | list_incidents | update_incident | list_incident_events | summary",
+    "actions: init | record_cycle | record_job | record_message | list_messages | record_incident | list_incidents | update_incident | list_incident_events | acquire_lock | read_lock | release_lock | summary",
   ].join("\n"))
 }
 

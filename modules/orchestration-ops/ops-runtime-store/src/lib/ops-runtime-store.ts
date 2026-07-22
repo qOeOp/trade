@@ -358,6 +358,58 @@ export function upsertOpsLock(db: Database, lock: OpsLock): void {
   })
 }
 
+export function acquireOpsLock(db: Database, lock: OpsLock): { acquired: boolean; lock: OpsLock } {
+  validateOpsLock(lock)
+  db.query(`
+    INSERT INTO ops_lock(lock_key, holder_id, acquired_at, expires_at)
+    VALUES ($lock_key, $holder_id, $acquired_at, $expires_at)
+    ON CONFLICT(lock_key) DO UPDATE SET
+      holder_id = excluded.holder_id,
+      acquired_at = excluded.acquired_at,
+      expires_at = excluded.expires_at
+    WHERE ops_lock.holder_id = excluded.holder_id
+       OR ops_lock.expires_at <= excluded.acquired_at
+  `).run({
+    $lock_key: lock.lock_key,
+    $holder_id: lock.holder_id,
+    $acquired_at: lock.acquired_at,
+    $expires_at: lock.expires_at,
+  })
+  const active = readOpsLock(db, lock.lock_key)
+  if (!active) throw new Error("ops lock disappeared after acquisition")
+  return { acquired: active.holder_id === lock.holder_id, lock: active }
+}
+
+export function readOpsLock(db: Database, lockKey: string): OpsLock | null {
+  const row = db.query(`
+    SELECT lock_key, holder_id, acquired_at, expires_at
+    FROM ops_lock
+    WHERE lock_key = $lock_key
+  `).get({ $lock_key: lockKey }) as OpsLock | null
+  return row ?? null
+}
+
+export function releaseOpsLock(db: Database, lockKey: string, holderId: string): boolean {
+  if (!lockKey || !holderId) throw new Error("lock_key and holder_id are required")
+  const result = db.query(`
+    DELETE FROM ops_lock
+    WHERE lock_key = $lock_key AND holder_id = $holder_id
+  `).run({ $lock_key: lockKey, $holder_id: holderId })
+  return result.changes === 1
+}
+
+function validateOpsLock(lock: OpsLock): void {
+  if (!lock.lock_key || !lock.holder_id || !lock.acquired_at || !lock.expires_at) {
+    throw new Error("lock_key, holder_id, acquired_at, and expires_at are required")
+  }
+  if (!Number.isFinite(Date.parse(lock.acquired_at)) || !Number.isFinite(Date.parse(lock.expires_at))) {
+    throw new Error("ops lock timestamps must be valid dates")
+  }
+  if (Date.parse(lock.expires_at) <= Date.parse(lock.acquired_at)) {
+    throw new Error("ops lock expires_at must be after acquired_at")
+  }
+}
+
 export function upsertDomainMessage(db: Database, message: DomainMessage): void {
   validateDomainMessage(message)
   db.query(`
