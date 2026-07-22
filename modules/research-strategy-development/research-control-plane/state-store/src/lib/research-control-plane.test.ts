@@ -301,6 +301,8 @@ test("control plane schema initializes frozen stages and lifecycle rules", () =>
     const names = new Set(tables.map((row) => row.name))
     for (const required of [
       "rd_universe_node",
+      "rd_planner_proposal",
+      "rd_planner_proposal_revision",
       "rd_proposal_revision",
       "rd_trial_group",
       "rd_experiment_contract",

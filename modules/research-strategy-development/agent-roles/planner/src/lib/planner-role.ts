@@ -1,8 +1,12 @@
 import {
   assertPlannerControlPlaneContextSnapshot,
-  canonicalPlannerControlPlaneHash,
   type PlannerControlPlaneContextSnapshot,
 } from "../../../../research-control-plane/contracts/src/lib/planner-control-plane-context"
+import {
+  PLANNER_PROPOSAL_SUBMISSION_SCHEMA_VERSION,
+  createPlannerProposalSubmission,
+  type PlannerProposalSubmission,
+} from "../../../../research-control-plane/contracts/src/lib/planner-proposal-submission"
 
 export interface PlannerProposalInput {
   proposal_id: string
@@ -15,22 +19,6 @@ export interface PlannerProposalInput {
   evaluation_protocol_ref: string
   control_plane_context: PlannerControlPlaneContextSnapshot
   created_at: string
-}
-
-export interface PlannerProposalSubmission {
-  schema_version: "trade.rd-planner-proposal-submission.v2"
-  revision: 2
-  proposal_id: string
-  hypothesis_id: string
-  universe_node_id: string
-  objective: string
-  dataset_requirements: string[]
-  candidate_space: Record<string, unknown>
-  trial_budget: number
-  evaluation_protocol_ref: string
-  control_plane_context_hash: string
-  created_at: string
-  proposal_hash: string
 }
 
 export function buildPlannerProposal(input: PlannerProposalInput): PlannerProposalSubmission {
@@ -75,8 +63,8 @@ export function buildPlannerProposal(input: PlannerProposalInput): PlannerPropos
       || Number.isNaN(Date.parse(input.created_at))) {
     throw new Error("created_at must be an RFC 3339 UTC timestamp")
   }
-  const body = {
-    schema_version: "trade.rd-planner-proposal-submission.v2" as const,
+  return createPlannerProposalSubmission({
+    schema_version: PLANNER_PROPOSAL_SUBMISSION_SCHEMA_VERSION,
     revision: 2 as const,
     proposal_id: input.proposal_id.trim(),
     hypothesis_id: input.hypothesis_id.trim(),
@@ -88,6 +76,5 @@ export function buildPlannerProposal(input: PlannerProposalInput): PlannerPropos
     evaluation_protocol_ref: input.evaluation_protocol_ref.trim(),
     control_plane_context_hash: input.control_plane_context.context_hash,
     created_at: input.created_at,
-  }
-  return { ...body, proposal_hash: canonicalPlannerControlPlaneHash(body) }
+  })
 }

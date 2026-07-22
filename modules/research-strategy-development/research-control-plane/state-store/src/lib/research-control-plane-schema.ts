@@ -212,6 +212,32 @@ CREATE TABLE IF NOT EXISTS rd_trial_group_candidate (
     REFERENCES rd_trial_group(trial_group_id, identity_hash_policy_version)
 );
 
+CREATE TABLE IF NOT EXISTS rd_planner_proposal (
+  proposal_id TEXT PRIMARY KEY,
+  hypothesis_id TEXT NOT NULL,
+  canonical_node_id TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  FOREIGN KEY (canonical_node_id) REFERENCES rd_universe_node(node_id)
+);
+
+CREATE TABLE IF NOT EXISTS rd_planner_proposal_revision (
+  proposal_id TEXT NOT NULL,
+  proposal_revision INTEGER NOT NULL CHECK(proposal_revision >= 1),
+  planner_run_id TEXT NOT NULL,
+  proposal_hash TEXT NOT NULL,
+  control_plane_context_hash TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  intake_request_hash TEXT NOT NULL UNIQUE,
+  submission_json TEXT NOT NULL CHECK(json_valid(submission_json)),
+  intake_policy_version TEXT NOT NULL,
+  admission_hash TEXT NOT NULL UNIQUE,
+  admission_json TEXT NOT NULL CHECK(json_valid(admission_json)),
+  submitted_at TEXT NOT NULL,
+  recorded_at TEXT NOT NULL,
+  PRIMARY KEY (proposal_id, proposal_revision),
+  FOREIGN KEY (proposal_id) REFERENCES rd_planner_proposal(proposal_id)
+);
+
 CREATE TABLE IF NOT EXISTS rd_proposal (
   proposal_id TEXT PRIMARY KEY,
   planner_run_id TEXT NOT NULL,
@@ -1511,6 +1537,19 @@ BEGIN SELECT RAISE(ABORT, 'proposal revision is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS prevent_proposal_revision_delete
 BEFORE DELETE ON rd_proposal_revision
 BEGIN SELECT RAISE(ABORT, 'proposal revision is append-only'); END;
+
+CREATE TRIGGER IF NOT EXISTS prevent_planner_proposal_update
+BEFORE UPDATE ON rd_planner_proposal
+BEGIN SELECT RAISE(ABORT, 'Planner Proposal identity is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS prevent_planner_proposal_delete
+BEFORE DELETE ON rd_planner_proposal
+BEGIN SELECT RAISE(ABORT, 'Planner Proposal identity is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS prevent_planner_proposal_revision_update
+BEFORE UPDATE ON rd_planner_proposal_revision
+BEGIN SELECT RAISE(ABORT, 'Planner Proposal revision is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS prevent_planner_proposal_revision_delete
+BEFORE DELETE ON rd_planner_proposal_revision
+BEGIN SELECT RAISE(ABORT, 'Planner Proposal revision is append-only'); END;
 
 CREATE TRIGGER IF NOT EXISTS prevent_trial_group_candidate_update
 BEFORE UPDATE ON rd_trial_group_candidate

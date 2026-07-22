@@ -17,8 +17,10 @@ import { SOURCE_SCHEMA_VERSION } from "../../strategy-policy-writer/src/lib/stra
 import { runForwardEvidenceSession } from "../../../forward-evidence-plane/runner/src/lib/forward-evidence-runner"
 import { FORWARD_ADMISSION_SCHEMA_VERSION as FORWARD_SCHEMA_VERSION } from "../../../forward-evidence-plane/contracts/src/lib/forward-evidence-contracts"
 import { readPlannerControlPlaneContext } from "../../state-store/src/lib/research-control-plane-operations"
+import { admitPlannerProposal } from "../../state-store/src/lib/planner-proposal-intake"
 import { ensureResearchStateSchema } from "../../state-store/src/lib/research-state-store"
 import { seedDefaultResearchControlPlane } from "../../state-store/src/lib/research-universe-default-seed"
+import { PLANNER_PROPOSAL_INTAKE_REQUEST_SCHEMA_VERSION } from "../../contracts/src/lib/planner-proposal-submission"
 
 const HASH = "2".repeat(64)
 const PROVIDER_CERTIFICATION = createReplayInstrumentStatusProviderCertificationSnapshot({ schema_version: REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION, certification_id: "status-provider-certification-1", certification_ref: "certification://fixture-status-provider/v1", status: "certified", certified_at: "2026-07-13T00:00:00Z", valid_until: "2026-08-01T00:00:00Z", certifier_id: "research-control-plane", certification_policy_version: "rd-status-provider-certification-v1", provider_capability_hash: HASH, producer_domain: "market-data-products", producer_id: "fixture-status-producer", producer_version: "v1", producer_build_hash: HASH, normalization_policy_version: "fixture-status-normalization-v1", normalization_policy_hash: HASH, allowed_source_kind: "venue_status_event_archive", allowed_completeness: "complete_history" })
@@ -49,6 +51,21 @@ test("Control Plane planning context is the only accepted Planner Proposal input
     })
     expect(proposal.control_plane_context_hash).toBe(context.context_hash)
     expect(proposal).not.toHaveProperty("trial_id")
+    const admission = admitPlannerProposal(db, {
+      schema_version: PLANNER_PROPOSAL_INTAKE_REQUEST_SCHEMA_VERSION,
+      planner_run_id: "planner-run-1",
+      proposal_revision: 1,
+      idempotency_key: "planner-intake-1",
+      submitted_at: "2026-07-22T12:02:00Z",
+      recorded_at: "2026-07-22T12:03:00Z",
+      proposal,
+    })
+    expect(admission.proposal_hash).toBe(proposal.proposal_hash)
+    expect(admission.status).toBe("accepted")
+    expect((db.query("SELECT COUNT(*) AS count FROM rd_experiment_contract").get() as { count: number }).count)
+      .toBe(0)
+    expect((db.query("SELECT COUNT(*) AS count FROM rd_trial").get() as { count: number }).count)
+      .toBe(0)
 
     db.query("UPDATE rd_data_surface SET coverage_status='blocked' WHERE slug='ohlcv'").run()
     expect(() => buildPlannerProposal({

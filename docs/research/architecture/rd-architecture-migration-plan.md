@@ -26,6 +26,7 @@ agent-roles/
 - 物理根和 relocation： [rd-module-disposition.json](./rd-module-disposition.json)。
 - Replay 当前成熟度： [rd-replay-maturity-gate.json](../reliability/rd-replay-maturity-gate.json)。
 - Replay 已为 M5/maintenance-only；后续 R&D 主线从 Planner 的 Control Plane context → bounded Proposal 权威链开始，不创建 Replay M5.x 或 P30。
+- Planner 首条权威链已闭合为 Control Plane context → Planner Submission v2 → Control Plane Proposal Admission v1；Admission 仅落不可变 Proposal/revision，不等于 Experiment Contract、Trial Group、Trial 或执行授权。旧 `rd_proposal` 的 contract-shaped materialization 暂留兼容，后续必须显式拆出 Proposal → Contract 编译边界，不能反向冒充 Planner intake。
 - Plane 边界：各子树 `README.md` / module `CONTRACT.md`。
 - 历史迁移进度： [Legacy RD Architecture Migration Plan](../../history/legacy-rd-architecture-migration-plan.md)。
 
