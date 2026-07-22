@@ -127,3 +127,9 @@ M4/M5 都相对于**声明的能力包络**，不要求伪造不可能证明的�
 | terminal-aware-bounded-cycle | `runReplayPortfolioProtectiveTerminalCycleSequence` |
 
 其余 P19–P29 successor 必须经 capability registry 显式激活，不能继续各自演化为公共产品入口。P10/P11/P13 执行消费者已物理隔离到 `compatibility/legacy-portfolio-cycle`；其 schema 只为历史 Artifact 读回保留，禁止新增生产消费者。P12 继续由 canonical/opt-in cycle owners 复用。
+
+## 12. Result / Artifact / Checkpoint epoch
+
+[Evidence Epoch Registry](../reliability/rd-replay-evidence-epoch-registry.json) 冻结通用 writer 为唯一一组：Result v53、Artifact Manifest v55、Engine Checkpoint v32、Diagnostic Checkpoint Commit v2、Terminal Checkpoint v1 与 Run Outcome v35。生产源码不得继续写通用旧版本；历史版本只允许由后续 M5 migration reader 消费，不能恢复 writer。
+
+四个公共 profile 的 profile-scoped Result/Manifest 是上层组合证据，不与通用 single-trial epoch 竞争 authority。`independent-lane-batch` 只引用 child v53/v55 与 child v32 checkpoint；`integrated-portfolio`、`terminal-aware-bounded-cycle` 当前明确没有 resumable checkpoint writer。这里的“收敛”只证明 writer 与 checkpoint mode 唯一、可机读，不把缺失能力伪装成已支持；所有 profile 的 resume/evidence 充分性仍由独立 M4 gate 验收。
