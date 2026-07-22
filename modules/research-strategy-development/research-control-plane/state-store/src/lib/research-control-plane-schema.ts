@@ -634,6 +634,68 @@ BEGIN
   SELECT RAISE(ABORT, 'Replay bar-linked aggregate-trade path authority is immutable');
 END;
 
+CREATE TABLE IF NOT EXISTS rd_replay_l2_experiment_attachment_authority (
+  authority_snapshot_id TEXT PRIMARY KEY,
+  authority_snapshot_ref TEXT NOT NULL UNIQUE,
+  authority_snapshot_hash TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL CHECK(status = 'authorized'),
+  issued_at TEXT NOT NULL,
+  authority_id TEXT NOT NULL,
+  authority_policy_version TEXT NOT NULL,
+  trial_id TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  reservation_ref TEXT NOT NULL,
+  reservation_hash TEXT NOT NULL UNIQUE,
+  request_hash TEXT NOT NULL UNIQUE,
+  dataset_manifest_id TEXT NOT NULL,
+  dataset_manifest_ref TEXT NOT NULL,
+  dataset_data_hash TEXT NOT NULL,
+  dataset_manifest_hash TEXT NOT NULL,
+  venue_id TEXT NOT NULL CHECK(venue_id = 'binance-usdm'),
+  symbol TEXT NOT NULL,
+  source_id TEXT NOT NULL,
+  source_hash TEXT NOT NULL,
+  compaction_id TEXT NOT NULL,
+  epoch_id TEXT NOT NULL,
+  stream_epoch TEXT NOT NULL,
+  source_row_count INTEGER NOT NULL CHECK(source_row_count > 0),
+  source_parquet_hash TEXT NOT NULL,
+  batch_id TEXT NOT NULL,
+  batch_hash TEXT NOT NULL UNIQUE,
+  batch_rows_hash TEXT NOT NULL,
+  batch_offset INTEGER NOT NULL CHECK(batch_offset >= 0),
+  batch_row_count INTEGER NOT NULL CHECK(batch_row_count > 0),
+  batch_next_offset INTEGER NOT NULL,
+  frame_start_inclusive INTEGER NOT NULL,
+  frame_end_exclusive INTEGER NOT NULL,
+  batch_exhausted INTEGER NOT NULL CHECK(batch_exhausted IN (0, 1)),
+  attachment_scope TEXT NOT NULL
+    CHECK(attachment_scope = 'one_exact_validated_batch_within_one_compacted_epoch'),
+  economic_authority TEXT NOT NULL CHECK(economic_authority = 'none'),
+  runner_compatibility TEXT NOT NULL CHECK(runner_compatibility = 'not_bound'),
+  external_completeness TEXT NOT NULL CHECK(external_completeness = 'not_verified'),
+  limitations_hash TEXT NOT NULL,
+  authority_json TEXT NOT NULL CHECK(json_valid(authority_json)),
+  CHECK(batch_next_offset = batch_offset + batch_row_count),
+  CHECK(batch_next_offset <= source_row_count),
+  CHECK(frame_start_inclusive = batch_offset + 1),
+  CHECK(frame_end_exclusive = batch_next_offset + 1),
+  CHECK(batch_exhausted = (batch_next_offset = source_row_count)),
+  FOREIGN KEY (trial_id) REFERENCES rd_trial(trial_id)
+);
+
+CREATE TRIGGER IF NOT EXISTS rd_replay_l2_experiment_attachment_authority_no_update
+BEFORE UPDATE ON rd_replay_l2_experiment_attachment_authority
+BEGIN
+  SELECT RAISE(ABORT, 'Replay L2 experiment attachment authority is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS rd_replay_l2_experiment_attachment_authority_no_delete
+BEFORE DELETE ON rd_replay_l2_experiment_attachment_authority
+BEGIN
+  SELECT RAISE(ABORT, 'Replay L2 experiment attachment authority is immutable');
+END;
+
 CREATE TABLE IF NOT EXISTS rd_replay_decision_observation_bundle_admission (
   admission_id TEXT PRIMARY KEY,
   admission_ref TEXT NOT NULL UNIQUE,

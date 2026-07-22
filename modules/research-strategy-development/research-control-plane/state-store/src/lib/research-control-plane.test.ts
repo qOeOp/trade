@@ -1,5 +1,6 @@
 import { Database } from "bun:sqlite"
 import assert from "node:assert/strict"
+import { createHash } from "node:crypto"
 import { mkdtempSync, rmSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -62,6 +63,13 @@ import {
 import {
   createReplayKlineSourceRecord,
 } from "../../../../replay-execution-plane/contracts/src/lib/replay-kline-aggregate-trade-bar-link-contracts"
+import {
+  REPLAY_L2_COMPACTED_EPOCH_SOURCE_SCHEMA_VERSION,
+  REPLAY_L2_DEPTH_ROW_SCHEMA_VERSION,
+  replayL2CompactedEpochSourceHash,
+  type ReplayL2CompactedEpochSource,
+  type ReplayL2DepthRow,
+} from "../../../../replay-execution-plane/contracts/src/lib/replay-l2-depth-contracts"
 import type { ReplaySourceEventWireManifest } from "../../../../replay-execution-plane/contracts/src/lib/replay-source-event-wire"
 import {
   assertReplaySourceEventDecisionObservationHarnessContextBinding,
@@ -84,6 +92,7 @@ import {
 import { buildReplaySourceEventProjectionAttestation } from "../../../../replay-execution-plane/data-adapter/src/lib/replay-source-event-projection"
 import { materializeReplaySourceEventWire } from "../../../../replay-execution-plane/data-adapter/src/lib/replay-source-event-wire"
 import { materializeReplayKlineAggregateTradeBarLink } from "../../../../replay-execution-plane/data-adapter/src/lib/replay-kline-aggregate-trade-bar-link"
+import { materializeReplayL2DepthReadBatch } from "../../../../replay-execution-plane/data-adapter/src/lib/replay-l2-depth-read"
 import {
   assertReplaySourceEventDecisionObservationHarnessContextBindingLineage,
   buildReplaySourceEventDecisionObservationHarnessContextBinding,
@@ -210,6 +219,10 @@ import {
   issueReplayBarLinkedAggregateTradePathAuthority,
   readReplayBarLinkedAggregateTradePathAuthority,
 } from "./bar-linked-aggregate-trade-path-authority-registry"
+import {
+  issueReplayL2ExperimentAttachmentAuthority,
+  readReplayL2ExperimentAttachmentAuthority,
+} from "./replay-l2-experiment-attachment-authority-registry"
 import {
   issueReplayDecisionObservationBundleAdmission,
   readReplayDecisionObservationBundleAdmission,
@@ -646,6 +659,42 @@ test("Control Plane admits aggregate trade evidence only as a Reservation-bound 
     `).run(), /immutable/)
 
     const request = decisionObservationRequest(reservation)
+    const l2Manifest = decisionObservationManifest(request)
+    const { source: l2Source, batch: l2Batch } = l2AttachmentFixture()
+    const l2AuthorityInput = {
+      authority_snapshot_id: "l2-experiment-attachment-authority-1",
+      authority_snapshot_ref: "authority://l2-experiment-attachment/trial-aggregate-trade",
+      issued_at: "2026-07-14T03:27:00Z",
+      authority_id: "research-control-plane",
+      authority_policy_version: "rd-replay-l2-experiment-attachment-v1",
+      reservation,
+      request,
+      dataset_manifest: l2Manifest,
+      source: l2Source,
+      batch: l2Batch,
+    }
+    const l2Authority = issueReplayL2ExperimentAttachmentAuthority(db, l2AuthorityInput)
+    assert.equal(l2Authority.attachment_scope, "one_exact_validated_batch_within_one_compacted_epoch")
+    assert.equal(l2Authority.frame_start_inclusive, 1)
+    assert.equal(l2Authority.frame_end_exclusive, 3)
+    assert.equal(l2Authority.economic_authority, "none")
+    assert.equal(l2Authority.runner_compatibility, "not_bound")
+    assert.deepEqual(issueReplayL2ExperimentAttachmentAuthority(db, l2AuthorityInput), l2Authority)
+    assert.deepEqual(readReplayL2ExperimentAttachmentAuthority(db, l2Authority.reservation_hash), l2Authority)
+    assert.throws(() => issueReplayL2ExperimentAttachmentAuthority(db, {
+      ...l2AuthorityInput,
+      source: { ...l2Source, stream_epoch: "other-epoch" },
+    }), /identity mismatch/)
+    assert.throws(() => issueReplayL2ExperimentAttachmentAuthority(db, {
+      ...l2AuthorityInput,
+      dataset_manifest: { ...l2Manifest, data_hash: "c".repeat(64) },
+    }), /frozen Request/)
+    assert.throws(() => db.query(`
+      UPDATE rd_replay_l2_experiment_attachment_authority
+      SET runner_compatibility = 'bound'
+      WHERE authority_snapshot_id = 'l2-experiment-attachment-authority-1'
+    `).run(), /immutable/)
+
     const sourceProjection = buildReplaySourceEventProjectionAttestation({
       ordering_admission: orderingAdmission,
       ordering_attestation: orderingAttestation,
@@ -2854,6 +2903,81 @@ function barLinkedStopRequest(
     order,
     decision_schedule: decisionSchedule,
     decision_schedule_hash: canonicalHash(decisionSchedule),
+  }
+}
+
+function l2AttachmentFixture(): {
+  source: ReplayL2CompactedEpochSource
+  batch: ReturnType<typeof materializeReplayL2DepthReadBatch>
+} {
+  const streamEpoch = "btc-depth-20260714t030000z"
+  const row = (frameIndex: number, eventTime: string, firstUpdateId: number,
+    finalUpdateId: number, previousFinalUpdateId: number): ReplayL2DepthRow => {
+    const exchangeEventTime = Date.parse(eventTime)
+    const rawPayload = JSON.stringify({
+      stream: "btcusdt@depth@100ms",
+      data: {
+        e: "depthUpdate", E: exchangeEventTime, T: exchangeEventTime + 1, s: "BTCUSDT",
+        U: firstUpdateId, u: finalUpdateId, pu: previousFinalUpdateId, b: [], a: [],
+      },
+    })
+    return {
+      schema_version: REPLAY_L2_DEPTH_ROW_SCHEMA_VERSION,
+      symbol: "BTCUSDT",
+      stream_epoch: streamEpoch,
+      frame_index: frameIndex,
+      local_receive_time_ms: exchangeEventTime + 5,
+      exchange_event_time_ms: exchangeEventTime,
+      transaction_time_ms: exchangeEventTime + 1,
+      first_update_id: firstUpdateId,
+      final_update_id: finalUpdateId,
+      previous_final_update_id: previousFinalUpdateId,
+      raw_payload_hash: createHash("sha256").update(rawPayload).digest("hex"),
+      raw_payload: rawPayload,
+    }
+  }
+  const rows = [
+    row(1, "2026-07-14T03:01:00Z", 100, 100, 99),
+    row(2, "2026-07-14T03:02:00Z", 101, 101, 100),
+  ]
+  const sourceBody = {
+    schema_version: REPLAY_L2_COMPACTED_EPOCH_SOURCE_SCHEMA_VERSION,
+    compaction_id: "l2-compaction:fixture",
+    epoch_id: "epoch-fixture",
+    venue_id: "binance-usdm" as const,
+    symbol: "BTCUSDT",
+    stream_epoch: streamEpoch,
+    source_manifest_path: "data/l2/fixture/manifest.json",
+    source_manifest_hash: "a".repeat(64),
+    parquet_path: "data/l2-parquet/fixture/depth.parquet",
+    parquet_hash: "b".repeat(64),
+    parquet_bytes: 1_024,
+    row_count: rows.length,
+    first_local_receive_time_ms: rows[0]!.local_receive_time_ms,
+    last_local_receive_time_ms: rows[1]!.local_receive_time_ms,
+    first_final_update_id: rows[0]!.final_update_id,
+    last_final_update_id: rows[1]!.final_update_id,
+    continuity_scope: "single_epoch_contiguous" as const,
+    external_completeness: "not_verified" as const,
+    retention_class: "compacted_pinned" as const,
+    deletion_eligible: false as const,
+    admitted_at: "2026-07-14T03:20:00Z",
+  }
+  const sourceHash = replayL2CompactedEpochSourceHash(sourceBody)
+  const source: ReplayL2CompactedEpochSource = {
+    ...sourceBody,
+    source_id: `l2-compacted-epoch:${sourceHash}`,
+    source_hash: sourceHash,
+  }
+  return {
+    source,
+    batch: materializeReplayL2DepthReadBatch({
+      source,
+      offset: 0,
+      requested_limit: 2,
+      predecessor_row: null,
+      rows,
+    }),
   }
 }
 
