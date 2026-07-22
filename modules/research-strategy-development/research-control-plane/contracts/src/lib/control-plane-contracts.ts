@@ -11,6 +11,8 @@ export const REPLAY_AGGREGATE_TRADE_PROVIDER_CERTIFICATION_SCHEMA_VERSION = "tra
 export const REPLAY_AGGREGATE_TRADE_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION = "trade.rd-replay-aggregate-trade-provider-certification-termination.v1" as const
 export const REPLAY_AGGREGATE_TRADE_EVIDENCE_ADMISSION_SCHEMA_VERSION = "trade.rd-replay-aggregate-trade-evidence-admission.v1" as const
 export const REPLAY_CROSS_SOURCE_ORDERING_ADMISSION_SCHEMA_VERSION = "trade.rd-replay-cross-source-ordering-admission.v1" as const
+export const REPLAY_BAR_LINKED_AGGREGATE_TRADE_PATH_AUTHORITY_SCHEMA_VERSION =
+  "trade.rd-replay-bar-linked-aggregate-trade-path-authority.v1" as const
 export const REPLAY_DECISION_OBSERVATION_BUNDLE_ADMISSION_SCHEMA_VERSION = "trade.rd-replay-decision-observation-bundle-admission.v1" as const
 export const REPLAY_DECISION_OBSERVATION_BUNDLE_DERIVATION_ADMISSION_SCHEMA_VERSION = "trade.rd-replay-decision-observation-bundle-derivation-admission.v1" as const
 export const REPLAY_RESERVATION_CANCELLATION_SCHEMA_VERSION = "trade.rd-replay-reservation-cancellation.v1" as const
@@ -301,6 +303,75 @@ export interface ReplayCrossSourceOrderingAdmissionSnapshot {
 export type ReplayCrossSourceOrderingAdmissionBody = Omit<
   ReplayCrossSourceOrderingAdmissionSnapshot,
   "admission_hash"
+>
+
+export const REPLAY_BAR_LINKED_AGGREGATE_TRADE_PATH_AUTHORITY_LIMITATIONS = Object.freeze([
+  "aggregate-trade-external-completeness-not-verified",
+  "bar-relative-public-trade-price-order-only",
+  "cross-source-global-sequence-not-authorized",
+  "entry-trigger-trade-excluded-from-post-entry-protection-observation",
+  "no-queue-fill-quantity-maker-probability-slippage-impact-insurance-or-adl",
+  "no-runner-result-artifact-or-default-path-cutover",
+] as const)
+
+export interface ReplayBarLinkedAggregateTradePathAuthoritySnapshot {
+  schema_version: typeof REPLAY_BAR_LINKED_AGGREGATE_TRADE_PATH_AUTHORITY_SCHEMA_VERSION
+  authority_snapshot_id: string
+  authority_snapshot_ref: string
+  authority_snapshot_hash: string
+  status: "authorized"
+  issued_at: string
+  authority_id: string
+  authority_policy_version: string
+  trial_id: string
+  run_id: string
+  reservation_ref: string
+  reservation_hash: string
+  request_schema_version: "trade.rd-replay-execution-request.v38"
+  request_hash: string
+  entry_order_hash: string
+  dataset_manifest_ref: string
+  dataset_hash: string
+  aggregate_trade_evidence_admission_ref: string
+  aggregate_trade_evidence_admission_hash: string
+  cross_source_ordering_admission_ref: string
+  cross_source_ordering_admission_hash: string
+  bar_link_attestation_id: string
+  bar_link_attestation_hash: string
+  bar_link_schema_version: "trade.rd-replay-kline-aggregate-trade-bar-link-attestation.v1"
+  bar_link_policy_version: "rd-replay-kline-aggregate-trade-bar-link-v1"
+  venue_id: "binance-usdm"
+  symbol: string
+  timeframe: string
+  window_start_inclusive: string
+  window_end_exclusive: string
+  latest_component_available_at: string
+  kline_record_hash: string
+  replay_market_bar_hash: string
+  aggregate_trade_coverage_attestation_hash: string
+  aggregate_trade_events_hash: string
+  entry_side: "long" | "short"
+  entry_trigger_price: number
+  protective_stop_price: number
+  protective_target_price: number
+  consumer_capability: "bounded_initial_stop_market_same_bar_post_entry_protection_ordering"
+  entry_scope: "initial_stop_market_entry_only"
+  path_resolution_authority: "authorized_for_bound_request_and_bar"
+  path_observation_rule: "strictly_after_entry_trigger_trade"
+  path_source_authority: "ordered_aggregate_trade_prices_within_linked_bar_only"
+  cross_source_ordering_authority: "lineage_only_not_global_sequence"
+  fill_quantity_authority: "none"
+  cost_authority: "none"
+  external_completeness: "not_verified"
+  runner_compatibility: "not_bound"
+  activation: "forbidden_until_exact_request_runner_consumer"
+  limitations: Array<typeof REPLAY_BAR_LINKED_AGGREGATE_TRADE_PATH_AUTHORITY_LIMITATIONS[number]>
+  limitations_hash: string
+}
+
+export type ReplayBarLinkedAggregateTradePathAuthorityBody = Omit<
+  ReplayBarLinkedAggregateTradePathAuthoritySnapshot,
+  "authority_snapshot_hash"
 >
 
 export interface ReplayDecisionObservationBundleAdmissionSnapshot {
@@ -2744,6 +2815,123 @@ export function assertReplayCrossSourceOrderingAdmissionSnapshot(
   const { admission_hash: admissionHash, ...body } = value
   const expected = createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")
   if (admissionHash !== expected) fail("cross-source ordering admission hash mismatch")
+}
+
+export function createReplayBarLinkedAggregateTradePathAuthoritySnapshot(
+  body: ReplayBarLinkedAggregateTradePathAuthorityBody,
+): ReplayBarLinkedAggregateTradePathAuthoritySnapshot {
+  const value: ReplayBarLinkedAggregateTradePathAuthoritySnapshot = {
+    ...body,
+    authority_snapshot_hash: createHash("sha256")
+      .update(canonicalReservationJson(body), "utf8").digest("hex"),
+  }
+  assertReplayBarLinkedAggregateTradePathAuthoritySnapshot(value)
+  return value
+}
+
+export function assertReplayBarLinkedAggregateTradePathAuthoritySnapshot(
+  value: ReplayBarLinkedAggregateTradePathAuthoritySnapshot,
+): void {
+  requireExactObjectFields(value, [
+    "schema_version", "authority_snapshot_id", "authority_snapshot_ref", "authority_snapshot_hash",
+    "status", "issued_at", "authority_id", "authority_policy_version", "trial_id", "run_id",
+    "reservation_ref", "reservation_hash", "request_schema_version", "request_hash", "entry_order_hash",
+    "dataset_manifest_ref", "dataset_hash", "aggregate_trade_evidence_admission_ref",
+    "aggregate_trade_evidence_admission_hash", "cross_source_ordering_admission_ref",
+    "cross_source_ordering_admission_hash", "bar_link_attestation_id", "bar_link_attestation_hash",
+    "bar_link_schema_version", "bar_link_policy_version", "venue_id", "symbol", "timeframe",
+    "window_start_inclusive", "window_end_exclusive", "latest_component_available_at",
+    "kline_record_hash", "replay_market_bar_hash", "aggregate_trade_coverage_attestation_hash",
+    "aggregate_trade_events_hash", "entry_side", "entry_trigger_price", "protective_stop_price",
+    "protective_target_price", "consumer_capability", "entry_scope", "path_resolution_authority",
+    "path_observation_rule", "path_source_authority", "cross_source_ordering_authority",
+    "fill_quantity_authority", "cost_authority", "external_completeness", "runner_compatibility",
+    "activation", "limitations", "limitations_hash",
+  ], "bar-linked aggregate-trade path authority")
+  if (value.schema_version !== REPLAY_BAR_LINKED_AGGREGATE_TRADE_PATH_AUTHORITY_SCHEMA_VERSION) {
+    fail("bar-linked aggregate-trade path authority schema_version")
+  }
+  for (const [field, item] of Object.entries({
+    authority_snapshot_id: value.authority_snapshot_id,
+    authority_snapshot_ref: value.authority_snapshot_ref,
+    authority_id: value.authority_id,
+    authority_policy_version: value.authority_policy_version,
+    trial_id: value.trial_id,
+    run_id: value.run_id,
+    reservation_ref: value.reservation_ref,
+    dataset_manifest_ref: value.dataset_manifest_ref,
+    aggregate_trade_evidence_admission_ref: value.aggregate_trade_evidence_admission_ref,
+    cross_source_ordering_admission_ref: value.cross_source_ordering_admission_ref,
+    bar_link_attestation_id: value.bar_link_attestation_id,
+    symbol: value.symbol,
+    timeframe: value.timeframe,
+  })) requireText(item, `bar_linked_path_authority.${field}`)
+  for (const [field, item] of Object.entries({
+    authority_snapshot_hash: value.authority_snapshot_hash,
+    reservation_hash: value.reservation_hash,
+    request_hash: value.request_hash,
+    entry_order_hash: value.entry_order_hash,
+    dataset_hash: value.dataset_hash,
+    aggregate_trade_evidence_admission_hash: value.aggregate_trade_evidence_admission_hash,
+    cross_source_ordering_admission_hash: value.cross_source_ordering_admission_hash,
+    bar_link_attestation_hash: value.bar_link_attestation_hash,
+    kline_record_hash: value.kline_record_hash,
+    replay_market_bar_hash: value.replay_market_bar_hash,
+    aggregate_trade_coverage_attestation_hash: value.aggregate_trade_coverage_attestation_hash,
+    aggregate_trade_events_hash: value.aggregate_trade_events_hash,
+    limitations_hash: value.limitations_hash,
+  })) requireHash(item, `bar_linked_path_authority.${field}`)
+  for (const [field, item] of Object.entries({
+    issued_at: value.issued_at,
+    window_start_inclusive: value.window_start_inclusive,
+    window_end_exclusive: value.window_end_exclusive,
+    latest_component_available_at: value.latest_component_available_at,
+  })) requireUtcTimestamp(item, `bar_linked_path_authority.${field}`)
+  if (Date.parse(value.window_start_inclusive) >= Date.parse(value.window_end_exclusive)
+      || Date.parse(value.latest_component_available_at) < Date.parse(value.window_end_exclusive)
+      || Date.parse(value.issued_at) < Date.parse(value.latest_component_available_at)) {
+    fail("bar-linked aggregate-trade path authority chronology")
+  }
+  requirePositiveFinite(value.entry_trigger_price, "bar_linked_path_authority.entry_trigger_price")
+  requirePositiveFinite(value.protective_stop_price, "bar_linked_path_authority.protective_stop_price")
+  requirePositiveFinite(value.protective_target_price, "bar_linked_path_authority.protective_target_price")
+  if ((value.entry_side === "long"
+    && !(value.protective_stop_price < value.entry_trigger_price
+      && value.entry_trigger_price < value.protective_target_price))
+      || (value.entry_side === "short"
+        && !(value.protective_target_price < value.entry_trigger_price
+          && value.entry_trigger_price < value.protective_stop_price))) {
+    fail("bar-linked aggregate-trade path authority entry/protection price order")
+  }
+  if (value.status !== "authorized"
+      || value.request_schema_version !== "trade.rd-replay-execution-request.v38"
+      || value.bar_link_schema_version !== "trade.rd-replay-kline-aggregate-trade-bar-link-attestation.v1"
+      || value.bar_link_policy_version !== "rd-replay-kline-aggregate-trade-bar-link-v1"
+      || value.venue_id !== "binance-usdm"
+      || value.consumer_capability !== "bounded_initial_stop_market_same_bar_post_entry_protection_ordering"
+      || value.entry_scope !== "initial_stop_market_entry_only"
+      || value.path_resolution_authority !== "authorized_for_bound_request_and_bar"
+      || value.path_observation_rule !== "strictly_after_entry_trigger_trade"
+      || value.path_source_authority !== "ordered_aggregate_trade_prices_within_linked_bar_only"
+      || value.cross_source_ordering_authority !== "lineage_only_not_global_sequence"
+      || value.fill_quantity_authority !== "none" || value.cost_authority !== "none"
+      || value.external_completeness !== "not_verified"
+      || value.runner_compatibility !== "not_bound"
+      || value.activation !== "forbidden_until_exact_request_runner_consumer") {
+    fail("bar-linked aggregate-trade path authority scope escalation")
+  }
+  if (canonicalReservationJson(value.limitations)
+      !== canonicalReservationJson(REPLAY_BAR_LINKED_AGGREGATE_TRADE_PATH_AUTHORITY_LIMITATIONS)) {
+    fail("bar-linked aggregate-trade path authority limitation drift")
+  }
+  const expectedLimitationsHash = createHash("sha256")
+    .update(canonicalReservationJson(value.limitations), "utf8").digest("hex")
+  if (value.limitations_hash !== expectedLimitationsHash) {
+    fail("bar-linked aggregate-trade path authority limitations hash mismatch")
+  }
+  const { authority_snapshot_hash: authorityHash, ...body } = value
+  const expected = createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")
+  if (authorityHash !== expected) fail("bar-linked aggregate-trade path authority hash mismatch")
 }
 
 export function createReplayDecisionObservationBundleAdmissionSnapshot(
