@@ -1,4 +1,4 @@
-import { canonicalHash } from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
+import { canonicalControlPlaneHash } from "./control-plane-contracts"
 
 export const REPLAY_L2_EXPERIMENT_ATTACHMENT_AUTHORITY_SCHEMA_VERSION =
   "trade.rd-replay-l2-experiment-attachment-authority.v1" as const
@@ -69,7 +69,7 @@ export type ReplayL2ExperimentAttachmentAuthorityBody = Omit<
 export function createReplayL2ExperimentAttachmentAuthoritySnapshot(
   body: ReplayL2ExperimentAttachmentAuthorityBody,
 ): ReplayL2ExperimentAttachmentAuthoritySnapshot {
-  const value = { ...body, authority_snapshot_hash: canonicalHash(body) }
+  const value = { ...body, authority_snapshot_hash: canonicalControlPlaneHash(body) }
   assertReplayL2ExperimentAttachmentAuthoritySnapshot(value)
   return value
 }
@@ -135,11 +135,11 @@ export function assertReplayL2ExperimentAttachmentAuthoritySnapshot(
     throw new Error("Replay L2 attachment frame and batch bounds are inconsistent")
   }
   if (JSON.stringify(value.limitations) !== JSON.stringify(REPLAY_L2_EXPERIMENT_ATTACHMENT_AUTHORITY_LIMITATIONS)
-      || value.limitations_hash !== canonicalHash(REPLAY_L2_EXPERIMENT_ATTACHMENT_AUTHORITY_LIMITATIONS)) {
+      || value.limitations_hash !== canonicalControlPlaneHash(REPLAY_L2_EXPERIMENT_ATTACHMENT_AUTHORITY_LIMITATIONS)) {
     throw new Error("Replay L2 attachment limitations drifted")
   }
   const { authority_snapshot_hash: _hash, ...body } = value
-  if (value.authority_snapshot_hash !== canonicalHash(body)) {
+  if (value.authority_snapshot_hash !== canonicalControlPlaneHash(body)) {
     throw new Error("Replay L2 attachment authority hash mismatch")
   }
 }

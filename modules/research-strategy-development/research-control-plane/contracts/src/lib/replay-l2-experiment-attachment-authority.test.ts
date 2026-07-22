@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test"
-import { canonicalHash } from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
+import { canonicalControlPlaneHash } from "./control-plane-contracts"
 import {
   REPLAY_L2_EXPERIMENT_ATTACHMENT_AUTHORITY_LIMITATIONS,
   REPLAY_L2_EXPERIMENT_ATTACHMENT_AUTHORITY_SCHEMA_VERSION,
@@ -54,7 +54,7 @@ function authority() {
     runner_compatibility: "not_bound",
     external_completeness: "not_verified",
     limitations: [...REPLAY_L2_EXPERIMENT_ATTACHMENT_AUTHORITY_LIMITATIONS],
-    limitations_hash: canonicalHash(REPLAY_L2_EXPERIMENT_ATTACHMENT_AUTHORITY_LIMITATIONS),
+    limitations_hash: canonicalControlPlaneHash(REPLAY_L2_EXPERIMENT_ATTACHMENT_AUTHORITY_LIMITATIONS),
   })
 }
 

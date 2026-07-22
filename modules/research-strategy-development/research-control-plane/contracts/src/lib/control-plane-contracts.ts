@@ -72,6 +72,10 @@ export const REPLAY_PORTFOLIO_TWO_FIXED_PARTIAL_CYCLE_SEQUENCE_RESERVATION_SCHEM
 export const REPLAY_PORTFOLIO_POST_PARTIAL_STOP_REPLACEMENT_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION =
   "trade.rd-replay-portfolio-post-partial-stop-replacement-cycle-sequence-reservation.v1" as const
 
+export function canonicalControlPlaneHash(value: unknown): string {
+  return createHash("sha256").update(canonicalReservationJson(value), "utf8").digest("hex")
+}
+
 export interface ResearchIdentityBinding {
   schema_version: typeof CONTROL_PLANE_IDENTITY_SCHEMA_VERSION
   experiment_id: string
