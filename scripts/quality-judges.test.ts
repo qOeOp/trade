@@ -81,6 +81,22 @@ describe("quality judges fail closed", () => {
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain("evidence ref does not exist as a file")
   })
+
+  test("package tests cannot report success for an empty suite", () => {
+    const root = temporaryRoot()
+    write(root, "modules/domain-a/tool-a/package.json", JSON.stringify({
+      scripts: {
+        test: "if find src -name '*.test.ts' -type f | grep -q .; then bun test ./src/**/*.test.ts; else printf 'test: no test files\\n'; fi",
+      },
+    }))
+    write(root, "modules/domain-a/tool-a/src/main.ts", "export const value = true\n")
+
+    const result = runJudge("check-package-tests.ts", root)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("has no colocated test file")
+    expect(result.stderr).toContain("no empty-suite fallback is allowed")
+  })
 })
 
 function architectureFixture(overrides: { jobs?: unknown[] } = {}): string {

@@ -126,6 +126,7 @@ check_typescript_tools() {
     exit 1
   fi
   bun scripts/check-ts-tool-boundaries.ts
+  bun scripts/check-package-tests.ts
   bun install --frozen-lockfile
   find modules -name package.json -type f | sort | while IFS= read -r package; do
     [ -f "$package" ] || continue
