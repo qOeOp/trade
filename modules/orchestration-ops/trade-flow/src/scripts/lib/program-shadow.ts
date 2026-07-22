@@ -23,13 +23,17 @@ const ALLOWED_INPUT_KEYS = new Set([
   "cycle_id",
   "now",
   "ops_runtime_db",
+  "runtime_profile",
   "runtime_health",
 ])
+
+type ProgramRuntimeProfile = "shadow_program" | "catalog_hygiene_canary"
 
 export interface ProgramShadowInput {
   cycle_id?: string
   now?: string
   ops_runtime_db?: string
+  runtime_profile?: ProgramRuntimeProfile
   runtime_health?: JSONRecord
 }
 
@@ -51,6 +55,7 @@ export async function runProgramShadowWakeup(
   const lockNow = clock()
   const cycleNow = normalizeCycleNow(input.now, lockNow)
   const cycleId = normalizeCycleId(input.cycle_id, cycleNow)
+  const runtimeProfile = normalizeRuntimeProfile(input.runtime_profile)
   const configuredOpsRuntimeDbPath = stringField(input.ops_runtime_db) || "./data/ops_runtime.db"
   assertProjectRuntimePath(configuredOpsRuntimeDbPath)
   const opsRuntimeDbPath = resolveRepoPath(configuredOpsRuntimeDbPath)
@@ -73,6 +78,7 @@ export async function runProgramShadowWakeup(
     })
     if (!lockResult.acquired) {
       return shadowResult({
+        runtimeProfile,
         cycleId,
         outcome: "skipped_lock",
         reason: "another program shadow wakeup owns the active lease",
@@ -92,6 +98,7 @@ export async function runProgramShadowWakeup(
     if (TERMINAL_CYCLE_STATUSES.has(existingStatus)) {
       lockReleased = releaseOpsLock(opsDb, SHADOW_LOCK_KEY, holderId, fencingToken)
       return shadowResult({
+        runtimeProfile,
         cycleId,
         outcome: "skipped_terminal",
         reason: `cycle already reached terminal status ${existingStatus}`,
@@ -111,6 +118,7 @@ export async function runProgramShadowWakeup(
       opsRuntimeDbPath,
       holderId,
       lockNow.toISOString(),
+      runtimeProfile,
     )
     const graph = await runAutomationJobGraph(
       tradeDb,
@@ -124,11 +132,14 @@ export async function runProgramShadowWakeup(
     }
     lockReleased = releaseOpsLock(opsDb, SHADOW_LOCK_KEY, holderId, fencingToken)
     return shadowResult({
+      runtimeProfile,
       cycleId,
       outcome: recoveredRunningCycle ? "recovered_running" : "executed",
       reason: recoveredRunningCycle
         ? "recovered a non-terminal cycle after acquiring its expired or released lease"
-        : "executed the fixed no-domain-job shadow profile",
+        : runtimeProfile === "catalog_hygiene_canary"
+          ? "executed the fixed J06 catalog hygiene canary profile"
+          : "executed the fixed no-domain-job shadow profile",
       lockAcquired: true,
       lockReleased,
       fencingToken,
@@ -137,6 +148,7 @@ export async function runProgramShadowWakeup(
   } catch (error) {
     if (isSqliteBusy(error)) {
       return shadowResult({
+        runtimeProfile,
         cycleId,
         outcome: "ops_store_busy",
         reason: `ops runtime store remained busy after ${SQLITE_BUSY_TIMEOUT_MS}ms`,
@@ -165,8 +177,10 @@ function fixedShadowGraphInput(
   opsRuntimeDbPath: string,
   holderId: string,
   attemptNow: string,
+  runtimeProfile: ProgramRuntimeProfile,
 ): JSONRecord {
   const attemptId = safeAttemptId(holderId)
+  const catalogHygieneCanary = runtimeProfile === "catalog_hygiene_canary"
   return {
     cycle_id: cycleId,
     now,
@@ -181,7 +195,8 @@ function fixedShadowGraphInput(
     include_rd_strategy_supervisor: false,
     include_rd_trackers: false,
     include_closed_flow_review: false,
-    include_catalog_hygiene: false,
+    include_catalog_hygiene: catalogHygieneCanary,
+    ...(catalogHygieneCanary ? { force_jobs: ["catalog_hygiene_scan"] } : {}),
     include_control_effectiveness_review: true,
     include_ops_notify: true,
     runtime_health: {
@@ -204,6 +219,7 @@ function fixedShadowGraphInput(
 }
 
 function shadowResult(input: {
+  runtimeProfile: ProgramRuntimeProfile
   cycleId: string
   outcome: "executed" | "recovered_running" | "skipped_lock" | "skipped_terminal" | "ops_store_busy"
   reason: string
@@ -216,12 +232,14 @@ function shadowResult(input: {
 }): JSONRecord {
   return {
     schema_version: "trade-flow.program-shadow-wakeup-result.v1",
-    runtime_profile: "shadow_program",
+    runtime_profile: input.runtimeProfile,
     cycle_id: input.cycleId,
     outcome: input.outcome,
     reason: input.reason,
     safety: {
-      domain_jobs_enabled: false,
+      domain_jobs_enabled: input.runtimeProfile === "catalog_hygiene_canary",
+      enabled_domain_jobs: input.runtimeProfile === "catalog_hygiene_canary" ? ["catalog_hygiene_scan"] : [],
+      allowed_domain_writes: input.runtimeProfile === "catalog_hygiene_canary" ? ["artifact_catalog"] : [],
       live_writes_allowed: false,
       notify_dry_run: true,
       l2_owner_health_required: true,
@@ -237,6 +255,14 @@ function shadowResult(input: {
     ...(input.opsSummary ? { ops_summary: input.opsSummary } : {}),
     ...(input.graph ? { job_graph: input.graph } : {}),
   }
+}
+
+function normalizeRuntimeProfile(value: unknown): ProgramRuntimeProfile {
+  const profile = stringField(value) || "shadow_program"
+  if (profile !== "shadow_program" && profile !== "catalog_hygiene_canary") {
+    throw new Error("runtime_profile must be shadow_program or catalog_hygiene_canary")
+  }
+  return profile
 }
 
 function assertClosedWorldInput(input: JSONRecord): void {

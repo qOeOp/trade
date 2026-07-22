@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "trade-flow.program-shadow-wakeup-result.v1",
-  "title": "trade-flow program shadow wakeup result",
-  "description": "Stable safety and lease outcome for one program-owned shadow wakeup. Job graph detail remains owner-defined.",
+  "title": "trade-flow program wakeup result",
+  "description": "Stable profile, safety, and lease outcome for one program-owned wakeup. Job graph detail remains owner-defined.",
   "type": "object",
   "required": [
     "schema_version",
@@ -15,7 +15,7 @@
   ],
   "properties": {
     "schema_version": { "const": "trade-flow.program-shadow-wakeup-result.v1" },
-    "runtime_profile": { "const": "shadow_program" },
+    "runtime_profile": { "enum": ["shadow_program", "catalog_hygiene_canary"] },
     "cycle_id": { "type": "string", "minLength": 1 },
     "outcome": {
       "enum": ["executed", "recovered_running", "skipped_lock", "skipped_terminal", "ops_store_busy"]
@@ -25,13 +25,27 @@
       "type": "object",
       "required": [
         "domain_jobs_enabled",
+        "enabled_domain_jobs",
+        "allowed_domain_writes",
         "live_writes_allowed",
         "notify_dry_run",
         "l2_owner_health_required",
         "l2_consumer_health_required"
       ],
       "properties": {
-        "domain_jobs_enabled": { "const": false },
+        "domain_jobs_enabled": { "type": "boolean" },
+        "enabled_domain_jobs": {
+          "type": "array",
+          "items": { "const": "catalog_hygiene_scan" },
+          "maxItems": 1,
+          "uniqueItems": true
+        },
+        "allowed_domain_writes": {
+          "type": "array",
+          "items": { "const": "artifact_catalog" },
+          "maxItems": 1,
+          "uniqueItems": true
+        },
         "live_writes_allowed": { "const": false },
         "notify_dry_run": { "const": true },
         "l2_owner_health_required": { "const": true },
@@ -55,6 +69,40 @@
     "job_graph": { "type": "object" }
   },
   "allOf": [
+    {
+      "if": {
+        "properties": { "runtime_profile": { "const": "shadow_program" } },
+        "required": ["runtime_profile"]
+      },
+      "then": {
+        "properties": {
+          "safety": {
+            "properties": {
+              "domain_jobs_enabled": { "const": false },
+              "enabled_domain_jobs": { "maxItems": 0 },
+              "allowed_domain_writes": { "maxItems": 0 }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "runtime_profile": { "const": "catalog_hygiene_canary" } },
+        "required": ["runtime_profile"]
+      },
+      "then": {
+        "properties": {
+          "safety": {
+            "properties": {
+              "domain_jobs_enabled": { "const": true },
+              "enabled_domain_jobs": { "minItems": 1, "maxItems": 1 },
+              "allowed_domain_writes": { "minItems": 1, "maxItems": 1 }
+            }
+          }
+        }
+      }
+    },
     {
       "if": {
         "properties": {
