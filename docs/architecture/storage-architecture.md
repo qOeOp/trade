@@ -3,7 +3,7 @@ title: Storage Architecture
 role: architecture-feature-contract
 status: active
 owner: architecture
-last_verified: 2026-07-22 CST
+last_verified: 2026-07-23 CST
 ---
 
 # Storage Architecture
@@ -28,6 +28,8 @@ last_verified: 2026-07-22 CST
 | ephemeral payloads | `tmp/artifacts/`, `tmp/panels/`, `tmp/market/` | 可再生工作区产物；不是 durable storage，需 DB ref 才能被长期解释 |
 
 判断口径：SQLite logical store 是唯一事实边界。OHLCV canonical candles 由 `ohlcv_store` 增量 upsert，market metadata / funding / feature refs 由 `market_data_store` 持久化，RD memory 由 `research_state_store` 持久化；跨域只传 logical-store ref，不传本机目录所有权。
+
+多环境 DB、测试隔离、sidecar 生命周期与工作区副作用闸仍处于 [Database Environment and Workspace Hygiene Migration](./migrations/database-environment-and-workspace-hygiene-plan.md) 提案阶段。当前 local data plane 不因该提案自动迁移，环境名也不产生真实交易权限。
 
 ## Logical Stores
 
