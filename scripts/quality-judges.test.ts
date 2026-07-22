@@ -246,6 +246,24 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("unsupported Replay publication crash recovery bundle")
   })
 
+  test("Replay capacity envelope cannot become a portable SLA or silent throughput claim", () => {
+    const envelope = JSON.parse(readFileSync(
+      join(repoRoot, "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-capacity-performance-envelope.json"),
+      "utf8",
+    )) as { timing_policy: string }
+    envelope.timing_policy = "portable-performance-sla"
+    const root = temporaryRoot()
+    const envelopePath = join(root, "replay-capacity-performance-envelope.json")
+    writeFileSync(envelopePath, JSON.stringify(envelope))
+
+    const result = runJudge("check-rd-replay-maturity-gate.ts", repoRoot, [], {
+      RD_REPLAY_CAPACITY_PERFORMANCE_ENVELOPE_PATH: envelopePath,
+    })
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("unsupported Replay capacity/performance envelope")
+  }, 15_000)
+
   test("Replay historical Artifact payload reader cannot drift silently", () => {
     const registry = JSON.parse(readFileSync(
       join(repoRoot, "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-historical-artifact-migration.json"),
