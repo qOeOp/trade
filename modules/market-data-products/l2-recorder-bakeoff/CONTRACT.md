@@ -15,6 +15,7 @@ P0-only evidence module for selecting the runtime language of the future public 
 - Does not write market-data owner stores, manifests, artifacts, or live facts.
 - Does not publish signals, place orders, or become a runtime dependency.
 - Benchmark results are evidence, not an automatic language decision.
+- Rust soak also requires `--yes-public-network`; it uses a bounded receiver queue and bounded book-level cap, and writes only below the requested ignored output base.
 
 ## Raw segment protocol
 
@@ -24,6 +25,8 @@ P0-only evidence module for selecting the runtime language of the future public 
 - Finalize writes a unique partial file, syncs it, then atomically renames it.
 - Recovery accepts only the checksum-valid prefix and reports the first invalid/truncated frame; it never invents bytes.
 - `delay-ms` and `sync-every-frames` are fault-injection controls only; normal writes keep both at zero.
+- Soak frames use `trade.l2-raw-depth-frame.v1`: exact WebSocket text plus local receive time. Each connection has its own immutable REST snapshot and stream epoch.
+- Snapshot bridge miss, live `pu` gap, queue overflow, socket close and capacity breach are distinct outcomes. Only a fresh epoch may resume after discontinuity.
 
 ## Contract
 
@@ -41,3 +44,4 @@ P0-only evidence module for selecting the runtime language of the future public 
 - `cargo test`
 - `bun run segment-benchmark -- --fixture ../../../tmp/l2-recorder-bakeoff/live-btcusdt.json --samples 5`
 - `bun run crash-injection -- --fixture ../../../tmp/l2-recorder-bakeoff/live-btcusdt.json --output tmp/l2-recorder-bakeoff/crash-evidence.json`
+- `bun run soak:rust -- --yes-public-network --symbol BTCUSDT --duration-seconds 60 --output-base ../../../tmp/l2-recorder-bakeoff/soak-rust`

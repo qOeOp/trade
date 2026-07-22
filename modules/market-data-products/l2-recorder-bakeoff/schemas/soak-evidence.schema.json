@@ -1,0 +1,80 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade.l2-public-soak-evidence.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "generated_at_ms",
+    "run_id",
+    "symbol",
+    "verdict",
+    "requested_duration_seconds",
+    "elapsed_ms",
+    "queue_capacity",
+    "max_queue_depth",
+    "segment_frames",
+    "sync_every_frames",
+    "max_book_levels",
+    "force_disconnect_after",
+    "connection_count",
+    "resync_count",
+    "total_received_messages",
+    "total_recorded_events",
+    "total_segments",
+    "p95_event_lag_ms",
+    "max_event_lag_ms",
+    "incidents",
+    "epochs"
+  ],
+  "properties": {
+    "schema_version": { "const": "trade.l2-public-soak-evidence.v1" },
+    "generated_at_ms": { "type": "integer", "minimum": 1 },
+    "run_id": { "type": "string", "minLength": 1 },
+    "symbol": { "type": "string", "pattern": "^[A-Z0-9]{5,20}$" },
+    "verdict": { "enum": ["passed", "failed"] },
+    "requested_duration_seconds": { "type": "integer", "minimum": 5, "maximum": 86400 },
+    "elapsed_ms": { "type": "integer", "minimum": 1 },
+    "queue_capacity": { "type": "integer", "minimum": 1 },
+    "max_queue_depth": { "type": "integer", "minimum": 0 },
+    "segment_frames": { "type": "integer", "minimum": 1 },
+    "sync_every_frames": { "type": "integer", "minimum": 1 },
+    "max_book_levels": { "type": "integer", "minimum": 2000 },
+    "force_disconnect_after": { "type": "integer", "minimum": 0 },
+    "connection_count": { "type": "integer", "minimum": 1 },
+    "resync_count": { "type": "integer", "minimum": 0 },
+    "total_received_messages": { "type": "integer", "minimum": 0 },
+    "total_recorded_events": { "type": "integer", "minimum": 0 },
+    "total_segments": { "type": "integer", "minimum": 0 },
+    "p95_event_lag_ms": { "type": "integer", "minimum": 0 },
+    "max_event_lag_ms": { "type": "integer", "minimum": 0 },
+    "incidents": { "type": "array", "items": { "$ref": "#/$defs/incident" } },
+    "epochs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/epoch" } }
+  },
+  "$defs": {
+    "incident": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["epoch", "kind", "detail"],
+      "properties": {
+        "epoch": { "type": "integer", "minimum": 1 },
+        "kind": { "type": "string", "minLength": 1 },
+        "detail": { "type": "string", "minLength": 1 }
+      }
+    },
+    "epoch": {
+      "type": "object",
+      "required": ["epoch", "started_at_ms", "bridged", "received_messages", "recorded_events", "ignored_pre_snapshot_events", "termination", "segments"],
+      "properties": {
+        "epoch": { "type": "integer", "minimum": 1 },
+        "started_at_ms": { "type": "integer", "minimum": 1 },
+        "bridged": { "type": "boolean" },
+        "received_messages": { "type": "integer", "minimum": 0 },
+        "recorded_events": { "type": "integer", "minimum": 0 },
+        "ignored_pre_snapshot_events": { "type": "integer", "minimum": 0 },
+        "termination": { "type": "string", "minLength": 1 },
+        "segments": { "type": "array" }
+      }
+    }
+  }
+}

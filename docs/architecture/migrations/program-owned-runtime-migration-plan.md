@@ -318,7 +318,9 @@ R&D 纵切无 Binance write，且已有 schema / queue / budget / holdout gate�
 - 真实 200-frame writer 输出在三语言间字节级一致（300,217 bytes）；截断与 checksum corruption 都只接纳前 199 帧，salvaged prefix 可再次完整验证。
 - durability-dominated 7-sample median 约为 Go `33.9 µs/frame`、Bun `35.2 µs/frame`、Rust `52.7 µs/frame`，样本不足以说明稳定 writer 吞吐；Rust RSS 最低约 `2.7 MB`。综合 projector / memory 证据仍支持 Rust。
 - 已对 Bun / Go / Rust writer 分别执行受控 `SIGKILL`：三者在第 50 个已 fsync frame 后均留下 96,568-byte partial；Bun / Go / Rust 3×3 recovery 的 frame count、valid bytes、payload hash 完全一致，所有 salvage 再由三种实现验证为 complete。
-- 单次进程故障矩阵已通过，但不等同于长期稳定性证据；P0 仍需 public-stream bounded soak、重复断连 / gap / kill-resume 周期与 ADR，因此计划保持 `proposed`。
+- 单次进程故障矩阵已通过，但不等同于长期稳定性证据；P0 仍需小时级 public-stream soak、重复 kill-resume 周期与 ADR，因此计划保持 `proposed`。
+- 已建立 Rust public-soak vertical harness：network reader 与 TL2S writer 通过 bounded channel 隔离；book levels 有硬上限；每个连接保存独立 snapshot / epoch；bridge miss、live gap、overflow 与 socket close 分型，不跨 epoch 静默续写。
+- 20 秒 forced-disconnect smoke 主动每 40 条断连：138 条连续事件、7 个完整 TL2S segments、最大 queue depth `1/64`、event lag p95 `2 ms` / max `8 ms`；出现 8 次可查询 snapshot bridge miss 并自动新建 epoch，未出现 live `pu` gap 或 overflow。该 smoke 只证明机制可运行，不替代小时级 soak。
 
 ### P1 — L2 recorder vertical slice
 

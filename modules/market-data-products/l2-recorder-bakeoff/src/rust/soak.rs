@@ -28,6 +28,7 @@ struct Arguments {
     queue_capacity: usize,
     segment_frames: usize,
     sync_every_frames: usize,
+    max_book_levels: usize,
     force_disconnect_after: usize,
     output_base: PathBuf,
     yes_public_network: bool,
@@ -93,6 +94,7 @@ struct SoakEvidence {
     max_queue_depth: usize,
     segment_frames: usize,
     sync_every_frames: usize,
+    max_book_levels: usize,
     force_disconnect_after: usize,
     connection_count: usize,
     resync_count: usize,
@@ -159,6 +161,10 @@ enum ReaderStop {
 enum SequenceDecision {
     Ignore,
     Accept,
+    BridgeMiss {
+        snapshot_last_update_id: u64,
+        first_update_id: u64,
+    },
     Gap {
         expected_previous_final_update_id: u64,
         actual_previous_final_update_id: u64,
@@ -169,6 +175,46 @@ struct SequenceTracker {
     snapshot_last_update_id: u64,
     bridged: bool,
     last_update_id: u64,
+}
+
+struct LatencyHistogram {
+    buckets: Vec<u64>,
+    count: u64,
+    maximum: u64,
+}
+
+impl LatencyHistogram {
+    fn new() -> Self {
+        Self {
+            buckets: vec![0; 10_002],
+            count: 0,
+            maximum: 0,
+        }
+    }
+
+    fn observe(&mut self, value_ms: u64) {
+        let index = usize::try_from(value_ms)
+            .unwrap_or(usize::MAX)
+            .min(self.buckets.len() - 1);
+        self.buckets[index] += 1;
+        self.count += 1;
+        self.maximum = self.maximum.max(value_ms);
+    }
+
+    fn percentile(&self, fraction: f64) -> u64 {
+        if self.count == 0 {
+            return 0;
+        }
+        let target = (self.count as f64 * fraction).ceil() as u64;
+        let mut cumulative = 0;
+        for (index, count) in self.buckets.iter().enumerate() {
+            cumulative += count;
+            if cumulative >= target {
+                return index as u64;
+            }
+        }
+        self.maximum
+    }
 }
 
 impl SequenceTracker {
@@ -186,9 +232,9 @@ impl SequenceTracker {
                 return SequenceDecision::Ignore;
             }
             if event.first_update_id > self.snapshot_last_update_id {
-                return SequenceDecision::Gap {
-                    expected_previous_final_update_id: self.snapshot_last_update_id,
-                    actual_previous_final_update_id: event.pu,
+                return SequenceDecision::BridgeMiss {
+                    snapshot_last_update_id: self.snapshot_last_update_id,
+                    first_update_id: event.first_update_id,
                 };
             }
             self.bridged = true;
@@ -291,7 +337,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let max_queue_depth = Arc::new(AtomicUsize::new(0));
     let mut epochs = Vec::new();
     let mut incidents = Vec::new();
-    let mut event_lags = Vec::new();
+    let mut event_lags = LatencyHistogram::new();
     let mut epoch_index = 0;
     while Instant::now() < deadline {
         epoch_index += 1;
@@ -333,14 +379,13 @@ fn main() -> Result<(), Box<dyn Error>> {
             thread::sleep(Duration::from_millis(200));
         }
     }
-    event_lags.sort_unstable();
     let total_received_messages = epochs.iter().map(|epoch| epoch.received_messages).sum();
     let total_recorded_events = epochs.iter().map(|epoch| epoch.recorded_events).sum();
     let total_segments = epochs.iter().map(|epoch| epoch.segments.len()).sum();
     let hard_incident = incidents.iter().any(|incident| {
         matches!(
             incident.kind.as_str(),
-            "queue_overflow" | "sequence_gap" | "epoch_error"
+            "queue_overflow" | "book_capacity_exceeded" | "sequence_gap" | "epoch_error"
         )
     });
     let verdict = if !hard_incident && total_recorded_events > 0 {
@@ -360,14 +405,15 @@ fn main() -> Result<(), Box<dyn Error>> {
         max_queue_depth: max_queue_depth.load(Ordering::Relaxed),
         segment_frames: arguments.segment_frames,
         sync_every_frames: arguments.sync_every_frames,
+        max_book_levels: arguments.max_book_levels,
         force_disconnect_after: arguments.force_disconnect_after,
         connection_count: epochs.len(),
         resync_count: epochs.len().saturating_sub(1),
         total_received_messages,
         total_recorded_events,
         total_segments,
-        p95_event_lag_ms: percentile(&event_lags, 0.95),
-        max_event_lag_ms: event_lags.iter().copied().max().unwrap_or(0),
+        p95_event_lag_ms: event_lags.percentile(0.95),
+        max_event_lag_ms: event_lags.maximum,
         incidents,
         epochs,
     };
@@ -397,7 +443,7 @@ fn run_epoch(
     epoch: usize,
     deadline: Instant,
     max_queue_depth: Arc<AtomicUsize>,
-    event_lags: &mut Vec<u64>,
+    event_lags: &mut LatencyHistogram,
 ) -> Result<(EpochEvidence, Option<Incident>), Box<dyn Error>> {
     let started_at_ms = unix_time_ms()?;
     let stream_url = format!(
@@ -469,10 +515,37 @@ fn run_epoch(
                         })?;
                         writer.append(&payload)?;
                         recorded_events += 1;
-                        event_lags.push(
+                        event_lags.observe(
                             raw.local_receive_time_ms
                                 .saturating_sub(event.event_time_ms),
                         );
+                        if book_bids.len() + book_asks.len() > arguments.max_book_levels {
+                            incident = Some(Incident {
+                                epoch,
+                                kind: "book_capacity_exceeded".to_string(),
+                                detail: format!(
+                                    "book contains {} levels, limit is {}",
+                                    book_bids.len() + book_asks.len(),
+                                    arguments.max_book_levels
+                                ),
+                            });
+                            requested_termination = Some("book_capacity_exceeded".to_string());
+                            break;
+                        }
+                    }
+                    SequenceDecision::BridgeMiss {
+                        snapshot_last_update_id,
+                        first_update_id,
+                    } => {
+                        incident = Some(Incident {
+                            epoch,
+                            kind: "snapshot_bridge_miss".to_string(),
+                            detail: format!(
+                                "snapshot lastUpdateId {snapshot_last_update_id} precedes first eligible U {first_update_id}"
+                            ),
+                        });
+                        requested_termination = Some("snapshot_bridge_miss".to_string());
+                        break;
                     }
                     SequenceDecision::Gap {
                         expected_previous_final_update_id,
@@ -691,13 +764,6 @@ fn update_max(maximum: &AtomicUsize, value: usize) {
     }
 }
 
-fn percentile(values: &[u64], fraction: f64) -> u64 {
-    if values.is_empty() {
-        return 0;
-    }
-    values[((values.len() as f64 * fraction).ceil() as usize).saturating_sub(1)]
-}
-
 fn unix_time_ms() -> Result<u64, Box<dyn Error>> {
     Ok(SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64)
 }
@@ -708,6 +774,7 @@ fn parse_args(values: Vec<String>) -> Result<Arguments, Box<dyn Error>> {
     let mut queue_capacity = 256;
     let mut segment_frames = 1000;
     let mut sync_every_frames = 100;
+    let mut max_book_levels = 20_000;
     let mut force_disconnect_after = 0;
     let mut output_base = PathBuf::from("../../../tmp/l2-recorder-bakeoff/soak-rust");
     let mut yes_public_network = false;
@@ -727,6 +794,7 @@ fn parse_args(values: Vec<String>) -> Result<Arguments, Box<dyn Error>> {
             "--queue-capacity" => queue_capacity = values[index + 1].parse()?,
             "--segment-frames" => segment_frames = values[index + 1].parse()?,
             "--sync-every-frames" => sync_every_frames = values[index + 1].parse()?,
+            "--max-book-levels" => max_book_levels = values[index + 1].parse()?,
             "--force-disconnect-after" => force_disconnect_after = values[index + 1].parse()?,
             "--output-base" => output_base = PathBuf::from(&values[index + 1]),
             argument => return Err(format!("unknown argument: {argument}").into()),
@@ -747,6 +815,7 @@ fn parse_args(values: Vec<String>) -> Result<Arguments, Box<dyn Error>> {
     if !(1..=1_000_000).contains(&queue_capacity)
         || !(1..=1_000_000).contains(&segment_frames)
         || !(1..=segment_frames).contains(&sync_every_frames)
+        || !(2_000..=1_000_000).contains(&max_book_levels)
     {
         return Err("queue and segment bounds are invalid".into());
     }
@@ -756,6 +825,7 @@ fn parse_args(values: Vec<String>) -> Result<Arguments, Box<dyn Error>> {
         queue_capacity,
         segment_frames,
         sync_every_frames,
+        max_book_levels,
         force_disconnect_after,
         output_base,
         yes_public_network,
@@ -798,6 +868,15 @@ mod tests {
         assert!(matches!(
             tracker.observe(&event(104, 105, 999)),
             SequenceDecision::Gap { .. }
+        ));
+    }
+
+    #[test]
+    fn tracker_distinguishes_snapshot_bridge_miss_from_a_live_gap() {
+        let mut tracker = SequenceTracker::new(100);
+        assert!(matches!(
+            tracker.observe(&event(101, 102, 99)),
+            SequenceDecision::BridgeMiss { .. }
         ));
     }
 
