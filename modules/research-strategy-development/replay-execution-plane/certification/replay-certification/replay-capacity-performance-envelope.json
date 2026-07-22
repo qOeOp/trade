@@ -1,0 +1,108 @@
+{
+  "schema_version": "trade.rd-replay-capacity-performance-envelope.v1",
+  "owner": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification",
+  "capacity_scope": "frozen-owner-fixture-known-good-release-envelope-not-maximum-throughput",
+  "outside_envelope_policy": "uncertified-not-implicitly-supported-and-not-runtime-rejected-unless-owner-limit-exists",
+  "execution_policy": "sequential-fresh-bun-process-exact-frozen-owner-assertion",
+  "timing_policy": "monotonic-wall-clock-current-host-regression-guardrail-not-sla",
+  "resource_policy": "one-child-process-at-a-time-output-captured-peak-memory-cpu-and-io-unclaimed",
+  "profiles": [
+    {
+      "profile": "independent-lane-batch",
+      "entrypoint_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.ts",
+      "entrypoint_export": "runReplayIndependentLaneBatch",
+      "entrypoint_source_sha256": "4abe6b6f3a3ad2db4bf75d6ea25c9947939bebe318e4768c15a76e827f51d1af",
+      "test_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
+      "test_name": "independent capital lanes execute in canonical Plan order and aggregate evidence without shared NAV semantics",
+      "test_source_sha256": "7b2b3aaafed3ae79a15b9c7ca721b978c6af2fab8f061ab769b8e75c607f7733",
+      "certified_workload": [
+        { "unit": "batch", "count": 1 },
+        { "unit": "lane", "count": 2 },
+        { "unit": "trial", "count": 2 }
+      ],
+      "runtime_hard_limits": [],
+      "undeclared_capacity_dimensions": ["maximum_lane_count", "maximum_child_trial_payload_bytes"],
+      "warmup_run_count": 1,
+      "measured_run_count": 2,
+      "sample_timeout_ms": 15000,
+      "regression_ceiling_ms": 10000
+    },
+    {
+      "profile": "integrated-portfolio",
+      "entrypoint_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-integrated-portfolio-runner.ts",
+      "entrypoint_export": "runReplayIntegratedPortfolio",
+      "entrypoint_source_sha256": "c8684d1062266125647afcae0aef2e1d89edac36ecafe22c8169d11f49530c94",
+      "test_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
+      "test_name": "integrated Portfolio makes Allocation the only entry authority and releases exposure/risk through lifecycle Artifact",
+      "test_source_sha256": "7b2b3aaafed3ae79a15b9c7ca721b978c6af2fab8f061ab769b8e75c607f7733",
+      "certified_workload": [
+        { "unit": "portfolio", "count": 1 },
+        { "unit": "lane", "count": 2 },
+        { "unit": "trial", "count": 2 }
+      ],
+      "runtime_hard_limits": [],
+      "undeclared_capacity_dimensions": ["maximum_lane_count", "maximum_market_event_count", "maximum_artifact_bytes"],
+      "warmup_run_count": 1,
+      "measured_run_count": 2,
+      "sample_timeout_ms": 20000,
+      "regression_ceiling_ms": 15000
+    },
+    {
+      "profile": "single-trial",
+      "entrypoint_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.ts",
+      "entrypoint_export": "runReplayTrial",
+      "entrypoint_source_sha256": "2aa414d59aad6caa6710a3955070927a60800200f3aced8d34fe514bb80b446e",
+      "test_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.test.ts",
+      "test_name": "runner atomically commits artifacts and retries idempotently",
+      "test_source_sha256": "b954e5ebe5d4a4c4060466c19dcf6273debc957293b765a1b8bf42399c814bb5",
+      "certified_workload": [
+        { "unit": "trial", "count": 1 },
+        { "unit": "market_bar", "count": 1 }
+      ],
+      "runtime_hard_limits": [],
+      "undeclared_capacity_dimensions": ["maximum_market_bar_count", "maximum_source_event_count", "maximum_artifact_bytes"],
+      "warmup_run_count": 1,
+      "measured_run_count": 2,
+      "sample_timeout_ms": 20000,
+      "regression_ceiling_ms": 15000
+    },
+    {
+      "profile": "terminal-aware-bounded-cycle",
+      "entrypoint_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-terminal-cycle-sequence-runner.ts",
+      "entrypoint_export": "runReplayPortfolioProtectiveTerminalCycleSequence",
+      "entrypoint_source_sha256": "7d5f7a468baaa5fff1ac0b6b72272b2fe4159aa4a0e64d2da9351fdb473f37e3",
+      "test_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
+      "test_name": "bounded Cycle Sequence executes one, two, and three predeclared full-flat cycles without cycle-number schemas",
+      "test_source_sha256": "7b2b3aaafed3ae79a15b9c7ca721b978c6af2fab8f061ab769b8e75c607f7733",
+      "certified_workload": [
+        { "unit": "sequence", "count": 1 },
+        { "unit": "cycle", "count": 3 },
+        { "unit": "lane", "count": 6 },
+        { "unit": "trial", "count": 6 }
+      ],
+      "runtime_hard_limits": [
+        {
+          "dimension": "cycle_count",
+          "maximum": 8,
+          "evidence_path": "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-portfolio-cycle-sequence-contracts.ts",
+          "evidence_source_sha256": "2a181e743f9ff252380bd0950b26ada2c8b1c2c0772f76043df03512b3e9daae",
+          "evidence_export": "REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES"
+        }
+      ],
+      "undeclared_capacity_dimensions": ["maximum_lanes_per_cycle", "maximum_market_event_count", "maximum_artifact_bytes"],
+      "warmup_run_count": 1,
+      "measured_run_count": 2,
+      "sample_timeout_ms": 30000,
+      "regression_ceiling_ms": 20000
+    }
+  ],
+  "limitations": [
+    "known-good-owner-fixture-envelope-is-not-a-maximum-throughput-claim",
+    "outside-envelope-input-is-uncertified-not-implicitly-supported",
+    "wall-clock-ceilings-are-current-host-regression-guardrails-not-sla",
+    "cross-host-cross-runtime-and-contended-host-performance-not-certified",
+    "peak-memory-cpu-utilization-io-throughput-and-remote-store-performance-not-certified",
+    "only-terminal-cycle-count-has-an-existing-runtime-hard-limit"
+  ],
+  "bundle_sha256": "6a91d4568fc968370dc35e0b75e67a4cd226cc7e55ea2d55bcc127571ff08eba"
+}
