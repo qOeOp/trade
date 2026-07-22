@@ -68,7 +68,7 @@ test("automation cycle plan isolates trade db work from R&D artifact jobs", () =
     assert.equal(shadowToolJob.tool_id, "research.rd-shadow-tracker")
     assert.equal(shadowToolJob.ticket_no, "J05")
     assert.equal(shadowToolJob.target_domain, "research-strategy-development")
-    assert.equal(asRecord(shadow.command_spec).cwd, "modules/research-strategy-development/forward-evidence-plane/compatibility/rd-shadow-tracker")
+    assert.equal(asRecord(shadow.command_spec).cwd, "modules/research-strategy-development/forward-evidence-plane/paper-tracker")
     assert.deepEqual(asArray(asRecord(shadow.command_spec).argv).slice(0, 4), ["bun", "src/scripts/main.ts", "--shadow-tracker-job", "--catalog-db"])
     const review = asRecord(jobs.find((job) => job.job_id === "closed_flow_review_sweep"))
     assert.equal(review.trigger_mode, "event_or_fallback_sweep")
