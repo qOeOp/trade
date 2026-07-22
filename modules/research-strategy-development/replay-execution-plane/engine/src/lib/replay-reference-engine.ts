@@ -1483,7 +1483,6 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       margin_snapshots: [],
       ohlcv_resolution_evidence: [],
       pending_order_resolutions: pendingOrderResolutions,
-      bar_linked_stop_entry_path_step: authorizedStopEntryPath?.step ?? null,
     })
     const orderStateSnapshot = createReplayOrderStateSnapshot({
       run_id: request.run_id,
@@ -1513,6 +1512,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       decision_evidence_timeline: decisionEvidenceTimeline,
       ohlcv_resolution_evidence: [],
       pending_order_resolutions: pendingOrderResolutions,
+      bar_linked_stop_entry_path_step: authorizedStopEntryPath?.step ?? null,
       metrics,
       limitations,
     })
@@ -1723,7 +1723,6 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     margin_snapshots: marginSnapshots,
     ohlcv_resolution_evidence: ohlcvResolutionEvidence,
     pending_order_resolutions: pendingOrderResolutions,
-    bar_linked_stop_entry_path_step: authorizedStopEntryPath?.step ?? null,
   })
   const liquidation = exit.role === "liquidation" && exitFill
     ? {
@@ -1779,6 +1778,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     decision_evidence_timeline: decisionEvidenceTimeline,
     ohlcv_resolution_evidence: ohlcvResolutionEvidence,
     pending_order_resolutions: pendingOrderResolutions,
+    bar_linked_stop_entry_path_step: authorizedStopEntryPath?.step ?? null,
     metrics,
     limitations,
   }
