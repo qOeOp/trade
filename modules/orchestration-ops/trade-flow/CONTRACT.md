@@ -3,9 +3,16 @@
 ## Owns
 
 - Automation cycle planning and job-graph routing
+- One-shot `shadow_program` wakeups with a durable ops lease, terminal-cycle idempotency, and a fixed no-domain-job profile.
+- Foreground resident `shadow_program` cadence with heartbeat-renewed fenced ownership, stable time-slot cycle ids, bounded child commands, and drain-on-signal shutdown.
+- Bounded SQLite busy handling, explicit stale-lease recovery evidence, and cycle-independent parity projections for Agent/program ticket, processor, and incident comparison.
+- Opt-in resident Agent/program parity observation: each eligible program cycle runs the independently specified legacy Agent shadow profile, compares canonical projections, and records immutable evidence in the existing ops store.
+- macOS launchd rendering/install lifecycle with restart ownership outside the runtime and no PID file; installation fails closed for protected Desktop/Documents/Downloads source paths unless the operator confirms the OS privacy grant.
 - Suite CLI parameter, response, permission, and owner-handoff semantics
 - Thin observe, execution, recovery, and runtime façades
 - Executable job dependencies and business-result policies: unresolved account reconciliation blocks dependent fast/new-risk stages even when the owner command exits successfully.
+- Exact per-job runtime-health dependencies, including service-owner and resident-consumer L2 readiness: only jobs declaring `required_health_checks` are blocked by a failed check; reconciliation remains an explicit defense bypass.
+- Lifecycle processor DB arguments are resolved relative to each registered tool cwd while retaining one repository-owned ops store.
 
 ## Delegates
 
@@ -18,6 +25,10 @@
 - Exchange private account/order reads and authorized writes to `modules/exchange-gateway/*` tools
 - Market data reads to `modules/market-data-products/*` tools
 - Deterministic hard guards to `modules/live-execution-control/plan-preflight`
+- Runtime check semantics to `modules/orchestration-ops/runtime-health-guard`; trade-flow consumes only named check status and never reimplements L2 health.
+- Program shadow wakeups reuse the existing job graph and ops store; they do not establish a second scheduler, job catalog, or incident authority.
+- The resident supervisor delegates restart/backoff and OS process lifetime to an external process manager; it owns no PID file or detached-process authority.
+- Bounded migration observation may be hosted by an operator-owned terminal multiplexer when local launchd cannot read a macOS-protected repository path; this is observation evidence, not the production restart contract.
 
 ## Forbidden
 
@@ -26,3 +37,4 @@
 - Owning new R&D experiment logic
 - Owning strategy review / promotion implementation
 - Owning catalog / GC implementation
+- Letting `shadow_program` callers enable domain jobs, live writes, real notifications, or weaken the required L2 owner/consumer health checks.
