@@ -5,7 +5,7 @@ import { join } from "node:path"
 
 type JSONRecord = Record<string, unknown>
 
-const MAX_DUPLICATES = 30
+const MAX_DUPLICATES = 0
 const OUTPUT_DIR = "tmp/check/duplication"
 const REPORT_PATH = join(OUTPUT_DIR, "jscpd-report.json")
 
@@ -20,7 +20,7 @@ const args = [
   "--output",
   OUTPUT_DIR,
   "--format",
-  "typescript,javascript,go",
+  "typescript,javascript,go,python,rust,bash",
   "--ignore",
   "**/node_modules/**,**/dist/**,**/docs/**,**/data/**,**/tmp/**,**/*.test.ts",
   "modules",
