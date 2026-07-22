@@ -43,6 +43,8 @@
   },
   "evidence_refs": [
     "docs/research/reliability/rd-replay-capability-inventory.json",
+    "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle/CONTRACT.md",
+    "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle/src/lib/legacy-portfolio-cycle-boundary.test.ts",
     "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-decision-harness-worker-v10-cutover-receipt.ts",
     "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-worker-v10-cutover.ts",
     "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-decision-worker-input-assembly-v4.test.ts",
