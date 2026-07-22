@@ -61,8 +61,29 @@ pub fn write_create_new(path: &Path, bytes: &[u8]) -> Result<()> {
 
 pub fn write_manifest(directory: &Path, epoch: u64, manifest: &EpochManifest) -> Result<PathBuf> {
     let path = directory.join(format!("epoch-{epoch:04}-manifest.json"));
-    write_create_new(&path, &serde_json::to_vec_pretty(manifest)?)?;
+    write_atomic_create_new(&path, &serde_json::to_vec_pretty(manifest)?)?;
     Ok(path)
+}
+
+fn write_atomic_create_new(path: &Path, bytes: &[u8]) -> Result<()> {
+    let temporary = PathBuf::from(format!(
+        "{}.partial.{}.{}",
+        path.display(),
+        std::process::id(),
+        unix_time_ms()?
+    ));
+    write_create_new(&temporary, bytes)?;
+    match fs::hard_link(&temporary, path) {
+        Ok(()) => {
+            fs::remove_file(&temporary)?;
+            sync_parent(path)?;
+            Ok(())
+        }
+        Err(error) => {
+            let _ = fs::remove_file(&temporary);
+            Err(error).with_context(|| format!("publish create-new {}", path.display()))
+        }
+    }
 }
 
 pub fn recover_orphan_partials(
@@ -172,6 +193,42 @@ mod tests {
         assert_eq!(records[0].valid_frame_count, 1);
         assert!(Path::new(&records[0].salvage_ref).exists());
         assert!(report.join("startup-recovery-report.json").exists());
+        fs::remove_dir_all(base).expect("cleanup");
+    }
+
+    #[test]
+    fn manifest_is_published_create_new_without_visible_partial() {
+        let base = std::env::temp_dir().join(format!(
+            "trade-l2-service-manifest-{}",
+            unix_time_ms().expect("time")
+        ));
+        fs::create_dir_all(&base).expect("directory");
+        let manifest = EpochManifest {
+            schema_version: "trade.l2-epoch-manifest-proposal.v1",
+            symbol: "BTCUSDT".to_string(),
+            stream_epoch: "test-0001".to_string(),
+            started_at_ms: 1,
+            finished_at_ms: 2,
+            continuity_status: "complete".to_string(),
+            termination_reason: "test".to_string(),
+            snapshot_ref: "snapshot.json".to_string(),
+            snapshot_hash: "a".repeat(64),
+            last_update_id: Some(1),
+            received_messages: 1,
+            recorded_frames: 1,
+            applied_events: 1,
+            segments: Vec::new(),
+        };
+        let path = write_manifest(&base, 1, &manifest).expect("manifest");
+        assert!(path.exists());
+        assert!(fs::read_dir(&base).expect("read directory").all(|entry| {
+            !entry
+                .expect("entry")
+                .file_name()
+                .to_string_lossy()
+                .contains("partial")
+        }));
+        assert!(write_manifest(&base, 1, &manifest).is_err());
         fs::remove_dir_all(base).expect("cleanup");
     }
 }
