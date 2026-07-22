@@ -139,9 +139,13 @@ function materializeRecord(
   if (remainingBeforeTerminal <= 0) {
     throw new Error(`Portfolio post-partial stop-replacement Lane ${lane.lane_id} has no post-partial remainder`)
   }
-  const terminal = result.fills.find((fill) =>
+  const terminalFills = result.fills.filter((fill) =>
     fill.order_role === "stop" || fill.order_role === "target"
       || fill.order_role === "strategy_exit" || fill.order_role === "liquidation")
+  if (terminalFills.length > 1) {
+    throw new Error(`Portfolio post-partial stop-replacement Lane ${lane.lane_id} terminal cardinality drift`)
+  }
+  const terminal = terminalFills[0]
   const open = result.equity_bridge.terminal_position_state === "open"
   if (open === Boolean(terminal)
       || terminal && (terminal.quantity !== remainingBeforeTerminal
