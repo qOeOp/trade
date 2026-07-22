@@ -399,8 +399,6 @@ import {
   assertReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmission,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-execution-stdio-probe-admission"
 import {
-  assertReplayDecisionHarnessWorkerV10SuccessorExecutionAdmissionContract,
-  assertReplayDecisionHarnessWorkerV10SuccessorExecutionArtifactTransportContract,
   assertReplayDecisionHarnessWorkerV10SuccessorExecutionContractAdmission,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-execution-contract-admission"
 import {
@@ -557,6 +555,10 @@ import {
   assertReplayDecisionWorkerInputAssemblyV4Lineage,
   buildReplayDecisionWorkerInputAssemblyV4,
 } from "./replay-decision-worker-input-assembly-v4"
+import {
+  expectCompactSuccessorStdioProbe,
+  expectSuccessorExecutionContracts,
+} from "./replay-worker-v10-successor-contract-stage.assertions"
 
 const HASH = "a".repeat(64)
 const ACCOUNTING = {
@@ -4251,58 +4253,12 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       },
     })
     expect(successorProbeClockCalls).toBe(1)
-    expect(successorStdioProbeAdmission.status)
-      .toBe("successor_stdio_and_negative_probe_admitted_execution_contract_not_materialized")
-    expect(successorStdioProbeAdmission.source_successor_execution_transport_admission_hash)
-      .toBe(successorTransportAdmission.admission_hash)
-    expect(successorStdioProbeAdmission.source_predecessor_stdio_capability_hash)
-      .toBe(durableStdioCapability.capability_hash)
-    expect(successorStdioProbeAdmission.successor_stdio_capability_hash)
-      .not.toBe(durableStdioCapability.capability_hash)
-    expect(successorStdioProbeAdmission.successor_stdio_artifact_evidence.source_transport_contract_hash)
-      .toBe(successorTransportAdmission.successor_base_transport_contract_hash)
-    expect(successorStdioProbeAdmission.successor_stdio_artifact_evidence.artifact.sha256)
-      .toBe(durableStdioCapability.artifact.sha256)
-    expect(successorStdioProbeAdmission.successor_stdio_artifact_evidence.artifact.content_utf8)
-      .toBe(durableStdioCapability.artifact.content_utf8)
-    expect(Object.hasOwn(successorStdioProbeAdmission,
-      "source_successor_execution_transport_admission")).toBe(false)
-    expect(Object.hasOwn(successorStdioProbeAdmission, "source_predecessor_stdio_capability"))
-      .toBe(false)
-    expect(Object.hasOwn(successorStdioProbeAdmission, "successor_negative_probe_receipt"))
-      .toBe(false)
-    expect(Buffer.byteLength(canonicalJson(successorStdioProbeAdmission), "utf8"))
-      .toBeLessThan(512 * 1024)
-    expect(successorStdioProbeAdmission.artifact_parity_status)
-      .toBe("successor_rebuild_byte_identical_to_predecessor_stdio_artifact")
-    expect(successorStdioProbeAdmission.successor_negative_probe_receipt_hash)
-      .not.toBe(negativeProbeReceipt.receipt_hash)
-    expect(successorStdioProbeAdmission.successor_process_artifact_hash)
-      .toBe(successorStdioProbeAdmission.successor_stdio_artifact_evidence.artifact.sha256)
-    expect(successorStdioProbeAdmission.successor_base_transport_contract_count).toBe(1)
-    expect(successorStdioProbeAdmission.successor_stdio_capability_count).toBe(1)
-    expect(successorStdioProbeAdmission.successor_negative_probe_receipt_count).toBe(1)
-    expect(successorStdioProbeAdmission.successor_negative_probe_process_count).toBe(5)
-    expect(successorStdioProbeAdmission.successor_worker_request_frame_count).toBe(0)
-    expect(successorStdioProbeAdmission.successor_worker_request_decode_count).toBe(0)
-    expect(successorStdioProbeAdmission.successor_artifact_bound_transport_contract_count).toBe(0)
-    expect(successorStdioProbeAdmission.successor_execution_admission_contract_count).toBe(0)
-    expect(successorStdioProbeAdmission.successor_execution_admission_command_count).toBe(0)
-    expect(successorStdioProbeAdmission.successor_worker_process_count).toBe(0)
-    expect(successorStdioProbeAdmission.second_response_count).toBe(0)
-    expect(successorStdioProbeAdmission.second_schedule_admission_count).toBe(0)
-    expect(successorStdioProbeAdmission.reproducibility_pair_count).toBe(0)
-    expect(successorStdioProbeAdmission.harness_receipt_count).toBe(0)
-    expect(successorStdioProbeAdmission.transport_authority)
-      .toBe("stdio_artifact_certified_activation_not_granted")
-    expect(successorStdioProbeAdmission.command_authority).toBe("none")
-    expect(successorStdioProbeAdmission.worker_process_authority).toBe("none")
-    expect(successorStdioProbeAdmission.signal_authority).toBe("none")
-    expect(successorStdioProbeAdmission.order_authority).toBe("none")
-    expect(successorStdioProbeAdmission.economic_authority).toBe("none")
-    expect(() => assertReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmission(
-      successorStdioProbeAdmission,
-    )).not.toThrow()
+    expectCompactSuccessorStdioProbe({
+      admission: successorStdioProbeAdmission,
+      source_transport: successorTransportAdmission,
+      predecessor_stdio: durableStdioCapability,
+      predecessor_probe_hash: negativeProbeReceipt.receipt_hash,
+    })
     expect(readReplayWorkerV10SuccessorExecutionStdioProbe({
       registry_root: dispatchEvidenceRegistryRoot,
       source_successor_execution_transport_admission: successorTransportAdmission,
@@ -4344,64 +4300,14 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       successorExecutionContractAdmission.successor_artifact_bound_transport_contract
     const successorExecutionAdmission =
       successorExecutionContractAdmission.successor_execution_admission_contract
-    expect(successorExecutionContractAdmission.status)
-      .toBe("successor_execution_contracts_admitted_command_not_issued")
-    expect(successorExecutionContractAdmission.source_successor_execution_stdio_probe_admission_hash)
-      .toBe(successorStdioProbeAdmission.admission_hash)
-    expect(successorExecutionContractAdmission
-      .source_predecessor_artifact_bound_transport_contract_hash)
-      .toBe(successorTransportContract.contract_hash)
-    expect(successorExecutionContractAdmission.source_predecessor_execution_admission_contract_hash)
-      .toBe(executionAdmissionContract.contract_hash)
-    expect(successorArtifactTransport.contract_hash).not.toBe(successorTransportContract.contract_hash)
-    expect(successorExecutionAdmission.contract_hash).not.toBe(executionAdmissionContract.contract_hash)
-    expect(successorArtifactTransport.successor_process_artifact_hash)
-      .toBe(successorTransportContract.successor_process_artifact_hash)
-    expect(successorArtifactTransport.source_successor_base_transport_contract_hash)
-      .toBe(successorTransportAdmission.successor_base_transport_contract_hash)
-    expect(successorArtifactTransport.source_successor_execution_envelope_hash)
-      .toBe(successorEnvelopeAdmission.successor_execution_envelope_hash)
-    expect(successorArtifactTransport.source_successor_stdio_capability_hash)
-      .toBe(successorStdioProbeAdmission.successor_stdio_capability_hash)
-    expect(successorArtifactTransport.source_successor_negative_probe_receipt_hash)
-      .toBe(successorStdioProbeAdmission.successor_negative_probe_receipt_hash)
-    expect(successorExecutionAdmission.source_artifact_bound_transport_contract_hash)
-      .toBe(successorArtifactTransport.contract_hash)
-    expect(successorArtifactTransport.target_worker_request_execution_admission).toBe("not_granted")
-    expect(successorArtifactTransport.target_worker_request_transport_status).toBe("not_invoked")
-    expect(successorExecutionAdmission.admission_command_instance_count).toBe(0)
-    expect(() => assertReplayDecisionHarnessWorkerV10SuccessorExecutionArtifactTransportContract(
-      successorArtifactTransport,
-    )).not.toThrow()
-    expect(() => assertReplayDecisionHarnessWorkerV10SuccessorExecutionAdmissionContract(
-      successorExecutionAdmission,
-    )).not.toThrow()
-    expect(successorExecutionContractAdmission.successor_base_transport_contract_count).toBe(1)
-    expect(successorExecutionContractAdmission.successor_stdio_capability_count).toBe(1)
-    expect(successorExecutionContractAdmission.successor_negative_probe_receipt_count).toBe(1)
-    expect(successorExecutionContractAdmission.successor_negative_probe_process_count).toBe(5)
-    expect(successorExecutionContractAdmission
-      .successor_artifact_bound_transport_contract_count).toBe(1)
-    expect(successorExecutionContractAdmission.successor_execution_admission_contract_count).toBe(1)
-    expect(successorExecutionContractAdmission.successor_execution_admission_command_count).toBe(0)
-    expect(successorExecutionContractAdmission.successor_worker_process_count).toBe(0)
-    expect(successorExecutionContractAdmission.successor_worker_request_frame_count).toBe(0)
-    expect(successorExecutionContractAdmission.successor_worker_request_decode_count).toBe(0)
-    expect(successorExecutionContractAdmission.second_response_count).toBe(0)
-    expect(successorExecutionContractAdmission.second_schedule_admission_count).toBe(0)
-    expect(successorExecutionContractAdmission.reproducibility_pair_count).toBe(0)
-    expect(successorExecutionContractAdmission.harness_receipt_count).toBe(0)
-    expect(successorExecutionContractAdmission.transport_authority)
-      .toBe("artifact_bound_contract_frozen_activation_blocked")
-    expect(successorExecutionContractAdmission.command_authority)
-      .toBe("contract_frozen_zero_instance_not_issued")
-    expect(successorExecutionContractAdmission.worker_process_authority).toBe("none")
-    expect(successorExecutionContractAdmission.signal_authority).toBe("none")
-    expect(successorExecutionContractAdmission.order_authority).toBe("none")
-    expect(successorExecutionContractAdmission.economic_authority).toBe("none")
-    expect(() => assertReplayDecisionHarnessWorkerV10SuccessorExecutionContractAdmission(
-      successorExecutionContractAdmission,
-    )).not.toThrow()
+    expectSuccessorExecutionContracts({
+      admission: successorExecutionContractAdmission,
+      stdio_admission: successorStdioProbeAdmission,
+      source_transport: successorTransportAdmission,
+      source_envelope: successorEnvelopeAdmission,
+      predecessor_transport: successorTransportContract,
+      predecessor_execution: executionAdmissionContract,
+    })
     expect(readReplayWorkerV10SuccessorExecutionContract({
       registry_root: dispatchEvidenceRegistryRoot,
       source_successor_execution_stdio_probe_admission: successorStdioProbeAdmission,
