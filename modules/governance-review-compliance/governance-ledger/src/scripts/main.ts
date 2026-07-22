@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 
 import { Database } from "bun:sqlite"
-import { readFileSync } from "node:fs"
 import {
   buildClosedFlowReview,
   buildGovernanceEvidence,
@@ -14,35 +13,12 @@ import {
   recordReviewBatch,
 } from "../lib/governance-ledger"
 import type { JSONRecord } from "../../../../contracts/runtime-core/src/json"
+import { readDbActionJsonArgs, type DbActionJsonArgs } from "../../../../contracts/runtime-core/src/script-json"
 
-interface Args {
-  dbPath: string
-  action: string
-  json: JSONRecord
-}
+type Args = DbActionJsonArgs
 
 export function parseArgs(argv: string[]): Args {
-  let dbPath = "data/governance.db"
-  let action = "init"
-  let json: JSONRecord = {}
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index]
-    if (arg === "--db") {
-      dbPath = argv[++index] ?? dbPath
-    } else if (arg === "--action") {
-      action = argv[++index] ?? action
-    } else if (arg === "--json") {
-      json = JSON.parse(argv[++index] ?? "{}") as JSONRecord
-    } else if (arg === "--json-file") {
-      json = JSON.parse(readFileSync(argv[++index] ?? "", "utf8")) as JSONRecord
-    } else if (arg === "--help") {
-      printHelp()
-      process.exit(0)
-    } else {
-      throw new Error(`unknown argument: ${arg}`)
-    }
-  }
-  return { dbPath, action, json }
+  return readDbActionJsonArgs(argv, { dbPath: "data/governance.db" }, printHelp)
 }
 
 export function run(args: Args): JSONRecord {
@@ -93,4 +69,3 @@ if (import.meta.main) {
     process.exit(1)
   }
 }
-
