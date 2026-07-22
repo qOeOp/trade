@@ -25,6 +25,7 @@ import {
   assertReplayOhlcvResolutionEvidence,
   assertReplayOrderStateSnapshot,
   assertReplayResultOhlcvResolutionBindings,
+  assertReplayResultBarLinkedStopEntryPathBindings,
   assertReplayResultPendingOrderBindings,
   assertReplayResultPositionRiskBindings,
   canonicalHash,
@@ -46,6 +47,7 @@ import {
   type ReplayMarginSnapshot,
   type ReplayPendingOrderResolution,
   type ReplayResult,
+  type ReplayAuthorizedStopEntryPathStep,
   type ReplayStopEntrySameBarPathAmbiguity,
   type ReplaySupplementalFact,
 } from "../../../contracts/src/lib/replay-contracts"
@@ -77,6 +79,10 @@ import {
   executeReplayDecisionHarness,
   type ReplayDecisionHarnessRegistry,
 } from "./replay-decision-harness"
+import {
+  runReplayBarLinkedStopEntryPathStep,
+  type ReplayBarLinkedStopEntryPathRunInput,
+} from "./replay-bar-linked-stop-entry-path-runner"
 
 export interface ReplayTrialRunInput {
   request: ReplayExecutionRequest
@@ -88,6 +94,10 @@ export interface ReplayTrialRunInput {
   funding_events?: ReplayFundingEvent[]
   mark_events?: ReplayMarkEvent[]
   supplemental_facts?: ReplaySupplementalFact[]
+  bar_linked_stop_entry_path?: Omit<
+    ReplayBarLinkedStopEntryPathRunInput,
+    "request" | "dataset_manifest"
+  >
   decision_harness_registry?: ReplayDecisionHarnessRegistry
   artifact_root?: string
   artifact_store?: ReplayArtifactStore
@@ -246,6 +256,16 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
   let authorityCancellationOutcome: ReplayTrialRunOutcome | undefined
   let activeArtifactNamespace: ReplayArtifactNamespace | undefined
   try {
+    const authorizedPathInput: ReplayBarLinkedStopEntryPathRunInput | undefined = input.bar_linked_stop_entry_path
+      ? {
+        ...input.bar_linked_stop_entry_path,
+        request: input.request,
+        dataset_manifest: input.dataset_manifest,
+      }
+      : undefined
+    const authorizedPathOutcome = authorizedPathInput
+      ? runReplayBarLinkedStopEntryPathStep(authorizedPathInput)
+      : undefined
     const artifactStore = resolveArtifactStore(input)
     activeArtifactNamespace = artifactStore
       ? openAttemptNamespace(artifactStore, input.request, input.attempt_lease.attempt_id)
@@ -265,7 +285,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     const committed = activeArtifactNamespace
       ? readCommitted(
         activeArtifactNamespace, input.request, input.trial_reservation, input.attempt_lease,
-        input.dataset_manifest, input.supplemental_facts || [],
+        input.dataset_manifest, input.supplemental_facts || [], authorizedPathOutcome?.step ?? null,
       )
       : undefined
     if (committed) {
@@ -332,6 +352,9 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
       funding_events: input.funding_events,
       mark_events: input.mark_events,
       supplemental_facts: input.supplemental_facts,
+      authorized_stop_entry_path: authorizedPathInput && authorizedPathOutcome
+        ? { input: authorizedPathInput, step: authorizedPathOutcome.step }
+        : undefined,
       decision_evidence_timeline: decisionEvidenceTimeline,
       runtime_decision_evaluator: (decision) => executeReplayDecisionHarness({
         registry: input.decision_harness_registry,
@@ -378,6 +401,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     })
     assertReplayResultOhlcvResolutionBindings(result, input.request)
     assertReplayResultPendingOrderBindings(result, input.request, input.dataset_manifest)
+    assertReplayResultBarLinkedStopEntryPathBindings(result, input.request, input.dataset_manifest)
     assertReplayResultPositionRiskBindings(result)
     assertReplayOrderStateSnapshot(result.order_state_snapshot, result.order_events)
     if (result.fingerprint.order_state_snapshot_hash !== result.order_state_snapshot.snapshot_hash) {
@@ -760,6 +784,7 @@ const ARTIFACT_FILE_NAMES: Readonly<Record<(typeof REPLAY_REQUIRED_ARTIFACT_ROLE
   fills: "fills.jsonl", positions: "positions.jsonl", ledger: "ledger.jsonl",
   ohlcv_resolution_evidence: "ohlcv-resolution-evidence.json",
   pending_order_resolutions: "pending-order-resolutions.json",
+  bar_linked_stop_entry_path_step: "bar-linked-stop-entry-path-step.json",
   valuation_snapshot: "valuation-snapshot.json", equity_bridge: "equity-bridge.json", margin_snapshots: "margin-snapshots.json",
   liquidation: "liquidation.json", journal: "journal.jsonl", trial_balance: "trial-balance.json",
 }
@@ -790,6 +815,7 @@ function commitArtifacts(
   const ledgerText = result.ledger.map((entry) => canonicalJson(entry)).join("\n") + "\n"
   const ohlcvResolutionEvidenceText = `${canonicalJson(result.ohlcv_resolution_evidence)}\n`
   const pendingOrderResolutionsText = `${canonicalJson(result.pending_order_resolutions)}\n`
+  const barLinkedStopEntryPathStepText = `${canonicalJson(result.bar_linked_stop_entry_path_step)}\n`
   const valuationSnapshotText = `${canonicalJson(result.valuation_snapshot)}\n`
   const equityBridgeText = `${canonicalJson(result.equity_bridge)}\n`
   const marginSnapshotsText = `${canonicalJson(result.margin_snapshots)}\n`
@@ -814,6 +840,7 @@ function commitArtifacts(
     writeImmutable(namespace, "ledger.jsonl", ledgerText, "ledger"),
     writeImmutable(namespace, "ohlcv-resolution-evidence.json", ohlcvResolutionEvidenceText, "ohlcv_resolution_evidence"),
     writeImmutable(namespace, "pending-order-resolutions.json", pendingOrderResolutionsText, "pending_order_resolutions"),
+    writeImmutable(namespace, "bar-linked-stop-entry-path-step.json", barLinkedStopEntryPathStepText, "bar_linked_stop_entry_path_step"),
     writeImmutable(namespace, "valuation-snapshot.json", valuationSnapshotText, "valuation_snapshot"),
     writeImmutable(namespace, "equity-bridge.json", equityBridgeText, "equity_bridge"),
     writeImmutable(namespace, "margin-snapshots.json", marginSnapshotsText, "margin_snapshots"),
@@ -883,6 +910,7 @@ function readCommitted(
   attemptLease: ReplayAttemptLeaseSnapshot,
   datasetManifest: ReplayDatasetManifest,
   supplementalFacts: ReplaySupplementalFact[],
+  expectedBarLinkedStopEntryPathStep: ReplayAuthorizedStopEntryPathStep | null,
 ): { result: ReplayResult; artifact_manifest: ReplayArtifactManifest; artifact_commit: ReplayArtifactCommit } | undefined {
   if (!namespace.exists("artifact-manifest.json")) return undefined
   const manifestFile = namespace.read("artifact-manifest.json")
@@ -923,6 +951,7 @@ function readCommitted(
   if (result.schema_version !== REPLAY_RESULT_SCHEMA_VERSION) throw new Error("committed Replay result schema is not supported")
   assertReplayResultOhlcvResolutionBindings(result, request)
   assertReplayResultPendingOrderBindings(result, request, datasetManifest)
+  assertReplayResultBarLinkedStopEntryPathBindings(result, request, datasetManifest)
   assertReplayResultPositionRiskBindings(result)
   assertResultOhlcvEconomicImpactBindings(result, request, datasetManifest)
   if (manifest.run_id !== request.run_id || result.run_id !== request.run_id
@@ -961,6 +990,15 @@ function readCommitted(
   if (canonicalHash(recordedPendingOrderResolutions) !== canonicalHash(result.pending_order_resolutions)
       || result.fingerprint.pending_order_resolutions_hash !== canonicalHash(recordedPendingOrderResolutions)) {
     throw new Error("committed Replay pending-order resolutions do not match Result")
+  }
+  const recordedBarLinkedStopEntryPathStep = JSON.parse(
+    decode(namespace.read(ARTIFACT_FILE_NAMES.bar_linked_stop_entry_path_step).bytes),
+  ) as ReplayAuthorizedStopEntryPathStep | null
+  if (canonicalHash(recordedBarLinkedStopEntryPathStep) !== canonicalHash(result.bar_linked_stop_entry_path_step)
+      || canonicalHash(recordedBarLinkedStopEntryPathStep) !== canonicalHash(expectedBarLinkedStopEntryPathStep)
+      || result.fingerprint.bar_linked_stop_entry_path_step_hash
+        !== (recordedBarLinkedStopEntryPathStep?.step_hash ?? null)) {
+    throw new Error("committed Replay bar-linked Stop-entry path Step does not match Result or invocation")
   }
   const recordedOrderStateSnapshot = JSON.parse(
     decode(namespace.read(ARTIFACT_FILE_NAMES.order_state_snapshot).bytes),
@@ -1013,6 +1051,7 @@ function readCommitted(
     decision_evidence_timeline: result.decision_evidence_timeline,
     ohlcv_resolution_evidence: result.ohlcv_resolution_evidence,
     pending_order_resolutions: result.pending_order_resolutions,
+    bar_linked_stop_entry_path_step: result.bar_linked_stop_entry_path_step,
     metrics: result.metrics,
     limitations: result.limitations,
   }) !== manifest.result_hash) throw new Error("committed Replay result hash mismatch")
