@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, test } from "bun:test"
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 
@@ -495,6 +495,68 @@ describe("quality judges fail closed", () => {
 
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain("docs/README.md document id must use docs namespace: runtime.documentation")
+  })
+
+  test("document contracts reject an absolute implementation reference", () => {
+    const root = documentContractFixture({})
+    const indexPath = join(root, "docs/engineering/doc-contract-index.json")
+    const index = JSON.parse(readFileSync(indexPath, "utf8")) as {
+      documents: Array<{ implementation_refs?: string[] }>
+    }
+    index.documents[0].implementation_refs = [root]
+    writeFileSync(indexPath, JSON.stringify(index))
+
+    const result = runJudge("check-doc-contracts.ts", root)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("implementation_ref must be a normalized repository-relative path")
+  })
+
+  test("document contracts reject a non-canonical implementation reference", () => {
+    const root = documentContractFixture({})
+    const indexPath = join(root, "docs/engineering/doc-contract-index.json")
+    const index = JSON.parse(readFileSync(indexPath, "utf8")) as {
+      documents: Array<{ implementation_refs?: string[] }>
+    }
+    index.documents[0].implementation_refs = ["docs/../docs/README.md"]
+    writeFileSync(indexPath, JSON.stringify(index))
+
+    const result = runJudge("check-doc-contracts.ts", root)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("implementation_ref must be a normalized repository-relative path")
+  })
+
+  test("document contracts reject duplicate implementation references", () => {
+    const root = documentContractFixture({})
+    const indexPath = join(root, "docs/engineering/doc-contract-index.json")
+    const index = JSON.parse(readFileSync(indexPath, "utf8")) as {
+      documents: Array<{ implementation_refs?: string[] }>
+    }
+    index.documents[0].implementation_refs = ["docs/README.md", "docs/README.md"]
+    writeFileSync(indexPath, JSON.stringify(index))
+
+    const result = runJudge("check-doc-contracts.ts", root)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("has duplicate implementation_ref: docs/README.md")
+  })
+
+  test("document contracts reject an implementation symlink escaping the repository", () => {
+    const root = documentContractFixture({})
+    const external = temporaryRoot()
+    symlinkSync(external, join(root, "external-link"), "dir")
+    const indexPath = join(root, "docs/engineering/doc-contract-index.json")
+    const index = JSON.parse(readFileSync(indexPath, "utf8")) as {
+      documents: Array<{ implementation_refs?: string[] }>
+    }
+    index.documents[0].implementation_refs = ["external-link"]
+    writeFileSync(indexPath, JSON.stringify(index))
+
+    const result = runJudge("check-doc-contracts.ts", root)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("implementation_ref resolves outside repository: external-link")
   })
 
   test("package tests cannot omit a colocated test file", () => {

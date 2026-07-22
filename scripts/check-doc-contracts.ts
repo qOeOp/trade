@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 
-import { existsSync, readFileSync, readdirSync } from "node:fs"
-import { dirname, join, normalize, resolve } from "node:path"
+import { existsSync, readFileSync, readdirSync, realpathSync } from "node:fs"
+import { dirname, isAbsolute, join, normalize, relative, resolve, sep } from "node:path"
 
 interface DocumentEntry {
   id: string
@@ -130,9 +130,7 @@ for (const entry of index.documents) {
       issues.push(`${entry.path} ${field} differs from index: ${metadata[field] ?? "<missing>"} != ${entry[field]}`)
     }
   }
-  for (const ref of entry.implementation_refs ?? []) {
-    if (!existsSync(ref)) issues.push(`${entry.path} implementation_ref does not exist: ${ref}`)
-  }
+  checkImplementationRefs(entry)
 }
 
 for (const path of currentDocuments) {
@@ -230,6 +228,30 @@ function documentNamespace(path: string): string | undefined {
   if (path === "docs/README.md" || path.startsWith("docs/history/")) return "docs"
   const match = /^docs\/(product|architecture|runtime|research|engineering)\//.exec(path)
   return match?.[1]
+}
+
+function checkImplementationRefs(entry: DocumentEntry): void {
+  const seen = new Set<string>()
+  for (const ref of entry.implementation_refs ?? []) {
+    if (seen.has(ref)) issues.push(`${entry.path} has duplicate implementation_ref: ${ref}`)
+    seen.add(ref)
+    if (!ref || isAbsolute(ref) || normalize(ref) !== ref || escapesRoot(resolve(root, ref))) {
+      issues.push(`${entry.path} implementation_ref must be a normalized repository-relative path: ${ref}`)
+      continue
+    }
+    if (!existsSync(ref)) {
+      issues.push(`${entry.path} implementation_ref does not exist: ${ref}`)
+      continue
+    }
+    if (escapesRoot(realpathSync(ref))) {
+      issues.push(`${entry.path} implementation_ref resolves outside repository: ${ref}`)
+    }
+  }
+}
+
+function escapesRoot(path: string): boolean {
+  const fromRoot = relative(root, path)
+  return fromRoot === ".." || fromRoot.startsWith(`..${sep}`) || isAbsolute(fromRoot)
 }
 
 function checkLastVerified(path: string, value: string | undefined): void {

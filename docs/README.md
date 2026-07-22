@@ -57,6 +57,8 @@ current 文档只允许以上状态，并必须与 `doc-contract-index.json` 一
 
 index `id` 使用 `<文档域>.<短名>`：只允许小写 ASCII、数字、点和短横线，且命名空间必须与 `docs/product|architecture|runtime|research|engineering` 路径一致；`docs/README.md` 与 `docs/history/README.md` 使用 `docs.*`。ID 是稳定引用，不使用标题、临时任务名或跨域别名。
 
+`implementation_refs` 只连接当前合同与已有实现证据：每项必须是仓库相对且已规范化的真实文件或目录，不得重复、使用本机绝对路径、`..` 越界或通过符号链接逃逸仓库。目录引用表示 owner surface，不等于其全部内容都已实现。
+
 `owner` 不能是自由标签：它必须是 `product / architecture / engineering` 文档治理 owner、`architecture-manifest.json` 中的 domain，或该 domain 下真实存在的模块组。新增 owner 必须先建立实际 authority，不能只让 frontmatter 与 index 同时新增一个名字。
 
 `role` 也不是自由标签，并与 status 绑定：contract / index / decision / roadmap / runbook 使用 `active`；feature contract 可使用 `active-partial`；migration 只使用 `proposed` 或 `active-migration`；source material、implementation record、audit log 分别只使用 `source-material`、`implemented`、`audit-log`。精确 role→status 组合由 `check-doc-contracts.ts` 执法，新增组合必须先修改本合同与 checker。
