@@ -88,6 +88,8 @@ last_verified: 2026-07-22 CST
 | `binance-ts-check` | changed Binance TS tool | `bun run check` | 对应执行或只读 tool 的本地契约 |
 | `ohlcv-fetch-check` | `modules/market-data-products/ohlcv-fetch` | `bun run check` | OHLCV manifest / fetch 本地契约 |
 | `tech-indicators-check` | `modules/market-data-products/tech-indicators` | `go test ./...` | 指标与结构算法 |
+| `l2-order-book-core-check` | `modules/market-data-products/l2-order-book-core` | `cargo fmt --all -- --check && cargo check && cargo clippy --all-targets -- -D warnings && cargo test` | deterministic order-book/sequence projection and TL2S segment core |
+| `l2-order-book-service-check` | `modules/market-data-products/l2-order-book-service` | `cargo fmt --all -- --check && cargo check && cargo clippy --all-targets -- -D warnings && cargo test` | public L2 lifecycle、epoch/queue/state、raw segments and loopback gRPC reads |
 | `l2-recorder-bakeoff-check` | `modules/market-data-products/l2-recorder-bakeoff` | `bun run check && go test ./... && go vet ./... && cargo fmt --all -- --check && cargo clippy --all-targets -- -D warnings && cargo test` | Bun / Go / Rust L2 fixture parity、gap fail-closed 与跨语言质量 |
 | `l2-public-fixture-capture` | `modules/market-data-products/l2-recorder-bakeoff` | `bun run capture -- --yes-public-network --symbol BTCUSDT --events 200 --output tmp/l2-recorder-bakeoff/live-btcusdt.json` | routed public stream + REST snapshot；无 credential、只写 ignored fixture |
 | `l2-recorder-bakeoff-run` | `modules/market-data-products/l2-recorder-bakeoff` | `bun run benchmark -- --iterations 50000 --samples 7` | ignored `tmp/` 证据、内部耗时、wall time 与 RSS；不联网、不决定 ADR |
@@ -145,6 +147,8 @@ last_verified: 2026-07-22 CST
 | Binance execute tool | `modules/exchange-gateway/binance-write/*` | corresponding `binance-ts-check` + trade-flow execution targeted tests；输出边界见 [execution-tool-contract.md](../runtime/execution-tool-contract.md) |
 | market / account read tool | `modules/market-data-products/binance-read/*`, `modules/exchange-gateway/binance-read/account-snapshot` | corresponding `binance-ts-check` + observe/recovery targeted tests if consumed by trade-flow |
 | OHLCV / indicators | `modules/market-data-products/ohlcv-fetch`, `modules/market-data-products/tech-indicators` | corresponding tool check + trade-flow research targeted tests if manifest/factor shape changed |
+| L2 order-book / TL2S core | `modules/market-data-products/l2-order-book-core/**` | `l2-order-book-core-check` + `l2-recorder-bakeoff-check` |
+| L2 public order-book service | `modules/market-data-products/l2-order-book-service/**` | `l2-order-book-service-check` + `l2-order-book-core-check`; add `l2-recorder-bakeoff-check` when projection、sequence or TL2S semantics change |
 | L2 language bake-off | `modules/market-data-products/l2-recorder-bakeoff/**`, `scripts/check-secrets.ts`, Rust quality gate | `l2-recorder-bakeoff-check` + `secret-scan` + `repo-whitespace`；需要语言决策证据时再跑 `l2-recorder-bakeoff-run` |
 | local helper scripts | `scripts/*.sh`, README helper 入口 | `helper-scripts-smoke` + `repo-whitespace` |
 | workspace skill | `.agents/skills/**` | `workspace-skill-check` + `repo-whitespace`；若新增领域能力，必须移入 owner module 并升级为对应 module check |
