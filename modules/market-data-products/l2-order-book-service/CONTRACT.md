@@ -26,7 +26,9 @@ Production candidate owner for one public Binance USD-M L2 stream.
 
 ## Commands
 
-- `cargo run -- --yes-public-network --symbol BTCUSDT --duration-seconds 60`
+- `cargo run --bin l2-order-book-service -- --yes-public-network --symbol BTCUSDT --duration-seconds 60`
+- `cargo run --bin l2-order-book-query -- --action health --symbol BTCUSDT`
+- `cargo run --bin l2-order-book-query -- --action book --symbol BTCUSDT --depth 20`
 - `cargo fmt --all -- --check`
 - `cargo check`
 - `cargo clippy --all-targets -- -D warnings`
