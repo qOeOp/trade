@@ -31,6 +31,7 @@ import {
 import {
   readReplayWorkerV10SuccessorExecutionTransport,
 } from "./replay-worker-v10-successor-execution-transport-registry"
+import { registerReplayDurableParentValidationReceipt } from "./replay-durable-parent-validation-receipt"
 
 export interface RegisterReplayWorkerV10SuccessorExecutionStdioProbeInput {
   registry_root: string
@@ -59,16 +60,26 @@ export function registerReplayWorkerV10SuccessorExecutionStdioProbe(
   const expected = buildAdmission(transportAdmission, predecessor, successor, probe)
   const path = admissionPath(input.registry_root, expected.admission_key)
   const existing = readAdmission(path)
-  if (existing) return sameAdmission(existing, expected)
+  if (existing) {
+    const admission = sameAdmission(existing, expected)
+    registerParentValidationReceipt(input.registry_root, admission, `${canonicalJson(admission)}\n`)
+    return admission
+  }
   const content = `${canonicalJson(expected)}\n`
   try {
     writeReplayImmutableCas(path, content)
   } catch (error) {
     const winner = readAdmission(path)
-    if (winner) return sameAdmission(winner, expected)
+    if (winner) {
+      const admission = sameAdmission(winner, expected)
+      registerParentValidationReceipt(input.registry_root, admission, `${canonicalJson(admission)}\n`)
+      return admission
+    }
     throw error
   }
-  return parseAdmission(content)
+  const admission = parseAdmission(content)
+  registerParentValidationReceipt(input.registry_root, admission, content)
+  return admission
 }
 
 export function readReplayWorkerV10SuccessorExecutionStdioProbe(
@@ -255,4 +266,18 @@ function parseAdmission(content: string): ReplayDecisionHarnessWorkerV10Successo
 
 function admissionPath(root: string, key: string): string {
   return join(resolve(root), `worker-v10-successor-execution-stdio-probe-${key}.json`)
+}
+
+function registerParentValidationReceipt(
+  root: string,
+  admission: ReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmission,
+  canonicalContent: string,
+): void {
+  registerReplayDurableParentValidationReceipt({
+    registry_root: root,
+    parent_kind: "worker_v10_successor_execution_stdio_probe_admission",
+    parent_key: admission.admission_key,
+    parent_self_hash: admission.admission_hash,
+    parent_canonical_content: canonicalContent,
+  })
 }

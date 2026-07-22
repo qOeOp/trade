@@ -25,8 +25,11 @@ import {
 import {
   type ReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmission,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-execution-stdio-probe-admission"
-import { canonicalHash, canonicalJson } from "../../../contracts/src/lib/replay-contracts"
+import { canonicalJson } from "../../../contracts/src/lib/replay-contracts"
 import { writeReplayImmutableCas } from "./replay-local-artifact-store"
+import {
+  readReplayDurableParentValidationReceipt,
+} from "./replay-durable-parent-validation-receipt"
 
 export interface ReplayWorkerV10SuccessorExecutionContractRegistryInput {
   registry_root: string
@@ -90,7 +93,6 @@ export function registerReplayWorkerV10SuccessorExecutionContract(
     rememberValidatedParent(parent)
     return admission
   }
-  assertParentSelfHash(parent.source)
   rememberValidatedParent(parent)
   const transport = registerArtifactTransport(input.registry_root, source, parent.file_sha256)
   const execution = registerExecutionAdmission(input.registry_root, source, parent.file_sha256, transport)
@@ -388,7 +390,7 @@ function buildAdmission(
     evidence_binding_policy:
       "exact_durable_local_cas_hash_references_without_recursive_lineage_reembedding",
     parent_validation_policy:
-      "first_registration_direct_parent_self_hash_successor_reads_file_sha256_key_hash_reference",
+      "durable_parent_validation_receipt_binds_self_hash_and_canonical_file_sha256",
     registry_durability: "replay_local_immutable_cas_regular_file_canonical_json",
     successor_base_transport_contract_count: 1,
     successor_stdio_capability_count: 1,
@@ -440,6 +442,15 @@ function readParentSnapshot(
   }
   const content = readFileSync(path, "utf8")
   const fileSha256 = sha256(content)
+  const receipt = readReplayDurableParentValidationReceipt({
+    registry_root: input.registry_root,
+    parent_kind: "worker_v10_successor_execution_stdio_probe_admission",
+    parent_key: expected.admission_key,
+  })
+  if (!receipt || receipt.parent_self_hash !== expected.admission_hash
+      || receipt.parent_canonical_file_sha256 !== fileSha256) {
+    throw new Error("successor execution Contract requires an exact durable parent validation receipt")
+  }
   const cacheKey = `${path}\u0000${fileSha256}`
   const cached = validatedParentCache.get(cacheKey)
   if (cached) {
@@ -469,15 +480,6 @@ function requireReferenceInput(input: ReplayWorkerV10SuccessorExecutionContractR
   if (typeof source?.admission_key !== "string" || !/^[a-f0-9]{64}$/.test(source.admission_key)
       || typeof source.admission_hash !== "string" || !/^[a-f0-9]{64}$/.test(source.admission_hash)) {
     throw new Error("successor execution Contract R4.146 parent reference is invalid")
-  }
-}
-
-function assertParentSelfHash(
-  source: ReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmission,
-): void {
-  const { admission_hash: admissionHash, ...body } = source
-  if (admissionHash !== canonicalHash(body)) {
-    throw new Error("successor execution Contract R4.146 direct parent self-hash mismatch")
   }
 }
 

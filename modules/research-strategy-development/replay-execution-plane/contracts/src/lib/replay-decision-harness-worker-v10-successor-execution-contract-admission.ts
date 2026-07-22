@@ -18,7 +18,7 @@ import {
 } from "./replay-cross-source-ordering"
 
 export const REPLAY_DECISION_HARNESS_WORKER_V10_SUCCESSOR_EXECUTION_CONTRACT_ADMISSION_SCHEMA_VERSION =
-  "trade.rd-replay-decision-harness-worker-v10-successor-execution-contract-admission.v1" as const
+  "trade.rd-replay-decision-harness-worker-v10-successor-execution-contract-admission.v2" as const
 export const REPLAY_DECISION_HARNESS_WORKER_V10_SUCCESSOR_EXECUTION_CONTRACT_ADMISSION_POLICY_VERSION =
   "rd-replay-harness-worker-v10-successor-execution-contract-rebuild-v1" as const
 
@@ -415,7 +415,7 @@ export interface ReplayDecisionHarnessWorkerV10SuccessorExecutionContractAdmissi
   evidence_binding_policy:
     "exact_durable_local_cas_hash_references_without_recursive_lineage_reembedding"
   parent_validation_policy:
-    "first_registration_direct_parent_self_hash_successor_reads_file_sha256_key_hash_reference"
+    "durable_parent_validation_receipt_binds_self_hash_and_canonical_file_sha256"
   registry_durability: "replay_local_immutable_cas_regular_file_canonical_json"
   successor_base_transport_contract_count: 1
   successor_stdio_capability_count: 1
@@ -502,7 +502,7 @@ export function assertReplayDecisionHarnessWorkerV10SuccessorExecutionContractAd
       || value.evidence_binding_policy
         !== "exact_durable_local_cas_hash_references_without_recursive_lineage_reembedding"
       || value.parent_validation_policy
-        !== "first_registration_direct_parent_self_hash_successor_reads_file_sha256_key_hash_reference"
+        !== "durable_parent_validation_receipt_binds_self_hash_and_canonical_file_sha256"
       || value.registry_durability !== "replay_local_immutable_cas_regular_file_canonical_json"
       || value.successor_base_transport_contract_count !== 1 || value.successor_stdio_capability_count !== 1
       || value.successor_negative_probe_receipt_count !== 1
