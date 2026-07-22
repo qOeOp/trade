@@ -1,12 +1,12 @@
 {
   "schema_version": "trade.rd-replay-maturity-gate.v2",
-  "maturity": 4,
+  "maturity": 5,
   "maturity_scale": 5,
   "evidence_chain_freeze": "R4.151",
   "completed_milestones": ["M3-G1", "M3-G2", "M3-G3", "M3-G4", "M3-G5", "M3-G6", "M3-G7", "M3-G8", "M4-P1", "M4-P2", "M4-P3", "M4-P4", "M4-P5", "M4-P6", "M4-P7", "M4-P8", "M4-P9", "M4-P10", "M4-P11", "M4-P12", "M4-P13", "M4-P14", "M4-P15", "M4-P16", "M4-P17", "M4-P18", "M4-P19", "M4-P20", "M4-P21", "M4-P22", "M4-P23", "M4-P24", "M4-P25", "M4-P26", "M4-P27", "M4-P28", "M4-P29"],
   "convergence_workstream": {
     "id": "M4-CONVERGENCE",
-    "status": "m4_complete",
+    "status": "complete",
     "p30_creation": "forbidden",
     "scope": "canonicalize-supported-capabilities-without-adding-simulator-semantics"
   },
@@ -38,7 +38,7 @@
       "fault_injection_and_corruption_recovery_certified": true,
       "operational_observability_and_runbook_complete": true,
       "release_candidate_fixture_pack_frozen": true,
-      "independent_release_audit_passed": false
+      "independent_release_audit_passed": true
     }
   },
   "evidence_refs": [
@@ -78,6 +78,11 @@
     "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-operational-readiness.ts",
     "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-release-candidate-fixture-pack.json",
     "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-release-candidate-fixture-pack.ts",
+    "modules/research-strategy-development/research-control-plane/certification/replay-release-audit/CONTRACT.md",
+    "modules/research-strategy-development/research-control-plane/certification/replay-release-audit/replay-independent-release-audit.json",
+    "modules/research-strategy-development/research-control-plane/certification/replay-release-audit/replay-independent-release-audit-receipt.json",
+    "modules/research-strategy-development/research-control-plane/certification/replay-release-audit/src/lib/replay-independent-release-audit.ts",
+    "modules/research-strategy-development/research-control-plane/certification/replay-release-audit/src/lib/replay-independent-release-audit.test.ts",
     "docs/research/reliability/rd-replay-operations-runbook.md",
     "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-decision-harness-worker-v10-cutover-receipt.ts",
     "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-worker-v10-cutover.ts",
@@ -254,5 +259,5 @@
     "modules/research-strategy-development/research-control-plane/state-store/src/lib/research-control-plane-schema.ts",
     "modules/research-strategy-development/research-control-plane/state-store/src/lib/bar-linked-aggregate-trade-path-authority-registry.ts"
   ],
-  "next_allowed_outcome": "m5-release-certification-only-no-new-simulator-capability"
+  "next_allowed_outcome": "maintenance-only-new-capability-requires-explicit-reopen-decision"
 }

@@ -53,3 +53,4 @@ Replay Plane certification command owner。
 - 只有 payload 已写、manifest 未提交的 local manifest-last case 被认证为 identical retry；checkpoint 损坏需干净 checkpoint 或确定性重跑，已提交损坏只检测并拒绝，Integrated/Terminal 因无 checkpoint 必须完整重跑。不得把这些边界表述为自动修复。
 - Operations runbook 只解释现有结构化 Outcome、immutable evidence 与 certification receipt；stdout/process exit 不是 authority。集中 metrics/logs/traces/dashboard/pager、formal SLO、remote-store operations 与自动 incident remediation 均未实现、未认证。
 - Fixture pack 只是候选证据闭包，不是独立审计或 release verdict；它不证明 production history corpus、cross-host/runtime parity、remote/distributed store、shadow/live 或 real-account 行为，也不扩展 public profile 与 simulator 语义。
+- 最终 release audit 由 Research Control Plane 的独立 certification owner 持有；本 owner 只能作为只读 subject 接受外部 `certify` challenge，不能自签 `independent_release_audit_passed`。

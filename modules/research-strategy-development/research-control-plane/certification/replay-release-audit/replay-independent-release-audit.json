@@ -1,0 +1,79 @@
+{
+  "schema_version": "trade.rd-replay-independent-release-audit.v1",
+  "owner": "modules/research-strategy-development/research-control-plane/certification/replay-release-audit",
+  "subject": {
+    "owner": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification",
+    "fixture_pack_path": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-release-candidate-fixture-pack.json",
+    "fixture_pack_content_sha256": "ac03e097ff67bdcf1d83fea4f2935f21901e7dfbc085eebb4dd36356a968dfa1",
+    "fixture_pack_sha256": "353f097897e5948dc43a9f0bc18b089b2fe8c343175ce8b93b300a94d214576e"
+  },
+  "independence_policy": "auditor-outside-subject-owner-no-subject-implementation-import",
+  "verification_policy": "independent-pack-and-component-rehash-negative-challenges-then-full-certify",
+  "verdict_scope": "release-grade-only-within-frozen-four-profile-declared-evidence-envelope",
+  "required_exit_gates": {
+    "m4": [
+      "p1_through_p29_inventory_frozen",
+      "canonical_public_entrypoints_declared",
+      "opt_in_activation_registry_complete",
+      "compatibility_consumers_isolated",
+      "result_artifact_and_checkpoint_epochs_converged",
+      "single_owner_certification_command",
+      "canonical_and_compatibility_test_suites_separated",
+      "all_supported_profiles_have_golden_resume_idempotency_and_tamper_evidence",
+      "no_unclassified_replay_module_or_production_consumer"
+    ],
+    "m5_pre_audit": [
+      "m4_exit_complete",
+      "cross_process_reproducibility_bundle",
+      "historical_artifact_read_migration_certified",
+      "crash_recovery_and_exactly_once_publication_certified",
+      "declared_capacity_and_performance_envelope_certified",
+      "fault_injection_and_corruption_recovery_certified",
+      "operational_observability_and_runbook_complete",
+      "release_candidate_fixture_pack_frozen"
+    ]
+  },
+  "commands": [
+    {
+      "role": "subject-full-certification",
+      "cwd": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification",
+      "argv": ["bun", "run", "certify"],
+      "timeout_ms": 600000
+    },
+    {
+      "role": "repository-audit-prerequisite-check",
+      "cwd": ".",
+      "argv": ["bun", "scripts/check-rd-replay-maturity-gate.ts", "--audit-prerequisites"],
+      "timeout_ms": 30000
+    }
+  ],
+  "negative_challenges": [
+    "component-content-tamper",
+    "component-authority-tamper",
+    "release-verdict-overclaim"
+  ],
+  "source_bindings": [
+    {
+      "role": "independent-auditor",
+      "path": "modules/research-strategy-development/research-control-plane/certification/replay-release-audit/src/lib/replay-independent-release-audit.ts",
+      "sha256": "52b3f90625a5af29a307a460e1dbc1987d9f3a0887e51b0ff37a179da888ecc2"
+    },
+    {
+      "role": "independent-auditor-test",
+      "path": "modules/research-strategy-development/research-control-plane/certification/replay-release-audit/src/lib/replay-independent-release-audit.test.ts",
+      "sha256": "d38e6665ff6ec921de14e5f9fa0ea3373366b559719ce095e290151212b71243"
+    },
+    {
+      "role": "maturity-gate-consumer",
+      "path": "scripts/check-rd-replay-maturity-gate.ts",
+      "sha256": "899d916d00425ab7e000016a42e7758bd32430cc30e243b4f0b736ae6c715822"
+    }
+  ],
+  "limitations": [
+    "audit-subject-is-synthetic-and-owner-test-evidence-not-production-history-corpus",
+    "audit-does-not-prove-cross-host-or-cross-runtime-parity",
+    "audit-does-not-expand-public-profiles-or-simulator-semantics",
+    "remote-distributed-store-shadow-live-and-real-account-evidence-out-of-scope"
+  ],
+  "audit_manifest_sha256": "f560434502fe1e47914232e2284c91368e5c21dcc4f84c2bab484166efee5449"
+}

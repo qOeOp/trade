@@ -109,8 +109,8 @@ P29 是最后一个按功能编号推进的 Replay 纵切；`M4-P30` 明确禁�
 | 等级 | 准确含义 | 退出原则 |
 | --- | --- | --- |
 | M3 | 多条受认证的有界纵切可产生可信证据，但公共入口、默认/opt-in/compatibility 与 wire epoch 尚未收敛 | 已退出 |
-| M4 | 已声明能力形成有限产品面：公共入口唯一、opt-in 激活显式、compatibility 隔离、Result/Artifact/Checkpoint epoch 收敛、统一 owner certification 可执行 | 当前状态；九项 M4 gate 已同时为真 |
-| M5 | M4 产品面达到 release-grade：跨进程复现、历史 Artifact 迁移、crash/exactly-once、容量边界、故障注入、可观测/runbook、冻结 fixture pack 与独立审计全部完成 | 九项 M5 gate 必须同时为真 |
+| M4 | 已声明能力形成有限产品面：公共入口唯一、opt-in 激活显式、compatibility 隔离、Result/Artifact/Checkpoint epoch 收敛、统一 owner certification 可执行 | 已退出；九项 M4 gate 已同时为真 |
+| M5 | M4 产品面达到 release-grade：跨进程复现、历史 Artifact 迁移、crash/exactly-once、容量边界、故障注入、可观测/runbook、冻结 fixture pack 与独立审计全部完成 | 当前状态；九项 M5 gate 已同时为真 |
 
 M4/M5 都相对于**声明的能力包络**，不要求伪造不可能证明的交易所现实。queue、真实 partial-fill、impact、insurance/ADL、cross-margin、borrow 或 Fast 若缺 authority/source/独立实现，保持 typed unsupported 也可以达到 M5；不得为了“升成熟度”把它们偷偷加入范围。
 
@@ -185,4 +185,10 @@ Runbook 固定 preflight、首轮分诊、authority/data-integrity/deterministic
 
 `replay-release-candidate-fixture-pack.json` 是 release candidate 的封闭证据清单，不是第二套 Result 或 release verdict。它按 repo-relative content hash 冻结十二项既有 authority：canonical Result fixture、profile evidence、suite、epoch、module/production-consumer closure，以及 reproducibility、historical migration、publication crash recovery、capacity、fault/corruption 与 operational readiness。带自哈希的 registry/bundle 同时核对其内部 authority hash；canonical fixture 还必须回绑 reproducibility probe，不能用任意样本替换。
 
-四个 public profile 各在独立 fresh Bun process 重跑 exact golden，receipt 记录互异 PID、component-set hash、assertion hash、runtime 与 pack hash 并自哈希。Pack/source/component/authority 任一漂移或缺项均 fail closed；generated Result 不被复制进长期 fixture。证据仍限于 synthetic/owner fixtures 与当前 runtime，不证明 production history corpus、cross-host/runtime、remote/distributed store、shadow/live 或 real account，也不新增 profile、checkpoint 或模拟语义。M5 当前为 `8/9`，成熟度仍为 M4；最后一门是由 pack owner 之外执行 independent release audit。
+四个 public profile 各在独立 fresh Bun process 重跑 exact golden，receipt 记录互异 PID、component-set hash、assertion hash、runtime 与 pack hash 并自哈希。Pack/source/component/authority 任一漂移或缺项均 fail closed；generated Result 不被复制进长期 fixture。证据仍限于 synthetic/owner fixtures 与当前 runtime，不证明 production history corpus、cross-host/runtime、remote/distributed store、shadow/live 或 real account，也不新增 profile、checkpoint 或模拟语义。该 cut-point 完成时 M5 为 `8/9`；最终状态由下一节的独立审计决定。
+
+## 22. M5 independent release audit
+
+最终审计 owner 位于 `research-control-plane/certification/replay-release-audit`，不属于 Replay Plane，也不 import fixture-pack owner 实现。审计 manifest 绑定不再变化的 subject pack 整文件/self hash、auditor/test/maturity-checker source hash、完整 M4 与八项前置 M5 gate、两条外部命令和三项 negative challenge。Auditor 用自己的 canonical hash 实现逐项重算十二个 component content/authority hash 与四 profile golden source，分别注入 component content、authority 和 release-verdict overclaim 篡改，必须全部拒绝。
+
+动态审计从外部执行 Replay 唯一 `bun run certify` 和 repository maturity checker 的 `--audit-prerequisites` 模式，要求 fresh process 全部返回零，再输出含 subject hash、PID、stdout/stderr hash、challenge outcome、runtime、limitations 的持久自哈希 receipt；normal checker 随后必须连同 receipt 一并重验。通过口径严格限定为冻结四 profile 与已声明 evidence envelope；production history corpus、cross-host/runtime、remote/distributed store、shadow/live、real account 与未声明 simulator capability 仍不在结论内。九项 M5 gate 现已同时为真，Replay 成熟度切换为 **M5**；后续只允许 maintenance，任何新 capability 或扩大发布范围都必须显式重开架构与 gate。

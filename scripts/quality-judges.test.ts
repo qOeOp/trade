@@ -318,6 +318,24 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("unsupported Replay release candidate fixture pack")
   }, 15_000)
 
+  test("Replay release audit cannot be captured by the fixture-pack owner", () => {
+    const audit = JSON.parse(readFileSync(
+      join(repoRoot, "modules/research-strategy-development/research-control-plane/certification/replay-release-audit/replay-independent-release-audit.json"),
+      "utf8",
+    )) as { independence_policy: string }
+    audit.independence_policy = "subject-owner-self-attestation"
+    const root = temporaryRoot()
+    const auditPath = join(root, "replay-independent-release-audit.json")
+    writeFileSync(auditPath, JSON.stringify(audit))
+
+    const result = runJudge("check-rd-replay-maturity-gate.ts", repoRoot, [], {
+      RD_REPLAY_INDEPENDENT_RELEASE_AUDIT_PATH: auditPath,
+    })
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("unsupported Replay independent release audit manifest")
+  }, 15_000)
+
   test("Replay historical Artifact payload reader cannot drift silently", () => {
     const registry = JSON.parse(readFileSync(
       join(repoRoot, "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-historical-artifact-migration.json"),

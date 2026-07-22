@@ -38,6 +38,12 @@ import {
   assertReplayReleaseCandidateFixturePack,
   loadReplayReleaseCandidateFixturePack,
 } from "../modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-release-candidate-fixture-pack"
+import {
+  assertReplayIndependentReleaseAuditManifest,
+  assertReplayIndependentReleaseAuditReceipt,
+  loadReplayIndependentReleaseAuditManifest,
+  loadReplayIndependentReleaseAuditReceipt,
+} from "../modules/research-strategy-development/research-control-plane/certification/replay-release-audit/src/lib/replay-independent-release-audit"
 
 interface GateManifest {
   schema_version: string
@@ -149,6 +155,7 @@ interface ReplayProfileEvidenceRegistry {
 }
 
 const manifestPath = process.env.RD_REPLAY_MATURITY_GATE_PATH || "docs/research/reliability/rd-replay-maturity-gate.json"
+const auditPrerequisitesOnly = process.argv.includes("--audit-prerequisites")
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as GateManifest
 const inventoryPath = process.env.RD_REPLAY_CAPABILITY_INVENTORY_PATH
   || "docs/research/reliability/rd-replay-capability-inventory.json"
@@ -193,6 +200,12 @@ const operationalReadinessRegistryPath =
 const releaseCandidateFixturePackPath =
   process.env.RD_REPLAY_RELEASE_CANDIDATE_FIXTURE_PACK_PATH
   || `${certificationOwner}/replay-release-candidate-fixture-pack.json`
+const independentReleaseAuditPath =
+  process.env.RD_REPLAY_INDEPENDENT_RELEASE_AUDIT_PATH
+  || "modules/research-strategy-development/research-control-plane/certification/replay-release-audit/replay-independent-release-audit.json"
+const independentReleaseAuditReceiptPath =
+  process.env.RD_REPLAY_INDEPENDENT_RELEASE_AUDIT_RECEIPT_PATH
+  || "modules/research-strategy-development/research-control-plane/certification/replay-release-audit/replay-independent-release-audit-receipt.json"
 const issues: string[] = []
 const certificationCommandIssues: string[] = []
 const testSeparationIssues: string[] = []
@@ -205,6 +218,7 @@ const capacityPerformanceEnvelopeIssues: string[] = []
 const faultCorruptionRecoveryIssues: string[] = []
 const operationalReadinessIssues: string[] = []
 const releaseCandidateFixturePackIssues: string[] = []
+const independentReleaseAuditIssues: string[] = []
 
 try {
   const moduleConsumerClosure = loadReplayModuleConsumerClosureManifest(
@@ -281,6 +295,22 @@ try {
   assertReplayReleaseCandidateFixturePack(pack, profileEvidenceRegistry, process.cwd())
 } catch (error) {
   releaseCandidateFixturePackIssues.push(error instanceof Error ? error.message : String(error))
+}
+try {
+  const audit = loadReplayIndependentReleaseAuditManifest(
+    process.cwd(),
+    independentReleaseAuditPath,
+  )
+  assertReplayIndependentReleaseAuditManifest(audit, manifest, process.cwd())
+  if (!auditPrerequisitesOnly) {
+    const receipt = loadReplayIndependentReleaseAuditReceipt(
+      process.cwd(),
+      independentReleaseAuditReceiptPath,
+    )
+    assertReplayIndependentReleaseAuditReceipt(receipt, audit)
+  }
+} catch (error) {
+  independentReleaseAuditIssues.push(error instanceof Error ? error.message : String(error))
 }
 
 const expectedCapabilityMilestones = Array.from({ length: 29 }, (_, index) => `M4-P${index + 1}`)
@@ -488,6 +518,7 @@ issues.push(
   ...faultCorruptionRecoveryIssues,
   ...operationalReadinessIssues,
   ...releaseCandidateFixturePackIssues,
+  ...independentReleaseAuditIssues,
 )
 if (JSON.stringify(inventory.canonical_public_entrypoints) !== JSON.stringify(expectedCanonicalEntrypoints)) {
   issues.push("Replay canonical public entrypoints do not match the frozen four-profile surface")
@@ -569,7 +600,9 @@ for (const ref of manifest.evidence_refs) {
   }
   if (evidenceRefs.has(normalized)) issues.push(`duplicate Replay evidence ref: ${normalized}`)
   evidenceRefs.add(normalized)
-  if (!existsSync(normalized) || !lstatSync(normalized).isFile()) {
+  const pendingAuditReceipt = auditPrerequisitesOnly
+    && normalized === normalize(independentReleaseAuditReceiptPath).replace(/\\/g, "/")
+  if ((!existsSync(normalized) || !lstatSync(normalized).isFile()) && !pendingAuditReceipt) {
     issues.push(`Replay evidence ref does not exist as a file: ${normalized}`)
   }
 }
@@ -679,6 +712,10 @@ if (manifest.exit_gates.m5?.operational_observability_and_runbook_complete
 if (manifest.exit_gates.m5?.release_candidate_fixture_pack_frozen
     !== (releaseCandidateFixturePackIssues.length === 0)) {
   issues.push("Replay release candidate fixture-pack gate does not match the frozen evidence closure")
+}
+if (manifest.exit_gates.m5?.independent_release_audit_passed
+    !== (independentReleaseAuditIssues.length === 0)) {
+  issues.push("Replay independent release-audit gate does not match the external auditor evidence")
 }
 const m4Complete = gateValues.m4.length === expectedGateNames.m4.length && gateValues.m4.every(Boolean)
 if (manifest.exit_gates.m5?.m4_exit_complete !== m4Complete) {
