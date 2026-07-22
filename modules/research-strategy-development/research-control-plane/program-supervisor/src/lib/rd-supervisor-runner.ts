@@ -1,4 +1,5 @@
-import { existsSync, mkdirSync, writeFileSync } from "node:fs"
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs"
+import { createHash } from "node:crypto"
 import { dirname, join } from "node:path"
 import {
   readRdProgramState,
@@ -30,8 +31,8 @@ import type { JSONRecord } from "../../../../../contracts/runtime-core/src/json"
 import { Database } from "bun:sqlite"
 import { ensureResearchStateSchema } from "../../../state-store/src/lib/research-state-store"
 import {
-  appendExperimentResult,
   finishTrial,
+  publishExperimentResultAndFinishTrials,
   reserveTrial,
   type ExperimentResultWrite,
   type TrialReservation,
@@ -214,8 +215,11 @@ function executePlannedResearchWithControlPlane(
     }
     const result = executePlannedResearch(command, executionPayload, deps)
     const completedAt = stringField(boundary.completed_at) || stringField(payload.now) || new Date().toISOString()
-    for (const trialId of reserved) finishTrial(db, { trial_id: trialId, status: "completed", completed_at: completedAt })
-    appendExperimentResult(db, resultWriteFromBoundary(boundary, result, trials, completedAt))
+    publishExperimentResultAndFinishTrials(db, {
+      result: resultWriteFromBoundary(boundary, result, trials, completedAt),
+      trial_ids: reserved,
+      completed_at: completedAt,
+    })
     return result
   } catch (error) {
     const failedAt = stringField(boundary.completed_at) || stringField(payload.now) || new Date().toISOString()
@@ -234,10 +238,7 @@ function resultWriteFromBoundary(
 ): ExperimentResultWrite {
   const artifactRef = stringField(result.artifact_ref)
   if (!artifactRef) throw new Error("Replay boundary must return artifact_ref before Result publication")
-  const fingerprint = asRecord(result.evidence_fingerprint_json ?? result.fingerprint)
-  if (Object.keys(fingerprint).length === 0) {
-    throw new Error("Replay boundary must return evidence_fingerprint_json or fingerprint")
-  }
+  const fingerprint = aggregateEvidenceFingerprint(boundary, result, trials, artifactRef)
   const singleTrial = trials.length === 1 ? trials[0]! : null
   return {
     result_id: requiredBoundaryText(boundary.result_id, "result_id"),
@@ -254,6 +255,113 @@ function resultWriteFromBoundary(
     summary_json: result,
     created_at: createdAt,
   }
+}
+
+function aggregateEvidenceFingerprint(
+  boundary: JSONRecord,
+  result: JSONRecord,
+  trials: JSONRecord[],
+  artifactRef: string,
+): JSONRecord {
+  const supplied = asRecord(result.evidence_fingerprint_json ?? result.fingerprint)
+  if (hasRequiredEvidenceFields(supplied)) return supplied
+  const artifactContentHash = artifactHash(artifactRef)
+  if (!artifactContentHash) {
+    throw new Error("Replay boundary must publish a readable artifact or supply a complete evidence fingerprint")
+  }
+  const components = collectReplayEvidence(result)
+  if (components.harness_hashes.length === 0 || components.data_hashes.length === 0
+      || components.assumptions_hashes.length === 0 || components.temporal_contracts.length === 0) {
+    throw new Error("Replay boundary result does not contain complete nested Replay provenance")
+  }
+  const identityBinding = {
+    experiment_id: requiredBoundaryText(boundary.experiment_id, "experiment_id"),
+    trial_group_id: requiredBoundaryText(boundary.trial_group_id, "trial_group_id"),
+    stage_id: requiredBoundaryText(boundary.stage_id, "stage_id"),
+    result_type_id: requiredBoundaryText(boundary.result_type_id, "result_type_id"),
+    trials: trials.map((trial) => ({
+      trial_id: requiredBoundaryText(trial.trial_id, "trial_id"),
+      candidate_id: requiredBoundaryText(trial.candidate_id, "candidate_id"),
+      candidate_identity_hash: requiredBoundaryText(trial.candidate_identity_hash, "candidate_identity_hash"),
+    })).sort((left, right) => left.trial_id.localeCompare(right.trial_id)),
+  }
+  return {
+    schema_version: "trade-flow.rd-aggregate-evidence-fingerprint.v1",
+    policy_hash: canonicalSha256(identityBinding),
+    harness_hash: canonicalSha256(components.harness_hashes),
+    data_hash: canonicalSha256(components.data_hashes),
+    assumptions_hash: canonicalSha256(components.assumptions_hashes),
+    temporal_contract: `sha256:${canonicalSha256(components.temporal_contracts)}`,
+    artifact_content_hash: artifactContentHash,
+    replay_component_count: components.component_count,
+    replay_components_hash: canonicalSha256(components),
+    identity_binding_hash: canonicalSha256(identityBinding),
+  }
+}
+
+function collectReplayEvidence(value: unknown): {
+  component_count: number
+  harness_hashes: string[]
+  data_hashes: string[]
+  assumptions_hashes: string[]
+  temporal_contracts: JSONRecord[]
+} {
+  const harness = new Set<string>()
+  const data = new Set<string>()
+  const assumptions = new Set<string>()
+  const temporal = new Map<string, JSONRecord>()
+  const visited = new Set<object>()
+  const visit = (candidate: unknown): void => {
+    if (!candidate || typeof candidate !== "object" || visited.has(candidate as object)) return
+    visited.add(candidate as object)
+    if (Array.isArray(candidate)) {
+      for (const item of candidate) visit(item)
+      return
+    }
+    const record = candidate as JSONRecord
+    const provenance = asRecord(record.provenance)
+    const harnessHash = stringField(provenance.harness_hash)
+    const dataHash = stringField(provenance.data_hash)
+    const assumptionsHash = stringField(provenance.assumptions_hash)
+    const temporalContract = asRecord(provenance.temporal_contract)
+    if (harnessHash && dataHash && assumptionsHash && Object.keys(temporalContract).length > 0) {
+      harness.add(harnessHash)
+      data.add(dataHash)
+      assumptions.add(assumptionsHash)
+      temporal.set(canonicalSha256(temporalContract), temporalContract)
+    }
+    for (const nested of Object.values(record)) visit(nested)
+  }
+  visit(value)
+  return {
+    component_count: temporal.size,
+    harness_hashes: [...harness].sort(),
+    data_hashes: [...data].sort(),
+    assumptions_hashes: [...assumptions].sort(),
+    temporal_contracts: [...temporal.entries()].sort(([left], [right]) => left.localeCompare(right)).map(([, contract]) => contract),
+  }
+}
+
+function artifactHash(artifactRef: string): string {
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(artifactRef)) return ""
+  const path = resolveRepoPath(artifactRef)
+  return existsSync(path) ? createHash("sha256").update(readFileSync(path)).digest("hex") : ""
+}
+
+function hasRequiredEvidenceFields(value: JSONRecord): boolean {
+  return ["policy_hash", "harness_hash", "data_hash", "assumptions_hash", "temporal_contract"]
+    .every((field) => Boolean(stringField(value[field])))
+}
+
+function canonicalSha256(value: unknown): string {
+  return createHash("sha256").update(canonicalJson(value)).digest("hex")
+}
+
+function canonicalJson(value: unknown): string {
+  if (value === null || typeof value !== "object") return JSON.stringify(value)
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`
+  const record = value as JSONRecord
+  return `{${Object.keys(record).sort().map((key) => `${JSON.stringify(key)}:${canonicalJson(record[key])}`).join(",")}}`
 }
 
 function requiredBoundaryText(value: unknown, field: string): string {

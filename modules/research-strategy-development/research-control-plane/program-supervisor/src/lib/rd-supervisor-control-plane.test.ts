@@ -1,6 +1,6 @@
 import { Database } from "bun:sqlite"
 import assert from "node:assert/strict"
-import { mkdtempSync, rmSync } from "node:fs"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
@@ -67,6 +67,109 @@ test("supervisor reserves Trial and publishes immutable Result around Replay exe
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test("supervisor derives aggregate evidence fingerprint from real-shaped nested Replay provenance", () => {
+  const dir = mkdtempSync(join(tmpdir(), "rd-control-fingerprint-"))
+  const dbPath = join(dir, "rd.db")
+  const artifactPath = join(dir, "result.json")
+  const db = new Database(dbPath)
+  try {
+    seedExperiment(db)
+    db.close()
+    const replayResult = {
+      run_id: "run-1",
+      artifact_ref: artifactPath,
+      stop_reason: "no_promote",
+      batch: {
+        candidates: [{
+          candidate_id: "candidate-1",
+          replay: {
+            provenance: {
+              harness_hash: "harness-real",
+              data_hash: "data-real",
+              assumptions_hash: "assumptions-real",
+              temporal_contract: { method: "closed_candle_replay_v1", closed_candle_only: true },
+            },
+          },
+        }],
+      },
+    }
+    writeFileSync(artifactPath, JSON.stringify(replayResult))
+    executePlannedResearchWithControlPlane("research.rd-loop-runner", {
+      now: NOW,
+      control_plane: controlBoundary(),
+    }, {
+      runLoop: () => replayResult,
+      runCampaign: () => { throw new Error("campaign should not run") },
+    }, dbPath)
+
+    const verify = new Database(dbPath, { readonly: true })
+    try {
+      const row = verify.query("SELECT evidence_fingerprint_json FROM rd_experiment_result WHERE result_id='result-1'").get() as { evidence_fingerprint_json: string }
+      const fingerprint = JSON.parse(row.evidence_fingerprint_json) as Record<string, unknown>
+      assert.equal(fingerprint.schema_version, "trade-flow.rd-aggregate-evidence-fingerprint.v1")
+      assert.equal(fingerprint.replay_component_count, 1)
+      assert.match(String(fingerprint.artifact_content_hash), /^[a-f0-9]{64}$/)
+      assert.match(String(fingerprint.identity_binding_hash), /^[a-f0-9]{64}$/)
+    } finally {
+      verify.close()
+    }
+  } finally {
+    try { db.close() } catch { /* already closed */ }
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("Result publication failure cannot leave a completed Trial without a Result", () => {
+  const dir = mkdtempSync(join(tmpdir(), "rd-control-atomic-"))
+  const dbPath = join(dir, "rd.db")
+  const db = new Database(dbPath)
+  try {
+    seedExperiment(db)
+    db.close()
+    assert.throws(() => executePlannedResearchWithControlPlane("research.rd-loop-runner", {
+      now: NOW,
+      control_plane: controlBoundary({ run_id: "wrong-run" }),
+    }, {
+      runLoop: () => ({
+        run_id: "wrong-run",
+        artifact_ref: "artifact://replay/result-atomic",
+        evidence_fingerprint_json: {
+          policy_hash: "policy", harness_hash: "harness", data_hash: "data",
+          assumptions_hash: "assumptions", temporal_contract: "closed-candle",
+        },
+      }),
+      runCampaign: () => { throw new Error("campaign should not run") },
+    }, dbPath), /matching completed Trial run/)
+
+    const verify = new Database(dbPath, { readonly: true })
+    try {
+      assert.equal((verify.query("SELECT status FROM rd_trial WHERE trial_id='trial-1'").get() as { status: string }).status, "failed")
+      assert.equal((verify.query("SELECT COUNT(*) AS count FROM rd_experiment_result").get() as { count: number }).count, 0)
+    } finally {
+      verify.close()
+    }
+  } finally {
+    try { db.close() } catch { /* already closed */ }
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+function controlBoundary(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  return {
+    experiment_id: "experiment-1", trial_group_id: "group-1", run_id: "run-1",
+    result_id: "result-1", result_idempotency_key: "result-key-1",
+    stage_id: "historical_validation", result_type_id: "replay", completed_at: NOW,
+    trials: [{
+      trial_id: "trial-1", trial_group_id: "group-1", experiment_id: "experiment-1",
+      trial_ordinal: 1, candidate_id: "candidate-1",
+      candidate_identity_hash: candidateIdentityHash({ lookback: 20 }),
+      identity_hash_policy_version: IDENTITY_HASH_POLICY_VERSION,
+      run_id: "run-1", idempotency_key: "trial-key-1", created_at: NOW,
+    }],
+    ...overrides,
+  }
+}
 
 function seedExperiment(db: Database): void {
   ensureResearchStateSchema(db)

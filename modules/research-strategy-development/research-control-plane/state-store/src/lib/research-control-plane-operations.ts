@@ -390,6 +390,20 @@ export function appendExperimentResult(db: Database, input: ExperimentResultWrit
   write()
 }
 
+export function publishExperimentResultAndFinishTrials(
+  db: Database,
+  input: { result: ExperimentResultWrite; trial_ids: string[]; completed_at: string },
+): void {
+  requireUtc(input.completed_at)
+  const publish = db.transaction(() => {
+    for (const trialId of input.trial_ids) {
+      finishTrial(db, { trial_id: trialId, status: "completed", completed_at: input.completed_at })
+    }
+    appendExperimentResult(db, input.result)
+  })
+  publish()
+}
+
 export function openExperimentBlocker(db: Database, input: {
   blocker_id: string; experiment_id: string
   blocker_type: "external_data" | "external_tool" | "capacity" | "governance"
