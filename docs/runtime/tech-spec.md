@@ -113,7 +113,11 @@ action_intent
 
 具体 wire schema 由各 Plane `contracts/` owner，docs 只定义跨 Plane invariants。
 
-## 10. 检查
+## 10. Server Runtime
+
+单机服务器的 production profile、process authority、启动依赖、readiness、secret、路径与 systemd 采用门见 [server-runtime-profile.md](./server-runtime-profile.md)。当前只闭合 no-live-write shadow profile，不代表 J01–J07 或 live execution 已切换 authority。
+
+## 11. 检查
 
 | 改动 | 最小验证 |
 | --- | --- |
