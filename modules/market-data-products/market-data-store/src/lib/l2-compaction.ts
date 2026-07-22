@@ -154,7 +154,8 @@ export function admitL2CompactionProposal(db: Database, input: {
 }): { commit_status: "created" | "existing"; compaction: AdmittedL2Compaction } {
   const root = realpathSync(resolve(input.repository_root))
   const proposalPath = resolveCompactionPath(root, input.proposal_path, "proposal_path")
-  const proposalBytes = readRegularFile(realpathSync(proposalPath), "proposal")
+  ensureInside(root, realpathSync(proposalPath), "proposal_path")
+  const proposalBytes = readRegularFile(proposalPath, "proposal")
   const proposal = parseProposal(proposalBytes)
   const proposalRef = normalizedRelative(root, proposalPath)
   const proposalHash = sha256(proposalBytes)
@@ -173,7 +174,8 @@ export function admitL2CompactionProposal(db: Database, input: {
     throw new Error("L2 compaction proposal coverage differs from admitted epoch")
   }
   const parquetPath = resolveCompactionPath(root, proposal.parquet_path, "parquet_path")
-  const parquetBytes = readRegularFile(realpathSync(parquetPath), "Parquet")
+  ensureInside(root, realpathSync(parquetPath), "parquet_path")
+  const parquetBytes = readRegularFile(parquetPath, "Parquet")
   if (parquetBytes.byteLength !== proposal.parquet_bytes || sha256(parquetBytes) !== proposal.parquet_hash) {
     throw new Error("L2 Parquet byte/hash evidence mismatch")
   }
@@ -336,6 +338,11 @@ function readRegularFile(path: string, label: string): Buffer {
 
 function normalizedRelative(root: string, path: string): string {
   return relative(root, path).replaceAll("\\", "/")
+}
+
+function ensureInside(root: string, path: string, field: string): void {
+  const rel = normalizedRelative(root, path)
+  if (rel === ".." || rel.startsWith("../") || rel.length === 0) throw new Error(`${field} escapes repository`)
 }
 
 function requireString(value: unknown, field: string): string {
