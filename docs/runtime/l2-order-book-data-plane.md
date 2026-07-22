@@ -10,7 +10,7 @@ last_verified: 2026-07-22 CST
 
 ## 1. 状态与目标
 
-本文定义 public L2 从采集、可恢复记录、订单簿投影到程序化消费的合同。Rust / TL2S 已通过 [L2 Runtime Adoption Decision](../architecture/l2-runtime-adoption-decision.md)，并形成单标的 production-candidate service、loopback gRPC、仓库托管 supervisor 与 TypeScript owner admission；多 symbol、24h 自然轮转、consumer cutover 与 broker 仍未完成，因此保持 `active-partial`。`l2-recorder-bakeoff` 继续是证据模块，不是生产依赖。
+本文定义 public L2 从采集、可恢复记录、订单簿投影到程序化消费的合同。Rust / TL2S 已通过 [L2 Runtime Adoption Decision](../architecture/l2-runtime-adoption-decision.md)，并形成单标的 production-candidate service、loopback gRPC、仓库托管 supervisor、连续 TypeScript owner admission 与磁盘水位保护；多 symbol、24h 自然轮转、compaction/GC、consumer cutover 与 broker 仍未完成，因此保持 `active-partial`。`l2-recorder-bakeoff` 继续是证据模块，不是生产依赖。
 
 目标是：Agent、LLM、MCP 和任一消费者离线时，L2 owner 仍能连续运行；任何不连续都成为显式 epoch / incident，而不是被静默修补。
 
@@ -86,6 +86,8 @@ starting -> buffering -> bridging -> live
 | gRPC 客户端慢 / 断开 | 丢弃该连接的有界发送队列并要求重连 | owner、其他消费者不背压 |
 
 生产 supervisor 必须使用有界重启退避、shutdown drain、精确子进程 ownership 与资源限制。Agent 退出不触发 daemon 退出。
+
+当前 retention 只冻结安全下界：owner admission 将 epoch 标为 `raw_hot`、`deletion_eligible=false`。在 Parquet compactor 产出可验证替代物、catalog/referrer 闭包和独立 GC gate 落地前，不自动删除 raw、snapshot、manifest 或 incomplete incident evidence。磁盘进入 soft watermark 时 readiness 降级；hard watermark 或无法读取磁盘状态时，supervisor 在启动前拒绝或对运行中 child 做 drain 后失败终止。
 
 ## 5. 最小事件合同
 
@@ -163,7 +165,7 @@ continuity_status + source_status
 - raw finalize + manifest admission + current-book read port 形成端到端 fixture parity；
 - 生产与 bake-off 使用不同 module / data path；可一键回退到“无 L2 consumer”。
 
-已完成的 B 证据：repository-owned detached supervisor、原子 runtime/terminal receipt、精确 PID stop、真实子进程强杀后的自动重启与 partial salvage；5 秒轮转实测生成 7 个 epoch，3 个 complete 全量通过 owner admission，4 个 snapshot bridge miss 明确拒绝晋升。该短周期故障测试不替代 24h 自然轮转验收。
+已完成的 B 证据：repository-owned detached supervisor、原子 runtime/terminal receipt、精确 PID stop、真实子进程强杀后的自动重启与 partial salvage；连续 admission scanner、原子 manifest-last、raw-hot retention 下界、磁盘软硬水位与 child RSS/CPU 采样已接通。5 秒轮转第二次纵切生成 4 个 proposal，3 个 complete 自动 admission，1 个 snapshot bridge miss 保留拒绝观察；硬水位在 child attempt 0 前阻止写入。短周期故障测试不替代 24h 自然轮转验收。
 
 ### C — consumer 与 broker
 
