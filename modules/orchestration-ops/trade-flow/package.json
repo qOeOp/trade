@@ -8,6 +8,8 @@
   },
   "scripts": {
     "server:validate": "bun src/scripts/server-runtime.ts --action validate",
+    "server:preflight": "bun src/scripts/server-runtime.ts --action preflight",
+    "server:status": "bun src/scripts/server-runtime.ts --action status",
     "server:render-systemd": "bun src/scripts/server-runtime.ts --action render-systemd",
     "launchd:install": "bun src/scripts/program-shadow-launchd.ts install",
     "launchd:status": "bun src/scripts/program-shadow-launchd.ts status",
