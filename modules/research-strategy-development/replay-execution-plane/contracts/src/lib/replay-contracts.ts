@@ -48,8 +48,8 @@ export {
 }
 
 export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v38" as const
-export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v52" as const
-export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v54" as const
+export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v53" as const
+export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v55" as const
 export const REPLAY_ARTIFACT_STORE_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-artifact-store-capability.v1" as const
 export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v24" as const
 export const REPLAY_NUMERIC_POLICY_VERSION = "rd-replay-number-v3" as const
@@ -64,6 +64,7 @@ export const REPLAY_PENDING_ORDER_RESOLUTION_SCHEMA_VERSION = "trade.rd-replay-p
 export const REPLAY_ORDER_STATE_SNAPSHOT_SCHEMA_VERSION = "trade.rd-replay-order-state-snapshot.v1" as const
 export const REPLAY_STOP_ENTRY_SAME_BAR_PATH_AMBIGUITY_SCHEMA_VERSION = "trade.rd-replay-stop-entry-same-bar-path-ambiguity.v1" as const
 export const REPLAY_EXACT_TRADE_STOP_RESOLUTION_SCHEMA_VERSION = "trade.rd-replay-exact-trade-stop-resolution.v1" as const
+export const REPLAY_AUTHORIZED_STOP_ENTRY_PATH_STEP_SCHEMA_VERSION = "trade.rd-replay-authorized-stop-entry-path-step.v1" as const
 export const REPLAY_ENTRY_CANCEL_INTENT_SCHEMA_VERSION = "trade.rd-replay-entry-cancel-intent.v1" as const
 export const REPLAY_STOP_ENTRY_CANCEL_INTENT_SCHEMA_VERSION = "trade.rd-replay-entry-cancel-intent.v2" as const
 export const REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION = "rd-replay-instrument-accounting-v1" as const
@@ -144,7 +145,7 @@ export const REPLAY_CERTIFIED_CAPABILITIES = [
 ] as const
 export const REPLAY_REQUIRED_ARTIFACT_ROLES = [
   "request", "trial_reservation", "attempt_lease", "dataset_manifest", "liquidity_capacity_attestation", "supplemental_facts", "decision_market_input_snapshot", "decision_evidence_timeline", "result",
-  "source_events", "order_events", "order_state_snapshot", "fills", "positions", "ledger", "ohlcv_resolution_evidence", "pending_order_resolutions",
+  "source_events", "order_events", "order_state_snapshot", "fills", "positions", "ledger", "ohlcv_resolution_evidence", "pending_order_resolutions", "bar_linked_stop_entry_path_step",
   "valuation_snapshot", "equity_bridge", "margin_snapshots", "liquidation",
   "journal", "trial_balance",
 ] as const
@@ -1606,6 +1607,92 @@ export interface ReplayStopEntrySameBarPathAmbiguity {
   evidence_hash: string
 }
 
+export interface ReplayExactTradeTriggerReference {
+  aggregate_trade_id: number
+  trade_time: string
+  reference_price: number
+}
+
+export interface ReplayExactTradeStopResolution {
+  schema_version: typeof REPLAY_EXACT_TRADE_STOP_RESOLUTION_SCHEMA_VERSION
+  run_id: string
+  position_side: "long" | "short"
+  entry_trigger_price: number
+  protective_stop_price: number
+  target_price: number
+  coverage_attestation_hash: string
+  events_hash: string
+  outcome: "untriggered" | "entry_triggered_position_open" | "entry_triggered_then_protection_triggered"
+  entry_trigger: ReplayExactTradeTriggerReference | null
+  terminal_trigger: (ReplayExactTradeTriggerReference & { role: "stop" | "target" }) | null
+  consumed_through_aggregate_trade_id: number
+  resolution_scope: "price-trigger-order-only"
+  limitations: [
+    "external-archive-completeness-not-verified",
+    "insurance-and-adl-trades-not-represented",
+    "not-fill-queue-slippage-or-market-impact-evidence",
+  ]
+  resolution_hash: string
+}
+
+export interface ReplayAuthorizedStopEntryPathStep {
+  schema_version: typeof REPLAY_AUTHORIZED_STOP_ENTRY_PATH_STEP_SCHEMA_VERSION
+  run_id: string
+  request_hash: string
+  dataset_hash: string
+  market_bar_hash: string
+  path_authority_hash: string
+  bar_link_attestation_hash: string
+  aggregate_trade_coverage_attestation_hash: string
+  aggregate_trade_events_hash: string
+  exact_trade_stop_resolution: ReplayExactTradeStopResolution
+  resolution_scope: "initial_stop_market_same_bar_terminal_owner_ordering_only"
+  economic_fill_policy: "frozen_request_not_aggregate_trade_evidence"
+  fill_quantity_authority: "none"
+  cost_authority: "none"
+  external_completeness: "not_verified"
+  publication_state: "blocked_until_checkpoint_result_artifact_binding"
+  step_hash: string
+}
+
+export function assertReplayAuthorizedStopEntryPathStepEvidence(
+  value: ReplayAuthorizedStopEntryPathStep,
+): void {
+  if (value.schema_version !== REPLAY_AUTHORIZED_STOP_ENTRY_PATH_STEP_SCHEMA_VERSION
+      || value.resolution_scope !== "initial_stop_market_same_bar_terminal_owner_ordering_only"
+      || value.economic_fill_policy !== "frozen_request_not_aggregate_trade_evidence"
+      || value.fill_quantity_authority !== "none" || value.cost_authority !== "none"
+      || value.external_completeness !== "not_verified"
+      || value.publication_state !== "blocked_until_checkpoint_result_artifact_binding") {
+    fail("unsupported authorized Stop-entry path Step evidence")
+  }
+  requireText(value.run_id, "authorized_stop_entry_path.run_id")
+  for (const [field, item] of Object.entries({
+    request_hash: value.request_hash,
+    dataset_hash: value.dataset_hash,
+    market_bar_hash: value.market_bar_hash,
+    path_authority_hash: value.path_authority_hash,
+    bar_link_attestation_hash: value.bar_link_attestation_hash,
+    aggregate_trade_coverage_attestation_hash: value.aggregate_trade_coverage_attestation_hash,
+    aggregate_trade_events_hash: value.aggregate_trade_events_hash,
+    step_hash: value.step_hash,
+  })) requireHash(item, `authorized_stop_entry_path.${field}`)
+  const resolution = value.exact_trade_stop_resolution
+  if (resolution.schema_version !== REPLAY_EXACT_TRADE_STOP_RESOLUTION_SCHEMA_VERSION
+      || resolution.run_id !== value.run_id
+      || resolution.resolution_scope !== "price-trigger-order-only"
+      || resolution.coverage_attestation_hash !== value.aggregate_trade_coverage_attestation_hash
+      || resolution.events_hash !== value.aggregate_trade_events_hash) {
+    fail("authorized Stop-entry path exact resolution lineage mismatch")
+  }
+  const { resolution_hash: _resolutionHash, ...resolutionBody } = resolution
+  if (canonicalHash(resolutionBody) !== resolution.resolution_hash) {
+    fail("authorized Stop-entry path exact resolution hash mismatch")
+  }
+  const { step_hash: _stepHash, ...stepBody } = value
+  if (canonicalHash(stepBody) !== value.step_hash) fail("authorized Stop-entry path Step hash mismatch")
+}
+
 export interface ReplayLedgerEntry {
   entry_id: string
   event_key: ReplayEventKey
@@ -1830,6 +1917,7 @@ export interface ReplayEvidenceFingerprint {
     | null
   ohlcv_resolution_evidence_hash: string
   pending_order_resolutions_hash: string
+  bar_linked_stop_entry_path_step_hash: string | null
   order_state_snapshot_hash: string
   venue_risk_policy_schedule_hash: string
   instrument_spec_schedule_hash: string
@@ -1874,6 +1962,7 @@ export interface ReplayResult {
   decision_evidence_timeline: ReplayDecisionEvidenceTimeline
   ohlcv_resolution_evidence: ReplayOhlcvResolutionEvidence[]
   pending_order_resolutions: ReplayPendingOrderResolution[]
+  bar_linked_stop_entry_path_step: ReplayAuthorizedStopEntryPathStep | null
   metrics: {
     initial_cash: number
     ending_equity: number

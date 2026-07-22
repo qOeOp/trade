@@ -5,35 +5,11 @@ import {
   canonicalJson,
   type ReplayAggregateTradeCoverageAttestation,
   type ReplayAggregateTradeEvent,
+  type ReplayExactTradeStopResolution,
+  type ReplayExactTradeTriggerReference,
 } from "../../../contracts/src/lib/replay-contracts"
 
-export interface ReplayExactTradeTriggerReference {
-  aggregate_trade_id: number
-  trade_time: string
-  reference_price: number
-}
-
-export interface ReplayExactTradeStopResolution {
-  schema_version: typeof REPLAY_EXACT_TRADE_STOP_RESOLUTION_SCHEMA_VERSION
-  run_id: string
-  position_side: "long" | "short"
-  entry_trigger_price: number
-  protective_stop_price: number
-  target_price: number
-  coverage_attestation_hash: string
-  events_hash: string
-  outcome: "untriggered" | "entry_triggered_position_open" | "entry_triggered_then_protection_triggered"
-  entry_trigger: ReplayExactTradeTriggerReference | null
-  terminal_trigger: (ReplayExactTradeTriggerReference & { role: "stop" | "target" }) | null
-  consumed_through_aggregate_trade_id: number
-  resolution_scope: "price-trigger-order-only"
-  limitations: [
-    "external-archive-completeness-not-verified",
-    "insurance-and-adl-trades-not-represented",
-    "not-fill-queue-slippage-or-market-impact-evidence",
-  ]
-  resolution_hash: string
-}
+export type { ReplayExactTradeStopResolution, ReplayExactTradeTriggerReference }
 
 export interface ReplayExactTradeStopResolutionInput {
   run_id: string

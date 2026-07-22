@@ -3,6 +3,7 @@ import {
   assertReplayDatasetManifest,
   assertReplayExecutionRequest,
   assertReplayMarketBars,
+  REPLAY_AUTHORIZED_STOP_ENTRY_PATH_STEP_SCHEMA_VERSION,
   canonicalHash,
   canonicalJson,
   type ReplayAggregateTradeCoverageAttestation,
@@ -10,6 +11,7 @@ import {
   type ReplayDatasetManifest,
   type ReplayExecutionRequest,
   type ReplayMarketBar,
+  type ReplayAuthorizedStopEntryPathStep,
 } from "../../../contracts/src/lib/replay-contracts"
 import {
   assertReplayKlineAggregateTradeBarLinkAttestation,
@@ -18,11 +20,10 @@ import {
 import {
   assertReplayExactTradeStopResolution,
   resolveReplayExactTradeStopPath,
-  type ReplayExactTradeStopResolution,
 } from "./replay-exact-trade-stop-resolution"
 
-export const REPLAY_AUTHORIZED_STOP_ENTRY_PATH_STEP_SCHEMA_VERSION =
-  "trade.rd-replay-authorized-stop-entry-path-step.v1" as const
+export { REPLAY_AUTHORIZED_STOP_ENTRY_PATH_STEP_SCHEMA_VERSION }
+export type { ReplayAuthorizedStopEntryPathStep }
 
 export interface ReplayAuthorizedStopEntryPathAuthority {
   authority_snapshot_hash: string
@@ -58,26 +59,6 @@ export interface ReplayAuthorizedStopEntryPathStepInput {
   bar_link_attestation: ReplayKlineAggregateTradeBarLinkAttestation
   aggregate_trade_coverage: ReplayAggregateTradeCoverageAttestation
   aggregate_trade_events: ReplayAggregateTradeEvent[]
-}
-
-export interface ReplayAuthorizedStopEntryPathStep {
-  schema_version: typeof REPLAY_AUTHORIZED_STOP_ENTRY_PATH_STEP_SCHEMA_VERSION
-  run_id: string
-  request_hash: string
-  dataset_hash: string
-  market_bar_hash: string
-  path_authority_hash: string
-  bar_link_attestation_hash: string
-  aggregate_trade_coverage_attestation_hash: string
-  aggregate_trade_events_hash: string
-  exact_trade_stop_resolution: ReplayExactTradeStopResolution
-  resolution_scope: "initial_stop_market_same_bar_terminal_owner_ordering_only"
-  economic_fill_policy: "frozen_request_not_aggregate_trade_evidence"
-  fill_quantity_authority: "none"
-  cost_authority: "none"
-  external_completeness: "not_verified"
-  publication_state: "blocked_until_checkpoint_result_artifact_binding"
-  step_hash: string
 }
 
 export function executeReplayAuthorizedStopEntryPathStep(
