@@ -284,6 +284,27 @@ pub fn recover_segment(path: impl AsRef<Path>) -> Result<RecoveredSegment, Segme
     })
 }
 
+pub fn salvage_segment(
+    input: impl AsRef<Path>,
+    output: impl AsRef<Path>,
+) -> Result<RecoveredSegment, SegmentError> {
+    let input = input.as_ref();
+    let output = output.as_ref();
+    let recovered = recover_segment(input)?;
+    if recovered.valid_frame_count == 0 {
+        return Err(SegmentError::InvalidPayloadLength(0));
+    }
+    let bytes = fs::read(input)?;
+    let mut file = OpenOptions::new()
+        .write(true)
+        .create_new(true)
+        .open(output)?;
+    file.write_all(&bytes[..recovered.valid_bytes])?;
+    file.sync_all()?;
+    File::open(output.parent().unwrap_or_else(|| Path::new(".")))?.sync_all()?;
+    Ok(recovered)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -310,6 +331,14 @@ mod tests {
         let recovered = recover_segment(truncated).expect("recover truncated");
         assert_eq!(recovered.status, "truncated_payload");
         assert_eq!(recovered.valid_frame_count, 1);
+        let salvage = directory.join("salvaged.tl2s");
+        let salvaged =
+            salvage_segment(directory.join("truncated.tl2s"), &salvage).expect("salvage prefix");
+        assert_eq!(salvaged.valid_frame_count, 1);
+        assert_eq!(
+            recover_segment(salvage).expect("verify salvage").status,
+            "complete"
+        );
         fs::remove_dir_all(directory).expect("cleanup");
     }
 }

@@ -7,5 +7,5 @@ pub use order_book::{
 };
 pub use segment::{
     FinalizedSegment, RecoveredSegment, RotatingSegmentWriter, SegmentDescriptor, SegmentError,
-    StreamingSegmentWriter, recover_segment,
+    StreamingSegmentWriter, recover_segment, salvage_segment,
 };
