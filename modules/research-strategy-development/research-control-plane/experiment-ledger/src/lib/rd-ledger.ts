@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"
 import { defaultCatalogDbPathForGeneratedPath, listCatalogStrategyRndRuns, upsertCatalogStrategyRndRun } from "../../../../../contracts/catalog-contract/src/catalog-client"
 import { factorConditionsToJson } from "../../../../agent-roles/developer/strategy-family-engine/src/lib/factor-engine"
-import { hashCanonical, replayDataHash } from "../../../../replay-execution-plane/compatibility/legacy-research-kernel/src/lib/replay-core"
+import { hashCanonical, replayDataHash } from "../../../../replay-execution-plane/compatibility/legacy-replay-identity/src/lib/legacy-replay-identity"
 import type { CandidateSource, StrategyRndLoopInput } from "../../../../agent-roles/developer/candidate-batch-engine/src/lib/strategy-rnd-inputs"
 
 type JSONRecord = Record<string, unknown>

@@ -4,7 +4,7 @@ import { mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
-import { hashCanonical, replayDataHash, replayHarnessHash } from "../../../../compatibility/legacy-research-kernel/src/lib/replay-core"
+import { hashCanonical, replayDataHash, replayHarnessHash } from "../../../../compatibility/legacy-replay-identity/src/lib/legacy-replay-identity"
 import { run } from "./main"
 
 test("certifies the exact compatibility replay harness fingerprint", () => {

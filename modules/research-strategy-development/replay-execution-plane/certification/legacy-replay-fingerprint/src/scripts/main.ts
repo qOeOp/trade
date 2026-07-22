@@ -3,7 +3,7 @@
 import { errorResponse, printScriptResult, readFlagValue, readJsonObject, successResponse } from "../../../../../../contracts/runtime-core/src/script-json"
 import type { JSONRecord } from "../../../../../../contracts/runtime-core/src/json"
 import { repoRoot } from "../../../../../../contracts/runtime-core/src/paths"
-import { hashCanonical, replayDataHash, replayHarnessHash } from "../../../../compatibility/legacy-research-kernel/src/lib/replay-core"
+import { hashCanonical, replayDataHash, replayHarnessHash } from "../../../../compatibility/legacy-replay-identity/src/lib/legacy-replay-identity"
 
 const SCHEMA_VERSION = "legacy-replay-fingerprint.script-response.v1"
 
