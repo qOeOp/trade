@@ -12,6 +12,9 @@ Production candidate owner for one public Binance USD-M L2 stream.
 - Periodic invocation of the `market-data-store` owner reconcile surface; the service supervisor observes admission health but never implements admission rules or writes owner SQLite directly.
 - Filesystem available-space soft/hard watermarks. Soft pressure degrades readiness; hard pressure prevents startup or drains the child and terminates failed before more raw backlog is accepted.
 - Periodic child RSS/CPU sampling with current/max values in runtime state; observability failure degrades control readiness without inventing a healthy sample.
+- A typed active-owner health read that selects exactly one live supervisor, combines its control state with the fixed loopback Rust health binary, requires control-state freshness derived from configured sampling intervals, and removes process IDs and repository paths from the response.
+- A typed active-owner current-book read that fixes the loopback endpoint, symbol, release query binary, and 1,500ms deadline; caller input is limited to bounded depth and freshness.
+- A bounded active-owner watermark watch with caller limits `1..100` events / `100..5000ms`, owner-fixed deadline overhead, latest-only coalescing semantics, and typed epoch/resync transitions.
 
 ## Boundaries
 
@@ -21,6 +24,10 @@ Production candidate owner for one public Binance USD-M L2 stream.
 - Supervisor state stays under `tmp/l2-order-book-service`; durable raw output defaults to `data/l2`. Agent/LLM/MCP lifecycle is never the daemon parent contract.
 - Kafka-compatible publication is disabled until its adoption gate and first independent consumer exist.
 - `l2-recorder-bakeoff` remains the parity oracle and is not imported by this module.
+- Owner health is read-only and grants no start、stop、restart、signal、trading、Replay or economic authority. Zero active supervisors returns typed `unavailable`; multiple active supervisors fail closed for operator resolution.
+- Owner current-book output is a hash-verified bounded-depth snapshot with source/receive/publish timestamps and `execution_compatible=false`; it does not assert fills, queue position, slippage, latency, strategy intent, or execution authority.
+- Owner watch is not a depth-delta stream. A slow consumer receives the latest watermark without backpressuring ingestion; any epoch change or `resync_required` requires a new current-book snapshot.
+- Consumer reconnect/backoff and mandatory resnapshot remain outside this owner; the owner exposes bounded health, snapshot, and watch facts without owning downstream session lifecycle.
 
 ## Failure semantics
 
@@ -38,6 +45,9 @@ Production candidate owner for one public Binance USD-M L2 stream.
 - `cargo run --bin l2-order-book-query -- --action book --symbol BTCUSDT --depth 20`
 - `bun src/scripts/launch.ts --symbol BTCUSDT --output-base data/l2 --market-data-db data/market_data.db`
 - `bun src/scripts/status.ts --receipt tmp/l2-order-book-service/runtime/<launch>/launch-receipt.json`
+- `bun src/scripts/owner-health.ts`
+- `bun src/scripts/owner-current-book.ts --depth 20 --max-freshness-ms 1000`
+- `bun src/scripts/owner-book-watch.ts --max-events 20 --watch-ms 1000`
 - `bun src/scripts/stop.ts --receipt tmp/l2-order-book-service/runtime/<launch>/launch-receipt.json`
 - `bun run check`
 - `cargo fmt --all -- --check`
