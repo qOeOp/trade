@@ -7,9 +7,9 @@
   "active_milestone": {
     "id": "M4-P28",
     "name": "bounded-post-partial-tighten-only-stop-replacement-end-to-end",
-    "status": "in_progress",
+    "status": "complete",
     "functional_commit_budget": 8,
-    "functional_commits_used": 7
+    "functional_commits_used": 8
   },
   "policy": {
     "zero_instance_progress_forbidden": true,
@@ -44,12 +44,12 @@
       "interrupted_publication_no_sequence_manifest": true
     },
     "cutover": {
-      "production_lane_portfolio_accounting_and_cycle_consumer": false,
-      "default_partial_replacement_and_portfolio_paths_unchanged": false,
-      "p15_through_p27_preserved": false,
-      "single_change_set_end_to_end_consumer": false,
+      "production_lane_portfolio_accounting_and_cycle_consumer": true,
+      "default_partial_replacement_and_portfolio_paths_unchanged": true,
+      "p15_through_p27_preserved": true,
+      "single_change_set_end_to_end_consumer": true,
       "no_successor_cycle_before_full_flat": true,
-      "no_between_partial_or_repeated_mutation_dynamic_sizing_third_partial_reentry_cross_margin_borrow_real_liquidity_impact_or_fast": false
+      "no_between_partial_or_repeated_mutation_dynamic_sizing_third_partial_reentry_cross_margin_borrow_real_liquidity_impact_or_fast": true
     }
   },
   "evidence_refs": [
@@ -205,5 +205,5 @@
     "modules/research-strategy-development/replay-execution-plane/accounting/src/lib/replay-portfolio-post-partial-stop-replacement-cycle-sequence-accounting.ts",
     "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-post-partial-stop-replacement-cycle-sequence-runner.ts"
   ],
-  "next_allowed_outcome": "all-m4-p28-gates-true-in-one-bounded-change-set"
+  "next_allowed_outcome": "audit-and-select-next-bounded-m4-fidelity-gap-after-post-partial-stop-replacement"
 }
