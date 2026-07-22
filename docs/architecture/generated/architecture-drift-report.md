@@ -18,11 +18,11 @@
 | `orchestration-ops` | 7 | 7 | ops_runtime_store | - |
 | `policy-risk` | 2 | 2 | policy_registry | - |
 | `portfolio-execution-state` | 2 | 2 | trade_event_store, flow_read_models | - |
-| `market-data-products` | 14 | 11 | market_data_store, ohlcv_store | - |
+| `market-data-products` | 15 | 11 | market_data_store, ohlcv_store | - |
 | `exchange-gateway` | 10 | 10 | exchange_runtime_store | - |
 | `live-decision-planning` | 6 | 6 | - | J03:slow_track_market_watch |
 | `live-execution-control` | 9 | 9 | - | J01:account_reconcile_guard, J02:fast_track_guard |
-| `research-strategy-development` | 50 | 50 | research_state_store | J04:rd_strategy_supervisor, J05:rd_forward_shadow_trackers |
+| `research-strategy-development` | 51 | 51 | research_state_store | J04:rd_strategy_supervisor, J05:rd_forward_shadow_trackers |
 | `governance-review-compliance` | 5 | 5 | governance_ledger | J07:closed_flow_review_sweep |
 | `artifact-knowledge` | 1 | 1 | artifact_catalog | J06:catalog_hygiene_scan |
 
