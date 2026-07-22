@@ -69,19 +69,6 @@ import {
   assertReplayDecisionHarnessCodeAdmission,
 } from "../../../contracts/src/lib/replay-decision-harness-code-admission"
 import {
-  assertReplayDecisionHarnessInvocationIdentitySet,
-  createReplayDecisionHarnessInvocationIdentityEntry,
-  deriveReplayDecisionHarnessInvocationId,
-} from "../../../contracts/src/lib/replay-decision-harness-invocation-identity"
-import {
-  REPLAY_DECISION_HARNESS_LOGICAL_REQUEST_IDENTITY_POLICY_VERSION,
-  REPLAY_DECISION_HARNESS_TARGET_WORKER_PROTOCOL_VERSION,
-  REPLAY_DECISION_HARNESS_TARGET_WORKER_REQUEST_SCHEMA_VERSION,
-  assertReplayDecisionHarnessLogicalRequestIdentityUpgrade,
-  createReplayDecisionHarnessLogicalRequestIdentityUpgradeEntry,
-  deriveReplayDecisionHarnessLogicalRequestId,
-} from "../../../contracts/src/lib/replay-decision-harness-logical-request-identity-upgrade"
-import {
   assertReplayDecisionHarnessDispatchLeaseAuthorityBinding,
 } from "../../../contracts/src/lib/replay-decision-harness-dispatch-lease-authority-binding"
 import {
@@ -116,14 +103,6 @@ import {
 import {
   admitReplayWorkerV10SuccessorSpawnBoundaryRevalidation,
 } from "./replay-worker-v10-successor-spawn-boundary-revalidation-registry"
-import {
-  assertReplayDecisionHarnessInvocationIdentityLineage,
-  buildReplayDecisionHarnessInvocationIdentitySet,
-} from "./replay-decision-harness-invocation-identity"
-import {
-  assertReplayDecisionHarnessLogicalRequestIdentityUpgradeLineage,
-  buildReplayDecisionHarnessLogicalRequestIdentityUpgrade,
-} from "./replay-decision-harness-logical-request-identity-upgrade"
 import {
   buildReplayDecisionHarnessDispatchLeaseAuthorityBinding,
 } from "./replay-decision-harness-dispatch-lease-authority-binding"
@@ -162,6 +141,8 @@ import { runReplayWorkerV10DispatchLeaseAdmissionStage } from "./replay-worker-v
 import { runReplayWorkerV10RequestMaterializationStage } from "./replay-worker-v10-request-materialization-stage"
 import { runReplayWorkerV10BuildCapabilityStage } from "./replay-worker-v10-build-capability-stage"
 import { runReplayWorkerV10ResponseContractStage } from "./replay-worker-v10-response-contract-stage"
+import { runReplayWorkerV10InvocationIdentityStage } from "./replay-worker-v10-invocation-identity-stage"
+import { runReplayWorkerV10LogicalRequestIdentityStage } from "./replay-worker-v10-logical-request-identity-stage"
 
 const HASH = "a".repeat(64)
 const ACCOUNTING = {
@@ -730,139 +711,20 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
     worker_request_count: 1 as never,
   })).toThrow("unsupported decision harness code admission authority")
 
-  const invocationIdentityInput = { code_admission: codeAdmission }
-  const invocationIdentities = buildReplayDecisionHarnessInvocationIdentitySet(invocationIdentityInput)
-  expect(invocationIdentities.owner).toBe("replay_runner_invocation_admission")
-  expect(invocationIdentities.identity_formula_compatibility).toBe("exact_existing_worker_request_v9_derivation")
-  expect(invocationIdentities.request_context_identity_limit)
-    .toBe("context_not_direct_hash_member_parent_evidence_only")
-  expect(invocationIdentities.reproducibility_pair_identity)
-    .toBe("same_logical_invocation_id_for_both_processes")
-  expect(invocationIdentities.process_instance_identity).toBe("not_materialized")
-  expect(invocationIdentities.execution_attempt_identity).toBe("not_materialized")
-  expect(invocationIdentities.retry_identity).toBe("not_materialized")
-  expect(invocationIdentities.entry_count).toBe(2)
-  expect(invocationIdentities.invocation_identity_count).toBe(2)
-  expect(new Set(invocationIdentities.entries.map((entry) => entry.invocation_id)).size).toBe(2)
-  expect(invocationIdentities.entries[0]!.decision_state_snapshot_hash).toBeNull()
-  expect(invocationIdentities.entries[1]!.decision_state_snapshot_hash).toBe(snapshot.snapshot_hash)
-  expect(invocationIdentities.entries[0]!.worker_request).toBeNull()
-  expect(invocationIdentities.worker_request_count).toBe(0)
-  expect(invocationIdentities.worker_request_materialization).toBe("forbidden")
-  expect(invocationIdentities.harness_invocation).toBe("forbidden")
-  expect(invocationIdentities.trial_authority).toBe("none")
-  expect(invocationIdentities.entries[0]!.invocation_id).toBe(deriveReplayDecisionHarnessInvocationId({
-    run_id: requestValue.run_id,
-    source_bundle_hash: sourceBundle.bundle_hash,
-    artifact_hash: buildAttestation.artifact.sha256,
-    decision_input_snapshot_hash: sourceAssemblyV2.entries[0]!.decision_input_snapshot_hash,
-    decision_market_input_snapshot_hash: sourceAssemblyV2.entries[0]!.decision_market_input_snapshot_hash,
-    decision_state_snapshot_hash: null,
-  }))
-  expect(() => assertReplayDecisionHarnessInvocationIdentitySet(invocationIdentities)).not.toThrow()
-  expect(() => assertReplayDecisionHarnessInvocationIdentityLineage(
-    invocationIdentities,
-    invocationIdentityInput,
-  )).not.toThrow()
-  expect(buildReplayDecisionHarnessInvocationIdentitySet({
-    code_admission: structuredClone(codeAdmission),
-  })).toEqual(invocationIdentities)
-  const firstIdentity = invocationIdentities.entries[0]!
-  const { entry_hash: _identityEntryHash, ...firstIdentityBody } = firstIdentity
-  const forgedInvocationEntry = createReplayDecisionHarnessInvocationIdentityEntry({
-    ...firstIdentityBody,
-    invocation_id: "b".repeat(64),
+  const invocationIdentityStage = runReplayWorkerV10InvocationIdentityStage({
+    code_admission: codeAdmission,
+    decision_state_snapshot: snapshot,
+    replay_execution_request: requestValue,
+    source_bundle: sourceBundle,
+    legacy_artifact_hash: buildAttestation.artifact.sha256,
+    source_assembly_v2: sourceAssemblyV2,
   })
-  expect(() => assertReplayDecisionHarnessInvocationIdentitySet({
-    ...invocationIdentities,
-    entries: [forgedInvocationEntry, invocationIdentities.entries[1]!],
-  })).toThrow("invocation identity derivation drift")
-  const contextDriftEntry = createReplayDecisionHarnessInvocationIdentityEntry({
-    ...firstIdentityBody,
-    request_context_hash: "b".repeat(64),
-  })
-  expect(() => assertReplayDecisionHarnessInvocationIdentitySet({
-    ...invocationIdentities,
-    entries: [contextDriftEntry, invocationIdentities.entries[1]!],
-  })).toThrow("entry parent binding drift")
-  expect(() => assertReplayDecisionHarnessInvocationIdentitySet({
-    ...invocationIdentities,
-    process_instance_identity: "materialized" as never,
-  })).toThrow("unsupported decision harness invocation identity set authority")
-  expect(() => assertReplayDecisionHarnessInvocationIdentitySet({
-    ...invocationIdentities,
-    worker_request_count: 1 as never,
-  })).toThrow("unsupported decision harness invocation identity set authority")
+  const invocationIdentities = invocationIdentityStage.invocation_identity_set
 
-  const identityUpgradeInput = { source_invocation_identity_set: invocationIdentities }
-  const identityUpgrade = buildReplayDecisionHarnessLogicalRequestIdentityUpgrade(identityUpgradeInput)
-  expect(identityUpgrade.owner).toBe("replay_runner_protocol_admission")
-  expect(identityUpgrade.activation_status).toBe("identity_policy_frozen_worker_request_not_materialized")
-  expect(identityUpgrade.target_worker_protocol_version).toBe("rd-replay-harness-worker-stdio-v10")
-  expect(identityUpgrade.target_worker_request_schema_version)
-    .toBe("trade.rd-replay-decision-harness-worker-request.v10")
-  expect(identityUpgrade.request_context_direct_binding).toBe("required")
-  expect(identityUpgrade.code_admission_direct_binding).toBe("required")
-  expect(identityUpgrade.attempt_identity_policy).toBe("separate_execution_envelope_not_logical_request_hash")
-  expect(identityUpgrade.attempt_lease_binding).toBe("forbidden")
-  expect(identityUpgrade.retry_stability).toBe("same_frozen_inputs_and_code_admission_same_logical_request_id")
-  expect(identityUpgrade.process_instance_identity).toBe("not_materialized")
-  expect(identityUpgrade.execution_attempt_identity).toBe("not_materialized")
-  expect(identityUpgrade.entries[0]!.legacy_v9_invocation_id).toBe(invocationIdentities.entries[0]!.invocation_id)
-  expect(identityUpgrade.entries[0]!.logical_request_id).not.toBe(identityUpgrade.entries[0]!.legacy_v9_invocation_id)
-  expect(identityUpgrade.entries[0]!.worker_request).toBeNull()
-  expect(identityUpgrade.worker_request_count).toBe(0)
-  expect(identityUpgrade.worker_request_materialization).toBe("forbidden")
-  expect(identityUpgrade.harness_invocation).toBe("forbidden")
-  expect(identityUpgrade.trial_authority).toBe("none")
-  expect(() => assertReplayDecisionHarnessLogicalRequestIdentityUpgrade(identityUpgrade)).not.toThrow()
-  expect(() => assertReplayDecisionHarnessLogicalRequestIdentityUpgradeLineage(
-    identityUpgrade,
-    identityUpgradeInput,
-  )).not.toThrow()
-  expect(buildReplayDecisionHarnessLogicalRequestIdentityUpgrade({
-    source_invocation_identity_set: structuredClone(invocationIdentities),
-  })).toEqual(identityUpgrade)
-  const firstUpgradeEntry = identityUpgrade.entries[0]!
-  const logicalIdInput = {
-    identity_policy_version: REPLAY_DECISION_HARNESS_LOGICAL_REQUEST_IDENTITY_POLICY_VERSION,
-    target_worker_protocol_version: REPLAY_DECISION_HARNESS_TARGET_WORKER_PROTOCOL_VERSION,
-    target_worker_request_schema_version: REPLAY_DECISION_HARNESS_TARGET_WORKER_REQUEST_SCHEMA_VERSION,
-    run_id: firstUpgradeEntry.run_id,
-    code_admission_hash: firstUpgradeEntry.code_admission_hash,
-    source_bundle_hash: firstUpgradeEntry.source_bundle_hash,
-    artifact_hash: firstUpgradeEntry.artifact_hash,
-    request_context_hash: firstUpgradeEntry.request_context_hash,
-    decision_input_snapshot_hash: firstUpgradeEntry.decision_input_snapshot_hash,
-    decision_market_input_snapshot_hash: firstUpgradeEntry.decision_market_input_snapshot_hash,
-    decision_state_snapshot_hash: firstUpgradeEntry.decision_state_snapshot_hash,
-  }
-  expect(deriveReplayDecisionHarnessLogicalRequestId(logicalIdInput)).toBe(firstUpgradeEntry.logical_request_id)
-  expect(deriveReplayDecisionHarnessLogicalRequestId({
-    ...logicalIdInput,
-    request_context_hash: "b".repeat(64),
-  })).not.toBe(firstUpgradeEntry.logical_request_id)
-  expect(deriveReplayDecisionHarnessLogicalRequestId({
-    ...logicalIdInput,
-    code_admission_hash: "b".repeat(64),
-  })).not.toBe(firstUpgradeEntry.logical_request_id)
-  const { entry_hash: _upgradeEntryHash, ...firstUpgradeEntryBody } = firstUpgradeEntry
-  const forgedLogicalIdEntry = createReplayDecisionHarnessLogicalRequestIdentityUpgradeEntry({
-    ...firstUpgradeEntryBody,
-    logical_request_id: "b".repeat(64),
+  const logicalRequestIdentityStage = runReplayWorkerV10LogicalRequestIdentityStage({
+    invocation_identity_set: invocationIdentities,
   })
-  expect(() => assertReplayDecisionHarnessLogicalRequestIdentityUpgrade({
-    ...identityUpgrade,
-    entries: [forgedLogicalIdEntry, identityUpgrade.entries[1]!],
-  })).toThrow("logical request identity upgrade derivation drift")
-  expect(() => assertReplayDecisionHarnessLogicalRequestIdentityUpgrade({
-    ...identityUpgrade,
-    attempt_lease_hash: HASH,
-  } as never)).toThrow("field whitelist drift")
-  expect(() => assertReplayDecisionHarnessLogicalRequestIdentityUpgrade({
-    ...identityUpgrade,
-    worker_request_count: 1 as never,
-  })).toThrow("unsupported decision harness logical request identity upgrade authority")
+  const identityUpgrade = logicalRequestIdentityStage.identity_upgrade
 
   const requestMaterializationStage = runReplayWorkerV10RequestMaterializationStage({
     identity_upgrade: identityUpgrade,
