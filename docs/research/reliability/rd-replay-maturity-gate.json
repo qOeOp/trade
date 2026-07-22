@@ -26,7 +26,7 @@
       "result_artifact_and_checkpoint_epochs_converged": true,
       "single_owner_certification_command": true,
       "canonical_and_compatibility_test_suites_separated": true,
-      "all_supported_profiles_have_golden_resume_idempotency_and_tamper_evidence": false,
+      "all_supported_profiles_have_golden_resume_idempotency_and_tamper_evidence": true,
       "no_unclassified_replay_module_or_production_consumer": false
     },
     "m5": {
@@ -45,6 +45,7 @@
     "docs/research/reliability/rd-replay-capability-inventory.json",
     "docs/research/reliability/rd-replay-evidence-epoch-registry.json",
     "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/CONTRACT.md",
+    "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-profile-evidence.json",
     "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-certification-suites.json",
     "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-certification.test.ts",
     "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/main.ts",
