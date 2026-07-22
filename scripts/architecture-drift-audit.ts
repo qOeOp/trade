@@ -1,8 +1,10 @@
 #!/usr/bin/env bun
 
 import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
+import { createHash } from "node:crypto"
 import { dirname, join, normalize } from "node:path"
 import ts from "typescript"
+import { inspectModuleReferences, isJavaScriptOrTypeScript, isTestSource, scriptKind } from "./lib/source-import-inspection"
 
 type JSONRecord = Record<string, unknown>
 
@@ -72,7 +74,10 @@ const contractRootsOutsideManifest = contractRoots
   .filter((path) => !path.startsWith("modules/contracts/"))
   .filter((path) => !moduleToDomain.has(path))
 
-const importEdges = readTsImportEdges()
+const blueprintPath = "docs/architecture/architecture-overview-v2.mmd"
+const blueprintHash = sha256(readFileSync(blueprintPath, "utf8"))
+const sourceInspectionIssues: string[] = []
+const importEdges = readSourceImportEdges(sourceInspectionIssues)
 const crossDomainImportEdges = importEdges
   .filter((edge) => edge.sourceDomain && edge.targetDomain && edge.sourceDomain !== edge.targetDomain)
   .filter((edge) => edge.targetDomain !== "contracts")
@@ -85,6 +90,10 @@ const jobOwnerMismatches = jobs.filter((job) => {
 const hardIssues = [
   ...orphanPackageModules.map((path) => `package module is not declared in architecture manifest: ${path}`),
   ...missingManifestModules.map((path) => `architecture manifest module path does not exist: ${path}`),
+  ...crossDomainImportEdges.map((edge) => `cross-domain source import: ${edge.file}: ${edge.sourceDomain} -> ${edge.targetDomain} via ${edge.specifier}`),
+  ...jobOwnerMismatches.map((job) => `job owner/target mismatch: ${job.ticketNo}:${job.jobId} owner=${job.ownerModule} target=${job.targetDomain}`),
+  ...contractRootsOutsideManifest.map((path) => `CONTRACT root is not declared in architecture manifest: ${path}`),
+  ...sourceInspectionIssues,
 ]
 
 const report = buildReport()
@@ -124,7 +133,7 @@ function buildReport(): string {
   lines.push("")
   lines.push("## Verdict")
   lines.push("")
-  if (orphanPackageModules.length === 0 && missingManifestModules.length === 0) {
+  if (hardIssues.length === 0) {
     lines.push("- Hard drift: none.")
   } else {
     for (const issue of hardIssues) {
@@ -135,6 +144,7 @@ function buildReport(): string {
   lines.push("- Test files are excluded from the flyline count.")
   lines.push(`- Job owner / target-domain mismatches visible from manifest: ${jobOwnerMismatches.length}.`)
   lines.push(`- CONTRACT roots outside manifest domain module list: ${contractRootsOutsideManifest.length}. These are usually internal engines or pending module declarations.`)
+  lines.push(`- Blueprint SHA-256: \`${blueprintHash}\`.`)
   lines.push("")
   lines.push("## Domain Projection")
   lines.push("")
@@ -200,7 +210,7 @@ function buildMermaid(): string {
   const lines: string[] = []
   lines.push("flowchart LR")
   lines.push("  blueprint[\"Blueprint: architecture-overview-v2.mmd\"]")
-  lines.push("  generated[\"Generated from code + manifest\"]")
+  lines.push(`  generated[\"Generated from code + manifest\\nblueprint ${blueprintHash.slice(0, 12)}\"]`)
   lines.push("  blueprint -. compare .- generated")
   for (const domain of domains) {
     const domainNode = domainId(domain.id)
@@ -264,15 +274,15 @@ function aggregateImportEdges(edges: ImportEdge[]): Array<{
     .sort((a, b) => `${a.sourceDomain}/${a.sourceModule}/${a.targetModule}`.localeCompare(`${b.sourceDomain}/${b.sourceModule}/${b.targetModule}`))
 }
 
-function readTsImportEdges(): ImportEdge[] {
+function readSourceImportEdges(inspectionIssues: string[]): ImportEdge[] {
   const edges: ImportEdge[] = []
-  const tsFiles = walkFiles("modules").filter((file) => file.endsWith(".ts") && !file.endsWith(".test.ts"))
-  for (const file of tsFiles) {
+  const sourceFiles = walkFiles("modules").filter((file) => isSourceFile(file) && !isTestSource(file))
+  for (const file of sourceFiles) {
     const sourceModule = ownerModuleForPath(file)
     if (!sourceModule) continue
     const sourceDomain = ownerDomainForModule(sourceModule)
-    const sourceFile = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS)
-    visitImports(sourceFile, (specifier) => {
+    const sourceFile = ts.createSourceFile(file, readFileSync(file, "utf8"), ts.ScriptTarget.ESNext, true, scriptKind(file))
+    inspectModuleReferences(sourceFile, { onSpecifier: (specifier) => {
       if (!specifier.startsWith(".")) return
       const resolved = normalizePath(normalize(join(dirname(file), specifier)))
       const targetModule = ownerModuleForPath(resolved)
@@ -286,22 +296,17 @@ function readTsImportEdges(): ImportEdge[] {
         targetDomain,
         specifier,
       })
-    })
+    }, onNonStatic: (kind) => inspectionIssues.push(`${file}: ${kind} must use a static string literal`) })
   }
   return edges.sort((a, b) => `${a.file}:${a.specifier}`.localeCompare(`${b.file}:${b.specifier}`))
 }
 
-function visitImports(node: ts.Node, onSpecifier: (specifier: string) => void): void {
-  if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
-    onSpecifier(node.moduleSpecifier.text)
-  }
-  if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
-    const [arg] = node.arguments
-    if (arg && ts.isStringLiteral(arg)) {
-      onSpecifier(arg.text)
-    }
-  }
-  ts.forEachChild(node, (child) => visitImports(child, onSpecifier))
+function isSourceFile(path: string): boolean {
+  return isJavaScriptOrTypeScript(path)
+}
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value).digest("hex")
 }
 
 function ownerModuleForPath(path: string): string {

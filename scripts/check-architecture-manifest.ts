@@ -16,12 +16,23 @@ const domainIds = new Set(domains.map((domain) => stringField(domain.id)))
 const storeIds = new Set(stores.map((store) => stringField(store.id)))
 const railIds = new Set(rails.map((rail) => stringField(rail.id)))
 const jobTickets = new Set<string>()
+const jobIds = new Set<string>()
+const moduleOwners = new Map<string, string>()
+const declaredDomainIds = new Set<string>()
+const declaredStoreIds = new Set<string>()
+const declaredRailIds = new Set<string>()
 
 for (const domain of domains) {
   requireField(domain, "id", "domain")
   checkStatus(domain, "domain")
+  const domainId = stringField(domain.id)
+  if (declaredDomainIds.has(domainId)) issues.push(`duplicate domain id ${domainId}`)
+  declaredDomainIds.add(domainId)
   for (const modulePath of stringArray(domain.modules)) {
     requirePath(modulePath, `domain ${stringField(domain.id)} module`)
+    const previousOwner = moduleOwners.get(modulePath)
+    if (previousOwner) issues.push(`module ${modulePath} is declared by multiple domains: ${previousOwner}, ${domainId}`)
+    moduleOwners.set(modulePath, domainId)
   }
   for (const storeId of stringArray(domain.owns_stores)) {
     if (!storeIds.has(storeId)) {
@@ -40,12 +51,22 @@ for (const job of jobs) {
   }
   jobTickets.add(ticketNo)
   requireField(job, "job_id", "job")
+  const jobId = stringField(job.job_id)
+  if (jobIds.has(jobId)) issues.push(`duplicate job id ${jobId}`)
+  jobIds.add(jobId)
   checkStatus(job, "job")
   const targetDomain = stringField(job.target_domain)
   if (!domainIds.has(targetDomain)) {
     issues.push(`job ${stringField(job.job_id)} targets unknown domain ${targetDomain}`)
   }
-  requirePath(stringField(job.owner_module), `job ${stringField(job.job_id)} owner_module`)
+  const ownerModule = stringField(job.owner_module)
+  requirePath(ownerModule, `job ${stringField(job.job_id)} owner_module`)
+  const ownerDomain = moduleOwners.get(ownerModule)
+  if (!ownerDomain) {
+    issues.push(`job ${jobId} owner_module is not declared by any domain: ${ownerModule}`)
+  } else if (ownerDomain !== targetDomain) {
+    issues.push(`job ${jobId} owner_module belongs to ${ownerDomain}, not target_domain ${targetDomain}`)
+  }
   for (const storeId of stringArray(job.writes)) {
     if (!storeIds.has(storeId)) {
       issues.push(`job ${stringField(job.job_id)} writes unknown store ${storeId}`)
@@ -62,12 +83,21 @@ for (const expected of expectedJobTickets(jobs.length)) {
 for (const store of stores) {
   const storeId = stringField(store.id)
   requireField(store, "id", "store")
+  if (declaredStoreIds.has(storeId)) issues.push(`duplicate store id ${storeId}`)
+  declaredStoreIds.add(storeId)
   checkStatus(store, "store")
   const ownerDomain = stringField(store.owner_domain)
   if (!domainIds.has(ownerDomain)) {
     issues.push(`store ${storeId} has unknown owner_domain ${ownerDomain}`)
   }
-  requirePath(stringField(store.owner_module), `store ${storeId} owner_module`)
+  const ownerModule = stringField(store.owner_module)
+  requirePath(ownerModule, `store ${storeId} owner_module`)
+  const moduleOwnerDomain = moduleOwners.get(ownerModule)
+  if (!moduleOwnerDomain) {
+    issues.push(`store ${storeId} owner_module is not declared by any domain: ${ownerModule}`)
+  } else if (moduleOwnerDomain !== ownerDomain) {
+    issues.push(`store ${storeId} owner_module belongs to ${moduleOwnerDomain}, not owner_domain ${ownerDomain}`)
+  }
   requirePath(stringField(store.schema), `store ${storeId} schema`)
   const schemaPath = stringField(store.schema)
   const ddl = existsSync(schemaPath) ? readFileSync(schemaPath, "utf8") : ""
@@ -90,8 +120,22 @@ for (const store of stores) {
 
 for (const rail of rails) {
   requireField(rail, "id", "rail")
+  const railId = stringField(rail.id)
+  if (declaredRailIds.has(railId)) issues.push(`duplicate rail id ${railId}`)
+  declaredRailIds.add(railId)
   checkStatus(rail, "rail")
   requirePath(stringField(rail.contract), `rail ${stringField(rail.id)} contract`)
+}
+
+for (const domain of domains) {
+  const domainId = stringField(domain.id)
+  const declaredOwnedStores = new Set(stringArray(domain.owns_stores))
+  const actualOwnedStores = new Set(stores.filter((store) => stringField(store.owner_domain) === domainId).map((store) => stringField(store.id)))
+  compareOwnershipSets(`domain ${domainId} owns_stores`, declaredOwnedStores, actualOwnedStores)
+
+  const declaredOwnedJobs = new Set(stringArray(domain.owns_jobs))
+  const actualOwnedJobs = new Set(jobs.filter((job) => stringField(job.target_domain) === domainId).map((job) => stringField(job.ticket_no)))
+  compareOwnershipSets(`domain ${domainId} owns_jobs`, declaredOwnedJobs, actualOwnedJobs)
 }
 
 const railRegistry = readJson("modules/contracts/protocol-fabric/src/schemas/rail-ownership-registry.schema.json")
@@ -176,4 +220,13 @@ function expectedJobTickets(count: number): string[] {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+}
+
+function compareOwnershipSets(label: string, declared: Set<string>, actual: Set<string>): void {
+  for (const value of declared) {
+    if (!actual.has(value)) issues.push(`${label} declares non-owned value ${value}`)
+  }
+  for (const value of actual) {
+    if (!declared.has(value)) issues.push(`${label} is missing owned value ${value}`)
+  }
 }
