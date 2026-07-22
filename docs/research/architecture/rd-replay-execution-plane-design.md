@@ -126,4 +126,4 @@ M4/M5 都相对于**声明的能力包络**，不要求伪造不可能证明的�
 | integrated-portfolio | `runReplayIntegratedPortfolio` |
 | terminal-aware-bounded-cycle | `runReplayPortfolioProtectiveTerminalCycleSequence` |
 
-其余 P19–P29 successor 必须经 capability registry 显式激活，不能继续各自演化为公共产品入口；compatibility 禁止新增生产消费者。
+其余 P19–P29 successor 必须经 capability registry 显式激活，不能继续各自演化为公共产品入口。P10/P11/P13 执行消费者已物理隔离到 `compatibility/legacy-portfolio-cycle`；其 schema 只为历史 Artifact 读回保留，禁止新增生产消费者。P12 继续由 canonical/opt-in cycle owners 复用。
