@@ -47,6 +47,7 @@ Skill 可以说明如何调用既有 MCP / owner tool，但不能绕过 prefligh
 | 路径 | Owner | 负责 | 不负责 |
 | --- | --- | --- | --- |
 | `modules/orchestration-ops/trade-flow/` | flow domain orchestrator | 事件流、automation plan、observe、reconcile、execution orchestration | Binance 数据接入实现、交易所写接口细节、R&D 实验实现、策略复核 owner |
+| `modules/orchestration-ops/watch-task-runtime/` | bounded active-plan observer | 在 ops fenced lease 下恢复单个固定 mark-price Watch Task，调用 public snapshot owner，停在 no-authority revalidation handoff | 策略/LLM 判断、preflight/execution、exchange write、trade fact |
 | `modules/orchestration-ops/l2-current-book-probe/` | non-economic ops consumer | health 后读取同 epoch bounded-depth book、BigInt microstructure；bounded session 与 resident worker 订阅 latest-only watermark，watch failure、epoch/resync 后强制 resnapshot；专属 supervisor 只管 worker restart，owner read 仅投影 baseline/metrics | automation job、MCP transport、depth delta、durable delivery、策略信号、Replay source、执行事实或交易所写入 |
 | `modules/research-strategy-development/research-control-plane/` | RD authority plane | Contract/Trial/Result/Review/Lifecycle/KG、Draft Strategy registry | Replay/Forward 执行、Agent 推理、正式 Shadow/Live |
 | `modules/research-strategy-development/replay-execution-plane/` | historical evidence plane | Trial-bound deterministic Replay、ledger、metrics、artifact/fingerprint | Candidate 生成、Review、promotion |
@@ -119,6 +120,7 @@ Skill 可以说明如何调用既有 MCP / owner tool，但不能绕过 prefligh
 | 主单 / 撤单 / 保护 / 减仓 | `modules/exchange-gateway/binance-write/order-place`, `order-cancel`, `position-protect`, `position-adjust` |
 | automation plan | `modules/orchestration-ops/trade-flow` + `trade-flow.automation` |
 | program shadow wakeup / resident cadence | `modules/orchestration-ops/trade-flow` + `trade-flow.program-shadow` / `trade-flow.program-shadow-supervisor` |
+| bounded active-plan watch | `modules/orchestration-ops/watch-task-runtime` + `ops.watch-task-runtime`；状态 owner 为 `ops.runtime-store` |
 | observe / runtime load | `modules/orchestration-ops/trade-flow` + `trade-flow.observe` |
 | 事件流 / track dry-run | `modules/orchestration-ops/trade-flow` + `trade-flow.runtime` |
 | Trial-bound replay | `modules/research-strategy-development/replay-execution-plane/runner` + `research.replay-execution` |

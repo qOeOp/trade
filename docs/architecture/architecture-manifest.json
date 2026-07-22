@@ -9,6 +9,7 @@
         "modules/orchestration-ops/agent-mcp",
         "modules/orchestration-ops/domain-bus",
         "modules/orchestration-ops/ops-runtime-store",
+        "modules/orchestration-ops/watch-task-runtime",
         "modules/orchestration-ops/runtime-health-guard",
         "modules/orchestration-ops/l2-current-book-probe",
         "modules/orchestration-ops/ops-notify-dispatch",
@@ -337,7 +338,7 @@
       "status": "implemented",
       "owner_domain": "orchestration-ops",
       "owner_module": "modules/orchestration-ops/ops-runtime-store",
-      "physical": { "kind": "sqlite", "path": "data/ops_runtime.db", "tables": ["cycle_run", "job_run", "runtime_health", "notify_attempt", "domain_message", "ops_lock", "incident", "incident_event", "control_review"] },
+      "physical": { "kind": "sqlite", "path": "data/ops_runtime.db", "tables": ["cycle_run", "job_run", "runtime_health", "notify_attempt", "domain_message", "ops_lock", "ops_lock_generation", "incident", "incident_event", "control_review", "runtime_parity_observation", "watch_task", "watch_task_transition"] },
       "schema": "docs/architecture/storage-schema/ops-runtime-store.sql",
       "write_contract": "append-observability"
     }
