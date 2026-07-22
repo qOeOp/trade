@@ -1,9 +1,7 @@
 export {
   atr,
   buildIndicators,
-  detectReplayDecisionLookahead,
   ema,
-  evaluateLatestSignal,
   evaluateReplayGate,
   loadCandlesFromManifest,
   parseCsvCandles,
@@ -13,6 +11,8 @@ export {
   type Candle,
   type IndicatorSet,
 } from "./replay-core"
+
+export { detectReplayDecisionLookahead, evaluateLatestSignal } from "../../../legacy-research-decision/src/lib/legacy-research-decision"
 
 export type {
   LatestSignalResult,
