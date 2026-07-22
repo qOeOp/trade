@@ -140,6 +140,7 @@ S1 不做自动滚动升级、双实例交接或 active-active；SQLite 单 owne
 - `bun run server:verify-lifecycle`：仅启动合成子进程，验证 ordering/restart isolation/reverse drain/no orphan；
 - `bun run server:public-smoke`：只读等待两个不同 control cycle，不发送信号；
 - `bun run server:verify-recovery`：只对合成 DB/raw/artifact/profile 执行备份恢复，不读取活跃 owner 数据；
+- `bun run server:release-gate -- --input <evidence.json>`：验证 no-live 采用证据；最多返回 `eligible_for_manual_change_review`，永不授予 exchange write 或自动 promotion；
 - `stop/start/restart`：由 systemd 执行，composition CLI 只调用固定 unit target；
 - `backup-check`：验证 DB 与被引用 artifact 的备份闭包，不直接上传外部存储。
 
@@ -157,3 +158,9 @@ S1 不做自动滚动升级、双实例交接或 active-active；SQLite 单 owne
 | R6 | 合成三 DB `VACUUM INTO`、raw/artifact/profile hash 与 restore integrity/ref closure 通过 | 真实 volume、真实 owner schema/artifact refs、外部备份介质恢复 |
 
 完成 S1 只表示可无人值守运行 **no-live-write shadow profile**。它不表示策略已经使用 L2、不表示 R&D/LLM 已自治，也不授权真实下单；这些分别由后续 watch、model gateway、research autonomy 与 per-job live cutover 采用门负责。
+
+## 11. 当前 Release Gate
+
+2026-07-23 的本机演练已闭合 lifecycle、合成 recovery、full-shadow、R&D CAS/idempotency 和 Operator HTTP policy 的本地证据，结论固定为 `maximum_verified_authority=no_live_local_rehearsal`。一次性证据见 [Server No-Live Rehearsal](../history/server-no-live-rehearsal-2026-07-23.md)。
+
+服务器采用仍被以下外部证据阻断：目标 Linux/systemd、真实 durable volume restore、public soak、真实模型 provider smoke、R&D kill/restart 单 Trial/Result、Operator HTTP resident 与 audit roundtrip。即使这些证据全部通过，gate 也只允许进入人工变更评审；catalog canary 需显式 operator run，live canary 与 exchange write 需另行授权，不属于本 gate。
