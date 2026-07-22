@@ -166,6 +166,13 @@ export class ReadToolService {
     })
   }
 
+  readRuntimeParityStatus(): Promise<JSONRecord> {
+    return this.runOwner({
+      script: "modules/orchestration-ops/ops-runtime-store/src/scripts/main.ts",
+      args: ["--db", this.opsRuntimeDbPath, "--action", "parity_status"],
+    })
+  }
+
   private readManifest(): ToolManifest {
     const raw = JSON.parse(readFileSync(resolve(this.root, "toolset.json"), "utf8")) as ToolManifest
     if (raw.schema_version !== "trade-toolset.manifest.v1" || !Array.isArray(raw.tools)) {

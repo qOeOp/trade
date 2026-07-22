@@ -134,6 +134,13 @@ export function createTradeMcpServer(
     annotations: READ_ONLY_ANNOTATIONS,
   }, async ({ cycle_id }) => result(await service.readOpsCycleSummary(cycle_id)))
 
+  server.registerTool("runtime_parity_status", {
+    title: "Read Agent/program runtime parity status",
+    description: "Read compact immutable parity counts, the latest semantic projection hashes, and the fenced supervisor lease state. Returns no holder, process, path, lifecycle control, or cutover verdict.",
+    inputSchema: z.object({}).strict(),
+    annotations: READ_ONLY_ANNOTATIONS,
+  }, async () => result(await service.readRuntimeParityStatus()))
+
   server.registerTool("research_hypothesis_prepare", {
     title: "Validate and project a research hypothesis",
     description: "Validate one structured strategy hypothesis contract through the owner designer and deterministically project its J04 queue item without writing state.",
