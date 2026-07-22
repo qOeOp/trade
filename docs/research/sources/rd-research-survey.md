@@ -141,7 +141,7 @@ last_verified: 2026-07-22 CST
    已落地基础 gate：每个 campaign 开始前必须写 edge 类型、市场参与者行为假设、适用 regime、失效条件、成本敏感度、候选 universe、negative controls；空缺则零 trial。后续可增强 expected holding/turnover 与 negative control coverage。
 
 2. **Temporal contract**
-   已落地 replay provenance 基础版：每个 replay 输出 `reference_at / availability_at / lookback_start / label_end / universe_selected_at`，并记录 supplemental report 的 declared availability；缺 temporal contract 的 replay evidence 在 strategy review 中视为 legacy/stale。后续再做 factor pipeline 的逐步可见重算。
+   已落地 replay provenance 与两层重算：每个 replay 输出 `reference_at / availability_at / lookback_start / label_end / universe_selected_at`；feature provider 用截断 OHLCV 重算同一公式，strategy consumer 再做 full-vs-cutoff decision 对照。缺 provider causality evidence 的 factor discovery/condition 会 fail closed。
 
 3. **Full-trial statistical report**
    已落地最小正式版：R&D batch 输出完整 trial universe、accepted/rejected、winner、OOS/effective sample、edge margin、deflated edge probability 与四时间块 CSCV/PBO；没有足够样本或 PBO 失败时不能叫 `candidate_ready`。后续补 White Reality Check / Hansen SPA 与更严格 DSR。
@@ -155,7 +155,7 @@ last_verified: 2026-07-22 CST
 ### P1
 
 1. **Lookahead / recursive detector**
-   对 factor pipeline 做逐步可见重算，比较全量计算结果；发现差异直接 blocker。
+   已落地有界版：feature provider 最多抽取 200 个确定性 cutoff 重跑公式并生成 coverage/mismatch evidence；策略层独立重建 cutoff-bounded feature store 与 decision。任一层差异直接 blocker。后续只需按成本决定抽样预算或对高风险 provider 扩成 complete coverage。
 
 2. **Reality model feedback loop**
    已落地基础版：从 shadow/live-small evidence 聚合真实 fee、slippage、funding、total cost drag，输出 per-trade R 值与 unknown-size bucket。后续补 missed-fill、订单规模与流动性分桶。
