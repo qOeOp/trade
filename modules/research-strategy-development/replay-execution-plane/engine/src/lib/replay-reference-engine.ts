@@ -44,6 +44,7 @@ import {
   type ReplaySourceEvent,
   type ReplayStopEntrySameBarPathAmbiguity,
   type ReplaySupplementalFact,
+  type ReplayAuthorizedStopEntryPathStep,
   type ReplayVenueRiskPolicySnapshot,
 } from "../../../contracts/src/lib/replay-contracts"
 import {
@@ -77,8 +78,12 @@ import { completeReplayPartialReduceLane } from "./replay-partial-reduce-lane"
 import { ReplayLiquidationDeficitError, ReplayMarginTerminalError, assertReplayPostEntryMargin, buildReplayMaintenanceBreachObservation, buildReplayPathMarginSnapshots } from "./replay-margin-path"
 import { reduceReplaySourceEvents } from "./replay-source-reducer"
 import { resolveReplayPendingOrder } from "./replay-pending-order-resolution"
+import {
+  assertReplayAuthorizedStopEntryPathStep,
+  type ReplayAuthorizedStopEntryPathStepInput,
+} from "./replay-authorized-stop-entry-path-step"
 
-export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v31" as const
+export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v32" as const
 
 export interface ReplayEngineCheckpoint {
   schema_version: typeof REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION
@@ -113,6 +118,7 @@ export interface ReplayEngineCheckpoint {
   event_sequence: number
   exact_risk_snapshots: ReplayMarginSnapshot[]
   limitations: ReplayResult["limitations"]
+  authorized_stop_entry_path_step_hash: string | null
   last_committed_event_key: ReplayEventKey
   checkpoint_hash: string
 }
@@ -168,6 +174,10 @@ export interface ReplayKernelInput {
   funding_events?: ReplayFundingEvent[]
   mark_events?: ReplayMarkEvent[]
   supplemental_facts?: ReplaySupplementalFact[]
+  authorized_stop_entry_path?: {
+    input: ReplayAuthorizedStopEntryPathStepInput
+    step: ReplayAuthorizedStopEntryPathStep
+  }
   decision_evidence_timeline?: ReplayDecisionEvidenceTimeline
   runtime_decision_evaluator?: (input: {
     schedule_entry: ReplayDecisionScheduleEntry
@@ -212,6 +222,15 @@ export function prepareReplayDecisionEvidenceInputs(
 export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
   const { request } = input
   assertReplayExecutionRequest(request)
+  const authorizedStopEntryPath = input.authorized_stop_entry_path ?? null
+  if (authorizedStopEntryPath) {
+    assertReplayAuthorizedStopEntryPathStep(authorizedStopEntryPath.step, authorizedStopEntryPath.input)
+    if (canonicalHash(authorizedStopEntryPath.input.request) !== canonicalHash(request)
+        || canonicalHash(authorizedStopEntryPath.input.dataset_manifest) !== canonicalHash(input.dataset_manifest)
+        || !input.bars.some((bar) => canonicalHash(bar) === authorizedStopEntryPath.step.market_bar_hash)) {
+      throw new Error("authorized Stop-entry path does not bind the Replay kernel input")
+    }
+  }
   const prepared = prepareReplayInputData({
     request,
     dataset_manifest: input.dataset_manifest,
@@ -863,6 +882,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
         decision_harness_build_attestation_hash: decisionHarnessBuild?.attestation_hash ?? null,
         decision_harness_loader_policy_version: decisionHarnessReceipt?.loader_policy_version ?? null,
         decision_harness_worker_protocol_version: decisionHarnessReceipt?.worker_protocol_version ?? null,
+        authorized_stop_entry_path_step_hash: authorizedStopEntryPath?.step.step_hash ?? null,
       })
       if (input.execution_control.on_checkpoint(checkpoint) === "cancel") {
         throw new ReplayExecutionInterruptedError(checkpoint)
@@ -1328,6 +1348,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
         decision_harness_worker_protocol_version: initialReceipt?.worker_protocol_version ?? null,
         ohlcv_resolution_evidence_hash: canonicalHash(resultBody.ohlcv_resolution_evidence),
         pending_order_resolutions_hash: canonicalHash(resultBody.pending_order_resolutions),
+        bar_linked_stop_entry_path_step_hash: resultBody.bar_linked_stop_entry_path_step?.step_hash ?? null,
         order_state_snapshot_hash: resultBody.order_state_snapshot.snapshot_hash,
         venue_risk_policy_schedule_hash: request.venue_risk_policy_schedule_hash,
         instrument_spec_schedule_hash: request.instrument_spec_schedule_hash,
@@ -1435,6 +1456,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       margin_snapshots: [],
       ohlcv_resolution_evidence: [],
       pending_order_resolutions: pendingOrderResolutions,
+      bar_linked_stop_entry_path_step: authorizedStopEntryPath?.step ?? null,
     })
     const orderStateSnapshot = createReplayOrderStateSnapshot({
       run_id: request.run_id,
@@ -1673,6 +1695,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     margin_snapshots: marginSnapshots,
     ohlcv_resolution_evidence: ohlcvResolutionEvidence,
     pending_order_resolutions: pendingOrderResolutions,
+    bar_linked_stop_entry_path_step: authorizedStopEntryPath?.step ?? null,
   })
   const liquidation = exit.role === "liquidation" && exitFill
     ? {
