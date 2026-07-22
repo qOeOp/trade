@@ -27,7 +27,7 @@ internal engine
 
 - No CLI, package, catalog write, artifact write, `trade.db` write, or exchange access.
 - Does not own R&D loop state, candidate gating, review, promotion, or execution.
-- Funding and replay primitives are re-exported from `research-strategy-development/replay-engine`; formulas are not duplicated.
+- Funding and legacy evaluation primitives are consumed from `replay-execution-plane/compatibility/legacy-research-kernel`; formulas are not duplicated.
 - When `targets` is declared, including an empty target set, research remains setup-conditioned and never falls back to full-sample forward-return labels.
 - The caller owns dataset-stage authorization and must supply only purged training targets; validation and holdout labels are not factor-selection inputs.
 - Factor discovery may consume only a feature report whose provider-native prefix recomputation evidence passed for the active timeframe.
