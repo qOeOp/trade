@@ -48,6 +48,8 @@ P3 故障与对照检查点（2026-07-23）：ops store 采用 `1000ms` SQLite b
 
 P3 托管与迁移观察检查点（2026-07-23）：supervisor 新增 opt-in legacy Agent 对照，每轮把两条 job graph 的 canonical hash 与诊断 projection 作为 immutable `runtime_parity_observation` 写回同一 ops store。最初顺序执行两条路径的观察在 27 轮中得到 26 match / 1 mismatch；差异来自相隔数百毫秒的 resident-consumer health 翻转，证明 sequential live reads 不是可比输入。当前 `shared_owner_result_replay_v1` 由 program 每轮执行一次 owner command，Agent 路径独立构图并回放同一结果；command key 只去除 cycle、时间与结果 ID，命令语义漂移 fail closed。只读 owner/MCP status 保留 raw history，并将旧记录单列为 `sequential_live_reads_v1`；共享输入预检与短观察累计 `7/7 match`。模块提供 launchd `render/install/status/uninstall`，`KeepAlive` 负责重启且不产生 PID file；安装器对 macOS `Desktop/Documents/Downloads` 源码路径 fail closed，避免 TCC 造成“进程 running、业务未启动”的假健康。当前仓库位于 `Downloads`，故已回滚受阻实例；最终一小时 bounded observation 于 `2026-07-23 01:11 CST` 由 operator-owned tmux 以 fencing token `7` 从零启动。tmux 只承载本次迁移证据，不替代 production process manager。J01-J07 authority 仍未切换；待长时 verdict 与可访问源码的 process-manager 部署闭合后再进入 cutover，因此本文保持 `proposed`。
 
+P4 full-shadow 实施检查点（2026-07-23）：新增 closed-world `full_shadow` profile，在同一 supervisor/wakeup lease 下启用固定 J01–J07、强制 cadence due，并保留各 owner 的 active/work gate；`allow_live_writes=false`、dry-run notify、L2 owner/consumer readiness 均不可放宽。共享结果 parity 现覆盖 cycle 派生 `run_id`，干净 HEAD fixture 为 `1/1 match`；当前 server config 未切换，published CLI、故障重启与长时无重复/双写证据仍是采用门。
+
 P3 首个 domain canary 准备（P1.27，2026-07-23）：one-shot wakeup 新增 closed-world `catalog_hygiene_canary` profile，只强制现有 owner-native J06 `catalog_hygiene_scan`，唯一允许写面为 `artifact_catalog`；其余 J01–J05/J07、live write 与真实通知继续关闭，固定命令不包含 catalog/artifact GC、`--yes` 或 caller-supplied root。该 profile 当前只完成代码与 fixture，不进入正在运行的 P1.26 soak，也未执行真实 catalog canary；只有一小时 parity、lease release 与终态审计闭合后才允许一次真实运行。
 
 ## 3. 不变量

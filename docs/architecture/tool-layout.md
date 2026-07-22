@@ -8,7 +8,7 @@ last_verified: 2026-07-22 CST
 
 # Tool Layout
 
-本文定义当前项目的代码归位规则。当前 domain authority 仍是 agent-operated toolset；新增的 program shadow supervisor 只是前台常驻迁移面，尚未接管 J01-J07，也不改变 owner 布局。项目不再使用本地 tool 壳作为源码组织方式。
+本文定义当前项目的代码归位规则。当前 domain authority 仍在既有 owner toolset；program supervisor 已提供独立 `full_shadow` profile 调度 J01–J07，但尚未进入 server config 或 live cutover，也不改变 owner 布局。项目不再使用本地 tool 壳作为源码组织方式。
 
 已完成的模块原子化与目录迁移记录见 [module-structure-refactor-plan.md](../history/module-structure-refactor-plan.md)。本文只描述当前有效布局；历史计划中的目标路径不得作为当前调用入口。
 
