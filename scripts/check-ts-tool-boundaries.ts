@@ -65,8 +65,7 @@ for (const file of walkSourceFiles("modules")) {
       return
     }
     const targetTool = owningToolRoot(resolved)
-    if (sourceTool && targetTool && sourceTool !== targetTool
-      && !isIgnoredTestDependencyGraphEdge(file, sourceTool, targetTool)) {
+    if (sourceTool && targetTool && sourceTool !== targetTool) {
       observedEdges.add(`${sourceTool} -> ${targetTool}`)
     }
     if (isAllowedCrossToolImport(file, sourceTool, targetTool)) {
@@ -268,17 +267,8 @@ function isAllowedResearchStrategyDevelopmentImport(sourceTool: string, targetTo
 
 function isAllowedSameDomainIntegrationTestImport(file: string, sourceTool: string, targetTool: string): boolean {
   return file.endsWith(".test.ts")
-    && ((sourceTool === "modules/research-strategy-development/research-control-plane/certification/legacy-integration-suite"
-      && targetTool.startsWith("modules/research-strategy-development/"))
-      || (file === "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts"
-        && sourceTool === "modules/research-strategy-development/replay-execution-plane/runner"
-        && targetTool === "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle"))
-}
-
-function isIgnoredTestDependencyGraphEdge(file: string, sourceTool: string, targetTool: string): boolean {
-  return file === "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts"
-    && sourceTool === "modules/research-strategy-development/replay-execution-plane/runner"
-    && targetTool === "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle"
+    && sourceTool === "modules/research-strategy-development/research-control-plane/certification/legacy-integration-suite"
+    && targetTool.startsWith("modules/research-strategy-development/")
 }
 
 function isAllowedTradeFlowOrchestratorImport(file: string, sourceTool: string, targetTool: string): boolean {
