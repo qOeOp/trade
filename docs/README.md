@@ -65,7 +65,7 @@ index `id` 使用 `<文档域>.<短名>`：只允许小写 ASCII、数字、点�
 
 `title` 是稳定、可读的元数据标题，不要求与正文展示标题逐字相同。current 文档必须且只能有一个 `#` 一级标题；history 可为保留原始结构包含多个一级标题，但至少有一个。
 
-`last_verified` 统一使用 `YYYY-MM-DD CST`，日期必须真实存在。它表示 owner 最近一次核对当前内容的日期；机器检查不定义 freshness SLA，也不会因自然时间流逝自动改写文档。
+文档 frontmatter 与 index 顶层的 `last_verified` 统一使用 `YYYY-MM-DD CST`，日期必须真实存在。它表示 owner 最近一次核对当前内容或索引闭包的日期；机器检查不定义 freshness SLA，也不会因自然时间流逝自动改写日期。
 
 ## 归档规则
 

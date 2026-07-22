@@ -436,6 +436,32 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("expected YYYY-MM-DD CST")
   })
 
+  test("document contracts require an index verification date", () => {
+    const root = documentContractFixture({})
+    const path = join(root, "docs/engineering/doc-contract-index.json")
+    const index = JSON.parse(readFileSync(path, "utf8")) as { last_verified?: string }
+    delete index.last_verified
+    writeFileSync(path, JSON.stringify(index))
+
+    const result = runJudge("check-doc-contracts.ts", root)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("docs/engineering/doc-contract-index.json missing required field: last_verified")
+  })
+
+  test("document contracts reject an invalid index verification date", () => {
+    const root = documentContractFixture({})
+    const path = join(root, "docs/engineering/doc-contract-index.json")
+    const index = JSON.parse(readFileSync(path, "utf8")) as { last_verified: string }
+    index.last_verified = "2026-02-30 CST"
+    writeFileSync(path, JSON.stringify(index))
+
+    const result = runJudge("check-doc-contracts.ts", root)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("docs/engineering/doc-contract-index.json has invalid last_verified: 2026-02-30 CST")
+  })
+
   test("document contracts reject a current document without a top-level heading", () => {
     const root = documentContractFixture({})
     const path = join(root, "docs/README.md")
@@ -705,6 +731,7 @@ function documentContractFixture(
   write(root, "docs/runtime/risk-control-contract.md", metadata("Risk", "runtime-feature-contract", "active", "policy-risk"))
   write(root, "docs/engineering/doc-contract-index.json", JSON.stringify({
     schema_version: "trade.doc-contract-index.v1",
+    last_verified: "2026-07-22 CST",
     documents,
   }))
   write(root, "docs/architecture/architecture-manifest.json", JSON.stringify({

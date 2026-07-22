@@ -14,6 +14,7 @@ interface DocumentEntry {
 
 interface ContractIndex {
   schema_version: string
+  last_verified?: string
   documents: DocumentEntry[]
 }
 
@@ -72,6 +73,11 @@ const retiredCurrentPaths = [
 
 if (index.schema_version !== "trade.doc-contract-index.v1") {
   issues.push(`unsupported doc contract index schema: ${index.schema_version}`)
+}
+if (!index.last_verified) {
+  issues.push(`${indexPath} missing required field: last_verified`)
+} else {
+  checkLastVerified(indexPath, index.last_verified)
 }
 
 for (const path of retiredCurrentPaths) {
