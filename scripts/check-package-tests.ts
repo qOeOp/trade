@@ -24,6 +24,13 @@ for (const packagePath of findFiles(modulesRoot, "package.json")) {
   if (scriptGraphContains(scripts, "test", /no test files|if\s+find\s+src/i)) {
     violations.push(`${label}: scripts.test must fail closed; no empty-suite fallback is allowed`)
   }
+  const testCommands = reachableScriptCommands(scripts, "test")
+  for (const testFile of testFiles) {
+    const relativeTestFile = relative(packageDir, testFile).replace(/\\/g, "/")
+    if (!testCommands.some((command) => bunTestCommandCovers(command, relativeTestFile))) {
+      violations.push(`${label}: scripts.test does not cover ${relativeTestFile}`)
+    }
+  }
 }
 
 if (violations.length > 0) {
@@ -83,4 +90,40 @@ function scriptGraphContains(
   return [...command.matchAll(/\bbun\s+run\s+([a-zA-Z0-9:_-]+)/g)]
     .map((match) => match[1])
     .some((reference) => scriptGraphContains(scripts, reference, pattern, new Set(visited)))
+}
+
+function reachableScriptCommands(
+  scripts: Record<string, unknown>,
+  name: string,
+  visited = new Set<string>(),
+): string[] {
+  if (visited.has(name)) return []
+  visited.add(name)
+  const command = typeof scripts[name] === "string" ? scripts[name] : ""
+  const references = [...command.matchAll(/\bbun\s+run\s+([a-zA-Z0-9:_-]+)/g)]
+    .map((match) => match[1])
+  return [
+    command,
+    ...references.flatMap((reference) => reachableScriptCommands(scripts, reference, visited)),
+  ]
+}
+
+function bunTestCommandCovers(command: string, testFile: string): boolean {
+  for (const match of command.matchAll(/\bbun\s+test\b([^;&|]*)/g)) {
+    const args = (match[1] ?? "")
+      .trim()
+      .split(/\s+/)
+      .map((value) => value.replace(/^["']|["']$/g, ""))
+      .filter(Boolean)
+    const paths = args
+      .filter((value) => !value.startsWith("-"))
+      .map((value) => value.replace(/^\.\//, "").replace(/\\/g, "/"))
+    if (paths.length === 0) return true
+    for (const path of paths) {
+      if (path === testFile) return true
+      if (!/[?*[]/.test(path) && testFile.startsWith(`${path.replace(/\/$/, "")}/`)) return true
+      if (/[?*[]/.test(path) && new Bun.Glob(path).match(testFile)) return true
+    }
+  }
+  return false
 }

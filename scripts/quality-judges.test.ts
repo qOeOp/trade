@@ -99,6 +99,21 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("no empty-suite fallback is allowed")
   })
 
+  test("package tests cannot omit a colocated test file", () => {
+    const root = temporaryRoot()
+    write(root, "modules/domain-a/tool-a/package.json", JSON.stringify({
+      scripts: { test: "bun test ./src/covered.test.ts" },
+    }))
+    write(root, "modules/domain-a/tool-a/src/main.ts", "export const value = true\n")
+    write(root, "modules/domain-a/tool-a/src/covered.test.ts", "export {}\n")
+    write(root, "modules/domain-a/tool-a/src/omitted.test.ts", "export {}\n")
+
+    const result = runJudge("check-package-tests.ts", root)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("scripts.test does not cover src/omitted.test.ts")
+  })
+
   test("Go formatting rejects an unformatted file instead of swallowing gofmt errors", () => {
     const root = temporaryRoot()
     write(root, "main.go", "package main\nfunc main(){println(\"bad\")}\n")
