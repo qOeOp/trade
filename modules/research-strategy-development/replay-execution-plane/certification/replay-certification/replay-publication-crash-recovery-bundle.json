@@ -1,0 +1,70 @@
+{
+  "schema_version": "trade.rd-replay-publication-crash-recovery-bundle.v1",
+  "owner": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification",
+  "store_policy": "local-fs-durable-immutable-cas-manifest-last",
+  "exactly_once_scope": "one-authoritative-commit-marker-not-one-process-execution",
+  "crash_probe": {
+    "member_script_path": "modules/research-strategy-development/replay-execution-plane/tests/src/replay-publication-crash-member.ts",
+    "member_script_source_sha256": "ad1a60ce402ff46b87a18aa937406d5e507ee6403bacb5e0b2c19f2ecfa966c8",
+    "local_store_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-local-artifact-store.ts",
+    "local_store_source_sha256": "fee22a4fb7b9b0a980e0bea72bb373bd7355265fa7b66959a137001cfb1c7a0a",
+    "crash_signal": "SIGKILL",
+    "crash_point": "after-all-durable-payloads-before-manifest",
+    "recovery_process_count": 2,
+    "post_recovery_reader_count": 1
+  },
+  "profiles": [
+    {
+      "profile": "independent-lane-batch",
+      "publication_scope": "child-trial-manifests-only",
+      "recovery_mode": "delegated-child-trial-recovery-deterministic-aggregate-no-batch-writer",
+      "writer_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.ts",
+      "writer_export": "runReplayTrial",
+      "writer_source_sha256": "2aa414d59aad6caa6710a3955070927a60800200f3aced8d34fe514bb80b446e",
+      "test_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
+      "test_name": "independent lane failure is all-or-nothing and never publishes a partial batch Result",
+      "test_source_sha256": "7b2b3aaafed3ae79a15b9c7ca721b978c6af2fab8f061ab769b8e75c607f7733"
+    },
+    {
+      "profile": "integrated-portfolio",
+      "publication_scope": "direct-manifest",
+      "recovery_mode": "deterministic-full-rerun-no-checkpoint-writer",
+      "writer_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-integrated-portfolio-artifact-publisher.ts",
+      "writer_export": "publishReplayIntegratedPortfolioArtifact",
+      "writer_source_sha256": "bcfdeb4f4f4b7eea99108b1ee8e5b7c6b8204ebffdad5fbfad9c1ea415114848",
+      "test_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
+      "test_name": "integrated Portfolio makes Allocation the only entry authority and releases exposure/risk through lifecycle Artifact",
+      "test_source_sha256": "7b2b3aaafed3ae79a15b9c7ca721b978c6af2fab8f061ab769b8e75c607f7733"
+    },
+    {
+      "profile": "single-trial",
+      "publication_scope": "direct-manifest",
+      "recovery_mode": "direct-checkpoint-resume-or-deterministic-rerun",
+      "writer_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.ts",
+      "writer_export": "runReplayTrial",
+      "writer_source_sha256": "2aa414d59aad6caa6710a3955070927a60800200f3aced8d34fe514bb80b446e",
+      "test_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.test.ts",
+      "test_name": "runner atomically publishes an attempt-local checkpoint commit and resumes it across processes",
+      "test_source_sha256": "b954e5ebe5d4a4c4060466c19dcf6273debc957293b765a1b8bf42399c814bb5"
+    },
+    {
+      "profile": "terminal-aware-bounded-cycle",
+      "publication_scope": "direct-manifest",
+      "recovery_mode": "deterministic-full-rerun-no-checkpoint-writer",
+      "writer_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-terminal-cycle-sequence-artifact-publisher.ts",
+      "writer_export": "publishReplayPortfolioProtectiveTerminalCycleSequenceArtifact",
+      "writer_source_sha256": "6d9df8111a380950e50dbccebfd0f8afa00b457cf3f9eb16f983190627a59eba",
+      "test_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
+      "test_name": "bounded Cycle Sequence executes one, two, and three predeclared full-flat cycles without cycle-number schemas",
+      "test_source_sha256": "7b2b3aaafed3ae79a15b9c7ca721b978c6af2fab8f061ab769b8e75c607f7733"
+    }
+  ],
+  "limitations": [
+    "local-filesystem-single-host-only-remote-and-distributed-stores-not-certified",
+    "exactly-once-applies-to-authoritative-manifest-publication-not-process-execution",
+    "independent-batch-has-no-durable-aggregate-writer-and-delegates-to-child-trial-manifests",
+    "integrated-and-terminal-cycle-recover-by-deterministic-full-rerun-without-checkpoint",
+    "power-loss-and-filesystem-hardware-failure-beyond-fsync-contract-not-certified"
+  ],
+  "bundle_sha256": "1d00c627979d2617ee7f55e1d8dc104904968f40be94e21005eed934466db9cf"
+}
