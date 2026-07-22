@@ -78,7 +78,7 @@ import { ReplayLiquidationDeficitError, ReplayMarginTerminalError, assertReplayP
 import { reduceReplaySourceEvents } from "./replay-source-reducer"
 import { resolveReplayPendingOrder } from "./replay-pending-order-resolution"
 
-export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v29" as const
+export const REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-engine-checkpoint.v31" as const
 
 export interface ReplayEngineCheckpoint {
   schema_version: typeof REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION
@@ -105,6 +105,7 @@ export interface ReplayEngineCheckpoint {
   entry_transition: ReplayEntryOrderExecution | null
   pending_order_resolutions: ReplayPendingOrderResolution[]
   partial_reduce_order: ReplayOrder | null
+  partial_reduce_orders: ReplayOrder[]
   partial_reduce_fills: ReplayFill[]
   strategy_exit_order: ReplayOrder | null
   order_events: ReplayOrderEvent[]
@@ -424,7 +425,11 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     reduce_only: false,
   })
   const exactRiskSnapshots: ReplayMarginSnapshot[] = structuredClone(resumeCheckpoint?.exact_risk_snapshots ?? [])
-  let partialReduceOrder: ReplayOrder | null = structuredClone(resumeCheckpoint?.partial_reduce_order ?? null)
+  const partialReduceOrders: ReplayOrder[] = structuredClone(
+    resumeCheckpoint?.partial_reduce_orders
+      ?? (resumeCheckpoint?.partial_reduce_order ? [resumeCheckpoint.partial_reduce_order] : []),
+  )
+  let partialReduceOrder: ReplayOrder | null = structuredClone(partialReduceOrders.at(-1) ?? null)
   const partialReduceFills: ReplayFill[] = structuredClone(resumeCheckpoint?.partial_reduce_fills ?? [])
   let strategyExitOrder: ReplayOrder | null = structuredClone(resumeCheckpoint?.strategy_exit_order ?? null)
   const evidenceFills = (entry: ReplayEntryOrderExecution): ReplayFill[] => [entryFillFor(entry), ...partialReduceFills]
@@ -714,11 +719,15 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
         if (runtimeDecision.schedule_entry.expected_effect === "authorized_partial_reduce") {
           const partialIntent = runtimeDecision.schedule_entry.authorized_partial_reduce
           const entry = boundary.entry_transition
-          if (!partialIntent || !entry || partialReduceOrder) {
-            throw new Error("Replay authorized partial reduce cannot create a unique pending Order")
+          if (!partialIntent || !entry || partialReduceOrder?.status === "submitted"
+              || partialReduceOrders.length >= 2) {
+            throw new Error("Replay authorized partial reduce cannot create its next bounded pending Order")
           }
           partialReduceOrder = capture(submitReplayOrder({
-            order_id: `${request.run_id}:order:partial-reduce`,
+            order_id: partialIntent.schedule_combination_policy
+                === "one_partial_reduce_then_optional_final_full_exit_no_stop_replace"
+              ? `${request.run_id}:order:partial-reduce`
+              : `${request.run_id}:order:partial-reduce:${runtimeDecision.schedule_entry.decision_sequence}`,
             order_role: "strategy_partial_reduce",
             order_type: "market",
             side: partialIntent.side,
@@ -731,6 +740,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
             source!.event_key.source_sequence,
             runtimeDecision.schedule_entry.decision_sequence,
           ), entry.signed_position_after)).order
+          partialReduceOrders.push(structuredClone(partialReduceOrder))
         }
         if (runtimeDecision.schedule_entry.expected_effect === "authorized_reduce_only_exit") {
           const exitIntent = runtimeDecision.schedule_entry.authorized_reduce_only_exit
@@ -832,6 +842,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
         entry_order: boundary.entry_transition?.entry_order ?? entryOrder,
         pending_order_resolutions: pendingOrderResolutions,
         partial_reduce_order: partialReduceOrder,
+        partial_reduce_orders: partialReduceOrders,
         partial_reduce_fills: partialReduceFills,
         strategy_exit_order: strategyExitOrder,
         order_events: orderEvents,
@@ -1134,7 +1145,8 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     apply_partial_reduce: (source, entry) => {
       if (!partialReduceOrder || partialReduceOrder.status === "filled" || source.kind !== "bar_open") return
       const scheduleEntry = request.decision_schedule.entries.find(
-        (candidate) => candidate.expected_effect === "authorized_partial_reduce",
+        (candidate) => candidate.expected_effect === "authorized_partial_reduce"
+          && candidate.authorized_partial_reduce?.signal_time === partialReduceOrder?.submitted_at,
       )
       const intent = scheduleEntry?.authorized_partial_reduce
       if (!intent || !scheduleEntry) throw new Error("Replay pending partial reduce lacks frozen schedule authority")
@@ -1158,6 +1170,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
         capture,
       })
       partialReduceOrder = execution.partial_order
+      partialReduceOrders[partialReduceOrders.length - 1] = structuredClone(execution.partial_order)
       entry.signed_position_after = execution.signed_position_after
       entry.stop_order = execution.stop_order
       entry.target_order = execution.target_order
@@ -1733,6 +1746,7 @@ function buildReplayEngineCheckpoint(input: {
   entry_order: ReplayOrder
   pending_order_resolutions: ReplayPendingOrderResolution[]
   partial_reduce_order: ReplayOrder | null
+  partial_reduce_orders: ReplayOrder[]
   partial_reduce_fills: ReplayFill[]
   strategy_exit_order: ReplayOrder | null
   order_events: ReplayOrderEvent[]
@@ -1777,6 +1791,7 @@ function buildReplayEngineCheckpoint(input: {
     entry_transition: structuredClone(input.boundary.entry_transition),
     pending_order_resolutions: structuredClone(input.pending_order_resolutions),
     partial_reduce_order: structuredClone(input.partial_reduce_order),
+    partial_reduce_orders: structuredClone(input.partial_reduce_orders),
     partial_reduce_fills: structuredClone(input.partial_reduce_fills),
     strategy_exit_order: structuredClone(input.strategy_exit_order),
     order_events: structuredClone(input.order_events),
@@ -1953,7 +1968,11 @@ export function assertReplayEngineCheckpoint(
     const targetReplacementApplied = Boolean(targetReplacementIntent && targetReplacementSchedule
       && targetReplacementEvidence?.evaluation_status === "evaluated"
       && targetReplacementEvidence.execution_effect === "authorized_take_profit_replace")
-    const partialApplied = checkpoint.partial_reduce_order?.status === "filled"
+    const partialAppliedCount = checkpoint.partial_reduce_orders.filter((order) => order.status === "filled").length
+    const appliedPartialSchedules = request.decision_schedule.entries.filter(
+      (candidate) => candidate.expected_effect === "authorized_partial_reduce",
+    ).slice(0, partialAppliedCount)
+    const latestAppliedPartialSchedule = appliedPartialSchedules.at(-1)
     const targetCancelSchedule = request.decision_schedule.entries.find(
       (candidate) => candidate.expected_effect === "authorized_take_profit_cancel",
     )
@@ -1974,7 +1993,9 @@ export function assertReplayEngineCheckpoint(
     const stopCancelApplied = Boolean(stopCancelIntent && stopCancelSchedule
       && stopCancelEvidence?.evaluation_status === "evaluated"
       && stopCancelEvidence.execution_effect === "authorized_protective_stop_cancel")
-    const expectedGeneration = replacementApplied || targetReplacementApplied || partialApplied ? 2 : 1
+    const expectedGeneration = targetReplacementApplied
+      ? 2
+      : 1 + partialAppliedCount + (replacementApplied ? 1 : 0)
     if (!Number.isSafeInteger(entry.protection_generation)
         || entry.protection_generation !== expectedGeneration
         || entry.stop_order.status !== (stopCancelApplied ? "cancelled" : "active")
@@ -1995,7 +2016,9 @@ export function assertReplayEngineCheckpoint(
     }
     if (replacementApplied && (!replacementIntent || !replacementSchedule
         || entry.stop_order.order_id !== `${request.run_id}:order:stop-replacement:${replacementSchedule.decision_sequence}`
-        || entry.target_order.order_id !== `${request.run_id}:order:target`
+        || entry.target_order.order_id !== (latestAppliedPartialSchedule
+          ? `${request.run_id}:order:target-after-partial:${latestAppliedPartialSchedule.decision_sequence}`
+          : `${request.run_id}:order:target`)
         || entry.stop_order.trigger_price !== replacementIntent.new_stop_price
         || entry.target_order.trigger_price !== request.order.target_price)) {
       throw new Error("Replay engine checkpoint replacement protection state is invalid")
@@ -2007,7 +2030,7 @@ export function assertReplayEngineCheckpoint(
         || entry.target_order.trigger_price !== targetReplacementIntent.new_target_price)) {
       throw new Error("Replay engine checkpoint take-profit replacement state is invalid")
     }
-    if (!replacementApplied && !targetReplacementApplied && !partialApplied
+    if (!replacementApplied && !targetReplacementApplied && partialAppliedCount === 0
         && (entry.stop_order.order_id !== `${request.run_id}:order:stop`
           || entry.target_order.order_id !== `${request.run_id}:order:target`
           || entry.stop_order.trigger_price !== request.order.stop_price
@@ -2015,21 +2038,34 @@ export function assertReplayEngineCheckpoint(
       throw new Error("Replay engine checkpoint initial protection state is invalid")
     }
   }
-  if (checkpoint.partial_reduce_order) assertOrderMatchesLastEvent(checkpoint.partial_reduce_order)
+  for (const order of checkpoint.partial_reduce_orders) assertOrderMatchesLastEvent(order)
+  const latestPartialOrder = checkpoint.partial_reduce_orders.at(-1) ?? null
+  if (canonicalHash(checkpoint.partial_reduce_order) !== canonicalHash(latestPartialOrder)) {
+    throw new Error("Replay engine checkpoint latest partial Order mirror is invalid")
+  }
   if (checkpoint.strategy_exit_order) assertOrderMatchesLastEvent(checkpoint.strategy_exit_order)
-  if (checkpoint.partial_reduce_order) {
-    const scheduleEntry = request.decision_schedule.entries.find(
-      (entry) => entry.expected_effect === "authorized_partial_reduce",
-    )
+  const partialSchedules = request.decision_schedule.entries.filter(
+    (entry) => entry.expected_effect === "authorized_partial_reduce",
+  )
+  if (checkpoint.partial_reduce_orders.length > partialSchedules.length
+      || checkpoint.partial_reduce_orders.length > 2) {
+    throw new Error("Replay engine checkpoint exceeds frozen partial-reduce authority")
+  }
+  let filledQuantity = 0
+  for (const [index, order] of checkpoint.partial_reduce_orders.entries()) {
+    const scheduleEntry = partialSchedules[index]
     const intent = scheduleEntry?.authorized_partial_reduce
     const evidence = checkpoint.decision_evidence_timeline.entries.find(
       (entry) => entry.decision_sequence === scheduleEntry?.decision_sequence,
     )
-    const order = checkpoint.partial_reduce_order
-    const fill = checkpoint.partial_reduce_fills[0]
+    const fill = checkpoint.partial_reduce_fills.find((candidate) => candidate.order_id === order.order_id)
+    const expectedOrderId = intent?.schedule_combination_policy
+        === "one_partial_reduce_then_optional_final_full_exit_no_stop_replace"
+      ? `${request.run_id}:order:partial-reduce`
+      : `${request.run_id}:order:partial-reduce:${scheduleEntry?.decision_sequence}`
     if (!intent || evidence?.evaluation_status !== "evaluated"
         || evidence.execution_effect !== "authorized_partial_reduce"
-        || order.order_id !== `${request.run_id}:order:partial-reduce`
+        || order.order_id !== expectedOrderId
         || order.order_role !== "strategy_partial_reduce"
         || order.order_type !== "market"
         || order.side !== intent.side
@@ -2038,11 +2074,9 @@ export function assertReplayEngineCheckpoint(
         || order.trigger_price !== null
         || !["submitted", "filled"].includes(order.status)
         || order.submitted_at !== intent.signal_time
-        || (order.status === "submitted" && (order.filled_quantity !== 0 || checkpoint.partial_reduce_fills.length !== 0))
+        || (order.status === "submitted" && (order.filled_quantity !== 0 || fill !== undefined))
         || (order.status === "filled" && (
-          checkpoint.partial_reduce_fills.length !== 1
-          || !fill
-          || fill.order_id !== order.order_id
+          !fill
           || fill.order_role !== "strategy_partial_reduce"
           || fill.side !== intent.side
           || fill.quantity !== intent.quantity
@@ -2054,32 +2088,52 @@ export function assertReplayEngineCheckpoint(
         ))) {
       throw new Error("Replay engine checkpoint partial reduce is invalid")
     }
-    if (order.status === "filled") {
-      const entry = checkpoint.entry_transition
-      const expectedSignedPosition = !entry ? 0 : request.order.side === "long"
-        ? entry.executed_quantity - intent.quantity
-        : -entry.executed_quantity + intent.quantity
-      if (!entry || entry.signed_position_after !== expectedSignedPosition
-          || entry.stop_order.order_id !== `${request.run_id}:order:stop-after-partial:${scheduleEntry.decision_sequence}`
-          || entry.target_order.order_id !== `${request.run_id}:order:target-after-partial:${scheduleEntry.decision_sequence}`
-          || entry.stop_order.order_role !== "stop" || entry.target_order.order_role !== "target"
-          || entry.stop_order.order_type !== "stop_market"
-          || entry.target_order.order_type !== "take_profit_market"
-          || entry.stop_order.side !== intent.side || entry.target_order.side !== intent.side
-          || entry.stop_order.reduce_only !== true || entry.target_order.reduce_only !== true
-          || entry.stop_order.status !== "active" || entry.target_order.status !== "active"
-          || entry.stop_order.trigger_price !== request.order.stop_price
-          || entry.target_order.trigger_price !== request.order.target_price
-          || entry.stop_order.quantity !== Math.abs(expectedSignedPosition)
-          || entry.target_order.quantity !== Math.abs(expectedSignedPosition)
-          || entry.stop_order.filled_quantity !== 0 || entry.target_order.filled_quantity !== 0
-          || entry.stop_order.remaining_quantity !== Math.abs(expectedSignedPosition)
-          || entry.target_order.remaining_quantity !== Math.abs(expectedSignedPosition)) {
-        throw new Error("Replay engine checkpoint partial-reduce protection state is invalid")
-      }
+    if (order.status === "filled") filledQuantity += intent.quantity
+  }
+  if (checkpoint.partial_reduce_fills.length
+      !== checkpoint.partial_reduce_orders.filter((order) => order.status === "filled").length) {
+    throw new Error("Replay engine checkpoint partial Fill collection is invalid")
+  }
+  if (filledQuantity > 0) {
+    const entry = checkpoint.entry_transition
+    const lastFilledIndex = [...checkpoint.partial_reduce_orders].map((order) => order.status).lastIndexOf("filled")
+    const scheduleEntry = partialSchedules[lastFilledIndex]
+    const intent = scheduleEntry?.authorized_partial_reduce
+    const expectedSignedPosition = !entry ? 0 : request.order.side === "long"
+      ? entry.executed_quantity - filledQuantity
+      : -entry.executed_quantity + filledQuantity
+    const replacementSchedule = request.decision_schedule.entries.find(
+      (candidate) => candidate.expected_effect === "authorized_protective_stop_replace",
+    )
+    const replacementIntent = replacementSchedule?.authorized_protective_stop_replace
+    const replacementEvidence = checkpoint.decision_evidence_timeline.entries.find(
+      (candidate) => candidate.decision_sequence === replacementSchedule?.decision_sequence,
+    )
+    const replacementApplied = Boolean(replacementIntent && replacementSchedule
+      && replacementEvidence?.evaluation_status === "evaluated"
+      && replacementEvidence.execution_effect === "authorized_protective_stop_replace")
+    const expectedStopOrderId = replacementApplied
+      ? `${request.run_id}:order:stop-replacement:${replacementSchedule!.decision_sequence}`
+      : `${request.run_id}:order:stop-after-partial:${scheduleEntry?.decision_sequence}`
+    const expectedStopPrice = replacementApplied ? replacementIntent!.new_stop_price : request.order.stop_price
+    if (!entry || !intent || !scheduleEntry || entry.signed_position_after !== expectedSignedPosition
+        || entry.stop_order.order_id !== expectedStopOrderId
+        || entry.target_order.order_id !== `${request.run_id}:order:target-after-partial:${scheduleEntry.decision_sequence}`
+        || entry.stop_order.order_role !== "stop" || entry.target_order.order_role !== "target"
+        || entry.stop_order.order_type !== "stop_market"
+        || entry.target_order.order_type !== "take_profit_market"
+        || entry.stop_order.side !== intent.side || entry.target_order.side !== intent.side
+        || entry.stop_order.reduce_only !== true || entry.target_order.reduce_only !== true
+        || entry.stop_order.status !== "active" || entry.target_order.status !== "active"
+        || entry.stop_order.trigger_price !== expectedStopPrice
+        || entry.target_order.trigger_price !== request.order.target_price
+        || entry.stop_order.quantity !== Math.abs(expectedSignedPosition)
+        || entry.target_order.quantity !== Math.abs(expectedSignedPosition)
+        || entry.stop_order.filled_quantity !== 0 || entry.target_order.filled_quantity !== 0
+        || entry.stop_order.remaining_quantity !== Math.abs(expectedSignedPosition)
+        || entry.target_order.remaining_quantity !== Math.abs(expectedSignedPosition)) {
+      throw new Error("Replay engine checkpoint partial-reduce protection state is invalid")
     }
-  } else if (checkpoint.partial_reduce_fills.length !== 0) {
-    throw new Error("Replay engine checkpoint partial Fill lacks its Order")
   }
   if (checkpoint.strategy_exit_order) {
     const scheduleEntry = request.decision_schedule.entries.find(
@@ -2136,6 +2190,7 @@ function assertInstrumentAlignedInputs(
   })) {
     if (!isReplayIncrementAligned(value, priceIncrement)) throw new Error(`Replay ${field} must align to price increment`)
   }
+  let cumulativePartialQuantity = 0
   for (const entry of request.decision_schedule.entries) {
     const replace = entry.authorized_protective_stop_replace
     if (replace && !isReplayIncrementAligned(replace.new_stop_price, priceIncrement)) {
@@ -2146,9 +2201,12 @@ function assertInstrumentAlignedInputs(
       throw new Error("Replay replacement target_price must align to price increment")
     }
     const partial = entry.authorized_partial_reduce
-    if (partial && (!isReplayIncrementAligned(partial.quantity, quantityIncrement)
-        || partial.quantity >= quantizeReplayQuantity(request.order.quantity, quantityIncrement))) {
-      throw new Error("Replay partial-reduce quantity must align and leave the executable position open")
+    if (partial) {
+      cumulativePartialQuantity += partial.quantity
+      if (!isReplayIncrementAligned(partial.quantity, quantityIncrement)
+          || cumulativePartialQuantity >= quantizeReplayQuantity(request.order.quantity, quantityIncrement)) {
+        throw new Error("Replay cumulative partial-reduce quantity must align and leave the executable position open")
+      }
     }
   }
   for (const [index, bar] of bars.entries()) {
