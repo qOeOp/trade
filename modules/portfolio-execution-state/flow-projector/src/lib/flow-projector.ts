@@ -27,6 +27,7 @@ export interface ActiveFlowSummary {
 export function reduceFlowState(db: Database, chainId: string): JSONRecord {
   const events = readFlowEvents(db, chainId)
   const orders = new Map<string, JSONRecord>()
+  const cumulativeFills = new Map<string, number>()
   const position = {
     symbol: "",
     position_side: "",
@@ -54,7 +55,7 @@ export function reduceFlowState(db: Database, chainId: string): JSONRecord {
     }
     latestOrderFill = event
     riskLock = updateRiskLock(riskLock, event)
-    reduceOrderFill(event.body_json, orders, position)
+    reduceOrderFill(event.body_json, orders, position, cumulativeFills)
   }
 
   return {
@@ -181,6 +182,7 @@ function reduceOrderFill(
   body: JSONRecord,
   orders: Map<string, JSONRecord>,
   position: { symbol: string; position_side: string; net_qty: number; avg_entry_price: number; state: string },
+  cumulativeFills: Map<string, number>,
 ): void {
   const clientOrderId = stringField(body.client_order_id)
   const subKind = stringField(body.sub_kind)
@@ -214,7 +216,7 @@ function reduceOrderFill(
   }
 
   if (subKind === "partial_fill" || subKind === "fill" || lifecycleStatus === "partially_filled" || lifecycleStatus === "filled" || lifecycleStatus === "reconciled") {
-    const fillQty = readFillDelta(body)
+    const fillQty = readFillDelta(body, clientOrderId, cumulativeFills)
     const avgFillPrice = numberField(body.avg_fill_price) || numberField(body.price)
     applyPositionFill(position, body, fillQty, avgFillPrice)
     const existing = orders.get(clientOrderId)
@@ -232,10 +234,20 @@ function reduceOrderFill(
   }
 }
 
-function readFillDelta(body: JSONRecord): number {
-  if (Object.prototype.hasOwnProperty.call(body, "fill_delta_qty")) return numberField(body.fill_delta_qty)
-  if (Object.prototype.hasOwnProperty.call(body, "filled_qty")) return numberField(body.filled_qty)
-  return numberField(body.qty)
+function readFillDelta(body: JSONRecord, clientOrderId: string, cumulativeFills: Map<string, number>): number {
+  const previous = cumulativeFills.get(clientOrderId) ?? 0
+  if (Object.prototype.hasOwnProperty.call(body, "cumulative_filled_qty")) {
+    const cumulative = Math.max(numberField(body.cumulative_filled_qty), 0)
+    cumulativeFills.set(clientOrderId, Math.max(previous, cumulative))
+    return Math.max(cumulative - previous, 0)
+  }
+  const delta = Object.prototype.hasOwnProperty.call(body, "fill_delta_qty")
+    ? numberField(body.fill_delta_qty)
+    : Object.prototype.hasOwnProperty.call(body, "filled_qty")
+      ? numberField(body.filled_qty)
+      : numberField(body.qty)
+  cumulativeFills.set(clientOrderId, previous + Math.max(delta, 0))
+  return Math.max(delta, 0)
 }
 
 function updateRiskLock(current: JSONRecord, event: PlanEvent): JSONRecord {

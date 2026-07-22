@@ -127,6 +127,51 @@ test("flow reducer lets lifecycle filled and reconciled change position only on 
   }
 })
 
+test("flow reducer derives deltas from cumulative fills and ignores duplicate or stale snapshots", () => {
+  const db = new Database(":memory:")
+  ensureSchema(db)
+  try {
+    appendOrderFill(db, "submit-cumulative-0", {
+      sub_kind: "submit",
+      lifecycle_status: "submitted",
+      client_order_id: "flow-cumulative-entry",
+      side: "BUY",
+      symbol: "BTCUSDT",
+      qty: 1,
+      source: "reconcile",
+    }, "flow-cumulative")
+    for (const [eventKey, subKind, cumulative, declaredDelta] of [
+      ["fill-04-1", "partial_fill", 0.4, 0.4],
+      ["fill-07-2", "partial_fill", 0.7, 0.3],
+      ["fill-07-duplicate-3", "partial_fill", 0.7, 0.7],
+      ["fill-04-stale-4", "partial_fill", 0.4, 0.4],
+      ["fill-10-5", "fill", 1, 0.3],
+    ] as const) {
+      appendOrderFill(db, eventKey, {
+        sub_kind: subKind,
+        lifecycle_status: subKind === "fill" ? "reconciled" : "partially_filled",
+        client_order_id: "flow-cumulative-entry",
+        side: "BUY",
+        symbol: "BTCUSDT",
+        cumulative_filled_qty: cumulative,
+        fill_delta_qty: declaredDelta,
+        avg_fill_price: 100,
+        source: "reconcile",
+      }, "flow-cumulative")
+    }
+
+    const state = reduceFlowState(db, "flow-cumulative") as {
+      current_orders: unknown[]
+      current_position: { net_qty: number; avg_entry_price: number }
+    }
+    assert.equal(state.current_orders.length, 0)
+    assert.equal(state.current_position.net_qty, 1)
+    assert.equal(state.current_position.avg_entry_price, 100)
+  } finally {
+    db.close()
+  }
+})
+
 function appendOrderFill(
   db: Database,
   eventKey: string,
