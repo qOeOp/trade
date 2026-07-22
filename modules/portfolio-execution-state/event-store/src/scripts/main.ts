@@ -4,6 +4,8 @@ import { Database } from "bun:sqlite"
 import { dirname } from "node:path"
 import { mkdirSync } from "node:fs"
 import { assertProjectRuntimePath, repoRoot } from "../../../../contracts/runtime-core/src/paths"
+import { stringField } from "../../../../contracts/runtime-core/src/json"
+import { errorResponse, printScriptResult, readFlagValue, readJsonObject, successResponse } from "../../../../contracts/runtime-core/src/script-json"
 import {
   appendPlanEvent,
   buildOrderFillEvent,
@@ -35,8 +37,7 @@ interface Config {
 
 function main(argv: string[]): void {
   const result = run(argv)
-  console.log(JSON.stringify(result, null, 2))
-  if (!result.ok) process.exit(1)
+  printScriptResult(result)
 }
 
 export function run(argv: string[]): JSONRecord {
@@ -50,43 +51,43 @@ export function run(argv: string[]): JSONRecord {
     try {
       ensureSchema(db)
       if (config.mode === "init") {
-        return successResponse({ initialized: true, dbPath: config.dbPath })
+        return successResponse("event-store.script-response.v1", { initialized: true, dbPath: config.dbPath })
       }
       if (config.mode === "append-event") {
         const event = config.input as unknown as PlanEvent
         appendPlanEvent(db, event)
-        return successResponse(event)
+        return successResponse("event-store.script-response.v1", event)
       }
       if (config.mode === "append-event-envelope") {
         const { envelope, event } = readEventWriteEnvelope(config.input)
         appendPlanEvent(db, event)
-        return successResponse({ ...envelope, event_inline: event })
+        return successResponse("event-store.script-response.v1", { ...envelope, event_inline: event })
       }
       if (config.mode === "append-order-fill") {
         const event = buildOrderFillEvent(config.input)
         appendPlanEvent(db, event)
-        return successResponse(event)
+        return successResponse("event-store.script-response.v1", event)
       }
       if (config.mode === "append-review") {
         const event = buildReviewEvent(config.input)
         appendPlanEvent(db, event)
-        return successResponse(event)
+        return successResponse("event-store.script-response.v1", event)
       }
       if (config.mode === "list-chain-ids") {
-        return successResponse(listChainIds(db))
+        return successResponse("event-store.script-response.v1", listChainIds(db))
       }
       if (config.mode === "read-flow-events") {
-        return successResponse(readFlowEvents(db, config.chainId))
+        return successResponse("event-store.script-response.v1", readFlowEvents(db, config.chainId))
       }
       if (config.mode === "read-latest-order-fill") {
-        return successResponse(readLatestOrderFill(db, config.chainId))
+        return successResponse("event-store.script-response.v1", readLatestOrderFill(db, config.chainId))
       }
       throw new Error("provide --init, --append-event, --append-event-envelope, --append-order-fill, --append-review, --list-chain-ids, --read-flow-events, or --read-latest-order-fill")
     } finally {
       db.close()
     }
   } catch (error) {
-    return errorResponse(error)
+    return errorResponse("event-store.script-response.v1", error)
   } finally {
     process.chdir(previousCwd)
   }
@@ -105,26 +106,14 @@ function parseArgs(argv: string[]): Config {
       case "--list-chain-ids": config.mode = "list-chain-ids"; break
       case "--read-flow-events": config.mode = "read-flow-events"; break
       case "--read-latest-order-fill": config.mode = "read-latest-order-fill"; break
-      case "--db": config.dbPath = readValue(argv, ++index, arg); break
-      case "--chain-id": config.chainId = readValue(argv, ++index, arg); break
-      case "--json": config.input = readJson(readValue(argv, ++index, arg)); break
+      case "--db": config.dbPath = readFlagValue(argv, ++index, arg); break
+      case "--chain-id": config.chainId = readFlagValue(argv, ++index, arg); break
+      case "--json": config.input = readJsonObject(readFlagValue(argv, ++index, arg)); break
       case "--help": printHelp(); return process.exit(0)
       default: throw new Error(`unknown flag: ${arg}`)
     }
   }
   return config
-}
-
-function readValue(argv: string[], index: number, name: string): string {
-  const value = argv[index]
-  if (!value || value.startsWith("--")) throw new Error(`${name} requires a value`)
-  return value
-}
-
-function readJson(raw: string): JSONRecord {
-  const parsed = JSON.parse(raw)
-  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("input JSON must be an object")
-  return parsed as JSONRecord
 }
 
 function readEventWriteEnvelope(input: JSONRecord): { envelope: JSONRecord; event: PlanEvent } {
@@ -161,19 +150,6 @@ function readPlanEvent(value: unknown): PlanEvent {
 
 function readBody(value: unknown): JSONRecord {
   return value && typeof value === "object" && !Array.isArray(value) ? value as JSONRecord : {}
-}
-
-function stringField(value: unknown): string {
-  return typeof value === "string" ? value.trim() : ""
-}
-
-function successResponse(data: unknown): JSONRecord {
-  return { ok: true, schema_version: "event-store.script-response.v1", data }
-}
-
-function errorResponse(error: unknown): JSONRecord {
-  const message = error instanceof Error ? error.message : String(error)
-  return { ok: false, schema_version: "event-store.script-response.v1", error: message }
 }
 
 function printHelp(): void {
