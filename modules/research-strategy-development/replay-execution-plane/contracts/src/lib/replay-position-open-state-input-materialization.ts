@@ -35,7 +35,7 @@ export interface ReplayPositionOpenStateInputMaterialization {
   order_authority: "none"
   economic_authority: "none"
   runner_compatibility: "not_bound"
-  request_schema_version: "trade.rd-replay-execution-request.v36"
+  request_schema_version: "trade.rd-replay-execution-request.v38"
   request_hash: string
   run_id: string
   experiment_id: string
@@ -95,7 +95,7 @@ export function assertReplayPositionOpenStateInputMaterialization(
       || value.decision_output_authority !== "none" || value.signal_authority !== "none"
       || value.order_authority !== "none" || value.economic_authority !== "none"
       || value.runner_compatibility !== "not_bound"
-      || value.request_schema_version !== "trade.rd-replay-execution-request.v36"
+      || value.request_schema_version !== "trade.rd-replay-execution-request.v38"
       || value.decision_phase !== "position_open"
       || value.state_snapshot_schema_version !== REPLAY_DECISION_STATE_SNAPSHOT_SCHEMA_VERSION) {
     throw new Error("unsupported position-open State input materialization authority")

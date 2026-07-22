@@ -54,7 +54,7 @@ export interface ReplayDecisionMarketInputMaterialization {
   order_authority: "none"
   economic_authority: "none"
   runner_compatibility: "not_bound"
-  request_schema_version: "trade.rd-replay-execution-request.v36"
+  request_schema_version: "trade.rd-replay-execution-request.v38"
   request_hash: string
   run_id: string
   experiment_id: string
@@ -150,7 +150,7 @@ export function assertReplayDecisionMarketInputMaterialization(
       || value.decision_output_authority !== "none" || value.signal_authority !== "none"
       || value.order_authority !== "none" || value.economic_authority !== "none"
       || value.runner_compatibility !== "not_bound"
-      || value.request_schema_version !== "trade.rd-replay-execution-request.v36"
+      || value.request_schema_version !== "trade.rd-replay-execution-request.v38"
       || value.decision_market_input_snapshot_schema_version !== REPLAY_DECISION_MARKET_INPUT_SNAPSHOT_SCHEMA_VERSION) {
     throw new Error("unsupported decision Market input materialization authority")
   }

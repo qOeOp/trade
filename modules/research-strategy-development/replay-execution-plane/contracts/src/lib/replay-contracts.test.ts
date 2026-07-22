@@ -25,6 +25,8 @@ import {
   REPLAY_PARTIAL_REDUCE_INTENT_SCHEMA_VERSION,
   REPLAY_PARTIAL_REDUCE_PROTECTION_POLICY_VERSION,
   REPLAY_PARTIAL_REDUCE_CAPABILITY,
+  REPLAY_POST_PARTIAL_STOP_REPLACE_CAPABILITY,
+  REPLAY_TWO_PARTIAL_REDUCE_CAPABILITY,
   REPLAY_CERTIFIED_CAPABILITIES,
   REPLAY_LOCAL_ARTIFACT_STORE_CAPABILITY,
   REPLAY_OBJECT_ARTIFACT_STORE_REQUIRED_CAPABILITY,
@@ -172,7 +174,7 @@ test("Replay request requires complete Trial and evidence identity", () => {
   expect(() => assertReplayExecutionRequest(unauthorizedSchedule)).toThrow("market-only closed-bar lookback")
 })
 
-test("Request v36 freezes Limit and Stop-market GTD pending-entry authority", () => {
+test("Request v38 freezes Limit and Stop-market GTD pending-entry authority", () => {
   const requestValue = fixtureRequest()
   requestValue.order = {
     ...requestValue.order,
@@ -683,7 +685,7 @@ test("decision schedule permits one final take-profit replacement while preservi
   expect(() => assertReplayExecutionRequest(unchanged)).toThrow("preserve its stop")
 })
 
-test("decision schedule certifies one non-terminal fixed-quantity partial reduce", () => {
+test("decision schedule certifies one or two bounded fixed-quantity partial reduces", () => {
   const initialOrder = fixtureRequest().order
   const partial = {
     schema_version: REPLAY_PARTIAL_REDUCE_INTENT_SCHEMA_VERSION,
@@ -728,12 +730,18 @@ test("decision schedule certifies one non-terminal fixed-quantity partial reduce
   expect(() => assertReplayExecutionRequest(requestValue)).not.toThrow()
 
   const combinedWithStopReplace = structuredClone(requestValue)
+  combinedWithStopReplace.decision_schedule.entries[1]!.authorized_partial_reduce!.schedule_combination_policy
+    = "one_partial_reduce_then_one_tighten_only_stop_replace_then_optional_final_full_exit"
+  combinedWithStopReplace.decision_schedule.entries[1]!.authorized_order_hash = canonicalHash(
+    combinedWithStopReplace.decision_schedule.entries[1]!.authorized_partial_reduce,
+  )
   const replace = {
     schema_version: REPLAY_PROTECTIVE_STOP_REPLACE_INTENT_SCHEMA_VERSION,
     side: "sell" as const, order_type: "stop_market" as const, reduce_only: true as const,
     quantity_policy: "full_open_position" as const,
     replace_policy: "tighten_only_cancel_then_submit" as const,
-    signal_time: "2026-07-14T12:00:00Z", previous_stop_price: 95, new_stop_price: 101,
+    schedule_combination_policy: "after_final_partial_then_optional_full_exit_no_other_position_mutation" as const,
+    signal_time: "2026-07-14T16:00:00Z", previous_stop_price: 95, new_stop_price: 101,
   }
   combinedWithStopReplace.decision_schedule.entries.push({
     decision_sequence: 3, decision_time: replace.signal_time,
@@ -742,20 +750,85 @@ test("decision schedule certifies one non-terminal fixed-quantity partial reduce
     authorized_order_hash: canonicalHash(replace),
   })
   combinedWithStopReplace.decision_schedule_hash = canonicalHash(combinedWithStopReplace.decision_schedule)
-  expect(() => assertReplayExecutionRequest(combinedWithStopReplace)).toThrow("cannot be combined")
+  expect(() => assertReplayExecutionRequest(combinedWithStopReplace)).not.toThrow()
+  expect(REPLAY_CERTIFIED_CAPABILITIES).toContain(REPLAY_POST_PARTIAL_STOP_REPLACE_CAPABILITY)
 
-  const duplicate = structuredClone(requestValue)
+  const legacyPolicyCombination = structuredClone(combinedWithStopReplace)
+  legacyPolicyCombination.decision_schedule.entries[1]!.authorized_partial_reduce!.schedule_combination_policy
+    = "one_partial_reduce_then_optional_final_full_exit_no_stop_replace"
+  legacyPolicyCombination.decision_schedule.entries[1]!.authorized_order_hash = canonicalHash(
+    legacyPolicyCombination.decision_schedule.entries[1]!.authorized_partial_reduce,
+  )
+  legacyPolicyCombination.decision_schedule_hash = canonicalHash(legacyPolicyCombination.decision_schedule)
+  expect(() => assertReplayExecutionRequest(legacyPolicyCombination)).toThrow("policy does not match")
+
+  const replacementBeforePartial = structuredClone(combinedWithStopReplace)
+  const [partialEntry, replacementEntry] = replacementBeforePartial.decision_schedule.entries.splice(1, 2)
+  replacementBeforePartial.decision_schedule.entries.push(
+    { ...replacementEntry!, decision_sequence: 2, decision_time: "2026-07-14T08:00:01Z" },
+    { ...partialEntry!, decision_sequence: 3, decision_time: "2026-07-14T16:00:00Z" },
+  )
+  replacementBeforePartial.decision_schedule.entries[1]!.authorized_protective_stop_replace!.signal_time
+    = replacementBeforePartial.decision_schedule.entries[1]!.decision_time
+  replacementBeforePartial.decision_schedule.entries[1]!.authorized_order_hash = canonicalHash(
+    replacementBeforePartial.decision_schedule.entries[1]!.authorized_protective_stop_replace,
+  )
+  replacementBeforePartial.decision_schedule.entries[2]!.authorized_partial_reduce!.signal_time
+    = replacementBeforePartial.decision_schedule.entries[2]!.decision_time
+  replacementBeforePartial.decision_schedule.entries[2]!.authorized_partial_reduce!.earliest_executable_time
+    = "2026-07-14T20:00:00Z"
+  replacementBeforePartial.decision_schedule.entries[2]!.authorized_order_hash = canonicalHash(
+    replacementBeforePartial.decision_schedule.entries[2]!.authorized_partial_reduce,
+  )
+  replacementBeforePartial.decision_schedule_hash = canonicalHash(replacementBeforePartial.decision_schedule)
+  expect(() => assertReplayExecutionRequest(replacementBeforePartial)).toThrow("must follow the final bounded partial")
+
+  const mixedPolicy = structuredClone(requestValue)
   const secondPartial = {
     ...partial, signal_time: "2026-07-14T16:00:00Z", earliest_executable_time: "2026-07-14T20:00:00Z",
   }
-  duplicate.decision_schedule.entries.push({
+  mixedPolicy.decision_schedule.entries.push({
     decision_sequence: 3, decision_time: secondPartial.signal_time,
     expected_effect: "authorized_partial_reduce", authorized_reduce_only_exit: null,
     authorized_protective_stop_replace: null, authorized_partial_reduce: secondPartial,
     authorized_order_hash: canonicalHash(secondPartial),
   })
-  duplicate.decision_schedule_hash = canonicalHash(duplicate.decision_schedule)
-  expect(() => assertReplayExecutionRequest(duplicate)).toThrow("at most one partial reduce")
+  mixedPolicy.decision_schedule_hash = canonicalHash(mixedPolicy.decision_schedule)
+  expect(() => assertReplayExecutionRequest(mixedPolicy)).toThrow("policy does not match")
+
+  const repeated = structuredClone(mixedPolicy)
+  for (const entry of repeated.decision_schedule.entries.slice(1)) {
+    entry.authorized_partial_reduce!.quantity = 0.3
+    entry.authorized_partial_reduce!.schedule_combination_policy
+      = "up_to_two_partial_reduces_then_optional_final_full_exit_no_other_mutation"
+    entry.authorized_order_hash = canonicalHash(entry.authorized_partial_reduce)
+  }
+  repeated.decision_schedule_hash = canonicalHash(repeated.decision_schedule)
+  expect(() => assertReplayExecutionRequest(repeated)).not.toThrow()
+  expect(REPLAY_CERTIFIED_CAPABILITIES).toContain(REPLAY_TWO_PARTIAL_REDUCE_CAPABILITY)
+
+  const cumulativeFull = structuredClone(repeated)
+  cumulativeFull.decision_schedule.entries[2]!.authorized_partial_reduce!.quantity = 0.7
+  cumulativeFull.decision_schedule.entries[2]!.authorized_order_hash = canonicalHash(
+    cumulativeFull.decision_schedule.entries[2]!.authorized_partial_reduce,
+  )
+  cumulativeFull.decision_schedule_hash = canonicalHash(cumulativeFull.decision_schedule)
+  expect(() => assertReplayExecutionRequest(cumulativeFull)).toThrow("cumulative partial-reduce quantity")
+
+  const third = structuredClone(repeated)
+  const thirdPartial = {
+    ...secondPartial, quantity: 0.1, signal_time: "2026-07-15T00:00:00Z",
+    earliest_executable_time: "2026-07-15T04:00:00Z",
+    schedule_combination_policy: "up_to_two_partial_reduces_then_optional_final_full_exit_no_other_mutation" as const,
+  }
+  third.decision_schedule.entries.push({
+    decision_sequence: 4, decision_time: thirdPartial.signal_time,
+    expected_effect: "authorized_partial_reduce", authorized_reduce_only_exit: null,
+    authorized_protective_stop_replace: null, authorized_partial_reduce: thirdPartial,
+    authorized_order_hash: canonicalHash(thirdPartial),
+  })
+  third.decision_schedule_hash = canonicalHash(third.decision_schedule)
+  expect(() => assertReplayExecutionRequest(third)).toThrow("at most two partial reduces")
 
   expect(() => assertReplayPartialReduceIntent({ ...partial, quantity: initialOrder.quantity }, initialOrder))
     .toThrow("must leave an open position")

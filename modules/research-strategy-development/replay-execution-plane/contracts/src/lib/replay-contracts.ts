@@ -13,11 +13,11 @@ export {
   REPLAY_OBJECT_ARTIFACT_STORAGE_POLICY_VERSION,
 }
 
-export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v36" as const
-export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v50" as const
-export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v52" as const
+export const REPLAY_REQUEST_SCHEMA_VERSION = "trade.rd-replay-execution-request.v38" as const
+export const REPLAY_RESULT_SCHEMA_VERSION = "trade.rd-replay-result.v52" as const
+export const REPLAY_ARTIFACT_SCHEMA_VERSION = "trade.rd-replay-artifact-manifest.v54" as const
 export const REPLAY_ARTIFACT_STORE_CAPABILITY_SCHEMA_VERSION = "trade.rd-replay-artifact-store-capability.v1" as const
-export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v22" as const
+export const REPLAY_SIMULATOR_POLICY_VERSION = "rd-replay-simulator-v24" as const
 export const REPLAY_NUMERIC_POLICY_VERSION = "rd-replay-number-v3" as const
 export const REPLAY_DERIVED_DECIMAL_INCREMENT = "0.000000000001" as const
 export const REPLAY_JOURNAL_POLICY_VERSION = "rd-replay-journal-v5" as const
@@ -42,16 +42,18 @@ export const REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION = "trade.rd-repl
 export const REPLAY_DECISION_INPUT_SNAPSHOT_SCHEMA_VERSION = "trade.rd-replay-decision-input-snapshot.v1" as const
 export const REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION = "trade.rd-replay-decision-market-input-requirement.v1" as const
 export const REPLAY_DECISION_MARKET_INPUT_SNAPSHOT_SCHEMA_VERSION = "trade.rd-replay-decision-market-input-snapshot.v1" as const
-export const REPLAY_DECISION_SCHEDULE_SCHEMA_VERSION = "trade.rd-replay-decision-schedule.v11" as const
+export const REPLAY_DECISION_SCHEDULE_SCHEMA_VERSION = "trade.rd-replay-decision-schedule.v13" as const
 export const REPLAY_REDUCE_ONLY_EXIT_INTENT_SCHEMA_VERSION = "trade.rd-replay-reduce-only-exit-intent.v1" as const
 export const REPLAY_STRATEGY_EXIT_CANCEL_INTENT_SCHEMA_VERSION = "trade.rd-replay-strategy-exit-cancel-intent.v1" as const
 export const REPLAY_TAKE_PROFIT_CANCEL_INTENT_SCHEMA_VERSION = "trade.rd-replay-take-profit-cancel-intent.v1" as const
 export const REPLAY_PROTECTIVE_STOP_CANCEL_INTENT_SCHEMA_VERSION = "trade.rd-replay-protective-stop-cancel-intent.v1" as const
-export const REPLAY_PROTECTIVE_STOP_REPLACE_INTENT_SCHEMA_VERSION = "trade.rd-replay-protective-stop-replace-intent.v1" as const
+export const REPLAY_PROTECTIVE_STOP_REPLACE_INTENT_SCHEMA_VERSION = "trade.rd-replay-protective-stop-replace-intent.v2" as const
 export const REPLAY_TAKE_PROFIT_REPLACE_INTENT_SCHEMA_VERSION = "trade.rd-replay-take-profit-replace-intent.v1" as const
-export const REPLAY_PARTIAL_REDUCE_INTENT_SCHEMA_VERSION = "trade.rd-replay-partial-reduce-intent.v1" as const
+export const REPLAY_PARTIAL_REDUCE_INTENT_SCHEMA_VERSION = "trade.rd-replay-partial-reduce-intent.v3" as const
 export const REPLAY_PARTIAL_REDUCE_PROTECTION_POLICY_VERSION = "rd-replay-partial-reduce-protection-v1" as const
 export const REPLAY_PARTIAL_REDUCE_CAPABILITY = "next-open-fixed-quantity-partial-reduce" as const
+export const REPLAY_TWO_PARTIAL_REDUCE_CAPABILITY = "up-to-two-next-open-fixed-quantity-partial-reduces" as const
+export const REPLAY_POST_PARTIAL_STOP_REPLACE_CAPABILITY = "post-final-partial-tighten-only-protective-stop-replace" as const
 export const REPLAY_DECISION_STATE_SNAPSHOT_SCHEMA_VERSION = "trade.rd-replay-decision-state-snapshot.v3" as const
 export const REPLAY_DECISION_HARNESS_CONTEXT_SCHEMA_VERSION = "trade.rd-replay-decision-harness-context.v9" as const
 export const REPLAY_DECISION_HARNESS_SOURCE_BUNDLE_SCHEMA_VERSION = "trade.rd-replay-decision-harness-source-bundle.v1" as const
@@ -94,6 +96,7 @@ export const REPLAY_CERTIFIED_CAPABILITIES = [
   "ohlcv",
   "pending-strategy-exit-contract-cancel",
   "pit-instrument-status-epochs",
+  REPLAY_POST_PARTIAL_STOP_REPLACE_CAPABILITY,
   "pre-entry-gtc-limit-contract-cancel",
   "pre-entry-gtc-limit-ohlcv-bounded-full-fill",
   "pre-entry-gtc-stop-market-contract-cancel",
@@ -107,6 +110,7 @@ export const REPLAY_CERTIFIED_CAPABILITIES = [
   "single-position",
   "step",
   "stop-take-profit-market",
+  REPLAY_TWO_PARTIAL_REDUCE_CAPABILITY,
 ] as const
 export const REPLAY_REQUIRED_ARTIFACT_ROLES = [
   "request", "trial_reservation", "attempt_lease", "dataset_manifest", "liquidity_capacity_attestation", "supplemental_facts", "decision_market_input_snapshot", "decision_evidence_timeline", "result",
@@ -447,6 +451,8 @@ export interface ReplayProtectiveStopReplaceIntent {
   reduce_only: true
   quantity_policy: "full_open_position"
   replace_policy: "tighten_only_cancel_then_submit"
+  schedule_combination_policy?: "initial_bracket_then_optional_full_exit_no_other_position_mutation"
+    | "after_final_partial_then_optional_full_exit_no_other_position_mutation"
   signal_time: string
   previous_stop_price: number
   new_stop_price: number
@@ -483,6 +489,9 @@ export interface ReplayPartialReduceIntent {
   replacement_trigger_policy: "preserve_current_stop_and_target_prices"
   remaining_quantity_authority: "absolute_post_fill_position"
   schedule_combination_policy: "one_partial_reduce_then_optional_final_full_exit_no_stop_replace"
+    | "up_to_two_partial_reduces_then_optional_final_full_exit_no_other_mutation"
+    | "one_partial_reduce_then_one_tighten_only_stop_replace_then_optional_final_full_exit"
+    | "up_to_two_partial_reduces_then_one_tighten_only_stop_replace_then_optional_final_full_exit"
 }
 
 export interface ReplayDecisionScheduleEntry {
@@ -2039,17 +2048,35 @@ export function assertReplayResultOhlcvResolutionBindings(
     }
     const initialStop = `${result.run_id}:order:stop`
     const initialTarget = `${result.run_id}:order:target`
+    const partialSchedules = request.decision_schedule.entries.filter(
+      (entry) => entry.expected_effect === "authorized_partial_reduce",
+    )
+    const partialFills = result.fills.filter((fill) => fill.order_role === "strategy_partial_reduce")
+    const appliedPartialSchedules = partialSchedules.filter((schedule) => {
+      const intent = schedule.authorized_partial_reduce
+      const expectedOrderId = intent?.schedule_combination_policy
+          === "one_partial_reduce_then_optional_final_full_exit_no_stop_replace"
+        ? `${result.run_id}:order:partial-reduce`
+        : `${result.run_id}:order:partial-reduce:${schedule.decision_sequence}`
+      return partialFills.some((fill) => fill.order_id === expectedOrderId)
+    })
+    const latestPartialSchedule = appliedPartialSchedules.at(-1)
+    const remainingAfterPartials = request.order.quantity - appliedPartialSchedules.reduce(
+      (total, schedule) => total + schedule.authorized_partial_reduce!.quantity, 0,
+    )
     const replacementSchedule = request.decision_schedule.entries.find(
       (entry) => entry.expected_effect === "authorized_protective_stop_replace",
     )
     const replacementIntent = replacementSchedule?.authorized_protective_stop_replace
-    const replacementGeneration = protection.protection_generation === 2
+    const replacementGeneration = protection.protection_generation === 2 + appliedPartialSchedules.length
       && Boolean(replacementSchedule && replacementIntent)
       && protection.stop_order_id === `${result.run_id}:order:stop-replacement:${replacementSchedule!.decision_sequence}`
-      && protection.target_order_id === initialTarget
+      && protection.target_order_id === (latestPartialSchedule
+        ? `${result.run_id}:order:target-after-partial:${latestPartialSchedule.decision_sequence}`
+        : initialTarget)
       && protection.stop_trigger_price === replacementIntent!.new_stop_price
       && protection.target_trigger_price === request.order.target_price
-      && protection.remaining_quantity === request.order.quantity
+      && protection.remaining_quantity === remainingAfterPartials
     const targetReplacementSchedule = request.decision_schedule.entries.find(
       (entry) => entry.expected_effect === "authorized_take_profit_replace",
     )
@@ -2070,18 +2097,13 @@ export function assertReplayResultOhlcvResolutionBindings(
       && protection.stop_trigger_price === request.order.stop_price
       && protection.target_trigger_price === targetReplacementIntent!.new_target_price
       && protection.remaining_quantity === request.order.quantity
-    const partialSchedule = request.decision_schedule.entries.find(
-      (entry) => entry.expected_effect === "authorized_partial_reduce",
-    )
-    const partialIntent = partialSchedule?.authorized_partial_reduce
-    const partialStopPrefix = `${result.run_id}:order:stop-after-partial:`
-    const partialGeneration = protection.protection_generation === 2
-      && Boolean(partialSchedule && partialIntent)
-      && protection.stop_order_id === `${partialStopPrefix}${partialSchedule!.decision_sequence}`
-      && protection.target_order_id === `${result.run_id}:order:target-after-partial:${partialSchedule!.decision_sequence}`
+    const partialGeneration = appliedPartialSchedules.length > 0
+      && protection.protection_generation === 1 + appliedPartialSchedules.length
+      && protection.stop_order_id === `${result.run_id}:order:stop-after-partial:${latestPartialSchedule!.decision_sequence}`
+      && protection.target_order_id === `${result.run_id}:order:target-after-partial:${latestPartialSchedule!.decision_sequence}`
       && protection.stop_trigger_price === request.order.stop_price
       && protection.target_trigger_price === request.order.target_price
-      && protection.remaining_quantity === request.order.quantity - partialIntent!.quantity
+      && protection.remaining_quantity === remainingAfterPartials
     const initialGeneration = protection.protection_generation === 1
       && protection.stop_order_id === initialStop
       && protection.target_order_id === initialTarget
@@ -2090,6 +2112,68 @@ export function assertReplayResultOhlcvResolutionBindings(
       && protection.remaining_quantity === request.order.quantity
     if (!initialGeneration && !replacementGeneration && !targetReplacementGeneration && !partialGeneration) {
       fail("Replay Result OHLCV resolution protection generation binding is invalid")
+    }
+  }
+}
+
+export function assertReplayResultPositionRiskBindings(result: ReplayResult): void {
+  const positionById = new Map(result.positions.map((position) => [position.position_event_id, position]))
+  for (const snapshot of result.margin_snapshots) {
+    const position = positionById.get(snapshot.position_event_id)
+    if (!position
+        || snapshot.signed_quantity !== position.signed_quantity
+        || (position.state === "flat") !== (snapshot.state === "flat")) {
+      fail("Replay Result Margin Snapshot does not bind its Position quantity")
+    }
+    const positionAtSnapshot = [...result.positions].reverse().find(
+      (candidate) => compareReplayEventKeys(candidate.event_key, snapshot.event_key) <= 0,
+    )
+    if (!positionAtSnapshot || positionAtSnapshot.position_event_id !== position.position_event_id) {
+      fail("Replay Result Margin Snapshot does not bind the latest causal Position")
+    }
+  }
+
+  const fundingEntries = result.ledger.filter((entry) => entry.kind === "funding")
+  for (const funding of fundingEntries) {
+    const source = result.source_events.find((candidate) => candidate.source_event_id === funding.ref)
+    if (!source || source.kind !== "funding"
+        || canonicalHash(source.event_key) !== canonicalHash(funding.event_key)) {
+      fail("Replay Result Funding ledger entry does not bind its source event")
+    }
+    const position = [...result.positions].reverse().find(
+      (candidate) => compareReplayEventKeys(candidate.event_key, funding.event_key) <= 0,
+    )
+    const margin = result.margin_snapshots.find(
+      (snapshot) => snapshot.mark_source === "funding_mark"
+        && canonicalHash(snapshot.event_key) === canonicalHash(funding.event_key),
+    )
+    if (!position || position.state !== "open" || !margin
+        || margin.position_event_id !== position.position_event_id
+        || margin.signed_quantity !== position.signed_quantity) {
+      fail("Replay Result Funding evidence does not use the t-minus Position quantity")
+    }
+  }
+
+  if (result.liquidation) {
+    const liquidationFill = result.fills.find(
+      (fill) => fill.fill_id === result.liquidation!.liquidation_fill_id,
+    )
+    const triggerMargin = [...result.margin_snapshots].reverse().find(
+      (snapshot) => snapshot.maintenance_breach_observed
+        && canonicalHash(snapshot.event_key)
+          === canonicalHash(result.liquidation!.trigger_observation.event_key),
+    )
+    const triggerPosition = triggerMargin && positionById.get(triggerMargin.position_event_id)
+    if (!liquidationFill || liquidationFill.order_role !== "liquidation"
+        || !triggerMargin || !triggerPosition || triggerPosition.state !== "open"
+        || liquidationFill.event_key.event_time !== result.liquidation.trigger_observation.event_key.event_time
+        || compareReplayEventKeys(
+          liquidationFill.event_key, result.liquidation.trigger_observation.event_key,
+        ) <= 0
+        || liquidationFill.quantity !== result.liquidation.quantity
+        || result.liquidation.quantity !== Math.abs(triggerPosition.signed_quantity)
+        || triggerMargin.signed_quantity !== triggerPosition.signed_quantity) {
+      fail("Replay Result Liquidation does not consume the exact breached Position quantity")
     }
   }
 }
@@ -2549,7 +2633,11 @@ export function assertReplayPartialReduceIntent(
       || intent.protection_policy_version !== REPLAY_PARTIAL_REDUCE_PROTECTION_POLICY_VERSION
       || intent.replacement_trigger_policy !== "preserve_current_stop_and_target_prices"
       || intent.remaining_quantity_authority !== "absolute_post_fill_position"
-      || intent.schedule_combination_policy !== "one_partial_reduce_then_optional_final_full_exit_no_stop_replace") {
+      || !["one_partial_reduce_then_optional_final_full_exit_no_stop_replace",
+        "up_to_two_partial_reduces_then_optional_final_full_exit_no_other_mutation",
+        "one_partial_reduce_then_one_tighten_only_stop_replace_then_optional_final_full_exit",
+        "up_to_two_partial_reduces_then_one_tighten_only_stop_replace_then_optional_final_full_exit",
+      ].includes(intent.schedule_combination_policy)) {
     fail("unsupported Replay partial-reduce contract")
   }
   requirePositive(intent.quantity, "partial_reduce_intent.quantity")
@@ -2586,7 +2674,7 @@ export function assertReplayDecisionSchedule(
   let authorizedStopReplaceCount = 0
   let authorizedTakeProfitReplaceCount = 0
   let authorizedPartialReduceCount = 0
-  let partialReduceIndex = -1
+  const partialReduceIndexes: number[] = []
   let exitIndex = -1
   let frozenExitIntent: ReplayReduceOnlyExitIntent | null = null
   for (const [index, entry] of schedule.entries.entries()) {
@@ -2652,6 +2740,9 @@ export function assertReplayDecisionSchedule(
           || replace.order_type !== "stop_market" || replace.reduce_only !== true
           || replace.quantity_policy !== "full_open_position"
           || replace.replace_policy !== "tighten_only_cancel_then_submit"
+          || ![undefined, "initial_bracket_then_optional_full_exit_no_other_position_mutation",
+            "after_final_partial_then_optional_full_exit_no_other_position_mutation",
+          ].includes(replace.schedule_combination_policy)
           || replace.signal_time !== entry.decision_time
           || replace.previous_stop_price !== request.order.stop_price
           || (request.order.side === "long" && (
@@ -2709,7 +2800,7 @@ export function assertReplayDecisionSchedule(
       }
       assertReplayPartialReduceIntent(partial, request.order)
       authorizedPartialReduceCount += 1
-      partialReduceIndex = index
+      partialReduceIndexes.push(index)
       continue
     }
     if (entry.expected_effect === "authorized_take_profit_cancel") {
@@ -2836,15 +2927,52 @@ export function assertReplayDecisionSchedule(
     fail("uncancelled authorized reduce-only exit must be the final full-position frozen decision")
   }
   if (authorizedStopReplaceCount > 1) fail("decision schedule permits at most one protective stop replacement")
-  if (authorizedPartialReduceCount > 1) fail("decision schedule permits at most one partial reduce")
-  if (authorizedPartialReduceCount > 0 && authorizedStopReplaceCount > 0) {
-    fail("partial reduce cannot be combined with protective stop replacement")
-  }
-  if (partialReduceIndex >= 0) {
-    const partial = schedule.entries[partialReduceIndex]!.authorized_partial_reduce!
-    const nextDecision = schedule.entries[partialReduceIndex + 1]
-    if (nextDecision && Date.parse(partial.earliest_executable_time) >= Date.parse(nextDecision.decision_time)) {
-      fail("partial reduce must execute before the next frozen decision")
+  if (authorizedPartialReduceCount > 2) fail("decision schedule permits at most two partial reduces")
+  if (partialReduceIndexes.length > 0) {
+    const partials = partialReduceIndexes.map((index) => schedule.entries[index]!.authorized_partial_reduce!)
+    const postPartialReplacement = authorizedStopReplaceCount === 1
+    const expectedPolicy = postPartialReplacement
+      ? partials.length === 1
+        ? "one_partial_reduce_then_one_tighten_only_stop_replace_then_optional_final_full_exit"
+        : "up_to_two_partial_reduces_then_one_tighten_only_stop_replace_then_optional_final_full_exit"
+      : partials.length === 1
+        ? "one_partial_reduce_then_optional_final_full_exit_no_stop_replace"
+        : "up_to_two_partial_reduces_then_optional_final_full_exit_no_other_mutation"
+    if (partials.some((partial) => partial.schedule_combination_policy !== expectedPolicy)) {
+      fail("partial-reduce schedule policy does not match its frozen bounded count")
+    }
+    if (partials.reduce((total, partial) => total + partial.quantity, 0) >= request.order.quantity) {
+      fail("cumulative partial-reduce quantity must leave an open position")
+    }
+    for (const index of partialReduceIndexes) {
+      const partial = schedule.entries[index]!.authorized_partial_reduce!
+      const nextDecision = schedule.entries[index + 1]
+      if (nextDecision && Date.parse(partial.earliest_executable_time) >= Date.parse(nextDecision.decision_time)) {
+        fail("partial reduce must execute before the next frozen decision")
+      }
+    }
+    if (postPartialReplacement) {
+      const replacementIndex = schedule.entries.findIndex(
+        (entry) => entry.expected_effect === "authorized_protective_stop_replace",
+      )
+      const replacement = schedule.entries[replacementIndex]?.authorized_protective_stop_replace
+      if (!replacement || replacementIndex <= partialReduceIndexes.at(-1)!
+          || replacement.schedule_combination_policy
+            !== "after_final_partial_then_optional_full_exit_no_other_position_mutation"
+          || authorizedEntryCancelCount > 0 || authorizedStrategyExitCancelCount > 0
+          || authorizedTakeProfitCancelCount > 0 || authorizedProtectiveStopCancelCount > 0
+          || authorizedTakeProfitReplaceCount > 0
+          || (authorizedExitCount === 1 && exitIndex <= replacementIndex)) {
+        fail("post-partial protective stop replacement must follow the final bounded partial and precede only an optional full exit")
+      }
+    }
+  } else if (authorizedStopReplaceCount === 1) {
+    const replacement = schedule.entries.find(
+      (entry) => entry.expected_effect === "authorized_protective_stop_replace",
+    )?.authorized_protective_stop_replace
+    if (replacement?.schedule_combination_policy
+        === "after_final_partial_then_optional_full_exit_no_other_position_mutation") {
+      fail("post-partial protective stop replacement requires a frozen partial reduce")
     }
   }
   if (schedule.entries.length > 1 && (
@@ -3714,7 +3842,11 @@ export function assertReplayDecisionOutput(decisionOutput: ReplayDecisionOutput)
         || partial.protection_policy_version !== REPLAY_PARTIAL_REDUCE_PROTECTION_POLICY_VERSION
         || partial.replacement_trigger_policy !== "preserve_current_stop_and_target_prices"
         || partial.remaining_quantity_authority !== "absolute_post_fill_position"
-        || partial.schedule_combination_policy !== "one_partial_reduce_then_optional_final_full_exit_no_stop_replace") {
+        || !["one_partial_reduce_then_optional_final_full_exit_no_stop_replace",
+          "up_to_two_partial_reduces_then_optional_final_full_exit_no_other_mutation",
+          "one_partial_reduce_then_one_tighten_only_stop_replace_then_optional_final_full_exit",
+          "up_to_two_partial_reduces_then_one_tighten_only_stop_replace_then_optional_final_full_exit",
+        ].includes(partial.schedule_combination_policy)) {
       fail("unsupported partial-reduce decision output")
     }
     requirePositive(partial.quantity, "decision_harness_worker_response.decision_output.order.quantity")
@@ -3776,6 +3908,9 @@ export function assertReplayDecisionOutput(decisionOutput: ReplayDecisionOutput)
         || !["buy", "sell"].includes(replace.side) || replace.order_type !== "stop_market"
         || replace.reduce_only !== true || replace.quantity_policy !== "full_open_position"
         || replace.replace_policy !== "tighten_only_cancel_then_submit"
+        || ![undefined, "initial_bracket_then_optional_full_exit_no_other_position_mutation",
+          "after_final_partial_then_optional_full_exit_no_other_position_mutation",
+        ].includes(replace.schedule_combination_policy)
         || !Number.isFinite(replace.previous_stop_price) || replace.previous_stop_price <= 0
         || !Number.isFinite(replace.new_stop_price) || replace.new_stop_price <= 0) {
       fail("unsupported protective stop replacement decision output")
