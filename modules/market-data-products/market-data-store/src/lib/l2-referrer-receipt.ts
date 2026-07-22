@@ -2,11 +2,16 @@ import type { Database } from "bun:sqlite"
 import { canonicalNfcHash, canonicalNfcJson } from "../../../../contracts/runtime-core/src/canonical-json"
 import type { JSONRecord } from "../../../../contracts/runtime-core/src/json"
 import { readL2CompactedEpochSource, type L2CompactedEpochSource } from "./l2-compaction"
+import { readL2EpochManifest } from "./l2-epoch-manifest"
 
 export const L2_REFERRER_RECEIPT_SCHEMA_VERSION =
   "trade.market-data-l2-experiment-attachment-referrer-receipt.v1" as const
 export const L2_ATTACHMENT_AUTHORITY_SCHEMA_VERSION =
   "trade.rd-replay-l2-experiment-attachment-authority.v1" as const
+export const L2_RETENTION_REFERENCE_AUDIT_SCHEMA_VERSION =
+  "trade.market-data-l2-retention-reference-audit.v1" as const
+export const L2_RETENTION_REFERENCE_AUDIT_PAGE_SCHEMA_VERSION =
+  "trade.market-data-l2-retention-reference-audit-page.v1" as const
 
 const L2_ATTACHMENT_LIMITATIONS = Object.freeze([
   "source-external-completeness-not-verified",
@@ -99,6 +104,71 @@ export interface L2ExperimentAttachmentReferrerReceipt {
   economic_authority: "none"
   runner_compatibility: "not_bound"
   external_completeness: "not_verified"
+}
+
+export interface L2RetentionReferenceAuditReferrer {
+  receipt_id: string
+  receipt_hash: string
+  registered_at: string
+  authority_snapshot_hash: string
+  reservation_hash: string
+  batch_hash: string
+  frame_start_inclusive: number
+  frame_end_exclusive: number
+}
+
+export interface L2RetentionReferenceAudit {
+  schema_version: typeof L2_RETENTION_REFERENCE_AUDIT_SCHEMA_VERSION
+  audit_scope: "registered_market_data_l2_referrers_only"
+  epoch_id: string
+  epoch_manifest_hash: string
+  retention_class: "raw_hot" | "compacted_pinned"
+  retention_updated_at: string
+  compaction_id: string | null
+  source_hash: string | null
+  source_parquet_hash: string | null
+  referrer_count: number
+  referrers: L2RetentionReferenceAuditReferrer[]
+  reference_status:
+    | "raw_hot_not_compacted"
+    | "compacted_pinned_no_registered_referrer"
+    | "compacted_pinned_with_registered_referrers"
+  external_referrer_completeness: "not_verified"
+  deletion_eligible: false
+  deletion_decision: "forbidden_no_gc_authority"
+  limitations: string[]
+  audit_hash: string
+}
+
+export interface L2RetentionReferenceAuditPageEntry {
+  epoch_id: string
+  epoch_manifest_hash: string
+  retention_class: "raw_hot" | "compacted_pinned"
+  reference_status: L2RetentionReferenceAudit["reference_status"]
+  referrer_count: number
+  deletion_eligible: false
+  deletion_decision: "forbidden_no_gc_authority"
+  audit_hash: string
+}
+
+export interface L2RetentionReferenceAuditPage {
+  schema_version: typeof L2_RETENTION_REFERENCE_AUDIT_PAGE_SCHEMA_VERSION
+  audit_scope: "registered_market_data_l2_referrers_only"
+  cursor: { after_epoch_id: string | null; limit: number }
+  page_count: number
+  page_status_counts: {
+    raw_hot_not_compacted: number
+    compacted_pinned_no_registered_referrer: number
+    compacted_pinned_with_registered_referrers: number
+  }
+  audits: L2RetentionReferenceAuditPageEntry[]
+  has_more: boolean
+  next_after_epoch_id: string | null
+  external_referrer_completeness: "not_verified"
+  deletion_candidates_produced: false
+  deletion_decision: "forbidden_no_gc_authority"
+  limitations: string[]
+  page_hash: string
 }
 
 type ReceiptBody = Omit<L2ExperimentAttachmentReferrerReceipt, "receipt_hash">
@@ -247,6 +317,165 @@ export function readL2ExperimentAttachmentReferrerReceipt(
   requireHash(authoritySnapshotHash, "authority_snapshot_hash")
   const row = readReceiptRow(db, authoritySnapshotHash)
   return row == null ? null : parseReceiptRow(row)
+}
+
+export function auditL2RetentionReferenceClosure(
+  db: Database,
+  epochId: string,
+): L2RetentionReferenceAudit {
+  requireText(epochId, "epoch_id")
+  const epoch = readL2EpochManifest(db, epochId)
+  if (epoch == null) throw new Error("L2 retention reference audit epoch is not registered")
+  const retention = db.query(`
+    SELECT retention_class, compaction_ref, deletion_eligible, updated_at
+    FROM l2_epoch_retention WHERE epoch_id = $epoch_id
+  `).get({ $epoch_id: epochId }) as {
+    retention_class: string
+    compaction_ref: string | null
+    deletion_eligible: number
+    updated_at: string
+  } | null
+  if (retention == null || retention.deletion_eligible !== 0
+      || !((retention.retention_class === "raw_hot" && retention.compaction_ref == null)
+        || (retention.retention_class === "compacted_pinned" && retention.compaction_ref != null))) {
+    throw new Error("L2 retention reference audit found an unsafe retention state")
+  }
+  requireUtc(retention.updated_at, "retention updated_at")
+  const receiptRows = db.query(`
+    SELECT receipt_hash, authority_snapshot_hash, compaction_id, epoch_id, receipt_json
+    FROM l2_experiment_attachment_referrer_receipt
+    WHERE epoch_id = $epoch_id
+    ORDER BY authority_snapshot_hash
+  `).all({ $epoch_id: epochId }) as ReceiptRow[]
+  const receipts = receiptRows.map(parseReceiptRow)
+  let source: L2CompactedEpochSource | null = null
+  if (retention.retention_class === "raw_hot") {
+    if (receipts.length > 0) throw new Error("raw-hot L2 epoch cannot own compacted-source referrers")
+  } else {
+    source = readL2CompactedEpochSource(db, retention.compaction_ref!)
+    if (source == null || source.epoch_id !== epochId) {
+      throw new Error("L2 retention reference audit cannot resolve the pinned compaction source")
+    }
+    for (const receipt of receipts) {
+      if (receipt.compaction_id !== source.compaction_id || receipt.epoch_id !== source.epoch_id
+          || receipt.source_id !== source.source_id || receipt.source_hash !== source.source_hash
+          || receipt.source_parquet_hash !== source.parquet_hash
+          || receipt.source_row_count !== source.row_count) {
+        throw new Error("L2 retention reference audit found a referrer/source binding drift")
+      }
+    }
+  }
+  const referrers = receipts.map((receipt): L2RetentionReferenceAuditReferrer => ({
+    receipt_id: receipt.receipt_id,
+    receipt_hash: receipt.receipt_hash,
+    registered_at: receipt.registered_at,
+    authority_snapshot_hash: receipt.authority_snapshot_hash,
+    reservation_hash: receipt.reservation_hash,
+    batch_hash: receipt.batch_hash,
+    frame_start_inclusive: receipt.frame_start_inclusive,
+    frame_end_exclusive: receipt.frame_end_exclusive,
+  }))
+  const limitations = [
+    "registered-catalog-only-not-global-reference-completeness",
+    "absence-of-registered-referrers-does-not-prove-unreferenced",
+    "compaction-and-referrer-presence-do-not-authorize-deletion",
+    "raw-snapshot-manifest-parquet-and-incident-evidence-remain-non-deletable",
+    "no-release-tombstone-or-gc-execution-authority",
+  ]
+  const body = {
+    schema_version: L2_RETENTION_REFERENCE_AUDIT_SCHEMA_VERSION,
+    audit_scope: "registered_market_data_l2_referrers_only" as const,
+    epoch_id: epoch.epoch_id,
+    epoch_manifest_hash: epoch.manifest_hash,
+    retention_class: retention.retention_class as "raw_hot" | "compacted_pinned",
+    retention_updated_at: retention.updated_at,
+    compaction_id: source?.compaction_id ?? null,
+    source_hash: source?.source_hash ?? null,
+    source_parquet_hash: source?.parquet_hash ?? null,
+    referrer_count: referrers.length,
+    referrers,
+    reference_status: retention.retention_class === "raw_hot"
+      ? "raw_hot_not_compacted" as const
+      : referrers.length === 0
+        ? "compacted_pinned_no_registered_referrer" as const
+        : "compacted_pinned_with_registered_referrers" as const,
+    external_referrer_completeness: "not_verified" as const,
+    deletion_eligible: false as const,
+    deletion_decision: "forbidden_no_gc_authority" as const,
+    limitations,
+  }
+  return { ...body, audit_hash: canonicalNfcHash(body) }
+}
+
+export function listL2RetentionReferenceAudits(
+  db: Database,
+  input: { after_epoch_id?: string; limit?: number } = {},
+): L2RetentionReferenceAuditPage {
+  const afterEpochId = input.after_epoch_id ?? null
+  if (afterEpochId != null) requireText(afterEpochId, "after_epoch_id")
+  const limit = input.limit ?? 20
+  requirePositiveInteger(limit, "limit")
+  if (limit > 50) throw new Error("limit must not exceed 50")
+  return db.transaction(() => buildL2RetentionReferenceAuditPage(db, afterEpochId, limit))()
+}
+
+function buildL2RetentionReferenceAuditPage(
+  db: Database,
+  afterEpochId: string | null,
+  limit: number,
+): L2RetentionReferenceAuditPage {
+  const rows = db.query(`
+    SELECT epoch_id
+    FROM l2_epoch_manifest
+    WHERE $after_epoch_id IS NULL OR epoch_id > $after_epoch_id
+    ORDER BY epoch_id
+    LIMIT $scan_limit
+  `).all({ $after_epoch_id: afterEpochId, $scan_limit: limit + 1 }) as Array<{ epoch_id: string }>
+  const hasMore = rows.length > limit
+  const selected = rows.slice(0, limit)
+  const audits = selected.map(({ epoch_id }): L2RetentionReferenceAuditPageEntry => {
+    const audit = auditL2RetentionReferenceClosure(db, epoch_id)
+    return {
+      epoch_id: audit.epoch_id,
+      epoch_manifest_hash: audit.epoch_manifest_hash,
+      retention_class: audit.retention_class,
+      reference_status: audit.reference_status,
+      referrer_count: audit.referrer_count,
+      deletion_eligible: false,
+      deletion_decision: "forbidden_no_gc_authority",
+      audit_hash: audit.audit_hash,
+    }
+  })
+  const pageStatusCounts = {
+    raw_hot_not_compacted: audits.filter((audit) => audit.reference_status === "raw_hot_not_compacted").length,
+    compacted_pinned_no_registered_referrer: audits.filter(
+      (audit) => audit.reference_status === "compacted_pinned_no_registered_referrer",
+    ).length,
+    compacted_pinned_with_registered_referrers: audits.filter(
+      (audit) => audit.reference_status === "compacted_pinned_with_registered_referrers",
+    ).length,
+  }
+  const body = {
+    schema_version: L2_RETENTION_REFERENCE_AUDIT_PAGE_SCHEMA_VERSION,
+    audit_scope: "registered_market_data_l2_referrers_only" as const,
+    cursor: { after_epoch_id: afterEpochId, limit },
+    page_count: audits.length,
+    page_status_counts: pageStatusCounts,
+    audits,
+    has_more: hasMore,
+    next_after_epoch_id: hasMore ? audits.at(-1)?.epoch_id ?? null : null,
+    external_referrer_completeness: "not_verified" as const,
+    deletion_candidates_produced: false as const,
+    deletion_decision: "forbidden_no_gc_authority" as const,
+    limitations: [
+      "page-is-not-global-referrer-completeness",
+      "pagination-is-not-a-snapshot-across-calls",
+      "status-counts-cover-current-page-only",
+      "absence-of-registered-referrers-does-not-prove-unreferenced",
+      "no-release-tombstone-file-deletion-or-gc-authority",
+    ],
+  }
+  return { ...body, page_hash: canonicalNfcHash(body) }
 }
 
 function readReceiptRow(db: Database, authoritySnapshotHash: string): ReceiptRow | null {
