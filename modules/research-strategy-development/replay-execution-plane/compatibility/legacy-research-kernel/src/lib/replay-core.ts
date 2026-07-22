@@ -1,9 +1,9 @@
 import { readFileSync } from "node:fs"
-import { dirname, join } from "node:path"
-import { fundingEventRangeSum, indexFundingEvents, type FundingEvent } from "./funding-events"
+import { fundingEventRangeSum, indexFundingEvents, type FundingEvent } from "../../../legacy-research-data/src/lib/funding-events"
 import { resolveReadablePath } from "../../../../../../contracts/runtime-core/src/paths"
 import { calculateFundingCashflow, calculateRoundTripLinearCost } from "../../../../accounting/src/lib/replay-accounting"
 import { hashCanonical, hashFile, replayContentHash, replayDataHash, replayHarnessHash } from "../../../legacy-replay-identity/src/lib/legacy-replay-identity"
+import { loadCandlesFromManifest, loadManifest, parseCsvCandles, type Candle } from "../../../legacy-research-data/src/lib/legacy-research-data"
 
 type Side = "long" | "short"
 type JSONRecord = Record<string, unknown>
@@ -11,16 +11,6 @@ type ExitReason = "target" | "stop" | "time_exit"
 type SimulatedOrderSide = "BUY" | "SELL"
 type SimulatedOrderKind = "market" | "limit" | "stop_market"
 type SimulatedOrderRole = "entry" | "take_profit" | "stop"
-
-interface Candle {
-  date: string
-  timestamp: number
-  open: number
-  high: number
-  low: number
-  close: number
-  volume: number
-}
 
 interface IndicatorSet {
   ema20: number[]
@@ -470,39 +460,6 @@ function timeframeMilliseconds(timeframe: string): number {
   if (!match) throw new Error(`unsupported signal timeframe: ${timeframe}`)
   const unit = { m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000 }[match[2]] || 0
   return Number(match[1]) * unit
-}
-
-function loadManifest(path: string): JSONRecord {
-  return JSON.parse(readFileSync(resolveReadablePath(path), "utf8")) as JSONRecord
-}
-
-function loadCandlesFromManifest(manifestPath: string, manifest: JSONRecord, timeframe: string): Candle[] {
-  const resolvedManifestPath = resolveReadablePath(manifestPath)
-  const timeframes = asRecord(manifest.timeframes)
-  const item = asRecord(timeframes[timeframe])
-  const file = stringField(item.file)
-  if (!file) {
-    throw new Error(`manifest missing timeframe ${timeframe}`)
-  }
-  return parseCsvCandles(readFileSync(join(dirname(resolvedManifestPath), file), "utf8"))
-}
-
-function parseCsvCandles(csv: string): Candle[] {
-  const lines = csv.trim().split(/\r?\n/)
-  const headers = lines.shift()?.split(",") ?? []
-  const index = Object.fromEntries(headers.map((header, idx) => [header, idx]))
-  return lines.map((line) => {
-    const parts = line.split(",")
-    return Object.freeze({
-      date: parts[index.date],
-      timestamp: Number(parts[index.timestamp]),
-      open: Number(parts[index.open]),
-      high: Number(parts[index.high]),
-      low: Number(parts[index.low]),
-      close: Number(parts[index.close]),
-      volume: Number(parts[index.volume]),
-    })
-  }).filter((item) => Number.isFinite(item.close))
 }
 
 function buildIndicators(candles: Candle[]): IndicatorSet {
