@@ -11,7 +11,7 @@
     "lint": "bun run typecheck",
     "test": "bun run test:worker-v10 && bun run test:remaining",
     "test:worker-v10": "sh ../../../../scripts/run-exclusive-test.sh replay-worker-v10 env REPLAY_TEST_PROFILE=1 bun test ./src/lib/replay-decision-worker-input-assembly-v4.test.ts",
-    "test:remaining": "bun test ./src/lib/replay-independent-lane-batch-runner.test.ts ./src/lib/replay-local-artifact-store.test.ts ./src/lib/replay-portfolio-two-fixed-partial-terminal-runner.test.ts ./src/lib/replay-trial-runner.test.ts ./src/scripts/main.test.ts",
+    "test:remaining": "bun test ./src/lib/replay-bar-linked-stop-entry-path-runner.test.ts ./src/lib/replay-independent-lane-batch-runner.test.ts ./src/lib/replay-local-artifact-store.test.ts ./src/lib/replay-portfolio-two-fixed-partial-terminal-runner.test.ts ./src/lib/replay-trial-runner.test.ts ./src/scripts/main.test.ts",
     "check": "bun run lint && bun run test"
   }
 }
