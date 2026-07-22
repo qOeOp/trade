@@ -10,62 +10,78 @@ last_verified: 2026-07-22 CST
 
 本 runbook 只处理 Replay 四个公共 profile 的结构化终态与本地 manifest-last Artifact。它不把 stderr、进程存活或 payload 文件当作结果 authority，也不承诺集中日志、指标后端、自动告警或远程存储恢复。
 
-## 1. 入口与证据
+## 1. 适用范围与权威边界
 
 - 公共 profile：`single-trial`、`independent-lane-batch`、`integrated-portfolio`、`terminal-aware-bounded-cycle`。
 - 先保存调用方收到的完整 Outcome；不得只摘录 message。
 - 以 profile identity、plan/lease hash、terminal `status`、failure code、partial-publication flag、Result hash 与 committed manifest hash 关联一次运行。
 - 只有通过 owner validator 的 `completed` Outcome 和 committed manifest 可作为成功证据。payload-only、临时文件、stderr 和未校验 checkpoint 都不是 authority。
 
-快速核对：
+## 2. 可观测面与完成判据
+
+| profile | identity | progress / incident | authority evidence |
+| --- | --- | --- | --- |
+| single Trial | `run_id / attempt_id / lease_generation / attempt_lease_hash` | `status / resumable_checkpoint / diagnostic_checkpoint_commit / cancellation_observation / failure.*` | `result.result_hash / artifact_manifest.manifest_hash / artifact_commit.sha256` |
+| independent Batch | `batch_id / plan_hash / outcome_hash` | `status / child_statuses / failure.*` | child Result/manifest hashes、aggregate `result_hash` |
+| integrated Portfolio | `portfolio_id / integrated_plan_hash / outcome_hash` | `status / result / risk_result / artifact.status / failure.*` | integrated `result_hash`、Artifact `manifest_hash` |
+| terminal Cycle Sequence | `portfolio_id / sequence_plan_hash / outcome_hash` | `status / idempotent_replay / failure.cycle_index / failure.*` | sequence `result_hash`、Artifact `manifest_hash` |
+
+完成必须同时满足：Outcome owner validator 通过、`status=completed`、Result 与 committed manifest hash 闭合。failed/cancelled 路径的 partial-publication flag 必须为 `false`。
+
+## 3. 上线前与值班检查
 
 ```bash
+bun modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/main.ts --list --json
 bun scripts/check-rd-replay-maturity-gate.ts
-bun --cwd modules/research-strategy-development/replay-execution-plane/certification/replay-certification test
-bun --cwd modules/research-strategy-development/replay-execution-plane/certification/replay-certification certify
+bun modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/main.ts --suite canonical
+bun modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/main.ts --suite compatibility
 ```
 
-## 2. 首次分流
+任何命令非零退出都阻断 release；stdout 和进程退出只证明命令执行状态，不替代 Outcome/Artifact authority。
 
-1. 无法解析 Outcome、schema/hash 校验失败或缺 identity：停止消费，按 `unknown-or-malformed-outcome` 处理。
+## 4. 首轮分诊
+
+1. 无法解析 Outcome、schema/hash 校验失败或缺 identity：停止消费，保留原始 bytes 并升级。
 2. `status=completed`：继续校验 Result 与 manifest hash；缺 committed manifest 不得报成功。
-3. `status=failed|cancelled`：确认 partial-publication flag 为 `false`，按 failure code/class 和下表处理。
+3. `status=failed|cancelled`：确认 partial-publication flag 为 `false`，再按 failure code/class 处理。
 4. 发现 payload 但无 manifest：按非权威 orphan 处理；不得手工补 manifest。
 5. 已提交 manifest 的任一 payload hash 不符：隔离整个 commit；不得重哈希、覆盖或静默修复。
 
-## 3. Incident 决策表
+## 5. 故障类别与处置
 
-| incident class | 判定 | 自动重试 | operator action | 恢复边界 |
-| --- | --- | --- | --- | --- |
-| `invalid-or-unauthorized-input` | input/authority/lease/plan 拒绝 | 禁止 | 修复冻结输入或重新取得 Control Plane authority，创建新 attempt | fresh attempt |
-| `checkpoint-or-source-integrity-failed` | Dataset、source prefix、Checkpoint hash/state 不闭合 | 禁止 | 隔离可疑证据；改用仍可信 checkpoint，或从冻结输入确定性重跑 | clean checkpoint 或 full rerun |
-| `child-or-profile-execution-failed` | child、allocation、risk、cycle 任一阶段失败且无权威结果 | 禁止 | 保留完整 Outcome；Independent 等 authoritative children 齐备后重算 aggregate；Integrated/Terminal 全 profile 重跑 | aggregate/full rerun |
-| `publication-interrupted-before-manifest` | payload 已写但 manifest 未提交 | 仅 identical source/bytes 可重试 | 确认 namespace、owner 与输入完全相同后走原 publisher；不要手工提交 | manifest-last identical retry |
-| `committed-artifact-corrupt` | committed payload/manifest hash 不匹配 | 禁止 | 隔离 commit，保留 incident evidence，从可信冻结输入创建新 attempt | fresh attempt；不修复旧 commit |
-| `operator-cancelled` | typed cancelled Outcome | 禁止 | 保存 cancellation observation；如需继续必须获得新的明确 authority | authorized new attempt |
-| `unknown-or-malformed-outcome` | 未知 schema/code、缺字段或 validator 失败 | 禁止 | fail closed，保留原始 bytes，升级给 Replay owner | 无自动恢复 |
+| incident class | 首个动作 | retry boundary |
+| --- | --- | --- |
+| `authority-admission` | 冻结输入并核对 Control Plane authority、lease 与 plan | 仅 Outcome 标明 retryable 且 Control Plane 重新授权 |
+| `data-integrity` | 隔离 bytes，核对 lineage、source prefix 与全部 hash | 从可信冻结输入创建新 authorized attempt |
+| `deterministic-unsupported` | 记录 typed limitation，向 Control Plane 返回 blocker | 禁止用相同输入重复运行冒充修复 |
+| `resource-cancellation` | 核对 lease generation、cancellation observation 与 checkpoint | clean authorized checkpoint 或新 authorized attempt |
+| `publication-corruption` | 区分未提交 orphan 与 committed corruption | 仅 manifest 前允许 identical retry；已提交损坏禁止修复 |
+| `certification-regression` | 阻断 release，保存 runtime、host、commit 与 receipt | 修复根因后重跑完整 owner certification |
 
-`retryable=true` 只是 single Trial Outcome 的局部提示，不覆盖本表的 authority、source identity、checkpoint 与 manifest 条件；其他 profile 不得从 message 文本推断可重试。
+`retryable=true` 只是 single Trial Outcome 的局部提示，不覆盖 authority、source identity、checkpoint 与 manifest 条件；其他 profile 不得从 message 文本推断可重试。
 
-## 4. Profile 必查字段
+## 6. 取消与恢复
 
-| profile | identity | terminal/incident | authority evidence |
-| --- | --- | --- | --- |
-| single Trial | `run_id / attempt_id / lease_generation` | `status / idempotent_replay / failure.code / failure_class / retryable / partial_result_published` | `result / artifact_manifest / artifact_commit` |
-| independent Batch | `batch_id / plan_hash` | `status / child_statuses[].status / failure.code / failed_lane_id / partial_result_published` | child Result/manifest hashes、aggregate `result_hash`、`outcome_hash` |
-| integrated Portfolio | `portfolio_id / integrated_plan_hash` | `status / failure.code / partial_result_published` | integrated `result_hash`、Artifact `manifest_hash`、`outcome_hash` |
-| terminal Cycle Sequence | `portfolio_id / sequence_plan_hash` | `status / idempotent_replay / failure.code / cycle_index / partial_sequence_result_published` | sequence `result_hash`、Artifact `manifest_hash`、`outcome_hash` |
+- typed cancellation 先保存 cancellation observation；继续执行需要新的明确 authority。
+- single Trial 可使用仍可信且 authorized 的 checkpoint；checkpoint hash/state/source-prefix 任一不闭合即隔离。
+- Independent Batch 只在 authoritative child Result 齐备后重算 aggregate。
+- Integrated Portfolio 与 Terminal Cycle Sequence 没有 checkpoint writer，只能从冻结输入完整重跑。
 
-## 5. 关闭条件
+## 7. Artifact 与损坏处理
 
-- 原始 Outcome、identity/hash、incident class、处置人和处置结果已记录。
-- failed/cancelled 路径确认没有 partial authoritative Result/manifest。
-- 恢复后的新 Outcome 独立校验通过；不得用旧失败记录覆盖新 attempt。
-- committed corruption、未知 schema 或重复失败必须升级给 Replay owner；没有证据时不得降级为“已恢复”。
+- payload 已写但 manifest 未提交时，orphan 没有 authority；只有 owner、namespace、source 与 bytes 完全相同才可走原 publisher 重试。
+- committed manifest 或 payload hash 不匹配时隔离整个 commit，保留 incident evidence；不得重哈希、覆盖或静默修复。
+- 恢复生成的新 Outcome 属于新 attempt；不得覆盖旧失败/取消记录。
 
-## 6. 明确未覆盖
+## 8. 事件包与升级
 
-- 集中日志、指标时序库、dashboard、pager/SLO 与跨服务 trace。
-- remote/distributed Artifact store、硬件损坏、跨 host/runtime parity。
-- 自动修复 committed corruption、自动选择 checkpoint、自动重放或自动发布 release verdict。
-- 进程内阶段级 telemetry；本 gate 只认证结构化 terminal outcome 与 committed authority evidence。
+事件包至少包含：完整原始 Outcome、profile identity、plan/lease/source hash、failure code/class、partial-publication flag、Result/manifest/checkpoint refs、runtime/host/commit、首次失败与复现命令、operator 与处置结果。
+
+committed corruption、未知 schema/code、validator 失败、同一授权重复失败或 certification regression 必须升级给 Replay owner；证据不完整时不得标记“已恢复”。
+
+## 9. 明确未覆盖
+
+- 集中持久日志、指标时序库、trace、dashboard、pager 与 formal SLO。
+- remote/distributed Artifact store、硬件损坏、跨 host/runtime 运维一致性。
+- 自动 incident remediation、自动修复 committed corruption、自动选择 checkpoint、自动重放或自动发布 release verdict。
+- shadow/live/真实账户运维；本 gate 只认证 local structured Outcome、immutable evidence 与 release certification。
