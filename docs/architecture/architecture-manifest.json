@@ -127,6 +127,7 @@
         "modules/research-strategy-development/agent-roles/reviewer",
         "modules/research-strategy-development/replay-execution-plane/certification/legacy-replay-fingerprint",
         "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-data",
+        "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-evaluation",
         "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-features",
         "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-replay-identity",
         "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-kernel",
