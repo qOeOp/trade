@@ -1,4 +1,5 @@
-import { replayStrategy, type Candle, type ReplayOptions, type ReplayResult, type ReplaySignal, type ReplayStrategy } from "./replay-core"
+import { replayStrategy, type Candle } from "./replay-core"
+import type { ReplayOptions, ReplayResult, ReplaySignal, ReplayStrategy } from "../../../legacy-research-contracts/src/lib/legacy-research-contracts"
 
 const btcTrendPullbackStrategy: ReplayStrategy = {
   strategy_id: "S-BTC-4H-TREND-PULLBACK",
