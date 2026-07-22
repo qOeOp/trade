@@ -9,7 +9,7 @@
     "name": "bounded-post-partial-tighten-only-stop-replacement-end-to-end",
     "status": "in_progress",
     "functional_commit_budget": 8,
-    "functional_commits_used": 4
+    "functional_commits_used": 7
   },
   "policy": {
     "zero_instance_progress_forbidden": true,
@@ -25,9 +25,9 @@
       "monotonic_protection_generation_and_current_stop_lineage": true,
       "quantity_aware_funding_mark_margin_and_liquidation_after_replacement": true,
       "portfolio_historical_admission_and_current_stop_risk_separation": true,
-      "owner_keyed_terminal_accounting_after_post_partial_replacement": false,
-      "bounded_cycle_cash_roll_forward": false,
-      "manifest_last_artifacts": false
+      "owner_keyed_terminal_accounting_after_post_partial_replacement": true,
+      "bounded_cycle_cash_roll_forward": true,
+      "manifest_last_artifacts": true
     },
     "evidence": {
       "long_short_one_and_two_partial_then_replacement_execution": true,
@@ -38,17 +38,17 @@
       "generation_quantity_trigger_and_lineage_tamper_fail_closed": true,
       "clean_resume_parity_without_duplicate_partial_or_replacement_effects": true,
       "portfolio_cash_collateral_exposure_and_risk_conservation": true,
-      "four_cycle_cash_owner_and_current_risk_bridge": false,
-      "mid_cycle_failure_no_sequence_evidence": false,
-      "artifact_idempotent_replay": false,
-      "interrupted_publication_no_sequence_manifest": false
+      "four_cycle_cash_owner_and_current_risk_bridge": true,
+      "mid_cycle_failure_no_sequence_evidence": true,
+      "artifact_idempotent_replay": true,
+      "interrupted_publication_no_sequence_manifest": true
     },
     "cutover": {
       "production_lane_portfolio_accounting_and_cycle_consumer": false,
       "default_partial_replacement_and_portfolio_paths_unchanged": false,
       "p15_through_p27_preserved": false,
       "single_change_set_end_to_end_consumer": false,
-      "no_successor_cycle_before_full_flat": false,
+      "no_successor_cycle_before_full_flat": true,
       "no_between_partial_or_repeated_mutation_dynamic_sizing_third_partial_reentry_cross_margin_borrow_real_liquidity_impact_or_fast": false
     }
   },
@@ -62,7 +62,6 @@
     "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.test.ts",
     "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-independent-lane-batch-contracts.ts",
     "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.ts",
-    "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
     "modules/research-strategy-development/research-control-plane/state-store/src/lib/shared-initial-capital-reservation.ts",
     "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-shared-initial-capital-batch-contracts.ts",
     "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-runtime-shared-wallet-contracts.ts",
@@ -175,8 +174,6 @@
     "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-stop-cancel-cycle-sequence-runner.ts",
     "modules/research-strategy-development/replay-execution-plane/engine/src/lib/replay-partial-reduce-lane.ts",
     "modules/research-strategy-development/replay-execution-plane/engine/src/lib/replay-partial-reduce-lane.test.ts",
-    "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.test.ts",
-    "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
     "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-portfolio-fixed-partial-terminal-contracts.ts",
     "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-portfolio-fixed-partial-terminal-accounting-contracts.ts",
     "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-portfolio-fixed-partial-cycle-sequence-contracts.ts",
@@ -196,13 +193,17 @@
     "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-two-fixed-partial-accounting-runner.ts",
     "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-portfolio-post-partial-stop-replacement-risk-contracts.ts",
     "modules/research-strategy-development/replay-execution-plane/engine/src/lib/replay-portfolio-post-partial-stop-replacement-risk-engine.ts",
-    "modules/research-strategy-development/research-control-plane/contracts/src/lib/control-plane-contracts.ts",
+    "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-portfolio-post-partial-stop-replacement-accounting-contracts.ts",
+    "modules/research-strategy-development/replay-execution-plane/accounting/src/lib/replay-portfolio-post-partial-stop-replacement-accounting.ts",
+    "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-post-partial-stop-replacement-accounting-runner.ts",
     "modules/research-strategy-development/research-control-plane/contracts/src/lib/control-plane-contracts.test.ts",
-    "modules/research-strategy-development/research-control-plane/state-store/src/lib/runtime-shared-wallet-reservation.ts",
     "modules/research-strategy-development/research-control-plane/state-store/src/lib/research-control-plane.test.ts",
     "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-portfolio-two-fixed-partial-cycle-sequence-contracts.ts",
     "modules/research-strategy-development/replay-execution-plane/accounting/src/lib/replay-portfolio-two-fixed-partial-cycle-sequence-accounting.ts",
-    "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-two-fixed-partial-cycle-sequence-runner.ts"
+    "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-two-fixed-partial-cycle-sequence-runner.ts",
+    "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-portfolio-post-partial-stop-replacement-cycle-sequence-contracts.ts",
+    "modules/research-strategy-development/replay-execution-plane/accounting/src/lib/replay-portfolio-post-partial-stop-replacement-cycle-sequence-accounting.ts",
+    "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-post-partial-stop-replacement-cycle-sequence-runner.ts"
   ],
   "next_allowed_outcome": "all-m4-p28-gates-true-in-one-bounded-change-set"
 }

@@ -1,8 +1,8 @@
 import { expect, test } from "bun:test"
-import { existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs"
+import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION, REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION, REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION, REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION, REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION, TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION, createReplayAttemptCancellationSnapshot, createReplayInstrumentStatusProviderCertificationSnapshot, createReplayResumeAuthorizationSnapshot, hashReplayAttemptLeaseSnapshot, hashTrialReservationSnapshot, type ReplayAttemptLeaseSnapshot, type ReplayResumeAuthorizationSnapshot, type TrialReservationSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
+import { CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION, REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION, REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION, REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION, REPLAY_PORTFOLIO_POST_PARTIAL_STOP_REPLACEMENT_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION, REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION, TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION, createReplayAttemptCancellationSnapshot, createReplayInstrumentStatusProviderCertificationSnapshot, createReplayPortfolioPostPartialStopReplacementCycleSequenceReservationSnapshot, createReplayResumeAuthorizationSnapshot, hashReplayAttemptLeaseSnapshot, hashTrialReservationSnapshot, type ReplayAttemptLeaseSnapshot, type ReplayResumeAuthorizationSnapshot, type TrialReservationSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
 import {
   REPLAY_CERTIFIED_CAPABILITIES,
   REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
@@ -82,6 +82,24 @@ import {
   replayPortfolioPostPartialStopReplacementRiskEvidenceHash,
   replayPortfolioPostPartialStopReplacementRiskRecordHash,
 } from "../../../contracts/src/lib/replay-portfolio-post-partial-stop-replacement-risk-contracts"
+import {
+  assertReplayPortfolioPostPartialStopReplacementAccountingArtifactManifest,
+  assertReplayPortfolioPostPartialStopReplacementAccountingEvidence,
+  replayPortfolioPostPartialStopReplacementAccountingArtifactManifestHash,
+  replayPortfolioPostPartialStopReplacementAccountingEvidenceHash,
+  replayPortfolioPostPartialStopReplacementOwnerBindingHash,
+} from "../../../contracts/src/lib/replay-portfolio-post-partial-stop-replacement-accounting-contracts"
+import { createReplayPortfolioPostPartialStopReplacementAccountingEvidence } from
+  "../../../accounting/src/lib/replay-portfolio-post-partial-stop-replacement-accounting"
+import { runReplayPortfolioPostPartialStopReplacementAccounting } from
+  "./replay-portfolio-post-partial-stop-replacement-accounting-runner"
+import {
+  assertReplayPortfolioPostPartialStopReplacementCycleSequenceEvidence,
+  replayPortfolioPostPartialStopReplacementCycleCommitHash,
+  replayPortfolioPostPartialStopReplacementCycleSequenceEvidenceHash,
+} from "../../../contracts/src/lib/replay-portfolio-post-partial-stop-replacement-cycle-sequence-contracts"
+import { runReplayPortfolioPostPartialStopReplacementCycleSequence } from
+  "./replay-portfolio-post-partial-stop-replacement-cycle-sequence-runner"
 
 const HASH = "b".repeat(64)
 const PROVIDER_CERTIFICATION = createReplayInstrumentStatusProviderCertificationSnapshot({
@@ -365,6 +383,88 @@ function datasetManifestFor(
     first_open_time: first.open_time,
     last_close_time: last.close_time,
     observed_through: last.close_time,
+  }
+}
+
+function failReplayArtifactWriteOnce(
+  store: ReplayArtifactStore,
+  targetName: string,
+): ReplayArtifactStore {
+  let failed = false
+  return {
+    capability: store.capability,
+    openAttempt(identity) {
+      const namespace = store.openAttempt(identity)
+      return {
+        namespace_ref: namespace.namespace_ref,
+        fileRef: (name) => namespace.fileRef(name),
+        exists: (name) => namespace.exists(name),
+        listNames: () => namespace.listNames(),
+        read: (name) => namespace.read(name),
+        readRef: (ref) => namespace.readRef(ref),
+        remove: (name) => namespace.remove(name),
+        writeImmutable(name, content) {
+          if (!failed && name === targetName) {
+            failed = true
+            throw new Error(`fixture interrupted ${name}`)
+          }
+          return namespace.writeImmutable(name, content)
+        },
+      }
+    },
+  }
+}
+
+function tamperReplayArtifactRead(
+  store: ReplayArtifactStore,
+  targetName: string,
+): ReplayArtifactStore {
+  return {
+    capability: store.capability,
+    openAttempt(identity) {
+      const namespace = store.openAttempt(identity)
+      return {
+        namespace_ref: namespace.namespace_ref,
+        fileRef: (name) => namespace.fileRef(name),
+        exists: (name) => namespace.exists(name),
+        listNames: () => namespace.listNames(),
+        read(name) {
+          const read = namespace.read(name)
+          return name === targetName ? { ...read, bytes: new TextEncoder().encode("{}\n") } : read
+        },
+        readRef: (ref) => namespace.readRef(ref),
+        writeImmutable: (name, content) => namespace.writeImmutable(name, content),
+        remove: (name) => namespace.remove(name),
+      }
+    },
+  }
+}
+
+function rehashReplayArtifactManifestSourceRead(store: ReplayArtifactStore): ReplayArtifactStore {
+  const targetName = "portfolio-post-partial-stop-replacement-accounting-artifact-manifest.json"
+  return {
+    capability: store.capability,
+    openAttempt(identity) {
+      const namespace = store.openAttempt(identity)
+      return {
+        namespace_ref: namespace.namespace_ref,
+        fileRef: (name) => namespace.fileRef(name),
+        exists: (name) => namespace.exists(name),
+        listNames: () => namespace.listNames(),
+        read(name) {
+          const read = namespace.read(name)
+          if (name !== targetName) return read
+          const manifest = JSON.parse(new TextDecoder().decode(read.bytes))
+          manifest.source_risk_evidence_hash = "0".repeat(64)
+          manifest.manifest_hash =
+            replayPortfolioPostPartialStopReplacementAccountingArtifactManifestHash(manifest)
+          return { ...read, bytes: new TextEncoder().encode(`${canonicalJson(manifest)}\n`) }
+        },
+        readRef: (ref) => namespace.readRef(ref),
+        writeImmutable: (name, content) => namespace.writeImmutable(name, content),
+        remove: (name) => namespace.remove(name),
+      }
+    },
   }
 }
 
@@ -2586,9 +2686,11 @@ test("runner executes two predeclared fixed partial reduces and resumes from gen
     harness_hash: combinedHarness.source_bundle.bundle_hash,
     decision_schedule: combinedSchedule, decision_schedule_hash: canonicalHash(combinedSchedule),
   }
+  const combinedArtifactRoot = mkdtempSync(join(tmpdir(), "rd-combined-owner-accounting-"))
   const combinedAuthority = authorized(combinedRequest)
   const combinedCompleted = runReplayTrial({
-    ...combinedAuthority, dataset_manifest: manifest, bars, funding_events: fundingEvents,
+    ...combinedAuthority, artifact_root: combinedArtifactRoot,
+    dataset_manifest: manifest, bars, funding_events: fundingEvents,
     decision_harness_registry: combinedHarness.registry,
   })
   expect(combinedCompleted.status).toBe("completed")
@@ -2665,7 +2767,7 @@ test("runner executes two predeclared fixed partial reduces and resumes from gen
     idempotency_key: "partial-stop-replace-gap-idem", dataset_hash: replacementGapHash,
   }
   const replacementGap = runReplayTrial({
-    ...authorized(replacementGapRequest),
+    ...authorized(replacementGapRequest), artifact_root: combinedArtifactRoot,
     dataset_manifest: { ...manifest, data_hash: replacementGapHash },
     bars: replacementGapBars, funding_events: fundingEvents,
     decision_harness_registry: combinedHarness.registry,
@@ -2738,7 +2840,7 @@ test("runner executes two predeclared fixed partial reduces and resumes from gen
     idempotency_key: "partial-stop-replace-strategy-exit-idem", dataset_hash: strategyExitHash,
   }
   const strategyExit = runReplayTrial({
-    ...authorized(strategyExitRequest),
+    ...authorized(strategyExitRequest), artifact_root: combinedArtifactRoot,
     dataset_manifest: {
       ...manifest, data_hash: strategyExitHash, row_count: strategyExitBars.length,
       last_close_time: strategyExitBars.at(-1)!.close_time,
@@ -2769,7 +2871,8 @@ test("runner executes two predeclared fixed partial reduces and resumes from gen
     decision_schedule: openSchedule, decision_schedule_hash: canonicalHash(openSchedule),
   }
   const open = runReplayTrial({
-    ...authorized(openRequest), dataset_manifest: { ...manifest, data_hash: openHash },
+    ...authorized(openRequest), artifact_root: combinedArtifactRoot,
+    dataset_manifest: { ...manifest, data_hash: openHash },
     bars: safeBars, funding_events: fundingEvents,
     decision_harness_registry: combinedHarness.registry,
   })
@@ -2784,6 +2887,414 @@ test("runner executes two predeclared fixed partial reduces and resumes from gen
       || event.order_id === `${openRequest.run_id}:order:target-after-partial:3`
   )).filter((event) => event.kind === "cancelled").map((event) => event.reason))
     .toEqual(["end-of-data", "end-of-data"])
+
+  const ownerRiskLanes: ReplayPortfolioPostPartialStopReplacementRiskLane[] = [
+    ["preserved-target", combinedRequest, combinedCompleted],
+    ["replacement-stop", replacementGapRequest, replacementGap],
+    ["strategy-exit", strategyExitRequest, strategyExit],
+    ["open-at-end", openRequest, open],
+  ].map(([laneId, laneRequest, outcome]) => ({
+    lane_id: laneId as string, price_increment: ACCOUNTING.price_increment,
+    settlement_increment: ACCOUNTING.settlement_increment,
+    request: laneRequest as ReplayExecutionRequest,
+    result: (outcome as typeof combinedCompleted).result!,
+    artifact_manifest: (outcome as typeof combinedCompleted).artifact_manifest!,
+  }))
+  const ownerRisk = executeReplayPortfolioPostPartialStopReplacementRisk({
+    portfolio_id: "post-partial-owner-matrix", settlement_asset: "USDT", lanes: ownerRiskLanes,
+  })
+  const ownerAccounting = createReplayPortfolioPostPartialStopReplacementAccountingEvidence({
+    risk_evidence: ownerRisk,
+    lanes: ownerRiskLanes.map((lane) => ({
+      lane_id: lane.lane_id, result: lane.result, artifact_manifest: lane.artifact_manifest,
+    })),
+  })
+  expect(ownerAccounting.terminal_owner_counts).toEqual({
+    replacement_protective_stop: 1, preserved_take_profit: 1, strategy_exit: 1,
+    exact_liquidation: 0, open_at_data_end: 1,
+  })
+  expect(ownerAccounting.trial_balance).toMatchObject({
+    balanced: true,
+    ending_available_cash: ownerRisk.ending_available_cash,
+    ending_reserved_isolated_collateral: ownerRisk.ending_reserved_isolated_collateral,
+    ending_settled_cash: ownerRisk.ending_settled_cash,
+    ending_unrealized_pnl: ownerRisk.ending_unrealized_pnl,
+    ending_portfolio_nav: ownerRisk.ending_portfolio_nav,
+    historical_admission_frozen_stop_risk: ownerRisk.historical_admission_frozen_stop_risk,
+    ending_current_active_stop_bounded_risk: ownerRisk.ending_current_active_stop_bounded_risk,
+  })
+  expect(ownerAccounting.journal.filter((entry) => entry.posting_kind === "portfolio_opening_equity"))
+    .toHaveLength(1)
+  expect(ownerAccounting.journal.slice(1).every((entry) =>
+    entry.terminal_owner !== null && entry.source_lane_journal_entry_hash !== null)).toBe(true)
+
+  const ownerArtifactRoot = mkdtempSync(join(tmpdir(), "rd-post-partial-stop-accounting-"))
+  const interruptedArtifactRoot = mkdtempSync(join(tmpdir(), "rd-post-partial-stop-accounting-interrupted-"))
+  const accountingLanes = ownerRiskLanes.map((lane) => ({
+    lane_id: lane.lane_id, result: lane.result, artifact_manifest: lane.artifact_manifest,
+  }))
+  const artifactInput = {
+    risk_evidence: ownerRisk,
+    lanes: accountingLanes,
+    artifact_store: createReplayLocalArtifactStore(ownerArtifactRoot),
+  }
+  const firstArtifact = runReplayPortfolioPostPartialStopReplacementAccounting(artifactInput)
+  expect(firstArtifact).toMatchObject({
+    status: "completed", idempotent_replay: false, evidence: ownerAccounting, failure: null,
+  })
+  expect(firstArtifact.artifact_manifest?.files.map((file) => file.role)).toEqual([
+    "lane_result_artifact_manifests", "lane_results", "risk_evidence", "lane_owner_bindings",
+    "ledger", "journal", "trial_balance", "accounting_evidence",
+  ])
+  expect(firstArtifact.artifact_manifest?.completeness).toEqual({
+    authoritative_result: true,
+    required_roles: [
+      "lane_result_artifact_manifests", "lane_results", "risk_evidence", "lane_owner_bindings",
+      "ledger", "journal", "trial_balance", "accounting_evidence",
+    ],
+    commit_marker: "portfolio-post-partial-stop-replacement-accounting-artifact-manifest.json",
+    partial_payload_without_manifest_is_authoritative: false,
+  })
+  expect(runReplayPortfolioPostPartialStopReplacementAccounting(artifactInput)).toMatchObject({
+    status: "completed", idempotent_replay: true,
+    evidence: firstArtifact.evidence, artifact_manifest: firstArtifact.artifact_manifest,
+  })
+  const manifestTamper = structuredClone(firstArtifact.artifact_manifest!)
+  manifestTamper.lane_owner_bindings_hash = "0".repeat(64)
+  expect(() => assertReplayPortfolioPostPartialStopReplacementAccountingArtifactManifest(manifestTamper))
+    .toThrow("Artifact Manifest drift")
+  expect(runReplayPortfolioPostPartialStopReplacementAccounting({
+    ...artifactInput,
+    artifact_store: tamperReplayArtifactRead(artifactInput.artifact_store, "ledger.json"),
+  })).toMatchObject({
+    status: "failed", evidence: null, artifact_manifest: null,
+    failure: { code: "artifact-publication-failed", partial_portfolio_result_published: false },
+  })
+  expect(runReplayPortfolioPostPartialStopReplacementAccounting({
+    ...artifactInput,
+    artifact_store: rehashReplayArtifactManifestSourceRead(artifactInput.artifact_store),
+  })).toMatchObject({
+    status: "failed", evidence: null, artifact_manifest: null,
+    failure: { code: "artifact-publication-failed", message: expect.stringContaining("identity drift") },
+  })
+
+  const interruptedStore = createReplayLocalArtifactStore(interruptedArtifactRoot)
+  expect(runReplayPortfolioPostPartialStopReplacementAccounting({
+    ...artifactInput,
+    artifact_store: failReplayArtifactWriteOnce(interruptedStore, "journal.json"),
+  })).toMatchObject({
+    status: "failed", evidence: null, artifact_manifest: null, idempotent_replay: false,
+    failure: { code: "artifact-publication-failed", partial_portfolio_result_published: false },
+  })
+  expect(interruptedStore.discoverAttemptNamespaces().some((namespace) => namespace.exists(
+    "portfolio-post-partial-stop-replacement-accounting-artifact-manifest.json",
+  ))).toBe(false)
+  expect(runReplayPortfolioPostPartialStopReplacementAccounting({
+    ...artifactInput, artifact_store: interruptedStore,
+  })).toMatchObject({ status: "completed", idempotent_replay: false })
+
+  const shiftIso = (value: string, hours: number) =>
+    new Date(Date.parse(value) + hours * 3_600_000).toISOString()
+  const sequenceCycles: Array<{
+    lane_id: string
+    request: ReplayExecutionRequest
+    result: NonNullable<typeof strategyExit.result>
+    artifact_manifest: NonNullable<typeof strategyExit.artifact_manifest>
+    risk: ReturnType<typeof executeReplayPortfolioPostPartialStopReplacementRisk>
+    entry_time: string
+  }> = []
+  for (let index = 0; index < 4; index += 1) {
+    const offset = index * 48
+    const cycleOrder = structuredClone(combinedRequest.order)
+    cycleOrder.signal_time = shiftIso(cycleOrder.signal_time, offset)
+    cycleOrder.earliest_executable_time = shiftIso(cycleOrder.earliest_executable_time, offset)
+    const cycleSchedule = structuredClone(combinedSchedule)
+    for (const entry of cycleSchedule.entries) {
+      entry.decision_time = shiftIso(entry.decision_time, offset)
+      const intent = entry.authorized_partial_reduce ?? entry.authorized_protective_stop_replace
+        ?? entry.authorized_reduce_only_exit
+      if (intent) {
+        intent.signal_time = shiftIso(intent.signal_time, offset)
+        if ("earliest_executable_time" in intent) {
+          intent.earliest_executable_time = shiftIso(intent.earliest_executable_time, offset)
+        }
+        entry.authorized_order_hash = canonicalHash(intent)
+      } else {
+        entry.authorized_order_hash = canonicalHash(cycleOrder)
+      }
+    }
+    const cycleBars = strategyExitBars.map((bar) => ({
+      ...bar,
+      open_time: shiftIso(bar.open_time, offset),
+      close_time: shiftIso(bar.close_time, offset),
+      open: 110,
+      high: 115,
+      low: 108,
+      close: 110,
+    }))
+    const cycleDataHash = replayDatasetHash(cycleBars, [])
+    const cycleRequest: ReplayExecutionRequest = {
+      ...combinedRequest,
+      run_id: `post-partial-cycle-run-${index + 1}`,
+      idempotency_key: `post-partial-cycle-idem-${index + 1}`,
+      trial_id: `post-partial-cycle-trial-${index + 1}`,
+      trial_reservation_ref: `reservation://post-partial-cycle/${index + 1}`,
+      trial_reservation_hash: "0".repeat(64),
+      initial_cash: 1_000,
+      dataset_hash: cycleDataHash,
+      cost_policy: { ...combinedRequest.cost_policy, fee_bps: 0, slippage_bps: 0 },
+      order: cycleOrder,
+      decision_schedule: cycleSchedule,
+      decision_schedule_hash: canonicalHash(cycleSchedule),
+    }
+    const cycleAuthority = authorized(cycleRequest)
+    const outcome = runReplayTrial({
+      ...cycleAuthority,
+      artifact_root: combinedArtifactRoot,
+      dataset_manifest: {
+        ...manifest,
+        data_hash: cycleDataHash,
+        row_count: cycleBars.length,
+        first_open_time: cycleBars[0]!.open_time,
+        last_close_time: cycleBars.at(-1)!.close_time,
+        observed_through: cycleBars.at(-1)!.close_time,
+      },
+      bars: cycleBars,
+      funding_events: [],
+      decision_harness_registry: combinedHarness.registry,
+    })
+    expect(outcome.status).toBe("completed")
+    expect(outcome.result!.fills.map((fill) => [fill.order_role, fill.price])).toEqual([
+      ["entry", 110], ["strategy_partial_reduce", 110], ["strategy_partial_reduce", 110],
+      ["strategy_exit", 110],
+    ])
+    const laneId = `cycle-lane-${index + 1}`
+    const risk = executeReplayPortfolioPostPartialStopReplacementRisk({
+      portfolio_id: "post-partial-four-cycle",
+      settlement_asset: "USDT",
+      lanes: [{
+        lane_id: laneId,
+        price_increment: ACCOUNTING.price_increment,
+        settlement_increment: ACCOUNTING.settlement_increment,
+        request: cycleRequest,
+        result: outcome.result!,
+        artifact_manifest: outcome.artifact_manifest!,
+      }],
+    })
+    expect(risk).toMatchObject({ initial_cash: 1_000, ending_available_cash: 1_000,
+      open_lane_count: 0, ending_current_active_stop_bounded_risk: 0 })
+    sequenceCycles.push({
+      lane_id: laneId,
+      request: cycleRequest,
+      result: outcome.result!,
+      artifact_manifest: outcome.artifact_manifest!,
+      risk,
+      entry_time: outcome.result!.fills.find((fill) => fill.order_role === "entry")!.timestamp,
+    })
+  }
+  const sequenceAuthority =
+    createReplayPortfolioPostPartialStopReplacementCycleSequenceReservationSnapshot({
+      schema_version:
+        REPLAY_PORTFOLIO_POST_PARTIAL_STOP_REPLACEMENT_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION,
+      reservation_id: "post-partial-four-cycle-reservation",
+      reservation_ref: "reservation://post-partial-four-cycle/1",
+      issued_at: "2026-07-14T00:00:00Z",
+      expires_at: "2026-08-01T00:00:00Z",
+      status: "reserved",
+      authority_id: "research-control-plane",
+      experiment_id: sequenceCycles[0]!.request.experiment_id,
+      trial_group_id: sequenceCycles[0]!.request.trial_group_id,
+      trial_group_hash: sequenceCycles[0]!.request.trial_group_hash,
+      portfolio_id: "post-partial-four-cycle",
+      settlement_asset: "USDT",
+      initial_cash: 1_000,
+      cycle_count: 4,
+      max_cycle_count: 8,
+      opening_cash_policy: "first_cycle_initial_then_predecessor_committed_trial_balance",
+      successor_eligibility_policy:
+        "predecessor_committed_full_flat_collateral_exposure_unrealized_and_current_risk_zero",
+      expansion_policy: "exact_predeclared_lane_trials_no_runtime_append_or_search_expansion",
+      cycles: sequenceCycles.map((cycle, index) => ({
+        cycle_index: index + 1,
+        earliest_cycle_time: cycle.entry_time,
+        lanes: [{
+          lane_id: cycle.lane_id,
+          priority_rank: 1,
+          trial_id: cycle.request.trial_id,
+          run_id: cycle.request.run_id,
+          trial_reservation_ref: cycle.request.trial_reservation_ref,
+          trial_reservation_hash: cycle.request.trial_reservation_hash,
+          request_hash: canonicalHash(cycle.request),
+        }],
+      })),
+      limitations: [
+        "one_to_eight_predeclared_post_partial_stop_replacement_full_flat_cycles_only",
+        "cycle_opening_cash_must_equal_predecessor_committed_trial_balance",
+        "no_open_successor_dynamic_sizing_between_partial_or_repeated_mutation_third_partial_reentry_cross_margin_borrow_real_liquidity_fast_or_runtime_cycle_expansion",
+      ],
+    })
+  const sequenceArtifactRoot = mkdtempSync(join(tmpdir(), "rd-post-partial-cycle-sequence-"))
+  const sequenceInput = {
+    sequence_authority: sequenceAuthority,
+    cycles: sequenceCycles.map((cycle, index) => ({
+      cycle_index: index + 1,
+      risk_evidence: cycle.risk,
+      lanes: [{
+        lane_id: cycle.lane_id,
+        request: cycle.request,
+        result: cycle.result,
+        artifact_manifest: cycle.artifact_manifest,
+      }],
+    })),
+    artifact_store: createReplayLocalArtifactStore(sequenceArtifactRoot),
+  }
+  const firstSequence = runReplayPortfolioPostPartialStopReplacementCycleSequence(sequenceInput)
+  expect(firstSequence.status).toBe("completed")
+  expect(firstSequence.evidence?.cycle_commits.map((commit) => [
+    commit.cycle_index, commit.opening_available_cash, commit.ending_available_cash,
+  ])).toEqual([[1, 1_000, 1_000], [2, 1_000, 1_000], [3, 1_000, 1_000], [4, 1_000, 1_000]])
+  expect(firstSequence.evidence?.consolidated_journal.filter((entry) =>
+    entry.cycle_entry.posting_kind === "portfolio_opening_equity")).toHaveLength(1)
+  expect(firstSequence.evidence).toMatchObject({
+    ending_reserved_isolated_collateral: 0,
+    ending_unrealized_pnl: 0,
+    ending_reserved_admission_risk: 0,
+    ending_current_active_stop_bounded_risk: 0,
+  })
+  expect(firstSequence.evidence?.historical_admission_frozen_stop_risk)
+    .toBe(firstSequence.evidence?.total_risk_budget_released)
+  expect(() => assertReplayPortfolioPostPartialStopReplacementCycleSequenceEvidence(
+    firstSequence.evidence!,
+  )).not.toThrow()
+  const cashBridgeTamper = structuredClone(firstSequence.evidence!)
+  cashBridgeTamper.cycle_commits[1]!.opening_available_cash = 999
+  cashBridgeTamper.cycle_commits[1]!.cycle_commit_hash =
+    replayPortfolioPostPartialStopReplacementCycleCommitHash(cashBridgeTamper.cycle_commits[1]!)
+  cashBridgeTamper.cycle_commits_hash = canonicalHash(cashBridgeTamper.cycle_commits)
+  cashBridgeTamper.fingerprint_hash = canonicalHash({
+    cycle_commits_hash: cashBridgeTamper.cycle_commits_hash,
+    consolidated_ledger_hash: canonicalHash(cashBridgeTamper.consolidated_ledger),
+    consolidated_journal_hash: canonicalHash(cashBridgeTamper.consolidated_journal),
+    consolidated_trial_balance_hash: cashBridgeTamper.consolidated_trial_balance.trial_balance_hash,
+    limitations: cashBridgeTamper.limitations,
+  })
+  cashBridgeTamper.evidence_hash =
+    replayPortfolioPostPartialStopReplacementCycleSequenceEvidenceHash(cashBridgeTamper)
+  expect(() => assertReplayPortfolioPostPartialStopReplacementCycleSequenceEvidence(cashBridgeTamper))
+    .toThrow("cycle sequence evidence drift")
+  expect(runReplayPortfolioPostPartialStopReplacementCycleSequence(sequenceInput)).toMatchObject({
+    status: "completed",
+    idempotent_replay: true,
+    evidence: firstSequence.evidence,
+    artifact_manifest: firstSequence.artifact_manifest,
+  })
+
+  const failedSequenceRoot = mkdtempSync(join(tmpdir(), "rd-post-partial-cycle-failed-"))
+  let executedCycleCount = 0
+  expect(runReplayPortfolioPostPartialStopReplacementCycleSequence({
+    ...sequenceInput,
+    artifact_store: createReplayLocalArtifactStore(failedSequenceRoot),
+    execute_cycle_accounting: (input) => {
+      executedCycleCount += 1
+      if (executedCycleCount === 3) return {
+        status: "failed", evidence: null, artifact_manifest: null, idempotent_replay: false,
+        failure: { code: "accounting-projection-failed", message: "injected cycle three failure",
+          partial_portfolio_result_published: false },
+      }
+      return runReplayPortfolioPostPartialStopReplacementAccounting(input)
+    },
+  })).toMatchObject({
+    status: "failed", evidence: null, artifact_manifest: null,
+    failure: { code: "cycle-child-failed", cycle_index: 3, partial_sequence_result_published: false },
+  })
+  expect(executedCycleCount).toBe(3)
+  expect(createReplayLocalArtifactStore(failedSequenceRoot).discoverAttemptNamespaces().some(
+    (namespace) => namespace.exists(
+      "portfolio-post-partial-stop-replacement-cycle-sequence-artifact-manifest.json",
+    ),
+  )).toBe(false)
+
+  const openCycleRisk = executeReplayPortfolioPostPartialStopReplacementRisk({
+    portfolio_id: "post-partial-four-cycle",
+    settlement_asset: "USDT",
+    lanes: [{
+      lane_id: "open-predecessor",
+      price_increment: ACCOUNTING.price_increment,
+      settlement_increment: ACCOUNTING.settlement_increment,
+      request: openRequest,
+      result: open.result!,
+      artifact_manifest: open.artifact_manifest!,
+    }],
+  })
+  let openPredecessorCalls = 0
+  expect(runReplayPortfolioPostPartialStopReplacementCycleSequence({
+    ...sequenceInput,
+    cycles: sequenceInput.cycles.map((cycle, index) => index === 1
+      ? { ...cycle, risk_evidence: openCycleRisk }
+      : cycle),
+    artifact_store: createReplayLocalArtifactStore(failedSequenceRoot),
+    execute_cycle_accounting: (input) => {
+      openPredecessorCalls += 1
+      return runReplayPortfolioPostPartialStopReplacementAccounting({
+        ...input,
+        risk_evidence: sequenceInput.cycles[openPredecessorCalls - 1]!.risk_evidence,
+      })
+    },
+  })).toMatchObject({
+    status: "failed", evidence: null, artifact_manifest: null,
+    failure: { code: "cycle-not-full-flat", cycle_index: 2,
+      partial_sequence_result_published: false },
+  })
+  expect(openPredecessorCalls).toBe(2)
+
+  const interruptedSequenceRoot = mkdtempSync(join(tmpdir(), "rd-post-partial-cycle-interrupted-"))
+  const interruptedSequenceStore = createReplayLocalArtifactStore(interruptedSequenceRoot)
+  expect(runReplayPortfolioPostPartialStopReplacementCycleSequence({
+    ...sequenceInput,
+    artifact_store: failReplayArtifactWriteOnce(
+      interruptedSequenceStore, "consolidated-journal.json",
+    ),
+  })).toMatchObject({
+    status: "failed", evidence: null, artifact_manifest: null,
+    failure: { code: "cycle-sequence-artifact-failed", partial_sequence_result_published: false },
+  })
+  expect(interruptedSequenceStore.discoverAttemptNamespaces().some((namespace) => namespace.exists(
+    "portfolio-post-partial-stop-replacement-cycle-sequence-artifact-manifest.json",
+  ))).toBe(false)
+  expect(runReplayPortfolioPostPartialStopReplacementCycleSequence({
+    ...sequenceInput, artifact_store: interruptedSequenceStore,
+  })).toMatchObject({ status: "completed", idempotent_replay: false })
+  rmSync(sequenceArtifactRoot, { recursive: true, force: true })
+  rmSync(failedSequenceRoot, { recursive: true, force: true })
+  rmSync(interruptedSequenceRoot, { recursive: true, force: true })
+  rmSync(ownerArtifactRoot, { recursive: true, force: true })
+  rmSync(interruptedArtifactRoot, { recursive: true, force: true })
+
+  const rehashedOwnerTamper = structuredClone(ownerAccounting)
+  const openOwnerBinding = rehashedOwnerTamper.lane_owner_bindings.find((binding) =>
+    binding.terminal_owner === "open_at_data_end")!
+  openOwnerBinding.terminal_owner = "strategy_exit"
+  openOwnerBinding.binding_hash = replayPortfolioPostPartialStopReplacementOwnerBindingHash(openOwnerBinding)
+  rehashedOwnerTamper.lane_owner_bindings_hash = canonicalHash(rehashedOwnerTamper.lane_owner_bindings)
+  rehashedOwnerTamper.terminal_owner_counts.open_at_data_end = 0
+  rehashedOwnerTamper.terminal_owner_counts.strategy_exit = 2
+  rehashedOwnerTamper.fingerprint_hash = canonicalHash({
+    source_risk_evidence_hash: rehashedOwnerTamper.source_risk_evidence_hash,
+    source_lane_bindings_hash: rehashedOwnerTamper.source_lane_bindings_hash,
+    lane_result_hashes: rehashedOwnerTamper.lane_result_hashes,
+    lane_artifact_manifest_hashes: rehashedOwnerTamper.lane_artifact_manifest_hashes,
+    lane_owner_bindings_hash: rehashedOwnerTamper.lane_owner_bindings_hash,
+    ledger_hash: canonicalHash(rehashedOwnerTamper.ledger),
+    journal_hash: canonicalHash(rehashedOwnerTamper.journal),
+    trial_balance_hash: rehashedOwnerTamper.trial_balance.trial_balance_hash,
+    terminal_owner_counts: rehashedOwnerTamper.terminal_owner_counts,
+    owner_journal_posting_counts: rehashedOwnerTamper.owner_journal_posting_counts,
+    limitations: rehashedOwnerTamper.limitations,
+  })
+  rehashedOwnerTamper.evidence_hash =
+    replayPortfolioPostPartialStopReplacementAccountingEvidenceHash(rehashedOwnerTamper)
+  expect(() => assertReplayPortfolioPostPartialStopReplacementAccountingEvidence(rehashedOwnerTamper))
+    .toThrow("accounting opening drift")
 
   const preemptedBars = bars.map((bar, index) => index === 7 ? { ...bar, low: 94 } : bar)
   const preemptedHash = replayDatasetHash(preemptedBars, fundingEvents)
@@ -3037,6 +3548,42 @@ export function execute({ request_context, decision_state_snapshot }) {
       record.ending_current_active_stop_bounded_risk_amount])).toEqual([
     ["long", 1, 20, 7], ["long", 2, 20, 4], ["short", 1, 20, 7], ["short", 2, 20, 4],
   ])
+
+  const accounting = createReplayPortfolioPostPartialStopReplacementAccountingEvidence({
+    risk_evidence: portfolio,
+    lanes: portfolioLanes.map((lane) => ({
+      lane_id: lane.lane_id, result: lane.result, artifact_manifest: lane.artifact_manifest,
+    })),
+  })
+  expect(() => assertReplayPortfolioPostPartialStopReplacementAccountingEvidence(accounting)).not.toThrow()
+  expect(accounting.terminal_owner_counts).toEqual({
+    replacement_protective_stop: 0, preserved_take_profit: 0, strategy_exit: 0,
+    exact_liquidation: 4, open_at_data_end: 4,
+  })
+  expect(accounting.trial_balance).toMatchObject({
+    balanced: true,
+    ending_available_cash: portfolio.ending_available_cash,
+    ending_reserved_isolated_collateral: portfolio.ending_reserved_isolated_collateral,
+    ending_settled_cash: portfolio.ending_settled_cash,
+    ending_unrealized_pnl: portfolio.ending_unrealized_pnl,
+    ending_portfolio_nav: portfolio.ending_portfolio_nav,
+    historical_admission_frozen_stop_risk: 160,
+    ending_reserved_admission_risk: 80,
+    total_risk_budget_released: 80,
+    ending_current_active_stop_bounded_risk: 22,
+  })
+  expect(accounting.journal.filter((entry) => entry.posting_kind === "portfolio_opening_equity"))
+    .toHaveLength(1)
+
+  const journalTamperedLanes = structuredClone(portfolioLanes).map((lane) => ({
+    lane_id: lane.lane_id, result: lane.result, artifact_manifest: lane.artifact_manifest,
+  }))
+  const tamperedPosting = journalTamperedLanes[0]!.result.journal.find((entry) =>
+    entry.kind !== "opening_balance")!
+  tamperedPosting.legs[0]!.amount += 1
+  expect(() => createReplayPortfolioPostPartialStopReplacementAccountingEvidence({
+    risk_evidence: portfolio, lanes: journalTamperedLanes,
+  })).toThrow("Trial Balance does not reconcile")
 
   const rehashedRiskTamper = structuredClone(portfolio)
   rehashedRiskTamper.lane_records[0]!.ending_current_active_stop_bounded_risk_amount += 1
