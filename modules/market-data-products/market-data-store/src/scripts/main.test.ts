@@ -176,3 +176,23 @@ test("market data store CLI upserts and reads manifest", () => {
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test("market data store CLI exposes only typed L2 referrer register/read actions", () => {
+  const dir = mkdtempSync(join(tmpdir(), "market-data-l2-referrer-cli-"))
+  const dbPath = join(dir, "market.db")
+  try {
+    const missing = run(parseArgs([
+      "--db", dbPath,
+      "--action", "read_l2_experiment_attachment_referrer",
+      "--json", JSON.stringify({ authority_snapshot_hash: "a".repeat(64) }),
+    ])) as { receipt: unknown }
+    assert.equal(missing.receipt, null)
+    assert.throws(() => run(parseArgs([
+      "--db", dbPath,
+      "--action", "register_l2_experiment_attachment_referrer",
+      "--json", JSON.stringify({ authority: {} }),
+    ])), /field whitelist drift/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
