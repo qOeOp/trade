@@ -37,6 +37,12 @@ interface CapabilityInventory {
     path: string
     export: string
   }>
+  opt_in_activation_registry: Array<{
+    milestone: string
+    activation: string
+    path: string
+    export: string
+  }>
   entries: Array<{
     milestone: string
     capability: string
@@ -88,6 +94,21 @@ for (const entry of inventory.entries) {
     continue
   }
   classificationCounts[entry.classification] += 1
+}
+const optInMilestones = inventory.entries
+  .filter((entry) => entry.classification === "opt_in")
+  .map((entry) => entry.milestone)
+if (canonicalArray(inventory.opt_in_activation_registry.map((entry) => entry.milestone))
+    !== canonicalArray(optInMilestones)
+    || new Set(inventory.opt_in_activation_registry.map((entry) => entry.milestone)).size
+      !== inventory.opt_in_activation_registry.length) {
+  issues.push("Replay opt-in activation registry must cover every opt-in capability exactly once")
+}
+for (const activation of inventory.opt_in_activation_registry) {
+  if (!activation.activation || !existsSync(activation.path)
+      || !readFileSync(activation.path, "utf8").includes(`export function ${activation.export}`)) {
+    issues.push(`Replay opt-in activation is not owned by its declared Runner export: ${activation.milestone}`)
+  }
 }
 if (inventory.summary.total !== 29
     || Object.entries(classificationCounts).some(([key, count]) =>
