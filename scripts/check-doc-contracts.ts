@@ -89,12 +89,16 @@ for (const guard of documentedGuards) {
 const currentDocuments = ["docs/README.md", "docs/history/README.md", ...currentRoots.flatMap(walkMarkdown)]
   .filter((path) => !path.startsWith("docs/architecture/generated/"))
   .sort()
+const currentDocumentPaths = new Set(currentDocuments)
 const indexedPaths = new Set<string>()
 const indexedIds = new Set<string>()
 
 for (const entry of index.documents) {
   if (indexedIds.has(entry.id)) issues.push(`duplicate document id: ${entry.id}`)
   if (indexedPaths.has(entry.path)) issues.push(`duplicate document path: ${entry.path}`)
+  if (!currentDocumentPaths.has(entry.path)) {
+    issues.push(`indexed path is outside the current document scope: ${entry.path}`)
+  }
   if (!allowedCurrentStatuses.has(entry.status)) {
     issues.push(`${entry.path} has unsupported current document status: ${entry.status}`)
   }

@@ -447,6 +447,38 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("must contain exactly one top-level heading; found 2")
   })
 
+  test("document contracts reject generated evidence masquerading as a current contract", () => {
+    const root = documentContractFixture({})
+    const generatedPath = "docs/architecture/generated/report.md"
+    write(root, generatedPath, [
+      "---",
+      "title: Generated Report",
+      "role: architecture-contract",
+      "status: active",
+      "owner: architecture",
+      "last_verified: 2026-07-22 CST",
+      "---",
+      "",
+      "# Generated Report",
+      "",
+    ].join("\n"))
+    const indexPath = join(root, "docs/engineering/doc-contract-index.json")
+    const index = JSON.parse(readFileSync(indexPath, "utf8")) as { documents: unknown[] }
+    index.documents.push({
+      id: "generated-report",
+      path: generatedPath,
+      role: "architecture-contract",
+      status: "active",
+      owner: "architecture",
+    })
+    writeFileSync(indexPath, JSON.stringify(index))
+
+    const result = runJudge("check-doc-contracts.ts", root)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain(`indexed path is outside the current document scope: ${generatedPath}`)
+  })
+
   test("package tests cannot omit a colocated test file", () => {
     const root = temporaryRoot()
     write(root, "modules/domain-a/tool-a/package.json", JSON.stringify({
