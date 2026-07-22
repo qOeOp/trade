@@ -184,7 +184,7 @@ import {
   issueReplayRuntimeSharedWalletReservation,
 } from "./runtime-shared-wallet-reservation"
 import {
-  claimReplayAttempt,
+  claimReplayAttemptCompatibilityFixture,
   attestReplayDispatchClock,
   createSqliteReplaySuccessorVerificationLeaseRenewalAuthorityPort,
   finalizeReplayAttempt,
@@ -256,6 +256,17 @@ import { parseArgs as parseStateStoreCliArgs, run as runStateStoreCli } from "..
 
 const NOW = "2026-07-14T03:20:00Z"
 const HASH_POLICY = "trade-flow.identity-hash.v1"
+
+function claimReplayAttemptFixture(
+  db: Database,
+  input: Omit<Parameters<typeof claimReplayAttemptCompatibilityFixture>[1], "fixture_authority">,
+) {
+  return claimReplayAttemptCompatibilityFixture(db, {
+    ...input,
+    fixture_authority: "test_only_raw_replay_attempt_claim",
+  })
+}
+
 const PROVIDER_CAPABILITY_HASH = "8".repeat(64)
 const PROVIDER_CERTIFICATION = createReplayInstrumentStatusProviderCertificationSnapshot({
   schema_version: REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
@@ -1433,7 +1444,7 @@ test("Control Plane atomically issues an immutable Replay Trial Reservation snap
       required_capabilities: snapshot.required_capabilities,
     })
     assert.equal(successorSnapshot.instrument_status_provider_certification.certification_hash, successorCertification.certification_hash)
-    const historicalClaim = claimReplayAttempt(db, {
+    const historicalClaim = claimReplayAttemptFixture(db, {
       attempt_id: "attempt-pre-cutover-reservation",
       worker_id: "worker-pre-cutover-reservation",
       idempotency_key: "attempt-key-pre-cutover-reservation",
@@ -1690,13 +1701,13 @@ test("Control Plane issues shared initial capital only over current child Trial 
     assert.deepEqual(sequence.cycles[0]?.lanes.map((lane) => lane.lane_id), ["lane-b", "lane-a"])
     const requestHashA = "a".repeat(64)
     const requestHashB = "b".repeat(64)
-    claimReplayAttempt(db, {
+    claimReplayAttemptFixture(db, {
       attempt_id: "attempt-two-fixed-a", worker_id: "worker-two-fixed-a",
       idempotency_key: "attempt-two-fixed-a-key", request_hash: requestHashA,
       claimed_at: "2026-07-14T03:21:00Z", lease_expires_at: "2026-07-14T04:00:00Z",
       trial_reservation: reservationA,
     })
-    claimReplayAttempt(db, {
+    claimReplayAttemptFixture(db, {
       attempt_id: "attempt-two-fixed-b", worker_id: "worker-two-fixed-b",
       idempotency_key: "attempt-two-fixed-b-key", request_hash: requestHashB,
       claimed_at: "2026-07-14T03:21:00Z", lease_expires_at: "2026-07-14T04:00:00Z",
@@ -1868,12 +1879,12 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
       },
       required_capabilities: ["closed-candle", "step"],
     })
-    assert.throws(() => claimReplayAttempt(db, {
+    assert.throws(() => claimReplayAttemptFixture(db, {
       attempt_id: "attempt-expired", worker_id: "worker-expired", idempotency_key: "attempt-key-expired",
       request_hash: "9".repeat(64), claimed_at: reservation.expires_at, lease_expires_at: "2026-07-14T04:13:00Z",
       trial_reservation: reservation,
     }), /issued_at <= claimed_at < expires_at/)
-    const first = claimReplayAttempt(db, {
+    const first = claimReplayAttemptFixture(db, {
       attempt_id: "attempt-1", worker_id: "worker-1", idempotency_key: "attempt-key-1",
       request_hash: "9".repeat(64), claimed_at: "2026-07-14T04:00:00Z", lease_expires_at: "2026-07-14T04:05:00Z",
       trial_reservation: reservation,
@@ -1884,7 +1895,7 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
       trial_id: first.trial_id,
       observed_at: "2026-07-14T04:01:00Z",
     })
-    assert.throws(() => claimReplayAttempt(db, {
+    assert.throws(() => claimReplayAttemptFixture(db, {
       attempt_id: "attempt-conflict", worker_id: "worker-2", idempotency_key: "attempt-key-conflict",
       request_hash: "9".repeat(64), claimed_at: "2026-07-14T04:01:00Z", lease_expires_at: "2026-07-14T04:06:00Z",
       trial_reservation: reservation,
@@ -2261,7 +2272,7 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
       trial_id: renewed.trial_id,
       observed_at: "2026-07-14T04:03:30Z",
     }), /no active Attempt Lease/)
-    const second = claimReplayAttempt(db, {
+    const second = claimReplayAttemptFixture(db, {
       attempt_id: "attempt-2", worker_id: "worker-2", idempotency_key: "attempt-key-2",
       request_hash: "9".repeat(64), claimed_at: "2026-07-14T04:04:00Z", lease_expires_at: "2026-07-14T04:06:00Z",
       trial_reservation: reservation,
@@ -2315,7 +2326,7 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
     }
     const secondLatestReceipt = recordReplayCheckpointReceipt(db, secondLatestReceiptInput)
     assert.equal(secondLatestReceipt.next_source_offset, 4)
-    const third = claimReplayAttempt(db, {
+    const third = claimReplayAttemptFixture(db, {
       attempt_id: "attempt-3", worker_id: "worker-3", idempotency_key: "attempt-key-3",
       request_hash: "9".repeat(64), claimed_at: "2026-07-14T04:07:00Z", lease_expires_at: "2026-07-14T04:12:00Z",
       trial_reservation: reservation,
@@ -2351,7 +2362,7 @@ test("Control Plane fences Replay Attempt leases and permits retry only after a 
       result_hash: "3".repeat(64), artifact_ref: "artifact://attempt-3", artifact_hash: "4".repeat(64),
       terminal_checkpoint_hash: "5".repeat(64),
     })
-    assert.throws(() => claimReplayAttempt(db, {
+    assert.throws(() => claimReplayAttemptFixture(db, {
       attempt_id: "attempt-4", worker_id: "worker-4", idempotency_key: "attempt-key-4",
       request_hash: "9".repeat(64), claimed_at: "2026-07-14T04:11:00Z", lease_expires_at: "2026-07-14T04:16:00Z",
       trial_reservation: reservation,
@@ -2405,7 +2416,7 @@ test("Control Plane cancellation authority separately fences future claims and o
       cancellation_ref: "cancellation://reservation/competing",
       reason_code: "policy_withdrawal",
     }), reservation), /different cancellation/)
-    const first = claimReplayAttempt(db, {
+    const first = claimReplayAttemptFixture(db, {
       attempt_id: "attempt-cancellation-1", worker_id: "worker-cancellation", idempotency_key: "attempt-cancellation-key",
       request_hash: "9".repeat(64), claimed_at: "2026-07-14T03:40:00Z", lease_expires_at: "2026-07-14T04:05:00Z",
       trial_reservation: reservation,
@@ -2414,7 +2425,7 @@ test("Control Plane cancellation authority separately fences future claims and o
       attempt_id: first.attempt_id, worker_id: first.worker_id, expected_lease_generation: first.lease_generation,
       heartbeat_at: "2026-07-14T03:45:00Z", lease_expires_at: "2026-07-14T04:07:00Z",
     })
-    assert.equal(claimReplayAttempt(db, {
+    assert.equal(claimReplayAttemptFixture(db, {
       attempt_id: first.attempt_id, worker_id: first.worker_id, idempotency_key: "attempt-cancellation-key",
       request_hash: first.request_hash, claimed_at: "2026-07-14T04:00:00Z", lease_expires_at: renewed.lease_expires_at,
       trial_reservation: reservation,
@@ -2549,7 +2560,7 @@ test("Control Plane cancellation authority separately fences future claims and o
       result_hash: "5".repeat(64), artifact_ref: "artifact://cancelled", artifact_hash: "4".repeat(64),
       terminal_checkpoint_hash: "3".repeat(64),
     }), /already terminal/)
-    assert.throws(() => claimReplayAttempt(db, {
+    assert.throws(() => claimReplayAttemptFixture(db, {
       attempt_id: "attempt-cancellation-2", worker_id: "worker-cancellation-2", idempotency_key: "attempt-cancellation-key-2",
       request_hash: "9".repeat(64), claimed_at: "2026-07-14T04:00:00Z", lease_expires_at: "2026-07-14T04:05:00Z",
       trial_reservation: reservation,
