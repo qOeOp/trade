@@ -1,6 +1,6 @@
 #!/usr/bin/env bun
 
-import { existsSync, lstatSync, readFileSync } from "node:fs"
+import { existsSync, lstatSync, readFileSync, readdirSync } from "node:fs"
 import { isAbsolute, normalize } from "node:path"
 
 interface GateManifest {
@@ -58,11 +58,37 @@ interface CapabilityInventory {
   summary: Record<"canonical" | "opt_in" | "compatibility" | "obsolete" | "total", number>
 }
 
+interface EvidenceEpochRegistry {
+  schema_version: string
+  freeze: string
+  writer_policy: {
+    one_current_generic_epoch_per_kind: boolean
+    historical_generic_epoch_writes: string
+    profile_specific_result_and_manifest: string
+    checkpoint_absence: string
+  }
+  generic_epochs: Array<{
+    kind: string
+    schema_version: string
+    path: string
+    export: string
+  }>
+  profile_epochs: Array<{
+    profile: string
+    result_schema_version: string
+    artifact_schema_version: string
+    checkpoint_mode: string
+  }>
+}
+
 const manifestPath = process.env.RD_REPLAY_MATURITY_GATE_PATH || "docs/research/reliability/rd-replay-maturity-gate.json"
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as GateManifest
 const inventoryPath = process.env.RD_REPLAY_CAPABILITY_INVENTORY_PATH
   || "docs/research/reliability/rd-replay-capability-inventory.json"
 const inventory = JSON.parse(readFileSync(inventoryPath, "utf8")) as CapabilityInventory
+const epochRegistryPath = process.env.RD_REPLAY_EVIDENCE_EPOCH_REGISTRY_PATH
+  || "docs/research/reliability/rd-replay-evidence-epoch-registry.json"
+const epochRegistry = JSON.parse(readFileSync(epochRegistryPath, "utf8")) as EvidenceEpochRegistry
 const issues: string[] = []
 
 const expectedCapabilityMilestones = Array.from({ length: 29 }, (_, index) => `M4-P${index + 1}`)
@@ -72,9 +98,65 @@ const expectedCanonicalEntrypoints = [
   { profile: "integrated-portfolio", owner: "runner", path: "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-integrated-portfolio-runner.ts", export: "runReplayIntegratedPortfolio" },
   { profile: "terminal-aware-bounded-cycle", owner: "runner", path: "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-terminal-cycle-sequence-runner.ts", export: "runReplayPortfolioProtectiveTerminalCycleSequence" },
 ]
+const expectedGenericEpochs = [
+  { kind: "result", schema_version: "trade.rd-replay-result.v53", path: "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-contracts.ts", export: "REPLAY_RESULT_SCHEMA_VERSION" },
+  { kind: "artifact_manifest", schema_version: "trade.rd-replay-artifact-manifest.v55", path: "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-contracts.ts", export: "REPLAY_ARTIFACT_SCHEMA_VERSION" },
+  { kind: "engine_checkpoint", schema_version: "trade.rd-replay-engine-checkpoint.v32", path: "modules/research-strategy-development/replay-execution-plane/engine/src/lib/replay-reference-engine.ts", export: "REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION" },
+  { kind: "diagnostic_checkpoint_commit", schema_version: "trade.rd-replay-diagnostic-checkpoint-commit.v2", path: "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.ts", export: "REPLAY_DIAGNOSTIC_CHECKPOINT_COMMIT_SCHEMA_VERSION" },
+  { kind: "terminal_checkpoint", schema_version: "trade.rd-replay-terminal-checkpoint.v1", path: "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.ts", export: "REPLAY_TERMINAL_CHECKPOINT_SCHEMA_VERSION" },
+  { kind: "run_outcome", schema_version: "trade.rd-replay-run-outcome.v35", path: "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.ts", export: "REPLAY_RUN_OUTCOME_SCHEMA_VERSION" },
+]
+const expectedProfileEpochs = [
+  { profile: "single-trial", result_schema_version: "trade.rd-replay-result.v53", artifact_schema_version: "trade.rd-replay-artifact-manifest.v55", checkpoint_mode: "resumable-engine-checkpoint-v32" },
+  { profile: "independent-lane-batch", result_schema_version: "trade.rd-replay-independent-lane-batch-result.v1", artifact_schema_version: "child-trial-artifact-manifests-v55", checkpoint_mode: "child-trial-engine-checkpoints-v32-only" },
+  { profile: "integrated-portfolio", result_schema_version: "trade.rd-replay-integrated-portfolio-result.v1", artifact_schema_version: "trade.rd-replay-integrated-portfolio-artifact-manifest.v1", checkpoint_mode: "not-supported-no-checkpoint-writer" },
+  { profile: "terminal-aware-bounded-cycle", result_schema_version: "trade.rd-replay-portfolio-protective-terminal-cycle-sequence-result.v1", artifact_schema_version: "trade.rd-replay-portfolio-protective-terminal-cycle-sequence-artifact-manifest.v1", checkpoint_mode: "not-supported-no-checkpoint-writer" },
+]
 if (inventory.schema_version !== "trade.rd-replay-capability-inventory.v1"
     || inventory.freeze !== "M4-P29" || inventory.p30_creation !== "forbidden") {
   issues.push("Replay capability inventory must remain frozen at M4-P29 with P30 forbidden")
+}
+if (epochRegistry.schema_version !== "trade.rd-replay-evidence-epoch-registry.v1"
+    || epochRegistry.freeze !== "M4-CONVERGENCE"
+    || epochRegistry.writer_policy.one_current_generic_epoch_per_kind !== true
+    || epochRegistry.writer_policy.historical_generic_epoch_writes !== "forbidden"
+    || epochRegistry.writer_policy.profile_specific_result_and_manifest
+      !== "subordinate_evidence_not_competing_generic_epoch"
+    || epochRegistry.writer_policy.checkpoint_absence
+      !== "must_be_explicit_not_supported_never_invented_for_gate_completion") {
+  issues.push("Replay evidence epoch registry policy is not frozen")
+}
+if (JSON.stringify(epochRegistry.generic_epochs) !== JSON.stringify(expectedGenericEpochs)) {
+  issues.push("Replay generic Result/Artifact/Checkpoint epochs do not match the frozen writer set")
+} else {
+  for (const epoch of epochRegistry.generic_epochs) {
+    if (!existsSync(epoch.path)
+        || !readFileSync(epoch.path, "utf8").includes(
+          `export const ${epoch.export} = "${epoch.schema_version}" as const`,
+        )) {
+      issues.push(`Replay generic evidence epoch is not exported by its declared owner: ${epoch.kind}`)
+    }
+  }
+}
+if (JSON.stringify(epochRegistry.profile_epochs) !== JSON.stringify(expectedProfileEpochs)) {
+  issues.push("Replay public profile evidence epochs or checkpoint modes are not converged")
+}
+const genericEpochPatterns = expectedGenericEpochs.map((epoch) => ({
+  kind: epoch.kind,
+  expected: epoch.schema_version,
+  pattern: new RegExp(`${escapeRegExp(epoch.schema_version.replace(/v\d+$/, "v"))}\\d+`, "g"),
+}))
+const replaySourceRoot = "modules/research-strategy-development/replay-execution-plane"
+const productionReplaySources = collectTypeScriptSources(replaySourceRoot)
+  .filter((path) => !path.endsWith(".test.ts"))
+for (const epoch of genericEpochPatterns) {
+  const observed = new Set<string>()
+  for (const path of productionReplaySources) {
+    for (const match of readFileSync(path, "utf8").matchAll(epoch.pattern)) observed.add(match[0])
+  }
+  if (JSON.stringify([...observed].sort()) !== JSON.stringify([epoch.expected])) {
+    issues.push(`Replay ${epoch.kind} production writers expose non-current generic epochs: ${[...observed].sort().join(",")}`)
+  }
 }
 if (JSON.stringify(inventory.canonical_public_entrypoints) !== JSON.stringify(expectedCanonicalEntrypoints)) {
   issues.push("Replay canonical public entrypoints do not match the frozen four-profile surface")
@@ -250,6 +332,20 @@ if (manifest.next_allowed_outcome !== expectedNextOutcome) {
 
 function canonicalArray(values: string[]): string {
   return JSON.stringify([...values].sort())
+}
+
+function collectTypeScriptSources(root: string): string[] {
+  const sources: string[] = []
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    const path = `${root}/${entry.name}`
+    if (entry.isDirectory()) sources.push(...collectTypeScriptSources(path))
+    else if (entry.isFile() && path.endsWith(".ts")) sources.push(path)
+  }
+  return sources
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
 
 if (issues.length > 0) {
