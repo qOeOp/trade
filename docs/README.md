@@ -41,6 +41,20 @@ last_verified: 2026-07-22 CST
 
 优先级：产品边界 > 当前架构合同 > domain/module contract > 历史施工记录。生成文件只投影当前代码，不反向定义产品。
 
+## 状态词汇
+
+| Status | 含义 |
+| --- | --- |
+| `active` | 当前有效合同或入口 |
+| `active-partial` | 已实现并生效的有限子集；正文必须声明未完成边界 |
+| `active-migration` | 当前迁移合同；目标态不得冒充现状 |
+| `proposed` | 尚未进入当前 authority 的提案 |
+| `source-material` | 可引用的上游素材，不直接定义当前实现 |
+| `implemented` | 已完成的实现记录，不自动升级为持续 authority |
+| `audit-log` | 按时间追加的审计事实，不覆盖当前合同 |
+
+current 文档只允许以上状态，并必须与 `doc-contract-index.json` 一致；history 正文只允许 `completed-historical` 或 `legacy-reference`。仓库内 Markdown 相对链接必须解析到真实路径；机器检查不证明外部 URL 可用，也不校验页面 anchor 语义。
+
 ## 归档规则
 
 - 跨域合同、顶层架构和大功能设计必须进入对应子目录，不在 `docs/` 根目录新增散文件。
