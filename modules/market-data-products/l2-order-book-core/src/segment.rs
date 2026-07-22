@@ -25,6 +25,8 @@ pub enum SegmentError {
     AlreadyFinalized,
     #[error("segment frames and sync interval must be positive")]
     InvalidRotation,
+    #[error("segment is not complete: {0}")]
+    IncompleteSegment(String),
 }
 
 #[derive(Clone, Debug, PartialEq, Eq, Serialize)]
@@ -305,6 +307,58 @@ pub fn salvage_segment(
     Ok(recovered)
 }
 
+pub fn read_segment_frames(path: impl AsRef<Path>) -> Result<Vec<Vec<u8>>, SegmentError> {
+    let segment = fs::read(path)?;
+    if segment.len() < HEADER_BYTES
+        || &segment[0..4] != MAGIC
+        || u16::from_be_bytes([segment[4], segment[5]]) != 1
+        || u16::from_be_bytes([segment[6], segment[7]]) != 0
+    {
+        return Err(SegmentError::IncompleteSegment(
+            "invalid_header".to_string(),
+        ));
+    }
+    let mut offset = HEADER_BYTES;
+    let mut frames = Vec::new();
+    while offset < segment.len() {
+        if segment.len() - offset < FRAME_HEADER_BYTES {
+            return Err(SegmentError::IncompleteSegment(
+                "truncated_frame_header".to_string(),
+            ));
+        }
+        let length = u32::from_be_bytes(
+            segment[offset..offset + 4]
+                .try_into()
+                .expect("four-byte length"),
+        ) as usize;
+        let expected_crc = u32::from_be_bytes(
+            segment[offset + 4..offset + 8]
+                .try_into()
+                .expect("four-byte crc"),
+        );
+        if length == 0 || length > MAX_PAYLOAD_BYTES {
+            return Err(SegmentError::IncompleteSegment(
+                "invalid_length".to_string(),
+            ));
+        }
+        let end = offset + FRAME_HEADER_BYTES + length;
+        if end > segment.len() {
+            return Err(SegmentError::IncompleteSegment(
+                "truncated_payload".to_string(),
+            ));
+        }
+        let payload = &segment[offset + FRAME_HEADER_BYTES..end];
+        if crc32(payload) != expected_crc {
+            return Err(SegmentError::IncompleteSegment(
+                "checksum_mismatch".to_string(),
+            ));
+        }
+        frames.push(payload.to_vec());
+        offset = end;
+    }
+    Ok(frames)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -328,9 +382,11 @@ mod tests {
         let bytes = fs::read(&path).expect("read");
         let truncated = directory.join("truncated.tl2s");
         fs::write(&truncated, &bytes[..bytes.len() - 2]).expect("truncate");
-        let recovered = recover_segment(truncated).expect("recover truncated");
+        let recovered = recover_segment(&truncated).expect("recover truncated");
         assert_eq!(recovered.status, "truncated_payload");
         assert_eq!(recovered.valid_frame_count, 1);
+        assert_eq!(read_segment_frames(&path).expect("frames").len(), 2);
+        assert!(read_segment_frames(&truncated).is_err());
         let salvage = directory.join("salvaged.tl2s");
         let salvaged =
             salvage_segment(directory.join("truncated.tl2s"), &salvage).expect("salvage prefix");
