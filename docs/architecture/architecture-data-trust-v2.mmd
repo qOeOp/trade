@@ -1,0 +1,74 @@
+flowchart LR
+  %% Account/profile authority and durable data placement.
+
+  OPERATOR["Operator / automation identity"] -->|"authenticated change / takeover"| PROFILE
+  SECRET["Secret provider<br/>API key material; never in profile or artifacts"] -->|"adapter-only credential"| VENUE
+
+  subgraph POLICY["policy-risk"]
+    PROFILE["Trading Profile<br/>profile_id / account_ref / mode / permissions<br/>risk and exposure caps / strategy scope"]
+    POLICYSNAP["Runtime Policy Snapshot<br/>immutable hash / applied overrides / expiry"]
+    PROFILE --> POLICYSNAP
+  end
+
+  subgraph EXCHANGE["exchange-gateway"]
+    ACCOUNTREF["Venue Account Ref<br/>venue / environment / market / account alias<br/>no credential material"]
+    VENUE["Venue Adapter"]
+    ACCOUNTFACT["Exchange Account Facts<br/>equity / balances / margin / positions<br/>open orders / fills / as_of"]
+    ACCOUNTREF --> VENUE
+    VENUE --> ACCOUNTFACT
+  end
+
+  subgraph STATE["portfolio-execution-state"]
+    EVENTS["Trade Event Authority<br/>observe / order_fill / review"]
+    PORTFOLIO["Portfolio Account Projection<br/>exposure / reserved risk / active flows<br/>risk lock / reconcile status / freshness"]
+    EVENTS --> PORTFOLIO
+  end
+
+  subgraph DECISION["live-decision-planning"]
+    PROPOSAL["Capital Allocation Proposal<br/>symbol / strategy / risk budget / expiry<br/>never mutates account balance"]
+  end
+
+  subgraph EXECUTION["live-execution-control"]
+    PREFLIGHT["Deterministic Preflight<br/>authorization + latest facts + projection + intent"]
+    CAPABILITY["Capability-bound Command<br/>target / max effect / idempotency / expiry"]
+    OUTCOME["Result / Confirmation Handling<br/>accepted / rejected / unknown / confirmed"]
+    RECONCILE["Reconcile Proposal<br/>venue facts vs local projection"]
+    PREFLIGHT -->|"armable"| CAPABILITY
+  end
+
+  PROFILE -. "binds" .-> ACCOUNTREF
+  POLICYSNAP --> PREFLIGHT
+  ACCOUNTFACT --> PREFLIGHT
+  PORTFOLIO --> PREFLIGHT
+  PROPOSAL --> PREFLIGHT
+  CAPABILITY --> VENUE
+  VENUE -->|"result / confirmation"| OUTCOME
+  OUTCOME -->|"event proposal"| EVENTS
+  ACCOUNTFACT --> RECONCILE
+  PORTFOLIO --> RECONCILE
+  RECONCILE -->|"reconcile proposal"| EVENTS
+
+  subgraph DATA["Data placement and trust classes"]
+    DB["Owner logical stores<br/>facts / ledgers / refs / summaries"]
+    PRODUCTS["Durable data products<br/>OHLCV / TL2S / Parquet / immutable manifests"]
+    TMP["Ephemeral workspace<br/>regenerable payloads only"]
+    CATALOG["Artifact catalog<br/>hash / owner / lineage / retention / backlinks"]
+    PRODUCTS --> CATALOG
+    TMP --> CATALOG
+    DB --> CATALOG
+  end
+
+  TIME["Time and causality contract<br/>as_of / watermark / freshness / expiry<br/>closed boundary / source hash"]
+  TRUST["Trust invariants<br/>profile is not account fact<br/>account ref is not credential<br/>intent is not authorization<br/>projection is not venue truth<br/>ref is not physical store access"]
+  TIME -. "required by facts, refs and commands" .-> ACCOUNTFACT
+  TIME -. "required by facts, refs and commands" .-> PORTFOLIO
+  TIME -. "required by facts, refs and commands" .-> CAPABILITY
+
+  classDef policy fill:#eaf4ff,stroke:#2f6fb0,color:#0b2540;
+  classDef fact fill:#fff7df,stroke:#b08a00,color:#3b3000;
+  classDef state fill:#eefaf0,stroke:#2f7d4f,color:#10351e;
+  classDef trust fill:#f8fafc,stroke:#64748b,color:#334155,stroke-dasharray:4 3;
+  class PROFILE,POLICYSNAP policy;
+  class ACCOUNTREF,VENUE,ACCOUNTFACT,PROPOSAL,PREFLIGHT,CAPABILITY,OUTCOME,RECONCILE fact;
+  class EVENTS,PORTFOLIO,DB,PRODUCTS,TMP,CATALOG state;
+  class SECRET,TIME,TRUST trust;

@@ -33,7 +33,7 @@ single automation entry
   -> summary / notify / control review
 ```
 
-顶层有 10 个责任域：orchestration、policy/risk、portfolio state、market data、exchange gateway、live planning、live execution、research、governance、artifact knowledge。当前蓝图见 [architecture-overview-v2.mmd](./docs/architecture/architecture-overview-v2.mmd)，代码投影见 [architecture-drift-report.md](./docs/architecture/generated/architecture-drift-report.md)。
+顶层有 10 个责任域：orchestration、policy/risk、portfolio state、market data、exchange gateway、live planning、live execution、research、governance、artifact knowledge。当前架构分为 [Authority Map](./docs/architecture/architecture-overview-v2.mmd)、[Communication Map](./docs/architecture/architecture-communication-v2.mmd)、[Runtime Topology](./docs/architecture/architecture-runtime-v2.mmd) 与 [Data & Trust Map](./docs/architecture/architecture-data-trust-v2.mmd)；代码投影见 [architecture-drift-report.md](./docs/architecture/generated/architecture-drift-report.md)。
 
 ## 两条主链
 

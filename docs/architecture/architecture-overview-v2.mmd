@@ -1,494 +1,85 @@
 flowchart LR
-  ENTRY["外部 automation / user takeover<br/>单一唤醒入口"] --> OIN
+  %% Canonical authority map. Runtime jobs, route detail and physical data placement
+  %% intentionally live in the companion views linked from design-architecture.md.
 
-  subgraph ORCH[" "]
+  USER["Automation / operator takeover<br/>single external wakeup"] --> ORCH
+
+  subgraph CONTROL["Control and constraints"]
     direction TB
-    ORTITLE["控制塔域<br/>control tower / orchestration-ops"]
-    OPAD[" "]
-    OIN["domain inbox<br/>wakeup / job result refs"]
-    CYCLE["cycle planner<br/>生成本轮 job plan"]
-    HOOKS["lifecycle hooks + processors<br/>pre_cycle / pre_job / post_job / post_cycle"]
-    GRAPH["job graph protocol<br/>scope / contract / idempotency / write owner"]
-    HEALTH["runtime health guard<br/>配置 / API / DB / lock / safe mode facts"]
-    POST["result post-processor<br/>envelope / outbox / write-scope / failure analyzer / incident refs"]
-    IMGR["incident manager<br/>classify / ack / resolve / next-cycle constraints"]
-    CREVIEW["control effectiveness review<br/>incidents / overrides / repeated failures"]
-    NOTIFY["notify dispatcher<br/>cycle 异常 / 人工接管提醒"]
-    INCIDENTSTORE[("incident store<br/>system problems / ack / resolution")]
-    OPSLOG[("ops runtime store<br/>lock / health / job results / cycle summary")]
-    OOUT["domain outbox<br/>job graph / health facts / incidents / cycle summary"]
-    ORTITLE ~~~ OPAD
-    OPAD ~~~ CYCLE
-    CYCLE --> HOOKS
-    HOOKS --> GRAPH
-    HOOKS --> HEALTH
-    OIN --> HOOKS
-    OIN --> POST
-    HEALTH --> POST
-    POST --> IMGR
-    GRAPH --> OPSLOG
-    IMGR --> NOTIFY
-    IMGR --> INCIDENTSTORE
-    INCIDENTSTORE --> CREVIEW
-    CREVIEW --> OPSLOG
-    POST --> OPSLOG
-    NOTIFY --> OPSLOG
-    OPSLOG --> OOUT
+    ORCH["orchestration-ops<br/>cycle / job graph / health / incident / audit<br/>must not make trade or research decisions"]
+    POLICY["policy-risk<br/>trading profile / mode / permissions / risk caps<br/>approved strategy refs / runtime policy"]
   end
 
-  subgraph FABRIC[" "]
+  subgraph LIVE["Live trading authority chain"]
     direction TB
-    FTITLE["通信协议层<br/>protocol fabric / logical bus"]
-    FSPAD[" "]
-    SCHEMAS["contract schema registry<br/>job / command / event / ref / store envelopes"]
-    RAILHDR["rail envelope header<br/>rail / source / target / schema / idempotency / refs"]
-    RAILACL["rail ownership registry<br/>publishers / consumers / retention"]
-    DOMAINRT["domain runtime contract<br/>hooks / result envelope / failure classes"]
-    COMMAND["command rail<br/>job tickets / command_spec / retry key"]
-    OPSRAIL["ops rail<br/>health facts / incident refs / cycle summary"]
-    FACT["fact rail<br/>event write envelopes / read model refs"]
-    POLICYRAIL["policy rail<br/>approved snapshot / runtime policy / trading profile-mode"]
-    MARKETRAIL["market data rail<br/>fresh facts / feature refs"]
-    EXCHANGERAIL["exchange rail<br/>account/order facts / write requests"]
-    STORERAIL["store rail<br/>logical-store-ref / owner write contract"]
-    DATARAIL["data lineage rail<br/>raw -> canonical -> feature -> dataset -> evidence"]
-    ARTIFACTRAIL["artifact rail<br/>refs / catalog summary"]
-    GOVRAIL["governance rail<br/>evidence / promotion decision refs"]
-    FTITLE ~~~ FSPAD
-    FSPAD ~~~ SCHEMAS
-    SCHEMAS -. "schema governs" .-> RAILHDR
-    RAILHDR -. "rail route + refs" .-> RAILACL
-    RAILACL -. "allowed pub/sub" .-> DOMAINRT
-    SCHEMAS -. "schema governs" .-> DOMAINRT
-    SCHEMAS -. "schema governs" .-> COMMAND
-    SCHEMAS -. "schema governs" .-> OPSRAIL
-    SCHEMAS -. "schema governs" .-> FACT
-    SCHEMAS -. "schema governs" .-> POLICYRAIL
-    SCHEMAS -. "schema governs" .-> MARKETRAIL
-    SCHEMAS -. "schema governs" .-> EXCHANGERAIL
-    SCHEMAS -. "schema governs" .-> STORERAIL
-    SCHEMAS -. "schema governs" .-> DATARAIL
-    SCHEMAS -. "schema governs" .-> ARTIFACTRAIL
-    SCHEMAS -. "schema governs" .-> GOVRAIL
-    DOMAINRT -. "lifecycle envelope" .-> COMMAND
+    MARKET["market-data-products<br/>market facts / canonical data / features / datasets<br/>must not emit trade actions"]
+    EXCHANGE["exchange-gateway<br/>venue account / order / fill facts<br/>only owner of authorized venue side effects"]
+    DECISION["live-decision-planning<br/>observe / thesis / plan / proposed capital allocation<br/>action intent; no venue write"]
+    EXECUTION["live-execution-control<br/>fast guard / preflight / execute / confirm / recover<br/>no thesis or strategy promotion"]
+    STATE["portfolio-execution-state<br/>trade events / flow and portfolio projections<br/>risk lock / reconcile state; rebuildable"]
   end
 
-  subgraph JOBS[" "]
+  subgraph EVIDENCE["Strategy and evidence authority chain"]
     direction TB
-    JTITLE["本轮 domain job tickets<br/>cycle fork"]
-    JSPAD[" "]
-    J01["J01 account reconcile<br/>交易所事实对账<br/>write: reconcile / needs_review"]
-    J02["J02 fast guard<br/>active flow 执行守卫<br/>write: light observe / order_fill"]
-    J03["J03 slow watch<br/>慢轨机会与计划<br/>write: full observe / action_intent"]
-    J04["J04 R&D historical loop<br/>planner -> replay -> reviewer<br/>write: research state / evidence"]
-    J05["J05 R&D Forward Evidence<br/>冻结候选的 forward / paper 跟踪<br/>write: forward artifacts"]
-    J06["J06 catalog hygiene<br/>证据索引与保留清理<br/>write: catalog metadata"]
-    J07["J07 closed-flow review<br/>闭合 flow 复盘与反馈<br/>write: review / governance evidence"]
-    JTITLE ~~~ JSPAD
-    JSPAD ~~~ J01
+    RESEARCH["research-strategy-development<br/>hypothesis / Trial / Replay / Forward / RD state<br/>no live authorization or trade events"]
+    GOVERNANCE["governance-review-compliance<br/>evidence intake / trade review / promotion decision<br/>policy feedback; no raw research search"]
+    ARTIFACT["artifact-knowledge<br/>catalog / lineage / retention / GC<br/>no trading fact or strategy qualification"]
   end
 
-  subgraph POLICY[" "]
+  subgraph SHARED["Shared system contract planes — not business domains"]
     direction TB
-    PTITLE["政策与风险域<br/>policy-risk"]
-    PPAD[" "]
-    PIN["domain inbox<br/>config / ops / governance refs"]
-    TCFG["trading config<br/>项目级交易配置"]
-    STRAT["approved strategy contracts<br/>governance-approved Trade Contract"]
-    RP["runtime policy compiler<br/>权限 / 风险上限 / 成本模型"]
-    RISKAUTH["trading mode authority<br/>mode state machine / kill switch / reduce-only"]
-    OVERRIDE[("mode override ledger<br/>manual override / downgrade reason refs")]
-    POLSTORE[("policy snapshot registry<br/>policy hash / approved refs")]
-    MODESTORE[("mode decision ledger<br/>profile-mode / reason refs / expiry")]
-    POUT["domain outbox<br/>runtime policy + mode snapshot refs"]
-    PTITLE ~~~ PPAD
-    PPAD ~~~ PIN
-    PIN --> STRAT
-    TCFG --> RP
-    STRAT --> RP
-    STRAT --> POLSTORE
-    PIN --> RISKAUTH
-    RP --> RISKAUTH
-    RISKAUTH --> OVERRIDE
-    OVERRIDE --> MODESTORE
-    RISKAUTH --> MODESTORE
-    RP --> POLSTORE
-    POLSTORE --> POUT
-    MODESTORE --> POUT
+    FABRIC["protocol fabric<br/>command / fact / intent / authorization / result / ref envelopes"]
+    RUNTIME["domain runtime<br/>accept / handle / commit / outbox / failure semantics"]
+    TRUST["trust and reliability<br/>identity / capability / freshness / idempotency / incident"]
   end
 
-  subgraph STATE[" "]
-    direction TB
-    STITLE["组合与执行状态域<br/>portfolio-execution-state"]
-    SPAD[" "]
-    SIN["domain inbox<br/>event write envelopes"]
-    APPEND["event owner tools<br/>append / read / latest fill / chain scan"]
-    TDB[("trade_event_store<br/>append-only plan_event<br/>observe / order_fill / review")]
-    PROJ["flow projector<br/>active flows / open risk<br/>latest slow observe"]
-    FLOWIDX[("flow read models<br/>active / exposure / review queue")]
-    PUBLISH["read-model publisher<br/>projection refs / freshness / rebuildable"]
-    SOUT["domain outbox<br/>flow read model refs"]
-    STITLE ~~~ SPAD
-    SPAD ~~~ SIN
-    SIN --> APPEND
-    APPEND --> TDB
-    TDB --> PROJ
-    PROJ --> FLOWIDX
-    FLOWIDX --> PUBLISH
-    PUBLISH --> SOUT
-  end
+  ORCH -->|"targeted job ticket + refs"| DECISION
+  ORCH -->|"targeted job ticket + refs"| EXECUTION
+  ORCH -->|"targeted job ticket + refs"| RESEARCH
+  ORCH -->|"targeted job ticket + refs"| GOVERNANCE
+  ORCH -->|"targeted job ticket + refs"| ARTIFACT
 
-  subgraph MARKETDATA[" "]
-    direction TB
-    MDTITLE["市场数据产品域<br/>market-data-products"]
-    MDPAD[" "]
-    MDIN["domain inbox<br/>market refresh / query refs"]
-    MDROUTE["market request router<br/>refresh / query / dataset build"]
-    SCAN["universe / liquidity scan<br/>可交易性粗筛"]
-    SNAP["symbol snapshot<br/>mark / funding / OI"]
-    RAWMD["market capture<br/>OHLCV / funding / aggtrades"]
-    MDQUAL["data quality gate<br/>closed candle / gaps / checksum / freshness"]
-    OSTORE[("ohlcv_store<br/>data/ohlcv.db<br/>multi-symbol / multi-timeframe candles")]
-    MSTORE[("market_data_store<br/>data/market_data.db<br/>manifests / funding / feature refs")]
-    TECH["feature engine<br/>indicator / structure / regime"]
-    DSETS["dataset manifests<br/>panel / split / feature refs"]
-    MDPUB["market fact publisher<br/>freshness / time window / refs"]
-    MDOUT["domain outbox<br/>market facts / dataset refs"]
-    MDTITLE ~~~ MDPAD
-    MDPAD ~~~ MDIN
-    MDIN --> MDROUTE
-    MDROUTE --> RAWMD
-    MDROUTE --> SCAN
-    MDROUTE --> SNAP
-    RAWMD --> MDQUAL
-    MDQUAL --> OSTORE
-    RAWMD --> MSTORE
-    OSTORE --> TECH
-    MSTORE --> TECH
-    TECH --> DSETS
-    SCAN --> MDPUB
-    SNAP --> MDPUB
-    TECH --> MDPUB
-    DSETS --> MDPUB
-    MDPUB --> MDOUT
-  end
+  ORCH -->|"health / safe-mode facts"| POLICY
+  POLICY -->|"runtime policy / profile-mode"| DECISION
+  POLICY -->|"runtime policy / profile-mode"| EXECUTION
+  POLICY -->|"authorized mode only"| EXCHANGE
 
-  subgraph EXCHANGE[" "]
-    direction TB
-    XTITLE["交易所网关域<br/>exchange-gateway"]
-    XPAD[" "]
-    XIN["domain inbox<br/>read requests / authorized write requests"]
-    XROUTE["exchange request router<br/>read vs write / mode / idempotency"]
-    ACC["account fact reader<br/>账户 / 仓位 / 挂单 / fills"]
-    WRITEPRE["write pre-adapter gate<br/>authorized mode / client id / exchange rules"]
-    WRITE["exchange write adapter<br/>下单 / 撤单 / 保护 / 减仓"]
-    CONFIRM["post-write confirmation<br/>result normalize / account-order reread"]
-    XLEDGER[("exchange command ledger<br/>command / request / result / confirmation refs")]
-    XOUT["domain outbox<br/>account facts / write result / confirmation refs"]
-    XTITLE ~~~ XPAD
-    XPAD ~~~ XIN
-    XIN --> XROUTE
-    XROUTE --> ACC
-    XROUTE --> WRITEPRE
-    WRITEPRE --> XLEDGER
-    WRITEPRE --> WRITE
-    WRITE --> CONFIRM
-    CONFIRM --> XLEDGER
-    ACC --> XLEDGER
-    ACC --> XOUT
-    WRITE -->|"submit result"| XLEDGER
-    XLEDGER --> XOUT
-  end
+  MARKET -->|"fresh market facts"| DECISION
+  MARKET -->|"fresh guard facts"| EXECUTION
+  MARKET -->|"dataset + lineage refs"| RESEARCH
+  EXCHANGE -->|"account facts"| DECISION
+  EXCHANGE -->|"account / order / fill facts"| EXECUTION
+  STATE -->|"portfolio / flow projection refs"| DECISION
+  STATE -->|"active flow / risk-lock refs"| EXECUTION
 
-  subgraph DECISION[" "]
-    direction TB
-    DTITLE["现场决策域<br/>live-decision-planning"]
-    DPAD[" "]
-    DIN["domain inbox<br/>J03 + policy / market / flow refs"]
-    DASM["decision input assembler<br/>policy + market + flow + evidence refs"]
-    WATCH["opportunity planner<br/>watchlist / thesis / no_action"]
-    PLAN["trade plan builder<br/>entry / stop / invalidation / trigger"]
-    ALLOC["sizing / risk-budget planner<br/>size / exposure budget / expiry"]
-    DPUB["action intent publisher<br/>intent refs / no_action reason"]
-    DOUT["domain outbox<br/>intent / watchlist refs"]
-    DTITLE ~~~ DPAD
-    DPAD ~~~ DIN
-    DIN --> DASM
-    DASM --> WATCH
-    WATCH --> PLAN
-    WATCH -->|"no_action"| DPUB
-    PLAN --> ALLOC
-    ALLOC --> DPUB
-    DPUB --> DOUT
-  end
+  DECISION -->|"action intent"| EXECUTION
+  EXECUTION -->|"capability-bound exchange command"| EXCHANGE
+  EXCHANGE -->|"submit / confirm / unknown result"| EXECUTION
+  EXECUTION -->|"event / reconcile proposal"| STATE
+  STATE -->|"closed-flow refs"| GOVERNANCE
 
-  subgraph CONTROL[" "]
-    direction TB
-    CTITLE["受控执行域<br/>live-execution-control"]
-    CPAD[" "]
-    CIN["domain inbox<br/>J01 / J02 + executable intents / exchange result refs"]
-    EROUTE["execution action router<br/>reconcile / fast / live-small / record"]
-    REC["recovery runner<br/>reconcile drafts / needs_review"]
-    FAST["fast guard<br/>trigger / protection / defense"]
-    EXEC["live-small runner<br/>explicit yes / live command"]
-    EGATE["execution gate<br/>trigger / idempotency / mode scope"]
-    PREF["preflight / hard guards<br/>policy + flow + exchange + market facts"]
-    CMDCOMP["execution command compiler<br/>command_spec / contract snapshot"]
-    EXECREC["execution recorder<br/>exchange result -> order_fill draft<br/>blocked -> observe draft"]
-    COUT["domain outbox<br/>event drafts / exchange command refs"]
-    CTITLE ~~~ CPAD
-    CPAD ~~~ CIN
-    CIN --> EROUTE
-    EROUTE --> REC
-    EROUTE --> FAST
-    EROUTE --> EXEC
-    EROUTE --> EXECREC
-    REC --> EXECREC
-    FAST --> EGATE
-    EXEC --> EGATE
-    EGATE --> PREF
-    PREF -->|"pass"| CMDCOMP
-    PREF -->|"blocked"| EXECREC
-    CMDCOMP --> COUT
-    EXECREC --> COUT
-  end
+  RESEARCH -->|"evidence / candidate refs"| GOVERNANCE
+  GOVERNANCE -->|"promotion decision / scoped feedback"| RESEARCH
+  GOVERNANCE -->|"policy feedback"| POLICY
+  RESEARCH -->|"artifact + lineage registration"| ARTIFACT
+  GOVERNANCE -->|"review artifact registration"| ARTIFACT
+  DECISION -->|"observe / watch artifact registration"| ARTIFACT
 
-  subgraph RESEARCH[" "]
-    direction TB
-    RDTITLE["策略研发域<br/>research-strategy-development"]
-    RPAD[" "]
-    RIN["domain inbox<br/>J04 / J05 + research / data refs"]
-    RDSUP["RD program supervisor<br/>objective / queue / budget / stop status"]
-    UNIVERSE["Strategy Universe<br/>L0-L3 / scope / coverage / registries"]
-    PLANNER["Research Planner<br/>选研究空间 / hypothesis / proposal"]
-    CONTRACT["proposal + contract gate<br/>family backlog / Trial Group / immutable identity"]
-    DEVELOPER["Developer<br/>实现冻结实验链 / reserve Trial"]
-    HISTEXEC["historical evidence plane<br/>split / replay-backtest / panel / benchmark / controls"]
-    REVIEWER["Research Reviewer<br/>audit / staged decision / lifecycle transition"]
-    FREEZE["candidate freezer<br/>selected Trial + Candidate / frozen hash"]
-    STRATREG["strategy registry<br/>authorized render / lint / hash / register"]
-    DRAFTSTRAT[("strategies/*.md<br/>versioned Draft Strategy Source")]
-    FWDEXEC["Forward Evidence Plane<br/>locked holdout / post-freeze paper event chain"]
-    FORWARDLEDGER[("forward evidence ledger<br/>paper events / samples / health / drift")]
-    SHADOWCAND["shadow_candidate<br/>RD terminal recommendation"]
-    KG["Research Knowledge Graph<br/>result / decision / scoped lesson / lineage"]
-    RDSTATE[("research state store<br/>program + proposal + contract + trial + review + KG facts")]
-    RDPUB["research evidence publisher<br/>result / forward / candidate refs"]
-    ROUT["domain outbox<br/>research evidence / shadow_candidate refs"]
-    RDTITLE ~~~ RPAD
-    RPAD ~~~ RIN
-    RIN --> RDSUP
-    RDSTATE -->|"queue / usage / lessons"| RDSUP
-    RDSUP --> PLANNER
-    UNIVERSE --> PLANNER
-    KG -->|"失败密度 / reusable lessons"| PLANNER
-    PLANNER --> CONTRACT
-    CONTRACT -->|"valid contract"| DEVELOPER
-    CONTRACT -->|"缺 data / family: zero Trial"| KG
-    DEVELOPER --> HISTEXEC
-    HISTEXEC -->|"append Result artifacts"| REVIEWER
-    REVIEWER -->|"reject / modify"| KG
-    REVIEWER -->|"accept_for_draft"| FREEZE
-    FREEZE --> STRATREG
-    STRATREG -->|"atomic materialization"| DRAFTSTRAT
-    REVIEWER -->|"accept_for_forward"| STRATREG
-    STRATREG -->|"strategy_ref + policy hash + freeze"| FWDEXEC
-    RIN -. "J05 forward tick" .-> FWDEXEC
-    FWDEXEC --> FORWARDLEDGER
-    FORWARDLEDGER -->|"append forward Result"| REVIEWER
-    REVIEWER -->|"accept_for_shadow_candidate"| SHADOWCAND
-    REVIEWER -->|"decision / lesson / lineage"| KG
-    CONTRACT --> RDSTATE
-    HISTEXEC --> RDSTATE
-    REVIEWER --> RDSTATE
-    STRATREG --> RDSTATE
-    KG --> RDSTATE
-    SHADOWCAND --> RDPUB
-    FORWARDLEDGER --> RDPUB
-    RDSTATE --> RDPUB
-    RDPUB --> ROUT
-  end
+  FABRIC -. "governs cross-domain envelopes" .-> ORCH
+  FABRIC -. "governs cross-domain envelopes" .-> LIVE
+  FABRIC -. "governs cross-domain envelopes" .-> EVIDENCE
+  RUNTIME -. "governs domain ports" .-> CONTROL
+  RUNTIME -. "governs domain ports" .-> LIVE
+  RUNTIME -. "governs domain ports" .-> EVIDENCE
+  TRUST -. "constrains every privileged route" .-> CONTROL
+  TRUST -. "constrains every privileged route" .-> LIVE
+  TRUST -. "constrains every privileged route" .-> EVIDENCE
 
-  subgraph GOV[" "]
-    direction TB
-    GTITLE["治理复盘域<br/>governance-review-compliance"]
-    GPAD[" "]
-    GIN["domain inbox<br/>J07 + evidence refs"]
-    EVGATE["evidence intake gate<br/>freshness / data hash / policy hash"]
-    REVIEW["closed-flow reviewer<br/>execution attribution / cost / slippage"]
-    PROMO["promotion gate<br/>candidate qualification / expiry"]
-    POLFB["policy feedback compiler<br/>risk limits / deprecation suggestions"]
-    GOVLEDGER[("governance ledger<br/>review / promotion / feedback decisions")]
-    GOUT["domain outbox<br/>review / promotion refs"]
-    GTITLE ~~~ GPAD
-    GPAD ~~~ GIN
-    GIN --> EVGATE
-    EVGATE --> REVIEW
-    EVGATE --> PROMO
-    REVIEW --> PROMO
-    REVIEW --> POLFB
-    REVIEW --> GOVLEDGER
-    PROMO --> GOVLEDGER
-    POLFB --> GOVLEDGER
-    GOVLEDGER --> GOUT
-  end
-
-  subgraph ARTIFACTS[" "]
-    direction TB
-    ATITLE["知识资产域<br/>artifact-knowledge"]
-    APAD[" "]
-    AIN["domain inbox<br/>artifact register / query / GC"]
-    AREG["artifact intake gate<br/>schema / hash / owner / refs"]
-    CAT["catalog service<br/>index / stale / discoverability"]
-    LINEAGE["lineage indexer<br/>source refs / derived refs / backlinks"]
-    RETAIN["retention / pin / GC planner<br/>保留 / 引用 / 清理候选"]
-    ART[("data_catalog.db + artifacts<br/>研究 / 盯市 / 复盘资产")]
-    APUB["catalog summary publisher<br/>query result / stale candidate refs"]
-    AOUT["domain outbox<br/>catalog summary / lineage refs"]
-    ATITLE ~~~ APAD
-    APAD ~~~ AIN
-    AIN --> AREG
-    AIN --> APUB
-    AREG --> CAT
-    CAT --> LINEAGE
-    LINEAGE --> RETAIN
-    RETAIN --> ART
-    ART --> APUB
-    APUB --> AOUT
-  end
-
-  subgraph DATAPLANE[" "]
-    direction TB
-    LDTITLE["本地数据平面<br/>local data plane"]
-    LDPAD[" "]
-    SQLITE[("SQLite logical stores only<br/>data/*.db<br/>facts / ledgers / refs / summaries<br/>ohlcv_store / market_data_store / research_state_store")]
-    TMPFILES[("ephemeral workspace payloads only<br/>tmp/artifacts / tmp/panels / tmp/market<br/>可再生中间产物，不是 durable storage")]
-    CATIDX["catalog index contract<br/>DB stores refs / hash / lineage / retention<br/>durable facts stay in SQLite"]
-    LDTITLE ~~~ LDPAD
-    LDPAD ~~~ SQLITE
-    SQLITE --> CATIDX
-    TMPFILES --> CATIDX
-  end
-
-  OOUT --> COMMAND
-  OOUT --> OPSRAIL
-
-  COMMAND --> J01
-  COMMAND --> J02
-  COMMAND --> J03
-  COMMAND --> J04
-  COMMAND --> J05
-  COMMAND --> J06
-  COMMAND --> J07
-
-  J01 -. "command ticket" .-> CIN
-  J02 -. "command ticket" .-> CIN
-  J03 -. "command ticket" .-> DIN
-  J04 -. "command ticket" .-> RIN
-  J05 -. "command ticket" .-> RIN
-  J06 -. "command ticket" .-> AIN
-  J07 -. "command ticket" .-> GIN
-
-  J01 -. "job result refs" .-> OIN
-  J02 -. "job result refs" .-> OIN
-  J03 -. "job result refs" .-> OIN
-  J04 -. "job result refs" .-> OIN
-  J05 -. "job result refs" .-> OIN
-  J06 -. "job result refs" .-> OIN
-  J07 -. "job result refs" .-> OIN
-
-  FACT -. "job input refs" .-> COMMAND
-  POLICYRAIL -. "job input refs" .-> COMMAND
-  MARKETRAIL -. "job input refs" .-> COMMAND
-  EXCHANGERAIL -. "job input refs" .-> COMMAND
-  DATARAIL -. "job input refs" .-> COMMAND
-  ARTIFACTRAIL -. "job input refs" .-> COMMAND
-  GOVRAIL -. "job input refs" .-> COMMAND
-  STORERAIL -. "owner write contracts" .-> DOMAINRT
-  OPSRAIL -. "health / incident refs" .-> PIN
-  POLICYRAIL -. "trading mode gates" .-> DIN
-  POLICYRAIL -. "trading mode gates" .-> CIN
-  POLICYRAIL -. "authorized write mode" .-> XIN
-  EXCHANGERAIL -. "result / account refs" .-> CIN
-  DOMAINRT -. "domain lifecycle gates" .-> PIN
-  DOMAINRT -. "domain lifecycle gates" .-> SIN
-  DOMAINRT -. "domain lifecycle gates" .-> MDIN
-  DOMAINRT -. "domain lifecycle gates" .-> XIN
-  DOMAINRT -. "domain lifecycle gates" .-> DIN
-  DOMAINRT -. "domain lifecycle gates" .-> CIN
-  DOMAINRT -. "domain lifecycle gates" .-> RIN
-  DOMAINRT -. "domain lifecycle gates" .-> GIN
-  DOMAINRT -. "domain lifecycle gates" .-> AIN
-
-  POUT --> POLICYRAIL
-  SOUT --> FACT
-  MDOUT --> MARKETRAIL
-  MDOUT --> DATARAIL
-  DSETS --> DATARAIL
-  XOUT --> EXCHANGERAIL
-  DOUT --> FACT
-  DOUT --> ARTIFACTRAIL
-  COUT --> FACT
-  COUT --> EXCHANGERAIL
-  ROUT --> ARTIFACTRAIL
-  ROUT --> DATARAIL
-  ROUT -->|"shadow_candidate / evidence refs"| GOVRAIL
-  GOUT --> FACT
-  GOUT --> ARTIFACTRAIL
-  GOUT --> GOVRAIL
-  AOUT --> ARTIFACTRAIL
-  AOUT --> DATARAIL
-
-  OPSLOG -. "physical store" .-> SQLITE
-  INCIDENTSTORE -. "physical store" .-> SQLITE
-  TDB -. "physical store" .-> SQLITE
-  OSTORE -. "physical store" .-> SQLITE
-  MSTORE -. "physical store + refs" .-> SQLITE
-  MSTORE -. "transient workspace refs" .-> TMPFILES
-  XLEDGER -. "physical store" .-> SQLITE
-  POLSTORE -. "physical store" .-> SQLITE
-  MODESTORE -. "physical store" .-> SQLITE
-  RDSTATE -. "physical store" .-> SQLITE
-  RDSTATE -. "artifact refs only" .-> ART
-  FORWARDLEDGER -. "forward artifact refs" .-> TMPFILES
-  GOVLEDGER -. "physical store" .-> SQLITE
-  ART -. "catalog DB" .-> SQLITE
-  ART -. "workspace artifacts" .-> TMPFILES
-
-  FACT --> SIN
-  MARKETRAIL --> MDIN
-  EXCHANGERAIL --> XIN
-  GOVRAIL --> PIN
-  GOVRAIL -->|"candidate intake"| GIN
-  ARTIFACTRAIL --> AIN
-
-  classDef center fill:#eaf4ff,stroke:#2f6fb0,color:#0b2540,stroke-width:1px;
-  classDef ticket fill:#fff8df,stroke:#b08a00,color:#3b3000,stroke-width:1px;
-  classDef state fill:#eefaf0,stroke:#2f7d4f,color:#10351e,stroke-width:1px;
-  classDef trade fill:#fff7df,stroke:#b08a00,color:#3b3000,stroke-width:1px;
-  classDef research fill:#f2eefe,stroke:#7556b8,color:#241445,stroke-width:1px;
-  classDef market fill:#fff0f0,stroke:#b83a3a,color:#471010,stroke-width:1px;
-  classDef gov fill:#f0f7f7,stroke:#448080,color:#143838,stroke-width:1px;
-  classDef artifact fill:#eef8ff,stroke:#3b82a0,color:#12333f,stroke-width:1px;
-  classDef dataPlane fill:#f4fbf7,stroke:#3f8f5f,color:#14351f,stroke-width:1px,stroke-dasharray:3 2;
-  classDef handler fill:#f3f4f6,stroke:#6b7280,color:#111827,stroke-width:1px;
-  classDef rail fill:#f8fafc,stroke:#64748b,color:#334155,stroke-width:1px,stroke-dasharray:4 3;
-  classDef port fill:#f9fafb,stroke:#6b7280,color:#111827,stroke-width:1px,stroke-dasharray:3 2;
-  classDef spacer fill:transparent,stroke:transparent,color:transparent;
-  classDef domainTitle fill:transparent,stroke:transparent,color:#1f2937,stroke-width:0px;
-
-  class ENTRY,CYCLE,GRAPH,RP,TCFG,STRAT,RISKAUTH center;
-  class COMMAND,OPSRAIL,FACT,POLICYRAIL,MARKETRAIL,EXCHANGERAIL,DATARAIL,ARTIFACTRAIL,GOVRAIL,SCHEMAS,RAILHDR,RAILACL,DOMAINRT rail;
-  class OIN,OOUT,PIN,POUT,SIN,SOUT,MDIN,MDOUT,XIN,XOUT,DIN,DOUT,CIN,COUT,RIN,ROUT,GIN,GOUT,AIN,AOUT port;
-  class HOOKS,HEALTH,POST,IMGR,CREVIEW,NOTIFY handler;
-  class J01,J02,J03,J04,J05,J06,J07 ticket;
-  class TDB,PROJ,FLOWIDX,OPSLOG,INCIDENTSTORE,POLSTORE,OVERRIDE,MODESTORE,XLEDGER state;
-  class DASM,WATCH,PLAN,ALLOC,DPUB,EXEC,EGATE,PREF,CMDCOMP,EROUTE,REC,FAST,EXECREC,APPEND,PUBLISH trade;
-  class RDSTATE,RDSUP,UNIVERSE,PLANNER,CONTRACT,DEVELOPER,HISTEXEC,REVIEWER,FREEZE,STRATREG,DRAFTSTRAT,FWDEXEC,FORWARDLEDGER,SHADOWCAND,KG,RDPUB research;
-  class MDROUTE,SCAN,SNAP,RAWMD,MDQUAL,TECH,DSETS,OSTORE,MSTORE,MDPUB market;
-  class ACC,WRITEPRE,WRITE,CONFIRM,XROUTE market;
-  class EVGATE,REVIEW,PROMO,POLFB,GOVLEDGER gov;
-  class AREG,CAT,LINEAGE,RETAIN,ART,APUB artifact;
-  class SQLITE,TMPFILES,CATIDX dataPlane;
-  class OPAD,FSPAD,JSPAD,PPAD,SPAD,MDPAD,XPAD,DPAD,CPAD,RPAD,GPAD,APAD,LDPAD spacer;
-  class ORTITLE,FTITLE,JTITLE,PTITLE,STITLE,MDTITLE,XTITLE,DTITLE,CTITLE,RDTITLE,GTITLE,ATITLE,LDTITLE domainTitle;
+  classDef control fill:#eaf4ff,stroke:#2f6fb0,color:#0b2540;
+  classDef live fill:#fff7df,stroke:#b08a00,color:#3b3000;
+  classDef evidence fill:#f2eefe,stroke:#7556b8,color:#241445;
+  classDef shared fill:#f8fafc,stroke:#64748b,color:#334155,stroke-dasharray:4 3;
+  class ORCH,POLICY control;
+  class MARKET,EXCHANGE,DECISION,EXECUTION,STATE live;
+  class RESEARCH,GOVERNANCE,ARTIFACT evidence;
+  class FABRIC,RUNTIME,TRUST shared;

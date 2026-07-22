@@ -28,6 +28,9 @@ last_verified: 2026-07-22 CST
 | 为什么做、做什么 | [product/vision.md](./product/vision.md) → [product/prd.md](./product/prd.md) |
 | 用户如何使用 | [product/user-story.md](./product/user-story.md) |
 | 系统当前如何分域 | [architecture/design-architecture.md](./architecture/design-architecture.md) |
+| 哪些域可以互相传什么 | [architecture/architecture-communication-v2.mmd](./architecture/architecture-communication-v2.mmd) |
+| profile、账户、资金和凭证归谁 | [architecture/architecture-data-trust-v2.mmd](./architecture/architecture-data-trust-v2.mmd) |
+| 当前 J01–J07 如何调度 | [architecture/architecture-runtime-v2.mmd](./architecture/architecture-runtime-v2.mmd) |
 | 当前模块、job、store、rail | [architecture/architecture-manifest.json](./architecture/architecture-manifest.json) |
 | 代码与蓝图是否漂移 | [architecture/generated/architecture-drift-report.md](./architecture/generated/architecture-drift-report.md) |
 | 一个模块如何调用 | [architecture/tool-layout.md](./architecture/tool-layout.md) → `toolset.json` → module `CONTRACT.md` |
