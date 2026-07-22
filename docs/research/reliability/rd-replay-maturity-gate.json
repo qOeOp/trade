@@ -3,13 +3,13 @@
   "maturity": 3,
   "maturity_scale": 5,
   "evidence_chain_freeze": "R4.151",
-  "completed_milestones": ["M3-G1", "M3-G2", "M3-G3", "M3-G4", "M3-G5", "M3-G6", "M3-G7", "M3-G8", "M4-P1", "M4-P2", "M4-P3", "M4-P4", "M4-P5", "M4-P6", "M4-P7", "M4-P8", "M4-P9", "M4-P10", "M4-P11", "M4-P12", "M4-P13", "M4-P14", "M4-P15", "M4-P16", "M4-P17", "M4-P18", "M4-P19", "M4-P20", "M4-P21", "M4-P22", "M4-P23", "M4-P24", "M4-P25", "M4-P26", "M4-P27"],
+  "completed_milestones": ["M3-G1", "M3-G2", "M3-G3", "M3-G4", "M3-G5", "M3-G6", "M3-G7", "M3-G8", "M4-P1", "M4-P2", "M4-P3", "M4-P4", "M4-P5", "M4-P6", "M4-P7", "M4-P8", "M4-P9", "M4-P10", "M4-P11", "M4-P12", "M4-P13", "M4-P14", "M4-P15", "M4-P16", "M4-P17", "M4-P18", "M4-P19", "M4-P20", "M4-P21", "M4-P22", "M4-P23", "M4-P24", "M4-P25", "M4-P26", "M4-P27", "M4-P28"],
   "active_milestone": {
-    "id": "M4-P28",
-    "name": "bounded-post-partial-tighten-only-stop-replacement-end-to-end",
-    "status": "complete",
-    "functional_commit_budget": 8,
-    "functional_commits_used": 8
+    "id": "M4-P29",
+    "name": "bounded-bar-linked-aggregate-trade-stop-entry-path-end-to-end",
+    "status": "in_progress",
+    "functional_commit_budget": 6,
+    "functional_commits_used": 0
   },
   "policy": {
     "zero_instance_progress_forbidden": true,
@@ -20,36 +20,30 @@
   },
   "gates": {
     "functional": {
-      "single_lane_one_or_two_partials_then_one_tighten_only_stop_replacement": true,
-      "strict_post_final_partial_schedule_and_quantity_bounds": true,
-      "monotonic_protection_generation_and_current_stop_lineage": true,
-      "quantity_aware_funding_mark_margin_and_liquidation_after_replacement": true,
-      "portfolio_historical_admission_and_current_stop_risk_separation": true,
-      "owner_keyed_terminal_accounting_after_post_partial_replacement": true,
-      "bounded_cycle_cash_roll_forward": true,
-      "manifest_last_artifacts": true
+      "immutable_kline_aggregate_trade_bar_link": false,
+      "ohlcv_volume_trade_count_and_id_reconciliation": false,
+      "control_plane_bar_link_and_exact_path_authority": false,
+      "opt_in_step_engine_stop_entry_path_consumer": false,
+      "checkpoint_result_fingerprint_and_manifest_binding": false,
+      "typed_unresolved_fallback_without_partial_result": false
     },
     "evidence": {
-      "long_short_one_and_two_partial_then_replacement_execution": true,
-      "replacement_boundary_current_protection_and_terminal_preemption": true,
-      "former_stop_unreachable_and_preserved_target_collision_policy": true,
-      "funding_before_between_and_after_mutations_uses_t_minus_quantity": true,
-      "post_replacement_stop_target_strategy_exit_liquidation_and_open_ownership": true,
-      "generation_quantity_trigger_and_lineage_tamper_fail_closed": true,
-      "clean_resume_parity_without_duplicate_partial_or_replacement_effects": true,
-      "portfolio_cash_collateral_exposure_and_risk_conservation": true,
-      "four_cycle_cash_owner_and_current_risk_bridge": true,
-      "mid_cycle_failure_no_sequence_evidence": true,
-      "artifact_idempotent_replay": true,
-      "interrupted_publication_no_sequence_manifest": true
+      "same_ohlcv_opposite_ordered_paths_for_long_and_short": false,
+      "entry_trade_cannot_retroactively_trigger_protection": false,
+      "half_open_window_pit_availability_and_bar_boundary": false,
+      "price_volume_quote_volume_trade_count_and_id_tamper_fail_closed": false,
+      "missing_or_unlinked_source_remains_unresolved": false,
+      "clean_resume_path_and_result_parity": false,
+      "artifact_idempotent_replay_and_payload_tamper_rejection": false,
+      "insurance_adl_queue_fill_quantity_slippage_and_impact_not_overclaimed": false
     },
     "cutover": {
-      "production_lane_portfolio_accounting_and_cycle_consumer": true,
-      "default_partial_replacement_and_portfolio_paths_unchanged": true,
-      "p15_through_p27_preserved": true,
-      "single_change_set_end_to_end_consumer": true,
-      "no_successor_cycle_before_full_flat": true,
-      "no_between_partial_or_repeated_mutation_dynamic_sizing_third_partial_reentry_cross_margin_borrow_real_liquidity_impact_or_fast": true
+      "production_opt_in_lane_consumer": false,
+      "default_ohlcv_and_portfolio_paths_unchanged": false,
+      "p15_through_p28_preserved": false,
+      "bar_relative_path_evidence_keeps_external_completeness_not_verified": false,
+      "no_generic_aggregate_trade_source_merge": false,
+      "no_queue_partial_fill_slippage_impact_insurance_adl_cross_margin_borrow_or_fast": false
     }
   },
   "evidence_refs": [
@@ -203,7 +197,20 @@
     "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-two-fixed-partial-cycle-sequence-runner.ts",
     "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-portfolio-post-partial-stop-replacement-cycle-sequence-contracts.ts",
     "modules/research-strategy-development/replay-execution-plane/accounting/src/lib/replay-portfolio-post-partial-stop-replacement-cycle-sequence-accounting.ts",
-    "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-post-partial-stop-replacement-cycle-sequence-runner.ts"
+    "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-post-partial-stop-replacement-cycle-sequence-runner.ts",
+    "modules/market-data-products/market-data-store/src/lib/aggregate-trade-archive.ts",
+    "modules/market-data-products/market-data-store/src/lib/aggregate-trade-archive.test.ts",
+    "modules/market-data-products/aggregate-trade-provider/src/lib/aggregate-trade-provider.ts",
+    "modules/market-data-products/aggregate-trade-provider/src/lib/aggregate-trade-provider.test.ts",
+    "modules/research-strategy-development/research-control-plane/state-store/src/lib/aggregate-trade-provider-certification-registry.ts",
+    "modules/research-strategy-development/research-control-plane/state-store/src/lib/cross-source-ordering-admission-registry.ts",
+    "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-aggregate-trades.test.ts",
+    "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-cross-source-ordering.ts",
+    "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-cross-source-ordering.test.ts",
+    "modules/research-strategy-development/replay-execution-plane/data-adapter/src/lib/replay-source-event-wire.ts",
+    "modules/research-strategy-development/replay-execution-plane/data-adapter/src/lib/replay-source-event-wire.test.ts",
+    "modules/research-strategy-development/replay-execution-plane/engine/src/lib/replay-exact-trade-stop-resolution.ts",
+    "modules/research-strategy-development/replay-execution-plane/engine/src/lib/replay-exact-trade-stop-resolution.test.ts"
   ],
-  "next_allowed_outcome": "audit-and-select-next-bounded-m4-fidelity-gap-after-post-partial-stop-replacement"
+  "next_allowed_outcome": "all-m4-p29-gates-true-in-one-bounded-change-set"
 }

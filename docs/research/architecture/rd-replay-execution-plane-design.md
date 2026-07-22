@@ -66,7 +66,8 @@ Control Plane authorization
 - 真实 queue、market impact、概率 partial 和无历史 L2 的 maker 成交推断。
 - 动态 sizing、未预声明第三次 partial、通用 post-partial mutation / reentry。
 - 通用 cross-margin、borrow、完整 remote transport / OS sandbox、Fast kernel parity。
-- gate 中仍为 `false` 的 terminal、owner accounting、cycle、publication 与 cutover 条目。
+- P28 已认证的 post-partial stop replacement owner accounting、Artifact 与 bounded full-flat cycle 只属于专用 opt-in successor；不能外推为默认 Portfolio 或通用 mutation。
+- 当前 P29 gate 中仍为 `false` 的 bar link、Control Plane exact-path authority、Step consumer、Checkpoint/Result/Artifact 与 cutover 条目。
 
 ## 6. 数据与市场现实
 
@@ -88,7 +89,13 @@ Result / Artifact 至少绑定：
 
 summary 不是 authority；缺 required member、hash drift 或重放不一致即拒绝 intake。
 
-## 8. 变更合同
+## 8. 当前有界缺口：bar-linked aggregate-trade path
+
+M4-P29 只处理一个现有 typed failure：pre-entry Stop-market 在 bar 内触发后，同一 bar 又同时覆盖保护 stop/target，而 OHLCV 无法证明触发后的先后。Binance USDⓈ-M Kline 暴露 O/H/L/C、base/quote volume 与 trade count；aggregate-trade 接口给出 aggregate id、价格、数量、underlying first/last trade id、时间和 maker side，并说明它压缩 100ms 内同价同 taker side 的 market trades、排除 insurance/ADL（[Kline](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/rest-api/market-data#klinecandlestick-data)、[Aggregate Trades](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/rest-api/market-data#compressed-aggregate-trades-list)）。这些字段只定义输入语义，不自动构成仓库 authority。
+
+P29 只有在 immutable source、同一 half-open bar window、PIT availability、aggregate/underlying id 连续性以及 O/H/L/C、base/quote volume、trade count 全部逐字段闭合时，才可把 ordered aggregate prices 用于该 bar 的 Stop-entry 后保护 owner；否则保留原 typed unresolved。即使闭合，`external_completeness=not_verified` 也不得改写；该 Evidence 不证明 hypothetical queue、Fill quantity、maker probability、slippage、impact、insurance/ADL 或通用跨源经济顺序。默认 OHLCV、Portfolio 与 P15–P28 路径必须保持不变。
+
+## 9. 变更合同
 
 新增能力必须在同一有界 change set 中包含：schema / contract、真实 consumer、golden / tamper / resume evidence、artifact 绑定和 maturity gate 更新。只加 schema、phase 编号或零实例壳不算进展。
 
