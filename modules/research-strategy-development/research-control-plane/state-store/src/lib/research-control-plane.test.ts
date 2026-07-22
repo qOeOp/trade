@@ -47,16 +47,21 @@ import {
   REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH,
   REPLAY_REQUEST_SCHEMA_VERSION,
   REPLAY_SIMULATOR_POLICY_VERSION,
+  REPLAY_AGGREGATE_TRADE_EVENT_SCHEMA_VERSION,
   REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION,
   REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION,
   REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
   canonicalHash,
+  createReplayAggregateTradeCoverageAttestation,
   createReplayInstrumentStatusProvenance,
   createReplaySingleDecisionSchedule,
   type ReplayDatasetManifest,
   type ReplayExecutionRequest,
   type ReplayMarketBar,
 } from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
+import {
+  createReplayKlineSourceRecord,
+} from "../../../../replay-execution-plane/contracts/src/lib/replay-kline-aggregate-trade-bar-link-contracts"
 import type { ReplaySourceEventWireManifest } from "../../../../replay-execution-plane/contracts/src/lib/replay-source-event-wire"
 import {
   assertReplaySourceEventDecisionObservationHarnessContextBinding,
@@ -78,6 +83,7 @@ import {
 } from "../../../../replay-execution-plane/data-adapter/src/lib/replay-cross-source-ordering"
 import { buildReplaySourceEventProjectionAttestation } from "../../../../replay-execution-plane/data-adapter/src/lib/replay-source-event-projection"
 import { materializeReplaySourceEventWire } from "../../../../replay-execution-plane/data-adapter/src/lib/replay-source-event-wire"
+import { materializeReplayKlineAggregateTradeBarLink } from "../../../../replay-execution-plane/data-adapter/src/lib/replay-kline-aggregate-trade-bar-link"
 import {
   assertReplaySourceEventDecisionObservationHarnessContextBindingLineage,
   buildReplaySourceEventDecisionObservationHarnessContextBinding,
@@ -106,6 +112,7 @@ import {
   REPLAY_AGGREGATE_TRADE_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION,
   REPLAY_DECISION_OBSERVATION_BUNDLE_ADMISSION_SCHEMA_VERSION,
   REPLAY_DECISION_OBSERVATION_BUNDLE_DERIVATION_ADMISSION_SCHEMA_VERSION,
+  REPLAY_BAR_LINKED_AGGREGATE_TRADE_PATH_AUTHORITY_SCHEMA_VERSION,
   REPLAY_RESERVATION_CANCELLATION_SCHEMA_VERSION,
   REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION,
   REPLAY_ATTEMPT_CANCELLATION_OBSERVATION_SCHEMA_VERSION,
@@ -200,6 +207,10 @@ import {
   readReplayCrossSourceOrderingAdmission,
 } from "./cross-source-ordering-admission-registry"
 import {
+  issueReplayBarLinkedAggregateTradePathAuthority,
+  readReplayBarLinkedAggregateTradePathAuthority,
+} from "./bar-linked-aggregate-trade-path-authority-registry"
+import {
   issueReplayDecisionObservationBundleAdmission,
   readReplayDecisionObservationBundleAdmission,
 } from "./decision-observation-bundle-admission-registry"
@@ -285,6 +296,7 @@ test("control plane schema initializes frozen stages and lifecycle rules", () =>
       "rd_replay_aggregate_trade_provider_certification_termination",
       "rd_replay_aggregate_trade_evidence_admission",
       "rd_replay_cross_source_ordering_admission",
+      "rd_replay_bar_linked_aggregate_trade_path_authority",
       "rd_replay_decision_observation_bundle_admission",
       "rd_replay_decision_observation_bundle_derivation_admission",
       "rd_replay_reservation_cancellation",
@@ -453,7 +465,7 @@ test("Control Plane admits aggregate trade evidence only as a Reservation-bound 
         execution_spec_hash: "a".repeat(64),
         dataset_manifest_ref: "dataset://aggregate-trade-fixture",
         dataset_hash: "b".repeat(64),
-        liquidity_capacity_attestation_hash: null,
+        liquidity_capacity_attestation_hash: "4".repeat(64),
         supplemental_facts_hash: "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
         supplemental_requirement_set_hash: "f126b641e1c2e55c174e3505e15232b466e50c3fd764f30968a925821c31d144",
         venue_risk_policy_schedule_hash: "c".repeat(64),
@@ -471,6 +483,57 @@ test("Control Plane admits aggregate trade evidence only as a Reservation-bound 
       },
       required_capabilities: ["closed-candle", "step"],
     })
+    const bars = [{
+      open_time: "2026-07-14T03:00:00Z", close_time: "2026-07-14T03:05:00Z",
+      open: 100, high: 102, low: 99, close: 101, volume: 5, closed: true as const,
+    }]
+    const aggregateTradeEvents = [
+      { schema_version: REPLAY_AGGREGATE_TRADE_EVENT_SCHEMA_VERSION, symbol: "BTCUSDT", aggregate_trade_id: 10, first_trade_id: 100, last_trade_id: 100, trade_time: "2026-07-14T03:00:00.001Z", available_at: "2026-07-14T03:00:00.001Z", price: 100, quantity: 1, buyer_is_maker: false },
+      { schema_version: REPLAY_AGGREGATE_TRADE_EVENT_SCHEMA_VERSION, symbol: "BTCUSDT", aggregate_trade_id: 11, first_trade_id: 101, last_trade_id: 101, trade_time: "2026-07-14T03:01:00Z", available_at: "2026-07-14T03:01:00Z", price: 101, quantity: 1, buyer_is_maker: false },
+      { schema_version: REPLAY_AGGREGATE_TRADE_EVENT_SCHEMA_VERSION, symbol: "BTCUSDT", aggregate_trade_id: 12, first_trade_id: 102, last_trade_id: 102, trade_time: "2026-07-14T03:02:00Z", available_at: "2026-07-14T03:02:00Z", price: 99, quantity: 1, buyer_is_maker: true },
+      { schema_version: REPLAY_AGGREGATE_TRADE_EVENT_SCHEMA_VERSION, symbol: "BTCUSDT", aggregate_trade_id: 13, first_trade_id: 103, last_trade_id: 103, trade_time: "2026-07-14T03:03:00Z", available_at: "2026-07-14T03:03:00Z", price: 102, quantity: 1, buyer_is_maker: false },
+      { schema_version: REPLAY_AGGREGATE_TRADE_EVENT_SCHEMA_VERSION, symbol: "BTCUSDT", aggregate_trade_id: 14, first_trade_id: 104, last_trade_id: 104, trade_time: "2026-07-14T03:04:59.999Z", available_at: "2026-07-14T03:04:59.999Z", price: 101, quantity: 1, buyer_is_maker: true },
+    ]
+    const aggregateTradeBarCoverage = createReplayAggregateTradeCoverageAttestation({
+      attestation_id: "coverage-cross-source-bar-1",
+      attestation_ref: "aggregate-trades://btc/5m-bar-1",
+      symbol: "BTCUSDT",
+      coverage_start: bars[0]!.open_time,
+      coverage_end: bars[0]!.close_time,
+      source_ref: "market-data:aggregate-trade-archive:cross-source-1",
+      source_hash: "6".repeat(64),
+      produced_at: "2026-07-14T03:15:00Z",
+      events: aggregateTradeEvents,
+    })
+    const aggregateTradeEvidenceCoverage = createReplayAggregateTradeCoverageAttestation({
+      attestation_id: "coverage-cross-source-evidence-1",
+      attestation_ref: "aggregate-trades://btc/evidence-1",
+      symbol: "BTCUSDT",
+      coverage_start: bars[0]!.open_time,
+      coverage_end: "2026-07-14T03:10:00Z",
+      source_ref: "market-data:aggregate-trade-archive:cross-source-1",
+      source_hash: "6".repeat(64),
+      produced_at: "2026-07-14T03:15:00Z",
+      events: aggregateTradeEvents,
+    })
+    const klineRecord = createReplayKlineSourceRecord({
+      symbol: "BTCUSDT",
+      timeframe: "5m",
+      market_bar: bars[0]!,
+      available_at: bars[0]!.close_time,
+      quote_volume: 503,
+      trade_count: 5,
+      taker_buy_base_volume: 3,
+      taker_buy_quote_volume: 303,
+      source_ref: "market-data:kline-source:cross-source-1",
+      source_hash: "7".repeat(64),
+    })
+    const barLink = materializeReplayKlineAggregateTradeBarLink({
+      market_bar: bars[0]!,
+      kline_record: klineRecord,
+      aggregate_trade_coverage: aggregateTradeBarCoverage,
+      aggregate_trade_events: aggregateTradeEvents,
+    })
     const admissionInput = {
       admission_id: "aggregate-trade-admission-1",
       admission_ref: "admission://aggregate-trade/trial-aggregate-trade",
@@ -486,7 +549,7 @@ test("Control Plane admits aggregate trade evidence only as a Reservation-bound 
       completeness_audit_hash: "8".repeat(64),
       evidence_ref: "evidence://aggregate-trade/trial-aggregate-trade",
       evidence_hash: "9".repeat(64),
-      coverage_attestation_hash: "a".repeat(64),
+      coverage_attestation_hash: aggregateTradeEvidenceCoverage.attestation_hash,
       evidence_produced_at: "2026-07-14T03:15:00Z",
       coverage_start: "2026-07-14T03:00:00Z",
       coverage_end: "2026-07-14T03:10:00Z",
@@ -497,22 +560,12 @@ test("Control Plane admits aggregate trade evidence only as a Reservation-bound 
     assert.deepEqual(issueReplayAggregateTradeEvidenceAdmission(db, admissionInput), admission)
     assert.deepEqual(readReplayAggregateTradeEvidenceAdmission(db, admission.reservation_hash), admission)
 
-    const bars = [{
-      open_time: "2026-07-14T03:00:00Z", close_time: "2026-07-14T03:05:00Z",
-      open: 100, high: 102, low: 99, close: 101, volume: 10, closed: true as const,
-    }]
     const fundingEvents = [{ timestamp: "2026-07-14T03:00:00Z", rate: 0.0001, mark_price: 100 }]
     const instrumentStatusEvents = [{
       schema_version: REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION,
       snapshot_id: "status-cross-source-1", venue_id: "binance-usdm", symbol: "BTCUSDT", status: "trading" as const,
       effective_at: "2026-07-14T03:00:00Z", valid_until: null, observed_at: "2026-07-14T03:00:00.500Z",
       source_ref: "archive:status:cross-source-1", source_hash: "d".repeat(64),
-    }]
-    const aggregateTradeEvents = [{
-      schema_version: "trade.rd-replay-aggregate-trade-event.v1" as const,
-      symbol: "BTCUSDT", aggregate_trade_id: 10, first_trade_id: 100, last_trade_id: 101,
-      trade_time: "2026-07-14T03:00:00Z", available_at: "2026-07-14T03:00:00Z",
-      price: 100, quantity: 1, buyer_is_maker: false,
     }]
     const orderingAttestation = buildReplayCrossSourceOrderingAttestation({
       symbol: "BTCUSDT",
@@ -557,6 +610,39 @@ test("Control Plane admits aggregate trade evidence only as a Reservation-bound 
       UPDATE rd_replay_cross_source_ordering_admission
       SET economic_authority = 'runner'
       WHERE admission_id = 'cross-source-ordering-admission-1'
+    `).run(), /immutable/)
+
+    const pathRequest = barLinkedStopRequest(reservation)
+    const pathAuthorityInput = {
+      authority_snapshot_id: "bar-linked-path-authority-1",
+      authority_snapshot_ref: "authority://bar-linked-path/trial-aggregate-trade",
+      issued_at: "2026-07-14T03:27:00Z",
+      authority_id: "research-control-plane",
+      authority_policy_version: "rd-bar-linked-aggregate-trade-path-authority-v1",
+      reservation,
+      request: pathRequest,
+      bar_link_attestation: barLink,
+    }
+    const pathAuthority = issueReplayBarLinkedAggregateTradePathAuthority(db, pathAuthorityInput)
+    assert.equal(pathAuthority.schema_version, REPLAY_BAR_LINKED_AGGREGATE_TRADE_PATH_AUTHORITY_SCHEMA_VERSION)
+    assert.equal(pathAuthority.path_resolution_authority, "authorized_for_bound_request_and_bar")
+    assert.equal(pathAuthority.runner_compatibility, "not_bound")
+    assert.equal(pathAuthority.fill_quantity_authority, "none")
+    assert.equal(pathAuthority.external_completeness, "not_verified")
+    assert.deepEqual(issueReplayBarLinkedAggregateTradePathAuthority(db, pathAuthorityInput), pathAuthority)
+    assert.deepEqual(readReplayBarLinkedAggregateTradePathAuthority(db, admission.reservation_hash), pathAuthority)
+    assert.throws(() => issueReplayBarLinkedAggregateTradePathAuthority(db, {
+      ...pathAuthorityInput,
+      request: { ...pathRequest, dataset_hash: "c".repeat(64) },
+    }), /bindings do not match/)
+    assert.throws(() => issueReplayBarLinkedAggregateTradePathAuthority(db, {
+      ...pathAuthorityInput,
+      request: decisionObservationRequest(reservation),
+    }), /Stop-market/)
+    assert.throws(() => db.query(`
+      UPDATE rd_replay_bar_linked_aggregate_trade_path_authority
+      SET runner_compatibility = 'bound'
+      WHERE authority_snapshot_id = 'bar-linked-path-authority-1'
     `).run(), /immutable/)
 
     const request = decisionObservationRequest(reservation)
@@ -2736,6 +2822,38 @@ function decisionObservationDerivationFixture(
       ...attestationBodyWithoutId,
       attestation_id: `source-event-decision-observation-derivation-${canonicalHash(attestationBodyWithoutId).slice(0, 24)}`,
     }),
+  }
+}
+
+function barLinkedStopRequest(
+  reservation: ReturnType<typeof issueTrialReservationSnapshot>,
+): ReplayExecutionRequest {
+  const base = decisionObservationRequest(reservation)
+  const liquidityCapacityAttestationHash = reservation.bindings.liquidity_capacity_attestation_hash
+  assert.notEqual(liquidityCapacityAttestationHash, null)
+  const order: ReplayExecutionRequest["order"] = {
+    side: "long",
+    quantity: 1,
+    signal_time: "2026-07-14T02:55:00Z",
+    earliest_executable_time: "2026-07-14T03:00:00Z",
+    stop_price: 99,
+    target_price: 102,
+    entry_execution: {
+      order_type: "stop_market",
+      trigger_price: 101,
+      trigger_source: "last_trade_ohlcv",
+      time_in_force: "gtc",
+      liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1",
+      full_fill_capacity: 1,
+      liquidity_capacity_attestation_hash: liquidityCapacityAttestationHash!,
+    },
+  }
+  const decisionSchedule = createReplaySingleDecisionSchedule(order)
+  return {
+    ...base,
+    order,
+    decision_schedule: decisionSchedule,
+    decision_schedule_hash: canonicalHash(decisionSchedule),
   }
 }
 

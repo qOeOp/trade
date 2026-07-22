@@ -576,6 +576,64 @@ BEGIN
   SELECT RAISE(ABORT, 'Replay cross-source ordering admission is immutable');
 END;
 
+CREATE TABLE IF NOT EXISTS rd_replay_bar_linked_aggregate_trade_path_authority (
+  authority_snapshot_id TEXT PRIMARY KEY,
+  authority_snapshot_ref TEXT NOT NULL UNIQUE,
+  authority_snapshot_hash TEXT NOT NULL UNIQUE,
+  status TEXT NOT NULL CHECK(status = 'authorized'),
+  issued_at TEXT NOT NULL,
+  authority_id TEXT NOT NULL,
+  authority_policy_version TEXT NOT NULL,
+  trial_id TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  reservation_ref TEXT NOT NULL,
+  reservation_hash TEXT NOT NULL UNIQUE,
+  request_hash TEXT NOT NULL UNIQUE,
+  entry_order_hash TEXT NOT NULL,
+  dataset_manifest_ref TEXT NOT NULL,
+  dataset_hash TEXT NOT NULL,
+  aggregate_trade_evidence_admission_hash TEXT NOT NULL UNIQUE,
+  cross_source_ordering_admission_hash TEXT NOT NULL UNIQUE,
+  bar_link_attestation_id TEXT NOT NULL UNIQUE,
+  bar_link_attestation_hash TEXT NOT NULL UNIQUE,
+  symbol TEXT NOT NULL,
+  timeframe TEXT NOT NULL,
+  window_start_inclusive TEXT NOT NULL,
+  window_end_exclusive TEXT NOT NULL,
+  latest_component_available_at TEXT NOT NULL,
+  kline_record_hash TEXT NOT NULL,
+  replay_market_bar_hash TEXT NOT NULL,
+  aggregate_trade_coverage_attestation_hash TEXT NOT NULL,
+  aggregate_trade_events_hash TEXT NOT NULL,
+  consumer_capability TEXT NOT NULL
+    CHECK(consumer_capability = 'bounded_initial_stop_market_same_bar_post_entry_protection_ordering'),
+  path_resolution_authority TEXT NOT NULL
+    CHECK(path_resolution_authority = 'authorized_for_bound_request_and_bar'),
+  external_completeness TEXT NOT NULL CHECK(external_completeness = 'not_verified'),
+  runner_compatibility TEXT NOT NULL CHECK(runner_compatibility = 'not_bound'),
+  activation TEXT NOT NULL CHECK(activation = 'forbidden_until_exact_request_runner_consumer'),
+  limitations_hash TEXT NOT NULL,
+  authority_json TEXT NOT NULL CHECK(json_valid(authority_json)),
+  CHECK(window_start_inclusive < window_end_exclusive),
+  FOREIGN KEY (trial_id) REFERENCES rd_trial(trial_id),
+  FOREIGN KEY (aggregate_trade_evidence_admission_hash)
+    REFERENCES rd_replay_aggregate_trade_evidence_admission(admission_hash),
+  FOREIGN KEY (cross_source_ordering_admission_hash)
+    REFERENCES rd_replay_cross_source_ordering_admission(admission_hash)
+);
+
+CREATE TRIGGER IF NOT EXISTS rd_replay_bar_linked_aggregate_trade_path_authority_no_update
+BEFORE UPDATE ON rd_replay_bar_linked_aggregate_trade_path_authority
+BEGIN
+  SELECT RAISE(ABORT, 'Replay bar-linked aggregate-trade path authority is immutable');
+END;
+
+CREATE TRIGGER IF NOT EXISTS rd_replay_bar_linked_aggregate_trade_path_authority_no_delete
+BEFORE DELETE ON rd_replay_bar_linked_aggregate_trade_path_authority
+BEGIN
+  SELECT RAISE(ABORT, 'Replay bar-linked aggregate-trade path authority is immutable');
+END;
+
 CREATE TABLE IF NOT EXISTS rd_replay_decision_observation_bundle_admission (
   admission_id TEXT PRIMARY KEY,
   admission_ref TEXT NOT NULL UNIQUE,
