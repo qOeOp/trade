@@ -22,7 +22,7 @@ last_verified: 2026-07-23 CST
 | J01–J07 job graph、cadence、health、lease、idempotency | 常驻 program profile 仍关闭 domain jobs 与 live write |
 | trade plan、action intent、trigger expiry、execution gate | 没有独立的短期条件监控任务生命周期 |
 | J04 supervisor、Replay、forward、review、durable RD state | 已有 bounded autonomy refill；真实 provider/kill-restart/长时 J04-J05-J07 soak 尚未闭合 |
-| 既有 owner toolset 与本地 stdio MCP | 没有统一 composition root、HTTP operator API 与服务器部署合同 |
+| 既有 owner toolset、本地 stdio MCP 与 loopback HTTP allowlist | HTTP 尚未进入 server composition；TLS/rotation/OpenClaw/soak 未闭合 |
 | SQLite owner stores 与 artifact catalog | 没有 volume、备份恢复；被 durable ref 引用的 artifact 仍可能落在 `tmp/` |
 
 核心缺口不是更多 tool，而是一个可验证的 runtime profile，把既有 owner 按依赖装配成长期运行程序。
@@ -36,6 +36,8 @@ S1 截至 2026-07-23 已从“提案散点”进入可执行实现：三个正�
 S3 已新增独立 `full_shadow` 固定 profile：同一 fenced supervisor/wakeup 可启用 J01–J07、强制 cadence due、保留 owner active/state gate，并永久关闭 exchange live write 与真实通知。干净 HEAD 的临时 SQLite/captured-owner 双周期 fixture 已得到 7/7 enabled、Agent/program `2/2 match`、零重复 job/incident；同槽重启 terminal skip 且 fencing token `1→2`，未出现 live command。当前版本化 server config 仍是 `shadow_program`；published owner CLI smoke、故障注入与长时观察完成前不得切换。
 
 S4/S5 已形成首个本地闭环：J04 路由先读 `plan_next`，ready/terminal 不调用模型；active empty/unready queue 才调用固定 Model Gateway，domain assessment 通过后以 `updated_at` CAS 原子入队，再委托既有 supervisor。模型失败不写 state/Trial，identical replay 幂等，stale/conflict fail closed；真实 provider、进程 kill/restart 单 Trial/Result 与 J04/J05/J07 长时 soak 仍是采用门。
+
+S6 已新增 loopback-only Operator HTTP：Bearer + 独立 controlled approval、固定 read/write rate、exact route/payload 和 ops pre/post audit；当前只开放 tool search、RD read 与 approved J04 wakeup，不含 exchange/live/promotion/任意 command。Bun resident、真实 audit 回读、token rotation、TLS/systemd/OpenClaw client 与 soak 尚未完成。
 
 ## 3. 运行工作模型
 
@@ -230,7 +232,7 @@ validate config/secrets/volumes
 | S3 full shadow runtime | program cadence 启用 J01–J07，但 exchange write 保持关闭 | 与 Agent 路径 parity；长时无重复 job/双写；incident 可查询 |
 | S4 model gateway | 已实现 SiliconFlow adapter + R&D hypothesis semantic task + domain assessment | 本地 schema/预算/超时/redaction/eval 已过；真实 capability/dataset parity/server secret/soak 待闭合 |
 | S5 research autonomy | 已实现 J04 bounded refill + CAS queue + existing supervisor delegation；J05/J07 保持独立 cadence | 本地 stopped/blocked/no-write/duplicate/stale 门已过；真实 provider、kill/restart 单 Trial/Result 与长时 soak 待闭合 |
-| S6 operator convergence | HTTP/MCP/OpenClaw 复用 owner ports | auth、approval、rate limit、audit；关闭入口不影响 runtime |
+| S6 operator convergence | 已实现 loopback HTTP allowlist，与 MCP 同样委托既有 owner；OpenClaw 仅保留 client 角色 | 本地 auth/approval/rate/pre-audit 门已过；Bun resident、audit 回读、rotation/TLS/systemd/OpenClaw fixture/soak 待闭合 |
 | S7 live cutover | 按 job 逐项开放 authority | shadow soak、reconcile、kill/restart、backup/restore、canary live-small 全通过 |
 
 每个切片独立提交、验证和回滚。S2 不等待 LLM；S4 不等待 OpenClaw；S7 不因“所有进程能启动”自动成立。

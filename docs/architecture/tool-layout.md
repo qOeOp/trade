@@ -49,6 +49,7 @@ Skill 可以说明如何调用既有 MCP / owner tool，但不能绕过 prefligh
 | `modules/orchestration-ops/trade-flow/` | flow domain orchestrator | 事件流、automation plan、observe、reconcile、execution orchestration | Binance 数据接入实现、交易所写接口细节、R&D 实验实现、策略复核 owner |
 | `modules/orchestration-ops/watch-task-runtime/` | bounded active-plan observer | 在 ops fenced lease 下恢复单个固定 mark-price Watch Task，调用 public snapshot owner，停在 no-authority revalidation handoff | 策略/LLM 判断、preflight/execution、exchange write、trade fact |
 | `modules/orchestration-ops/model-gateway/` | bounded model provider port | 固定 profile、credential lookup、timeout/retry/token budget、JSON Object parse 与脱敏 typed result | 领域 prompt/schema 判断、DB/event/exchange write、工具调用 |
+| `modules/orchestration-ops/operator-http/` | northbound operator adapter | loopback allowlist、auth、approval、rate limit、sanitized ops audit、fixed owner delegation | scheduler、任意 tool/command、exchange/live/promotion authority |
 | `modules/live-decision-planning/watch-task-compiler/` | plan-to-watch compiler | 校验 plan/action-intent identity、hash、lineage、expiry 后生成固定 Watch definition | 运行任务、批准风险、读取市场、执行交易 |
 | `modules/live-execution-control/watch-handoff-revalidation/` | triggered handoff revalidator | 绑定 definition/handoff/plan identity，以新 observation 复跑 trigger gate 与 plan preflight，签发 no-authority receipt | 执行批准、command compilation、exchange/event write、刷新 owner facts |
 | `modules/orchestration-ops/l2-current-book-probe/` | non-economic ops consumer | health 后读取同 epoch bounded-depth book、BigInt microstructure；bounded session 与 resident worker 订阅 latest-only watermark，watch failure、epoch/resync 后强制 resnapshot；专属 supervisor 只管 worker restart，owner read 仅投影 baseline/metrics | automation job、MCP transport、depth delta、durable delivery、策略信号、Replay source、执行事实或交易所写入 |
@@ -125,6 +126,7 @@ Skill 可以说明如何调用既有 MCP / owner tool，但不能绕过 prefligh
 | program shadow wakeup / resident cadence | `modules/orchestration-ops/trade-flow` + `trade-flow.program-shadow` / `trade-flow.program-shadow-supervisor` |
 | bounded active-plan watch | `modules/orchestration-ops/watch-task-runtime` + `ops.watch-task-runtime`；状态 owner 为 `ops.runtime-store` |
 | bounded model task | `modules/orchestration-ops/model-gateway` + `ops.model-gateway`；request/result contract 为 `modules/contracts/model-task-contract` |
+| authenticated operator HTTP | `modules/orchestration-ops/operator-http` + `ops.operator-http`；当前只读 discovery/RD state 与 approved J04 wakeup |
 | observe / runtime load | `modules/orchestration-ops/trade-flow` + `trade-flow.observe` |
 | 事件流 / track dry-run | `modules/orchestration-ops/trade-flow` + `trade-flow.runtime` |
 | Trial-bound replay | `modules/research-strategy-development/replay-execution-plane/runner` + `research.replay-execution` |

@@ -121,7 +121,11 @@ action_intent
 
 模型只消费 provider-neutral、带 hash/identity/budget 的 bounded task，输出永远是 `execution_authority=none` 的 proposal。provider IO 由 `ops.model-gateway` 负责，领域 owner 负责 prompt/output schema 与 next action；模型失败不得推进 owner state。当前唯一纵切和未完成采用门见 [model-gateway.md](./model-gateway.md)。
 
-## 12. 检查
+## 12. Operator Interface
+
+MCP/HTTP/OpenClaw 只能是同一 owner surface 的北向 allowlist，不能建立第二套 scheduler/state/approval 语义。当前 HTTP route、auth、rate、audit 和未完成部署门见 [operator-api.md](./operator-api.md)。
+
+## 13. 检查
 
 | 改动 | 最小验证 |
 | --- | --- |

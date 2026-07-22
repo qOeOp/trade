@@ -64,7 +64,7 @@ S1 不把 tool 数量、容器数量、未来 domain cadence 或模型任务写�
 2. manager environment：仅注入 owner 明确声明的 secret；
 3. runtime facts：PID、attempt、lease、epoch、readiness，只写 runtime state / owner store。
 
-S1 shadow profile 的三项服务均不需要 secret。`BINANCE_API_KEY/BINANCE_API_SECRET` 只在未来启用 private read job 时进入对应 owner unit；`SILICONFLOW_API_KEY` 只进入未来 model gateway。composition root 不读取、打印、转发或验证未启用 component 的 key。
+S1 shadow profile 的三项服务均不需要 secret。`BINANCE_API_KEY/BINANCE_API_SECRET` 只在未来启用 private read job 时进入对应 owner unit；Model Gateway 与 Operator HTTP 已有独立 profile，但尚未装配进本 server profile，其 `SILICONFLOW_API_KEY / TRADE_OPERATOR_API_TOKEN / TRADE_OPERATOR_APPROVAL_TOKEN` 也不得注入当前三个 unit。composition root 不读取、打印、转发或验证未启用 component 的 key。
 
 systemd unit 必须使用显式 environment allowlist；不得继承交互 shell、`.env` 全量内容或把 secret 放入 command line、profile、receipt、日志和 health。
 
