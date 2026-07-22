@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test"
-import { createHash } from "node:crypto"
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from "node:fs"
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pathToFileURL } from "node:url"
@@ -29,7 +28,6 @@ import {
   REPLAY_SIMULATOR_POLICY_VERSION,
   REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
   canonicalHash,
-  canonicalJson,
   createReplayDecisionHarnessBuildAttestation,
   createReplayDecisionInputSnapshot,
   createReplayDecisionHarnessContext,
@@ -84,23 +82,8 @@ import {
   deriveReplayDecisionHarnessLogicalRequestId,
 } from "../../../contracts/src/lib/replay-decision-harness-logical-request-identity-upgrade"
 import {
-  assertReplayDecisionHarnessWorkerRequestV10,
-  assertReplayDecisionHarnessWorkerRequestV10Materialization,
-} from "../../../contracts/src/lib/replay-decision-harness-worker-request-v10"
-import {
-  REPLAY_DECISION_HARNESS_WORKER_RESPONSE_V10_FIELDS,
-  REPLAY_DECISION_HARNESS_WORKER_RESPONSE_V10_REQUEST_ECHO_FIELDS,
-  assertReplayDecisionHarnessWorkerResponseV10,
-  assertReplayDecisionHarnessWorkerResponseV10Contract,
-  type ReplayDecisionHarnessWorkerResponseV10Body,
-} from "../../../contracts/src/lib/replay-decision-harness-worker-response-v10-contract"
-import {
   assertReplayDecisionHarnessDispatchLeaseAuthorityBinding,
 } from "../../../contracts/src/lib/replay-decision-harness-dispatch-lease-authority-binding"
-import {
-  assertReplayDecisionHarnessWorkerV10BuildCapability,
-  createReplayDecisionHarnessWorkerV10BuildCapability,
-} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-build-capability"
 import {
   assertReplayPositionOpenStateInputMaterialization,
 } from "../../../contracts/src/lib/replay-position-open-state-input-materialization"
@@ -124,14 +107,6 @@ import {
   buildReplayDecisionHarnessCodeAdmission,
 } from "./replay-decision-harness-code-admission"
 import {
-  assertReplayDecisionHarnessWorkerV10BuildCapabilityLineage,
-  buildReplayDecisionHarnessWorkerV10Capability,
-} from "./replay-decision-harness-worker-v10-build"
-import {
-  readReplayWorkerV10BuildCapability,
-  registerReplayWorkerV10BuildCapability,
-} from "./replay-worker-v10-build-capability-registry"
-import {
   executeReplayWorkerV10Cutover,
   readReplayWorkerV10CutoverReceipt,
 } from "./replay-worker-v10-cutover"
@@ -149,14 +124,6 @@ import {
   assertReplayDecisionHarnessLogicalRequestIdentityUpgradeLineage,
   buildReplayDecisionHarnessLogicalRequestIdentityUpgrade,
 } from "./replay-decision-harness-logical-request-identity-upgrade"
-import {
-  assertReplayDecisionHarnessWorkerRequestV10MaterializationLineage,
-  buildReplayDecisionHarnessWorkerRequestV10Materialization,
-} from "./replay-decision-harness-worker-request-v10"
-import {
-  assertReplayDecisionHarnessWorkerResponseV10ContractLineage,
-  buildReplayDecisionHarnessWorkerResponseV10Contract,
-} from "./replay-decision-harness-worker-response-v10-contract"
 import {
   buildReplayDecisionHarnessDispatchLeaseAuthorityBinding,
 } from "./replay-decision-harness-dispatch-lease-authority-binding"
@@ -192,6 +159,9 @@ import { runReplayWorkerV10DispatchAuthorityBindingStage } from "./replay-worker
 import { runReplayWorkerV10DispatchEvidenceStage } from "./replay-worker-v10-dispatch-evidence-stage"
 import { runReplayWorkerV10ExecutionEnvelopeStage } from "./replay-worker-v10-execution-envelope-stage"
 import { runReplayWorkerV10DispatchLeaseAdmissionStage } from "./replay-worker-v10-dispatch-lease-admission-stage"
+import { runReplayWorkerV10RequestMaterializationStage } from "./replay-worker-v10-request-materialization-stage"
+import { runReplayWorkerV10BuildCapabilityStage } from "./replay-worker-v10-build-capability-stage"
+import { runReplayWorkerV10ResponseContractStage } from "./replay-worker-v10-response-contract-stage"
 
 const HASH = "a".repeat(64)
 const ACCOUNTING = {
@@ -894,99 +864,19 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
     worker_request_count: 1 as never,
   })).toThrow("unsupported decision harness logical request identity upgrade authority")
 
-  const requestV10Input = { source_identity_upgrade: identityUpgrade }
-  const requestV10Materialization = buildReplayDecisionHarnessWorkerRequestV10Materialization(requestV10Input)
-  expect(requestV10Materialization.owner).toBe("replay_runner_protocol_admission")
-  expect(requestV10Materialization.activation_status).toBe("contract_materialized_non_executable")
-  expect(requestV10Materialization.field_policy).toBe("exact_whitelist_no_attempt_or_process_fields")
-  expect(requestV10Materialization.self_validation_policy).toBe("content_hashes_logical_id_and_request_hash")
-  expect(requestV10Materialization.migration_policy).toBe("v9_execution_unchanged_v10_contract_only")
-  expect(requestV10Materialization.activation_gate)
-    .toBe("response_echo_execution_envelope_transport_and_worker_certification_required")
-  expect(requestV10Materialization.request_count).toBe(2)
-  expect(requestV10Materialization.response_contract).toBe("not_materialized")
-  expect(requestV10Materialization.execution_envelope).toBe("not_materialized")
-  expect(requestV10Materialization.transport).toBe("forbidden")
-  expect(requestV10Materialization.harness_invocation).toBe("forbidden")
-  expect(requestV10Materialization.trial_authority).toBe("none")
-  const firstRequestV10 = requestV10Materialization.requests[0]!
-  expect(firstRequestV10.schema_version).toBe("trade.rd-replay-decision-harness-worker-request.v10")
-  expect(firstRequestV10.worker_protocol_version).toBe("rd-replay-harness-worker-stdio-v10")
-  expect(firstRequestV10.logical_request_id).toBe(identityUpgrade.entries[0]!.logical_request_id)
-  expect(firstRequestV10.legacy_v9_invocation_id).toBe(identityUpgrade.entries[0]!.legacy_v9_invocation_id)
-  expect(firstRequestV10.request_context).toEqual(sourceAssemblyV2.entries[0]!.harness_context)
-  expect(firstRequestV10.decision_input_snapshot).toEqual(sourceAssemblyV2.entries[0]!.decision_input_snapshot)
-  expect(firstRequestV10.decision_market_input_snapshot)
-    .toEqual(sourceAssemblyV2.entries[0]!.decision_market_input_snapshot)
-  expect(firstRequestV10.decision_state_snapshot).toBeNull()
-  expect(requestV10Materialization.requests[1]!.decision_state_snapshot).toEqual(snapshot)
-  expect(firstRequestV10.execution_admission).toBe("not_granted")
-  expect(firstRequestV10.execution_envelope).toBeNull()
-  expect(firstRequestV10.transport_status).toBe("not_invoked")
-  expect(() => assertReplayDecisionHarnessWorkerRequestV10(firstRequestV10)).not.toThrow()
-  expect(() => assertReplayDecisionHarnessWorkerRequestV10Materialization(requestV10Materialization)).not.toThrow()
-  expect(() => assertReplayDecisionHarnessWorkerRequestV10MaterializationLineage(
-    requestV10Materialization,
-    requestV10Input,
-  )).not.toThrow()
-  expect(buildReplayDecisionHarnessWorkerRequestV10Materialization({
-    source_identity_upgrade: structuredClone(identityUpgrade),
-  })).toEqual(requestV10Materialization)
-  expect(() => assertReplayDecisionHarnessWorkerRequestV10({
-    ...firstRequestV10,
-    attempt_lease_hash: HASH,
-  } as never)).toThrow("field whitelist drift")
-  expect(() => assertReplayDecisionHarnessWorkerRequestV10({
-    ...firstRequestV10,
-    logical_request_id: "b".repeat(64),
-  })).toThrow("logical identity or self-hash drift")
-  expect(() => assertReplayDecisionHarnessWorkerRequestV10({
-    ...firstRequestV10,
-    request_context: {
-      ...firstRequestV10.request_context,
-      candidate_hash: "b".repeat(64),
-    },
-  })).toThrow("embedded input hash or run binding drift")
-  expect(() => assertReplayDecisionHarnessWorkerRequestV10Materialization({
-    ...requestV10Materialization,
-    transport: "stdio" as never,
-  })).toThrow("unsupported decision harness Worker Request v10 materialization authority")
-
-  const workerV10BuildInput = { source_code_admission: codeAdmission }
-  replayProfile("worker request identity")
-  const workerV10BuildCapability = buildReplayDecisionHarnessWorkerV10Capability(workerV10BuildInput)
-  expect(workerV10BuildCapability.activation_status)
-    .toBe("build_capability_available_process_not_admitted")
-  expect(workerV10BuildCapability.legacy_v9_worker_protocol_version)
-    .toBe("rd-replay-harness-worker-stdio-v9")
-  expect(workerV10BuildCapability.target_worker_protocol_version)
-    .toBe("rd-replay-harness-worker-stdio-v10")
-  expect(workerV10BuildCapability.migration_policy)
-    .toBe("separate_v10_artifact_v9_execution_path_unchanged")
-  expect(workerV10BuildCapability.artifact.sha256).not.toBe(buildAttestation.artifact.sha256)
-  expect(workerV10BuildCapability.artifact_relation).toBe("distinct_from_legacy_v9_worker_artifact")
-  expect(workerV10BuildCapability.decoder_input_surface).toBe("one_in_memory_plain_object_no_byte_frame")
-  expect(workerV10BuildCapability.decoder_validation_policy)
-    .toBe("exact_field_whitelist_protocol_schema_and_non_executable_markers")
-  expect(workerV10BuildCapability.semantic_validation_policy)
-    .toBe("runner_v10_contract_validation_still_required_before_future_dispatch")
-  expect(workerV10BuildCapability.transport_frame_design_status).toBe("not_designed")
-  expect(workerV10BuildCapability.stdio_loop).toBe("not_materialized")
-  expect(workerV10BuildCapability.process_launch).toBe("not_materialized")
-  expect(workerV10BuildCapability.worker_request_instance_count).toBe(0)
-  expect(workerV10BuildCapability.request_decode_occurrence).toBe("not_materialized")
-  expect(workerV10BuildCapability.dispatch_occurrence).toBe("not_materialized")
-  expect(workerV10BuildCapability.harness_invocation).toBe("forbidden")
-  expect(workerV10BuildCapability.response_instance).toBeNull()
-  expect(workerV10BuildCapability.decision_output_authority).toBe("none")
-  expect(() => assertReplayDecisionHarnessWorkerV10BuildCapability(workerV10BuildCapability)).not.toThrow()
-  expect(() => assertReplayDecisionHarnessWorkerV10BuildCapabilityLineage(
-    workerV10BuildCapability,
-    workerV10BuildInput,
-  )).not.toThrow()
-  expect(buildReplayDecisionHarnessWorkerV10Capability({
-    source_code_admission: structuredClone(codeAdmission),
-  })).toEqual(workerV10BuildCapability)
+  const requestMaterializationStage = runReplayWorkerV10RequestMaterializationStage({
+    identity_upgrade: identityUpgrade,
+    source_assembly_v2: sourceAssemblyV2,
+    decision_state_snapshot: snapshot,
+    profile: replayProfile,
+  })
+  const requestV10Materialization = requestMaterializationStage.request_materialization
+  const firstRequestV10 = requestMaterializationStage.first_request
+  const buildCapabilityStage = runReplayWorkerV10BuildCapabilityStage({
+    code_admission: codeAdmission,
+    legacy_artifact_hash: buildAttestation.artifact.sha256,
+  })
+  const workerV10BuildCapability = buildCapabilityStage.worker_v10_build_capability
 
   const decoderModuleRoot = mkdtempSync(join(tmpdir(), "replay-worker-v10-decoder-module-"))
   try {
@@ -1010,144 +900,12 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
     rmSync(decoderModuleRoot, { recursive: true, force: true })
   }
 
-  expect(() => assertReplayDecisionHarnessWorkerV10BuildCapability({
-    ...workerV10BuildCapability,
-    target_worker_protocol_version: "rd-replay-harness-worker-stdio-v9" as never,
-  })).toThrow("unsupported decision harness Worker v10 build capability authority")
-  expect(() => assertReplayDecisionHarnessWorkerV10BuildCapability({
-    ...workerV10BuildCapability,
-    worker_request_instance_count: 1 as never,
-  })).toThrow("unsupported decision harness Worker v10 build capability authority")
-  expect(() => assertReplayDecisionHarnessWorkerV10BuildCapability({
-    ...workerV10BuildCapability,
-    artifact: { ...workerV10BuildCapability.artifact, content_utf8: "forged" },
-  })).toThrow("parent or artifact binding drift")
-
-  const workerV10RegistryRoot = mkdtempSync(join(tmpdir(), "replay-worker-v10-build-registry-"))
-  try {
-    expect(readReplayWorkerV10BuildCapability({
-      registry_root: workerV10RegistryRoot,
-      source_code_admission: codeAdmission,
-    })).toBeNull()
-    const registeredWorkerV10Capability = registerReplayWorkerV10BuildCapability({
-      registry_root: workerV10RegistryRoot,
-      source_code_admission: codeAdmission,
-    })
-    expect(registeredWorkerV10Capability).toEqual(workerV10BuildCapability)
-    expect(registerReplayWorkerV10BuildCapability({
-      registry_root: workerV10RegistryRoot,
-      source_code_admission: structuredClone(codeAdmission),
-    })).toEqual(workerV10BuildCapability)
-    expect(readReplayWorkerV10BuildCapability({
-      registry_root: workerV10RegistryRoot,
-      source_code_admission: codeAdmission,
-    })).toEqual(workerV10BuildCapability)
-    const capabilityFile = readdirSync(workerV10RegistryRoot)
-      .find((name) => name.startsWith("worker-v10-build-capability-"))
-    if (!capabilityFile) throw new Error("expected Replay Worker v10 build capability registry file")
-    writeFileSync(join(workerV10RegistryRoot, capabilityFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10BuildCapability({
-      registry_root: workerV10RegistryRoot,
-      source_code_admission: codeAdmission,
-    })).toThrow()
-  } finally {
-    rmSync(workerV10RegistryRoot, { recursive: true, force: true })
-  }
-
-  const differentWorkerV10RegistryRoot = mkdtempSync(join(tmpdir(), "replay-worker-v10-build-different-"))
-  try {
-    const { capability_hash: originalCapabilityHash, ...workerV10CapabilityBody } = workerV10BuildCapability
-    expect(originalCapabilityHash).toHaveLength(64)
-    const forgedGeneratedSource = `${workerV10CapabilityBody.generated_entrypoint_content_utf8}// forged\n`
-    const forgedArtifact = `${workerV10CapabilityBody.artifact.content_utf8}// forged\n`
-    const forgedCapability = createReplayDecisionHarnessWorkerV10BuildCapability({
-      ...workerV10CapabilityBody,
-      generated_entrypoint_content_utf8: forgedGeneratedSource,
-      generated_entrypoint_hash: createHash("sha256").update(forgedGeneratedSource, "utf8").digest("hex"),
-      artifact: {
-        ...workerV10CapabilityBody.artifact,
-        content_utf8: forgedArtifact,
-        sha256: createHash("sha256").update(forgedArtifact, "utf8").digest("hex"),
-      },
-    })
-    const differentFile = join(
-      differentWorkerV10RegistryRoot,
-      `worker-v10-build-capability-${forgedCapability.capability_key}.json`,
-    )
-    writeFileSync(differentFile, `${canonicalJson(forgedCapability)}\n`, "utf8")
-    expect(() => registerReplayWorkerV10BuildCapability({
-      registry_root: differentWorkerV10RegistryRoot,
-      source_code_admission: codeAdmission,
-    })).toThrow("already registered with different evidence")
-  } finally {
-    rmSync(differentWorkerV10RegistryRoot, { recursive: true, force: true })
-  }
-
-  const responseV10ContractInput = { source_request_materialization: requestV10Materialization }
-  const responseV10Contract = buildReplayDecisionHarnessWorkerResponseV10Contract(responseV10ContractInput)
-  expect(responseV10Contract.owner).toBe("replay_runner_protocol_admission")
-  expect(responseV10Contract.activation_status).toBe("schema_frozen_response_not_materialized")
-  expect(responseV10Contract.worker_response_schema_version)
-    .toBe("trade.rd-replay-decision-harness-worker-response.v10")
-  expect(responseV10Contract.response_field_whitelist).toEqual([...REPLAY_DECISION_HARNESS_WORKER_RESPONSE_V10_FIELDS])
-  expect(responseV10Contract.request_echo_fields)
-    .toEqual([...REPLAY_DECISION_HARNESS_WORKER_RESPONSE_V10_REQUEST_ECHO_FIELDS])
-  expect(responseV10Contract.decision_output_policy)
-    .toBe("typed_shape_and_hash_only_schedule_authority_not_granted")
-  expect(responseV10Contract.migration_policy).toBe("v9_response_and_receipt_execution_path_unchanged")
-  expect(responseV10Contract.response_instance_count).toBe(0)
-  expect(responseV10Contract.response_instances).toEqual([])
-  expect(responseV10Contract.response_admission).toBe("not_granted")
-  expect(responseV10Contract.execution_envelope).toBe("not_materialized")
-  expect(responseV10Contract.process_receipt).toBe("not_materialized")
-  expect(responseV10Contract.harness_receipt).toBe("not_materialized")
-  expect(responseV10Contract.transport).toBe("forbidden")
-  expect(responseV10Contract.harness_invocation).toBe("forbidden")
-  expect(responseV10Contract.decision_output_authority).toBe("none")
-  expect(() => assertReplayDecisionHarnessWorkerResponseV10Contract(responseV10Contract)).not.toThrow()
-  expect(() => assertReplayDecisionHarnessWorkerResponseV10ContractLineage(
-    responseV10Contract,
-    responseV10ContractInput,
-  )).not.toThrow()
-  expect(buildReplayDecisionHarnessWorkerResponseV10Contract({
-    source_request_materialization: structuredClone(requestV10Materialization),
-  })).toEqual(responseV10Contract)
-  const responseOutput = { action: "no_action" as const }
-  const responseTrace = { fixture: "schema-validation-only" }
-  const responseV10Body: ReplayDecisionHarnessWorkerResponseV10Body = {
-    schema_version: "trade.rd-replay-decision-harness-worker-response.v10",
-    worker_protocol_version: firstRequestV10.worker_protocol_version,
-    logical_request_id: firstRequestV10.logical_request_id,
-    request_hash: firstRequestV10.request_hash,
-    run_id: firstRequestV10.run_id,
-    code_admission_hash: firstRequestV10.code_admission_hash,
-    source_bundle_hash: firstRequestV10.source_bundle_hash,
-    artifact_hash: firstRequestV10.artifact_hash,
-    request_context_hash: firstRequestV10.request_context_hash,
-    decision_input_snapshot_hash: firstRequestV10.decision_input_snapshot_hash,
-    decision_market_input_snapshot_hash: firstRequestV10.decision_market_input_snapshot_hash,
-    decision_state_snapshot_hash: firstRequestV10.decision_state_snapshot_hash,
-    decision_output: responseOutput,
-    decision_output_hash: canonicalHash(responseOutput),
-    trace: responseTrace,
-    trace_hash: canonicalHash(responseTrace),
-    authority_status: "unadmitted_worker_claim",
-  }
-  const responseV10 = { ...responseV10Body, response_hash: canonicalHash(responseV10Body) }
-  expect(() => assertReplayDecisionHarnessWorkerResponseV10(responseV10, firstRequestV10)).not.toThrow()
-  const echoDriftBody = { ...responseV10Body, request_hash: "b".repeat(64) }
-  expect(() => assertReplayDecisionHarnessWorkerResponseV10({
-    ...echoDriftBody,
-    response_hash: canonicalHash(echoDriftBody),
-  }, firstRequestV10)).toThrow("Request echo drift")
-  expect(() => assertReplayDecisionHarnessWorkerResponseV10({
-    ...responseV10,
-    execution_envelope_hash: HASH,
-  } as never, firstRequestV10)).toThrow("field whitelist drift")
-  expect(() => assertReplayDecisionHarnessWorkerResponseV10Contract({
-    ...responseV10Contract,
-    response_instance_count: 1 as never,
-  })).toThrow("unsupported decision harness Worker Response v10 contract authority")
+  const responseContractStage = runReplayWorkerV10ResponseContractStage({
+    request_materialization: requestV10Materialization,
+    first_request: firstRequestV10,
+  })
+  const responseV10Contract = responseContractStage.response_contract
+  const responseV10 = responseContractStage.response
 
   const authorityBinding = assemblyV4.harness_context_binding
   const executionEnvelopeStage = runReplayWorkerV10ExecutionEnvelopeStage({
