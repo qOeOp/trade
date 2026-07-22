@@ -111,9 +111,6 @@ import {
   assertReplayDecisionHarnessDispatchEvidenceRegistration,
 } from "../../../contracts/src/lib/replay-decision-harness-dispatch-evidence-registration"
 import {
-  assertReplayDecisionHarnessDispatchClaim,
-} from "../../../contracts/src/lib/replay-decision-harness-dispatch-claim"
-import {
   assertReplayDecisionHarnessWorkerV10BuildCapability,
   createReplayDecisionHarnessWorkerV10BuildCapability,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-build-capability"
@@ -131,9 +128,6 @@ import {
 import {
   assertReplayDecisionHarnessWorkerV10SuccessorTransportContract,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-transport-contract"
-import {
-  assertReplayDecisionHarnessWorkerV10ExecutionAdmissionContract,
-} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-execution-admission-contract"
 import {
   assertReplayPositionOpenStateInputMaterialization,
 } from "../../../contracts/src/lib/replay-position-open-state-input-materialization"
@@ -160,10 +154,6 @@ import {
   readReplayDispatchEvidence,
   registerReplayDispatchEvidence,
 } from "./replay-dispatch-evidence-registry"
-import {
-  claimReplayDispatch,
-  readReplayDispatchClaim,
-} from "./replay-dispatch-claim-registry"
 import {
   assertReplayDecisionHarnessWorkerV10BuildCapabilityLineage,
   buildReplayDecisionHarnessWorkerV10Capability,
@@ -200,14 +190,6 @@ import {
   readReplayWorkerV10SuccessorTransportContract,
   registerReplayWorkerV10SuccessorTransportContract,
 } from "./replay-worker-v10-successor-transport-contract-registry"
-import {
-  assertReplayDecisionHarnessWorkerV10ExecutionAdmissionContractLineage,
-  buildReplayDecisionHarnessWorkerV10ExecutionAdmissionContract,
-} from "./replay-decision-harness-worker-v10-execution-admission-contract"
-import {
-  readReplayWorkerV10ExecutionAdmissionContract,
-  registerReplayWorkerV10ExecutionAdmissionContract,
-} from "./replay-worker-v10-execution-admission-contract-registry"
 import {
   executeReplayWorkerV10Cutover,
   readReplayWorkerV10CutoverReceipt,
@@ -270,6 +252,7 @@ import { runReplayWorkerV10AuthorityAdmissionStage } from "./replay-worker-v10-a
 import { runReplayWorkerV10AuthorityTransportStage } from "./replay-worker-v10-authority-transport-stage"
 import { runReplayWorkerV10PredecessorLaunchStage } from "./replay-worker-v10-predecessor-launch-stage"
 import { runReplayWorkerV10PredecessorAdmissionEvidenceStage } from "./replay-worker-v10-predecessor-admission-evidence-stage"
+import { runReplayWorkerV10ExecutionClaimStage } from "./replay-worker-v10-execution-claim-stage"
 
 const HASH = "a".repeat(64)
 const ACCOUNTING = {
@@ -1825,181 +1808,20 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       source_negative_probe_receipt: negativeProbeReceipt,
     })).toEqual(successorTransportContract)
 
-    const missingExecutionAdmissionRoot = mkdtempSync(join(tmpdir(), "replay-worker-v10-admission-missing-"))
-    try {
-      expect(() => registerReplayWorkerV10ExecutionAdmissionContract({
-        registry_root: missingExecutionAdmissionRoot,
-        source_successor_transport_contract: successorTransportContract,
-      })).toThrow()
-    } finally {
-      rmSync(missingExecutionAdmissionRoot, { recursive: true, force: true })
-    }
-    const executionAdmissionInput = {
-      source_successor_transport_contract: successorTransportContract,
-    }
-    const executionAdmissionContract = buildReplayDecisionHarnessWorkerV10ExecutionAdmissionContract(
-      executionAdmissionInput,
-    )
-    replayProfile("execution admission")
-    expect(executionAdmissionContract.status)
-      .toBe("authority_model_frozen_activation_blocked_zero_instance")
-    expect(executionAdmissionContract.execution_authority_model)
-      .toBe("separate_attempt_bound_execution_admission_command")
-    expect(executionAdmissionContract.request_v11_decision)
-      .toBe("not_required_for_authority_only_transition")
-    expect(executionAdmissionContract.worker_request_v10_role)
-      .toBe("immutable_non_executable_logical_payload_source")
-    expect(executionAdmissionContract.worker_request_marker_policy)
-      .toBe("preserved_not_overridden_or_reinterpreted")
-    expect(executionAdmissionContract.effective_executable_object)
-      .toBe("future_execution_admission_command_not_worker_request_v10")
-    expect(executionAdmissionContract.target_worker_request_execution_admission).toBe("not_granted")
-    expect(executionAdmissionContract.target_worker_request_transport_status).toBe("not_invoked")
-    expect(executionAdmissionContract.future_command_required_bindings).toEqual([
-      "worker_request_hash",
-      "logical_request_id",
-      "attempt_id",
-      "attempt_ordinal",
-      "worker_id",
-      "lease_generation",
-      "dispatch_claim_hash",
-      "current_lease_observation_hash",
-      "successor_process_artifact_hash",
-      "transport_contract_hash",
-    ])
-    expect(executionAdmissionContract.blockers).toEqual([
-      "exact_durable_dispatch_claim_not_bound",
-      "control_plane_registry_read_provenance_not_materialized",
-      "independent_dispatch_clock_attestation_not_materialized",
-      "current_lease_revalidation_for_admission_command_not_materialized",
-      "execution_admission_command_instance_not_issued",
-      "attempt_bound_stdio_process_launch_intent_not_materialized",
-      "attempt_bound_stdio_process_receipt_not_materialized",
-      "worker_request_frame_write_and_decode_not_materialized",
-      "worker_response_frame_read_and_admission_not_materialized",
-    ])
-    expect(executionAdmissionContract.admission_command_instance_count).toBe(0)
-    expect(executionAdmissionContract.request_frame_instance_count).toBe(0)
-    expect(executionAdmissionContract.request_write_receipt_count).toBe(0)
-    expect(executionAdmissionContract.request_decode_receipt_count).toBe(0)
-    expect(executionAdmissionContract.response_frame_instance_count).toBe(0)
-    expect(executionAdmissionContract.response_read_receipt_count).toBe(0)
-    expect(executionAdmissionContract.dispatch_occurrence).toBe("not_materialized")
-    expect(executionAdmissionContract.transport_activation).toBe("blocked")
-    expect(executionAdmissionContract.harness_invocation).toBe("forbidden")
-    expect(() => assertReplayDecisionHarnessWorkerV10ExecutionAdmissionContract(
-      executionAdmissionContract,
-    )).not.toThrow()
-    expect(() => assertReplayDecisionHarnessWorkerV10ExecutionAdmissionContractLineage(
-      executionAdmissionContract,
-      executionAdmissionInput,
-    )).not.toThrow()
-    expect(() => assertReplayDecisionHarnessWorkerV10ExecutionAdmissionContract({
-      ...executionAdmissionContract,
-      worker_request_marker_policy: "overridden" as never,
-    })).toThrow("unsupported decision harness Worker v10 Execution Admission Contract authority")
-    expect(() => assertReplayDecisionHarnessWorkerV10ExecutionAdmissionContract({
-      ...executionAdmissionContract,
-      admission_command_instance_count: 1 as never,
-    })).toThrow("unsupported decision harness Worker v10 Execution Admission Contract authority")
-    expect(registerReplayWorkerV10ExecutionAdmissionContract({
+    const executionClaimStage = runReplayWorkerV10ExecutionClaimStage({
       registry_root: dispatchEvidenceRegistryRoot,
-      source_successor_transport_contract: successorTransportContract,
-    })).toEqual(executionAdmissionContract)
-    expect(registerReplayWorkerV10ExecutionAdmissionContract({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_successor_transport_contract: structuredClone(successorTransportContract),
-    })).toEqual(executionAdmissionContract)
-    expect(readReplayWorkerV10ExecutionAdmissionContract({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_successor_transport_contract: successorTransportContract,
-    })).toEqual(executionAdmissionContract)
-
-    const claimObservation = createReplayAttemptLeaseObservationSnapshot({
-      ...leaseObservationBody,
-      observation_id: "lease-observation-envelope-claim",
-      observation_ref: "observation://replay-attempt-lease/envelope-claim",
-      observed_at: "2026-07-14T00:00:32Z",
+      successor_transport_contract: successorTransportContract,
+      lease_observation_body: leaseObservationBody,
+      lease_observation: leaseObservation,
+      dispatch_evidence_registration: dispatchEvidenceRegistration,
+      attempt_lease: attemptLease,
+      renewed_lease: renewedLease,
+      profile: replayProfile,
     })
-    expect(() => claimReplayDispatch({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_registration: dispatchEvidenceRegistration,
-      revalidation_observation: leaseObservation,
-      dispatcher_claimant_id: "runner-claimant-1",
-      claimed_at: "2026-07-14T00:00:33Z",
-    })).toThrow("requires a post-registration Lease observation")
-    expect(() => claimReplayDispatch({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_registration: dispatchEvidenceRegistration,
-      revalidation_observation: claimObservation,
-      dispatcher_claimant_id: "runner-claimant-1",
-      claimed_at: attemptLease.lease_expires_at,
-    })).toThrow("must occur inside the revalidated Lease window")
-    const missingRegistrationRoot = mkdtempSync(join(tmpdir(), "replay-dispatch-claim-missing-"))
-    try {
-      expect(() => claimReplayDispatch({
-        registry_root: missingRegistrationRoot,
-        source_registration: dispatchEvidenceRegistration,
-        revalidation_observation: claimObservation,
-        dispatcher_claimant_id: "runner-claimant-1",
-        claimed_at: "2026-07-14T00:00:33Z",
-      })).toThrow("requires the exact durable Dispatch Evidence Registration")
-    } finally {
-      rmSync(missingRegistrationRoot, { recursive: true, force: true })
-    }
-    const claimRenewedObservation = createReplayAttemptLeaseObservationSnapshot({
-      ...leaseObservationBody,
-      observation_id: "lease-observation-envelope-claim-renewed",
-      observation_ref: "observation://replay-attempt-lease/envelope-claim-renewed",
-      observed_at: renewedLease.heartbeat_at,
-      lease_generation: renewedLease.lease_generation,
-      attempt_lease_hash: hashReplayAttemptLeaseSnapshot(renewedLease),
-      attempt_lease: renewedLease,
-    })
-    expect(() => claimReplayDispatch({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_registration: dispatchEvidenceRegistration,
-      revalidation_observation: claimRenewedObservation,
-      dispatcher_claimant_id: "runner-claimant-1",
-      claimed_at: "2026-07-14T00:02:01Z",
-    })).toThrow("registration or Lease revalidation drift")
-
-    const dispatchClaim = claimReplayDispatch({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_registration: dispatchEvidenceRegistration,
-      revalidation_observation: claimObservation,
-      dispatcher_claimant_id: "runner-claimant-1",
-      claimed_at: "2026-07-14T00:00:33Z",
-    })
-    replayProfile("dispatch claim")
-    expect(dispatchClaim.claim_effect)
-      .toBe("at_most_one_local_claimant_while_cas_record_is_preserved")
-    expect(dispatchClaim.delivery_guarantee).toBe("at_most_once_claim_can_lose_dispatch_before_occurrence")
-    expect(dispatchClaim.dispatch_authorization)
-      .toBe("cas_exclusivity_only_not_process_or_transport_authority")
-    expect(dispatchClaim.dispatch_occurrence).toBe("not_materialized")
-    expect(() => assertReplayDecisionHarnessDispatchClaim(dispatchClaim)).not.toThrow()
-    expect(claimReplayDispatch({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_registration: structuredClone(dispatchEvidenceRegistration),
-      revalidation_observation: structuredClone(claimObservation),
-      dispatcher_claimant_id: "runner-claimant-1",
-      claimed_at: "2026-07-14T00:00:34Z",
-    })).toEqual(dispatchClaim)
-    expect(() => claimReplayDispatch({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_registration: dispatchEvidenceRegistration,
-      revalidation_observation: claimObservation,
-      dispatcher_claimant_id: "runner-claimant-2",
-      claimed_at: "2026-07-14T00:00:34Z",
-    })).toThrow("natural key is already claimed by different authority")
-    expect(readReplayDispatchClaim({
-      registry_root: dispatchEvidenceRegistryRoot,
-      attempt_id: dispatchEvidenceRegistration.attempt_id,
-      lease_generation: dispatchEvidenceRegistration.lease_generation,
-      logical_request_id: dispatchEvidenceRegistration.logical_request_id,
-    })).toEqual(dispatchClaim)
-
+    const executionAdmissionContract = executionClaimStage.execution_admission_contract
+    const claimObservation = executionClaimStage.claim_observation
+    const claimRenewedObservation = executionClaimStage.renewed_claim_observation
+    const dispatchClaim = executionClaimStage.dispatch_claim
     const predecessorAdmissionEvidenceStage =
       runReplayWorkerV10PredecessorAdmissionEvidenceStage({
         registry_root: dispatchEvidenceRegistryRoot,
