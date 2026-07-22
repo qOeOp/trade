@@ -4,7 +4,7 @@ import {
   createReplayAggregateTradeCoverageAttestation,
   type ReplayAggregateTradeCoverageAttestation,
   type ReplayAggregateTradeEvent,
-} from "../../../../research-strategy-development/replay-execution-plane/contracts/src/lib/replay-contracts"
+} from "../../../../contracts/replay-contract/src/replay-market-data-contract"
 import {
   AGGREGATE_TRADE_ARCHIVE_SCHEMA_VERSION,
   AGGREGATE_TRADE_NORMALIZATION_POLICY_VERSION,

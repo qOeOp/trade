@@ -4,7 +4,7 @@ import {
   createReplayInstrumentStatusProvenance,
   type ReplayInstrumentStatusProvenance,
   type ReplayInstrumentStatusSnapshot,
-} from "../../../../research-strategy-development/replay-execution-plane/contracts/src/lib/replay-contracts"
+} from "../../../../contracts/replay-contract/src/replay-market-data-contract"
 import {
   assertInstrumentStatusArchive,
   type InstrumentStatusArchive,

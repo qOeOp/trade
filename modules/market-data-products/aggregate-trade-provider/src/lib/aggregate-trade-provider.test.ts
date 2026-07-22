@@ -3,7 +3,7 @@ import test from "node:test"
 import { canonicalHash } from "../../../../contracts/runtime-core/src/canonical-json"
 import {
   assertReplayAggregateTradeCoverageBinding,
-} from "../../../../research-strategy-development/replay-execution-plane/contracts/src/lib/replay-contracts"
+} from "../../../../contracts/replay-contract/src/replay-market-data-contract"
 import { createAggregateTradeArchive } from "../../../market-data-store/src/lib/aggregate-trade-archive"
 import {
   AGGREGATE_TRADE_PROVIDER_BUILD_HASH,
