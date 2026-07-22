@@ -10,9 +10,10 @@ data-adapter/ manifest/hash、UTC、instrument/PIT policy snapshot、supplementa
 engine/     EventKey source reducer + source-bound entry/exit/forced-liquidation lanes
 accounting/ slippage、trade/liquidation fee、exact funding、Position、现金与 Journal v5 / Equity v3
 metrics/    只从 fills/ledger 派生权威 Replay metrics
+benchmark/ panel alignment、funding coverage、固定 benchmark simulation 与 calibration calculations
 runner/     monotonic Attempt lease fencing、transport-neutral coordinator/pre-terminal local outbox、namespace discovery/recovery-first no-replay ack、幂等、typed failure、Harness worker 与完整 Artifact commit
 tests/      golden、property、metamorphic、component parity 认证
-compatibility/ 迁入的 legacy replay/benchmark engine/panel 实现，只用于兼容与 parity
+compatibility/ 尚未退役的 legacy Replay kernel/fingerprint，只用于兼容与 parity
 certification/ benchmark / calibration 认证 owner surface
 ```
 
