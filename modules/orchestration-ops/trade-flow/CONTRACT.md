@@ -10,6 +10,7 @@
 - macOS launchd rendering/install lifecycle with restart ownership outside the runtime and no PID file; installation fails closed for protected Desktop/Documents/Downloads source paths unless the operator confirms the OS privacy grant.
 - Closed-world no-live server profile validation and deterministic Linux systemd unit rendering; rendering writes only repository `tmp/`, never installs or starts units, and exposes no arbitrary command/environment surface.
 - Read-only server preflight/status aggregation over fixed owner health, cross-owner L2 epoch identity, fenced control lease, and systemd unit state; unavailable process-manager state degrades rather than inventing readiness.
+- Bounded synthetic process-manager lifecycle fixture proving dependency-gated start order, consumer restart isolation, reverse drain, and no surviving managed child without touching real runtime owners or systemd.
 - Suite CLI parameter, response, permission, and owner-handoff semantics
 - Thin observe, execution, recovery, and runtime façades
 - Executable job dependencies and business-result policies: unresolved account reconciliation blocks dependent fast/new-risk stages even when the owner command exits successfully.
