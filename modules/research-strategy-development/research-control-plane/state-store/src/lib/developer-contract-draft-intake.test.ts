@@ -81,6 +81,8 @@ import {
   registerReplayExecutionRequest,
 } from "./replay-request-registration"
 import { REPLAY_REQUEST_REGISTRATION_REQUEST_SCHEMA_VERSION } from "../../../contracts/src/lib/replay-request-registration"
+import { claimRegisteredReplayAttempt } from "./replay-attempt-authority"
+import { REPLAY_ATTEMPT_ADMISSION_REQUEST_SCHEMA_VERSION } from "../../../contracts/src/lib/replay-attempt-admission"
 
 const REPLAY_HASH = "2".repeat(64)
 const REPLAY_PROVIDER_CERTIFICATION = createReplayInstrumentStatusProviderCertificationSnapshot({
@@ -769,6 +771,38 @@ test("Control Plane derives one Reservation Admission and registers its exact Re
     expect(registration.replay_attempt_authority).toBe("none_until_attempt_admission")
     expect(count(db, "rd_replay_request_registration")).toBe(1)
     expect(count(db, "rd_replay_attempt")).toBe(0)
+    const attemptAdmission = {
+      schema_version: REPLAY_ATTEMPT_ADMISSION_REQUEST_SCHEMA_VERSION,
+      attempt_id: "replay-attempt-registered-1",
+      worker_id: "replay-worker-registered-1",
+      idempotency_key: "replay-attempt-registered-key-1",
+      request_registration_id: registration.registration_id,
+      request_registration_hash: registration.registration_hash,
+      claimed_at: "2026-07-22T12:12:00Z",
+      lease_expires_at: "2026-07-22T12:20:00Z",
+    } as const
+    const lease = claimRegisteredReplayAttempt(db, attemptAdmission)
+    expect(claimRegisteredReplayAttempt(db, attemptAdmission)).toEqual(lease)
+    expect(lease.request_hash).toBe(registration.request_hash)
+    expect(lease.reservation_hash).toBe(registration.reservation_hash)
+    expect(lease.trial_id).toBe(registration.trial_id)
+    expect(db.query(`
+      SELECT request_registration_id, request_registration_hash
+      FROM rd_replay_attempt WHERE attempt_id=$attempt_id
+    `).get({ $attempt_id: lease.attempt_id })).toEqual({
+      request_registration_id: registration.registration_id,
+      request_registration_hash: registration.registration_hash,
+    })
+    expect(() => db.query(`
+      UPDATE rd_replay_attempt SET request_registration_hash=$hash WHERE attempt_id=$attempt_id
+    `).run({ $attempt_id: lease.attempt_id, $hash: "8".repeat(64) })).toThrow("identity is immutable")
+    expect(() => claimRegisteredReplayAttempt(db, {
+      ...attemptAdmission,
+      attempt_id: "replay-attempt-registration-drift",
+      idempotency_key: "replay-attempt-registration-drift-key",
+      request_registration_hash: "9".repeat(64),
+    })).toThrow("does not match the registered Request hash")
+    expect(count(db, "rd_replay_attempt")).toBe(1)
     expect(() => db.query(`
       UPDATE rd_replay_request_registration SET request_hash=$hash
     `).run({ $hash: "9".repeat(64) })).toThrow("immutable")
