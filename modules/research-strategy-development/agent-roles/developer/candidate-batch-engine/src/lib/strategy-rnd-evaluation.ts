@@ -1,9 +1,8 @@
 import { readFileSync } from "node:fs"
 import {
-  buildReplayDecisionInput,
-  detectReplayDecisionLookahead,
   replayStrategy,
 } from "../../../../../replay-execution-plane/compatibility/legacy-research-kernel/src/lib/replay-core"
+import { buildReplayDecisionInput, detectReplayDecisionLookahead } from "../../../../../replay-execution-plane/compatibility/legacy-research-decision/src/lib/legacy-research-decision"
 import type { ReplayResult, ReplaySignal, ReplayStrategy } from "../../../../../replay-execution-plane/compatibility/legacy-research-contracts/src/lib/legacy-research-contracts"
 import { hashCanonical } from "../../../../../replay-execution-plane/compatibility/legacy-replay-identity/src/lib/legacy-replay-identity"
 import { loadCandlesFromManifest, loadManifest } from "../../../../../replay-execution-plane/compatibility/legacy-research-data/src/lib/legacy-research-data"
