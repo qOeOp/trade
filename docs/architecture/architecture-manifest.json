@@ -40,6 +40,7 @@
         "modules/market-data-products/ohlcv-fetch",
         "modules/market-data-products/tech-indicators",
         "modules/market-data-products/l2-recorder-bakeoff",
+        "modules/market-data-products/l2-order-book-core",
         "modules/market-data-products/binance-read/market-scan",
         "modules/market-data-products/binance-read/symbol-snapshot",
         "modules/market-data-products/binance-read/aggtrades-fetch",
