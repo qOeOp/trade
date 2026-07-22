@@ -476,8 +476,8 @@ test("Control Plane admits aggregate trade evidence only as a Reservation-bound 
         instrument_status_provider_certification_hash: PROVIDER_CERTIFICATION.certification_hash,
         harness_hash: "e".repeat(64),
         assumptions_hash: "f".repeat(64),
-        cost_policy_hash: "1".repeat(64),
-        margin_policy_hash: "2".repeat(64),
+        cost_policy_hash: canonicalHash({ policy_id: "fixture", version: "1", fee_bps: 0, slippage_bps: 0, liquidation_fee_bps: 50 }),
+        margin_policy_hash: canonicalHash(fixtureMarginPolicy()),
         simulator_policy_version: "rd-replay-simulator-v24",
         execution_mode: "step",
       },
@@ -2926,7 +2926,13 @@ function decisionObservationRequest(reservation: ReturnType<typeof issueTrialRes
       end_of_data: "mark_open",
       margin_evaluation: "before_strategy_orders",
     },
-    margin_policy: {
+    margin_policy: fixtureMarginPolicy(),
+    random_seed: 1,
+  }
+}
+
+function fixtureMarginPolicy(): ReplayExecutionRequest["margin_policy"] {
+  return {
       policy_id: "fixture",
       version: "rd-replay-isolated-margin-v7",
       mode: "isolated",
@@ -2952,10 +2958,8 @@ function decisionObservationRequest(reservation: ReturnType<typeof issueTrialRes
       liquidation_quantity: "full_position",
       liquidation_order_priority: "cancel_strategy_exits_before_forced_fill",
       liquidation_deficit: "fail_without_result",
-    },
-    random_seed: 1,
+    }
   }
-}
 
 function decisionObservationManifest(request: ReplayExecutionRequest): ReplayDatasetManifest {
   const status = {
