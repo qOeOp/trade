@@ -20,8 +20,10 @@ const rootDeps = {
 }
 const toolPackages = readToolPackages()
 const toolPackageNames = new Set(toolPackages.map((pkg) => pkg.name).filter(Boolean))
+const toolPackageRootByName = new Map(toolPackages.filter((pkg) => pkg.name).map((pkg) => [pkg.name, dirname(pkg.packagePath).replace(/\\/g, "/")]))
 const toolPackageRoots = toolPackages.map((pkg) => dirname(pkg.packagePath).replace(/\\/g, "/"))
 const issues: string[] = []
+const observedEdges = new Set<string>()
 
 for (const pkg of toolPackages) {
   for (const [dep, version] of Object.entries(pkg.dependencies)) {
@@ -37,13 +39,15 @@ for (const pkg of toolPackages) {
   }
 }
 
-for (const file of walkTsFiles("modules")) {
+for (const file of walkSourceFiles("modules")) {
   const sourceTool = owningToolRoot(file)
   const content = readFileSync(file, "utf8")
-  const sourceFile = ts.createSourceFile(file, content, ts.ScriptTarget.ESNext, true, ts.ScriptKind.TS)
+  const sourceFile = ts.createSourceFile(file, content, ts.ScriptTarget.ESNext, true, scriptKind(file))
 
   visit(sourceFile, (specifier) => {
     if (toolPackageNames.has(specifier)) {
+      const targetTool = toolPackageRootByName.get(specifier) ?? ""
+      if (sourceTool && targetTool && sourceTool !== targetTool) observedEdges.add(`${sourceTool} -> ${targetTool}`)
       issues.push(`${file}: package import ${specifier}`)
       return
     }
@@ -60,6 +64,7 @@ for (const file of walkTsFiles("modules")) {
       return
     }
     const targetTool = owningToolRoot(resolved)
+    if (sourceTool && targetTool && sourceTool !== targetTool) observedEdges.add(`${sourceTool} -> ${targetTool}`)
     if (isAllowedCrossToolImport(file, sourceTool, targetTool)) {
       return
     }
@@ -75,7 +80,13 @@ for (const file of walkTsFiles("modules")) {
     if (targetTool && sourceTool && targetTool !== sourceTool) {
       issues.push(`${file}: ${specifier} -> ${targetTool}`)
     }
-  })
+  }, (kind) => {
+    if (!isTestSource(file)) issues.push(`${file}: ${kind} must use a static string literal`)
+  }, (kind) => issues.push(`${file}: forbidden runtime code loading via ${kind}`))
+}
+
+for (const cycle of findCycles(observedEdges)) {
+  issues.push(`cyclic TS package dependency: ${cycle.join(" -> ")}`)
 }
 
 function isAllowedCrossToolImport(file: string, sourceTool: string, targetTool: string): boolean {
@@ -141,7 +152,6 @@ function isAllowedResearchStrategyDevelopmentImport(sourceTool: string, targetTo
   const allowedDomainDag = new Set([
     "modules/research-strategy-development/replay-execution-plane/compatibility/benchmark-engine -> modules/research-strategy-development/replay-execution-plane/compatibility/replay-engine",
     "modules/research-strategy-development/replay-execution-plane/compatibility/replay-engine -> modules/research-strategy-development/replay-execution-plane/accounting",
-    "modules/research-strategy-development/replay-execution-plane/compatibility/benchmark-runner -> modules/research-strategy-development/replay-execution-plane/compatibility/benchmark-engine",
     "modules/research-strategy-development/replay-execution-plane/certification/calibration-suite -> modules/research-strategy-development/replay-execution-plane/compatibility/benchmark-engine",
     "modules/research-strategy-development/agent-roles/developer/candidate-batch -> modules/research-strategy-development/agent-roles/developer/candidate-batch-engine",
     "modules/research-strategy-development/agent-roles/developer/candidate-batch-engine -> modules/research-strategy-development/replay-execution-plane/compatibility/replay-engine",
@@ -151,8 +161,6 @@ function isAllowedResearchStrategyDevelopmentImport(sourceTool: string, targetTo
     "modules/research-strategy-development/forward-evidence-plane/compatibility/forward-holdout -> modules/research-strategy-development/agent-roles/developer/signal-engine",
     "modules/research-strategy-development/research-control-plane/dataset-governance/funding-governance -> modules/research-strategy-development/replay-execution-plane/compatibility/benchmark-engine",
     "modules/research-strategy-development/research-control-plane/dataset-governance/funding-governance -> modules/research-strategy-development/replay-execution-plane/compatibility/replay-engine",
-    "modules/research-strategy-development/replay-execution-plane/compatibility/panel-evaluator -> modules/research-strategy-development/agent-roles/developer/candidate-batch-engine",
-    "modules/research-strategy-development/replay-execution-plane/compatibility/panel-evaluator -> modules/research-strategy-development/replay-execution-plane/compatibility/replay-engine",
     "modules/research-strategy-development/agent-roles/developer/rd-campaign-runner -> modules/research-strategy-development/agent-roles/developer/candidate-batch-engine",
     "modules/research-strategy-development/agent-roles/developer/rd-campaign-runner -> modules/research-strategy-development/research-control-plane/experiment-ledger",
     "modules/research-strategy-development/agent-roles/developer/rd-campaign-runner -> modules/research-strategy-development/agent-roles/developer/rd-loop-runner",
@@ -174,10 +182,7 @@ function isAllowedResearchStrategyDevelopmentImport(sourceTool: string, targetTo
     "modules/research-strategy-development/research-control-plane/replay-recovery -> modules/research-strategy-development/replay-execution-plane/runner",
     "modules/research-strategy-development/research-control-plane/replay-recovery -> modules/research-strategy-development/research-control-plane/contracts",
     "modules/research-strategy-development/research-control-plane/replay-recovery -> modules/research-strategy-development/research-control-plane/state-store",
-    "modules/research-strategy-development/replay-execution-plane/compatibility/replay-runner -> modules/research-strategy-development/replay-execution-plane/compatibility/replay-engine",
-    "modules/research-strategy-development/replay-execution-plane/compatibility/replay-runner -> modules/research-strategy-development/replay-execution-plane/contracts",
-    "modules/research-strategy-development/replay-execution-plane/compatibility/replay-runner -> modules/research-strategy-development/replay-execution-plane/runner",
-    "modules/research-strategy-development/replay-execution-plane/compatibility/replay-runner -> modules/research-strategy-development/research-control-plane/contracts",
+    "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-replay-fingerprint -> modules/research-strategy-development/replay-execution-plane/compatibility/replay-engine",
     "modules/research-strategy-development/research-control-plane/state-store -> modules/research-strategy-development/research-control-plane/contracts",
     "modules/research-strategy-development/research-control-plane/state-store -> modules/research-strategy-development/replay-execution-plane/contracts",
     "modules/research-strategy-development/research-control-plane/strategy-registry -> modules/research-strategy-development/research-control-plane/contracts",
@@ -241,7 +246,12 @@ if (issues.length > 0) {
   process.exit(1)
 }
 
-function visit(node: ts.Node, onSpecifier: (specifier: string) => void): void {
+function visit(
+  node: ts.Node,
+  onSpecifier: (specifier: string) => void,
+  onNonStatic: (kind: string) => void,
+  onForbiddenRuntime: (kind: string) => void,
+): void {
   if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
     onSpecifier(node.moduleSpecifier.text)
   }
@@ -249,9 +259,25 @@ function visit(node: ts.Node, onSpecifier: (specifier: string) => void): void {
     const [arg] = node.arguments
     if (arg && ts.isStringLiteral(arg)) {
       onSpecifier(arg.text)
+    } else {
+      onNonStatic("dynamic import")
     }
   }
-  ts.forEachChild(node, (child) => visit(child, onSpecifier))
+  if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "require") {
+    const [arg] = node.arguments
+    if (arg && ts.isStringLiteral(arg)) {
+      onSpecifier(arg.text)
+    } else {
+      onNonStatic("require")
+    }
+  }
+  if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "eval") {
+    onForbiddenRuntime("eval")
+  }
+  if (ts.isNewExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "Function") {
+    onForbiddenRuntime("new Function")
+  }
+  ts.forEachChild(node, (child) => visit(child, onSpecifier, onNonStatic, onForbiddenRuntime))
 }
 
 function readToolPackages(): ToolPackage[] {
@@ -292,18 +318,65 @@ function owningToolRoot(file: string): string {
   return sorted.find((root) => normalized === root || normalized.startsWith(`${root}/`)) || ""
 }
 
-function walkTsFiles(dir: string): string[] {
+function walkSourceFiles(dir: string): string[] {
   const files: string[] = []
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     if (entry.name === "node_modules" || entry.name === "data") continue
     const path = join(dir, entry.name)
     if (entry.isDirectory()) {
-      files.push(...walkTsFiles(path))
-    } else if (entry.isFile() && path.endsWith(".ts")) {
+      files.push(...walkSourceFiles(path))
+    } else if (entry.isFile() && /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/.test(path)) {
       files.push(path)
     }
   }
   return files
+}
+
+function scriptKind(path: string): ts.ScriptKind {
+  if (path.endsWith(".tsx")) return ts.ScriptKind.TSX
+  if (path.endsWith(".jsx")) return ts.ScriptKind.JSX
+  if (/\.(?:js|mjs|cjs)$/.test(path)) return ts.ScriptKind.JS
+  return ts.ScriptKind.TS
+}
+
+function isTestSource(path: string): boolean {
+  return /(?:^|\/)(?:test|tests)(?:\/|$)/.test(path) || /\.(?:test|spec)\.[^.]+$/.test(path)
+}
+
+function findCycles(edges: Set<string>): string[][] {
+  const graph = new Map<string, Set<string>>()
+  for (const edge of edges) {
+    const [source, target] = edge.split(" -> ")
+    if (!source || !target) continue
+    const targets = graph.get(source) ?? new Set<string>()
+    targets.add(target)
+    graph.set(source, targets)
+  }
+
+  const cycles = new Map<string, string[]>()
+  const visiting = new Set<string>()
+  const visited = new Set<string>()
+  const stack: string[] = []
+  const visitNode = (node: string): void => {
+    if (visiting.has(node)) {
+      const start = stack.indexOf(node)
+      const cycle = [...stack.slice(start), node]
+      const body = cycle.slice(0, -1)
+      const rotations = body.map((_, index) => [...body.slice(index), ...body.slice(0, index)])
+      const canonical = rotations.map((rotation) => rotation.join(" -> ")).sort()[0]
+      cycles.set(canonical, [...canonical.split(" -> "), canonical.split(" -> ")[0]])
+      return
+    }
+    if (visited.has(node)) return
+    visiting.add(node)
+    stack.push(node)
+    for (const target of graph.get(node) ?? []) visitNode(target)
+    stack.pop()
+    visiting.delete(node)
+    visited.add(node)
+  }
+  for (const node of graph.keys()) visitNode(node)
+  return [...cycles.values()].sort((a, b) => a.join("/").localeCompare(b.join("/")))
 }
 
 function readJson(path: string): JSONRecord {
