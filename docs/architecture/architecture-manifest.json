@@ -272,9 +272,9 @@
       "status": "implemented",
       "owner_domain": "market-data-products",
       "owner_module": "modules/market-data-products/market-data-store",
-      "physical": { "kind": "sqlite", "path": "data/market_data.db", "tables": ["market_manifest", "funding_event", "feature_manifest", "instrument_status_archive", "instrument_status_event", "instrument_status_acquisition_receipt", "instrument_status_source_payload", "instrument_status_source_batch", "instrument_status_archive_audit", "aggregate_trade_archive"] },
+      "physical": { "kind": "sqlite", "path": "data/market_data.db", "tables": ["market_manifest", "funding_event", "feature_manifest", "instrument_status_archive", "instrument_status_event", "instrument_status_acquisition_receipt", "instrument_status_source_payload", "instrument_status_source_batch", "instrument_status_archive_audit", "aggregate_trade_archive", "l2_epoch_manifest", "l2_segment_manifest", "l2_epoch_retention", "l2_epoch_admission_observation", "l2_epoch_compaction_job", "l2_epoch_compaction", "l2_experiment_attachment_referrer_receipt"] },
       "schema": "docs/architecture/storage-schema/market-data-store.sql",
-      "write_contract": "manifest-upsert-plus-immutable-status-and-aggregate-trade-archive-cas"
+      "write_contract": "manifest-upsert-plus-immutable-archive-l2-admission-and-referrer-cas"
     },
     {
       "id": "ohlcv_store",
