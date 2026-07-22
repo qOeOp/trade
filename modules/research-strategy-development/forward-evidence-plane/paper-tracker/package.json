@@ -1,5 +1,5 @@
 {
-  "name": "rd-shadow-tracker",
+  "name": "rd-paper-tracker",
   "private": true,
   "type": "module",
   "devDependencies": {
@@ -9,7 +9,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "lint": "bun run typecheck",
-    "test": "bun test ./src/scripts/*.test.ts",
+    "test": "bun test ./src/lib/*.test.ts ./src/scripts/*.test.ts",
     "check": "bun run lint && bun run test"
   }
 }

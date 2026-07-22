@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { buildSetupEvent, projectSetupEvents } from "../../../../../forward-evidence-plane/compatibility/rd-shadow-tracker/src/lib/setup-event-chain"
+import { buildSetupEvent, projectSetupEvents } from "./setup-event-chain"
 
 test("setup event chain projects common setup behavior", () => {
   const open = buildSetupEvent({

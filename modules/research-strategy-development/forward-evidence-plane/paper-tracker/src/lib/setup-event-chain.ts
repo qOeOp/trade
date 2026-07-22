@@ -1,5 +1,5 @@
-import { hashCanonical } from "../../../../../replay-execution-plane/compatibility/replay-engine/src/lib/replay-core"
-import { asRecord, numberOrUndefined, stringField, type JSONRecord } from "../../../../../../contracts/runtime-core/src/json"
+import { hashCanonical } from "../../../../replay-execution-plane/compatibility/replay-engine/src/lib/replay-core"
+import { asRecord, numberOrUndefined, stringField, type JSONRecord } from "../../../../../contracts/runtime-core/src/json"
 
 type SetupBehavior = "open_setup" | "observe_setup" | "act_on_setup" | "close_setup" | "review_setup"
 type SetupBackend = "rd_artifact" | "shadow_evidence" | "live_plan_event"

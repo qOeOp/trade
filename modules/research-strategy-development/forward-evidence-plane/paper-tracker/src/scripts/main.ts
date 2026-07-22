@@ -2,18 +2,18 @@
 
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs"
 import { dirname } from "node:path"
-import { defaultCatalogDbPathForGeneratedPath, registerCatalogArtifact } from "../../../../../../contracts/catalog-contract/src/catalog-client"
-import { buildDomainJobResult, validateDomainJobResult } from "../../../../../../contracts/domain-runtime/src/domain-runtime"
-import { assertProjectRuntimePath, repoRoot } from "../../../../../../contracts/runtime-core/src/paths"
-import { errorResponse, printScriptResult, readFlagValue, successResponse } from "../../../../../../contracts/runtime-core/src/script-json"
-import type { JSONRecord } from "../../../../../../contracts/runtime-core/src/json"
+import { defaultCatalogDbPathForGeneratedPath, registerCatalogArtifact } from "../../../../../contracts/catalog-contract/src/catalog-client"
+import { buildDomainJobResult, validateDomainJobResult } from "../../../../../contracts/domain-runtime/src/domain-runtime"
+import { assertProjectRuntimePath, repoRoot } from "../../../../../contracts/runtime-core/src/paths"
+import { errorResponse, printScriptResult, readFlagValue, successResponse } from "../../../../../contracts/runtime-core/src/script-json"
+import type { JSONRecord } from "../../../../../contracts/runtime-core/src/json"
 import {
   createRdShadowTrackerFromForwardHoldout,
   manifestRefsFromJson,
   readJsonFile as readTrackerJsonFile,
   updateRdShadowTracker,
   type RdShadowTrackerOptions,
-} from "../lib/rd-shadow-tracker"
+} from "../lib/paper-tracker"
 
 interface Config {
   forwardResultPath: string

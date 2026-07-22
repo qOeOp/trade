@@ -3,12 +3,12 @@ import { mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import test from "node:test"
 
-import { repoRoot } from "../../../../../../contracts/runtime-core/src/paths"
+import { repoRoot } from "../../../../../contracts/runtime-core/src/paths"
 import { run } from "./main"
 
 type JSONRecord = Record<string, unknown>
 
-test("rd shadow tracker CLI exposes native J05 skipped result for placeholder trackers", () => {
+test("legacy rd shadow tracker CLI exposes canonical J05 skipped result for placeholder trackers", () => {
   const result = run([
     "--shadow-tracker-job",
     "--json",
@@ -29,7 +29,7 @@ test("rd shadow tracker CLI exposes native J05 skipped result for placeholder tr
   assert.deepEqual(asRecord(runtimeResult.audit).skipped_count, 1)
 })
 
-test("rd shadow tracker CLI exposes native J05 artifact result", () => {
+test("legacy rd shadow tracker CLI exposes canonical J05 paper artifact result", () => {
   const dir = "tmp/check/rd-shadow-tracker-job"
   const absoluteDir = join(repoRoot(), dir)
   rmSync(absoluteDir, { recursive: true, force: true })

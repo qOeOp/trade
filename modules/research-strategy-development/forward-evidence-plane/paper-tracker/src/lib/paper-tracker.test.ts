@@ -4,9 +4,9 @@ import { join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { createRdShadowTrackerFromForwardHoldout, updateRdShadowTracker } from "../../../../../forward-evidence-plane/compatibility/rd-shadow-tracker/src/lib/rd-shadow-tracker"
+import { createRdShadowTrackerFromForwardHoldout, updateRdShadowTracker } from "./paper-tracker"
 
-test("rd shadow tracker keeps a fresh forward signal open until post-entry candles exist", () => {
+test("rd paper tracker keeps a fresh forward signal open until post-entry candles exist", () => {
   const dir = mkdtempSync(join(tmpdir(), "rd-shadow-tracker-"))
   try {
     const manifestPath = writeManifest(dir, [[100, 101, 99, 100]])
@@ -27,7 +27,7 @@ test("rd shadow tracker keeps a fresh forward signal open until post-entry candl
   }
 })
 
-test("rd shadow tracker closes short target and emits review draft", () => {
+test("rd paper tracker closes short target and emits review draft", () => {
   const dir = mkdtempSync(join(tmpdir(), "rd-shadow-tracker-"))
   try {
     const manifestPath = writeManifest(dir, [
@@ -56,7 +56,7 @@ test("rd shadow tracker closes short target and emits review draft", () => {
   }
 })
 
-test("rd shadow tracker uses stop-first policy when stop and target touch together", () => {
+test("rd paper tracker uses stop-first policy when stop and target touch together", () => {
   const dir = mkdtempSync(join(tmpdir(), "rd-shadow-tracker-"))
   try {
     const manifestPath = writeManifest(dir, [
@@ -74,7 +74,7 @@ test("rd shadow tracker uses stop-first policy when stop and target touch togeth
   }
 })
 
-test("rd shadow tracker can update an existing open state and carry break-even stop", () => {
+test("rd paper tracker can update an existing open state and carry break-even stop", () => {
   const dir = mkdtempSync(join(tmpdir(), "rd-shadow-tracker-"))
   try {
     const firstManifest = writeManifest(join(dir, "first"), [[100, 101, 99, 100]])
@@ -105,7 +105,7 @@ test("rd shadow tracker can update an existing open state and carry break-even s
   }
 })
 
-test("rd shadow tracker update accepts script response wrapped state", () => {
+test("rd paper tracker update accepts script response wrapped state", () => {
   const dir = mkdtempSync(join(tmpdir(), "rd-shadow-tracker-"))
   try {
     const firstManifest = writeManifest(join(dir, "first"), [[100, 101, 99, 100]])
@@ -129,7 +129,7 @@ test("rd shadow tracker update accepts script response wrapped state", () => {
   }
 })
 
-test("rd shadow tracker suppresses repeated same-side entries while a matching position is open", () => {
+test("rd paper tracker suppresses repeated same-side entries while a matching position is open", () => {
   const dir = mkdtempSync(join(tmpdir(), "rd-shadow-tracker-"))
   try {
     const manifestPath = writeManifest(dir, [
@@ -168,7 +168,7 @@ test("rd shadow tracker suppresses repeated same-side entries while a matching p
   }
 })
 
-test("rd shadow tracker allows a new entry after the matching position closes", () => {
+test("rd paper tracker allows a new entry after the matching position closes", () => {
   const dir = mkdtempSync(join(tmpdir(), "rd-shadow-tracker-"))
   try {
     const firstManifest = writeManifest(join(dir, "first"), [
@@ -199,7 +199,7 @@ test("rd shadow tracker allows a new entry after the matching position closes", 
   }
 })
 
-test("rd shadow tracker normalizes legacy duplicate open positions", () => {
+test("rd paper tracker normalizes legacy duplicate open positions", () => {
   const dir = mkdtempSync(join(tmpdir(), "rd-shadow-tracker-"))
   try {
     const manifestPath = writeManifest(dir, [

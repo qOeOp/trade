@@ -170,7 +170,7 @@ function isAllowedResearchStrategyDevelopmentImport(sourceTool: string, targetTo
     "modules/research-strategy-development/agent-roles/developer/rd-loop-runner -> modules/research-strategy-development/research-control-plane/experiment-ledger",
     "modules/research-strategy-development/agent-roles/developer/rd-loop-runner -> modules/research-strategy-development/research-control-plane/program-control",
     "modules/research-strategy-development/research-control-plane/program-control -> modules/research-strategy-development/research-control-plane/state-store",
-    "modules/research-strategy-development/forward-evidence-plane/compatibility/rd-shadow-tracker -> modules/research-strategy-development/replay-execution-plane/compatibility/replay-engine",
+    "modules/research-strategy-development/forward-evidence-plane/paper-tracker -> modules/research-strategy-development/replay-execution-plane/compatibility/replay-engine",
     "modules/research-strategy-development/research-control-plane/program-supervisor -> modules/research-strategy-development/agent-roles/developer/candidate-batch-engine",
     "modules/research-strategy-development/research-control-plane/program-supervisor -> modules/research-strategy-development/agent-roles/developer/rd-campaign-runner",
     "modules/research-strategy-development/research-control-plane/program-supervisor -> modules/research-strategy-development/agent-roles/developer/rd-loop-runner",
