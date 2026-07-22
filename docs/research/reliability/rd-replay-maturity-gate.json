@@ -32,7 +32,7 @@
     "m5": {
       "m4_exit_complete": true,
       "cross_process_reproducibility_bundle": true,
-      "historical_artifact_read_migration_certified": false,
+      "historical_artifact_read_migration_certified": true,
       "crash_recovery_and_exactly_once_publication_certified": false,
       "declared_capacity_and_performance_envelope_certified": false,
       "fault_injection_and_corruption_recovery_certified": false,
@@ -59,6 +59,9 @@
     "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle/CONTRACT.md",
     "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle/src/lib/legacy-portfolio-cycle-boundary.test.ts",
     "modules/research-strategy-development/replay-execution-plane/certification/legacy-portfolio-cycle-certification/CONTRACT.md",
+    "modules/research-strategy-development/replay-execution-plane/certification/legacy-portfolio-cycle-certification/fixtures/historical-artifact-read-migration-v1.json",
+    "modules/research-strategy-development/replay-execution-plane/certification/legacy-portfolio-cycle-certification/src/lib/historical-artifact-read-migration.ts",
+    "modules/research-strategy-development/replay-execution-plane/certification/legacy-portfolio-cycle-certification/src/lib/historical-artifact-read-migration.test.ts",
     "modules/research-strategy-development/replay-execution-plane/certification/legacy-portfolio-cycle-certification/src/lib/legacy-portfolio-cycle-certification.test.ts",
     "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-decision-harness-worker-v10-cutover-receipt.ts",
     "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-worker-v10-cutover.ts",

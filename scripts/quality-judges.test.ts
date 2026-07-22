@@ -210,6 +210,24 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("reproducibility bundle hash drifted")
   }, 15_000)
 
+  test("Replay historical Artifact read migration fixture cannot drift silently", () => {
+    const fixture = JSON.parse(readFileSync(
+      join(repoRoot, "modules/research-strategy-development/replay-execution-plane/certification/legacy-portfolio-cycle-certification/fixtures/historical-artifact-read-migration-v1.json"),
+      "utf8",
+    )) as { artifacts: Array<{ manifest: { manifest_hash: string } }> }
+    fixture.artifacts[0]!.manifest.manifest_hash = "0".repeat(64)
+    const root = temporaryRoot()
+    const fixturePath = join(root, "historical-artifact-read-migration-v1.json")
+    writeFileSync(fixturePath, JSON.stringify(fixture))
+
+    const result = runJudge("check-rd-replay-maturity-gate.ts", repoRoot, [], {
+      RD_REPLAY_HISTORICAL_ARTIFACT_READ_MIGRATION_PATH: fixturePath,
+    })
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("Historical Artifact read migration fixture pack policy/hash drifted")
+  })
+
   test("package tests cannot report success for an empty suite", () => {
     const root = temporaryRoot()
     write(root, "modules/domain-a/tool-a/package.json", JSON.stringify({
