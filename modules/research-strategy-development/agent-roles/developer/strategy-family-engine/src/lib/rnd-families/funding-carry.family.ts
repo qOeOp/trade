@@ -1,5 +1,5 @@
 import { factorConditionsToJson, passesFactorConditions, readFactorConditions, type FactorCondition, type FactorFeatureStore } from "../factor-engine"
-import type { ReplaySignal, ReplayStrategy } from "../../../../../../replay-execution-plane/compatibility/legacy-research-kernel/src/lib/replay-core"
+import type { ReplaySignal, ReplayStrategy } from "../../../../../../replay-execution-plane/compatibility/legacy-research-contracts/src/lib/legacy-research-contracts"
 import type { Candle } from "../../../../../../replay-execution-plane/compatibility/legacy-research-data/src/lib/legacy-research-data"
 import { trailingFundingAverage } from "../../../../../../replay-execution-plane/compatibility/legacy-research-data/src/lib/funding-events"
 import type { RndFamilyModule } from "../rnd-family"

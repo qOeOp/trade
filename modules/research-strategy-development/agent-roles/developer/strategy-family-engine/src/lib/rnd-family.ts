@@ -1,4 +1,4 @@
-import type { ReplayStrategy } from "../../../../../replay-execution-plane/compatibility/legacy-research-kernel/src/lib/replay-core"
+import type { ReplayStrategy } from "../../../../../replay-execution-plane/compatibility/legacy-research-contracts/src/lib/legacy-research-contracts"
 import type { FactorFeatureStore } from "./factor-engine"
 import fundingCarry from "./rnd-families/funding-carry.family"
 import fundingUnwindRiskGuard from "./rnd-families/funding-unwind-risk-guard.family"
