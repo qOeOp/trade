@@ -5,10 +5,80 @@ import {
   type RuntimeParityObservation,
 } from "../../../../ops-runtime-store/src/lib/ops-runtime-store"
 import type { JSONRecord } from "../../../../../contracts/runtime-core/src/json"
+import { canonicalJson } from "../../../../../contracts/runtime-core/src/canonical-json"
 import {
   runAutomationJobGraph,
   type CommandExecutor,
+  type CommandExecutionResult,
 } from "./job-graph-runner"
+
+export const SHARED_PARITY_COMPARISON_BASIS = "shared_owner_result_replay_v1"
+
+export function createParityCommandRecorder(baseExecutor: CommandExecutor): {
+  record: CommandExecutor
+  replay: CommandExecutor
+} {
+  const captured = new Map<string, CommandExecutionResult[]>()
+  return {
+    record: async (command, options) => {
+      const result = await baseExecutor(command, options)
+      const key = parityCommandKey(command)
+      captured.set(key, [...(captured.get(key) ?? []), { ...result }])
+      return result
+    },
+    replay: async (command) => {
+      const key = parityCommandKey(command)
+      const queue = captured.get(key) ?? []
+      const result = queue.shift()
+      if (!result) {
+        return {
+          exit_code: 125,
+          stdout: "",
+          stderr: `parity replay omitted captured owner result for ${key || "unknown-owner"}`,
+        }
+      }
+      captured.set(key, queue)
+      return { ...result }
+    },
+  }
+}
+
+function parityCommandKey(command: Parameters<CommandExecutor>[0]): string {
+  return canonicalJson({
+    executable: command.executable,
+    cwd: command.cwd,
+    argv: command.argv.map(normalizeParityCommandArg),
+  })
+}
+
+function normalizeParityCommandArg(value: string): unknown {
+  try {
+    return stripParityInvocationIdentity(JSON.parse(value))
+  } catch {
+    return value
+  }
+}
+
+function stripParityInvocationIdentity(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(stripParityInvocationIdentity)
+  if (!value || typeof value !== "object") return value
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => !PARITY_INVOCATION_IDENTITY_FIELDS.has(key))
+      .map(([key, item]) => [key, stripParityInvocationIdentity(item)]),
+  )
+}
+
+const PARITY_INVOCATION_IDENTITY_FIELDS = new Set([
+  "attempted_at",
+  "cycle_id",
+  "generated_at",
+  "health_id",
+  "notify_id",
+  "now",
+  "observed_at",
+  "review_id",
+])
 
 export async function observeProgramShadowParity(
   tradeDb: Database,
@@ -43,6 +113,7 @@ export async function observeProgramShadowParity(
     agent_projection_hash: agentHash,
     status,
     detail_json: {
+      comparison_basis: SHARED_PARITY_COMPARISON_BASIS,
       program: programProjection,
       agent: agentProjection,
     },
@@ -58,6 +129,7 @@ export async function observeProgramShadowParity(
   }
   return {
     schema_version: "trade-flow.program-shadow-parity-observation.v1",
+    comparison_basis: SHARED_PARITY_COMPARISON_BASIS,
     ...observation,
   }
 }

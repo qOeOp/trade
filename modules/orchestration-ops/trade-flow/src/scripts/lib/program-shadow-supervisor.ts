@@ -10,9 +10,9 @@ import {
 } from "../../../../ops-runtime-store/src/lib/ops-runtime-store"
 import type { JSONRecord } from "../../../../../contracts/runtime-core/src/json"
 import { assertProjectRuntimePath, resolveRepoPath } from "../../../../../contracts/runtime-core/src/paths"
-import type { CommandExecutor } from "./job-graph-runner"
+import { executeCommand, type CommandExecutor } from "./job-graph-runner"
 import { runProgramShadowWakeup } from "./program-shadow"
-import { observeProgramShadowParity } from "./program-shadow-parity"
+import { createParityCommandRecorder, observeProgramShadowParity } from "./program-shadow-parity"
 
 const SUPERVISOR_LOCK_KEY = "program-runtime-shadow-supervisor"
 const SUPERVISOR_LEASE_MS = 20_000
@@ -172,6 +172,9 @@ export async function runProgramShadowSupervisor(
       }
 
       const cycleId = cycleIdForSlot(slotAt)
+      const parityRecorder = input.observe_agent_parity
+        ? createParityCommandRecorder(executor ?? executeCommand)
+        : undefined
       const wakeup = await runProgramShadowWakeup(
         tradeDb,
         tradeDbPath,
@@ -181,7 +184,7 @@ export async function runProgramShadowSupervisor(
           ops_runtime_db: opsRuntimeDbPath,
           ...(input.runtime_health ? { runtime_health: input.runtime_health } : {}),
         },
-        executor,
+        parityRecorder?.record ?? executor,
         {
           clock,
           holderId: () => `${supervisorId}:${cycleId}`,
@@ -219,7 +222,7 @@ export async function runProgramShadowSupervisor(
               program_graph: graph,
               ...(input.runtime_health ? { runtime_health: input.runtime_health } : {}),
             },
-            executor,
+            parityRecorder?.replay,
           )
           if (lastParityObservation.status === "match") parityCounts.matched += 1
           else parityCounts.mismatched += 1

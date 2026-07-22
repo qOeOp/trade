@@ -704,7 +704,7 @@ async function executeWithTimeout(
   }
 }
 
-async function executeCommand(command: CommandSpec, options: CommandExecutionOptions = {}): Promise<CommandExecutionResult> {
+export async function executeCommand(command: CommandSpec, options: CommandExecutionOptions = {}): Promise<CommandExecutionResult> {
   const child = Bun.spawn(command.argv, {
     cwd: command.cwd ? join(repoRoot(), command.cwd) : repoRoot(),
     stdout: "pipe",
