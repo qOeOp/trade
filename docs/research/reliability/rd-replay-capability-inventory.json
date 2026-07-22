@@ -14,6 +14,20 @@
     { "profile": "integrated-portfolio", "owner": "runner", "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-integrated-portfolio-runner.ts", "export": "runReplayIntegratedPortfolio" },
     { "profile": "terminal-aware-bounded-cycle", "owner": "runner", "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-terminal-cycle-sequence-runner.ts", "export": "runReplayPortfolioProtectiveTerminalCycleSequence" }
   ],
+  "opt_in_activation_registry": [
+    { "milestone": "M4-P2", "activation": "dedicated-runner-and-control-plane-authority", "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.ts", "export": "runReplaySharedInitialCapitalBatch" },
+    { "milestone": "M4-P19", "activation": "dedicated-runner-and-control-plane-authority", "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-stop-replacement-terminal-runner.ts", "export": "runReplayPortfolioProtectiveStopReplacementTerminal" },
+    { "milestone": "M4-P20", "activation": "dedicated-runner-and-committed-parent-artifact", "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-stop-replacement-terminal-accounting-runner.ts", "export": "runReplayPortfolioProtectiveStopReplacementTerminalAccounting" },
+    { "milestone": "M4-P21", "activation": "dedicated-runner-and-control-plane-authority", "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-stop-replacement-cycle-sequence-runner.ts", "export": "runReplayPortfolioProtectiveStopReplacementCycleSequence" },
+    { "milestone": "M4-P22", "activation": "dedicated-runner-and-control-plane-authority", "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-take-profit-replacement-cycle-sequence-runner.ts", "export": "runReplayPortfolioProtectiveTakeProfitReplacementCycleSequence" },
+    { "milestone": "M4-P23", "activation": "dedicated-runner-and-control-plane-authority", "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-take-profit-cancel-cycle-sequence-runner.ts", "export": "runReplayPortfolioProtectiveTakeProfitCancelCycleSequence" },
+    { "milestone": "M4-P24", "activation": "dedicated-runner-and-control-plane-authority", "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-strategy-exit-cancel-cycle-sequence-runner.ts", "export": "runReplayPortfolioProtectiveStrategyExitCancelCycleSequence" },
+    { "milestone": "M4-P25", "activation": "dedicated-runner-and-control-plane-authority", "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-stop-cancel-cycle-sequence-runner.ts", "export": "runReplayPortfolioProtectiveStopCancelCycleSequence" },
+    { "milestone": "M4-P26", "activation": "dedicated-runner-and-control-plane-authority", "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-fixed-partial-cycle-sequence-runner.ts", "export": "runReplayPortfolioFixedPartialCycleSequence" },
+    { "milestone": "M4-P27", "activation": "dedicated-runner-and-control-plane-authority", "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-two-fixed-partial-cycle-sequence-runner.ts", "export": "runReplayPortfolioTwoFixedPartialCycleSequence" },
+    { "milestone": "M4-P28", "activation": "dedicated-runner-and-control-plane-authority", "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-post-partial-stop-replacement-cycle-sequence-runner.ts", "export": "runReplayPortfolioPostPartialStopReplacementCycleSequence" },
+    { "milestone": "M4-P29", "activation": "input.bar_linked_stop_entry_path.activation_mode=explicit_opt_in_pre_result_binding", "path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.ts", "export": "runReplayTrial" }
+  ],
   "entries": [
     { "milestone": "M4-P1", "capability": "independent-lane-batch", "classification": "canonical", "target_role": "独立资金 Lane 的公共批执行模式" },
     { "milestone": "M4-P2", "capability": "static-shared-initial-capital", "classification": "opt_in", "target_role": "显式静态资金分配模式；不得冒充 runtime wallet" },
@@ -26,7 +40,7 @@
     { "milestone": "M4-P9", "capability": "integrated-portfolio", "classification": "canonical", "target_role": "目标 Portfolio 基线公共入口" },
     { "milestone": "M4-P10", "capability": "fixed-second-allocation", "classification": "compatibility", "target_role": "被 bounded sequence 取代的固定 cycle-2 历史合同" },
     { "milestone": "M4-P11", "capability": "fixed-two-cycle-portfolio", "classification": "compatibility", "target_role": "被 bounded sequence 取代的固定 two-cycle 历史合同" },
-    { "milestone": "M4-P12", "capability": "bounded-cycle-sequence-v1", "classification": "compatibility", "target_role": "保留历史 sequence Artifact；新生产链使用 terminal-aware sequence" },
+    { "milestone": "M4-P12", "capability": "bounded-cycle-sequence-v1", "classification": "canonical", "target_role": "1–8 cycle 通用编排原语；terminal-aware 与 opt-in sequence 复用该 owner" },
     { "milestone": "M4-P13", "capability": "bounded-cycle-accounting-v1", "classification": "compatibility", "target_role": "保留历史 consolidated accounting Artifact；新生产链使用 terminal-aware accounting" },
     { "milestone": "M4-P14", "capability": "portfolio-mark-risk-revaluation", "classification": "canonical", "target_role": "Portfolio terminal 前 exact-Mark 风险投影" },
     { "milestone": "M4-P15", "capability": "portfolio-protective-terminal", "classification": "canonical", "target_role": "Portfolio 基线唯一 terminal-owner 证据" },
@@ -46,9 +60,9 @@
     { "milestone": "M4-P29", "capability": "bar-linked-stop-entry-path", "classification": "opt_in", "target_role": "授权 aggregate-trade sidecar 解决一个 typed same-bar ambiguity" }
   ],
   "summary": {
-    "canonical": 13,
+    "canonical": 14,
     "opt_in": 12,
-    "compatibility": 4,
+    "compatibility": 3,
     "obsolete": 0,
     "total": 29
   }
