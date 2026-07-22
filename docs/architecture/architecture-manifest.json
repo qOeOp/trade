@@ -130,7 +130,7 @@
         "modules/research-strategy-development/research-control-plane/dataset-governance/data-split",
         "modules/research-strategy-development/agent-roles/reviewer/signal-evaluator",
         "modules/research-strategy-development/agent-roles/developer/signal-engine",
-        "modules/research-strategy-development/replay-execution-plane/compatibility/benchmark-engine",
+        "modules/research-strategy-development/replay-execution-plane/benchmark",
         "modules/research-strategy-development/replay-execution-plane/certification/calibration-suite",
         "modules/research-strategy-development/research-control-plane/dataset-governance/funding-governance",
         "modules/research-strategy-development/agent-roles/developer/candidate-batch",

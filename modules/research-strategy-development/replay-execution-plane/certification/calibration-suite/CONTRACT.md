@@ -23,4 +23,4 @@ atomic module
 
 - Does not write files, catalog, `trade.db`, or exchange state.
 - Does not run R&D search, review, or promotion.
-- Uses `research-strategy-development/benchmark-engine` for benchmark / calibration semantics.
+- Uses `replay-execution-plane/benchmark` for deterministic benchmark / calibration calculations.

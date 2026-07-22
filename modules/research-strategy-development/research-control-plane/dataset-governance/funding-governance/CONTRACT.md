@@ -23,4 +23,4 @@ atomic module
 
 - Does not run R&D search, replay, review, promotion, or exchange calls.
 - Does not write files, catalog, or `trade.db`.
-- Uses `research-strategy-development/benchmark-engine` for funding coverage semantics.
+- Uses `replay-execution-plane/benchmark` for shared funding coverage semantics.
