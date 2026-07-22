@@ -9,6 +9,8 @@ atomic orchestration module
 - Autonomous R&D supervisor loop.
 - `plan_next -> loop/campaign -> state writeback` orchestration.
 - In Control Plane mode, Replay execution is wrapped by predeclared Trial reservation/completion and append-only Result publication.
+- Derives an aggregate evidence fingerprint from nested Replay provenance and artifact content when a legacy runner does not return a top-level fingerprint.
+- Publishes Result and finalizes its Trials in one Control Plane transaction; publication failure cannot leave completed Trials without a Result.
 - Legacy Draft policy creation only when a migration caller explicitly sets `legacy_draft_materialization=true`; the canonical path is Reviewer `accept_for_draft` -> `research-control-plane/strategy-registry`.
 
 ## Inputs
