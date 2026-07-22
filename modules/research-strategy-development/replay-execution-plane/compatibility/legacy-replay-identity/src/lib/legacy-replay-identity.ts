@@ -51,6 +51,7 @@ export function replayHarnessHash(): string {
     join(root, "legacy-research-kernel/src/lib/rnd-family.ts"),
     join(root, "legacy-research-kernel/src/lib/rnd-family-helpers.ts"),
     ...sourceFiles(join(root, "legacy-research-kernel/src/lib/rnd-families")),
+    join(root, "legacy-research-contracts/src/lib/legacy-research-contracts.ts"),
     join(root, "legacy-replay-identity/src/lib/legacy-replay-identity.ts"),
     join(root, "legacy-research-data/src/lib/legacy-research-data.ts"),
     join(root, "legacy-research-data/src/lib/funding-events.ts"),
