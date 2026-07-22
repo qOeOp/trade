@@ -9,7 +9,7 @@
 - Test files are excluded from the flyline count.
 - Job owner / target-domain mismatches visible from manifest: 0.
 - CONTRACT roots outside manifest domain module list: 0. These are usually internal engines or pending module declarations.
-- Blueprint SHA-256: `70d0759e7f7dc679f8b97b730266ab1d65934b9244ea5d1c8775766344096a5a`.
+- Blueprint SHA-256: `4aa5596e2bb09ad6820d6583f1ac8f99809a429c715570d320df2a3403a89132`.
 
 ## Domain Projection
 

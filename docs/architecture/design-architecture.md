@@ -80,6 +80,10 @@ product contract
 
 资金约束不是一个可被多个域修改的“余额对象”：policy 给上限，exchange 给真钱事实，state 给可重建投影，decision 提议分配，execution 以最新事实执行硬校验并产生受限 command。凭证只对 exchange adapter 可见，不进入 profile、job ticket、artifact 或 domain outbox。
 
+`available_to_trade` 也不是新的 durable balance：它是 execution 在决策时刻根据 exchange equity / available margin、state 中已占用或待确认风险、policy cap 与当前 intent 求出的 admissible capacity。exchange confirmation 之前不得把 proposal、reservation 或 submit response 当成已成交资金变化；unknown result 必须进入 reconcile / risk lock。
+
+Profile 可以绑定 account scope，但当前不固定单账户、多账户或 capital-pool cardinality；account identity 与风险聚合范围使用稳定 ref 表达，待多账户成为真实产品需求后再决定具体模型。
+
 当前不新增 portfolio allocation 顶层域。若未来出现多策略、多标的同时竞争资本，且单笔 sizing 已无法表达组合级相关性、集中度和 reservation authority，再单独做设计评审；临时方案不得把该 authority 塞进 orchestration。
 
 ## 4. Automation 与 Job

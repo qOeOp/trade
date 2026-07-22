@@ -25,9 +25,13 @@ flowchart TB
     L_MARKET["market-data-products<br/>market facts"] --> L_INPUTS["DECISION INPUT REFS<br/>freshness / watermark / source"]
     L_EXCHANGE_FACTS["exchange-gateway<br/>account facts"] --> L_INPUTS
     L_STATE_FACTS["portfolio-execution-state<br/>portfolio / flow projection"] --> L_INPUTS
+    L_MARKET --> L_GUARDS["PREFLIGHT FACT REFS<br/>fresh market / account / state"]
+    L_EXCHANGE_FACTS --> L_GUARDS
+    L_STATE_FACTS --> L_GUARDS
     L_INPUTS --> L_DECISION["live-decision-planning"]
     L_DECISION --> L_INTENT["INTENT<br/>plan / proposed allocation / expiry"]
     L_INTENT --> L_EXECUTION["live-execution-control<br/>preflight / capability boundary"]
+    L_GUARDS --> L_EXECUTION
     L_EXECUTION --> L_COMMAND["PRIVILEGED COMMAND<br/>bounded effect / idempotency"]
     L_COMMAND --> L_EXCHANGE["exchange-gateway<br/>venue side effect owner"]
     L_EXCHANGE --> L_RESULT["EXCHANGE RESULT<br/>accepted / rejected / unknown / confirmed"]
@@ -42,6 +46,7 @@ flowchart TB
     E_DATASET --> E_RESEARCH["research-strategy-development"]
     E_RESEARCH --> E_EVIDENCE["EVIDENCE REF<br/>Trial / Result / Forward / candidate"]
     E_EVIDENCE --> E_GOV["governance-review-compliance"]
+    E_STATE["portfolio-execution-state<br/>closed-flow refs"] --> E_GOV
     E_GOV --> E_DECISION["LIFECYCLE DECISION<br/>reject / revise / promote / expire"]
     E_DECISION --> E_RESEARCH
     E_GOV --> E_FEEDBACK["POLICY FEEDBACK<br/>scoped proposal, not runtime policy"]
@@ -65,5 +70,5 @@ flowchart TB
   classDef contract fill:#f8fafc,stroke:#64748b,color:#334155,stroke-dasharray:4 3;
   class S_ORCH,A_OPS,A_POLICY,A_GOV,A_DECISION,A_EXECUTION,A_EXCHANGE,E_POLICY control;
   class L_MARKET,L_EXCHANGE_FACTS,L_STATE_FACTS,L_DECISION,L_EXECUTION,L_EXCHANGE,L_STATE live;
-  class E_MARKET,E_RESEARCH,E_GOV,E_ARTIFACT,E_PRODUCERS,E_CONSUMERS evidence;
-  class S_CMD,S_TARGETS,S_RESULT,A_SNAPSHOT,L_INPUTS,L_INTENT,L_COMMAND,L_RESULT,L_EVENT,E_DATASET,E_EVIDENCE,E_DECISION,E_FEEDBACK,E_REGISTER,E_QUERY,LEGEND contract;
+  class E_MARKET,E_RESEARCH,E_GOV,E_ARTIFACT,E_PRODUCERS,E_CONSUMERS,E_STATE evidence;
+  class S_CMD,S_TARGETS,S_RESULT,A_SNAPSHOT,L_INPUTS,L_GUARDS,L_INTENT,L_COMMAND,L_RESULT,L_EVENT,E_DATASET,E_EVIDENCE,E_DECISION,E_FEEDBACK,E_REGISTER,E_QUERY,LEGEND contract;
