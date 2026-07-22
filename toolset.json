@@ -222,13 +222,14 @@
         "cycle-summary",
         "job-observability",
         "attention-summary",
-        "runtime-parity-status"
+        "runtime-parity-status",
+        "watch-task-state"
       ],
       "capability_class": [
         "A"
       ],
       "path": "modules/orchestration-ops/ops-runtime-store",
-      "purpose": "Record and summarize cycle/job/health/notify/domain-message observability and immutable Agent/program runtime parity in ops_runtime_store.",
+      "purpose": "Record and summarize cycle/job/health/notify/domain-message observability, immutable Agent/program runtime parity, and bounded Watch Task lifecycle in ops_runtime_store.",
       "command": {
         "cwd": "modules/orchestration-ops/ops-runtime-store",
         "argv": [
@@ -252,6 +253,7 @@
       "notes": [
         "The summary action is read-only and returns ops_summary with stage, domain, message, and attention aggregates.",
         "The parity_status action is read-only and separates raw immutable history, shared-input-comparable evidence, and legacy sequential live reads while returning compact latest facts plus fenced supervisor lease state without holder identity or cutover authority.",
+        "Watch Task actions own definition/state CAS, counters, transitions, and no-authority handoff persistence; they do not evaluate market predicates or execute trades.",
         "Record actions write only ops_runtime_store and never change trade facts."
       ],
       "module_type": "atomic",
@@ -259,6 +261,55 @@
       "requires_preflight": false,
       "concurrency_group": "ops-runtime",
       "forbidden_callers": [],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
+    },
+    {
+      "id": "ops.watch-task-runtime",
+      "domain": "orchestration-ops",
+      "intent": [
+        "bounded-watch-task",
+        "active-plan-monitor",
+        "trigger-observation",
+        "ttl-task"
+      ],
+      "capability_class": [
+        "A"
+      ],
+      "path": "modules/orchestration-ops/watch-task-runtime",
+      "purpose": "Resume one persisted approved-plan mark-price watch under a fenced lease and stop at typed no-authority handoff or conservative terminal state.",
+      "command": {
+        "cwd": "modules/orchestration-ops/watch-task-runtime",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--db",
+          "./data/ops_runtime.db",
+          "--action",
+          "run",
+          "--json",
+          "{\"definition\":{}}"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Reads only the fixed public symbol-snapshot owner and writes Watch Task lifecycle through ops.runtime-store.",
+        "Triggered output is an action_intent_revalidation proposal with execution_authority=none; this tool never calls preflight, execution, event-store, or exchange write."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "orchestration-ops.watch-task-runtime",
+      "requires_preflight": false,
+      "concurrency_group": "ops-runtime",
+      "forbidden_callers": ["exchange-write"],
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
