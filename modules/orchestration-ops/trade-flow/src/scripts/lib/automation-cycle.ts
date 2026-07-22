@@ -1,10 +1,10 @@
 import { existsSync, readFileSync } from "node:fs"
-import { dirname, join } from "node:path"
+import { dirname, join, relative } from "node:path"
 import { Database } from "bun:sqlite"
 import { buildJobTicket, type ProtocolToolsetEntry } from "../../../../../contracts/protocol-fabric/src/protocol-fabric"
 import { buildLifecycleProcessorRecord, buildLifecycleProcessorSpec } from "../../../../../contracts/runtime-core/src/lifecycle"
 import { activeFlows as readActiveFlows } from "./flow-projector-client"
-import { displayPath, repoRoot } from "../../../../../contracts/runtime-core/src/paths"
+import { displayPath, repoRoot, resolveRepoPath } from "../../../../../contracts/runtime-core/src/paths"
 
 type JSONRecord = Record<string, unknown>
 
@@ -54,6 +54,7 @@ export interface AutomationCycleInput {
   ops_runtime_db?: string
   governance_db?: string
   runtime_health?: JSONRecord
+  job_health_requirements?: JSONRecord
   control_effectiveness_review?: JSONRecord
   ops_notify?: JSONRecord
 }
@@ -127,10 +128,18 @@ export function buildAutomationCyclePlan(_db: Database, dbPath: string, input: A
   const catalogRoots = configuredCatalogRoots.length > 0 ? configuredCatalogRoots : ["./data", "./tmp"]
   const catalogDb = displayPath(stringField(input.catalog_db) || DEFAULT_CATALOG_DB)
   const opsRuntimeDb = displayPath(stringField(input.ops_runtime_db) || DEFAULT_OPS_RUNTIME_DB)
+  const healthOpsRuntimeDbArg = toolRelativePath(opsRuntimeDb, "modules/orchestration-ops/runtime-health-guard")
+  const notifyOpsRuntimeDbArg = toolRelativePath(opsRuntimeDb, "modules/orchestration-ops/ops-notify-dispatch")
+  const reviewOpsRuntimeDbArg = toolRelativePath(opsRuntimeDb, "modules/orchestration-ops/control-effectiveness-review")
   const governanceDb = displayPath(stringField(input.governance_db) || DEFAULT_GOVERNANCE_DB)
   const cycleId = input.cycle_id || `automation-cycle-${generatedAt.replace(/[:.]/g, "-")}`
   const activeChainIds = activeFlows.map((flow) => stringField(flow.chain_id)).filter(Boolean)
   const tradeWorkDue = (activeFlowCount > 0 && cadence.fast_track_guard.due) || cadence.slow_track_market_watch.due
+  const jobHealthRequirements = normalizeJobHealthRequirements(input.job_health_requirements)
+  if (jobHealthRequirements.size > 0 && input.include_runtime_health === false) {
+    throw new Error("job health requirements need runtime_health_guard enabled")
+  }
+  const runtimeHealthInput = runtimeHealthConfig(input.runtime_health, jobHealthRequirements)
 
   const lifecycleProcessors = [
     opsLifecycleProcessor({
@@ -149,13 +158,13 @@ export function buildAutomationCyclePlan(_db: Database, dbPath: string, input: A
           json: {
             cycle_id: cycleId,
             now: generatedAt,
-            ...asRecord(input.runtime_health),
+            ...runtimeHealthInput,
           },
         },
-        argv: ["bun", "src/scripts/main.ts", "--db", opsRuntimeDb, "--json", JSON.stringify({
+        argv: ["bun", "src/scripts/main.ts", "--db", healthOpsRuntimeDbArg, "--json", JSON.stringify({
           cycle_id: cycleId,
           now: generatedAt,
-          ...asRecord(input.runtime_health),
+          ...runtimeHealthInput,
         })],
       }),
     }),
@@ -183,7 +192,7 @@ export function buildAutomationCyclePlan(_db: Database, dbPath: string, input: A
             ...asRecord(input.ops_notify),
           },
         },
-        argv: ["bun", "src/scripts/main.ts", "--db", opsRuntimeDb, "--json", JSON.stringify({
+        argv: ["bun", "src/scripts/main.ts", "--db", notifyOpsRuntimeDbArg, "--json", JSON.stringify({
           cycle_id: cycleId,
           now: generatedAt,
           dry_run: true,
@@ -214,7 +223,7 @@ export function buildAutomationCyclePlan(_db: Database, dbPath: string, input: A
             ...asRecord(input.control_effectiveness_review),
           },
         },
-        argv: ["bun", "src/scripts/main.ts", "--db", opsRuntimeDb, "--json", JSON.stringify({
+        argv: ["bun", "src/scripts/main.ts", "--db", reviewOpsRuntimeDbArg, "--json", JSON.stringify({
           cycle_id: cycleId,
           now: generatedAt,
           ...asRecord(input.control_effectiveness_review),
@@ -223,7 +232,7 @@ export function buildAutomationCyclePlan(_db: Database, dbPath: string, input: A
     }),
   ]
 
-  const jobs = [
+  const jobs = attachJobHealthRequirements([
     accountReconcileJob({
       job_id: "account_reconcile_guard",
       enabled: input.include_account_reconcile !== false,
@@ -374,7 +383,7 @@ export function buildAutomationCyclePlan(_db: Database, dbPath: string, input: A
       cadence: cadence.catalog_hygiene_scan,
       allowedRuntimeWrites: ["artifact_catalog"],
     }),
-  ]
+  ], jobHealthRequirements)
 
   return {
     schema_version: "trade-flow.automation-cycle-plan.v1",
@@ -384,8 +393,9 @@ export function buildAutomationCyclePlan(_db: Database, dbPath: string, input: A
     executable: false,
     dispatch_model: {
       single_automation_entry: true,
-      subagent_fanout: "recommended",
-      rule: "The supervisor owns scheduling and summary; child agents own isolated jobs and must not broaden their write scope.",
+      isolated_job_fanout: "supported",
+      agent_fallback: "available",
+      rule: "The invoking supervisor owns scheduling and summary; every isolated job remains bounded by its owner contract and write scope.",
     },
     trade_db_path: tradeDbPath,
     active_flow_count: activeFlowCount,
@@ -702,6 +712,10 @@ function shellCommand(argv: string[]): string {
   return argv.map(shellQuote).join(" ")
 }
 
+function toolRelativePath(path: string, toolCwd: string): string {
+  return relative(join(repoRoot(), toolCwd), resolveRepoPath(path)) || "."
+}
+
 function commandFromToolJob(toolJob: JSONRecord): string {
   const commandSpec = asRecord(toolJob.command_spec)
   const cwd = stringField(commandSpec.cwd)
@@ -774,6 +788,56 @@ function reviewJob(input: {
   }
 }
 
+function normalizeJobHealthRequirements(value: unknown): Map<string, string[]> {
+  const requirements = new Map<string, string[]>()
+  if (value == null) return requirements
+  if (typeof value !== "object" || Array.isArray(value)) {
+    throw new Error("job_health_requirements must be an object keyed by job_id")
+  }
+  for (const [jobId, rawChecks] of Object.entries(value as JSONRecord)) {
+    if (!AUTOMATION_JOB_IDS.has(jobId)) throw new Error(`unknown health-dependent job: ${jobId}`)
+    if (DEFENSE_BYPASS_JOB_IDS.has(jobId)) {
+      throw new Error(`defense job cannot require runtime health: ${jobId}`)
+    }
+    if (!Array.isArray(rawChecks) || rawChecks.length === 0) {
+      throw new Error(`health requirements for ${jobId} must be a non-empty array`)
+    }
+    const checks = [...new Set(rawChecks.map(stringField))]
+    if (checks.some((check) => !check)) throw new Error(`health requirements for ${jobId} must be non-empty strings`)
+    for (const check of checks) {
+      if (!SUPPORTED_HEALTH_CHECKS.has(check)) throw new Error(`unsupported health dependency: ${check}`)
+    }
+    requirements.set(jobId, checks)
+  }
+  return requirements
+}
+
+function runtimeHealthConfig(value: unknown, requirements: Map<string, string[]>): JSONRecord {
+  let config = asRecord(value)
+  const needsL2 = [...requirements.values()].some((checks) => checks.includes(L2_OWNER_HEALTH_CHECK))
+  if (needsL2) {
+    if (Object.hasOwn(config, "require_l2_ready") && config.require_l2_ready !== true) {
+      throw new Error("L2-dependent jobs require runtime_health.require_l2_ready=true")
+    }
+    config = { ...config, require_l2_ready: true }
+  }
+  const needsL2WatchConsumer = [...requirements.values()].some((checks) => checks.includes(L2_WATCH_CONSUMER_HEALTH_CHECK))
+  if (needsL2WatchConsumer) {
+    if (Object.hasOwn(config, "require_l2_watch_consumer_ready") && config.require_l2_watch_consumer_ready !== true) {
+      throw new Error("L2-watch-dependent jobs require runtime_health.require_l2_watch_consumer_ready=true")
+    }
+    config = { ...config, require_l2_watch_consumer_ready: true }
+  }
+  return config
+}
+
+function attachJobHealthRequirements(jobs: JSONRecord[], requirements: Map<string, string[]>): JSONRecord[] {
+  return jobs.map((job) => {
+    const checks = requirements.get(stringField(job.job_id))
+    return checks ? { ...job, required_health_checks: checks } : job
+  })
+}
+
 function baseJob(input: { job_id: string; enabled: boolean; active: boolean; reason: string }): JSONRecord {
   return {
     job_id: input.job_id,
@@ -782,6 +846,20 @@ function baseJob(input: { job_id: string; enabled: boolean; active: boolean; rea
     reason: input.reason,
   }
 }
+
+const L2_OWNER_HEALTH_CHECK = "l2_service:owner_health"
+const L2_WATCH_CONSUMER_HEALTH_CHECK = "l2_watch_consumer:owner_health"
+const SUPPORTED_HEALTH_CHECKS = new Set([L2_OWNER_HEALTH_CHECK, L2_WATCH_CONSUMER_HEALTH_CHECK])
+const DEFENSE_BYPASS_JOB_IDS = new Set(["account_reconcile_guard"])
+const AUTOMATION_JOB_IDS = new Set([
+  "account_reconcile_guard",
+  "fast_track_guard",
+  "slow_track_market_watch",
+  "rd_strategy_supervisor",
+  "rd_forward_shadow_trackers",
+  "closed_flow_review_sweep",
+  "catalog_hygiene_scan",
+])
 
 function resolveToolJob(input: {
   jobId: string
