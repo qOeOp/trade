@@ -25,7 +25,11 @@ test("factor store reads new factor ids and legacy aliases", () => {
   const dir = mkdtempSync(join(tmpdir(), "factor-engine-"))
   try {
     const path = join(dir, "report.json")
-    writeFileSync(path, JSON.stringify({ data: { timeframes: { "4h": { features: {
+    writeFileSync(path, JSON.stringify({ data: { timeframes: { "4h": { feature_causality: {
+      method: "provider_prefix_recompute_v1", status: "passed", coverage: "complete",
+      eligible_cutoffs: 3, checked_cutoffs: 3, factor_count: 1, comparison_count: 3,
+      mismatch_count: 0, mismatch_examples_truncated: false, mismatches: [],
+    }, features: {
       "vpci.value": {
         status: "ok",
         factor_id: "vpci.value",
@@ -42,6 +46,7 @@ test("factor store reads new factor ids and legacy aliases", () => {
     assert.equal(store.read("4h", "vpci.value", "t3", "delta", 2), 2)
     assert.equal(store.read("4h", "vpci", "t3"), 4)
     assert.equal(store.definitions()[0].factor_id, "vpci.value")
+    assert.equal(store.causality("4h")?.status, "passed")
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -53,6 +58,7 @@ test("factor conditions evaluate generic transforms", () => {
     definitions: () => [],
     series: () => undefined,
     read: () => 0.5,
+    causality: () => undefined,
   }
   assert.equal(passesFactorConditions(conditions, store, "4h", "t3"), true)
 })

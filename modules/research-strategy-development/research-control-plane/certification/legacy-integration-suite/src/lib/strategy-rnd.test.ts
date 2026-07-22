@@ -678,7 +678,11 @@ test("strategy R&D batch discovers statistically screened factor seeds", () => {
     const baseline = runStrategyRndBatch({ manifestPath, candidates: [baseCandidate] })
     const outcomes = new Map(baseline.candidates[0].replay.trades.map((trade) => [trade.signal_time, trade.r]))
     const reportPath = join(dir, "factor-report.json")
-    writeFileSync(reportPath, JSON.stringify({ data: { timeframes: { "4h": { features: {
+    writeFileSync(reportPath, JSON.stringify({ data: { timeframes: { "4h": { feature_causality: {
+      method: "provider_prefix_recompute_v1", status: "passed", coverage: "sampled",
+      eligible_cutoffs: 899, checked_cutoffs: 200, factor_count: 1, comparison_count: 200,
+      mismatch_count: 0, mismatch_examples_truncated: false, mismatches: [],
+    }, features: {
       "forward.proxy": {
         status: "ok",
         factor_id: "forward.proxy",

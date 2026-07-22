@@ -92,6 +92,11 @@ export function runCandidate(input: StrategyRndBatchInput, candidate: StrategyRn
     ).strategy,
   })
   replay.assumptions.temporal_integrity = temporalIntegrity
+  const factorConditions = Array.isArray(configured.params.factor_conditions) ? configured.params.factor_conditions : []
+  const featureCausality = factorConditions.length > 0 ? featureStore.causality(timeframe) : undefined
+  if (factorConditions.length > 0) {
+    replay.assumptions.feature_causality = featureCausality || { status: "missing", method: "provider_prefix_recompute_v1" }
+  }
   const robustness = asRecord(replay.assumptions.robustness)
   robustness.parameter_stability = input.diagnosticMode
     ? { method: "diagnostic_skipped", evaluation_count: 0, positive_ratio: 0, worst_avg_r: 0 }
@@ -113,9 +118,20 @@ export function runCandidate(input: StrategyRndBatchInput, candidate: StrategyRn
     negative_controls: negativeControls,
     gate: evaluateRndCandidate(replay, parameterCount, [
       ...temporalIntegrityBlocks(temporalIntegrity),
+      ...featureCausalityBlocks(factorConditions.length, featureCausality),
       ...negativeControls.blocked_by,
     ]),
   }
+}
+
+function featureCausalityBlocks(required: number, report: { status: string; mismatch_count: number } | undefined): Array<{ check_id: string; reason: string }> {
+  if (required === 0 || report?.status === "passed") return []
+  return [{
+    check_id: "RND-FEATURE-CAUSALITY",
+    reason: report == null
+      ? "factor conditions require provider-native cutoff recomputation evidence"
+      : `provider-native cutoff recomputation found ${report.mismatch_count} feature mismatches`,
+  }]
 }
 
 function temporalIntegrityBlocks(report: { status: string; mismatch_count: number }): Array<{ check_id: string; reason: string }> {

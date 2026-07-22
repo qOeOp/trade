@@ -22,6 +22,9 @@ function emptyFeatureStore(): FactorFeatureStore {
     read() {
       return undefined
     },
+    causality() {
+      return undefined
+    },
   }
 }
 

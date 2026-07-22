@@ -69,6 +69,10 @@ export function buildFactorResearch(input: StrategyRndBatchInput, featureStore: 
     throw new Error("factor discovery is forbidden on external validation and locked holdout datasets")
   }
   const timeframe = input.timeframe || "4h"
+  const featureCausality = featureStore.causality(timeframe)
+  if (featureCausality?.status !== "passed") {
+    throw new Error("factor discovery requires passed provider-native feature causality evidence")
+  }
   const base = input.candidates[0]
   const configured = getRndFamily(base.family || "trend_pullback_v1").configure(base.candidateId, base.params || {}, featureStore)
   const setupReplay = replayStrategy(configured.strategy, {

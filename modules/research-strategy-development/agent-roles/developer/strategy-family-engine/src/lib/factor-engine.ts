@@ -30,6 +30,20 @@ interface FactorFeatureStore {
   definitions(): FactorSeriesDefinition[]
   series(timeframe: string, factorId: string): { timestamps: string[]; values: number[] } | undefined
   read(timeframe: string, factorId: string, timestamp: string, transform?: FactorTransform, lookback?: number): number | undefined
+  causality(timeframe: string): FactorFeatureCausalityReport | undefined
+}
+
+interface FactorFeatureCausalityReport {
+  method: string
+  status: string
+  coverage: string
+  eligible_cutoffs: number
+  checked_cutoffs: number
+  factor_count: number
+  comparison_count: number
+  mismatch_count: number
+  mismatch_examples_truncated: boolean
+  mismatches: unknown[]
 }
 
 interface FactorFeatureWindow {
@@ -69,9 +83,15 @@ function loadFactorFeatureStore(path: string): FactorFeatureStore {
   const timeframes = asRecord(asRecord(report.data).timeframes)
   const series = new Map<string, FactorSeries>()
   const aliases = new Map<string, string>()
+  const causality = new Map<string, FactorFeatureCausalityReport>()
 
   for (const [timeframe, rawFrame] of Object.entries(timeframes)) {
-    const features = asRecord(asRecord(rawFrame).features)
+    const frame = asRecord(rawFrame)
+    const features = asRecord(frame.features)
+    const rawCausality = asRecord(frame.feature_causality)
+    if (stringField(rawCausality.method)) {
+      causality.set(timeframe, rawCausality as unknown as FactorFeatureCausalityReport)
+    }
     for (const [rawId, rawFeature] of Object.entries(features)) {
       const feature = asRecord(rawFeature)
       if (stringField(feature.status) !== "ok") {
@@ -137,6 +157,9 @@ function loadFactorFeatureStore(path: string): FactorFeatureStore {
       }
       return transformFactor(item.values, index, transform, lookback)
     },
+    causality(timeframe) {
+      return causality.get(timeframe)
+    },
   }
 }
 
@@ -180,6 +203,9 @@ function windowFactorFeatureStore(store: FactorFeatureStore, window: FactorFeatu
       const index = bounded.indexByTimestamp.get(timestamp)
       if (index === undefined) return undefined
       return transformFactor(bounded.values, index, transform, lookback)
+    },
+    causality(timeframe) {
+      return store.causality(timeframe)
     },
   }
 }
@@ -443,6 +469,7 @@ export {
   type FactorComposableCandidate,
   type FactorCondition,
   type FactorFeatureStore,
+  type FactorFeatureCausalityReport,
   type FactorFeatureWindow,
   type FactorSeriesDefinition,
   type FactorTransform,
