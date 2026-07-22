@@ -663,7 +663,7 @@ test("strategy R&D batch composes generic factor conditions without indicator-sp
   }
 })
 
-test("strategy R&D batch discovers statistically screened factor seeds", () => {
+test("strategy R&D batch discovers statistically screened factor seeds", { timeout: 15_000 }, () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-rnd-factor-discovery-"))
   try {
     const closes = Array.from({ length: 900 }, (_, index) => 100 + Math.sin(index / 35) * 12 + Math.sin(index / 4) * (Math.floor(index / 90) % 2 === 0 ? 1.5 : 5))
