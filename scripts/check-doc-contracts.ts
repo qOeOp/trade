@@ -33,6 +33,27 @@ const allowedCurrentStatuses = new Set([
   "implemented",
   "audit-log",
 ])
+const allowedRoleStatuses = new Map<string, Set<string>>([
+  ["documentation-index", new Set(["active"])],
+  ["history-index", new Set(["active"])],
+  ["product-contract", new Set(["active"])],
+  ["product-source-material", new Set(["source-material"])],
+  ["architecture-contract", new Set(["active"])],
+  ["architecture-feature-contract", new Set(["active"])],
+  ["architecture-decision", new Set(["active"])],
+  ["architecture-migration", new Set(["active-migration", "proposed"])],
+  ["technical-contract-index", new Set(["active"])],
+  ["runtime-feature-contract", new Set(["active", "active-partial"])],
+  ["research-architecture-migration", new Set(["active-migration"])],
+  ["research-feature-contract", new Set(["active", "active-partial"])],
+  ["research-audit-log", new Set(["audit-log"])],
+  ["research-roadmap", new Set(["active"])],
+  ["research-operations-runbook", new Set(["active"])],
+  ["research-source-material", new Set(["source-material"])],
+  ["research-migration", new Set(["proposed"])],
+  ["research-implementation-record", new Set(["implemented"])],
+  ["engineering-contract", new Set(["active"])],
+])
 const currentRoots = ["docs/product", "docs/architecture", "docs/runtime", "docs/research", "docs/engineering"]
 const indexPath = "docs/engineering/doc-contract-index.json"
 const index = JSON.parse(readFileSync(indexPath, "utf8")) as ContractIndex
@@ -76,6 +97,12 @@ for (const entry of index.documents) {
   if (indexedPaths.has(entry.path)) issues.push(`duplicate document path: ${entry.path}`)
   if (!allowedCurrentStatuses.has(entry.status)) {
     issues.push(`${entry.path} has unsupported current document status: ${entry.status}`)
+  }
+  const roleStatuses = allowedRoleStatuses.get(entry.role)
+  if (!roleStatuses) {
+    issues.push(`${entry.path} has unsupported current document role: ${entry.role}`)
+  } else if (!roleStatuses.has(entry.status)) {
+    issues.push(`${entry.path} role ${entry.role} does not allow status: ${entry.status}`)
   }
   if (!ownerResolves(entry.owner)) {
     issues.push(`${entry.path} has unresolved current document owner: ${entry.owner}`)

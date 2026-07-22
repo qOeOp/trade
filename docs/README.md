@@ -57,6 +57,8 @@ current 文档只允许以上状态，并必须与 `doc-contract-index.json` 一
 
 `owner` 不能是自由标签：它必须是 `product / architecture / engineering` 文档治理 owner、`architecture-manifest.json` 中的 domain，或该 domain 下真实存在的模块组。新增 owner 必须先建立实际 authority，不能只让 frontmatter 与 index 同时新增一个名字。
 
+`role` 也不是自由标签，并与 status 绑定：contract / index / decision / roadmap / runbook 使用 `active`；feature contract 可使用 `active-partial`；migration 只使用 `proposed` 或 `active-migration`；source material、implementation record、audit log 分别只使用 `source-material`、`implemented`、`audit-log`。精确 role→status 组合由 `check-doc-contracts.ts` 执法，新增组合必须先修改本合同与 checker。
+
 ## 归档规则
 
 - 跨域合同、顶层架构和大功能设计必须进入对应子目录，不在 `docs/` 根目录新增散文件。
