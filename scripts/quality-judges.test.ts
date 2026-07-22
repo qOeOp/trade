@@ -119,6 +119,25 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("cover every opt-in capability exactly once")
   })
 
+  test("Replay compatibility consumer cannot move back into a canonical owner", () => {
+    const inventory = JSON.parse(readFileSync(
+      join(repoRoot, "docs/research/reliability/rd-replay-capability-inventory.json"),
+      "utf8",
+    )) as { compatibility_consumer_registry: Array<{ path: string }> }
+    inventory.compatibility_consumer_registry[0]!.path =
+      "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-reallocation-runner.ts"
+    const root = temporaryRoot()
+    const inventoryPath = join(root, "inventory.json")
+    writeFileSync(inventoryPath, JSON.stringify(inventory))
+
+    const result = runJudge("check-rd-replay-maturity-gate.ts", repoRoot, [], {
+      RD_REPLAY_CAPABILITY_INVENTORY_PATH: inventoryPath,
+    })
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("not isolated under its declared owner")
+  })
+
   test("package tests cannot report success for an empty suite", () => {
     const root = temporaryRoot()
     write(root, "modules/domain-a/tool-a/package.json", JSON.stringify({
