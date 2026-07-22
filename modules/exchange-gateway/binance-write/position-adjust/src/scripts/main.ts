@@ -3,7 +3,18 @@
 import { mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 import { Database } from "bun:sqlite"
-import Binance, { type BinanceRest } from "binance-api-node"
+import type { BinanceRest } from "binance-api-node"
+import {
+  checkEnv,
+  createClient,
+  formatError,
+  normalizeSymbol,
+  parseBoolean,
+  readFlagValue,
+  readPositionSide,
+  runBinanceMain,
+  type ScriptResponse,
+} from "../../../shared/binance-write-cli"
 import { buildExchangeCommandRef } from "../../../../../contracts/protocol-fabric/src/protocol-fabric"
 import { nowIsoUTC } from "../../../../../contracts/runtime-core/src/time"
 import {
@@ -29,11 +40,6 @@ interface Config {
   yes: boolean
   plan: boolean
   checkEnv: boolean
-}
-
-interface EnvStatus {
-  ok: boolean
-  missing: string[]
 }
 
 interface FuturesOrderRequest {
@@ -67,10 +73,6 @@ interface AdjustmentPlan {
   reduceOrder: FuturesOrderRequest
 }
 
-type ScriptResponse =
-  | { ok: true; data: unknown }
-  | { ok: false; error: string; data?: unknown }
-
 const HELP_TEXT = `Usage:
   bun src/scripts/main.ts --symbol BTCUSDT --position-side LONG --reduce-quantity 0.01 --plan
   bun src/scripts/main.ts --symbol BTCUSDT --position-side SHORT --close-position true --yes
@@ -89,20 +91,6 @@ Key flags:
   --yes                                  Required for live execution
   --help                                 Show this help
 `
-
-async function main(): Promise<void> {
-  const argv = process.argv.slice(2)
-  if (argv.includes("--help") || argv.includes("-h")) {
-    process.stdout.write(HELP_TEXT)
-    return
-  }
-
-  const response = await run(argv)
-  printJSON(response)
-  if (!response.ok) {
-    process.exit(1)
-  }
-}
 
 async function run(argv: string[]): Promise<ScriptResponse> {
   try {
@@ -451,59 +439,6 @@ function withRecvWindow<T extends Record<string, unknown>>(params: T, recvWindow
   return { ...params, recvWindow }
 }
 
-function checkEnv(): EnvStatus {
-  const missing = ["BINANCE_API_KEY", "BINANCE_API_SECRET"].filter((name) => !process.env[name])
-  return { ok: missing.length === 0, missing }
-}
-
-function createClient(timeout: number): BinanceRest {
-  return Binance({
-    apiKey: process.env.BINANCE_API_KEY,
-    apiSecret: process.env.BINANCE_API_SECRET,
-    timeout,
-  })
-}
-
-function normalizeSymbol(symbol: string): string {
-  return symbol.trim().toUpperCase().replace(/[\/:_\-\s]/g, "")
-}
-
-function readPositionSide(value: string): PositionSide {
-  const positionSide = value.trim().toUpperCase()
-  if (positionSide !== "BOTH" && positionSide !== "LONG" && positionSide !== "SHORT") {
-    throw new Error(`unsupported position side: ${value}`)
-  }
-  return positionSide
-}
-
-function readFlagValue(argv: string[], index: number, name: string): string {
-  const value = argv[index]
-  if (!value || value.startsWith("--")) {
-    throw new Error(`${name} requires a value`)
-  }
-  return value
-}
-
-function parseBoolean(value: string, name: string): boolean {
-  const normalized = value.trim().toLowerCase()
-  switch (normalized) {
-    case "1":
-    case "true":
-    case "yes":
-    case "y":
-    case "on":
-      return true
-    case "0":
-    case "false":
-    case "no":
-    case "n":
-    case "off":
-      return false
-    default:
-      throw new Error(`${name} must be true or false`)
-  }
-}
-
 function decimalPlaces(value: string): number {
   const normalized = value.trim()
   const dot = normalized.indexOf(".")
@@ -523,10 +458,6 @@ function formatDecimal(value: number, scale: number): string {
 
 function roughlyEqual(left: number, right: number): boolean {
   return Math.abs(left - right) <= 1e-8
-}
-
-function printJSON(value: unknown): void {
-  process.stdout.write(`${JSON.stringify(value, null, 2)}\n`)
 }
 
 function requireConfirmation(confirmed: boolean, flag: string = "--yes"): void {
@@ -584,16 +515,6 @@ function sanitizeId(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 180) || "unknown"
 }
 
-function formatError(error: unknown): string {
-  if (error && typeof error === "object") {
-    const candidate = error as { code?: unknown; message?: string; responseText?: string }
-    const code = candidate.code != null ? `code=${candidate.code} ` : ""
-    const message = candidate.message || candidate.responseText || JSON.stringify(error)
-    return `${code}${message}`.trim()
-  }
-  return String(error)
-}
-
 export {
   buildPlan,
   executeAdjustment,
@@ -604,5 +525,5 @@ export {
 }
 
 if (process.argv[1] && import.meta.url === new URL(process.argv[1], "file:").href) {
-  void main()
+  void runBinanceMain(process.argv.slice(2), HELP_TEXT, run)
 }
