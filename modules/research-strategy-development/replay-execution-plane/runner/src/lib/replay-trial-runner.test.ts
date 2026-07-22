@@ -476,7 +476,7 @@ test("runner atomically commits artifacts and retries idempotently", () => {
     artifact_store: createReplayLocalArtifactStore(root),
   })
   expect(first.status).toBe("completed")
-  expect(first.artifact_manifest?.files.map((file) => file.role)).toEqual(["request", "trial_reservation", "attempt_lease", "dataset_manifest", "liquidity_capacity_attestation", "supplemental_facts", "decision_market_input_snapshot", "decision_evidence_timeline", "result", "source_events", "order_events", "order_state_snapshot", "fills", "positions", "ledger", "ohlcv_resolution_evidence", "pending_order_resolutions", "valuation_snapshot", "equity_bridge", "margin_snapshots", "liquidation", "journal", "trial_balance"])
+  expect(first.artifact_manifest?.files.map((file) => file.role)).toEqual(["request", "trial_reservation", "attempt_lease", "dataset_manifest", "liquidity_capacity_attestation", "supplemental_facts", "decision_market_input_snapshot", "decision_evidence_timeline", "result", "source_events", "order_events", "order_state_snapshot", "fills", "positions", "ledger", "ohlcv_resolution_evidence", "pending_order_resolutions", "bar_linked_stop_entry_path_step", "valuation_snapshot", "equity_bridge", "margin_snapshots", "liquidation", "journal", "trial_balance"])
   expect(first.result?.order_state_snapshot.order_count).toBeGreaterThanOrEqual(3)
   expect(first.result?.fingerprint.order_state_snapshot_hash)
     .toBe(first.result?.order_state_snapshot.snapshot_hash)
