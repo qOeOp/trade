@@ -13,6 +13,7 @@
     "server:verify-lifecycle": "bun src/scripts/server-runtime-lifecycle-fixture.ts",
     "server:public-smoke": "bun src/scripts/server-runtime-public-smoke.ts",
     "server:verify-recovery": "bun src/scripts/server-runtime-recovery-fixture.ts",
+    "server:release-gate": "bun src/scripts/server-runtime-release-gate.ts",
     "server:render-systemd": "bun src/scripts/server-runtime.ts --action render-systemd",
     "launchd:install": "bun src/scripts/program-shadow-launchd.ts install",
     "launchd:status": "bun src/scripts/program-shadow-launchd.ts status",
