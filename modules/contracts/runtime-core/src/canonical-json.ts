@@ -1,17 +1,7 @@
 import { createHash } from "node:crypto"
 
 export function canonicalHash(value: unknown): string {
-  const hash = createHash("sha256")
-  let buffer = ""
-  emitCanonical(value, (token) => {
-    buffer += token
-    if (buffer.length >= 64 * 1024) {
-      hash.update(buffer)
-      buffer = ""
-    }
-  })
-  if (buffer.length > 0) hash.update(buffer)
-  return hash.digest("hex")
+  return createHash("sha256").update(canonicalJson(value)).digest("hex")
 }
 
 export function canonicalJson(value: unknown): string {
