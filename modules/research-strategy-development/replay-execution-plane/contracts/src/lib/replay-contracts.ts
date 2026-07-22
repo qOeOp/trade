@@ -1993,7 +1993,9 @@ export function assertReplayResultOhlcvResolutionBindings(
 ): void {
   if (result.run_id !== request.run_id) fail("Replay Result OHLCV resolution Request identity is invalid")
   const terminalFills = result.fills.filter((fill) => fill.order_role === "stop" || fill.order_role === "target")
-  if (terminalFills.length !== result.ohlcv_resolution_evidence.length) {
+  const exactPathTerminalCount = result.bar_linked_stop_entry_path_step?.exact_trade_stop_resolution.terminal_trigger
+    ? 1 : 0
+  if (terminalFills.length !== result.ohlcv_resolution_evidence.length + exactPathTerminalCount) {
     fail("Replay Result OHLCV resolution evidence cardinality does not match terminal protection Fills")
   }
   for (const evidence of result.ohlcv_resolution_evidence) {
@@ -2147,6 +2149,50 @@ export function assertReplayResultOhlcvResolutionBindings(
     if (!initialGeneration && !replacementGeneration && !targetReplacementGeneration && !partialGeneration) {
       fail("Replay Result OHLCV resolution protection generation binding is invalid")
     }
+  }
+}
+
+export function assertReplayResultBarLinkedStopEntryPathBindings(
+  result: ReplayResult,
+  request: ReplayExecutionRequest,
+  datasetManifest: ReplayDatasetManifest,
+): void {
+  const step = result.bar_linked_stop_entry_path_step
+  if (step === null) {
+    if (result.fingerprint.bar_linked_stop_entry_path_step_hash !== null) {
+      fail("Replay Result has a bar-linked path fingerprint without evidence")
+    }
+    return
+  }
+  assertReplayAuthorizedStopEntryPathStepEvidence(step)
+  if (step.run_id !== request.run_id || step.request_hash !== canonicalHash(request)
+      || step.dataset_hash !== datasetManifest.data_hash
+      || result.fingerprint.bar_linked_stop_entry_path_step_hash !== step.step_hash) {
+    fail("Replay Result bar-linked Stop-entry path authority binding mismatch")
+  }
+  const resolution = step.exact_trade_stop_resolution
+  if (resolution.entry_trigger === null || resolution.outcome === "untriggered") {
+    fail("Replay Result cannot publish an untriggered authorized Stop-entry path")
+  }
+  const pending = result.pending_order_resolutions.find(
+    (candidate) => canonicalHash(candidate.observation.bar) === step.market_bar_hash,
+  )
+  if (!pending || pending.outcome.status !== "triggered_and_filled") {
+    fail("Replay Result authorized Stop-entry path lacks its pending-entry Fill observation")
+  }
+  const terminal = resolution.terminal_trigger
+  if (!terminal) return
+  const fill = result.fills.find((candidate) => candidate.order_role === terminal.role)
+  const trigger = result.order_events.find(
+    (candidate) => candidate.order_id === fill?.order_id && candidate.kind === "triggered",
+  )
+  const expectedPrice = terminal.role === "stop" ? request.order.stop_price : request.order.target_price
+  if (!fill || !trigger || fill.timestamp !== pending.observation.bar.close_time
+      || result.completed_at !== pending.observation.bar.close_time
+      || trigger.trigger_source !== "bar_range" || trigger.trigger_observed_price !== expectedPrice
+      || Date.parse(terminal.trade_time) <= Date.parse(resolution.entry_trigger.trade_time)
+      || Date.parse(terminal.trade_time) >= Date.parse(pending.observation.bar.close_time)) {
+    fail("Replay Result authorized Stop-entry path terminal binding mismatch")
   }
 }
 
