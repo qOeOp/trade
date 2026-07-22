@@ -50,7 +50,7 @@ import { readReplayTrialReservationAdmission } from "./replay-trial-reservation-
 
 export type ReplayAttemptFailureClass = "input_invalid" | "unsupported_contract" | "data_integrity" | "deterministic_engine" | "resource" | "external_io"
 
-export interface ClaimReplayAttemptInput {
+interface ResolvedReplayAttemptClaimInput {
   attempt_id: string
   worker_id: string
   idempotency_key: string
@@ -58,6 +58,10 @@ export interface ClaimReplayAttemptInput {
   claimed_at: string
   lease_expires_at: string
   trial_reservation: TrialReservationSnapshot
+}
+
+export interface ReplayAttemptCompatibilityFixtureInput extends ResolvedReplayAttemptClaimInput {
+  fixture_authority: "test_only_raw_replay_attempt_claim"
 }
 
 export interface RenewReplayAttemptLeaseInput {
@@ -195,9 +199,15 @@ export function createSqliteReplaySuccessorVerificationLeaseRenewalAuthorityPort
   }
 }
 
-/** @deprecated Migration-only raw authority. Production admission must use claimRegisteredReplayAttempt. */
-export function claimReplayAttempt(db: Database, input: ClaimReplayAttemptInput): ReplayAttemptLeaseSnapshot {
-  return claimResolvedReplayAttempt(db, input, null)
+export function claimReplayAttemptCompatibilityFixture(
+  db: Database,
+  input: ReplayAttemptCompatibilityFixtureInput,
+): ReplayAttemptLeaseSnapshot {
+  if (input.fixture_authority !== "test_only_raw_replay_attempt_claim") {
+    throw new Error("raw Replay Attempt claim is available only to compatibility tests")
+  }
+  const { fixture_authority: _fixtureAuthority, ...claim } = input
+  return claimResolvedReplayAttempt(db, claim, null)
 }
 
 export function claimRegisteredReplayAttempt(
@@ -247,7 +257,7 @@ export function claimRegisteredReplayAttempt(
 
 function claimResolvedReplayAttempt(
   db: Database,
-  input: ClaimReplayAttemptInput,
+  input: ResolvedReplayAttemptClaimInput,
   registrationBinding: ReplayAttemptRequestRegistrationBinding | null,
 ): ReplayAttemptLeaseSnapshot {
   requireText(input.attempt_id, "attempt_id")
