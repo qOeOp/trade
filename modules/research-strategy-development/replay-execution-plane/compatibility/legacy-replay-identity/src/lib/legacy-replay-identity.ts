@@ -56,6 +56,7 @@ export function replayHarnessHash(): string {
     join(root, "legacy-research-data/src/lib/funding-events.ts"),
     join(root, "legacy-research-evaluation/src/lib/legacy-research-evaluation.ts"),
     join(root, "legacy-research-features/src/lib/legacy-research-features.ts"),
+    join(root, "legacy-research-provenance/src/lib/legacy-research-provenance.ts"),
   ].filter((path) => statOrNull(path)?.isFile())
   const hash = createHash("sha256")
   for (const path of files.sort()) {
