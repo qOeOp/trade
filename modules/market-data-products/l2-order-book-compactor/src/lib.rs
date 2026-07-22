@@ -127,6 +127,7 @@ pub fn compact(
         &job.source_manifest_path,
         &["data/l2", "tmp/l2-order-book-service"],
     )?;
+    ensure_regular_scoped(root, &manifest_path, "source manifest")?;
     let manifest_bytes = fs::read(&manifest_path)?;
     if sha256_bytes(&manifest_bytes) != job.source_manifest_hash {
         bail!("source manifest hash mismatch");
@@ -154,12 +155,22 @@ pub fn compact(
         bail!("compaction output must use .parquet");
     }
     if proposal_path.exists() {
+        ensure_regular_scoped(root, &proposal_path, "compaction proposal")?;
+        ensure_regular_scoped(root, &output, "Parquet output")?;
         let proposal: CompactionProposal = serde_json::from_slice(&fs::read(&proposal_path)?)?;
         verify_existing_proposal(job, &proposal, &output, manifest.recorded_frames as u64)?;
         return Ok(proposal);
     }
     if let Some(parent) = output.parent() {
         fs::create_dir_all(parent)?;
+    }
+    if let Some(parent) = proposal_path.parent() {
+        fs::create_dir_all(parent)?;
+    }
+    ensure_parent_scoped(root, &output)?;
+    ensure_parent_scoped(root, &proposal_path)?;
+    if output.exists() {
+        ensure_regular_scoped(root, &output, "existing Parquet output")?;
     }
     let temporary = PathBuf::from(format!(
         "{}.partial.{}.{}",
@@ -185,6 +196,7 @@ pub fn compact(
     let mut last_update = 0_u64;
     for descriptor in &manifest.segments {
         let segment_path = sibling(&manifest_path, &descriptor.path)?;
+        ensure_regular_scoped(root, &segment_path, "source segment")?;
         let metadata = fs::metadata(&segment_path)?;
         if metadata.len() != descriptor.segment_bytes as u64
             || sha256_file(&segment_path)? != descriptor.segment_hash
@@ -440,6 +452,28 @@ fn sibling(manifest: &Path, value: &str) -> Result<PathBuf> {
         bail!("segment ref must be a sibling basename");
     }
     Ok(manifest.parent().context("manifest parent")?.join(path))
+}
+
+fn ensure_regular_scoped(root: &Path, path: &Path, label: &str) -> Result<()> {
+    let metadata = fs::symlink_metadata(path)?;
+    if !metadata.is_file() || metadata.file_type().is_symlink() {
+        bail!("{label} must be a regular non-symlink file");
+    }
+    let canonical_root = fs::canonicalize(root)?;
+    let canonical_path = fs::canonicalize(path)?;
+    if !canonical_path.starts_with(&canonical_root) || canonical_path == canonical_root {
+        bail!("{label} escapes repository root");
+    }
+    Ok(())
+}
+
+fn ensure_parent_scoped(root: &Path, path: &Path) -> Result<()> {
+    let canonical_root = fs::canonicalize(root)?;
+    let parent = fs::canonicalize(path.parent().context("compaction output parent")?)?;
+    if !parent.starts_with(&canonical_root) || parent == canonical_root {
+        bail!("compaction output parent escapes repository root");
+    }
+    Ok(())
 }
 
 fn publish_create_or_identical(temporary: &Path, output: &Path) -> Result<()> {
