@@ -1,4 +1,15 @@
 import type { JSONRecord } from "../../../../../contracts/runtime-core/src/json"
+import {
+  array,
+  asRecord,
+  boundedTrials,
+  compactRecord,
+  hypothesisID,
+  optionalNumber,
+  optionalPositiveNumber,
+  safeID,
+  stringField,
+} from "./rd-program-primitives"
 import type { RdProgramState, RdProgramStateUpdateInput } from "./rd-program-types"
 
 function advanceHypothesisQueue(existing: JSONRecord[], completedIds: string[], followups: JSONRecord[]): JSONRecord[] {
@@ -666,63 +677,13 @@ function campaignNextActions(stopReason: string): string[] {
   return ["Review campaign stop reason before scheduling the next hypothesis."]
 }
 
-function compactRecord(record: JSONRecord): JSONRecord {
-  for (const [key, value] of Object.entries(record)) {
-    if (
-      value === undefined ||
-      value === "" ||
-      (Array.isArray(value) && value.length === 0) ||
-      (value && typeof value === "object" && !Array.isArray(value) && Object.keys(value as JSONRecord).length === 0)
-    ) {
-      delete record[key]
-    }
-  }
-  return record
-}
-
-function hypothesisID(hypothesis: JSONRecord): string {
-  return safeID(stringField(hypothesis.hypothesis_id) || stringField(hypothesis.id) || "h1")
-}
-
-function boundedTrials(value: unknown, remaining: number): number {
-  const parsed = Number(value)
-  const requested = Number.isInteger(parsed) && parsed > 0 ? parsed : remaining
-  return Math.max(1, Math.min(10, requested, Math.max(1, remaining)))
-}
-
-function optionalNumber(value: unknown): number | undefined {
-  const parsed = Number(value)
-  return Number.isFinite(parsed) ? parsed : undefined
-}
-
-function optionalPositiveNumber(value: unknown): number | undefined {
-  const parsed = Number(value)
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined
-}
-
 function nullableRecord(value: unknown): JSONRecord | null {
   return value === null || value === undefined ? null : asRecord(value)
-}
-
-function asRecord(value: unknown): JSONRecord {
-  return value && typeof value === "object" && !Array.isArray(value) ? value as JSONRecord : {}
-}
-
-function array(value: unknown): unknown[] {
-  return Array.isArray(value) ? value : []
-}
-
-function stringField(value: unknown): string {
-  return typeof value === "string" ? value.trim() : ""
 }
 
 function nonNegativeInteger(value: unknown): number {
   const number = Number(value)
   return Number.isInteger(number) && number >= 0 ? number : 0
-}
-
-function safeID(value: string): string {
-  return value.trim().toLowerCase().replace(/[^a-z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "rd-program"
 }
 
 export {
