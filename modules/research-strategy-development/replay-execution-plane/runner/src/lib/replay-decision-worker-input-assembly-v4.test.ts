@@ -28,7 +28,6 @@ import {
   REPLAY_SIMULATOR_POLICY_VERSION,
   REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
   canonicalHash,
-  createReplayDecisionHarnessBuildAttestation,
   createReplayDecisionInputSnapshot,
   createReplayDecisionHarnessContext,
   createReplayDecisionHarnessSourceBundle,
@@ -60,15 +59,6 @@ import {
   type ReplayDecisionWorkerInputAssemblyV2Body,
 } from "../../../contracts/src/lib/replay-decision-worker-input-assembly-v2"
 import {
-  assertReplayDecisionWorkerInputAssemblyV3,
-} from "../../../contracts/src/lib/replay-decision-worker-input-assembly-v3"
-import {
-  assertReplayDecisionWorkerInputAssemblyV4,
-} from "../../../contracts/src/lib/replay-decision-worker-input-assembly-v4"
-import {
-  assertReplayDecisionHarnessCodeAdmission,
-} from "../../../contracts/src/lib/replay-decision-harness-code-admission"
-import {
   assertReplayDecisionHarnessDispatchLeaseAuthorityBinding,
 } from "../../../contracts/src/lib/replay-decision-harness-dispatch-lease-authority-binding"
 import {
@@ -79,20 +69,14 @@ import {
   buildReplayPositionOpenStateInputMaterialization,
 } from "../../../engine/src/lib/replay-position-open-state-input-materialization"
 import {
-  assertReplayDecisionWorkerInputAssemblyV3Lineage,
   buildReplayDecisionWorkerInputAssemblyV3,
 } from "../../../engine/src/lib/replay-decision-worker-input-assembly-v3"
 import { buildReplayDecisionHarness } from "./replay-decision-harness-build"
 import { runReplayTrial } from "./replay-trial-runner"
 import {
   createReplayDecisionHarnessCutoverRegistry,
-  createReplayDecisionHarnessRegistry,
   executeReplayDecisionHarness,
 } from "./replay-decision-harness"
-import {
-  assertReplayDecisionHarnessCodeAdmissionLineage,
-  buildReplayDecisionHarnessCodeAdmission,
-} from "./replay-decision-harness-code-admission"
 import {
   executeReplayWorkerV10Cutover,
   readReplayWorkerV10CutoverReceipt,
@@ -106,10 +90,6 @@ import {
 import {
   buildReplayDecisionHarnessDispatchLeaseAuthorityBinding,
 } from "./replay-decision-harness-dispatch-lease-authority-binding"
-import {
-  assertReplayDecisionWorkerInputAssemblyV4Lineage,
-  buildReplayDecisionWorkerInputAssemblyV4,
-} from "./replay-decision-worker-input-assembly-v4"
 import {
   expectFormalCutoverAdmission,
   expectWorkerV10Cutover,
@@ -143,6 +123,8 @@ import { runReplayWorkerV10BuildCapabilityStage } from "./replay-worker-v10-buil
 import { runReplayWorkerV10ResponseContractStage } from "./replay-worker-v10-response-contract-stage"
 import { runReplayWorkerV10InvocationIdentityStage } from "./replay-worker-v10-invocation-identity-stage"
 import { runReplayWorkerV10LogicalRequestIdentityStage } from "./replay-worker-v10-logical-request-identity-stage"
+import { runReplayWorkerV10AssemblyStage } from "./replay-worker-v10-assembly-stage"
+import { runReplayWorkerV10CodeAdmissionStage } from "./replay-worker-v10-code-admission-stage"
 
 const HASH = "a".repeat(64)
 const ACCOUNTING = {
@@ -587,129 +569,23 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
   expect(buildReplayPositionOpenStateInputMaterialization(structuredClone(input))).toEqual(materialization)
 
   const sourceAssemblyV2 = workerInputAssemblyV2(requestValue, binding)
-  const assemblyV3Input = {
+  const assemblyStage = runReplayWorkerV10AssemblyStage({
     source_assembly_v2: sourceAssemblyV2,
-    state_input_materializations: [materialization],
-  }
-  const assemblyV3 = buildReplayDecisionWorkerInputAssemblyV3(assemblyV3Input)
-  expect(assemblyV3.owner).toBe("replay_engine_runtime")
-  expect(assemblyV3.source_assembly_v2_hash).toBe(sourceAssemblyV2.assembly_hash)
-  expect(assemblyV3.state_materialization_count).toBe(1)
-  expect(assemblyV3.complete_entry_count).toBe(2)
-  expect(assemblyV3.incomplete_state_entry_count).toBe(0)
-  expect(assemblyV3.entries[1]!.state_input_materialization_hash).toBe(materialization.materialization_hash)
-  expect(assemblyV3.entries[1]!.input_tuple_status).toBe("complete_non_executable_build_unbound")
-  expect(assemblyV3.worker_request_count).toBe(0)
-  expect(assemblyV3.entries.every((entry) => entry.worker_request === null)).toBeTrue()
-  expect(() => assertReplayDecisionWorkerInputAssemblyV3(assemblyV3)).not.toThrow()
-  expect(() => assertReplayDecisionWorkerInputAssemblyV3Lineage(assemblyV3, assemblyV3Input)).not.toThrow()
-  expect(buildReplayDecisionWorkerInputAssemblyV3(structuredClone(assemblyV3Input))).toEqual(assemblyV3)
-  expect(() => buildReplayDecisionWorkerInputAssemblyV3({
-    ...assemblyV3Input,
-    state_input_materializations: [],
-  })).toThrow("exactly one State parent")
-  expect(() => assertReplayDecisionWorkerInputAssemblyV3({
-    ...assemblyV3,
-    worker_request_count: 1 as never,
-  })).toThrow("unsupported decision Worker input assembly v3 authority")
-
-  const assemblyV4Input = {
-    source_assembly_v3: assemblyV3,
+    state_input_materialization: materialization,
     harness_context_binding: binding,
     source_bundle: sourceBundle,
     build_attestation: buildAttestation,
-  }
-  const assemblyV4 = buildReplayDecisionWorkerInputAssemblyV4(assemblyV4Input)
-  expect(assemblyV4.owner).toBe("replay_runner_code_admission")
-  expect(assemblyV4.input_tuple_status).toBe("complete_non_executable_build_bound")
-  expect(assemblyV4.source_bundle_hash).toBe(sourceBundle.bundle_hash)
-  expect(assemblyV4.build_attestation_hash).toBe(buildAttestation.attestation_hash)
-  expect(assemblyV4.build_artifact_hash).toBe(buildAttestation.artifact.sha256)
-  expect(assemblyV4.worker_request_count).toBe(0)
-  expect(assemblyV4.worker_request_materialization).toBe("forbidden")
-  expect(assemblyV4.harness_invocation).toBe("forbidden")
-  expect(() => assertReplayDecisionWorkerInputAssemblyV4(assemblyV4)).not.toThrow()
-  expect(() => assertReplayDecisionWorkerInputAssemblyV4Lineage(assemblyV4, assemblyV4Input)).not.toThrow()
-  expect(buildReplayDecisionWorkerInputAssemblyV4(structuredClone(assemblyV4Input))).toEqual(assemblyV4)
-  const forgedBuild = createReplayDecisionHarnessBuildAttestation({
-    source_bundle: sourceBundle,
-    runtime_version: buildAttestation.runtime.runtime_version,
-    runtime_executable_sha256: buildAttestation.runtime.executable_sha256,
-    artifact_content_utf8: `${buildAttestation.artifact.content_utf8}// forged\n`,
   })
-  expect(() => buildReplayDecisionWorkerInputAssemblyV4({
-    ...assemblyV4Input,
-    build_attestation: forgedBuild,
-  })).toThrow("does not match deterministic rebuild")
-  const mismatchedBundle = createReplayDecisionHarnessSourceBundle({
-    bundle_ref: "fixture://decision-harness/r4-104-mismatch",
-    entrypoint: { file_path: "strategy.ts", export_name: "decide" },
-    files: [{ path: "strategy.ts", content_utf8: "export function decide() { return null }\n" }],
-  })
-  expect(() => buildReplayDecisionWorkerInputAssemblyV4({
-    ...assemblyV4Input,
-    source_bundle: mismatchedBundle,
-    build_attestation: buildReplayDecisionHarness(mismatchedBundle),
-  })).toThrow("input/Context/code binding drift")
-  expect(() => assertReplayDecisionWorkerInputAssemblyV4({
-    ...assemblyV4,
-    worker_request_count: 1 as never,
-  })).toThrow("unsupported decision Worker input assembly v4 authority")
-
-  const registry = createReplayDecisionHarnessRegistry([{
+  const assemblyV3Input = assemblyStage.assembly_v3_input
+  const assemblyV4 = assemblyStage.assembly_v4
+  const codeAdmissionStage = runReplayWorkerV10CodeAdmissionStage({
+    assembly_v4: assemblyV4,
     source_bundle: sourceBundle,
     build_attestation: buildAttestation,
-  }])
-  replayProfile("base assembly and registry")
-  const codeAdmissionInput = { source_assembly_v4: assemblyV4, registry }
-  const codeAdmission = buildReplayDecisionHarnessCodeAdmission(codeAdmissionInput)
-  expect(codeAdmission.owner).toBe("replay_runner_registry_admission")
-  expect(codeAdmission.admission_status).toBe("compatible_exact_registration_observed")
-  expect(codeAdmission.registry_registration_lifetime).toBe("immutable_for_process_lifetime")
-  expect(codeAdmission.registry_instance_identity).toBe("unavailable")
-  expect(codeAdmission.registry_instance_id).toBeNull()
-  expect(codeAdmission.future_lookup_guarantee).toBe("not_proven")
-  expect(codeAdmission.registry_authenticity).toBe("process_local_interface_observation_not_signed")
-  expect(codeAdmission.lookup_value).toBe(sourceBundle.bundle_hash)
-  expect(codeAdmission.registry_entry.source_bundle).toEqual(sourceBundle)
-  expect(codeAdmission.registry_entry.build_attestation).toEqual(buildAttestation)
-  expect(codeAdmission.worker_request_count).toBe(0)
-  expect(codeAdmission.worker_request_materialization).toBe("forbidden")
-  expect(codeAdmission.harness_invocation).toBe("forbidden")
-  expect(codeAdmission.trial_authority).toBe("none")
-  expect(() => assertReplayDecisionHarnessCodeAdmission(codeAdmission)).not.toThrow()
-  expect(() => assertReplayDecisionHarnessCodeAdmissionLineage(codeAdmission, codeAdmissionInput)).not.toThrow()
-  const independentlyCreatedRegistry = createReplayDecisionHarnessRegistry([{
-    source_bundle: sourceBundle,
-    build_attestation: buildAttestation,
-  }])
-  expect(buildReplayDecisionHarnessCodeAdmission({
-    source_assembly_v4: structuredClone(assemblyV4),
-    registry: independentlyCreatedRegistry,
-  })).toEqual(codeAdmission)
-  expect(() => buildReplayDecisionHarnessCodeAdmission({
-    source_assembly_v4: assemblyV4,
-    registry: createReplayDecisionHarnessRegistry([]),
-  })).toThrow("bundle hash is not registered")
-  const mismatchedRegistration = {
-    source_bundle: sourceBundle,
-    build_attestation: forgedBuild,
-  }
-  expect(() => buildReplayDecisionHarnessCodeAdmission({
-    source_assembly_v4: assemblyV4,
-    registry: {
-      capability: structuredClone(registry.capability),
-      resolve: () => structuredClone(mismatchedRegistration),
-    },
-  })).toThrow("does not exactly match R4.104 code evidence")
-  expect(() => assertReplayDecisionHarnessCodeAdmission({
-    ...codeAdmission,
-    future_lookup_guarantee: "proven" as never,
-  })).toThrow("unsupported decision harness code admission authority")
-  expect(() => assertReplayDecisionHarnessCodeAdmission({
-    ...codeAdmission,
-    worker_request_count: 1 as never,
-  })).toThrow("unsupported decision harness code admission authority")
+    forged_build_attestation: assemblyStage.forged_build_attestation,
+    profile: replayProfile,
+  })
+  const codeAdmission = codeAdmissionStage.code_admission
 
   const invocationIdentityStage = runReplayWorkerV10InvocationIdentityStage({
     code_admission: codeAdmission,
