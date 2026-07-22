@@ -282,6 +282,24 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("unsupported Replay fault/corruption recovery bundle")
   }, 15_000)
 
+  test("Replay local evidence cannot be overclaimed as central observability or an SLO", () => {
+    const registry = JSON.parse(readFileSync(
+      join(repoRoot, "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-operational-readiness.json"),
+      "utf8",
+    )) as { telemetry_boundary: string }
+    registry.telemetry_boundary = "central-metrics-traces-alerting-and-slo-complete"
+    const root = temporaryRoot()
+    const registryPath = join(root, "replay-operational-readiness.json")
+    writeFileSync(registryPath, JSON.stringify(registry))
+
+    const result = runJudge("check-rd-replay-maturity-gate.ts", repoRoot, [], {
+      RD_REPLAY_OPERATIONAL_READINESS_REGISTRY_PATH: registryPath,
+    })
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("unsupported Replay operational readiness registry")
+  }, 15_000)
+
   test("Replay historical Artifact payload reader cannot drift silently", () => {
     const registry = JSON.parse(readFileSync(
       join(repoRoot, "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-historical-artifact-migration.json"),
