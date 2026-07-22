@@ -156,3 +156,9 @@ Plane 内唯一完整认证入口是 `certification/replay-certification` 的 `b
 P10、P11、P13 的 compatibility certification 以两层证据关闭迁移门：独立 synthetic pack 冻结 exact-v1 Manifest、role、commit marker、Result/Evidence identity 与 expected projection；完整 payload reader 另从真实 manifest-last namespace 逐文件校验 ref/raw SHA，再验证 P10 Result、P11 Result/Fingerprint、P13 Accounting/Trial Balance 的自哈希与现金不变量，输出只读 migration receipt。Pack、reader 与动态 certification test 均有冻结指纹；schema、role、payload、源码或 projection 漂移都 fail closed。Maturity checker 同时执行 pack 并验证 full-payload certification registry，不接受只改 gate 布尔值。
 
 该 reader 没有 writer、数据库、runtime public entrypoint 或经济 authority，不产生 Result v53 / Artifact v55，不修改旧文件，也不把旧 accounting 映射成当前经济语义。Full-payload 证据由冻结测试确定性生成，不等于抽样了生产历史全集；外部生产 corpus 普查和跨版本经济升级仍不在本 gate 内。M5 当前为 `3/9`，成熟度仍为 M4；下一门固定为 crash recovery 与 exactly-once publication。
+
+## 17. M5 crash recovery 与 exactly-once publication
+
+Exactly-once 的权威口径是“同一 deterministic Attempt namespace 最多一个可验证 commit marker”，不是“进程只执行一次”。认证子进程先通过 local store 完成三个 payload 的 durable immutable CAS，在 manifest 前等待并被父进程真实 `SIGKILL`；此时目录必须只有 payload，因 `partial_payload_without_manifest_is_authoritative=false` 而没有 Result authority。随后两个 fresh process 并发恢复：相同 bytes 可幂等复用，不同 bytes 必须 CAS collision，最终只能有一个 `artifact-manifest.json`；第三进程必须只读得到相同 manifest/publication hash，且目录无 `.tmp`。
+
+四个公共 profile 的恢复方式不被抹平：single-trial 可从 authorized checkpoint 恢复或确定性重跑；independent-lane-batch 没有 durable batch writer，只委托 child Trial manifest 并重算 aggregate；integrated-portfolio 与 terminal-aware-bounded-cycle 没有 checkpoint writer，只能确定性全量重跑后争用同一 manifest CAS。Bundle 冻结每个 writer、owner test 与源码 hash，防止 implementation 漂移后沿用旧认证。该结论限于单机 local filesystem、现有 fsync/CAS/manifest-last 合同；不认证 remote/distributed store、硬件损坏、exactly-once process execution，也不替代后续通用 fault injection gate。M5 当前为 `4/9`，成熟度仍为 M4；下一门固定为 declared capacity / performance envelope。

@@ -4,6 +4,8 @@ Owns cross-component golden, property, metamorphic and parity certification for 
 
 Tests may compare certified components and compatibility outputs, but this package owns no production behavior and cannot turn a compatibility result into governed evidence.
 
+M5 publication crash member 只模拟 local Artifact Store 的提交协议：先 durable 写入三个 synthetic payload，在 manifest 前等待父进程 `SIGKILL`；恢复进程只可重用相同 immutable bytes 并以 manifest-last 提交。该 member 不生成 canonical Result/Artifact，不证明 exactly-once process execution，也不扩展任何 simulator 语义。
+
 R4.85 certification must prove that Wire v2 cross-source collisions remain marked `deterministic_tie_break_only` in the non-economic candidate trace, while `economic_exact_trigger` is rejected both for `resolution_limited` input and for declared-timestamp-exact input lacking a certified economic consumer. Rehashing cannot erase per-event ambiguity lineage or create execution effects.
 
 R4.86 certification must prove dual-clock causality: a fact with `availability_at > effective_time` is absent from every earlier visibility cut, enters only at its declared availability, remains non-retroactive, and cannot be revealed early by reordering and rehashing. Immediate facts preserve effective-order parity; deterministic rebuild preserves both timeline hashes.
