@@ -7,13 +7,25 @@ import {
 } from "../../../../contracts/watch-task-contract/src/watch-task-contract"
 import { asRecord, stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
 import type { RuntimeWatchTaskRecord, WatchTaskObservationPort, WatchTaskStatePort } from "./watch-task-runtime"
+import type {
+  WatchHandoffRevalidationPort,
+  WatchHandoffRevalidationRequest,
+} from "./watch-task-handoff-session"
 
 export function createOpsRuntimeStorePort(input: {
   repositoryRoot: string
   bunPath: string
   dbPath: string
   timeoutMs?: number
-}): WatchTaskStatePort {
+}): WatchTaskStatePort & {
+  handoff(task: RuntimeWatchTaskRecord, receiptRef: string, now: string): RuntimeWatchTaskRecord
+  complete(task: RuntimeWatchTaskRecord, input: {
+    result_ref: string
+    outcome: "revalidation_passed" | "blocked"
+    reason: string
+    now: string
+  }): RuntimeWatchTaskRecord
+} {
   const command = resolve(input.repositoryRoot, "modules/orchestration-ops/ops-runtime-store/src/scripts/main.ts")
   const timeoutMs = input.timeoutMs ?? 5_000
   const invoke = (action: string, json: JSONRecord): JSONRecord => {
@@ -43,6 +55,20 @@ export function createOpsRuntimeStorePort(input: {
       expected_version: task.version,
       evaluation,
     }).watch_task),
+    handoff: (task, receiptRef, now) => decodeTask(invoke("watch_handoff", {
+      task_id: task.definition.task_id,
+      expected_version: task.version,
+      handoff_receipt_ref: receiptRef,
+      now,
+    }).watch_task),
+    complete: (task, completion) => decodeTask(invoke("watch_complete", {
+      task_id: task.definition.task_id,
+      expected_version: task.version,
+      downstream_result_ref: completion.result_ref,
+      downstream_outcome: completion.outcome,
+      downstream_reason: completion.reason,
+      now: completion.now,
+    }).watch_task),
     acquireLease: (taskId, holderId, now, expiresAt) => {
       const envelope = invoke("acquire_lock", {
         lock_key: `watch-task:${taskId}`,
@@ -66,6 +92,33 @@ export function createOpsRuntimeStorePort(input: {
         holder_id: holderId,
         fencing_token: fencingToken,
       })
+    },
+  }
+}
+
+export function createWatchHandoffRevalidationPort(input: {
+  repositoryRoot: string
+  bunPath: string
+  timeoutMs?: number
+}): WatchHandoffRevalidationPort {
+  const command = resolve(
+    input.repositoryRoot,
+    "modules/live-execution-control/watch-handoff-revalidation/src/scripts/main.ts",
+  )
+  const timeoutMs = input.timeoutMs ?? 5_000
+  return {
+    revalidate: async (request: WatchHandoffRevalidationRequest) => {
+      const process = Bun.spawnSync({
+        cmd: [input.bunPath, command, "--json", JSON.stringify(request)],
+        cwd: input.repositoryRoot,
+        stdout: "pipe",
+        stderr: "pipe",
+        timeout: timeoutMs,
+      })
+      if (process.exitCode !== 0) throw new Error("watch handoff revalidation owner failed")
+      const envelope = asRecord(JSON.parse(process.stdout.toString()))
+      if (envelope.ok !== true) throw new Error("watch handoff revalidation owner rejected request")
+      return decodeRevalidationResult(envelope.data)
     },
   }
 }
@@ -129,6 +182,23 @@ function decodeTask(value: unknown): RuntimeWatchTaskRecord {
     handoff: Object.keys(asRecord(input.handoff)).length > 0 ? asRecord(input.handoff) : undefined,
     handoff_receipt_ref: stringField(input.handoff_receipt_ref) || undefined,
     downstream_result_ref: stringField(input.downstream_result_ref) || undefined,
+  }
+}
+
+function decodeRevalidationResult(value: unknown): Awaited<ReturnType<WatchHandoffRevalidationPort["revalidate"]>> {
+  const input = asRecord(value)
+  const status = stringField(input.status)
+  const authority = stringField(input.execution_authority)
+  if (input.schema_version !== "trade.watch-handoff-revalidation.v1") throw new Error("revalidation schema is unsupported")
+  if (status !== "revalidation_passed" && status !== "blocked") throw new Error("revalidation status is unsupported")
+  if (authority !== "none") throw new Error("revalidation widened execution authority")
+  return {
+    schema_version: "trade.watch-handoff-revalidation.v1",
+    receipt_ref: stringField(input.receipt_ref),
+    task_id: stringField(input.task_id),
+    status,
+    reason: stringField(input.reason),
+    execution_authority: "none",
   }
 }
 

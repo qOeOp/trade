@@ -188,9 +188,22 @@ export function completeWatchTask(db: Database, input: JSONRecord): WatchTaskRec
   const now = canonicalIso(input.now, "now")
   const resultRef = stringField(input.downstream_result_ref)
   if (!resultRef) throw new Error("downstream_result_ref is required")
+  const outcome = stringField(input.downstream_outcome)
+  if (outcome && outcome !== "revalidation_passed" && outcome !== "blocked") {
+    throw new Error("downstream_outcome is unsupported")
+  }
+  const downstreamReason = stringField(input.downstream_reason)
   return mutate(db, taskId, positiveInteger(input.expected_version, "expected_version"), (current) => {
     if (current.status !== "handed_off") throw new Error(`watch task cannot complete from ${current.status}`)
-    return transition(current, "completed", "downstream_revalidation_completed", now, { downstream_result_ref: resultRef })
+    return transition(current, "completed", "downstream_revalidation_completed", now, {
+      downstream_result_ref: resultRef,
+      transition_detail: {
+        downstream_result_ref: resultRef,
+        downstream_outcome: outcome || "unknown",
+        downstream_reason: downstreamReason || "not_supplied",
+        execution_authority: "none",
+      },
+    })
   })
 }
 

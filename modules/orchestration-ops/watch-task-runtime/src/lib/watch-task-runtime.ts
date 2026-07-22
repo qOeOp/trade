@@ -38,6 +38,16 @@ export interface WatchTaskStatePort {
   releaseLease(taskId: string, holderId: string, fencingToken: number): void
 }
 
+export interface WatchTaskHandoffStatePort extends WatchTaskStatePort {
+  handoff(task: RuntimeWatchTaskRecord, receiptRef: string, now: string): RuntimeWatchTaskRecord
+  complete(task: RuntimeWatchTaskRecord, input: {
+    result_ref: string
+    outcome: "revalidation_passed" | "blocked"
+    reason: string
+    now: string
+  }): RuntimeWatchTaskRecord
+}
+
 export interface WatchTaskObservationPort {
   observe(definition: WatchTaskDefinition): Promise<WatchTaskObservation>
 }

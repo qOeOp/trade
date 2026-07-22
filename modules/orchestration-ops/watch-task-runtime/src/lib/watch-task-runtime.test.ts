@@ -13,8 +13,10 @@ import {
   runWatchTaskSession,
   type RuntimeWatchTaskRecord,
   type WatchTaskClock,
+  type WatchTaskHandoffStatePort,
   type WatchTaskStatePort,
 } from "./watch-task-runtime"
+import { closeWatchTaskRevalidation } from "./watch-task-handoff-session"
 import { createOpsRuntimeStorePort } from "./watch-task-owner-ports"
 
 const definition = buildWatchTaskDefinition({
@@ -124,6 +126,57 @@ test("runtime state port uses the ops owner CLI and preserves compare-and-set st
   }
 })
 
+test("triggered handoff closes through a no-authority receipt and resumes after intake", async () => {
+  const clock = new MemoryClock("2026-07-23T00:10:00.000Z")
+  const state = new HandoffMemoryState(definition, "triggered")
+  const first = await closeWatchTaskRevalidation({
+    taskId: definition.task_id,
+    state,
+    clock,
+    holderId: "handoff-fixture",
+    currentObservation: { observation_ref: "market://current" },
+    preflight: { plan: { plan_ref: definition.plan_ref } },
+    revalidation: {
+      revalidate: async (request) => ({
+        schema_version: "trade.watch-handoff-revalidation.v1",
+        receipt_ref: "watch-revalidation:fixture-1",
+        task_id: request.definition.task_id,
+        status: "revalidation_passed",
+        reason: "all_revalidation_gates_passed",
+        execution_authority: "none",
+      }),
+    },
+  })
+  assert.equal(first.status, "completed")
+  assert.equal(first.revalidation_status, "revalidation_passed")
+  assert.equal(first.execution_authority, "none")
+  assert.equal(state.handoffCalls, 1)
+  assert.equal(state.completeCalls, 1)
+
+  const resumed = new HandoffMemoryState(definition, "handed_off")
+  const second = await closeWatchTaskRevalidation({
+    taskId: definition.task_id,
+    state: resumed,
+    clock,
+    currentObservation: {},
+    preflight: {},
+    revalidation: {
+      revalidate: async () => ({
+        schema_version: "trade.watch-handoff-revalidation.v1",
+        receipt_ref: "watch-revalidation:blocked-1",
+        task_id: definition.task_id,
+        status: "blocked",
+        reason: "preflight_blocked",
+        execution_authority: "none",
+      }),
+    },
+  })
+  assert.equal(second.status, "completed")
+  assert.equal(second.revalidation_status, "blocked")
+  assert.equal(resumed.handoffCalls, 0)
+  assert.equal(resumed.completeCalls, 1)
+})
+
 class MemoryClock implements WatchTaskClock {
   private currentMs: number
 
@@ -197,5 +250,60 @@ class MemoryStatePort implements WatchTaskStatePort {
 
   releaseLease(): void {
     this.releases += 1
+  }
+}
+
+class HandoffMemoryState extends MemoryStatePort implements WatchTaskHandoffStatePort {
+  handoffCalls = 0
+  completeCalls = 0
+
+  constructor(taskDefinition: WatchTaskDefinition, status: "triggered" | "handed_off") {
+    super(taskDefinition)
+    this.record = {
+      ...this.record,
+      status,
+      version: status === "triggered" ? 3 : 4,
+      updated_at: "2026-07-23T00:09:59.000Z",
+      handoff: {
+        handoff_kind: "action_intent_revalidation",
+        intent_ref: taskDefinition.intent_ref,
+        intent_content_hash: taskDefinition.intent_content_hash,
+        flow_id: taskDefinition.flow_id,
+        idempotency_key: taskDefinition.idempotency_key,
+        observation_ref: "market://trigger",
+        execution_authority: "none",
+      },
+      handoff_receipt_ref: status === "handed_off" ? "watch-revalidation-intake:fixture" : undefined,
+    }
+  }
+
+  handoff(task: RuntimeWatchTaskRecord, receiptRef: string, now: string): RuntimeWatchTaskRecord {
+    this.handoffCalls += 1
+    this.record = {
+      ...task,
+      status: "handed_off",
+      version: task.version + 1,
+      updated_at: now,
+      handoff_receipt_ref: receiptRef,
+    }
+    return this.record
+  }
+
+  complete(task: RuntimeWatchTaskRecord, completion: {
+    result_ref: string
+    outcome: "revalidation_passed" | "blocked"
+    reason: string
+    now: string
+  }): RuntimeWatchTaskRecord {
+    this.completeCalls += 1
+    this.record = {
+      ...task,
+      status: "completed",
+      version: task.version + 1,
+      updated_at: completion.now,
+      downstream_result_ref: completion.result_ref,
+      terminal_reason: "downstream_revalidation_completed",
+    }
+    return this.record
   }
 }

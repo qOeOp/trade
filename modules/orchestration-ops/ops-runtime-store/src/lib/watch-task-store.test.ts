@@ -89,13 +89,22 @@ test("watch task store persists monotonic trigger, handoff, and completion audit
       task_id: definition.task_id,
       expected_version: handedOff.version,
       downstream_result_ref: "preflight://result/1",
+      downstream_outcome: "revalidation_passed",
+      downstream_reason: "all_revalidation_gates_passed",
       now: "2026-07-23T00:00:02.200Z",
     })
     assert.equal(completed.status, "completed")
     assert.equal(completed.downstream_result_ref, "preflight://result/1")
-    assert.deepEqual(readWatchTaskTransitions(db, definition.task_id).map((item) => item.to_status), [
+    const transitions = readWatchTaskTransitions(db, definition.task_id)
+    assert.deepEqual(transitions.map((item) => item.to_status), [
       "created", "armed", "triggered", "handed_off", "completed",
     ])
+    assert.deepEqual(transitions.at(-1)?.transition, {
+      downstream_result_ref: "preflight://result/1",
+      downstream_outcome: "revalidation_passed",
+      downstream_reason: "all_revalidation_gates_passed",
+      execution_authority: "none",
+    })
   } finally {
     db.close()
   }
