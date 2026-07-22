@@ -138,6 +138,24 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("not isolated under its declared owner")
   })
 
+  test("Replay generic evidence writer cannot reopen an older epoch", () => {
+    const registry = JSON.parse(readFileSync(
+      join(repoRoot, "docs/research/reliability/rd-replay-evidence-epoch-registry.json"),
+      "utf8",
+    )) as { generic_epochs: Array<{ schema_version: string }> }
+    registry.generic_epochs[0]!.schema_version = "trade.rd-replay-result.v52"
+    const root = temporaryRoot()
+    const registryPath = join(root, "evidence-epochs.json")
+    writeFileSync(registryPath, JSON.stringify(registry))
+
+    const result = runJudge("check-rd-replay-maturity-gate.ts", repoRoot, [], {
+      RD_REPLAY_EVIDENCE_EPOCH_REGISTRY_PATH: registryPath,
+    })
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("do not match the frozen writer set")
+  })
+
   test("package tests cannot report success for an empty suite", () => {
     const root = temporaryRoot()
     write(root, "modules/domain-a/tool-a/package.json", JSON.stringify({
