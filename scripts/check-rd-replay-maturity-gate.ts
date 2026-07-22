@@ -6,6 +6,10 @@ import {
   assertReplayModuleConsumerClosureManifest,
   loadReplayModuleConsumerClosureManifest,
 } from "../modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-module-consumer-closure"
+import {
+  assertReplayCrossProcessReproducibilityBundle,
+  loadReplayCrossProcessReproducibilityBundle,
+} from "../modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-cross-process-reproducibility"
 
 interface GateManifest {
   schema_version: string
@@ -138,11 +142,14 @@ const profileEvidenceRegistry = JSON.parse(
 ) as ReplayProfileEvidenceRegistry
 const moduleConsumerClosurePath = process.env.RD_REPLAY_MODULE_CONSUMER_CLOSURE_PATH
   || `${certificationOwner}/replay-module-consumer-closure.json`
+const crossProcessReproducibilityPath = process.env.RD_REPLAY_CROSS_PROCESS_REPRODUCIBILITY_PATH
+  || `${certificationOwner}/replay-cross-process-reproducibility-bundle.json`
 const issues: string[] = []
 const certificationCommandIssues: string[] = []
 const testSeparationIssues: string[] = []
 const profileEvidenceIssues: string[] = []
 const moduleConsumerClosureIssues: string[] = []
+const crossProcessReproducibilityIssues: string[] = []
 
 try {
   const moduleConsumerClosure = loadReplayModuleConsumerClosureManifest(
@@ -152,6 +159,15 @@ try {
   assertReplayModuleConsumerClosureManifest(moduleConsumerClosure, process.cwd())
 } catch (error) {
   moduleConsumerClosureIssues.push(error instanceof Error ? error.message : String(error))
+}
+try {
+  const bundle = loadReplayCrossProcessReproducibilityBundle(
+    process.cwd(),
+    crossProcessReproducibilityPath,
+  )
+  assertReplayCrossProcessReproducibilityBundle(bundle, profileEvidenceRegistry, process.cwd())
+} catch (error) {
+  crossProcessReproducibilityIssues.push(error instanceof Error ? error.message : String(error))
 }
 
 const expectedCapabilityMilestones = Array.from({ length: 29 }, (_, index) => `M4-P${index + 1}`)
@@ -352,6 +368,7 @@ issues.push(
   ...testSeparationIssues,
   ...profileEvidenceIssues,
   ...moduleConsumerClosureIssues,
+  ...crossProcessReproducibilityIssues,
 )
 if (JSON.stringify(inventory.canonical_public_entrypoints) !== JSON.stringify(expectedCanonicalEntrypoints)) {
   issues.push("Replay canonical public entrypoints do not match the frozen four-profile surface")
@@ -515,6 +532,10 @@ if (manifest.exit_gates.m4?.all_supported_profiles_have_golden_resume_idempotenc
 if (manifest.exit_gates.m4?.no_unclassified_replay_module_or_production_consumer
     !== (moduleConsumerClosureIssues.length === 0)) {
   issues.push("Replay module/production-consumer gate does not match the certified closure registry")
+}
+if (manifest.exit_gates.m5?.cross_process_reproducibility_bundle
+    !== (crossProcessReproducibilityIssues.length === 0)) {
+  issues.push("Replay cross-process reproducibility gate does not match the certified bundle")
 }
 const m4Complete = gateValues.m4.length === expectedGateNames.m4.length && gateValues.m4.every(Boolean)
 if (manifest.exit_gates.m5?.m4_exit_complete !== m4Complete) {

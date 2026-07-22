@@ -192,6 +192,24 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("classify every production consumer edge")
   })
 
+  test("Replay cross-process reproducibility bundle cannot drift silently", () => {
+    const bundle = JSON.parse(readFileSync(
+      join(repoRoot, "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-cross-process-reproducibility-bundle.json"),
+      "utf8",
+    )) as { bundle_sha256: string }
+    bundle.bundle_sha256 = "0".repeat(64)
+    const root = temporaryRoot()
+    const bundlePath = join(root, "replay-cross-process-reproducibility-bundle.json")
+    writeFileSync(bundlePath, JSON.stringify(bundle))
+
+    const result = runJudge("check-rd-replay-maturity-gate.ts", repoRoot, [], {
+      RD_REPLAY_CROSS_PROCESS_REPRODUCIBILITY_PATH: bundlePath,
+    })
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("reproducibility bundle hash drifted")
+  })
+
   test("package tests cannot report success for an empty suite", () => {
     const root = temporaryRoot()
     write(root, "modules/domain-a/tool-a/package.json", JSON.stringify({
