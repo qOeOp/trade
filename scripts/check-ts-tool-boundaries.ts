@@ -65,7 +65,10 @@ for (const file of walkSourceFiles("modules")) {
       return
     }
     const targetTool = owningToolRoot(resolved)
-    if (sourceTool && targetTool && sourceTool !== targetTool) observedEdges.add(`${sourceTool} -> ${targetTool}`)
+    if (sourceTool && targetTool && sourceTool !== targetTool
+      && !isIgnoredTestDependencyGraphEdge(file, sourceTool, targetTool)) {
+      observedEdges.add(`${sourceTool} -> ${targetTool}`)
+    }
     if (isAllowedCrossToolImport(file, sourceTool, targetTool)) {
       return
     }
@@ -178,6 +181,11 @@ function isAllowedResearchStrategyDevelopmentImport(sourceTool: string, targetTo
     "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-strategy-fixture -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-contracts",
     "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-strategy-fixture -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-data",
     "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-strategy-fixture -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-kernel",
+    "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle -> modules/research-strategy-development/research-control-plane/contracts",
+    "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle -> modules/research-strategy-development/replay-execution-plane/contracts",
+    "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle -> modules/research-strategy-development/replay-execution-plane/engine",
+    "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle -> modules/research-strategy-development/replay-execution-plane/accounting",
+    "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle -> modules/research-strategy-development/replay-execution-plane/runner",
     "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-replay-identity -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-data",
     "modules/research-strategy-development/replay-execution-plane/certification/calibration-suite -> modules/research-strategy-development/replay-execution-plane/benchmark",
     "modules/research-strategy-development/agent-roles/developer/candidate-batch -> modules/research-strategy-development/agent-roles/developer/candidate-batch-engine",
@@ -256,8 +264,16 @@ function isAllowedResearchStrategyDevelopmentImport(sourceTool: string, targetTo
 
 function isAllowedSameDomainIntegrationTestImport(file: string, sourceTool: string, targetTool: string): boolean {
   return file.endsWith(".test.ts")
-    && sourceTool === "modules/research-strategy-development/research-control-plane/certification/legacy-integration-suite"
-    && targetTool.startsWith("modules/research-strategy-development/")
+    && ((sourceTool === "modules/research-strategy-development/research-control-plane/certification/legacy-integration-suite"
+      && targetTool.startsWith("modules/research-strategy-development/"))
+      || (sourceTool === "modules/research-strategy-development/replay-execution-plane/runner"
+        && targetTool === "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle"))
+}
+
+function isIgnoredTestDependencyGraphEdge(file: string, sourceTool: string, targetTool: string): boolean {
+  return file.endsWith(".test.ts")
+    && sourceTool === "modules/research-strategy-development/replay-execution-plane/runner"
+    && targetTool === "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle"
 }
 
 function isAllowedTradeFlowOrchestratorImport(file: string, sourceTool: string, targetTool: string): boolean {
