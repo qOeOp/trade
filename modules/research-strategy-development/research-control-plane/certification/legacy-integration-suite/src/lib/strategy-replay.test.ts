@@ -4,7 +4,8 @@ import { join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { detectReplayDecisionLookahead, evaluateLatestSignal, evaluateReplayGate, replayStrategy, replayTrendPullback, simulateReplayOrderLane } from "../../../../../replay-execution-plane/compatibility/legacy-research-kernel/src/lib/strategy-replay"
+import { evaluateReplayGate, replayStrategy, replayTrendPullback, simulateReplayOrderLane } from "../../../../../replay-execution-plane/compatibility/legacy-research-kernel/src/lib/strategy-replay"
+import { detectReplayDecisionLookahead, evaluateLatestSignal } from "../../../../../replay-execution-plane/compatibility/legacy-research-decision/src/lib/legacy-research-decision"
 import type { ReplayStrategy } from "../../../../../replay-execution-plane/compatibility/legacy-research-contracts/src/lib/legacy-research-contracts"
 import { parseCsvCandles, type Candle } from "../../../../../replay-execution-plane/compatibility/legacy-research-data/src/lib/legacy-research-data"
 
