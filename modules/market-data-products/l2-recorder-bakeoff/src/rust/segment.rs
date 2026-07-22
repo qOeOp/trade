@@ -5,8 +5,13 @@ use std::env;
 use std::error::Error;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
-use std::path::Path;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
+
+#[cfg(test)]
+use std::time::{SystemTime, UNIX_EPOCH};
+
+mod segment_core;
+use segment_core::StreamingSegmentWriter;
 
 const MAGIC: &[u8; 4] = b"TL2S";
 const HEADER_BYTES: usize = 8;
@@ -139,52 +144,26 @@ fn write_segment_with_options(
     if payloads.is_empty() {
         return Err("segment requires at least one payload".into());
     }
-    if Path::new(output_path).exists() {
-        return Err(format!("segment output already exists: {output_path}").into());
-    }
-    let nonce = SystemTime::now().duration_since(UNIX_EPOCH)?.as_nanos();
-    let partial_path = format!("{output_path}.partial.{}.{nonce}", std::process::id());
-    let started_at = Instant::now();
-    let mut file = OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&partial_path)?;
-    file.write_all(&[b'T', b'L', b'2', b'S', 0, 1, 0, 0])?;
-    let mut payload_hasher = Sha256::new();
-    let mut payload_bytes = 0;
-    for (index, payload) in payloads.iter().enumerate() {
-        if payload.is_empty() || payload.len() > MAX_PAYLOAD_BYTES {
-            return Err(format!("payload length out of bounds: {}", payload.len()).into());
-        }
-        file.write_all(&(payload.len() as u32).to_be_bytes())?;
-        file.write_all(&crc32(payload).to_be_bytes())?;
-        file.write_all(payload)?;
-        payload_hasher.update(payload);
-        payload_bytes += payload.len();
-        if sync_every_frames > 0 && (index + 1) % sync_every_frames == 0 {
-            file.sync_all()?;
+    let mut writer = StreamingSegmentWriter::create(output_path)?;
+    for payload in payloads {
+        writer.append(payload)?;
+        if sync_every_frames > 0 && writer.frame_count() % sync_every_frames == 0 {
+            writer.sync()?;
         }
         if delay_ms > 0 {
             std::thread::sleep(Duration::from_millis(delay_ms));
         }
     }
-    file.sync_all()?;
-    drop(file);
-    fs::rename(&partial_path, output_path)?;
-    let parent = Path::new(output_path)
-        .parent()
-        .unwrap_or_else(|| Path::new("."));
-    File::open(parent)?.sync_all()?;
-    let segment = fs::read(output_path)?;
+    let finalized = writer.finalize()?;
     Ok(WriteResult {
         schema_version: "trade.l2-segment-write-result.v1",
         implementation: "rust",
-        frame_count: payloads.len(),
-        payload_bytes,
-        segment_bytes: segment.len(),
-        payload_hash: format!("{:x}", payload_hasher.finalize()),
-        segment_hash: hash_bytes(&segment),
-        elapsed_ns: started_at.elapsed().as_nanos(),
+        frame_count: finalized.frame_count,
+        payload_bytes: finalized.payload_bytes,
+        segment_bytes: finalized.segment_bytes,
+        payload_hash: finalized.payload_hash,
+        segment_hash: finalized.segment_hash,
+        elapsed_ns: finalized.elapsed_ns,
     })
 }
 
@@ -254,10 +233,6 @@ fn recover_segment(
         segment_bytes: segment.len(),
         elapsed_ns: started_at.elapsed().as_nanos(),
     })
-}
-
-fn hash_bytes(value: &[u8]) -> String {
-    format!("{:x}", Sha256::digest(value))
 }
 
 #[cfg(test)]

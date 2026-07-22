@@ -12,8 +12,15 @@ path = "src/rust/main.rs"
 name = "l2-segment-rust"
 path = "src/rust/segment.rs"
 
+[[bin]]
+name = "l2-soak-rust"
+path = "src/rust/soak.rs"
+
 [dependencies]
 crc32fast = "1"
+crossbeam-channel = "0.5"
+reqwest = { version = "0.12", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
+tungstenite = { version = "0.28", features = ["rustls-tls-native-roots"] }
