@@ -253,7 +253,7 @@ export function readL2EpochManifest(db: Database, epochId: string): AdmittedL2Ep
     SELECT retention_class, compaction_ref, deletion_eligible
     FROM l2_epoch_retention WHERE epoch_id = $epoch_id
   `).get({ $epoch_id: epochId }) as { retention_class: string; compaction_ref: string | null; deletion_eligible: number } | null
-  if (retention == null || retention.retention_class !== "raw_hot" || retention.compaction_ref !== null || retention.deletion_eligible !== 0) {
+  if (retention == null || !isSafeRetention(retention)) {
     throw new Error("stored L2 epoch retention state is invalid")
   }
   return {
@@ -279,9 +279,16 @@ function ensureRawHotRetention(db: Database, epochId: string, updatedAt: string)
     SELECT retention_class, compaction_ref, deletion_eligible
     FROM l2_epoch_retention WHERE epoch_id = $epoch_id
   `).get({ $epoch_id: epochId }) as { retention_class: string; compaction_ref: string | null; deletion_eligible: number } | null
-  if (row == null || row.retention_class !== "raw_hot" || row.compaction_ref !== null || row.deletion_eligible !== 0) {
-    throw new Error("L2 epoch retention must remain raw_hot and non-deletable before compaction")
+  if (row == null || !isSafeRetention(row)) {
+    throw new Error("L2 epoch retention must remain non-deletable")
   }
+}
+
+function isSafeRetention(row: { retention_class: string; compaction_ref: string | null; deletion_eligible: number }): boolean {
+  return row.deletion_eligible === 0 && (
+    (row.retention_class === "raw_hot" && row.compaction_ref === null)
+    || (row.retention_class === "compacted_pinned" && row.compaction_ref != null && row.compaction_ref.length > 0)
+  )
 }
 
 function verifyManifestEvidence(manifest: L2EpochManifestProposal, manifestPath: string, root: string): void {

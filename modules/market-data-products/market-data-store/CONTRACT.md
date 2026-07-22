@@ -9,7 +9,8 @@ Owns `market_data_store` for market manifests, admitted L2 epoch manifests, fund
 - Admit only `complete` Rust L2 epoch proposals after exact snapshot hash, snapshot update id, TL2S header/frame CRC, segment byte/hash/count, sibling-ref, repo runtime-path, and epoch count closure checks; commit epoch plus segment index create-or-identical.
 - Label admitted L2 scope as `epoch_contiguous` and external completeness as `not_verified`; preserve but reject `incomplete` proposals from the formal Replay/RD source catalog.
 - Reconcile finalized manifest trees idempotently, deduplicate observations by path plus exact content hash, and preserve bounded rejection reasons for incomplete or invalid proposals.
-- Mark every admitted epoch `raw_hot` and non-deletable. No raw file becomes deletion-eligible before a future compaction ref and reference/retention gate explicitly change owner state.
+- Issue at most one immutable compaction job per admitted epoch; admit only a proposal that closes the exact owner-issued job, source manifest, row count, Parquet byte length and hash.
+- Advance successfully compacted epochs from `raw_hot` to `compacted_pinned` with an immutable compaction ref while keeping `deletion_eligible=0`. Raw deletion requires a separate catalog/referrer and GC gate.
 - Insert canonical candles into `ohlcv_store` keyed by exchange/symbol/timeframe/open time.
 - Insert funding events keyed by exchange/symbol/funding time.
 - Register feature manifests derived from source manifests.
@@ -28,6 +29,6 @@ Owns `market_data_store` for market manifests, admitted L2 epoch manifests, fund
 - Does not own trading decisions or position state.
 - Does not write `trade.db`.
 - Does not call exchange write APIs.
-- Does not ingest WebSocket frames, own the current order book, mutate Rust evidence files, or infer continuity across L2 epochs.
+- Does not ingest WebSocket frames, own the current order book, write Parquet, mutate Rust evidence files, delete raw evidence, or infer continuity across L2 epochs.
 - Does not store research experiment results; those remain artifacts/evidence refs.
 - Does not normalize status epochs, infer missing events, select a canonical/latest correction, or certify external venue completeness, authenticity, signature, transport identity, source-system exhaustiveness, dissemination latency, or cross-source ordering.
