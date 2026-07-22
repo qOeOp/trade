@@ -7,11 +7,14 @@ import {
   REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION,
   REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
   REPLAY_PORTFOLIO_ALLOCATION_RESERVATION_SCHEMA_VERSION,
+  REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES,
+  REPLAY_PORTFOLIO_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION,
   REPLAY_PORTFOLIO_REALLOCATION_RESERVATION_SCHEMA_VERSION,
   REPLAY_RUNTIME_SHARED_WALLET_RISK_RESERVATION_SCHEMA_VERSION,
   TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION,
   createReplayInstrumentStatusProviderCertificationSnapshot,
   createReplayPortfolioAllocationReservationSnapshot,
+  createReplayPortfolioCycleSequenceReservationSnapshot,
   createReplayPortfolioReallocationReservationSnapshot,
   createReplayRuntimeSharedWalletRiskReservationSnapshot,
   hashReplayAttemptLeaseSnapshot,
@@ -24,6 +27,16 @@ import {
   replayPortfolioAllocationPlanHash,
   type ReplayPortfolioAllocationPlan,
 } from "../../../../contracts/src/lib/replay-portfolio-allocation-contracts"
+import {
+  assertReplayPortfolioCycleSequenceAccountingEvidence,
+  replayPortfolioCycleSequenceAccountingEvidenceHash,
+} from "../../../../contracts/src/lib/replay-portfolio-cycle-sequence-accounting-contracts"
+import {
+  REPLAY_PORTFOLIO_CYCLE_SEQUENCE_LIMITATIONS,
+  REPLAY_PORTFOLIO_CYCLE_SEQUENCE_PLAN_SCHEMA_VERSION,
+  replayPortfolioCycleSequencePlanHash,
+  type ReplayPortfolioCycleSequencePlan,
+} from "../../../../contracts/src/lib/replay-portfolio-cycle-sequence-contracts"
 import {
   REPLAY_INTEGRATED_PORTFOLIO_LIMITATIONS,
   REPLAY_INTEGRATED_PORTFOLIO_PLAN_SCHEMA_VERSION,
@@ -63,8 +76,11 @@ import { runReplayPortfolioReallocation } from
   "../../../../compatibility/legacy-portfolio-cycle/src/lib/replay-portfolio-reallocation-runner"
 import { runReplayTwoCyclePortfolio } from
   "../../../../compatibility/legacy-portfolio-cycle/src/lib/replay-two-cycle-portfolio-runner"
+import { runReplayPortfolioCycleSequenceAccounting } from
+  "../../../../compatibility/legacy-portfolio-cycle/src/lib/replay-portfolio-cycle-sequence-accounting-runner"
 import { createReplayLocalArtifactStore } from "../../../../runner/src/lib/replay-local-artifact-store"
 import { runReplayIntegratedPortfolio } from "../../../../runner/src/lib/replay-integrated-portfolio-runner"
+import { runReplayPortfolioCycleSequence } from "../../../../runner/src/lib/replay-portfolio-cycle-sequence-runner"
 import type {
   ReplayTrialRunInput,
   ReplayTrialRunOutcome,
@@ -207,7 +223,13 @@ function laneFixture(laneId: string, symbol: string): Lane {
   }
 }
 
-function runtimeLane(laneId: string, symbol: string, entryTime: string, exitTime: string): Lane {
+function runtimeLane(
+  laneId: string,
+  symbol: string,
+  entryTime: string,
+  exitTime: string,
+  exitOpen = 100,
+): Lane {
   const lane = laneFixture(laneId, symbol)
   Object.assign(lane.trial.request, {
     dataset_hash: HASH,
@@ -248,20 +270,23 @@ function runtimeLane(laneId: string, symbol: string, entryTime: string, exitTime
       authorized_order_hash: canonicalHash(exitIntent),
     }],
   }
-  lane.trial.bars = [entryTime, exitTime].map((openTime) => ({
+  lane.trial.bars = [
+    { openTime: entryTime, open: 100 },
+    { openTime: exitTime, open: exitOpen },
+  ].map(({ openTime, open }) => ({
     open_time: openTime,
     close_time: new Date(Date.parse(openTime) + 59_999).toISOString(),
-    open: 100,
-    high: 101,
-    low: 99,
-    close: 100,
+    open,
+    high: open + 1,
+    low: open - 1,
+    close: open,
     volume: 10,
     closed: true,
   }))
   const markTimes: [string, string, string] = [
     entryTime,
-    exitTime,
-    new Date(Date.parse(exitTime) + 60_000).toISOString().replace(".000Z", "Z"),
+    new Date(Date.parse(entryTime) + 60_000).toISOString().replace(".000Z", "Z"),
+    new Date(Date.parse(entryTime) + 120_000).toISOString().replace(".000Z", "Z"),
   ]
   const riskEpoch = {
     schema_version: REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
@@ -540,6 +565,40 @@ function integratedPlan(
   return { ...body, plan_hash: replayIntegratedPortfolioPlanHash(body) }
 }
 
+function cycleSequencePlan(
+  portfolioId: string,
+  reservationHash: string,
+  cycles: Array<{
+    integrated: ReplayIntegratedPortfolioPlan
+    allocation: ReplayPortfolioAllocationPlan
+    risk: ReplayRuntimeSharedWalletRiskPlan
+  }>,
+): ReplayPortfolioCycleSequencePlan {
+  const body: Omit<ReplayPortfolioCycleSequencePlan, "plan_hash"> = {
+    schema_version: REPLAY_PORTFOLIO_CYCLE_SEQUENCE_PLAN_SCHEMA_VERSION,
+    portfolio_id: portfolioId,
+    execution_mode: "predeclared_bounded_full_flat_exact_risk_cycle_sequence_v1",
+    sequence_reservation_hash: reservationHash,
+    initial_cash: 100,
+    cycle_count: cycles.length,
+    max_cycle_count: REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES,
+    cycles: cycles.map((cycle, index) => ({
+      cycle_index: index + 1,
+      integrated_plan_hash: cycle.integrated.plan_hash,
+      allocation_plan_hash: cycle.allocation.plan_hash,
+      risk_plan_hash: cycle.risk.plan_hash,
+      earliest_cycle_time: cycle.integrated.initial_allocation_time,
+      lane_set_hash: cycle.integrated.lane_set_hash,
+    })),
+    cash_roll_forward_policy: "cycle_one_initial_then_predecessor_ending_available",
+    successor_policy: "strictly_later_after_predecessor_full_flat_release",
+    artifact_policy: "fixed_role_dynamic_cycle_payload_then_manifest_last",
+    failure_policy: "any_cycle_or_artifact_failure_no_sequence_result_or_artifact",
+    limitations: REPLAY_PORTFOLIO_CYCLE_SEQUENCE_LIMITATIONS,
+  }
+  return { ...body, plan_hash: replayPortfolioCycleSequencePlanHash(body) }
+}
+
 test("P10 reallocation closes into one deterministic P11 two-cycle Result/Artifact", () => {
   const portfolioId = "portfolio-cycle-certification-1"
   const cycle1Lanes = [
@@ -715,6 +774,181 @@ test("P10 reallocation closes into one deterministic P11 two-cycle Result/Artifa
       result: null,
       failure: { code: "reallocation-input-invalid", partial_result_published: false },
     })
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test("P13 consolidates three predeclared full-flat cycles into one balanced accounting Artifact", () => {
+  const portfolioId = "portfolio-cycle-accounting-certification-1"
+  const definitions = [
+    {
+      ids: ["lane-seq-a", "lane-seq-b"],
+      symbols: ["BTCUSDT", "ETHUSDT"],
+      entry: "2026-07-14T00:01:00Z",
+      exit: "2026-07-14T00:03:00Z",
+      exitOpen: 110,
+    },
+    {
+      ids: ["lane-seq-c", "lane-seq-d"],
+      symbols: ["SOLUSDT", "BNBUSDT"],
+      entry: "2026-07-14T00:04:00Z",
+      exit: "2026-07-14T00:05:00Z",
+      exitOpen: 100,
+    },
+    {
+      ids: ["lane-seq-e", "lane-seq-f"],
+      symbols: ["XRPUSDT", "ADAUSDT"],
+      entry: "2026-07-14T00:07:00Z",
+      exit: "2026-07-14T00:08:00Z",
+      exitOpen: 100,
+    },
+  ] as const
+  const fixtures = definitions.map((definition) => {
+    const lanes = definition.ids.map((laneId, index) => runtimeLane(
+      laneId,
+      definition.symbols[index]!,
+      definition.entry,
+      definition.exit,
+      index === 0 ? definition.exitOpen : 100,
+    ))
+    return {
+      lanes,
+      entry: definition.entry,
+      allocation: allocationPlan(portfolioId, lanes),
+      risk: riskPlan(portfolioId, lanes),
+    }
+  })
+  const reservation = createReplayPortfolioCycleSequenceReservationSnapshot({
+    schema_version: REPLAY_PORTFOLIO_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION,
+    reservation_id: "cycle-sequence-accounting-certification-1",
+    reservation_ref: "reservation://cycle-sequence/accounting-certification-1",
+    issued_at: "2026-07-14T00:00:30Z",
+    expires_at: "2026-07-14T00:10:00Z",
+    status: "reserved",
+    authority_id: "research-control-plane",
+    experiment_id: "experiment-1",
+    trial_group_id: "trial-group-1",
+    trial_group_hash: HASH,
+    portfolio_id: portfolioId,
+    settlement_asset: "USDT",
+    initial_cash: 100,
+    cycle_count: fixtures.length,
+    max_cycle_count: REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES,
+    opening_cash_policy: "first_cycle_initial_then_predecessor_ending_available",
+    successor_eligibility_policy: "predecessor_full_flat_exposure_and_risk_zero",
+    expansion_policy: "exact_predeclared_cycles_no_runtime_append_or_search_expansion",
+    cycles: fixtures.map((fixture, index) => ({
+      cycle_index: index + 1,
+      allocation_plan_hash: fixture.allocation.plan_hash,
+      risk_plan_hash: fixture.risk.plan_hash,
+      earliest_cycle_time: fixture.entry,
+      max_gross_exposure_amount: 200,
+      max_abs_net_exposure_amount: 100,
+      max_portfolio_risk_amount: 25,
+      lanes: allocationAuthorityLanes(fixture.lanes),
+    })),
+    limitations: [
+      "one_to_eight_predeclared_full_flat_cycles_only",
+      "cycle_opening_cash_is_runtime_predecessor_evidence_not_control_plane_estimate",
+      "no_partial_cross_margin_borrow_real_liquidity_fast_or_runtime_cycle_expansion",
+    ],
+  })
+  const cycles = fixtures.map((fixture) => ({
+    ...fixture,
+    integrated: integratedPlan(
+      fixture.allocation,
+      reservation.reservation_hash,
+      fixture.risk,
+      reservation.reservation_hash,
+    ),
+  }))
+  const plan = cycleSequencePlan(portfolioId, reservation.reservation_hash, cycles)
+  const root = mkdtempSync(join(tmpdir(), "legacy-cycle-accounting-certification-"))
+  try {
+    const input = {
+      plan,
+      reservation,
+      cycles: cycles.map((cycle, index) => ({
+        cycle_index: index + 1,
+        integrated_plan: cycle.integrated,
+        allocation_plan: cycle.allocation,
+        risk_plan: cycle.risk,
+        lanes: [...cycle.lanes].reverse().map((lane) => ({
+          lane_id: lane.lane_id,
+          trial: lane.trial,
+        })),
+      })),
+      artifact_store: createReplayLocalArtifactStore(root),
+    }
+    const sequence = runReplayPortfolioCycleSequence(input)
+    if (!sequence.result || !sequence.artifact_manifest) {
+      throw new Error(sequence.failure?.message ?? "P12 sequence prerequisite missing")
+    }
+    expect(sequence.result.cycle_records.map((record) => [
+      record.opening_available_cash,
+      record.ending_available_cash,
+    ])).toEqual([[100, 110], [110, 110], [110, 110]])
+
+    const accounting = runReplayPortfolioCycleSequenceAccounting(input)
+    if (!accounting.evidence || !accounting.artifact_manifest || !accounting.sequence_result) {
+      throw new Error(accounting.failure?.message ?? "P13 accounting evidence missing")
+    }
+    expect(accounting.evidence.consolidated_journal
+      .filter((entry) => entry.cycle_entry.posting_kind === "opening_cash")
+      .map((entry) => entry.cycle_index)).toEqual([1])
+    expect(accounting.evidence.consolidated_trial_balance).toMatchObject({
+      opening_equity_posting_count: 1,
+      initial_cash: 100,
+      ending_available_cash: 110,
+      ending_reserved_isolated_collateral: 0,
+      ending_settled_cash: 110,
+      ending_unrealized_pnl: 0,
+      ending_portfolio_nav: 110,
+      balanced: true,
+    })
+    expect(accounting.evidence.consolidated_trial_balance.balances).toMatchObject({
+      opening_equity: 100,
+      realized_pnl_income: 10,
+    })
+    expect([...new Set(accounting.evidence.consolidated_journal.map((entry) => entry.cycle_index))])
+      .toEqual([1, 2, 3])
+    expect(accounting.evidence.consolidated_journal.map((entry) => entry.global_journal_sequence))
+      .toEqual(Array.from(
+        { length: accounting.evidence.consolidated_journal.length },
+        (_, index) => index + 1,
+      ))
+    expect(accounting.evidence.evidence_hash)
+      .toBe(replayPortfolioCycleSequenceAccountingEvidenceHash(accounting.evidence))
+    expect(accounting.artifact_manifest.files.map((file) => file.role)).toEqual([
+      "sequence_result", "sequence_artifact_manifest", "cycle_accounting_evidence",
+      "consolidated_ledger", "consolidated_journal", "consolidated_trial_balance",
+      "consolidated_fingerprint", "consolidated_accounting_evidence",
+    ])
+    expect(runReplayPortfolioCycleSequenceAccounting(input)).toMatchObject({
+      status: "completed",
+      idempotent_replay: true,
+      evidence: accounting.evidence,
+    })
+    expect(runReplayPortfolioCycleSequenceAccounting({
+      ...input,
+      publish_accounting_artifact: () => {
+        throw new Error("fixture P13 Artifact failure")
+      },
+    })).toMatchObject({
+      status: "failed",
+      sequence_result: null,
+      evidence: null,
+      artifact_manifest: null,
+      failure: {
+        code: "sequence-accounting-artifact-failed",
+        partial_result_published: false,
+      },
+    })
+    const tamperedEvidence = structuredClone(accounting.evidence)
+    tamperedEvidence.consolidated_trial_balance.opening_equity_posting_count = 2 as 1
+    expect(() => assertReplayPortfolioCycleSequenceAccountingEvidence(tamperedEvidence))
+      .toThrow("Trial Balance")
   } finally {
     rmSync(root, { recursive: true, force: true })
   }

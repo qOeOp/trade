@@ -12,7 +12,6 @@ import {
   REPLAY_RUNTIME_SHARED_WALLET_FUNDING_RESERVATION_SCHEMA_VERSION,
   REPLAY_RUNTIME_SHARED_WALLET_RISK_RESERVATION_SCHEMA_VERSION,
   REPLAY_PORTFOLIO_ALLOCATION_RESERVATION_SCHEMA_VERSION,
-  REPLAY_PORTFOLIO_REALLOCATION_RESERVATION_SCHEMA_VERSION,
   REPLAY_PORTFOLIO_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION,
   REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES,
   TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION,
@@ -23,7 +22,6 @@ import {
   createReplayRuntimeSharedWalletFundingReservationSnapshot,
   createReplayRuntimeSharedWalletRiskReservationSnapshot,
   createReplayPortfolioAllocationReservationSnapshot,
-  createReplayPortfolioReallocationReservationSnapshot,
   createReplayPortfolioCycleSequenceReservationSnapshot,
   hashReplayAttemptLeaseSnapshot,
   hashTrialReservationSnapshot,
@@ -97,29 +95,12 @@ import {
   type ReplayIntegratedPortfolioPlan,
 } from "../../../contracts/src/lib/replay-integrated-portfolio-contracts"
 import {
-  REPLAY_PORTFOLIO_REALLOCATION_LIMITATIONS,
-  REPLAY_PORTFOLIO_REALLOCATION_PLAN_SCHEMA_VERSION,
-  replayPortfolioReallocationPlanHash,
-  type ReplayPortfolioReallocationPlan,
-} from "../../../contracts/src/lib/replay-portfolio-reallocation-contracts"
-import {
-  REPLAY_TWO_CYCLE_PORTFOLIO_LIMITATIONS,
-  REPLAY_TWO_CYCLE_PORTFOLIO_PLAN_SCHEMA_VERSION,
-  replayTwoCyclePortfolioPlanHash,
-  replayTwoCyclePortfolioResultHash,
-  type ReplayTwoCyclePortfolioPlan,
-} from "../../../contracts/src/lib/replay-two-cycle-portfolio-contracts"
-import {
   REPLAY_PORTFOLIO_CYCLE_SEQUENCE_LIMITATIONS,
   REPLAY_PORTFOLIO_CYCLE_SEQUENCE_PLAN_SCHEMA_VERSION,
   replayPortfolioCycleSequencePlanHash,
   replayPortfolioCycleSequenceResultHash,
   type ReplayPortfolioCycleSequencePlan,
 } from "../../../contracts/src/lib/replay-portfolio-cycle-sequence-contracts"
-import {
-  assertReplayPortfolioCycleSequenceAccountingEvidence,
-  replayPortfolioCycleSequenceAccountingEvidenceHash,
-} from "../../../contracts/src/lib/replay-portfolio-cycle-sequence-accounting-contracts"
 import {
   assertReplayPortfolioMarkRiskRevaluationEvidence,
   replayPortfolioMarkRiskTransitionHash,
@@ -258,10 +239,7 @@ import { createReplayRuntimeSharedWalletPortfolioEvidence } from "../../../accou
 import { createReplayLocalArtifactStore } from "./replay-local-artifact-store"
 import { publishReplayRuntimeSharedWalletPortfolioArtifact } from "./replay-runtime-shared-wallet-artifact-publisher"
 import { runReplayIntegratedPortfolio } from "./replay-integrated-portfolio-runner"
-import { runReplayPortfolioReallocation } from "../../../compatibility/legacy-portfolio-cycle/src/lib/replay-portfolio-reallocation-runner"
-import { runReplayTwoCyclePortfolio } from "../../../compatibility/legacy-portfolio-cycle/src/lib/replay-two-cycle-portfolio-runner"
 import { runReplayPortfolioCycleSequence } from "./replay-portfolio-cycle-sequence-runner"
-import { runReplayPortfolioCycleSequenceAccounting } from "../../../compatibility/legacy-portfolio-cycle/src/lib/replay-portfolio-cycle-sequence-accounting-runner"
 import { runReplayPortfolioMarkRiskRevaluation } from "./replay-portfolio-mark-risk-revaluation-runner"
 import { runReplayPortfolioProtectiveTerminal } from "./replay-portfolio-protective-terminal-runner"
 import { runReplayPortfolioFixedPartialTerminal } from "./replay-portfolio-fixed-partial-terminal-runner"
@@ -1733,62 +1711,6 @@ function integratedPortfolioPlan(
     limitations: REPLAY_INTEGRATED_PORTFOLIO_LIMITATIONS,
   }
   return { ...body, plan_hash: replayIntegratedPortfolioPlanHash(body) }
-}
-
-function portfolioReallocationPlan(input: {
-  portfolioId: string
-  predecessorResultHash: string
-  predecessorManifestHash: string
-  reservationHash: string
-  allocationPlan: ReplayPortfolioAllocationPlan
-}): ReplayPortfolioReallocationPlan {
-  const body: Omit<ReplayPortfolioReallocationPlan, "plan_hash"> = {
-    schema_version: REPLAY_PORTFOLIO_REALLOCATION_PLAN_SCHEMA_VERSION,
-    portfolio_id: input.portfolioId,
-    execution_mode: "full_flat_release_then_second_allocation_cycle_v1",
-    predecessor_integrated_result_hash: input.predecessorResultHash,
-    predecessor_artifact_manifest_hash: input.predecessorManifestHash,
-    reallocation_reservation_hash: input.reservationHash,
-    cycle_2_allocation_plan_hash: input.allocationPlan.plan_hash,
-    cycle_2_event_time: input.allocationPlan.lanes[0]!.earliest_executable_time,
-    opening_cash_policy: "predecessor_ending_available_cash_after_full_flat_release",
-    eligibility_policy: "all_predecessor_positions_closed_and_exposure_risk_zero",
-    failure_policy: "input_or_allocation_or_artifact_failure_no_reallocation_result",
-    limitations: REPLAY_PORTFOLIO_REALLOCATION_LIMITATIONS,
-  }
-  return { ...body, plan_hash: replayPortfolioReallocationPlanHash(body) }
-}
-
-function twoCyclePortfolioPlan(input: {
-  portfolioId: string
-  cycle1ResultHash: string
-  cycle1ManifestHash: string
-  reallocationResultHash: string
-  reallocationManifestHash: string
-  allocationPlanHash: string
-  allocationResultHash: string
-  riskPlanHash: string
-  riskReservationHash: string
-}): ReplayTwoCyclePortfolioPlan {
-  const body: Omit<ReplayTwoCyclePortfolioPlan, "plan_hash"> = {
-    schema_version: REPLAY_TWO_CYCLE_PORTFOLIO_PLAN_SCHEMA_VERSION,
-    portfolio_id: input.portfolioId,
-    execution_mode: "cycle_one_integrated_then_cycle_two_allocation_exact_risk_v1",
-    cycle_1_integrated_result_hash: input.cycle1ResultHash,
-    cycle_1_artifact_manifest_hash: input.cycle1ManifestHash,
-    cycle_2_reallocation_result_hash: input.reallocationResultHash,
-    cycle_2_reallocation_manifest_hash: input.reallocationManifestHash,
-    cycle_2_allocation_plan_hash: input.allocationPlanHash,
-    cycle_2_allocation_result_hash: input.allocationResultHash,
-    cycle_2_risk_plan_hash: input.riskPlanHash,
-    cycle_2_risk_reservation_hash: input.riskReservationHash,
-    cash_bridge_policy: "cycle_1_ending_available_equals_cycle_2_shared_initial_cash",
-    state_chain_policy: "cycle_1_chain_then_cycle_2_chain_with_strict_time_and_wallet_bridge",
-    artifact_policy: "two_cycle_payloads_then_manifest_last",
-    failure_policy: "any_stage_failure_no_two_cycle_result_or_artifact",
-    limitations: REPLAY_TWO_CYCLE_PORTFOLIO_LIMITATIONS,
-  }
-  return { ...body, plan_hash: replayTwoCyclePortfolioPlanHash(body) }
 }
 
 function cycleSequencePlan(
@@ -3615,247 +3537,6 @@ test("integrated Portfolio liquidation releases the frozen Allocation exposure/r
   }
 })
 
-test("Portfolio Reallocation admits exactly one second Allocation cycle after committed full-flat release", () => {
-  const laneA = withRuntimeRisk(withRuntimeLifecycleExit(runtimeLaneInput({
-    laneId: "lane-a", symbol: "BTCUSDT", collateral: 20, feeBps: 0,
-  }), { executableTime: "2026-07-14T00:03:00Z", open: 100 }), [100, 100, 100])
-  const laneB = withRuntimeRisk(runtimeLaneInput({
-    laneId: "lane-b", symbol: "ETHUSDT", collateral: 20, feeBps: 0,
-  }), [100, 100, 100])
-  const firstAllocationDraft = portfolioAllocationPlan([laneA, laneB])
-  const firstAllocationBody = { ...firstAllocationDraft, portfolio_id: "portfolio-reallocation-1" }
-  const firstAllocationPlan = {
-    ...firstAllocationBody, plan_hash: replayPortfolioAllocationPlanHash(firstAllocationBody),
-  }
-  const firstRiskDraft = runtimeRiskPlan([laneA, laneB])
-  const firstRiskBody = { ...firstRiskDraft, portfolio_id: firstAllocationPlan.portfolio_id }
-  const firstRiskPlan = { ...firstRiskBody, plan_hash: replayRuntimeSharedWalletRiskPlanHash(firstRiskBody) }
-  const firstAllocationAuthority = portfolioAllocationReservation(
-    firstAllocationPlan, [laneA, laneB], ["lane-a", "lane-b"], { net: 100 },
-  )
-  const firstRiskAuthority = runtimeRiskReservation(firstRiskPlan, [laneA, laneB], ["lane-a", "lane-b"])
-  const integratedPlan = integratedPortfolioPlan(
-    firstAllocationPlan, firstAllocationAuthority.reservation_hash,
-    firstRiskPlan, firstRiskAuthority.reservation_hash,
-  )
-  const root = mkdtempSync(join(tmpdir(), "replay-portfolio-reallocation-"))
-  try {
-    const store = createReplayLocalArtifactStore(root)
-    const predecessor = runReplayIntegratedPortfolio({
-      integrated_plan: integratedPlan,
-      allocation_plan: firstAllocationPlan,
-      allocation_reservation: firstAllocationAuthority,
-      risk_plan: firstRiskPlan,
-      risk_reservation: firstRiskAuthority,
-      lanes: [laneB, laneA].map((lane) => ({ lane_id: lane.lane_id, trial: lane.trial })),
-      artifact_store: store,
-    })
-    if (!predecessor.result || !predecessor.artifact?.artifact_manifest) {
-      throw new Error(predecessor.failure?.message ?? "predecessor Result missing")
-    }
-
-    const cycle2MarkTimes: [string, string, string] = [
-      "2026-07-14T00:04:00Z", "2026-07-14T00:05:00Z", "2026-07-14T00:06:00Z",
-    ]
-    const laneC = withRuntimeRisk(withRuntimeLifecycleExit(runtimeLaneInput({
-      laneId: "lane-c", symbol: "SOLUSDT", collateral: 20, feeBps: 0,
-      executableTime: "2026-07-14T00:04:00Z",
-    }), { executableTime: "2026-07-14T00:05:00Z", open: 100 }), [100, 100, 100], {
-      markTimes: cycle2MarkTimes,
-    })
-    const laneD = withRuntimeRisk(runtimeLaneInput({
-      laneId: "lane-d", symbol: "BNBUSDT", collateral: 20, feeBps: 0,
-      executableTime: "2026-07-14T00:04:00Z",
-    }), [100, 100, 100], { markTimes: cycle2MarkTimes })
-    for (const lane of [laneC, laneD]) lane.trial.observed_at = "2026-07-14T00:03:50Z"
-    const secondDraft = portfolioAllocationPlan([laneC, laneD])
-    const secondBody = { ...secondDraft, portfolio_id: integratedPlan.portfolio_id }
-    const secondPlan = { ...secondBody, plan_hash: replayPortfolioAllocationPlanHash(secondBody) }
-    const byId = new Map([laneC, laneD].map((lane) => [lane.lane_id, lane]))
-    const reservation = createReplayPortfolioReallocationReservationSnapshot({
-      schema_version: REPLAY_PORTFOLIO_REALLOCATION_RESERVATION_SCHEMA_VERSION,
-      reservation_id: "portfolio-reallocation-1",
-      reservation_ref: "reservation://portfolio-reallocation/1",
-      issued_at: "2026-07-14T00:03:10Z",
-      expires_at: "2026-07-14T00:04:30Z",
-      status: "reserved",
-      authority_id: "research-control-plane",
-      experiment_id: "experiment-1",
-      trial_group_id: "trial-group-1",
-      trial_group_hash: HASH,
-      portfolio_id: integratedPlan.portfolio_id,
-      portfolio_plan_hash: secondPlan.plan_hash,
-      settlement_asset: "USDT",
-      portfolio_initial_cash: 100,
-      predecessor_integrated_result_hash: predecessor.result.result_hash,
-      predecessor_artifact_manifest_hash: predecessor.artifact.artifact_manifest.manifest_hash,
-      reallocation_cycle: 2,
-      earliest_reallocation_time: "2026-07-14T00:04:00Z",
-      opening_cash_policy: "predecessor_ending_available_cash_after_full_flat_release",
-      eligibility_policy: "all_predecessor_positions_closed_and_exposure_risk_zero",
-      allocation_policy_version: "simultaneous-entry-greedy-priority-no-resize-v1",
-      max_gross_exposure_amount: 200,
-      max_abs_net_exposure_amount: 100,
-      max_portfolio_risk_amount: 25,
-      lanes: ["lane-c", "lane-d"].map((laneId, index) => {
-        const lane = byId.get(laneId)!
-        return {
-          lane_id: laneId,
-          priority_rank: index + 1,
-          trial_id: lane.trial.request.trial_id,
-          run_id: lane.trial.request.run_id,
-          trial_reservation_ref: lane.trial.trial_reservation.reservation_ref,
-          trial_reservation_hash: hashTrialReservationSnapshot(lane.trial.trial_reservation),
-          max_lane_risk_amount: 15,
-        }
-      }),
-      limitations: [
-        "second_cycle_only_after_authoritative_full_flat_release",
-        "opening_cash_derived_from_predecessor_result_not_control_plane_estimate",
-        "no_third_cycle_partial_cross_margin_borrow_or_fast",
-      ],
-    })
-    const plan = portfolioReallocationPlan({
-      portfolioId: integratedPlan.portfolio_id,
-      predecessorResultHash: predecessor.result.result_hash,
-      predecessorManifestHash: predecessor.artifact.artifact_manifest.manifest_hash,
-      reservationHash: reservation.reservation_hash,
-      allocationPlan: secondPlan,
-    })
-    const input = {
-      plan, reservation, predecessor, allocation_plan: secondPlan,
-      lanes: [laneD, laneC].map((lane) => ({ lane_id: lane.lane_id, trial: lane.trial })),
-      artifact_store: store,
-    }
-    const outcome = runReplayPortfolioReallocation(input)
-    if (!outcome.result || !outcome.allocation_result || !outcome.artifact_manifest) {
-      throw new Error(outcome.failure?.message ?? "Reallocation Result missing")
-    }
-    expect(outcome.result).toMatchObject({
-      reallocation_cycle: 2,
-      predecessor_full_flat_time: "2026-07-14T00:03:00Z",
-      opening_available_cash: 100,
-      cycle_2_event_time: "2026-07-14T00:04:00Z",
-      ending_gross_exposure: 100,
-      ending_net_exposure: 100,
-      ending_portfolio_risk: 10,
-    })
-    expect(outcome.allocation_result.global_source_event_queue.map((event) => [event.lane_id, event.admission])).toEqual([
-      ["lane-c", "filled"], ["lane-d", "rejected"],
-    ])
-    expect(outcome.artifact_manifest.files.map((file) => file.role)).toEqual([
-      "reallocation_plan", "reallocation_reservation", "predecessor_integrated_result",
-      "predecessor_artifact_manifest", "cycle_2_allocation_plan", "cycle_2_allocation_result",
-      "reallocation_result",
-    ])
-    const retry = runReplayPortfolioReallocation(input)
-    expect(retry.result).toEqual(outcome.result)
-    expect(retry.idempotent_replay).toBe(true)
-
-    const secondRiskDraft = runtimeRiskPlan([laneC, laneD])
-    const secondRiskBody = { ...secondRiskDraft, portfolio_id: integratedPlan.portfolio_id }
-    const secondRiskPlan = {
-      ...secondRiskBody, plan_hash: replayRuntimeSharedWalletRiskPlanHash(secondRiskBody),
-    }
-    const secondRiskAuthority = runtimeRiskReservation(
-      secondRiskPlan, [laneC, laneD], ["lane-c", "lane-d"], {
-        issuedAt: "2026-07-14T00:03:40Z",
-        expiresAt: "2026-07-14T00:04:30Z",
-        sharedInitialCash: predecessor.result.ending_available_cash,
-      },
-    )
-    const twoCyclePlan = twoCyclePortfolioPlan({
-      portfolioId: integratedPlan.portfolio_id,
-      cycle1ResultHash: predecessor.result.result_hash,
-      cycle1ManifestHash: predecessor.artifact.artifact_manifest.manifest_hash,
-      reallocationResultHash: outcome.result.result_hash,
-      reallocationManifestHash: outcome.artifact_manifest.manifest_hash,
-      allocationPlanHash: secondPlan.plan_hash,
-      allocationResultHash: outcome.allocation_result.result_hash,
-      riskPlanHash: secondRiskPlan.plan_hash,
-      riskReservationHash: secondRiskAuthority.reservation_hash,
-    })
-    const twoCycleInput = {
-      plan: twoCyclePlan,
-      cycle_1: predecessor,
-      cycle_2_reallocation_plan: plan,
-      cycle_2_reallocation_reservation: reservation,
-      cycle_2_reallocation: outcome,
-      cycle_2_allocation_plan: secondPlan,
-      cycle_2_risk_plan: secondRiskPlan,
-      cycle_2_risk_reservation: secondRiskAuthority,
-      cycle_2_lanes: [laneD, laneC].map((lane) => ({ lane_id: lane.lane_id, trial: lane.trial })),
-      artifact_store: store,
-    }
-    const twoCycle = runReplayTwoCyclePortfolio(twoCycleInput)
-    if (!twoCycle.result || !twoCycle.cycle_2_risk_result || !twoCycle.artifact_manifest) {
-      throw new Error(twoCycle.failure?.message ?? "Two-Cycle Result missing")
-    }
-    expect(twoCycle.cycle_2_risk_result.global_source_event_queue
-      .filter((event) => event.event_role === "entry" || event.event_role === "exit")
-      .map((event) => [event.lane_id, event.event_role, event.outcome])).toEqual([
-      ["lane-c", "entry", "filled"], ["lane-d", "entry", "rejected"],
-      ["lane-c", "exit", "filled"],
-    ])
-    expect(twoCycle.result).toMatchObject({
-      cycle_1_ending_available_cash: 100,
-      cycle_2_opening_available_cash: 100,
-      ending_available_cash: 100,
-      ending_gross_exposure: 0,
-      ending_net_exposure: 0,
-      ending_portfolio_risk: 0,
-    })
-    expect(twoCycle.result.result_hash).toBe(replayTwoCyclePortfolioResultHash(twoCycle.result))
-    expect(twoCycle.result.state_chain.map((transition) => transition.cycle)).toContain(1)
-    expect(twoCycle.result.state_chain.map((transition) => transition.cycle)).toContain(2)
-    expect(twoCycle.artifact_manifest.files.map((file) => file.role)).toEqual([
-      "two_cycle_plan", "cycle_1_integrated_result", "cycle_1_artifact_manifest",
-      "cycle_2_reallocation_result", "cycle_2_reallocation_manifest", "cycle_2_allocation_plan",
-      "cycle_2_allocation_result", "cycle_2_risk_plan", "cycle_2_risk_reservation",
-      "cycle_2_risk_result", "cycle_2_portfolio_evidence", "two_cycle_state_chain",
-      "two_cycle_fingerprint", "two_cycle_result",
-    ])
-    const twoCycleRetry = runReplayTwoCyclePortfolio(twoCycleInput)
-    expect(twoCycleRetry.result).toEqual(twoCycle.result)
-    expect(twoCycleRetry.idempotent_replay).toBe(true)
-    const twoCycleFailure = runReplayTwoCyclePortfolio({
-      ...twoCycleInput,
-      execute_risk_slice: () => { throw new Error("fixture cycle-2 Risk Engine failure") },
-    })
-    expect(twoCycleFailure).toMatchObject({
-      status: "failed", result: null, cycle_2_risk_result: null, artifact_manifest: null,
-      failure: { code: "cycle-2-risk-failed", partial_result_published: false },
-    })
-    const authorityDriftPlan = structuredClone(twoCyclePlan)
-    authorityDriftPlan.cycle_2_risk_reservation_hash = "1".repeat(64)
-    authorityDriftPlan.plan_hash = replayTwoCyclePortfolioPlanHash(authorityDriftPlan)
-    const authorityDrift = runReplayTwoCyclePortfolio({ ...twoCycleInput, plan: authorityDriftPlan })
-    expect(authorityDrift).toMatchObject({
-      status: "failed", result: null, cycle_2_risk_result: null, artifact_manifest: null,
-      failure: { code: "two-cycle-input-invalid", partial_result_published: false },
-    })
-
-    const notFlat = structuredClone(predecessor)
-    notFlat.result!.ending_gross_exposure = 1
-    notFlat.result!.result_hash = replayIntegratedPortfolioResultHash(notFlat.result!)
-    const rejected = runReplayPortfolioReallocation({ ...input, predecessor: notFlat })
-    expect(rejected).toMatchObject({
-      status: "failed", result: null, allocation_result: null, artifact_manifest: null,
-      failure: { code: "reallocation-input-invalid", partial_result_published: false },
-    })
-    const engineFailure = runReplayPortfolioReallocation({
-      ...input,
-      execute_allocation_slice: () => { throw new Error("fixture second Allocation Engine failure") },
-    })
-    expect(engineFailure).toMatchObject({
-      status: "failed", result: null, allocation_result: null, artifact_manifest: null,
-      failure: { code: "reallocation-allocation-failed", partial_result_published: false },
-    })
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
-})
-
 test("bounded Cycle Sequence executes one, two, and three predeclared full-flat cycles without cycle-number schemas", () => {
   const definitions = [
     {
@@ -4016,85 +3697,6 @@ test("bounded Cycle Sequence executes one, two, and three predeclared full-flat 
       status: "failed", result: null, artifact_manifest: null,
       failure: { code: "cycle-sequence-input-invalid", cycle_index: null, partial_result_published: false },
     })
-
-    const accounting = runReplayPortfolioCycleSequenceAccounting(three)
-    if (!accounting.evidence || !accounting.artifact_manifest || !accounting.sequence_result) {
-      throw new Error(accounting.failure?.message ?? "Cycle Sequence Accounting Evidence missing")
-    }
-    expect(accounting.evidence.consolidated_journal
-      .filter((entry) => entry.cycle_entry.posting_kind === "opening_cash")
-      .map((entry) => entry.cycle_index)).toEqual([1])
-    expect(accounting.evidence.consolidated_trial_balance).toMatchObject({
-      opening_equity_posting_count: 1,
-      initial_cash: 100,
-      ending_available_cash: 110,
-      ending_reserved_isolated_collateral: 0,
-      ending_settled_cash: 110,
-      ending_unrealized_pnl: 0,
-      ending_portfolio_nav: 110,
-      balanced: true,
-    })
-    expect(accounting.evidence.consolidated_trial_balance.balances.opening_equity).toBe(100)
-    expect(accounting.evidence.consolidated_trial_balance.balances.realized_pnl_income).toBe(10)
-    expect(accounting.evidence.consolidated_ledger.at(-1)?.cycle_entry.settled_cash_after).toBe(110)
-    expect([...new Set(accounting.evidence.consolidated_journal.map((entry) => entry.cycle_index))])
-      .toEqual([1, 2, 3])
-    expect(accounting.evidence.consolidated_journal.map((entry) => entry.global_journal_sequence))
-      .toEqual(Array.from(
-        { length: accounting.evidence.consolidated_journal.length }, (_, index) => index + 1,
-      ))
-    expect(accounting.evidence.evidence_hash)
-      .toBe(replayPortfolioCycleSequenceAccountingEvidenceHash(accounting.evidence))
-    expect(accounting.artifact_manifest.files.map((file) => file.role)).toEqual([
-      "sequence_result", "sequence_artifact_manifest", "cycle_accounting_evidence",
-      "consolidated_ledger", "consolidated_journal", "consolidated_trial_balance",
-      "consolidated_fingerprint", "consolidated_accounting_evidence",
-    ])
-    const accountingRetry = runReplayPortfolioCycleSequenceAccounting(three)
-    expect(accountingRetry.evidence).toEqual(accounting.evidence)
-    expect(accountingRetry.idempotent_replay).toBe(true)
-    const accountingArtifactFailure = runReplayPortfolioCycleSequenceAccounting({
-      ...three,
-      publish_accounting_artifact: () => { throw new Error("fixture consolidated Artifact failure") },
-    })
-    expect(accountingArtifactFailure).toMatchObject({
-      status: "failed", sequence_result: null, evidence: null, artifact_manifest: null,
-      failure: { code: "sequence-accounting-artifact-failed", partial_result_published: false },
-    })
-    let cycleEvidenceReads = 0
-    const tamperingStore: ReplayArtifactStore = {
-      capability: store.capability,
-      openAttempt: (identity) => {
-        const namespace = store.openAttempt(identity)
-        return {
-          namespace_ref: namespace.namespace_ref,
-          fileRef: (name) => namespace.fileRef(name),
-          exists: (name) => namespace.exists(name),
-          listNames: () => namespace.listNames(),
-          read: (name) => {
-            const read = namespace.read(name)
-            if (name === "cycle-evidence.json" && ++cycleEvidenceReads === 2) {
-              return { ...read, bytes: new TextEncoder().encode("[]\n") }
-            }
-            return read
-          },
-          readRef: (ref) => namespace.readRef(ref),
-          writeImmutable: (name, content) => namespace.writeImmutable(name, content),
-          remove: (name) => namespace.remove(name),
-        }
-      },
-    }
-    const accountingArtifactTamper = runReplayPortfolioCycleSequenceAccounting({
-      ...three, artifact_store: tamperingStore,
-    })
-    expect(accountingArtifactTamper).toMatchObject({
-      status: "failed", sequence_result: null, evidence: null, artifact_manifest: null,
-      failure: { code: "sequence-artifact-read-failed", partial_result_published: false },
-    })
-    const tamperedEvidence = structuredClone(accounting.evidence)
-    tamperedEvidence.consolidated_trial_balance.opening_equity_posting_count = 2 as 1
-    expect(() => assertReplayPortfolioCycleSequenceAccountingEvidence(tamperedEvidence))
-      .toThrow("Trial Balance")
 
     const protectiveSequence = runReplayPortfolioProtectiveTerminalCycleSequence(three)
     if (!protectiveSequence.result || !protectiveSequence.artifact_manifest) {
