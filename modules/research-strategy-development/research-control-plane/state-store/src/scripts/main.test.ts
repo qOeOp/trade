@@ -20,6 +20,7 @@ import {
   type DeveloperDevelopmentBrief,
 } from "../../../contracts/src/lib/developer-contract-draft"
 import { DEVELOPER_CONTRACT_DRAFT_VALIDATION_REQUEST_SCHEMA_VERSION } from "../../../contracts/src/lib/developer-contract-draft-validation"
+import { DEVELOPER_CONTRACT_FREEZE_REQUEST_SCHEMA_VERSION } from "../../../contracts/src/lib/developer-contract-freeze"
 
 test("research state store CLI upserts and reads program", () => {
   const dir = mkdtempSync(join(tmpdir(), "research-state-store-"))
@@ -184,6 +185,20 @@ test("research state store CLI admits a bounded Planner Proposal without materia
       "--json", JSON.stringify({ validation_id: "draft-validation-cli-1" }),
     ])) as { validation: { validation_hash: string } }
     assert.equal(validationRead.validation.validation_hash, validated.validation.validation_hash)
+    assert.throws(() => run(parseArgs([
+      "--db", dbPath, "--action", "freeze_developer_experiment_contract",
+      "--json", JSON.stringify({
+        schema_version: DEVELOPER_CONTRACT_FREEZE_REQUEST_SCHEMA_VERSION,
+        freeze_id: "freeze-cli-1",
+        validation_id: "draft-validation-cli-1",
+        validation_hash: validated.validation.validation_hash,
+        experiment_id: "experiment-cli-1",
+        bootstrap_lifecycle_event_id: "event-cli-register-1",
+        bootstrap_lifecycle_idempotency_key: "event-cli-register-key-1",
+        idempotency_key: "freeze-cli-key-1",
+        frozen_at: "2026-07-22T12:08:00Z",
+      }),
+    ])), /only a valid/)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

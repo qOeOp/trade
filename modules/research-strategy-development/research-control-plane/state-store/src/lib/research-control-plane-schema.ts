@@ -291,6 +291,27 @@ CREATE TABLE IF NOT EXISTS rd_developer_contract_draft_validation (
     REFERENCES rd_developer_contract_draft(brief_id, draft_revision)
 );
 
+CREATE TABLE IF NOT EXISTS rd_developer_contract_freeze (
+  freeze_id TEXT PRIMARY KEY,
+  validation_id TEXT NOT NULL UNIQUE,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  freeze_request_hash TEXT NOT NULL UNIQUE,
+  validation_hash TEXT NOT NULL,
+  experiment_id TEXT NOT NULL UNIQUE,
+  contract_hash TEXT NOT NULL UNIQUE,
+  trial_group_id TEXT NOT NULL UNIQUE,
+  trial_group_hash TEXT NOT NULL UNIQUE,
+  candidate_identity_set_hash TEXT NOT NULL,
+  freeze_compiler_version TEXT NOT NULL,
+  compatibility_projection_version TEXT NOT NULL,
+  freeze_hash TEXT NOT NULL UNIQUE,
+  freeze_json TEXT NOT NULL CHECK(json_valid(freeze_json)),
+  frozen_at TEXT NOT NULL,
+  FOREIGN KEY (validation_id) REFERENCES rd_developer_contract_draft_validation(validation_id),
+  FOREIGN KEY (experiment_id) REFERENCES rd_experiment_contract(experiment_id),
+  FOREIGN KEY (trial_group_id) REFERENCES rd_trial_group(trial_group_id)
+);
+
 CREATE TABLE IF NOT EXISTS rd_proposal (
   proposal_id TEXT PRIMARY KEY,
   planner_run_id TEXT NOT NULL,
@@ -1623,6 +1644,13 @@ BEGIN SELECT RAISE(ABORT, 'Developer Contract Draft Validation Record is immutab
 CREATE TRIGGER IF NOT EXISTS prevent_developer_contract_draft_validation_delete
 BEFORE DELETE ON rd_developer_contract_draft_validation
 BEGIN SELECT RAISE(ABORT, 'Developer Contract Draft Validation Record is immutable'); END;
+
+CREATE TRIGGER IF NOT EXISTS prevent_developer_contract_freeze_update
+BEFORE UPDATE ON rd_developer_contract_freeze
+BEGIN SELECT RAISE(ABORT, 'Developer Contract Freeze Record is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS prevent_developer_contract_freeze_delete
+BEFORE DELETE ON rd_developer_contract_freeze
+BEGIN SELECT RAISE(ABORT, 'Developer Contract Freeze Record is immutable'); END;
 
 CREATE TRIGGER IF NOT EXISTS prevent_trial_group_candidate_update
 BEFORE UPDATE ON rd_trial_group_candidate

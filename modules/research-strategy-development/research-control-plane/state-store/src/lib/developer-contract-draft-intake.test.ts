@@ -11,6 +11,7 @@ import {
 import {
   DEVELOPER_CONTRACT_DRAFT_VALIDATION_REQUEST_SCHEMA_VERSION,
 } from "../../../contracts/src/lib/developer-contract-draft-validation"
+import { DEVELOPER_CONTRACT_FREEZE_REQUEST_SCHEMA_VERSION } from "../../../contracts/src/lib/developer-contract-freeze"
 import { canonicalControlPlaneHash } from "../../../contracts/src/lib/control-plane-contracts"
 import {
   PLANNER_PROPOSAL_INTAKE_REQUEST_SCHEMA_VERSION,
@@ -27,8 +28,12 @@ import {
   readDeveloperContractDraftValidation,
   validateDeveloperContractDraft,
 } from "./developer-contract-draft-validation"
+import { freezeDeveloperExperimentContract, readDeveloperContractFreeze } from "./developer-contract-freeze"
 import { admitPlannerProposal } from "./planner-proposal-intake"
 import { RESEARCH_CONTRACT_VALIDATOR_VERSION } from "./research-contract-validator"
+import { compileDeveloperContractFreezeTrialGroup } from "./developer-contract-freeze-compiler"
+import { IDENTITY_HASH_POLICY_VERSION } from "./research-identity-hash"
+import { RESEARCH_LIFECYCLE_RULE_VERSION } from "./research-control-plane-schema"
 import { readPlannerControlPlaneContext } from "./research-control-plane-operations"
 import { ensureResearchStateSchema } from "./research-state-store"
 import { seedDefaultResearchControlPlane } from "./research-universe-default-seed"
@@ -116,6 +121,14 @@ function receive(db: Database, submission: ReturnType<typeof draft>, overrides: 
 function validDraftPayload(brief: ReturnType<typeof issueBrief>, lookback = 20) {
   const candidateAssignments = [{ candidate_id: "candidate-1", parameters: { lookback } }]
   const candidateAssignmentSetHash = canonicalControlPlaneHash(candidateAssignments)
+  const group = compileDeveloperContractFreezeTrialGroup({
+    trial_group_id: "group-1",
+    hypothesis_id: brief.hypothesis_id,
+    candidate_space: brief.candidate_space,
+    candidate_assignments: candidateAssignments,
+    max_trials: 2,
+    compiled_at: "2026-07-22T12:05:00Z",
+  })
   return {
     schema_version: DEVELOPER_EXPERIMENT_CONTRACT_DRAFT_PAYLOAD_SCHEMA_VERSION,
     canonical_node_id: brief.universe_node_id,
@@ -128,9 +141,9 @@ function validDraftPayload(brief: ReturnType<typeof issueBrief>, lookback = 20) 
       code_family_id: "time_series_momentum_v1",
       implementation_version: "v1",
       contract_versions: {
-        identity_hash_policy: "identity-v1",
+        identity_hash_policy: IDENTITY_HASH_POLICY_VERSION,
         validator: RESEARCH_CONTRACT_VALIDATOR_VERSION,
-        lifecycle_rule: "lifecycle-v1",
+        lifecycle_rule: RESEARCH_LIFECYCLE_RULE_VERSION,
         scope_policy: "scope-v1",
       },
       hypothesis: { falsifiable_claim: "trend persistence exceeds costs" },
@@ -146,7 +159,7 @@ function validDraftPayload(brief: ReturnType<typeof issueBrief>, lookback = 20) 
       rejection_criteria: ["net return does not exceed cost"],
       trial_group_ref: {
         trial_group_id: "group-1",
-        group_hash: "f".repeat(64),
+        group_hash: group.group_hash,
         search_space_hash: brief.allowed_candidate_space_hash,
         max_trials: 2,
       },
@@ -309,6 +322,27 @@ test("Control Plane persists invalid Draft evidence for incomplete and out-of-sp
   } finally {
     outOfSpaceDb.close()
   }
+
+  const groupDriftDb = openDb()
+  try {
+    admitProposal(groupDriftDb)
+    const brief = issueBrief(groupDriftDb)
+    const payload = validDraftPayload(brief)
+    payload.contract.trial_group_ref.group_hash = "a".repeat(64)
+    receive(groupDriftDb, draft(brief, { draft_json: payload }))
+    const invalid = validateDeveloperContractDraft(groupDriftDb, {
+      schema_version: DEVELOPER_CONTRACT_DRAFT_VALIDATION_REQUEST_SCHEMA_VERSION,
+      validation_id: "validation-group-drift",
+      brief_id: brief.brief_id,
+      draft_revision: 1,
+      idempotency_key: "draft-validation-group-drift",
+      validated_at: "2026-07-22T12:07:00Z",
+    })
+    expect(invalid.status).toBe("invalid")
+    expect(invalid.errors).toContain("contract.trial_group_ref.group_hash must match the freeze compiler output")
+  } finally {
+    groupDriftDb.close()
+  }
 })
 
 test("Draft validation rejects superseded revisions and idempotency-key drift", () => {
@@ -347,6 +381,122 @@ test("Draft validation rejects superseded revisions and idempotency-key drift", 
     expect(count(db, "rd_developer_contract_draft_validation")).toBe(1)
   } finally {
     db.close()
+  }
+})
+
+test("Control Plane atomically freezes one valid Draft into formal Contract facts without a Trial", () => {
+  const db = openDb()
+  try {
+    admitProposal(db)
+    const brief = issueBrief(db)
+    receive(db, draft(brief, { draft_json: validDraftPayload(brief) }))
+    const validation = validateDeveloperContractDraft(db, {
+      schema_version: DEVELOPER_CONTRACT_DRAFT_VALIDATION_REQUEST_SCHEMA_VERSION,
+      validation_id: "validation-freeze",
+      brief_id: brief.brief_id,
+      draft_revision: 1,
+      idempotency_key: "draft-validation-freeze",
+      validated_at: "2026-07-22T12:07:00Z",
+    })
+    const request = {
+      schema_version: DEVELOPER_CONTRACT_FREEZE_REQUEST_SCHEMA_VERSION,
+      freeze_id: "freeze-1",
+      validation_id: validation.validation_id,
+      validation_hash: validation.validation_hash,
+      experiment_id: "experiment-1",
+      bootstrap_lifecycle_event_id: "event-freeze-register-1",
+      bootstrap_lifecycle_idempotency_key: "event-freeze-register-key-1",
+      idempotency_key: "contract-freeze-key-1",
+      frozen_at: "2026-07-22T12:08:00Z",
+    } as const
+    const frozen = freezeDeveloperExperimentContract(db, request)
+    expect(freezeDeveloperExperimentContract(db, request)).toEqual(frozen)
+    expect(readDeveloperContractFreeze(db, frozen.freeze_id)).toEqual(frozen)
+    expect(frozen.status).toBe("frozen")
+    expect(frozen.contract_hash).toBe(validation.contract_candidate_hash)
+    expect(count(db, "rd_developer_contract_freeze")).toBe(1)
+    expect(count(db, "rd_trial_group")).toBe(1)
+    expect(count(db, "rd_trial_group_candidate")).toBe(1)
+    expect(count(db, "rd_experiment_contract")).toBe(1)
+    expect(count(db, "rd_lifecycle_event")).toBe(1)
+    expect(count(db, "rd_trial")).toBe(0)
+    expect(db.query(`
+      SELECT lifecycle_state, lifecycle_version FROM rd_experiment_contract WHERE experiment_id='experiment-1'
+    `).get()).toEqual({ lifecycle_state: "proposed", lifecycle_version: 1 })
+    expect(() => db.query("UPDATE rd_developer_contract_freeze SET freeze_compiler_version='drift'").run())
+      .toThrow("immutable")
+    expect(() => freezeDeveloperExperimentContract(db, { ...request, experiment_id: "experiment-drift" }))
+      .toThrow("idempotency key already exists")
+  } finally {
+    db.close()
+  }
+})
+
+test("Contract Freeze rejects invalid evidence and rolls back every formal fact on registration failure", () => {
+  const invalidDb = openDb()
+  try {
+    admitProposal(invalidDb)
+    const brief = issueBrief(invalidDb)
+    receive(invalidDb, draft(brief))
+    const validation = validateDeveloperContractDraft(invalidDb, {
+      schema_version: DEVELOPER_CONTRACT_DRAFT_VALIDATION_REQUEST_SCHEMA_VERSION,
+      validation_id: "validation-invalid-freeze",
+      brief_id: brief.brief_id,
+      draft_revision: 1,
+      idempotency_key: "draft-validation-invalid-freeze",
+      validated_at: "2026-07-22T12:07:00Z",
+    })
+    expect(() => freezeDeveloperExperimentContract(invalidDb, {
+      schema_version: DEVELOPER_CONTRACT_FREEZE_REQUEST_SCHEMA_VERSION,
+      freeze_id: "freeze-invalid",
+      validation_id: validation.validation_id,
+      validation_hash: validation.validation_hash,
+      experiment_id: "experiment-invalid",
+      bootstrap_lifecycle_event_id: "event-invalid",
+      bootstrap_lifecycle_idempotency_key: "event-invalid-key",
+      idempotency_key: "freeze-invalid-key",
+      frozen_at: "2026-07-22T12:08:00Z",
+    })).toThrow("only a valid")
+    expect(count(invalidDb, "rd_developer_contract_freeze")).toBe(0)
+    expect(count(invalidDb, "rd_trial_group")).toBe(0)
+  } finally {
+    invalidDb.close()
+  }
+
+  const rollbackDb = openDb()
+  try {
+    admitProposal(rollbackDb)
+    const brief = issueBrief(rollbackDb)
+    receive(rollbackDb, draft(brief, { draft_json: validDraftPayload(brief) }))
+    const validation = validateDeveloperContractDraft(rollbackDb, {
+      schema_version: DEVELOPER_CONTRACT_DRAFT_VALIDATION_REQUEST_SCHEMA_VERSION,
+      validation_id: "validation-rollback",
+      brief_id: brief.brief_id,
+      draft_revision: 1,
+      idempotency_key: "draft-validation-rollback",
+      validated_at: "2026-07-22T12:07:00Z",
+    })
+    rollbackDb.query(`
+      UPDATE rd_universe_node SET implementation_scope_status='backlog' WHERE node_id=$node_id
+    `).run({ $node_id: brief.universe_node_id })
+    expect(() => freezeDeveloperExperimentContract(rollbackDb, {
+      schema_version: DEVELOPER_CONTRACT_FREEZE_REQUEST_SCHEMA_VERSION,
+      freeze_id: "freeze-rollback",
+      validation_id: validation.validation_id,
+      validation_hash: validation.validation_hash,
+      experiment_id: "experiment-rollback",
+      bootstrap_lifecycle_event_id: "event-rollback",
+      bootstrap_lifecycle_idempotency_key: "event-rollback-key",
+      idempotency_key: "freeze-rollback-key",
+      frozen_at: "2026-07-22T12:08:00Z",
+    })).toThrow("implementation-ready")
+    expect(count(rollbackDb, "rd_developer_contract_freeze")).toBe(0)
+    expect(count(rollbackDb, "rd_trial_group")).toBe(0)
+    expect(count(rollbackDb, "rd_trial_group_candidate")).toBe(0)
+    expect(count(rollbackDb, "rd_experiment_contract")).toBe(0)
+    expect(count(rollbackDb, "rd_proposal")).toBe(0)
+  } finally {
+    rollbackDb.close()
   }
 })
 

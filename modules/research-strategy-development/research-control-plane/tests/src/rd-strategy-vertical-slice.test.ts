@@ -110,6 +110,8 @@ test("Control Plane context to Proposal Admission to Developer Draft remains aut
     expect(draft).not.toHaveProperty("experiment_id")
     expect((db.query("SELECT COUNT(*) AS count FROM rd_experiment_contract").get() as { count: number }).count)
       .toBe(0)
+    expect((db.query("SELECT COUNT(*) AS count FROM rd_developer_contract_freeze").get() as { count: number }).count)
+      .toBe(0)
     expect((db.query("SELECT COUNT(*) AS count FROM rd_trial").get() as { count: number }).count)
       .toBe(0)
 

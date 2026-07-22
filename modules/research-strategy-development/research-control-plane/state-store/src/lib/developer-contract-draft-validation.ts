@@ -19,6 +19,9 @@ import {
   type DeveloperDevelopmentBrief,
 } from "../../../contracts/src/lib/developer-contract-draft"
 import { RESEARCH_CONTRACT_VALIDATOR_VERSION, validateResearchProposal } from "./research-contract-validator"
+import { compileDeveloperContractFreezeTrialGroup } from "./developer-contract-freeze-compiler"
+import { RESEARCH_LIFECYCLE_RULE_VERSION } from "./research-control-plane-schema"
+import { IDENTITY_HASH_POLICY_VERSION } from "./research-identity-hash"
 
 export function validateDeveloperContractDraft(
   db: Database,
@@ -65,7 +68,7 @@ export function validateDeveloperContractDraft(
     if (Date.parse(request.validated_at) < Date.parse(receipt.recorded_at)) {
       throw new Error("Contract Draft validation cannot predate Draft receipt")
     }
-    const result = reconcileDraft(brief, submission, row.latest_proposal_revision)
+    const result = reconcileDeveloperContractDraft(brief, submission, row.latest_proposal_revision)
     const record = createDeveloperContractDraftValidationRecord({
       schema_version: DEVELOPER_CONTRACT_DRAFT_VALIDATION_RECORD_SCHEMA_VERSION,
       validation_id: request.validation_id,
@@ -158,7 +161,7 @@ export function readDeveloperContractDraftValidation(
   return parseValidationRecord(row.validation_json)
 }
 
-function reconcileDraft(
+export function reconcileDeveloperContractDraft(
   brief: DeveloperDevelopmentBrief,
   submission: DeveloperContractDraftSubmission,
   latestProposalRevision: number,
@@ -175,8 +178,14 @@ function reconcileDraft(
   if (!sameStrings(contract.required_data, brief.dataset_requirements)) errors.push("contract.required_data must exactly match Brief")
 
   const versions = record(contract.contract_versions)
+  if (versions.identity_hash_policy !== IDENTITY_HASH_POLICY_VERSION) {
+    errors.push(`contract.contract_versions.identity_hash_policy must be ${IDENTITY_HASH_POLICY_VERSION}`)
+  }
   if (versions.validator !== RESEARCH_CONTRACT_VALIDATOR_VERSION) {
     errors.push(`contract.contract_versions.validator must be ${RESEARCH_CONTRACT_VALIDATOR_VERSION}`)
+  }
+  if (versions.lifecycle_rule !== RESEARCH_LIFECYCLE_RULE_VERSION) {
+    errors.push(`contract.contract_versions.lifecycle_rule must be ${RESEARCH_LIFECYCLE_RULE_VERSION}`)
   }
   const validationPlan = record(contract.validation_plan)
   if (validationPlan.evaluation_protocol_ref !== brief.evaluation_protocol_ref) {
@@ -190,7 +199,7 @@ function reconcileDraft(
     errors.push("draft.candidate_space must exactly match Brief")
   }
 
-  const assignments = normalizeAssignments(submission.draft_json.candidate_assignments)
+  const assignments = normalizeDeveloperContractCandidateAssignments(submission.draft_json.candidate_assignments)
   const candidateAssignmentSetHash = canonicalControlPlaneHash(assignments.normalized)
   errors.push(...assignments.errors)
   errors.push(...validateAxisEnumerationSpace(candidateSpace, assignments.normalized))
@@ -218,6 +227,23 @@ function reconcileDraft(
   if (group.max_trials !== submission.requested_trial_budget) {
     errors.push("contract.trial_group_ref.max_trials must match requested_trial_budget")
   }
+  if (typeof group.trial_group_id === "string" && group.trial_group_id.trim() && isRecord(candidateSpace)) {
+    try {
+      const compiled = compileDeveloperContractFreezeTrialGroup({
+        trial_group_id: group.trial_group_id,
+        hypothesis_id: brief.hypothesis_id,
+        candidate_space: candidateSpace,
+        candidate_assignments: assignments.normalized,
+        max_trials: submission.requested_trial_budget,
+        compiled_at: submission.created_at,
+      })
+      if (group.group_hash !== compiled.group_hash) {
+        errors.push("contract.trial_group_ref.group_hash must match the freeze compiler output")
+      }
+    } catch (error) {
+      errors.push(`contract.trial_group_ref cannot compile: ${error instanceof Error ? error.message : String(error)}`)
+    }
+  }
 
   return {
     contract_candidate_hash: canonicalControlPlaneHash(contractValue ?? null),
@@ -227,7 +253,7 @@ function reconcileDraft(
   }
 }
 
-function normalizeAssignments(value: unknown): NormalizedAssignments {
+export function normalizeDeveloperContractCandidateAssignments(value: unknown): NormalizedAssignments {
   if (!Array.isArray(value)) {
     return { normalized: [], errors: ["draft.candidate_assignments must be a non-empty array"] }
   }
@@ -346,5 +372,5 @@ interface ReconciliationResult {
   candidate_assignment_set_hash: string
   errors: string[]
 }
-interface NormalizedCandidateAssignment { candidate_id: string; parameters: JSONRecord }
-interface NormalizedAssignments { normalized: NormalizedCandidateAssignment[]; errors: string[] }
+export interface NormalizedCandidateAssignment { candidate_id: string; parameters: JSONRecord }
+export interface NormalizedAssignments { normalized: NormalizedCandidateAssignment[]; errors: string[] }
