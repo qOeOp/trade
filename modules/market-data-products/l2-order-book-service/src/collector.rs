@@ -189,8 +189,15 @@ async fn run_epoch(
                 match tracker.observe(&update) {
                     SequenceDecision::Ignore => {}
                     SequenceDecision::Accept => {
-                        state.apply(&update, unix_time_ms()?).await?;
-                        applied_events += 1;
+                        match state.apply(&update, unix_time_ms()?).await {
+                            Ok(()) => applied_events += 1,
+                            Err(error) => {
+                                termination_reason = format!("projection_failure:{error}");
+                                continuity_status = "incomplete".to_string();
+                                state.mark_not_live("resyncing", &termination_reason, true, unix_time_ms()?).await;
+                                break;
+                            }
+                        }
                     }
                     SequenceDecision::BridgeMiss { snapshot_last_update_id, first_update_id } => {
                         termination_reason = format!("snapshot_bridge_miss:{snapshot_last_update_id}:{first_update_id}");

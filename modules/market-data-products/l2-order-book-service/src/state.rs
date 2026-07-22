@@ -208,3 +208,46 @@ impl From<&OwnerState> for OwnerView {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn snapshot() -> Snapshot {
+        Snapshot {
+            last_update_id: 100,
+            bids: vec![["100".to_string(), "1".to_string()]],
+            asks: vec![["101".to_string(), "1".to_string()]],
+        }
+    }
+
+    #[tokio::test]
+    async fn current_book_is_available_only_while_live() {
+        let state = SharedState::new("BTCUSDT".to_string());
+        assert!(state.current_book(20).await.is_err());
+        state
+            .begin_epoch("epoch-1".to_string(), &snapshot(), 10, 1)
+            .await
+            .expect("epoch");
+        assert!(state.current_book(20).await.is_err());
+        state
+            .apply(
+                &DepthUpdate {
+                    event_time_ms: 2,
+                    transaction_time_ms: 1,
+                    local_receive_time_ms: 3,
+                    first_update_id: 100,
+                    final_update_id: 101,
+                    previous_final_update_id: 99,
+                    bids: Vec::new(),
+                    asks: Vec::new(),
+                },
+                4,
+            )
+            .await
+            .expect("apply");
+        assert!(state.current_book(20).await.is_ok());
+        state.mark_not_live("resyncing", "gap", true, 5).await;
+        assert!(state.current_book(20).await.is_err());
+    }
+}
