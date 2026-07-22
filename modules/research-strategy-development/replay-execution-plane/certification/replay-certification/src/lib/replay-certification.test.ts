@@ -1,4 +1,7 @@
 import { describe, expect, test } from "bun:test"
+import { mkdtempSync, rmSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
 import {
   assertReplayCertificationManifest,
   assertReplayProfileEvidenceManifest,
@@ -21,6 +24,11 @@ import {
   assertReplayHistoricalArtifactMigrationRegistry,
   loadReplayHistoricalArtifactMigrationRegistry,
 } from "./replay-historical-artifact-migration"
+import {
+  assertReplayPublicationCrashRecoveryBundle,
+  loadReplayPublicationCrashRecoveryBundle,
+  runReplayPublicationCrashRecoveryProbe,
+} from "./replay-publication-crash-recovery"
 
 describe("Replay certification owner", () => {
   const repoRoot = findReplayCertificationRepoRoot()
@@ -125,5 +133,45 @@ describe("Replay certification owner", () => {
     registry.reader_source_sha256 = "0".repeat(64)
     expect(() => assertReplayHistoricalArtifactMigrationRegistry(registry, repoRoot))
       .toThrow("reader source drifted")
+  })
+
+  test("recovers a hard-crashed payload-only publication into one authoritative manifest", async () => {
+    const root = mkdtempSync(join(tmpdir(), "replay-publication-crash-recovery-"))
+    try {
+      const bundle = loadReplayPublicationCrashRecoveryBundle(repoRoot)
+      const receipt = await runReplayPublicationCrashRecoveryProbe(
+        bundle,
+        loadReplayProfileEvidenceManifest(repoRoot),
+        repoRoot,
+        root,
+      )
+      expect(receipt.orphan_payload_count).toBe(3)
+      expect(receipt.orphan_manifest_present).toBe(false)
+      expect(receipt.recovery_process_ids[0]).not.toBe(receipt.recovery_process_ids[1])
+      expect(receipt.committed_manifest_count).toBe(1)
+      expect(receipt.post_recovery_idempotent_read).toBe(true)
+      expect(receipt.remaining_temporary_file_count).toBe(0)
+      expect(receipt.receipt_sha256).toHaveLength(64)
+    } finally {
+      rmSync(root, { recursive: true, force: true })
+    }
+  }, 15_000)
+
+  test("rejects publication recovery scope or writer source drift", () => {
+    const bundle = structuredClone(loadReplayPublicationCrashRecoveryBundle(repoRoot))
+    bundle.exactly_once_scope = "one-process-execution" as never
+    expect(() => assertReplayPublicationCrashRecoveryBundle(
+      bundle,
+      loadReplayProfileEvidenceManifest(repoRoot),
+      repoRoot,
+    )).toThrow("unsupported Replay publication crash recovery bundle")
+
+    const writerDrift = structuredClone(loadReplayPublicationCrashRecoveryBundle(repoRoot))
+    writerDrift.profiles[0]!.writer_source_sha256 = "0".repeat(64)
+    expect(() => assertReplayPublicationCrashRecoveryBundle(
+      writerDrift,
+      loadReplayProfileEvidenceManifest(repoRoot),
+      repoRoot,
+    )).toThrow("writer source drifted")
   })
 })
