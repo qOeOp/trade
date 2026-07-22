@@ -30,6 +30,7 @@ test("stdio server lists only the explicit MCP allowlist and marks the controlle
       "research_job_result",
       "research_job_status",
       "research_job_submit",
+      "runtime_parity_status",
       "trade_tool_read",
       "trade_tool_search",
     ])
@@ -38,6 +39,7 @@ test("stdio server lists only the explicit MCP allowlist and marks the controlle
     const l2AuditPage = listed.tools.find((tool) => tool.name === "l2_retention_reference_audit_page")
     const l2Health = listed.tools.find((tool) => tool.name === "l2_service_health")
     const l2ConsumerHealth = listed.tools.find((tool) => tool.name === "l2_book_watch_consumer_health")
+    const runtimeParityStatus = listed.tools.find((tool) => tool.name === "runtime_parity_status")
     assert.equal(submit?.annotations?.readOnlyHint, false)
     assert.equal(submit?.annotations?.destructiveHint, false)
     assert.equal(submit?.annotations?.idempotentHint, true)
@@ -54,6 +56,9 @@ test("stdio server lists only the explicit MCP allowlist and marks the controlle
     assert.equal(l2ConsumerHealth?.annotations?.readOnlyHint, true)
     assert.equal(l2ConsumerHealth?.annotations?.destructiveHint, false)
     assert.equal(l2ConsumerHealth?.inputSchema.additionalProperties, false)
+    assert.equal(runtimeParityStatus?.annotations?.readOnlyHint, true)
+    assert.equal(runtimeParityStatus?.annotations?.destructiveHint, false)
+    assert.equal(runtimeParityStatus?.inputSchema.additionalProperties, false)
     assert.ok(listed.tools.filter((tool) => tool !== submit).every((tool) => tool.annotations?.readOnlyHint === true))
 
     const called = await client.callTool({ name: "trade_tool_search", arguments: { query: "artifact", limit: 3 } })
@@ -68,6 +73,13 @@ test("stdio server lists only the explicit MCP allowlist and marks the controlle
     const serializedConsumer = JSON.stringify(consumer)
     assert.equal(serializedConsumer.includes("pid"), false)
     assert.equal(serializedConsumer.includes("path"), false)
+    const parityStatus = await client.callTool({ name: "runtime_parity_status", arguments: {} })
+    assert.equal(parityStatus.isError, undefined)
+    const parityPayload = parityStatus.structuredContent as Record<string, unknown>
+    const parity = parityPayload.parity_status as Record<string, unknown>
+    assert.equal(parity.schema_version, "trade.ops-runtime-parity-status.v1")
+    assert.equal(JSON.stringify(parity).includes("holder_id"), false)
+    assert.equal(JSON.stringify(parity).includes("detail_json"), false)
   } finally {
     await client.close()
   }

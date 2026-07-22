@@ -86,7 +86,8 @@ test("owner adapters use fixed scripts and only pass typed payloads", async () =
     await service.readL2BookWatchConsumerHealth()
     await service.readRdProgram("rd-program")
     await service.readOpsCycleSummary("cycle-1")
-    assert.equal(commands.length, 8)
+    await service.readRuntimeParityStatus()
+    assert.equal(commands.length, 9)
     assert.equal(commands[0].script, "modules/artifact-knowledge/artifact-catalog/src/scripts/main.ts")
     assert.deepEqual(JSON.parse(commands[0].args.at(-1) ?? "{}"), { symbol: "BTCUSDT", limit: 5 })
     assert.deepEqual(JSON.parse(commands[1].args.at(-1) ?? "{}"), { artifact_id: "artifact_demo", max_bytes: 4096 })
@@ -115,6 +116,10 @@ test("owner adapters use fixed scripts and only pass typed payloads", async () =
     })
     assert.equal(commands[6].args.at(-1), "{\"action\":\"read\"}")
     assert.deepEqual(JSON.parse(commands[7].args.at(-1) ?? "{}"), { cycle_id: "cycle-1" })
+    assert.deepEqual(commands[8], {
+      script: "modules/orchestration-ops/ops-runtime-store/src/scripts/main.ts",
+      args: ["--db", "tmp/mcp/ops.db", "--action", "parity_status"],
+    })
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
