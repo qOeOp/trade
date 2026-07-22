@@ -13,7 +13,7 @@ interface Args {
 }
 
 const args = parseArgs(Bun.argv.slice(2))
-const manifest = JSON.parse(readFileSync("docs/architecture-manifest.json", "utf8")) as { stores?: JSONRecord[] }
+const manifest = JSON.parse(readFileSync("docs/architecture/architecture-manifest.json", "utf8")) as { stores?: JSONRecord[] }
 const stores = (Array.isArray(manifest.stores) ? manifest.stores : []).map(asRecord)
 const selected = args.store === "all" ? stores : stores.filter((store) => stringField(store.id) === args.store)
 
@@ -101,7 +101,7 @@ function printHelp(): void {
   console.log([
     "usage: bun scripts/logical-store.ts --action check --store all",
     "actions: init | check",
-    "store: all or a logical store id from docs/architecture-manifest.json",
+    "store: all or a logical store id from docs/architecture/architecture-manifest.json",
     "--base-dir tmp/check/logical-store keeps init/check out of runtime data",
   ].join("\n"))
 }

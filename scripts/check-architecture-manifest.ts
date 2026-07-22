@@ -4,7 +4,7 @@ import { existsSync, readFileSync } from "node:fs"
 
 type JSONRecord = Record<string, unknown>
 
-const manifest = readJson("docs/architecture-manifest.json")
+const manifest = readJson("docs/architecture/architecture-manifest.json")
 const issues: string[] = []
 
 const domains = arrayOfRecords(manifest.domains)

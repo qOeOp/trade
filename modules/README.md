@@ -21,7 +21,7 @@
 | `contract` | 可被源码跨模块 import 的 type、schema、pure helper | 读写文件、调用外部 API、拥有流程 |
 | `internal-engine` | 同一 domain 下原子工具共享的纯计算实现，如 replay / signal / benchmark / family engine | agent-facing CLI、状态写入、跨 domain 编排 |
 
-`toolset.json` 每个 entry 必须声明 `module_type`、`owner_scope`、`entry_contract`、`requires_preflight`、`concurrency_group` 和 `forbidden_callers`。编排器后续只应输出 `tool_id + payload + entry_contract`，不输出裸路径命令；裸路径 command 只保留在 registry resolver 层。
+`toolset.json` 每个 entry 必须声明 `module_type`、`owner_scope`、`entry_contract`、`requires_preflight`、`concurrency_group` 和 `forbidden_callers`。编排器只应输出 `tool_id + payload + entry_contract`，不输出裸路径命令；裸路径 command 只保留在 registry resolver 层。该 registry 当前只登记 agent-facing `suite` / `atomic`，contract 与 internal engine 由目录和本地 `CONTRACT.md` 管理。
 
 ## Module Contracts
 
@@ -48,25 +48,6 @@
 | `research-strategy-development/forward-evidence-plane/*` | ready Draft binding、freeze、watermark、Forward reservation | post-freeze Forward Result | no-backfill 前瞻证据 | 正式 Shadow、账户事实、promotion |
 | `research-strategy-development/agent-roles/*` | Control Plane context、identity、registered evidence | Proposal/Candidate request/Decision submission | Planner/Developer/Reviewer 可替换角色入口 | 权威事实和直接策略落盘 |
 | `research-strategy-development/replay-execution-plane/compatibility/replay-runner` | OHLCV manifest 或 Trial-bound execution request | legacy replay result 或新 Replay outcome | 迁移期兼容 adapter | 新语义 owner、R&D search、策略升格 |
-| `research-strategy-development/data-split` | source OHLCV manifests、split ratios、embargo parameters | discovery / validation / locked holdout manifests、split report、optional catalog ref | 数据切分与 holdout 隔离 | R&D search、replay、review、`trade.db` |
-| `research-strategy-development/signal-evaluator` | OHLCV manifest、entry reference、candidate 或 strategy contract | latest closed-candle signal result | 最新信号评估 | R&D search、replay batch、catalog 写入、`trade.db` |
-| `research-strategy-development/panel-evaluator` | panel manifests、candidate JSON、marketability gate | panel report | 多资产 panel 评估、marketability、panel negative controls | R&D loop artifact、RD memory、review、`trade.db` |
-| `research-strategy-development/candidate-batch` | OHLCV manifest、candidate JSON、optional feature report | batch report | 单批候选评估、negative controls、failure summary | artifact 写入、RD memory、review、`trade.db` |
-| `research-strategy-development/benchmark-runner` | panel manifests、benchmark cost / funding assumptions | fixed benchmark report | 固定 benchmark 仿真与负对照 | R&D search、calibration suite、review、`trade.db` |
-| `research-strategy-development/calibration-suite` | panel manifests、optional previous calibration report | calibration diagnostic report | pipeline calibration、data breadth/funding/cost diagnostics | R&D search、strategy evidence、review、`trade.db` |
-| `research-strategy-development/funding-governance` | panel manifests、funding feature reports | funding coverage governance report | funding carry 研究前数据覆盖检查 | R&D search、replay、review、`trade.db` |
-| `research-strategy-development/strategy-contract-compile` | strategy markdown、candidate override JSON | compiled strategy contract | strategy contract 编译 | R&D search、replay、review、catalog 写入 |
-| `research-strategy-development/strategy-contract-lint` | strategy markdown | lint result、optional compiled contract | strategy contract 完整性 lint | R&D search、replay、review、catalog 写入 |
-| `research-strategy-development/forward-holdout` | frozen candidate、explicit frozen_at、forward dataset manifests | forward holdout report | frozen candidate forward-only signal check | R&D search、strategy evidence、promotion、`trade.db`、Binance |
-| `research-strategy-development/rd-campaign-runner` | hypothesis queue、discovery/validation manifests、optional calibration/panel reports、explicit RD state path | campaign report、optional RD state writeback、catalog metadata | bounded R&D campaign orchestration | 写 `trade.db`、触发 Binance、策略升格、单轮 loop 实现、candidate batch evaluation、forward tracker、RD supervisor |
-| `research-strategy-development/rd-ledger` | R&D loop input、batch summary、catalog/ledger path | R&D ledger record、idempotence checks、holdout key、redacted artifact input | R&D run ledger and holdout idempotence | candidate evaluation、campaign orchestration、RD state writeback、`trade.db`、Binance |
-| `research-strategy-development/rd-artifact-summary` | R&D artifact JSON | deterministic summary records | R&D loop / panel artifact 摘要 | replay、candidate evaluation、artifact/catalog/ledger 写入、RD memory、`trade.db` |
-| `research-strategy-development/strategy-policy-writer` | structured StrategyPolicySource、validated candidate、family profile | deterministic strategy markdown、policy-shape lint | validated candidate -> `strategies/*.md` policy renderer | R&D search、replay、promotion、`trade.db`、Binance |
-| `research-strategy-development/rd-integration-suite` | test fixtures、owner module imports | test pass/fail | 跨 research atoms 的集成回归 | 生产 RD 逻辑、agent-facing tool、任何持久写入 |
-| `research-strategy-development/rd-loop-runner` | candidate batch payload、artifact/ledger/catalog paths、optional RD state path | loop report、artifact、ledger、catalog ref、optional RD state update | single R&D loop artifact writeback | campaign orchestration、strategy evidence、`trade.db`、Binance 写接口 |
-| `research-strategy-development/rd-program-state` | state path、JSON state command、optional catalog DB | RD state command result、state artifact catalog ref | durable R&D learning memory init/read/update/plan_next | R&D trial execution、strategy evidence、`trade.db`、Binance 写接口 |
-| `research-strategy-development/rd-supervisor` | RD state path、supervisor payload、optional catalog DB | supervisor run result、research artifacts、optional draft strategy | autonomous R&D supervisor loop; delegates strategy markdown shape to policy writer | `trade.db`、Binance 写接口、strategy review、promotion |
-| `research-strategy-development/rd-shadow-tracker` | forward holdout result、tracker state、manifest map | R&D paper tracker state、review draft input、optional catalog ref | forward setup event chain tracker | R&D search、strategy evidence、`trade.db`、Binance 写接口 |
 | `governance-review-compliance/strategy-review` | strategy markdown、evidence input、catalog evidence、optional read-only `trade.db` | evidence record、review report、promotion result、strategy status update | 策略证据、复核、升格门禁 | R&D 实验、交易执行、写 `trade.db`、写 RD memory |
 | `artifact-knowledge/artifact-catalog` | catalog DB、`data/` / `tmp/` roots、artifact refs、retention 设置 | catalog query、stale report、GC report、artifact metadata、feature report refs | 数据资产索引、artifact hygiene、catalog-aware GC | 写 `trade.db`、策略判断、交易所 API |
 | `market-data-products/ohlcv-fetch` | Binance market symbol、timeframes、Vision/funding/panel 请求参数 | CSV/manifest、funding events、market feature panel、calibration inputs | 数据采集与因果对齐 | 策略判断、升格、交易事实 |
@@ -90,21 +71,14 @@
 | `contracts/strategy-contract` | strategy markdown、contract YAML subset | compiled/lint contract types and pure helpers | strategy contract 解析、编译、lint 语义 | agent-facing CLI、R&D execution、review/promotion |
 | `contracts/strategy-policy` | strategy markdown、optional JSON path | lightweight strategy policy metadata | frontmatter / strategy file / strategy directory 读取契约 | full Trade Contract compile/lint、fallback discovery、写文件 |
 
-## Trade-Flow Domains
+## Trade-Flow Façade
 
-`orchestration-ops/trade-flow` 是编排模块，但内部不能再是大平层。旧 `research` / `review` / `artifact` domain 已移除；RD 根已收敛为 `research-control-plane`、`replay-execution-plane`、`forward-evidence-plane`、`agent-roles` 四个直接责任子树，真实 review owner 是 `modules/governance-review-compliance/strategy-review`，真实 artifact/catalog owner 是 `modules/artifact-knowledge/artifact-catalog`。
-
-| Domain | Contract | 负责 |
-| --- | --- | --- |
-| `execution` | `modules/orchestration-ops/trade-flow/src/domain/execution/CONTRACT.md` | execution command facade；真实 dry-run/shadow/live-small owner 在 `live-execution-control/*` |
-| `recovery` | `modules/orchestration-ops/trade-flow/src/domain/recovery/CONTRACT.md` | recovery command facade；真实 reconcile/recovery owner 在 `live-execution-control/*` |
-| `observe` | `modules/orchestration-ops/trade-flow/src/domain/observe/CONTRACT.md` | runtime load、snapshot projection、observe event build |
-| `runtime` | `modules/orchestration-ops/trade-flow/src/domain/runtime/CONTRACT.md` | event store、flow projection、cron、automation plan |
+`orchestration-ops/trade-flow` 保留 automation / runtime / observe / execution / recovery 五类 suite entry；当前实现入口集中在 `src/scripts/commands/*`，已退役的 `src/domain/*` 不得恢复。事件、投影、observe、执行与恢复的真实 owner 分别位于 `portfolio-execution-state/*`、`live-decision-planning/*` 与 `live-execution-control/*`；trade-flow 只做参数、顺序、权限和 owner handoff。
 
 ## Rules
 
 - agent-facing 模块之间通过 CLI JSON contract 协作；MCP 只作为 Agent 入口适配既有 Owner CLI，不成为新的领域 owner。源码跨模块 import 只允许指向 `modules/contracts/*`、同 domain 的无 package internal engine，或 `orchestration-ops/trade-flow` 编排层调用 `modules/*` 原子能力。
-- `modules/orchestration-ops/trade-flow/src/domain/*/index.ts` 是 trade-flow 编排边界；新增原子能力优先落独立 `modules/<domain>/<module>`，不要继续塞进 trade-flow。
+- `modules/orchestration-ops/trade-flow/src/scripts/commands/*` 是 suite façade；新增原子能力优先落独立 `modules/<domain>/<module>`，不要继续塞进 trade-flow。
 - 模块 durable 运行事实只落 `data/*.db`；临时工作产物只落 `tmp/`；模块目录不保存运行快照、cache、研究垃圾。
 - `T` 类 Binance 写模块不得被 R&D / replay / market scan 直接调用。
 - `negative_control` 是唯一命名口径。

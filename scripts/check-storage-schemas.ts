@@ -6,7 +6,7 @@ import { Database } from "bun:sqlite"
 
 type JSONRecord = Record<string, unknown>
 
-const manifest = JSON.parse(readFileSync("docs/architecture-manifest.json", "utf8")) as JSONRecord
+const manifest = JSON.parse(readFileSync("docs/architecture/architecture-manifest.json", "utf8")) as JSONRecord
 const stores = Array.isArray(manifest.stores) ? manifest.stores.map(asRecord) : []
 const tmpRoot = "tmp/check/storage-schema"
 const issues: string[] = []

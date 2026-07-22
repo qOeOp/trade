@@ -1,0 +1,255 @@
+---
+title: Chat History Product Insights
+role: product-source-material
+status: source-material
+owner: product
+last_verified: 2026-07-22 CST
+---
+
+# Chat History — 产品洞察库
+
+## 定位说明
+
+这个文件不是聊天记录备份，也不是 plan-chain 的替代品。它的作用是把高价值对话素材从原始消息流中提升出来，变成可供 PRD、user-story 和复盘复用的第二层资产。
+
+**保留什么**：用户目标如何变化、AI 为什么改判断、工具哪里失败、市场与账户如何共同影响建议。  
+**不保留什么**：流水账 transcript、逐条重复的 user-story angles（已移到 user-story.md）、可以从代码读到的技术细节。
+
+**如何追加**：新增一段对话后，先判断它属于哪个主题，在该主题下补充新的发现或案例摘要。如果发现新主题，再增加新节。不要新增时间戳条目。
+
+---
+
+## 一、账户上下文驱动建议
+
+**核心发现**
+
+- 同一个价位，对净多仓、净空仓、对冲仓、锁仓结构的建议完全不同。只给技术观点的 AI 回答对真实用户几乎没用。
+- 用户开口说"这个位置怎么做"，背后真正的问题是"结合我当前账户暴露，现在该怎么办"。两者相差一整套前置逻辑。
+- "表面对冲、实际净多/净空"是高频误解：LONG 0.5 对 SHORT 0.222 不是中性锁仓，而是净多 +0.278 BTC，且深套空单会扭曲所有建议优先级。
+- 当账户已有仓位时，"继续加多"和"先减掉拖累的空单"是两种完全不同的动作，前者放大净风险，后者降低净风险，必须拆开说。
+- "账户从建仓进入利润保护阶段"是一个明确的状态切换，建议语气和优先级应自动改变（止损从"给波动空间"升级到"锁利润"）。
+
+**典型案例（Apr 8-10）**
+
+BTC/ETH 分析里，AI 在说"短线偏多"的同时，因为账户有 SHORT -0.572 裸空，把 ETH 多单建议从进攻仓降级为轻仓对冲。之后发现 LONG 0.18 和 SHORT -0.572 同时存在，止盈总量超过 LONG 0.18，AI 识别并修正止盈超覆盖。最后从"高位追多锁仓"切到"SHORT 侧灾难保护减仓"，因为用户目标是防失控挤空，不是赌趋势。
+
+**PRD 候选主题**
+
+- 账户状态先行：每次给建议前自动拉取账户快照，识别当前净敞口和结构类型，再分叉输出建议
+- 净暴露显式计算：对双向仓位，自动计算当前净多/净空方向和幅度，而不是只列出各腿
+- 账户驱动建议分叉：空仓、已挂单候选、轻仓暂时性、主仓已建分别对应不同的建议模板
+- 仓位阶段识别：自动识别"还在建仓"与"已在保护利润"，切换建议模式
+
+---
+
+## 二、订单卫生与建议时效
+
+**核心发现**
+
+- 订单数量错配是高频执行错误，靠行情分析发现不了。止盈总量超持仓、止损与现有仓位不匹配、保护单已经成为孤儿单，这些只有对账订单层才能发现。
+- "已经发出下单意图"≠"已经成交或生效"。用户说"我挂了/我撤了/我改了"，系统不能直接当作已完成，必须用 API 核实。
+- 建议时效极短：在高频或高波动行情里，几分钟内盘面可以从"偏强整理"切成"短线瀑布"，任何没有时间戳和失效条件的建议都非常容易过期。
+- 订单语义对用户来说常常含糊：对 SHORT @ 12.0 的持仓，位于 13.18 的 BUY TAKE_PROFIT_MARKET 更像"分批回补减亏"，而不是真正的止盈，若只展示订单类型不解释持仓方向，用户极容易混淆。
+
+**典型案例（Apr 8 / Apr 15-17）**
+
+BTC 止盈超覆盖：LONG 0.18，三张止盈合计超过 0.18，AI 主动识别并修正为 0.043+0.090+0.047 完全对齐。
+RAVE 订单语义：SHORT -75 @ 12.0 的"止盈"挂在 13.18，AI 明确指出这是"分批减亏"不是盈利，在瀑布中不建议整仓市价止损，而是调整保护结构。
+
+**PRD 候选主题**
+
+- 订单一致性检查：自动发现止盈止损数量错配、补仓单导致净风险跃迁、孤儿保护单
+- 建议有效期标注：每条建议显式携带生成时间和失效条件
+- 订单语义翻译：按持仓方向和入场价重新解释订单含义，而不是只展示 Binance 原始字段
+
+---
+
+## 三、执行能力边界（只读→下单）
+
+**核心发现**
+
+- 只读账户 skill 和下单 skill 必须对用户透明。用户会自然把"能读账户"误解成"能发委托"，在只读工具上空转多轮才发现边界。
+- 真实下单前必须做执行预检：position mode、精度步进、minQty、minNotional、当前挂单、可用余额。预览通过不代表 live 路径参数一定干净。
+- Binance API 的 closePosition、reduceOnly、STOP_MARKET 在不同 Hedge Mode、不同 positionSide 下行为不一致，且普通 futuresOrder 路径和 Algo Order API 路径差异大，live 时才暴露。
+- 条件保护单比普通限价单更难自动化：STOP_MARKET 需要走 Algo Order API，兼容性问题只有真实下单时才出现。
+- clientOrderId 是订单追踪的基础设施：AI 创建的订单应天然归组，便于后续验单、局部撤单和计划续管。
+
+**典型案例（Apr 15-16）**
+
+BTC 下单序列：发现 binance-account 只读 → 切到 node_modules/binance-api-node → 执行预检（Hedge Mode、精度、杠杆）→ 挂三张 LONG LIMIT → closePosition 报错改成数量型 reduceOnly → 挂保护单成功 → 旧单清理。CLUSDT 条件单：skill 路由把普通 STOP 错引到 position-protect → 修 binance-order-place/preview → live 下单 reduceOnly 不兼容 → 再修 → 成功进 Binance。RAVE 保护止损：普通 futuresOrder 连续失败，最终回退到原始签名 HTTP 请求打 /fapi/v1/algoOrder 才落地。
+
+**PRD 候选主题**
+
+- 读写分离架构透明化：进入执行模式时显式说明当前工具能否下单，而不是让用户在只读工具上空转
+- 执行预检面板：下单前自动展示 position mode/精度/minNotional/当前挂单/可用余额，失败时给可执行修复建议
+- clientOrderId 归组：AI 创建的订单打统一前缀，便于验单、局部撤单、计划续管
+- 条件保护单统一抽象：把普通下单、条件单、Algo Order 的路径差异封装在内部，减少 live 时才暴露参数兼容问题
+- 自然语言→订单编译器：把"突破确认/回踩承接/不追等 reclaim"映射成正确的订单类型（LIMIT/STOP/STOP_LIMIT）
+- 挂单方案分层展示：激进/平衡/保守三档对同一标的，显式呈现成交概率和盈亏比权衡
+
+---
+
+## 四、高波动标的处理模板
+
+**核心发现**
+
+- 高波动标的不适合普通紧止损模板。1h ATR ≈ 7%、4h ATR ≈ 15%，常规固定点差止损极容易被正常波动扫掉。止损宽度必须基于历史 ATR，而不是拍一个"差不多"的数字。
+- 极端位进场 + 硬止损 + 软失效 + 三段止盈是妖币的基础模板：进场在极端针刺区（赔率逻辑优先于安全感），2-3 根 5m 不收回关键位视为软失效，止盈不幻想一口吃满。
+- 急拉急砸、插针扫流动性、真假突破看 15m 收盘，是可以从历史样本中提炼出的可操作模式，不需要"猜主力意图"。
+- 高波动标的的技术指标会失真：极端新趋势币上，自动聚合的长期支撑离现价极远，必须手动降级转向原始 K 线和量价节奏，并显式提醒用户"本轮判断主要基于原始 K 线"。
+- 建议时效在高波动标的上以分钟计：RAVE 盘面能在几分钟内从强势整理切成瀑布，同一轮对话里建议可能连续三次改变方向（偏上破→短线瀑布→重回突破但仍不够高分）。
+- 推荐分数体系有真实价值：用户不想听泛分析，而是直接要"8分+"的候选和被拒绝的原因，分数驱动筛选是真实需求。
+
+**典型案例（Apr 15-17 RAVE）**
+
+RAVE 锁仓解套到单边空：LONG 156/SHORT 166 不是中性，AI 识别并说明某腿先成交会把账户推向更重净空。止盈分批执行后，账户从锁仓过渡到 SHORT 75，每步同步给空腿配保护。
+
+旧挂单迁移：三张旧 14.25/14.15/14.05 接多单太密集，AI 撤掉后替换成 14.28/13.92/13.36 更分散的三档，配合 ATR 宽度设计。
+
+保护止损上移：部分止盈后仓位从 52 降到 26，旧止损两张残留错配，AI 清理后重建单一保护止损，随趋势延续从 16.30 上移到 17.24。
+
+**PRD 候选主题**
+
+- 高波动模板化：提供"硬止损+软失效+时间失效+三段止盈"策略模板
+- ATR 驱动止损宽度：进场建议默认引用当前 ATR，不给裸价差止损
+- 指标可靠性降级提示：极端趋势币上自动识别"指标层失真"，提示本轮判断基于原始 K 线
+- 分数驱动全市场筛选：允许用户直接说"只看8分+"，系统返回候选、拒绝原因和最接近次优解
+- Heartbeat 监控：把账户持仓+市场结构+触发条件压缩成极短通知，新触发条件出现时唤醒用户，不是每次都做完整分析
+
+---
+
+## 五、锁仓结构识别与净敞口管理
+
+**核心发现**
+
+- 锁仓场景有二阶风险：某一腿止盈先成交后，账户净暴露会突变，这种风险靠行情分析或查仓位方向发现不了，必须系统级识别。
+- 双向仓位用户需要的不是一句"偏多"或"偏空"，而是"先减哪一边"、"别把自己从净多做成净空"。这类仓位结构推理值得单独产品化。
+- 对锁仓结构，建议优先级是：先给整体净暴露和结构风险，再给单腿动作方向。反过来做会误导用户。
+- OTO/OTOCO 母单在 Binance 公开 API 侧只能确认母单存在，附带 TP/SL 子单细节不透明。产品需要显式展示"母单可见/子 TP-SL 不可见"的能力边界，否则用户会预期系统已读到完整保护单细节。
+
+**PRD 候选主题**
+
+- 锁仓识别：系统自动评估某一腿止盈或止损成交后账户净暴露如何突变，建议里显式提示
+- OTO/OTOCO 可见性分层：明确区分 API fully visible / mother-order only / manual confirmation required
+- 净暴露持续追踪：每次执行操作后自动重算净多/净空、实际保证金占用和最坏风险
+
+---
+
+## 六、工具稳定性与降级链路
+
+**核心发现**
+
+- API 不稳定时的降级策略是真实产品价值。用户发一张挂单截图，AI 继续完成验单和风控判断，这对真实交易是强需求。
+- "部分成功快照+显式 errors"比"全部失败返回空"更适合真实交易场景。账户 API 某个分区失败时，仍应尽量返回其余分区数据。
+- Binance 合约接口存在 RemoteDisconnected/IncompleteRead/SSL EOF/超时等传输层抖动，skill 必须有请求级重试和分区级补拉。
+- 技能稳定性本身是产品体验的一部分。用户在账户快照、市场刷新、挂单检查之间快速切换，任何链路抖动都直接影响对 AI 的信任。
+- Python 环境依赖（conda python3.10）会在初次运行时阻塞工作流；预置环境验证可以消除这类摩擦。
+
+**典型案例（Apr 8-9 Binance 修补）**
+
+binance_account_snapshot.py 多次遭遇 RemoteDisconnected/IncompleteRead/SSL EOF，AI 补上请求级重试和分区级重试（futures.account/positionRisk/openOrders 各自独立重试），修补后稳定性显著提升。
+
+RAVE skill 降级链路：build-skills.sh 打包失败 → 复用已编好的 binary → symbol not found in futuresDailyStats → 切 backup binary → 直接调用 Binance 官方 REST API。
+
+**PRD 候选主题**
+
+- 截图+API 双通道核验：任一通道失败，另一个通道兜底
+- 分区级重试标准化：把请求级重试、分区级补拉、部分成功快照+显式 errors 做成 Binance skill 的标准能力
+- 工具能力透明展示：当前轮哪些数据来自 API、哪些来自截图、哪些是上一次成功快照，显式标注
+
+---
+
+## 七、产品边界从全能交易平台收敛到 4H+ swing cron 自动化执行器
+
+**核心发现**
+
+- 一开始的 design-architecture 把 plan 设计得像"全能交易平台的 plan 对象"：6 种 trigger 枚举、tranches/targets/management 三层结构化字段、(phase, gate) 5 状态机、7 种 event kind、probe 通道、hedge 子链。从交易员视角打分 8/10，从用户实际产品定义视角打分跌到 6.5/10。
+- 用户最终澄清的产品定义只有一句："只做 4H+ swing、不做 probe、不打算日内化。挂在 Claude routines 或 Codex schedule 上每 1H 或 4H 自动跑的自动化赚钱机器，用简单有效的策略。" 这一行把"为什么需要硬 trigger / 多状态 / 多 event kind"的论据从根上掐掉一半——4H 收盘是离散事件，跑得慢、token 成本可接受、无需亚秒级一致性。
+- 简化后的硬底线只剩两条：成交后账户累计 open risk ≤ equity × `max_open_risk_pct`、单日累计亏损 ≥ -(equity × `max_day_loss_pct`)。其余规则全收进 constitution.md 自然语言，新增规则 = markdown 加一句话。
+- plan 字段二分法：硬字段只承载"会让账户爆仓的"（symbol/side/stop_price/risk_budget_usdt/strategy_ref），软字段全自然语言（thesis/entry_intent/exit_intent/invalidation），agent 每次 cron 跑都重新读判断。trigger / tranches / targets / management / max_holding_minutes 全部收进自然语言字段。
+- 状态机从 (phase, gate) 5 档简化为 open/closed 两态。"挂单中 vs 持仓中"由 `current_orders + current_position` 视图自然体现，不需要预标记。
+- event kind 从 7 种砍到 3 种：observe（含意图段 + 证据段 + preflight_result + decision_summary 一切）/ order_fill / review。intent / note / check 三种事件全合进 observe。
+- DECISION_CARD 从 8 行压到 6 行；REVIEW 必填字段从 12 个砍到 5 个 + notes 自由 markdown。
+- 自动化运维成为一等公民：clientOrderId 前缀幂等、abort 偏保守、run_log 元数据表、异常通知（硬 invariant 拒动作 / 对账连续 stuck / 日内亏损接近底线 / API 连续失败 / 连续亏损 / chain 关闭）。
+
+**典型设计转折（Apr 27）**
+
+设计版本 → 用户澄清"我只做 4H+ swing 不做 probe"→ 我重算硬 trigger 必要性（4H 收盘离散、token 成本~$0.5/plan 可接受、用户单兵作战审计价值低）→ 把 trigger 6 种枚举降级到 entry_intent 自然语言 → 顺势把 tranches / targets / management 也降级 → 顺势把 (phase, gate) 简化为 open/closed → 顺势把 event kind 砍到 3 种 → 同时新增 cron 运维章节（幂等 / abort / run_log / 通知）。这一连串简化都来自同一条产品边界：cron 跑而不是用户逐笔下单。
+
+**PRD 候选主题**
+
+- 产品边界优先于架构：先明确"用户挂在 cron 上还是逐笔交互"，再决定 plan 结构 / 状态机 / event kind 的复杂度。同一份"plan 设计"在两种使用场景下应该完全不同
+- 用户单兵自动化执行器的反向裁剪信号：硬字段只服务"会爆仓"、其余全自然语言、每次 cron 跑重读、新增规则 = 加一句 markdown
+- cron 自动化的运维一等公民：幂等（clientOrderId 前缀）/ 偏保守 abort / run_log / 异常通知。这些不能在 MVP 后期补，必须和功能逻辑一起出生
+
+---
+
+## 八、对话素材沉淀机制
+
+**核心发现**
+
+- plan-chain 和 chat-history 的边界在真实使用里很清楚：plan-chain 更像执行轨迹，chat-history 更像决策素材与需求来源，不能强行合并，否则会丢掉"为什么会这样想"的过程价值。
+- "产品设计讨论、技能稳定性修补、实时交易判断"在同一个线程里来回切换，说明这两类工作流在真实使用中不是独立的。
+- chat-history 的目标不是原始消息备份，而是"压缩但保留决策链"的高价值素材层。只有 Session Goal Evolution、Decision Log、Product Insight、Friction 这类维度才值得保留，流水账 transcript 可以去掉。
+- 用户非常在意建议的可追责性：不只想知道现在该怎么做，还要回头问"你当时那个点位到底算不算认可"，需要产品沉淀决策上下文而非只留结论。
+
+---
+
+## 九、微观结构证据进入执行风险层
+
+**核心发现（2026-07-06，Easley/O'Hara/Yang/Zhang 论文）**
+
+- Roll / VPIN 对 crypto 的未来波动、序列相关、厚尾有预测内容，但不等于方向信号。
+- 设计落点不是新增策略宇宙，而是强化 `microstructure.notes + refs`：own Roll / VPIN 优先，BTC / ETH Roll / VPIN 作为 alt lane 市场天气。
+- PLAN 只能把微观结构压力翻译成 `entry / stop / size / no_action`：不追、等回踩、缩小 size、重算 stop、或 no_action。
+- replay / shadow 可以做最小微观结构分桶；没有 setup 级验证前，不把 Roll / VPIN 写成真钱开仓条件。
+
+---
+
+## 十、完整策略迭代与运行产物保洁
+
+**核心发现（2026-07-06）**
+
+- 最终产品必须是完整策略迭代系统：`replay evidence -> shadow samples -> live-small samples -> review -> strategy policy change -> replay again`。
+- 当前不能为远期目标提前膨胀成策略平台；只保留 setup 准入、replay/shadow 证据和人工确认的小闭环。
+- 用户明确担心项目长期运行后无用数据像垃圾一样累计；这属于产品生命线，不是运维细节。
+- `trade.db` 必须只存事件、摘要和 refs；原始 OHLCV / aggTrades / replay 输出是 artifact，不是长期事实源。
+- 未被 strategy evidence / review / active observe / `.pin` 引用的 artifact 必须可 dry-run 扫描和显式清理。
+- 当时实现落点为 strategy evidence ledger、四类 evidence fingerprint、`strategy-review`、`strategy-promote`；当前 evidence canonical 存储已迁入 `data_catalog.db.strategy_evidence`。策略、Harness、数据或假设一改，旧证据 stale；升格默认 dry-run，实改必须 `--yes`。
+- 防过拟合落点：replay evidence 必须带 locked holdout / walk-forward；表现不为正、样本太少、搜索次数过多、参数过多或 robustness 不足，不能升 `shadow`。
+
+## 十一、Harness 证据治理
+
+**核心发现（2026-07-07）**
+
+- 普通时间末段切片一旦参与选 winner，就只是 selection validation，不能再叫最终 OOS；locked holdout 只允许查看一次，失败后结束 campaign。
+- replay evidence 的身份不能只有 `policy_hash`，还必须绑定 Harness 代码、数据内容和回放假设；四者任一变化都要 stale。
+- 准入数据必须可验证为闭合 K 线并带内容 checksum；路径和生成时间不足以支持复现。
+- replay feedback 不能只看总体收益；至少补 regime 分桶、成本压力和预声明参数扰动，避免单一市场阶段带来的控制感错觉。
+- 2026-07-07 真实 BTC 4H R&D：趋势回撤 long 的表面 winner 在 2025+ external validation 上因样本、成本、regime 与参数稳定性失败；加入按 horizon 折减有效样本的 5% FDR 后，41 个 factor 全部不显著，原 VFI winner 被判定为多重检验假阳性。long / short 无因子基线同样为负，未冻结策略、未降低 gate。
+
+## 十二、单 automation supervisor 与 subagent 调度
+
+**核心发现（2026-07-10）**
+
+- 多条 fast / slow / R&D / review automation 会把调度、状态和故障入口分散；外部只保留一条高频 supervisor 更适合单人项目。
+- subagent 的价值是并行读重任务与隔离盯市、投研、日志噪音，主上下文只保留需求、决策和摘要；它不应成为交易事实源或绕过权限的新入口。
+- 并行边界按写入冲突划分：R&D / catalog / 只读观察可并行；`trade.db` 写入、交易动作和 review 封口必须串行。
+- 平仓 review 是事件驱动的收尾阶段：等待交易与对账完成后，发现“已闭合且未 review”才分发 reviewer；低频 sweep 仅补漏，不单独占一条长期 automation。
+- supervisor 高频唤醒不等于所有任务高频运行；slow / R&D / catalog 继续由 cadence gate 控制，避免 token 与 API 浪费。
+
+---
+
+## 附录：关键交互事件索引
+
+| 日期 | 标的 | 关键事件 | 主要洞察标签 |
+|------|------|----------|-------------|
+| Apr 8 | BTC/ETH | 止盈超覆盖修正；从追多转灾难保护 | 订单卫生、账户结构 |
+| Apr 9 | BTC | Binance skill 重试修补；chat-history 产品化讨论 | 工具稳定性、素材沉淀 |
+| Apr 10 | BTC | 从分钟级异动到高周期目标；识别净多结构；SHORT TP 数量错配 | 净敞口识别、订单卫生 |
+| Apr 15 | RAVE | 锁仓解套；Heartbeat 自动化创建；妖币模板化 | 锁仓结构、高波动模板、自动化 |
+| Apr 15 | BNB | 旧建议复核；账户事实纠偏；OTOCO 不可见；挂单评分 | 账户状态先行、OTO 盲区 |
+| Apr 15-16 | BTC | 只读 skill 边界；四套计划打分；本地 Binance 客户端预检；旧单清理 | 执行能力边界、clientOrderId |
+| Apr 16 | CHIP | 项目尽调三层结构；代币层和项目层分开评价 | 投研框架 |
+| Apr 16 | RAVE | 三次改判断（偏上破→瀑布→回突破）；SHORT 语义重构；建议时效 | 时效管理、订单语义 |
+| Apr 17 | RAVE | 多周期评分落地；旧挂单迁移；部分止盈后保护重建；Algo API 降级 | 执行闭环、保护单工程 |

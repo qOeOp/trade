@@ -38,7 +38,7 @@ const args = new Set(process.argv.slice(2))
 const writeMode = args.has("--write")
 const checkMode = args.has("--check")
 
-const manifest = readJson("docs/architecture-manifest.json")
+const manifest = readJson("docs/architecture/architecture-manifest.json")
 const domains = arrayOfRecords(manifest.domains).map((domain): DomainRecord => ({
   id: stringField(domain.id),
   modules: stringArray(domain.modules),
@@ -89,8 +89,8 @@ const hardIssues = [
 
 const report = buildReport()
 const mermaid = buildMermaid()
-const reportPath = "docs/generated/architecture-drift-report.md"
-const mermaidPath = "docs/generated/code-architecture-current.mmd"
+const reportPath = "docs/architecture/generated/architecture-drift-report.md"
+const mermaidPath = "docs/architecture/generated/code-architecture-current.mmd"
 
 if (writeMode) {
   mkdirSync(dirname(reportPath), { recursive: true })

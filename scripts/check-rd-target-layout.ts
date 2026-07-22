@@ -11,7 +11,7 @@ interface Disposition {
 }
 
 const root = "modules/research-strategy-development"
-const disposition = JSON.parse(readFileSync("docs/rd-module-disposition.json", "utf8")) as Disposition
+const disposition = JSON.parse(readFileSync("docs/research/architecture/rd-module-disposition.json", "utf8")) as Disposition
 const issues: string[] = []
 
 if (disposition.schema_version !== "trade.rd-module-disposition.v2") issues.push("unsupported disposition schema")
