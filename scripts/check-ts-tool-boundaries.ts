@@ -3,6 +3,7 @@
 import { readdirSync, readFileSync, statSync } from "node:fs"
 import { dirname, join, normalize } from "node:path"
 import ts from "typescript"
+import { inspectModuleReferences, isJavaScriptOrTypeScript, isTestSource, scriptKind } from "./lib/source-import-inspection"
 
 type JSONRecord = Record<string, unknown>
 
@@ -44,7 +45,7 @@ for (const file of walkSourceFiles("modules")) {
   const content = readFileSync(file, "utf8")
   const sourceFile = ts.createSourceFile(file, content, ts.ScriptTarget.ESNext, true, scriptKind(file))
 
-  visit(sourceFile, (specifier) => {
+  inspectModuleReferences(sourceFile, { onSpecifier: (specifier) => {
     if (toolPackageNames.has(specifier)) {
       const targetTool = toolPackageRootByName.get(specifier) ?? ""
       if (sourceTool && targetTool && sourceTool !== targetTool) observedEdges.add(`${sourceTool} -> ${targetTool}`)
@@ -80,9 +81,9 @@ for (const file of walkSourceFiles("modules")) {
     if (targetTool && sourceTool && targetTool !== sourceTool) {
       issues.push(`${file}: ${specifier} -> ${targetTool}`)
     }
-  }, (kind) => {
+  }, onNonStatic: (kind) => {
     if (!isTestSource(file)) issues.push(`${file}: ${kind} must use a static string literal`)
-  }, (kind) => issues.push(`${file}: forbidden runtime code loading via ${kind}`))
+  }, onForbiddenRuntime: (kind) => issues.push(`${file}: forbidden runtime code loading via ${kind}`) })
 }
 
 for (const cycle of findCycles(observedEdges)) {
@@ -246,40 +247,6 @@ if (issues.length > 0) {
   process.exit(1)
 }
 
-function visit(
-  node: ts.Node,
-  onSpecifier: (specifier: string) => void,
-  onNonStatic: (kind: string) => void,
-  onForbiddenRuntime: (kind: string) => void,
-): void {
-  if ((ts.isImportDeclaration(node) || ts.isExportDeclaration(node)) && node.moduleSpecifier && ts.isStringLiteral(node.moduleSpecifier)) {
-    onSpecifier(node.moduleSpecifier.text)
-  }
-  if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
-    const [arg] = node.arguments
-    if (arg && ts.isStringLiteral(arg)) {
-      onSpecifier(arg.text)
-    } else {
-      onNonStatic("dynamic import")
-    }
-  }
-  if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "require") {
-    const [arg] = node.arguments
-    if (arg && ts.isStringLiteral(arg)) {
-      onSpecifier(arg.text)
-    } else {
-      onNonStatic("require")
-    }
-  }
-  if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "eval") {
-    onForbiddenRuntime("eval")
-  }
-  if (ts.isNewExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === "Function") {
-    onForbiddenRuntime("new Function")
-  }
-  ts.forEachChild(node, (child) => visit(child, onSpecifier, onNonStatic, onForbiddenRuntime))
-}
-
 function readToolPackages(): ToolPackage[] {
   const packages: ToolPackage[] = []
   for (const packagePath of findPackageJson("modules")) {
@@ -325,22 +292,11 @@ function walkSourceFiles(dir: string): string[] {
     const path = join(dir, entry.name)
     if (entry.isDirectory()) {
       files.push(...walkSourceFiles(path))
-    } else if (entry.isFile() && /\.(?:ts|tsx|mts|cts|js|jsx|mjs|cjs)$/.test(path)) {
+    } else if (entry.isFile() && isJavaScriptOrTypeScript(path)) {
       files.push(path)
     }
   }
   return files
-}
-
-function scriptKind(path: string): ts.ScriptKind {
-  if (path.endsWith(".tsx")) return ts.ScriptKind.TSX
-  if (path.endsWith(".jsx")) return ts.ScriptKind.JSX
-  if (/\.(?:js|mjs|cjs)$/.test(path)) return ts.ScriptKind.JS
-  return ts.ScriptKind.TS
-}
-
-function isTestSource(path: string): boolean {
-  return /(?:^|\/)(?:test|tests)(?:\/|$)/.test(path) || /\.(?:test|spec)\.[^.]+$/.test(path)
 }
 
 function findCycles(edges: Set<string>): string[][] {
