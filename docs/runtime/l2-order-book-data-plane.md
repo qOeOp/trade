@@ -1,7 +1,7 @@
 ---
 title: L2 Order Book Data Plane
 role: runtime-feature-contract
-status: proposed
+status: active-partial
 owner: market-data-products
 last_verified: 2026-07-22 CST
 ---
@@ -10,7 +10,7 @@ last_verified: 2026-07-22 CST
 
 ## 1. 状态与目标
 
-本文定义 public L2 从采集、可恢复记录、订单簿投影到程序化消费的目标合同。它在小时级 natural soak 与采用 ADR 通过前保持 `proposed`；当前 `l2-recorder-bakeoff` 仍是证据模块，不是生产依赖，也没有已上线的 Kafka / gRPC 服务。
+本文定义 public L2 从采集、可恢复记录、订单簿投影到程序化消费的合同。Rust / TL2S 已通过 [L2 Runtime Adoption Decision](../architecture/l2-runtime-adoption-decision.md)，并形成单标的 production-candidate service 与 loopback gRPC；manifest owner admission、多 symbol、24h 验收、consumer cutover 与 broker 仍未完成，因此保持 `active-partial`。`l2-recorder-bakeoff` 继续是证据模块，不是生产依赖。
 
 目标是：Agent、LLM、MCP 和任一消费者离线时，L2 owner 仍能连续运行；任何不连续都成为显式 epoch / incident，而不是被静默修补。
 
@@ -18,14 +18,14 @@ last_verified: 2026-07-22 CST
 
 | 能力 | Owner / 语言 | Authority | 禁止 |
 | --- | --- | --- | --- |
-| WebSocket、snapshot bridge、sequence、book、raw writer | 独立 Rust daemon 候选 | 当前连续 epoch 与本地 durable append | API key、Binance write、策略、LLM |
+| WebSocket、snapshot bridge、sequence、book、raw writer | 独立 Rust daemon | 当前连续 epoch 与本地 durable append | API key、Binance write、策略、LLM |
 | manifest / retention / catalog admission | `market-data-products` owner / TypeScript | finalized segment、coverage、hash 与 lineage | Rust 直写 owner SQLite |
 | current-book 查询 | Rust typed read port；首选 gRPC | 内存投影及其 freshness / continuity 状态 | 从 Kafka 或 raw 文件临时拼“当前簿” |
 | durable 分发 | 可选 Kafka-compatible adapter | consumer offset；不是采集事实源 | 以 broker “exactly once”替代 owner 幂等 |
 | Replay / RD | finalized manifest、后续 Parquet reader | 冻结 dataset / source lineage | 用当前 gRPC snapshot 冒充历史 L2 |
 | Agent / MCP | owner health、coverage、incident 的北向适配 | 无新 authority | 实时 transport、book owner、内部总线 |
 
-Rust 采用仍受 [Program-Owned Runtime Migration](../architecture/migrations/program-owned-runtime-migration-plan.md) 的 P0 gate 约束。Go 不扩成第二套数据面；TypeScript 保留 supervisor、owner admission 与运维编排。
+Rust 采用已通过 [Program-Owned Runtime Migration](../architecture/migrations/program-owned-runtime-migration-plan.md) 的 P0 gate。Go 不扩成第二套数据面；TypeScript 保留 supervisor、owner admission 与运维编排。
 
 ## 3. 数据流与确认点
 

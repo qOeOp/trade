@@ -38,7 +38,7 @@ last_verified: 2026-07-22 CST
 - Deribit DVOL；BRK BTC MVRV / SOPR / active-addresses average
 - 账户侧 markPrice / liquidationPrice / 持仓 / 挂单 / 保护单
 
-这里的 `depth` 是按需 snapshot / ref 能力，不代表已有常驻、可恢复的 L2 owner。连续 L2 数据面的目标 authority、恢复与程序化消费边界见 [L2 Order Book Data Plane](./l2-order-book-data-plane.md)；该合同在采用门通过前保持 `proposed`。
+这里的 `depth` 是按需 snapshot / ref 能力；新建的常驻 L2 service 仍是未切 consumer 的 `active-partial` production candidate。连续数据面的 authority、恢复与程序化消费边界见 [L2 Order Book Data Plane](./l2-order-book-data-plane.md)。
 
 ## 微观结构证据
 
