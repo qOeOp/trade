@@ -24,3 +24,4 @@ atomic module
 - Does not run R&D search, replay, review, promotion, or exchange calls.
 - Does not write files, catalog, or `trade.db`.
 - Uses `replay-execution-plane/benchmark` for shared funding coverage semantics.
+- Uses `legacy-research-data` only for migration-period manifest/Candle loading; it does not consume legacy evaluation semantics.
