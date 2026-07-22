@@ -8,7 +8,7 @@ import type { ReplayDecisionHarnessWorkerV10AuthorityExecutionAdmissionCommand }
 import { assertReplayDecisionHarnessWorkerV10AuthorityProcessLaunchIntent } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-authority-process-launch-intent"
 import type { ReplayDecisionHarnessWorkerV10AuthorityTransportContract } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-authority-transport-contract"
 import type { ReplayDecisionHarnessWorkerV10SuccessorTransportContract } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-transport-contract"
-import { createReplayWorkerV10AuthorityAdmissionEvidenceFixture } from "./replay-worker-v10-authority-admission-evidence-fixture"
+import { createReplayWorkerV10LeaseClockEvidenceFixture } from "./replay-worker-v10-lease-clock-evidence-fixture"
 import { assertReplayDecisionHarnessWorkerV10AuthorityProcessLaunchIntentLineage, buildReplayDecisionHarnessWorkerV10AuthorityProcessLaunchIntent } from "./replay-decision-harness-worker-v10-authority-process-launch-intent"
 import { issueReplayWorkerV10AuthorityProcessLaunchIntent, readReplayWorkerV10AuthorityProcessLaunchIntent } from "./replay-worker-v10-authority-process-launch-intent-registry"
 
@@ -32,7 +32,7 @@ export function runReplayWorkerV10AuthorityIntentAdmissionStage(
     observation_ref: "observation://replay-attempt-lease/authority-intent",
     observed_at: "2026-07-14T00:00:48Z",
   })
-  const evidence = createReplayWorkerV10AuthorityAdmissionEvidenceFixture({
+  const evidence = createReplayWorkerV10LeaseClockEvidenceFixture({
     observation,
     registered_at: "2026-07-14T00:00:49Z",
     read_at: "2026-07-14T00:00:50Z",

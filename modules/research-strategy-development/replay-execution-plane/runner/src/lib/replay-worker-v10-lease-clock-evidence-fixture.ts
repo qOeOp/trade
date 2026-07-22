@@ -9,7 +9,7 @@ import {
   type ReplayAttemptLeaseObservationSnapshot,
 } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
 
-export function createReplayWorkerV10AuthorityAdmissionEvidenceFixture(input: {
+export function createReplayWorkerV10LeaseClockEvidenceFixture(input: {
   observation: ReplayAttemptLeaseObservationSnapshot
   registered_at: string
   read_at: string

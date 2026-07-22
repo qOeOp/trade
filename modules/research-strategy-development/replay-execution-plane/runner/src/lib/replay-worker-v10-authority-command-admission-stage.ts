@@ -13,7 +13,7 @@ import type { ReplayDecisionHarnessWorkerV10ExecutionAdmissionCommand } from "..
 import type { ReplayDecisionHarnessWorkerV10ProcessLaunchIntent } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-process-launch-intent"
 import type { ReplayDecisionHarnessWorkerV10SuccessorTransportContract } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-transport-contract"
 import { assertReplayDecisionHarnessWorkerV10AuthorityExecutionAdmissionCommandLineage, buildReplayDecisionHarnessWorkerV10AuthorityExecutionAdmissionCommand } from "./replay-decision-harness-worker-v10-authority-execution-admission-command"
-import { createReplayWorkerV10AuthorityAdmissionEvidenceFixture } from "./replay-worker-v10-authority-admission-evidence-fixture"
+import { createReplayWorkerV10LeaseClockEvidenceFixture } from "./replay-worker-v10-lease-clock-evidence-fixture"
 import { issueReplayWorkerV10AuthorityExecutionAdmissionCommand, readReplayWorkerV10AuthorityExecutionAdmissionCommand } from "./replay-worker-v10-authority-execution-admission-command-registry"
 
 export interface ReplayWorkerV10AuthorityCommandAdmissionStageInput {
@@ -31,7 +31,7 @@ export interface ReplayWorkerV10AuthorityCommandAdmissionStageInput {
 export function runReplayWorkerV10AuthorityCommandAdmissionStage(
   input: ReplayWorkerV10AuthorityCommandAdmissionStageInput,
 ) {
-  const evidence = createReplayWorkerV10AuthorityAdmissionEvidenceFixture({
+  const evidence = createReplayWorkerV10LeaseClockEvidenceFixture({
     observation: input.post_command_observation,
     registered_at: "2026-07-14T00:00:39Z",
     read_at: "2026-07-14T00:00:45Z",
