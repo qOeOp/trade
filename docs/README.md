@@ -3,7 +3,7 @@ title: Documentation Contract
 role: documentation-index
 status: active
 owner: architecture
-last_verified: 2026-07-22 CST
+last_verified: 2026-07-23 CST
 ---
 
 # Documentation
@@ -33,6 +33,7 @@ last_verified: 2026-07-22 CST
 | 当前 J01–J07 如何调度 | [architecture/architecture-runtime-v2.mmd](./architecture/architecture-runtime-v2.mmd) |
 | 当前模块、job、store、rail | [architecture/architecture-manifest.json](./architecture/architecture-manifest.json) |
 | 代码与蓝图是否漂移 | [architecture/generated/architecture-drift-report.md](./architecture/generated/architecture-drift-report.md) |
+| 一体化服务器如何装配与施工 | [architecture/migrations/server-runtime-implementation-plan.md](./architecture/migrations/server-runtime-implementation-plan.md) |
 | 一个模块如何调用 | [architecture/tool-layout.md](./architecture/tool-layout.md) → `toolset.json` → module `CONTRACT.md` |
 | 一个大功能如何运行 | [runtime](./runtime/) 下对应合同 |
 | R&D 如何演进 | [research](./research/) 下对应 architecture / strategy / reliability 文档 |
