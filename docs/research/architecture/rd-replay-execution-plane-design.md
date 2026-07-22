@@ -148,4 +148,10 @@ Plane 内唯一完整认证入口是 `certification/replay-certification` 的 `b
 
 `replay-cross-process-reproducibility-bundle.json` 同时冻结两层证据。第一层是 canonical Result probe：同一 immutable fixture 由两个并发 fresh Bun process 直接调用现有 reference Engine，process identity 必须不同，runtime identity、input hash 与 Result hash 必须完全相同。第二层覆盖四个 public profile：每个 profile 的唯一 entrypoint 与 owner test source 均以 SHA-256 绑定，两个 fresh process 必须通过同一 exact semantic assertion；新增、改名或修改入口/断言均需显式复核 bundle。
 
-跨进程复现不等于跨平台复现，也不等于所有 profile 支持 checkpoint。Receipt 明文记录当前 Bun runtime 和 PID；single-trial 认证 direct Engine checkpoint，independent batch 仅委托 child checkpoint，integrated portfolio 与 terminal-aware bounded cycle 继续声明 checkpoint 不支持。该 bundle 不替代 M5 的历史 Artifact migration、crash/exactly-once、容量、故障注入、可观测、release fixture pack 或独立审计 gate。当前 M5 为 `2/9`，成熟度仍为 M4。
+跨进程复现不等于跨平台复现，也不等于所有 profile 支持 checkpoint。Receipt 明文记录当前 Bun runtime 和 PID；single-trial 认证 direct Engine checkpoint，independent batch 仅委托 child checkpoint，integrated portfolio 与 terminal-aware bounded cycle 继续声明 checkpoint 不支持。该 bundle 不替代 M5 的历史 Artifact migration、crash/exactly-once、容量、故障注入、可观测、release fixture pack 或独立审计 gate。
+
+## 16. M5 historical Artifact read migration
+
+P10、P11、P13 的 compatibility certification 各冻结一个 exact-v1 Artifact Manifest；版本化 reader 只接受 capability 与 schema 的固定映射，复用旧合同校验 role 顺序、commit marker、Result/Evidence identity 与 manifest self-hash，再输出 `readable-legacy-no-write` identity/integrity projection。Fixture pack 自哈希；schema、role、manifest 或 expected projection 漂移均 fail closed。Maturity checker 每次直接读取并执行同一 pack，不接受仅修改 gate 布尔值。
+
+该 reader 没有 writer、数据库、runtime public entrypoint 或经济 authority，不产生 Result v53 / Artifact v55，不修改旧文件，也不把旧 accounting 映射成当前经济语义。当前 fixture 是不含 payload bytes 的 synthetic manifest pack，因此只认证 committed manifest 的发现、版本分派和身份完整性；payload rehydration、生产历史全集、跨版本经济升级仍不在本 gate 内。M5 当前为 `3/9`，成熟度仍为 M4；下一门固定为 crash recovery 与 exactly-once publication。
