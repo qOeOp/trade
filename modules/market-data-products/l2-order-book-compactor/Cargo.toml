@@ -1,0 +1,15 @@
+[package]
+name = "trade-l2-order-book-compactor"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+anyhow = "1"
+arrow-array = "59.1.0"
+arrow-schema = "59.1.0"
+parquet = { version = "59.1.0", features = ["arrow", "zstd"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
+trade-l2-order-book-core = { path = "../l2-order-book-core" }
