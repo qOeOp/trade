@@ -19,7 +19,7 @@ forward-evidence-plane/
 agent-roles/
 ```
 
-目录迁移已完成；剩余工作是语义替换、compatibility 退役和 maturity gate 闭合。旧路径不得恢复。
+目录迁移已完成；无消费者的 `candidate-freezer` 已退役，底层 frozen-candidate ref 协议继续由 protocol fabric 持有。剩余工作是语义替换、compatibility 退役和 maturity gate 闭合。旧路径不得恢复。
 
 ## 2. Authority
 
@@ -39,7 +39,7 @@ agent-roles/
 
 ## 4. 剩余债务
 
-- `compatibility/` 只允许现有 parity / migration 行为，不能新增 authority。
+- 剩余 `compatibility/` 只允许现有 parity / migration 行为，不能新增 authority；无消费者入口直接退役，不保留空壳。
 - shared contract 必须上提到明确 owner；不得用跨 Plane implementation import 共享语义。
 - legacy integration suite 只证明回归，不证明新 Plane maturity。
 - Replay 未完成能力以机器 gate 的 `false` 项为准，不在迁移文档重复 phase 进度。
