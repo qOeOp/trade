@@ -30,6 +30,6 @@ internal engine
 
 - No CLI, package, catalog write, artifact write, `trade.db` write, or exchange access.
 - Does not own R&D loop artifacts, durable RD memory, campaign orchestration, Review authority, promotion, or execution.
-- Uses `replay-execution-plane/compatibility/legacy-research-kernel` and `agent-roles/developer/strategy-family-engine`; legacy evaluation/family formulas are not duplicated.
+- Uses compatibility `legacy-research-kernel` for evaluation、`legacy-research-data` for Candle/manifest loading、`legacy-replay-identity` for frozen hashes, plus `agent-roles/developer/strategy-family-engine`; formulas are not duplicated.
 - Factor discovery is forbidden on external-validation and locked-holdout stages; factor labels overlapping the OOS boundary are purged.
 - Candidates that consume external factor conditions fail closed when provider-native prefix recomputation evidence is missing or failed.

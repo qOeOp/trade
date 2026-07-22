@@ -1,4 +1,5 @@
-import { loadCandlesFromManifest, loadManifest, replayStrategy } from "../../../../../replay-execution-plane/compatibility/legacy-research-kernel/src/lib/replay-core"
+import { replayStrategy } from "../../../../../replay-execution-plane/compatibility/legacy-research-kernel/src/lib/replay-core"
+import { loadCandlesFromManifest, loadManifest } from "../../../../../replay-execution-plane/compatibility/legacy-research-data/src/lib/legacy-research-data"
 import {
   composeFactorCandidates,
   type FactorFeatureStore,

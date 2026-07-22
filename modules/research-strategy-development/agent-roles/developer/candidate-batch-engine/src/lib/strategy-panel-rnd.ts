@@ -1,4 +1,4 @@
-import { loadCandlesFromManifest, loadManifest, type Candle } from "../../../../../replay-execution-plane/compatibility/legacy-research-kernel/src/lib/replay-core"
+import { loadCandlesFromManifest, loadManifest, type Candle } from "../../../../../replay-execution-plane/compatibility/legacy-research-data/src/lib/legacy-research-data"
 import { runStrategyRndBatch } from "./strategy-rnd-batch"
 import type { StrategyRndCandidateInput } from "./strategy-rnd-inputs"
 
