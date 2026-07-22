@@ -6,13 +6,13 @@ export {
   loadCandlesFromManifest,
   parseCsvCandles,
   replayStrategy,
-  simulateReplayOrderLane,
   summarizeReplay,
   type Candle,
   type IndicatorSet,
 } from "./replay-core"
 
 export { detectReplayDecisionLookahead, evaluateLatestSignal } from "../../../legacy-research-decision/src/lib/legacy-research-decision"
+export { simulateReplayOrderLane } from "../../../legacy-research-order-lane/src/lib/legacy-research-order-lane"
 
 export type {
   LatestSignalResult,
