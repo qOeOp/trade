@@ -62,7 +62,10 @@ export function buildReplayCrossSourceOrderingAttestation(
   ]
   for (const event of envelopes) {
     const effective = Date.parse(event.effective_time)
-    if (effective < Date.parse(windowStart) || effective >= Date.parse(windowEnd)) {
+    const closesWindow = event.source_kind === "ohlcv"
+      && event.event_kind === "bar_range"
+      && event.effective_time === windowEnd
+    if (effective < Date.parse(windowStart) || (effective >= Date.parse(windowEnd) && !closesWindow)) {
       throw new Error(`cross-source ${event.source_kind} event falls outside the half-open ordering window`)
     }
   }

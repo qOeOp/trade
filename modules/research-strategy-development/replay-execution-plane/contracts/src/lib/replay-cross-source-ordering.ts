@@ -228,7 +228,11 @@ export function assertReplayCrossSourceOrderingAttestation(value: ReplayCrossSou
     assertReplayCrossSourceEventEnvelope(event)
     if (!collectionSources.has(event.source_kind)) throw new Error("cross-source event lacks a collection binding")
     const eventTime = Date.parse(event.effective_time)
-    if (eventTime < Date.parse(value.window_start_inclusive) || eventTime >= Date.parse(value.window_end_exclusive)) {
+    const closesWindow = event.source_kind === "ohlcv"
+      && event.event_kind === "bar_range"
+      && event.effective_time === value.window_end_exclusive
+    if (eventTime < Date.parse(value.window_start_inclusive)
+        || (eventTime >= Date.parse(value.window_end_exclusive) && !closesWindow)) {
       throw new Error("cross-source event falls outside the half-open ordering window")
     }
     if (previousKey && compareReplayCrossSourceEventKeys(previousKey, event.event_key) >= 0) {
