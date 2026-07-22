@@ -9,6 +9,7 @@ Owns rebuildable execution-state projections derived from `plan_event`.
 - Expose latest slow-track observe for fast-track inheritance without cross-domain event-store reads.
 - Apply reconcile drafts only when explicitly authorized.
 - Keep projections rebuildable from the event store.
+- Derive position changes from monotonic cumulative fill watermarks; duplicate and stale cumulative snapshots contribute zero additional quantity.
 - Return stable `flow-projector.script-response.v1` envelopes from the owner CLI.
 
 ## Boundaries
