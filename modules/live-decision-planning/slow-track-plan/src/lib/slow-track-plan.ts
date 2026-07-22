@@ -3,7 +3,7 @@ import { dirname, join } from "node:path"
 import { loadJsonFile, loadStrategies } from "../../../../contracts/strategy-policy/src/strategy-policy"
 import { asRecord, numberField, stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
 import { displayPath, displayPathFrom, resolvePathFrom } from "../../../../contracts/runtime-core/src/paths"
-import { runJsonCommand, type Runner } from "../../../../contracts/runtime-core/src/tool-runner"
+import { runJsonCommand, runToolCommand, type Runner, type ToolCallResult } from "../../../../contracts/runtime-core/src/tool-runner"
 import { activeFlows } from "./flow-projector-client"
 import { loadRuntimePolicyFromOwner } from "./runtime-policy-client"
 
@@ -17,12 +17,6 @@ interface SlowTrackWorkflowInput {
   technicalAnalysisLimitPerSide?: number
   runner?: Runner
   activeFlowCountReader?: (dbPath: string) => number
-}
-
-interface ToolCallResult {
-  ok: boolean
-  data?: JSONRecord
-  error?: string
 }
 
 function loadRuntime(accountConfigPath: string, tradingConfigPath: string, strategiesDir: string): JSONRecord {
@@ -51,8 +45,8 @@ export async function runSlowTrackWorkflowDryRun(input: SlowTrackWorkflowInput):
   const runtime = loadRuntime(accountConfigPath, tradingConfigPath, strategiesDir)
 
   const [accountSnapshot, marketScan] = await Promise.all([
-    callTool(runner, ["bun", "src/scripts/main.ts", "--timeout", "10"], join(input.repoRoot, "modules/exchange-gateway/binance-read/account-snapshot")),
-    callTool(
+    runToolCommand(runner, ["bun", "src/scripts/main.ts", "--timeout", "10"], join(input.repoRoot, "modules/exchange-gateway/binance-read/account-snapshot")),
+    runToolCommand(
       runner,
       ["bun", "src/scripts/main.ts", "--direction", "both", "--limit-per-side", String(candidateLimit)],
       join(input.repoRoot, "modules/market-data-products/binance-read/market-scan"),
@@ -136,7 +130,7 @@ async function runTechnicalAnalysis(
   const ohlcvOutputDir = join(input.repoRoot, "tmp", "market", input.runId, symbol)
   const marketDataDb = join(input.dataDir, "market_data.db")
   const ohlcvDb = join(input.dataDir, "ohlcv.db")
-  const ohlcv = await callTool(
+  const ohlcv = await runToolCommand(
     runner,
     [
       "bun",
@@ -166,7 +160,7 @@ async function runTechnicalAnalysis(
     }
   }
   const manifestFsPath = resolvePathFrom(manifestPath, ohlcvToolDir)
-  const indicators = await callTool(
+  const indicators = await runToolCommand(
     runner,
     ["go", "run", "./src/scripts", "--manifest", manifestFsPath],
     join(input.repoRoot, "modules/market-data-products/tech-indicators"),
@@ -196,7 +190,7 @@ async function fetchSymbolSnapshots(
 ): Promise<Record<string, ToolCallResult>> {
   const unique = uniqueSymbols(candidates)
   const entries = await Promise.all(unique.map(async (symbol) => {
-    const result = await callTool(
+    const result = await runToolCommand(
       runner,
       ["bun", "src/scripts/main.ts", "--symbol", symbol, "--pulse"],
       join(repoRoot, "modules/market-data-products/binance-read/symbol-snapshot"),
@@ -204,28 +198,6 @@ async function fetchSymbolSnapshots(
     return [symbol, result] as const
   }))
   return Object.fromEntries(entries)
-}
-
-async function callTool(runner: Runner, command: string[], cwd: string): Promise<ToolCallResult> {
-  const result = await runner(command, { cwd })
-  if (!result.ok) {
-    return {
-      ok: false,
-      error: result.error,
-    }
-  }
-  const response = asRecord(result.data)
-  if (response.ok === false) {
-    return {
-      ok: false,
-      error: stringField(response.error) || "tool returned ok=false",
-      data: asRecord(response.data),
-    }
-  }
-  return {
-    ok: true,
-    data: asRecord(response.data ?? response),
-  }
 }
 
 function summarizeStrategyPool(runtime: JSONRecord): JSONRecord {

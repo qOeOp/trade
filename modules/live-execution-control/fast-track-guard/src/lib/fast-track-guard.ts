@@ -6,7 +6,7 @@ import { buildDomainJobResult, validateDomainJobResult } from "../../../../contr
 import { evaluateTriggerCondition } from "../../../execution-gate/src/lib/execution-gate"
 import { appendEvent } from "./event-store-client"
 import { activeFlows as readActiveFlows, reduceFlow } from "./flow-projector-client"
-import { runJsonCommand, type Runner } from "../../../../contracts/runtime-core/src/tool-runner"
+import { runJsonCommand, runToolCommand, type Runner, type ToolCallResult } from "../../../../contracts/runtime-core/src/tool-runner"
 
 type PlanEvent = {
   event_key: string
@@ -43,12 +43,6 @@ interface FastTrackGuardJobInput {
   eventAppender?: (dbPath: string, event: JSONRecord) => JSONRecord
 }
 
-interface ToolCallResult {
-  ok: boolean
-  data?: JSONRecord
-  error?: string
-}
-
 export async function runFastTrackWorkflowDryRun(input: FastTrackWorkflowInput): Promise<JSONRecord> {
   const runner = input.runner ?? runJsonCommand
   const activeFlows = (input.activeFlowsReader ?? readActiveFlows)(input.dbPath)
@@ -70,7 +64,7 @@ export async function runFastTrackWorkflowDryRun(input: FastTrackWorkflowInput):
     })
   }
 
-  const accountSnapshot = await callTool(
+  const accountSnapshot = await runToolCommand(
     runner,
     ["bun", "src/scripts/main.ts", "--timeout", "10"],
     join(input.repoRoot, "modules/exchange-gateway/binance-read/account-snapshot"),
@@ -205,7 +199,7 @@ async function fetchSymbolSnapshots(
   symbols: string[],
 ): Promise<Record<string, ToolCallResult>> {
   const entries = await Promise.all(symbols.map(async (symbol) => {
-    const result = await callTool(
+    const result = await runToolCommand(
       runner,
       ["bun", "src/scripts/main.ts", "--symbol", symbol, "--pulse"],
       join(repoRoot, "modules/market-data-products/binance-read/symbol-snapshot"),
@@ -213,28 +207,6 @@ async function fetchSymbolSnapshots(
     return [symbol, result] as const
   }))
   return Object.fromEntries(entries)
-}
-
-async function callTool(runner: Runner, command: string[], cwd: string): Promise<ToolCallResult> {
-  const result = await runner(command, { cwd })
-  if (!result.ok) {
-    return {
-      ok: false,
-      error: result.error,
-    }
-  }
-  const response = asRecord(result.data)
-  if (response.ok === false) {
-    return {
-      ok: false,
-      error: stringField(response.error) || "tool returned ok=false",
-      data: asRecord(response.data),
-    }
-  }
-  return {
-    ok: true,
-    data: asRecord(response.data ?? response),
-  }
 }
 
 function writeFastArtifact(input: FastTrackWorkflowInput, report: JSONRecord): JSONRecord {
