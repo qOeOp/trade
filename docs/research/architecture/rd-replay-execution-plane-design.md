@@ -73,7 +73,7 @@ Control Plane authorization
 
 - OHLCV 只证明 bar 范围，不证明 intrabar queue 和成交顺序；歧义必须使用冻结 policy 或 typed unresolved。
 - Funding、instrument status、aggregate trade 等 source 需要各自完整性、availability 和 lineage attestation。
-- L2 只接纳 owner-pinned、单 epoch contiguous 的 compacted source。当前 bounded adapter 验证 Parquet row identity、raw payload hash 与 `U/u/pu` 邻接，但固定 `external_completeness=not_verified`、`economic_authority=none`、`runner_compatibility=not_bound`；不得跨 epoch 拼接或据此推断 queue / Fill。
+- L2 只接纳 owner-pinned、单 epoch contiguous 的 compacted source。bounded adapter 验证 Parquet row identity、raw payload hash 与 `U/u/pu` 邻接；Control Plane 现可将一个 exact source/batch 的 half-open frame range作为独立实验附件，绑定 authoritative reserved Trial、Request 与 full canonical OHLCV Manifest。该 authority 不修改 OHLCV Dataset Manifest、不保存 raw rows，且仍固定 `external_completeness=not_verified`、`economic_authority=none`、`runner_compatibility=not_bound`；不得跨 epoch 拼接或据此推断 queue / Fill。
 - 当前 REST snapshot 不能倒推历史状态；`external_completeness=not_verified` 不能升级成 complete history。
 - replay fill 是模型事实，不冒充 Binance 实际成交。
 
