@@ -196,7 +196,6 @@ function isAllowedResearchStrategyDevelopmentImport(sourceTool: string, targetTo
     "modules/research-strategy-development/replay-execution-plane/engine -> modules/research-strategy-development/replay-execution-plane/data-adapter",
     "modules/research-strategy-development/replay-execution-plane/engine -> modules/research-strategy-development/replay-execution-plane/accounting",
     "modules/research-strategy-development/replay-execution-plane/engine -> modules/research-strategy-development/replay-execution-plane/metrics",
-    "modules/research-strategy-development/replay-execution-plane/engine -> modules/research-strategy-development/research-control-plane/contracts",
     "modules/research-strategy-development/replay-execution-plane/data-adapter -> modules/research-strategy-development/replay-execution-plane/contracts",
     "modules/research-strategy-development/replay-execution-plane/data-adapter -> modules/research-strategy-development/research-control-plane/contracts",
     "modules/research-strategy-development/replay-execution-plane/accounting -> modules/research-strategy-development/replay-execution-plane/contracts",
