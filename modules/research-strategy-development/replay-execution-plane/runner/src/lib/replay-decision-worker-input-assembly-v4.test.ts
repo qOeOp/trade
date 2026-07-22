@@ -529,6 +529,8 @@ import {
 import { runReplayWorkerV10LegacyActivationStage } from "./replay-worker-v10-legacy-activation-stage"
 import { runReplayWorkerV10SuccessorSpawnStage } from "./replay-worker-v10-successor-spawn-stage"
 import { runReplayWorkerV10SuccessorCommandStage } from "./replay-worker-v10-successor-command-stage"
+import { runReplayWorkerV10SuccessorIntentStage } from "./replay-worker-v10-successor-intent-stage"
+import { runReplayWorkerV10SuccessorCapsuleStage } from "./replay-worker-v10-successor-capsule-stage"
 
 const HASH = "a".repeat(64)
 const ACCOUNTING = {
@@ -4202,7 +4204,6 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
     const successorCommandStage = runReplayWorkerV10SuccessorCommandStage({
       registry_root: dispatchEvidenceRegistryRoot,
       successor_execution_contract_admission: successorExecutionContractAdmission,
-      successor_stdio_probe_admission: successorStdioProbeAdmission,
       successor_lease_admission: successorLeaseAdmission,
       predecessor_lease_generation: attemptLease.lease_generation,
       predecessor_execution_admission_command_hash: executionAdmissionCommand.command_hash,
@@ -4213,12 +4214,30 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
     const successorCommandAdmission = successorCommandStage.command_admission
     const successorDispatchClaim = successorCommandStage.dispatch_claim
     const successorExecutionCommand = successorCommandStage.execution_command
-    const successorIntentInput = successorCommandStage.intent_input
-    const successorProcessLaunchIntent = successorCommandStage.process_launch_intent
-    const successorCapsuleInput = successorCommandStage.capsule_input
-    const successorAuthorityCapsule = successorCommandStage.authority_capsule
-    const successorCapsuleFile = successorCommandStage.capsule_file
-    const successorIntentFile = successorCommandStage.intent_file
+
+    const successorIntentStage = runReplayWorkerV10SuccessorIntentStage({
+      registry_root: dispatchEvidenceRegistryRoot,
+      successor_command_admission: successorCommandAdmission,
+      successor_execution_contract_admission: successorExecutionContractAdmission,
+      successor_stdio_probe_admission: successorStdioProbeAdmission,
+      command_observation: successorCommandStage.command_observation,
+      requested_successor_lease_expiry: requestedSuccessorLeaseExpiry,
+      profile: replayProfile,
+    })
+    const successorIntentInput = successorIntentStage.intent_input
+    const successorProcessLaunchIntent = successorIntentStage.process_launch_intent
+
+    const successorCapsuleStage = runReplayWorkerV10SuccessorCapsuleStage({
+      registry_root: dispatchEvidenceRegistryRoot,
+      process_launch_intent: successorProcessLaunchIntent,
+      execution_command: successorExecutionCommand,
+      execution_contract_admission: successorExecutionContractAdmission,
+      profile: replayProfile,
+    })
+    const successorCapsuleInput = successorCapsuleStage.capsule_input
+    const successorAuthorityCapsule = successorCapsuleStage.authority_capsule
+    const successorCapsuleFile = successorCapsuleStage.capsule_file
+    const successorIntentFile = successorCapsuleStage.intent_file
 
     const successorSpawnStage = runReplayWorkerV10SuccessorSpawnStage({
       registry_root: dispatchEvidenceRegistryRoot,
