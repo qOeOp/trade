@@ -1,7 +1,7 @@
 import assert from "node:assert/strict"
 import { createHash } from "node:crypto"
 import test from "node:test"
-import { canonicalHash, canonicalJson } from "../canonical-json"
+import { canonicalHash, canonicalJson, canonicalNfcHash, canonicalNfcJson } from "../canonical-json"
 
 test("canonical JSON is stable across key order and negative zero", () => {
   assert.equal(canonicalJson({ b: -0, a: [2, 1], omitted: undefined }), '{"a":[2,1],"b":0}')
@@ -21,4 +21,12 @@ test("canonical hash preserves exact bytes for deeply nested evidence", () => {
   const encoded = canonicalJson(evidence)
   assert.equal(canonicalHash(evidence), createHash("sha256").update(encoded).digest("hex"))
   assert.equal(encoded.includes('"omitted"'), false)
+})
+
+test("canonical NFC JSON normalizes values and keys while rejecting normalized collisions", () => {
+  const decomposed = "e\u0301"
+  const composed = "é"
+  assert.equal(canonicalNfcJson({ [decomposed]: decomposed }), canonicalNfcJson({ [composed]: composed }))
+  assert.equal(canonicalNfcHash({ value: decomposed }), canonicalNfcHash({ value: composed }))
+  assert.throws(() => canonicalNfcJson({ [decomposed]: 1, [composed]: 2 }), /key collisions/)
 })
