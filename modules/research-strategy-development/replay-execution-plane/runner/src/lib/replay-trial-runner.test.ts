@@ -2,9 +2,10 @@ import { expect, test } from "bun:test"
 import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
-import { CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION, REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION, REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION, REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION, REPLAY_PORTFOLIO_POST_PARTIAL_STOP_REPLACEMENT_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION, REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION, TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION, createReplayAttemptCancellationSnapshot, createReplayInstrumentStatusProviderCertificationSnapshot, createReplayPortfolioPostPartialStopReplacementCycleSequenceReservationSnapshot, createReplayResumeAuthorizationSnapshot, hashReplayAttemptLeaseSnapshot, hashTrialReservationSnapshot, type ReplayAttemptLeaseSnapshot, type ReplayResumeAuthorizationSnapshot, type TrialReservationSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
+import { CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION, REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION, REPLAY_BAR_LINKED_AGGREGATE_TRADE_PATH_AUTHORITY_LIMITATIONS, REPLAY_BAR_LINKED_AGGREGATE_TRADE_PATH_AUTHORITY_SCHEMA_VERSION, REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION, REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION, REPLAY_PORTFOLIO_POST_PARTIAL_STOP_REPLACEMENT_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION, REPLAY_RESUME_AUTHORIZATION_SCHEMA_VERSION, TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION, createReplayAttemptCancellationSnapshot, createReplayBarLinkedAggregateTradePathAuthoritySnapshot, createReplayInstrumentStatusProviderCertificationSnapshot, createReplayPortfolioPostPartialStopReplacementCycleSequenceReservationSnapshot, createReplayResumeAuthorizationSnapshot, hashReplayAttemptLeaseSnapshot, hashTrialReservationSnapshot, type ReplayAttemptLeaseSnapshot, type ReplayResumeAuthorizationSnapshot, type TrialReservationSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
 import {
   REPLAY_CERTIFIED_CAPABILITIES,
+  REPLAY_AGGREGATE_TRADE_EVENT_SCHEMA_VERSION,
   REPLAY_DATASET_MANIFEST_SCHEMA_VERSION,
   REPLAY_DECISION_SCHEDULE_SCHEMA_VERSION,
   REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
@@ -34,6 +35,7 @@ import {
   canonicalHash,
   canonicalJson,
   createReplayEntryCancelDecisionSchedule,
+  createReplayAggregateTradeCoverageAttestation,
   createReplaySingleDecisionSchedule,
   createReplayDecisionHarnessBuildAttestation,
   createReplayDecisionInputSnapshot,
@@ -47,12 +49,15 @@ import {
   replayOhlcvResolutionEvidenceHash,
   replayExecutionSpecHash,
   type ReplayDatasetManifest,
+  type ReplayAggregateTradeEvent,
   type ReplayDecisionSchedule,
   type ReplayExecutionRequest,
   type ReplayInstrumentStatusSnapshot,
   type ReplayMarketBar,
   type ReplaySupplementalFact,
 } from "../../../contracts/src/lib/replay-contracts"
+import { createReplayKlineSourceRecord } from "../../../contracts/src/lib/replay-kline-aggregate-trade-bar-link-contracts"
+import { materializeReplayKlineAggregateTradeBarLink } from "../../../data-adapter/src/lib/replay-kline-aggregate-trade-bar-link"
 import { createReplayAuthorityCancellationOutcome, runReplayTrial, type ReplayDiagnosticCheckpointCommitRef } from "./replay-trial-runner"
 import {
   ReplayCancellationAcknowledgementError,
@@ -386,6 +391,110 @@ function datasetManifestFor(
   }
 }
 
+function authorizedBarLinkedStopEntryPathFixture(prices: number[]) {
+  const bar: ReplayMarketBar = {
+    open_time: "2026-07-14T04:00:00Z",
+    close_time: "2026-07-14T08:00:00Z",
+    open: prices[0]!, high: Math.max(...prices), low: Math.min(...prices),
+    close: prices.at(-1)!, volume: prices.length, closed: true,
+  }
+  const dataHash = replayDatasetHash([bar])
+  const order: ReplayExecutionRequest["order"] = {
+    side: "long", quantity: 1,
+    signal_time: "2026-07-14T00:00:00Z", earliest_executable_time: bar.open_time,
+    stop_price: 90, target_price: 110,
+    entry_execution: {
+      order_type: "stop_market", trigger_price: 105, trigger_source: "last_trade_ohlcv",
+      time_in_force: "gtc", liquidity_model: "ohlcv-cross-through-full-fill-bounded-v1",
+      full_fill_capacity: 1,
+      liquidity_capacity_attestation_hash: CAPACITY_ATTESTATION.attestation_hash,
+    },
+  }
+  const decisionSchedule = createReplaySingleDecisionSchedule(order)
+  const requestValue: ReplayExecutionRequest = {
+    ...request(), run_id: `run-stop-path-${canonicalHash(prices).slice(0, 8)}`,
+    idempotency_key: `idem-stop-path-${canonicalHash(prices).slice(0, 8)}`,
+    dataset_hash: dataHash, order,
+    decision_schedule: decisionSchedule, decision_schedule_hash: canonicalHash(decisionSchedule),
+  }
+  const manifest = datasetManifestFor([bar], dataHash)
+  const authorization = authorized(requestValue)
+  const events: ReplayAggregateTradeEvent[] = prices.map((price, index) => ({
+    schema_version: REPLAY_AGGREGATE_TRADE_EVENT_SCHEMA_VERSION,
+    symbol: requestValue.symbol,
+    aggregate_trade_id: index + 1, first_trade_id: index + 1, last_trade_id: index + 1,
+    trade_time: `2026-07-14T04:0${index}:00Z`,
+    available_at: `2026-07-14T04:0${index}:00Z`,
+    price, quantity: 1, buyer_is_maker: false,
+  }))
+  const coverage = createReplayAggregateTradeCoverageAttestation({
+    attestation_id: `coverage-${requestValue.run_id}`,
+    attestation_ref: `aggregate-trades://${requestValue.run_id}`,
+    symbol: requestValue.symbol, coverage_start: bar.open_time, coverage_end: bar.close_time,
+    source_ref: `archive://${requestValue.run_id}`, source_hash: HASH,
+    produced_at: bar.close_time, events,
+  })
+  const quoteVolume = prices.reduce((sum, price) => sum + price, 0)
+  const kline = createReplayKlineSourceRecord({
+    symbol: requestValue.symbol, timeframe: requestValue.timeframe, market_bar: bar,
+    available_at: bar.close_time, quote_volume: quoteVolume, trade_count: prices.length,
+    taker_buy_base_volume: prices.length, taker_buy_quote_volume: quoteVolume,
+    source_ref: `kline://${requestValue.run_id}`, source_hash: HASH,
+  })
+  const barLink = materializeReplayKlineAggregateTradeBarLink({
+    market_bar: bar, kline_record: kline,
+    aggregate_trade_coverage: coverage, aggregate_trade_events: events,
+  })
+  const authority = createReplayBarLinkedAggregateTradePathAuthoritySnapshot({
+    schema_version: REPLAY_BAR_LINKED_AGGREGATE_TRADE_PATH_AUTHORITY_SCHEMA_VERSION,
+    authority_snapshot_id: `authority-${requestValue.run_id}`,
+    authority_snapshot_ref: `authority://${requestValue.run_id}`,
+    status: "authorized", issued_at: "2026-07-14T08:00:01Z",
+    authority_id: "research-control-plane", authority_policy_version: "rd-bar-linked-path-authority-v1",
+    trial_id: requestValue.trial_id, run_id: requestValue.run_id,
+    reservation_ref: requestValue.trial_reservation_ref,
+    reservation_hash: requestValue.trial_reservation_hash,
+    request_schema_version: requestValue.schema_version, request_hash: canonicalHash(requestValue),
+    entry_order_hash: canonicalHash(requestValue.order),
+    dataset_manifest_ref: manifest.manifest_ref, dataset_hash: manifest.data_hash,
+    aggregate_trade_evidence_admission_ref: `admission://aggregate/${requestValue.run_id}`,
+    aggregate_trade_evidence_admission_hash: HASH,
+    cross_source_ordering_admission_ref: `admission://ordering/${requestValue.run_id}`,
+    cross_source_ordering_admission_hash: HASH,
+    bar_link_attestation_id: barLink.attestation_id,
+    bar_link_attestation_hash: barLink.attestation_hash,
+    bar_link_schema_version: barLink.schema_version, bar_link_policy_version: barLink.policy_version,
+    venue_id: "binance-usdm", symbol: requestValue.symbol, timeframe: requestValue.timeframe,
+    window_start_inclusive: bar.open_time, window_end_exclusive: bar.close_time,
+    latest_component_available_at: barLink.latest_component_available_at,
+    kline_record_hash: barLink.kline_record_hash,
+    replay_market_bar_hash: barLink.replay_market_bar_hash,
+    aggregate_trade_coverage_attestation_hash: coverage.attestation_hash,
+    aggregate_trade_events_hash: coverage.events_hash,
+    entry_side: "long", entry_trigger_price: 105,
+    protective_stop_price: 90, protective_target_price: 110,
+    consumer_capability: "bounded_initial_stop_market_same_bar_post_entry_protection_ordering",
+    entry_scope: "initial_stop_market_entry_only",
+    path_resolution_authority: "authorized_for_bound_request_and_bar",
+    path_observation_rule: "strictly_after_entry_trigger_trade",
+    path_source_authority: "ordered_aggregate_trade_prices_within_linked_bar_only",
+    cross_source_ordering_authority: "lineage_only_not_global_sequence",
+    fill_quantity_authority: "none", cost_authority: "none",
+    external_completeness: "not_verified", runner_compatibility: "not_bound",
+    activation: "forbidden_until_exact_request_runner_consumer",
+    limitations: [...REPLAY_BAR_LINKED_AGGREGATE_TRADE_PATH_AUTHORITY_LIMITATIONS],
+    limitations_hash: canonicalHash(REPLAY_BAR_LINKED_AGGREGATE_TRADE_PATH_AUTHORITY_LIMITATIONS),
+  })
+  return {
+    ...authorization, dataset_manifest: manifest, bars: [bar],
+    bar_linked_stop_entry_path: {
+      activation_mode: "explicit_opt_in_pre_result_binding" as const,
+      market_bar: bar, path_authority: authority, bar_link_attestation: barLink,
+      aggregate_trade_coverage: coverage, aggregate_trade_events: events,
+    },
+  }
+}
+
 function failReplayArtifactWriteOnce(
   store: ReplayArtifactStore,
   targetName: string,
@@ -475,7 +584,7 @@ test("runner atomically commits artifacts and retries idempotently", () => {
     ...authorized(), dataset_manifest: datasetManifest(), bars,
     artifact_store: createReplayLocalArtifactStore(root),
   })
-  expect(first.status).toBe("completed")
+  expect(first).toMatchObject({ status: "completed" })
   expect(first.artifact_manifest?.files.map((file) => file.role)).toEqual(["request", "trial_reservation", "attempt_lease", "dataset_manifest", "liquidity_capacity_attestation", "supplemental_facts", "decision_market_input_snapshot", "decision_evidence_timeline", "result", "source_events", "order_events", "order_state_snapshot", "fills", "positions", "ledger", "ohlcv_resolution_evidence", "pending_order_resolutions", "bar_linked_stop_entry_path_step", "valuation_snapshot", "equity_bridge", "margin_snapshots", "liquidation", "journal", "trial_balance"])
   expect(first.result?.order_state_snapshot.order_count).toBeGreaterThanOrEqual(3)
   expect(first.result?.fingerprint.order_state_snapshot_hash)
@@ -486,6 +595,33 @@ test("runner atomically commits artifacts and retries idempotently", () => {
   expect(first.artifact_commit?.storage_policy_version).toBe(REPLAY_CHECKPOINT_STORAGE_POLICY_VERSION)
   expect(second.status).toBe("completed")
   expect(second.idempotent_replay).toBe(true)
+})
+
+test("runner commits authorized same-bar Stop-entry path into Result, Fingerprint, and Artifact", () => {
+  const root = mkdtempSync(join(tmpdir(), "rd-replay-stop-path-runner-"))
+  const input = authorizedBarLinkedStopEntryPathFixture([100, 105, 110, 90, 100])
+  const first = runReplayTrial({ ...input, artifact_root: root })
+  const second = runReplayTrial({
+    ...input,
+    artifact_store: createReplayLocalArtifactStore(root),
+  })
+
+  expect(first).toMatchObject({ status: "completed" })
+  expect(first.result?.fills.map((fill) => [fill.order_role, fill.price])).toEqual([
+    ["entry", 105], ["target", 110],
+  ])
+  expect(first.result?.bar_linked_stop_entry_path_step?.exact_trade_stop_resolution.terminal_trigger)
+    .toMatchObject({ role: "target", aggregate_trade_id: 3 })
+  expect(first.result?.ohlcv_resolution_evidence).toEqual([])
+  expect(first.result?.fingerprint.bar_linked_stop_entry_path_step_hash)
+    .toBe(first.result?.bar_linked_stop_entry_path_step?.step_hash)
+  expect(first.artifact_manifest?.files.some((file) =>
+    file.role === "bar_linked_stop_entry_path_step" &&
+    file.ref.endsWith("bar-linked-stop-entry-path-step.json"),
+  )).toBe(true)
+  expect(second.status).toBe("completed")
+  expect(second.idempotent_replay).toBe(true)
+  expect(canonicalHash(second.result)).toBe(canonicalHash(first.result))
 })
 
 test("runner commits a pre-entry GTC Limit resolution chain as an authoritative artifact", () => {
