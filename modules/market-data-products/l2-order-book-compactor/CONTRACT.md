@@ -6,7 +6,7 @@ Deterministic Rust worker that converts one owner-admitted complete TL2S epoch i
 
 - Re-verification and ordered decoding of finalized TL2S segment frames.
 - Batched Arrow RecordBatch construction and Zstd Parquet writing.
-- Create-new Parquet and compaction proposal publication.
+- Create-or-identical Parquet and proposal-last publication; divergent existing bytes fail closed.
 - Bounded Parquet reads for parity and future Replay adapters.
 
 ## Boundaries

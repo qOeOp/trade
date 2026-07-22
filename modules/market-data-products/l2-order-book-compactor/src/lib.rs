@@ -153,6 +153,11 @@ pub fn compact(
     if output.extension().and_then(|value| value.to_str()) != Some("parquet") {
         bail!("compaction output must use .parquet");
     }
+    if proposal_path.exists() {
+        let proposal: CompactionProposal = serde_json::from_slice(&fs::read(&proposal_path)?)?;
+        verify_existing_proposal(job, &proposal, &output, manifest.recorded_frames as u64)?;
+        return Ok(proposal);
+    }
     if let Some(parent) = output.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -162,6 +167,7 @@ pub fn compact(
         std::process::id(),
         unix_ms()?
     ));
+    let _partial_guard = PartialFile(temporary.clone());
     let file = OpenOptions::new()
         .write(true)
         .create_new(true)
@@ -230,7 +236,7 @@ pub fn compact(
     }
     writer.close()?;
     File::open(&temporary)?.sync_all()?;
-    publish_create_new(&temporary, &output)?;
+    publish_create_or_identical(&temporary, &output)?;
     let proposal = CompactionProposal {
         schema_version: PROPOSAL_SCHEMA.to_string(),
         job_id: job.job_id.clone(),
@@ -251,7 +257,7 @@ pub fn compact(
         created_at_ms: unix_ms()?,
     };
     let proposal_bytes = serde_json::to_vec_pretty(&proposal)?;
-    write_atomic_create_new(&proposal_path, &proposal_bytes)?;
+    write_atomic_create_or_identical(&proposal_path, &proposal_bytes)?;
     Ok(proposal)
 }
 
@@ -402,7 +408,7 @@ fn validate_job(job: &CompactionJob) -> Result<()> {
         || job.symbol.is_empty()
         || job.stream_epoch.is_empty()
         || job.batch_rows == 0
-        || job.batch_rows > 100_000
+        || job.batch_rows > 10_000
         || !is_hash(&job.source_manifest_hash)
     {
         bail!("invalid L2 compaction job");
@@ -436,21 +442,25 @@ fn sibling(manifest: &Path, value: &str) -> Result<PathBuf> {
     Ok(manifest.parent().context("manifest parent")?.join(path))
 }
 
-fn publish_create_new(temporary: &Path, output: &Path) -> Result<()> {
+fn publish_create_or_identical(temporary: &Path, output: &Path) -> Result<()> {
     match fs::hard_link(temporary, output) {
         Ok(()) => {
             fs::remove_file(temporary)?;
             sync_parent(output)?;
             Ok(())
         }
-        Err(error) => {
-            let _ = fs::remove_file(temporary);
-            Err(error.into())
+        Err(error) if error.kind() == std::io::ErrorKind::AlreadyExists => {
+            if sha256_file(temporary)? != sha256_file(output)? {
+                bail!("existing compaction output has different content");
+            }
+            fs::remove_file(temporary)?;
+            Ok(())
         }
+        Err(error) => Err(error.into()),
     }
 }
 
-fn write_atomic_create_new(path: &Path, bytes: &[u8]) -> Result<()> {
+fn write_atomic_create_or_identical(path: &Path, bytes: &[u8]) -> Result<()> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)?;
     }
@@ -467,7 +477,62 @@ fn write_atomic_create_new(path: &Path, bytes: &[u8]) -> Result<()> {
     file.write_all(bytes)?;
     file.sync_all()?;
     drop(file);
-    publish_create_new(&temporary, path)
+    publish_create_or_identical(&temporary, path)
+}
+
+fn verify_existing_proposal(
+    job: &CompactionJob,
+    proposal: &CompactionProposal,
+    output: &Path,
+    expected_rows: u64,
+) -> Result<()> {
+    if proposal.schema_version != PROPOSAL_SCHEMA
+        || proposal.job_id != job.job_id
+        || proposal.epoch_id != job.epoch_id
+        || proposal.symbol != job.symbol
+        || proposal.stream_epoch != job.stream_epoch
+        || proposal.source_manifest_path != job.source_manifest_path
+        || proposal.source_manifest_hash != job.source_manifest_hash
+        || proposal.policy_version != job.policy_version
+        || proposal.parquet_path != job.output_path
+        || proposal.row_count != expected_rows
+    {
+        bail!("existing compaction proposal differs from job");
+    }
+    let metadata = fs::metadata(output)?;
+    if metadata.len() != proposal.parquet_bytes || sha256_file(output)? != proposal.parquet_hash {
+        bail!("existing Parquet evidence differs from proposal");
+    }
+    let first = read_rows(output, 0, 1)?;
+    let last = read_rows(output, (proposal.row_count - 1) as usize, 1)?;
+    let overflow = read_rows(output, proposal.row_count as usize, 1)?;
+    if first
+        .first()
+        .map(|row| (row.local_receive_time_ms, row.final_update_id))
+        != Some((
+            proposal.first_local_receive_time_ms,
+            proposal.first_final_update_id,
+        ))
+        || last
+            .first()
+            .map(|row| (row.local_receive_time_ms, row.final_update_id))
+            != Some((
+                proposal.last_local_receive_time_ms,
+                proposal.last_final_update_id,
+            ))
+        || !overflow.is_empty()
+    {
+        bail!("existing Parquet row coverage differs from proposal");
+    }
+    Ok(())
+}
+
+struct PartialFile(PathBuf);
+
+impl Drop for PartialFile {
+    fn drop(&mut self) {
+        let _ = fs::remove_file(&self.0);
+    }
 }
 
 fn sync_parent(path: &Path) -> Result<()> {
@@ -544,7 +609,12 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].final_update_id, 101);
         assert_eq!(rows[1].frame_index, 2);
-        assert!(compact(&root, &job).is_err());
+        assert_eq!(compact(&root, &job).expect("idempotent retry"), proposal);
+        fs::remove_file(root.join(&job.proposal_path)).expect("simulate proposal-last crash");
+        assert_eq!(
+            compact(&root, &job).expect("orphan output retry").row_count,
+            2
+        );
         fs::remove_dir_all(root).expect("cleanup");
     }
 }
