@@ -25,6 +25,8 @@ last_verified: 2026-07-22 CST
 | segment verification | 36 declared = 36 complete；0 partial；worker / supervisor exit 0 |
 | resource evidence | RSS max约 `21.8 MiB`、p95约 `16.7 MiB`，tail median 低于 head；CPU mean `0.144%`、max `2.5%` |
 | production-candidate smoke | loopback gRPC `live/read_ready=true`；291 received = raw = applied；complete manifest；TL2S recovery complete；0 partial |
+| owner admission | complete epoch 的 snapshot / TL2S / CRC / hash / count 闭包通过并 create-or-identical；incomplete 与篡改证据拒绝 |
+| supervisor restart | service `SIGKILL` 后 attempt 2 自动恢复 `read_ready=true`；orphan partial salvage + recovery report；精确 PID stop 写成功终态 |
 
 证据由仓库命令和 ignored runtime output 重建；本文只保存决策摘要，不把临时 evidence 复制成新的事实源。
 
@@ -38,7 +40,7 @@ last_verified: 2026-07-22 CST
 
 ## 当前限制与回滚
 
-- 当前只证明 BTCUSDT 单实例、单 symbol、小时级自然流量；尚未证明多 symbol、长期磁盘预算、manifest owner admission、24h rotation 与跨主机部署。
+- 当前只证明 BTCUSDT 单实例、单 symbol、小时级自然流量与短周期多 epoch/restart；尚未证明多 symbol、长期磁盘预算、24h 自然 rotation 与跨主机部署。
 - service 是 `active-partial` production candidate；没有 consumer cutover，不进入交易热路径。
 - 回滚是停止 service 并保持所有 consumer 未接入；不删除 raw / manifest evidence，不切回 Agent 维持采集。
 - 任一 silent gap、不可恢复 partial、unbounded resource、stale value 被标 fresh 或 core parity 失败，立即撤销 runtime readiness，修复后重跑 gate。

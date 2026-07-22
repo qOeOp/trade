@@ -10,7 +10,7 @@ last_verified: 2026-07-22 CST
 
 ## 1. 状态与目标
 
-本文定义 public L2 从采集、可恢复记录、订单簿投影到程序化消费的合同。Rust / TL2S 已通过 [L2 Runtime Adoption Decision](../architecture/l2-runtime-adoption-decision.md)，并形成单标的 production-candidate service 与 loopback gRPC；manifest owner admission、多 symbol、24h 验收、consumer cutover 与 broker 仍未完成，因此保持 `active-partial`。`l2-recorder-bakeoff` 继续是证据模块，不是生产依赖。
+本文定义 public L2 从采集、可恢复记录、订单簿投影到程序化消费的合同。Rust / TL2S 已通过 [L2 Runtime Adoption Decision](../architecture/l2-runtime-adoption-decision.md)，并形成单标的 production-candidate service、loopback gRPC、仓库托管 supervisor 与 TypeScript owner admission；多 symbol、24h 自然轮转、consumer cutover 与 broker 仍未完成，因此保持 `active-partial`。`l2-recorder-bakeoff` 继续是证据模块，不是生产依赖。
 
 目标是：Agent、LLM、MCP 和任一消费者离线时，L2 owner 仍能连续运行；任何不连续都成为显式 epoch / incident，而不是被静默修补。
 
@@ -139,7 +139,7 @@ continuity_status + source_status
 | 现有面 | Phase 1 处置 | 后续接入条件 |
 | --- | --- | --- |
 | `l2-recorder-bakeoff` | 保持证据模块，不被生产 import | 采用 ADR 后提取经 parity 验证的 Rust core，bake-off fixture 继续当 oracle |
-| `market-data-store` | 增加 finalized segment manifest admission 前先冻结 schema | Rust 只提交 typed proposal，不直写数据库 |
+| `market-data-store` | 已实现 typed L2 epoch admission：逐文件验证 snapshot / TL2S / hash / count 后 create-or-identical 入库 | Rust 只提交 typed proposal，不直写数据库；incomplete epoch 不晋升 |
 | Replay Ledger / RD | 零修改 | 只消费冻结 manifest / Parquet dataset；必须声明 coverage、epoch 与 gap policy |
 | execution / fast guard | 零修改 | 有 fresh typed fact、deadline 与 stale fail-closed 测试后才接 current-book port |
 | `domain-bus` | 零修改 | 继续只记录 control / ref envelope，不承载 depth delta |
@@ -156,12 +156,14 @@ continuity_status + source_status
 - adopter ADR 明确语言、TL2S 编码、资源证据、已知限制与回滚；
 - Rust fmt / check / clippy / test、依赖审计、supervisor 与 observability 进入项目质量闸。
 
-### B — 单 symbol production vertical slice
+### B — 单 symbol production vertical slice（进行中）
 
 - `BTCUSDT` public-only daemon 独立于 Agent 启停；
 - snapshot / gap / restart / disk failure / slow-client 注入全部 typed fail closed；
 - raw finalize + manifest admission + current-book read port 形成端到端 fixture parity；
 - 生产与 bake-off 使用不同 module / data path；可一键回退到“无 L2 consumer”。
+
+已完成的 B 证据：repository-owned detached supervisor、原子 runtime/terminal receipt、精确 PID stop、真实子进程强杀后的自动重启与 partial salvage；5 秒轮转实测生成 7 个 epoch，3 个 complete 全量通过 owner admission，4 个 snapshot bridge miss 明确拒绝晋升。该短周期故障测试不替代 24h 自然轮转验收。
 
 ### C — consumer 与 broker
 
