@@ -274,13 +274,14 @@
         "bounded-watch-task",
         "active-plan-monitor",
         "trigger-observation",
-        "ttl-task"
+        "ttl-task",
+        "no-authority-revalidation-receipt"
       ],
       "capability_class": [
         "A"
       ],
       "path": "modules/orchestration-ops/watch-task-runtime",
-      "purpose": "Resume one persisted approved-plan mark-price watch under a fenced lease and stop at typed no-authority handoff or conservative terminal state.",
+      "purpose": "Resume one persisted proposed-plan mark-price watch under a fenced lease, then close its typed revalidation receipt without execution authority.",
       "command": {
         "cwd": "modules/orchestration-ops/watch-task-runtime",
         "argv": [
@@ -289,7 +290,7 @@
           "--db",
           "./data/ops_runtime.db",
           "--action",
-          "run",
+          "<run|revalidate>",
           "--json",
           "{\"definition\":{}}"
         ]
@@ -302,8 +303,9 @@
         "config": false
       },
       "notes": [
-        "Reads only the fixed public symbol-snapshot owner and writes Watch Task lifecycle through ops.runtime-store.",
-        "Triggered output is an action_intent_revalidation proposal with execution_authority=none; this tool never calls preflight, execution, event-store, or exchange write."
+        "The run action reads only the fixed public symbol-snapshot owner and writes Watch Task lifecycle through ops.runtime-store.",
+        "The revalidate action delegates to the fixed watch-handoff revalidation owner, then persists its no-authority receipt/outcome under the same fenced task lease.",
+        "It never calls execution-router, live-small runner, event-store, or exchange write."
       ],
       "module_type": "atomic",
       "owner_scope": "orchestration-ops.watch-task-runtime",
