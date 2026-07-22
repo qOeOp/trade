@@ -39,6 +39,10 @@ import {
   loadReplayFaultCorruptionRecoveryBundle,
   runReplayFaultCorruptionRecoveryProbe,
 } from "./replay-fault-corruption-recovery"
+import {
+  assertReplayOperationalReadinessRegistry,
+  loadReplayOperationalReadinessRegistry,
+} from "./replay-operational-readiness"
 
 describe("Replay certification owner", () => {
   const repoRoot = findReplayCertificationRepoRoot()
@@ -265,5 +269,44 @@ describe("Replay certification owner", () => {
     expect(() => assertReplayFaultCorruptionRecoveryBundle(
       recoveryOverclaim, profileEvidence, repoRoot,
     )).toThrow("case overclaim or drift")
+  })
+
+  test("freezes operational observability, incident triage and the operator runbook", () => {
+    const registry = loadReplayOperationalReadinessRegistry(repoRoot)
+    expect(() => assertReplayOperationalReadinessRegistry(
+      registry,
+      loadReplayProfileEvidenceManifest(repoRoot),
+      repoRoot,
+    )).not.toThrow()
+    expect(registry.profile_observability).toHaveLength(4)
+    expect(registry.incident_classes).toHaveLength(6)
+    expect(registry.operator_commands).toHaveLength(4)
+  })
+
+  test("rejects telemetry, retry, partial-evidence or runbook overclaims", () => {
+    const profileEvidence = loadReplayProfileEvidenceManifest(repoRoot)
+    const telemetryOverclaim = structuredClone(loadReplayOperationalReadinessRegistry(repoRoot))
+    telemetryOverclaim.telemetry_boundary = "central-production-observability-complete" as never
+    expect(() => assertReplayOperationalReadinessRegistry(
+      telemetryOverclaim, profileEvidence, repoRoot,
+    )).toThrow("unsupported Replay operational readiness registry")
+
+    const retryOverclaim = structuredClone(loadReplayOperationalReadinessRegistry(repoRoot))
+    retryOverclaim.incident_classes[2]!.retry_policy = "retry-until-success"
+    expect(() => assertReplayOperationalReadinessRegistry(
+      retryOverclaim, profileEvidence, repoRoot,
+    )).toThrow("triage, commands, or limitations drifted")
+
+    const partialOverclaim = structuredClone(loadReplayOperationalReadinessRegistry(repoRoot))
+    partialOverclaim.profile_observability[0]!.partial_evidence_policy = "partial-result-is-usable"
+    expect(() => assertReplayOperationalReadinessRegistry(
+      partialOverclaim, profileEvidence, repoRoot,
+    )).toThrow("observability is incomplete or overclaimed")
+
+    const runbookDrift = structuredClone(loadReplayOperationalReadinessRegistry(repoRoot))
+    runbookDrift.runbook.source_sha256 = "0".repeat(64)
+    expect(() => assertReplayOperationalReadinessRegistry(
+      runbookDrift, profileEvidence, repoRoot,
+    )).toThrow("runbook source drifted")
   })
 })
