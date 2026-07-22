@@ -155,6 +155,7 @@ function isAllowedResearchStrategyDevelopmentImport(sourceTool: string, targetTo
     "modules/research-strategy-development/replay-execution-plane/benchmark -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-replay-identity",
     "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-kernel -> modules/research-strategy-development/replay-execution-plane/accounting",
     "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-kernel -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-data",
+    "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-kernel -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-evaluation",
     "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-kernel -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-features",
     "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-kernel -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-replay-identity",
     "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-features -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-data",
