@@ -177,7 +177,7 @@ test("market data store CLI upserts and reads manifest", () => {
   }
 })
 
-test("market data store CLI exposes only typed L2 referrer register/read actions", () => {
+test("market data store CLI exposes only typed L2 referrer and retention-audit actions", () => {
   const dir = mkdtempSync(join(tmpdir(), "market-data-l2-referrer-cli-"))
   const dbPath = join(dir, "market.db")
   try {
@@ -192,6 +192,18 @@ test("market data store CLI exposes only typed L2 referrer register/read actions
       "--action", "register_l2_experiment_attachment_referrer",
       "--json", JSON.stringify({ authority: {} }),
     ])), /field whitelist drift/)
+    assert.throws(() => run(parseArgs([
+      "--db", dbPath,
+      "--action", "audit_l2_retention_reference_closure",
+      "--json", JSON.stringify({ epoch_id: "missing-epoch" }),
+    ])), /epoch is not registered/)
+    const emptyPage = run(parseArgs([
+      "--db", dbPath,
+      "--action", "list_l2_retention_reference_audits",
+      "--json", JSON.stringify({ limit: 10 }),
+    ])) as { page: { page_count: number; deletion_candidates_produced: boolean } }
+    assert.equal(emptyPage.page.page_count, 0)
+    assert.equal(emptyPage.page.deletion_candidates_produced, false)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
