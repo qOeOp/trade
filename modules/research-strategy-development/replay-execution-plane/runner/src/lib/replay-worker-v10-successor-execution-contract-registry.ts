@@ -34,11 +34,24 @@ export interface ReplayWorkerV10SuccessorExecutionContractRegistryInput {
     ReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmission
 }
 
+interface ReplayWorkerV10SuccessorExecutionParentSnapshot {
+  source: ReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmission
+  file_sha256: string
+  cache_key: string
+}
+
+const validatedParentCache = new Map<
+  string,
+  ReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmission
+>()
+
 export function readReplayWorkerV10SuccessorExecutionArtifactTransport(
   input: ReplayWorkerV10SuccessorExecutionContractRegistryInput,
 ): ReplayDecisionHarnessWorkerV10SuccessorExecutionArtifactTransportContract | null {
   const parent = readParentSnapshot(input)
-  return readArtifactTransport(input.registry_root, parent.source, parent.file_sha256)
+  const transport = readArtifactTransport(input.registry_root, parent.source, parent.file_sha256)
+  if (transport) rememberValidatedParent(parent)
+  return transport
 }
 
 export function readReplayWorkerV10SuccessorExecutionAdmission(
@@ -46,9 +59,11 @@ export function readReplayWorkerV10SuccessorExecutionAdmission(
 ): ReplayDecisionHarnessWorkerV10SuccessorExecutionAdmissionContract | null {
   const parent = readParentSnapshot(input)
   const transport = readArtifactTransport(input.registry_root, parent.source, parent.file_sha256)
-  return transport
+  const execution = transport
     ? readExecutionAdmission(input.registry_root, parent.source, parent.file_sha256, transport)
     : null
+  if (execution) rememberValidatedParent(parent)
+  return execution
 }
 
 export function registerReplayWorkerV10SuccessorExecutionContract(
@@ -70,10 +85,13 @@ export function registerReplayWorkerV10SuccessorExecutionContract(
     if (!durableTransport || !durableExecution) {
       throw new Error("successor execution Contract retry lost its exact durable child contracts")
     }
-    return sameAdmission(existingAdmission,
+    const admission = sameAdmission(existingAdmission,
       buildAdmission(source, parent.file_sha256, durableTransport, durableExecution))
+    rememberValidatedParent(parent)
+    return admission
   }
   assertParentSelfHash(parent.source)
+  rememberValidatedParent(parent)
   const transport = registerArtifactTransport(input.registry_root, source, parent.file_sha256)
   const execution = registerExecutionAdmission(input.registry_root, source, parent.file_sha256, transport)
   const expected = buildAdmission(source, parent.file_sha256, transport, execution)
@@ -102,7 +120,10 @@ export function readReplayWorkerV10SuccessorExecutionContract(
   if (!execution) return null
   const expected = buildAdmission(source, parent.file_sha256, transport, execution)
   const value = readAdmission(admissionPath(input.registry_root, expected.admission_key))
-  return value ? sameAdmission(value, expected) : null
+  if (!value) return null
+  const admission = sameAdmission(value, expected)
+  rememberValidatedParent(parent)
+  return admission
 }
 
 function registerArtifactTransport(
@@ -405,10 +426,7 @@ function buildAdmission(
 
 function readParentSnapshot(
   input: ReplayWorkerV10SuccessorExecutionContractRegistryInput,
-): {
-  source: ReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmission
-  file_sha256: string
-} {
+): ReplayWorkerV10SuccessorExecutionParentSnapshot {
   requireReferenceInput(input)
   const expected = input.source_successor_execution_stdio_probe_admission
   const path = join(resolve(input.registry_root),
@@ -421,11 +439,26 @@ function readParentSnapshot(
     throw new Error("successor execution Contract R4.146 parent reference must be a regular file")
   }
   const content = readFileSync(path, "utf8")
+  const fileSha256 = sha256(content)
+  const cacheKey = `${path}\u0000${fileSha256}`
+  const cached = validatedParentCache.get(cacheKey)
+  if (cached) {
+    if (cached.admission_key !== expected.admission_key
+        || cached.admission_hash !== expected.admission_hash) {
+      throw new Error("successor execution Contract R4.146 cached parent key or hash drift")
+    }
+    return { source: cached, file_sha256: fileSha256, cache_key: cacheKey }
+  }
   const durable = JSON.parse(content) as ReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmission
   if (durable.admission_key !== expected.admission_key || durable.admission_hash !== expected.admission_hash) {
     throw new Error("successor execution Contract R4.146 direct parent key or hash drift")
   }
-  return { source: durable, file_sha256: sha256(content) }
+  return { source: durable, file_sha256: fileSha256, cache_key: cacheKey }
+}
+
+function rememberValidatedParent(parent: ReplayWorkerV10SuccessorExecutionParentSnapshot): void {
+  validatedParentCache.clear()
+  validatedParentCache.set(parent.cache_key, parent.source)
 }
 
 function requireReferenceInput(input: ReplayWorkerV10SuccessorExecutionContractRegistryInput): void {
