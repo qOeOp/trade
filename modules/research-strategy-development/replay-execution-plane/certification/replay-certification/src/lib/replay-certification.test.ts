@@ -1,9 +1,11 @@
 import { describe, expect, test } from "bun:test"
 import {
   assertReplayCertificationManifest,
+  assertReplayProfileEvidenceManifest,
   discoverReplayPackageRoots,
   findReplayCertificationRepoRoot,
   loadReplayCertificationManifest,
+  loadReplayProfileEvidenceManifest,
 } from "./replay-certification"
 
 describe("Replay certification owner", () => {
@@ -22,5 +24,28 @@ describe("Replay certification owner", () => {
     manifest.suites.pop()
     expect(() => assertReplayCertificationManifest(manifest, repoRoot))
       .toThrow("classify every Plane package exactly once")
+  })
+
+  test("binds every public profile to golden, resume, idempotency and tamper evidence", () => {
+    const manifest = loadReplayProfileEvidenceManifest(repoRoot)
+    expect(() => assertReplayProfileEvidenceManifest(manifest, repoRoot)).not.toThrow()
+    expect(manifest.profiles.map((entry) => entry.profile)).toEqual([
+      "independent-lane-batch",
+      "integrated-portfolio",
+      "single-trial",
+      "terminal-aware-bounded-cycle",
+    ])
+    expect(manifest.profiles.filter((entry) =>
+      entry.evidence.resume.kind === "explicit-not-supported").map((entry) => entry.profile)).toEqual([
+      "integrated-portfolio",
+      "terminal-aware-bounded-cycle",
+    ])
+  })
+
+  test("rejects unsupported checkpoint claims without the frozen checkpoint mode", () => {
+    const manifest = structuredClone(loadReplayProfileEvidenceManifest(repoRoot))
+    manifest.profiles[0]!.evidence.resume = { kind: "explicit-not-supported" }
+    expect(() => assertReplayProfileEvidenceManifest(manifest, repoRoot))
+      .toThrow("explicit unsupported evidence is invalid")
   })
 })
