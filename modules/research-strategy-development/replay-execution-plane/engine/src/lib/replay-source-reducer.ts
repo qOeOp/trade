@@ -16,7 +16,8 @@ import { buildReplaySourceEvents } from "./replay-source-events"
 import { isReplayExplicitHaltInterval, ReplayDataContinuityError } from "../../../data-adapter/src/lib/replay-data-adapter"
 
 export type ReplayReducedExit =
-  | { role: "stop" | "target"; timestamp: string; rawPrice: number; triggerSource: "bar_open" | "bar_range"; sourceSequence: number; resolution_evidence: ReplayOhlcvResolutionEvidence }
+  | { role: "stop" | "target"; timestamp: string; rawPrice: number; triggerSource: "bar_open" | "bar_range"; sourceSequence: number; resolution_evidence: ReplayOhlcvResolutionEvidence; authorized_path_step_hash?: never }
+  | { role: "stop" | "target"; timestamp: string; rawPrice: number; triggerSource: "bar_range"; sourceSequence: number; authorized_path_step_hash: string; terminal_aggregate_trade_id: number; terminal_aggregate_trade_time: string; resolution_evidence?: never }
   | { role: "strategy_exit"; timestamp: string; rawPrice: number; triggerSource: "bar_open"; sourceSequence: number }
   | { role: "liquidation"; timestamp: string; rawPrice: number; triggerSource: "mark" | "funding_mark"; triggerSourceRef: string; sourceSequence: number }
   | { role: "end_of_data"; timestamp: string; rawPrice: number; triggerSource: null; sourceSequence: number }
@@ -25,7 +26,7 @@ export type ReplayReducedExit =
 
 export interface ReplayPendingEntryObservation<TEntry> {
   entry_transition: TEntry | null
-  terminal_exit: Extract<ReplayReducedExit, { role: "entry_expired" | "entry_cancelled" }> | null
+  terminal_exit: ReplayReducedExit | null
 }
 
 export interface ReplaySourceReduction<TEntry, TTerminal> {
@@ -180,14 +181,27 @@ export function reduceReplaySourceEvents<TEntry extends object, TTerminal>(input
       if (!instrumentTrading) throw new Error("Replay cannot observe a pending entry while instrument trading is halted")
       const observation = input.observe_pending_entry(source)
       if (observation.terminal_exit) {
-        if (observation.entry_transition) throw new Error("pending entry observation cannot fill and expire together")
-        return {
-          exit: observation.terminal_exit,
-          source_events: [...consumed],
-          applied_funding_sources: [...appliedFunding],
-          entry_transition: null,
-          terminal_transition: null,
+        if (observation.terminal_exit.role === "entry_expired" || observation.terminal_exit.role === "entry_cancelled") {
+          if (observation.entry_transition) throw new Error("pending entry observation cannot fill and expire together")
+          return {
+            exit: observation.terminal_exit,
+            source_events: [...consumed],
+            applied_funding_sources: [...appliedFunding],
+            entry_transition: null,
+            terminal_transition: null,
+          }
         }
+        if (!observation.entry_transition
+            || (observation.terminal_exit.role !== "stop" && observation.terminal_exit.role !== "target")) {
+          throw new Error("pending entry path terminal requires one filled entry and protective owner")
+        }
+        return reduction(
+          observation.terminal_exit,
+          consumed,
+          appliedFunding,
+          observation.entry_transition,
+          input.complete_exit,
+        )
       }
       entryTransition = observation.entry_transition ?? undefined
       pendingEntryCreated = entryTransition !== undefined
