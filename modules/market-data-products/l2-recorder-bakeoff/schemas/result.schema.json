@@ -1,0 +1,17 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade.l2-bakeoff-result.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "implementation", "fixture_id", "source_hash", "iterations", "processed_event_count", "elapsed_ns", "outcome"],
+  "properties": {
+    "schema_version": { "const": "trade.l2-bakeoff-result.v1" },
+    "implementation": { "enum": ["bun", "go", "rust"] },
+    "fixture_id": { "type": "string", "minLength": 1 },
+    "source_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "iterations": { "type": "integer", "minimum": 1 },
+    "processed_event_count": { "type": "integer", "minimum": 0 },
+    "elapsed_ns": { "type": "integer", "minimum": 0 },
+    "outcome": { "$ref": "fixture.schema.json#/$defs/outcome" }
+  }
+}

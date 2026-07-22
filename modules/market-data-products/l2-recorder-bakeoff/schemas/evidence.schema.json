@@ -1,0 +1,16 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade.l2-language-bakeoff-evidence.v1",
+  "type": "object",
+  "required": ["schema_version", "generated_at", "environment", "fixture", "iterations", "samples_per_implementation", "parity", "implementations"],
+  "properties": {
+    "schema_version": { "const": "trade.l2-language-bakeoff-evidence.v1" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "environment": { "type": "object" },
+    "fixture": { "type": "string" },
+    "iterations": { "type": "integer", "minimum": 1 },
+    "samples_per_implementation": { "type": "integer", "minimum": 1 },
+    "parity": { "type": "object" },
+    "implementations": { "type": "array", "minItems": 3, "maxItems": 3 }
+  }
+}

@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade.l2-bakeoff-fixture.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schema_version", "fixture_id", "stream_epoch", "symbol", "snapshot", "events", "expected"],
+  "properties": {
+    "schema_version": { "const": "trade.l2-bakeoff-fixture.v1" },
+    "fixture_id": { "type": "string", "minLength": 1 },
+    "stream_epoch": { "type": "string", "minLength": 1 },
+    "symbol": { "type": "string", "pattern": "^[A-Z0-9]+$" },
+    "snapshot": { "$ref": "#/$defs/snapshot" },
+    "events": { "type": "array", "items": { "$ref": "#/$defs/event" }, "minItems": 1 },
+    "expected": { "$ref": "#/$defs/outcome" }
+  },
+  "$defs": {
+    "level": {
+      "type": "array",
+      "prefixItems": [
+        { "type": "string", "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$" },
+        { "type": "string", "pattern": "^(0|[1-9][0-9]*)(\\.[0-9]+)?$" }
+      ],
+      "items": false
+    },
+    "snapshot": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["last_update_id", "bids", "asks"],
+      "properties": {
+        "last_update_id": { "type": "integer", "minimum": 0 },
+        "bids": { "type": "array", "items": { "$ref": "#/$defs/level" } },
+        "asks": { "type": "array", "items": { "$ref": "#/$defs/level" } }
+      }
+    },
+    "event": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event_time_ms", "transaction_time_ms", "local_receive_time_ms", "first_update_id", "final_update_id", "previous_final_update_id", "bids", "asks"],
+      "properties": {
+        "event_time_ms": { "type": "integer", "minimum": 0 },
+        "transaction_time_ms": { "type": "integer", "minimum": 0 },
+        "local_receive_time_ms": { "type": "integer", "minimum": 1 },
+        "first_update_id": { "type": "integer", "minimum": 0 },
+        "final_update_id": { "type": "integer", "minimum": 0 },
+        "previous_final_update_id": { "type": "integer", "minimum": 0 },
+        "bids": { "type": "array", "items": { "$ref": "#/$defs/level" } },
+        "asks": { "type": "array", "items": { "$ref": "#/$defs/level" } }
+      }
+    },
+    "gap": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["event_index", "expected_previous_final_update_id", "actual_previous_final_update_id"],
+      "properties": {
+        "event_index": { "type": "integer", "minimum": 0 },
+        "expected_previous_final_update_id": { "type": "integer", "minimum": 0 },
+        "actual_previous_final_update_id": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "outcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status", "last_update_id", "applied_event_count", "book_hash", "bids", "asks"],
+      "properties": {
+        "status": { "enum": ["complete", "incomplete"] },
+        "last_update_id": { "type": "integer", "minimum": 0 },
+        "applied_event_count": { "type": "integer", "minimum": 0 },
+        "book_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+        "bids": { "type": "array", "items": { "$ref": "#/$defs/level" } },
+        "asks": { "type": "array", "items": { "$ref": "#/$defs/level" } },
+        "gap": { "$ref": "#/$defs/gap" }
+      }
+    }
+  }
+}

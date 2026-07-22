@@ -1,0 +1,19 @@
+[package]
+name = "l2-recorder-bakeoff"
+version = "0.1.0"
+edition = "2024"
+publish = false
+
+[[bin]]
+name = "l2-bakeoff-rust"
+path = "src/rust/main.rs"
+
+[[bin]]
+name = "l2-segment-rust"
+path = "src/rust/segment.rs"
+
+[dependencies]
+crc32fast = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+sha2 = "0.10"
