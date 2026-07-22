@@ -20,6 +20,7 @@ import {
 } from "../../../contracts/src/lib/control-plane-contracts"
 import { readReplayAggregateTradeEvidenceAdmission } from "./aggregate-trade-provider-certification-registry"
 import { readReplayCrossSourceOrderingAdmission } from "./cross-source-ordering-admission-registry"
+import { assertReplayRequestBindsTrialReservation } from "./replay-request-reservation-binding"
 
 interface AuthorityRow {
   authority_snapshot_hash: string
@@ -61,7 +62,13 @@ export function issueReplayBarLinkedAggregateTradePathAuthority(
   if (!trial || trial.run_id !== input.reservation.run_id || trial.status !== "reserved") {
     throw new Error("bar-linked path authority requires the authoritative reserved Trial")
   }
-  assertRequestReservationIdentity(input.request, input.reservation, reservationHash)
+  assertReplayRequestBindsTrialReservation(
+    input.request,
+    input.reservation,
+    reservationHash,
+    "bar-linked path authority",
+  )
+  assertStopMarketLiquidityBinding(input.request, input.reservation)
   const aggregateAdmission = readReplayAggregateTradeEvidenceAdmission(db, reservationHash)
   const orderingAdmission = readReplayCrossSourceOrderingAdmission(db, reservationHash)
   if (issuedAt < Date.parse(aggregateAdmission.issued_at)
@@ -234,44 +241,11 @@ export function readReplayBarLinkedAggregateTradePathAuthority(
   return parseAuthorityRow(row)
 }
 
-function assertRequestReservationIdentity(
+function assertStopMarketLiquidityBinding(
   request: ReplayExecutionRequest,
   reservation: TrialReservationSnapshot,
-  reservationHash: string,
 ): void {
-  if (request.trial_reservation_ref !== reservation.reservation_ref
-      || request.trial_reservation_hash !== reservationHash
-      || request.run_id !== reservation.run_id) {
-    throw new Error("bar-linked path authority Request does not bind the Trial Reservation")
-  }
-  for (const field of [
-    "experiment_id", "trial_group_id", "trial_group_hash", "trial_id", "candidate_id",
-    "candidate_hash", "identity_hash_policy_version", "experiment_contract_hash",
-  ] as const) {
-    if (request[field] !== reservation.identity[field]) {
-      throw new Error(`bar-linked path authority Request identity mismatch: ${field}`)
-    }
-  }
   const bindings = reservation.bindings
-  if (request.idempotency_key !== bindings.replay_idempotency_key
-      || request.dataset_manifest_ref !== bindings.dataset_manifest_ref
-      || request.dataset_hash !== bindings.dataset_hash
-      || request.supplemental_facts_hash !== bindings.supplemental_facts_hash
-      || request.supplemental_requirement_set_hash !== bindings.supplemental_requirement_set_hash
-      || request.venue_risk_policy_schedule_hash !== bindings.venue_risk_policy_schedule_hash
-      || request.instrument_spec_schedule_hash !== bindings.instrument_spec_schedule_hash
-      || request.instrument_status_schedule_hash !== bindings.instrument_status_schedule_hash
-      || request.instrument_status_provenance_hash !== bindings.instrument_status_provenance_hash
-      || request.instrument_status_provider_capability_hash !== bindings.instrument_status_provider_capability_hash
-      || request.instrument_status_provider_certification_hash !== bindings.instrument_status_provider_certification_hash
-      || request.harness_hash !== bindings.harness_hash
-      || request.assumptions_hash !== bindings.assumptions_hash
-      || canonicalHash(request.cost_policy) !== bindings.cost_policy_hash
-      || canonicalHash(request.margin_policy) !== bindings.margin_policy_hash
-      || request.simulator_policy.version !== bindings.simulator_policy_version
-      || bindings.execution_mode !== "step") {
-    throw new Error("bar-linked path authority Request bindings do not match the Trial Reservation")
-  }
   const entry = request.order.entry_execution
   if (entry.order_type !== "stop_market"
       || bindings.liquidity_capacity_attestation_hash === null

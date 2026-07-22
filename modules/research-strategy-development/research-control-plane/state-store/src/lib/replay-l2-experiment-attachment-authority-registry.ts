@@ -21,9 +21,11 @@ import {
 } from "../../../contracts/src/lib/replay-l2-experiment-attachment-authority"
 import {
   assertTrialReservationSnapshot,
+  canonicalControlPlaneHash,
   hashTrialReservationSnapshot,
   type TrialReservationSnapshot,
 } from "../../../contracts/src/lib/control-plane-contracts"
+import { assertReplayRequestBindsTrialReservation } from "./replay-request-reservation-binding"
 
 interface AuthorityRow {
   authority_snapshot_hash: string
@@ -55,7 +57,12 @@ export function issueReplayL2ExperimentAttachmentAuthority(
   const reservationHash = hashTrialReservationSnapshot(input.reservation)
   assertIssuedInsideReservation(input.issued_at, input.reservation)
   assertAuthoritativeReservedTrial(db, input.reservation)
-  assertRequestReservationIdentity(input.request, input.reservation, reservationHash)
+  assertReplayRequestBindsTrialReservation(
+    input.request,
+    input.reservation,
+    reservationHash,
+    "Replay L2 attachment",
+  )
   assertDatasetIdentity(input.dataset_manifest, input.request)
   assertSourceBatchIdentity(input.source, input.batch, input.dataset_manifest)
 
@@ -106,7 +113,7 @@ export function issueReplayL2ExperimentAttachmentAuthority(
     runner_compatibility: "not_bound",
     external_completeness: "not_verified",
     limitations: [...REPLAY_L2_EXPERIMENT_ATTACHMENT_AUTHORITY_LIMITATIONS],
-    limitations_hash: canonicalHash(REPLAY_L2_EXPERIMENT_ATTACHMENT_AUTHORITY_LIMITATIONS),
+    limitations_hash: canonicalControlPlaneHash(REPLAY_L2_EXPERIMENT_ATTACHMENT_AUTHORITY_LIMITATIONS),
   })
 
   return db.transaction(() => {
@@ -226,44 +233,6 @@ function assertAuthoritativeReservedTrial(db: Database, reservation: TrialReserv
   `).get({ $trial_id: reservation.identity.trial_id }) as { run_id: string; status: string } | null
   if (!trial || trial.run_id !== reservation.run_id || trial.status !== "reserved") {
     throw new Error("Replay L2 attachment authority requires the authoritative reserved Trial")
-  }
-}
-
-function assertRequestReservationIdentity(
-  request: ReplayExecutionRequest,
-  reservation: TrialReservationSnapshot,
-  reservationHash: string,
-): void {
-  if (request.trial_reservation_ref !== reservation.reservation_ref
-      || request.trial_reservation_hash !== reservationHash || request.run_id !== reservation.run_id) {
-    throw new Error("Replay L2 attachment Request does not bind the Trial Reservation")
-  }
-  for (const field of [
-    "experiment_id", "trial_group_id", "trial_group_hash", "trial_id", "candidate_id",
-    "candidate_hash", "identity_hash_policy_version", "experiment_contract_hash",
-  ] as const) {
-    if (request[field] !== reservation.identity[field]) {
-      throw new Error(`Replay L2 attachment Request identity mismatch: ${field}`)
-    }
-  }
-  const bindings = reservation.bindings
-  if (request.idempotency_key !== bindings.replay_idempotency_key
-      || request.dataset_manifest_ref !== bindings.dataset_manifest_ref
-      || request.dataset_hash !== bindings.dataset_hash
-      || request.supplemental_facts_hash !== bindings.supplemental_facts_hash
-      || request.supplemental_requirement_set_hash !== bindings.supplemental_requirement_set_hash
-      || request.venue_risk_policy_schedule_hash !== bindings.venue_risk_policy_schedule_hash
-      || request.instrument_spec_schedule_hash !== bindings.instrument_spec_schedule_hash
-      || request.instrument_status_schedule_hash !== bindings.instrument_status_schedule_hash
-      || request.instrument_status_provenance_hash !== bindings.instrument_status_provenance_hash
-      || request.instrument_status_provider_capability_hash !== bindings.instrument_status_provider_capability_hash
-      || request.instrument_status_provider_certification_hash !== bindings.instrument_status_provider_certification_hash
-      || request.harness_hash !== bindings.harness_hash || request.assumptions_hash !== bindings.assumptions_hash
-      || canonicalHash(request.cost_policy) !== bindings.cost_policy_hash
-      || canonicalHash(request.margin_policy) !== bindings.margin_policy_hash
-      || request.simulator_policy.version !== bindings.simulator_policy_version
-      || bindings.execution_mode !== "step") {
-    throw new Error("Replay L2 attachment Request bindings do not match the Trial Reservation")
   }
 }
 
