@@ -33,7 +33,8 @@
         "config": false
       },
       "notes": [
-        "Planner only; downstream jobs perform their own writes."
+        "Planner only; downstream jobs perform their own writes.",
+        "job_health_requirements attaches exact named checks, including l2_service:owner_health and l2_watch_consumer:owner_health, to selected jobs; failed checks block only declared consumers, while account reconciliation remains a defense bypass."
       ],
       "module_type": "suite",
       "owner_scope": "orchestration-ops.automation-cycle",
@@ -47,12 +48,117 @@
       }
     },
     {
+      "id": "trade-flow.program-shadow",
+      "domain": "orchestration-ops",
+      "intent": [
+        "program-runtime-shadow",
+        "leased-wakeup",
+        "runtime-health"
+      ],
+      "capability_class": [
+        "A",
+        "V"
+      ],
+      "path": "modules/orchestration-ops/trade-flow",
+      "purpose": "Execute one leased and idempotent program-runtime shadow wakeup over the existing job graph without enabling domain jobs or live writes.",
+      "command": {
+        "cwd": "modules/orchestration-ops/trade-flow",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--db",
+          "./data/trade.db",
+          "--run-program-shadow",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Writes only orchestration observations in ops_runtime_store through existing lifecycle owners.",
+        "Closed-world input cannot enable J01-J07, live writes, real notifications, or disable required L2 service and resident-consumer health checks.",
+        "This remains the reusable one-shot entry beneath trade-flow.program-shadow-supervisor."
+      ],
+      "module_type": "suite",
+      "owner_scope": "orchestration-ops.program-shadow-wakeup",
+      "requires_preflight": false,
+      "concurrency_group": "ops-runtime",
+      "forbidden_callers": [],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": "modules/orchestration-ops/trade-flow/src/schemas/program-shadow-wakeup-result.schema.json"
+      }
+    },
+    {
+      "id": "trade-flow.program-shadow-supervisor",
+      "domain": "orchestration-ops",
+      "intent": [
+        "program-runtime-shadow",
+        "resident-supervisor",
+        "leased-cadence"
+      ],
+      "capability_class": [
+        "A",
+        "V"
+      ],
+      "path": "modules/orchestration-ops/trade-flow",
+      "purpose": "Run the foreground resident shadow cadence with heartbeat-renewed fenced ownership and graceful shutdown drain.",
+      "command": {
+        "cwd": "modules/orchestration-ops/trade-flow",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--db",
+          "./data/trade.db",
+          "--run-program-shadow-supervisor",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Foreground only; launchd, systemd, Docker, or another external process manager owns restart and process lifetime.",
+        "The fixed profile keeps J01-J07 and live writes disabled; each lifecycle child command is bounded to 30 seconds.",
+        "The durable supervisor lease uses heartbeat renewal and fencing tokens; SIGINT/SIGTERM drains the in-flight wakeup before release.",
+        "SQLite contention is bounded to a one-second busy window and returns ops_store_busy; every graph result carries a cycle-independent parity hash for Agent/program comparison.",
+        "Optional resident parity observation runs an independently specified legacy Agent shadow profile and stores immutable comparison evidence in ops_runtime_store; launchd deployment remains an operator lifecycle outside this tool surface."
+      ],
+      "module_type": "suite",
+      "owner_scope": "orchestration-ops.program-shadow-supervisor",
+      "requires_preflight": false,
+      "concurrency_group": "ops-runtime",
+      "forbidden_callers": [],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": "modules/orchestration-ops/trade-flow/src/schemas/program-shadow-supervisor-result.schema.json"
+      }
+    },
+    {
       "id": "agent.mcp",
       "domain": "orchestration-ops",
       "intent": [
         "agent-tool-discovery",
         "artifact-query",
         "artifact-read",
+        "l2-retention-reference-audit",
+        "l2-retention-reference-audit-page",
+        "l2-service-health",
+        "l2-resident-consumer-health",
+        "runtime-parity-status",
         "rd-state-read",
         "ops-summary-read",
         "research-hypothesis-brief",
@@ -66,7 +172,7 @@
         "A"
       ],
       "path": "modules/orchestration-ops/agent-mcp",
-      "purpose": "Expose an explicit MCP allowlist over local reads and controlled asynchronous J04 research submission.",
+      "purpose": "Expose an explicit MCP allowlist over local owner reads, including L2 retention/reference audit, active service/consumer health, and runtime parity status, plus controlled asynchronous J04 research submission.",
       "command": {
         "cwd": "modules/orchestration-ops/agent-mcp",
         "argv": [
@@ -84,6 +190,11 @@
       "notes": [
         "Local stdio only; does not listen on the network.",
         "Discovery does not authorize execution of toolset commands.",
+        "l2_retention_reference_audit delegates one exact epoch to the Market Data owner CLI and exposes no deletion or GC authority.",
+        "l2_retention_reference_audit_page delegates bounded cursor pagination to the same owner and does not produce deletion candidates.",
+        "l2_service_health delegates to the L2 owner and exposes no process IDs, paths, or lifecycle authority.",
+        "l2_book_watch_consumer_health delegates to the fixed resident consumer owner read and exposes only readiness, baseline identity, and aggregate reliability counters.",
+        "runtime_parity_status delegates to ops_runtime_store and exposes only aggregate match/mismatch counts, latest hashes, and lease state; it omits holder/process/path/detail and cutover authority.",
         "research_hypothesis_brief renders owner-controlled program memory and planning context without generating or persisting a hypothesis.",
         "Hypothesis contracts are validated and projected by research.strategy-hypothesis-designer before J04 submission.",
         "research_job_submit records ops state and routes execution through the existing J04 supervisor.",
@@ -109,13 +220,14 @@
         "ops-ledger",
         "cycle-summary",
         "job-observability",
-        "attention-summary"
+        "attention-summary",
+        "runtime-parity-status"
       ],
       "capability_class": [
         "A"
       ],
       "path": "modules/orchestration-ops/ops-runtime-store",
-      "purpose": "Record and summarize cycle/job/health/notify/domain-message observability in ops_runtime_store.",
+      "purpose": "Record and summarize cycle/job/health/notify/domain-message observability and immutable Agent/program runtime parity in ops_runtime_store.",
       "command": {
         "cwd": "modules/orchestration-ops/ops-runtime-store",
         "argv": [
@@ -138,6 +250,7 @@
       },
       "notes": [
         "The summary action is read-only and returns ops_summary with stage, domain, message, and attention aggregates.",
+        "The parity_status action is read-only and returns compact aggregate/latest parity facts plus fenced supervisor lease state without holder identity or cutover authority.",
         "Record actions write only ops_runtime_store and never change trade facts."
       ],
       "module_type": "atomic",
@@ -185,6 +298,9 @@
       },
       "notes": [
         "Lifecycle processor for control tower readiness; not a domain job ticket.",
+        "require_l2_ready=true delegates to the registered market-data.l2-service-health owner read and persists only a bounded path/PID-free evidence projection.",
+        "require_l2_watch_consumer_ready=true delegates to the registered ops.l2-book-watch-consumer owner read and persists only readiness, epoch/hash/timestamps, and bounded reliability counters.",
+        "Both L2 readiness checks are independently opt-in and provide no start, stop, restart, signal, or other lifecycle authority.",
         "Writes logical store ops_runtime_store; toolset legacy writes fields do not yet model ops stores."
       ],
       "module_type": "atomic",
@@ -192,6 +308,195 @@
       "requires_preflight": false,
       "concurrency_group": "ops-runtime",
       "forbidden_callers": [],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
+    },
+    {
+      "id": "ops.l2-current-book-probe",
+      "domain": "orchestration-ops",
+      "intent": [
+        "l2-current-book-probe",
+        "l2-programmatic-consumer",
+        "non-economic-observation"
+      ],
+      "capability_class": [
+        "R"
+      ],
+      "path": "modules/orchestration-ops/l2-current-book-probe",
+      "purpose": "Require active L2 owner health, then return one same-epoch bounded current-book and exact-decimal microstructure observation for non-economic diagnostics.",
+      "command": {
+        "cwd": "modules/orchestration-ops/l2-current-book-probe",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Calls only registered owner tools: market-data.l2-service-health first, then market-data.l2-current-book.",
+        "Requires healthy/overall_ready and exact symbol/stream_epoch agreement; failures close before returning an observation.",
+        "Derives spread and depth imbalance with BigInt decimal arithmetic and explicit scaled units; economic authority remains none.",
+        "Purely programmatic and non-economic; Agent, LLM, MCP, broker, strategy, and execution are not dependencies."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "orchestration-ops.l2-current-book-probe",
+      "requires_preflight": false,
+      "concurrency_group": "l2-order-book-read",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
+    },
+    {
+      "id": "ops.l2-book-watch-probe",
+      "domain": "orchestration-ops",
+      "intent": [
+        "l2-book-watch-probe",
+        "l2-resync-observation",
+        "non-economic-observation"
+      ],
+      "capability_class": [
+        "R"
+      ],
+      "path": "modules/orchestration-ops/l2-current-book-probe",
+      "purpose": "Require active L2 owner health, then observe a bounded same-epoch latest-only watermark watch and surface explicit resync follow-up.",
+      "command": {
+        "cwd": "modules/orchestration-ops/l2-current-book-probe",
+        "argv": [
+          "bun",
+          "src/scripts/watch.ts",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Calls registered market-data.l2-service-health before market-data.l2-book-watch and requires the initial epoch to match.",
+        "Watermarks are latest-only/coalescing observations, never depth deltas; resync or rollover requires a new current-book snapshot.",
+        "No Agent, LLM, MCP, broker, strategy, execution, lifecycle, or write authority."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "orchestration-ops.l2-current-book-probe",
+      "requires_preflight": false,
+      "concurrency_group": "l2-order-book-read",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
+    },
+    {
+      "id": "ops.l2-book-watch-session",
+      "domain": "orchestration-ops",
+      "intent": [
+        "l2-book-watch-session",
+        "l2-reconnect-resnapshot",
+        "non-economic-observation"
+      ],
+      "capability_class": [
+        "R"
+      ],
+      "path": "modules/orchestration-ops/l2-current-book-probe",
+      "purpose": "Run a bounded reconnecting L2 observation session with mandatory current-book baselines after watch failure, epoch change, or resync.",
+      "command": {
+        "cwd": "modules/orchestration-ops/l2-current-book-probe",
+        "argv": [
+          "bun",
+          "src/scripts/session.ts",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Composes only the registered read-only L2 health, current-book, and watch owner paths through their validated probes.",
+        "Uses owner-fixed bounded exponential retry delays and requires a fresh snapshot after watch failure, epoch change, or resync.",
+        "Returns bounded transition and aggregate reliability evidence without retaining endpoint, path, PID, subprocess error, depth delta, or durable delivery state.",
+        "No Agent, LLM, MCP, broker, strategy, execution, lifecycle, or write authority."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "orchestration-ops.l2-current-book-probe",
+      "requires_preflight": false,
+      "concurrency_group": "l2-order-book-read",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
+    },
+    {
+      "id": "ops.l2-book-watch-consumer",
+      "domain": "orchestration-ops",
+      "intent": [
+        "l2-book-watch-consumer",
+        "l2-resident-consumer-health",
+        "l2-latest-baseline-metrics"
+      ],
+      "capability_class": [
+        "R"
+      ],
+      "path": "modules/orchestration-ops/l2-current-book-probe",
+      "purpose": "Read the fixed health, latest current-book baseline, and aggregate reliability counters of the unique resident L2 watch consumer.",
+      "command": {
+        "cwd": "modules/orchestration-ops/l2-current-book-probe",
+        "argv": [
+          "bun",
+          "src/scripts/consumer-read.ts"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Reads one atomic latest projection from the unique operator-launched supervisor/worker without exposing PID, path, endpoint, subprocess error, or lifecycle command.",
+        "The resident worker composes only validated L2 health/current-book/watch owner paths and resnapshots after watch failure, epoch change, or resync.",
+        "Metrics are local aggregate observation counters, not depth-delta delivery, durable acknowledgements, Replay evidence, strategy signals, or execution facts.",
+        "No Agent, LLM, MCP, broker, trading, execution, lifecycle, or write authority."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "orchestration-ops.l2-current-book-probe",
+      "requires_preflight": false,
+      "concurrency_group": "l2-order-book-read",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
@@ -988,13 +1293,15 @@
         "funding-events",
         "feature-manifest",
         "instrument-status-acquisition",
-        "instrument-status-archive"
+        "instrument-status-archive",
+        "l2-epoch-retention-reference-audit",
+        "l2-epoch-retention-reference-audit-page"
       ],
       "capability_class": [
         "A"
       ],
       "path": "modules/market-data-products/market-data-store",
-      "purpose": "Record market manifests, funding events, feature manifests, instrument-status acquisition receipts/raw payloads, and immutable archives in market_data_store, and canonical candles in ohlcv_store.",
+      "purpose": "Record market manifests, L2 owner retention/referrer evidence, funding events, feature manifests, instrument-status acquisition receipts/raw payloads, and immutable archives in market_data_store, and canonical candles in ohlcv_store.",
       "command": {
         "cwd": "modules/market-data-products/market-data-store",
         "argv": [
@@ -1020,12 +1327,150 @@
       "notes": [
         "Owns logical market_data_store refs and ohlcv_store refs; durable market data uses database owner-store contracts, not file directories.",
         "Read actions include read_manifest, read_funding, read_instrument_status_acquisition_receipt, read_instrument_status_archive, read_feature_manifest, and list_feature_manifests so other domains can consume owner refs without direct table access.",
+        "L2 retention/reference audit is a self-hashed read projection over registered owner evidence; it never infers deletion eligibility or GC authority.",
+        "Audit pagination is owner-ordered and capped at 50 epochs; counts are page-local and cross-call snapshot consistency is not claimed.",
         "Instrument-status acquisitions and archives use immutable create-or-identical CAS; only historical acquisition capability can enter an archive source batch."
       ],
       "module_type": "atomic",
       "owner_scope": "market-data-products.market-data-store",
       "requires_preflight": false,
       "concurrency_group": "market-data-store",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
+    },
+    {
+      "id": "market-data.l2-service-health",
+      "domain": "market-data-products",
+      "intent": [
+        "l2-service-health",
+        "l2-control-readiness",
+        "l2-source-readiness",
+        "l2-admission-health"
+      ],
+      "capability_class": [
+        "R"
+      ],
+      "path": "modules/market-data-products/l2-order-book-service",
+      "purpose": "Read the unique active L2 supervisor, control readiness, and loopback Rust source health without exposing lifecycle control.",
+      "command": {
+        "cwd": "modules/market-data-products/l2-order-book-service",
+        "argv": [
+          "bun",
+          "src/scripts/owner-health.ts"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Selects exactly one live repository-owned supervisor and fails closed when active ownership is ambiguous.",
+        "Combines supervisor state with the fixed loopback Rust health query; returns no PID, runtime path, log path, or lifecycle command.",
+        "Health is local operational evidence and does not prove external market-data completeness or economic authority."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "market-data-products.l2-order-book-service",
+      "requires_preflight": false,
+      "concurrency_group": "l2-order-book-service",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
+    },
+    {
+      "id": "market-data.l2-current-book",
+      "domain": "market-data-products",
+      "intent": [
+        "l2-current-book",
+        "l2-top-of-book",
+        "l2-freshness-read"
+      ],
+      "capability_class": [
+        "R"
+      ],
+      "path": "modules/market-data-products/l2-order-book-service",
+      "purpose": "Read one bounded, fresh, hash-verified full-depth snapshot from the unique active L2 owner through a fixed-deadline loopback query.",
+      "command": {
+        "cwd": "modules/market-data-products/l2-order-book-service",
+        "argv": [
+          "bun",
+          "src/scripts/owner-current-book.ts"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Selects the unique active owner and fixes endpoint, symbol, release query binary, and a 1500ms deadline internally.",
+        "Caller controls only bounded depth and max freshness; schema, epoch, four timestamps, sorted decimal levels, bounded book hash, continuity, and uncrossed top are validated.",
+        "Returns a non-economic bounded-depth snapshot with execution_compatible=false and no lifecycle or trading authority."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "market-data-products.l2-order-book-service",
+      "requires_preflight": false,
+      "concurrency_group": "l2-order-book-read",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
+    },
+    {
+      "id": "market-data.l2-book-watch",
+      "domain": "market-data-products",
+      "intent": [
+        "l2-book-watch",
+        "l2-watermark",
+        "l2-epoch-resync"
+      ],
+      "capability_class": [
+        "R"
+      ],
+      "path": "modules/market-data-products/l2-order-book-service",
+      "purpose": "Observe a bounded latest-only L2 watermark stream from the unique active owner with explicit timeout, epoch, and resync semantics.",
+      "command": {
+        "cwd": "modules/market-data-products/l2-order-book-service",
+        "argv": [
+          "bun",
+          "src/scripts/owner-book-watch.ts"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Caller controls only max-events 1..100 and watch-ms 100..5000; endpoint, symbol, binary, and deadline overhead are owner-fixed.",
+        "Validates watermark identity, time/update monotonicity, epoch rollover, and mandatory resync; slow consumers observe the latest value without ingestion backpressure.",
+        "This is not a depth-delta or Replay stream and grants no lifecycle, strategy, trading, or execution authority."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "market-data-products.l2-order-book-service",
+      "requires_preflight": false,
+      "concurrency_group": "l2-order-book-read",
       "forbidden_callers": [
         "exchange-write"
       ],
