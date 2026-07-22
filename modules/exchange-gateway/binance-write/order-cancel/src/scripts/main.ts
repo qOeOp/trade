@@ -3,7 +3,18 @@
 import { mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 import { Database } from "bun:sqlite"
-import Binance, { type BinanceRest } from "binance-api-node"
+import type { BinanceRest } from "binance-api-node"
+import {
+  checkEnv,
+  createClient,
+  formatError,
+  normalizeSymbol,
+  parseBoolean,
+  readFlagValue,
+  requireConfirmation,
+  runBinanceMain,
+  type ScriptResponse,
+} from "../../../shared/binance-write-cli"
 import { buildExchangeCommandRef } from "../../../../../contracts/protocol-fabric/src/protocol-fabric"
 import {
   buildExchangeCommand,
@@ -28,15 +39,6 @@ interface Config {
   requestedByRef: string
 }
 
-interface EnvStatus {
-  ok: boolean
-  missing: string[]
-}
-
-type ScriptResponse =
-  | { ok: true; data: unknown }
-  | { ok: false; error: string; data?: unknown }
-
 const HELP_TEXT = `Usage:
   bun src/scripts/main.ts --symbol BTCUSDT --order-id 123456 --yes
   bun src/scripts/main.ts --symbol BTCUSDT --algo --all --yes
@@ -56,20 +58,6 @@ Key flags:
   --yes                              Required for live cancellation
   --help                             Show this help
 `
-
-async function main(): Promise<void> {
-  const argv = process.argv.slice(2)
-  if (argv.includes("--help") || argv.includes("-h")) {
-    process.stdout.write(HELP_TEXT)
-    return
-  }
-
-  const response = await run(argv)
-  printJSON(response)
-  if (!response.ok) {
-    process.exit(1)
-  }
-}
 
 async function run(argv: string[]): Promise<ScriptResponse> {
   try {
@@ -308,50 +296,6 @@ function validateConfig(config: Config): void {
   }
 }
 
-function checkEnv(): EnvStatus {
-  const missing = ["BINANCE_API_KEY", "BINANCE_API_SECRET"].filter((name) => !process.env[name])
-  return {
-    ok: missing.length === 0,
-    missing,
-  }
-}
-
-function createClient(timeout: number): BinanceRest {
-  return Binance({
-    apiKey: process.env.BINANCE_API_KEY,
-    apiSecret: process.env.BINANCE_API_SECRET,
-    timeout,
-  })
-}
-
-function normalizeSymbol(symbol: string): string {
-  return symbol.trim().toUpperCase().replace(/[\/:_\-\s]/g, "")
-}
-
-function parseBoolean(value: string, name: string): boolean {
-  const normalized = value.trim().toLowerCase()
-  switch (normalized) {
-    case "1":
-    case "true":
-    case "yes":
-    case "y":
-    case "on":
-      return true
-    case "0":
-    case "false":
-    case "no":
-    case "n":
-    case "off":
-      return false
-    default:
-      throw new Error(`${name} must be true or false`)
-  }
-}
-
-function printJSON(value: unknown): void {
-  process.stdout.write(`${JSON.stringify(value, null, 2)}\n`)
-}
-
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" ? value as Record<string, unknown> : {}
 }
@@ -395,30 +339,6 @@ function sanitizeId(value: string): string {
   return value.replace(/[^a-zA-Z0-9_.:-]+/g, "-").slice(0, 160)
 }
 
-function readFlagValue(argv: string[], index: number, name: string): string {
-  const value = argv[index]
-  if (!value || value.startsWith("--")) {
-    throw new Error(`${name} requires a value`)
-  }
-  return value
-}
-
-function requireConfirmation(confirmed: boolean, flag: string = "--yes"): void {
-  if (!confirmed) {
-    throw new Error(`this command changes live Binance state; re-run with ${flag} after reviewing binance-order-preview`)
-  }
-}
-
-function formatError(error: unknown): string {
-  if (error && typeof error === "object") {
-    const candidate = error as { code?: unknown; message?: string; responseText?: string }
-    const code = candidate.code != null ? `code=${candidate.code} ` : ""
-    const message = candidate.message || candidate.responseText || JSON.stringify(error)
-    return `${code}${message}`.trim()
-  }
-  return String(error)
-}
-
 export {
   executeCancel,
   parseArgs,
@@ -427,5 +347,5 @@ export {
 }
 
 if (process.argv[1] && import.meta.url === new URL(process.argv[1], "file:").href) {
-  void main()
+  void runBinanceMain(process.argv.slice(2), HELP_TEXT, run)
 }
