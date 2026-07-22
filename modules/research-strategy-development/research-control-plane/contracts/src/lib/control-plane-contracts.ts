@@ -2895,6 +2895,9 @@ export function assertReplayBarLinkedAggregateTradePathAuthoritySnapshot(
   requirePositiveFinite(value.entry_trigger_price, "bar_linked_path_authority.entry_trigger_price")
   requirePositiveFinite(value.protective_stop_price, "bar_linked_path_authority.protective_stop_price")
   requirePositiveFinite(value.protective_target_price, "bar_linked_path_authority.protective_target_price")
+  if (!(value.entry_side === "long" || value.entry_side === "short")) {
+    fail("bar-linked aggregate-trade path authority entry side")
+  }
   if ((value.entry_side === "long"
     && !(value.protective_stop_price < value.entry_trigger_price
       && value.entry_trigger_price < value.protective_target_price))

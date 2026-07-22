@@ -29,6 +29,8 @@ import {
   REPLAY_AGGREGATE_TRADE_PROVIDER_CERTIFICATION_TERMINATION_SCHEMA_VERSION,
   REPLAY_AGGREGATE_TRADE_EVIDENCE_ADMISSION_SCHEMA_VERSION,
   REPLAY_CROSS_SOURCE_ORDERING_ADMISSION_SCHEMA_VERSION,
+  REPLAY_BAR_LINKED_AGGREGATE_TRADE_PATH_AUTHORITY_SCHEMA_VERSION,
+  REPLAY_BAR_LINKED_AGGREGATE_TRADE_PATH_AUTHORITY_LIMITATIONS,
   REPLAY_DECISION_OBSERVATION_BUNDLE_ADMISSION_SCHEMA_VERSION,
   REPLAY_DECISION_OBSERVATION_BUNDLE_DERIVATION_ADMISSION_SCHEMA_VERSION,
   DRAFT_AUTHORIZATION_SCHEMA_VERSION,
@@ -65,6 +67,7 @@ import {
   createReplayAggregateTradeProviderCertificationTermination,
   createReplayAggregateTradeEvidenceAdmissionSnapshot,
   createReplayCrossSourceOrderingAdmissionSnapshot,
+  createReplayBarLinkedAggregateTradePathAuthoritySnapshot,
   createReplayDecisionObservationBundleAdmissionSnapshot,
   createReplayDecisionObservationBundleDerivationAdmissionSnapshot,
   createReplayReservationCancellationSnapshot,
@@ -804,6 +807,77 @@ test("cross-source ordering admission binds four source hashes without economic 
     funding_events_hash: "b".repeat(64),
     source_kinds: ["instrument_status", "aggregate_trade", "funding", "ohlcv"] as unknown as typeof body.source_kinds,
   })).toThrow("four-source canonical set")
+})
+
+test("bar-linked aggregate-trade path authority is Request/bar bounded and does not authorize execution effects", () => {
+  const limitations = [...REPLAY_BAR_LINKED_AGGREGATE_TRADE_PATH_AUTHORITY_LIMITATIONS]
+  const authority = createReplayBarLinkedAggregateTradePathAuthoritySnapshot({
+    schema_version: REPLAY_BAR_LINKED_AGGREGATE_TRADE_PATH_AUTHORITY_SCHEMA_VERSION,
+    authority_snapshot_id: "bar-linked-path-authority-1",
+    authority_snapshot_ref: "authority://bar-linked-path/trial-1",
+    status: "authorized",
+    issued_at: "2026-07-15T00:04:00Z",
+    authority_id: "research-control-plane",
+    authority_policy_version: "rd-bar-linked-aggregate-trade-path-authority-v1",
+    trial_id: "trial-1",
+    run_id: "run-1",
+    reservation_ref: "reservation://trial-1",
+    reservation_hash: HASH,
+    request_schema_version: "trade.rd-replay-execution-request.v38",
+    request_hash: HASH,
+    entry_order_hash: HASH,
+    dataset_manifest_ref: "dataset://fixture",
+    dataset_hash: HASH,
+    aggregate_trade_evidence_admission_ref: "admission://aggregate-trade/trial-1",
+    aggregate_trade_evidence_admission_hash: HASH,
+    cross_source_ordering_admission_ref: "admission://cross-source/trial-1",
+    cross_source_ordering_admission_hash: HASH,
+    bar_link_attestation_id: "bar-link-1",
+    bar_link_attestation_hash: HASH,
+    bar_link_schema_version: "trade.rd-replay-kline-aggregate-trade-bar-link-attestation.v1",
+    bar_link_policy_version: "rd-replay-kline-aggregate-trade-bar-link-v1",
+    venue_id: "binance-usdm",
+    symbol: "BTCUSDT",
+    timeframe: "4h",
+    window_start_inclusive: "2026-07-15T00:00:00Z",
+    window_end_exclusive: "2026-07-15T00:03:00Z",
+    latest_component_available_at: "2026-07-15T00:03:00Z",
+    kline_record_hash: HASH,
+    replay_market_bar_hash: HASH,
+    aggregate_trade_coverage_attestation_hash: HASH,
+    aggregate_trade_events_hash: HASH,
+    entry_side: "long",
+    entry_trigger_price: 100,
+    protective_stop_price: 95,
+    protective_target_price: 105,
+    consumer_capability: "bounded_initial_stop_market_same_bar_post_entry_protection_ordering",
+    entry_scope: "initial_stop_market_entry_only",
+    path_resolution_authority: "authorized_for_bound_request_and_bar",
+    path_observation_rule: "strictly_after_entry_trigger_trade",
+    path_source_authority: "ordered_aggregate_trade_prices_within_linked_bar_only",
+    cross_source_ordering_authority: "lineage_only_not_global_sequence",
+    fill_quantity_authority: "none",
+    cost_authority: "none",
+    external_completeness: "not_verified",
+    runner_compatibility: "not_bound",
+    activation: "forbidden_until_exact_request_runner_consumer",
+    limitations,
+    limitations_hash: createHash("sha256").update(JSON.stringify(limitations)).digest("hex"),
+  })
+  expect(authority.authority_snapshot_hash).toHaveLength(64)
+  const { authority_snapshot_hash: _authorityHash, ...body } = authority
+  expect(() => createReplayBarLinkedAggregateTradePathAuthoritySnapshot({
+    ...body,
+    activation: "runner_active" as typeof body.activation,
+  })).toThrow("scope escalation")
+  expect(() => createReplayBarLinkedAggregateTradePathAuthoritySnapshot({
+    ...body,
+    limitations: limitations.slice(0, -1),
+  })).toThrow("limitation drift")
+  expect(() => createReplayBarLinkedAggregateTradePathAuthoritySnapshot({
+    ...body,
+    protective_stop_price: 101,
+  })).toThrow("price order")
 })
 
 test("Replay cancellation receipts separate future claims from one active Attempt", () => {
