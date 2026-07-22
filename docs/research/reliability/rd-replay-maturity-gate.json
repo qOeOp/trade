@@ -9,7 +9,7 @@
     "name": "bounded-bar-linked-aggregate-trade-stop-entry-path-end-to-end",
     "status": "in_progress",
     "functional_commit_budget": 6,
-    "functional_commits_used": 1
+    "functional_commits_used": 2
   },
   "policy": {
     "zero_instance_progress_forbidden": true,
@@ -22,7 +22,7 @@
     "functional": {
       "immutable_kline_aggregate_trade_bar_link": true,
       "ohlcv_volume_trade_count_and_id_reconciliation": true,
-      "control_plane_bar_link_and_exact_path_authority": false,
+      "control_plane_bar_link_and_exact_path_authority": true,
       "opt_in_step_engine_stop_entry_path_consumer": false,
       "checkpoint_result_fingerprint_and_manifest_binding": false,
       "typed_unresolved_fallback_without_partial_result": false
@@ -215,7 +215,9 @@
     "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-kline-aggregate-trade-bar-link-contracts.ts",
     "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-kline-aggregate-trade-bar-link-contracts.test.ts",
     "modules/research-strategy-development/replay-execution-plane/data-adapter/src/lib/replay-kline-aggregate-trade-bar-link.ts",
-    "modules/research-strategy-development/replay-execution-plane/data-adapter/src/lib/replay-kline-aggregate-trade-bar-link.test.ts"
+    "modules/research-strategy-development/replay-execution-plane/data-adapter/src/lib/replay-kline-aggregate-trade-bar-link.test.ts",
+    "modules/research-strategy-development/research-control-plane/state-store/src/lib/research-control-plane-schema.ts",
+    "modules/research-strategy-development/research-control-plane/state-store/src/lib/bar-linked-aggregate-trade-path-authority-registry.ts"
   ],
   "next_allowed_outcome": "all-m4-p29-gates-true-in-one-bounded-change-set"
 }

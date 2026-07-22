@@ -4,6 +4,7 @@ Owns `research_state_store`, including the durable R&D program memory and the Re
 
 ## Responsibilities
 
+- Issue one create-or-identical Bar-linked Aggregate Trade Path Authority v1 per authoritative reserved Trial/Reservation. Issuance revalidates the exact Request、Stop-market liquidity binding、Dataset、parent Aggregate Trade/Ordering Admissions and Replay-owned Bar Link；the linked bar and both parent Admissions share one exact coverage window and aggregate events hash, while only the closing `ohlcv/bar_range` fact may sit at the right boundary. The range must contain both the entry trigger and a protection-path question. The immutable registry grants no Runner activation、Fill quantity、cost、queue or default-path authority.
 - Create and migrate `data/rd_state.db`.
 - Upsert current RD program state.
 - Upsert hypothesis queue/status rows.
