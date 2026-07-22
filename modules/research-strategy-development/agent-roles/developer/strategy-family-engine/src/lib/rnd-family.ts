@@ -1,8 +1,12 @@
-import { readdirSync } from "node:fs"
-import { createRequire } from "node:module"
-import { join } from "node:path"
 import type { ReplayStrategy } from "../../../../../replay-execution-plane/compatibility/replay-engine/src/lib/replay-core"
 import type { FactorFeatureStore } from "./factor-engine"
+import fundingCarry from "./rnd-families/funding-carry.family"
+import fundingUnwindRiskGuard from "./rnd-families/funding-unwind-risk-guard.family"
+import relativeWeaknessMomentum from "./rnd-families/relative-weakness-momentum.family"
+import structureBreakoutRetest from "./rnd-families/structure-breakout-retest.family"
+import timeSeriesMomentum from "./rnd-families/time-series-momentum.family"
+import trendPullback from "./rnd-families/trend-pullback.family"
+import volatilityCompressionBreakout from "./rnd-families/volatility-compression-breakout.family"
 
 type JSONRecord = Record<string, unknown>
 
@@ -18,20 +22,26 @@ interface RndFamilyModule {
   configure(strategyId: string, rawParams: JSONRecord, factorStore: FactorFeatureStore): RndFamilyConfigured
 }
 
+const registeredFamilies: RndFamilyModule[] = [
+  fundingCarry,
+  fundingUnwindRiskGuard,
+  relativeWeaknessMomentum,
+  structureBreakoutRetest,
+  timeSeriesMomentum,
+  trendPullback,
+  volatilityCompressionBreakout,
+]
+
 let cachedFamilies: Map<string, RndFamilyModule> | null = null
 
 function loadRndFamilies(): Map<string, RndFamilyModule> {
   if (cachedFamilies) {
     return cachedFamilies
   }
-  const require = createRequire(import.meta.url)
-  const directory = join(import.meta.dir, "rnd-families")
   const families = new Map<string, RndFamilyModule>()
-  for (const file of readdirSync(directory).filter((name) => name.endsWith(".family.ts")).sort()) {
-    const loaded = require(join(directory, file)) as { default?: RndFamilyModule; family?: RndFamilyModule }
-    const family = loaded.default || loaded.family
+  for (const family of registeredFamilies) {
     if (!family?.id || typeof family.configure !== "function") {
-      throw new Error(`invalid R&D family module: ${file}`)
+      throw new Error("invalid statically registered R&D family module")
     }
     if (families.has(family.id)) {
       throw new Error(`duplicate R&D family id: ${family.id}`)
