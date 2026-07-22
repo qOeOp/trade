@@ -3,7 +3,7 @@ title: Program-Owned Runtime Migration
 role: architecture-migration
 status: proposed
 owner: architecture
-last_verified: 2026-07-22 CST
+last_verified: 2026-07-23 CST
 ---
 
 # Program-Owned Runtime Migration
@@ -36,11 +36,17 @@ program-owned runtime
 
 尚缺：
 
-- 无独立常驻 system runtime；当前外部 Agent / automation 仍承担唤醒和部分语义编排。
+- 已有前台常驻 `shadow_program` supervisor，但 J01-J07 尚未迁入其执行权；当前外部 Agent / automation 仍承担 domain 唤醒和部分语义编排。
 - 无程序内 LLM provider port；hypothesis 等语义产物仍由外部 Agent 生成。
-- 无连续 Binance WebSocket 数据面、L2 gap epoch、raw segment 和可重建 order book。
+- 已有单标的 Rust Binance WebSocket、gap/resync epoch、TL2S raw segment、可重建 book 与 owner read；多标的隔离、production process deployment、Replay consumer cutover 尚未闭合。
 - `domain-bus` 只审计 envelope；它不是高吞吐 broker，也不执行 worker。
 - LLM trace、eval、成本、provider capability 与 secret lifecycle 尚无统一边界。
+
+P3 实施检查点（2026-07-23）：`trade-flow.program-shadow` 已建立 one-shot program-owned wakeup；`trade-flow.program-shadow-supervisor` 在其上增加前台常驻 cadence、20 秒 durable lease、5 秒 heartbeat、跨正常释放仍单调的 fencing generation、稳定时间槽 cycle identity、30 秒 lifecycle child timeout 与 `SIGINT/SIGTERM` in-flight drain。两者复用既有 job graph 和 ops store；closed-world profile 固定禁用 J01-J07、live write 与真实通知，只执行 L2 service/consumer health、control review 和 dry-run notify。真实两周期 `program-shadow-2026-07-22T16-02-36-000Z` / `...37-000Z` 均为 3/3 processor completed、7/7 domain job disabled/skipped、两条 L2 health `ok`，supervisor 与 wakeup lease 均释放；同一 60 秒槽连续重启时两层 fencing token 均由 `1→2`，第二次只返回 `skipped_terminal`。另一次真实 `SIGINT` 在完成当轮后以 `stop_reason=signal` 退出且无残留锁。外部 process manager 仍拥有 restart/backoff，仓库不建立 PID-file authority；故障与对照证据见下一检查点。J01-J07 尚未切换 authority，因此本文保持 `proposed`。
+
+P3 故障与对照检查点（2026-07-23）：ops store 采用 `1000ms` SQLite busy window；持续竞争返回 typed `ops_store_busy`，不无限等待、不执行 domain command。真实 supervisor 在完成周期后被精确 `SIGKILL`，遗留 token `1`；租约到期后新进程以 token `2`、`recovered_stale=true` 接管并释放，generation history 保留而 active lock 清空。job graph 新增去除 cycle/attempt/ref 噪音的 canonical parity projection，固定比较 ticket/status/reason、domain runtime result、lifecycle processor/health、summary 与 incident/attention；真实 Agent job-graph 和 program wakeup 的 projection hash 同为 `5b130b676ddb147c982a5aca61f9775bdb587d0b84e146b9422f47ab43e40773`。P3 的 busy、crash takeover 与单轮结果对照已闭合。
+
+P3 托管与迁移观察检查点（2026-07-23）：supervisor 新增 opt-in legacy Agent 对照，每轮把两条独立 job graph 的 canonical hash 与诊断 projection 作为 immutable `runtime_parity_observation` 写回同一 ops store；真实预检为 `match`，两侧 hash 均为 `5b130b67…0773`。模块提供 launchd `render/install/status/uninstall`，`KeepAlive` 负责重启且不产生 PID file；安装器对 macOS `Desktop/Documents/Downloads` 源码路径 fail closed，避免 TCC 造成“进程 running、业务未启动”的假健康。当前仓库位于 `Downloads`，故已回滚受阻的 launchd 实例，并于 `2026-07-23 00:36 CST` 由 operator-owned tmux 启动一小时 bounded observation：外层 fencing token `4`，首轮 parity `match`。tmux 只承载本次迁移证据，不替代 production process manager。J01-J07 authority 仍未切换；待长时 verdict 与可访问源码的 process-manager 部署闭合后再进入 cutover，因此本文保持 `proposed`。
 
 ## 3. 不变量
 
@@ -345,9 +351,10 @@ R&D 纵切无 Binance write，且已有 schema / queue / budget / holdout gate�
 
 ### P3 — Program runtime shadow
 
-- 常驻 supervisor 调用既有 job graph；Agent 路径保持可用。
-- `shadow_program` 只规划或执行无 live writes jobs，对照 job ticket、result、incident。
-- 故障注入：进程崩溃、stale lease、DB busy、owner timeout、重复 wakeup。
+- 已实现：前台常驻 supervisor 调用既有 job graph；Agent 路径保持可用。
+- 已实现：`shadow_program` 固定禁用 domain/live-write，具备 heartbeat、fencing、稳定槽、child timeout、terminal idempotency 与 signal drain。
+- 已实现：SQLite busy typed failure、真实进程崩溃后的 stale takeover，以及 Agent/program ticket/result/incident parity hash 对照。
+- 待闭合：外部 process manager deployment 与迁移期长时并行观察；随后才可逐 job 评估 authority 切换。
 
 退出：无双写、无重复 job、可停止/恢复；再逐 job 切换 authority。
 

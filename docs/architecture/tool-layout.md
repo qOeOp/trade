@@ -8,7 +8,7 @@ last_verified: 2026-07-22 CST
 
 # Tool Layout
 
-本文定义当前项目的代码归位规则。项目形态是 agent-operated toolset，不是单入口常驻程序，也不再使用本地 tool 壳作为源码组织方式。
+本文定义当前项目的代码归位规则。当前 domain authority 仍是 agent-operated toolset；新增的 program shadow supervisor 只是前台常驻迁移面，尚未接管 J01-J07，也不改变 owner 布局。项目不再使用本地 tool 壳作为源码组织方式。
 
 已完成的模块原子化与目录迁移记录见 [module-structure-refactor-plan.md](../history/module-structure-refactor-plan.md)。本文只描述当前有效布局；历史计划中的目标路径不得作为当前调用入口。
 
@@ -47,6 +47,7 @@ Skill 可以说明如何调用既有 MCP / owner tool，但不能绕过 prefligh
 | 路径 | Owner | 负责 | 不负责 |
 | --- | --- | --- | --- |
 | `modules/orchestration-ops/trade-flow/` | flow domain orchestrator | 事件流、automation plan、observe、reconcile、execution orchestration | Binance 数据接入实现、交易所写接口细节、R&D 实验实现、策略复核 owner |
+| `modules/orchestration-ops/l2-current-book-probe/` | non-economic ops consumer | health 后读取同 epoch bounded-depth book、BigInt microstructure；bounded session 与 resident worker 订阅 latest-only watermark，watch failure、epoch/resync 后强制 resnapshot；专属 supervisor 只管 worker restart，owner read 仅投影 baseline/metrics | automation job、MCP transport、depth delta、durable delivery、策略信号、Replay source、执行事实或交易所写入 |
 | `modules/research-strategy-development/research-control-plane/` | RD authority plane | Contract/Trial/Result/Review/Lifecycle/KG、Draft Strategy registry | Replay/Forward 执行、Agent 推理、正式 Shadow/Live |
 | `modules/research-strategy-development/replay-execution-plane/` | historical evidence plane | Trial-bound deterministic Replay、ledger、metrics、artifact/fingerprint | Candidate 生成、Review、promotion |
 | `modules/research-strategy-development/forward-evidence-plane/` | post-freeze evidence plane | ready Draft admission、watermark、no-backfill Forward Result | 正式 Shadow、账户事实、promotion |
@@ -117,6 +118,7 @@ Skill 可以说明如何调用既有 MCP / owner tool，但不能绕过 prefligh
 | 执行预演 | `modules/exchange-gateway/binance-write/order-preview` |
 | 主单 / 撤单 / 保护 / 减仓 | `modules/exchange-gateway/binance-write/order-place`, `order-cancel`, `position-protect`, `position-adjust` |
 | automation plan | `modules/orchestration-ops/trade-flow` + `trade-flow.automation` |
+| program shadow wakeup / resident cadence | `modules/orchestration-ops/trade-flow` + `trade-flow.program-shadow` / `trade-flow.program-shadow-supervisor` |
 | observe / runtime load | `modules/orchestration-ops/trade-flow` + `trade-flow.observe` |
 | 事件流 / track dry-run | `modules/orchestration-ops/trade-flow` + `trade-flow.runtime` |
 | Trial-bound replay | `modules/research-strategy-development/replay-execution-plane/runner` + `research.replay-execution` |
