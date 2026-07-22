@@ -1,0 +1,93 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade-flow.job-graph-parity-projection.v1",
+  "title": "trade-flow job graph parity projection",
+  "description": "Cycle-independent semantic projection for comparing Agent and program-owned job graph outcomes.",
+  "type": "object",
+  "required": ["schema_version", "projection_hash", "mode", "jobs", "lifecycle_processors", "summary", "incidents", "attention"],
+  "properties": {
+    "schema_version": { "const": "trade-flow.job-graph-parity-projection.v1" },
+    "projection_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
+    "mode": { "enum": ["execute", "dry_run"] },
+    "jobs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["ticket_no", "job_id", "target_domain", "stage", "status", "reason", "runtime_result"],
+        "properties": {
+          "ticket_no": { "type": "string" },
+          "job_id": { "type": "string" },
+          "target_domain": { "type": "string" },
+          "stage": { "type": "string" },
+          "status": { "type": "string" },
+          "reason": { "type": "string" },
+          "runtime_result": {
+            "type": "object",
+            "required": ["schema_id", "status", "domain", "job_id", "writes"],
+            "properties": {
+              "schema_id": { "type": "string" },
+              "status": { "type": "string" },
+              "domain": { "type": "string" },
+              "job_id": { "type": "string" },
+              "writes": { "type": "object" }
+            },
+            "additionalProperties": false
+          }
+        },
+        "additionalProperties": false
+      }
+    },
+    "lifecycle_processors": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["processor_id", "lifecycle_phase", "stage", "status", "reason", "business_status", "health_checks"],
+        "properties": {
+          "processor_id": { "type": "string" },
+          "lifecycle_phase": { "type": "string" },
+          "stage": { "type": "string" },
+          "status": { "type": "string" },
+          "reason": { "type": "string" },
+          "business_status": { "type": "string" },
+          "health_checks": { "type": "object", "additionalProperties": { "type": "string" } }
+        },
+        "additionalProperties": false
+      }
+    },
+    "summary": {
+      "type": "object",
+      "required": ["total_jobs", "total_processors", "completed", "skipped", "failed", "blocked", "processors"],
+      "properties": {
+        "total_jobs": { "type": "integer", "minimum": 0 },
+        "total_processors": { "type": "integer", "minimum": 0 },
+        "completed": { "type": "integer", "minimum": 0 },
+        "skipped": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "blocked": { "type": "integer", "minimum": 0 },
+        "processors": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 0 } }
+      },
+      "additionalProperties": false
+    },
+    "incidents": {
+      "type": "object",
+      "required": ["total", "open", "critical", "warning"],
+      "properties": {
+        "total": { "type": "integer", "minimum": 0 },
+        "open": { "type": "integer", "minimum": 0 },
+        "critical": { "type": "integer", "minimum": 0 },
+        "warning": { "type": "integer", "minimum": 0 }
+      },
+      "additionalProperties": false
+    },
+    "attention": {
+      "type": "object",
+      "required": ["needs_human", "severity"],
+      "properties": {
+        "needs_human": { "type": "boolean" },
+        "severity": { "type": "string" }
+      },
+      "additionalProperties": false
+    }
+  },
+  "additionalProperties": false
+}

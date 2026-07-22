@@ -15,21 +15,28 @@ import { publishDomainMessage } from "../../../../domain-bus/src/lib/domain-bus"
 import { buildDomainJobResult, validateDomainJobResult } from "../../../../../contracts/domain-runtime/src/domain-runtime"
 import { buildAutomationCyclePlan, type AutomationCycleInput } from "./automation-cycle"
 import { repoRoot } from "../../../../../contracts/runtime-core/src/paths"
+import { canonicalHash } from "../../../../../contracts/runtime-core/src/canonical-json"
 
 type JSONRecord = Record<string, unknown>
 
 export interface JobGraphRunnerInput extends AutomationCycleInput {
   execute_jobs?: boolean
   allow_live_writes?: boolean
+  command_timeout_ms?: number
 }
 
 export interface CommandExecutionResult {
   exit_code: number
   stdout: string
   stderr: string
+  timed_out?: boolean
 }
 
-export type CommandExecutor = (command: CommandSpec) => Promise<CommandExecutionResult>
+export interface CommandExecutionOptions {
+  timeoutMs?: number
+}
+
+export type CommandExecutor = (command: CommandSpec, options?: CommandExecutionOptions) => Promise<CommandExecutionResult>
 
 interface CommandSpec {
   executable: boolean
@@ -57,6 +64,9 @@ interface ProcessorResult {
   reason: string
   result_ref?: string
   exit_code?: number
+  timed_out?: boolean
+  business_status?: string
+  health_checks?: JSONRecord
 }
 
 export async function runAutomationJobGraph(
@@ -69,6 +79,7 @@ export async function runAutomationJobGraph(
   const cycleId = stringField(plan.cycle_id)
   const generatedAt = stringField(plan.generated_at) || new Date().toISOString()
   const opsRuntimeDbPath = stringField(input.ops_runtime_db) || "./data/ops_runtime.db"
+  const commandTimeoutMs = normalizeCommandTimeoutMs(input.command_timeout_ms)
   mkdirSync(dirname(opsRuntimeDbPath), { recursive: true })
 
   const opsDb = new Database(opsRuntimeDbPath)
@@ -101,6 +112,7 @@ export async function runAutomationJobGraph(
         allowLiveWrites: input.allow_live_writes === true,
         opsDb,
         executor,
+        commandTimeoutMs,
       })))
       processorResults.push(...stageProcessorResults)
 
@@ -114,7 +126,9 @@ export async function runAutomationJobGraph(
         allowLiveWrites: input.allow_live_writes === true,
         opsDb,
         executor,
+        commandTimeoutMs,
         priorResults: results,
+        priorProcessorResults: processorResults,
       })))
       results.push(...stageResults)
     }
@@ -148,7 +162,7 @@ export async function runAutomationJobGraph(
     }))
     const cycleSummary = readCycleSummary(opsDb, cycleId)
 
-    return {
+    const graphResult: JSONRecord = {
       schema_version: "trade-flow.job-graph-runner-result.v1",
       ok: status === "completed",
       cycle_id: cycleId,
@@ -160,8 +174,73 @@ export async function runAutomationJobGraph(
       jobs: results,
       plan,
     }
+    return {
+      ...graphResult,
+      parity_projection: projectJobGraphParity(graphResult),
+    }
   } finally {
     opsDb.close()
+  }
+}
+
+export function projectJobGraphParity(result: JSONRecord): JSONRecord {
+  const summary = asRecord(result.summary)
+  const opsSummary = asRecord(result.ops_summary)
+  const incidentSummary = asRecord(opsSummary.incidents)
+  const attention = asRecord(opsSummary.attention)
+  const projection = {
+    mode: stringField(result.mode),
+    jobs: asArray(result.jobs).map(asRecord).map((job) => {
+      const runtimeResult = asRecord(job.runtime_result)
+      return {
+        ticket_no: stringField(job.ticket_no),
+        job_id: stringField(job.job_id),
+        target_domain: stringField(job.target_domain),
+        stage: stringField(job.stage),
+        status: stringField(job.status),
+        reason: stringField(job.reason),
+        runtime_result: {
+          schema_id: stringField(runtimeResult.schema_id),
+          status: stringField(runtimeResult.status),
+          domain: stringField(runtimeResult.domain),
+          job_id: stringField(runtimeResult.job_id),
+          writes: sortedRecord(asRecord(runtimeResult.writes)),
+        },
+      }
+    }),
+    lifecycle_processors: asArray(result.lifecycle_processors).map(asRecord).map((processor) => ({
+      processor_id: stringField(processor.processor_id),
+      lifecycle_phase: stringField(processor.lifecycle_phase),
+      stage: stringField(processor.stage),
+      status: stringField(processor.status),
+      reason: stringField(processor.reason),
+      business_status: stringField(processor.business_status),
+      health_checks: sortedRecord(asRecord(processor.health_checks)),
+    })),
+    summary: {
+      total_jobs: integerField(summary.total_jobs),
+      total_processors: integerField(summary.total_processors),
+      completed: integerField(summary.completed),
+      skipped: integerField(summary.skipped),
+      failed: integerField(summary.failed),
+      blocked: integerField(summary.blocked),
+      processors: sortedRecord(asRecord(summary.processors)),
+    },
+    incidents: {
+      total: integerField(incidentSummary.total),
+      open: integerField(incidentSummary.open),
+      critical: integerField(incidentSummary.critical),
+      warning: integerField(incidentSummary.warning),
+    },
+    attention: {
+      needs_human: attention.needs_human === true,
+      severity: stringField(attention.severity),
+    },
+  }
+  return {
+    schema_version: "trade-flow.job-graph-parity-projection.v1",
+    projection_hash: canonicalHash(projection),
+    ...projection,
   }
 }
 
@@ -174,6 +253,7 @@ async function runOneProcessor(input: {
   allowLiveWrites: boolean
   opsDb: Database
   executor: CommandExecutor
+  commandTimeoutMs?: number
 }): Promise<ProcessorResult> {
   const command = commandSpecFromJob(input.processor)
   const processorId = stringField(input.processor.processor_id)
@@ -204,14 +284,22 @@ async function runOneProcessor(input: {
     return result
   }
 
-  const executed = await input.executor(command)
-  const resultRef = `ops-runtime://cycle/${input.cycleId}/processor/${processorId}`
+  const executed = await executeWithTimeout(input.executor, command, input.commandTimeoutMs)
+  const businessResult = executed.exit_code === 0
+    ? runtimeHealthProcessorResult(processorId, executed.stdout)
+    : null
+  const resultRef = businessResult?.result_ref || `ops-runtime://cycle/${input.cycleId}/processor/${processorId}`
   const result = {
     ...base,
-    status: executed.exit_code === 0 ? "completed" : "failed",
-    reason: executed.exit_code === 0 ? "command completed" : "command exited non-zero",
+    status: businessResult?.status ?? (executed.exit_code === 0 ? "completed" : "failed"),
+    reason: executed.timed_out
+      ? "command timed out"
+      : businessResult?.reason ?? (executed.exit_code === 0 ? "command completed" : "command exited non-zero"),
     result_ref: resultRef,
     exit_code: executed.exit_code,
+    ...(executed.timed_out ? { timed_out: true } : {}),
+    ...(businessResult?.business_status ? { business_status: businessResult.business_status } : {}),
+    ...(businessResult?.health_checks ? { health_checks: businessResult.health_checks } : {}),
   }
   recordProcessorIncident(input.opsDb, input.cycleId, input.generatedAt, result)
   return result
@@ -226,7 +314,9 @@ async function runOneJob(input: {
   allowLiveWrites: boolean
   opsDb: Database
   executor: CommandExecutor
+  commandTimeoutMs?: number
   priorResults: JobResult[]
+  priorProcessorResults: ProcessorResult[]
 }): Promise<JobResult> {
   const toolJob = asRecord(input.job.tool_job)
   const command = commandSpecFromJob(input.job)
@@ -266,6 +356,11 @@ async function runOneJob(input: {
     return recordJobAndBus(input.opsDb, input.cycleId, base, "skipped", "runner dry-run; set execute_jobs=true to run command_spec", input.generatedAt)
   }
 
+  const healthBlocker = healthDependencyBlockerReason(input.job, input.priorProcessorResults)
+  if (healthBlocker) {
+    return recordJobAndBus(input.opsDb, input.cycleId, base, "blocked", healthBlocker, input.generatedAt)
+  }
+
   const dependencyBlocker = dependencyBlockerReason(input.job, input.priorResults)
   if (dependencyBlocker) {
     return recordJobAndBus(input.opsDb, input.cycleId, base, "blocked", dependencyBlocker, input.generatedAt)
@@ -285,7 +380,7 @@ async function runOneJob(input: {
     command_ref: commandRef(command),
     started_at: new Date().toISOString(),
   }))
-  const executed = await input.executor(command)
+  const executed = await executeWithTimeout(input.executor, command, input.commandTimeoutMs)
   if (executed.exit_code === 0) {
     const nativeRuntimeResult = extractNativeRuntimeResult(executed.stdout)
     if (nativeRuntimeResult) {
@@ -307,14 +402,76 @@ async function runOneJob(input: {
       exit_code: executed.exit_code,
     })
   }
-  const result = recordJobAndBus(input.opsDb, input.cycleId, base, "failed", "command exited non-zero", input.generatedAt, {
+  const result = recordJobAndBus(input.opsDb, input.cycleId, base, "failed", executed.timed_out ? "command timed out" : "command exited non-zero", input.generatedAt, {
     result_ref: `ops-runtime://cycle/${input.cycleId}/job/${ticketNo}`,
     exit_code: executed.exit_code,
   }, {
     exit_code: executed.exit_code,
+    timed_out: executed.timed_out === true,
     stderr: executed.stderr.slice(0, 4000),
     stdout_tail: executed.stdout.slice(-1000),
   })
+  return result
+}
+
+function healthDependencyBlockerReason(job: JSONRecord, processorResults: ProcessorResult[]): string {
+  const required = asArray(job.required_health_checks).map(String).filter(Boolean)
+  if (required.length === 0) return ""
+  const health = processorResults.find((result) => result.processor_id === "runtime_health_guard")
+  if (!health) return "required runtime health observation is unavailable"
+  const checks = asRecord(health.health_checks)
+  for (const name of required) {
+    const status = stringField(checks[name])
+    if (status !== "ok") return `health dependency ${name} is ${status || "unavailable"}`
+  }
+  return ""
+}
+
+function runtimeHealthProcessorResult(processorId: string, stdout: string): null | {
+  status: "completed" | "blocked" | "failed"
+  reason: string
+  result_ref: string
+  business_status: string
+  health_checks?: JSONRecord
+} {
+  if (processorId !== "runtime_health_guard") return null
+  const response = parseJsonObject(stdout)
+  if (response.processor_id !== processorId) {
+    return {
+      status: "failed",
+      reason: "runtime health output omitted matching processor identity",
+      result_ref: "",
+      business_status: "invalid",
+    }
+  }
+  const businessStatus = stringField(response.status)
+  const resultRef = stringField(response.health_ref)
+  try {
+    const healthChecks = extractRuntimeHealthChecks(response)
+    if (businessStatus === "ok" && response.ok === true) {
+      return { status: "completed", reason: "runtime health status ok", result_ref: resultRef, business_status: businessStatus, health_checks: healthChecks }
+    }
+    if (["blocked", "degraded", "safe_mode"].includes(businessStatus) && response.ok === false) {
+      return { status: "blocked", reason: `runtime health status ${businessStatus}`, result_ref: resultRef, business_status: businessStatus, health_checks: healthChecks }
+    }
+    return { status: "failed", reason: "runtime health output has inconsistent status", result_ref: resultRef, business_status: businessStatus || "invalid", health_checks: healthChecks }
+  } catch {
+    return { status: "failed", reason: "runtime health output has invalid checks", result_ref: resultRef, business_status: businessStatus || "invalid" }
+  }
+}
+
+function extractRuntimeHealthChecks(response: JSONRecord): JSONRecord {
+  const checks = asArray(asRecord(asRecord(response.health).checks_json).checks).map(asRecord)
+  if (checks.length === 0) throw new Error("runtime health checks are missing")
+  const result: JSONRecord = {}
+  for (const check of checks) {
+    const name = stringField(check.name)
+    const status = stringField(check.status)
+    if (!name || !["ok", "warn", "fail"].includes(status) || Object.hasOwn(result, name)) {
+      throw new Error("runtime health check identity is invalid")
+    }
+    result[name] = status
+  }
   return result
 }
 
@@ -523,21 +680,58 @@ function commandSpecFromJob(job: JSONRecord): CommandSpec {
   }
 }
 
-async function executeCommand(command: CommandSpec): Promise<CommandExecutionResult> {
+async function executeWithTimeout(
+  executor: CommandExecutor,
+  command: CommandSpec,
+  timeoutMs?: number,
+): Promise<CommandExecutionResult> {
+  const execution = executor(command, { timeoutMs })
+  if (!timeoutMs) return execution
+  if (executor === executeCommand) return execution
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const timeout = new Promise<CommandExecutionResult>((resolve) => {
+    timer = setTimeout(() => resolve({
+      exit_code: 124,
+      stdout: "",
+      stderr: `command exceeded timeout of ${timeoutMs}ms`,
+      timed_out: true,
+    }), timeoutMs)
+  })
+  try {
+    return await Promise.race([execution, timeout])
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
+}
+
+async function executeCommand(command: CommandSpec, options: CommandExecutionOptions = {}): Promise<CommandExecutionResult> {
   const child = Bun.spawn(command.argv, {
     cwd: command.cwd ? join(repoRoot(), command.cwd) : repoRoot(),
     stdout: "pipe",
     stderr: "pipe",
   })
+  let timedOut = false
+  let terminateTimer: ReturnType<typeof setTimeout> | undefined
+  let killTimer: ReturnType<typeof setTimeout> | undefined
+  if (options.timeoutMs) {
+    terminateTimer = setTimeout(() => {
+      timedOut = true
+      child.kill("SIGTERM")
+      killTimer = setTimeout(() => child.kill("SIGKILL"), 1_000)
+    }, options.timeoutMs)
+  }
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(child.stdout).text(),
     new Response(child.stderr).text(),
     child.exited,
   ])
+  if (terminateTimer) clearTimeout(terminateTimer)
+  if (killTimer) clearTimeout(killTimer)
   return {
-    exit_code: exitCode,
+    exit_code: timedOut ? 124 : exitCode,
     stdout,
-    stderr,
+    stderr: timedOut ? `${stderr}\ncommand exceeded timeout of ${options.timeoutMs}ms`.trim() : stderr,
+    ...(timedOut ? { timed_out: true } : {}),
   }
 }
 
@@ -619,4 +813,20 @@ function asRecord(value: unknown): JSONRecord {
 
 function stringField(value: unknown): string {
   return typeof value === "string" ? value.trim() : ""
+}
+
+function integerField(value: unknown): number {
+  return typeof value === "number" && Number.isSafeInteger(value) ? value : 0
+}
+
+function sortedRecord(value: JSONRecord): JSONRecord {
+  return Object.fromEntries(Object.entries(value).sort(([left], [right]) => left.localeCompare(right)))
+}
+
+function normalizeCommandTimeoutMs(value: unknown): number | undefined {
+  if (value === undefined) return undefined
+  if (!Number.isInteger(value) || Number(value) < 100 || Number(value) > 300_000) {
+    throw new Error("command_timeout_ms must be an integer from 100 to 300000")
+  }
+  return Number(value)
 }
