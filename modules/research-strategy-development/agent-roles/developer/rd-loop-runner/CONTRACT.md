@@ -12,7 +12,8 @@ atomic module
 ## Inputs
 
 - Candidate batch payload fields.
-- Optional artifact root, ledger path, catalog DB path, run id, and RD program state path.
+- Optional artifact root, ledger path, catalog DB path, and run id.
+- Optional RD program writeback binding；`rd_program_ref` 出现时必须同时显式提供 `rd_state_db`，library 不回退到当前工作目录下的默认库。
 
 ## Outputs
 
