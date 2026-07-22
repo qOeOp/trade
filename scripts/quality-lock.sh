@@ -41,7 +41,7 @@ acquire() {
 
   rm -f "$owner_file"
   rmdir "$lock_dir" 2>/dev/null || {
-    printf 'quality: stale quality lock cannot be recovered safely: %s\n' "$lock_dir" >&2
+    printf 'quality: stale quality lock cannot be recovered safely\n' >&2
     return 1
   }
   mkdir "$lock_dir"
