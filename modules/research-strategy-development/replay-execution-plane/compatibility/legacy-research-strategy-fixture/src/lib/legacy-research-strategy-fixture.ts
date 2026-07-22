@@ -27,19 +27,16 @@ const btcTrendPullbackStrategy: ReplayStrategy = {
   },
 }
 
-const replayStrategyFixtures = new Map<string, ReplayStrategy>([
-  [btcTrendPullbackStrategy.strategy_id, btcTrendPullbackStrategy],
-])
-
-function replayRegisteredStrategy(options: ReplayOptions): ReplayResult {
+function replayTrendPullbackFixture(options: ReplayOptions): ReplayResult {
   const strategyId = options.strategyId || btcTrendPullbackStrategy.strategy_id
-  const strategy = replayStrategyFixtures.get(strategyId)
-  if (!strategy) throw new Error(`unsupported replay strategy fixture: ${strategyId}`)
-  return replayStrategy(strategy, options)
+  if (strategyId !== btcTrendPullbackStrategy.strategy_id) {
+    throw new Error(`unsupported replay strategy fixture: ${strategyId}`)
+  }
+  return replayStrategy(btcTrendPullbackStrategy, options)
 }
 
 function listReplayStrategyFixtures(): string[] {
-  return Array.from(replayStrategyFixtures.keys()).sort()
+  return [btcTrendPullbackStrategy.strategy_id]
 }
 
 function readTrend(candle: Candle, emaFast: number, emaSlow: number, currentAtr: number): "long" | "short" | null {
@@ -99,7 +96,5 @@ export {
   buildTrendPullbackSignal,
   btcTrendPullbackStrategy,
   listReplayStrategyFixtures,
-  replayRegisteredStrategy,
-  replayRegisteredStrategy as replayTrendPullback,
-  replayStrategyFixtures,
+  replayTrendPullbackFixture,
 }
