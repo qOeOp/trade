@@ -156,6 +156,24 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("do not match the frozen writer set")
   })
 
+  test("Replay certification owner cannot omit a Plane package", () => {
+    const registry = JSON.parse(readFileSync(
+      join(repoRoot, "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-certification-suites.json"),
+      "utf8",
+    )) as { suites: unknown[] }
+    registry.suites.pop()
+    const root = temporaryRoot()
+    const registryPath = join(root, "replay-certification-suites.json")
+    writeFileSync(registryPath, JSON.stringify(registry))
+
+    const result = runJudge("check-rd-replay-maturity-gate.ts", repoRoot, [], {
+      RD_REPLAY_CERTIFICATION_REGISTRY_PATH: registryPath,
+    })
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("classify every Plane package exactly once")
+  })
+
   test("package tests cannot report success for an empty suite", () => {
     const root = temporaryRoot()
     write(root, "modules/domain-a/tool-a/package.json", JSON.stringify({

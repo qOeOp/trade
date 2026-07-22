@@ -81,6 +81,17 @@ interface EvidenceEpochRegistry {
   }>
 }
 
+interface ReplayCertificationRegistry {
+  schema_version: string
+  owner: string
+  execution_policy: string
+  suites: Array<{
+    classification: "canonical" | "compatibility"
+    package_path: string
+    package_name: string
+  }>
+}
+
 const manifestPath = process.env.RD_REPLAY_MATURITY_GATE_PATH || "docs/research/reliability/rd-replay-maturity-gate.json"
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as GateManifest
 const inventoryPath = process.env.RD_REPLAY_CAPABILITY_INVENTORY_PATH
@@ -89,7 +100,16 @@ const inventory = JSON.parse(readFileSync(inventoryPath, "utf8")) as CapabilityI
 const epochRegistryPath = process.env.RD_REPLAY_EVIDENCE_EPOCH_REGISTRY_PATH
   || "docs/research/reliability/rd-replay-evidence-epoch-registry.json"
 const epochRegistry = JSON.parse(readFileSync(epochRegistryPath, "utf8")) as EvidenceEpochRegistry
+const certificationOwner =
+  "modules/research-strategy-development/replay-execution-plane/certification/replay-certification"
+const certificationRegistryPath = process.env.RD_REPLAY_CERTIFICATION_REGISTRY_PATH
+  || `${certificationOwner}/replay-certification-suites.json`
+const certificationRegistry = JSON.parse(
+  readFileSync(certificationRegistryPath, "utf8"),
+) as ReplayCertificationRegistry
 const issues: string[] = []
+const certificationCommandIssues: string[] = []
+const testSeparationIssues: string[] = []
 
 const expectedCapabilityMilestones = Array.from({ length: 29 }, (_, index) => `M4-P${index + 1}`)
 const expectedCanonicalEntrypoints = [
@@ -158,6 +178,76 @@ for (const epoch of genericEpochPatterns) {
     issues.push(`Replay ${epoch.kind} production writers expose non-current generic epochs: ${[...observed].sort().join(",")}`)
   }
 }
+if (certificationRegistry.schema_version !== "trade.rd-replay-certification-suites.v1"
+    || certificationRegistry.owner !== certificationOwner
+    || certificationRegistry.execution_policy !== "sorted-sequential-fail-fast-package-check") {
+  certificationCommandIssues.push("Replay certification registry policy is not frozen")
+}
+const certificationPackagePaths = certificationRegistry.suites.map((suite) => suite.package_path)
+if (new Set(certificationPackagePaths).size !== certificationPackagePaths.length) {
+  certificationCommandIssues.push("Replay certification registry contains duplicate package owners")
+}
+const replayPackageRoots = collectPackageRoots(replaySourceRoot)
+const expectedCertifiedPackageRoots = replayPackageRoots.filter((path) => path !== certificationOwner)
+if (canonicalArray(certificationPackagePaths) !== canonicalArray(expectedCertifiedPackageRoots)) {
+  certificationCommandIssues.push("Replay certification registry must classify every Plane package exactly once")
+}
+const certifyOwners: string[] = []
+for (const packageRoot of replayPackageRoots) {
+  const packageJson = JSON.parse(readFileSync(`${packageRoot}/package.json`, "utf8")) as {
+    name?: string
+    scripts?: Record<string, string>
+  }
+  const suite = certificationRegistry.suites.find((entry) => entry.package_path === packageRoot)
+  if (packageRoot !== certificationOwner
+      && (!suite || suite.package_name !== packageJson.name || !packageJson.scripts?.check)) {
+    certificationCommandIssues.push(`Replay certification suite owner is invalid: ${packageRoot}`)
+  }
+  if (packageJson.scripts?.certify) certifyOwners.push(packageRoot)
+}
+const certificationOwnerPackage = JSON.parse(
+  readFileSync(`${certificationOwner}/package.json`, "utf8"),
+) as { scripts?: Record<string, string> }
+if (JSON.stringify(certifyOwners) !== JSON.stringify([certificationOwner])
+    || certificationOwnerPackage.scripts?.certify !== "bun src/scripts/main.ts --suite all"
+    || !existsSync(`${certificationOwner}/src/scripts/main.ts`)) {
+  certificationCommandIssues.push("Replay Plane must expose exactly one fail-closed certification command owner")
+}
+for (const suite of certificationRegistry.suites) {
+  const compatibilityPath = suite.package_path.includes("/compatibility/")
+    || suite.package_path.includes("/certification/legacy-")
+  if ((suite.classification === "compatibility") !== compatibilityPath) {
+    certificationCommandIssues.push(`Replay certification classification/path mismatch: ${suite.package_path}`)
+  }
+}
+const canonicalTestSources = certificationRegistry.suites
+  .filter((suite) => suite.classification === "canonical")
+  .flatMap((suite) => collectTypeScriptSources(suite.package_path))
+  .filter((path) => path.endsWith(".test.ts"))
+for (const path of canonicalTestSources) {
+  const source = readFileSync(path, "utf8")
+  if (source.includes("/compatibility/") || source.includes("legacy-portfolio-cycle")) {
+    testSeparationIssues.push(`canonical Replay test imports compatibility evidence: ${path}`)
+  }
+}
+const legacyCycleCertificationTest =
+  "modules/research-strategy-development/replay-execution-plane/certification/legacy-portfolio-cycle-certification/src/lib/legacy-portfolio-cycle-certification.test.ts"
+const legacyCycleCertificationSource = existsSync(legacyCycleCertificationTest)
+  ? readFileSync(legacyCycleCertificationTest, "utf8")
+  : ""
+for (const expectedConsumer of [
+  "runReplayPortfolioReallocation",
+  "runReplayTwoCyclePortfolio",
+  "runReplayPortfolioCycleSequenceAccounting",
+]) {
+  if (!legacyCycleCertificationSource.includes(expectedConsumer)) {
+    testSeparationIssues.push(`legacy portfolio cycle certification does not cover ${expectedConsumer}`)
+  }
+}
+if (!legacyCycleCertificationSource.includes("compatibility/legacy-portfolio-cycle")) {
+  testSeparationIssues.push("legacy portfolio cycle certification does not own the compatibility import boundary")
+}
+issues.push(...certificationCommandIssues, ...testSeparationIssues)
 if (JSON.stringify(inventory.canonical_public_entrypoints) !== JSON.stringify(expectedCanonicalEntrypoints)) {
   issues.push("Replay canonical public entrypoints do not match the frozen four-profile surface")
 } else {
@@ -305,6 +395,14 @@ for (const [group, names] of Object.entries(expectedGateNames)) {
     else gateValues[group as keyof typeof expectedGateNames].push(actual[name])
   }
 }
+if (manifest.exit_gates.m4?.single_owner_certification_command
+    !== (certificationCommandIssues.length === 0)) {
+  issues.push("Replay single-owner certification gate does not match executable registry evidence")
+}
+if (manifest.exit_gates.m4?.canonical_and_compatibility_test_suites_separated
+    !== (testSeparationIssues.length === 0)) {
+  issues.push("Replay canonical/compatibility test separation gate does not match source evidence")
+}
 const m4Complete = gateValues.m4.length === expectedGateNames.m4.length && gateValues.m4.every(Boolean)
 if (manifest.exit_gates.m5?.m4_exit_complete !== m4Complete) {
   issues.push("Replay M5 gate must reflect the complete M4 exit atomically")
@@ -342,6 +440,17 @@ function collectTypeScriptSources(root: string): string[] {
     else if (entry.isFile() && path.endsWith(".ts")) sources.push(path)
   }
   return sources
+}
+
+function collectPackageRoots(root: string): string[] {
+  const roots: string[] = []
+  for (const entry of readdirSync(root, { withFileTypes: true })) {
+    if (entry.name === "node_modules") continue
+    const path = `${root}/${entry.name}`
+    if (entry.isDirectory()) roots.push(...collectPackageRoots(path))
+    else if (entry.isFile() && entry.name === "package.json") roots.push(root)
+  }
+  return [...new Set(roots)].sort()
 }
 
 function escapeRegExp(value: string): string {
