@@ -10,6 +10,7 @@ import {
   ensureOpsRuntimeSchema,
   readCycleSummary,
   readOpsLock,
+  readRuntimeParityStatus,
   readDomainMessages,
   readIncidentEvents,
   readIncidents,
@@ -35,6 +36,19 @@ export function run(args: Args): JSONRecord {
     try {
       const cycleId = stringField(args.json.cycle_id)
       return { ok: true, action: args.action, summary: readCycleSummary(db, cycleId) }
+    } finally {
+      db.close()
+    }
+  }
+  if (args.action === "parity_status") {
+    const db = new Database(args.dbPath, { readonly: true })
+    try {
+      const asOfText = stringField(args.json.as_of)
+      return {
+        ok: true,
+        action: args.action,
+        parity_status: readRuntimeParityStatus(db, asOfText ? new Date(asOfText) : new Date()),
+      }
     } finally {
       db.close()
     }
@@ -101,7 +115,7 @@ export function run(args: Args): JSONRecord {
 function printHelp(): void {
   console.log([
     "usage: bun src/scripts/main.ts --db data/ops_runtime.db --action init",
-    "actions: init | record_cycle | record_job | record_message | list_messages | record_incident | list_incidents | update_incident | list_incident_events | acquire_lock | read_lock | release_lock | summary",
+    "actions: init | record_cycle | record_job | record_message | list_messages | record_incident | list_incidents | update_incident | list_incident_events | acquire_lock | read_lock | release_lock | summary | parity_status",
   ].join("\n"))
 }
 
