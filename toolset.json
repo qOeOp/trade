@@ -1355,53 +1355,6 @@
       "entry_contract": { "kind": "cli-json", "input_schema": "", "output_schema": "" }
     },
     {
-      "id": "research.candidate-freezer",
-      "domain": "research-strategy-development",
-      "intent": [
-        "candidate-freezer",
-        "frozen-candidate-ref",
-        "research-promotion-input",
-        "assumption-limit-snapshot"
-      ],
-      "capability_class": [
-        "A",
-        "V"
-      ],
-      "path": "modules/research-strategy-development/research-control-plane/compatibility/candidate-freezer",
-      "purpose": "Freeze validated research candidates as protocol refs with explicit evidence, assumptions, limits, timestamp, and content hash.",
-      "command": {
-        "cwd": "modules/research-strategy-development/research-control-plane/compatibility/candidate-freezer",
-        "argv": [
-          "bun",
-          "src/scripts/main.ts",
-          "--json",
-          "<payload>"
-        ]
-      },
-      "writes": {
-        "trade_db": false,
-        "catalog": false,
-        "artifacts": false,
-        "binance": false,
-        "config": false
-      },
-      "notes": [
-        "Refs-only freeze boundary; promotion and live policy approval remain outside research-strategy-development."
-      ],
-      "module_type": "atomic",
-      "owner_scope": "research-strategy-development.candidate-freezer",
-      "requires_preflight": false,
-      "concurrency_group": "research-evidence",
-      "forbidden_callers": [
-        "exchange-write"
-      ],
-      "entry_contract": {
-        "kind": "cli-json",
-        "input_schema": "",
-        "output_schema": "modules/contracts/protocol-fabric/src/schemas/frozen-candidate-ref.schema.json"
-      }
-    },
-    {
       "id": "research.evidence-publisher",
       "domain": "research-strategy-development",
       "intent": [
@@ -1594,27 +1547,25 @@
       }
     },
     {
-      "id": "research.replay-runner",
+      "id": "research.legacy-replay-fingerprint",
       "domain": "research-strategy-development",
       "intent": [
-        "replay",
-        "single-strategy-replay",
-        "mechanical-backtest"
+        "legacy-replay-fingerprint",
+        "replay-evidence-integrity",
+        "replay-evidence-verification"
       ],
       "capability_class": [
-        "E"
+        "V"
       ],
-      "path": "modules/research-strategy-development/replay-execution-plane/compatibility/replay-runner",
-      "purpose": "Run one registered strategy replay against a local OHLCV manifest.",
+      "path": "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-replay-fingerprint",
+      "purpose": "Recompute compatibility replay fingerprints for legacy evidence integrity review.",
       "command": {
-        "cwd": "modules/research-strategy-development/replay-execution-plane/compatibility/replay-runner",
+        "cwd": "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-replay-fingerprint",
         "argv": [
           "bun",
           "src/scripts/main.ts",
-          "--manifest",
-          "<manifest>",
-          "--strategy-id",
-          "<strategy-id>"
+          "--json",
+          "<payload>"
         ]
       },
       "writes": {
@@ -1625,10 +1576,11 @@
         "config": false
       },
       "notes": [
-        "Pure replay runner; no R&D search, catalog write, promotion, or exchange access."
+        "Legacy evidence verifier only; does not run replay or forward Trial-bound requests.",
+        "Retires with compatibility replay-engine; native Replay fingerprints remain Trial-bound authority."
       ],
       "module_type": "atomic",
-      "owner_scope": "research.replay-runner",
+      "owner_scope": "research.legacy-replay-fingerprint",
       "requires_preflight": false,
       "concurrency_group": "research-replay",
       "forbidden_callers": [
@@ -1637,7 +1589,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/contracts/replay-contract/src/schemas/replay-result.schema.json"
+        "output_schema": "modules/contracts/replay-contract/src/schemas/replay-fingerprint.schema.json"
       }
     },
     {
@@ -1869,13 +1821,14 @@
         "E",
         "V"
       ],
-      "path": "modules/research-strategy-development/replay-execution-plane/compatibility/panel-evaluator",
+      "path": "modules/research-strategy-development/agent-roles/developer/candidate-batch",
       "purpose": "Evaluate one candidate set across a multi-asset panel with panel negative controls and marketability gates.",
       "command": {
-        "cwd": "modules/research-strategy-development/replay-execution-plane/compatibility/panel-evaluator",
+        "cwd": "modules/research-strategy-development/agent-roles/developer/candidate-batch",
         "argv": [
           "bun",
           "src/scripts/main.ts",
+          "--panel",
           "--json",
           "<payload>"
         ]
@@ -1888,10 +1841,11 @@
         "config": false
       },
       "notes": [
-        "Read-only panel evaluation; no R&D loop artifact write, RD memory write, strategy promotion, trade DB write, or exchange access."
+        "Panel mode on the candidate-batch owner; no compatibility evaluator remains.",
+        "Read-only evaluation; no R&D loop artifact write, RD memory write, strategy promotion, trade DB write, or exchange access."
       ],
       "module_type": "atomic",
-      "owner_scope": "research.panel-evaluator",
+      "owner_scope": "research.candidate-batch",
       "requires_preflight": false,
       "concurrency_group": "research-panel",
       "forbidden_callers": [
@@ -1900,7 +1854,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research-strategy-development/replay-execution-plane/compatibility/panel-evaluator/src/schemas/strategy-panel-rnd-result.schema.json"
+        "output_schema": "modules/research-strategy-development/agent-roles/developer/candidate-batch-engine/src/schemas/strategy-panel-rnd-result.schema.json"
       }
     },
     {
@@ -2070,13 +2024,14 @@
       "capability_class": [
         "V"
       ],
-      "path": "modules/research-strategy-development/forward-evidence-plane/compatibility/forward-holdout",
-      "purpose": "Evaluate a frozen R&D candidate on forward-only closed candles without writing strategy evidence or trade state.",
+      "path": "modules/research-strategy-development/agent-roles/reviewer/signal-evaluator",
+      "purpose": "Run a legacy-compatible post-freeze signal diagnostic without claiming Forward Evidence authority.",
       "command": {
-        "cwd": "modules/research-strategy-development/forward-evidence-plane/compatibility/forward-holdout",
+        "cwd": "modules/research-strategy-development/agent-roles/reviewer/signal-evaluator",
         "argv": [
           "bun",
           "src/scripts/main.ts",
+          "--forward-holdout",
           "--json",
           "<payload>"
         ]
@@ -2089,10 +2044,11 @@
         "config": false
       },
       "notes": [
-        "Read-only forward evaluation. Output may feed rd-shadow-tracker but is not strategy evidence or promotion proof by itself."
+        "Compatibility mode on the signal-evaluator owner; no forward-holdout compatibility module remains.",
+        "Read-only signal diagnostic. Output may feed rd-shadow-tracker but is not Forward Evidence, strategy evidence, or promotion proof."
       ],
       "module_type": "atomic",
-      "owner_scope": "research.forward-holdout",
+      "owner_scope": "research.signal-evaluator",
       "requires_preflight": false,
       "concurrency_group": "research-eval",
       "forbidden_callers": [
@@ -2102,7 +2058,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research-strategy-development/forward-evidence-plane/compatibility/forward-holdout/src/schemas/forward-holdout-result.schema.json"
+        "output_schema": "modules/research-strategy-development/agent-roles/reviewer/signal-evaluator/src/schemas/forward-holdout-result.schema.json"
       }
     },
     {
@@ -2386,13 +2342,14 @@
       "capability_class": [
         "E"
       ],
-      "path": "modules/research-strategy-development/replay-execution-plane/compatibility/benchmark-runner",
+      "path": "modules/research-strategy-development/replay-execution-plane/certification/calibration-suite",
       "purpose": "Run one fixed multi-asset trend benchmark for R&D pipeline calibration.",
       "command": {
-        "cwd": "modules/research-strategy-development/replay-execution-plane/compatibility/benchmark-runner",
+        "cwd": "modules/research-strategy-development/replay-execution-plane/certification/calibration-suite",
         "argv": [
           "bun",
           "src/scripts/main.ts",
+          "--benchmark",
           "--json",
           "<payload>"
         ]
@@ -2405,10 +2362,11 @@
         "config": false
       },
       "notes": [
-        "Calibration-only benchmark; no strategy promotion, R&D search, trade DB writes, or exchange access."
+        "Fixed benchmark mode on the calibration-suite owner; no compatibility runner remains.",
+        "No strategy promotion, R&D search, trade DB writes, or exchange access."
       ],
       "module_type": "atomic",
-      "owner_scope": "research.benchmark-runner",
+      "owner_scope": "research.calibration-suite",
       "requires_preflight": false,
       "concurrency_group": "research-benchmark",
       "forbidden_callers": [
@@ -2417,7 +2375,7 @@
       "entry_contract": {
         "kind": "cli-json",
         "input_schema": "",
-        "output_schema": "modules/research-strategy-development/replay-execution-plane/compatibility/benchmark-runner/src/schemas/strategy-benchmark-result.schema.json"
+        "output_schema": "modules/research-strategy-development/replay-execution-plane/certification/calibration-suite/src/schemas/strategy-benchmark-result.schema.json"
       }
     },
     {
