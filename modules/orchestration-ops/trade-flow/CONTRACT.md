@@ -8,6 +8,7 @@
 - Bounded SQLite busy handling, explicit stale-lease recovery evidence, and cycle-independent parity projections for Agent/program ticket, processor, and incident comparison.
 - Opt-in resident Agent/program parity observation: each eligible program cycle samples owner commands once, independently builds the legacy Agent shadow graph by replaying those exact results, compares canonical projections, and records immutable evidence in the existing ops store.
 - macOS launchd rendering/install lifecycle with restart ownership outside the runtime and no PID file; installation fails closed for protected Desktop/Documents/Downloads source paths unless the operator confirms the OS privacy grant.
+- Closed-world no-live server profile validation and deterministic Linux systemd unit rendering; rendering writes only repository `tmp/`, never installs or starts units, and exposes no arbitrary command/environment surface.
 - Suite CLI parameter, response, permission, and owner-handoff semantics
 - Thin observe, execution, recovery, and runtime façades
 - Executable job dependencies and business-result policies: unresolved account reconciliation blocks dependent fast/new-risk stages even when the owner command exits successfully.

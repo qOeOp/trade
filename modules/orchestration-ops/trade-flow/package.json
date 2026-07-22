@@ -7,6 +7,8 @@
     "typescript": "^5.9.2"
   },
   "scripts": {
+    "server:validate": "bun src/scripts/server-runtime.ts --action validate",
+    "server:render-systemd": "bun src/scripts/server-runtime.ts --action render-systemd",
     "launchd:install": "bun src/scripts/program-shadow-launchd.ts install",
     "launchd:status": "bun src/scripts/program-shadow-launchd.ts status",
     "launchd:uninstall": "bun src/scripts/program-shadow-launchd.ts uninstall",
