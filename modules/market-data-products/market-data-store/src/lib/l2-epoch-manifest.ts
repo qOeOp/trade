@@ -107,6 +107,13 @@ export function ensureL2EpochManifestSchema(db: Database): void {
       FOREIGN KEY(epoch_id) REFERENCES l2_epoch_manifest(epoch_id)
     )
   `)
+  db.run(`
+    INSERT OR IGNORE INTO l2_epoch_retention(
+      epoch_id, retention_class, compaction_ref, deletion_eligible, updated_at
+    )
+    SELECT epoch_id, 'raw_hot', NULL, 0, admitted_at
+    FROM l2_epoch_manifest
+  `)
 }
 
 export function admitL2EpochManifest(db: Database, input: L2EpochAdmissionInput): L2EpochAdmissionResult {
