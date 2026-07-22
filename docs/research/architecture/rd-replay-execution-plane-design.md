@@ -131,9 +131,9 @@ M4/M5 都相对于**声明的能力包络**，不要求伪造不可能证明的�
 
 ## 12. Result / Artifact / Checkpoint epoch
 
-[Evidence Epoch Registry](../reliability/rd-replay-evidence-epoch-registry.json) 冻结通用 writer 为唯一一组：Result v53、Artifact Manifest v55、Engine Checkpoint v32、Diagnostic Checkpoint Commit v2、Terminal Checkpoint v1 与 Run Outcome v35。生产源码不得继续写通用旧版本；历史版本只允许由后续 M5 migration reader 消费，不能恢复 writer。
+[Evidence Epoch Registry](../reliability/rd-replay-evidence-epoch-registry.json) 冻结通用 writer 为唯一一组：Result v53、Artifact Manifest v55、Engine Checkpoint v32、Diagnostic Checkpoint Commit v2、Terminal Checkpoint v1 与 Run Outcome v35。生产源码不得继续写通用旧版本；历史版本只允许由 M5 read-only migration reader 消费，不能恢复 writer。
 
-四个公共 profile 的 profile-scoped Result/Manifest 是上层组合证据，不与通用 single-trial epoch 竞争 authority。`independent-lane-batch` 只引用 child v53/v55 与 child v32 checkpoint；`integrated-portfolio`、`terminal-aware-bounded-cycle` 当前明确没有 resumable checkpoint writer。这里的“收敛”只证明 writer 与 checkpoint mode 唯一、可机读，不把缺失能力伪装成已支持；所有 profile 的 resume/evidence 充分性仍由独立 M4 gate 验收。
+四个公共 profile 的 profile-scoped Result/Manifest 是上层组合证据，不与通用 single-trial epoch 竞争 authority。`independent-lane-batch` 只引用 child v53/v55 与 child v32 checkpoint；`integrated-portfolio`、`terminal-aware-bounded-cycle` 当前明确没有 resumable checkpoint writer。这里的“收敛”只证明 writer 与 checkpoint mode 唯一、可机读，不把缺失能力伪装成已支持；所有 profile 的 resume/evidence 充分性由独立 M4 gate 验收，不由本节自证。
 
 ## 13. Certification owner
 
@@ -149,7 +149,7 @@ Plane 内唯一完整认证入口是 `certification/replay-certification` 的 `b
 
 `replay-cross-process-reproducibility-bundle.json` 同时冻结两层证据。第一层是 canonical Result probe：同一 immutable fixture 由两个并发 fresh Bun process 直接调用现有 reference Engine，process identity 必须不同，runtime identity、input hash 与 Result hash 必须完全相同。第二层覆盖四个 public profile：每个 profile 的唯一 entrypoint 与 owner test source 均以 SHA-256 绑定，两个 fresh process 必须通过同一 exact semantic assertion；新增、改名或修改入口/断言均需显式复核 bundle。
 
-跨进程复现不等于跨平台复现，也不等于所有 profile 支持 checkpoint。Receipt 明文记录当前 Bun runtime 和 PID；single-trial 认证 direct Engine checkpoint，independent batch 仅委托 child checkpoint，integrated portfolio 与 terminal-aware bounded cycle 继续声明 checkpoint 不支持。该 bundle 不替代 M5 的历史 Artifact migration、crash/exactly-once、容量、故障注入、可观测、release fixture pack 或独立审计 gate。
+跨进程复现不等于跨平台复现，也不等于所有 profile 支持 checkpoint。Receipt 明文记录当前 Bun runtime 和 PID；single-trial 认证 direct Engine checkpoint，independent batch 仅委托 child checkpoint，integrated portfolio 与 terminal-aware bounded cycle 继续声明 checkpoint 不支持。在该 cut-point 中，这一 bundle 不替代第 16–22 节分别关闭的历史 Artifact migration、crash/exactly-once、容量、故障注入、可观测、release fixture pack 或独立审计 gate。
 
 ## 16. M5 historical Artifact read migration
 
