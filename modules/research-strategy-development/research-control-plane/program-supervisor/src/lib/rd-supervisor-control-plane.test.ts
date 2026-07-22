@@ -18,6 +18,8 @@ import { applySystemTransition } from "../../../state-store/src/lib/research-con
 import { RESEARCH_LIFECYCLE_RULE_VERSION } from "../../../state-store/src/lib/research-control-plane-schema"
 import { RESEARCH_CONTRACT_VALIDATOR_VERSION } from "../../../state-store/src/lib/research-contract-validator"
 import { IDENTITY_HASH_POLICY_VERSION, hashIdentityPayload } from "../../../state-store/src/lib/research-identity-hash"
+import { runStrategyRndLoop } from "../../../../agent-roles/developer/rd-loop-runner/src/lib/rd-loop-runner"
+import { strategyRndLoopInputFromJson } from "../../../../agent-roles/developer/candidate-batch-engine/src/lib/strategy-rnd-inputs"
 
 const NOW = "2026-07-14T07:00:00Z"
 
@@ -155,6 +157,50 @@ test("Result publication failure cannot leave a completed Trial without a Result
   }
 })
 
+test("real R&D loop publishes aggregate fingerprint and Result through Control Plane", () => {
+  const dir = mkdtempSync(join(tmpdir(), "rd-control-real-loop-"))
+  const dbPath = join(dir, "rd.db")
+  const manifestPath = writeReplayManifest(dir)
+  const db = new Database(dbPath)
+  try {
+    seedExperiment(db)
+    db.close()
+    const result = executePlannedResearchWithControlPlane("research.rd-loop-runner", {
+      now: NOW,
+      run_id: "run-1",
+      batch_id: "batch-real-control-plane",
+      manifest_path: manifestPath,
+      artifact_root: join(dir, "artifacts"),
+      catalog_db_path: join(dir, "catalog.db"),
+      candidates: [{ candidate_id: "candidate-1", family: "trend_pullback_v1", params: { side: "long" } }],
+      control_plane: controlBoundary(),
+    }, {
+      runLoop: (payload) => runStrategyRndLoop(strategyRndLoopInputFromJson(payload)) as unknown as Record<string, unknown>,
+      runCampaign: () => { throw new Error("campaign should not run") },
+    }, dbPath)
+    assert.equal(result.run_id, "run-1")
+
+    const verify = new Database(dbPath, { readonly: true })
+    try {
+      const row = verify.query("SELECT artifact_ref, evidence_fingerprint_json FROM rd_experiment_result WHERE result_id='result-1'").get() as {
+        artifact_ref: string
+        evidence_fingerprint_json: string
+      }
+      const fingerprint = JSON.parse(row.evidence_fingerprint_json) as Record<string, unknown>
+      assert.equal(row.artifact_ref, result.artifact_ref)
+      assert.equal(fingerprint.schema_version, "trade-flow.rd-aggregate-evidence-fingerprint.v1")
+      assert.ok(Number(fingerprint.replay_component_count) >= 1)
+      assert.match(String(fingerprint.artifact_content_hash), /^[a-f0-9]{64}$/)
+      assert.equal((verify.query("SELECT status FROM rd_trial WHERE trial_id='trial-1'").get() as { status: string }).status, "completed")
+    } finally {
+      verify.close()
+    }
+  } finally {
+    try { db.close() } catch { /* already closed */ }
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 function controlBoundary(overrides: Record<string, unknown> = {}): Record<string, unknown> {
   return {
     experiment_id: "experiment-1", trial_group_id: "group-1", run_id: "run-1",
@@ -169,6 +215,25 @@ function controlBoundary(overrides: Record<string, unknown> = {}): Record<string
     }],
     ...overrides,
   }
+}
+
+function writeReplayManifest(dir: string): string {
+  const rows = ["date,timestamp,open,high,low,close,volume"]
+  let close = 100
+  for (let index = 0; index < 360; index += 1) {
+    const open = close
+    close += 0.2 + (index > 220 && index % 9 === 0 ? -2.5 : 0)
+    const timestamp = 1_700_000_000_000 + index * 4 * 60 * 60 * 1000
+    rows.push([
+      new Date(timestamp).toISOString(), timestamp,
+      open.toFixed(4), (Math.max(open, close) + 0.5).toFixed(4),
+      (Math.min(open, close) - 0.5).toFixed(4), close.toFixed(4), String(1000 + index),
+    ].join(","))
+  }
+  writeFileSync(join(dir, "4h.csv"), rows.join("\n"))
+  const manifestPath = join(dir, "manifest.json")
+  writeFileSync(manifestPath, JSON.stringify({ symbol: "BTCUSDT", timeframes: { "4h": { file: "4h.csv" } } }))
+  return manifestPath
 }
 
 function seedExperiment(db: Database): void {
