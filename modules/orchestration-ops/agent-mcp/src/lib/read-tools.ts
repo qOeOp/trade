@@ -23,6 +23,7 @@ export interface ReadToolServiceOptions {
   root?: string
   execute?: OwnerCliExecutor
   catalogDbPath?: string
+  marketDataDbPath?: string
   rdStateDbPath?: string
   opsRuntimeDbPath?: string
 }
@@ -31,6 +32,7 @@ export class ReadToolService {
   private readonly root: string
   private readonly execute: OwnerCliExecutor
   private readonly catalogDbPath: string
+  private readonly marketDataDbPath: string
   private readonly rdStateDbPath: string
   private readonly opsRuntimeDbPath: string
 
@@ -38,6 +40,7 @@ export class ReadToolService {
     this.root = options.root ?? repoRoot()
     this.execute = options.execute ?? executeOwnerCli
     this.catalogDbPath = runtimePath(options.catalogDbPath ?? process.env.TRADE_MCP_CATALOG_DB ?? "data/data_catalog.db")
+    this.marketDataDbPath = runtimePath(options.marketDataDbPath ?? process.env.TRADE_MCP_MARKET_DATA_DB ?? "data/market_data.db")
     this.rdStateDbPath = runtimePath(options.rdStateDbPath ?? process.env.TRADE_MCP_RD_STATE_DB ?? "data/rd_state.db")
     this.opsRuntimeDbPath = runtimePath(options.opsRuntimeDbPath ?? process.env.TRADE_MCP_OPS_DB ?? "data/ops_runtime.db")
   }
@@ -105,6 +108,47 @@ export class ReadToolService {
         artifact_id: artifactId,
         max_bytes: maxBytes,
       })],
+    })
+  }
+
+  auditL2RetentionReference(epochId: string): Promise<JSONRecord> {
+    return this.runOwner({
+      script: "modules/market-data-products/market-data-store/src/scripts/main.ts",
+      args: [
+        "--db", this.marketDataDbPath,
+        "--action", "audit_l2_retention_reference_closure",
+        "--json", JSON.stringify({ epoch_id: epochId }),
+      ],
+    })
+  }
+
+  listL2RetentionReferenceAudits(input: {
+    after_epoch_id?: string
+    limit?: number
+  }): Promise<JSONRecord> {
+    const payload: JSONRecord = { limit: input.limit ?? 20 }
+    if (input.after_epoch_id) payload.after_epoch_id = input.after_epoch_id
+    return this.runOwner({
+      script: "modules/market-data-products/market-data-store/src/scripts/main.ts",
+      args: [
+        "--db", this.marketDataDbPath,
+        "--action", "list_l2_retention_reference_audits",
+        "--json", JSON.stringify(payload),
+      ],
+    })
+  }
+
+  readL2ServiceHealth(): Promise<JSONRecord> {
+    return this.runOwner({
+      script: "modules/market-data-products/l2-order-book-service/src/scripts/owner-health.ts",
+      args: [],
+    })
+  }
+
+  readL2BookWatchConsumerHealth(): Promise<JSONRecord> {
+    return this.runOwner({
+      script: "modules/orchestration-ops/l2-current-book-probe/src/scripts/consumer-read.ts",
+      args: [],
     })
   }
 
