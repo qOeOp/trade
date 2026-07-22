@@ -17,6 +17,7 @@
   },
   "scripts": {
     "check": "scripts/quality-check.sh",
-    "check:duplication": "bun scripts/check-duplication.ts"
+    "check:duplication": "bun scripts/check-duplication.ts",
+    "certify:replay": "bun modules/research-strategy-development/replay-execution-plane/tests/src/scripts/main.ts"
   }
 }
