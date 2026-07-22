@@ -117,8 +117,11 @@ export interface ReplayTrialRunInput {
   }
 }
 
+export const REPLAY_RUN_OUTCOME_SCHEMA_VERSION = "trade.rd-replay-run-outcome.v35" as const
+export const REPLAY_TERMINAL_CHECKPOINT_SCHEMA_VERSION = "trade.rd-replay-terminal-checkpoint.v1" as const
+
 export interface ReplayTrialRunOutcome {
-  schema_version: "trade.rd-replay-run-outcome.v35"
+  schema_version: typeof REPLAY_RUN_OUTCOME_SCHEMA_VERSION
   run_id: string
   attempt_id: string
   lease_generation: number
@@ -1101,7 +1104,7 @@ function computeTerminalCheckpointHash(
   lastCommittedEventKey: ReplayEventKey | null,
 ): string {
   return canonicalHash({
-    schema_version: "trade.rd-replay-terminal-checkpoint.v1",
+    schema_version: REPLAY_TERMINAL_CHECKPOINT_SCHEMA_VERSION,
     request_hash: canonicalHash(request),
     reservation_hash: hashTrialReservationSnapshot(reservation),
     result_hash: result.fingerprint.result_hash,
