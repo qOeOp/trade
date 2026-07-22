@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto"
 import { existsSync, lstatSync, readFileSync } from "node:fs"
 import { join, resolve } from "node:path"
 import {
@@ -8,21 +9,13 @@ import {
   replayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmissionKey,
   type ReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmission,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-execution-stdio-probe-admission"
-import {
-  assertReplayDecisionHarnessWorkerV10SuccessorExecutionTransportAdmission,
-  type ReplayDecisionHarnessWorkerV10SuccessorExecutionTransportAdmission,
+import type {
+  ReplayDecisionHarnessWorkerV10SuccessorExecutionTransportAdmission,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-execution-transport-admission"
 import {
-  assertReplayDecisionHarnessWorkerV10StdioCapability,
   type ReplayDecisionHarnessWorkerV10NegativeProbeReceipt,
   type ReplayDecisionHarnessWorkerV10StdioCapability,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-stdio-capability"
-import type {
-  ReplayDecisionHarnessWorkerV10ExecutionAdmissionContract,
-} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-execution-admission-contract"
-import type {
-  ReplayDecisionHarnessWorkerV10SuccessorTransportContract,
-} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-transport-contract"
 import { canonicalJson } from "../../../contracts/src/lib/replay-contracts"
 import { writeReplayImmutableCas } from "./replay-local-artifact-store"
 import {
@@ -35,9 +28,9 @@ import {
   registerReplayWorkerV10StdioCapability,
 } from "./replay-worker-v10-stdio-capability-registry"
 import {
-  readReplayWorkerV10SuccessorExecutionTransport,
-} from "./replay-worker-v10-successor-execution-transport-registry"
-import { registerReplayDurableParentValidationReceipt } from "./replay-durable-parent-validation-receipt"
+  readReplayDurableParentValidationReceipt,
+  registerReplayDurableParentValidationReceipt,
+} from "./replay-durable-parent-validation-receipt"
 
 export interface RegisterReplayWorkerV10SuccessorExecutionStdioProbeInput {
   registry_root: string
@@ -49,18 +42,15 @@ export interface RegisterReplayWorkerV10SuccessorExecutionStdioProbeInput {
 export function registerReplayWorkerV10SuccessorExecutionStdioProbe(
   input: RegisterReplayWorkerV10SuccessorExecutionStdioProbeInput,
 ): ReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmission {
-  requireDurableParent(input)
-  const transportAdmission = input.source_successor_execution_transport_admission
+  const transportAdmission = requireDurableParent(input)
   const predecessor = extractPredecessorEvidence(transportAdmission)
   const successor = registerReplayWorkerV10StdioCapability({
     registry_root: input.registry_root,
     source_transport_contract: transportAdmission.successor_base_transport_contract,
-    source_successor_execution_transport_admission: transportAdmission,
   })
   const probe = runReplayWorkerV10NegativeProbeSuite({
     registry_root: input.registry_root,
     source_stdio_capability: successor,
-    source_successor_execution_transport_admission: transportAdmission,
     clock: input.clock,
   })
   const expected = buildAdmission(transportAdmission, predecessor, successor, probe)
@@ -91,19 +81,16 @@ export function registerReplayWorkerV10SuccessorExecutionStdioProbe(
 export function readReplayWorkerV10SuccessorExecutionStdioProbe(
   input: Omit<RegisterReplayWorkerV10SuccessorExecutionStdioProbeInput, "clock">,
 ): ReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmission | null {
-  requireDurableParent(input)
-  const transportAdmission = input.source_successor_execution_transport_admission
+  const transportAdmission = requireDurableParent(input)
   const predecessor = extractPredecessorEvidence(transportAdmission)
   const successor = readReplayWorkerV10StdioCapability({
     registry_root: input.registry_root,
     source_transport_contract: transportAdmission.successor_base_transport_contract,
-    source_successor_execution_transport_admission: transportAdmission,
   })
   if (!successor) return null
   const probe = readReplayWorkerV10NegativeProbeReceipt({
     registry_root: input.registry_root,
     source_stdio_capability: successor,
-    source_successor_execution_transport_admission: transportAdmission,
   })
   if (!probe) return null
   const expected = buildAdmission(transportAdmission, predecessor, successor, probe)
@@ -114,9 +101,9 @@ export function readReplayWorkerV10SuccessorExecutionStdioProbe(
 function buildAdmission(
   transportAdmission: ReplayDecisionHarnessWorkerV10SuccessorExecutionTransportAdmission,
   predecessor: {
-    stdio: ReplayDecisionHarnessWorkerV10StdioCapability
-    transport: ReplayDecisionHarnessWorkerV10SuccessorTransportContract
-    execution: ReplayDecisionHarnessWorkerV10ExecutionAdmissionContract
+    stdio_capability_hash: string
+    transport_contract_hash: string
+    execution_contract_hash: string
   },
   successor: ReplayDecisionHarnessWorkerV10StdioCapability,
   probe: ReplayDecisionHarnessWorkerV10NegativeProbeReceipt,
@@ -146,9 +133,9 @@ function buildAdmission(
       transportAdmission.successor_base_transport_contract_hash,
     source_successor_execution_envelope_hash:
       transportAdmission.successor_base_transport_contract.source_execution_envelope_hash,
-    source_predecessor_artifact_bound_transport_contract_hash: predecessor.transport.contract_hash,
-    source_predecessor_execution_admission_contract_hash: predecessor.execution.contract_hash,
-    source_predecessor_stdio_capability_hash: predecessor.stdio.capability_hash,
+    source_predecessor_artifact_bound_transport_contract_hash: predecessor.transport_contract_hash,
+    source_predecessor_execution_admission_contract_hash: predecessor.execution_contract_hash,
+    source_predecessor_stdio_capability_hash: predecessor.stdio_capability_hash,
     successor_stdio_capability_hash: successor.capability_hash,
     successor_stdio_artifact_evidence: {
       capability_id: successor.capability_id,
@@ -222,9 +209,9 @@ function buildAdmission(
 function extractPredecessorEvidence(
   transportAdmission: ReplayDecisionHarnessWorkerV10SuccessorExecutionTransportAdmission,
 ): {
-  stdio: ReplayDecisionHarnessWorkerV10StdioCapability
-  transport: ReplayDecisionHarnessWorkerV10SuccessorTransportContract
-  execution: ReplayDecisionHarnessWorkerV10ExecutionAdmissionContract
+  stdio_capability_hash: string
+  transport_contract_hash: string
+  execution_contract_hash: string
 } {
   const pair = transportAdmission.source_successor_execution_envelope_admission
     .source_successor_lease_admission.source_successor_authority_contract
@@ -240,42 +227,63 @@ function extractPredecessorEvidence(
     .source_execution_admission_contract
   const transport = execution.source_successor_transport_contract
   const capability = transport.source_negative_probe_receipt.source_stdio_capability
-  assertReplayDecisionHarnessWorkerV10StdioCapability(capability)
   if (capability.source_transport_contract_hash
       !== transportAdmission.source_predecessor_transport_contract_hash) {
     throw new Error("successor execution Stdio Probe does not embed its exact predecessor capability")
   }
   return {
-    stdio: structuredClone(capability),
-    transport: structuredClone(transport),
-    execution: structuredClone(execution),
+    stdio_capability_hash: capability.capability_hash,
+    transport_contract_hash: transport.contract_hash,
+    execution_contract_hash: execution.contract_hash,
   }
 }
 
 function requireDurableParent(
   input: Omit<RegisterReplayWorkerV10SuccessorExecutionStdioProbeInput, "clock">,
-): void {
-  requireInput(input)
-  const admission = input.source_successor_execution_transport_admission
-  const durable = readReplayWorkerV10SuccessorExecutionTransport({
-    registry_root: input.registry_root,
-    source_successor_execution_envelope_admission:
-      admission.source_successor_execution_envelope_admission,
-  })
-  if (!durable || durable.admission_hash !== admission.admission_hash) {
+): ReplayDecisionHarnessWorkerV10SuccessorExecutionTransportAdmission {
+  requireReferenceInput(input)
+  const expected = input.source_successor_execution_transport_admission
+  const path = join(resolve(input.registry_root),
+    `worker-v10-successor-execution-transport-${expected.admission_key}.json`)
+  if (!existsSync(path)) {
     throw new Error("successor execution Stdio Probe requires the exact durable R4.145 Transport Admission")
   }
+  const stat = lstatSync(path)
+  if (!stat.isFile() || stat.isSymbolicLink()) {
+    throw new Error("successor execution Stdio Probe R4.145 parent must be a regular file")
+  }
+  const content = readFileSync(path, "utf8")
+  const receipt = readReplayDurableParentValidationReceipt({
+    registry_root: input.registry_root,
+    parent_kind: "worker_v10_successor_execution_transport_admission",
+    parent_key: expected.admission_key,
+  })
+  if (!receipt || receipt.parent_self_hash !== expected.admission_hash
+      || receipt.parent_canonical_file_sha256 !== sha256(content)) {
+    throw new Error("successor execution Stdio Probe requires the exact durable R4.145 Transport Admission")
+  }
+  const durable = JSON.parse(content) as ReplayDecisionHarnessWorkerV10SuccessorExecutionTransportAdmission
+  if (durable.admission_key !== expected.admission_key || durable.admission_hash !== expected.admission_hash) {
+    throw new Error("successor execution Stdio Probe R4.145 parent reference drift")
+  }
+  return durable
 }
 
-function requireInput(
+function requireReferenceInput(
   input: Omit<RegisterReplayWorkerV10SuccessorExecutionStdioProbeInput, "clock">,
 ): void {
   if (input.registry_root.trim() === "") {
     throw new Error("successor execution Stdio Probe registry root is required")
   }
-  assertReplayDecisionHarnessWorkerV10SuccessorExecutionTransportAdmission(
-    input.source_successor_execution_transport_admission,
-  )
+  const source = input.source_successor_execution_transport_admission
+  if (typeof source?.admission_key !== "string" || !/^[a-f0-9]{64}$/.test(source.admission_key)
+      || typeof source.admission_hash !== "string" || !/^[a-f0-9]{64}$/.test(source.admission_hash)) {
+    throw new Error("successor execution Stdio Probe R4.145 parent reference is invalid")
+  }
+}
+
+function sha256(value: string): string {
+  return createHash("sha256").update(value, "utf8").digest("hex")
 }
 
 function sameAdmission(

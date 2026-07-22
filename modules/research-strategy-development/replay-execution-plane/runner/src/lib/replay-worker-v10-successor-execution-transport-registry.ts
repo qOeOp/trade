@@ -28,6 +28,7 @@ import {
   readReplayWorkerV10TransportContract,
   registerReplayWorkerV10TransportContract,
 } from "./replay-worker-v10-transport-contract-registry"
+import { registerReplayDurableParentValidationReceipt } from "./replay-durable-parent-validation-receipt"
 
 export interface RegisterReplayWorkerV10SuccessorExecutionTransportInput {
   registry_root: string
@@ -57,16 +58,24 @@ export function registerReplayWorkerV10SuccessorExecutionTransport(
   )
   const path = admissionPath(input.registry_root, expected.admission_key)
   const existing = readAdmission(path)
-  if (existing) return sameAdmission(existing, expected)
+  if (existing) return registerValidationReceipt(
+    input.registry_root,
+    sameAdmission(existing, expected),
+    `${canonicalJson(existing)}\n`,
+  )
   const content = `${canonicalJson(expected)}\n`
   try {
     writeReplayImmutableCas(path, content)
   } catch (error) {
     const winner = readAdmission(path)
-    if (winner) return sameAdmission(winner, expected)
+    if (winner) return registerValidationReceipt(
+      input.registry_root,
+      sameAdmission(winner, expected),
+      `${canonicalJson(winner)}\n`,
+    )
     throw error
   }
-  return parseAdmission(content)
+  return registerValidationReceipt(input.registry_root, parseAdmission(content), content)
 }
 
 export function readReplayWorkerV10SuccessorExecutionTransport(
@@ -91,7 +100,12 @@ export function readReplayWorkerV10SuccessorExecutionTransport(
     successor,
   )
   const value = readAdmission(admissionPath(input.registry_root, expected.admission_key))
-  return value ? sameAdmission(value, expected) : null
+  if (!value) return null
+  return registerValidationReceipt(
+    input.registry_root,
+    sameAdmission(value, expected),
+    `${canonicalJson(value)}\n`,
+  )
 }
 
 function buildAdmission(
@@ -265,4 +279,19 @@ function parseAdmission(content: string): ReplayDecisionHarnessWorkerV10Successo
 
 function admissionPath(root: string, key: string): string {
   return join(resolve(root), `worker-v10-successor-execution-transport-${key}.json`)
+}
+
+function registerValidationReceipt(
+  root: string,
+  admission: ReplayDecisionHarnessWorkerV10SuccessorExecutionTransportAdmission,
+  canonicalContent: string,
+): ReplayDecisionHarnessWorkerV10SuccessorExecutionTransportAdmission {
+  registerReplayDurableParentValidationReceipt({
+    registry_root: root,
+    parent_kind: "worker_v10_successor_execution_transport_admission",
+    parent_key: admission.admission_key,
+    parent_self_hash: admission.admission_hash,
+    parent_canonical_content: canonicalContent,
+  })
+  return admission
 }

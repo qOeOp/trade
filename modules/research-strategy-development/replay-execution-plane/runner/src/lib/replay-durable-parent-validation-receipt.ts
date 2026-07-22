@@ -9,7 +9,9 @@ export const REPLAY_DURABLE_PARENT_VALIDATION_RECEIPT_SCHEMA_VERSION =
 
 export interface ReplayDurableParentValidationReceipt {
   schema_version: typeof REPLAY_DURABLE_PARENT_VALIDATION_RECEIPT_SCHEMA_VERSION
-  parent_kind: "worker_v10_successor_execution_stdio_probe_admission"
+  parent_kind:
+    | "worker_v10_successor_execution_transport_admission"
+    | "worker_v10_successor_execution_stdio_probe_admission"
   parent_key: string
   parent_self_hash: string
   parent_canonical_file_sha256: string
@@ -62,7 +64,8 @@ export function assertReplayDurableParentValidationReceipt(
   value: ReplayDurableParentValidationReceipt,
 ): void {
   if (value.schema_version !== REPLAY_DURABLE_PARENT_VALIDATION_RECEIPT_SCHEMA_VERSION
-      || value.parent_kind !== "worker_v10_successor_execution_stdio_probe_admission"
+      || (value.parent_kind !== "worker_v10_successor_execution_transport_admission"
+        && value.parent_kind !== "worker_v10_successor_execution_stdio_probe_admission")
       || value.validation_policy !== "canonical_file_and_parent_self_hash_verified_before_receipt") {
     throw new Error("unsupported durable parent validation receipt")
   }
