@@ -1,5 +1,7 @@
 # Replay Trial Runner
 
+M4-P28 slice 3 certifies target、replacement-stop gap/collision、final strategy exit、exact liquidation and open-at-end through the official combined Lane. The former stop has no post-cancel trigger/fill path；collision evidence and rehashed generation/trigger/target-lineage mutations are checked before publication. Portfolio projection remains explicitly outside this slice.
+
 M4-P28 slice 2 runs the Result Position/Risk binding before initial publication and again when reopening an idempotent Artifact. The certification matrix locks long/short × one/two partials, Funding before/between/after mutation, post-replacement exact Mark maintenance breach, remaining-quantity liquidation, and rehashed quantity tamper rejection. No Portfolio successor is admitted by this slice.
 
 M4-P28 slice 1 upgrades only the official Lane Request/Runner path. Request v38 / Schedule v13 / Simulator v24 executes one tighten-only stop replacement strictly after the final of one or two bounded partials；the attested Harness sees the post-partial State, Result v52 binds generation 3/4 and the preserved current target, and Checkpoint v31 resumes without replaying either mutation. Existing Portfolio materializers still reject the combined Schedule until a dedicated successor closes risk、accounting and cycle evidence.

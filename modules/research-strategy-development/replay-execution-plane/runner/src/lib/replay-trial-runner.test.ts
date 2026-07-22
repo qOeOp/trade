@@ -2672,6 +2672,110 @@ test("runner executes two predeclared fixed partial reduces and resumes from gen
     target_order_id: `${replacementGapRequest.run_id}:order:target-after-partial:3`,
   })
 
+  const collisionBars = bars.map((bar, index) => index === 8
+    ? { ...bar, high: 121, low: 106, close: 110 }
+    : bar)
+  const collisionHash = replayDatasetHash(collisionBars, fundingEvents)
+  const collisionRequest = {
+    ...combinedRequest, run_id: "partial-stop-replace-collision-run",
+    idempotency_key: "partial-stop-replace-collision-idem", dataset_hash: collisionHash,
+  }
+  const collision = runReplayTrial({
+    ...authorized(collisionRequest), dataset_manifest: { ...manifest, data_hash: collisionHash },
+    bars: collisionBars, funding_events: fundingEvents,
+    decision_harness_registry: combinedHarness.registry,
+  })
+  expect(collision.status).toBe("completed")
+  expect(collision.result!.fills.at(-1)).toMatchObject({
+    order_role: "stop", timestamp: "2026-07-15T12:00:00Z", price: 107, quantity: 0.4,
+  })
+  expect(collision.result!.ohlcv_resolution_evidence[0]).toMatchObject({
+    status: "resolution_limited", resolution_reason: "stop_target_order_ambiguous",
+    canonical: { terminal_role: "stop" },
+    active_protection: {
+      protection_generation: 4,
+      stop_order_id: `${collisionRequest.run_id}:order:stop-replacement:4`,
+      target_order_id: `${collisionRequest.run_id}:order:target-after-partial:3`,
+    },
+  })
+  const formerStopId = `${collisionRequest.run_id}:order:stop-after-partial:3`
+  expect(collision.result!.order_events.filter((event) => event.order_id === formerStopId)
+    .map((event) => event.kind)).toEqual(["submitted", "activated", "cancelled"])
+  expect(collision.result!.order_events.find(
+    (event) => event.order_id === formerStopId && (event.kind === "triggered" || event.kind === "filled"),
+  )).toBeUndefined()
+
+  for (const mutation of ["generation", "trigger", "lineage"] as const) {
+    const tampered = structuredClone(collision.result!)
+    const evidence = tampered.ohlcv_resolution_evidence[0]!
+    if (mutation === "generation") evidence.active_protection.protection_generation = 3
+    if (mutation === "trigger") evidence.active_protection.stop_trigger_price = 106
+    if (mutation === "lineage") evidence.active_protection.target_order_id = `${tampered.run_id}:order:forged-target`
+    evidence.active_protection.protection_hash = replayOhlcvActiveProtectionHash(evidence.active_protection)
+    evidence.evidence_hash = replayOhlcvResolutionEvidenceHash(evidence)
+    expect(() => assertReplayResultOhlcvResolutionBindings(tampered, collisionRequest)).toThrow()
+  }
+
+  const safeBars = bars.map((bar, index) => index >= 8
+    ? { ...bar, open: 110 + index - 8, high: 115, low: 108, close: 111 + index - 8 }
+    : bar)
+  const strategyExitBars = [...safeBars, {
+    open_time: "2026-07-15T16:00:00Z", close_time: "2026-07-15T20:00:00Z",
+    open: 112, high: 115, low: 109, close: 113, volume: 20, closed: true as const,
+  }]
+  const strategyExitHash = replayDatasetHash(strategyExitBars, fundingEvents)
+  const strategyExitRequest = {
+    ...combinedRequest, run_id: "partial-stop-replace-strategy-exit-run",
+    idempotency_key: "partial-stop-replace-strategy-exit-idem", dataset_hash: strategyExitHash,
+  }
+  const strategyExit = runReplayTrial({
+    ...authorized(strategyExitRequest),
+    dataset_manifest: {
+      ...manifest, data_hash: strategyExitHash, row_count: strategyExitBars.length,
+      last_close_time: strategyExitBars.at(-1)!.close_time,
+      observed_through: strategyExitBars.at(-1)!.close_time,
+    },
+    bars: strategyExitBars, funding_events: fundingEvents,
+    decision_harness_registry: combinedHarness.registry,
+  })
+  expect(strategyExit.status).toBe("completed")
+  expect(strategyExit.result!.fills.map((fill) => [fill.order_role, fill.quantity])).toEqual([
+    ["entry", 1], ["strategy_partial_reduce", 0.3], ["strategy_partial_reduce", 0.3],
+    ["strategy_exit", 0.4],
+  ])
+  expect(strategyExit.result!.fills.at(-1)).toMatchObject({
+    timestamp: "2026-07-15T16:00:00Z", price: 112,
+  })
+  expect(strategyExit.result!.order_events.filter((event) => (
+    event.order_id === `${strategyExitRequest.run_id}:order:stop-replacement:4`
+      || event.order_id === `${strategyExitRequest.run_id}:order:target-after-partial:3`
+  )).filter((event) => event.kind === "cancelled").map((event) => event.reason))
+    .toEqual(["strategy-exit-filled", "strategy-exit-filled"])
+
+  const openSchedule = { ...combinedSchedule, entries: combinedSchedule.entries.slice(0, 4) }
+  const openHash = replayDatasetHash(safeBars, fundingEvents)
+  const openRequest: ReplayExecutionRequest = {
+    ...combinedRequest, run_id: "partial-stop-replace-open-run",
+    idempotency_key: "partial-stop-replace-open-idem", dataset_hash: openHash,
+    decision_schedule: openSchedule, decision_schedule_hash: canonicalHash(openSchedule),
+  }
+  const open = runReplayTrial({
+    ...authorized(openRequest), dataset_manifest: { ...manifest, data_hash: openHash },
+    bars: safeBars, funding_events: fundingEvents,
+    decision_harness_registry: combinedHarness.registry,
+  })
+  expect(open.status).toBe("completed")
+  expect(open.result!.fills.map((fill) => [fill.order_role, fill.quantity])).toEqual([
+    ["entry", 1], ["strategy_partial_reduce", 0.3], ["strategy_partial_reduce", 0.3],
+  ])
+  expect(open.result!.positions.at(-1)).toMatchObject({ state: "open", signed_quantity: 0.4 })
+  expect(open.result!.valuation_snapshot).toMatchObject({ signed_quantity: 0.4, mark_source: "bar_close" })
+  expect(open.result!.order_events.filter((event) => (
+    event.order_id === `${openRequest.run_id}:order:stop-replacement:4`
+      || event.order_id === `${openRequest.run_id}:order:target-after-partial:3`
+  )).filter((event) => event.kind === "cancelled").map((event) => event.reason))
+    .toEqual(["end-of-data", "end-of-data"])
+
   const preemptedBars = bars.map((bar, index) => index === 7 ? { ...bar, low: 94 } : bar)
   const preemptedHash = replayDatasetHash(preemptedBars, fundingEvents)
   const preemptedRequest = {
@@ -2688,7 +2792,7 @@ test("runner executes two predeclared fixed partial reduces and resumes from gen
     evaluation_status: "not_reached_terminal", execution_effect: "not_reached",
   })
   expect(preempted.result!.order_events.some((event) => event.order_id.includes("stop-replacement"))).toBe(false)
-}, 15_000)
+}, 20_000)
 
 test("post-partial stop replacement preserves t-minus funding and exact-risk quantity for long and short", () => {
   const requirement = {
