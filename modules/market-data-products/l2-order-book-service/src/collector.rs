@@ -1,6 +1,7 @@
 use crate::config::Config;
 use crate::persistence::{
-    EpochManifest, create_run_directory, unix_time_ms, write_create_new, write_manifest,
+    EpochManifest, create_run_directory, recover_orphan_partials, unix_time_ms, write_create_new,
+    write_manifest,
 };
 use crate::state::SharedState;
 use anyhow::{Context, Result, anyhow, bail};
@@ -67,6 +68,13 @@ pub async fn run(
     mut shutdown: watch::Receiver<bool>,
 ) -> Result<()> {
     let run_directory = create_run_directory(&config.output_base, &config.symbol)?;
+    let recovered = recover_orphan_partials(&config.output_base, &run_directory)?;
+    if !recovered.is_empty() {
+        tracing::warn!(
+            count = recovered.len(),
+            "recovered orphan TL2S partial segments"
+        );
+    }
     let mut epoch = 0;
     let mut backoff_ms = 200_u64;
     while !*shutdown.borrow() {

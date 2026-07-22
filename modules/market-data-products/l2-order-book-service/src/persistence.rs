@@ -4,7 +4,7 @@ use std::fs::{self, File, OpenOptions};
 use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
-use trade_l2_order_book_core::SegmentDescriptor;
+use trade_l2_order_book_core::{SegmentDescriptor, recover_segment, salvage_segment};
 
 #[derive(Debug, Serialize)]
 pub struct EpochManifest {
@@ -22,6 +22,16 @@ pub struct EpochManifest {
     pub recorded_frames: usize,
     pub applied_events: usize,
     pub segments: Vec<SegmentDescriptor>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct RecoveryRecord {
+    pub partial_ref: String,
+    pub salvage_ref: String,
+    pub source_status: String,
+    pub valid_frame_count: usize,
+    pub valid_bytes: usize,
+    pub payload_hash: String,
 }
 
 pub fn create_run_directory(base: &Path, symbol: &str) -> Result<PathBuf> {
@@ -55,6 +65,58 @@ pub fn write_manifest(directory: &Path, epoch: u64, manifest: &EpochManifest) ->
     Ok(path)
 }
 
+pub fn recover_orphan_partials(
+    base: &Path,
+    report_directory: &Path,
+) -> Result<Vec<RecoveryRecord>> {
+    let mut partials = Vec::new();
+    collect_partials(base, &mut partials)?;
+    let mut records = Vec::new();
+    for partial in partials {
+        let recovered = recover_segment(&partial)?;
+        if recovered.valid_frame_count == 0 {
+            anyhow::bail!(
+                "orphan partial has no recoverable frame: {}",
+                partial.display()
+            );
+        }
+        let salvage = PathBuf::from(format!("{}.salvaged.tl2s", partial.display()));
+        if salvage.exists() {
+            let existing = recover_segment(&salvage)?;
+            if existing.status != "complete"
+                || existing.valid_frame_count != recovered.valid_frame_count
+                || existing.payload_hash != recovered.payload_hash
+            {
+                anyhow::bail!(
+                    "existing salvage differs from orphan partial: {}",
+                    salvage.display()
+                );
+            }
+        } else {
+            salvage_segment(&partial, &salvage)?;
+        }
+        records.push(RecoveryRecord {
+            partial_ref: partial.display().to_string(),
+            salvage_ref: salvage.display().to_string(),
+            source_status: recovered.status,
+            valid_frame_count: recovered.valid_frame_count,
+            valid_bytes: recovered.valid_bytes,
+            payload_hash: recovered.payload_hash,
+        });
+    }
+    if !records.is_empty() {
+        write_create_new(
+            &report_directory.join("startup-recovery-report.json"),
+            &serde_json::to_vec_pretty(&serde_json::json!({
+                "schema_version": "trade.l2-startup-recovery-report.v1",
+                "recovered_at_ms": unix_time_ms()?,
+                "records": records,
+            }))?,
+        )?;
+    }
+    Ok(records)
+}
+
 pub fn unix_time_ms() -> Result<u64> {
     Ok(SystemTime::now().duration_since(UNIX_EPOCH)?.as_millis() as u64)
 }
@@ -62,4 +124,54 @@ pub fn unix_time_ms() -> Result<u64> {
 fn sync_parent(path: &Path) -> Result<()> {
     File::open(path.parent().unwrap_or_else(|| Path::new(".")))?.sync_all()?;
     Ok(())
+}
+
+fn collect_partials(directory: &Path, output: &mut Vec<PathBuf>) -> Result<()> {
+    if !directory.exists() {
+        return Ok(());
+    }
+    for entry in fs::read_dir(directory)? {
+        let path = entry?.path();
+        if path.is_dir() {
+            collect_partials(&path, output)?;
+        } else if path
+            .file_name()
+            .and_then(|value| value.to_str())
+            .is_some_and(|name| {
+                name.contains(".tl2s.partial.") && !name.ends_with(".salvaged.tl2s")
+            })
+        {
+            output.push(path);
+        }
+    }
+    output.sort();
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use trade_l2_order_book_core::StreamingSegmentWriter;
+
+    #[test]
+    fn startup_recovery_salvages_a_crashed_writer_prefix() {
+        let base = std::env::temp_dir().join(format!(
+            "trade-l2-service-recovery-{}",
+            unix_time_ms().expect("time")
+        ));
+        let report = base.join("new-run");
+        fs::create_dir_all(&report).expect("directories");
+        let requested = base.join("epoch-0001-segment-000001.tl2s");
+        let mut writer = StreamingSegmentWriter::create(&requested).expect("writer");
+        writer.append(b"frame-one").expect("frame");
+        writer.sync().expect("sync");
+        drop(writer);
+
+        let records = recover_orphan_partials(&base, &report).expect("recover");
+        assert_eq!(records.len(), 1);
+        assert_eq!(records[0].valid_frame_count, 1);
+        assert!(Path::new(&records[0].salvage_ref).exists());
+        assert!(report.join("startup-recovery-report.json").exists());
+        fs::remove_dir_all(base).expect("cleanup");
+    }
 }
