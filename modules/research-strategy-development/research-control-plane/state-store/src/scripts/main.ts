@@ -51,6 +51,10 @@ import {
   type UniverseSeed,
 } from "../lib/research-control-plane-operations"
 import { seedDefaultResearchControlPlane } from "../lib/research-universe-default-seed"
+import {
+  executeReplayL2ExperimentAttachmentOwnerAction,
+  isReplayL2ExperimentAttachmentOwnerAction,
+} from "../lib/replay-l2-experiment-attachment-owner-port"
 
 type Args = DbActionJsonArgs
 
@@ -125,6 +129,9 @@ export function run(args: Args): JSONRecord {
     if (args.action === "read_planning_context") {
       return { ok: true, action: args.action, context: readPlannerControlPlaneContext(db) }
     }
+    if (isReplayL2ExperimentAttachmentOwnerAction(args.action)) {
+      return executeReplayL2ExperimentAttachmentOwnerAction(db, args.action, args.json)
+    }
     if (args.action === "materialize_proposal") {
       materializeProposal(db, args.json as unknown as Parameters<typeof materializeProposal>[1])
       return { ok: true, action: args.action, proposal_id: args.json.proposal_id }
@@ -197,7 +204,7 @@ function printHelp(): void {
   console.log([
     "usage: bun src/scripts/main.ts --db data/rd_state.db --action init",
     "actions: init | upsert_program | upsert_hypothesis | record_trial | record_holdout_use | record_lesson | read_program",
-    "control-plane: seed_default_control_plane | seed_universe | upsert_data_surface | link_universe_data_surface | upsert_pipeline_registry_item | upsert_universe_coverage | read_planning_context | append_proposal_revision | materialize_proposal | register_trial_group | materialize_generated_candidate | transition_trial_group | register_experiment | reserve_trial | finish_trial | append_result | append_lesson | apply_reviewer_decision | apply_system_transition | open_blocker | close_blocker | check_lifecycle_projection | rebuild_lifecycle_projection",
+    "control-plane: seed_default_control_plane | seed_universe | upsert_data_surface | link_universe_data_surface | upsert_pipeline_registry_item | upsert_universe_coverage | read_planning_context | issue_replay_l2_experiment_attachment | read_replay_l2_experiment_attachment | append_proposal_revision | materialize_proposal | register_trial_group | materialize_generated_candidate | transition_trial_group | register_experiment | reserve_trial | finish_trial | append_result | append_lesson | apply_reviewer_decision | apply_system_transition | open_blocker | close_blocker | check_lifecycle_projection | rebuild_lifecycle_projection",
   ].join("\n"))
 }
 
