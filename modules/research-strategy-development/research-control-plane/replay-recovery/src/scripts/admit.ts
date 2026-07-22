@@ -3,7 +3,7 @@
 import { repoRoot, assertProjectRuntimePath } from "../../../../../contracts/runtime-core/src/paths"
 import { errorResponse, printScriptResult, readFlagValue, readJsonObject, successResponse } from "../../../../../contracts/runtime-core/src/script-json"
 import type { JSONRecord } from "../../../../../contracts/runtime-core/src/json"
-import type { ClaimReplayAttemptInput } from "../../../state-store/src/lib/replay-attempt-authority"
+import type { ReplayAttemptAdmissionRequest } from "../../../contracts/src/lib/replay-attempt-admission"
 import {
   admitReplayAttemptAfterCancellationRecovery,
   type ReplayAttemptAdmissionDependencies,
@@ -45,7 +45,7 @@ export function run(argv: string[], dependencies?: ReplayAttemptAdmissionDepende
       db_path: args.dbPath,
       artifact_root: args.artifactRoot,
       recovered_at: args.recoveredAt,
-      claim: args.claim as unknown as ClaimReplayAttemptInput,
+      claim: args.claim as unknown as ReplayAttemptAdmissionRequest,
     }, dependencies))
   } catch (error) {
     return errorResponse(SCHEMA_VERSION, error)

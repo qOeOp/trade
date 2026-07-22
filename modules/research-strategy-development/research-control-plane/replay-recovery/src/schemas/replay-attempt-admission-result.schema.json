@@ -1,13 +1,15 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "trade.rd-replay-attempt-admission-result.v1",
+  "$id": "trade.rd-replay-attempt-admission-result.v2",
   "type": "object",
-  "required": ["schema_version", "status", "recovered_at", "claimed_at", "recovery", "attempt_lease"],
+  "required": ["schema_version", "status", "recovered_at", "claimed_at", "request_registration_id", "request_registration_hash", "recovery", "attempt_lease"],
   "properties": {
-    "schema_version": { "const": "trade.rd-replay-attempt-admission-result.v1" },
+    "schema_version": { "const": "trade.rd-replay-attempt-admission-result.v2" },
     "status": { "const": "admitted" },
     "recovered_at": { "type": "string", "format": "date-time" },
     "claimed_at": { "type": "string", "format": "date-time" },
+    "request_registration_id": { "type": "string", "minLength": 1 },
+    "request_registration_hash": { "type": "string", "pattern": "^[a-f0-9]{64}$" },
     "recovery": { "$ref": "replay-cancellation-recovery-job-result.schema.json" },
     "attempt_lease": {
       "type": "object",
