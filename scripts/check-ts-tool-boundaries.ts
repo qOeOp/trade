@@ -266,12 +266,13 @@ function isAllowedSameDomainIntegrationTestImport(file: string, sourceTool: stri
   return file.endsWith(".test.ts")
     && ((sourceTool === "modules/research-strategy-development/research-control-plane/certification/legacy-integration-suite"
       && targetTool.startsWith("modules/research-strategy-development/"))
-      || (sourceTool === "modules/research-strategy-development/replay-execution-plane/runner"
+      || (file === "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts"
+        && sourceTool === "modules/research-strategy-development/replay-execution-plane/runner"
         && targetTool === "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle"))
 }
 
 function isIgnoredTestDependencyGraphEdge(file: string, sourceTool: string, targetTool: string): boolean {
-  return file.endsWith(".test.ts")
+  return file === "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts"
     && sourceTool === "modules/research-strategy-development/replay-execution-plane/runner"
     && targetTool === "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle"
 }
