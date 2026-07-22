@@ -152,6 +152,12 @@ check_duplication() {
   bun scripts/check-duplication.ts
 }
 
+check_source_size() {
+  require_cmd bun
+  log "source size"
+  bun scripts/check-replay-worker-v10-size.ts
+}
+
 check_go_tools() {
   require_cmd go
   log "go tools"
@@ -233,6 +239,7 @@ check_secrets
 check_toolset_manifest
 check_module_contracts
 check_duplication
+check_source_size
 check_typescript_tools
 check_go_tools
 check_python_tools
