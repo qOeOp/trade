@@ -8,15 +8,13 @@ import {
   assertMarketDataDbRef,
   assertOutputRef,
   assertRuntimeRef,
-  validateLaunchConfig,
-  type LaunchConfig,
+  parseLaunchConfigArgs,
   type LaunchReceipt,
 } from "../control/runtime-contract"
 
 const root = repoRoot()
 const moduleRoot = resolve(import.meta.dir, "../..")
-const config = parseArgs(process.argv.slice(2))
-validateLaunchConfig(config)
+const config = parseLaunchConfigArgs(process.argv.slice(2))
 assertOutputRef(root, config.output_base)
 assertMarketDataDbRef(root, config.market_data_db)
 
@@ -68,35 +66,3 @@ const receipt: LaunchReceipt = {
 }
 writeFileSync(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`, { flag: "wx", mode: 0o600 })
 process.stdout.write(`${JSON.stringify({ ...receipt, receipt_path: relative(root, receiptPath) })}\n`)
-
-function parseArgs(argv: string[]): LaunchConfig {
-  const values: Record<string, string> = {}
-  for (let index = 0; index < argv.length; index += 2) {
-    const name = argv[index]
-    const value = argv[index + 1]
-    if (name == null || value == null || !name.startsWith("--")) throw new Error(`incomplete argument: ${name ?? "<missing>"}`)
-    values[name.slice(2).replaceAll("-", "_")] = value
-  }
-  return {
-    symbol: values.symbol ?? "BTCUSDT",
-    output_base: values.output_base ?? "data/l2",
-    listen: values.listen ?? "127.0.0.1:50061",
-    epoch_seconds: numberValue(values.epoch_seconds, 86_100),
-    duration_seconds: numberValue(values.duration_seconds, 0),
-    queue_capacity: numberValue(values.queue_capacity, 256),
-    segment_frames: numberValue(values.segment_frames, 1_000),
-    sync_every_frames: numberValue(values.sync_every_frames, 100),
-    stale_after_ms: numberValue(values.stale_after_ms, 2_000),
-    restart_limit: numberValue(values.restart_limit, 0),
-    market_data_db: values.market_data_db ?? "data/market_data.db",
-    admission_interval_ms: numberValue(values.admission_interval_ms, 30_000),
-    disk_check_interval_ms: numberValue(values.disk_check_interval_ms, 5_000),
-    disk_soft_min_bytes: numberValue(values.disk_soft_min_bytes, 10 * 1024 ** 3),
-    disk_hard_min_bytes: numberValue(values.disk_hard_min_bytes, 5 * 1024 ** 3),
-    resource_check_interval_ms: numberValue(values.resource_check_interval_ms, 30_000),
-  }
-}
-
-function numberValue(value: string | undefined, fallback: number): number {
-  return value == null ? fallback : Number(value)
-}

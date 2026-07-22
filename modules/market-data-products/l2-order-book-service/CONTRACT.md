@@ -44,6 +44,7 @@ Production candidate owner for one public Binance USD-M L2 stream.
 - `cargo run --bin l2-order-book-query -- --action health --symbol BTCUSDT`
 - `cargo run --bin l2-order-book-query -- --action book --symbol BTCUSDT --depth 20`
 - `bun src/scripts/launch.ts --symbol BTCUSDT --output-base data/l2 --market-data-db data/market_data.db`
+- `bun src/scripts/foreground.ts --symbol BTCUSDT --output-base data/l2 --market-data-db data/market_data.db --restart-limit 8` (production process-manager entry; release bins must already exist)
 - `bun src/scripts/status.ts --receipt tmp/l2-order-book-service/runtime/<launch>/launch-receipt.json`
 - `bun src/scripts/owner-health.ts`
 - `bun src/scripts/owner-current-book.ts --depth 20 --max-freshness-ms 1000`

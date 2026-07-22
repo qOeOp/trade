@@ -63,6 +63,48 @@ export interface RuntimeState {
   service_cpu_max_percent: number
 }
 
+export function parseLaunchConfigArgs(argv: string[]): LaunchConfig {
+  const values: Record<string, string> = {}
+  for (let index = 0; index < argv.length; index += 2) {
+    const name = argv[index]
+    const value = argv[index + 1]
+    if (name == null || value == null || !name.startsWith("--")) {
+      throw new Error(`incomplete argument: ${name ?? "<missing>"}`)
+    }
+    const field = name.slice(2).replaceAll("-", "_")
+    if (field in values) throw new Error(`duplicate argument: ${name}`)
+    values[field] = value
+  }
+  const allowed = new Set([
+    "symbol", "output_base", "listen", "epoch_seconds", "duration_seconds",
+    "queue_capacity", "segment_frames", "sync_every_frames", "stale_after_ms",
+    "restart_limit", "market_data_db", "admission_interval_ms", "disk_check_interval_ms",
+    "disk_soft_min_bytes", "disk_hard_min_bytes", "resource_check_interval_ms",
+  ])
+  const unknown = Object.keys(values).filter((field) => !allowed.has(field))
+  if (unknown.length > 0) throw new Error(`unknown argument: --${unknown[0]?.replaceAll("_", "-")}`)
+  const config: LaunchConfig = {
+    symbol: values.symbol ?? "BTCUSDT",
+    output_base: values.output_base ?? "data/l2",
+    listen: values.listen ?? "127.0.0.1:50061",
+    epoch_seconds: numberValue(values.epoch_seconds, 86_100),
+    duration_seconds: numberValue(values.duration_seconds, 0),
+    queue_capacity: numberValue(values.queue_capacity, 256),
+    segment_frames: numberValue(values.segment_frames, 1_000),
+    sync_every_frames: numberValue(values.sync_every_frames, 100),
+    stale_after_ms: numberValue(values.stale_after_ms, 2_000),
+    restart_limit: numberValue(values.restart_limit, 0),
+    market_data_db: values.market_data_db ?? "data/market_data.db",
+    admission_interval_ms: numberValue(values.admission_interval_ms, 30_000),
+    disk_check_interval_ms: numberValue(values.disk_check_interval_ms, 5_000),
+    disk_soft_min_bytes: numberValue(values.disk_soft_min_bytes, 10 * 1024 ** 3),
+    disk_hard_min_bytes: numberValue(values.disk_hard_min_bytes, 5 * 1024 ** 3),
+    resource_check_interval_ms: numberValue(values.resource_check_interval_ms, 30_000),
+  }
+  validateLaunchConfig(config)
+  return config
+}
+
 export function assertRuntimeRef(root: string, ref: string): string {
   const path = resolve(root, ref)
   const normalized = relative(root, path).replaceAll("\\", "/")
@@ -136,4 +178,10 @@ function bounded(value: number, minimum: number, maximum: number, field: string)
   if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
     throw new Error(`${field} must be an integer between ${minimum} and ${maximum}`)
   }
+}
+
+function numberValue(value: string | undefined, fallback: number): number {
+  if (value == null) return fallback
+  if (!/^(?:0|[1-9]\d*)$/.test(value)) throw new Error(`invalid integer: ${value}`)
+  return Number(value)
 }

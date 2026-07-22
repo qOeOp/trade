@@ -14,6 +14,7 @@ contract module
 - UTC timestamp helper.
 - Shared fail-closed CLI JSON / flag parsing and response printing.
 - Normalized subprocess tool result envelope for orchestrators.
+- Foreground child signal forwarding and drain semantics for external process-manager entrypoints.
 
 ## Boundaries
 

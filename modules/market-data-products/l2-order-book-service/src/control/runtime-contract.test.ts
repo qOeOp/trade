@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { assertMarketDataDbRef, assertOutputRef, assertRuntimeRef, parseProcessResourceSample, validateLaunchConfig, type LaunchConfig } from "./runtime-contract"
+import { assertMarketDataDbRef, assertOutputRef, assertRuntimeRef, parseLaunchConfigArgs, parseProcessResourceSample, validateLaunchConfig, type LaunchConfig } from "./runtime-contract"
 
 const config: LaunchConfig = {
   symbol: "BTCUSDT",
@@ -39,4 +39,12 @@ test("L2 control contract rejects public listener and escaped paths", () => {
 test("L2 control contract parses bounded child resource samples", () => {
   assert.deepEqual(parseProcessResourceSample(" 16704  2.5\n"), { rss_bytes: 17_104_896, cpu_percent: 2.5 })
   assert.throws(() => parseProcessResourceSample("unknown 2.5"), /invalid RSS\/CPU/)
+})
+
+test("L2 launch arguments are closed-world and integer exact", () => {
+  assert.equal(parseLaunchConfigArgs(["--symbol", "ETHUSDT", "--restart-limit", "8"]).symbol, "ETHUSDT")
+  assert.equal(parseLaunchConfigArgs(["--symbol", "ETHUSDT", "--restart-limit", "8"]).restart_limit, 8)
+  assert.throws(() => parseLaunchConfigArgs(["--unknown", "value"]), /unknown argument/)
+  assert.throws(() => parseLaunchConfigArgs(["--symbol", "BTCUSDT", "--symbol", "ETHUSDT"]), /duplicate argument/)
+  assert.throws(() => parseLaunchConfigArgs(["--restart-limit", "1.5"]), /invalid integer/)
 })

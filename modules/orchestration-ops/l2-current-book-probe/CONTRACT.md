@@ -40,6 +40,7 @@ Programmatic, read-only operations consumer for one active L2 owner observation.
 - `bun src/scripts/watch.ts --json '{"max_events":20,"watch_ms":1000}'`
 - `bun src/scripts/session.ts --json '{"max_cycles":3,"session_ms":30000,"max_events":20,"watch_ms":1000,"depth":20,"max_freshness_ms":1000}'`
 - `bun src/scripts/consumer-launch.ts` (local operator lifecycle; indefinite by default)
+- `bun src/scripts/consumer-foreground.ts --restart-limit 8` (production process-manager entry; foreground and signal-draining)
 - `bun src/scripts/consumer-read.ts` (registered read-only owner surface)
 - `bun src/scripts/consumer-stop.ts --receipt <repo-relative-receipt>` (local operator lifecycle)
 - `bun run check`
