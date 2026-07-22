@@ -1,6 +1,4 @@
-import {
-  evaluateLatestSignal,
-} from "../../../../../replay-execution-plane/compatibility/legacy-research-kernel/src/lib/replay-core"
+import { evaluateLatestSignal } from "../../../../../replay-execution-plane/compatibility/legacy-research-decision/src/lib/legacy-research-decision"
 import { hashCanonical, replayDataHash } from "../../../../../replay-execution-plane/compatibility/legacy-replay-identity/src/lib/legacy-replay-identity"
 import { getRndFamily } from "../../../strategy-family-engine/src/lib/rnd-family"
 import { loadStrategyFeatureStore } from "../../../strategy-family-engine/src/lib/strategy-feature-store"

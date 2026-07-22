@@ -27,4 +27,4 @@ internal engine
 
 - No CLI, package, catalog write, artifact write, `trade.db` write, or exchange access.
 - Does not produce Forward Evidence, run replay batches, R&D search, panel candidate evaluation, review, or promotion.
-- Uses `research-strategy-development/strategy-family-engine` for family registry and feature store semantics.
+- Uses `agent-roles/developer/strategy-family-engine` for family registry/feature store semantics and `legacy-research-decision` for latest closed-candle decision diagnostics；不依赖 legacy kernel execution。
