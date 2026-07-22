@@ -6,7 +6,7 @@
 - One-shot `shadow_program` wakeups with a durable ops lease, terminal-cycle idempotency, and a fixed no-domain-job profile.
 - Foreground resident `shadow_program` cadence with heartbeat-renewed fenced ownership, stable time-slot cycle ids, bounded child commands, and drain-on-signal shutdown.
 - Bounded SQLite busy handling, explicit stale-lease recovery evidence, and cycle-independent parity projections for Agent/program ticket, processor, and incident comparison.
-- Opt-in resident Agent/program parity observation: each eligible program cycle runs the independently specified legacy Agent shadow profile, compares canonical projections, and records immutable evidence in the existing ops store.
+- Opt-in resident Agent/program parity observation: each eligible program cycle samples owner commands once, independently builds the legacy Agent shadow graph by replaying those exact results, compares canonical projections, and records immutable evidence in the existing ops store.
 - macOS launchd rendering/install lifecycle with restart ownership outside the runtime and no PID file; installation fails closed for protected Desktop/Documents/Downloads source paths unless the operator confirms the OS privacy grant.
 - Suite CLI parameter, response, permission, and owner-handoff semantics
 - Thin observe, execution, recovery, and runtime façades
@@ -27,6 +27,7 @@
 - Deterministic hard guards to `modules/live-execution-control/plan-preflight`
 - Runtime check semantics to `modules/orchestration-ops/runtime-health-guard`; trade-flow consumes only named check status and never reimplements L2 health.
 - Program shadow wakeups reuse the existing job graph and ops store; they do not establish a second scheduler, job catalog, or incident authority.
+- Runtime parity tests implementation semantics under shared captured owner results; sequential reads of changing live health are retained as legacy observations but are not comparable-input evidence.
 - The resident supervisor delegates restart/backoff and OS process lifetime to an external process manager; it owns no PID file or detached-process authority.
 - Bounded migration observation may be hosted by an operator-owned terminal multiplexer when local launchd cannot read a macOS-protected repository path; this is observation evidence, not the production restart contract.
 
