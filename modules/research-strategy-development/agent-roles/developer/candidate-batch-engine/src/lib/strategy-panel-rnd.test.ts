@@ -6,7 +6,7 @@ import test from "node:test"
 import { catastrophicAssetsFrom, runStrategyPanelRnd, strategyPanelRndInputFromJson } from "./strategy-panel-rnd"
 import { resolveRepoPath } from "../../../../../../contracts/runtime-core/src/paths"
 
-test("panel R&D pools samples but keeps per-asset evidence", () => {
+test("candidate batch panel mode pools samples but keeps per-asset evidence", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-panel-rnd-"))
   try {
     const manifestPath = writeManifest(dir)

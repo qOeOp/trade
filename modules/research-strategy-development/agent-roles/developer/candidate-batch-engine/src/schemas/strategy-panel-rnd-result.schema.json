@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "trade-flow.strategy-panel-rnd-result.v1",
   "title": "trade-flow strategy panel R&D result",
-  "description": "Stable outer shape for panel R&D reports. Per-asset candidate evidence remains shallow.",
+  "description": "Stable outer shape for candidate-batch panel evaluation. Per-asset candidate evidence remains shallow.",
   "type": "object",
   "required": ["panel_id", "hypothesis", "diagnostic_mode", "dataset_count", "trial_count", "outcome", "candidates"],
   "properties": {

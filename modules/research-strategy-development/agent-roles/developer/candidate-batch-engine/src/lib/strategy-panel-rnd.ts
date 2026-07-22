@@ -1,6 +1,6 @@
-import { runStrategyRndBatch } from "../../../../../agent-roles/developer/candidate-batch-engine/src/lib/strategy-rnd-batch"
-import type { StrategyRndCandidateInput } from "../../../../../agent-roles/developer/candidate-batch-engine/src/lib/strategy-rnd-inputs"
-import { loadCandlesFromManifest, loadManifest, type Candle } from "../../../replay-engine/src/lib/replay-core"
+import { loadCandlesFromManifest, loadManifest, type Candle } from "../../../../../replay-execution-plane/compatibility/replay-engine/src/lib/replay-core"
+import { runStrategyRndBatch } from "./strategy-rnd-batch"
+import type { StrategyRndCandidateInput } from "./strategy-rnd-inputs"
 
 type JSONRecord = Record<string, unknown>
 

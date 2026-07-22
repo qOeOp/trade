@@ -187,7 +187,7 @@ export function buildDefaultCapabilitySeed(now: string): PipelineRegistryItemWri
     ["feature", "funding-features", "Funding Feature Set", "modules/research-strategy-development/agent-roles/developer/strategy-family-engine", ["funding", "derivatives", "causal"]],
     ["forecast_model", "rule-score", "Deterministic Rule Score", "modules/research-strategy-development/agent-roles/developer/signal-engine", ["score", "deterministic"]],
     ["portfolio", "single-asset", "Single Asset Portfolio", "modules/research-strategy-development/replay-execution-plane/compatibility/replay-engine", ["single_asset", "usdm"]],
-    ["portfolio", "cross-sectional-rank", "Cross-sectional Rank Portfolio", "modules/research-strategy-development/replay-execution-plane/compatibility/panel-evaluator", ["panel", "ranking"]],
+    ["portfolio", "cross-sectional-rank", "Cross-sectional Rank Portfolio", "modules/research-strategy-development/agent-roles/developer/candidate-batch", ["panel", "ranking"]],
     ["risk_rule", "fixed-risk-geometry", "Fixed Risk Geometry", "modules/research-strategy-development/agent-roles/developer/strategy-family-engine", ["stop", "target", "time_exit"]],
     ["execution_rule", "bar-close-taker", "Bar-close Taker Execution", "modules/research-strategy-development/replay-execution-plane/compatibility/replay-engine", ["closed_candle", "taker", "4h"]],
   ] as const

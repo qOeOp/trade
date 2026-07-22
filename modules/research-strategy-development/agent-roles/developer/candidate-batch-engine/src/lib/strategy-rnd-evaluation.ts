@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs"
 import {
+  buildReplayDecisionInput,
   hashCanonical,
   replayStrategy,
   type ReplayResult,
@@ -212,16 +213,8 @@ export function laggedEntryStrategy(strategy: ReplayStrategy, lagBars: number): 
     generateSignal(input) {
       const sourceIndex = input.index - lagBars
       if (sourceIndex < strategy.warmup_bars) return null
-      const sourceEntryIndex = sourceIndex + 1
-      const sourceEntryPrice = input.candles[sourceEntryIndex]?.open
-      if (!Number.isFinite(sourceEntryPrice)) return null
-      const original = strategy.generateSignal({
-        ...input,
-        index: sourceIndex,
-        entryIndex: sourceEntryIndex,
-        entryPrice: sourceEntryPrice,
-      })
-      return original ? rebuildSignalAtEntry(original, input.index, input.entryIndex, input.entryPrice) : null
+      const original = strategy.generateSignal(buildReplayDecisionInput(input.candles, input.indicators, sourceIndex, input.options))
+      return original ? rebuildSignalAtEntry(original, input.index, input.entryIndex, input.decisionPrice) : null
     },
   }
 }
