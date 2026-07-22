@@ -13,7 +13,7 @@ metrics/    只从 fills/ledger 派生权威 Replay metrics
 benchmark/ panel alignment、funding coverage、固定 benchmark simulation 与 calibration calculations
 runner/     monotonic Attempt lease fencing、transport-neutral coordinator/pre-terminal local outbox、namespace discovery/recovery-first no-replay ack、幂等、typed failure、Harness worker 与完整 Artifact commit
 tests/      golden、property、metamorphic、component parity 认证
-compatibility/ 尚未退役的 legacy research kernel 与 evidence identity；服务既有消费者，不具 native Replay authority
+compatibility/ 尚未退役的 legacy research kernel、data 与 identity；服务既有消费者，不具 native Replay authority
 certification/ benchmark/calibration runtime certification 与 legacy fingerprint parity certification；fixtures 仅用于回归
 ```
 
