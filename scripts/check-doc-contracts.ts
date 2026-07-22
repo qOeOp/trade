@@ -206,8 +206,18 @@ function checkLinks(path: string): void {
     if (!raw || raw.startsWith("#") || /^(?:https?:|mailto:|app:)/.test(raw)) continue
     const target = decodePath(raw.split("#", 1)[0])
     if (!target) continue
+    if (isAbsolute(target) || target.startsWith("file:") || /^[A-Za-z]:[\\/]/.test(target)) {
+      issues.push(`${path} has non-repository local link: ${raw}`)
+      continue
+    }
     const resolved = normalize(resolve(root, dirname(path), target))
-    if (!existsSync(resolved)) issues.push(`${path} has broken link: ${raw}`)
+    if (escapesRoot(resolved)) {
+      issues.push(`${path} has local link escaping repository: ${raw}`)
+    } else if (!existsSync(resolved)) {
+      issues.push(`${path} has broken link: ${raw}`)
+    } else if (escapesRoot(realpathSync(resolved))) {
+      issues.push(`${path} has local link resolving outside repository: ${raw}`)
+    }
   }
 }
 

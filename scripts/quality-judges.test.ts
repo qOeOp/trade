@@ -559,6 +559,40 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("implementation_ref resolves outside repository: external-link")
   })
 
+  test("document contracts reject a local Markdown absolute path", () => {
+    const root = documentContractFixture({})
+    const path = join(root, "docs/README.md")
+    writeFileSync(path, `${readFileSync(path, "utf8")}\n[local](${root})\n`)
+
+    const result = runJudge("check-doc-contracts.ts", root)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain(`docs/README.md has non-repository local link: ${root}`)
+  })
+
+  test("document contracts reject a local Markdown link escaping the repository", () => {
+    const root = documentContractFixture({})
+    const path = join(root, "README.md")
+    writeFileSync(path, "# Root\n\n[escape](../outside.md)\n")
+
+    const result = runJudge("check-doc-contracts.ts", root)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("README.md has local link escaping repository: ../outside.md")
+  })
+
+  test("document contracts reject a Markdown symlink escaping the repository", () => {
+    const root = documentContractFixture({})
+    const external = temporaryRoot()
+    symlinkSync(external, join(root, "external-link"), "dir")
+    writeFileSync(join(root, "README.md"), "# Root\n\n[escape](external-link)\n")
+
+    const result = runJudge("check-doc-contracts.ts", root)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("README.md has local link resolving outside repository: external-link")
+  })
+
   test("package tests cannot omit a colocated test file", () => {
     const root = temporaryRoot()
     write(root, "modules/domain-a/tool-a/package.json", JSON.stringify({

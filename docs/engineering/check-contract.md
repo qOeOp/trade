@@ -37,7 +37,7 @@ last_verified: 2026-07-22 CST
 | `zero-duplication` | repo root | `bun scripts/check-duplication.ts` | 六类源码在既定检测粒度下重复片段必须为 0 |
 | `ts-architecture-boundary` | repo root | `bun scripts/check-ts-tool-boundaries.ts` | 静态 package 边界、禁止动态逃逸 / eval、跨 package dependency cycle |
 | `secret-scan` | repo root | `bun scripts/check-secrets.ts` | tracked / unignored provider token、非空 SiliconFlow assignment 与 literal bearer credential |
-| `doc-contract-check` | repo root | `bun scripts/check-doc-contracts.ts` | 文档元数据、current/history 一级标题结构、role→status、可解析 owner、`last_verified` CST 日历日期、current index 精确闭包、ID 命名空间与 implementation ref 边界、历史状态、Markdown 相对路径、risk Guard ID 对齐；不验证 freshness SLA、外部 URL 或页面 anchor |
+| `doc-contract-check` | repo root | `bun scripts/check-doc-contracts.ts` | 文档元数据、current/history 一级标题结构、role→status、可解析 owner、`last_verified` CST 日历日期、current index 精确闭包、ID/implementation ref、本地 Markdown 链接仓库边界、历史状态、risk Guard ID 对齐；不验证 freshness SLA、外部 URL 或页面 anchor |
 | `workspace-skill-check` | repo root | `sh scripts/check-workspace-skills.sh` | project-local skill 命名、frontmatter、placeholder 与领域实现边界 |
 | `architecture-manifest-check` | repo root | `bun scripts/check-architecture-manifest.ts` | 顶层域 / job / store / rail 与真实目录、DDL、protocol schema 对齐 |
 | `storage-schema-check` | repo root | `bun scripts/check-storage-schemas.ts` | logical store DDL 可执行，且 manifest 声明表真实创建 |
