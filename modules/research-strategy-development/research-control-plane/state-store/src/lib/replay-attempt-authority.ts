@@ -38,6 +38,15 @@ import {
   type TrialReservationSnapshot,
 } from "../../../contracts/src/lib/control-plane-contracts"
 import { assertReplayReservationClaimNotCancelled } from "./replay-cancellation-authority"
+import {
+  assertReplayAttemptAdmissionRequest,
+  type ReplayAttemptAdmissionRequest,
+} from "../../../contracts/src/lib/replay-attempt-admission"
+import {
+  readRegisteredReplayExecutionRequest,
+  readReplayRequestRegistration,
+} from "./replay-request-registration"
+import { readReplayTrialReservationAdmission } from "./replay-trial-reservation-admission"
 
 export type ReplayAttemptFailureClass = "input_invalid" | "unsupported_contract" | "data_integrity" | "deterministic_engine" | "resource" | "external_io"
 
@@ -88,6 +97,8 @@ interface AttemptRow {
   reservation_ref: string
   reservation_hash: string
   request_hash: string
+  request_registration_id: string | null
+  request_registration_hash: string | null
   status: "claimed" | "running" | "completed" | "failed" | "cancelled" | "expired"
   lease_generation: number
   claimed_at: string
@@ -102,6 +113,11 @@ interface AttemptRow {
   diagnostic_checkpoint_hash: string | null
   failure_class: ReplayAttemptFailureClass | null
   idempotency_key: string
+}
+
+interface ReplayAttemptRequestRegistrationBinding {
+  registration_id: string
+  registration_hash: string
 }
 
 interface LeaseObservationRow {
@@ -179,7 +195,61 @@ export function createSqliteReplaySuccessorVerificationLeaseRenewalAuthorityPort
   }
 }
 
+/** @deprecated Migration-only raw authority. Production admission must use claimRegisteredReplayAttempt. */
 export function claimReplayAttempt(db: Database, input: ClaimReplayAttemptInput): ReplayAttemptLeaseSnapshot {
+  return claimResolvedReplayAttempt(db, input, null)
+}
+
+export function claimRegisteredReplayAttempt(
+  db: Database,
+  request: ReplayAttemptAdmissionRequest,
+): ReplayAttemptLeaseSnapshot {
+  assertReplayAttemptAdmissionRequest(request)
+  const registration = readReplayRequestRegistration(db, request.request_registration_id)
+  if (registration.registration_hash !== request.request_registration_hash) {
+    throw new Error("Replay Attempt Admission does not match the registered Request hash")
+  }
+  const reservationAdmission = readReplayTrialReservationAdmission(
+    db,
+    registration.reservation_admission_id,
+  )
+  const replayRequest = readRegisteredReplayExecutionRequest(db, registration.registration_id)
+  const reservation = reservationAdmission.reservation_snapshot
+  if (registration.reservation_admission_hash !== reservationAdmission.admission_hash
+      || registration.trial_id !== reservation.identity.trial_id
+      || registration.run_id !== reservation.run_id
+      || registration.reservation_ref !== reservation.reservation_ref
+      || registration.reservation_hash !== hashTrialReservationSnapshot(reservation)
+      || replayRequest.trial_id !== registration.trial_id
+      || replayRequest.run_id !== registration.run_id
+      || replayRequest.trial_reservation_ref !== registration.reservation_ref
+      || replayRequest.trial_reservation_hash !== registration.reservation_hash
+      || replayRequest.idempotency_key !== registration.request_idempotency_key
+      || registration.replay_attempt_authority !== "none_until_attempt_admission") {
+    throw new Error("Replay Attempt Admission registered Request authority drifted")
+  }
+  if (Date.parse(request.claimed_at) < Date.parse(registration.registered_at)) {
+    throw new Error("Replay Attempt claim cannot precede Request Registration")
+  }
+  return claimResolvedReplayAttempt(db, {
+    attempt_id: request.attempt_id,
+    worker_id: request.worker_id,
+    idempotency_key: request.idempotency_key,
+    request_hash: registration.request_hash,
+    claimed_at: request.claimed_at,
+    lease_expires_at: request.lease_expires_at,
+    trial_reservation: reservation,
+  }, {
+    registration_id: registration.registration_id,
+    registration_hash: registration.registration_hash,
+  })
+}
+
+function claimResolvedReplayAttempt(
+  db: Database,
+  input: ClaimReplayAttemptInput,
+  registrationBinding: ReplayAttemptRequestRegistrationBinding | null,
+): ReplayAttemptLeaseSnapshot {
   requireText(input.attempt_id, "attempt_id")
   requireText(input.worker_id, "worker_id")
   requireText(input.idempotency_key, "idempotency_key")
@@ -201,6 +271,8 @@ export function claimReplayAttempt(db: Database, input: ClaimReplayAttemptInput)
       if (replay.status !== "claimed" && replay.status !== "running") throw new Error("Replay Attempt idempotency key already reached a terminal state")
       if (replay.attempt_id !== input.attempt_id || replay.worker_id !== input.worker_id
           || replay.request_hash !== input.request_hash || replay.reservation_hash !== reservationHash
+          || replay.request_registration_id !== (registrationBinding?.registration_id ?? null)
+          || replay.request_registration_hash !== (registrationBinding?.registration_hash ?? null)
           || replay.lease_expires_at !== input.lease_expires_at) {
         throw new Error("Replay Attempt idempotency key was reused with different authority")
       }
@@ -210,14 +282,23 @@ export function claimReplayAttempt(db: Database, input: ClaimReplayAttemptInput)
     assertReplayReservationClaimNotCancelled(db, reservationHash, input.claimed_at)
 
     const trial = db.query(`
-      SELECT trial_id, run_id, status, experiment_id, trial_group_id, candidate_id,
-             candidate_identity_hash, identity_hash_policy_version
-      FROM rd_trial WHERE trial_id=$trial_id
+      SELECT t.trial_id, t.run_id, t.status, t.experiment_id, t.trial_group_id, t.candidate_id,
+             t.candidate_identity_hash, t.identity_hash_policy_version,
+             g.status AS group_status, e.lifecycle_state
+      FROM rd_trial t
+      JOIN rd_trial_group g ON g.trial_group_id=t.trial_group_id
+      JOIN rd_experiment_contract e ON e.experiment_id=t.experiment_id
+      WHERE t.trial_id=$trial_id
     `).get({ $trial_id: reservation.identity.trial_id }) as {
       trial_id: string; run_id: string; status: string; experiment_id: string; trial_group_id: string
       candidate_id: string; candidate_identity_hash: string; identity_hash_policy_version: string
+      group_status: string; lifecycle_state: string
     } | null
     if (!trial || trial.status !== "reserved") throw new Error("Replay Attempt requires a reserved Trial")
+    if (registrationBinding
+        && (trial.group_status !== "running" || trial.lifecycle_state !== "discovery")) {
+      throw new Error("registered Replay Attempt requires an active running discovery Trial")
+    }
     if (trial.run_id !== reservation.run_id || trial.experiment_id !== reservation.identity.experiment_id
         || trial.trial_group_id !== reservation.identity.trial_group_id || trial.candidate_id !== reservation.identity.candidate_id
         || trial.candidate_identity_hash !== reservation.identity.candidate_hash
@@ -245,11 +326,13 @@ export function claimReplayAttempt(db: Database, input: ClaimReplayAttemptInput)
     db.query(`
       INSERT INTO rd_replay_attempt(
         attempt_id, trial_id, run_id, attempt_ordinal, worker_id,
-        reservation_ref, reservation_hash, request_hash, status,
+        reservation_ref, reservation_hash, request_hash,
+        request_registration_id, request_registration_hash, status,
         lease_generation, claimed_at, heartbeat_at, lease_expires_at, idempotency_key
       ) VALUES (
         $attempt_id, $trial_id, $run_id, $attempt_ordinal, $worker_id,
-        $reservation_ref, $reservation_hash, $request_hash, 'claimed',
+        $reservation_ref, $reservation_hash, $request_hash,
+        $request_registration_id, $request_registration_hash, 'claimed',
         1, $claimed_at, $claimed_at, $lease_expires_at, $idempotency_key
       )
     `).run({
@@ -257,6 +340,8 @@ export function claimReplayAttempt(db: Database, input: ClaimReplayAttemptInput)
       $attempt_ordinal: ordinal, $worker_id: input.worker_id,
       $reservation_ref: reservation.reservation_ref, $reservation_hash: reservationHash,
       $request_hash: input.request_hash, $claimed_at: input.claimed_at,
+      $request_registration_id: registrationBinding?.registration_id ?? null,
+      $request_registration_hash: registrationBinding?.registration_hash ?? null,
       $lease_expires_at: input.lease_expires_at, $idempotency_key: input.idempotency_key,
     })
     return toLeaseSnapshot(readAttempt(db, input.attempt_id))

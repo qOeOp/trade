@@ -1020,6 +1020,8 @@ CREATE TABLE IF NOT EXISTS rd_replay_attempt (
   reservation_ref TEXT NOT NULL,
   reservation_hash TEXT NOT NULL,
   request_hash TEXT NOT NULL,
+  request_registration_id TEXT,
+  request_registration_hash TEXT,
   status TEXT NOT NULL CHECK(status IN ('claimed', 'running', 'completed', 'failed', 'cancelled', 'expired')),
   lease_generation INTEGER NOT NULL CHECK(lease_generation >= 1),
   claimed_at TEXT NOT NULL,
@@ -1045,7 +1047,12 @@ CREATE TABLE IF NOT EXISTS rd_replay_attempt (
     (diagnostic_checkpoint_ref IS NULL AND diagnostic_checkpoint_hash IS NULL) OR
     (diagnostic_checkpoint_ref IS NOT NULL AND diagnostic_checkpoint_hash IS NOT NULL)
   ),
-  FOREIGN KEY (trial_id) REFERENCES rd_trial(trial_id)
+  CHECK(
+    (request_registration_id IS NULL AND request_registration_hash IS NULL) OR
+    (request_registration_id IS NOT NULL AND request_registration_hash IS NOT NULL)
+  ),
+  FOREIGN KEY (trial_id) REFERENCES rd_trial(trial_id),
+  FOREIGN KEY (request_registration_id) REFERENCES rd_replay_request_registration(registration_id)
 );
 
 CREATE UNIQUE INDEX IF NOT EXISTS one_active_replay_attempt_per_trial
@@ -1613,7 +1620,8 @@ END;
 
 CREATE TRIGGER IF NOT EXISTS prevent_replay_attempt_identity_mutation
 BEFORE UPDATE OF trial_id, run_id, attempt_ordinal, worker_id, reservation_ref,
-  reservation_hash, request_hash, claimed_at, idempotency_key
+  reservation_hash, request_hash, request_registration_id, request_registration_hash,
+  claimed_at, idempotency_key
 ON rd_replay_attempt
 BEGIN
   SELECT RAISE(ABORT, 'Replay Attempt identity is immutable');
@@ -1858,10 +1866,32 @@ const LIFECYCLE_RULE_SEED: ReadonlyArray<readonly [string, string, string, strin
 export function ensureResearchControlPlaneSchema(db: Database): void {
   db.exec(CONTROL_PLANE_SCHEMA_SQL)
   migrateReplayCheckpointReceiptStoragePolicy(db)
+  migrateReplayAttemptRequestRegistrationBinding(db)
   seedResultStages(db)
   seedResultTypes(db)
   seedLifecycleRules(db)
   validateLifecycleRuleSeed(db)
+}
+
+function migrateReplayAttemptRequestRegistrationBinding(db: Database): void {
+  const columns = db.query("PRAGMA table_info(rd_replay_attempt)").all() as Array<{ name: string }>
+  if (!columns.some((column) => column.name === "request_registration_id")) {
+    db.run("ALTER TABLE rd_replay_attempt ADD COLUMN request_registration_id TEXT")
+  }
+  if (!columns.some((column) => column.name === "request_registration_hash")) {
+    db.run("ALTER TABLE rd_replay_attempt ADD COLUMN request_registration_hash TEXT")
+  }
+  db.exec(`
+    DROP TRIGGER IF EXISTS prevent_replay_attempt_identity_mutation;
+    CREATE TRIGGER prevent_replay_attempt_identity_mutation
+    BEFORE UPDATE OF trial_id, run_id, attempt_ordinal, worker_id, reservation_ref,
+      reservation_hash, request_hash, request_registration_id, request_registration_hash,
+      claimed_at, idempotency_key
+    ON rd_replay_attempt
+    BEGIN
+      SELECT RAISE(ABORT, 'Replay Attempt identity is immutable');
+    END;
+  `)
 }
 
 function migrateReplayCheckpointReceiptStoragePolicy(db: Database): void {
