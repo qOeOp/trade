@@ -10,7 +10,7 @@ last_verified: 2026-07-23 CST
 
 ## 1. 当前纵切
 
-`ops.model-gateway` 将一个 provider-neutral `trade.model-task-request.v1` 交给固定 SiliconFlow profile，返回 typed `trade.model-task-result.v1`。当前只采用 `research_hypothesis`：研究 owner 编译 prompt/request，网关调用模型，研究 owner 再验证 hypothesis contract 并投影 queue item；任何一步都不写 RD state。
+`ops.model-gateway` 将一个 provider-neutral `trade.model-task-request.v1` 交给固定 SiliconFlow profile，返回 typed `trade.model-task-result.v1`。当前只采用 `research_hypothesis`：研究 owner 编译 prompt/request，网关调用模型，研究 owner 再验证 hypothesis contract 并投影 queue item；只有后续 Research Control Plane `queue_proposal` CAS 能原子写入 validated ready proposal。
 
 ```text
 R&D brief/context
@@ -18,7 +18,8 @@ R&D brief/context
   -> ops.model-gateway / SiliconFlow JSON Object
   -> strategy-hypothesis-designer assess_model_result
   -> validated ready|blocked queue proposal
-  -> explicit Control Plane submission (not part of this chain)
+  -> Control Plane queue_proposal CAS
+  -> existing RD supervisor
 ```
 
 ## 2. Authority
@@ -28,7 +29,7 @@ R&D brief/context
 | `model-task-contract` | request/result shape、canonical hash、identity、budget、failure 与 `execution_authority=none` | provider IO、领域 schema |
 | `strategy-hypothesis-designer` | context/prompt version、hypothesis lint、ready/blocked queue projection | provider/key、RD state 写入 |
 | `model-gateway` | 固定 endpoint/model/capability、credential lookup、timeout、限次重试、JSON parse、usage 与脱敏结果 | hypothesis 判断、工具调用、DB/exchange/event write |
-| Research Control Plane | 显式接收 validated ready queue item | 信任未验证模型输出 |
+| Research Control Plane | CAS 接收 validated ready queue item；原 supervisor 消费并管理 Trial/Result | 信任未验证模型输出、自动 promotion |
 
 request 不携带 provider、model、credential、路径、命令或 tool choice。result 不返回 prompt、key、Authorization、raw body 或 reasoning；`raw_response_ref` 只是由 provider id/model/usage/output hash 形成的脱敏相关性引用，不是原文存储。
 
@@ -47,4 +48,4 @@ request 不携带 provider、model、credential、路径、命令或 tool choice
 
 当前 typecheck 与编译后离线测试覆盖 canonical request/result、secret-like prompt、hash/authority/identity 漂移、credential 缺失、限次恢复、429/503、截断、无效 JSON/usage、token 超限、有效 hypothesis、领域 schema 失败及 provider failure；全链 authority 始终为 `none`。
 
-仍未完成：真实 credential 下的单次 capability smoke、固定 dataset 的 Agent/API quality/cost/latency 对比、持久化脱敏 usage/trace、rate-limit backoff/circuit breaker、server secret 注入与有界 soak。因此本合同保持 `active-partial`，当前 server profile 不依赖模型，J01/J02/preflight/execution/reconcile 也不得接入模型。
+已接入 J04 autonomy cycle 的 empty/unready queue 分支；ready/terminal plan 不调用模型，provider/schema/unready 失败不写状态。仍未完成：真实 credential capability smoke、固定 dataset 的 Agent/API quality/cost/latency 对比、持久化脱敏 usage/trace、rate-limit backoff/circuit breaker、server secret 注入与有界 soak。因此本合同保持 `active-partial`；J01/J02/preflight/execution/reconcile 仍不得接入模型。

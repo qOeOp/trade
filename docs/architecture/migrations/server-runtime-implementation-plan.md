@@ -21,7 +21,7 @@ last_verified: 2026-07-23 CST
 | Rust public L2 WebSocket、book、raw segment、gRPC/read owner | 多 symbol 与正式服务器托管；L2 尚未成为策略或执行 authority |
 | J01–J07 job graph、cadence、health、lease、idempotency | 常驻 program profile 仍关闭 domain jobs 与 live write |
 | trade plan、action intent、trigger expiry、execution gate | 没有独立的短期条件监控任务生命周期 |
-| J04 supervisor、Replay、forward、review、durable RD state | ready queue 为空时仍需外部 Agent 生成 hypothesis |
+| J04 supervisor、Replay、forward、review、durable RD state | 已有 bounded autonomy refill；真实 provider/kill-restart/长时 J04-J05-J07 soak 尚未闭合 |
 | 既有 owner toolset 与本地 stdio MCP | 没有统一 composition root、HTTP operator API 与服务器部署合同 |
 | SQLite owner stores 与 artifact catalog | 没有 volume、备份恢复；被 durable ref 引用的 artifact 仍可能落在 `tmp/` |
 
@@ -34,6 +34,8 @@ last_verified: 2026-07-23 CST
 S1 截至 2026-07-23 已从“提案散点”进入可执行实现：三个正式 foreground entrypoint、固定 `server-shadow` profile、systemd render、preflight/status、合成生命周期与恢复演练均已落地。只读 public smoke 已跨两个 control cycle 保持同一 L2 epoch、同一 fencing token，comparable parity mismatch 未增加；因当前 host 为 macOS，结论只能是 local observation。Linux systemd 安装/故障注入和真实 durable volume restore 仍是 S1 采用门，未完成前不得宣称服务器 ready。
 
 S3 已新增独立 `full_shadow` 固定 profile：同一 fenced supervisor/wakeup 可启用 J01–J07、强制 cadence due、保留 owner active/state gate，并永久关闭 exchange live write 与真实通知。干净 HEAD 的临时 SQLite/captured-owner 双周期 fixture 已得到 7/7 enabled、Agent/program `2/2 match`、零重复 job/incident；同槽重启 terminal skip 且 fencing token `1→2`，未出现 live command。当前版本化 server config 仍是 `shadow_program`；published owner CLI smoke、故障注入与长时观察完成前不得切换。
+
+S4/S5 已形成首个本地闭环：J04 路由先读 `plan_next`，ready/terminal 不调用模型；active empty/unready queue 才调用固定 Model Gateway，domain assessment 通过后以 `updated_at` CAS 原子入队，再委托既有 supervisor。模型失败不写 state/Trial，identical replay 幂等，stale/conflict fail closed；真实 provider、进程 kill/restart 单 Trial/Result 与 J04/J05/J07 长时 soak 仍是采用门。
 
 ## 3. 运行工作模型
 
@@ -226,8 +228,8 @@ validate config/secrets/volumes
 | S1 composition root | 一个 server profile 装配既有进程；默认 no-live-write | 单命令启动/停止；crash restart；DB/volume 可恢复 |
 | S2 watch-task vertical | 一个现有 trade plan 编译为 bounded deterministic watch | trigger/expiry/cancel/restart/idempotency fixture 全闭合；只 handoff 不直写 exchange |
 | S3 full shadow runtime | program cadence 启用 J01–J07，但 exchange write 保持关闭 | 与 Agent 路径 parity；长时无重复 job/双写；incident 可查询 |
-| S4 model gateway | SiliconFlow adapter + R&D hypothesis semantic task | schema/预算/超时/redaction/eval 通过；Agent 离线可补 ready queue |
-| S5 research autonomy | J04/J05/J07 按 state/cadence 连续推进 | blocked/no-promote 正确终止；无自动 promotion；重启不重复 Trial |
+| S4 model gateway | 已实现 SiliconFlow adapter + R&D hypothesis semantic task + domain assessment | 本地 schema/预算/超时/redaction/eval 已过；真实 capability/dataset parity/server secret/soak 待闭合 |
+| S5 research autonomy | 已实现 J04 bounded refill + CAS queue + existing supervisor delegation；J05/J07 保持独立 cadence | 本地 stopped/blocked/no-write/duplicate/stale 门已过；真实 provider、kill/restart 单 Trial/Result 与长时 soak 待闭合 |
 | S6 operator convergence | HTTP/MCP/OpenClaw 复用 owner ports | auth、approval、rate limit、audit；关闭入口不影响 runtime |
 | S7 live cutover | 按 job 逐项开放 authority | shadow soak、reconcile、kill/restart、backup/restore、canary live-small 全通过 |
 

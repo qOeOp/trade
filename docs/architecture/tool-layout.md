@@ -133,6 +133,7 @@ Skill 可以说明如何调用既有 MCP / owner tool，但不能绕过 prefligh
 | latest / post-freeze diagnostic signal | `modules/research-strategy-development/agent-roles/reviewer/signal-evaluator` + `research.signal-evaluator` / `research.forward-holdout` |
 | candidate / panel evaluation | `modules/research-strategy-development/agent-roles/developer/candidate-batch` + `research.candidate-batch` / `research.panel-evaluator` |
 | strategy hypothesis designer | `modules/research-strategy-development/agent-roles/planner/strategy-hypothesis-designer` + `research.strategy-hypothesis-designer` |
+| RD autonomy wakeup | `modules/research-strategy-development/research-control-plane/autonomy-cycle` + `research.rd-autonomy-cycle`；仅补 validated ready queue proposal，再委托原 supervisor |
 | RD loop | `modules/research-strategy-development/agent-roles/developer/rd-loop-runner` + `research.rd-loop-runner` |
 | benchmark / calibration | `modules/research-strategy-development/replay-execution-plane/certification/calibration-suite` + `research.benchmark-runner` / `research.calibration-suite` |
 | funding governance | `modules/research-strategy-development/research-control-plane/dataset-governance/funding-governance` + `research.funding-governance` |
