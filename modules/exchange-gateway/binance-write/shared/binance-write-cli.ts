@@ -101,7 +101,7 @@ function requiresPrice(type: string): boolean {
 }
 
 function requiresStopPrice(type: string): boolean {
-  return ["STOP", "STOP_MARKET", "TAKE_PROFIT", "TAKE_PROFIT_MARKET"].includes(type)
+  return ["STOP", "STOP_MARKET", "TAKE_PROFIT", "TAKE_PROFIT_MARKET", "TRAILING_STOP_MARKET"].includes(type)
 }
 
 function requiresTimeInForce(type: string): boolean {

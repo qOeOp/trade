@@ -1,6 +1,21 @@
 #!/usr/bin/env bun
 
-import Binance, { type BinanceRest } from "binance-api-node"
+import type { BinanceRest } from "binance-api-node"
+import {
+  createClient,
+  formatError,
+  normalizeSymbol,
+  parseBoolean,
+  readFlagValue,
+  readPositionSide,
+  readSide,
+  readWorkingType,
+  requiresPrice,
+  requiresStopPrice,
+  requiresTimeInForce,
+  runBinanceMain,
+  type ScriptResponse,
+} from "../../../shared/binance-write-cli"
 import { nowIsoUTC } from "../../../../../contracts/runtime-core/src/time"
 
 interface Config {
@@ -20,10 +35,6 @@ interface Config {
   callbackRate: string
   timeout: number
 }
-
-type ScriptResponse =
-  | { ok: true; data: unknown }
-  | { ok: false; error: string; data?: unknown }
 
 const FUTURES_PROTECTIVE_TYPES = new Set([
   "STOP",
@@ -51,20 +62,6 @@ Key flags:
   --timeout <ms>                     Default: 10000
   --help                             Show this help
 `
-
-async function main(): Promise<void> {
-  const argv = process.argv.slice(2)
-  if (argv.includes("--help") || argv.includes("-h")) {
-    process.stdout.write(HELP_TEXT)
-    return
-  }
-
-  const response = await run(argv)
-  printJSON(response)
-  if (!response.ok) {
-    process.exit(1)
-  }
-}
 
 async function run(argv: string[]): Promise<ScriptResponse> {
   try {
@@ -257,60 +254,6 @@ function buildWarnings(config: Config, method: string): string[] {
   return warnings
 }
 
-function createClient(timeout: number): BinanceRest {
-  return Binance({
-    apiKey: process.env.BINANCE_API_KEY,
-    apiSecret: process.env.BINANCE_API_SECRET,
-    timeout,
-  })
-}
-
-function normalizeSymbol(symbol: string): string {
-  return symbol.trim().toUpperCase().replace(/[\/:_\-\s]/g, "")
-}
-
-function parseBoolean(value: string, name: string): boolean {
-  const normalized = value.trim().toLowerCase()
-  switch (normalized) {
-    case "1":
-    case "true":
-    case "yes":
-    case "y":
-    case "on":
-      return true
-    case "0":
-    case "false":
-    case "no":
-    case "n":
-    case "off":
-      return false
-    default:
-      throw new Error(`${name} must be true or false`)
-  }
-}
-
-function printJSON(value: unknown): void {
-  process.stdout.write(`${JSON.stringify(value, null, 2)}\n`)
-}
-
-function readFlagValue(argv: string[], index: number, name: string): string {
-  const value = argv[index]
-  if (!value || value.startsWith("--")) {
-    throw new Error(`${name} requires a value`)
-  }
-  return value
-}
-
-function formatError(error: unknown): string {
-  if (error && typeof error === "object") {
-    const candidate = error as { code?: unknown; message?: string; responseText?: string }
-    const code = candidate.code != null ? `code=${candidate.code} ` : ""
-    const message = candidate.message || candidate.responseText || JSON.stringify(error)
-    return `${code}${message}`.trim()
-  }
-  return String(error)
-}
-
 function isProtectiveFuturesAlgoOrder(config: Config): boolean {
   return FUTURES_PROTECTIVE_TYPES.has(config.type) && (config.reduceOnly || config.closePosition)
 }
@@ -343,42 +286,6 @@ function validateConfig(config: Config): void {
   }
 }
 
-function readSide(value: string): "BUY" | "SELL" {
-  const side = value.trim().toUpperCase()
-  if (side !== "BUY" && side !== "SELL") {
-    throw new Error(`unsupported side: ${value}`)
-  }
-  return side
-}
-
-function readPositionSide(value: string): "BOTH" | "LONG" | "SHORT" {
-  const positionSide = value.trim().toUpperCase()
-  if (positionSide !== "BOTH" && positionSide !== "LONG" && positionSide !== "SHORT") {
-    throw new Error(`unsupported position side: ${value}`)
-  }
-  return positionSide
-}
-
-function readWorkingType(value: string): "MARK_PRICE" | "CONTRACT_PRICE" {
-  const workingType = value.trim().toUpperCase()
-  if (workingType !== "MARK_PRICE" && workingType !== "CONTRACT_PRICE") {
-    throw new Error(`unsupported working type: ${value}`)
-  }
-  return workingType
-}
-
-function requiresPrice(type: string): boolean {
-  return new Set(["LIMIT", "STOP", "TAKE_PROFIT"]).has(type)
-}
-
-function requiresStopPrice(type: string): boolean {
-  return FUTURES_PROTECTIVE_TYPES.has(type)
-}
-
-function requiresTimeInForce(type: string): boolean {
-  return new Set(["LIMIT", "STOP", "TAKE_PROFIT"]).has(type)
-}
-
 export {
   buildPreview,
   isProtectiveFuturesAlgoOrder,
@@ -388,5 +295,5 @@ export {
 }
 
 if (process.argv[1] && import.meta.url === new URL(process.argv[1], "file:").href) {
-  void main()
+  void runBinanceMain(process.argv.slice(2), HELP_TEXT, run)
 }
