@@ -1,11 +1,12 @@
 #!/usr/bin/env bun
 
-import { renameSync, writeFileSync } from "node:fs"
-import { relative, resolve } from "node:path"
+import { existsSync, renameSync, statfsSync, writeFileSync } from "node:fs"
+import { dirname, relative, resolve } from "node:path"
 import { repoRoot } from "../../../../contracts/runtime-core/src/paths"
 import {
   L2_RUNTIME_STATE_SCHEMA,
   L2_TERMINAL_STATE_SCHEMA,
+  assertMarketDataDbRef,
   assertOutputRef,
   assertRuntimeRef,
   validateLaunchConfig,
@@ -19,12 +20,22 @@ const runtimeDirectory = assertRuntimeRef(root, args.runtimeDir)
 const binary = resolve(root, args.serviceBinary)
 const config = JSON.parse(args.config) as LaunchConfig
 validateLaunchConfig(config)
-assertOutputRef(root, config.output_base)
+const outputPath = assertOutputRef(root, config.output_base)
+assertMarketDataDbRef(root, config.market_data_db)
 const statePath = resolve(runtimeDirectory, "runtime-state.json")
 const terminalPath = resolve(runtimeDirectory, "terminal-state.json")
 let child: ReturnType<typeof Bun.spawn> | undefined
 let stopRequested = false
 let signalName = ""
+let fatalReason = ""
+let diskStatus: RuntimeState["disk_status"] = "unknown"
+let diskAvailableBytes: number | null = null
+let admissionStatus: RuntimeState["admission_status"] = config.admission_interval_ms === 0 ? "disabled" : "pending"
+let admissionLastCheckedAt: string | null = null
+let admissionLastError = ""
+let admissionCreatedTotal = 0
+let admissionRejectedIncompleteTotal = 0
+let admissionRejectedInvalidTotal = 0
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     stopRequested = true
@@ -41,6 +52,11 @@ let terminalStatus: "completed" | "failed" = "failed"
 let terminalReason = "supervisor_failed"
 try {
   while (!stopRequested) {
+    if (sampleDisk() === "hard_limit") {
+      terminalReason = `disk_hard_limit:${diskAvailableBytes ?? "unknown"}`
+      break
+    }
+    if (config.admission_interval_ms > 0 && admissionLastCheckedAt == null) runAdmission()
     attempt += 1
     writeState("starting", null)
     child = Bun.spawn({
@@ -64,8 +80,31 @@ try {
     })
     const childStartedAt = Date.now()
     writeState("running", null)
+    let lastDiskCheckAt = Date.now()
+    let lastAdmissionCheckAt = Date.now()
+    const monitor = setInterval(() => {
+      const now = Date.now()
+      if (now - lastDiskCheckAt >= config.disk_check_interval_ms) {
+        lastDiskCheckAt = now
+        if (sampleDisk() === "hard_limit" && !fatalReason) {
+          fatalReason = `disk_hard_limit:${diskAvailableBytes ?? "unknown"}`
+          child?.kill("SIGTERM")
+        }
+      }
+      if (config.admission_interval_ms > 0 && now - lastAdmissionCheckAt >= config.admission_interval_ms) {
+        lastAdmissionCheckAt = now
+        runAdmission()
+      }
+      writeState(fatalReason ? "stopping" : "running", null)
+    }, Math.min(config.disk_check_interval_ms, config.admission_interval_ms || config.disk_check_interval_ms))
     lastExitCode = await child.exited
+    clearInterval(monitor)
     child = undefined
+    if (config.admission_interval_ms > 0) runAdmission()
+    if (fatalReason) {
+      terminalReason = fatalReason
+      break
+    }
     if (stopRequested) {
       terminalStatus = "completed"
       terminalReason = signalName || "operator_stop"
@@ -116,10 +155,80 @@ function writeState(status: RuntimeState["status"], nextRestartAt: string | null
     consecutive_failures: consecutiveFailures,
     last_exit_code: lastExitCode,
     next_restart_at: nextRestartAt,
+    disk_status: diskStatus,
+    disk_available_bytes: diskAvailableBytes,
+    admission_status: admissionStatus,
+    admission_last_checked_at: admissionLastCheckedAt,
+    admission_last_error: admissionLastError,
+    admission_created_total: admissionCreatedTotal,
+    admission_rejected_incomplete_total: admissionRejectedIncompleteTotal,
+    admission_rejected_invalid_total: admissionRejectedInvalidTotal,
   }
   const temporary = `${statePath}.tmp.${process.pid}`
   writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, { flag: "wx", mode: 0o600 })
   renameSync(temporary, statePath)
+}
+
+function sampleDisk(): RuntimeState["disk_status"] {
+  try {
+    const stats = statfsSync(existingAncestor(outputPath))
+    const available = Number(stats.bavail) * Number(stats.bsize)
+    if (!Number.isSafeInteger(available) || available < 0) throw new Error("filesystem returned invalid available bytes")
+    diskAvailableBytes = available
+    diskStatus = available <= config.disk_hard_min_bytes ? "hard_limit"
+      : available <= config.disk_soft_min_bytes ? "soft_limit" : "healthy"
+  } catch (error) {
+    diskAvailableBytes = null
+    diskStatus = "unknown"
+    admissionLastError = `disk_status:${error instanceof Error ? error.message : String(error)}`
+  }
+  return diskStatus
+}
+
+function runAdmission(): void {
+  admissionLastCheckedAt = new Date().toISOString()
+  const ownerScript = resolve(root, "modules/market-data-products/market-data-store/src/scripts/main.ts")
+  const invocation = Bun.spawnSync({
+    cmd: [
+      process.execPath,
+      ownerScript,
+      "--db", config.market_data_db,
+      "--action", "reconcile_l2_epoch_manifests",
+      "--json", JSON.stringify({ scan_roots: [config.output_base], observed_at: admissionLastCheckedAt }),
+    ],
+    cwd: root,
+    stdout: "pipe",
+    stderr: "pipe",
+    timeout: Math.min(30_000, Math.max(5_000, config.admission_interval_ms)),
+  })
+  if (invocation.exitCode !== 0) {
+    admissionStatus = "degraded"
+    admissionLastError = invocation.stderr.toString().trim() || invocation.stdout.toString().trim() || `owner exit ${invocation.exitCode}`
+    return
+  }
+  try {
+    const response = JSON.parse(invocation.stdout.toString()) as { result?: Record<string, unknown> }
+    const result = response.result ?? {}
+    admissionCreatedTotal += safeCount(result.created)
+    admissionRejectedIncompleteTotal += safeCount(result.rejected_incomplete)
+    admissionRejectedInvalidTotal += safeCount(result.rejected_invalid)
+    admissionStatus = safeCount(result.rejected_invalid) > 0 ? "degraded" : "ready"
+    admissionLastError = admissionStatus === "degraded" ? JSON.stringify(result.problems ?? []) : ""
+  } catch (error) {
+    admissionStatus = "degraded"
+    admissionLastError = `invalid owner response: ${error instanceof Error ? error.message : String(error)}`
+  }
+}
+
+function existingAncestor(path: string): string {
+  let current = path
+  while (!existsSync(current) && dirname(current) !== current) current = dirname(current)
+  if (!existsSync(current)) throw new Error("no existing ancestor for L2 output path")
+  return current
+}
+
+function safeCount(value: unknown): number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : 0
 }
 
 function parseArgs(argv: string[]): { runtimeDir: string; serviceBinary: string; config: string } {

@@ -41,11 +41,13 @@ if (serviceAlive) {
 }
 const healthRecord = health != null && typeof health === "object" ? health as Record<string, unknown> : null
 const sourceHealthy = healthRecord?.read_ready === true
+const controlHealthy = state?.disk_status === "healthy"
+  && (state.admission_status === "ready" || state.admission_status === "disabled")
 const status = terminal?.status === "completed" ? "stopped"
   : terminal?.status === "failed" ? "failed"
     : !supervisorAlive ? "orphaned"
       : state?.status === "backoff" ? "degraded"
-        : serviceAlive && sourceHealthy ? "healthy"
+        : serviceAlive && sourceHealthy && controlHealthy ? "healthy"
           : serviceAlive && health != null ? "degraded" : "starting"
 process.stdout.write(`${JSON.stringify({
   schema_version: "trade.l2-service-status.v1",

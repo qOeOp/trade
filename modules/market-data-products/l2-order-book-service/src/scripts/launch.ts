@@ -5,6 +5,7 @@ import { relative, resolve } from "node:path"
 import { repoRoot } from "../../../../contracts/runtime-core/src/paths"
 import {
   L2_LAUNCH_RECEIPT_SCHEMA,
+  assertMarketDataDbRef,
   assertOutputRef,
   assertRuntimeRef,
   validateLaunchConfig,
@@ -17,6 +18,7 @@ const moduleRoot = resolve(import.meta.dir, "../..")
 const config = parseArgs(process.argv.slice(2))
 validateLaunchConfig(config)
 assertOutputRef(root, config.output_base)
+assertMarketDataDbRef(root, config.market_data_db)
 
 const build = Bun.spawnSync({ cmd: ["cargo", "build", "--release", "--bins"], cwd: moduleRoot, stdout: "inherit", stderr: "inherit" })
 if (build.exitCode !== 0) throw new Error(`L2 release build failed with exit code ${build.exitCode}`)
@@ -86,6 +88,11 @@ function parseArgs(argv: string[]): LaunchConfig {
     sync_every_frames: numberValue(values.sync_every_frames, 100),
     stale_after_ms: numberValue(values.stale_after_ms, 2_000),
     restart_limit: numberValue(values.restart_limit, 0),
+    market_data_db: values.market_data_db ?? "data/market_data.db",
+    admission_interval_ms: numberValue(values.admission_interval_ms, 30_000),
+    disk_check_interval_ms: numberValue(values.disk_check_interval_ms, 5_000),
+    disk_soft_min_bytes: numberValue(values.disk_soft_min_bytes, 10 * 1024 ** 3),
+    disk_hard_min_bytes: numberValue(values.disk_hard_min_bytes, 5 * 1024 ** 3),
   }
 }
 

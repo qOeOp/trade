@@ -13,6 +13,11 @@ const config: LaunchConfig = {
   sync_every_frames: 100,
   stale_after_ms: 2_000,
   restart_limit: 0,
+  market_data_db: "data/market_data.db",
+  admission_interval_ms: 30_000,
+  disk_check_interval_ms: 5_000,
+  disk_soft_min_bytes: 10 * 1024 ** 3,
+  disk_hard_min_bytes: 5 * 1024 ** 3,
 }
 
 test("L2 control contract accepts indefinite supervised local service", () => {
@@ -25,4 +30,5 @@ test("L2 control contract rejects public listener and escaped paths", () => {
   assert.throws(() => validateLaunchConfig({ ...config, listen: "0.0.0.0:50061" }), /loopback/)
   assert.throws(() => assertOutputRef("/repo", "data/other"), /L2 output/)
   assert.throws(() => assertRuntimeRef("/repo", "../runtime"), /control files/)
+  assert.throws(() => validateLaunchConfig({ ...config, disk_soft_min_bytes: 1, disk_hard_min_bytes: 2 }), /disk_soft_min_bytes/)
 })
