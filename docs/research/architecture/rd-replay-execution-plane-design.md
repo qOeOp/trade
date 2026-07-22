@@ -117,4 +117,13 @@ M4/M5 都相对于**声明的能力包络**，不要求伪造不可能证明的�
 
 ## 11. P1–P29 归并基线
 
-[Capability Inventory](../reliability/rd-replay-capability-inventory.json) 冻结全部 29 条纵切：13 条进入目标 canonical 实现/入口，12 条保留为显式 opt-in，4 条只作 compatibility，当前没有未经 dependency proof 即可删除的 obsolete 条目。该分类是迁移起点，不代表 29 套公共 API：M4 必须把 canonical 公共入口压缩为独立 Lane、Integrated Portfolio、terminal-aware bounded cycle 三类，并以 capability registry 激活 opt-in；compatibility 禁止新增生产消费者。
+[Capability Inventory](../reliability/rd-replay-capability-inventory.json) 冻结全部 29 条纵切：13 条进入目标 canonical 实现/入口，12 条保留为显式 opt-in，4 条只作 compatibility，当前没有未经 dependency proof 即可删除的 obsolete 条目。该分类是迁移起点，不代表 29 套公共 API。canonical 公共面只允许四个 Runner owner 入口：
+
+| Profile | 唯一入口 |
+| --- | --- |
+| single-trial | `runReplayTrial` |
+| independent-lane-batch | `runReplayIndependentLaneBatch` |
+| integrated-portfolio | `runReplayIntegratedPortfolio` |
+| terminal-aware-bounded-cycle | `runReplayPortfolioProtectiveTerminalCycleSequence` |
+
+其余 P19–P29 successor 必须经 capability registry 显式激活，不能继续各自演化为公共产品入口；compatibility 禁止新增生产消费者。
