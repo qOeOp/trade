@@ -3,6 +3,7 @@ import { cpus, totalmem } from "node:os"
 import { existsSync, readFileSync } from "node:fs"
 import { join } from "node:path"
 import { REPLAY_CERTIFICATION_OWNER, type ReplayProfileEvidenceManifest } from "./replay-certification"
+import { runReplayOwnerAssertionProcess } from "./replay-owner-assertion-process"
 
 export interface ReplayCertifiedWorkloadUnit {
   unit: "batch" | "portfolio" | "sequence" | "cycle" | "lane" | "trial" | "market_bar"
@@ -293,37 +294,13 @@ async function runProfileSample(
   profile: ReplayCapacityPerformanceProfile,
   repoRoot: string,
 ): Promise<{ pid: number; elapsedMs: number }> {
-  const started = Bun.nanoseconds()
-  const child = Bun.spawn([
-    "bun", "test", profile.test_path, "--test-name-pattern", `^${escapeRegExp(profile.test_name)}$`,
-  ], {
-    cwd: repoRoot,
-    stdin: "ignore",
-    stdout: "pipe",
-    stderr: "pipe",
-    env: { ...process.env, NO_COLOR: "1" },
-  })
-  let timeoutId: ReturnType<typeof setTimeout> | undefined
-  const timeout = new Promise<"timeout">((resolve) => {
-    timeoutId = setTimeout(() => resolve("timeout"), profile.sample_timeout_ms)
-  })
-  const exit = await Promise.race([child.exited, timeout])
-  clearTimeout(timeoutId)
-  if (exit === "timeout") {
-    child.kill(9)
-    await child.exited
-    throw new Error(`Replay capacity/performance sample timed out: ${profile.profile}`)
-  }
-  const [stdout, stderr] = await Promise.all([
-    child.stdout == null || typeof child.stdout === "number" ? "" : new Response(child.stdout).text(),
-    child.stderr == null || typeof child.stderr === "number" ? "" : new Response(child.stderr).text(),
-  ])
-  const output = `${stdout}\n${stderr}`
-  if (exit !== 0 || !output.includes(`(pass) ${profile.test_name}`)
-      || !output.includes(" 1 pass") || !output.includes(" 0 fail")) {
-    throw new Error(`Replay capacity/performance owner assertion failed: ${profile.profile}`)
-  }
-  return { pid: child.pid, elapsedMs: Math.ceil((Bun.nanoseconds() - started) / 1_000_000) }
+  const result = await runReplayOwnerAssertionProcess({
+    test_path: profile.test_path,
+    test_name: profile.test_name,
+    timeout_ms: profile.sample_timeout_ms,
+    failure_label: `Replay capacity/performance owner assertion: ${profile.profile}`,
+  }, repoRoot)
+  return { pid: result.process_id, elapsedMs: result.elapsed_ms }
 }
 
 function assertSource(repoRoot: string, path: string, expectedHash: string, role: string): string {
@@ -351,8 +328,4 @@ function stableJson(value: unknown): string {
 
 function sha256(value: string): string {
   return createHash("sha256").update(value).digest("hex")
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
 }
