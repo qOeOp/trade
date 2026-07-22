@@ -295,7 +295,7 @@ describe("Replay certification owner", () => {
     retryOverclaim.incident_classes[2]!.retry_policy = "retry-until-success"
     expect(() => assertReplayOperationalReadinessRegistry(
       retryOverclaim, profileEvidence, repoRoot,
-    )).toThrow("triage, commands, or limitations drifted")
+    )).toThrow("incident triage drifted or overclaimed retry")
 
     const partialOverclaim = structuredClone(loadReplayOperationalReadinessRegistry(repoRoot))
     partialOverclaim.profile_observability[0]!.partial_evidence_policy = "partial-result-is-usable"

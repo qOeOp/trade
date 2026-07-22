@@ -174,10 +174,14 @@ export function assertReplayOperationalReadinessRegistry(
         !== JSON.stringify(profileEvidence.profiles.map((entry) => entry.profile))) {
     throw new Error("Replay operational profile observability is incomplete or overclaimed")
   }
-  if (JSON.stringify(registry.incident_classes) !== JSON.stringify(EXPECTED_INCIDENT_CLASSES)
-      || JSON.stringify(registry.operator_commands) !== JSON.stringify(EXPECTED_COMMANDS)
-      || JSON.stringify(registry.limitations) !== JSON.stringify(EXPECTED_LIMITATIONS)) {
-    throw new Error("Replay operational triage, commands, or limitations drifted")
+  if (JSON.stringify(registry.incident_classes) !== JSON.stringify(EXPECTED_INCIDENT_CLASSES)) {
+    throw new Error("Replay operational incident triage drifted or overclaimed retry")
+  }
+  if (JSON.stringify(registry.operator_commands) !== JSON.stringify(EXPECTED_COMMANDS)) {
+    throw new Error("Replay operational commands drifted")
+  }
+  if (JSON.stringify(registry.limitations) !== JSON.stringify(EXPECTED_LIMITATIONS)) {
+    throw new Error("Replay operational limitations drifted")
   }
   if (registry.runbook.path !== EXPECTED_RUNBOOK_PATH
       || JSON.stringify(registry.runbook.required_sections) !== JSON.stringify(EXPECTED_RUNBOOK_SECTIONS)) {
