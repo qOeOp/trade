@@ -17,8 +17,8 @@ Watch Task 解决“计划已存在，但 15 分钟 fast cadence 对入场/失�
 ## 2. Authority
 
 ```text
-approved plan/action intent refs
-  -> watch-task contract compile + canonical hash
+validated plan/proposed action-intent refs
+  -> decision watch-task compiler -> contract compile + canonical hash
   -> ops_runtime_store definition/state/transition + fenced lease
   -> bounded watch runtime -> public symbol-snapshot owner
   -> triggered action_intent_revalidation handoff (execution_authority=none)
@@ -26,6 +26,7 @@ approved plan/action intent refs
 ```
 
 - `modules/contracts/watch-task-contract` 拥有 definition、observation、evaluation 与单调状态词汇。
+- `modules/live-decision-planning/watch-task-compiler` 只把 identity/hash/lineage/expiry 一致的 plan draft 与 proposed intent 编译为 definition；proposed 不是执行授权。
 - `ops.runtime-store` 拥有 task CAS、counter、lease、handoff receipt、terminal reason 与 append-only transition。
 - `ops.watch-task-runtime` 只拥有 loop、固定 owner 调用、lease renew/release 和停止语义。
 - action intent、preflight、execution gate、exchange write 与 trade fact authority 均不迁入本功能。
@@ -72,6 +73,6 @@ created -> armed -> observing -> triggered -> handed_off -> completed
 
 ## 6. 当前证据与下一门
 
-已实现 contract/store/runtime 与 typecheck：trigger、invalidation-first、expiry、stale/error/observation budget、idempotent create、CAS、fenced lease、restart state、handoff receipt 和 terminal audit 均有 fixture。因当前机器存在并行 Bun test runner 阻塞，测试实跑证据必须在负载恢复后补齐，不能仅凭 typecheck 把 S2 宣称完成。
+已实现 compiler/contract/store/runtime 与 typecheck：plan/intent lineage、trigger、invalidation-first、expiry、stale/error/observation budget、idempotent create、CAS、fenced lease、restart state、handoff receipt 和 terminal audit 均有 fixture。纯合同、store 与 loop fixture 已通过编译后 Node runner；因当前机器存在并行 Bun test runner 阻塞，Bun-native 与 owner CLI integration 仍须在负载恢复后补齐，不能把 S2 宣称完成。
 
-下一门按顺序是：实跑三模块测试 → 用临时 DB 完成 create/arm/observe/trigger/restart/cancel/idempotency integration → 将已批准 plan 编译入口接到本合同 → 将 handoff 薄接到既有 preflight/execution gate；最后两步仍禁止 exchange write。
+下一门按顺序是：实跑四模块 Bun tests → 用临时 DB 完成 create/arm/observe/trigger/restart/cancel/idempotency owner-CLI integration → 将 handoff 薄接到既有 preflight/execution gate；全程仍禁止 exchange write。
