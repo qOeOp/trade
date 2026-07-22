@@ -41,21 +41,21 @@ test("strategy R&D evaluation rebuilds delayed entry signal", () => {
   assert.equal(rebuilt?.reason, "fixture negative control entry lag")
 })
 
-test("strategy R&D entry-lag negative control replays source signal with source entry price", () => {
-  const calls: Array<{ index: number; entryIndex: number; entryPrice: number }> = []
+test("strategy R&D entry-lag negative control replays source signal with bounded decision price", () => {
+  const calls: Array<{ index: number; entryIndex: number; decisionPrice: number; candleCount: number }> = []
   const strategy: ReplayStrategy = {
     strategy_id: "fixture",
     default_timeframe: "4h",
     warmup_bars: 0,
     generateSignal(input) {
-      calls.push({ index: input.index, entryIndex: input.entryIndex, entryPrice: input.entryPrice })
+      calls.push({ index: input.index, entryIndex: input.entryIndex, decisionPrice: input.decisionPrice, candleCount: input.candles.length })
       return {
         side: "long",
         signal_index: input.index,
         entry_index: input.entryIndex,
-        entry: input.entryPrice,
-        stop: input.entryPrice - 10,
-        target: input.entryPrice + 20,
+        entry: input.decisionPrice,
+        stop: input.decisionPrice - 10,
+        target: input.decisionPrice + 20,
         reason: "fixture",
       }
     },
@@ -75,16 +75,16 @@ test("strategy R&D entry-lag negative control replays source signal with source 
     indicators: { ema20: [], ema50: [], ema200: [], atr14: [] },
     index: 10,
     entryIndex: 11,
-    entryPrice: 111,
+    decisionPrice: 110,
     options: { manifestPath: "/tmp/manifest.json" },
   })
 
-  assert.deepEqual(calls, [{ index: 7, entryIndex: 8, entryPrice: 108 }])
+  assert.deepEqual(calls, [{ index: 7, entryIndex: 8, decisionPrice: 107, candleCount: 8 }])
   assert.equal(signal?.signal_index, 10)
   assert.equal(signal?.entry_index, 11)
-  assert.equal(signal?.entry, 111)
-  assert.equal(signal?.stop, 98)
-  assert.equal(signal?.target, 137)
+  assert.equal(signal?.entry, 110)
+  assert.equal(signal?.stop, 97)
+  assert.equal(signal?.target, 136)
 })
 
 test("strategy R&D evaluation summarizes negative controls and gates blockers", () => {

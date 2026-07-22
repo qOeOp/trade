@@ -46,14 +46,14 @@ function strategy(id: string, params: Params, store: FactorFeatureStore): Replay
     strategy_id: id,
     default_timeframe: "4h",
     warmup_bars: Math.max(200, params.lookbackBars + 1),
-    generateSignal({ candles, indicators, index, entryIndex, entryPrice, options }) {
+    generateSignal({ candles, indicators, index, entryIndex, decisionPrice, options }) {
       const candle = candles[index]
       const prior = candles[index - params.lookbackBars]
       const atr = indicators.atr14[index]
       if (!prior || !Number.isFinite(atr) || atr <= 0 || !passesFactorConditions(params.factorConditions, store, options.timeframe || "4h", candle.date)) return null
       const momentum = (candle.close - prior.close) / atr
-      if ((params.side === "long" || params.side === "both") && momentum >= params.thresholdAtr) return signal("long", candle, index, entryIndex, entryPrice, atr, params)
-      if ((params.side === "short" || params.side === "both") && momentum <= -params.thresholdAtr) return signal("short", candle, index, entryIndex, entryPrice, atr, params)
+      if ((params.side === "long" || params.side === "both") && momentum >= params.thresholdAtr) return signal("long", candle, index, entryIndex, decisionPrice, atr, params)
+      if ((params.side === "short" || params.side === "both") && momentum <= -params.thresholdAtr) return signal("short", candle, index, entryIndex, decisionPrice, atr, params)
       return null
     },
   }
@@ -70,6 +70,7 @@ function signal(side: "long" | "short", candle: Candle, index: number, entryInde
     entry,
     stop,
     target: side === "long" ? entry + risk * params.rewardRisk : entry - risk * params.rewardRisk,
+    entry_risk_limit: params.maxRiskAtr * atr,
     ...(params.breakEvenAfterR > 0 ? { break_even_after_r: params.breakEvenAfterR, break_even_offset_r: params.breakEvenOffsetR } : {}),
     reason: `rnd time-series momentum ${side}`,
     meta: json(params),

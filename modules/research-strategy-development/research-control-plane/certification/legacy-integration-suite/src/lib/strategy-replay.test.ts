@@ -1,4 +1,4 @@
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import assert from "node:assert/strict"
@@ -65,7 +65,7 @@ test("replayStrategy runs a custom strategy definition through generic engine", 
       strategy_id: "S-CUSTOM-ONE-SHOT",
       default_timeframe: "4h",
       warmup_bars: 1,
-      generateSignal({ candles, index }) {
+      generateSignal({ decisionPrice, index }) {
         if (index !== 1) {
           return null
         }
@@ -73,9 +73,9 @@ test("replayStrategy runs a custom strategy definition through generic engine", 
           side: "long",
           signal_index: index,
           entry_index: index + 1,
-          entry: candles[index + 1].open,
-          stop: candles[index + 1].open - 1,
-          target: candles[index + 1].open + 2,
+          entry: decisionPrice,
+          stop: decisionPrice - 1,
+          target: decisionPrice + 2,
           reason: "test one-shot",
         }
       },
@@ -98,6 +98,88 @@ test("replayStrategy runs a custom strategy definition through generic engine", 
     assert.equal(result.provenance.temporal_contract.universe_selection_source, "dataset_start_fallback")
   } finally {
     rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("replayStrategy gives strategies only an immutable cutoff snapshot", () => {
+  const dir = mkdtempSync(join(tmpdir(), "strategy-replay-cutoff-"))
+  try {
+    writeReplayFixture(dir)
+    let inspected = false
+    const strategy: ReplayStrategy = {
+      strategy_id: "S-CUTOFF-BOUNDARY",
+      default_timeframe: "4h",
+      warmup_bars: 1,
+      generateSignal({ candles, indicators, index, decisionPrice }) {
+        if (index !== 1) return null
+        inspected = true
+        assert.equal(candles.length, index + 1)
+        assert.equal(candles[index + 1], undefined)
+        assert.equal(indicators.atr14.length, index + 1)
+        assert.equal(Object.isFrozen(candles), true)
+        assert.equal(Object.isFrozen(candles[index]), true)
+        assert.equal(Object.isFrozen(indicators.atr14), true)
+        return {
+          side: "long",
+          signal_index: index,
+          entry_index: index + 1,
+          entry: decisionPrice,
+          stop: decisionPrice - 1,
+          target: decisionPrice + 2,
+          reason: "cutoff boundary",
+        }
+      },
+    }
+
+    const result = replayStrategy(strategy, { manifestPath: join(dir, "manifest.json") })
+    assert.equal(inspected, true)
+    assert.equal(result.sample_count, 1)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("future next-open gaps cannot change the prior decision and are enforced at fill time", () => {
+  const root = mkdtempSync(join(tmpdir(), "strategy-replay-gap-boundary-"))
+  try {
+    const stableDir = join(root, "stable")
+    const gapDir = join(root, "gap")
+    const decisions: Record<string, Array<Record<string, unknown>>> = { stable: [], gap: [] }
+    for (const [name, dir, nextOpen] of [["stable", stableDir, 100], ["gap", gapDir, 120]] as const) {
+      mkdirSync(dir)
+      writeFileSync(join(dir, "4h.csv"), [
+        "date,timestamp,open,high,low,close,volume",
+        "2026-01-01T00:00:00Z,1767225600000,100,101,99,100,10",
+        "2026-01-01T04:00:00Z,1767240000000,100,101,99,100,10",
+        `2026-01-01T08:00:00Z,1767254400000,${nextOpen},${nextOpen + 2},99,${nextOpen},10`,
+        `2026-01-01T12:00:00Z,1767268800000,${nextOpen},${nextOpen + 3},98,${nextOpen + 1},10`,
+      ].join("\n"))
+      writeFileSync(join(dir, "manifest.json"), JSON.stringify({ symbol: "BTCUSDT", timeframes: { "4h": { file: "4h.csv" } } }))
+      const strategy: ReplayStrategy = {
+        strategy_id: `S-GAP-BOUNDARY-${name}`,
+        default_timeframe: "4h",
+        warmup_bars: 1,
+        generateSignal({ candles, index, decisionPrice }) {
+          if (index !== 1) return null
+          decisions[name].push({ decisionPrice, candleCount: candles.length, lastClose: candles[index].close })
+          return {
+            side: "long",
+            signal_index: index,
+            entry_index: index + 1,
+            entry: decisionPrice,
+            stop: decisionPrice - 1,
+            target: decisionPrice + 2,
+            entry_risk_limit: 5,
+            reason: "gap execution boundary",
+          }
+        },
+      }
+      const result = replayStrategy(strategy, { manifestPath: join(dir, "manifest.json") })
+      assert.equal(result.sample_count, name === "stable" ? 1 : 0)
+    }
+    assert.deepEqual(decisions.stable, decisions.gap)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
   }
 })
 
@@ -268,9 +350,9 @@ test("replayStrategy emits diagnostic-only monte carlo metrics", () => {
       strategy_id: "S-DIAGNOSTICS",
       default_timeframe: "4h",
       warmup_bars: 1,
-      generateSignal({ candles, index }) {
+      generateSignal({ decisionPrice, index }) {
         if (index !== 1 && index !== 3) return null
-        return { side: "long", signal_index: index, entry_index: index + 1, entry: candles[index + 1].open, stop: candles[index + 1].open - 1, target: candles[index + 1].open + 2, reason: "diagnostic" }
+        return { side: "long", signal_index: index, entry_index: index + 1, entry: decisionPrice, stop: decisionPrice - 1, target: decisionPrice + 2, reason: "diagnostic" }
       },
     }
     const result = replayStrategy(strategy, { manifestPath: join(dir, "manifest.json"), maxHoldBars: 2 })
@@ -292,7 +374,7 @@ test("replayStrategy can attach chronological OOS anti-overfit proof", () => {
       strategy_id: "S-CUSTOM-MULTI",
       default_timeframe: "4h",
       warmup_bars: 1,
-      generateSignal({ candles, index }) {
+      generateSignal({ decisionPrice, index }) {
         if (index !== 1 && index !== 3) {
           return null
         }
@@ -300,9 +382,9 @@ test("replayStrategy can attach chronological OOS anti-overfit proof", () => {
           side: "long",
           signal_index: index,
           entry_index: index + 1,
-          entry: candles[index + 1].open,
-          stop: candles[index + 1].open - 1,
-          target: candles[index + 1].open + 2,
+          entry: decisionPrice,
+          stop: decisionPrice - 1,
+          target: decisionPrice + 2,
           reason: "test multi",
         }
       },
@@ -333,15 +415,15 @@ test("locked holdout evaluates the complete frozen dataset", () => {
       strategy_id: "S-CUSTOM-HOLDOUT",
       default_timeframe: "4h",
       warmup_bars: 1,
-      generateSignal({ candles, index }) {
+      generateSignal({ decisionPrice, index }) {
         if (index !== 1 && index !== 3) return null
         return {
           side: "long",
           signal_index: index,
           entry_index: index + 1,
-          entry: candles[index + 1].open,
-          stop: candles[index + 1].open - 1,
-          target: candles[index + 1].open + 2,
+          entry: decisionPrice,
+          stop: decisionPrice - 1,
+          target: decisionPrice + 2,
           reason: "test locked holdout",
         }
       },
@@ -374,9 +456,9 @@ test("external validation evaluates the complete dataset without claiming holdou
       strategy_id: "S-EXTERNAL",
       default_timeframe: "4h",
       warmup_bars: 1,
-      generateSignal({ candles, index }) {
+      generateSignal({ decisionPrice, index }) {
         if (index !== 1 && index !== 3) return null
-        return { side: "long", signal_index: index, entry_index: index + 1, entry: candles[index + 1].open, stop: candles[index + 1].open - 1, target: candles[index + 1].open + 2, reason: "external" }
+        return { side: "long", signal_index: index, entry_index: index + 1, entry: decisionPrice, stop: decisionPrice - 1, target: decisionPrice + 2, reason: "external" }
       },
     }
     const result = replayStrategy(strategy, { manifestPath: join(dir, "manifest.json"), antiOverfitStage: "external_validation" })
@@ -396,14 +478,14 @@ test("evaluateLatestSignal uses the latest closed candle and external entry refe
       strategy_id: "S-LATEST",
       default_timeframe: "4h",
       warmup_bars: 1,
-      generateSignal({ candles, index, entryPrice, entryIndex }) {
+      generateSignal({ candles, index, decisionPrice, entryIndex }) {
         return {
           side: "long",
           signal_index: index,
           entry_index: entryIndex,
-          entry: entryPrice,
-          stop: entryPrice - 1,
-          target: entryPrice + 2,
+          entry: decisionPrice,
+          stop: decisionPrice - 1,
+          target: decisionPrice + 2,
           reason: `latest:${candles[index].date}`,
         }
       },

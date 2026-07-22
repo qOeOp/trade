@@ -71,7 +71,7 @@ function buildStrategy(strategyId: string, params: Params, factorStore: Paramete
     strategy_id: strategyId,
     default_timeframe: "4h",
     warmup_bars: Math.max(200, params.slopeLookback + 1),
-    generateSignal({ candles, indicators, index, entryPrice, entryIndex, options }) {
+    generateSignal({ candles, indicators, index, decisionPrice, entryIndex, options }) {
       const candle = candles[index]
       const fast = readEma(indicators, params.fastEma, index)
       const slow = readEma(indicators, params.slowEma, index)
@@ -83,7 +83,7 @@ function buildStrategy(strategyId: string, params: Params, factorStore: Paramete
         return null
       }
       const side = candidateSide(candles, indicators, index, params)
-      return side ? signal(side, candle, index, entryIndex, entryPrice, fast, atr, params) : null
+      return side ? signal(side, candle, index, entryIndex, decisionPrice, fast, atr, params) : null
     },
   }
 }
@@ -106,13 +106,13 @@ function signal(side: "long" | "short", candle: Candle, index: number, entryInde
     const stop = Math.min(candle.low, fast) - params.stopAtr * atr
     const risk = entry - stop
     if (risk <= 0 || risk > params.maxRiskAtr * atr) return null
-    return { side, signal_index: index, entry_index: entryIndex, entry, stop, target: entry + risk * params.rewardRisk, reason: "rnd trend pullback long", meta: toJSON(params) }
+    return { side, signal_index: index, entry_index: entryIndex, entry, stop, target: entry + risk * params.rewardRisk, entry_risk_limit: params.maxRiskAtr * atr, reason: "rnd trend pullback long", meta: toJSON(params) }
   }
   if (candle.high < fast - params.pullbackAtr * atr) return null
   const stop = Math.max(candle.high, fast) + params.stopAtr * atr
   const risk = stop - entry
   if (risk <= 0 || risk > params.maxRiskAtr * atr) return null
-  return { side, signal_index: index, entry_index: entryIndex, entry, stop, target: entry - risk * params.rewardRisk, reason: "rnd trend pullback short", meta: toJSON(params) }
+  return { side, signal_index: index, entry_index: entryIndex, entry, stop, target: entry - risk * params.rewardRisk, entry_risk_limit: params.maxRiskAtr * atr, reason: "rnd trend pullback short", meta: toJSON(params) }
 }
 
 function readEma(indicators: IndicatorSet, length: 20 | 50 | 200, index: number): number {

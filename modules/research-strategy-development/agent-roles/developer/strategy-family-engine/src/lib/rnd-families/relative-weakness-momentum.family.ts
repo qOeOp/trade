@@ -106,7 +106,7 @@ function strategy(id: string, params: Params, benchmark: BenchmarkSeries, store:
     strategy_id: id,
     default_timeframe: "4h",
     warmup_bars: Math.max(200, params.lookbackBars + 1),
-    generateSignal({ candles, indicators, index, entryIndex, entryPrice, options }) {
+    generateSignal({ candles, indicators, index, entryIndex, decisionPrice, options }) {
       const candle = candles[index]
       const prior = candles[index - params.lookbackBars]
       const atr = indicators.atr14[index]
@@ -120,11 +120,11 @@ function strategy(id: string, params: Params, benchmark: BenchmarkSeries, store:
       const shortSetup = params.signalMode === "momentum" ? weakAsset : strongAsset
       if ((params.side === "short" || params.side === "both") && shortSetup) {
         if (!passesConfirmation("short", candles, index, params.confirmationMode)) return null
-        return signal("short", candle, index, entryIndex, entryPrice, atr, move, params)
+        return signal("short", candle, index, entryIndex, decisionPrice, atr, move, params)
       }
       if ((params.side === "long" || params.side === "both") && longSetup) {
         if (!passesConfirmation("long", candles, index, params.confirmationMode)) return null
-        return signal("long", candle, index, entryIndex, entryPrice, atr, move, params)
+        return signal("long", candle, index, entryIndex, decisionPrice, atr, move, params)
       }
       return null
     },
@@ -171,6 +171,7 @@ function signal(side: "long" | "short", candle: Candle, index: number, entryInde
     entry,
     stop,
     target: side === "long" ? entry + risk * params.rewardRisk : entry - risk * params.rewardRisk,
+    entry_risk_limit: params.maxRiskAtr * atr,
     ...(params.breakEvenAfterR > 0 ? { break_even_after_r: params.breakEvenAfterR, break_even_offset_r: params.breakEvenOffsetR } : {}),
     reason: `rnd relative weakness ${params.signalMode} ${side}`,
     meta: { ...json(params), relative_atr: round(move.relativeAtr), benchmark_return: round(move.benchmarkReturn) },

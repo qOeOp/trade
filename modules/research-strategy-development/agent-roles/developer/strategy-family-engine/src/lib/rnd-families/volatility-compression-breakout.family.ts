@@ -45,7 +45,7 @@ function strategy(id: string, params: Params, store: FactorFeatureStore): Replay
     strategy_id: id,
     default_timeframe: "4h",
     warmup_bars: Math.max(200, params.compressionBars + params.breakoutBars),
-    generateSignal({ candles, indicators, index, entryIndex, entryPrice, options }) {
+    generateSignal({ candles, indicators, index, entryIndex, decisionPrice, options }) {
       const candle = candles[index]
       if (!passesFactorConditions(params.factorConditions, store, options.timeframe || "4h", candle.date)) return null
       const ratios = candles.slice(index - params.compressionBars, index).map((item, offset) => indicators.atr14[index - params.compressionBars + offset] / item.close).filter(Number.isFinite).sort((a, b) => a - b)
@@ -56,8 +56,8 @@ function strategy(id: string, params: Params, store: FactorFeatureStore): Replay
       const range = candles.slice(index - params.breakoutBars, index)
       const high = Math.max(...range.map((item) => item.high))
       const low = Math.min(...range.map((item) => item.low))
-      if ((params.side === "long" || params.side === "both") && candle.close > high) return signal("long", candle, index, entryIndex, entryPrice, atr, params)
-      if ((params.side === "short" || params.side === "both") && candle.close < low) return signal("short", candle, index, entryIndex, entryPrice, atr, params)
+      if ((params.side === "long" || params.side === "both") && candle.close > high) return signal("long", candle, index, entryIndex, decisionPrice, atr, params)
+      if ((params.side === "short" || params.side === "both") && candle.close < low) return signal("short", candle, index, entryIndex, decisionPrice, atr, params)
       return null
     },
   }
@@ -67,7 +67,7 @@ function signal(side: "long" | "short", candle: Candle, index: number, entryInde
   const stop = side === "long" ? candle.low - params.stopAtr * atr : candle.high + params.stopAtr * atr
   const risk = Math.abs(entry - stop)
   if (risk <= 0 || risk > params.maxRiskAtr * atr) return null
-  return { side, signal_index: index, entry_index: entryIndex, entry, stop, target: side === "long" ? entry + risk * params.rewardRisk : entry - risk * params.rewardRisk, reason: `rnd volatility compression breakout ${side}`, meta: json(params) }
+  return { side, signal_index: index, entry_index: entryIndex, entry, stop, target: side === "long" ? entry + risk * params.rewardRisk : entry - risk * params.rewardRisk, entry_risk_limit: params.maxRiskAtr * atr, reason: `rnd volatility compression breakout ${side}`, meta: json(params) }
 }
 
 export default family

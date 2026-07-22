@@ -4,7 +4,7 @@ const btcTrendPullbackStrategy: ReplayStrategy = {
   strategy_id: "S-BTC-4H-TREND-PULLBACK",
   default_timeframe: "4h",
   warmup_bars: 200,
-  generateSignal({ candles, indicators, index, entryPrice, entryIndex, options }) {
+  generateSignal({ candles, indicators, index, decisionPrice, entryIndex, options }) {
     const candle = candles[index]
     const emaFast = indicators.ema50[index]
     const emaSlow = indicators.ema200[index]
@@ -18,9 +18,10 @@ const btcTrendPullbackStrategy: ReplayStrategy = {
       signal: candle,
       signalIndex: index,
       entryIndex,
-      entry: entryPrice,
+      entry: decisionPrice,
       emaFast,
       currentAtr,
+      entryRiskLimit: 1.25 * currentAtr,
       rewardRisk: options.rewardRisk ?? 2,
     })
   },
@@ -64,6 +65,7 @@ function buildTrendPullbackSignal(input: {
   entry: number
   emaFast: number
   currentAtr: number
+  entryRiskLimit: number
   rewardRisk: number
 }): ReplaySignal | null {
   if (input.side === "long") {
@@ -83,6 +85,7 @@ function buildTrendPullbackSignal(input: {
       entry: input.entry,
       stop,
       target: input.entry + risk * input.rewardRisk,
+      entry_risk_limit: input.entryRiskLimit,
       reason: "ema50 trend pullback long",
       meta: {
         ema50: input.emaFast,
@@ -107,6 +110,7 @@ function buildTrendPullbackSignal(input: {
     entry: input.entry,
     stop,
     target: input.entry - risk * input.rewardRisk,
+    entry_risk_limit: input.entryRiskLimit,
     reason: "ema50 trend pullback short",
     meta: {
       ema50: input.emaFast,

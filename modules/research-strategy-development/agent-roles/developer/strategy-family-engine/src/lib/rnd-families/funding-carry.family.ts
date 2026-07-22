@@ -57,7 +57,7 @@ function strategy(id: string, params: Params, store: FactorFeatureStore): Replay
     strategy_id: id,
     default_timeframe: "4h",
     warmup_bars: 200,
-    generateSignal({ candles, indicators, index, entryIndex, entryPrice, options }) {
+    generateSignal({ candles, indicators, index, entryIndex, decisionPrice, options }) {
       const candle = candles[index]
       if (!passesFactorConditions(params.factorConditions, store, options.timeframe || "4h", candle.date)) return null
       const funding = trailingFundingAverage(options.fundingEvents || [], candles[index].timestamp, params.fundingLookbackEvents)
@@ -66,10 +66,10 @@ function strategy(id: string, params: Params, store: FactorFeatureStore): Replay
       const atr = indicators.atr14[index]
       if (!Number.isFinite(avgFundingRate) || !Number.isFinite(atr) || atr <= 0) return null
       if (avgFundingRate >= params.minAbsFundingRate && (params.side === "short" || params.side === "both")) {
-        return signal("short", candles[index], index, entryIndex, entryPrice, atr, avgFundingRate, funding.count, params)
+        return signal("short", candles[index], index, entryIndex, decisionPrice, atr, avgFundingRate, funding.count, params)
       }
       if (avgFundingRate <= -params.minAbsFundingRate && (params.side === "long" || params.side === "both")) {
-        return signal("long", candles[index], index, entryIndex, entryPrice, atr, avgFundingRate, funding.count, params)
+        return signal("long", candles[index], index, entryIndex, decisionPrice, atr, avgFundingRate, funding.count, params)
       }
       return null
     },
@@ -87,6 +87,7 @@ function signal(side: "long" | "short", candle: Candle, index: number, entryInde
     entry,
     stop,
     target: side === "long" ? entry + risk * params.rewardRisk : entry - risk * params.rewardRisk,
+    entry_risk_limit: params.maxRiskAtr * atr,
     ...(params.breakEvenAfterR > 0 ? { break_even_after_r: params.breakEvenAfterR, break_even_offset_r: params.breakEvenOffsetR } : {}),
     reason: `rnd funding carry ${side}`,
     meta: { ...json(params), avg_funding_rate: round(avgFundingRate), funding_events_used: fundingEventsUsed },

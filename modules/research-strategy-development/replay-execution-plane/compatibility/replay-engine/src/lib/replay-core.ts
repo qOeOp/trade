@@ -36,6 +36,7 @@ interface ReplaySignal {
   entry: number
   stop: number
   target: number
+  entry_risk_limit?: number
   break_even_after_r?: number
   break_even_offset_r?: number
   reason: string
@@ -101,7 +102,7 @@ interface ReplayStrategy {
     candles: Candle[]
     indicators: IndicatorSet
     index: number
-    entryPrice: number
+    decisionPrice: number
     entryIndex: number
     options: ReplayOptions
   }): ReplaySignal | null
@@ -204,14 +205,10 @@ function replayStrategy(strategy: ReplayStrategy, options: ReplayOptions): Repla
   let index = Math.max(strategy.warmup_bars, 1)
 
   while (index < candles.length - 2) {
-    const signal = strategy.generateSignal({
-      candles,
-      indicators,
-      index,
-      entryPrice: candles[index + 1].open,
-      entryIndex: index + 1,
-      options,
-    })
+    const decision = strategy.generateSignal(buildReplayDecisionInput(candles, indicators, index, options))
+    const signal = decision
+      ? materializeReplaySignalAtFill(decision, index, candles[index + 1].open)
+      : null
     if (!signal) {
       index += 1
       continue
@@ -301,12 +298,8 @@ function evaluateLatestSignal(
     throw new Error(`latest closed candle is stale or not yet closed: ${candles[index].date}`)
   }
   const signal = strategy.generateSignal({
-    candles,
-    indicators: buildIndicators(candles),
-    index,
-    entryPrice,
-    entryIndex: candles.length,
-    options,
+    ...buildReplayDecisionInput(candles, buildIndicators(candles), index, options),
+    decisionPrice: entryPrice,
   })
   return {
     strategy_id: strategy.strategy_id,
@@ -317,6 +310,68 @@ function evaluateLatestSignal(
     action: signal ? "entry" : "no_action",
     signal,
   }
+}
+
+function buildReplayDecisionInput(
+  candles: Candle[],
+  indicators: IndicatorSet,
+  index: number,
+  options: ReplayOptions,
+): Parameters<ReplayStrategy["generateSignal"]>[0] {
+  if (!Number.isInteger(index) || index < 0 || index >= candles.length) {
+    throw new Error(`invalid replay decision index: ${index}`)
+  }
+  const prefix = Object.freeze(candles.slice(0, index + 1)) as Candle[]
+  const boundedIndicators = Object.freeze({
+    ema20: Object.freeze(indicators.ema20.slice(0, index + 1)) as number[],
+    ema50: Object.freeze(indicators.ema50.slice(0, index + 1)) as number[],
+    ema200: Object.freeze(indicators.ema200.slice(0, index + 1)) as number[],
+    atr14: Object.freeze(indicators.atr14.slice(0, index + 1)) as number[],
+  })
+  return Object.freeze({
+    candles: prefix,
+    indicators: boundedIndicators,
+    index,
+    decisionPrice: candles[index].close,
+    entryIndex: index + 1,
+    options: Object.freeze({ ...options }),
+  })
+}
+
+function materializeReplaySignalAtFill(
+  decision: ReplaySignal,
+  signalIndex: number,
+  fillPrice: number,
+): ReplaySignal | null {
+  if (decision.signal_index !== signalIndex || decision.entry_index !== signalIndex + 1) {
+    throw new Error("replay strategy returned a signal outside the current decision boundary")
+  }
+  if (!Number.isFinite(fillPrice) || fillPrice <= 0) return null
+  const plannedRisk = directionalRisk(decision.side, decision.entry, decision.stop)
+  const plannedReward = directionalReward(decision.side, decision.entry, decision.target)
+  if (plannedRisk <= 0 || plannedReward <= 0) return null
+  const fillRisk = directionalRisk(decision.side, fillPrice, decision.stop)
+  const riskLimit = decision.entry_risk_limit
+  if (fillRisk <= 0 || (Number.isFinite(riskLimit) && fillRisk > Number(riskLimit))) return null
+  const rewardRisk = plannedReward / plannedRisk
+  return {
+    ...decision,
+    entry: fillPrice,
+    target: decision.side === "long" ? fillPrice + fillRisk * rewardRisk : fillPrice - fillRisk * rewardRisk,
+    meta: {
+      ...(decision.meta || {}),
+      decision_reference: decision.entry,
+      execution_pricing: "next_open_materialized_after_decision",
+    },
+  }
+}
+
+function directionalRisk(side: Side, entry: number, stop: number): number {
+  return side === "long" ? entry - stop : stop - entry
+}
+
+function directionalReward(side: Side, entry: number, target: number): number {
+  return side === "long" ? target - entry : entry - target
 }
 
 function timeframeMilliseconds(timeframe: string): number {
@@ -347,7 +402,7 @@ function parseCsvCandles(csv: string): Candle[] {
   const index = Object.fromEntries(headers.map((header, idx) => [header, idx]))
   return lines.map((line) => {
     const parts = line.split(",")
-    return {
+    return Object.freeze({
       date: parts[index.date],
       timestamp: Number(parts[index.timestamp]),
       open: Number(parts[index.open]),
@@ -355,7 +410,7 @@ function parseCsvCandles(csv: string): Candle[] {
       low: Number(parts[index.low]),
       close: Number(parts[index.close]),
       volume: Number(parts[index.volume]),
-    }
+    })
   }).filter((item) => Number.isFinite(item.close))
 }
 
@@ -1196,11 +1251,13 @@ function round(value: number): number {
 export {
   atr,
   buildIndicators,
+  buildReplayDecisionInput,
   ema,
   evaluateLatestSignal,
   loadManifest,
   loadCandlesFromManifest,
   parseCsvCandles,
+  materializeReplaySignalAtFill,
   replayStrategy,
   simulateReplayOrderLane,
   replayDataHash,

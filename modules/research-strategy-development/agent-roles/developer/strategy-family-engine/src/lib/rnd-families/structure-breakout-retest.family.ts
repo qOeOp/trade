@@ -48,7 +48,7 @@ function buildStrategy(strategyId: string, params: Params, factorStore: FactorFe
     strategy_id: strategyId,
     default_timeframe: "4h",
     warmup_bars: Math.max(20, params.lookbackBars + 2),
-    generateSignal({ candles, indicators, index, entryPrice, entryIndex, options }) {
+    generateSignal({ candles, indicators, index, decisionPrice, entryIndex, options }) {
       const breakoutIndex = index - 1
       const breakout = candles[breakoutIndex]
       const retest = candles[index]
@@ -64,12 +64,12 @@ function buildStrategy(strategyId: string, params: Params, factorStore: FactorFe
       if (params.side === "long" || params.side === "both") {
         const broken = breakout.close > resistance + params.breakoutBufferAtr * breakoutAtr
         const tested = retest.low <= resistance + params.retestToleranceAtr * retestAtr && retest.low >= resistance - params.retestToleranceAtr * retestAtr
-        if (broken && tested && retest.close >= resistance) return buildSignal("long", resistance, retest, index, entryIndex, entryPrice, retestAtr, params)
+        if (broken && tested && retest.close >= resistance) return buildSignal("long", resistance, retest, index, entryIndex, decisionPrice, retestAtr, params)
       }
       if (params.side === "short" || params.side === "both") {
         const broken = breakout.close < support - params.breakoutBufferAtr * breakoutAtr
         const tested = retest.high >= support - params.retestToleranceAtr * retestAtr && retest.high <= support + params.retestToleranceAtr * retestAtr
-        if (broken && tested && retest.close <= support) return buildSignal("short", support, retest, index, entryIndex, entryPrice, retestAtr, params)
+        if (broken && tested && retest.close <= support) return buildSignal("short", support, retest, index, entryIndex, decisionPrice, retestAtr, params)
       }
       return null
     },
@@ -81,12 +81,12 @@ function buildSignal(side: "long" | "short", level: number, retest: Candle, inde
     const stop = Math.min(retest.low, level) - params.stopAtr * atr
     const risk = entry - stop
     if (risk <= 0 || risk > params.maxRiskAtr * atr) return null
-    return { side, signal_index: index, entry_index: entryIndex, entry, stop, target: entry + risk * params.rewardRisk, reason: "rnd structure breakout retest long", meta: { ...toJSON(params), structure_level: round(level) } }
+    return { side, signal_index: index, entry_index: entryIndex, entry, stop, target: entry + risk * params.rewardRisk, entry_risk_limit: params.maxRiskAtr * atr, reason: "rnd structure breakout retest long", meta: { ...toJSON(params), structure_level: round(level) } }
   }
   const stop = Math.max(retest.high, level) + params.stopAtr * atr
   const risk = stop - entry
   if (risk <= 0 || risk > params.maxRiskAtr * atr) return null
-  return { side, signal_index: index, entry_index: entryIndex, entry, stop, target: entry - risk * params.rewardRisk, reason: "rnd structure breakout retest short", meta: { ...toJSON(params), structure_level: round(level) } }
+  return { side, signal_index: index, entry_index: entryIndex, entry, stop, target: entry - risk * params.rewardRisk, entry_risk_limit: params.maxRiskAtr * atr, reason: "rnd structure breakout retest short", meta: { ...toJSON(params), structure_level: round(level) } }
 }
 
 export default family

@@ -72,11 +72,11 @@ function strategy(id: string, params: Params, store: FactorFeatureStore): Replay
     strategy_id: id,
     default_timeframe: "4h",
     warmup_bars: Math.max(200, params.adverseLookbackBars + params.cooldownBars + 1),
-    generateSignal({ candles, indicators, index, entryIndex, entryPrice, options }) {
+    generateSignal({ candles, indicators, index, entryIndex, decisionPrice, options }) {
       const setup = setupAt(candles, indicators.atr14, index, options.timeframe || "4h", options.fundingEvents || [], params, store)
       if (!setup) return null
       if (params.cooldownBars > 0 && index % (params.cooldownBars + 1) !== 0) return null
-      return signal(setup.side, candles[index], index, entryIndex, entryPrice, setup.atr, setup.avgFundingRate, setup.fundingEventsUsed, setup.vfi, setup.chopiness, params)
+      return signal(setup.side, candles[index], index, entryIndex, decisionPrice, setup.atr, setup.avgFundingRate, setup.fundingEventsUsed, setup.vfi, setup.chopiness, params)
     },
   }
 }
@@ -123,6 +123,7 @@ function signal(side: "long" | "short", candle: Candle, index: number, entryInde
     entry,
     stop,
     target: side === "long" ? entry + risk * params.rewardRisk : entry - risk * params.rewardRisk,
+    entry_risk_limit: params.maxRiskAtr * atr,
     reason: `rnd funding unwind risk guard ${side}`,
     meta: { ...json(params), avg_funding_rate: round(avgFundingRate), funding_events_used: fundingEventsUsed, vfi: round(vfi), chopiness: round(chopiness) },
   }
