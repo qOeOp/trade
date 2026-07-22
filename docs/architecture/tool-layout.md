@@ -51,21 +51,18 @@ Skill 可以说明如何调用既有 MCP / owner tool，但不能绕过 prefligh
 | `modules/research-strategy-development/replay-execution-plane/` | historical evidence plane | Trial-bound deterministic Replay、ledger、metrics、artifact/fingerprint | Candidate 生成、Review、promotion |
 | `modules/research-strategy-development/forward-evidence-plane/` | post-freeze evidence plane | ready Draft admission、watermark、no-backfill Forward Result | 正式 Shadow、账户事实、promotion |
 | `modules/research-strategy-development/agent-roles/` | replaceable role layer | Planner/Developer/Reviewer typed submissions | 权威事实、直接策略落盘 |
-| `modules/research-strategy-development/replay-execution-plane/compatibility/replay-runner/` | legacy compatibility adapter | 旧单策略 replay；Trial-bound 请求转发新 Plane | 新语义 owner、R&D search、strategy promotion |
+| `modules/research-strategy-development/replay-execution-plane/compatibility/legacy-replay-fingerprint/` | legacy evidence verifier | 为旧 replay evidence 重算 harness/data/assumptions fingerprint | replay 执行、Trial 转发、新语义 owner、strategy promotion |
 | `modules/research-strategy-development/research-control-plane/dataset-governance/data-split/` | strategy data split | discovery / validation / locked holdout manifest 切分 | R&D search、replay、review、`trade.db` |
-| `modules/research-strategy-development/agent-roles/reviewer/signal-evaluator/` | latest strategy signal | 最新闭合 K 线信号评估 | R&D search、catalog 写入、strategy promotion、交易执行 |
-| `modules/research-strategy-development/replay-execution-plane/compatibility/panel-evaluator/` | panel evaluator | 多资产 panel、marketability、panel negative controls | R&D loop artifact、RD memory、strategy promotion、`trade.db` |
-| `modules/research-strategy-development/agent-roles/developer/candidate-batch/` | candidate batch evaluator | 单批候选评估、negative controls、统计报告 | artifact 写入、RD memory、strategy promotion、`trade.db` |
-| `modules/research-strategy-development/agent-roles/developer/signal-engine/` | signal internal engine | 最新信号输入解析与 family signal 计算 | agent-facing CLI、状态写入 |
+| `modules/research-strategy-development/agent-roles/reviewer/signal-evaluator/` | strategy signal diagnostic | 最新闭合 K 线及冻结后 forward-only 信号诊断 | Forward Evidence、R&D search、catalog 写入、strategy promotion、交易执行 |
+| `modules/research-strategy-development/agent-roles/developer/candidate-batch/` | candidate batch evaluator | 单数据集或 panel 候选评估、marketability、negative controls、统计报告 | artifact 写入、RD memory、Review authority、strategy promotion、`trade.db` |
+| `modules/research-strategy-development/agent-roles/developer/signal-engine/` | signal internal engine | 最新信号、冻结时间/数据守卫与 family signal 计算 | Forward Evidence、agent-facing CLI、状态写入 |
 | `modules/research-strategy-development/agent-roles/developer/candidate-batch-engine/` | candidate batch internal engine | 单批候选评估、negative controls、统计报告 | agent-facing CLI、artifact 写入、RD memory |
 | `modules/research-strategy-development/agent-roles/developer/strategy-family-engine/` | strategy family internal engine | family registry、factor transform、factor research、feature store | agent-facing CLI、状态写入 |
 | `modules/research-strategy-development/agent-roles/planner/strategy-hypothesis-designer/` | research atom | agent-native strategy hypothesis prompt、contract lint、RD queue seed projection | replay、panel、campaign、strategy policy 写入、`trade.db`、Binance 写接口 |
-| `modules/research-strategy-development/replay-execution-plane/compatibility/benchmark-runner/` | strategy benchmark | 固定 benchmark 仿真、成本/资金费压力、负对照 | R&D search、strategy promotion、`trade.db` |
-| `modules/research-strategy-development/replay-execution-plane/certification/calibration-suite/` | strategy calibration | calibration diagnostics、data breadth、funding/cost attribution | R&D search、strategy promotion、`trade.db` |
+| `modules/research-strategy-development/replay-execution-plane/certification/calibration-suite/` | benchmark / calibration certification | fixed benchmark、calibration diagnostics、data breadth、funding/cost attribution | R&D search、strategy promotion、`trade.db` |
 | `modules/research-strategy-development/research-control-plane/dataset-governance/funding-governance/` | funding governance | funding carry research 前 exact funding event coverage 检查 | R&D search、replay、review、`trade.db` |
 | `modules/research-strategy-development/agent-roles/developer/strategy-contract-compile/` | strategy contract compile | strategy markdown contract 编译 | R&D search、replay、review、catalog 写入 |
 | `modules/research-strategy-development/research-control-plane/contract-lint/` | strategy contract lint | strategy markdown contract 完整性 lint | R&D search、replay、review、catalog 写入 |
-| `modules/research-strategy-development/forward-evidence-plane/compatibility/forward-holdout/` | research atom | frozen candidate forward-only signal check | R&D search、strategy evidence、promotion、`trade.db`、Binance 写接口 |
 | `modules/research-strategy-development/agent-roles/developer/rd-campaign-runner/` | research atom | R&D campaign | `trade.db`、Binance 写接口、strategy promotion、R&D loop 实现、forward tracker、RD state init/read/update/plan_next、supervisor CLI、单策略 replay CLI、latest signal CLI、panel CLI、data split CLI、benchmark/calibration/funding governance CLI、contract compile/lint CLI |
 | `modules/research-strategy-development/research-control-plane/experiment-ledger/` | research atom | R&D run ledger / holdout idempotence | candidate evaluation、campaign orchestration、RD state writeback、`trade.db`、Binance 写接口 |
 | `modules/research-strategy-development/agent-roles/reviewer/rd-artifact-summary/` | research atom | R&D artifact summary | replay、candidate evaluation、artifact/catalog/ledger 写入、RD memory、`trade.db` |
@@ -105,20 +102,20 @@ Skill 可以说明如何调用既有 MCP / owner tool，但不能绕过 prefligh
 | automation plan | `modules/orchestration-ops/trade-flow` + `trade-flow.automation` |
 | observe / runtime load | `modules/orchestration-ops/trade-flow` + `trade-flow.observe` |
 | 事件流 / track dry-run | `modules/orchestration-ops/trade-flow` + `trade-flow.runtime` |
-| 单策略 replay | `modules/research-strategy-development/replay-execution-plane/compatibility/replay-runner` + `research.replay-runner` |
+| Trial-bound replay | `modules/research-strategy-development/replay-execution-plane/runner` + `research.replay-execution` |
+| legacy replay evidence fingerprint | `modules/research-strategy-development/replay-execution-plane/compatibility/legacy-replay-fingerprint` + `research.legacy-replay-fingerprint` |
 | data split / holdout isolation | `modules/research-strategy-development/research-control-plane/dataset-governance/data-split` + `research.data-split` |
-| latest signal | `modules/research-strategy-development/agent-roles/reviewer/signal-evaluator` + `research.signal-evaluator` |
-| panel evaluation | `modules/research-strategy-development/replay-execution-plane/compatibility/panel-evaluator` + `research.panel-evaluator` |
-| candidate batch | `modules/research-strategy-development/agent-roles/developer/candidate-batch` + `research.candidate-batch` |
+| latest / post-freeze diagnostic signal | `modules/research-strategy-development/agent-roles/reviewer/signal-evaluator` + `research.signal-evaluator` / `research.forward-holdout` |
+| candidate / panel evaluation | `modules/research-strategy-development/agent-roles/developer/candidate-batch` + `research.candidate-batch` / `research.panel-evaluator` |
 | strategy hypothesis designer | `modules/research-strategy-development/agent-roles/planner/strategy-hypothesis-designer` + `research.strategy-hypothesis-designer` |
 | RD loop | `modules/research-strategy-development/agent-roles/developer/rd-loop-runner` + `research.rd-loop-runner` |
-| benchmark | `modules/research-strategy-development/replay-execution-plane/compatibility/benchmark-runner` + `research.benchmark-runner` |
-| calibration suite | `modules/research-strategy-development/replay-execution-plane/certification/calibration-suite` + `research.calibration-suite` |
+| benchmark / calibration | `modules/research-strategy-development/replay-execution-plane/certification/calibration-suite` + `research.benchmark-runner` / `research.calibration-suite` |
 | funding governance | `modules/research-strategy-development/research-control-plane/dataset-governance/funding-governance` + `research.funding-governance` |
 | strategy contract compile | `modules/research-strategy-development/agent-roles/developer/strategy-contract-compile` + `research.strategy-contract-compile` |
 | strategy contract lint | `modules/research-strategy-development/research-control-plane/contract-lint` + `research.strategy-contract-lint` |
 | strategy policy writer | `modules/research-strategy-development/research-control-plane/strategy-policy-writer` |
-| R&D campaign / forward holdout | `modules/research-strategy-development/agent-roles/developer/rd-campaign-runner` + `research.rd-campaign-runner`; `modules/research-strategy-development/forward-evidence-plane/compatibility/forward-holdout` + `research.forward-holdout` |
+| R&D campaign | `modules/research-strategy-development/agent-roles/developer/rd-campaign-runner` + `research.rd-campaign-runner` |
+| authoritative Forward Evidence | `modules/research-strategy-development/forward-evidence-plane/runner` + `research.forward-evidence` |
 | RD memory | `modules/research-strategy-development/research-control-plane/program-control` + `research.rd-program-state` |
 | RD supervisor | `modules/research-strategy-development/research-control-plane/program-supervisor` + `research.rd-supervisor` |
 | RD shadow tracker | `modules/research-strategy-development/forward-evidence-plane/compatibility/rd-shadow-tracker` + `research.rd-shadow-tracker` |
