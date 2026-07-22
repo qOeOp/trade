@@ -55,3 +55,22 @@ test("research state store CLI seeds and reads the authoritative planning contex
     rmSync(dir, { recursive: true, force: true })
   }
 })
+
+test("research state store CLI routes Replay L2 attachment owner actions fail closed", () => {
+  const dir = mkdtempSync(join(tmpdir(), "research-l2-attachment-cli-"))
+  const dbPath = join(dir, "rd.db")
+  try {
+    assert.throws(() => run(parseArgs([
+      "--db", dbPath,
+      "--action", "read_replay_l2_experiment_attachment",
+      "--json", JSON.stringify({ reservation_hash: "a".repeat(64) }),
+    ])), /not registered/)
+    assert.throws(() => run(parseArgs([
+      "--db", dbPath,
+      "--action", "issue_replay_l2_experiment_attachment",
+      "--json", "{}",
+    ])), /authority_snapshot_id is required/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})

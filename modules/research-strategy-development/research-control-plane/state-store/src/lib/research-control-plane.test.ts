@@ -223,6 +223,7 @@ import {
   issueReplayL2ExperimentAttachmentAuthority,
   readReplayL2ExperimentAttachmentAuthority,
 } from "./replay-l2-experiment-attachment-authority-registry"
+import { executeReplayL2ExperimentAttachmentOwnerAction } from "./replay-l2-experiment-attachment-owner-port"
 import {
   issueReplayDecisionObservationBundleAdmission,
   readReplayDecisionObservationBundleAdmission,
@@ -251,6 +252,7 @@ import {
   resolveBlockerAndTransition,
   reserveTrial,
 } from "./research-control-plane-operations"
+import { parseArgs as parseStateStoreCliArgs, run as runStateStoreCli } from "../scripts/main"
 
 const NOW = "2026-07-14T03:20:00Z"
 const HASH_POLICY = "trade-flow.identity-hash.v1"
@@ -443,7 +445,9 @@ test("Control Plane rotates or revokes provider certification without rewriting 
 })
 
 test("Control Plane admits aggregate trade evidence only as a Reservation-bound pre-integration sidecar", () => {
-  const db = openDb()
+  const dir = mkdtempSync(join(tmpdir(), "research-l2-owner-cli-"))
+  const dbPath = join(dir, "rd.db")
+  const db = openDb(dbPath)
   try {
     assert.deepEqual(
       registerReplayAggregateTradeProviderCertification(db, AGGREGATE_TRADE_PROVIDER_CERTIFICATION),
@@ -681,6 +685,24 @@ test("Control Plane admits aggregate trade evidence only as a Reservation-bound 
     assert.equal(l2Authority.runner_compatibility, "not_bound")
     assert.deepEqual(issueReplayL2ExperimentAttachmentAuthority(db, l2AuthorityInput), l2Authority)
     assert.deepEqual(readReplayL2ExperimentAttachmentAuthority(db, l2Authority.reservation_hash), l2Authority)
+    const ownerIssue = executeReplayL2ExperimentAttachmentOwnerAction(
+      db,
+      "issue_replay_l2_experiment_attachment",
+      l2AuthorityInput as unknown as Record<string, unknown>,
+    ) as unknown as { authority: typeof l2Authority }
+    assert.deepEqual(ownerIssue.authority, l2Authority)
+    const ownerRead = executeReplayL2ExperimentAttachmentOwnerAction(
+      db,
+      "read_replay_l2_experiment_attachment",
+      { reservation_hash: l2Authority.reservation_hash },
+    ) as unknown as { authority: typeof l2Authority }
+    assert.deepEqual(ownerRead.authority, l2Authority)
+    const cliRead = runStateStoreCli(parseStateStoreCliArgs([
+      "--db", dbPath,
+      "--action", "read_replay_l2_experiment_attachment",
+      "--json", JSON.stringify({ reservation_hash: l2Authority.reservation_hash }),
+    ])) as unknown as { authority: typeof l2Authority }
+    assert.deepEqual(cliRead.authority, l2Authority)
     assert.throws(() => issueReplayL2ExperimentAttachmentAuthority(db, {
       ...l2AuthorityInput,
       source: { ...l2Source, stream_epoch: "other-epoch" },
@@ -1160,6 +1182,7 @@ test("Control Plane admits aggregate trade evidence only as a Reservation-bound 
     }), /revoked/)
   } finally {
     db.close()
+    rmSync(dir, { recursive: true, force: true })
   }
 })
 
