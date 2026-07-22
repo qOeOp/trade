@@ -86,3 +86,14 @@ last_verified: 2026-07-22 CST
 4. 才扩大 family、trial 数量或 simulator capability。
 
 任何 roadmap 项只有在 owner contract、真实 consumer、durable evidence 和 executable check 同时存在时才算完成。
+
+## 8. Replay 收敛顺序
+
+Replay 的 M4-P1–P29 功能纵切已冻结；不得继续创建 P30。后续只允许：
+
+1. 依 [capability inventory](./rd-replay-capability-inventory.json) 收敛 canonical / opt-in / compatibility owner boundary。
+2. 完成 [maturity gate](./rd-replay-maturity-gate.json) 中固定九项 M4 exit gates，使现有能力成为一个有限、可解释、可认证的产品面。
+3. M4 完成后只做固定九项 M5 release certification，不增加 simulator capability。
+4. M5 后进入 maintenance；新市场语义必须由显式架构重开决定，不能借 bugfix、schema epoch 或自动迭代隐式扩权。
+
+提交数、schema 数、测试数、successor 数与 P 编号都不是 maturity 指标。M4 只奖励归并，M5 只奖励可复现、迁移、故障恢复、容量和独立发布审计。

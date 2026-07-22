@@ -67,7 +67,7 @@ Control Plane authorization
 - 动态 sizing、未预声明第三次 partial、通用 post-partial mutation / reentry。
 - 通用 cross-margin、borrow、完整 remote transport / OS sandbox、Fast kernel parity。
 - P28 已认证的 post-partial stop replacement owner accounting、Artifact 与 bounded full-flat cycle 只属于专用 opt-in successor；不能外推为默认 Portfolio 或通用 mutation。
-- 当前 P29 gate 中仍为 `false` 的 bar link、Control Plane exact-path authority、Step consumer、Checkpoint/Result/Artifact 与 cutover 条目。
+- P29 已认证的 bar-linked aggregate-trade sidecar 只解决一个初始 Stop-market same-bar typed ambiguity；不构成通用逐笔撮合或真实 Fill 证明。
 
 ## 6. 数据与市场现实
 
@@ -89,14 +89,32 @@ Result / Artifact 至少绑定：
 
 summary 不是 authority；缺 required member、hash drift 或重放不一致即拒绝 intake。
 
-## 8. 当前有界缺口：bar-linked aggregate-trade path
+## 8. 最后一个功能纵切：bar-linked aggregate-trade path
 
 M4-P29 只处理一个现有 typed failure：pre-entry Stop-market 在 bar 内触发后，同一 bar 又同时覆盖保护 stop/target，而 OHLCV 无法证明触发后的先后。Binance USDⓈ-M Kline 暴露 O/H/L/C、base/quote volume 与 trade count；aggregate-trade 接口给出 aggregate id、价格、数量、underlying first/last trade id、时间和 maker side，并说明它压缩 100ms 内同价同 taker side 的 market trades、排除 insurance/ADL（[Kline](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/rest-api/market-data#klinecandlestick-data)、[Aggregate Trades](https://developers.binance.com/en/docs/catalog/core-trading-derivatives-trading-usd-s-m-futures/api/rest-api/market-data#compressed-aggregate-trades-list)）。这些字段只定义输入语义，不自动构成仓库 authority。
 
-P29 只有在 immutable source、同一 half-open bar window、PIT availability、aggregate/underlying id 连续性以及 O/H/L/C、base/quote volume、trade count 全部逐字段闭合时，才可把 ordered aggregate prices 用于该 bar 的 Stop-entry 后保护 owner；否则保留原 typed unresolved。即使闭合，`external_completeness=not_verified` 也不得改写；该 Evidence 不证明 hypothetical queue、Fill quantity、maker probability、slippage、impact、insurance/ADL 或通用跨源经济顺序。默认 OHLCV、Portfolio 与 P15–P28 路径必须保持不变。
+P29 已在上述边界内完成：immutable source、同一 half-open bar window、PIT availability、aggregate/underlying id 连续性以及 O/H/L/C、base/quote volume、trade count 全部逐字段闭合后，ordered aggregate prices 才能选择该 bar 的 Stop-entry 后保护 owner；否则保留原 typed unresolved。Checkpoint、Result、Fingerprint、Artifact、clean/resume、幂等复读和 tamper rejection 已闭合。`external_completeness=not_verified` 不得改写；该 Evidence 不证明 hypothetical queue、Fill quantity、maker probability、slippage、impact、insurance/ADL 或通用跨源经济顺序。默认 OHLCV、Portfolio 与 P15–P28 路径保持不变。
 
 ## 9. 变更合同
 
 新增能力必须在同一有界 change set 中包含：schema / contract、真实 consumer、golden / tamper / resume evidence、artifact 绑定和 maturity gate 更新。只加 schema、phase 编号或零实例壳不算进展。
 
 完成一个 milestone 前必须运行 owner checks 与 `bun scripts/check-rd-replay-maturity-gate.ts`，并确保 gate 的所有要求同时为真。
+
+## 10. 有限 M4/M5 收敛合同
+
+P29 是最后一个按功能编号推进的 Replay 纵切；`M4-P30` 明确禁止。后续成熟度只由固定 exit gates 推进，不因新增 schema、successor、测试数或提交数上升。
+
+| 等级 | 准确含义 | 退出原则 |
+| --- | --- | --- |
+| M3 | 多条受认证的有界纵切可产生可信证据，但公共入口、默认/opt-in/compatibility 与 wire epoch 尚未收敛 | 当前状态 |
+| M4 | 已声明能力形成有限产品面：公共入口唯一、opt-in 激活显式、compatibility 隔离、Result/Artifact/Checkpoint epoch 收敛、统一 owner certification 可执行 | 九项 M4 gate 必须同时为真 |
+| M5 | M4 产品面达到 release-grade：跨进程复现、历史 Artifact 迁移、crash/exactly-once、容量边界、故障注入、可观测/runbook、冻结 fixture pack 与独立审计全部完成 | 九项 M5 gate 必须同时为真 |
+
+M4/M5 都相对于**声明的能力包络**，不要求伪造不可能证明的交易所现实。queue、真实 partial-fill、impact、insurance/ADL、cross-margin、borrow 或 Fast 若缺 authority/source/独立实现，保持 typed unsupported 也可以达到 M5；不得为了“升成熟度”把它们偷偷加入范围。
+
+机器 gate 的字段集合是封闭集合；新增 exit gate、恢复 P 编号或增加 simulator capability 都需要单独的架构重开决定，不能由自动迭代自行完成。
+
+## 11. P1–P29 归并基线
+
+[Capability Inventory](../reliability/rd-replay-capability-inventory.json) 冻结全部 29 条纵切：13 条进入目标 canonical 实现/入口，12 条保留为显式 opt-in，4 条只作 compatibility，当前没有未经 dependency proof 即可删除的 obsolete 条目。该分类是迁移起点，不代表 29 套公共 API：M4 必须把 canonical 公共入口压缩为独立 Lane、Integrated Portfolio、terminal-aware bounded cycle 三类，并以 capability registry 激活 opt-in；compatibility 禁止新增生产消费者。
