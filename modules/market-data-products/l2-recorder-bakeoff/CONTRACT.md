@@ -47,3 +47,7 @@ P0-only evidence module for selecting the runtime language of the future public 
 - `bun run crash-injection -- --fixture ../../../tmp/l2-recorder-bakeoff/live-btcusdt.json --output tmp/l2-recorder-bakeoff/crash-evidence.json`
 - `bun run soak:rust -- --yes-public-network --symbol BTCUSDT --duration-seconds 60 --output-base ../../../tmp/l2-recorder-bakeoff/soak-rust`
 - `bun run soak:supervisor -- --yes-public-network --symbol BTCUSDT --cycles 3 --output tmp/l2-recorder-bakeoff/soak-supervisor-evidence.json`
+- `bun run soak:natural -- --yes-public-network --symbol BTCUSDT --duration-seconds 3600 --output tmp/l2-recorder-bakeoff/natural-soak-evidence.json`
+- `bun run soak:natural:launch -- --yes-public-network --symbol BTCUSDT --duration-seconds 3600 --output tmp/l2-recorder-bakeoff/natural-soak-evidence.json`
+- `bun run soak:natural:status -- --receipt tmp/l2-recorder-bakeoff/natural-soak-launch/<run>/launch-receipt.json`
+- `bun run adoption-input -- --natural-soak tmp/l2-recorder-bakeoff/natural-soak-evidence.json --output tmp/l2-recorder-bakeoff/adoption-input.json`

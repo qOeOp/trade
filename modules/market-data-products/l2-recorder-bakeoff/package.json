@@ -16,6 +16,10 @@
     "crash-injection": "bun ./src/scripts/crash-injection.ts",
     "soak:rust": "cargo run --release --bin l2-soak-rust --",
     "soak:supervisor": "bun ./src/scripts/soak-supervisor.ts",
+    "soak:natural": "bun ./src/scripts/natural-soak-supervisor.ts",
+    "soak:natural:launch": "bun ./src/scripts/natural-soak-launch.ts",
+    "soak:natural:status": "bun ./src/scripts/natural-soak-status.ts",
+    "adoption-input": "bun ./src/scripts/adoption-input.ts",
     "check": "bun run lint && bun run test"
   }
 }
