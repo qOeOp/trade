@@ -1,10 +1,10 @@
 import { createHash } from "node:crypto"
-import type { ReplayRuntimeSharedWalletRiskReservationSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
-import { createReplayRuntimeSharedWalletPortfolioEvidence } from "../../../accounting/src/lib/replay-runtime-shared-wallet-portfolio-accounting"
-import type { ReplayIntegratedPortfolioOutcome } from "../../../contracts/src/lib/replay-integrated-portfolio-contracts"
-import type { ReplayPortfolioAllocationPlan } from "../../../contracts/src/lib/replay-portfolio-allocation-contracts"
-import type { ReplayPortfolioReallocationOutcome } from "../../../contracts/src/lib/replay-portfolio-reallocation-contracts"
-import type { ReplayRuntimeSharedWalletRiskPlan, ReplayRuntimeSharedWalletRiskResult } from "../../../contracts/src/lib/replay-runtime-shared-wallet-risk-contracts"
+import type { ReplayRuntimeSharedWalletRiskReservationSnapshot } from "../../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
+import { createReplayRuntimeSharedWalletPortfolioEvidence } from "../../../../accounting/src/lib/replay-runtime-shared-wallet-portfolio-accounting"
+import type { ReplayIntegratedPortfolioOutcome } from "../../../../contracts/src/lib/replay-integrated-portfolio-contracts"
+import type { ReplayPortfolioAllocationPlan } from "../../../../contracts/src/lib/replay-portfolio-allocation-contracts"
+import type { ReplayPortfolioReallocationOutcome } from "../../../../contracts/src/lib/replay-portfolio-reallocation-contracts"
+import type { ReplayRuntimeSharedWalletRiskPlan, ReplayRuntimeSharedWalletRiskResult } from "../../../../contracts/src/lib/replay-runtime-shared-wallet-risk-contracts"
 import {
   REPLAY_TWO_CYCLE_PORTFOLIO_ARTIFACT_MANIFEST_SCHEMA_VERSION,
   REPLAY_TWO_CYCLE_PORTFOLIO_ARTIFACT_ROLES,
@@ -16,9 +16,9 @@ import {
   type ReplayTwoCyclePortfolioFingerprint,
   type ReplayTwoCyclePortfolioPlan,
   type ReplayTwoCyclePortfolioResult,
-} from "../../../contracts/src/lib/replay-two-cycle-portfolio-contracts"
-import { canonicalHash, canonicalJson } from "../../../contracts/src/lib/replay-contracts"
-import { assertCertifiedReplayArtifactStore, type ReplayArtifactNamespace, type ReplayArtifactStore } from "./replay-artifact-store"
+} from "../../../../contracts/src/lib/replay-two-cycle-portfolio-contracts"
+import { canonicalHash, canonicalJson } from "../../../../contracts/src/lib/replay-contracts"
+import { assertCertifiedReplayArtifactStore, type ReplayArtifactNamespace, type ReplayArtifactStore } from "../../../../runner/src/lib/replay-artifact-store"
 
 const MANIFEST = "two-cycle-portfolio-artifact-manifest.json"
 const NAMES: Record<ReplayTwoCyclePortfolioArtifactRole, string> = {

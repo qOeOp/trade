@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto"
-import type { ReplayPortfolioReallocationReservationSnapshot } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
-import type { ReplayIntegratedPortfolioOutcome } from "../../../contracts/src/lib/replay-integrated-portfolio-contracts"
-import type { ReplayPortfolioAllocationPlan, ReplayPortfolioAllocationResult } from "../../../contracts/src/lib/replay-portfolio-allocation-contracts"
+import type { ReplayPortfolioReallocationReservationSnapshot } from "../../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
+import type { ReplayIntegratedPortfolioOutcome } from "../../../../contracts/src/lib/replay-integrated-portfolio-contracts"
+import type { ReplayPortfolioAllocationPlan, ReplayPortfolioAllocationResult } from "../../../../contracts/src/lib/replay-portfolio-allocation-contracts"
 import {
   REPLAY_PORTFOLIO_REALLOCATION_ARTIFACT_MANIFEST_SCHEMA_VERSION,
   REPLAY_PORTFOLIO_REALLOCATION_ARTIFACT_ROLES,
@@ -11,9 +11,9 @@ import {
   type ReplayPortfolioReallocationArtifactRole,
   type ReplayPortfolioReallocationPlan,
   type ReplayPortfolioReallocationResult,
-} from "../../../contracts/src/lib/replay-portfolio-reallocation-contracts"
-import { canonicalHash, canonicalJson } from "../../../contracts/src/lib/replay-contracts"
-import { assertCertifiedReplayArtifactStore, type ReplayArtifactNamespace, type ReplayArtifactStore } from "./replay-artifact-store"
+} from "../../../../contracts/src/lib/replay-portfolio-reallocation-contracts"
+import { canonicalHash, canonicalJson } from "../../../../contracts/src/lib/replay-contracts"
+import { assertCertifiedReplayArtifactStore, type ReplayArtifactNamespace, type ReplayArtifactStore } from "../../../../runner/src/lib/replay-artifact-store"
 
 const MANIFEST = "portfolio-reallocation-artifact-manifest.json"
 const NAMES: Record<ReplayPortfolioReallocationArtifactRole, string> = {

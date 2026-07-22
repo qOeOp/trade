@@ -1,12 +1,12 @@
 import {
   assertReplayPortfolioReallocationReservationSnapshot,
   type ReplayPortfolioReallocationReservationSnapshot,
-} from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
-import type { ReplayIntegratedPortfolioOutcome } from "../../../contracts/src/lib/replay-integrated-portfolio-contracts"
+} from "../../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
+import type { ReplayIntegratedPortfolioOutcome } from "../../../../contracts/src/lib/replay-integrated-portfolio-contracts"
 import type {
   ReplayPortfolioAllocationAuthorityBinding,
   ReplayPortfolioAllocationPlan,
-} from "../../../contracts/src/lib/replay-portfolio-allocation-contracts"
+} from "../../../../contracts/src/lib/replay-portfolio-allocation-contracts"
 import {
   REPLAY_PORTFOLIO_REALLOCATION_OUTCOME_SCHEMA_VERSION,
   assertReplayPortfolioReallocationOutcome,
@@ -16,16 +16,16 @@ import {
   replayPortfolioReallocationOutcomeHash,
   type ReplayPortfolioReallocationOutcome,
   type ReplayPortfolioReallocationPlan,
-} from "../../../contracts/src/lib/replay-portfolio-reallocation-contracts"
-import { executeReplayPortfolioAllocationSlice } from "../../../engine/src/lib/replay-portfolio-allocation-engine"
-import type { ReplayArtifactStore } from "./replay-artifact-store"
+} from "../../../../contracts/src/lib/replay-portfolio-reallocation-contracts"
+import { executeReplayPortfolioAllocationSlice } from "../../../../engine/src/lib/replay-portfolio-allocation-engine"
+import type { ReplayArtifactStore } from "../../../../runner/src/lib/replay-artifact-store"
 import {
   materializeReplayPortfolioAllocationLanes,
-} from "./replay-portfolio-allocation-runner"
+} from "../../../../runner/src/lib/replay-portfolio-allocation-runner"
 import {
   publishReplayPortfolioReallocationArtifact,
 } from "./replay-portfolio-reallocation-artifact-publisher"
-import type { ReplayTrialRunInput } from "./replay-trial-runner"
+import type { ReplayTrialRunInput } from "../../../../runner/src/lib/replay-trial-runner"
 
 export interface ReplayPortfolioReallocationRunInput {
   plan: ReplayPortfolioReallocationPlan

@@ -3,17 +3,17 @@ import {
   assertReplayRuntimeSharedWalletRiskReservationSnapshot,
   type ReplayPortfolioReallocationReservationSnapshot,
   type ReplayRuntimeSharedWalletRiskReservationSnapshot,
-} from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
-import type { ReplayIntegratedPortfolioOutcome } from "../../../contracts/src/lib/replay-integrated-portfolio-contracts"
-import type { ReplayPortfolioAllocationAuthorityBinding, ReplayPortfolioAllocationPlan } from "../../../contracts/src/lib/replay-portfolio-allocation-contracts"
+} from "../../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
+import type { ReplayIntegratedPortfolioOutcome } from "../../../../contracts/src/lib/replay-integrated-portfolio-contracts"
+import type { ReplayPortfolioAllocationAuthorityBinding, ReplayPortfolioAllocationPlan } from "../../../../contracts/src/lib/replay-portfolio-allocation-contracts"
 import {
   assertReplayPortfolioReallocationPlan,
   assertReplayPortfolioReallocationResult,
   assertReplayPortfolioReallocationPredecessor,
   type ReplayPortfolioReallocationOutcome,
   type ReplayPortfolioReallocationPlan,
-} from "../../../contracts/src/lib/replay-portfolio-reallocation-contracts"
-import type { ReplayRuntimeSharedWalletRiskPlan } from "../../../contracts/src/lib/replay-runtime-shared-wallet-risk-contracts"
+} from "../../../../contracts/src/lib/replay-portfolio-reallocation-contracts"
+import type { ReplayRuntimeSharedWalletRiskPlan } from "../../../../contracts/src/lib/replay-runtime-shared-wallet-risk-contracts"
 import {
   REPLAY_TWO_CYCLE_PORTFOLIO_OUTCOME_SCHEMA_VERSION,
   assertReplayTwoCyclePortfolioOutcome,
@@ -22,14 +22,14 @@ import {
   replayTwoCyclePortfolioOutcomeHash,
   type ReplayTwoCyclePortfolioOutcome,
   type ReplayTwoCyclePortfolioPlan,
-} from "../../../contracts/src/lib/replay-two-cycle-portfolio-contracts"
-import { executeReplayRuntimeSharedWalletRiskSlice } from "../../../engine/src/lib/replay-runtime-shared-wallet-risk-engine"
-import type { ReplayArtifactStore } from "./replay-artifact-store"
-import { materializeReplayRuntimeSharedWalletRiskLanes } from "./replay-runtime-shared-wallet-risk-runner"
+} from "../../../../contracts/src/lib/replay-two-cycle-portfolio-contracts"
+import { executeReplayRuntimeSharedWalletRiskSlice } from "../../../../engine/src/lib/replay-runtime-shared-wallet-risk-engine"
+import type { ReplayArtifactStore } from "../../../../runner/src/lib/replay-artifact-store"
+import { materializeReplayRuntimeSharedWalletRiskLanes } from "../../../../runner/src/lib/replay-runtime-shared-wallet-risk-runner"
 import {
   publishReplayTwoCyclePortfolioArtifact,
 } from "./replay-two-cycle-portfolio-artifact-publisher"
-import type { ReplayTrialRunInput } from "./replay-trial-runner"
+import type { ReplayTrialRunInput } from "../../../../runner/src/lib/replay-trial-runner"
 
 export interface ReplayTwoCyclePortfolioRunInput {
   plan: ReplayTwoCyclePortfolioPlan
