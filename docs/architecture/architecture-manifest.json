@@ -129,7 +129,6 @@
         "modules/research-strategy-development/agent-roles/reviewer",
         "modules/research-strategy-development/replay-execution-plane/certification/legacy-replay-fingerprint",
         "modules/research-strategy-development/replay-execution-plane/certification/legacy-portfolio-cycle-certification",
-        "modules/research-strategy-development/replay-execution-plane/certification/legacy-portfolio-cycle-certification",
         "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-contracts",
         "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-data",
         "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-decision",
