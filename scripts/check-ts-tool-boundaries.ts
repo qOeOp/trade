@@ -155,7 +155,9 @@ function isAllowedResearchStrategyDevelopmentImport(sourceTool: string, targetTo
     "modules/research-strategy-development/replay-execution-plane/benchmark -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-replay-identity",
     "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-kernel -> modules/research-strategy-development/replay-execution-plane/accounting",
     "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-kernel -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-data",
+    "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-kernel -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-features",
     "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-kernel -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-replay-identity",
+    "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-features -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-data",
     "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-replay-identity -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-data",
     "modules/research-strategy-development/replay-execution-plane/certification/calibration-suite -> modules/research-strategy-development/replay-execution-plane/benchmark",
     "modules/research-strategy-development/agent-roles/developer/candidate-batch -> modules/research-strategy-development/agent-roles/developer/candidate-batch-engine",
@@ -222,6 +224,7 @@ function isAllowedResearchStrategyDevelopmentImport(sourceTool: string, targetTo
     "modules/research-strategy-development/agent-roles/reviewer/signal-evaluator -> modules/research-strategy-development/agent-roles/developer/signal-engine",
     "modules/research-strategy-development/agent-roles/developer/strategy-family-engine -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-kernel",
     "modules/research-strategy-development/agent-roles/developer/strategy-family-engine -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-data",
+    "modules/research-strategy-development/agent-roles/developer/strategy-family-engine -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-features",
     "modules/research-strategy-development/agent-roles/developer/strategy-family-engine -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-replay-identity",
   ])
   return sourceTool === "modules/research-strategy-development/research-control-plane/tests"
