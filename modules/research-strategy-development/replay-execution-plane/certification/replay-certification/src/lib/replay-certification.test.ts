@@ -7,6 +7,7 @@ import {
   loadReplayCertificationManifest,
   loadReplayProfileEvidenceManifest,
 } from "./replay-certification"
+import { discoverReplayModuleConsumerClosure } from "./replay-module-consumer-closure"
 
 describe("Replay certification owner", () => {
   const repoRoot = findReplayCertificationRepoRoot()
@@ -47,5 +48,14 @@ describe("Replay certification owner", () => {
     manifest.profiles[0]!.evidence.resume = { kind: "explicit-not-supported" }
     expect(() => assertReplayProfileEvidenceManifest(manifest, repoRoot))
       .toThrow("explicit unsupported evidence is invalid")
+  })
+
+  test("discovers every Replay module and production consumer edge deterministically", () => {
+    const first = discoverReplayModuleConsumerClosure(repoRoot)
+    const second = discoverReplayModuleConsumerClosure(repoRoot)
+    expect(first).toEqual(second)
+    expect(first.modules).toHaveLength(23)
+    expect(new Set(first.modules.map((entry) => entry.package_path))).toHaveLength(23)
+    expect(first.production_consumer_edges.length).toBeGreaterThan(0)
   })
 })
