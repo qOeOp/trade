@@ -101,6 +101,78 @@ test("program shadow executes only the fixed ops lifecycle profile", async () =>
   }
 })
 
+test("program catalog hygiene canary enables only J06 without GC or live writes", async () => {
+  const fixture = createFixture("program-shadow-j06-canary-")
+  try {
+    const executed: Array<{ cwd: string; argv: string[] }> = []
+    const result = await runProgramShadowWakeup(
+      fixture.tradeDb,
+      fixture.tradeDbPath,
+      {
+        cycle_id: "shadow-cycle-j06-canary",
+        now: "2026-07-23T01:03:00Z",
+        ops_runtime_db: fixture.opsDbPath,
+        runtime_profile: "catalog_hygiene_canary",
+      },
+      async (command): Promise<CommandExecutionResult> => {
+        executed.push({ cwd: command.cwd, argv: command.argv })
+        if (command.cwd === "modules/orchestration-ops/runtime-health-guard") return healthResult()
+        if (command.cwd === "modules/artifact-knowledge/artifact-catalog") {
+          return {
+            exit_code: 0,
+            stdout: JSON.stringify({
+              runtime_result: {
+                schema_id: "trade.domain-runtime.domain-job-result.v1",
+                ok: true,
+                status: "ok",
+                domain: "artifact-knowledge",
+                job_id: "catalog_hygiene_scan",
+                idempotency_key: "shadow-cycle-j06-canary:J06",
+                input_refs: ["artifact-root:data", "artifact-root:tmp"],
+                output_refs: ["artifact_catalog:scan/shadow-cycle-j06-canary"],
+                writes: { artifact_catalog: true },
+                incidents: [],
+                audit: { cycle_id: "shadow-cycle-j06-canary", ticket_no: "J06" },
+              },
+            }),
+            stderr: "",
+          }
+        }
+        return { exit_code: 0, stdout: JSON.stringify({ ok: true }), stderr: "" }
+      },
+      fixedDependencies("holder-j06-canary"),
+    )
+
+    assert.equal(result.runtime_profile, "catalog_hygiene_canary")
+    assert.equal(result.outcome, "executed")
+    assert.deepEqual(result.safety, {
+      domain_jobs_enabled: true,
+      enabled_domain_jobs: ["catalog_hygiene_scan"],
+      allowed_domain_writes: ["artifact_catalog"],
+      live_writes_allowed: false,
+      notify_dry_run: true,
+      l2_owner_health_required: true,
+      l2_consumer_health_required: true,
+    })
+    const graph = result.job_graph as {
+      jobs: Array<{ job_id: string; status: string; runtime_result: { writes: Record<string, boolean> } }>
+    }
+    const completed = graph.jobs.filter((job) => job.status === "completed")
+    assert.equal(completed.length, 1)
+    assert.equal(completed[0].job_id, "catalog_hygiene_scan")
+    assert.deepEqual(completed[0].runtime_result.writes, { artifact_catalog: true })
+
+    const catalogCommands = executed.filter((item) => item.cwd === "modules/artifact-knowledge/artifact-catalog")
+    assert.equal(catalogCommands.length, 1)
+    assert.equal(catalogCommands[0].argv.includes("--catalog-hygiene-job"), true)
+    assert.equal(catalogCommands[0].argv.includes("--catalog-gc"), false)
+    assert.equal(catalogCommands[0].argv.includes("--artifact-gc"), false)
+    assert.equal(catalogCommands[0].argv.includes("--yes"), false)
+  } finally {
+    fixture.close()
+  }
+})
+
 test("program shadow skips a terminal cycle without executing it twice", async () => {
   const fixture = createFixture("program-shadow-terminal-")
   try {
@@ -244,6 +316,17 @@ test("program shadow rejects caller attempts to widen its write scope", async ()
         },
       ),
       /program shadow input does not allow: allow_live_writes/,
+    )
+    await assert.rejects(
+      runProgramShadowWakeup(
+        fixture.tradeDb,
+        fixture.tradeDbPath,
+        {
+          ops_runtime_db: fixture.opsDbPath,
+          runtime_profile: "all_domain_jobs",
+        },
+      ),
+      /runtime_profile must be shadow_program or catalog_hygiene_canary/,
     )
   } finally {
     fixture.close()
