@@ -11,6 +11,7 @@ import {
 } from "../../../../ops-runtime-store/src/lib/ops-runtime-store"
 import { ensureSchema } from "../../../../../portfolio-execution-state/event-store/src/lib/event-store"
 import type { CommandExecutionResult } from "./job-graph-runner"
+import { createParityCommandRecorder } from "./program-shadow-parity"
 import { runProgramShadowSupervisor } from "./program-shadow-supervisor"
 
 test("program shadow supervisor runs stable cadence slots and releases its fenced lease", async () => {
@@ -77,7 +78,7 @@ test("program shadow supervisor records independent Agent/program parity observa
       async (command): Promise<CommandExecutionResult> => {
         executions += 1
         return command.cwd === "modules/orchestration-ops/runtime-health-guard"
-          ? healthResult()
+          ? blockedHealthResult()
           : { exit_code: 0, stdout: JSON.stringify({ ok: true }), stderr: "" }
       },
       {
@@ -87,7 +88,7 @@ test("program shadow supervisor records independent Agent/program parity observa
     )
 
     assert.equal(result.outcome, "completed")
-    assert.equal(executions, 6)
+    assert.equal(executions, 3)
     assert.deepEqual(result.parity_observation, {
       enabled: true,
       attempted: 1,
@@ -95,8 +96,9 @@ test("program shadow supervisor records independent Agent/program parity observa
       mismatched: 0,
       last: (result.parity_observation as { last: unknown }).last,
     })
-    const last = (result.parity_observation as { last: { status: string } }).last
+    const last = (result.parity_observation as { last: { status: string; comparison_basis: string } }).last
     assert.equal(last.status, "match")
+    assert.equal(last.comparison_basis, "shared_owner_result_replay_v1")
 
     const opsDb = new Database(fixture.opsDbPath)
     try {
@@ -110,6 +112,27 @@ test("program shadow supervisor records independent Agent/program parity observa
   } finally {
     fixture.close()
   }
+})
+
+test("parity replay fails closed when the Agent command identity drifts", async () => {
+  const recorder = createParityCommandRecorder(async () => ({
+    exit_code: 0,
+    stdout: JSON.stringify({ ok: true }),
+    stderr: "",
+  }))
+  await recorder.record({
+    executable: true,
+    cwd: "modules/orchestration-ops/runtime-health-guard",
+    argv: ["bun", "src/scripts/main.ts", "--mode", "program"],
+  })
+
+  const replay = await recorder.replay({
+    executable: true,
+    cwd: "modules/orchestration-ops/runtime-health-guard",
+    argv: ["bun", "src/scripts/main.ts", "--mode", "agent"],
+  })
+  assert.equal(replay.exit_code, 125)
+  assert.match(replay.stderr, /omitted captured owner result/)
 })
 
 test("program shadow supervisor drains its in-flight wakeup after a stop signal", async () => {
@@ -364,6 +387,28 @@ function healthResult(): CommandExecutionResult {
           checks: [
             { name: "l2_service:owner_health", status: "ok" },
             { name: "l2_watch_consumer:owner_health", status: "ok" },
+          ],
+        },
+      },
+    }),
+    stderr: "",
+  }
+}
+
+function blockedHealthResult(): CommandExecutionResult {
+  return {
+    exit_code: 0,
+    stdout: JSON.stringify({
+      ok: false,
+      processor_id: "runtime_health_guard",
+      lifecycle_phase: "pre_cycle",
+      status: "blocked",
+      health_ref: "ops_runtime_store:runtime_health/health-supervisor-blocked",
+      health: {
+        checks_json: {
+          checks: [
+            { name: "l2_service:owner_health", status: "ok" },
+            { name: "l2_watch_consumer:owner_health", status: "fail" },
           ],
         },
       },
