@@ -42,7 +42,11 @@ test("ops runtime store keeps an immutable Agent/program parity ledger", () => {
       program_projection_hash: "same-hash",
       agent_projection_hash: "same-hash",
       status: "match" as const,
-      detail_json: { program: { projection_hash: "same-hash" }, agent: { projection_hash: "same-hash" } },
+      detail_json: {
+        comparison_basis: "shared_owner_result_replay_v1",
+        program: { projection_hash: "same-hash" },
+        agent: { projection_hash: "same-hash" },
+      },
       observed_at: "2026-07-23T08:00:01Z",
     }
 
@@ -58,6 +62,8 @@ test("ops runtime store keeps an immutable Agent/program parity ledger", () => {
     const status = readRuntimeParityStatus(db, new Date("2026-07-23T08:00:30Z")) as {
       observation_state: string
       counts: { total: number; matched: number; mismatched: number }
+      comparable_counts: { total: number; matched: number; mismatched: number }
+      legacy_sequential_counts: { total: number; matched: number; mismatched: number }
       latest: Record<string, unknown>
       supervisor_lease: Record<string, unknown>
       limitations: string[]
@@ -69,6 +75,18 @@ test("ops runtime store keeps an immutable Agent/program parity ledger", () => {
       mismatched: 0,
       distinct_program_hashes: 1,
       distinct_agent_hashes: 1,
+    })
+    assert.deepEqual(status.comparable_counts, {
+      comparison_basis: "shared_owner_result_replay_v1",
+      total: 1,
+      matched: 1,
+      mismatched: 0,
+    })
+    assert.deepEqual(status.legacy_sequential_counts, {
+      comparison_basis: "sequential_live_reads_v1",
+      total: 0,
+      matched: 0,
+      mismatched: 0,
     })
     assert.equal(status.supervisor_lease.state, "active")
     assert.equal(status.supervisor_lease.active, true)
