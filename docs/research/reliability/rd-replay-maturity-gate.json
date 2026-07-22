@@ -1,12 +1,12 @@
 {
   "schema_version": "trade.rd-replay-maturity-gate.v2",
-  "maturity": 3,
+  "maturity": 4,
   "maturity_scale": 5,
   "evidence_chain_freeze": "R4.151",
   "completed_milestones": ["M3-G1", "M3-G2", "M3-G3", "M3-G4", "M3-G5", "M3-G6", "M3-G7", "M3-G8", "M4-P1", "M4-P2", "M4-P3", "M4-P4", "M4-P5", "M4-P6", "M4-P7", "M4-P8", "M4-P9", "M4-P10", "M4-P11", "M4-P12", "M4-P13", "M4-P14", "M4-P15", "M4-P16", "M4-P17", "M4-P18", "M4-P19", "M4-P20", "M4-P21", "M4-P22", "M4-P23", "M4-P24", "M4-P25", "M4-P26", "M4-P27", "M4-P28", "M4-P29"],
   "convergence_workstream": {
     "id": "M4-CONVERGENCE",
-    "status": "in_progress",
+    "status": "m4_complete",
     "p30_creation": "forbidden",
     "scope": "canonicalize-supported-capabilities-without-adding-simulator-semantics"
   },
@@ -27,10 +27,10 @@
       "single_owner_certification_command": true,
       "canonical_and_compatibility_test_suites_separated": true,
       "all_supported_profiles_have_golden_resume_idempotency_and_tamper_evidence": true,
-      "no_unclassified_replay_module_or_production_consumer": false
+      "no_unclassified_replay_module_or_production_consumer": true
     },
     "m5": {
-      "m4_exit_complete": false,
+      "m4_exit_complete": true,
       "cross_process_reproducibility_bundle": false,
       "historical_artifact_read_migration_certified": false,
       "crash_recovery_and_exactly_once_publication_certified": false,
@@ -46,8 +46,10 @@
     "docs/research/reliability/rd-replay-evidence-epoch-registry.json",
     "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/CONTRACT.md",
     "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-profile-evidence.json",
+    "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-module-consumer-closure.json",
     "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-certification-suites.json",
     "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-certification.test.ts",
+    "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-module-consumer-closure.ts",
     "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/main.ts",
     "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle/CONTRACT.md",
     "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle/src/lib/legacy-portfolio-cycle-boundary.test.ts",
@@ -228,5 +230,5 @@
     "modules/research-strategy-development/research-control-plane/state-store/src/lib/research-control-plane-schema.ts",
     "modules/research-strategy-development/research-control-plane/state-store/src/lib/bar-linked-aggregate-trade-path-authority-registry.ts"
   ],
-  "next_allowed_outcome": "m4-convergence-only-p30-and-new-simulator-capabilities-forbidden"
+  "next_allowed_outcome": "m5-release-certification-only-no-new-simulator-capability"
 }
