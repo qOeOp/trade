@@ -34,6 +34,11 @@ import {
   loadReplayCapacityPerformanceEnvelope,
   runReplayCapacityPerformanceProbe,
 } from "./replay-capacity-performance-envelope"
+import {
+  assertReplayFaultCorruptionRecoveryBundle,
+  loadReplayFaultCorruptionRecoveryBundle,
+  runReplayFaultCorruptionRecoveryProbe,
+} from "./replay-fault-corruption-recovery"
 
 describe("Replay certification owner", () => {
   const repoRoot = findReplayCertificationRepoRoot()
@@ -219,5 +224,46 @@ describe("Replay certification owner", () => {
     expect(() => assertReplayCapacityPerformanceEnvelope(
       hardLimitOverclaim, profileEvidence, repoRoot,
     )).toThrow("profile overclaim or drift")
+  })
+
+  test("certifies fault injection, corruption detection, authority and bounded recovery", async () => {
+    const bundle = loadReplayFaultCorruptionRecoveryBundle(repoRoot)
+    const receipt = await runReplayFaultCorruptionRecoveryProbe(
+      bundle,
+      loadReplayProfileEvidenceManifest(repoRoot),
+      repoRoot,
+    )
+    expect(receipt.cases).toHaveLength(8)
+    expect(new Set(receipt.cases.map((entry) => entry.profile))).toEqual(new Set([
+      "single-trial",
+      "independent-lane-batch",
+      "integrated-portfolio",
+      "terminal-aware-bounded-cycle",
+    ]))
+    expect(new Set(receipt.cases.map((entry) => entry.process_id)).size).toBe(8)
+    expect(receipt.cases.filter((entry) =>
+      entry.recovery_class === "manifest-last-identical-retry")).toHaveLength(1)
+    expect(receipt.receipt_sha256).toHaveLength(64)
+  }, 120_000)
+
+  test("rejects fault coverage, repair, or recovery overclaims", () => {
+    const profileEvidence = loadReplayProfileEvidenceManifest(repoRoot)
+    const missingCase = structuredClone(loadReplayFaultCorruptionRecoveryBundle(repoRoot))
+    missingCase.cases.pop()
+    expect(() => assertReplayFaultCorruptionRecoveryBundle(
+      missingCase, profileEvidence, repoRoot,
+    )).toThrow("case matrix is incomplete")
+
+    const repairOverclaim = structuredClone(loadReplayFaultCorruptionRecoveryBundle(repoRoot))
+    repairOverclaim.corruption_policy = "detect-and-automatically-repair" as never
+    expect(() => assertReplayFaultCorruptionRecoveryBundle(
+      repairOverclaim, profileEvidence, repoRoot,
+    )).toThrow("unsupported Replay fault/corruption recovery bundle")
+
+    const recoveryOverclaim = structuredClone(loadReplayFaultCorruptionRecoveryBundle(repoRoot))
+    recoveryOverclaim.cases[2]!.recovery_class = "manifest-last-identical-retry"
+    expect(() => assertReplayFaultCorruptionRecoveryBundle(
+      recoveryOverclaim, profileEvidence, repoRoot,
+    )).toThrow("case overclaim or drift")
   })
 })
