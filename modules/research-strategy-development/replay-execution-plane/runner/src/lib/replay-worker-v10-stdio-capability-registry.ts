@@ -23,12 +23,17 @@ import { readReplayWorkerV10TransportContract } from "./replay-worker-v10-transp
 import {
   readReplayWorkerV10SuccessorExecutionTransport,
 } from "./replay-worker-v10-successor-execution-transport-registry"
+import {
+  assertReplayDurableParentValidationReceipt,
+  type ReplayDurableParentValidationReceipt,
+} from "./replay-durable-parent-validation-receipt"
 
 export interface ReplayWorkerV10StdioCapabilityRegistryInput {
   registry_root: string
   source_transport_contract: ReplayDecisionHarnessWorkerV10TransportContract
   source_successor_execution_transport_admission?:
     ReplayDecisionHarnessWorkerV10SuccessorExecutionTransportAdmission
+  source_successor_execution_transport_validation_receipt?: ReplayDurableParentValidationReceipt
 }
 
 export function registerReplayWorkerV10StdioCapability(
@@ -72,6 +77,17 @@ function requireDurableParent(input: ReplayWorkerV10StdioCapabilityRegistryInput
   const contract = input.source_transport_contract
   const successorAdmission = input.source_successor_execution_transport_admission
   if (successorAdmission) {
+    const receipt = input.source_successor_execution_transport_validation_receipt
+    if (receipt) {
+      assertReplayDurableParentValidationReceipt(receipt)
+      if (receipt.parent_kind !== "worker_v10_successor_execution_transport_admission"
+          || receipt.parent_key !== successorAdmission.admission_key
+          || receipt.parent_self_hash !== successorAdmission.admission_hash
+          || successorAdmission.successor_base_transport_contract_hash !== contract.contract_hash) {
+        throw new Error("Replay Worker v10 Stdio Capability successor parent receipt drift")
+      }
+      return
+    }
     const durable = readReplayWorkerV10SuccessorExecutionTransport({
       registry_root: input.registry_root,
       source_successor_execution_envelope_admission:
@@ -102,12 +118,17 @@ function requireInput(input: ReplayWorkerV10StdioCapabilityRegistryInput): void 
   assertReplayDecisionHarnessWorkerV10TransportContract(input.source_transport_contract)
   if (input.source_successor_execution_transport_admission) {
     const admission = input.source_successor_execution_transport_admission
-    assertReplayDecisionHarnessWorkerV10SuccessorExecutionTransportAdmission(admission)
+    if (!input.source_successor_execution_transport_validation_receipt) {
+      assertReplayDecisionHarnessWorkerV10SuccessorExecutionTransportAdmission(admission)
+    }
     if (admission.successor_base_transport_contract_hash !== input.source_transport_contract.contract_hash
-        || canonicalJson(admission.successor_base_transport_contract)
-          !== canonicalJson(input.source_transport_contract)) {
+        || (!input.source_successor_execution_transport_validation_receipt
+          && canonicalJson(admission.successor_base_transport_contract)
+            !== canonicalJson(input.source_transport_contract))) {
       throw new Error("Replay Worker v10 Stdio Capability successor Transport Admission binding drift")
     }
+  } else if (input.source_successor_execution_transport_validation_receipt) {
+    throw new Error("Replay Worker v10 Stdio Capability parent receipt requires successor admission")
   }
 }
 

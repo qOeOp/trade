@@ -22,6 +22,7 @@ import {
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-execution-transport-admission"
 import { writeReplayImmutableCas } from "./replay-local-artifact-store"
 import { readReplayWorkerV10StdioCapability } from "./replay-worker-v10-stdio-capability-registry"
+import type { ReplayDurableParentValidationReceipt } from "./replay-durable-parent-validation-receipt"
 
 const PROCESS_ARTIFACT_FILE = "worker-v10-stdio.mjs"
 const FIXED_ENVIRONMENT = Object.freeze({ TZ: "UTC", LANG: "C", LC_ALL: "C" })
@@ -35,6 +36,7 @@ export interface ReplayWorkerV10NegativeProbeRegistryInput {
   source_stdio_capability: ReplayDecisionHarnessWorkerV10StdioCapability
   source_successor_execution_transport_admission?:
     ReplayDecisionHarnessWorkerV10SuccessorExecutionTransportAdmission
+  source_successor_execution_transport_validation_receipt?: ReplayDurableParentValidationReceipt
   clock?: ReplayWorkerV10NegativeProbeClock
 }
 
@@ -181,6 +183,8 @@ function requireDurableCapability(input: Omit<ReplayWorkerV10NegativeProbeRegist
     source_transport_contract: contract,
     source_successor_execution_transport_admission:
       input.source_successor_execution_transport_admission,
+    source_successor_execution_transport_validation_receipt:
+      input.source_successor_execution_transport_validation_receipt,
   })
   if (!durable || durable.capability_hash !== input.source_stdio_capability.capability_hash) {
     throw new Error("Replay Worker v10 negative probe requires the exact durable Stdio Capability")

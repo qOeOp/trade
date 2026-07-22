@@ -30,6 +30,7 @@ import {
 import {
   readReplayDurableParentValidationReceipt,
   registerReplayDurableParentValidationReceipt,
+  type ReplayDurableParentValidationReceipt,
 } from "./replay-durable-parent-validation-receipt"
 
 export interface RegisterReplayWorkerV10SuccessorExecutionStdioProbeInput {
@@ -42,15 +43,20 @@ export interface RegisterReplayWorkerV10SuccessorExecutionStdioProbeInput {
 export function registerReplayWorkerV10SuccessorExecutionStdioProbe(
   input: RegisterReplayWorkerV10SuccessorExecutionStdioProbeInput,
 ): ReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmission {
-  const transportAdmission = requireDurableParent(input)
+  const parent = requireDurableParent(input)
+  const transportAdmission = parent.admission
   const predecessor = extractPredecessorEvidence(transportAdmission)
   const successor = registerReplayWorkerV10StdioCapability({
     registry_root: input.registry_root,
     source_transport_contract: transportAdmission.successor_base_transport_contract,
+    source_successor_execution_transport_admission: transportAdmission,
+    source_successor_execution_transport_validation_receipt: parent.receipt,
   })
   const probe = runReplayWorkerV10NegativeProbeSuite({
     registry_root: input.registry_root,
     source_stdio_capability: successor,
+    source_successor_execution_transport_admission: transportAdmission,
+    source_successor_execution_transport_validation_receipt: parent.receipt,
     clock: input.clock,
   })
   const expected = buildAdmission(transportAdmission, predecessor, successor, probe)
@@ -81,16 +87,21 @@ export function registerReplayWorkerV10SuccessorExecutionStdioProbe(
 export function readReplayWorkerV10SuccessorExecutionStdioProbe(
   input: Omit<RegisterReplayWorkerV10SuccessorExecutionStdioProbeInput, "clock">,
 ): ReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmission | null {
-  const transportAdmission = requireDurableParent(input)
+  const parent = requireDurableParent(input)
+  const transportAdmission = parent.admission
   const predecessor = extractPredecessorEvidence(transportAdmission)
   const successor = readReplayWorkerV10StdioCapability({
     registry_root: input.registry_root,
     source_transport_contract: transportAdmission.successor_base_transport_contract,
+    source_successor_execution_transport_admission: transportAdmission,
+    source_successor_execution_transport_validation_receipt: parent.receipt,
   })
   if (!successor) return null
   const probe = readReplayWorkerV10NegativeProbeReceipt({
     registry_root: input.registry_root,
     source_stdio_capability: successor,
+    source_successor_execution_transport_admission: transportAdmission,
+    source_successor_execution_transport_validation_receipt: parent.receipt,
   })
   if (!probe) return null
   const expected = buildAdmission(transportAdmission, predecessor, successor, probe)
@@ -240,7 +251,10 @@ function extractPredecessorEvidence(
 
 function requireDurableParent(
   input: Omit<RegisterReplayWorkerV10SuccessorExecutionStdioProbeInput, "clock">,
-): ReplayDecisionHarnessWorkerV10SuccessorExecutionTransportAdmission {
+): {
+  admission: ReplayDecisionHarnessWorkerV10SuccessorExecutionTransportAdmission
+  receipt: ReplayDurableParentValidationReceipt
+} {
   requireReferenceInput(input)
   const expected = input.source_successor_execution_transport_admission
   const path = join(resolve(input.registry_root),
@@ -266,7 +280,7 @@ function requireDurableParent(
   if (durable.admission_key !== expected.admission_key || durable.admission_hash !== expected.admission_hash) {
     throw new Error("successor execution Stdio Probe R4.145 parent reference drift")
   }
-  return durable
+  return { admission: durable, receipt }
 }
 
 function requireReferenceInput(
