@@ -1,13 +1,16 @@
 import { readFileSync } from "node:fs"
 import {
   buildReplayDecisionInput,
+  detectReplayDecisionLookahead,
   hashCanonical,
+  loadCandlesFromManifest,
+  loadManifest,
   replayStrategy,
   type ReplayResult,
   type ReplaySignal,
   type ReplayStrategy,
 } from "../../../../../replay-execution-plane/compatibility/replay-engine/src/lib/replay-core"
-import { type FactorFeatureStore } from "../../../strategy-family-engine/src/lib/factor-engine"
+import { type FactorFeatureStore, windowFactorFeatureStore } from "../../../strategy-family-engine/src/lib/factor-engine"
 import { getRndFamily, type RndFamilyConfigured } from "../../../strategy-family-engine/src/lib/rnd-family"
 import type { JSONRecord } from "../../../../../../contracts/runtime-core/src/json"
 import type { StrategyRndBatchInput, StrategyRndCandidateInput } from "./strategy-rnd-inputs"
@@ -71,6 +74,24 @@ export function runCandidate(input: StrategyRndBatchInput, candidate: StrategyRn
     antiOverfitStage: input.antiOverfitStage,
     supplementalDataRefs,
   })
+  const timeframe = input.timeframe || configured.strategy.default_timeframe
+  const candles = loadCandlesFromManifest(input.manifestPath, loadManifest(input.manifestPath), timeframe)
+  const temporalIntegrity = detectReplayDecisionLookahead(configured.strategy, candles, {
+    manifestPath: input.manifestPath,
+    timeframe,
+    rewardRisk: configured.rewardRisk,
+    fundingEvents: loadFundingEvents(input.indicatorReportPath, input.manifestPath, timeframe),
+  }, {
+    cutoffStrategyFactory: (prefix) => getRndFamily(family).configure(
+      candidate.candidateId,
+      rawParams,
+      windowFactorFeatureStore(featureStore, {
+        firstTimestampMs: prefix[0].timestamp,
+        lastTimestampMs: prefix[prefix.length - 1].timestamp,
+      }),
+    ).strategy,
+  })
+  replay.assumptions.temporal_integrity = temporalIntegrity
   const robustness = asRecord(replay.assumptions.robustness)
   robustness.parameter_stability = input.diagnosticMode
     ? { method: "diagnostic_skipped", evaluation_count: 0, positive_ratio: 0, worst_avg_r: 0 }
@@ -90,8 +111,18 @@ export function runCandidate(input: StrategyRndBatchInput, candidate: StrategyRn
     params: configured.params,
     replay,
     negative_controls: negativeControls,
-    gate: evaluateRndCandidate(replay, parameterCount, negativeControls.blocked_by),
+    gate: evaluateRndCandidate(replay, parameterCount, [
+      ...temporalIntegrityBlocks(temporalIntegrity),
+      ...negativeControls.blocked_by,
+    ]),
   }
+}
+
+function temporalIntegrityBlocks(report: { status: string; mismatch_count: number }): Array<{ check_id: string; reason: string }> {
+  return report.status === "passed" ? [] : [{
+    check_id: "RND-TEMPORAL-LOOKAHEAD",
+    reason: `full-vs-cutoff recomputation found ${report.mismatch_count} decision mismatches`,
+  }]
 }
 
 function diagnosticNegativeControls(observed: ReplayResult): CandidateNegativeControlReport {

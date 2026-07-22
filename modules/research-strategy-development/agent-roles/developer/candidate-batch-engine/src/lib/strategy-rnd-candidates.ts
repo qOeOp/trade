@@ -65,6 +65,9 @@ export function buildFactorResearch(input: StrategyRndBatchInput, featureStore: 
   if (input.candidates.length !== 1) {
     throw new Error("setup-conditioned factor discovery requires exactly one base candidate")
   }
+  if (input.antiOverfitStage === "external_validation" || input.antiOverfitStage === "locked_holdout") {
+    throw new Error("factor discovery is forbidden on external validation and locked holdout datasets")
+  }
   const timeframe = input.timeframe || "4h"
   const base = input.candidates[0]
   const configured = getRndFamily(base.family || "trend_pullback_v1").configure(base.candidateId, base.params || {}, featureStore)
@@ -78,6 +81,7 @@ export function buildFactorResearch(input: StrategyRndBatchInput, featureStore: 
     fundingBpsPer8h: input.fundingBpsPer8h,
     fundingEvents: loadFundingEvents(input.indicatorReportPath),
   })
+  const selection = purgedFactorSelectionTargets(setupReplay.trades, input.oosSplitRatio ?? 0.3)
   return researchFactorSeeds(
     featureStore,
     loadCandlesFromManifest(
@@ -88,7 +92,50 @@ export function buildFactorResearch(input: StrategyRndBatchInput, featureStore: 
     timeframe,
     {
       ...input.factorResearchOptions,
-      targets: setupReplay.trades.map((trade) => ({ timestamp: trade.signal_time, value: trade.r, regime: trade.regime })),
+      targets: selection.targets,
+      selectionScope: selection.scope,
     },
   )
+}
+
+function purgedFactorSelectionTargets(
+  trades: Array<{ signal_time: string; exit_time: string; r: number; regime: string }>,
+  oosRatio: number,
+): {
+  targets: Array<{ timestamp: string; value: number; regime: string }>
+  scope: FactorResearchReport["selection_scope"]
+} {
+  if (!Number.isFinite(oosRatio) || oosRatio <= 0 || oosRatio >= 1) {
+    throw new Error("factor discovery requires oos_split strictly between 0 and 1")
+  }
+  if (trades.length < 2) {
+    return {
+      targets: [],
+      scope: {
+        method: "purged_chronological_trade_split_v1",
+        train_end_at: null,
+        oos_start_at: trades[0]?.signal_time ?? null,
+        total_target_count: trades.length,
+        selected_target_count: 0,
+        purged_overlap_count: 0,
+        oos_target_count: trades.length,
+      },
+    }
+  }
+  const splitIndex = Math.max(1, Math.min(trades.length - 1, Math.floor(trades.length * (1 - oosRatio))))
+  const oosStart = trades[splitIndex].signal_time
+  const eligibleTrain = trades.slice(0, splitIndex)
+  const selected = eligibleTrain.filter((trade) => Date.parse(trade.exit_time) < Date.parse(oosStart))
+  return {
+    targets: selected.map((trade) => ({ timestamp: trade.signal_time, value: trade.r, regime: trade.regime })),
+    scope: {
+      method: "purged_chronological_trade_split_v1",
+      train_end_at: selected.at(-1)?.signal_time ?? null,
+      oos_start_at: oosStart,
+      total_target_count: trades.length,
+      selected_target_count: selected.length,
+      purged_overlap_count: eligibleTrain.length - selected.length,
+      oos_target_count: trades.length - splitIndex,
+    },
+  }
 }

@@ -106,6 +106,12 @@ test("strategy R&D candidates keep campaign candidate counting and discovery con
       { candidateId: "B", params: {} },
     ],
   }, loadStrategyRndFeatureStore()), /requires exactly one base candidate/)
+  assert.throws(() => buildFactorResearch({
+    ...baseInput(),
+    factorDiscover: true,
+    indicatorReportPath: "/tmp/unused-indicator-report.json",
+    antiOverfitStage: "locked_holdout",
+  }, loadStrategyRndFeatureStore()), /factor discovery is forbidden/)
 })
 
 test("strategy R&D feature store is bounded to the active manifest window", () => {
@@ -173,6 +179,16 @@ function factorResearchFixture(): FactorResearchReport {
     min_abs_ic: 0.05,
     max_correlation: 0.85,
     max_fdr: 0.05,
+    selection_scope: {
+      method: "purged_chronological_trade_split_v1",
+      train_end_at: "2026-01-01T00:00:00Z",
+      oos_start_at: "2026-02-01T00:00:00Z",
+      total_target_count: 20,
+      selected_target_count: 13,
+      purged_overlap_count: 1,
+      oos_target_count: 6,
+    },
+    selection_identity_hash: "factor-selection-fixture",
     profiles: [],
     selected_factor_ids: ["edge.factor"],
     seeds: [{

@@ -4,7 +4,7 @@ import { join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { evaluateLatestSignal, evaluateReplayGate, parseCsvCandles, replayStrategy, replayTrendPullback, simulateReplayOrderLane, type ReplayStrategy } from "../../../../../replay-execution-plane/compatibility/replay-engine/src/lib/strategy-replay"
+import { detectReplayDecisionLookahead, evaluateLatestSignal, evaluateReplayGate, parseCsvCandles, replayStrategy, replayTrendPullback, simulateReplayOrderLane, type Candle, type ReplayStrategy } from "../../../../../replay-execution-plane/compatibility/replay-engine/src/lib/strategy-replay"
 
 test("parseCsvCandles reads OHLCV rows", () => {
   const candles = parseCsvCandles([
@@ -181,6 +181,45 @@ test("future next-open gaps cannot change the prior decision and are enforced at
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
+})
+
+test("full-vs-cutoff detector passes causal strategies and catches future-capturing factories", () => {
+  const candles = parseCsvCandles([
+    "date,timestamp,open,high,low,close,volume",
+    ...Array.from({ length: 12 }, (_, index) => {
+      const value = 100 + index
+      return `${new Date(1_700_000_000_000 + index * 14_400_000).toISOString()},${1_700_000_000_000 + index * 14_400_000},${value},${value + 1},${value - 1},${value},10`
+    }),
+  ].join("\n"))
+  const causal: ReplayStrategy = {
+    strategy_id: "S-CAUSAL-DETECTOR",
+    default_timeframe: "4h",
+    warmup_bars: 1,
+    generateSignal({ index, decisionPrice }) {
+      return index % 3 === 0
+        ? { side: "long", signal_index: index, entry_index: index + 1, entry: decisionPrice, stop: decisionPrice - 1, target: decisionPrice + 2, reason: "causal" }
+        : null
+    },
+  }
+  const causalReport = detectReplayDecisionLookahead(causal, candles, { manifestPath: "/tmp/detector.json" })
+  assert.equal(causalReport.status, "passed")
+  assert.equal(causalReport.coverage, "complete")
+
+  const futureCapturingFactory = (visible: Candle[]): ReplayStrategy => ({
+    strategy_id: "S-FUTURE-CAPTURE",
+    default_timeframe: "4h",
+    warmup_bars: 1,
+    generateSignal({ index, decisionPrice }) {
+      return visible[index + 1]
+        ? { side: "long", signal_index: index, entry_index: index + 1, entry: decisionPrice, stop: decisionPrice - 1, target: decisionPrice + 2, reason: "future capture" }
+        : null
+    },
+  })
+  const leaked = detectReplayDecisionLookahead(futureCapturingFactory(candles), candles, { manifestPath: "/tmp/detector.json" }, {
+    cutoffStrategyFactory: (prefix) => futureCapturingFactory(prefix),
+  })
+  assert.equal(leaked.status, "failed")
+  assert.ok(leaked.mismatch_count > 0)
 })
 
 test("replayStrategy charges adverse funding and fills a stop gap at the worse open", () => {

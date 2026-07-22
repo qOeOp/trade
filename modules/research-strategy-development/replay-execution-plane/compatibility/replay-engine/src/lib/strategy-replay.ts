@@ -1,6 +1,7 @@
 export {
   atr,
   buildIndicators,
+  detectReplayDecisionLookahead,
   ema,
   evaluateLatestSignal,
   evaluateReplayGate,
@@ -17,6 +18,7 @@ export {
   type ReplaySignal,
   type ReplayStrategy,
   type ReplayTrade,
+  type ReplayTemporalIntegrityReport,
   type SimulatedLaneFill,
   type SimulatedLaneOrder,
   type SimulatedLaneResult,

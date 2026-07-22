@@ -113,6 +113,7 @@ test("strategy R&D batch runs bounded predeclared candidates", () => {
     assert.equal(report.candidates.length, 1)
     assert.equal(report.candidates[0].replay.strategy_id, "C-LONG-EMA50")
     assert.equal(report.candidates[0].negative_controls.method, "side_flip_and_entry_lag")
+    assert.equal((report.candidates[0].replay.assumptions.temporal_integrity as { status: string }).status, "passed")
     assert.deepEqual(report.candidates[0].negative_controls.controls.map((item) => item.control_id), ["side_flip", "entry_lag_3"])
     assert.equal((report.candidates[0].replay.assumptions.anti_overfit as { trial_count: number }).trial_count, 7)
     assert.ok(["candidate_found", "no_promote"].includes(report.outcome))
@@ -704,7 +705,11 @@ test("strategy R&D batch discovers statistically screened factor seeds", () => {
 
     assert.equal(report.candidate_source, "scientific_factor_discovery")
     assert.equal(report.factor_research?.method, "setup_conditioned_rank_ic")
-    assert.equal(report.factor_research?.profiles[0].sample_count, outcomes.size)
+    assert.equal(report.factor_research?.selection_scope.total_target_count, outcomes.size)
+    assert.equal(report.factor_research?.profiles[0].sample_count, report.factor_research?.selection_scope.selected_target_count)
+    assert.ok(Number(report.factor_research?.selection_scope.oos_target_count) > 0)
+    assert.ok(Number(report.factor_research?.selection_scope.selected_target_count) < outcomes.size)
+    assert.match(report.factor_research?.selection_identity_hash || "", /^[a-f0-9]{64}$/)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

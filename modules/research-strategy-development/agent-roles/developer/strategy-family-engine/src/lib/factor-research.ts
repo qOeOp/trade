@@ -1,4 +1,4 @@
-import { buildIndicators, type Candle } from "../../../../../replay-execution-plane/compatibility/replay-engine/src/lib/replay-core"
+import { buildIndicators, hashCanonical, type Candle } from "../../../../../replay-execution-plane/compatibility/replay-engine/src/lib/replay-core"
 import {
   transformFactor,
   type FactorCondition,
@@ -15,6 +15,17 @@ interface FactorResearchOptions {
   maxCorrelation?: number
   maxSelected?: number
   targets?: Array<{ timestamp: string; value: number; regime: string }>
+  selectionScope?: FactorSelectionScope
+}
+
+interface FactorSelectionScope {
+  method: "full_declared_sample" | "purged_chronological_trade_split_v1"
+  train_end_at: string | null
+  oos_start_at: string | null
+  total_target_count: number
+  selected_target_count: number
+  purged_overlap_count: number
+  oos_target_count: number
 }
 
 interface FactorResearchProfile {
@@ -38,6 +49,8 @@ interface FactorResearchReport {
   min_abs_ic: number
   max_correlation: number
   max_fdr: 0.05
+  selection_scope: FactorSelectionScope
+  selection_identity_hash: string
   profiles: FactorResearchProfile[]
   selected_factor_ids: string[]
   seeds: FactorCondition[]
@@ -140,6 +153,29 @@ function researchFactorSeeds(
     selected.push(item)
   }
 
+  const selectionScope = options.selectionScope || {
+    method: "full_declared_sample",
+    train_end_at: null,
+    oos_start_at: null,
+    total_target_count: options.targets?.length ?? 0,
+    selected_target_count: options.targets?.length ?? 0,
+    purged_overlap_count: 0,
+    oos_target_count: 0,
+  }
+  const selectedFactorIds = selected.map((item) => item.definition.factor_id)
+  const seeds = selected.flatMap(({ definition, profile }) => buildDirectionalSeeds(definition, profile, lookback, setupConditioned))
+  const selectionIdentityHash = hashCanonical({
+    method: setupConditioned ? "setup_conditioned_rank_ic" : "causal_rank_ic",
+    horizon_bars: horizonBars,
+    lookback,
+    min_samples: minSamples,
+    min_abs_ic: minAbsIc,
+    max_correlation: maxCorrelation,
+    max_fdr: 0.05,
+    selection_scope: selectionScope,
+    selected_factor_ids: selectedFactorIds,
+    seeds,
+  })
   return {
     method: setupConditioned ? "setup_conditioned_rank_ic" : "causal_rank_ic",
     horizon_bars: horizonBars,
@@ -148,9 +184,11 @@ function researchFactorSeeds(
     min_abs_ic: minAbsIc,
     max_correlation: maxCorrelation,
     max_fdr: 0.05,
+    selection_scope: selectionScope,
+    selection_identity_hash: selectionIdentityHash,
     profiles: internals.map((item) => item.profile).sort((a, b) => Math.abs(b.ic) - Math.abs(a.ic)),
-    selected_factor_ids: selected.map((item) => item.definition.factor_id),
-    seeds: selected.flatMap(({ definition, profile }) => buildDirectionalSeeds(definition, profile, lookback, setupConditioned)),
+    selected_factor_ids: selectedFactorIds,
+    seeds,
   }
 }
 
@@ -293,4 +331,5 @@ export {
   type FactorResearchOptions,
   type FactorResearchProfile,
   type FactorResearchReport,
+  type FactorSelectionScope,
 }

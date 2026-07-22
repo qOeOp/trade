@@ -183,6 +183,23 @@ interface ReplaySupplementalTemporalContract {
   availability_source: string
 }
 
+interface ReplayTemporalIntegrityReport {
+  method: "full_vs_cutoff_recompute_v1"
+  status: "passed" | "failed"
+  coverage: "complete" | "sampled"
+  eligible_cutoffs: number
+  checked_cutoffs: number
+  mismatch_count: number
+  mismatch_examples_truncated: boolean
+  mismatches: Array<{
+    cutoff_index: number
+    cutoff_time: string
+    full_signal_hash: string
+    cutoff_signal_hash: string
+    error?: string
+  }>
+}
+
 interface LatestSignalResult {
   strategy_id: string
   symbol: string
@@ -364,6 +381,80 @@ function materializeReplaySignalAtFill(
       execution_pricing: "next_open_materialized_after_decision",
     },
   }
+}
+
+function detectReplayDecisionLookahead(
+  strategy: ReplayStrategy,
+  candles: Candle[],
+  options: ReplayOptions,
+  detector: {
+    maxCutoffs?: number
+    cutoffStrategyFactory?: (prefix: Candle[], cutoffIndex: number) => ReplayStrategy
+  } = {},
+): ReplayTemporalIntegrityReport {
+  const eligible = Array.from(
+    { length: Math.max(0, candles.length - Math.max(strategy.warmup_bars, 1) - 1) },
+    (_, offset) => Math.max(strategy.warmup_bars, 1) + offset,
+  ).filter((index) => index < candles.length - 1)
+  const requestedMaximum = Number(detector.maxCutoffs)
+  const maxCutoffs = Number.isInteger(requestedMaximum) && requestedMaximum > 0
+    ? Math.min(requestedMaximum, 2000)
+    : 2000
+  const cutoffs = boundedCutoffs(eligible, maxCutoffs)
+  const fullIndicators = buildIndicators(candles)
+  const mismatches: ReplayTemporalIntegrityReport["mismatches"] = []
+  let mismatchCount = 0
+  for (const cutoffIndex of cutoffs) {
+    const prefix = candles.slice(0, cutoffIndex + 1)
+    try {
+      const fullSignal = strategy.generateSignal(buildReplayDecisionInput(candles, fullIndicators, cutoffIndex, options))
+      const cutoffStrategy = detector.cutoffStrategyFactory?.(prefix, cutoffIndex) ?? strategy
+      const cutoffSignal = cutoffStrategy.generateSignal(buildReplayDecisionInput(prefix, buildIndicators(prefix), cutoffIndex, options))
+      const fullHash = hashCanonical(fullSignal)
+      const cutoffHash = hashCanonical(cutoffSignal)
+      if (fullHash !== cutoffHash) {
+        mismatchCount += 1
+        if (mismatches.length < 20) {
+          mismatches.push({
+            cutoff_index: cutoffIndex,
+            cutoff_time: candles[cutoffIndex].date,
+            full_signal_hash: fullHash,
+            cutoff_signal_hash: cutoffHash,
+          })
+        }
+      }
+    } catch (error) {
+      mismatchCount += 1
+      if (mismatches.length < 20) {
+        mismatches.push({
+          cutoff_index: cutoffIndex,
+          cutoff_time: candles[cutoffIndex].date,
+          full_signal_hash: "error",
+          cutoff_signal_hash: "error",
+          error: error instanceof Error ? error.message : String(error),
+        })
+      }
+    }
+  }
+  return {
+    method: "full_vs_cutoff_recompute_v1",
+    status: mismatchCount === 0 ? "passed" : "failed",
+    coverage: cutoffs.length === eligible.length ? "complete" : "sampled",
+    eligible_cutoffs: eligible.length,
+    checked_cutoffs: cutoffs.length,
+    mismatch_count: mismatchCount,
+    mismatch_examples_truncated: mismatchCount > mismatches.length,
+    mismatches,
+  }
+}
+
+function boundedCutoffs(eligible: number[], maximum: number): number[] {
+  if (eligible.length <= maximum) return eligible
+  const selected = new Set<number>()
+  for (let index = 0; index < maximum; index += 1) {
+    selected.add(eligible[Math.round(index * (eligible.length - 1) / Math.max(1, maximum - 1))])
+  }
+  return [...selected].sort((left, right) => left - right)
 }
 
 function directionalRisk(side: Side, entry: number, stop: number): number {
@@ -1252,6 +1343,7 @@ export {
   atr,
   buildIndicators,
   buildReplayDecisionInput,
+  detectReplayDecisionLookahead,
   ema,
   evaluateLatestSignal,
   loadManifest,
@@ -1274,6 +1366,7 @@ export {
   type ReplayResult,
   type ReplayProvenance,
   type ReplayTemporalContract,
+  type ReplayTemporalIntegrityReport,
   type ReplaySignal,
   type ReplayStrategy,
   type ReplayTrade,
