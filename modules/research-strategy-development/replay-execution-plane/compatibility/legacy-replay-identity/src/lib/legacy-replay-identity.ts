@@ -39,17 +39,18 @@ export function replayContentHash(manifestPath: string, timeframe: string): stri
 }
 
 export function replayHarnessHash(): string {
-  const root = join(import.meta.dir, "../../../legacy-research-kernel/src/lib")
+  const root = join(import.meta.dir, "../../..")
   const files = [
-    join(root, "replay-core.ts"),
-    join(root, "replay-strategies.ts"),
-    join(root, "strategy-replay.ts"),
-    join(root, "strategy-rnd.ts"),
-    join(root, "factor-engine.ts"),
-    join(root, "factor-research.ts"),
-    join(root, "rnd-family.ts"),
-    join(root, "rnd-family-helpers.ts"),
-    ...sourceFiles(join(root, "rnd-families")),
+    join(root, "legacy-research-kernel/src/lib/replay-core.ts"),
+    join(root, "legacy-research-kernel/src/lib/replay-strategies.ts"),
+    join(root, "legacy-research-kernel/src/lib/strategy-replay.ts"),
+    join(root, "legacy-research-kernel/src/lib/strategy-rnd.ts"),
+    join(root, "legacy-research-kernel/src/lib/factor-engine.ts"),
+    join(root, "legacy-research-kernel/src/lib/factor-research.ts"),
+    join(root, "legacy-research-kernel/src/lib/rnd-family.ts"),
+    join(root, "legacy-research-kernel/src/lib/rnd-family-helpers.ts"),
+    ...sourceFiles(join(root, "legacy-research-kernel/src/lib/rnd-families")),
+    join(root, "legacy-replay-identity/src/lib/legacy-replay-identity.ts"),
   ].filter((path) => statOrNull(path)?.isFile())
   const hash = createHash("sha256")
   for (const path of files.sort()) {
