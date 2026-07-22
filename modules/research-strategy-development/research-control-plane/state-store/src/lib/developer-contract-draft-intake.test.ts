@@ -75,6 +75,12 @@ import {
   readReplayTrialReservationAdmission,
 } from "./replay-trial-reservation-admission"
 import { REPLAY_TRIAL_RESERVATION_ADMISSION_REQUEST_SCHEMA_VERSION } from "../../../contracts/src/lib/replay-trial-reservation-admission"
+import {
+  readRegisteredReplayExecutionRequest,
+  readReplayRequestRegistration,
+  registerReplayExecutionRequest,
+} from "./replay-request-registration"
+import { REPLAY_REQUEST_REGISTRATION_REQUEST_SCHEMA_VERSION } from "../../../contracts/src/lib/replay-request-registration"
 
 const REPLAY_HASH = "2".repeat(64)
 const REPLAY_PROVIDER_CERTIFICATION = createReplayInstrumentStatusProviderCertificationSnapshot({
@@ -685,7 +691,7 @@ test("Control Plane starts one frozen Experiment and reserves its complete Trial
   }
 })
 
-test("Control Plane derives and persists one immutable Replay Trial Reservation Admission", () => {
+test("Control Plane derives one Reservation Admission and registers its exact Replay Request", () => {
   const db = openDb()
   try {
     registerReplayInstrumentStatusProviderCertification(db, REPLAY_PROVIDER_CERTIFICATION)
@@ -743,6 +749,39 @@ test("Control Plane derives and persists one immutable Replay Trial Reservation 
     expect(admission.replay_request_authority).toBe("none_until_exact_reservation_binding")
     expect(count(db, "rd_replay_trial_reservation_admission")).toBe(1)
     expect(count(db, "rd_replay_attempt")).toBe(0)
+    const registrationRequest = {
+      schema_version: REPLAY_REQUEST_REGISTRATION_REQUEST_SCHEMA_VERSION,
+      registration_id: "replay-request-registration-1",
+      reservation_admission_id: admission.admission_id,
+      reservation_admission_hash: admission.admission_hash,
+      idempotency_key: "replay-request-registration-key-1",
+      registered_at: "2026-07-22T12:11:00Z",
+    } as const
+    const registration = registerReplayExecutionRequest(db, registrationRequest)
+    expect(registerReplayExecutionRequest(db, registrationRequest)).toEqual(registration)
+    expect(readReplayRequestRegistration(db, registration.registration_id)).toEqual(registration)
+    const registeredRequest = readRegisteredReplayExecutionRequest(db, registration.registration_id)
+    expect(registeredRequest.trial_reservation_ref).toBe(admission.reservation_ref)
+    expect(registeredRequest.trial_reservation_hash).toBe(admission.reservation_hash)
+    expect(replayExecutionSpecHash(registeredRequest)).toBe(admission.execution_spec_hash)
+    expect(registration.request_hash).toBe(canonicalHash(registeredRequest))
+    expect(registration.assembly_policy).toBe("exact_admitted_spec_plus_admitted_reservation_only")
+    expect(registration.replay_attempt_authority).toBe("none_until_attempt_admission")
+    expect(count(db, "rd_replay_request_registration")).toBe(1)
+    expect(count(db, "rd_replay_attempt")).toBe(0)
+    expect(() => db.query(`
+      UPDATE rd_replay_request_registration SET request_hash=$hash
+    `).run({ $hash: "9".repeat(64) })).toThrow("immutable")
+    expect(() => registerReplayExecutionRequest(db, {
+      ...registrationRequest,
+      registered_at: "2026-07-22T12:12:00Z",
+    })).toThrow("idempotency key already exists")
+    expect(() => registerReplayExecutionRequest(db, {
+      ...registrationRequest,
+      registration_id: "replay-request-registration-expired",
+      idempotency_key: "replay-request-registration-expired-key",
+      registered_at: admission.reservation_snapshot.expires_at,
+    })).toThrow("inside the admitted Reservation window")
     expect(() => db.query(`
       UPDATE rd_replay_trial_reservation_admission SET dataset_hash=$hash
     `).run({ $hash: "9".repeat(64) })).toThrow("immutable")
@@ -767,6 +806,7 @@ test("Control Plane derives and persists one immutable Replay Trial Reservation 
       idempotency_key: "replay-reservation-admission-overlap-key",
     })).toThrow("overlapping active Reservations")
     expect(count(db, "rd_replay_trial_reservation_admission")).toBe(1)
+    expect(count(db, "rd_replay_request_registration")).toBe(1)
   } finally {
     db.close()
   }

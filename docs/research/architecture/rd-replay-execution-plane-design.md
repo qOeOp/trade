@@ -40,7 +40,7 @@ Control Plane authorization
 ```
 
 每一层只放大已授权的输入，不自行补策略语义、数据或权限。
-Control Plane `rd_trial(status=reserved)` 只冻结 Trial identity 与预算；它必须经过持久化 Replay Trial Reservation Admission v1：Control Plane 从 exact pre-Reservation Execution Spec 与完整 Dataset Manifest 重算 Dataset/provider/harness/assumptions/cost/margin/simulator bindings，并签发、内嵌 Snapshot v9，才形成可消费 authorization。调用方不能自报 bindings 或 capability set；Experiment Trial Plan Record 不能替代 Admission/Snapshot。Admission 仍不等于 Replay Request：Developer 下一步只能把 exact Snapshot ref/hash 插入已准入 Spec，Control Plane 再登记 Request，随后才允许 Attempt。
+Control Plane `rd_trial(status=reserved)` 只冻结 Trial identity 与预算；它必须经过持久化 Replay Trial Reservation Admission v1：Control Plane 从 exact pre-Reservation Execution Spec 与完整 Dataset Manifest 重算 Dataset/provider/harness/assumptions/cost/margin/simulator bindings，并签发、内嵌 Snapshot v9。随后 Replay Request Registration v1 只接受 Admission id/hash，由 Control Plane 从持久化 Spec/Snapshot 完成唯一允许的组装 `exact Spec + Reservation ref/hash`，持久化完整 Request 与 canonical hash。调用方不能自报 bindings、capability set 或 Request payload；Plan、Admission、Snapshot、Request Registration 四者不能互相替代。当前下一边界是 Attempt admission 必须引用 registered Request，而非继续接受任意 caller-supplied `request_hash + Snapshot`。
 
 ## 4. 核心不变量
 

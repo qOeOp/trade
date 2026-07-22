@@ -370,6 +370,28 @@ CREATE TABLE IF NOT EXISTS rd_replay_trial_reservation_admission (
   FOREIGN KEY (trial_id) REFERENCES rd_trial(trial_id)
 );
 
+CREATE TABLE IF NOT EXISTS rd_replay_request_registration (
+  registration_id TEXT PRIMARY KEY,
+  reservation_admission_id TEXT NOT NULL UNIQUE,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  registration_request_hash TEXT NOT NULL UNIQUE,
+  trial_id TEXT NOT NULL,
+  run_id TEXT NOT NULL,
+  reservation_ref TEXT NOT NULL UNIQUE,
+  reservation_hash TEXT NOT NULL UNIQUE,
+  execution_spec_hash TEXT NOT NULL,
+  request_idempotency_key TEXT NOT NULL UNIQUE,
+  request_hash TEXT NOT NULL UNIQUE,
+  replay_request_json TEXT NOT NULL CHECK(json_valid(replay_request_json)),
+  dataset_manifest_hash TEXT NOT NULL,
+  registration_hash TEXT NOT NULL UNIQUE,
+  registration_json TEXT NOT NULL CHECK(json_valid(registration_json)),
+  registered_at TEXT NOT NULL,
+  FOREIGN KEY (reservation_admission_id)
+    REFERENCES rd_replay_trial_reservation_admission(admission_id),
+  FOREIGN KEY (trial_id) REFERENCES rd_trial(trial_id)
+);
+
 CREATE TABLE IF NOT EXISTS rd_proposal (
   proposal_id TEXT PRIMARY KEY,
   planner_run_id TEXT NOT NULL,
@@ -1729,6 +1751,13 @@ BEGIN SELECT RAISE(ABORT, 'Replay Trial Reservation Admission Record is immutabl
 CREATE TRIGGER IF NOT EXISTS prevent_replay_trial_reservation_admission_delete
 BEFORE DELETE ON rd_replay_trial_reservation_admission
 BEGIN SELECT RAISE(ABORT, 'Replay Trial Reservation Admission Record is immutable'); END;
+
+CREATE TRIGGER IF NOT EXISTS prevent_replay_request_registration_update
+BEFORE UPDATE ON rd_replay_request_registration
+BEGIN SELECT RAISE(ABORT, 'Replay Request Registration Record is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS prevent_replay_request_registration_delete
+BEFORE DELETE ON rd_replay_request_registration
+BEGIN SELECT RAISE(ABORT, 'Replay Request Registration Record is immutable'); END;
 
 CREATE TRIGGER IF NOT EXISTS prevent_trial_group_candidate_update
 BEFORE UPDATE ON rd_trial_group_candidate
