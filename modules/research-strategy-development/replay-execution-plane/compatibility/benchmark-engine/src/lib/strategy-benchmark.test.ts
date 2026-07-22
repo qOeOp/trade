@@ -1,14 +1,12 @@
 import { createHash } from "node:crypto"
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
-import { run as runBenchmarkCli } from "../scripts/main"
-import { resolveRepoPath } from "../../../../../../contracts/runtime-core/src/paths"
-import { runCalibrationSuite, runTrendBenchmark, strategyBenchmarkInputFromJson } from "../../../benchmark-engine/src/lib/strategy-benchmark"
+import { runCalibrationSuite, runTrendBenchmark, strategyBenchmarkInputFromJson } from "./strategy-benchmark"
 
-test("fixed trend benchmark beats shuffled timing and CLI does not create trade DB", async () => {
+test("fixed trend benchmark beats shuffled timing", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-benchmark-"))
   try {
     const datasets = [0, 17, 41].map((offset, index) => ({
@@ -44,14 +42,6 @@ test("fixed trend benchmark beats shuffled timing and CLI does not create trade 
     assert.ok(report.regime_attribution.buckets.every((item) => item.sample_count >= 0))
     assert.equal(report.harness_hash, expectedBenchmarkHarnessHash())
 
-    const dbPath = join(makeRuntimeDir("strategy-benchmark-cli-"), "trade.db")
-    const cli = await runBenchmarkCli(["--json", JSON.stringify({
-      datasets: datasets.map((item) => ({ dataset_id: item.datasetId, manifest_path: item.manifestPath })),
-      horizon_bars: [12, 24, 48], volatility_bars: 12, rebalance_bars: 3,
-      fee_bps: 1, slippage_bps: 0, funding_bps_per_8h: 0, random_trials: 20,
-    })])
-    assert.equal(cli.ok, true)
-    assert.equal(existsSync(dbPath), false)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -76,17 +66,7 @@ test("benchmark parser keeps the public definition fixed", () => {
   assert.throws(() => runTrendBenchmark({ datasets: validDatasets(), marketOrderShare: 1.5 }), /between 0 and 1/)
 })
 
-test("benchmark schema locks only the stable report shell", () => {
-  const schema = JSON.parse(readFileSync(new URL("../schemas/strategy-benchmark-result.schema.json", import.meta.url), "utf8")) as Record<string, unknown>
-  assert.equal(schema.$id, "trade-flow.strategy-benchmark-result.v1")
-  assert.deepEqual(asArray(schema.required), ["benchmark_id", "harness_hash", "purpose", "calibrated", "blocked_by", "datasets", "period", "assumptions", "observed", "execution_attribution", "chronological_folds", "regime_attribution", "cost_stress", "cost_stress_attribution", "funding_stress", "funding_stress_attribution", "funding_event_coverage", "historical_funding", "historical_funding_attribution", "negative_control"])
-})
-
-function asArray(value: unknown): unknown[] {
-  return Array.isArray(value) ? value : []
-}
-
-test("calibration suite reports fixed baselines and CLI stays read-only", async () => {
+test("calibration suite reports fixed baselines", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-calibration-suite-"))
   try {
     const datasets = [0, 17, 41].map((offset, index) => ({
@@ -136,7 +116,6 @@ test("calibration suite reports fixed baselines and CLI stays read-only", async 
     assert.equal(compared.previous_run_comparison.harness_changed, false)
     assert.equal(compared.previous_run_comparison.data_panel_changed, false)
 
-    assert.equal(existsSync(join(makeRuntimeDir("strategy-calibration-no-db-"), "trade.db")), false)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
@@ -148,12 +127,6 @@ function validDatasets() {
     { datasetId: "ETH", manifestPath: "/tmp/eth.json" },
     { datasetId: "SOL", manifestPath: "/tmp/sol.json" },
   ]
-}
-
-function makeRuntimeDir(prefix: string): string {
-  const root = resolveRepoPath("tmp/test-runs")
-  mkdirSync(root, { recursive: true })
-  return mkdtempSync(join(root, prefix))
 }
 
 test("calibration suite flags partial funding coverage instead of using it", () => {

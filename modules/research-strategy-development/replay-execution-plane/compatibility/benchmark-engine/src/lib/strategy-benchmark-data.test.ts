@@ -10,7 +10,7 @@ import {
   historicalFundingDrag,
   panelFindings,
   panelFundingEvents,
-} from "../../../benchmark-engine/src/lib/strategy-benchmark-data"
+} from "./strategy-benchmark-data"
 
 test("benchmark data builds aligned panel diagnostics over common timestamps", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-benchmark-data-panel-"))

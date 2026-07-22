@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "trade-flow.strategy-benchmark-result.v1",
   "title": "trade-flow strategy benchmark result",
-  "description": "Stable outer shape for fixed benchmark calibration reports.",
+  "description": "Stable outer shape for the fixed trend benchmark mode of calibration-suite.",
   "type": "object",
   "required": ["benchmark_id", "harness_hash", "purpose", "calibrated", "blocked_by", "datasets", "period", "assumptions", "observed", "execution_attribution", "chronological_folds", "regime_attribution", "cost_stress", "cost_stress_attribution", "funding_stress", "funding_stress_attribution", "funding_event_coverage", "historical_funding", "historical_funding_attribution", "negative_control"],
   "properties": {

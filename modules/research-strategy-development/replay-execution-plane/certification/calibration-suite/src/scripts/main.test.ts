@@ -43,6 +43,33 @@ test("calibration suite CLI rejects invalid payloads", () => {
   assert.match(String(result.error), /at least three datasets/)
 })
 
+test("benchmark mode preserves the fixed benchmark envelope and schema", () => {
+  const dir = mkdtempSync(join(tmpdir(), "calibration-benchmark-cli-"))
+  try {
+    const datasets = [0, 17, 41].map((offset, index) => ({
+      dataset_id: ["BTC", "ETH", "SOL"][index],
+      manifest_path: writeRegimeManifest(dir, index, offset),
+    }))
+    const result = run(["--benchmark", "--json", JSON.stringify({
+      datasets,
+      horizon_bars: [12, 24, 48],
+      volatility_bars: 12,
+      rebalance_bars: 3,
+      fee_bps: 1,
+      slippage_bps: 0,
+      funding_bps_per_8h: 0,
+      random_trials: 20,
+    })])
+    assert.equal(result.ok, true)
+    assert.equal(result.schema_version, "benchmark-runner.script-response.v1")
+    const data = asRecord(result.data)
+    assert.equal(data.purpose, "rd_pipeline_calibration_only")
+    assertSchemaRequired(readBenchmarkSchema(), data)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 function writeRegimeManifest(root: string, asset: number, phase: number, startIndex = 0, length = 1_500): string {
   const dir = join(root, String(asset))
   mkdirSync(dir, { recursive: true })
@@ -84,6 +111,13 @@ function readSchema(): JSONRecord {
   const schema = JSON.parse(readFileSync(new URL("../schemas/strategy-calibration-result.schema.json", import.meta.url), "utf8")) as JSONRecord
   assert.equal(schema.$id, "trade-flow.strategy-calibration-result.v1")
   assert.deepEqual(asArray(schema.required), ["calibration_suite_id", "purpose", "harness_hash", "report_hash", "previous_run_comparison", "calibrated", "blocked_by", "data_panel", "components", "diagnostics", "failure_analysis", "notes"])
+  return schema
+}
+
+function readBenchmarkSchema(): JSONRecord {
+  const schema = JSON.parse(readFileSync(new URL("../schemas/strategy-benchmark-result.schema.json", import.meta.url), "utf8")) as JSONRecord
+  assert.equal(schema.$id, "trade-flow.strategy-benchmark-result.v1")
+  assert.deepEqual(asArray(schema.required), ["benchmark_id", "harness_hash", "purpose", "calibrated", "blocked_by", "datasets", "period", "assumptions", "observed", "execution_attribution", "chronological_folds", "regime_attribution", "cost_stress", "cost_stress_attribution", "funding_stress", "funding_stress_attribution", "funding_event_coverage", "historical_funding", "historical_funding_attribution", "negative_control"])
   return schema
 }
 
