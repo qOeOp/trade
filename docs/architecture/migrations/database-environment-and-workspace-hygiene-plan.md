@@ -1,7 +1,7 @@
 ---
 title: Database Environment and Workspace Hygiene Migration
 role: architecture-migration
-status: proposed
+status: active-migration
 owner: architecture
 last_verified: 2026-07-23 CST
 ---
@@ -12,7 +12,7 @@ last_verified: 2026-07-23 CST
 
 本计划解决三类同源问题：owner SQLite 依赖当前工作目录、测试与自检可改写持久库、ignored 产物缺少生命周期治理。目标不是禁止 WAL、编译缓存或研究 artifact，而是让它们只能出现在所属环境、可审计位置和明确 retention 内。
 
-本文仍是提案，不改变当前 [Storage Architecture](../storage-architecture.md)、[Data Hygiene](../../engineering/data-hygiene.md) 或真实交易授权。环境选择只决定数据与临时产物落点，不授予 Binance 写权限，也不替代 `live-small` preflight、显式确认和 reconciliation。
+本文处于 active migration：P0 止血规则已开始生效，P1–P5 仍是目标态，不改变当前 [Storage Architecture](../storage-architecture.md) 的 logical-store authority 或真实交易授权。环境选择只决定数据与临时产物落点，不授予 Binance 写权限，也不替代 `live-small` preflight、显式确认和 reconciliation。
 
 ## 1. 已确认缺口
 
@@ -80,6 +80,17 @@ environment selection
 - 记录清理前的 path、tracked 状态、bytes、最后修改时间与 catalog/pin 引用；本阶段不做无差别清理。
 
 退出条件：运行已知污染测试后，Git 状态不新增 DB 差异或 module-local sidecar。
+
+当前 P0 分类：
+
+| 路径组 | 只读证据 | 处置 |
+| --- | --- | --- |
+| 根 `data/*.{db-shm,db-wal}` 4 个 tracked sidecar | 属于 local durable DB 的 WAL companion，不是独立事实 | 从 Git 解除跟踪；工作副本按 SQLite 生命周期保留 |
+| `market-data-store/data/ohlcv.db` | `canonical_candle=0` | 从 Git 解除跟踪；无引用后可显式删除 |
+| `ohlcv-fetch/data/ohlcv.db` + `market_data.db` | 2,483 candles / 6 manifests；根 owner DB 中对应 identity 均缺失 | 先经 owner import/migration 收敛到根 data plane并校验 hash/coverage，再解除跟踪和清理；当前不得删 |
+| `legacy-integration-suite/data/rd_state.db` | 仅含 `rd-loop-state`、`rd-campaign-state` 两个测试 program | 测试改为显式 temp DB 后解除跟踪；无引用后可显式删除 |
+
+`scripts/check-workspace-hygiene.ts` 以 12 个历史 tracked runtime 文件作为只减不增的 ratchet；新增 tracked sidecar/runtime DB、module-local DB 或迁移后未删除的过期 exception 均失败。
 
 ### P1：环境与路径合同
 
