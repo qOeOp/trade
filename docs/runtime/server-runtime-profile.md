@@ -12,13 +12,13 @@ last_verified: 2026-07-23 CST
 
 本文冻结 [Server Runtime Implementation Plan](../architecture/migrations/server-runtime-implementation-plan.md) S1 的首个可部署 profile：在单台 Linux 服务器上装配现有 Rust L2、resident L2 consumer 与 `shadow_program` control runtime。它只闭合进程、配置、依赖、健康和停机，不复制 scheduler、领域计算或 store authority。
 
-当前实现已具备三个独立 supervisor，但尚无生产 composition root：
+当前已形成首个 no-live composition root：版本化 profile、三个 foreground entrypoint、closed-world validator、deterministic systemd renderer、只读 preflight/status，以及有界 lifecycle/public-smoke/recovery fixture。它尚未在目标 Linux host 安装或取得 process authority。
 
-| 单元 | 当前能力 | S1 缺口 |
+| 单元 | 当前能力 | 剩余采用门 |
 | --- | --- | --- |
-| L2 owner | Rust child、重启退避、raw、gRPC、health、admission | detached launcher 不是 production foreground entrypoint |
-| L2 consumer | worker 重启、snapshot/watch、latest health projection | detached launcher 不是 production foreground entrypoint |
-| control runtime | foreground cadence、lease/fencing、signal drain | 只运行固定 `shadow_program`；J01–J07 与 live write 关闭 |
+| L2 owner | 正式 foreground supervisor、exact Rust child、signal drain、raw/gRPC/health/admission | Linux systemd 安装、真实 unit restart 与 volume recovery |
+| L2 consumer | 正式 foreground supervisor、worker restart、snapshot/watch、latest health | Linux unit 故障注入；不得连坐 L2 owner |
+| control runtime | foreground cadence、lease/fencing、signal drain、聚合 status | 仍固定 `shadow_program`；J01–J07 与 live write 关闭 |
 
 首个 production target 采用 **Linux systemd + 仓库 foreground entrypoint**。Docker 不是 S1 前置：当前 SQLite、artifact、Rust/Bun build 与本地 runtime receipts 先在单节点闭合；容器化只能复用同一 profile 和前台进程合同，不能建立第二套启动语义。
 
@@ -133,9 +133,13 @@ S1 不做自动滚动升级、双实例交接或 active-active；SQLite 单 owne
 
 首个 composition surface 只需要：
 
-- `validate`：纯读取 profile/release/path/schema，输出 closed-world launch plan；
-- `render-systemd`：确定性生成三个 unit 与一个 target，不安装、不启动；
-- `status`：聚合既有 owner health、unit state 和 profile hash；
+- `bun run server:validate`：纯读取 profile/release/path/schema，输出 closed-world launch plan；
+- `bun run server:preflight`：验证 release、binary、可写根与固定 safety，不启动进程；
+- `bun run server:render-systemd`：确定性生成三个 unit 与一个 target，不安装、不启动；
+- `bun run server:status`：聚合既有 owner health、unit state 和 profile hash；
+- `bun run server:verify-lifecycle`：仅启动合成子进程，验证 ordering/restart isolation/reverse drain/no orphan；
+- `bun run server:public-smoke`：只读等待两个不同 control cycle，不发送信号；
+- `bun run server:verify-recovery`：只对合成 DB/raw/artifact/profile 执行备份恢复，不读取活跃 owner 数据；
 - `stop/start/restart`：由 systemd 执行，composition CLI 只调用固定 unit target；
 - `backup-check`：验证 DB 与被引用 artifact 的备份闭包，不直接上传外部存储。
 
@@ -143,13 +147,13 @@ S1 不做自动滚动升级、双实例交接或 active-active；SQLite 单 owne
 
 ## 10. S1 实施顺序与完成门
 
-| Step | 代码纵切 | 完成证据 |
+| Step | 当前证据 | 尚未完成 |
 | --- | --- | --- |
-| R1 | 为 L2 owner 与 consumer 增加正式 foreground entrypoint | signal drain、exact child、终态、失败退出码测试 |
-| R2 | 增加 closed-world profile validator 与 deterministic systemd renderer | golden unit、未知字段/path/env/live-write 拒绝测试 |
-| R3 | 增加聚合 preflight/status，不复制 owner health | owner unavailable/stale/epoch rollover fixture |
-| R4 | 在临时目录执行三 unit 假进程 integration fixture | ordering、restart isolation、反向 drain、无 orphan |
-| R5 | public-network bounded smoke；仍禁用 J01–J07/live write | L2 + consumer ready、两轮 control cycle、kill/restart、无双 lease |
-| R6 | backup/restore rehearsal | DB/raw/artifact/profile hash 与 owner integrity 全闭合 |
+| R1 | 三个正式 foreground entrypoint；signal/exact child/终态/退出码测试通过 | 目标 host unit 运行 |
+| R2 | 固定 profile 与四个 deterministic systemd units；unknown/path/env/live-write fail closed | 目标 host render/install diff |
+| R3 | release preflight 与 owner/systemd 聚合 status；macOS 无 systemd 时正确降级 | Linux unit status 验证 |
+| R4 | 合成进程实跑 ordering、consumer restart isolation、反向 drain、无 orphan | 无 |
+| R5 | 2026-07-23 本机只读 public smoke：两个 control cycle、同 epoch、parity mismatch `0 -> 0`、同 fencing token | Linux systemd active、operator-controlled consumer fault injection、无双 lease复核 |
+| R6 | 合成三 DB `VACUUM INTO`、raw/artifact/profile hash 与 restore integrity/ref closure 通过 | 真实 volume、真实 owner schema/artifact refs、外部备份介质恢复 |
 
 完成 S1 只表示可无人值守运行 **no-live-write shadow profile**。它不表示策略已经使用 L2、不表示 R&D/LLM 已自治，也不授权真实下单；这些分别由后续 watch、model gateway、research autonomy 与 per-job live cutover 采用门负责。
