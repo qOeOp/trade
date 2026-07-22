@@ -16,15 +16,18 @@ internal engine / shared research implementation
 - Local OHLCV manifests.
 - Optional supplemental data refs.
 - A compiled `ReplayStrategy`.
+- Strategy decisions receive only a frozen OHLCV/indicator prefix through the decision cutoff and an observed `decisionPrice`; next-event prices are execution-only facts.
 
 ## Outputs
 
 - `ReplayResult` and related replay contract types.
 - Latest-signal evaluation shells used by research tools.
+- Next-open materialization that preserves the predeclared reward/risk ratio and rejects fills exceeding the signal's entry-risk limit.
 
 ## Boundaries
 
 - Does not write files, catalog, `trade.db`, or exchange state.
 - Does not promote strategies.
 - Does not call Binance write tools.
+- Strategies cannot read future bars or choose an actual next-open fill price.
 - Agent-facing execution belongs in future atomic runner modules, not this engine.
