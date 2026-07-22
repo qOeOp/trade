@@ -137,13 +137,13 @@ M4/M5 都相对于**声明的能力包络**，不要求伪造不可能证明的�
 
 ## 13. Certification owner
 
-Plane 内唯一完整认证入口是 `certification/replay-certification` 的 `bun run certify`。其 registry 必须逐一分类 Plane 下除自身外的全部 package，canonical 与 compatibility 分组顺序执行各 owner 的 `bun run check`，任一失败立即非零退出。Canonical tests 禁止反向 import compatibility；P10/P11/P13 只由 `legacy-portfolio-cycle-certification` 单向消费。该命令聚合已有证据，不产生 release verdict 或新 Artifact；M5 仍需独立冻结 release fixture/bundle。
+Plane 内唯一完整认证入口是 `certification/replay-certification` 的 `bun run certify`。其 registry 必须逐一分类 Plane 下除自身外的全部 package，canonical 与 compatibility 分组顺序执行各 owner 的 `bun run check`，任一失败立即非零退出。Canonical tests 禁止反向 import compatibility；P10/P11/P13 只由 `legacy-portfolio-cycle-certification` 单向消费。该命令聚合已有证据，不产生 release verdict 或新 Artifact；M5 的 fixture pack 与独立 verdict 分别由第 21、22 节的不同 owner 持有。
 
 ## 14. Module / production-consumer closure
 
 `replay-module-consumer-closure.json` 是 M4 最后一门的机器证据。扫描器以 TypeScript AST 读取 `modules/` 下静态 import、export 与 `import()`，排除 test/spec、Replay certification 源码和 Plane tests，避免把认证边误判成生产采用。当前闭包为 23 个 Replay package、66 条指向 Replay package 的生产依赖边；每个 package 必须唯一归类，每条消费者边必须落入 Replay canonical/compatibility runtime、Research Control Plane、Forward Evidence Plane 或 Agent Roles。分类计数与完整闭包 SHA-256 同时校验，新增模块、消费者或依赖变化均 fail closed。
 
-该快照回答“当前谁在生产中依赖 Replay”，不回答“这些依赖都应该长期保留”。特别是现有 canonical 或域外 owner 对 `compatibility/` 的引用仍是迁移债务；闭包登记只防止其隐身，不授予其 canonical 地位。M4 因九门全部通过已完成；下一允许结果仅为 M5 release certification，不新增 simulator capability。
+该快照回答“当前谁在生产中依赖 Replay”，不回答“这些依赖都应该长期保留”。特别是现有 canonical 或域外 owner 对 `compatibility/` 的引用仍是迁移债务；闭包登记只防止其隐身，不授予其 canonical 地位。该 cut-point 完成时 M4 九门全部通过，后续只允许 M5 release certification；第 22 节记录的独立审计现已关闭 M5，当前只允许 maintenance。
 
 ## 15. M5 cross-process reproducibility bundle
 
@@ -155,31 +155,31 @@ Plane 内唯一完整认证入口是 `certification/replay-certification` 的 `b
 
 P10、P11、P13 的 compatibility certification 以两层证据关闭迁移门：独立 synthetic pack 冻结 exact-v1 Manifest、role、commit marker、Result/Evidence identity 与 expected projection；完整 payload reader 另从真实 manifest-last namespace 逐文件校验 ref/raw SHA，再验证 P10 Result、P11 Result/Fingerprint、P13 Accounting/Trial Balance 的自哈希与现金不变量，输出只读 migration receipt。Pack、reader 与动态 certification test 均有冻结指纹；schema、role、payload、源码或 projection 漂移都 fail closed。Maturity checker 同时执行 pack 并验证 full-payload certification registry，不接受只改 gate 布尔值。
 
-该 reader 没有 writer、数据库、runtime public entrypoint 或经济 authority，不产生 Result v53 / Artifact v55，不修改旧文件，也不把旧 accounting 映射成当前经济语义。Full-payload 证据由冻结测试确定性生成，不等于抽样了生产历史全集；外部生产 corpus 普查和跨版本经济升级仍不在本 gate 内。M5 当前为 `3/9`，成熟度仍为 M4；下一门固定为 crash recovery 与 exactly-once publication。
+该 reader 没有 writer、数据库、runtime public entrypoint 或经济 authority，不产生 Result v53 / Artifact v55，不修改旧文件，也不把旧 accounting 映射成当前经济语义。Full-payload 证据由冻结测试确定性生成，不等于抽样了生产历史全集；外部生产 corpus 普查和跨版本经济升级仍不在本 gate 内。该 cut-point 完成时 M5 为 `3/9`；后续 gate 见第 17–22 节。
 
 ## 17. M5 crash recovery 与 exactly-once publication
 
 Exactly-once 的权威口径是“同一 deterministic Attempt namespace 最多一个可验证 commit marker”，不是“进程只执行一次”。认证子进程先通过 local store 完成三个 payload 的 durable immutable CAS，在 manifest 前等待并被父进程真实 `SIGKILL`；此时目录必须只有 payload，因 `partial_payload_without_manifest_is_authoritative=false` 而没有 Result authority。随后两个 fresh process 并发恢复：相同 bytes 可幂等复用，不同 bytes 必须 CAS collision，最终只能有一个 `artifact-manifest.json`；第三进程必须只读得到相同 manifest/publication hash，且目录无 `.tmp`。
 
-四个公共 profile 的恢复方式不被抹平：single-trial 可从 authorized checkpoint 恢复或确定性重跑；independent-lane-batch 没有 durable batch writer，只委托 child Trial manifest 并重算 aggregate；integrated-portfolio 与 terminal-aware-bounded-cycle 没有 checkpoint writer，只能确定性全量重跑后争用同一 manifest CAS。Bundle 冻结每个 writer、owner test 与源码 hash，防止 implementation 漂移后沿用旧认证。该结论限于单机 local filesystem、现有 fsync/CAS/manifest-last 合同；不认证 remote/distributed store、硬件损坏、exactly-once process execution，也不替代后续通用 fault injection gate。M5 当前为 `4/9`，成熟度仍为 M4；下一门固定为 declared capacity / performance envelope。
+四个公共 profile 的恢复方式不被抹平：single-trial 可从 authorized checkpoint 恢复或确定性重跑；independent-lane-batch 没有 durable batch writer，只委托 child Trial manifest 并重算 aggregate；integrated-portfolio 与 terminal-aware-bounded-cycle 没有 checkpoint writer，只能确定性全量重跑后争用同一 manifest CAS。Bundle 冻结每个 writer、owner test 与源码 hash，防止 implementation 漂移后沿用旧认证。该结论限于单机 local filesystem、现有 fsync/CAS/manifest-last 合同；不认证 remote/distributed store、硬件损坏、exactly-once process execution，也不替代通用 fault injection gate。该 cut-point 完成时 M5 为 `4/9`；后续 gate 见第 18–22 节。
 
 ## 18. M5 declared capacity / performance envelope
 
 `replay-capacity-performance-envelope.json` 不把未设计的统一 max input 写成制度，而是冻结四个 public profile 已由现有 owner assertion 证明的 known-good release workload：single Trial 为 1 Trial/1 bar；independent Batch 为 1 Batch/2 Lane/2 child Trial；Integrated Portfolio 为 1 Portfolio/2 Lane/2 Trial；Terminal-aware Bounded Cycle 为 1 Sequence/3 Cycle/6 Lane/6 Trial。后者另绑定已有 `REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES=8` runtime hard limit；其他 profile 的 lane/bar/event/artifact byte 最大值继续明确 `not-declared`，超出 envelope 只能称未认证，不能隐式宣称 supported，也不伪造 runtime rejection。
 
-每个 profile 顺序启动 fresh Bun process：一次 warmup、两次 measured exact owner assertion；receipt 记录 runtime、host observation、distinct PID、elapsed、workload/assertion hash 并自哈希。10–20 秒的 profile ceiling 只是当前 host 上防止数量级退化或挂死的宽松 guardrail，不是延迟/吞吐 SLA；cross-host、cross-runtime、竞争负载、peak memory、CPU、I/O 与 remote store 均未认证。Entry point、test、hard-limit source 与 bundle hash 任一漂移均 fail closed。本 gate 未改变 Runner admission 或经济语义。M5 当前为 `5/9`，成熟度仍为 M4；下一门固定为 fault injection / corruption recovery。
+每个 profile 顺序启动 fresh Bun process：一次 warmup、两次 measured exact owner assertion；receipt 记录 runtime、host observation、distinct PID、elapsed、workload/assertion hash 并自哈希。10–20 秒的 profile ceiling 只是当前 host 上防止数量级退化或挂死的宽松 guardrail，不是延迟/吞吐 SLA；cross-host、cross-runtime、竞争负载、peak memory、CPU、I/O 与 remote store 均未认证。Entry point、test、hard-limit source 与 bundle hash 任一漂移均 fail closed。本 gate 未改变 Runner admission 或经济语义。该 cut-point 完成时 M5 为 `5/9`；后续 gate 见第 19–22 节。
 
 ## 19. M5 fault injection / corruption recovery
 
 `replay-fault-corruption-recovery-bundle.json` 将现有 owner 测试冻结为八个可执行 case，不新增模拟语义：single Trial 覆盖 Dataset frozen-hash、Engine Checkpoint 语义/source-prefix、已提交 Artifact payload 损坏；Independent Batch 覆盖 child failure 与 rehash 后的 authority/capital/child evidence 篡改；Integrated Portfolio 覆盖 Engine/Artifact/Revaluation owner-port failure 与 manifest-last orphan payload；Terminal-aware Bounded Cycle 覆盖中间 cycle failure。每个 case 在独立 fresh Bun process 中只执行 exact test name，测试源码 hash、预期检测、权威结果和恢复等级均进入自哈希 bundle/receipt；四个 public profile 必须全部覆盖，任一源码/矩阵漂移或断言失败即 fail closed。
 
-“恢复”不统一等于自愈：payload 已写但 manifest 未提交时，orphan 无 authority，可按 identical bytes 重试；Checkpoint 损坏只能改用仍可信的 authorized checkpoint 或从冻结输入确定性重跑；Independent Batch 只能在 authoritative child Result 齐备后重算 aggregate；已提交 Artifact 损坏只检测并拒绝，不能 rehash 或静默修复；Integrated/Terminal 无 checkpoint，必须全 profile 重跑。该认证是八个已选逻辑故障点，不是 exhaustive combinatorial injection；硬件掉电/fsync cut-point 由上一 publication gate 承担，remote/distributed store、并发故障调度、cross-host/runtime 均未认证。M5 当前为 `6/9`，成熟度仍为 M4；下一门固定为 operational observability / runbook。
+“恢复”不统一等于自愈：payload 已写但 manifest 未提交时，orphan 无 authority，可按 identical bytes 重试；Checkpoint 损坏只能改用仍可信的 authorized checkpoint 或从冻结输入确定性重跑；Independent Batch 只能在 authoritative child Result 齐备后重算 aggregate；已提交 Artifact 损坏只检测并拒绝，不能 rehash 或静默修复；Integrated/Terminal 无 checkpoint，必须全 profile 重跑。该认证是八个已选逻辑故障点，不是 exhaustive combinatorial injection；硬件掉电/fsync cut-point 由上一 publication gate 承担，remote/distributed store、并发故障调度、cross-host/runtime 均未认证。该 cut-point 完成时 M5 为 `6/9`；后续 gate 见第 20–22 节。
 
 ## 20. M5 operational observability / runbook
 
 `replay-operational-readiness.json` 不创造 telemetry backend，而是冻结已存在的四 profile 可观测合同：Single Trial 的 `run/attempt/lease`、completed/cancelled/failed、typed failure/retryability、checkpoint/cancellation/Artifact；Independent Batch 的 Plan 与完整 child status；Integrated Portfolio 的 Result/Risk/Artifact 三段完成状态；Terminal-aware Cycle 的 Sequence、失败 cycle 与 manifest。Outcome 和已提交 evidence 决定 authority，process exit/stdout 只用于诊断。Registry 同时冻结六类 incident、恢复边界、四条 operator command、Outcome owner source hash 与唯一 [Operations Runbook](../reliability/rd-replay-operations-runbook.md)；任一 field/section/command/source 漂移或 partial evidence、无限重试、自动修复 overclaim 均 fail closed。
 
-Runbook 固定 preflight、首轮分诊、authority/data-integrity/deterministic/resource/publication/certification 处置、取消/checkpoint、Artifact 损坏、事件包和升级条件。它明确当前只有 local structured Outcome、immutable evidence 与 certification receipt；没有 central durable metrics/logs/traces、dashboard/pager、formal SLO、remote-store operations 或 automatic remediation。本 gate 因此证明“已声明 surface 可值班、限制可审计”，不声称 production observability platform 已建成，也未改变 Runner/Result/模拟语义。M5 当前为 `7/9`，成熟度仍为 M4；下一门固定为 release candidate fixture pack freeze。
+Runbook 固定 preflight、首轮分诊、authority/data-integrity/deterministic/resource/publication/certification 处置、取消/checkpoint、Artifact 损坏、事件包和升级条件。它明确当前只有 local structured Outcome、immutable evidence 与 certification receipt；没有 central durable metrics/logs/traces、dashboard/pager、formal SLO、remote-store operations 或 automatic remediation。本 gate 因此证明“已声明 surface 可值班、限制可审计”，不声称 production observability platform 已建成，也未改变 Runner/Result/模拟语义。该 cut-point 完成时 M5 为 `7/9`；后续 fixture pack 与独立审计见第 21–22 节。
 
 ## 21. M5 release-candidate fixture pack
 

@@ -1,5 +1,9 @@
 # Replay Execution Plane Contracts
 
+## 当前权威
+
+Replay 当前成熟度以 `docs/research/reliability/rd-replay-maturity-gate.json` 为唯一权威：M5、M4/M5 均 `9/9`，只允许 maintenance。下文的 M2/M3/M4 与 “slice 完成时” 表述是各合同形成时的历史 cut-point，不得覆盖当前 gate，也不得据此恢复 P30 或扩展 simulator capability。
+
 M4-P29 completes one bounded opt-in Stop-entry same-bar path contract. Immutable Kline↔Aggregate Trade Bar Link、Control Plane Path Authority and Authorized Path Step jointly bind one exact Request、Dataset、MarketBar and ordered aggregate-trade window. Result v53、Artifact v55、Fingerprint and Checkpoint v32 bind the Step hash；the required Artifact role is present as `null` on the unchanged default path and carries the exact Step only for an authorized invocation. The authority selects only the post-entry protective terminal owner；Fill quantity、cost、slippage and execution price remain frozen Replay policy，`external_completeness=not_verified` remains mandatory，and no generic aggregate-trade SourceEvent merge is admitted.
 
 M4-P28 slice 8 completes the bounded successor at M3. The production-shaped opt-in chain is official Lane Result/Artifact -> post-partial current-stop Risk Evidence -> owner-keyed Accounting Artifact -> Control Plane-predeclared full-flat Cycle Sequence. Default Portfolio contracts and P15-P27 schemas/hashes remain unchanged. Certification preserves the explicit exclusion of between-partial or repeated mutation, dynamic sizing, a third partial, reentry, cross-margin/borrow, real liquidity/impact and Fast；completion grants no Review、promotion or strategy-draft authority.
