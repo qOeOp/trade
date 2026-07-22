@@ -929,7 +929,16 @@ function workerInputAssemblyV2(requestValue: ReplayExecutionRequest, binding: Re
   })
 }
 
+const replayProfileStartedAt = performance.now()
+
+function replayProfile(stage: string): void {
+  if (process.env.REPLAY_TEST_PROFILE !== "1") return
+  const elapsed = ((performance.now() - replayProfileStartedAt) / 1_000).toFixed(2)
+  process.stderr.write(`[replay-worker-v10-test] ${elapsed}s ${stage}\n`)
+}
+
 test("Replay binds runtime inputs and deterministic code evidence without Worker authority", async () => {
+  replayProfile("start")
   const sourceBundle = createReplayDecisionHarnessSourceBundle({
     bundle_ref: "fixture://decision-harness/r4-104",
     entrypoint: { file_path: "strategy.ts", export_name: "decide" },
@@ -1065,6 +1074,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
     source_bundle: sourceBundle,
     build_attestation: buildAttestation,
   }])
+  replayProfile("base assembly and registry")
   const codeAdmissionInput = { source_assembly_v4: assemblyV4, registry }
   const codeAdmission = buildReplayDecisionHarnessCodeAdmission(codeAdmissionInput)
   expect(codeAdmission.owner).toBe("replay_runner_registry_admission")
@@ -1308,6 +1318,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
   })).toThrow("unsupported decision harness Worker Request v10 materialization authority")
 
   const workerV10BuildInput = { source_code_admission: codeAdmission }
+  replayProfile("worker request identity")
   const workerV10BuildCapability = buildReplayDecisionHarnessWorkerV10Capability(workerV10BuildInput)
   expect(workerV10BuildCapability.activation_status)
     .toBe("build_capability_available_process_not_admitted")
@@ -1736,6 +1747,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
     control_plane_lease_observation: structuredClone(leaseObservation),
   })).toEqual(dispatchAuthorityBinding)
   const dispatchEvidenceRegistryRoot = mkdtempSync(join(tmpdir(), "replay-dispatch-evidence-"))
+  replayProfile("dispatch envelope and lease binding")
   try {
     expect(() => registerReplayDispatchEvidence({
       registry_root: dispatchEvidenceRegistryRoot,
@@ -1788,6 +1800,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       source_worker_v10_build_capability: durableWorkerV10Capability,
       source_execution_envelope: executionEnvelope,
     }
+    replayProfile("durable build capability")
     const workerV10TransportContract = buildReplayDecisionHarnessWorkerV10TransportContract(
       transportContractInput,
     )
@@ -1930,6 +1943,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
     const workerV10StdioCapability = buildReplayDecisionHarnessWorkerV10StdioCapability({
       source_transport_contract: registeredTransportContract,
     })
+    replayProfile("stdio capability")
     expect(workerV10StdioCapability.status)
       .toBe("stdio_process_capability_available_transport_activation_not_granted")
     expect(workerV10StdioCapability.source_decoder_artifact_hash)
@@ -2028,6 +2042,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
     const successorTransportContract = buildReplayDecisionHarnessWorkerV10SuccessorTransportContract(
       successorTransportInput,
     )
+    replayProfile("successor transport")
     expect(successorTransportContract.status).toBe("artifact_bound_activation_blocked_zero_instance")
     expect(successorTransportContract.logical_request_artifact_hash).toBe(buildAttestation.artifact.sha256)
     expect(successorTransportContract.predecessor_decoder_artifact_hash)
@@ -2112,6 +2127,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
     const executionAdmissionContract = buildReplayDecisionHarnessWorkerV10ExecutionAdmissionContract(
       executionAdmissionInput,
     )
+    replayProfile("execution admission")
     expect(executionAdmissionContract.status)
       .toBe("authority_model_frozen_activation_blocked_zero_instance")
     expect(executionAdmissionContract.execution_authority_model)
@@ -2242,6 +2258,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       dispatcher_claimant_id: "runner-claimant-1",
       claimed_at: "2026-07-14T00:00:33Z",
     })
+    replayProfile("dispatch claim")
     expect(dispatchClaim.claim_effect)
       .toBe("at_most_one_local_claimant_while_cas_record_is_preserved")
     expect(dispatchClaim.delivery_guarantee).toBe("at_most_once_claim_can_lose_dispatch_before_occurrence")
@@ -2282,6 +2299,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       source_current_lease_observation: preIssueObservation,
     }
     const preIssueBundle = buildReplayDecisionHarnessWorkerV10ExecutionAdmissionPreIssueBundle(preIssueInput)
+    replayProfile("pre-issue bundle")
     expect(preIssueBundle.status).toBe("claim_and_lease_evidence_bound_command_issue_blocked")
     expect(preIssueBundle.durable_claim_binding).toBe("exact_local_cas_dispatch_claim_bound")
     expect(preIssueBundle.lease_revalidation_status)
@@ -2385,6 +2403,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
     const registryProvenance = buildReplayDecisionHarnessWorkerV10ExecutionAdmissionRegistryProvenance(
       registryProvenanceInput,
     )
+    replayProfile("registry provenance")
     expect(registryProvenance.status).toBe("registry_provenance_bound_independent_clock_blocked")
     expect(registryProvenance.control_plane_registry_read_provenance)
       .toBe("registered_row_and_current_attempt_exact_match_bound")
@@ -2473,6 +2492,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       control_plane_clock_attestation: clockAttestation,
     }
     const clockBinding = buildReplayDecisionHarnessWorkerV10ExecutionAdmissionClockAttestation(clockBindingInput)
+    replayProfile("clock binding")
     expect(clockBinding.status).toBe("authority_clock_attested_command_issue_blocked")
     expect(clockBinding.independent_dispatch_clock_attestation).toBe("authority_internal_dual_sample_bound")
     expect(clockBinding.clock_authority_limit).toBe("local_control_plane_process_clock_not_signed_remote_or_tsa_time")
@@ -2513,6 +2533,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
     })).toEqual(clockBinding)
     const commandInput = { source_clock_binding: clockBinding }
     const executionAdmissionCommand = buildReplayDecisionHarnessWorkerV10ExecutionAdmissionCommand(commandInput)
+    replayProfile("execution command")
     expect(executionAdmissionCommand.status).toBe("issued_process_launch_intent_not_materialized")
     expect(executionAdmissionCommand.command_instance_count).toBe(1)
     expect(executionAdmissionCommand.execution_admission)
@@ -2633,6 +2654,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       post_command_clock_attestation: postCommandClockAttestation,
     }
     const processLaunchIntent = buildReplayDecisionHarnessWorkerV10ProcessLaunchIntent(processIntentInput)
+    replayProfile("process launch intent")
     expect(processLaunchIntent.status).toBe("intent_committed_process_not_started")
     expect(processLaunchIntent.process_launch_intent_instance_count).toBe(1)
     expect(processLaunchIntent.source_execution_admission_command_hash).toBe(executionAdmissionCommand.command_hash)
@@ -2722,6 +2744,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       registry_root: dispatchEvidenceRegistryRoot,
       ...processReadinessInput,
     })
+    replayProfile("process launch readiness")
     expect(processLaunchReadiness.status).toBe("blocked_intent_bound_artifact_not_dispatch_executable")
     expect(processLaunchReadiness.launch_decision).toBe("denied")
     expect(processLaunchReadiness.launch_decision_reason)
@@ -2769,6 +2792,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
     const authorityFrameBuild = buildReplayDecisionHarnessWorkerV10AuthorityFrameBuildContract(
       authorityBuildInput,
     )
+    replayProfile("authority frame build")
     expect(authorityFrameBuild.status).toBe("contract_frozen_build_not_materialized")
     expect(authorityFrameBuild.request_frame_schema_version)
       .toBe(REPLAY_DECISION_HARNESS_WORKER_V10_AUTHORITY_REQUEST_FRAME_SCHEMA_VERSION)
@@ -2884,6 +2908,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
     })).toEqual(authorityFrameBuild)
 
     const activatedStdioInput = { source_authority_frame_build_contract: authorityFrameBuild }
+    replayProfile("pre-authority transport chain")
     const activatedStdio = buildReplayDecisionHarnessWorkerV10ActivatedStdioCapability(activatedStdioInput)
     expect(activatedStdio.status).toBe("artifact_built_successor_transport_and_authority_not_materialized")
     expect(activatedStdio.artifact.sha256).not.toBe(processLaunchReadiness.intent_bound_process_artifact_hash)
@@ -3435,6 +3460,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
     const spawnRevalidation = buildReplayDecisionHarnessWorkerV10AuthoritySpawnBoundaryRevalidation(
       spawnRevalidationInput,
     )
+    replayProfile("authority spawn chain")
     expect(spawnRevalidation.status).toBe("spawn_boundary_revalidated_process_not_materialized")
     expect(spawnRevalidation.source_authority_capsule_record_hash).toBe(authorityCapsule.record_hash)
     expect(spawnRevalidation.control_plane_revalidation_receipt_hash).toBe(spawnRevalidationReceipt.receipt_hash)
@@ -3559,6 +3585,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       session: authorityProcessSession,
       clock: { now: () => authorityDispatchTimes.shift() ?? "2026-07-14T00:01:00Z" },
     })
+    replayProfile("authority process dispatch")
     expect(authorityDispatchOutcome.disposition).toBe("new_opaque_transport_capture")
     const authorityDispatchReceipt = authorityDispatchOutcome.receipt
     expect(authorityDispatchReceipt.receipt_status).toBe("process_exited_opaque_output_captured")
