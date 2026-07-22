@@ -9,11 +9,13 @@ Replay Plane certification command owner。
 - Plane 内唯一 `certify` 命令与完整 package suite registry。
 - Canonical 与 compatibility suite 的显式分组、确定顺序、fail-fast 执行和机器可读清单。
 - 四个 public profile 的 golden、resume、idempotency、tamper 证据索引；resume 必须区分直接支持、子 Trial 委托与显式不支持。
+- Plane 全部 package 与非测试、非认证静态生产依赖的闭包；每个消费者必须归入 Replay canonical/compatibility runtime、Control Plane、Forward Evidence Plane 或 Agent Roles，任何闭包变化均须显式复核。
 
 ## Inputs
 
 - `replay-certification-suites.json` 冻结的 repo-relative package roots。
 - `replay-profile-evidence.json` 只引用现有 owner 测试，不复制测试语义。
+- `replay-module-consumer-closure.json` 冻结扫描口径、分类计数与完整闭包摘要，不把当前 compatibility 依赖升级为目标架构。
 - 每个 package 自己的 `bun run check`；本模块不复制其测试语义。
 
 ## Outputs

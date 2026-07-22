@@ -7,7 +7,11 @@ import {
   loadReplayCertificationManifest,
   loadReplayProfileEvidenceManifest,
 } from "./replay-certification"
-import { discoverReplayModuleConsumerClosure } from "./replay-module-consumer-closure"
+import {
+  assertReplayModuleConsumerClosureManifest,
+  discoverReplayModuleConsumerClosure,
+  loadReplayModuleConsumerClosureManifest,
+} from "./replay-module-consumer-closure"
 
 describe("Replay certification owner", () => {
   const repoRoot = findReplayCertificationRepoRoot()
@@ -57,5 +61,14 @@ describe("Replay certification owner", () => {
     expect(first.modules).toHaveLength(23)
     expect(new Set(first.modules.map((entry) => entry.package_path))).toHaveLength(23)
     expect(first.production_consumer_edges.length).toBeGreaterThan(0)
+  })
+
+  test("rejects module or production consumer closure drift", () => {
+    const manifest = loadReplayModuleConsumerClosureManifest(repoRoot)
+    expect(() => assertReplayModuleConsumerClosureManifest(manifest, repoRoot)).not.toThrow()
+    const drifted = structuredClone(manifest)
+    drifted.observed_production_consumer_edge_count -= 1
+    expect(() => assertReplayModuleConsumerClosureManifest(drifted, repoRoot))
+      .toThrow("classify every production consumer edge")
   })
 })
