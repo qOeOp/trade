@@ -24,7 +24,6 @@ import {
 } from "../lib/ops-runtime-store"
 import { stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
 import { readDbActionJsonArgs, type DbActionJsonArgs } from "../../../../contracts/runtime-core/src/script-json"
-import { buildDatabaseIdentity, ensureDatabaseIdentity } from "../../../../contracts/runtime-core/src/database-identity"
 import {
   applyWatchTaskEvaluation,
   armWatchTask,
@@ -68,7 +67,6 @@ export function run(args: Args): JSONRecord {
   }
   const db = new Database(args.dbPath)
   try {
-    ensureDatabaseIdentity(db, buildDatabaseIdentity(args.environmentId, "ops_runtime_store"))
     ensureOpsRuntimeSchema(db)
     if (args.action === "init") {
       return { ok: true, action: "init", db: args.dbPath }
