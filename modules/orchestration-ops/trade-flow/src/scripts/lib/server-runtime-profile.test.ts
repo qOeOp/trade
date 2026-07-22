@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import test from "node:test"
 import { repoRoot } from "../../../../../contracts/runtime-core/src/paths"
-import { parseServerRuntimeProfile, serverRuntimeProfileHash } from "./server-runtime-profile"
+import { defaultServerRuntimeProfileRef, parseServerRuntimeProfile, serverRuntimeProfileHash } from "./server-runtime-profile"
 
 function fixture(): Record<string, unknown> {
   return JSON.parse(readFileSync(resolve(repoRoot(), "profile/server-runtime.json"), "utf8")) as Record<string, unknown>
@@ -16,6 +16,20 @@ test("server runtime profile freezes a no-live three-unit shadow deployment", ()
   assert.equal(profile.safety.live_writes_allowed, false)
   assert.equal(profile.safety.domain_jobs_enabled, false)
   assert.match(serverRuntimeProfileHash(profile), /^[a-f0-9]{64}$/)
+})
+
+test("macOS profile binds launchd to the current user without widening safety", () => {
+  const profile = parseServerRuntimeProfile(JSON.parse(
+    readFileSync(resolve(repoRoot(), "profile/server-runtime-macos.json"), "utf8"),
+  ))
+  assert.equal(profile.process_manager.target, "launchd")
+  assert.equal(profile.process_manager.service_user, "current")
+  assert.equal(profile.safety.live_writes_allowed, false)
+})
+
+test("default profile selection binds Darwin to launchd and Linux to systemd", () => {
+  assert.equal(defaultServerRuntimeProfileRef("darwin"), "profile/server-runtime-macos.json")
+  assert.equal(defaultServerRuntimeProfileRef("linux"), "profile/server-runtime.json")
 })
 
 test("server runtime profile rejects authority, path, identity, and unknown-field widening", () => {
@@ -31,4 +45,7 @@ test("server runtime profile rejects authority, path, identity, and unknown-fiel
   const collision = fixture()
   ;(collision.control_runtime as Record<string, unknown>).ops_runtime_db = "data/trade.db"
   assert.throws(() => parseServerRuntimeProfile(collision), /distinct paths/)
+  const mismatchedIdentity = fixture()
+  ;(mismatchedIdentity.process_manager as Record<string, unknown>).target = "launchd"
+  assert.throws(() => parseServerRuntimeProfile(mismatchedIdentity), /current\/current/)
 })

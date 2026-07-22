@@ -1,6 +1,7 @@
 import { isAbsolute, resolve } from "node:path"
 import type { ServerRuntimeProfile } from "./server-runtime-profile"
 import { serverRuntimeProfileHash } from "./server-runtime-profile"
+import { serverRuntimeProcessSpecs } from "./server-runtime-processes"
 
 export const SERVER_RUNTIME_SYSTEMD_RENDER_SCHEMA = "trade.server-runtime-systemd-render.v1" as const
 
@@ -15,6 +16,7 @@ export interface ServerRuntimeSystemdRender {
 }
 
 export function renderServerRuntimeSystemd(profile: ServerRuntimeProfile, releaseRoot: string, bunPath: string): ServerRuntimeSystemdRender {
+  if (profile.process_manager.target !== "systemd") throw new Error("systemd renderer requires a systemd profile")
   const root = absolutePath(releaseRoot, "release_root")
   const bun = absolutePath(bunPath, "bun_path")
   const common = {
@@ -24,27 +26,28 @@ export function renderServerRuntimeSystemd(profile: ServerRuntimeProfile, releas
     data: resolve(root, "data"),
     tmp: resolve(root, "tmp"),
   }
+  const processes = Object.fromEntries(serverRuntimeProcessSpecs(profile, root, bun).map((process) => [process.id, process]))
   const units = {
     "trade-l2-owner.service": renderService({
       ...common,
       description: "Trade public L2 owner",
       after: ["network-online.target"],
       wants: ["network-online.target"],
-      command: l2OwnerCommand(profile, root, bun),
+      command: processes["l2-owner"].command,
     }),
     "trade-l2-consumer.service": renderService({
       ...common,
       description: "Trade resident L2 consumer",
       after: ["trade-l2-owner.service"],
       wants: ["trade-l2-owner.service"],
-      command: l2ConsumerCommand(profile, root, bun),
+      command: processes["l2-consumer"].command,
     }),
     "trade-control-runtime.service": renderService({
       ...common,
       description: "Trade no-live control runtime",
       after: ["trade-l2-consumer.service"],
       wants: ["trade-l2-consumer.service"],
-      command: controlRuntimeCommand(profile, root, bun),
+      command: processes["control-runtime"].command,
     }),
     "trade-server-shadow.target": renderTarget(),
   }
@@ -108,60 +111,6 @@ After=network-online.target trade-l2-owner.service trade-l2-consumer.service tra
 [Install]
 WantedBy=multi-user.target
 `
-}
-
-function l2OwnerCommand(profile: ServerRuntimeProfile, root: string, bun: string): string[] {
-  const owner = profile.l2_owner
-  return [
-    bun,
-    resolve(root, "modules/market-data-products/l2-order-book-service/src/scripts/foreground.ts"),
-    "--symbol", owner.symbol,
-    "--output-base", owner.output_base,
-    "--listen", owner.listen,
-    "--epoch-seconds", String(owner.epoch_seconds),
-    "--queue-capacity", String(owner.queue_capacity),
-    "--segment-frames", String(owner.segment_frames),
-    "--sync-every-frames", String(owner.sync_every_frames),
-    "--stale-after-ms", String(owner.stale_after_ms),
-    "--restart-limit", String(owner.restart_limit),
-    "--market-data-db", owner.market_data_db,
-    "--admission-interval-ms", String(owner.admission_interval_ms),
-    "--disk-check-interval-ms", String(owner.disk_check_interval_ms),
-    "--disk-soft-min-bytes", String(owner.disk_soft_min_bytes),
-    "--disk-hard-min-bytes", String(owner.disk_hard_min_bytes),
-    "--resource-check-interval-ms", String(owner.resource_check_interval_ms),
-  ]
-}
-
-function l2ConsumerCommand(profile: ServerRuntimeProfile, root: string, bun: string): string[] {
-  const consumer = profile.l2_consumer
-  return [
-    bun,
-    resolve(root, "modules/orchestration-ops/l2-current-book-probe/src/scripts/consumer-foreground.ts"),
-    "--max-cycles", String(consumer.max_cycles),
-    "--session-ms", String(consumer.session_ms),
-    "--max-events", String(consumer.max_events),
-    "--watch-ms", String(consumer.watch_ms),
-    "--depth", String(consumer.depth),
-    "--max-freshness-ms", String(consumer.max_freshness_ms),
-    "--restart-limit", String(consumer.restart_limit),
-  ]
-}
-
-function controlRuntimeCommand(profile: ServerRuntimeProfile, root: string, bun: string): string[] {
-  const control = profile.control_runtime
-  return [
-    bun,
-    resolve(root, "modules/orchestration-ops/trade-flow/src/scripts/main.ts"),
-    "--db", control.trade_db,
-    "--run-program-shadow-supervisor",
-    "--json",
-    JSON.stringify({
-      ops_runtime_db: control.ops_runtime_db,
-      interval_seconds: control.interval_seconds,
-      observe_agent_parity: control.observe_agent_parity,
-    }),
-  ]
 }
 
 function absolutePath(value: string, field: string): string {

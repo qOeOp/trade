@@ -4,13 +4,13 @@ import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { repoRoot } from "../../../../contracts/runtime-core/src/paths"
 import { runServerRuntimeLifecycleFixture } from "./lib/server-runtime-lifecycle-fixture"
-import { parseServerRuntimeProfile } from "./lib/server-runtime-profile"
+import { defaultServerRuntimeProfileRef, parseServerRuntimeProfile } from "./lib/server-runtime-profile"
 
 async function main(): Promise<void> {
   if (process.argv.length > 2) throw new Error("server lifecycle fixture accepts no arguments")
   const root = repoRoot()
   const profile = parseServerRuntimeProfile(JSON.parse(
-    readFileSync(resolve(root, "profile/server-runtime.json"), "utf8"),
+    readFileSync(resolve(root, defaultServerRuntimeProfileRef()), "utf8"),
   ))
   const result = await runServerRuntimeLifecycleFixture(profile, process.execPath)
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)

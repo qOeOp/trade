@@ -8,6 +8,7 @@ import { preflightServerRuntime, readServerRuntimeStatus, type ServerRuntimeComm
 
 const root = repoRoot()
 const profile = parseServerRuntimeProfile(JSON.parse(readFileSync(resolve(root, "profile/server-runtime.json"), "utf8")))
+const macProfile = parseServerRuntimeProfile(JSON.parse(readFileSync(resolve(root, "profile/server-runtime-macos.json"), "utf8")))
 
 test("server runtime preflight binds release, writable roots, and closed safety", () => {
   const result = preflightServerRuntime(profile, root, process.execPath, {
@@ -19,6 +20,19 @@ test("server runtime preflight binds release, writable roots, and closed safety"
   assert.equal(checks.every((check) => check.status === "ok"), true)
 })
 
+test("macOS preflight keeps protected launchd source roots explicit", () => {
+  const blocked = preflightServerRuntime(macProfile, root, process.execPath, {
+    path_check: (checkId) => ({ check_id: checkId, status: "ok", reason: "fixture" }),
+    writable_directory_check: (checkId) => ({ check_id: checkId, status: "ok", reason: "fixture" }),
+    launchd_source_check: () => ({
+      check_id: "launchd_source_privacy", status: "blocked", reason: "fixture_protected_root",
+    }),
+  })
+  assert.equal(blocked.status, "blocked")
+  const checks = blocked.checks as Array<Record<string, unknown>>
+  assert.equal(checks.some((check) => check.check_id === "launchd_source_privacy" && check.status === "blocked"), true)
+})
+
 test("server runtime status requires owner readiness, same epoch, lease, and active units", () => {
   const execute = fixtureExecutor({ unitState: "active", consumerEpoch: "epoch-1", leaseActive: true })
   const result = readServerRuntimeStatus(profile, root, process.execPath, execute, "2026-07-23T00:00:00Z")
@@ -28,7 +42,7 @@ test("server runtime status requires owner readiness, same epoch, lease, and act
   assert.equal(JSON.stringify(result).includes("command"), false)
 })
 
-test("server runtime status degrades without systemd and fails readiness on epoch drift", () => {
+test("server runtime status degrades without its process manager and fails readiness on epoch drift", () => {
   const noManager = readServerRuntimeStatus(
     profile,
     root,
@@ -49,6 +63,16 @@ test("server runtime status degrades without systemd and fails readiness on epoc
   assert.equal((drift.readiness as Record<string, unknown>).l2_epoch_matches_consumer, false)
 })
 
+test("server runtime status recognizes active launchd agents on macOS", () => {
+  const result = readServerRuntimeStatus(
+    macProfile, root, process.execPath,
+    fixtureExecutor({ unitState: "active", consumerEpoch: "epoch-1", leaseActive: true }),
+    "2026-07-23T00:00:00Z",
+  )
+  assert.equal(result.status, "ready")
+  assert.equal(Object.keys(result.process_units).every((unit) => unit.startsWith("com.trade.server-shadow.")), true)
+})
+
 function fixtureExecutor(input: {
   unitState: "active" | "unavailable"
   consumerEpoch: string
@@ -58,6 +82,11 @@ function fixtureExecutor(input: {
     if (command[0] === "systemctl") {
       return input.unitState === "active"
         ? { exit_code: 0, stdout: "active\n" }
+        : { exit_code: 1, stdout: "" }
+    }
+    if (command[0] === "launchctl") {
+      return input.unitState === "active"
+        ? { exit_code: 0, stdout: "state = running\n" }
         : { exit_code: 1, stdout: "" }
     }
     const script = command[1] ?? ""

@@ -3,12 +3,13 @@
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs"
 import { relative, resolve } from "node:path"
 import { assertProjectRuntimePath, repoRoot } from "../../../../contracts/runtime-core/src/paths"
-import { parseServerRuntimeProfile, serverRuntimeProfileHash } from "./lib/server-runtime-profile"
+import { defaultServerRuntimeProfileRef, parseServerRuntimeProfile, serverRuntimeProfileHash } from "./lib/server-runtime-profile"
 import { preflightServerRuntime, readServerRuntimeStatus } from "./lib/server-runtime-status"
 import { renderServerRuntimeSystemd } from "./lib/server-runtime-systemd"
+import { renderServerRuntimeLaunchd } from "./lib/server-runtime-launchd"
 
 export interface ServerRuntimeArgs {
-  action: "validate" | "render-systemd" | "preflight" | "status"
+  action: "validate" | "render-systemd" | "render-launchd" | "preflight" | "status"
   profile: string
   releaseRoot: string
   bunPath: string
@@ -27,14 +28,14 @@ export function parseArgs(argv: string[], root = repoRoot()): ServerRuntimeArgs 
     values[field] = value
   }
   const action = values.action
-  if (!action || !["validate", "render-systemd", "preflight", "status"].includes(action)) {
-    throw new Error("action must be validate, render-systemd, preflight, or status")
+  if (!action || !["validate", "render-systemd", "render-launchd", "preflight", "status"].includes(action)) {
+    throw new Error("action must be validate, render-systemd, render-launchd, preflight, or status")
   }
-  const outputDir = values["output-dir"] ?? "tmp/server-runtime/systemd"
-  if (action === "render-systemd") assertProjectRuntimePath(outputDir)
+  const outputDir = values["output-dir"] ?? `tmp/server-runtime/${action === "render-launchd" ? "launchd" : "systemd"}`
+  if (action === "render-systemd" || action === "render-launchd") assertProjectRuntimePath(outputDir)
   return {
     action: action as ServerRuntimeArgs["action"],
-    profile: values.profile ?? "profile/server-runtime.json",
+    profile: values.profile ?? defaultServerRuntimeProfileRef(),
     releaseRoot: values["release-root"] ?? root,
     bunPath: values["bun-path"] ?? process.execPath,
     outputDir,
@@ -53,7 +54,7 @@ export function runServerRuntimeOperation(args: ServerRuntimeArgs, root = repoRo
       profile_id: profile.profile_id,
       deployment_id: profile.deployment_id,
       profile_hash: profileHash,
-      process_authority: "systemd",
+      process_authority: profile.process_manager.target,
       safety: profile.safety,
     }
   }
@@ -63,7 +64,9 @@ export function runServerRuntimeOperation(args: ServerRuntimeArgs, root = repoRo
   if (args.action === "status") {
     return readServerRuntimeStatus(profile, args.releaseRoot, args.bunPath)
   }
-  const rendered = renderServerRuntimeSystemd(profile, args.releaseRoot, args.bunPath)
+  const rendered = args.action === "render-launchd"
+    ? renderServerRuntimeLaunchd(profile, args.releaseRoot, args.bunPath)
+    : renderServerRuntimeSystemd(profile, args.releaseRoot, args.bunPath)
   const outputDirectory = resolve(root, args.outputDir)
   mkdirSync(outputDirectory, { recursive: true })
   const unitRefs: string[] = []

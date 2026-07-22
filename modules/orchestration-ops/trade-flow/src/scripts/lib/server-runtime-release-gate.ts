@@ -2,11 +2,11 @@ import { canonicalHash } from "../../../../../contracts/runtime-core/src/canonic
 
 type JSONRecord = Record<string, unknown>
 
-export const SERVER_RUNTIME_RELEASE_GATE_SCHEMA = "trade.server-runtime-release-gate.v1" as const
+export const SERVER_RUNTIME_RELEASE_GATE_SCHEMA = "trade.server-runtime-release-gate.v2" as const
 
 export interface ServerRuntimeReleaseEvidence {
   observed_at: string
-  host_platform: string
+  host_platform: "linux" | "darwin"
   lifecycle: { status: "passed"; fixture_scope: "synthetic_process_manager_only" }
   recovery: { status: "passed"; fixture_scope: "synthetic_recovery_closure_only" }
   full_shadow: {
@@ -19,7 +19,12 @@ export interface ServerRuntimeReleaseEvidence {
   }
   rd_autonomy: { status: "passed"; cas_and_idempotency: true; provider_smoke: boolean; kill_restart_single_trial_result: boolean }
   operator_http: { status: "passed"; policy_tests: true; resident_smoke: boolean; audit_roundtrip: boolean }
-  deployment: { systemd_installed: boolean; public_soak_passed: boolean; real_volume_restore_passed: boolean }
+  deployment: {
+    process_manager: "systemd" | "launchd"
+    process_manager_installed: boolean
+    public_soak_passed: boolean
+    real_volume_restore_passed: boolean
+  }
 }
 
 export function evaluateServerRuntimeRelease(evidence: ServerRuntimeReleaseEvidence): JSONRecord {
@@ -32,10 +37,11 @@ export function evaluateServerRuntimeRelease(evidence: ServerRuntimeReleaseEvide
   }
   if (evidence.rd_autonomy.status !== "passed" || evidence.rd_autonomy.cas_and_idempotency !== true) throw new Error("R&D autonomy evidence is invalid")
   if (evidence.operator_http.status !== "passed" || evidence.operator_http.policy_tests !== true) throw new Error("operator HTTP evidence is invalid")
+  const expectedManager = evidence.host_platform === "darwin" ? "launchd" : "systemd"
+  if (evidence.deployment.process_manager !== expectedManager) throw new Error("host platform and process manager do not match")
 
   const pending: string[] = []
-  if (evidence.host_platform !== "linux") pending.push("target_linux_host_not_used")
-  if (!evidence.deployment.systemd_installed) pending.push("systemd_not_installed")
+  if (!evidence.deployment.process_manager_installed) pending.push("process_manager_not_installed")
   if (!evidence.deployment.public_soak_passed) pending.push("server_public_soak_not_passed")
   if (!evidence.deployment.real_volume_restore_passed) pending.push("real_volume_restore_not_passed")
   if (!evidence.rd_autonomy.provider_smoke) pending.push("model_provider_smoke_not_passed")

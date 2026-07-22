@@ -2,6 +2,10 @@ import { canonicalHash } from "../../../../../contracts/runtime-core/src/canonic
 
 export const SERVER_RUNTIME_PROFILE_SCHEMA = "trade.server-runtime-profile.v1" as const
 
+export function defaultServerRuntimeProfileRef(platform: NodeJS.Platform = process.platform): string {
+  return platform === "darwin" ? "profile/server-runtime-macos.json" : "profile/server-runtime.json"
+}
+
 export interface ServerRuntimeProfile {
   schema_version: typeof SERVER_RUNTIME_PROFILE_SCHEMA
   profile_id: string
@@ -39,7 +43,7 @@ export interface ServerRuntimeProfile {
     observe_agent_parity: boolean
   }
   process_manager: {
-    target: "systemd"
+    target: "systemd" | "launchd"
     service_user: string
     service_group: string
     restart_seconds: number
@@ -97,7 +101,15 @@ export function parseServerRuntimeProfile(value: unknown): ServerRuntimeProfile 
   const sessionMs = integer(l2Consumer.session_ms, 2_000, 300_000, "l2_consumer.session_ms")
   const watchMs = integer(l2Consumer.watch_ms, 100, 5_000, "l2_consumer.watch_ms")
   if (sessionMs < watchMs + 3_000) throw new Error("l2_consumer.session_ms must cover snapshot and watch")
-  if (processManager.target !== "systemd") throw new Error("process_manager.target must be systemd")
+  const processManagerTarget = enumValue(processManager.target, ["systemd", "launchd"] as const, "process_manager.target")
+  const serviceUser = serviceIdentity(processManager.service_user, "process_manager.service_user")
+  const serviceGroup = serviceIdentity(processManager.service_group, "process_manager.service_group")
+  if (processManagerTarget === "launchd" && (serviceUser !== "current" || serviceGroup !== "current")) {
+    throw new Error("launchd profile service identity must be current/current")
+  }
+  if (processManagerTarget === "systemd" && (serviceUser === "current" || serviceGroup === "current")) {
+    throw new Error("systemd profile requires an explicit service identity")
+  }
   if (safety.domain_jobs_enabled !== false || safety.live_writes_allowed !== false || safety.notify_dry_run !== true) {
     throw new Error("server shadow safety cannot enable domain jobs, live writes, or real notifications")
   }
@@ -140,9 +152,9 @@ export function parseServerRuntimeProfile(value: unknown): ServerRuntimeProfile 
       observe_agent_parity: controlRuntime.observe_agent_parity,
     },
     process_manager: {
-      target: "systemd",
-      service_user: serviceIdentity(processManager.service_user, "process_manager.service_user"),
-      service_group: serviceIdentity(processManager.service_group, "process_manager.service_group"),
+      target: processManagerTarget,
+      service_user: serviceUser,
+      service_group: serviceGroup,
       restart_seconds: integer(processManager.restart_seconds, 1, 300, "process_manager.restart_seconds"),
       start_limit_burst: integer(processManager.start_limit_burst, 1, 100, "process_manager.start_limit_burst"),
       start_limit_interval_seconds: integer(processManager.start_limit_interval_seconds, 1, 3_600, "process_manager.start_limit_interval_seconds"),
@@ -195,6 +207,12 @@ function serviceIdentity(value: unknown, field: string): string {
   const result = text(value, field)
   if (!/^[a-z_][a-z0-9_-]{0,31}$/.test(result)) throw new Error(`${field} is invalid`)
   return result
+}
+
+function enumValue<const T extends readonly string[]>(value: unknown, allowed: T, field: string): T[number] {
+  const result = text(value, field)
+  if (!allowed.includes(result)) throw new Error(`${field} must be one of: ${allowed.join(", ")}`)
+  return result as T[number]
 }
 
 function integer(value: unknown, minimum: number, maximum: number, field: string): number {

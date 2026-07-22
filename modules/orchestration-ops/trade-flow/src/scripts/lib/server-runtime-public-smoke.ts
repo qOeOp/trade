@@ -2,7 +2,7 @@ import type { ServerRuntimeProfile } from "./server-runtime-profile"
 import { serverRuntimeProfileHash } from "./server-runtime-profile"
 import { readServerRuntimeStatus, type ServerRuntimeStatus } from "./server-runtime-status"
 
-export const SERVER_RUNTIME_PUBLIC_SMOKE_SCHEMA = "trade.server-runtime-public-smoke.v1" as const
+export const SERVER_RUNTIME_PUBLIC_SMOKE_SCHEMA = "trade.server-runtime-public-smoke.v2" as const
 
 interface SmokeSnapshot {
   observation_id: string
@@ -13,7 +13,7 @@ interface SmokeSnapshot {
   comparable_matches: number
   comparable_mismatches: number
   fencing_token: number
-  systemd_ready: boolean
+  process_manager_ready: boolean
 }
 
 export interface ServerRuntimePublicSmokeResult {
@@ -67,7 +67,7 @@ export async function runServerRuntimePublicSmoke(
     throw new Error("comparable Agent/program mismatch increased during public smoke")
   }
   if (second.fencing_token !== first.fencing_token) throw new Error("control fencing token changed during public smoke")
-  const serverReady = first.systemd_ready && second.systemd_ready
+  const serverReady = first.process_manager_ready && second.process_manager_ready
   return {
     schema_version: SERVER_RUNTIME_PUBLIC_SMOKE_SCHEMA,
     profile_id: profile.profile_id,
@@ -83,7 +83,7 @@ export async function runServerRuntimePublicSmoke(
       fenced_lease_stable: true,
     },
     pending_server_gates: [
-      ...(!serverReady ? ["systemd_units_not_observable_and_active"] : []),
+      ...(!serverReady ? ["process_manager_units_not_observable_and_active"] : []),
       "operator_controlled_real_consumer_fault_injection_not_executed",
       "real_volume_backup_restore_not_covered_by_public_smoke",
     ],
@@ -124,7 +124,7 @@ function compactReadySnapshot(status: ServerRuntimeStatus): SmokeSnapshot {
     comparable_matches: integer(comparable.matched, "control_runtime.comparable_counts.matched"),
     comparable_mismatches: integer(comparable.mismatched, "control_runtime.comparable_counts.mismatched"),
     fencing_token: integer(lease.fencing_token, "control_runtime.supervisor_lease.fencing_token"),
-    systemd_ready: status.readiness.process_manager_observable && status.readiness.process_units_active,
+    process_manager_ready: status.readiness.process_manager_observable && status.readiness.process_units_active,
   }
 }
 

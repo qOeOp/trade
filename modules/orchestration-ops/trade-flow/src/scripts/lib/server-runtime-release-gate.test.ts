@@ -10,17 +10,19 @@ test("local rehearsal passes while server and live authority remain blocked", ()
   assert.equal(result.live_writes_allowed, false)
   assert.match(String(result.live_cutover), /forbidden/)
   assert.deepEqual(result.pending_server_gates, [
-    "target_linux_host_not_used", "systemd_not_installed", "server_public_soak_not_passed",
+    "process_manager_not_installed", "server_public_soak_not_passed",
     "real_volume_restore_not_passed", "model_provider_smoke_not_passed",
     "rd_kill_restart_single_trial_result_not_passed", "operator_http_resident_smoke_not_passed",
     "operator_http_audit_roundtrip_not_passed",
   ])
 })
 
-test("complete no-live server evidence still never grants live or promotion", () => {
+test("complete macOS no-live evidence still never grants live or promotion", () => {
   const evidence = fixture()
-  evidence.host_platform = "linux"
-  evidence.deployment = { systemd_installed: true, public_soak_passed: true, real_volume_restore_passed: true }
+  evidence.deployment = {
+    process_manager: "launchd", process_manager_installed: true,
+    public_soak_passed: true, real_volume_restore_passed: true,
+  }
   evidence.rd_autonomy.provider_smoke = true
   evidence.rd_autonomy.kill_restart_single_trial_result = true
   evidence.operator_http.resident_smoke = true
@@ -39,6 +41,16 @@ test("release gate rejects parity, duplicate-job, or live-command drift", () => 
   assert.throws(() => evaluateServerRuntimeRelease({ ...fixture(), full_shadow: { ...fixture().full_shadow, live_commands: 1 as 0 } }), /full-shadow/)
 })
 
+test("release gate accepts only the native manager for each supported host", () => {
+  assert.throws(() => evaluateServerRuntimeRelease({
+    ...fixture(), deployment: { ...fixture().deployment, process_manager: "systemd" },
+  }), /do not match/)
+  const linux = fixture()
+  linux.host_platform = "linux"
+  linux.deployment.process_manager = "systemd"
+  assert.equal(evaluateServerRuntimeRelease(linux).local_no_live_rehearsal, "passed")
+})
+
 function fixture(): ServerRuntimeReleaseEvidence {
   return {
     observed_at: "2026-07-23T00:00:00.000Z", host_platform: "darwin",
@@ -47,6 +59,9 @@ function fixture(): ServerRuntimeReleaseEvidence {
     full_shadow: { status: "passed", enabled_jobs: 7, parity_matches: 2, parity_mismatches: 0, duplicate_jobs: 0, live_commands: 0 },
     rd_autonomy: { status: "passed", cas_and_idempotency: true, provider_smoke: false, kill_restart_single_trial_result: false },
     operator_http: { status: "passed", policy_tests: true, resident_smoke: false, audit_roundtrip: false },
-    deployment: { systemd_installed: false, public_soak_passed: false, real_volume_restore_passed: false },
+    deployment: {
+      process_manager: "launchd", process_manager_installed: false,
+      public_soak_passed: false, real_volume_restore_passed: false,
+    },
   }
 }

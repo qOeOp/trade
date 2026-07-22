@@ -3,14 +3,14 @@
 import { readFileSync } from "node:fs"
 import { resolve } from "node:path"
 import { repoRoot } from "../../../../contracts/runtime-core/src/paths"
-import { parseServerRuntimeProfile } from "./lib/server-runtime-profile"
+import { defaultServerRuntimeProfileRef, parseServerRuntimeProfile } from "./lib/server-runtime-profile"
 import { runServerRuntimeRecoveryFixture } from "./lib/server-runtime-recovery-fixture"
 
 function main(): void {
   if (process.argv.length > 2) throw new Error("server recovery fixture accepts no arguments")
   const root = repoRoot()
   const profile = parseServerRuntimeProfile(JSON.parse(
-    readFileSync(resolve(root, "profile/server-runtime.json"), "utf8"),
+    readFileSync(resolve(root, defaultServerRuntimeProfileRef()), "utf8"),
   ))
   const result = runServerRuntimeRecoveryFixture(profile, root)
   process.stdout.write(`${JSON.stringify(result, null, 2)}\n`)

@@ -22,7 +22,7 @@ test("public smoke requires two healthy cycles without epoch, parity, or fencing
   })
   assert.equal(result.status, "local_observation_passed")
   assert.deepEqual(result.snapshots.map((snapshot) => snapshot.observation_id), ["cycle-1", "cycle-2"])
-  assert.equal(result.pending_server_gates.includes("systemd_units_not_observable_and_active"), true)
+  assert.equal(result.pending_server_gates.includes("process_manager_units_not_observable_and_active"), true)
 })
 
 test("public smoke rejects a consumer epoch or comparable parity regression", async () => {
@@ -48,7 +48,7 @@ test("public smoke rejects a consumer epoch or comparable parity regression", as
 function status(
   observationId: string,
   matches: number,
-  systemdReady: boolean,
+  processManagerReady: boolean,
   changes: { epoch?: string; mismatches?: number } = {},
 ): ServerRuntimeStatus {
   const epoch = changes.epoch ?? "epoch-1"
@@ -58,15 +58,15 @@ function status(
     profile_id: "server-shadow",
     deployment_id: "single-node-shadow",
     profile_hash: "hash",
-    status: systemdReady ? "ready" : "degraded",
+    status: processManagerReady ? "ready" : "degraded",
     readiness: {
       l2_owner_ready: true,
       l2_consumer_ready: true,
       l2_epoch_matches_consumer: true,
       control_lease_active: true,
-      process_manager_observable: systemdReady,
-      process_units_active: systemdReady,
-      overall_ready: systemdReady,
+      process_manager_observable: processManagerReady,
+      process_units_active: processManagerReady,
+      overall_ready: processManagerReady,
     },
     components: {
       l2_owner: { source: { stream_epoch: epoch } },

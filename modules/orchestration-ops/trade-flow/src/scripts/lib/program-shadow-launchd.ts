@@ -1,3 +1,5 @@
+export { isMacOsProtectedUserPath } from "./macos-protected-path"
+
 export const PROGRAM_SHADOW_LAUNCHD_LABEL = "com.trade.program-shadow-supervisor"
 
 export interface ProgramShadowLaunchdConfig {
@@ -58,13 +60,6 @@ ${arguments_.map((argument) => `    <string>${xml(argument)}</string>`).join("\n
 </dict>
 </plist>
 `
-}
-
-export function isMacOsProtectedUserPath(path: string, userHome: string): boolean {
-  const root = userHome.replace(/\/$/, "")
-  return ["Desktop", "Documents", "Downloads"]
-    .map((name) => `${root}/${name}`)
-    .some((protectedPath) => path === protectedPath || path.startsWith(`${protectedPath}/`))
 }
 
 function xml(value: string): string {

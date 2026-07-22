@@ -1,8 +1,11 @@
 import { accessSync, constants, existsSync } from "node:fs"
 import { dirname, resolve } from "node:path"
+import { homedir } from "node:os"
 import type { JSONRecord } from "../../../../../contracts/runtime-core/src/json"
 import type { ServerRuntimeProfile } from "./server-runtime-profile"
 import { serverRuntimeProfileHash } from "./server-runtime-profile"
+import { SERVER_RUNTIME_LAUNCHD_LABELS } from "./server-runtime-launchd"
+import { isMacOsProtectedUserPath } from "./macos-protected-path"
 
 export interface ServerRuntimeCommandResult {
   exit_code: number
@@ -14,6 +17,7 @@ export type ServerRuntimeCommandExecutor = (command: string[], cwd: string, time
 export interface ServerRuntimePreflightDependencies {
   path_check?: (checkId: string, path: string, executable?: boolean) => JSONRecord
   writable_directory_check?: (checkId: string, path: string) => JSONRecord
+  launchd_source_check?: (root: string) => JSONRecord
 }
 
 export interface ServerRuntimeStatus extends JSONRecord {
@@ -49,6 +53,7 @@ export function preflightServerRuntime(
 ): JSONRecord {
   const checkPath = dependencies.path_check ?? pathCheck
   const checkWritable = dependencies.writable_directory_check ?? writableDirectoryCheck
+  const checkLaunchdSource = dependencies.launchd_source_check ?? launchdSourceCheck
   const checks = [
     checkPath("bun_executable", bunPath, true),
     checkPath("l2_foreground_entry", resolve(root, "modules/market-data-products/l2-order-book-service/src/scripts/foreground.ts")),
@@ -68,6 +73,7 @@ export function preflightServerRuntime(
         && profile.safety.notify_dry_run === true ? "ok" : "blocked",
       reason: "profile safety is fixed to no-domain-job, no-live-write, dry-run notification",
     },
+    ...(profile.process_manager.target === "launchd" ? [checkLaunchdSource(root)] : []),
   ]
   return {
     schema_version: "trade.server-runtime-preflight.v1",
@@ -106,11 +112,10 @@ export function readServerRuntimeStatus(
     "--action", "parity_status",
     "--json", JSON.stringify({ as_of: observedAt }),
   ], root)
-  const units = Object.fromEntries([
-    "trade-l2-owner.service",
-    "trade-l2-consumer.service",
-    "trade-control-runtime.service",
-  ].map((unit) => [unit, unitState(execute, unit, root)]))
+  const units = Object.fromEntries(processManagerUnits(profile).map((unit) => [
+    unit,
+    unitState(execute, profile.process_manager.target, unit, root),
+  ]))
 
   const l2 = record(l2Envelope.health)
   const consumer = record(consumerEnvelope.consumer)
@@ -153,7 +158,7 @@ export function readServerRuntimeStatus(
     limitations: [
       "aggregate_read_only_status",
       "owner_health_is_not_reimplemented",
-      "degraded_when_systemd_is_not_observable",
+      "degraded_when_process_manager_is_not_observable",
       "no_lifecycle_or_live_write_authority",
     ],
   }
@@ -170,7 +175,28 @@ function ownerRead(execute: ServerRuntimeCommandExecutor, command: string[], cwd
   }
 }
 
-function unitState(execute: ServerRuntimeCommandExecutor, unit: string, cwd: string): JSONRecord {
+function processManagerUnits(profile: ServerRuntimeProfile): string[] {
+  return profile.process_manager.target === "systemd"
+    ? ["trade-l2-owner.service", "trade-l2-consumer.service", "trade-control-runtime.service"]
+    : Object.values(SERVER_RUNTIME_LAUNCHD_LABELS)
+}
+
+function unitState(
+  execute: ServerRuntimeCommandExecutor,
+  target: ServerRuntimeProfile["process_manager"]["target"],
+  unit: string,
+  cwd: string,
+): JSONRecord {
+  if (target === "launchd") {
+    const uid = typeof process.getuid === "function" ? process.getuid() : undefined
+    if (uid === undefined) return { status: "unavailable", reason: "launchd_user_domain_unavailable" }
+    const result = execute(["launchctl", "print", `gui/${uid}/${unit}`], cwd, 3_000)
+    if (result.exit_code !== 0) return { status: "unavailable", reason: "process_manager_unavailable" }
+    const state = /\bstate\s*=\s*(running|waiting|exited)\b/.exec(result.stdout)?.[1]
+    if (state === "running") return { status: "active" }
+    if (state === "waiting" || state === "exited") return { status: "inactive" }
+    return { status: "unavailable", reason: "unit_state_invalid" }
+  }
   const result = execute(["systemctl", "show", unit, "--property=ActiveState", "--value"], cwd, 3_000)
   if (result.exit_code !== 0) return { status: "unavailable", reason: "process_manager_unavailable" }
   const state = result.stdout.trim()
@@ -214,6 +240,20 @@ function writableDirectoryCheck(checkId: string, path: string): JSONRecord {
     return { check_id: checkId, status: "ok", reason: "writable" }
   } catch {
     return { check_id: checkId, status: "blocked", reason: "not_writable" }
+  }
+}
+
+function launchdSourceCheck(root: string): JSONRecord {
+  if (!isMacOsProtectedUserPath(root, homedir())) {
+    return { check_id: "launchd_source_privacy", status: "ok", reason: "source_root_not_macos_protected" }
+  }
+  if (process.env.TRADE_ALLOW_PROTECTED_LAUNCHD_PATH === "1") {
+    return { check_id: "launchd_source_privacy", status: "ok", reason: "explicit_privacy_grant_acknowledged" }
+  }
+  return {
+    check_id: "launchd_source_privacy",
+    status: "blocked",
+    reason: "protected_source_root_requires_privacy_grant_or_release_relocation",
   }
 }
 
