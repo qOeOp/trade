@@ -12,17 +12,20 @@ export {
   summarizeReplay,
   type Candle,
   type IndicatorSet,
-  type LatestSignalResult,
-  type ReplayOptions,
-  type ReplayResult,
-  type ReplaySignal,
-  type ReplayStrategy,
-  type ReplayTrade,
-  type ReplayTemporalIntegrityReport,
-  type SimulatedLaneFill,
-  type SimulatedLaneOrder,
-  type SimulatedLaneResult,
 } from "./replay-core"
+
+export type {
+  LatestSignalResult,
+  ReplayOptions,
+  ReplayResult,
+  ReplaySignal,
+  ReplayStrategy,
+  ReplayTrade,
+  ReplayTemporalIntegrityReport,
+  SimulatedLaneFill,
+  SimulatedLaneOrder,
+  SimulatedLaneResult,
+} from "../../../legacy-research-contracts/src/lib/legacy-research-contracts"
 
 export {
   buildTrendPullbackSignal,
