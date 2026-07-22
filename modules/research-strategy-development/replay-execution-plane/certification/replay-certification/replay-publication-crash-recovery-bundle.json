@@ -45,7 +45,7 @@
       "writer_source_sha256": "2aa414d59aad6caa6710a3955070927a60800200f3aced8d34fe514bb80b446e",
       "test_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.test.ts",
       "test_name": "runner atomically publishes an attempt-local checkpoint commit and resumes it across processes",
-      "test_source_sha256": "b954e5ebe5d4a4c4060466c19dcf6273debc957293b765a1b8bf42399c814bb5"
+      "test_source_sha256": "d7f535d4ce52adfc6bfefcea3572b3f8694e445de9f05dbb2c68c6611ed2d0d1"
     },
     {
       "profile": "terminal-aware-bounded-cycle",
@@ -66,5 +66,5 @@
     "integrated-and-terminal-cycle-recover-by-deterministic-full-rerun-without-checkpoint",
     "power-loss-and-filesystem-hardware-failure-beyond-fsync-contract-not-certified"
   ],
-  "bundle_sha256": "63a797bdd9d4ea0ad4d1960eacc3618cf4b3ba06ac40351743c7daa18ad036e7"
+  "bundle_sha256": "6b4405386fd641e1fe62ea46c24baa4b8767c44863cc7b6bbda1d5d2fdbd9028"
 }

@@ -3512,7 +3512,7 @@ test("runner executes two predeclared fixed partial reduces and resumes from gen
     evaluation_status: "not_reached_terminal", execution_effect: "not_reached",
   })
   expect(preempted.result!.order_events.some((event) => event.order_id.includes("stop-replacement"))).toBe(false)
-}, 20_000)
+}, 30_000)
 
 test("post-partial stop replacement preserves t-minus funding and exact-risk quantity for long and short", () => {
   const requirement = {

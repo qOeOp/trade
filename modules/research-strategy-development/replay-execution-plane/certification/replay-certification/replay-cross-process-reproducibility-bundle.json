@@ -44,7 +44,7 @@
       "entrypoint_export": "runReplayTrial",
       "entrypoint_source_sha256": "2aa414d59aad6caa6710a3955070927a60800200f3aced8d34fe514bb80b446e",
       "test_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.test.ts",
-      "test_source_sha256": "b954e5ebe5d4a4c4060466c19dcf6273debc957293b765a1b8bf42399c814bb5",
+      "test_source_sha256": "d7f535d4ce52adfc6bfefcea3572b3f8694e445de9f05dbb2c68c6611ed2d0d1",
       "test_name": "runner atomically publishes an attempt-local checkpoint commit and resumes it across processes",
       "checkpoint_mode": "resumable-engine-checkpoint-v32",
       "resume_claim": "direct-engine-checkpoint"
@@ -67,5 +67,5 @@
     "release-fixture-pack-freeze-is-a-separate-m5-gate",
     "remaining-m5-gates-not-certified-by-this-bundle"
   ],
-  "bundle_sha256": "eb6b7cc57167fc391555fc09ebe72c7533c9e82bc9dbe2d2ffea41e968bde992"
+  "bundle_sha256": "d4c63500ee195c81640fa3dd39012d575842c23a3f0ba3eb2ae8a04da3ac4764"
 }

@@ -54,7 +54,7 @@
       "entrypoint_source_sha256": "2aa414d59aad6caa6710a3955070927a60800200f3aced8d34fe514bb80b446e",
       "test_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.test.ts",
       "test_name": "runner atomically commits artifacts and retries idempotently",
-      "test_source_sha256": "b954e5ebe5d4a4c4060466c19dcf6273debc957293b765a1b8bf42399c814bb5",
+      "test_source_sha256": "d7f535d4ce52adfc6bfefcea3572b3f8694e445de9f05dbb2c68c6611ed2d0d1",
       "certified_workload": [
         { "unit": "trial", "count": 1 },
         { "unit": "market_bar", "count": 1 }
@@ -104,5 +104,5 @@
     "peak-memory-cpu-utilization-io-throughput-and-remote-store-performance-not-certified",
     "only-terminal-cycle-count-has-an-existing-runtime-hard-limit"
   ],
-  "bundle_sha256": "6a91d4568fc968370dc35e0b75e67a4cd226cc7e55ea2d55bcc127571ff08eba"
+  "bundle_sha256": "4cb3054c5c808199de8a0aa1ddf05ec751f2e83a0d21a5034d5921d87b689701"
 }
