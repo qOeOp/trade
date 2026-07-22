@@ -46,7 +46,9 @@ P3 实施检查点（2026-07-23）：`trade-flow.program-shadow` 已建立 one-s
 
 P3 故障与对照检查点（2026-07-23）：ops store 采用 `1000ms` SQLite busy window；持续竞争返回 typed `ops_store_busy`，不无限等待、不执行 domain command。真实 supervisor 在完成周期后被精确 `SIGKILL`，遗留 token `1`；租约到期后新进程以 token `2`、`recovered_stale=true` 接管并释放，generation history 保留而 active lock 清空。job graph 新增去除 cycle/attempt/ref 噪音的 canonical parity projection，固定比较 ticket/status/reason、domain runtime result、lifecycle processor/health、summary 与 incident/attention；真实 Agent job-graph 和 program wakeup 的 projection hash 同为 `5b130b676ddb147c982a5aca61f9775bdb587d0b84e146b9422f47ab43e40773`。P3 的 busy、crash takeover 与单轮结果对照已闭合。
 
-P3 托管与迁移观察检查点（2026-07-23）：supervisor 新增 opt-in legacy Agent 对照，每轮把两条独立 job graph 的 canonical hash 与诊断 projection 作为 immutable `runtime_parity_observation` 写回同一 ops store；真实预检为 `match`，两侧 hash 均为 `5b130b67…0773`。模块提供 launchd `render/install/status/uninstall`，`KeepAlive` 负责重启且不产生 PID file；安装器对 macOS `Desktop/Documents/Downloads` 源码路径 fail closed，避免 TCC 造成“进程 running、业务未启动”的假健康。当前仓库位于 `Downloads`，故已回滚受阻的 launchd 实例，并于 `2026-07-23 00:36 CST` 由 operator-owned tmux 启动一小时 bounded observation：外层 fencing token `4`，首轮 parity `match`。tmux 只承载本次迁移证据，不替代 production process manager。J01-J07 authority 仍未切换；待长时 verdict 与可访问源码的 process-manager 部署闭合后再进入 cutover，因此本文保持 `proposed`。
+P3 托管与迁移观察检查点（2026-07-23）：supervisor 新增 opt-in legacy Agent 对照，每轮把两条 job graph 的 canonical hash 与诊断 projection 作为 immutable `runtime_parity_observation` 写回同一 ops store。最初顺序执行两条路径的观察在 27 轮中得到 26 match / 1 mismatch；差异来自相隔数百毫秒的 resident-consumer health 翻转，证明 sequential live reads 不是可比输入。当前 `shared_owner_result_replay_v1` 由 program 每轮执行一次 owner command，Agent 路径独立构图并回放同一结果；command key 只去除 cycle、时间与结果 ID，命令语义漂移 fail closed。只读 owner/MCP status 保留 raw history，并将旧记录单列为 `sequential_live_reads_v1`；共享输入预检与短观察累计 `7/7 match`。模块提供 launchd `render/install/status/uninstall`，`KeepAlive` 负责重启且不产生 PID file；安装器对 macOS `Desktop/Documents/Downloads` 源码路径 fail closed，避免 TCC 造成“进程 running、业务未启动”的假健康。当前仓库位于 `Downloads`，故已回滚受阻实例；最终一小时 bounded observation 于 `2026-07-23 01:11 CST` 由 operator-owned tmux 以 fencing token `7` 从零启动。tmux 只承载本次迁移证据，不替代 production process manager。J01-J07 authority 仍未切换；待长时 verdict 与可访问源码的 process-manager 部署闭合后再进入 cutover，因此本文保持 `proposed`。
+
+P3 首个 domain canary 准备（P1.27，2026-07-23）：one-shot wakeup 新增 closed-world `catalog_hygiene_canary` profile，只强制现有 owner-native J06 `catalog_hygiene_scan`，唯一允许写面为 `artifact_catalog`；其余 J01–J05/J07、live write 与真实通知继续关闭，固定命令不包含 catalog/artifact GC、`--yes` 或 caller-supplied root。该 profile 当前只完成代码与 fixture，不进入正在运行的 P1.26 soak，也未执行真实 catalog canary；只有一小时 parity、lease release 与终态审计闭合后才允许一次真实运行。
 
 ## 3. 不变量
 
@@ -353,7 +355,8 @@ R&D 纵切无 Binance write，且已有 schema / queue / budget / holdout gate�
 
 - 已实现：前台常驻 supervisor 调用既有 job graph；Agent 路径保持可用。
 - 已实现：`shadow_program` 固定禁用 domain/live-write，具备 heartbeat、fencing、稳定槽、child timeout、terminal idempotency 与 signal drain。
-- 已实现：SQLite busy typed failure、真实进程崩溃后的 stale takeover，以及 Agent/program ticket/result/incident parity hash 对照。
+- 已实现：SQLite busy typed failure、真实进程崩溃后的 stale takeover、共享 owner-result replay 的 Agent/program parity、immutable observation ledger 与只读 owner/MCP status。
+- 已准备：closed-world one-shot J06 catalog hygiene canary；尚未真实执行，也未进入 resident cadence。
 - 待闭合：外部 process manager deployment 与迁移期长时并行观察；随后才可逐 job 评估 authority 切换。
 
 退出：无双写、无重复 job、可停止/恢复；再逐 job 切换 authority。

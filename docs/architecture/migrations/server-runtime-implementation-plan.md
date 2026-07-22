@@ -27,6 +27,10 @@ last_verified: 2026-07-23 CST
 
 核心缺口不是更多 tool，而是一个可验证的 runtime profile，把既有 owner 按依赖装配成长期运行程序。
 
+当前 S3 前置证据已进入 P1.26：program shadow supervisor 具备 fenced lease、bounded child、signal drain、immutable Agent/program parity ledger，以及 owner/MCP 共用的只读 parity status。P1.25 的顺序实时读取观察在 27 轮中得到 26 match / 1 mismatch；该差异来自两条路径在相隔数百毫秒时读取到不同的 resident-consumer health，不是 graph 实现漂移。P1.26 因此固定 `shared_owner_result_replay_v1`：program 每轮只采样一次 owner command，Agent 路径独立构图但回放同一结果；回放键保留 executable / cwd / argv 的语义字段，只去除 cycle、时间和结果 ID 等 invocation identity，任何命令语义漂移都 fail closed。旧记录原样保留为 `sequential_live_reads_v1`，只读状态同时报告 raw / comparable / legacy counts，且不输出 cutover verdict。修正口径预检与首轮短观察累计 `7/7 match`；最终一小时 bounded observation 已于 2026-07-23 01:11 CST 以 fencing token `7` 从零启动，期间 J01–J07、live write 与真实通知仍关闭。
+
+并行准备的 P1.27 不改变该 soak：新增 one-shot `catalog_hygiene_canary` 固定 profile，未来只允许一次 J06 owner scan 与 `artifact_catalog` 写入；GC、`--yes`、任意 root、J01–J05/J07、live write 和真实通知均无入口。当前只完成代码/fixture，真实 canary 必须等待 P1.26 终态与 lease release。
+
 ## 3. 运行工作模型
 
 系统不使用一个全局轮询间隔处理所有工作。每项工作只能属于以下运行形态之一：
