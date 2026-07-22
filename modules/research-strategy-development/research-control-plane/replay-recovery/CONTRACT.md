@@ -16,7 +16,7 @@ Control Plane-owned startup coordination component for reconciling Runner-owned 
 4. Register only `pending` observations；report `already_registered` without redelivery.
 5. Return only portable hashes/identities；never expose machine-local DB、artifact or namespace paths.
 
-`research.replay-attempt-admission` is the production claim-side gate. It accepts the exact Claim input plus an explicit recovery timestamp, opens one existing authority DB session, completes the protocol above, then and only then calls `claimReplayAttempt`. Recovery time must be at or before `claimed_at`; malformed/tampered discovery or authority conflict yields zero claim. The returned lease is revalidated against Attempt、worker、Trial/run、Reservation/hash、Request、claim/expiry bindings and the result contains no local paths. Existing idempotent claim semantics remain owned by State Store.
+`research.replay-attempt-admission` is the production claim-side gate. It accepts Replay Attempt Admission Request v2 plus an explicit recovery timestamp；the request carries Attempt/worker/lease identity and Replay Request Registration id/hash only，never caller-supplied `request_hash` or Reservation Snapshot。After recovery it calls State Store `claimRegisteredReplayAttempt`，which reloads Registration、complete Request、Reservation Admission and Snapshot，derives all Request/Reservation bindings and persists Registration id/hash on the Attempt。Recovery time must be at or before `claimed_at`；missing/tampered registry evidence、malformed outbox or authority conflict yields zero claim。Result v2 echoes Registration identity/hash and the fenced Lease，without local paths。Idempotent claim semantics remain owned by State Store.
 
 ## Boundaries
 
