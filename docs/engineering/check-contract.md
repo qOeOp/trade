@@ -74,6 +74,7 @@ last_verified: 2026-07-22 CST
 | `l2-public-fixture-capture` | `modules/market-data-products/l2-recorder-bakeoff` | `bun run capture -- --yes-public-network --symbol BTCUSDT --events 200 --output tmp/l2-recorder-bakeoff/live-btcusdt.json` | routed public stream + REST snapshot；无 credential、只写 ignored fixture |
 | `l2-recorder-bakeoff-run` | `modules/market-data-products/l2-recorder-bakeoff` | `bun run benchmark -- --iterations 50000 --samples 7` | ignored `tmp/` 证据、内部耗时、wall time 与 RSS；不联网、不决定 ADR |
 | `l2-segment-bakeoff-run` | `modules/market-data-products/l2-recorder-bakeoff` | `bun run segment-benchmark -- --fixture <ignored-fixture> --samples 7` | raw segment byte parity、fsync/finalize、truncate salvage、checksum corruption 与 RSS |
+| `l2-segment-crash-injection` | `modules/market-data-products/l2-recorder-bakeoff` | `bun run crash-injection -- --fixture <ignored-fixture> --output tmp/l2-recorder-bakeoff/crash-evidence.json` | 只 SIGKILL 本轮 Bun / Go / Rust writer 子进程；3×3 recovery parity 与 salvaged-prefix 完整复验 |
 | `helper-scripts-smoke` | repo root | `sh scripts/resolve-codex-home.sh && sh scripts/automation-memory-path.sh demo && sh scripts/resolve-python.sh` | 本地 helper fallback 可用性 |
 
 ## 3. 改动域到最小检查

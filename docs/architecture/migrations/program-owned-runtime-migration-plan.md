@@ -316,7 +316,9 @@ R&D 纵切无 Binance write，且已有 schema / queue / budget / holdout gate�
 - 真实 fixture 每样本重建 500 次：Rust median 约 `22.5 µs/event / 5.6 MB RSS`，Bun 约 `32.4 µs/event / 183 MB`，Go 约 `43.0 µs/event / 14.2 MB`；三者 source / book hash 与 gap verdict 一致。
 - 已实现 `TL2S v1` raw segment 候选：8-byte header；每帧 big-endian length + IEEE CRC32 + exact payload；file fsync、atomic rename、parent-directory fsync。
 - 真实 200-frame writer 输出在三语言间字节级一致（300,217 bytes）；截断与 checksum corruption 都只接纳前 199 帧，salvaged prefix 可再次完整验证。
-- durability-dominated 7-sample median 约为 Go `33.9 µs/frame`、Bun `35.2 µs/frame`、Rust `52.7 µs/frame`，样本不足以说明稳定 writer 吞吐；Rust RSS 最低约 `2.7 MB`。综合 projector / memory 证据仍支持 Rust，但 P0 还需长时 soak 与进程级 kill/restart 注入，因此计划保持 `proposed`。
+- durability-dominated 7-sample median 约为 Go `33.9 µs/frame`、Bun `35.2 µs/frame`、Rust `52.7 µs/frame`，样本不足以说明稳定 writer 吞吐；Rust RSS 最低约 `2.7 MB`。综合 projector / memory 证据仍支持 Rust。
+- 已对 Bun / Go / Rust writer 分别执行受控 `SIGKILL`：三者在第 50 个已 fsync frame 后均留下 96,568-byte partial；Bun / Go / Rust 3×3 recovery 的 frame count、valid bytes、payload hash 完全一致，所有 salvage 再由三种实现验证为 complete。
+- 单次进程故障矩阵已通过，但不等同于长期稳定性证据；P0 仍需 public-stream bounded soak、重复断连 / gap / kill-resume 周期与 ADR，因此计划保持 `proposed`。
 
 ### P1 — L2 recorder vertical slice
 

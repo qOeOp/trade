@@ -1,0 +1,24 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade.l2-segment-crash-evidence.v1",
+  "type": "object",
+  "required": ["schema_version", "generated_at", "fixture", "frame_count", "injection", "cross_recovery_parity", "writers"],
+  "properties": {
+    "schema_version": { "const": "trade.l2-segment-crash-evidence.v1" },
+    "generated_at": { "type": "string", "format": "date-time" },
+    "fixture": { "type": "string" },
+    "frame_count": { "type": "integer", "minimum": 2 },
+    "injection": {
+      "type": "object",
+      "required": ["min_valid_frames", "delay_ms", "sync_every_frames", "signal"],
+      "properties": {
+        "min_valid_frames": { "type": "integer", "minimum": 1 },
+        "delay_ms": { "type": "integer", "minimum": 1 },
+        "sync_every_frames": { "type": "integer", "minimum": 1 },
+        "signal": { "const": "SIGKILL" }
+      }
+    },
+    "cross_recovery_parity": { "const": true },
+    "writers": { "type": "array", "minItems": 3, "maxItems": 3 }
+  }
+}

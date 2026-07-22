@@ -13,6 +13,7 @@
     "capture": "bun ./src/scripts/capture.ts",
     "benchmark": "bun ./src/scripts/benchmark.ts",
     "segment-benchmark": "bun ./src/scripts/segment-benchmark.ts",
+    "crash-injection": "bun ./src/scripts/crash-injection.ts",
     "check": "bun run lint && bun run test"
   }
 }

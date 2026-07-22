@@ -6,7 +6,7 @@ use std::error::Error;
 use std::fs::{self, File, OpenOptions};
 use std::io::{Read, Write};
 use std::path::Path;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const MAGIC: &[u8; 4] = b"TL2S";
 const HEADER_BYTES: usize = 8;
@@ -43,6 +43,8 @@ struct Arguments {
     input: String,
     output: Option<String>,
     salvage_output: Option<String>,
+    delay_ms: u64,
+    sync_every_frames: usize,
 }
 
 fn main() -> Result<(), Box<dyn Error>> {
@@ -51,10 +53,17 @@ fn main() -> Result<(), Box<dyn Error>> {
         "write" => {
             let output = arguments.output.ok_or("write requires --output")?;
             let payloads = read_json_lines(&arguments.input)?;
-            println!(
-                "{}",
-                serde_json::to_string(&write_segment(&output, &payloads)?)?
-            );
+            let result = if arguments.delay_ms == 0 && arguments.sync_every_frames == 0 {
+                write_segment(&output, &payloads)?
+            } else {
+                write_segment_with_options(
+                    &output,
+                    &payloads,
+                    arguments.delay_ms,
+                    arguments.sync_every_frames,
+                )?
+            };
+            println!("{}", serde_json::to_string(&result)?);
         }
         "recover" => println!(
             "{}",
@@ -73,6 +82,8 @@ fn parse_args(values: Vec<String>) -> Result<Arguments, Box<dyn Error>> {
     let mut input = None;
     let mut output = None;
     let mut salvage_output = None;
+    let mut delay_ms = 0;
+    let mut sync_every_frames = 0;
     let mut index = 0;
     while index < values.len() {
         if index + 1 >= values.len() {
@@ -84,6 +95,8 @@ fn parse_args(values: Vec<String>) -> Result<Arguments, Box<dyn Error>> {
             "--input" => input = Some(value),
             "--output" => output = Some(value),
             "--salvage-output" => salvage_output = Some(value),
+            "--delay-ms" => delay_ms = value.parse()?,
+            "--sync-every-frames" => sync_every_frames = value.parse()?,
             argument => return Err(format!("unknown argument: {argument}").into()),
         }
         index += 2;
@@ -93,6 +106,8 @@ fn parse_args(values: Vec<String>) -> Result<Arguments, Box<dyn Error>> {
         input: input.ok_or("--input is required")?,
         output,
         salvage_output,
+        delay_ms,
+        sync_every_frames,
     })
 }
 
@@ -112,6 +127,15 @@ fn read_json_lines(path: &str) -> Result<Vec<Vec<u8>>, Box<dyn Error>> {
 }
 
 fn write_segment(output_path: &str, payloads: &[Vec<u8>]) -> Result<WriteResult, Box<dyn Error>> {
+    write_segment_with_options(output_path, payloads, 0, 0)
+}
+
+fn write_segment_with_options(
+    output_path: &str,
+    payloads: &[Vec<u8>],
+    delay_ms: u64,
+    sync_every_frames: usize,
+) -> Result<WriteResult, Box<dyn Error>> {
     if payloads.is_empty() {
         return Err("segment requires at least one payload".into());
     }
@@ -128,7 +152,7 @@ fn write_segment(output_path: &str, payloads: &[Vec<u8>]) -> Result<WriteResult,
     file.write_all(&[b'T', b'L', b'2', b'S', 0, 1, 0, 0])?;
     let mut payload_hasher = Sha256::new();
     let mut payload_bytes = 0;
-    for payload in payloads {
+    for (index, payload) in payloads.iter().enumerate() {
         if payload.is_empty() || payload.len() > MAX_PAYLOAD_BYTES {
             return Err(format!("payload length out of bounds: {}", payload.len()).into());
         }
@@ -137,6 +161,12 @@ fn write_segment(output_path: &str, payloads: &[Vec<u8>]) -> Result<WriteResult,
         file.write_all(payload)?;
         payload_hasher.update(payload);
         payload_bytes += payload.len();
+        if sync_every_frames > 0 && (index + 1) % sync_every_frames == 0 {
+            file.sync_all()?;
+        }
+        if delay_ms > 0 {
+            std::thread::sleep(Duration::from_millis(delay_ms));
+        }
     }
     file.sync_all()?;
     drop(file);

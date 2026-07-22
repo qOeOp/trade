@@ -20,6 +20,11 @@ export interface SegmentWriteResult {
   elapsed_ns: number
 }
 
+export interface SegmentWriteOptions {
+  delayMs?: number
+  syncEveryFrames?: number
+}
+
 export interface SegmentRecoveryResult {
   schema_version: "trade.l2-segment-recovery-result.v1"
   implementation: "bun" | "go" | "rust"
@@ -40,8 +45,10 @@ export function readJsonLines(path: string): Buffer[] {
   return lines.map((line) => Buffer.from(line))
 }
 
-export function writeSegment(outputPath: string, payloads: Buffer[]): SegmentWriteResult {
+export function writeSegment(outputPath: string, payloads: Buffer[], options: SegmentWriteOptions = {}): SegmentWriteResult {
   if (payloads.length === 0) throw new Error("segment requires at least one payload")
+  const delayMs = validateNonNegativeInteger(options.delayMs ?? 0, "delayMs")
+  const syncEveryFrames = validateNonNegativeInteger(options.syncEveryFrames ?? 0, "syncEveryFrames")
   if (existsSync(outputPath)) throw new Error(`segment output already exists: ${outputPath}`)
   const partialPath = `${outputPath}.partial.${process.pid}.${Date.now()}`
   const startedAt = process.hrtime.bigint()
@@ -54,7 +61,7 @@ export function writeSegment(outputPath: string, payloads: Buffer[]): SegmentWri
     header.writeUInt16BE(1, 4)
     header.writeUInt16BE(0, 6)
     writeAll(descriptor, header)
-    for (const payload of payloads) {
+    for (const [index, payload] of payloads.entries()) {
       validatePayload(payload)
       const frameHeader = Buffer.alloc(FRAME_HEADER_BYTES)
       frameHeader.writeUInt32BE(payload.length, 0)
@@ -63,6 +70,8 @@ export function writeSegment(outputPath: string, payloads: Buffer[]): SegmentWri
       writeAll(descriptor, payload)
       payloadHasher.update(payload)
       payloadBytes += payload.length
+      if (syncEveryFrames > 0 && (index + 1) % syncEveryFrames === 0) fsyncSync(descriptor)
+      if (delayMs > 0) Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, delayMs)
     }
     fsyncSync(descriptor)
   } finally {
@@ -81,6 +90,11 @@ export function writeSegment(outputPath: string, payloads: Buffer[]): SegmentWri
     segment_hash: sha256(segment),
     elapsed_ns: Number(process.hrtime.bigint() - startedAt),
   }
+}
+
+function validateNonNegativeInteger(value: number, name: string): number {
+  if (!Number.isSafeInteger(value) || value < 0) throw new Error(`${name} must be a non-negative integer`)
+  return value
 }
 
 export function recoverSegment(path: string, salvageOutput?: string): SegmentRecoveryResult {

@@ -23,6 +23,7 @@ P0-only evidence module for selecting the runtime language of the future public 
 - Maximum payload is 16 MiB; zero-length payloads are rejected.
 - Finalize writes a unique partial file, syncs it, then atomically renames it.
 - Recovery accepts only the checksum-valid prefix and reports the first invalid/truncated frame; it never invents bytes.
+- `delay-ms` and `sync-every-frames` are fault-injection controls only; normal writes keep both at zero.
 
 ## Contract
 
@@ -39,3 +40,4 @@ P0-only evidence module for selecting the runtime language of the future public 
 - `go test ./...`
 - `cargo test`
 - `bun run segment-benchmark -- --fixture ../../../tmp/l2-recorder-bakeoff/live-btcusdt.json --samples 5`
+- `bun run crash-injection -- --fixture ../../../tmp/l2-recorder-bakeoff/live-btcusdt.json --output tmp/l2-recorder-bakeoff/crash-evidence.json`

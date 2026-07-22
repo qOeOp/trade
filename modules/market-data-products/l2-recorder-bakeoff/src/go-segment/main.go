@@ -50,7 +50,12 @@ func main() {
 	input := flag.String("input", "", "input JSONL or segment")
 	output := flag.String("output", "", "segment output")
 	salvageOutput := flag.String("salvage-output", "", "optional recovered prefix output")
+	delayMS := flag.Int("delay-ms", 0, "test-only delay after each frame")
+	syncEveryFrames := flag.Int("sync-every-frames", 0, "test-only periodic fsync interval")
 	flag.Parse()
+	if *delayMS < 0 || *syncEveryFrames < 0 {
+		fatal(errors.New("--delay-ms and --sync-every-frames must be non-negative"))
+	}
 	var result any
 	var err error
 	switch *mode {
@@ -61,7 +66,7 @@ func main() {
 		var payloads [][]byte
 		payloads, err = readJSONLines(*input)
 		if err == nil {
-			result, err = writeSegment(*output, payloads)
+			result, err = writeSegmentWithOptions(*output, payloads, *delayMS, *syncEveryFrames)
 		}
 	case "recover":
 		if *input == "" {
@@ -105,6 +110,10 @@ func readJSONLines(path string) ([][]byte, error) {
 }
 
 func writeSegment(outputPath string, payloads [][]byte) (writeResult, error) {
+	return writeSegmentWithOptions(outputPath, payloads, 0, 0)
+}
+
+func writeSegmentWithOptions(outputPath string, payloads [][]byte, delayMS int, syncEveryFrames int) (writeResult, error) {
 	if len(payloads) == 0 {
 		return writeResult{}, errors.New("segment requires at least one payload")
 	}
@@ -131,7 +140,7 @@ func writeSegment(outputPath string, payloads [][]byte) (writeResult, error) {
 	}
 	payloadHasher := sha256.New()
 	payloadBytes := 0
-	for _, payload := range payloads {
+	for index, payload := range payloads {
 		if len(payload) == 0 || len(payload) > maxPayloadBytes {
 			return writeResult{}, fmt.Errorf("payload length out of bounds: %d", len(payload))
 		}
@@ -146,6 +155,14 @@ func writeSegment(outputPath string, payloads [][]byte) (writeResult, error) {
 		}
 		_, _ = payloadHasher.Write(payload)
 		payloadBytes += len(payload)
+		if syncEveryFrames > 0 && (index+1)%syncEveryFrames == 0 {
+			if err := file.Sync(); err != nil {
+				return writeResult{}, err
+			}
+		}
+		if delayMS > 0 {
+			time.Sleep(time.Duration(delayMS) * time.Millisecond)
+		}
 	}
 	if err := file.Sync(); err != nil {
 		return writeResult{}, err
