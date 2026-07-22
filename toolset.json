@@ -2073,10 +2073,10 @@
         "A",
         "E"
       ],
-      "path": "modules/research-strategy-development/forward-evidence-plane/compatibility/rd-shadow-tracker",
-      "purpose": "Run native J05 rd_forward_shadow_trackers or track forward holdout entry signals as R&D paper setup event chains.",
+      "path": "modules/research-strategy-development/forward-evidence-plane/paper-tracker",
+      "purpose": "Run canonical J05 R&D paper trackers and project diagnostic entry signals into paper setup event chains.",
       "command": {
-        "cwd": "modules/research-strategy-development/forward-evidence-plane/compatibility/rd-shadow-tracker",
+        "cwd": "modules/research-strategy-development/forward-evidence-plane/paper-tracker",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -2095,11 +2095,12 @@
         "config": false
       },
       "notes": [
-        "Tracker output is review input only, not strategy evidence. It writes explicit tracker artifacts and catalog refs, never trade.db or exchange state.",
+        "The legacy tool/job ID is preserved, but the owner is the canonical Forward Evidence paper tracker.",
+        "Tracker output is paper review input only, not formal Shadow or strategy evidence. It writes explicit tracker artifacts and catalog refs, never trade.db or exchange state.",
         "Returns a domain-runtime job result owned by research-strategy-development for J05."
       ],
       "module_type": "atomic",
-      "owner_scope": "research.rd-shadow-tracker",
+      "owner_scope": "forward-evidence-plane.paper-tracker",
       "requires_preflight": false,
       "concurrency_group": "research-artifact",
       "forbidden_callers": [
