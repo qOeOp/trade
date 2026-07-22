@@ -4,8 +4,8 @@
   "canonical_result_probe": {
     "fixture_path": "modules/research-strategy-development/replay-execution-plane/tests/src/fixtures/certified-single-position-v24.json",
     "fixture_source_sha256": "eb6d2b3faf73b98296b6c2e39ea9933e6d3babdd18280e13bebf1326c6f15c92",
-    "member_script_path": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/scripts/replay-reproducibility-member.ts",
-    "member_script_source_sha256": "bf5e73086bde9acb0901a5b5abfedd8322b803f60c5a91c68d153f7a70769113",
+    "member_script_path": "modules/research-strategy-development/replay-execution-plane/tests/src/replay-reproducibility-member.ts",
+    "member_script_source_sha256": "de8224c2c570a1af07a53d8eaf4deb7e53a44d8935504416a5d73b59cdfc8e5e",
     "member_count": 2,
     "execution_policy": "concurrent-distinct-process-same-runtime-exact-canonical-result",
     "expected_input_hash": "b4036b919785805f6bc0bfe07ec6b13e400ed6ee5f40510b21bd1e32a243670b",
@@ -64,7 +64,8 @@
   "limitations": [
     "cross-host-and-cross-runtime-parity-not-certified",
     "unsupported-checkpoint-modes-remain-unsupported",
-    "release-fixture-pack-freeze-is-a-separate-m5-gate"
+    "release-fixture-pack-freeze-is-a-separate-m5-gate",
+    "remaining-m5-gates-not-certified-by-this-bundle"
   ],
-  "bundle_sha256": "350d32a669e0b15a520604b09105b30668f5106f01682b6b8d8c8344b3db2c5f"
+  "bundle_sha256": "eb6b7cc57167fc391555fc09ebe72c7533c9e82bc9dbe2d2ffea41e968bde992"
 }

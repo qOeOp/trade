@@ -143,3 +143,9 @@ Plane 内唯一完整认证入口是 `certification/replay-certification` 的 `b
 `replay-module-consumer-closure.json` 是 M4 最后一门的机器证据。扫描器以 TypeScript AST 读取 `modules/` 下静态 import、export 与 `import()`，排除 test/spec、Replay certification 源码和 Plane tests，避免把认证边误判成生产采用。当前闭包为 23 个 Replay package、66 条指向 Replay package 的生产依赖边；每个 package 必须唯一归类，每条消费者边必须落入 Replay canonical/compatibility runtime、Research Control Plane、Forward Evidence Plane 或 Agent Roles。分类计数与完整闭包 SHA-256 同时校验，新增模块、消费者或依赖变化均 fail closed。
 
 该快照回答“当前谁在生产中依赖 Replay”，不回答“这些依赖都应该长期保留”。特别是现有 canonical 或域外 owner 对 `compatibility/` 的引用仍是迁移债务；闭包登记只防止其隐身，不授予其 canonical 地位。M4 因九门全部通过已完成；下一允许结果仅为 M5 release certification，不新增 simulator capability。
+
+## 15. M5 cross-process reproducibility bundle
+
+`replay-cross-process-reproducibility-bundle.json` 同时冻结两层证据。第一层是 canonical Result probe：同一 immutable fixture 由两个并发 fresh Bun process 直接调用现有 reference Engine，process identity 必须不同，runtime identity、input hash 与 Result hash 必须完全相同。第二层覆盖四个 public profile：每个 profile 的唯一 entrypoint 与 owner test source 均以 SHA-256 绑定，两个 fresh process 必须通过同一 exact semantic assertion；新增、改名或修改入口/断言均需显式复核 bundle。
+
+跨进程复现不等于跨平台复现，也不等于所有 profile 支持 checkpoint。Receipt 明文记录当前 Bun runtime 和 PID；single-trial 认证 direct Engine checkpoint，independent batch 仅委托 child checkpoint，integrated portfolio 与 terminal-aware bounded cycle 继续声明 checkpoint 不支持。该 bundle 不替代 M5 的历史 Artifact migration、crash/exactly-once、容量、故障注入、可观测、release fixture pack 或独立审计 gate。当前 M5 为 `2/9`，成熟度仍为 M4。

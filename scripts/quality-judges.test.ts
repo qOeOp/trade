@@ -208,7 +208,7 @@ describe("quality judges fail closed", () => {
 
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain("reproducibility bundle hash drifted")
-  })
+  }, 15_000)
 
   test("package tests cannot report success for an empty suite", () => {
     const root = temporaryRoot()

@@ -98,7 +98,8 @@ export function assertReplayCrossProcessReproducibilityBundle(
   }
   if (!bundle.limitations.includes("cross-host-and-cross-runtime-parity-not-certified")
       || !bundle.limitations.includes("unsupported-checkpoint-modes-remain-unsupported")
-      || !bundle.limitations.includes("release-fixture-pack-freeze-is-a-separate-m5-gate")) {
+      || !bundle.limitations.includes("release-fixture-pack-freeze-is-a-separate-m5-gate")
+      || !bundle.limitations.includes("remaining-m5-gates-not-certified-by-this-bundle")) {
     throw new Error("Replay cross-process reproducibility limitations are incomplete")
   }
   const probe = bundle.canonical_result_probe
