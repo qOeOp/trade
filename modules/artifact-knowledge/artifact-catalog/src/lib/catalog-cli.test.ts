@@ -119,6 +119,37 @@ test("artifact catalog CLI exposes native J06 catalog hygiene job result", () =>
   }
 })
 
+test("artifact catalog CLI reads only a hash-verified catalog ID", () => {
+  const root = join(repoRoot(), "tmp", `artifact-catalog-read-cli-${Date.now()}`)
+  const catalogDbPath = join(root, "data_catalog.db")
+  const artifactPath = join(root, "report.json")
+  try {
+    mkdirSync(root, { recursive: true })
+    writeFileSync(artifactPath, JSON.stringify({ report_kind: "mcp_read", status: "ok" }))
+    assert.equal(run(["--catalog-init", "--catalog-db", catalogDbPath]).ok, true)
+    const registered = run([
+      "--catalog-register-artifact",
+      "--catalog-db",
+      catalogDbPath,
+      "--json",
+      JSON.stringify({ path: artifactPath, now: "2026-07-22T00:00:00.000Z" }),
+    ])
+    const artifactID = String(asRecord(registered.data).artifact_id)
+    const read = run([
+      "--catalog-read-artifact",
+      "--catalog-db",
+      catalogDbPath,
+      "--json",
+      JSON.stringify({ artifact_id: artifactID, max_bytes: 1024 }),
+    ])
+    assert.equal(read.ok, true)
+    assert.equal(asRecord(read.data).artifact_id, artifactID)
+    assert.match(String(asRecord(read.data).content), /mcp_read/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
 function asRecord(value: unknown): JSONRecord {
   return value && typeof value === "object" && !Array.isArray(value) ? value as JSONRecord : {}
 }

@@ -9,6 +9,7 @@ import {
   listCatalogStrategyRndRuns,
   listStaleCatalogArtifacts,
   queryDataCatalog,
+  readCatalogArtifact,
   registerCatalogArtifact,
   scanDataCatalog,
   upsertCatalogStrategyEvidence,
@@ -23,6 +24,7 @@ interface Config {
   catalogHygieneJob: boolean
   catalogScan: boolean
   catalogQuery: boolean
+  catalogReadArtifact: boolean
   catalogRegisterArtifact: boolean
   catalogUpsertStrategyEvidence: boolean
   catalogListStrategyEvidence: boolean
@@ -86,6 +88,13 @@ function runConfig(config: Config): unknown {
       strategyID: stringField(config.input.strategy_id),
       reportKind: stringField(config.input.report_kind),
       limit: numberField(config.input.limit),
+    })
+  }
+  if (config.catalogReadArtifact) {
+    return readCatalogArtifact({
+      catalogDbPath: config.catalogDbPath,
+      artifactID: requiredString(config.input.artifact_id, "artifact_id"),
+      maxBytes: numberField(config.input.max_bytes),
     })
   }
   if (config.catalogRegisterArtifact) {
@@ -157,6 +166,7 @@ function parseArgs(argv: string[]): Config {
     catalogHygieneJob: false,
     catalogScan: false,
     catalogQuery: false,
+    catalogReadArtifact: false,
     catalogRegisterArtifact: false,
     catalogUpsertStrategyEvidence: false,
     catalogListStrategyEvidence: false,
@@ -178,6 +188,7 @@ function parseArgs(argv: string[]): Config {
       case "--catalog-hygiene-job": config.catalogHygieneJob = true; break
       case "--catalog-scan": config.catalogScan = true; break
       case "--catalog-query": config.catalogQuery = true; break
+      case "--catalog-read-artifact": config.catalogReadArtifact = true; break
       case "--catalog-register-artifact": config.catalogRegisterArtifact = true; break
       case "--catalog-upsert-strategy-evidence": config.catalogUpsertStrategyEvidence = true; break
       case "--catalog-list-strategy-evidence": config.catalogListStrategyEvidence = true; break
@@ -273,6 +284,7 @@ function printHelp(): void {
   bun src/scripts/main.ts --catalog-hygiene-job --catalog-root ./data --json '{"cycle_id":"cycle-1"}'
   bun src/scripts/main.ts --catalog-scan --catalog-root ./data --catalog-root ./tmp
   bun src/scripts/main.ts --catalog-query --json '{"symbol":"BTCUSDT"}'
+  bun src/scripts/main.ts --catalog-read-artifact --json '{"artifact_id":"artifact_...","max_bytes":204800}'
   bun src/scripts/main.ts --catalog-register-artifact --json '{"path":"./tmp/report.json"}'
   bun src/scripts/main.ts --catalog-upsert-strategy-evidence --json '{"catalog_db_path":"./data/data_catalog.db","record":{}}'
   bun src/scripts/main.ts --catalog-list-strategy-evidence --json '{"strategy_id":"demo"}'

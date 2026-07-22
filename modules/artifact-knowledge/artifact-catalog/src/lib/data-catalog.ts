@@ -1,8 +1,8 @@
 import { createHash } from "node:crypto"
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync } from "node:fs"
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, readSync, realpathSync, readdirSync, rmSync, statSync } from "node:fs"
 import { dirname, extname, join, resolve } from "node:path"
 import { Database } from "bun:sqlite"
-import { displayPath, resolveRepoPath } from "../../../../contracts/runtime-core/src/paths"
+import { assertProjectRuntimePath, displayPath, resolveRepoPath } from "../../../../contracts/runtime-core/src/paths"
 
 type JSONRecord = Record<string, unknown>
 type SQLiteBindingValue = string | number | boolean | null
@@ -96,6 +96,25 @@ interface CatalogQueryResult {
   strategy_evidence: JSONRecord[]
 }
 
+interface CatalogReadArtifactInput {
+  catalogDbPath: string
+  artifactID: string
+  maxBytes?: number
+}
+
+interface CatalogReadArtifactResult {
+  catalog_db_path: string
+  artifact_id: string
+  path: string
+  type: string
+  bytes: number
+  content_hash: string
+  content_encoding: "utf-8"
+  returned_bytes: number
+  truncated: boolean
+  content: string
+}
+
 interface CatalogStoredRecordInput {
   catalogDbPath: string
   record: JSONRecord
@@ -122,7 +141,10 @@ const DEFAULT_MAX_HASH_BYTES = 50 * 1024 * 1024
 const DEFAULT_MAX_PARSE_BYTES = 40 * 1024 * 1024
 const DEFAULT_RETENTION_HOURS = 168
 const DEFAULT_EPHEMERAL_RETENTION_HOURS = 24
+const DEFAULT_ARTIFACT_READ_BYTES = 200 * 1024
+const MAX_ARTIFACT_READ_BYTES = 1_000_000
 const SKIP_DIRS = new Set([".git", "node_modules", ".venv", "__pycache__"])
+const READABLE_ARTIFACT_TYPES = new Set(["csv", "json", "jsonl", "log", "md", "ndjson", "text", "toml", "tsv", "txt", "yaml", "yml"])
 
 function initDataCatalog(catalogDbPath: string): { initialized: true; catalog_db_path: string } {
   catalogDbPath = resolveRepoPath(catalogDbPath)
@@ -376,6 +398,65 @@ function queryDataCatalog(input: CatalogQueryInput): CatalogQueryResult {
   } finally {
     db.close()
   }
+}
+
+function readCatalogArtifact(input: CatalogReadArtifactInput): CatalogReadArtifactResult {
+  const artifactID = input.artifactID.trim()
+  if (!artifactID) throw new Error("artifact_id is required")
+  const query = queryDataCatalog({ catalogDbPath: input.catalogDbPath, artifactID, limit: 1 })
+  const artifact = query.artifacts.find((item) => stringField(item.artifact_id) === artifactID)
+  if (!artifact) throw new Error(`catalog artifact not found: ${artifactID}`)
+
+  const registeredPath = stringField(artifact.path)
+  assertProjectRuntimePath(registeredPath)
+  const artifactPath = realpathSync(resolveRepoPath(registeredPath))
+  assertProjectRuntimePath(artifactPath)
+  const stat = statSync(artifactPath)
+  if (!stat.isFile()) throw new Error("catalog artifact is not a regular file")
+  const type = stringField(artifact.type).toLowerCase()
+  if (!READABLE_ARTIFACT_TYPES.has(type)) throw new Error(`catalog artifact type is not readable text: ${type || "unknown"}`)
+
+  const catalogHash = stringField(artifact.content_hash)
+  if (!catalogHash) throw new Error("catalog artifact has no exact content hash; rescan with hashing enabled")
+  const currentHash = sha256File(artifactPath)
+  if (currentHash !== catalogHash) throw new Error("catalog artifact content hash mismatch; rescan before reading")
+
+  const maxBytes = boundedArtifactReadBytes(input.maxBytes)
+  const prefix = readFilePrefix(artifactPath, maxBytes)
+  return {
+    catalog_db_path: query.catalog_db_path,
+    artifact_id: artifactID,
+    path: displayPath(artifactPath),
+    type,
+    bytes: stat.size,
+    content_hash: currentHash,
+    content_encoding: "utf-8",
+    returned_bytes: prefix.bytes.byteLength,
+    truncated: prefix.truncated,
+    content: new TextDecoder("utf-8").decode(prefix.bytes),
+  }
+}
+
+function readFilePrefix(path: string, maxBytes: number): { bytes: Uint8Array; truncated: boolean } {
+  const stat = statSync(path)
+  const requested = Math.min(stat.size, maxBytes + 1)
+  const buffer = Buffer.alloc(requested)
+  const fd = openSync(path, "r")
+  try {
+    const read = readSync(fd, buffer, 0, requested, 0)
+    const truncated = read > maxBytes
+    return { bytes: buffer.subarray(0, Math.min(read, maxBytes)), truncated }
+  } finally {
+    closeSync(fd)
+  }
+}
+
+function boundedArtifactReadBytes(value: number | undefined): number {
+  if (value === undefined) return DEFAULT_ARTIFACT_READ_BYTES
+  if (!Number.isInteger(value) || value <= 0 || value > MAX_ARTIFACT_READ_BYTES) {
+    throw new Error(`max_bytes must be an integer between 1 and ${MAX_ARTIFACT_READ_BYTES}`)
+  }
+  return value
 }
 
 function listStaleCatalogArtifacts(input: CatalogStaleInput): CatalogStaleResult {
@@ -1854,6 +1935,7 @@ export {
   listCatalogStrategyRndRuns,
   listStaleCatalogArtifacts,
   queryDataCatalog,
+  readCatalogArtifact,
   registerCatalogArtifact,
   upsertCatalogStrategyEvidence,
   upsertCatalogStrategyRndRun,
@@ -1862,6 +1944,8 @@ export {
   scanDataCatalog,
   type CatalogQueryInput,
   type CatalogQueryResult,
+  type CatalogReadArtifactInput,
+  type CatalogReadArtifactResult,
   type CatalogScanInput,
   type CatalogScanResult,
   type CatalogStaleInput,

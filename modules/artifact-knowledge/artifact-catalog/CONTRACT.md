@@ -19,6 +19,7 @@
 ## Outputs
 
 - Catalog query results
+- Hash-verified, size-bounded text reads for cataloged artifacts
 - Stale / kept / deleted artifact reports
 - Registered artifact metadata
 - Feature report artifact refs
@@ -28,5 +29,6 @@
 
 - Writing `trade.db`
 - Calling Binance APIs
+- Reading arbitrary paths or catalog entries without an exact current content hash
 - Making strategy promotion decisions
 - Owning RD experiment logic

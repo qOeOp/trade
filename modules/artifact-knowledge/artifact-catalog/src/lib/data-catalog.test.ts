@@ -4,7 +4,8 @@ import { join } from "node:path"
 import { Database } from "bun:sqlite"
 import assert from "node:assert/strict"
 import test from "node:test"
-import { initDataCatalog, listStaleCatalogArtifacts, queryDataCatalog, registerCatalogArtifact, scanDataCatalog } from "./data-catalog"
+import { repoRoot } from "../../../../contracts/runtime-core/src/paths"
+import { initDataCatalog, listStaleCatalogArtifacts, queryDataCatalog, readCatalogArtifact, registerCatalogArtifact, scanDataCatalog } from "./data-catalog"
 
 test("data catalog initializes schema and scans datasets, runs, artifacts, and ledgers", () => {
   const dir = mkdtempSync(join(tmpdir(), "data-catalog-"))
@@ -389,6 +390,29 @@ test("data catalog does not classify panel R&D input drafts as reports", () => {
     }
   } finally {
     rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("catalog artifact read is bounded, path-scoped, and hash verified", () => {
+  const root = join(repoRoot(), "tmp", `catalog-artifact-read-${Date.now()}`)
+  const catalogDbPath = join(root, "data_catalog.db")
+  const artifactPath = join(root, "report.json")
+  try {
+    mkdirSync(root, { recursive: true })
+    writeFileSync(artifactPath, JSON.stringify({ report_kind: "artifact_read", value: "0123456789" }))
+    initDataCatalog(catalogDbPath)
+    const registered = registerCatalogArtifact({ catalogDbPath, path: artifactPath, now: "2026-07-22T00:00:00.000Z" })
+
+    const read = readCatalogArtifact({ catalogDbPath, artifactID: registered.artifact_id, maxBytes: 12 })
+    assert.equal(read.artifact_id, registered.artifact_id)
+    assert.equal(read.returned_bytes, 12)
+    assert.equal(read.truncated, true)
+    assert.equal(read.path.startsWith("tmp/"), true)
+
+    writeFileSync(artifactPath, JSON.stringify({ report_kind: "artifact_read", value: "changed" }))
+    assert.throws(() => readCatalogArtifact({ catalogDbPath, artifactID: registered.artifact_id }), /content hash mismatch/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
   }
 })
 
