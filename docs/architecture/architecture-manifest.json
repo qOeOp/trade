@@ -125,7 +125,7 @@
         "modules/research-strategy-development/agent-roles/planner",
         "modules/research-strategy-development/agent-roles/developer",
         "modules/research-strategy-development/agent-roles/reviewer",
-        "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-replay-fingerprint",
+        "modules/research-strategy-development/replay-execution-plane/certification/legacy-replay-fingerprint",
         "modules/research-strategy-development/replay-execution-plane/compatibility/replay-engine",
         "modules/research-strategy-development/research-control-plane/dataset-governance/data-split",
         "modules/research-strategy-development/agent-roles/reviewer/signal-evaluator",

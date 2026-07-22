@@ -11,7 +11,7 @@
 - 证据 ledger：`--ledger <path>`，缺省由策略路径推导。
 - 可选 data catalog：`--catalog-db <path>`。
 - 可选本地交易事件库：`--db <path>`，只读用于从 review 事件生成 shadow evidence 或辅助 live-small 门禁。
-- Legacy replay fingerprint：通过 `research.legacy-replay-fingerprint` 只读 owner surface 重算。
+- Legacy replay fingerprint：通过 `research.legacy-replay-fingerprint` parity certification surface 重算。
 - JSON payload：`--json <payload>` 或 `--input <file>`。
 
 ## 输出
@@ -27,7 +27,7 @@
 - 不写 `trade.db`；只读消费 `trade.db`。
 - 不调用 Binance，不触发订单，不运行 R&D。
 - 不直接 import 研发域 replay engine；只消费明确标记为 legacy 的 fingerprint owner surface 与稳定 evidence。
-- 不把 legacy replay fingerprint 当作 native Trial Replay authority。
+- 不把 legacy replay fingerprint certification 当作 native Trial Replay authority。
 - 不直接写 RD program memory；RD 模块应自行消费 review report。
 
 ## 测试

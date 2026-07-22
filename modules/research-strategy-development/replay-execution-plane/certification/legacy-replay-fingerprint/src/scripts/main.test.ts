@@ -4,10 +4,10 @@ import { mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
-import { hashCanonical, replayDataHash, replayHarnessHash } from "../../../replay-engine/src/lib/replay-core"
+import { hashCanonical, replayDataHash, replayHarnessHash } from "../../../../compatibility/replay-engine/src/lib/replay-core"
 import { run } from "./main"
 
-test("returns the exact compatibility replay harness fingerprint", () => {
+test("certifies the exact compatibility replay harness fingerprint", () => {
   const result = run(["--json", "{}"])
   assert.equal(result.ok, true)
   assert.equal(record(result.data).harness_hash, replayHarnessHash())

@@ -51,7 +51,7 @@ Skill 可以说明如何调用既有 MCP / owner tool，但不能绕过 prefligh
 | `modules/research-strategy-development/replay-execution-plane/` | historical evidence plane | Trial-bound deterministic Replay、ledger、metrics、artifact/fingerprint | Candidate 生成、Review、promotion |
 | `modules/research-strategy-development/forward-evidence-plane/` | post-freeze evidence plane | ready Draft admission、watermark、no-backfill Forward Result | 正式 Shadow、账户事实、promotion |
 | `modules/research-strategy-development/agent-roles/` | replaceable role layer | Planner/Developer/Reviewer typed submissions | 权威事实、直接策略落盘 |
-| `modules/research-strategy-development/replay-execution-plane/compatibility/legacy-replay-fingerprint/` | legacy evidence verifier | 为旧 replay evidence 重算 harness/data/assumptions fingerprint | replay 执行、Trial 转发、新语义 owner、strategy promotion |
+| `modules/research-strategy-development/replay-execution-plane/certification/legacy-replay-fingerprint/` | legacy replay parity certification | 基于旧 Replay kernel 认证 evidence 的 harness/data/assumptions fingerprint | replay 执行、Trial 转发、新语义 owner、strategy promotion |
 | `modules/research-strategy-development/research-control-plane/dataset-governance/data-split/` | strategy data split | discovery / validation / locked holdout manifest 切分 | R&D search、replay、review、`trade.db` |
 | `modules/research-strategy-development/agent-roles/reviewer/signal-evaluator/` | strategy signal diagnostic | 最新闭合 K 线及冻结后 forward-only 信号诊断 | Forward Evidence、R&D search、catalog 写入、strategy promotion、交易执行 |
 | `modules/research-strategy-development/agent-roles/developer/candidate-batch/` | candidate batch evaluator | 单数据集或 panel 候选评估、marketability、negative controls、统计报告 | artifact 写入、RD memory、Review authority、strategy promotion、`trade.db` |
@@ -104,7 +104,7 @@ Skill 可以说明如何调用既有 MCP / owner tool，但不能绕过 prefligh
 | observe / runtime load | `modules/orchestration-ops/trade-flow` + `trade-flow.observe` |
 | 事件流 / track dry-run | `modules/orchestration-ops/trade-flow` + `trade-flow.runtime` |
 | Trial-bound replay | `modules/research-strategy-development/replay-execution-plane/runner` + `research.replay-execution` |
-| legacy replay evidence fingerprint | `modules/research-strategy-development/replay-execution-plane/compatibility/legacy-replay-fingerprint` + `research.legacy-replay-fingerprint` |
+| legacy replay evidence fingerprint certification | `modules/research-strategy-development/replay-execution-plane/certification/legacy-replay-fingerprint` + `research.legacy-replay-fingerprint` |
 | data split / holdout isolation | `modules/research-strategy-development/research-control-plane/dataset-governance/data-split` + `research.data-split` |
 | latest / post-freeze diagnostic signal | `modules/research-strategy-development/agent-roles/reviewer/signal-evaluator` + `research.signal-evaluator` / `research.forward-holdout` |
 | candidate / panel evaluation | `modules/research-strategy-development/agent-roles/developer/candidate-batch` + `research.candidate-batch` / `research.panel-evaluator` |

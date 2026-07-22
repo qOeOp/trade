@@ -180,7 +180,7 @@ function isAllowedResearchStrategyDevelopmentImport(sourceTool: string, targetTo
     "modules/research-strategy-development/research-control-plane/replay-recovery -> modules/research-strategy-development/replay-execution-plane/runner",
     "modules/research-strategy-development/research-control-plane/replay-recovery -> modules/research-strategy-development/research-control-plane/contracts",
     "modules/research-strategy-development/research-control-plane/replay-recovery -> modules/research-strategy-development/research-control-plane/state-store",
-    "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-replay-fingerprint -> modules/research-strategy-development/replay-execution-plane/compatibility/replay-engine",
+    "modules/research-strategy-development/replay-execution-plane/certification/legacy-replay-fingerprint -> modules/research-strategy-development/replay-execution-plane/compatibility/replay-engine",
     "modules/research-strategy-development/research-control-plane/state-store -> modules/research-strategy-development/research-control-plane/contracts",
     "modules/research-strategy-development/research-control-plane/state-store -> modules/research-strategy-development/replay-execution-plane/contracts",
     "modules/research-strategy-development/research-control-plane/strategy-registry -> modules/research-strategy-development/research-control-plane/contracts",

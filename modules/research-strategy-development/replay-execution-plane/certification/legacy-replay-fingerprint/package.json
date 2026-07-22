@@ -1,5 +1,5 @@
 {
-  "name": "legacy-replay-fingerprint",
+  "name": "legacy-replay-fingerprint-certification",
   "private": true,
   "type": "module",
   "devDependencies": {

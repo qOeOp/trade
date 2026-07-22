@@ -1557,10 +1557,10 @@
       "capability_class": [
         "V"
       ],
-      "path": "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-replay-fingerprint",
-      "purpose": "Recompute compatibility replay fingerprints for legacy evidence integrity review.",
+      "path": "modules/research-strategy-development/replay-execution-plane/certification/legacy-replay-fingerprint",
+      "purpose": "Certify compatibility Replay fingerprints for legacy evidence integrity review.",
       "command": {
-        "cwd": "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-replay-fingerprint",
+        "cwd": "modules/research-strategy-development/replay-execution-plane/certification/legacy-replay-fingerprint",
         "argv": [
           "bun",
           "src/scripts/main.ts",
@@ -1576,11 +1576,11 @@
         "config": false
       },
       "notes": [
-        "Legacy evidence verifier only; does not run replay or forward Trial-bound requests.",
-        "Retires with compatibility replay-engine; native Replay fingerprints remain Trial-bound authority."
+        "Canonical parity certification over the legacy replay kernel; does not run Replay or forward Trial-bound requests.",
+        "Kernel retirement must explicitly migrate or terminate this certification; native Replay fingerprints remain Trial-bound authority."
       ],
       "module_type": "atomic",
-      "owner_scope": "research.legacy-replay-fingerprint",
+      "owner_scope": "replay-execution-plane.legacy-fingerprint-certification",
       "requires_preflight": false,
       "concurrency_group": "research-replay",
       "forbidden_callers": [
