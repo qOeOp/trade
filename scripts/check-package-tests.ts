@@ -19,9 +19,9 @@ for (const packagePath of findFiles(modulesRoot, "package.json")) {
   const manifest = JSON.parse(readFileSync(packagePath, "utf8")) as {
     scripts?: Record<string, unknown>
   }
-  const testScript = typeof manifest.scripts?.test === "string" ? manifest.scripts.test : ""
-  if (!testScript.includes("bun test")) violations.push(`${label}: scripts.test must execute bun test`)
-  if (/no test files|if\s+find\s+src/i.test(testScript)) {
+  const scripts = manifest.scripts ?? {}
+  if (!scriptExecutesBunTest(scripts, "test")) violations.push(`${label}: scripts.test must execute bun test`)
+  if (scriptGraphContains(scripts, "test", /no test files|if\s+find\s+src/i)) {
     violations.push(`${label}: scripts.test must fail closed; no empty-suite fallback is allowed`)
   }
 }
@@ -54,4 +54,33 @@ function findTypeScript(directory: string): string[] {
 
 function isTest(path: string): boolean {
   return /\.(test|spec)\.[cm]?tsx?$/.test(path)
+}
+
+function scriptExecutesBunTest(
+  scripts: Record<string, unknown>,
+  name: string,
+  visited = new Set<string>(),
+): boolean {
+  if (visited.has(name)) return false
+  visited.add(name)
+  const command = typeof scripts[name] === "string" ? scripts[name] : ""
+  if (/\bbun\s+test\b/.test(command)) return true
+  const references = [...command.matchAll(/\bbun\s+run\s+([a-zA-Z0-9:_-]+)/g)]
+    .map((match) => match[1])
+  return references.some((reference) => scriptExecutesBunTest(scripts, reference, new Set(visited)))
+}
+
+function scriptGraphContains(
+  scripts: Record<string, unknown>,
+  name: string,
+  pattern: RegExp,
+  visited = new Set<string>(),
+): boolean {
+  if (visited.has(name)) return false
+  visited.add(name)
+  const command = typeof scripts[name] === "string" ? scripts[name] : ""
+  if (pattern.test(command)) return true
+  return [...command.matchAll(/\bbun\s+run\s+([a-zA-Z0-9:_-]+)/g)]
+    .map((match) => match[1])
+    .some((reference) => scriptGraphContains(scripts, reference, pattern, new Set(visited)))
 }

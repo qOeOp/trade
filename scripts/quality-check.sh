@@ -5,6 +5,13 @@ set -eu
 ROOT="$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
+QUALITY_LOCK_DIR="$ROOT/tmp/check/quality-check.lock"
+sh scripts/quality-lock.sh acquire "$QUALITY_LOCK_DIR" "$$"
+release_quality_lock() {
+  sh scripts/quality-lock.sh release "$QUALITY_LOCK_DIR" "$$"
+}
+trap release_quality_lock EXIT HUP INT TERM
+
 log() {
   printf 'quality: %s\n' "$*"
 }

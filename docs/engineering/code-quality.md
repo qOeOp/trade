@@ -66,3 +66,5 @@ scripts/quality-check.sh
 当前仍未引入仓库级 TypeScript / Python formatter，也未把函数复杂度硬编码成脱离领域语义的单一数字。现阶段由零重复、依赖无环、静态边界、强类型、真实测试和 review 共同约束；若引入复杂度指标，必须先用仓库反例校准误报，不能把“短函数”误当“好架构”。
 
 GitHub Actions 在 pull request 与 `main` push 上执行同一 `scripts/quality-check.sh`；本地与 CI 不存在两套裁判规则。
+
+同一仓库同一时刻只允许一个 `quality-check.sh` 实例。第二个实例必须快速失败并报告持锁 PID；异常退出遗留的死锁可在确认 owner PID 不存活后自动回收，禁止多个全量 Replay 测试争抢 CPU 后把资源竞争误判为代码慢。

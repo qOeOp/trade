@@ -107,6 +107,23 @@ describe("quality judges fail closed", () => {
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain("gofmt required")
   })
+
+  test("repository quality checks are single-instance and recover stale locks", () => {
+    const root = temporaryRoot()
+    const lock = join(root, "quality-check.lock")
+    const script = join(repoRoot, "scripts/quality-lock.sh")
+    const owner = String(process.pid)
+
+    expect(runCommand(["sh", script, "acquire", lock, owner], repoRoot).exitCode).toBe(0)
+    const duplicate = runCommand(["sh", script, "acquire", lock, owner], repoRoot)
+    expect(duplicate.exitCode).toBe(1)
+    expect(duplicate.stderr).toContain("another repository quality check is active")
+    expect(runCommand(["sh", script, "release", lock, owner], repoRoot).exitCode).toBe(0)
+
+    expect(runCommand(["sh", script, "acquire", lock, "99999999"], repoRoot).exitCode).toBe(0)
+    expect(runCommand(["sh", script, "acquire", lock, owner], repoRoot).exitCode).toBe(0)
+    expect(runCommand(["sh", script, "release", lock, owner], repoRoot).exitCode).toBe(0)
+  })
 })
 
 function architectureFixture(overrides: { jobs?: unknown[] } = {}): string {
