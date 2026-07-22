@@ -11,6 +11,8 @@
 - Closed-world no-live server profile validation and deterministic Linux systemd unit rendering; rendering writes only repository `tmp/`, never installs or starts units, and exposes no arbitrary command/environment surface.
 - Read-only server preflight/status aggregation over fixed owner health, cross-owner L2 epoch identity, fenced control lease, and systemd unit state; unavailable process-manager state degrades rather than inventing readiness.
 - Bounded synthetic process-manager lifecycle fixture proving dependency-gated start order, consumer restart isolation, reverse drain, and no surviving managed child without touching real runtime owners or systemd.
+- Read-only bounded public-market smoke requires two distinct healthy control cycles with stable L2 epoch/fenced lease and no new comparable parity mismatch; real systemd fault injection remains an explicit server gate.
+- Synthetic recovery closure rehearses SQLite `VACUUM INTO`, raw/artifact/profile hashing, restore integrity, and durable ref resolution without copying or mutating active owner data; real volume recovery remains a server gate.
 - Suite CLI parameter, response, permission, and owner-handoff semantics
 - Thin observe, execution, recovery, and runtime façades
 - Executable job dependencies and business-result policies: unresolved account reconciliation blocks dependent fast/new-risk stages even when the owner command exits successfully.

@@ -16,6 +16,31 @@ export interface ServerRuntimePreflightDependencies {
   writable_directory_check?: (checkId: string, path: string) => JSONRecord
 }
 
+export interface ServerRuntimeStatus extends JSONRecord {
+  schema_version: "trade.server-runtime-status.v1"
+  observed_at: string
+  profile_id: string
+  deployment_id: string
+  profile_hash: string
+  status: "ready" | "degraded" | "not_ready"
+  readiness: {
+    l2_owner_ready: boolean
+    l2_consumer_ready: boolean
+    l2_epoch_matches_consumer: boolean
+    control_lease_active: boolean
+    process_manager_observable: boolean
+    process_units_active: boolean
+    overall_ready: boolean
+  }
+  components: {
+    l2_owner: JSONRecord
+    l2_consumer: JSONRecord
+    control_runtime: JSONRecord
+  }
+  process_units: Record<string, JSONRecord>
+  limitations: string[]
+}
+
 export function preflightServerRuntime(
   profile: ServerRuntimeProfile,
   root: string,
@@ -65,7 +90,7 @@ export function readServerRuntimeStatus(
   bunPath: string,
   execute: ServerRuntimeCommandExecutor = executeFixedCommand,
   observedAt = new Date().toISOString(),
-): JSONRecord {
+): ServerRuntimeStatus {
   const l2Envelope = ownerRead(execute, [
     bunPath,
     resolve(root, "modules/market-data-products/l2-order-book-service/src/scripts/owner-health.ts"),
