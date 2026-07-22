@@ -8,6 +8,7 @@ import { readL2EpochManifest } from "./l2-epoch-manifest"
 export const L2_COMPACTION_JOB_SCHEMA_VERSION = "trade.l2-compaction-job.v1" as const
 export const L2_COMPACTION_PROPOSAL_SCHEMA_VERSION = "trade.l2-compaction-proposal.v1" as const
 export const L2_COMPACTION_POLICY_VERSION = "l2-raw-parquet-zstd-v1" as const
+export const L2_COMPACTED_EPOCH_SOURCE_SCHEMA_VERSION = "trade.market-data-l2-compacted-epoch-source.v1" as const
 
 export interface L2CompactionJob {
   schema_version: typeof L2_COMPACTION_JOB_SCHEMA_VERSION
@@ -49,6 +50,32 @@ export interface AdmittedL2Compaction {
   proposal_hash: string
   admitted_at: string
   proposal: L2CompactionProposal
+}
+
+export interface L2CompactedEpochSource {
+  schema_version: typeof L2_COMPACTED_EPOCH_SOURCE_SCHEMA_VERSION
+  source_id: string
+  compaction_id: string
+  epoch_id: string
+  venue_id: "binance-usdm"
+  symbol: string
+  stream_epoch: string
+  source_manifest_path: string
+  source_manifest_hash: string
+  parquet_path: string
+  parquet_hash: string
+  parquet_bytes: number
+  row_count: number
+  first_local_receive_time_ms: number
+  last_local_receive_time_ms: number
+  first_final_update_id: number
+  last_final_update_id: number
+  continuity_scope: "single_epoch_contiguous"
+  external_completeness: "not_verified"
+  retention_class: "compacted_pinned"
+  deletion_eligible: false
+  admitted_at: string
+  source_hash: string
 }
 
 export function ensureL2CompactionSchema(db: Database): void {
@@ -250,6 +277,54 @@ export function readL2Compaction(db: Database, compactionId: string): AdmittedL2
     proposal_hash: row.proposal_hash,
     admitted_at: row.admitted_at,
     proposal: parseProposal(bytes),
+  }
+}
+
+export function readL2CompactedEpochSource(db: Database, compactionId: string): L2CompactedEpochSource | null {
+  const compaction = readL2Compaction(db, compactionId)
+  if (compaction == null) return null
+  const epoch = readL2EpochManifest(db, compaction.proposal.epoch_id)
+  if (epoch == null) throw new Error("L2 compaction source epoch is unreadable")
+  const retention = db.query(`
+    SELECT retention_class, compaction_ref, deletion_eligible
+    FROM l2_epoch_retention WHERE epoch_id = $epoch_id
+  `).get({ $epoch_id: epoch.epoch_id }) as {
+    retention_class: string
+    compaction_ref: string | null
+    deletion_eligible: number
+  } | null
+  if (retention == null || retention.retention_class !== "compacted_pinned"
+    || retention.compaction_ref !== compaction.compaction_id || retention.deletion_eligible !== 0) {
+    throw new Error("L2 compaction source is not pinned by owner retention")
+  }
+  const body = {
+    schema_version: L2_COMPACTED_EPOCH_SOURCE_SCHEMA_VERSION,
+    compaction_id: compaction.compaction_id,
+    epoch_id: epoch.epoch_id,
+    venue_id: "binance-usdm" as const,
+    symbol: epoch.manifest.symbol,
+    stream_epoch: epoch.manifest.stream_epoch,
+    source_manifest_path: epoch.manifest_path,
+    source_manifest_hash: epoch.manifest_hash,
+    parquet_path: compaction.proposal.parquet_path,
+    parquet_hash: compaction.proposal.parquet_hash,
+    parquet_bytes: compaction.proposal.parquet_bytes,
+    row_count: compaction.proposal.row_count,
+    first_local_receive_time_ms: compaction.proposal.first_local_receive_time_ms,
+    last_local_receive_time_ms: compaction.proposal.last_local_receive_time_ms,
+    first_final_update_id: compaction.proposal.first_final_update_id,
+    last_final_update_id: compaction.proposal.last_final_update_id,
+    continuity_scope: "single_epoch_contiguous" as const,
+    external_completeness: "not_verified" as const,
+    retention_class: "compacted_pinned" as const,
+    deletion_eligible: false as const,
+    admitted_at: compaction.admitted_at,
+  }
+  const sourceHash = canonicalHash(body)
+  return {
+    ...body,
+    source_id: `l2-compacted-epoch:${sourceHash}`,
+    source_hash: sourceHash,
   }
 }
 

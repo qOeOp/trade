@@ -11,6 +11,7 @@ import {
   ensureMarketDataSchema,
   prepareL2CompactionJob,
   readL2Compaction,
+  readL2CompactedEpochSource,
   type L2CompactionProposal,
   type L2EpochManifestProposal,
 } from "./market-data-store"
@@ -76,6 +77,11 @@ test("L2 owner issues one compaction job and admits exact Parquet proposal while
       compaction_ref: created.compaction.compaction_id,
       deletion_eligible: 0,
     })
+    const source = readL2CompactedEpochSource(db, created.compaction.compaction_id)
+    assert.equal(source?.source_id, `l2-compacted-epoch:${source?.source_hash}`)
+    assert.equal(source?.row_count, 2)
+    assert.equal(source?.deletion_eligible, false)
+    assert.deepEqual(readL2CompactedEpochSource(db, created.compaction.compaction_id), source)
     assert.equal(admitL2EpochManifest(db, fixture.admission).commit_status, "existing")
   } finally {
     db.close()

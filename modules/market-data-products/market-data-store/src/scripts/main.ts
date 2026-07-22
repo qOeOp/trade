@@ -24,6 +24,7 @@ import {
   readL2EpochManifest,
   prepareL2CompactionJob,
   readL2Compaction,
+  readL2CompactedEpochSource,
   reconcileL2EpochManifests,
   readMarketManifest,
   upsertCanonicalCandles,
@@ -170,6 +171,13 @@ export function run(args: Args): JSONRecord {
         compaction: readL2Compaction(db, stringField(args.json.compaction_id)),
       }
     }
+    if (args.action === "read_l2_compacted_epoch_source") {
+      return {
+        ok: true,
+        action: args.action,
+        source: readL2CompactedEpochSource(db, stringField(args.json.compaction_id)),
+      }
+    }
     if (args.action === "read_funding") {
       return {
         ok: true,
@@ -250,7 +258,7 @@ export function run(args: Args): JSONRecord {
 function printHelp(): void {
   console.log([
     "usage: bun src/scripts/main.ts --db data/market_data.db --ohlcv-db data/ohlcv.db --action init",
-    "actions: init | upsert_manifest | admit_l2_epoch_manifest | reconcile_l2_epoch_manifests | prepare_l2_compaction_job | admit_l2_compaction_proposal | upsert_candles | upsert_funding | upsert_feature_manifest | commit_instrument_status_archive | read_manifest | read_l2_epoch_manifest | read_l2_compaction | read_funding | read_instrument_status_acquisition_receipt | read_instrument_status_archive | read_latest_candle | read_candles | read_feature_manifest | list_feature_manifests",
+    "actions: init | upsert_manifest | admit_l2_epoch_manifest | reconcile_l2_epoch_manifests | prepare_l2_compaction_job | admit_l2_compaction_proposal | upsert_candles | upsert_funding | upsert_feature_manifest | commit_instrument_status_archive | read_manifest | read_l2_epoch_manifest | read_l2_compaction | read_l2_compacted_epoch_source | read_funding | read_instrument_status_acquisition_receipt | read_instrument_status_archive | read_latest_candle | read_candles | read_feature_manifest | list_feature_manifests",
   ].join("\n"))
 }
 
