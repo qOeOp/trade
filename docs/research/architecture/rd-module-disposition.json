@@ -1,6 +1,6 @@
 {
   "schema_version": "trade.rd-module-disposition.v2",
-  "updated_at": "2026-07-22T15:09:35+08:00",
+  "updated_at": "2026-07-22T15:31:24+08:00",
   "migration_status": "physical-root-converged",
   "root_policy": "exactly-four-direct-children",
   "target_roots": [
@@ -22,8 +22,6 @@
     { "legacy_module": "rd-integration-suite", "current_path": "research-control-plane/certification/legacy-integration-suite", "semantic_status": "cross-plane-certification", "retirement": "decompose-after-plane-parity" },
 
     { "legacy_module": "replay-engine", "current_path": "replay-execution-plane/compatibility/replay-engine", "semantic_status": "compatibility-kernel", "retirement": "retire-after-feature-parity" },
-    { "legacy_module": "calibration-suite", "current_path": "replay-execution-plane/certification/calibration-suite", "semantic_status": "certification-source", "retirement": "convert-to-plane-certification-fixtures" },
-
     { "legacy_module": "strategy-hypothesis-designer", "current_path": "agent-roles/planner/strategy-hypothesis-designer", "semantic_status": "planner-migration-source", "retirement": "adapt-to-proposal-only" },
     { "legacy_module": "strategy-family-engine", "current_path": "agent-roles/developer/strategy-family-engine", "semantic_status": "developer-migration-source", "retirement": "remove-execution-semantics" },
     { "legacy_module": "candidate-batch", "current_path": "agent-roles/developer/candidate-batch", "semantic_status": "developer-adapter", "retirement": "replace-with-trial-submission" },

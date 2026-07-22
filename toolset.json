@@ -2363,11 +2363,11 @@
         "config": false
       },
       "notes": [
-        "Fixed benchmark mode on the calibration-suite owner; no compatibility runner remains.",
+        "Legacy tool ID for fixed benchmark mode on the canonical Replay calibration certification owner; no compatibility runner remains.",
         "No strategy promotion, R&D search, trade DB writes, or exchange access."
       ],
       "module_type": "atomic",
-      "owner_scope": "research.calibration-suite",
+      "owner_scope": "replay-execution-plane.calibration-suite",
       "requires_preflight": false,
       "concurrency_group": "research-benchmark",
       "forbidden_callers": [
@@ -2410,10 +2410,11 @@
         "config": false
       },
       "notes": [
-        "Diagnostic calibration only; no strategy promotion, R&D search, trade DB writes, or exchange access."
+        "Runtime-computed diagnostic certification, not a static fixture or promotion decision.",
+        "No strategy promotion, R&D search, trade DB writes, or exchange access."
       ],
       "module_type": "atomic",
-      "owner_scope": "research.calibration-suite",
+      "owner_scope": "replay-execution-plane.calibration-suite",
       "requires_preflight": false,
       "concurrency_group": "research-benchmark",
       "forbidden_callers": [

@@ -56,7 +56,7 @@ last_verified: 2026-07-22 CST
 | `candidate-batch-check` | `modules/research-strategy-development/agent-roles/developer/candidate-batch` | `bun run check` | single-dataset / panel candidate evaluation CLI |
 | `candidate-batch-integration` | `modules/research-strategy-development/research-control-plane/certification/legacy-integration-suite` | `bun test ./src/lib/strategy-rnd.test.ts ./src/lib/strategy-rnd-inputs.test.ts` | candidate batch parser/evaluation integration coverage |
 | `replay-benchmark-check` | `modules/research-strategy-development/replay-execution-plane/benchmark` | `bun run check` | fixed benchmark / calibration calculation semantics |
-| `calibration-suite-check` | `modules/research-strategy-development/replay-execution-plane/certification/calibration-suite` | `bun run check` | calibration suite CLI |
+| `calibration-suite-check` | `modules/research-strategy-development/replay-execution-plane/certification/calibration-suite` | `bun run check` | canonical runtime calibration / legacy benchmark-mode CLI |
 | `funding-governance-check` | `modules/research-strategy-development/research-control-plane/dataset-governance/funding-governance` | `bun run check` | funding coverage governance |
 | `strategy-contract-compile-check` | `modules/research-strategy-development/agent-roles/developer/strategy-contract-compile` | `bun run check` | strategy contract compile CLI |
 | `strategy-contract-lint-check` | `modules/research-strategy-development/research-control-plane/contract-lint` | `bun run check` | strategy contract lint CLI |
