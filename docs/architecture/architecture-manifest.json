@@ -11,6 +11,7 @@
         "modules/orchestration-ops/ops-runtime-store",
         "modules/orchestration-ops/watch-task-runtime",
         "modules/orchestration-ops/model-gateway",
+        "modules/orchestration-ops/operator-http",
         "modules/orchestration-ops/runtime-health-guard",
         "modules/orchestration-ops/l2-current-book-probe",
         "modules/orchestration-ops/ops-notify-dispatch",

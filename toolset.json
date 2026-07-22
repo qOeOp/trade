@@ -51,6 +51,29 @@
       }
     },
     {
+      "id": "ops.operator-http",
+      "domain": "orchestration-ops",
+      "intent": ["operator-api", "http", "openclaw-adapter", "research-control"],
+      "capability_class": ["A", "E"],
+      "path": "modules/orchestration-ops/operator-http",
+      "purpose": "Serve a loopback authenticated HTTP allowlist for tool discovery, RD reads, and explicitly approved J04 autonomy wakeups.",
+      "command": {
+        "cwd": "modules/orchestration-ops/operator-http",
+        "argv": ["bun", "src/scripts/main.ts", "--profile", "profile/operator-http.json"]
+      },
+      "writes": { "trade_db": false, "catalog": true, "artifacts": true, "binance": false, "config": false },
+      "notes": [
+        "Requires TRADE_OPERATOR_API_TOKEN for all v1 routes and an independent TRADE_OPERATOR_APPROVAL_TOKEN for the only controlled-write route.",
+        "Writes sanitized pre/post audit through ops.runtime-store; exposes no exchange, live execution, arbitrary tool, command, path, SQL, promotion, or process-lifecycle route."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "orchestration-ops.operator-http",
+      "requires_preflight": false,
+      "concurrency_group": "operator-http",
+      "forbidden_callers": ["exchange-write"],
+      "entry_contract": { "kind": "cli-json", "input_schema": "", "output_schema": "" }
+    },
+    {
       "id": "trade-flow.automation",
       "domain": "orchestration-ops",
       "intent": [
