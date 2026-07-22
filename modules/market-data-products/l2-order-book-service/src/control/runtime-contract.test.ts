@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { assertMarketDataDbRef, assertOutputRef, assertRuntimeRef, validateLaunchConfig, type LaunchConfig } from "./runtime-contract"
+import { assertMarketDataDbRef, assertOutputRef, assertRuntimeRef, parseProcessResourceSample, validateLaunchConfig, type LaunchConfig } from "./runtime-contract"
 
 const config: LaunchConfig = {
   symbol: "BTCUSDT",
@@ -18,6 +18,7 @@ const config: LaunchConfig = {
   disk_check_interval_ms: 5_000,
   disk_soft_min_bytes: 10 * 1024 ** 3,
   disk_hard_min_bytes: 5 * 1024 ** 3,
+  resource_check_interval_ms: 30_000,
 }
 
 test("L2 control contract accepts indefinite supervised local service", () => {
@@ -33,4 +34,9 @@ test("L2 control contract rejects public listener and escaped paths", () => {
   assert.throws(() => assertRuntimeRef("/repo", "../runtime"), /control files/)
   assert.throws(() => assertMarketDataDbRef("/repo", "outside.db"), /market data DB/)
   assert.throws(() => validateLaunchConfig({ ...config, disk_soft_min_bytes: 1, disk_hard_min_bytes: 2 }), /disk_soft_min_bytes/)
+})
+
+test("L2 control contract parses bounded child resource samples", () => {
+  assert.deepEqual(parseProcessResourceSample(" 16704  2.5\n"), { rss_bytes: 17_104_896, cpu_percent: 2.5 })
+  assert.throws(() => parseProcessResourceSample("unknown 2.5"), /invalid RSS\/CPU/)
 })

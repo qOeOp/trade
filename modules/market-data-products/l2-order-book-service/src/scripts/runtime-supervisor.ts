@@ -9,6 +9,7 @@ import {
   assertMarketDataDbRef,
   assertOutputRef,
   assertRuntimeRef,
+  parseProcessResourceSample,
   validateLaunchConfig,
   type LaunchConfig,
   type RuntimeState,
@@ -37,6 +38,12 @@ let admissionLastError = ""
 let admissionCreatedTotal = 0
 let admissionRejectedIncompleteTotal = 0
 let admissionRejectedInvalidTotal = 0
+let resourceLastCheckedAt: string | null = null
+let resourceLastError = ""
+let serviceRssBytes: number | null = null
+let serviceRssMaxBytes = 0
+let serviceCpuPercent: number | null = null
+let serviceCpuMaxPercent = 0
 for (const signal of ["SIGINT", "SIGTERM"] as const) {
   process.on(signal, () => {
     stopRequested = true
@@ -83,9 +90,11 @@ try {
       stderr: "inherit",
     })
     const childStartedAt = Date.now()
+    sampleResources()
     writeState("running", null)
     let lastDiskCheckAt = Date.now()
     let lastAdmissionCheckAt = Date.now()
+    let lastResourceCheckAt = Date.now()
     const monitor = setInterval(() => {
       const now = Date.now()
       if (now - lastDiskCheckAt >= config.disk_check_interval_ms) {
@@ -102,8 +111,16 @@ try {
         lastAdmissionCheckAt = now
         runAdmission()
       }
+      if (now - lastResourceCheckAt >= config.resource_check_interval_ms) {
+        lastResourceCheckAt = now
+        sampleResources()
+      }
       writeState(fatalReason ? "stopping" : "running", null)
-    }, Math.min(config.disk_check_interval_ms, config.admission_interval_ms || config.disk_check_interval_ms))
+    }, Math.min(
+      config.disk_check_interval_ms,
+      config.admission_interval_ms || config.disk_check_interval_ms,
+      config.resource_check_interval_ms,
+    ))
     lastExitCode = await child.exited
     clearInterval(monitor)
     child = undefined
@@ -139,6 +156,7 @@ try {
     child.kill("SIGTERM")
     lastExitCode = await child.exited
   }
+  writeState("stopping", null)
   writeFileSync(terminalPath, `${JSON.stringify({
     schema_version: L2_TERMINAL_STATE_SCHEMA,
     finished_at: new Date().toISOString(),
@@ -171,6 +189,12 @@ function writeState(status: RuntimeState["status"], nextRestartAt: string | null
     admission_created_total: admissionCreatedTotal,
     admission_rejected_incomplete_total: admissionRejectedIncompleteTotal,
     admission_rejected_invalid_total: admissionRejectedInvalidTotal,
+    resource_last_checked_at: resourceLastCheckedAt,
+    resource_last_error: resourceLastError,
+    service_rss_bytes: serviceRssBytes,
+    service_rss_max_bytes: serviceRssMaxBytes,
+    service_cpu_percent: serviceCpuPercent,
+    service_cpu_max_percent: serviceCpuMaxPercent,
   }
   const temporary = `${statePath}.tmp.${process.pid}`
   writeFileSync(temporary, `${JSON.stringify(state, null, 2)}\n`, { flag: "wx", mode: 0o600 })
@@ -227,6 +251,33 @@ function runAdmission(): void {
     admissionStatus = "degraded"
     admissionLastError = `invalid owner response: ${error instanceof Error ? error.message : String(error)}`
   }
+}
+
+function sampleResources(): void {
+  if (child == null) return
+  resourceLastCheckedAt = new Date().toISOString()
+  const sample = Bun.spawnSync({
+    cmd: ["ps", "-p", String(child.pid), "-o", "rss=,%cpu="],
+    stdout: "pipe",
+    stderr: "pipe",
+    timeout: 5_000,
+  })
+  if (sample.exitCode !== 0) {
+    resourceLastError = sample.stderr.toString().trim() || `ps exit ${sample.exitCode}`
+    return
+  }
+  let parsed: ReturnType<typeof parseProcessResourceSample>
+  try {
+    parsed = parseProcessResourceSample(sample.stdout.toString())
+  } catch (error) {
+    resourceLastError = error instanceof Error ? error.message : String(error)
+    return
+  }
+  serviceRssBytes = parsed.rss_bytes
+  serviceCpuPercent = parsed.cpu_percent
+  serviceRssMaxBytes = Math.max(serviceRssMaxBytes, serviceRssBytes)
+  serviceCpuMaxPercent = Math.max(serviceCpuMaxPercent, serviceCpuPercent)
+  resourceLastError = ""
 }
 
 function existingAncestor(path: string): string {

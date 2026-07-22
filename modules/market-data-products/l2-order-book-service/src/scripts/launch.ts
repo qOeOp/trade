@@ -93,6 +93,7 @@ function parseArgs(argv: string[]): LaunchConfig {
     disk_check_interval_ms: numberValue(values.disk_check_interval_ms, 5_000),
     disk_soft_min_bytes: numberValue(values.disk_soft_min_bytes, 10 * 1024 ** 3),
     disk_hard_min_bytes: numberValue(values.disk_hard_min_bytes, 5 * 1024 ** 3),
+    resource_check_interval_ms: numberValue(values.resource_check_interval_ms, 30_000),
   }
 }
 

@@ -43,6 +43,7 @@ const healthRecord = health != null && typeof health === "object" ? health as Re
 const sourceHealthy = healthRecord?.read_ready === true
 const controlHealthy = state?.disk_status === "healthy"
   && (state.admission_status === "ready" || state.admission_status === "disabled")
+  && state.resource_last_error === ""
 const status = terminal?.status === "completed" ? "stopped"
   : terminal?.status === "failed" ? "failed"
     : !supervisorAlive ? "orphaned"

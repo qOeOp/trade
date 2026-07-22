@@ -20,6 +20,7 @@ export interface LaunchConfig {
   disk_check_interval_ms: number
   disk_soft_min_bytes: number
   disk_hard_min_bytes: number
+  resource_check_interval_ms: number
 }
 
 export interface LaunchReceipt {
@@ -54,6 +55,12 @@ export interface RuntimeState {
   admission_created_total: number
   admission_rejected_incomplete_total: number
   admission_rejected_invalid_total: number
+  resource_last_checked_at: string | null
+  resource_last_error: string
+  service_rss_bytes: number | null
+  service_rss_max_bytes: number
+  service_cpu_percent: number | null
+  service_cpu_max_percent: number
 }
 
 export function assertRuntimeRef(root: string, ref: string): string {
@@ -100,6 +107,7 @@ export function validateLaunchConfig(config: LaunchConfig): void {
   bounded(config.admission_interval_ms, 0, 3_600_000, "admission_interval_ms")
   if (config.admission_interval_ms > 0 && config.admission_interval_ms < 1_000) throw new Error("admission_interval_ms must be zero or at least 1000")
   bounded(config.disk_check_interval_ms, 1_000, 3_600_000, "disk_check_interval_ms")
+  bounded(config.resource_check_interval_ms, 1_000, 3_600_000, "resource_check_interval_ms")
   bounded(config.disk_hard_min_bytes, 1, Number.MAX_SAFE_INTEGER, "disk_hard_min_bytes")
   bounded(config.disk_soft_min_bytes, config.disk_hard_min_bytes, Number.MAX_SAFE_INTEGER, "disk_soft_min_bytes")
 }
@@ -112,6 +120,16 @@ export function processIsAlive(pid: number): boolean {
   } catch (error) {
     return error instanceof Error && "code" in error && error.code === "EPERM"
   }
+}
+
+export function parseProcessResourceSample(value: string): { rss_bytes: number; cpu_percent: number } {
+  const [rssText, cpuText] = value.trim().split(/\s+/)
+  const rssKiB = Number(rssText)
+  const cpuPercent = Number(cpuText)
+  if (!Number.isSafeInteger(rssKiB) || rssKiB < 0 || !Number.isFinite(cpuPercent) || cpuPercent < 0) {
+    throw new Error("ps returned invalid RSS/CPU values")
+  }
+  return { rss_bytes: rssKiB * 1024, cpu_percent: cpuPercent }
 }
 
 function bounded(value: number, minimum: number, maximum: number, field: string): void {
