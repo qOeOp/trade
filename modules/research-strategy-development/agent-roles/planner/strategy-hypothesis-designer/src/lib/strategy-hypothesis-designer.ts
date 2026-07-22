@@ -33,7 +33,7 @@ function buildStrategyHypothesisDesignContext(input: StrategyHypothesisDesignCon
     context_refs: {
       taxonomy: nonEmptyStrings(input.taxonomy_refs).length > 0
         ? nonEmptyStrings(input.taxonomy_refs)
-        : ["docs/rd-strategy-universe-design.md", "docs/strategy-universe-family-backlog.json"],
+        : ["docs/research/strategy/rd-strategy-universe-design.md", "docs/research/strategy/strategy-universe-family-backlog.json"],
       existing_strategies: nonEmptyStrings(input.existing_strategy_refs),
       artifacts: nonEmptyStrings(input.artifact_refs),
     },

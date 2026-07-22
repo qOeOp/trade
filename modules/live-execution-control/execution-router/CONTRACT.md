@@ -1,4 +1,4 @@
-# flow/execution-router
+# execution.action-router
 
 ## Type
 

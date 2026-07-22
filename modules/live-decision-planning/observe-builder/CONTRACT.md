@@ -1,4 +1,4 @@
-# flow/observe-builder
+# decision.observe-builder
 
 ## Type
 

@@ -15,4 +15,4 @@ certification/      迁入的跨 Plane 回归认证
 compatibility/      等待 Strategy Registry 调用方切换的旧 adapter
 ```
 
-RD 根级旧模块已经物理清除；上述 migration-source/compatibility 实现仍须按 `docs/rd-module-disposition.json` 逐项拆分，不得因进入本子树就获得长期权威地位。
+RD 根级旧模块已经物理清除；上述 migration-source/compatibility 实现仍须按 `docs/research/architecture/rd-module-disposition.json` 逐项拆分，不得因进入本子树就获得长期权威地位。

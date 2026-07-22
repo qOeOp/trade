@@ -75,7 +75,7 @@ function buildScoutSubagentPlan(
     single_writer_rule: "Scouts are read-only. Only rd-supervisor may execute the R&D command or write rd_program_state.",
     strategy_designer_handoff: {
       tool_id: "research.strategy-hypothesis-designer",
-      skill_ref: "docs/rd-strategy-universe-design.md",
+      skill_ref: "docs/research/strategy/rd-strategy-universe-design.md",
       output_contract_schema: "trade-flow.strategy-hypothesis-contract.v1",
       purpose: "Convert taxonomy, failures, lessons, and existing strategy policies into one predeclared strategy hypothesis contract before spending trials.",
       required_before_queue_seed: true,
@@ -122,7 +122,7 @@ function buildScoutSubagentPlan(
         role: "rd-strategy-designer",
         agent_type: "designer",
         purpose: "Synthesize a real trader style strategy hypothesis from the scout findings; output a structured contract, not free-form prose or parameter tweaks.",
-        inputs: ["docs/rd-strategy-universe-design.md", "strategies/*.md", "rd_program_state.latest_failure_summary", "rd_program_state.rejected_mechanisms", "rd_program_state.universe_lessons"],
+        inputs: ["docs/research/strategy/rd-strategy-universe-design.md", "strategies/*.md", "rd_program_state.latest_failure_summary", "rd_program_state.rejected_mechanisms", "rd_program_state.universe_lessons"],
         required_output: "trade-flow.strategy-hypothesis-contract.v1",
         may_write_files: false,
         may_write_state: false,
@@ -132,8 +132,8 @@ function buildScoutSubagentPlan(
 }
 
 function buildStrategyUniverseBacklog(controlPlaneContext: JSONRecord): JSONRecord {
-  const docRef = "docs/rd-strategy-universe-design.md"
-  const machineBacklogRef = "docs/strategy-universe-family-backlog.json"
+  const docRef = "docs/research/strategy/rd-strategy-universe-design.md"
+  const machineBacklogRef = "docs/research/strategy/strategy-universe-family-backlog.json"
   const machineBacklog = readStrategyFamilyBacklog(machineBacklogRef)
   const machineFamilies = array(machineBacklog.families).map(asRecord)
   const derivedPriorityBacklog = machineFamilies.length > 0

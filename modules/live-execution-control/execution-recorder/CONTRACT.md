@@ -1,4 +1,4 @@
-# flow/execution-recorder
+# execution.recorder
 
 ## Type
 

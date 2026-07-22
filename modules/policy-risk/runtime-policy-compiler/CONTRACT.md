@@ -1,4 +1,4 @@
-# flow/runtime-policy-compiler
+# policy.runtime-policy-compiler
 
 ## Type
 
