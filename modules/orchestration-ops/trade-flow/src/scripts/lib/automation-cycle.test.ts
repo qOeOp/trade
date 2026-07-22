@@ -135,6 +135,76 @@ test("automation cycle plan can disable optional jobs", () => {
   }
 })
 
+test("automation cycle plan can explicitly require L2 owner readiness in pre-cycle health", () => {
+  const dir = makeCheckDir("automation-cycle-l2-health-")
+  const dbPath = join(dir, "trade.db")
+  const db = new Database(dbPath)
+  try {
+    ensureSchema(db)
+    db.close()
+    const result = buildAutomationCyclePlan(db, dbPath, {
+      cycle_id: "cycle-l2-health",
+      now: "2026-07-22T12:00:00Z",
+      runtime_health: { require_l2_ready: true },
+    })
+
+    const processors = asArray(result.lifecycle_processors).map(asRecord)
+    const health = asRecord(processors.find((processor) => processor.processor_id === "runtime_health_guard"))
+    const spec = asRecord(health.processor_spec)
+    const payload = asRecord(spec.payload)
+    const healthInput = asRecord(payload.json)
+    assert.equal(healthInput.require_l2_ready, true)
+    assert.equal(spec.tool_id, "ops.runtime-health-guard")
+    assert.equal(health.active, true)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("automation cycle plan derives L2 owner and resident-consumer checks from explicit job dependencies", () => {
+  const dir = makeCheckDir("automation-cycle-l2-dependency-")
+  const dbPath = join(dir, "trade.db")
+  const db = new Database(dbPath)
+  try {
+    ensureSchema(db)
+    db.close()
+    const result = buildAutomationCyclePlan(db, dbPath, {
+      cycle_id: "cycle-l2-dependency",
+      now: "2026-07-22T12:00:00Z",
+      job_health_requirements: {
+        slow_track_market_watch: ["l2_service:owner_health", "l2_watch_consumer:owner_health"],
+      },
+    })
+
+    const processors = asArray(result.lifecycle_processors).map(asRecord)
+    const health = asRecord(processors.find((processor) => processor.processor_id === "runtime_health_guard"))
+    const healthSpec = asRecord(health.processor_spec)
+    const healthInput = asRecord(asRecord(healthSpec.payload).json)
+    assert.equal(healthInput.require_l2_ready, true)
+    assert.equal(healthInput.require_l2_watch_consumer_ready, true)
+    assert.equal(asArray(asRecord(healthSpec.command_spec).argv)[3], "../../../data/ops_runtime.db")
+    const jobs = asArray(result.jobs).map(asRecord)
+    assert.deepEqual(jobs.find((job) => job.job_id === "slow_track_market_watch")?.required_health_checks, [
+      "l2_service:owner_health",
+      "l2_watch_consumer:owner_health",
+    ])
+    assert.equal(Object.hasOwn(jobs.find((job) => job.job_id === "account_reconcile_guard") ?? {}, "required_health_checks"), false)
+
+    assert.throws(() => buildAutomationCyclePlan(db, dbPath, {
+      job_health_requirements: { account_reconcile_guard: ["l2_service:owner_health"] },
+    }), /defense job cannot require runtime health/)
+    assert.throws(() => buildAutomationCyclePlan(db, dbPath, {
+      job_health_requirements: { slow_track_market_watch: ["unknown:health"] },
+    }), /unsupported health dependency/)
+    assert.throws(() => buildAutomationCyclePlan(db, dbPath, {
+      runtime_health: { require_l2_watch_consumer_ready: false },
+      job_health_requirements: { slow_track_market_watch: ["l2_watch_consumer:owner_health"] },
+    }), /L2-watch-dependent jobs require runtime_health.require_l2_watch_consumer_ready=true/)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("automation cycle plan can dispatch a learning strategy R&D supervisor", () => {
   const dir = makeCheckDir("automation-cycle-rd-")
   const dbPath = join(dir, "trade.db")
