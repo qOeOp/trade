@@ -24,6 +24,11 @@ interface ReconcileResult {
   unmatched: JSONRecord[]
 }
 
+interface KnownOrderFacts {
+  seen: Set<string>
+  cumulative_filled_by_client_id: Map<string, number>
+}
+
 function buildReconcileDrafts(input: ReconcileInput): ReconcileResult {
   const comparedAt = input.created_at || new Date().toISOString()
   const snapshot = asRecord(input.account_snapshot.data ?? input.account_snapshot)
@@ -44,17 +49,18 @@ function buildReconcileDrafts(input: ReconcileInput): ReconcileResult {
       continue
     }
     if (isProtectiveOrder(order)) {
-      if (!localOrders.has(clientOrderId) && !known.has(factKey("submit", clientOrderId))) {
+      if (!localOrders.has(clientOrderId) && !known.seen.has(factKey("submit", clientOrderId))) {
         unmatched.push({ kind: "protective_drift", client_order_id: clientOrderId, order })
       }
       continue
     }
-    if (!localOrders.has(clientOrderId) && !known.has(factKey("submit", clientOrderId))) {
+    if (!localOrders.has(clientOrderId) && !known.seen.has(factKey("submit", clientOrderId))) {
       pushDraft(drafts, proposed, input.chain_id, comparedAt, "submit", order)
     }
     const executedQty = numberField(order.executedQty)
-    if (executedQty > 0 && !known.has(factKey("partial_fill", clientOrderId))) {
-      pushDraft(drafts, proposed, input.chain_id, comparedAt, "partial_fill", order)
+    const knownCumulative = known.cumulative_filled_by_client_id.get(clientOrderId) ?? 0
+    if (executedQty > knownCumulative) {
+      pushDraft(drafts, proposed, input.chain_id, comparedAt, "partial_fill", order, knownCumulative)
     }
   }
 
@@ -64,13 +70,15 @@ function buildReconcileDrafts(input: ReconcileInput): ReconcileResult {
       continue
     }
     const status = stringField(order.status).toUpperCase()
-    if (status === "FILLED" && !known.has(factKey("fill", clientOrderId))) {
-      pushDraft(drafts, proposed, input.chain_id, comparedAt, "fill", order)
+    const cumulativeFilled = numberField(order.executedQty)
+    const knownCumulative = known.cumulative_filled_by_client_id.get(clientOrderId) ?? 0
+    if (status === "FILLED" && (!known.seen.has(factKey("fill", clientOrderId)) || cumulativeFilled > knownCumulative)) {
+      pushDraft(drafts, proposed, input.chain_id, comparedAt, "fill", order, knownCumulative)
     }
-    if (status === "PARTIALLY_FILLED" && !known.has(factKey("partial_fill", clientOrderId))) {
-      pushDraft(drafts, proposed, input.chain_id, comparedAt, "partial_fill", order)
+    if (status === "PARTIALLY_FILLED" && cumulativeFilled > knownCumulative) {
+      pushDraft(drafts, proposed, input.chain_id, comparedAt, "partial_fill", order, knownCumulative)
     }
-    if (status === "CANCELED" && !known.has(factKey("cancel", clientOrderId))) {
+    if (status === "CANCELED" && !known.seen.has(factKey("cancel", clientOrderId))) {
       pushDraft(drafts, proposed, input.chain_id, comparedAt, "cancel", order)
     }
   }
@@ -93,23 +101,27 @@ function pushDraft(
   created_at: string,
   subKind: "submit" | "partial_fill" | "fill" | "cancel",
   order: JSONRecord,
+  knownCumulativeFilled = 0,
 ): void {
   const clientOrderId = readClientOrderId(order)
-  const key = factKey(subKind, clientOrderId)
+  const cumulativeFilled = numberField(order.executedQty)
+  const key = factKey(subKind, clientOrderId, subKind === "fill" || subKind === "partial_fill" ? cumulativeFilled : undefined)
   if (proposed.has(key)) {
     return
   }
   proposed.add(key)
   drafts.push({
-    event_key: `reconcile-${chainId}-${subKind}-${clientOrderId}`,
+    event_key: `reconcile-${chainId}-${subKind}-${clientOrderId}${subKind === "fill" || subKind === "partial_fill" ? `-${quantityKey(cumulativeFilled)}` : ""}`,
     chain_id: chainId,
     kind: "order_fill",
     created_at,
-    body_json: buildReconcileBody(subKind, order),
+    body_json: buildReconcileBody(subKind, order, knownCumulativeFilled),
   })
 }
 
-function buildReconcileBody(subKind: string, order: JSONRecord): JSONRecord {
+function buildReconcileBody(subKind: string, order: JSONRecord, knownCumulativeFilled: number): JSONRecord {
+  const cumulativeFilled = numberField(order.executedQty)
+  const fillDelta = Math.max(cumulativeFilled - knownCumulativeFilled, 0)
   const body: JSONRecord = {
     sub_kind: subKind,
     lifecycle_status: lifecycleStatusForSubKind(subKind),
@@ -122,8 +134,14 @@ function buildReconcileBody(subKind: string, order: JSONRecord): JSONRecord {
     qty: numberField(order.origQty) || numberField(order.quantity),
     price: numberOrUndefined(order.price),
     stop_price: numberOrUndefined(order.stopPrice) ?? numberOrUndefined(order.triggerPrice),
-    filled_qty: subKind === "submit" || subKind === "cancel" ? undefined : numberField(order.executedQty),
+    cumulative_filled_qty: subKind === "submit" || subKind === "cancel" ? undefined : cumulativeFilled,
+    fill_delta_qty: subKind === "submit" || subKind === "cancel" ? undefined : fillDelta,
+    filled_qty: subKind === "submit" || subKind === "cancel" ? undefined : fillDelta,
     avg_fill_price: subKind === "submit" || subKind === "cancel" ? undefined : readAverageFillPrice(order),
+    exchange_trade_id: readExchangeTradeId(order) || undefined,
+    exchange_event_time: readExchangeEventTime(order),
+    source_sequence: readSourceSequence(order),
+    fill_identity_source: subKind === "submit" || subKind === "cancel" ? undefined : readExchangeTradeId(order) ? "exchange_trade_id" : "exchange_order_id+cumulative_filled_qty",
     source: "reconcile",
     reconcile_snapshot_source: stringField(order.source),
     reconcile_snapshot_source_type: stringField(order.sourceType),
@@ -146,8 +164,11 @@ function readSnapshotOrders(snapshot: JSONRecord, source: "open" | "history"): J
   return [...regular, ...protective]
 }
 
-function collectKnownOrderFacts(events: FlowEvent[]): Set<string> {
-  const known = new Set<string>()
+function collectKnownOrderFacts(events: FlowEvent[]): KnownOrderFacts {
+  const known: KnownOrderFacts = {
+    seen: new Set<string>(),
+    cumulative_filled_by_client_id: new Map<string, number>(),
+  }
   for (const event of events) {
     if (event.kind !== "order_fill") {
       continue
@@ -155,7 +176,17 @@ function collectKnownOrderFacts(events: FlowEvent[]): Set<string> {
     const subKind = stringField(event.body_json.sub_kind)
     const clientOrderId = stringField(event.body_json.client_order_id)
     if (subKind && clientOrderId) {
-      known.add(factKey(subKind, clientOrderId))
+      known.seen.add(factKey(subKind, clientOrderId))
+      if (subKind === "fill" || subKind === "partial_fill") {
+        const previous = known.cumulative_filled_by_client_id.get(clientOrderId) ?? 0
+        const explicitCumulative = hasOwn(event.body_json, "cumulative_filled_qty")
+          ? numberField(event.body_json.cumulative_filled_qty)
+          : undefined
+        const next = explicitCumulative == null
+          ? previous + readFillDelta(event.body_json)
+          : Math.max(previous, explicitCumulative)
+        known.cumulative_filled_by_client_id.set(clientOrderId, next)
+      }
     }
   }
   return known
@@ -187,7 +218,7 @@ function projectedLocalNetQty(localQty: number, drafts: FlowEvent[]): number {
     if (subKind !== "fill" && subKind !== "partial_fill") {
       return qty
     }
-    const filledQty = numberField(body.filled_qty) || numberField(body.qty)
+    const filledQty = readFillDelta(body)
     if (filledQty <= 0) {
       return qty
     }
@@ -227,8 +258,40 @@ function readAverageFillPrice(order: JSONRecord): number | undefined {
   return numberOrUndefined(order.price)
 }
 
-function factKey(subKind: string, clientOrderId: string): string {
-  return `${subKind}:${clientOrderId}`
+function factKey(subKind: string, clientOrderId: string, cumulativeFilled?: number): string {
+  return `${subKind}:${clientOrderId}${cumulativeFilled == null ? "" : `:${quantityKey(cumulativeFilled)}`}`
+}
+
+function quantityKey(value: number): string {
+  return String(value).replace(/[^0-9a-z-]+/gi, "_")
+}
+
+function readFillDelta(body: JSONRecord): number {
+  if (hasOwn(body, "fill_delta_qty")) return numberField(body.fill_delta_qty)
+  if (hasOwn(body, "filled_qty")) return numberField(body.filled_qty)
+  return numberField(body.qty)
+}
+
+function readExchangeTradeId(order: JSONRecord): string {
+  return stringField(order.tradeId) || stringField(order.trade_id) || stringField(order.exchange_trade_id)
+}
+
+function readExchangeEventTime(order: JSONRecord): string | undefined {
+  const raw = order.updateTime ?? order.time ?? order.transactTime ?? order.exchange_event_time
+  if (typeof raw === "string" && Number.isNaN(Number(raw))) {
+    const parsed = Date.parse(raw)
+    return Number.isFinite(parsed) ? new Date(parsed).toISOString() : undefined
+  }
+  const timestamp = Number(raw)
+  return Number.isFinite(timestamp) && timestamp > 0 ? new Date(timestamp).toISOString() : undefined
+}
+
+function readSourceSequence(order: JSONRecord): string | undefined {
+  return stringField(order.updateId) || stringField(order.sequence) || stringField(order.updateTime)
+}
+
+function hasOwn(record: JSONRecord, key: string): boolean {
+  return Object.prototype.hasOwnProperty.call(record, key)
 }
 
 function belongsToChain(clientOrderId: string, chainId: string): boolean {

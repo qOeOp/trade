@@ -214,7 +214,7 @@ function reduceOrderFill(
   }
 
   if (subKind === "partial_fill" || subKind === "fill" || lifecycleStatus === "partially_filled" || lifecycleStatus === "filled" || lifecycleStatus === "reconciled") {
-    const fillQty = numberField(body.filled_qty) || numberField(body.qty)
+    const fillQty = readFillDelta(body)
     const avgFillPrice = numberField(body.avg_fill_price) || numberField(body.price)
     applyPositionFill(position, body, fillQty, avgFillPrice)
     const existing = orders.get(clientOrderId)
@@ -230,6 +230,12 @@ function reduceOrderFill(
       }
     }
   }
+}
+
+function readFillDelta(body: JSONRecord): number {
+  if (Object.prototype.hasOwnProperty.call(body, "fill_delta_qty")) return numberField(body.fill_delta_qty)
+  if (Object.prototype.hasOwnProperty.call(body, "filled_qty")) return numberField(body.filled_qty)
+  return numberField(body.qty)
 }
 
 function updateRiskLock(current: JSONRecord, event: PlanEvent): JSONRecord {

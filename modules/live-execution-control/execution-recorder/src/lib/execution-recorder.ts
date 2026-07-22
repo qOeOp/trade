@@ -208,6 +208,7 @@ function buildRecordedPositionAdjustEvent(input: JSONRecord): PlanEvent {
   const executionResult = asRecord(input.execution_result)
   validateExecutionResultForTarget("adjust_position", executionResult)
   const reduced = asRecord(executionResult.reduced)
+  const executedQty = numberOrUndefined(reduced.executedQty) ?? numberOrUndefined(asRecord(input.request).reduce_quantity)
   return buildActionPlanEvent(input, compactRecord({
     sub_kind: "fill",
     lifecycle_status: "filled",
@@ -218,7 +219,9 @@ function buildRecordedPositionAdjustEvent(input: JSONRecord): PlanEvent {
     position_side: stringField(reduced.positionSide) || readPositionSide(input),
     order_type: stringField(reduced.type) || "MARKET",
     qty: numberOrUndefined(reduced.origQty) ?? numberOrUndefined(asRecord(input.request).reduce_quantity),
-    filled_qty: numberOrUndefined(reduced.executedQty) ?? numberOrUndefined(asRecord(input.request).reduce_quantity),
+    cumulative_filled_qty: executedQty,
+    fill_delta_qty: executedQty,
+    filled_qty: executedQty,
     avg_fill_price: readAverageFillPrice(reduced),
     execution_method: stringField(executionResult.method),
     remaining_position: executionResult.remainingPosition ?? null,
