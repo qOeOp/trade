@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
-import { readFileSync } from "node:fs"
+import { existsSync, lstatSync, readFileSync } from "node:fs"
+import { isAbsolute, normalize } from "node:path"
 
 interface GateManifest {
   schema_version: string
@@ -27,8 +28,23 @@ interface GateManifest {
   next_allowed_outcome: string
 }
 
-const manifest = JSON.parse(readFileSync("docs/research/reliability/rd-replay-maturity-gate.json", "utf8")) as GateManifest
+const manifestPath = process.env.RD_REPLAY_MATURITY_GATE_PATH || "docs/research/reliability/rd-replay-maturity-gate.json"
+const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as GateManifest
 const issues: string[] = []
+
+const evidenceRefs = new Set<string>()
+for (const ref of manifest.evidence_refs) {
+  const normalized = normalize(ref).replace(/\\/g, "/")
+  if (!ref || isAbsolute(ref) || normalized.startsWith("../") || normalized === "..") {
+    issues.push(`Replay evidence ref must be a repo-relative path: ${ref}`)
+    continue
+  }
+  if (evidenceRefs.has(normalized)) issues.push(`duplicate Replay evidence ref: ${normalized}`)
+  evidenceRefs.add(normalized)
+  if (!existsSync(normalized) || !lstatSync(normalized).isFile()) {
+    issues.push(`Replay evidence ref does not exist as a file: ${normalized}`)
+  }
+}
 
 if (manifest.schema_version !== "trade.rd-replay-maturity-gate.v1") {
   issues.push("unsupported Replay maturity gate schema")
