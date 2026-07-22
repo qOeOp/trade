@@ -19,6 +19,7 @@ import {
   REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES,
   REPLAY_PORTFOLIO_TWO_FIXED_PARTIAL_RESERVATION_SCHEMA_VERSION,
   REPLAY_PORTFOLIO_TWO_FIXED_PARTIAL_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION,
+  REPLAY_PORTFOLIO_POST_PARTIAL_STOP_REPLACEMENT_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION,
   REPLAY_RESERVATION_CANCELLATION_SCHEMA_VERSION,
   REPLAY_ATTEMPT_CANCELLATION_SCHEMA_VERSION,
   REPLAY_ATTEMPT_CANCELLATION_OBSERVATION_SCHEMA_VERSION,
@@ -44,6 +45,7 @@ import {
   assertReplayPortfolioCycleSequenceReservationSnapshot,
   assertReplayPortfolioTwoFixedPartialReservationSnapshot,
   assertReplayPortfolioTwoFixedPartialCycleSequenceReservationSnapshot,
+  assertReplayPortfolioPostPartialStopReplacementCycleSequenceReservationSnapshot,
   createReplayCheckpointReceiptSnapshot,
   createReplayResumeAuthorizationSnapshot,
   createReplaySharedInitialCapitalReservationSnapshot,
@@ -56,6 +58,7 @@ import {
   createReplayPortfolioCycleSequenceReservationSnapshot,
   createReplayPortfolioTwoFixedPartialReservationSnapshot,
   createReplayPortfolioTwoFixedPartialCycleSequenceReservationSnapshot,
+  createReplayPortfolioPostPartialStopReplacementCycleSequenceReservationSnapshot,
   createReplayInstrumentStatusProviderCertificationSnapshot,
   createReplayInstrumentStatusProviderCertificationTermination,
   createReplayAggregateTradeProviderCertificationSnapshot,
@@ -616,6 +619,41 @@ test("Portfolio two-fixed-partial cycle Reservation freezes exact child order an
   expect(() => assertReplayPortfolioTwoFixedPartialCycleSequenceReservationSnapshot(expanded)).toThrow("policy")
   const reordered = structuredClone(value); reordered.cycles[1]!.earliest_cycle_time = value.cycles[0]!.earliest_cycle_time
   expect(() => assertReplayPortfolioTwoFixedPartialCycleSequenceReservationSnapshot(reordered)).toThrow("order")
+})
+
+test("Portfolio post-partial stop-replacement sequence freezes exact Lane Trial identities", () => {
+  const value = createReplayPortfolioPostPartialStopReplacementCycleSequenceReservationSnapshot({
+    schema_version: REPLAY_PORTFOLIO_POST_PARTIAL_STOP_REPLACEMENT_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION,
+    reservation_id: "p28-sequence-1", reservation_ref: "reservation://p28-sequence/1",
+    issued_at: "2026-07-14T00:00:00Z", expires_at: "2026-07-14T01:00:00Z", status: "reserved",
+    authority_id: "research-control-plane", experiment_id: "experiment-1", trial_group_id: "group-1",
+    trial_group_hash: HASH, portfolio_id: "portfolio-p28", settlement_asset: "USDT", initial_cash: 100,
+    cycle_count: 4, max_cycle_count: 8,
+    opening_cash_policy: "first_cycle_initial_then_predecessor_committed_trial_balance",
+    successor_eligibility_policy:
+      "predecessor_committed_full_flat_collateral_exposure_unrealized_and_current_risk_zero",
+    expansion_policy: "exact_predeclared_lane_trials_no_runtime_append_or_search_expansion",
+    cycles: Array.from({ length: 4 }, (_, index) => ({
+      cycle_index: index + 1,
+      earliest_cycle_time: `2026-07-14T00:${String(index * 8).padStart(2, "0")}:00Z`,
+      lanes: [{ lane_id: `lane-${index + 1}`, priority_rank: 1, trial_id: `trial-${index + 1}`,
+        run_id: `run-${index + 1}`, trial_reservation_ref: `reservation://trial-${index + 1}`,
+        trial_reservation_hash: String(index + 1).repeat(64),
+        request_hash: String(index + 5).repeat(64) }],
+    })),
+    limitations: ["one_to_eight_predeclared_post_partial_stop_replacement_full_flat_cycles_only",
+      "cycle_opening_cash_must_equal_predecessor_committed_trial_balance",
+      "no_open_successor_dynamic_sizing_between_partial_or_repeated_mutation_third_partial_reentry_cross_margin_borrow_real_liquidity_fast_or_runtime_cycle_expansion"],
+  })
+  expect(() => assertReplayPortfolioPostPartialStopReplacementCycleSequenceReservationSnapshot(value))
+    .not.toThrow()
+  const duplicated = structuredClone(value)
+  duplicated.cycles[1]!.lanes[0]!.trial_id = duplicated.cycles[0]!.lanes[0]!.trial_id
+  expect(() => assertReplayPortfolioPostPartialStopReplacementCycleSequenceReservationSnapshot(duplicated))
+    .toThrow("lanes")
+  const expanded = structuredClone(value); expanded.cycle_count = 5
+  expect(() => assertReplayPortfolioPostPartialStopReplacementCycleSequenceReservationSnapshot(expanded))
+    .toThrow("policy")
 })
 
 test("provider certification termination is non-retroactive and type-safe", () => {

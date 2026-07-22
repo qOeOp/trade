@@ -10,6 +10,7 @@ import {
   REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES,
   REPLAY_PORTFOLIO_TWO_FIXED_PARTIAL_RESERVATION_SCHEMA_VERSION,
   REPLAY_PORTFOLIO_TWO_FIXED_PARTIAL_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION,
+  REPLAY_PORTFOLIO_POST_PARTIAL_STOP_REPLACEMENT_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION,
   assertReplayPortfolioTwoFixedPartialReservationSnapshot,
   assertTrialReservationSnapshot,
   createReplayRuntimeSharedWalletReservationSnapshot,
@@ -21,6 +22,7 @@ import {
   createReplayPortfolioCycleSequenceReservationSnapshot,
   createReplayPortfolioTwoFixedPartialReservationSnapshot,
   createReplayPortfolioTwoFixedPartialCycleSequenceReservationSnapshot,
+  createReplayPortfolioPostPartialStopReplacementCycleSequenceReservationSnapshot,
   hashTrialReservationSnapshot,
   type ReplayRuntimeSharedWalletReservationSnapshot,
   type ReplayRuntimeSharedWalletLifecycleReservationSnapshot,
@@ -31,6 +33,7 @@ import {
   type ReplayPortfolioCycleSequenceReservationSnapshot,
   type ReplayPortfolioTwoFixedPartialReservationSnapshot,
   type ReplayPortfolioTwoFixedPartialCycleSequenceReservationSnapshot,
+  type ReplayPortfolioPostPartialStopReplacementCycleSequenceReservationSnapshot,
   type TrialReservationSnapshot,
 } from "../../../contracts/src/lib/control-plane-contracts"
 
@@ -148,6 +151,25 @@ export interface IssueReplayPortfolioTwoFixedPartialCycleSequenceReservationInpu
   cycles: Array<{
     earliest_cycle_time: string
     reservation: ReplayPortfolioTwoFixedPartialReservationSnapshot
+  }>
+}
+
+export interface IssueReplayPortfolioPostPartialStopReplacementCycleSequenceReservationInput {
+  reservation_id: string
+  reservation_ref: string
+  issued_at: string
+  expires_at: string
+  portfolio_id: string
+  settlement_asset: string
+  initial_cash: number
+  cycles: Array<{
+    earliest_cycle_time: string
+    lanes: Array<{
+      lane_id: string
+      priority_rank: number
+      trial_reservation: TrialReservationSnapshot
+      request_hash: string
+    }>
   }>
 }
 
@@ -755,6 +777,100 @@ export function issueReplayPortfolioTwoFixedPartialCycleSequenceReservation(
       limitations: ["one_to_eight_predeclared_two_fixed_partial_full_flat_cycles_only",
         "cycle_opening_cash_must_equal_predecessor_committed_trial_balance",
         "no_dynamic_sizing_third_partial_post_partial_mutation_reentry_cross_margin_borrow_real_liquidity_fast_or_runtime_cycle_expansion"],
+    })
+  })
+  return issue.immediate()
+}
+
+export function issueReplayPortfolioPostPartialStopReplacementCycleSequenceReservation(
+  db: Database,
+  input: IssueReplayPortfolioPostPartialStopReplacementCycleSequenceReservationInput,
+): ReplayPortfolioPostPartialStopReplacementCycleSequenceReservationSnapshot {
+  const issue = db.transaction(() => {
+    if (input.cycles.length < 1 || input.cycles.length > REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES
+        || input.cycles.some((cycle) => cycle.lanes.length === 0)) {
+      throw new Error("portfolio post-partial stop-replacement cycle sequence requires one to eight nonempty cycles")
+    }
+    const first = input.cycles[0]!.lanes[0]!.trial_reservation
+    const cycles = input.cycles.map((cycle, cycleIndex) => ({
+      cycle_index: cycleIndex + 1,
+      earliest_cycle_time: cycle.earliest_cycle_time,
+      lanes: cycle.lanes.map((lane) => {
+        assertTrialReservationSnapshot(lane.trial_reservation)
+        const reservation = lane.trial_reservation
+        const reservationHash = hashTrialReservationSnapshot(reservation)
+        const trial = db.query(`
+          SELECT t.trial_id, t.experiment_id, t.trial_group_id, t.run_id, t.status, g.group_hash
+          FROM rd_trial t JOIN rd_trial_group g ON g.trial_group_id = t.trial_group_id
+          WHERE t.trial_id = $trial_id
+        `).get({ $trial_id: reservation.identity.trial_id }) as TrialAuthorityRow | null
+        const attempt = db.query(`
+          SELECT trial_id, run_id, reservation_ref, reservation_hash, request_hash,
+                 status, heartbeat_at, lease_expires_at
+          FROM rd_replay_attempt
+          WHERE trial_id = $trial_id AND status IN ('claimed', 'running')
+        `).get({ $trial_id: reservation.identity.trial_id }) as ActiveAttemptAuthorityRow | null
+        if (!trial || trial.status !== "reserved" || trial.trial_id !== reservation.identity.trial_id
+            || trial.experiment_id !== reservation.identity.experiment_id
+            || trial.trial_group_id !== reservation.identity.trial_group_id
+            || trial.group_hash !== reservation.identity.trial_group_hash
+            || trial.run_id !== reservation.run_id || !attempt
+            || attempt.trial_id !== reservation.identity.trial_id
+            || attempt.run_id !== reservation.run_id
+            || attempt.reservation_ref !== reservation.reservation_ref
+            || attempt.reservation_hash !== reservationHash
+            || attempt.request_hash !== lane.request_hash) {
+          throw new Error(`portfolio post-partial stop-replacement cycle Lane ${lane.lane_id} is not current`)
+        }
+        if (reservation.identity.experiment_id !== first.identity.experiment_id
+            || reservation.identity.trial_group_id !== first.identity.trial_group_id
+            || reservation.identity.trial_group_hash !== first.identity.trial_group_hash) {
+          throw new Error("portfolio post-partial stop-replacement cycles must belong to one frozen Experiment and Trial Group")
+        }
+        if (Date.parse(input.issued_at) < Date.parse(reservation.issued_at)
+            || Date.parse(input.expires_at) > Date.parse(reservation.expires_at)
+            || Date.parse(input.issued_at) < Date.parse(attempt.heartbeat_at)
+            || Date.parse(input.expires_at) > Date.parse(attempt.lease_expires_at)) {
+          throw new Error("portfolio post-partial stop-replacement sequence window must be contained by child Reservation and Attempt Lease")
+        }
+        return {
+          lane_id: lane.lane_id,
+          priority_rank: lane.priority_rank,
+          trial_id: reservation.identity.trial_id,
+          run_id: reservation.run_id,
+          trial_reservation_ref: reservation.reservation_ref,
+          trial_reservation_hash: reservationHash,
+          request_hash: attempt.request_hash,
+        }
+      }),
+    }))
+    return createReplayPortfolioPostPartialStopReplacementCycleSequenceReservationSnapshot({
+      schema_version:
+        REPLAY_PORTFOLIO_POST_PARTIAL_STOP_REPLACEMENT_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION,
+      reservation_id: input.reservation_id,
+      reservation_ref: input.reservation_ref,
+      issued_at: input.issued_at,
+      expires_at: input.expires_at,
+      status: "reserved",
+      authority_id: "research-control-plane",
+      experiment_id: first.identity.experiment_id,
+      trial_group_id: first.identity.trial_group_id,
+      trial_group_hash: first.identity.trial_group_hash,
+      portfolio_id: input.portfolio_id,
+      settlement_asset: input.settlement_asset,
+      initial_cash: input.initial_cash,
+      cycle_count: cycles.length,
+      max_cycle_count: REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES,
+      opening_cash_policy: "first_cycle_initial_then_predecessor_committed_trial_balance",
+      successor_eligibility_policy:
+        "predecessor_committed_full_flat_collateral_exposure_unrealized_and_current_risk_zero",
+      expansion_policy: "exact_predeclared_lane_trials_no_runtime_append_or_search_expansion",
+      cycles,
+      limitations: [
+        "one_to_eight_predeclared_post_partial_stop_replacement_full_flat_cycles_only",
+        "cycle_opening_cash_must_equal_predecessor_committed_trial_balance",
+        "no_open_successor_dynamic_sizing_between_partial_or_repeated_mutation_third_partial_reentry_cross_margin_borrow_real_liquidity_fast_or_runtime_cycle_expansion",
+      ],
     })
   })
   return issue.immediate()

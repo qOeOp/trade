@@ -67,6 +67,8 @@ export const REPLAY_PORTFOLIO_TWO_FIXED_PARTIAL_RESERVATION_SCHEMA_VERSION =
   "trade.rd-replay-portfolio-two-fixed-partial-reservation.v1" as const
 export const REPLAY_PORTFOLIO_TWO_FIXED_PARTIAL_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION =
   "trade.rd-replay-portfolio-two-fixed-partial-cycle-sequence-reservation.v1" as const
+export const REPLAY_PORTFOLIO_POST_PARTIAL_STOP_REPLACEMENT_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION =
+  "trade.rd-replay-portfolio-post-partial-stop-replacement-cycle-sequence-reservation.v1" as const
 
 export interface ResearchIdentityBinding {
   schema_version: typeof CONTROL_PLANE_IDENTITY_SCHEMA_VERSION
@@ -921,6 +923,52 @@ export interface ReplayPortfolioTwoFixedPartialCycleSequenceReservationSnapshot 
 }
 export type ReplayPortfolioTwoFixedPartialCycleSequenceReservationBody = Omit<
   ReplayPortfolioTwoFixedPartialCycleSequenceReservationSnapshot,
+  "reservation_hash"
+>
+
+export interface ReplayPortfolioPostPartialStopReplacementCycleSequenceReservationSnapshot {
+  schema_version:
+    typeof REPLAY_PORTFOLIO_POST_PARTIAL_STOP_REPLACEMENT_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION
+  reservation_id: string
+  reservation_ref: string
+  reservation_hash: string
+  issued_at: string
+  expires_at: string
+  status: "reserved"
+  authority_id: "research-control-plane"
+  experiment_id: string
+  trial_group_id: string
+  trial_group_hash: string
+  portfolio_id: string
+  settlement_asset: string
+  initial_cash: number
+  cycle_count: number
+  max_cycle_count: typeof REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES
+  opening_cash_policy: "first_cycle_initial_then_predecessor_committed_trial_balance"
+  successor_eligibility_policy:
+    "predecessor_committed_full_flat_collateral_exposure_unrealized_and_current_risk_zero"
+  expansion_policy: "exact_predeclared_lane_trials_no_runtime_append_or_search_expansion"
+  cycles: Array<{
+    cycle_index: number
+    earliest_cycle_time: string
+    lanes: Array<{
+      lane_id: string
+      priority_rank: number
+      trial_id: string
+      run_id: string
+      trial_reservation_ref: string
+      trial_reservation_hash: string
+      request_hash: string
+    }>
+  }>
+  limitations: [
+    "one_to_eight_predeclared_post_partial_stop_replacement_full_flat_cycles_only",
+    "cycle_opening_cash_must_equal_predecessor_committed_trial_balance",
+    "no_open_successor_dynamic_sizing_between_partial_or_repeated_mutation_third_partial_reentry_cross_margin_borrow_real_liquidity_fast_or_runtime_cycle_expansion",
+  ]
+}
+export type ReplayPortfolioPostPartialStopReplacementCycleSequenceReservationBody = Omit<
+  ReplayPortfolioPostPartialStopReplacementCycleSequenceReservationSnapshot,
   "reservation_hash"
 >
 
@@ -2234,6 +2282,85 @@ export function assertReplayPortfolioTwoFixedPartialCycleSequenceReservationSnap
   const { reservation_hash: hash, ...body } = value
   if (hash !== createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")) {
     fail("portfolio two-fixed-partial cycle sequence hash")
+  }
+}
+
+export function createReplayPortfolioPostPartialStopReplacementCycleSequenceReservationSnapshot(
+  body: ReplayPortfolioPostPartialStopReplacementCycleSequenceReservationBody,
+): ReplayPortfolioPostPartialStopReplacementCycleSequenceReservationSnapshot {
+  const value = { ...structuredClone(body),
+    reservation_hash: createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex") }
+  assertReplayPortfolioPostPartialStopReplacementCycleSequenceReservationSnapshot(value)
+  return value
+}
+
+export function assertReplayPortfolioPostPartialStopReplacementCycleSequenceReservationSnapshot(
+  value: ReplayPortfolioPostPartialStopReplacementCycleSequenceReservationSnapshot,
+): void {
+  const area = "portfolio_post_partial_stop_replacement_cycle_sequence_reservation"
+  requireExactObjectFields(value, ["schema_version", "reservation_id", "reservation_ref", "reservation_hash",
+    "issued_at", "expires_at", "status", "authority_id", "experiment_id", "trial_group_id",
+    "trial_group_hash", "portfolio_id", "settlement_asset", "initial_cash", "cycle_count",
+    "max_cycle_count", "opening_cash_policy", "successor_eligibility_policy", "expansion_policy",
+    "cycles", "limitations"], area)
+  for (const text of [value.reservation_id, value.reservation_ref, value.experiment_id,
+    value.trial_group_id, value.portfolio_id, value.settlement_asset]) requireText(text, `${area}.text`)
+  for (const hash of [value.reservation_hash, value.trial_group_hash]) requireHash(hash, `${area}.hash`)
+  requireUtcTimestamp(value.issued_at, `${area}.issued_at`)
+  requireUtcTimestamp(value.expires_at, `${area}.expires_at`)
+  requirePositiveFinite(value.initial_cash, `${area}.initial_cash`)
+  if (value.schema_version
+        !== REPLAY_PORTFOLIO_POST_PARTIAL_STOP_REPLACEMENT_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION
+      || value.status !== "reserved" || value.authority_id !== "research-control-plane"
+      || Date.parse(value.expires_at) <= Date.parse(value.issued_at)
+      || value.cycle_count !== value.cycles.length || value.cycle_count < 1
+      || value.cycle_count > REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES
+      || value.max_cycle_count !== REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES
+      || value.opening_cash_policy !== "first_cycle_initial_then_predecessor_committed_trial_balance"
+      || value.successor_eligibility_policy
+        !== "predecessor_committed_full_flat_collateral_exposure_unrealized_and_current_risk_zero"
+      || value.expansion_policy !== "exact_predeclared_lane_trials_no_runtime_append_or_search_expansion") {
+    fail("portfolio post-partial stop-replacement cycle sequence policy")
+  }
+  const trialIds = new Set<string>(); const runIds = new Set<string>()
+  const reservationHashes = new Set<string>(); const requestHashes = new Set<string>()
+  let priorTime = Number.NEGATIVE_INFINITY
+  value.cycles.forEach((cycle, index) => {
+    requireExactObjectFields(cycle, ["cycle_index", "earliest_cycle_time", "lanes"], `${area}.cycle`)
+    requireUtcTimestamp(cycle.earliest_cycle_time, `${area}.earliest_cycle_time`)
+    const time = Date.parse(cycle.earliest_cycle_time)
+    if (cycle.cycle_index !== index + 1 || time <= priorTime || cycle.lanes.length === 0) {
+      fail("portfolio post-partial stop-replacement cycle sequence order")
+    }
+    priorTime = time
+    const laneIds = new Set<string>()
+    cycle.lanes.forEach((lane, laneIndex) => {
+      requireExactObjectFields(lane, ["lane_id", "priority_rank", "trial_id", "run_id",
+        "trial_reservation_ref", "trial_reservation_hash", "request_hash"], `${area}.lane`)
+      for (const text of [lane.lane_id, lane.trial_id, lane.run_id, lane.trial_reservation_ref]) {
+        requireText(text, `${area}.lane.text`)
+      }
+      for (const hash of [lane.trial_reservation_hash, lane.request_hash]) requireHash(hash, `${area}.lane.hash`)
+      if (lane.priority_rank !== laneIndex + 1 || laneIds.has(lane.lane_id)
+          || trialIds.has(lane.trial_id) || runIds.has(lane.run_id)
+          || reservationHashes.has(lane.trial_reservation_hash) || requestHashes.has(lane.request_hash)) {
+        fail("portfolio post-partial stop-replacement cycle sequence lanes")
+      }
+      laneIds.add(lane.lane_id); trialIds.add(lane.trial_id); runIds.add(lane.run_id)
+      reservationHashes.add(lane.trial_reservation_hash); requestHashes.add(lane.request_hash)
+    })
+  })
+  const limitations: ReplayPortfolioPostPartialStopReplacementCycleSequenceReservationSnapshot["limitations"] = [
+    "one_to_eight_predeclared_post_partial_stop_replacement_full_flat_cycles_only",
+    "cycle_opening_cash_must_equal_predecessor_committed_trial_balance",
+    "no_open_successor_dynamic_sizing_between_partial_or_repeated_mutation_third_partial_reentry_cross_margin_borrow_real_liquidity_fast_or_runtime_cycle_expansion",
+  ]
+  if (canonicalReservationJson(value.limitations) !== canonicalReservationJson(limitations)) {
+    fail("portfolio post-partial stop-replacement cycle sequence limitations")
+  }
+  const { reservation_hash: hash, ...body } = value
+  if (hash !== createHash("sha256").update(canonicalReservationJson(body), "utf8").digest("hex")) {
+    fail("portfolio post-partial stop-replacement cycle sequence hash")
   }
 }
 

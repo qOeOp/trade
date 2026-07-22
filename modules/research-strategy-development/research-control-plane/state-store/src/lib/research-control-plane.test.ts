@@ -164,6 +164,7 @@ import {
   issueReplayPortfolioCycleSequenceReservation,
   issueReplayPortfolioTwoFixedPartialReservation,
   issueReplayPortfolioTwoFixedPartialCycleSequenceReservation,
+  issueReplayPortfolioPostPartialStopReplacementCycleSequenceReservation,
   issueReplayRuntimeSharedWalletReservation,
 } from "./runtime-shared-wallet-reservation"
 import {
@@ -1567,6 +1568,42 @@ test("Control Plane issues shared initial capital only over current child Trial 
     })
     assert.equal(twoFixedSequence.cycle_count, 1)
     assert.equal(twoFixedSequence.cycles[0]?.two_fixed_partial_reservation_hash, twoFixed.reservation_hash)
+    const stopReplacementSequence =
+      issueReplayPortfolioPostPartialStopReplacementCycleSequenceReservation(db, {
+        reservation_id: "portfolio-post-partial-stop-replacement-sequence-1",
+        reservation_ref: "reservation://portfolio-post-partial-stop-replacement-sequence/1",
+        issued_at: "2026-07-14T03:21:00Z",
+        expires_at: "2026-07-14T04:00:00Z",
+        portfolio_id: "portfolio-post-partial-stop-replacement-1",
+        settlement_asset: "USDT",
+        initial_cash: 100,
+        cycles: [{
+          earliest_cycle_time: "2026-07-14T03:22:00Z",
+          lanes: [
+            { lane_id: "lane-b", priority_rank: 1, trial_reservation: reservationB,
+              request_hash: requestHashB },
+            { lane_id: "lane-a", priority_rank: 2, trial_reservation: reservationA,
+              request_hash: requestHashA },
+          ],
+        }],
+      })
+    assert.equal(stopReplacementSequence.cycle_count, 1)
+    assert.deepEqual(stopReplacementSequence.cycles[0]?.lanes.map((lane) => [
+      lane.lane_id, lane.trial_id, lane.request_hash,
+    ]), [
+      ["lane-b", reservationB.identity.trial_id, requestHashB],
+      ["lane-a", reservationA.identity.trial_id, requestHashA],
+    ])
+    assert.throws(() => issueReplayPortfolioPostPartialStopReplacementCycleSequenceReservation(db, {
+      reservation_id: "portfolio-post-partial-stop-replacement-sequence-drift",
+      reservation_ref: "reservation://portfolio-post-partial-stop-replacement-sequence/drift",
+      issued_at: "2026-07-14T03:21:00Z", expires_at: "2026-07-14T04:00:00Z",
+      portfolio_id: "portfolio-post-partial-stop-replacement-1", settlement_asset: "USDT",
+      initial_cash: 100, cycles: [{ earliest_cycle_time: "2026-07-14T03:22:00Z", lanes: [
+        { lane_id: "lane-a", priority_rank: 1, trial_reservation: reservationA,
+          request_hash: "8".repeat(64) },
+      ] }],
+    }), /not current/)
     assert.throws(() => issueReplayPortfolioTwoFixedPartialReservation(db, {
       ...twoFixedInput,
       lanes: [{ ...twoFixedInput.lanes[0]!, request_hash: "8".repeat(64) }, twoFixedInput.lanes[1]!],
