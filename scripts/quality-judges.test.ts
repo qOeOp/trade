@@ -264,6 +264,24 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("unsupported Replay capacity/performance envelope")
   }, 15_000)
 
+  test("Replay corruption detection cannot be upgraded to silent automatic repair", () => {
+    const bundle = JSON.parse(readFileSync(
+      join(repoRoot, "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-fault-corruption-recovery-bundle.json"),
+      "utf8",
+    )) as { corruption_policy: string }
+    bundle.corruption_policy = "detect-and-automatically-repair"
+    const root = temporaryRoot()
+    const bundlePath = join(root, "replay-fault-corruption-recovery-bundle.json")
+    writeFileSync(bundlePath, JSON.stringify(bundle))
+
+    const result = runJudge("check-rd-replay-maturity-gate.ts", repoRoot, [], {
+      RD_REPLAY_FAULT_CORRUPTION_RECOVERY_BUNDLE_PATH: bundlePath,
+    })
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("unsupported Replay fault/corruption recovery bundle")
+  }, 15_000)
+
   test("Replay historical Artifact payload reader cannot drift silently", () => {
     const registry = JSON.parse(readFileSync(
       join(repoRoot, "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-historical-artifact-migration.json"),
