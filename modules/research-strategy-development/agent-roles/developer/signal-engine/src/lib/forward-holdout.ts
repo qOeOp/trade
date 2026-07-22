@@ -1,6 +1,5 @@
 import { hashCanonical, loadCandlesFromManifest, loadManifest, type Candle } from "../../../../../replay-execution-plane/compatibility/replay-engine/src/lib/replay-core"
-import { evaluateStrategySignal } from "../../../../../agent-roles/developer/signal-engine/src/lib/strategy-signal"
-import type { StrategyRndCandidateInput } from "../../../../../agent-roles/developer/candidate-batch-engine/src/lib/strategy-rnd-inputs"
+import { evaluateStrategySignal, type StrategySignalCandidateInput } from "./strategy-signal"
 
 type JSONRecord = Record<string, unknown>
 
@@ -15,7 +14,7 @@ interface ForwardHoldoutInput {
   strategyId: string
   setupId: string
   frozenAt: string
-  candidate: StrategyRndCandidateInput
+  candidate: StrategySignalCandidateInput
   datasets: ForwardHoldoutDataset[]
   timeframe?: string
   benchmarkManifestPath?: string
@@ -180,7 +179,7 @@ function forwardHoldoutInputFromPanelJson(panel: JSONRecord, options: ForwardHol
   }
 }
 
-function candidateFromJson(input: JSONRecord): StrategyRndCandidateInput {
+function candidateFromJson(input: JSONRecord): StrategySignalCandidateInput {
   return {
     candidateId: stringField(input.candidate_id),
     description: stringField(input.description) || undefined,

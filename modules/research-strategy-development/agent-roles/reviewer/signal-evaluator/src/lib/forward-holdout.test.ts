@@ -4,7 +4,7 @@ import { join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { forwardHoldoutInputFromJson, forwardHoldoutInputFromPanelJson, runForwardHoldout } from "../../../../../forward-evidence-plane/compatibility/forward-holdout/src/lib/forward-holdout"
+import { forwardHoldoutInputFromJson, forwardHoldoutInputFromPanelJson, runForwardHoldout } from "../../../../developer/signal-engine/src/lib/forward-holdout"
 
 test("forward holdout parser accepts artifact-style snake case candidate fields", () => {
   const input = forwardHoldoutInputFromJson({
@@ -159,7 +159,7 @@ test("forward holdout evaluates a frozen candidate only on post-freeze closed ca
 })
 
 function readSchema(): Record<string, unknown> {
-  return JSON.parse(readFileSync(new URL("../../../../../forward-evidence-plane/compatibility/forward-holdout/src/schemas/forward-holdout-result.schema.json", import.meta.url), "utf8")) as Record<string, unknown>
+  return JSON.parse(readFileSync(new URL("../schemas/forward-holdout-result.schema.json", import.meta.url), "utf8")) as Record<string, unknown>
 }
 
 function assertSchemaRequired(schema: Record<string, unknown>, value: Record<string, unknown>): void {

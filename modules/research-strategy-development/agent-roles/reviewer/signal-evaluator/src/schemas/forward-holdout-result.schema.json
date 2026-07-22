@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "trade-flow.forward-holdout-result.v1",
   "title": "trade-flow forward holdout result",
-  "description": "Stable outer shape for read-only forward-holdout evaluation of a frozen R&D candidate.",
+  "description": "Stable legacy-compatible shape for a read-only post-freeze signal diagnostic; not Forward Evidence authority.",
   "type": "object",
   "required": [
     "strategy_id",

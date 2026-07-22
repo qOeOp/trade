@@ -8,7 +8,7 @@ import { loadStrategyFeatureStore } from "../../../strategy-family-engine/src/li
 
 type JSONRecord = Record<string, unknown>
 
-interface StrategySignalCandidateInput {
+export interface StrategySignalCandidateInput {
   candidateId: string
   description?: string
   family?: string
@@ -90,6 +90,5 @@ function optionalNumber(value: unknown): number | undefined {
 export {
   evaluateStrategySignal,
   strategySignalInputFromJson,
-  type StrategySignalCandidateInput,
   type StrategySignalInput,
 }

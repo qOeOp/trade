@@ -4,6 +4,7 @@ import { repoRoot } from "../../../../../../contracts/runtime-core/src/paths"
 import { errorResponse, printScriptResult, readFlagValue, readJsonObject, readJsonObjectFile, successResponse } from "../../../../../../contracts/runtime-core/src/script-json"
 import type { JSONRecord } from "../../../../../../contracts/runtime-core/src/json"
 import { candidateFromStrategyContract } from "../../../../../../contracts/strategy-contract/src/strategy-contract"
+import { forwardHoldoutInputFromJson, runForwardHoldout } from "../../../../developer/signal-engine/src/lib/forward-holdout"
 import { evaluateStrategySignal, strategySignalInputFromJson } from "../../../../developer/signal-engine/src/lib/strategy-signal"
 
 interface Config {
@@ -12,6 +13,7 @@ interface Config {
 }
 
 const SCHEMA_VERSION = "signal-evaluator.script-response.v1"
+const FORWARD_HOLDOUT_SCHEMA_VERSION = "forward-holdout.script-response.v1"
 
 function main(argv: string[]): void {
   printScriptResult(run(argv))
@@ -19,11 +21,15 @@ function main(argv: string[]): void {
 
 export function run(argv: string[]): JSONRecord {
   const previousCwd = process.cwd()
+  const forwardHoldoutMode = argv.includes("--forward-holdout")
   try {
     process.chdir(repoRoot())
-    return successResponse(SCHEMA_VERSION, runConfig(parseArgs(argv)))
+    const config = parseArgs(argv)
+    return forwardHoldoutMode
+      ? successResponse(FORWARD_HOLDOUT_SCHEMA_VERSION, runForwardHoldout(forwardHoldoutInputFromJson(config.input)))
+      : successResponse(SCHEMA_VERSION, runConfig(config))
   } catch (error) {
-    return errorResponse(SCHEMA_VERSION, error)
+    return errorResponse(forwardHoldoutMode ? FORWARD_HOLDOUT_SCHEMA_VERSION : SCHEMA_VERSION, error)
   } finally {
     process.chdir(previousCwd)
   }
@@ -50,6 +56,8 @@ function parseArgs(argv: string[]): Config {
         break
       case "--json":
         config.input = readJsonObject(readFlagValue(argv, ++index, arg))
+        break
+      case "--forward-holdout":
         break
       case "--help":
         exitWithHelp()
@@ -81,6 +89,7 @@ function printHelp(): void {
   console.log(`Usage:
   bun src/scripts/main.ts --json '{"manifest_path":"...","entry_price":65000,"candidate":{"candidate_id":"C-1"}}'
   bun src/scripts/main.ts --strategy strategies/example.md --json '{"manifest_path":"...","entry_price":65000}'
+  bun src/scripts/main.ts --forward-holdout --json '{"strategy_id":"...","setup_id":"...","frozen_at":"...","candidate":{...},"datasets":[...]}'
 `)
 }
 
