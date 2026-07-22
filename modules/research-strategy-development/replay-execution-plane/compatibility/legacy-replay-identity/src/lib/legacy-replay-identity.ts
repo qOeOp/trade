@@ -2,6 +2,7 @@ import { createHash } from "node:crypto"
 import { readdirSync, readFileSync, statSync } from "node:fs"
 import { dirname, join } from "node:path"
 import { resolveReadablePath } from "../../../../../../contracts/runtime-core/src/paths"
+import { loadManifest } from "../../../legacy-research-data/src/lib/legacy-research-data"
 
 type JSONRecord = Record<string, unknown>
 
@@ -51,6 +52,8 @@ export function replayHarnessHash(): string {
     join(root, "legacy-research-kernel/src/lib/rnd-family-helpers.ts"),
     ...sourceFiles(join(root, "legacy-research-kernel/src/lib/rnd-families")),
     join(root, "legacy-replay-identity/src/lib/legacy-replay-identity.ts"),
+    join(root, "legacy-research-data/src/lib/legacy-research-data.ts"),
+    join(root, "legacy-research-data/src/lib/funding-events.ts"),
   ].filter((path) => statOrNull(path)?.isFile())
   const hash = createHash("sha256")
   for (const path of files.sort()) {
@@ -68,10 +71,6 @@ export function hashCanonical(value: unknown): string {
 
 export function hashFile(path: string): string {
   return createHash("sha256").update(readFileSync(resolveReadablePath(path))).digest("hex")
-}
-
-function loadManifest(path: string): JSONRecord {
-  return JSON.parse(readFileSync(resolveReadablePath(path), "utf8")) as JSONRecord
 }
 
 function sourceFiles(path: string): string[] {
