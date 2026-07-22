@@ -1,7 +1,7 @@
 ---
 title: Server Runtime Implementation Plan
 role: architecture-migration
-status: active-partial
+status: active-migration
 owner: architecture
 last_verified: 2026-07-23 CST
 ---
