@@ -16,6 +16,7 @@ P0-only evidence module for selecting the runtime language of the future public 
 - Does not publish signals, place orders, or become a runtime dependency.
 - Benchmark results are evidence, not an automatic language decision.
 - Rust soak also requires `--yes-public-network`; it uses a bounded receiver queue and bounded book-level cap, and writes only below the requested ignored output base.
+- The Bun supervisor may own Rust process lifecycle and evidence orchestration, but never parses books or writes market-data owner stores. It signals only the exact child PID it created.
 
 ## Raw segment protocol
 
@@ -45,3 +46,4 @@ P0-only evidence module for selecting the runtime language of the future public 
 - `bun run segment-benchmark -- --fixture ../../../tmp/l2-recorder-bakeoff/live-btcusdt.json --samples 5`
 - `bun run crash-injection -- --fixture ../../../tmp/l2-recorder-bakeoff/live-btcusdt.json --output tmp/l2-recorder-bakeoff/crash-evidence.json`
 - `bun run soak:rust -- --yes-public-network --symbol BTCUSDT --duration-seconds 60 --output-base ../../../tmp/l2-recorder-bakeoff/soak-rust`
+- `bun run soak:supervisor -- --yes-public-network --symbol BTCUSDT --cycles 3 --output tmp/l2-recorder-bakeoff/soak-supervisor-evidence.json`
