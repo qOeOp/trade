@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto"
 import { REPLAY_LOCAL_ARTIFACT_STORAGE_POLICY_VERSION } from "../../../../../contracts/replay-contract/src/replay-storage-policy"
+import { canonicalNfcJson } from "../../../../../contracts/runtime-core/src/canonical-json"
 
 export const CONTROL_PLANE_IDENTITY_SCHEMA_VERSION = "trade.rd-identity-binding.v1" as const
 export const DRAFT_AUTHORIZATION_SCHEMA_VERSION = "trade.rd-draft-authorization.v1" as const
@@ -73,7 +74,7 @@ export const REPLAY_PORTFOLIO_POST_PARTIAL_STOP_REPLACEMENT_CYCLE_SEQUENCE_RESER
   "trade.rd-replay-portfolio-post-partial-stop-replacement-cycle-sequence-reservation.v1" as const
 
 export function canonicalControlPlaneHash(value: unknown): string {
-  return createHash("sha256").update(canonicalReservationJson(value), "utf8").digest("hex")
+  return createHash("sha256").update(canonicalNfcJson(value), "utf8").digest("hex")
 }
 
 export interface ResearchIdentityBinding {
@@ -4152,24 +4153,7 @@ function requireUtcTimestamp(value: unknown, field: string): void {
 }
 
 function canonicalReservationJson(value: unknown): string {
-  if (value === null) return "null"
-  if (typeof value === "string") return JSON.stringify(value.normalize("NFC"))
-  if (typeof value === "boolean") return value ? "true" : "false"
-  if (typeof value === "number") {
-    if (!Number.isFinite(value)) fail("reservation hash rejects non-finite numbers")
-    return JSON.stringify(Object.is(value, -0) ? 0 : value)
-  }
-  if (Array.isArray(value)) return `[${value.map(canonicalReservationJson).join(",")}]`
-  if (value && typeof value === "object") {
-    const record = value as Record<string, unknown>
-    const entries = Object.keys(record)
-      .filter((key) => record[key] !== undefined)
-      .map((source) => ({ source, normalized: source.normalize("NFC") }))
-      .sort((left, right) => left.normalized < right.normalized ? -1 : left.normalized > right.normalized ? 1 : 0)
-    if (new Set(entries.map((entry) => entry.normalized)).size !== entries.length) fail("reservation hash key collision after NFC normalization")
-    return `{${entries.map((entry) => `${JSON.stringify(entry.normalized)}:${canonicalReservationJson(record[entry.source])}`).join(",")}}`
-  }
-  fail("reservation hash rejects unsupported values")
+  return canonicalNfcJson(value)
 }
 
 function requireText(value: unknown, field: string): string {
