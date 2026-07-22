@@ -40,6 +40,18 @@ export function quantizeReplayProduct(
   )
 }
 
+export function quantizeReplayProductSum(
+  pairs: Array<readonly [number, number]>,
+  increment: string,
+  rounding: ReplayDecimalRounding,
+): number {
+  if (pairs.length === 0) throw new Error("Replay decimal product sum requires at least one pair")
+  const sum = pairs
+    .map(([left, right]) => multiplyRationals(rationalFromNumber(left), rationalFromNumber(right)))
+    .reduce(addRationals, { numerator: 0n, denominator: 1n })
+  return quantizeRationalToIncrement(sum, decimalPartsFromCanonicalString(increment), rounding)
+}
+
 export function quantizeReplayBasisPointPrice(
   price: number,
   side: "buy" | "sell",
