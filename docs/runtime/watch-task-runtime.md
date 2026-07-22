@@ -75,6 +75,6 @@ created -> armed -> observing -> triggered -> handed_off -> completed
 
 ## 6. 当前证据与下一门
 
-已实现 compiler/contract/store/runtime/revalidator 与 typecheck：plan/intent lineage、trigger、invalidation-first、expiry、stale/error/observation budget、idempotent create、CAS、fenced lease、restart state、no-authority revalidation、handoff receipt 和 terminal audit 均有 fixture。纯合同、store、loop、compiler 与 revalidator fixture 已通过编译后 Node runner；因当前机器存在并行 Bun test runner 阻塞，Bun-native 与 owner CLI integration 仍须在负载恢复后补齐，不能把 S2 宣称完成。
+已实现 compiler/contract/store/runtime/revalidator 与 fenced receipt closure：plan/intent lineage、trigger、invalidation-first、expiry、stale/error/observation budget、idempotent create、CAS、restart、no-authority revalidation、handoff receipt 和 terminal audit 均有 fixture。合同、store、loop、compiler、revalidator 与 receipt session 的编译后 Node runner 共通过 13 项测试；基于干净 HEAD 的临时 SQLite 多进程 owner-action 演练又通过 create 幂等、stale CAS 拒绝、重启读取、wait/trigger、handoff/complete、cancel 和六段 transition audit，且 authority 始终为 `none`。
 
-下一门按顺序是：用临时 DB 完成 create/arm/observe/trigger/restart/cancel/idempotency owner-CLI integration → 补齐 runtime 对 revalidation receipt 的 fenced handoff/complete 闭环 → 负载恢复后实跑五模块 Bun tests；全程禁止 exchange write。
+S2 本地实现与隔离证据已收口。当前机器仍有其他并行 Bun runner 长时间阻塞，因此 Bun-native 五模块测试与 published `run/revalidate` CLI 组合演练保留为环境恢复后的 adoption gate；这不扩大权力，也不允许 exchange write。下一施工面转入 J01–J07 no-live shadow 编排。
