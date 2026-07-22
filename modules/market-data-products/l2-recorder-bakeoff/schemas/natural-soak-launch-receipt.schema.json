@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade.l2-natural-soak-launch-receipt.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "started_at",
+    "supervisor_pid",
+    "evidence_path",
+    "log_path"
+  ],
+  "properties": {
+    "schema_version": { "const": "trade.l2-natural-soak-launch-receipt.v1" },
+    "started_at": { "type": "string", "format": "date-time" },
+    "supervisor_pid": { "type": "integer", "minimum": 2 },
+    "evidence_path": { "type": "string", "pattern": "^tmp/" },
+    "log_path": { "type": "string", "pattern": "^tmp/" }
+  }
+}

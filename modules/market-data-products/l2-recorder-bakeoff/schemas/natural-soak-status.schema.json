@@ -1,0 +1,38 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade.l2-natural-soak-status.v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "schema_version",
+    "observed_at",
+    "status",
+    "receipt_path",
+    "supervisor_pid",
+    "evidence_path",
+    "evidence_exists",
+    "log_path",
+    "log_exists",
+    "finalized_segments",
+    "partial_segments"
+  ],
+  "properties": {
+    "schema_version": { "const": "trade.l2-natural-soak-status.v1" },
+    "observed_at": { "type": "string", "format": "date-time" },
+    "status": { "enum": ["starting", "active", "stale", "completed"] },
+    "freshness_ms": { "type": "integer", "minimum": 0 },
+    "receipt_path": { "type": "string", "pattern": "^tmp/" },
+    "supervisor_pid": { "type": "integer", "minimum": 2 },
+    "evidence_path": { "type": "string", "pattern": "^tmp/" },
+    "evidence_exists": { "type": "boolean" },
+    "gate_eligible": { "type": "boolean" },
+    "gate_verdict": { "enum": ["passed", "failed", "ineligible"] },
+    "log_path": { "type": "string", "pattern": "^tmp/" },
+    "log_exists": { "type": "boolean" },
+    "finalized_segments": { "type": "integer", "minimum": 0 },
+    "partial_segments": { "type": "integer", "minimum": 0 },
+    "latest_data_path": { "type": "string", "pattern": "^tmp/" },
+    "latest_data_bytes": { "type": "integer", "minimum": 0 },
+    "latest_data_modified_at": { "type": "string", "format": "date-time" }
+  }
+}
