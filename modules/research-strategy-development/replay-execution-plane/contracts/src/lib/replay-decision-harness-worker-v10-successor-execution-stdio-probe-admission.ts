@@ -1,17 +1,21 @@
+import { createHash } from "node:crypto"
 import { canonicalHash, canonicalJson } from "./replay-contracts"
 import {
-  assertReplayDecisionHarnessWorkerV10StdioCapability,
-  type ReplayDecisionHarnessWorkerV10StdioCapability,
+  REPLAY_DECISION_HARNESS_WORKER_V10_STDIO_ARTIFACT_FILE,
 } from "./replay-decision-harness-worker-v10-stdio-capability"
+import {
+  REPLAY_DECISION_HARNESS_WORKER_V10_REQUEST_FRAME_SCHEMA_VERSION,
+  REPLAY_DECISION_HARNESS_WORKER_V10_RESPONSE_FRAME_SCHEMA_VERSION,
+} from "./replay-decision-harness-worker-v10-transport-contract"
 import {
   requireReplayCrossSourceHash as requireHash,
   requireReplayCrossSourceText as requireText,
 } from "./replay-cross-source-ordering"
 
 export const REPLAY_DECISION_HARNESS_WORKER_V10_SUCCESSOR_EXECUTION_STDIO_PROBE_ADMISSION_SCHEMA_VERSION =
-  "trade.rd-replay-decision-harness-worker-v10-successor-execution-stdio-probe-admission.v2" as const
+  "trade.rd-replay-decision-harness-worker-v10-successor-execution-stdio-probe-admission.v3" as const
 export const REPLAY_DECISION_HARNESS_WORKER_V10_SUCCESSOR_EXECUTION_STDIO_PROBE_ADMISSION_POLICY_VERSION =
-  "rd-replay-harness-worker-v10-successor-execution-stdio-probe-reference-v2" as const
+  "rd-replay-harness-worker-v10-successor-execution-stdio-probe-reference-v3" as const
 
 const BLOCKERS = [
   "successor_artifact_bound_transport_and_execution_admission_contract_not_materialized",
@@ -40,9 +44,21 @@ export interface ReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmis
   source_predecessor_execution_admission_contract_hash: string
   source_predecessor_stdio_capability_hash: string
   successor_stdio_capability_hash: string
-  successor_stdio_capability: ReplayDecisionHarnessWorkerV10StdioCapability
+  successor_stdio_artifact_evidence: ReplayDecisionHarnessWorkerV10SuccessorStdioArtifactEvidence
   successor_negative_probe_receipt_hash: string
   successor_process_artifact_hash: string
+  target_logical_request_id: string
+  target_worker_request_hash: string
+  target_worker_request_execution_admission: "not_granted"
+  target_worker_request_transport_status: "not_invoked"
+  request_frame_schema_version: typeof REPLAY_DECISION_HARNESS_WORKER_V10_REQUEST_FRAME_SCHEMA_VERSION
+  response_frame_schema_version: typeof REPLAY_DECISION_HARNESS_WORKER_V10_RESPONSE_FRAME_SCHEMA_VERSION
+  request_frame_encoding: "canonical_json_utf8_lf_then_eof"
+  response_frame_encoding: "canonical_json_utf8_lf_then_process_exit"
+  trailing_bytes_policy: "no_non_whitespace_bytes_after_single_frame"
+  max_request_frame_bytes: number
+  max_response_frame_bytes: number
+  timeout_ms: number
   attempt_id: string
   attempt_ordinal: number
   worker_id: string
@@ -81,6 +97,23 @@ export interface ReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmis
   order_authority: "none"
   economic_authority: "none"
   trial_authority: "none"
+}
+
+export interface ReplayDecisionHarnessWorkerV10SuccessorStdioArtifactEvidence {
+  capability_id: string
+  capability_hash: string
+  source_transport_contract_hash: string
+  runtime: {
+    runtime_id: "bun"
+    runtime_version: string
+    executable_sha256: string
+  }
+  artifact: {
+    format: "bun_esm_stdio_process_utf8"
+    file_name: typeof REPLAY_DECISION_HARNESS_WORKER_V10_STDIO_ARTIFACT_FILE
+    content_utf8: string
+    sha256: string
+  }
 }
 
 export type ReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmissionBody = Omit<
@@ -136,6 +169,13 @@ export function assertReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbe
       || value.probe_identity_policy !== "fresh_receipt_bound_to_successor_capability_hash"
       || value.probe_execution_class !== "non_worker_request_malformed_input_processes_only"
       || value.evidence_binding_policy !== "content_addressed_parent_hashes_without_recursive_reembedding"
+      || value.target_worker_request_execution_admission !== "not_granted"
+      || value.target_worker_request_transport_status !== "not_invoked"
+      || value.request_frame_schema_version !== REPLAY_DECISION_HARNESS_WORKER_V10_REQUEST_FRAME_SCHEMA_VERSION
+      || value.response_frame_schema_version !== REPLAY_DECISION_HARNESS_WORKER_V10_RESPONSE_FRAME_SCHEMA_VERSION
+      || value.request_frame_encoding !== "canonical_json_utf8_lf_then_eof"
+      || value.response_frame_encoding !== "canonical_json_utf8_lf_then_process_exit"
+      || value.trailing_bytes_policy !== "no_non_whitespace_bytes_after_single_frame"
       || value.registry_durability !== "replay_local_immutable_cas_regular_file_canonical_json"
       || value.successor_base_transport_contract_count !== 1 || value.successor_stdio_capability_count !== 1
       || value.successor_negative_probe_receipt_count !== 1
@@ -167,19 +207,21 @@ export function assertReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbe
     value.source_predecessor_artifact_bound_transport_contract_hash,
     value.source_predecessor_execution_admission_contract_hash,
     value.source_predecessor_stdio_capability_hash, value.successor_stdio_capability_hash,
-    value.successor_negative_probe_receipt_hash, value.successor_process_artifact_hash]) {
+    value.successor_negative_probe_receipt_hash, value.successor_process_artifact_hash,
+    value.target_logical_request_id, value.target_worker_request_hash]) {
     requireHash(item, "Worker v10 successor execution Stdio Probe admission hash")
   }
   if (!Number.isSafeInteger(value.attempt_ordinal) || value.attempt_ordinal < 1
       || !Number.isSafeInteger(value.predecessor_lease_generation)
       || value.predecessor_lease_generation < 1
-      || value.successor_lease_generation !== value.predecessor_lease_generation + 1) {
+      || value.successor_lease_generation !== value.predecessor_lease_generation + 1
+      || !Number.isSafeInteger(value.max_request_frame_bytes) || value.max_request_frame_bytes < 1
+      || !Number.isSafeInteger(value.max_response_frame_bytes) || value.max_response_frame_bytes < 1
+      || !Number.isSafeInteger(value.timeout_ms) || value.timeout_ms < 1) {
     throw new Error("Worker v10 successor execution Stdio Probe admission generation")
   }
-  assertReplayDecisionHarnessWorkerV10StdioCapability(value.successor_stdio_capability)
-  const successor = value.successor_stdio_capability
-  const successorTransport = successor.source_transport_contract
-  const successorEnvelope = successorTransport.source_execution_envelope
+  assertSuccessorStdioArtifactEvidence(value.successor_stdio_artifact_evidence)
+  const successor = value.successor_stdio_artifact_evidence
   const key = replayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmissionKey({
     source_successor_execution_transport_admission_hash:
       value.source_successor_execution_transport_admission_hash,
@@ -193,16 +235,9 @@ export function assertReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbe
       || value.admission_ref
         !== `admission://replay-decision-harness-worker-v10-successor-stdio-probe/${key.slice(0, 24)}`
       || value.successor_stdio_capability_hash !== successor.capability_hash
-      || successor.source_transport_contract_hash
-        !== value.source_successor_base_transport_contract_hash
-      || successorTransport.source_execution_envelope_hash
-        !== value.source_successor_execution_envelope_hash
+      || successor.source_transport_contract_hash !== value.source_successor_base_transport_contract_hash
       || successor.artifact.sha256 !== value.successor_process_artifact_hash
-      || successor.capability_hash === value.source_predecessor_stdio_capability_hash
-      || successorEnvelope.attempt_id !== value.attempt_id
-      || successorEnvelope.attempt_ordinal !== value.attempt_ordinal
-      || successorEnvelope.worker_id !== value.worker_id
-      || successorEnvelope.lease_generation !== value.successor_lease_generation) {
+      || successor.capability_hash === value.source_predecessor_stdio_capability_hash) {
     throw new Error("Worker v10 successor execution Stdio Probe admission lineage drift")
   }
   const { admission_hash: admissionHash, ...body } = value
@@ -216,7 +251,9 @@ const FIELDS = ["admission_hash", "admission_id", "admission_key", "admission_po
   "blockers", "capability_identity_policy", "command_authority", "decision_output_authority",
   "economic_authority", "evidence_binding_policy", "harness_receipt_count", "order_authority", "owner",
   "predecessor_lease_generation", "probe_execution_class", "probe_identity_policy", "purpose",
-  "registry_durability", "reproducibility_pair_count", "schema_version", "scope", "second_response_count",
+  "max_request_frame_bytes", "max_response_frame_bytes", "registry_durability", "reproducibility_pair_count",
+  "request_frame_encoding", "request_frame_schema_version", "response_frame_encoding",
+  "response_frame_schema_version", "schema_version", "scope", "second_response_count",
   "second_schedule_admission_count", "signal_authority",
   "source_predecessor_artifact_bound_transport_contract_hash",
   "source_predecessor_execution_admission_contract_hash", "source_predecessor_stdio_capability_hash",
@@ -228,10 +265,44 @@ const FIELDS = ["admission_hash", "admission_id", "admission_key", "admission_po
   "successor_negative_probe_receipt_count",
   "successor_negative_probe_receipt_hash", "successor_process_launch_intent_count",
   "successor_process_artifact_hash",
-  "successor_spawn_revalidation_count", "successor_stdio_capability", "successor_stdio_capability_count",
+  "successor_spawn_revalidation_count", "successor_stdio_artifact_evidence", "successor_stdio_capability_count",
   "successor_stdio_capability_hash", "successor_worker_process_count", "successor_worker_request_decode_count",
-  "successor_worker_request_frame_count", "transport_authority", "trial_authority", "worker_id",
+  "successor_worker_request_frame_count", "target_logical_request_id", "target_worker_request_execution_admission",
+  "target_worker_request_hash", "target_worker_request_transport_status", "timeout_ms", "trailing_bytes_policy",
+  "transport_authority", "trial_authority", "worker_id",
   "worker_process_authority"].sort()
+
+const STDIO_ARTIFACT_EVIDENCE_FIELDS = ["artifact", "capability_hash", "capability_id", "runtime",
+  "source_transport_contract_hash"].sort()
+const STDIO_RUNTIME_FIELDS = ["executable_sha256", "runtime_id", "runtime_version"].sort()
+const STDIO_ARTIFACT_FIELDS = ["content_utf8", "file_name", "format", "sha256"].sort()
+
+function assertSuccessorStdioArtifactEvidence(
+  value: ReplayDecisionHarnessWorkerV10SuccessorStdioArtifactEvidence,
+): void {
+  assertExactFieldSet(value, STDIO_ARTIFACT_EVIDENCE_FIELDS, "successor Stdio artifact evidence")
+  assertExactFieldSet(value.runtime, STDIO_RUNTIME_FIELDS, "successor Stdio runtime evidence")
+  assertExactFieldSet(value.artifact, STDIO_ARTIFACT_FIELDS, "successor Stdio process artifact")
+  for (const item of [value.capability_id, value.runtime.runtime_version, value.artifact.content_utf8]) {
+    requireText(item, "successor Stdio artifact evidence text")
+  }
+  for (const item of [value.capability_hash, value.source_transport_contract_hash,
+    value.runtime.executable_sha256, value.artifact.sha256]) {
+    requireHash(item, "successor Stdio artifact evidence hash")
+  }
+  if (value.runtime.runtime_id !== "bun" || value.artifact.format !== "bun_esm_stdio_process_utf8"
+      || value.artifact.file_name !== REPLAY_DECISION_HARNESS_WORKER_V10_STDIO_ARTIFACT_FILE
+      || value.artifact.sha256
+        !== createHash("sha256").update(value.artifact.content_utf8, "utf8").digest("hex")) {
+    throw new Error("unsupported successor Stdio artifact evidence")
+  }
+}
+
+function assertExactFieldSet(value: object, fields: string[], label: string): void {
+  if (canonicalJson(Object.keys(value).sort()) !== canonicalJson(fields)) {
+    throw new Error(`${label} fields drift`)
+  }
+}
 
 function assertFields(value: object): void {
   if (canonicalJson(Object.keys(value).sort()) !== canonicalJson(FIELDS)) {

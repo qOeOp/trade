@@ -309,7 +309,7 @@ function assertParents(input: ExecuteReplayWorkerV10CutoverInput): void {
   const stdio = input.source_successor_stdio_probe_admission
   if (successor.target_logical_request_id !== pair.logical_request_id
       || successor.target_worker_request_hash !== pair.worker_request_hash
-      || successor.process_artifact_hash !== stdio.successor_stdio_capability.artifact.sha256
+      || successor.process_artifact_hash !== stdio.successor_stdio_artifact_evidence.artifact.sha256
       || input.source_successor_authority_capsule.source_successor_stdio_probe_admission_hash
         !== stdio.admission_hash) {
     throw new Error("Worker v10 cutover direct parent closure mismatch")

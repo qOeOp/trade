@@ -96,7 +96,7 @@ function buildIntent(
   const command = parent.successor_execution_admission_command
   const execution = sources.execution
   const transport = execution.successor_artifact_bound_transport_contract
-  const stdio = sources.stdio.successor_stdio_capability
+  const stdio = sources.stdio.successor_stdio_artifact_evidence
   const clock = input.post_command_clock_attestation
   const receipt = input.post_command_registry_read_receipt
   const observation = input.post_command_lease_observation
@@ -218,7 +218,7 @@ function validateSourcesAndRevalidation(
   const parent = sources.command
   const command = parent.successor_execution_admission_command
   const execution = sources.execution
-  const stdio = sources.stdio.successor_stdio_capability
+  const stdio = sources.stdio.successor_stdio_artifact_evidence
   const observation = input.post_command_lease_observation
   const receipt = input.post_command_registry_read_receipt
   const clock = input.post_command_clock_attestation
