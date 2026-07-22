@@ -1,5 +1,9 @@
 import { canonicalHash } from "../../../../contracts/runtime-core/src/canonical-json"
-import { compileModelTaskRequest, type ModelTaskRequest } from "../../../../contracts/model-task-contract/src/model-task-contract"
+import {
+  compileModelTaskRequest,
+  type ModelTaskRequest,
+  type ModelTaskResult,
+} from "../../../../contracts/model-task-contract/src/model-task-contract"
 
 export interface ModelGatewayProfile {
   schema_version: "trade.model-gateway-profile.v1"
@@ -8,23 +12,6 @@ export interface ModelGatewayProfile {
   model: string
   capabilities: ["json_object"]
   api_key_env: "SILICONFLOW_API_KEY"
-}
-
-export interface ModelTaskResult {
-  schema_version: "trade.model-task-result.v1"
-  task_id: string
-  trace_id: string
-  request_hash: string
-  status: "completed" | "blocked" | "retryable"
-  attempts: number
-  provider: "siliconflow"
-  model: string
-  usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
-  output?: unknown
-  output_hash?: string
-  raw_response_ref?: string
-  failure?: { code: string; retryable: boolean }
-  execution_authority: "none"
 }
 
 interface GatewayDependencies {
@@ -93,7 +80,8 @@ export async function runModelTask(
     if (!output || typeof output !== "object" || Array.isArray(output)) {
       return failure(request, profile, attempts, "model_output_not_object", false, decoded.usage)
     }
-    const outputHash = canonicalHash(output)
+    const parsedOutput = output as Record<string, unknown>
+    const outputHash = canonicalHash(parsedOutput)
     return {
       schema_version: "trade.model-task-result.v1",
       task_id: request.task_id,
@@ -104,7 +92,7 @@ export async function runModelTask(
       provider: profile.provider,
       model: decoded.model || profile.model,
       usage: decoded.usage,
-      output,
+      output: parsedOutput,
       output_hash: outputHash,
       raw_response_ref: `model-response:${canonicalHash({ id: decoded.id, model: decoded.model, usage: decoded.usage, output_hash: outputHash })}`,
       execution_authority: "none",

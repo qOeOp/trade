@@ -1,6 +1,7 @@
 import { canonicalHash } from "../../runtime-core/src/canonical-json"
 
 export const MODEL_TASK_REQUEST_SCHEMA = "trade.model-task-request.v1" as const
+export const MODEL_TASK_RESULT_SCHEMA = "trade.model-task-result.v1" as const
 
 export interface ModelTaskRequest {
   schema_version: typeof MODEL_TASK_REQUEST_SCHEMA
@@ -22,6 +23,23 @@ export interface ModelTaskRequest {
   }
   data_classification: "public" | "project_internal"
   request_hash: string
+}
+
+export interface ModelTaskResult {
+  schema_version: typeof MODEL_TASK_RESULT_SCHEMA
+  task_id: string
+  trace_id: string
+  request_hash: string
+  status: "completed" | "blocked" | "retryable"
+  attempts: number
+  provider: string
+  model: string
+  usage: { prompt_tokens: number; completion_tokens: number; total_tokens: number }
+  output?: Record<string, unknown>
+  output_hash?: string
+  raw_response_ref?: string
+  failure?: { code: string; retryable: boolean }
+  execution_authority: "none"
 }
 
 export function compileModelTaskRequest(value: unknown): ModelTaskRequest {
@@ -80,6 +98,62 @@ export function buildModelTaskRequest(value: Omit<ModelTaskRequest, "schema_vers
   return compileModelTaskRequest({ ...candidate, request_hash: canonicalHash(candidate) })
 }
 
+export function compileModelTaskResult(value: unknown): ModelTaskResult {
+  const input = record(value, "model_task_result")
+  const required = [
+    "schema_version", "task_id", "trace_id", "request_hash", "status", "attempts",
+    "provider", "model", "usage", "execution_authority",
+  ]
+  allowedAndRequired(input, [...required, "output", "output_hash", "raw_response_ref", "failure"], required, "model_task_result")
+  if (input.schema_version !== MODEL_TASK_RESULT_SCHEMA) throw new Error("model task result schema is unsupported")
+  if (input.status !== "completed" && input.status !== "blocked" && input.status !== "retryable") {
+    throw new Error("model task result status is unsupported")
+  }
+  if (input.execution_authority !== "none") throw new Error("model task result must not grant execution authority")
+  const usageInput = record(input.usage, "usage")
+  exact(usageInput, ["prompt_tokens", "completion_tokens", "total_tokens"], "usage")
+  const usage = {
+    prompt_tokens: integer(usageInput.prompt_tokens, 0, 200_000, "usage.prompt_tokens"),
+    completion_tokens: integer(usageInput.completion_tokens, 0, 200_000, "usage.completion_tokens"),
+    total_tokens: integer(usageInput.total_tokens, 0, 200_000, "usage.total_tokens"),
+  }
+  if (usage.total_tokens < usage.prompt_tokens + usage.completion_tokens) throw new Error("model task result usage is inconsistent")
+  const common = {
+    schema_version: MODEL_TASK_RESULT_SCHEMA,
+    task_id: identifier(input.task_id, "task_id"),
+    trace_id: identifier(input.trace_id, "trace_id"),
+    request_hash: sha256(input.request_hash, "request_hash"),
+    status: input.status as ModelTaskResult["status"],
+    attempts: integer(input.attempts, 0, 3, "attempts"),
+    provider: boundedText(input.provider, 1, 128, "provider"),
+    model: boundedText(input.model, 1, 256, "model"),
+    usage,
+    execution_authority: "none" as const,
+  }
+  if (common.status === "completed") {
+    if (!Object.hasOwn(input, "output") || !Object.hasOwn(input, "output_hash")) throw new Error("completed model task result requires output and output_hash")
+    if (Object.hasOwn(input, "failure")) throw new Error("completed model task result must not carry failure")
+    const output = record(input.output, "output")
+    const outputHash = sha256(input.output_hash, "output_hash")
+    if (canonicalHash(output) !== outputHash) throw new Error("model task result output_hash mismatch")
+    return {
+      ...common,
+      output,
+      output_hash: outputHash,
+      ...(Object.hasOwn(input, "raw_response_ref") ? { raw_response_ref: boundedText(input.raw_response_ref, 1, 512, "raw_response_ref") } : {}),
+    }
+  }
+  if (Object.hasOwn(input, "output") || Object.hasOwn(input, "output_hash") || Object.hasOwn(input, "raw_response_ref")) {
+    throw new Error("failed model task result must not carry output")
+  }
+  if (!Object.hasOwn(input, "failure")) throw new Error("failed model task result requires failure")
+  const failureInput = record(input.failure, "failure")
+  exact(failureInput, ["code", "retryable"], "failure")
+  const retryable = failureInput.retryable
+  if (typeof retryable !== "boolean" || retryable !== (common.status === "retryable")) throw new Error("model task failure retryability is inconsistent")
+  return { ...common, failure: { code: identifier(failureInput.code, "failure.code"), retryable } }
+}
+
 function record(value: unknown, field: string): Record<string, unknown> {
   if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error(`${field} must be an object`)
   return value as Record<string, unknown>
@@ -89,6 +163,14 @@ function exact(value: Record<string, unknown>, keys: string[], field: string): v
   const allowed = new Set(keys)
   const unknown = Object.keys(value).filter((key) => !allowed.has(key))
   const missing = keys.filter((key) => !Object.hasOwn(value, key))
+  if (unknown.length) throw new Error(`${field} does not allow: ${unknown.sort().join(", ")}`)
+  if (missing.length) throw new Error(`${field} is missing: ${missing.join(", ")}`)
+}
+
+function allowedAndRequired(value: Record<string, unknown>, allowedKeys: string[], requiredKeys: string[], field: string): void {
+  const allowed = new Set(allowedKeys)
+  const unknown = Object.keys(value).filter((key) => !allowed.has(key))
+  const missing = requiredKeys.filter((key) => !Object.hasOwn(value, key))
   if (unknown.length) throw new Error(`${field} does not allow: ${unknown.sort().join(", ")}`)
   if (missing.length) throw new Error(`${field} is missing: ${missing.join(", ")}`)
 }
@@ -120,6 +202,12 @@ function stringArray(value: unknown, field: string): string[] {
 function integer(value: unknown, min: number, max: number, field: string): number {
   if (!Number.isSafeInteger(value) || Number(value) < min || Number(value) > max) throw new Error(`${field} must be an integer from ${min} to ${max}`)
   return Number(value)
+}
+
+function sha256(value: unknown, field: string): string {
+  const result = text(value, field)
+  if (!/^[a-f0-9]{64}$/.test(result)) throw new Error(`${field} must be a SHA-256 hex digest`)
+  return result
 }
 
 function rejectSecretLikeText(value: string): void {

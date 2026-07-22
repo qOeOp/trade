@@ -1,6 +1,7 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { buildModelTaskRequest, compileModelTaskRequest } from "./model-task-contract"
+import { canonicalHash } from "../../runtime-core/src/canonical-json"
+import { buildModelTaskRequest, compileModelTaskRequest, compileModelTaskResult } from "./model-task-contract"
 
 test("model task request is canonical, bounded, and provider-neutral", () => {
   const request = buildModelTaskRequest(fixture())
@@ -16,6 +17,27 @@ test("model task rejects secret-like context and hash drift", () => {
   }), /secret-like/)
   const request = buildModelTaskRequest(fixture())
   assert.throws(() => compileModelTaskRequest({ ...request, trace_id: "trace-drift" }), /hash mismatch/)
+})
+
+test("model task result verifies authority, identity hashes, output, and failure class", () => {
+  const request = buildModelTaskRequest(fixture())
+  const output = { hypothesis_id: "h-1" }
+  const completed = compileModelTaskResult({
+    schema_version: "trade.model-task-result.v1", task_id: request.task_id, trace_id: request.trace_id,
+    request_hash: request.request_hash, status: "completed", attempts: 1, provider: "siliconflow",
+    model: "fixture/model", usage: { prompt_tokens: 10, completion_tokens: 20, total_tokens: 30 },
+    output, output_hash: canonicalHash(output), execution_authority: "none",
+  })
+  assert.deepEqual(completed.output, output)
+  assert.throws(() => compileModelTaskResult({ ...completed, output_hash: "0".repeat(64) }), /output_hash mismatch/)
+  assert.throws(() => compileModelTaskResult({ ...completed, execution_authority: "live" }), /authority/)
+  const blocked = compileModelTaskResult({
+    schema_version: "trade.model-task-result.v1", task_id: request.task_id, trace_id: request.trace_id,
+    request_hash: request.request_hash, status: "blocked", attempts: 0, provider: "siliconflow",
+    model: "fixture/model", usage: { prompt_tokens: 0, completion_tokens: 0, total_tokens: 0 },
+    failure: { code: "credential_unavailable", retryable: false }, execution_authority: "none",
+  })
+  assert.equal(blocked.failure?.retryable, false)
 })
 
 function fixture() {
