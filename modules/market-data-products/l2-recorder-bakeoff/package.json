@@ -15,6 +15,7 @@
     "segment-benchmark": "bun ./src/scripts/segment-benchmark.ts",
     "crash-injection": "bun ./src/scripts/crash-injection.ts",
     "soak:rust": "cargo run --release --bin l2-soak-rust --",
+    "soak:supervisor": "bun ./src/scripts/soak-supervisor.ts",
     "check": "bun run lint && bun run test"
   }
 }
