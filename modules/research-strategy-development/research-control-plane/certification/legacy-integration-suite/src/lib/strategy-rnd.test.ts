@@ -342,6 +342,7 @@ test("funding carry family treats factor filters as strategy hypothesis componen
     const factorConditions = asArray(candidate.params.factor_conditions).map(asRecord)
     assert.equal(factorConditions[0].factor_id, "vpci.value")
     assert.equal(candidate.replay.sample_count, 0)
+    assert.ok(candidate.gate.blocked_by.some((block) => block.check_id === "RND-FEATURE-CAUSALITY"))
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

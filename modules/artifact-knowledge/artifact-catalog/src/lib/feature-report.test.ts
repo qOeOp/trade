@@ -92,7 +92,10 @@ test("feature report runner handles large feature-series output", { timeout: 60_
     })
 
     assert.equal(run.status, 0)
-    assert.equal(JSON.parse(run.stdout).ok, true)
+    const payload = JSON.parse(run.stdout)
+    assert.equal(payload.ok, true)
+    assert.equal(payload.data.timeframes["4h"].feature_causality.status, "passed")
+    assert.equal(payload.data.timeframes["4h"].feature_causality.checked_cutoffs, 200)
     assert.ok(run.stdout.length > 1024 * 1024)
   } finally {
     rmSync(dir, { recursive: true, force: true })

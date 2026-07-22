@@ -112,6 +112,11 @@ test("strategy R&D candidates keep campaign candidate counting and discovery con
     indicatorReportPath: "/tmp/unused-indicator-report.json",
     antiOverfitStage: "locked_holdout",
   }, loadStrategyRndFeatureStore()), /factor discovery is forbidden/)
+  assert.throws(() => buildFactorResearch({
+    ...baseInput(),
+    factorDiscover: true,
+    indicatorReportPath: "/tmp/uncertified-indicator-report.json",
+  }, loadStrategyRndFeatureStore()), /requires passed provider-native feature causality evidence/)
 })
 
 test("strategy R&D feature store is bounded to the active manifest window", () => {
