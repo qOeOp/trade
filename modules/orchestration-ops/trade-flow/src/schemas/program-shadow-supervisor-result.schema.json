@@ -1,0 +1,109 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "trade-flow.program-shadow-supervisor-result.v1",
+  "title": "trade-flow program shadow supervisor result",
+  "description": "Bounded summary of one foreground resident shadow supervisor lifecycle.",
+  "type": "object",
+  "required": [
+    "schema_version",
+    "runtime_profile",
+    "supervisor_id",
+    "outcome",
+    "stop_reason",
+    "started_at",
+    "finished_at",
+    "cadence",
+    "cycles",
+    "parity_observation",
+    "safety",
+    "lease"
+  ],
+  "properties": {
+    "schema_version": { "const": "trade-flow.program-shadow-supervisor-result.v1" },
+    "runtime_profile": { "const": "shadow_program" },
+    "supervisor_id": { "type": "string", "minLength": 1 },
+    "outcome": { "enum": ["completed", "lease_lost", "skipped_lock", "ops_store_busy"] },
+    "stop_reason": { "enum": ["max_cycles", "duration", "signal", "lease_lost", "active_supervisor", "ops_store_busy"] },
+    "started_at": { "type": "string", "format": "date-time" },
+    "finished_at": { "type": "string", "format": "date-time" },
+    "cadence": {
+      "type": "object",
+      "required": ["interval_seconds", "max_cycles", "duration_seconds"],
+      "properties": {
+        "interval_seconds": { "type": "integer", "minimum": 1, "maximum": 3600 },
+        "max_cycles": { "type": "integer", "minimum": 0, "maximum": 100000 },
+        "duration_seconds": { "type": "integer", "minimum": 0, "maximum": 86400 }
+      },
+      "additionalProperties": false
+    },
+    "cycles": {
+      "type": "object",
+      "required": ["attempted", "executed", "recovered_running", "skipped_terminal", "skipped_lock", "ops_store_busy", "failed"],
+      "properties": {
+        "attempted": { "type": "integer", "minimum": 0 },
+        "executed": { "type": "integer", "minimum": 0 },
+        "recovered_running": { "type": "integer", "minimum": 0 },
+        "skipped_terminal": { "type": "integer", "minimum": 0 },
+        "skipped_lock": { "type": "integer", "minimum": 0 },
+        "ops_store_busy": { "type": "integer", "minimum": 0 },
+        "failed": { "type": "integer", "minimum": 0 },
+        "last_cycle_id": { "type": "string", "minLength": 1 }
+      },
+      "additionalProperties": false
+    },
+    "parity_observation": {
+      "type": "object",
+      "required": ["enabled", "attempted", "matched", "mismatched"],
+      "properties": {
+        "enabled": { "type": "boolean" },
+        "attempted": { "type": "integer", "minimum": 0 },
+        "matched": { "type": "integer", "minimum": 0 },
+        "mismatched": { "type": "integer", "minimum": 0 },
+        "last": {
+          "type": "object",
+          "required": ["schema_version", "observation_id", "program_cycle_id", "agent_cycle_id", "program_projection_hash", "agent_projection_hash", "status", "detail_json", "observed_at"],
+          "properties": {
+            "schema_version": { "const": "trade-flow.program-shadow-parity-observation.v1" },
+            "observation_id": { "type": "string", "minLength": 1 },
+            "program_cycle_id": { "type": "string", "minLength": 1 },
+            "agent_cycle_id": { "type": "string", "minLength": 1 },
+            "program_projection_hash": { "type": "string", "minLength": 1 },
+            "agent_projection_hash": { "type": "string", "minLength": 1 },
+            "status": { "enum": ["match", "mismatch"] },
+            "detail_json": { "type": "object" },
+            "observed_at": { "type": "string", "format": "date-time" }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    },
+    "safety": {
+      "type": "object",
+      "required": ["foreground_process", "external_process_manager_required", "domain_jobs_enabled", "live_writes_allowed", "notify_dry_run", "drain_in_flight_cycle_on_signal"],
+      "properties": {
+        "foreground_process": { "const": true },
+        "external_process_manager_required": { "const": true },
+        "domain_jobs_enabled": { "const": false },
+        "live_writes_allowed": { "const": false },
+        "notify_dry_run": { "const": true },
+        "drain_in_flight_cycle_on_signal": { "const": true }
+      },
+      "additionalProperties": false
+    },
+    "lease": {
+      "type": "object",
+      "required": ["lock_key", "acquired", "released", "recovered_stale"],
+      "properties": {
+        "lock_key": { "const": "program-runtime-shadow-supervisor" },
+        "acquired": { "type": "boolean" },
+        "released": { "type": "boolean" },
+        "recovered_stale": { "type": "boolean" },
+        "fencing_token": { "type": "integer", "minimum": 1 }
+      },
+      "additionalProperties": false
+    },
+    "last_wakeup": { "type": "object" }
+  },
+  "additionalProperties": false
+}
