@@ -149,14 +149,7 @@ check_go_tools() {
   find modules -name go.mod -type f | sort | while IFS= read -r mod; do
     [ -f "$mod" ] || continue
     dir="$(dirname "$mod")"
-    go_files="$(find "$dir" -name '*.go' -type f | sort)"
-    if [ -n "$go_files" ]; then
-      unformatted="$(gofmt -l $go_files)"
-      if [ -n "$unformatted" ]; then
-        printf 'quality: gofmt required:\n%s\n' "$unformatted" >&2
-        exit 1
-      fi
-    fi
+    sh scripts/check-go-format.sh "$dir"
     (cd "$dir" && go test ./... && go vet ./...)
   done
 }

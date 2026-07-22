@@ -97,6 +97,16 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("has no colocated test file")
     expect(result.stderr).toContain("no empty-suite fallback is allowed")
   })
+
+  test("Go formatting rejects an unformatted file instead of swallowing gofmt errors", () => {
+    const root = temporaryRoot()
+    write(root, "main.go", "package main\nfunc main(){println(\"bad\")}\n")
+
+    const result = runCommand(["sh", join(repoRoot, "scripts/check-go-format.sh"), root], repoRoot)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("gofmt required")
+  })
 })
 
 function architectureFixture(overrides: { jobs?: unknown[] } = {}): string {
@@ -139,8 +149,16 @@ function runJudge(
   args: string[] = [],
   env: Record<string, string> = {},
 ): { exitCode: number; stdout: string; stderr: string } {
+  return runCommand(["bun", join(repoRoot, "scripts", script), ...args], cwd, env)
+}
+
+function runCommand(
+  cmd: string[],
+  cwd: string,
+  env: Record<string, string> = {},
+): { exitCode: number; stdout: string; stderr: string } {
   const result = Bun.spawnSync({
-    cmd: ["bun", join(repoRoot, "scripts", script), ...args],
+    cmd,
     cwd,
     env: { ...process.env, ...env },
     stdout: "pipe",

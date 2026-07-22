@@ -1,12 +1,12 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs"
-import { join, relative } from "node:path"
+import { dirname, join, relative } from "node:path"
 
 const root = process.cwd()
 const modulesRoot = join(root, "modules")
 const violations: string[] = []
 
 for (const packagePath of findFiles(modulesRoot, "package.json")) {
-  const packageDir = packagePath.slice(0, -"/package.json".length)
+  const packageDir = dirname(packagePath)
   const sourceDir = join(packageDir, "src")
   if (!existsSync(sourceDir)) continue
   const sourceFiles = findTypeScript(sourceDir).filter((path) => !isTest(path) && !path.endsWith(".d.ts"))
