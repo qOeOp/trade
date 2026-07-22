@@ -23,7 +23,7 @@
       "canonical_public_entrypoints_declared": true,
       "opt_in_activation_registry_complete": true,
       "compatibility_consumers_isolated": true,
-      "result_artifact_and_checkpoint_epochs_converged": false,
+      "result_artifact_and_checkpoint_epochs_converged": true,
       "single_owner_certification_command": false,
       "canonical_and_compatibility_test_suites_separated": false,
       "all_supported_profiles_have_golden_resume_idempotency_and_tamper_evidence": false,
@@ -43,6 +43,7 @@
   },
   "evidence_refs": [
     "docs/research/reliability/rd-replay-capability-inventory.json",
+    "docs/research/reliability/rd-replay-evidence-epoch-registry.json",
     "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle/CONTRACT.md",
     "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle/src/lib/legacy-portfolio-cycle-boundary.test.ts",
     "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-decision-harness-worker-v10-cutover-receipt.ts",
