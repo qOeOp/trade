@@ -1,5 +1,7 @@
 # Replay Reference Engine
 
+M4-P28 slice 4 adds one read-only Portfolio risk projector over certified combined Lane Results. Result Fill/Position/Ledger/Trial Balance remains the sole economic authority；the projector validates Request、Artifact、partial/replacement activation lineage，then separates immutable historical admission risk from current replacement-stop risk on the ending quantity. It aggregates settled/available cash、live isolated-collateral account、NAV and long/short gross/net exposure without re-reading bars or selecting a terminal owner. Older P19/P27 matchers and consumers remain unchanged.
+
 M4-P28 slice 3 adds no matcher. Golden evidence composes the current protection reducer with every bounded terminal owner：generation-3/4 former stop stays cancelled, replacement stop competes with the preserved target under the frozen conservative collision policy, final strategy exit cancels both current siblings, exact liquidation retains phase-15 priority, and end-of-data marks the remaining Position without a synthetic Fill.
 
 M4-P28 slice 2 certifies the existing causal quantity reducer rather than adding a second accounting path. Funding phase 10 observes the Position before same-time bar-open partial mutation；later Funding and exact Mark/Margin observe the latest completed partial quantity, and a post-replacement maintenance breach liquidates only that remaining signed Position. Four official Lane cases cover long/short and one/two partials；wire and simulator versions remain unchanged because the economic output algorithm did not change.

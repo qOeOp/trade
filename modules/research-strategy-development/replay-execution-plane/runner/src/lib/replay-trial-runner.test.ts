@@ -73,6 +73,15 @@ import {
   type ReplayRegisteredDecisionHarness,
 } from "./replay-decision-harness"
 import { buildReplayDecisionHarness, executeReplayDecisionHarnessWorker } from "./replay-decision-harness-build"
+import {
+  executeReplayPortfolioPostPartialStopReplacementRisk,
+  type ReplayPortfolioPostPartialStopReplacementRiskLane,
+} from "../../../engine/src/lib/replay-portfolio-post-partial-stop-replacement-risk-engine"
+import {
+  assertReplayPortfolioPostPartialStopReplacementRiskEvidence,
+  replayPortfolioPostPartialStopReplacementRiskEvidenceHash,
+  replayPortfolioPostPartialStopReplacementRiskRecordHash,
+} from "../../../contracts/src/lib/replay-portfolio-post-partial-stop-replacement-risk-contracts"
 
 const HASH = "b".repeat(64)
 const PROVIDER_CERTIFICATION = createReplayInstrumentStatusProviderCertificationSnapshot({
@@ -2817,6 +2826,8 @@ test("post-partial stop replacement preserves t-minus funding and exact-risk qua
     "2026-07-14T20:00:00Z", "2026-07-15T00:00:00Z", "2026-07-15T04:00:00Z",
     "2026-07-15T08:00:00Z", "2026-07-15T12:00:00Z",
   ].map((timestamp) => ({ timestamp, rate: 0.0001, mark_price: 100 }))
+  const portfolioArtifactRoot = mkdtempSync(join(tmpdir(), "rd-post-partial-stop-risk-"))
+  const portfolioLanes: ReplayPortfolioPostPartialStopReplacementRiskLane[] = []
 
   for (const side of ["long", "short"] as const) {
     for (const partialCount of [1, 2] as const) {
@@ -2920,7 +2931,7 @@ export function execute({ request_context, decision_state_snapshot }) {
         mark_event_count: markEvents.length,
       }
       const outcome = runReplayTrial({
-        ...authorized(requestValue), dataset_manifest: manifest,
+        ...authorized(requestValue), artifact_root: portfolioArtifactRoot, dataset_manifest: manifest,
         bars: riskBars, funding_events: fundingEvents, mark_events: markEvents,
         decision_harness_registry: registeredHarness.registry,
       })
@@ -2953,6 +2964,36 @@ export function execute({ request_context, decision_state_snapshot }) {
         signed_quantity: signed * remaining, mark_price: triggerMark, resolution: "exact",
       })
       expect(() => assertReplayResultPositionRiskBindings(result)).not.toThrow()
+      portfolioLanes.push({
+        lane_id: `${side}-${partialCount}-flat`, price_increment: ACCOUNTING.price_increment,
+        settlement_increment: ACCOUNTING.settlement_increment, request: requestValue,
+        result, artifact_manifest: outcome.artifact_manifest!,
+      })
+
+      const safeMarks = markEvents.map((mark) => ({ ...mark, mark_price: 100 }))
+      const safeHash = replayDatasetHash(riskBars, fundingEvents, safeMarks)
+      const openRequest: ReplayExecutionRequest = {
+        ...requestValue,
+        run_id: `post-partial-risk-open-${side}-${partialCount}`,
+        idempotency_key: `post-partial-risk-open-idem-${side}-${partialCount}`,
+        dataset_hash: safeHash,
+      }
+      const openOutcome = runReplayTrial({
+        ...authorized(openRequest), artifact_root: portfolioArtifactRoot,
+        dataset_manifest: { ...manifest, data_hash: safeHash },
+        bars: riskBars, funding_events: fundingEvents, mark_events: safeMarks,
+        decision_harness_registry: registeredHarness.registry,
+      })
+      expect(openOutcome.failure).toBeUndefined()
+      expect(openOutcome.result).toMatchObject({
+        equity_bridge: { terminal_position_state: "open" },
+        valuation_snapshot: { signed_quantity: signed * remaining },
+      })
+      portfolioLanes.push({
+        lane_id: `${side}-${partialCount}-open`, price_increment: ACCOUNTING.price_increment,
+        settlement_increment: ACCOUNTING.settlement_increment, request: openRequest,
+        result: openOutcome.result!, artifact_manifest: openOutcome.artifact_manifest!,
+      })
 
       const fundingQuantityTampered = structuredClone(result)
       const lastFundingMargin = [...fundingQuantityTampered.margin_snapshots].reverse()
@@ -2966,6 +3007,67 @@ export function execute({ request_context, decision_state_snapshot }) {
         .toThrow("Liquidation does not consume the exact breached Position quantity")
     }
   }
+
+  const portfolio = executeReplayPortfolioPostPartialStopReplacementRisk({
+    portfolio_id: "post-partial-stop-replacement-risk-portfolio",
+    settlement_asset: "USDT",
+    lanes: portfolioLanes,
+  })
+  expect(portfolio).toMatchObject({
+    initial_cash: 8000,
+    open_lane_count: 4,
+    flat_lane_count: 4,
+    ending_reserved_isolated_collateral: 56,
+    historical_admission_frozen_stop_risk: 160,
+    ending_reserved_admission_risk: 80,
+    total_risk_budget_released: 80,
+    ending_current_active_stop_bounded_risk: 22,
+    ending_gross_mark_exposure: 220,
+    ending_net_mark_exposure: 0,
+  })
+  expect(portfolio.ending_available_cash).toBe(
+    Number((portfolio.ending_settled_cash - portfolio.ending_reserved_isolated_collateral).toFixed(8)),
+  )
+  expect(portfolio.ending_portfolio_nav).toBe(
+    Number((portfolio.ending_settled_cash + portfolio.ending_unrealized_pnl).toFixed(8)),
+  )
+  expect(portfolio.lane_records.filter((record) => record.terminal_state === "open_at_data_end")
+    .map((record) => [record.side, record.partial_count,
+      record.historical_admission_frozen_stop_risk_amount,
+      record.ending_current_active_stop_bounded_risk_amount])).toEqual([
+    ["long", 1, 20, 7], ["long", 2, 20, 4], ["short", 1, 20, 7], ["short", 2, 20, 4],
+  ])
+
+  const rehashedRiskTamper = structuredClone(portfolio)
+  rehashedRiskTamper.lane_records[0]!.ending_current_active_stop_bounded_risk_amount += 1
+  rehashedRiskTamper.lane_records[0]!.record_hash =
+    replayPortfolioPostPartialStopReplacementRiskRecordHash(rehashedRiskTamper.lane_records[0]!)
+  rehashedRiskTamper.lane_records_hash = canonicalHash(rehashedRiskTamper.lane_records)
+  rehashedRiskTamper.ending_current_active_stop_bounded_risk += 1
+  rehashedRiskTamper.fingerprint_hash = canonicalHash({
+    portfolio_id: rehashedRiskTamper.portfolio_id,
+    settlement_asset: rehashedRiskTamper.settlement_asset,
+    source_lane_bindings_hash: rehashedRiskTamper.source_lane_bindings_hash,
+    lane_records_hash: rehashedRiskTamper.lane_records_hash,
+    limitations: rehashedRiskTamper.limitations,
+  })
+  rehashedRiskTamper.evidence_hash =
+    replayPortfolioPostPartialStopReplacementRiskEvidenceHash(rehashedRiskTamper)
+  expect(() => assertReplayPortfolioPostPartialStopReplacementRiskEvidence(rehashedRiskTamper))
+    .toThrow("risk record drift")
+
+  const resultTamperedLane = structuredClone(portfolioLanes.find((lane) => lane.lane_id === "long-2-open")!)
+  resultTamperedLane.result.trial_balance.isolated_margin_collateral_balance = 9
+  expect(() => executeReplayPortfolioPostPartialStopReplacementRisk({
+    portfolio_id: "tampered-collateral", settlement_asset: "USDT", lanes: [resultTamperedLane],
+  })).toThrow("cash/collateral drift")
+
+  const lineageTamperedLane = structuredClone(portfolioLanes.find((lane) => lane.lane_id === "short-1-open")!)
+  lineageTamperedLane.result.order_events = lineageTamperedLane.result.order_events.filter((event) =>
+    !(event.order_id.includes("stop-replacement") && event.kind === "activated"))
+  expect(() => executeReplayPortfolioPostPartialStopReplacementRisk({
+    portfolio_id: "tampered-lineage", settlement_asset: "USDT", lanes: [lineageTamperedLane],
+  })).toThrow("replacement activation drift")
 }, 20_000)
 
 test("runner tightens one protective stop and resumes without replaying its Harness", () => {
