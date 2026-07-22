@@ -4,9 +4,11 @@ import { canonicalHash, canonicalJson } from "../../../../contracts/runtime-core
 import { asRecord, numberField, stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
 import { ensureAggregateTradeArchiveSchema } from "./aggregate-trade-archive"
 import { ensureL2EpochManifestSchema } from "./l2-epoch-manifest"
+import { ensureL2AdmissionObservationSchema } from "./l2-admission-reconciler"
 
 export * from "./aggregate-trade-archive"
 export * from "./l2-epoch-manifest"
+export * from "./l2-admission-reconciler"
 
 export const INSTRUMENT_STATUS_ARCHIVE_SCHEMA_VERSION = "trade.market-data-instrument-status-archive.v3" as const
 export const INSTRUMENT_STATUS_SOURCE_BATCH_SCHEMA_VERSION = "trade.market-data-instrument-status-source-batch.v2" as const
@@ -220,6 +222,7 @@ export function ensureMarketDataSchema(db: Database): void {
   configureSqliteConnection(db)
   ensureAggregateTradeArchiveSchema(db)
   ensureL2EpochManifestSchema(db)
+  ensureL2AdmissionObservationSchema(db)
   db.run(`
     CREATE TABLE IF NOT EXISTS market_manifest (
       manifest_id     TEXT PRIMARY KEY,

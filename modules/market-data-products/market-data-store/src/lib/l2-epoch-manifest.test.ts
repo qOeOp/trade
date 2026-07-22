@@ -8,6 +8,7 @@ import test from "node:test"
 import {
   admitL2EpochManifest,
   ensureMarketDataSchema,
+  reconcileL2EpochManifests,
   readL2EpochManifest,
   type L2EpochManifestProposal,
 } from "./market-data-store"
@@ -68,6 +69,50 @@ test("L2 owner rejects a different manifest for an admitted stream epoch", () =>
   } finally {
     db.close()
     fixture.cleanup()
+  }
+})
+
+test("L2 owner reconciler admits once and preserves stable rejection observations", () => {
+  const complete = createFixture()
+  const incomplete = createFixture({ continuity_status: "incomplete", stream_epoch: "2000-0001" })
+  const db = new Database(":memory:")
+  ensureMarketDataSchema(db)
+  try {
+    const first = reconcileL2EpochManifests(db, {
+      repository_root: complete.root,
+      scan_roots: ["data/l2"],
+      observed_at: "2026-07-22T00:00:00Z",
+    })
+    assert.equal(first.created, 1)
+    assert.equal(first.rejected_invalid, 0)
+    const second = reconcileL2EpochManifests(db, {
+      repository_root: complete.root,
+      scan_roots: ["data/l2"],
+      observed_at: "2026-07-22T00:01:00Z",
+    })
+    assert.equal(second.unchanged, 1)
+
+    const rejected = reconcileL2EpochManifests(db, {
+      repository_root: incomplete.root,
+      scan_roots: ["data/l2"],
+      observed_at: "2026-07-22T00:02:00Z",
+    })
+    assert.equal(rejected.rejected_incomplete, 1)
+    assert.match(rejected.problems[0]?.reason ?? "", /only complete/)
+    const unchanged = reconcileL2EpochManifests(db, {
+      repository_root: incomplete.root,
+      scan_roots: ["data/l2"],
+      observed_at: "2026-07-22T00:03:00Z",
+    })
+    assert.equal(unchanged.unchanged, 1)
+    const observation = db.query(`
+      SELECT observation_count FROM l2_epoch_admission_observation WHERE outcome = 'rejected_incomplete'
+    `).get() as { observation_count: number }
+    assert.equal(observation.observation_count, 2)
+  } finally {
+    db.close()
+    complete.cleanup()
+    incomplete.cleanup()
   }
 })
 

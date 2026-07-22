@@ -21,6 +21,7 @@ import {
   readInstrumentStatusArchive,
   readLatestCandleOpenTime,
   readL2EpochManifest,
+  reconcileL2EpochManifests,
   readMarketManifest,
   upsertCanonicalCandles,
   upsertFeatureManifest,
@@ -85,6 +86,20 @@ export function run(args: Args): JSONRecord {
         admitted_at: stringField(args.json.admitted_at) || undefined,
       })
       return { ok: true, action: args.action, ...result }
+    }
+    if (args.action === "reconcile_l2_epoch_manifests") {
+      const scanRoots = Array.isArray(args.json.scan_roots)
+        ? args.json.scan_roots.map((value) => stringField(value)).filter(Boolean)
+        : [stringField(args.json.scan_root) || "data/l2"]
+      return {
+        ok: true,
+        action: args.action,
+        result: reconcileL2EpochManifests(db, {
+          repository_root: repoRoot(),
+          scan_roots: scanRoots,
+          observed_at: stringField(args.json.observed_at) || undefined,
+        }),
+      }
     }
     if (args.action === "upsert_candles") {
       return withOhlcvDb(args.ohlcvDbPath, (ohlcvDb) => ({
@@ -201,7 +216,7 @@ export function run(args: Args): JSONRecord {
 function printHelp(): void {
   console.log([
     "usage: bun src/scripts/main.ts --db data/market_data.db --ohlcv-db data/ohlcv.db --action init",
-    "actions: init | upsert_manifest | admit_l2_epoch_manifest | upsert_candles | upsert_funding | upsert_feature_manifest | commit_instrument_status_archive | read_manifest | read_l2_epoch_manifest | read_funding | read_instrument_status_acquisition_receipt | read_instrument_status_archive | read_latest_candle | read_candles | read_feature_manifest | list_feature_manifests",
+    "actions: init | upsert_manifest | admit_l2_epoch_manifest | reconcile_l2_epoch_manifests | upsert_candles | upsert_funding | upsert_feature_manifest | commit_instrument_status_archive | read_manifest | read_l2_epoch_manifest | read_funding | read_instrument_status_acquisition_receipt | read_instrument_status_archive | read_latest_candle | read_candles | read_feature_manifest | list_feature_manifests",
   ].join("\n"))
 }
 
