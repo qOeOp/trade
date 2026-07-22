@@ -28,6 +28,16 @@ test("ops runtime store CLI initializes and returns cycle summary", () => {
       JSON.stringify({ cycle_id: "cycle-cli" }),
     ])) as { summary: { cycle: { cycle_id: string } } }
     assert.equal(summary.summary.cycle.cycle_id, "cycle-cli")
+    const parityStatus = run(parseArgs([
+      "--db",
+      dbPath,
+      "--action",
+      "parity_status",
+      "--json",
+      JSON.stringify({ as_of: "2026-07-11T00:00:00Z" }),
+    ])) as { parity_status: { observation_state: string; supervisor_lease: { state: string } } }
+    assert.equal(parityStatus.parity_status.observation_state, "no_evidence")
+    assert.equal(parityStatus.parity_status.supervisor_lease.state, "absent")
     const recorded = run(parseArgs([
       "--db",
       dbPath,
