@@ -117,7 +117,7 @@ M4/M5 都相对于**声明的能力包络**，不要求伪造不可能证明的�
 
 ## 11. P1–P29 归并基线
 
-[Capability Inventory](../reliability/rd-replay-capability-inventory.json) 冻结全部 29 条纵切：13 条进入目标 canonical 实现/入口，12 条保留为显式 opt-in，4 条只作 compatibility，当前没有未经 dependency proof 即可删除的 obsolete 条目。该分类是迁移起点，不代表 29 套公共 API。canonical 公共面只允许四个 Runner owner 入口：
+[Capability Inventory](../reliability/rd-replay-capability-inventory.json) 冻结全部 29 条纵切：14 条进入目标 canonical 实现/入口，12 条保留为显式 opt-in，3 条只作 compatibility，当前没有未经 dependency proof 即可删除的 obsolete 条目。P12 是后续 terminal-aware/opt-in cycle runners 仍在复用的 bounded-sequence 原语，不能误判为 compatibility；P10、P11、P13 才是当前历史读回/迁移对象。该分类是迁移起点，不代表 29 套公共 API。canonical 公共面只允许四个 Runner owner 入口：
 
 | Profile | 唯一入口 |
 | --- | --- |
