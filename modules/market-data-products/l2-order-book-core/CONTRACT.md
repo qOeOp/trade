@@ -1,6 +1,8 @@
 # L2 Order Book Core Contract
 
-Same-domain internal engine shared by the L2 evidence harness and production owner.
+## Type
+
+same-domain deterministic Rust engine / no CLI
 
 ## Owns
 
@@ -9,11 +11,22 @@ Same-domain internal engine shared by the L2 evidence harness and production own
 - Canonical current-book hash and bounded level accounting.
 - TL2S v1 frame encoding, crash-safe finalize, valid-prefix recovery, and rotating segments.
 
+## Inputs
+
+- Binance depth snapshot and normalized depth-update values supplied by callers.
+- Bounded level capacity、TL2S payload bytes、segment rotation and sync parameters.
+
+## Outputs
+
+- Deterministic book projection、sequence decision、canonical book hash and bounded snapshots.
+- Finalized/recovered TL2S segment descriptors；filesystem bytes remain caller-owned evidence.
+
 ## Boundaries
 
 - No network, runtime lifecycle, gRPC, Kafka, database, strategy, LLM, or exchange write.
 - Does not decide whether an incident should reconnect, stop, or alert; callers own policy.
 - Does not admit market-data manifests or become a historical-data authority.
+- `l2-recorder-bakeoff` is a consumer/certification harness；network、soak and process lifecycle remain outside this core.
 - Schema or sequence changes require fixture parity in `l2-recorder-bakeoff` and production tests.
 
 ## Checks
