@@ -12,6 +12,8 @@ contract module
 - Lifecycle processor spec / record helpers shared by control tower and domain runtime integrations.
 - Owner tool registry resolver for `toolset.json` entries.
 - UTC timestamp helper.
+- Shared fail-closed CLI JSON / flag parsing and response printing.
+- Normalized subprocess tool result envelope for orchestrators.
 
 ## Boundaries
 
