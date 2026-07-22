@@ -1,5 +1,6 @@
 import { factorConditionsToJson, passesFactorConditions, readFactorConditions, type FactorCondition } from "../factor-engine"
-import type { Candle, IndicatorSet, ReplaySignal, ReplayStrategy } from "../../../../../../replay-execution-plane/compatibility/legacy-research-kernel/src/lib/replay-core"
+import type { IndicatorSet, ReplaySignal, ReplayStrategy } from "../../../../../../replay-execution-plane/compatibility/legacy-research-kernel/src/lib/replay-core"
+import type { Candle } from "../../../../../../replay-execution-plane/compatibility/legacy-research-data/src/lib/legacy-research-data"
 import type { RndFamilyModule } from "../rnd-family"
 import {
   readBoolean,
