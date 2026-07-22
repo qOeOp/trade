@@ -1,0 +1,43 @@
+{
+  "schema_version": "trade.rd-replay-historical-artifact-migration.v1",
+  "owner": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification",
+  "reader_owner": "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle",
+  "certification_owner": "modules/research-strategy-development/replay-execution-plane/certification/legacy-portfolio-cycle-certification",
+  "migration_policy": "read-only-summary-no-writer-no-authority-rewrite",
+  "historical_artifacts": [
+    {
+      "milestone": "M4-P10",
+      "manifest_schema_version": "trade.rd-replay-portfolio-reallocation-artifact-manifest.v1",
+      "primary_schema_version": "trade.rd-replay-portfolio-reallocation-result.v1",
+      "manifest_name": "portfolio-reallocation-artifact-manifest.json",
+      "primary_role": "reallocation_result",
+      "artifact_roles": ["reallocation_plan", "reallocation_reservation", "predecessor_integrated_result", "predecessor_artifact_manifest", "cycle_2_allocation_plan", "cycle_2_allocation_result", "reallocation_result"]
+    },
+    {
+      "milestone": "M4-P11",
+      "manifest_schema_version": "trade.rd-replay-two-cycle-portfolio-artifact-manifest.v1",
+      "primary_schema_version": "trade.rd-replay-two-cycle-portfolio-result.v1",
+      "manifest_name": "two-cycle-portfolio-artifact-manifest.json",
+      "primary_role": "two_cycle_result",
+      "artifact_roles": ["two_cycle_plan", "cycle_1_integrated_result", "cycle_1_artifact_manifest", "cycle_2_reallocation_result", "cycle_2_reallocation_manifest", "cycle_2_allocation_plan", "cycle_2_allocation_result", "cycle_2_risk_plan", "cycle_2_risk_reservation", "cycle_2_risk_result", "cycle_2_portfolio_evidence", "two_cycle_state_chain", "two_cycle_fingerprint", "two_cycle_result"]
+    },
+    {
+      "milestone": "M4-P13",
+      "manifest_schema_version": "trade.rd-replay-portfolio-cycle-sequence-accounting-artifact-manifest.v1",
+      "primary_schema_version": "trade.rd-replay-portfolio-cycle-sequence-accounting-evidence.v1",
+      "manifest_name": "portfolio-cycle-sequence-accounting-artifact-manifest.json",
+      "primary_role": "consolidated_accounting_evidence",
+      "artifact_roles": ["sequence_result", "sequence_artifact_manifest", "cycle_accounting_evidence", "consolidated_ledger", "consolidated_journal", "consolidated_trial_balance", "consolidated_fingerprint", "consolidated_accounting_evidence"]
+    }
+  ],
+  "reader_path": "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle/src/lib/replay-historical-artifact-reader.ts",
+  "reader_source_sha256": "bbed31bfda028d9850f33990ebc085fbfa90bba4ff1702d29f1268a69c38a8b1",
+  "certification_test_path": "modules/research-strategy-development/replay-execution-plane/certification/legacy-portfolio-cycle-certification/src/lib/legacy-portfolio-cycle-certification.test.ts",
+  "certification_test_source_sha256": "49ac6932fb642d5b8f5048d83b01841a460f85598880bf7f43187144f727a523",
+  "limitations": [
+    "historical-p10-p11-p13-only",
+    "generated-versioned-fixtures-not-production-writer-reactivation",
+    "read-model-is-not-current-result-artifact-or-runtime-authority"
+  ],
+  "registry_sha256": "251da8ed7af8daa0b72ed607a83b10c5dc275f34d18b9696b6ebcad6b9508211"
+}

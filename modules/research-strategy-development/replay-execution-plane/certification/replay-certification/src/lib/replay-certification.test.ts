@@ -17,6 +17,10 @@ import {
   loadReplayCrossProcessReproducibilityBundle,
   runReplayCrossProcessReproducibilityBundle,
 } from "./replay-cross-process-reproducibility"
+import {
+  assertReplayHistoricalArtifactMigrationRegistry,
+  loadReplayHistoricalArtifactMigrationRegistry,
+} from "./replay-historical-artifact-migration"
 
 describe("Replay certification owner", () => {
   const repoRoot = findReplayCertificationRepoRoot()
@@ -106,5 +110,20 @@ describe("Replay certification owner", () => {
       loadReplayProfileEvidenceManifest(repoRoot),
       repoRoot,
     )).toThrow("entrypoint source drifted")
+  })
+
+  test("freezes the read-only P10/P11/P13 historical Artifact migration", () => {
+    const registry = loadReplayHistoricalArtifactMigrationRegistry(repoRoot)
+    expect(() => assertReplayHistoricalArtifactMigrationRegistry(registry, repoRoot)).not.toThrow()
+    expect(registry.historical_artifacts.map((entry) => entry.milestone)).toEqual([
+      "M4-P10", "M4-P11", "M4-P13",
+    ])
+  })
+
+  test("rejects historical Artifact reader drift", () => {
+    const registry = structuredClone(loadReplayHistoricalArtifactMigrationRegistry(repoRoot))
+    registry.reader_source_sha256 = "0".repeat(64)
+    expect(() => assertReplayHistoricalArtifactMigrationRegistry(registry, repoRoot))
+      .toThrow("reader source drifted")
   })
 })
