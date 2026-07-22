@@ -9,7 +9,7 @@
     "name": "bounded-post-partial-tighten-only-stop-replacement-end-to-end",
     "status": "in_progress",
     "functional_commit_budget": 8,
-    "functional_commits_used": 2
+    "functional_commits_used": 3
   },
   "policy": {
     "zero_instance_progress_forbidden": true,
@@ -32,10 +32,10 @@
     "evidence": {
       "long_short_one_and_two_partial_then_replacement_execution": true,
       "replacement_boundary_current_protection_and_terminal_preemption": true,
-      "former_stop_unreachable_and_preserved_target_collision_policy": false,
+      "former_stop_unreachable_and_preserved_target_collision_policy": true,
       "funding_before_between_and_after_mutations_uses_t_minus_quantity": true,
-      "post_replacement_stop_target_strategy_exit_liquidation_and_open_ownership": false,
-      "generation_quantity_trigger_and_lineage_tamper_fail_closed": false,
+      "post_replacement_stop_target_strategy_exit_liquidation_and_open_ownership": true,
+      "generation_quantity_trigger_and_lineage_tamper_fail_closed": true,
       "clean_resume_parity_without_duplicate_partial_or_replacement_effects": true,
       "portfolio_cash_collateral_exposure_and_risk_conservation": false,
       "four_cycle_cash_owner_and_current_risk_bridge": false,
