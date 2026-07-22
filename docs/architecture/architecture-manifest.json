@@ -161,6 +161,7 @@
         "modules/research-strategy-development/agent-roles/planner/strategy-hypothesis-designer",
         "modules/research-strategy-development/research-control-plane/strategy-policy-writer",
         "modules/research-strategy-development/research-control-plane/certification/legacy-integration-suite",
+        "modules/research-strategy-development/research-control-plane/certification/replay-release-audit",
         "modules/research-strategy-development/research-control-plane/evidence-registry",
         "modules/research-strategy-development/agent-roles/developer/strategy-contract-compile",
         "modules/research-strategy-development/research-control-plane/contract-lint",
