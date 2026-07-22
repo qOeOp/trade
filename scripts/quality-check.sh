@@ -42,6 +42,8 @@ check_secrets() {
 
 check_toolset_manifest() {
   require_cmd bun
+  log "quality judge regression"
+  bun test ./scripts/*.test.ts >/dev/null
   log "doc contracts"
   bun scripts/check-doc-contracts.ts >/dev/null
   log "toolset manifest"
