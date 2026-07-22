@@ -12,6 +12,7 @@ Owns `ops_runtime_store`, the orchestration observability store for cycle, job, 
 - Own ops locks, heartbeat renewal, and monotonic fencing generations used by runtime supervisors.
 - Report whether an acquisition recovered an expired active row; clean release preserves generation history without preserving active ownership.
 - Record immutable Agent/program parity observations, including both canonical projection hashes and diagnostic projections; a repeated observation id is accepted only when byte-equivalent after row decoding.
+- Expose a compact read-only parity status projection with aggregate counts, latest hashes, and fenced supervisor lease state; omit holder identity and diagnostic detail.
 
 ## Boundaries
 

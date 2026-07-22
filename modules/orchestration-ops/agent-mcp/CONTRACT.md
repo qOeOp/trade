@@ -5,7 +5,7 @@
 ## Responsibilities
 
 - 提供 toolset 能力搜索与单项读取。
-- 提供 artifact catalog 查询、按 ID 的哈希校验正文读取、Market Data owner exact / bounded-page L2 retention/reference 审计、active L2 service health、resident book-watch consumer health、RD program 状态读取和 ops cycle 摘要读取。
+- 提供 artifact catalog 查询、按 ID 的哈希校验正文读取、Market Data owner exact / bounded-page L2 retention/reference 审计、active L2 service health、resident book-watch consumer health、runtime parity 状态、RD program 状态和 ops cycle 摘要读取。
 - 提供 RD memory + Control Plane 的只读 designer brief、hypothesis contract 校验/queue projection，以及 J04 研发任务的幂等提交、状态读取与终态结果读取。
 - 固定调用目标、参数结构、超时和输出上限。
 - 将 MCP 请求适配到既有 Owner CLI，不复制领域逻辑。
@@ -24,6 +24,7 @@
 - `l2_retention_reference_audit_page` 只转发可选 `after_epoch_id` 与 `limit<=50`；游标排序、page hash、状态计数和无删除候选结论全部由 Market Data owner 生成。
 - `l2_service_health` 无输入，只调用固定 L2 owner 脚本；不暴露 PID、receipt/log 路径或 lifecycle control，并在多 active supervisor 时继承 owner 的 fail-closed 结果。
 - `l2_book_watch_consumer_health` 无输入，只调用固定 resident consumer owner read；仅返回 readiness、latest epoch/hash/timestamps 与累计 reliability counters，不提供 depth delivery、策略信号、PID/路径或 lifecycle control。
+- `runtime_parity_status` 无输入，只读取 ops owner 的累计 match/mismatch、最新双侧 hash 与 supervisor lease state；不返回 holder/PID/path/detail projection，不生成 cutover verdict。
 - 同一 `request_id` 幂等；经 MCP 提交的研发任务共享带过期时间的 `research-rd` 锁。
 - status/result 以 J04 状态为任务语义，并单独返回聚合 `cycle_status`；例如 J04=`blocked` 不会被 cycle=`failed` 覆盖。
 - toolset 搜索结果只表示能力发现，不构成执行授权。
@@ -35,6 +36,6 @@
 bun modules/orchestration-ops/agent-mcp/src/scripts/main.ts
 ```
 
-MCP host 必须以 stdio 启动该命令。当前只注册：`trade_tool_search`、`trade_tool_read`、`artifact_catalog_query`、`artifact_read`、`l2_retention_reference_audit`、`l2_retention_reference_audit_page`、`l2_service_health`、`l2_book_watch_consumer_health`、`rd_program_read`、`ops_cycle_summary`、`research_hypothesis_brief`、`research_hypothesis_prepare`、`research_job_submit`、`research_job_status`、`research_job_result`。
+MCP host 必须以 stdio 启动该命令。当前只注册：`trade_tool_search`、`trade_tool_read`、`artifact_catalog_query`、`artifact_read`、`l2_retention_reference_audit`、`l2_retention_reference_audit_page`、`l2_service_health`、`l2_book_watch_consumer_health`、`runtime_parity_status`、`rd_program_read`、`ops_cycle_summary`、`research_hypothesis_brief`、`research_hypothesis_prepare`、`research_job_submit`、`research_job_status`、`research_job_result`。
 
 可信仓库中的 Codex 会从 `.codex/config.toml` 加载 `trade-agent`；修改配置后需新建任务或重启当前 Codex 客户端，再用 `/mcp` 或 `codex mcp list` 检查连接。
