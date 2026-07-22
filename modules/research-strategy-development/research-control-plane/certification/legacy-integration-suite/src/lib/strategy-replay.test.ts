@@ -4,7 +4,8 @@ import { join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { evaluateReplayGate, replayStrategy, replayTrendPullback } from "../../../../../replay-execution-plane/compatibility/legacy-research-kernel/src/lib/strategy-replay"
+import { evaluateReplayGate, replayStrategy } from "../../../../../replay-execution-plane/compatibility/legacy-research-kernel/src/lib/strategy-replay"
+import { replayTrendPullbackFixture } from "../../../../../replay-execution-plane/compatibility/legacy-research-strategy-fixture/src/lib/legacy-research-strategy-fixture"
 import { detectReplayDecisionLookahead, evaluateLatestSignal } from "../../../../../replay-execution-plane/compatibility/legacy-research-decision/src/lib/legacy-research-decision"
 import { simulateReplayOrderLane } from "../../../../../replay-execution-plane/compatibility/legacy-research-order-lane/src/lib/legacy-research-order-lane"
 import type { ReplayStrategy } from "../../../../../replay-execution-plane/compatibility/legacy-research-contracts/src/lib/legacy-research-contracts"
@@ -20,7 +21,7 @@ test("parseCsvCandles reads OHLCV rows", () => {
   assert.equal(candles[0].close, 105)
 })
 
-test("replayTrendPullback produces mechanical samples from manifest", () => {
+test("replayTrendPullbackFixture produces mechanical samples from manifest", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-replay-"))
   try {
     const candles = buildSyntheticTrendCandles()
@@ -45,7 +46,7 @@ test("replayTrendPullback produces mechanical samples from manifest", () => {
       },
     }))
 
-    const result = replayTrendPullback({
+    const result = replayTrendPullbackFixture({
       manifestPath: join(dir, "manifest.json"),
       maxHoldBars: 8,
       rewardRisk: 1.5,

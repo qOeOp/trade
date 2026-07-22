@@ -3,7 +3,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
-import { replayRegisteredStrategy } from "../../../../../replay-execution-plane/compatibility/legacy-research-kernel/src/lib/strategy-replay"
+import { replayTrendPullbackFixture } from "../../../../../replay-execution-plane/compatibility/legacy-research-strategy-fixture/src/lib/legacy-research-strategy-fixture"
 import { runStrategyRndBatch } from "../../../../../agent-roles/developer/candidate-batch-engine/src/lib/strategy-rnd-batch"
 import { runStrategyRndLoop } from "../../../../../agent-roles/developer/rd-loop-runner/src/lib/rd-loop-runner"
 import { runStrategyRndCampaignWithDeps } from "../../../../../agent-roles/developer/rd-campaign-runner/src/lib/rd-campaign-runner"
@@ -15,7 +15,7 @@ test("replay result schema matches mechanical replay outer report", () => {
   assert.deepEqual(asArray(schema.required), ["strategy_id", "symbol", "timeframe", "sample_count", "win_rate", "avg_r", "total_r", "max_drawdown_r", "profit_factor", "expectancy_r", "gate", "trades", "assumptions", "provenance", "notes"])
   const dir = mkdtempSync(join(tmpdir(), "replay-schema-"))
   try {
-    const result = replayRegisteredStrategy({ manifestPath: writeManifest(dir), strategyId: "S-BTC-4H-TREND-PULLBACK" }) as unknown as JSONRecord
+    const result = replayTrendPullbackFixture({ manifestPath: writeManifest(dir), strategyId: "S-BTC-4H-TREND-PULLBACK" }) as unknown as JSONRecord
     assertSchemaRequired(schema, result)
     assert.equal(result.strategy_id, "S-BTC-4H-TREND-PULLBACK")
     assert.equal(result.symbol, "BTCUSDT")
