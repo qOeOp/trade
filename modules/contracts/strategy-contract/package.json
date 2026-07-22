@@ -9,7 +9,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "lint": "bun run typecheck",
-    "test": "if find src -name '*.test.ts' -type f | grep -q .; then bun test ./src/**/*.test.ts; else printf 'test: no test files\n'; fi",
+    "test": "bun test ./src/**/*.test.ts",
     "check": "bun run lint && bun run test"
   }
 }
