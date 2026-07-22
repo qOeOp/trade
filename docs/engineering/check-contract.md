@@ -12,7 +12,7 @@ last_verified: 2026-07-22 CST
 
 本文回答：改了哪里，最少跑什么。
 
-它不是 CI 设计，不新增 build system；只记录当前仓库可执行的检查入口。缺入口的地方先写明缺口，不伪装成已自动化。
+它记录本地与 CI 共用的可执行检查入口，不新增第二套 build system。缺入口的地方先写明缺口，不伪装成已自动化。
 
 ## 1. 通用规则
 
@@ -29,6 +29,10 @@ last_verified: 2026-07-22 CST
 | --- | --- | --- | --- |
 | `repo-whitespace` | repo root | `git diff --check` | 空白、冲突标记、尾随空格 |
 | `project-quality` | repo root | `scripts/quality-check.sh` | 提交前 secret / TS / Go / Rust / Python / shell / hygiene 总闸 |
+| `quality-judge-regression` | repo root | `bun test ./scripts/*.test.ts` | 用恶意反例证明架构、evidence、测试完整性审查 fail closed |
+| `package-test-integrity` | repo root | `bun scripts/check-package-tests.ts` | 生产 TS package 必须有 colocated 测试，且 test script 不得空跑成功 |
+| `zero-duplication` | repo root | `bun scripts/check-duplication.ts` | 六类源码在既定检测粒度下重复片段必须为 0 |
+| `ts-architecture-boundary` | repo root | `bun scripts/check-ts-tool-boundaries.ts` | 静态 package 边界、禁止动态逃逸 / eval、跨 package dependency cycle |
 | `secret-scan` | repo root | `bun scripts/check-secrets.ts` | tracked / unignored provider token、非空 SiliconFlow assignment 与 literal bearer credential |
 | `doc-contract-check` | repo root | `bun scripts/check-doc-contracts.ts` | 文档元数据、当前 contract index、历史状态、Markdown 相对链接、risk contract 与实际 Guard ID 对齐 |
 | `workspace-skill-check` | repo root | `sh scripts/check-workspace-skills.sh` | project-local skill 命名、frontmatter、placeholder 与领域实现边界 |
@@ -51,7 +55,7 @@ last_verified: 2026-07-22 CST
 | `signal-evaluator-check` | `modules/research-strategy-development/agent-roles/reviewer/signal-evaluator` | `bun run check` | latest closed-candle / post-freeze diagnostic signal |
 | `candidate-batch-check` | `modules/research-strategy-development/agent-roles/developer/candidate-batch` | `bun run check` | single-dataset / panel candidate evaluation CLI |
 | `candidate-batch-integration` | `modules/research-strategy-development/research-control-plane/certification/legacy-integration-suite` | `bun test ./src/lib/strategy-rnd.test.ts ./src/lib/strategy-rnd-inputs.test.ts` | candidate batch parser/evaluation integration coverage |
-| `benchmark-engine-check` | `modules/research-strategy-development/replay-execution-plane/compatibility/benchmark-engine` | `bun run check` | fixed benchmark / calibration semantics |
+| `replay-benchmark-check` | `modules/research-strategy-development/replay-execution-plane/benchmark` | `bun run check` | fixed benchmark / calibration calculation semantics |
 | `calibration-suite-check` | `modules/research-strategy-development/replay-execution-plane/certification/calibration-suite` | `bun run check` | calibration suite CLI |
 | `funding-governance-check` | `modules/research-strategy-development/research-control-plane/dataset-governance/funding-governance` | `bun run check` | funding coverage governance |
 | `strategy-contract-compile-check` | `modules/research-strategy-development/agent-roles/developer/strategy-contract-compile` | `bun run check` | strategy contract compile CLI |
@@ -98,7 +102,7 @@ last_verified: 2026-07-22 CST
 | research data split | `modules/research-strategy-development/research-control-plane/dataset-governance/data-split/src/**` | `data-split-check` |
 | research signal / forward diagnostic | `modules/research-strategy-development/agent-roles/developer/signal-engine/src/**`, `modules/research-strategy-development/agent-roles/reviewer/signal-evaluator/src/**`, `modules/research-strategy-development/agent-roles/developer/strategy-family-engine/src/**` | `signal-evaluator-check` + `rd-integration-suite-check` if candidate family semantics changed |
 | research candidate / panel evaluation | `modules/research-strategy-development/agent-roles/developer/candidate-batch/src/**`, `modules/research-strategy-development/agent-roles/developer/candidate-batch-engine/src/**` | `candidate-batch-check` + `candidate-batch-integration`; add `rd-integration-suite-check` while loop/campaign consume shared evaluation semantics |
-| research benchmark / calibration | `modules/research-strategy-development/replay-execution-plane/compatibility/benchmark-engine/src/**`, `modules/research-strategy-development/replay-execution-plane/certification/calibration-suite/src/**` | `benchmark-engine-check` + `calibration-suite-check`; add `rd-integration-suite-check` if funding governance consumes benchmark data helpers |
+| research benchmark / calibration | `modules/research-strategy-development/replay-execution-plane/benchmark/src/**`, `modules/research-strategy-development/replay-execution-plane/certification/calibration-suite/src/**` | `replay-benchmark-check` + `calibration-suite-check`; add `funding-governance-check` if shared funding coverage semantics change |
 | research funding governance | `modules/research-strategy-development/research-control-plane/dataset-governance/funding-governance/src/**` | `funding-governance-check` |
 | strategy contract compile/lint | `modules/contracts/strategy-contract/src/**`, `modules/research-strategy-development/research-control-plane/contract-lint/src/**`, `modules/research-strategy-development/agent-roles/developer/strategy-contract-compile/src/**` | `strategy-contract-compile-check` + `strategy-contract-lint-check` + `rd-integration-suite-check` if RD consumes compiled candidates |
 | strategy policy loader | `modules/contracts/strategy-policy/src/**` | `strategy-policy-check` + `strategy-review-check` + `trade-flow-check` if consumed paths changed |
@@ -138,6 +142,7 @@ last_verified: 2026-07-22 CST
 - 跨语言改动
 - 新增脚本、helper、tool 或测试入口
 - 发现 warning / error / formatter / 本机路径泄漏后修复完成
+- 修改 architecture manifest / blueprint、质量审查脚本、package 测试入口或共享抽象
 
 必须额外跑相关 tool 的 `bun run check`：
 
