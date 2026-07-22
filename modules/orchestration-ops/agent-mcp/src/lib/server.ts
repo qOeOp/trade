@@ -83,6 +83,39 @@ export function createTradeMcpServer(
     annotations: READ_ONLY_ANNOTATIONS,
   }, async ({ artifact_id, max_bytes }) => result(await service.readArtifact(artifact_id, max_bytes)))
 
+  server.registerTool("l2_retention_reference_audit", {
+    title: "Audit one L2 retention reference closure",
+    description: "Read one Market Data owner audit by exact epoch ID. It verifies registered referrer bindings and never grants deletion or GC authority.",
+    inputSchema: z.object({
+      epoch_id: z.string().trim().min(1).max(300),
+    }).strict(),
+    annotations: READ_ONLY_ANNOTATIONS,
+  }, async ({ epoch_id }) => result(await service.auditL2RetentionReference(epoch_id)))
+
+  server.registerTool("l2_retention_reference_audit_page", {
+    title: "List bounded L2 retention reference audits",
+    description: "Read one deterministic Market Data owner page ordered by epoch ID. Counts cover only the page and no deletion candidates are produced.",
+    inputSchema: z.object({
+      after_epoch_id: z.string().trim().min(1).max(300).optional(),
+      limit: z.number().int().min(1).max(50).default(20),
+    }).strict(),
+    annotations: READ_ONLY_ANNOTATIONS,
+  }, async (input) => result(await service.listL2RetentionReferenceAudits(input)))
+
+  server.registerTool("l2_service_health", {
+    title: "Read active L2 service health",
+    description: "Read the unique active supervisor and loopback Rust health through the L2 owner. Returns no process IDs, paths, or lifecycle control.",
+    inputSchema: z.object({}).strict(),
+    annotations: READ_ONLY_ANNOTATIONS,
+  }, async () => result(await service.readL2ServiceHealth()))
+
+  server.registerTool("l2_book_watch_consumer_health", {
+    title: "Read resident L2 book-watch consumer health",
+    description: "Read the unique resident consumer readiness, latest baseline identity, and aggregate reliability counters through its fixed owner. Returns no process IDs, paths, lifecycle control, depth stream, or economic authority.",
+    inputSchema: z.object({}).strict(),
+    annotations: READ_ONLY_ANNOTATIONS,
+  }, async () => result(await service.readL2BookWatchConsumerHealth()))
+
   server.registerTool("rd_program_read", {
     title: "Read R&D program state",
     description: "Read durable R&D program state through the research owner CLI without planning or mutation.",
