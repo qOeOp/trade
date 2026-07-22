@@ -9,7 +9,7 @@
     "name": "bounded-post-partial-tighten-only-stop-replacement-end-to-end",
     "status": "in_progress",
     "functional_commit_budget": 8,
-    "functional_commits_used": 1
+    "functional_commits_used": 2
   },
   "policy": {
     "zero_instance_progress_forbidden": true,
@@ -23,17 +23,17 @@
       "single_lane_one_or_two_partials_then_one_tighten_only_stop_replacement": true,
       "strict_post_final_partial_schedule_and_quantity_bounds": true,
       "monotonic_protection_generation_and_current_stop_lineage": true,
-      "quantity_aware_funding_mark_margin_and_liquidation_after_replacement": false,
+      "quantity_aware_funding_mark_margin_and_liquidation_after_replacement": true,
       "portfolio_historical_admission_and_current_stop_risk_separation": false,
       "owner_keyed_terminal_accounting_after_post_partial_replacement": false,
       "bounded_cycle_cash_roll_forward": false,
       "manifest_last_artifacts": false
     },
     "evidence": {
-      "long_short_one_and_two_partial_then_replacement_execution": false,
+      "long_short_one_and_two_partial_then_replacement_execution": true,
       "replacement_boundary_current_protection_and_terminal_preemption": true,
       "former_stop_unreachable_and_preserved_target_collision_policy": false,
-      "funding_before_between_and_after_mutations_uses_t_minus_quantity": false,
+      "funding_before_between_and_after_mutations_uses_t_minus_quantity": true,
       "post_replacement_stop_target_strategy_exit_liquidation_and_open_ownership": false,
       "generation_quantity_trigger_and_lineage_tamper_fail_closed": false,
       "clean_resume_parity_without_duplicate_partial_or_replacement_effects": true,
