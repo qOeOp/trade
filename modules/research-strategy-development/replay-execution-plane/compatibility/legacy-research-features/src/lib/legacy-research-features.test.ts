@@ -22,6 +22,10 @@ test("preserves legacy EMA warmup and recurrence", () => {
 
 test("preserves legacy ATR and fixed indicator shape", () => {
   assert.equal(atr(candles, 3)[2], 2)
+  assert.equal(atr([
+    { ...candles[0], high: 2, low: 0, close: 1 },
+    { ...candles[1], high: 11, low: 9, close: 10 },
+  ], 1)[1], 10)
   const indicators = buildIndicators(candles)
   assert.deepEqual(Object.keys(indicators), ["ema20", "ema50", "ema200", "atr14"])
   assert.equal(indicators.atr14[13], 2)
