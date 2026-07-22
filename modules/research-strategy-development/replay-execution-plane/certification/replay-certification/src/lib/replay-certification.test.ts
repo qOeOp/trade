@@ -12,6 +12,11 @@ import {
   discoverReplayModuleConsumerClosure,
   loadReplayModuleConsumerClosureManifest,
 } from "./replay-module-consumer-closure"
+import {
+  assertReplayCrossProcessReproducibilityBundle,
+  loadReplayCrossProcessReproducibilityBundle,
+  runReplayCrossProcessReproducibilityBundle,
+} from "./replay-cross-process-reproducibility"
 
 describe("Replay certification owner", () => {
   const repoRoot = findReplayCertificationRepoRoot()
@@ -71,4 +76,35 @@ describe("Replay certification owner", () => {
     expect(() => assertReplayModuleConsumerClosureManifest(drifted, repoRoot))
       .toThrow("classify every production consumer edge")
   }, 15_000)
+
+  test("reproduces canonical Result and every public profile in distinct processes", async () => {
+    const bundle = loadReplayCrossProcessReproducibilityBundle(repoRoot)
+    const receipt = await runReplayCrossProcessReproducibilityBundle(
+      bundle,
+      loadReplayProfileEvidenceManifest(repoRoot),
+      repoRoot,
+    )
+    expect(receipt.bundle_sha256).toBe(bundle.bundle_sha256)
+    expect(receipt.canonical_result.member_process_ids[0])
+      .not.toBe(receipt.canonical_result.member_process_ids[1])
+    expect(receipt.canonical_result.input_hash)
+      .toBe(bundle.canonical_result_probe.expected_input_hash)
+    expect(receipt.canonical_result.result_hash)
+      .toBe(bundle.canonical_result_probe.expected_result_hash)
+    expect(receipt.profiles).toHaveLength(4)
+    expect(receipt.profiles.every((entry) =>
+      entry.process_ids[0] !== entry.process_ids[1]
+      && entry.exit_codes.every((code) => code === 0))).toBe(true)
+    expect(receipt.receipt_sha256).toHaveLength(64)
+  }, 60_000)
+
+  test("rejects reproducibility bundle tamper before process launch", () => {
+    const bundle = structuredClone(loadReplayCrossProcessReproducibilityBundle(repoRoot))
+    bundle.profiles[0]!.entrypoint_source_sha256 = "0".repeat(64)
+    expect(() => assertReplayCrossProcessReproducibilityBundle(
+      bundle,
+      loadReplayProfileEvidenceManifest(repoRoot),
+      repoRoot,
+    )).toThrow("entrypoint source drifted")
+  })
 })

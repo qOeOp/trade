@@ -11,6 +11,7 @@
     "lint": "bun run typecheck",
     "test": "bun test ./src/lib/*.test.ts",
     "check": "bun run lint && bun run test",
-    "certify": "bun src/scripts/main.ts --suite all"
+    "certify": "bun src/scripts/main.ts --suite all",
+    "reproducibility": "bun src/scripts/reproducibility.ts"
   }
 }
