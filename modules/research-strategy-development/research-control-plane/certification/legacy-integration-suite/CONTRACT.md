@@ -8,7 +8,7 @@ test module
 
 - Cross-module R&D integration tests.
 - Stable research output schema parity tests.
-- Regression coverage for RD runner, campaign, ledger, replay, signal, family, state, supervisor, and shadow tracker interactions.
+- Regression coverage for RD runner, campaign, ledger, replay, signal, family, state, and supervisor interactions.
 
 ## Inputs
 

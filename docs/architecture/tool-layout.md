@@ -71,7 +71,7 @@ Skill 可以说明如何调用既有 MCP / owner tool，但不能绕过 prefligh
 | `modules/research-strategy-development/agent-roles/developer/rd-loop-runner/` | RD loop runner | 单轮 R&D artifact、catalog、ledger、optional state writeback | campaign orchestration、strategy evidence、`trade.db`、Binance 写接口 |
 | `modules/research-strategy-development/research-control-plane/program-control/` | RD memory state | init/read/update/plan_next durable R&D state | R&D trial execution、strategy evidence、`trade.db`、Binance 写接口 |
 | `modules/research-strategy-development/research-control-plane/program-supervisor/` | RD supervisor | plan_next -> loop/campaign -> state writeback; delegates strategy markdown shape to policy writer | `trade.db`、Binance 写接口、strategy review、promotion |
-| `modules/research-strategy-development/forward-evidence-plane/compatibility/rd-shadow-tracker/` | RD paper tracker | forward setup event chain and review draft input | R&D search、strategy evidence、`trade.db`、Binance 写接口 |
+| `modules/research-strategy-development/forward-evidence-plane/paper-tracker/` | Forward paper tracker | J05 setup event chain、paper artifact、review draft input | formal Shadow、strategy evidence、promotion、`trade.db`、Binance 写接口 |
 | `modules/governance-review-compliance/strategy-review/` | strategy governance | evidence ledger、strategy review、promotion gate、strategy-cycle | R&D 实验、交易执行、写 `trade.db`、写 RD memory |
 | `modules/artifact-knowledge/artifact-catalog/` | artifact governance | catalog DB、artifact index/query/stale/gc、feature report refs | `trade.db`、策略判断、交易所 API |
 | `modules/market-data-products/ohlcv-fetch/` | market data acquisition | OHLCV、funding、market features、calibration panel、manifest；可同步 market_data_store | 策略升格、live 执行判断 |
@@ -118,7 +118,7 @@ Skill 可以说明如何调用既有 MCP / owner tool，但不能绕过 prefligh
 | authoritative Forward Evidence | `modules/research-strategy-development/forward-evidence-plane/runner` + `research.forward-evidence` |
 | RD memory | `modules/research-strategy-development/research-control-plane/program-control` + `research.rd-program-state` |
 | RD supervisor | `modules/research-strategy-development/research-control-plane/program-supervisor` + `research.rd-supervisor` |
-| RD shadow tracker | `modules/research-strategy-development/forward-evidence-plane/compatibility/rd-shadow-tracker` + `research.rd-shadow-tracker` |
+| R&D paper tracker | `modules/research-strategy-development/forward-evidence-plane/paper-tracker` + `research.rd-shadow-tracker`（legacy tool ID） |
 | review / evidence / promotion | `modules/governance-review-compliance/strategy-review` + `strategy-review` |
 | 执行编排 / shadow / live-small | `modules/orchestration-ops/trade-flow` + `trade-flow.execution`；行为 owner 在 `modules/live-execution-control/*` |
 | recovery / reconcile | `modules/orchestration-ops/trade-flow` + `trade-flow.recovery`；行为 owner 在 `modules/live-execution-control/*` |
@@ -136,7 +136,7 @@ Skill 可以说明如何调用既有 MCP / owner tool，但不能绕过 prefligh
 - `modules/orchestration-ops/trade-flow` 可以调用工具 CLI，但不拥有 Binance endpoint 细节，也不新增 R&D 实验实现或 strategy review 实现。
 - Binance 写工具只做单一交易动作；不得产出策略观点或修改 `trade.db`。
 - market scan 只能回答“先看谁”；不能直接生成 live action。
-- R&D campaign artifact writeback 由 `research.rd-campaign-runner` 拥有，只能写 research artifact、catalog 和显式 RD state；不得触发 Binance 写接口或写 `trade.db`；forward holdout、RD ledger、RD loop、candidate batch、RD memory、RD supervisor、RD shadow tracker、panel、单策略 replay、data split、benchmark、calibration、funding governance 与 strategy contract compile/lint 已拆为独立原子工具。
+- R&D campaign artifact writeback 由 `research.rd-campaign-runner` 拥有，只能写 research artifact、catalog 和显式 RD state；不得触发 Binance 写接口或写 `trade.db`；forward diagnostic、RD ledger、RD loop、candidate batch、RD memory、RD supervisor、paper tracker、panel、Replay、data split、benchmark、calibration、funding governance 与 strategy contract compile/lint 已拆为独立 owner。
 - strategy evidence / review / promotion 由 `strategy-review` 拥有；只读消费 `trade.db`，不得写 RD memory 或触发执行。
 - catalog / artifact hygiene 由 `artifact-catalog` 拥有；trade-flow 只消费可审计 artifact / catalog 结果。
 - `plan-preflight` 只给 deterministic verdict；不得补写事件或解释行情方向。
