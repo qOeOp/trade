@@ -18,6 +18,10 @@ import {
   assertReplayHistoricalArtifactMigrationRegistry,
   loadReplayHistoricalArtifactMigrationRegistry,
 } from "../modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-historical-artifact-migration"
+import {
+  assertReplayPublicationCrashRecoveryBundle,
+  loadReplayPublicationCrashRecoveryBundle,
+} from "../modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-publication-crash-recovery"
 
 interface GateManifest {
   schema_version: string
@@ -158,6 +162,9 @@ const historicalArtifactReadMigrationPath =
 const historicalArtifactMigrationRegistryPath =
   process.env.RD_REPLAY_HISTORICAL_ARTIFACT_MIGRATION_REGISTRY_PATH
   || `${certificationOwner}/replay-historical-artifact-migration.json`
+const publicationCrashRecoveryBundlePath =
+  process.env.RD_REPLAY_PUBLICATION_CRASH_RECOVERY_BUNDLE_PATH
+  || `${certificationOwner}/replay-publication-crash-recovery-bundle.json`
 const issues: string[] = []
 const certificationCommandIssues: string[] = []
 const testSeparationIssues: string[] = []
@@ -165,6 +172,7 @@ const profileEvidenceIssues: string[] = []
 const moduleConsumerClosureIssues: string[] = []
 const crossProcessReproducibilityIssues: string[] = []
 const historicalArtifactReadMigrationIssues: string[] = []
+const publicationCrashRecoveryIssues: string[] = []
 
 try {
   const moduleConsumerClosure = loadReplayModuleConsumerClosureManifest(
@@ -196,6 +204,15 @@ try {
   assertReplayHistoricalArtifactMigrationRegistry(registry, process.cwd())
 } catch (error) {
   historicalArtifactReadMigrationIssues.push(error instanceof Error ? error.message : String(error))
+}
+try {
+  const bundle = loadReplayPublicationCrashRecoveryBundle(
+    process.cwd(),
+    publicationCrashRecoveryBundlePath,
+  )
+  assertReplayPublicationCrashRecoveryBundle(bundle, profileEvidenceRegistry, process.cwd())
+} catch (error) {
+  publicationCrashRecoveryIssues.push(error instanceof Error ? error.message : String(error))
 }
 
 const expectedCapabilityMilestones = Array.from({ length: 29 }, (_, index) => `M4-P${index + 1}`)
@@ -398,6 +415,7 @@ issues.push(
   ...moduleConsumerClosureIssues,
   ...crossProcessReproducibilityIssues,
   ...historicalArtifactReadMigrationIssues,
+  ...publicationCrashRecoveryIssues,
 )
 if (JSON.stringify(inventory.canonical_public_entrypoints) !== JSON.stringify(expectedCanonicalEntrypoints)) {
   issues.push("Replay canonical public entrypoints do not match the frozen four-profile surface")
@@ -569,6 +587,10 @@ if (manifest.exit_gates.m5?.cross_process_reproducibility_bundle
 if (manifest.exit_gates.m5?.historical_artifact_read_migration_certified
     !== (historicalArtifactReadMigrationIssues.length === 0)) {
   issues.push("Replay historical Artifact read migration gate does not match the certified fixture pack")
+}
+if (manifest.exit_gates.m5?.crash_recovery_and_exactly_once_publication_certified
+    !== (publicationCrashRecoveryIssues.length === 0)) {
+  issues.push("Replay crash recovery/exactly-once publication gate does not match the certified bundle")
 }
 const m4Complete = gateValues.m4.length === expectedGateNames.m4.length && gateValues.m4.every(Boolean)
 if (manifest.exit_gates.m5?.m4_exit_complete !== m4Complete) {

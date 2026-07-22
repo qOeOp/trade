@@ -228,6 +228,24 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("Historical Artifact read migration fixture pack policy/hash drifted")
   })
 
+  test("Replay publication crash recovery bundle cannot overclaim exactly-once execution", () => {
+    const bundle = JSON.parse(readFileSync(
+      join(repoRoot, "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-publication-crash-recovery-bundle.json"),
+      "utf8",
+    )) as { exactly_once_scope: string }
+    bundle.exactly_once_scope = "one-process-execution"
+    const root = temporaryRoot()
+    const bundlePath = join(root, "replay-publication-crash-recovery-bundle.json")
+    writeFileSync(bundlePath, JSON.stringify(bundle))
+
+    const result = runJudge("check-rd-replay-maturity-gate.ts", repoRoot, [], {
+      RD_REPLAY_PUBLICATION_CRASH_RECOVERY_BUNDLE_PATH: bundlePath,
+    })
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("unsupported Replay publication crash recovery bundle")
+  })
+
   test("Replay historical Artifact payload reader cannot drift silently", () => {
     const registry = JSON.parse(readFileSync(
       join(repoRoot, "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-historical-artifact-migration.json"),
