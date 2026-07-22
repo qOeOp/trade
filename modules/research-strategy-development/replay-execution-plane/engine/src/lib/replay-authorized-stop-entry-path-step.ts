@@ -1,8 +1,4 @@
 import {
-  assertReplayBarLinkedAggregateTradePathAuthoritySnapshot,
-  type ReplayBarLinkedAggregateTradePathAuthoritySnapshot,
-} from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
-import {
   assertReplayAggregateTradeCoverageBinding,
   assertReplayDatasetManifest,
   assertReplayExecutionRequest,
@@ -28,11 +24,37 @@ import {
 export const REPLAY_AUTHORIZED_STOP_ENTRY_PATH_STEP_SCHEMA_VERSION =
   "trade.rd-replay-authorized-stop-entry-path-step.v1" as const
 
+export interface ReplayAuthorizedStopEntryPathAuthority {
+  authority_snapshot_hash: string
+  issued_at: string
+  trial_id: string
+  run_id: string
+  request_hash: string
+  entry_order_hash: string
+  dataset_manifest_ref: string
+  dataset_hash: string
+  bar_link_attestation_id: string
+  bar_link_attestation_hash: string
+  symbol: string
+  timeframe: string
+  window_start_inclusive: string
+  window_end_exclusive: string
+  latest_component_available_at: string
+  kline_record_hash: string
+  replay_market_bar_hash: string
+  aggregate_trade_coverage_attestation_hash: string
+  aggregate_trade_events_hash: string
+  entry_side: "long" | "short"
+  entry_trigger_price: number
+  protective_stop_price: number
+  protective_target_price: number
+}
+
 export interface ReplayAuthorizedStopEntryPathStepInput {
   request: ReplayExecutionRequest
   dataset_manifest: ReplayDatasetManifest
   market_bar: ReplayMarketBar
-  path_authority: ReplayBarLinkedAggregateTradePathAuthoritySnapshot
+  path_authority: ReplayAuthorizedStopEntryPathAuthority
   bar_link_attestation: ReplayKlineAggregateTradeBarLinkAttestation
   aggregate_trade_coverage: ReplayAggregateTradeCoverageAttestation
   aggregate_trade_events: ReplayAggregateTradeEvent[]
@@ -127,7 +149,6 @@ function assertInput(input: ReplayAuthorizedStopEntryPathStepInput): void {
   assertReplayExecutionRequest(input.request)
   assertReplayDatasetManifest(input.dataset_manifest)
   assertReplayMarketBars([input.market_bar])
-  assertReplayBarLinkedAggregateTradePathAuthoritySnapshot(input.path_authority)
   assertReplayKlineAggregateTradeBarLinkAttestation(input.bar_link_attestation)
   assertReplayAggregateTradeCoverageBinding(input.aggregate_trade_coverage, input.aggregate_trade_events)
 
