@@ -11,6 +11,11 @@ export interface DbActionJsonArgs {
   json: JSONRecord
 }
 
+export interface DbJsonArgs {
+  dbPath: string
+  json: JSONRecord
+}
+
 export function printScriptResult(result: JSONRecord): void {
   console.log(JSON.stringify(result, null, 2))
   if (!result.ok) process.exit(1)
@@ -62,6 +67,21 @@ export function readDbActionJsonArgs(
     switch (arg) {
       case "--db": config.dbPath = readFlagValue(argv, ++index, arg); break
       case "--action": config.action = readFlagValue(argv, ++index, arg); break
+      case "--json": config.json = readJsonObject(readFlagValue(argv, ++index, arg)); break
+      case "--json-file": config.json = readJsonObjectFile(readFlagValue(argv, ++index, arg)); break
+      case "--help": printHelp(); return process.exit(0)
+      default: throw new Error(`unknown argument: ${arg}`)
+    }
+  }
+  return config
+}
+
+export function readDbJsonArgs(argv: string[], defaultDbPath: string, printHelp: () => void): DbJsonArgs {
+  const config: DbJsonArgs = { dbPath: defaultDbPath, json: {} }
+  for (let index = 0; index < argv.length; index += 1) {
+    const arg = argv[index]
+    switch (arg) {
+      case "--db": config.dbPath = readFlagValue(argv, ++index, arg); break
       case "--json": config.json = readJsonObject(readFlagValue(argv, ++index, arg)); break
       case "--json-file": config.json = readJsonObjectFile(readFlagValue(argv, ++index, arg)); break
       case "--help": printHelp(); return process.exit(0)
