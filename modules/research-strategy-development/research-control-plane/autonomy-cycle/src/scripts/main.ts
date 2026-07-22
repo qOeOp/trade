@@ -11,7 +11,8 @@ interface Config { db: string; catalogDb: string; programId: string; profile: st
 async function run(argv: string[]): Promise<JSONRecord> {
   try {
     const config = parse(argv)
-    assertProjectRuntimePath(config.db); assertProjectRuntimePath(config.catalogDb); assertProjectRuntimePath(config.profile)
+    assertProjectRuntimePath(config.db); assertProjectRuntimePath(config.catalogDb)
+    if (config.profile !== "profile/model-gateway.json") throw new Error("--profile must be profile/model-gateway.json")
     const cycleId = text(config.input.cycle_id) || "manual-cycle"
     const now = text(config.input.now) || new Date().toISOString()
     const supervisorPayload = { ...config.input, cycle_id: cycleId, now, db_path: config.db, program_id: config.programId, catalog_db_path: config.catalogDb }
