@@ -7,9 +7,9 @@
   "active_milestone": {
     "id": "M4-P29",
     "name": "bounded-bar-linked-aggregate-trade-stop-entry-path-end-to-end",
-    "status": "in_progress",
+    "status": "complete",
     "functional_commit_budget": 6,
-    "functional_commits_used": 3
+    "functional_commits_used": 6
   },
   "policy": {
     "zero_instance_progress_forbidden": true,
@@ -24,26 +24,26 @@
       "ohlcv_volume_trade_count_and_id_reconciliation": true,
       "control_plane_bar_link_and_exact_path_authority": true,
       "opt_in_step_engine_stop_entry_path_consumer": true,
-      "checkpoint_result_fingerprint_and_manifest_binding": false,
-      "typed_unresolved_fallback_without_partial_result": false
+      "checkpoint_result_fingerprint_and_manifest_binding": true,
+      "typed_unresolved_fallback_without_partial_result": true
     },
     "evidence": {
       "same_ohlcv_opposite_ordered_paths_for_long_and_short": true,
       "entry_trade_cannot_retroactively_trigger_protection": true,
       "half_open_window_pit_availability_and_bar_boundary": true,
       "price_volume_quote_volume_trade_count_and_id_tamper_fail_closed": true,
-      "missing_or_unlinked_source_remains_unresolved": false,
-      "clean_resume_path_and_result_parity": false,
-      "artifact_idempotent_replay_and_payload_tamper_rejection": false,
+      "missing_or_unlinked_source_remains_unresolved": true,
+      "clean_resume_path_and_result_parity": true,
+      "artifact_idempotent_replay_and_payload_tamper_rejection": true,
       "insurance_adl_queue_fill_quantity_slippage_and_impact_not_overclaimed": true
     },
     "cutover": {
-      "production_opt_in_lane_consumer": false,
-      "default_ohlcv_and_portfolio_paths_unchanged": false,
-      "p15_through_p28_preserved": false,
-      "bar_relative_path_evidence_keeps_external_completeness_not_verified": false,
-      "no_generic_aggregate_trade_source_merge": false,
-      "no_queue_partial_fill_slippage_impact_insurance_adl_cross_margin_borrow_or_fast": false
+      "production_opt_in_lane_consumer": true,
+      "default_ohlcv_and_portfolio_paths_unchanged": true,
+      "p15_through_p28_preserved": true,
+      "bar_relative_path_evidence_keeps_external_completeness_not_verified": true,
+      "no_generic_aggregate_trade_source_merge": true,
+      "no_queue_partial_fill_slippage_impact_insurance_adl_cross_margin_borrow_or_fast": true
     }
   },
   "evidence_refs": [
@@ -222,5 +222,5 @@
     "modules/research-strategy-development/research-control-plane/state-store/src/lib/research-control-plane-schema.ts",
     "modules/research-strategy-development/research-control-plane/state-store/src/lib/bar-linked-aggregate-trade-path-authority-registry.ts"
   ],
-  "next_allowed_outcome": "all-m4-p29-gates-true-in-one-bounded-change-set"
+  "next_allowed_outcome": "audit-and-select-next-bounded-m4-fidelity-gap-after-bar-linked-aggregate-trade-path"
 }
