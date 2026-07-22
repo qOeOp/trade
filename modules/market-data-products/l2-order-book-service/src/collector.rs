@@ -235,6 +235,10 @@ async fn run_epoch(
         }
     }
     let segments = writer.finish()?;
+    if segments.is_empty() {
+        continuity_status = "incomplete".to_string();
+        termination_reason = format!("no_recorded_frames:{termination_reason}");
+    }
     let finished_at_ms = unix_time_ms()?;
     let manifest = EpochManifest {
         schema_version: "trade.l2-epoch-manifest-proposal.v1",

@@ -120,6 +120,32 @@ test("L2 owner reconciler admits once and preserves stable rejection observation
   }
 })
 
+test("L2 owner classifies a zero-frame incomplete shutdown as non-admissible rather than corrupt", () => {
+  const fixture = createFixture({
+    continuity_status: "incomplete",
+    termination_reason: "no_recorded_frames:shutdown",
+    last_update_id: null,
+    received_messages: 0,
+    recorded_frames: 0,
+    applied_events: 0,
+    segments: [],
+  })
+  const db = new Database(":memory:")
+  ensureMarketDataSchema(db)
+  try {
+    const result = reconcileL2EpochManifests(db, {
+      repository_root: fixture.root,
+      scan_roots: ["data/l2"],
+      observed_at: "2026-07-22T00:04:00Z",
+    })
+    assert.equal(result.rejected_incomplete, 1)
+    assert.equal(result.rejected_invalid, 0)
+  } finally {
+    db.close()
+    fixture.cleanup()
+  }
+})
+
 function createFixture(overrides: Partial<L2EpochManifestProposal> = {}) {
   const root = mkdtempSync(join(tmpdir(), `trade-l2-admission-${randomUUID()}-`))
   const directory = join(root, "data/l2/run")

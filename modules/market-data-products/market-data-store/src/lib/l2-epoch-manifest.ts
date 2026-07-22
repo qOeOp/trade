@@ -334,7 +334,8 @@ function parseManifest(bytes: Buffer): L2EpochManifestProposal {
   const recorded = requireSafeInteger(value.recorded_frames, "recorded_frames", 0)
   const applied = requireSafeInteger(value.applied_events, "applied_events", 0)
   if (applied > recorded || recorded > received) throw new Error("L2 epoch counts are inconsistent")
-  if (!Array.isArray(value.segments) || value.segments.length === 0) throw new Error("L2 epoch requires finalized segments")
+  if (!Array.isArray(value.segments)) throw new Error("L2 epoch segments must be an array")
+  if (continuity === "complete" && value.segments.length === 0) throw new Error("complete L2 epoch requires finalized segments")
   const segments = value.segments.map((entry, index) => parseSegment(entry, index))
   const updateId = value.last_update_id == null ? null : requireSafeInteger(value.last_update_id, "last_update_id", 1)
   return {
