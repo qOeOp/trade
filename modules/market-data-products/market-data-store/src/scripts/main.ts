@@ -25,14 +25,16 @@ import {
   prepareL2CompactionJob,
   readL2Compaction,
   readL2CompactedEpochSource,
+  readL2ExperimentAttachmentReferrerReceipt,
   reconcileL2EpochManifests,
+  registerL2ExperimentAttachmentReferrerReceipt,
   readMarketManifest,
   upsertCanonicalCandles,
   upsertFeatureManifest,
   upsertFundingEvents,
   upsertMarketManifest,
 } from "../lib/market-data-store"
-import { stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
+import { asRecord, stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
 import { repoRoot } from "../../../../contracts/runtime-core/src/paths"
 
 interface Args {
@@ -129,6 +131,17 @@ export function run(args: Args): JSONRecord {
         }),
       }
     }
+    if (args.action === "register_l2_experiment_attachment_referrer") {
+      const authority = asRecord(args.json.authority)
+      return {
+        ok: true,
+        action: args.action,
+        ...registerL2ExperimentAttachmentReferrerReceipt(db, {
+          authority,
+          registered_at: stringField(args.json.registered_at) || undefined,
+        }),
+      }
+    }
     if (args.action === "upsert_candles") {
       return withOhlcvDb(args.ohlcvDbPath, (ohlcvDb) => ({
         ok: true,
@@ -176,6 +189,16 @@ export function run(args: Args): JSONRecord {
         ok: true,
         action: args.action,
         source: readL2CompactedEpochSource(db, stringField(args.json.compaction_id)),
+      }
+    }
+    if (args.action === "read_l2_experiment_attachment_referrer") {
+      return {
+        ok: true,
+        action: args.action,
+        receipt: readL2ExperimentAttachmentReferrerReceipt(
+          db,
+          stringField(args.json.authority_snapshot_hash),
+        ),
       }
     }
     if (args.action === "read_funding") {
@@ -258,7 +281,7 @@ export function run(args: Args): JSONRecord {
 function printHelp(): void {
   console.log([
     "usage: bun src/scripts/main.ts --db data/market_data.db --ohlcv-db data/ohlcv.db --action init",
-    "actions: init | upsert_manifest | admit_l2_epoch_manifest | reconcile_l2_epoch_manifests | prepare_l2_compaction_job | admit_l2_compaction_proposal | upsert_candles | upsert_funding | upsert_feature_manifest | commit_instrument_status_archive | read_manifest | read_l2_epoch_manifest | read_l2_compaction | read_l2_compacted_epoch_source | read_funding | read_instrument_status_acquisition_receipt | read_instrument_status_archive | read_latest_candle | read_candles | read_feature_manifest | list_feature_manifests",
+    "actions: init | upsert_manifest | admit_l2_epoch_manifest | reconcile_l2_epoch_manifests | prepare_l2_compaction_job | admit_l2_compaction_proposal | register_l2_experiment_attachment_referrer | upsert_candles | upsert_funding | upsert_feature_manifest | commit_instrument_status_archive | read_manifest | read_l2_epoch_manifest | read_l2_compaction | read_l2_compacted_epoch_source | read_l2_experiment_attachment_referrer | read_funding | read_instrument_status_acquisition_receipt | read_instrument_status_archive | read_latest_candle | read_candles | read_feature_manifest | list_feature_manifests",
   ].join("\n"))
 }
 
