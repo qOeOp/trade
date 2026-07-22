@@ -8,6 +8,8 @@ const EXPECTED_COMMAND_DATA = [
   "--init",
   "--track",
   "--automation-cycle",
+  "--run-program-shadow",
+  "--run-program-shadow-supervisor",
   "--append-order-fill",
   "--append-review",
   "--record-execution",
