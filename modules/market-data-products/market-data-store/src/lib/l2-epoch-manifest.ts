@@ -97,6 +97,16 @@ export function ensureL2EpochManifestSchema(db: Database): void {
       FOREIGN KEY(epoch_id) REFERENCES l2_epoch_manifest(epoch_id)
     )
   `)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS l2_epoch_retention (
+      epoch_id             TEXT PRIMARY KEY,
+      retention_class      TEXT NOT NULL,
+      compaction_ref       TEXT,
+      deletion_eligible    INTEGER NOT NULL,
+      updated_at           TEXT NOT NULL,
+      FOREIGN KEY(epoch_id) REFERENCES l2_epoch_manifest(epoch_id)
+    )
+  `)
 }
 
 export function admitL2EpochManifest(db: Database, input: L2EpochAdmissionInput): L2EpochAdmissionResult {
@@ -119,6 +129,7 @@ export function admitL2EpochManifest(db: Database, input: L2EpochAdmissionInput)
     `).get({ $epoch_id: epochId }) as { manifest_hash: string } | null
     if (existing != null) {
       if (existing.manifest_hash !== manifestHash) throw new Error("L2 epoch already exists with different content")
+      ensureRawHotRetention(db, epochId, admittedAt)
       commitStatus = "existing"
       return
     }
@@ -178,6 +189,7 @@ export function admitL2EpochManifest(db: Database, input: L2EpochAdmissionInput)
         $writer_elapsed_ns: segment.writer_elapsed_ns,
       })
     }
+    ensureRawHotRetention(db, epochId, admittedAt)
   })
   commit()
   const epoch = readL2EpochManifest(db, epochId)
@@ -230,6 +242,13 @@ export function readL2EpochManifest(db: Database, epochId: string): AdmittedL2Ep
     writer_elapsed_ns: segment.writer_elapsed_ns,
   }))
   if (JSON.stringify(projectedSegments) !== JSON.stringify(manifest.segments)) throw new Error("stored L2 segment index differs from manifest")
+  const retention = db.query(`
+    SELECT retention_class, compaction_ref, deletion_eligible
+    FROM l2_epoch_retention WHERE epoch_id = $epoch_id
+  `).get({ $epoch_id: epochId }) as { retention_class: string; compaction_ref: string | null; deletion_eligible: number } | null
+  if (retention == null || retention.retention_class !== "raw_hot" || retention.compaction_ref !== null || retention.deletion_eligible !== 0) {
+    throw new Error("stored L2 epoch retention state is invalid")
+  }
   return {
     epoch_id: row.epoch_id,
     exchange: "binance-usdm",
@@ -239,6 +258,22 @@ export function readL2EpochManifest(db: Database, epochId: string): AdmittedL2Ep
     source_completeness: "epoch_contiguous",
     external_completeness: "not_verified",
     manifest,
+  }
+}
+
+function ensureRawHotRetention(db: Database, epochId: string, updatedAt: string): void {
+  db.query(`
+    INSERT INTO l2_epoch_retention(
+      epoch_id, retention_class, compaction_ref, deletion_eligible, updated_at
+    ) VALUES ($epoch_id, 'raw_hot', NULL, 0, $updated_at)
+    ON CONFLICT(epoch_id) DO NOTHING
+  `).run({ $epoch_id: epochId, $updated_at: updatedAt })
+  const row = db.query(`
+    SELECT retention_class, compaction_ref, deletion_eligible
+    FROM l2_epoch_retention WHERE epoch_id = $epoch_id
+  `).get({ $epoch_id: epochId }) as { retention_class: string; compaction_ref: string | null; deletion_eligible: number } | null
+  if (row == null || row.retention_class !== "raw_hot" || row.compaction_ref !== null || row.deletion_eligible !== 0) {
+    throw new Error("L2 epoch retention must remain raw_hot and non-deletable before compaction")
   }
 }
 

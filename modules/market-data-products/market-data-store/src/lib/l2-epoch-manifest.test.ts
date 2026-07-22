@@ -26,6 +26,10 @@ test("L2 owner admits exact snapshot and TL2S evidence create-or-identical", () 
     assert.equal(admitL2EpochManifest(db, fixture.input).commit_status, "existing")
     assert.deepEqual(readL2EpochManifest(db, created.epoch.epoch_id), created.epoch)
     assert.equal((db.query("SELECT COUNT(*) AS count FROM l2_segment_manifest").get() as { count: number }).count, 1)
+    assert.deepEqual(db.query("SELECT retention_class, deletion_eligible FROM l2_epoch_retention").get(), {
+      retention_class: "raw_hot",
+      deletion_eligible: 0,
+    })
     db.query("UPDATE l2_segment_manifest SET frame_count = frame_count + 1").run()
     assert.throws(() => readL2EpochManifest(db, created.epoch.epoch_id), /segment index differs/)
   } finally {
