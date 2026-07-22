@@ -1,0 +1,14 @@
+{
+  "schema_version": "trade.operator-http-profile.v1",
+  "host": "127.0.0.1",
+  "port": 8787,
+  "api_token_env": "TRADE_OPERATOR_API_TOKEN",
+  "approval_token_env": "TRADE_OPERATOR_APPROVAL_TOKEN",
+  "ops_runtime_db": "data/ops_runtime.db",
+  "rd_state_db": "data/rd_state.db",
+  "catalog_db": "data/data_catalog.db",
+  "model_profile": "profile/model-gateway.json",
+  "read_limit_per_minute": 60,
+  "write_limit_per_minute": 6,
+  "max_body_bytes": 262144
+}
