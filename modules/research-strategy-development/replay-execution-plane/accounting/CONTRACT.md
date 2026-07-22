@@ -39,4 +39,4 @@ M4-P11 reuses the same projector for cycle 2 with the exact P10 Allocation Resul
 
 M4-P12 applies the unchanged P7 projector independently to every predeclared Sequence cycle and binds each evidence hash into the Sequence record.
 
-M4-P13 adds a separate read-only roll-forward projector over those committed cycle-local Evidence objects. It preserves each local Ledger/Journal entry and hash, wraps them with `cycle_index` and a global sequence, and excludes only cycle 2+ `opening_cash` postings from the consolidated Journal. The consolidated Trial Balance therefore recognizes opening equity exactly once and must reconcile the M4-P12 final available cash/NAV with zero terminal collateral and unrealized PnL. This policy is valid only across certified full-flat boundaries；it does not reclassify local history or support open-position carry.
+The historical M4-P13 roll-forward projector moved to `compatibility/legacy-portfolio-cycle`. Canonical Accounting no longer owns that consumer；the old Ledger/Journal/Trial Balance policy remains immutable only for Artifact readback and migration. P18 and declared opt-in accounting successors remain the supported owners.
