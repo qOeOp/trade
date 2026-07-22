@@ -92,6 +92,26 @@ interface ReplayCertificationRegistry {
   }>
 }
 
+type ReplayProfileEvidenceDimension = "golden" | "resume" | "idempotency" | "tamper"
+type ReplayProfileEvidenceKind = "test" | "delegated-child-trial-test" | "explicit-not-supported"
+
+interface ReplayProfileEvidenceRegistry {
+  schema_version: string
+  owner: string
+  required_dimensions: ReplayProfileEvidenceDimension[]
+  profiles: Array<{
+    profile: string
+    entrypoint_path: string
+    entrypoint_export: string
+    checkpoint_mode: string
+    evidence: Record<ReplayProfileEvidenceDimension, {
+      kind: ReplayProfileEvidenceKind
+      path?: string
+      test_name?: string
+    }>
+  }>
+}
+
 const manifestPath = process.env.RD_REPLAY_MATURITY_GATE_PATH || "docs/research/reliability/rd-replay-maturity-gate.json"
 const manifest = JSON.parse(readFileSync(manifestPath, "utf8")) as GateManifest
 const inventoryPath = process.env.RD_REPLAY_CAPABILITY_INVENTORY_PATH
@@ -107,9 +127,15 @@ const certificationRegistryPath = process.env.RD_REPLAY_CERTIFICATION_REGISTRY_P
 const certificationRegistry = JSON.parse(
   readFileSync(certificationRegistryPath, "utf8"),
 ) as ReplayCertificationRegistry
+const profileEvidenceRegistryPath = process.env.RD_REPLAY_PROFILE_EVIDENCE_REGISTRY_PATH
+  || `${certificationOwner}/replay-profile-evidence.json`
+const profileEvidenceRegistry = JSON.parse(
+  readFileSync(profileEvidenceRegistryPath, "utf8"),
+) as ReplayProfileEvidenceRegistry
 const issues: string[] = []
 const certificationCommandIssues: string[] = []
 const testSeparationIssues: string[] = []
+const profileEvidenceIssues: string[] = []
 
 const expectedCapabilityMilestones = Array.from({ length: 29 }, (_, index) => `M4-P${index + 1}`)
 const expectedCanonicalEntrypoints = [
@@ -160,6 +186,63 @@ if (JSON.stringify(epochRegistry.generic_epochs) !== JSON.stringify(expectedGene
 }
 if (JSON.stringify(epochRegistry.profile_epochs) !== JSON.stringify(expectedProfileEpochs)) {
   issues.push("Replay public profile evidence epochs or checkpoint modes are not converged")
+}
+const requiredProfileEvidenceDimensions: ReplayProfileEvidenceDimension[] = [
+  "golden", "resume", "idempotency", "tamper",
+]
+if (profileEvidenceRegistry.schema_version !== "trade.rd-replay-profile-evidence.v1"
+    || profileEvidenceRegistry.owner !== certificationOwner
+    || JSON.stringify(profileEvidenceRegistry.required_dimensions)
+      !== JSON.stringify(requiredProfileEvidenceDimensions)) {
+  profileEvidenceIssues.push("Replay profile evidence registry policy is not frozen")
+}
+if (canonicalArray(profileEvidenceRegistry.profiles.map((entry) => entry.profile))
+    !== canonicalArray(expectedCanonicalEntrypoints.map((entry) => entry.profile))
+    || new Set(profileEvidenceRegistry.profiles.map((entry) => entry.profile)).size
+      !== profileEvidenceRegistry.profiles.length) {
+  profileEvidenceIssues.push("Replay profile evidence registry must cover each public profile exactly once")
+}
+for (const entry of profileEvidenceRegistry.profiles) {
+  const entrypoint = expectedCanonicalEntrypoints.find((candidate) => candidate.profile === entry.profile)
+  const epoch = expectedProfileEpochs.find((candidate) => candidate.profile === entry.profile)
+  if (!entrypoint || !epoch || entry.entrypoint_path !== entrypoint.path
+      || entry.entrypoint_export !== entrypoint.export || entry.checkpoint_mode !== epoch.checkpoint_mode) {
+    profileEvidenceIssues.push(`Replay profile evidence authority or checkpoint mode drifted: ${entry.profile}`)
+    continue
+  }
+  if (JSON.stringify(Object.keys(entry.evidence).sort())
+      !== JSON.stringify([...requiredProfileEvidenceDimensions].sort())) {
+    profileEvidenceIssues.push(`Replay profile evidence dimensions are incomplete: ${entry.profile}`)
+    continue
+  }
+  for (const dimension of requiredProfileEvidenceDimensions) {
+    const evidence = entry.evidence[dimension]
+    if (evidence.kind === "explicit-not-supported") {
+      if (dimension !== "resume" || entry.checkpoint_mode !== "not-supported-no-checkpoint-writer"
+          || evidence.path !== undefined || evidence.test_name !== undefined) {
+        profileEvidenceIssues.push(`Replay explicit unsupported evidence is invalid: ${entry.profile}.${dimension}`)
+      }
+      continue
+    }
+    if ((evidence.kind !== "test" && evidence.kind !== "delegated-child-trial-test")
+        || !evidence.path?.endsWith(".test.ts") || !evidence.test_name || !existsSync(evidence.path)
+        || !readFileSync(evidence.path, "utf8").includes(`test(${JSON.stringify(evidence.test_name)}`)) {
+      profileEvidenceIssues.push(`Replay profile test evidence is missing: ${entry.profile}.${dimension}`)
+      continue
+    }
+    if (evidence.kind === "delegated-child-trial-test"
+        && (dimension !== "resume" || entry.checkpoint_mode !== "child-trial-engine-checkpoints-v32-only")) {
+      profileEvidenceIssues.push(`Replay delegated resume evidence is invalid: ${entry.profile}`)
+    }
+  }
+  const resumeKind = entry.evidence.resume.kind
+  if ((entry.checkpoint_mode === "resumable-engine-checkpoint-v32" && resumeKind !== "test")
+      || (entry.checkpoint_mode === "child-trial-engine-checkpoints-v32-only"
+        && resumeKind !== "delegated-child-trial-test")
+      || (entry.checkpoint_mode === "not-supported-no-checkpoint-writer"
+        && resumeKind !== "explicit-not-supported")) {
+    profileEvidenceIssues.push(`Replay resume evidence does not match checkpoint mode: ${entry.profile}`)
+  }
 }
 const genericEpochPatterns = expectedGenericEpochs.map((epoch) => ({
   kind: epoch.kind,
@@ -247,7 +330,7 @@ for (const expectedConsumer of [
 if (!legacyCycleCertificationSource.includes("compatibility/legacy-portfolio-cycle")) {
   testSeparationIssues.push("legacy portfolio cycle certification does not own the compatibility import boundary")
 }
-issues.push(...certificationCommandIssues, ...testSeparationIssues)
+issues.push(...certificationCommandIssues, ...testSeparationIssues, ...profileEvidenceIssues)
 if (JSON.stringify(inventory.canonical_public_entrypoints) !== JSON.stringify(expectedCanonicalEntrypoints)) {
   issues.push("Replay canonical public entrypoints do not match the frozen four-profile surface")
 } else {
@@ -402,6 +485,10 @@ if (manifest.exit_gates.m4?.single_owner_certification_command
 if (manifest.exit_gates.m4?.canonical_and_compatibility_test_suites_separated
     !== (testSeparationIssues.length === 0)) {
   issues.push("Replay canonical/compatibility test separation gate does not match source evidence")
+}
+if (manifest.exit_gates.m4?.all_supported_profiles_have_golden_resume_idempotency_and_tamper_evidence
+    !== (profileEvidenceIssues.length === 0)) {
+  issues.push("Replay public-profile evidence gate does not match the certified evidence registry")
 }
 const m4Complete = gateValues.m4.length === expectedGateNames.m4.length && gateValues.m4.every(Boolean)
 if (manifest.exit_gates.m5?.m4_exit_complete !== m4Complete) {
