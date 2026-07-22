@@ -26,12 +26,3 @@ export type {
   SimulatedLaneOrder,
   SimulatedLaneResult,
 } from "../../../legacy-research-contracts/src/lib/legacy-research-contracts"
-
-export {
-  buildTrendPullbackSignal,
-  btcTrendPullbackStrategy,
-  listReplayStrategies,
-  replayRegisteredStrategy,
-  replayRegisteredStrategy as replayTrendPullback,
-  replayStrategies,
-} from "./replay-strategies"

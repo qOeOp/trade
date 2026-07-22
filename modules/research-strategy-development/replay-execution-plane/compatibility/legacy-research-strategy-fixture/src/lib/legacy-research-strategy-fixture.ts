@@ -1,4 +1,5 @@
-import { replayStrategy, type Candle } from "./replay-core"
+import { replayStrategy } from "../../../legacy-research-kernel/src/lib/replay-core"
+import type { Candle } from "../../../legacy-research-data/src/lib/legacy-research-data"
 import type { ReplayOptions, ReplayResult, ReplaySignal, ReplayStrategy } from "../../../legacy-research-contracts/src/lib/legacy-research-contracts"
 
 const btcTrendPullbackStrategy: ReplayStrategy = {
@@ -11,9 +12,7 @@ const btcTrendPullbackStrategy: ReplayStrategy = {
     const emaSlow = indicators.ema200[index]
     const currentAtr = indicators.atr14[index]
     const trend = readTrend(candle, emaFast, emaSlow, currentAtr)
-    if (!trend) {
-      return null
-    }
+    if (!trend) return null
     return buildTrendPullbackSignal({
       side: trend,
       signal: candle,
@@ -28,33 +27,25 @@ const btcTrendPullbackStrategy: ReplayStrategy = {
   },
 }
 
-const replayStrategies = new Map<string, ReplayStrategy>([
+const replayStrategyFixtures = new Map<string, ReplayStrategy>([
   [btcTrendPullbackStrategy.strategy_id, btcTrendPullbackStrategy],
 ])
 
 function replayRegisteredStrategy(options: ReplayOptions): ReplayResult {
   const strategyId = options.strategyId || btcTrendPullbackStrategy.strategy_id
-  const strategy = replayStrategies.get(strategyId)
-  if (!strategy) {
-    throw new Error(`unsupported replay strategy: ${strategyId}`)
-  }
+  const strategy = replayStrategyFixtures.get(strategyId)
+  if (!strategy) throw new Error(`unsupported replay strategy fixture: ${strategyId}`)
   return replayStrategy(strategy, options)
 }
 
-function listReplayStrategies(): string[] {
-  return Array.from(replayStrategies.keys()).sort()
+function listReplayStrategyFixtures(): string[] {
+  return Array.from(replayStrategyFixtures.keys()).sort()
 }
 
 function readTrend(candle: Candle, emaFast: number, emaSlow: number, currentAtr: number): "long" | "short" | null {
-  if (!Number.isFinite(emaFast) || !Number.isFinite(emaSlow) || !Number.isFinite(currentAtr) || currentAtr <= 0) {
-    return null
-  }
-  if (emaFast > emaSlow && candle.close > emaFast) {
-    return "long"
-  }
-  if (emaFast < emaSlow && candle.close < emaFast) {
-    return "short"
-  }
+  if (!Number.isFinite(emaFast) || !Number.isFinite(emaSlow) || !Number.isFinite(currentAtr) || currentAtr <= 0) return null
+  if (emaFast > emaSlow && candle.close > emaFast) return "long"
+  if (emaFast < emaSlow && candle.close < emaFast) return "short"
   return null
 }
 
@@ -70,15 +61,10 @@ function buildTrendPullbackSignal(input: {
   rewardRisk: number
 }): ReplaySignal | null {
   if (input.side === "long") {
-    const pulledBack = input.signal.low <= input.emaFast + 0.25 * input.currentAtr
-    if (!pulledBack) {
-      return null
-    }
+    if (input.signal.low > input.emaFast + 0.25 * input.currentAtr) return null
     const stop = Math.min(input.signal.low, input.emaFast) - 0.5 * input.currentAtr
     const risk = input.entry - stop
-    if (risk <= 0 || risk > 1.25 * input.currentAtr) {
-      return null
-    }
+    if (risk <= 0 || risk > 1.25 * input.currentAtr) return null
     return {
       side: "long",
       signal_index: input.signalIndex,
@@ -88,22 +74,14 @@ function buildTrendPullbackSignal(input: {
       target: input.entry + risk * input.rewardRisk,
       entry_risk_limit: input.entryRiskLimit,
       reason: "ema50 trend pullback long",
-      meta: {
-        ema50: input.emaFast,
-        atr14: input.currentAtr,
-      },
+      meta: { ema50: input.emaFast, atr14: input.currentAtr },
     }
   }
 
-  const pulledBack = input.signal.high >= input.emaFast - 0.25 * input.currentAtr
-  if (!pulledBack) {
-    return null
-  }
+  if (input.signal.high < input.emaFast - 0.25 * input.currentAtr) return null
   const stop = Math.max(input.signal.high, input.emaFast) + 0.5 * input.currentAtr
   const risk = stop - input.entry
-  if (risk <= 0 || risk > 1.25 * input.currentAtr) {
-    return null
-  }
+  if (risk <= 0 || risk > 1.25 * input.currentAtr) return null
   return {
     side: "short",
     signal_index: input.signalIndex,
@@ -113,17 +91,15 @@ function buildTrendPullbackSignal(input: {
     target: input.entry - risk * input.rewardRisk,
     entry_risk_limit: input.entryRiskLimit,
     reason: "ema50 trend pullback short",
-    meta: {
-      ema50: input.emaFast,
-      atr14: input.currentAtr,
-    },
+    meta: { ema50: input.emaFast, atr14: input.currentAtr },
   }
 }
 
 export {
   buildTrendPullbackSignal,
   btcTrendPullbackStrategy,
-  listReplayStrategies,
+  listReplayStrategyFixtures,
   replayRegisteredStrategy,
-  replayStrategies,
+  replayRegisteredStrategy as replayTrendPullback,
+  replayStrategyFixtures,
 }
