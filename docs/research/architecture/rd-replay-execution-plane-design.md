@@ -152,6 +152,6 @@ Plane 内唯一完整认证入口是 `certification/replay-certification` 的 `b
 
 ## 16. M5 historical Artifact read migration
 
-P10、P11、P13 的 compatibility certification 各冻结一个 exact-v1 Artifact Manifest；版本化 reader 只接受 capability 与 schema 的固定映射，复用旧合同校验 role 顺序、commit marker、Result/Evidence identity 与 manifest self-hash，再输出 `readable-legacy-no-write` identity/integrity projection。Fixture pack 自哈希；schema、role、manifest 或 expected projection 漂移均 fail closed。Maturity checker 每次直接读取并执行同一 pack，不接受仅修改 gate 布尔值。
+P10、P11、P13 的 compatibility certification 以两层证据关闭迁移门：独立 synthetic pack 冻结 exact-v1 Manifest、role、commit marker、Result/Evidence identity 与 expected projection；完整 payload reader 另从真实 manifest-last namespace 逐文件校验 ref/raw SHA，再验证 P10 Result、P11 Result/Fingerprint、P13 Accounting/Trial Balance 的自哈希与现金不变量，输出只读 migration receipt。Pack、reader 与动态 certification test 均有冻结指纹；schema、role、payload、源码或 projection 漂移都 fail closed。Maturity checker 同时执行 pack 并验证 full-payload certification registry，不接受只改 gate 布尔值。
 
-该 reader 没有 writer、数据库、runtime public entrypoint 或经济 authority，不产生 Result v53 / Artifact v55，不修改旧文件，也不把旧 accounting 映射成当前经济语义。当前 fixture 是不含 payload bytes 的 synthetic manifest pack，因此只认证 committed manifest 的发现、版本分派和身份完整性；payload rehydration、生产历史全集、跨版本经济升级仍不在本 gate 内。M5 当前为 `3/9`，成熟度仍为 M4；下一门固定为 crash recovery 与 exactly-once publication。
+该 reader 没有 writer、数据库、runtime public entrypoint 或经济 authority，不产生 Result v53 / Artifact v55，不修改旧文件，也不把旧 accounting 映射成当前经济语义。Full-payload 证据由冻结测试确定性生成，不等于抽样了生产历史全集；外部生产 corpus 普查和跨版本经济升级仍不在本 gate 内。M5 当前为 `3/9`，成熟度仍为 M4；下一门固定为 crash recovery 与 exactly-once publication。
