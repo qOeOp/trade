@@ -1,14 +1,13 @@
-import { createHash } from "node:crypto"
 import { resolveRegisteredOwnerTool } from "../../../../contracts/runtime-core/src/owner-tool-registry"
 
 type JSONRecord = Record<string, unknown>
 
 export function replayHarnessHash(): string {
-  return requiredFingerprintHash(runReplayRunnerFingerprint({}), "harness_hash")
+  return requiredFingerprintHash(runLegacyReplayFingerprint({}), "harness_hash")
 }
 
 export function replayDataHash(manifestPath: string, timeframe: string, supplementalDataRefs: string[] = []): string {
-  return requiredFingerprintHash(runReplayRunnerFingerprint({
+  return requiredFingerprintHash(runLegacyReplayFingerprint({
     manifest_path: manifestPath,
     timeframe,
     supplemental_data_refs: supplementalDataRefs,
@@ -16,12 +15,11 @@ export function replayDataHash(manifestPath: string, timeframe: string, suppleme
 }
 
 export function hashCanonical(value: unknown): string {
-  return createHash("sha256").update(stableJson(value)).digest("hex")
+  return requiredFingerprintHash(runLegacyReplayFingerprint({ assumptions: value }), "assumptions_hash")
 }
 
-function runReplayRunnerFingerprint(input: JSONRecord): JSONRecord {
-  const command = resolveRegisteredOwnerTool("research.replay-runner", [
-    "--fingerprint",
+function runLegacyReplayFingerprint(input: JSONRecord): JSONRecord {
+  const command = resolveRegisteredOwnerTool("research.legacy-replay-fingerprint", [
     "--json",
     JSON.stringify(input),
   ])
@@ -35,22 +33,12 @@ function runReplayRunnerFingerprint(input: JSONRecord): JSONRecord {
   const response = parseJsonRecord(stdout)
   if (!proc.success) {
     if (response.ok === false && typeof response.error === "string") throw new Error(response.error)
-    throw new Error(`replay runner owner tool failed: exit=${proc.exitCode}${stderr ? `; ${stderr.trim()}` : ""}`)
+    throw new Error(`legacy replay fingerprint owner tool failed: exit=${proc.exitCode}${stderr ? `; ${stderr.trim()}` : ""}`)
   }
-  if (response.ok === false) throw new Error(typeof response.error === "string" ? response.error : "replay runner owner tool returned ok=false")
+  if (response.ok === false) throw new Error(typeof response.error === "string" ? response.error : "legacy replay fingerprint owner tool returned ok=false")
   return response.data && typeof response.data === "object" && !Array.isArray(response.data)
     ? response.data as JSONRecord
     : response
-}
-
-function stableJson(value: unknown): string {
-  if (Array.isArray(value)) {
-    return `[${value.map(stableJson).join(",")}]`
-  }
-  if (value && typeof value === "object") {
-    return `{${Object.entries(value as JSONRecord).sort(([a], [b]) => a.localeCompare(b)).map(([key, item]) => `${JSON.stringify(key)}:${stableJson(item)}`).join(",")}}`
-  }
-  return JSON.stringify(value) ?? "null"
 }
 
 function parseJsonRecord(raw: string): JSONRecord {
