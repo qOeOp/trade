@@ -5,6 +5,7 @@ import { mkdirSync, readFileSync } from "node:fs"
 import { dirname } from "node:path"
 import {
   buildCanonicalCandles,
+  admitL2EpochManifest,
   buildFeatureManifest,
   buildFundingEvents,
   buildInstrumentStatusArchive,
@@ -19,6 +20,7 @@ import {
   readInstrumentStatusAcquisitionReceipt,
   readInstrumentStatusArchive,
   readLatestCandleOpenTime,
+  readL2EpochManifest,
   readMarketManifest,
   upsertCanonicalCandles,
   upsertFeatureManifest,
@@ -26,6 +28,7 @@ import {
   upsertMarketManifest,
 } from "../lib/market-data-store"
 import { stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
+import { repoRoot } from "../../../../contracts/runtime-core/src/paths"
 
 interface Args {
   dbPath: string
@@ -75,6 +78,14 @@ export function run(args: Args): JSONRecord {
       upsertMarketManifest(db, manifest)
       return { ok: true, action: args.action, manifest }
     }
+    if (args.action === "admit_l2_epoch_manifest") {
+      const result = admitL2EpochManifest(db, {
+        repository_root: repoRoot(),
+        manifest_path: stringField(args.json.manifest_path),
+        admitted_at: stringField(args.json.admitted_at) || undefined,
+      })
+      return { ok: true, action: args.action, ...result }
+    }
     if (args.action === "upsert_candles") {
       return withOhlcvDb(args.ohlcvDbPath, (ohlcvDb) => ({
         ok: true,
@@ -101,6 +112,13 @@ export function run(args: Args): JSONRecord {
         ok: true,
         action: args.action,
         manifest: readMarketManifest(db, stringField(args.json.manifest_id)),
+      }
+    }
+    if (args.action === "read_l2_epoch_manifest") {
+      return {
+        ok: true,
+        action: args.action,
+        epoch: readL2EpochManifest(db, stringField(args.json.epoch_id)),
       }
     }
     if (args.action === "read_funding") {
@@ -183,7 +201,7 @@ export function run(args: Args): JSONRecord {
 function printHelp(): void {
   console.log([
     "usage: bun src/scripts/main.ts --db data/market_data.db --ohlcv-db data/ohlcv.db --action init",
-    "actions: init | upsert_manifest | upsert_candles | upsert_funding | upsert_feature_manifest | commit_instrument_status_archive | read_manifest | read_funding | read_instrument_status_acquisition_receipt | read_instrument_status_archive | read_latest_candle | read_candles | read_feature_manifest | list_feature_manifests",
+    "actions: init | upsert_manifest | admit_l2_epoch_manifest | upsert_candles | upsert_funding | upsert_feature_manifest | commit_instrument_status_archive | read_manifest | read_l2_epoch_manifest | read_funding | read_instrument_status_acquisition_receipt | read_instrument_status_archive | read_latest_candle | read_candles | read_feature_manifest | list_feature_manifests",
   ].join("\n"))
 }
 
