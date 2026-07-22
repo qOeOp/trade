@@ -1,14 +1,14 @@
-# Legacy Research Evaluation Kernel
+# Legacy Research Kernel
 
 ## Type
 
-legacy shared research kernel / compatibility-only
+legacy shared research execution kernel / compatibility-only
 
 ## Owns
 
-- Legacy R&D candidate evaluation semantics and result types.
-- Legacy conservative fill ordering, cost, funding, temporal diagnostics, and gates.
-- Legacy data/feature/identity 仅兼容重导出。
+- Legacy strategy replay orchestration、conservative fill ordering、cost and funding semantics。
+- Legacy result shell、trade facts and temporal integrity detection。
+- Legacy data/feature/evaluation/identity 仅兼容重导出。
 - Bounded full-series versus cutoff-recomputed strategy-decision integrity detection.
 
 ## Inputs
@@ -20,7 +20,7 @@ legacy shared research kernel / compatibility-only
 
 ## Outputs
 
-- Legacy `ReplayResult` and related research-evaluation types.
+- Legacy `ReplayResult`、trade facts and related compatibility types。
 - Compatibility latest-signal shells used by migration-source tools.
 - Next-open materialization that preserves the predeclared reward/risk ratio and rejects fills exceeding the signal's entry-risk limit.
 - A deterministic temporal-integrity report with complete/sampled coverage, mismatch count, and bounded mismatch evidence.
@@ -38,7 +38,7 @@ legacy shared research kernel / compatibility-only
 
 ## Retirement Gate
 
-- 所有直接消费者迁出 legacy `ReplayResult`、fill/signal semantics；data/feature/identity consumers 独立退役。
+- 所有直接消费者迁出 legacy `ReplayResult`、fill/signal semantics；data/feature/evaluation/identity consumers 独立退役。
 - State Store capability refs 改指 canonical owner；cross-plane import allowlist 清零。
 - `legacy-replay-fingerprint` certification 显式迁移或终止。
 - legacy integration coverage 被各 canonical owner 的定向测试替代后，删除本模块而非改名接管新语义。

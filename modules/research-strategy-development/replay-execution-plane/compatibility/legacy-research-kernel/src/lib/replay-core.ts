@@ -5,6 +5,14 @@ import { calculateFundingCashflow, calculateRoundTripLinearCost } from "../../..
 import { hashCanonical, hashFile, replayContentHash, replayDataHash, replayHarnessHash } from "../../../legacy-replay-identity/src/lib/legacy-replay-identity"
 import { loadCandlesFromManifest, loadManifest, parseCsvCandles, type Candle } from "../../../legacy-research-data/src/lib/legacy-research-data"
 import { atr, buildIndicators, ema, type IndicatorSet } from "../../../legacy-research-features/src/lib/legacy-research-features"
+import {
+  buildAntiOverfitProof,
+  buildReplayDiagnostics,
+  buildRobustnessProof,
+  evaluateReplayGate,
+  summarizeTrades,
+  type LegacyReplayGate,
+} from "../../../legacy-research-evaluation/src/lib/legacy-research-evaluation"
 
 type Side = "long" | "short"
 type JSONRecord = Record<string, unknown>
@@ -121,11 +129,7 @@ interface ReplayResult {
   max_drawdown_r: number
   profit_factor: number
   expectancy_r: number
-  gate: {
-    shadow_candidate: boolean
-    live_small_candidate: false
-    blocked_by: Array<{ check_id: string; reason: string }>
-  }
+  gate: LegacyReplayGate
   trades: ReplayTrade[]
   diagnostics?: JSONRecord
   assumptions: JSONRecord
@@ -699,24 +703,6 @@ function summarizeReplay(input: {
   }
 }
 
-function buildReplayDiagnostics(trades: ReplayTrade[]): JSONRecord {
-  const rValues = trades.map((trade) => trade.r)
-  return {
-    schema_version: "trade-flow.replay-diagnostics.v1",
-    promotion_effect: "diagnostic_only_cannot_authorize",
-    metrics: {
-      sample_count: trades.length,
-      r_multiple_initial: summarizeRValues(trades.map((trade) => trade.r_multiple_initial ?? trade.r)),
-      r_multiple_max_live_risk: summarizeRValues(trades.map((trade) => trade.r_multiple_max_live_risk ?? trade.r)),
-    },
-    monte_carlo: {
-      method: "deterministic_trade_order_shuffle_and_r_perturbation_v1",
-      trade_order_shuffle: tradeOrderShuffleDiagnostics(rValues),
-      candle_perturbation: candlePerturbationDiagnostics(rValues),
-    },
-  }
-}
-
 function orderTriggers(order: SimulatedLaneOrder, candle: Candle): boolean {
   if (order.kind === "market") return true
   const trigger = order.kind === "stop_market" ? order.stop_price : order.price
@@ -749,112 +735,6 @@ function positiveOrDefault(value: unknown, fallback: number): number {
   return Number.isFinite(number) && number > 0 ? number : fallback
 }
 
-function summarizeRValues(values: number[]): JSONRecord {
-  const finite = values.filter(Number.isFinite)
-  const total = finite.reduce((sum, value) => sum + value, 0)
-  return {
-    sample_count: finite.length,
-    avg_r: finite.length > 0 ? round(total / finite.length) : 0,
-    total_r: round(total),
-    max_drawdown_r: round(maxDrawdown(finite)),
-    p10_r: finite.length > 0 ? round(quantile([...finite].sort((a, b) => a - b), 0.1)) : 0,
-  }
-}
-
-function tradeOrderShuffleDiagnostics(values: number[]): JSONRecord {
-  if (values.length === 0) return { status: "empty", trial_count: 0 }
-  const trials = [
-    values,
-    [...values].reverse(),
-    rotate(values, Math.max(1, Math.floor(values.length / 3))),
-    rotate(values, Math.max(1, Math.floor(values.length / 2))),
-  ]
-  const drawdowns = trials.map((trial) => maxDrawdown(trial))
-  return {
-    status: "evaluated",
-    trial_count: trials.length,
-    observed_max_drawdown_r: round(maxDrawdown(values)),
-    worst_shuffle_drawdown_r: round(Math.max(...drawdowns)),
-    p75_shuffle_drawdown_r: round(quantile([...drawdowns].sort((a, b) => a - b), 0.75)),
-  }
-}
-
-function candlePerturbationDiagnostics(values: number[]): JSONRecord {
-  if (values.length === 0) return { status: "empty", trial_count: 0 }
-  const variants = [0.05, 0.1, 0.15].map((drag) => values.map((value) => round(value - drag)))
-  const stats = variants.map(summarizeRValues)
-  return {
-    status: "evaluated",
-    method: "adverse_r_drag_proxy",
-    trial_count: variants.length,
-    worst_total_r: round(Math.min(...stats.map((item) => Number(item.total_r)))),
-    worst_avg_r: round(Math.min(...stats.map((item) => Number(item.avg_r)))),
-  }
-}
-
-function rotate(values: number[], offset: number): number[] {
-  const normalized = values.length > 0 ? offset % values.length : 0
-  return values.slice(normalized).concat(values.slice(0, normalized))
-}
-
-function quantile(sorted: number[], q: number): number {
-  if (sorted.length === 0) return 0
-  const position = (sorted.length - 1) * q
-  const lower = Math.floor(position)
-  const upper = Math.ceil(position)
-  if (lower === upper) return sorted[lower]
-  return sorted[lower] + (sorted[upper] - sorted[lower]) * (position - lower)
-}
-
-function buildAntiOverfitProof(trades: ReplayTrade[], options: ReplayOptions): JSONRecord | null {
-  if (trades.length === 0) {
-    return null
-  }
-  if (options.antiOverfitStage === "locked_holdout" || options.antiOverfitStage === "external_validation") {
-    const stage = options.antiOverfitStage
-    return {
-      method: "out_of_sample",
-      stage,
-      oos_stats: summarizeTrades(trades),
-      trial_count: options.trialCount ?? 1,
-      parameter_count: options.parameterCount ?? 0,
-      notes: stage === "locked_holdout"
-        ? "The frozen candidate is evaluated on the complete pristine holdout; no holdout segment is reused for selection."
-        : "The frozen candidate is evaluated on the complete non-overlapping external dataset; this is not pristine holdout evidence.",
-    }
-  }
-  const ratio = options.oosSplitRatio ?? 0
-  if (!Number.isFinite(ratio) || ratio <= 0 || ratio >= 1) {
-    return null
-  }
-  if (trades.length < 2) {
-    return {
-      method: "out_of_sample",
-      stage: "selection_validation",
-      train_stats: summarizeTrades([]),
-      oos_stats: summarizeTrades(trades),
-      purged_overlap_count: 0,
-      trial_count: options.trialCount ?? 1,
-      parameter_count: options.parameterCount ?? 0,
-      notes: "Selection validation has fewer than two trades and cannot form independent train/OOS samples.",
-    }
-  }
-  const splitIndex = Math.max(1, Math.min(trades.length - 1, Math.floor(trades.length * (1 - ratio))))
-  const oosStart = Date.parse(trades[splitIndex].signal_time)
-  const train = trades.slice(0, splitIndex).filter((trade) => Date.parse(trade.exit_time) < oosStart)
-  const purgedCount = splitIndex - train.length
-  return {
-    method: "out_of_sample",
-    stage: "selection_validation",
-    train_stats: summarizeTrades(train),
-    oos_stats: summarizeTrades(trades.slice(splitIndex)),
-    purged_overlap_count: purgedCount,
-    trial_count: options.trialCount ?? 1,
-    parameter_count: options.parameterCount ?? 0,
-    notes: `Selection validation uses the last ${round(ratio * 100)}% of chronological replay trades and purges training labels crossing the OOS boundary; it is not a locked final holdout.`,
-  }
-}
-
 function classifyMarketRegime(candles: Candle[], indicators: IndicatorSet, index: number): string {
   const close = candles[index]?.close
   const longTrend = indicators.ema200[index]
@@ -872,27 +752,6 @@ function classifyMarketRegime(candles: Candle[], indicators: IndicatorSet, index
     .sort((a, b) => a - b)
   const median = ratios[Math.floor(ratios.length / 2)] ?? atrNow / close
   return `${close >= longTrend ? "bull" : "bear"}_${atrNow / close >= median ? "high_vol" : "low_vol"}`
-}
-
-function buildRobustnessProof(trades: ReplayTrade[]): JSONRecord {
-  const groups = new Map<string, ReplayTrade[]>()
-  for (const trade of trades) {
-    const list = groups.get(trade.regime) || []
-    list.push(trade)
-    groups.set(trade.regime, list)
-  }
-  const regimeSlices = Array.from(groups.entries())
-    .filter(([regime, items]) => regime !== "unknown" && items.length >= 5)
-    .map(([regime, items]) => ({ regime, ...summarizeTrades(items) }))
-  const stressed = trades.map((trade) => {
-    const risk = Math.abs(trade.entry - trade.stop)
-    const extraCostR = risk > 0 ? ((Math.abs(trade.entry) + Math.abs(trade.exit)) * 5 / 10000) / risk : 0
-    return { ...trade, r: round(trade.r - extraCostR) }
-  })
-  return {
-    regime_slices: regimeSlices,
-    cost_stress: { extra_bps_per_side: 5, stats: summarizeTrades(stressed) },
-  }
 }
 
 function buildReplayParameterStability(strategy: ReplayStrategy, options: ReplayOptions): JSONRecord {
@@ -1067,67 +926,6 @@ function readSupplementalTemporalContract(ref: string): ReplaySupplementalTempor
       availability_source: "unreadable",
     }
   }
-}
-
-function summarizeTrades(trades: ReplayTrade[]): {
-  sample_count: number
-  win_rate: number
-  avg_r: number
-  total_r: number
-  max_drawdown_r: number
-  profit_factor: number
-} {
-  const wins = trades.filter((trade) => trade.r > 0)
-  const gains = wins.reduce((sum, trade) => sum + trade.r, 0)
-  const losses = Math.abs(trades.filter((trade) => trade.r < 0).reduce((sum, trade) => sum + trade.r, 0))
-  const total = trades.reduce((sum, trade) => sum + trade.r, 0)
-  return {
-    sample_count: trades.length,
-    win_rate: trades.length > 0 ? round(wins.length / trades.length) : 0,
-    avg_r: trades.length > 0 ? round(total / trades.length) : 0,
-    total_r: round(total),
-    max_drawdown_r: round(maxDrawdown(trades.map((trade) => trade.r))),
-    profit_factor: losses > 0 ? round(gains / losses) : gains > 0 ? 999999 : 0,
-  }
-}
-
-function evaluateReplayGate(stats: {
-  sample_count: number
-  avg_r: number
-  total_r: number
-  max_drawdown_r: number
-  profit_factor: number
-}): ReplayResult["gate"] {
-  const blockedBy: Array<{ check_id: string; reason: string }> = []
-  if (stats.sample_count < 30) {
-    blockedBy.push({ check_id: "R-SAMPLE-SIZE", reason: `sample_count ${stats.sample_count} is below 30` })
-  }
-  if (stats.total_r <= 0 || stats.avg_r <= 0) {
-    blockedBy.push({ check_id: "R-EXPECTANCY", reason: `avg_r ${stats.avg_r} / total_r ${stats.total_r} is not positive` })
-  }
-  if (stats.profit_factor < 1.1) {
-    blockedBy.push({ check_id: "R-PROFIT-FACTOR", reason: `profit_factor ${stats.profit_factor} is below 1.1` })
-  }
-  if (stats.max_drawdown_r > 10) {
-    blockedBy.push({ check_id: "R-DRAWDOWN", reason: `max_drawdown_r ${stats.max_drawdown_r} exceeds 10R` })
-  }
-  return {
-    shadow_candidate: blockedBy.length === 0,
-    live_small_candidate: false,
-    blocked_by: blockedBy,
-  }
-}
-
-function maxDrawdown(values: number[]): number {
-  let equity = 0
-  let peak = 0
-  let drawdown = 0
-  for (const value of values) {
-    equity += value
-    peak = Math.max(peak, equity)
-    drawdown = Math.max(drawdown, peak - equity)
-  }
-  return drawdown
 }
 
 function asRecord(value: unknown): JSONRecord {
