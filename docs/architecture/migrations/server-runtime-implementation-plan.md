@@ -33,7 +33,7 @@ last_verified: 2026-07-23 CST
 
 S1 截至 2026-07-23 已从“提案散点”进入可执行实现：三个正式 foreground entrypoint、固定 `server-shadow` profile、systemd render、preflight/status、合成生命周期与恢复演练均已落地。只读 public smoke 已跨两个 control cycle 保持同一 L2 epoch、同一 fencing token，comparable parity mismatch 未增加；因当前 host 为 macOS，结论只能是 local observation。Linux systemd 安装/故障注入和真实 durable volume restore 仍是 S1 采用门，未完成前不得宣称服务器 ready。
 
-S3 已新增独立 `full_shadow` 固定 profile：同一 fenced supervisor/wakeup 可启用 J01–J07、强制 cadence due、保留 owner active/state gate，并永久关闭 exchange live write 与真实通知。干净 HEAD 的临时 SQLite/captured-owner fixture 已得到 7/7 enabled、Agent/program `1/1 match`，未出现 live command；当前版本化 server config 仍是 `shadow_program`。published owner CLI smoke、故障重启、长时重复/双写/incident 观察完成前不得切换。
+S3 已新增独立 `full_shadow` 固定 profile：同一 fenced supervisor/wakeup 可启用 J01–J07、强制 cadence due、保留 owner active/state gate，并永久关闭 exchange live write 与真实通知。干净 HEAD 的临时 SQLite/captured-owner 双周期 fixture 已得到 7/7 enabled、Agent/program `2/2 match`、零重复 job/incident；同槽重启 terminal skip 且 fencing token `1→2`，未出现 live command。当前版本化 server config 仍是 `shadow_program`；published owner CLI smoke、故障注入与长时观察完成前不得切换。
 
 ## 3. 运行工作模型
 
