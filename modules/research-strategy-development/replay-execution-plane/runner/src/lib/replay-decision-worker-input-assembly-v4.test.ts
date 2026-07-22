@@ -7,8 +7,6 @@ import { pathToFileURL } from "node:url"
 import {
   CONTROL_PLANE_IDENTITY_SCHEMA_VERSION,
   REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION,
-  REPLAY_ATTEMPT_LEASE_OBSERVATION_POLICY_VERSION,
-  REPLAY_ATTEMPT_LEASE_OBSERVATION_SCHEMA_VERSION,
   REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
   TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION,
   createReplayAttemptLeaseObservationSnapshot,
@@ -108,9 +106,6 @@ import {
   assertReplayDecisionHarnessDispatchLeaseAuthorityBinding,
 } from "../../../contracts/src/lib/replay-decision-harness-dispatch-lease-authority-binding"
 import {
-  assertReplayDecisionHarnessDispatchEvidenceRegistration,
-} from "../../../contracts/src/lib/replay-decision-harness-dispatch-evidence-registration"
-import {
   assertReplayDecisionHarnessWorkerV10BuildCapability,
   createReplayDecisionHarnessWorkerV10BuildCapability,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-build-capability"
@@ -136,10 +131,6 @@ import {
   assertReplayDecisionHarnessCodeAdmissionLineage,
   buildReplayDecisionHarnessCodeAdmission,
 } from "./replay-decision-harness-code-admission"
-import {
-  readReplayDispatchEvidence,
-  registerReplayDispatchEvidence,
-} from "./replay-dispatch-evidence-registry"
 import {
   assertReplayDecisionHarnessWorkerV10BuildCapabilityLineage,
   buildReplayDecisionHarnessWorkerV10Capability,
@@ -183,7 +174,6 @@ import {
   buildReplayDecisionHarnessDispatchLeaseAdmission,
 } from "./replay-decision-harness-dispatch-lease-admission"
 import {
-  assertReplayDecisionHarnessDispatchLeaseAuthorityBindingLineage,
   buildReplayDecisionHarnessDispatchLeaseAuthorityBinding,
 } from "./replay-decision-harness-dispatch-lease-authority-binding"
 import {
@@ -214,6 +204,8 @@ import { runReplayWorkerV10ExecutionClaimStage } from "./replay-worker-v10-execu
 import { runReplayWorkerV10TransportContractStage } from "./replay-worker-v10-transport-contract-stage"
 import { runReplayWorkerV10StdioProbeStage } from "./replay-worker-v10-stdio-probe-stage"
 import { runReplayWorkerV10SuccessorTransportStage } from "./replay-worker-v10-successor-transport-stage"
+import { runReplayWorkerV10DispatchAuthorityBindingStage } from "./replay-worker-v10-dispatch-authority-binding-stage"
+import { runReplayWorkerV10DispatchEvidenceStage } from "./replay-worker-v10-dispatch-evidence-stage"
 
 const HASH = "a".repeat(64)
 const ACCOUNTING = {
@@ -1356,87 +1348,25 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
     transport_admission: "granted" as never,
   })).toThrow("unsupported decision harness Dispatch Lease Admission authority")
 
-  const leaseObservationBody = {
-    schema_version: REPLAY_ATTEMPT_LEASE_OBSERVATION_SCHEMA_VERSION,
-    observation_id: "lease-observation-envelope-1",
-    observation_ref: "observation://replay-attempt-lease/envelope-1",
-    observation_policy_version: REPLAY_ATTEMPT_LEASE_OBSERVATION_POLICY_VERSION,
-    status: "active_lease_observed" as const,
-    observed_at: attemptLease.heartbeat_at,
-    authority_owner: "research_control_plane" as const,
-    authority_source: "research_control_plane_state_store" as const,
-    read_consistency: "single_control_plane_transaction" as const,
-    clock_evidence: "caller_supplied_utc_not_external_time_attestation" as const,
-    trial_id: attemptLease.trial_id,
-    run_id: attemptLease.run_id,
-    attempt_id: attemptLease.attempt_id,
-    attempt_ordinal: attemptLease.attempt_ordinal,
-    worker_id: attemptLease.worker_id,
-    lease_generation: attemptLease.lease_generation,
-    attempt_lease_hash: hashReplayAttemptLeaseSnapshot(attemptLease),
+  const dispatchAuthorityBindingStage = runReplayWorkerV10DispatchAuthorityBindingStage({
     attempt_lease: attemptLease,
-  }
-  const leaseObservation = createReplayAttemptLeaseObservationSnapshot(leaseObservationBody)
-  const authorityBindingInput = {
-    source_execution_envelope: executionEnvelope,
-    control_plane_lease_observation: leaseObservation,
-  }
-  const dispatchAuthorityBinding = buildReplayDecisionHarnessDispatchLeaseAuthorityBinding(authorityBindingInput)
-  expect(dispatchAuthorityBinding.authority_observation_status).toBe("control_plane_receipt_verified")
-  expect(dispatchAuthorityBinding.control_plane_observation_hash).toBe(leaseObservation.observation_hash)
-  expect(dispatchAuthorityBinding.source_dispatch_lease_admission_hash).toBe(dispatchAdmission.admission_hash)
-  expect(dispatchAuthorityBinding.receipt_binding_policy)
-    .toBe("exact_observation_time_lease_hash_attempt_worker_and_generation")
-  expect(dispatchAuthorityBinding.dispatch_eligibility)
-    .toBe("authority_receipt_and_lease_freshness_admitted_only")
-  expect(dispatchAuthorityBinding.dispatch_occurrence).toBe("not_materialized")
-  expect(dispatchAuthorityBinding.clock_evidence).toBe("caller_supplied_utc_not_external_time_attestation")
-  expect(dispatchAuthorityBinding.transport_admission).toBe("not_granted")
-  expect(dispatchAuthorityBinding.response_instance).toBeNull()
-  expect(dispatchAuthorityBinding.economic_authority).toBe("none")
-  expect(() => assertReplayDecisionHarnessDispatchLeaseAuthorityBinding(dispatchAuthorityBinding)).not.toThrow()
-  expect(() => assertReplayDecisionHarnessDispatchLeaseAuthorityBindingLineage(
-    dispatchAuthorityBinding,
-    authorityBindingInput,
-  )).not.toThrow()
-  expect(buildReplayDecisionHarnessDispatchLeaseAuthorityBinding({
-    source_execution_envelope: structuredClone(executionEnvelope),
-    control_plane_lease_observation: structuredClone(leaseObservation),
-  })).toEqual(dispatchAuthorityBinding)
+    execution_envelope: executionEnvelope,
+    dispatch_admission: dispatchAdmission,
+  })
+  const leaseObservationBody = dispatchAuthorityBindingStage.lease_observation_body
+  const leaseObservation = dispatchAuthorityBindingStage.lease_observation
+  const authorityBindingInput = dispatchAuthorityBindingStage.authority_binding_input
+  const dispatchAuthorityBinding = dispatchAuthorityBindingStage.dispatch_authority_binding
   const dispatchEvidenceRegistryRoot = mkdtempSync(join(tmpdir(), "replay-dispatch-evidence-"))
-  replayProfile("dispatch envelope and lease binding")
   try {
-    expect(() => registerReplayDispatchEvidence({
+    const dispatchEvidenceStage = runReplayWorkerV10DispatchEvidenceStage({
       registry_root: dispatchEvidenceRegistryRoot,
       authority_binding: dispatchAuthorityBinding,
-      registered_at: attemptLease.lease_expires_at,
-    })).toThrow("must occur inside the observed Lease window")
-    const dispatchEvidenceRegistration = registerReplayDispatchEvidence({
-      registry_root: dispatchEvidenceRegistryRoot,
-      authority_binding: dispatchAuthorityBinding,
-      registered_at: "2026-07-14T00:00:31Z",
+      attempt_lease: attemptLease,
+      profile: replayProfile,
     })
-    expect(dispatchEvidenceRegistration.source_authority_binding_hash)
-      .toBe(dispatchAuthorityBinding.binding_hash)
-    expect(dispatchEvidenceRegistration.evidence_status).toBe("durable_pre_dispatch_evidence_only")
-    expect(dispatchEvidenceRegistration.dispatch_claim).toBeNull()
-    expect(dispatchEvidenceRegistration.dispatch_eligibility)
-      .toBe("requires_future_current_lease_revalidation_and_one_time_dispatch_claim")
-    expect(dispatchEvidenceRegistration.dispatch_occurrence).toBe("not_materialized")
-    expect(() => assertReplayDecisionHarnessDispatchEvidenceRegistration(
-      dispatchEvidenceRegistration,
-    )).not.toThrow()
-    expect(registerReplayDispatchEvidence({
-      registry_root: dispatchEvidenceRegistryRoot,
-      authority_binding: structuredClone(dispatchAuthorityBinding),
-      registered_at: "2026-07-14T00:00:32Z",
-    })).toEqual(dispatchEvidenceRegistration)
-    expect(readReplayDispatchEvidence({
-      registry_root: dispatchEvidenceRegistryRoot,
-      attempt_id: dispatchEvidenceRegistration.attempt_id,
-      lease_generation: dispatchEvidenceRegistration.lease_generation,
-      logical_request_id: dispatchEvidenceRegistration.logical_request_id,
-    })).toEqual(dispatchEvidenceRegistration)
+    const dispatchEvidenceRegistration =
+      dispatchEvidenceStage.dispatch_evidence_registration
 
     const transportContractStage = runReplayWorkerV10TransportContractStage({
       registry_root: dispatchEvidenceRegistryRoot,
