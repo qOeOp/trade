@@ -1,0 +1,22 @@
+[mcp_servers.trade-agent]
+command = "bun"
+args = ["modules/orchestration-ops/agent-mcp/src/scripts/main.ts"]
+cwd = ".."
+enabled = true
+required = false
+startup_timeout_sec = 10
+tool_timeout_sec = 20
+default_tools_approval_mode = "writes"
+enabled_tools = [
+  "trade_tool_search",
+  "trade_tool_read",
+  "artifact_catalog_query",
+  "artifact_read",
+  "rd_program_read",
+  "ops_cycle_summary",
+  "research_hypothesis_brief",
+  "research_hypothesis_prepare",
+  "research_job_submit",
+  "research_job_status",
+  "research_job_result",
+]

@@ -1,0 +1,10 @@
+interface:
+  display_name: "Trade Research Workflow"
+  short_description: "Design, validate, and run bounded trade R&D"
+  default_prompt: "Use $run-trade-research to design and run the next bounded R&D hypothesis for the current program."
+
+dependencies:
+  tools:
+    - type: "mcp"
+      value: "trade-agent"
+      description: "Local project MCP for RD briefs, hypothesis validation, J04 submission, status, results, and evidence reads"

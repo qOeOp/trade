@@ -2,9 +2,11 @@
 .idea/
 .cache/
 .claude/
-.codex/
+.codex/*
+!.codex/config.toml
 tmp/
 .env
+.secrets/
 $CODEX_HOME/
 
 # Local runtime state and generated trading/research data.
@@ -39,6 +41,7 @@ __pycache__/
 .mypy_cache/
 .ruff_cache/
 coverage/
+target/
 
 npm-debug.log*
 *.pyc
