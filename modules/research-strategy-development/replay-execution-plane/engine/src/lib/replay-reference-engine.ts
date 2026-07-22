@@ -314,6 +314,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       decisionHarnessReceipt?.receipt_hash ?? null,
       decisionHarnessBundle?.bundle_hash ?? null, decisionHarnessReceipt?.loader_policy_version ?? null,
       decisionHarnessBuild?.attestation_hash ?? null, decisionHarnessReceipt?.worker_protocol_version ?? null,
+      authorizedStopEntryPath?.step.step_hash ?? null,
     )
   }
   const orderEvents: ReplayOrderEvent[] = structuredClone(resumeCheckpoint?.order_events ?? [])
@@ -996,6 +997,7 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       if (resolution.outcome.status !== "filled" && resolution.outcome.status !== "triggered_and_filled") {
         return { entry_transition: null, terminal_exit: null }
       }
+      let authorizedPathTerminal: ReplayAuthorizedStopEntryPathStep["exact_trade_stop_resolution"]["terminal_trigger"] = null
       if (execution.order_type === "stop_market" && source.kind === "bar_range") {
         const stopTouched = request.order.side === "long"
           ? bar.low <= request.order.stop_price
@@ -1004,20 +1006,31 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
           ? bar.high >= request.order.target_price
           : bar.low <= request.order.target_price
         if (stopTouched || targetTouched) {
-          throw new ReplayStopEntrySameBarPathAmbiguityError(
-            resolution,
-            createReplayStopEntrySameBarPathAmbiguity({
-              run_id: request.run_id,
-              position_side: request.order.side,
-              source_event_key: structuredClone(source.event_key),
-              bar: structuredClone(bar),
-              entry_trigger_price: execution.trigger_price,
-              protective_stop_price: request.order.stop_price,
-              target_price: request.order.target_price,
-              stop_touched: stopTouched,
-              target_touched: targetTouched,
-            }),
-          )
+          const pathStep = authorizedStopEntryPath?.step
+          if (!pathStep || pathStep.market_bar_hash !== canonicalHash(bar)) {
+            throw new ReplayStopEntrySameBarPathAmbiguityError(
+              resolution,
+              createReplayStopEntrySameBarPathAmbiguity({
+                run_id: request.run_id,
+                position_side: request.order.side,
+                source_event_key: structuredClone(source.event_key),
+                bar: structuredClone(bar),
+                entry_trigger_price: execution.trigger_price,
+                protective_stop_price: request.order.stop_price,
+                target_price: request.order.target_price,
+                stop_touched: stopTouched,
+                target_touched: targetTouched,
+              }),
+            )
+          }
+          authorizedPathTerminal = pathStep.exact_trade_stop_resolution.terminal_trigger
+          if (!limitations.some((limitation) => limitation.code === "bar-linked-aggregate-trade-path-resolution")) {
+            limitations.push({
+              code: "bar-linked-aggregate-trade-path-resolution",
+              severity: "resolution_limited",
+              detail: "The terminal owner is ordered by Control Plane-authorized aggregate-trade prices linked to this closed bar; Fill quantity and costs remain frozen Replay assumptions and external archive completeness is not verified.",
+            })
+          }
         }
       }
       entryPrice = pendingExecutionPrice(resolution.outcome.fill_reference_price!)
@@ -1050,7 +1063,21 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
       })
       entryOrder = completed.entry_order
       markScheduledEntryCancelNotReached(completed.entry_fill_event_key)
-      return { entry_transition: completed, terminal_exit: null }
+      return {
+        entry_transition: completed,
+        terminal_exit: authorizedPathTerminal ? {
+          role: authorizedPathTerminal.role,
+          timestamp: bar.close_time,
+          rawPrice: authorizedPathTerminal.role === "stop"
+            ? request.order.stop_price
+            : request.order.target_price,
+          triggerSource: "bar_range",
+          sourceSequence: source.source_index + 1,
+          authorized_path_step_hash: authorizedStopEntryPath!.step.step_hash,
+          terminal_aggregate_trade_id: authorizedPathTerminal.aggregate_trade_id,
+          terminal_aggregate_trade_time: authorizedPathTerminal.trade_time,
+        } : null,
+      }
     },
     get_entry_fill_event_key: (entry) => entry.entry_fill_event_key,
     get_active_protection: (entry) => {
@@ -1684,7 +1711,8 @@ export function executeReplayKernel(input: ReplayKernelInput): ReplayResult {
     equity_bridge: equityBridge,
     margin_snapshots: marginSnapshots,
   })
-  const ohlcvResolutionEvidence = exit.role === "stop" || exit.role === "target"
+  const ohlcvResolutionEvidence = (exit.role === "stop" || exit.role === "target")
+      && exit.resolution_evidence !== undefined
     ? [exit.resolution_evidence]
     : []
   const metrics = deriveReplayMetrics({
@@ -1786,6 +1814,7 @@ function buildReplayEngineCheckpoint(input: {
   decision_harness_build_attestation_hash: string | null
   decision_harness_loader_policy_version: string | null
   decision_harness_worker_protocol_version: string | null
+  authorized_stop_entry_path_step_hash: string | null
 }): ReplayEngineCheckpoint {
   const lastCommittedEventKey = input.boundary.source_events.at(-1)?.event_key
   if (!lastCommittedEventKey) throw new Error("Replay checkpoint requires a committed source event")
@@ -1822,6 +1851,7 @@ function buildReplayEngineCheckpoint(input: {
     event_sequence: input.event_sequence,
     exact_risk_snapshots: structuredClone(input.exact_risk_snapshots),
     limitations: structuredClone(input.limitations),
+    authorized_stop_entry_path_step_hash: input.authorized_stop_entry_path_step_hash,
     last_committed_event_key: structuredClone(lastCommittedEventKey),
   }
   return { ...body, checkpoint_hash: canonicalHash(body) }
@@ -1840,6 +1870,7 @@ export function assertReplayEngineCheckpoint(
   decisionHarnessLoaderPolicyVersion?: string | null,
   decisionHarnessBuildAttestationHash?: string | null,
   decisionHarnessWorkerProtocolVersion?: string | null,
+  authorizedStopEntryPathStepHash?: string | null,
 ): void {
   if (checkpoint.schema_version !== REPLAY_ENGINE_CHECKPOINT_SCHEMA_VERSION) throw new Error("unsupported Replay engine checkpoint schema")
   assertReplayDecisionEvidenceTimeline(checkpoint.decision_evidence_timeline, request, {
@@ -1863,6 +1894,8 @@ export function assertReplayEngineCheckpoint(
         && checkpoint.decision_harness_build_attestation_hash !== decisionHarnessBuildAttestationHash)
       || (decisionHarnessWorkerProtocolVersion !== undefined
         && checkpoint.decision_harness_worker_protocol_version !== decisionHarnessWorkerProtocolVersion)
+      || (authorizedStopEntryPathStepHash !== undefined
+        && checkpoint.authorized_stop_entry_path_step_hash !== authorizedStopEntryPathStepHash)
       || checkpoint.simulator_policy_version !== request.simulator_policy.version
       || checkpoint.numeric_policy_version !== REPLAY_NUMERIC_POLICY_VERSION) {
     throw new Error("Replay engine checkpoint authority binding does not match execution input")
@@ -1879,7 +1912,9 @@ export function assertReplayEngineCheckpoint(
       || (checkpoint.decision_harness_bundle_hash !== null
         && !/^[a-f0-9]{64}$/.test(checkpoint.decision_harness_bundle_hash))
       || (checkpoint.decision_harness_build_attestation_hash !== null
-        && !/^[a-f0-9]{64}$/.test(checkpoint.decision_harness_build_attestation_hash))) {
+        && !/^[a-f0-9]{64}$/.test(checkpoint.decision_harness_build_attestation_hash))
+      || (checkpoint.authorized_stop_entry_path_step_hash !== null
+        && !/^[a-f0-9]{64}$/.test(checkpoint.authorized_stop_entry_path_step_hash))) {
     throw new Error("Replay engine checkpoint decision evidence hash is invalid")
   }
   if (!Number.isSafeInteger(checkpoint.next_source_offset) || checkpoint.next_source_offset <= 0
