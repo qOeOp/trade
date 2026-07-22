@@ -1,5 +1,5 @@
 {
-  "name": "replay-engine",
+  "name": "legacy-research-kernel",
   "private": true,
   "type": "module",
   "devDependencies": {

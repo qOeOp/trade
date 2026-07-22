@@ -9,7 +9,7 @@ import {
   type ReplayResult,
   type ReplaySignal,
   type ReplayStrategy,
-} from "../../../../../replay-execution-plane/compatibility/replay-engine/src/lib/replay-core"
+} from "../../../../../replay-execution-plane/compatibility/legacy-research-kernel/src/lib/replay-core"
 import { type FactorFeatureStore, windowFactorFeatureStore } from "../../../strategy-family-engine/src/lib/factor-engine"
 import { getRndFamily, type RndFamilyConfigured } from "../../../strategy-family-engine/src/lib/rnd-family"
 import type { JSONRecord } from "../../../../../../contracts/runtime-core/src/json"

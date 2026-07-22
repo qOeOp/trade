@@ -2,7 +2,7 @@ import {
   evaluateLatestSignal,
   hashCanonical,
   replayDataHash,
-} from "../../../../../replay-execution-plane/compatibility/replay-engine/src/lib/replay-core"
+} from "../../../../../replay-execution-plane/compatibility/legacy-research-kernel/src/lib/replay-core"
 import { getRndFamily } from "../../../strategy-family-engine/src/lib/rnd-family"
 import { loadStrategyFeatureStore } from "../../../strategy-family-engine/src/lib/strategy-feature-store"
 

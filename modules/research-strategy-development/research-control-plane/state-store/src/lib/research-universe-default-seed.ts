@@ -144,7 +144,7 @@ export function seedDefaultResearchControlPlane(db: Database, now: string): {
     })
     upsertUniverseCoverage(db, {
       coverage_id: `coverage:replay:${family}`, node_id: node, coverage_type: "replay",
-      scope_ref: family, module_ref: "modules/research-strategy-development/replay-execution-plane/compatibility/replay-engine",
+      scope_ref: family, module_ref: "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-kernel",
       coverage_status: family === "relative_weakness_momentum_v1" ? "partial" : "ready",
       evidence_ref: `family://${family}`, updated_at: now,
     })
@@ -186,10 +186,10 @@ export function buildDefaultCapabilitySeed(now: string): PipelineRegistryItemWri
     ["feature", "ohlcv-features", "OHLCV Feature Set", "modules/research-strategy-development/agent-roles/developer/strategy-family-engine", ["ohlcv", "4h", "causal"]],
     ["feature", "funding-features", "Funding Feature Set", "modules/research-strategy-development/agent-roles/developer/strategy-family-engine", ["funding", "derivatives", "causal"]],
     ["forecast_model", "rule-score", "Deterministic Rule Score", "modules/research-strategy-development/agent-roles/developer/signal-engine", ["score", "deterministic"]],
-    ["portfolio", "single-asset", "Single Asset Portfolio", "modules/research-strategy-development/replay-execution-plane/compatibility/replay-engine", ["single_asset", "usdm"]],
+    ["portfolio", "single-asset", "Single Asset Portfolio", "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-kernel", ["single_asset", "usdm"]],
     ["portfolio", "cross-sectional-rank", "Cross-sectional Rank Portfolio", "modules/research-strategy-development/agent-roles/developer/candidate-batch", ["panel", "ranking"]],
     ["risk_rule", "fixed-risk-geometry", "Fixed Risk Geometry", "modules/research-strategy-development/agent-roles/developer/strategy-family-engine", ["stop", "target", "time_exit"]],
-    ["execution_rule", "bar-close-taker", "Bar-close Taker Execution", "modules/research-strategy-development/replay-execution-plane/compatibility/replay-engine", ["closed_candle", "taker", "4h"]],
+    ["execution_rule", "bar-close-taker", "Bar-close Taker Execution", "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-kernel", ["closed_candle", "taker", "4h"]],
   ] as const
   return definitions.map(([registryType, slugValue, name, owner, tags]) => ({
     item_id: `capability:${registryType}:${slugValue}:v1`, registry_type: registryType,

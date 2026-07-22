@@ -5,7 +5,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { Database } from "bun:sqlite"
 
-import { replayDataHash } from "../../../../../replay-execution-plane/compatibility/replay-engine/src/lib/replay-core"
+import { replayDataHash } from "../../../../../replay-execution-plane/compatibility/legacy-research-kernel/src/lib/replay-core"
 import { createRdProgramState, readRdProgramState, writeRdProgramState } from "../../../../program-control/src/lib/rd-program-state"
 import { runStrategyRndBatch } from "../../../../../agent-roles/developer/candidate-batch-engine/src/lib/strategy-rnd-batch"
 import { strategyRndBatchInputFromJson } from "../../../../../agent-roles/developer/candidate-batch-engine/src/lib/strategy-rnd-inputs"

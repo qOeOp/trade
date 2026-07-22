@@ -4,7 +4,7 @@ import { join } from "node:path"
 import assert from "node:assert/strict"
 import test from "node:test"
 
-import { detectReplayDecisionLookahead, evaluateLatestSignal, evaluateReplayGate, parseCsvCandles, replayStrategy, replayTrendPullback, simulateReplayOrderLane, type Candle, type ReplayStrategy } from "../../../../../replay-execution-plane/compatibility/replay-engine/src/lib/strategy-replay"
+import { detectReplayDecisionLookahead, evaluateLatestSignal, evaluateReplayGate, parseCsvCandles, replayStrategy, replayTrendPullback, simulateReplayOrderLane, type Candle, type ReplayStrategy } from "../../../../../replay-execution-plane/compatibility/legacy-research-kernel/src/lib/strategy-replay"
 
 test("parseCsvCandles reads OHLCV rows", () => {
   const candles = parseCsvCandles([

@@ -1,5 +1,5 @@
 import { factorConditionsToJson, passesFactorConditions, readFactorConditions, type FactorCondition, type FactorFeatureStore } from "../factor-engine"
-import { loadCandlesFromManifest, loadManifest, type Candle, type ReplaySignal, type ReplayStrategy } from "../../../../../../replay-execution-plane/compatibility/replay-engine/src/lib/replay-core"
+import { loadCandlesFromManifest, loadManifest, type Candle, type ReplaySignal, type ReplayStrategy } from "../../../../../../replay-execution-plane/compatibility/legacy-research-kernel/src/lib/replay-core"
 import type { RndFamilyModule } from "../rnd-family"
 import { readNonNegativeNumber, readPositiveInteger, readPositiveNumber, readSide, round, type JSONRecord, type SideFilter } from "../rnd-family-helpers"
 

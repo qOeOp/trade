@@ -1,4 +1,4 @@
-import { buildIndicators, hashCanonical, type Candle } from "../../../../../replay-execution-plane/compatibility/replay-engine/src/lib/replay-core"
+import { buildIndicators, hashCanonical, type Candle } from "../../../../../replay-execution-plane/compatibility/legacy-research-kernel/src/lib/replay-core"
 import {
   transformFactor,
   type FactorCondition,

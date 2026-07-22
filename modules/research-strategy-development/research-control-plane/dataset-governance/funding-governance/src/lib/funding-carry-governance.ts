@@ -1,4 +1,4 @@
-import { loadCandlesFromManifest, loadManifest } from "../../../../../replay-execution-plane/compatibility/replay-engine/src/lib/replay-core"
+import { loadCandlesFromManifest, loadManifest } from "../../../../../replay-execution-plane/compatibility/legacy-research-kernel/src/lib/replay-core"
 import { panelFundingEvents } from "../../../../../replay-execution-plane/benchmark/src/lib/strategy-benchmark-data"
 import { strategyBenchmarkInputFromJson, type BenchmarkDataset } from "../../../../../replay-execution-plane/benchmark/src/lib/strategy-benchmark-inputs"
 import type { JSONRecord } from "../../../../../../contracts/runtime-core/src/json"

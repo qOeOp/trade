@@ -6,7 +6,7 @@ import test from "node:test"
 
 import { loadFactorFeatureStore } from "../../../../../agent-roles/developer/strategy-family-engine/src/lib/factor-engine"
 import { researchFactorSeeds } from "../../../../../agent-roles/developer/strategy-family-engine/src/lib/factor-research"
-import type { Candle } from "../../../../../replay-execution-plane/compatibility/replay-engine/src/lib/replay-core"
+import type { Candle } from "../../../../../replay-execution-plane/compatibility/legacy-research-kernel/src/lib/replay-core"
 
 test("factor research keeps stable predictive factors and prunes correlated copies", () => {
   const dir = mkdtempSync(join(tmpdir(), "factor-research-"))

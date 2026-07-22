@@ -1,6 +1,6 @@
 import { factorConditionsToJson, passesFactorConditions, readFactorConditions, type FactorCondition, type FactorFeatureStore } from "../factor-engine"
-import type { Candle, ReplaySignal, ReplayStrategy } from "../../../../../../replay-execution-plane/compatibility/replay-engine/src/lib/replay-core"
-import { trailingFundingAverage } from "../../../../../../replay-execution-plane/compatibility/replay-engine/src/lib/funding-events"
+import type { Candle, ReplaySignal, ReplayStrategy } from "../../../../../../replay-execution-plane/compatibility/legacy-research-kernel/src/lib/replay-core"
+import { trailingFundingAverage } from "../../../../../../replay-execution-plane/compatibility/legacy-research-kernel/src/lib/funding-events"
 import type { RndFamilyModule } from "../rnd-family"
 import { readNonNegativeInteger, readPositiveInteger, readPositiveNumber, readSide, round, type JSONRecord, type SideFilter } from "../rnd-family-helpers"
 

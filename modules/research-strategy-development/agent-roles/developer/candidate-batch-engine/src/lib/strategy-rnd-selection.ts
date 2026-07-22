@@ -1,4 +1,4 @@
-import type { ReplayResult } from "../../../../../replay-execution-plane/compatibility/replay-engine/src/lib/replay-core"
+import type { ReplayResult } from "../../../../../replay-execution-plane/compatibility/legacy-research-kernel/src/lib/replay-core"
 import { compareCandidates, type StrategyRndCandidateReport } from "./strategy-rnd-evaluation"
 
 export interface SelectionAudit {
