@@ -5,7 +5,57 @@ import test from "node:test"
 import { Database } from "bun:sqlite"
 import { readCycleSummary, readIncidents } from "../../../../ops-runtime-store/src/lib/ops-runtime-store"
 import { appendPlanEvent, ensureSchema } from "../../../../../portfolio-execution-state/event-store/src/lib/event-store"
-import { runAutomationJobGraph, type CommandExecutionResult } from "./job-graph-runner"
+import { projectJobGraphParity, runAutomationJobGraph, type CommandExecutionResult } from "./job-graph-runner"
+
+test("job graph parity projection ignores attempt identity and detects semantic drift", () => {
+  const base = {
+    mode: "execute",
+    summary: {
+      total_jobs: 1,
+      total_processors: 1,
+      completed: 1,
+      skipped: 0,
+      failed: 0,
+      blocked: 0,
+      processors: { completed: 1, skipped: 0, failed: 0, blocked: 0 },
+    },
+    ops_summary: {
+      incidents: { total: 0, open: 0, critical: 0, warning: 0 },
+      attention: { needs_human: false, severity: "none" },
+    },
+    jobs: [{
+      ticket_no: "J01",
+      job_id: "account_reconcile_guard",
+      target_domain: "live-execution-control",
+      stage: "serial_account_reconcile",
+      status: "completed",
+      reason: "command completed",
+      result_ref: "ops-runtime://cycle/first/job/J01",
+    }],
+    lifecycle_processors: [{
+      processor_id: "runtime_health_guard",
+      lifecycle_phase: "pre_cycle",
+      stage: "pre_cycle",
+      status: "completed",
+      reason: "runtime health status ok",
+      result_ref: "ops-runtime://health/first",
+      health_checks: { "l2_service:owner_health": "ok" },
+    }],
+  }
+  const first = projectJobGraphParity({ cycle_id: "first", ...base })
+  const second = projectJobGraphParity({
+    cycle_id: "second",
+    ...base,
+    jobs: [{ ...base.jobs[0], result_ref: "ops-runtime://cycle/second/job/J01" }],
+  })
+  const drifted = projectJobGraphParity({
+    ...base,
+    jobs: [{ ...base.jobs[0], status: "blocked", reason: "dependency blocked" }],
+  })
+
+  assert.equal(first.projection_hash, second.projection_hash)
+  assert.notEqual(first.projection_hash, drifted.projection_hash)
+})
 
 test("job graph runner records dry-run lifecycle into ops runtime store", async () => {
   const dir = makeCheckDir("job-graph-runner-")
@@ -108,6 +158,20 @@ test("job graph runner executes command specs through injected executor", async 
       include_catalog_hygiene: false,
     }, async (command): Promise<CommandExecutionResult> => {
       executed.push(`${command.cwd}:${command.argv.join(" ")}`)
+      if (command.cwd === "modules/orchestration-ops/runtime-health-guard") {
+        return {
+          exit_code: 0,
+          stdout: JSON.stringify({
+            ok: true,
+            processor_id: "runtime_health_guard",
+            lifecycle_phase: "pre_cycle",
+            status: "ok",
+            health_ref: "ops_runtime_store:runtime_health/health-exec",
+            health: { checks_json: { checks: [{ name: "runtime:default", status: "ok" }] } },
+          }),
+          stderr: "",
+        }
+      }
       return { exit_code: 0, stdout: "{\"ok\":true}", stderr: "" }
     })
 
@@ -121,6 +185,87 @@ test("job graph runner executes command specs through injected executor", async 
     assert.equal(processors.find((processor) => processor.processor_id === "runtime_health_guard")?.status, "completed")
     assert.equal(processors.find((processor) => processor.processor_id === "control_effectiveness_review")?.exit_code, 0)
     assert.equal(processors.find((processor) => processor.processor_id === "ops_notify_dispatch")?.exit_code, 0)
+  } finally {
+    tradeDb.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("job graph runner blocks only jobs whose declared resident L2 consumer dependency failed", async () => {
+  const dir = makeCheckDir("job-graph-runner-l2-health-")
+  const tradeDbPath = join(dir, "trade.db")
+  const opsDbPath = join(dir, "ops_runtime.db")
+  const tradeDb = new Database(tradeDbPath)
+  try {
+    ensureSchema(tradeDb)
+    appendPlanEvent(tradeDb, {
+      event_key: "obs-l2-health-block",
+      chain_id: "flow-l2-health-block",
+      kind: "observe",
+      created_at: "2026-07-22T11:45:00Z",
+      body_json: { source: "slow_track", symbol: "BTCUSDT", side: "long" },
+    })
+    const executed: string[] = []
+    const result = await runAutomationJobGraph(tradeDb, tradeDbPath, {
+      cycle_id: "cycle-l2-health-block",
+      now: "2026-07-22T12:00:00Z",
+      ops_runtime_db: opsDbPath,
+      execute_jobs: true,
+      include_account_reconcile: true,
+      include_fast_track: true,
+      include_slow_track: false,
+      include_rd_strategy_supervisor: false,
+      include_rd_trackers: false,
+      include_catalog_hygiene: false,
+      include_closed_flow_review: false,
+      include_control_effectiveness_review: false,
+      include_ops_notify: false,
+      job_health_requirements: {
+        fast_track_guard: ["l2_service:owner_health", "l2_watch_consumer:owner_health"],
+      },
+    }, async (command): Promise<CommandExecutionResult> => {
+      executed.push(command.cwd)
+      if (command.cwd === "modules/orchestration-ops/runtime-health-guard") {
+        return {
+          exit_code: 0,
+          stdout: JSON.stringify({
+            ok: false,
+            processor_id: "runtime_health_guard",
+            lifecycle_phase: "pre_cycle",
+            status: "blocked",
+            health_ref: "ops_runtime_store:runtime_health/health-l2-failed",
+            health: {
+              checks_json: {
+                checks: [
+                  { name: "l2_service:owner_health", status: "ok" },
+                  { name: "l2_watch_consumer:owner_health", status: "fail" },
+                ],
+              },
+            },
+          }),
+          stderr: "",
+        }
+      }
+      if (command.argv.includes("--cron-recover-from-tools")) {
+        return { exit_code: 0, stdout: JSON.stringify({ ok: true, data: { status: "recovered_noop" } }), stderr: "" }
+      }
+      throw new Error(`unexpected command: ${command.cwd}`)
+    })
+
+    const processors = result.lifecycle_processors as Array<{ processor_id: string; status: string; business_status?: string; health_checks?: Record<string, string> }>
+    const health = processors.find((processor) => processor.processor_id === "runtime_health_guard")
+    assert.equal(health?.status, "blocked")
+    assert.equal(health?.business_status, "blocked")
+    assert.equal(health?.health_checks?.["l2_service:owner_health"], "ok")
+    assert.equal(health?.health_checks?.["l2_watch_consumer:owner_health"], "fail")
+    const jobs = result.jobs as Array<{ job_id: string; status: string; reason: string }>
+    assert.equal(jobs.find((job) => job.job_id === "account_reconcile_guard")?.status, "completed")
+    assert.equal(jobs.find((job) => job.job_id === "fast_track_guard")?.status, "blocked")
+    assert.match(jobs.find((job) => job.job_id === "fast_track_guard")?.reason ?? "", /health dependency l2_watch_consumer:owner_health is fail/)
+    assert.deepEqual(executed, [
+      "modules/orchestration-ops/runtime-health-guard",
+      "modules/orchestration-ops/trade-flow",
+    ])
   } finally {
     tradeDb.close()
     rmSync(dir, { recursive: true, force: true })
@@ -528,6 +673,55 @@ test("job graph runner blocks fast guard when reconciliation remains unresolved"
     assert.match(fast?.reason || "", /dependency account_reconcile_guard/)
     assert.equal(executed.length, 1)
     assert.match(executed[0], /cron-recover-from-tools/)
+  } finally {
+    tradeDb.close()
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("job graph runner bounds a stalled lifecycle command", async () => {
+  const dir = makeCheckDir("job-graph-runner-timeout-")
+  const tradeDbPath = join(dir, "trade.db")
+  const opsDbPath = join(dir, "ops_runtime.db")
+  const tradeDb = new Database(tradeDbPath)
+  try {
+    ensureSchema(tradeDb)
+    const result = await runAutomationJobGraph(tradeDb, tradeDbPath, {
+      cycle_id: "cycle-job-graph-timeout",
+      now: "2026-07-23T03:00:00Z",
+      ops_runtime_db: opsDbPath,
+      execute_jobs: true,
+      command_timeout_ms: 100,
+      include_fast_track: false,
+      include_slow_track: false,
+      include_rd_strategy_supervisor: false,
+      include_rd_trackers: false,
+      include_closed_flow_review: false,
+      include_catalog_hygiene: false,
+      include_control_effectiveness_review: false,
+      include_ops_notify: false,
+    }, async () => new Promise<CommandExecutionResult>(() => {}))
+
+    assert.equal(result.ok, false)
+    const processors = result.lifecycle_processors as Array<{
+      processor_id: string
+      status: string
+      reason: string
+      exit_code?: number
+      timed_out?: boolean
+    }>
+    const health = processors.find((processor) => processor.processor_id === "runtime_health_guard")
+    assert.equal(health?.status, "failed")
+    assert.equal(health?.reason, "command timed out")
+    assert.equal(health?.exit_code, 124)
+    assert.equal(health?.timed_out, true)
+    const opsDb = new Database(opsDbPath)
+    try {
+      const incidents = readIncidents(opsDb, { cycle_id: "cycle-job-graph-timeout" })
+      assert.equal(incidents.some((incident) => incident.source === "lifecycle_processor"), true)
+    } finally {
+      opsDb.close()
+    }
   } finally {
     tradeDb.close()
     rmSync(dir, { recursive: true, force: true })
