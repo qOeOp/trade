@@ -318,11 +318,13 @@ R&D 纵切无 Binance write，且已有 schema / queue / budget / holdout gate�
 - 真实 200-frame writer 输出在三语言间字节级一致（300,217 bytes）；截断与 checksum corruption 都只接纳前 199 帧，salvaged prefix 可再次完整验证。
 - durability-dominated 7-sample median 约为 Go `33.9 µs/frame`、Bun `35.2 µs/frame`、Rust `52.7 µs/frame`，样本不足以说明稳定 writer 吞吐；Rust RSS 最低约 `2.7 MB`。综合 projector / memory 证据仍支持 Rust。
 - 已对 Bun / Go / Rust writer 分别执行受控 `SIGKILL`：三者在第 50 个已 fsync frame 后均留下 96,568-byte partial；Bun / Go / Rust 3×3 recovery 的 frame count、valid bytes、payload hash 完全一致，所有 salvage 再由三种实现验证为 complete。
-- 单次进程故障矩阵已通过，但不等同于长期稳定性证据；P0 仍需小时级 public-stream soak、重复 kill-resume 周期与 ADR，因此计划保持 `proposed`。
+- 单次进程故障矩阵已通过；小时级 public-stream natural soak 与采用 ADR 也已完成，Rust / TL2S P0 gate 已关闭。总迁移仍因 program runtime、consumer 与 LLM 等后续阶段保持 `proposed`。
 - 已建立 Rust public-soak vertical harness：network reader 与 TL2S writer 通过 bounded channel 隔离；book levels 有硬上限；每个连接保存独立 snapshot / epoch；bridge miss、live gap、overflow 与 socket close 分型，不跨 epoch 静默续写。
 - 20 秒 forced-disconnect smoke 主动每 40 条断连：138 条连续事件、7 个完整 TL2S segments、最大 queue depth `1/64`、event lag p95 `2 ms` / max `8 ms`；出现 8 次可查询 snapshot bridge miss 并自动新建 epoch，未出现 live `pu` gap 或 overflow。该 smoke 只证明机制可运行，不替代小时级 soak。
 - 已增加 Bun process supervisor，但不把 book / writer 业务逻辑搬回 Bun：它只启动 Rust、采样精确 PID、受控 kill、调用跨语言 recovery 并汇总证据。
-- 真实公共流连续执行 3 轮 `SIGKILL -> salvage -> restart`：每轮在第 10 个已 fsync frame 后退出 137，Bun / Go / Rust 3×3 recovery 完全一致；第四次启动正常记录 77 条事件并通过 soak verdict。观测峰值 RSS 约 `17.8 MB`、瞬时 CPU `43.4%`、queue depth `1/64`。P0 仅剩小时级自然运行证据与采用 ADR。
+- 真实公共流连续执行 3 轮 `SIGKILL -> salvage -> restart`：每轮在第 10 个已 fsync frame 后退出 137，Bun / Go / Rust 3×3 recovery 完全一致；第四次启动正常记录 77 条事件并通过 soak verdict。观测峰值 RSS 约 `17.8 MB`、瞬时 CPU `43.4%`、queue depth `1/64`。
+- BTCUSDT natural soak 连续 `3600.111s`：35,282 received / recorded、0 resync / incident、queue max `4/64`、36/36 segment 完整、RSS max约 `21.8 MiB`、CPU mean `0.144%`；gate verdict `passed`。
+- 已形成 [L2 Runtime Adoption Decision](../l2-runtime-adoption-decision.md)，并建立共享 deterministic core 与独立 production-candidate service；30 秒真实竖切中 291 received / raw / applied 对齐、gRPC read ready、manifest / TL2S complete、0 partial。
 
 ### P1 — L2 recorder vertical slice
 
