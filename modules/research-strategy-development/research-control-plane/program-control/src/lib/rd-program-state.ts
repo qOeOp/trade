@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs"
 import { dirname } from "node:path"
 import { advanceHypothesisQueue, updateInputFromResearchResult, updateInputFromStrategyReview } from "./rd-program-learning"
 import { buildRdSupervisorNextPlan } from "./rd-program-planner"
+import { canonicalHash } from "../../../../../contracts/runtime-core/src/canonical-json"
 import type { JSONRecord } from "../../../../../contracts/runtime-core/src/json"
 import { buildRdProgram, ensureResearchStateSchema, readRdProgram, upsertRdProgram } from "../../../state-store/src/lib/research-state-store"
 import { readPlannerControlPlaneContext } from "../../../state-store/src/lib/research-control-plane-operations"
@@ -169,9 +170,62 @@ function runRdProgramStateCommand(input: RdProgramStateCommandInput): RdProgramS
       }),
     }
   }
+  if (action === "queue_proposal") {
+    return queueProposal({ dbPath, programId, stateRef, input: input.input })
+  }
   const state = updateRdProgramState(readRdProgramState(stateRef, dbPath), updateInputFromJson(input.input))
   const write = writeRdProgramState(stateRef, state, input.catalogDbPath, dbPath)
   return commandResult("update", write.ref, state, write)
+}
+
+function queueProposal(input: { dbPath: string; programId: string; stateRef: string; input: JSONRecord }): RdProgramStateCommandResult {
+  const expectedUpdatedAt = requiredText(input.input.expected_updated_at, "queue proposal requires expected_updated_at")
+  const proposal = asRecord(input.input.proposal)
+  const hypothesisId = requiredText(proposal.hypothesis_id, "queue proposal requires proposal.hypothesis_id")
+  if (proposal.ready !== true) throw new Error("queue proposal requires a ready hypothesis")
+  const now = normalizeDate(stringField(input.input.now) || undefined)
+  if (Date.parse(now) <= Date.parse(expectedUpdatedAt)) throw new Error("queue proposal now must advance updated_at")
+  const db = new Database(input.dbPath)
+  try {
+    ensureResearchStateSchema(db)
+    const execute = db.transaction((): RdProgramStateCommandResult => {
+      const row = readRdProgram(db, input.programId)
+      if (!row) throw new Error(`rd program not found: ${input.programId}`)
+      const state = normalizeRdProgramState(row.state_json)
+      const existing = state.next_hypothesis_queue.map(asRecord).find((item) => stringField(item.hypothesis_id) === hypothesisId)
+      if (existing) {
+        if (canonicalHash(existing) !== canonicalHash(proposal)) throw new Error(`queue proposal conflicts with existing hypothesis: ${hypothesisId}`)
+        return { ...commandResult("queue_proposal", input.stateRef, state), queued: false, duplicate: true }
+      }
+      if (row.updated_at !== expectedUpdatedAt || state.updated_at !== expectedUpdatedAt) throw new Error("queue proposal expected_updated_at is stale")
+      if (state.status !== "active") throw new Error(`queue proposal requires active program; status is ${state.status}`)
+      const updated = updateRdProgramState(state, { now, followupHypotheses: [proposal] })
+      const program = buildRdProgram({
+        program_id: updated.program_id,
+        objective: updated.objective,
+        status: updated.status,
+        state_json: updated,
+        updated_at: updated.updated_at,
+      })
+      const result = db.query(`
+        UPDATE rd_program
+        SET objective=$objective, status=$status, state_json=$state_json, updated_at=$updated_at
+        WHERE program_id=$program_id AND updated_at=$expected_updated_at
+      `).run({
+        $program_id: program.program_id,
+        $objective: program.objective,
+        $status: program.status,
+        $state_json: JSON.stringify(program.state_json),
+        $updated_at: program.updated_at,
+        $expected_updated_at: expectedUpdatedAt,
+      })
+      if (result.changes !== 1) throw new Error("queue proposal compare-and-swap lost")
+      return { ...commandResult("queue_proposal", input.stateRef, updated, { db_path: input.dbPath }), queued: true, duplicate: false }
+    })
+    return execute()
+  } finally {
+    db.close()
+  }
 }
 
 function updateRdProgramStateFromResearchResult(state: RdProgramState, result: JSONRecord, now?: string): RdProgramState {
@@ -280,10 +334,10 @@ function usageDeltaFromJson(value: unknown): Partial<RdProgramUsage> {
 
 function readAction(value: unknown): RdProgramStateCommandResult["action"] {
   const action = stringField(value) || "read"
-  if (action === "init" || action === "read" || action === "update" || action === "plan_next") {
+  if (action === "init" || action === "read" || action === "update" || action === "plan_next" || action === "queue_proposal") {
     return action
   }
-  throw new Error("rd program state action must be init, read, update, or plan_next")
+  throw new Error("rd program state action must be init, read, update, plan_next, or queue_proposal")
 }
 
 function readOptionalStatus(value: unknown): RdProgramStatus | undefined {

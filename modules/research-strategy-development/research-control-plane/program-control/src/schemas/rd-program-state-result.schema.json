@@ -7,7 +7,7 @@
   "required": ["schema_version", "action", "state_ref", "state", "goal"],
   "properties": {
     "schema_version": { "const": "trade-flow.rd-program-state-result.v1" },
-    "action": { "enum": ["init", "read", "update", "plan_next"] },
+    "action": { "enum": ["init", "read", "update", "plan_next", "queue_proposal"] },
     "state_ref": { "type": "string", "minLength": 1 },
     "db_path": { "type": "string", "minLength": 1 },
     "state": {
@@ -34,6 +34,8 @@
       "additionalProperties": true
     },
     "goal": { "type": "object" },
+    "queued": { "type": "boolean" },
+    "duplicate": { "type": "boolean" },
     "next_plan": {
       "type": "object",
       "required": ["schema_version", "plan_id", "created_at", "status", "reason", "command", "payload", "selected_hypothesis", "queue_seed_recommendation", "scout_subagent_plan", "strategy_universe_backlog", "budget_remaining", "guardrails"],

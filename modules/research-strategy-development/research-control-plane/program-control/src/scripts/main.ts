@@ -66,6 +66,7 @@ function assertRuntimeOutputPaths(...paths: string[]): void {
 function printHelp(): void {
   console.log(`Usage:
   bun src/scripts/main.ts --db ./data/rd_state.db --program-id rd-program --json '{"action":"plan_next"}'
+  bun src/scripts/main.ts --db ./data/rd_state.db --program-id rd-program --json '{"action":"queue_proposal","expected_updated_at":"...","now":"...","proposal":{}}'
 `)
 }
 

@@ -53,12 +53,14 @@ interface RdProgramStateUpdateInput {
 
 interface RdProgramStateCommandResult {
   schema_version: "trade-flow.rd-program-state-result.v1"
-  action: "init" | "read" | "update" | "plan_next"
+  action: "init" | "read" | "update" | "plan_next" | "queue_proposal"
   state_ref: string
   db_path?: string
   state: RdProgramState
   goal: JSONRecord
   next_plan?: RdSupervisorNextPlan
+  queued?: boolean
+  duplicate?: boolean
 }
 
 interface RdSupervisorNextPlan {
