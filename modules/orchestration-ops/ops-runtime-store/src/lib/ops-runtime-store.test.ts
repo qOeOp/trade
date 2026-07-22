@@ -23,6 +23,7 @@ import {
   acquireOpsLock,
   readOpsLock,
   readRuntimeParityObservations,
+  readRuntimeParityStatus,
   recordRuntimeParityObservation,
   renewOpsLock,
   releaseOpsLock,
@@ -48,6 +49,32 @@ test("ops runtime store keeps an immutable Agent/program parity ledger", () => {
     assert.deepEqual(recordRuntimeParityObservation(db, observation), observation)
     assert.deepEqual(recordRuntimeParityObservation(db, observation), observation)
     assert.deepEqual(readRuntimeParityObservations(db, { status: "match" }), [observation])
+    acquireOpsLock(db, {
+      lock_key: "program-runtime-shadow-supervisor",
+      holder_id: "private-holder",
+      acquired_at: "2026-07-23T08:00:00Z",
+      expires_at: "2026-07-23T08:01:00Z",
+    })
+    const status = readRuntimeParityStatus(db, new Date("2026-07-23T08:00:30Z")) as {
+      observation_state: string
+      counts: { total: number; matched: number; mismatched: number }
+      latest: Record<string, unknown>
+      supervisor_lease: Record<string, unknown>
+      limitations: string[]
+    }
+    assert.equal(status.observation_state, "matches_only")
+    assert.deepEqual(status.counts, {
+      total: 1,
+      matched: 1,
+      mismatched: 0,
+      distinct_program_hashes: 1,
+      distinct_agent_hashes: 1,
+    })
+    assert.equal(status.supervisor_lease.state, "active")
+    assert.equal(status.supervisor_lease.active, true)
+    assert.equal(Object.hasOwn(status.supervisor_lease, "holder_id"), false)
+    assert.equal(Object.hasOwn(status.latest, "detail_json"), false)
+    assert.equal(status.limitations.includes("not_a_cutover_or_strategy_verdict"), true)
     assert.throws(
       () => recordRuntimeParityObservation(db, { ...observation, agent_cycle_id: "changed-agent-cycle" }),
       /runtime parity observation is immutable/,
