@@ -1,34 +1,14 @@
 #!/usr/bin/env bun
 
 import { Database } from "bun:sqlite"
-import { readFileSync } from "node:fs"
 import { runOpsNotifyDispatch } from "../lib/ops-notify-dispatch"
 import type { JSONRecord } from "../../../../contracts/runtime-core/src/json"
+import { readDbJsonArgs, type DbJsonArgs } from "../../../../contracts/runtime-core/src/script-json"
 
-interface Args {
-  dbPath: string
-  json: JSONRecord
-}
+type Args = DbJsonArgs
 
 export function parseArgs(argv: string[]): Args {
-  let dbPath = "data/ops_runtime.db"
-  let json: JSONRecord = {}
-  for (let index = 0; index < argv.length; index += 1) {
-    const arg = argv[index]
-    if (arg === "--db") {
-      dbPath = argv[++index] ?? dbPath
-    } else if (arg === "--json") {
-      json = JSON.parse(argv[++index] ?? "{}") as JSONRecord
-    } else if (arg === "--json-file") {
-      json = JSON.parse(readFileSync(argv[++index] ?? "", "utf8")) as JSONRecord
-    } else if (arg === "--help") {
-      printHelp()
-      process.exit(0)
-    } else {
-      throw new Error(`unknown argument: ${arg}`)
-    }
-  }
-  return { dbPath, json }
+  return readDbJsonArgs(argv, "data/ops_runtime.db", printHelp)
 }
 
 export async function run(args: Args): Promise<JSONRecord> {
@@ -52,4 +32,3 @@ if (import.meta.main) {
     process.exit(1)
   }
 }
-
