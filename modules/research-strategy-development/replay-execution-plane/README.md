@@ -14,7 +14,7 @@ benchmark/ panel alignment、funding coverage、固定 benchmark simulation 与 
 runner/     monotonic Attempt lease fencing、transport-neutral coordinator/pre-terminal local outbox、namespace discovery/recovery-first no-replay ack、幂等、typed failure、Harness worker 与完整 Artifact commit
 tests/      golden、property、metamorphic、component parity 认证
 compatibility/ 尚未退役的 legacy research kernel、data、features、evaluation、provenance 与 identity；服务既有消费者，不具 native Replay authority
-certification/ benchmark/calibration runtime、legacy fingerprint parity 与 P10/P11/P13 portfolio-cycle compatibility certification；fixtures 仅用于回归
+certification/ 唯一 Replay certification command、benchmark/calibration runtime、legacy fingerprint parity 与 P10/P11/P13 compatibility certification；fixtures 仅用于回归
 ```
 
 当前是 Request v30、Result v43、Artifact v45、Run Outcome v35、Dataset Manifest v11、Decision Schedule v7 / Timeline v10、Pending Order Resolution v2、Stop Entry Same-bar Path Ambiguity v1、OHLCV Resolution Evidence v3、Engine Checkpoint v22、Simulator v16、Margin v7、Journal v5 / Equity v3 的受限认证纵切，并继续绑定 Control Plane Reservation/Attempt/certification/cancellation authority。entry 可选 next-open market、pre-entry GTC/IOC Limit 或 GTC Stop-market。Stop open gap 取 observed open，range trigger 取 trigger reference 后施加不利滑点；若 range 触发 bar 同时触达保护价而无法证明触发后路径，则 typed-fail 且无 Result。GTC 可跨 observation resting、在数据边界保留 active，或由 Experiment Contract 预冻结的 closed-bar Cancel 终止；Limit 沿用 v1 intent，Stop 使用 v2 intent。Cancel 可固定执行，也可由 Schedule/Harness 在 `pending_entry` 相位重算；更早 Fill 标记 not-reached。IOC 只在 earliest-open 全成或 expired。零成交结果不伪造 Fill/Position/Funding。position-open 仍只允许一次 stop tighten，或一次 fixed partial 后重建双保护并可追加 final full exit。remote transport/SLA、真实 queue/depth partial、未冻结运行时 Cancel/amend 与 multi-order 未认证。

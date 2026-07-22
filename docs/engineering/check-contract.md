@@ -31,6 +31,7 @@ last_verified: 2026-07-22 CST
 | `project-quality` | repo root | `scripts/quality-check.sh` | 提交前 secret / TS / Go / Rust / Python / shell / hygiene 总闸 |
 | `replay-runner-worker-v10` | `modules/research-strategy-development/replay-execution-plane/runner` | `bun run test:worker-v10` | 单实例运行深证据链集成测试，并输出阶段耗时 |
 | `replay-runner-remaining` | `modules/research-strategy-development/replay-execution-plane/runner` | `bun run test:remaining` | 不与巨型 worker-v10 场景混跑的其余 runner 回归 |
+| `replay-certification` | `modules/research-strategy-development/replay-execution-plane/certification/replay-certification` | `bun run certify` | Plane 内全部 canonical/compatibility package 的唯一、顺序、fail-fast certification 入口 |
 | `quality-judge-regression` | repo root | `bun test ./scripts/*.test.ts` | 用恶意反例证明架构、evidence、测试完整性审查 fail closed |
 | `package-test-integrity` | repo root | `bun scripts/check-package-tests.ts` | 生产 TS package 必须有 colocated 测试，且 test script 不得空跑成功 |
 | `zero-duplication` | repo root | `bun scripts/check-duplication.ts` | 六类源码在既定检测粒度下重复片段必须为 0 |

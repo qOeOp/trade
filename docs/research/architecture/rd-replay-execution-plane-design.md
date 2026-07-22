@@ -133,3 +133,7 @@ M4/M5 都相对于**声明的能力包络**，不要求伪造不可能证明的�
 [Evidence Epoch Registry](../reliability/rd-replay-evidence-epoch-registry.json) 冻结通用 writer 为唯一一组：Result v53、Artifact Manifest v55、Engine Checkpoint v32、Diagnostic Checkpoint Commit v2、Terminal Checkpoint v1 与 Run Outcome v35。生产源码不得继续写通用旧版本；历史版本只允许由后续 M5 migration reader 消费，不能恢复 writer。
 
 四个公共 profile 的 profile-scoped Result/Manifest 是上层组合证据，不与通用 single-trial epoch 竞争 authority。`independent-lane-batch` 只引用 child v53/v55 与 child v32 checkpoint；`integrated-portfolio`、`terminal-aware-bounded-cycle` 当前明确没有 resumable checkpoint writer。这里的“收敛”只证明 writer 与 checkpoint mode 唯一、可机读，不把缺失能力伪装成已支持；所有 profile 的 resume/evidence 充分性仍由独立 M4 gate 验收。
+
+## 13. Certification owner
+
+Plane 内唯一完整认证入口是 `certification/replay-certification` 的 `bun run certify`。其 registry 必须逐一分类 Plane 下除自身外的全部 package，canonical 与 compatibility 分组顺序执行各 owner 的 `bun run check`，任一失败立即非零退出。Canonical tests 禁止反向 import compatibility；P10/P11/P13 只由 `legacy-portfolio-cycle-certification` 单向消费。该命令聚合已有证据，不产生 release verdict 或新 Artifact；M5 仍需独立冻结 release fixture/bundle。
