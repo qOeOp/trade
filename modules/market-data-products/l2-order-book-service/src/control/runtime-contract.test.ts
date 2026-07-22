@@ -1,0 +1,28 @@
+import assert from "node:assert/strict"
+import test from "node:test"
+import { assertOutputRef, assertRuntimeRef, validateLaunchConfig, type LaunchConfig } from "./runtime-contract"
+
+const config: LaunchConfig = {
+  symbol: "BTCUSDT",
+  output_base: "data/l2",
+  listen: "127.0.0.1:50061",
+  epoch_seconds: 86_100,
+  duration_seconds: 0,
+  queue_capacity: 256,
+  segment_frames: 1_000,
+  sync_every_frames: 100,
+  stale_after_ms: 2_000,
+  restart_limit: 0,
+}
+
+test("L2 control contract accepts indefinite supervised local service", () => {
+  assert.doesNotThrow(() => validateLaunchConfig(config))
+  assert.equal(assertOutputRef("/repo", "data/l2"), "/repo/data/l2")
+  assert.equal(assertRuntimeRef("/repo", "tmp/l2-order-book-service/runtime/x"), "/repo/tmp/l2-order-book-service/runtime/x")
+})
+
+test("L2 control contract rejects public listener and escaped paths", () => {
+  assert.throws(() => validateLaunchConfig({ ...config, listen: "0.0.0.0:50061" }), /loopback/)
+  assert.throws(() => assertOutputRef("/repo", "data/other"), /L2 output/)
+  assert.throws(() => assertRuntimeRef("/repo", "../runtime"), /control files/)
+})
