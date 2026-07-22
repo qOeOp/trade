@@ -169,6 +169,7 @@ type timeframeResult struct {
 	CoreContext         map[string]any                          `json:"core_context"`
 	Indicators          map[string]any                          `json:"indicators"`
 	Features            map[string]any                          `json:"features,omitempty"`
+	FeatureCausality    *featureCausalityReport                 `json:"feature_causality,omitempty"`
 	Supports            []priceLevel                            `json:"supports"`
 	Resistances         []priceLevel                            `json:"resistances"`
 	Trendlines          []trendline                             `json:"trendlines"`
@@ -670,6 +671,8 @@ func timeframeAnalysis(
 	}
 	if includeFeatureSeries {
 		result.Features = buildIndicatorFeatureSeries(input, selected, catalog, overrides)
+		causality := auditFeatureCausality(input, selected, catalog, overrides, 200, computeFactorFormula)
+		result.FeatureCausality = &causality
 	}
 	return result
 }

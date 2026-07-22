@@ -55,6 +55,25 @@ func TestPriceActionFactorsAreScaleFree(t *testing.T) {
 	}
 }
 
+func TestFeatureCausalityRecomputesProviderFormulasAtCutoffs(t *testing.T) {
+	input := testFactorInput(220)
+	catalog := map[string]catalogSpec{"ema": {Defaults: map[string]any{"period": 20, "field": "close"}, Factors: []catalogFactorSpec{{ID: "ema.value", Formula: "ema"}}}}
+	passing := auditFeatureCausality(input, []string{"ema"}, catalog, nil, 30, computeFactorFormula)
+	if passing.Status != "passed" || passing.CheckedCutoffs != 30 || passing.MismatchCount != 0 {
+		t.Fatalf("unexpected causal report: %#v", passing)
+	}
+	leaking := auditFeatureCausality(input, []string{"ema"}, catalog, nil, 30, func(value *indicatorInput, _ map[string]any, _ string) ([]float64, error) {
+		out := make([]float64, len(value.Series.Close))
+		for index := range out {
+			out[index] = value.Series.Close[len(value.Series.Close)-1]
+		}
+		return out, nil
+	})
+	if leaking.Status != "failed" || leaking.MismatchCount == 0 {
+		t.Fatalf("future-dependent provider escaped cutoff recomputation: %#v", leaking)
+	}
+}
+
 func assertFactorOK(t *testing.T, results map[string]any, id string, indicator string, output string) {
 	t.Helper()
 	factor, ok := results[id].(map[string]any)

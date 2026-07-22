@@ -107,6 +107,12 @@ function featurePayload(manifestPath: string, indicators: string[]): unknown {
       selected_indicators: Object.fromEntries(indicators.map((name) => [name, {}])),
       timeframes: {
         "4h": {
+          feature_causality: {
+            method: "provider_prefix_recompute_v1", status: "passed", coverage: "complete",
+            eligible_cutoffs: 1, checked_cutoffs: 1, factor_count: indicators.length,
+            comparison_count: indicators.length, mismatch_count: 0,
+            mismatch_examples_truncated: false, mismatches: [],
+          },
           features: Object.fromEntries(indicators.map((name) => [`${name}.value`, { status: "ok" }])),
         },
       },

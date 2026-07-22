@@ -134,7 +134,16 @@ function reportMatches(data: JSONRecord, manifestPath: string, requireFeatureSer
   if (!requireFeatureSeries) {
     return true
   }
-  return featureCount(data) > 0
+  return featureCount(data) > 0 && featureCausalityPassed(data)
+}
+
+function featureCausalityPassed(data: JSONRecord): boolean {
+  const frames = Object.values(asRecord(data.timeframes))
+  return frames.length > 0 && frames.every((rawFrame) => {
+    const frame = asRecord(rawFrame)
+    if (Object.keys(asRecord(frame.features)).length === 0) return true
+    return stringField(asRecord(frame.feature_causality).status) === "passed"
+  })
 }
 
 function result(status: "cached" | "generated", manifestPath: string, outputPath: string, data: JSONRecord, raw: string): FeatureReportResult {
