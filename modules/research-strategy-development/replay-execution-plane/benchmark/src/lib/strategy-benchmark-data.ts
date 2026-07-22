@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs"
-import { hashCanonical, loadCandlesFromManifest, loadManifest, replayDataHash, type Candle } from "../../../compatibility/replay-engine/src/lib/replay-core"
+import { hashCanonical, loadCandlesFromManifest, loadManifest, replayDataHash, type Candle } from "../../../compatibility/legacy-research-kernel/src/lib/replay-core"
 import { resolveReadablePath } from "../../../../../contracts/runtime-core/src/paths"
 import type { BenchmarkDataset } from "./strategy-benchmark-inputs"
 
