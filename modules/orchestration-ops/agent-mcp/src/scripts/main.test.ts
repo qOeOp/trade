@@ -1,16 +1,44 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
+import { getDefaultEnvironment, StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js"
 import assert from "node:assert/strict"
-import { resolve } from "node:path"
+import { mkdirSync, rmSync } from "node:fs"
+import { relative, resolve } from "node:path"
 import test from "node:test"
 import { repoRoot } from "../../../../contracts/runtime-core/src/paths"
 
 test("stdio server lists only the explicit MCP allowlist and marks the controlled write", async () => {
+  const root = repoRoot()
+  const runtimeDirectory = resolve(root, "tmp", `agent-mcp-main-test-${process.pid}-${Date.now()}`)
+  const opsDbPath = resolve(runtimeDirectory, "ops.db")
+  const opsDbRef = relative(root, opsDbPath).replaceAll("\\", "/")
+  mkdirSync(runtimeDirectory, { recursive: true })
+  const initialized = Bun.spawnSync({
+    cmd: [
+      process.execPath,
+      resolve(root, "modules/orchestration-ops/ops-runtime-store/src/scripts/main.ts"),
+      "--db",
+      opsDbRef,
+      "--action",
+      "init",
+    ],
+    cwd: root,
+    stdout: "pipe",
+    stderr: "pipe",
+  })
+  if (initialized.exitCode !== 0) {
+    const detail = initialized.stderr.toString()
+    rmSync(runtimeDirectory, { recursive: true, force: true })
+    assert.fail(detail || `ops runtime store init exited ${initialized.exitCode}`)
+  }
   const client = new Client({ name: "trade-agent-mcp-test", version: "0.1.0" })
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [resolve(import.meta.dir, "main.ts")],
-    cwd: repoRoot(),
+    cwd: root,
+    env: {
+      ...getDefaultEnvironment(),
+      TRADE_MCP_OPS_DB: opsDbRef,
+    },
     stderr: "pipe",
   })
   try {
@@ -82,5 +110,6 @@ test("stdio server lists only the explicit MCP allowlist and marks the controlle
     assert.equal(JSON.stringify(parity).includes("detail_json"), false)
   } finally {
     await client.close()
+    rmSync(runtimeDirectory, { recursive: true, force: true })
   }
 })
