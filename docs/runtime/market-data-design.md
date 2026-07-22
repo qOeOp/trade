@@ -38,6 +38,8 @@ last_verified: 2026-07-22 CST
 - Deribit DVOL；BRK BTC MVRV / SOPR / active-addresses average
 - 账户侧 markPrice / liquidationPrice / 持仓 / 挂单 / 保护单
 
+这里的 `depth` 是按需 snapshot / ref 能力，不代表已有常驻、可恢复的 L2 owner。连续 L2 数据面的目标 authority、恢复与程序化消费边界见 [L2 Order Book Data Plane](./l2-order-book-data-plane.md)；该合同在采用门通过前保持 `proposed`。
+
 ## 微观结构证据
 
 微观结构只回答 market quality / execution risk，不直接回答方向。
@@ -98,7 +100,7 @@ last_verified: 2026-07-22 CST
 - 未被 refs / evidence / review / `.pin` 引用的市场 artifact 不长期保留；默认先用 `modules/artifact-knowledge/artifact-catalog --catalog-stale` 看 catalog 候选，删除走 `--catalog-gc --yes` 或 `--artifact-gc` 显式清理。
 - Vision ZIP 只在进程内校验、解压、聚合，不落长期缓存；factor report 是唯一持久结果。
 - 大型 factor report 不整体入库；只把 source manifest、hash、bytes、summary metrics、artifact ref 写入 catalog。
-- 完整 L2 queue、真实 liquidation、带地址标签的 exchange netflow 与完整历史 option surface 以 `capability_gaps` 明示。
+- 常驻完整 L2、完整 L2 queue、真实 liquidation、带地址标签的 exchange netflow 与完整历史 option surface 以 `capability_gaps` 明示。
 
 ## 禁止项
 

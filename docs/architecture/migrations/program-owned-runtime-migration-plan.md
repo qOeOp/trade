@@ -326,6 +326,7 @@ R&D 纵切无 Binance write，且已有 schema / queue / budget / holdout gate�
 
 ### P1 — L2 recorder vertical slice
 
+- 以 [L2 Order Book Data Plane](../../runtime/l2-order-book-data-plane.md) 作为 production owner、恢复、查询、可选 broker 与 consumer migration 合同。
 - 单 symbol public depth、snapshot bridge、gap/resync、24h rotation 模拟。
 - Raw segment finalize/hash、manifest owner admission、health / incident。
 - Fixture replay 与在线 projector 最终 book hash 一致。
