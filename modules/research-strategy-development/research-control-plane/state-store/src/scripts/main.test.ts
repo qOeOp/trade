@@ -199,6 +199,9 @@ test("research state store CLI admits a bounded Planner Proposal without materia
         frozen_at: "2026-07-22T12:08:00Z",
       }),
     ])), /only a valid/)
+    assert.throws(() => run(parseArgs([
+      "--db", dbPath, "--action", "start_experiment_trial_plan", "--json", "{}",
+    ])), /plan_id is required/)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

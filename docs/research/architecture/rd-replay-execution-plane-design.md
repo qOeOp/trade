@@ -40,6 +40,7 @@ Control Plane authorization
 ```
 
 每一层只放大已授权的输入，不自行补策略语义、数据或权限。
+Control Plane `rd_trial(status=reserved)` 只冻结 Trial identity 与预算；它必须经过独立 Replay Trial Reservation Snapshot，将 Dataset Manifest、provider certification、harness、assumptions、cost/margin/simulator policy 全部 hash-bound，才属于本 Plane 可消费的 authorization。Experiment Trial Plan Record 不能替代该 Snapshot。
 
 ## 4. 核心不变量
 

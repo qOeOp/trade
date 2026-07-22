@@ -29,6 +29,11 @@ import {
   validateDeveloperContractDraft,
 } from "./developer-contract-draft-validation"
 import { freezeDeveloperExperimentContract, readDeveloperContractFreeze } from "./developer-contract-freeze"
+import { readExperimentTrialPlan, startExperimentTrialPlan } from "./experiment-trial-plan"
+import {
+  EXPERIMENT_TRIAL_PLAN_REQUEST_SCHEMA_VERSION,
+  type ExperimentTrialPlanRequest,
+} from "../../../contracts/src/lib/experiment-trial-plan"
 import { admitPlannerProposal } from "./planner-proposal-intake"
 import { RESEARCH_CONTRACT_VALIDATOR_VERSION } from "./research-contract-validator"
 import { compileDeveloperContractFreezeTrialGroup } from "./developer-contract-freeze-compiler"
@@ -427,6 +432,115 @@ test("Control Plane atomically freezes one valid Draft into formal Contract fact
       .toThrow("immutable")
     expect(() => freezeDeveloperExperimentContract(db, { ...request, experiment_id: "experiment-drift" }))
       .toThrow("idempotency key already exists")
+  } finally {
+    db.close()
+  }
+})
+
+test("Control Plane starts one frozen Experiment and reserves its complete Trial Plan atomically", () => {
+  const db = openDb()
+  try {
+    admitProposal(db)
+    const brief = issueBrief(db)
+    receive(db, draft(brief, { draft_json: validDraftPayload(brief) }))
+    const validation = validateDeveloperContractDraft(db, {
+      schema_version: DEVELOPER_CONTRACT_DRAFT_VALIDATION_REQUEST_SCHEMA_VERSION,
+      validation_id: "validation-trial-plan", brief_id: brief.brief_id, draft_revision: 1,
+      idempotency_key: "draft-validation-trial-plan", validated_at: "2026-07-22T12:07:00Z",
+    })
+    const freeze = freezeDeveloperExperimentContract(db, {
+      schema_version: DEVELOPER_CONTRACT_FREEZE_REQUEST_SCHEMA_VERSION,
+      freeze_id: "freeze-trial-plan", validation_id: validation.validation_id,
+      validation_hash: validation.validation_hash, experiment_id: "experiment-trial-plan",
+      bootstrap_lifecycle_event_id: "event-trial-plan-register",
+      bootstrap_lifecycle_idempotency_key: "event-trial-plan-register-key",
+      idempotency_key: "freeze-trial-plan-key", frozen_at: "2026-07-22T12:08:00Z",
+    })
+    const request = {
+      schema_version: EXPERIMENT_TRIAL_PLAN_REQUEST_SCHEMA_VERSION,
+      plan_id: "trial-plan-1", freeze_id: freeze.freeze_id, freeze_hash: freeze.freeze_hash,
+      experiment_id: freeze.experiment_id, trial_group_id: freeze.trial_group_id,
+      trial_group_hash: freeze.trial_group_hash,
+      trials: [{
+        trial_id: "trial-plan-trial-1", trial_ordinal: 1,
+        candidate_id: freeze.candidates[0]!.candidate_id,
+        candidate_identity_hash: freeze.candidates[0]!.candidate_identity_hash,
+        run_id: "trial-plan-run-1", trial_idempotency_key: "trial-plan-trial-key-1",
+      }],
+      discovery_lifecycle_event_id: "event-trial-plan-discovery",
+      discovery_lifecycle_idempotency_key: "event-trial-plan-discovery-key",
+      idempotency_key: "trial-plan-key-1", planned_at: "2026-07-22T12:09:00Z",
+    } satisfies ExperimentTrialPlanRequest
+    const plan = startExperimentTrialPlan(db, request)
+    expect(startExperimentTrialPlan(db, request)).toEqual(plan)
+    expect(readExperimentTrialPlan(db, plan.plan_id)).toEqual(plan)
+    expect(plan.status).toBe("started_and_reserved")
+    expect(plan.replay_execution_authority).toBe("none_until_replay_trial_reservation_snapshot")
+    expect(count(db, "rd_experiment_trial_plan")).toBe(1)
+    expect(count(db, "rd_experiment_trial_plan_item")).toBe(1)
+    expect(count(db, "rd_trial")).toBe(1)
+    expect(db.query(`SELECT status FROM rd_trial_group WHERE trial_group_id=$id`)
+      .get({ $id: freeze.trial_group_id })).toEqual({ status: "running" })
+    expect(db.query(`SELECT lifecycle_state, lifecycle_version FROM rd_experiment_contract WHERE experiment_id=$id`)
+      .get({ $id: freeze.experiment_id })).toEqual({ lifecycle_state: "discovery", lifecycle_version: 2 })
+    expect(db.query(`SELECT status, counts_against_budget FROM rd_trial WHERE trial_id='trial-plan-trial-1'`)
+      .get()).toEqual({ status: "reserved", counts_against_budget: 1 })
+    expect(() => db.query("UPDATE rd_experiment_trial_plan SET trial_count=2").run()).toThrow("immutable")
+    expect(() => startExperimentTrialPlan(db, { ...request, planned_at: "2026-07-22T12:10:00Z" }))
+      .toThrow("idempotency key already exists")
+  } finally {
+    db.close()
+  }
+})
+
+test("Trial Plan rolls back Group, lifecycle, and every Trial after a late reservation failure", () => {
+  const db = openDb()
+  try {
+    admitProposal(db)
+    const brief = issueBrief(db)
+    receive(db, draft(brief, { draft_json: validDraftPayload(brief) }))
+    const validation = validateDeveloperContractDraft(db, {
+      schema_version: DEVELOPER_CONTRACT_DRAFT_VALIDATION_REQUEST_SCHEMA_VERSION,
+      validation_id: "validation-trial-plan-rollback", brief_id: brief.brief_id, draft_revision: 1,
+      idempotency_key: "draft-validation-trial-plan-rollback", validated_at: "2026-07-22T12:07:00Z",
+    })
+    const freeze = freezeDeveloperExperimentContract(db, {
+      schema_version: DEVELOPER_CONTRACT_FREEZE_REQUEST_SCHEMA_VERSION,
+      freeze_id: "freeze-trial-plan-rollback", validation_id: validation.validation_id,
+      validation_hash: validation.validation_hash, experiment_id: "experiment-trial-plan-rollback",
+      bootstrap_lifecycle_event_id: "event-trial-plan-rollback-register",
+      bootstrap_lifecycle_idempotency_key: "event-trial-plan-rollback-register-key",
+      idempotency_key: "freeze-trial-plan-rollback-key", frozen_at: "2026-07-22T12:08:00Z",
+    })
+    db.query(`
+      CREATE TRIGGER fail_second_trial_for_atomicity
+      BEFORE INSERT ON rd_trial WHEN NEW.trial_ordinal=2
+      BEGIN SELECT RAISE(ABORT, 'injected second Trial failure'); END
+    `).run()
+    expect(() => startExperimentTrialPlan(db, {
+      schema_version: EXPERIMENT_TRIAL_PLAN_REQUEST_SCHEMA_VERSION,
+      plan_id: "trial-plan-rollback", freeze_id: freeze.freeze_id, freeze_hash: freeze.freeze_hash,
+      experiment_id: freeze.experiment_id, trial_group_id: freeze.trial_group_id,
+      trial_group_hash: freeze.trial_group_hash,
+      trials: [1, 2].map((ordinal) => ({
+        trial_id: `trial-plan-rollback-${ordinal}`, trial_ordinal: ordinal,
+        candidate_id: freeze.candidates[0]!.candidate_id,
+        candidate_identity_hash: freeze.candidates[0]!.candidate_identity_hash,
+        run_id: `trial-plan-rollback-run-${ordinal}`,
+        trial_idempotency_key: `trial-plan-rollback-trial-key-${ordinal}`,
+      })),
+      discovery_lifecycle_event_id: "event-trial-plan-rollback-discovery",
+      discovery_lifecycle_idempotency_key: "event-trial-plan-rollback-discovery-key",
+      idempotency_key: "trial-plan-rollback-key", planned_at: "2026-07-22T12:09:00Z",
+    })).toThrow("injected second Trial failure")
+    expect(count(db, "rd_experiment_trial_plan")).toBe(0)
+    expect(count(db, "rd_experiment_trial_plan_item")).toBe(0)
+    expect(count(db, "rd_trial")).toBe(0)
+    expect(db.query(`SELECT status FROM rd_trial_group WHERE trial_group_id=$id`)
+      .get({ $id: freeze.trial_group_id })).toEqual({ status: "registered" })
+    expect(db.query(`SELECT lifecycle_state, lifecycle_version FROM rd_experiment_contract WHERE experiment_id=$id`)
+      .get({ $id: freeze.experiment_id })).toEqual({ lifecycle_state: "proposed", lifecycle_version: 1 })
+    expect(count(db, "rd_lifecycle_event")).toBe(1)
   } finally {
     db.close()
   }

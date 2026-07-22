@@ -312,6 +312,38 @@ CREATE TABLE IF NOT EXISTS rd_developer_contract_freeze (
   FOREIGN KEY (trial_group_id) REFERENCES rd_trial_group(trial_group_id)
 );
 
+CREATE TABLE IF NOT EXISTS rd_experiment_trial_plan (
+  plan_id TEXT PRIMARY KEY,
+  freeze_id TEXT NOT NULL UNIQUE,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  plan_request_hash TEXT NOT NULL UNIQUE,
+  experiment_id TEXT NOT NULL UNIQUE,
+  experiment_contract_hash TEXT NOT NULL,
+  trial_group_id TEXT NOT NULL UNIQUE,
+  trial_group_hash TEXT NOT NULL,
+  trial_plan_policy_version TEXT NOT NULL,
+  trial_count INTEGER NOT NULL CHECK(trial_count >= 1),
+  plan_hash TEXT NOT NULL UNIQUE,
+  plan_json TEXT NOT NULL CHECK(json_valid(plan_json)),
+  planned_at TEXT NOT NULL,
+  FOREIGN KEY (freeze_id) REFERENCES rd_developer_contract_freeze(freeze_id),
+  FOREIGN KEY (experiment_id) REFERENCES rd_experiment_contract(experiment_id),
+  FOREIGN KEY (trial_group_id) REFERENCES rd_trial_group(trial_group_id)
+);
+
+CREATE TABLE IF NOT EXISTS rd_experiment_trial_plan_item (
+  plan_id TEXT NOT NULL,
+  trial_id TEXT NOT NULL UNIQUE,
+  trial_ordinal INTEGER NOT NULL CHECK(trial_ordinal >= 1),
+  candidate_id TEXT NOT NULL,
+  candidate_identity_hash TEXT NOT NULL,
+  run_id TEXT NOT NULL UNIQUE,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (plan_id, trial_ordinal),
+  FOREIGN KEY (plan_id) REFERENCES rd_experiment_trial_plan(plan_id),
+  FOREIGN KEY (trial_id) REFERENCES rd_trial(trial_id)
+);
+
 CREATE TABLE IF NOT EXISTS rd_proposal (
   proposal_id TEXT PRIMARY KEY,
   planner_run_id TEXT NOT NULL,
@@ -1651,6 +1683,19 @@ BEGIN SELECT RAISE(ABORT, 'Developer Contract Freeze Record is immutable'); END;
 CREATE TRIGGER IF NOT EXISTS prevent_developer_contract_freeze_delete
 BEFORE DELETE ON rd_developer_contract_freeze
 BEGIN SELECT RAISE(ABORT, 'Developer Contract Freeze Record is immutable'); END;
+
+CREATE TRIGGER IF NOT EXISTS prevent_experiment_trial_plan_update
+BEFORE UPDATE ON rd_experiment_trial_plan
+BEGIN SELECT RAISE(ABORT, 'Experiment Trial Plan Record is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS prevent_experiment_trial_plan_delete
+BEFORE DELETE ON rd_experiment_trial_plan
+BEGIN SELECT RAISE(ABORT, 'Experiment Trial Plan Record is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS prevent_experiment_trial_plan_item_update
+BEFORE UPDATE ON rd_experiment_trial_plan_item
+BEGIN SELECT RAISE(ABORT, 'Experiment Trial Plan item is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS prevent_experiment_trial_plan_item_delete
+BEFORE DELETE ON rd_experiment_trial_plan_item
+BEGIN SELECT RAISE(ABORT, 'Experiment Trial Plan item is immutable'); END;
 
 CREATE TRIGGER IF NOT EXISTS prevent_trial_group_candidate_update
 BEFORE UPDATE ON rd_trial_group_candidate
