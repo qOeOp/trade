@@ -152,7 +152,9 @@ function isAllowedResearchStrategyDevelopmentImport(sourceTool: string, targetTo
   }
   const allowedDomainDag = new Set([
     "modules/research-strategy-development/replay-execution-plane/benchmark -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-kernel",
+    "modules/research-strategy-development/replay-execution-plane/benchmark -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-replay-identity",
     "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-kernel -> modules/research-strategy-development/replay-execution-plane/accounting",
+    "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-kernel -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-replay-identity",
     "modules/research-strategy-development/replay-execution-plane/certification/calibration-suite -> modules/research-strategy-development/replay-execution-plane/benchmark",
     "modules/research-strategy-development/agent-roles/developer/candidate-batch -> modules/research-strategy-development/agent-roles/developer/candidate-batch-engine",
     "modules/research-strategy-development/agent-roles/developer/candidate-batch-engine -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-kernel",
@@ -164,7 +166,7 @@ function isAllowedResearchStrategyDevelopmentImport(sourceTool: string, targetTo
     "modules/research-strategy-development/agent-roles/developer/rd-campaign-runner -> modules/research-strategy-development/agent-roles/developer/rd-loop-runner",
     "modules/research-strategy-development/agent-roles/developer/rd-campaign-runner -> modules/research-strategy-development/research-control-plane/program-control",
     "modules/research-strategy-development/research-control-plane/experiment-ledger -> modules/research-strategy-development/agent-roles/developer/candidate-batch-engine",
-    "modules/research-strategy-development/research-control-plane/experiment-ledger -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-kernel",
+    "modules/research-strategy-development/research-control-plane/experiment-ledger -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-replay-identity",
     "modules/research-strategy-development/research-control-plane/experiment-ledger -> modules/research-strategy-development/agent-roles/developer/strategy-family-engine",
     "modules/research-strategy-development/agent-roles/developer/rd-loop-runner -> modules/research-strategy-development/agent-roles/developer/candidate-batch-engine",
     "modules/research-strategy-development/agent-roles/developer/rd-loop-runner -> modules/research-strategy-development/research-control-plane/experiment-ledger",
@@ -180,7 +182,7 @@ function isAllowedResearchStrategyDevelopmentImport(sourceTool: string, targetTo
     "modules/research-strategy-development/research-control-plane/replay-recovery -> modules/research-strategy-development/replay-execution-plane/runner",
     "modules/research-strategy-development/research-control-plane/replay-recovery -> modules/research-strategy-development/research-control-plane/contracts",
     "modules/research-strategy-development/research-control-plane/replay-recovery -> modules/research-strategy-development/research-control-plane/state-store",
-    "modules/research-strategy-development/replay-execution-plane/certification/legacy-replay-fingerprint -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-kernel",
+    "modules/research-strategy-development/replay-execution-plane/certification/legacy-replay-fingerprint -> modules/research-strategy-development/replay-execution-plane/compatibility/legacy-replay-identity",
     "modules/research-strategy-development/research-control-plane/state-store -> modules/research-strategy-development/research-control-plane/contracts",
     "modules/research-strategy-development/research-control-plane/state-store -> modules/research-strategy-development/replay-execution-plane/contracts",
     "modules/research-strategy-development/research-control-plane/strategy-registry -> modules/research-strategy-development/research-control-plane/contracts",
