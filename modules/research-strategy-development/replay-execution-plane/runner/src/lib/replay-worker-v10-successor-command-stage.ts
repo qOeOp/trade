@@ -17,9 +17,7 @@ import {
 import type { ReplayDecisionHarnessWorkerV10SuccessorLeaseAdmission } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-lease-admission"
 import type { ReplayDecisionHarnessWorkerV10SuccessorExecutionContractAdmission } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-execution-contract-admission"
 import {
-  assertReplayDecisionHarnessWorkerV10SuccessorExecutionAdmissionCommand,
   assertReplayDecisionHarnessWorkerV10SuccessorExecutionCommandAdmission,
-  assertReplayDecisionHarnessWorkerV10SuccessorExecutionDispatchClaim,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-execution-command-admission"
 import {
   issueReplayWorkerV10SuccessorExecutionCommand,
@@ -27,6 +25,7 @@ import {
   readReplayWorkerV10SuccessorExecutionCommandAdmission,
   readReplayWorkerV10SuccessorExecutionDispatchClaim,
 } from "./replay-worker-v10-successor-execution-command-registry"
+import { assertReplayWorkerV10SuccessorCommandStage } from "./replay-worker-v10-successor-command-stage.assertions"
 
 export interface ReplayWorkerV10SuccessorCommandStageInput {
   registry_root: string
@@ -168,65 +167,18 @@ export function runReplayWorkerV10SuccessorCommandStage(
   const successorDispatchClaim =
     successorCommandAdmission.successor_execution_admission_command.source_dispatch_claim
   const successorExecutionCommand = successorCommandAdmission.successor_execution_admission_command
-  expect(successorCommandAdmission.status)
-    .toBe("successor_command_admitted_process_launch_intent_not_materialized")
-  expect(successorCommandAdmission.source_successor_execution_contract_admission_hash)
-    .toBe(successorExecutionContractAdmission.admission_hash)
-  expect(successorCommandAdmission.source_execution_admission_contract_hash)
-    .toBe(successorExecutionAdmission.contract_hash)
-  expect(successorCommandAdmission.source_artifact_bound_transport_contract_hash)
-    .toBe(successorArtifactTransport.contract_hash)
-  expect(successorDispatchClaim.lease_generation).toBe(attemptLease.lease_generation + 1)
-  expect(successorDispatchClaim.claim_effect)
-    .toBe("at_most_one_local_successor_command_issuer_while_cas_record_is_preserved")
-  expect(successorDispatchClaim.execution_admission_command_instance_count).toBe(0)
-  expect(successorExecutionCommand.command_hash).not.toBe(executionAdmissionCommand.command_hash)
-  expect(successorExecutionCommand.source_dispatch_claim_hash).toBe(successorDispatchClaim.claim_hash)
-  expect(successorExecutionCommand.current_lease_observation_hash)
-    .toBe(successorCommandObservation.observation_hash)
-  expect(successorExecutionCommand.control_plane_registry_read_receipt_hash)
-    .toBe(successorCommandRegistryReceipt.receipt_hash)
-  expect(successorExecutionCommand.control_plane_clock_attestation_hash)
-    .toBe(successorCommandClockAttestation.attestation_hash)
-  expect(successorExecutionCommand.issued_at).toBe("2026-07-14T00:04:04Z")
-  expect(successorExecutionCommand.valid_before).toBe(requestedSuccessorLeaseExpiry)
-  expect(successorExecutionCommand.command_instance_count).toBe(1)
-  expect(successorExecutionCommand.execution_admission)
-    .toBe("granted_for_exact_successor_process_launch_intent_creation_only")
-  expect(successorExecutionCommand.process_launch_intent_count).toBe(0)
-  expect(successorExecutionCommand.worker_process_count).toBe(0)
-  expect(successorExecutionCommand.request_frame_instance_count).toBe(0)
-  expect(successorExecutionCommand.response_frame_instance_count).toBe(0)
-  expect(successorCommandAdmission.successor_dispatch_claim_count).toBe(1)
-  expect(successorCommandAdmission.successor_current_lease_observation_count).toBe(1)
-  expect(successorCommandAdmission.successor_registry_read_receipt_count).toBe(1)
-  expect(successorCommandAdmission.successor_clock_attestation_count).toBe(1)
-  expect(successorCommandAdmission.successor_execution_admission_command_count).toBe(1)
-  expect(successorCommandAdmission.successor_process_launch_intent_count).toBe(0)
-  expect(successorCommandAdmission.successor_authority_capsule_count).toBe(0)
-  expect(successorCommandAdmission.successor_spawn_revalidation_count).toBe(0)
-  expect(successorCommandAdmission.successor_worker_process_count).toBe(0)
-  expect(successorCommandAdmission.second_response_count).toBe(0)
-  expect(successorCommandAdmission.second_schedule_admission_count).toBe(0)
-  expect(successorCommandAdmission.reproducibility_pair_count).toBe(0)
-  expect(successorCommandAdmission.harness_receipt_count).toBe(0)
-  expect(successorCommandAdmission.transport_authority)
-    .toBe("artifact_bound_command_issued_activation_blocked")
-  expect(successorCommandAdmission.command_authority)
-    .toBe("issued_for_exact_successor_process_launch_intent_creation_only")
-  expect(successorCommandAdmission.worker_process_authority).toBe("none")
-  expect(successorCommandAdmission.signal_authority).toBe("none")
-  expect(successorCommandAdmission.order_authority).toBe("none")
-  expect(successorCommandAdmission.economic_authority).toBe("none")
-  expect(() => assertReplayDecisionHarnessWorkerV10SuccessorExecutionDispatchClaim(
-    successorDispatchClaim,
-  )).not.toThrow()
-  expect(() => assertReplayDecisionHarnessWorkerV10SuccessorExecutionAdmissionCommand(
-    successorExecutionCommand,
-  )).not.toThrow()
-  expect(() => assertReplayDecisionHarnessWorkerV10SuccessorExecutionCommandAdmission(
-    successorCommandAdmission,
-  )).not.toThrow()
+  assertReplayWorkerV10SuccessorCommandStage({
+    admission: successorCommandAdmission,
+    contract_admission_hash: successorExecutionContractAdmission.admission_hash,
+    execution_admission_contract_hash: successorExecutionAdmission.contract_hash,
+    artifact_transport_contract_hash: successorArtifactTransport.contract_hash,
+    predecessor_lease_generation: attemptLease.lease_generation,
+    predecessor_command_hash: executionAdmissionCommand.command_hash,
+    observation_hash: successorCommandObservation.observation_hash,
+    registry_receipt_hash: successorCommandRegistryReceipt.receipt_hash,
+    clock_attestation_hash: successorCommandClockAttestation.attestation_hash,
+    requested_lease_expiry: requestedSuccessorLeaseExpiry,
+  })
   expect(readReplayWorkerV10SuccessorExecutionDispatchClaim({
     registry_root: dispatchEvidenceRegistryRoot,
     ...successorCommandInput,
