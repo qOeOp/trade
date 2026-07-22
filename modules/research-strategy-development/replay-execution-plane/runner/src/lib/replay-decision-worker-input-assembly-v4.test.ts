@@ -398,25 +398,11 @@ import {
   registerReplayWorkerV10SuccessorExecutionStdioProbe,
 } from "./replay-worker-v10-successor-execution-stdio-probe-registry"
 import {
-  readReplayWorkerV10SuccessorExecutionAdmission,
-  readReplayWorkerV10SuccessorExecutionArtifactTransport,
   readReplayWorkerV10SuccessorExecutionContract,
   registerReplayWorkerV10SuccessorExecutionContract,
 } from "./replay-worker-v10-successor-execution-contract-registry"
 import {
-  readReplayWorkerV10SuccessorExecutionAdmissionCommand,
-  readReplayWorkerV10SuccessorExecutionCommandAdmission,
-  readReplayWorkerV10SuccessorExecutionDispatchClaim,
-} from "./replay-worker-v10-successor-execution-command-registry"
-import {
-  readReplayWorkerV10SuccessorProcessLaunchIntent,
-} from "./replay-worker-v10-successor-process-launch-intent-registry"
-import {
-  readReplayWorkerV10SuccessorAuthorityCapsule,
-} from "./replay-worker-v10-successor-authority-capsule-registry"
-import {
   admitReplayWorkerV10SuccessorSpawnBoundaryRevalidation,
-  readReplayWorkerV10SuccessorSpawnBoundaryRevalidation,
 } from "./replay-worker-v10-successor-spawn-boundary-revalidation-registry"
 import {
   assertReplayDecisionHarnessWorkerV10AuthorityFrameBuildContractLineage,
@@ -531,6 +517,8 @@ import { runReplayWorkerV10SuccessorSpawnStage } from "./replay-worker-v10-succe
 import { runReplayWorkerV10SuccessorCommandStage } from "./replay-worker-v10-successor-command-stage"
 import { runReplayWorkerV10SuccessorIntentStage } from "./replay-worker-v10-successor-intent-stage"
 import { runReplayWorkerV10SuccessorCapsuleStage } from "./replay-worker-v10-successor-capsule-stage"
+import { runReplayWorkerV10SuccessorIntegrityStage } from "./replay-worker-v10-successor-integrity-stage"
+import { runReplayWorkerV10UpstreamIntegrityStage } from "./replay-worker-v10-upstream-integrity-stage"
 
 const HASH = "a".repeat(64)
 const ACCOUNTING = {
@@ -4176,10 +4164,6 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       source_successor_execution_stdio_probe_admission: successorStdioProbeAdmission,
     })
     replayProfile("successor execution contract")
-    const successorArtifactTransport =
-      successorExecutionContractAdmission.successor_artifact_bound_transport_contract
-    const successorExecutionAdmission =
-      successorExecutionContractAdmission.successor_execution_admission_contract
     expectSuccessorExecutionContracts({
       admission: successorExecutionContractAdmission,
       stdio_admission: successorStdioProbeAdmission,
@@ -4210,9 +4194,7 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       requested_successor_lease_expiry: requestedSuccessorLeaseExpiry,
       profile: replayProfile,
     })
-    const successorCommandInput = successorCommandStage.command_input
     const successorCommandAdmission = successorCommandStage.command_admission
-    const successorDispatchClaim = successorCommandStage.dispatch_claim
     const successorExecutionCommand = successorCommandStage.execution_command
 
     const successorIntentStage = runReplayWorkerV10SuccessorIntentStage({
@@ -4224,7 +4206,6 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       requested_successor_lease_expiry: requestedSuccessorLeaseExpiry,
       profile: replayProfile,
     })
-    const successorIntentInput = successorIntentStage.intent_input
     const successorProcessLaunchIntent = successorIntentStage.process_launch_intent
 
     const successorCapsuleStage = runReplayWorkerV10SuccessorCapsuleStage({
@@ -4234,7 +4215,6 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       execution_contract_admission: successorExecutionContractAdmission,
       profile: replayProfile,
     })
-    const successorCapsuleInput = successorCapsuleStage.capsule_input
     const successorAuthorityCapsule = successorCapsuleStage.authority_capsule
     const successorCapsuleFile = successorCapsuleStage.capsule_file
     const successorIntentFile = successorCapsuleStage.intent_file
@@ -4250,8 +4230,6 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
     })
     const successorSpawnResult = successorSpawnStage.result
     const buildSuccessorSpawnReceipt = successorSpawnStage.build_receipt
-    const successorSpawnRequest = successorSpawnResult.revalidation_request
-    const successorSpawnReceipt = successorSpawnResult.control_plane_revalidation_receipt
     const successorSpawnRevalidation = successorSpawnResult.spawn_boundary_revalidation
     let cutoverRevalidationCalls = 0
     const cutoverInput = {
@@ -4367,517 +4345,69 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       successor_worker_process_count: 1 as never,
     })).toThrow()
 
-    const successorSpawnRequestFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name
-        === `worker-v10-successor-spawn-revalidation-request-${successorSpawnRequest.request_key}.json`)
-    if (!successorSpawnRequestFile) throw new Error("expected successor Spawn Revalidation Request file")
-    const successorSpawnReceiptFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name
-        === `worker-v10-successor-spawn-revalidation-receipt-${successorSpawnRequest.request_key}.json`)
-    if (!successorSpawnReceiptFile) throw new Error("expected successor Spawn Revalidation Receipt file")
-    const successorSpawnBindingFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name
-        === `worker-v10-successor-spawn-revalidation-${successorSpawnRevalidation.binding_key}.json`)
-    if (!successorSpawnBindingFile) throw new Error("expected successor Spawn Revalidation Binding file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, successorSpawnBindingFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10SuccessorSpawnBoundaryRevalidation({
+    runReplayWorkerV10SuccessorIntegrityStage({
       registry_root: dispatchEvidenceRegistryRoot,
-      source_successor_authority_capsule: successorAuthorityCapsule,
-      source_successor_process_launch_intent: successorProcessLaunchIntent,
-    })).toThrow()
-    writeFileSync(join(dispatchEvidenceRegistryRoot, successorSpawnBindingFile),
-      `${canonicalJson(successorSpawnRevalidation)}\n`, "utf8")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, successorSpawnReceiptFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10SuccessorSpawnBoundaryRevalidation({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_successor_authority_capsule: successorAuthorityCapsule,
-      source_successor_process_launch_intent: successorProcessLaunchIntent,
-    })).toThrow()
-    writeFileSync(join(dispatchEvidenceRegistryRoot, successorSpawnReceiptFile),
-      `${canonicalJson(successorSpawnReceipt)}\n`, "utf8")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, successorSpawnRequestFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10SuccessorSpawnBoundaryRevalidation({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_successor_authority_capsule: successorAuthorityCapsule,
-      source_successor_process_launch_intent: successorProcessLaunchIntent,
-    })).toThrow()
-    writeFileSync(join(dispatchEvidenceRegistryRoot, successorSpawnRequestFile),
-      `${canonicalJson(successorSpawnRequest)}\n`, "utf8")
-
-    writeFileSync(join(dispatchEvidenceRegistryRoot, successorCapsuleFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10SuccessorAuthorityCapsule({
-      registry_root: dispatchEvidenceRegistryRoot,
-      ...successorCapsuleInput,
-    })).toThrow()
-    expect(() => readReplayWorkerV10SuccessorSpawnBoundaryRevalidation({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_successor_authority_capsule: successorAuthorityCapsule,
-      source_successor_process_launch_intent: successorProcessLaunchIntent,
-    })).toThrow()
-    writeFileSync(join(dispatchEvidenceRegistryRoot, successorCapsuleFile),
-      `${canonicalJson(successorAuthorityCapsule)}\n`, "utf8")
-
-    writeFileSync(join(dispatchEvidenceRegistryRoot, successorIntentFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10SuccessorProcessLaunchIntent({
-      registry_root: dispatchEvidenceRegistryRoot,
-      ...successorIntentInput,
-    })).toThrow()
-    expect(() => readReplayWorkerV10SuccessorAuthorityCapsule({
-      registry_root: dispatchEvidenceRegistryRoot,
-      ...successorCapsuleInput,
-    })).toThrow()
-    expect(() => readReplayWorkerV10SuccessorSpawnBoundaryRevalidation({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_successor_authority_capsule: successorAuthorityCapsule,
-      source_successor_process_launch_intent: successorProcessLaunchIntent,
-    })).toThrow()
-    writeFileSync(join(dispatchEvidenceRegistryRoot, successorIntentFile),
-      `${canonicalJson(successorProcessLaunchIntent)}\n`, "utf8")
-
-    const intentCommandParentFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name
-        === `worker-v10-successor-execution-command-admission-${successorCommandAdmission.admission_key}.json`)
-    if (!intentCommandParentFile) throw new Error("expected Intent R4.148 parent file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, intentCommandParentFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10SuccessorProcessLaunchIntent({
-      registry_root: dispatchEvidenceRegistryRoot,
-      ...successorIntentInput,
-    })).toThrow()
-    writeFileSync(join(dispatchEvidenceRegistryRoot, intentCommandParentFile),
-      `${canonicalJson(successorCommandAdmission)}\n`, "utf8")
-
-    const intentExecutionParentFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name
-        === `worker-v10-successor-execution-contract-${successorExecutionContractAdmission.admission_key}.json`)
-    if (!intentExecutionParentFile) throw new Error("expected Intent R4.147 parent file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, intentExecutionParentFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10SuccessorProcessLaunchIntent({
-      registry_root: dispatchEvidenceRegistryRoot,
-      ...successorIntentInput,
-    })).toThrow()
-    writeFileSync(join(dispatchEvidenceRegistryRoot, intentExecutionParentFile),
-      `${canonicalJson(successorExecutionContractAdmission)}\n`, "utf8")
-
-    const intentStdioParentFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name
-        === `worker-v10-successor-execution-stdio-probe-${successorStdioProbeAdmission.admission_key}.json`)
-    if (!intentStdioParentFile) throw new Error("expected Intent R4.146 parent file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, intentStdioParentFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10SuccessorProcessLaunchIntent({
-      registry_root: dispatchEvidenceRegistryRoot,
-      ...successorIntentInput,
-    })).toThrow()
-    writeFileSync(join(dispatchEvidenceRegistryRoot, intentStdioParentFile),
-      `${canonicalJson(successorStdioProbeAdmission)}\n`, "utf8")
-
-    const successorDispatchClaimFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name
-        === `worker-v10-successor-execution-dispatch-claim-${successorDispatchClaim.claim_key}.json`)
-    if (!successorDispatchClaimFile) throw new Error("expected successor Dispatch Claim file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, successorDispatchClaimFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10SuccessorExecutionDispatchClaim({
-      registry_root: dispatchEvidenceRegistryRoot,
-      ...successorCommandInput,
-    })).toThrow()
-    writeFileSync(join(dispatchEvidenceRegistryRoot, successorDispatchClaimFile),
-      `${canonicalJson(successorDispatchClaim)}\n`, "utf8")
-
-    const successorExecutionCommandFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name
-        === `worker-v10-successor-execution-command-${successorExecutionCommand.command_key}.json`)
-    if (!successorExecutionCommandFile) throw new Error("expected successor Execution Command file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, successorExecutionCommandFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10SuccessorExecutionAdmissionCommand({
-      registry_root: dispatchEvidenceRegistryRoot,
-      ...successorCommandInput,
-    })).toThrow()
-    writeFileSync(join(dispatchEvidenceRegistryRoot, successorExecutionCommandFile),
-      `${canonicalJson(successorExecutionCommand)}\n`, "utf8")
-
-    const successorCommandAdmissionFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name
-        === `worker-v10-successor-execution-command-admission-${successorCommandAdmission.admission_key}.json`)
-    if (!successorCommandAdmissionFile) throw new Error("expected successor Command Admission file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, successorCommandAdmissionFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10SuccessorExecutionCommandAdmission({
-      registry_root: dispatchEvidenceRegistryRoot,
-      ...successorCommandInput,
-    })).toThrow()
-    writeFileSync(join(dispatchEvidenceRegistryRoot, successorCommandAdmissionFile),
-      `${canonicalJson(successorCommandAdmission)}\n`, "utf8")
-
-    const successorExecutionContractAdmissionFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name
-        === `worker-v10-successor-execution-contract-${successorExecutionContractAdmission.admission_key}.json`)
-    if (!successorExecutionContractAdmissionFile) {
-      throw new Error("expected Worker v10 successor execution Contract Admission file")
-    }
-    writeFileSync(join(dispatchEvidenceRegistryRoot, successorExecutionContractAdmissionFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10SuccessorExecutionContract({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_successor_execution_stdio_probe_admission: successorStdioProbeAdmission,
-    })).toThrow()
-    expect(() => readReplayWorkerV10SuccessorExecutionCommandAdmission({
-      registry_root: dispatchEvidenceRegistryRoot,
-      ...successorCommandInput,
-    })).toThrow()
-
-    const successorExecutionAdmissionFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name
-        === `worker-v10-successor-execution-admission-${successorExecutionAdmission.contract_key}.json`)
-    if (!successorExecutionAdmissionFile) {
-      throw new Error("expected successor Worker v10 Execution Admission Contract file")
-    }
-    writeFileSync(join(dispatchEvidenceRegistryRoot, successorExecutionAdmissionFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10SuccessorExecutionAdmission({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_successor_execution_stdio_probe_admission: successorStdioProbeAdmission,
-    })).toThrow()
-
-    const successorArtifactTransportFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name
-        === `worker-v10-successor-execution-artifact-transport-${successorArtifactTransport.contract_key}.json`)
-    if (!successorArtifactTransportFile) {
-      throw new Error("expected successor artifact-bound Worker v10 Transport Contract file")
-    }
-    writeFileSync(join(dispatchEvidenceRegistryRoot, successorArtifactTransportFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10SuccessorExecutionArtifactTransport({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_successor_execution_stdio_probe_admission: successorStdioProbeAdmission,
-    })).toThrow()
-
-    const successorStdioProbeAdmissionFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name
-        === `worker-v10-successor-execution-stdio-probe-${successorStdioProbeAdmission.admission_key}.json`)
-    if (!successorStdioProbeAdmissionFile) {
-      throw new Error("expected Worker v10 successor execution Stdio Probe Admission file")
-    }
-    writeFileSync(join(dispatchEvidenceRegistryRoot, successorStdioProbeAdmissionFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10SuccessorExecutionStdioProbe({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_successor_execution_transport_admission: successorTransportAdmission,
-    })).toThrow()
-
-    const successorTransportAdmissionFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name
-        === `worker-v10-successor-execution-transport-${successorTransportAdmission.admission_key}.json`)
-    if (!successorTransportAdmissionFile) {
-      throw new Error("expected Worker v10 successor execution Transport Admission file")
-    }
-    writeFileSync(join(dispatchEvidenceRegistryRoot, successorTransportAdmissionFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10SuccessorExecutionTransport({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_successor_execution_envelope_admission: successorEnvelopeAdmission,
-    })).toThrow()
-
-    const successorEnvelopeAdmissionFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name
-        === `worker-v10-successor-execution-envelope-${successorEnvelopeAdmission.admission_key}.json`)
-    if (!successorEnvelopeAdmissionFile) {
-      throw new Error("expected Worker v10 successor Execution Envelope Admission file")
-    }
-    writeFileSync(join(dispatchEvidenceRegistryRoot, successorEnvelopeAdmissionFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10SuccessorExecutionEnvelope({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_successor_lease_admission: successorLeaseAdmission,
-    })).toThrow()
-
-    const successorLeaseAdmissionFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name
-        === `worker-v10-successor-lease-admission-${successorLeaseAdmission.admission_key}.json`)
-    if (!successorLeaseAdmissionFile) throw new Error("expected Worker v10 successor Lease Admission file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, successorLeaseAdmissionFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10SuccessorLeaseAdmission({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_successor_authority_contract: successorAuthorityContract,
-      source_renewal_request: successorLeaseResult.renewal_request,
-    })).toThrow()
-
-    const successorAuthorityContractFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name
-        === `worker-v10-successor-verification-authority-contract-${successorAuthorityContract.contract_key}.json`)
-    if (!successorAuthorityContractFile) {
-      throw new Error("expected Worker v10 successor verification authority Contract file")
-    }
-    writeFileSync(join(dispatchEvidenceRegistryRoot, successorAuthorityContractFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10SuccessorVerificationAuthorityContract({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_reproducibility_pair_contract: reproducibilityPairContract,
-    })).toThrow()
-
-    const reproducibilityPairContractFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name
-        === `worker-v10-reproducibility-pair-contract-${reproducibilityPairContract.contract_key}.json`)
-    if (!reproducibilityPairContractFile) throw new Error("expected Worker v10 Reproducibility Pair Contract file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, reproducibilityPairContractFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10ReproducibilityPairContract({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_schedule_admission: authorityScheduleAdmission,
-    })).toThrow()
-
-    const authorityScheduleAdmissionFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name
-        === `worker-v10-authority-schedule-admission-${authorityScheduleAdmission.admission_key}.json`)
-    if (!authorityScheduleAdmissionFile) throw new Error("expected Worker v10 Authority Schedule Admission file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, authorityScheduleAdmissionFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10AuthorityScheduleAdmission({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_response_validation: authorityResponseValidation,
-      source_replay_execution_request: requestValue,
-    })).toThrow()
-
-    const authorityResponseValidationFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name
-        === `worker-v10-authority-response-validation-${authorityResponseValidation.validation_key}.json`)
-    if (!authorityResponseValidationFile) throw new Error("expected Worker v10 Authority Response Validation file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, authorityResponseValidationFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10AuthorityResponseValidation({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_dispatch_receipt: authorityDispatchReceipt,
-    })).toThrow()
-
-    const authorityDispatchReceiptFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name
-        === `worker-v10-authority-request-dispatch-receipt-${authorityDispatchReceipt.receipt_key}.json`)
-    if (!authorityDispatchReceiptFile) throw new Error("expected Worker v10 Authority Request Dispatch Receipt file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, authorityDispatchReceiptFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10AuthorityRequestDispatchReceipt({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_process_launch_receipt: authorityProcessReceipt,
-    })).toThrow()
-
-    const authorityProcessReceiptFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name
-        === `worker-v10-authority-process-launch-receipt-${authorityProcessReceipt.receipt_key}.json`)
-    if (!authorityProcessReceiptFile) throw new Error("expected Worker v10 Authority Process Launch Receipt file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, authorityProcessReceiptFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10AuthorityProcessLaunchReceipt({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_spawn_revalidation: spawnRevalidation,
-    })).toThrow()
-
-    const spawnRevalidationFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name === `worker-v10-authority-spawn-revalidation-${spawnRevalidation.binding_key}.json`)
-    if (!spawnRevalidationFile) throw new Error("expected Worker v10 Authority Spawn Revalidation file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, spawnRevalidationFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10AuthoritySpawnBoundaryRevalidation({
-      registry_root: dispatchEvidenceRegistryRoot,
-      ...spawnRevalidationInput,
-    })).toThrow()
-    const spawnRevalidationRequestFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name
-        === `worker-v10-authority-spawn-revalidation-request-${spawnRevalidationRequest.request_key}.json`)
-    if (!spawnRevalidationRequestFile) throw new Error("expected Worker v10 spawn revalidation Request file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, spawnRevalidationRequestFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10AuthoritySpawnBoundaryRevalidationRequest({
-      registry_root: dispatchEvidenceRegistryRoot,
-      ...spawnRevalidationRequestInput,
-    })).toThrow()
-
-    const authorityCapsuleFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name === `worker-v10-authority-capsule-${authorityCapsule.capsule_key}.json`)
-    if (!authorityCapsuleFile) throw new Error("expected Worker v10 Authority Capsule file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, authorityCapsuleFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10AuthorityCapsule({
-      registry_root: dispatchEvidenceRegistryRoot,
-      ...authorityCapsuleInput,
-    })).toThrow()
-
-    const authorityIntentFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name === `worker-v10-authority-process-launch-intent-${authorityIntent.intent_key}.json`)
-    if (!authorityIntentFile) throw new Error("expected Worker v10 Authority Process Launch Intent file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, authorityIntentFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10AuthorityProcessLaunchIntent({
-      registry_root: dispatchEvidenceRegistryRoot,
-      ...authorityIntentInput,
-    })).toThrow()
-
-    const authorityCommandFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name === `worker-v10-authority-execution-command-${authorityCommand.command_key}.json`)
-    if (!authorityCommandFile) throw new Error("expected Worker v10 Authority Execution Admission Command file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, authorityCommandFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10AuthorityExecutionAdmissionCommand({
-      registry_root: dispatchEvidenceRegistryRoot,
-      ...authorityCommandInput,
-    })).toThrow()
-
-    const authorityTransportFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name === `worker-v10-authority-transport-${authorityTransport.contract_key}.json`)
-    if (!authorityTransportFile) throw new Error("expected Worker v10 Authority Transport Contract file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, authorityTransportFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10AuthorityTransportContract({
-      registry_root: dispatchEvidenceRegistryRoot,
-      ...authorityTransportInput,
-    })).toThrow()
-
-    const activatedStdioFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name === `worker-v10-activated-stdio-${activatedStdio.capability_key}.json`)
-    if (!activatedStdioFile) throw new Error("expected Worker v10 Activated Stdio Capability file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, activatedStdioFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10ActivatedStdioCapability({
-      registry_root: dispatchEvidenceRegistryRoot,
-      ...activatedStdioInput,
-    })).toThrow()
-
-    const authorityBuildFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name === `worker-v10-authority-frame-build-${authorityFrameBuild.contract_key}.json`)
-    if (!authorityBuildFile) throw new Error("expected Worker v10 Authority Frame Build Contract file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, authorityBuildFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10AuthorityFrameBuildContract({
-      registry_root: dispatchEvidenceRegistryRoot,
-      ...authorityBuildInput,
-    })).toThrow()
-
-    const processReadinessFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name === `worker-v10-process-launch-readiness-${processLaunchReadiness.gate_key}.json`)
-    if (!processReadinessFile) throw new Error("expected Worker v10 Process Launch Readiness Gate file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, processReadinessFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10ProcessLaunchReadinessGate({
-      registry_root: dispatchEvidenceRegistryRoot,
-      ...processReadinessInput,
-    })).toThrow()
-
-    const alternatePostCommandClockIdentityHash = replayDispatchClockAttestationIdentityHash({
-      source_registry_read_receipt_hash: postCommandRegistryReceipt.receipt_hash,
-      registry_read_started_at: postCommandReadAt,
-      registry_read_completed_at: "2026-07-14T00:00:42Z",
-      registry_read_started_monotonic_ns: "4000000",
-      registry_read_completed_monotonic_ns: "4000200",
-      attestation_policy_version: REPLAY_DISPATCH_CLOCK_ATTESTATION_POLICY_VERSION,
+      command_stage: successorCommandStage,
+      intent_stage: successorIntentStage,
+      capsule_stage: successorCapsuleStage,
+      spawn_stage: successorSpawnStage,
+      execution_contract_admission: successorExecutionContractAdmission,
+      stdio_probe_admission: successorStdioProbeAdmission,
+      transport_admission: successorTransportAdmission,
+      envelope_admission: successorEnvelopeAdmission,
+      lease_admission: successorLeaseAdmission,
+      authority_contract: successorAuthorityContract,
+      renewal_request: successorLeaseResult.renewal_request,
+      reproducibility_pair_contract: reproducibilityPairContract,
+      authority_schedule_admission: authorityScheduleAdmission,
+      authority_response_validation: authorityResponseValidation,
+      replay_execution_request: requestValue,
     })
-    const alternatePostCommandClockAttestation = createReplayDispatchClockAttestation({
-      ...((({ attestation_hash: _hash, ...body }) => body)(postCommandClockAttestation)),
-      attestation_id: `replay-dispatch-clock-attestation-${alternatePostCommandClockIdentityHash.slice(0, 24)}`,
-      attestation_ref: `attestation://replay-dispatch-clock/${alternatePostCommandClockIdentityHash.slice(0, 24)}`,
-      registry_read_completed_at: "2026-07-14T00:00:42Z",
-      registry_read_completed_monotonic_ns: "4000200",
-    })
-    const alternateProcessLaunchIntent = buildReplayDecisionHarnessWorkerV10ProcessLaunchIntent({
-      source_execution_admission_command: executionAdmissionCommand,
-      post_command_clock_attestation: alternatePostCommandClockAttestation,
-    })
-    expect(alternateProcessLaunchIntent.intent_key).toBe(processLaunchIntent.intent_key)
-    expect(alternateProcessLaunchIntent.intent_hash).not.toBe(processLaunchIntent.intent_hash)
-    expect(() => issueReplayWorkerV10ProcessLaunchIntent({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_execution_admission_command: executionAdmissionCommand,
-      post_command_clock_attestation: alternatePostCommandClockAttestation,
-    })).toThrow("natural key is already issued with different evidence")
-    const processIntentFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name === `worker-v10-process-launch-intent-${processLaunchIntent.intent_key}.json`)
-    if (!processIntentFile) throw new Error("expected Worker v10 Process Launch Intent file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, processIntentFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10ProcessLaunchIntent({
-      registry_root: dispatchEvidenceRegistryRoot,
-      ...processIntentInput,
-    })).toThrow()
 
-    const alternateClockIdentityHash = replayDispatchClockAttestationIdentityHash({
-      source_registry_read_receipt_hash: registryReadReceipt.receipt_hash,
-      registry_read_started_at: registryReadReceipt.read_at,
-      registry_read_completed_at: "2026-07-14T00:00:37Z",
-      registry_read_started_monotonic_ns: "3000000",
-      registry_read_completed_monotonic_ns: "3000200",
-      attestation_policy_version: REPLAY_DISPATCH_CLOCK_ATTESTATION_POLICY_VERSION,
+    runReplayWorkerV10UpstreamIntegrityStage({
+      registry_root: dispatchEvidenceRegistryRoot,
+      authority_response_validation: authorityResponseValidation,
+      authority_dispatch_receipt: authorityDispatchReceipt,
+      authority_process_receipt: authorityProcessReceipt,
+      spawn_revalidation: spawnRevalidation,
+      spawn_revalidation_input: spawnRevalidationInput,
+      spawn_revalidation_request: spawnRevalidationRequest,
+      spawn_revalidation_request_input: spawnRevalidationRequestInput,
+      authority_capsule: authorityCapsule,
+      authority_capsule_input: authorityCapsuleInput,
+      authority_intent: authorityIntent,
+      authority_intent_input: authorityIntentInput,
+      authority_command: authorityCommand,
+      authority_command_input: authorityCommandInput,
+      authority_transport: authorityTransport,
+      authority_transport_input: authorityTransportInput,
+      activated_stdio: activatedStdio,
+      activated_stdio_input: activatedStdioInput,
+      authority_frame_build: authorityFrameBuild,
+      authority_build_input: authorityBuildInput,
+      process_launch_readiness: processLaunchReadiness,
+      process_readiness_input: processReadinessInput,
+      post_command_registry_receipt: postCommandRegistryReceipt,
+      post_command_read_at: postCommandReadAt,
+      post_command_clock_attestation: postCommandClockAttestation,
+      execution_admission_command: executionAdmissionCommand,
+      process_launch_intent: processLaunchIntent,
+      process_intent_input: processIntentInput,
+      registry_read_receipt: registryReadReceipt,
+      clock_attestation: clockAttestation,
+      registry_provenance: registryProvenance,
+      clock_binding: clockBinding,
+      command_input: commandInput,
+      clock_binding_input: clockBindingInput,
+      registry_provenance_input: registryProvenanceInput,
+      pre_issue_input: preIssueInput,
+      execution_admission_contract: executionAdmissionContract,
+      successor_transport_contract: successorTransportContract,
+      negative_probe_receipt: negativeProbeReceipt,
+      durable_stdio_capability: durableStdioCapability,
+      worker_v10_transport_contract: workerV10TransportContract,
+      transport_contract_input: transportContractInput,
     })
-    const alternateClockAttestation = createReplayDispatchClockAttestation({
-      ...((({ attestation_hash: _hash, ...body }) => body)(clockAttestation)),
-      attestation_id: `replay-dispatch-clock-attestation-${alternateClockIdentityHash.slice(0, 24)}`,
-      attestation_ref: `attestation://replay-dispatch-clock/${alternateClockIdentityHash.slice(0, 24)}`,
-      registry_read_completed_at: "2026-07-14T00:00:37Z",
-      registry_read_completed_monotonic_ns: "3000200",
-    })
-    const alternateClockBindingInput = {
-      source_registry_provenance: registryProvenance,
-      control_plane_clock_attestation: alternateClockAttestation,
-    }
-    const alternateClockBinding = registerReplayWorkerV10ExecutionAdmissionClockAttestation({
-      registry_root: dispatchEvidenceRegistryRoot,
-      ...alternateClockBindingInput,
-    })
-    const alternateCommand = buildReplayDecisionHarnessWorkerV10ExecutionAdmissionCommand({
-      source_clock_binding: alternateClockBinding,
-    })
-    expect(alternateCommand.command_key).toBe(executionAdmissionCommand.command_key)
-    expect(alternateCommand.command_hash).not.toBe(executionAdmissionCommand.command_hash)
-    expect(() => issueReplayWorkerV10ExecutionAdmissionCommand({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_clock_binding: alternateClockBinding,
-    })).toThrow("natural key is already issued with different evidence")
-
-    const commandFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name.startsWith("worker-v10-execution-admission-command-"))
-    if (!commandFile) throw new Error("expected Execution Admission Command file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, commandFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10ExecutionAdmissionCommand({
-      registry_root: dispatchEvidenceRegistryRoot,
-      ...commandInput,
-    })).toThrow()
-    const clockBindingFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name
-        === `worker-v10-execution-admission-clock-attestation-${clockBinding.binding_key}.json`)
-    if (!clockBindingFile) throw new Error("expected Execution Admission clock attestation file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, clockBindingFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10ExecutionAdmissionClockAttestation({
-      registry_root: dispatchEvidenceRegistryRoot,
-      ...clockBindingInput,
-    })).toThrow()
-    const registryProvenanceFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name.startsWith("worker-v10-execution-admission-registry-provenance-"))
-    if (!registryProvenanceFile) throw new Error("expected Execution Admission registry provenance file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, registryProvenanceFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10ExecutionAdmissionRegistryProvenance({
-      registry_root: dispatchEvidenceRegistryRoot,
-      ...registryProvenanceInput,
-    })).toThrow()
-    const preIssueFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name.startsWith("worker-v10-execution-admission-pre-issue-"))
-    if (!preIssueFile) throw new Error("expected Replay Worker v10 Execution Admission pre-issue file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, preIssueFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10ExecutionAdmissionPreIssueBundle({
-      registry_root: dispatchEvidenceRegistryRoot,
-      ...preIssueInput,
-    })).toThrow()
-
-    const executionAdmissionFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name
-        === `worker-v10-execution-admission-contract-${executionAdmissionContract.contract_key}.json`)
-    if (!executionAdmissionFile) throw new Error("expected Replay Worker v10 Execution Admission Contract file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, executionAdmissionFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10ExecutionAdmissionContract({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_successor_transport_contract: successorTransportContract,
-    })).toThrow()
-
-    const successorTransportFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name
-        === `worker-v10-successor-transport-contract-${successorTransportContract.contract_key}.json`)
-    if (!successorTransportFile) throw new Error("expected Replay Worker v10 successor Transport Contract file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, successorTransportFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10SuccessorTransportContract({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_negative_probe_receipt: negativeProbeReceipt,
-    })).toThrow()
-
-    const negativeProbeFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name
-        === `worker-v10-negative-probe-receipt-${negativeProbeReceipt.receipt_key}.json`)
-    if (!negativeProbeFile) throw new Error("expected Replay Worker v10 negative probe receipt file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, negativeProbeFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10NegativeProbeReceipt({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_stdio_capability: durableStdioCapability,
-    })).toThrow()
-
-    const transportContractFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name
-        === `worker-v10-transport-contract-${workerV10TransportContract.contract_key}.json`)
-    if (!transportContractFile) throw new Error("expected Replay Worker v10 Transport Contract registry file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, transportContractFile), "{}\n", "utf8")
-    expect(() => readReplayWorkerV10TransportContract({
-      registry_root: dispatchEvidenceRegistryRoot,
-      ...transportContractInput,
-    })).toThrow()
 
     runReplayWorkerV10LegacyActivationStage({
       registry_root: dispatchEvidenceRegistryRoot,
