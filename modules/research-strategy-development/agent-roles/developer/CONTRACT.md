@@ -1,4 +1,3 @@
 # Developer Role
 
-Builds executable Candidate requests inside an immutable Contract and uses Control Plane-issued identity and Trial Reservation to call Replay. It cannot invent identity, expand search space, mutate Result, or materialize strategy policy.
-
+Consumes a Control Plane-issued `Developer Development Brief v1` to build a self-hashed Contract Draft Submission bound to the admitted Proposal、candidate-space hash、data scope and Trial-budget ceiling. Before formal Contract freeze this output has no Experiment、Trial or Replay authority. After Control Plane separately freezes an immutable Contract and issues Trial identity/Reservation, the existing adapter may assemble a Trial-bound Replay Request. Developer cannot invent identity、expand search/data scope、freeze Contract、mutate Result or materialize strategy policy.

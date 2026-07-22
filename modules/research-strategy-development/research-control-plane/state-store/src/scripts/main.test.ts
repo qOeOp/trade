@@ -10,6 +10,15 @@ import {
   createPlannerProposalSubmission,
 } from "../../../contracts/src/lib/planner-proposal-submission"
 import type { PlannerControlPlaneContextSnapshot } from "../../../contracts/src/lib/planner-control-plane-context"
+import {
+  DEVELOPER_CONTRACT_DRAFT_INTAKE_REQUEST_SCHEMA_VERSION,
+  DEVELOPER_CONTRACT_DRAFT_SUBMISSION_SCHEMA_VERSION,
+  DEVELOPER_DEVELOPMENT_BRIEF_ISSUE_REQUEST_SCHEMA_VERSION,
+  DEVELOPER_EXPERIMENT_CONTRACT_DRAFT_PAYLOAD_SCHEMA_VERSION,
+  TARGET_EXPERIMENT_CONTRACT_SCHEMA_VERSION,
+  createDeveloperContractDraftSubmission,
+  type DeveloperDevelopmentBrief,
+} from "../../../contracts/src/lib/developer-contract-draft"
 
 test("research state store CLI upserts and reads program", () => {
   const dir = mkdtempSync(join(tmpdir(), "research-state-store-"))
@@ -106,6 +115,57 @@ test("research state store CLI admits a bounded Planner Proposal without materia
       "--json", JSON.stringify({ proposal_id: "proposal-cli-1", proposal_revision: 1 }),
     ])) as { admission: { proposal_hash: string } }
     assert.equal(reread.admission.proposal_hash, proposal.proposal_hash)
+    const issued = run(parseArgs([
+      "--db", dbPath, "--action", "issue_developer_development_brief",
+      "--json", JSON.stringify({
+        schema_version: DEVELOPER_DEVELOPMENT_BRIEF_ISSUE_REQUEST_SCHEMA_VERSION,
+        brief_id: "brief-cli-1",
+        proposal_id: proposal.proposal_id,
+        proposal_revision: 1,
+        idempotency_key: "brief-issue-cli-1",
+        issued_at: "2026-07-22T12:04:00Z",
+      }),
+    ])) as { brief: DeveloperDevelopmentBrief }
+    const briefRead = run(parseArgs([
+      "--db", dbPath, "--action", "read_developer_development_brief",
+      "--json", JSON.stringify({ brief_id: issued.brief.brief_id }),
+    ])) as { brief: { brief_hash: string } }
+    assert.equal(briefRead.brief.brief_hash, issued.brief.brief_hash)
+    const draft = createDeveloperContractDraftSubmission({
+      schema_version: DEVELOPER_CONTRACT_DRAFT_SUBMISSION_SCHEMA_VERSION,
+      brief_id: issued.brief.brief_id,
+      brief_hash: issued.brief.brief_hash,
+      proposal_id: issued.brief.proposal_id,
+      proposal_revision: issued.brief.proposal_revision,
+      proposal_hash: issued.brief.proposal_hash,
+      developer_run_id: "developer-run-cli-1",
+      draft_revision: 1,
+      allowed_candidate_space_hash: issued.brief.allowed_candidate_space_hash,
+      requested_trial_budget: 2,
+      target_contract_schema_version: TARGET_EXPERIMENT_CONTRACT_SCHEMA_VERSION,
+      draft_json: {
+        schema_version: DEVELOPER_EXPERIMENT_CONTRACT_DRAFT_PAYLOAD_SCHEMA_VERSION,
+        canonical_node_id: issued.brief.universe_node_id,
+        required_data: ["ohlcv"],
+      },
+      created_at: "2026-07-22T12:05:00Z",
+    })
+    const received = run(parseArgs([
+      "--db", dbPath, "--action", "receive_developer_contract_draft",
+      "--json", JSON.stringify({
+        schema_version: DEVELOPER_CONTRACT_DRAFT_INTAKE_REQUEST_SCHEMA_VERSION,
+        idempotency_key: "draft-intake-cli-1",
+        recorded_at: "2026-07-22T12:06:00Z",
+        submission: draft,
+      }),
+    ])) as { receipt: { status: string; submission_hash: string } }
+    assert.equal(received.receipt.status, "received_unvalidated")
+    assert.equal(received.receipt.submission_hash, draft.submission_hash)
+    const receiptRead = run(parseArgs([
+      "--db", dbPath, "--action", "read_developer_contract_draft_receipt",
+      "--json", JSON.stringify({ brief_id: issued.brief.brief_id, draft_revision: 1 }),
+    ])) as { receipt: { submission_hash: string } }
+    assert.equal(receiptRead.receipt.submission_hash, draft.submission_hash)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

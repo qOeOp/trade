@@ -238,6 +238,40 @@ CREATE TABLE IF NOT EXISTS rd_planner_proposal_revision (
   FOREIGN KEY (proposal_id) REFERENCES rd_planner_proposal(proposal_id)
 );
 
+CREATE TABLE IF NOT EXISTS rd_developer_development_brief (
+  brief_id TEXT PRIMARY KEY,
+  proposal_id TEXT NOT NULL,
+  proposal_revision INTEGER NOT NULL,
+  proposal_hash TEXT NOT NULL,
+  proposal_admission_hash TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  issue_request_hash TEXT NOT NULL UNIQUE,
+  brief_hash TEXT NOT NULL UNIQUE,
+  brief_json TEXT NOT NULL CHECK(json_valid(brief_json)),
+  issued_at TEXT NOT NULL,
+  UNIQUE (proposal_id, proposal_revision),
+  FOREIGN KEY (proposal_id, proposal_revision)
+    REFERENCES rd_planner_proposal_revision(proposal_id, proposal_revision)
+);
+
+CREATE TABLE IF NOT EXISTS rd_developer_contract_draft (
+  brief_id TEXT NOT NULL,
+  draft_revision INTEGER NOT NULL CHECK(draft_revision >= 1),
+  developer_run_id TEXT NOT NULL,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  intake_request_hash TEXT NOT NULL UNIQUE,
+  submission_hash TEXT NOT NULL UNIQUE,
+  contract_draft_hash TEXT NOT NULL,
+  submission_json TEXT NOT NULL CHECK(json_valid(submission_json)),
+  intake_policy_version TEXT NOT NULL,
+  receipt_hash TEXT NOT NULL UNIQUE,
+  receipt_json TEXT NOT NULL CHECK(json_valid(receipt_json)),
+  created_at TEXT NOT NULL,
+  recorded_at TEXT NOT NULL,
+  PRIMARY KEY (brief_id, draft_revision),
+  FOREIGN KEY (brief_id) REFERENCES rd_developer_development_brief(brief_id)
+);
+
 CREATE TABLE IF NOT EXISTS rd_proposal (
   proposal_id TEXT PRIMARY KEY,
   planner_run_id TEXT NOT NULL,
@@ -1550,6 +1584,19 @@ BEGIN SELECT RAISE(ABORT, 'Planner Proposal revision is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS prevent_planner_proposal_revision_delete
 BEFORE DELETE ON rd_planner_proposal_revision
 BEGIN SELECT RAISE(ABORT, 'Planner Proposal revision is append-only'); END;
+
+CREATE TRIGGER IF NOT EXISTS prevent_developer_development_brief_update
+BEFORE UPDATE ON rd_developer_development_brief
+BEGIN SELECT RAISE(ABORT, 'Developer Development Brief is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS prevent_developer_development_brief_delete
+BEFORE DELETE ON rd_developer_development_brief
+BEGIN SELECT RAISE(ABORT, 'Developer Development Brief is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS prevent_developer_contract_draft_update
+BEFORE UPDATE ON rd_developer_contract_draft
+BEGIN SELECT RAISE(ABORT, 'Developer Contract Draft is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS prevent_developer_contract_draft_delete
+BEFORE DELETE ON rd_developer_contract_draft
+BEGIN SELECT RAISE(ABORT, 'Developer Contract Draft is append-only'); END;
 
 CREATE TRIGGER IF NOT EXISTS prevent_trial_group_candidate_update
 BEFORE UPDATE ON rd_trial_group_candidate

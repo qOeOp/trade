@@ -1,7 +1,13 @@
 import { expect, test } from "bun:test"
 import { CONTROL_PLANE_IDENTITY_SCHEMA_VERSION } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
+import {
+  DEVELOPER_DEVELOPMENT_BRIEF_SCHEMA_VERSION,
+  DEVELOPER_EXPERIMENT_CONTRACT_DRAFT_PAYLOAD_SCHEMA_VERSION,
+  TARGET_EXPERIMENT_CONTRACT_SCHEMA_VERSION,
+  createDeveloperDevelopmentBrief,
+} from "../../../../research-control-plane/contracts/src/lib/developer-contract-draft"
 import { REPLAY_NO_DECISION_MARKET_INPUT, REPLAY_NO_DECISION_MARKET_INPUT_HASH, REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS, REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH, REPLAY_SIMULATOR_POLICY_VERSION, canonicalHash, createReplaySingleDecisionSchedule, type ReplayExecutionRequest } from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
-import { buildDeveloperReplayRequest } from "./developer-role"
+import { buildDeveloperContractDraftSubmission, buildDeveloperReplayRequest } from "./developer-role"
 
 const HASH = "f".repeat(64)
 
@@ -21,4 +27,56 @@ test("Developer request copies authority identity without inventing it", () => {
   })
   expect(request.trial_id).toBe("trial-1")
   expect(request.candidate_hash).toBe(HASH)
+})
+
+test("Developer builds only a Brief-bound Contract Draft before Contract freeze", () => {
+  const brief = createDeveloperDevelopmentBrief({
+    schema_version: DEVELOPER_DEVELOPMENT_BRIEF_SCHEMA_VERSION,
+    brief_id: "brief-1",
+    proposal_id: "proposal-1",
+    proposal_revision: 1,
+    proposal_hash: "1".repeat(64),
+    proposal_admission_hash: "2".repeat(64),
+    hypothesis_id: "hypothesis-1",
+    universe_node_id: "canonical-1",
+    objective: "Test one bounded mechanism",
+    dataset_requirements: ["ohlcv"],
+    candidate_space: { lookback: [20, 40] },
+    max_trial_budget: 2,
+    evaluation_protocol_ref: "protocol://historical-v1",
+    target_contract_schema_version: TARGET_EXPERIMENT_CONTRACT_SCHEMA_VERSION,
+    authority_scope: "contract_draft_only",
+    issued_at: "2026-07-22T12:04:00Z",
+  })
+  const draftJson = {
+    schema_version: DEVELOPER_EXPERIMENT_CONTRACT_DRAFT_PAYLOAD_SCHEMA_VERSION,
+    canonical_node_id: "canonical-1",
+    required_data: ["ohlcv"],
+  }
+  const submission = buildDeveloperContractDraftSubmission({
+    brief,
+    developer_run_id: "developer-run-1",
+    draft_revision: 1,
+    requested_trial_budget: 2,
+    draft_json: draftJson,
+    created_at: "2026-07-22T12:05:00Z",
+  })
+  expect(submission.brief_hash).toBe(brief.brief_hash)
+  expect(submission).not.toHaveProperty("experiment_id")
+  expect(() => buildDeveloperContractDraftSubmission({
+    brief,
+    developer_run_id: "developer-run-2",
+    draft_revision: 2,
+    requested_trial_budget: 3,
+    draft_json: draftJson,
+    created_at: "2026-07-22T12:06:00Z",
+  })).toThrow("cannot exceed")
+  expect(() => buildDeveloperContractDraftSubmission({
+    brief,
+    developer_run_id: "developer-run-2",
+    draft_revision: 2,
+    requested_trial_budget: 2,
+    draft_json: { ...draftJson, required_data: ["funding"] },
+    created_at: "2026-07-22T12:06:00Z",
+  })).toThrow("must exactly match")
 })

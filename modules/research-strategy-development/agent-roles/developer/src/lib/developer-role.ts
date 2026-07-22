@@ -1,5 +1,14 @@
 import type { ResearchIdentityBinding } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
 import {
+  DEVELOPER_CONTRACT_DRAFT_SUBMISSION_SCHEMA_VERSION,
+  TARGET_EXPERIMENT_CONTRACT_SCHEMA_VERSION,
+  assertDeveloperDevelopmentBrief,
+  createDeveloperContractDraftSubmission,
+  type DeveloperContractDraftSubmission,
+  type DeveloperDevelopmentBrief,
+} from "../../../../research-control-plane/contracts/src/lib/developer-contract-draft"
+import type { JSONRecord } from "../../../../../contracts/runtime-core/src/json"
+import {
   REPLAY_REQUEST_SCHEMA_VERSION,
   assertReplayExecutionRequest,
   type ReplayExecutionRequest,
@@ -36,6 +45,48 @@ export interface DeveloperReplayPlan {
   simulator_policy: ReplayExecutionRequest["simulator_policy"]
   margin_policy: ReplayExecutionRequest["margin_policy"]
   random_seed: number
+}
+
+export interface DeveloperContractDraftPlan {
+  brief: DeveloperDevelopmentBrief
+  developer_run_id: string
+  draft_revision: number
+  requested_trial_budget: number
+  draft_json: JSONRecord
+  created_at: string
+}
+
+export function buildDeveloperContractDraftSubmission(
+  plan: DeveloperContractDraftPlan,
+): DeveloperContractDraftSubmission {
+  assertDeveloperDevelopmentBrief(plan.brief)
+  if (plan.requested_trial_budget > plan.brief.max_trial_budget) {
+    throw new Error("Developer Contract Draft cannot exceed the Brief trial budget")
+  }
+  if (plan.draft_json.canonical_node_id !== plan.brief.universe_node_id) {
+    throw new Error("Developer Contract Draft canonical must match the Brief")
+  }
+  const requiredData = Array.isArray(plan.draft_json.required_data)
+    ? plan.draft_json.required_data.map(String).sort()
+    : []
+  if (JSON.stringify(requiredData) !== JSON.stringify(plan.brief.dataset_requirements)) {
+    throw new Error("Developer Contract Draft required_data must exactly match the Brief")
+  }
+  return createDeveloperContractDraftSubmission({
+    schema_version: DEVELOPER_CONTRACT_DRAFT_SUBMISSION_SCHEMA_VERSION,
+    brief_id: plan.brief.brief_id,
+    brief_hash: plan.brief.brief_hash,
+    proposal_id: plan.brief.proposal_id,
+    proposal_revision: plan.brief.proposal_revision,
+    proposal_hash: plan.brief.proposal_hash,
+    developer_run_id: plan.developer_run_id,
+    draft_revision: plan.draft_revision,
+    allowed_candidate_space_hash: plan.brief.allowed_candidate_space_hash,
+    requested_trial_budget: plan.requested_trial_budget,
+    target_contract_schema_version: TARGET_EXPERIMENT_CONTRACT_SCHEMA_VERSION,
+    draft_json: plan.draft_json,
+    created_at: plan.created_at,
+  })
 }
 
 export function buildDeveloperReplayRequest(plan: DeveloperReplayPlan): ReplayExecutionRequest {

@@ -6,7 +6,7 @@ import { Database } from "bun:sqlite"
 import { CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION, REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION, TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION, createReplayInstrumentStatusProviderCertificationSnapshot, hashTrialReservationSnapshot } from "../../contracts/src/lib/control-plane-contracts"
 import type { ReplayAttemptLeaseSnapshot, ResearchIdentityBinding, TrialReservationSnapshot } from "../../contracts/src/lib/control-plane-contracts"
 import { REPLAY_CERTIFIED_CAPABILITIES, REPLAY_DATASET_MANIFEST_SCHEMA_VERSION, REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, REPLAY_INSTRUMENT_SPEC_SNAPSHOT_SCHEMA_VERSION, REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHEMA_VERSION, REPLAY_NO_DECISION_MARKET_INPUT, REPLAY_NO_DECISION_MARKET_INPUT_HASH, REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS, REPLAY_NO_SUPPLEMENTAL_REQUIREMENTS_HASH, REPLAY_SIMULATOR_POLICY_VERSION, REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION, canonicalHash, createReplayInstrumentStatusProvenance, createReplaySingleDecisionSchedule, replayDatasetHash, replayExecutionSpecHash, type ReplayDatasetManifest, type ReplayExecutionRequest, type ReplayMarketBar } from "../../../replay-execution-plane/contracts/src/lib/replay-contracts"
-import { buildDeveloperReplayRequest } from "../../../agent-roles/developer/src/lib/developer-role"
+import { buildDeveloperContractDraftSubmission, buildDeveloperReplayRequest } from "../../../agent-roles/developer/src/lib/developer-role"
 import { buildPlannerProposal } from "../../../agent-roles/planner/src/lib/planner-role"
 import { runReplayTrial } from "../../../replay-execution-plane/runner/src/lib/replay-trial-runner"
 import type { ReplayCancellationCoordinationPort, ReplayCancellationRecoveryAuthorityPort } from "../../../replay-execution-plane/runner/src/lib/replay-cancellation-coordinator"
@@ -21,6 +21,12 @@ import { admitPlannerProposal } from "../../state-store/src/lib/planner-proposal
 import { ensureResearchStateSchema } from "../../state-store/src/lib/research-state-store"
 import { seedDefaultResearchControlPlane } from "../../state-store/src/lib/research-universe-default-seed"
 import { PLANNER_PROPOSAL_INTAKE_REQUEST_SCHEMA_VERSION } from "../../contracts/src/lib/planner-proposal-submission"
+import {
+  DEVELOPER_CONTRACT_DRAFT_INTAKE_REQUEST_SCHEMA_VERSION,
+  DEVELOPER_DEVELOPMENT_BRIEF_ISSUE_REQUEST_SCHEMA_VERSION,
+  DEVELOPER_EXPERIMENT_CONTRACT_DRAFT_PAYLOAD_SCHEMA_VERSION,
+} from "../../contracts/src/lib/developer-contract-draft"
+import { issueDeveloperDevelopmentBrief, receiveDeveloperContractDraft } from "../../state-store/src/lib/developer-contract-draft-intake"
 
 const HASH = "2".repeat(64)
 const PROVIDER_CERTIFICATION = createReplayInstrumentStatusProviderCertificationSnapshot({ schema_version: REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION, certification_id: "status-provider-certification-1", certification_ref: "certification://fixture-status-provider/v1", status: "certified", certified_at: "2026-07-13T00:00:00Z", valid_until: "2026-08-01T00:00:00Z", certifier_id: "research-control-plane", certification_policy_version: "rd-status-provider-certification-v1", provider_capability_hash: HASH, producer_domain: "market-data-products", producer_id: "fixture-status-producer", producer_version: "v1", producer_build_hash: HASH, normalization_policy_version: "fixture-status-normalization-v1", normalization_policy_hash: HASH, allowed_source_kind: "venue_status_event_archive", allowed_completeness: "complete_history" })
@@ -31,7 +37,7 @@ const STATUS_SNAPSHOT = { schema_version: REPLAY_INSTRUMENT_STATUS_SNAPSHOT_SCHE
 const STATUS_PROVENANCE = createReplayInstrumentStatusProvenance({ producer_domain: "market-data-products", producer_id: "fixture-status-producer", producer_version: "v1", producer_build_hash: HASH, provider_capability_hash: HASH, provider_certification_ref: PROVIDER_CERTIFICATION.certification_ref, provider_certification_hash: PROVIDER_CERTIFICATION.certification_hash, source_owner: "binance-usdm", source_kind: "venue_status_event_archive", normalization_policy_version: "fixture-status-normalization-v1", normalization_policy_hash: HASH, completeness: "complete_history", coverage_start: "2020-01-01T00:00:00Z", coverage_end: "2026-07-15T00:00:00Z", source_observed_through: "2026-07-13T00:00:00Z", produced_at: "2026-07-13T00:00:00Z", source_ref: "fixture:status-source", source_hash: HASH, source_record_count: 1, status_epochs: [STATUS_SNAPSHOT] })
 const ACCOUNTING = { spec_version: REPLAY_INSTRUMENT_ACCOUNTING_SPEC_VERSION, product_type: "linear_derivative" as const, base_asset: "BTC", quote_asset: "USDT", settlement_asset: "USDT", contract_multiplier: "1", price_increment: "0.01", quantity_increment: "0.001", settlement_increment: "0.00000001" }
 
-test("Control Plane planning context is the only accepted Planner Proposal input authority", () => {
+test("Control Plane context to Proposal Admission to Developer Draft remains authority-separated", () => {
   const db = new Database(":memory:")
   try {
     ensureResearchStateSchema(db)
@@ -62,6 +68,34 @@ test("Control Plane planning context is the only accepted Planner Proposal input
     })
     expect(admission.proposal_hash).toBe(proposal.proposal_hash)
     expect(admission.status).toBe("accepted")
+    const brief = issueDeveloperDevelopmentBrief(db, {
+      schema_version: DEVELOPER_DEVELOPMENT_BRIEF_ISSUE_REQUEST_SCHEMA_VERSION,
+      brief_id: "brief-planner-1",
+      proposal_id: proposal.proposal_id,
+      proposal_revision: 1,
+      idempotency_key: "brief-issue-1",
+      issued_at: "2026-07-22T12:04:00Z",
+    })
+    const draft = buildDeveloperContractDraftSubmission({
+      brief,
+      developer_run_id: "developer-run-1",
+      draft_revision: 1,
+      requested_trial_budget: 2,
+      draft_json: {
+        schema_version: DEVELOPER_EXPERIMENT_CONTRACT_DRAFT_PAYLOAD_SCHEMA_VERSION,
+        canonical_node_id: proposal.universe_node_id,
+        required_data: proposal.dataset_requirements,
+      },
+      created_at: "2026-07-22T12:05:00Z",
+    })
+    const draftReceipt = receiveDeveloperContractDraft(db, {
+      schema_version: DEVELOPER_CONTRACT_DRAFT_INTAKE_REQUEST_SCHEMA_VERSION,
+      idempotency_key: "draft-intake-1",
+      recorded_at: "2026-07-22T12:06:00Z",
+      submission: draft,
+    })
+    expect(draftReceipt.status).toBe("received_unvalidated")
+    expect(draft).not.toHaveProperty("experiment_id")
     expect((db.query("SELECT COUNT(*) AS count FROM rd_experiment_contract").get() as { count: number }).count)
       .toBe(0)
     expect((db.query("SELECT COUNT(*) AS count FROM rd_trial").get() as { count: number }).count)

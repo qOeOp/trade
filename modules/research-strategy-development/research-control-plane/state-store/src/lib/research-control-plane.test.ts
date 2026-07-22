@@ -303,6 +303,8 @@ test("control plane schema initializes frozen stages and lifecycle rules", () =>
       "rd_universe_node",
       "rd_planner_proposal",
       "rd_planner_proposal_revision",
+      "rd_developer_development_brief",
+      "rd_developer_contract_draft",
       "rd_proposal_revision",
       "rd_trial_group",
       "rd_experiment_contract",
