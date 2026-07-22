@@ -4,6 +4,7 @@ import { resolveReadablePath } from "../../../../../../contracts/runtime-core/sr
 import { calculateFundingCashflow, calculateRoundTripLinearCost } from "../../../../accounting/src/lib/replay-accounting"
 import { hashCanonical, hashFile, replayContentHash, replayDataHash, replayHarnessHash } from "../../../legacy-replay-identity/src/lib/legacy-replay-identity"
 import { loadCandlesFromManifest, loadManifest, parseCsvCandles, type Candle } from "../../../legacy-research-data/src/lib/legacy-research-data"
+import { atr, buildIndicators, ema, type IndicatorSet } from "../../../legacy-research-features/src/lib/legacy-research-features"
 
 type Side = "long" | "short"
 type JSONRecord = Record<string, unknown>
@@ -11,13 +12,6 @@ type ExitReason = "target" | "stop" | "time_exit"
 type SimulatedOrderSide = "BUY" | "SELL"
 type SimulatedOrderKind = "market" | "limit" | "stop_market"
 type SimulatedOrderRole = "entry" | "take_profit" | "stop"
-
-interface IndicatorSet {
-  ema20: number[]
-  ema50: number[]
-  ema200: number[]
-  atr14: number[]
-}
 
 interface ReplaySignal {
   side: Side
@@ -460,16 +454,6 @@ function timeframeMilliseconds(timeframe: string): number {
   if (!match) throw new Error(`unsupported signal timeframe: ${timeframe}`)
   const unit = { m: 60_000, h: 3_600_000, d: 86_400_000, w: 604_800_000 }[match[2]] || 0
   return Number(match[1]) * unit
-}
-
-function buildIndicators(candles: Candle[]): IndicatorSet {
-  const closes = candles.map((item) => item.close)
-  return {
-    ema20: ema(closes, 20),
-    ema50: ema(closes, 50),
-    ema200: ema(closes, 200),
-    atr14: atr(candles, 14),
-  }
 }
 
 function resolveTrade(
@@ -1132,35 +1116,6 @@ function evaluateReplayGate(stats: {
     live_small_candidate: false,
     blocked_by: blockedBy,
   }
-}
-
-function ema(values: number[], length: number): number[] {
-  const output = Array(values.length).fill(Number.NaN) as number[]
-  const alpha = 2 / (length + 1)
-  let previous = 0
-  for (let index = 0; index < values.length; index += 1) {
-    if (index < length - 1) {
-      continue
-    }
-    if (index === length - 1) {
-      previous = values.slice(0, length).reduce((sum, value) => sum + value, 0) / length
-    } else {
-      previous = values[index] * alpha + previous * (1 - alpha)
-    }
-    output[index] = previous
-  }
-  return output
-}
-
-function atr(candles: Candle[], length: number): number[] {
-  const trueRanges = candles.map((candle, index) => {
-    if (index === 0) {
-      return candle.high - candle.low
-    }
-    const prevClose = candles[index - 1].close
-    return Math.max(candle.high - candle.low, Math.abs(candle.high - prevClose), Math.abs(candle.low - prevClose))
-  })
-  return ema(trueRanges, length)
 }
 
 function maxDrawdown(values: number[]): number {

@@ -8,7 +8,7 @@ legacy shared research kernel / compatibility-only
 
 - Legacy R&D candidate evaluation semantics and result types.
 - Legacy conservative fill ordering, cost, funding, temporal diagnostics, and gates.
-- Legacy data/identity 仅兼容重导出。
+- Legacy data/feature/identity 仅兼容重导出。
 - Bounded full-series versus cutoff-recomputed strategy-decision integrity detection.
 
 ## Inputs
@@ -38,7 +38,7 @@ legacy shared research kernel / compatibility-only
 
 ## Retirement Gate
 
-- 所有直接消费者迁出 legacy `ReplayResult`、fill/signal semantics；data/identity consumers 独立退役。
+- 所有直接消费者迁出 legacy `ReplayResult`、fill/signal semantics；data/feature/identity consumers 独立退役。
 - State Store capability refs 改指 canonical owner；cross-plane import allowlist 清零。
 - `legacy-replay-fingerprint` certification 显式迁移或终止。
 - legacy integration coverage 被各 canonical owner 的定向测试替代后，删除本模块而非改名接管新语义。
