@@ -91,6 +91,7 @@ Skill 可以说明如何调用既有 MCP / owner tool，但不能绕过 prefligh
 | `modules/market-data-products/ohlcv-fetch/` | market data acquisition | OHLCV、funding、market features、calibration panel、manifest；可同步 market_data_store | 策略升格、live 执行判断 |
 | `modules/market-data-products/l2-order-book-core/` | L2 deterministic core | decimal book projection、`U/u/pu` continuity、canonical hash、TL2S finalize/recovery/rotation | 网络、runtime/soak lifecycle、manifest admission、策略或交易 |
 | `modules/market-data-products/l2-order-book-service/` | L2 public runtime candidate | 单标的 public stream/snapshot lifecycle、epoch、bounded queue、raw TL2S、loopback gRPC freshness reads | private/write API、market-data admission、Replay/策略/执行、未启用 broker |
+| `modules/market-data-products/l2-order-book-compactor/` | L2 Parquet compaction worker | owner-admitted complete TL2S epoch 的确定性校验、Parquet proposal 与有界读取 | authority scan、SQLite 写入、raw 删除、跨 epoch 推断 |
 | `modules/exchange-gateway/` | exchange gateway tools | Binance 账户/订单读取、下单、撤单、保护、减仓 | R&D planning、strategy promotion、长期状态 |
 | `modules/market-data-products/` | market data product tools | Binance public market facts、OHLCV、features、liquidity scan、microstructure refs | 账户私有状态、交易所写 side effect |
 | `modules/live-execution-control/` | deterministic guard | preflight、hard guards、decision card validation | 市场观点、交易所写接口 |

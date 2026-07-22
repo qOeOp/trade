@@ -42,6 +42,7 @@
         "modules/market-data-products/l2-recorder-bakeoff",
         "modules/market-data-products/l2-order-book-core",
         "modules/market-data-products/l2-order-book-service",
+        "modules/market-data-products/l2-order-book-compactor",
         "modules/market-data-products/binance-read/market-scan",
         "modules/market-data-products/binance-read/symbol-snapshot",
         "modules/market-data-products/binance-read/aggtrades-fetch",
