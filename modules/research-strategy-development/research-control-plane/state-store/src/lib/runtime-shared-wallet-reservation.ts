@@ -8,6 +8,9 @@ import {
   REPLAY_PORTFOLIO_REALLOCATION_RESERVATION_SCHEMA_VERSION,
   REPLAY_PORTFOLIO_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION,
   REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES,
+  REPLAY_PORTFOLIO_TWO_FIXED_PARTIAL_RESERVATION_SCHEMA_VERSION,
+  REPLAY_PORTFOLIO_TWO_FIXED_PARTIAL_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION,
+  assertReplayPortfolioTwoFixedPartialReservationSnapshot,
   assertTrialReservationSnapshot,
   createReplayRuntimeSharedWalletReservationSnapshot,
   createReplayRuntimeSharedWalletLifecycleReservationSnapshot,
@@ -16,6 +19,8 @@ import {
   createReplayPortfolioAllocationReservationSnapshot,
   createReplayPortfolioReallocationReservationSnapshot,
   createReplayPortfolioCycleSequenceReservationSnapshot,
+  createReplayPortfolioTwoFixedPartialReservationSnapshot,
+  createReplayPortfolioTwoFixedPartialCycleSequenceReservationSnapshot,
   hashTrialReservationSnapshot,
   type ReplayRuntimeSharedWalletReservationSnapshot,
   type ReplayRuntimeSharedWalletLifecycleReservationSnapshot,
@@ -24,6 +29,8 @@ import {
   type ReplayPortfolioAllocationReservationSnapshot,
   type ReplayPortfolioReallocationReservationSnapshot,
   type ReplayPortfolioCycleSequenceReservationSnapshot,
+  type ReplayPortfolioTwoFixedPartialReservationSnapshot,
+  type ReplayPortfolioTwoFixedPartialCycleSequenceReservationSnapshot,
   type TrialReservationSnapshot,
 } from "../../../contracts/src/lib/control-plane-contracts"
 
@@ -110,6 +117,40 @@ export interface IssueReplayPortfolioCycleSequenceReservationInput {
   }>
 }
 
+export interface IssueReplayPortfolioTwoFixedPartialReservationInput {
+  reservation_id: string
+  reservation_ref: string
+  issued_at: string
+  expires_at: string
+  portfolio_id: string
+  settlement_asset: string
+  source_terminal_evidence_hash: string
+  source_terminal_artifact_manifest_hash: string
+  risk_result_hash: string
+  lanes: Array<{
+    lane_id: string
+    priority_rank: number
+    trial_reservation: TrialReservationSnapshot
+    request_hash: string
+    source_terminal_record_hash: string
+    isolated_collateral: number
+  }>
+}
+
+export interface IssueReplayPortfolioTwoFixedPartialCycleSequenceReservationInput {
+  reservation_id: string
+  reservation_ref: string
+  issued_at: string
+  expires_at: string
+  portfolio_id: string
+  settlement_asset: string
+  initial_cash: number
+  cycles: Array<{
+    earliest_cycle_time: string
+    reservation: ReplayPortfolioTwoFixedPartialReservationSnapshot
+  }>
+}
+
 interface TrialAuthorityRow {
   trial_id: string
   experiment_id: string
@@ -117,6 +158,17 @@ interface TrialAuthorityRow {
   group_hash: string
   run_id: string
   status: string
+}
+
+interface ActiveAttemptAuthorityRow {
+  trial_id: string
+  run_id: string
+  reservation_ref: string
+  reservation_hash: string
+  request_hash: string
+  status: "claimed" | "running"
+  heartbeat_at: string
+  lease_expires_at: string
 }
 
 export function issueReplayRuntimeSharedWalletReservation(
@@ -543,4 +595,167 @@ export function issueReplayPortfolioCycleSequenceReservation(
       "no_partial_cross_margin_borrow_real_liquidity_fast_or_runtime_cycle_expansion",
     ],
   })
+}
+
+export function issueReplayPortfolioTwoFixedPartialReservation(
+  db: Database,
+  input: IssueReplayPortfolioTwoFixedPartialReservationInput,
+): ReplayPortfolioTwoFixedPartialReservationSnapshot {
+  const issue = db.transaction(() => {
+    if (input.lanes.length === 0) {
+      throw new Error("portfolio two-fixed-partial authority requires at least one Lane")
+    }
+    const first = input.lanes[0]!.trial_reservation
+    const lanes = input.lanes.map((lane) => {
+      assertTrialReservationSnapshot(lane.trial_reservation)
+      const reservation = lane.trial_reservation
+      const reservationHash = hashTrialReservationSnapshot(reservation)
+      const trial = db.query(`
+        SELECT
+          t.trial_id, t.experiment_id, t.trial_group_id, t.run_id, t.status,
+          g.group_hash
+        FROM rd_trial t
+        JOIN rd_trial_group g ON g.trial_group_id = t.trial_group_id
+        WHERE t.trial_id = $trial_id
+      `).get({ $trial_id: reservation.identity.trial_id }) as TrialAuthorityRow | null
+      if (!trial || trial.status !== "reserved" || trial.trial_id !== reservation.identity.trial_id
+          || trial.experiment_id !== reservation.identity.experiment_id
+          || trial.trial_group_id !== reservation.identity.trial_group_id
+          || trial.group_hash !== reservation.identity.trial_group_hash
+          || trial.run_id !== reservation.run_id) {
+        throw new Error(`portfolio two-fixed-partial Lane ${lane.lane_id} is not backed by a current reserved Trial`)
+      }
+      const attempt = db.query(`
+        SELECT trial_id, run_id, reservation_ref, reservation_hash, request_hash,
+               status, heartbeat_at, lease_expires_at
+        FROM rd_replay_attempt
+        WHERE trial_id = $trial_id AND status IN ('claimed', 'running')
+      `).get({ $trial_id: reservation.identity.trial_id }) as ActiveAttemptAuthorityRow | null
+      if (!attempt || attempt.trial_id !== reservation.identity.trial_id
+          || attempt.run_id !== reservation.run_id
+          || attempt.reservation_ref !== reservation.reservation_ref
+          || attempt.reservation_hash !== reservationHash
+          || attempt.request_hash !== lane.request_hash) {
+        throw new Error(`portfolio two-fixed-partial Lane ${lane.lane_id} Request is not backed by the current Attempt Lease`)
+      }
+      if (reservation.identity.experiment_id !== first.identity.experiment_id
+          || reservation.identity.trial_group_id !== first.identity.trial_group_id
+          || reservation.identity.trial_group_hash !== first.identity.trial_group_hash) {
+        throw new Error("portfolio two-fixed-partial lanes must belong to one frozen Experiment and Trial Group")
+      }
+      if (Date.parse(input.issued_at) < Date.parse(reservation.issued_at)
+          || Date.parse(input.expires_at) > Date.parse(reservation.expires_at)
+          || Date.parse(input.issued_at) < Date.parse(attempt.heartbeat_at)
+          || Date.parse(input.expires_at) > Date.parse(attempt.lease_expires_at)) {
+        throw new Error("portfolio two-fixed-partial authority window must be contained by child Reservation and Attempt Lease")
+      }
+      return {
+        lane_id: lane.lane_id,
+        priority_rank: lane.priority_rank,
+        trial_id: reservation.identity.trial_id,
+        run_id: reservation.run_id,
+        trial_reservation_ref: reservation.reservation_ref,
+        trial_reservation_hash: reservationHash,
+        request_hash: attempt.request_hash,
+        source_terminal_record_hash: lane.source_terminal_record_hash,
+        isolated_collateral: lane.isolated_collateral,
+      }
+    })
+    return createReplayPortfolioTwoFixedPartialReservationSnapshot({
+      schema_version: REPLAY_PORTFOLIO_TWO_FIXED_PARTIAL_RESERVATION_SCHEMA_VERSION,
+      reservation_id: input.reservation_id,
+      reservation_ref: input.reservation_ref,
+      issued_at: input.issued_at,
+      expires_at: input.expires_at,
+      status: "reserved",
+      authority_id: "research-control-plane",
+      experiment_id: first.identity.experiment_id,
+      trial_group_id: first.identity.trial_group_id,
+      trial_group_hash: first.identity.trial_group_hash,
+      portfolio_id: input.portfolio_id,
+      settlement_asset: input.settlement_asset,
+      source_terminal_evidence_hash: input.source_terminal_evidence_hash,
+      source_terminal_artifact_manifest_hash: input.source_terminal_artifact_manifest_hash,
+      risk_result_hash: input.risk_result_hash,
+      projection_policy_version: "two-predeclared-fixed-partials-terminal-risk-v1",
+      lanes,
+      limitations: [
+        "exactly_two_predeclared_fixed_quantity_partial_reduces_per_opened_lane",
+        "projection_only_no_contract_search_review_or_lifecycle_authority",
+        "no_dynamic_sizing_third_partial_post_partial_mutation_reentry_cross_margin_borrow_real_liquidity_or_fast",
+      ],
+    })
+  })
+  return issue.immediate()
+}
+
+export function issueReplayPortfolioTwoFixedPartialCycleSequenceReservation(
+  db: Database,
+  input: IssueReplayPortfolioTwoFixedPartialCycleSequenceReservationInput,
+): ReplayPortfolioTwoFixedPartialCycleSequenceReservationSnapshot {
+  const issue = db.transaction(() => {
+    if (input.cycles.length < 1 || input.cycles.length > REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES) {
+      throw new Error("portfolio two-fixed-partial cycle sequence requires one to eight child Reservations")
+    }
+    const first = input.cycles[0]!.reservation
+    const cycles = input.cycles.map((cycle, index) => {
+      const reservation = cycle.reservation
+      assertReplayPortfolioTwoFixedPartialReservationSnapshot(reservation)
+      if (reservation.experiment_id !== first.experiment_id
+          || reservation.trial_group_id !== first.trial_group_id
+          || reservation.trial_group_hash !== first.trial_group_hash
+          || reservation.portfolio_id !== input.portfolio_id
+          || reservation.settlement_asset !== input.settlement_asset
+          || Date.parse(input.issued_at) < Date.parse(reservation.issued_at)
+          || Date.parse(input.expires_at) > Date.parse(reservation.expires_at)) {
+        throw new Error("portfolio two-fixed-partial cycle child Reservation authority drift")
+      }
+      for (const lane of reservation.lanes) {
+        const trial = db.query(`
+          SELECT t.trial_id, t.experiment_id, t.trial_group_id, t.run_id, t.status, g.group_hash
+          FROM rd_trial t JOIN rd_trial_group g ON g.trial_group_id = t.trial_group_id
+          WHERE t.trial_id = $trial_id
+        `).get({ $trial_id: lane.trial_id }) as TrialAuthorityRow | null
+        const attempt = db.query(`
+          SELECT trial_id, run_id, reservation_ref, reservation_hash, request_hash,
+                 status, heartbeat_at, lease_expires_at
+          FROM rd_replay_attempt
+          WHERE trial_id = $trial_id AND status IN ('claimed', 'running')
+        `).get({ $trial_id: lane.trial_id }) as ActiveAttemptAuthorityRow | null
+        if (!trial || trial.status !== "reserved" || trial.experiment_id !== reservation.experiment_id
+            || trial.trial_group_id !== reservation.trial_group_id || trial.group_hash !== reservation.trial_group_hash
+            || trial.run_id !== lane.run_id || !attempt || attempt.run_id !== lane.run_id
+            || attempt.reservation_ref !== lane.trial_reservation_ref
+            || attempt.reservation_hash !== lane.trial_reservation_hash
+            || attempt.request_hash !== lane.request_hash
+            || Date.parse(input.expires_at) > Date.parse(attempt.lease_expires_at)) {
+          throw new Error(`portfolio two-fixed-partial cycle Lane ${lane.lane_id} is not current`)
+        }
+      }
+      return { cycle_index: index + 1,
+        two_fixed_partial_reservation_hash: reservation.reservation_hash,
+        earliest_cycle_time: cycle.earliest_cycle_time,
+        lanes: reservation.lanes.map((lane) => ({ lane_id: lane.lane_id,
+          priority_rank: lane.priority_rank, trial_id: lane.trial_id, run_id: lane.run_id,
+          trial_reservation_hash: lane.trial_reservation_hash, request_hash: lane.request_hash })) }
+    })
+    return createReplayPortfolioTwoFixedPartialCycleSequenceReservationSnapshot({
+      schema_version: REPLAY_PORTFOLIO_TWO_FIXED_PARTIAL_CYCLE_SEQUENCE_RESERVATION_SCHEMA_VERSION,
+      reservation_id: input.reservation_id, reservation_ref: input.reservation_ref,
+      issued_at: input.issued_at, expires_at: input.expires_at, status: "reserved",
+      authority_id: "research-control-plane", experiment_id: first.experiment_id,
+      trial_group_id: first.trial_group_id, trial_group_hash: first.trial_group_hash,
+      portfolio_id: input.portfolio_id, settlement_asset: input.settlement_asset,
+      initial_cash: input.initial_cash, cycle_count: cycles.length,
+      max_cycle_count: REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES,
+      opening_cash_policy: "first_cycle_initial_then_predecessor_committed_trial_balance",
+      successor_eligibility_policy: "predecessor_committed_full_flat_exposure_collateral_and_risk_zero",
+      expansion_policy: "exact_predeclared_child_reservations_no_runtime_append_or_search_expansion",
+      cycles,
+      limitations: ["one_to_eight_predeclared_two_fixed_partial_full_flat_cycles_only",
+        "cycle_opening_cash_must_equal_predecessor_committed_trial_balance",
+        "no_dynamic_sizing_third_partial_post_partial_mutation_reentry_cross_margin_borrow_real_liquidity_fast_or_runtime_cycle_expansion"],
+    })
+  })
+  return issue.immediate()
 }

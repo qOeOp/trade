@@ -162,6 +162,8 @@ import {
   issueReplayPortfolioAllocationReservation,
   issueReplayPortfolioReallocationReservation,
   issueReplayPortfolioCycleSequenceReservation,
+  issueReplayPortfolioTwoFixedPartialReservation,
+  issueReplayPortfolioTwoFixedPartialCycleSequenceReservation,
   issueReplayRuntimeSharedWalletReservation,
 } from "./runtime-shared-wallet-reservation"
 import {
@@ -463,7 +465,7 @@ test("Control Plane admits aggregate trade evidence only as a Reservation-bound 
         assumptions_hash: "f".repeat(64),
         cost_policy_hash: "1".repeat(64),
         margin_policy_hash: "2".repeat(64),
-        simulator_policy_version: "rd-replay-simulator-v22",
+        simulator_policy_version: "rd-replay-simulator-v24",
         execution_mode: "step",
       },
       required_capabilities: ["closed-candle", "step"],
@@ -1344,7 +1346,7 @@ test("Control Plane issues shared initial capital only over current child Trial 
       instrument_status_provider_capability_hash: PROVIDER_CAPABILITY_HASH,
       instrument_status_provider_certification_hash: PROVIDER_CERTIFICATION.certification_hash,
       harness_hash: "e".repeat(64), assumptions_hash: "f".repeat(64), cost_policy_hash: "1".repeat(64),
-      margin_policy_hash: "2".repeat(64), simulator_policy_version: "rd-replay-simulator-v22", execution_mode: "step" as const,
+      margin_policy_hash: "2".repeat(64), simulator_policy_version: "rd-replay-simulator-v24", execution_mode: "step" as const,
     }
     const reservationA = issueTrialReservationSnapshot(db, {
       trial_id: "trial-shared-a", reservation_id: "reservation-shared-a",
@@ -1519,6 +1521,60 @@ test("Control Plane issues shared initial capital only over current child Trial 
     assert.equal(sequence.cycle_count, 1)
     assert.equal(sequence.max_cycle_count, 8)
     assert.deepEqual(sequence.cycles[0]?.lanes.map((lane) => lane.lane_id), ["lane-b", "lane-a"])
+    const requestHashA = "a".repeat(64)
+    const requestHashB = "b".repeat(64)
+    claimReplayAttempt(db, {
+      attempt_id: "attempt-two-fixed-a", worker_id: "worker-two-fixed-a",
+      idempotency_key: "attempt-two-fixed-a-key", request_hash: requestHashA,
+      claimed_at: "2026-07-14T03:21:00Z", lease_expires_at: "2026-07-14T04:00:00Z",
+      trial_reservation: reservationA,
+    })
+    claimReplayAttempt(db, {
+      attempt_id: "attempt-two-fixed-b", worker_id: "worker-two-fixed-b",
+      idempotency_key: "attempt-two-fixed-b-key", request_hash: requestHashB,
+      claimed_at: "2026-07-14T03:21:00Z", lease_expires_at: "2026-07-14T04:00:00Z",
+      trial_reservation: reservationB,
+    })
+    const twoFixedInput = {
+      reservation_id: "portfolio-two-fixed-partial-1",
+      reservation_ref: "reservation://portfolio-two-fixed-partial/1",
+      issued_at: "2026-07-14T03:21:00Z",
+      expires_at: "2026-07-14T04:00:00Z",
+      portfolio_id: "portfolio-two-fixed-partial-1",
+      settlement_asset: "USDT",
+      source_terminal_evidence_hash: "3".repeat(64),
+      source_terminal_artifact_manifest_hash: "4".repeat(64),
+      risk_result_hash: "5".repeat(64),
+      lanes: [
+        { lane_id: "lane-b", priority_rank: 1, trial_reservation: reservationB,
+          request_hash: requestHashB, source_terminal_record_hash: "6".repeat(64), isolated_collateral: 20 },
+        { lane_id: "lane-a", priority_rank: 2, trial_reservation: reservationA,
+          request_hash: requestHashA, source_terminal_record_hash: "7".repeat(64), isolated_collateral: 30 },
+      ],
+    }
+    const twoFixed = issueReplayPortfolioTwoFixedPartialReservation(db, twoFixedInput)
+    assert.equal(twoFixed.reservation_hash.length, 64)
+    assert.deepEqual(twoFixed.lanes.map((lane) => [lane.lane_id, lane.request_hash]), [
+      ["lane-b", requestHashB], ["lane-a", requestHashA],
+    ])
+    const twoFixedSequence = issueReplayPortfolioTwoFixedPartialCycleSequenceReservation(db, {
+      reservation_id: "portfolio-two-fixed-partial-sequence-1",
+      reservation_ref: "reservation://portfolio-two-fixed-partial-sequence/1",
+      issued_at: "2026-07-14T03:21:00Z", expires_at: "2026-07-14T04:00:00Z",
+      portfolio_id: twoFixed.portfolio_id, settlement_asset: twoFixed.settlement_asset,
+      initial_cash: 100, cycles: [{ earliest_cycle_time: "2026-07-14T03:22:00Z",
+        reservation: twoFixed }],
+    })
+    assert.equal(twoFixedSequence.cycle_count, 1)
+    assert.equal(twoFixedSequence.cycles[0]?.two_fixed_partial_reservation_hash, twoFixed.reservation_hash)
+    assert.throws(() => issueReplayPortfolioTwoFixedPartialReservation(db, {
+      ...twoFixedInput,
+      lanes: [{ ...twoFixedInput.lanes[0]!, request_hash: "8".repeat(64) }, twoFixedInput.lanes[1]!],
+    }), /current Attempt Lease/)
+    assert.throws(() => issueReplayPortfolioTwoFixedPartialReservation(db, {
+      ...twoFixedInput,
+      expires_at: "2026-07-14T04:01:00Z",
+    }), /contained by child Reservation and Attempt Lease/)
     finishTrial(db, { trial_id: "trial-shared-b", status: "completed", completed_at: "2026-07-14T03:22:00Z" })
     assert.throws(() => issueReplaySharedInitialCapitalReservation(db, input), /current reserved Trial/)
     assert.throws(() => issueReplayRuntimeSharedWalletReservation(db, {
@@ -1577,6 +1633,7 @@ test("Control Plane issues shared initial capital only over current child Trial 
         { lane_id: "lane-a", priority_rank: 2, trial_reservation: reservationA },
       ],
     }), /current reserved Trial/)
+    assert.throws(() => issueReplayPortfolioTwoFixedPartialReservation(db, twoFixedInput), /current reserved Trial/)
   } finally {
     db.close()
   }
