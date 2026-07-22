@@ -94,6 +94,7 @@
       "status": "implemented",
       "modules": [
         "modules/live-execution-control/execution-gate",
+        "modules/live-execution-control/watch-handoff-revalidation",
         "modules/live-execution-control/execution-flow-runner",
         "modules/live-execution-control/execution-router",
         "modules/live-execution-control/execution-recorder",

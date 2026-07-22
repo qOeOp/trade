@@ -3397,6 +3397,53 @@
       }
     },
     {
+      "id": "execution.watch-handoff-revalidation",
+      "domain": "live-execution-control",
+      "intent": [
+        "watch-handoff-revalidation",
+        "trigger-revalidation",
+        "plan-preflight",
+        "no-authority-receipt"
+      ],
+      "capability_class": [
+        "A",
+        "V"
+      ],
+      "path": "modules/live-execution-control/watch-handoff-revalidation",
+      "purpose": "Revalidate one triggered Watch handoff against fresh facts, the existing trigger gate, and plan preflight.",
+      "command": {
+        "cwd": "modules/live-execution-control/watch-handoff-revalidation",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "A passing receipt still has execution_authority=none and requires a separate explicitly authorized execution path."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "live-execution-control.watch-handoff-revalidation",
+      "requires_preflight": false,
+      "concurrency_group": "preflight-guard",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
+    },
+    {
       "id": "execution.flow-runner",
       "domain": "live-execution-control",
       "intent": [
