@@ -29,6 +29,14 @@ data/system_state.json
 data/.trade-flow.lock
 data/*.db
 data/*.sqlite*
+*.db-shm
+*.db-wal
+*.duckdb-shm
+*.duckdb-wal
+*.sqlite-shm
+*.sqlite-wal
+*.sqlite3-shm
+*.sqlite3-wal
 
 # Local operator config; keep examples/templates in repo instead.
 profile/account_config.json

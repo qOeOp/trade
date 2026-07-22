@@ -192,8 +192,10 @@ check_rust_tools() {
 
 check_project_hygiene() {
   require_cmd rg
+  require_cmd bun
   log "project hygiene"
   git diff --check
+  bun scripts/check-workspace-hygiene.ts
   unexpected_docs_root="$(find docs -maxdepth 1 -type f ! -name README.md -print)"
   if [ -n "$unexpected_docs_root" ]; then
     printf 'quality: docs root only allows README.md; move contracts and feature docs into an owned subdirectory:\n%s\n' "$unexpected_docs_root" >&2
