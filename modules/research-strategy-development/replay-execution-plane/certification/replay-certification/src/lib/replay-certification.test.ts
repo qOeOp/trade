@@ -43,6 +43,11 @@ import {
   assertReplayOperationalReadinessRegistry,
   loadReplayOperationalReadinessRegistry,
 } from "./replay-operational-readiness"
+import {
+  assertReplayReleaseCandidateFixturePack,
+  loadReplayReleaseCandidateFixturePack,
+  runReplayReleaseCandidateFixtureProbe,
+} from "./replay-release-candidate-fixture-pack"
 
 describe("Replay certification owner", () => {
   const repoRoot = findReplayCertificationRepoRoot()
@@ -308,5 +313,51 @@ describe("Replay certification owner", () => {
     expect(() => assertReplayOperationalReadinessRegistry(
       runbookDrift, profileEvidence, repoRoot,
     )).toThrow("runbook source drifted")
+  })
+
+  test("freezes the release-candidate evidence closure and reruns every profile golden", async () => {
+    const pack = loadReplayReleaseCandidateFixturePack(repoRoot)
+    const receipt = await runReplayReleaseCandidateFixtureProbe(
+      pack,
+      loadReplayProfileEvidenceManifest(repoRoot),
+      repoRoot,
+    )
+    expect(pack.components).toHaveLength(12)
+    expect(receipt.profiles.map((entry) => entry.profile)).toEqual([
+      "independent-lane-batch",
+      "integrated-portfolio",
+      "single-trial",
+      "terminal-aware-bounded-cycle",
+    ])
+    expect(new Set(receipt.profiles.map((entry) => entry.process_id)).size).toBe(4)
+    expect(receipt.component_set_hash).toHaveLength(64)
+    expect(receipt.receipt_sha256).toHaveLength(64)
+  }, 90_000)
+
+  test("rejects incomplete, drifted, or release-verdict fixture packs", () => {
+    const profileEvidence = loadReplayProfileEvidenceManifest(repoRoot)
+    const incomplete = structuredClone(loadReplayReleaseCandidateFixturePack(repoRoot))
+    incomplete.components.pop()
+    expect(() => assertReplayReleaseCandidateFixturePack(
+      incomplete, profileEvidence, repoRoot,
+    )).toThrow("component closure is incomplete")
+
+    const verdictOverclaim = structuredClone(loadReplayReleaseCandidateFixturePack(repoRoot))
+    verdictOverclaim.verdict_policy = "fixture-pack-is-release-verdict" as never
+    expect(() => assertReplayReleaseCandidateFixturePack(
+      verdictOverclaim, profileEvidence, repoRoot,
+    )).toThrow("unsupported Replay release candidate fixture pack")
+
+    const authorityDrift = structuredClone(loadReplayReleaseCandidateFixturePack(repoRoot))
+    authorityDrift.components[5]!.authority_hash = "0".repeat(64)
+    expect(() => assertReplayReleaseCandidateFixturePack(
+      authorityDrift, profileEvidence, repoRoot,
+    )).toThrow("component authority hash drifted")
+
+    const sourceDrift = structuredClone(loadReplayReleaseCandidateFixturePack(repoRoot))
+    sourceDrift.profiles[0]!.golden_source_sha256 = "0".repeat(64)
+    expect(() => assertReplayReleaseCandidateFixturePack(
+      sourceDrift, profileEvidence, repoRoot,
+    )).toThrow("golden source drifted")
   })
 })

@@ -300,6 +300,24 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("unsupported Replay operational readiness registry")
   }, 15_000)
 
+  test("Replay fixture closure cannot be overclaimed as an independent release verdict", () => {
+    const pack = JSON.parse(readFileSync(
+      join(repoRoot, "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-release-candidate-fixture-pack.json"),
+      "utf8",
+    )) as { verdict_policy: string }
+    pack.verdict_policy = "fixture-pack-is-independent-release-verdict"
+    const root = temporaryRoot()
+    const packPath = join(root, "replay-release-candidate-fixture-pack.json")
+    writeFileSync(packPath, JSON.stringify(pack))
+
+    const result = runJudge("check-rd-replay-maturity-gate.ts", repoRoot, [], {
+      RD_REPLAY_RELEASE_CANDIDATE_FIXTURE_PACK_PATH: packPath,
+    })
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("unsupported Replay release candidate fixture pack")
+  }, 15_000)
+
   test("Replay historical Artifact payload reader cannot drift silently", () => {
     const registry = JSON.parse(readFileSync(
       join(repoRoot, "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-historical-artifact-migration.json"),

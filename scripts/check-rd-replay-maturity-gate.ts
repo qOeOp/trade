@@ -34,6 +34,10 @@ import {
   assertReplayOperationalReadinessRegistry,
   loadReplayOperationalReadinessRegistry,
 } from "../modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-operational-readiness"
+import {
+  assertReplayReleaseCandidateFixturePack,
+  loadReplayReleaseCandidateFixturePack,
+} from "../modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-release-candidate-fixture-pack"
 
 interface GateManifest {
   schema_version: string
@@ -186,6 +190,9 @@ const faultCorruptionRecoveryBundlePath =
 const operationalReadinessRegistryPath =
   process.env.RD_REPLAY_OPERATIONAL_READINESS_REGISTRY_PATH
   || `${certificationOwner}/replay-operational-readiness.json`
+const releaseCandidateFixturePackPath =
+  process.env.RD_REPLAY_RELEASE_CANDIDATE_FIXTURE_PACK_PATH
+  || `${certificationOwner}/replay-release-candidate-fixture-pack.json`
 const issues: string[] = []
 const certificationCommandIssues: string[] = []
 const testSeparationIssues: string[] = []
@@ -197,6 +204,7 @@ const publicationCrashRecoveryIssues: string[] = []
 const capacityPerformanceEnvelopeIssues: string[] = []
 const faultCorruptionRecoveryIssues: string[] = []
 const operationalReadinessIssues: string[] = []
+const releaseCandidateFixturePackIssues: string[] = []
 
 try {
   const moduleConsumerClosure = loadReplayModuleConsumerClosureManifest(
@@ -264,6 +272,15 @@ try {
   assertReplayOperationalReadinessRegistry(registry, profileEvidenceRegistry, process.cwd())
 } catch (error) {
   operationalReadinessIssues.push(error instanceof Error ? error.message : String(error))
+}
+try {
+  const pack = loadReplayReleaseCandidateFixturePack(
+    process.cwd(),
+    releaseCandidateFixturePackPath,
+  )
+  assertReplayReleaseCandidateFixturePack(pack, profileEvidenceRegistry, process.cwd())
+} catch (error) {
+  releaseCandidateFixturePackIssues.push(error instanceof Error ? error.message : String(error))
 }
 
 const expectedCapabilityMilestones = Array.from({ length: 29 }, (_, index) => `M4-P${index + 1}`)
@@ -470,6 +487,7 @@ issues.push(
   ...capacityPerformanceEnvelopeIssues,
   ...faultCorruptionRecoveryIssues,
   ...operationalReadinessIssues,
+  ...releaseCandidateFixturePackIssues,
 )
 if (JSON.stringify(inventory.canonical_public_entrypoints) !== JSON.stringify(expectedCanonicalEntrypoints)) {
   issues.push("Replay canonical public entrypoints do not match the frozen four-profile surface")
@@ -657,6 +675,10 @@ if (manifest.exit_gates.m5?.fault_injection_and_corruption_recovery_certified
 if (manifest.exit_gates.m5?.operational_observability_and_runbook_complete
     !== (operationalReadinessIssues.length === 0)) {
   issues.push("Replay operational observability/runbook gate does not match the certified registry")
+}
+if (manifest.exit_gates.m5?.release_candidate_fixture_pack_frozen
+    !== (releaseCandidateFixturePackIssues.length === 0)) {
+  issues.push("Replay release candidate fixture-pack gate does not match the frozen evidence closure")
 }
 const m4Complete = gateValues.m4.length === expectedGateNames.m4.length && gateValues.m4.every(Boolean)
 if (manifest.exit_gates.m5?.m4_exit_complete !== m4Complete) {

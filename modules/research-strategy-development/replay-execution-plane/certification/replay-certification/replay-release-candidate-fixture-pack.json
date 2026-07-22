@@ -1,0 +1,137 @@
+{
+  "schema_version": "trade.rd-replay-release-candidate-fixture-pack.v1",
+  "owner": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification",
+  "candidate_scope": "m4-frozen-four-public-profiles-and-m5-release-evidence",
+  "freeze_policy": "closed-world-repo-relative-content-addressed-components-no-generated-result-copy",
+  "execution_policy": "one-fresh-bun-process-golden-owner-assertion-per-public-profile",
+  "verdict_policy": "fixture-pack-is-candidate-evidence-not-independent-release-verdict",
+  "components": [
+    {
+      "role": "canonical-result-fixture",
+      "path": "modules/research-strategy-development/replay-execution-plane/tests/src/fixtures/certified-single-position-v24.json",
+      "content_sha256": "eb6d2b3faf73b98296b6c2e39ea9933e6d3babdd18280e13bebf1326c6f15c92",
+      "authority_hash_field": null,
+      "authority_hash": null
+    },
+    {
+      "role": "public-profile-evidence-registry",
+      "path": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-profile-evidence.json",
+      "content_sha256": "abe94e468b10a167d5eae442c682905bd1888b915c3c0b110268f338dadaea0a",
+      "authority_hash_field": null,
+      "authority_hash": null
+    },
+    {
+      "role": "certification-suite-registry",
+      "path": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-certification-suites.json",
+      "content_sha256": "112cb82bc349e535ff6afccf865211aa7a2ec3102bd97a4414b54f40b70fc3b3",
+      "authority_hash_field": null,
+      "authority_hash": null
+    },
+    {
+      "role": "evidence-epoch-registry",
+      "path": "docs/research/reliability/rd-replay-evidence-epoch-registry.json",
+      "content_sha256": "5a05195dc6e35b79a690a9cb580f87364557d20291a074a7792e090f37dad758",
+      "authority_hash_field": null,
+      "authority_hash": null
+    },
+    {
+      "role": "module-consumer-closure",
+      "path": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-module-consumer-closure.json",
+      "content_sha256": "f378814b987109ff5da5c9a77dcdfabf7f6ce2c6bb1adcb255b673145da30388",
+      "authority_hash_field": "observed_closure_sha256",
+      "authority_hash": "6eedcb77ac4f8703079829adc053ff8bfa81196f995868d86c7c6aad01c3a28d"
+    },
+    {
+      "role": "cross-process-reproducibility",
+      "path": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-cross-process-reproducibility-bundle.json",
+      "content_sha256": "5c24d45b0f3a4b65bff0c915bdd6843e93ef9adda081d0b3f232b55a28c7281b",
+      "authority_hash_field": "bundle_sha256",
+      "authority_hash": "d4c63500ee195c81640fa3dd39012d575842c23a3f0ba3eb2ae8a04da3ac4764"
+    },
+    {
+      "role": "historical-artifact-migration-registry",
+      "path": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-historical-artifact-migration.json",
+      "content_sha256": "bb705deed5853a7b40607dc4397bd19b5ee6246815418a8c1d017daed7e0eff2",
+      "authority_hash_field": "registry_sha256",
+      "authority_hash": "251da8ed7af8daa0b72ed607a83b10c5dc275f34d18b9696b6ebcad6b9508211"
+    },
+    {
+      "role": "historical-artifact-fixture-pack",
+      "path": "modules/research-strategy-development/replay-execution-plane/certification/legacy-portfolio-cycle-certification/fixtures/historical-artifact-read-migration-v1.json",
+      "content_sha256": "d64a97d219179f97c1215282915be391e8ebd39bd65a0f41de45330180b02637",
+      "authority_hash_field": "pack_hash",
+      "authority_hash": "5d50ef7cff41e44ec8bc8bb36471f705214f8fbdda10eae690fd22c6cd7f3838"
+    },
+    {
+      "role": "publication-crash-recovery",
+      "path": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-publication-crash-recovery-bundle.json",
+      "content_sha256": "bc7aaffb4d4e7f93ed3053c1137b84f3c155126b1fdcfb5b60ce92bdc6e0c5cd",
+      "authority_hash_field": "bundle_sha256",
+      "authority_hash": "6b4405386fd641e1fe62ea46c24baa4b8767c44863cc7b6bbda1d5d2fdbd9028"
+    },
+    {
+      "role": "capacity-performance-envelope",
+      "path": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-capacity-performance-envelope.json",
+      "content_sha256": "6912aead763219d1f1270d52b5e7a63a209f5890e624e04813b422c61858212e",
+      "authority_hash_field": "bundle_sha256",
+      "authority_hash": "4cb3054c5c808199de8a0aa1ddf05ec751f2e83a0d21a5034d5921d87b689701"
+    },
+    {
+      "role": "fault-corruption-recovery",
+      "path": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-fault-corruption-recovery-bundle.json",
+      "content_sha256": "735baf038f1e7aba3c85433d784413aae71267b1f5c8b14e152f3c13039ad7fc",
+      "authority_hash_field": "bundle_sha256",
+      "authority_hash": "01ad5b1a77a7fd275834c8f364e5e62863c85f6025cb7da66309aa43697899ff"
+    },
+    {
+      "role": "operational-readiness",
+      "path": "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-operational-readiness.json",
+      "content_sha256": "670fde6bef5c2fddb4b09230ef1bd15d13fcfc3e78df8c347a71bed3f5708b85",
+      "authority_hash_field": "registry_sha256",
+      "authority_hash": "aad119ef8b2cff50bde3bb2a07faae7988dcc73fa01635aceddd544dbbea5647"
+    }
+  ],
+  "profiles": [
+    {
+      "profile": "independent-lane-batch",
+      "checkpoint_mode": "child-trial-engine-checkpoints-v32-only",
+      "golden_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
+      "golden_test_name": "independent capital lanes execute in canonical Plan order and aggregate evidence without shared NAV semantics",
+      "golden_source_sha256": "7b2b3aaafed3ae79a15b9c7ca721b978c6af2fab8f061ab769b8e75c607f7733",
+      "timeout_ms": 25000
+    },
+    {
+      "profile": "integrated-portfolio",
+      "checkpoint_mode": "not-supported-no-checkpoint-writer",
+      "golden_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
+      "golden_test_name": "integrated Portfolio makes Allocation the only entry authority and releases exposure/risk through lifecycle Artifact",
+      "golden_source_sha256": "7b2b3aaafed3ae79a15b9c7ca721b978c6af2fab8f061ab769b8e75c607f7733",
+      "timeout_ms": 30000
+    },
+    {
+      "profile": "single-trial",
+      "checkpoint_mode": "resumable-engine-checkpoint-v32",
+      "golden_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.test.ts",
+      "golden_test_name": "runner atomically commits artifacts and retries idempotently",
+      "golden_source_sha256": "d7f535d4ce52adfc6bfefcea3572b3f8694e445de9f05dbb2c68c6611ed2d0d1",
+      "timeout_ms": 25000
+    },
+    {
+      "profile": "terminal-aware-bounded-cycle",
+      "checkpoint_mode": "not-supported-no-checkpoint-writer",
+      "golden_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.test.ts",
+      "golden_test_name": "bounded Cycle Sequence executes one, two, and three predeclared full-flat cycles without cycle-number schemas",
+      "golden_source_sha256": "7b2b3aaafed3ae79a15b9c7ca721b978c6af2fab8f061ab769b8e75c607f7733",
+      "timeout_ms": 30000
+    }
+  ],
+  "limitations": [
+    "synthetic-and-owner-test-fixtures-not-production-history-corpus",
+    "content-freeze-does-not-prove-cross-host-or-cross-runtime-parity",
+    "fixture-pack-does-not-expand-public-profiles-or-simulator-semantics",
+    "fixture-pack-does-not-replace-complete-owner-certification",
+    "fixture-pack-does-not-authorize-release-without-independent-audit",
+    "remote-distributed-store-shadow-live-and-real-account-evidence-out-of-scope"
+  ],
+  "pack_sha256": "353f097897e5948dc43a9f0bc18b089b2fe8c343175ce8b93b300a94d214576e"
+}

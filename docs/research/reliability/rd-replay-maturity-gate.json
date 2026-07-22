@@ -37,7 +37,7 @@
       "declared_capacity_and_performance_envelope_certified": true,
       "fault_injection_and_corruption_recovery_certified": true,
       "operational_observability_and_runbook_complete": true,
-      "release_candidate_fixture_pack_frozen": false,
+      "release_candidate_fixture_pack_frozen": true,
       "independent_release_audit_passed": false
     }
   },
@@ -76,6 +76,8 @@
     "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-owner-assertion-process.ts",
     "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-operational-readiness.json",
     "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-operational-readiness.ts",
+    "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-release-candidate-fixture-pack.json",
+    "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-release-candidate-fixture-pack.ts",
     "docs/research/reliability/rd-replay-operations-runbook.md",
     "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-decision-harness-worker-v10-cutover-receipt.ts",
     "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-worker-v10-cutover.ts",
