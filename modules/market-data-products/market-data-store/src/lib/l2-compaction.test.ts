@@ -9,6 +9,7 @@ import { canonicalNfcHash } from "../../../../contracts/runtime-core/src/canonic
 import {
   admitL2CompactionProposal,
   admitL2EpochManifest,
+  auditL2RetentionReferenceClosure,
   ensureMarketDataSchema,
   prepareL2CompactionJob,
   readL2ExperimentAttachmentReferrerReceipt,
@@ -25,6 +26,12 @@ test("L2 owner issues one compaction job and admits exact Parquet proposal while
   ensureMarketDataSchema(db)
   try {
     const epoch = admitL2EpochManifest(db, fixture.admission).epoch
+    const rawAudit = auditL2RetentionReferenceClosure(db, epoch.epoch_id)
+    assert.equal(rawAudit.reference_status, "raw_hot_not_compacted")
+    assert.equal(rawAudit.referrer_count, 0)
+    assert.equal(rawAudit.compaction_id, null)
+    assert.equal(rawAudit.deletion_eligible, false)
+    assert.equal(rawAudit.deletion_decision, "forbidden_no_gc_authority")
     const prepared = prepareL2CompactionJob(db, {
       repository_root: fixture.root,
       epoch_id: epoch.epoch_id,
@@ -86,6 +93,11 @@ test("L2 owner issues one compaction job and admits exact Parquet proposal while
     assert.equal(source?.deletion_eligible, false)
     assert.deepEqual(readL2CompactedEpochSource(db, created.compaction.compaction_id), source)
     assert.ok(source)
+    const compactedAudit = auditL2RetentionReferenceClosure(db, epoch.epoch_id)
+    assert.equal(compactedAudit.reference_status, "compacted_pinned_no_registered_referrer")
+    assert.equal(compactedAudit.referrer_count, 0)
+    assert.equal(compactedAudit.source_hash, source.source_hash)
+    assert.equal(compactedAudit.deletion_decision, "forbidden_no_gc_authority")
     const authority = buildL2AttachmentAuthority(source)
     const registered = registerL2ExperimentAttachmentReferrerReceipt(db, {
       authority,
@@ -103,6 +115,36 @@ test("L2 owner issues one compaction job and admits exact Parquet proposal while
       readL2ExperimentAttachmentReferrerReceipt(db, authority.authority_snapshot_hash),
       registered.receipt,
     )
+    const secondAuthority = rehashAuthority({
+      ...authority,
+      authority_snapshot_id: "l2-attachment-test-second",
+      authority_snapshot_ref: "authority://l2-attachment-test-second",
+      reservation_hash: "7".repeat(64),
+      request_hash: "8".repeat(64),
+      batch_id: "replay-l2-depth-batch:test-second",
+      batch_hash: "9".repeat(64),
+      batch_rows_hash: "a".repeat(64),
+      batch_row_count: 1,
+      batch_next_offset: 1,
+      frame_end_exclusive: 2,
+      batch_exhausted: false,
+    })
+    const secondRegistered = registerL2ExperimentAttachmentReferrerReceipt(db, {
+      authority: secondAuthority,
+      registered_at: "2026-07-22T01:04:00Z",
+    })
+    assert.equal(secondRegistered.commit_status, "created")
+    const referencedAudit = auditL2RetentionReferenceClosure(db, epoch.epoch_id)
+    assert.equal(referencedAudit.reference_status, "compacted_pinned_with_registered_referrers")
+    assert.equal(referencedAudit.referrer_count, 2)
+    assert.deepEqual(
+      referencedAudit.referrers.map((referrer) => referrer.authority_snapshot_hash),
+      [authority.authority_snapshot_hash, secondAuthority.authority_snapshot_hash].sort(),
+    )
+    assert.equal(referencedAudit.deletion_decision, "forbidden_no_gc_authority")
+    const { audit_hash: auditHash, ...auditBody } = referencedAudit
+    assert.equal(auditHash, canonicalNfcHash(auditBody))
+    assert.deepEqual(auditL2RetentionReferenceClosure(db, epoch.epoch_id), referencedAudit)
     assert.deepEqual(db.query(`
       SELECT retention_class, compaction_ref, deletion_eligible FROM l2_epoch_retention
     `).get(), {
@@ -127,6 +169,11 @@ test("L2 owner issues one compaction job and admits exact Parquet proposal while
       authority: { ...authority, batch_hash: "e".repeat(64) },
     }), /snapshot hash mismatch/)
     assert.equal(admitL2EpochManifest(db, fixture.admission).commit_status, "existing")
+    db.run(`UPDATE l2_epoch_retention SET deletion_eligible = 1 WHERE epoch_id = ?`, [epoch.epoch_id])
+    assert.throws(
+      () => auditL2RetentionReferenceClosure(db, epoch.epoch_id),
+      /stored L2 epoch retention state is invalid|unsafe retention state/,
+    )
   } finally {
     db.close()
     fixture.cleanup()
