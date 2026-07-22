@@ -7,10 +7,11 @@ const HASH = "1".repeat(64)
 const identity = { schema_version: CONTROL_PLANE_IDENTITY_SCHEMA_VERSION, experiment_id: "experiment-1", trial_group_id: "group-1", trial_group_hash: HASH, trial_id: "trial-1", candidate_id: "candidate-1", candidate_hash: HASH, identity_hash_policy_version: "identity-v1", experiment_contract_hash: HASH }
 type LegacyReplayResultFixture = Omit<ReplayResult, "pending_order_resolutions" | "order_state_snapshot" | "metrics" | "fingerprint"> & {
   metrics: Omit<ReplayResult["metrics"], "pending_order_resolution_limited_count">
-  fingerprint: Omit<ReplayResult["fingerprint"], "liquidity_capacity_attestation_hash" | "pending_order_resolutions_hash" | "order_state_snapshot_hash">
+  fingerprint: Omit<ReplayResult["fingerprint"], "bar_linked_stop_entry_path_step_hash" | "liquidity_capacity_attestation_hash" | "pending_order_resolutions_hash" | "order_state_snapshot_hash">
 }
 const legacyResult: LegacyReplayResultFixture = {
   schema_version: REPLAY_RESULT_SCHEMA_VERSION, run_id: "run-1", status: "completed", entry_outcome: "filled", started_at: "2026-07-14T04:00:00Z", completed_at: "2026-07-14T08:00:00Z", source_events: [], order_events: [], fills: [], positions: [], ledger: [], ohlcv_resolution_evidence: [], journal: [],
+  bar_linked_stop_entry_path_step: null,
   valuation_snapshot: { valuation_id: "valuation-1", event_key: { event_time: "2026-07-14T08:00:00Z", boundary_phase: 100, source_sequence: 1, event_subphase: 0, stable_event_id: "valuation" }, timestamp: "2026-07-14T08:00:00Z", position_event_id: "position-1", mark_source_ref: "fill-2", mark_source: "fill_price", symbol: "BTCUSDT", settlement_asset: "USDT", mark_price: 110, signed_quantity: 0, average_entry_price: null, unrealized_pnl: 0 },
   equity_bridge: { policy_version: REPLAY_EQUITY_POLICY_VERSION, valuation_id: "valuation-1", settlement_asset: "USDT", terminal_position_state: "flat", cash_balance: 1010, position_valuation: 0, ending_equity: 1010, reconciled: true },
   margin_snapshots: [{ policy_version: REPLAY_MARGIN_POLICY_VERSION, venue_risk_policy_snapshot_id: "risk-1", venue_risk_policy_snapshot_hash: HASH, snapshot_id: "margin-terminal", snapshot_sequence: 1, stage: "terminal", event_key: { event_time: "2026-07-14T08:00:00Z", boundary_phase: 100, source_sequence: 1, event_subphase: 0, stable_event_id: "margin" }, timestamp: "2026-07-14T08:00:00Z", position_event_id: "position-1", mark_source_ref: "fill-2", mark_source: "fill_price", resolution: "not_applicable_flat", symbol: "BTCUSDT", collateral_asset: "USDT", signed_quantity: 0, mark_price: 110, notional: 0, isolated_collateral: 0, attributed_settled_cashflow: 0, unrealized_pnl: 0, margin_balance: 0, initial_margin_requirement: 0, maintenance_margin_requirement: 0, initial_margin_headroom: 0, maintenance_margin_headroom: 0, margin_ratio: null, initial_margin_sufficient: true, maintenance_margin_sufficient: true, maintenance_trigger: "margin_balance_below_maintenance_requirement", maintenance_breach_observed: false, breach_terminal_priority: "risk_before_strategy_exit", state: "flat", liquidation_evaluated: false }], liquidation: null,
@@ -27,6 +28,7 @@ const result: ReplayResult = {
   metrics: { ...legacyResult.metrics, pending_order_resolution_limited_count: 0 },
   fingerprint: {
     ...legacyResult.fingerprint,
+    bar_linked_stop_entry_path_step_hash: null,
     liquidity_capacity_attestation_hash: null,
     pending_order_resolutions_hash: canonicalHash([]),
     order_state_snapshot_hash: createReplayOrderStateSnapshot({ run_id: "run-1", orders: [], order_events: [] }).snapshot_hash,
