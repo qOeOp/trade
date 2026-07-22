@@ -98,6 +98,16 @@ export class ReadToolService {
     })
   }
 
+  readArtifact(artifactId: string, maxBytes = 200 * 1024): Promise<JSONRecord> {
+    return this.runOwner({
+      script: "modules/artifact-knowledge/artifact-catalog/src/scripts/main.ts",
+      args: ["--catalog-read-artifact", "--catalog-db", this.catalogDbPath, "--json", JSON.stringify({
+        artifact_id: artifactId,
+        max_bytes: maxBytes,
+      })],
+    })
+  }
+
   readRdProgram(programId = "rd-program"): Promise<JSONRecord> {
     return this.runOwner({
       script: "modules/research-strategy-development/research-control-plane/program-control/src/scripts/main.ts",

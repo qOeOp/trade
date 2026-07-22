@@ -5,7 +5,7 @@ import { resolve } from "node:path"
 import test from "node:test"
 import { repoRoot } from "../../../../contracts/runtime-core/src/paths"
 
-test("stdio server lists only the explicit read-only MCP allowlist", async () => {
+test("stdio server lists only the explicit MCP allowlist and marks the controlled write", async () => {
   const client = new Client({ name: "trade-agent-mcp-test", version: "0.1.0" })
   const transport = new StdioClientTransport({
     command: process.execPath,
@@ -18,12 +18,22 @@ test("stdio server lists only the explicit read-only MCP allowlist", async () =>
     const listed = await client.listTools()
     assert.deepEqual(listed.tools.map((tool) => tool.name).sort(), [
       "artifact_catalog_query",
+      "artifact_read",
       "ops_cycle_summary",
       "rd_program_read",
+      "research_hypothesis_brief",
+      "research_hypothesis_prepare",
+      "research_job_result",
+      "research_job_status",
+      "research_job_submit",
       "trade_tool_read",
       "trade_tool_search",
     ])
-    assert.ok(listed.tools.every((tool) => tool.annotations?.readOnlyHint === true))
+    const submit = listed.tools.find((tool) => tool.name === "research_job_submit")
+    assert.equal(submit?.annotations?.readOnlyHint, false)
+    assert.equal(submit?.annotations?.destructiveHint, false)
+    assert.equal(submit?.annotations?.idempotentHint, true)
+    assert.ok(listed.tools.filter((tool) => tool !== submit).every((tool) => tool.annotations?.readOnlyHint === true))
 
     const called = await client.callTool({ name: "trade_tool_search", arguments: { query: "artifact", limit: 3 } })
     assert.equal(called.isError, undefined)

@@ -1,6 +1,7 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { z } from "zod"
 import { ReadToolService } from "./read-tools"
+import { ResearchJobService } from "./research-jobs"
 
 const READ_ONLY_ANNOTATIONS = {
   readOnlyHint: true,
@@ -9,14 +10,32 @@ const READ_ONLY_ANNOTATIONS = {
   openWorldHint: false,
 } as const
 
-export function createTradeMcpServer(service = new ReadToolService()): McpServer {
+const CONTROLLED_WRITE_ANNOTATIONS = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+} as const
+
+const REQUEST_ID = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,63}$/)
+const PROGRAM_ID = z.string().regex(/^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/)
+const HYPOTHESIS_CONTRACT = z.record(z.string(), z.unknown()).refine(
+  (value) => JSON.stringify(value).length <= 200_000,
+  "hypothesis contract exceeds 200 KB",
+)
+
+export function createTradeMcpServer(
+  service = new ReadToolService(),
+  researchJobs = new ResearchJobService(),
+): McpServer {
   const server = new McpServer(
     { name: "trade-agent-mcp", version: "0.1.0" },
     {
       instructions: [
-        "This server exposes a small, read-only view of the local trading workspace.",
+        "This server exposes a small allowlist over the local trading workspace.",
         "Tool discovery does not authorize direct CLI execution.",
-        "No exchange write, strategy mutation, RD state mutation, or arbitrary command execution is available.",
+        "Research submission is asynchronous and routes only through the existing J04 supervisor.",
+        "No exchange write, direct strategy mutation, or arbitrary command execution is available.",
       ].join(" "),
     },
   )
@@ -54,6 +73,16 @@ export function createTradeMcpServer(service = new ReadToolService()): McpServer
     annotations: READ_ONLY_ANNOTATIONS,
   }, async (input) => result(await service.queryArtifactCatalog(input)))
 
+  server.registerTool("artifact_read", {
+    title: "Read one cataloged artifact",
+    description: "Read hash-verified text content by exact artifact ID. Paths outside project data/tmp and stale hashes are rejected.",
+    inputSchema: z.object({
+      artifact_id: z.string().min(1).max(200),
+      max_bytes: z.number().int().min(1).max(1_000_000).default(200 * 1024),
+    }),
+    annotations: READ_ONLY_ANNOTATIONS,
+  }, async ({ artifact_id, max_bytes }) => result(await service.readArtifact(artifact_id, max_bytes)))
+
   server.registerTool("rd_program_read", {
     title: "Read R&D program state",
     description: "Read durable R&D program state through the research owner CLI without planning or mutation.",
@@ -71,6 +100,51 @@ export function createTradeMcpServer(service = new ReadToolService()): McpServer
     }),
     annotations: READ_ONLY_ANNOTATIONS,
   }, async ({ cycle_id }) => result(await service.readOpsCycleSummary(cycle_id)))
+
+  server.registerTool("research_hypothesis_prepare", {
+    title: "Validate and project a research hypothesis",
+    description: "Validate one structured strategy hypothesis contract through the owner designer and deterministically project its J04 queue item without writing state.",
+    inputSchema: z.object({ hypothesis_contract: HYPOTHESIS_CONTRACT }).strict(),
+    annotations: READ_ONLY_ANNOTATIONS,
+  }, async ({ hypothesis_contract }) => result(await researchJobs.prepareHypothesis(hypothesis_contract)))
+
+  server.registerTool("research_hypothesis_brief", {
+    title: "Build an R&D hypothesis design brief",
+    description: "Read one durable RD program and its Control Plane planning context, then render the owner designer context and prompt without generating a hypothesis or writing state.",
+    inputSchema: z.object({ program_id: PROGRAM_ID.default("rd-program") }).strict(),
+    annotations: READ_ONLY_ANNOTATIONS,
+  }, async ({ program_id }) => result(await researchJobs.hypothesisBrief(program_id)))
+
+  server.registerTool("research_job_submit", {
+    title: "Submit an asynchronous R&D job",
+    description: "Idempotently submit one bounded J04 run. A supplied hypothesis contract must validate and project ready; it seeds a new program or is appended through the existing program owner.",
+    inputSchema: z.object({
+      request_id: REQUEST_ID,
+      program_id: PROGRAM_ID.default("rd-program"),
+      objective: z.string().trim().min(1).max(2_000),
+      budget: z.object({
+        max_hypotheses: z.number().int().min(1).max(20).optional(),
+        max_trials_total: z.number().int().min(1).max(80).optional(),
+        max_locked_holdout_uses: z.number().int().min(0).max(1).optional(),
+      }).strict().optional(),
+      hypothesis_contract: HYPOTHESIS_CONTRACT.optional(),
+    }).strict(),
+    annotations: CONTROLLED_WRITE_ANNOTATIONS,
+  }, async (input) => result(await researchJobs.submit(input)))
+
+  server.registerTool("research_job_status", {
+    title: "Read asynchronous R&D job status",
+    description: "Read the durable ops cycle and J04 status for a previously submitted request ID.",
+    inputSchema: z.object({ request_id: REQUEST_ID }).strict(),
+    annotations: READ_ONLY_ANNOTATIONS,
+  }, async ({ request_id }) => result(await researchJobs.status(request_id)))
+
+  server.registerTool("research_job_result", {
+    title: "Read asynchronous R&D job result",
+    description: "Read the terminal ops summary and result reference for a completed, failed, or blocked R&D request.",
+    inputSchema: z.object({ request_id: REQUEST_ID }).strict(),
+    annotations: READ_ONLY_ANNOTATIONS,
+  }, async ({ request_id }) => result(await researchJobs.result(request_id)))
 
   return server
 }

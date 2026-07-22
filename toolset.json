@@ -52,14 +52,21 @@
       "intent": [
         "agent-tool-discovery",
         "artifact-query",
+        "artifact-read",
         "rd-state-read",
-        "ops-summary-read"
+        "ops-summary-read",
+        "research-hypothesis-brief",
+        "research-hypothesis-prepare",
+        "research-job-submit",
+        "research-job-status",
+        "research-job-result"
       ],
       "capability_class": [
-        "R"
+        "R",
+        "A"
       ],
       "path": "modules/orchestration-ops/agent-mcp",
-      "purpose": "Expose an explicit read-only MCP allowlist over local tool discovery and selected Owner CLI queries.",
+      "purpose": "Expose an explicit MCP allowlist over local reads and controlled asynchronous J04 research submission.",
       "command": {
         "cwd": "modules/orchestration-ops/agent-mcp",
         "argv": [
@@ -69,20 +76,23 @@
       },
       "writes": {
         "trade_db": false,
-        "catalog": false,
-        "artifacts": false,
+        "catalog": true,
+        "artifacts": true,
         "binance": false,
         "config": false
       },
       "notes": [
         "Local stdio only; does not listen on the network.",
         "Discovery does not authorize execution of toolset commands.",
-        "No arbitrary command or exchange-write surface is exposed."
+        "research_hypothesis_brief renders owner-controlled program memory and planning context without generating or persisting a hypothesis.",
+        "Hypothesis contracts are validated and projected by research.strategy-hypothesis-designer before J04 submission.",
+        "research_job_submit records ops state and routes execution through the existing J04 supervisor.",
+        "No arbitrary command or exchange-write surface is exposed; live writes remain disabled."
       ],
       "module_type": "suite",
       "owner_scope": "orchestration-ops.agent-mcp",
       "requires_preflight": false,
-      "concurrency_group": "agent-read",
+      "concurrency_group": "agent-mcp",
       "forbidden_callers": [
         "exchange-write"
       ],

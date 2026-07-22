@@ -1,5 +1,7 @@
-import { resolve } from "node:path"
-import { repoRoot } from "../../../../contracts/runtime-core/src/paths"
+import { spawn } from "node:child_process"
+import { closeSync, mkdirSync, openSync } from "node:fs"
+import { dirname, resolve } from "node:path"
+import { assertProjectRuntimePath, displayPath, repoRoot } from "../../../../contracts/runtime-core/src/paths"
 
 export interface OwnerCliCommand {
   script: string
@@ -7,6 +9,13 @@ export interface OwnerCliCommand {
 }
 
 export type OwnerCliExecutor = (command: OwnerCliCommand) => Promise<Record<string, unknown>>
+
+export interface StartedOwnerCli {
+  pid: number
+  log_path: string
+}
+
+export type OwnerCliStarter = (command: OwnerCliCommand, logPath: string) => StartedOwnerCli
 
 const DEFAULT_TIMEOUT_MS = 15_000
 const DEFAULT_MAX_OUTPUT_BYTES = 1_000_000
@@ -16,10 +25,7 @@ export async function executeOwnerCli(
   options: { timeoutMs?: number; maxOutputBytes?: number } = {},
 ): Promise<Record<string, unknown>> {
   const root = repoRoot()
-  const script = resolve(root, command.script)
-  if (!script.startsWith(`${root}/modules/`)) {
-    throw new Error("Owner CLI script must stay under project modules")
-  }
+  const script = resolveOwnerScript(root, command.script)
 
   const child = Bun.spawn({
     cmd: [process.execPath, script, ...command.args],
@@ -55,6 +61,36 @@ export async function executeOwnerCli(
   } finally {
     clearTimeout(timeout)
   }
+}
+
+export function startOwnerCli(command: OwnerCliCommand, logPath: string): StartedOwnerCli {
+  const root = repoRoot()
+  const script = resolveOwnerScript(root, command.script)
+  assertProjectRuntimePath(logPath)
+  const resolvedLogPath = resolve(root, logPath)
+  mkdirSync(dirname(resolvedLogPath), { recursive: true })
+  const logFd = openSync(resolvedLogPath, "a")
+  try {
+    const child = spawn(process.execPath, [script, ...command.args], {
+      cwd: root,
+      detached: true,
+      env: process.env,
+      stdio: ["ignore", logFd, logFd],
+    })
+    child.unref()
+    if (!child.pid) throw new Error("Owner CLI worker did not return a pid")
+    return { pid: child.pid, log_path: displayPath(resolvedLogPath) }
+  } finally {
+    closeSync(logFd)
+  }
+}
+
+function resolveOwnerScript(root: string, scriptPath: string): string {
+  const script = resolve(root, scriptPath)
+  if (!script.startsWith(`${root}/modules/`)) {
+    throw new Error("Owner CLI script must stay under project modules")
+  }
+  return script
 }
 
 function parseJsonObject(raw: string): Record<string, unknown> {

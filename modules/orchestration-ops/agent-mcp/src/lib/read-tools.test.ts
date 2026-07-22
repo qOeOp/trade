@@ -75,13 +75,15 @@ test("owner adapters use fixed scripts and only pass typed payloads", async () =
       },
     })
     await service.queryArtifactCatalog({ symbol: "BTCUSDT", limit: 5 })
+    await service.readArtifact("artifact_demo", 4096)
     await service.readRdProgram("rd-program")
     await service.readOpsCycleSummary("cycle-1")
-    assert.equal(commands.length, 3)
+    assert.equal(commands.length, 4)
     assert.equal(commands[0].script, "modules/artifact-knowledge/artifact-catalog/src/scripts/main.ts")
     assert.deepEqual(JSON.parse(commands[0].args.at(-1) ?? "{}"), { symbol: "BTCUSDT", limit: 5 })
-    assert.equal(commands[1].args.at(-1), "{\"action\":\"read\"}")
-    assert.deepEqual(JSON.parse(commands[2].args.at(-1) ?? "{}"), { cycle_id: "cycle-1" })
+    assert.deepEqual(JSON.parse(commands[1].args.at(-1) ?? "{}"), { artifact_id: "artifact_demo", max_bytes: 4096 })
+    assert.equal(commands[2].args.at(-1), "{\"action\":\"read\"}")
+    assert.deepEqual(JSON.parse(commands[3].args.at(-1) ?? "{}"), { cycle_id: "cycle-1" })
   } finally {
     rmSync(root, { recursive: true, force: true })
   }
