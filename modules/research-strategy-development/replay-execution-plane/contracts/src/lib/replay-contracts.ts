@@ -2175,10 +2175,13 @@ export function assertReplayResultBarLinkedStopEntryPathBindings(
     fail("Replay Result cannot publish an untriggered authorized Stop-entry path")
   }
   const pending = result.pending_order_resolutions.find(
-    (candidate) => canonicalHash(candidate.observation.bar) === step.market_bar_hash,
+    (candidate) => candidate.outcome.status === "triggered_and_filled",
   )
-  if (!pending || pending.outcome.status !== "triggered_and_filled") {
+  if (!pending) {
     fail("Replay Result authorized Stop-entry path lacks its pending-entry Fill observation")
+  }
+  if (canonicalHash(pending.observation.bar) !== step.market_bar_hash) {
+    fail("Replay Result authorized Stop-entry path pending observation bar mismatch")
   }
   const terminal = resolution.terminal_trigger
   if (!terminal) return
