@@ -622,6 +622,70 @@ test("runner commits authorized same-bar Stop-entry path into Result, Fingerprin
   expect(second.status).toBe("completed")
   expect(second.idempotent_replay).toBe(true)
   expect(canonicalHash(second.result)).toBe(canonicalHash(first.result))
+  const pathArtifact = first.artifact_manifest?.files.find(
+    (file) => file.role === "bar_linked_stop_entry_path_step",
+  )
+  expect(pathArtifact).toBeDefined()
+  writeFileSync(pathArtifact!.ref, "null\n", "utf8")
+  const artifactTamper = runReplayTrial({ ...input, artifact_root: root })
+  expect(artifactTamper).toMatchObject({
+    status: "failed",
+    failure: {
+      code: "replay-execution-failed",
+      failure_class: "data_integrity",
+      partial_result_published: false,
+    },
+  })
+  expect(artifactTamper.failure?.message).toContain("hash mismatch for bar_linked_stop_entry_path_step")
+
+  const resumeRoot = mkdtempSync(join(tmpdir(), "rd-replay-stop-path-resume-"))
+  const renewedLease = attemptLease(input.request, input.trial_reservation, {
+    lease_generation: 3,
+    heartbeat_at: "2026-07-14T00:01:30Z",
+    lease_expires_at: "2026-07-14T00:06:30Z",
+  })
+  const interrupted = runReplayTrial({
+    ...input,
+    artifact_root: resumeRoot,
+    execution_control: { on_checkpoint: (checkpoint) => ({
+      command: checkpoint.pending_order_resolutions.length === 1 ? "cancel" : "continue",
+      attempt_lease: renewedLease,
+      observed_at: "2026-07-14T00:02:00Z",
+    }) },
+  })
+  expect(interrupted).toMatchObject({
+    status: "cancelled",
+    failure: { code: "execution-cancelled-at-checkpoint", partial_result_published: false },
+  })
+  expect(interrupted.resumable_checkpoint?.authorized_stop_entry_path_step_hash)
+    .toBe(first.result?.bar_linked_stop_entry_path_step?.step_hash)
+
+  const resumed = runReplayTrial({
+    ...input,
+    attempt_lease: renewedLease,
+    observed_at: "2026-07-14T00:02:00Z",
+    artifact_root: resumeRoot,
+    execution_control: { resume_checkpoint: interrupted.resumable_checkpoint },
+  })
+  expect(resumed.status).toBe("completed")
+  expect(resumed.result?.fingerprint.result_hash).toBe(first.result?.fingerprint.result_hash)
+
+  const tamperedCheckpoint = structuredClone(interrupted.resumable_checkpoint!)
+  tamperedCheckpoint.authorized_stop_entry_path_step_hash = null
+  const { checkpoint_hash: _checkpointHash, ...tamperedCheckpointBody } = tamperedCheckpoint
+  tamperedCheckpoint.checkpoint_hash = canonicalHash(tamperedCheckpointBody)
+  const tamperedResume = runReplayTrial({
+    ...input,
+    attempt_lease: renewedLease,
+    observed_at: "2026-07-14T00:02:00Z",
+    artifact_root: mkdtempSync(join(tmpdir(), "rd-replay-stop-path-tamper-")),
+    execution_control: { resume_checkpoint: tamperedCheckpoint },
+  })
+  expect(tamperedResume).toMatchObject({
+    status: "failed",
+    failure: { partial_result_published: false },
+  })
+  expect(tamperedResume.failure?.message).toContain("checkpoint authority binding")
 })
 
 test("runner commits a pre-entry GTC Limit resolution chain as an authoritative artifact", () => {
