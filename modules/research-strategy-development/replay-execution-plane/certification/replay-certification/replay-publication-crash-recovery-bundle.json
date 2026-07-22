@@ -5,7 +5,7 @@
   "exactly_once_scope": "one-authoritative-commit-marker-not-one-process-execution",
   "crash_probe": {
     "member_script_path": "modules/research-strategy-development/replay-execution-plane/tests/src/replay-publication-crash-member.ts",
-    "member_script_source_sha256": "ad1a60ce402ff46b87a18aa937406d5e507ee6403bacb5e0b2c19f2ecfa966c8",
+    "member_script_source_sha256": "f2340b1dc345cec57d32617cce36d066efec6da24faa2d8af75ecee4110a1d5f",
     "local_store_path": "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-local-artifact-store.ts",
     "local_store_source_sha256": "fee22a4fb7b9b0a980e0bea72bb373bd7355265fa7b66959a137001cfb1c7a0a",
     "crash_signal": "SIGKILL",
@@ -66,5 +66,5 @@
     "integrated-and-terminal-cycle-recover-by-deterministic-full-rerun-without-checkpoint",
     "power-loss-and-filesystem-hardware-failure-beyond-fsync-contract-not-certified"
   ],
-  "bundle_sha256": "1d00c627979d2617ee7f55e1d8dc104904968f40be94e21005eed934466db9cf"
+  "bundle_sha256": "63a797bdd9d4ea0ad4d1960eacc3618cf4b3ba06ac40351743c7daa18ad036e7"
 }

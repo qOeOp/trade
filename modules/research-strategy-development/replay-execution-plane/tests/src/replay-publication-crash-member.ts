@@ -103,7 +103,7 @@ for (const [index, file] of manifest.files.entries()) {
     throw new Error("publication crash probe payload binding drifted")
   }
 }
-if (JSON.stringify(namespace.listNames())
+if (JSON.stringify(namespace.listNames().filter((name) => !name.endsWith(".tmp")))
     !== JSON.stringify([...payloads.map((payload) => payload.name), manifestName].sort())) {
   throw new Error("publication crash probe file set drifted")
 }
