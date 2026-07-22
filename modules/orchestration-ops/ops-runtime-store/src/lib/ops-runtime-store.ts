@@ -781,6 +781,22 @@ export function readRuntimeParityStatus(db: Database, asOf = new Date()): JSONRe
       MAX(observed_at) AS last_observed_at
     FROM runtime_parity_observation
   `).get() as RuntimeParityStatusRow
+  const methodologyCounts = db.query(`
+    SELECT
+      COALESCE(SUM(comparison_basis = 'shared_owner_result_replay_v1'), 0) AS shared_total,
+      COALESCE(SUM(comparison_basis = 'shared_owner_result_replay_v1' AND status = 'match'), 0) AS shared_matched,
+      COALESCE(SUM(comparison_basis = 'shared_owner_result_replay_v1' AND status = 'mismatch'), 0) AS shared_mismatched,
+      COALESCE(SUM(comparison_basis = 'sequential_live_reads_v1'), 0) AS sequential_total,
+      COALESCE(SUM(comparison_basis = 'sequential_live_reads_v1' AND status = 'match'), 0) AS sequential_matched,
+      COALESCE(SUM(comparison_basis = 'sequential_live_reads_v1' AND status = 'mismatch'), 0) AS sequential_mismatched
+    FROM (
+      SELECT status, COALESCE(
+        json_extract(detail_json, '$.comparison_basis'),
+        'sequential_live_reads_v1'
+      ) AS comparison_basis
+      FROM runtime_parity_observation
+    )
+  `).get() as RuntimeParityMethodologyStatusRow
   const latest = readRuntimeParityObservations(db, { limit: 1 })[0]
   const supervisorLease = readOpsLock(db, "program-runtime-shadow-supervisor")
   const leaseState = !supervisorLease
@@ -791,16 +807,38 @@ export function readRuntimeParityStatus(db: Database, asOf = new Date()): JSONRe
   const total = Number(counts.total)
   const matched = Number(counts.matched)
   const mismatched = Number(counts.mismatched)
+  const comparableTotal = Number(methodologyCounts.shared_total)
+  const comparableMatched = Number(methodologyCounts.shared_matched)
+  const comparableMismatched = Number(methodologyCounts.shared_mismatched)
+  const latestBasis = latest
+    ? stringField(latest.detail_json.comparison_basis) || "sequential_live_reads_v1"
+    : ""
   return {
     schema_version: "trade.ops-runtime-parity-status.v1",
     as_of: asOf.toISOString(),
-    observation_state: total === 0 ? "no_evidence" : mismatched > 0 ? "mismatch_observed" : "matches_only",
+    observation_state: comparableTotal === 0
+      ? "no_comparable_evidence"
+      : comparableMismatched > 0
+        ? "mismatch_observed"
+        : "matches_only",
     counts: {
       total,
       matched,
       mismatched,
       distinct_program_hashes: Number(counts.distinct_program_hashes),
       distinct_agent_hashes: Number(counts.distinct_agent_hashes),
+    },
+    comparable_counts: {
+      comparison_basis: "shared_owner_result_replay_v1",
+      total: comparableTotal,
+      matched: comparableMatched,
+      mismatched: comparableMismatched,
+    },
+    legacy_sequential_counts: {
+      comparison_basis: "sequential_live_reads_v1",
+      total: Number(methodologyCounts.sequential_total),
+      matched: Number(methodologyCounts.sequential_matched),
+      mismatched: Number(methodologyCounts.sequential_mismatched),
     },
     window: {
       first_observed_at: counts.first_observed_at ?? null,
@@ -813,6 +851,7 @@ export function readRuntimeParityStatus(db: Database, asOf = new Date()): JSONRe
       program_projection_hash: latest.program_projection_hash,
       agent_projection_hash: latest.agent_projection_hash,
       status: latest.status,
+      comparison_basis: latestBasis,
       observed_at: latest.observed_at,
     } : null,
     supervisor_lease: {
@@ -827,6 +866,7 @@ export function readRuntimeParityStatus(db: Database, asOf = new Date()): JSONRe
       "semantic_shadow_observation_only",
       "no_domain_job_or_live_write_authority",
       "not_a_cutover_or_strategy_verdict",
+      "legacy_sequential_live_reads_are_not_comparable_input_evidence",
     ],
   }
 }
@@ -1445,6 +1485,15 @@ interface RuntimeParityStatusRow {
   distinct_agent_hashes: number
   first_observed_at: string | null
   last_observed_at: string | null
+}
+
+interface RuntimeParityMethodologyStatusRow {
+  shared_total: number
+  shared_matched: number
+  shared_mismatched: number
+  sequential_total: number
+  sequential_matched: number
+  sequential_mismatched: number
 }
 
 function runtimeHealthFromRow(row: RuntimeHealthRow): RuntimeHealth {
