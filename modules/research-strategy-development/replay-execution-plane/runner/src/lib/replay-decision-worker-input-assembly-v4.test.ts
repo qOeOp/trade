@@ -132,9 +132,6 @@ import {
   assertReplayDecisionHarnessDispatchClaim,
 } from "../../../contracts/src/lib/replay-decision-harness-dispatch-claim"
 import {
-  assertReplayDecisionHarnessTransportActivationGate,
-} from "../../../contracts/src/lib/replay-decision-harness-transport-activation"
-import {
   assertReplayDecisionHarnessWorkerV10BuildCapability,
   createReplayDecisionHarnessWorkerV10BuildCapability,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-build-capability"
@@ -236,15 +233,6 @@ import {
   claimReplayDispatch,
   readReplayDispatchClaim,
 } from "./replay-dispatch-claim-registry"
-import {
-  launchReplayDispatchProcessProbe,
-  readReplayProcessLaunchAttempt,
-  readReplayProcessLaunchReceipt,
-} from "./replay-process-launch-registry"
-import {
-  readReplayTransportActivationGate,
-  registerReplayTransportActivationGate,
-} from "./replay-transport-activation-registry"
 import {
   assertReplayDecisionHarnessWorkerV10BuildCapabilityLineage,
   buildReplayDecisionHarnessWorkerV10Capability,
@@ -551,11 +539,10 @@ import {
 } from "./replay-worker-v10-authority-stage.assertions"
 import {
   expectFormalCutoverAdmission,
-  expectLegacyProcessProbe,
-  expectLegacyTransportActivation,
   expectSuccessorSpawnRevalidation,
   expectWorkerV10Cutover,
 } from "./replay-worker-v10-cutover-legacy-stage.assertions"
+import { runReplayWorkerV10LegacyActivationStage } from "./replay-worker-v10-legacy-activation-stage"
 
 const HASH = "a".repeat(64)
 const ACCOUNTING = {
@@ -5443,158 +5430,17 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       ...transportContractInput,
     })).toThrow()
 
-    const competingObservation = createReplayAttemptLeaseObservationSnapshot({
-      ...leaseObservationBody,
-      observation_id: "lease-observation-envelope-competing",
-      observation_ref: "observation://replay-attempt-lease/envelope-competing",
-      observed_at: "2026-07-14T00:00:31Z",
+    runReplayWorkerV10LegacyActivationStage({
+      registry_root: dispatchEvidenceRegistryRoot,
+      lease_observation_body: leaseObservationBody,
+      execution_envelope: executionEnvelope,
+      dispatch_claim: dispatchClaim,
+      claim_observation: claimObservation,
+      claim_renewed_observation: claimRenewedObservation,
+      attempt_lease: attemptLease,
+      dispatch_evidence_registration: dispatchEvidenceRegistration,
+      profile: replayProfile,
     })
-    const competingBinding = buildReplayDecisionHarnessDispatchLeaseAuthorityBinding({
-      source_execution_envelope: executionEnvelope,
-      control_plane_lease_observation: competingObservation,
-    })
-    expect(() => registerReplayDispatchEvidence({
-      registry_root: dispatchEvidenceRegistryRoot,
-      authority_binding: competingBinding,
-      registered_at: "2026-07-14T00:00:32Z",
-    })).toThrow("natural key is already registered with different authority")
-
-    const launchObservation = createReplayAttemptLeaseObservationSnapshot({
-      ...leaseObservationBody,
-      observation_id: "lease-observation-envelope-launch",
-      observation_ref: "observation://replay-attempt-lease/envelope-launch",
-      observed_at: "2026-07-14T00:00:34Z",
-    })
-    expect(() => launchReplayDispatchProcessProbe({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_claim: dispatchClaim,
-      launch_observation: claimObservation,
-      clock: { now: () => "2026-07-14T00:00:35Z" },
-    })).toThrow("requires a post-claim Lease observation")
-    expect(() => launchReplayDispatchProcessProbe({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_claim: dispatchClaim,
-      launch_observation: launchObservation,
-      clock: { now: () => attemptLease.lease_expires_at },
-    })).toThrow("must be invoked inside the revalidated Lease window")
-    expect(() => launchReplayDispatchProcessProbe({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_claim: dispatchClaim,
-      launch_observation: claimRenewedObservation,
-      clock: { now: () => "2026-07-14T00:02:02Z" },
-    })).toThrow("parent or executable binding drift")
-
-    const launchTimes = ["2026-07-14T00:00:35Z", "2026-07-14T00:00:36Z"]
-    const processLaunchReceipt = launchReplayDispatchProcessProbe({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_claim: dispatchClaim,
-      launch_observation: launchObservation,
-      clock: { now: () => launchTimes.shift() ?? "2026-07-14T00:00:36Z" },
-    })
-    expectLegacyProcessProbe(processLaunchReceipt)
-    expect(launchReplayDispatchProcessProbe({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_claim: structuredClone(dispatchClaim),
-      launch_observation: structuredClone(launchObservation),
-      clock: { now: () => { throw new Error("idempotent read must not relaunch") } },
-    })).toEqual(processLaunchReceipt)
-    const launchKey = {
-      registry_root: dispatchEvidenceRegistryRoot,
-      attempt_id: dispatchClaim.attempt_id,
-      lease_generation: dispatchClaim.lease_generation,
-      logical_request_id: dispatchClaim.logical_request_id,
-    }
-    expect(readReplayProcessLaunchAttempt(launchKey))
-      .toEqual(processLaunchReceipt.source_process_launch_attempt)
-    expect(readReplayProcessLaunchReceipt(launchKey)).toEqual(processLaunchReceipt)
-
-    const missingTransportGateRoot = mkdtempSync(join(tmpdir(), "replay-transport-gate-missing-"))
-    try {
-      expect(() => registerReplayTransportActivationGate({
-        registry_root: missingTransportGateRoot,
-        source_process_launch_receipt: processLaunchReceipt,
-      })).toThrow("requires the exact durable Process Launch Receipt")
-    } finally {
-      rmSync(missingTransportGateRoot, { recursive: true, force: true })
-    }
-    const transportGate = registerReplayTransportActivationGate({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_process_launch_receipt: processLaunchReceipt,
-    })
-    replayProfile("legacy transport activation")
-    expectLegacyTransportActivation(transportGate)
-    expect(registerReplayTransportActivationGate({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_process_launch_receipt: structuredClone(processLaunchReceipt),
-    })).toEqual(transportGate)
-    expect(readReplayTransportActivationGate({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_process_launch_receipt: processLaunchReceipt,
-    })).toEqual(transportGate)
-    expect(() => assertReplayDecisionHarnessTransportActivationGate({
-      ...transportGate,
-      target_worker_protocol_version: "rd-replay-harness-worker-stdio-v9" as never,
-    })).toThrow("unsupported decision harness Transport Activation authority")
-    expect(() => assertReplayDecisionHarnessTransportActivationGate({
-      ...transportGate,
-      blockers: transportGate.blockers.slice(1),
-    })).toThrow("parent or blocker binding drift")
-    expect(() => assertReplayDecisionHarnessTransportActivationGate({
-      ...transportGate,
-      transport_frame_instance_count: 1 as never,
-    })).toThrow("unsupported decision harness Transport Activation authority")
-    const transportGateFile = readdirSync(dispatchEvidenceRegistryRoot)
-      .find((name) => name.startsWith("transport-activation-"))
-    if (!transportGateFile) throw new Error("expected Replay Transport Activation Gate registry file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, transportGateFile), "{}\n", "utf8")
-    expect(() => readReplayTransportActivationGate({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_process_launch_receipt: processLaunchReceipt,
-    })).toThrow()
-
-    const registryFilesAfterLaunch = readdirSync(dispatchEvidenceRegistryRoot)
-    const processReceiptFile = registryFilesAfterLaunch.find((name) => name.startsWith("process-launch-receipt-"))
-    if (!processReceiptFile) throw new Error("expected Replay Process Launch Receipt registry file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, processReceiptFile), "{}\n", "utf8")
-    expect(() => readReplayProcessLaunchReceipt(launchKey)).toThrow()
-    writeFileSync(
-      join(dispatchEvidenceRegistryRoot, processReceiptFile),
-      `${JSON.stringify(processLaunchReceipt, null, 2)}\n`,
-      "utf8",
-    )
-    expect(() => readReplayProcessLaunchReceipt(launchKey)).toThrow("not canonical")
-    rmSync(join(dispatchEvidenceRegistryRoot, processReceiptFile))
-    expect(() => launchReplayDispatchProcessProbe({
-      registry_root: dispatchEvidenceRegistryRoot,
-      source_claim: dispatchClaim,
-      launch_observation: launchObservation,
-      clock: { now: () => { throw new Error("orphan launch attempt must not relaunch") } },
-    })).toThrow("pending or indeterminate")
-    const processAttemptFile = registryFilesAfterLaunch.find((name) => name.startsWith("process-launch-attempt-"))
-    if (!processAttemptFile) throw new Error("expected Replay Process Launch Attempt registry file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, processAttemptFile), "{}\n", "utf8")
-    expect(() => readReplayProcessLaunchAttempt(launchKey)).toThrow()
-
-    const registryFiles = readdirSync(dispatchEvidenceRegistryRoot)
-    const claimFile = registryFiles.find((name) => name.startsWith("dispatch-claim-"))
-    if (!claimFile) throw new Error("expected Replay Dispatch Claim registry file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, claimFile), "{}\n", "utf8")
-    expect(() => readReplayDispatchClaim({
-      registry_root: dispatchEvidenceRegistryRoot,
-      attempt_id: dispatchEvidenceRegistration.attempt_id,
-      lease_generation: dispatchEvidenceRegistration.lease_generation,
-      logical_request_id: dispatchEvidenceRegistration.logical_request_id,
-    })).toThrow()
-
-    const registryFile = registryFiles.find((name) => name.startsWith("dispatch-evidence-"))
-    if (!registryFile) throw new Error("expected Replay Dispatch Evidence registry file")
-    writeFileSync(join(dispatchEvidenceRegistryRoot, registryFile), "{}\n", "utf8")
-    expect(() => readReplayDispatchEvidence({
-      registry_root: dispatchEvidenceRegistryRoot,
-      attempt_id: dispatchEvidenceRegistration.attempt_id,
-      lease_generation: dispatchEvidenceRegistration.lease_generation,
-      logical_request_id: dispatchEvidenceRegistration.logical_request_id,
-    })).toThrow()
   } finally {
     rmSync(dispatchEvidenceRegistryRoot, { recursive: true, force: true })
   }
