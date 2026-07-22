@@ -1,3 +1,5 @@
+import { asRecord, stringField, type JSONRecord } from "./json"
+
 export interface CommandResult {
   ok: true
   data: unknown
@@ -14,6 +16,12 @@ export interface CommandFailure {
 }
 
 export type Runner = (command: string[], options?: { cwd?: string }) => Promise<CommandResult | CommandFailure>
+
+export interface ToolCallResult {
+  ok: boolean
+  data?: JSONRecord
+  error?: string
+}
 
 export async function runJsonCommand(command: string[], options: { cwd?: string } = {}): Promise<CommandResult | CommandFailure> {
   const proc = Bun.spawn(command, {
@@ -53,4 +61,18 @@ export async function runJsonCommand(command: string[], options: { cwd?: string 
       exitCode,
     }
   }
+}
+
+export async function runToolCommand(runner: Runner, command: string[], cwd: string): Promise<ToolCallResult> {
+  const result = await runner(command, { cwd })
+  if (!result.ok) return { ok: false, error: result.error }
+  const response = asRecord(result.data)
+  if (response.ok === false) {
+    return {
+      ok: false,
+      error: stringField(response.error) || "tool returned ok=false",
+      data: asRecord(response.data),
+    }
+  }
+  return { ok: true, data: asRecord(response.data ?? response) }
 }
