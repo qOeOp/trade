@@ -9,6 +9,7 @@ internal engine
 - Latest closed-candle signal input normalization.
 - Candidate family configuration for signal-only evaluation.
 - Stable signal hash/data hash assembly.
+- Post-freeze dataset guards and multi-dataset signal diagnostic aggregation.
 
 ## Inputs
 
@@ -20,9 +21,10 @@ internal engine
 ## Outputs
 
 - In-memory `strategy-signal-result` shaped object.
+- In-memory `forward-holdout-result` shaped diagnostic object.
 
 ## Boundaries
 
 - No CLI, package, catalog write, artifact write, `trade.db` write, or exchange access.
-- Does not run replay batches, R&D search, panel evaluation, review, or promotion.
+- Does not produce Forward Evidence, run replay batches, R&D search, panel candidate evaluation, review, or promotion.
 - Uses `research-strategy-development/strategy-family-engine` for family registry and feature store semantics.
