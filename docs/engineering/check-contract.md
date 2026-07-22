@@ -3,7 +3,7 @@ title: Check Contract
 role: engineering-contract
 status: active
 owner: engineering
-last_verified: 2026-07-22 CST
+last_verified: 2026-07-23 CST
 ---
 
 # Check Contract
@@ -29,6 +29,7 @@ last_verified: 2026-07-22 CST
 | --- | --- | --- | --- |
 | `repo-whitespace` | repo root | `git diff --check` | 空白、冲突标记、尾随空格 |
 | `project-quality` | repo root | `scripts/quality-check.sh` | 提交前 secret / TS / Go / Rust / Python / shell / hygiene 总闸 |
+| `workspace-hygiene` | repo root | `bun scripts/check-workspace-hygiene.ts` | 禁止新增 tracked runtime SQLite / sidecar 与 module-local DB；历史 exception 只减不增 |
 | `replay-runner-worker-v10` | `modules/research-strategy-development/replay-execution-plane/runner` | `bun run test:worker-v10` | 单实例运行深证据链集成测试，并输出阶段耗时 |
 | `replay-runner-remaining` | `modules/research-strategy-development/replay-execution-plane/runner` | `bun run test:remaining` | 不与巨型 worker-v10 场景混跑的其余 runner 回归 |
 | `replay-certification` | `modules/research-strategy-development/replay-execution-plane/certification/replay-certification` | `bun run certify` | Plane 内全部 canonical/compatibility package 的唯一、顺序、fail-fast certification 入口 |

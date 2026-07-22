@@ -3,7 +3,7 @@ title: Code Quality Contract
 role: engineering-contract
 status: active
 owner: engineering
-last_verified: 2026-07-22 CST
+last_verified: 2026-07-23 CST
 ---
 
 # Code Quality Contract
@@ -38,7 +38,7 @@ scripts/quality-check.sh
 - Go：`gofmt -l` 必须为空，随后 `go test ./...` 与 `go vet ./...`
 - Rust：`cargo fmt --check`、`cargo check`、`cargo clippy -- -D warnings` 与 `cargo test`
 - Python：`compileall` + `python -W error -m unittest discover`
-- Hygiene：项目文件不得泄漏本机绝对路径
+- Hygiene：项目文件不得泄漏本机绝对路径；禁止新增 tracked runtime SQLite / sidecar 与 module-local DB，历史 exception 只减不增
 
 ## 2. 提交品位线
 

@@ -3,7 +3,7 @@ title: Data Hygiene
 role: engineering-contract
 status: active
 owner: engineering
-last_verified: 2026-07-22 CST
+last_verified: 2026-07-23 CST
 ---
 
 # Data Hygiene
@@ -53,13 +53,16 @@ last_verified: 2026-07-22 CST
 
 ## 4. 当前 `.gitignore` 约定
 
-`.gitignore` 已覆盖当前 DB、`tmp/`、profile 本地配置与历史生成目录。当前架构不把任何 `data/` 子目录视为有效落点。
+`.gitignore` 覆盖根 DB、SQLite sidecar、`tmp/`、profile 本地配置与历史生成目录。当前架构不把任何 module-local `data/` 视为有效运行落点。
 
 - `data/*.db`, `data/*.sqlite*`
+- `*.db-{shm,wal}`, `*.sqlite-{shm,wal}`, `*.sqlite3-{shm,wal}`, `*.duckdb-{shm,wal}`
 - `tmp/`
 - `profile/account_config.json`, `profile/notify_config.json`
 
 若某个生成物需要被 review，优先写成小型 example / schema / docs 摘要，而不是强行提交完整运行数据。
+
+`scripts/check-workspace-hygiene.ts` 额外扫描 Git index 与 module-local `data/`，不因 ignore 而漏掉源码目录污染。当前 12 个历史 tracked runtime 文件只作为迁移 ratchet：允许基线继续存在，但不允许新增，迁移后必须同步删除 exception。
 
 ## 5. 目录口径
 
@@ -99,19 +102,22 @@ data/
 
 ## 6. 当前产物面快照
 
-扫描时间：2026-07-09 18:53 CST。
+扫描时间：2026-07-23 CST。
 
 | 区域 | 文件数 | 体量 | 管理状态 |
 | --- | ---: | ---: | --- |
 | `data/` | SQLite DB only | 本机实际状态 | 已收敛目标：durable 状态只能是数据库 |
-| `tmp/` | 177 | 179M | 已 ignore；承接研究中间产物 |
+| `tmp/` | 41,361 | 4.7G | 已 ignore；混有研究证据、test residue、build cache 与 external audit clone，需分类 retention |
+| `modules/**/target/` | build cache | 4.6G | 已 ignore；可再生 Rust cache，不属于 artifact catalog |
 | `.codex/automations/` | 2 | 7.5K | 已 ignore；通过 automation memory path helper 访问 |
 
 主要占用：
 
-- `tmp/artifacts/strategy-rnd/`：约 154M；其中 10 个 `*-features-*.json` 约 152M。
-- `tmp/panels/`：约 25M；承接 calibration / validation / external / forward holdout panel。
-- `.agents/` 总体仍包含 tool 源码与 runtime cache；依赖已集中到根 `node_modules/`，不是运行产物。
+- `tmp/check/`：约 2.3G，主要是定向 Rust build cache。
+- `tmp/upstream-source-audit-20260722/`：约 1.3G，属于 external audit clone，不是产品 artifact。
+- `tmp/panels/`：约 566M；承接 calibration / validation / external / forward holdout panel。
+- `tmp/l2-recorder-bakeoff/`：约 244M；包含 soak / crash recovery 证据与工作目录。
+- `tmp/artifacts/`：约 213M；其中 strategy R&D 约 209M。
 
 数据库现状：
 
