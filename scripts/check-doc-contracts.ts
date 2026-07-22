@@ -90,12 +90,18 @@ const currentDocuments = ["docs/README.md", "docs/history/README.md", ...current
   .filter((path) => !path.startsWith("docs/architecture/generated/"))
   .sort()
 const currentDocumentPaths = new Set(currentDocuments)
+const documentIdPattern = /^[a-z0-9]+(?:[.-][a-z0-9]+)*$/
 const indexedPaths = new Set<string>()
 const indexedIds = new Set<string>()
 
 for (const entry of index.documents) {
   if (indexedIds.has(entry.id)) issues.push(`duplicate document id: ${entry.id}`)
   if (indexedPaths.has(entry.path)) issues.push(`duplicate document path: ${entry.path}`)
+  if (!documentIdPattern.test(entry.id)) issues.push(`invalid document id: ${entry.id}`)
+  const expectedNamespace = documentNamespace(entry.path)
+  if (expectedNamespace && !entry.id.startsWith(`${expectedNamespace}.`)) {
+    issues.push(`${entry.path} document id must use ${expectedNamespace} namespace: ${entry.id}`)
+  }
   if (!currentDocumentPaths.has(entry.path)) {
     issues.push(`indexed path is outside the current document scope: ${entry.path}`)
   }
@@ -218,6 +224,12 @@ function decodePath(value: string): string {
 function ownerResolves(owner: string): boolean {
   if (documentationOwners.has(owner) || architectureDomainIds.has(owner)) return true
   return [...architectureDomainIds].some((domainId) => existsSync(join("modules", domainId, owner)))
+}
+
+function documentNamespace(path: string): string | undefined {
+  if (path === "docs/README.md" || path.startsWith("docs/history/")) return "docs"
+  const match = /^docs\/(product|architecture|runtime|research|engineering)\//.exec(path)
+  return match?.[1]
 }
 
 function checkLastVerified(path: string, value: string | undefined): void {

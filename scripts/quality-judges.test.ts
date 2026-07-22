@@ -479,6 +479,24 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain(`indexed path is outside the current document scope: ${generatedPath}`)
   })
 
+  test("document contracts reject an unstable document id", () => {
+    const root = documentContractFixture({ id: "Docs Index" })
+
+    const result = runJudge("check-doc-contracts.ts", root)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("invalid document id: Docs Index")
+  })
+
+  test("document contracts bind document ids to their path namespace", () => {
+    const root = documentContractFixture({ id: "runtime.documentation" })
+
+    const result = runJudge("check-doc-contracts.ts", root)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("docs/README.md document id must use docs namespace: runtime.documentation")
+  })
+
   test("package tests cannot omit a colocated test file", () => {
     const root = temporaryRoot()
     write(root, "modules/domain-a/tool-a/package.json", JSON.stringify({
@@ -545,7 +563,7 @@ function architectureFixture(overrides: { jobs?: unknown[] } = {}): string {
 }
 
 function documentContractFixture(
-  overrides: { status?: string; owner?: string; role?: string; lastVerified?: string },
+  overrides: { id?: string; status?: string; owner?: string; role?: string; lastVerified?: string },
 ): string {
   const root = temporaryRoot()
   const status = overrides.status ?? "active"
@@ -571,9 +589,9 @@ function documentContractFixture(
     "",
   ].join("\n")
   const documents = [
-    { id: "docs-index", path: "docs/README.md", role, status, owner },
-    { id: "history-index", path: "docs/history/README.md", role: "history-index", status: "active", owner: "architecture" },
-    { id: "risk-contract", path: "docs/runtime/risk-control-contract.md", role: "runtime-feature-contract", status: "active", owner: "policy-risk" },
+    { id: overrides.id ?? "docs.index", path: "docs/README.md", role, status, owner },
+    { id: "docs.history-index", path: "docs/history/README.md", role: "history-index", status: "active", owner: "architecture" },
+    { id: "runtime.risk-contract", path: "docs/runtime/risk-control-contract.md", role: "runtime-feature-contract", status: "active", owner: "policy-risk" },
   ]
   write(root, "docs/README.md", metadata("Documentation", role, status, owner, lastVerified))
   write(root, "docs/history/README.md", metadata("History", "history-index", "active", "architecture"))
