@@ -1,15 +1,14 @@
 {
-  "schema_version": "trade.rd-replay-maturity-gate.v1",
+  "schema_version": "trade.rd-replay-maturity-gate.v2",
   "maturity": 3,
   "maturity_scale": 5,
   "evidence_chain_freeze": "R4.151",
-  "completed_milestones": ["M3-G1", "M3-G2", "M3-G3", "M3-G4", "M3-G5", "M3-G6", "M3-G7", "M3-G8", "M4-P1", "M4-P2", "M4-P3", "M4-P4", "M4-P5", "M4-P6", "M4-P7", "M4-P8", "M4-P9", "M4-P10", "M4-P11", "M4-P12", "M4-P13", "M4-P14", "M4-P15", "M4-P16", "M4-P17", "M4-P18", "M4-P19", "M4-P20", "M4-P21", "M4-P22", "M4-P23", "M4-P24", "M4-P25", "M4-P26", "M4-P27", "M4-P28"],
-  "active_milestone": {
-    "id": "M4-P29",
-    "name": "bounded-bar-linked-aggregate-trade-stop-entry-path-end-to-end",
-    "status": "complete",
-    "functional_commit_budget": 6,
-    "functional_commits_used": 6
+  "completed_milestones": ["M3-G1", "M3-G2", "M3-G3", "M3-G4", "M3-G5", "M3-G6", "M3-G7", "M3-G8", "M4-P1", "M4-P2", "M4-P3", "M4-P4", "M4-P5", "M4-P6", "M4-P7", "M4-P8", "M4-P9", "M4-P10", "M4-P11", "M4-P12", "M4-P13", "M4-P14", "M4-P15", "M4-P16", "M4-P17", "M4-P18", "M4-P19", "M4-P20", "M4-P21", "M4-P22", "M4-P23", "M4-P24", "M4-P25", "M4-P26", "M4-P27", "M4-P28", "M4-P29"],
+  "convergence_workstream": {
+    "id": "M4-CONVERGENCE",
+    "status": "in_progress",
+    "p30_creation": "forbidden",
+    "scope": "canonicalize-supported-capabilities-without-adding-simulator-semantics"
   },
   "policy": {
     "zero_instance_progress_forbidden": true,
@@ -18,35 +17,32 @@
     "new_schema_requires_same_change_set_consumer": true,
     "maturity_requires_all_gates": true
   },
-  "gates": {
-    "functional": {
-      "immutable_kline_aggregate_trade_bar_link": true,
-      "ohlcv_volume_trade_count_and_id_reconciliation": true,
-      "control_plane_bar_link_and_exact_path_authority": true,
-      "opt_in_step_engine_stop_entry_path_consumer": true,
-      "checkpoint_result_fingerprint_and_manifest_binding": true,
-      "typed_unresolved_fallback_without_partial_result": true
+  "exit_gates": {
+    "m4": {
+      "p1_through_p29_inventory_frozen": true,
+      "canonical_public_entrypoints_declared": false,
+      "opt_in_activation_registry_complete": false,
+      "compatibility_consumers_isolated": false,
+      "result_artifact_and_checkpoint_epochs_converged": false,
+      "single_owner_certification_command": false,
+      "canonical_and_compatibility_test_suites_separated": false,
+      "all_supported_profiles_have_golden_resume_idempotency_and_tamper_evidence": false,
+      "no_unclassified_replay_module_or_production_consumer": false
     },
-    "evidence": {
-      "same_ohlcv_opposite_ordered_paths_for_long_and_short": true,
-      "entry_trade_cannot_retroactively_trigger_protection": true,
-      "half_open_window_pit_availability_and_bar_boundary": true,
-      "price_volume_quote_volume_trade_count_and_id_tamper_fail_closed": true,
-      "missing_or_unlinked_source_remains_unresolved": true,
-      "clean_resume_path_and_result_parity": true,
-      "artifact_idempotent_replay_and_payload_tamper_rejection": true,
-      "insurance_adl_queue_fill_quantity_slippage_and_impact_not_overclaimed": true
-    },
-    "cutover": {
-      "production_opt_in_lane_consumer": true,
-      "default_ohlcv_and_portfolio_paths_unchanged": true,
-      "p15_through_p28_preserved": true,
-      "bar_relative_path_evidence_keeps_external_completeness_not_verified": true,
-      "no_generic_aggregate_trade_source_merge": true,
-      "no_queue_partial_fill_slippage_impact_insurance_adl_cross_margin_borrow_or_fast": true
+    "m5": {
+      "m4_exit_complete": false,
+      "cross_process_reproducibility_bundle": false,
+      "historical_artifact_read_migration_certified": false,
+      "crash_recovery_and_exactly_once_publication_certified": false,
+      "declared_capacity_and_performance_envelope_certified": false,
+      "fault_injection_and_corruption_recovery_certified": false,
+      "operational_observability_and_runbook_complete": false,
+      "release_candidate_fixture_pack_frozen": false,
+      "independent_release_audit_passed": false
     }
   },
   "evidence_refs": [
+    "docs/research/reliability/rd-replay-capability-inventory.json",
     "modules/research-strategy-development/replay-execution-plane/contracts/src/lib/replay-decision-harness-worker-v10-cutover-receipt.ts",
     "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-worker-v10-cutover.ts",
     "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-decision-worker-input-assembly-v4.test.ts",
@@ -222,5 +218,5 @@
     "modules/research-strategy-development/research-control-plane/state-store/src/lib/research-control-plane-schema.ts",
     "modules/research-strategy-development/research-control-plane/state-store/src/lib/bar-linked-aggregate-trade-path-authority-registry.ts"
   ],
-  "next_allowed_outcome": "audit-and-select-next-bounded-m4-fidelity-gap-after-bar-linked-aggregate-trade-path"
+  "next_allowed_outcome": "m4-convergence-only-p30-and-new-simulator-capabilities-forbidden"
 }
