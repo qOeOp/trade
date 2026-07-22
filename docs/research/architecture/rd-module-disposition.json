@@ -22,6 +22,7 @@
     { "legacy_module": "rd-integration-suite", "current_path": "research-control-plane/certification/legacy-integration-suite", "semantic_status": "cross-plane-certification", "retirement": "decompose-after-plane-parity" },
 
     { "legacy_module": "replay-engine", "current_path": "replay-execution-plane/compatibility/legacy-research-kernel", "semantic_status": "active-legacy-research-kernel", "retirement": "retire-after-direct-consumer-cutover" },
+    { "legacy_module": "replay-engine identity helpers", "current_path": "replay-execution-plane/compatibility/legacy-replay-identity", "semantic_status": "extracted-legacy-identity", "retirement": "retire-with-legacy-evidence-consumers" },
     { "legacy_module": "strategy-hypothesis-designer", "current_path": "agent-roles/planner/strategy-hypothesis-designer", "semantic_status": "planner-migration-source", "retirement": "adapt-to-proposal-only" },
     { "legacy_module": "strategy-family-engine", "current_path": "agent-roles/developer/strategy-family-engine", "semantic_status": "developer-migration-source", "retirement": "remove-execution-semantics" },
     { "legacy_module": "candidate-batch", "current_path": "agent-roles/developer/candidate-batch", "semantic_status": "developer-adapter", "retirement": "replace-with-trial-submission" },

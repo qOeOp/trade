@@ -24,4 +24,4 @@ Own R&D run ledger records, idempotence checks, locked-holdout keys, artifact-sa
 - Does not update RD program state.
 - Does not write `trade.db`.
 - Does not call exchange APIs.
-- Uses `legacy-research-kernel` only for market-data and canonical hashes pending helper cutover.
+- Uses `legacy-replay-identity` only for frozen market-data and canonical hashes.
