@@ -132,9 +132,10 @@
       "notes": [
         "Foreground only; launchd, systemd, Docker, or another external process manager owns restart and process lifetime.",
         "The fixed profile keeps J01-J07 and live writes disabled; each lifecycle child command is bounded to 30 seconds.",
+        "The one-shot catalog_hygiene_canary profile is a separate opt-in migration gate: it forces only J06, permits only artifact_catalog writes, and exposes no GC, --yes, arbitrary-root, notification, or live-write authority.",
         "The durable supervisor lease uses heartbeat renewal and fencing tokens; SIGINT/SIGTERM drains the in-flight wakeup before release.",
         "SQLite contention is bounded to a one-second busy window and returns ops_store_busy; every graph result carries a cycle-independent parity hash for Agent/program comparison.",
-        "Optional resident parity observation runs an independently specified legacy Agent shadow profile and stores immutable comparison evidence in ops_runtime_store; launchd deployment remains an operator lifecycle outside this tool surface."
+        "Optional resident parity observation samples owner commands once, independently builds the legacy Agent shadow graph by replaying those exact results, and stores immutable comparison evidence in ops_runtime_store; sequential live-read history remains non-comparable evidence, and launchd deployment remains an operator lifecycle outside this tool surface."
       ],
       "module_type": "suite",
       "owner_scope": "orchestration-ops.program-shadow-supervisor",
@@ -194,7 +195,7 @@
         "l2_retention_reference_audit_page delegates bounded cursor pagination to the same owner and does not produce deletion candidates.",
         "l2_service_health delegates to the L2 owner and exposes no process IDs, paths, or lifecycle authority.",
         "l2_book_watch_consumer_health delegates to the fixed resident consumer owner read and exposes only readiness, baseline identity, and aggregate reliability counters.",
-        "runtime_parity_status delegates to ops_runtime_store and exposes only aggregate match/mismatch counts, latest hashes, and lease state; it omits holder/process/path/detail and cutover authority.",
+        "runtime_parity_status delegates to ops_runtime_store and exposes raw, shared-input-comparable, and legacy-sequential counts plus latest hashes/basis and lease state; it omits holder/process/path/detail and cutover authority.",
         "research_hypothesis_brief renders owner-controlled program memory and planning context without generating or persisting a hypothesis.",
         "Hypothesis contracts are validated and projected by research.strategy-hypothesis-designer before J04 submission.",
         "research_job_submit records ops state and routes execution through the existing J04 supervisor.",
@@ -250,7 +251,7 @@
       },
       "notes": [
         "The summary action is read-only and returns ops_summary with stage, domain, message, and attention aggregates.",
-        "The parity_status action is read-only and returns compact aggregate/latest parity facts plus fenced supervisor lease state without holder identity or cutover authority.",
+        "The parity_status action is read-only and separates raw immutable history, shared-input-comparable evidence, and legacy sequential live reads while returning compact latest facts plus fenced supervisor lease state without holder identity or cutover authority.",
         "Record actions write only ops_runtime_store and never change trade facts."
       ],
       "module_type": "atomic",
@@ -2149,7 +2150,7 @@
         "config": false
       },
       "notes": [
-        "Control Plane-owned claim-side gate; complete outbox recovery and authority inspection happen before claimReplayAttempt on the same DB session.",
+        "Control Plane-owned claim-side gate; complete outbox recovery and authority inspection happen before claimRegisteredReplayAttempt on the same DB session.",
         "Does not run Replay, spawn workers, delete outboxes, or expose machine-local paths in its result."
       ],
       "module_type": "atomic",
