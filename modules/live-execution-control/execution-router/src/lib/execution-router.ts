@@ -4,6 +4,7 @@ import {
   type ExecutionContractInput,
 } from "../../../../contracts/execution-contract/src/execution-contract"
 import { readTargetAction, TARGET_ACTIONS, type ExecutableTargetAction } from "../../../../contracts/preflight-contract/src/target-action"
+import { readPositionSide, readRequiredSymbol } from "../../../shared/execution-input"
 
 type JSONRecord = Record<string, unknown>
 
@@ -227,33 +228,6 @@ function buildPositionProtectCommand(input: JSONRecord, exchangeAudit?: Exchange
   return command
 }
 
-function readRequiredSymbol(input: JSONRecord): string {
-  const request = asRecord(input.request)
-  const symbol = normalizeSymbol(firstString(
-    request.symbol,
-    input.symbol,
-    asRecord(input.plan).symbol,
-    asRecord(input.observe).symbol,
-    asRecord(input.execution_contract_input).symbol,
-  ))
-  if (!symbol) {
-    throw new Error("execution command requires symbol")
-  }
-  return symbol
-}
-
-function readPositionSide(input: JSONRecord): string {
-  const request = asRecord(input.request)
-  const value = firstString(
-    request.position_side,
-    request.positionSide,
-    input.position_side,
-    asRecord(input.observe).position_side,
-    asRecord(input.execution_contract_input).position_side,
-  ).toUpperCase()
-  return value || "BOTH"
-}
-
 function readRequiredQuantity(input: JSONRecord, candidates: unknown[]): string {
   const quantity = commandScalar(...candidates)
   if (!quantity) {
@@ -336,10 +310,6 @@ function readId(...values: unknown[]): string {
     return String(value)
   }
   return ""
-}
-
-function normalizeSymbol(symbol: string): string {
-  return symbol.toUpperCase().replace(/[\/:_\-\s]/g, "")
 }
 
 function firstValue(...values: unknown[]): unknown {

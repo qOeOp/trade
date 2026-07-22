@@ -4,6 +4,7 @@ import {
   type ExecutionContractInput,
 } from "../../../../contracts/execution-contract/src/execution-contract"
 import { readTargetAction, type ExecutableTargetAction } from "../../../../contracts/preflight-contract/src/target-action"
+import { readPositionSide, readRequiredSymbol } from "../../../shared/execution-input"
 
 type JSONRecord = Record<string, unknown>
 
@@ -300,33 +301,6 @@ function readActionSourceObserveEventKey(input: JSONRecord): string {
   return key
 }
 
-function readRequiredSymbol(input: JSONRecord): string {
-  const request = asRecord(input.request)
-  const symbol = normalizeSymbol(firstString(
-    request.symbol,
-    input.symbol,
-    asRecord(input.plan).symbol,
-    asRecord(input.observe).symbol,
-    asRecord(input.execution_contract_input).symbol,
-  ))
-  if (!symbol) {
-    throw new Error("execution command requires symbol")
-  }
-  return symbol
-}
-
-function readPositionSide(input: JSONRecord): string {
-  const request = asRecord(input.request)
-  const value = firstString(
-    request.position_side,
-    request.positionSide,
-    input.position_side,
-    asRecord(input.observe).position_side,
-    asRecord(input.execution_contract_input).position_side,
-  ).toUpperCase()
-  return value || "BOTH"
-}
-
 function readId(...values: unknown[]): string {
   for (const value of values) {
     if (value == null || value === "") {
@@ -366,10 +340,6 @@ function firstString(...values: unknown[]): string {
     }
   }
   return ""
-}
-
-function normalizeSymbol(symbol: string): string {
-  return symbol.toUpperCase().replace(/[\/:_\-\s]/g, "")
 }
 
 function compactRecord(record: JSONRecord): JSONRecord {
