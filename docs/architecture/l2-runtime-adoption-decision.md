@@ -41,7 +41,7 @@ last_verified: 2026-07-22 CST
 
 ## 当前限制与回滚
 
-- 当前只证明 BTCUSDT 单实例、单 symbol、小时级自然流量与短周期多 epoch/restart；磁盘水位只提供停止扩大风险的下界，尚未完成 compaction/GC、长期磁盘预算、多 symbol、24h 自然 rotation 与跨主机部署。
+- 当前只证明 BTCUSDT 单实例、单 symbol、小时级自然流量与短周期多 epoch/restart；已完成单 epoch 的 owner-issued TL2S → Parquet → owner admission/bounded read，但尚未完成 catalog/referrer/GC、长期磁盘预算、多 symbol、24h 自然 rotation 验收与跨主机部署。
 - service 是 `active-partial` production candidate；没有 consumer cutover，不进入交易热路径。
 - 回滚是停止 service 并保持所有 consumer 未接入；不删除 raw / manifest evidence，不切回 Agent 维持采集。
 - 任一 silent gap、不可恢复 partial、unbounded resource、stale value 被标 fresh 或 core parity 失败，立即撤销 runtime readiness，修复后重跑 gate。

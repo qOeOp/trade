@@ -339,7 +339,7 @@ R&D 纵切无 Binance write，且已有 schema / queue / budget / holdout gate�
 
 - 多 symbol isolation、fresh current-book read port。
 - spread/depth/VWAP-slippage 等确定性 feature refs。
-- Raw -> Parquet compactor、retention/catalog、Replay reader spike。
+- Raw -> Parquet compactor、owner job/proposal admission、`compacted_pinned` retention 下界与 bounded reader spike 已完成；catalog/referrer、GC 与 Replay consumer cutover 未完成。
 
 退出：执行质量 guard 只消费 fresh typed fact；研究可按 manifest 重放。
 
