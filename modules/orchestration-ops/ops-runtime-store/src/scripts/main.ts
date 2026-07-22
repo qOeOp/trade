@@ -16,6 +16,7 @@ import {
   readIncidents,
   recordIncident,
   releaseOpsLock,
+  renewOpsLock,
   updateIncidentStatus,
   upsertCycleRun,
   upsertDomainMessage,
@@ -23,6 +24,18 @@ import {
 } from "../lib/ops-runtime-store"
 import { stringField, type JSONRecord } from "../../../../contracts/runtime-core/src/json"
 import { readDbActionJsonArgs, type DbActionJsonArgs } from "../../../../contracts/runtime-core/src/script-json"
+import { buildDatabaseIdentity, ensureDatabaseIdentity } from "../../../../contracts/runtime-core/src/database-identity"
+import {
+  applyWatchTaskEvaluation,
+  armWatchTask,
+  cancelWatchTask,
+  completeWatchTask,
+  createWatchTask,
+  handoffWatchTask,
+  readWatchTask,
+  readWatchTaskTransitions,
+} from "../lib/watch-task-store"
+import type { WatchTaskEvaluation } from "../../../../contracts/watch-task-contract/src/watch-task-contract"
 
 type Args = DbActionJsonArgs
 
@@ -55,9 +68,41 @@ export function run(args: Args): JSONRecord {
   }
   const db = new Database(args.dbPath)
   try {
+    ensureDatabaseIdentity(db, buildDatabaseIdentity(args.environmentId, "ops_runtime_store"))
     ensureOpsRuntimeSchema(db)
     if (args.action === "init") {
       return { ok: true, action: "init", db: args.dbPath }
+    }
+    if (args.action === "watch_create") {
+      return { ok: true, action: args.action, watch_task: createWatchTask(db, args.json.definition) }
+    }
+    if (args.action === "watch_read") {
+      const taskId = stringField(args.json.task_id)
+      return {
+        ok: true,
+        action: args.action,
+        watch_task: readWatchTask(db, taskId),
+        transitions: readWatchTaskTransitions(db, taskId),
+      }
+    }
+    if (args.action === "watch_arm") {
+      return { ok: true, action: args.action, watch_task: armWatchTask(db, args.json) }
+    }
+    if (args.action === "watch_apply_evaluation") {
+      return { ok: true, action: args.action, watch_task: applyWatchTaskEvaluation(db, {
+        task_id: stringField(args.json.task_id),
+        expected_version: Number(args.json.expected_version),
+        evaluation: args.json.evaluation as unknown as WatchTaskEvaluation,
+      }) }
+    }
+    if (args.action === "watch_handoff") {
+      return { ok: true, action: args.action, watch_task: handoffWatchTask(db, args.json) }
+    }
+    if (args.action === "watch_complete") {
+      return { ok: true, action: args.action, watch_task: completeWatchTask(db, args.json) }
+    }
+    if (args.action === "watch_cancel") {
+      return { ok: true, action: args.action, watch_task: cancelWatchTask(db, args.json) }
     }
     if (args.action === "record_cycle") {
       const cycle = buildCycleRun(args.json)
@@ -90,8 +135,22 @@ export function run(args: Args): JSONRecord {
     if (args.action === "read_lock") {
       return { ok: true, action: args.action, lock: readOpsLock(db, stringField(args.json.lock_key)) }
     }
+    if (args.action === "renew_lock") {
+      return { ok: true, action: args.action, ...renewOpsLock(db, {
+        lock_key: stringField(args.json.lock_key),
+        holder_id: stringField(args.json.holder_id),
+        fencing_token: Number(args.json.fencing_token),
+        renewed_at: stringField(args.json.renewed_at),
+        expires_at: stringField(args.json.expires_at),
+      }) }
+    }
     if (args.action === "release_lock") {
-      return { ok: true, action: args.action, released: releaseOpsLock(db, stringField(args.json.lock_key), stringField(args.json.holder_id)) }
+      return { ok: true, action: args.action, released: releaseOpsLock(
+        db,
+        stringField(args.json.lock_key),
+        stringField(args.json.holder_id),
+        Number(args.json.fencing_token),
+      ) }
     }
     if (args.action === "list_messages") {
       return { ok: true, action: args.action, messages: readDomainMessages(db, args.json) }
@@ -115,7 +174,7 @@ export function run(args: Args): JSONRecord {
 function printHelp(): void {
   console.log([
     "usage: bun src/scripts/main.ts --db data/ops_runtime.db --action init",
-    "actions: init | record_cycle | record_job | record_message | list_messages | record_incident | list_incidents | update_incident | list_incident_events | acquire_lock | read_lock | release_lock | summary | parity_status",
+    "actions: init | record_cycle | record_job | record_message | list_messages | record_incident | list_incidents | update_incident | list_incident_events | acquire_lock | read_lock | renew_lock | release_lock | summary | parity_status | watch_create | watch_read | watch_arm | watch_apply_evaluation | watch_handoff | watch_complete | watch_cancel",
   ].join("\n"))
 }
 

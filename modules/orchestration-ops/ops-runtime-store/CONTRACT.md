@@ -13,6 +13,7 @@ Owns `ops_runtime_store`, the orchestration observability store for cycle, job, 
 - Report whether an acquisition recovered an expired active row; clean release preserves generation history without preserving active ownership.
 - Record immutable Agent/program parity observations, including both canonical projection hashes and diagnostic projections; a repeated observation id is accepted only when byte-equivalent after row decoding.
 - Expose a compact read-only parity status projection with raw, shared-input-comparable, and legacy-sequential counts, latest hashes/basis, and fenced supervisor lease state; omit holder identity and diagnostic detail.
+- Persist bounded Watch Task definitions, compare-and-set lifecycle state, counters, typed handoff, terminal reason, and append-only transitions; `triggered` carries no execution authority.
 
 ## Boundaries
 
