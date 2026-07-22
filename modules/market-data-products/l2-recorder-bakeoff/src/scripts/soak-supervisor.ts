@@ -190,14 +190,14 @@ async function runKilledCycle(cycle: number, outputBase: string): Promise<{
     if (runDirectory == null || partialPath == null || observedValidFrames < arguments_.minValidFrames) {
       throw new Error(`cycle ${cycle} did not reach ${arguments_.minValidFrames} recoverable frames`)
     }
-    process.kill(pid, "SIGKILL")
+    killExact(pid)
     signalSent = true
     const exitCode = await child.exited
     if (exitCode === 0) throw new Error(`cycle ${cycle} unexpectedly completed after SIGKILL`)
     peak = mergeResourcePeaks(peak, sampleProcess(pid))
     return { pid, exitCode, runDirectory, partialPath, observedValidFrames, resourcePeak: peak }
   } finally {
-    if (!signalSent && child.exitCode == null) process.kill(pid, "SIGKILL")
+    if (!signalSent && child.exitCode == null) killExact(pid)
   }
 }
 
@@ -291,6 +291,15 @@ function mergeResourcePeaks(left: ResourcePeak, right: ResourcePeak): ResourcePe
 
 function assertSignalTarget(pid: number): void {
   if (!Number.isSafeInteger(pid) || pid <= 1) throw new Error(`refusing to signal invalid child pid: ${pid}`)
+}
+
+function killExact(pid: number): void {
+  assertSignalTarget(pid)
+  try {
+    process.kill(pid, "SIGKILL")
+  } catch (error) {
+    if (!(error instanceof Error) || !("code" in error) || error.code !== "ESRCH") throw error
+  }
 }
 
 function runChecked(command: string[]): void {
