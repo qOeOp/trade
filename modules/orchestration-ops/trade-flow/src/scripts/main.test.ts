@@ -116,6 +116,80 @@ test("run records job graph lifecycle through ops runtime store", async () => {
   }
 })
 
+test("run exposes the leased program shadow entry", async () => {
+  const dir = makeRuntimeDir("trade-flow-program-shadow-")
+  const dbPath = join(dir, "trade.db")
+  const opsDbPath = join(dir, "ops_runtime.db")
+  try {
+    const result = await run([
+      "--db",
+      dbPath,
+      "--run-program-shadow",
+      "--json",
+      JSON.stringify({
+        cycle_id: "cycle-main-program-shadow",
+        now: "2026-07-23T01:02:00Z",
+        ops_runtime_db: opsDbPath,
+        runtime_health: {
+          safe_mode: true,
+        },
+      }),
+    ])
+
+    assert.equal(result.ok, true)
+    const data = result.ok ? result.data as {
+      runtime_profile: string
+      outcome: string
+      safety: { domain_jobs_enabled: boolean; live_writes_allowed: boolean }
+      job_graph: { jobs: Array<{ status: string }> }
+    } : null
+    assert.equal(data?.runtime_profile, "shadow_program")
+    assert.equal(data?.outcome, "executed")
+    assert.equal(data?.safety.domain_jobs_enabled, false)
+    assert.equal(data?.safety.live_writes_allowed, false)
+    assert.equal(data?.job_graph.jobs.every((job) => job.status === "skipped"), true)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("run exposes the bounded resident program shadow supervisor entry", async () => {
+  const dir = makeRuntimeDir("trade-flow-program-shadow-supervisor-")
+  const dbPath = join(dir, "trade.db")
+  const opsDbPath = join(dir, "ops_runtime.db")
+  try {
+    const result = await run([
+      "--db",
+      dbPath,
+      "--run-program-shadow-supervisor",
+      "--json",
+      JSON.stringify({
+        ops_runtime_db: opsDbPath,
+        interval_seconds: 1,
+        max_cycles: 1,
+        runtime_health: { safe_mode: true },
+      }),
+    ])
+
+    assert.equal(result.ok, true)
+    const data = result.ok ? result.data as {
+      outcome: string
+      stop_reason: string
+      cycles: { attempted: number }
+      safety: { foreground_process: boolean; domain_jobs_enabled: boolean }
+      lease: { released: boolean }
+    } : null
+    assert.equal(data?.outcome, "completed")
+    assert.equal(data?.stop_reason, "max_cycles")
+    assert.equal(data?.cycles.attempted, 1)
+    assert.equal(data?.safety.foreground_process, true)
+    assert.equal(data?.safety.domain_jobs_enabled, false)
+    assert.equal(data?.lease.released, true)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test("buildRecordedExecutionEvent compiles contract and writes audit snapshot", () => {
   const event = buildRecordedExecutionEvent({
     preflight_result: {

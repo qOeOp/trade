@@ -20,6 +20,8 @@ test("parseArgs keeps core runtime and execution flags stable", () => {
     "shadow",
     "--automation-cycle",
     "--run-job-graph",
+    "--run-program-shadow",
+    "--run-program-shadow-supervisor",
     "--trading-config",
     "profile/trading-config.json",
     "--json",
@@ -35,6 +37,8 @@ test("parseArgs keeps core runtime and execution flags stable", () => {
   assert.equal(config.mode, "shadow")
   assert.equal(config.automationCycle, true)
   assert.equal(config.runJobGraph, true)
+  assert.equal(config.runProgramShadow, true)
+  assert.equal(config.runProgramShadowSupervisor, true)
   assert.equal(config.tradingConfigPath, "profile/trading-config.json")
   assert.equal(config.strategiesDir, "./strategies")
   assert.deepEqual(config.input, { symbol: "BTCUSDT" })

@@ -274,6 +274,8 @@ function baseConfig(overrides: Partial<CommandConfig>): CommandConfig {
     observeFromTools: false,
     automationCycle: false,
     runJobGraph: false,
+    runProgramShadow: false,
+    runProgramShadowSupervisor: false,
     runShadowFromTools: false,
     runLiveSmall: false,
     recoverFlow: false,
