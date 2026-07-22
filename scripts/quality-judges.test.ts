@@ -630,6 +630,16 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("README.md has local link resolving outside repository: external-link")
   })
 
+  test("document contracts contain workspace skill Markdown links", () => {
+    const root = documentContractFixture({})
+    write(root, ".agents/skills/example/SKILL.md", `# Example\n\n[local machine](${root})\n`)
+
+    const result = runJudge("check-doc-contracts.ts", root)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain(`.agents/skills/example/SKILL.md has non-repository local link: ${root}`)
+  })
+
   test("package tests cannot omit a colocated test file", () => {
     const root = temporaryRoot()
     write(root, "modules/domain-a/tool-a/package.json", JSON.stringify({

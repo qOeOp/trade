@@ -207,7 +207,7 @@ function walkMarkdown(path: string): string[] {
 
 function repositoryMarkdown(): string[] {
   const files = ["README.md", "AGENTS.md"]
-  for (const path of ["docs", "modules", "strategies"]) files.push(...walkMarkdown(path))
+  for (const path of [".agents", "docs", "modules", "strategies"]) files.push(...walkMarkdown(path))
   return files.filter(existsSync)
 }
 
