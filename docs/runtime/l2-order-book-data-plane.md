@@ -145,7 +145,7 @@ continuity_status + source_status
 | --- | --- | --- |
 | `l2-recorder-bakeoff` | 保持证据模块，不被生产 import | 采用 ADR 后提取经 parity 验证的 Rust core，bake-off fixture 继续当 oracle |
 | `market-data-store` | 已实现 epoch admission、唯一 compaction job、proposal/Parquet admission 与 `compacted_pinned` 状态 | Rust 只提交 typed proposal，不直写数据库；incomplete epoch 不晋升；raw 仍不可删 |
-| Replay Ledger / RD | 已有 owner-pinned source descriptor、非经济 bounded adapter，以及绑定 reserved Trial / Request / canonical Dataset Manifest / exact source-batch-frame range 的 immutable Control Plane attachment | Runner 接入前保持 `runner_compatibility=not_bound`；attachment 不改 OHLCV Manifest、不保存 raw rows、不跨 epoch 拼接、不产生 Fill |
+| Replay Ledger / RD | 已有 owner-pinned source descriptor、非经济 bounded adapter，以及绑定 reserved Trial / Request / canonical Dataset Manifest / exact source-batch-frame range 的 immutable Control Plane attachment；State Store 正式 CLI/read port 可 create-or-identical issue 和按 Reservation hash 读取 | Runner 接入前保持 `runner_compatibility=not_bound`；attachment 不改 OHLCV Manifest、不保存 raw rows、不跨 epoch 拼接、不产生 Fill |
 | execution / fast guard | 零修改 | 有 fresh typed fact、deadline 与 stale fail-closed 测试后才接 current-book port |
 | `domain-bus` | 零修改 | 继续只记录 control / ref envelope，不承载 depth delta |
 | Agent MCP | 零修改 | 真实 owner health port 成立后再增加白名单运维适配 |
@@ -168,7 +168,7 @@ continuity_status + source_status
 - raw finalize + manifest admission + current-book read port 形成端到端 fixture parity；
 - 生产与 bake-off 使用不同 module / data path；可一键回退到“无 L2 consumer”。
 
-已完成的 B 证据：repository-owned detached supervisor、原子 runtime/terminal receipt、精确 PID stop、真实子进程强杀后的自动重启与 partial salvage；连续 admission scanner、原子 manifest-last、磁盘软硬水位与 child RSS/CPU 采样已接通。5 秒轮转纵切生成 4 个 proposal，3 个 complete 自动 admission，1 个 snapshot bridge miss 保留拒绝观察；硬水位在 child attempt 0 前阻止写入。另以 49 帧真实 admitted epoch 完成 owner job → Rust Zstd Parquet（28,129 bytes）→ owner byte/hash admission → Replay bounded tail batch；frame 49 与 predecessor 的 `pu/u`、payload hash、source coverage 全部闭合。Control Plane 已进一步实现 create-or-identical exact attachment registry：绑定 reserved Trial、Request、full Manifest、source/batch hash 与半开 frame range，拒绝越界/跨 epoch/hash drift，且不复制 raw rows。Attachment 固定非经济、Runner 未绑定；Retention 保持 `compacted_pinned`、raw 不可删。短周期证据不替代正在运行的 24h 自然轮转验收。
+已完成的 B 证据：repository-owned detached supervisor、原子 runtime/terminal receipt、精确 PID stop、真实子进程强杀后的自动重启与 partial salvage；连续 admission scanner、原子 manifest-last、磁盘软硬水位与 child RSS/CPU 采样已接通。5 秒轮转纵切生成 4 个 proposal，3 个 complete 自动 admission，1 个 snapshot bridge miss 保留拒绝观察；硬水位在 child attempt 0 前阻止写入。另以 49 帧真实 admitted epoch 完成 owner job → Rust Zstd Parquet（28,129 bytes）→ owner byte/hash admission → Replay bounded read；P1.7 重新从真实 bytes 生成 source `8ae117…f0d8` 与 full batch `da0985…7f91`，frame `[1,50)`、首末 `u`、payload hash、source coverage 全部闭合。Control Plane 已进一步实现 create-or-identical exact attachment registry 与正式 CLI/read port：绑定 reserved Trial、Request、full Manifest、source/batch hash 与半开 frame range，拒绝越界/跨 epoch/hash drift，且不复制 raw rows。真实 source/batch 复验与完整 synthetic Trial issuance fixture 分开，不冒充生产 Trial。Attachment 固定非经济、Runner 未绑定；Retention 保持 `compacted_pinned`、raw 不可删。短周期证据不替代正在运行的 24h 自然轮转验收。
 
 ### C — consumer 与 broker
 
