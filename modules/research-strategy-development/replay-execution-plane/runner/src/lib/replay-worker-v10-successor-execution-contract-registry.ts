@@ -14,7 +14,6 @@ import {
   createReplayDecisionHarnessWorkerV10SuccessorExecutionAdmissionContract,
   createReplayDecisionHarnessWorkerV10SuccessorExecutionArtifactTransportContract,
   createReplayDecisionHarnessWorkerV10SuccessorExecutionContractAdmission,
-  predecessorExecutionContracts,
   replayDecisionHarnessWorkerV10SuccessorExecutionAdmissionContractKey,
   replayDecisionHarnessWorkerV10SuccessorExecutionArtifactTransportContractKey,
   replayDecisionHarnessWorkerV10SuccessorExecutionContractAdmissionKey,
@@ -162,7 +161,7 @@ function buildArtifactTransport(
   source: ReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmission,
   parentFileSha256: string,
 ): ReplayDecisionHarnessWorkerV10SuccessorExecutionArtifactTransportContract {
-  const base = source.source_successor_execution_transport_admission.successor_base_transport_contract
+  const base = source.successor_stdio_capability.source_transport_contract
   const stdio = source.successor_stdio_capability
   const key = replayDecisionHarnessWorkerV10SuccessorExecutionArtifactTransportContractKey({
     source_successor_execution_stdio_probe_admission_hash: source.admission_hash,
@@ -334,7 +333,6 @@ function buildAdmission(
   transport: ReplayDecisionHarnessWorkerV10SuccessorExecutionArtifactTransportContract,
   execution: ReplayDecisionHarnessWorkerV10SuccessorExecutionAdmissionContract,
 ): ReplayDecisionHarnessWorkerV10SuccessorExecutionContractAdmission {
-  const predecessor = predecessorExecutionContracts(source)
   const key = replayDecisionHarnessWorkerV10SuccessorExecutionContractAdmissionKey({
     source_successor_execution_stdio_probe_admission_hash: source.admission_hash,
     successor_artifact_bound_transport_contract_hash: transport.contract_hash,
@@ -357,19 +355,20 @@ function buildAdmission(
     status: "successor_execution_contracts_admitted_command_not_issued",
     source_successor_execution_stdio_probe_admission_hash: source.admission_hash,
     source_parent_canonical_file_sha256: parentFileSha256,
-    source_predecessor_artifact_bound_transport_contract_hash: predecessor.transport.contract_hash,
-    source_predecessor_execution_admission_contract_hash: predecessor.execution.contract_hash,
+    source_predecessor_artifact_bound_transport_contract_hash:
+      source.source_predecessor_artifact_bound_transport_contract_hash,
+    source_predecessor_execution_admission_contract_hash:
+      source.source_predecessor_execution_admission_contract_hash,
     successor_artifact_bound_transport_contract_hash: transport.contract_hash,
     successor_artifact_bound_transport_contract: structuredClone(transport),
     successor_execution_admission_contract_hash: execution.contract_hash,
     successor_execution_admission_contract: structuredClone(execution),
     successor_base_transport_contract_hash:
-      source.source_successor_execution_transport_admission.successor_base_transport_contract_hash,
+      source.source_successor_base_transport_contract_hash,
     successor_stdio_capability_hash: source.successor_stdio_capability_hash,
     successor_negative_probe_receipt_hash: source.successor_negative_probe_receipt_hash,
     successor_execution_envelope_hash:
-      source.source_successor_execution_transport_admission.successor_base_transport_contract
-        .source_execution_envelope_hash,
+      source.source_successor_execution_envelope_hash,
     successor_process_artifact_hash: transport.successor_process_artifact_hash,
     target_logical_request_id: transport.target_logical_request_id,
     target_worker_request_hash: transport.target_worker_request_hash,

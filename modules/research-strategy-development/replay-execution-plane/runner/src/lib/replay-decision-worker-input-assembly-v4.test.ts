@@ -4269,11 +4269,8 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
       .toBe("successor_rebuild_byte_identical_to_predecessor_stdio_artifact")
     expect(successorStdioProbeAdmission.successor_negative_probe_receipt_hash)
       .not.toBe(negativeProbeReceipt.receipt_hash)
-    expect(successorStdioProbeAdmission.successor_negative_probe_receipt.source_stdio_capability_hash)
-      .toBe(successorStdioProbeAdmission.successor_stdio_capability_hash)
-    expect(successorStdioProbeAdmission.successor_negative_probe_receipt.process_instance_count).toBe(5)
-    expect(successorStdioProbeAdmission.successor_negative_probe_receipt
-      .worker_request_frame_instance_count).toBe(0)
+    expect(successorStdioProbeAdmission.successor_process_artifact_hash)
+      .toBe(successorStdioProbeAdmission.successor_stdio_capability.artifact.sha256)
     expect(successorStdioProbeAdmission.successor_base_transport_contract_count).toBe(1)
     expect(successorStdioProbeAdmission.successor_stdio_capability_count).toBe(1)
     expect(successorStdioProbeAdmission.successor_negative_probe_receipt_count).toBe(1)

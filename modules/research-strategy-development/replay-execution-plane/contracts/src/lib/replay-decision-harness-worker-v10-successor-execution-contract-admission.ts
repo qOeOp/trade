@@ -1,14 +1,5 @@
 import { canonicalHash, canonicalJson } from "./replay-contracts"
 import {
-  type ReplayDecisionHarnessWorkerV10ExecutionAdmissionContract,
-} from "./replay-decision-harness-worker-v10-execution-admission-contract"
-import {
-  type ReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmission,
-} from "./replay-decision-harness-worker-v10-successor-execution-stdio-probe-admission"
-import {
-  type ReplayDecisionHarnessWorkerV10SuccessorTransportContract,
-} from "./replay-decision-harness-worker-v10-successor-transport-contract"
-import {
   REPLAY_DECISION_HARNESS_WORKER_V10_REQUEST_FRAME_SCHEMA_VERSION,
   REPLAY_DECISION_HARNESS_WORKER_V10_RESPONSE_FRAME_SCHEMA_VERSION,
 } from "./replay-decision-harness-worker-v10-transport-contract"
@@ -602,28 +593,6 @@ export function assertReplayDecisionHarnessWorkerV10SuccessorExecutionContractAd
   if (admissionHash !== canonicalHash(body)) {
     throw new Error("Worker v10 successor execution Contract admission hash mismatch")
   }
-}
-
-export function predecessorExecutionContracts(
-  source: ReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmission,
-): {
-  transport: ReplayDecisionHarnessWorkerV10SuccessorTransportContract
-  execution: ReplayDecisionHarnessWorkerV10ExecutionAdmissionContract
-} {
-  const pair = source.source_successor_execution_transport_admission
-    .source_successor_execution_envelope_admission.source_successor_lease_admission
-    .source_successor_authority_contract.source_reproducibility_pair_contract
-  const authorityCommand = pair.source_schedule_admission.source_response_validation
-    .source_dispatch_receipt.source_dispatch_attempt.source_process_launch_receipt
-    .source_launch_attempt.source_spawn_revalidation.source_authority_capsule
-    .source_authority_process_launch_intent.source_authority_execution_admission_command
-  const predecessorCommand = authorityCommand.source_authority_transport_contract
-    .source_activated_stdio_capability.source_authority_frame_build_contract
-    .source_launch_readiness_gate.source_process_launch_intent.source_execution_admission_command
-  const execution = predecessorCommand.source_clock_binding.source_registry_provenance
-    .source_pre_issue_bundle.source_execution_admission_contract
-  const transport = execution.source_successor_transport_contract
-  return { transport, execution }
 }
 
 const PROCESS_LIFECYCLE = ["spawn_exact_successor_artifact", "write_one_request_frame", "close_stdin",

@@ -17,6 +17,12 @@ import {
   type ReplayDecisionHarnessWorkerV10NegativeProbeReceipt,
   type ReplayDecisionHarnessWorkerV10StdioCapability,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-v10-stdio-capability"
+import type {
+  ReplayDecisionHarnessWorkerV10ExecutionAdmissionContract,
+} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-execution-admission-contract"
+import type {
+  ReplayDecisionHarnessWorkerV10SuccessorTransportContract,
+} from "../../../contracts/src/lib/replay-decision-harness-worker-v10-successor-transport-contract"
 import { canonicalJson } from "../../../contracts/src/lib/replay-contracts"
 import { writeReplayImmutableCas } from "./replay-local-artifact-store"
 import {
@@ -45,7 +51,7 @@ export function registerReplayWorkerV10SuccessorExecutionStdioProbe(
 ): ReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmission {
   requireDurableParent(input)
   const transportAdmission = input.source_successor_execution_transport_admission
-  const predecessor = extractPredecessorStdioCapability(transportAdmission)
+  const predecessor = extractPredecessorEvidence(transportAdmission)
   const successor = registerReplayWorkerV10StdioCapability({
     registry_root: input.registry_root,
     source_transport_contract: transportAdmission.successor_base_transport_contract,
@@ -87,7 +93,7 @@ export function readReplayWorkerV10SuccessorExecutionStdioProbe(
 ): ReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmission | null {
   requireDurableParent(input)
   const transportAdmission = input.source_successor_execution_transport_admission
-  const predecessor = extractPredecessorStdioCapability(transportAdmission)
+  const predecessor = extractPredecessorEvidence(transportAdmission)
   const successor = readReplayWorkerV10StdioCapability({
     registry_root: input.registry_root,
     source_transport_contract: transportAdmission.successor_base_transport_contract,
@@ -107,7 +113,11 @@ export function readReplayWorkerV10SuccessorExecutionStdioProbe(
 
 function buildAdmission(
   transportAdmission: ReplayDecisionHarnessWorkerV10SuccessorExecutionTransportAdmission,
-  predecessor: ReplayDecisionHarnessWorkerV10StdioCapability,
+  predecessor: {
+    stdio: ReplayDecisionHarnessWorkerV10StdioCapability
+    transport: ReplayDecisionHarnessWorkerV10SuccessorTransportContract
+    execution: ReplayDecisionHarnessWorkerV10ExecutionAdmissionContract
+  },
   successor: ReplayDecisionHarnessWorkerV10StdioCapability,
   probe: ReplayDecisionHarnessWorkerV10NegativeProbeReceipt,
 ): ReplayDecisionHarnessWorkerV10SuccessorExecutionStdioProbeAdmission {
@@ -132,13 +142,17 @@ function buildAdmission(
     purpose: "rebuild_transport_bound_stdio_identity_and_certify_non_request_rejections",
     status: "successor_stdio_and_negative_probe_admitted_execution_contract_not_materialized",
     source_successor_execution_transport_admission_hash: transportAdmission.admission_hash,
-    source_successor_execution_transport_admission: structuredClone(transportAdmission),
-    source_predecessor_stdio_capability_hash: predecessor.capability_hash,
-    source_predecessor_stdio_capability: structuredClone(predecessor),
+    source_successor_base_transport_contract_hash:
+      transportAdmission.successor_base_transport_contract_hash,
+    source_successor_execution_envelope_hash:
+      transportAdmission.successor_base_transport_contract.source_execution_envelope_hash,
+    source_predecessor_artifact_bound_transport_contract_hash: predecessor.transport.contract_hash,
+    source_predecessor_execution_admission_contract_hash: predecessor.execution.contract_hash,
+    source_predecessor_stdio_capability_hash: predecessor.stdio.capability_hash,
     successor_stdio_capability_hash: successor.capability_hash,
     successor_stdio_capability: structuredClone(successor),
     successor_negative_probe_receipt_hash: probe.receipt_hash,
-    successor_negative_probe_receipt: structuredClone(probe),
+    successor_process_artifact_hash: successor.artifact.sha256,
     attempt_id: transportAdmission.attempt_id,
     attempt_ordinal: transportAdmission.attempt_ordinal,
     worker_id: transportAdmission.worker_id,
@@ -149,6 +163,7 @@ function buildAdmission(
     artifact_parity_status: "successor_rebuild_byte_identical_to_predecessor_stdio_artifact",
     probe_identity_policy: "fresh_receipt_bound_to_successor_capability_hash",
     probe_execution_class: "non_worker_request_malformed_input_processes_only",
+    evidence_binding_policy: "content_addressed_parent_hashes_without_recursive_reembedding",
     registry_durability: "replay_local_immutable_cas_regular_file_canonical_json",
     successor_base_transport_contract_count: 1,
     successor_stdio_capability_count: 1,
@@ -184,9 +199,13 @@ function buildAdmission(
   })
 }
 
-function extractPredecessorStdioCapability(
+function extractPredecessorEvidence(
   transportAdmission: ReplayDecisionHarnessWorkerV10SuccessorExecutionTransportAdmission,
-): ReplayDecisionHarnessWorkerV10StdioCapability {
+): {
+  stdio: ReplayDecisionHarnessWorkerV10StdioCapability
+  transport: ReplayDecisionHarnessWorkerV10SuccessorTransportContract
+  execution: ReplayDecisionHarnessWorkerV10ExecutionAdmissionContract
+} {
   const pair = transportAdmission.source_successor_execution_envelope_admission
     .source_successor_lease_admission.source_successor_authority_contract
     .source_reproducibility_pair_contract
@@ -197,15 +216,20 @@ function extractPredecessorStdioCapability(
   const predecessorCommand = command.source_authority_transport_contract.source_activated_stdio_capability
     .source_authority_frame_build_contract.source_launch_readiness_gate.source_process_launch_intent
     .source_execution_admission_command
-  const capability = predecessorCommand.source_clock_binding.source_registry_provenance.source_pre_issue_bundle
-    .source_execution_admission_contract.source_successor_transport_contract.source_negative_probe_receipt
-    .source_stdio_capability
+  const execution = predecessorCommand.source_clock_binding.source_registry_provenance.source_pre_issue_bundle
+    .source_execution_admission_contract
+  const transport = execution.source_successor_transport_contract
+  const capability = transport.source_negative_probe_receipt.source_stdio_capability
   assertReplayDecisionHarnessWorkerV10StdioCapability(capability)
   if (capability.source_transport_contract_hash
       !== transportAdmission.source_predecessor_transport_contract_hash) {
     throw new Error("successor execution Stdio Probe does not embed its exact predecessor capability")
   }
-  return structuredClone(capability)
+  return {
+    stdio: structuredClone(capability),
+    transport: structuredClone(transport),
+    execution: structuredClone(execution),
+  }
 }
 
 function requireDurableParent(
