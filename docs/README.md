@@ -53,7 +53,7 @@ last_verified: 2026-07-22 CST
 | `implemented` | 已完成的实现记录，不自动升级为持续 authority |
 | `audit-log` | 按时间追加的审计事实，不覆盖当前合同 |
 
-current 文档只允许以上状态，并必须与 `doc-contract-index.json` 一致；index 必须精确覆盖 current 手写文档，不得夹带 generated、普通 history 或其他路径。history 正文只允许 `completed-historical` 或 `legacy-reference`。仓库内 Markdown 本地链接必须使用相对路径并解析到仓库内真实目标；允许在仓库内使用 `../`，禁止绝对路径、`file://`、越界或符号链接逃逸。机器检查不证明外部 URL 可用，也不校验页面 anchor 语义。
+current 文档只允许以上状态，并必须与 `doc-contract-index.json` 一致；index 必须精确覆盖 current 手写文档，不得夹带 generated、普通 history 或其他路径。history 正文只允许 `completed-historical` 或 `legacy-reference`。frontmatter 每个键只能声明一次，禁止同一文档为权威元数据保留多种解释。仓库内 Markdown 本地链接必须使用相对路径并解析到仓库内真实目标；允许在仓库内使用 `../`，禁止绝对路径、`file://`、越界或符号链接逃逸。机器检查不证明外部 URL 可用，也不校验页面 anchor 语义。
 
 index `id` 使用 `<文档域>.<短名>`：只允许小写 ASCII、数字、点和短横线，且命名空间必须与 `docs/product|architecture|runtime|research|engineering` 路径一致；`docs/README.md` 与 `docs/history/README.md` 使用 `docs.*`。ID 是稳定引用，不使用标题、临时任务名或跨域别名。
 

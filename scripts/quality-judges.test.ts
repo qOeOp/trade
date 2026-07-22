@@ -407,6 +407,17 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("role product-source-material does not allow status: active")
   })
 
+  test("document contracts reject duplicate frontmatter fields", () => {
+    const root = documentContractFixture({})
+    const path = join(root, "docs/README.md")
+    writeFileSync(path, readFileSync(path, "utf8").replace("status: active", "status: proposed\nstatus: active"))
+
+    const result = runJudge("check-doc-contracts.ts", root)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("docs/README.md has duplicate frontmatter field: status")
+  })
+
   test("document contracts reject a non-existent last_verified calendar date", () => {
     const root = documentContractFixture({ lastVerified: "2026-02-30 CST" })
 

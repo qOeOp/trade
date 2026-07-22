@@ -23,6 +23,7 @@ interface ArchitectureManifest {
 
 const root = process.cwd()
 const issues: string[] = []
+const frontmatterCache = new Map<string, Record<string, string>>()
 const requiredMetadata = ["title", "role", "status", "owner", "last_verified"]
 const allowedCurrentStatuses = new Set([
   "active",
@@ -165,16 +166,26 @@ if (issues.length > 0) {
 console.log(`doc contracts ok: ${currentDocuments.length} current, ${walkMarkdown("docs/history").length - 1} historical`)
 
 function frontmatter(path: string): Record<string, string> {
+  const cached = frontmatterCache.get(path)
+  if (cached) return cached
   const source = readFileSync(path, "utf8")
-  if (!source.startsWith("---\n")) return {}
+  if (!source.startsWith("---\n")) return cacheFrontmatter(path, {})
   const end = source.indexOf("\n---\n", 4)
-  if (end < 0) return {}
+  if (end < 0) return cacheFrontmatter(path, {})
   const result: Record<string, string> = {}
   for (const line of source.slice(4, end).split("\n")) {
     const match = line.match(/^([a-z][a-z0-9_-]*):\s*(.+?)\s*$/)
-    if (match) result[match[1]] = match[2].replace(/^['"]|['"]$/g, "")
+    if (!match) continue
+    const key = match[1]
+    if (Object.hasOwn(result, key)) issues.push(`${path} has duplicate frontmatter field: ${key}`)
+    result[key] = match[2].replace(/^['"]|['"]$/g, "")
   }
-  return result
+  return cacheFrontmatter(path, result)
+}
+
+function cacheFrontmatter(path: string, metadata: Record<string, string>): Record<string, string> {
+  frontmatterCache.set(path, metadata)
+  return metadata
 }
 
 function walkMarkdown(path: string): string[] {
