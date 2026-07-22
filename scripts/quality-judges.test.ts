@@ -101,6 +101,24 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("P30 forbidden")
   })
 
+  test("Replay opt-in capability cannot bypass its activation registry", () => {
+    const inventory = JSON.parse(readFileSync(
+      join(repoRoot, "docs/research/reliability/rd-replay-capability-inventory.json"),
+      "utf8",
+    )) as { opt_in_activation_registry: unknown[] }
+    inventory.opt_in_activation_registry = inventory.opt_in_activation_registry.slice(1)
+    const root = temporaryRoot()
+    const inventoryPath = join(root, "inventory.json")
+    writeFileSync(inventoryPath, JSON.stringify(inventory))
+
+    const result = runJudge("check-rd-replay-maturity-gate.ts", repoRoot, [], {
+      RD_REPLAY_CAPABILITY_INVENTORY_PATH: inventoryPath,
+    })
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("cover every opt-in capability exactly once")
+  })
+
   test("package tests cannot report success for an empty suite", () => {
     const root = temporaryRoot()
     write(root, "modules/domain-a/tool-a/package.json", JSON.stringify({
