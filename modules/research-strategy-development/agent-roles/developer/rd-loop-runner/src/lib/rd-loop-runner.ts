@@ -96,6 +96,9 @@ function maybeUpdateRdProgramState(programRef: string | undefined, dbPath: strin
   if (!programRef) {
     return undefined
   }
+  if (!dbPath) {
+    throw new Error("RD program state writeback requires explicit rd_state_db")
+  }
   const state = readRdProgramState(programRef, dbPath)
   const updated = updateRdProgramStateFromResearchResult(state, result, now)
   const written = writeRdProgramState(programRef, updated, catalogDbPath, dbPath)
