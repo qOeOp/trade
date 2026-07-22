@@ -27,6 +27,8 @@ import {
   DEVELOPER_EXPERIMENT_CONTRACT_DRAFT_PAYLOAD_SCHEMA_VERSION,
 } from "../../contracts/src/lib/developer-contract-draft"
 import { issueDeveloperDevelopmentBrief, receiveDeveloperContractDraft } from "../../state-store/src/lib/developer-contract-draft-intake"
+import { DEVELOPER_CONTRACT_DRAFT_VALIDATION_REQUEST_SCHEMA_VERSION } from "../../contracts/src/lib/developer-contract-draft-validation"
+import { validateDeveloperContractDraft } from "../../state-store/src/lib/developer-contract-draft-validation"
 
 const HASH = "2".repeat(64)
 const PROVIDER_CERTIFICATION = createReplayInstrumentStatusProviderCertificationSnapshot({ schema_version: REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION, certification_id: "status-provider-certification-1", certification_ref: "certification://fixture-status-provider/v1", status: "certified", certified_at: "2026-07-13T00:00:00Z", valid_until: "2026-08-01T00:00:00Z", certifier_id: "research-control-plane", certification_policy_version: "rd-status-provider-certification-v1", provider_capability_hash: HASH, producer_domain: "market-data-products", producer_id: "fixture-status-producer", producer_version: "v1", producer_build_hash: HASH, normalization_policy_version: "fixture-status-normalization-v1", normalization_policy_hash: HASH, allowed_source_kind: "venue_status_event_archive", allowed_completeness: "complete_history" })
@@ -95,6 +97,16 @@ test("Control Plane context to Proposal Admission to Developer Draft remains aut
       submission: draft,
     })
     expect(draftReceipt.status).toBe("received_unvalidated")
+    const validation = validateDeveloperContractDraft(db, {
+      schema_version: DEVELOPER_CONTRACT_DRAFT_VALIDATION_REQUEST_SCHEMA_VERSION,
+      validation_id: "draft-validation-1",
+      brief_id: brief.brief_id,
+      draft_revision: 1,
+      idempotency_key: "draft-validation-key-1",
+      validated_at: "2026-07-22T12:07:00Z",
+    })
+    expect(validation.status).toBe("invalid")
+    expect(validation.errors.some((error) => error.startsWith("contract."))).toBe(true)
     expect(draft).not.toHaveProperty("experiment_id")
     expect((db.query("SELECT COUNT(*) AS count FROM rd_experiment_contract").get() as { count: number }).count)
       .toBe(0)

@@ -27,7 +27,7 @@ agent-roles/
 - Replay 当前成熟度： [rd-replay-maturity-gate.json](../reliability/rd-replay-maturity-gate.json)。
 - Replay 已为 M5/maintenance-only；后续 R&D 主线从 Planner 的 Control Plane context → bounded Proposal 权威链开始，不创建 Replay M5.x 或 P30。
 - Planner 首条权威链已闭合为 Control Plane context → Planner Submission v2 → Control Plane Proposal Admission v1；Admission 仅落不可变 Proposal/revision，不等于 Experiment Contract、Trial Group、Trial 或执行授权。旧 `rd_proposal` 的 contract-shaped materialization 暂留兼容，后续必须显式拆出 Proposal → Contract 编译边界，不能反向冒充 Planner intake。
-- Proposal → Developer 前半链已闭合为 latest Proposal Admission → immutable Development Brief → Developer Contract Draft → `received_unvalidated` Receipt；Brief 冻结 candidate/data/budget scope，Draft receipt 不升级为正式 Contract。下一边界是 Control Plane 对该 Draft 执行版本化 validation、形成 validation record，并在显式 freeze 时注册 Experiment Contract；不得跳接旧 `materialize_proposal`。
+- Proposal → Developer 链已推进为 latest Proposal Admission → immutable Development Brief → Developer Contract Draft → `received_unvalidated` Receipt → immutable `valid|invalid` Validation Record。Validation 用当前 Contract v3 validator 和 reconciliation v1 核对 candidate-space/assignment/budget/data/protocol bindings，但不升级为正式 Contract。下一边界是仅从 `valid` Record 显式 freeze/register Experiment Contract、Candidate membership 与 Trial Group；不得跳接旧 `materialize_proposal`，也不得在 freeze 前创建 Trial/Replay authority。
 - Plane 边界：各子树 `README.md` / module `CONTRACT.md`。
 - 历史迁移进度： [Legacy RD Architecture Migration Plan](../../history/legacy-rd-architecture-migration-plan.md)。
 

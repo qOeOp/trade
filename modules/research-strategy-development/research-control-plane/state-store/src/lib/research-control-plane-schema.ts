@@ -272,6 +272,25 @@ CREATE TABLE IF NOT EXISTS rd_developer_contract_draft (
   FOREIGN KEY (brief_id) REFERENCES rd_developer_development_brief(brief_id)
 );
 
+CREATE TABLE IF NOT EXISTS rd_developer_contract_draft_validation (
+  validation_id TEXT PRIMARY KEY,
+  brief_id TEXT NOT NULL,
+  draft_revision INTEGER NOT NULL,
+  idempotency_key TEXT NOT NULL UNIQUE,
+  validation_request_hash TEXT NOT NULL UNIQUE,
+  submission_hash TEXT NOT NULL,
+  draft_receipt_hash TEXT NOT NULL,
+  validation_status TEXT NOT NULL CHECK(validation_status IN ('valid', 'invalid')),
+  contract_validator_version TEXT NOT NULL,
+  reconciliation_policy_version TEXT NOT NULL,
+  validation_hash TEXT NOT NULL UNIQUE,
+  validation_json TEXT NOT NULL CHECK(json_valid(validation_json)),
+  validated_at TEXT NOT NULL,
+  UNIQUE (brief_id, draft_revision),
+  FOREIGN KEY (brief_id, draft_revision)
+    REFERENCES rd_developer_contract_draft(brief_id, draft_revision)
+);
+
 CREATE TABLE IF NOT EXISTS rd_proposal (
   proposal_id TEXT PRIMARY KEY,
   planner_run_id TEXT NOT NULL,
@@ -1597,6 +1616,13 @@ BEGIN SELECT RAISE(ABORT, 'Developer Contract Draft is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS prevent_developer_contract_draft_delete
 BEFORE DELETE ON rd_developer_contract_draft
 BEGIN SELECT RAISE(ABORT, 'Developer Contract Draft is append-only'); END;
+
+CREATE TRIGGER IF NOT EXISTS prevent_developer_contract_draft_validation_update
+BEFORE UPDATE ON rd_developer_contract_draft_validation
+BEGIN SELECT RAISE(ABORT, 'Developer Contract Draft Validation Record is immutable'); END;
+CREATE TRIGGER IF NOT EXISTS prevent_developer_contract_draft_validation_delete
+BEFORE DELETE ON rd_developer_contract_draft_validation
+BEGIN SELECT RAISE(ABORT, 'Developer Contract Draft Validation Record is immutable'); END;
 
 CREATE TRIGGER IF NOT EXISTS prevent_trial_group_candidate_update
 BEFORE UPDATE ON rd_trial_group_candidate

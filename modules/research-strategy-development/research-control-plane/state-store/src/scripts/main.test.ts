@@ -19,6 +19,7 @@ import {
   createDeveloperContractDraftSubmission,
   type DeveloperDevelopmentBrief,
 } from "../../../contracts/src/lib/developer-contract-draft"
+import { DEVELOPER_CONTRACT_DRAFT_VALIDATION_REQUEST_SCHEMA_VERSION } from "../../../contracts/src/lib/developer-contract-draft-validation"
 
 test("research state store CLI upserts and reads program", () => {
   const dir = mkdtempSync(join(tmpdir(), "research-state-store-"))
@@ -166,6 +167,23 @@ test("research state store CLI admits a bounded Planner Proposal without materia
       "--json", JSON.stringify({ brief_id: issued.brief.brief_id, draft_revision: 1 }),
     ])) as { receipt: { submission_hash: string } }
     assert.equal(receiptRead.receipt.submission_hash, draft.submission_hash)
+    const validated = run(parseArgs([
+      "--db", dbPath, "--action", "validate_developer_contract_draft",
+      "--json", JSON.stringify({
+        schema_version: DEVELOPER_CONTRACT_DRAFT_VALIDATION_REQUEST_SCHEMA_VERSION,
+        validation_id: "draft-validation-cli-1",
+        brief_id: issued.brief.brief_id,
+        draft_revision: 1,
+        idempotency_key: "draft-validation-cli-key-1",
+        validated_at: "2026-07-22T12:07:00Z",
+      }),
+    ])) as { validation: { status: string; validation_hash: string } }
+    assert.equal(validated.validation.status, "invalid")
+    const validationRead = run(parseArgs([
+      "--db", dbPath, "--action", "read_developer_contract_draft_validation",
+      "--json", JSON.stringify({ validation_id: "draft-validation-cli-1" }),
+    ])) as { validation: { validation_hash: string } }
+    assert.equal(validationRead.validation.validation_hash, validated.validation.validation_hash)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
