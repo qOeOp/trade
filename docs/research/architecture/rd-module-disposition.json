@@ -24,6 +24,7 @@
     { "legacy_module": "replay-engine", "current_path": "replay-execution-plane/compatibility/legacy-research-kernel", "semantic_status": "active-legacy-research-kernel", "retirement": "retire-after-direct-consumer-cutover" },
     { "legacy_module": "replay-engine type contracts", "current_path": "replay-execution-plane/compatibility/legacy-research-contracts", "semantic_status": "extracted-legacy-contracts", "retirement": "retire-after-type-consumer-cutover" },
     { "legacy_module": "replay-engine data helpers", "current_path": "replay-execution-plane/compatibility/legacy-research-data", "semantic_status": "extracted-legacy-data", "retirement": "retire-after-data-consumer-cutover" },
+    { "legacy_module": "replay-engine decision helpers", "current_path": "replay-execution-plane/compatibility/legacy-research-decision", "semantic_status": "extracted-legacy-decision", "retirement": "retire-after-decision-consumer-cutover" },
     { "legacy_module": "replay-engine evaluation helpers", "current_path": "replay-execution-plane/compatibility/legacy-research-evaluation", "semantic_status": "extracted-legacy-evaluation", "retirement": "retire-after-evaluation-consumer-cutover" },
     { "legacy_module": "replay-engine feature helpers", "current_path": "replay-execution-plane/compatibility/legacy-research-features", "semantic_status": "extracted-legacy-features", "retirement": "retire-after-feature-consumer-cutover" },
     { "legacy_module": "replay-engine provenance helpers", "current_path": "replay-execution-plane/compatibility/legacy-research-provenance", "semantic_status": "extracted-legacy-provenance", "retirement": "retire-after-provenance-consumer-cutover" },
@@ -42,7 +43,7 @@
   "remaining_semantic_blockers": [
     "J04 supervisor payload and observability parity",
     "J05 forward job migration without formal-shadow semantics",
-    "legacy research consumers still depend on legacy ReplayResult, fill/signal semantics, contracts/data/feature/evaluation/provenance/hash helpers and State Store capability refs",
+    "legacy research consumers still depend on legacy ReplayResult, fill/signal semantics, contracts/data/decision/feature/evaluation/provenance/hash helpers and State Store capability refs",
     "supplemental feature revision and availability point-in-time joins",
     "portfolio accounting, margin-liquidation and fast-step certification"
   ]

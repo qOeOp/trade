@@ -128,6 +128,7 @@
         "modules/research-strategy-development/replay-execution-plane/certification/legacy-replay-fingerprint",
         "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-contracts",
         "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-data",
+        "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-decision",
         "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-evaluation",
         "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-features",
         "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-research-provenance",
