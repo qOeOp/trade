@@ -6,14 +6,12 @@ import { join } from "node:path"
 import { pathToFileURL } from "node:url"
 import {
   CONTROL_PLANE_IDENTITY_SCHEMA_VERSION,
-  REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION,
   REPLAY_INSTRUMENT_STATUS_PROVIDER_CERTIFICATION_SCHEMA_VERSION,
   TRIAL_RESERVATION_SNAPSHOT_SCHEMA_VERSION,
   createReplayAttemptLeaseObservationSnapshot,
   createReplayInstrumentStatusProviderCertificationSnapshot,
   hashReplayAttemptLeaseSnapshot,
   hashTrialReservationSnapshot,
-  type ReplayAttemptLeaseSnapshot,
   type ReplaySpawnBoundaryRevalidationRequest,
   type TrialReservationSnapshot,
 } from "../../../../research-control-plane/contracts/src/lib/control-plane-contracts"
@@ -97,12 +95,6 @@ import {
   type ReplayDecisionHarnessWorkerResponseV10Body,
 } from "../../../contracts/src/lib/replay-decision-harness-worker-response-v10-contract"
 import {
-  assertReplayDecisionHarnessExecutionEnvelope,
-} from "../../../contracts/src/lib/replay-decision-harness-execution-envelope"
-import {
-  assertReplayDecisionHarnessDispatchLeaseAdmission,
-} from "../../../contracts/src/lib/replay-decision-harness-dispatch-lease-admission"
-import {
   assertReplayDecisionHarnessDispatchLeaseAuthorityBinding,
 } from "../../../contracts/src/lib/replay-decision-harness-dispatch-lease-authority-binding"
 import {
@@ -166,14 +158,6 @@ import {
   buildReplayDecisionHarnessWorkerResponseV10Contract,
 } from "./replay-decision-harness-worker-response-v10-contract"
 import {
-  assertReplayDecisionHarnessExecutionEnvelopeLineage,
-  buildReplayDecisionHarnessExecutionEnvelope,
-} from "./replay-decision-harness-execution-envelope"
-import {
-  assertReplayDecisionHarnessDispatchLeaseAdmissionLineage,
-  buildReplayDecisionHarnessDispatchLeaseAdmission,
-} from "./replay-decision-harness-dispatch-lease-admission"
-import {
   buildReplayDecisionHarnessDispatchLeaseAuthorityBinding,
 } from "./replay-decision-harness-dispatch-lease-authority-binding"
 import {
@@ -206,6 +190,8 @@ import { runReplayWorkerV10StdioProbeStage } from "./replay-worker-v10-stdio-pro
 import { runReplayWorkerV10SuccessorTransportStage } from "./replay-worker-v10-successor-transport-stage"
 import { runReplayWorkerV10DispatchAuthorityBindingStage } from "./replay-worker-v10-dispatch-authority-binding-stage"
 import { runReplayWorkerV10DispatchEvidenceStage } from "./replay-worker-v10-dispatch-evidence-stage"
+import { runReplayWorkerV10ExecutionEnvelopeStage } from "./replay-worker-v10-execution-envelope-stage"
+import { runReplayWorkerV10DispatchLeaseAdmissionStage } from "./replay-worker-v10-dispatch-lease-admission-stage"
 
 const HASH = "a".repeat(64)
 const ACCOUNTING = {
@@ -1164,189 +1150,25 @@ test("Replay binds runtime inputs and deterministic code evidence without Worker
   })).toThrow("unsupported decision harness Worker Response v10 contract authority")
 
   const authorityBinding = assemblyV4.harness_context_binding
-  const attemptLease: ReplayAttemptLeaseSnapshot = {
-    schema_version: REPLAY_ATTEMPT_LEASE_SCHEMA_VERSION,
-    attempt_id: "attempt-envelope-1",
-    attempt_ordinal: 1,
-    worker_id: "worker-authority-1",
-    trial_id: authorityBinding.trial_id,
-    run_id: authorityBinding.run_id,
-    reservation_ref: authorityBinding.reservation_ref,
-    reservation_hash: authorityBinding.reservation_hash,
-    request_hash: authorityBinding.request_hash,
-    status: "running",
-    lease_generation: 2,
-    claimed_at: "2026-07-14T00:00:00Z",
-    heartbeat_at: "2026-07-14T00:00:30Z",
-    lease_expires_at: "2026-07-14T00:05:00Z",
-  }
-  const envelopeInput = {
-    source_response_contract: responseV10Contract,
-    logical_request_id: firstRequestV10.logical_request_id,
-    attempt_lease: attemptLease,
-  }
-  const executionEnvelope = buildReplayDecisionHarnessExecutionEnvelope(envelopeInput)
-  expect(executionEnvelope.owner).toBe("replay_runner_execution_admission")
-  expect(executionEnvelope.worker_request_hash).toBe(firstRequestV10.request_hash)
-  expect(executionEnvelope.replay_execution_request_hash).toBe(authorityBinding.request_hash)
-  expect(executionEnvelope.worker_request_hash).not.toBe(executionEnvelope.replay_execution_request_hash)
-  expect(executionEnvelope.attempt_lease_hash).toBe(hashReplayAttemptLeaseSnapshot(attemptLease))
-  expect(executionEnvelope.worker_identity_semantics)
-    .toBe("control_plane_worker_authority_not_os_process_identity")
-  expect(executionEnvelope.succession_kind).toBe("root_binding")
-  expect(executionEnvelope.predecessor_execution_envelope_hash).toBeNull()
-  expect(executionEnvelope.lease_generation_policy).toBe("one_envelope_one_exact_generation")
-  expect(executionEnvelope.cross_attempt_retry_policy)
-    .toBe("new_attempt_requires_new_root_envelope_logical_request_stable")
-  expect(executionEnvelope.reproducibility_pair_policy)
-    .toBe("shared_envelope_distinct_future_process_receipts")
-  expect(executionEnvelope.lease_freshness_at_dispatch)
-    .toBe("not_evaluated_requires_future_transport_admission")
-  expect(executionEnvelope.process_instance_identity).toBe("not_materialized")
-  expect(executionEnvelope.transport_admission).toBe("not_granted")
-  expect(executionEnvelope.transport).toBe("forbidden")
-  expect(executionEnvelope.harness_invocation).toBe("forbidden")
-  expect(executionEnvelope.response_instance).toBeNull()
-  expect(executionEnvelope.decision_output_authority).toBe("none")
-  expect(() => assertReplayDecisionHarnessExecutionEnvelope(executionEnvelope)).not.toThrow()
-  expect(() => assertReplayDecisionHarnessExecutionEnvelopeLineage(executionEnvelope, envelopeInput)).not.toThrow()
-  expect(buildReplayDecisionHarnessExecutionEnvelope({
-    ...envelopeInput,
-    source_response_contract: structuredClone(responseV10Contract),
-    attempt_lease: structuredClone(attemptLease),
-  })).toEqual(executionEnvelope)
-  const renewedLease: ReplayAttemptLeaseSnapshot = {
-    ...attemptLease,
-    lease_generation: 3,
-    heartbeat_at: "2026-07-14T00:02:00Z",
-    lease_expires_at: "2026-07-14T00:07:00Z",
-  }
-  const successorInput = {
-    ...envelopeInput,
-    attempt_lease: renewedLease,
-    predecessor_execution_envelope: executionEnvelope,
-  }
-  const successorEnvelope = buildReplayDecisionHarnessExecutionEnvelope(successorInput)
-  expect(successorEnvelope.succession_kind).toBe("same_attempt_lease_generation_successor")
-  expect(successorEnvelope.predecessor_execution_envelope_hash).toBe(executionEnvelope.envelope_hash)
-  expect(successorEnvelope.logical_request_id).toBe(executionEnvelope.logical_request_id)
-  expect(successorEnvelope.worker_request_hash).toBe(executionEnvelope.worker_request_hash)
-  expect(successorEnvelope.lease_generation).toBe(3)
-  expect(successorEnvelope.envelope_hash).not.toBe(executionEnvelope.envelope_hash)
-  expect(() => assertReplayDecisionHarnessExecutionEnvelopeLineage(successorEnvelope, successorInput)).not.toThrow()
-  expect(() => buildReplayDecisionHarnessExecutionEnvelope({
-    ...envelopeInput,
-    predecessor_execution_envelope: executionEnvelope,
-  })).toThrow("generation or heartbeat did not advance")
-  expect(() => buildReplayDecisionHarnessExecutionEnvelope({
-    ...successorInput,
-    attempt_lease: { ...renewedLease, worker_id: "forged-worker" },
-  })).toThrow("changed immutable authority")
-  const retryLease: ReplayAttemptLeaseSnapshot = {
-    ...attemptLease,
-    attempt_id: "attempt-envelope-2",
-    attempt_ordinal: 2,
-    worker_id: "worker-authority-2",
-    lease_generation: 1,
-    claimed_at: "2026-07-14T00:10:00Z",
-    heartbeat_at: "2026-07-14T00:10:30Z",
-    lease_expires_at: "2026-07-14T00:15:00Z",
-  }
-  const retryEnvelope = buildReplayDecisionHarnessExecutionEnvelope({
-    ...envelopeInput,
-    attempt_lease: retryLease,
+  const executionEnvelopeStage = runReplayWorkerV10ExecutionEnvelopeStage({
+    authority_binding: authorityBinding,
+    response_contract: responseV10Contract,
+    worker_request: firstRequestV10,
   })
-  expect(retryEnvelope.succession_kind).toBe("root_binding")
-  expect(retryEnvelope.predecessor_execution_envelope_hash).toBeNull()
-  expect(retryEnvelope.logical_request_id).toBe(executionEnvelope.logical_request_id)
-  expect(retryEnvelope.attempt_id).not.toBe(executionEnvelope.attempt_id)
-  expect(retryEnvelope.envelope_hash).not.toBe(executionEnvelope.envelope_hash)
-  expect(() => buildReplayDecisionHarnessExecutionEnvelope({
-    ...envelopeInput,
-    attempt_lease: { ...attemptLease, request_hash: "b".repeat(64) },
-  })).toThrow("does not match Replay authority")
-  expect(() => assertReplayDecisionHarnessExecutionEnvelope({
-    ...executionEnvelope,
-    process_id: 1234,
-  } as never)).toThrow("field whitelist drift")
-  expect(() => assertReplayDecisionHarnessExecutionEnvelope({
-    ...executionEnvelope,
-    transport_admission: "granted" as never,
-  })).toThrow("unsupported decision harness Execution Envelope authority")
+  const attemptLease = executionEnvelopeStage.attempt_lease
+  const executionEnvelope = executionEnvelopeStage.execution_envelope
+  const renewedLease = executionEnvelopeStage.renewed_lease
+  const successorEnvelope = executionEnvelopeStage.successor_envelope
 
-  const dispatchAdmissionInput = {
-    source_execution_envelope: executionEnvelope,
-    current_attempt_lease: attemptLease,
-    observed_at: attemptLease.heartbeat_at,
-  }
-  const dispatchAdmission = buildReplayDecisionHarnessDispatchLeaseAdmission(dispatchAdmissionInput)
-  expect(dispatchAdmission.owner).toBe("replay_runner_dispatch_admission")
-  expect(dispatchAdmission.source_execution_envelope_hash).toBe(executionEnvelope.envelope_hash)
-  expect(dispatchAdmission.current_attempt_lease_hash).toBe(executionEnvelope.attempt_lease_hash)
-  expect(dispatchAdmission.freshness_window_policy).toBe("heartbeat_inclusive_lease_expiry_exclusive")
-  expect(dispatchAdmission.current_lease_match_policy).toBe("exact_attempt_worker_generation_and_hash")
-  expect(dispatchAdmission.freshness_outcome).toBe("fresh_at_control_plane_observed_at")
-  expect(dispatchAdmission.dispatch_eligibility).toBe("lease_freshness_admitted_only")
-  expect(dispatchAdmission.dispatch_occurrence).toBe("not_materialized")
-  expect(dispatchAdmission.clock_evidence).toBe("control_plane_observation_not_external_time_attestation")
-  expect(dispatchAdmission.process_instance_identity).toBe("not_materialized")
-  expect(dispatchAdmission.transport_admission).toBe("not_granted")
-  expect(dispatchAdmission.transport).toBe("forbidden")
-  expect(dispatchAdmission.harness_invocation).toBe("forbidden")
-  expect(dispatchAdmission.response_instance).toBeNull()
-  expect(dispatchAdmission.economic_authority).toBe("none")
-  expect(() => assertReplayDecisionHarnessDispatchLeaseAdmission(dispatchAdmission)).not.toThrow()
-  expect(() => assertReplayDecisionHarnessDispatchLeaseAdmissionLineage(
-    dispatchAdmission,
-    dispatchAdmissionInput,
-  )).not.toThrow()
-  expect(buildReplayDecisionHarnessDispatchLeaseAdmission({
-    source_execution_envelope: structuredClone(executionEnvelope),
-    current_attempt_lease: structuredClone(attemptLease),
-    observed_at: attemptLease.heartbeat_at,
-  })).toEqual(dispatchAdmission)
-  expect(() => buildReplayDecisionHarnessDispatchLeaseAdmission({
-    ...dispatchAdmissionInput,
-    observed_at: "2026-07-14T00:00:29Z",
-  })).toThrow("precedes fencing heartbeat")
-  expect(() => buildReplayDecisionHarnessDispatchLeaseAdmission({
-    ...dispatchAdmissionInput,
-    observed_at: attemptLease.lease_expires_at,
-  })).toThrow("expired at observed_at")
-  expect(() => buildReplayDecisionHarnessDispatchLeaseAdmission({
-    ...dispatchAdmissionInput,
-    current_attempt_lease: renewedLease,
-    observed_at: renewedLease.heartbeat_at,
-  })).toThrow("current Lease generation and a successor Envelope")
-  const successorDispatchAdmission = buildReplayDecisionHarnessDispatchLeaseAdmission({
-    source_execution_envelope: successorEnvelope,
-    current_attempt_lease: renewedLease,
-    observed_at: renewedLease.heartbeat_at,
+  const dispatchLeaseAdmissionStage = runReplayWorkerV10DispatchLeaseAdmissionStage({
+    attempt_lease: attemptLease,
+    execution_envelope: executionEnvelope,
+    renewed_lease: renewedLease,
+    successor_envelope: successorEnvelope,
+    retry_lease: executionEnvelopeStage.retry_lease,
+    retry_envelope: executionEnvelopeStage.retry_envelope,
   })
-  expect(successorDispatchAdmission.lease_generation).toBe(3)
-  expect(successorDispatchAdmission.source_execution_envelope_hash).toBe(successorEnvelope.envelope_hash)
-  expect(successorDispatchAdmission.admission_hash).not.toBe(dispatchAdmission.admission_hash)
-  expect(() => buildReplayDecisionHarnessDispatchLeaseAdmission({
-    source_execution_envelope: executionEnvelope,
-    current_attempt_lease: retryLease,
-    observed_at: retryLease.heartbeat_at,
-  })).toThrow("current Attempt authority does not match Execution Envelope")
-  const retryDispatchAdmission = buildReplayDecisionHarnessDispatchLeaseAdmission({
-    source_execution_envelope: retryEnvelope,
-    current_attempt_lease: retryLease,
-    observed_at: retryLease.heartbeat_at,
-  })
-  expect(retryDispatchAdmission.attempt_id).toBe(retryLease.attempt_id)
-  expect(retryDispatchAdmission.attempt_ordinal).toBe(2)
-  expect(retryDispatchAdmission.retry_attempt_policy).toBe("new_root_envelope_required_before_readmission")
-  expect(() => assertReplayDecisionHarnessDispatchLeaseAdmission({
-    ...dispatchAdmission,
-    process_id: 1234,
-  } as never)).toThrow("field whitelist drift")
-  expect(() => assertReplayDecisionHarnessDispatchLeaseAdmission({
-    ...dispatchAdmission,
-    transport_admission: "granted" as never,
-  })).toThrow("unsupported decision harness Dispatch Lease Admission authority")
+  const dispatchAdmission = dispatchLeaseAdmissionStage.dispatch_admission
 
   const dispatchAuthorityBindingStage = runReplayWorkerV10DispatchAuthorityBindingStage({
     attempt_lease: attemptLease,
