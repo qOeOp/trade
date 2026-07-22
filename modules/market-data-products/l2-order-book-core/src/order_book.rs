@@ -141,23 +141,36 @@ pub struct OrderBook {
 
 impl OrderBook {
     pub fn from_snapshot(snapshot: &Snapshot, max_levels: usize) -> Result<Self, OrderBookError> {
-        let mut value = Self {
-            bids: HashMap::new(),
-            asks: HashMap::new(),
+        let value = Self {
+            bids: normalized_changes(&snapshot.bids)?
+                .into_iter()
+                .filter(|(_, quantity)| quantity != "0")
+                .collect(),
+            asks: normalized_changes(&snapshot.asks)?
+                .into_iter()
+                .filter(|(_, quantity)| quantity != "0")
+                .collect(),
             last_update_id: snapshot.last_update_id,
             max_levels,
         };
-        apply_levels(&mut value.bids, &snapshot.bids)?;
-        apply_levels(&mut value.asks, &snapshot.asks)?;
         value.enforce_capacity()?;
         Ok(value)
     }
 
     pub fn apply(&mut self, event: &DepthUpdate) -> Result<(), OrderBookError> {
         validate_update(event)?;
-        apply_levels(&mut self.bids, &event.bids)?;
-        apply_levels(&mut self.asks, &event.asks)?;
-        self.enforce_capacity()?;
+        let bid_changes = normalized_changes(&event.bids)?;
+        let ask_changes = normalized_changes(&event.asks)?;
+        let resulting_levels =
+            resulting_len(&self.bids, &bid_changes) + resulting_len(&self.asks, &ask_changes);
+        if resulting_levels > self.max_levels {
+            return Err(OrderBookError::CapacityExceeded {
+                actual: resulting_levels,
+                limit: self.max_levels,
+            });
+        }
+        commit_changes(&mut self.bids, bid_changes);
+        commit_changes(&mut self.asks, ask_changes);
         self.last_update_id = event.final_update_id;
         Ok(())
     }
@@ -289,20 +302,36 @@ fn validate_update(event: &DepthUpdate) -> Result<(), OrderBookError> {
     Ok(())
 }
 
-fn apply_levels(
-    side: &mut HashMap<String, String>,
-    levels: &[Level],
-) -> Result<(), OrderBookError> {
+fn normalized_changes(levels: &[Level]) -> Result<HashMap<String, String>, OrderBookError> {
+    let mut changes = HashMap::new();
     for [raw_price, raw_quantity] in levels {
         let price = normalize_decimal(raw_price)?;
         let quantity = normalize_decimal(raw_quantity)?;
+        changes.insert(price, quantity);
+    }
+    Ok(changes)
+}
+
+fn resulting_len(side: &HashMap<String, String>, changes: &HashMap<String, String>) -> usize {
+    let additions = changes
+        .iter()
+        .filter(|(price, quantity)| quantity.as_str() != "0" && !side.contains_key(*price))
+        .count();
+    let removals = changes
+        .iter()
+        .filter(|(price, quantity)| quantity.as_str() == "0" && side.contains_key(*price))
+        .count();
+    side.len() + additions - removals
+}
+
+fn commit_changes(side: &mut HashMap<String, String>, changes: HashMap<String, String>) {
+    for (price, quantity) in changes {
         if quantity == "0" {
             side.remove(&price);
         } else {
             side.insert(price, quantity);
         }
     }
-    Ok(())
 }
 
 fn sorted_levels(side: &HashMap<String, String>, ascending: bool) -> Vec<Level> {
@@ -410,5 +439,31 @@ mod tests {
             OrderBook::from_snapshot(&snapshot, 1),
             Err(OrderBookError::CapacityExceeded { .. })
         ));
+    }
+
+    #[test]
+    fn rejected_update_does_not_mutate_the_book() {
+        let snapshot = Snapshot {
+            last_update_id: 1,
+            bids: vec![["1".to_string(), "1".to_string()]],
+            asks: vec![["2".to_string(), "1".to_string()]],
+        };
+        let mut book = OrderBook::from_snapshot(&snapshot, 2).expect("book");
+        let before = book.snapshot(None).expect("before");
+        let event = DepthUpdate {
+            event_time_ms: 2,
+            transaction_time_ms: 1,
+            local_receive_time_ms: 3,
+            first_update_id: 2,
+            final_update_id: 2,
+            previous_final_update_id: 1,
+            bids: vec![["0.5".to_string(), "1".to_string()]],
+            asks: Vec::new(),
+        };
+        assert!(matches!(
+            book.apply(&event),
+            Err(OrderBookError::CapacityExceeded { .. })
+        ));
+        assert_eq!(book.snapshot(None).expect("after"), before);
     }
 }
