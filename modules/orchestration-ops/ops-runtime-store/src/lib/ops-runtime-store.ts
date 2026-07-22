@@ -76,6 +76,13 @@ export interface OpsLock {
   holder_id: string
   acquired_at: string
   expires_at: string
+  fencing_token?: number
+}
+
+export interface OpsLockAcquisition {
+  acquired: boolean
+  lock: OpsLock
+  recovered_stale: boolean
 }
 
 export interface DomainMessage {
@@ -127,6 +134,20 @@ export interface ControlReview {
   items_json: JSONRecord[]
   constraints_json: JSONRecord[]
   created_at: string
+}
+
+export const PARITY_OBSERVATION_STATUSES = ["match", "mismatch"] as const
+export type ParityObservationStatus = typeof PARITY_OBSERVATION_STATUSES[number]
+
+export interface RuntimeParityObservation {
+  observation_id: string
+  program_cycle_id: string
+  agent_cycle_id: string
+  program_projection_hash: string
+  agent_projection_hash: string
+  status: ParityObservationStatus
+  detail_json: JSONRecord
+  observed_at: string
 }
 
 export function ensureOpsRuntimeSchema(db: Database): void {
@@ -201,8 +222,23 @@ export function ensureOpsRuntimeSchema(db: Database): void {
       lock_key      TEXT PRIMARY KEY,
       holder_id     TEXT NOT NULL,
       acquired_at   TEXT NOT NULL,
-      expires_at    TEXT NOT NULL
+      expires_at    TEXT NOT NULL,
+      fencing_token INTEGER NOT NULL DEFAULT 1 CHECK(fencing_token > 0)
     )
+  `)
+  ensureColumn(db, "ops_lock", "fencing_token", "INTEGER NOT NULL DEFAULT 1 CHECK(fencing_token > 0)")
+  db.run(`
+    CREATE TABLE IF NOT EXISTS ops_lock_generation (
+      lock_key           TEXT PRIMARY KEY,
+      last_fencing_token INTEGER NOT NULL CHECK(last_fencing_token > 0)
+    )
+  `)
+  db.run(`
+    INSERT INTO ops_lock_generation(lock_key, last_fencing_token)
+    SELECT lock_key, fencing_token FROM ops_lock
+    WHERE true
+    ON CONFLICT(lock_key) DO UPDATE SET
+      last_fencing_token = MAX(ops_lock_generation.last_fencing_token, excluded.last_fencing_token)
   `)
   db.run(`
     CREATE TABLE IF NOT EXISTS incident (
@@ -244,6 +280,20 @@ export function ensureOpsRuntimeSchema(db: Database): void {
       FOREIGN KEY (cycle_id) REFERENCES cycle_run(cycle_id)
     )
   `)
+  db.run(`
+    CREATE TABLE IF NOT EXISTS runtime_parity_observation (
+      observation_id          TEXT PRIMARY KEY,
+      program_cycle_id        TEXT NOT NULL,
+      agent_cycle_id          TEXT NOT NULL,
+      program_projection_hash TEXT NOT NULL,
+      agent_projection_hash   TEXT NOT NULL,
+      status                  TEXT NOT NULL CHECK(status IN ('match', 'mismatch')),
+      detail_json             TEXT NOT NULL CHECK(json_valid(detail_json)),
+      observed_at             TEXT NOT NULL,
+      FOREIGN KEY (program_cycle_id) REFERENCES cycle_run(cycle_id),
+      FOREIGN KEY (agent_cycle_id) REFERENCES cycle_run(cycle_id)
+    )
+  `)
   db.run("CREATE INDEX IF NOT EXISTS idx_job_run_cycle ON job_run(cycle_id, ticket_no)")
   db.run("CREATE INDEX IF NOT EXISTS idx_runtime_health_time ON runtime_health(observed_at DESC)")
   db.run("CREATE INDEX IF NOT EXISTS idx_domain_message_cycle ON domain_message(cycle_id, job_id, direction)")
@@ -251,6 +301,7 @@ export function ensureOpsRuntimeSchema(db: Database): void {
   db.run("CREATE INDEX IF NOT EXISTS idx_incident_cycle ON incident(cycle_id, status, severity)")
   db.run("CREATE INDEX IF NOT EXISTS idx_incident_event_incident ON incident_event(incident_id, created_at)")
   db.run("CREATE INDEX IF NOT EXISTS idx_control_review_cycle ON control_review(cycle_id, created_at)")
+  db.run("CREATE INDEX IF NOT EXISTS idx_runtime_parity_observed ON runtime_parity_observation(observed_at DESC)")
 }
 
 export function upsertCycleRun(db: Database, run: CycleRun): void {
@@ -340,62 +391,130 @@ export function recordNotifyAttempt(db: Database, attempt: NotifyAttempt): void 
 }
 
 export function upsertOpsLock(db: Database, lock: OpsLock): void {
-  if (!lock.lock_key || !lock.holder_id || !lock.acquired_at || !lock.expires_at) {
-    throw new Error("lock_key, holder_id, acquired_at, and expires_at are required")
+  const result = acquireOpsLock(db, lock)
+  if (!result.acquired) {
+    throw new Error(`ops lock ${lock.lock_key} is held by another active owner`)
   }
-  db.query(`
-    INSERT INTO ops_lock(lock_key, holder_id, acquired_at, expires_at)
-    VALUES ($lock_key, $holder_id, $acquired_at, $expires_at)
-    ON CONFLICT(lock_key) DO UPDATE SET
-      holder_id = excluded.holder_id,
-      acquired_at = excluded.acquired_at,
-      expires_at = excluded.expires_at
-  `).run({
-    $lock_key: lock.lock_key,
-    $holder_id: lock.holder_id,
-    $acquired_at: lock.acquired_at,
-    $expires_at: lock.expires_at,
-  })
 }
 
-export function acquireOpsLock(db: Database, lock: OpsLock): { acquired: boolean; lock: OpsLock } {
+export function acquireOpsLock(db: Database, lock: OpsLock): OpsLockAcquisition {
   validateOpsLock(lock)
-  db.query(`
-    INSERT INTO ops_lock(lock_key, holder_id, acquired_at, expires_at)
-    VALUES ($lock_key, $holder_id, $acquired_at, $expires_at)
-    ON CONFLICT(lock_key) DO UPDATE SET
-      holder_id = excluded.holder_id,
-      acquired_at = excluded.acquired_at,
-      expires_at = excluded.expires_at
-    WHERE ops_lock.holder_id = excluded.holder_id
-       OR ops_lock.expires_at <= excluded.acquired_at
-  `).run({
-    $lock_key: lock.lock_key,
-    $holder_id: lock.holder_id,
-    $acquired_at: lock.acquired_at,
-    $expires_at: lock.expires_at,
+  const acquire = db.transaction((candidate: OpsLock): OpsLockAcquisition => {
+    const active = readOpsLock(db, candidate.lock_key)
+    const candidateAt = Date.parse(candidate.acquired_at)
+    if (active && Date.parse(active.expires_at) > candidateAt) {
+      if (active.holder_id !== candidate.holder_id) {
+        return { acquired: false, lock: active, recovered_stale: false }
+      }
+      db.query(`
+        UPDATE ops_lock
+        SET acquired_at = $acquired_at, expires_at = $expires_at
+        WHERE lock_key = $lock_key AND holder_id = $holder_id AND fencing_token = $fencing_token
+      `).run({
+        $lock_key: candidate.lock_key,
+        $holder_id: candidate.holder_id,
+        $fencing_token: positiveInteger(active.fencing_token) || 1,
+        $acquired_at: candidate.acquired_at,
+        $expires_at: candidate.expires_at,
+      })
+      return { acquired: true, lock: readOpsLock(db, candidate.lock_key) ?? active, recovered_stale: false }
+    }
+
+    const generation = db.query(`
+      INSERT INTO ops_lock_generation(lock_key, last_fencing_token)
+      VALUES ($lock_key, 1)
+      ON CONFLICT(lock_key) DO UPDATE SET
+        last_fencing_token = ops_lock_generation.last_fencing_token + 1
+      RETURNING last_fencing_token
+    `).get({ $lock_key: candidate.lock_key }) as { last_fencing_token: number }
+    db.query(`
+      INSERT INTO ops_lock(lock_key, holder_id, acquired_at, expires_at, fencing_token)
+      VALUES ($lock_key, $holder_id, $acquired_at, $expires_at, $fencing_token)
+      ON CONFLICT(lock_key) DO UPDATE SET
+        holder_id = excluded.holder_id,
+        acquired_at = excluded.acquired_at,
+        expires_at = excluded.expires_at,
+        fencing_token = excluded.fencing_token
+    `).run({
+      $lock_key: candidate.lock_key,
+      $holder_id: candidate.holder_id,
+      $acquired_at: candidate.acquired_at,
+      $expires_at: candidate.expires_at,
+      $fencing_token: generation.last_fencing_token,
+    })
+    const acquired = readOpsLock(db, candidate.lock_key)
+    if (!acquired) throw new Error("ops lock disappeared after acquisition")
+    return { acquired: true, lock: acquired, recovered_stale: active !== null }
   })
-  const active = readOpsLock(db, lock.lock_key)
-  if (!active) throw new Error("ops lock disappeared after acquisition")
-  return { acquired: active.holder_id === lock.holder_id, lock: active }
+  return acquire.immediate(lock)
 }
 
 export function readOpsLock(db: Database, lockKey: string): OpsLock | null {
   const row = db.query(`
-    SELECT lock_key, holder_id, acquired_at, expires_at
+    SELECT lock_key, holder_id, acquired_at, expires_at, fencing_token
     FROM ops_lock
     WHERE lock_key = $lock_key
   `).get({ $lock_key: lockKey }) as OpsLock | null
   return row ?? null
 }
 
-export function releaseOpsLock(db: Database, lockKey: string, holderId: string): boolean {
+export function renewOpsLock(db: Database, input: {
+  lock_key: string
+  holder_id: string
+  fencing_token: number
+  renewed_at: string
+  expires_at: string
+}): { renewed: boolean; lock: OpsLock | null } {
+  if (!input.lock_key || !input.holder_id || !positiveInteger(input.fencing_token)) {
+    throw new Error("lock_key, holder_id, and positive fencing_token are required")
+  }
+  if (!Number.isFinite(Date.parse(input.renewed_at)) || !Number.isFinite(Date.parse(input.expires_at))) {
+    throw new Error("ops lock renewal timestamps must be valid dates")
+  }
+  if (Date.parse(input.expires_at) <= Date.parse(input.renewed_at)) {
+    throw new Error("ops lock renewal expires_at must be after renewed_at")
+  }
+  const result = db.query(`
+    UPDATE ops_lock
+    SET expires_at = $expires_at
+    WHERE lock_key = $lock_key
+      AND holder_id = $holder_id
+      AND fencing_token = $fencing_token
+      AND expires_at > $renewed_at
+  `).run({
+    $lock_key: input.lock_key,
+    $holder_id: input.holder_id,
+    $fencing_token: input.fencing_token,
+    $renewed_at: input.renewed_at,
+    $expires_at: input.expires_at,
+  })
+  return { renewed: result.changes === 1, lock: readOpsLock(db, input.lock_key) }
+}
+
+export function releaseOpsLock(db: Database, lockKey: string, holderId: string, fencingToken?: number): boolean {
   if (!lockKey || !holderId) throw new Error("lock_key and holder_id are required")
   const result = db.query(`
     DELETE FROM ops_lock
-    WHERE lock_key = $lock_key AND holder_id = $holder_id
-  `).run({ $lock_key: lockKey, $holder_id: holderId })
+    WHERE lock_key = $lock_key
+      AND holder_id = $holder_id
+      AND ($fencing_token = 0 OR fencing_token = $fencing_token)
+  `).run({
+    $lock_key: lockKey,
+    $holder_id: holderId,
+    $fencing_token: positiveInteger(fencingToken) || 0,
+  })
   return result.changes === 1
+}
+
+function ensureColumn(db: Database, table: string, column: string, definition: string): void {
+  const columns = db.query(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>
+  if (!columns.some((item) => item.name === column)) {
+    db.run(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`)
+  }
+}
+
+function positiveInteger(value: unknown): number {
+  return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : 0
 }
 
 function validateOpsLock(lock: OpsLock): void {
@@ -584,6 +703,69 @@ export function recordControlReview(db: Database, review: ControlReview): void {
     $constraints_json: JSON.stringify(review.constraints_json),
     $created_at: review.created_at,
   })
+}
+
+export function recordRuntimeParityObservation(
+  db: Database,
+  observation: RuntimeParityObservation,
+): RuntimeParityObservation {
+  validateRuntimeParityObservation(observation)
+  const write = db.transaction((candidate: RuntimeParityObservation): RuntimeParityObservation => {
+    const existing = readRuntimeParityObservations(db, { observation_id: candidate.observation_id })[0]
+    if (existing) {
+      if (JSON.stringify(existing) !== JSON.stringify(candidate)) {
+        throw new Error(`runtime parity observation is immutable: ${candidate.observation_id}`)
+      }
+      return existing
+    }
+    db.query(`
+      INSERT INTO runtime_parity_observation(
+        observation_id, program_cycle_id, agent_cycle_id,
+        program_projection_hash, agent_projection_hash, status,
+        detail_json, observed_at
+      )
+      VALUES (
+        $observation_id, $program_cycle_id, $agent_cycle_id,
+        $program_projection_hash, $agent_projection_hash, $status,
+        $detail_json, $observed_at
+      )
+    `).run({
+      $observation_id: candidate.observation_id,
+      $program_cycle_id: candidate.program_cycle_id,
+      $agent_cycle_id: candidate.agent_cycle_id,
+      $program_projection_hash: candidate.program_projection_hash,
+      $agent_projection_hash: candidate.agent_projection_hash,
+      $status: candidate.status,
+      $detail_json: JSON.stringify(candidate.detail_json),
+      $observed_at: candidate.observed_at,
+    })
+    return candidate
+  })
+  return write.immediate(observation)
+}
+
+export function readRuntimeParityObservations(
+  db: Database,
+  filter: JSONRecord = {},
+): RuntimeParityObservation[] {
+  const observationId = stringField(filter.observation_id)
+  const status = stringField(filter.status)
+  const limit = positiveInteger(filter.limit) || 100
+  const rows = db.query(`
+    SELECT observation_id, program_cycle_id, agent_cycle_id,
+      program_projection_hash, agent_projection_hash, status,
+      detail_json, observed_at
+    FROM runtime_parity_observation
+    WHERE ($observation_id = '' OR observation_id = $observation_id)
+      AND ($status = '' OR status = $status)
+    ORDER BY observed_at DESC, rowid DESC
+    LIMIT $limit
+  `).all({
+    $observation_id: observationId,
+    $status: status,
+    $limit: limit,
+  }) as RuntimeParityObservationRow[]
+  return rows.map(runtimeParityObservationFromRow)
 }
 
 export function buildDomainMessage(input: JSONRecord): DomainMessage {
@@ -1011,6 +1193,27 @@ function validateControlReview(review: ControlReview): void {
   }
 }
 
+function validateRuntimeParityObservation(observation: RuntimeParityObservation): void {
+  if (!observation.observation_id || !observation.program_cycle_id || !observation.agent_cycle_id) {
+    throw new Error("observation_id, program_cycle_id, and agent_cycle_id are required")
+  }
+  if (!observation.program_projection_hash || !observation.agent_projection_hash) {
+    throw new Error("program_projection_hash and agent_projection_hash are required")
+  }
+  if (!PARITY_OBSERVATION_STATUSES.includes(observation.status)) {
+    throw new Error(`unsupported runtime parity observation status: ${observation.status}`)
+  }
+  if (!Number.isFinite(Date.parse(observation.observed_at))) {
+    throw new Error("runtime parity observed_at must be a valid date")
+  }
+  if (observation.status === "match" && observation.program_projection_hash !== observation.agent_projection_hash) {
+    throw new Error("matching runtime parity observation requires equal projection hashes")
+  }
+  if (observation.status === "mismatch" && observation.program_projection_hash === observation.agent_projection_hash) {
+    throw new Error("mismatching runtime parity observation requires different projection hashes")
+  }
+}
+
 function parseCycleStatus(value: unknown): CycleStatus | "" {
   const status = stringField(value)
   return CYCLE_STATUSES.includes(status as CycleStatus) ? status as CycleStatus : ""
@@ -1158,6 +1361,17 @@ interface ControlReviewRow {
   items_json: string
   constraints_json: string
   created_at: string
+}
+
+interface RuntimeParityObservationRow {
+  observation_id: string
+  program_cycle_id: string
+  agent_cycle_id: string
+  program_projection_hash: string
+  agent_projection_hash: string
+  status: ParityObservationStatus
+  detail_json: string
+  observed_at: string
 }
 
 function runtimeHealthFromRow(row: RuntimeHealthRow): RuntimeHealth {
@@ -1339,6 +1553,19 @@ function controlReviewFromRow(row: ControlReviewRow): ControlReview {
     items_json: JSON.parse(row.items_json) as JSONRecord[],
     constraints_json: JSON.parse(row.constraints_json) as JSONRecord[],
     created_at: row.created_at,
+  }
+}
+
+function runtimeParityObservationFromRow(row: RuntimeParityObservationRow): RuntimeParityObservation {
+  return {
+    observation_id: row.observation_id,
+    program_cycle_id: row.program_cycle_id,
+    agent_cycle_id: row.agent_cycle_id,
+    program_projection_hash: row.program_projection_hash,
+    agent_projection_hash: row.agent_projection_hash,
+    status: row.status,
+    detail_json: JSON.parse(row.detail_json) as JSONRecord,
+    observed_at: row.observed_at,
   }
 }
 
