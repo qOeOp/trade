@@ -64,6 +64,14 @@
       ]
     },
     {
+      "file": "job-graph-parity-projection.schema.json",
+      "id": "trade-flow.job-graph-parity-projection.v1",
+      "owner": "scripts/lib/job-graph-runner.ts",
+      "covers": [
+        "nested job graph parity_projection"
+      ]
+    },
+    {
       "file": "live-small-result.schema.json",
       "id": "trade-flow.live-small-result.v1",
       "owner": "modules/live-execution-control/live-small-runner/src/lib/live-small-runner.ts",
@@ -90,6 +98,22 @@
         "--append-order-fill data",
         "--append-review data",
         "--record-execution data"
+      ]
+    },
+    {
+      "file": "program-shadow-wakeup-result.schema.json",
+      "id": "trade-flow.program-shadow-wakeup-result.v1",
+      "owner": "scripts/lib/program-shadow.ts",
+      "covers": [
+        "--run-program-shadow data"
+      ]
+    },
+    {
+      "file": "program-shadow-supervisor-result.schema.json",
+      "id": "trade-flow.program-shadow-supervisor-result.v1",
+      "owner": "scripts/lib/program-shadow-supervisor.ts",
+      "covers": [
+        "--run-program-shadow-supervisor data"
       ]
     },
     {
@@ -167,6 +191,22 @@
       "schemas": [
         "script-response.schema.json",
         "automation-cycle-plan.schema.json"
+      ]
+    },
+    {
+      "command": "--run-program-shadow",
+      "status": "covered",
+      "schemas": [
+        "script-response.schema.json",
+        "program-shadow-wakeup-result.schema.json"
+      ]
+    },
+    {
+      "command": "--run-program-shadow-supervisor",
+      "status": "covered",
+      "schemas": [
+        "script-response.schema.json",
+        "program-shadow-supervisor-result.schema.json"
       ]
     },
     {
