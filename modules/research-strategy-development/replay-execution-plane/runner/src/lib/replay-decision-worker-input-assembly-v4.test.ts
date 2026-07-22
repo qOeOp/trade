@@ -637,7 +637,7 @@ function request(
     entry_execution: { order_type: "market" },
   }
   const schedule = {
-    schema_version: "trade.rd-replay-decision-schedule.v11" as const,
+    schema_version: "trade.rd-replay-decision-schedule.v13" as const,
     schedule_policy: "frozen_closed_bar_schedule" as const,
     entries: [{
       decision_sequence: 1, decision_time: order.signal_time,

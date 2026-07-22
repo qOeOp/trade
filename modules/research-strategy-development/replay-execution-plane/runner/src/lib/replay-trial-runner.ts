@@ -26,6 +26,7 @@ import {
   assertReplayOrderStateSnapshot,
   assertReplayResultOhlcvResolutionBindings,
   assertReplayResultPendingOrderBindings,
+  assertReplayResultPositionRiskBindings,
   canonicalHash,
   canonicalJson,
   createReplayDecisionEvidenceTimeline,
@@ -377,6 +378,7 @@ export function runReplayTrial(input: ReplayTrialRunInput): ReplayTrialRunOutcom
     })
     assertReplayResultOhlcvResolutionBindings(result, input.request)
     assertReplayResultPendingOrderBindings(result, input.request, input.dataset_manifest)
+    assertReplayResultPositionRiskBindings(result)
     assertReplayOrderStateSnapshot(result.order_state_snapshot, result.order_events)
     if (result.fingerprint.order_state_snapshot_hash !== result.order_state_snapshot.snapshot_hash) {
       throw new Error("Replay Result Order State Snapshot fingerprint mismatch")
@@ -921,6 +923,7 @@ function readCommitted(
   if (result.schema_version !== REPLAY_RESULT_SCHEMA_VERSION) throw new Error("committed Replay result schema is not supported")
   assertReplayResultOhlcvResolutionBindings(result, request)
   assertReplayResultPendingOrderBindings(result, request, datasetManifest)
+  assertReplayResultPositionRiskBindings(result)
   assertResultOhlcvEconomicImpactBindings(result, request, datasetManifest)
   if (manifest.run_id !== request.run_id || result.run_id !== request.run_id
       || manifest.result_hash !== result.fingerprint.result_hash) {

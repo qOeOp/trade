@@ -30,6 +30,7 @@ import {
   REPLAY_SUPPLEMENTAL_REQUIREMENT_SET_SCHEMA_VERSION,
   REPLAY_VENUE_RISK_POLICY_SCHEMA_VERSION,
   assertReplayResultOhlcvResolutionBindings,
+  assertReplayResultPositionRiskBindings,
   canonicalHash,
   canonicalJson,
   createReplayEntryCancelDecisionSchedule,
@@ -46,6 +47,7 @@ import {
   replayOhlcvResolutionEvidenceHash,
   replayExecutionSpecHash,
   type ReplayDatasetManifest,
+  type ReplayDecisionSchedule,
   type ReplayExecutionRequest,
   type ReplayInstrumentStatusSnapshot,
   type ReplayMarketBar,
@@ -2383,6 +2385,485 @@ test("runner partially reduces once, rebuilds full protection, then cleanly resu
     .map((event) => event.kind)).toEqual(["cancelled", "cancelled", "submitted", "activated", "filled"])
 }, 15_000)
 
+test("runner executes two predeclared fixed partial reduces and resumes from generation three", () => {
+  const requirement = {
+    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
+    mode: "closed_bar_lookback" as const, source_kind: "ohlcv" as const,
+    fields: ["open", "high", "low", "close", "volume"] as const, lookback_bars: 1,
+    visibility_policy: "close_time_at_or_before_decision_time" as const,
+    terminal_bar_policy: "close_time_equals_decision_time" as const,
+    continuity_policy: "strict_interval_grid" as const, undeclared_input_policy: "reject" as const,
+  }
+  const bars = [
+    { open_time: "2026-07-14T00:00:00Z", close_time: "2026-07-14T04:00:00Z", open: 99, high: 102, low: 98, close: 100, volume: 10, closed: true as const },
+    { open_time: "2026-07-14T04:00:00Z", close_time: "2026-07-14T08:00:00Z", open: 100, high: 103, low: 99, close: 102, volume: 11, closed: true as const },
+    { open_time: "2026-07-14T08:00:00Z", close_time: "2026-07-14T12:00:00Z", open: 102, high: 105, low: 101, close: 104, volume: 12, closed: true as const },
+    { open_time: "2026-07-14T12:00:00Z", close_time: "2026-07-14T16:00:00Z", open: 103, high: 106, low: 100, close: 105, volume: 13, closed: true as const },
+    { open_time: "2026-07-14T16:00:00Z", close_time: "2026-07-14T20:00:00Z", open: 105, high: 108, low: 103, close: 106, volume: 14, closed: true as const },
+    { open_time: "2026-07-14T20:00:00Z", close_time: "2026-07-15T00:00:00Z", open: 106, high: 110, low: 104, close: 107, volume: 15, closed: true as const },
+    { open_time: "2026-07-15T00:00:00Z", close_time: "2026-07-15T04:00:00Z", open: 107, high: 111, low: 105, close: 108, volume: 16, closed: true as const },
+    { open_time: "2026-07-15T04:00:00Z", close_time: "2026-07-15T08:00:00Z", open: 108, high: 112, low: 106, close: 109, volume: 17, closed: true as const },
+    { open_time: "2026-07-15T08:00:00Z", close_time: "2026-07-15T12:00:00Z", open: 109, high: 121, low: 108, close: 120, volume: 18, closed: true as const },
+    { open_time: "2026-07-15T12:00:00Z", close_time: "2026-07-15T16:00:00Z", open: 120, high: 122, low: 118, close: 121, volume: 19, closed: true as const },
+  ]
+  const fundingEvents = [
+    { timestamp: "2026-07-14T20:00:00Z", rate: 0.001, mark_price: 106 },
+    { timestamp: "2026-07-15T00:00:00Z", rate: 0.001, mark_price: 107 },
+    { timestamp: "2026-07-15T04:00:00Z", rate: 0.001, mark_price: 108 },
+    { timestamp: "2026-07-15T08:00:00Z", rate: 0.001, mark_price: 109 },
+  ]
+  const order: ReplayExecutionRequest["order"] = {
+    side: "long", quantity: 1, signal_time: "2026-07-14T08:00:00Z",
+    earliest_executable_time: "2026-07-14T12:00:00Z", stop_price: 95, target_price: 120,
+    entry_execution: { order_type: "market" },
+  }
+  const partial = (signalTime: string, executableTime: string) => ({
+    schema_version: REPLAY_PARTIAL_REDUCE_INTENT_SCHEMA_VERSION,
+    side: "sell" as const, order_type: "market" as const, reduce_only: true as const,
+    quantity_policy: "fixed_quantity" as const, quantity: 0.3,
+    signal_time: signalTime, earliest_executable_time: executableTime,
+    post_fill_position_policy: "must_remain_open" as const,
+    protection_resize_policy: "after_fill_cancel_both_then_replace_remaining_at_same_source_boundary" as const,
+    protection_policy_version: REPLAY_PARTIAL_REDUCE_PROTECTION_POLICY_VERSION,
+    replacement_trigger_policy: "preserve_current_stop_and_target_prices" as const,
+    remaining_quantity_authority: "absolute_post_fill_position" as const,
+    schedule_combination_policy: "up_to_two_partial_reduces_then_optional_final_full_exit_no_other_mutation" as const,
+  })
+  const firstPartial = partial("2026-07-14T16:00:00Z", "2026-07-14T20:00:00Z")
+  const secondPartial = partial("2026-07-15T00:00:00Z", "2026-07-15T04:00:00Z")
+  const exitIntent = {
+    schema_version: REPLAY_REDUCE_ONLY_EXIT_INTENT_SCHEMA_VERSION,
+    side: "sell" as const, order_type: "market" as const, reduce_only: true as const,
+    quantity_policy: "full_open_position" as const,
+    signal_time: "2026-07-15T12:00:00Z", earliest_executable_time: "2026-07-15T16:00:00Z",
+  }
+  const decisionSchedule = {
+    schema_version: REPLAY_DECISION_SCHEDULE_SCHEMA_VERSION,
+    schedule_policy: "frozen_closed_bar_schedule" as const,
+    entries: [
+      { decision_sequence: 1, decision_time: order.signal_time, expected_effect: "authorized_initial_order" as const, authorized_reduce_only_exit: null, authorized_protective_stop_replace: null, authorized_partial_reduce: null, authorized_order_hash: canonicalHash(order) },
+      { decision_sequence: 2, decision_time: firstPartial.signal_time, expected_effect: "authorized_partial_reduce" as const, authorized_reduce_only_exit: null, authorized_protective_stop_replace: null, authorized_partial_reduce: firstPartial, authorized_order_hash: canonicalHash(firstPartial) },
+      { decision_sequence: 3, decision_time: secondPartial.signal_time, expected_effect: "authorized_partial_reduce" as const, authorized_reduce_only_exit: null, authorized_protective_stop_replace: null, authorized_partial_reduce: secondPartial, authorized_order_hash: canonicalHash(secondPartial) },
+      { decision_sequence: 4, decision_time: exitIntent.signal_time, expected_effect: "authorized_reduce_only_exit" as const, authorized_reduce_only_exit: exitIntent, authorized_protective_stop_replace: null, authorized_partial_reduce: null, authorized_order_hash: canonicalHash(exitIntent) },
+    ],
+  }
+  const registeredHarness = decisionHarness(`export function execute({ request_context, decision_state_snapshot }) {
+    if (request_context.decision_sequence === 2 || request_context.decision_sequence === 3) return { decision_output: { action: "submit_partial_reduce", order: { schema_version: ${JSON.stringify(REPLAY_PARTIAL_REDUCE_INTENT_SCHEMA_VERSION)}, side: "sell", order_type: "market", reduce_only: true, quantity_policy: "fixed_quantity", quantity: 0.3, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, post_fill_position_policy: "must_remain_open", protection_resize_policy: "after_fill_cancel_both_then_replace_remaining_at_same_source_boundary", protection_policy_version: ${JSON.stringify(REPLAY_PARTIAL_REDUCE_PROTECTION_POLICY_VERSION)}, replacement_trigger_policy: "preserve_current_stop_and_target_prices", remaining_quantity_authority: "absolute_post_fill_position", schedule_combination_policy: "up_to_two_partial_reduces_then_optional_final_full_exit_no_other_mutation" } }, trace: { state_hash: decision_state_snapshot.snapshot_hash } }
+    if (request_context.decision_sequence === 4) return { decision_output: { action: "submit_reduce_only_exit", order: { schema_version: "trade.rd-replay-reduce-only-exit-intent.v1", side: "sell", order_type: "market", reduce_only: true, quantity_policy: "full_open_position", signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time } }, trace: { state_hash: decision_state_snapshot.snapshot_hash } }
+    return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: 95, target_price: 120, entry_execution: { order_type: "market" } } }, trace: { phase: request_context.decision_phase } }
+  }\n`)
+  const dataHash = replayDatasetHash(bars, fundingEvents)
+  const requestValue: ReplayExecutionRequest = {
+    ...boundRequest(), run_id: "two-partial-reduce-run", idempotency_key: "two-partial-reduce-idem",
+    dataset_hash: dataHash, harness_hash: registeredHarness.source_bundle.bundle_hash,
+    decision_market_input_requirement: requirement,
+    decision_market_input_requirement_hash: canonicalHash(requirement),
+    decision_schedule: decisionSchedule, decision_schedule_hash: canonicalHash(decisionSchedule), order,
+  }
+  const manifest: ReplayDatasetManifest = {
+    ...datasetManifest(), data_hash: dataHash, row_count: bars.length,
+    first_open_time: bars[0]!.open_time, last_close_time: bars.at(-1)!.close_time,
+    observed_through: bars.at(-1)!.close_time,
+  }
+  const authority = authorized(requestValue)
+  const completed = runReplayTrial({
+    ...authority, dataset_manifest: manifest, bars, funding_events: fundingEvents,
+    decision_harness_registry: registeredHarness.registry,
+  })
+  expect(completed.failure).toBeUndefined()
+  expect(completed.result!.fills.map((fill) => [fill.order_role, fill.quantity]))
+    .toEqual([["entry", 1], ["strategy_partial_reduce", 0.3], ["strategy_partial_reduce", 0.3], ["target", 0.4]])
+  expect(completed.result!.positions.map((position) => position.signed_quantity)).toEqual([1, 0.7, 0.4, 0])
+  expect(completed.result!.ledger.filter((entry) => entry.kind === "funding").map((entry) => entry.amount))
+    .toEqual([-0.106, -0.0749, -0.0756, -0.0436])
+  expect(completed.result!.decision_evidence_timeline.entries[2]!.decision_state_snapshot).toMatchObject({
+    position: { signed_quantity: 0.7, average_entry_price: 103 },
+    active_protection: {
+      stop: { order_id: `${requestValue.run_id}:order:stop-after-partial:2`, remaining_quantity: 0.7 },
+      target: { order_id: `${requestValue.run_id}:order:target-after-partial:2`, remaining_quantity: 0.7 },
+    },
+  })
+  expect(completed.result!.ohlcv_resolution_evidence[0]!.active_protection).toMatchObject({
+    protection_generation: 3, remaining_quantity: 0.4,
+    stop_order_id: `${requestValue.run_id}:order:stop-after-partial:3`,
+    target_order_id: `${requestValue.run_id}:order:target-after-partial:3`,
+  })
+  expect(() => assertReplayResultOhlcvResolutionBindings(completed.result!, requestValue)).not.toThrow()
+  expect(completed.result!.decision_evidence_timeline.entries[3]).toMatchObject({
+    evaluation_status: "not_reached_terminal", execution_effect: "not_reached",
+  })
+
+  const renewedLease = attemptLease(authority.request, authority.trial_reservation, {
+    lease_generation: 3, heartbeat_at: "2026-07-14T00:01:30Z", lease_expires_at: "2026-07-14T00:06:30Z",
+  })
+  const cancelled = runReplayTrial({
+    ...authority, dataset_manifest: manifest, bars, funding_events: fundingEvents,
+    decision_harness_registry: registeredHarness.registry,
+    execution_control: { on_checkpoint: (checkpoint) => ({
+      command: checkpoint.partial_reduce_fills.length === 2 ? "cancel" : "continue",
+      attempt_lease: renewedLease, observed_at: "2026-07-14T00:02:00Z",
+    }) },
+  })
+  expect(cancelled.resumable_checkpoint).toMatchObject({
+    partial_reduce_orders: [
+      { order_id: `${requestValue.run_id}:order:partial-reduce:2`, status: "filled" },
+      { order_id: `${requestValue.run_id}:order:partial-reduce:3`, status: "filled" },
+    ],
+    partial_reduce_fills: [{ quantity: 0.3 }, { quantity: 0.3 }],
+    entry_transition: { signed_position_after: 0.4, protection_generation: 3 },
+  })
+  const resumed = runReplayTrial({
+    ...authority, attempt_lease: renewedLease, observed_at: "2026-07-14T00:02:00Z",
+    dataset_manifest: manifest, bars, funding_events: fundingEvents,
+    decision_harness_registry: registeredHarness.registry,
+    execution_control: { resume_checkpoint: cancelled.resumable_checkpoint },
+  })
+  expect(resumed.status).toBe("completed")
+  expect(canonicalHash(resumed.result)).toBe(canonicalHash(completed.result))
+  expect(resumed.result!.fills.filter((fill) => fill.order_role === "strategy_partial_reduce")).toHaveLength(2)
+
+  const tampered = structuredClone(cancelled.resumable_checkpoint!)
+  tampered.partial_reduce_orders[1]!.quantity = 0.2
+  tampered.partial_reduce_order!.quantity = 0.2
+  const { checkpoint_hash: _checkpointHash, ...tamperedBody } = tampered
+  tampered.checkpoint_hash = canonicalHash(tamperedBody)
+  const rejected = runReplayTrial({
+    ...authority, attempt_lease: renewedLease, observed_at: "2026-07-14T00:02:00Z",
+    dataset_manifest: manifest, bars, funding_events: fundingEvents,
+    decision_harness_registry: registeredHarness.registry,
+    execution_control: { resume_checkpoint: tampered },
+  })
+  expect(rejected.status).toBe("failed")
+  expect(rejected.failure?.message).toContain("partial reduce is invalid")
+
+  const combinedPartial = (signalTime: string, executableTime: string) => ({
+    ...partial(signalTime, executableTime),
+    schedule_combination_policy:
+      "up_to_two_partial_reduces_then_one_tighten_only_stop_replace_then_optional_final_full_exit" as const,
+  })
+  const combinedFirst = combinedPartial(firstPartial.signal_time, firstPartial.earliest_executable_time)
+  const combinedSecond = combinedPartial(secondPartial.signal_time, secondPartial.earliest_executable_time)
+  const replaceIntent = {
+    schema_version: REPLAY_PROTECTIVE_STOP_REPLACE_INTENT_SCHEMA_VERSION,
+    side: "sell" as const, order_type: "stop_market" as const, reduce_only: true as const,
+    quantity_policy: "full_open_position" as const,
+    replace_policy: "tighten_only_cancel_then_submit" as const,
+    schedule_combination_policy: "after_final_partial_then_optional_full_exit_no_other_position_mutation" as const,
+    signal_time: "2026-07-15T08:00:00Z", previous_stop_price: 95, new_stop_price: 107,
+  }
+  const combinedExit = { ...exitIntent, signal_time: "2026-07-15T12:00:00Z", earliest_executable_time: "2026-07-15T16:00:00Z" }
+  const combinedSchedule = {
+    schema_version: REPLAY_DECISION_SCHEDULE_SCHEMA_VERSION,
+    schedule_policy: "frozen_closed_bar_schedule" as const,
+    entries: [
+      { decision_sequence: 1, decision_time: order.signal_time, expected_effect: "authorized_initial_order" as const, authorized_reduce_only_exit: null, authorized_protective_stop_replace: null, authorized_partial_reduce: null, authorized_order_hash: canonicalHash(order) },
+      { decision_sequence: 2, decision_time: combinedFirst.signal_time, expected_effect: "authorized_partial_reduce" as const, authorized_reduce_only_exit: null, authorized_protective_stop_replace: null, authorized_partial_reduce: combinedFirst, authorized_order_hash: canonicalHash(combinedFirst) },
+      { decision_sequence: 3, decision_time: combinedSecond.signal_time, expected_effect: "authorized_partial_reduce" as const, authorized_reduce_only_exit: null, authorized_protective_stop_replace: null, authorized_partial_reduce: combinedSecond, authorized_order_hash: canonicalHash(combinedSecond) },
+      { decision_sequence: 4, decision_time: replaceIntent.signal_time, expected_effect: "authorized_protective_stop_replace" as const, authorized_reduce_only_exit: null, authorized_protective_stop_replace: replaceIntent, authorized_partial_reduce: null, authorized_order_hash: canonicalHash(replaceIntent) },
+      { decision_sequence: 5, decision_time: combinedExit.signal_time, expected_effect: "authorized_reduce_only_exit" as const, authorized_reduce_only_exit: combinedExit, authorized_protective_stop_replace: null, authorized_partial_reduce: null, authorized_order_hash: canonicalHash(combinedExit) },
+    ],
+  }
+  const combinedHarness = decisionHarness(`export function execute({ request_context, decision_state_snapshot }) {
+    if (request_context.decision_sequence === 2 || request_context.decision_sequence === 3) return { decision_output: { action: "submit_partial_reduce", order: { schema_version: ${JSON.stringify(REPLAY_PARTIAL_REDUCE_INTENT_SCHEMA_VERSION)}, side: "sell", order_type: "market", reduce_only: true, quantity_policy: "fixed_quantity", quantity: 0.3, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, post_fill_position_policy: "must_remain_open", protection_resize_policy: "after_fill_cancel_both_then_replace_remaining_at_same_source_boundary", protection_policy_version: ${JSON.stringify(REPLAY_PARTIAL_REDUCE_PROTECTION_POLICY_VERSION)}, replacement_trigger_policy: "preserve_current_stop_and_target_prices", remaining_quantity_authority: "absolute_post_fill_position", schedule_combination_policy: "up_to_two_partial_reduces_then_one_tighten_only_stop_replace_then_optional_final_full_exit" } }, trace: { state_hash: decision_state_snapshot.snapshot_hash } }
+    if (request_context.decision_sequence === 4) {
+      if (decision_state_snapshot.position.signed_quantity !== 0.4 || decision_state_snapshot.active_protection.stop.remaining_quantity !== 0.4) throw new Error("replacement did not observe the final partial state")
+      return { decision_output: { action: "replace_protective_stop", order: { schema_version: ${JSON.stringify(REPLAY_PROTECTIVE_STOP_REPLACE_INTENT_SCHEMA_VERSION)}, side: "sell", order_type: "stop_market", reduce_only: true, quantity_policy: "full_open_position", replace_policy: "tighten_only_cancel_then_submit", schedule_combination_policy: "after_final_partial_then_optional_full_exit_no_other_position_mutation", signal_time: request_context.decision_time, previous_stop_price: 95, new_stop_price: 107 } }, trace: { state_hash: decision_state_snapshot.snapshot_hash } }
+    }
+    if (request_context.decision_sequence === 5) return { decision_output: { action: "submit_reduce_only_exit", order: { schema_version: ${JSON.stringify(REPLAY_REDUCE_ONLY_EXIT_INTENT_SCHEMA_VERSION)}, side: "sell", order_type: "market", reduce_only: true, quantity_policy: "full_open_position", signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time } }, trace: { state_hash: decision_state_snapshot.snapshot_hash } }
+    return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: 95, target_price: 120, entry_execution: { order_type: "market" } } }, trace: { phase: request_context.decision_phase } }
+  }\n`)
+  const combinedRequest: ReplayExecutionRequest = {
+    ...requestValue, run_id: "partial-stop-replace-run", idempotency_key: "partial-stop-replace-idem",
+    harness_hash: combinedHarness.source_bundle.bundle_hash,
+    decision_schedule: combinedSchedule, decision_schedule_hash: canonicalHash(combinedSchedule),
+  }
+  const combinedAuthority = authorized(combinedRequest)
+  const combinedCompleted = runReplayTrial({
+    ...combinedAuthority, dataset_manifest: manifest, bars, funding_events: fundingEvents,
+    decision_harness_registry: combinedHarness.registry,
+  })
+  expect(combinedCompleted.status).toBe("completed")
+  expect(combinedCompleted.failure).toBeUndefined()
+  expect(combinedCompleted.result!.fills.map((fill) => [fill.order_role, fill.quantity]))
+    .toEqual([["entry", 1], ["strategy_partial_reduce", 0.3], ["strategy_partial_reduce", 0.3], ["target", 0.4]])
+  expect(combinedCompleted.result!.decision_evidence_timeline.entries[3]).toMatchObject({
+    execution_effect: "authorized_protective_stop_replace",
+    decision_state_snapshot: {
+      position: { signed_quantity: 0.4 },
+      active_protection: { stop: { remaining_quantity: 0.4 }, target: { remaining_quantity: 0.4 } },
+    },
+  })
+  expect(combinedCompleted.result!.ohlcv_resolution_evidence[0]!.active_protection).toMatchObject({
+    protection_generation: 4, remaining_quantity: 0.4,
+    stop_order_id: `${combinedRequest.run_id}:order:stop-replacement:4`,
+    target_order_id: `${combinedRequest.run_id}:order:target-after-partial:3`,
+    stop_trigger_price: 107, target_trigger_price: 120,
+  })
+  expect(() => assertReplayResultOhlcvResolutionBindings(combinedCompleted.result!, combinedRequest)).not.toThrow()
+  expect(combinedCompleted.result!.order_events.find((event) => (
+    event.order_id === `${combinedRequest.run_id}:order:stop-after-partial:3`
+      && event.kind === "cancelled"
+  ))).toMatchObject({ reason: "protective-stop-replaced" })
+
+  const combinedLease = attemptLease(combinedAuthority.request, combinedAuthority.trial_reservation, {
+    lease_generation: 3, heartbeat_at: "2026-07-14T00:01:30Z", lease_expires_at: "2026-07-14T00:06:30Z",
+  })
+  const combinedCancelled = runReplayTrial({
+    ...combinedAuthority, dataset_manifest: manifest, bars, funding_events: fundingEvents,
+    decision_harness_registry: combinedHarness.registry,
+    execution_control: { on_checkpoint: (checkpoint) => ({
+      command: checkpoint.entry_transition?.protection_generation === 4 ? "cancel" : "continue",
+      attempt_lease: combinedLease, observed_at: "2026-07-14T00:02:00Z",
+    }) },
+  })
+  expect(combinedCancelled.resumable_checkpoint).toMatchObject({
+    entry_transition: {
+      signed_position_after: 0.4, protection_generation: 4,
+      stop_order: { order_id: `${combinedRequest.run_id}:order:stop-replacement:4`, remaining_quantity: 0.4 },
+      target_order: { order_id: `${combinedRequest.run_id}:order:target-after-partial:3`, remaining_quantity: 0.4 },
+    },
+  })
+  const combinedResumed = runReplayTrial({
+    ...combinedAuthority, attempt_lease: combinedLease, observed_at: "2026-07-14T00:02:00Z",
+    dataset_manifest: manifest, bars, funding_events: fundingEvents,
+    decision_harness_registry: combinedHarness.registry,
+    execution_control: { resume_checkpoint: combinedCancelled.resumable_checkpoint },
+  })
+  expect(combinedResumed.status).toBe("completed")
+  expect(canonicalHash(combinedResumed.result)).toBe(canonicalHash(combinedCompleted.result))
+
+  const combinedGenerationTampered = structuredClone(combinedCancelled.resumable_checkpoint!)
+  combinedGenerationTampered.entry_transition!.protection_generation = 3
+  const { checkpoint_hash: _combinedGenerationHash, ...combinedGenerationBody } = combinedGenerationTampered
+  combinedGenerationTampered.checkpoint_hash = canonicalHash(combinedGenerationBody)
+  const combinedGenerationRejected = runReplayTrial({
+    ...combinedAuthority, attempt_lease: combinedLease, observed_at: "2026-07-14T00:02:00Z",
+    dataset_manifest: manifest, bars, funding_events: fundingEvents,
+    decision_harness_registry: combinedHarness.registry,
+    execution_control: { resume_checkpoint: combinedGenerationTampered },
+  })
+  expect(combinedGenerationRejected.status).toBe("failed")
+  expect(combinedGenerationRejected.failure?.message).toContain("protection generation is invalid")
+
+  const replacementGapBars = bars.map((bar, index) => index === 8
+    ? { ...bar, high: 110, low: 108, close: 109 }
+    : index === 9
+      ? { ...bar, open: 106, high: 110, low: 100, close: 105 }
+      : bar)
+  const replacementGapHash = replayDatasetHash(replacementGapBars, fundingEvents)
+  const replacementGapRequest = {
+    ...combinedRequest, run_id: "partial-stop-replace-gap-run",
+    idempotency_key: "partial-stop-replace-gap-idem", dataset_hash: replacementGapHash,
+  }
+  const replacementGap = runReplayTrial({
+    ...authorized(replacementGapRequest),
+    dataset_manifest: { ...manifest, data_hash: replacementGapHash },
+    bars: replacementGapBars, funding_events: fundingEvents,
+    decision_harness_registry: combinedHarness.registry,
+  })
+  expect(replacementGap.failure).toBeUndefined()
+  expect(replacementGap.status).toBe("completed")
+  expect(replacementGap.result!.fills.at(-1)).toMatchObject({
+    order_role: "stop", timestamp: "2026-07-15T12:00:00Z", price: 106, quantity: 0.4,
+  })
+  expect(replacementGap.result!.ohlcv_resolution_evidence[0]!.active_protection).toMatchObject({
+    protection_generation: 4,
+    stop_order_id: `${replacementGapRequest.run_id}:order:stop-replacement:4`,
+    target_order_id: `${replacementGapRequest.run_id}:order:target-after-partial:3`,
+  })
+
+  const preemptedBars = bars.map((bar, index) => index === 7 ? { ...bar, low: 94 } : bar)
+  const preemptedHash = replayDatasetHash(preemptedBars, fundingEvents)
+  const preemptedRequest = {
+    ...combinedRequest, run_id: "partial-stop-replace-preempted-run",
+    idempotency_key: "partial-stop-replace-preempted-idem", dataset_hash: preemptedHash,
+  }
+  const preempted = runReplayTrial({
+    ...authorized(preemptedRequest), dataset_manifest: { ...manifest, data_hash: preemptedHash },
+    bars: preemptedBars, funding_events: fundingEvents,
+    decision_harness_registry: combinedHarness.registry,
+  })
+  expect(preempted.status).toBe("completed")
+  expect(preempted.result!.decision_evidence_timeline.entries[3]).toMatchObject({
+    evaluation_status: "not_reached_terminal", execution_effect: "not_reached",
+  })
+  expect(preempted.result!.order_events.some((event) => event.order_id.includes("stop-replacement"))).toBe(false)
+}, 15_000)
+
+test("post-partial stop replacement preserves t-minus funding and exact-risk quantity for long and short", () => {
+  const requirement = {
+    schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
+    mode: "closed_bar_lookback" as const, source_kind: "ohlcv" as const,
+    fields: ["open", "high", "low", "close", "volume"] as const, lookback_bars: 1,
+    visibility_policy: "close_time_at_or_before_decision_time" as const,
+    terminal_bar_policy: "close_time_equals_decision_time" as const,
+    continuity_policy: "strict_interval_grid" as const, undeclared_input_policy: "reject" as const,
+  }
+  const times = [
+    "2026-07-14T00:00:00Z", "2026-07-14T04:00:00Z", "2026-07-14T08:00:00Z",
+    "2026-07-14T12:00:00Z", "2026-07-14T16:00:00Z", "2026-07-14T20:00:00Z",
+    "2026-07-15T00:00:00Z", "2026-07-15T04:00:00Z", "2026-07-15T08:00:00Z",
+    "2026-07-15T12:00:00Z", "2026-07-15T16:00:00Z",
+  ]
+  const riskBars = times.slice(0, -1).map((openTime, index) => ({
+    open_time: openTime, close_time: times[index + 1]!,
+    open: 100, high: 101, low: 99, close: 100, volume: 10 + index, closed: true as const,
+  }))
+  const fundingEvents = [
+    "2026-07-14T20:00:00Z", "2026-07-15T00:00:00Z", "2026-07-15T04:00:00Z",
+    "2026-07-15T08:00:00Z", "2026-07-15T12:00:00Z",
+  ].map((timestamp) => ({ timestamp, rate: 0.0001, mark_price: 100 }))
+
+  for (const side of ["long", "short"] as const) {
+    for (const partialCount of [1, 2] as const) {
+      const exitSide = side === "long" ? "sell" as const : "buy" as const
+      const order: ReplayExecutionRequest["order"] = {
+        side, quantity: 1, signal_time: "2026-07-14T08:00:00Z",
+        earliest_executable_time: "2026-07-14T12:00:00Z",
+        stop_price: side === "long" ? 80 : 120,
+        target_price: side === "long" ? 130 : 70,
+        entry_execution: { order_type: "market" },
+      }
+      const combinationPolicy = partialCount === 1
+        ? "one_partial_reduce_then_one_tighten_only_stop_replace_then_optional_final_full_exit" as const
+        : "up_to_two_partial_reduces_then_one_tighten_only_stop_replace_then_optional_final_full_exit" as const
+      const partialTimes = [
+        ["2026-07-14T16:00:00Z", "2026-07-14T20:00:00Z"],
+        ["2026-07-15T00:00:00Z", "2026-07-15T04:00:00Z"],
+      ].slice(0, partialCount)
+      const partials = partialTimes.map(([signalTime, executableTime]) => ({
+        schema_version: REPLAY_PARTIAL_REDUCE_INTENT_SCHEMA_VERSION,
+        side: exitSide, order_type: "market" as const, reduce_only: true as const,
+        quantity_policy: "fixed_quantity" as const, quantity: 0.3,
+        signal_time: signalTime!, earliest_executable_time: executableTime!,
+        post_fill_position_policy: "must_remain_open" as const,
+        protection_resize_policy: "after_fill_cancel_both_then_replace_remaining_at_same_source_boundary" as const,
+        protection_policy_version: REPLAY_PARTIAL_REDUCE_PROTECTION_POLICY_VERSION,
+        replacement_trigger_policy: "preserve_current_stop_and_target_prices" as const,
+        remaining_quantity_authority: "absolute_post_fill_position" as const,
+        schedule_combination_policy: combinationPolicy,
+      }))
+      const replacementTime = partialCount === 1 ? "2026-07-15T00:00:00Z" : "2026-07-15T08:00:00Z"
+      const replacement = {
+        schema_version: REPLAY_PROTECTIVE_STOP_REPLACE_INTENT_SCHEMA_VERSION,
+        side: exitSide, order_type: "stop_market" as const, reduce_only: true as const,
+        quantity_policy: "full_open_position" as const,
+        replace_policy: "tighten_only_cancel_then_submit" as const,
+        schedule_combination_policy: "after_final_partial_then_optional_full_exit_no_other_position_mutation" as const,
+        signal_time: replacementTime,
+        previous_stop_price: order.stop_price,
+        new_stop_price: side === "long" ? 90 : 110,
+      }
+      const frozenDecisions = [order, ...partials, replacement]
+      const effects: ReplayDecisionSchedule["entries"][number]["expected_effect"][] = [
+        "authorized_initial_order", ...partials.map(() => "authorized_partial_reduce" as const),
+        "authorized_protective_stop_replace",
+      ]
+      const decisionSchedule: ReplayDecisionSchedule = {
+        schema_version: REPLAY_DECISION_SCHEDULE_SCHEMA_VERSION,
+        schedule_policy: "frozen_closed_bar_schedule" as const,
+        entries: frozenDecisions.map((decision, index) => ({
+          decision_sequence: index + 1,
+          decision_time: decision.signal_time,
+          expected_effect: effects[index]!,
+          authorized_reduce_only_exit: null,
+          authorized_protective_stop_replace: effects[index] === "authorized_protective_stop_replace" ? replacement : null,
+          authorized_partial_reduce: effects[index] === "authorized_partial_reduce" ? decision as typeof partials[number] : null,
+          authorized_order_hash: canonicalHash(decision),
+        })),
+      }
+      const decisionOutputs = frozenDecisions.map((decision, index) => ({
+        action: effects[index] === "authorized_initial_order"
+          ? "submit_initial_order"
+          : effects[index] === "authorized_partial_reduce"
+            ? "submit_partial_reduce"
+            : "replace_protective_stop",
+        order: decision,
+      }))
+      const registeredHarness = decisionHarness(`const outputs = ${JSON.stringify(decisionOutputs)}
+export function execute({ request_context, decision_state_snapshot }) {
+  return { decision_output: outputs[request_context.decision_sequence - 1], trace: { state_hash: decision_state_snapshot?.snapshot_hash ?? null } }
+}
+`)
+      const triggerTime = partialCount === 1 ? "2026-07-15T04:00:00Z" : "2026-07-15T12:00:00Z"
+      const triggerMark = partialCount === 1
+        ? side === "long" ? 74.5 : 125.5
+        : side === "long" ? 75.3 : 124.7
+      const markEvents = times.map((timestamp, index) => ({
+        timestamp, available_at: timestamp, source_sequence: index + 1,
+        mark_price: timestamp === triggerTime ? triggerMark : 100,
+      }))
+      const dataHash = replayDatasetHash(riskBars, fundingEvents, markEvents)
+      const riskSnapshot = { ...RISK_SNAPSHOT, liquidation_fee_bps: 0 }
+      const requestValue: ReplayExecutionRequest = {
+        ...boundRequest(),
+        run_id: `post-partial-risk-${side}-${partialCount}`,
+        idempotency_key: `post-partial-risk-idem-${side}-${partialCount}`,
+        dataset_hash: dataHash, harness_hash: registeredHarness.source_bundle.bundle_hash,
+        initial_cash: 1000, order,
+        cost_policy: { ...boundRequest().cost_policy, fee_bps: 0, slippage_bps: 0, liquidation_fee_bps: 0 },
+        margin_policy: { ...boundRequest().margin_policy, isolated_collateral: partialCount === 1 ? 18 : 10 },
+        venue_risk_policy_schedule_hash: canonicalHash([riskSnapshot]),
+        decision_market_input_requirement: requirement,
+        decision_market_input_requirement_hash: canonicalHash(requirement),
+        decision_schedule: decisionSchedule,
+        decision_schedule_hash: canonicalHash(decisionSchedule),
+      }
+      const manifest: ReplayDatasetManifest = {
+        ...datasetManifestFor(riskBars, dataHash),
+        venue_risk_policy_epochs: [riskSnapshot],
+        mark_coverage: "complete_grid", mark_interval_ms: 14_400_000,
+        mark_event_count: markEvents.length,
+      }
+      const outcome = runReplayTrial({
+        ...authorized(requestValue), dataset_manifest: manifest,
+        bars: riskBars, funding_events: fundingEvents, mark_events: markEvents,
+        decision_harness_registry: registeredHarness.registry,
+      })
+      expect(outcome.failure).toBeUndefined()
+      expect(outcome.status).toBe("completed")
+      const result = outcome.result!
+      const remaining = partialCount === 1 ? 0.7 : 0.4
+      const signed = side === "long" ? 1 : -1
+      const expectedFundingQuantities = partialCount === 1 ? [1, 0.7, 0.7] : [1, 0.7, 0.7, 0.4, 0.4]
+      const actualFills: Array<[string, number]> = result.fills.map(
+        (fill) => [fill.order_role, fill.quantity],
+      )
+      const expectedFills: Array<[string, number]> = [
+        ["entry", 1],
+        ...Array.from(
+          { length: partialCount }, () => ["strategy_partial_reduce", 0.3] as [string, number],
+        ),
+        ["liquidation", remaining],
+      ]
+      expect(actualFills).toEqual(expectedFills)
+      expect(result.ledger.filter((entry) => entry.kind === "funding").map((entry) => entry.amount))
+        .toEqual(expectedFundingQuantities.map(
+          (quantity) => Number((signed * -1 * quantity * 0.01).toFixed(8)),
+        ))
+      expect(result.margin_snapshots.filter((snapshot) => snapshot.mark_source === "funding_mark")
+        .map((snapshot) => snapshot.signed_quantity))
+        .toEqual(expectedFundingQuantities.map((quantity) => signed * quantity))
+      expect(result.liquidation).toMatchObject({ quantity: remaining, settlement_state: "flat_without_deficit" })
+      expect(result.margin_snapshots.find((snapshot) => snapshot.maintenance_breach_observed)).toMatchObject({
+        signed_quantity: signed * remaining, mark_price: triggerMark, resolution: "exact",
+      })
+      expect(() => assertReplayResultPositionRiskBindings(result)).not.toThrow()
+
+      const fundingQuantityTampered = structuredClone(result)
+      const lastFundingMargin = [...fundingQuantityTampered.margin_snapshots].reverse()
+        .find((snapshot) => snapshot.mark_source === "funding_mark")!
+      lastFundingMargin.signed_quantity = signed
+      expect(() => assertReplayResultPositionRiskBindings(fundingQuantityTampered))
+        .toThrow("Margin Snapshot does not bind its Position quantity")
+      const liquidationQuantityTampered = structuredClone(result)
+      liquidationQuantityTampered.liquidation!.quantity += 0.1
+      expect(() => assertReplayResultPositionRiskBindings(liquidationQuantityTampered))
+        .toThrow("Liquidation does not consume the exact breached Position quantity")
+    }
+  }
+}, 20_000)
+
 test("runner tightens one protective stop and resumes without replaying its Harness", () => {
   const requirement = {
     schema_version: REPLAY_DECISION_MARKET_INPUT_REQUIREMENT_SCHEMA_VERSION,
@@ -2424,7 +2905,7 @@ test("runner tightens one protective stop and resumes without replaying its Harn
   const registeredHarness = decisionHarness(`export function execute({ request_context, decision_state_snapshot }) {
     if (request_context.decision_phase === "position_open") {
       if (decision_state_snapshot?.active_protection.stop.trigger_price !== 95) throw new Error("missing active stop state")
-      return { decision_output: { action: "replace_protective_stop", order: { schema_version: "trade.rd-replay-protective-stop-replace-intent.v1", side: "sell", order_type: "stop_market", reduce_only: true, quantity_policy: "full_open_position", replace_policy: "tighten_only_cancel_then_submit", signal_time: request_context.decision_time, previous_stop_price: 95, new_stop_price: 104 } }, trace: { state_hash: decision_state_snapshot.snapshot_hash } }
+      return { decision_output: { action: "replace_protective_stop", order: { schema_version: "trade.rd-replay-protective-stop-replace-intent.v2", side: "sell", order_type: "stop_market", reduce_only: true, quantity_policy: "full_open_position", replace_policy: "tighten_only_cancel_then_submit", signal_time: request_context.decision_time, previous_stop_price: 95, new_stop_price: 104 } }, trace: { state_hash: decision_state_snapshot.snapshot_hash } }
     }
     return { decision_output: { action: "submit_initial_order", order: { side: "long", quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: 95, target_price: 120, entry_execution: { order_type: "market" } } }, trace: { phase: request_context.decision_phase } }
   }\n`)
@@ -2757,7 +3238,7 @@ test("runner preserves one terminal owner after stop replacement and a later str
     }
     const stop = decision_state_snapshot?.active_protection.stop.trigger_price
     if (stop === 95) {
-      return { decision_output: { action: "replace_protective_stop", order: { schema_version: "trade.rd-replay-protective-stop-replace-intent.v1", side: "sell", order_type: "stop_market", reduce_only: true, quantity_policy: "full_open_position", replace_policy: "tighten_only_cancel_then_submit", signal_time: request_context.decision_time, previous_stop_price: 95, new_stop_price: 104 } }, trace: { state_hash: decision_state_snapshot.snapshot_hash } }
+      return { decision_output: { action: "replace_protective_stop", order: { schema_version: "trade.rd-replay-protective-stop-replace-intent.v2", side: "sell", order_type: "stop_market", reduce_only: true, quantity_policy: "full_open_position", replace_policy: "tighten_only_cancel_then_submit", signal_time: request_context.decision_time, previous_stop_price: 95, new_stop_price: 104 } }, trace: { state_hash: decision_state_snapshot.snapshot_hash } }
     }
     if (stop !== 104) throw new Error("replacement stop is not the active authority")
     return { decision_output: { action: "submit_reduce_only_exit", order: { schema_version: "trade.rd-replay-reduce-only-exit-intent.v1", side: "sell", order_type: "market", reduce_only: true, quantity_policy: "full_open_position", signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time } }, trace: { state_hash: decision_state_snapshot.snapshot_hash } }
@@ -2883,7 +3364,7 @@ test("protective stop replacement is direction-symmetric and keeps stop-first OH
         return { decision_output: { action: "submit_initial_order", order: { side: ${JSON.stringify(side)}, quantity: 1, signal_time: request_context.decision_time, earliest_executable_time: request_context.earliest_executable_time, stop_price: ${initialStop}, target_price: ${target}, entry_execution: { order_type: "market" } } }, trace: { phase: "entry" } }
       }
       if (decision_state_snapshot?.active_protection.stop.trigger_price !== ${initialStop}) throw new Error("wrong active stop")
-      return { decision_output: { action: "replace_protective_stop", order: { schema_version: "trade.rd-replay-protective-stop-replace-intent.v1", side: ${JSON.stringify(exitSide)}, order_type: "stop_market", reduce_only: true, quantity_policy: "full_open_position", replace_policy: "tighten_only_cancel_then_submit", signal_time: request_context.decision_time, previous_stop_price: ${initialStop}, new_stop_price: ${replacementStop} } }, trace: { state_hash: decision_state_snapshot.snapshot_hash } }
+      return { decision_output: { action: "replace_protective_stop", order: { schema_version: "trade.rd-replay-protective-stop-replace-intent.v2", side: ${JSON.stringify(exitSide)}, order_type: "stop_market", reduce_only: true, quantity_policy: "full_open_position", replace_policy: "tighten_only_cancel_then_submit", signal_time: request_context.decision_time, previous_stop_price: ${initialStop}, new_stop_price: ${replacementStop} } }, trace: { state_hash: decision_state_snapshot.snapshot_hash } }
     }
     `)
     const dataHash = replayDatasetHash(bars)
