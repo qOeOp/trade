@@ -1,4 +1,4 @@
-import { hashCanonical } from "../../../../replay-execution-plane/compatibility/legacy-research-kernel/src/lib/replay-core"
+import { hashCanonical } from "../../../../replay-execution-plane/compatibility/legacy-replay-identity/src/lib/legacy-replay-identity"
 import { asRecord, numberOrUndefined, stringField, type JSONRecord } from "../../../../../contracts/runtime-core/src/json"
 
 type SetupBehavior = "open_setup" | "observe_setup" | "act_on_setup" | "close_setup" | "review_setup"

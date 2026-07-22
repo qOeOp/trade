@@ -30,3 +30,4 @@ atomic module
 - Tracker output is review input only; it is not strategy evidence by itself.
 - Despite the compatibility tool/job name, this module does not own or claim formal Shadow evidence.
 - Placeholder tracker configs without `forward_result_path` or `state_path` return an auditable skipped J05 result; they do not invent artifact refs.
+- Uses `legacy-research-data` and `legacy-replay-identity` only for migration-period tracker refresh/identity；不再依赖 legacy evaluation kernel。
