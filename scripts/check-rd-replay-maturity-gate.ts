@@ -43,6 +43,12 @@ interface CapabilityInventory {
     path: string
     export: string
   }>
+  compatibility_consumer_registry: Array<{
+    milestone: string
+    owner: string
+    path: string
+    export: string
+  }>
   entries: Array<{
     milestone: string
     capability: string
@@ -109,6 +115,31 @@ for (const activation of inventory.opt_in_activation_registry) {
       || !readFileSync(activation.path, "utf8").includes(`export function ${activation.export}`)) {
     issues.push(`Replay opt-in activation is not owned by its declared Runner export: ${activation.milestone}`)
   }
+}
+const compatibilityMilestones = inventory.entries
+  .filter((entry) => entry.classification === "compatibility")
+  .map((entry) => entry.milestone)
+const compatibilityRoot = "modules/research-strategy-development/replay-execution-plane/compatibility/legacy-portfolio-cycle/"
+if (canonicalArray(inventory.compatibility_consumer_registry.map((entry) => entry.milestone))
+    !== canonicalArray(compatibilityMilestones)
+    || new Set(inventory.compatibility_consumer_registry.map((entry) => entry.milestone)).size
+      !== inventory.compatibility_consumer_registry.length) {
+  issues.push("Replay compatibility consumer registry must cover each compatibility capability exactly once")
+}
+for (const consumer of inventory.compatibility_consumer_registry) {
+  if (consumer.owner !== "legacy-portfolio-cycle" || !consumer.path.startsWith(compatibilityRoot)
+      || !existsSync(consumer.path)
+      || !readFileSync(consumer.path, "utf8").includes(`export function ${consumer.export}`)) {
+    issues.push(`Replay compatibility consumer is not isolated under its declared owner: ${consumer.milestone}`)
+  }
+}
+for (const formerPath of [
+  "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-reallocation-runner.ts",
+  "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-two-cycle-portfolio-runner.ts",
+  "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-cycle-sequence-accounting-runner.ts",
+  "modules/research-strategy-development/replay-execution-plane/accounting/src/lib/replay-portfolio-cycle-sequence-accounting.ts",
+]) {
+  if (existsSync(formerPath)) issues.push(`Replay compatibility consumer remains in a canonical owner: ${formerPath}`)
 }
 if (inventory.summary.total !== 29
     || Object.entries(classificationCounts).some(([key, count]) =>
