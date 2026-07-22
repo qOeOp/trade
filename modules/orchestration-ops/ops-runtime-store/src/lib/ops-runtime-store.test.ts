@@ -22,8 +22,40 @@ import {
   upsertOpsLock,
   acquireOpsLock,
   readOpsLock,
+  readRuntimeParityObservations,
+  recordRuntimeParityObservation,
+  renewOpsLock,
   releaseOpsLock,
 } from "./ops-runtime-store"
+
+test("ops runtime store keeps an immutable Agent/program parity ledger", () => {
+  const db = new Database(":memory:")
+  ensureOpsRuntimeSchema(db)
+  try {
+    upsertCycleRun(db, buildCycleRun({ cycle_id: "program-cycle", now: "2026-07-23T08:00:00Z", status: "completed" }))
+    upsertCycleRun(db, buildCycleRun({ cycle_id: "agent-cycle", now: "2026-07-23T08:00:00Z", status: "completed" }))
+    const observation = {
+      observation_id: "parity:program-cycle",
+      program_cycle_id: "program-cycle",
+      agent_cycle_id: "agent-cycle",
+      program_projection_hash: "same-hash",
+      agent_projection_hash: "same-hash",
+      status: "match" as const,
+      detail_json: { program: { projection_hash: "same-hash" }, agent: { projection_hash: "same-hash" } },
+      observed_at: "2026-07-23T08:00:01Z",
+    }
+
+    assert.deepEqual(recordRuntimeParityObservation(db, observation), observation)
+    assert.deepEqual(recordRuntimeParityObservation(db, observation), observation)
+    assert.deepEqual(readRuntimeParityObservations(db, { status: "match" }), [observation])
+    assert.throws(
+      () => recordRuntimeParityObservation(db, { ...observation, agent_cycle_id: "changed-agent-cycle" }),
+      /runtime parity observation is immutable/,
+    )
+  } finally {
+    db.close()
+  }
+})
 
 test("ops runtime store creates schema and records cycle/job observability", () => {
   const db = new Database(":memory:")
@@ -255,6 +287,14 @@ test("ops runtime store acquires, rejects, expires, and releases named locks ato
       expires_at: "2026-07-22T01:00:00.000Z",
     })
     assert.equal(first.acquired, true)
+    assert.equal(first.recovered_stale, false)
+    assert.equal(first.lock.fencing_token, 1)
+    assert.throws(() => upsertOpsLock(db, {
+      lock_key: "research-rd",
+      holder_id: "unsafe-overwrite",
+      acquired_at: "2026-07-22T00:15:00.000Z",
+      expires_at: "2026-07-22T01:15:00.000Z",
+    }), /held by another active owner/)
     const blocked = acquireOpsLock(db, {
       lock_key: "research-rd",
       holder_id: "cycle-2",
@@ -262,18 +302,87 @@ test("ops runtime store acquires, rejects, expires, and releases named locks ato
       expires_at: "2026-07-22T01:30:00.000Z",
     })
     assert.equal(blocked.acquired, false)
+    assert.equal(blocked.recovered_stale, false)
     assert.equal(blocked.lock.holder_id, "cycle-1")
+    assert.equal(blocked.lock.fencing_token, 1)
+    const renewed = renewOpsLock(db, {
+      lock_key: "research-rd",
+      holder_id: "cycle-1",
+      fencing_token: 1,
+      renewed_at: "2026-07-22T00:45:00.000Z",
+      expires_at: "2026-07-22T01:45:00.000Z",
+    })
+    assert.equal(renewed.renewed, true)
+    assert.equal(renewed.lock?.expires_at, "2026-07-22T01:45:00.000Z")
+    const staleRenewal = renewOpsLock(db, {
+      lock_key: "research-rd",
+      holder_id: "cycle-1",
+      fencing_token: 1,
+      renewed_at: "2026-07-22T02:00:00.000Z",
+      expires_at: "2026-07-22T03:00:00.000Z",
+    })
+    assert.equal(staleRenewal.renewed, false)
     const replaced = acquireOpsLock(db, {
       lock_key: "research-rd",
       holder_id: "cycle-2",
-      acquired_at: "2026-07-22T01:00:00.000Z",
-      expires_at: "2026-07-22T02:00:00.000Z",
+      acquired_at: "2026-07-22T02:00:00.000Z",
+      expires_at: "2026-07-22T03:00:00.000Z",
     })
     assert.equal(replaced.acquired, true)
+    assert.equal(replaced.recovered_stale, true)
+    assert.equal(replaced.lock.fencing_token, 2)
     assert.equal(readOpsLock(db, "research-rd")?.holder_id, "cycle-2")
+    assert.equal(releaseOpsLock(db, "research-rd", "cycle-2", 1), false)
     assert.equal(releaseOpsLock(db, "research-rd", "cycle-1"), false)
     assert.equal(releaseOpsLock(db, "research-rd", "cycle-2"), true)
     assert.equal(readOpsLock(db, "research-rd"), null)
+    const nextOwner = acquireOpsLock(db, {
+      lock_key: "research-rd",
+      holder_id: "cycle-3",
+      acquired_at: "2026-07-22T03:00:00.000Z",
+      expires_at: "2026-07-22T04:00:00.000Z",
+    })
+    assert.equal(nextOwner.acquired, true)
+    assert.equal(nextOwner.recovered_stale, false)
+    assert.equal(nextOwner.lock.fencing_token, 3)
+  } finally {
+    db.close()
+  }
+})
+
+test("ops runtime store migrates legacy locks to the first fencing generation", () => {
+  const db = new Database(":memory:")
+  try {
+    db.run(`
+      CREATE TABLE ops_lock (
+        lock_key TEXT PRIMARY KEY,
+        holder_id TEXT NOT NULL,
+        acquired_at TEXT NOT NULL,
+        expires_at TEXT NOT NULL
+      )
+    `)
+    db.query(`
+      INSERT INTO ops_lock(lock_key, holder_id, acquired_at, expires_at)
+      VALUES (?, ?, ?, ?)
+    `).run("legacy-lock", "legacy-owner", "2026-07-23T00:00:00Z", "2026-07-23T01:00:00Z")
+
+    ensureOpsRuntimeSchema(db)
+
+    assert.equal(readOpsLock(db, "legacy-lock")?.fencing_token, 1)
+    assert.equal(renewOpsLock(db, {
+      lock_key: "legacy-lock",
+      holder_id: "legacy-owner",
+      fencing_token: 1,
+      renewed_at: "2026-07-23T00:30:00Z",
+      expires_at: "2026-07-23T01:30:00Z",
+    }).renewed, true)
+    assert.equal(releaseOpsLock(db, "legacy-lock", "legacy-owner", 1), true)
+    assert.equal(acquireOpsLock(db, {
+      lock_key: "legacy-lock",
+      holder_id: "new-owner",
+      acquired_at: "2026-07-23T02:00:00Z",
+      expires_at: "2026-07-23T03:00:00Z",
+    }).lock.fencing_token, 2)
   } finally {
     db.close()
   }
