@@ -43,7 +43,6 @@ export function replayHarnessHash(): string {
   const root = join(import.meta.dir, "../../..")
   const files = [
     join(root, "legacy-research-kernel/src/lib/replay-core.ts"),
-    join(root, "legacy-research-kernel/src/lib/replay-strategies.ts"),
     join(root, "legacy-research-kernel/src/lib/strategy-replay.ts"),
     join(root, "legacy-research-kernel/src/lib/strategy-rnd.ts"),
     join(root, "legacy-research-kernel/src/lib/factor-engine.ts"),
@@ -54,6 +53,7 @@ export function replayHarnessHash(): string {
     join(root, "legacy-research-contracts/src/lib/legacy-research-contracts.ts"),
     join(root, "legacy-research-decision/src/lib/legacy-research-decision.ts"),
     join(root, "legacy-research-order-lane/src/lib/legacy-research-order-lane.ts"),
+    join(root, "legacy-research-strategy-fixture/src/lib/legacy-research-strategy-fixture.ts"),
     join(root, "legacy-replay-identity/src/lib/legacy-replay-identity.ts"),
     join(root, "legacy-research-data/src/lib/legacy-research-data.ts"),
     join(root, "legacy-research-data/src/lib/funding-events.ts"),
