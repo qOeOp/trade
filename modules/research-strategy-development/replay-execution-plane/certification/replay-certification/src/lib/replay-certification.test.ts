@@ -29,6 +29,11 @@ import {
   loadReplayPublicationCrashRecoveryBundle,
   runReplayPublicationCrashRecoveryProbe,
 } from "./replay-publication-crash-recovery"
+import {
+  assertReplayCapacityPerformanceEnvelope,
+  loadReplayCapacityPerformanceEnvelope,
+  runReplayCapacityPerformanceProbe,
+} from "./replay-capacity-performance-envelope"
 
 describe("Replay certification owner", () => {
   const repoRoot = findReplayCertificationRepoRoot()
@@ -173,5 +178,46 @@ describe("Replay certification owner", () => {
       loadReplayProfileEvidenceManifest(repoRoot),
       repoRoot,
     )).toThrow("writer source drifted")
+  })
+
+  test("certifies the declared capacity workload and current-host performance envelope", async () => {
+    const envelope = loadReplayCapacityPerformanceEnvelope(repoRoot)
+    const receipt = await runReplayCapacityPerformanceProbe(
+      envelope,
+      loadReplayProfileEvidenceManifest(repoRoot),
+      repoRoot,
+    )
+    expect(receipt.profiles.map((profile) => profile.profile)).toEqual([
+      "independent-lane-batch",
+      "integrated-portfolio",
+      "single-trial",
+      "terminal-aware-bounded-cycle",
+    ])
+    expect(receipt.profiles.every((profile) =>
+      profile.process_ids[0] !== profile.process_ids[1]
+      && profile.maximum_elapsed_ms <= profile.regression_ceiling_ms)).toBe(true)
+    expect(receipt.host_observation.logical_cpu_count).toBeGreaterThan(0)
+    expect(receipt.receipt_sha256).toHaveLength(64)
+  }, 90_000)
+
+  test("rejects capacity, SLA, or runtime-limit overclaims", () => {
+    const profileEvidence = loadReplayProfileEvidenceManifest(repoRoot)
+    const capacityOverclaim = structuredClone(loadReplayCapacityPerformanceEnvelope(repoRoot))
+    capacityOverclaim.profiles[0]!.certified_workload[1]!.count = 20
+    expect(() => assertReplayCapacityPerformanceEnvelope(
+      capacityOverclaim, profileEvidence, repoRoot,
+    )).toThrow("profile overclaim or drift")
+
+    const slaOverclaim = structuredClone(loadReplayCapacityPerformanceEnvelope(repoRoot))
+    slaOverclaim.timing_policy = "portable-performance-sla" as never
+    expect(() => assertReplayCapacityPerformanceEnvelope(
+      slaOverclaim, profileEvidence, repoRoot,
+    )).toThrow("unsupported Replay capacity/performance envelope")
+
+    const hardLimitOverclaim = structuredClone(loadReplayCapacityPerformanceEnvelope(repoRoot))
+    hardLimitOverclaim.profiles[3]!.runtime_hard_limits[0]!.maximum = 80
+    expect(() => assertReplayCapacityPerformanceEnvelope(
+      hardLimitOverclaim, profileEvidence, repoRoot,
+    )).toThrow("profile overclaim or drift")
   })
 })
