@@ -11,6 +11,7 @@ Owns `market_data_store` for market manifests, admitted L2 epoch manifests, fund
 - Reconcile finalized manifest trees idempotently, deduplicate observations by path plus exact content hash, and preserve bounded rejection reasons for incomplete or invalid proposals.
 - Issue at most one immutable compaction job per admitted epoch; admit only a proposal that closes the exact owner-issued job, source manifest, row count, Parquet byte length and hash.
 - Advance successfully compacted epochs from `raw_hot` to `compacted_pinned` with an immutable compaction ref while keeping `deletion_eligible=0`. Raw deletion requires a separate catalog/referrer and GC gate.
+- Expose a self-hashed compacted-epoch source descriptor only when the exact compaction ref remains owner-pinned and non-deletable; the descriptor is a read contract, not Replay execution authority.
 - Insert canonical candles into `ohlcv_store` keyed by exchange/symbol/timeframe/open time.
 - Insert funding events keyed by exchange/symbol/funding time.
 - Register feature manifests derived from source manifests.
