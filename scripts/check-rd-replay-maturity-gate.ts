@@ -31,6 +31,12 @@ interface CapabilityInventory {
   schema_version: string
   freeze: string
   p30_creation: string
+  canonical_public_entrypoints: Array<{
+    profile: string
+    owner: string
+    path: string
+    export: string
+  }>
   entries: Array<{
     milestone: string
     capability: string
@@ -48,9 +54,25 @@ const inventory = JSON.parse(readFileSync(inventoryPath, "utf8")) as CapabilityI
 const issues: string[] = []
 
 const expectedCapabilityMilestones = Array.from({ length: 29 }, (_, index) => `M4-P${index + 1}`)
+const expectedCanonicalEntrypoints = [
+  { profile: "single-trial", owner: "runner", path: "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-trial-runner.ts", export: "runReplayTrial" },
+  { profile: "independent-lane-batch", owner: "runner", path: "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-independent-lane-batch-runner.ts", export: "runReplayIndependentLaneBatch" },
+  { profile: "integrated-portfolio", owner: "runner", path: "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-integrated-portfolio-runner.ts", export: "runReplayIntegratedPortfolio" },
+  { profile: "terminal-aware-bounded-cycle", owner: "runner", path: "modules/research-strategy-development/replay-execution-plane/runner/src/lib/replay-portfolio-protective-terminal-cycle-sequence-runner.ts", export: "runReplayPortfolioProtectiveTerminalCycleSequence" },
+]
 if (inventory.schema_version !== "trade.rd-replay-capability-inventory.v1"
     || inventory.freeze !== "M4-P29" || inventory.p30_creation !== "forbidden") {
   issues.push("Replay capability inventory must remain frozen at M4-P29 with P30 forbidden")
+}
+if (JSON.stringify(inventory.canonical_public_entrypoints) !== JSON.stringify(expectedCanonicalEntrypoints)) {
+  issues.push("Replay canonical public entrypoints do not match the frozen four-profile surface")
+} else {
+  for (const entrypoint of inventory.canonical_public_entrypoints) {
+    if (!existsSync(entrypoint.path)
+        || !readFileSync(entrypoint.path, "utf8").includes(`export function ${entrypoint.export}`)) {
+      issues.push(`Replay canonical public entrypoint is not exported by its owner: ${entrypoint.profile}`)
+    }
+  }
 }
 if (canonicalArray(inventory.entries.map((entry) => entry.milestone))
     !== canonicalArray(expectedCapabilityMilestones)
