@@ -17,6 +17,10 @@ interface ContractIndex {
   documents: DocumentEntry[]
 }
 
+interface ArchitectureManifest {
+  domains: Array<{ id: string }>
+}
+
 const root = process.cwd()
 const issues: string[] = []
 const requiredMetadata = ["title", "role", "status", "owner", "last_verified"]
@@ -32,6 +36,11 @@ const allowedCurrentStatuses = new Set([
 const currentRoots = ["docs/product", "docs/architecture", "docs/runtime", "docs/research", "docs/engineering"]
 const indexPath = "docs/engineering/doc-contract-index.json"
 const index = JSON.parse(readFileSync(indexPath, "utf8")) as ContractIndex
+const architectureManifest = JSON.parse(
+  readFileSync("docs/architecture/architecture-manifest.json", "utf8"),
+) as ArchitectureManifest
+const architectureDomainIds = new Set(architectureManifest.domains.map((domain) => domain.id))
+const documentationOwners = new Set(["product", "architecture", "engineering"])
 const retiredCurrentPaths = [
   "docs/architecture/architecture-overview.mmd",
   "docs/architecture/assets",
@@ -67,6 +76,9 @@ for (const entry of index.documents) {
   if (indexedPaths.has(entry.path)) issues.push(`duplicate document path: ${entry.path}`)
   if (!allowedCurrentStatuses.has(entry.status)) {
     issues.push(`${entry.path} has unsupported current document status: ${entry.status}`)
+  }
+  if (!ownerResolves(entry.owner)) {
+    issues.push(`${entry.path} has unresolved current document owner: ${entry.owner}`)
   }
   indexedIds.add(entry.id)
   indexedPaths.add(entry.path)
@@ -166,4 +178,9 @@ function decodePath(value: string): string {
   } catch {
     return value
   }
+}
+
+function ownerResolves(owner: string): boolean {
+  if (documentationOwners.has(owner) || architectureDomainIds.has(owner)) return true
+  return [...architectureDomainIds].some((domainId) => existsSync(join("modules", domainId, owner)))
 }

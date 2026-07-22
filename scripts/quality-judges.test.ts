@@ -372,12 +372,21 @@ describe("quality judges fail closed", () => {
   })
 
   test("document contracts reject an invented current status even when the index agrees", () => {
-    const root = documentContractFixture("invented-status")
+    const root = documentContractFixture({ status: "invented-status" })
 
     const result = runJudge("check-doc-contracts.ts", root)
 
     expect(result.exitCode).toBe(1)
     expect(result.stderr).toContain("has unsupported current document status: invented-status")
+  })
+
+  test("document contracts reject an owner with no governance, domain, or module authority", () => {
+    const root = documentContractFixture({ owner: "invented-owner" })
+
+    const result = runJudge("check-doc-contracts.ts", root)
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("has unresolved current document owner: invented-owner")
   })
 
   test("package tests cannot omit a colocated test file", () => {
@@ -445,8 +454,10 @@ function architectureFixture(overrides: { jobs?: unknown[] } = {}): string {
   return root
 }
 
-function documentContractFixture(status: string): string {
+function documentContractFixture(overrides: { status?: string; owner?: string }): string {
   const root = temporaryRoot()
+  const status = overrides.status ?? "active"
+  const owner = overrides.owner ?? "architecture"
   const metadata = (title: string, role: string, documentStatus: string, owner: string) => [
     "---",
     `title: ${title}`,
@@ -460,16 +471,19 @@ function documentContractFixture(status: string): string {
     "",
   ].join("\n")
   const documents = [
-    { id: "docs-index", path: "docs/README.md", role: "documentation-index", status, owner: "architecture" },
+    { id: "docs-index", path: "docs/README.md", role: "documentation-index", status, owner },
     { id: "history-index", path: "docs/history/README.md", role: "history-index", status: "active", owner: "architecture" },
     { id: "risk-contract", path: "docs/runtime/risk-control-contract.md", role: "runtime-feature-contract", status: "active", owner: "policy-risk" },
   ]
-  write(root, "docs/README.md", metadata("Documentation", "documentation-index", status, "architecture"))
+  write(root, "docs/README.md", metadata("Documentation", "documentation-index", status, owner))
   write(root, "docs/history/README.md", metadata("History", "history-index", "active", "architecture"))
   write(root, "docs/runtime/risk-control-contract.md", metadata("Risk", "runtime-feature-contract", "active", "policy-risk"))
   write(root, "docs/engineering/doc-contract-index.json", JSON.stringify({
     schema_version: "trade.doc-contract-index.v1",
     documents,
+  }))
+  write(root, "docs/architecture/architecture-manifest.json", JSON.stringify({
+    domains: [{ id: "policy-risk" }],
   }))
   write(root, "modules/contracts/preflight-contract/src/preflight.ts", "export const guards = []\n")
   return root

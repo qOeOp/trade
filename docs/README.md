@@ -55,6 +55,8 @@ last_verified: 2026-07-22 CST
 
 current 文档只允许以上状态，并必须与 `doc-contract-index.json` 一致；history 正文只允许 `completed-historical` 或 `legacy-reference`。仓库内 Markdown 相对链接必须解析到真实路径；机器检查不证明外部 URL 可用，也不校验页面 anchor 语义。
 
+`owner` 不能是自由标签：它必须是 `product / architecture / engineering` 文档治理 owner、`architecture-manifest.json` 中的 domain，或该 domain 下真实存在的模块组。新增 owner 必须先建立实际 authority，不能只让 frontmatter 与 index 同时新增一个名字。
+
 ## 归档规则
 
 - 跨域合同、顶层架构和大功能设计必须进入对应子目录，不在 `docs/` 根目录新增散文件。
