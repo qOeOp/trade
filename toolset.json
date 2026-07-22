@@ -1155,6 +1155,52 @@
       }
     },
     {
+      "id": "decision.watch-task-compiler",
+      "domain": "live-decision-planning",
+      "intent": [
+        "watch-task-compiler",
+        "plan-intent-lineage",
+        "bounded-watch-definition"
+      ],
+      "capability_class": [
+        "A",
+        "V"
+      ],
+      "path": "modules/live-decision-planning/watch-task-compiler",
+      "purpose": "Compile one matching plan draft and proposed action intent into a fixed bounded Watch Task definition.",
+      "command": {
+        "cwd": "modules/live-decision-planning/watch-task-compiler",
+        "argv": [
+          "bun",
+          "src/scripts/main.ts",
+          "--json",
+          "<payload>"
+        ]
+      },
+      "writes": {
+        "trade_db": false,
+        "catalog": false,
+        "artifacts": false,
+        "binance": false,
+        "config": false
+      },
+      "notes": [
+        "Compilation only; a proposed intent is not execution authorization and the tool does not run or persist tasks."
+      ],
+      "module_type": "atomic",
+      "owner_scope": "live-decision-planning.watch-task-compiler",
+      "requires_preflight": false,
+      "concurrency_group": "decision-planning",
+      "forbidden_callers": [
+        "exchange-write"
+      ],
+      "entry_contract": {
+        "kind": "cli-json",
+        "input_schema": "",
+        "output_schema": ""
+      }
+    },
+    {
       "id": "exchange.runtime-store",
       "domain": "exchange-gateway",
       "intent": [
