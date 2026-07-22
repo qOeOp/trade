@@ -134,7 +134,7 @@ export function redactLoopInputForArtifact(input: StrategyRndLoopInput): JSONRec
 }
 
 export function safeFileName(value: string): string {
-  return value.replace(/[^a-zA-Z0-9._-]/g, "-")
+  return value.trim().replace(/[^a-zA-Z0-9._-]+/g, "-").replace(/^-+|-+$/g, "") || "rd-run"
 }
 
 export function writeJsonFile(path: string, value: unknown): void {
