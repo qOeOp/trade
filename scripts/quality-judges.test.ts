@@ -86,7 +86,8 @@ describe("quality judges fail closed", () => {
     const root = temporaryRoot()
     write(root, "modules/domain-a/tool-a/package.json", JSON.stringify({
       scripts: {
-        test: "if find src -name '*.test.ts' -type f | grep -q .; then bun test ./src/**/*.test.ts; else printf 'test: no test files\\n'; fi",
+        test: "bun run test:unit",
+        "test:unit": "if find src -name '*.test.ts' -type f | grep -q .; then bun test ./src/**/*.test.ts; else printf 'test: no test files\\n'; fi",
       },
     }))
     write(root, "modules/domain-a/tool-a/src/main.ts", "export const value = true\n")
