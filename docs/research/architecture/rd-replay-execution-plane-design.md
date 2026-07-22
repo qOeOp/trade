@@ -73,7 +73,7 @@ Control Plane authorization
 
 - OHLCV 只证明 bar 范围，不证明 intrabar queue 和成交顺序；歧义必须使用冻结 policy 或 typed unresolved。
 - Funding、instrument status、aggregate trade 等 source 需要各自完整性、availability 和 lineage attestation。
-- L2 只接纳 owner-pinned、单 epoch contiguous 的 compacted source。bounded adapter 验证 Parquet row identity、raw payload hash 与 `U/u/pu` 邻接；Control Plane 现可将一个 exact source/batch 的 half-open frame range作为独立实验附件，绑定 authoritative reserved Trial、Request 与 full canonical OHLCV Manifest。该 authority 不修改 OHLCV Dataset Manifest、不保存 raw rows，且仍固定 `external_completeness=not_verified`、`economic_authority=none`、`runner_compatibility=not_bound`；不得跨 epoch 拼接或据此推断 queue / Fill。
+- L2 只接纳 owner-pinned、单 epoch contiguous 的 compacted source。bounded adapter 验证 Parquet row identity、raw payload hash 与 `U/u/pu` 邻接；Control Plane 现通过正式 State Store owner CLI/read port，将一个 exact source/batch 的 half-open frame range作为独立实验附件，绑定 authoritative reserved Trial、Request 与 full canonical OHLCV Manifest。Issue 仍走 create-or-identical registry transaction，read 只接受 Reservation hash，不开放任意查询。该 authority 不修改 OHLCV Dataset Manifest、不保存 raw rows，且仍固定 `external_completeness=not_verified`、`economic_authority=none`、`runner_compatibility=not_bound`；不得跨 epoch 拼接或据此推断 queue / Fill。
 - 当前 REST snapshot 不能倒推历史状态；`external_completeness=not_verified` 不能升级成 complete history。
 - replay fill 是模型事实，不冒充 Binance 实际成交。
 
@@ -168,3 +168,9 @@ Exactly-once 的权威口径是“同一 deterministic Attempt namespace 最多�
 `replay-capacity-performance-envelope.json` 不把未设计的统一 max input 写成制度，而是冻结四个 public profile 已由现有 owner assertion 证明的 known-good release workload：single Trial 为 1 Trial/1 bar；independent Batch 为 1 Batch/2 Lane/2 child Trial；Integrated Portfolio 为 1 Portfolio/2 Lane/2 Trial；Terminal-aware Bounded Cycle 为 1 Sequence/3 Cycle/6 Lane/6 Trial。后者另绑定已有 `REPLAY_PORTFOLIO_CYCLE_SEQUENCE_MAX_CYCLES=8` runtime hard limit；其他 profile 的 lane/bar/event/artifact byte 最大值继续明确 `not-declared`，超出 envelope 只能称未认证，不能隐式宣称 supported，也不伪造 runtime rejection。
 
 每个 profile 顺序启动 fresh Bun process：一次 warmup、两次 measured exact owner assertion；receipt 记录 runtime、host observation、distinct PID、elapsed、workload/assertion hash 并自哈希。10–20 秒的 profile ceiling 只是当前 host 上防止数量级退化或挂死的宽松 guardrail，不是延迟/吞吐 SLA；cross-host、cross-runtime、竞争负载、peak memory、CPU、I/O 与 remote store 均未认证。Entry point、test、hard-limit source 与 bundle hash 任一漂移均 fail closed。本 gate 未改变 Runner admission 或经济语义。M5 当前为 `5/9`，成熟度仍为 M4；下一门固定为 fault injection / corruption recovery。
+
+## 19. M5 fault injection / corruption recovery
+
+`replay-fault-corruption-recovery-bundle.json` 将现有 owner 测试冻结为八个可执行 case，不新增模拟语义：single Trial 覆盖 Dataset frozen-hash、Engine Checkpoint 语义/source-prefix、已提交 Artifact payload 损坏；Independent Batch 覆盖 child failure 与 rehash 后的 authority/capital/child evidence 篡改；Integrated Portfolio 覆盖 Engine/Artifact/Revaluation owner-port failure 与 manifest-last orphan payload；Terminal-aware Bounded Cycle 覆盖中间 cycle failure。每个 case 在独立 fresh Bun process 中只执行 exact test name，测试源码 hash、预期检测、权威结果和恢复等级均进入自哈希 bundle/receipt；四个 public profile 必须全部覆盖，任一源码/矩阵漂移或断言失败即 fail closed。
+
+“恢复”不统一等于自愈：payload 已写但 manifest 未提交时，orphan 无 authority，可按 identical bytes 重试；Checkpoint 损坏只能改用仍可信的 authorized checkpoint 或从冻结输入确定性重跑；Independent Batch 只能在 authoritative child Result 齐备后重算 aggregate；已提交 Artifact 损坏只检测并拒绝，不能 rehash 或静默修复；Integrated/Terminal 无 checkpoint，必须全 profile 重跑。该认证是八个已选逻辑故障点，不是 exhaustive combinatorial injection；硬件掉电/fsync cut-point 由上一 publication gate 承担，remote/distributed store、并发故障调度、cross-host/runtime 均未认证。M5 当前为 `6/9`，成熟度仍为 M4；下一门固定为 operational observability / runbook。
