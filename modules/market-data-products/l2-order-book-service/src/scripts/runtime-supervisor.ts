@@ -30,6 +30,7 @@ let signalName = ""
 let fatalReason = ""
 let diskStatus: RuntimeState["disk_status"] = "unknown"
 let diskAvailableBytes: number | null = null
+let diskLastError = ""
 let admissionStatus: RuntimeState["admission_status"] = config.admission_interval_ms === 0 ? "disabled" : "pending"
 let admissionLastCheckedAt: string | null = null
 let admissionLastError = ""
@@ -52,8 +53,11 @@ let terminalStatus: "completed" | "failed" = "failed"
 let terminalReason = "supervisor_failed"
 try {
   while (!stopRequested) {
-    if (sampleDisk() === "hard_limit") {
-      terminalReason = `disk_hard_limit:${diskAvailableBytes ?? "unknown"}`
+    const initialDiskStatus = sampleDisk()
+    if (initialDiskStatus === "hard_limit" || initialDiskStatus === "unknown") {
+      terminalReason = initialDiskStatus === "hard_limit"
+        ? `disk_hard_limit:${diskAvailableBytes ?? "unknown"}`
+        : `disk_status_unavailable:${diskLastError}`
       break
     }
     if (config.admission_interval_ms > 0 && admissionLastCheckedAt == null) runAdmission()
@@ -86,8 +90,11 @@ try {
       const now = Date.now()
       if (now - lastDiskCheckAt >= config.disk_check_interval_ms) {
         lastDiskCheckAt = now
-        if (sampleDisk() === "hard_limit" && !fatalReason) {
-          fatalReason = `disk_hard_limit:${diskAvailableBytes ?? "unknown"}`
+        const observedDiskStatus = sampleDisk()
+        if ((observedDiskStatus === "hard_limit" || observedDiskStatus === "unknown") && !fatalReason) {
+          fatalReason = observedDiskStatus === "hard_limit"
+            ? `disk_hard_limit:${diskAvailableBytes ?? "unknown"}`
+            : `disk_status_unavailable:${diskLastError}`
           child?.kill("SIGTERM")
         }
       }
@@ -157,6 +164,7 @@ function writeState(status: RuntimeState["status"], nextRestartAt: string | null
     next_restart_at: nextRestartAt,
     disk_status: diskStatus,
     disk_available_bytes: diskAvailableBytes,
+    disk_last_error: diskLastError,
     admission_status: admissionStatus,
     admission_last_checked_at: admissionLastCheckedAt,
     admission_last_error: admissionLastError,
@@ -175,12 +183,13 @@ function sampleDisk(): RuntimeState["disk_status"] {
     const available = Number(stats.bavail) * Number(stats.bsize)
     if (!Number.isSafeInteger(available) || available < 0) throw new Error("filesystem returned invalid available bytes")
     diskAvailableBytes = available
+    diskLastError = ""
     diskStatus = available <= config.disk_hard_min_bytes ? "hard_limit"
       : available <= config.disk_soft_min_bytes ? "soft_limit" : "healthy"
   } catch (error) {
     diskAvailableBytes = null
     diskStatus = "unknown"
-    admissionLastError = `disk_status:${error instanceof Error ? error.message : String(error)}`
+    diskLastError = error instanceof Error ? error.message : String(error)
   }
   return diskStatus
 }

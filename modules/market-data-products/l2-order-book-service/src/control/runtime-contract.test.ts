@@ -1,6 +1,6 @@
 import assert from "node:assert/strict"
 import test from "node:test"
-import { assertOutputRef, assertRuntimeRef, validateLaunchConfig, type LaunchConfig } from "./runtime-contract"
+import { assertMarketDataDbRef, assertOutputRef, assertRuntimeRef, validateLaunchConfig, type LaunchConfig } from "./runtime-contract"
 
 const config: LaunchConfig = {
   symbol: "BTCUSDT",
@@ -24,11 +24,13 @@ test("L2 control contract accepts indefinite supervised local service", () => {
   assert.doesNotThrow(() => validateLaunchConfig(config))
   assert.equal(assertOutputRef("/repo", "data/l2"), "/repo/data/l2")
   assert.equal(assertRuntimeRef("/repo", "tmp/l2-order-book-service/runtime/x"), "/repo/tmp/l2-order-book-service/runtime/x")
+  assert.equal(assertMarketDataDbRef("/repo", "data/market_data.db"), "/repo/data/market_data.db")
 })
 
 test("L2 control contract rejects public listener and escaped paths", () => {
   assert.throws(() => validateLaunchConfig({ ...config, listen: "0.0.0.0:50061" }), /loopback/)
   assert.throws(() => assertOutputRef("/repo", "data/other"), /L2 output/)
   assert.throws(() => assertRuntimeRef("/repo", "../runtime"), /control files/)
+  assert.throws(() => assertMarketDataDbRef("/repo", "outside.db"), /market data DB/)
   assert.throws(() => validateLaunchConfig({ ...config, disk_soft_min_bytes: 1, disk_hard_min_bytes: 2 }), /disk_soft_min_bytes/)
 })

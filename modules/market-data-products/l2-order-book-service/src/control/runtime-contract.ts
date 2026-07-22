@@ -47,6 +47,7 @@ export interface RuntimeState {
   next_restart_at: string | null
   disk_status: "healthy" | "soft_limit" | "hard_limit" | "unknown"
   disk_available_bytes: number | null
+  disk_last_error: string
   admission_status: "pending" | "ready" | "degraded" | "disabled"
   admission_last_checked_at: string | null
   admission_last_error: string
