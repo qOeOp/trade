@@ -3,7 +3,7 @@
 import { repoRoot } from "../../../../../../contracts/runtime-core/src/paths"
 import { errorResponse, printScriptResult, readJsonInputArgs, successResponse } from "../../../../../../contracts/runtime-core/src/script-json"
 import type { JSONRecord } from "../../../../../../contracts/runtime-core/src/json"
-import { runCalibrationSuite, runTrendBenchmark, strategyBenchmarkInputFromJson, strategyCalibrationInputFromJson } from "../../../../compatibility/benchmark-engine/src/lib/strategy-benchmark"
+import { runCalibrationSuite, runTrendBenchmark, strategyBenchmarkInputFromJson, strategyCalibrationInputFromJson } from "../../../../benchmark/src/lib/strategy-benchmark"
 
 const SCHEMA_VERSION = "calibration-suite.script-response.v1"
 const BENCHMARK_SCHEMA_VERSION = "benchmark-runner.script-response.v1"

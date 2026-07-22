@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs"
-import { hashCanonical } from "../../../replay-engine/src/lib/replay-core"
+import { hashCanonical } from "../../../compatibility/replay-engine/src/lib/replay-core"
 import { panelFindings, type PanelDiagnostics } from "./strategy-benchmark-data"
 import type { PortfolioStats } from "./strategy-benchmark-simulation"
 

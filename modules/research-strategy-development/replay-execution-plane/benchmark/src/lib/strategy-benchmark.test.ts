@@ -6,7 +6,7 @@ import assert from "node:assert/strict"
 import test from "node:test"
 import { runCalibrationSuite, runTrendBenchmark, strategyBenchmarkInputFromJson } from "./strategy-benchmark"
 
-test("fixed trend benchmark beats shuffled timing", () => {
+test("canonical fixed trend benchmark beats shuffled timing", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-benchmark-"))
   try {
     const datasets = [0, 17, 41].map((offset, index) => ({
@@ -218,7 +218,7 @@ function expectedBenchmarkHarnessHash(): string {
   for (const file of files.sort()) {
     hash.update(file)
     hash.update("\n")
-    hash.update(readFileSync(new URL(`../../../benchmark-engine/src/lib/${file}`, import.meta.url)))
+    hash.update(readFileSync(new URL(file, import.meta.url)))
     hash.update("\n")
   }
   return hash.digest("hex")

@@ -5,7 +5,7 @@ import {
   strategyCalibrationInputFromJson,
 } from "./strategy-benchmark-inputs"
 
-test("strategy benchmark input parser keeps public benchmark definition fixed", () => {
+test("canonical strategy benchmark input parser keeps public benchmark definition fixed", () => {
   const input = strategyBenchmarkInputFromJson({
     benchmark_id: "bench-1",
     timeframe: "4h",

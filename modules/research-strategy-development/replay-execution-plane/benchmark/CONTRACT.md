@@ -1,8 +1,8 @@
-# research/benchmark-engine
+# Replay Benchmark
 
 ## Type
 
-internal engine / shared research implementation
+canonical internal engine
 
 ## Owns
 
@@ -28,3 +28,4 @@ internal engine / shared research implementation
 - Does not expose an agent-facing CLI.
 - Does not write files, catalog, `trade.db`, or exchange state.
 - Does not run R&D search or promote strategies.
+- Does not own Review decisions or certification policy; `certification/calibration-suite` owns the agent-facing certification surface.

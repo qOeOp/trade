@@ -12,7 +12,7 @@ import {
   panelFundingEvents,
 } from "./strategy-benchmark-data"
 
-test("benchmark data builds aligned panel diagnostics over common timestamps", () => {
+test("canonical benchmark data builds aligned panel diagnostics over common timestamps", () => {
   const dir = mkdtempSync(join(tmpdir(), "strategy-benchmark-data-panel-"))
   try {
     const datasets = [

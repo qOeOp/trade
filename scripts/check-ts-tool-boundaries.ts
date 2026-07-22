@@ -151,13 +151,13 @@ function isAllowedResearchStrategyDevelopmentImport(sourceTool: string, targetTo
     return false
   }
   const allowedDomainDag = new Set([
-    "modules/research-strategy-development/replay-execution-plane/compatibility/benchmark-engine -> modules/research-strategy-development/replay-execution-plane/compatibility/replay-engine",
+    "modules/research-strategy-development/replay-execution-plane/benchmark -> modules/research-strategy-development/replay-execution-plane/compatibility/replay-engine",
     "modules/research-strategy-development/replay-execution-plane/compatibility/replay-engine -> modules/research-strategy-development/replay-execution-plane/accounting",
-    "modules/research-strategy-development/replay-execution-plane/certification/calibration-suite -> modules/research-strategy-development/replay-execution-plane/compatibility/benchmark-engine",
+    "modules/research-strategy-development/replay-execution-plane/certification/calibration-suite -> modules/research-strategy-development/replay-execution-plane/benchmark",
     "modules/research-strategy-development/agent-roles/developer/candidate-batch -> modules/research-strategy-development/agent-roles/developer/candidate-batch-engine",
     "modules/research-strategy-development/agent-roles/developer/candidate-batch-engine -> modules/research-strategy-development/replay-execution-plane/compatibility/replay-engine",
     "modules/research-strategy-development/agent-roles/developer/candidate-batch-engine -> modules/research-strategy-development/agent-roles/developer/strategy-family-engine",
-    "modules/research-strategy-development/research-control-plane/dataset-governance/funding-governance -> modules/research-strategy-development/replay-execution-plane/compatibility/benchmark-engine",
+    "modules/research-strategy-development/research-control-plane/dataset-governance/funding-governance -> modules/research-strategy-development/replay-execution-plane/benchmark",
     "modules/research-strategy-development/research-control-plane/dataset-governance/funding-governance -> modules/research-strategy-development/replay-execution-plane/compatibility/replay-engine",
     "modules/research-strategy-development/agent-roles/developer/rd-campaign-runner -> modules/research-strategy-development/agent-roles/developer/candidate-batch-engine",
     "modules/research-strategy-development/agent-roles/developer/rd-campaign-runner -> modules/research-strategy-development/research-control-plane/experiment-ledger",

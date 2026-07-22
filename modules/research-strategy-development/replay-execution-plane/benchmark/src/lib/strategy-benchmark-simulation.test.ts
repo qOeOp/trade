@@ -10,7 +10,7 @@ import {
   stressCostModel,
 } from "./strategy-benchmark-simulation"
 
-test("benchmark simulation normalizes costs and records attribution", () => {
+test("canonical benchmark simulation normalizes costs and records attribution", () => {
   const cost = buildCostModel({
     datasets: [],
     makerFeeBps: 0.2,

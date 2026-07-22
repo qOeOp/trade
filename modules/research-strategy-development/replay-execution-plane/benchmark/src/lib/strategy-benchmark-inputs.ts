@@ -1,4 +1,4 @@
-import type { JSONRecord } from "../../../../../../contracts/runtime-core/src/json"
+import type { JSONRecord } from "../../../../../contracts/runtime-core/src/json"
 
 export interface BenchmarkDataset {
   datasetId: string
