@@ -228,6 +228,24 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("Historical Artifact read migration fixture pack policy/hash drifted")
   })
 
+  test("Replay historical Artifact payload reader cannot drift silently", () => {
+    const registry = JSON.parse(readFileSync(
+      join(repoRoot, "modules/research-strategy-development/replay-execution-plane/certification/replay-certification/replay-historical-artifact-migration.json"),
+      "utf8",
+    )) as { reader_source_sha256: string }
+    registry.reader_source_sha256 = "0".repeat(64)
+    const root = temporaryRoot()
+    const registryPath = join(root, "replay-historical-artifact-migration.json")
+    writeFileSync(registryPath, JSON.stringify(registry))
+
+    const result = runJudge("check-rd-replay-maturity-gate.ts", repoRoot, [], {
+      RD_REPLAY_HISTORICAL_ARTIFACT_MIGRATION_REGISTRY_PATH: registryPath,
+    })
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("historical Artifact reader source drifted")
+  })
+
   test("package tests cannot report success for an empty suite", () => {
     const root = temporaryRoot()
     write(root, "modules/domain-a/tool-a/package.json", JSON.stringify({

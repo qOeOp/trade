@@ -14,6 +14,10 @@ import {
   assertHistoricalArtifactReadMigrationFixturePack,
   loadHistoricalArtifactReadMigrationFixturePack,
 } from "../modules/research-strategy-development/replay-execution-plane/certification/legacy-portfolio-cycle-certification/src/lib/historical-artifact-read-migration"
+import {
+  assertReplayHistoricalArtifactMigrationRegistry,
+  loadReplayHistoricalArtifactMigrationRegistry,
+} from "../modules/research-strategy-development/replay-execution-plane/certification/replay-certification/src/lib/replay-historical-artifact-migration"
 
 interface GateManifest {
   schema_version: string
@@ -151,6 +155,9 @@ const crossProcessReproducibilityPath = process.env.RD_REPLAY_CROSS_PROCESS_REPR
 const historicalArtifactReadMigrationPath =
   process.env.RD_REPLAY_HISTORICAL_ARTIFACT_READ_MIGRATION_PATH
   || "modules/research-strategy-development/replay-execution-plane/certification/legacy-portfolio-cycle-certification/fixtures/historical-artifact-read-migration-v1.json"
+const historicalArtifactMigrationRegistryPath =
+  process.env.RD_REPLAY_HISTORICAL_ARTIFACT_MIGRATION_REGISTRY_PATH
+  || `${certificationOwner}/replay-historical-artifact-migration.json`
 const issues: string[] = []
 const certificationCommandIssues: string[] = []
 const testSeparationIssues: string[] = []
@@ -182,6 +189,11 @@ try {
     historicalArtifactReadMigrationPath,
   )
   assertHistoricalArtifactReadMigrationFixturePack(fixturePack)
+  const registry = loadReplayHistoricalArtifactMigrationRegistry(
+    process.cwd(),
+    historicalArtifactMigrationRegistryPath,
+  )
+  assertReplayHistoricalArtifactMigrationRegistry(registry, process.cwd())
 } catch (error) {
   historicalArtifactReadMigrationIssues.push(error instanceof Error ? error.message : String(error))
 }
