@@ -768,6 +768,69 @@ export function readRuntimeParityObservations(
   return rows.map(runtimeParityObservationFromRow)
 }
 
+export function readRuntimeParityStatus(db: Database, asOf = new Date()): JSONRecord {
+  if (!Number.isFinite(asOf.getTime())) throw new Error("runtime parity status as_of must be a valid date")
+  const counts = db.query(`
+    SELECT
+      COUNT(*) AS total,
+      COALESCE(SUM(status = 'match'), 0) AS matched,
+      COALESCE(SUM(status = 'mismatch'), 0) AS mismatched,
+      COUNT(DISTINCT program_projection_hash) AS distinct_program_hashes,
+      COUNT(DISTINCT agent_projection_hash) AS distinct_agent_hashes,
+      MIN(observed_at) AS first_observed_at,
+      MAX(observed_at) AS last_observed_at
+    FROM runtime_parity_observation
+  `).get() as RuntimeParityStatusRow
+  const latest = readRuntimeParityObservations(db, { limit: 1 })[0]
+  const supervisorLease = readOpsLock(db, "program-runtime-shadow-supervisor")
+  const leaseState = !supervisorLease
+    ? "absent"
+    : Date.parse(supervisorLease.expires_at) > asOf.getTime()
+      ? "active"
+      : "expired"
+  const total = Number(counts.total)
+  const matched = Number(counts.matched)
+  const mismatched = Number(counts.mismatched)
+  return {
+    schema_version: "trade.ops-runtime-parity-status.v1",
+    as_of: asOf.toISOString(),
+    observation_state: total === 0 ? "no_evidence" : mismatched > 0 ? "mismatch_observed" : "matches_only",
+    counts: {
+      total,
+      matched,
+      mismatched,
+      distinct_program_hashes: Number(counts.distinct_program_hashes),
+      distinct_agent_hashes: Number(counts.distinct_agent_hashes),
+    },
+    window: {
+      first_observed_at: counts.first_observed_at ?? null,
+      last_observed_at: counts.last_observed_at ?? null,
+    },
+    latest: latest ? {
+      observation_id: latest.observation_id,
+      program_cycle_id: latest.program_cycle_id,
+      agent_cycle_id: latest.agent_cycle_id,
+      program_projection_hash: latest.program_projection_hash,
+      agent_projection_hash: latest.agent_projection_hash,
+      status: latest.status,
+      observed_at: latest.observed_at,
+    } : null,
+    supervisor_lease: {
+      state: leaseState,
+      active: leaseState === "active",
+      ...(supervisorLease ? {
+        expires_at: supervisorLease.expires_at,
+        fencing_token: supervisorLease.fencing_token,
+      } : {}),
+    },
+    limitations: [
+      "semantic_shadow_observation_only",
+      "no_domain_job_or_live_write_authority",
+      "not_a_cutover_or_strategy_verdict",
+    ],
+  }
+}
+
 export function buildDomainMessage(input: JSONRecord): DomainMessage {
   const envelope = asRecord(input.envelope_json ?? input.envelope)
   const now = stringField(input.created_at) || new Date().toISOString()
@@ -1372,6 +1435,16 @@ interface RuntimeParityObservationRow {
   status: ParityObservationStatus
   detail_json: string
   observed_at: string
+}
+
+interface RuntimeParityStatusRow {
+  total: number
+  matched: number
+  mismatched: number
+  distinct_program_hashes: number
+  distinct_agent_hashes: number
+  first_observed_at: string | null
+  last_observed_at: string | null
 }
 
 function runtimeHealthFromRow(row: RuntimeHealthRow): RuntimeHealth {
