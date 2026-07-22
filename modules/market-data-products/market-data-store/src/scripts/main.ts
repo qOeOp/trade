@@ -11,10 +11,12 @@ import {
   buildFundingEvents,
   buildInstrumentStatusArchive,
   buildMarketManifest,
+  auditL2RetentionReferenceClosure,
   commitInstrumentStatusArchive,
   ensureMarketDataSchema,
   ensureOhlcvSchema,
   listFeatureManifests,
+  listL2RetentionReferenceAudits,
   readCanonicalCandles,
   readFeatureManifest,
   readFundingEvents,
@@ -201,6 +203,23 @@ export function run(args: Args): JSONRecord {
         ),
       }
     }
+    if (args.action === "audit_l2_retention_reference_closure") {
+      return {
+        ok: true,
+        action: args.action,
+        audit: auditL2RetentionReferenceClosure(db, stringField(args.json.epoch_id)),
+      }
+    }
+    if (args.action === "list_l2_retention_reference_audits") {
+      return {
+        ok: true,
+        action: args.action,
+        page: listL2RetentionReferenceAudits(db, {
+          after_epoch_id: stringField(args.json.after_epoch_id) || undefined,
+          limit: optionalNumber(args.json.limit),
+        }),
+      }
+    }
     if (args.action === "read_funding") {
       return {
         ok: true,
@@ -281,7 +300,7 @@ export function run(args: Args): JSONRecord {
 function printHelp(): void {
   console.log([
     "usage: bun src/scripts/main.ts --db data/market_data.db --ohlcv-db data/ohlcv.db --action init",
-    "actions: init | upsert_manifest | admit_l2_epoch_manifest | reconcile_l2_epoch_manifests | prepare_l2_compaction_job | admit_l2_compaction_proposal | register_l2_experiment_attachment_referrer | upsert_candles | upsert_funding | upsert_feature_manifest | commit_instrument_status_archive | read_manifest | read_l2_epoch_manifest | read_l2_compaction | read_l2_compacted_epoch_source | read_l2_experiment_attachment_referrer | read_funding | read_instrument_status_acquisition_receipt | read_instrument_status_archive | read_latest_candle | read_candles | read_feature_manifest | list_feature_manifests",
+    "actions: init | upsert_manifest | admit_l2_epoch_manifest | reconcile_l2_epoch_manifests | prepare_l2_compaction_job | admit_l2_compaction_proposal | register_l2_experiment_attachment_referrer | audit_l2_retention_reference_closure | list_l2_retention_reference_audits | upsert_candles | upsert_funding | upsert_feature_manifest | commit_instrument_status_archive | read_manifest | read_l2_epoch_manifest | read_l2_compaction | read_l2_compacted_epoch_source | read_l2_experiment_attachment_referrer | read_funding | read_instrument_status_acquisition_receipt | read_instrument_status_archive | read_latest_candle | read_candles | read_feature_manifest | list_feature_manifests",
   ].join("\n"))
 }
 
