@@ -82,6 +82,25 @@ describe("quality judges fail closed", () => {
     expect(result.stderr).toContain("evidence ref does not exist as a file")
   })
 
+  test("Replay capability inventory cannot grow a P30 treadmill", () => {
+    const inventory = JSON.parse(readFileSync(
+      join(repoRoot, "docs/research/reliability/rd-replay-capability-inventory.json"),
+      "utf8",
+    )) as { freeze: string; p30_creation: string }
+    inventory.freeze = "M4-P30"
+    inventory.p30_creation = "allowed"
+    const root = temporaryRoot()
+    const inventoryPath = join(root, "inventory.json")
+    writeFileSync(inventoryPath, JSON.stringify(inventory))
+
+    const result = runJudge("check-rd-replay-maturity-gate.ts", repoRoot, [], {
+      RD_REPLAY_CAPABILITY_INVENTORY_PATH: inventoryPath,
+    })
+
+    expect(result.exitCode).toBe(1)
+    expect(result.stderr).toContain("P30 forbidden")
+  })
+
   test("package tests cannot report success for an empty suite", () => {
     const root = temporaryRoot()
     write(root, "modules/domain-a/tool-a/package.json", JSON.stringify({
