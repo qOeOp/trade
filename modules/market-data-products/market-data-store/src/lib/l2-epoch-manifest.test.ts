@@ -5,9 +5,11 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { tmpdir } from "node:os"
 import test from "node:test"
+import { canonicalNfcHash } from "../../../../contracts/runtime-core/src/canonical-json"
 import {
   admitL2EpochManifest,
   ensureMarketDataSchema,
+  listL2RetentionReferenceAudits,
   reconcileL2EpochManifests,
   readL2EpochManifest,
   type L2EpochManifestProposal,
@@ -143,6 +145,43 @@ test("L2 owner classifies a zero-frame incomplete shutdown as non-admissible rat
   } finally {
     db.close()
     fixture.cleanup()
+  }
+})
+
+test("L2 owner lists bounded deterministic retention/reference audit pages without deletion candidates", () => {
+  const fixtures = ["1000-0001", "2000-0001", "3000-0001"].map((stream_epoch) => createFixture({ stream_epoch }))
+  const db = new Database(":memory:")
+  ensureMarketDataSchema(db)
+  try {
+    const epochIds = fixtures.map((fixture) => admitL2EpochManifest(db, fixture.input).epoch.epoch_id).sort()
+    const first = listL2RetentionReferenceAudits(db, { limit: 2 })
+    assert.equal(first.page_count, 2)
+    assert.equal(first.has_more, true)
+    assert.equal(first.next_after_epoch_id, epochIds[1])
+    assert.deepEqual(first.audits.map((audit) => audit.epoch_id), epochIds.slice(0, 2))
+    assert.deepEqual(first.page_status_counts, {
+      raw_hot_not_compacted: 2,
+      compacted_pinned_no_registered_referrer: 0,
+      compacted_pinned_with_registered_referrers: 0,
+    })
+    assert.equal(first.deletion_candidates_produced, false)
+    assert.equal(first.deletion_decision, "forbidden_no_gc_authority")
+    const { page_hash: firstHash, ...firstBody } = first
+    assert.equal(firstHash, canonicalNfcHash(firstBody))
+    assert.deepEqual(listL2RetentionReferenceAudits(db, { limit: 2 }), first)
+
+    const second = listL2RetentionReferenceAudits(db, {
+      after_epoch_id: first.next_after_epoch_id ?? undefined,
+      limit: 2,
+    })
+    assert.deepEqual(second.audits.map((audit) => audit.epoch_id), epochIds.slice(2))
+    assert.equal(second.has_more, false)
+    assert.equal(second.next_after_epoch_id, null)
+    assert.throws(() => listL2RetentionReferenceAudits(db, { after_epoch_id: "" }), /after_epoch_id is required/)
+    assert.throws(() => listL2RetentionReferenceAudits(db, { limit: 51 }), /must not exceed 50/)
+  } finally {
+    db.close()
+    for (const fixture of fixtures) fixture.cleanup()
   }
 })
 
