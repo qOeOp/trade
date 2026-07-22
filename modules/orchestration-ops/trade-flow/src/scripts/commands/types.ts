@@ -24,6 +24,8 @@ export interface CommandConfig {
   observeFromTools: boolean
   automationCycle: boolean
   runJobGraph: boolean
+  runProgramShadow: boolean
+  runProgramShadowSupervisor: boolean
   runShadowFromTools: boolean
   runLiveSmall: boolean
   recoverFlow: boolean

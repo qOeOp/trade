@@ -7,6 +7,9 @@
     "typescript": "^5.9.2"
   },
   "scripts": {
+    "launchd:install": "bun src/scripts/program-shadow-launchd.ts install",
+    "launchd:status": "bun src/scripts/program-shadow-launchd.ts status",
+    "launchd:uninstall": "bun src/scripts/program-shadow-launchd.ts uninstall",
     "typecheck": "tsc --noEmit",
     "lint": "bun run typecheck",
     "test": "bun test ./src/scripts/*.test.ts ./src/scripts/**/*.test.ts",

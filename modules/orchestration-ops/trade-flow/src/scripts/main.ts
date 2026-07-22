@@ -14,6 +14,8 @@ import type { ScriptResponse } from "./commands/types"
 import { buildAutomationCyclePlan } from "./lib/automation-cycle"
 import { initEventStore } from "./lib/event-store-client"
 import { runAutomationJobGraph } from "./lib/job-graph-runner"
+import { runProgramShadowWakeup } from "./lib/program-shadow"
+import { runProgramShadowSupervisor } from "./lib/program-shadow-supervisor"
 import { assertProjectRuntimePath, resolveRepoPath } from "../../../../contracts/runtime-core/src/paths"
 import { runTrackDryRunAtPath } from "./lib/track-runner"
 import type { CommandConfig } from "./commands/types"
@@ -25,14 +27,24 @@ async function main(): Promise<void> {
     return
   }
 
-  const response = await run(argv)
+  const supervisorController = argv.includes("--run-program-shadow-supervisor") ? new AbortController() : undefined
+  const requestDrain = (): void => supervisorController?.abort()
+  if (supervisorController) {
+    process.on("SIGINT", requestDrain)
+    process.on("SIGTERM", requestDrain)
+  }
+  const response = await run(argv, { supervisorSignal: supervisorController?.signal })
+  if (supervisorController) {
+    process.off("SIGINT", requestDrain)
+    process.off("SIGTERM", requestDrain)
+  }
   process.stdout.write(`${JSON.stringify(response, null, 2)}\n`)
   if (!response.ok) {
     process.exit(1)
   }
 }
 
-async function run(argv: string[]): Promise<ScriptResponse> {
+async function run(argv: string[], dependencies: { supervisorSignal?: AbortSignal } = {}): Promise<ScriptResponse> {
   try {
     const config = normalizeCommandPaths(parseArgs(argv))
 
@@ -55,6 +67,14 @@ async function run(argv: string[]): Promise<ScriptResponse> {
       if (config.runJobGraph) {
         return successResponse(await runAutomationJobGraph(db, config.dbPath, config.input))
       }
+      if (config.runProgramShadow) {
+        return successResponse(await runProgramShadowWakeup(db, config.dbPath, config.input))
+      }
+      if (config.runProgramShadowSupervisor) {
+        return successResponse(await runProgramShadowSupervisor(db, config.dbPath, config.input, undefined, {
+          signal: dependencies.supervisorSignal,
+        }))
+      }
       const runtimeResponse = await handleRuntimeCommand(db, config)
       if (runtimeResponse) {
         return runtimeResponse
@@ -67,7 +87,7 @@ async function run(argv: string[]): Promise<ScriptResponse> {
       if (recoveryResponse) {
         return recoveryResponse
       }
-      throw new Error("provide --init, --track, --automation-cycle, --run-job-graph, --append-order-fill, --append-review, --record-execution, --run, --load-runtime, --build-observe, --observe-from-tools, --run-shadow-from-tools, --run-live-small, --recover-flow, --reconcile-flow, --reconcile-from-tools, --apply-reconcile, or --cron-recover-from-tools")
+      throw new Error("provide --init, --track, --automation-cycle, --run-job-graph, --run-program-shadow, --run-program-shadow-supervisor, --append-order-fill, --append-review, --record-execution, --run, --load-runtime, --build-observe, --observe-from-tools, --run-shadow-from-tools, --run-live-small, --recover-flow, --reconcile-flow, --reconcile-from-tools, --apply-reconcile, or --cron-recover-from-tools")
     } finally {
       db.close()
     }

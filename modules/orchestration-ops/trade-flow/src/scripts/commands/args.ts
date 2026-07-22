@@ -14,6 +14,8 @@ export function parseArgs(argv: string[]): CommandConfig {
   let observeFromToolsEnabled = false
   let automationCycle = false
   let runJobGraph = false
+  let runProgramShadow = false
+  let runProgramShadowSupervisor = false
   let runShadowFromToolsEnabled = false
   let runLiveSmallEnabled = false
   let recoverFlow = false
@@ -67,6 +69,12 @@ export function parseArgs(argv: string[]): CommandConfig {
         break
       case "--run-job-graph":
         runJobGraph = true
+        break
+      case "--run-program-shadow":
+        runProgramShadow = true
+        break
+      case "--run-program-shadow-supervisor":
+        runProgramShadowSupervisor = true
         break
       case "--run-shadow-from-tools":
         runShadowFromToolsEnabled = true
@@ -131,6 +139,8 @@ export function parseArgs(argv: string[]): CommandConfig {
     observeFromTools: observeFromToolsEnabled,
     automationCycle,
     runJobGraph,
+    runProgramShadow,
+    runProgramShadowSupervisor,
     runShadowFromTools: runShadowFromToolsEnabled,
     runLiveSmall: runLiveSmallEnabled,
     recoverFlow,
