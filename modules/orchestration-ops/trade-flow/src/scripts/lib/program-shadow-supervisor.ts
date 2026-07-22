@@ -12,6 +12,7 @@ import type { JSONRecord } from "../../../../../contracts/runtime-core/src/json"
 import { assertProjectRuntimePath, resolveRepoPath } from "../../../../../contracts/runtime-core/src/paths"
 import { executeCommand, type CommandExecutor } from "./job-graph-runner"
 import { runProgramShadowWakeup } from "./program-shadow"
+import type { ProgramRuntimeProfile } from "./program-shadow"
 import { createParityCommandRecorder, observeProgramShadowParity } from "./program-shadow-parity"
 
 const SUPERVISOR_LOCK_KEY = "program-runtime-shadow-supervisor"
@@ -26,6 +27,13 @@ const ALLOWED_INPUT_KEYS = new Set([
   "max_cycles",
   "duration_seconds",
   "observe_agent_parity",
+  "runtime_profile",
+  "rd_state_db",
+  "rd_program_id",
+  "rd_trackers",
+  "catalog_db",
+  "catalog_roots",
+  "governance_db",
 ])
 
 export interface ProgramShadowSupervisorInput {
@@ -35,6 +43,13 @@ export interface ProgramShadowSupervisorInput {
   max_cycles?: number
   duration_seconds?: number
   observe_agent_parity?: boolean
+  runtime_profile?: ProgramRuntimeProfile
+  rd_state_db?: string
+  rd_program_id?: string
+  rd_trackers?: JSONRecord[]
+  catalog_db?: string
+  catalog_roots?: string[]
+  governance_db?: string
 }
 
 export interface ProgramShadowSupervisorDependencies {
@@ -182,7 +197,14 @@ export async function runProgramShadowSupervisor(
           cycle_id: cycleId,
           now: slotAt.toISOString(),
           ops_runtime_db: opsRuntimeDbPath,
+          runtime_profile: input.runtime_profile,
           ...(input.runtime_health ? { runtime_health: input.runtime_health } : {}),
+          ...(input.rd_state_db ? { rd_state_db: input.rd_state_db } : {}),
+          ...(input.rd_program_id ? { rd_program_id: input.rd_program_id } : {}),
+          ...(input.rd_trackers ? { rd_trackers: input.rd_trackers } : {}),
+          ...(input.catalog_db ? { catalog_db: input.catalog_db } : {}),
+          ...(input.catalog_roots ? { catalog_roots: input.catalog_roots } : {}),
+          ...(input.governance_db ? { governance_db: input.governance_db } : {}),
         },
         parityRecorder?.record ?? executor,
         {
@@ -220,7 +242,14 @@ export async function runProgramShadowSupervisor(
               observed_at: observedAt,
               ops_runtime_db: opsRuntimeDbPath,
               program_graph: graph,
+              runtime_profile: input.runtime_profile,
               ...(input.runtime_health ? { runtime_health: input.runtime_health } : {}),
+              ...(input.rd_state_db ? { rd_state_db: input.rd_state_db } : {}),
+              ...(input.rd_program_id ? { rd_program_id: input.rd_program_id } : {}),
+              ...(input.rd_trackers ? { rd_trackers: input.rd_trackers } : {}),
+              ...(input.catalog_db ? { catalog_db: input.catalog_db } : {}),
+              ...(input.catalog_roots ? { catalog_roots: input.catalog_roots } : {}),
+              ...(input.governance_db ? { governance_db: input.governance_db } : {}),
             },
             parityRecorder?.replay,
           )
@@ -317,7 +346,7 @@ function supervisorResult(input: {
 }): JSONRecord {
   return {
     schema_version: "trade-flow.program-shadow-supervisor-result.v1",
-    runtime_profile: "shadow_program",
+    runtime_profile: input.input.runtime_profile || "shadow_program",
     supervisor_id: input.supervisorId,
     outcome: input.outcome,
     stop_reason: input.stopReason,
@@ -340,7 +369,7 @@ function supervisorResult(input: {
     safety: {
       foreground_process: true,
       external_process_manager_required: true,
-      domain_jobs_enabled: false,
+      domain_jobs_enabled: input.input.runtime_profile === "full_shadow",
       live_writes_allowed: false,
       notify_dry_run: true,
       drain_in_flight_cycle_on_signal: true,
@@ -363,6 +392,7 @@ function normalizeInput(input: ProgramShadowSupervisorInput): Required<Pick<Prog
     max_cycles: boundedInteger(input.max_cycles, 0, 0, 100_000, "max_cycles"),
     duration_seconds: boundedInteger(input.duration_seconds, 0, 0, 86_400, "duration_seconds"),
     observe_agent_parity: input.observe_agent_parity === true,
+    runtime_profile: normalizeRuntimeProfile(input.runtime_profile),
   }
 }
 
@@ -377,6 +407,20 @@ function assertClosedWorldInput(input: JSONRecord): void {
   if (Object.hasOwn(input, "observe_agent_parity") && typeof input.observe_agent_parity !== "boolean") {
     throw new Error("observe_agent_parity must be a boolean")
   }
+  normalizeRuntimeProfile(input.runtime_profile)
+  if (input.runtime_profile !== "full_shadow" && ["rd_state_db", "rd_program_id", "rd_trackers", "catalog_db", "catalog_roots", "governance_db"].some((key) => Object.hasOwn(input, key))) {
+    throw new Error("domain job configuration is allowed only for runtime_profile=full_shadow")
+  }
+  if (Object.hasOwn(input, "rd_trackers") && !Array.isArray(input.rd_trackers)) throw new Error("rd_trackers must be an array")
+  if (Object.hasOwn(input, "catalog_roots") && !Array.isArray(input.catalog_roots)) throw new Error("catalog_roots must be an array")
+}
+
+function normalizeRuntimeProfile(value: unknown): ProgramRuntimeProfile {
+  const profile = stringField(value) || "shadow_program"
+  if (profile !== "shadow_program" && profile !== "full_shadow") {
+    throw new Error("supervisor runtime_profile must be shadow_program or full_shadow")
+  }
+  return profile
 }
 
 function boundedInteger(value: unknown, fallback: number, minimum: number, maximum: number, name: string): number {

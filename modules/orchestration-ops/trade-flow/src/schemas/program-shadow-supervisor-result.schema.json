@@ -20,7 +20,7 @@
   ],
   "properties": {
     "schema_version": { "const": "trade-flow.program-shadow-supervisor-result.v1" },
-    "runtime_profile": { "const": "shadow_program" },
+    "runtime_profile": { "enum": ["shadow_program", "full_shadow"] },
     "supervisor_id": { "type": "string", "minLength": 1 },
     "outcome": { "enum": ["completed", "lease_lost", "skipped_lock", "ops_store_busy"] },
     "stop_reason": { "enum": ["max_cycles", "duration", "signal", "lease_lost", "active_supervisor", "ops_store_busy"] },
@@ -85,7 +85,7 @@
       "properties": {
         "foreground_process": { "const": true },
         "external_process_manager_required": { "const": true },
-        "domain_jobs_enabled": { "const": false },
+        "domain_jobs_enabled": { "type": "boolean" },
         "live_writes_allowed": { "const": false },
         "notify_dry_run": { "const": true },
         "drain_in_flight_cycle_on_signal": { "const": true }
@@ -106,5 +106,15 @@
     },
     "last_wakeup": { "type": "object" }
   },
+  "allOf": [
+    {
+      "if": { "properties": { "runtime_profile": { "const": "shadow_program" } }, "required": ["runtime_profile"] },
+      "then": { "properties": { "safety": { "properties": { "domain_jobs_enabled": { "const": false } } } } }
+    },
+    {
+      "if": { "properties": { "runtime_profile": { "const": "full_shadow" } }, "required": ["runtime_profile"] },
+      "then": { "properties": { "safety": { "properties": { "domain_jobs_enabled": { "const": true } } } } }
+    }
+  ],
   "additionalProperties": false
 }

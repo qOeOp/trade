@@ -25,9 +25,15 @@ const ALLOWED_INPUT_KEYS = new Set([
   "ops_runtime_db",
   "runtime_profile",
   "runtime_health",
+  "rd_state_db",
+  "rd_program_id",
+  "rd_trackers",
+  "catalog_db",
+  "catalog_roots",
+  "governance_db",
 ])
 
-type ProgramRuntimeProfile = "shadow_program" | "catalog_hygiene_canary"
+export type ProgramRuntimeProfile = "shadow_program" | "catalog_hygiene_canary" | "full_shadow"
 
 export interface ProgramShadowInput {
   cycle_id?: string
@@ -35,6 +41,12 @@ export interface ProgramShadowInput {
   ops_runtime_db?: string
   runtime_profile?: ProgramRuntimeProfile
   runtime_health?: JSONRecord
+  rd_state_db?: string
+  rd_program_id?: string
+  rd_trackers?: JSONRecord[]
+  catalog_db?: string
+  catalog_roots?: string[]
+  governance_db?: string
 }
 
 export interface ProgramShadowDependencies {
@@ -135,11 +147,13 @@ export async function runProgramShadowWakeup(
       runtimeProfile,
       cycleId,
       outcome: recoveredRunningCycle ? "recovered_running" : "executed",
-      reason: recoveredRunningCycle
+        reason: recoveredRunningCycle
         ? "recovered a non-terminal cycle after acquiring its expired or released lease"
         : runtimeProfile === "catalog_hygiene_canary"
           ? "executed the fixed J06 catalog hygiene canary profile"
-          : "executed the fixed no-domain-job shadow profile",
+          : runtimeProfile === "full_shadow"
+            ? "executed the fixed J01-J07 no-live full shadow profile"
+            : "executed the fixed no-domain-job shadow profile",
       lockAcquired: true,
       lockReleased,
       fencingToken,
@@ -181,6 +195,16 @@ function fixedShadowGraphInput(
 ): JSONRecord {
   const attemptId = safeAttemptId(holderId)
   const catalogHygieneCanary = runtimeProfile === "catalog_hygiene_canary"
+  const fullShadow = runtimeProfile === "full_shadow"
+  const forcedDomainJobs = [
+    "account_reconcile_guard",
+    "fast_track_guard",
+    "slow_track_market_watch",
+    "rd_strategy_supervisor",
+    "rd_forward_shadow_trackers",
+    "catalog_hygiene_scan",
+    "closed_flow_review_sweep",
+  ]
   return {
     cycle_id: cycleId,
     now,
@@ -189,14 +213,23 @@ function fixedShadowGraphInput(
     execute_jobs: true,
     allow_live_writes: false,
     include_runtime_health: true,
-    include_account_reconcile: false,
-    include_fast_track: false,
-    include_slow_track: false,
-    include_rd_strategy_supervisor: false,
-    include_rd_trackers: false,
-    include_closed_flow_review: false,
-    include_catalog_hygiene: catalogHygieneCanary,
+    include_account_reconcile: fullShadow,
+    include_fast_track: fullShadow,
+    include_slow_track: fullShadow,
+    include_rd_strategy_supervisor: fullShadow,
+    include_rd_trackers: fullShadow,
+    include_closed_flow_review: fullShadow,
+    include_catalog_hygiene: catalogHygieneCanary || fullShadow,
     ...(catalogHygieneCanary ? { force_jobs: ["catalog_hygiene_scan"] } : {}),
+    ...(fullShadow ? {
+      force_jobs: forcedDomainJobs,
+      ...(input.rd_state_db ? { rd_state_db: input.rd_state_db } : {}),
+      ...(input.rd_program_id ? { rd_program_id: input.rd_program_id } : {}),
+      ...(input.rd_trackers ? { rd_trackers: input.rd_trackers } : {}),
+      ...(input.catalog_db ? { catalog_db: input.catalog_db } : {}),
+      ...(input.catalog_roots ? { catalog_roots: input.catalog_roots } : {}),
+      ...(input.governance_db ? { governance_db: input.governance_db } : {}),
+    } : {}),
     include_control_effectiveness_review: true,
     include_ops_notify: true,
     runtime_health: {
@@ -237,9 +270,13 @@ function shadowResult(input: {
     outcome: input.outcome,
     reason: input.reason,
     safety: {
-      domain_jobs_enabled: input.runtimeProfile === "catalog_hygiene_canary",
-      enabled_domain_jobs: input.runtimeProfile === "catalog_hygiene_canary" ? ["catalog_hygiene_scan"] : [],
-      allowed_domain_writes: input.runtimeProfile === "catalog_hygiene_canary" ? ["artifact_catalog"] : [],
+      domain_jobs_enabled: input.runtimeProfile !== "shadow_program",
+      enabled_domain_jobs: input.runtimeProfile === "full_shadow"
+        ? ["account_reconcile_guard", "fast_track_guard", "slow_track_market_watch", "rd_strategy_supervisor", "rd_forward_shadow_trackers", "catalog_hygiene_scan", "closed_flow_review_sweep"]
+        : input.runtimeProfile === "catalog_hygiene_canary" ? ["catalog_hygiene_scan"] : [],
+      allowed_domain_writes: input.runtimeProfile === "full_shadow"
+        ? ["trade_event_store", "research_state_store", "artifact_catalog", "governance_ledger"]
+        : input.runtimeProfile === "catalog_hygiene_canary" ? ["artifact_catalog"] : [],
       live_writes_allowed: false,
       notify_dry_run: true,
       l2_owner_health_required: true,
@@ -259,8 +296,8 @@ function shadowResult(input: {
 
 function normalizeRuntimeProfile(value: unknown): ProgramRuntimeProfile {
   const profile = stringField(value) || "shadow_program"
-  if (profile !== "shadow_program" && profile !== "catalog_hygiene_canary") {
-    throw new Error("runtime_profile must be shadow_program or catalog_hygiene_canary")
+  if (profile !== "shadow_program" && profile !== "catalog_hygiene_canary" && profile !== "full_shadow") {
+    throw new Error("runtime_profile must be shadow_program, catalog_hygiene_canary, or full_shadow")
   }
   return profile
 }
@@ -272,6 +309,22 @@ function assertClosedWorldInput(input: JSONRecord): void {
   }
   if (Object.hasOwn(input, "runtime_health") && !isRecord(input.runtime_health)) {
     throw new Error("runtime_health must be an object")
+  }
+  const profile = stringField(input.runtime_profile) || "shadow_program"
+  const fullShadowKeys = ["rd_state_db", "rd_program_id", "rd_trackers", "catalog_db", "catalog_roots", "governance_db"]
+  if (profile !== "full_shadow" && fullShadowKeys.some((key) => Object.hasOwn(input, key))) {
+    throw new Error("domain job configuration is allowed only for runtime_profile=full_shadow")
+  }
+  for (const key of ["rd_state_db", "catalog_db", "governance_db"]) {
+    const value = stringField(input[key])
+    if (value) assertProjectRuntimePath(value)
+  }
+  if (Object.hasOwn(input, "rd_trackers") && !Array.isArray(input.rd_trackers)) {
+    throw new Error("rd_trackers must be an array")
+  }
+  if (Object.hasOwn(input, "catalog_roots")) {
+    if (!Array.isArray(input.catalog_roots)) throw new Error("catalog_roots must be an array")
+    for (const root of input.catalog_roots) assertProjectRuntimePath(String(root))
   }
 }
 

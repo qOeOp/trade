@@ -173,6 +173,60 @@ test("program catalog hygiene canary enables only J06 without GC or live writes"
   }
 })
 
+test("program full shadow enables the fixed J01-J07 graph without live commands", async () => {
+  const fixture = createFixture("program-full-shadow-")
+  try {
+    const executed: Array<{ cwd: string; argv: string[] }> = []
+    const result = await runProgramShadowWakeup(
+      fixture.tradeDb,
+      fixture.tradeDbPath,
+      {
+        cycle_id: "full-shadow-cycle-1",
+        now: "2026-07-23T01:04:00Z",
+        ops_runtime_db: fixture.opsDbPath,
+        runtime_profile: "full_shadow",
+        rd_trackers: [{ tracker_id: "tracker-fixture-1" }],
+      },
+      async (command): Promise<CommandExecutionResult> => {
+        executed.push({ cwd: command.cwd, argv: command.argv })
+        return command.cwd === "modules/orchestration-ops/runtime-health-guard"
+          ? healthResult()
+          : { exit_code: 0, stdout: JSON.stringify({ ok: true }), stderr: "" }
+      },
+      fixedDependencies("holder-full-shadow"),
+    )
+
+    assert.equal(result.runtime_profile, "full_shadow")
+    assert.equal(result.outcome, "executed")
+    const safety = result.safety as {
+      domain_jobs_enabled: boolean
+      enabled_domain_jobs: string[]
+      allowed_domain_writes: string[]
+      live_writes_allowed: boolean
+      notify_dry_run: boolean
+    }
+    assert.equal(safety.domain_jobs_enabled, true)
+    assert.equal(safety.enabled_domain_jobs.length, 7)
+    assert.deepEqual(safety.allowed_domain_writes, [
+      "trade_event_store", "research_state_store", "artifact_catalog", "governance_ledger",
+    ])
+    assert.equal(safety.live_writes_allowed, false)
+    assert.equal(safety.notify_dry_run, true)
+    const graph = result.job_graph as {
+      jobs: Array<{ job_id: string; status: string }>
+      plan: { jobs: Array<{ job_id: string; enabled: boolean }>; cadence: Record<string, { due: boolean }> }
+    }
+    assert.equal(graph.jobs.length, 7)
+    assert.equal(graph.plan.jobs.every((job) => job.enabled), true)
+    assert.equal(Object.values(graph.plan.cadence).every((cadence) => cadence.due), true)
+    assert.equal(executed.some((command) => command.argv.includes("--run-live-small")), false)
+    assert.equal(executed.some((command) => command.argv.some((part) => part.includes("binance-write"))), false)
+    assert.equal(executed.some((command) => command.argv.includes("--yes")), false)
+  } finally {
+    fixture.close()
+  }
+})
+
 test("program shadow skips a terminal cycle without executing it twice", async () => {
   const fixture = createFixture("program-shadow-terminal-")
   try {
@@ -326,7 +380,15 @@ test("program shadow rejects caller attempts to widen its write scope", async ()
           runtime_profile: "all_domain_jobs",
         },
       ),
-      /runtime_profile must be shadow_program or catalog_hygiene_canary/,
+      /runtime_profile must be shadow_program, catalog_hygiene_canary, or full_shadow/,
+    )
+    await assert.rejects(
+      runProgramShadowWakeup(
+        fixture.tradeDb,
+        fixture.tradeDbPath,
+        { ops_runtime_db: fixture.opsDbPath, rd_trackers: [] },
+      ),
+      /domain job configuration is allowed only for runtime_profile=full_shadow/,
     )
   } finally {
     fixture.close()

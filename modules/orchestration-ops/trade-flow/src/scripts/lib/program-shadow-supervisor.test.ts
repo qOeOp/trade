@@ -63,6 +63,48 @@ test("program shadow supervisor runs stable cadence slots and releases its fence
   }
 })
 
+test("program shadow supervisor forwards the fixed full-shadow profile without live commands", async () => {
+  const fixture = createFixture("program-full-shadow-supervisor-")
+  try {
+    const commands: Array<{ argv: string[] }> = []
+    const result = await runProgramShadowSupervisor(
+      fixture.tradeDb,
+      fixture.tradeDbPath,
+      {
+        ops_runtime_db: fixture.opsDbPath,
+        runtime_profile: "full_shadow",
+        rd_trackers: [{ tracker_id: "supervisor-tracker-1" }],
+        max_cycles: 1,
+        observe_agent_parity: true,
+      },
+      async (command): Promise<CommandExecutionResult> => {
+        commands.push({ argv: command.argv })
+        return command.cwd === "modules/orchestration-ops/runtime-health-guard"
+          ? healthResult()
+          : { exit_code: 0, stdout: JSON.stringify({ ok: true }), stderr: "" }
+      },
+      {
+        clock: () => new Date("2026-07-23T04:02:00.000Z"),
+        holderId: () => "full-shadow-supervisor",
+      },
+    )
+
+    assert.equal(result.runtime_profile, "full_shadow")
+    assert.equal((result.safety as { domain_jobs_enabled: boolean }).domain_jobs_enabled, true)
+    assert.equal((result.last_wakeup as { runtime_profile: string }).runtime_profile, "full_shadow")
+    assert.equal(
+      (result.parity_observation as { matched: number; mismatched: number }).matched,
+      1,
+      JSON.stringify(result.parity_observation),
+    )
+    assert.equal((result.parity_observation as { matched: number; mismatched: number }).mismatched, 0)
+    assert.equal(commands.some((command) => command.argv.includes("--run-live-small")), false)
+    assert.equal(commands.some((command) => command.argv.some((part) => part.includes("binance-write"))), false)
+  } finally {
+    fixture.close()
+  }
+})
+
 test("program shadow supervisor records independent Agent/program parity observations", async () => {
   const fixture = createFixture("program-shadow-supervisor-parity-")
   try {

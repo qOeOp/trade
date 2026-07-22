@@ -15,7 +15,7 @@
   ],
   "properties": {
     "schema_version": { "const": "trade-flow.program-shadow-wakeup-result.v1" },
-    "runtime_profile": { "enum": ["shadow_program", "catalog_hygiene_canary"] },
+    "runtime_profile": { "enum": ["shadow_program", "catalog_hygiene_canary", "full_shadow"] },
     "cycle_id": { "type": "string", "minLength": 1 },
     "outcome": {
       "enum": ["executed", "recovered_running", "skipped_lock", "skipped_terminal", "ops_store_busy"]
@@ -36,14 +36,14 @@
         "domain_jobs_enabled": { "type": "boolean" },
         "enabled_domain_jobs": {
           "type": "array",
-          "items": { "const": "catalog_hygiene_scan" },
-          "maxItems": 1,
+          "items": { "enum": ["account_reconcile_guard", "fast_track_guard", "slow_track_market_watch", "rd_strategy_supervisor", "rd_forward_shadow_trackers", "catalog_hygiene_scan", "closed_flow_review_sweep"] },
+          "maxItems": 7,
           "uniqueItems": true
         },
         "allowed_domain_writes": {
           "type": "array",
-          "items": { "const": "artifact_catalog" },
-          "maxItems": 1,
+          "items": { "enum": ["trade_event_store", "research_state_store", "artifact_catalog", "governance_ledger"] },
+          "maxItems": 4,
           "uniqueItems": true
         },
         "live_writes_allowed": { "const": false },
@@ -98,6 +98,23 @@
               "domain_jobs_enabled": { "const": true },
               "enabled_domain_jobs": { "minItems": 1, "maxItems": 1 },
               "allowed_domain_writes": { "minItems": 1, "maxItems": 1 }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": { "runtime_profile": { "const": "full_shadow" } },
+        "required": ["runtime_profile"]
+      },
+      "then": {
+        "properties": {
+          "safety": {
+            "properties": {
+              "domain_jobs_enabled": { "const": true },
+              "enabled_domain_jobs": { "minItems": 7, "maxItems": 7 },
+              "allowed_domain_writes": { "minItems": 4, "maxItems": 4 }
             }
           }
         }

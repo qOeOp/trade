@@ -14,6 +14,7 @@ export const HELP_TEXT = `Usage:
   bun src/scripts/main.ts --db ./data/trade.db --run-job-graph --json '{"ops_runtime_db":"./data/ops_runtime.db","execute_jobs":false}'
   bun src/scripts/main.ts --db ./data/trade.db --run-program-shadow --json '{"ops_runtime_db":"./data/ops_runtime.db"}'
   bun src/scripts/main.ts --db ./data/trade.db --run-program-shadow-supervisor --json '{"ops_runtime_db":"./data/ops_runtime.db","interval_seconds":60}'
+  bun src/scripts/main.ts --db ./data/trade.db --run-program-shadow-supervisor --json '{"ops_runtime_db":"./data/ops_runtime.db","runtime_profile":"full_shadow","interval_seconds":60}'
   bun src/scripts/main.ts --run-shadow-from-tools --json '{"repoRoot":"/repo","chain_id":"...","symbol":"BTCUSDT",...}'
   bun src/scripts/main.ts --run-live-small --yes --json '{"repoRoot":"/repo","plan":{...},"observe":{...},"execution_contract_input":{...}}'
   bun src/scripts/main.ts --db ./data/trade.db --recover-flow --chain-id <chain_id>
@@ -37,8 +38,8 @@ Key flags:
   --observe-from-tools    Call read-only snapshot tools and build an observe event
   --automation-cycle       Build a single-entry automation supervisor plan with isolated owner jobs and cadence gates
   --run-job-graph          Build the automation plan and record job lifecycle into ops_runtime_store; dry-run unless JSON execute_jobs=true
-  --run-program-shadow     Run one leased, idempotent, no-domain-job program-runtime shadow wakeup
-  --run-program-shadow-supervisor Run the foreground resident shadow cadence with heartbeat, fencing, timeout, and shutdown drain
+  --run-program-shadow     Run one leased, idempotent fixed-profile program-runtime wakeup
+  --run-program-shadow-supervisor Run foreground shadow_program/full_shadow cadence with heartbeat, fencing, timeout, and shutdown drain
   --run-shadow-from-tools Call read-only snapshot tools, build observe, then record shadow execution
   --run-live-small         Execute one live-small main entry through binance-order-place
   --recover-flow           Reduce local plan_event history for one flow

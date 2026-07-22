@@ -11,6 +11,7 @@ import {
   type CommandExecutor,
   type CommandExecutionResult,
 } from "./job-graph-runner"
+import type { ProgramRuntimeProfile } from "./program-shadow"
 
 export const SHARED_PARITY_COMPARISON_BASIS = "shared_owner_result_replay_v1"
 
@@ -78,6 +79,7 @@ const PARITY_INVOCATION_IDENTITY_FIELDS = new Set([
   "now",
   "observed_at",
   "review_id",
+  "run_id",
 ])
 
 export async function observeProgramShadowParity(
@@ -91,6 +93,13 @@ export async function observeProgramShadowParity(
     ops_runtime_db: string
     program_graph: JSONRecord
     runtime_health?: JSONRecord
+    runtime_profile?: ProgramRuntimeProfile
+    rd_state_db?: string
+    rd_program_id?: string
+    rd_trackers?: JSONRecord[]
+    catalog_db?: string
+    catalog_roots?: string[]
+    governance_db?: string
   },
   executor?: CommandExecutor,
 ): Promise<JSONRecord> {
@@ -140,8 +149,16 @@ function legacyAgentShadowGraphInput(input: {
   observed_at: string
   ops_runtime_db: string
   runtime_health?: JSONRecord
+  runtime_profile?: ProgramRuntimeProfile
+  rd_state_db?: string
+  rd_program_id?: string
+  rd_trackers?: JSONRecord[]
+  catalog_db?: string
+  catalog_roots?: string[]
+  governance_db?: string
 }): JSONRecord {
   const attemptId = input.agent_cycle_id.replace(/[^A-Za-z0-9_-]/g, "-")
+  const fullShadow = input.runtime_profile === "full_shadow"
   return {
     cycle_id: input.agent_cycle_id,
     now: input.now,
@@ -150,13 +167,26 @@ function legacyAgentShadowGraphInput(input: {
     execute_jobs: true,
     allow_live_writes: false,
     include_runtime_health: true,
-    include_account_reconcile: false,
-    include_fast_track: false,
-    include_slow_track: false,
-    include_rd_strategy_supervisor: false,
-    include_rd_trackers: false,
-    include_closed_flow_review: false,
-    include_catalog_hygiene: false,
+    include_account_reconcile: fullShadow,
+    include_fast_track: fullShadow,
+    include_slow_track: fullShadow,
+    include_rd_strategy_supervisor: fullShadow,
+    include_rd_trackers: fullShadow,
+    include_closed_flow_review: fullShadow,
+    include_catalog_hygiene: fullShadow,
+    ...(fullShadow ? {
+      force_jobs: [
+        "account_reconcile_guard", "fast_track_guard", "slow_track_market_watch",
+        "rd_strategy_supervisor", "rd_forward_shadow_trackers", "catalog_hygiene_scan",
+        "closed_flow_review_sweep",
+      ],
+      ...(input.rd_state_db ? { rd_state_db: input.rd_state_db } : {}),
+      ...(input.rd_program_id ? { rd_program_id: input.rd_program_id } : {}),
+      ...(input.rd_trackers ? { rd_trackers: input.rd_trackers } : {}),
+      ...(input.catalog_db ? { catalog_db: input.catalog_db } : {}),
+      ...(input.catalog_roots ? { catalog_roots: input.catalog_roots } : {}),
+      ...(input.governance_db ? { governance_db: input.governance_db } : {}),
+    } : {}),
     include_control_effectiveness_review: true,
     include_ops_notify: true,
     runtime_health: {
