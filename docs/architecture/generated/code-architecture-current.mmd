@@ -95,7 +95,7 @@ flowchart LR
     module_modules_research_strategy_development_research_control_plane_program_control["research-strategy-development/research-control-plane/program-control"]
     module_modules_research_strategy_development_research_control_plane_program_supervisor["research-strategy-development/research-control-plane/program-supervisor"]
     module_modules_research_strategy_development_research_control_plane_replay_recovery["research-strategy-development/research-control-plane/replay-recovery"]
-    module_modules_research_strategy_development_forward_evidence_plane_compatibility_rd_shadow_tracker["research-strategy-development/forward-evidence-plane/compatibility/rd-shadow-tracker"]
+    module_modules_research_strategy_development_forward_evidence_plane_paper_tracker["research-strategy-development/forward-evidence-plane/paper-tracker"]
     module_modules_research_strategy_development_agent_roles_developer_rd_loop_runner["research-strategy-development/agent-roles/developer/rd-loop-runner"]
     module_modules_research_strategy_development_agent_roles_developer_rd_campaign_runner["research-strategy-development/agent-roles/developer/rd-campaign-runner"]
     module_modules_research_strategy_development_research_control_plane_experiment_ledger["research-strategy-development/research-control-plane/experiment-ledger"]
@@ -127,7 +127,7 @@ flowchart LR
   generated -- "J04 rd_strategy_supervisor" --> domain_research_strategy_development
   module_modules_research_strategy_development_research_control_plane_program_supervisor -. "owner" .-> domain_research_strategy_development
   generated -- "J05 rd_forward_shadow_trackers" --> domain_research_strategy_development
-  module_modules_research_strategy_development_forward_evidence_plane_compatibility_rd_shadow_tracker -. "owner" .-> domain_research_strategy_development
+  module_modules_research_strategy_development_forward_evidence_plane_paper_tracker -. "owner" .-> domain_research_strategy_development
   generated -- "J06 catalog_hygiene_scan" --> domain_artifact_knowledge
   module_modules_artifact_knowledge_artifact_catalog -. "owner" .-> domain_artifact_knowledge
   generated -- "J07 closed_flow_review_sweep" --> domain_governance_review_compliance
