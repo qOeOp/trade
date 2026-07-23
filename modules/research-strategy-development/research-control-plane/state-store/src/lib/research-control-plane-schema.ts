@@ -1306,6 +1306,25 @@ CREATE TABLE IF NOT EXISTS rd_experiment_result (
   FOREIGN KEY (result_type_id) REFERENCES rd_result_type(result_type_id)
 );
 
+CREATE TABLE IF NOT EXISTS rd_evaluation_evidence_classification (
+  result_id TEXT PRIMARY KEY,
+  experiment_id TEXT NOT NULL,
+  evidence_kind TEXT NOT NULL CHECK(evidence_kind IN (
+    'mechanical_replay', 'agent_assisted_historical', 'forward_observation'
+  )),
+  producer TEXT NOT NULL CHECK(producer IN (
+    'replay_owner', 'agent_evaluation_owner', 'forward_owner'
+  )),
+  artifact_ref TEXT NOT NULL,
+  evidence_hash TEXT NOT NULL,
+  policy_version TEXT NOT NULL,
+  classification_json TEXT NOT NULL CHECK(json_valid(classification_json)),
+  classification_hash TEXT NOT NULL UNIQUE,
+  classified_at TEXT NOT NULL,
+  FOREIGN KEY (result_id, experiment_id)
+    REFERENCES rd_experiment_result(result_id, experiment_id)
+);
+
 CREATE TABLE IF NOT EXISTS rd_review_decision (
   decision_id TEXT PRIMARY KEY,
   experiment_id TEXT NOT NULL,
@@ -1780,6 +1799,13 @@ BEGIN SELECT RAISE(ABORT, 'experiment result is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS prevent_experiment_result_delete
 BEFORE DELETE ON rd_experiment_result
 BEGIN SELECT RAISE(ABORT, 'experiment result is append-only'); END;
+
+CREATE TRIGGER IF NOT EXISTS prevent_evaluation_evidence_classification_update
+BEFORE UPDATE ON rd_evaluation_evidence_classification
+BEGIN SELECT RAISE(ABORT, 'evaluation evidence classification is append-only'); END;
+CREATE TRIGGER IF NOT EXISTS prevent_evaluation_evidence_classification_delete
+BEFORE DELETE ON rd_evaluation_evidence_classification
+BEGIN SELECT RAISE(ABORT, 'evaluation evidence classification is append-only'); END;
 
 CREATE TRIGGER IF NOT EXISTS prevent_review_decision_update
 BEFORE UPDATE ON rd_review_decision
