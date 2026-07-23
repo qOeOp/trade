@@ -21,6 +21,7 @@ import {
 } from "../../../contracts/src/lib/developer-contract-draft"
 import {
   issueDeveloperDevelopmentBrief,
+  readDeveloperDevelopmentBrief,
   receiveDeveloperContractDraft,
 } from "../../../state-store/src/lib/developer-contract-draft-intake"
 import type { AgentArtifactPort } from "./planner-agent-run"
@@ -33,6 +34,7 @@ export interface DeveloperAgentContextPack {
   developer_run_id: string
   source_revision: string
   brief: DeveloperDevelopmentBrief
+  next_draft_revision: number
   predecessor_run_id: string | null
   replay_result_refs: AgentArtifactRef[]
   requested_at: string
@@ -58,8 +60,8 @@ const DEVELOPER_INSTRUCTION = [
   "Assess whether the admitted mechanism uses an existing implementation, needs only a contract, needs code changes, or is blocked by data/tool coverage.",
   "For this contract-design capability, call research_developer_submission_prepare exactly once with the context-pack developer_run_id, brief_id, source_revision, and predecessor_run_id unchanged.",
   "Choose only existing_implementation, contract_only, data_blocked, or tool_blocked; code_change_required is not available through this read-only capability and evidence for it must never be fabricated.",
-  "For a non-blocked submission, design draft_json within the Brief candidate space, set draft_json.schema_version to trade.rd-experiment-contract-draft-payload.v1, and keep requested_trial_budget at or below the Brief maximum.",
-  "Use draft_revision 1 when there is no predecessor. Set created_at no earlier than requested_at.",
+  "For a non-blocked submission, design draft_json within the Brief candidate space and keep requested_trial_budget at or below the Brief maximum; the owner tool binds schema_version, canonical_node_id, required_data, and candidate_space from the Brief.",
+  "Use context-pack next_draft_revision exactly. Set created_at no earlier than requested_at.",
   "Return only the submission object returned by the tool, exactly and without prose or edits.",
   "A code change must bind a reviewable patch and successful bounded quality-check artifacts.",
   "Do not apply a patch, reserve a Trial, execute Replay, materialize a strategy, promote, deploy, or trade.",
@@ -81,24 +83,26 @@ export function prepareDeveloperAgentRun(input: {
   replay_result_refs?: AgentArtifactRef[]
   max_wall_time_ms?: number
 }): PreparedDeveloperAgentRun {
-  const brief = issueDeveloperDevelopmentBrief(input.db, {
-    schema_version: DEVELOPER_DEVELOPMENT_BRIEF_ISSUE_REQUEST_SCHEMA_VERSION,
+  const requestedAt = utc(input.requested_at, "requested_at")
+  const brief = readOrIssueBrief(input.db, {
     brief_id: input.brief_id,
     proposal_id: input.proposal_id,
     proposal_revision: input.proposal_revision,
-    idempotency_key: `agent-developer-brief:${input.developer_run_id}`,
-    issued_at: utc(input.requested_at, "requested_at"),
+    developer_run_id: input.developer_run_id,
+    requested_at: requestedAt,
   })
+  const nextDraftRevision = readNextDraftRevision(input.db, brief.brief_id)
   const body = {
     schema_version: DEVELOPER_AGENT_CONTEXT_PACK_SCHEMA,
     developer_run_id: identifier(input.developer_run_id, "developer_run_id"),
     source_revision: revision(input.source_revision),
     brief,
+    next_draft_revision: nextDraftRevision,
     predecessor_run_id: input.predecessor_run_id == null
       ? null
       : identifier(input.predecessor_run_id, "predecessor_run_id"),
     replay_result_refs: artifactRefs(input.replay_result_refs ?? []),
-    requested_at: utc(input.requested_at, "requested_at"),
+    requested_at: requestedAt,
   }
   const contextPack: DeveloperAgentContextPack = {
     ...body,
@@ -129,6 +133,48 @@ export function prepareDeveloperAgentRun(input: {
     data_classification: "project_internal",
   })
   return { context_pack: contextPack, request }
+}
+
+function readOrIssueBrief(
+  db: Database,
+  input: {
+    brief_id: string
+    proposal_id: string
+    proposal_revision: number
+    developer_run_id: string
+    requested_at: string
+  },
+): DeveloperDevelopmentBrief {
+  try {
+    const existing = readDeveloperDevelopmentBrief(db, input.brief_id)
+    if (existing.proposal_id !== input.proposal_id
+      || existing.proposal_revision !== input.proposal_revision) {
+      throw new Error("existing Developer Brief drifted from requested Proposal")
+    }
+    return existing
+  } catch (error) {
+    if (!(error instanceof Error)
+      || error.message !== "Developer Development Brief is missing") {
+      throw error
+    }
+  }
+  return issueDeveloperDevelopmentBrief(db, {
+    schema_version: DEVELOPER_DEVELOPMENT_BRIEF_ISSUE_REQUEST_SCHEMA_VERSION,
+    brief_id: input.brief_id,
+    proposal_id: input.proposal_id,
+    proposal_revision: input.proposal_revision,
+    idempotency_key: `agent-developer-brief:${input.developer_run_id}`,
+    issued_at: input.requested_at,
+  })
+}
+
+function readNextDraftRevision(db: Database, briefId: string): number {
+  const row = db.query(`
+    SELECT COALESCE(MAX(draft_revision), 0) + 1 AS next_revision
+    FROM rd_developer_contract_draft
+    WHERE brief_id=$brief_id
+  `).get({ $brief_id: briefId }) as { next_revision: number }
+  return boundedInteger(row.next_revision, 1, 1_000_000, "next_draft_revision")
 }
 
 export function admitDeveloperAgentResult(input: {
