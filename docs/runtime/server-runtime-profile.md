@@ -164,7 +164,7 @@ S1 不做自动滚动升级、双实例交接或 active-active；SQLite 单 owne
 
 ## 11. 当前 Release Gate
 
-2026-07-23 的本机采用已闭合 immutable staging、Bun-native foreground、三个 launchd agent、readiness、consumer 独立重启、真实在线备份/恢复、public/full-shadow soak，以及 Operator HTTP resident/audit/token rotation。实际常驻 release 为提交 `a2089f8197d3` 的隔离副本，使用 `127.0.0.1:51061`；当前 status 为 owner/consumer 同 epoch、process units active、control lease active，累计 parity `9/9 match`。一次性证据见 [macOS No-Live Host Adoption](../history/macos-no-live-host-adoption-2026-07-23.md)。
+2026-07-23 的本机采用已闭合 immutable staging、Bun-native foreground、三个 launchd agent、readiness、consumer 独立重启、真实在线备份/恢复、public/full-shadow soak，以及 Operator HTTP resident/audit/token rotation。实际常驻 release 为提交 `a2089f8197d3` 的隔离副本，使用 `127.0.0.1:51061`；采用观测点为 owner/consumer 同 epoch、process units active、control lease active、累计 parity `9/9 match`。一次性证据见 [macOS No-Live Host Adoption](../history/macos-no-live-host-adoption-2026-07-23.md)。
 
 workspace 仍位于 Downloads，但 launchd 不再从 workspace 启动；immutable release 位于非受保护用户数据目录。三个固定 label 的 plist/hash 与 release manifest 相互绑定，安装、component restart 和卸载只允许该 closed-world 集合。现有独立 `127.0.0.1:50061` L2 未被停止、接管或复用。
 
