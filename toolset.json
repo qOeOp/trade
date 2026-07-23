@@ -1462,11 +1462,16 @@
         "market-data-store",
         "ohlcv-manifest",
         "canonical-candles",
+        "canonical-candle-coverage-audit",
         "candle-slice-export",
         "funding-events",
         "feature-manifest",
         "instrument-status-acquisition",
         "instrument-status-archive",
+        "market-data-demand-register",
+        "market-data-demand-renew",
+        "market-data-demand-release",
+        "market-data-demand-reconcile",
         "l2-epoch-retention-reference-audit",
         "l2-epoch-retention-reference-audit-page"
       ],
@@ -1474,7 +1479,7 @@
         "A"
       ],
       "path": "modules/market-data-products/market-data-store",
-      "purpose": "Record market manifests, L2 owner retention/referrer evidence, funding events, feature manifests, instrument-status acquisition receipts/raw payloads, and immutable archives in market_data_store; own canonical candles and immutable candle-slice exports from ohlcv_store.",
+      "purpose": "Record market manifests, typed leased data demands, L2 owner retention/referrer evidence, funding events, feature manifests, instrument-status acquisition receipts/raw payloads, and immutable archives in market_data_store; own canonical candles and immutable candle-slice exports from ohlcv_store.",
       "command": {
         "cwd": "modules/market-data-products/market-data-store",
         "argv": [
@@ -1501,6 +1506,8 @@
         "Owns logical market_data_store refs and ohlcv_store refs; durable market data uses database owner-store contracts, not file directories.",
         "export_candle_slice writes a content-addressed immutable CSV/manifest artifact and returns a slice ref so Research never queries canonical_candle directly.",
         "Read actions include read_manifest, read_funding, read_instrument_status_acquisition_receipt, read_instrument_status_archive, read_feature_manifest, and list_feature_manifests so other domains can consume owner refs without direct table access.",
+        "Typed demand put is create-or-renew for one stable semantic identity; renewal may only advance its lease and preserves prior hashes in an audit table. Reconciliation returns a no-authority capacity proposal; callers never control daemon lifecycle.",
+        "audit_candle_coverage returns a bounded self-hashed aligned-range projection with exact gap counts; fetch completion alone is not coverage evidence.",
         "L2 retention/reference audit is a self-hashed read projection over registered owner evidence; it never infers deletion eligibility or GC authority.",
         "Audit pagination is owner-ordered and capped at 50 epochs; counts are page-local and cross-call snapshot consistency is not claimed.",
         "Instrument-status acquisitions and archives use immutable create-or-identical CAS; only historical acquisition capability can enter an archive source batch."
@@ -1531,7 +1538,7 @@
         "R"
       ],
       "path": "modules/market-data-products/l2-order-book-service",
-      "purpose": "Read the unique active L2 supervisor, control readiness, and loopback Rust source health without exposing lifecycle control.",
+      "purpose": "Read one explicitly selected active L2 supervisor, or require global uniqueness when no symbol is supplied, without exposing lifecycle control.",
       "command": {
         "cwd": "modules/market-data-products/l2-order-book-service",
         "argv": [
@@ -1547,7 +1554,7 @@
         "config": false
       },
       "notes": [
-        "Selects exactly one live repository-owned supervisor and fails closed when active ownership is ambiguous.",
+        "Caller may supply one validated symbol; without it the owner read requires exactly one live repository-owned supervisor and fails closed when ownership is ambiguous.",
         "Combines supervisor state with the fixed loopback Rust health query; returns no PID, runtime path, log path, or lifecycle command.",
         "Health is local operational evidence and does not prove external market-data completeness or economic authority."
       ],
@@ -1576,7 +1583,7 @@
         "R"
       ],
       "path": "modules/market-data-products/l2-order-book-service",
-      "purpose": "Read one bounded, fresh, hash-verified full-depth snapshot from the unique active L2 owner through a fixed-deadline loopback query.",
+      "purpose": "Read one bounded, fresh, hash-verified full-depth snapshot from an explicitly selected L2 owner, or from the globally unique owner when no symbol is supplied.",
       "command": {
         "cwd": "modules/market-data-products/l2-order-book-service",
         "argv": [
@@ -1592,8 +1599,8 @@
         "config": false
       },
       "notes": [
-        "Selects the unique active owner and fixes endpoint, symbol, release query binary, and a 1500ms deadline internally.",
-        "Caller controls only bounded depth and max freshness; schema, epoch, four timestamps, sorted decimal levels, bounded book hash, continuity, and uncrossed top are validated.",
+        "Caller may select one validated symbol and controls bounded depth / max freshness; without a symbol the read requires one globally unique owner. Endpoint, release query binary, and a 1500ms deadline remain owner-fixed.",
+        "Schema, requested/owner symbol, epoch, four timestamps, sorted decimal levels, bounded book hash, continuity, and uncrossed top are validated.",
         "Returns a non-economic bounded-depth snapshot with execution_compatible=false and no lifecycle or trading authority."
       ],
       "module_type": "atomic",
@@ -1621,7 +1628,7 @@
         "R"
       ],
       "path": "modules/market-data-products/l2-order-book-service",
-      "purpose": "Observe a bounded latest-only L2 watermark stream from the unique active owner with explicit timeout, epoch, and resync semantics.",
+      "purpose": "Observe a bounded latest-only L2 watermark stream from an explicitly selected owner, or from the globally unique owner when no symbol is supplied, with explicit timeout, epoch, and resync semantics.",
       "command": {
         "cwd": "modules/market-data-products/l2-order-book-service",
         "argv": [
@@ -1637,7 +1644,7 @@
         "config": false
       },
       "notes": [
-        "Caller controls only max-events 1..100 and watch-ms 100..5000; endpoint, symbol, binary, and deadline overhead are owner-fixed.",
+        "Caller may select one validated symbol and controls only max-events 1..100 and watch-ms 100..5000; without a symbol the read requires one globally unique owner. Endpoint, binary, and deadline overhead are owner-fixed.",
         "Validates watermark identity, time/update monotonicity, epoch rollover, and mandatory resync; slow consumers observe the latest value without ingestion backpressure.",
         "This is not a depth-delta or Replay stream and grants no lifecycle, strategy, trading, or execution authority."
       ],
