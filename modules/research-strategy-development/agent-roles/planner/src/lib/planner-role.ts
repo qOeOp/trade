@@ -58,7 +58,7 @@ export function buildPlannerProposal(input: PlannerProposalInput): PlannerPropos
       throw new Error(`canonical dataset requirement is not ready for an Experiment Proposal: ${requirement}`)
     }
   }
-  if (Object.keys(input.candidate_space).length === 0) throw new Error("candidate_space cannot be empty")
+  const candidateSpace = normalizeCandidateSpace(input.candidate_space)
   if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z$/.test(input.created_at)
       || Number.isNaN(Date.parse(input.created_at))) {
     throw new Error("created_at must be an RFC 3339 UTC timestamp")
@@ -71,10 +71,51 @@ export function buildPlannerProposal(input: PlannerProposalInput): PlannerPropos
     universe_node_id: input.universe_node_id.trim(),
     objective: input.objective.trim(),
     dataset_requirements: datasetRequirements,
-    candidate_space: input.candidate_space,
+    candidate_space: candidateSpace,
     trial_budget: input.trial_budget,
     evaluation_protocol_ref: input.evaluation_protocol_ref.trim(),
     control_plane_context_hash: input.control_plane_context.context_hash,
     created_at: input.created_at,
   })
+}
+
+function normalizeCandidateSpace(
+  value: Record<string, unknown>,
+): Record<string, unknown> {
+  if (!value || typeof value !== "object" || Array.isArray(value)
+    || Object.keys(value).length === 0) {
+    throw new Error("candidate_space cannot be empty")
+  }
+  const parameters = value.parameters
+  const nested = parameters && typeof parameters === "object" && !Array.isArray(parameters)
+    ? parameters as Record<string, unknown>
+    : null
+  const source = nested
+    ? {
+        ...nested,
+        signal: Array.isArray(value.signal) ? value.signal : [value.signal],
+      }
+    : value
+  if (nested && Object.keys(value).some((key) => !["parameters", "signal"].includes(key))) {
+    throw new Error("nested candidate_space may contain only signal and parameters")
+  }
+  const normalized: Record<string, unknown> = {}
+  for (const axis of Object.keys(source).sort()) {
+    const choices = source[axis]
+    if (!Array.isArray(choices) || choices.length === 0
+      || choices.some((choice) => !isJsonScalar(choice))) {
+      throw new Error(`candidate_space.${axis} must be a non-empty scalar enumeration`)
+    }
+    const identities = choices.map((choice) => JSON.stringify(choice))
+    if (new Set(identities).size !== identities.length) {
+      throw new Error(`candidate_space.${axis} choices must be unique`)
+    }
+    normalized[axis] = structuredClone(choices)
+  }
+  return normalized
+}
+
+function isJsonScalar(value: unknown): boolean {
+  return value === null || typeof value === "string" || typeof value === "boolean"
+    || (typeof value === "number" && Number.isFinite(value))
 }
