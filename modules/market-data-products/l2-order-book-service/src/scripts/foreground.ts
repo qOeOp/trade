@@ -11,7 +11,9 @@ import { parseLaunchConfigArgs } from "../control/runtime-contract"
 const root = repoRoot()
 const moduleRoot = resolve(import.meta.dir, "../..")
 const config = parseLaunchConfigArgs(process.argv.slice(2))
-if (findUniqueActiveL2Runtime(root) != null) throw new Error("an active L2 supervisor already exists")
+if (findUniqueActiveL2Runtime(root, { symbol: config.symbol }) != null) {
+  throw new Error(`an active L2 supervisor already exists for ${config.symbol}`)
+}
 const plan = buildL2ForegroundRuntimePlan({
   root,
   module_root: moduleRoot,

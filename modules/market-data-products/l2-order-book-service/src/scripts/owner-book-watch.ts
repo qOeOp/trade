@@ -9,18 +9,19 @@ import {
   L2_BOOK_WATCH_MAX_EVENTS,
   L2_BOOK_WATCH_MAX_MS,
 } from "../control/book-watch"
-import { processIsAlive } from "../control/runtime-contract"
+import { processMatchesL2Service } from "../control/runtime-contract"
 
-interface Args { maxEvents: number; watchMs: number }
+interface Args { maxEvents: number; watchMs: number; symbol?: string }
 
 export function parseArgs(argv: string[]): Args {
-  const result = { maxEvents: 20, watchMs: 1_000 }
+  const result: Args = { maxEvents: 20, watchMs: 1_000 }
   for (let index = 0; index < argv.length; index += 2) {
     const name = argv[index]
     const value = argv[index + 1]
     if (value == null) throw new Error(`missing value for ${name}`)
     if (name === "--max-events") result.maxEvents = integer(value, name)
     else if (name === "--watch-ms") result.watchMs = integer(value, name)
+    else if (name === "--symbol" && /^[A-Z0-9]{5,20}$/.test(value)) result.symbol = value
     else throw new Error(`unknown argument: ${name}`)
   }
   if (result.maxEvents < 1 || result.maxEvents > L2_BOOK_WATCH_MAX_EVENTS) throw new Error("max-events must be between 1 and 100")
@@ -30,9 +31,11 @@ export function parseArgs(argv: string[]): Args {
 
 export function run(args: Args): Record<string, unknown> {
   const root = repoRoot()
-  const active = findUniqueActiveL2Runtime(root)
+  const active = findUniqueActiveL2Runtime(root, { symbol: args.symbol })
   if (!active) throw new Error("no active L2 supervisor is registered")
-  if (active.state.service_pid == null || !processIsAlive(active.state.service_pid)) throw new Error("active L2 service is not running")
+  if (active.state.service_pid == null || !processMatchesL2Service(active.state.service_pid, active.receipt)) {
+    throw new Error("active L2 service is not running")
+  }
   const binary = resolve(root, "modules/market-data-products/l2-order-book-service/target/release/l2-order-book-query")
   const query = Bun.spawnSync({
     cmd: [

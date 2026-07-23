@@ -8,21 +8,23 @@ import {
   L2_CURRENT_BOOK_MAX_DEPTH,
   L2_CURRENT_BOOK_QUERY_DEADLINE_MS,
 } from "../control/current-book"
-import { processIsAlive } from "../control/runtime-contract"
+import { processMatchesL2Service } from "../control/runtime-contract"
 
 interface Args {
   depth: number
   maxFreshnessMs: number
+  symbol?: string
 }
 
 export function parseArgs(argv: string[]): Args {
-  const result = { depth: 20, maxFreshnessMs: 1_000 }
+  const result: Args = { depth: 20, maxFreshnessMs: 1_000 }
   for (let index = 0; index < argv.length; index += 2) {
     const name = argv[index]
     const value = argv[index + 1]
     if (value == null) throw new Error(`missing value for ${name}`)
     if (name === "--depth") result.depth = integer(value, name)
     else if (name === "--max-freshness-ms") result.maxFreshnessMs = integer(value, name)
+    else if (name === "--symbol" && /^[A-Z0-9]{5,20}$/.test(value)) result.symbol = value
     else throw new Error(`unknown argument: ${name}`)
   }
   if (result.depth < 1 || result.depth > L2_CURRENT_BOOK_MAX_DEPTH) {
@@ -36,9 +38,9 @@ export function parseArgs(argv: string[]): Args {
 
 export function run(args: Args): Record<string, unknown> {
   const root = repoRoot()
-  const active = findUniqueActiveL2Runtime(root)
+  const active = findUniqueActiveL2Runtime(root, { symbol: args.symbol })
   if (!active) throw new Error("no active L2 supervisor is registered")
-  if (active.state.service_pid == null || !processIsAlive(active.state.service_pid)) {
+  if (active.state.service_pid == null || !processMatchesL2Service(active.state.service_pid, active.receipt)) {
     throw new Error("active L2 service is not running")
   }
   const queryBinary = resolve(root, "modules/market-data-products/l2-order-book-service/target/release/l2-order-book-query")
