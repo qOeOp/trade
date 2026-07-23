@@ -18,12 +18,15 @@ import {
 } from "../../../contracts/src/lib/developer-contract-freeze"
 import { reserveTrial, applySystemTransition } from "./research-control-plane-operations"
 import { transitionTrialGroup } from "./research-control-plane"
+import { RESEARCH_CONTRACT_VALIDATOR_VERSION, validateResearchProposal } from "./research-contract-validator"
 
 interface TrialPlanSourceRow {
   freeze_json: string
   freeze_hash: string
   experiment_id: string
   contract_hash: string
+  contract_json: string
+  contract_validator_version: string
   lifecycle_state: string
   lifecycle_version: number
   trial_group_id: string
@@ -99,7 +102,8 @@ export function startExperimentTrialPlan(
 
     const row = db.query(`
       SELECT f.freeze_json, f.freeze_hash,
-             e.experiment_id, e.contract_hash, e.lifecycle_state, e.lifecycle_version,
+             e.experiment_id, e.contract_hash, e.contract_json,
+             e.contract_validator_version, e.lifecycle_state, e.lifecycle_version,
              g.trial_group_id, g.group_hash AS trial_group_hash,
              g.identity_hash_policy_version, g.trial_accounting_policy_version,
              g.status AS group_status, g.max_trials
@@ -111,6 +115,12 @@ export function startExperimentTrialPlan(
     if (!row) throw new Error("Experiment Trial Plan requires an authoritative Contract Freeze Record")
     const freeze = parseFreezeRecord(row.freeze_json)
     assertPlanBindings(request, freeze, row)
+    const contract = JSON.parse(row.contract_json) as Record<string, unknown>
+    const validation = validateResearchProposal("experiment", contract)
+    if (row.contract_validator_version !== RESEARCH_CONTRACT_VALIDATOR_VERSION
+        || !validation.valid) {
+      throw new Error("Experiment Trial Plan requires a Contract valid under the current validator")
+    }
     if (Date.parse(request.planned_at) < Date.parse(freeze.frozen_at)) {
       throw new Error("Experiment Trial Plan cannot predate Contract Freeze")
     }

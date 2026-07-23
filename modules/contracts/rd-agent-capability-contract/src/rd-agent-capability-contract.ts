@@ -36,6 +36,32 @@ export interface StrategyFamilyCapability extends StrategyFamilyCapabilityBody {
   capability_hash: string
 }
 
+export const FAMILY_EVALUATION_PROTOCOL_SCHEMA_VERSION =
+  "trade.rd-family-evaluation-protocol.v1" as const
+
+export interface FamilyEvaluationProtocolBody extends JSONRecord {
+  schema_version: typeof FAMILY_EVALUATION_PROTOCOL_SCHEMA_VERSION
+  protocol_ref: string
+  protocol_version: 1
+  canonical_node_id: string
+  family_id: string
+  evaluation_owner_ref: "research.candidate-batch"
+  execution_profile: "compatibility_mechanical_candidate_batch_v1"
+  discovery_policy: {
+    max_candidates: 10
+    closed_candles_only: true
+    out_of_sample_required: true
+    negative_controls: ["entry_lag_3", "side_flip"]
+    parameter_stability_required: true
+    exact_cost_policy_resolution: "replay_reservation"
+    result_publication_authority: "control_plane_only"
+  }
+}
+
+export interface FamilyEvaluationProtocol extends FamilyEvaluationProtocolBody {
+  protocol_hash: string
+}
+
 export interface CandidateSpaceCompatibility {
   compatible: boolean
   unsupported_axes: string[]
@@ -216,6 +242,32 @@ export function listStrategyFamilyCapabilities(): StrategyFamilyCapability[] {
   return CAPABILITIES.map((item) => structuredClone(item))
 }
 
+export function readFamilyEvaluationProtocol(
+  canonicalNodeId: string,
+): FamilyEvaluationProtocol | null {
+  const family = readStrategyFamilyCapability(canonicalNodeId)
+  if (!family) return null
+  const body: FamilyEvaluationProtocolBody = {
+    schema_version: FAMILY_EVALUATION_PROTOCOL_SCHEMA_VERSION,
+    protocol_ref: evaluationProtocolRef(family.family_id),
+    protocol_version: 1,
+    canonical_node_id: family.canonical_node_id,
+    family_id: family.family_id,
+    evaluation_owner_ref: "research.candidate-batch",
+    execution_profile: "compatibility_mechanical_candidate_batch_v1",
+    discovery_policy: {
+      max_candidates: 10,
+      closed_candles_only: true,
+      out_of_sample_required: true,
+      negative_controls: ["entry_lag_3", "side_flip"],
+      parameter_stability_required: true,
+      exact_cost_policy_resolution: "replay_reservation",
+      result_publication_authority: "control_plane_only",
+    },
+  }
+  return { ...body, protocol_hash: canonicalHash(body) }
+}
+
 export function assessCandidateSpaceCompatibility(
   candidateSpace: JSONRecord,
   family: StrategyFamilyCapability,
@@ -345,6 +397,21 @@ function axisAccepts(axis: StrategyFamilyParameterAxis, value: unknown): boolean
   if (axis.value_type === "integer" && !Number.isSafeInteger(value)) return false
   if (axis.minimum == null) return true
   return axis.exclusive_minimum ? value > axis.minimum : value >= axis.minimum
+}
+
+function evaluationProtocolRef(familyId: string): string {
+  const refs: Record<string, string> = {
+    time_series_momentum_v1: "protocol:time-series-momentum-eval-v1",
+    structure_breakout_retest_v1: "protocol:channel-breakout-eval-v1",
+    relative_weakness_momentum_v1: "protocol:relative-weakness-momentum-eval-v1",
+    trend_pullback_v1: "protocol:trend-pullback-eval-v1",
+    funding_carry_v1: "protocol:funding-carry-eval-v1",
+    funding_unwind_risk_guard_v1: "protocol:funding-unwind-risk-guard-eval-v1",
+    volatility_compression_breakout_v1: "protocol:volatility-compression-breakout-eval-v1",
+  }
+  const ref = refs[familyId]
+  if (!ref) throw new Error(`strategy family evaluation protocol is missing: ${familyId}`)
+  return ref
 }
 
 export const DEVELOPER_DATA_SNAPSHOT_BINDING_SCHEMA_VERSION =

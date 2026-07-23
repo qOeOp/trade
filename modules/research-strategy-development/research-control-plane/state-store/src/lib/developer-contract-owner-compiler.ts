@@ -12,6 +12,7 @@ import {
 } from "../../../../replay-execution-plane/contracts/src/lib/replay-contracts"
 import type { JSONRecord } from "../../../../../contracts/runtime-core/src/json"
 import {
+  readFamilyEvaluationProtocol,
   readStrategyFamilyCapability,
   type DeveloperDataSnapshotBinding,
   type StrategyFamilyCapability,
@@ -82,12 +83,18 @@ export function compileDeveloperContractDraft(input: {
   const family = input.family_capability
   const data = input.data_snapshot_binding
   const registeredFamily = readStrategyFamilyCapability(input.brief.universe_node_id)
+  const evaluationProtocol = readFamilyEvaluationProtocol(input.brief.universe_node_id)
   if (family.canonical_node_id !== input.brief.universe_node_id
       || family.replay_coverage !== "ready"
       || canonicalControlPlaneHash(withoutCapabilityHash(family)) !== family.capability_hash
       || !registeredFamily
       || registeredFamily.capability_hash !== family.capability_hash) {
     throw new Error("Developer owner compiler requires the exact replay-ready family capability")
+  }
+  if (!evaluationProtocol
+      || evaluationProtocol.family_id !== family.family_id
+      || evaluationProtocol.protocol_ref !== input.brief.evaluation_protocol_ref) {
+    throw new Error("Developer owner compiler requires the registered family evaluation protocol")
   }
   if (data.hypothesis_id !== input.brief.hypothesis_id
       || data.segment !== "discovery"
@@ -198,14 +205,18 @@ export function compileDeveloperContractDraft(input: {
       },
       benchmark: {
         source: "evaluation_protocol",
-        evaluation_protocol_ref: input.brief.evaluation_protocol_ref,
+        evaluation_protocol_ref: evaluationProtocol.protocol_ref,
+        evaluation_protocol_hash: evaluationProtocol.protocol_hash,
+        evaluation_owner_ref: evaluationProtocol.evaluation_owner_ref,
+        execution_profile: evaluationProtocol.execution_profile,
       },
       validation_plan: {
         evaluation_intent: compileEvaluationIntent(
           semantic.evaluation_question,
           input.brief.evaluation_protocol_ref,
         ),
-        evaluation_protocol_ref: input.brief.evaluation_protocol_ref,
+        evaluation_protocol_ref: evaluationProtocol.protocol_ref,
+        evaluation_protocol_hash: evaluationProtocol.protocol_hash,
         data_segment: data.segment,
       },
       rejection_criteria: [

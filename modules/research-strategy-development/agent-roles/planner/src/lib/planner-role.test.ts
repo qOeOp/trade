@@ -9,7 +9,7 @@ function context(coverageStatus: "ready" | "blocked" = "ready") {
   return createPlannerControlPlaneContextSnapshot({
     schema_version: PLANNER_CONTROL_PLANE_CONTEXT_SNAPSHOT_SCHEMA_VERSION,
     active_canonicals: [{
-      node_id: "canonical-1",
+      node_id: "canonical:trend/time-series-trend/time-series-momentum",
       path: "strategy-universe/trend/family/canonical",
       name: "Canonical",
       research_scope_status: "active",
@@ -37,12 +37,12 @@ function proposalInput() {
   return {
     proposal_id: "proposal-1",
     hypothesis_id: "hypothesis-1",
-    universe_node_id: "canonical-1",
+    universe_node_id: "canonical:trend/time-series-trend/time-series-momentum",
     objective: "Test one bounded causal mechanism",
     dataset_requirements: ["ohlcv"],
     candidate_space: { lookback: [20, 40] },
     trial_budget: 2,
-    evaluation_protocol_ref: "protocol://historical-v1",
+    evaluation_protocol_ref: "protocol:time-series-momentum-eval-v1",
     control_plane_context: context(),
     created_at: "2026-07-14T08:00:00Z",
   }
@@ -70,6 +70,10 @@ test("Planner rejects context tamper, inactive canonical, and unavailable data",
     .toThrow("not ready")
   expect(() => buildPlannerProposal({ ...input, dataset_requirements: ["funding"] }))
     .toThrow("absent")
+  expect(() => buildPlannerProposal({
+    ...input,
+    evaluation_protocol_ref: "protocol:caller-selected",
+  })).toThrow("registered protocol")
   const unlinked = createPlannerControlPlaneContextSnapshot({
     ...input.control_plane_context,
     active_canonicals: [{

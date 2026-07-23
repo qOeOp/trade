@@ -59,7 +59,7 @@ const PLANNER_INSTRUCTION = [
   "Act as the bounded R&D Planner.",
   "Read only the supplied Control Plane context.",
   "Return one canonical trade.rd-planner-proposal-submission.v2 JSON object.",
-  "Call research_planner_proposal_prepare exactly once with context-pack planner_run_id and the outer run.request_hash unchanged plus your selected bounded proposal body, then return its proposal field exactly; do not calculate or alter hashes yourself.",
+  "Call research_planner_proposal_prepare exactly once with context-pack planner_run_id and the outer run.request_hash unchanged plus your selected bounded proposal body, then return its proposal field exactly; do not choose an evaluation protocol or calculate or alter hashes yourself.",
   "Copy the run objective exactly into objective, use data_surfaces.slug values such as ohlcv rather than surface_id values, and pass context-pack requested_at unchanged as requested_at; the owner binds it as created_at.",
   "Select one active canonical and only ready linked data surfaces.",
   "If the selected canonical has a ready strategy_family_capability, candidate_space axis names and scalar values must conform to that capability's parameter_axes; do not invent aliases for implementation parameters.",

@@ -3,6 +3,7 @@ import { canonicalHash } from "../../../../../contracts/runtime-core/src/canonic
 import {
   DEVELOPER_DATA_SNAPSHOT_BINDING_SCHEMA_VERSION,
   createDeveloperDataSnapshotBinding,
+  readFamilyEvaluationProtocol,
   readStrategyFamilyCapability,
 } from "../../../../../contracts/rd-agent-capability-contract/src/rd-agent-capability-contract"
 import {
@@ -46,6 +47,19 @@ describe("Developer contract owner compiler", () => {
     expect(draft.candidate_assignments).toHaveLength(8)
     expect((draft.contract as Record<string, unknown>).data_snapshot_ref)
       .toBe(dataBinding().snapshot_ref)
+    const protocol = readFamilyEvaluationProtocol(brief.universe_node_id)
+    if (!protocol) throw new Error("fixture protocol is missing")
+    const contract = draft.contract as Record<string, unknown>
+    expect(contract.benchmark).toMatchObject({
+      evaluation_protocol_ref: protocol.protocol_ref,
+      evaluation_protocol_hash: protocol.protocol_hash,
+      evaluation_owner_ref: protocol.evaluation_owner_ref,
+      execution_profile: protocol.execution_profile,
+    })
+    expect(contract.validation_plan).toMatchObject({
+      evaluation_protocol_ref: protocol.protocol_ref,
+      evaluation_protocol_hash: protocol.protocol_hash,
+    })
     expect((draft.assumptions_binding as Record<string, unknown>).assumptions_hash)
       .toMatch(/^[a-f0-9]{64}$/)
   })
@@ -99,11 +113,14 @@ describe("Developer contract owner compiler", () => {
       "canonical:carry/funding-carry/funding-carry",
     )
     if (!supplementalFamily) throw new Error("supplemental fixture family is missing")
+    const supplementalProtocol = readFamilyEvaluationProtocol(supplementalFamily.canonical_node_id)
+    if (!supplementalProtocol) throw new Error("supplemental fixture protocol is missing")
     const supplementalBrief = createDeveloperDevelopmentBrief({
       ...brief,
       brief_id: "brief-supplemental",
       universe_node_id: supplementalFamily.canonical_node_id,
       dataset_requirements: ["funding", "ohlcv"],
+      evaluation_protocol_ref: supplementalProtocol.protocol_ref,
     })
     expect(() => compileDeveloperContractDraft({
       brief: supplementalBrief,
@@ -181,7 +198,7 @@ const brief: DeveloperDevelopmentBrief = createDeveloperDevelopmentBrief({
   dataset_requirements: ["ohlcv"],
   candidate_space: structuredClone(candidateSpace),
   max_trial_budget: 8,
-  evaluation_protocol_ref: "rd-evaluation://discovery-v1",
+  evaluation_protocol_ref: "protocol:time-series-momentum-eval-v1",
   target_contract_schema_version: TARGET_EXPERIMENT_CONTRACT_SCHEMA_VERSION,
   authority_scope: "contract_draft_only",
   issued_at: "2026-07-23T12:00:00.000Z",

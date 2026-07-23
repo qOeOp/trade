@@ -20,6 +20,7 @@ import { RESEARCH_CONTRACT_VALIDATOR_VERSION } from "../../../state-store/src/li
 import { IDENTITY_HASH_POLICY_VERSION, hashIdentityPayload } from "../../../state-store/src/lib/research-identity-hash"
 import { runStrategyRndLoop } from "../../../../agent-roles/developer/rd-loop-runner/src/lib/rd-loop-runner"
 import { strategyRndLoopInputFromJson } from "../../../../agent-roles/developer/candidate-batch-engine/src/lib/strategy-rnd-inputs"
+import { readFamilyEvaluationProtocol } from "../../../../../contracts/rd-agent-capability-contract/src/rd-agent-capability-contract"
 
 const NOW = "2026-07-14T07:00:00Z"
 
@@ -281,6 +282,10 @@ function seedExperiment(db: Database): void {
 }
 
 function experimentContract(groupHash: string): Record<string, unknown> {
+  const protocol = readFamilyEvaluationProtocol(
+    "canonical:trend/time-series-trend/time-series-momentum",
+  )
+  if (!protocol) throw new Error("supervisor fixture evaluation protocol is missing")
   return {
     schema_version: "trade-flow.rd-experiment-contract.v3",
     canonical_node_id: "canonical:trend/time-series-trend/time-series-momentum",
@@ -296,7 +301,17 @@ function experimentContract(groupHash: string): Record<string, unknown> {
     required_data: ["surface:ohlcv"], feature_definition: {}, target_definition: {},
     forecast_definition: {}, signal_definition: {}, position_rule: {}, portfolio_construction: {},
     risk_rule: {}, execution_rule: {}, transaction_cost_model: {}, expected_holding_period: {},
-    benchmark: {}, validation_plan: {}, rejection_criteria: ["fails after costs"],
+    benchmark: {
+      evaluation_protocol_ref: protocol.protocol_ref,
+      evaluation_protocol_hash: protocol.protocol_hash,
+      evaluation_owner_ref: protocol.evaluation_owner_ref,
+      execution_profile: protocol.execution_profile,
+    },
+    validation_plan: {
+      evaluation_protocol_ref: protocol.protocol_ref,
+      evaluation_protocol_hash: protocol.protocol_hash,
+    },
+    rejection_criteria: ["fails after costs"],
     trial_group_ref: { trial_group_id: "group-1", group_hash: groupHash },
     candidate_registration: { candidate_ids: ["candidate-1"] }, parent_experiment_id: null,
     random_seed: 1, code_commit_ref: "git://code", harness_commit_ref: "git://harness",

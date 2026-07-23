@@ -43,7 +43,6 @@ const PLANNER_PROPOSAL_PREPARE = z.object({
     "candidate_space must be non-empty and at most 200 KB",
   ),
   trial_budget: z.number().int().min(1).max(10_000),
-  evaluation_protocol_ref: z.string().trim().min(1).max(500),
   requested_at: z.string().datetime({ offset: false }),
 }).strict()
 const DEVELOPER_SEMANTIC_CONTRACT = z.object({

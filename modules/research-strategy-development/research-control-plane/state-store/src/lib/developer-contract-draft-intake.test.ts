@@ -8,6 +8,7 @@ import {
   TARGET_EXPERIMENT_CONTRACT_SCHEMA_VERSION,
   createDeveloperContractDraftSubmission,
 } from "../../../contracts/src/lib/developer-contract-draft"
+import { readFamilyEvaluationProtocol } from "../../../../../contracts/rd-agent-capability-contract/src/rd-agent-capability-contract"
 import {
   DEVELOPER_CONTRACT_DRAFT_VALIDATION_REQUEST_SCHEMA_VERSION,
 } from "../../../contracts/src/lib/developer-contract-draft-validation"
@@ -127,6 +128,7 @@ function openDb(): Database {
 
 function admitProposal(db: Database, proposalRevision = 1, objective = "Test one bounded mechanism") {
   const context = readPlannerControlPlaneContext(db)
+  const protocol = requiredEvaluationProtocol()
   const proposal = createPlannerProposalSubmission({
     schema_version: PLANNER_PROPOSAL_SUBMISSION_SCHEMA_VERSION,
     revision: 2,
@@ -137,7 +139,7 @@ function admitProposal(db: Database, proposalRevision = 1, objective = "Test one
     dataset_requirements: ["ohlcv"],
     candidate_space: proposalRevision === 1 ? { lookback: [20, 40] } : { lookback: [20] },
     trial_budget: 2,
-    evaluation_protocol_ref: "protocol://historical-v1",
+    evaluation_protocol_ref: protocol.protocol_ref,
     control_plane_context_hash: context.context_hash,
     created_at: proposalRevision === 1 ? "2026-07-22T12:01:00Z" : "2026-07-22T12:07:00Z",
   })
@@ -199,6 +201,7 @@ function receive(db: Database, submission: ReturnType<typeof draft>, overrides: 
 }
 
 function validDraftPayload(brief: ReturnType<typeof issueBrief>, lookback = 20) {
+  const protocol = requiredEvaluationProtocol()
   const candidateAssignments = [{ candidate_id: "candidate-1", parameters: { lookback } }]
   const candidateAssignmentSetHash = canonicalControlPlaneHash(candidateAssignments)
   const group = compileDeveloperContractFreezeTrialGroup({
@@ -234,8 +237,17 @@ function validDraftPayload(brief: ReturnType<typeof issueBrief>, lookback = 20) 
       required_data: ["ohlcv"],
       feature_definition: {}, target_definition: {}, forecast_definition: {}, signal_definition: {},
       position_rule: {}, portfolio_construction: {}, risk_rule: {}, execution_rule: {},
-      transaction_cost_model: {}, expected_holding_period: {}, benchmark: {},
-      validation_plan: { evaluation_protocol_ref: brief.evaluation_protocol_ref },
+      transaction_cost_model: {}, expected_holding_period: {},
+      benchmark: {
+        evaluation_protocol_ref: protocol.protocol_ref,
+        evaluation_protocol_hash: protocol.protocol_hash,
+        evaluation_owner_ref: protocol.evaluation_owner_ref,
+        execution_profile: protocol.execution_profile,
+      },
+      validation_plan: {
+        evaluation_protocol_ref: protocol.protocol_ref,
+        evaluation_protocol_hash: protocol.protocol_hash,
+      },
       rejection_criteria: ["net return does not exceed cost"],
       trial_group_ref: {
         trial_group_id: "group-1",
@@ -260,6 +272,14 @@ function validDraftPayload(brief: ReturnType<typeof issueBrief>, lookback = 20) 
       },
     },
   }
+}
+
+function requiredEvaluationProtocol() {
+  const protocol = readFamilyEvaluationProtocol(
+    "canonical:trend/time-series-trend/time-series-momentum",
+  )
+  if (!protocol) throw new Error("test evaluation protocol is missing")
+  return protocol
 }
 
 function replayFixture(plan: ReturnType<typeof startExperimentTrialPlan>): {
@@ -497,6 +517,41 @@ test("Control Plane records a fully reconciled latest Draft as valid without fre
       .toThrow("immutable")
   } finally {
     db.close()
+  }
+})
+
+test("Control Plane rejects a Draft whose registered evaluation protocol binding is missing or tampered", () => {
+  for (const [caseId, mutate] of [
+    ["missing", (payload: ReturnType<typeof validDraftPayload>) => {
+      delete (payload.contract.benchmark as Record<string, unknown>).evaluation_protocol_hash
+    }],
+    ["tampered", (payload: ReturnType<typeof validDraftPayload>) => {
+      payload.contract.validation_plan.evaluation_protocol_hash = "f".repeat(64)
+    }],
+  ] as const) {
+    const db = openDb()
+    try {
+      admitProposal(db)
+      const brief = issueBrief(db)
+      const payload = validDraftPayload(brief)
+      mutate(payload)
+      receive(db, draft(brief, { draft_json: payload }))
+      const validation = validateDeveloperContractDraft(db, {
+        schema_version: DEVELOPER_CONTRACT_DRAFT_VALIDATION_REQUEST_SCHEMA_VERSION,
+        validation_id: `validation-protocol-${caseId}`,
+        brief_id: brief.brief_id,
+        draft_revision: 1,
+        idempotency_key: `draft-validation-protocol-${caseId}`,
+        validated_at: "2026-07-22T12:07:00Z",
+      })
+      expect(validation.status).toBe("invalid")
+      expect(validation.errors).toContain(
+        "contract.evaluation protocol binding must match the registered family protocol",
+      )
+      expect(count(db, "rd_experiment_contract")).toBe(0)
+    } finally {
+      db.close()
+    }
   }
 })
 

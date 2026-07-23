@@ -74,7 +74,6 @@ export interface PlannerProposalPrepareInput {
   dataset_requirements: string[]
   candidate_space: JSONRecord
   trial_budget: number
-  evaluation_protocol_ref: string
   requested_at: string
 }
 

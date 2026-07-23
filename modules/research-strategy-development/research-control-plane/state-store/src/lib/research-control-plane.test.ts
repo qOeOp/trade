@@ -6,6 +6,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import test from "node:test"
 import { buildDatabaseIdentity, ensureDatabaseIdentity } from "../../../../../contracts/runtime-core/src/database-identity"
+import { readFamilyEvaluationProtocol } from "../../../../../contracts/rd-agent-capability-contract/src/rd-agent-capability-contract"
 import {
   AGGREGATE_TRADE_PROVIDER_BUILD_HASH,
   AGGREGATE_TRADE_PROVIDER_CAPABILITY,
@@ -1219,7 +1220,10 @@ test("universe seed validator enforces hierarchy paths and primary axes", () => 
   try {
     seedUniverse(db)
     assert.doesNotThrow(() => validateUniverseSeed(db))
-    db.query("UPDATE rd_universe_node SET path='wrong/path' WHERE node_id='canonical-1'").run()
+    db.query(`
+      UPDATE rd_universe_node SET path='wrong/path'
+      WHERE node_id='canonical:trend/time-series-trend/time-series-momentum'
+    `).run()
     assert.throws(() => validateUniverseSeed(db), /invalid path/)
   } finally {
     db.close()
@@ -3303,7 +3307,15 @@ function seedUniverse(db: Database): void {
     ["root", null, 0, "universe", "strategy-universe", "Strategy Universe", "strategy-universe"],
     ["edge-1", "root", 1, "edge", "trend", "Trend", "strategy-universe/trend"],
     ["family-1", "edge-1", 2, "mechanism_family", "time-series-trend", "Time-Series Trend", "strategy-universe/trend/time-series-trend"],
-    ["canonical-1", "family-1", 3, "canonical_strategy", "trend-pullback", "Trend Pullback", "strategy-universe/trend/time-series-trend/trend-pullback"],
+    [
+      "canonical:trend/time-series-trend/time-series-momentum",
+      "family-1",
+      3,
+      "canonical_strategy",
+      "time-series-momentum",
+      "Time-Series Momentum",
+      "strategy-universe/trend/time-series-trend/time-series-momentum",
+    ],
   ] as const
   for (const [nodeId, parentId, level, type, slug, name, path] of rows) {
     insertNode.run({
@@ -3321,7 +3333,11 @@ function seedUniverse(db: Database): void {
     INSERT INTO rd_universe_node_axis(node_id, axis, is_primary, created_at)
     VALUES ($node_id, 'return_driver', 1, $now)
   `)
-  for (const nodeId of ["edge-1", "family-1", "canonical-1"]) {
+  for (const nodeId of [
+    "edge-1",
+    "family-1",
+    "canonical:trend/time-series-trend/time-series-momentum",
+  ]) {
     insertAxis.run({ $node_id: nodeId, $now: NOW })
   }
 }
@@ -3343,7 +3359,7 @@ function seedExecutableExperiment(db: Database, startDiscovery = true, maxTrials
     experiment_id: "experiment-1",
     proposal_id: "proposal-1",
     proposal_revision: 1,
-    canonical_node_id: "canonical-1",
+    canonical_node_id: "canonical:trend/time-series-trend/time-series-momentum",
     hypothesis_id: "hypothesis-1",
     code_family_id: "time_series_momentum_v1",
     trial_group_id: "group-1",
@@ -3438,9 +3454,13 @@ function trialGroup(): Parameters<typeof registerTrialGroup>[1] {
 }
 
 function experimentContract(groupHash = trialGroupHashForContract()): Record<string, unknown> {
+  const protocol = readFamilyEvaluationProtocol(
+    "canonical:trend/time-series-trend/time-series-momentum",
+  )
+  if (!protocol) throw new Error("Control Plane fixture evaluation protocol is missing")
   return {
     schema_version: "trade-flow.rd-experiment-contract.v3",
-    canonical_node_id: "canonical-1",
+    canonical_node_id: "canonical:trend/time-series-trend/time-series-momentum",
     code_family_id: "time_series_momentum_v1",
     implementation_version: "v1",
     contract_versions: {
@@ -3457,7 +3477,18 @@ function experimentContract(groupHash = trialGroupHashForContract()): Record<str
     required_data: ["surface:ohlcv"],
     feature_definition: {}, target_definition: {}, forecast_definition: {}, signal_definition: {},
     position_rule: {}, portfolio_construction: {}, risk_rule: {}, execution_rule: {},
-    transaction_cost_model: {}, expected_holding_period: {}, benchmark: {}, validation_plan: {},
+    transaction_cost_model: {},
+    expected_holding_period: {},
+    benchmark: {
+      evaluation_protocol_ref: protocol.protocol_ref,
+      evaluation_protocol_hash: protocol.protocol_hash,
+      evaluation_owner_ref: protocol.evaluation_owner_ref,
+      execution_profile: protocol.execution_profile,
+    },
+    validation_plan: {
+      evaluation_protocol_ref: protocol.protocol_ref,
+      evaluation_protocol_hash: protocol.protocol_hash,
+    },
     rejection_criteria: ["net return does not exceed cost"],
     trial_group_ref: { trial_group_id: "group-1", group_hash: groupHash },
     candidate_registration: { candidate_ids: ["candidate-1"] },

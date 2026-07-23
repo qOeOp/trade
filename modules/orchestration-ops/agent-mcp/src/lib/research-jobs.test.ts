@@ -370,7 +370,6 @@ test("Planner and Reviewer preparation persist exact terminal outputs independen
     dataset_requirements: ["ohlcv"],
     candidate_space: { lookback_bars: [24] },
     trial_budget: 1,
-    evaluation_protocol_ref: "evaluation-protocol://discovery-v1",
     requested_at: "2026-07-23T12:00:00.000Z",
   })
   const reviewer = await service.prepareReviewerSubmission({

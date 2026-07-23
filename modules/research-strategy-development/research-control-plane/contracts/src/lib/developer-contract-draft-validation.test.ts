@@ -23,7 +23,7 @@ function record(errors: string[] = []) {
     candidate_space_hash: "7".repeat(64),
     candidate_assignment_set_hash: "8".repeat(64),
     target_contract_schema_version: "trade-flow.rd-experiment-contract.v3",
-    contract_validator_version: "trade-flow.rd-contract-validator.v2",
+    contract_validator_version: "trade-flow.rd-contract-validator.v3",
     reconciliation_policy_version: DEVELOPER_CONTRACT_DRAFT_RECONCILIATION_POLICY_VERSION,
     errors,
     validated_at: "2026-07-22T12:07:00Z",

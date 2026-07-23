@@ -21,6 +21,7 @@ import {
 } from "../../../contracts/src/lib/developer-contract-draft"
 import { DEVELOPER_CONTRACT_DRAFT_VALIDATION_REQUEST_SCHEMA_VERSION } from "../../../contracts/src/lib/developer-contract-draft-validation"
 import { DEVELOPER_CONTRACT_FREEZE_REQUEST_SCHEMA_VERSION } from "../../../contracts/src/lib/developer-contract-freeze"
+import { readFamilyEvaluationProtocol } from "../../../../../contracts/rd-agent-capability-contract/src/rd-agent-capability-contract"
 
 test("research state store CLI upserts and reads program", () => {
   const dir = mkdtempSync(join(tmpdir(), "research-state-store-"))
@@ -68,6 +69,44 @@ test("research state store CLI seeds and reads the authoritative planning contex
     ])) as { context: { active_canonicals: unknown[]; capabilities: unknown[] } }
     assert.equal(read.context.active_canonicals.length, 7)
     assert.equal(read.context.capabilities.length, 7)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test("research state store CLI owner-resolves the registered Planner evaluation protocol", () => {
+  const dir = mkdtempSync(join(tmpdir(), "research-planner-prepare-cli-"))
+  const dbPath = join(dir, "rd.db")
+  const universeNodeId = "canonical:trend/time-series-trend/time-series-momentum"
+  try {
+    run(parseArgs([
+      "--db", dbPath, "--action", "seed_default_control_plane",
+      "--json", JSON.stringify({ now: "2026-07-22T12:00:00Z" }),
+    ]))
+    const payload = {
+      proposal_id: "proposal-owner-protocol-1",
+      hypothesis_id: "hypothesis-owner-protocol-1",
+      universe_node_id: universeNodeId,
+      objective: "Test one bounded owner-resolved mechanism",
+      dataset_requirements: ["ohlcv"],
+      candidate_space: { lookback_bars: [20, 40] },
+      trial_budget: 2,
+      requested_at: "2026-07-22T12:01:00Z",
+    }
+    const prepared = run(parseArgs([
+      "--db", dbPath, "--action", "prepare_planner_proposal",
+      "--json", JSON.stringify(payload),
+    ])) as { proposal: { evaluation_protocol_ref: string } }
+    const protocol = readFamilyEvaluationProtocol(universeNodeId)
+    assert.ok(protocol)
+    assert.equal(prepared.proposal.evaluation_protocol_ref, protocol.protocol_ref)
+    assert.throws(() => run(parseArgs([
+      "--db", dbPath, "--action", "prepare_planner_proposal",
+      "--json", JSON.stringify({
+        ...payload,
+        evaluation_protocol_ref: "protocol:caller-selected",
+      }),
+    ])), /owner-resolved/)
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }

@@ -118,6 +118,7 @@ import {
   compileDeveloperContractDraft,
   type DeveloperSemanticContract,
 } from "../lib/developer-contract-owner-compiler"
+import { readFamilyEvaluationProtocol } from "../../../../../contracts/rd-agent-capability-contract/src/rd-agent-capability-contract"
 import {
   createReviewerAgentSubmission,
   REVIEWER_AGENT_SUBMISSION_SCHEMA,
@@ -176,15 +177,23 @@ export function run(args: Args): JSONRecord {
       return { ok: true, action: args.action, admission }
     }
     if (args.action === "prepare_planner_proposal") {
+      if ("evaluation_protocol_ref" in args.json) {
+        throw new Error("Planner Proposal evaluation protocol is owner-resolved")
+      }
+      const universeNodeId = stringField(args.json.universe_node_id)
+      const evaluationProtocol = readFamilyEvaluationProtocol(universeNodeId)
+      if (!evaluationProtocol) {
+        throw new Error("Planner Proposal requires a registered family evaluation protocol")
+      }
       const proposal = buildPlannerProposal({
         proposal_id: stringField(args.json.proposal_id),
         hypothesis_id: stringField(args.json.hypothesis_id),
-        universe_node_id: stringField(args.json.universe_node_id),
+        universe_node_id: universeNodeId,
         objective: stringField(args.json.objective),
         dataset_requirements: stringArray(args.json.dataset_requirements),
         candidate_space: asRecord(args.json.candidate_space),
         trial_budget: numberField(args.json.trial_budget),
-        evaluation_protocol_ref: stringField(args.json.evaluation_protocol_ref),
+        evaluation_protocol_ref: evaluationProtocol.protocol_ref,
         control_plane_context: readPlannerControlPlaneContext(db),
         created_at: stringField(args.json.requested_at),
       })

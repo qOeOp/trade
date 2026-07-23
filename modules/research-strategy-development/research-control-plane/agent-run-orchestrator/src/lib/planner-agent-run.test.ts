@@ -47,7 +47,7 @@ test("Planner Agent context reaches existing owner admission without direct Agen
       dataset_requirements: ["ohlcv"],
       candidate_space: { lookback_bars: [20, 40] },
       trial_budget: 2,
-      evaluation_protocol_ref: "protocol://historical-v1",
+      evaluation_protocol_ref: "protocol:time-series-momentum-eval-v1",
       control_plane_context: context,
       created_at: "2026-07-23T10:02:00.000Z",
     })
@@ -107,7 +107,7 @@ test("Planner Agent admission rejects a validly hashed proposal from another con
       dataset_requirements: ["ohlcv"],
       candidate_space: { lookback_bars: [20] },
       trial_budget: 1,
-      evaluation_protocol_ref: "protocol://historical-v1",
+      evaluation_protocol_ref: "protocol:time-series-momentum-eval-v1",
       control_plane_context: context,
       created_at: "2026-07-23T10:02:00.000Z",
     })

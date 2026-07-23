@@ -1,6 +1,7 @@
 import type { JSONRecord } from "../../../../../contracts/runtime-core/src/json"
+import { readFamilyEvaluationProtocol } from "../../../../../contracts/rd-agent-capability-contract/src/rd-agent-capability-contract"
 
-export const RESEARCH_CONTRACT_VALIDATOR_VERSION = "trade-flow.rd-contract-validator.v2"
+export const RESEARCH_CONTRACT_VALIDATOR_VERSION = "trade-flow.rd-contract-validator.v3"
 
 const EXPERIMENT_FIELDS = [
   "schema_version", "canonical_node_id", "code_family_id", "implementation_version",
@@ -79,6 +80,19 @@ function validateExperiment(value: JSONRecord, errors: string[]): void {
   if (typeof replayInput.supplemental_requirement_set_hash !== "string"
       || !/^[a-f0-9]{64}$/.test(replayInput.supplemental_requirement_set_hash)) {
     errors.push("replay_execution_input.supplemental_requirement_set_hash must be a lowercase sha256 digest")
+  }
+  const protocol = readFamilyEvaluationProtocol(String(value.canonical_node_id ?? ""))
+  const benchmark = record(value.benchmark)
+  const validationPlan = record(value.validation_plan)
+  if (!protocol
+      || value.code_family_id !== protocol.family_id
+      || benchmark.evaluation_protocol_ref !== protocol.protocol_ref
+      || benchmark.evaluation_protocol_hash !== protocol.protocol_hash
+      || benchmark.evaluation_owner_ref !== protocol.evaluation_owner_ref
+      || benchmark.execution_profile !== protocol.execution_profile
+      || validationPlan.evaluation_protocol_ref !== protocol.protocol_ref
+      || validationPlan.evaluation_protocol_hash !== protocol.protocol_hash) {
+    errors.push("evaluation protocol binding must match the registered family protocol")
   }
   if (!Number.isInteger(value.random_seed)) errors.push("random_seed must be an integer")
 }

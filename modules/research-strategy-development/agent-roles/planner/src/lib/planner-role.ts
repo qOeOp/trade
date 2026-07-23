@@ -7,6 +7,7 @@ import {
   createPlannerProposalSubmission,
   type PlannerProposalSubmission,
 } from "../../../../research-control-plane/contracts/src/lib/planner-proposal-submission"
+import { readFamilyEvaluationProtocol } from "../../../../../contracts/rd-agent-capability-contract/src/rd-agent-capability-contract"
 
 export interface PlannerProposalInput {
   proposal_id: string
@@ -34,6 +35,11 @@ export function buildPlannerProposal(input: PlannerProposalInput): PlannerPropos
     .find((item) => item.node_id === input.universe_node_id)
   if (!selectedCanonical) {
     throw new Error("universe_node_id is not active in the bound Control Plane context")
+  }
+  const evaluationProtocol = readFamilyEvaluationProtocol(input.universe_node_id)
+  if (!evaluationProtocol
+      || evaluationProtocol.protocol_ref !== input.evaluation_protocol_ref) {
+    throw new Error("evaluation_protocol_ref is not the registered protocol for the selected family")
   }
   if (!Number.isSafeInteger(input.trial_budget) || input.trial_budget <= 0) {
     throw new Error("trial_budget must be a positive integer")
