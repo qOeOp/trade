@@ -202,7 +202,6 @@ function buildReport(): string {
   lines.push("")
   lines.push("- Current implementation projection: [code-architecture-current.mmd](code-architecture-current.mmd)")
   lines.push("- Blueprint source of truth: [../architecture-overview-v2.mmd](../architecture-overview-v2.mmd)")
-  lines.push("")
   return `${lines.join("\n")}\n`
 }
 

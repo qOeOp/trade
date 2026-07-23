@@ -1,6 +1,6 @@
 flowchart LR
   blueprint["Blueprint: architecture-overview-v2.mmd"]
-  generated["Generated from code + manifest\nblueprint 4aa5596e2bb0"]
+  generated["Generated from code + manifest\nblueprint aef673407221"]
   blueprint -. compare .- generated
   subgraph domain_orchestration_ops["orchestration-ops"]
     module_modules_orchestration_ops_trade_flow["orchestration-ops/trade-flow"]
@@ -64,6 +64,7 @@ flowchart LR
   end
   subgraph domain_live_execution_control["live-execution-control"]
     module_modules_live_execution_control_execution_gate["live-execution-control/execution-gate"]
+    module_modules_live_execution_control_execution_capability["live-execution-control/execution-capability"]
     module_modules_live_execution_control_watch_handoff_revalidation["live-execution-control/watch-handoff-revalidation"]
     module_modules_live_execution_control_execution_flow_runner["live-execution-control/execution-flow-runner"]
     module_modules_live_execution_control_execution_router["live-execution-control/execution-router"]

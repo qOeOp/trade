@@ -9,7 +9,7 @@
 - Test files are excluded from the flyline count.
 - Job owner / target-domain mismatches visible from manifest: 0.
 - CONTRACT roots outside manifest domain module list: 0. These are usually internal engines or pending module declarations.
-- Blueprint SHA-256: `4aa5596e2bb09ad6820d6583f1ac8f99809a429c715570d320df2a3403a89132`.
+- Blueprint SHA-256: `aef6734072214be62e37a33cadd7786880aa48f94ec86b639a6fd559f8f0bd6c`.
 
 ## Domain Projection
 
@@ -21,7 +21,7 @@
 | `market-data-products` | 16 | 12 | market_data_store, ohlcv_store | - |
 | `exchange-gateway` | 10 | 10 | exchange_runtime_store | - |
 | `live-decision-planning` | 7 | 7 | - | J03:slow_track_market_watch |
-| `live-execution-control` | 10 | 10 | - | J01:account_reconcile_guard, J02:fast_track_guard |
+| `live-execution-control` | 11 | 11 | - | J01:account_reconcile_guard, J02:fast_track_guard |
 | `research-strategy-development` | 55 | 55 | research_state_store | J04:rd_strategy_supervisor, J05:rd_forward_shadow_trackers |
 | `governance-review-compliance` | 5 | 5 | governance_ledger | J07:closed_flow_review_sweep |
 | `artifact-knowledge` | 1 | 1 | artifact_catalog | J06:catalog_hygiene_scan |
@@ -32,7 +32,7 @@
 | --- | --- | --- | --- | --- | --- |
 | `J01` | `account_reconcile_guard` | `live-execution-control` | `modules/live-execution-control/recovery-runner` | `live-execution-control` | `trade_event_store` |
 | `J02` | `fast_track_guard` | `live-execution-control` | `modules/live-execution-control/fast-track-guard` | `live-execution-control` | `trade_event_store` |
-| `J03` | `slow_track_market_watch` | `live-decision-planning` | `modules/live-decision-planning/slow-track-plan` | `live-decision-planning` | `trade_event_store`, `artifact_catalog` |
+| `J03` | `slow_track_market_watch` | `live-decision-planning` | `modules/live-decision-planning/slow-track-plan` | `live-decision-planning` | - |
 | `J04` | `rd_strategy_supervisor` | `research-strategy-development` | `modules/research-strategy-development/research-control-plane/program-supervisor` | `research-strategy-development` | `research_state_store`, `artifact_catalog` |
 | `J05` | `rd_forward_shadow_trackers` | `research-strategy-development` | `modules/research-strategy-development/forward-evidence-plane/paper-tracker` | `research-strategy-development` | `artifact_catalog` |
 | `J06` | `catalog_hygiene_scan` | `artifact-knowledge` | `modules/artifact-knowledge/artifact-catalog` | `artifact-knowledge` | `artifact_catalog` |
