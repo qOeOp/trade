@@ -19,7 +19,7 @@ last_verified: 2026-07-23 CST
 - DB、L2 raw、普通 tmp、受保护 artifact 与 panel 使用分离 named volume；
 - Operator HTTP 是独立 opt-in override，使用单独 env file，只绑定 Linux host loopback，不向 runtime 注入模型或 operator secret。
 
-该纵切仍是 `active-partial`：当前环境没有 Docker executable，因此只有 Dockerfile / Compose 静态合同、TypeScript typecheck、composition lifecycle 与 health fixture；尚无真实 Linux image build、container kill/restart、volume restore 或 soak 证据。它保持 `domain_jobs_enabled=false`、`live_writes_allowed=false`，不能部署为实盘。
+该纵切仍是 `active-partial`：当前环境没有 Docker executable，因此只有 Dockerfile / Compose 静态合同、TypeScript typecheck、composition lifecycle / health fixture，以及从 committed HEAD 生成的可校验 source package；尚无真实 Linux image build、container kill/restart、volume restore 或 soak 证据。它保持 `domain_jobs_enabled=false`、`live_writes_allowed=false`，不能部署为实盘。
 
 ## 2. 为什么 runtime 先同容器
 
@@ -27,7 +27,31 @@ last_verified: 2026-07-23 CST
 
 Operator、Agent Host 与 Developer sandbox 仍必须独立，因为它们持有不同 secret 或代码执行权限。不得通过 `pid: host`、Docker socket、`privileged` 或共享宿主机 home 来绕过当前 owner contract。
 
-## 3. 构建与 no-live 启动
+## 3. 离线 source package 与 Linux 验收
+
+发布者只能从 committed `HEAD` 生成新路径：
+
+```bash
+bun modules/orchestration-ops/trade-flow/src/scripts/server-runtime-container-release-package.ts \
+  --target-root /absolute/new/trade-container-package
+```
+
+包内只有 `source.tar`、提交号、manifest、说明、Linux 验收入口与 `SHA256SUMS`；不包含 dirty working tree、credential、owner DB、runtime state、依赖或本机 binary。manifest 以 `source_package_only` 明示 image digest、SBOM、provenance 和容器 smoke 尚未完成。
+
+传到 Linux 后为 source 与 evidence 选择全新绝对路径：
+
+```bash
+cd /path/to/trade-container-package
+./container-acceptance.sh verify
+export TRADE_CONTAINER_ACCEPTANCE_ROOT=/opt/trade/acceptance/<commit>
+export TRADE_CONTAINER_EVIDENCE_DIR=/var/lib/trade/acceptance-evidence/<commit>
+export TRADE_CONTAINER_ACCEPTANCE_ID=review-<date>
+./container-acceptance.sh all
+```
+
+`all` 依次校验 checksum、解包、要求 Linux + Docker Compose v2 + Buildx，以 pinned Dockerfile 请求 `SBOM + provenance` build，然后只在独立 `trade-acceptance-*` Compose project 启动 base no-live runtime，不接管同机正式 composition。它验证 owner aggregate health、容器重启后再次 healthy 与 named-volume canary 保留，最后 `compose down`，不删除 volume。输出仍只是待独立复核的 build/smoke evidence；没有 registry digest、SBOM 可读取性、backup/restore、host reboot 和长时 soak 时 release gate 不得通过。
+
+## 4. 构建与 no-live 启动
 
 ```bash
 docker compose -f deploy/server/compose.yaml build --pull
@@ -48,7 +72,7 @@ docker compose -f deploy/server/compose.yaml down
 
 任何带 `--volumes` 的操作都属于数据销毁，不是普通回滚步骤。
 
-## 4. Operator opt-in
+## 5. Operator opt-in
 
 Operator secret file 只能包含该服务需要的 allowlist：
 
@@ -70,7 +94,7 @@ docker compose \
 
 Operator 仅监听服务器 `127.0.0.1:8787`；远程访问走 SSH tunnel / VPN。当前 allowlist 只有 tool search、RD read 与带独立 approval 的 J04 wakeup，不含 exchange write、promotion 或任意 shell。
 
-## 5. Volume 与恢复门
+## 6. Volume 与恢复门
 
 | Volume | 内容 | 当前恢复要求 |
 | --- | --- | --- |
@@ -82,9 +106,9 @@ Operator 仅监听服务器 `127.0.0.1:8787`；远程访问走 SSH tunnel / VPN�
 
 镜像升级必须创建新 digest，先做 no-live preflight 与备份，再替换 container；失败回滚旧 digest与原 volume。不得把 runtime volume bake 入 image，也不得用 Git checkout 回滚 owner DB。
 
-## 6. 后续采用门
+## 7. 后续采用门
 
-1. 在 Linux amd64 / arm64 builder 上完成 locked build 与 SBOM / image digest；
+1. 在 Linux amd64 / arm64 builder 上运行 source package acceptance，读取并复核 SBOM / provenance，推送后锁定 registry image digest；
 2. 真实验证 startup readiness、反向 drain、component exit、Docker restart 与 host reboot；
 3. 真实验证 named-volume online backup、隔离 restore、schema migration 与 artifact closure；
 4. 加入 Program-owned GC、L2 retention 和磁盘 soft/hard 故障注入；

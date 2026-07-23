@@ -15,6 +15,7 @@
     "server:verify-recovery": "bun src/scripts/server-runtime-recovery-fixture.ts",
     "server:release-gate": "bun src/scripts/server-runtime-release-gate.ts",
     "server:stage-release": "bun src/scripts/server-runtime-release-stage.ts",
+    "server:package-container-source": "bun src/scripts/server-runtime-container-release-package.ts",
     "server:render-systemd": "bun src/scripts/server-runtime.ts --action render-systemd --profile profile/server-runtime.json",
     "server:render-launchd": "bun src/scripts/server-runtime.ts --action render-launchd --profile profile/server-runtime-macos.json",
     "server:launchd-manager": "bun src/scripts/server-runtime-launchd-manager.ts",

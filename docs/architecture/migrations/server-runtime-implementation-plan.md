@@ -39,7 +39,7 @@ S4/S5 已形成首个本地闭环：J04 路由先读 `plan_next`，ready/termina
 
 S6 已新增 loopback-only Operator HTTP：Bearer + 独立 controlled approval、固定 read/write rate、exact route/payload 和 ops pre/post audit；当前只开放 tool search、RD read 与 approved J04 wakeup，不含 exchange/live/promotion/任意 command。Bun resident、真实 audit 回读和 API/approval token 重启轮换已通过，且 smoke 不调用 controlled owner；TLS、manager secret facility、OpenClaw client 与长时 soak 尚未完成。
 
-S7 已新增机器可判定的 no-live release gate。本机已补齐 launchd install、真实 volume restore、public/full-shadow soak、Operator resident/audit/rotation、SiliconFlow probe 与 R&D kill/restart 单 Trial/Result。平台边界已收紧：Darwin 全绿仍只能证明 `no_live_local_rehearsal`，并以 `linux_server_rehearsal_not_run` 阻断 server adoption；只有真实 Linux systemd / 容器证据才可进入 `no_live_server_shadow` 人工变更评审。该 gate 无论结果如何都不能开放 exchange write 或自动 promotion。
+S7 已新增机器可判定的 no-live release gate。本机已补齐 launchd install、真实 volume restore、public/full-shadow soak、Operator resident/audit/rotation、SiliconFlow probe 与 R&D kill/restart 单 Trial/Result。平台边界已收紧：Darwin 全绿仍只能证明 `no_live_local_rehearsal`，并以 `linux_server_rehearsal_not_run` 阻断 server adoption；只有真实 Linux systemd / 容器证据才可进入 `no_live_server_shadow` 人工变更评审。D10 source package 已可从 committed HEAD 原子生成 source archive、关键合同 hash 与 checksum；Linux acceptance 入口请求 BuildKit SBOM/provenance，并验证 no-live health、container restart 与 named-volume canary，但本机没有 Docker，尚未产生该证据。该 gate 无论结果如何都不能开放 exchange write 或自动 promotion。
 
 本机 Darwin arm64 已把 committed release staging 到非受保护用户数据目录，并安装三个固定 launchd labels；因此不再从 Downloads workspace 取得无人值守 authority。manager plist/hash 与 release manifest 绑定，当前三个 unit active。
 
@@ -403,7 +403,7 @@ validate config/secrets/volumes
 | D10.4 | 生成 systemd / Compose 启停、drain、backup、restore 和 rollback 命令 | clean-host rehearsal |
 | D10.5 | config migration、schema migration 和 release compatibility fail closed | upgrade / downgrade fixture |
 | D10.6 | 锁定 CPU/memory/PID/file/log limits 与 restart policy | resource kill tests |
-| D10.7 | 构建离线 / 可复验部署包、SBOM、hash 和版本 manifest | artifact verification |
+| D10.7 | active-partial：committed source package、critical hash、checksum、版本 manifest 与 Linux acceptance 已实现；真实 SBOM/provenance/digest 待 Linux build | artifact verification |
 | D10.8 | 在真实 Linux runner / 服务器运行 no-live restore + restart rehearsal | remote adoption evidence |
 
 #### D11 模拟、shadow 与可靠性
@@ -443,7 +443,7 @@ D0–D9 和 D10 的可审查部署包可以在没有远程主机的当前环境�
 2. 复判现有 S1–S7 证据，删除只剩历史价值的即时状态描述，保留可复跑 gate。
 3. 已完成真实 R&D owner post-commit/pre-ack `SIGKILL` 后单 Trial / Result 恢复；继续补 J04/J05/J07 长时 cadence soak。
 4. D2.1 typed demand / lease / release / reconciliation 已闭合；继续 D2.2–D2.8，不先等待 Agent / Docker。
-5. 并行推进 D9 的 P0–P5 与 D10 Linux 部署包；本机无 Docker 不阻塞静态合同、fixture 与离线包，但不替代 D10.8。
+5. 继续 D9 的 P0–P5；D10 source package 已闭合本机可做部分，下一门是把包交给真实 Linux 跑 acceptance、restore、host reboot 与 soak，形成 D10.8 证据。
 6. 每完成一个阶段更新本账本状态；阶段全部完成后自动进入下一阶段。
 
 ## 10. 完成定义

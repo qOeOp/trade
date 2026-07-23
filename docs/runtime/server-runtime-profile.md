@@ -12,7 +12,7 @@ last_verified: 2026-07-23 CST
 
 本文冻结 [Server Runtime Implementation Plan](../architecture/migrations/server-runtime-implementation-plan.md) S1 的首个可部署 profile。host-native legacy profile 在单台 macOS 或 Linux 主机上装配固定 symbol 的 Rust L2、resident L2 consumer 与 `shadow_program` control runtime；新的 Linux container profile 改为装配 control runtime、demand-driven L2 manager、OHLCV worker 与 indicator worker。二者都只闭合进程、配置、依赖、健康和停机，不复制 scheduler、领域计算或 store authority。
 
-当前已形成首个 no-live composition root：版本化 Linux/macOS profile、三个 foreground entrypoint、closed-world validator、deterministic systemd/launchd renderer、容器 foreground composition、只读 preflight/status，以及有界 lifecycle/public-smoke/recovery fixture。2026-07-23 已从非受保护目录的 immutable release 在本机安装三个 per-user launchd agent 并取得 no-live process authority；Linux systemd 与容器仍只有 render / 静态合同 / composition fixture，不是本机采用前置。
+当前已形成首个 no-live composition root：版本化 Linux/macOS profile、三个 foreground entrypoint、closed-world validator、deterministic systemd/launchd renderer、容器 foreground composition、只读 preflight/status，以及有界 lifecycle/public-smoke/recovery fixture。2026-07-23 已从非受保护目录的 immutable release 在本机安装三个 per-user launchd agent 并取得 no-live process authority；容器另可从 committed HEAD 生成不含 secret/runtime state 的 checksum source package 和 Linux acceptance 入口。Linux systemd / 容器尚无真实 build、restart、restore 或 soak 采用证据。
 
 | 单元 | 当前能力 | 剩余采用门 |
 | --- | --- | --- |

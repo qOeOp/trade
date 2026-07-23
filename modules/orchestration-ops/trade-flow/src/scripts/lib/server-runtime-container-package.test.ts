@@ -9,6 +9,7 @@ const dockerfile = readFileSync(resolve(root, "deploy/server/Dockerfile"), "utf8
 const compose = readFileSync(resolve(root, "deploy/server/compose.yaml"), "utf8")
 const operatorCompose = readFileSync(resolve(root, "deploy/server/compose.operator.yaml"), "utf8")
 const agentCompose = readFileSync(resolve(root, "deploy/server/compose.agent.yaml"), "utf8")
+const acceptance = readFileSync(resolve(root, "deploy/server/container-acceptance.sh"), "utf8")
 const openClawConfig = JSON.parse(
   readFileSync(resolve(root, "deploy/server/openclaw.json"), "utf8"),
 ) as Record<string, unknown>
@@ -48,6 +49,18 @@ test("server build context excludes runtime state, credentials, dependencies, an
   for (const entry of [".git", ".secrets", "data", "tmp", "node_modules", "**/target"]) {
     assert.equal(ignore.split(/\r?\n/).includes(entry), true, `missing dockerignore entry ${entry}`)
   }
+})
+
+test("Linux acceptance is no-live, isolated, checksummed, and preserves recovery evidence", () => {
+  assert.match(acceptance, /sha256sum --check SHA256SUMS/)
+  assert.match(acceptance, /--provenance=mode=max/)
+  assert.match(acceptance, /--sbom=true/)
+  assert.match(acceptance, /--project-name "\$project_name"/)
+  assert.match(acceptance, /TRADE_ENVIRONMENT_ID="server:acceptance"/)
+  assert.match(acceptance, /up --detach --no-build runtime/)
+  assert.match(acceptance, /named_volume_canary_survived/)
+  assert.match(acceptance, /compose down/)
+  assert.doesNotMatch(acceptance, /down[^\n]*--volumes|BINANCE_API|allow_live_writes/)
 })
 
 test("OpenClaw overlay is digest-pinned, private, secret-ref only, and bounds Developer", () => {
