@@ -102,6 +102,12 @@ import type {
   EvaluationEvidenceClassification,
 } from "../../../contracts/src/lib/evaluation-evidence-classification"
 import { buildPlannerProposal } from "../../../../agent-roles/planner/src/lib/planner-role"
+import { buildDeveloperContractDraftSubmission } from "../../../../agent-roles/developer/src/lib/developer-role"
+import {
+  createDeveloperAgentSubmission,
+  DEVELOPER_AGENT_SUBMISSION_SCHEMA,
+  type DeveloperImplementationMode,
+} from "../../../contracts/src/lib/developer-agent-submission"
 
 type Args = DbActionJsonArgs
 
@@ -167,6 +173,44 @@ export function run(args: Args): JSONRecord {
         created_at: stringField(args.json.created_at),
       })
       return { ok: true, action: args.action, proposal }
+    }
+    if (args.action === "prepare_developer_agent_submission") {
+      const mode = stringField(args.json.implementation_mode) as DeveloperImplementationMode
+      const brief = readDeveloperDevelopmentBrief(db, stringField(args.json.brief_id))
+      const blocked = mode === "data_blocked" || mode === "tool_blocked"
+      const developerRunId = stringField(args.json.developer_run_id)
+      const draftRevision = numberField(args.json.draft_revision)
+      const createdAt = stringField(args.json.created_at)
+      const contractDraft = blocked
+        ? null
+        : buildDeveloperContractDraftSubmission({
+            brief,
+            developer_run_id: developerRunId,
+            draft_revision: draftRevision,
+            requested_trial_budget: numberField(args.json.requested_trial_budget),
+            draft_json: asRecord(args.json.draft_json),
+            created_at: createdAt,
+          })
+      const submission = createDeveloperAgentSubmission({
+        schema_version: DEVELOPER_AGENT_SUBMISSION_SCHEMA,
+        developer_run_id: developerRunId,
+        brief_id: brief.brief_id,
+        brief_hash: brief.brief_hash,
+        source_revision: stringField(args.json.source_revision),
+        draft_revision: draftRevision,
+        predecessor_run_id: nullableString(args.json.predecessor_run_id),
+        capability_assessment: {
+          implementation_mode: mode,
+          reason_code: stringField(args.json.reason_code),
+          required_capabilities: stringArray(args.json.required_capabilities),
+        },
+        contract_draft: contractDraft,
+        workspace_patch: null,
+        quality_check_refs: [],
+        replay_diagnosis_refs: [],
+        created_at: createdAt,
+      })
+      return { ok: true, action: args.action, submission }
     }
     if (args.action === "read_planner_proposal_admission") {
       const admission = readPlannerProposalAdmission(
@@ -371,7 +415,7 @@ function printHelp(): void {
   console.log([
     "usage: bun src/scripts/main.ts --db data/rd_state.db --action init",
     "actions: init | upsert_program | upsert_hypothesis | record_trial | record_holdout_use | record_lesson | read_program",
-    "control-plane: seed_default_control_plane | seed_universe | upsert_data_surface | link_universe_data_surface | upsert_pipeline_registry_item | upsert_universe_coverage | read_planning_context | prepare_planner_proposal | admit_planner_proposal | read_planner_proposal_admission | issue_developer_development_brief | read_developer_development_brief | receive_developer_contract_draft | read_developer_contract_draft_receipt | validate_developer_contract_draft | read_developer_contract_draft_validation | freeze_developer_experiment_contract | read_developer_contract_freeze | start_experiment_trial_plan | read_experiment_trial_plan | admit_replay_trial_reservation | read_replay_trial_reservation_admission | register_replay_execution_request | read_replay_request_registration | issue_replay_l2_experiment_attachment | read_replay_l2_experiment_attachment | append_proposal_revision | materialize_proposal | register_trial_group | materialize_generated_candidate | transition_trial_group | register_experiment | reserve_trial | finish_trial | append_result | register_evaluation_evidence_classification | read_evaluation_evidence_classification | append_lesson | apply_reviewer_decision | apply_system_transition | open_blocker | close_blocker | check_lifecycle_projection | rebuild_lifecycle_projection",
+    "control-plane: seed_default_control_plane | seed_universe | upsert_data_surface | link_universe_data_surface | upsert_pipeline_registry_item | upsert_universe_coverage | read_planning_context | prepare_planner_proposal | admit_planner_proposal | read_planner_proposal_admission | issue_developer_development_brief | read_developer_development_brief | prepare_developer_agent_submission | receive_developer_contract_draft | read_developer_contract_draft_receipt | validate_developer_contract_draft | read_developer_contract_draft_validation | freeze_developer_experiment_contract | read_developer_contract_freeze | start_experiment_trial_plan | read_experiment_trial_plan | admit_replay_trial_reservation | read_replay_trial_reservation_admission | register_replay_execution_request | read_replay_request_registration | issue_replay_l2_experiment_attachment | read_replay_l2_experiment_attachment | append_proposal_revision | materialize_proposal | register_trial_group | materialize_generated_candidate | transition_trial_group | register_experiment | reserve_trial | finish_trial | append_result | register_evaluation_evidence_classification | read_evaluation_evidence_classification | append_lesson | apply_reviewer_decision | apply_system_transition | open_blocker | close_blocker | check_lifecycle_projection | rebuild_lifecycle_projection",
   ].join("\n"))
 }
 
@@ -387,6 +431,10 @@ function asRecord(value: unknown): JSONRecord {
     throw new Error("candidate_space must be an object")
   }
   return value as JSONRecord
+}
+
+function nullableString(value: unknown): string | null {
+  return value == null ? null : stringField(value)
 }
 
 if (import.meta.main) {
