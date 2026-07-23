@@ -109,31 +109,31 @@ export function timeframeMilliseconds(value: string): number {
   return amount * (unit === "m" ? 60_000 : unit === "h" ? 3_600_000 : 86_400_000)
 }
 
-function alignedTimestamp(value: number, quantum: number, field: string): number {
+export function alignedTimestamp(value: number, quantum: number, field: string): number {
   if (!Number.isSafeInteger(value) || value < 0 || value % quantum !== 0) {
     throw new Error(`${field} must be a non-negative timeframe-aligned integer`)
   }
   return value
 }
 
-function integer(value: number, minimum: number, maximum: number, field: string): number {
+export function integer(value: number, minimum: number, maximum: number, field: string): number {
   if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
     throw new Error(`${field} must be an integer between ${minimum} and ${maximum}`)
   }
   return value
 }
 
-function identifier(value: string, field: string): string {
+export function identifier(value: string, field: string): string {
   if (!/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,63}$/.test(value)) throw new Error(`${field} is invalid`)
   return value
 }
 
-function venueSymbol(value: string): string {
+export function venueSymbol(value: string): string {
   if (!/^[A-Z0-9]{5,20}$/.test(value)) throw new Error("symbol is invalid")
   return value
 }
 
-function canonicalTime(value: string): string {
+export function canonicalTime(value: string): string {
   if (!Number.isFinite(Date.parse(value)) || new Date(value).toISOString() !== value) {
     throw new Error("observed_at must be canonical UTC time")
   }

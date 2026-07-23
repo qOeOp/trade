@@ -1,9 +1,14 @@
 import type { Database } from "bun:sqlite"
 import { canonicalHash } from "../../../../contracts/runtime-core/src/canonical-json"
 import {
+  alignedTimestamp,
+  canonicalTime,
   compileOhlcvCoverageAudit,
+  identifier,
+  integer,
   OHLCV_COVERAGE_AUDIT_SCHEMA,
   timeframeMilliseconds,
+  venueSymbol,
   type OhlcvCoverageAudit,
 } from "../../../../contracts/market-data-demand-contract/src/ohlcv-coverage-contract"
 
@@ -103,35 +108,4 @@ export function auditCanonicalCandleCoverage(
     source_ref: `ohlcv_store:canonical_candle/${exchange}/${symbol}/${input.timeframe}`,
   }
   return { ...withoutHash, audit_hash: canonicalHash(withoutHash) }
-}
-
-function alignedTimestamp(value: number, quantum: number, field: string): number {
-  if (!Number.isSafeInteger(value) || value < 0 || value % quantum !== 0) {
-    throw new Error(`${field} must be a non-negative timeframe-aligned integer`)
-  }
-  return value
-}
-
-function integer(value: number, minimum: number, maximum: number, field: string): number {
-  if (!Number.isSafeInteger(value) || value < minimum || value > maximum) {
-    throw new Error(`${field} must be an integer between ${minimum} and ${maximum}`)
-  }
-  return value
-}
-
-function identifier(value: string, field: string): string {
-  if (!/^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,63}$/.test(value)) throw new Error(`${field} is invalid`)
-  return value
-}
-
-function venueSymbol(value: string): string {
-  if (!/^[A-Z0-9]{5,20}$/.test(value)) throw new Error("symbol is invalid")
-  return value
-}
-
-function canonicalTime(value: string): string {
-  if (!Number.isFinite(Date.parse(value)) || new Date(value).toISOString() !== value) {
-    throw new Error("observed_at must be canonical UTC time")
-  }
-  return value
 }
